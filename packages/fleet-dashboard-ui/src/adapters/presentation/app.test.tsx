@@ -8,6 +8,7 @@ import type { E2eRunDetail, E2eRunsData } from "../../domain/e2e-run";
 import type { FleetData } from "../../domain/fleet";
 import type { Plane } from "../../domain/plane";
 import type { PromotionData } from "../../domain/promotion";
+import type { SdlcAgentsData } from "../../domain/sdlc-agents";
 import type {
   FleetApi,
   InstancesData,
@@ -48,14 +49,25 @@ const emptyE2eRun: E2eRunDetail = {
   logsTruncated: false,
 };
 
-/** The three e2e FleetApi methods, defaulted so a test only wires what it exercises. */
+/** E2e + sdlc-agents FleetApi methods, defaulted so a test only wires what it exercises. */
 const e2eApi = {
   getE2eRuns: () => Promise.resolve(plane<E2eRunsData>(emptyE2eRuns)),
   getE2eRun: () => Promise.resolve(plane<E2eRunDetail>(emptyE2eRun)),
+  getE2eRunLogs: () =>
+    Promise.resolve(plane({ entries: [], nextCursor: null, hasMore: false })),
   streamE2eRun: () => () => {
     /* unsubscribe */
   },
-} satisfies Pick<FleetApi, "getE2eRuns" | "getE2eRun" | "streamE2eRun">;
+  getSdlcAgents: () =>
+    Promise.resolve(plane<SdlcAgentsData>({ envs: [], agents: [] })),
+} satisfies Pick<
+  FleetApi,
+  | "getE2eRuns"
+  | "getE2eRun"
+  | "getE2eRunLogs"
+  | "streamE2eRun"
+  | "getSdlcAgents"
+>;
 
 function plane<T>(data: T): Plane<T> {
   return {
@@ -164,6 +176,7 @@ describe("App", () => {
     expect(await screen.findByText("gov-from-data")).toBeDefined();
   });
 
+  // Verifies: SDLC-VIS-07.02, SDLC-VIS-10.04
   it("offers Fleet Map and Agent SDLC as peer tabs in the shared chrome", async () => {
     const promotion: PromotionData = {
       order: [],
@@ -318,7 +331,7 @@ describe("App", () => {
       ...e2eApi,
     }) satisfies FleetApi;
 
-  it("hydrates a deep link to the E2E tab from the URL before data resolves (GLASS-NAV-05)", async () => {
+  it("hydrates a deep link to the E2E tab from the URL before data resolves (FLT-NAV-05)", async () => {
     const history = renderApp(baseApi(), {
       path: "/e2e",
       search: "?run=tenant-1%2Fns%2Frun-1",
@@ -335,7 +348,8 @@ describe("App", () => {
     expect(parsed.search).toContain("run=tenant-1");
   });
 
-  it("retraces a cross-tab investigation with Back and Forward (GLASS-NAV-07)", async () => {
+  // Verifies: FLT-NAV-07.01
+  it("retraces a cross-tab investigation with Back and Forward (FLT-NAV-07)", async () => {
     const history = renderApp(baseApi());
     fireEvent.click(await screen.findByRole("tab", { name: "Agent SDLC" }));
     fireEvent.click(await screen.findByRole("tab", { name: "E2E Runs" }));

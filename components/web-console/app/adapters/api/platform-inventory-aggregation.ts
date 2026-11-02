@@ -18,6 +18,19 @@ export function bucketInventoryField(value: string | null | undefined): string {
   return trimmed.length === 0 ? unknownBucketKey : trimmed;
 }
 
+// clusterCapabilityValue returns the value of a single-valued capability label
+// such as provider/aws or region/us-east-1, or undefined when it is absent.
+export function clusterCapabilityValue(
+  capabilities: readonly string[] | null | undefined,
+  namespace: string,
+): string | undefined {
+  const prefix = `${namespace}/`;
+  const label = capabilities?.find((capability) =>
+    capability.startsWith(prefix),
+  );
+  return label?.slice(prefix.length);
+}
+
 export function formatInventoryPlacementLabel(
   region: string | null | undefined,
   provider: string | null | undefined,
@@ -109,11 +122,13 @@ export async function aggregateManagedClusterList(
     );
 
     for (const cluster of result.items) {
+      const provider = clusterCapabilityValue(cluster.capabilities, "provider");
+      const region = clusterCapabilityValue(cluster.capabilities, "region");
       incrementBucket(statusBuckets, bucketInventoryField(cluster.status));
-      incrementBucket(providerBuckets, bucketInventoryField(cluster.provider));
+      incrementBucket(providerBuckets, bucketInventoryField(provider));
       incrementBucket(
         placementBuckets,
-        formatInventoryPlacementLabel(cluster.region, cluster.provider),
+        formatInventoryPlacementLabel(region, provider),
       );
 
       if (

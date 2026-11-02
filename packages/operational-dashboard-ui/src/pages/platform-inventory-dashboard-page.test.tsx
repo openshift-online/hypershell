@@ -48,6 +48,8 @@ function renderPage(
       getOperationalMetrics: () => Promise.resolve(metrics),
       getReliabilityMetrics: () =>
         Promise.resolve({ lastSuccessfulRefresh: new Date(), metrics: [] }),
+      getAdoptionMetrics: () =>
+        Promise.resolve({ lastSuccessfulRefresh: new Date(), metrics: [] }),
     },
   });
 
@@ -60,7 +62,16 @@ function renderPage(
         <DashboardUiProvider
           dashboard={dashboard}
           isAdmin
-          navigation={{ collectionHref: "/", navigate: () => undefined }}
+          navigation={{
+            adoptionHref: "/dashboard/adoption",
+            collectionHref: "/",
+            dashboardHref: "/dashboard",
+            inventoryHref: "/dashboard/inventory",
+            provisioningHref: "/dashboard/provisioning",
+            reliabilityHref: "/dashboard/reliability",
+            usageHref: "/dashboard/usage",
+            navigate: () => undefined,
+          }}
         >
           <PlatformInventoryDashboardPage
             isLoading={false}
@@ -175,6 +186,8 @@ describe("PlatformInventoryDashboardPage", () => {
           }),
         getReliabilityMetrics: () =>
           Promise.resolve({ lastSuccessfulRefresh: new Date(), metrics: [] }),
+        getAdoptionMetrics: () =>
+          Promise.resolve({ lastSuccessfulRefresh: new Date(), metrics: [] }),
       },
     });
 
@@ -183,7 +196,16 @@ describe("PlatformInventoryDashboardPage", () => {
         <DashboardUiProvider
           dashboard={dashboard}
           isAdmin
-          navigation={{ collectionHref: "/", navigate: () => undefined }}
+          navigation={{
+            adoptionHref: "/dashboard/adoption",
+            collectionHref: "/",
+            dashboardHref: "/dashboard",
+            inventoryHref: "/dashboard/inventory",
+            provisioningHref: "/dashboard/provisioning",
+            reliabilityHref: "/dashboard/reliability",
+            usageHref: "/dashboard/usage",
+            navigate: () => undefined,
+          }}
         >
           <PlatformInventoryDashboardPage
             isLoading={false}

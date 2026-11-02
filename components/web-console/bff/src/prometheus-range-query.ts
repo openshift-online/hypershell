@@ -109,6 +109,7 @@ export async function queryPrometheusRangeScalarSamples(
   end: number,
   step: string,
   timeoutMs: number,
+  skipInvalid = false,
 ): Promise<Map<number, number>> {
   const controller = new AbortController();
   const timeoutReason = new Error("Prometheus query timed out");
@@ -140,6 +141,9 @@ export async function queryPrometheusRangeScalarSamples(
     for (const [timestamp, rawValue] of values) {
       const value = Number(rawValue);
       if (!Number.isFinite(value) || value < 0) {
+        if (skipInvalid) {
+          continue;
+        }
         throw new Error("Prometheus range query returned invalid sample");
       }
 
@@ -182,6 +186,22 @@ export function alignDailySeriesPreservingGaps(
       formatUtcCalendarDate(timestamp),
       Math.max(0, Math.round(rawValue)),
     );
+  }
+
+  return utcCalendarDatesInclusive(days).map((date) => ({
+    date,
+    value: valuesByDate.get(date) ?? null,
+  }));
+}
+
+export function alignDailyNumericSeriesPreservingGaps(
+  samples: Map<number, number>,
+  days = dailyRangeLookbackDays,
+): { date: string; value: number | null }[] {
+  const valuesByDate = new Map<string, number>();
+
+  for (const [timestamp, value] of samples) {
+    valuesByDate.set(formatUtcCalendarDate(timestamp), value);
   }
 
   return utcCalendarDatesInclusive(days).map((date) => ({

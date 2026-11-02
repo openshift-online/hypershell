@@ -1,5 +1,5 @@
 // The single place that touches the browser History API and `window.location`
-// (GLASS-NAV-04). Everything above this adapter speaks in framework-free
+// (FLT-NAV-04). Everything above this adapter speaks in framework-free
 // RouteLocation values from the domain route codec.
 
 import type { RouteLocation } from "../../domain/navigation/route";
@@ -10,9 +10,9 @@ export interface HistoryPort {
   read(): RouteLocation;
   /**
    * Build the browser-facing URL for a location, including any reverse-proxy base
-   * path (GLASS-NAV-19). Link `<a href>` values must go through this so copy-link,
+   * path (FLT-NAV-19). Link `<a href>` values must go through this so copy-link,
    * open-in-new-tab, and Ctrl/Cmd-click reach the correct base-path URL, matching
-   * what `push`/`replace` navigate to (GLASS-NAV-08).
+   * what `push`/`replace` navigate to (FLT-NAV-08).
    */
   href(location: RouteLocation): string;
   /** Push a new history entry (meaningful navigation). */
@@ -22,7 +22,7 @@ export interface HistoryPort {
   /**
    * Subscribe to external history changes (Back/Forward). Returns an unsubscribe.
    * Programmatic push/replace do NOT fire this, so there is no feedback loop
-   * (GLASS-NAV-07).
+   * (FLT-NAV-07).
    */
   subscribe(listener: () => void): () => void;
 }
@@ -77,7 +77,7 @@ export function createMemoryHistory(
 }
 
 // The application route segments the codec serializes. Used only to derive a
-// reverse-proxy base path from the initial location so it round-trips (GLASS-NAV-19).
+// reverse-proxy base path from the initial location so it round-trips (FLT-NAV-19).
 const TAB_SEGMENTS = new Set(["map", "sdlc", "e2e"]);
 
 /**
@@ -106,7 +106,7 @@ function stripBasePath(pathname: string, base: string): string {
 /**
  * The production adapter around `window.history` and `window.location`. It captures
  * the reverse-proxy base path once and re-applies it on every push/replace so deep
- * links keep working after in-app navigation and reload (GLASS-NAV-19).
+ * links keep working after in-app navigation and reload (FLT-NAV-19).
  */
 export function createBrowserHistory(): HistoryPort {
   const basePath = deriveBasePath(window.location.pathname);

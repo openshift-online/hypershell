@@ -81,6 +81,8 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**ChangeGatewayAccessRole**](docs/DefaultAPI.md#changegatewayaccessrole) | **Patch** /api/hypershell/v1/gateways/{gateway_id}/access/{user_id} | Change a user&#39;s access role on a gateway
 *DefaultAPI* | [**CreateAgentRuntime**](docs/DefaultAPI.md#createagentruntime) | **Post** /api/hypershell/ext/agent_runtimes | Create a new agent runtime
 *DefaultAPI* | [**CreateAgentWorkspace**](docs/DefaultAPI.md#createagentworkspace) | **Post** /api/hypershell/ext/agent_workspaces | Create a new agent workspace
+*DefaultAPI* | [**CreateCIProvider**](docs/DefaultAPI.md#createciprovider) | **Post** /api/hypershell/ext/ci_providers | Register a new CI OIDC provider
+*DefaultAPI* | [**CreateCITrust**](docs/DefaultAPI.md#createcitrust) | **Post** /api/hypershell/ext/ci_trusts | Create a CI trust linking a CI provider to a gateway
 *DefaultAPI* | [**CreateGateway**](docs/DefaultAPI.md#creategateway) | **Post** /api/hypershell/v1/gateways | Create a new gateway
 *DefaultAPI* | [**CreateGatewayServiceAccount**](docs/DefaultAPI.md#creategatewayserviceaccount) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts | Create an OpenShell gateway service account
 *DefaultAPI* | [**CreateInferenceRoute**](docs/DefaultAPI.md#createinferenceroute) | **Post** /api/hypershell/ext/inference_routes | Create a new inference route
@@ -94,6 +96,8 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**CreateWorkspaceMembership**](docs/DefaultAPI.md#createworkspacemembership) | **Post** /api/hypershell/ext/workspace_memberships | Create a new workspace membership
 *DefaultAPI* | [**DeleteAgentRuntime**](docs/DefaultAPI.md#deleteagentruntime) | **Delete** /api/hypershell/ext/agent_runtimes/{id} | Delete an agent runtime
 *DefaultAPI* | [**DeleteAgentWorkspace**](docs/DefaultAPI.md#deleteagentworkspace) | **Delete** /api/hypershell/ext/agent_workspaces/{id} | Delete an agent workspace
+*DefaultAPI* | [**DeleteCIProvider**](docs/DefaultAPI.md#deleteciprovider) | **Delete** /api/hypershell/ext/ci_providers/{id} | Delete a CI provider
+*DefaultAPI* | [**DeleteCITrust**](docs/DefaultAPI.md#deletecitrust) | **Delete** /api/hypershell/ext/ci_trusts/{id} | Delete a CI trust
 *DefaultAPI* | [**DeleteGateway**](docs/DefaultAPI.md#deletegateway) | **Delete** /api/hypershell/v1/gateways/{id} | Delete a gateway
 *DefaultAPI* | [**DeleteGatewayServiceAccount**](docs/DefaultAPI.md#deletegatewayserviceaccount) | **Delete** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id} | Delete an OpenShell gateway service account
 *DefaultAPI* | [**DeleteInferenceRoute**](docs/DefaultAPI.md#deleteinferenceroute) | **Delete** /api/hypershell/ext/inference_routes/{id} | Delete an inference route
@@ -107,6 +111,8 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**DeleteWorkspaceMembership**](docs/DefaultAPI.md#deleteworkspacemembership) | **Delete** /api/hypershell/ext/workspace_memberships/{id} | Delete a workspace membership
 *DefaultAPI* | [**GetAgentRuntime**](docs/DefaultAPI.md#getagentruntime) | **Get** /api/hypershell/ext/agent_runtimes/{id} | Get an agent runtime by ID
 *DefaultAPI* | [**GetAgentWorkspace**](docs/DefaultAPI.md#getagentworkspace) | **Get** /api/hypershell/ext/agent_workspaces/{id} | Get an agent workspace by ID
+*DefaultAPI* | [**GetCIProvider**](docs/DefaultAPI.md#getciprovider) | **Get** /api/hypershell/ext/ci_providers/{id} | Get a CI provider by ID
+*DefaultAPI* | [**GetCITrust**](docs/DefaultAPI.md#getcitrust) | **Get** /api/hypershell/ext/ci_trusts/{id} | Get a CI trust by ID
 *DefaultAPI* | [**GetGateway**](docs/DefaultAPI.md#getgateway) | **Get** /api/hypershell/v1/gateways/{id} | Get an gateway by id
 *DefaultAPI* | [**GetGatewayPlacementAvailability**](docs/DefaultAPI.md#getgatewayplacementavailability) | **Post** /api/hypershell/v1/gateways/placement-availability | Returns current placement eligibility for a batch of selectors
 *DefaultAPI* | [**GetGatewayServiceAccount**](docs/DefaultAPI.md#getgatewayserviceaccount) | **Get** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id} | Get an OpenShell gateway service account
@@ -125,7 +131,10 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**GrantGatewayAccess**](docs/DefaultAPI.md#grantgatewayaccess) | **Post** /api/hypershell/v1/gateways/{gateway_id}/access | Grant a user access to a gateway
 *DefaultAPI* | [**ListAgentRuntimes**](docs/DefaultAPI.md#listagentruntimes) | **Get** /api/hypershell/ext/agent_runtimes | Returns a list of agent runtimes
 *DefaultAPI* | [**ListAgentWorkspaces**](docs/DefaultAPI.md#listagentworkspaces) | **Get** /api/hypershell/ext/agent_workspaces | Returns a list of agent workspaces
+*DefaultAPI* | [**ListCIProviders**](docs/DefaultAPI.md#listciproviders) | **Get** /api/hypershell/ext/ci_providers | Returns a list of CI providers
+*DefaultAPI* | [**ListCITrusts**](docs/DefaultAPI.md#listcitrusts) | **Get** /api/hypershell/ext/ci_trusts | Returns a list of CI trusts
 *DefaultAPI* | [**ListGatewayAccess**](docs/DefaultAPI.md#listgatewayaccess) | **Get** /api/hypershell/v1/gateways/{gateway_id}/access | List access grants on a gateway
+*DefaultAPI* | [**ListGatewaySandboxEvents**](docs/DefaultAPI.md#listgatewaysandboxevents) | **Get** /api/hypershell/v1/gateways/{gateway_id}/sandbox_events | List recent sandbox Kubernetes events for a gateway
 *DefaultAPI* | [**ListGatewayServiceAccounts**](docs/DefaultAPI.md#listgatewayserviceaccounts) | **Get** /api/hypershell/v1/gateways/{gateway_id}/service_accounts | List OpenShell gateway service accounts
 *DefaultAPI* | [**ListGateways**](docs/DefaultAPI.md#listgateways) | **Get** /api/hypershell/v1/gateways | Returns a list of gateways
 *DefaultAPI* | [**ListInferenceRoutes**](docs/DefaultAPI.md#listinferenceroutes) | **Get** /api/hypershell/ext/inference_routes | Returns a list of inference routes
@@ -145,7 +154,10 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**SearchGatewayDirectory**](docs/DefaultAPI.md#searchgatewaydirectory) | **Get** /api/hypershell/v1/gateways/{gateway_id}/access/directory | Search the Keycloak realm directory for candidate users
 *DefaultAPI* | [**UpdateAgentRuntime**](docs/DefaultAPI.md#updateagentruntime) | **Patch** /api/hypershell/ext/agent_runtimes/{id} | Update an agent runtime
 *DefaultAPI* | [**UpdateAgentWorkspace**](docs/DefaultAPI.md#updateagentworkspace) | **Patch** /api/hypershell/ext/agent_workspaces/{id} | Update an agent workspace
+*DefaultAPI* | [**UpdateCIProvider**](docs/DefaultAPI.md#updateciprovider) | **Patch** /api/hypershell/ext/ci_providers/{id} | Update a CI provider
+*DefaultAPI* | [**UpdateCITrust**](docs/DefaultAPI.md#updatecitrust) | **Patch** /api/hypershell/ext/ci_trusts/{id} | Update a CI trust
 *DefaultAPI* | [**UpdateGateway**](docs/DefaultAPI.md#updategateway) | **Patch** /api/hypershell/v1/gateways/{id} | Update an gateway
+*DefaultAPI* | [**UpdateGatewayServiceAccountRole**](docs/DefaultAPI.md#updategatewayserviceaccountrole) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/role | Change an OpenShell gateway service account&#39;s role
 *DefaultAPI* | [**UpdateManagedCluster**](docs/DefaultAPI.md#updatemanagedcluster) | **Patch** /api/hypershell/v1/managed_clusters/{id} | Update an managedCluster
 *DefaultAPI* | [**UpdateProviderBinding**](docs/DefaultAPI.md#updateproviderbinding) | **Patch** /api/hypershell/ext/provider_bindings/{id} | Update a provider binding
 *DefaultAPI* | [**UpdateProviderSpec**](docs/DefaultAPI.md#updateproviderspec) | **Patch** /api/hypershell/ext/provider_specs/{id} | Update a provider spec
@@ -163,6 +175,16 @@ Class | Method | HTTP request | Description
  - [AgentWorkspace](docs/AgentWorkspace.md)
  - [AgentWorkspaceList](docs/AgentWorkspaceList.md)
  - [AgentWorkspacePatchRequest](docs/AgentWorkspacePatchRequest.md)
+ - [CIProvider](docs/CIProvider.md)
+ - [CIProviderAllOfStatus](docs/CIProviderAllOfStatus.md)
+ - [CIProviderList](docs/CIProviderList.md)
+ - [CIProviderPatchRequest](docs/CIProviderPatchRequest.md)
+ - [CITrust](docs/CITrust.md)
+ - [CITrustAllOfStatus](docs/CITrustAllOfStatus.md)
+ - [CITrustAllOfSubject](docs/CITrustAllOfSubject.md)
+ - [CITrustList](docs/CITrustList.md)
+ - [CITrustPatchRequest](docs/CITrustPatchRequest.md)
+ - [CITrustPatchRequestSubject](docs/CITrustPatchRequestSubject.md)
  - [Error](docs/Error.md)
  - [Gateway](docs/Gateway.md)
  - [GatewayAccessCapabilities](docs/GatewayAccessCapabilities.md)
@@ -182,6 +204,9 @@ Class | Method | HTTP request | Description
  - [GatewayPlacementAvailabilityItem](docs/GatewayPlacementAvailabilityItem.md)
  - [GatewayPlacementAvailabilityRequest](docs/GatewayPlacementAvailabilityRequest.md)
  - [GatewayPlacementIntent](docs/GatewayPlacementIntent.md)
+ - [GatewaySandboxEvent](docs/GatewaySandboxEvent.md)
+ - [GatewaySandboxEventGroup](docs/GatewaySandboxEventGroup.md)
+ - [GatewaySandboxEventList](docs/GatewaySandboxEventList.md)
  - [InferenceRoute](docs/InferenceRoute.md)
  - [InferenceRouteList](docs/InferenceRouteList.md)
  - [List](docs/List.md)
@@ -201,6 +226,7 @@ Class | Method | HTTP request | Description
  - [OpenShellGatewayServiceAccountList](docs/OpenShellGatewayServiceAccountList.md)
  - [OpenShellGatewayServiceAccountListItem](docs/OpenShellGatewayServiceAccountListItem.md)
  - [OpenShellGatewayServiceAccountRole](docs/OpenShellGatewayServiceAccountRole.md)
+ - [OpenShellGatewayServiceAccountRoleUpdateRequest](docs/OpenShellGatewayServiceAccountRoleUpdateRequest.md)
  - [OpenShellGatewayServiceAccountStatus](docs/OpenShellGatewayServiceAccountStatus.md)
  - [ProviderBinding](docs/ProviderBinding.md)
  - [ProviderBindingList](docs/ProviderBindingList.md)

@@ -7,6 +7,7 @@ import (
 	"google.golang.org/grpc"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/extsearch"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
@@ -15,7 +16,6 @@ import (
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/registry"
 	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/events"
-	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/generic"
 )
 
 type ServiceLocator func() AgentRuntimeService
@@ -98,7 +98,7 @@ func init() {
 
 	pkgserver.RegisterPrefixedRoutes("agentRuntimes", "ext", func(extRouter *mux.Router, services pkgserver.ServicesInterface, authMiddleware environments.JWTMiddleware, authzMiddleware auth.AuthorizationMiddleware) {
 		envServices := services.(*environments.Services)
-		h := NewAgentRuntimeHandler(Service(envServices), generic.Service(envServices))
+		h := NewAgentRuntimeHandler(Service(envServices), extsearch.Service(envServices), newManageAuthorizer(envServices))
 
 		router := extRouter.PathPrefix("/agent_runtimes").Subrouter()
 		router.HandleFunc("", h.List).Methods(http.MethodGet)

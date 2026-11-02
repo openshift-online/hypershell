@@ -68,6 +68,7 @@ describe("createHttpFleetApi", () => {
     );
   });
 
+  // Verifies: SDLC-VIS-06.02
   it("requests the SDLC plane at /sdlc and maps the envelope", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       okResponse({
@@ -138,6 +139,46 @@ describe("createHttpFleetApi", () => {
       expect.anything(),
     );
   });
+
+  it("requests run-wide log history with no step when stepId is null (E2E-LOG-23)", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      okResponse({
+        data: { entries: [], nextCursor: null, hasMore: false },
+        generatedAt: "2026-01-01T00:00:00Z",
+        stale: false,
+        error: null,
+      }),
+    );
+    const api = createHttpFleetApi({ basePath: "/api", fetchImpl });
+
+    await api.getE2eRunLogs("tenant-1/ns/run-1", null, null);
+
+    // No before cursor and no step: only the run value rides the query.
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "/api/e2e/logs?run=tenant-1%2Fns%2Frun-1",
+      expect.anything(),
+    );
+  });
+
+  it("scopes log history to the selected step via the step query (E2E-LOG-23/24)", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      okResponse({
+        data: { entries: [], nextCursor: null, hasMore: false },
+        generatedAt: "2026-01-01T00:00:00Z",
+        stale: false,
+        error: null,
+      }),
+    );
+    const api = createHttpFleetApi({ basePath: "/api", fetchImpl });
+
+    await api.getE2eRunLogs("tenant-1/ns/run-1", "900", "infra-verification");
+
+    // run, before, and step ride the query in insertion order.
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "/api/e2e/logs?run=tenant-1%2Fns%2Frun-1&before=900&step=infra-verification",
+      expect.anything(),
+    );
+  });
 });
 
 /** A controllable EventSource double for the SSE stream tests. */
@@ -173,9 +214,13 @@ describe("createHttpFleetApi streamE2eRun", () => {
 
     const events: string[] = [];
     const statuses: string[] = [];
+    const logLines: string[] = [];
     const unsubscribe = api.streamE2eRun("tenant-1/ns/run-1", {
       onEvent: (event) => {
         events.push(`${event.event}:${String(event.sequence)}`);
+      },
+      onLog: (line) => {
+        logLines.push(`${String(line.sequence)}:${line.message}`);
       },
       onStatus: (status) => {
         statuses.push(status.state);
@@ -194,9 +239,16 @@ describe("createHttpFleetApi streamE2eRun", () => {
     });
     // A malformed / unknown-name event is isolated, not delivered.
     es.emit({ kind: "event", event: { event: "mystery", sequence: 3 } });
+    // A live log line rides its own `log` frame and reaches onLog, not onEvent
+    // (E2E-LOG-21).
+    es.emit({
+      kind: "log",
+      log: { sequence: 4, timestamp: "2026-01-01T00:00:00Z", message: "hello" },
+    });
     es.emit({ kind: "heartbeat" });
 
     expect(events).toEqual(["step_started:2"]);
+    expect(logLines).toEqual(["4:hello"]);
     expect(statuses).toEqual(["live"]);
 
     unsubscribe();
@@ -214,6 +266,9 @@ describe("createHttpFleetApi streamE2eRun", () => {
       onEvent: () => {
         /* unused */
       },
+      onLog: () => {
+        /* unused */
+      },
       onStatus: (status) => {
         statuses.push(status.state);
       },
@@ -222,6 +277,7 @@ describe("createHttpFleetApi streamE2eRun", () => {
     expect(statuses).toEqual(["disconnected"]);
   });
 
+  // Verifies: E2E-LOG-11.01
   it("closes the stream when the provided abort signal fires", () => {
     FakeEventSource.instances = [];
     const api = createHttpFleetApi({
@@ -233,6 +289,9 @@ describe("createHttpFleetApi streamE2eRun", () => {
       "tenant-1/ns/run-1",
       {
         onEvent: () => {
+          /* unused */
+        },
+        onLog: () => {
           /* unused */
         },
         onStatus: () => {

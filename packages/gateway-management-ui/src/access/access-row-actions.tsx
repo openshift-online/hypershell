@@ -75,7 +75,7 @@ export function AccessRoleControl({
   const label = roleLabel(intl.formatMessage, grant.role);
   const controlLabel = `${intl.formatMessage(messages.accessChangeRoleLabel)}: ${userDisplayName(grant)}`;
 
-  // When the row cannot be managed (e.g. the last remaining owner, GAM-UI-08, or
+  // When the row cannot be managed (e.g. the last remaining owner, WEB-ACC-08, or
   // an owner row for a non-owner caller), present the current role as a disabled
   // control with a tooltip explaining why, mirroring the disabled "Delete gateway"
   // affordance. isAriaDisabled keeps it focusable so the reason is announced.
@@ -236,7 +236,7 @@ export function AccessRemoveAction({
     `${intl.formatMessage(messages.accessRemove)}: ${userDisplayName(grant)}`;
 
   // The last remaining owner (and owner rows for non-owner callers) cannot be
-  // removed (GAM-UI-08). Disable the action and explain why with a tooltip, as the
+  // removed (WEB-ACC-08). Disable the action and explain why with a tooltip, as the
   // disabled "Delete gateway" affordance does. isAriaDisabled keeps it focusable.
   const removeButton = (
     <Button

@@ -73,6 +73,7 @@ describe("gateway presentation data", () => {
     expect(toGatewayConnection(gateway({ phase: "" })).phase).toBe(undefined);
   });
 
+  // Verifies: GTW-PHS-05.01, OSG-HLTH-05.01
   it("polls transitional gateway lifecycle states at a bounded interval", () => {
     expect(gatewayStatusPollMilliseconds).toBe(5_000);
     expect(gatewayNeedsStatusPolling(gateway({ phase: "", status: "" }))).toBe(
@@ -90,6 +91,7 @@ describe("gateway presentation data", () => {
     );
   });
 
+  // Verifies: GTW-PHS-05.02
   it("stops lifecycle polling for terminal gateway states", () => {
     expect(
       gatewayNeedsStatusPolling(

@@ -9,100 +9,37 @@
 
 ## Purpose
 
-HyperShell generates credential Key Encryption Keys (KEK) once during gateway provisioning and never rotates them. TLS certificates are managed by cert-manager with automatic renewal, but pod restarts on renewal depend on the config-hash annotation (now implemented). For a multi-tenant SaaS platform, a "create once, never rotate" approach does not meet security best practices.
+This specification records how each secret of a gateway is renewed today, and who renews it. HyperShell itself rotates none of them.
 
-This specification defines the rotation strategy for the categories of secrets managed by the control plane:
-
-| Secret | Current Behavior | Rotation Strategy |
+| Secret | Created by | Renewal today |
 |---|---|---|
-| Database password (`openshell-gateway-db-credentials`) | Generated once, never rotated | Not rotated by HyperShell; see [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) § Requirement: No Credential Rotation. Content changes from provisioning repair still restart the gateway (config-hash) |
-| Credential KEK (`openshell-gateway-credential-kek`) | Generated once, never rotated | Day-2 follow-up (re-encryption workflow requires gateway cooperation) |
-| TLS certificates (`openshell-server-tls`, `openshell-client-tls`) | cert-manager automatic renewal | Already handled; this spec ensures the config-hash annotation covers TLS secrets |
-| Provider credentials (kubernetes-secrets driver) | Stored as K8s Secrets by gateway | User/operator responsibility; SA token auto-rotates |
-| Provider credentials (vault driver) | Stored in Vault by gateway | Vault manages leases/TTLs; projected SA token auto-rotates |
-
-Provider credential rotation depends on the driver and is largely delegated to the platform (Kubernetes, Vault) or the user.
+| Database password (`openshell-gateway-db-credentials`) | Control plane | Not rotated; see [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) Requirement: No Credential Rotation. When provisioning repair writes a new password for a lost Secret, the running gateway is not restarted. It keeps the old password, which it reads from the `OPENSHELL_DB_URL` environment variable, until its pod next restarts. |
+| Credential KEK (`openshell-gateway-credential-storage-key-encryption-key`) | OpenShell chart, on first install of a gateway that uses the KEK-encrypted database store | Not rotated. Every later Helm upgrade reuses the existing value. |
+| TLS certificates (`openshell-server-tls`, `openshell-client-tls`) | cert-manager, from the chart's Certificate resources | Renewed by cert-manager; the gateway reloads them without a restart (OSG-ROT-03) |
+| Provider credentials | The gateway, through its credential driver | Depends on the driver (OSG-ROT-04) |
 
 ---
 
 ## Requirements
 
-### Requirement: Config-Hash Coverage for Database Credentials
+### Requirement: OSG-ROT-03 -- TLS Certificate Renewal
 
-The existing `applyConfigHashAnnotation` function SHALL include the database credentials Secret (`openshell-gateway-db-credentials`) in the hash computation, in addition to the ConfigMap and TLS secret it already covers.
+cert-manager renews the gateway's TLS certificates. The gateway picks up a renewed certificate without a pod restart. HyperShell takes no action.
 
-This ensures that when the database credentials Secret content changes (for example when provisioning repair writes a new password after the Secret was lost), the Deployment pod template hash changes, triggering a rolling restart.
+#### How it works
 
-#### Scenario: Config-hash includes database credentials
+1. cert-manager renews each Certificate before it expires. The chart defaults are a lifetime of `8760h` and renewal `720h` before expiry.
+2. cert-manager writes the new certificate and key into the TLS Secret (`openshell-server-tls`).
+3. The gateway pod mounts that Secret as a volume, without `subPath`, so the kubelet updates the mounted files in place.
+4. The OpenShell gateway watches its certificate, key and CA files and reloads them when they change.
 
-- GIVEN the config-hash is computed from ConfigMap `openshell-gateway-config`, Secret `openshell-server-tls`, and Secret `openshell-gateway-db-credentials`
-- WHEN the database credentials Secret content changes
-- THEN the config-hash value SHALL change
-- AND the Deployment SHALL perform a rolling restart
-
----
-
-### Requirement: KEK Rotation (Day-2, Deferred)
-
-KEK rotation is explicitly deferred to a follow-up specification. This section documents the design constraints and why it is not a day-1 requirement.
-
-#### Why KEK rotation is complex
-
-Rotating the KEK requires re-encrypting all credential handles stored in the gateway's database:
-
-1. The control plane does not have access to the encrypted credentials -- they are stored in the gateway's own PostgreSQL database
-2. The gateway itself must decrypt with the old KEK and re-encrypt with the new KEK
-3. This requires either:
-   - A re-encryption API endpoint on the gateway (the gateway receives the new KEK, performs re-encryption, then the old KEK is removed)
-   - Or the control plane connecting directly to the gateway database and performing re-encryption (requires knowledge of the encryption scheme)
-
-Option (a) is preferred because it keeps encryption logic in the gateway where it belongs.
-
-#### Interim mitigation
-
-- The KEK is stored in a Kubernetes Secret with restricted access (only the gateway ServiceAccount)
-- Gateways using external credential drivers (`kubernetes-secrets` or `vault`) do not use a KEK at all
-- If a KEK is compromised, the operator can provision a new gateway and migrate workloads
-
-#### Day-2 requirements (reserved)
-
-When KEK rotation is implemented, it SHALL:
-
-- Accept a rotation trigger via an annotation on the Gateway API resource
-- Call the gateway's re-encryption API with the new KEK
-- Wait for confirmation that re-encryption completed
-- Update the KEK Secret atomically
-- Restart the gateway pod to pick up the new KEK
-
----
-
-### Requirement: TLS Certificate Rotation
-
-TLS certificate rotation is already handled by cert-manager. This section documents the existing behavior and confirms the config-hash mechanism ensures pod restarts.
-
-#### How it works today
-
-1. cert-manager monitors Certificate resources and renews them before expiry (default: 2/3 of the certificate lifetime)
-2. cert-manager updates the TLS Secret (`openshell-server-tls`) with new certificate and key material
-3. The `applyConfigHashAnnotation` function includes `openshell-server-tls` in the Deployment pod template hash
-4. On the next reconciliation cycle, the hash changes and the Deployment rolls out new pods
-
-#### Scenario: cert-manager renews server certificate
+#### Scenario: OSG-ROT-03.01 -- cert-manager renews server certificate
 
 - GIVEN cert-manager renews the `openshell-server` Certificate
 - AND the Secret `openshell-server-tls` is updated with new cert/key data
-- WHEN the GatewayReconciler next reconciles the gateway
-- THEN the config-hash SHALL change (because TLS secret content changed)
-- AND the gateway Deployment SHALL perform a rolling restart
-
-#### Recommendation: Set `rotationPolicy: Always` on tenant certificates
-
-The Kind development certificates already use `rotationPolicy: Always`. The production tenant certificates created by `reconcileCertManagerResources` SHOULD also set this field on the CA Certificate to ensure private keys are regenerated on renewal.
-
-```yaml
-spec:
-  rotationPolicy: Always
-```
+- WHEN the kubelet updates the files mounted in the gateway pod
+- THEN the gateway SHALL serve the renewed certificate without a pod restart
+- AND the control plane SHALL take no action
 
 #### Operational note: Cert rotation is destructive
 
@@ -110,7 +47,7 @@ When TLS certificates are regenerated, connected sandbox supervisors lose trust 
 
 ---
 
-### Requirement: Provider Credential Rotation by Driver Type
+### Requirement: OSG-ROT-04 -- Provider Credential Rotation by Driver Type
 
 When a gateway uses an external credential storage driver (`kubernetes-secrets` or `vault`), the provider credentials (API keys, tokens) are stored outside the gateway database. Each driver has its own rotation model. The control plane's responsibility varies by driver.
 
@@ -118,7 +55,7 @@ When a gateway uses an external credential storage driver (`kubernetes-secrets` 
 
 | Driver | What stores credentials | Who rotates | HyperShell responsibility |
 |---|---|---|---|
-| Default (KEK) | Gateway PostgreSQL (encrypted) | KEK rotation re-encrypts in-place (Day-2) | Full: KEK Secret, re-encryption workflow |
+| Default (KEK) | Gateway PostgreSQL (encrypted) | Nobody: the KEK is not rotated | None |
 | `kubernetes-secrets` | Kubernetes Secrets in credential namespace | Upstream gateway or external operator | RBAC only: ensure Role/RoleBinding remain valid |
 | `vault` | HashiCorp Vault | Vault (dynamic secrets, lease renewal, TTL) | Auth token only: projected SA token auto-rotates |
 
@@ -137,7 +74,7 @@ Provider credentials are stored as individual Kubernetes Secrets in the credenti
 - None required for rotation. The RBAC is persistent and the SA token is auto-managed by Kubernetes
 - If the ServiceAccount is deleted and recreated (e.g., namespace recreated), HyperShell re-provisions the RBAC on the next reconciliation cycle
 
-#### Scenario: Kubernetes Secrets driver -- SA token rotation
+#### Scenario: OSG-ROT-04.01 -- Kubernetes Secrets driver -- SA token rotation
 
 - GIVEN a gateway with `credential_driver.type` = `kubernetes-secrets`
 - WHEN the Kubernetes control plane rotates the bound ServiceAccount token
@@ -159,9 +96,9 @@ Provider credentials are stored in HashiCorp Vault. The gateway authenticates to
 
 **What HyperShell must ensure:**
 - The projected SA token volume is correctly configured with the `vault` audience
-- If the Vault configuration changes (address, role, mount), the operator updates the `credential_driver` field on the Gateway API resource, and the reconciler regenerates the gateway.toml and restarts the pod
+- The control plane sets the `credential_driver` field on the Gateway API resource from its configuration (`credential_driver` is control-plane-managed and is not user- or import-writable; see `data-model.spec.md` PLAT-DATA-23). A changed Vault configuration reaches a gateway only when that gateway is next deployed (see OSG-ROT-04.03)
 
-#### Scenario: Vault driver -- SA token renewal
+#### Scenario: OSG-ROT-04.02 -- Vault driver -- SA token renewal
 
 - GIVEN a gateway with `credential_driver.type` = `vault` and `auth_method` = `kubernetes`
 - AND the projected SA token has `expirationSeconds: 3600`
@@ -170,41 +107,22 @@ Provider credentials are stored in HashiCorp Vault. The gateway authenticates to
 - AND the gateway's Vault client SHALL re-authenticate using the new token
 - AND no HyperShell intervention is required
 
-#### Scenario: Vault driver -- Vault configuration change
+#### Scenario: OSG-ROT-04.03 -- Vault driver -- Vault configuration change
 
 - GIVEN a gateway with `credential_driver.type` = `vault`
 - AND the Vault server address changes (e.g., migration to a new Vault cluster)
-- WHEN the operator updates the Gateway's `credential_driver.vault.address` field
-- THEN the GatewayReconciler SHALL regenerate gateway.toml with the new address
-- AND the config-hash SHALL change, triggering a rolling restart
-- AND the gateway SHALL connect to the new Vault server on startup
+- WHEN the cluster operator updates the control-plane deployment `GATEWAY_VAULT_ADDRESS`
+  override (Vault is a black box; there is no per-gateway `credential_driver.vault.address` field)
+- THEN gateways provisioned after the change SHALL use the new address
+- AND an existing gateway SHALL keep the old address until a desired-state change re-deploys it, because the GatewayReconciler skips converged gateways
+- AND when a gateway is re-deployed, the Helm upgrade SHALL render the new address into the gateway config, and the chart's `checksum/gateway-config` pod annotation SHALL roll the gateway pod
 
-#### Scenario: Vault dynamic secret lease renewal
+#### Scenario: OSG-ROT-04.04 -- Vault dynamic secret lease renewal
 
 - GIVEN a gateway using Vault dynamic secrets with a TTL
 - WHEN a dynamic secret lease approaches expiry
 - THEN the gateway's Vault client SHALL renew the lease directly with Vault
 - AND no HyperShell intervention is required (this is entirely between the gateway and Vault)
-
----
-
-## Implementation Plan
-
-### Phase 1: Config-Hash Coverage (Day-1)
-
-| Step | Description | Files |
-|---|---|---|
-| 1 | Extend `applyConfigHashAnnotation` to include DB credentials Secret | `reconciler.go` |
-
-### Phase 2: TLS Hardening (Day-1)
-
-| Step | Description | Files |
-|---|---|---|
-| 1 | Add `rotationPolicy: Always` to CA Certificate in `reconcileCertManagerResources` | `reconciler.go` |
-
-### Phase 3: KEK Rotation (Day-2, Separate PR)
-
-Deferred until the gateway exposes a re-encryption API.
 
 ---
 

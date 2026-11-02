@@ -64,8 +64,8 @@ GW_OIDC_CLIENT_ID=""
 # Mirrored gateway images (ROKS nodes can only pull the internal registry). Used
 # only when this run has to CREATE the gateway; ignored when it already exists.
 REG_MIRROR="${REG_MIRROR:-image-registry.openshift-image-registry.svc:5000/openshift}"
-GW_IMAGE="${GW_IMAGE:-${REG_MIRROR}/openshell-gateway:0.1.3-rhaiv.3}"
-GW_SUPERVISOR_IMAGE="${GW_SUPERVISOR_IMAGE:-${REG_MIRROR}/openshell-supervisor:0.1.3-rhaiv.3}"
+GW_IMAGE="${GW_IMAGE:-${REG_MIRROR}/openshell-gateway:0.1.5-rhaiv.3}"
+GW_SUPERVISOR_IMAGE="${GW_SUPERVISOR_IMAGE:-${REG_MIRROR}/openshell-supervisor:0.1.5-rhaiv.3}"
 
 PASS=0
 FAIL=0
@@ -410,13 +410,14 @@ if [[ -z "$EXISTING_ID" ]]; then
   # per-gateway Keycloak client and populates oidc.* itself (read-only in the
   # API). Per openshell-gateway-keycloak.spec.md the create request MUST NOT
   # supply oidc -- we only ask for the gateway and its Route.
+  # Create takes a required placement intent, not a cluster_id. The selector
+  # matches HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES in deploy/ibm.
   GW_CREATE_BODY=$(GW_NAME="$GW_NAME" \
     GW_IMAGE="$GW_IMAGE" GW_SUPERVISOR_IMAGE="$GW_SUPERVISOR_IMAGE" python3 -c "
 import json, os
 body = {
     'name': os.environ['GW_NAME'],
-    'cluster_id': 'e2e-cluster',
-    'release_id': 'e2e-release',
+    'placement': {'selector': ['network/public', 'provider/ibm']},
     'image': os.environ['GW_IMAGE'],
     'supervisor_image': os.environ['GW_SUPERVISOR_IMAGE'],
     'route': json.dumps({

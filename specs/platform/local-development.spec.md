@@ -20,6 +20,13 @@ follow the same pattern. `openshift-development.spec.md` specifies the OpenShift
 lifecycle commands, the ephemeral-namespace model, cluster-scoped RBAC, and the
 OpenShift e2e driver.
 
+## Local agent execution
+
+`make fullsend` provides the local SDLC agent workflow against a remote gateway.
+Its registered-scope gate, shared harnesses, credentials, durable worker lifecycle,
+and terminal UI are specified in [Local SDLC Dispatch](local-sdlc-dispatch.spec.md).
+The setup procedure is [Local Fullsend](../../docs/development/fullsend.md).
+
 ## Components Deployed
 
 | Component | Kind | Image | Purpose |
@@ -86,7 +93,7 @@ The Kind cluster Keycloak instance serves as the local equivalent of the downstr
 | Provisioner client | `hypershell-provisioner` (confidential, service account with `manage-clients` and `manage-users` roles) |
 | Admin groups | `hypershell-admins`, `platform:admin` (dashboard-operator access requires `platform:admin`) |
 | User role | `hypershell-users` |
-| Users | `admin` / `admin` (admin groups), `developer` / `developer` (user role) - password matches username (local dev only) |
+| Users | `admin` / `admin` (admin groups), `developer` / `developer` (user role, no `gateway:creator`; see `ephemeral-test-credentials.spec.md` CICD-CRED-13) - password matches username (local dev only) |
 
 The OIDC issuer URL SHALL be reachable from both inside the cluster (gateway pod) and outside (developer workstation).
 
@@ -334,11 +341,11 @@ Deployment of Jaeger SHALL be gated by the `KIND_JAEGER` environment variable (o
 
 ## Requirements
 
-### Requirement: Single-Command Environment Setup
+### Requirement: DEV-LOC-01 -- Single-Command Environment Setup
 
 The system SHALL provide a `make kind-up` target at the repository root that creates a fully functional local HyperShell environment. Baseline images SHALL be pulled from the container registry.
 
-#### Scenario: First Run - Clean State
+#### Scenario: DEV-LOC-01.01 -- First Run - Clean State
 - GIVEN no Kind cluster exists
 - WHEN a developer runs `make kind-up`
 - THEN a Kind cluster SHALL be created
@@ -348,18 +355,18 @@ The system SHALL provide a `make kind-up` target at the repository root that cre
 - AND the system SHALL wait for all components to become ready
 - AND connection information SHALL be printed to stdout
 
-#### Scenario: Subsequent Run - Idempotent
+#### Scenario: DEV-LOC-01.02 -- Subsequent Run - Idempotent
 - GIVEN a Kind cluster is already running from a previous `make kind-up`
 - WHEN a developer runs `make kind-up` again
 - THEN the cluster creation step SHALL be skipped (idempotent)
 - AND Kubernetes manifests SHALL be reapplied
 - AND the system SHALL wait for all components to become ready
 
-### Requirement: Per-Component Local Swap
+### Requirement: DEV-LOC-02 -- Per-Component Local Swap
 
 The system SHALL provide per-component Make targets that build a single component from the current working tree, load it into the running cluster, and replace that component's deployment. Each invocation SHALL rebuild the image and replace the running state, even if the component is already swapped. This ensures developers can iterate by running the same target repeatedly after making changes.
 
-#### Scenario: Swap API Server
+#### Scenario: DEV-LOC-02.01 -- Swap API Server
 - GIVEN a Kind cluster is running
 - WHEN a developer runs `make kind-api-server-up`
 - THEN the API server image SHALL be built from the current working tree
@@ -367,7 +374,7 @@ The system SHALL provide per-component Make targets that build a single componen
 - AND the API server deployment SHALL be replaced with the newly built image
 - AND the system SHALL wait for the API server to become ready
 
-#### Scenario: Swap Control Plane
+#### Scenario: DEV-LOC-02.02 -- Swap Control Plane
 - GIVEN a Kind cluster is running
 - WHEN a developer runs `make kind-control-plane-up`
 - THEN the control plane image SHALL be built from the current working tree
@@ -375,27 +382,27 @@ The system SHALL provide per-component Make targets that build a single componen
 - AND the control plane deployment SHALL be replaced with the newly built image
 - AND the system SHALL wait for the control plane to become ready
 
-#### Scenario: Swap Web Console
+#### Scenario: DEV-LOC-02.03 -- Swap Web Console
 - GIVEN a Kind cluster is running
 - WHEN a developer runs `make kind-web-console-up`
 - THEN by default (hot reload enabled), the web console source SHALL be mounted from the host and `npm run dev` SHALL be started in an interactive TTY
 - IF `KIND_HOT_RELOAD=false`, the web console image SHALL be built from the current working tree, loaded, and the deployment replaced
 - AND the system SHALL wait for the web console to become ready
 
-#### Scenario: Re-Swap Already Swapped Component
+#### Scenario: DEV-LOC-02.04 -- Re-Swap Already Swapped Component
 - GIVEN the API server is already running a local build
 - WHEN a developer runs `make kind-api-server-up` again
 - THEN the API server image SHALL be rebuilt from the current working tree
 - AND the new image SHALL replace the previously swapped image
 - AND the system SHALL wait for the API server to become ready
 
-#### Scenario: No Cluster Running
+#### Scenario: DEV-LOC-02.05 -- No Cluster Running
 - GIVEN no Kind cluster exists
 - WHEN a developer runs any per-component swap target
 - THEN the command SHALL exit with an error
 - AND print a message directing the developer to run `make kind-up` first
 
-#### Scenario: Revert API Server Swap
+#### Scenario: DEV-LOC-02.06 -- Revert API Server Swap
 - GIVEN the API server is running a local build
 - WHEN a developer runs `make kind-api-server-down`
 - THEN the API server image SHALL be reverted to the baseline image
@@ -403,7 +410,7 @@ The system SHALL provide per-component Make targets that build a single componen
 - AND the system SHALL wait for the API server to become ready
 - AND swap tracking SHALL be cleared for the API server
 
-#### Scenario: Revert Control Plane Swap
+#### Scenario: DEV-LOC-02.07 -- Revert Control Plane Swap
 - GIVEN the control plane is running a local build
 - WHEN a developer runs `make kind-control-plane-down`
 - THEN the control plane image SHALL be reverted to the baseline image
@@ -411,7 +418,7 @@ The system SHALL provide per-component Make targets that build a single componen
 - AND the system SHALL wait for the control plane to become ready
 - AND swap tracking SHALL be cleared for the control plane
 
-#### Scenario: Revert Web Console Swap
+#### Scenario: DEV-LOC-02.08 -- Revert Web Console Swap
 - GIVEN the web console is running a local build or hot reload
 - WHEN a developer runs `make kind-web-console-down`
 - THEN the web console image SHALL be reverted to the baseline image
@@ -419,31 +426,31 @@ The system SHALL provide per-component Make targets that build a single componen
 - AND the system SHALL wait for the web console to become ready
 - AND swap tracking SHALL be cleared for the web console
 
-#### Scenario: Revert When Not Swapped
+#### Scenario: DEV-LOC-02.09 -- Revert When Not Swapped
 - GIVEN a component is already running the baseline image
 - WHEN a developer runs the corresponding `-down` target
 - THEN the command SHALL print an info message indicating the component is already running the baseline image
 - AND exit without error (no-op)
 
-### Requirement: Cluster Teardown
+### Requirement: DEV-LOC-03 -- Cluster Teardown
 
 The system SHALL provide a `make kind-down` target that completely removes the local development cluster.
 
-#### Scenario: Teardown Running Cluster
+#### Scenario: DEV-LOC-03.01 -- Teardown Running Cluster
 - GIVEN a Kind cluster is running
 - WHEN a developer runs `make kind-down`
 - THEN the Kind cluster and all associated resources SHALL be deleted
 
-#### Scenario: Teardown When No Cluster Exists
+#### Scenario: DEV-LOC-03.02 -- Teardown When No Cluster Exists
 - GIVEN no Kind cluster exists
 - WHEN a developer runs `make kind-down`
 - THEN the command SHALL exit without error
 
-### Requirement: Cluster Status
+### Requirement: DEV-LOC-04 -- Cluster Status
 
 The system SHALL provide a `make kind-status` target that reports the current state of the local development environment.
 
-#### Scenario: Status of Running Cluster
+#### Scenario: DEV-LOC-04.01 -- Status of Running Cluster
 - GIVEN a Kind cluster is running with deployed components
 - WHEN a developer runs `make kind-status`
 - THEN cluster connectivity information SHALL be displayed
@@ -453,27 +460,27 @@ The system SHALL provide a `make kind-status` target that reports the current st
 - AND CoreDNS container status SHALL be displayed
 - AND port forwarding status (active/inactive, target port) SHALL be displayed
 
-#### Scenario: Status When No Cluster Exists
+#### Scenario: DEV-LOC-04.02 -- Status When No Cluster Exists
 - GIVEN no Kind cluster is running
 - WHEN a developer runs `make kind-status`
 - THEN the output SHALL indicate the cluster is not running
 
-### Requirement: Configurable Cluster Name
+### Requirement: DEV-LOC-05 -- Configurable Cluster Name
 
 The system SHALL accept a `KIND_CLUSTER_NAME` environment variable to control the Kind cluster name. If unset, the default SHALL be `hypershell-dev`.
 
-#### Scenario: Custom Cluster Name
+#### Scenario: DEV-LOC-05.01 -- Custom Cluster Name
 - GIVEN `KIND_CLUSTER_NAME` is set to `my-cluster`
 - WHEN a developer runs `make kind-up`
 - THEN a Kind cluster named `my-cluster` SHALL be created
 - AND `make kind-down`, `make kind-status`, and per-component targets SHALL operate on `my-cluster`
 
-#### Scenario: Default Cluster Name
+#### Scenario: DEV-LOC-05.02 -- Default Cluster Name
 - GIVEN `KIND_CLUSTER_NAME` is not set
 - WHEN a developer runs `make kind-up`
 - THEN a Kind cluster named `hypershell-dev` SHALL be created
 
-### Requirement: Hostname-Based Service Access
+### Requirement: DEV-LOC-06 -- Hostname-Based Service Access
 
 All services SHALL be accessible via `.localhost` hostnames routed through the networking Gateway (see Gateway API Routing). The system SHALL NOT use `kubectl port-forward` for service access. DNS resolution is provided by a CoreDNS container with OS-specific resolver configuration (see DNS Resolution). Port forwarding redirects host port 443 to the ephemeral port assigned by cloud-provider-kind (see Port Forwarding), enabling clean `https://` URLs without a port suffix.
 
@@ -489,7 +496,7 @@ The self-signed TLS certificate issued by cert-manager must be trusted by the de
 
 For multi-namespace deployments, hostnames include the namespace: `api.<namespace>.hypershell.localhost`. Wildcard DNS resolves all subdomains automatically - no per-hostname configuration is needed. All namespaces share the same Gateway - each namespace is differentiated by hostname, not port number.
 
-#### Scenario: Default Access (Port Forwarding Active)
+#### Scenario: DEV-LOC-06.01 -- Default Access (Port Forwarding Active)
 - GIVEN no special configuration
 - WHEN `make kind-up` completes and port forwarding succeeds
 - THEN the HTTP API SHALL be accessible at `https://api.hypershell.localhost`
@@ -497,61 +504,61 @@ For multi-namespace deployments, hostnames include the namespace: `api.<namespac
 - AND the health endpoint SHALL be accessible at `https://health.hypershell.localhost`
 - AND the banner SHALL print URLs without a port suffix
 
-#### Scenario: Graceful Fallback (Port Forwarding Unavailable)
+#### Scenario: DEV-LOC-06.02 -- Graceful Fallback (Port Forwarding Unavailable)
 - GIVEN port forwarding setup fails (e.g. sudo denied)
 - WHEN `make kind-up` completes
 - THEN the banner SHALL print URLs with the ephemeral port suffix (e.g. `https://console.hypershell.localhost:<PORT>`)
 - AND services SHALL remain accessible at the ephemeral port
 
-#### Scenario: Multi-Namespace Hostname Differentiation
+#### Scenario: DEV-LOC-06.03 -- Multi-Namespace Hostname Differentiation
 - GIVEN the default deployment is running in `hypershell-system`
 - AND a second deployment is running in `hypershell-feature-add-auth`
 - WHEN a developer accesses `https://api.feature-add-auth.hypershell.localhost`
 - THEN the request SHALL route to the API server in the `hypershell-feature-add-auth` namespace
 
-### Requirement: Container Engine Support
+### Requirement: DEV-LOC-07 -- Container Engine Support
 
 The system SHALL support both Podman and Docker as container engines. The engine SHALL be auto-detected, preferring Podman when available, and MAY be overridden via the `CONTAINER_ENGINE` environment variable.
 
-#### Scenario: Podman Available
+#### Scenario: DEV-LOC-07.01 -- Podman Available
 - GIVEN Podman is installed and available in PATH
 - WHEN a developer runs `make kind-up`
 - THEN Podman SHALL be used to build and manage container images
 
-#### Scenario: Docker Fallback
+#### Scenario: DEV-LOC-07.02 -- Docker Fallback
 - GIVEN Podman is not installed
 - AND Docker is installed
 - WHEN a developer runs `make kind-up`
 - THEN Docker SHALL be used to build and manage container images
 
-### Requirement: Image Reference Consistency
+### Requirement: DEV-LOC-08 -- Image Reference Consistency
 
 All image names and tags used across Makefile targets, Kind load commands, and Kubernetes manifests SHALL resolve to the same artifacts. This reinforces the cross-cutting convention in `specs/standards/platform/cross-cutting.spec.md`.
 
 When `LOCAL_IMAGES=true`, the deployed image refs are the `localhost/` names (e.g. `localhost/hypershell-controller:dev`), not the registry refs. The substitution happens at kustomize apply time via an `images` transformer, so manifests reach the cluster with the correct refs  -- no post-apply patching, no wasted rollout.
 
-### Requirement: Security Context Compliance
+### Requirement: DEV-LOC-09 -- Security Context Compliance
 
 All containers in the Kind deployment manifests SHALL set restricted security contexts per `specs/standards/security/security.spec.md`: `runAsNonRoot: true`, `capabilities.drop: ["ALL"]`, and `allowPrivilegeEscalation: false`.
 
-### Requirement: Swap Tracking
+### Requirement: DEV-LOC-10 -- Swap Tracking
 
 The system SHALL track which components have been swapped to local builds using a `.kind-swaps` file at the repository root. This file SHALL be listed in `.gitignore`. The file records, per swapped component, the exact working-tree image identity that is deployed (the same shape as the OpenShift driver's per-namespace ledger), so that `make kind-status` can report which components run a working-tree build, which run the baseline image, and the exact image each one runs. Running `make kind-up` SHALL reapply the full manifest set unconditionally (as it does for a fresh cluster) and SHALL then restore each swapped component's working-tree image immediately afterward, the same apply-then-restore sequencing `make openshift-up` uses -- rather than skipping manifest reapplication for swapped components. Swap tracking is not cleared by `kind-up`. The web console's hot-reload mode (`KIND_HOT_RELOAD=true`) has no image of its own; it is tracked with a sentinel value and restored by re-establishing its Service/EndpointSlice redirect and scaling its Deployment to zero, not by restoring an image.
 
-#### Scenario: Swap Reported in Status
+#### Scenario: DEV-LOC-10.01 -- Swap Reported in Status
 - GIVEN a developer has run `make kind-api-server-up`
 - WHEN they run `make kind-status`
 - THEN the output SHALL indicate the API server is running a local build
 - AND the control plane is running the baseline image
 
-#### Scenario: Kind-Up Preserves Swaps
+#### Scenario: DEV-LOC-10.02 -- Kind-Up Preserves Swaps
 - GIVEN a developer has swapped the API server to a local build
 - WHEN they run `make kind-up`
 - THEN non-swapped components SHALL be redeployed from registry images
 - AND the API server SHALL remain running the locally-built image
 - AND swap tracking SHALL be preserved
 
-### Requirement: Developer Documentation
+### Requirement: DEV-LOC-11 -- Developer Documentation
 
 The repository SHALL include a `DEVELOPMENT.md` guide that documents the local development environment. The guide SHALL cover:
 
@@ -566,18 +573,18 @@ The repository SHALL include a `DEVELOPMENT.md` guide that documents the local d
 
 The documentation SHALL be kept in sync with this spec. When a new Make target, environment variable, or component is added, the guide SHALL be updated in the same PR.
 
-#### Scenario: Documentation Exists
+#### Scenario: DEV-LOC-11.01 -- Documentation Exists
 - GIVEN a developer clones the repository
 - WHEN they look for local development instructions
 - THEN `DEVELOPMENT.md` SHALL exist and describe how to set up and use the Kind environment
 - AND it SHALL document `make openshift-up` against an existing OpenShift cluster
 
-#### Scenario: Documentation Stays Current
+#### Scenario: DEV-LOC-11.02 -- Documentation Stays Current
 - GIVEN a PR adds or changes a `kind-*` or `openshift-*` Make target or environment variable
 - WHEN the PR is reviewed
 - THEN the reviewer SHALL verify that `DEVELOPMENT.md` is updated to reflect the change
 
-### Requirement: Hot Reload Support
+### Requirement: DEV-LOC-12 -- Hot Reload Support
 
 The Kind cluster configuration SHALL include `extraMounts` that map a host directory into the cluster nodes, enabling `hostPath` volumes for live source mounting. The web console is the first component to support hot reload.
 
@@ -599,7 +606,7 @@ When hot reload is enabled (the default), `kind-<component>-up` for a supported 
 | API Server | No - Go service, rebuild-and-replace only |
 | Control Plane | No - Go service, rebuild-and-replace only |
 
-#### Scenario: Web Console Hot Reload (Default)
+#### Scenario: DEV-LOC-12.01 -- Web Console Hot Reload (Default)
 - GIVEN a Kind cluster is running
 - AND `KIND_HOT_RELOAD` is not set or is `true`
 - WHEN a developer runs `make kind-web-console-up`
@@ -607,20 +614,20 @@ When hot reload is enabled (the default), `kind-<component>-up` for a supported 
 - AND `npm run dev` SHALL be started in an interactive TTY attached to the developer's terminal
 - AND file changes on the host SHALL be reflected inside the container without rebuilding
 
-#### Scenario: Web Console Without Hot Reload
+#### Scenario: DEV-LOC-12.02 -- Web Console Without Hot Reload
 - GIVEN a Kind cluster is running
 - AND `KIND_HOT_RELOAD=false` is set
 - WHEN a developer runs `make kind-web-console-up`
 - THEN the web console image SHALL be rebuilt from the working tree
 - AND the deployment SHALL be replaced with the newly built image
 
-#### Scenario: Hot Reload on Unsupported Component
+#### Scenario: DEV-LOC-12.03 -- Hot Reload on Unsupported Component
 - GIVEN hot reload is enabled (default)
 - WHEN a developer runs `make kind-api-server-up` or `make kind-control-plane-up`
 - THEN the component SHALL fall back to the normal rebuild-and-replace flow
 - AND an info message SHALL indicate that hot reload is not supported for that component
 
-### Requirement: Container Registry
+### Requirement: DEV-LOC-13 -- Container Registry
 
 The system SHALL pull baseline images from the container registry at `quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/`. The registry path and image tag SHALL be configurable via environment variables.
 
@@ -629,7 +636,7 @@ The system SHALL pull baseline images from the container registry at `quay.io/re
 | `IMAGE_REGISTRY` | `quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main` |
 | `IMAGE_TAG` | `latest` |
 
-### Requirement: Offline Development (LOCAL_IMAGES)
+### Requirement: DEV-LOC-14 -- Offline Development (LOCAL_IMAGES)
 
 The system SHALL support offline development by building all images from the local repository instead of pulling from the container registry. When `LOCAL_IMAGES=true` is set, `make kind-up` SHALL build every component image from the working tree (current branch), load them into the Kind cluster, and apply manifests with `localhost/` image refs so that pods start with local images on the first rollout. This ensures the deployed images match the scripts, manifests, and seed data on the current branch  -- and `kubectl describe pod` shows the actual local image name (e.g. `localhost/hypershell-controller:dev`) rather than a registry ref that could be mistaken for a remote pull. To build from `origin/main` instead (e.g. for baseline comparison), set `BUILD_SOURCE=baseline`.
 
@@ -648,7 +655,7 @@ Local image names:
 | Control plane | `${IMAGE_REGISTRY}/hypershell-control-plane-main` | `localhost/hypershell-controller:dev` |
 | Web console | `${IMAGE_REGISTRY}/hypershell-web-console-main` | `localhost/hypershell-web-console:dev` |
 
-#### Scenario: First Run - Offline
+#### Scenario: DEV-LOC-14.01 -- First Run - Offline
 - GIVEN no Kind cluster exists
 - AND the developer has no access to the container registry
 - AND `LOCAL_IMAGES=true` is set
@@ -659,7 +666,7 @@ Local image names:
 - AND the cluster SHALL reach a ready state without any registry pulls for platform components
 - AND `kubectl get pods -o jsonpath='{.items[*].spec.containers[*].image}'` SHALL show `localhost/` refs for locally-built components
 
-#### Scenario: Subsequent Run - Rebuild from Working Tree
+#### Scenario: DEV-LOC-14.02 -- Subsequent Run - Rebuild from Working Tree
 - GIVEN a Kind cluster is running with locally-built images
 - AND `LOCAL_IMAGES=true` is set
 - WHEN the developer runs `make kind-up` again
@@ -668,14 +675,14 @@ Local image names:
 - AND kustomize SHALL apply manifests with the `localhost/` images transformer
 - AND swapped components SHALL be preserved
 
-#### Scenario: Baseline Build from origin/main
+#### Scenario: DEV-LOC-14.03 -- Baseline Build from origin/main
 - GIVEN `LOCAL_IMAGES=true` and `BUILD_SOURCE=baseline` are set
 - WHEN the developer runs `make kind-up`
 - THEN all component images SHALL be built from `origin/main` with `localhost/` image names
 - AND images SHALL be loaded into the Kind cluster
 - AND kustomize SHALL apply manifests with the `localhost/` images transformer
 
-### Requirement: Red Hat Hardened Images
+### Requirement: DEV-LOC-15 -- Red Hat Hardened Images
 
 All container images deployed into the Kind cluster SHALL use [Red Hat Hardened Images](https://images.redhat.com/) (HI). HI images are distroless, CIS-hardened, and signed at build time.
 
@@ -691,13 +698,13 @@ container engine into `SWAP_REGISTRY` and SHALL NOT require an interactive
 
 > **Database image:** The stand-in PostgreSQL server in `external-cloud-db` simulates an external, cloud-managed server rather than a HyperShell component, and is exempt from this requirement. HyperShell deploys no PostgreSQL image of its own.
 
-### Requirement: Multiple Namespace Deployments
+### Requirement: DEV-LOC-16 -- Multiple Namespace Deployments
 
 The system SHALL support deploying the platform into multiple namespaces within a single Kind cluster. Each namespace gets its own set of HyperShell components with isolated hostnames, enabling developers to work on multiple features in parallel (e.g. when handing separate branches to agents).
 
 All `kind-*` targets operate on the namespace specified by `KIND_NAMESPACE` (default: `hypershell-system`). Running `make kind-up` with a custom `KIND_NAMESPACE` deploys the platform into that namespace, creating it if it does not exist. `make kind-down` removes the target namespace and its resources; `make kind-teardown` destroys the entire Kind cluster.
 
-#### Scenario: Deploy to Additional Namespace
+#### Scenario: DEV-LOC-16.01 -- Deploy to Additional Namespace
 - GIVEN a Kind cluster is running with the default deployment in `hypershell-system`
 - WHEN a developer runs `KIND_NAMESPACE=hypershell-feature-add-auth make kind-up`
 - THEN the namespace `hypershell-feature-add-auth` SHALL be created (if it does not exist)
@@ -706,29 +713,29 @@ All `kind-*` targets operate on the namespace specified by `KIND_NAMESPACE` (def
 - AND wildcard DNS SHALL resolve the new hostnames automatically
 - AND both deployments SHALL run independently without interference
 
-#### Scenario: Status Reports All Deployments
+#### Scenario: DEV-LOC-16.02 -- Status Reports All Deployments
 - GIVEN the platform is deployed into multiple namespaces
 - WHEN a developer runs `make kind-status`
 - THEN the output SHALL list all namespaces with their hostnames and swap state
 
-#### Scenario: Teardown Namespace Deployment
+#### Scenario: DEV-LOC-16.03 -- Teardown Namespace Deployment
 - GIVEN the platform is deployed in `hypershell-system` and `hypershell-feature-add-auth`
 - WHEN a developer runs `KIND_NAMESPACE=hypershell-feature-add-auth make kind-down`
 - THEN only the `hypershell-feature-add-auth` namespace and its resources SHALL be deleted
 - AND the default deployment in `hypershell-system` SHALL continue running
 - AND the developer SHALL be prompted to run `make kind-teardown` if no HyperShell namespaces remain
 
-#### Scenario: Per-Component Swap Scoped to Namespace
+#### Scenario: DEV-LOC-16.04 -- Per-Component Swap Scoped to Namespace
 - GIVEN the platform is deployed in multiple namespaces
 - WHEN a developer runs `KIND_NAMESPACE=hypershell-feature-add-auth make kind-api-server-up`
 - THEN the API server SHALL be swapped only in the `hypershell-feature-add-auth` namespace
 - AND the default deployment SHALL remain unchanged
 
-### Requirement: Development Tracing
+### Requirement: DEV-LOC-17 -- Development Tracing
 
 The system SHALL deploy a Jaeger all-in-one instance in the local environment and configure the web console BFF to export traces to it, so a developer can verify one end-to-end trace. Deployment SHALL be gated by `KIND_JAEGER` (opt-in; deployed only when set to `true`).
 
-#### Scenario: Jaeger Available After Setup
+#### Scenario: DEV-LOC-17.01 -- Jaeger Available After Setup
 - GIVEN `KIND_JAEGER` is `true`
 - WHEN a developer runs `make kind-up`
 - THEN a Jaeger all-in-one workload SHALL be deployed into the target namespace
@@ -736,18 +743,112 @@ The system SHALL deploy a Jaeger all-in-one instance in the local environment an
 - AND an HTTPRoute SHALL expose the Jaeger UI at `jaeger.hypershell.localhost`
 - AND the web console BFF SHALL be configured with `OTEL_EXPORTER_OTLP_ENDPOINT` pointing at the Jaeger OTLP/HTTP receiver
 
-#### Scenario: End-to-End Trace Visible
+#### Scenario: DEV-LOC-17.02 -- End-to-End Trace Visible
 - GIVEN the local environment is running with tracing enabled
 - WHEN a developer completes a gateway workflow in the web console
 - THEN one trace SHALL be visible in the Jaeger UI
 - AND it SHALL contain the browser workflow span and the BFF server span joined by the same trace identifier
 
-#### Scenario: Tracing Disabled
+#### Scenario: DEV-LOC-17.03 -- Tracing Disabled
 - GIVEN `KIND_JAEGER` is unset (or any value other than `true`)
 - WHEN a developer runs `make kind-up`
 - THEN the Jaeger workload and its route SHALL NOT be deployed
 - AND `OTEL_EXPORTER_OTLP_ENDPOINT` SHALL be left unset on the web-console Deployment
 - AND the web console BFF SHALL start with tracing disabled without failing readiness
+
+### Requirement: DEV-LOC-18 -- Coverage Instrumentation
+
+The system SHALL let a developer measure which code the unit tests and the e2e suites run, and merge both into one report.
+
+When `KIND_COVERAGE=true` is set, `make kind-up` SHALL build every component image locally (it implies `LOCAL_IMAGES=true`) with coverage instrumentation:
+
+| Component | Build option | Runtime output |
+|-----------|--------------|----------------|
+| API server (and its `migrate` init container) | `GO_COVERAGE=true`: `go build -cover -covermode=atomic -coverpkg=<module>/...` | `GOCOVERDIR=/coverage` |
+| Control plane | `GO_COVERAGE=true` | `GOCOVERDIR=/coverage` |
+| Web console | `BFF_SOURCE_MAPS=true`: the BFF is compiled with inline source maps | `NODE_V8_COVERAGE=/coverage/node` |
+
+The build options SHALL default to off, so release and Konflux builds are unchanged. The kustomize component `deploy/kind/code-coverage` SHALL add a shared `hypershell-coverage` volume, the output environment variables, and a termination grace period long enough for a graceful shutdown, because Go and Node write coverage data only when the process exits cleanly. A component swap (`make kind-<component>-up`) with `KIND_COVERAGE=true` SHALL build the instrumented image.
+
+`make coverage` SHALL:
+
+1. Restart the instrumented pods with an empty coverage volume.
+2. Run the Go unit tests (API server, control plane, CLI) with coverage profiles, and the frontend unit tests with vitest coverage over all source files of each package.
+3. Run `make e2e`, the `hsctl` smoke test (`tests/e2e/e2e-hsctl.sh`) with a coverage-instrumented `hsctl` binary, and `make e2e-console` against the cluster. `hsctl` runs on the developer's machine, so its coverage SHALL go to a local `GOCOVERDIR` and be merged with the cluster data.
+4. Stop the instrumented pods, copy the coverage data off the Kind node, and start the pods again with their previous replica counts.
+5. Write `coverage/report/summary.md` with unit, e2e and combined coverage per component and per Go package, an HTML report per Go component, and an HTML report of the BFF e2e coverage.
+
+A failing test step SHALL NOT stop the run: the report SHALL still be built, SHALL name the failed steps before any number, and `make coverage` SHALL exit non-zero. Unless `E2E_KIND_INGRESS_ADDR` is set, `make coverage` SHALL point the Go e2e suite at the cloud-provider-kind proxy's published port (`127.0.0.1:<port>`), so the run does not depend on the host's sudo port-443 redirect. The console suite SHALL run in short mode, as CI runs it, unless `E2E_MODE` is set. When the Kind nodes' container network exists, `make coverage` SHALL run it in container mode (`E2E_CONSOLE_CONTAINER=true`, `e2e-console-browser-testing.spec.md`), which needs neither host port 443 nor host browser libraries. Otherwise it SHALL install Playwright's Chromium the way CI does before the console suite, and SHALL skip the suite with a failed step when Chromium cannot be installed or started. On a machine with no Docker socket but a podman socket, the API server unit tests SHALL reach PostgreSQL through podman's socket. A Go block, or a BFF line, SHALL count as covered when either run executed it. Generated code SHALL be reported separately from hand-written code. BFF e2e data SHALL be converted with the same parser and converter as `vitest --coverage`, so the unit and e2e numbers are comparable.
+
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `KIND_COVERAGE` | (unset) | Set to `true` to build coverage-instrumented images and mount the coverage volume (implies `LOCAL_IMAGES=true`) |
+| `COVERAGE_DIR` | `coverage` | `make coverage` output directory |
+| `COVERAGE_UNIT` | `true` | Run the Go and frontend unit tests |
+| `COVERAGE_E2E` | `true` | Run `make e2e` and collect cluster data; `false` runs unit tests only and needs no cluster |
+| `COVERAGE_HSCTL_E2E` | `true` | Also run the `hsctl` smoke test with a coverage-instrumented `hsctl` |
+| `COVERAGE_CONSOLE_E2E` | `true` | Also run `make e2e-console` |
+| `COVERAGE_CONSOLE_CONTAINER` | `auto` | Run the console suite in container mode: `auto` (when the Kind network exists), `true`, or `false` |
+
+#### Scenario: DEV-LOC-18.01 -- Instrumented Deployment
+- GIVEN `KIND_COVERAGE=true` is set
+- WHEN the developer runs `make kind-up`
+- THEN the API server and control plane images SHALL be built with `GO_COVERAGE=true` and the web console image with `BFF_SOURCE_MAPS=true`
+- AND the API server, its `migrate` init container and the controller SHALL run with `GOCOVERDIR=/coverage`
+- AND the web console SHALL run with `NODE_V8_COVERAGE=/coverage/node`
+- AND all three SHALL mount the `hypershell-coverage` volume
+
+#### Scenario: DEV-LOC-18.02 -- Coverage Off by Default
+- GIVEN `KIND_COVERAGE` is unset
+- WHEN the developer runs `make kind-up`
+- THEN no coverage build option SHALL be passed and the coverage component SHALL NOT be applied
+
+#### Scenario: DEV-LOC-18.03 -- Combined Report
+- GIVEN a cluster deployed with `KIND_COVERAGE=true`
+- WHEN the developer runs `make coverage`
+- THEN unit and e2e coverage SHALL be collected and merged
+- AND `coverage/report/summary.md` SHALL show unit, e2e and combined coverage per component and per Go package
+- AND a block executed by either run SHALL count as covered once
+
+#### Scenario: DEV-LOC-18.04 -- Cluster Without Coverage
+- GIVEN no cluster, or a cluster deployed without `KIND_COVERAGE=true`
+- WHEN the developer runs `make coverage`
+- THEN the command SHALL fail before running any test and tell the developer to run `KIND_COVERAGE=true make kind-up`
+- AND with `COVERAGE_E2E=false` it SHALL run the unit tests and build the report without a cluster
+
+#### Scenario: DEV-LOC-18.05 -- Failing Test Step
+- GIVEN a test step fails during `make coverage`
+- THEN the remaining steps SHALL still run and the report SHALL still be built
+- AND `make coverage` SHALL exit non-zero and name the failed steps
+- AND `coverage/report/summary.md` SHALL name the failed steps before any coverage number
+
+#### Scenario: DEV-LOC-18.06 -- CLI End-to-End Coverage
+- GIVEN a cluster deployed with `KIND_COVERAGE=true`
+- WHEN the developer runs `make coverage`
+- THEN an `hsctl` binary SHALL be built with `go build -cover` and used for `tests/e2e/e2e-hsctl.sh`
+- AND the CLI row of the report SHALL show e2e and combined coverage instead of "not run"
+- AND the smoke test SHALL NOT change the developer's own `hsctl` configuration
+
+#### Scenario: DEV-LOC-18.08 -- Console Suite in a Container
+- GIVEN a cluster deployed with `KIND_COVERAGE=true`, whose nodes are on the `kind` container network
+- AND `COVERAGE_CONSOLE_CONTAINER` is unset or `auto`
+- WHEN the developer runs `make coverage`
+- THEN the console suite SHALL run with `E2E_CONSOLE_CONTAINER=true`
+- AND it SHALL NOT need host port 443 forwarding or Chromium's system libraries on the host
+
+#### Scenario: DEV-LOC-18.09 -- Go E2E Without Host Port 443
+- GIVEN a cluster deployed with `KIND_COVERAGE=true` whose host port 443 redirect is missing
+- AND `E2E_KIND_INGRESS_ADDR` is unset
+- WHEN the developer runs `make coverage`
+- THEN the Go e2e suite SHALL run with `E2E_KIND_INGRESS_ADDR=127.0.0.1:<published port of the kindccm-gw proxy>`
+- AND an explicit `E2E_KIND_INGRESS_ADDR` SHALL be used as given
+
+#### Scenario: DEV-LOC-18.07 -- Podman-Only Machine
+- GIVEN a machine with no Docker socket and a podman API socket (Linux rootless podman or a macOS podman machine)
+- AND `DOCKER_HOST` is unset
+- WHEN `make coverage` runs the API server unit tests
+- THEN it SHALL set `DOCKER_HOST` to podman's socket and `TESTCONTAINERS_RYUK_DISABLED=true` for that step
+- AND it SHALL leave the environment unchanged when a Docker socket exists or `DOCKER_HOST` is already set
 
 ## Environment Variable Reference
 
@@ -776,6 +877,7 @@ The system SHALL deploy a Jaeger all-in-one instance in the local environment an
 | `KIND_RESTART_CPK` | (unset) | Set to `true` to force `make kind-up` to restart cloud-provider-kind (republishes ephemeral LB ports; otherwise the running instance is reused to keep ports stable) |
 | `CERT_MANAGER_VERSION` | `v1.21.1` | cert-manager release version |
 | `KIND_NAMESPACE` | `hypershell-system` | Target namespace for all `kind-*` targets |
+| `KIND_COVERAGE` | (unset) | Set to `true` to build coverage-instrumented images and mount the coverage volume (implies `LOCAL_IMAGES=true`); see DEV-LOC-18 |
 | `KIND_JAEGER` | (unset) | Set to `true` to deploy Jaeger all-in-one for distributed tracing (OTLP gRPC `4317` + HTTP `4318`) and export web console traces to it |
 
 ## Make Targets Summary
@@ -796,6 +898,12 @@ All Kind targets operate on `KIND_NAMESPACE` (default: `hypershell-system`). Ope
 | `make kind-control-plane-down` | Revert control-plane to baseline image + restart + wait |
 | `make kind-web-console-up` | Default (hot reload): mount source + run `npm run dev` in interactive TTY; with `KIND_HOT_RELOAD=false`: build + load + replace deployment + wait |
 | `make kind-web-console-down` | Revert web-console to baseline image + restart + wait |
+| `make coverage` | Run Go and frontend unit tests with coverage, then `make e2e`, the `hsctl` smoke test and `make e2e-console` against a `KIND_COVERAGE=true` cluster, collect the cluster data and write a combined report to `coverage/report/` (DEV-LOC-18) |
+| `make fullsend` | Start or resume local SDLC watch mode for a registered scope (SDLC-LOC-01) |
+| `make fullsend-status` | Show saved job state without claiming live gateway access |
+| `make fullsend-doctor` | Check tools and credential configuration |
+| `make fullsend-help` | Show local commands and setup guidance |
+| `make coverage-report` | Rebuild `coverage/report/` from the data of the last `make coverage` run |
 
 ## Design Decisions
 

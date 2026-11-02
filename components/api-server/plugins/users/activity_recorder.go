@@ -2,10 +2,9 @@ package users
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"time"
-
-	"github.com/golang/glog"
 )
 
 type UserActivityRecorder interface {
@@ -54,6 +53,6 @@ func (r *userActivityRecorder) RecordDailyActivity(ctx context.Context, userID s
 			delete(r.users, userID)
 		}
 		r.dayMu.Unlock()
-		glog.Warningf("user daily activity recording failed for %q: %v", userID, err)
+		slog.WarnContext(ctx, "user daily activity recording failed", "user_id", userID, "error", err)
 	}
 }

@@ -190,5 +190,13 @@ assert_eq "tok bOB bOB BOB User bOB@hypershell.local hypershell-users" \
 assert_eq "tok z z Z User z@hypershell.local hypershell-users" \
   "$(sed -n '3p' "${EXTRA_USERS_LOG}")" "capitalize a single-character profile name"
 
+# The same role fixtures exercise creator and non-creator behavior everywhere
+# (ephemeral-test-credentials.spec.md, CICD-CRED-13).
+assert_eq "hypershell-users" "$(_test_user_roles developer | tr '\n' ' ' | sed 's/ $//')" \
+  "developer remains a non-creator on every environment"
+assert_eq "hypershell-admins hypershell-users gateway:creator platform:admin" \
+  "$(_test_user_roles admin | tr '\n' ' ' | sed 's/ $//')" \
+  "admin supplies the creator fixture on every environment"
+
 printf 'reconcile-test-users tests: %d passed, %d failed\n' "${PASS}" "${FAIL}"
 [[ "${FAIL}" -eq 0 ]]

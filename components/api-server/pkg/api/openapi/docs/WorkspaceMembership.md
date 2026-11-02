@@ -4,14 +4,15 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**Id** | Pointer to **string** |  | [optional] 
-**Kind** | Pointer to **string** |  | [optional] 
-**Href** | Pointer to **string** |  | [optional] 
-**CreatedAt** | Pointer to **time.Time** |  | [optional] 
-**UpdatedAt** | Pointer to **time.Time** |  | [optional] 
-**WorkspaceId** | **string** |  | 
-**Subject** | **string** | OIDC subject UUID the agent uses to connect to the gateway. | 
-**Role** | **string** | Membership role, one of admin or member. | 
+**Id** | Pointer to **string** |  | [optional]
+**Kind** | Pointer to **string** |  | [optional]
+**Href** | Pointer to **string** |  | [optional]
+**CreatedAt** | Pointer to **time.Time** |  | [optional]
+**UpdatedAt** | Pointer to **time.Time** |  | [optional]
+**Name** | Pointer to **string** | Queryable find-by-name key (SDLC-CONF-13). Optional on create; defaults to a stable identity derived from workspace_id/subject when not supplied. | [optional]
+**WorkspaceId** | **string** |  |
+**Subject** | **string** | OIDC subject UUID the agent uses to connect to the gateway. |
+**Role** | **string** | Membership role, one of admin or member. |
 
 ## Methods
 
@@ -157,6 +158,31 @@ SetUpdatedAt sets UpdatedAt field to given value.
 
 HasUpdatedAt returns a boolean if a field has been set.
 
+### GetName
+
+`func (o *WorkspaceMembership) GetName() string`
+
+GetName returns the Name field if non-nil, zero value otherwise.
+
+### GetNameOk
+
+`func (o *WorkspaceMembership) GetNameOk() (*string, bool)`
+
+GetNameOk returns a tuple with the Name field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetName
+
+`func (o *WorkspaceMembership) SetName(v string)`
+
+SetName sets Name field to given value.
+
+### HasName
+
+`func (o *WorkspaceMembership) HasName() bool`
+
+HasName returns a boolean if a field has been set.
+
 ### GetWorkspaceId
 
 `func (o *WorkspaceMembership) GetWorkspaceId() string`
@@ -219,5 +245,3 @@ SetRole sets Role field to given value.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
-
-

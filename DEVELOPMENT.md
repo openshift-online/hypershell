@@ -26,6 +26,7 @@ select.
   - [Updating the rh-trex-ai pin](#updating-the-rh-trex-ai-pin)
   - [Customizing generated code](#customizing-generated-code)
 - [Testing](#testing)
+  - [Coverage](#coverage)
 - [Ephemeral OpenShift PR environments](#ephemeral-openshift-pr-environments)
   - [Keep or destroy the environment](#keep-or-destroy-the-environment)
 - [Troubleshooting](#troubleshooting)
@@ -97,7 +98,7 @@ reapplies manifests and waits for readiness. Swapped components are preserved.
 | `make kind-down` | Remove the `hypershell-system` namespace and its resources. Leaves the Kind cluster running. |
 | `make kind-teardown` | Destroy the Kind cluster and stop cloud-provider-kind. |
 | `make kind-status` | Show cluster info, pods, services, and which components are swapped. |
-| `make kind-seed` | Re-run GatewayRelease and Gateway seeding. The `local-kind` ManagedCluster is not seeded: the control plane registers it itself, and seeding waits for that record (`SEED_CLUSTER_WAIT_SECONDS`, default 240) and uses its id. Reuses existing named seed resources (`dev-release`, `dev-gateway`) instead of creating duplicates. `kind-up` already seeds unless `SKIP_SEED=true`. |
+| `make kind-seed` | Re-run Gateway seeding. The `local-kind` ManagedCluster is not seeded: the control plane registers it itself, and seeding waits for that record (`SEED_CLUSTER_WAIT_SECONDS`, default 240) and uses its id. Reuses the existing named seed resource (`dev-gateway`) instead of creating duplicates. `kind-up` already seeds unless `SKIP_SEED=true`. |
 | `make kind-prereqs` | Build the pinned `cloud-provider-kind` binary into `bin/`. `kind-up` runs this; use it alone when the binary is missing. |
 | `make kind-env` | Print `export` statements for the current Kind make variables. |
 | `make kind-fix-ports` | Re-establish host port 443 forwarding to the Gateway's ephemeral port. |
@@ -272,10 +273,21 @@ it always matches the OpenAPI description), then authenticate against the Kind c
 
 ```bash
 ./components/cli/hsctl login \
-  --url https://api.hypershell.localhost \
-  --issuer-url https://keycloak.hypershell.localhost/realms/hypershell \
+  --url https://api.hypershell.localhost/api/hypershell/v1 \
   --insecure
 ```
+
+The API advertises its configured public issuer at `/api/hypershell/v1/auth/config`,
+so no issuer flag is needed. Use the direct API host, not the web console's
+browser-session proxy. For example, hyp2 uses:
+
+```bash
+hsctl login --url https://api.hyp2.infra.hypershell.app/api/hypershell/v1
+```
+
+Server-root URLs also work. Older API deployments without discovery still need
+`--issuer-url https://keycloak.<instance>.infra.hypershell.app/realms/hypershell`;
+`--token-file` remains available for existing bearer tokens.
 
 For headless environments, add `--no-browser` to use the device authorization flow.
 The CLI stores tokens in `~/.config/hypershell/config.json` (or `~/.hypershell.json`
@@ -355,6 +367,7 @@ build time, so no external dependency checkout is needed.
 | `IMAGE_REGISTRY` | `quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main` | Container registry for baseline images |
 | `IMAGE_TAG` | `latest` | Image tag for baseline images |
 | `LOCAL_IMAGES` | (unset) | Set to `true` to build baseline images from the working tree |
+| `KIND_COVERAGE` | (unset) | Set to `true` to build coverage-instrumented images and mount a coverage volume (implies `LOCAL_IMAGES=true`). See [Coverage](#coverage). |
 | `CONTAINER_ENGINE` | Auto-detected | `podman` or `docker` |
 | `GATEWAY_API_VERSION` | `v1.5.1` | Gateway API CRD version |
 | `CLOUD_PROVIDER_KIND_REPO` | `https://github.com/squizzi/cloud-provider-kind.git` | cloud-provider-kind git repo |
@@ -404,7 +417,7 @@ command stops with an error.
 | `make openshift-down` | Delete the platform and Keycloak projects, then delete gateway namespaces labeled `hypershell.redhat.io/instance=<platform ns>`. If project deletion is forbidden, strip HyperShell resources and leave the projects. Without ownership labels the command refuses; `FORCE=true make openshift-down` overrides that check. Reserved names (`default`, `kube-*`, `openshift-*`) stay refused. |
 | `make openshift-teardown` | Same as `openshift-down`. There is no OpenShift cluster to destroy. |
 | `make openshift-status` | Show namespaces, pods, Routes, the shared Gateway, and swap state. |
-| `make openshift-seed` | Re-run GatewayRelease and Gateway seeding via API and Keycloak Routes from this machine, against the `local-openshift` ManagedCluster the control plane registered itself (seeding waits for it and never creates it). Reuses existing named seed resources (`dev-release`, `dev-gateway`) instead of creating duplicates. `openshift-up` already seeds unless `SKIP_SEED=true`. |
+| `make openshift-seed` | Re-run Gateway seeding via API and Keycloak Routes from this machine, against the `local-openshift` ManagedCluster the control plane registered itself (seeding waits for it and never creates it). Reuses the existing named seed resource (`dev-gateway`) instead of creating duplicates. `openshift-up` already seeds unless `SKIP_SEED=true`. |
 | `make openshift-api-server-up` | Build, push an immutable image to `SWAP_REGISTRY`, and point the API server Deployment at that ref. Requires `SWAP_REGISTRY`. |
 | `make openshift-api-server-down` | Revert the API server to the baseline registry image. |
 | `make openshift-control-plane-up` | Build, push, and swap the control plane. |
@@ -437,7 +450,7 @@ overlay ClusterRole and ClusterRoleBinding with names prefixed
 `hypershell-controller`), plus the privileged SCC RoleBinding, applies the
 manifests (with prune scoped to this environment), registers the web-console
 Route as the Keycloak `hypershell-frontend` redirect URI, seeds a
-ManagedCluster, GatewayRelease, and Gateway from this machine
+ManagedCluster and Gateway from this machine
 against the API and Keycloak Routes (the API server image has no `curl`), and
 prints the API, web-console, and Keycloak Routes. The overlay sets
 `API_ENV=development_oidc` on the API server so `--enable-jwt=true` is not
@@ -574,23 +587,19 @@ so per-tenant gateways work without port-forward workarounds.
 
 ### Creating a gateway with OIDC
 
-`make kind-up` seeds ManagedCluster and GatewayRelease but does not create a
-Gateway. The gateway database server needs no API resource: the control plane
-reads the `hypershell-gateway-database-admin` Secret that `kind-up` creates.
-Create a Gateway via the API:
+`make kind-up` seeds a ManagedCluster but does not create a Gateway. The
+gateway database server needs no API resource: the control plane reads the
+`hypershell-gateway-database-admin` Secret that `kind-up` creates. Create a
+Gateway via the API; `cluster_id` is not a request field, create takes a
+required placement intent and `local-kind` selects the seeded ManagedCluster:
 
 ```bash
-# Get the seeded resource IDs
-CLUSTER_ID=$(curl -s http://localhost:8000/api/hypershell/v1/managed_clusters | python3 -c "import json,sys; print(json.load(sys.stdin)['items'][0]['id'])")
-RELEASE_ID=$(curl -s http://localhost:8000/api/hypershell/v1/gateway_releases | python3 -c "import json,sys; print(json.load(sys.stdin)['items'][0]['id'])")
-
 # Create a gateway with OIDC
 curl -s -X POST http://localhost:8000/api/hypershell/v1/gateways \
   -H "Content-Type: application/json" \
   -d "{
     \"name\": \"dev-gateway\",
-    \"cluster_id\": \"${CLUSTER_ID}\",
-    \"release_id\": \"${RELEASE_ID}\",
+    \"placement\": {\"mode\": \"local-kind\"},
     \"oidc\": \"{\\\"issuer\\\":\\\"https://keycloak.hypershell.localhost/realms/hypershell\\\",\\\"audience\\\":\\\"hypershell-frontend\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}\"
   }"
 ```
@@ -665,6 +674,18 @@ remove it once the commit is old enough, or when a newer pin replaces it.
 `components/api-server` pins the framework separately in its own `go.mod`, because
 it links the server framework, not the generators. It may be on a different commit
 than the CLI, so check that it still builds before moving it.
+For a feature such as API-driven login discovery, update both pins: regenerating
+`hsctl` alone cannot add the server endpoint. Run the API tests and build as well.
+
+After the downstream change merges, Konflux builds the changed API server and CLI
+components. The managed release's final pipeline publishes the OCI release bundle
+and a matching GitHub release with five `hsctl` downloads and `SHA256SUMS`; binaries
+are extracted from the released CLI image rather than rebuilt. Before promoting a
+bundle through GitOps, verify that it contains both the new API and CLI component
+revisions, since a bundle can reuse earlier builds for unchanged components. Deploy
+the updated API before asking users to rely on issuer discovery. Existing public
+issuer and route configuration does not need to change. See
+[`hsctl-release.spec.md`](specs/platform/hsctl-release.spec.md) for release details.
 
 ### Customizing generated code
 
@@ -798,6 +819,93 @@ See `specs/platform/e2e-testing.spec.md` for the e2e and performance test
 suites (`make e2e`, `make e2e-performance`), which run against Kind or an
 existing OpenShift cluster. Origin pull-request OpenShift e2e is the
 ephemeral PR environment described below.
+
+### Coverage
+
+`make coverage` runs every test layer and writes one combined report. It
+measures which code the unit tests and the e2e suites run, and merges the
+results (`specs/platform/local-development.spec.md`, DEV-LOC-18).
+
+1. Deploy a Kind cluster with instrumented images:
+
+   ```bash
+   KIND_COVERAGE=true make kind-up
+   ```
+
+   The API server and controller are built with `go build -cover`. The web
+   console BFF is built with source maps. All three write coverage data to a
+   shared volume (`deploy/kind/code-coverage`).
+
+2. Run the tests and build the report:
+
+   ```bash
+   make coverage
+   ```
+
+   This runs, in order:
+   - The Go unit tests (API server, control plane, CLI) with `-coverprofile`.
+     The API server tests start PostgreSQL with testcontainers, like
+     `make test`.
+   - The frontend unit tests with vitest coverage over all source files, not
+     only the files each package's CI gate lists.
+   - `make e2e` against the cluster. It reaches the ingress on the
+     cloud-provider-kind proxy's published port, so it does not need the
+     port-443 redirect either.
+   - The `hsctl` smoke test (`tests/e2e/e2e-hsctl.sh`) with an `hsctl` built
+     by `go build -cover`. It writes coverage to a local folder, because
+     `hsctl` runs on your machine, and keeps its login in a temporary config
+     file, so your own `hsctl` login is untouched.
+   - `make e2e-console` against the cluster, in short mode like CI (set
+     `E2E_MODE` to override). When the Kind nodes' container
+     network exists, it runs in a Playwright container on that network (see
+     below), so it needs neither port 443 forwarding nor browser libraries on
+     your machine.
+
+   It then stops the instrumented pods so they write their data, copies it off
+   the Kind node, and starts the pods again.
+
+3. Read the report:
+   - `coverage/report/summary.md`: unit, e2e and combined numbers per
+     component and per Go package.
+   - `coverage/report/go/<component>.html`: line-by-line Go coverage.
+   - `coverage/report/bff-e2e/index.html`: BFF coverage from the e2e run.
+
+A failing test step does not stop the run. The report is still built and
+names the failed steps at the top, because their numbers are incomplete.
+`make coverage` exits non-zero at the end. Logs are in `coverage/logs/`.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `COVERAGE_DIR` | `coverage` | Output directory |
+| `COVERAGE_UNIT` | `true` | Run the Go and frontend unit tests |
+| `COVERAGE_E2E` | `true` | Run `make e2e` and collect the cluster data. Set to `false` for unit tests only (no cluster needed). |
+| `COVERAGE_HSCTL_E2E` | `true` | Also run the `hsctl` smoke test with an instrumented `hsctl` |
+| `COVERAGE_CONSOLE_E2E` | `true` | Also run `make e2e-console` |
+| `COVERAGE_CONSOLE_CONTAINER` | `auto` | Run the console suite in a Playwright container on the Kind network: `auto` (when that network exists), `true`, or `false` |
+
+`make coverage-report` rebuilds the report from the data of the last run.
+
+Notes:
+
+- The console suite can run without host port 443 or browser libraries:
+  `E2E_CONSOLE_CONTAINER=true make e2e-console` runs it inside the official
+  Playwright image on the `kind` network, where the gateway answers on 443
+  directly. `make coverage` does this automatically. The first run pulls the
+  image (about 2 GB).
+- On a machine with podman but no Docker socket (a Linux VM, for example),
+  the API server tests run testcontainers through podman's socket
+  automatically.
+- Without the container (`COVERAGE_CONSOLE_CONTAINER=false`), the console
+  suite runs on your machine: host port 443 must reach the cluster
+  (`make kind-fix-ports`), and on Linux Chromium needs system libraries. If
+  the `e2e-console-browser` step fails, its log shows the command that
+  installs them (`sudo pnpm exec playwright install-deps`, run in
+  `components/web-console`).
+- Generated code (OpenAPI and gRPC clients) is reported separately from
+  hand-written code.
+- Browser-side React code is not measured during e2e.
+- Swapping a component (`make kind-api-server-up` and siblings) with
+  `KIND_COVERAGE=true` keeps it instrumented.
 
 ## Ephemeral OpenShift PR environments
 

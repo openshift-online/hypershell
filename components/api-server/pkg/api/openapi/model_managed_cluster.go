@@ -22,20 +22,15 @@ var _ MappedNullable = &ManagedCluster{}
 
 // ManagedCluster struct for ManagedCluster
 type ManagedCluster struct {
-	Id        *string    `json:"id,omitempty"`
-	Kind      *string    `json:"kind,omitempty"`
-	Href      *string    `json:"href,omitempty"`
-	CreatedAt *time.Time `json:"created_at,omitempty"`
-	UpdatedAt *time.Time `json:"updated_at,omitempty"`
-	Name      string     `json:"name"`
-	// Cloud provider capability used for gateway placement.
-	Provider string `json:"provider"`
-	// Network visibility supported by this control plane for gateway placement.
-	Visibility       *string `json:"visibility,omitempty"`
-	Region           *string `json:"region,omitempty"`
-	KubeconfigSecret string  `json:"kubeconfig_secret"`
-	Status           *string `json:"status,omitempty"`
-	ApiServerUrl     *string `json:"api_server_url,omitempty"`
+	Id               *string    `json:"id,omitempty"`
+	Kind             *string    `json:"kind,omitempty"`
+	Href             *string    `json:"href,omitempty"`
+	CreatedAt        *time.Time `json:"created_at,omitempty"`
+	UpdatedAt        *time.Time `json:"updated_at,omitempty"`
+	Name             string     `json:"name"`
+	KubeconfigSecret string     `json:"kubeconfig_secret"`
+	Status           *string    `json:"status,omitempty"`
+	ApiServerUrl     *string    `json:"api_server_url,omitempty"`
 	// OIDC sub claim of the service account that registered this cluster. Server-assigned; not writable.
 	OidcSubject *string `json:"oidc_subject,omitempty"`
 	// Timestamp of the most recent registration call. Updated on every POST /registration.
@@ -50,10 +45,9 @@ type _ManagedCluster ManagedCluster
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewManagedCluster(name string, provider string, kubeconfigSecret string) *ManagedCluster {
+func NewManagedCluster(name string, kubeconfigSecret string) *ManagedCluster {
 	this := ManagedCluster{}
 	this.Name = name
-	this.Provider = provider
 	this.KubeconfigSecret = kubeconfigSecret
 	return &this
 }
@@ -248,94 +242,6 @@ func (o *ManagedCluster) GetNameOk() (*string, bool) {
 // SetName sets field value
 func (o *ManagedCluster) SetName(v string) {
 	o.Name = v
-}
-
-// GetProvider returns the Provider field value
-func (o *ManagedCluster) GetProvider() string {
-	if o == nil {
-		var ret string
-		return ret
-	}
-
-	return o.Provider
-}
-
-// GetProviderOk returns a tuple with the Provider field value
-// and a boolean to check if the value has been set.
-func (o *ManagedCluster) GetProviderOk() (*string, bool) {
-	if o == nil {
-		return nil, false
-	}
-	return &o.Provider, true
-}
-
-// SetProvider sets field value
-func (o *ManagedCluster) SetProvider(v string) {
-	o.Provider = v
-}
-
-// GetVisibility returns the Visibility field value if set, zero value otherwise.
-func (o *ManagedCluster) GetVisibility() string {
-	if o == nil || IsNil(o.Visibility) {
-		var ret string
-		return ret
-	}
-	return *o.Visibility
-}
-
-// GetVisibilityOk returns a tuple with the Visibility field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *ManagedCluster) GetVisibilityOk() (*string, bool) {
-	if o == nil || IsNil(o.Visibility) {
-		return nil, false
-	}
-	return o.Visibility, true
-}
-
-// HasVisibility returns a boolean if a field has been set.
-func (o *ManagedCluster) HasVisibility() bool {
-	if o != nil && !IsNil(o.Visibility) {
-		return true
-	}
-
-	return false
-}
-
-// SetVisibility gets a reference to the given string and assigns it to the Visibility field.
-func (o *ManagedCluster) SetVisibility(v string) {
-	o.Visibility = &v
-}
-
-// GetRegion returns the Region field value if set, zero value otherwise.
-func (o *ManagedCluster) GetRegion() string {
-	if o == nil || IsNil(o.Region) {
-		var ret string
-		return ret
-	}
-	return *o.Region
-}
-
-// GetRegionOk returns a tuple with the Region field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *ManagedCluster) GetRegionOk() (*string, bool) {
-	if o == nil || IsNil(o.Region) {
-		return nil, false
-	}
-	return o.Region, true
-}
-
-// HasRegion returns a boolean if a field has been set.
-func (o *ManagedCluster) HasRegion() bool {
-	if o != nil && !IsNil(o.Region) {
-		return true
-	}
-
-	return false
-}
-
-// SetRegion gets a reference to the given string and assigns it to the Region field.
-func (o *ManagedCluster) SetRegion(v string) {
-	o.Region = &v
 }
 
 // GetKubeconfigSecret returns the KubeconfigSecret field value
@@ -548,13 +454,6 @@ func (o ManagedCluster) ToMap() (map[string]interface{}, error) {
 		toSerialize["updated_at"] = o.UpdatedAt
 	}
 	toSerialize["name"] = o.Name
-	toSerialize["provider"] = o.Provider
-	if !IsNil(o.Visibility) {
-		toSerialize["visibility"] = o.Visibility
-	}
-	if !IsNil(o.Region) {
-		toSerialize["region"] = o.Region
-	}
 	toSerialize["kubeconfig_secret"] = o.KubeconfigSecret
 	if !IsNil(o.Status) {
 		toSerialize["status"] = o.Status
@@ -580,7 +479,6 @@ func (o *ManagedCluster) UnmarshalJSON(data []byte) (err error) {
 	// that every required field exists as a key in the generic map.
 	requiredProperties := []string{
 		"name",
-		"provider",
 		"kubeconfig_secret",
 	}
 

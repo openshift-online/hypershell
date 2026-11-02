@@ -15,11 +15,11 @@ This specification defines TLS certificate management for OpenShell gateways dep
 
 ## Requirements
 
-### Requirement: TLS Certificate Management via cert-manager
+### Requirement: OSG-TLS-01 -- TLS Certificate Management via cert-manager
 
 The GatewayReconciler SHALL use cert-manager for all TLS certificate lifecycle management. cert-manager is the sole certificate generation strategy.
 
-#### Scenario: cert-manager installed
+#### Scenario: OSG-TLS-01.01 -- cert-manager installed
 
 - GIVEN cert-manager is installed on the cluster (Certificate, Issuer CRDs are available)
 - AND the GatewayReconciler detects cert-manager availability (via API discovery for `cert-manager.io` API group)
@@ -31,7 +31,7 @@ The GatewayReconciler SHALL use cert-manager for all TLS certificate lifecycle m
   - A server `Certificate` (`openshell-server`, creates `openshell-server-tls` Secret with SANs from `serverDnsNames`)
   - A client `Certificate` (`openshell-client`, creates `openshell-client-tls` Secret)
 
-#### Scenario: cert-manager not installed
+#### Scenario: OSG-TLS-01.02 -- cert-manager not installed
 
 - GIVEN cert-manager is NOT installed on the cluster
 - WHEN the GatewayReconciler provisions a gateway
@@ -46,11 +46,11 @@ cert-manager handles TLS certificate lifecycle. The certgen job handles JWT key 
 
 ---
 
-### Requirement: SAN Management and Cert Rotation
+### Requirement: OSG-TLS-02 -- SAN Management and Cert Rotation
 
 The reconciler monitors `serverDnsNames` on the Gateway API resource and compares them against the `server_sans` key in the `openshell-gateway-config` ConfigMap. When they differ, the reconciler triggers certificate regeneration.
 
-#### Scenario: DNS names changed
+#### Scenario: OSG-TLS-02.01 -- DNS names changed
 
 - GIVEN a Gateway's `serverDnsNames` differ from the ConfigMap's `server_sans`
 - WHEN the GatewayReconciler reconciles
@@ -64,11 +64,45 @@ When SANs change, TLS secrets are regenerated. Connected sandbox supervisors wil
 
 ---
 
-### Requirement: Trusted CA Bundle Injection
+### Requirement: OSG-TLS-06 -- Per-Gateway External Certificate
+
+A Gateway that opts in to a dedicated route via `route.certificate` (see [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) § Per-Gateway Dedicated Route and Certificate) gets a single external cert-manager `Certificate` (`openshell-gateway-external`) in the tenant namespace, with `secretName: openshell-gateway-external-tls` and both the exact name `gw-<ns>.<base-domain>` and the wildcard `*.gw-<ns>.<base-domain>` as dnsNames.
+
+One certificate, one Secret, one ACME order. A certificate may carry an exact name and a wildcard in the same SAN list; because both names are in the same DNS zone, one DNS-01 solver covers both. The wildcard covers exactly one label below `gw-<ns>.<base-domain>` - exposed-service hosts (`<sandbox>--<service>`) are a single DNS label, so every sandbox service URL is covered. The exact SAN covers the Gateway's own hostname, which the wildcard does not.
+
+The issuer is cluster-configured (`GATEWAY_EXTERNAL_ISSUER` / `GATEWAY_EXTERNAL_ISSUER_KIND`); the API carries no issuerRef. Wildcard SANs REQUIRE a DNS-01 issuer (e.g. `letsencrypt-dns01`); a cluster configured with an HTTP-01-only issuer cannot serve opted-in Gateways.
+
+#### Scenario: OSG-TLS-06.01 -- Single certificate with exact and wildcard SANs
+
+- GIVEN a Gateway created with `route: { certificate: {} }`
+- AND `GATEWAY_EXTERNAL_ISSUER` names a DNS-01-capable ClusterIssuer
+- WHEN the control plane reconciles the Gateway's external certificate
+- THEN it SHALL create exactly one `Certificate` `openshell-gateway-external` in the tenant namespace
+- AND its dnsNames SHALL be `gw-<ns>.<base-domain>` and `*.gw-<ns>.<base-domain>`
+- AND the resulting Secret `openshell-gateway-external-tls` SHALL serve both the Gateway's own hostname and every `<sandbox>--<service>.gw-<ns>.<base-domain>` host
+
+#### Scenario: OSG-TLS-06.02 -- Rotation reaches the serving path without pod involvement
+
+- GIVEN an opted-in Gateway whose external certificate is served by the per-tenant Gateway's listeners
+- WHEN cert-manager renews the `Certificate` (`rotationPolicy: Always`)
+- THEN the renewed Secret SHALL be picked up by the Gateway API implementation's listener hot-reload
+- AND the gateway pod SHALL NOT restart, and no reloader mechanism SHALL be required
+- AND the pod's internal certificate renewal (SAN Management and Cert Rotation) SHALL remain unchanged and orthogonal
+
+#### Scenario: OSG-TLS-06.03 -- server_sans injection for an opted-in gateway
+
+- GIVEN a Gateway created with `route: { certificate: {} }`
+- WHEN the GatewayReconciler renders the gateway configuration
+- THEN `server_sans` SHALL contain both `gw-<ns>.<base-domain>` and `*.gw-<ns>.<base-domain>`
+- AND the gateway SHALL strip the `*.` from the wildcard entry and derive the base domain `gw-<ns>.<base-domain>` for exposed-service URLs, making them unambiguous (unique per Gateway), certificate-valid (wildcard SAN), and routable (wildcard listener, HTTPRoute, and DNS)
+
+---
+
+### Requirement: OSG-TLS-03 -- Trusted CA Bundle Injection
 
 Gateways with OIDC enabled need to reach the identity provider's OIDC discovery endpoint over HTTPS. In environments where the IdP uses a non-public CA certificate (e.g., OpenShift CRC, private PKI), the gateway's default trust store will not include the required CA.
 
-#### Scenario: Trusted CA ConfigMap present
+#### Scenario: OSG-TLS-03.01 -- Trusted CA ConfigMap present
 
 - GIVEN a ConfigMap named `gateway-trusted-ca` exists in the HyperShell namespace
 - AND the ConfigMap has a `ca-bundle.crt` key containing PEM-encoded CA certificates
@@ -77,7 +111,7 @@ Gateways with OIDC enabled need to reach the identity provider's OIDC discovery 
 - AND it SHALL mount `ca-bundle.crt` at `/etc/pki/tls/certs/ca-bundle.crt` (read-only, subPath)
 - AND it SHALL add `SSL_CERT_FILE=/etc/pki/tls/certs/ca-bundle.crt` to the gateway container
 
-#### Scenario: Trusted CA ConfigMap absent
+#### Scenario: OSG-TLS-03.02 -- Trusted CA ConfigMap absent
 
 - GIVEN no ConfigMap named `gateway-trusted-ca` exists in the HyperShell namespace
 - WHEN the GatewayReconciler reconciles a gateway
@@ -86,7 +120,7 @@ Gateways with OIDC enabled need to reach the identity provider's OIDC discovery 
 
 ---
 
-### Requirement: RBAC for TLS Resources
+### Requirement: OSG-TLS-04 -- RBAC for TLS Resources
 
 The control plane ClusterRole SHALL include permissions for TLS-related resources:
 
@@ -102,11 +136,11 @@ The control plane ClusterRole SHALL include permissions for TLS-related resource
 
 ---
 
-### Requirement: Client Certificate Verification Conditional on Routing
+### Requirement: OSG-TLS-05 -- Client Certificate Verification Conditional on Routing
 
 The gateway config template includes a `client_ca_path` setting under `[openshell.gateway.tls]` that enables the server to require client certificates (mTLS). This setting SHALL be conditionally applied based on whether the gateway is exposed via Gateway API routing.
 
-#### Scenario: Gateway with routing enabled
+#### Scenario: OSG-TLS-05.01 -- Gateway with routing enabled
 
 - GIVEN a Gateway with `route.enabled = true`
 - WHEN the GatewayReconciler applies config overrides
@@ -114,7 +148,7 @@ The gateway config template includes a `client_ca_path` setting under `[openshel
 - AND it SHALL remove the `tls-client-ca` volume and volume mount from the Deployment
 - BECAUSE the Gateway API ingress proxy (Envoy) terminates external TLS and re-connects to the backend via BackendTLSPolicy, which only handles server certificate validation -- the proxy cannot present a client certificate, so requiring one causes "peer sent no certificates" connection resets
 
-#### Scenario: Gateway without routing (direct access)
+#### Scenario: OSG-TLS-05.02 -- Gateway without routing (direct access)
 
 - GIVEN a Gateway with no `route` configuration or `route.enabled = false`
 - WHEN the GatewayReconciler applies config overrides

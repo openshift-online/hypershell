@@ -20,12 +20,26 @@ import (
 // intermediary can tell a quiet-but-live feed from a dead one.
 const streamHeartbeat = 15 * time.Second
 
-// streamFrame is one SSE payload. Exactly one of Event or Status is set, except
-// for a heartbeat (Kind == "heartbeat") which carries neither.
+// streamFrame is one SSE payload. Exactly one of Event, Log, or Status is set,
+// except for a heartbeat (Kind == "heartbeat") which carries none.
 type streamFrame struct {
-	Kind   string           `json:"kind"` // "event" | "status" | "heartbeat"
+	Kind   string           `json:"kind"` // "event" | "log" | "status" | "heartbeat"
 	Event  *E2EStreamEvent  `json:"event,omitempty"`
+	Log    *E2EStreamLog    `json:"log,omitempty"`
 	Status *E2EStreamStatus `json:"status,omitempty"`
+}
+
+// E2EStreamLog is a single raw log line delivered live for an in-progress run
+// (E2E-LOG-21). It carries the stable sequence and timestamp the browser uses to
+// append the line to the same log list it paginates and to de-duplicate the
+// history-to-live seam. It is a distinct frame kind from the structural `event`
+// frames so the client can route log lines straight into the rendered log buffer.
+type E2EStreamLog struct {
+	Sequence  int64  `json:"sequence"`
+	Timestamp string `json:"timestamp"`
+	StepID    string `json:"stepId,omitempty"`
+	Message   string `json:"message"`
+	Truncated bool   `json:"truncated,omitempty"`
 }
 
 // E2EStreamEvent is a forwarded structured suite event. The UI reduces these
@@ -103,6 +117,7 @@ func (e *E2E) Stream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	seen := map[int64]bool{}
+	finished := false
 	forward := func(ev e2eEvent) {
 		if ev.RunID != runID || (ev.Namespace != "" && ev.Namespace != namespace) {
 			return
@@ -111,6 +126,16 @@ func (e *E2E) Stream(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		seen[ev.Sequence] = true
+		if ev.Event == e2eEventRunFinished {
+			finished = true
+		}
+		// A log record rides its own `log` frame so the browser appends it straight
+		// into the rendered log list it paginates (E2E-LOG-21); structural records
+		// ride the `event` frame the UI reduces into steps and verdict (E2E-LOG-11).
+		if ev.Event == e2eEventLog {
+			send(streamFrame{Kind: "log", Log: toStreamLog(ev)})
+			return
+		}
 		send(streamFrame{Kind: "event", Event: toStreamEvent(ev)})
 	}
 
@@ -140,6 +165,14 @@ func (e *E2E) Stream(w http.ResponseWriter, r *http.Request) {
 	}
 	send(streamFrame{Kind: "status", Status: &E2EStreamStatus{State: initialState}})
 	if writeErr != nil {
+		return
+	}
+
+	// In-progress only (E2E-LOG-21): if the run already has a terminal record, a Loki
+	// tail would replay nothing, so do not hold one open. The backfill above already
+	// delivered the run's events; the client reads the rest of the history by
+	// pagination. Returning here tears the shared tail down via the deferred unsub.
+	if finished {
 		return
 	}
 
@@ -197,6 +230,16 @@ func parseAndFilter(entries []LokiEntry, runID, namespace string) []e2eEvent {
 		events = append(events, ev)
 	}
 	return dedupeBySequence(events)
+}
+
+func toStreamLog(ev e2eEvent) *E2EStreamLog {
+	return &E2EStreamLog{
+		Sequence:  ev.Sequence,
+		Timestamp: ev.Timestamp,
+		StepID:    ev.StepID,
+		Message:   ev.Message,
+		Truncated: ev.Truncated,
+	}
 }
 
 func toStreamEvent(ev e2eEvent) *E2EStreamEvent {

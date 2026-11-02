@@ -2,82 +2,49 @@ package gateways
 
 import (
 	"encoding/json"
-	"strings"
+	"log/slog"
 
-	"github.com/golang/glog"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
 )
 
+// ConvertGateway maps a user create request to a Gateway model. The create contract is
+// restricted to the user-writable allowlist -- name, plus placement/cluster_id resolved
+// by the handler before persistence (PLAT-DATA-23). Every other gateway field is
+// platform-managed and set only by the control plane, so none is copied here.
 func ConvertGateway(gateway openapi.GatewayCreateRequest) *Gateway {
-	c := &Gateway{}
-	c.Name = gateway.Name
-	// Placement resolves the concrete cluster in the create handler before the
-	// Gateway model is persisted.
-	c.ExternalDns = gateway.ExternalDns
-	c.TlsMode = gateway.TlsMode
-	c.ServiceType = gateway.ServiceType
-	c.Status = gateway.Status
-	c.Phase = gateway.Phase
-	c.Image = gateway.Image
-	c.SupervisorImage = gateway.SupervisorImage
-	c.Oidc = gateway.Oidc
-	c.Route = gateway.Route
-	c.CredentialDriver = gateway.CredentialDriver
-
-	if len(gateway.ServerDnsNames) > 0 {
-		data, _ := json.Marshal(gateway.ServerDnsNames)
-		s := string(data)
-		c.ServerDnsNames = &s
-	}
-
-	return c
-}
-
-// gatewayImagePinned reports whether the gateway pins an explicit image. A
-// pinned gateway may intentionally run a version unrelated to its cluster's
-// provisioning version, so the console suppresses drift for it (GVV-03).
-func gatewayImagePinned(gateway *Gateway) bool {
-	return gateway.Image != nil && strings.TrimSpace(*gateway.Image) != ""
+	return &Gateway{Name: gateway.Name, DedicatedRoute: gateway.DedicatedRoute}
 }
 
 // PresentGateway converts a Gateway model to its REST representation.
-// provisioningVersion is the version the gateway's cluster advertises through
-// its gateway-version capability, derived by the caller from cluster_id; it is
-// empty when the cluster advertises none.
-func PresentGateway(gateway *Gateway, createdBy string, canDelete bool, canEdit bool, provisioningVersion string) openapi.Gateway {
+func PresentGateway(gateway *Gateway, createdBy string, canDelete bool, canEdit bool) openapi.Gateway {
 	reference := presenters.PresentReference(gateway.ID, gateway)
 	g := openapi.Gateway{
-		ImagePinned:     openapi.PtrBool(gatewayImagePinned(gateway)),
-		CanDelete:       openapi.PtrBool(canDelete),
-		CanEdit:         openapi.PtrBool(canEdit),
-		Id:              reference.Id,
-		Kind:            reference.Kind,
-		Href:            reference.Href,
-		CreatedAt:       openapi.PtrTime(gateway.CreatedAt),
-		UpdatedAt:       openapi.PtrTime(gateway.UpdatedAt),
-		Name:            gateway.Name,
-		ClusterId:       gateway.ClusterId,
-		Namespace:       gateway.Namespace,
-		ExternalDns:     gateway.ExternalDns,
-		TlsMode:         gateway.TlsMode,
-		ServiceType:     gateway.ServiceType,
-		Status:          gateway.Status,
-		Phase:           gateway.Phase,
-		Image:           gateway.Image,
-		SupervisorImage: gateway.SupervisorImage,
-		RouteAddress:    gateway.RouteAddress,
-		ConsoleAddress:  gateway.ConsoleAddress,
-		GatewayVersion:  gateway.GatewayVersion,
-		ProvisioningVersion: func() *string {
-			if provisioningVersion == "" {
-				return nil
-			}
-			return openapi.PtrString(provisioningVersion)
-		}(),
+		CanDelete:          openapi.PtrBool(canDelete),
+		CanEdit:            openapi.PtrBool(canEdit),
+		Id:                 reference.Id,
+		Kind:               reference.Kind,
+		Href:               reference.Href,
+		CreatedAt:          openapi.PtrTime(gateway.CreatedAt),
+		UpdatedAt:          openapi.PtrTime(gateway.UpdatedAt),
+		Name:               gateway.Name,
+		ClusterId:          gateway.ClusterId,
+		Namespace:          gateway.Namespace,
+		ExternalDns:        gateway.ExternalDns,
+		TlsMode:            gateway.TlsMode,
+		ServiceType:        gateway.ServiceType,
+		Status:             gateway.Status,
+		Phase:              gateway.Phase,
+		Image:              gateway.Image,
+		SupervisorImage:    gateway.SupervisorImage,
+		RouteAddress:       gateway.RouteAddress,
+		ConsoleAddress:     gateway.ConsoleAddress,
+		GatewayVersion:     gateway.GatewayVersion,
 		Oidc:               gateway.Oidc,
 		Route:              gateway.Route,
+		DedicatedRoute:     gateway.DedicatedRoute,
 		CredentialDriver:   gateway.CredentialDriver,
+		WorkspaceMode:      gateway.WorkspaceMode,
 		RepositoryId:       gateway.RepositoryId,
 		Generation:         &gateway.Generation,
 		ObservedGeneration: &gateway.ObservedGeneration,
@@ -107,7 +74,7 @@ func PresentGateway(gateway *Gateway, createdBy string, canDelete bool, canEdit 
 			Message         string `json:"message"`
 		}
 		if err := json.Unmarshal([]byte(*gateway.ProvisioningConditions), &conditions); err != nil {
-			glog.Warningf("failed to unmarshal provisioning_conditions for gateway %s: %v", gateway.ID, err)
+			slog.Warn("failed to unmarshal provisioning_conditions", "gateway_id", gateway.ID, "error", err)
 		} else {
 			apiConditions := make([]openapi.GatewayAllOfProvisioningConditions, 0, len(conditions))
 			for _, c := range conditions {

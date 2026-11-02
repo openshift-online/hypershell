@@ -35,7 +35,7 @@ func (e *ProductionEnvImpl) OverrideClients(c *pkgenv.Clients) error {
 
 func (e *ProductionEnvImpl) Flags() map[string]string {
 	return map[string]string{
-		"v":           "1",
+		"log-level":   "info",
 		"debug":       "false",
 		"enable-mock": "false",
 	}

@@ -13,8 +13,8 @@ import (
 )
 
 // ReconcileEndFunc is the callback returned by StartReconcileSpan. Call it when
-// the reconcile completes, passing the outcome (from CRM-006), an optional
-// reason code (from CRM-007, required for retryable/failed outcomes), and any
+// the reconcile completes, passing the outcome (from OBS-CRM-06), an optional
+// reason code (from OBS-CRM-07, required for retryable/failed outcomes), and any
 // error. The error is used for span status and logging; outcome and reason
 // drive the metrics.
 type ReconcileEndFunc func(outcome, reason string, err error)
@@ -25,10 +25,10 @@ type ReconcileEndFunc func(outcome, reason string, err error)
 // long-lived watch stream span into a single unbounded trace. The caller
 // must call the returned end function when the reconcile completes, passing
 // the outcome, reason, and error. When telemetry is disabled, it returns the
-// original context and a no-op end function so there is zero overhead (CP-OBS-01).
+// original context and a no-op end function so there is zero overhead (OBS-CPL-01).
 //
 // When traceparent is non-empty, the span carries a link to the originating
-// request trace (RTC-03). A missing or malformed traceparent produces a
+// request trace (CTRL-TRC-03). A missing or malformed traceparent produces a
 // normal root with no link and no error.
 func StartReconcileSpan(ctx context.Context, kind, eventType, traceparent string) (context.Context, ReconcileEndFunc) {
 	if !enabled {
@@ -54,14 +54,14 @@ func StartReconcileSpan(ctx context.Context, kind, eventType, traceparent string
 
 	start := time.Now()
 	return ctx, func(outcome, reason string, err error) {
-		// Record outcome and duration (CRM-008, CRM-009)
+		// Record outcome and duration (OBS-CRM-08, OBS-CRM-09)
 		RecordReconcileOutcome(ctx, kind, outcome)
 		RecordReconcileDuration(ctx, kind, eventType, outcome, start)
 		RecordReconciliationLag(ctx, kind, time.Since(start))
 
-		// Record failure-specific metrics (CRM-011)
+		// Record failure-specific metrics (OBS-CRM-11)
 		// Note: retries are recorded by the queue when the retry is actually
-		// scheduled (CRM-010), not here, to avoid double-counting.
+		// scheduled (OBS-CRM-10), not here, to avoid double-counting.
 		switch outcome {
 		case OutcomeFailed:
 			RecordReconcileFailedWithReason(ctx, kind, reason)
@@ -132,7 +132,7 @@ func parseTraceparentLink(traceparent string) (trace.Link, bool) {
 
 // StartWatchSpan begins a lifecycle span for a single watch stream
 // connection attempt. When telemetry is disabled it returns the original
-// context and a no-op end function (CP-OBS-01).
+// context and a no-op end function (OBS-CPL-01).
 func StartWatchSpan(ctx context.Context, kind string) (context.Context, func(error)) {
 	if !enabled {
 		return ctx, func(error) {}

@@ -75,6 +75,7 @@ func startStream(t *testing.T, e *E2E, id string) (<-chan streamFrame, func()) {
 	return frames, cleanup
 }
 
+// Verifies: E2E-LOG-06.01
 func TestStreamBackfillThenLiveWithDedup(t *testing.T) {
 	loki := &fakeLoki{history: map[string][]LokiEntry{
 		"hub-00": {{Line: viaQLine(t, ev(e2eEventStepStarted, 2, map[string]any{"stepId": "P1.1", "name": "provisioning"}))}},
@@ -113,6 +114,7 @@ func TestStreamBackfillThenLiveWithDedup(t *testing.T) {
 	}
 }
 
+// Verifies: E2E-LOG-06.02
 func TestStreamSurfacesDroppedEntries(t *testing.T) {
 	loki := &fakeLoki{history: map[string][]LokiEntry{"hub-00": nil}}
 	e := testE2E(loki)
@@ -150,6 +152,7 @@ func TestStreamDisconnectWhenUpstreamCloses(t *testing.T) {
 	})
 }
 
+// Verifies: E2E-LOG-05.03
 func TestStreamSharesUpstreamWithinReplica(t *testing.T) {
 	loki := &fakeLoki{history: map[string][]LokiEntry{"hub-00": nil}}
 	e := testE2E(loki)
@@ -204,6 +207,77 @@ func TestTailBrokerCancelsContextWhenUpstreamClosesItself(t *testing.T) {
 	case <-tailCtx.Done():
 	case <-time.After(2 * time.Second):
 		t.Fatal("tail context not cancelled after upstream close (goroutine/context leak)")
+	}
+}
+
+// TestStreamLiveLogFrame confirms a live log line for an in-progress run is
+// delivered as a dedicated `log` frame carrying its sequence and timestamp, not as
+// a structural `event` frame, so the browser appends it straight into the rendered
+// log list it paginates (E2E-LOG-21.01).
+// Verifies: E2E-LOG-21.01
+func TestStreamLiveLogFrame(t *testing.T) {
+	// In-progress backfill: a step_started, no run_finished, so the stream stays live.
+	loki := &fakeLoki{history: map[string][]LokiEntry{
+		"hub-00": {{Line: viaQLine(t, ev(e2eEventStepStarted, 2, map[string]any{"stepId": "P1.1", "name": "provisioning"}))}},
+	}}
+	e := testE2E(loki)
+	tail := loki.tailChan("hub-00")
+
+	frames, cleanup := startStream(t, e, makeRunID("hub-00", "hypershell", "run-1"))
+	defer cleanup()
+	awaitFrame(t, frames, "live status", func(f streamFrame) bool {
+		return f.Kind == "status" && f.Status != nil && f.Status.State == streamStateLive
+	})
+
+	tail <- TailMessage{Entries: []LokiEntry{{Line: viaQLine(t, ev(e2eEventLog, 3, map[string]any{"message": "hello", "stepId": "P1.1"}))}}}
+	f := awaitFrame(t, frames, "live log frame", func(f streamFrame) bool {
+		return f.Kind == "log"
+	})
+	if f.Log == nil || f.Log.Sequence != 3 || f.Log.Message != "hello" || f.Log.Timestamp == "" {
+		t.Fatalf("log frame missing sequence/timestamp/message: %+v", f.Log)
+	}
+	if f.Event != nil {
+		t.Error("a log line must not also ride a structural event frame")
+	}
+}
+
+// TestStreamFinishedRunClosesWithoutLiveTail confirms a completed run's stream
+// does not hold a live tail open rendering nothing: after backfilling the terminal
+// record it ends promptly rather than idling on heartbeats (E2E-LOG-21).
+// Verifies: E2E-LOG-21.02
+func TestStreamFinishedRunClosesWithoutLiveTail(t *testing.T) {
+	loki := &fakeLoki{history: map[string][]LokiEntry{
+		"hub-00": {
+			{Line: viaQLine(t, ev(e2eEventStepStarted, 1, map[string]any{"stepId": "P1.1", "name": "provisioning"}))},
+			{Line: viaQLine(t, ev(e2eEventRunFinished, 2, map[string]any{"outcome": "passed"}))},
+		},
+	}}
+	e := testE2E(loki)
+	_ = loki.tailChan("hub-00")
+
+	frames, cleanup := startStream(t, e, makeRunID("hub-00", "hypershell", "run-1"))
+	defer cleanup()
+
+	// The stream sends the backfill and the status, then closes rather than entering
+	// the heartbeat loop. Drain until the channel closes, well before a heartbeat
+	// (15s) would arrive.
+	deadline := time.After(3 * time.Second)
+	sawFinished := false
+	for {
+		select {
+		case f, ok := <-frames:
+			if !ok {
+				if !sawFinished {
+					t.Fatal("stream closed before delivering the terminal event")
+				}
+				return // closed promptly: no live tail held open
+			}
+			if f.Kind == "event" && f.Event != nil && f.Event.Event == e2eEventRunFinished {
+				sawFinished = true
+			}
+		case <-deadline:
+			t.Fatal("finished run stream did not close; it is holding a live tail open")
+		}
 	}
 }
 

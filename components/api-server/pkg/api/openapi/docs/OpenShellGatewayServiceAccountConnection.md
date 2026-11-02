@@ -4,14 +4,14 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**GatewayName** | **string** |  | 
-**GatewayEndpoint** | Pointer to **string** |  | [optional] 
-**Issuer** | **string** |  | 
-**TokenEndpoint** | **string** |  | 
-**GrantType** | **string** |  | 
-**ClientId** | **string** |  | 
-**Audience** | **string** |  | 
-**AccessTokenLifetimeSeconds** | **int32** |  | 
+**GatewayName** | **string** |  |
+**GatewayEndpoint** | Pointer to **string** |  | [optional]
+**Issuer** | **string** |  |
+**TokenEndpoint** | **string** |  |
+**GrantType** | **string** |  |
+**ClientId** | **string** |  |
+**Audience** | **string** |  |
+**AccessTokenLifetimeSeconds** | **int32** |  |
 
 ## Methods
 
@@ -199,5 +199,3 @@ SetAccessTokenLifetimeSeconds sets AccessTokenLifetimeSeconds field to given val
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
-
-

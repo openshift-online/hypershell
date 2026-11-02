@@ -6,4 +6,7 @@ const meta = {
   parameters: { layout: "fullscreen" },
 } satisfies Meta<typeof UsageDashboardMockup>;
 export default meta;
-export const Default: StoryObj<typeof meta> = {};
+export const Administrator: StoryObj<typeof meta> = {};
+export const NonAdministrator: StoryObj<typeof meta> = {
+  args: { isAdmin: false },
+};

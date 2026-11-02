@@ -18,6 +18,157 @@ export const messages = defineMessages({
     defaultMessage: "Admin",
     description: "Badge indicating an administrator resource scope.",
   },
+  adoptionActiveUsersTrendTitle: {
+    id: "app.dashboard.adoption.activeUsersTrend.title",
+    defaultMessage: "Active users",
+    description: "Visible title for the active-users adoption trend chart.",
+  },
+  adoptionConversionAriaDesc: {
+    id: "app.dashboard.adoption.conversion.ariaDesc",
+    defaultMessage:
+      "Registered users who have and have not created a first gateway.",
+    description: "Accessible description for the adoption conversion donut.",
+  },
+  adoptionConversionChartTitle: {
+    id: "app.dashboard.adoption.conversion.chartTitle",
+    defaultMessage: "First-gateway conversion chart",
+    description: "Accessible title for the adoption conversion donut.",
+  },
+  adoptionConversionRate: {
+    id: "app.dashboard.adoption.conversion.rate",
+    defaultMessage: "{rate}%",
+    description: "Center value for the adoption conversion donut.",
+  },
+  adoptionConversionSubtitle: {
+    id: "app.dashboard.adoption.conversion.subtitle",
+    defaultMessage: "Conversion",
+    description: "Center label for the adoption conversion donut.",
+  },
+  adoptionDailyActiveUsers: {
+    id: "app.dashboard.adoption.dailyActiveUsers",
+    defaultMessage: "Daily active users",
+    description: "Adoption summary label for daily active users.",
+  },
+  adoptionDescription: {
+    id: "app.dashboard.adoption.description",
+    defaultMessage:
+      "Understand who is using HyperShell, how adoption is changing, and where users drop off.",
+    description: "Description for the adoption dashboard page.",
+  },
+  adoptionFirstGatewayConversion: {
+    id: "app.dashboard.adoption.firstGatewayConversion",
+    defaultMessage: "First gateway conversion",
+    description: "Conversion label for users who have owned a gateway.",
+  },
+  adoptionFirstSandboxConversion: {
+    id: "app.dashboard.adoption.firstSandboxConversion",
+    defaultMessage: "First sandbox conversion",
+    description: "Unavailable conversion label for first sandbox use.",
+  },
+  adoptionInactiveUsers: {
+    id: "app.dashboard.adoption.inactiveUsers",
+    defaultMessage: "Inactive users (30+ days)",
+    description: "Adoption summary label for inactive users.",
+  },
+  adoptionLoadErrorBody: {
+    id: "app.dashboard.adoption.loadError.body",
+    defaultMessage:
+      "An unexpected error occurred while loading adoption metrics.",
+    description: "Recovery guidance when adoption metrics cannot be loaded.",
+  },
+  adoptionLoadErrorTitle: {
+    id: "app.dashboard.adoption.loadError.title",
+    defaultMessage: "Adoption dashboard metrics are unavailable",
+    description: "Title shown when adoption metrics cannot be loaded.",
+  },
+  adoptionLoading: {
+    id: "app.dashboard.adoption.loading",
+    defaultMessage: "Loading adoption dashboard metrics",
+    description: "Accessible status shown while adoption metrics load.",
+  },
+  adoptionMedianTimeToFirstResource: {
+    id: "app.dashboard.adoption.medianTimeToFirstResource",
+    defaultMessage: "Median time to first resource",
+    description: "Unavailable conversion label for time to first resource.",
+  },
+  adoptionMonthlyActiveUsers: {
+    id: "app.dashboard.adoption.monthlyActiveUsers",
+    defaultMessage: "Monthly active users",
+    description: "Adoption summary label for monthly active users.",
+  },
+  adoptionNewRegistrations: {
+    id: "app.dashboard.adoption.newRegistrations",
+    defaultMessage: "New registrations (selected period)",
+    description:
+      "Adoption summary label for registrations in the selected range.",
+  },
+  adoptionNotConverted: {
+    id: "app.dashboard.adoption.notConverted",
+    defaultMessage: "Not converted",
+    description: "Legend label for registered users without a first gateway.",
+  },
+  adoptionOrganizations: {
+    id: "app.dashboard.adoption.organizations",
+    defaultMessage: "Organizations",
+    description: "Unavailable organizations label.",
+  },
+  adoptionPurpose: {
+    id: "app.dashboard.adoption.purpose",
+    defaultMessage:
+      "Are people adopting HyperShell? Are registrations, active use, conversion, and retention moving in the right direction? These are aggregate measures; no user-level data is displayed.",
+    description: "Purpose statement for the adoption dashboard.",
+  },
+  adoptionPurposeHeading: {
+    id: "app.dashboard.adoption.purposeHeading",
+    defaultMessage: "What this dashboard answers",
+    description: "Heading for the adoption dashboard purpose statement.",
+  },
+  adoptionRegisteredUsers: {
+    id: "app.dashboard.adoption.registeredUsers",
+    defaultMessage: "{value} registered users",
+    description: "Adoption summary heading for total registered users.",
+  },
+  adoptionRegistrationsTrendTitle: {
+    id: "app.dashboard.adoption.registrationsTrend.title",
+    defaultMessage: "New registrations",
+    description:
+      "Visible title for the new-registrations adoption trend chart.",
+  },
+  adoptionRetention: {
+    id: "app.dashboard.adoption.retention",
+    defaultMessage: "7-day retention",
+    description: "Adoption trend label for 7-day retention.",
+  },
+  adoptionRetention30Days: {
+    id: "app.dashboard.adoption.retention30Days",
+    defaultMessage: "30-day retention",
+    description: "Adoption trend label for unavailable 30-day retention.",
+  },
+  adoptionTrendCaption: {
+    id: "app.dashboard.adoption.trendCaption",
+    defaultMessage: "Last {days} days - daily bucket - UTC",
+    description: "Caption for adoption trend charts.",
+  },
+  adoptionTrendsWidget: {
+    id: "app.dashboard.widget.adoptionTrends",
+    defaultMessage: "Adoption trends",
+    description: "Title for the adoption trends dashboard widget.",
+  },
+  adoptionWeeklyActiveUsers: {
+    id: "app.dashboard.adoption.weeklyActiveUsers",
+    defaultMessage: "Weekly active users",
+    description: "Adoption summary label for weekly active users.",
+  },
+  adoptionWidgetConversion: {
+    id: "app.dashboard.widget.adoptionConversion",
+    defaultMessage: "Registration to first resource",
+    description: "Title for the adoption conversion dashboard widget.",
+  },
+  adoptionWidgetSummary: {
+    id: "app.dashboard.widget.adoptionSummary",
+    defaultMessage: "Adoption summary",
+    description: "Title for the adoption summary dashboard widget.",
+  },
   apiErrorRateWidget: {
     id: "app.dashboard.widget.apiErrorRate",
     defaultMessage: "API error rate",
@@ -119,6 +270,11 @@ export const messages = defineMessages({
     defaultMessage: "Platform inventory",
     description: "Main heading on the platform inventory dashboard page.",
   },
+  dashboardNavAdoption: {
+    id: "app.dashboard.nav.adoption",
+    defaultMessage: "Adoption",
+    description: "Dashboard secondary navigation label for Adoption.",
+  },
   dashboardNavInventory: {
     id: "app.dashboard.nav.inventory",
     defaultMessage: "Inventory",
@@ -161,6 +317,16 @@ export const messages = defineMessages({
     defaultMessage:
       "A compact landing page for the current state of the resources you are allowed to operate.",
     description: "Supporting text on the operational dashboard page.",
+  },
+  durationDaysHours: {
+    id: "app.dashboard.duration.daysHours",
+    defaultMessage: "{days}d {hours}h",
+    description: "Compact days and hours duration.",
+  },
+  durationHoursMinutes: {
+    id: "app.dashboard.duration.hoursMinutes",
+    defaultMessage: "{hours}h {minutes}m",
+    description: "Compact hours and minutes duration.",
   },
   durationMinutesSeconds: {
     id: "app.dashboard.duration.minutesSeconds",
@@ -812,7 +978,7 @@ export const messages = defineMessages({
   reliabilityDescription: {
     id: "app.dashboard.reliability.description",
     defaultMessage:
-      "API request rate, 5xx error rate, and median latency with 24-hour hourly trends. Metrics refresh every 15 minutes.",
+      "API request rate, 5xx error rate, median latency, API p95 latency, OIDC client sync, and state accuracy with 24-hour hourly trends. Metrics refresh every 15 minutes.",
     description: "Supporting text on the reliability dashboard page.",
   },
   reliabilityLoadErrorBody: {
@@ -1141,12 +1307,6 @@ export const messages = defineMessages({
     defaultMessage: "{date}: {value} {metric}",
     description: "Tooltip for a dashboard metric trend sparkline point.",
   },
-  trendTooltipNoValue: {
-    id: "app.dashboard.trend.tooltip.noValue",
-    defaultMessage: "{date}: no sample for {metric}",
-    description:
-      "Tooltip for a calendar day without a dashboard metric trend sample.",
-  },
   updatedMinuteAgo: {
     id: "app.dashboard.updatedMinuteAgo",
     defaultMessage: "Updated 1 minute ago",
@@ -1165,10 +1325,161 @@ export const messages = defineMessages({
     description:
       "Relative timestamp shown when the dashboard was updated less than one minute ago.",
   },
+  usageActiveSandboxes: {
+    id: "app.dashboard.usage.sandboxUtilization.active",
+    defaultMessage: "Active sandboxes",
+    description: "Label for the active sandbox count.",
+  },
+  usageActiveShare: {
+    id: "app.dashboard.usage.activeGateways.activeShare",
+    defaultMessage: "Active share",
+    description: "Label for the active gateway share.",
+  },
+  usageDescription: {
+    id: "app.dashboard.usage.description",
+    defaultMessage:
+      "See how gateways and sandboxes are being used, not just how many have been provisioned.",
+    description: "Supporting text on the usage dashboard page.",
+  },
+  usageErrorRateSubtitle: {
+    id: "app.dashboard.usage.errorRate.subtitle",
+    defaultMessage: "Errors as a percentage of requests",
+    description: "Subtitle for the gateway request error-rate value.",
+  },
+  usageLoadErrorBody: {
+    id: "app.dashboard.usage.loadError.body",
+    defaultMessage:
+      "An unexpected error occurred while loading usage metrics. Try refreshing the dashboard.",
+    description:
+      "Recovery guidance when usage dashboard metrics cannot be loaded.",
+  },
+  usageLoadErrorTitle: {
+    id: "app.dashboard.usage.loadError.title",
+    defaultMessage: "Usage dashboard metrics are unavailable",
+    description: "Title shown when usage dashboard metrics cannot be loaded.",
+  },
+  usageLoading: {
+    id: "app.dashboard.usage.loading",
+    defaultMessage: "Loading usage dashboard metrics",
+    description: "Accessible status shown while usage metrics load.",
+  },
+  usageNavUsage: {
+    id: "app.dashboard.nav.usage",
+    defaultMessage: "Usage",
+    description: "Secondary navigation label for the usage dashboard route.",
+  },
+  usagePartialDataBody: {
+    id: "app.dashboard.usage.partialData.body",
+    defaultMessage:
+      "The dashboard shows the data that is currently available. Missing daily points are not treated as zero.",
+    description: "Guidance shown when usage trend data is incomplete.",
+  },
+  usagePartialDataLabel: {
+    id: "app.dashboard.usage.partialData.label",
+    defaultMessage: "Partial data",
+    description: "Label shown inside a widget with incomplete trend data.",
+  },
+  usagePartialDataTitle: {
+    id: "app.dashboard.usage.partialData.title",
+    defaultMessage: "Some usage data is incomplete",
+    description: "Title shown when usage data covers only part of the range.",
+  },
+  usageProvisionedGateways: {
+    id: "app.dashboard.usage.activeGateways.provisioned",
+    defaultMessage: "Provisioned gateways",
+    description: "Label for the authorized provisioned gateway count.",
+  },
+  usageProvisionedSandboxes: {
+    id: "app.dashboard.usage.sandboxUtilization.provisioned",
+    defaultMessage: "Provisioned sandboxes",
+    description: "Label for the provisioned sandbox count.",
+  },
+  usagePurpose: {
+    id: "app.dashboard.usage.purpose",
+    defaultMessage:
+      "Are my gateways receiving traffic? Which provisioned gateways are unused? How are my sandboxes being utilized, and how long do they live?",
+    description: "Purpose statement for the usage dashboard.",
+  },
+  usagePurposeAuthorizedScope: {
+    id: "app.dashboard.usage.purpose.authorizedScope",
+    defaultMessage: "Metrics are scoped to the resources you can access.",
+    description: "Resource scope note shown to non-administrators.",
+  },
+  usagePurposeHeading: {
+    id: "app.dashboard.usage.purposeHeading",
+    defaultMessage: "What this dashboard answers",
+    description: "Heading for the usage dashboard purpose statement.",
+  },
+  usagePurposeSystemScope: {
+    id: "app.dashboard.usage.purpose.systemScope",
+    defaultMessage: "Metrics cover the entire fleet.",
+    description: "Fleet scope note shown to platform administrators.",
+  },
+  usageRequestVolumeSubtitle: {
+    id: "app.dashboard.usage.requestVolume.subtitle",
+    defaultMessage: "Requests in the selected range",
+    description: "Subtitle for the gateway request volume value.",
+  },
+  usageSandboxLifetimeMean: {
+    id: "app.dashboard.usage.sandboxLifetime.mean",
+    defaultMessage: "Average sandbox lifetime",
+    description: "Label for the mean sandbox lifetime value.",
+  },
+  usageSandboxLifetimeP50: {
+    id: "app.dashboard.usage.sandboxLifetime.p50",
+    defaultMessage: "P50 lifetime",
+    description: "Label for the median sandbox lifetime value.",
+  },
+  usageSandboxLifetimeP95: {
+    id: "app.dashboard.usage.sandboxLifetime.p95",
+    defaultMessage: "P95 lifetime",
+    description: "Label for the 95th-percentile sandbox lifetime value.",
+  },
   usageSummaryWidget: {
     id: "app.dashboard.widget.usageSummary",
     defaultMessage: "Usage summary",
     description: "Title for the operational dashboard usage summary widget.",
+  },
+  usageTitle: {
+    id: "app.dashboard.usage.title",
+    defaultMessage: "Usage dashboard",
+    description: "Main heading on the usage dashboard page.",
+  },
+  usageUnusedGatewaysHelp: {
+    id: "app.dashboard.usage.unusedGateways.help",
+    defaultMessage:
+      "Gateways with no qualifying request activity in the selected period.",
+    description: "Guidance in the unused gateway usage widget.",
+  },
+  usageWidgetActiveGateways: {
+    id: "app.dashboard.usage.widget.activeGateways",
+    defaultMessage: "Active gateways",
+    description: "Title for the active gateway usage widget.",
+  },
+  usageWidgetGatewayErrorRate: {
+    id: "app.dashboard.usage.widget.gatewayErrorRate",
+    defaultMessage: "Gateway error rate",
+    description: "Title for the gateway request error-rate usage widget.",
+  },
+  usageWidgetGatewayRequestVolume: {
+    id: "app.dashboard.usage.widget.gatewayRequestVolume",
+    defaultMessage: "Gateway request volume",
+    description: "Title for the gateway request volume usage widget.",
+  },
+  usageWidgetSandboxLifetime: {
+    id: "app.dashboard.usage.widget.sandboxLifetime",
+    defaultMessage: "Sandbox lifetime",
+    description: "Title for the sandbox lifetime usage widget.",
+  },
+  usageWidgetSandboxUtilization: {
+    id: "app.dashboard.usage.widget.sandboxUtilization",
+    defaultMessage: "Sandbox utilization",
+    description: "Title for the sandbox utilization usage widget.",
+  },
+  usageWidgetUnusedGateways: {
+    id: "app.dashboard.usage.widget.unusedGateways",
+    defaultMessage: "Provisioned but unused",
+    description: "Title for the unused gateway usage widget.",
   },
   utilizationCapacity: {
     id: "app.dashboard.utilization.capacity",
@@ -1264,6 +1575,204 @@ export const messages = defineMessages({
     defaultMessage: "Stale resource status",
     description: "Title for the stale resource status dashboard widget.",
   },
+  /* eslint-disable sort-keys -- keep the SLI dashboard message set grouped together */
+  apiP95LatencyWidget: {
+    id: "app.dashboard.widget.apiP95Latency",
+    defaultMessage: "API p95 latency",
+    description: "Title for the API p95 latency dashboard widget.",
+  },
+  dashboardHelpApiP95Latency: {
+    id: "app.dashboard.help.apiP95Latency",
+    defaultMessage:
+      "The 95th-percentile API response time over the last 5 minutes. Target: 0.500 sec.",
+    description: "Help text for the API p95 latency widget.",
+  },
+  daysValue: {
+    id: "app.dashboard.summary.daysValue",
+    defaultMessage: "{value} days",
+    description: "A dashboard duration expressed in days.",
+  },
+  certificateHealthWidget: {
+    id: "app.dashboard.widget.certificateHealth",
+    defaultMessage: "Certificate health",
+    description: "Title for the certificate health dashboard widget.",
+  },
+  certificateHealthHelp: {
+    id: "app.dashboard.certificateHealth.help",
+    defaultMessage:
+      "Certificate status is read from gateway and console TLS secrets; unreadable status shows unavailable.",
+    description: "Explanatory text for certificate health metrics.",
+  },
+  certificateHealthAriaLabel: {
+    id: "app.dashboard.certificateHealth.ariaLabel",
+    defaultMessage: "Certificate health summary",
+    description: "Accessible label for the certificate health summary.",
+  },
+  validCertificates: {
+    id: "app.dashboard.certificateHealth.valid",
+    defaultMessage: "Valid certificates",
+    description: "Label for valid certificates.",
+  },
+  soonestCertificateExpiry: {
+    id: "app.dashboard.certificateHealth.soonestExpiry",
+    defaultMessage: "Days to expiry (soonest)",
+    description: "Label for the soonest certificate expiry.",
+  },
+  expiredCertificates: {
+    id: "app.dashboard.certificateHealth.expired",
+    defaultMessage: "Expired certificates",
+    description: "Label for expired certificates.",
+  },
+  certificateStatusUnavailable: {
+    id: "app.dashboard.certificateHealth.unavailable",
+    defaultMessage: "Status unavailable",
+    description: "Label for certificates with unavailable status.",
+  },
+  podAndSandboxReadinessWidget: {
+    id: "app.dashboard.widget.podAndSandboxReadiness",
+    defaultMessage: "Pod and sandbox readiness",
+    description: "Title for the pod and sandbox readiness widget.",
+  },
+  resourceReadinessAriaLabel: {
+    id: "app.dashboard.resourceReadiness.ariaLabel",
+    defaultMessage: "Pod and sandbox readiness summary",
+    description: "Accessible label for the readiness summary.",
+  },
+  resourceReadinessHelp: {
+    id: "app.dashboard.resourceReadiness.help",
+    defaultMessage:
+      "Readiness is the percentage of resources whose Kubernetes Ready condition is true, not a count of running or pending pods.",
+    description: "Explanatory text for pod and sandbox readiness metrics.",
+  },
+  podReadiness: {
+    id: "app.dashboard.resourceReadiness.pods",
+    defaultMessage: "Pod readiness",
+    description: "Label for pod readiness percentage.",
+  },
+  sandboxReadiness: {
+    id: "app.dashboard.resourceReadiness.sandboxes",
+    defaultMessage: "Sandbox readiness",
+    description: "Label for sandbox readiness percentage.",
+  },
+  unreadyResources: {
+    id: "app.dashboard.resourceReadiness.unready",
+    defaultMessage: "Unready resources",
+    description: "Label for the total unready resource count.",
+  },
+  oidcClientSyncWidget: {
+    id: "app.dashboard.widget.oidcClientSync",
+    defaultMessage: "OIDC client sync",
+    description: "Title for the OIDC client sync widget.",
+  },
+  oidcClientSyncAriaLabel: {
+    id: "app.dashboard.oidcClientSync.ariaLabel",
+    defaultMessage: "OIDC client sync summary",
+    description: "Accessible label for the OIDC client sync summary.",
+  },
+  oidcClientSyncHelp: {
+    id: "app.dashboard.oidcClientSync.help",
+    defaultMessage:
+      "Shows Unknown when expected clients or Keycloak status cannot be determined.",
+    description: "Explanatory text for OIDC client sync metrics.",
+  },
+  accuracy: {
+    id: "app.dashboard.summary.accuracy",
+    defaultMessage: "Accuracy",
+    description: "Label for an accuracy percentage.",
+  },
+  syncedClients: {
+    id: "app.dashboard.oidcClientSync.synced",
+    defaultMessage: "Synced clients",
+    description: "Label for synced OIDC clients.",
+  },
+  expectedClients: {
+    id: "app.dashboard.oidcClientSync.expected",
+    defaultMessage: "Expected clients",
+    description: "Label for expected OIDC clients.",
+  },
+  keycloakStatus: {
+    id: "app.dashboard.oidcClientSync.keycloakStatus",
+    defaultMessage: "Keycloak status",
+    description: "Label for Keycloak connectivity status.",
+  },
+  connected: {
+    id: "app.dashboard.status.connected",
+    defaultMessage: "Connected",
+    description: "Connected status label.",
+  },
+  disconnected: {
+    id: "app.dashboard.status.disconnected",
+    defaultMessage: "Disconnected",
+    description: "Disconnected status label.",
+  },
+  unknown: {
+    id: "app.dashboard.status.unknown",
+    defaultMessage: "Unknown",
+    description: "Unknown value or status label.",
+  },
+  stateAccuracyWidget: {
+    id: "app.dashboard.widget.stateAccuracy",
+    defaultMessage: "State accuracy",
+    description: "Title for the reconciliation state accuracy widget.",
+  },
+  stateAccuracyAriaLabel: {
+    id: "app.dashboard.stateAccuracy.ariaLabel",
+    defaultMessage: "State accuracy summary",
+    description: "Accessible label for the state accuracy summary.",
+  },
+  stateAccuracyHelp: {
+    id: "app.dashboard.stateAccuracy.help",
+    defaultMessage:
+      "The raw stale-resource count remains visible on the Stale resource status widget.",
+    description: "Explanatory text for reconciliation state accuracy.",
+  },
+  observedMatchingDesired: {
+    id: "app.dashboard.stateAccuracy.matching",
+    defaultMessage: "Observed matching desired",
+    description: "Label for resources whose observed state matches desired.",
+  },
+  staleResources: {
+    id: "app.dashboard.stateAccuracy.stale",
+    defaultMessage: "Stale resources",
+    description: "Label for stale reconciliation resources.",
+  },
+  provisionTimeP99Label: {
+    id: "app.dashboard.provisionTime.p99",
+    defaultMessage: "P99",
+    description: "Label for the 99th percentile gateway provision duration.",
+  },
+  provisionTimeP99Note: {
+    id: "app.dashboard.provisionTime.p99Note",
+    defaultMessage:
+      "P99 target is 5 minutes; the warning state appears when P99 exceeds the target.",
+    description: "Context note explaining the P99 gateway provision target.",
+  },
+  provisionTimeP99TrendCaption: {
+    id: "app.dashboard.provisionTime.p99TrendCaption",
+    defaultMessage: "Last {days} days - daily P99 time to ready",
+    description: "Caption for the daily gateway provision P99 trend.",
+  },
+  provisionTimeTargetLabel: {
+    id: "app.dashboard.provisionTime.target",
+    defaultMessage: "Target",
+    description: "Label for the gateway provision duration target.",
+  },
+  provisionTimeP99Warning: {
+    id: "app.dashboard.provisionTime.p99Warning",
+    defaultMessage: "P99 exceeds the 5-minute target",
+    description: "Warning shown when P99 provision duration exceeds target.",
+  },
+  countOfTotal: {
+    id: "app.dashboard.summary.countOfTotal",
+    defaultMessage: "{count} / {total}",
+    description: "A count displayed relative to a total count.",
+  },
+  percentValue: {
+    id: "app.dashboard.summary.percentValue",
+    defaultMessage: "{value}%",
+    description: "A dashboard percentage value.",
+  },
+  /* eslint-enable sort-keys */
 });
 
 export const dashboardHelpMessages: Partial<
@@ -1271,6 +1780,7 @@ export const dashboardHelpMessages: Partial<
 > = {
   "api-error-rate": messages.dashboardHelpApiErrorRate,
   "api-latency": messages.dashboardHelpApiLatency,
+  "api-p95-latency": messages.dashboardHelpApiP95Latency,
   "api-request-rate": messages.dashboardHelpApiRequestRate,
   "reconciliation-failures": messages.dashboardHelpReconciliationFailures,
   "reconciliation-lag": messages.dashboardHelpReconciliationLag,

@@ -103,6 +103,68 @@ func TestClientConcurrentTokenSnapshots(t *testing.T) {
 	}
 }
 
+func TestGatewayClientSyncedChecksManagedState(t *testing.T) {
+	missingUserRole := false
+	driftedMapper := false
+	mux := http.NewServeMux()
+	mux.HandleFunc(fmt.Sprintf("/admin/realms/%s/clients", testRealm), func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode([]keycloakClient{{
+			ID:                        testGatewayUUID,
+			ClientID:                  testGatewayClientID,
+			Enabled:                   true,
+			PublicClient:              true,
+			StandardFlowEnabled:       true,
+			DirectAccessGrantsEnabled: true,
+			Attributes: map[string]string{
+				"pkce.code.challenge.method":      "S256",
+				deviceAuthorizationGrantAttribute: "true",
+			},
+		}})
+	})
+	mux.HandleFunc(fmt.Sprintf("/admin/realms/%s/clients/%s/roles", testRealm, testGatewayUUID), func(w http.ResponseWriter, _ *http.Request) {
+		roles := []keycloakRole{{Name: "openshell-admin"}}
+		if !missingUserRole {
+			roles = append(roles, keycloakRole{Name: "openshell-user"})
+		}
+		_ = json.NewEncoder(w).Encode(roles)
+	})
+	mux.HandleFunc(fmt.Sprintf("/admin/realms/%s/clients/%s/protocol-mappers/models", testRealm, testGatewayUUID), func(w http.ResponseWriter, _ *http.Request) {
+		mappers := desiredGatewayProtocolMappers(testGatewayClientID)
+		if driftedMapper {
+			mappers[2].Config["claim.name"] = "wrong.roles"
+		}
+		_ = json.NewEncoder(w).Encode(mappers)
+	})
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+
+	client := NewClient(server.URL, testRealm, testAdminClientID, testAdminSecret)
+	client.token = "test-token"
+	client.tokenExpiry = time.Now().Add(time.Hour)
+
+	synced, err := client.GatewayClientSynced(t.Context(), testGatewayClientID)
+	if err != nil || !synced {
+		t.Fatalf("GatewayClientSynced() = %v, %v; want true, nil", synced, err)
+	}
+	missingUserRole = true
+	synced, err = client.GatewayClientSynced(t.Context(), testGatewayClientID)
+	if err != nil {
+		t.Fatalf("GatewayClientSynced() drift error = %v", err)
+	}
+	if synced {
+		t.Fatal("GatewayClientSynced() = true with a missing managed role")
+	}
+	missingUserRole = false
+	driftedMapper = true
+	synced, err = client.GatewayClientSynced(t.Context(), testGatewayClientID)
+	if err != nil {
+		t.Fatalf("GatewayClientSynced() mapper drift error = %v", err)
+	}
+	if synced {
+		t.Fatal("GatewayClientSynced() = true with same-name mapper configuration drift")
+	}
+}
+
 // fakeKeycloak records the mappers and scope-mapping grants the client sends.
 type fakeKeycloak struct {
 	mappers     []capturedMapper
@@ -425,6 +487,57 @@ func TestDeleteConsoleClient_NotFound(t *testing.T) {
 	}
 }
 
+func TestRemoveClientRole_MissingUserIsNoOp(t *testing.T) {
+	mux := http.NewServeMux()
+
+	tokenPath := fmt.Sprintf("/realms/%s/protocol/openid-connect/token", testRealm)
+	mux.HandleFunc(tokenPath, func(w http.ResponseWriter, r *http.Request) {
+		writeTokenResponse(t, w, "fake-token")
+	})
+
+	// Gateway client resolves to its UUID.
+	clientsPath := fmt.Sprintf("/admin/realms/%s/clients", testRealm)
+	mux.HandleFunc(clientsPath, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode([]keycloakClient{
+			{ID: testGatewayUUID, ClientID: testGatewayClientID},
+		})
+	})
+
+	// The role exists on the gateway client.
+	rolePath := fmt.Sprintf("/admin/realms/%s/clients/%s/roles/openshell-user", testRealm, testGatewayUUID)
+	mux.HandleFunc(rolePath, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(keycloakRole{ID: "role-user-uuid", Name: "openshell-user"})
+	})
+
+	// The user is absent: getUserUUID returns a UserNotFoundError.
+	usersPath := fmt.Sprintf("/admin/realms/%s/users", testRealm)
+	mux.HandleFunc(usersPath, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode([]keycloakUser{})
+	})
+
+	// Removing a role must never issue the DELETE when the user is absent.
+	mappingPath := fmt.Sprintf("/admin/realms/%s/users/", testRealm)
+	mux.HandleFunc(mappingPath, func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("unexpected role-mapping request for a missing user: %s %s", r.Method, r.URL.Path)
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	kc := NewClient(srv.URL, testRealm, testAdminClientID, testAdminSecret)
+
+	// An absent user holds no roles, so removal is a terminal no-op, not a
+	// retryable provisioning race (contrast AssignClientRole, where a missing
+	// user is retryable -- issue #664).
+	if err := kc.RemoveClientRole(t.Context(), testGatewayClientID, "ghost", "openshell-user"); err != nil {
+		t.Fatalf("RemoveClientRole: expected no-op for missing user, got error: %v", err)
+	}
+}
+
 const (
 	deviceTestTokenPath   = "/realms/test-realm/protocol/openid-connect/token"
 	deviceTestClientsPath = "/admin/realms/test-realm/clients"
@@ -493,6 +606,7 @@ func TestCreateClientEnablesDeviceAuthorizationGrant(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-KCLK-02.02
 func TestEnsureDeviceAuthorizationGrantUpdatesExistingClient(t *testing.T) {
 	t.Parallel()
 
@@ -560,6 +674,7 @@ func TestEnsureDeviceAuthorizationGrantUpdatesExistingClient(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-KCLK-02.02
 func TestEnsureDeviceAuthorizationGrantSkipsEnabledClient(t *testing.T) {
 	t.Parallel()
 

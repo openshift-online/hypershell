@@ -4,6 +4,7 @@ import { IntlProvider } from "react-intl";
 import { describe, expect, it } from "vitest";
 
 import type { AgentSdlcData } from "../../../domain/agent-sdlc";
+import type { SdlcAgentsData } from "../../../domain/sdlc-agents";
 import type { FleetData } from "../../../domain/fleet";
 import type { Plane } from "../../../domain/plane";
 import type { PromotionData } from "../../../domain/promotion";
@@ -112,6 +113,10 @@ function renderApp(): void {
           logsTruncated: false,
         }),
       ),
+    getE2eRunLogs: () =>
+      Promise.resolve(plane({ entries: [], nextCursor: null, hasMore: false })),
+    getSdlcAgents: () =>
+      Promise.resolve(plane<SdlcAgentsData>({ envs: [], agents: [] })),
     streamE2eRun: () => () => {
       /* unsubscribe */
     },
@@ -159,7 +164,7 @@ describe("TopologyMap details drawer", () => {
     expect(screen.queryByRole("button", { name: "Close details" })).toBeNull();
   });
 
-  it("leaves the drawer open when Escape targets a nested dialog (GLASS-NAV-15)", async () => {
+  it("leaves the drawer open when Escape targets a nested dialog (FLT-NAV-15)", async () => {
     renderApp();
 
     const [node] = await screen.findAllByRole("button", { name: "staging" });

@@ -29,6 +29,13 @@ HAND_MAINTAINED=(
   # (see the --columns default below) until the generator supports a column
   # override.
   cmd/hsctl/list/managedClusters/cmd.go
+  # The generator derives a create command's flags from the resource schema's
+  # writable fields. dedicated_route is create-only: it lives on the
+  # GatewayCreateRequest schema and is readOnly on the Gateway response schema,
+  # so the generator structurally cannot emit a --dedicated-route flag. We
+  # hand-maintain this create command until the generator learns to read the
+  # create request body schema.
+  cmd/hsctl/create/gateway/cmd.go
 )
 
 # Resource commands that live beside the generated ones but are written by hand:
@@ -39,6 +46,7 @@ HAND_MAINTAINED_COMMANDS=(
   cmd/hsctl/create/serviceAccount/cmd.go
   cmd/hsctl/get/serviceAccount/cmd.go
   cmd/hsctl/list/serviceAccounts/cmd.go
+  cmd/hsctl/update/serviceAccount/cmd.go
   cmd/hsctl/delete/serviceAccount/cmd.go
   # gatewayAccess is a scoped sub-collection (/gateways/{id}/access), like
   # service accounts, so it is hand-maintained rather than generator-emitted.
@@ -46,8 +54,12 @@ HAND_MAINTAINED_COMMANDS=(
   cmd/hsctl/list/gatewayAccess/cmd.go
   cmd/hsctl/update/gatewayAccess/cmd.go
   cmd/hsctl/delete/gatewayAccess/cmd.go
+  # Repository is a read-only extension kind from the CLI: hand-written get and
+  # list only, no create or delete (see hsctl-extension-commands.spec.md).
+  cmd/hsctl/get/repository/cmd.go
+  cmd/hsctl/list/repositories/cmd.go
 )
-for kind in agentRuntime sandboxTemplate providerSpec providerBinding inferenceRoute secretSource; do
+for kind in agentRuntime sandboxTemplate providerSpec providerBinding inferenceRoute secretSource ciProvider ciTrust; do
   for verb in create get delete; do
     HAND_MAINTAINED_COMMANDS+=("cmd/hsctl/$verb/$kind/cmd.go")
   done

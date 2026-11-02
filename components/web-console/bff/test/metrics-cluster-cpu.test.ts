@@ -83,6 +83,7 @@ describe("queryClusterCpu", () => {
     }
   });
 
+  // Verifies: OBS-CPU-02.01
   it("preserves fractional used cores from Prometheus", async () => {
     const prometheus = await startPrometheusStub((request, response) => {
       const url = parsePrometheusUrl(request);
@@ -117,6 +118,7 @@ describe("queryClusterCpu", () => {
     }
   });
 
+  // Verifies: OBS-HCUT-05.01
   it("maps Prometheus range samples into daily_used", async () => {
     const prometheus = await startPrometheusStub((request, response) => {
       const url = parsePrometheusUrl(request);

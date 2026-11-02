@@ -29,6 +29,7 @@ func TestDevJWTOverrideWarning(t *testing.T) {
 
 // TestDevOverrideConfigDisablesJWT confirms the environment still enforces the
 // dev posture (JWT off, HTTPS off) regardless of the incoming flag value.
+// Verifies: SEC-OIDC-01.05
 func TestDevOverrideConfigDisablesJWT(t *testing.T) {
 	env := &DevEnvImpl{}
 	c := config.NewApplicationConfig()

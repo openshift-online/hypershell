@@ -21,6 +21,7 @@ func setRequiredEnv(t *testing.T) {
 // TestLoadRequiresClusterIdentity covers "Missing cluster name refuses to start"
 // and "Missing OIDC credentials refuse to start": each required variable, when
 // unset or blank, fails Load with an error naming that variable.
+// Verifies: CTRL-CORE-01.02, CTRL-CORE-01.03
 func TestLoadRequiresClusterIdentity(t *testing.T) {
 	for _, name := range []string{
 		"HYPERSHELL_MANAGED_CLUSTER_NAME",
@@ -83,6 +84,7 @@ func TestLoadIgnoresClusterIDEnv(t *testing.T) {
 // unset uses the bounded default; a valid positive integer is honored; and an
 // invalid or non-positive value warns and falls back to the default rather than
 // disabling the pool. The resolved count is always >= 1.
+// Verifies: GTW-CONC-01.01, GTW-CONC-01.02, GTW-CONC-03.01, GTW-CONC-03.02
 func TestLoadGatewayReconcileWorkers(t *testing.T) {
 	setRequiredEnv(t)
 

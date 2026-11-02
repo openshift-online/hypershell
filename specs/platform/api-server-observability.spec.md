@@ -6,7 +6,7 @@
 
 ## Purpose
 
-Give the HyperShell API server distributed tracing and request-level metrics through OpenTelemetry (OTel), so a single user workflow can be followed from the browser, through the web-console BFF, into the API server, and operators can observe request latency and error rates across the platform. This specification is the API-server counterpart to `web-console/tracing.spec.md` (HYPERSHELL-27): the browser and BFF already produce spans and propagate W3C Trace Context, and this specification makes the API server extract that context and join the same trace. Instrumentation is a cross-cutting concern applied once at the server layer, transparent to plugin authors: HTTP middleware and gRPC interceptors create spans and record metrics without per-handler changes.
+Give the HyperShell API server distributed tracing, request-level metrics, and trace-correlated logs through OpenTelemetry (OTel), so a single user workflow can be followed from the browser, through the web-console BFF, into the API server, and operators can observe request latency and error rates across the platform. This specification is the API-server counterpart to `web-console/tracing.spec.md` (HYPERSHELL-27): the browser and BFF already produce spans and propagate W3C Trace Context, and this specification makes the API server extract that context and join the same trace. Instrumentation is a cross-cutting concern applied once at the server layer, transparent to plugin authors: HTTP middleware and gRPC interceptors create spans and record metrics without per-handler changes.
 
 This specification covers the API server component only. Control-plane observability and gateway-level telemetry are out of scope. Where `standards/security/security.spec.md` imposes a stricter rule on what may appear in telemetry, that rule governs.
 
@@ -14,7 +14,7 @@ This specification covers the API server component only. Control-plane observabi
 
 ### Requirement: API-OBS-01 -- OTel SDK Bootstrap and Configuration
 
-The API server SHALL initialize the OpenTelemetry SDK at startup, configuring a `TracerProvider` and a `MeterProvider` that export telemetry via OTLP to any OTel-compatible collector. Configuration SHALL be deployment configuration, separate from code, supplied through the standard OTel environment variables:
+The API server SHALL initialize the OpenTelemetry SDK at startup, configuring a `TracerProvider`, a `MeterProvider`, and a `LoggerProvider` that export telemetry via OTLP to any OTel-compatible collector. Configuration SHALL be deployment configuration, separate from code, supplied through the standard OTel environment variables:
 
 | Env Var | Default | Description |
 |---------|---------|-------------|
@@ -23,14 +23,15 @@ The API server SHALL initialize the OpenTelemetry SDK at startup, configuring a 
 | `OTEL_TRACES_SAMPLER_ARG` | `1.0` | Root-trace sampling ratio (`0.0` to `1.0`) for the parent-based sampler |
 | `OTEL_SERVICE_NAME` | `hypershell-api-server` | Service name reported in spans and metrics |
 | `OTEL_METRICS_EXPORTER` | (unset -- metrics enabled) | Set to `none` to export traces only and skip the OTLP metric exporter; use against a trace-only backend such as Jaeger, which has no OTLP metrics service |
+| `OTEL_LOGS_EXPORTER` | (unset -- logs enabled) | Set to `none` to skip the OTLP log exporter; use against a backend without an OTLP logs service, such as Jaeger |
 
 The SDK SHALL use a parent-based trace-id-ratio sampler so a child span inherits the parent's sampling decision and only a root span is subject to the configured ratio. The SDK SHALL install a W3C Trace Context propagator, composed with baggage, as the global propagator.
 
-Telemetry SHALL be opt-in by the presence of a collector endpoint. When `OTEL_EXPORTER_OTLP_ENDPOINT` is not set, the SDK SHALL NOT be initialized, no tracing or metrics middleware SHALL be registered, and the server SHALL run with no observability overhead. When the endpoint is set but the collector is unreachable, the server SHALL continue to serve requests normally; export failures SHALL be logged and SHALL NOT crash or degrade request handling. On termination the SDK SHALL flush buffered spans and metrics, bounded by a timeout so shutdown never blocks indefinitely.
+Telemetry SHALL be opt-in by the presence of a collector endpoint. When `OTEL_EXPORTER_OTLP_ENDPOINT` is not set, the SDK SHALL NOT be initialized, no tracing or metrics middleware SHALL be registered, and the server SHALL run with no observability overhead. When the endpoint is set but the collector is unreachable, the server SHALL continue to serve requests normally; export failures SHALL be logged and SHALL NOT crash or degrade request handling. On termination the SDK SHALL flush buffered spans, metrics, and log records, bounded by a timeout so shutdown never blocks indefinitely.
 
 **Verification:** Start the server with the endpoint set, absent, and set-but-unreachable; confirm export when configured, no initialization and no overhead when absent, and continued request handling with logged failures when unreachable. Send SIGTERM after serving traffic and confirm a bounded flush.
 
-#### Scenario: Telemetry enabled with a collector endpoint
+#### Scenario: API-OBS-01.01 -- Telemetry enabled with a collector endpoint
 
 - GIVEN `OTEL_EXPORTER_OTLP_ENDPOINT` is set to `http://collector:4317`
 - AND `OTEL_TRACES_SAMPLER_ARG` is set to `0.5`
@@ -39,7 +40,7 @@ Telemetry SHALL be opt-in by the presence of a collector endpoint. When `OTEL_EX
 - AND the sampler SHALL sample 50 percent of root traces
 - AND spans and metrics SHALL be exported to the configured endpoint
 
-#### Scenario: Telemetry disabled when no endpoint is configured
+#### Scenario: API-OBS-01.02 -- Telemetry disabled when no endpoint is configured
 
 - GIVEN `OTEL_EXPORTER_OTLP_ENDPOINT` is not set
 - WHEN the API server starts
@@ -47,7 +48,7 @@ Telemetry SHALL be opt-in by the presence of a collector endpoint. When `OTEL_EX
 - AND no tracing or metrics middleware SHALL be registered
 - AND the server SHALL operate with no observability overhead
 
-#### Scenario: Collector unreachable at runtime
+#### Scenario: API-OBS-01.03 -- Collector unreachable at runtime
 
 - GIVEN `OTEL_EXPORTER_OTLP_ENDPOINT` is set but the collector is unreachable
 - WHEN the API server handles requests
@@ -55,7 +56,7 @@ Telemetry SHALL be opt-in by the presence of a collector endpoint. When `OTEL_EX
 - AND telemetry export failures SHALL be logged rather than surfaced to the caller
 - AND the server SHALL NOT crash or degrade request handling because of export errors
 
-#### Scenario: Graceful shutdown flushes telemetry
+#### Scenario: API-OBS-01.04 -- Graceful shutdown flushes telemetry
 
 - GIVEN the OTel SDK is initialized and the server has served requests
 - WHEN the server receives SIGTERM
@@ -70,7 +71,7 @@ The span name SHALL combine the request method and the templated route (for exam
 
 **Verification:** Send representative requests to fixed and parameterized routes; confirm one server span each, named by method and templated route with resource identifiers collapsed to placeholders, carrying the HTTP semantic-convention attributes, and that plugin-registered routes are instrumented without plugin changes.
 
-#### Scenario: Inbound HTTP request produces a templated span
+#### Scenario: API-OBS-02.01 -- Inbound HTTP request produces a templated span
 
 - GIVEN the OTel SDK is initialized
 - WHEN a client sends `GET /api/hypershell/v1/gateways/abc123`
@@ -86,14 +87,14 @@ Each span SHALL be named by the fully qualified RPC method and SHALL follow the 
 
 **Verification:** Issue a unary call and open a Watch stream with propagated trace metadata; confirm a span per RPC named by full method, carrying the RPC semantic-convention attributes, that the stream span spans the stream lifetime and records its terminal status, and that extraction precedes auth.
 
-#### Scenario: Unary gRPC call produces a span
+#### Scenario: API-OBS-03.01 -- Unary gRPC call produces a span
 
 - GIVEN the OTel SDK is initialized
 - WHEN a control-plane client calls a unary RPC
 - THEN one span SHALL be created named by the fully qualified method
 - AND the span SHALL record the RPC service, method, and gRPC status code
 
-#### Scenario: Streaming Watch produces a lifetime span
+#### Scenario: API-OBS-03.02 -- Streaming Watch produces a lifetime span
 
 - GIVEN the OTel SDK is initialized
 - WHEN the control plane opens a Watch stream
@@ -102,11 +103,11 @@ Each span SHALL be named by the fully qualified RPC method and SHALL follow the 
 
 ### Requirement: API-OBS-04 -- Cross-Service Trace Continuation
 
-The API server SHALL treat an inbound `traceparent`/`tracestate` pair, whether carried in HTTP headers or gRPC metadata, as the parent context and SHALL continue that trace. When inbound context is absent or malformed, the API server SHALL start a new root span whose sampling is governed by `API-OBS-01`; it SHALL NOT adopt a malformed value. This is the API-server counterpart to `web-console/tracing.spec.md` (`WEB-TRACE-04`, `WEB-TRACE-05`): a browser workflow span, the BFF server span, and the API server span SHALL join a single trace identified by one trace identifier.
+The API server SHALL treat an inbound `traceparent`/`tracestate` pair, whether carried in HTTP headers or gRPC metadata, as the parent context and SHALL continue that trace. When inbound context is absent or malformed, the API server SHALL start a new root span whose sampling is governed by `API-OBS-01`; it SHALL NOT adopt a malformed value. This is the API-server counterpart to `web-console/tracing.spec.md` (`WEB-TRC-04`, `WEB-TRC-05`): a browser workflow span, the BFF server span, and the API server span SHALL join a single trace identified by one trace identifier.
 
 **Verification:** Drive a representative browser-to-API workflow through the deployed console and confirm one trace whose spans include the browser workflow span, the BFF server span, and the API server span sharing one trace identifier. Send an API request with a malformed `traceparent` and confirm a new root span rather than a decapitated child.
 
-#### Scenario: API joins the trace propagated by the BFF
+#### Scenario: API-OBS-04.01 -- API joins the trace propagated by the BFF
 
 - GIVEN the OTel SDK is initialized
 - AND the BFF proxies a request to `/api/hypershell/v1/*` carrying a valid `traceparent`
@@ -114,7 +115,7 @@ The API server SHALL treat an inbound `traceparent`/`tracestate` pair, whether c
 - THEN the API server span SHALL be a child of the trace identified in `traceparent`
 - AND the browser, BFF, and API spans SHALL share one trace identifier
 
-#### Scenario: Absent context starts a new trace
+#### Scenario: API-OBS-04.02 -- Absent context starts a new trace
 
 - GIVEN the OTel SDK is initialized
 - AND a request arrives without a `traceparent`
@@ -134,14 +135,14 @@ The API server SHALL export OpenTelemetry request metrics for both HTTP and gRPC
 
 **Verification:** Complete representative HTTP and gRPC calls and confirm the duration histograms record them labeled by method or service and status code, that the active-request counter tracks in-flight requests, and that the existing Prometheus metrics are still exposed.
 
-#### Scenario: HTTP latency metric recorded
+#### Scenario: API-OBS-05.01 -- HTTP latency metric recorded
 
 - GIVEN the OTel SDK is initialized
 - WHEN a client completes a `POST /api/hypershell/v1/gateways` request
 - THEN `http.server.request.duration` SHALL record the request duration
 - AND the sample SHALL be labeled with the request method, templated route, and response status code
 
-#### Scenario: gRPC latency metric recorded
+#### Scenario: API-OBS-05.02 -- gRPC latency metric recorded
 
 - GIVEN the OTel SDK is initialized
 - WHEN a unary gRPC call completes
@@ -150,19 +151,19 @@ The API server SHALL export OpenTelemetry request metrics for both HTTP and gRPC
 
 ### Requirement: API-OBS-06 -- Telemetry Privacy, Cardinality, and Operation Correlation
 
-Trace spans, span events, and metric attributes SHALL NOT include sensitive data. Authorization headers, bearer tokens, cookie values, database credentials, connection strings, secret references, and request or response bodies SHALL NOT appear in telemetry. Raw resource identifiers SHALL NOT become span-name segments or propagated baggage; stable route templates and bounded enumerations SHALL replace raw URLs, and a high-cardinality value SHALL NOT be a span name segment. This aligns with `standards/security/security.spec.md` and with `web-console/tracing.spec.md` (`WEB-TRACE-07`).
+Trace spans, span events, and metric attributes SHALL NOT include sensitive data. Authorization headers, bearer tokens, cookie values, database credentials, connection strings, secret references, and request or response bodies SHALL NOT appear in telemetry. Raw resource identifiers SHALL NOT become span-name segments or propagated baggage; stable route templates and bounded enumerations SHALL replace raw URLs, and a high-cardinality value SHALL NOT be a span name segment. This aligns with `standards/security/security.spec.md` and with `web-console/tracing.spec.md` (`WEB-TRC-07`).
 
 The API server already returns a per-request operation identifier (the `X-Operation-ID` response header and the `operation_id` field of the error envelope). The request span SHALL record that operation identifier as a bounded attribute so a user-visible failure can be joined to the server-side trace evidence.
 
 **Verification:** Run redaction checks with seeded secrets, tokens, and an `Authorization` header and confirm none appear in spans or metric attributes; confirm span names use route templates with identifiers collapsed; trigger a failing request and confirm the returned `operation_id` matches the operation-identifier attribute on the request span.
 
-#### Scenario: Authorization header excluded from telemetry
+#### Scenario: API-OBS-06.01 -- Authorization header excluded from telemetry
 
 - GIVEN the OTel SDK is initialized
 - WHEN a client sends a request with an `Authorization: Bearer <token>` header
 - THEN no span attribute or metric label SHALL contain the header value or the token
 
-#### Scenario: Failure operation identifier correlates to the span
+#### Scenario: API-OBS-06.02 -- Failure operation identifier correlates to the span
 
 - GIVEN the OTel SDK is initialized
 - WHEN a request fails and the response envelope carries an `operation_id`
@@ -171,18 +172,18 @@ The API server already returns a per-request operation identifier (the `X-Operat
 
 ### Requirement: API-OBS-07 -- Development Trace Export
 
-When local development tracing is enabled (`KIND_JAEGER=true`), the API server Deployment SHALL be configured with `OTEL_EXPORTER_OTLP_ENDPOINT` pointing at the in-cluster Jaeger OTLP/gRPC receiver on port `4317`, so a developer can view the API server spans joined with the browser and BFF spans in one trace. The Jaeger deployment, its ports, the `KIND_JAEGER` gate, and the UI hostname are defined by `platform/local-development.spec.md`; this requirement only binds the API server to that endpoint. When `KIND_JAEGER` is unset, the API server Deployment SHALL NOT receive a collector endpoint and SHALL run without telemetry. The automated cross-service trace check defined by `platform/e2e-testing.spec.md` (`WEB-TRACE-11`) SHOULD be extended to assert the API server span joins the browser and BFF spans once the API server is instrumented.
+When local development tracing is enabled (`KIND_JAEGER=true`), the API server Deployment SHALL be configured with `OTEL_EXPORTER_OTLP_ENDPOINT` pointing at the in-cluster Jaeger OTLP/gRPC receiver on port `4317`, so a developer can view the API server spans joined with the browser and BFF spans in one trace. The Jaeger deployment, its ports, the `KIND_JAEGER` gate, and the UI hostname are defined by `platform/local-development.spec.md`; this requirement only binds the API server to that endpoint. When `KIND_JAEGER` is unset, the API server Deployment SHALL NOT receive a collector endpoint and SHALL run without telemetry. The automated cross-service trace check defined by `platform/e2e-testing.spec.md` (`WEB-TRC-11`) SHOULD be extended to assert the API server span joins the browser and BFF spans once the API server is instrumented.
 
 **Verification:** Bring up the local cluster with `KIND_JAEGER=true`, drive a workflow that reaches the API, and confirm the API server span appears in Jaeger joined to the browser and BFF spans; bring it up without `KIND_JAEGER` and confirm the API server Deployment has no collector endpoint and emits no telemetry.
 
-#### Scenario: API spans reach the development Jaeger
+#### Scenario: API-OBS-07.01 -- API spans reach the development Jaeger
 
 - GIVEN the local cluster is running with `KIND_JAEGER=true`
 - WHEN a developer completes a gateway workflow through the console
 - THEN the API server SHALL export its spans to the in-cluster Jaeger OTLP/gRPC endpoint on port `4317`
 - AND one Jaeger trace SHALL contain the browser workflow span, the BFF server span, and the API server span
 
-#### Scenario: No export when development tracing is disabled
+#### Scenario: API-OBS-07.02 -- No export when development tracing is disabled
 
 - GIVEN `KIND_JAEGER` is unset
 - WHEN a developer runs `make kind-up`
@@ -199,7 +200,7 @@ Database instrumentation MAY additionally export database client metrics over OT
 
 **Verification:** Drive a representative request that reads and writes the database with tracing enabled; confirm each query yields a client span that is a child of the request span, that the spans share one trace identifier, that span names are bounded by operation with no raw SQL or identifier, and that no bound value, credential, or secret appears in any database span attribute. Issue the same request with tracing disabled and confirm no database spans are produced.
 
-#### Scenario: Query during a request produces a nested database span
+#### Scenario: API-OBS-08.01 -- Query during a request produces a nested database span
 
 - GIVEN the OTel SDK is initialized
 - AND a client sends a request that reads from the database
@@ -208,19 +209,144 @@ Database instrumentation MAY additionally export database client metrics over OT
 - AND the database span, the request span, and any propagated upstream spans SHALL share one trace identifier
 - AND the database span name SHALL be bounded by the operation and SHALL NOT contain raw SQL or a resource identifier
 
-#### Scenario: Database span excludes bound values and secrets
+#### Scenario: API-OBS-08.02 -- Database span excludes bound values and secrets
 
 - GIVEN the OTel SDK is initialized
 - WHEN the API server issues a query whose parameters include a resource identifier
 - THEN no database span attribute SHALL contain a bound parameter value, a database credential, or a connection string
 - AND a recorded statement SHALL be the parameterized statement without interpolated values
 
-#### Scenario: No database spans when telemetry is disabled
+#### Scenario: API-OBS-08.03 -- No database spans when telemetry is disabled
 
 - GIVEN `OTEL_EXPORTER_OTLP_ENDPOINT` is not set
 - WHEN the API server handles a request that queries the database
 - THEN no database client span SHALL be created
 - AND the database access layer SHALL operate with no observability overhead
+
+### Requirement: API-OBS-09 -- Trace-Correlated Logs
+
+The API server SHALL log only through the Go standard library `log/slog`, as the rh-trex-ai framework does (rh-trex-ai `STD-005`). Code SHALL pass the request or stream context to the log call whenever one is in scope, use a constant message, and put variable data in snake_case attributes, with errors under the `error` key. The level and format SHALL be the framework's `--log-level` (`debug`, `info`, `warn`, `error`) and `--log-format` (`text`, `json`) flags; each environment SHALL set its default level through its flag defaults.
+
+The `serve` command SHALL install one default logger before the framework initializes the environment, so that the framework's records and HyperShell's records share it. That logger SHALL:
+
+1. Write every record at or above the configured level to standard error. A record logged with a context that carries a valid span SHALL include `trace_id` and `span_id` attributes, so a log line can be joined to its trace.
+2. When the OTel SDK is initialized and `OTEL_LOGS_EXPORTER` is not `none`, also export every record at or above the configured level over OTLP through the `LoggerProvider` of `API-OBS-01`. Exported records SHALL carry the trace and span identifiers of their context.
+3. Add the framework's request attributes (`opid`, `accountID`) to records on both outputs.
+4. Remove request headers, request bodies, response headers, and response bodies from the framework's HTTP request and response log records at every level, on both outputs, keeping the method, URL, status, and elapsed time. Some API responses return one-time credentials, and the framework only redacts credential headers.
+
+Log records SHALL follow the same privacy rules as `API-OBS-06`. Exporter errors SHALL be written to standard error and SHALL NOT be fed back into the log exporter.
+
+**Verification:** A unit test runs the framework's HTTP logging middleware at `debug` with a secret in a request header, the request body, and the response body, and confirms the secret appears in neither output while the request metadata remains. Unit tests confirm `trace_id`, `span_id`, and `opid` on standard-error records and the level filter on the exported records. With a collector that accepts OTLP logs, a request's log records reach the collector with the trace identifier of the request span.
+
+#### Scenario: API-OBS-09.01 -- Log records carry the trace of the request
+
+- GIVEN the OTel SDK is initialized and `OTEL_LOGS_EXPORTER` is not `none`
+- WHEN a request handler logs with the request context
+- THEN the standard-error record SHALL include the `trace_id` and `span_id` of the request span
+- AND the exported OTLP log record SHALL carry the same trace and span identifiers
+
+#### Scenario: API-OBS-09.02 -- HTTP bodies never reach the logs
+
+- GIVEN the API server runs with `--log-level=debug`
+- WHEN a client calls an endpoint whose response contains a one-time credential
+- THEN neither the standard-error output nor the exported log records SHALL contain the request or response headers or bodies
+- AND the HTTP request and response records SHALL still contain the method, URL, status, and elapsed time
+
+#### Scenario: API-OBS-09.03 -- Log export disabled
+
+- GIVEN `OTEL_EXPORTER_OTLP_ENDPOINT` is not set, or `OTEL_LOGS_EXPORTER` is `none`
+- WHEN the API server logs a record
+- THEN the record SHALL be written to standard error only
+- AND no OTLP log exporter SHALL be created
+
+### Requirement: API-OBS-10 -- Advisory Lock Metrics
+
+The rh-trex-ai framework records every PostgreSQL advisory lock in two Prometheus metrics: `advisory_lock_count` (a counter) and `advisory_lock_duration` (a histogram in seconds). Both carry the labels `type` and `status`. The framework does not register them. The `serve` command SHALL register both with the default Prometheus registry before the servers start, so the metrics server exposes them on `/metrics`. Registration SHALL NOT panic. If the framework has already registered the metrics, the `serve` command SHALL treat that as success.
+
+These metrics feed the advisory-lock row of the fleet PostgreSQL dashboard in hypershell-gitops.
+
+**Verification:** A unit test registers the metrics twice, records one lock, and confirms both metric families are in the default registry.
+
+#### Scenario: API-OBS-10.01 -- Advisory lock metrics are exposed
+
+- GIVEN the API server runs `serve`
+- WHEN the framework takes an advisory lock
+- THEN `/metrics` SHALL include `advisory_lock_count` and `advisory_lock_duration` series for that lock type and status
+- AND registering the metrics a second time SHALL NOT fail or panic
+
+### Requirement: API-OBS-11 -- Resilient Request and Response Log Formatting; Root Error Surfacing
+
+The request and response logging path SHALL emit its log record even when a field
+of the request or response holds a value the log formatter cannot serialize (for
+example a `func` value such as `func(int64)`). When a value cannot be serialized,
+the logger SHALL substitute a bounded placeholder for that single value and still
+emit the record; it SHALL NOT drop the record, and it SHALL NOT replace the whole
+record with a formatter error such as `Unable to format request/response for log`
+/ `json: unsupported type: func(int64)`. A broken log formatter SHALL NOT hide the
+request and response detail an operator needs to diagnose a failing request. This
+complements API-OBS-09, which strips headers and bodies from the two HTTP records:
+stripping sensitive content SHALL NOT come at the cost of dropping the whole record
+when one remaining field value is non-serializable.
+
+A statement that fails inside a request's database transaction SHALL surface its
+own error. When a failed statement aborts the transaction and a later statement in
+the same transaction is rejected with `current transaction is aborted`
+(`SQLSTATE 25P02`), the API server SHALL log the original failing statement's error
+as the root cause, not only the downstream `25P02`. The root database error SHALL
+appear in the standard-error output and, when the OTel SDK is initialized and
+`OTEL_LOGS_EXPORTER` is not `none`, in the exported log records of API-OBS-09, so
+an operator can identify the failing statement from the logs alone. This is the
+observability face of the "Never silently swallow partial failures" rule in
+`standards/platform/cross-cutting.spec.md`: an error path that is dropped instead
+of propagated or logged (for example a discarded row-count error that aborts the
+transaction) SHALL still reach the operator through the logs. Root-error
+surfacing SHALL follow the same privacy rules as API-OBS-06 and API-OBS-09: the
+parameterized statement and its error MAY be logged, but bound parameter values,
+credentials, and connection strings SHALL NOT.
+
+**Verification:** A unit test drives the request and response logging path with a
+request or response that carries a `func(int64)` field value and confirms the
+record is still emitted with a placeholder for that value and no
+`json: unsupported type` formatter error. A test that runs a request whose first
+database statement fails confirms the root statement error is logged, not only the
+downstream `25P02`.
+
+**Delivery note (normative timing).** API-OBS-11 states desired state, but its two
+defects live entirely in the upstream rh-trex-ai framework and SHALL NOT be fixed
+in this repository:
+
+- The ext list path discards the row-count (`Count()`) error, so the aborted
+  transaction surfaces only as the downstream `25P02` and the root statement error
+  is hidden.
+- The shared request and response logger drops the whole record when one field
+  value is a `func(int64)`, emitting `Unable to format request/response for log`
+  / `json: unsupported type: func(int64)`.
+
+Both are framework-owned code paths that this repository consumes through the
+pinned rh-trex-ai dependency, not code this repository can edit. API-OBS-11 is
+therefore delivered by an upstream rh-trex-ai change plus a pin bump in this
+repository, tracked by GitHub issue #895. It is NOT implemented by the #871 pull
+request (#873); #873 ships only the in-repo data-model fix of SDLC-CONF-13 (a
+queryable `name` on the affected `ext` Kinds plus the shared search-path hardening
+and conformance tests that live in this repository). A code reviewer SHALL NOT
+expect in-repo code for API-OBS-11 on #873, and #871 SHALL NOT be blocked on the
+upstream work: the in-repo data-model fix closes the find-by-name 500 for the
+affected Kinds, while API-OBS-11 removes the diagnostic blind spot that hid the
+root cause and is delivered separately when the rh-trex-ai pin advances.
+
+#### Scenario: API-OBS-11.01 -- Non-serializable field does not drop the record
+
+- GIVEN a request or response whose log record carries a `func(int64)` field value
+- WHEN the request and response logger formats the record
+- THEN the record SHALL still be emitted with a bounded placeholder for the non-serializable value
+- AND no `json: unsupported type: func(int64)` formatter error SHALL replace the record
+
+#### Scenario: API-OBS-11.02 -- Root statement error is surfaced, not only the downstream 25P02
+
+- GIVEN a request whose first database statement fails and aborts the request transaction
+- WHEN a later statement in the same transaction is rejected with `SQLSTATE 25P02`
+- THEN the log output SHALL contain the original failing statement's error as the root cause
+- AND the operator SHALL be able to identify the failing statement from the logs without additional instrumentation
 
 ## Design Decisions
 
@@ -234,15 +360,19 @@ Database instrumentation MAY additionally export database client metrics over OT
 | Extraction before authentication | A propagated trace joins regardless of the auth outcome, so authentication failures are still traceable |
 | OTLP/gRPC on 4317 for the API server | The development Jaeger reserves 4317 (OTLP/gRPC) for the API server and 4318 (OTLP/HTTP) for the web console; exporting over gRPC matches that contract |
 | Correlate the existing operation identifier onto the span | The framework already returns `operation_id`; recording it on the span joins a user-visible failure to server evidence without new caller-facing surface |
+| One slog logger shared with the framework, installed by `serve` before the environment initializes | The framework keeps a program's own slog default (`SetDefaultIfUnset`), so one logger receives every record with its context; the OTel slog bridge reads the span from that context |
+| Strip HTTP headers and bodies in the logger, not by capping the level | The framework adds them at `debug`; removing them from its two HTTP records keeps every other debug record available, where the previous glog verbosity cap had to give up a whole verbosity level |
 | OTLP export for traces, Prometheus preserved for metrics | Traces require push-based export over OTLP; the existing framework Prometheus metrics are kept as-is |
 | Database spans via a GORM plugin on the base connection, not per data-access object | A GORM plugin installs callbacks once on the base connection, so every plugin's queries are traced without per-plugin changes and callbacks are never duplicated per request; this mirrors the server-level HTTP and gRPC instrumentation |
 | Database instrumentation registered through a framework plugin registry | The base connection is owned by the rh-trex-ai `SessionFactory`; a registry (mirroring the framework's pre-auth middleware and interceptor registries) lets the API server opt into query tracing without coupling every framework consumer to the tracing dependency |
 | Operation-and-table span names, parameterized statement as an attribute | Keeps span-name cardinality bounded like the HTTP route templates while still allowing per-trace query detail; bound values and secrets are excluded per API-OBS-06 |
+| Placeholder-and-continue when a log field is non-serializable, not drop the record | A single non-serializable field value (for example a `func(int64)`) must never blank the whole request/response record; the logger that masks the data needed to debug a failure is worse than the failure. A bounded placeholder keeps the rest of the record, so the root error (such as the failing SQL behind a `25P02`) stays visible |
+| API-OBS-11 delivered upstream (rh-trex-ai) plus a pin bump, not in-repo on #873 | Both defects (the swallowed `Count()` error and the `func(int64)` logger drop) are rh-trex-ai framework code this repository only consumes through its pinned dependency, so they cannot be fixed here; tracked by GitHub issue #895. Decoupling the diagnostic fix from the in-repo data-model fix (SDLC-CONF-13) keeps #871 unblocked: #873 closes the find-by-name 500 for the affected Kinds, and API-OBS-11 removes the blind spot separately when the pin advances |
 
 ## Primary Basis
 
 - `standards/security/security.spec.md`
-- `web-console/tracing.spec.md` (`WEB-TRACE-04`, `WEB-TRACE-05`, `WEB-TRACE-07`, `WEB-TRACE-11`)
+- `web-console/tracing.spec.md` (`WEB-TRC-04`, `WEB-TRC-05`, `WEB-TRC-07`, `WEB-TRC-11`)
 - `platform/local-development.spec.md` (development Jaeger, `KIND_JAEGER`)
 - `platform/e2e-testing.spec.md` (automated cross-service trace verification)
 - [OpenTelemetry Go](https://opentelemetry.io/docs/languages/go/)

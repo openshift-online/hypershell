@@ -38,6 +38,7 @@ func clusterCount(client *openapi.APIClient, ctx context.Context) int32 {
 }
 
 // Idempotent Registration and Name change rejected.
+// Verifies: PLAT-CLUS-01.01, PLAT-CLUS-01.02, PLAT-CLUS-01.04
 func TestManagedClusterRegistrationIdempotent(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	subject := uniqueName("cp")
@@ -58,43 +59,44 @@ func TestManagedClusterRegistrationIdempotent(t *testing.T) {
 	Expect(resp.StatusCode).To(Equal(http.StatusConflict))
 }
 
-// Backward compatibility: a capability-less heartbeat (an older control plane
-// that predates the capability model) is accepted rather than rejected, and it
-// does not clobber capabilities a later heartbeat already stored. This keeps a
-// mixed-version rolling upgrade from disconnecting the cluster or dropping its
-// placement data. See managed-cluster-registration.spec.md, "Capability
-// Deployment Convergence".
-func TestManagedClusterRegistrationAcceptsCapabilityLessHeartbeat(t *testing.T) {
+// A registration without capabilities is rejected and changes nothing: the
+// stored set and last_seen_at keep their values from the last good heartbeat.
+// Verifies: PLAT-CLUS-07.03
+func TestManagedClusterRegistrationRejectsCapabilityLessHeartbeat(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	ctx := controlPlaneContext(h, uniqueName("cp"))
 	name := uniqueName("hyp0-mc")
 
-	// A fresh capability-less registration is accepted.
-	created, resp, err := client.DefaultAPI.RegisterManagedCluster(ctx).
+	// A first registration without capabilities is rejected and creates nothing.
+	_, resp, err := client.DefaultAPI.RegisterManagedCluster(ctx).
 		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: name}).
 		Execute()
+	Expect(err).To(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+
+	created, resp, err := register(client, ctx, name)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
 
-	// A capability-bearing heartbeat then populates the capability set.
-	_, resp, err = register(client, ctx, name)
+	before, _, err := client.DefaultAPI.GetManagedCluster(ctx, created.ClusterId).Execute()
 	Expect(err).NotTo(HaveOccurred())
-	Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
-	// A later capability-less heartbeat is a no-op for capabilities: it is
-	// accepted and the stored set is preserved, not wiped.
-	_, resp, err = client.DefaultAPI.RegisterManagedCluster(ctx).
-		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: name}).
-		Execute()
-	Expect(err).NotTo(HaveOccurred())
-	Expect(resp.StatusCode).To(Equal(http.StatusOK))
+	for _, capabilities := range [][]string{nil, {}} {
+		_, resp, err = client.DefaultAPI.RegisterManagedCluster(ctx).
+			ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: name, Capabilities: capabilities}).
+			Execute()
+		Expect(err).To(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+	}
 
-	cluster, _, err := client.DefaultAPI.GetManagedCluster(ctx, created.ClusterId).Execute()
+	after, _, err := client.DefaultAPI.GetManagedCluster(ctx, created.ClusterId).Execute()
 	Expect(err).NotTo(HaveOccurred())
-	Expect(cluster.Capabilities).To(Equal([]string{"network/public", "provider/aws"}))
-	Expect(cluster.LastSeenAt).NotTo(BeNil())
+	Expect(after.Capabilities).To(Equal([]string{"network/public", "provider/aws"}))
+	Expect(after.LastSeenAt).NotTo(BeNil())
+	Expect(after.LastSeenAt.Equal(*before.LastSeenAt)).To(BeTrue())
 }
 
+// Verifies: PLAT-CLUS-01.03
 func TestManagedClusterRegistrationRestoreRefreshesCapabilities(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	ctx := controlPlaneContext(h, uniqueName("cp"))
@@ -123,11 +125,10 @@ func TestManagedClusterRegistrationRestoreRefreshesCapabilities(t *testing.T) {
 	Expect(cluster.LastSeenAt).NotTo(BeNil())
 }
 
-// A capability-less heartbeat that restores a soft-deleted record preserves the
-// record's last stored capabilities rather than clearing them, mirroring the
-// live-record no-op. See managed-cluster-registration.spec.md, "Capability
-// Deployment Convergence".
-func TestManagedClusterRegistrationRestorePreservesCapabilitiesOnCapabilityLessHeartbeat(t *testing.T) {
+// A registration without capabilities cannot restore a soft-deleted record:
+// it is rejected before the restore path runs.
+// Verifies: PLAT-CLUS-07.03
+func TestManagedClusterRegistrationRestoreRejectsCapabilityLessHeartbeat(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	ctx := controlPlaneContext(h, uniqueName("cp"))
 	name := uniqueName("hyp0-mc")
@@ -140,30 +141,28 @@ func TestManagedClusterRegistrationRestorePreservesCapabilitiesOnCapabilityLessH
 	Expect(err).NotTo(HaveOccurred())
 	Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
 
-	// A downgraded control plane re-registers within the deletion window with no
-	// capabilities: the record is restored with its pre-deletion set intact.
-	restored, resp, err := client.DefaultAPI.RegisterManagedCluster(ctx).
+	_, resp, err = client.DefaultAPI.RegisterManagedCluster(ctx).
 		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: name}).
 		Execute()
-	Expect(err).NotTo(HaveOccurred())
-	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
-	Expect(restored.ClusterId).To(Equal(first.ClusterId))
+	Expect(err).To(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
 
-	cluster, _, err := client.DefaultAPI.GetManagedCluster(ctx, restored.ClusterId).Execute()
-	Expect(err).NotTo(HaveOccurred())
-	Expect(cluster.Capabilities).To(Equal([]string{"network/public", "provider/aws"}))
+	_, resp, err = client.DefaultAPI.GetManagedCluster(ctx, first.ClusterId).Execute()
+	Expect(err).To(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
 }
 
 // Name Collision Is a Conflict: a name held by a manually created record (empty
 // oidc_subject) is a 409 naming the record, nothing is created or adopted, and
 // deleting the record lets the control plane register (201, new id).
+// Verifies: PLAT-CLUS-02.01, PLAT-CLUS-02.03
 func TestManagedClusterRegistrationNameHeldByManualRecord(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	userCtx := h.NewAuthenticatedContext(h.NewRandAccount())
 	name := uniqueName("local-openshift")
 
 	manual, _, err := client.DefaultAPI.CreateManagedCluster(userCtx).ManagedCluster(openapi.ManagedCluster{
-		Name: name, Provider: "openshift", KubeconfigSecret: "openshift-kubeconfig",
+		Name: name, KubeconfigSecret: "openshift-kubeconfig",
 	}).Execute()
 	Expect(err).NotTo(HaveOccurred())
 	before := clusterCount(client, userCtx)
@@ -193,6 +192,7 @@ func TestManagedClusterRegistrationNameHeldByManualRecord(t *testing.T) {
 
 // Name Collision Is a Conflict: a name registered by another OIDC subject is a
 // 409 and nothing is created or modified.
+// Verifies: PLAT-CLUS-02.02
 func TestManagedClusterRegistrationNameHeldByAnotherControlPlane(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	name := uniqueName("hyp0-mc1")
@@ -219,7 +219,7 @@ func TestManagedClusterNameIsUnique(t *testing.T) {
 
 	userCtx := h.NewAuthenticatedContext(h.NewRandAccount())
 	_, resp, err := client.DefaultAPI.CreateManagedCluster(userCtx).ManagedCluster(openapi.ManagedCluster{
-		Name: name, Provider: "kind", KubeconfigSecret: "kubeconfig",
+		Name: name, KubeconfigSecret: "kubeconfig",
 	}).Execute()
 	Expect(err).To(HaveOccurred())
 	Expect(resp.StatusCode).To(Equal(http.StatusConflict))

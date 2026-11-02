@@ -34,9 +34,10 @@ func get(t *testing.T, h http.Handler, path string) (int, string, string) {
 	return res.StatusCode, res.Header.Get("Content-Type"), string(body)
 }
 
-// GLASS-NAV-19: direct navigation to and reload of a Glass application route must
+// FLT-NAV-19: direct navigation to and reload of a Glass application route must
 // return the SPA document, while API and asset paths keep their own behavior and
 // are never served the SPA document.
+// Verifies: FLT-NAV-19.01
 func TestSPAFallbackForGlassRoutes(t *testing.T) {
 	// Auth disabled (dev mode) so the /api path exercises the handler, not a 401.
 	authn := auth.New(&config.Config{AuthEnabled: false}, nil)
@@ -87,5 +88,43 @@ func TestSPAFallbackForGlassRoutes(t *testing.T) {
 	}
 	if apiCtype != "application/json" {
 		t.Errorf("GET /api/e2e/runs: content-type = %q, want application/json", apiCtype)
+	}
+}
+
+// Extra APIs such as the spec viewer's (/specs/api/) sit behind the same auth
+// gate as /api/, get the prefix stripped, and never fall back to the SPA.
+// Verifies: DEV-SPV-02.01, DEV-SPV-02.02
+func TestMountsAreAuthenticatedAndPrefixStripped(t *testing.T) {
+	echo := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "mounted "+r.URL.Path)
+	})
+	mount := Mount{Prefix: "/specs/api/", Handler: echo}
+
+	open := New(&api.Handlers{}, auth.New(&config.Config{AuthEnabled: false}, nil), staticFS(), mount)
+	if status, _, body := get(t, open, "/specs/api/markers"); status != http.StatusOK || body != "mounted /markers" {
+		t.Errorf("GET /specs/api/markers = %d %q, want 200 \"mounted /markers\"", status, body)
+	}
+	// The viewer's page is a static folder with its own index document.
+	static := staticFS()
+	static["specs/index.html"] = &fstest.MapFile{Data: []byte("<!doctype html><title>specs</title>")}
+	static["specs/assets/viewer.js"] = &fstest.MapFile{Data: []byte("viewer")}
+	withViewer := New(&api.Handlers{}, auth.New(&config.Config{AuthEnabled: false}, nil), static, mount)
+	for path, want := range map[string]string{
+		"/specs/":                 "<!doctype html><title>specs</title>",
+		"/specs/assets/viewer.js": "viewer",
+		"/sdlc/":                  "<!doctype html><title>glass</title>",
+		"/":                       "<!doctype html><title>glass</title>",
+	} {
+		if status, _, body := get(t, withViewer, path); status != http.StatusOK || body != want {
+			t.Errorf("GET %s = %d %q, want %q", path, status, body, want)
+		}
+	}
+	if status, _, _ := get(t, withViewer, "/specs"); status != http.StatusMovedPermanently {
+		t.Errorf("GET /specs = %d, want a redirect to /specs/", status)
+	}
+
+	gated := New(&api.Handlers{}, auth.New(&config.Config{AuthEnabled: true}, nil), staticFS(), mount)
+	if status, _, _ := get(t, gated, "/specs/api/markers"); status != http.StatusUnauthorized {
+		t.Errorf("GET /specs/api/markers without a token = %d, want 401", status)
 	}
 }

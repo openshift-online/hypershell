@@ -49,52 +49,97 @@ skills/
 
 ## Reconciliation State
 
+### HYPERSHELL-455 -- SLI dashboard gaps (done, issue #807 / PR #817)
+
+Scoped reconciliation of the approved operational and reliability dashboard
+spec changes. Added control-plane resource-readiness, certificate-health, OIDC
+client-sync, and exact reconciliation-population telemetry; BFF routes and
+derived SLI fields; and the corresponding role-aware dashboard cards, trends,
+targets, sources, fixtures, messages, and adapter coverage. API reliability now
+includes current and hourly P95 latency, gateway provisioning includes the
+seven-day P99 and 300-second target, and reconciliation state accuracy is only
+reported for a valid non-empty population. The approved reliability mockup was
+updated with a directly capturable parity surface and its full 11-item summary.
+
+Control-plane focused tests/vet/build, BFF tests, web-console and dashboard UI
+checks, adapter tests, i18n, mockup PatternFly checks, and Storybook builds are
+green. The mandatory UI build gate is Complete for both dashboards after
+production/mockup captures at 1440x900 and 390x844 were inspected and accepted.
+
+### HYPERSHELL-445 -- Fleet-dashboard capability chips from the delivery annotation (done, issue #707)
+
+Scoped reconciliation of `specs/platform/fleet-dashboard-capability-chips.spec.md`
+(FLT-CAP-01) against `components/fleet-dashboard`. The BFF assembled capability
+chips from per-namespace `delivery.hypershell.app/<ns>` **labels**, but the gitops
+repo only ever writes the single comma-joined `delivery.hypershell.app/capabilities`
+**annotation** (drift-checked against the registered capability set), so every chip
+but `provider` was silently dropped.
+
+| ID | Requirement | Status | Evidence |
+|----|-------------|--------|----------|
+| FLT-CAP-01 | BFF sources capabilities from the `delivery.hypershell.app/capabilities` annotation, low-privilege, allow-list validated, stable order | Present | `promotion.go`: `capabilitiesAnnotation` const + `capabilitiesFromAnnotation` (replaces `capabilitiesFromLabels`); call site reads already-extracted `ann`; `promotion_test.go` fixture uses the annotation + new `TestCapabilitiesFromAnnotation` (absent/unknown-ns/whitespace/dup/malformed/out-of-order/internal-slash) |
+
+Spec note updated so the sourcing contract reads "from the
+`delivery.hypershell.app/capabilities` annotation" (Applies-to, purpose point 4,
+FLT-CAP-01 requirement + scenario 01.03). No wire-contract, SDK, CLI, or frontend
+change: the BFF still emits `capabilities: []string` of `namespace/value` and the UI
+keeps treating it as opaque, ordered data. `provider`/`env`/`role`/`cluster` delivery
+**labels** remain the grouping/identity source, untouched. Gates green: `gofmt -l .`
+clean, `go vet ./...`, `golangci-lint` 0 issues, `go test -count=1 ./...`, fleet
+identity firewall, `make check`.
+
+**Last analyzed**: 2026-10-21 (scoped reconciliation of HYPERSHELL-358 / issue #662 / PR #682: `specs/web-console/homepage.spec.md` WEB-HOME-01..16 all Present. Routes and shared route registry, BFF summary/platform-overview aggregation with admin authorization, API-backed homepage view, Quick Create, external-link and route checkers, placement exclusion contract, generated SDKs, focused browser/BFF/backend tests, and package gates are implemented. Amber review corrections require the exact reported list-page item count, reject future cluster heartbeats, and normalize this history to one current entry. UI gate returned Complete without visual review because the user disabled snapshots for this conversation; production/story data-boundary and PatternFly mockup checks passed.)
+
+**Prior scoped analysis**: 2026-10-20
+
 ### HYPERSHELL-404 -- Glass URL-addressable navigation (done, PR #584 branch)
 
 Scoped reconciliation of `specs/platform/glass-url-addressable-navigation.spec.md`
-(GLASS-NAV-01..21) against `packages/fleet-dashboard-ui` + the fleet-dashboard BFF.
+(FLT-NAV-01..21) against `packages/fleet-dashboard-ui` + the fleet-dashboard BFF.
 All requirements Present.
 
 | ID | Requirement | Status | Evidence |
 |----|-------------|--------|----------|
-| GLASS-NAV-01/17 | Route/state matrix + documented route contract | Present | `packages/fleet-dashboard-ui/docs/route-contract.md` |
-| GLASS-NAV-02/03/14 | One typed contract, safe identifier encoding, safe degradation | Present | `src/domain/navigation/route.ts` + `route.test.ts` |
-| GLASS-NAV-04 | Framework-free codec in domain, History in one adapter | Present | `src/domain/navigation/{route,actions}.ts`, `src/adapters/routing/{history-port,router}.tsx` |
-| GLASS-NAV-05/06/07 | Hydrate before data, push/replace policy, popstate without loops | Present | `router.tsx` + `router.test.tsx`, `app.test.tsx` (hydration + Back/Forward) |
-| GLASS-NAV-08 | Cross-tab links + real-link affordances (copy/open-new-tab/Ctrl-click) | Present | `useNavLink`/`NavLinkButton` on SDLC bundle+issue links, E2E run links, gate history link; SVG map nodes/gates + animated board cards navigate in place but their destinations stay URL-addressable |
-| GLASS-NAV-09/10 | Map node/gate/sub-tab addressable; explicit live vs pinned gate attempt (`gattempt=live`) | Present | `topology-map.tsx`, `map-details.tsx`, `gate-execution.tsx`; `GATE_LIVE_ATTEMPT` |
-| GLASS-NAV-11/12 | Shared execution-detail contract; e2e run/drawer/sort addressable | Present | `e2e-run-view.tsx` (ExecControls), `e2e-run-view.test.tsx` |
-| GLASS-NAV-13 | Agent SDLC scope/search/card/shipped/escalations/expanded row | Present | `agent-sdlc-view.tsx` |
-| GLASS-NAV-16 | URL identifies data only; strings rendered as text | Present | React escaping; BFF SAR unchanged |
-| GLASS-NAV-18 | One stream per run under URL-driven navigation | Present | `SelectedRunPane key={runId}`, exec via props |
-| GLASS-NAV-19 | Deployed deep-link SPA fallback + reverse-proxy base-path round-trip | Present | `server.go` + `server_test.go`; `createBrowserHistory` captures/re-applies the base path (`history-port.test.ts`) |
-| GLASS-NAV-20 | Codec/integration/subscription tests | Present | 336 vitest + Go server test; `pnpm --filter fleet-dashboard-ui check` green |
-| GLASS-NAV-21 | No approved mockup: parity checks skipped, non-parity run | Present | PatternFly 6 reused, hexagonal boundary, a11y/i18n, tests all pass |
+| FLT-NAV-01/17 | Route/state matrix + documented route contract | Present | `packages/fleet-dashboard-ui/docs/route-contract.md` |
+| FLT-NAV-02/03/14 | One typed contract, safe identifier encoding, safe degradation | Present | `src/domain/navigation/route.ts` + `route.test.ts` |
+| FLT-NAV-04 | Framework-free codec in domain, History in one adapter | Present | `src/domain/navigation/{route,actions}.ts`, `src/adapters/routing/{history-port,router}.tsx` |
+| FLT-NAV-05/06/07 | Hydrate before data, push/replace policy, popstate without loops | Present | `router.tsx` + `router.test.tsx`, `app.test.tsx` (hydration + Back/Forward) |
+| FLT-NAV-08 | Cross-tab links + real-link affordances (copy/open-new-tab/Ctrl-click) | Present | `useNavLink`/`NavLinkButton` on SDLC bundle+issue links, E2E run links, gate history link; SVG map nodes/gates + animated board cards navigate in place but their destinations stay URL-addressable |
+| FLT-NAV-09/10 | Map node/gate/sub-tab addressable; explicit live vs pinned gate attempt (`gattempt=live`) | Present | `topology-map.tsx`, `map-details.tsx`, `gate-execution.tsx`; `GATE_LIVE_ATTEMPT` |
+| FLT-NAV-11/12 | Shared execution-detail contract; e2e run/drawer/sort addressable | Present | `e2e-run-view.tsx` (ExecControls), `e2e-run-view.test.tsx` |
+| FLT-NAV-13 | Agent SDLC scope/search/card/shipped/escalations/expanded row | Present | `agent-sdlc-view.tsx` |
+| FLT-NAV-16 | URL identifies data only; strings rendered as text | Present | React escaping; BFF SAR unchanged |
+| FLT-NAV-18 | One stream per run under URL-driven navigation | Present | `SelectedRunPane key={runId}`, exec via props |
+| FLT-NAV-19 | Deployed deep-link SPA fallback + reverse-proxy base-path round-trip | Present | `server.go` + `server_test.go`; `createBrowserHistory` captures/re-applies the base path (`history-port.test.ts`) |
+| FLT-NAV-20 | Codec/integration/subscription tests | Present | 336 vitest + Go server test; `pnpm --filter fleet-dashboard-ui check` green |
+| FLT-NAV-21 | No approved mockup: parity checks skipped, non-parity run | Present | PatternFly 6 reused, hexagonal boundary, a11y/i18n, tests all pass |
 
 No new BFF data planes, no new message IDs, no spec edits (spec cross-refs already
 landed in PR #584). Browser-level coverage is provided by jsdom integration tests
 (reload/hydration/Back-Forward/drawer-close) plus the Go SPA-fallback test; the
 package has no Playwright harness, so no new browser E2E suite was added.
 
-### HYPERSHELL-369 -- Gateway provider credentials to Vault (in progress)
+### HYPERSHELL-369 -- Gateway provider credentials to Vault
 
 Scoped reconciliation of `specs/platform/openshell-gateway-credentials.spec.md`
-(amended for HYPERSHELL-369) against the control-plane. Executed **Wave 1** only;
-Waves 2-3 are gated (see divergence + gaps).
+(amended for HYPERSHELL-369) against the control-plane. Executed the default flip to
+vault, the Vault client + two-stage fail-closed probes, runtime `Degraded` + metric,
+and the Kind/OpenShift e2e Vault fixture + scenarios.
 
 | ID | Requirement | Status | Evidence | Notes |
 |----|-------------|--------|----------|-------|
 | CRED-1 | Vault driver fully wired (conventions, full `server.credentialDrivers.vault.*` Helm values, projected `vault`-audience SA token via `extraVolumes`, serving-CA propagation, `kek-db` value, relaxed validation); empty-type objects route through the deployment-default selector; cross-repo contract pinned by a golden test | Present | `internal/gateway/{validation,config,helm_deploy,reconciler}.go`, `internal/helm/values.go`; tests `validation_test.go`, `helm_deploy_test.go` (`TestEffectiveCredentialDriver*`, `TestVaultConventionContract`), `values_test.go` | Also fixed a latent bug: credential-driver values were written top-level, but the chart reads `server.credentialDrivers.*` -- so the vault/k8s-secrets drivers never actually wired through before. CA propagation now **fails closed** (gateway not deployed) when the serving CA is missing, per spec. `extraVolumes` are appended, not overwritten. |
-| D-CRED-DEFAULT | Flip the omitted-`credential_driver` default from KEK to vault | Divergence | - | Flipping the default makes every bare `create gateway` in dev/kind/CI target a nonexistent Vault; e2e asserts `Running`. **Prerequisite (tracked):** design the dev/kind `kek-db` escape hatch before the flip, or confirm the gateway starts Ready without a reachable Vault. Not flipped; staged per-cluster via `GATEWAY_DEFAULT_CREDENTIAL_DRIVER`, which defaults to `kek-db`. |
-| CRED-REACH | Fail-closed Vault **auth/health** reachability probe at provisioning (`EnvironmentReady` Failed) + `Degraded` at runtime + dashboard signal | Missing | - | Wave 3. The CA-missing fail-closed case is already handled (CRED-1); this is the remaining Vault login/health probe. Needs a small Vault client in the control plane (TokenRequest -> login) and a live gateway to verify; best after #662 merges. |
-| CRED-PURGE | Purge the gateway's KV path on deletion, `VaultCredentialPath` orphan signal | Missing | - | Wave 3. Same Vault-client subsystem as CRED-REACH; authenticates as the gateway identity before namespace teardown. |
+| D-CRED-DEFAULT | Flip the omitted-`credential_driver` default from KEK to vault | Present | `internal/gateway/helm_deploy.go` (`effectiveCredentialDriver` now resolves nil/empty -> vault; `GATEWAY_DEFAULT_CREDENTIAL_DRIVER` selector removed); tests updated | **Flipped (wave3-W1).** vault is the flat default. Prerequisite: gitops per-cluster Vault rollout must merge first (recorded in the spec). Validated live on hyp0 via explicit opt-in before flipping. |
+| CRED-REACH | Fail-closed Vault **auth/health** reachability probe at provisioning (`EnvironmentReady` Failed) + `Degraded` at runtime + dashboard signal | Present | `internal/gateway/{vault_client,vault_probe}.go` (TokenRequest -> login; two-stage reachability/auth probe), `internal/reconciler/health.go` (runtime `Degraded`), `internal/otel/metrics.go` (`gateway.vault.unreachable`); tests `vault_client_test.go`, `health_test.go` | wave3-W2. Pre-deploy health check + authenticated probe before `Running`; runtime outage degrades the gateway and increments the metric. The CA-missing fail-closed case is handled in CRED-1. |
+| CRED-PURGE | Purge the gateway's KV path on deletion | N/A (by design) | - | **Dropped.** The runtime stores secrets at a flat, unguessable, hash-addressed path with no `list` granted, so the control plane cannot (and need not) enumerate-and-purge on delete. Leftover entries are inert (unreferenced, un-listable). See the Provider Credential Lifecycle on Deletion requirement. |
+| CRED-E2E | End-to-end Vault coverage (**HashiCorp Vault** fixture; policy self-test + sandbox-lifecycle resolve + API fail-closed) | Present (code; CI-validated pending) | `scripts/cluster/vault.sh` (`run_selftest`), `scripts/kind/up.sh`, `tests/e2e/phases.go` (p1_2 wiring asserts + `credential_driver` field), `tests/e2e/vault_phases.go` (`p2_7VaultFailClosed`), `tests/e2e/suite.go` (P2.7 registration) | wave3-W4/W5. Stands up hashicorp/vault:1.19.0 on Kind and OpenShift to the GitOps Contract. Coverage is split so the suite does not reach into Vault with a synthetic identity: the **fixture** self-verifies the capability-scoped policy once at setup (round-trip under `provider-credentials/*`, `list` denied, out-of-prefix denied, and access revocation -- drop the policy, gateway denied, then restore; fails bring-up on drift); the **sandbox lifecycle** (p2_1) exercises the real gateway-process resolve; and the **suite** asserts fail-closed through the product API (p2_7, long suite) with no kube/exec. Build+vet green; **needs the E2E CI run**. Policy round-trip + denial also live-validated on hyp0 and hypc-aws-00. |
 
 API server + SDK need no change: `credential_driver` is an opaque pass-through
 (only immutability enforced); the control plane is the validator. CA ConfigMap
 (`openshell-gateway-vault-ca`) is reclaimed by the existing label-based tenant
 cleanup, so deletion of the mirrored CA needs no special handling.
 
-**Last analyzed**: 2026-10-15 (scoped reconciliation of HYPERSHELL-402 / PR #574: `specs/platform/e2e-testing.spec.md` new "Opt-In Structured Run Reporting" requirements + `specs/platform/e2e-run-log-visibility.spec.md` (E2E-LOG-01..18, new). Three layers reconciled. (E2E suite) New `tests/e2e/harness/reporter.go`: nil-safe `Reporter` emitting one concurrency-safe NDJSON `hypershell.e2e.v1` line per event to stdout, OFF by default (`E2E_REPORT_JSON=1`), identity from `E2E_REPORT_*` (UUID generated when `E2E_REPORT_RUN_ID` absent), run/step/log/terminal lifecycle, secret redaction + size bounds, visible-but-non-fatal write errors; `CommandRunner` gains an opt-in live line-streaming path (`lineStreamer`) that leaves combined-output capture + return values byte-identical when off; `suite.go` wires run_started/step_started/step_finished (panic-safe via recover+re-panic, skip/not-run/fail outcomes)/run_finished after cleanup, per-step attribution (sequential `SetStep`, parallel clone carries its step id); `harness/reporter_test.go` (redaction, bounds, torn-write, concurrency, nil-disabled) race-clean. (BFF) `pkg/sources/e2e.go` (model, ViaQ-envelope-then-message parse, sequence-dedup reduction, bounded `query_range` Runs + collision-free `tenant/namespace/runId` RunDetail, trusted-cluster-from-tenant), `pkg/sources/loki.go` (new `LokiClient` port + adapter: query_range + `x/net/websocket` tail), `pkg/sources/e2e_stream.go` (SSE handler + per-tenant shared `tailBroker` with backpressure/dropped-surfacing/snapshot-to-tail dedup bridge), `pkg/config` `FD_E2E_LOKI_*`/`FD_REFRESH_E2E` (empty URL disables), `pkg/api/handlers.go` always-mounted `/api/e2e/{runs,runs/{id...},stream}` (feature-off not 404; 404 on missing run), `main.go` opt-in wiring; tests race-clean, golangci-lint 0 issues, fleet-identity firewall clean, `x/net` promoted to a direct dep. (UI) `packages/fleet-dashboard-ui` e2e-run view: framework-free `domain/e2e-run.ts` reduction, `FleetApi` port + wire mapper + streaming adapter, TanStack hooks, PatternFly 6 view + new tab, observability probes, a11y/i18n, fixtures-based tests. No approved mockup exists (E2E-LOG-16): built to UI standards, parity checks skipped. GitOps owns the log pipeline (Loki receiver/retention/ClusterLogForwarder); this is the application-side consumer, not claimed deployed until the delivery repo builds + pins the images (E2E-LOG-18).) Prior 2026-10-06 (scoped reconciliation of the `user_management` PR's new specs: `specs/platform/gateway-access-management.spec.md` (GAM-01..14) and `specs/web-console/gateway-access-management.spec.md` (GAM-UI-01..11), plus the aligned edits in `data-model`, `security/rbac-enforcement`, `openshell-gateway-keycloak`, `web-console/architecture`, and `web-console/user_flows.md`. Executed waves GAM-W1..W6: (W1 API) new `gatewayAccess` facade plugin over the existing `role_bindings` storage -- enriched list, grant with Keycloak-realm resolution + user pre-provisioning, in-place `role_id` change (single `UPDATED` event), revoke, last-owner `409`, owner/admin-tier authorization, idempotent convergence; new `gateway:admin` built-in role seeded idempotently; RBAC middleware extended for the `access` resource + `gateway:admin` (read/update, never delete); OpenAPI `openapi.gatewayAccess.yaml` + 5 endpoints; 15 service-level integration tests pass. (W-CP) OIDC Role Bridge: `gateway:admin` -> `openshell-admin`+`openshell-user`, and ADDED/UPDATED is now a true union reconcile (demotion via in-place UPDATE strips `openshell-admin`, keeps `openshell-user`); reconciler tests pass. (W-CLI) `hsctl {create,list,update,delete} gatewayAccess` (new `update` verb) via raw-HTTP pkg mirroring service accounts; 403/409 surface as non-zero exits; pkg tests pass. (W-SDK) extended the SDK generator for the scoped access resource (optional item-GET, PATCH, directory sub-collection) and regenerated the Go + TS clients -- service_accounts output stays byte-identical. (W-DIR) Keycloak directory projection: `keycloak.ListRealmUsers`, a CP `internal/directory` projection + refresh loop, and a directory gRPC service riding the existing provisioner channel the API server already dials; the API facade resolver reads it (GAM-09 + GAM-04 realm resolution). (W-FE/W-WC) web-console Manage access tab in the GMUI package (ports, probes, table, directory picker, role modal, last-owner UI, 221 tests) plus the WC production adapter + contract tests; GMUI `check` and web-console `check` both green. All 14 platform + 11 UI requirements are now Present; GAM-UI-11 Storybook fixtures are the one deliberate omission (covered by component tests instead; no access mockup exists to extend). See the gateway-access gap table below.) Prior 2026-10-01 (scoped reconciliation of specs/platform/e2e-testing.spec.md + specs/platform/e2e-console-browser-testing.spec.md against HEAD `addb9509` after #413 renumbered the core e2e suite 6 -> 14 areas. All new gaps were test-only (underlying API/CP/UI features already existed). **Executed waves E2E-W4 + CON-W2:** added e2e areas 12-14 to `tests/e2e/e2e-openshell.sh` (E2E-14 registration, E2E-16 reconnect+gRPC identity, E2E-17 promotion, E2E-18 reconciled status, E2E-19 admin inventory+phase) plus helpers in `lib.sh`/`drivers/kind.sh`, and console areas 7+11 (CON-E2E-14 typeahead+install-docs, CON-E2E-13 fleet-dashboard promotion). Verified on a local Kind cluster: full long run = **90 passed, 2 failed** (1 pre-existing area-9 developer-sandbox flake unrelated to this work; 1 promotion `Degraded` assertion since corrected). Short mode 20/0; console unit test 56/0; all shell unit tests pass; `bash -n` clean. **Two divergences recorded** (do not edit specs): D-E2E-DELETE-CP (gateway DELETE needs the CP, so "delete while disconnected" is infeasible -- E2E-16 covers create-convergence only) and D-E2E-DEGRADED (a failed rollout keeps the last-good workload serving and stays Running, not Degraded; the test asserts the never-moves-to-bad safety invariant). **D-E2E-DEGRADED is now RESOLVED: the release-promotion scenarios were removed with the GatewayRelease kind (PR #452) and the `openshell-gateway-health.spec.md` Degraded definition matches the code.** Browser areas (CON-E2E-13/14) are code-complete + unit-tested but not browser-run locally (agent-browser not installed); CI covers them. Deferred: E2E-15 multi-cluster (E2E-W5, needs second-CP deploy) and E2E-20 qualification (E2E-W6, infra-gated).) Also 2026-09-23 (HYPERSHELL-334 implementation rebased onto `b152182c`: standing CI secrets moved to AWS Secrets Manager + GitHub OIDC + ESO; test-tier principals seeded from ESO on CI-owned PR environments and kept until the environment is destroyed). Also 2026-09-23 (scoped reanalysis of specs/platform/ephemeral-pr-environments.spec.md after #342: PR-ENV-6 now also publishes the hypershell-realm Keycloak admin console URL with impersonation instructions; PR-ENV-8 hides the password form when the GitHub IdP is active; PR-ENV-9 adds the interactive admin console path via `view-users`/`query-users`/`impersonation` realm-management roles granted on first broker login - all implemented and Present). Also 2026-09-22 (scoped reanalysis + execution of specs/platform/e2e-console-browser-testing.spec.md: CON-W1 fully closed; 49/49 checks pass on Kind including sandbox create/delete via the PatternFly ActionsColumn row kebab + typed-name confirmation modal and TSL single-quote quoting fix in lib.sh; CI integration wired into `.github/workflows/e2e.yml`; spec added to coverage table as 100%). Prior 2026-09-22 (scoped reanalysis for commits since `464ec5e`: updated codebase commit to `5e14f29b` (external-db-only-redo HEAD: remove ManagedDatabase API); registered 6 new spec files (gateway-provision-outcomes, gateway-release-distribution, gateway-fleet-total-trend, gateway-sandbox-active-trends, hub-cluster-utilization-trends, openshell-branch-build); updated E2E-9 for 3-mode E2E_MODE split (#332); added E2E-13 for macOS CLI container wrapper (#335); added DM-3g/h/i for new Gateway schema fields; added OS-14/OS-15 for openshift-seed and openshift-test requirements; full-corpus recount pending for new specs). Prior 2026-09-16 (scoped reanalysis + execution of specs/platform/ephemeral-pr-environments.spec.md for HYPERSHELL-240 after the spec moved from continuous-deploy-for-life-of-PR to ephemeral-by-default with `/pr-extend` / `/pr-destroy`; D-E2E-OIDC closed as Present via PR-ENV-10; the last full-corpus analysis remains 2026-08-31). Prior 2026-09-14 scoped analysis of specs/platform/gateway-deletion-finalization.spec.md for HYPERSHELL-182; closed the no-silent-orphan gap G1: best-effort deletion failures for gateway-owned resources with no automatic recovery path -- leaked ClusterRoleBinding, leaked Keycloak gateway/console clients, and Keycloak clients skipped when the stored identity is unresolvable or the provisioner is deconfigured -- now emit a durable IncompleteFinalization Warning Event in the control-plane namespace instead of only logging; in-namespace sweep G2 already satisfied. Prior 2026-09-09 scoped reanalysis of e2e-testing.spec.md + local-development.spec.md against HEAD `21f02a0` for the new OpenShift E2E CI content added by the HYPERSHELL-240 docs commit: OpenShift driver unification #232/#244, dynamic namespace-GC timing, and the merge-queue Kind CI gate are all implemented; D-E2E-OIDC was then still listed as a divergence pending HYPERSHELL-240 (closed 2026-09-16). Prior 2026-09-04 scoped reanalysis of the CP-OBS-07 reconcile-queue metric changes after review; operational-dashboard through OP-DASH-20; OP-DASH-18 NaN fallback; OP-DASH-19 independent metric sources + partial failure; OP-DASH-20 section titles + header refresh consolidation; cluster memory/cpu/pods/nodes metrics; gateway-provision-time GPT-W1; registered-users complete; the last full-corpus analysis remains 2026-08-31)
+Prior: 2026-10-20 (scoped reconciliation of HYPERSHELL-415 / issue #621 / PR #638: `specs/security/rbac-enforcement.spec.md` RBAC-3 auto-provisioning requirement narrowed to conditional writes, plus 4 new scenarios. `sqlUserDao.Upsert` (`plugins/users/dao.go`) reworked: reads the row by username first; on an existing row, writes `email`/`name` only when the JWT carries a claim for that field and it differs from the stored value (`updateChangedFields`), taking no `UPDATE` and so no row lock when nothing changed, and never clearing a stored value with an absent claim; on a missing row, `INSERT ... ON CONFLICT DO NOTHING` then re-read by username (`insertIfAbsent`) keeps the existing race guard for concurrent first-time provisioning. This removes the unconditional per-request row lock (including the control plane's gRPC write-backs) that could serialize a caller's own requests and risked a lock-ordering deadlock when two callers concurrently pre-provision each other's row via `gatewayAccess.Grant` (GTW-ACC-04). Tests added to `plugins/users/integration_test.go`: unchanged profile issues no `UPDATE` (asserted via a stable `UpdatedAt`), a claim-less token preserves the stored value, and a changed claim still writes; the existing concurrent-first-time-provisioning test is unaffected. `UpsertByUsername`/`UserProvisioningMiddleware`/`RBACUnaryInterceptor` call sites are unchanged -- the behavior change is entirely inside the DAO. Gate green: `go build`/`go vet ./...`, `make lint-api-server` (golangci-lint 0 issues), `make check`; `plugins/users`, `pkg/rbac`, and `plugins/gatewayAccess` package tests pass against the real-Postgres testcontainer.) Prior 2026-10-15 (scoped reconciliation of HYPERSHELL-402 / PR #574: `specs/platform/e2e-testing.spec.md` new "Opt-In Structured Run Reporting" requirements + `specs/platform/e2e-run-log-visibility.spec.md` (E2E-LOG-01..18, new). Three layers reconciled. (E2E suite) New `tests/e2e/harness/reporter.go`: nil-safe `Reporter` emitting one concurrency-safe NDJSON `hypershell.e2e.v1` line per event to stdout, OFF by default (`E2E_REPORT_JSON=1`), identity from `E2E_REPORT_*` (UUID generated when `E2E_REPORT_RUN_ID` absent), run/step/log/terminal lifecycle, secret redaction + size bounds, visible-but-non-fatal write errors; `CommandRunner` gains an opt-in live line-streaming path (`lineStreamer`) that leaves combined-output capture + return values byte-identical when off; `suite.go` wires run_started/step_started/step_finished (panic-safe via recover+re-panic, skip/not-run/fail outcomes)/run_finished after cleanup, per-step attribution (sequential `SetStep`, parallel clone carries its step id); `harness/reporter_test.go` (redaction, bounds, torn-write, concurrency, nil-disabled) race-clean. (BFF) `pkg/sources/e2e.go` (model, ViaQ-envelope-then-message parse, sequence-dedup reduction, bounded `query_range` Runs + collision-free `tenant/namespace/runId` RunDetail, trusted-cluster-from-tenant), `pkg/sources/loki.go` (new `LokiClient` port + adapter: query_range + `x/net/websocket` tail), `pkg/sources/e2e_stream.go` (SSE handler + per-tenant shared `tailBroker` with backpressure/dropped-surfacing/snapshot-to-tail dedup bridge), `pkg/config` `FD_E2E_LOKI_*`/`FD_REFRESH_E2E` (empty URL disables), `pkg/api/handlers.go` always-mounted `/api/e2e/{runs,runs/{id...},stream}` (feature-off not 404; 404 on missing run), `main.go` opt-in wiring; tests race-clean, golangci-lint 0 issues, fleet-identity firewall clean, `x/net` promoted to a direct dep. (UI) `packages/fleet-dashboard-ui` e2e-run view: framework-free `domain/e2e-run.ts` reduction, `FleetApi` port + wire mapper + streaming adapter, TanStack hooks, PatternFly 6 view + new tab, observability probes, a11y/i18n, fixtures-based tests. No approved mockup exists (E2E-LOG-16): built to UI standards, parity checks skipped. GitOps owns the log pipeline (Loki receiver/retention/ClusterLogForwarder); this is the application-side consumer, not claimed deployed until the delivery repo builds + pins the images (E2E-LOG-18).) Prior 2026-10-06 (scoped reconciliation of the `user_management` PR's new specs: `specs/platform/gateway-access-management.spec.md` (GTW-ACC-01..14) and `specs/web-console/gateway-access-management.spec.md` (WEB-ACC-01..11), plus the aligned edits in `data-model`, `security/rbac-enforcement`, `openshell-gateway-keycloak`, `web-console/architecture`, and `web-console/user_flows.md`. Executed waves GAM-W1..W6: (W1 API) new `gatewayAccess` facade plugin over the existing `role_bindings` storage -- enriched list, grant with Keycloak-realm resolution + user pre-provisioning, in-place `role_id` change (single `UPDATED` event), revoke, last-owner `409`, owner/admin-tier authorization, idempotent convergence; new `gateway:admin` built-in role seeded idempotently; RBAC middleware extended for the `access` resource + `gateway:admin` (read/update, never delete); OpenAPI `openapi.gatewayAccess.yaml` + 5 endpoints; 15 service-level integration tests pass. (W-CP) OIDC Role Bridge: `gateway:admin` -> `openshell-admin`+`openshell-user`, and ADDED/UPDATED is now a true union reconcile (demotion via in-place UPDATE strips `openshell-admin`, keeps `openshell-user`); reconciler tests pass. (W-CLI) `hsctl {create,list,update,delete} gatewayAccess` (new `update` verb) via raw-HTTP pkg mirroring service accounts; 403/409 surface as non-zero exits; pkg tests pass. (W-SDK) extended the SDK generator for the scoped access resource (optional item-GET, PATCH, directory sub-collection) and regenerated the Go + TS clients -- service_accounts output stays byte-identical. (W-DIR) Keycloak directory projection: `keycloak.ListRealmUsers`, a CP `internal/directory` projection + refresh loop, and a directory gRPC service riding the existing provisioner channel the API server already dials; the API facade resolver reads it (GTW-ACC-09 + GTW-ACC-04 realm resolution). (W-FE/W-WC) web-console Manage access tab in the GMUI package (ports, probes, table, directory picker, role modal, last-owner UI, 221 tests) plus the WC production adapter + contract tests; GMUI `check` and web-console `check` both green. All 14 platform + 11 UI requirements are now Present; WEB-ACC-11 Storybook fixtures are the one deliberate omission (covered by component tests instead; no access mockup exists to extend). See the gateway-access gap table below.) Prior 2026-10-01 (scoped reconciliation of specs/platform/e2e-testing.spec.md + specs/platform/e2e-console-browser-testing.spec.md against HEAD `addb9509` after #413 renumbered the core e2e suite 6 -> 14 areas. All new gaps were test-only (underlying API/CP/UI features already existed). **Executed waves E2E-W4 + CON-W2:** added e2e areas 12-14 to `tests/e2e/e2e-openshell.sh` (E2E-14 registration, E2E-16 reconnect+gRPC identity, E2E-17 promotion, E2E-18 reconciled status, E2E-19 admin inventory+phase) plus helpers in `lib.sh`/`drivers/kind.sh`, and console areas 7+11 (CON-E2E-14 typeahead+install-docs, CON-E2E-13 fleet-dashboard promotion). Verified on a local Kind cluster: full long run = **90 passed, 2 failed** (1 pre-existing area-9 developer-sandbox flake unrelated to this work; 1 promotion `Degraded` assertion since corrected). Short mode 20/0; console unit test 56/0; all shell unit tests pass; `bash -n` clean. **Two divergences recorded** (do not edit specs): D-E2E-DELETE-CP (gateway DELETE needs the CP, so "delete while disconnected" is infeasible -- E2E-16 covers create-convergence only) and D-E2E-DEGRADED (a failed rollout keeps the last-good workload serving and stays Running, not Degraded; the test asserts the never-moves-to-bad safety invariant). **D-E2E-DEGRADED is now RESOLVED: the release-promotion scenarios were removed with the GatewayRelease kind (PR #452) and the `openshell-gateway-health.spec.md` Degraded definition matches the code.** Browser areas (CON-E2E-13/14) are code-complete + unit-tested but not browser-run locally (agent-browser not installed); CI covers them. Deferred: E2E-15 multi-cluster (E2E-W5, needs second-CP deploy) and E2E-20 qualification (E2E-W6, infra-gated).) Also 2026-09-23 (HYPERSHELL-334 implementation rebased onto `b152182c`: standing CI secrets moved to AWS Secrets Manager + GitHub OIDC + ESO; test-tier principals seeded from ESO on CI-owned PR environments and kept until the environment is destroyed). Also 2026-09-23 (scoped reanalysis of specs/platform/ephemeral-pr-environments.spec.md after #342: PR-ENV-6 now also publishes the hypershell-realm Keycloak admin console URL with impersonation instructions; PR-ENV-8 hides the password form when the GitHub IdP is active; PR-ENV-9 adds the interactive admin console path via `view-users`/`query-users`/`impersonation` realm-management roles granted on first broker login - all implemented and Present). Also 2026-09-22 (scoped reanalysis + execution of specs/platform/e2e-console-browser-testing.spec.md: CON-W1 fully closed; 49/49 checks pass on Kind including sandbox create/delete via the PatternFly ActionsColumn row kebab + typed-name confirmation modal and TSL single-quote quoting fix in lib.sh; CI integration wired into `.github/workflows/e2e.yml`; spec added to coverage table as 100%). Prior 2026-09-22 (scoped reanalysis for commits since `464ec5e`: updated codebase commit to `5e14f29b` (external-db-only-redo HEAD: remove ManagedDatabase API); registered 6 new spec files (gateway-provision-outcomes, gateway-release-distribution, gateway-fleet-total-trend, gateway-sandbox-active-trends, hub-cluster-utilization-trends, openshell-branch-build); updated E2E-9 for 3-mode E2E_MODE split (#332); added E2E-13 for macOS CLI container wrapper (#335); added DM-3g/h/i for new Gateway schema fields; added OS-14/OS-15 for openshift-seed and openshift-test requirements; full-corpus recount pending for new specs). Prior 2026-09-16 (scoped reanalysis + execution of specs/platform/ephemeral-pr-environments.spec.md for HYPERSHELL-240 after the spec moved from continuous-deploy-for-life-of-PR to ephemeral-by-default with `/pr-extend` / `/pr-destroy`; D-E2E-OIDC closed as Present via PR-ENV-10; the last full-corpus analysis remains 2026-08-31). Prior 2026-09-14 scoped analysis of specs/platform/gateway-deletion-finalization.spec.md for HYPERSHELL-182; closed the no-silent-orphan gap G1: best-effort deletion failures for gateway-owned resources with no automatic recovery path -- leaked ClusterRoleBinding, leaked Keycloak gateway/console clients, and Keycloak clients skipped when the stored identity is unresolvable or the provisioner is deconfigured -- now emit a durable IncompleteFinalization Warning Event in the control-plane namespace instead of only logging; in-namespace sweep G2 already satisfied. Prior 2026-09-09 scoped reanalysis of e2e-testing.spec.md + local-development.spec.md against HEAD `21f02a0` for the new OpenShift E2E CI content added by the HYPERSHELL-240 docs commit: OpenShift driver unification #232/#244, dynamic namespace-GC timing, and the merge-queue Kind CI gate are all implemented; D-E2E-OIDC was then still listed as a divergence pending HYPERSHELL-240 (closed 2026-09-16). Prior 2026-09-04 scoped reanalysis of the OBS-CPL-07 reconcile-queue metric changes after review; operational-dashboard through OP-DASH-20; WEB-OPS-18 NaN fallback; WEB-OPS-19 independent metric sources + partial failure; OP-DASH-20 section titles + header refresh consolidation; cluster memory/cpu/pods/nodes metrics; gateway-provision-time GPT-W1; registered-users complete; the last full-corpus analysis remains 2026-08-31)
 
 **Scoped analysis (2026-10-10)**: `specs/platform/data-model.spec.md` @ `bead8130` (branch `feature/repository-kind-agent-selector`). The only changed spec. Implemented parts A+B of the three new requirement blocks; part C (declarative `.hypershell` import) is deferred (see Future/Deferred REPO-C).
   - **A - Repository ext kind** (`/api/hypershell/ext/repositories`): new self-contained plugin `components/api-server/plugins/repositories/` (model/dao/service/handler/presenter/migration/plugin) copied from the `sandboxTemplates` ext pattern; fields `name,url,provider,secret_source_id,default_branch,import_path,status`; provider validated against `{github}`; `secret_source_id` FK existence checked; `import_path` defaults to `.hypershell`; DELETE blocked with **409** when any live AgentRuntime references it (identifies the blocking ids). OpenAPI `openapi.repositories.yaml` + 2 paths wired into `openapi.yaml`; Go+TS SDK regenerated; `hsctl apply` Repository mapping + `urls.RepositoriesPath`. Side-effect registered in `main.go`.
@@ -112,6 +157,167 @@ cleanup, so deletion of the mirrored CA needs no special handling.
   - **REPO-C-OWN - Repository ownership mark on the five remaining import kinds**: added the nullable, read-only `repository_id` ownership mark (TEXT FK) to `SandboxTemplate`, `ProviderSpec`, `ProviderBinding`, `InferenceRoute`, and `SecretSource` (AgentRuntime already had it from #497). Mirrors the #497 AgentRuntime pattern: model field + raw `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` migrations (`2026101500000001`..`5`, registered in each plugin), presenter read-exposure, and OpenAPI `repository_id` property marked `readOnly: true`. The mark is NULL for resources created directly through the REST API or `hsctl apply` (never pruned by the import) and is set only server-side by the deferred control-plane import reconciler, so it is read-only in the client contract: `Convert*` does not map it and it is absent from every `*CreateRequest`/`*PatchRequest` in the regenerated SDKs. OpenAPI Go client (`make generate`), Go + TS SDKs (`make generate-sdk`), and the embedded TUI descriptor (`make generate-tui`) regenerated with no residual drift. New `plugins/sandboxTemplates/repository_ownership_test.go` drives the full HTTP stack (direct create -> null; client-supplied `repository_id` ignored; re-read confirms no mark) and the five plugin testmains boot the new migrations cleanly. Gate: `make check`, `make lint-api-server`, `make lint-cli`, api-server `go build`/`go vet`/`gofmt`, control-plane build/vet, and the affected plugin integration tests all green; `make lint-sdk-typescript` could not run (host Node v22 < required 24.11) but the TS change is purely mechanical generated output (one `repository_id` line per read model, correctly omitted from create/patch) with zero generator drift.
 
 **Update (2026-10-16, REPO-C-IMPORT final wave, PR #590):** built the end-to-end `RepositoryReconciler` the #590 re-spec unblocked by replacing git-clone + `hsctl`-binary render with a GitHub-API subtree read + an in-process kustomize library. Green and landed: (1) **`pkg/kustomize` shared library** in `components/cli` (`Build`/`BuildYAML` over a `filesys.FileSystem`, plugins disabled + root-only load restriction via kustomize defaults; dep `sigs.k8s.io/kustomize/api@v0.21.2` + `kyaml@v0.21.2`, both published 2026-09-28/30, >= 14 days old; `k8s.io/kube-openapi` pinned via `replace` to the smd-v6 line `20260721` to avoid the smd-v7 break against apimachinery v0.36.3), unit-tested in memory incl. bases/overlays. (2) **hsctl refactor** - `apply/cmd.go` `loadFromKustomize` now calls `pkg/kustomize.BuildYAML(filesys.MakeFsOnDisk(), dir)` instead of shelling out to the `kustomize` binary; the `exec` path is gone and its tests run in-process (no skip-if-missing). (3) **cli->CP wiring** - `components/control-plane/go.mod` requires + locally `replace`s the cli module. (4) **`RepositoryReconciler`** (`internal/reconciler/repository_{reconciler,github,writer}.go`) - periodic idempotent loop: enumerate Repositories -> resolve credential (per-Repository `secret_source_id` via `pkg/secretstore` + `SecretSourceService` lookup takes precedence over the default platform GitHub App token) -> read ONLY the `import_path` subtree over the GitHub git-trees/blobs API into an in-memory `filesys` (no clone, no disk) -> render via `pkg/kustomize.Build` -> filter to the 7 canonical importable Kinds, excluding `Repository` + admin kinds (ManagedCluster/Role/RoleBinding) -> UPSERT over the gRPC write path with server-side ownership via the `x-hypershell-import-repository-id` binding (#585) -> PRUNE Repository-owned resources no longer present, scoped per Repository. Wired into `main.go` behind `HYPERSHELL_REPOSITORY_IMPORT_ENABLED` (default off) + `HYPERSHELL_GITHUB_TOKEN_FILE`. Fake-backed tests cover render/filter/7-kind/Repository+admin exclusion, upsert, prune, per-Repository prune scoping, credential precedence, the GitHub fetcher (httptest), and ownership-metadata attachment. **FLAGGED (reconcile honesty clause):** the production gRPC writer fully supports the FIVE import-write ext Kinds (SandboxTemplate, ProviderSpec, ProviderBinding, InferenceRoute, SecretSource - exactly the rbac import-write set). `Gateway` and `AgentRuntime` are accepted by the importable filter but return a collected `ErrKindNotWritable`: `Gateway`'s proto message has NO `repository_id` ownership field (cannot be ownership-marked or pruned) and `AgentRuntime` has NO gRPC Create/Update/Delete (only status) - the API surface they need does not exist yet, so a declared Gateway/AgentRuntime is surfaced as a per-resource error, never silently dropped. The "platform GitHub App credential" is consumed as a mounted installation-token file (ESO-refreshed, mirroring fleet-dashboard); full App-JWT->installation-token minting from AppID + private key is not implemented. Gate: `make check` (incl. dependency-age), `make lint-cli`, `make lint-control-plane` (gofmt/vet/golangci-lint 0 issues), cli + control-plane `go build`/`go test` all green; no generated-artifact drift.
+
+**Scoped analysis (2026-10-26, CICD-ECC, issue #776 / PR #779):** reconciled the new
+`specs/platform/konflux-enterprise-contract-conformance.spec.md` (CICD-ECC-01..06).
+Landed the issue-sanctioned **Hermeto pilot** for the single validated Go-only
+component (CICD-ECC-02): `api-server` now sets `hermetic: "true"`,
+`enable-package-registry-proxy: "true"`, and a single-object `prefetch-input`
+`{"type":"gomod","path":"components/api-server"}` in all three pipeline files
+(push, pull-request, merge-queue) - 3 `.tekton` files, additive params in
+`spec.params`. Its build check `hypershell-api-server-main-on-pull-request` is
+**green** with hermetic on, proving the prefetch recipe against the live Konflux
+build. CICD-ECC-05 (single pipeline source) already satisfied: redundant Konflux
+PR **#774 is CLOSED** and `fullsend-sandbox` keeps one authoritative `.tekton` set
+on `main`.
+
+**Completion (2026-10-27, review follow-up, PR #779):** the earlier revision set the
+three hermetic params on all three `api-server` pipeline files but only the
+pull-request pipeline was migrated to Trusted Artifacts (`git-clone-oci-ta`,
+`prefetch-dependencies-oci-ta`, `buildah-remote-oci-ta`); the push and merge-queue
+pipelines kept the standard (non-TA) `prefetch-dependencies` task. Per the review
+root-cause (the standard prefetch task produces no `status.results`, so Conforma's
+`task.rego` cannot read `enable-package-registry-proxy` and the deny rule fires),
+setting the proxy param on a non-TA pipeline has no effect: the **shipped** image is
+built by the push pipeline, so leaving push non-TA would have kept `api-server`
+non-conformant on `main` even though the PR build was green. Converted the push and
+merge-queue pipelines to the identical multi-arch Trusted-Artifacts `pipelineSpec`
+as the green pull-request pipeline, so all three `api-server` files now share one
+`pipelineSpec` (the repo convention already followed by the `agent-runtime`,
+`agent-runtime-slim`, and `fullsend-sandbox` trios). The task graph is unchanged
+(no task added or removed, so no `trusted_task.trusted` violation, CICD-ECC-03);
+only the task variants and Trusted-Artifact wiring (`SOURCE_ARTIFACT` /
+`PREFETCH_ARTIFACT`, `ociStorage`) changed, plus the shared PVC workspace was
+dropped. Verification: all three `pipelineSpec` bodies are byte-identical, the
+pull-request pipeline (the only CI-verifiable form pre-merge) is unchanged except
+its description text and stays green, and push/merge-queue mirror it. The push and
+merge-queue builds themselves can only be confirmed on the first `main` build after
+merge (push pipelines do not run pre-merge), which matches how the proven
+`agent-runtime` TA push pipelines were landed.
+
+**Review follow-up (2026-10-28, code-review rejection, PR #779):** addressed the two
+blocking findings from the maintainer code review. (1) The PR body auto-closed the
+tracking issue (`Closes #776`) while only the `api-server` pilot of eight components
+is conformant; changed to `Part of #776` so merging this increment does not close
+the issue before the acceptance criteria are met. (2) The Trusted-Artifacts
+conversion builds `api-server` as a native multi-arch (`linux/amd64` + `linux/arm64`)
+image index (`ALWAYS_BUILD_INDEX: "true"`), where `main` shipped amd64 only. This is
+intended, not a template side effect: the `api-server` Dockerfile on `main` already
+carries per-arch base images and a `BUILDARCH`/`TARGETARCH` split and documents "Bump
+amd64 and arm64 together", matching the agent-runtime trio's native multi-arch layout.
+Recorded the decision in CICD-ECC-02 (new paragraph + Scenario CICD-ECC-02.07): Go
+components whose Dockerfile carries per-arch base images build the multi-arch index;
+components whose Dockerfile does not stay single-arch until they add them. No pipeline
+mechanics changed, so the green `hypershell-api-server-main-on-pull-request` build is
+preserved.
+
+**Correction (2026-10-26, review follow-up, PR #779):** a prior revision of this PR
+also flipped `cli` to hermetic on the claim that `build-release.sh` is "a pure
+cross-compile loop" and therefore safe. The live Konflux build disproved that:
+`hypershell-cli-main-on-pull-request` went **red** with hermetic on (api-server,
+with the identical three params, stayed green - so the cause is cli-build-specific,
+not param syntax). Per the issue's mandate ("do one Go-only component end to end
+first, confirm it is green, then fan out") and the reviewer's guidance, the cli
+pipeline changes were **reverted** to hermetic off at that time. (This was later
+superseded: cli was converted to a full hermetic TA build and confirmed green -
+see the full-scope delivery note below.) The honesty-clause takeaway: do not flip
+a hermetic flag on an unverified "it looks like a pure cross-compile" assumption -
+require a green build first.
+
+**Full-scope delivery (2026-10-29, maintainer "ship FULL scope in one PR", PR #779):**
+The maintainer rejected partial-scope delivery and reran the funnel. Two earlier
+claims are **corrected** here: (1) the prior note that "this environment has no
+Go/pnpm toolchain and no Konflux / `ec validate` access" is FALSE in the rerun
+environment (go 1.26.7, node 24, pnpm 11, npm, podman/docker, helm, skopeo, and
+live Konflux read access via `oc login` are all present); and (2) the fullsend
+`+dirty` binary was wrongly reasoned to be an unfixable upstream blocker (a clean
+`git` checkout builds a clean binary - see below). No component is deferred; the
+full scope lives in this one PR.
+
+All eight Konflux components are now addressed in PR #779:
+- **`api-server`, `cli`** -- full hermetic Trusted-Artifacts builds
+  (`hermetic: "true"`, proxy, gomod `prefetch-input`), all three pipeline files each.
+- **`control-plane`** -- full hermetic TA. `helm` was a networked
+  `go install helm@v3.14.0`; it is now a tracked tool module
+  (`components/control-plane/tools/helm` with a Go `tool` directive + committed
+  `go.sum`) built from the Hermeto cache, so no build-time network fetch.
+- **`web-console`, `fleet-dashboard`** -- hermetic pnpm (+ gomod for
+  fleet-dashboard). The networked `bootstrap_pnpm.sh` is replaced by a prefetched
+  pnpm bootstrap (`prefetch/pnpm`), and Hermeto's injected root `.npmrc` (registry
+  -> prefetched `file://` cache) is now propagated into every pnpm install stage
+  (the earlier `ERR_PNPM_FETCH_404` was a missing `.npmrc`, not a proxy problem;
+  `.dockerignore` had stripped it). `PNPM_CONFIG_TRUST_LOCKFILE=true` for
+  pnpm 11.15.1 comes from Hermeto `generate-env`, applied by the buildah task.
+- **`agent-runtime`, `agent-runtime-slim`** -- gomod attributed in all three
+  pipeline files each, kept `hermetic: "false"` (their Python/Node tool closures
+  are SHA-256-locked `install-tools.py` downloads). The `fullsend` binary is no
+  longer downloaded from the `+dirty` upstream release: it is built from pinned
+  clean source (`components/agents/third_party/fullsend` submodule @ v0.49.0) in a
+  Go builder stage (`-buildvcs=false`, so no `+dirty`), and its gomod closure is
+  Hermeto-attributed via an added `prefetch-input` entry (CICD-ECC-04 + CICD-ECC-02).
+  Verified locally: the clean checkout builds `vcs.modified=false`, and the konflux
+  hermeto image prefetches its 668-dependency closure cleanly. **Resume 2026-10-29:
+  `gh` is now also built from source** from a pinned tool module
+  (`components/agents/tools/gh` @ gh v2.100.0) and dropped from the SHA-256 tool
+  locks, with the module added to each pipeline's gomod `prefetch-input`
+  (CICD-ECC-02.08).
+- **`fullsend-sandbox`** -- base-registry EC violation already fixed by #797 (merged).
+  **Resume 2026-10-29:** its source-available Go tools `gh` and `gitleaks` are now
+  built from source from pinned tool modules (`components/agents/tools/gh` @ v2.100.0,
+  `components/agents/tools/gitleaks` @ v8.30.1) in a digest-pinned Go tool-builder
+  stage, replacing their release-binary downloads; both modules are added to the
+  sandbox pipeline `prefetch-input`, so the sandbox now has a Hermeto-resolvable
+  gomod ecosystem. Its remaining toolchain (Go, Node, shellcheck, ripgrep, fd),
+  `tirith`, and `acli` stay checksum-pinned.
+
+**Verification (live Konflux, head `979f2623`).** All eight component
+`on-pull-request` builds are GREEN. The authoritative combined pr-group EC
+PipelineRun (`hypershell-main-enterprise-contract-5fvxs`, snapshot pinning all
+eight PR images) reports `0 failures, 3567 warnings` (`WARNING`), with NO `+dirty`
+entries. (Individual-component snapshots mix stale `main` images and must NOT be
+read as PR state.) This confirms:
+- **CICD-ECC-01 / -03:** 0 EC violations; attestation is trusted (0 attestation
+  violations).
+- **CICD-ECC-04:** no `+dirty` / non-reproducible binary anywhere; `fullsend` is
+  now built from pinned clean source and its dependency closure is Hermeto
+  attributed (no `fullsend-ai` PURLs remain in the warnings).
+- **CICD-ECC-05:** `#774` is CLOSED; `fullsend-sandbox` has one pipeline source.
+
+**Attribution (CICD-ECC-02) - verified per component.** Missing-Hermeto-attribution
+warnings by component: `web-console 0`, `api-server 4`, `cli 4`, `control-plane 2`,
+`fleet-dashboard 4`, `agent-runtime 1016`, `agent-runtime-slim 1016`,
+`fullsend-sandbox 1374`. The Go/Node components are effectively fully attributed;
+their 2-4 residual warnings are Go `stdlib` (the toolchain standard library, not a
+Hermeto-prefetchable dependency) and the component's own first-party main-module
+PURL (a self-reference, not a real dependency gap).
+
+**Resume 2026-10-29 -- maintainer decision supersedes the tenant-exception blocker.**
+The prior pass reported the residual `hermeto_attribution_required` warnings as an
+external blocker requiring a tenant-policy exception. The maintainer resolved this:
+accept checksum/upstream provenance for binaries whose source is **unavailable**,
+while **keeping source-available tool rebuilds in this PR** ("we can't get an
+exception, but it's not enforced in Konflux today so it's more for our peace of
+mind"). This is a repository-side acceptance of residual risk, NOT a tenant-policy
+exception; the tenant policy is not modified and the warnings are not suppressed.
+
+Acting on that decision, the previously-blocking warnings were triaged per tool
+(not all were `acli`, as an earlier pass had claimed): the combined report also
+carried `github.com/cli/cli/v2` (`gh`, runtime + sandbox) and
+`github.com/zricethezav/gitleaks/v8` (sandbox) closures. Those tools are
+**source-available**, so they are now **built from source** through Hermeto
+(CICD-ECC-02.08), removing their warnings. The remaining residual is:
+- `atlassian.com/cli` (**acli**, the Atlassian CLI) -- **closed source**, no
+  published module to build from; required for Jira automation. Attributed by
+  SHA-256 digest + upstream provenance (CICD-ECC-02 checksum path). Its residual
+  warnings are the **accepted repository risk recorded as Requirement CICD-ECC-07**.
+- Go `stdlib` and first-party main-module PURLs on the Go/Node product images
+  (toolchain/self-reference metadata, not real dependency gaps).
+
+`sbom_spdx.hermeto_attribution_required` is a non-enforced `WARNING` in Konflux
+today (`enterprise-contract` result is `WARNING`, not a failure). The acceptance is
+narrow (source-unavailable binaries only) and is recorded in the spec (CICD-ECC-07),
+the PR #779 body, and the independent review. Fresh combined-report evidence is
+captured at the resume head and attached to issue #776.
 
 **Prior scoped analysis (2026-09-29)**: `specs/web-console/gateway-provision-placement.spec.md` against `77feccc3` plus the current working tree: 10 Present. GP-W1 made REST creation intent-only and refreshed restored placement metadata; GP-W2 added localized, programmatically associated disabled-network reasons. Superseded by the capability-selector analysis above.
 
@@ -158,6 +364,7 @@ intents, and generated SDKs correctly model array and object response fields.
 | Web Console - Architecture | 1 | 28 | 21 | 5 | 2 | 0 | 86% |
 | Web Console - Gateway Provision Placement | 1 | 10 | 10 | 0 | 0 | 0 | 100% |
 | Web Console - Operational Dashboard | 1 | 20 | 20 | 0 | 0 | 0 | 100% |
+| Web Console - Homepage | 1 | 16 | 16 | 0 | 0 | 0 | 100% |
 | Security - RBAC Enforcement | 1 | 13 | 11 | 0 | 0 | 2 | 85% |
 | Standards | 13 | 0 | 0 | 0 | 0 | 0 | N/A |
 | Platform - Gateway Provision Outcomes | 1 | ~10 | ? | ? | ? | ? | Pending |
@@ -166,8 +373,8 @@ intents, and generated SDKs correctly model array and object response fields.
 | Platform - Gateway Sandbox Active Trends | 1 | ~10 | ? | ? | ? | ? | Pending |
 | Platform - Hub Cluster Utilization Trends | 1 | ~10 | ? | ? | ? | ? | Pending |
 | Platform - OpenShell Branch Build | 1 | ~12 | 0 | 0 | ~12 | 0 | 0% |
-| **TOTAL (analyzed rows)** | **43** | **374** | **320** | **22** | **27** | **5** | **86%** |
-| **TOTAL (all 49 groups)** | **49** | **~434** | **?** | **?** | **?** | **?** | **Pending** |
+| **TOTAL (analyzed rows)** | **44** | **390** | **336** | **22** | **27** | **5** | **86%** |
+| **TOTAL (all 50 groups)** | **50** | **~450** | **?** | **?** | **?** | **?** | **Pending** |
 
 ### Spec Dependency Order
 
@@ -204,80 +411,39 @@ Layer 7:          web-console/architecture (depends on data-model, security, UI 
 
 **Direction checks:** Spec-to-code: registration, migration, placement, availability, deployment configuration, and console behavior are implemented. Code-to-spec: legacy request translation and omitted-capability heartbeats are bounded compatibility paths explicitly allowed by the approved spec. OpenAPI-to-spec: the selector intent and batched response are generic and expose no enumerated availability matrix.
 
-### Gateway version visibility and version-based placement (issue #511, PR #513)
+### Gateway version visibility (issue #511, PR #513)
 
-Stacks on the capability placement work above. Spec changes reconciled:
-`specs/platform/managed-cluster-registration.spec.md`,
-`specs/platform/data-model.spec.md`,
-`specs/web-console/gateway-provision-placement.spec.md` (GP-11),
-`specs/web-console/gateway-version-visibility.spec.md` (GVV-01..05).
+Spec reconciled: `specs/web-console/gateway-version-visibility.spec.md`
+(WEB-VER-01, 02, 04, 05).
 
 | # | Requirement | Status | Code Location | Wave |
 |---|-------------|--------|---------------|------|
-| GVV-CAP | `gateway-version` single-valued capability namespace with relaxed (dotted/suffixed) value syntax; namespace + other values stay DNS-strict | Present | `components/api-server/plugins/managedClusters/service.go` (`gatewayVersionValueRE`, `capabilityValueValid`, `GatewayVersionCapability`), `capabilities_test.go` | GVV-W1 |
-| GVV-DEPLOY | Overlays advertise `gateway-version/<OPENSHELL_TAG>`, rendered at deploy time (no runtime image-tag parsing) and enforced by the version-sync check | Present | `scripts/sync_openshell_version.py` (`stamp_capabilities`), `deploy/{base/platform-resources/controller.yaml,gitops/platform,ibm,kind,openshift}/...`, `scripts/test_sync_openshell_version.py` | GVV-W5 |
-| GVV-04-API | Gateway read model exposes `provisioning_version` (from the cluster's gateway-version capability) and `image_pinned`; reflected in OpenAPI, Go+TS SDK, proto, TUI | Present | `openapi/openapi.gateways.yaml`, `proto/hypershell/v1/gateways.proto`, `plugins/gateways/{presenter.go,grpc_presenter.go,plugin.go,cluster_reference.go,handler.go}`, generated `pkg/api/openapi`, `components/sdk-{go,typescript}`, `components/cli/data/generated/tui` | GVV-W2/W3 |
-| GVV-01 | Running-version sortable list column (server-side `version` sort), no row chip | FE (subagent) | `packages/gateway-management-ui/src/`, `components/web-console/app/adapters/api/gateway-operations.ts` | GVV-W4 |
-| GVV-02 | Details header version chip beside status + Details-tab field | FE (subagent) | `packages/gateway-management-ui/src/gateways/` | GVV-W4 |
-| GVV-03 | Neutral "Newer Version Available" drift indicator; real is-older-than compare over suffixed tags; suppressed for pinned/missing/unparseable/equal/newer | FE (subagent) | `packages/gateway-management-ui/src/application/` | GVV-W4 |
-| GVV-04-FE | Drift verdict derived once in the application layer; facts via domain-probe fan-out | FE (subagent) | `packages/gateway-management-ui/src/application/` | GVV-W4 |
-| GVV-05 / GP-10 | Localization + accessibility of all new surfaces; `en.json` regenerated | FE (subagent) | `packages/gateway-management-ui/src/messages.ts`, `components/web-console/locales/en.json` | GVV-W4 |
-| GP-11 | Provision-form provisioning-version selector driven by advertised versions; default "Any version" omits the label; resets on network/provider change; no local-kind version | FE (subagent) | `packages/gateway-management-ui/src/gateways/gateway-create.tsx` | GVV-W4 |
-
-**Backend verification:** api-server/control-plane/cli `go build`+`go vet` clean; `managedClusters` and `gateways` integration test packages green (testcontainers); new `capabilities_test.go`, `presenter_test.go`, and `test_sync_openshell_version.py` pass; `make check-forbidden-terms`, `check-openshell-version`, `generate-tui-check`, and SDK regeneration all reproduce in-tree. FE wave verified via the gateway-management-ui + web-console checks (see PR).
-
-**Deferred (same as PR #513):** the stale `gateway-release-*` / `gateway-version-selection` spec cleanup is out of scope and tracked with the GatewayRelease removal (RM-* items).
+| WEB-VER-01 | Running-version sortable list column (server-side `version` sort), no row chip | FE (subagent) | `packages/gateway-management-ui/src/`, `components/web-console/app/adapters/api/gateway-operations.ts` | GVV-W4 |
+| WEB-VER-02 | Details header version chip beside status + Details-tab field | FE (subagent) | `packages/gateway-management-ui/src/gateways/` | GVV-W4 |
+| WEB-VER-04 | Running version mapped in the API adapter and exposed through application ports | Present | `components/web-console/app/adapters/api/gateway-operations.ts` | GVV-W4 |
+| WEB-VER-05 | Localization + accessibility of the version surfaces; `en.json` regenerated | FE (subagent) | `packages/gateway-management-ui/src/messages.ts`, `components/web-console/locales/en.json` | GVV-W4 |
 
 ### gateway-access-management.spec.md + web-console/gateway-access-management.spec.md (user_management PR)
 
 | # | Requirement | Status | Code Location | Wave |
 |---|-------------|--------|---------------|------|
-| GAM-01 | `gateway:admin` granted-administrator role (read/update, no delete; manages Admin/User tiers) | Present | `plugins/roles/{model.go,migration.go}`, `pkg/rbac/authorization.go` (`isGatewayAuthorized` admin case) | GAM-W1 |
-| GAM-02 | Keycloak Role Bridge: owner+admin -> both client roles; union reconcile on create/update/delete | Present | `control-plane/internal/reconciler/role_binding_reconciler.go` (`keycloakRoleMap`, `effectiveKcRoles`, union loop) | GAM-W-CP |
-| GAM-03 | Enriched gateway access list (server-joined, search + role filter + pagination) | Present | `plugins/gatewayAccess/{dao.go,service.go,handler.go}` | GAM-W1 |
-| GAM-04 | Grant access; realm resolution + user pre-provision; `404` if absent from realm | Present (CP-backed resolver wired over the provisioner gRPC channel) | `plugins/gatewayAccess/{service.go,directory.go,directory_client.go}`, `plugins/users` `UpsertByUsername` | GAM-W1 / GAM-W-DIR |
-| GAM-05 | Change role in place (single `UPDATED` event, no zero-access window) | Present | `plugins/roleBindings/{dao.go,service.go}` (`SetGatewayRole`, `Update`), `plugins/gatewayAccess/service.go` | GAM-W1 |
-| GAM-06 | Revoke access | Present | `plugins/roleBindings/service.go` (`RevokeGatewayAccess`), `plugins/gatewayAccess/service.go` | GAM-W1 |
-| GAM-07 | Last-owner protection (`409` on demote/revoke of sole owner, descriptive message) | Present | `plugins/gatewayAccess/service.go` (`guardLastOwner`), serialized by advisory lock | GAM-W1 |
-| GAM-08 | Access-management authorization (owner/admin; owner-tier gating; viewer `403`; non-member `404`) | Present | `plugins/gatewayAccess/service.go` (`authorizeManage`), `pkg/rbac/authorization.go` (`isAccessFacadeAuthorized`) | GAM-W1 |
-| GAM-09 | Keycloak directory search served from a CP-maintained projection | Present | CP `internal/directory/` (projection + refresh loop + gRPC service riding the provisioner channel), `internal/keycloak` `ListRealmUsers`; `plugins/gatewayAccess/directory_client.go` reads it; API authz tested | GAM-W-DIR |
-| GAM-10 | One effective role per user per gateway; idempotent re-grant; converge not accumulate | Present | `plugins/roleBindings/service.go` (`SetGatewayRole` convergence) | GAM-W1 |
-| GAM-11 | Service-account role capping for admins (admin capped like owner) | Present | `pkg/rbac/authorization.go` service_accounts branch already admits gateway bindings; capping in `plugins/serviceAccounts` (verify admin tier) | GAM-W1 (verify) |
-| GAM-12 | Additive, idempotent role migration | Present | `plugins/roles/migration.go` (`migrationAddGatewayAdminRole`, `builtInRoleSeeds`) | GAM-W1 |
-| GAM-13 | `hsctl` CLI parity (`create/list/update/delete gatewayAccess`; new `update` verb; 403/409 non-zero exit) | Present | `components/cli/cmd/hsctl/{create,list,update,delete}/gatewayAccess`, `components/cli/pkg/gatewayaccess` | GAM-W-CLI |
-| GAM-14 | Verification (API integration, CP role-bridge, CLI tests, `make generate` SDKs) | Present | `plugins/gatewayAccess/integration_test.go` (15), `control-plane/.../role_binding_reconciler_test.go`, `internal/directory/*_test.go`, `components/cli/pkg/gatewayaccess/*_test.go`; Go+TS SDK regenerated (service_accounts byte-identical) | GAM-W1/CP/CLI/SDK |
-| GAM-UI-01..11 | Manage access console tab (ports, probes, table, directory picker, role modal, last-owner UI, tests) | Present | `packages/gateway-management-ui/src/access/*`, `application/*`, `pages/gateway-pages.tsx`; WC adapter `components/web-console/app/adapters/api/gateway-operations.ts` + contract tests; GMUI `check` + WC `check` green | GAM-W-FE / GAM-W-WC |
+| GTW-ACC-01 | `gateway:admin` granted-administrator role (read/update, no delete; manages Admin/User tiers) | Present | `plugins/roles/{model.go,migration.go}`, `pkg/rbac/authorization.go` (`isGatewayAuthorized` admin case) | GAM-W1 |
+| GTW-ACC-02 | Keycloak Role Bridge: owner+admin -> both client roles; union reconcile on create/update/delete | Present | `control-plane/internal/reconciler/role_binding_reconciler.go` (`keycloakRoleMap`, `effectiveKcRoles`, union loop) | GAM-W-CP |
+| GTW-ACC-03 | Enriched gateway access list (server-joined, search + role filter + pagination) | Present | `plugins/gatewayAccess/{dao.go,service.go,handler.go}` | GAM-W1 |
+| GTW-ACC-04 | Grant access; realm resolution + user pre-provision; `404` if absent from realm | Present (CP-backed resolver wired over the provisioner gRPC channel) | `plugins/gatewayAccess/{service.go,directory.go,directory_client.go}`, `plugins/users` `UpsertByUsername` | GAM-W1 / GAM-W-DIR |
+| GTW-ACC-05 | Change role in place (single `UPDATED` event, no zero-access window) | Present | `plugins/roleBindings/{dao.go,service.go}` (`SetGatewayRole`, `Update`), `plugins/gatewayAccess/service.go` | GAM-W1 |
+| GTW-ACC-06 | Revoke access | Present | `plugins/roleBindings/service.go` (`RevokeGatewayAccess`), `plugins/gatewayAccess/service.go` | GAM-W1 |
+| GTW-ACC-07 | Last-owner protection (`409` on demote/revoke of sole owner, descriptive message) | Present | `plugins/gatewayAccess/service.go` (`guardLastOwner`), serialized by advisory lock | GAM-W1 |
+| GTW-ACC-08 | Access-management authorization (owner/admin; owner-tier gating; viewer `403`; non-member `404`) | Present | `plugins/gatewayAccess/service.go` (`authorizeManage`), `pkg/rbac/authorization.go` (`isAccessFacadeAuthorized`) | GAM-W1 |
+| GTW-ACC-09 | Keycloak directory search served from a CP-maintained projection | Present | CP `internal/directory/` (projection + refresh loop + gRPC service riding the provisioner channel), `internal/keycloak` `ListRealmUsers`; `plugins/gatewayAccess/directory_client.go` reads it; API authz tested | GAM-W-DIR |
+| GTW-ACC-10 | One effective role per user per gateway; idempotent re-grant; converge not accumulate | Present | `plugins/roleBindings/service.go` (`SetGatewayRole` convergence) | GAM-W1 |
+| GTW-ACC-11 | Service-account role capping for admins (admin capped like owner) | Present | `pkg/rbac/authorization.go` service_accounts branch already admits gateway bindings; capping in `plugins/serviceAccounts` (verify admin tier) | GAM-W1 (verify) |
+| GTW-ACC-12 | Additive, idempotent role migration | Present | `plugins/roles/migration.go` (`migrationAddGatewayAdminRole`, `builtInRoleSeeds`) | GAM-W1 |
+| GTW-ACC-13 | `hsctl` CLI parity (`create/list/update/delete gatewayAccess`; new `update` verb; 403/409 non-zero exit) | Present | `components/cli/cmd/hsctl/{create,list,update,delete}/gatewayAccess`, `components/cli/pkg/gatewayaccess` | GAM-W-CLI |
+| GTW-ACC-14 | Verification (API integration, CP role-bridge, CLI tests, `make generate` SDKs) | Present | `plugins/gatewayAccess/integration_test.go` (15), `control-plane/.../role_binding_reconciler_test.go`, `internal/directory/*_test.go`, `components/cli/pkg/gatewayaccess/*_test.go`; Go+TS SDK regenerated (service_accounts byte-identical) | GAM-W1/CP/CLI/SDK |
+| WEB-ACC-01..11 | Manage access console tab (ports, probes, table, directory picker, role modal, last-owner UI, tests) | Present | `packages/gateway-management-ui/src/access/*`, `application/*`, `pages/gateway-pages.tsx`; WC adapter `components/web-console/app/adapters/api/gateway-operations.ts` + contract tests; GMUI `check` + WC `check` green | GAM-W-FE / GAM-W-WC |
 
-**Direction checks:** Spec->code: the facade implements all server behaviors (list/grant/change/revoke/directory) over existing RoleBinding storage; `gateway:admin` added across roles, RBAC, and the Role Bridge. Code->spec: the access facade adds no public RoleBinding mutation surface (the generic `role_bindings` resource stays create/delete-only; the in-place `role_id` change is an internal facade/service operation). OpenAPI->spec: `openapi.gatewayAccess.yaml` declares the 5 endpoints and their `required[]` matching GAM-03/04/05/09.
-
-### Kind Removal: GatewayRelease + GatewayNetwork
-
-These items track deletion of deprecated kinds across all implementation layers.
-Execution order is the reverse of creation: FE -> CLI -> CP (watcher+reconciler) -> BE+gRPC (plugin, handler, presenter, migration) -> SDK (generated types) -> API (OpenAPI routes+schema).
-Database tables are dropped via a final migration after confirmed zero rows.
-
-| # | Kind | Layer | Action | Status | Code Location | Wave |
-|---|------|-------|--------|--------|---------------|------|
-| RM-1 | GatewayRelease | FE | Remove any UI references (list/detail views, selectors) | Missing | `components/web-console/` | RM-W1 |
-| RM-2 | GatewayNetwork | FE | Remove any UI references | Missing | `components/web-console/` | RM-W1 |
-| RM-3 | GatewayRelease | CLI | Delete `hsctl create/get/list/delete gatewayRelease` commands | Missing | `components/cli/pkg/tui/rest.go`, `components/cli/` | RM-W2 |
-| RM-4 | GatewayNetwork | CLI | Delete `hsctl create/get/list/delete gatewayNetwork` commands | Missing | `components/cli/pkg/tui/rest.go`, `components/cli/` | RM-W2 |
-| RM-5 | GatewayRelease | CP | Delete `GatewayReleaseReconciler`, `WatchGatewayReleases`, `gateway_version_selection_test.go` | Missing | `components/control-plane/internal/reconciler/reconciler.go`, `watcher/watcher.go` | RM-W3 |
-| RM-6 | GatewayNetwork | CP | Delete `GatewayNetworkReconciler`, `WatchGatewayNetworks`, `gateway_network_test.go` | Missing | `components/control-plane/internal/reconciler/reconciler.go`, `watcher/watcher.go` | RM-W3 |
-| RM-7 | GatewayRelease | CP | Remove `release_id` propagation from `GatewayReconciler`; keep `image` path only | Missing | `components/control-plane/internal/reconciler/reconciler.go` | RM-W3 |
-| RM-8 | GatewayRelease | BE | Delete `components/api-server/plugins/gatewayReleases/` plugin entirely | Missing | `components/api-server/plugins/gatewayReleases/` | RM-W4 |
-| RM-9 | GatewayNetwork | BE | Delete `components/api-server/plugins/gatewayNetworks/` plugin entirely | Missing | `components/api-server/plugins/gatewayNetworks/` | RM-W4 |
-| RM-10 | GatewayRelease | gRPC | Delete `gateway_releases.proto`, regenerate stubs, delete `grpc_handler.go`, `grpc_presenter.go`, update `grpc_authorization.go` | Missing | `components/api-server/proto/`, `plugins/gatewayReleases/grpc_*` | RM-W4 |
-| RM-11 | GatewayNetwork | gRPC | Delete `gateway_networks.proto`, regenerate stubs, delete `grpc_handler.go`, `grpc_presenter.go`, update `grpc_authorization.go` | Missing | `components/api-server/proto/`, `plugins/gatewayNetworks/grpc_*` | RM-W4 |
-| RM-12 | GatewayRelease | API | Remove `/gateway_releases` routes and `GatewayRelease` schema from OpenAPI spec, regenerate | Missing | `components/api-server/openapi/` | RM-W5 |
-| RM-13 | GatewayNetwork | API | Remove `/gateway_networks` routes and `GatewayNetwork` schema from OpenAPI spec, regenerate | Missing | `components/api-server/openapi/` | RM-W5 |
-| RM-14 | GatewayRelease | SDK | Regenerate Go + TS SDKs (generated files will drop GatewayRelease types automatically) | Missing | `components/sdk-go/`, `components/sdk-typescript/` | RM-W5 |
-| RM-15 | GatewayNetwork | SDK | Regenerate Go + TS SDKs | Missing | `components/sdk-go/`, `components/sdk-typescript/` | RM-W5 |
-| RM-16 | GatewayRelease | DB | Add migration to drop `gateway_releases` table (after zero-row verification) | Missing | `components/api-server/plugins/gatewayReleases/migration.go` | RM-W6 |
-| RM-17 | GatewayNetwork | DB | Add migration to drop `gateway_networks` table | Missing | `components/api-server/plugins/gatewayNetworks/migration.go` | RM-W6 |
-| RM-18 | Gateway | BE | Remove `release_id` field from Gateway model, handler, and migration (nullable FK to removed table) | Missing | `components/api-server/plugins/gateways/` | RM-W4 |
-| RM-19 | Gateway | API | Remove `release_id` from OpenAPI Gateway schema, regenerate | Missing | `components/api-server/openapi/` | RM-W5 |
-| RM-20 | GatewayRelease+GatewayNetwork | RBAC | Remove both from `grpc_authorization.go` control-plane identity allow-list | Missing | `components/api-server/pkg/rbac/grpc_authorization.go` | RM-W4 |
+**Direction checks:** Spec->code: the facade implements all server behaviors (list/grant/change/revoke/directory) over existing RoleBinding storage; `gateway:admin` added across roles, RBAC, and the Role Bridge. Code->spec: the access facade adds no public RoleBinding mutation surface (the generic `role_bindings` resource stays create/delete-only; the in-place `role_id` change is an internal facade/service operation). OpenAPI->spec: `openapi.gatewayAccess.yaml` declares the 5 endpoints and their `required[]` matching GTW-ACC-03/04/05/09.
 
 ### generated-gateway-config-validation.spec.md (HYPERSHELL-179)
 
@@ -296,7 +462,7 @@ Database tables are dropped via a final migration after confirmed zero rows.
 - Code to spec: the new TOML-parse + OIDC-coherence check is confined to the generated artifact; input validation (`ValidateGatewayConfig`) is unchanged.
 - OpenAPI to spec: no public API field or route added; validation is control-plane-internal and reuses the existing `phase`/`status` fields.
 
-### control-plane-observability.spec.md (CP-OBS-07 reconcile-queue metric delta)
+### control-plane-observability.spec.md (OBS-CPL-07 reconcile-queue metric delta)
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
@@ -306,15 +472,15 @@ Database tables are dropped via a final migration after confirmed zero rows.
 | CP-OBS-07i | Record one wait observation for coalesced work when `Handle` starts | Present | - | `components/control-plane/internal/watcher/requeue.go`, `requeue_test.go` | CP-OBS-RQ-W1 |
 | CP-OBS-07j | Exclude scheduled retry backoff from queue depth and queue wait | Present | - | `components/control-plane/internal/watcher/requeue.go`, `requeue_test.go` | CP-OBS-RQ-W1 |
 
-**Scoped coverage:** 5 of 5 changed CP-OBS-07 fields are present. This scoped run does not change the full-corpus coverage table.
+**Scoped coverage:** 5 of 5 changed OBS-CPL-07 fields are present. This scoped run does not change the full-corpus coverage table.
 
 **Direction checks:**
 
 - Spec to code: The two instruments, bounded label, coalescing rule, and backoff rule are present.
-- Code to spec: All new queue telemetry behavior is in CP-OBS-07. Explicit histogram buckets are an implementation detail.
+- Code to spec: All new queue telemetry behavior is in OBS-CPL-07. Explicit histogram buckets are an implementation detail.
 - OpenAPI to spec: The metrics do not add a public API field or route.
 
-### control-plane-observability.spec.md (CP-OBS-07 Gateway provision-duration delta)
+### control-plane-observability.spec.md (OBS-CPL-07 Gateway provision-duration delta)
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
@@ -324,12 +490,12 @@ Database tables are dropped via a final migration after confirmed zero rows.
 | CP-OBS-07d | Record a delayed `Provisioning` to `Running` transition, but do not record a `Degraded` to `Running` recovery | Present | - | `components/control-plane/internal/reconciler/health.go`, `metrics.go`, `gateway_vocabulary.go`; `components/control-plane/internal/watcher/watcher.go` | CP-OBS-GPD-W1 |
 | CP-OBS-07e | Record at most one observation for one Gateway and do not export a Gateway identifier as a metric attribute | Present | - | `components/control-plane/internal/reconciler/metrics.go`, `metrics_test.go`; `components/control-plane/internal/otel/metrics_test.go` | CP-OBS-GPD-W1 |
 
-**Scoped coverage:** 5 of 5 changed CP-OBS-07 fields are present. This scoped run does not change the full-corpus coverage table.
+**Scoped coverage:** 5 of 5 changed OBS-CPL-07 fields are present. This scoped run does not change the full-corpus coverage table.
 
 **Direction checks:**
 
 - Spec to code: The metric contract, both promotion paths, timestamp rules, recovery rule, single-observation rule, and attribute rule are present.
-- Code to spec: All new provision-duration behavior is in CP-OBS-07. The exact intermediate bucket values are implementation details inside the specified range.
+- Code to spec: All new provision-duration behavior is in OBS-CPL-07. The exact intermediate bucket values are implementation details inside the specified range.
 - OpenAPI to spec: The metric does not add a public API field. The existing `ObjectReference` contract supplies `created_at` and `updated_at`, and the gRPC presenter returns both fields after an update.
 
 The first gap analysis found a race between the event-driven reconciler and the health reconciler. Both paths could record the first `Running` transition. CP-OBS-GPD-W1 adds one process-wide claim per Gateway. The delete path removes the claim. A normal reconcile uses the stored phase before work starts. A forced retry keeps the phase that existed before the retry bypass. These checks prevent work on a `Running` or `Degraded` Gateway from producing a new observation.
@@ -338,16 +504,16 @@ The first gap analysis found a race between the event-driven reconciler and the 
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| GP-01 | Placement intent contract; clients do not submit a concrete cluster | Present | REST create accepts placement intent only and always resolves it; concrete `cluster_id` remains read/internal compatibility data | `openapi/openapi.gateways.yaml`, `plugins/gateways/handler.go` | GP-W1 |
-| GP-02 | Mutually exclusive, required VPN/Public selection; no cluster selector | Present | The new radio-card form replaces the former selector; the obsolete selector file is removed in the current working tree | `packages/gateway-management-ui/src/gateways/gateway-create.tsx` | - |
-| GP-03 | Provider selection and VPN/AWS constraint | Present | Public prefers IBM when available; VPN forces AWS and disables IBM | `packages/gateway-management-ui/src/gateways/gateway-create.tsx` | - |
-| GP-04 | Placement availability from connected registered clusters | Present | Eligibility, automatic refresh, restored provider/visibility/liveness, and localized disabled-network reasons are present | `plugins/gateways/plugin.go`, `plugins/managedClusters/{service.go,dao.go}`, `gateway-create.tsx` | GP-W1, GP-W2 |
-| GP-05 | Kind-only local placement fallback | Present | API-server Kind flag, connected `local-kind` registration, managed-placement suppression, default selection, and intent submission are implemented | `plugins/gateways/plugin.go`, `gateway-create.tsx`, `deploy/kind/kustomization.yaml` | - |
-| GP-06 | Submit-time form validation with enabled action | Present | Name and placement validate on activation; the action is disabled only while a request is pending | `packages/gateway-management-ui/src/gateways/gateway-create.tsx` | - |
-| GP-07 | Random backend resolution without capacity scoring | Present | Cryptographic uniform index over provider/network/liveness-filtered candidates; no capacity input | `plugins/gateways/placement.go`, `placement_test.go` | - |
-| GP-08 | Typed local-kind resolution failures | Present | Kind mode and connected registration are rechecked server-side and failures use the standard client-visible validation error | `plugins/gateways/plugin.go` | - |
-| GP-09 | API, SDK, persistence, authorization, and read compatibility | Present | OpenAPI, Go/TS SDKs, registration data, resolver tests, and existing `cluster_id` reads are wired; gateway intent remains request-scoped | `openapi/`, `components/sdk-*`, `plugins/gateways/`, `plugins/managedClusters/` | - |
-| GP-10 | Accessibility and localization | Present | Localized native radio groups expose selected/disabled state, retain keyboard behavior, and associate each visible choice description with its input through `aria-describedby` | `gateway-create.tsx`, `messages.ts`, `components/web-console/locales/en.json` | GP-W2 |
+| WEB-PLC-01 | Placement intent contract; clients do not submit a concrete cluster | Present | REST create accepts placement intent only and always resolves it; concrete `cluster_id` remains read/internal compatibility data | `openapi/openapi.gateways.yaml`, `plugins/gateways/handler.go` | GP-W1 |
+| WEB-PLC-02 | Mutually exclusive, required VPN/Public selection; no cluster selector | Present | The new radio-card form replaces the former selector; the obsolete selector file is removed in the current working tree | `packages/gateway-management-ui/src/gateways/gateway-create.tsx` | - |
+| WEB-PLC-03 | Provider selection and VPN/AWS constraint | Present | Public prefers IBM when available; VPN forces AWS and disables IBM | `packages/gateway-management-ui/src/gateways/gateway-create.tsx` | - |
+| WEB-PLC-04 | Placement availability from connected registered clusters | Present | Eligibility, automatic refresh, restored capabilities/liveness, and localized disabled-network reasons are present | `plugins/gateways/plugin.go`, `plugins/managedClusters/{service.go,dao.go}`, `gateway-create.tsx` | GP-W1, GP-W2 |
+| WEB-PLC-05 | Kind-only local placement fallback | Present | API-server Kind flag, connected `local-kind` registration, managed-placement suppression, default selection, and intent submission are implemented | `plugins/gateways/plugin.go`, `gateway-create.tsx`, `deploy/kind/kustomization.yaml` | - |
+| WEB-PLC-06 | Submit-time form validation with enabled action | Present | Name and placement validate on activation; the action is disabled only while a request is pending | `packages/gateway-management-ui/src/gateways/gateway-create.tsx` | - |
+| WEB-PLC-07 | Random backend resolution without capacity scoring | Present | Cryptographic uniform index over provider/network/liveness-filtered candidates; no capacity input | `plugins/gateways/placement.go`, `placement_test.go` | - |
+| WEB-PLC-08 | Typed local-kind resolution failures | Present | Kind mode and connected registration are rechecked server-side and failures use the standard client-visible validation error | `plugins/gateways/plugin.go` | - |
+| WEB-PLC-09 | API, SDK, persistence, authorization, and read compatibility | Present | OpenAPI, Go/TS SDKs, registration data, resolver tests, and existing `cluster_id` reads are wired; gateway intent remains request-scoped | `openapi/`, `components/sdk-*`, `plugins/gateways/`, `plugins/managedClusters/` | - |
+| WEB-PLC-10 | Accessibility and localization | Present | Localized native radio groups expose selected/disabled state, retain keyboard behavior, and associate each visible choice description with its input through `aria-describedby` | `gateway-create.tsx`, `messages.ts`, `components/web-console/locales/en.json` | GP-W2 |
 
 **Scoped coverage:** 10 of 10 requirements present after GP-W1 and GP-W2. The former cluster-selector component deletion already exists in the user's working tree and is preserved as part of the analyzed state.
 
@@ -443,8 +609,6 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | DM-3h | Gateway field: `dev_build` | Missing | Spec added by `630a5ed1` (#148); identity flag for branch-built gateways, copied to K8s labels | - | Future |
 | DM-3i | Gateway field: `dev_build_metadata` | Missing | Spec added by `630a5ed1` (#148); JSON metadata (sha, branch, repo) for branch-built gateways | - | Future |
 | DM-4 | Gateway phase + status fields | Partial | `phase` updated by CP; `status` field exists but never written | `plugins/gateways/model.go` | Future |
-| DM-5 | Canary release strategy fields | Present | Fields exist; no logic implements canary | `plugins/gatewayReleases/model.go` | Future |
-| DM-6 | Network topology fields | Present | Fields exist; reconciler is a stub | `plugins/gatewayNetworks/model.go` | Future |
 | DM-7 | API endpoints (all 6 resources) | Present | - | `plugins/*/` | - |
 
 ### control-plane.spec.md
@@ -472,7 +636,7 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | G1 | Gateway as API Resource | Present | CRUD + all provisioning fields (image, server_dns_names, oidc, route, route_address) | `gateways.proto` | W5 ✅ |
 | G2 | Shared Kustomize Library | Missing | No library, no CLI, no examples | - | Future |
 | G3 | GatewayReconciler | Present | DELETED handler with namespace cache and full resource cleanup | `reconciler.go` | W6 ✅ |
-| G4 | Gateway Manifest Templating | Present | - | `manifests.go` | W1 ✅ |
+| G4 | Gateway Manifest Templating | Retired | OSG-CORE-04 retired; gateways install through Helm chart values | `internal/helm/values.go` | - |
 | G5 | TLS via cert-manager | Present | - | `reconcileCertManagerResources()` | W2 ✅ |
 | G6 | Trusted CA Bundle Injection | Present | - | `reconcileTrustedCABundle()` | W3 ✅ |
 | G7 | Gateway Config Validation | Present | TOML validation absent | `validation.go` | - |
@@ -485,7 +649,7 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | G14 | OpenShift-Specific Provisioning | Present | - | `reconcileOpenShiftSCC()` | W2 ✅ |
 | G15 | Deployment Failure Handling | Present | Relies on re-delivery rather than explicit requeue | `reconciler.go` | - |
 | G16 | Separation from Agent Config | Present | - | - | - |
-| G17 | SSH Payload Delivery | Missing | `internal/openshell/ssh_upload.go` does not exist | - | Future |
+| G17 | SSH Payload Delivery | Retired | OSG-CORE-17 retired; agent configuration is out of scope (OSG-CORE-16) | - | - |
 | G18 | Per-Tenant Gateway API Resource | Missing | Code creates GRPCRoute only; no per-tenant K8s Gateway | - | W8 |
 
 ### openshell-gateway-database.spec.md
@@ -572,11 +736,10 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | WEB-ARCH-02 | Gateway management routes | Present | - | `routes.ts`, `gateway-ui/` | - |
 | WEB-ARCH-03 | Source/runtime boundaries | Present | - | `eslint.architecture.mjs` | - |
 | WEB-PKG-01 | pnpm workspace | Present | - | `pnpm-workspace.yaml` | - |
-| WEB-PKG-02 | Defensive resolution | Present | - | `pnpm-workspace.yaml` | - |
-| WEB-PKG-03 | Policy migration completeness | Partial | Verify pnpm lockfile inspection | `check_dependency_age.py` | - |
+| WEB-PKG-02 | Defensive resolution | Present | - | `pnpm-workspace.yaml`, `check_dependency_age.py` | - |
 | WEB-PKG-04 | Reusable gateway management UI package | Present | - | `packages/gateway-management-ui/` | - |
 | WEB-SDK-01 | Browser-compatible SDK | Present | - | `components/sdk-typescript/` | - |
-| WEB-AUTH-00 | No-auth dev mode | Present | - | `vite.config.ts` | - |
+| WEB-AUTH-04 | No-auth dev mode | Present | - | `vite.config.ts` | - |
 | WEB-AUTH-01 | OIDC BFF | Present | Auth code flow with PKCE via openid-client v6; /auth/login, /auth/callback, /auth/logout, /auth/session endpoints; proxy injects Bearer token | `bff/src/auth.ts`, `bff/src/app.ts` | OIDC ✅ |
 | WEB-AUTH-02 | Session + CSRF protection | Present | @fastify/secure-session encrypted cookies; Origin header CSRF validation on mutating requests; session rotation on login | `bff/src/auth.ts`, `bff/src/app.ts` | OIDC ✅ |
 | WEB-AUTH-03 | Browser session contract | Present | GET /auth/session returns display identity, roles, expiry; no tokens exposed | `bff/src/auth.ts` | OIDC ✅ |
@@ -585,15 +748,15 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | WEB-DATA-02 | URL and local state | Partial | Routes encode ID; pagination/search TBD | `routes.ts` | - |
 | WEB-DATA-03 | Retry, refresh, cancellation | Partial | Base config present; per-class policies TBD | `root.tsx` | - |
 | WEB-DATA-04 | Forms + runtime validation | Present | - | `gateway-create.tsx` | - |
-| WEB-UI-01 | PatternFly-first presentation | Present | - | PatternFly 6.6.0 | - |
-| WEB-UI-02 | Shared component evidence (Storybook) | Partial | Stories for shell only; none in gateway-ui | `.storybook/` | - |
-| WEB-UI-03 | Gateway connection experience | Partial | Components exist; command encoding TBD | `gateway-ui/src/gateways/` | - |
+| WEB-UIEX-01 | PatternFly-first presentation | Present | - | PatternFly 6.6.0 | - |
+| WEB-UIEX-02 | Shared component evidence (Storybook) | Partial | Stories for shell only; none in gateway-ui | `.storybook/` | - |
+| WEB-UIEX-03 | Gateway connection experience | Partial | Components exist; command encoding TBD | `gateway-ui/src/gateways/` | - |
 | WEB-I18N-01 | Localization from first implementation | Present | - | `i18n/`, `locales/en.json` | - |
 | WEB-QUAL-01 | Static analysis | Present | - | `eslint.config.mjs` | - |
 | WEB-QUAL-02 | Test layers | Present | - | `vitest`, `playwright`, `storybook` | - |
 | WEB-QUAL-03 | Change and release gates | Partial | `check` script present; CI pipeline TBD | `package.json` | - |
-| WEB-DEPLOY-01 | Reproducible container | Present | - | `web-console/Dockerfile` | - |
-| WEB-DEPLOY-02 | Assets + runtime config | Present | - | `vite.config.ts`, `bff/src/config.ts` | - |
+| WEB-DPLY-01 | Reproducible container | Present | - | `web-console/Dockerfile` | - |
+| WEB-DPLY-02 | Assets + runtime config | Present | - | `vite.config.ts`, `bff/src/config.ts` | - |
 | WEB-SEC-01 | Browser security headers | Present | - | `bff/src/app.ts` (helmet) | - |
 | WEB-OBS-01 | Web performance signals | Partial | `web-vitals` declared; wiring TBD | `domain-probes/` | - |
 
@@ -601,43 +764,43 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| DASH-01 | Gateway phase Prometheus collector (`hypershell_gateways_total`) | Present | - | `plugins/gateways/metrics.go`, `dao.go:CountByPhase` | - |
-| DASH-02 | Metrics server bind `0.0.0.0:4433` | Present | - | `deploy/base/applications/api-server.yaml` | - |
-| DASH-03 | Prometheus Operator and instance | Present | - | `deploy/kind/prometheus-operator/prometheus-operator-bundle.yaml`, `deploy/base/prometheus/` | - |
-| DASH-04 | ServiceMonitor scrape configuration | Present | - | `deploy/base/prometheus/servicemonitor.yaml` | - |
-| DASH-05 | BFF metrics proxy `GET /api/metrics/gateways` | Present | - | `bff/src/metrics-gateways.ts`, `bff/src/app.ts`, `bff/test/metrics-gateways.test.ts` | - |
-| DASH-06 | `GatewayMetricsDashboard` shared component | Present | - | `packages/gateway-management-ui/src/metrics/` | - |
-| DASH-07 | BFF SPA route registration for `/dashboard` | Present | - | `route-contract.json`, `bff/src/app.ts:isApplicationRoute` | - |
-| DASH-08 | Kind `PROMETHEUS_URL` patch | Present | - | `deploy/kind/kustomization.yaml` | - |
+| OBS-GMD-01 | Gateway phase Prometheus collector (`hypershell_gateways_total`) | Present | - | `plugins/gateways/metrics.go`, `dao.go:CountByPhase` | - |
+| OBS-GMD-02 | Metrics server bind `0.0.0.0:4433` | Present | - | `deploy/base/applications/api-server.yaml` | - |
+| OBS-GMD-03 | Prometheus Operator and instance | Present | - | `deploy/kind/prometheus-operator/prometheus-operator-bundle.yaml`, `deploy/base/prometheus/` | - |
+| OBS-GMD-04 | ServiceMonitor scrape configuration | Present | - | `deploy/base/prometheus/servicemonitor.yaml` | - |
+| OBS-GMD-05 | BFF metrics proxy `GET /api/metrics/gateways` | Present | - | `bff/src/metrics-gateways.ts`, `bff/src/app.ts`, `bff/test/metrics-gateways.test.ts` | - |
+| OBS-GMD-06 | `GatewayMetricsDashboard` shared component | Present | - | `packages/gateway-management-ui/src/metrics/` | - |
+| OBS-GMD-07 | BFF SPA route registration for `/dashboard` | Present | - | `route-contract.json`, `bff/src/app.ts:isApplicationRoute` | - |
+| OBS-GMD-08 | Kind `PROMETHEUS_URL` patch | Present | - | `deploy/kind/kustomization.yaml` | - |
 
 **Scoped analysis notes:**
 
 - Prometheus pipeline and `GatewayMetricsDashboard` are implemented on branch `ui-and-data`. `/dashboard` renders `OperationalDashboardPage` per `web-console/operational-dashboard.spec.md`; the metrics component is embeddable but not mounted on that route by design.
-- DASH-07 was narrowed in the spec amendment: sidebar navigation and `GatewayMetricsDashboard` at `/dashboard` are no longer required.
+- OBS-GMD-07 was narrowed in the spec amendment: sidebar navigation and `GatewayMetricsDashboard` at `/dashboard` are no longer required.
 
 ### web-console/operational-dashboard.spec.md
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| OP-DASH-01 | Reusable `operational-dashboard-ui` package | Present | - | `packages/operational-dashboard-ui/` | - |
-| OP-DASH-02 | Hexagonal ports, workflow probes | Present | - | `application/dashboard-types.ts`, `dashboard-operations.ts`, `dashboard-probes.ts` | - |
-| OP-DASH-03 | Host composition wiring | Present | - | `app/composition/dashboard-composition.ts`, `application-shell.tsx` | - |
-| OP-DASH-04 | Administrator access control (SPA + BFF) | Present | - | `require-dashboard-admin.tsx`, `bff/src/app.ts`, `bff/test/auth.test.ts` | - |
-| OP-DASH-05 | SPA and BFF route surfaces | Present | - | `routes/dashboard.tsx`, `routes/home.tsx`, `route-contract.json` | - |
-| OP-DASH-06 | Gateway list metrics adapter (paginated REST) | Present | - | `app/adapters/api/dashboard-control-plane.ts`, `dashboard-control-plane.test.ts` | OP-W1 ✅ |
-| OP-DASH-07 | Gateway display status aggregation | Present | - | `dashboard-control-plane.ts`, `gateway-management-ui/gateway-data.ts:aggregateGatewayDisplayStatusCounts` | - |
-| OP-DASH-08 | Connected vs placeholder metrics | Present | - | `DATA_SOURCES.md`, `dashboard/dashboard-data.ts` | OP-W1 ✅ |
-| OP-DASH-09 | Metrics refresh policy (15 min + manual refresh, partial failure) | Present | - | `get-metrics-data.ts`, `operational-dashboard-page.tsx` | OP-W2 ✅ |
-| OP-DASH-10 | Widgetized grid layout | Present | - | `operational-dashboard-page.tsx`, `dashboard-layout-template.ts` | - |
-| OP-DASH-11 | Layout persistence (`localStorage` v23) | Present | - | `operational-dashboard-page.tsx`, `dashboard-layout-persistence.ts` | - |
-| OP-DASH-12 | Gateway status donut widget | Present | - | `dashboard/gateway-status-chart.tsx`, `dashboard/status-donut-chart.tsx`, `dashboard-widget.tsx` | - |
-| OP-DASH-13 | Metric, utilization, and summary widgets | Present | - | `dashboard-widget.tsx`, `dashboard/utilization-chart.tsx` | - |
-| OP-DASH-14 | Localization and accessibility | Present | - | `messages.ts`, `web-console/locales/en.json` | - |
-| OP-DASH-15 | Verification fixtures and Storybook | Present | - | `fixtures/`, `operational-dashboard.stories.tsx`, `src/dashboard/*.test.ts`, `dashboard-control-plane.test.ts` | OP-W1 ✅ |
-| OP-DASH-16 | Shared status donut + nodes widget | Present | - | `dashboard/status-donut-*.ts(x)`, `dashboard/node-status-*.ts(x)`, `dashboard-layout-template.ts` | - |
-| OP-DASH-17 | Pod capacity widget (phase + Unused segments) | Present | - | `dashboard/pod-capacity-*.ts(x)`, `bff/src/metrics-cluster-pods.ts`, `dashboard-control-plane.ts` | - |
-| OP-DASH-18 | Non-displayable metric values (NaN/Infinity fallback) | Present | - | `dashboard-widget.tsx`, `messages.ts` | - |
-| OP-DASH-19 | Independent metric sources and partial failure | Present | - | `dashboard-control-plane.ts`, `dashboard-metric-sources.ts`, `get-metrics-data.ts`, `operational-dashboard-page.tsx` | OP-W2 ✅ |
+| WEB-OPS-01 | Reusable `operational-dashboard-ui` package | Present | - | `packages/operational-dashboard-ui/` | - |
+| WEB-OPS-02 | Hexagonal ports, workflow probes | Present | - | `application/dashboard-types.ts`, `dashboard-operations.ts`, `dashboard-probes.ts` | - |
+| WEB-OPS-03 | Host composition wiring | Present | - | `app/composition/dashboard-composition.ts`, `application-shell.tsx` | - |
+| WEB-OPS-04 | Administrator access control (SPA + BFF) | Present | - | `require-dashboard-admin.tsx`, `bff/src/app.ts`, `bff/test/auth.test.ts` | - |
+| WEB-OPS-05 | SPA and BFF route surfaces | Present | - | `routes/dashboard.tsx`, `routes/home.tsx`, `route-contract.json` | - |
+| WEB-OPS-06 | Gateway list metrics adapter (paginated REST) | Present | - | `app/adapters/api/dashboard-control-plane.ts`, `dashboard-control-plane.test.ts` | OP-W1 ✅ |
+| WEB-OPS-07 | Gateway display status aggregation | Present | - | `dashboard-control-plane.ts`, `gateway-management-ui/gateway-data.ts:aggregateGatewayDisplayStatusCounts` | - |
+| WEB-OPS-08 | Connected vs placeholder metrics | Present | - | `DATA_SOURCES.md`, `dashboard/dashboard-data.ts` | OP-W1 ✅ |
+| WEB-OPS-09 | Metrics refresh policy (15 min + manual refresh, partial failure) | Present | - | `get-metrics-data.ts`, `operational-dashboard-page.tsx` | OP-W2 ✅ |
+| WEB-OPS-10 | Widgetized grid layout | Present | - | `operational-dashboard-page.tsx`, `dashboard-layout-template.ts` | - |
+| WEB-OPS-11 | Layout persistence (`localStorage` v23) | Present | - | `operational-dashboard-page.tsx`, `dashboard-layout-persistence.ts` | - |
+| WEB-OPS-12 | Gateway status donut widget | Present | - | `dashboard/gateway-status-chart.tsx`, `dashboard/status-donut-chart.tsx`, `dashboard-widget.tsx` | - |
+| WEB-OPS-13 | Metric, utilization, and summary widgets | Present | - | `dashboard-widget.tsx`, `dashboard/utilization-chart.tsx` | - |
+| WEB-OPS-14 | Localization and accessibility | Present | - | `messages.ts`, `web-console/locales/en.json` | - |
+| WEB-OPS-15 | Verification fixtures and Storybook | Present | - | `fixtures/`, `operational-dashboard.stories.tsx`, `src/dashboard/*.test.ts`, `dashboard-control-plane.test.ts` | OP-W1 ✅ |
+| WEB-OPS-16 | Shared status donut + nodes widget | Present | - | `dashboard/status-donut-*.ts(x)`, `dashboard/node-status-*.ts(x)`, `dashboard-layout-template.ts` | - |
+| WEB-OPS-17 | Pod capacity widget (phase + Unused segments) | Present | - | `dashboard/pod-capacity-*.ts(x)`, `bff/src/metrics-cluster-pods.ts`, `dashboard-control-plane.ts` | - |
+| WEB-OPS-18 | Non-displayable metric values (NaN/Infinity fallback) | Present | - | `dashboard-widget.tsx`, `messages.ts` | - |
+| WEB-OPS-19 | Independent metric sources and partial failure | Present | - | `dashboard-control-plane.ts`, `dashboard-metric-sources.ts`, `get-metrics-data.ts`, `operational-dashboard-page.tsx` | OP-W2 ✅ |
 | OP-DASH-20 | Section title widgets (platform adoption / hub cluster) | Present | - | `dashboard-layout-template.ts`, `dashboard-widget.tsx`, `dashboard-widget.css` | - |
 
 **Scoped analysis notes:**
@@ -645,47 +808,99 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 - Live gateway and sandbox metrics load via RBAC-scoped REST list pagination, not the Prometheus BFF route. This matches the spec's relationship table vs `gateway-metrics-dashboard.spec.md`.
 - `dashboard.layout.template.invalid` probe name is declared but never published; invalid saved templates silently fall back to default (acceptable for v1; no gap recorded).
 - CI registers `packages/operational-dashboard-ui` with `pnpm check` in `.github/workflows/checks.yml`.
-- OP-DASH-16 (2026-08-31): shared `StatusDonutChart` stack; `nodes` widget at `NODE_STATUS_WIDGET_HEIGHT`; layout persistence key `hypershell.operational-dashboard.layout.v17`.
-- OP-DASH-17 (2026-08-31): `pods` widget uses `PodCapacityChart` (phase segments + gray Unused); BFF phase PromQL; layout persistence key `hypershell.operational-dashboard.layout.v18`.
+- WEB-OPS-16 (2026-08-31): shared `StatusDonutChart` stack; `nodes` widget at `NODE_STATUS_WIDGET_HEIGHT`; layout persistence key `hypershell.operational-dashboard.layout.v17`.
+- WEB-OPS-17 (2026-08-31): `pods` widget uses `PodCapacityChart` (phase segments + gray Unused); BFF phase PromQL; layout persistence key `hypershell.operational-dashboard.layout.v18`.
 - Post-OP-DASH-17 polish (2026-08-31): system-summary failed pod count; taller system-summary widget; expanded compact donut for pods subtitle; Storybook mock aligned to production adapter; layout persistence key `hypershell.operational-dashboard.layout.v19`.
 - OP-DASH-20 (2026-09-02): `section-title` widget for platform adoption and hub cluster headers; full-width title rows; headerless/borderless presentation; layout persistence key `hypershell.operational-dashboard.layout.v23`; `sanitizeDashboardTemplate` preserves multiple `section-title` instances; page header consolidates refresh, reset, and add-widgets controls (no separate toolbar).
-- Post-connect polish (2026-09-02, `06d6c56`): removed interim `usesSampleData` info banner and i18n keys; all OP-DASH-08 metrics are connected so the banner is no longer required.
+- Post-connect polish (2026-09-02, `06d6c56`): removed interim `usesSampleData` info banner and i18n keys; all WEB-OPS-08 metrics are connected so the banner is no longer required.
 - OP-W2 (2026-09-03): partial metric-source failure handling - adapter fetches sources independently, page shows warning + metric-unavailable per widget/summary row, refresh merges stale data for failed sources (`dashboard-metric-sources.ts`, `get-metrics-data.ts` `keepPreviousData`).
+
+### web-console/homepage.spec.md (HYPERSHELL-358, issue #662, PR #682)
+
+| # | Requirement | Status | Code Location | Wave |
+|---|-------------|--------|---------------|------|
+| WEB-HOME-01 | Root homepage and `/gateways` route split with dashboard-host exception | Present | `components/web-console/app/routes/{home,gateways}.tsx`, `shared/routes.ts`, `bff/src/app.ts` | HOME-W1 ✅ |
+| WEB-HOME-02 | Shared internal route registry and static usage check | Present | `components/web-console/shared/routes.ts`, `route-contract.json`, `scripts/check-route-registry.mjs` | HOME-W1 ✅ |
+| WEB-HOME-03 | Approved homepage layout | Present | `components/web-console/app/features/homepage/homepage.tsx`, production Storybook story | HOME-W1 ✅ |
+| WEB-HOME-04 | Role-dependent dashboard/platform card and query gating | Present | `homepage.tsx`, `use-homepage.ts`, `use-homepage.test.tsx` | HOME-W1 ✅ |
+| WEB-HOME-05 | Authorized BFF data boundary and independent failure facts | Present | `bff/src/{app,homepage}.ts`, `app/adapters/api/homepage.ts` | HOME-W1 ✅ |
+| WEB-HOME-06 | Gateway health aggregation and attention links | Present | `bff/src/homepage.ts`, `homepage.tsx`, `bff/test/homepage.test.ts` | HOME-W1 ✅ |
+| WEB-HOME-07 | Platform gateway and sandbox status donuts | Present | `homepage.tsx`, `bff/src/homepage.ts` | HOME-W1 ✅ |
+| WEB-HOME-08 | Cluster availability | Present | `bff/src/homepage.ts`, `homepage.tsx` | HOME-W1 ✅ |
+| WEB-HOME-09 | Configured support channel | Present | `bff/src/config.ts`, `bff/src/homepage.ts`, `homepage.tsx` | HOME-W1 ✅ |
+| WEB-HOME-10 | Loading and isolated failure states | Present | `homepage.tsx`, `homepage.test.tsx` | HOME-W1 ✅ |
+| WEB-HOME-11 | Registry-backed homepage actions | Present | `homepage.tsx`, `shared/routes.ts` | HOME-W1 ✅ |
+| WEB-HOME-12 | Real Quick Create, placement exclusion, invalidation, navigation | Present | `app/application/homepage/quick-create.ts`, `use-homepage.ts`, `use-homepage.test.tsx` | HOME-W1 ✅ |
+| WEB-HOME-13 | Secure bounded unique-name generation | Present | `app/adapters/security/browser-random.ts`, `quick-create.ts`, `quick-create.test.ts` | HOME-W1 ✅ |
+| WEB-HOME-14 | External link registry | Present | `packages/gateway-management-ui/src/application/external-links.json` | HOME-W1 ✅ |
+| WEB-HOME-15 | External link checker and static production enforcement | Present | `components/web-console/scripts/check-external-links.mjs` | HOME-W1 ✅ |
+| WEB-HOME-16 | Verification gates | Present | focused browser/BFF/backend tests; web-console, BFF, gateway UI, dashboard UI, Go SDK, TypeScript SDK, generator checks | HOME-W1 ✅ |
+
+**Scoped analysis notes:**
+
+- Quick Create submits `selector: ["network/public", "provider/ibm"]` and `excludedSelector: ["runtime/kata"]`; the API placement contract validates and persists the exclusion.
+- The BFF platform-overview route is admin-only and the browser hook remains idle for non-administrators.
+- UI gate: screenshot capture and comparison are intentionally skipped because the user disabled snapshots for this conversation. Production/story data-boundary and PatternFly mockup checks passed, and the web-console package built both production and mockup Storybooks.
+
+### web-console/usage-dashboard.spec.md (issue 544, PR 563)
+
+| # | Requirement | Status | Gap | Code Location | Wave |
+|---|-------------|--------|-----|---------------|------|
+| WEB-USE-01 | Package placement and exports | Present | - | `packages/operational-dashboard-ui/src/index.ts`, fixtures, pages, widgets | - |
+| WEB-USE-02 | Hexagonal application boundary | Present | - | `application/dashboard-{types,operations,probes}.ts`, `pages/get-usage-metrics-data.ts` | - |
+| WEB-USE-03 | Authenticated access and server-side scope | Present | - | `routes/dashboard-usage.tsx`, `features/dashboard/require-dashboard-admin.tsx`, `bff/src/{app,authorized-gateway-metrics}.ts` | - |
+| WEB-USE-04 | SPA and BFF route surfaces | Present | - | `app/routes.ts`, `route-contract.json`, `dashboard-secondary-nav.tsx`, `bff/src/app.ts` | - |
+| WEB-USE-05 | Widgetized layout, shared controls, partial data | Present | - | `pages/usage-dashboard-page.tsx`, `dashboard/usage-dashboard-{layout-template,widgets}.tsx` | - |
+| WEB-USE-06 | Gateway-native request metrics | Present | - | `bff/src/metrics-usage-gateways.ts` | - |
+| WEB-USE-07 | Active and unused Gateway inventory | Present | - | `bff/src/metrics-usage-gateways.ts`, `bff/src/authorized-gateway-metrics.ts` | - |
+| WEB-USE-08 | Sandbox utilization and lifetime metrics | Present | - | `control-plane/internal/{otel,reconciler,gateway}`, `bff/src/metrics-usage-{sandboxes,sandbox-lifetime}.ts` | - |
+| WEB-USE-09 | Data source documentation | Present | - | `packages/operational-dashboard-ui/DATA_SOURCES.md` | - |
+| WEB-USE-10 | Localization and accessibility | Present | - | `packages/operational-dashboard-ui/src/messages.ts`, `components/web-console/locales/en.json`, production story | - |
+| WEB-USE-11 | Tests and verification | Present | UI visual parity skipped by required capability path | package, web-console, BFF, adapter, route, widget, page, and control-plane tests; UI gate record below | - |
+
+**Scoped coverage:** 11 of 11 requirements present.
+
+**Direction checks:**
+
+- Spec to code: the authenticated route, admin and authorized scopes, three independent BFF sources, six widgets, 7/30-day trends, partial refresh semantics, sandbox gauges, and lifetime histogram are implemented.
+- Code to spec: the shared `DashboardControlPlane` interface keeps `getUsageMetrics` optional for hosts that do not mount the usage page, while `DashboardOperations.getUsageMetrics` is required and the web-console adapter implements the host method.
+- OpenAPI to spec: no public API schema changes are required; non-admin scope is derived from the existing authorized Gateway list contract.
+- UI gate: screenshot capture and comparison are intentionally skipped under the repository UI build gate's complete-without-visual-review path because this agent runtime cannot create or inspect snapshots. Storybook, fixture, source, and non-parity checks remain required.
 
 ### registered-users.spec.md
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| RU-01 | Read-only User inventory API (List + Get) | Present | - | `openapi.users.yaml`, `plugins/users/handler.go`, `plugins/users/plugin.go` | RU-W1 ✅ |
-| RU-02 | User resource schema (OpenAPI) | Present | - | `openapi.users.yaml`, `plugins/users/presenter.go`, `plugins/users/model.go` | RU-W1 ✅ |
-| RU-03 | User inventory authorization | Present | - | `pkg/rbac/authorization.go`, `pkg/rbac/user_provisioning.go` | RU-W1 ✅ |
-| RU-04 | Paginated List contract | Present | - | `plugins/users/handler.go`, generic list wiring | RU-W1 ✅ |
-| RU-05 | Operational dashboard `registered-users` metric | Present | - | `dashboard-control-plane.ts`, `sdk-typescript` users client | RU-W2 ✅ |
-| RU-06 | UI presentation (Registered users) | Present | - | `operational-dashboard-page.tsx`, `messages.ts`, layout key v14 | RU-W2 ✅ |
-| RU-07 | Refresh and error semantics | Present | - | `get-metrics-data.ts`, `operational-dashboard-page.tsx` | - |
-| RU-08 | Verification (API + adapter tests) | Present | - | `plugins/users/integration_test.go`, `dashboard-control-plane.test.ts` | RU-W1 ✅, RU-W2 ✅ |
+| PLAT-USR-01 | Read-only User inventory API (List + Get) | Present | - | `openapi.users.yaml`, `plugins/users/handler.go`, `plugins/users/plugin.go` | RU-W1 ✅ |
+| PLAT-USR-02 | User resource schema (OpenAPI) | Present | - | `openapi.users.yaml`, `plugins/users/presenter.go`, `plugins/users/model.go` | RU-W1 ✅ |
+| PLAT-USR-03 | User inventory authorization | Present | - | `pkg/rbac/authorization.go`, `pkg/rbac/user_provisioning.go` | RU-W1 ✅ |
+| PLAT-USR-04 | Paginated List contract | Present | - | `plugins/users/handler.go`, generic list wiring | RU-W1 ✅ |
+| PLAT-USR-05 | Operational dashboard `registered-users` metric | Present | - | `dashboard-control-plane.ts`, `sdk-typescript` users client | RU-W2 ✅ |
+| PLAT-USR-06 | UI presentation (Registered users) | Present | - | `operational-dashboard-page.tsx`, `messages.ts`, layout key v14 | RU-W2 ✅ |
+| PLAT-USR-07 | Refresh and error semantics | Present | - | `get-metrics-data.ts`, `operational-dashboard-page.tsx` | - |
+| PLAT-USR-08 | Verification (API + adapter tests) | Present | - | `plugins/users/integration_test.go`, `dashboard-control-plane.test.ts` | RU-W1 ✅, RU-W2 ✅ |
 
 **Scoped analysis notes:**
 
 - Delivered in `eb99f6b`: OpenAPI + List/Get handlers, `platform:admin` binding or `hypershell-admins` JWT authorization, integration tests, and dashboard adapter emitting `registered-users` from `users.list({ page: 1, size: 1 }).total`.
-- `DATA_SOURCES.md` and OP-DASH-08 `registered-users` row updated to connected.
+- `DATA_SOURCES.md` and WEB-OPS-08 `registered-users` row updated to connected.
 
 ### cluster-memory.spec.md
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| CM-01 | Hub cluster scope (schedulable nodes) | Present | - | `deploy/base/prometheus/node-exporter.yaml`, PromQL `sum(node_memory_*)` | CM-W1 ✅ |
-| CM-02 | Memory measurement contract (`capacity_bytes`, `available_bytes`, `used_bytes`) | Present | - | `bff/src/metrics-cluster-memory.ts` | CM-W2 ✅ |
-| CM-03 | Prometheus data source | Present | - | `bff/src/metrics-cluster-memory.ts`, `DATA_SOURCES.md` | CM-W1 ✅ |
-| CM-04 | BFF `GET /api/metrics/cluster-memory` | Present | - | `bff/src/app.ts`, `bff/src/metrics-cluster-memory.ts` | CM-W2 ✅ |
-| CM-05 | Operational dashboard `memory` metric mapping | Present | - | `dashboard-control-plane.ts` | CM-W3 ✅ |
-| CM-06 | Prometheus scrape prerequisites | Present | - | `deploy/base/prometheus/node-exporter.yaml`, `node-exporter-servicemonitor.yaml` | CM-W1 ✅ |
-| CM-07 | Refresh and error semantics | Present | - | `get-metrics-data.ts`, source omitted on BFF error (OP-DASH-19) | - |
-| CM-08 | Verification (BFF + adapter tests) | Present | - | `bff/test/metrics-cluster-memory*.test.ts`, `dashboard-control-plane.test.ts` | CM-W2 ✅, CM-W3 ✅ |
+| OBS-MEM-01 | Hub cluster scope (schedulable nodes) | Present | - | `deploy/base/prometheus/node-exporter.yaml`, PromQL `sum(node_memory_*)` | CM-W1 ✅ |
+| OBS-MEM-02 | Memory measurement contract (`capacity_bytes`, `available_bytes`, `used_bytes`) | Present | - | `bff/src/metrics-cluster-memory.ts` | CM-W2 ✅ |
+| OBS-MEM-03 | Prometheus data source | Present | - | `bff/src/metrics-cluster-memory.ts`, `DATA_SOURCES.md` | CM-W1 ✅ |
+| OBS-MEM-04 | BFF `GET /api/metrics/cluster-memory` | Present | - | `bff/src/app.ts`, `bff/src/metrics-cluster-memory.ts` | CM-W2 ✅ |
+| OBS-MEM-05 | Operational dashboard `memory` metric mapping | Present | - | `dashboard-control-plane.ts` | CM-W3 ✅ |
+| OBS-MEM-06 | Prometheus scrape prerequisites | Present | - | `deploy/base/prometheus/node-exporter.yaml`, `node-exporter-servicemonitor.yaml` | CM-W1 ✅ |
+| OBS-MEM-07 | Refresh and error semantics | Present | - | `get-metrics-data.ts`, source omitted on BFF error (WEB-OPS-19) | - |
+| OBS-MEM-08 | Verification (BFF + adapter tests) | Present | - | `bff/test/metrics-cluster-memory*.test.ts`, `dashboard-control-plane.test.ts` | CM-W2 ✅, CM-W3 ✅ |
 
 **Scoped analysis notes:**
 
-- **Delivered:** node-exporter DaemonSet + ServiceMonitor; BFF instant queries `sum(node_memory_MemTotal_bytes)` and `sum(node_memory_MemAvailable_bytes)`; dashboard adapter maps bytes → GiB `memory` metric; OP-DASH-08 `memory` row connected.
+- **Delivered:** node-exporter DaemonSet + ServiceMonitor; BFF instant queries `sum(node_memory_MemTotal_bytes)` and `sum(node_memory_MemAvailable_bytes)`; dashboard adapter maps bytes → GiB `memory` metric; WEB-OPS-08 `memory` row connected.
 - **Scrape target:** `quay.io/prometheus/node-exporter:v1.9.0` on port 9100 with host `/proc`, `/sys`, `/root` mounts.
 - **Prometheus selector:** `hypershell.redhat.io/prometheus-scrape: "true"` on api-server and node-exporter ServiceMonitors.
 
@@ -693,36 +908,36 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| CC-01 | Hub cluster scope (schedulable nodes) | Present | - | `bff/src/metrics-cluster-cpu.ts` | CC-W2 ✅ |
-| CC-02 | CPU measurement contract (`capacity_cores`, `available_cores`, `used_cores`) | Present | - | `bff/src/metrics-cluster-cpu.ts` | CC-W2 ✅ |
-| CC-03 | Prometheus data source | Present | - | `bff/src/metrics-cluster-cpu.ts`, `DATA_SOURCES.md` | CC-W1 ✅ |
-| CC-04 | BFF `GET /api/metrics/cluster-cpu` | Present | - | `bff/src/app.ts` | CC-W2 ✅ |
-| CC-05 | Operational dashboard `cpu` metric mapping | Present | - | `dashboard-control-plane.ts` | CC-W3 ✅ |
-| CC-06 | Prometheus scrape prerequisites (reuse node-exporter) | Present | - | `deploy/base/prometheus/node-exporter.yaml`, `DATA_SOURCES.md` | CC-W1 ✅ |
-| CC-07 | Refresh and error semantics | Present | - | `get-metrics-data.ts`, source omitted on BFF error (OP-DASH-19) | - |
-| CC-08 | Verification (BFF + adapter tests) | Present | - | `bff/test/metrics-cluster-cpu*.test.ts`, `dashboard-control-plane.test.ts` | CC-W2 ✅, CC-W3 ✅ |
+| OBS-CPU-01 | Hub cluster scope (schedulable nodes) | Present | - | `bff/src/metrics-cluster-cpu.ts` | CC-W2 ✅ |
+| OBS-CPU-02 | CPU measurement contract (`capacity_cores`, `available_cores`, `used_cores`) | Present | - | `bff/src/metrics-cluster-cpu.ts` | CC-W2 ✅ |
+| OBS-CPU-03 | Prometheus data source | Present | - | `bff/src/metrics-cluster-cpu.ts`, `DATA_SOURCES.md` | CC-W1 ✅ |
+| OBS-CPU-04 | BFF `GET /api/metrics/cluster-cpu` | Present | - | `bff/src/app.ts` | CC-W2 ✅ |
+| OBS-CPU-05 | Operational dashboard `cpu` metric mapping | Present | - | `dashboard-control-plane.ts` | CC-W3 ✅ |
+| OBS-CPU-06 | Prometheus scrape prerequisites (reuse node-exporter) | Present | - | `deploy/base/prometheus/node-exporter.yaml`, `DATA_SOURCES.md` | CC-W1 ✅ |
+| OBS-CPU-07 | Refresh and error semantics | Present | - | `get-metrics-data.ts`, source omitted on BFF error (WEB-OPS-19) | - |
+| OBS-CPU-08 | Verification (BFF + adapter tests) | Present | - | `bff/test/metrics-cluster-cpu*.test.ts`, `dashboard-control-plane.test.ts` | CC-W2 ✅, CC-W3 ✅ |
 
 **Scoped analysis notes:**
 
-- **Delivered:** Reuses CM-W1 node-exporter; BFF instant queries for capacity/used cores; dashboard adapter maps to `cpu` metric (whole cores); OP-DASH-08 `cpu` row connected.
+- **Delivered:** Reuses CM-W1 node-exporter; BFF instant queries for capacity/used cores; dashboard adapter maps to `cpu` metric (whole cores); WEB-OPS-08 `cpu` row connected.
 - **BFF JSON** preserves fractional `used_cores`; adapter rounds for display.
 
 ### cluster-pods.spec.md
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| CLP-01 | Hub cluster scope (all namespaces, schedulable nodes) | Present | - | `bff/src/metrics-cluster-pods.ts` | CLP-W2 ✅ |
-| CLP-02 | Pod measurement contract (`capacity_pods`, `used_pods`, `available_pods`) | Present | - | `bff/src/metrics-cluster-pods.ts` | CLP-W2 ✅ |
-| CLP-03 | Prometheus data source | Present | - | `bff/src/metrics-cluster-pods.ts`, `DATA_SOURCES.md` | CLP-W1 ✅ |
-| CLP-04 | BFF `GET /api/metrics/cluster-pods` | Present | - | `bff/src/app.ts` | CLP-W2 ✅ |
-| CLP-05 | Operational dashboard `pods` metric mapping | Present | - | `dashboard-control-plane.ts` | CLP-W3 ✅ |
-| CLP-06 | Prometheus scrape prerequisites (kube-state-metrics) | Present | - | `deploy/base/prometheus/kube-state-metrics.yaml`, `kube-state-metrics-servicemonitor.yaml` | CLP-W1 ✅ |
-| CLP-07 | Refresh and error semantics | Present | - | `get-metrics-data.ts`, source omitted on BFF error (OP-DASH-19) | - |
-| CLP-08 | Verification (BFF + adapter tests) | Present | - | `bff/test/metrics-cluster-pods*.test.ts`, `dashboard-control-plane.test.ts` | CLP-W2 ✅, CLP-W3 ✅ |
+| OBS-POD-01 | Hub cluster scope (all namespaces, schedulable nodes) | Present | - | `bff/src/metrics-cluster-pods.ts` | CLP-W2 ✅ |
+| OBS-POD-02 | Pod measurement contract (`capacity_pods`, `used_pods`, `available_pods`) | Present | - | `bff/src/metrics-cluster-pods.ts` | CLP-W2 ✅ |
+| OBS-POD-03 | Prometheus data source | Present | - | `bff/src/metrics-cluster-pods.ts`, `DATA_SOURCES.md` | CLP-W1 ✅ |
+| OBS-POD-04 | BFF `GET /api/metrics/cluster-pods` | Present | - | `bff/src/app.ts` | CLP-W2 ✅ |
+| OBS-POD-05 | Operational dashboard `pods` metric mapping | Present | - | `dashboard-control-plane.ts` | CLP-W3 ✅ |
+| OBS-POD-06 | Prometheus scrape prerequisites (kube-state-metrics) | Present | - | `deploy/base/prometheus/kube-state-metrics.yaml`, `kube-state-metrics-servicemonitor.yaml` | CLP-W1 ✅ |
+| OBS-POD-07 | Refresh and error semantics | Present | - | `get-metrics-data.ts`, source omitted on BFF error (WEB-OPS-19) | - |
+| OBS-POD-08 | Verification (BFF + adapter tests) | Present | - | `bff/test/metrics-cluster-pods*.test.ts`, `dashboard-control-plane.test.ts` | CLP-W2 ✅, CLP-W3 ✅ |
 
 **Scoped analysis notes:**
 
-- **Delivered:** kube-state-metrics Deployment/ServiceMonitor; BFF instant queries for capacity/used pods and per-phase counts; dashboard adapter maps to `pods` metric with `podPhases`; `pods` widget uses `PodCapacityChart` (OP-DASH-17); OP-DASH-08 `pods` row connected.
+- **Delivered:** kube-state-metrics Deployment/ServiceMonitor; BFF instant queries for capacity/used pods and per-phase counts; dashboard adapter maps to `pods` metric with `podPhases`; `pods` widget uses `PodCapacityChart` (WEB-OPS-17); WEB-OPS-08 `pods` row connected.
 - **Used pods:** `count(kube_pod_info)` - all phases including Failed/Succeeded while objects exist; phase breakdown via `kube_pod_status_phase`; Unused segment = `capacity - used`.
 - **Scrape target:** `registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.14.0`.
 
@@ -730,14 +945,14 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| CLN-01 | Hub cluster scope (all Node objects) | Present | - | `bff/src/metrics-cluster-nodes.ts` | CLN-W2 ✅ |
-| CLN-02 | Node measurement contract (`total_nodes`, `ready_nodes`, `not_ready_nodes`) | Present | - | `bff/src/metrics-cluster-nodes.ts` | CLN-W2 ✅ |
-| CLN-03 | Prometheus data source | Present | - | `bff/src/metrics-cluster-nodes.ts`, `DATA_SOURCES.md` | CLN-W1 ✅ |
-| CLN-04 | BFF `GET /api/metrics/cluster-nodes` | Present | - | `bff/src/app.ts` | CLN-W2 ✅ |
-| CLN-05 | Operational dashboard `nodes` metric mapping | Present | - | `dashboard-control-plane.ts`, `dashboard-widget.tsx` | CLN-W3 ✅ |
-| CLN-06 | Prometheus scrape prerequisites (reuse kube-state-metrics) | Present | - | `deploy/base/prometheus/kube-state-metrics.yaml`, `DATA_SOURCES.md` | CLN-W1 ✅ |
-| CLN-07 | Refresh and error semantics | Present | - | `get-metrics-data.ts`, source omitted on BFF error (OP-DASH-19) | - |
-| CLN-08 | Verification (BFF + adapter tests) | Present | - | `bff/test/metrics-cluster-nodes*.test.ts`, `dashboard-control-plane.test.ts` | CLN-W2 ✅, CLN-W3 ✅ |
+| OBS-NODE-01 | Hub cluster scope (all Node objects) | Present | - | `bff/src/metrics-cluster-nodes.ts` | CLN-W2 ✅ |
+| OBS-NODE-02 | Node measurement contract (`total_nodes`, `ready_nodes`, `not_ready_nodes`) | Present | - | `bff/src/metrics-cluster-nodes.ts` | CLN-W2 ✅ |
+| OBS-NODE-03 | Prometheus data source | Present | - | `bff/src/metrics-cluster-nodes.ts`, `DATA_SOURCES.md` | CLN-W1 ✅ |
+| OBS-NODE-04 | BFF `GET /api/metrics/cluster-nodes` | Present | - | `bff/src/app.ts` | CLN-W2 ✅ |
+| OBS-NODE-05 | Operational dashboard `nodes` metric mapping | Present | - | `dashboard-control-plane.ts`, `dashboard-widget.tsx` | CLN-W3 ✅ |
+| OBS-NODE-06 | Prometheus scrape prerequisites (reuse kube-state-metrics) | Present | - | `deploy/base/prometheus/kube-state-metrics.yaml`, `DATA_SOURCES.md` | CLN-W1 ✅ |
+| OBS-NODE-07 | Refresh and error semantics | Present | - | `get-metrics-data.ts`, source omitted on BFF error (WEB-OPS-19) | - |
+| OBS-NODE-08 | Verification (BFF + adapter tests) | Present | - | `bff/test/metrics-cluster-nodes*.test.ts`, `dashboard-control-plane.test.ts` | CLN-W2 ✅, CLN-W3 ✅ |
 
 **Scoped analysis notes:**
 
@@ -746,23 +961,23 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 
 ### gateway-provision-outcomes.spec.md (HYPERSHELL-280)
 
-> Added 2026-09-17 (`85927b3c`). Full per-requirement analysis pending. Code delivered in the same commit: `bff/src/metrics-gateway-provision-outcomes.ts` (BFF PromQL counter proxy, rolling 24-hour window), `packages/operational-dashboard-ui/src/dashboard/provision-reliability-*.ts(x)` (adapter + chart), `control-plane/internal/otel/metrics.go` (counter instrument), `reconciler/metrics.go` (outcome recording on first terminal transition). The spec defines ~10 requirements (GPO-00..GPO-09). Scoped assessment: all code-side requirements appear present; the BFF/adapter/CP implementation mirrors what the spec describes.
+> Added 2026-09-17 (`85927b3c`). Full per-requirement analysis pending. Code delivered in the same commit: `bff/src/metrics-gateway-provision-outcomes.ts` (BFF PromQL counter proxy, rolling 24-hour window), `packages/operational-dashboard-ui/src/dashboard/provision-reliability-*.ts(x)` (adapter + chart), `control-plane/internal/otel/metrics.go` (counter instrument), `reconciler/metrics.go` (outcome recording on first terminal transition). The spec defines ~10 requirements (OBS-GPO-09..GPO-09). Scoped assessment: all code-side requirements appear present; the BFF/adapter/CP implementation mirrors what the spec describes.
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| GPO-00 | Prometheus counter availability (`gateway_provision_outcomes_total`) | Partial | Requires OTLP-to-Prometheus wiring in deploy/kind (same as GPT-00) | `control-plane/internal/otel/metrics.go` | GPT-W2 |
-| GPO-01 | CP outcome recording (first terminal, shared claim, no gateway label) | Present | Success and failure share the GPD in-process claim; mutually exclusive | `reconciler/metrics.go`, `internal/otel/metrics.go` | #303 ✅ |
-| GPO-02..GPO-09 | BFF route, adapter, widget, refresh, partial failure, verification | Present | BFF `GET /api/metrics/gateway-provision-outcomes`; provision-reliability widget; system-summary success-rate row; OP-DASH-23 independent metric source | `bff/src/metrics-gateway-provision-outcomes.ts`, `dashboard-control-plane.ts`, `provision-reliability-*.ts(x)` | #303 ✅ |
+| OBS-GPO-09 | Prometheus counter availability (`gateway_provision_outcomes_total`) | Partial | Requires OTLP-to-Prometheus wiring in deploy/kind (same as OBS-GPT-09) | `control-plane/internal/otel/metrics.go` | GPT-W2 |
+| OBS-GPO-01 | CP outcome recording (first terminal, shared claim, no gateway label) | Present | Success and failure share the GPD in-process claim; mutually exclusive | `reconciler/metrics.go`, `internal/otel/metrics.go` | #303 ✅ |
+| OBS-GPO-02..GPO-09 | BFF route, adapter, widget, refresh, partial failure, verification | Present | BFF `GET /api/metrics/gateway-provision-outcomes`; provision-reliability widget; system-summary success-rate row; WEB-OPS-23 independent metric source | `bff/src/metrics-gateway-provision-outcomes.ts`, `dashboard-control-plane.ts`, `provision-reliability-*.ts(x)` | #303 ✅ |
 
-**Scoped analysis notes:** GPO-00 (Prometheus availability) shares the same deploy/kind OTLP wiring gap as GPT-00; both are planned under GPT-W2.
+**Scoped analysis notes:** OBS-GPO-09 (Prometheus availability) shares the same deploy/kind OTLP wiring gap as OBS-GPT-09; both are planned under GPT-W2.
 
 ### gateway-release-distribution.spec.md (HYPERSHELL-280)
 
-> Added 2026-09-17 (`85927b3c`). Full per-requirement analysis pending. Code delivered in the same commit: `web-console/app/adapters/api/gateway-release-distribution-aggregation.ts` (paginated gateway+release list aggregation), `operational-dashboard-ui/src/dashboard/gateway-releases-chart.tsx`, `dashboard-control-plane.ts` (release-distribution adapter), `pkg/rbac/authorization.go` (fleet-wide list for dashboard-operator role). The spec defines ~8 requirements (GRD-01..GRD-08). Scoped assessment: all requirements appear present.
+> Added 2026-09-17 (`85927b3c`). Full per-requirement analysis pending. Code delivered in the same commit: `web-console/app/adapters/api/gateway-release-distribution-aggregation.ts` (paginated gateway+release list aggregation), `operational-dashboard-ui/src/dashboard/gateway-releases-chart.tsx`, `dashboard-control-plane.ts` (release-distribution adapter), `pkg/rbac/authorization.go` (fleet-wide list for dashboard-operator role). The spec defines ~8 requirements (OBS-RLSD-01..GRD-08). Scoped assessment: all requirements appear present.
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| GRD-01..GRD-08 | Release distribution scope, aggregation, unknown bucket, dashboard operator, widget, refresh, verification | Present | Paginated gateway+release aggregation; `gateway-releases` metric; `GatewayReleasesChart` widget; fleet-wide RBAC for dashboard operators | `gateway-release-distribution-aggregation.ts`, `dashboard-control-plane.ts`, `gateway-releases-chart.tsx`, `pkg/rbac/authorization.go` | #303 ✅ |
+| OBS-RLSD-01..GRD-08 | Release distribution scope, aggregation, unknown bucket, dashboard operator, widget, refresh, verification | Present | Paginated gateway+release aggregation; `gateway-releases` metric; `GatewayReleasesChart` widget; fleet-wide RBAC for dashboard operators | `gateway-release-distribution-aggregation.ts`, `dashboard-control-plane.ts`, `gateway-releases-chart.tsx`, `pkg/rbac/authorization.go` | #303 ✅ |
 
 ### gateway-fleet-total-trend.spec.md (HYPERSHELL-281)
 
@@ -770,7 +985,7 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| GFT-01..GFT-NN | Fleet total trend (range PromQL, sparkline, adapter, verification) | Present | BFF range-query extension; gateway fleet sparkline data; layout template updated | `bff/src/metrics-gateways.ts`, `prometheus-range-query.ts`, `dashboard-control-plane.ts` | #311 ✅ |
+| OBS-GFT-01..GFT-NN | Fleet total trend (range PromQL, sparkline, adapter, verification) | Present | BFF range-query extension; gateway fleet sparkline data; layout template updated | `bff/src/metrics-gateways.ts`, `prometheus-range-query.ts`, `dashboard-control-plane.ts` | #311 ✅ |
 
 ### gateway-sandbox-active-trends.spec.md (HYPERSHELL-281)
 
@@ -795,7 +1010,7 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
 | BB-1 | Branch Build Entry Point (`make kind-openshell-up`, `OPENSHELL_BRANCH`/`OPENSHELL_PR`/`OPENSHELL_REPO`) | Missing | No Makefile target or build script | - | Future |
-| BB-2 | `openshell-dev-gateway` provisioning (stable name, update-or-create, no release_id) | Missing | Gateway schema lacks `dev_build` / `sandbox_image` fields | - | Future |
+| BB-2 | `openshell-dev-gateway` provisioning (stable name, update-or-create) | Missing | Gateway schema lacks `dev_build` / `sandbox_image` fields | - | Future |
 | BB-3 | Coexistence with `dev-gateway` | Missing | Depends on BB-1 | - | Future |
 | BB-4..BB-N | Image build, load, identity labels/annotations, E2E targeting, Kind cluster reuse | Missing | Spec authored; implementation not started | - | Future |
 
@@ -803,21 +1018,21 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| GPT-00 | Prometheus histogram availability (`gateway_provision_duration_seconds`) | Missing | CP OTLP metrics not wired to Prometheus in deploy/kind | - | GPT-W2 |
-| GPT-01 | Measurement contract (mean, P50, P95 in minutes) | Missing | Adapter still emits mean only from gateway list | `dashboard-control-plane.ts` | GPT-W2 |
-| GPT-02 | Control-plane histogram semantics (CP-OBS-07) | Present | - | `control-plane/internal/otel/metrics.go` | CP-OBS-GPD-W1 ✅ |
-| GPT-03 | Prometheus data source | Missing | No BFF PromQL queries | - | GPT-W2 |
-| GPT-04 | BFF `GET /api/metrics/gateway-provision-duration` | Missing | Route does not exist | - | GPT-W2 |
-| GPT-05 | Operational dashboard mapping + three system-summary rows | Missing | Single mean row; no `provisionDuration` field | `dashboard-widget.tsx`, `dashboard-types.ts` | GPT-W2 |
-| GPT-06 | Decoupled from gateway list | Missing | Still computed from gateway list | `dashboard-control-plane.ts` | GPT-W2 |
-| GPT-07 | Refresh and error semantics | Partial | Omit-on-failure works; zero-count path still list-based | `dashboard-control-plane.ts` | GPT-W2 |
-| GPT-08 | Verification | Partial | List-based adapter tests only | `dashboard-control-plane.test.ts` | GPT-W2 |
+| OBS-GPT-09 | Prometheus histogram availability (`gateway_provision_duration_seconds`) | Missing | CP OTLP metrics not wired to Prometheus in deploy/kind | - | GPT-W2 |
+| OBS-GPT-01 | Measurement contract (mean, P50, P95 in minutes) | Missing | Adapter still emits mean only from gateway list | `dashboard-control-plane.ts` | GPT-W2 |
+| OBS-GPT-02 | Control-plane histogram semantics (OBS-CPL-07) | Present | - | `control-plane/internal/otel/metrics.go` | CP-OBS-GPD-W1 ✅ |
+| OBS-GPT-03 | Prometheus data source | Missing | No BFF PromQL queries | - | GPT-W2 |
+| OBS-GPT-04 | BFF `GET /api/metrics/gateway-provision-duration` | Missing | Route does not exist | - | GPT-W2 |
+| OBS-GPT-05 | Operational dashboard mapping + three system-summary rows | Missing | Single mean row; no `provisionDuration` field | `dashboard-widget.tsx`, `dashboard-types.ts` | GPT-W2 |
+| OBS-GPT-06 | Decoupled from gateway list | Missing | Still computed from gateway list | `dashboard-control-plane.ts` | GPT-W2 |
+| OBS-GPT-07 | Refresh and error semantics | Partial | Omit-on-failure works; zero-count path still list-based | `dashboard-control-plane.ts` | GPT-W2 |
+| OBS-GPT-08 | Verification | Partial | List-based adapter tests only | `dashboard-control-plane.test.ts` | GPT-W2 |
 
 **Scoped analysis notes:**
 
 - **Spec v2 (2026-09-03):** Retires gateway-list timestamp proxy. Provision time becomes fleet-wide histogram stats via BFF Prometheus proxy (same pattern as cluster memory).
 - **Drift:** GPT-W1 implementation (mean from gateway list) remains until GPT-W2 lands.
-- **Prerequisite:** Deploy/kind must expose `gateway_provision_duration_seconds` to the BFF's `PROMETHEUS_URL` (GPT-00).
+- **Prerequisite:** Deploy/kind must expose `gateway_provision_duration_seconds` to the BFF's `PROMETHEUS_URL` (OBS-GPT-09).
 
 ### e2e-console-browser-testing.spec.md
 
@@ -876,9 +1091,9 @@ New e2e coverage requirements added by #413 (all test-only: the underlying API/C
 |---|-------------|--------|-----|---------------|------|
 | E2E-14 | ManagedCluster registration coverage (area 12, single-cluster) | Present | ✅ Implemented as area 12a-12e in `e2e-openshell.sh`; verified on Kind (long run, 90 passed). Validate self-registration directly, not only consume the registered cluster: co-located CP record has non-empty `oidc_subject` + fresh `last_seen_at` (< 5min); `POST /managed_clusters/registration` idempotent returns existing `cluster_id` and advances `last_seen_at`; missing `managed-cluster-registrar` role -> 403, no record; name collision under same subject -> 409, no mutation; gateway create with empty `cluster_id` or placeholder record (empty `oidc_subject`) -> 400 naming `cluster_id`, no Gateway, placeholder deleted. Uses `E2E_REGISTRAR_CLIENT_ID`/`E2E_REGISTRAR_CLIENT_SECRET` (default `hypershell-control-plane`); inventory reads use admin token. Long-only. API route exists (`openapi.managedClusters.yaml`). | `tests/e2e/e2e-openshell.sh` (new area 12) | E2E-W4 |
 | E2E-15 | Multi-cluster fleet coverage (`E2E_MULTICLUSTER=1`, opt-in) | Missing | Second `ManagedCluster` via a second CP deployment under `E2E_SEED_CLUSTER_NAME_2` + its own registrar client: both clusters listed with fresh `last_seen_at` and selectable; gateway targeted to cluster 2 reaches `Running` reconciled only by CP2 (confirmed by owning CP's managed namespace), CP1 does not reconcile it. **Infra-gated:** second-CP deploy is owned by `local-development.spec.md`/`openshift-development.spec.md`; this spec owns only the assertions. Do not mark covered until that deploy path exists. | `tests/e2e/e2e-openshell.sh` | E2E-W5 (deferred) |
-| E2E-16 | Control-plane reconnect + gRPC identity rejection (area 12) | Present | ✅ Implemented as area 12f/12g; verified on Kind. gRPC identity rejection (grpcurl against api-server :9000 plaintext): no token -> `UNAUTHENTICATED`, foreign `cluster_id` -> `PERMISSION_DENIED`, omitted filter -> `INVALID_ARGUMENT` (all pass). Reconnect convergence: scale CP to 0, create a gateway while down, scale back -> CP converges it to Running from its snapshot (pass). **Divergence [D-E2E-DELETE-CP]:** the spec's "a gateway deleted via the API while [CP] disconnected" is not exercised -- gateway DELETE performs service-account cleanup through the CP's in-cluster provisioner and returns 503 while the CP is down, so a delete cannot be initiated during the outage. Delete-driven namespace reaping on the live watch is covered by area 11. gRPC checks gated on kind driver + grpcurl present (skip-with-note otherwise). | `tests/e2e/e2e-openshell.sh` (area 12), `tests/e2e/drivers/kind.sh` | E2E-W4 ✅ |
-| E2E-17 | Gateway release promotion coverage (area 13) | Present | ✅ Implemented as area 13c; verified on Kind. Provision gateway on release A -> Running; repoint to B -> `observed_release_id == B` (pass). **Divergence [D-E2E-DEGRADED]:** repointing a Running gateway to a bad (unpullable) release does NOT report `Degraded` as the spec states -- the revision-aware rolling update keeps the last-good pods serving (new ReplicaSet stuck ImagePullBackOff, Deployment stays Available), so the gateway stays `Running` on B. The core safety guarantees hold and are asserted: `observed_release_id` never moves to the bad release (never a successful move) and the last-good keeps serving; recover by repointing to B -> Running. The test accepts Degraded OR Running-on-last-good; spec should relax "Degraded" to "never reports the bad release as serving". Cross-cluster promotion `E2E_MULTICLUSTER`-gated (deferred E2E-W5). | `tests/e2e/e2e-openshell.sh` (area 13) | E2E-W4 ✅ (cross-cluster: E2E-W5) |
-| E2E-18 | Reconciled status assertions | Present | ✅ Implemented as area 13a/13b; verified on Kind. Note: invalid status is written as `"Invalid: <reason>"` (prefix, not the bare word) -- the test matches a prefix. Wait on CP status write-back, not just acceptance: `GatewayRelease` with valid image settles to `Available` within `E2E_PROVISION_TIMEOUT`; malformed image settles to `Invalid` and is not served to referencing gateways; `GatewayNetwork` coherent topology settles `Valid`, incoherent (dangling hub) settles `Invalid`. Long-only. | `tests/e2e/e2e-openshell.sh` | E2E-W4 |
+| E2E-16 | Control-plane gRPC identity rejection + startup-seed coverage | Present | ✅ gRPC identity rejection stays in the Go e2e suite (`assertManagedClusterGRPCIdentity`, P2.4): no token -> `UNAUTHENTICATED`, foreign `cluster_id` -> `PERMISSION_DENIED`, omitted filter -> `INVALID_ARGUMENT`. The e2e scale-CP-to-zero reconnect step was removed (HYPERSHELL-403 / #576) so the concurrent console suite never loses the controller; startup-seed recovery is now covered by two cheaper tests instead: `TestGRPCWatchThenListReturnsPreExistingGateways` (api-server gRPC contract - a filtered watch+list returns the caller's pre-existing own-cluster gateways and none from a foreign cluster) and `TestWatchGateways_StartupSeedsPreExistingGateway` (control-plane - the real `WatchGateways` queues a pre-existing gateway after the subscription is live, with no watch event ever sent). **Divergence [D-E2E-DELETE-CP]:** delete-while-disconnected is still not exercised end-to-end -- gateway DELETE needs the CP's in-cluster provisioner and returns 503 while the CP is down; delete-driven namespace reaping on the live watch is covered by P2.3. | `tests/e2e/managed_cluster_grpc.go`, `components/api-server/plugins/gateways/grpc_integration_test.go`, `components/control-plane/internal/watcher/gateway_startup_seed_test.go` | E2E-W4 / HYPERSHELL-403 |
+| E2E-17 | Gateway image promotion coverage (area 13) | Present | ✅ Implemented as area 13c; verified on Kind. Provision gateway on image A -> Running; repoint to image B -> Running. **Divergence [D-E2E-DEGRADED]:** repointing a Running gateway to a bad (unpullable) image does NOT report `Degraded` as the spec states -- the revision-aware rolling update keeps the last-good pods serving (new ReplicaSet stuck ImagePullBackOff, Deployment stays Available), so the gateway stays `Running` on B. The core safety guarantee holds and is asserted: a failed rollout never moves the gateway to the bad image and the last-good keeps serving; recover by repointing to B -> Running. The test accepts Degraded OR Running-on-last-good; spec should relax "Degraded" to "never reports the bad image as serving". Cross-cluster promotion `E2E_MULTICLUSTER`-gated (deferred E2E-W5). | `tests/e2e/e2e-openshell.sh` (area 13) | E2E-W4 ✅ (cross-cluster: E2E-W5) |
+| E2E-18 | Reconciled status assertions | Present | ✅ Implemented as area 13a/13b; verified on Kind. Note: invalid status is written as `"Invalid: <reason>"` (prefix, not the bare word) -- the test matches a prefix. Wait on CP status write-back, not just acceptance: Gateway with a valid image settles to `Available` within `E2E_PROVISION_TIMEOUT`; malformed image settles to `Invalid` and is not served to referencing gateways. Long-only. | `tests/e2e/e2e-openshell.sh` | E2E-W4 |
 | E2E-19 | Admin inventory + API validation (area 14) | Present | ✅ Implemented as area 14; verified on Kind. Unknown phase uses the HTTP PATCH 400 path (no grpcurl needed; validation fires before persist, stored phase unchanged). `/v1/users` admin-only: developer (`openshell-user`) GET -> 403; non-admin Get-by-id -> opaque 404 (not existence-revealing 403); platform-admin GET with `size=1` -> 200 with accurate `total`. Unknown gateway phase outside canonical vocabulary -> gRPC `INVALID_ARGUMENT` / HTTP 400, stored phase unchanged. `/v1/users` route exists (`openapi.users.yaml`). Long-only. | `tests/e2e/e2e-openshell.sh` (new area 14) | E2E-W4 |
 | E2E-20 | Extended platform qualification (HYPERSHELL-291) | Missing | Opt-in, infra-gated qualification scenarios, each behind its own flag, excluded from the Kind merge-queue gate: DNS/TLS renewal (`E2E_QUALIFY_DNS_TLS_RENEWAL`), DB credential rotation (`E2E_QUALIFY_DB_ROTATION`), DB backup/restore (`E2E_QUALIFY_DB_BACKUP_RESTORE`, CNPG), restricted-registry/mirroring (`E2E_QUALIFY_RESTRICTED_REGISTRY`), Sippy recurring-test reporting (HYPERSHELL-270). **Per spec: SHALL NOT be reported as covered until the required infrastructure exists.** ROKS route-mode (HYPERSHELL-244) is intentionally not specified (tracked in HYPERSHELL-363). HYPERSHELL-243/246 already covered elsewhere. | - | E2E-W6 (deferred) |
 
@@ -966,18 +1181,18 @@ Test-tier Keycloak principals `admin` / `developer` / `platform-admin` are not b
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| RBAC-1 | Scope-Aware Permission Evaluation | Present | `rbacAuthzMiddleware` evaluates scope-aware bindings; controlled by `RBAC_ENFORCE` env var | `pkg/rbac/authorization.go` | WR4 ✅ |
+| RBAC-1 | Scope-Aware Permission Evaluation | Present | `rbacAuthzMiddleware` evaluates scope-aware bindings; enforced whenever JWT authentication is on (single source of truth, SEC-RBAC-14) | `pkg/rbac/authorization.go` | WR4 ✅ |
 | RBAC-2 | Resource List Filtering | Present | Per-query visibility filtering via `GatewayVisibilityFilter` in gateway List handler; `FindGatewayIDsByUserID` DAO method | `plugins/gateways/handler.go`, `pkg/rbac/visibility_filter.go` | KC-W3 ✅ |
-| RBAC-3 | User Auto-Provisioning | Present | `UserProvisioningMiddleware` upserts User from JWT claims on every authenticated request | `pkg/rbac/user_provisioning.go`, `plugins/users/service.go` | WR1 ✅, WR3 ✅ |
-| RBAC-4 | Bootstrap via Fleet Creation | Present | `fleetHandler.Create` calls `CreateOwnerBinding` atomically in same DB transaction | `plugins/fleets/handler.go`, `pkg/rbac/fleet_bootstrap.go` | WR3 ✅ |
+| RBAC-3 | User Auto-Provisioning | Present | `UserProvisioningMiddleware` upserts User from JWT claims on every authenticated request; `sqlUserDao.Upsert` writes a stored field only when the JWT carries a changed value, taking no UPDATE (no row lock) when the claims already match -- a nil claim never clears a stored value, and a brand-new username still resolves concurrent first-time requests to one row via insert-then-reread | `pkg/rbac/user_provisioning.go`, `plugins/users/service.go`, `plugins/users/dao.go` | WR1 ✅, WR3 ✅, RBAC-3-CW ✅ |
+| RBAC-4 | Bootstrap via Gateway Creation | Present | `gatewayHandler.Create` calls `CreateOwnerBinding` atomically in same DB transaction | `plugins/gateways/handler.go`, `pkg/rbac/gateway_bootstrap.go` | WR3 ✅ |
 | RBAC-5 | Platform Admin Bootstrap | Deferred | First platform:admin created via DB migration; no CLI command by design | - | Future |
 | RBAC-6 | RoleBinding Mutation Authorization | Present | Strictly-below hierarchy enforcement on Create; advisory-locked last-owner protection on Delete | `plugins/roleBindings/service.go` | WR2 ✅, WR8 ✅ |
 | RBAC-7 | Gateway OIDC Role Bridge | Present | RoleBindingReconciler watches RoleBinding events via gRPC stream; maps gateway:owner→openshell-admin, gateway:viewer→openshell-user via Keycloak Admin REST API | `reconciler/role_binding_reconciler.go`, `keycloak/client.go` | KC-W2 ✅ |
-| RBAC-8 | Auth-Exempt Endpoints | Present | `isExemptEndpoint` exempts POST /fleets, GET /roles, GET /roles/{id}, GET /metadata, GET /openapi | `pkg/rbac/authorization.go` | WR4 ✅, WR8 ✅ |
+| RBAC-8 | Auth-Exempt Endpoints | Present | `isExemptEndpoint` exempts /metadata, /openapi, /openapi.html, /errors, and GET /roles, GET /roles/{id} | `pkg/rbac/authorization.go` | WR4 ✅, WR8 ✅ |
 | RBAC-9 | gRPC Authorization | Present | `isGRPCAuthorized` evaluates bindings against method type (Get/List/Watch=read, Create/Update=write, Delete=owner-only); lazy init via `RegisterPostAuthGRPC*Interceptor` | `pkg/rbac/grpc_interceptor.go`, `plugins/rbac/grpc_init.go` | WR6 ✅, WR8 ✅ |
 | RBAC-10 | Service Caller Bypass | Present | Authz middleware checks for service caller (ClientID-based) and bypasses RBAC | `pkg/rbac/authorization.go` | WR4 ✅ |
 | RBAC-11 | Error Response Opacity | Present | Singleton GETs return 404 when unauthorized; mutations return generic 403 | `pkg/rbac/authorization.go` | WR4 ✅ |
-| RBAC-12 | Production Rollout | Present | `RBAC_ENFORCE=true` env var enables enforcement; separate from framework `enable-authz` | `plugins/rbac/plugin.go` | WR4 ✅ |
+| RBAC-12 | Enforcement Follows Authentication | Present | Enforcement derives from JWT authentication being on; no separate enforcement variable (SEC-RBAC-14) | `plugins/rbac/plugin.go` | WR4 ✅ |
 | RBAC-13 | Integration Test Coverage | Present | Unit tests: 18 authorization + 6 gRPC (pkg/rbac/). Integration tests: roles (4), roleBindings (12 including hierarchy enforcement, scope FK validation, last-owner protection) | `pkg/rbac/*_test.go`, `plugins/roles/integration_test.go`, `plugins/roleBindings/integration_test.go` | WR7 ✅, WR8 ✅ |
 
 ### openshell-gateway-keycloak.spec.md
@@ -1000,18 +1215,18 @@ Test-tier Keycloak principals `admin` / `developer` / `platform-admin` are not b
 |---|-------------|--------|-----|---------------|------|
 | SR-1 | Database Password Rotation | Removed | HyperShell does not rotate per-gateway database credentials; operators rotate on the server or recreate the gateway | - | - |
 | SR-2 | Database Rotation Failure Handling | Removed | No rotation path exists; provisioning repair re-applies a lost tenant Secret with `ALTER ROLE` | `gateway/external_db.go` | - |
-| SR-3 | Config-Hash Coverage for Database Credentials | Present | `applyConfigHashAnnotation` now loops over both `openshell-server-tls` AND `openshell-gateway-db-credentials` Secrets | `gateway/reconciler.go` | SR-W1 ✅ |
-| SR-5 | KEK Rotation (Day-2) | Deferred | Explicitly deferred in spec; no gateway re-encryption API exists | - | Future |
-| SR-6 | TLS Certificate Rotation (cert-manager) | Present | cert-manager handles renewal; `applyConfigHashAnnotation` includes TLS Secret; config-hash triggers restart | `reconciler.go:540-554` | W7 ✅ |
-| SR-7 | Provider Credential Rotation by Driver Type | Deferred | Credential driver fields not yet implemented in reconciler; driver-specific rotation is platform-managed (K8s SA, Vault) | - | Future |
-| SR-8 | Interaction Between Credential Driver and DB Password Rotation | Present | DB password rotation is independent of credential driver; wired after `reconcileDatabaseCredentials()` via `RotateDBCredentials` opt | `gateway/reconciler.go` | SR-W1 ✅ |
+| SR-3 | Config-Hash Coverage for Database Credentials | Removed | Requirement retired (OSG-ROT-01). `applyConfigHashAnnotation` was deleted in the Helm cutover (#194); a changed DB credentials Secret does not restart the gateway | - | - |
+| SR-5 | KEK Rotation (Day-2) | Removed | Requirement retired (OSG-ROT-02). The KEK is not rotated; the chart reuses the existing KEK Secret on every upgrade | - | - |
+| SR-6 | TLS Certificate Renewal (cert-manager) | Present | cert-manager renews; the kubelet updates the mounted `openshell-server-tls` files; the OpenShell gateway file watcher reloads them without a restart | `charts/openshell/templates/_gateway-workload.tpl` (tls-cert mount) | - |
+| SR-7 | Provider Credential Rotation by Driver Type | Present | Driver-specific renewal is platform-managed (K8s SA token, Vault); the control plane wires the driver values and the projected `vault`-audience token. A changed `GATEWAY_VAULT_ADDRESS` reaches a gateway only on its next deploy | `helm/values.go` `buildCredentialDriverValues`/`buildVaultValues` | - |
+| SR-8 | Interaction Between Credential Driver and DB Password Rotation | Removed | No DB password rotation exists, so there is no interaction to handle | - | - |
 
 ### openshell-gateway-namespace-gc.spec.md
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
 | NGC-1 | Gateway deletion reaps the gateway namespace (cascade + out-of-namespace cleanup) | Present | Delete event deletes the managed namespace (cascading in-namespace resources incl. sandbox pods); ClusterRoleBinding, Keycloak client, cross-namespace credential RBAC cleaned explicitly; best-effort/idempotent; never gated on sandbox count | `gateway/reconciler.go` `DeleteGatewayResources()`, `gateway/namespace.go` | NGC ✅ |
-| NGC-2 | Periodic GC of orphaned namespaces (env-configurable) | Present | `NamespaceGCReconciler` sweeps instance-labeled managed namespaces; each sweep backfills `hypershell.redhat.io/instance` onto unlabeled legacy gateway namespaces (`openshell-*`, not `openshell-db-*`) then reaps orphans past grace. `GATEWAY_NAMESPACE_GC_ENABLED`/`_INTERVAL`/`_GRACE_PERIOD` default true/5m/10m | `reconciler/namespace.go`, `gateway/namespace.go` `BackfillInstanceLabels`, `config/config.go` | NGC ✅ |
+| NGC-2 | Periodic GC of orphaned namespaces (env-configurable) | Present | `NamespaceGCReconciler` sweeps instance-labeled managed namespaces; it never stamps the instance label itself and reaps orphans past grace. `GATEWAY_NAMESPACE_GC_ENABLED`/`_INTERVAL`/`_GRACE_PERIOD` default true/5m/10m | `reconciler/namespace.go`, `gateway/namespace.go`, `config/config.go` | NGC ✅ |
 | NGC-3 | Grace period prevents premature deletion (durable annotation) | Present | `hypershell.redhat.io/gc-eligible-since` (RFC3339) stamped on and measured from the namespace so it survives restarts; cleared when a live Gateway reappears | `gateway/namespace.go` `MarkGCEligible`/`ClearGCEligible` | NGC ✅ |
 | NGC-4 | Do not reap namespaces of live gateways (abort on list failure) | Present | Liveness derived from API-reported Gateways; sweep aborts entirely if Gateways cannot be listed; existing gateway preserved regardless of phase (Degraded/Failed) | `reconciler/namespace.go` | NGC ✅ |
 | NGC-5 | Preserve a durable record before deletion | Present | `GarbageCollected` Event recorded in the control-plane namespace summarizing orphan duration, pod state, and active sandbox count; summary best-effort, never blocks the reap | `reconciler/namespace.go:203` | NGC ✅ |
@@ -1072,7 +1287,7 @@ Test-tier Keycloak principals `admin` / `developer` / `platform-admin` are not b
 
 ### GP-W1: Enforce intent-only REST placement and restore placement capabilities
 
-**Scope:** GP-01, GP-04 (backend)
+**Scope:** WEB-PLC-01, WEB-PLC-04 (backend)
 
 **Dependency:** Existing placement OpenAPI, generated SDK, registration, and resolver implementation
 
@@ -1080,13 +1295,13 @@ Test-tier Keycloak principals `admin` / `developer` / `platform-admin` are not b
 
 1. Remove deprecated `cluster_id` from the public REST `GatewayCreateRequest` source contract and regenerate OpenAPI clients/SDKs.
 2. Make the REST create handler always validate and resolve `placement`; retain resolved `cluster_id` only on persisted/read models and internal update paths.
-3. Extend managed-cluster restore to atomically refresh provider, visibility, and `last_seen_at` from the current registration.
+3. Extend managed-cluster restore to atomically refresh capabilities and `last_seen_at` from the current registration.
 4. Add regression tests for direct-cluster rejection/absence, intent resolution, and restored capability refresh.
 5. Verify generated artifacts, API build/vet, focused placement tests, and unchanged gateway read compatibility.
 
 ### GP-W2: Explain disabled network placement to all users
 
-**Scope:** GP-04 (web), GP-10 verification
+**Scope:** WEB-PLC-04 (web), WEB-PLC-10 verification
 
 **Dependency:** GP-W1
 
@@ -1120,7 +1335,7 @@ vet, and the complete control-plane test suite pass.
 
 ### CP-OBS-RQ-W1: Reconcile queue metrics ✅
 
-**Scope:** Changed CP-OBS-07 queue fields only | **Status:** Complete
+**Scope:** Changed OBS-CPL-07 queue fields only | **Status:** Complete
 
 1. Add the queue-depth observable gauge and queue-wait histogram.
 2. Register one depth callback for each shared reconcile queue.
@@ -1140,7 +1355,7 @@ lint, alignment, and review checks pass.
 
 ### CP-OBS-GPD-W1: Reconcile Gateway provision-duration metrics ✅
 
-**Scope:** Changed CP-OBS-07 fields only | **Status:** Complete
+**Scope:** Changed OBS-CPL-07 fields only | **Status:** Complete
 
 1. Add the histogram name, unit, description, and explicit buckets.
 2. Use API server timestamps from the successful `Running` update response.
@@ -1290,7 +1505,7 @@ Implemented `scripts/cluster/` with a driver model. `make kind-*` wraps today's 
 | WR1 | Data Model Foundation (users, roles, roleBindings plugins, 6 built-in roles) | ✅ Complete |
 | WR2 | API Surface (handlers, presenters, routes for roles + roleBindings) | ✅ Complete |
 | WR3 | User Auto-Provisioning + Fleet Bootstrap (middleware + fleet:owner binding) | ✅ Complete |
-| WR4 | Authorization Middleware (scope-aware evaluation, exempt endpoints, enforcement flag) | ✅ Complete |
+| WR4 | Authorization Middleware (scope-aware evaluation, exempt endpoints, enforcement follows authentication) | ✅ Complete |
 | WR6 | gRPC Authorization (unary + stream interceptors with lazy init) | ✅ Complete |
 | WR7 | Integration Tests (roles: 4 tests, roleBindings: 7 tests) | ✅ Complete |
 | WR8 | Security Hardening (12 PR review findings resolved) | ✅ Complete |
@@ -1301,7 +1516,7 @@ Implemented `scripts/cluster/` with a driver model. `make kind-*` wraps today's 
 
 **Wave R3 summary:** `UserProvisioningMiddleware` upserts User from JWT claims (username, email, name) on every authenticated request. `fleetBootstrapper.CreateOwnerBinding` creates fleet:owner RoleBinding atomically in same DB transaction as fleet creation. Central `plugins/rbac/plugin.go` wires middleware on apiV1Router.
 
-**Wave R4 summary:** `rbacAuthzMiddleware` implements `auth.AuthorizationMiddleware` with scope-aware evaluation: loads caller's RoleBindings via `FindBindingsByUserID`, matches against resource scope extracted from URL. Exempt endpoints: POST /fleets, GET /metadata, GET /openapi. Service caller bypass via ClientID detection. Error opacity: 404 for unauthorized singleton GETs, 403 for mutations. `RBAC_ENFORCE=true` env var controls enforcement.
+**Wave R4 summary:** `rbacAuthzMiddleware` implements `auth.AuthorizationMiddleware` with scope-aware evaluation: loads caller's RoleBindings via `FindBindingsByUserID`, matches against resource scope extracted from URL. Exempt endpoints: POST /fleets, GET /metadata, GET /openapi. Service caller bypass via ClientID detection. Error opacity: 404 for unauthorized singleton GETs, 403 for mutations. Enforcement follows JWT authentication (one source of truth, SEC-RBAC-14).
 
 **Wave R6 summary:** `RBACUnaryInterceptor` and `RBACStreamInterceptor` apply same scope-aware evaluation to gRPC calls. `lazyRBACInterceptor` with `sync.Once` resolves services on first call (registered at init time via `RegisterPostAuthGRPC*Interceptor`). `provisionUserForGRPC` extracts JWT payload and provisions user before authorization.
 
@@ -1341,10 +1556,8 @@ Added `database/sql` + `lib/pq` to control plane. `rotateDatabaseCredentials()` 
 `app.kubernetes.io/managed-by=hypershell-control-plane` and
 `hypershell.redhat.io/managed=true` required, plus
 `hypershell.redhat.io/instance=<HYPERSHELL_NAMESPACE>`) and reaps those orphaned
-past the grace period. Each sweep first claims unlabeled legacy gateway
-namespaces (management labels, no instance label, `openshell-*` not
-`openshell-db-*`) so missed-delete orphans from before the instance label are
-not invisible to GC. Grace timer persisted on the `hypershell.redhat.io/gc-eligible-since`
+past the grace period. The sweep never stamps the instance label; only
+namespace creation and Gateway reconcile do. Grace timer persisted on the `hypershell.redhat.io/gc-eligible-since`
 annotation (RFC3339) and cleared when a Gateway reappears. Sweep aborts entirely
 if Gateways cannot be listed, so a transient API failure never reaps a live
 namespace. A `GarbageCollected` Event is recorded in the control-plane namespace
@@ -1378,7 +1591,7 @@ label-selected pod informer.
 
 ### Wave OP-W1: Operational Dashboard Verification Hardening
 
-**Scope:** OP-DASH-06, OP-DASH-08, OP-DASH-15
+**Scope:** WEB-OPS-06, WEB-OPS-08, WEB-OPS-15
 **Dependency:** operational-dashboard spec authored (2026-08-31)
 **Status:** Complete ✅
 
@@ -1389,7 +1602,7 @@ label-selected pod informer.
 
 ### Wave OP-W2: Independent Metric Sources and Partial Failure
 
-**Scope:** OP-DASH-09 (partial-failure scenarios), OP-DASH-19
+**Scope:** WEB-OPS-09 (partial-failure scenarios), WEB-OPS-19
 **Dependency:** OP-W1, all cluster-metric BFF routes connected
 **Status:** Complete ✅
 
@@ -1397,13 +1610,25 @@ label-selected pod informer.
 2. Add `dashboard-metric-sources.ts` merge helper; extend `get-metrics-data.ts` to preserve stale metrics on refetch partial failure
 3. Publish `dashboard.metrics.partial-failure` probe when one or more sources fail but at least one succeeds
 4. Page shows warning `Alert` + per-widget metric-unavailable state for omitted metrics
-5. Update platform cluster-metric specs CM-07/CC-07/CLP-07/CLN-07 and registered-users RU-07 for source-scoped failure (OP-DASH-19)
+5. Update platform cluster-metric specs OBS-MEM-07/OBS-CPU-07/OBS-POD-07/OBS-NODE-07 and registered-users PLAT-USR-07 for source-scoped failure (WEB-OPS-19)
 6. Add adapter tests for partial failure, total failure, and abort propagation
 7. Verify: `pnpm --filter @openshift-online/hypershell-operational-dashboard-ui check`, web-console adapter tests
 
+### Wave HOME-W1: API-backed Homepage ✅
+
+**Scope:** WEB-HOME-01..16
+**Dependency:** homepage spec and approved `Parity/Homepage` mockup
+**Status:** Complete ✅
+
+1. Move the gateway list to `/gateways`, render `HomepagePage` at `/`, and share the route registry with the BFF.
+2. Add authorized BFF summary and admin-only platform-overview aggregates with independent source failure handling.
+3. Add the API-backed homepage view, role-gated queries, configured support channel, Quick Create, external-link registry, and route/link static checks.
+4. Extend the Gateway placement contract with `excludedSelector` and regenerate the OpenAPI, Go, and TypeScript artifacts.
+5. Verify focused browser/BFF/backend tests; web-console (181 tests), BFF (307 tests), gateway UI (249 tests), dashboard UI (107 tests), Go SDK, TypeScript SDK, API lint, root repository check, live external links, and generator gates. UI visual capture and comparison are intentionally skipped under the user-disabled no-visual path.
+
 ### Wave RU-W1: Registered Users API and Authorization ✅
 
-**Scope:** RU-01, RU-02, RU-03, RU-04, RU-08 (API)
+**Scope:** PLAT-USR-01, PLAT-USR-02, PLAT-USR-03, PLAT-USR-04, PLAT-USR-08 (API)
 **Dependency:** `registered-users.spec.md` authored
 **Status:** Complete (`eb99f6b`)
 
@@ -1415,7 +1640,7 @@ label-selected pod informer.
 
 ### Wave RU-W2: Registered Users Dashboard Integration ✅
 
-**Scope:** RU-05, RU-06, RU-08 (UI), OP-DASH-08 `registered-users` row
+**Scope:** PLAT-USR-05, PLAT-USR-06, PLAT-USR-08 (UI), WEB-OPS-08 `registered-users` row
 **Dependency:** RU-W1 (SDK `users.list` available)
 **Status:** Complete (`eb99f6b`)
 
@@ -1427,7 +1652,7 @@ label-selected pod informer.
 
 ### Wave CM-W1: Prometheus Node Memory Scrape ✅
 
-**Scope:** CM-01 (query target), CM-03, CM-06
+**Scope:** OBS-MEM-01 (query target), OBS-MEM-03, OBS-MEM-06
 **Dependency:** `cluster-memory.spec.md` authored
 **Status:** Complete (`ac65674`)
 
@@ -1438,30 +1663,30 @@ label-selected pod informer.
 
 ### Wave CM-W2: BFF Cluster Memory Route ✅
 
-**Scope:** CM-02, CM-04, CM-08 (BFF)
+**Scope:** OBS-MEM-02, OBS-MEM-04, OBS-MEM-08 (BFF)
 **Dependency:** CM-W1 (memory series available in Prometheus)
 **Status:** Complete (`ac65674`)
 
 1. Add `bff/src/metrics-cluster-memory.ts` following `metrics-gateways.ts` instant-query pattern
 2. Register `GET /api/metrics/cluster-memory` in `bff/src/app.ts` with OIDC session gate
-3. Return CM-04 JSON; compute `used_bytes = capacity_bytes - available_bytes`; HTTP `502` on Prometheus failure (no zero fallback)
+3. Return OBS-MEM-04 JSON; compute `used_bytes = capacity_bytes - available_bytes`; HTTP `502` on Prometheus failure (no zero fallback)
 4. Add BFF unit tests: success mapping, Prometheus `502`, session requirement when OIDC enabled
 
 ### Wave CM-W3: Dashboard Memory Adapter Integration ✅
 
-**Scope:** CM-05, CM-08 (adapter), OP-DASH-08 `memory` row
+**Scope:** OBS-MEM-05, OBS-MEM-08 (adapter), WEB-OPS-08 `memory` row
 **Dependency:** CM-W2 (BFF route available)
 **Status:** Complete (`ac65674`)
 
 1. Extend `createDashboardControlPlaneAdapter` to fetch `/api/metrics/cluster-memory` with same-origin credentials
 2. Map `used_bytes`/`capacity_bytes` → `memory` metric (`value`, `total`, `unit: "GiB"`, rounded whole GiB)
-3. Failed memory fetch SHALL fail entire `getOperationalMetrics` (CM-07)
-4. Update `DATA_SOURCES.md` and OP-DASH-08 `memory` row to connected
+3. Failed memory fetch SHALL fail entire `getOperationalMetrics` (OBS-MEM-07)
+4. Update `DATA_SOURCES.md` and WEB-OPS-08 `memory` row to connected
 5. Add adapter unit tests; verify `pnpm --filter @openshift-online/hypershell-operational-dashboard-ui check`, web-console `check`
 
 ### Wave CC-W1: CPU PromQL Documentation ✅
 
-**Scope:** CC-03 (documented PromQL), CC-06
+**Scope:** OBS-CPU-03 (documented PromQL), OBS-CPU-06
 **Dependency:** `cluster-cpu.spec.md` authored (`9f9b0da`); CM-W1 node-exporter scrape (complete)
 **Status:** Complete (`b364373`)
 
@@ -1470,30 +1695,30 @@ label-selected pod informer.
 
 ### Wave CC-W2: BFF Cluster CPU Route ✅
 
-**Scope:** CC-01 (query target), CC-02, CC-04, CC-08 (BFF)
+**Scope:** OBS-CPU-01 (query target), OBS-CPU-02, OBS-CPU-04, OBS-CPU-08 (BFF)
 **Dependency:** CC-W1 (PromQL documented); node-exporter CPU series available
 **Status:** Complete (`b364373`)
 
 1. Add `bff/src/metrics-cluster-cpu.ts` following `metrics-cluster-memory.ts` pattern
 2. Register `GET /api/metrics/cluster-cpu` in `bff/src/app.ts` with OIDC session gate
-3. Return CC-04 JSON with fractional `used_cores`; HTTP `502` on Prometheus failure
+3. Return OBS-CPU-04 JSON with fractional `used_cores`; HTTP `502` on Prometheus failure
 4. Add BFF unit tests: success mapping, Prometheus `502`, session requirement when OIDC enabled
 
 ### Wave CC-W3: Dashboard CPU Adapter Integration ✅
 
-**Scope:** CC-05, CC-08 (adapter), OP-DASH-08 `cpu` row
+**Scope:** OBS-CPU-05, OBS-CPU-08 (adapter), WEB-OPS-08 `cpu` row
 **Dependency:** CC-W2 (BFF route available)
 **Status:** Complete (`b364373`)
 
 1. Extend `createDashboardControlPlaneAdapter` to fetch `/api/metrics/cluster-cpu` in parallel with memory
 2. Map `used_cores`/`capacity_cores` → `cpu` metric (`value`, `total`, `unit: "cores"`, rounded whole cores)
-3. Failed CPU fetch SHALL fail entire `getOperationalMetrics` (CC-07)
-4. Update `DATA_SOURCES.md` and OP-DASH-08 `cpu` row to connected
+3. Failed CPU fetch SHALL fail entire `getOperationalMetrics` (OBS-CPU-07)
+4. Update `DATA_SOURCES.md` and WEB-OPS-08 `cpu` row to connected
 5. Add adapter unit tests; re-sync `locales/en.json` via `pnpm run i18n:extract`
 
 ### Wave CLP-W1: kube-state-metrics Scrape + PromQL Documentation ✅
 
-**Scope:** CLP-03 (documented PromQL), CLP-06
+**Scope:** OBS-POD-03 (documented PromQL), OBS-POD-06
 **Dependency:** `cluster-pods.spec.md` authored (`3466e55`); hub Prometheus operator overlay (CM-W1)
 **Status:** Complete (working tree)
 
@@ -1505,30 +1730,30 @@ label-selected pod informer.
 
 ### Wave CLP-W2: BFF Cluster Pods Route ✅
 
-**Scope:** CLP-01 (query target), CLP-02, CLP-04, CLP-08 (BFF)
+**Scope:** OBS-POD-01 (query target), OBS-POD-02, OBS-POD-04, OBS-POD-08 (BFF)
 **Dependency:** CLP-W1 (kube-state-metrics series available)
 **Status:** Complete (working tree)
 
 1. Add `bff/src/metrics-cluster-pods.ts` following `metrics-cluster-cpu.ts` pattern (capacity + used instant queries; compute `available_pods`; reject `used_pods > capacity_pods`)
 2. Register `GET /api/metrics/cluster-pods` in `bff/src/app.ts` with OIDC session gate
-3. Return CLP-04 JSON with integral `used_pods`; HTTP `502` on Prometheus failure (no zero fallback)
+3. Return OBS-POD-04 JSON with integral `used_pods`; HTTP `502` on Prometheus failure (no zero fallback)
 4. Add BFF unit tests: success mapping, inconsistent samples, Prometheus `502`, session requirement when OIDC enabled
 
 ### Wave CLP-W3: Dashboard Pods Adapter Integration ✅
 
-**Scope:** CLP-05, CLP-08 (adapter), OP-DASH-08 `pods` row
+**Scope:** OBS-POD-05, OBS-POD-08 (adapter), WEB-OPS-08 `pods` row
 **Dependency:** CLP-W2 (BFF route available)
 **Status:** Complete (working tree)
 
 1. Extend `createDashboardControlPlaneAdapter` to fetch `/api/metrics/cluster-pods` with same-origin credentials (parallel with memory/cpu/users/gateways)
 2. Map `used_pods`/`capacity_pods` → `pods` metric (`value`, `total`, `unit: "pods"`)
-3. Failed pods fetch SHALL fail entire `getOperationalMetrics` (CLP-07)
-4. Update `DATA_SOURCES.md` and OP-DASH-08 `pods` row to connected
+3. Failed pods fetch SHALL fail entire `getOperationalMetrics` (OBS-POD-07)
+4. Update `DATA_SOURCES.md` and WEB-OPS-08 `pods` row to connected
 5. Add adapter unit tests; verify `pnpm --filter @openshift-online/hypershell-operational-dashboard-ui check`, web-console `check`
 
 ### Wave CLN-W1: Node PromQL Documentation ✅
 
-**Scope:** CLN-03 (documented PromQL), CLN-06
+**Scope:** OBS-NODE-03 (documented PromQL), OBS-NODE-06
 **Dependency:** `cluster-nodes.spec.md` authored; kube-state-metrics from CLP-W1
 **Status:** Complete (working tree)
 
@@ -1539,51 +1764,51 @@ label-selected pod informer.
 
 ### Wave CLN-W2: BFF Cluster Nodes Route ✅
 
-**Scope:** CLN-01 (query target), CLN-02, CLN-04, CLN-08 (BFF)
+**Scope:** OBS-NODE-01 (query target), OBS-NODE-02, OBS-NODE-04, OBS-NODE-08 (BFF)
 **Dependency:** CLN-W1 (PromQL documented); kube-state-metrics node series available
 **Status:** Complete (working tree)
 
 1. Add `bff/src/metrics-cluster-nodes.ts` following `metrics-cluster-pods.ts` pattern (total + ready instant queries; compute `not_ready_nodes`; reject `ready_nodes > total_nodes` or `total_nodes === 0`)
 2. Register `GET /api/metrics/cluster-nodes` in `bff/src/app.ts` with OIDC session gate
-3. Return CLN-04 JSON with integral counts; HTTP `502` on Prometheus failure (no zero fallback)
+3. Return OBS-NODE-04 JSON with integral counts; HTTP `502` on Prometheus failure (no zero fallback)
 4. Add BFF unit tests: success mapping, inconsistent samples, Prometheus `502`, session requirement when OIDC enabled
 
 ### Wave CLN-W3: Dashboard Nodes Adapter Integration ✅
 
-**Scope:** CLN-05, CLN-08 (adapter), OP-DASH-08 `nodes` row
+**Scope:** OBS-NODE-05, OBS-NODE-08 (adapter), WEB-OPS-08 `nodes` row
 **Dependency:** CLN-W2 (BFF route available)
 **Status:** Complete (working tree)
 
 1. Extend `createDashboardControlPlaneAdapter` to fetch `/api/metrics/cluster-nodes` with same-origin credentials (parallel with memory/cpu/pods/users/gateways)
-2. Map `total_nodes` → `nodes` metric `value`; map `ready_nodes` → `status.healthy` and `not_ready_nodes` → `status.failed` (gateway-style, OP-DASH-07)
+2. Map `total_nodes` → `nodes` metric `value`; map `ready_nodes` → `status.healthy` and `not_ready_nodes` → `status.failed` (gateway-style, WEB-OPS-07)
 3. Update `system-summary` nodes row to use the same total + exception-status presentation as gateways (`SummaryGatewayValue` pattern)
-4. Failed nodes fetch SHALL fail entire `getOperationalMetrics` (CLN-07)
-5. Update `DATA_SOURCES.md` and OP-DASH-08 `nodes` row to connected
+4. Failed nodes fetch SHALL fail entire `getOperationalMetrics` (OBS-NODE-07)
+5. Update `DATA_SOURCES.md` and WEB-OPS-08 `nodes` row to connected
 6. Add adapter unit tests; update `mockOperationalDashboardMetrics` `status` fixture
 
 ### Wave GPT-W1: Gateway Provision Time Adapter Integration ✅
 
-**Scope:** GPT-01 through GPT-06, GPT-08 (adapter), OP-DASH-08 `provision-time` row
-**Dependency:** `gateway-provision-time.spec.md` authored; OP-DASH-06 gateway list aggregate
+**Scope:** OBS-GPT-01 through OBS-GPT-06, OBS-GPT-08 (adapter), WEB-OPS-08 `provision-time` row
+**Dependency:** `gateway-provision-time.spec.md` authored; WEB-OPS-06 gateway list aggregate
 **Status:** Complete (working tree)
 
 1. Extend `aggregateGatewayList` to collect `Running` gateway timestamp samples from the existing paginated list
 2. Compute mean `updated_at - created_at` duration in minutes; format `value` to two decimal places
 3. Emit `provision-time` metric with `unit: "minutes"`; fail when no qualifying samples
-4. Document proxy semantics in `DATA_SOURCES.md`; connect OP-DASH-08 `provision-time` row
+4. Document proxy semantics in `DATA_SOURCES.md`; connect WEB-OPS-08 `provision-time` row
 5. Add adapter unit tests for averaging, exclusions, and empty-sample failure
 
 ### Wave GPT-W2: Histogram Provision Time (mean / P50 / P95)
 
-**Scope:** GPT-00 through GPT-08 (v2 spec), OP-DASH-13 three-row system-summary, OP-DASH-19 independent source
-**Dependency:** CP-OBS-GPD-W1 ✅; `gateway-provision-time.spec.md` v2; Prometheus pipeline for CP histogram (GPT-00)
+**Scope:** OBS-GPT-09 through OBS-GPT-08 (v2 spec), WEB-OPS-13 three-row system-summary, WEB-OPS-19 independent source
+**Dependency:** CP-OBS-GPD-W1 ✅; `gateway-provision-time.spec.md` v2; Prometheus pipeline for CP histogram (OBS-GPT-09)
 **Status:** Planned
 
-1. Wire control-plane OTLP metrics into Prometheus (`gateway_provision_duration_seconds`) in deploy/kind (GPT-00)
-2. Add BFF `GET /api/metrics/gateway-provision-duration` with mean / P50 / P95 PromQL (GPT-03, GPT-04)
-3. Decouple adapter: new `gateway-provision-duration` metric source; remove list-based computation (GPT-06)
-4. Extend `OperationalMetric` with `provisionDuration`; map BFF JSON to `provision-time` metric (GPT-01, GPT-05)
-5. Render three system-summary rows (mean, median, P95) with localized labels (GPT-05, OP-DASH-13)
+1. Wire control-plane OTLP metrics into Prometheus (`gateway_provision_duration_seconds`) in deploy/kind (OBS-GPT-09)
+2. Add BFF `GET /api/metrics/gateway-provision-duration` with mean / P50 / P95 PromQL (OBS-GPT-03, OBS-GPT-04)
+3. Decouple adapter: new `gateway-provision-duration` metric source; remove list-based computation (OBS-GPT-06)
+4. Extend `OperationalMetric` with `provisionDuration`; map BFF JSON to `provision-time` metric (OBS-GPT-01, OBS-GPT-05)
+5. Render three system-summary rows (mean, median, P95) with localized labels (OBS-GPT-05, WEB-OPS-13)
 6. BFF + adapter unit tests; update `DATA_SOURCES.md` and `dashboard-metric-sources.ts`
 
 ### Future (Deferred)
@@ -1597,12 +1822,10 @@ label-selected pod informer.
 | D14 | Gateway Deletion Protection | DB | API server validation |
 | D12 | DROP COLUMN migration for `database_config` | DB | Column still in DB schema; destructive migration deferred |
 | O6 | Custom raw TOML `config` field | OIDC | Advanced; not blocking |
-| SR-5 | KEK Rotation | Secret Rotation | Requires gateway re-encryption API (Day-2) |
-| SR-7 | Provider Credential Rotation | Secret Rotation | Platform-managed (K8s SA, Vault); no CP action needed |
+| SR-5 | KEK Rotation (Day-2) | Removed | Requirement retired (OSG-ROT-02). The KEK is not rotated; the chart reuses the existing KEK Secret on every upgrade | - | - |
+| SR-7 | Provider Credential Rotation by Driver Type | Present | Driver-specific renewal is platform-managed (K8s SA token, Vault); the control plane wires the driver values and the projected `vault`-audience token. A changed `GATEWAY_VAULT_ADDRESS` reaches a gateway only on its next deploy | `helm/values.go` `buildCredentialDriverValues`/`buildVaultValues` | - |
 | DM-4 | Gateway `status` writeback | Data Model | Depends on CP-4 |
 | lib/pq dead dep | `lib/pq` in go.mod but not imported | CP | Run `go mod tidy` in control-plane to remove dead dependency |
-| DM-5 | Canary release logic | Data Model | GatewayReleaseReconciler is stub |
-| DM-6 | Network mesh logic | Data Model | GatewayNetworkReconciler is stub |
 | CP-4 | Status synchronization / health checks | CP | Needs periodic reconcile loop |
 | CP-5 | Multi-cluster client pool | CP | Architecture: per-cluster kubeconfig |
 | LD-* | Local development (most items) | Local Dev | Spec recently authored; MVP first |
@@ -1622,12 +1845,20 @@ label-selected pod informer.
 2. **Naming: Sector vs Fleet**: Spec now uses "Fleet" (aligned with code). No longer a gap.
 3. **No restart mechanism (cross-spec)**: TLS, OIDC, and Routing specs all require workload restart on config changes. Addressed in Wave 7 via hash annotation.
 4. **Label-based cleanup (cross-spec)**: Database and Routing specs updated to use `hypershell.redhat.io/managed` label-based deletion instead of ownerReferences. ownerReferences were infeasible (DB resources created before Deployment) and unnecessary given explicit cleanup in `DeleteGatewayResources()`.
-5. ~~**Config-hash missing DB credentials**~~: Resolved in SR-W1. `applyConfigHashAnnotation` now includes `openshell-gateway-db-credentials` Secret.
+5. ~~**Config-hash missing DB credentials**~~: Moot. `applyConfigHashAnnotation` was deleted in the Helm cutover (#194) and OSG-ROT-01 was retired; a changed DB credentials Secret does not restart the gateway.
 6. ~~**RoleBinding watcher missing**~~: Resolved in KC-W2. CP now watches 7 resource types (added RoleBindings via `WatchRoleBindings` gRPC stream).
 
 ---
 
 ## Reconciliation History
+
+### Scoped GSE implementation: Gateway Sandbox Events (HYPERSHELL-422 / PR #644)
+
+**Scope:** `specs/platform/gateway-sandbox-events.spec.md` only. No full-corpus gap analysis was run.
+
+**Completed:** OSG-SEVT-01 through OSG-SEVT-06 are implemented: a two-minute control-plane Event snapshot reconciler; `ReportSandboxEvents` gRPC contract and cluster-scoped authorization; a TTL- and capacity-bounded in-memory store; gateway-scoped REST read route and binding-only RBAC; regenerated OpenAPI, SDK, protobuf, and TUI descriptor artifacts; focused store, handler, RBAC, and reconciler tests. No web UI or hsctl command was added because the specification defines a REST-only diagnostic endpoint.
+
+**Review follow-up (2026-10-20):** OSG-SEVT-01 now sorts source `corev1.Event` objects by EventTime, series or deprecated last-observed time, creation time, then deterministic keys before protobuf projection, and maps first and last observation timestamps independently. OSG-SEVT-06 coverage now exercises active and terminated Pods, the default cap, source ordering ties, UID-less associations, empty full-snapshot clearing through the reconcile path, the ten-second gRPC deadline, failed-report continuation, complete REST payloads and groups, and routed viewer/unbound authorization. Equal-refresh cache eviction is deterministic.
 
 ### Wave HELM: Helm Adoption (Shell-Out Implementation Complete)
 
@@ -1674,6 +1905,7 @@ label-selected pod informer.
 
 | Date | Commit | Action | Coverage | Notes |
 |------|--------|--------|----------|-------|
+| 2026-10-20 | `implementer/spec-HYPERSHELL-415-conditional-user-upsert` (PR #638) | HYPERSHELL-415 / #621: conditional-write user auto-provisioning (RBAC-3) | RBAC-3 Present -> Present (narrowed, deadlock risk closed) | `sqlUserDao.Upsert` no longer unconditionally `INSERT ... ON CONFLICT DO UPDATE`s `email`/`name` on every request. Reads by username first; present + unchanged claim -> no `UPDATE`, no row lock; present + changed claim -> write; absent claim -> stored value untouched (never cleared); absent row -> `INSERT ... ON CONFLICT DO NOTHING` + re-read keeps the existing concurrent-first-time-provisioning race guard. Removes the per-request row lock (incl. control-plane gRPC write-backs) that could serialize a caller's own requests and risked a lock-ordering deadlock with `gatewayAccess.Grant`'s target pre-provision (GTW-ACC-04) when two users grant each other access at once. 3 new tests in `plugins/users/integration_test.go` (no-write-when-unchanged via stable `UpdatedAt`, claim-less-preserves-stored, changed-claim-writes); existing concurrent first-time test untouched. `UpsertByUsername`/middleware/interceptor call sites unchanged. Gate green: `go build`/`go vet ./...`, `make lint-api-server` 0 issues, `make check`; `plugins/users` + `pkg/rbac` + `plugins/gatewayAccess` tests pass on the real-Postgres testcontainer. |
 | 2026-10-16 | `implementer/spec-525-import-reconciler-loop` (PR #590, follow-up) | REPO-C-IMPORT completion: write surfaces for the last 2 importable kinds | REPO-C-IMPORT coherent subset -> Done (ALL 7) | Closed the `Gateway`/`AgentRuntime` flag so all 7 importable kinds import with no `ErrKindNotWritable` path. Added AgentRuntime gRPC Create/Update/Delete (proto+handlers, server-set ownership on create, EnforceImportOwnership + nil-found guard on update/delete) and Gateway `repository_id` ownership mark (model + raw `ALTER TABLE` migration `2026101600000001` + OpenAPI readOnly + Go/TS SDK + TUI + presenters) with import-ownership wiring on its existing CUD. B-narrowed import-read exemption: added `repository_id` filter to `ListGateways`/`ListAgentRuntimes`, exempted from the cluster caller binding only when import-bound + matching filter + existing Repository (`pkg/rbac/cluster_binding.go`). Removed `ErrKindNotWritable`; writer upserts/prunes all 7. Spec updates to data-model/rbac-enforcement/control-plane. Gate green: api-server (agentRuntimes, gateways, rbac, secretSources, pkg/rbac) + control-plane + cli `go test`; `make lint-api-server`/`-control-plane`/`-cli` 0 issues; `make check`; `make generate generate-sdk proto generate-tui` drift-free. |
 | 2026-10-16 | `implementer/spec-525-import-reconciler-loop` (PR #590) | #525 final wave REPO-C-IMPORT: the end-to-end `RepositoryReconciler` | REPO-C-IMPORT Partial -> Done (coherent subset) | Built `pkg/kustomize` shared library (`components/cli`, kustomize `api`/`kyaml` v0.21.2, age-compliant; `kube-openapi` pinned to smd-v6 via `replace`); refactored `hsctl apply -k` off the external `kustomize` binary onto it; wired control-plane -> cli module; built the `RepositoryReconciler` (GitHub-API subtree read, in-memory kustomize render, 7-kind filter excluding Repository+admin, gRPC upsert with `x-hypershell-import-repository-id` ownership, per-Repository prune) gated behind `HYPERSHELL_REPOSITORY_IMPORT_ENABLED`. FLAGGED: writer supports the 5 import-write ext kinds; `Gateway` (no `repository_id` field) and `AgentRuntime` (no gRPC write RPC) return collected `ErrKindNotWritable`; GitHub App credential consumed as a mounted installation-token file (no App-JWT minting). Gate green: `make check` (dependency-age incl.), `make lint-cli`, `make lint-control-plane` 0 issues, cli + control-plane build/test, no generated drift. |
 | 2026-10-16 | `implementer/code-525-grpc-secret-cli` | #525 waves REPO-C-GRPC + REPO-C-SECRET + REPO-C-CLI in one PR (REPO-C-IMPORT held) | REPO-C-GRPC/SECRET/CLI Deferred -> Done | gRPC Watch+CRUD + handlers/presenters + broker events + authz for Repository/SandboxTemplate/ProviderSpec/ProviderBinding/InferenceRoute/SecretSource (shared `SecretSource` proto message relocated+extended; InferenceRoute omits Update per its REST surface). Write-only secret-submission endpoint: `pkg/secretstore` port with real Vault KV v2 backend + in-memory fake + disabled default + `NewFromEnv`; OpenAPI `value` writeOnly; value written to store first at a deterministic location then only the reference persisted; never in DB/logs/responses. security.spec.md found SILENT on api-server secret writes (no amendment needed). REPO-C-CLI verified already complete (all ext kinds in `hsctl apply -k`). Gate green: gofmt/vet/golangci-lint 0 issues, go build, DB-backed plugin tests pass, `make generate generate-sdk proto generate-tui` drift-free, `make check` policy green. REPO-C-IMPORT remains deferred but is now unblocked. |
@@ -1686,11 +1918,11 @@ label-selected pod informer.
 | 2026-09-17 | `85927b3c` | Gateway provision reliability, release distribution, user adoption metrics (HYPERSHELL-280) | New specs added; provisionally Present | `gateway-provision-outcomes.spec.md` + `gateway-release-distribution.spec.md` authored and code delivered: BFF Prometheus proxy routes, provision-reliability widget + chart, release-distribution aggregation + chart, CP outcome counter, fleet-wide RBAC for dashboard operators. |
 | 2026-09-18 | `be0bf2ea` | Trend sparklines for fleet and hub metrics (HYPERSHELL-281) | New specs added; provisionally Present | `gateway-fleet-total-trend.spec.md`, `gateway-sandbox-active-trends.spec.md`, `hub-cluster-utilization-trends.spec.md` authored and code delivered: BFF range-query infrastructure (`prometheus-range-query.ts`), range extensions to cluster metric routes, sandbox-status chart, fleet trend sparklines in layout template. |
 | 2026-09-21 | `630a5ed1` | OpenShell branch build spec added (#148) - spec only | 0% (no implementation) | `openshell-branch-build.spec.md` authored: `make kind-openshell-up` workflow, `OPENSHELL_BRANCH`/`OPENSHELL_PR`/`OPENSHELL_REPO` vars, `openshell-dev-gateway` provisioning, coexistence with `dev-gateway`, `sandbox_image`/`dev_build`/`dev_build_metadata` Gateway schema fields. Also added `openshift-seed` (OS-14) and `openshift-test` (OS-15) requirements to `openshift-development.spec.md`. |
-| 2026-09-07 | working tree | Reconciled gateway-reconcile-concurrency.spec.md (CP-CONC-01..03) | 3/3 scoped requirements present | Made the gateway reconcile worker-pool size deployment configuration via `GATEWAY_RECONCILE_WORKERS` (new `getEnvInt` helper + `Config.GatewayReconcileWorkers`, default 4 = prior hardcoded pool), plumbed config -> `WatchGateways` -> `withWorkers`, clamped non-positive to the default at the watcher boundary (preserving the test-only 0-worker queue pattern), and added config/getEnvInt tests. Per-gateway serialization and bounded throttle already held (existing queue tests). The full-corpus percentage is unchanged. |
+| 2026-09-07 | working tree | Reconciled gateway-reconcile-concurrency.spec.md (GTW-CONC-01..03) | 3/3 scoped requirements present | Made the gateway reconcile worker-pool size deployment configuration via `GATEWAY_RECONCILE_WORKERS` (new `getEnvInt` helper + `Config.GatewayReconcileWorkers`, default 4 = prior hardcoded pool), plumbed config -> `WatchGateways` -> `withWorkers`, clamped non-positive to the default at the watcher boundary (preserving the test-only 0-worker queue pattern), and added config/getEnvInt tests. Per-gateway serialization and bounded throttle already held (existing queue tests). The full-corpus percentage is unchanged. |
 | 2026-09-04 | `bd02232` | Reanalyzed CP-OBS-RQ-W1 after review fixes | 5/5 scoped fields present | Defined one locked worker-claim boundary for depth and wait, kept dirty adds in backoff out of ready depth, and made the design rationale apply to each shared reconcile queue. The full-corpus percentage is unchanged. |
 | 2026-09-04 | `9c01984` | Completed CP-OBS-RQ-W1 reconcile-queue metrics | 5/5 scoped fields present | Added ready queue depth and ready-to-worker wait metrics with one bounded resource-kind attribute. Coalesced work produces one wait observation, and scheduled retry backoff is excluded. |
-| 2026-09-04 | `e61bdac` | Planned the CP-OBS-07 reconcile-queue metric delta | 0/5 scoped fields present | Found two missing instruments and three missing behavior checks. Planned one control-plane wave for queue depth, queue wait, bounded labels, coalescing, and retry-backoff exclusion. |
-| 2026-09-03 | `b97a99d` | Reconciled the CP-OBS-07 Gateway provision-duration delta | 5/5 scoped fields present | Found and closed a duplicate-observation race between the event-driven and health promotion paths. Added a concurrent claim, stored-phase and forced-recovery checks, shared package constants, delete cleanup, timestamp tests, bucket tests, and a no-attribute test. The full-corpus percentage is unchanged. |
+| 2026-09-04 | `e61bdac` | Planned the OBS-CPL-07 reconcile-queue metric delta | 0/5 scoped fields present | Found two missing instruments and three missing behavior checks. Planned one control-plane wave for queue depth, queue wait, bounded labels, coalescing, and retry-backoff exclusion. |
+| 2026-09-03 | `b97a99d` | Reconciled the OBS-CPL-07 Gateway provision-duration delta | 5/5 scoped fields present | Found and closed a duplicate-observation race between the event-driven and health promotion paths. Added a concurrent claim, stored-phase and forced-recovery checks, shared package constants, delete cleanup, timestamp tests, bucket tests, and a no-attribute test. The full-corpus percentage is unchanged. |
 | 2026-08-31 | working tree | Completed Keycloak event-storm KC-ES-W1 | 82% | Corrected the token lifetime unit, reused tokens until the 80 percent threshold, accepted the provider-managed service-account scope, rejected all other client scopes, and added regression tests. OI-7 and SA-14 are present. |
 | 2026-08-31 | 9ac4354 | Keycloak event-storm scoped gap analysis | 82% | Found two partial requirements: the token cache uses nanoseconds for `expires_in`, and service-account convergence rejects Keycloak's built-in scope. Planned control-plane wave KC-ES-W1. |
 | 2026-08-27 | 9984ed0 | Completed Gateway Console GC-W1 | 82% | Added mode-selected Route exposure, admission readiness, lifecycle cleanup, custom-host RBAC, and tests. All nine console requirements are present. |
@@ -1726,7 +1958,7 @@ label-selected pod informer.
 | 2026-08-25 | working tree | Executed PERF-W1 (e2e-testing performance features) | 82% | Short/long `E2E_MODE` in the e2e suite; infra-agnostic performance harness with batched scale-up, canary checkpoints, functional gate, optional SLOs, schema_version=1 JSON history, and `make e2e-performance` / `make e2e-performance-report`. OpenShift driver still belongs to HYPERSHELL-44. |
 | 2026-08-26 | working tree | Executed OS-W1 (manual OpenShift e2e driver slice) | 78% | Added the OpenShift driver needed to run the existing e2e and performance harnesses against a pre-deployed cluster; lifecycle, overlay, bootstrap, and CI requirements remain missing. |
 | 2026-08-27 | working tree | Executed OS-W2 (OpenShift local-dev up/down/swap) | 77% | Lifecycle driver model, `make openshift-up`/`down`/`status`, namespace isolation, Keycloak namespace, component swaps via internal registry, overlay namespace parameterization. E2E/CI left deferred. |
-| 2026-08-31 | b93b1f0 | Dry-run: operational-dashboard + gateway-metrics-dashboard | 78% | Authored `web-console/operational-dashboard.spec.md` (15 reqs: 12 present, 3 partial). Amended `gateway-metrics-dashboard.spec.md` relationship and DASH-07. Gateway metrics pipeline 8/8 present on `ui-and-data`. Planned OP-W1 for docs drift, adapter tests, and package Vitest. |
+| 2026-08-31 | b93b1f0 | Dry-run: operational-dashboard + gateway-metrics-dashboard | 78% | Authored `web-console/operational-dashboard.spec.md` (15 reqs: 12 present, 3 partial). Amended `gateway-metrics-dashboard.spec.md` relationship and OBS-GMD-07. Gateway metrics pipeline 8/8 present on `ui-and-data`. Planned OP-W1 for docs drift, adapter tests, and package Vitest. |
 | 2026-08-31 | working tree | Executed OP-W1: operational dashboard verification | 79% | Fixed `DATA_SOURCES.md` refresh interval; added `dashboard-control-plane.test.ts` (pagination, status mapping, consistency guard, abort signal); added Vitest to `operational-dashboard-ui` with tests for layout persistence, gateway status data, and trend change; extracted `gateway-status-data.ts` and `dashboard-layout-persistence.ts`. Operational dashboard 15/15 present. |
 | 2026-08-31 | 5572127+spec | Dry-run: registered-users | 78% | Authored `platform/registered-users.spec.md` (8 reqs: 1 present, 2 partial, 5 missing). Users plugin has persistence + auto-provision but no HTTP/OpenAPI/RBAC/SDK/dashboard wiring. Planned RU-W1 (API+auth+tests) and RU-W2 (dashboard rename+adapter). |
 | 2026-08-31 | eb99f6b | Executed RU-W1 + RU-W2: registered users | 78% | OpenAPI List/Get, `platform:admin`/`hypershell-admins` auth, integration tests, SDK, dashboard `registered-users` metric (layout v14). Registered users 8/8 present. |
@@ -1735,20 +1967,20 @@ label-selected pod informer.
 | 2026-08-31 | 9f9b0da | Dry-run: cluster-cpu | 79% | Authored `platform/cluster-cpu.spec.md` (8 reqs). Planned CC-W1 (PromQL docs), CC-W2 (BFF), CC-W3 (adapter). |
 | 2026-08-31 | working tree | Executed CC-W1-W3: cluster CPU | 81% | BFF `GET /api/metrics/cluster-cpu`; dashboard `cpu` cores metric; BFF + adapter tests; `i18n:extract` reorder for `26a62eb`/`dc696eb` drift. Cluster CPU 8/8 present. |
 | 2026-08-31 | 3466e55 | Dry-run: cluster-pods | 79% | Authored `platform/cluster-pods.spec.md` (8 reqs: 1 present, 1 partial, 6 missing). Requires kube-state-metrics deploy (not node-exporter); BFF route + adapter not implemented. Planned CLP-W1 (ksm scrape + PromQL), CLP-W2 (BFF), CLP-W3 (adapter). Used count includes all phases. |
-| 2026-08-31 | working tree | Executed CLP-W1-W3: cluster pods | 84% | kube-state-metrics Deployment/ServiceMonitor; BFF `GET /api/metrics/cluster-pods`; dashboard `pods` metric; BFF + adapter tests; `DATA_SOURCES.md` + OP-DASH-08 connected. Cluster pods 8/8 present. |
+| 2026-08-31 | working tree | Executed CLP-W1-W3: cluster pods | 84% | kube-state-metrics Deployment/ServiceMonitor; BFF `GET /api/metrics/cluster-pods`; dashboard `pods` metric; BFF + adapter tests; `DATA_SOURCES.md` + WEB-OPS-08 connected. Cluster pods 8/8 present. |
 | 2026-08-31 | working tree | OpenShift Keycloak NetworkPolicy for JWKS | 84% | `keycloak-allow-platform` lets platform pods reach Keycloak TCP/8080 across the default-deny project policies so API server JWKS load and Admin API calls succeed. |
 | 2026-08-31 | working tree | OpenShift console redirect URI + Route seeding | 84% | Host `curl` against Keycloak/API Routes registers the web-console `/auth/callback` (realm import only had Kind localhost URIs) and seeds the API. The API server image has no curl, so `oc exec curl` never obtained tokens. |
 | 2026-08-31 | working tree | Dry-run: cluster-nodes | 82% | Authored `platform/cluster-nodes.spec.md` (8 reqs: 1 present, 2 partial, 5 missing). Gateway-style `value` + `status` for system-summary; reuses kube-state-metrics from CLP-W1. Planned CLN-W1 (PromQL docs), CLN-W2 (BFF), CLN-W3 (adapter). |
 | 2026-08-31 | working tree | Executed CLN-W1-W3: cluster nodes | 85% | BFF `GET /api/metrics/cluster-nodes`; dashboard `nodes` metric with `healthy`/`failed` status; `SummaryGatewayValue` in system-summary; BFF + adapter tests. Cluster nodes 8/8 present. |
 | 2026-08-31 | working tree | Dry-run: gateway-provision-time | 85% | Authored `platform/gateway-provision-time.spec.md` (8 reqs: 1 present, 7 missing). Mean duration from gateway list timestamps; no BFF route. Planned GPT-W1 (adapter). |
-| 2026-08-31 | 54cf5b0 | OP-DASH-16: status donut + nodes widget alignment | 85% | Shared `StatusDonutChart`; `nodes` widget; layout v17; `i18n:extract` for new dashboard message IDs; OP-DASH-16 scenario aligned with implementation (no chart subtitle). Operational dashboard 16/16 present. |
-| 2026-08-31 | working tree | Executed GPT-W1: gateway provision time | 85% | Adapter computes mean `Running` gateway provision minutes from paginated list; `provision-time` metric connected; adapter tests; `DATA_SOURCES.md` + OP-DASH-08 updated. Gateway provision time 8/8 present. OP-DASH-08 all metrics connected. |
-| 2026-08-31 | working tree | OP-DASH-17: pod capacity chart + phase breakdown | 85% | BFF phase PromQL + validation; `PodCapacityChart` with Unused segment; layout v18; CLP-02/04/05 spec updates; BFF + adapter tests. Operational dashboard 17/17 present. |
+| 2026-08-31 | 54cf5b0 | WEB-OPS-16: status donut + nodes widget alignment | 85% | Shared `StatusDonutChart`; `nodes` widget; layout v17; `i18n:extract` for new dashboard message IDs; WEB-OPS-16 scenario aligned with implementation (no chart subtitle). Operational dashboard 16/16 present. |
+| 2026-08-31 | working tree | Executed GPT-W1: gateway provision time | 85% | Adapter computes mean `Running` gateway provision minutes from paginated list; `provision-time` metric connected; adapter tests; `DATA_SOURCES.md` + WEB-OPS-08 updated. Gateway provision time 8/8 present. WEB-OPS-08 all metrics connected. |
+| 2026-08-31 | working tree | WEB-OPS-17: pod capacity chart + phase breakdown | 85% | BFF phase PromQL + validation; `PodCapacityChart` with Unused segment; layout v18; OBS-POD-02/04/05 spec updates; BFF + adapter tests. Operational dashboard 17/17 present. |
 | 2026-09-01 | feecbcb, da771fb | Reconciled commit-driven stale doc gaps | 84% (unchanged) | Two recent commits removed hardcoded image defaults (`GATEWAY_IMAGE`/`GATEWAY_SUPERVISOR_IMAGE` now required env vars, no fallback) and unified deploy paths (deleted `components/api-server/deploy/*`, using repo-root `deploy/` as single source of truth). Updated 7 docs: `skills/deploy/ibm-cluster/SKILL.md` (image refs, path, namespace, image-var explanation), `skills/deploy/gcp-cluster/SKILL.md` (path fix, RBAC ref), `skills/deploy/deploy-cluster/SKILL.md` (full rewrite: Keycloak bootstrap, `hypershell-api-config` Secret creation, CNPG database, OIDC/JWT security, troubleshooting for missing Secret), `skills/tooling/update-openshell/SKILL.md` (grep patterns for new image names, search path fixes), `skills/RECONCILE.md` (skill directory tree, this log entry), `README.md` (env var rows, namespace refs), `specs/platform/openshift-development.spec.md` (deploy/ directory layout, overlay limitations note). Overlay gaps surfaced: `deploy/openshift/` requires manually-created `hypershell-api-config` Secret (missing from repo; documented in deploy-cluster), hardcoded domain placeholder, missing Keycloak Route on OpenShift. Marked as known limitations in specs. |
-| 2026-09-02 | working tree | OP-DASH-20: section title widgets + layout v23 | 85% (unchanged) | `section-title` headers for platform adoption and hub cluster; OP-DASH-10/11/20 spec alignment; layout key v23; i18n extract for section title message IDs. Operational dashboard 19/19 present (renumbered to OP-DASH-20 when OP-DASH-19 assigned to partial failure). |
-| 2026-09-02 | 06d6c56 | Post-connect polish: remove sample-data banner | 85% (unchanged) | Removed `usesSampleData` provider flag, inline info `Alert`, and `app.dashboard.sampleData.*` i18n keys after all OP-DASH-08 metrics connected. Operational dashboard 17/17 present. |
-| 2026-09-03 | 6ab016a+6583d2c | Executed OP-W2: partial metric-source failure | 85% (unchanged) | Independent adapter sources with `Promise.allSettled`; `dashboard-metric-sources.ts` stale-merge on refetch; `dashboard.metrics.partial-failure` probe; platform spec CM/CC/CLP/CLN-07 + RU-07 aligned to OP-DASH-19. Operational dashboard 19/19 present. |
-| 2026-09-03 | 56befbf | Reconcile: OP-DASH-18/19/20 verification | 85% (unchanged) | Verified OP-DASH-18 (NaN/Infinity fallback), OP-DASH-19 (partial failure), OP-DASH-20 (section titles + last-refreshed header + layout v23). All `operational-dashboard-ui` and adapter tests pass. Operational dashboard 20/20 present. |
+| 2026-09-02 | working tree | OP-DASH-20: section title widgets + layout v23 | 85% (unchanged) | `section-title` headers for platform adoption and hub cluster; WEB-OPS-10/WEB-OPS-11/OP-DASH-20 spec alignment; layout key v23; i18n extract for section title message IDs. Operational dashboard 19/19 present (renumbered to OP-DASH-20 when WEB-OPS-19 assigned to partial failure). |
+| 2026-09-02 | 06d6c56 | Post-connect polish: remove sample-data banner | 85% (unchanged) | Removed `usesSampleData` provider flag, inline info `Alert`, and `app.dashboard.sampleData.*` i18n keys after all WEB-OPS-08 metrics connected. Operational dashboard 17/17 present. |
+| 2026-09-03 | 6ab016a+6583d2c | Executed OP-W2: partial metric-source failure | 85% (unchanged) | Independent adapter sources with `Promise.allSettled`; `dashboard-metric-sources.ts` stale-merge on refetch; `dashboard.metrics.partial-failure` probe; platform spec CM/CC/CLP/OBS-NODE-07 + PLAT-USR-07 aligned to WEB-OPS-19. Operational dashboard 19/19 present. |
+| 2026-09-03 | 56befbf | Reconcile: WEB-OPS-18/WEB-OPS-19/OP-DASH-20 verification | 85% (unchanged) | Verified WEB-OPS-18 (NaN/Infinity fallback), WEB-OPS-19 (partial failure), OP-DASH-20 (section titles + last-refreshed header + layout v23). All `operational-dashboard-ui` and adapter tests pass. Operational dashboard 20/20 present. |
 | 2026-10-08 | working tree | Operational overview dashboard implementation wave | in progress | Added 7/30-day range plumbing, access-scoped admin badge, active-sandbox summary, attention-required widget, trend indicators, and production/parity Storybook coverage. UI package checks pass; visual evidence captured for desktop and narrow viewports. |
 | 2026-09-09 | `21f02a0` | Scoped reanalysis of e2e-testing + local-development for the new OpenShift E2E CI content | E2E Testing 100% -> 95% (1 deferred) | The HYPERSHELL-240 docs commit added `E2E_OIDC_GRANT`, the merge-queue Kind CI gate, and OpenShift-driver contract wording. Verified in code: OpenShift driver unified with Kind (#232/#244), `configure/restore_namespace_gc_timing`, `merge_group` gate in `e2e.yml` (per-component `on-merge-queue-<sha>` waits, browser-trace skip), and `.tekton/*-merge-queue.yaml` are all implemented (E2E-10/11/12 present). Only gap is D-E2E-OIDC: driver token fns hardcode `grant_type=password`; the `client_credentials`+token-exchange path is owned by `ephemeral-pr-environments.spec.md` (out of scope) and flagged as a divergence pending a scope decision. No code changed this pass. |
 | 2026-09-22 | `a27f7a80` | CON-W1: browser e2e suite for web console + OpenShell console | Console Browser Testing 0% -> 100% | New `tests/e2e/e2e-console.sh` + `browser-lib.sh` covering 9 areas (49 checks), `e2e-console-browser-testing.spec.md` spec, CI wiring. Key fixes: sandbox name ≤19 chars, per-row PatternFly ActionsColumn kebab, typed-name confirmation modal, TSL single-quote quoting in lib.sh. |

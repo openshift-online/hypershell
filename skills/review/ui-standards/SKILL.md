@@ -71,7 +71,7 @@ Before either mode:
 - Cite `file:line`, route/state, rendered artifact, DOM/accessibility-tree result, command/test output, or research evidence for each conclusion.
 - Run safe, relevant existing checks when available: type/lint/unit/component/E2E tests, accessibility rules, keyboard tests, responsive/zoom checks, and performance tools.
 - Treat formatting and deterministic source ordering as mechanical policy: run the configured formatter and lint rules, and add a narrow rule when stable ordering can be enforced without constraining unrelated objects.
-- Trace each new component through the `UI-PF-05` reuse order. Verify generic components live in the shared component surface, consumers import the canonical implementation, and copied or near-duplicate implementations do not remain.
+- Trace each new component through the `UIS-PFLY-05` reuse order. Verify generic components live in the shared component surface, consumers import the canonical implementation, and copied or near-duplicate implementations do not remain.
 - Enforce the `UI-HEX-*` dependency rule with an import graph, isolated use-case tests, and adapter contracts; do not reward ports that only rename a framework or generated SDK.
 - Use a recording probe publisher to prove `UI-OBS-*` coverage. Test at least two fan-out sinks plus one failing sink, and distinguish one logical outcome from dependency retry attempts.
 - For API-backed search, record dependency calls during slow input and a rapid multi-character burst; for cached queries, remount or reopen within the declared freshness window and assert no unnecessary request.

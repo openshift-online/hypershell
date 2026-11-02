@@ -67,6 +67,7 @@ const gatewayOperations = {
   removeGateway: deleteGatewayMock,
   renameGateway: renameGatewayMock,
   revokeOpenShellGatewayServiceAccount: vi.fn(),
+  updateOpenShellGatewayServiceAccountRole: vi.fn(),
 };
 
 const navigation = {
@@ -163,22 +164,19 @@ describe("gateway shell pages", () => {
     getGatewayPlacementMock.mockResolvedValue({
       id: "cluster-east",
       name: "Cluster East",
-      provider: "AWS",
-      region: "us-east-1",
       status: "Ready",
     });
     getGatewayPlacementsMock.mockResolvedValue([
       {
         id: "cluster-east",
         name: "Cluster East",
-        provider: "AWS",
-        region: "us-east-1",
         status: "Ready",
       },
     ]);
     navigateMock.mockResolvedValue(undefined);
   });
 
+  // Verifies: OSG-HLTH-06.02
   it("renders gateway details with the shared connection actions", async () => {
     const user = userEvent.setup();
     renderPage(() => (
@@ -381,6 +379,7 @@ describe("gateway shell pages", () => {
     expect(screen.queryByDisplayValue(/openshell gateway add/u)).toBeNull();
   });
 
+  // Verifies: OSG-HLTH-06.01
   it("withholds the connection command while the gateway is provisioning", () => {
     // The route address may already be published while the gateway is still
     // provisioning; the command must not surface until phase is Running.
@@ -717,6 +716,7 @@ describe("gateway shell pages", () => {
     view.unmount();
   });
 
+  // Verifies: OSG-CON-09.01
   it("enables the console button once the console address arrives without a refresh", async () => {
     vi.useFakeTimers();
     // Pin the clock to keep this test independent of the host clock.
@@ -806,8 +806,6 @@ describe("gateway shell pages", () => {
       .mockResolvedValue({
         id: "cluster-east",
         name: "Cluster East",
-        provider: "AWS",
-        region: "us-east-1",
         status: "Ready",
       });
     renderPage(() => (
@@ -1137,6 +1135,7 @@ describe("gateway shell pages", () => {
     );
     expect(onCollectionStateChange).toHaveBeenCalledWith(
       {
+        onlyMine: false,
         page: 1,
         search: "",
         size: 20,
@@ -1149,6 +1148,7 @@ describe("gateway shell pages", () => {
     await user.click(within(table).getByRole("button", { name: "Created by" }));
     expect(onCollectionStateChange).toHaveBeenLastCalledWith(
       {
+        onlyMine: false,
         page: 1,
         search: "",
         size: 20,
@@ -1166,6 +1166,7 @@ describe("gateway shell pages", () => {
     );
     expect(onCollectionStateChange).toHaveBeenLastCalledWith(
       {
+        onlyMine: false,
         page: 1,
         search: "East cluster",
         size: 20,
@@ -1174,6 +1175,67 @@ describe("gateway shell pages", () => {
       },
       "filter",
     );
+  });
+
+  // Verifies: WEB-UIEX-07.01, WEB-UIEX-07.03
+  it("renders the ownership filter as an on/off switch that requests the server-side filter", async () => {
+    const user = userEvent.setup();
+    listGatewaysMock.mockResolvedValue({
+      // The authorized set contains a gateway owned by someone else, so the
+      // server reports the existence flag and the switch is shown (WEB-API-01).
+      hasOtherOwnedGateways: true,
+      items: [gatewayResponse("gateway-1", "Team gateway")],
+      page: 1,
+      size: 20,
+      total: 1,
+    });
+    renderPage(GatewaysPage);
+    await screen.findByRole("link", { name: "Team gateway" });
+
+    // The control is a Switch (role "switch"), not a pressed-state button; its
+    // visible label is its accessible name and its on/off state starts off and
+    // is exposed to assistive technology (WEB-UIEX-07).
+    const ownershipSwitch = screen.getByRole("switch", {
+      checked: false,
+      name: "Show only my gateways",
+    });
+    expect(ownershipSwitch.getAttribute("aria-pressed")).toBeNull();
+    listGatewaysMock.mockClear();
+
+    // Turning the switch on requests the ownership filter from the server with
+    // pagination reset to the first page (WEB-UIEX-07.03).
+    await user.click(ownershipSwitch);
+    await waitFor(() => {
+      expect(listGatewaysMock).toHaveBeenCalledWith(
+        expect.objectContaining({ onlyMine: true, page: 1 }),
+        expect.any(AbortSignal),
+      );
+    });
+    expect(
+      screen.getByRole("switch", {
+        checked: true,
+        name: "Show only my gateways",
+      }),
+    ).toBeTruthy();
+
+    // The switch is operable from the keyboard and turns the filter back off.
+    listGatewaysMock.mockClear();
+    screen
+      .getByRole("switch", { checked: true, name: "Show only my gateways" })
+      .focus();
+    await user.keyboard(" ");
+    await waitFor(() => {
+      expect(listGatewaysMock).toHaveBeenCalledWith(
+        expect.objectContaining({ onlyMine: false, page: 1 }),
+        expect.any(AbortSignal),
+      );
+    });
+    expect(
+      screen.getByRole("switch", {
+        checked: false,
+        name: "Show only my gateways",
+      }),
+    ).toBeTruthy();
   });
 
   it("links the gateway list to provisioning", () => {
@@ -1190,6 +1252,7 @@ describe("gateway shell pages", () => {
     ).toBe("/gateways/new");
   });
 
+  // Verifies: OSG-SBX-05.01, OSG-SBX-05.02
   it("shows the active sandbox count with a not-available fallback when unset", () => {
     renderPage(() => (
       <GatewaysPage
@@ -1271,6 +1334,7 @@ describe("gateway shell pages", () => {
     expect(onCollectionStateChange).toHaveBeenCalledWith(
       {
         ...collectionState,
+        onlyMine: false,
         page: 1,
         sortDirection: "asc",
         sortField: "created",
@@ -1302,6 +1366,7 @@ describe("gateway shell pages", () => {
     expect(onCollectionStateChange).toHaveBeenCalledWith(
       {
         ...collectionState,
+        onlyMine: false,
         page: 1,
         sortDirection: "asc",
         sortField: "activeSandboxes",
@@ -1381,7 +1446,6 @@ describe("gateway shell pages", () => {
       clusterIds.map((id) => ({
         id,
         name: `Name for ${id}`,
-        provider: "AWS",
       })),
     );
 
@@ -1673,7 +1737,8 @@ describe("gateway shell pages", () => {
     ).toBeNull();
   });
 
-  it("shows the running version as its own column with a placeholder (GVV-01)", () => {
+  // Verifies: WEB-VER-01.02
+  it("shows the running version as its own column with a placeholder (WEB-VER-01)", () => {
     renderPage(() => (
       <GatewaysPage
         gateways={[
@@ -1691,13 +1756,13 @@ describe("gateway shell pages", () => {
     expect(screen.getByRole("columnheader", { name: "Version" })).toBeTruthy();
     const versionCell = screen.getByText("v0.1.2-rhaiv.7").closest("td");
     expect(versionCell?.getAttribute("data-label")).toBe("Version");
-    // No chip on list rows (GVV-01).
+    // No chip on list rows (WEB-VER-01).
     expect(versionCell?.querySelector(".pf-v6-c-label")).toBeNull();
     const placeholderRow = screen.getByText("no-version").closest("tr");
     expect(within(placeholderRow as HTMLElement).getByText("-")).toBeTruthy();
   });
 
-  it("sorts the gateway list by the version column (GVV-01)", async () => {
+  it("sorts the gateway list by the version column (WEB-VER-01)", async () => {
     const user = userEvent.setup();
     const onCollectionStateChange = vi.fn();
     const collectionState = {
@@ -1720,6 +1785,7 @@ describe("gateway shell pages", () => {
     expect(onCollectionStateChange).toHaveBeenCalledWith(
       {
         ...collectionState,
+        onlyMine: false,
         page: 1,
         sortDirection: "asc",
         sortField: "version",
@@ -1728,7 +1794,8 @@ describe("gateway shell pages", () => {
     );
   });
 
-  it("shows a running-version chip and Details field on the detail page (GVV-02)", async () => {
+  // Verifies: WEB-VER-02.01, WEB-VER-05.01
+  it("shows a running-version chip and Details field on the detail page (WEB-VER-02)", async () => {
     const user = userEvent.setup();
     renderPage(() => (
       <GatewayPage
@@ -1748,7 +1815,6 @@ describe("gateway shell pages", () => {
     expect(
       screen.getByLabelText("Running version v0.1.2-rhaiv.7"),
     ).toBeTruthy();
-    expect(screen.queryByText("Newer version available")).toBeNull();
 
     await user.click(screen.getByRole("tab", { name: "Details" }));
     expect(screen.getByText("Version", { exact: true })).toBeTruthy();
@@ -1760,7 +1826,8 @@ describe("gateway shell pages", () => {
     ).toBeTruthy();
   });
 
-  it("omits the header chip and shows a Details placeholder without a version (GVV-02)", async () => {
+  // Verifies: WEB-VER-02.02
+  it("omits the header chip and shows a Details placeholder without a version (WEB-VER-02)", async () => {
     const user = userEvent.setup();
     renderPage(() => (
       <GatewayPage
@@ -1783,53 +1850,5 @@ describe("gateway shell pages", () => {
       .getByText("Version", { exact: true })
       .closest("dl");
     expect(within(detailsList as HTMLElement).getByText("-")).toBeTruthy();
-  });
-
-  it("shows the neutral newer-version indicator only when behind (GVV-03)", () => {
-    renderPage(() => (
-      <GatewayPage
-        gatewayId="gateway-1"
-        gateway={{
-          clusterId: "cluster-east",
-          gatewayVersion: "v0.1.1-rhaiv.3",
-          id: "gateway-1",
-          name: "Team gateway",
-          namespace: "openshell",
-          phase: "Running",
-          provisioningVersion: "v0.1.2-rhaiv.7",
-          status: "Ready",
-        }}
-      />
-    ));
-
-    const indicator = screen.getByText("Newer version available");
-    expect(indicator).toBeTruthy();
-    // Neutral in tone: no warning/danger status treatment.
-    const indicatorRoot = indicator.closest(".pf-v6-c-label");
-    expect(indicatorRoot?.classList.contains("pf-m-orange")).toBe(false);
-    expect(indicatorRoot?.classList.contains("pf-m-red")).toBe(false);
-    // No upgrade affordance anywhere.
-    expect(screen.queryByText(/upgrade/i)).toBeNull();
-  });
-
-  it("suppresses the newer-version indicator for a pinned-image gateway (GVV-03)", () => {
-    renderPage(() => (
-      <GatewayPage
-        gatewayId="gateway-1"
-        gateway={{
-          clusterId: "cluster-east",
-          gatewayVersion: "v0.1.1-rhaiv.3",
-          id: "gateway-1",
-          imagePinned: true,
-          name: "Team gateway",
-          namespace: "openshell",
-          phase: "Running",
-          provisioningVersion: "v0.1.2-rhaiv.7",
-          status: "Ready",
-        }}
-      />
-    ));
-
-    expect(screen.queryByText("Newer version available")).toBeNull();
   });
 });

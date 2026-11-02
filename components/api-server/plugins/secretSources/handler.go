@@ -16,13 +16,14 @@ import (
 )
 
 type secretSourceHandler struct {
-	service SecretSourceService
-	generic services.GenericService
-	store   secretstore.Store
+	service    SecretSourceService
+	generic    services.GenericService
+	store      secretstore.Store
+	authorizer *manageAuthorizer
 }
 
-func NewSecretSourceHandler(service SecretSourceService, generic services.GenericService, store secretstore.Store) *secretSourceHandler {
-	return &secretSourceHandler{service: service, generic: generic, store: store}
+func NewSecretSourceHandler(service SecretSourceService, generic services.GenericService, store secretstore.Store, authorizer *manageAuthorizer) *secretSourceHandler {
+	return &secretSourceHandler{service: service, generic: generic, store: store, authorizer: authorizer}
 }
 
 // deterministicSecretLocation derives the secret-manager location a submitted
@@ -98,35 +99,37 @@ func (h *secretSourceHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Action: func() (interface{}, *errors.ServiceError) {
 			ctx := r.Context()
 			item := ConvertSecretSource(resource)
+			// Validate the submission identity and authorize the caller BEFORE any
+			// store write: the caller must be able to manage secret sources on the
+			// gateway the target AgentRuntime runs on (gateway:owner/admin, or
+			// platform:admin). Authorizing after the Put would let any creator
+			// overwrite another tenant's material at its deterministic location.
+			if item.AgentRuntimeId == "" || item.Name == "" {
+				return nil, errors.Validation("name and agent_runtime_id are required")
+			}
+			if svcErr := h.authorizer.authorizeManageRuntime(ctx, item.AgentRuntimeId); svcErr != nil {
+				return nil, svcErr
+			}
 			// Secret submission (one-way): when a value is supplied, write it to
 			// the configured secret manager FIRST, at a deterministic location, and
 			// only then persist the SecretSource reference. ConvertSecretSource
 			// never copies the value onto the model, so the raw value never reaches
 			// the database and the presenter never returns it.
 			if resource.Value != nil && *resource.Value != "" {
-				if item.AgentRuntimeId == "" || item.Name == "" {
-					return nil, errors.Validation("name and agent_runtime_id are required to submit a secret value")
-				}
 				location := deterministicSecretLocation(item.AgentRuntimeId, item.Name)
 				if err := h.store.Put(ctx, location, *resource.Value); err != nil {
 					return nil, errors.GeneralError("Unable to store submitted secret value: %s", err)
 				}
-				// The reference points at where the value was just written,
-				// overriding any client-supplied path.
-				item.Path = location
 			}
-			// Reference-only submission (no value) MAY omit path: derive the stable
-			// convention location from the submission identity so a value can be
-			// uploaded later to a known location (data-model.spec.md "Secret
-			// Submission and Storage"; agent-secret-late-binding.spec.md
-			// "Reference-Only SecretSource Submission"). A client-supplied path is
-			// kept as-is.
-			if item.Path == "" {
-				if item.AgentRuntimeId == "" || item.Name == "" {
-					return nil, errors.Validation("name and agent_runtime_id are required to derive a secret source path")
-				}
-				item.Path = deterministicSecretLocation(item.AgentRuntimeId, item.Name)
-			}
+			// The path is ALWAYS derived server-side from the submission identity,
+			// for value-bearing and reference-only creates alike: it is the location
+			// a later submission writes to and the late-binding flow uploads to
+			// (agent-secret-late-binding.spec.md). A client-supplied path is ignored:
+			// honoring it would let any creator pin the reference at another
+			// tenant's store location, which the control plane would then place into
+			// the caller's namespace. The control-plane import reconciler writes its
+			// own paths over gRPC and is unaffected.
+			item.Path = deterministicSecretLocation(item.AgentRuntimeId, item.Name)
 			created, err := h.service.Create(ctx, item)
 			if err != nil {
 				return nil, err
@@ -148,6 +151,11 @@ func (h *secretSourceHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return nil, err
 			}
+			// Tenancy: the caller must manage the gateway the source's AgentRuntime
+			// runs on before any mutation.
+			if svcErr := h.authorizer.authorizeManageRuntime(ctx, found.AgentRuntimeId); svcErr != nil {
+				return nil, svcErr
+			}
 			if patch.Name != nil {
 				found.Name = *patch.Name
 			}
@@ -157,9 +165,10 @@ func (h *secretSourceHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			if patch.Backend != nil {
 				found.Backend = *patch.Backend
 			}
-			if patch.Path != nil {
-				found.Path = *patch.Path
-			}
+			// patch.Path is deliberately NOT applied: the path is the server-derived
+			// location of the submitted material, not a client-settable field. Honoring
+			// a client path would let a caller re-point an existing SecretSource at
+			// another tenant's store location after create.
 			if patch.KeyMappings != nil {
 				found.KeyMappings = patch.KeyMappings
 			}
@@ -178,8 +187,14 @@ func (h *secretSourceHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		Action: func() (interface{}, *errors.ServiceError) {
 			id := mux.Vars(r)["id"]
 			ctx := r.Context()
-			if _, err := h.service.Get(ctx, id); err != nil {
+			found, err := h.service.Get(ctx, id)
+			if err != nil {
 				return nil, err
+			}
+			// Tenancy: the caller must manage the gateway the source's AgentRuntime
+			// runs on before the record is removed.
+			if svcErr := h.authorizer.authorizeManageRuntime(ctx, found.AgentRuntimeId); svcErr != nil {
+				return nil, svcErr
 			}
 			if err := h.service.Delete(ctx, id); err != nil {
 				return nil, err

@@ -1,4 +1,5 @@
 import datetime as dt
+import gzip
 import importlib.util
 import io
 import json
@@ -317,6 +318,25 @@ class DependencyAgeTest(unittest.TestCase):
                 data = CHECKER.fetch_json("https://registry.example.test/pkg")
         self.assertEqual(data["time"]["1.0.0"], "2026-01-01T00:00:00Z")
         self.assertEqual(fetch.call_count, 2)
+
+    def test_curl_requests_a_compressed_response(self):
+        done = subprocess.CompletedProcess([], 0, stdout="{}", stderr="")
+        with mock.patch.object(CHECKER.shutil, "which", return_value="/usr/bin/curl"):
+            with mock.patch.object(CHECKER.subprocess, "run", return_value=done) as run:
+                CHECKER._fetch_body("https://registry.example.test/pkg")
+        self.assertIn("--compressed", run.call_args.args[0])
+
+    def test_urllib_fallback_decodes_a_gzip_response(self):
+        body = gzip.compress(b'{"ok": true}')
+        response = mock.MagicMock()
+        response.__enter__.return_value = response
+        response.read.return_value = body
+        response.headers = {"Content-Encoding": "gzip"}
+        with mock.patch.object(CHECKER.shutil, "which", return_value=None):
+            with mock.patch.object(CHECKER.urllib.request, "urlopen", return_value=response) as urlopen:
+                text = CHECKER._fetch_body("https://registry.example.test/pkg")
+        self.assertEqual(text, '{"ok": true}')
+        self.assertEqual(urlopen.call_args.args[0].get_header("Accept-encoding"), "gzip")
 
     def test_fetch_json_gives_up_on_persistent_garbage(self):
         with mock.patch.object(CHECKER, "_fetch_body", return_value="{not json") as fetch:

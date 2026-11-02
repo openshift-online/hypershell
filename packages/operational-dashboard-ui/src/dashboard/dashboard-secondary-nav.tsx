@@ -5,27 +5,24 @@ import { useDashboardUi } from "../dashboard-ui-provider";
 import { messages } from "../messages";
 
 export type DashboardSecondaryNavActive =
-  "operational" | "provisioning" | "inventory" | "reliability";
+  | "operational"
+  | "provisioning"
+  | "inventory"
+  | "reliability"
+  | "usage"
+  | "adoption";
 
 export interface DashboardSecondaryNavProps {
   active: DashboardSecondaryNavActive;
 }
 
 const items = [
-  ["operational", "/dashboard", messages.dashboardNavOverview, false],
-  [
-    "provisioning",
-    "/dashboard/provisioning",
-    messages.dashboardNavProvisioning,
-    true,
-  ],
-  ["inventory", "/dashboard/inventory", messages.dashboardNavInventory, true],
-  [
-    "reliability",
-    "/dashboard/reliability",
-    messages.reliabilityNavReliability,
-    true,
-  ],
+  ["operational", "dashboardHref", messages.dashboardNavOverview, false],
+  ["provisioning", "provisioningHref", messages.dashboardNavProvisioning, true],
+  ["inventory", "inventoryHref", messages.dashboardNavInventory, true],
+  ["reliability", "reliabilityHref", messages.reliabilityNavReliability, true],
+  ["usage", "usageHref", messages.usageNavUsage, false],
+  ["adoption", "adoptionHref", messages.dashboardNavAdoption, true],
 ] as const;
 
 export function DashboardSecondaryNav({
@@ -42,17 +39,17 @@ export function DashboardSecondaryNav({
       <NavList>
         {items
           .filter(([, , , adminOnly]) => !adminOnly || isAdmin)
-          .map(([id, href, label]) => (
+          .map(([id, hrefName, label]) => (
             <NavItem
               isActive={active === id}
               itemId={id}
               key={id}
               onClick={(event) => {
                 event.preventDefault();
-                void navigation.navigate(href);
+                void navigation.navigate(navigation[hrefName]);
               }}
               preventDefault
-              to={href}
+              to={navigation[hrefName]}
             >
               {intl.formatMessage(label)}
             </NavItem>

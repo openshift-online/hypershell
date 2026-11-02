@@ -102,6 +102,7 @@ describe("queryClusterPods", () => {
     expect(clusterPodsDailyUsedStepSeconds).toBe(86_400);
   });
 
+  // Verifies: OBS-POD-02.01
   it("maps Prometheus capacity, used, and phase samples into pod counts", async () => {
     const prometheus = await startPrometheusStub((request, response) => {
       const url = parsePrometheusUrl(request);

@@ -1,7 +1,8 @@
 package otel
 
 import (
-	"github.com/golang/glog"
+	"log/slog"
+
 	pkgdb "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/uptrace/opentelemetry-go-extra/otelgorm"
 )
@@ -29,5 +30,5 @@ func registerDBTracing() {
 		otelgorm.WithoutMetrics(),
 	))
 
-	glog.Info("OpenTelemetry GORM query tracing enabled")
+	slog.Info("OpenTelemetry GORM query tracing enabled")
 }

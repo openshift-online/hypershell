@@ -3,11 +3,12 @@ import {
   type GateExecutionProps,
 } from "../e2e-run/gate-execution";
 // The map's detail panel. Selecting a node opens a tabbed record (Details /
-// Bundle / Links): Details carries a gateway donut + legend and a field grid;
-// Bundle lists the pull requests in the instance's deployed release; Links holds
-// the deep links. Selecting a gate shows its flow + badge; selecting a release
-// bundle shows its facts, where it is deployed, and the PRs it contains. All copy
-// is translated; all values are opaque server data.
+// Bundle / Agents / Links): Details carries a gateway donut + legend and a field
+// grid; Bundle lists the pull requests in the instance's deployed release;
+// Agents shows SDLC agents running on the cluster; Links holds the deep links.
+// Selecting a gate shows its flow + badge; selecting a release bundle shows its
+// facts, where it is deployed, and the PRs it contains. All copy is translated;
+// all values are opaque server data.
 
 import {
   Badge,
@@ -20,6 +21,7 @@ import {
   Flex,
   FlexItem,
   Label,
+  LabelGroup,
   type LabelProps,
   List,
   ListItem,
@@ -31,13 +33,25 @@ import {
   Tooltip,
   Truncate,
 } from "@patternfly/react-core";
+import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
 import ChartLineIcon from "@patternfly/react-icons/dist/esm/icons/chart-line-icon";
 import ExternalLinkAltIcon from "@patternfly/react-icons/dist/esm/icons/external-link-alt-icon";
 import InfoAltIcon from "@patternfly/react-icons/dist/esm/icons/info-alt-icon";
+import RobotIcon from "@patternfly/react-icons/dist/esm/icons/robot-icon";
 import TimesIcon from "@patternfly/react-icons/dist/esm/icons/times-icon";
 import { useState } from "react";
 import type { MessageDescriptor } from "react-intl";
 import { FormattedMessage, useIntl } from "react-intl";
+
+import {
+  agentActivity,
+  type SdlcAgentMetrics,
+} from "../../../domain/sdlc-agents";
+import {
+  AgentActivityBadge,
+  LastSeen,
+  useLiveNow,
+} from "../shared/agent-activity";
 
 import {
   bundleList,
@@ -46,6 +60,10 @@ import {
 } from "../../../domain/map/bundles";
 import type { GatewayPhaseCounts } from "../../../domain/fleet";
 import { otherGateways } from "../../../domain/fleet";
+import {
+  capabilityParts,
+  orderedCapabilities,
+} from "../../../domain/map/capabilities";
 import { shortDigest } from "../../../domain/map/digest";
 import { identiName } from "../../../domain/map/identiname";
 import type { MapModel, MapNode } from "../../../domain/map/model";
@@ -63,7 +81,7 @@ import { healthBadge, syncBadge } from "../../../domain/status";
 import { messages } from "../../../messages";
 import { useRoute, useRouter } from "../../routing/router";
 import { StatusLabel } from "../status-label";
-import { GATEWAY_COLOR, TEXT_COLOR } from "./colors";
+import { GATEWAY_COLOR, TEXT_COLOR, TONE_COLOR, USER_COLOR } from "./colors";
 import { GatewayDonut } from "./gateway-donut";
 import { Identicon } from "./identicon";
 import styles from "./map-details.module.css";
@@ -186,6 +204,11 @@ export interface MapDetailsProps {
   readonly onSelectBundle: (seed: string) => void;
   /** Selects an instance node (from a "Deployed on" chip in the bundle panel). */
   readonly onSelectNode: (id: string) => void;
+  /** SDLC agent rows grouped by environment, for the per-cluster Agents tab. */
+  readonly agentsByEnv?: ReadonlyMap<string, readonly SdlcAgentMetrics[]>;
+  /** The SDLC-agents plane's `stale` flag, driving the "Monitoring blind" activity
+   *  state in the Agents tab (SDLC-AGT-16). */
+  readonly agentsPlaneStale?: boolean;
 }
 
 const PROMO_LABEL: Record<
@@ -299,6 +322,10 @@ function PrList({ prs }: { prs: readonly PullRequest[] }): React.ReactElement {
         // authorship: the title is the headline line, the author sits beneath it
         // as a distinct, muted byline with the handle emphasised.
         const tipTitle = `${num} ${pr.title}`;
+        // GitOps deployment PRs carry the environments that actually received them
+        // (FLT-BPR-06), surfaced as a muted tooltip line so the row never implies a
+        // change reached an environment it did not.
+        const environments = pr.environments ?? [];
         const hover = (
           <span className={styles.prTip}>
             <span className={styles.prTipTitle}>{tipTitle}</span>
@@ -314,10 +341,21 @@ function PrList({ prs }: { prs: readonly PullRequest[] }): React.ReactElement {
                 />
               </span>
             ) : null}
+            {environments.length > 0 ? (
+              <span className={styles.prTipAuthor}>
+                <FormattedMessage
+                  {...messages.prEnvironments}
+                  values={{ environments: environments.join(", ") }}
+                />
+              </span>
+            ) : null}
           </span>
         );
         return (
-          <ListItem key={pr.number}>
+          // Rows key by repository + number so the same PR number in two
+          // repositories stays distinct (FLT-BPR-11.01); the link already targets
+          // the PR in its own repository (pr.url).
+          <ListItem key={`${pr.repository ?? ""}#${String(pr.number)}`}>
             <Tooltip content={hover} position="top-start">
               <a
                 href={pr.url}
@@ -339,25 +377,36 @@ function PrList({ prs }: { prs: readonly PullRequest[] }): React.ReactElement {
   );
 }
 
-/** Section heading + optional PR-count summary, then the PR list for `bundle`.
- *  When `seed` is given, the bundle's identicon sits beside the heading so the
- *  tab's bundle is identifiable on its own. */
-function BundleContents({
-  bundle,
+/**
+ * One repository's pull-request group inside the bundle details: a heading band
+ * (optional bundle identicon, section title, independent count badge) and the
+ * group's body. The body is the PR list, a distinct empty state, or a distinct
+ * unavailable/error state (FLT-BPR-11.02) -- an unavailable range is never shown as
+ * an empty success. Each section's count and state are independent of the other.
+ */
+function PrSection({
+  title,
+  prs,
+  countMsg,
+  emptyMsg,
   seed,
   onSelectBundle,
+  unavailable = false,
+  unavailableMsg,
 }: {
-  bundle: ReleaseBundle | undefined;
+  title: MessageDescriptor;
+  prs: readonly PullRequest[];
+  countMsg: MessageDescriptor;
+  emptyMsg: MessageDescriptor;
   seed?: string;
   onSelectBundle?: (seed: string) => void;
+  unavailable?: boolean;
+  unavailableMsg?: MessageDescriptor;
 }): React.ReactElement {
   const intl = useIntl();
-  const prs = bundle?.prs ?? [];
-  // The heading reads as one band: identicon, "In this bundle" eyebrow, then the
-  // PR count pinned to the right as a badge so the tab's size is legible at a glance.
-  const prCountSummary = intl.formatMessage(messages.bundlePrSummary, {
-    count: prs.length,
-  });
+  // The heading reads as one band: identicon, eyebrow, then this group's own PR
+  // count pinned to the right as a badge so each section's size is legible at a glance.
+  const prCountSummary = intl.formatMessage(countMsg, { count: prs.length });
   return (
     <>
       <div className={styles.bundleHead}>
@@ -365,9 +414,9 @@ function BundleContents({
           <BundleIdenticon seed={seed} size={20} onSelect={onSelectBundle} />
         ) : null}
         <h4 className={styles.sectionTitle}>
-          <FormattedMessage {...messages.sectionInBundle} />
+          <FormattedMessage {...title} />
         </h4>
-        {prs.length > 0 ? (
+        {!unavailable && prs.length > 0 ? (
           // The badge's visible text is the bare count; aria-label gives it the
           // full "N pull requests" accessible name (title alone is not reliably
           // announced on a non-interactive element).
@@ -381,7 +430,67 @@ function BundleContents({
           </Badge>
         ) : null}
       </div>
-      <PrList prs={prs} />
+      {unavailable ? (
+        <Content component="small">
+          <FormattedMessage {...(unavailableMsg ?? emptyMsg)} />
+        </Content>
+      ) : prs.length > 0 ? (
+        <PrList prs={prs} />
+      ) : (
+        <Content component="small">
+          <FormattedMessage {...emptyMsg} />
+        </Content>
+      )}
+    </>
+  );
+}
+
+/**
+ * The bundle's pull requests in two repository-identified groups (FLT-BPR-01): the
+ * application group (the application repository, existing "in this bundle" behavior)
+ * and, when the server reports it, the GitOps deployment-change group (the GitOps
+ * delivery repository). The GitOps group is labeled as deployment changes and
+ * renders its own count and empty/error state; it is omitted entirely
+ * when the server does not report GitOps grouping (older server / feature off).
+ * When `seed` is given, the bundle's identicon sits beside the application heading
+ * so the tab's bundle is identifiable on its own.
+ */
+function BundleContents({
+  bundle,
+  seed,
+  onSelectBundle,
+}: {
+  bundle: ReleaseBundle | undefined;
+  seed?: string;
+  onSelectBundle?: (seed: string) => void;
+}): React.ReactElement {
+  // Read the groups up front (where `bundle` is still possibly undefined) so the
+  // GitOps branch below does not narrow `bundle` and flag its optional chain.
+  const applicationPrs = bundle?.prs ?? [];
+  const gitopsPrs = bundle?.gitopsPrs ?? [];
+  const gitopsStatus = bundle?.gitopsStatus;
+  return (
+    <>
+      <PrSection
+        title={messages.sectionInBundle}
+        prs={applicationPrs}
+        countMsg={messages.bundlePrSummary}
+        emptyMsg={messages.bundleNoPrs}
+        seed={seed}
+        onSelectBundle={onSelectBundle}
+      />
+      {gitopsStatus ? (
+        <div className={styles.section}>
+          <PrSection
+            title={messages.sectionGitopsChanges}
+            prs={gitopsPrs}
+            countMsg={messages.gitopsPrSummary}
+            emptyMsg={messages.gitopsNoPrs}
+            unavailable={gitopsStatus === "unavailable"}
+            unavailableMsg={messages.gitopsUnavailable}
+          />
+        </div>
+      ) : null}
     </>
   );
 }
@@ -598,6 +707,49 @@ function SpokeAttributionSection({
   );
 }
 
+/**
+ * The cluster's self-declared capability set, as a PatternFly label group of
+ * compact outline labels in lead-namespace order (FLT-CAP-06). Each label pairs a
+ * muted namespace (its `/` separator drawn in CSS, so it is decorative rather than
+ * an untranslated text node) with an emphasised value, since the value is the part
+ * that varies. Extras collapse behind the built-in "N more" toggle. Renders nothing
+ * when the cluster declares no capabilities; the vocabulary is never baked in.
+ */
+function NodeCapabilities({
+  node,
+}: {
+  node: MapNode;
+}): React.ReactElement | null {
+  const intl = useIntl();
+  const caps = node.capabilities ?? [];
+  if (caps.length === 0) {
+    return null;
+  }
+  return (
+    <div className={styles.section}>
+      <h4 className={styles.sectionTitle}>
+        <FormattedMessage {...messages.sectionCapabilities} />
+      </h4>
+      <LabelGroup
+        numLabels={6}
+        aria-label={intl.formatMessage(messages.sectionCapabilities)}
+      >
+        {orderedCapabilities(caps).map((cap) => {
+          const { namespace, value } = capabilityParts(cap);
+          return (
+            <Label key={cap} isCompact variant="outline" color="grey">
+              {namespace ? (
+                <span className={styles.capNamespace}>{namespace}</span>
+              ) : null}
+              <span className={styles.capValue}>{value}</span>
+            </Label>
+          );
+        })}
+      </LabelGroup>
+    </div>
+  );
+}
+
 function NodeFields({
   node,
   onSelectBundle,
@@ -632,6 +784,11 @@ function NodeFields({
       >
         {node.role ?? <FormattedMessage {...messages.valueNone} />}
       </Row>
+      {node.gatewayImage ? (
+        <Row term={<FormattedMessage {...messages.detailGatewayImage} />}>
+          <Truncate content={node.gatewayImage} position="middle" />
+        </Row>
+      ) : null}
       <Row
         term={
           <TermWithInfo
@@ -868,16 +1025,156 @@ function NodeLinks({ node }: { node: MapNode }): React.ReactElement {
   );
 }
 
+/**
+ * Compact PatternFly table of SDLC agents for a cluster's Agents tab.
+ * Agent / Activity / Replicas / Queue / Done / Failed columns, one row per agent.
+ * The empty state (never reported) is distinct from the idle state (SDLC-AGT-17.04):
+ * a cluster with no agent rows shows the empty message, while a cluster whose agents
+ * have reported but are idle now shows rows marked "Not active". All copy is i18n-keyed.
+ */
+function NodeAgents({
+  agents,
+  planeStale,
+  nowMs,
+}: {
+  agents: readonly SdlcAgentMetrics[];
+  planeStale: boolean;
+  /** Reference instant for the activity derivation; a live clock when omitted. */
+  nowMs?: number;
+}): React.ReactElement {
+  const intl = useIntl();
+  const liveNowMs = useLiveNow(nowMs);
+  const subtle = "var(--pf-t--global--text--color--subtle, #9a9da0)";
+  const tabNums: React.CSSProperties = { fontVariantNumeric: "tabular-nums" };
+  if (agents.length === 0) {
+    return (
+      <Content component="small">
+        <FormattedMessage {...messages.agentsEmptyForCluster} />
+      </Content>
+    );
+  }
+  return (
+    <Table
+      aria-label={intl.formatMessage(messages.agentsTableAria)}
+      variant="compact"
+      borders={false}
+    >
+      <Thead>
+        <Tr>
+          <Th>
+            <FormattedMessage {...messages.agentsColAgent} />
+          </Th>
+          <Th>
+            <FormattedMessage {...messages.agentsColActivity} />
+          </Th>
+          <Th>
+            <FormattedMessage {...messages.agentsColReplicas} />
+          </Th>
+          <Th>
+            <FormattedMessage {...messages.agentsColQueue} />
+          </Th>
+          <Th>
+            <FormattedMessage {...messages.agentsColDone} />
+          </Th>
+          <Th>
+            <FormattedMessage {...messages.agentsColFailed} />
+          </Th>
+        </Tr>
+      </Thead>
+      <Tbody>
+        {agents.map((agent) => (
+          <Tr key={agent.name}>
+            <Td dataLabel={intl.formatMessage(messages.agentsColAgent)}>
+              <Flex
+                alignItems={{ default: "alignItemsCenter" }}
+                spaceItems={{ default: "spaceItemsSm" }}
+                flexWrap={{ default: "nowrap" }}
+              >
+                <FlexItem>
+                  <RobotIcon style={{ color: subtle }} />
+                </FlexItem>
+                <FlexItem>{agent.name}</FlexItem>
+              </Flex>
+            </Td>
+            <Td dataLabel={intl.formatMessage(messages.agentsColActivity)}>
+              <Flex
+                direction={{ default: "column" }}
+                spaceItems={{ default: "spaceItemsNone" }}
+              >
+                <FlexItem>
+                  <AgentActivityBadge
+                    activity={agentActivity(agent, liveNowMs, planeStale)}
+                  />
+                </FlexItem>
+                <FlexItem>
+                  <LastSeen
+                    lastReportedAt={agent.lastReportedAt}
+                    nowMs={liveNowMs}
+                    style={{ color: subtle }}
+                  />
+                </FlexItem>
+              </Flex>
+            </Td>
+            <Td dataLabel={intl.formatMessage(messages.agentsColReplicas)}>
+              <span
+                style={{
+                  ...tabNums,
+                  color: agent.replicasOn > 0 ? TONE_COLOR.success : subtle,
+                }}
+              >
+                {agent.replicasOn}
+              </span>
+              <span style={{ color: subtle }}>
+                <FormattedMessage {...messages.replicasRatioSeparator} />
+                {agent.replicasTotal}
+              </span>
+            </Td>
+            <Td dataLabel={intl.formatMessage(messages.agentsColQueue)}>
+              <span
+                style={{
+                  ...tabNums,
+                  color: agent.queueDepth > 0 ? USER_COLOR : subtle,
+                }}
+              >
+                {agent.queueDepth}
+              </span>
+            </Td>
+            <Td dataLabel={intl.formatMessage(messages.agentsColDone)}>
+              <span style={{ ...tabNums, color: TEXT_COLOR }}>
+                {agent.itemsProcessed}
+              </span>
+            </Td>
+            <Td dataLabel={intl.formatMessage(messages.agentsColFailed)}>
+              <span
+                style={{
+                  ...tabNums,
+                  color: agent.itemsFailed > 0 ? TONE_COLOR.danger : subtle,
+                }}
+              >
+                {agent.itemsFailed}
+              </span>
+            </Td>
+          </Tr>
+        ))}
+      </Tbody>
+    </Table>
+  );
+}
+
 function NodeDetails({
   node,
   releaseByDigest,
   onSelectBundle,
+  agentsByEnv,
+  agentsPlaneStale,
 }: {
   node: MapNode;
   releaseByDigest: Readonly<Record<string, ReleaseBundle>>;
   onSelectBundle: (seed: string) => void;
+  agentsByEnv?: ReadonlyMap<string, readonly SdlcAgentMetrics[]>;
+  agentsPlaneStale?: boolean;
 }): React.ReactElement {
-  // The node drawer sub-tab is URL-represented (GLASS-NAV-09); the temporal cursor
+  // The node drawer sub-tab is URL-represented (FLT-NAV-09); the temporal cursor
   // below stays transient.
   const route = useRoute();
   const { navigate } = useRouter();
@@ -901,7 +1198,13 @@ function NodeDetails({
         navigate({
           type: "mapNodeTab",
           tab:
-            key === "bundle" ? "bundle" : key === "links" ? "links" : "details",
+            key === "bundle"
+              ? "bundle"
+              : key === "agents"
+                ? "agents"
+                : key === "links"
+                  ? "links"
+                  : "details",
         });
       }}
     >
@@ -923,6 +1226,7 @@ function NodeDetails({
           {node.spokeAttribution ? (
             <SpokeAttributionSection attribution={node.spokeAttribution} />
           ) : null}
+          <NodeCapabilities node={node} />
           <div className={styles.nodeFields}>
             <NodeFields node={node} onSelectBundle={onSelectBundle} />
           </div>
@@ -941,6 +1245,21 @@ function NodeDetails({
             bundle={bundle}
             seed={node.seed}
             onSelectBundle={onSelectBundle}
+          />
+        </div>
+      </Tab>
+      <Tab
+        eventKey="agents"
+        title={
+          <TabTitleText>
+            <FormattedMessage {...messages.tabAgents} />
+          </TabTitleText>
+        }
+      >
+        <div className="pf-v6-u-mt-md">
+          <NodeAgents
+            agents={agentsByEnv?.get(node.id) ?? []}
+            planeStale={agentsPlaneStale ?? false}
           />
         </div>
       </Tab>
@@ -1114,6 +1433,8 @@ export function MapDetails({
   onSelectBundle,
   onSelectNode,
   e2e,
+  agentsByEnv,
+  agentsPlaneStale,
 }: MapDetailsProps): React.ReactElement {
   const intl = useIntl();
   const node =
@@ -1175,6 +1496,8 @@ export function MapDetails({
           node={node}
           releaseByDigest={releaseByDigest}
           onSelectBundle={onSelectBundle}
+          agentsByEnv={agentsByEnv}
+          agentsPlaneStale={agentsPlaneStale}
         />
       ) : null}
       {selection.kind === "gate" ? (

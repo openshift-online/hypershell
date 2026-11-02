@@ -10,6 +10,9 @@ import type {
   DashboardMetricSourceId,
   OperationalDashboardMetrics,
   OperationalMetric,
+  UsageDashboardMetrics,
+  UsageMetric,
+  UsageMetricSourceId,
 } from "@openshift-online/hypershell-operational-dashboard-ui";
 import type { SDKClient } from "@openshift-online/hypershell-sdk";
 import {
@@ -75,8 +78,25 @@ interface GatewayProvisionDurationResponse {
   observation_count: number;
   p50_seconds: number;
   p95_seconds: number;
+  p99_seconds: number | null;
+  target_seconds: number;
+  daily_p99: { date: string; p99_seconds: number }[] | null;
   daily_p50?: { date: string; p50_seconds: number }[];
   daily_p95?: { date: string; p95_seconds: number }[];
+}
+
+interface ResourceReadinessResponse {
+  pod_readiness_percent?: number;
+  sandbox_readiness_percent?: number;
+  unready_resources?: number;
+}
+
+interface CertificateHealthResponse {
+  valid_certificates: number;
+  total_certificates: number;
+  expired_certificates: number;
+  status_unavailable: number;
+  soonest_days_to_expiry: number | null;
 }
 
 interface GatewayProvisionHourlySuccessRate {
@@ -103,6 +123,36 @@ interface GatewaySandboxesResponse {
   hourly_active_sandboxes?: { count: number; hour: string }[];
 }
 
+interface UsageGatewayMetricsResponse {
+  active_gateways?: number;
+  coverage_end?: string;
+  coverage_start?: string;
+  daily_request_error_rate_percent?: DailyTrendPoint[];
+  daily_request_volume?: DailyTrendPoint[];
+  request_error_rate_percent?: number;
+  request_volume?: number;
+  total_gateways?: number;
+  unused_gateways?: number;
+}
+
+interface UsageSandboxMetricsResponse {
+  active_sandboxes?: number;
+  coverage_end?: string;
+  coverage_start?: string;
+  daily_utilization_percent?: DailyTrendPoint[];
+  sandbox_utilization_percent?: number;
+  total_sandboxes?: number;
+}
+
+interface UsageSandboxLifetimeResponse {
+  coverage_end?: string;
+  coverage_start?: string;
+  daily_mean_seconds?: DailyTrendPoint[];
+  mean_seconds?: number;
+  p50_seconds?: number;
+  p95_seconds?: number;
+}
+
 interface RegisteredUsersDailyLogin {
   count: number;
   date: string;
@@ -115,6 +165,20 @@ interface RegisteredUsersResponse {
   total_registered: number;
   unique_logins_last_7_days?: number;
   unique_logins_last_30_days?: number;
+}
+
+interface AdoptionResponse {
+  registered_users: number;
+  created_last_7_days?: number;
+  created_last_30_days?: number;
+  unique_logins_last_7_days?: number;
+  unique_logins_last_30_days?: number;
+  inactive_users_last_30_days?: number;
+  users_with_gateway?: number;
+  gateway_conversion_percent?: number;
+  daily_created_users?: RegisteredUsersDailyLogin[];
+  daily_unique_logins?: RegisteredUsersDailyLogin[];
+  retention_7_days_percent?: number;
 }
 
 function registeredUsersResponseToMetric(
@@ -147,6 +211,72 @@ function registeredUsersResponseToMetric(
   }
 
   return metric;
+}
+
+function adoptionResponseToMetric(body: AdoptionResponse): OperationalMetric {
+  const dailyActiveUsers = body.daily_unique_logins?.at(-1)?.count;
+
+  return {
+    id: "adoption",
+    value: String(body.registered_users),
+    ...(body.created_last_7_days === undefined
+      ? {}
+      : { createdLast7Days: String(body.created_last_7_days) }),
+    ...(body.created_last_30_days === undefined
+      ? {}
+      : { createdLast30Days: String(body.created_last_30_days) }),
+    ...(dailyActiveUsers === undefined
+      ? {}
+      : { dailyActiveUsers: String(dailyActiveUsers) }),
+    ...(body.unique_logins_last_7_days === undefined
+      ? {}
+      : {
+          uniqueLoginsLast7Days: String(body.unique_logins_last_7_days),
+        }),
+    ...(body.unique_logins_last_30_days === undefined
+      ? {}
+      : {
+          uniqueLoginsLast30Days: String(body.unique_logins_last_30_days),
+        }),
+    ...(body.inactive_users_last_30_days === undefined
+      ? {}
+      : {
+          inactiveUsersLast30Days: String(body.inactive_users_last_30_days),
+        }),
+    ...(body.users_with_gateway === undefined
+      ? {}
+      : { usersWithGateway: String(body.users_with_gateway) }),
+    ...(body.gateway_conversion_percent === undefined
+      ? {}
+      : {
+          gatewayConversionPercent: body.gateway_conversion_percent.toFixed(1),
+        }),
+    ...(body.daily_created_users === undefined
+      ? {}
+      : {
+          createdTrend: {
+            points: body.daily_created_users.map((point) => ({
+              label: point.date,
+              value: point.count,
+            })),
+          },
+        }),
+    ...(body.daily_unique_logins === undefined
+      ? {}
+      : {
+          trend: {
+            points: body.daily_unique_logins.map((point) => ({
+              label: point.date,
+              value: point.count,
+            })),
+          },
+        }),
+    ...(body.retention_7_days_percent === undefined
+      ? {}
+      : {
+          retention7DaysPercent: body.retention_7_days_percent.toFixed(1),
+        }),
+  };
 }
 
 function mapDailyTrend(
@@ -375,6 +505,10 @@ async function fetchGatewayProvisionDurationMetric(
       label: point.date,
       value: point.p95_seconds,
     }));
+    const p99Trend = (body.daily_p99 ?? []).map((point) => ({
+      label: point.date,
+      value: point.p99_seconds,
+    }));
 
     return {
       id: "provision-time",
@@ -382,8 +516,13 @@ async function fetchGatewayProvisionDurationMetric(
         mean,
         p50,
         p95,
+        ...(body.p99_seconds === null
+          ? {}
+          : { p99: formatProvisionSeconds(body.p99_seconds) }),
+        target: formatProvisionSeconds(body.target_seconds),
         ...(p50Trend.length >= 2 ? { p50Trend: { points: p50Trend } } : {}),
         ...(p95Trend.length >= 2 ? { p95Trend: { points: p95Trend } } : {}),
+        ...(p99Trend.length >= 2 ? { p99Trend: { points: p99Trend } } : {}),
       },
       unit: "sec",
       value: mean,
@@ -391,6 +530,82 @@ async function fetchGatewayProvisionDurationMetric(
   } catch {
     return undefined;
   }
+}
+
+async function fetchResourceReadinessMetric(
+  context: DashboardInvocationContext,
+): Promise<OperationalMetric[]> {
+  const response = await fetch("/api/metrics/resource-readiness", {
+    credentials: "same-origin",
+    signal: context.signal,
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch resource readiness metrics: ${String(response.status)}`,
+    );
+  }
+  const body = (await response.json()) as ResourceReadinessResponse;
+  return [
+    {
+      id: "pod-and-sandbox-readiness",
+      resourceReadiness: {
+        ...(isFiniteNumber(body.pod_readiness_percent)
+          ? { podReadinessPercent: body.pod_readiness_percent.toFixed(1) }
+          : {}),
+        ...(isFiniteNumber(body.sandbox_readiness_percent)
+          ? {
+              sandboxReadinessPercent:
+                body.sandbox_readiness_percent.toFixed(1),
+            }
+          : {}),
+        ...(isFiniteNumber(body.unready_resources)
+          ? { unreadyResources: String(Math.round(body.unready_resources)) }
+          : {}),
+      },
+      value: isFiniteNumber(body.unready_resources)
+        ? String(Math.round(body.unready_resources))
+        : "NaN",
+    },
+  ];
+}
+
+async function fetchCertificateHealthMetric(
+  context: DashboardInvocationContext,
+): Promise<OperationalMetric[]> {
+  const response = await fetch("/api/metrics/certificate-health", {
+    credentials: "same-origin",
+    signal: context.signal,
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch certificate health metrics: ${String(response.status)}`,
+    );
+  }
+  const body = (await response.json()) as CertificateHealthResponse;
+  const required = [
+    body.valid_certificates,
+    body.total_certificates,
+    body.expired_certificates,
+    body.status_unavailable,
+  ];
+  if (required.some((value) => !isFiniteNumber(value))) {
+    throw new Error("Certificate health response is missing required fields");
+  }
+  return [
+    {
+      certificateHealth: {
+        expiredCertificates: String(Math.round(body.expired_certificates)),
+        ...(isFiniteNumber(body.soonest_days_to_expiry)
+          ? { soonestDaysToExpiry: body.soonest_days_to_expiry.toFixed(1) }
+          : {}),
+        statusUnavailable: String(Math.round(body.status_unavailable)),
+        totalCertificates: String(Math.round(body.total_certificates)),
+        validCertificates: String(Math.round(body.valid_certificates)),
+      },
+      id: "certificate-health",
+      value: String(Math.round(body.valid_certificates)),
+    },
+  ];
 }
 
 function gatewayDisplayCountsToMetric(
@@ -546,6 +761,26 @@ async function fetchRegisteredUsersMetric(
   return [registeredUsersResponseToMetric(body)];
 }
 
+async function fetchAdoptionMetrics(
+  context: DashboardInvocationContext,
+): Promise<OperationalMetric[]> {
+  const response = await fetch(
+    rangePath("/api/metrics/adoption", context.timeRange),
+    {
+      credentials: "same-origin",
+      signal: context.signal,
+    },
+  );
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch adoption metrics: ${String(response.status)}`,
+    );
+  }
+
+  const body = (await response.json()) as AdoptionResponse;
+  return [adoptionResponseToMetric(body)];
+}
+
 async function fetchPlatformInventoryMetrics(
   context: DashboardInvocationContext,
 ): Promise<OperationalMetric[]> {
@@ -573,7 +808,9 @@ interface ApiReliabilityResponse {
   hourly_error_rate_percent?: ApiReliabilityHourlyPoint[];
   hourly_latency_p50_seconds?: ApiReliabilityHourlyPoint[];
   hourly_request_rate?: ApiReliabilityHourlyPoint[];
+  hourly_latency_p95_seconds?: ApiReliabilityHourlyPoint[];
   latency_p50_seconds: number;
+  latency_p95_seconds?: number;
   request_rate: number;
 }
 
@@ -595,6 +832,16 @@ interface ControlPlaneReconciliationResponse {
   hourly_reconciliation_successes_count?: ControlPlaneReconciliationPoint[];
   hourly_reconciliation_lag_p50_seconds?: ControlPlaneReconciliationPoint[];
   hourly_stale_resource_status_count?: ControlPlaneReconciliationPoint[];
+  reconciliation_resources_total?: number;
+  state_accuracy_percent?: number;
+  observed_matching_desired?: number;
+}
+
+interface OidcClientSyncResponse {
+  accuracy_percent: number | null;
+  synced_clients: number | null;
+  expected_clients: number | null;
+  keycloak_status: string;
 }
 
 function mapHourlyTrend(
@@ -632,6 +879,7 @@ function mapApiReliabilityResponse(
   const requestRateTrend = mapHourlyTrend(body.hourly_request_rate);
   const errorRateTrend = mapHourlyTrend(body.hourly_error_rate_percent);
   const latencyTrend = mapHourlyTrend(body.hourly_latency_p50_seconds);
+  const p95LatencyTrend = mapHourlyTrend(body.hourly_latency_p95_seconds);
 
   return [
     {
@@ -651,6 +899,59 @@ function mapApiReliabilityResponse(
       unit: "sec",
       value: body.latency_p50_seconds.toFixed(3),
       ...(latencyTrend ? { hourlyTrend: latencyTrend } : {}),
+    },
+    ...(isFiniteNumber(body.latency_p95_seconds)
+      ? [
+          {
+            id: "api-p95-latency",
+            unit: "sec",
+            value: body.latency_p95_seconds.toFixed(3),
+            ...(p95LatencyTrend ? { hourlyTrend: p95LatencyTrend } : {}),
+          },
+        ]
+      : []),
+  ];
+}
+
+async function fetchOidcClientSyncMetrics(
+  context: DashboardInvocationContext,
+): Promise<OperationalMetric[]> {
+  const response = await fetch("/api/metrics/oidc-client-sync", {
+    credentials: "same-origin",
+    signal: context.signal,
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch OIDC client sync metrics: ${String(response.status)}`,
+    );
+  }
+  const body = (await response.json()) as OidcClientSyncResponse;
+  if (
+    body.keycloak_status !== "connected" &&
+    body.keycloak_status !== "disconnected" &&
+    body.keycloak_status !== "unknown"
+  ) {
+    throw new Error("OIDC client sync response has an invalid Keycloak status");
+  }
+  return [
+    {
+      id: "oidc-client-sync",
+      oidcClientSync: {
+        ...(isFiniteNumber(body.accuracy_percent)
+          ? { accuracyPercent: body.accuracy_percent.toFixed(1) }
+          : {}),
+        ...(isFiniteNumber(body.expected_clients)
+          ? { expectedClients: String(Math.round(body.expected_clients)) }
+          : {}),
+        keycloakStatus: body.keycloak_status,
+        ...(isFiniteNumber(body.synced_clients)
+          ? { syncedClients: String(Math.round(body.synced_clients)) }
+          : {}),
+      },
+      unit: "%",
+      value: isFiniteNumber(body.accuracy_percent)
+        ? body.accuracy_percent.toFixed(1)
+        : "NaN",
     },
   ];
 }
@@ -737,6 +1038,40 @@ export function mapControlPlaneReconciliationResponse(
       value: String(Math.round(body.stale_resource_status_count)),
       ...(staleTrend ? { hourlyTrend: staleTrend } : {}),
     },
+    ...(isFiniteNumber(body.state_accuracy_percent) ||
+    isFiniteNumber(body.reconciliation_resources_total)
+      ? [
+          {
+            id: "state-accuracy",
+            stateAccuracy: {
+              ...(isFiniteNumber(body.state_accuracy_percent)
+                ? { accuracyPercent: body.state_accuracy_percent.toFixed(1) }
+                : {}),
+              ...(isFiniteNumber(body.observed_matching_desired)
+                ? {
+                    observedMatchingDesired: String(
+                      Math.round(body.observed_matching_desired),
+                    ),
+                  }
+                : {}),
+              staleResources: String(
+                Math.round(body.stale_resource_status_count),
+              ),
+              ...(isFiniteNumber(body.reconciliation_resources_total)
+                ? {
+                    totalResources: String(
+                      Math.round(body.reconciliation_resources_total),
+                    ),
+                  }
+                : {}),
+            },
+            unit: "%",
+            value: isFiniteNumber(body.state_accuracy_percent)
+              ? body.state_accuracy_percent.toFixed(1)
+              : "NaN",
+          },
+        ]
+      : []),
   ];
   return metrics;
 }
@@ -756,6 +1091,182 @@ async function fetchControlPlaneReconciliationMetrics(
   return mapControlPlaneReconciliationResponse(
     (await response.json()) as ControlPlaneReconciliationResponse,
   );
+}
+
+function usageNumber(
+  value: number | undefined,
+  source: UsageMetricSourceId,
+  field: string,
+): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`Invalid ${source} response field: ${field}`);
+  }
+  return value;
+}
+
+function usageTrend(points: readonly DailyTrendPoint[] | undefined) {
+  if (points === undefined) {
+    return undefined;
+  }
+  return {
+    points: points.map((point) => ({
+      label: point.date,
+      value: point.value,
+    })),
+  };
+}
+
+function mapUsageGatewayMetricsResponse(body: unknown): UsageMetric[] {
+  const response = body as UsageGatewayMetricsResponse;
+  const metrics: UsageMetric[] = [];
+  const requestVolume = usageNumber(
+    response.request_volume,
+    "usage-gateways",
+    "request_volume",
+  );
+  if (requestVolume !== undefined) {
+    metrics.push({
+      id: "gateway-request-volume",
+      trend: usageTrend(response.daily_request_volume),
+      value: String(Math.round(requestVolume)),
+    });
+  }
+
+  const errorRate = usageNumber(
+    response.request_error_rate_percent,
+    "usage-gateways",
+    "request_error_rate_percent",
+  );
+  if (errorRate !== undefined) {
+    metrics.push({
+      id: "gateway-error-rate",
+      trend: usageTrend(response.daily_request_error_rate_percent),
+      value: String(Math.round(errorRate)),
+    });
+  }
+
+  const activeGateways = usageNumber(
+    response.active_gateways,
+    "usage-gateways",
+    "active_gateways",
+  );
+  if (activeGateways !== undefined) {
+    const metric: UsageMetric = {
+      id: "active-gateways",
+      value: String(activeGateways),
+    };
+    const totalGateways = usageNumber(
+      response.total_gateways,
+      "usage-gateways",
+      "total_gateways",
+    );
+    if (totalGateways !== undefined) {
+      metric.total = String(totalGateways);
+      if (totalGateways > 0) {
+        metric.activeSharePercent = String(
+          (activeGateways / totalGateways) * 100,
+        );
+      }
+    }
+    metrics.push(metric);
+  }
+
+  const unusedGateways = usageNumber(
+    response.unused_gateways,
+    "usage-gateways",
+    "unused_gateways",
+  );
+  if (unusedGateways !== undefined) {
+    metrics.push({ id: "unused-gateways", value: String(unusedGateways) });
+  }
+
+  return metrics;
+}
+
+function mapUsageSandboxMetricsResponse(body: unknown): UsageMetric[] {
+  const response = body as UsageSandboxMetricsResponse;
+  const activeSandboxes = usageNumber(
+    response.active_sandboxes,
+    "usage-sandboxes",
+    "active_sandboxes",
+  );
+  if (activeSandboxes === undefined) {
+    return [];
+  }
+
+  const totalSandboxes = usageNumber(
+    response.total_sandboxes,
+    "usage-sandboxes",
+    "total_sandboxes",
+  );
+  if (totalSandboxes === undefined) {
+    return [];
+  }
+
+  return [
+    {
+      id: "sandbox-utilization",
+      trend: usageTrend(response.daily_utilization_percent),
+      unit: "sandboxes",
+      value: String(Math.round(activeSandboxes)),
+      total: String(Math.round(totalSandboxes)),
+    },
+  ];
+}
+
+function mapUsageSandboxLifetimeResponse(body: unknown): UsageMetric[] {
+  const response = body as UsageSandboxLifetimeResponse;
+  const mean = usageNumber(
+    response.mean_seconds,
+    "usage-sandbox-lifetime",
+    "mean_seconds",
+  );
+  const p50 = usageNumber(
+    response.p50_seconds,
+    "usage-sandbox-lifetime",
+    "p50_seconds",
+  );
+  const p95 = usageNumber(
+    response.p95_seconds,
+    "usage-sandbox-lifetime",
+    "p95_seconds",
+  );
+  if (mean === undefined && p50 === undefined && p95 === undefined) {
+    return [];
+  }
+
+  return [
+    {
+      id: "sandbox-lifetime",
+      sandboxLifetime: {
+        ...(mean !== undefined ? { mean: String(mean) } : {}),
+        ...(p50 !== undefined ? { p50: String(p50) } : {}),
+        ...(p95 !== undefined ? { p95: String(p95) } : {}),
+      },
+      trend: usageTrend(response.daily_mean_seconds),
+      value: mean === undefined ? "NaN" : String(mean),
+    },
+  ];
+}
+
+async function fetchUsageMetricsSource(
+  context: DashboardInvocationContext,
+  path: string,
+  mapper: (body: unknown) => UsageMetric[],
+): Promise<UsageMetric[]> {
+  const response = await fetch(clusterMetricPath(path, context.timeRange), {
+    credentials: "same-origin",
+    signal: context.signal,
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch usage metrics: ${String(response.status)}`,
+    );
+  }
+  return mapper(await response.json());
 }
 
 interface MetricSourceDefinition {
@@ -805,6 +1316,14 @@ const metricSources: readonly MetricSourceDefinition[] = [
   {
     id: "cluster-nodes",
     fetch: async (context) => [await fetchClusterNodesMetric(context.signal)],
+  },
+  {
+    id: "resource-readiness",
+    fetch: async (context) => fetchResourceReadinessMetric(context),
+  },
+  {
+    id: "certificate-health",
+    fetch: async (context) => fetchCertificateHealthMetric(context),
   },
 ];
 
@@ -876,14 +1395,21 @@ export function createDashboardControlPlaneAdapter(
         const results = await Promise.allSettled([
           fetchApiReliabilityMetrics(context),
           fetchControlPlaneReconciliationMetrics(context),
+          fetchOidcClientSyncMetrics(context),
         ]);
         const metrics: OperationalMetric[] = [];
         const failedSources: (
-          "api-reliability" | "control-plane-reconciliation"
+          | "api-reliability"
+          | "control-plane-reconciliation"
+          | "oidc-client-sync"
         )[] = [];
         for (const [index, result] of results.entries()) {
           const source =
-            index === 0 ? "api-reliability" : "control-plane-reconciliation";
+            index === 0
+              ? "api-reliability"
+              : index === 1
+                ? "control-plane-reconciliation"
+                : "oidc-client-sync";
           if (result.status === "fulfilled") metrics.push(...result.value);
           else if (isAbortError(result.reason)) throw result.reason;
           else failedSources.push(source);
@@ -904,11 +1430,97 @@ export function createDashboardControlPlaneAdapter(
         // mergeReliabilityDashboardMetrics can keep stale widgets on
         // refresh and the page can show the partial-load warning.
         return {
-          failedSources: ["api-reliability", "control-plane-reconciliation"],
+          failedSources: [
+            "api-reliability",
+            "control-plane-reconciliation",
+            "oidc-client-sync",
+          ],
           lastSuccessfulRefresh: new Date(),
           metrics: [],
         };
       }
+    },
+
+    async getUsageMetrics(
+      context: DashboardInvocationContext,
+    ): Promise<UsageDashboardMetrics> {
+      context.signal?.throwIfAborted();
+
+      const sources = [
+        {
+          fetch: () =>
+            fetchUsageMetricsSource(
+              context,
+              "/api/metrics/usage/gateways",
+              mapUsageGatewayMetricsResponse,
+            ),
+          id: "usage-gateways",
+        },
+        {
+          fetch: () =>
+            fetchUsageMetricsSource(
+              context,
+              "/api/metrics/usage/sandboxes",
+              mapUsageSandboxMetricsResponse,
+            ),
+          id: "usage-sandboxes",
+        },
+        {
+          fetch: () =>
+            fetchUsageMetricsSource(
+              context,
+              "/api/metrics/usage/sandbox-lifetime",
+              mapUsageSandboxLifetimeResponse,
+            ),
+          id: "usage-sandbox-lifetime",
+        },
+      ] as const;
+
+      const settled = await Promise.allSettled(
+        sources.map((source) => source.fetch()),
+      );
+      const metrics: UsageMetric[] = [];
+      const failedSources: UsageMetricSourceId[] = [];
+
+      for (const [index, result] of settled.entries()) {
+        const source = sources[index];
+        if (source === undefined) {
+          continue;
+        }
+        if (result.status === "fulfilled") {
+          metrics.push(...result.value);
+          continue;
+        }
+        if (isAbortError(result.reason)) {
+          throw result.reason;
+        }
+        failedSources.push(source.id);
+      }
+
+      if (failedSources.length === sources.length) {
+        throw new Error("All usage dashboard metric sources failed");
+      }
+
+      return {
+        ...(failedSources.length > 0 ? { failedSources } : {}),
+        lastSuccessfulRefresh: new Date(),
+        metrics,
+        timeRange: context.timeRange ?? 7,
+      };
+    },
+
+    async getAdoptionMetrics(
+      context: DashboardInvocationContext,
+    ): Promise<OperationalDashboardMetrics> {
+      context.signal?.throwIfAborted();
+
+      const metrics = await fetchAdoptionMetrics(context);
+
+      return {
+        lastSuccessfulRefresh: new Date(),
+        metrics,
+        timeRange: context.timeRange ?? 7,
+      };
     },
   };
 }

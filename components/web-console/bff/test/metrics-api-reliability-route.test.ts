@@ -165,6 +165,7 @@ describe("GET /api/metrics/api-reliability", () => {
     return `http://127.0.0.1:${String(address.port)}`;
   }
 
+  // Verifies: OBS-REL-02.01
   it("returns API reliability metrics when Prometheus succeeds", async () => {
     const prometheusUrl = await startPrometheusStub((request, response) => {
       const url = parsePrometheusUrl(request);
@@ -264,6 +265,7 @@ describe("GET /api/metrics/api-reliability", () => {
     });
   });
 
+  // Verifies: OBS-REL-03.03
   it("requires a session when OIDC is enabled", async () => {
     oidcServer = await createOidcServer();
     app = await buildTestApp({
@@ -285,6 +287,7 @@ describe("GET /api/metrics/api-reliability", () => {
     });
   });
 
+  // Verifies: OBS-REL-03.01
   it("allows dashboard administrators when OIDC is enabled", async () => {
     oidcServer = await createOidcServer();
     const prometheusUrl = await startPrometheusStub((request, response) => {
@@ -345,6 +348,7 @@ describe("GET /api/metrics/api-reliability", () => {
     });
   });
 
+  // Verifies: OBS-REL-03.02, REL-DASH-04.03
   it("rejects authenticated non-admin callers when OIDC is enabled", async () => {
     oidcServer = await createOidcServer();
     app = await buildTestApp({

@@ -2,14 +2,14 @@ package secretSources
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 
 	"github.com/gorilla/mux"
 	"google.golang.org/grpc"
 
-	"github.com/golang/glog"
-
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/extsearch"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/secretstore"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/agentRuntimes"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
@@ -20,7 +20,6 @@ import (
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/registry"
 	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/events"
-	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/generic"
 )
 
 type ServiceLocator func() SecretSourceService
@@ -85,10 +84,10 @@ func init() {
 		// it fails any value submission loudly (errorStore).
 		store, storeErr := secretstore.NewFromEnv()
 		if storeErr != nil {
-			glog.Warningf("secret store configuration error; secret submissions will be rejected: %v", storeErr)
+			slog.Warn("secret store configuration error; secret submissions will be rejected", "error", storeErr)
 			store = secretstore.NewErrorStore(storeErr)
 		}
-		h := NewSecretSourceHandler(Service(envServices), generic.Service(envServices), store)
+		h := NewSecretSourceHandler(Service(envServices), extsearch.Service(envServices), store, newManageAuthorizer(envServices))
 
 		router := extRouter.PathPrefix("/secret_sources").Subrouter()
 		router.HandleFunc("", h.List).Methods(http.MethodGet)
@@ -108,7 +107,7 @@ func init() {
 			}
 			return nil
 		}
-		pb.RegisterSecretSourceServiceServer(grpcServer, NewSecretSourceGRPCHandler(Service(envServices), generic.Service(envServices), brokerFunc))
+		pb.RegisterSecretSourceServiceServer(grpcServer, NewSecretSourceGRPCHandler(Service(envServices), extsearch.Service(envServices), brokerFunc))
 	})
 
 	presenters.RegisterPath(SecretSource{}, "secret_sources")

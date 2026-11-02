@@ -48,6 +48,36 @@
   margin: 0;
 }
 
+/* Infinite-scroll sentinel at the top of the scroll container: entering the
+   viewport triggers the next older page (E2E-LOG-22). Zero-height, no layout. */
+.logSentinel {
+  height: 1px;
+  margin: 0;
+  padding: 0;
+}
+
+/* The loading indicator pinned at the top while an older page is in flight. */
+.logLoadingRow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--pf-t--global--spacer--sm, 8px);
+  padding: var(--pf-t--global--spacer--sm, 8px);
+  color: var(--pf-t--global--text--color--subtle, #9a9da0);
+}
+
+/* The log pane and its "jump to latest" affordance are stacked so the button can
+   float at the bottom-right of the scroll region. */
+.logPaneWrap {
+  position: relative;
+}
+
+.jumpToLatest {
+  position: absolute;
+  right: var(--pf-t--global--spacer--md, 16px);
+  bottom: var(--pf-t--global--spacer--md, 16px);
+}
+
 .logTime {
   color: var(--pf-t--global--text--color--subtle, #9a9da0);
   margin-right: var(--pf-t--global--spacer--sm, 8px);

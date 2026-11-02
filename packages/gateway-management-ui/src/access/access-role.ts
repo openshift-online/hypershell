@@ -41,7 +41,7 @@ export function roleDescription(
   return formatMessage(descriptor);
 }
 
-/** Roles the caller may assign given their capabilities (GAM-08). */
+/** Roles the caller may assign given their capabilities (GTW-ACC-08). */
 export function assignableRoles(
   capabilities: GatewayAccessCapabilities,
 ): readonly GatewayAccessRole[] {
@@ -55,7 +55,7 @@ export function assignableRoles(
 
 /**
  * The accessible reason a row's management controls are disabled, or null when
- * the caller may act on the row. Mirrors the server guarantee (GAM-UI-08); the
+ * the caller may act on the row. Mirrors the server guarantee (WEB-ACC-08); the
  * server stays authoritative.
  *
  * ponytail: ownerCount is counted from the current page, so last-owner disabling

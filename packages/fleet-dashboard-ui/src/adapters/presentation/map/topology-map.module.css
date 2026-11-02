@@ -123,7 +123,7 @@
 /* Fleet-level "health unavailable" banner: a prominent pill centered at the top of the
    canvas, shown only when >=1 instance reports no Argo health. Color is NOT the sole
    carrier - it pairs an exclamation icon with explicit count text (brand-color spec
-   UI-BRAND-03). The background danger color is set inline from TONE_COLOR so it matches
+   UIS-BRND-03). The background danger color is set inline from TONE_COLOR so it matches
    the node attention rings exactly. A slow glow pulse marks it as a severe, live signal;
    it holds steady under prefers-reduced-motion. */
 .healthAlert {
@@ -296,7 +296,7 @@
 
 /* The promotion fly-in (the map's headliner) now lives in the shared flight-motion
    primitive (../shared/flight-motion.module.css + .ts), reused by the Agent SDLC board
-   so both surfaces share one arc, dust burst, and timing (SDLC-VIS-12a). The map overlay
+   so both surfaces share one arc, dust burst, and timing (SDLC-VIS-20). The map overlay
    (flights.tsx) imports .flightTravel/.flightScale/.impactRing/.dust from there. */
 
 @media (prefers-reduced-motion: reduce) {

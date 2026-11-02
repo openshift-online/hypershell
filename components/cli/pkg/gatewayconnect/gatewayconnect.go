@@ -81,8 +81,16 @@ func resolveEndpoint(gw gatewayResponse) string {
 func buildConnectionScript(name, endpoint string, oidc oidcConfig) string {
 	const (
 		providerName = "my-gcp"
-		model        = "claude-haiku-4-5"
-		sandboxName  = "mysand"
+		// providerProfile: keep in sync with
+		// packages/gateway-management-ui/src/gateways/gateway-connections.ts
+		// (vertexProviderProfileFile).
+		providerProfile = "google-vertex-ai.yaml"
+		// providerProfileURL: keep in sync with
+		// packages/gateway-management-ui/src/gateways/gateway-connections.ts
+		// (vertexProviderProfileUrl).
+		providerProfileURL = "https://raw.githubusercontent.com/NVIDIA/OpenShell/main/providers/google-vertex-ai.yaml"
+		model              = "claude-haiku-4-5"
+		sandboxName        = "mysand"
 	)
 
 	addParts := []string{
@@ -100,20 +108,30 @@ func buildConnectionScript(name, endpoint string, oidc oidcConfig) string {
 		"# 1. Log in to the gateway",
 		strings.Join(addParts, " \\\n"),
 		"",
-		"# Steps 2-4 below show a GCP/Vertex AI example. Adjust provider type and config for your environment.",
+		"# Steps 2-5 below show a GCP/Vertex AI example. Adjust provider type and config for your environment.",
 		"",
-		"# 2. Add the Claude on Vertex AI provider",
+		"# 2. Download and import the provider profile",
+		"curl -LsSfO " + providerProfileURL,
+		"openshell provider profile import -f " + providerProfile + " --global",
+		"",
+		"# NOTE: the profile import scope above (--global) must match the scope used",
+		"# by `provider create` below (its default scope, or its --global-profile",
+		`# flag). A scope mismatch reproduces a "provider profile not found" error`,
+		"# even though the profile has already been imported.",
+		"",
+		"# 3. Add the Claude on Vertex AI provider",
 		"openshell provider create \\",
 		"  --name " + providerName + " \\",
 		"  --type google-vertex-ai \\",
+		"  --global-profile \\",
 		"  --from-gcloud-adc \\",
 		`  --config VERTEX_AI_PROJECT_ID="$ANTHROPIC_VERTEX_PROJECT_ID" \`,
 		"  --config VERTEX_AI_REGION=global",
 		"",
-		"# 3. Select the model",
+		"# 4. Select the model",
 		"openshell inference set --provider " + providerName + " --model " + model,
 		"",
-		"# 4. Create a sandbox",
+		"# 5. Create a sandbox",
 		"DRIVER_CONFIG='" + sandboxDriverConfig + "'",
 		"",
 		"openshell sandbox create \\",

@@ -15,13 +15,31 @@ import { expect, userEvent, within } from "storybook/test";
 import { createMockDashboardControlPlane } from "../../adapters/mock/dashboard-control-plane";
 import { englishMessages } from "../../i18n/catalog";
 import { ApplicationShell } from "../shell/application-shell";
+import { routePaths } from "../../../shared/routes";
 
 const stubNavigation: DashboardUiNavigation = {
-  collectionHref: "/",
+  adoptionHref: routePaths.dashboardAdoption,
+  collectionHref: routePaths.gatewayList,
+  dashboardHref: routePaths.dashboard,
+  inventoryHref: routePaths.dashboardInventory,
+  provisioningHref: routePaths.dashboardProvisioning,
+  reliabilityHref: routePaths.dashboardReliability,
+  usageHref: routePaths.dashboardUsage,
   navigate: () => undefined,
 };
 
+function stubAdoptionMetrics(
+  context: Parameters<DashboardControlPlane["getAdoptionMetrics"]>[0],
+) {
+  context.signal?.throwIfAborted();
+  return Promise.resolve({
+    lastSuccessfulRefresh: new Date(),
+    metrics: [],
+  });
+}
+
 const stubReliabilityControlPlane: DashboardControlPlane = {
+  getAdoptionMetrics: stubAdoptionMetrics,
   getOperationalMetrics: (context) => {
     context.signal?.throwIfAborted();
     return Promise.resolve({
@@ -45,6 +63,7 @@ const mockDashboard = createDashboardOperations({
 
 const initialLoadFailedDashboard = createDashboardOperations({
   controlPlane: {
+    getAdoptionMetrics: stubAdoptionMetrics,
     getOperationalMetrics: (context) => {
       context.signal?.throwIfAborted();
       return Promise.resolve({
@@ -65,6 +84,7 @@ const initialLoadFailedDashboard = createDashboardOperations({
 
 const loadingDashboard = createDashboardOperations({
   controlPlane: {
+    getAdoptionMetrics: stubAdoptionMetrics,
     getOperationalMetrics: (context) => {
       context.signal?.throwIfAborted();
       return Promise.resolve({
@@ -83,6 +103,7 @@ const loadingDashboard = createDashboardOperations({
 
 const partialLoadDashboard = createDashboardOperations({
   controlPlane: {
+    getAdoptionMetrics: stubAdoptionMetrics,
     getOperationalMetrics: (context) => {
       context.signal?.throwIfAborted();
       return Promise.resolve({
@@ -107,6 +128,7 @@ function createRefreshFailedDashboard(): DashboardOperations {
   let callCount = 0;
 
   const controlPlane: DashboardControlPlane = {
+    getAdoptionMetrics: stubAdoptionMetrics,
     getOperationalMetrics: (context) => {
       context.signal?.throwIfAborted();
       return Promise.resolve({
@@ -148,6 +170,7 @@ function DashboardPreview({
       dashboard={
         dashboard ?? (metrics === undefined ? mockDashboard : stubDashboard)
       }
+      isAdmin
       navigation={stubNavigation}
     >
       <ReliabilityDashboardPage metrics={metrics} />

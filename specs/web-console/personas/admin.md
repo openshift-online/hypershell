@@ -16,7 +16,7 @@ This persona represents an administrator responsible for the reliability and saf
 
 - Understand overall platform health
 - Find degraded, failed, or stuck gateways quickly
-- Identify a gateway's owner, creator, placement, release, and current use
+- Identify a gateway's owner, creator, placement, OpenShell version, and current use
 - Distinguish a tenant problem from a platform problem
 - Contact the right owner with useful context
 - Delete abandoned, unsafe, or unrecoverable gateways
@@ -27,7 +27,7 @@ This persona represents an administrator responsible for the reliability and saf
 | Example | Successful outcome |
 | --- | --- |
 | Provisioning failures increase | The admin sees the success-rate change, narrows the issue to a provider or cluster, and starts investigation |
-| A gateway remains degraded | The admin finds its owner, placement, release, and diagnostics without impersonating the user |
+| A gateway remains degraded | The admin finds its owner, placement, OpenShell version, and diagnostics without impersonating the user |
 | A cluster incident affects tenants | The admin identifies affected gateways and communicates the impact to their owners |
 | An abandoned gateway consumes resources | The admin confirms its identity and owner, records the reason, and deletes it safely |
 
@@ -68,7 +68,7 @@ This persona represents an administrator responsible for the reliability and saf
 
 - Put **Needs attention** and platform health at the top of the landing page
 - Link summary metrics to filtered gateway or cluster views where possible
-- Show owner, creator, cluster, release, endpoint, gateway ID, and timestamps
+- Show owner, creator, cluster, OpenShell version, endpoint, gateway ID, and timestamps
 - Keep operational and reliability dashboards focused on different questions
 - Provide diagnostics and runbook links without exposing secrets or tenant content
 - Require clear confirmation and audit context for destructive actions

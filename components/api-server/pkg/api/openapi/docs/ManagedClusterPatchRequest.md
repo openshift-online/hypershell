@@ -4,12 +4,10 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**Name** | Pointer to **string** |  | [optional] 
-**Provider** | Pointer to **string** |  | [optional] 
-**Region** | Pointer to **string** |  | [optional] 
-**KubeconfigSecret** | Pointer to **string** |  | [optional] 
-**Status** | Pointer to **string** |  | [optional] 
-**ApiServerUrl** | Pointer to **string** |  | [optional] 
+**Name** | Pointer to **string** |  | [optional]
+**KubeconfigSecret** | Pointer to **string** |  | [optional]
+**Status** | Pointer to **string** |  | [optional]
+**ApiServerUrl** | Pointer to **string** |  | [optional]
 
 ## Methods
 
@@ -54,56 +52,6 @@ SetName sets Name field to given value.
 `func (o *ManagedClusterPatchRequest) HasName() bool`
 
 HasName returns a boolean if a field has been set.
-
-### GetProvider
-
-`func (o *ManagedClusterPatchRequest) GetProvider() string`
-
-GetProvider returns the Provider field if non-nil, zero value otherwise.
-
-### GetProviderOk
-
-`func (o *ManagedClusterPatchRequest) GetProviderOk() (*string, bool)`
-
-GetProviderOk returns a tuple with the Provider field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetProvider
-
-`func (o *ManagedClusterPatchRequest) SetProvider(v string)`
-
-SetProvider sets Provider field to given value.
-
-### HasProvider
-
-`func (o *ManagedClusterPatchRequest) HasProvider() bool`
-
-HasProvider returns a boolean if a field has been set.
-
-### GetRegion
-
-`func (o *ManagedClusterPatchRequest) GetRegion() string`
-
-GetRegion returns the Region field if non-nil, zero value otherwise.
-
-### GetRegionOk
-
-`func (o *ManagedClusterPatchRequest) GetRegionOk() (*string, bool)`
-
-GetRegionOk returns a tuple with the Region field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetRegion
-
-`func (o *ManagedClusterPatchRequest) SetRegion(v string)`
-
-SetRegion sets Region field to given value.
-
-### HasRegion
-
-`func (o *ManagedClusterPatchRequest) HasRegion() bool`
-
-HasRegion returns a boolean if a field has been set.
 
 ### GetKubeconfigSecret
 
@@ -182,5 +130,3 @@ HasApiServerUrl returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
-
-

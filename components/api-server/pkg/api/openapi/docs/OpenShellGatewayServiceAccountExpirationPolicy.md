@@ -4,9 +4,9 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**DefaultSeconds** | **int32** |  | 
-**MinimumSeconds** | **int32** |  | 
-**MaximumSeconds** | **int32** |  | 
+**DefaultSeconds** | **int32** |  |
+**MinimumSeconds** | **int32** |  |
+**MaximumSeconds** | **int32** |  |
 
 ## Methods
 
@@ -89,5 +89,3 @@ SetMaximumSeconds sets MaximumSeconds field to given value.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
-
-

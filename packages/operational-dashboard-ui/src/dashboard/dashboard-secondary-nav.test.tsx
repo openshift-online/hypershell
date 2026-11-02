@@ -31,6 +31,11 @@ function renderNav(active: DashboardSecondaryNavActive, isAdmin = true) {
           lastSuccessfulRefresh: new Date(),
           metrics: [],
         }),
+      getAdoptionMetrics: () =>
+        Promise.resolve({
+          lastSuccessfulRefresh: new Date(),
+          metrics: [],
+        }),
     },
   });
 
@@ -39,7 +44,16 @@ function renderNav(active: DashboardSecondaryNavActive, isAdmin = true) {
       <DashboardUiProvider
         dashboard={dashboard}
         isAdmin={isAdmin}
-        navigation={{ collectionHref: "/", navigate }}
+        navigation={{
+          adoptionHref: "/dashboard/adoption",
+          collectionHref: "/",
+          dashboardHref: "/dashboard",
+          inventoryHref: "/dashboard/inventory",
+          provisioningHref: "/dashboard/provisioning",
+          reliabilityHref: "/dashboard/reliability",
+          usageHref: "/dashboard/usage",
+          navigate,
+        }}
       >
         <DashboardSecondaryNav active={active} />
       </DashboardUiProvider>
@@ -62,6 +76,7 @@ describe("DashboardSecondaryNav", () => {
     expect(reliability.getAttribute("aria-current")).toBeNull();
   });
 
+  // Verifies: REL-DASH-06.03
   it("marks Reliability as active on the reliability route", () => {
     renderNav("reliability");
 
@@ -75,6 +90,30 @@ describe("DashboardSecondaryNav", () => {
         .getByRole("link", { name: "Overview" })
         .getAttribute("aria-current"),
     ).toBeNull();
+  });
+
+  it("marks Usage as active and makes it available to non-admins", () => {
+    renderNav("usage", false);
+
+    const usage = screen.getByRole("link", { name: "Usage" });
+
+    expect(usage.getAttribute("href")).toBe("/dashboard/usage");
+    expect(usage.getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("link", { name: "Overview" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Reliability" })).toBeNull();
+  });
+
+  it("marks Adoption as active and navigates to the adoption route", () => {
+    const { navigate } = renderNav("adoption");
+
+    const adoption = screen.getByRole("link", { name: "Adoption" });
+
+    expect(adoption.getAttribute("href")).toBe("/dashboard/adoption");
+    expect(adoption.getAttribute("aria-current")).toBe("page");
+
+    fireEvent.click(adoption);
+
+    expect(navigate).toHaveBeenCalledWith("/dashboard/adoption");
   });
 
   it("navigates through the host navigation port", () => {
@@ -91,7 +130,7 @@ describe("DashboardSecondaryNav", () => {
     expect(screen.getByRole("link", { name: "Overview" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Adoption" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Reliability" })).toBeNull();
-    expect(screen.queryByRole("link", { name: "Usage" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Usage" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Cost" })).toBeNull();
   });
 });

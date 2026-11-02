@@ -69,7 +69,7 @@ assert_eq "tok" "$(printf '%s' '{"access_token":"tok","expires_in":60}' | json_s
 assert_eq "abc-id" "$(printf '%s' '[{"id":"abc-id","clientId":"hypershell-frontend"}]' | json_first_id)" "json_first_id"
 # Presenters emit id before name. The old grep ("name" then "id" in one object)
 # misses this shape and re-POSTs a second dev-gateway on every openshift-seed.
-_api_list='{"kind":"GatewayList","page":1,"size":100,"total":1,"items":[{"id":"2FhMpQzXBzABC","kind":"Gateway","href":"/api/hypershell/v1/gateways/2FhMpQzXBzABC","created_at":"2026-09-14T00:00:00Z","updated_at":"2026-09-14T00:00:00Z","name":"dev-gateway","cluster_id":"c1","release_id":"r1"}]}'
+_api_list='{"kind":"GatewayList","page":1,"size":100,"total":1,"items":[{"id":"2FhMpQzXBzABC","kind":"Gateway","href":"/api/hypershell/v1/gateways/2FhMpQzXBzABC","created_at":"2026-09-14T00:00:00Z","updated_at":"2026-09-14T00:00:00Z","name":"dev-gateway","cluster_id":"c1","gateway_version":"v1"}]}'
 assert_eq "2FhMpQzXBzABC" "$(printf '%s' "${_api_list}" | json_named_id dev-gateway)" \
   "json_named_id finds id-before-name list items"
 assert_eq "id-default" "$(printf '%s' '{"items":[{"name":"other","id":"id-other"},{"name":"dev-gateway","id":"id-default"}]}' | json_named_id dev-gateway)" \
@@ -521,22 +521,6 @@ if grep -rq 'WatchGateways\|WatchManagedClusters\|WatchRoleBindings\|WatchAgentR
   && grep -rn 'auth-bypass-methods' "${REPO_ROOT}/deploy" | grep -q 'Watch'; then
   FAIL=$((FAIL + 1))
   echo 'FAIL: a deploy overlay still exempts a Watch* RPC from JWT via --auth-bypass-methods'
-else
-  PASS=$((PASS + 1))
-fi
-# Gateway databases are provisioned from ONE admin credential Secret mounted
-# into the controller (hypershell-gateway-database-admin); there is no
-# ManagedDatabase resource, no connection_secret namespace, and no database_id
-# on the gateway create body.
-if grep -q 'managed_databases\|ManagedDatabase\|database_id\|connection_secret\|hypershell-managed-db\|OPENSHIFT_DB_CREDENTIALS_NAMESPACE' "${SCRIPT_DIR}/drivers/openshift.sh"; then
-  FAIL=$((FAIL + 1))
-  echo 'FAIL: OpenShift driver still references ManagedDatabase / database_id / hypershell-managed-db'
-else
-  PASS=$((PASS + 1))
-fi
-if grep -q 'managed_databases\|ManagedDatabase\|database_id\|hypershell-managed-db' "${REPO_ROOT}/scripts/kind/seed.sh" "${REPO_ROOT}/scripts/kind/up.sh"; then
-  FAIL=$((FAIL + 1))
-  echo 'FAIL: Kind scripts still reference ManagedDatabase / database_id / hypershell-managed-db'
 else
   PASS=$((PASS + 1))
 fi

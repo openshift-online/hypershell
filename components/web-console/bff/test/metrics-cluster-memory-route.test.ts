@@ -216,6 +216,7 @@ describe("GET /api/metrics/cluster-memory", () => {
     });
   });
 
+  // Verifies: OBS-MEM-03.01
   it("returns 502 when Prometheus fails", async () => {
     const prometheusUrl = await startPrometheusStub((_request, response) => {
       response.statusCode = 500;
@@ -290,6 +291,7 @@ describe("GET /api/metrics/cluster-memory", () => {
     expect(secondDailyUsed?.value).toBeNull();
   });
 
+  // Verifies: OBS-MEM-04.03
   it("requires a session when OIDC is enabled", async () => {
     oidcServer = await createOidcServer();
     app = await buildTestApp({
@@ -311,6 +313,7 @@ describe("GET /api/metrics/cluster-memory", () => {
     });
   });
 
+  // Verifies: OBS-MEM-04.01
   it("allows dashboard administrators when OIDC is enabled", async () => {
     oidcServer = await createOidcServer();
     const prometheusUrl = await startPrometheusStub((request, response) => {
@@ -363,6 +366,7 @@ describe("GET /api/metrics/cluster-memory", () => {
     });
   });
 
+  // Verifies: OBS-MEM-04.02
   it("rejects authenticated non-admin callers when OIDC is enabled", async () => {
     oidcServer = await createOidcServer();
     app = await buildTestApp({

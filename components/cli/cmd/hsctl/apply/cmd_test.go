@@ -13,8 +13,6 @@ func TestIsSupportedKind(t *testing.T) {
 		expected bool
 	}{
 		{"Gateway", true},
-		{"GatewayNetwork", false},
-		{"GatewayRelease", false},
 		{"ManagedCluster", true},
 		{"Role", true},
 		{"RoleBinding", true},
@@ -231,8 +229,7 @@ kind: ManagedCluster
 metadata:
   name: cluster-1
 spec:
-  provider: aws
-  region: us-east-1
+  kubeconfig_secret: kubeconfig
 `
 	if err := os.WriteFile(filepath.Join(tmpdir, "resources.yaml"), []byte(mixedResources), 0644); err != nil {
 		t.Fatal(err)

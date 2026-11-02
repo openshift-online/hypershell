@@ -6,25 +6,112 @@
 // translated equivalent is the sibling promotion/instances tables.
 
 import { totalGateways } from "../../../domain/fleet";
+import { capabilityValue } from "../../../domain/map/capabilities";
 import { identiName } from "../../../domain/map/identiname";
 import type { MapNode } from "../../../domain/map/model";
 import type { NodeBox } from "../../../domain/map/layout";
 import { healthBadge, isHealthUnavailable } from "../../../domain/status";
 import {
+  capabilityChip,
   CARD_BG,
   CARD_STROKE,
   promotionRing,
   providerChip,
   roleBadgeFill,
+  type SvgColor,
   TEXT_COLOR,
   TEXT_SUBTLE,
   TONE_COLOR,
 } from "./colors";
 import { SANDBOX_COLOR } from "./colors";
 import { Identicon } from "./identicon";
+import { measureText, truncateToWidth } from "./measure-text";
 import { SandSparkline } from "./sand-sparkline";
 import { SandboxSparkline } from "./sandbox-sparkline";
 import styles from "./topology-map.module.css";
+
+// One chip size system shared by EVERY card pill (provider, role, runtime) so
+// they read as one family: only width (measured) and colour
+// vary (FLT-CAP-04). Geometry is presentation-only; the pure layout never measures.
+const GUTTER = 10; // left inset: chips + chin sparklines start at x + GUTTER
+const CHIP_H = 16;
+const CHIP_FONT = 9;
+const CHIP_WEIGHT = 700;
+const CHIP_PAD_X = 7; // horizontal padding each side
+const CHIP_GAP = 6; // gap between chips in a row
+const CHIP_RX = 4; // corner radius
+const BADGE_ROW_Y = 54; // y-offset of the provider/role row from the card top
+const CAP_ROW_Y = 74; // y-offset of the runtime row
+
+/** Measured pill width for a chip label: its glyph width plus padding each side. */
+function chipWidth(label: string): number {
+  return Math.ceil(measureText(label, CHIP_FONT, CHIP_WEIGHT)) + CHIP_PAD_X * 2;
+}
+
+/** Left x of each chip in a row, given each chip's width and the row's start x.
+ *  A pure helper so the running cursor is a local, never reassigned render state
+ *  (the React-compiler lint forbids mutating a captured var inside a closure). */
+function chipLefts(widths: readonly number[], startX: number): number[] {
+  const lefts: number[] = [];
+  let acc = startX;
+  for (const w of widths) {
+    lefts.push(acc);
+    acc += w + CHIP_GAP;
+  }
+  return lefts;
+}
+
+interface ChipSpec {
+  readonly key: string;
+  readonly label: string;
+  readonly bg: SvgColor;
+  readonly fg: SvgColor;
+}
+
+/** One row of chips, each pill sized to its measured text so nothing overflows. */
+function ChipRow({
+  chips,
+  x,
+  y,
+}: {
+  chips: readonly ChipSpec[];
+  x: number;
+  y: number;
+}): React.ReactElement {
+  const widths = chips.map((c) => chipWidth(c.label));
+  const lefts = chipLefts(widths, x);
+  return (
+    <>
+      {chips.map((c, i) => {
+        const w = widths[i] ?? 0;
+        const left = lefts[i] ?? x;
+        return (
+          <g key={c.key}>
+            <rect
+              x={left}
+              y={y}
+              width={w}
+              height={CHIP_H}
+              rx={CHIP_RX}
+              fill={c.bg}
+            />
+            <text
+              x={left + w / 2}
+              y={y + CHIP_H / 2}
+              textAnchor="middle"
+              dominantBaseline="central"
+              fontSize={CHIP_FONT}
+              fontWeight={CHIP_WEIGHT}
+              fill={c.fg}
+            >
+              {c.label}
+            </text>
+          </g>
+        );
+      })}
+    </>
+  );
+}
 
 /** True when the node warrants the SOLID red "attention" ring: a confirmed problem -
  *  degraded Argo health or any failed gateway. Purely a function of server-reported
@@ -57,7 +144,7 @@ const ICON = 30;
 // which are raw DATA). Their accessible, translated equivalents are the "Version drift"
 // and "Health" rows in the detail drawer.
 const DRIFT_LABEL = "DRIFT";
-// Non-color carrier (brand-color.spec UI-BRAND-03: color is never the sole signal) for
+// Non-color carrier (brand-color.spec UIS-BRND-03: color is never the sole signal) for
 // unavailable Argo health, paired with the dashed red ring. Scoped to health, with the
 // "?" marking uncertainty rather than a confirmed-bad state.
 const HEALTH_UNAVAILABLE_LABEL = "HEALTH?";
@@ -98,7 +185,55 @@ export function MapNodeCard({
     sbxHist.length > 0
       ? [sbxHist.length, sbxHist[sbxHist.length - 1]].join(":")
       : "none";
-  const chip = node.provider ? providerChip(node.provider) : null;
+  // Row 1 (provider + role) and row 2 (runtime) are built as chip specs; an absent
+  // capability simply drops its chip and the row collapses around what remains
+  // (FLT-CAP-03). Colour derives from the values alone and provider and runtime
+  // are upper-cased (FLT-CAP-05).
+  const providerColors = node.provider ? providerChip(node.provider) : null;
+  const caps = node.capabilities ?? [];
+  const runtime = capabilityValue(caps, "runtime");
+
+  const badgeChips: ChipSpec[] = [];
+  if (providerColors && node.provider) {
+    badgeChips.push({
+      key: "provider",
+      label: node.provider.toUpperCase(),
+      bg: providerColors.bg,
+      fg: providerColors.fg,
+    });
+  }
+  if (node.role) {
+    // The role chip is the one INVERTED pill: a light same-hue fill with dark text,
+    // so hub/spoke reads as structural rather than another coloured capability.
+    badgeChips.push({
+      key: "role",
+      label: node.role.toUpperCase(),
+      bg: roleBadgeFill(node.role),
+      fg: "#10202f",
+    });
+  }
+
+  const capChips: ChipSpec[] = [];
+  if (runtime) {
+    const c = capabilityChip(runtime);
+    capChips.push({
+      key: "runtime",
+      label: runtime.toUpperCase(),
+      bg: c.bg,
+      fg: c.fg,
+    });
+  }
+
+  // Title/alias/cluster truncate with an ellipsis so a long name never overflows the
+  // card edge (FLT-CAP-04). The identity block sits right of the identicon.
+  const textX = x + 50;
+  const textMaxW = w - 58;
+  const titleText = truncateToWidth(node.id, 13, 700, textMaxW);
+  const aliasText = truncateToWidth(identiName(shownSeed), 10, 400, textMaxW);
+  const clusterText = node.cluster
+    ? truncateToWidth(node.cluster, 11, 700, w - 12)
+    : null;
+
   const select = () => {
     onSelect(node.id);
   };
@@ -131,8 +266,9 @@ export function MapNodeCard({
       onKeyDown={onKeyDown}
       style={{ cursor: "pointer" }}
     >
-      {/* cluster label above the card (data; empty -> omitted) */}
-      {node.cluster ? (
+      {/* cluster label above the card (data; empty -> omitted), truncated so a long
+          name never runs past the card edge */}
+      {clusterText ? (
         <text
           x={x + w / 2}
           y={y - 6}
@@ -141,7 +277,7 @@ export function MapNodeCard({
           fontWeight={700}
           fill={TEXT_SUBTLE}
         >
-          {node.cluster}
+          {clusterText}
         </text>
       ) : null}
 
@@ -204,55 +340,17 @@ export function MapNodeCard({
         />
       ) : null}
 
-      {/* provider chip - colour DERIVED from the provider label (brand hue for
-          known public clouds, hash hue otherwise). Sits on the badge row BELOW the
-          env name + alias. */}
-      {chip && node.provider ? (
-        <g>
-          <rect
-            x={x + 10}
-            y={y + 56}
-            width={42}
-            height={16}
-            rx={4}
-            fill={chip.bg}
-          />
-          <text
-            x={x + 31}
-            y={y + 68}
-            textAnchor="middle"
-            fontSize={10}
-            fontWeight={700}
-            fill={chip.fg}
-          >
-            {node.provider.toUpperCase()}
-          </text>
-        </g>
+      {/* Chip row 1 (provider + role): colours DERIVED from the labels (brand hue
+          for known public clouds, hash hue otherwise); the role pill is inverted.
+          Each pill is sized to its measured text, so nothing spills (FLT-CAP-04). */}
+      {badgeChips.length > 0 ? (
+        <ChipRow chips={badgeChips} x={x + GUTTER} y={y + BADGE_ROW_Y} />
       ) : null}
 
-      {/* hub/spoke role indicator, right of the provider chip on the badge row -
-          fill DERIVED from the role label (no fleet role list baked in) */}
-      {node.role ? (
-        <g>
-          <rect
-            x={x + 56}
-            y={y + 56}
-            width={node.role.length * 6.5 + 12}
-            height={16}
-            rx={4}
-            fill={roleBadgeFill(node.role)}
-          />
-          <text
-            x={x + 56 + (node.role.length * 6.5 + 12) / 2}
-            y={y + 68}
-            textAnchor="middle"
-            fontSize={9}
-            fontWeight={700}
-            fill="#10202f"
-          >
-            {node.role.toUpperCase()}
-          </text>
-        </g>
+      {/* Chip row 2 (runtime): the capability row, one notch dimmer so it reads
+          as secondary. Without a runtime capability the row is omitted (FLT-CAP-03). */}
+      {capChips.length > 0 ? (
+        <ChipRow chips={capChips} x={x + GUTTER} y={y + CAP_ROW_Y} />
       ) : null}
 
       {/* version-drift flag: this instance runs a different active release bundle
@@ -332,16 +430,16 @@ export function MapNodeCard({
           identicon. The badge row (provider + role) sits below; the raw digest is
           omitted (see above). */}
       <text
-        x={x + 50}
+        x={textX}
         y={y + 22}
         fontSize={13}
         fontWeight={700}
         fill={TEXT_COLOR}
       >
-        {node.id}
+        {titleText}
       </text>
-      <text x={x + 50} y={y + 36} fontSize={10} fill={TEXT_SUBTLE}>
-        {identiName(shownSeed)}
+      <text x={textX} y={y + 36} fontSize={10} fill={TEXT_SUBTLE}>
+        {aliasText}
       </text>
       {/* The raw release digest/sha is intentionally NOT shown on the card: the
           identicon + identiname above already identify the deployed bundle, and the

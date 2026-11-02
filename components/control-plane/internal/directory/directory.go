@@ -1,5 +1,5 @@
 // Package directory maintains an in-memory projection of the Keycloak realm
-// users and serves it to the API server (GAM-09). The API server never reads the
+// users and serves it to the API server (GTW-ACC-09). The API server never reads the
 // Keycloak admin Secret; it reads this projection over the private in-cluster
 // provisioner channel.
 package directory

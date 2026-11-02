@@ -1,7 +1,6 @@
 package e2e
 
 import (
-	"context"
 	"slices"
 	"sync"
 	"testing"
@@ -18,32 +17,18 @@ func TestP2ParallelStepsIncludeManagedClusterLifecycle(t *testing.T) {
 
 	want := []string{
 		"P2.1-sandbox-lifecycle",
+		"P2.2-rbac-enforcement",
 		"P2.3-deletion-namespace-gc",
+		"P2.4-managedcluster-lifecycle",
 		"P2.5-gateway-access-management",
 		"P2.6-gateway-service-accounts",
-		"P2.2-rbac-enforcement",
-		"P2.4-managedcluster-lifecycle",
+		"P2.8-gateway-sharing-rolebindings",
+		"P2.9-kata-runtime",
+		"P2.10-alerting-signal",
+		"P2.11-cli-ui-parity",
 	}
 	if !slices.Equal(names, want) {
 		t.Fatalf("parallel P2 schedule = %v, want %v", names, want)
-	}
-}
-
-func TestCompletionBarrierWaitsForAllPeers(t *testing.T) {
-	barrier := newCompletionBarrier(2)
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
-	defer cancel()
-
-	barrier.Done()
-	select {
-	case <-barrier.done:
-		t.Fatal("barrier opened before all peers completed")
-	default:
-	}
-
-	barrier.Done()
-	if err := barrier.Wait(ctx); err != nil {
-		t.Fatalf("Wait() error = %v", err)
 	}
 }
 
@@ -80,6 +65,7 @@ func TestRunParallelSubtestsHonorsConcurrencyLimit(t *testing.T) {
 	}
 }
 
+// Verifies: E2E-CORE-11.01
 func TestRunParallelSubtestsRunsSeriallyAtOne(t *testing.T) {
 	var mu sync.Mutex
 	order := make([]string, 0, 3)

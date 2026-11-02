@@ -45,6 +45,7 @@ function setRuntimeConfig(content: string): void {
   document.head.append(meta);
 }
 
+// Verifies: SEC-OIDC-06.01
 it("shows the user name and a full sign-out link", async () => {
   const user = userEvent.setup();
   getSessionMock.mockResolvedValue({
@@ -125,6 +126,7 @@ it("falls back to the preferred username, then email, then Account", async () =>
   ).toBeTruthy();
 });
 
+// Verifies: SEC-OIDC-06.03
 it("renders nothing when unauthenticated", async () => {
   getSessionMock.mockResolvedValue({ authenticated: false, roles: [] });
 

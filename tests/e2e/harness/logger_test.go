@@ -34,6 +34,7 @@ func TestLoggerFanout(t *testing.T) {
 	}
 }
 
+// Verifies: E2E-CORE-09.02
 func TestLoggerDisabledRetainsHumanOutput(t *testing.T) {
 	var messages []string
 	logger := NewLogger(func(f string, args ...any) { messages = append(messages, fmt.Sprintf(f, args...)) }, ReporterSink(nil))
@@ -48,6 +49,7 @@ func TestLoggerDisabledRetainsHumanOutput(t *testing.T) {
 	}
 }
 
+// Verifies: E2E-CORE-08.01
 func TestLoggerStreamHasNoDuplicatesAndRedactsDiagnostics(t *testing.T) {
 	var structured bytes.Buffer
 	var human []string
@@ -70,6 +72,22 @@ func TestLoggerStreamHasNoDuplicatesAndRedactsDiagnostics(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(human, "\n"), "secret-value") {
 		t.Fatal("human sink no longer preserves original messages")
+	}
+}
+
+func TestRedactDiagnosticProtectsHumanLogsAndArtifacts(t *testing.T) {
+	raw := "Authorization: Bearer secret-value\n" +
+		"database=postgres://user:password@db.example.test/app\n" +
+		"-----BEGIN PRIVATE KEY-----\nprivate-data\n-----END PRIVATE KEY-----\n" +
+		"access_token=eyJheader.payload.signature"
+	safe := RedactDiagnostic(raw)
+	for _, secret := range []string{"secret-value", ":password@", "private-data", "eyJheader"} {
+		if strings.Contains(safe, secret) {
+			t.Errorf("redacted diagnostic leaks %q: %s", secret, safe)
+		}
+	}
+	if !strings.Contains(safe, "[REDACTED PRIVATE KEY]") {
+		t.Fatalf("redacted diagnostic lost private-key placeholder: %s", safe)
 	}
 }
 

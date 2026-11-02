@@ -2,8 +2,8 @@ package secretSources
 
 import (
 	"context"
+	"log/slog"
 
-	"github.com/golang/glog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -159,7 +159,7 @@ func (h *secretSourceGRPCHandler) WatchSecretSources(_ *pb.WatchSecretSourcesReq
 	if err != nil {
 		return status.Errorf(codes.Unavailable, "failed to subscribe: %v", err)
 	}
-	glog.V(4).Infof("WatchSecretSources: subscriber %s connected", sub.ID)
+	slog.DebugContext(ctx, "WatchSecretSources subscriber connected", "subscriber_id", sub.ID)
 
 	if err := stream.SendHeader(nil); err != nil {
 		return status.Errorf(codes.Unavailable, "failed to send watch header: %v", err)
@@ -168,7 +168,7 @@ func (h *secretSourceGRPCHandler) WatchSecretSources(_ *pb.WatchSecretSourcesReq
 	for {
 		select {
 		case <-ctx.Done():
-			glog.V(4).Infof("WatchSecretSources: subscriber %s disconnected", sub.ID)
+			slog.DebugContext(ctx, "WatchSecretSources subscriber disconnected", "subscriber_id", sub.ID)
 			return nil
 		case evt, ok := <-sub.Events:
 			if !ok {
@@ -185,13 +185,13 @@ func (h *secretSourceGRPCHandler) WatchSecretSources(_ *pb.WatchSecretSourcesReq
 			if evt.EventType != api.DeleteEventType {
 				item, svcErr := h.service.Get(ctx, evt.SourceID)
 				if svcErr != nil {
-					glog.Warningf("WatchSecretSources: failed to load secret source %s: %v", evt.SourceID, svcErr)
+					slog.WarnContext(ctx, "WatchSecretSources failed to load secret source", "resource_id", evt.SourceID, "error", svcErr)
 					continue
 				}
 				watchEvent.SecretSource = secretSourceToProto(item)
 			}
 			if err := stream.Send(watchEvent); err != nil {
-				glog.V(4).Infof("WatchSecretSources: send error for subscriber %s: %v", sub.ID, err)
+				slog.DebugContext(ctx, "WatchSecretSources send failed", "subscriber_id", sub.ID, "error", err)
 				return err
 			}
 		}

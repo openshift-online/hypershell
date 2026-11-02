@@ -61,7 +61,35 @@ Output: `$REVIEW_VERDICT` - One of
 
 _Note: Create `$REVIEW_VERDICT` label if not exist._
 
-Place label `$REVIEW_VERDICT` on `$GITHUB_ISSUE_URL` and `$GITHUB_PR_URL`
+Place label `$REVIEW_VERDICT` on `$GITHUB_ISSUE_URL` only.
+
+The verdict labels are mutually exclusive. On `$GITHUB_ISSUE_URL`, remove the
+opposite verdict label if present:
+- Verdict `agent/review-spec-approved`: remove `agent/review-spec-rejected`.
+- Verdict `agent/review-spec-rejected`: remove `agent/review-spec-approved`.
+
+**Protected labels (never remove).** `agent/review-spec-blocked` is NOT a phase
+label - it is an OPTIONAL human gate a person applies to force a human spec
+sign-off before any code is written. NEVER remove it in this step, including on an
+approved verdict; the orchestrator holds the record at that gate until a human
+signs off, so clearing it here would silently destroy the human's intent. The role
+markers are likewise NOT phase labels and MUST NOT be removed here: `agent/allowed`
+(authorization gate), `agent/scope/*` (scope selector), and `agent/execution-record`
+(canonical-link marker). The paused-state holds `agent/blocked`, `agent/needs-input`,
+and `agent/duplicate` are also NOT phase labels and MUST NOT be removed here;
+removing one would silently un-pause the item (eg. resume a 3-rejection spec that
+this step itself just blocked). This step mutates ONLY the phase and verdict labels
+named in this step - it is not a license to remove everything but one label.
+
+Do NOT place any `agent/*` phase label on `$GITHUB_PR_URL`. The issue is the only
+holder of phase state:
+- The next agent starts from the issue label and finds the pull request through
+  the issue.
+- The verdict labels are selector labels. The coordinator scans issues and pull
+  requests, so a verdict label on the pull request starts an agent on the pull
+  request. No other agent removes labels from the pull request, so the label
+  stays and re-triggers the agent on every run.
+- The review comment below keeps the verdict visible on the pull request.
 
 **Always post the review as a comment on `$GITHUB_PR_URL`, for BOTH an approved
 and a rejected verdict.** An approved review MUST NOT be silent: the record of

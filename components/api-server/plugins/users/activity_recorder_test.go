@@ -29,6 +29,10 @@ func (d *countingActivityDao) CountDistinctUsersWithActivity(context.Context, ti
 	return 0, nil
 }
 
+func (d *countingActivityDao) CountRetentionWindows(context.Context, time.Time, time.Time, time.Time) (int64, int64, error) {
+	return 0, 0, nil
+}
+
 func (d *countingActivityDao) PruneBefore(context.Context, time.Time) error {
 	return nil
 }
@@ -39,6 +43,7 @@ func (d *countingActivityDao) callCount() int {
 	return d.upsertCalls
 }
 
+// Verifies: PLAT-USR-10.01
 func TestUserActivityRecorderSkipsDuplicateSameDayWrites(t *testing.T) {
 	dao := &countingActivityDao{}
 	recorder := NewUserActivityRecorder(dao)

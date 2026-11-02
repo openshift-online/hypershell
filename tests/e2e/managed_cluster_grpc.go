@@ -14,6 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// Verifies: E2E-CORE-20.01
 func (s *E2ESuite) assertManagedClusterGRPCIdentity(t *testing.T) {
 	if s.driver.Name() != "kind" {
 		s.Log("gRPC identity checks use the Kind API-server pod boundary; OpenShift external gRPC discovery is not configured")

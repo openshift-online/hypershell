@@ -65,8 +65,9 @@ func TestBuild_IngressExposure(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			builder := ValuesBuilder{
 				Gateway: GatewayConfig{
-					Image: "quay.io/test/gateway:latest",
-					Route: RouteConfig{Host: "gw-test.apps.example.com", Enabled: true},
+					WorkspaceMode: "shared",
+					Image:         "quay.io/test/gateway:latest",
+					Route:         RouteConfig{Host: "gw-test.apps.example.com", Enabled: true},
 				},
 				Namespace:            "test-ns",
 				IsOpenShift:          true,
@@ -139,8 +140,9 @@ func TestBuild_TrustedCAConfigMapName(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			builder := ValuesBuilder{
 				Gateway: GatewayConfig{
-					Image: "quay.io/test/gateway:latest",
-					OIDC:  OIDCConfig{Issuer: tc.oidcIssuer},
+					WorkspaceMode: "shared",
+					Image:         "quay.io/test/gateway:latest",
+					OIDC:          OIDCConfig{Issuer: tc.oidcIssuer},
 				},
 				Namespace:    "test-ns",
 				HasTrustedCA: tc.hasTrustedCA,
@@ -206,7 +208,7 @@ func TestBuild_GatewayResources(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			builder := ValuesBuilder{
-				Gateway:   GatewayConfig{Image: "quay.io/test/gateway:latest"},
+				Gateway:   GatewayConfig{WorkspaceMode: "shared", Image: "quay.io/test/gateway:latest"},
 				Namespace: "test-ns",
 				Resources: tc.resources,
 			}
@@ -265,6 +267,7 @@ func TestParseGatewayResources(t *testing.T) {
 func TestBuild_SandboxRuntimeImage(t *testing.T) {
 	builder := ValuesBuilder{
 		Gateway: GatewayConfig{
+			WorkspaceMode:       "shared",
 			Image:               "quay.io/test/gateway:v1",
 			SupervisorImage:     "quay.io/test/supervisor:v1",
 			SandboxRuntimeImage: "quay.io/test/sandbox:v1",
@@ -308,7 +311,7 @@ func TestBuild_SandboxRuntimeClass(t *testing.T) {
 	}
 
 	builder := ValuesBuilder{
-		Gateway:             GatewayConfig{Image: "quay.io/test/gateway:v1"},
+		Gateway:             GatewayConfig{WorkspaceMode: "shared", Image: "quay.io/test/gateway:v1"},
 		Namespace:           "test-ns",
 		SandboxRuntimeClass: "kata",
 	}
@@ -345,6 +348,7 @@ func TestBuild_SandboxRuntimeClassRendersInChart(t *testing.T) {
 
 	builder := ValuesBuilder{
 		Gateway: GatewayConfig{
+			WorkspaceMode:   "shared",
 			Image:           "quay.io/test/gateway:v1",
 			SupervisorImage: "quay.io/test/supervisor:v1",
 		},
@@ -391,6 +395,7 @@ func TestBuild_SandboxRuntimeImageRendersInChart(t *testing.T) {
 
 	builder := ValuesBuilder{
 		Gateway: GatewayConfig{
+			WorkspaceMode:       "shared",
 			Image:               "quay.io/test/gateway:v1",
 			SupervisorImage:     "quay.io/test/supervisor:v1",
 			SandboxRuntimeImage: "quay.io/test/sandbox:v1",
@@ -426,6 +431,7 @@ func TestBuild_SandboxRuntimeImageRendersInChart(t *testing.T) {
 // the resolved coordinates land under server.credentialDrivers.vault.*, the CA
 // ConfigMap is referenced only when HasVaultCA, and a projected ServiceAccount
 // token scoped to the `vault` audience is injected via the extraVolumes hooks.
+// Verifies: OSG-CRED-06.01
 func TestBuild_VaultCredentialDriver(t *testing.T) {
 	newVault := func() *VaultValues {
 		return &VaultValues{
@@ -447,6 +453,7 @@ func TestBuild_VaultCredentialDriver(t *testing.T) {
 	for _, hasCA := range []bool{true, false} {
 		builder := ValuesBuilder{
 			Gateway: GatewayConfig{
+				WorkspaceMode:    "shared",
 				Image:            "quay.io/test/gateway:latest",
 				CredentialDriver: &CredentialDriverConfig{Type: "vault", Vault: newVault()},
 			},
@@ -530,6 +537,7 @@ func TestBuild_VaultCredentialDriver(t *testing.T) {
 func TestBuild_KekDbCredentialDriver(t *testing.T) {
 	builder := ValuesBuilder{
 		Gateway: GatewayConfig{
+			WorkspaceMode:    "shared",
 			Image:            "quay.io/test/gateway:latest",
 			CredentialDriver: &CredentialDriverConfig{Type: "kek-db"},
 		},
@@ -551,5 +559,232 @@ func TestBuild_KekDbCredentialDriver(t *testing.T) {
 	}
 	if server["extraVolumes"] != nil {
 		t.Errorf("kek-db: no extraVolumes expected, got %v", server["extraVolumes"])
+	}
+}
+
+// TestBuild_WorkspaceMode locks in the workspace-mode wiring required by
+// openshell-gateway.spec.md "Gateway Workspace Mode": an empty mode is an error
+// (the chart default never decides the mode); a set mode lands under
+// server.drivers.kubernetes.workspaceMode; and managed
+// mode also derives a per-gateway unique gateway_id from the API-assigned
+// namespace so per-workspace namespaces never collide across gateways.
+func TestBuild_WorkspaceMode(t *testing.T) {
+	nested := func(m map[string]interface{}, path ...string) interface{} {
+		var cur interface{} = m
+		for _, k := range path {
+			mm, ok := cur.(map[string]interface{})
+			if !ok {
+				return nil
+			}
+			cur = mm[k]
+		}
+		return cur
+	}
+
+	// Empty mode: Build fails rather than letting the chart default apply.
+	builder := ValuesBuilder{
+		Gateway:   GatewayConfig{Image: "quay.io/test/gateway:v1"},
+		Namespace: "openshell-deadbeefdeadbeef",
+	}
+	if _, err := builder.Build(); err == nil {
+		t.Errorf("Build() succeeded with an empty workspace mode, want error")
+	}
+
+	// Managed mode: mode and the derived per-gateway gateway_id are both set.
+	builder.Gateway.WorkspaceMode = "managed"
+	values, err := builder.Build()
+	if err != nil {
+		t.Fatalf("Build() returned error: %v", err)
+	}
+	if got := nested(values, "server", "drivers", "kubernetes", "workspaceMode"); got != "managed" {
+		t.Errorf("server.drivers.kubernetes.workspaceMode = %v, want %q", got, "managed")
+	}
+	if got := nested(values, "server", "sandboxJwt", "gatewayId"); got != "deadbeefdeadbeef" {
+		t.Errorf("server.sandboxJwt.gatewayId = %v, want %q", got, "deadbeefdeadbeef")
+	}
+
+	// Explicit shared mode: the mode is passed but no custom gateway_id is
+	// derived (shared sandboxes live in the gateway namespace).
+	builder.Gateway.WorkspaceMode = "shared"
+	values, err = builder.Build()
+	if err != nil {
+		t.Fatalf("Build() returned error: %v", err)
+	}
+	if got := nested(values, "server", "drivers", "kubernetes", "workspaceMode"); got != "shared" {
+		t.Errorf("server.drivers.kubernetes.workspaceMode = %v, want %q", got, "shared")
+	}
+	if got := nested(values, "server", "sandboxJwt", "gatewayId"); got != nil {
+		t.Errorf("server.sandboxJwt.gatewayId set for shared mode: %v", got)
+	}
+
+	// Managed mode requires an API-assigned namespace shape; a foreign
+	// namespace cannot produce a unique gateway_id and must fail loudly
+	// rather than collide per-workspace namespaces across gateways.
+	builder.Gateway.WorkspaceMode = "managed"
+	builder.Namespace = "custom-namespace"
+	if _, err := builder.Build(); err == nil {
+		t.Errorf("Build() succeeded for managed mode with non API-assigned namespace, want error")
+	}
+}
+
+// TestBuild_WorkspaceModeRendersInChart guards the value path end-to-end: the
+// control-plane-built values must reach the chart's rendered gateway.toml as
+// workspace_mode = "managed" and the derived gateway_id must land in both the
+// gateway JWT identity and the Kubernetes driver section. Skipped without helm.
+func TestBuild_WorkspaceModeRendersInChart(t *testing.T) {
+	helmBin, err := exec.LookPath("helm")
+	if err != nil {
+		t.Skip("helm binary not found on PATH")
+	}
+	chart, err := filepath.Abs(filepath.Join("..", "..", "..", "..", "charts", "openshell"))
+	if err != nil {
+		t.Fatalf("resolve chart path: %v", err)
+	}
+
+	builder := ValuesBuilder{
+		Gateway: GatewayConfig{
+			Image:           "quay.io/test/gateway:v1",
+			SupervisorImage: "quay.io/test/supervisor:v1",
+			WorkspaceMode:   "managed",
+		},
+		Namespace: "openshell-deadbeefdeadbeef",
+	}
+	values, err := builder.Build()
+	if err != nil {
+		t.Fatalf("Build() returned error: %v", err)
+	}
+	raw, err := json.Marshal(values)
+	if err != nil {
+		t.Fatalf("marshal values: %v", err)
+	}
+	valuesFile := filepath.Join(t.TempDir(), "values.json")
+	if err := os.WriteFile(valuesFile, raw, 0o600); err != nil {
+		t.Fatalf("write values: %v", err)
+	}
+
+	out, err := exec.Command(helmBin, "template", "t", chart, "-f", valuesFile,
+		"--set", "agentSandbox.preflight.enabled=false").CombinedOutput()
+	if err != nil {
+		t.Fatalf("helm template: %v\n%s", err, out)
+	}
+	rendered := string(out)
+	for _, want := range []string{
+		`workspace_mode = "managed"`,
+		`gateway_id = "deadbeefdeadbeef"`,
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("rendered chart does not contain %q", want)
+		}
+	}
+}
+
+// TestBuild_ServerDnsNames guards that the gateway's injected ServerDnsNames
+// (which include the gateway's derived external hostname) reach BOTH chart
+// keys that can feed certificate SANs: pkiInitJob.serverDnsNames (certgen hook,
+// cert-manager disabled) and certManager.serverDnsNames (server_sans in
+// gateway.toml and the internal server Certificate, cert-manager enabled).
+// The regression it guards: with cert-manager enabled the chart ignores
+// pkiInitJob.serverDnsNames entirely, so the external hostname never reached
+// server_sans or the Certificate SANs (docs/investigations/per-gateway-certificates.md,
+// Gap C). It also locks in that buildIngressValues keeps winning in Route
+// mode with an external issuer: certManager.serverDnsNames must stay [hostname]
+// there, not the core-values list.
+func TestBuild_ServerDnsNames(t *testing.T) {
+	nested := func(m map[string]interface{}, path ...string) interface{} {
+		var cur interface{} = m
+		for _, k := range path {
+			mm, ok := cur.(map[string]interface{})
+			if !ok {
+				return nil
+			}
+			cur = mm[k]
+		}
+		return cur
+	}
+
+	dnsNames := []string{"gw-test-ns.apps.example.com", "internal.example.com"}
+
+	tests := []struct {
+		name                    string
+		hasCertManager          bool
+		routeEnabled            bool
+		useOpenShiftRoute       bool
+		externalCAIssuer        string
+		wantPkiInitNames        bool
+		wantCertMgrNames        bool
+		wantCertMgrHostnameOnly bool
+	}{
+		{
+			name:             "cert-manager enabled writes both pkiInitJob and certManager serverDnsNames",
+			hasCertManager:   true,
+			wantPkiInitNames: true,
+			wantCertMgrNames: true,
+		},
+		{
+			name:             "cert-manager disabled writes only pkiInitJob serverDnsNames",
+			hasCertManager:   false,
+			wantPkiInitNames: true,
+			wantCertMgrNames: false,
+		},
+		{
+			name:                    "route mode with external issuer keeps certManager serverDnsNames as hostname only",
+			hasCertManager:          true,
+			routeEnabled:            true,
+			useOpenShiftRoute:       true,
+			externalCAIssuer:        "gateway-ca",
+			wantPkiInitNames:        true,
+			wantCertMgrHostnameOnly: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			routeHost := "gw-test-ns.apps.example.com"
+			builder := ValuesBuilder{
+				Gateway: GatewayConfig{
+					WorkspaceMode:  "shared",
+					Image:          "quay.io/test/gateway:latest",
+					ServerDnsNames: dnsNames,
+					Route:          RouteConfig{Host: routeHost, Enabled: tc.routeEnabled},
+				},
+				Namespace:            "test-ns",
+				HasCertManager:       tc.hasCertManager,
+				IngressBaseDomain:    "apps.example.com",
+				UseOpenShiftRoute:    tc.useOpenShiftRoute,
+				ExternalCAIssuerName: tc.externalCAIssuer,
+				ExternalCAIssuerKind: "ClusterIssuer",
+			}
+
+			values, err := builder.Build()
+			if err != nil {
+				t.Fatalf("Build() returned error: %v", err)
+			}
+
+			pkiNames := nested(values, "pkiInitJob", "serverDnsNames")
+			if tc.wantPkiInitNames {
+				if !reflect.DeepEqual(pkiNames, dnsNames) {
+					t.Errorf("pkiInitJob.serverDnsNames = %v, want %v", pkiNames, dnsNames)
+				}
+			} else if pkiNames != nil {
+				t.Errorf("pkiInitJob.serverDnsNames should be absent, got %v", pkiNames)
+			}
+
+			certMgrNames := nested(values, "certManager", "serverDnsNames")
+			switch {
+			case tc.wantCertMgrHostnameOnly:
+				want := []string{routeHost}
+				if !reflect.DeepEqual(certMgrNames, want) {
+					t.Errorf("certManager.serverDnsNames = %v, want %v (ingress override must win)", certMgrNames, want)
+				}
+			case tc.wantCertMgrNames:
+				if !reflect.DeepEqual(certMgrNames, dnsNames) {
+					t.Errorf("certManager.serverDnsNames = %v, want %v", certMgrNames, dnsNames)
+				}
+			default:
+				if certMgrNames != nil {
+					t.Errorf("certManager.serverDnsNames should be absent, got %v", certMgrNames)
+				}
+			}
+		})
 	}
 }

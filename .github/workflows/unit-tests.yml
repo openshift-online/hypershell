@@ -39,9 +39,29 @@ on:
       sdk_typescript:
         type: string
         default: 'false'
+      spec_viewer:
+        type: string
+        default: 'false'
       web_console:
         type: string
         default: 'false'
+    # Optional: absent on fork pull requests, where the upload step skips.
+    secrets:
+      CODECOV_TOKEN:
+        required: false
+      CODECOV_ENTERPRISE_URL:
+        required: false
+
+# Shared by every "Upload coverage" step (scripts/codecov-upload.sh).
+# On pull requests coverage is attached to the PR head commit, not the
+# synthetic merge commit in github.sha.
+env:
+  CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+  CODECOV_ENTERPRISE_URL: ${{ secrets.CODECOV_ENTERPRISE_URL }}
+  CODECOV_COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  CODECOV_BRANCH: ${{ github.head_ref || github.ref_name }}
+  CODECOV_PR: ${{ github.event.pull_request.number }}
+  CODECOV_PARENT_SHA: ${{ github.event.pull_request.base.sha }}
 
 permissions:
   contents: read
@@ -52,7 +72,8 @@ jobs:
     if: >-
       inputs.web_console == 'true' ||
       inputs.gateway_management_ui == 'true' ||
-      inputs.operational_dashboard_ui == 'true'
+      inputs.operational_dashboard_ui == 'true' ||
+      inputs.spec_viewer == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -86,7 +107,12 @@ jobs:
           cache-dependency-path: components/api-server/go.sum
       - name: Run API server unit tests
         working-directory: components/api-server
-        run: make test
+        run: make test GO_TEST_FLAGS="-coverprofile=coverage.out -covermode=atomic"
+      - name: Upload api-server coverage
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        # Coverage reporting must never block a merge on a Codecov outage.
+        continue-on-error: true
+        run: bash scripts/codecov-upload.sh api-server components/api-server/coverage.out
 
   test-control-plane:
     name: Go - control plane
@@ -103,7 +129,12 @@ jobs:
           cache-dependency-path: components/control-plane/go.sum
       - name: Run control plane unit tests
         working-directory: components/control-plane
-        run: go test -count=1 ./...
+        run: go test -count=1 -coverprofile=coverage.out -covermode=atomic ./...
+      - name: Upload control-plane coverage
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        # Coverage reporting must never block a merge on a Codecov outage.
+        continue-on-error: true
+        run: bash scripts/codecov-upload.sh control-plane components/control-plane/coverage.out
 
   test-cli:
     name: Go - CLI
@@ -126,13 +157,23 @@ jobs:
       - name: Run CLI unit tests
         if: inputs.cli == 'true'
         working-directory: components/cli
-        run: go test -count=1 ./...
+        run: go test -count=1 -coverprofile=coverage.out -covermode=atomic ./...
+      - name: Upload cli coverage
+        if: (github.event_name == 'pull_request' || github.event_name == 'push') && (inputs.cli == 'true')
+        # Coverage reporting must never block a merge on a Codecov outage.
+        continue-on-error: true
+        run: bash scripts/codecov-upload.sh cli components/cli/coverage.out
       - name: Run SDK generator unit tests
         if: >-
           inputs.sdk_go == 'true' ||
           inputs.sdk_typescript == 'true'
         working-directory: scripts/sdk-generator
-        run: go test -count=1 ./...
+        run: go test -count=1 -coverprofile=coverage.out -covermode=atomic ./...
+      - name: Upload sdk-generator coverage
+        if: (github.event_name == 'pull_request' || github.event_name == 'push') && (inputs.sdk_go == 'true' || inputs.sdk_typescript == 'true')
+        # Coverage reporting must never block a merge on a Codecov outage.
+        continue-on-error: true
+        run: bash scripts/codecov-upload.sh sdk-generator scripts/sdk-generator/coverage.out
 
   test-bash:
     name: Shell
@@ -142,5 +183,10 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Go for local dispatcher tests
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: .hypershell/execute-sdlc/dispatcher/go.mod
+          cache-dependency-path: .hypershell/execute-sdlc/dispatcher/go.sum
       - name: Run discovered *_test.sh tests
         run: make ci-test

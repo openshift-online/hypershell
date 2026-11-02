@@ -4,24 +4,24 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**Id** | Pointer to **string** |  | [optional] 
-**Kind** | Pointer to **string** |  | [optional] 
-**Href** | Pointer to **string** |  | [optional] 
-**CreatedAt** | Pointer to **time.Time** |  | [optional] 
-**UpdatedAt** | Pointer to **time.Time** |  | [optional] 
-**Name** | **string** | Human-readable identifier for the repository registration | 
-**Url** | **string** | Git remote URL (e.g. https://github.com/openshift-online/hypershell) | 
-**Provider** | **string** | Provider type the credential targets: github (extensible) | 
-**SecretSourceId** | **string** | References a SecretSource holding the provider credential | 
-**DefaultBranch** | Pointer to **string** | Branch the import process reads when none is otherwise specified | [optional] 
-**ImportPath** | Pointer to **string** | Directory within the repository to import (default .hypershell) | [optional] 
-**Status** | Pointer to **string** | Registration/import health | [optional] [readonly] 
+**Id** | Pointer to **string** |  | [optional]
+**Kind** | Pointer to **string** |  | [optional]
+**Href** | Pointer to **string** |  | [optional]
+**CreatedAt** | Pointer to **time.Time** |  | [optional]
+**UpdatedAt** | Pointer to **time.Time** |  | [optional]
+**Name** | **string** | Human-readable identifier for the repository registration |
+**Url** | **string** | Git remote URL (e.g. https://github.com/openshift-online/hypershell) |
+**Provider** | **string** | Provider type the credential targets: github (extensible) |
+**SecretSourceId** | Pointer to **string** | Optional reference to a SecretSource holding the provider credential. Omit for a public repository, which is read anonymously. | [optional]
+**DefaultBranch** | Pointer to **string** | Branch the import process reads when none is otherwise specified | [optional]
+**ImportPath** | Pointer to **string** | Directory within the repository to import (default .hypershell) | [optional]
+**Status** | Pointer to **string** | Registration/import health | [optional] [readonly]
 
 ## Methods
 
 ### NewRepository
 
-`func NewRepository(name string, url string, provider string, secretSourceId string, ) *Repository`
+`func NewRepository(name string, url string, provider string, ) *Repository`
 
 NewRepository instantiates a new Repository object
 This constructor will assign default values to properties that have it defined,
@@ -240,6 +240,11 @@ and a boolean to check if the value has been set.
 
 SetSecretSourceId sets SecretSourceId field to given value.
 
+### HasSecretSourceId
+
+`func (o *Repository) HasSecretSourceId() bool`
+
+HasSecretSourceId returns a boolean if a field has been set.
 
 ### GetDefaultBranch
 
@@ -318,5 +323,3 @@ HasStatus returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
-
-

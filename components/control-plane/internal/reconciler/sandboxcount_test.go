@@ -90,6 +90,7 @@ func newTestSandboxCount(rec *seamRecorder) *SandboxCountReconciler {
 	return r
 }
 
+// Verifies: OSG-SBX-01.01, OSG-SBX-01.04
 func TestOnAdd(t *testing.T) {
 	const ns = "openshell-a"
 	tests := []struct {
@@ -117,6 +118,7 @@ func TestOnAdd(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-SBX-01.02, OSG-SBX-01.03
 func TestOnUpdate(t *testing.T) {
 	const ns = "openshell-a"
 	tests := []struct {
@@ -143,6 +145,7 @@ func TestOnUpdate(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-SBX-01.02, OSG-SBX-01.04
 func TestOnDelete(t *testing.T) {
 	const ns = "openshell-a"
 	tests := []struct {
@@ -170,18 +173,55 @@ func TestOnDelete(t *testing.T) {
 	}
 }
 
-func TestActiveSandboxesByNamespace(t *testing.T) {
+// TestCountActiveSandboxesForGateway verifies the pure self-heal accounting,
+// including the managed-workspace-mode attribution required by
+// openshell-gateway-sandbox-count.spec.md: a sandbox pod in a per-workspace
+// namespace (openshell-{gateway_id}-{workspace}) counts toward the owning
+// gateway's namespace (openshell-{gateway_id}).
+func TestCountActiveSandboxesForGateway(t *testing.T) {
 	pods := []*corev1.Pod{
-		scPod("a1", "openshell-a", corev1.PodRunning, true),
-		scPod("a2", "openshell-a", corev1.PodPending, true),
-		scPod("a3", "openshell-a", corev1.PodSucceeded, true), // terminated
-		scPod("agw", "openshell-a", corev1.PodRunning, false), // non-sandbox
-		scPod("b1", "openshell-b", corev1.PodRunning, true),
+		scPod("a1", "openshell-aaaaaaaaaaaaaaaa", corev1.PodRunning, true),
+		scPod("a2", "openshell-aaaaaaaaaaaaaaaa", corev1.PodPending, true),
+		scPod("a3", "openshell-aaaaaaaaaaaaaaaa", corev1.PodSucceeded, true), // terminated
+		scPod("agw", "openshell-aaaaaaaaaaaaaaaa", corev1.PodRunning, false), // non-sandbox
+		scPod("m1", "openshell-aaaaaaaaaaaaaaaa-team-a", corev1.PodRunning, true),
+		scPod("m2", "openshell-aaaaaaaaaaaaaaaa-team-b", corev1.PodRunning, true),
+		scPod("m3", "openshell-aaaaaaaaaaaaaaaa-team-b", corev1.PodSucceeded, true), // terminated
+		scPod("b1", "openshell-bbbbbbbbbbbbbbbb", corev1.PodRunning, true),
+		scPod("x1", "openshell-bbbbbbbbbbbbbbbb-team-a", corev1.PodRunning, true),
 	}
-	got := activeSandboxesByNamespace(pods)
-	want := map[string]int{"openshell-a": 2, "openshell-b": 1}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("activeSandboxesByNamespace() = %v, want %v", got, want)
+	tests := []struct {
+		gatewayNamespace string
+		want             int
+	}{
+		{"openshell-aaaaaaaaaaaaaaaa", 4}, // 2 shared + 2 managed
+		{"openshell-bbbbbbbbbbbbbbbb", 2}, // 1 shared + 1 managed
+		{"openshell-cccccccccccccccc", 0},
+	}
+	for _, tt := range tests {
+		if got := countActiveSandboxesForGateway(pods, tt.gatewayNamespace); got != tt.want {
+			t.Errorf("countActiveSandboxesForGateway(%q) = %d, want %d", tt.gatewayNamespace, got, tt.want)
+		}
+	}
+}
+
+// TestSandboxGatewayNamespace covers the namespace attribution helper
+// (single source of truth for both the delta and self-heal paths).
+func TestSandboxGatewayNamespace(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"openshell-aaaaaaaaaaaaaaaa", "openshell-aaaaaaaaaaaaaaaa"},                  // gateway namespace, shared mode
+		{"openshell-aaaaaaaaaaaaaaaa-team-a", "openshell-aaaaaaaaaaaaaaaa"},           // managed workspace namespace
+		{"openshell-aaaaaaaaaaaaaaaa-team-with-dashes", "openshell-aaaaaaaaaaaaaaaa"}, // hyphenated workspace
+		{"openshell-aaaaaaaaaaaaaaa", "openshell-aaaaaaaaaaaaaaa"},                    // 15 hex chars: not a gateway id
+		{"openshell-aaaaaaaaaaaaaaaaa-team", "openshell-aaaaaaaaaaaaaaaaa-team"},      // 17 hex chars: not a gateway id
+		{"openshell-AAAAAAAAAAAAAAAA-team", "openshell-AAAAAAAAAAAAAAAA-team"},        // uppercase: not a gateway id
+		{"other-aaaaaaaaaaaaaaaa-team", "other-aaaaaaaaaaaaaaaa-team"},                // foreign prefix
+		{"default", "default"},
+	}
+	for _, tt := range tests {
+		if got := gateway.SandboxGatewayNamespace(tt.in); got != tt.want {
+			t.Errorf("SandboxGatewayNamespace(%q) = %q, want %q", tt.in, got, tt.want)
+		}
 	}
 }
 
@@ -190,6 +230,7 @@ func TestActiveSandboxesByNamespace(t *testing.T) {
 // those with no active sandboxes, so a drifted or stale count converges back to
 // zero. With no incremental events between cache sync and self-heal, this is
 // exactly the post-restart recovery path.
+// Verifies: OSG-SBX-03.01, OSG-SBX-03.02
 func TestSelfHeal_SetsAbsoluteForEveryGatewayNamespace(t *testing.T) {
 	rec := &seamRecorder{nsList: []string{"openshell-a", "openshell-b", "openshell-c"}}
 	r := newTestSandboxCount(rec)

@@ -28,6 +28,10 @@ func RevokePath(gatewayID, serviceAccountID string) string {
 	return ItemPath(gatewayID, serviceAccountID) + "/revoke"
 }
 
+func RolePath(gatewayID, serviceAccountID string) string {
+	return ItemPath(gatewayID, serviceAccountID) + "/role"
+}
+
 func Request(conn *connection.Connection, method, path string, query url.Values, body io.Reader, accepted ...int) ([]byte, int, error) {
 	response, err := conn.Do(method, path, query, body)
 	if err != nil {

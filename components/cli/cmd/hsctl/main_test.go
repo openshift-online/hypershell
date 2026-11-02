@@ -29,6 +29,8 @@ func TestCommandTree(t *testing.T) {
 		{"delete", "gateway"}, {"delete", "managedCluster"}, {"delete", "roleBinding"}, {"delete", "sandboxTemplate"},
 		// Hand-maintained service account commands live beside the generated ones.
 		{"create", "serviceAccount"}, {"get", "serviceAccount"}, {"list", "serviceAccounts"}, {"delete", "serviceAccount"},
+		// Repository is read-only from the CLI: hand-written get and list only.
+		{"get", "repository"}, {"list", "repositories"},
 	} {
 		cmd := root
 		for _, name := range path {

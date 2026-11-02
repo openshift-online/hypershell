@@ -175,11 +175,16 @@ export const mockOperationalDashboardMetrics: OperationalDashboardMetrics =
           mean: "315.00",
           p50: "288.00",
           p95: "726.00",
+          p99: "812.00",
+          target: "300.00",
           p50Trend: Object.freeze({
             points: Object.freeze(buildSevenDayTrendPoints(240, 8)),
           }),
           p95Trend: Object.freeze({
             points: Object.freeze(buildSevenDayTrendPoints(680, 12)),
+          }),
+          p99Trend: Object.freeze({
+            points: Object.freeze(buildSevenDayTrendPoints(740, 12)),
           }),
         }),
         unit: "sec",
@@ -196,6 +201,26 @@ export const mockOperationalDashboardMetrics: OperationalDashboardMetrics =
           points: Object.freeze(buildSevenDayTrendPoints(88, 1.2)),
         }),
         value: "90.0",
+      }),
+      Object.freeze({
+        id: "pod-and-sandbox-readiness",
+        resourceReadiness: Object.freeze({
+          podReadinessPercent: "97.1",
+          sandboxReadinessPercent: "92.8",
+          unreadyResources: "24",
+        }),
+        value: "24",
+      }),
+      Object.freeze({
+        certificateHealth: Object.freeze({
+          expiredCertificates: "0",
+          soonestDaysToExpiry: "28.0",
+          statusUnavailable: "2",
+          totalCertificates: "18",
+          validCertificates: "16",
+        }),
+        id: "certificate-health",
+        value: "16",
       }),
       Object.freeze({
         createdLast7Days: "1",
@@ -237,7 +262,7 @@ function replaceProvisionedSandboxes(
 }
 
 /**
- * SSA-11 Storybook / local-dev state: all attention counts present and zero
+ * OBS-SBXA-11 Storybook / local-dev state: all attention counts present and zero
  * (Attention required section hidden; Active and trends still shown).
  */
 export const mockOperationalDashboardMetricsZeroAttention: OperationalDashboardMetrics =
@@ -259,7 +284,7 @@ export const mockOperationalDashboardMetricsZeroAttention: OperationalDashboardM
   );
 
 /**
- * SSA-11 Storybook / local-dev state: Active present without attention fields
+ * OBS-SBXA-11 Storybook / local-dev state: Active present without attention fields
  * (Attention required shows the unavailable state).
  */
 export const mockOperationalDashboardMetricsAttentionUnavailable: OperationalDashboardMetrics =

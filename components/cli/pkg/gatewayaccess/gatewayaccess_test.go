@@ -33,7 +33,7 @@ func newConn(t *testing.T, serverURL string) *connection.Connection {
 }
 
 // A 409 (last-owner protection) must surface as a non-zero-exit error carrying
-// the API's reason so the operator sees actionable guidance (GAM-13).
+// the API's reason so the operator sees actionable guidance (GTW-ACC-13).
 func TestRequest_LastOwnerConflictSurfacesReason(t *testing.T) {
 	const reason = "this gateway must keep at least one owner"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

@@ -63,6 +63,7 @@ describe("GET /api/metrics/control-plane-reconciliation", () => {
     return buildApp(config);
   }
 
+  // Verifies: OBS-CRM-04
   it("returns 502 when a required reconciliation query fails", async () => {
     app = await makeApp(await startPrometheus(500));
     const response = await app.inject({

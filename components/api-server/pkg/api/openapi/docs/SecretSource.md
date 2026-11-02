@@ -4,19 +4,19 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**Id** | Pointer to **string** |  | [optional] 
-**Kind** | Pointer to **string** |  | [optional] 
-**Href** | Pointer to **string** |  | [optional] 
-**CreatedAt** | Pointer to **time.Time** |  | [optional] 
-**UpdatedAt** | Pointer to **time.Time** |  | [optional] 
-**Name** | **string** |  | 
-**AgentRuntimeId** | **string** |  | 
-**Purpose** | **string** | Semantic purpose driving controller-generated env var wiring | 
-**Backend** | **string** | Secret backend type (vault, aws-secrets-manager, kubernetes) | 
-**Path** | Pointer to **string** | Logical, mount-relative path to the secret in the backend. Optional on create - when omitted the API server derives the convention path hypershell/secret-sources/{agent_runtime_id}/{name}. When a value is submitted the path is set server-side to the location the value was written to. | [optional] 
-**KeyMappings** | Pointer to **string** | JSON-encoded mapping of backend secret keys to environment variable names | [optional] 
-**Value** | Pointer to **string** | Secret value to submit for storage. Write-only (one-way) - when present on create, the API server writes it to the configured secret manager at a deterministic location derived from the submission identity and then persists only this SecretSource reference; path is set server-side to that location. The value is never persisted in the database, never logged, and never returned on create, get, or list. | [optional] 
-**RepositoryId** | Pointer to **string** | Repository that owns this resource through the control-plane .hypershell import. Null for resources created directly through the REST API or hsctl apply. Set server-side; read-only in the client contract. | [optional] [readonly] 
+**Id** | Pointer to **string** |  | [optional]
+**Kind** | Pointer to **string** |  | [optional]
+**Href** | Pointer to **string** |  | [optional]
+**CreatedAt** | Pointer to **time.Time** |  | [optional]
+**UpdatedAt** | Pointer to **time.Time** |  | [optional]
+**Name** | **string** |  |
+**AgentRuntimeId** | **string** |  |
+**Purpose** | **string** | Semantic purpose driving controller-generated env var wiring |
+**Backend** | **string** | Secret backend type (vault, aws-secrets-manager, kubernetes) |
+**Path** | Pointer to **string** | Logical, mount-relative path to the secret in the backend. Derived server-side on create as hypershell/secret-sources/{agent_runtime_id}/{name}; a client-supplied path is ignored, and the field cannot be changed on update. When a value is submitted the path is the location the value was written to. | [optional]
+**KeyMappings** | Pointer to **string** | JSON-encoded mapping of backend secret keys to environment variable names | [optional]
+**Value** | Pointer to **string** | Secret value to submit for storage. Write-only (one-way) - when present on create, the API server writes it to the configured secret manager at a deterministic location derived from the submission identity and then persists only this SecretSource reference; path is set server-side to that location. The value is never persisted in the database, never logged, and never returned on create, get, or list. | [optional]
+**RepositoryId** | Pointer to **string** | Repository that owns this resource through the control-plane .hypershell import. Null for resources created directly through the REST API or hsctl apply. Set server-side; read-only in the client contract. | [optional] [readonly]
 
 ## Methods
 
@@ -344,5 +344,3 @@ HasRepositoryId returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
-
-

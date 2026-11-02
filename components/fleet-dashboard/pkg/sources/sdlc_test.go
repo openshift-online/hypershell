@@ -103,6 +103,7 @@ func TestSDLCCodeMeterThreshold(t *testing.T) {
 
 // TestSDLCEscalationLane confirms paused and past-SLE records leave the board for
 // the lane, ordered blocked first, then needs-input, then past-SLE (SDLC-VIS-10).
+// Verifies: SDLC-VIS-10.01, SDLC-VIS-10.02, SDLC-VIS-10.03
 func TestSDLCEscalationLane(t *testing.T) {
 	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
 	records := []SdlcRecord{
@@ -134,6 +135,7 @@ func TestSDLCEscalationLane(t *testing.T) {
 // truth, drives each bundle row's contents from the bundle's own PRs (grouped into
 // tracked issues and one-off PRs), reduces Unreleased to shipped work absent from
 // every bundle, and marks the current bundle per hub cluster (SDLC-VIS-03/11).
+// Verifies: SDLC-VIS-03.01, SDLC-VIS-03.02, SDLC-VIS-03.03, SDLC-VIS-11.04, SDLC-VIS-11.05
 func TestSDLCMatrix(t *testing.T) {
 	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
 	rel1 := &Release{Version: "v20260901", Digest: "d1", Date: "2026-09-01T00:00:00Z", PRs: []PR{{Number: 101, Title: "pr 101"}}}
@@ -215,9 +217,222 @@ func TestSDLCMatrix(t *testing.T) {
 	}
 }
 
+// TestSDLCMatrixGitOpsGroup confirms the matrix carries each released bundle's GitOps
+// deployment group straight from the shared bundle enrichment (SDLC-VIS-25): a set
+// GitOpsStatus and GitOpsPRs are forwarded with repository and environment identity
+// preserved, a GitOps pull request whose number collides with an application pull
+// request stays a distinct item kept out of the application grouping, and a bundle
+// whose enrichment never attempted the group (GitOpsStatus == "") carries no GitOps
+// group so the UI renders no deployment section.
+// Verifies: SDLC-VIS-25.01, SDLC-VIS-25.03, SDLC-VIS-25.04
+func TestSDLCMatrixGitOpsGroup(t *testing.T) {
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	// rel1: GitOps available with a deployment PR #42 that collides with application PR
+	// #42 (grouped under tracked issue #501) and carries environment attribution.
+	rel1 := &Release{
+		Version: "v1", Digest: "d1", Date: "2026-09-01T00:00:00Z",
+		PRs: []PR{{Number: 42, Title: "app change", MergedAt: "2026-08-31T00:00:00Z"}},
+		GitOpsPRs: []PR{{
+			Number: 42, Title: "bump lock", URL: "https://example.test/gitops/pull/42",
+			Author: "promoter", MergedAt: "2026-08-30T00:00:00Z",
+			Repository: "acme/gitops-delivery", Environments: []string{"prod"},
+		}},
+		GitOpsStatus: gitOpsAvailable,
+	}
+	// rel2: enrichment never attempted the GitOps group (legacy / feature off).
+	rel2 := &Release{
+		Version: "v2", Digest: "d2", Date: "2026-09-15T00:00:00Z",
+		PRs: []PR{{Number: 77, Title: "another app change", MergedAt: "2026-09-14T00:00:00Z"}},
+	}
+	promo := PromotionPayload{
+		Order: []string{"env-a"},
+		Environments: map[string]Environment{
+			"env-a": {Active: rel2, Cluster: "cluster-a", Env: "prod"},
+		},
+		Releases: map[string]*Release{"d1": rel1, "d2": rel2},
+	}
+	shipped := []SdlcRecord{
+		{Number: 501, Title: "tracked by app #42", Phase: PhaseShipped, Closed: true, ClosedAt: "2026-08-25T00:00:00Z"},
+	}
+	issues := fakeIssues{m: map[int][]int{501: {42}}}
+	s := newSDLCAt(fakeProvider{records: shipped}, fakePromo{payload: promo, hasData: true}, issues, now)
+	p := fetch(t, s)
+
+	byVersion := map[string]SDLCBundleRow{}
+	for _, row := range p.Matrix.Rows {
+		byVersion[row.Version] = row
+	}
+
+	// rel1 forwards the GitOps group with identity and attribution intact.
+	v1 := byVersion["v1"]
+	if v1.GitOpsStatus != gitOpsAvailable {
+		t.Fatalf("v1 GitOpsStatus = %q, want %q", v1.GitOpsStatus, gitOpsAvailable)
+	}
+	if len(v1.GitOpsPRs) != 1 {
+		t.Fatalf("v1 should carry one GitOps PR, got %+v", v1.GitOpsPRs)
+	}
+	gp := v1.GitOpsPRs[0]
+	if gp.Number != 42 || gp.Repository != "acme/gitops-delivery" {
+		t.Errorf("GitOps PR identity wrong: %+v", gp)
+	}
+	if gp.URL != "https://example.test/gitops/pull/42" || gp.Author != "promoter" || gp.MergedAt != "2026-08-30T00:00:00Z" {
+		t.Errorf("GitOps PR fields wrong: %+v", gp)
+	}
+	if len(gp.Environments) != 1 || gp.Environments[0] != "prod" {
+		t.Errorf("GitOps PR environment attribution wrong: %+v", gp.Environments)
+	}
+
+	// The GitOps #42 stays distinct from the application #42: the application #42 groups
+	// under tracked issue #501, and the GitOps #42 never enters the application groups.
+	if len(v1.Issues) != 1 || v1.Issues[0].Number != 501 {
+		t.Fatalf("v1 should group application #42 under tracked issue #501, got %+v", v1.Issues)
+	}
+	if len(v1.Issues[0].PRs) != 1 || v1.Issues[0].PRs[0].Number != 42 {
+		t.Errorf("tracked #501 should group application PR #42, got %+v", v1.Issues[0].PRs)
+	}
+	if v1.Issues[0].PRs[0].Repository != "" {
+		t.Errorf("application PR must not carry a repository, got %q", v1.Issues[0].PRs[0].Repository)
+	}
+	for _, pr := range v1.OtherPRs {
+		if pr.Number == 42 && pr.Repository != "" {
+			t.Errorf("GitOps PR must not leak into the application other-PR group, got %+v", pr)
+		}
+	}
+
+	// rel2 attempted no GitOps group, so it carries none and the UI renders no section.
+	v2 := byVersion["v2"]
+	if v2.GitOpsStatus != "" || v2.GitOpsPRs != nil {
+		t.Errorf("v2 must carry no GitOps group, got status=%q prs=%+v", v2.GitOpsStatus, v2.GitOpsPRs)
+	}
+}
+
+// TestSDLCMatrixGitOpsEmptyVsUnavailable confirms the matrix forwards a distinct
+// GitOps status for a successful-but-empty comparison and for an unavailable lookup
+// (SDLC-VIS-25.05), so the UI can render "no deployment changes" apart from an
+// unavailable state.
+// Verifies: SDLC-VIS-25.05
+func TestSDLCMatrixGitOpsEmptyVsUnavailable(t *testing.T) {
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	relEmpty := &Release{
+		Version: "v-empty", Digest: "de", Date: "2026-09-01T00:00:00Z",
+		PRs: []PR{{Number: 10, Title: "app"}}, GitOpsStatus: gitOpsAvailable,
+	}
+	relFailed := &Release{
+		Version: "v-failed", Digest: "df", Date: "2026-09-15T00:00:00Z",
+		PRs: []PR{{Number: 11, Title: "app"}}, GitOpsStatus: gitOpsUnavailable,
+	}
+	promo := PromotionPayload{
+		Order:        []string{"env-a"},
+		Environments: map[string]Environment{"env-a": {Active: relFailed, Cluster: "c", Env: "prod"}},
+		Releases:     map[string]*Release{"de": relEmpty, "df": relFailed},
+	}
+	s := newSDLCAt(fakeProvider{records: nil}, fakePromo{payload: promo, hasData: true}, fakeIssues{m: map[int][]int{}}, now)
+	p := fetch(t, s)
+
+	byVersion := map[string]SDLCBundleRow{}
+	for _, row := range p.Matrix.Rows {
+		byVersion[row.Version] = row
+	}
+	if got := byVersion["v-empty"]; got.GitOpsStatus != gitOpsAvailable || len(got.GitOpsPRs) != 0 {
+		t.Errorf("empty bundle should be available with no PRs, got status=%q prs=%+v", got.GitOpsStatus, got.GitOpsPRs)
+	}
+	if got := byVersion["v-failed"]; got.GitOpsStatus != gitOpsUnavailable || len(got.GitOpsPRs) != 0 {
+		t.Errorf("failed bundle should be unavailable with no PRs, got status=%q prs=%+v", got.GitOpsStatus, got.GitOpsPRs)
+	}
+}
+
+// countingIssues wraps a PR resolver and counts AssociatedPRs calls, so a test can
+// prove the released-vs-unreleased decision adds no GitHub lookups (SDLC-VIS-22.04).
+type countingIssues struct {
+	inner WorkItemPRResolver
+	calls int
+}
+
+func (c *countingIssues) AssociatedPRs(ctx context.Context, rec SdlcRecord) []int {
+	c.calls++
+	return c.inner.AssociatedPRs(ctx, rec)
+}
+
+// TestSDLCMatrixPreHorizonReleased is the compare-window horizon regression
+// (SDLC-VIS-22). A shipped execution-record issue whose delivering pull request is in
+// no resolved bundle's compare window but which merged at or before the oldest resolved
+// bundle's build date is contained in that bundle and every newer one, so it SHALL land
+// in a released row (the oldest resolved bundle row), not the Unreleased row. Only work
+// merged after the newest resolved bundle stays Unreleased. The decision adds no GitHub
+// calls beyond the one AssociatedPRs lookup per shipped record the grouping already does.
+// Verifies: SDLC-VIS-22.01, SDLC-VIS-22.02, SDLC-VIS-22.04
+func TestSDLCMatrixPreHorizonReleased(t *testing.T) {
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	// Resolved bundles span 2026-09-01 (oldest) .. 2026-09-15 (newest).
+	rel1 := &Release{Version: "v20260901", Digest: "d1", Date: "2026-09-01T00:00:00Z", PRs: []PR{{Number: 101, Title: "pr 101"}}}
+	rel2 := &Release{Version: "v20260915", Digest: "d2", Date: "2026-09-15T00:00:00Z", PRs: []PR{{Number: 102, Title: "pr 102"}}}
+	promo := PromotionPayload{
+		Order: []string{"env-a", "env-b"},
+		Environments: map[string]Environment{
+			"env-a": {Active: rel2, Cluster: "cluster-a", Env: "prod"},
+			"env-b": {Active: rel1, Cluster: "cluster-b", Env: "stage"},
+		},
+		Releases: map[string]*Release{"d1": rel1, "d2": rel2},
+	}
+	shipped := []SdlcRecord{
+		// #501 placed by a compare window (PR 101 in d1).
+		{Number: 501, Title: "window-placed", Phase: PhaseShipped, Closed: true, ClosedAt: "2026-08-25T00:00:00Z"},
+		// #576 (the issue from the bug report) merged BEFORE the oldest resolved bundle;
+		// its PR 577 is in no window. Pre-horizon -> released under the oldest bundle row.
+		{Number: 576, Title: "pre-horizon shipped", Phase: PhaseShipped, Closed: true, ClosedAt: "2026-08-01T00:00:00Z"},
+		// #600 merged AFTER the newest resolved bundle; its PR 888 is in no window.
+		// Genuinely in-flight -> stays Unreleased.
+		{Number: 600, Title: "genuinely in-flight", Phase: PhaseShipped, Closed: true, ClosedAt: "2026-10-01T00:00:00Z"},
+	}
+	issues := &countingIssues{inner: fakeIssues{m: map[int][]int{501: {101}, 576: {577}, 600: {888}}}}
+	s := newSDLCAt(fakeProvider{records: shipped}, fakePromo{payload: promo, hasData: true}, issues, now)
+	p := fetch(t, s)
+
+	rows := p.Matrix.Rows
+	if len(rows) != 3 {
+		t.Fatalf("want 3 rows (Unreleased + 2 bundles), got %d", len(rows))
+	}
+
+	// Unreleased holds only the genuinely in-flight #600.
+	if !rows[0].Unreleased {
+		t.Fatalf("row 0 should be the Unreleased row, got %+v", rows[0])
+	}
+	if len(rows[0].Issues) != 1 || rows[0].Issues[0].Number != 600 {
+		t.Errorf("Unreleased row should hold only in-flight #600, got %+v", rows[0].Issues)
+	}
+	for _, iss := range rows[0].Issues {
+		if iss.Number == 576 {
+			t.Errorf("pre-horizon #576 must not appear in Unreleased")
+		}
+	}
+
+	// Oldest resolved bundle row (v20260901) holds the window-placed #501 and the
+	// pre-horizon #576, grouped in a released position rather than dropped.
+	oldest := rows[2]
+	if oldest.Version != "v20260901" || oldest.Unreleased {
+		t.Fatalf("row 2 should be the oldest resolved bundle, got %+v", oldest)
+	}
+	found576 := false
+	for _, iss := range oldest.Issues {
+		if iss.Number == 576 {
+			found576 = true
+		}
+	}
+	if !found576 {
+		t.Errorf("pre-horizon #576 should be grouped under the oldest bundle row, got %+v", oldest.Issues)
+	}
+
+	// The decision adds no GitHub calls: AssociatedPRs is called exactly once per shipped
+	// record for grouping, and the pre-horizon test is pure in-memory date arithmetic.
+	if issues.calls != len(shipped) {
+		t.Errorf("released decision added GitHub calls: AssociatedPRs called %d times, want %d", issues.calls, len(shipped))
+	}
+}
+
 // TestSDLCMatrixTrackedIssueMultiplePRs confirms a tracked issue delivered by several
 // pull requests in ONE bundle appears once under that bundle's tracked issues with all
 // of its pull requests grouped beneath it (SDLC-VIS-03).
+// Verifies: SDLC-VIS-03.04
 func TestSDLCMatrixTrackedIssueMultiplePRs(t *testing.T) {
 	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
 	rel := &Release{Version: "v1", Digest: "d1", Date: "2026-09-15T00:00:00Z", PRs: []PR{
@@ -270,6 +485,7 @@ func TestSDLCMatrixTrackedIssueMultiplePRs(t *testing.T) {
 // issue delivered by one PR in each of two bundles appears in BOTH bundle rows,
 // grouped under the PR that landed in each (not attributed to a single bundle). This
 // is the behavior that replaced the old "newest bundle only" attribution (SDLC-VIS-03).
+// Verifies: SDLC-VIS-03.03
 func TestSDLCMatrixTrackedIssueAcrossBundles(t *testing.T) {
 	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
 	rel1 := &Release{Version: "v1", Digest: "d1", Date: "2026-09-01T00:00:00Z", PRs: []PR{{Number: 101, Title: "part one"}}}
@@ -309,6 +525,7 @@ func TestSDLCMatrixTrackedIssueAcrossBundles(t *testing.T) {
 // TestSDLCMatrixOneOffPRNotUnreleased confirms a pull request that shipped in a bundle
 // but resolves to no execution-record issue appears under that bundle's one-off PRs,
 // never in the Unreleased row (SDLC-VIS-11).
+// Verifies: SDLC-VIS-11.04
 func TestSDLCMatrixOneOffPRNotUnreleased(t *testing.T) {
 	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
 	rel := &Release{Version: "v1", Digest: "d1", Date: "2026-09-15T00:00:00Z", PRs: []PR{{Number: 540, Title: "fix typo"}}}

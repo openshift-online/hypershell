@@ -13,8 +13,9 @@ import (
 
 // GatewayAPIExposure is the Gateway API adapter for the Gateway Exposure port.
 // It resolves the deterministic route address from the tenant namespace and the
-// configured base domain, and observes readiness by reading the per-tenant
-// Gateway API `Gateway` object's status with the typed gateway-api client.
+// configured base domain, and observes readiness by reading the status of the
+// Gateway API `Gateway` object that serves the tenant's traffic with the typed
+// gateway-api client.
 type GatewayAPIExposure struct {
 	client gatewayclient.Interface
 }
@@ -37,10 +38,40 @@ func (g *GatewayAPIExposure) ResolveAddress(ctx context.Context, req Request) (s
 	return fmt.Sprintf("grpcs://%s:443", host), nil
 }
 
-// ObserveReadiness reports whether the per-tenant Gateway API `Gateway` is Ready:
-// it must report condition Programmed=True and carry a non-empty
-// .status.addresses. Any other state is reported as not Ready with a reason.
+// ObserveReadiness reports whether the gateway's traffic is being served: the
+// observed Gateway API `Gateway` must report condition Programmed=True and
+// carry a non-empty .status.addresses. Any other state is reported as not
+// Ready with a reason.
+//
+// The lookup is two-step, and deliberately discovery-based:
+//
+//  1. Try the dedicated per-gateway `Gateway` `gw-<namespace>` in the tenant
+//     namespace. Gateways that opt in to a per-gateway certificate get their
+//     own Gateway there (created by the reconciler). When it exists, its
+//     readiness is authoritative: the opted-in gateway's GRPCRoute/HTTPRoute
+//     attach to it, not to the shared Gateway.
+//  2. When it does not exist, fall back to the shared Gateway in the ingress
+//     namespace (honoring GATEWAY_API_GATEWAY_NAME and
+//     GATEWAY_API_GATEWAY_NAMESPACE), which is the only Gateway serving
+//     tenants that did not opt in.
+//
+// The adapter has no opt-in flag on Request on purpose: the reconciler stays
+// decoupled from the exposure port, and the presence of the per-tenant
+// Gateway is itself the signal that the gateway opted in. A per-tenant Get
+// error other than NotFound is returned, never silently treated as
+// "no dedicated gateway" - a transient API error must not downgrade the
+// observation to the shared Gateway.
 func (g *GatewayAPIExposure) ObserveReadiness(ctx context.Context, req Request) (Readiness, error) {
+	dedicatedName := dedicatedGatewayName(req.Namespace)
+	dedicated, err := g.client.GatewayV1().Gateways(req.Namespace).Get(ctx, dedicatedName, metav1.GetOptions{})
+	if err == nil {
+		return gatewayReadiness(dedicated), nil
+	}
+	if !k8serrors.IsNotFound(err) {
+		return Readiness{}, fmt.Errorf("get dedicated gateway %s/%s: %w", req.Namespace, dedicatedName, err)
+	}
+
+	// No dedicated Gateway: the tenant is served by the shared Gateway.
 	ns := gatewayIngressNamespace()
 	name := perTenantGatewayName(req.Namespace)
 
@@ -52,6 +83,14 @@ func (g *GatewayAPIExposure) ObserveReadiness(ctx context.Context, req Request) 
 		return Readiness{}, fmt.Errorf("get gateway %s/%s: %w", ns, name, err)
 	}
 
+	return gatewayReadiness(gw), nil
+}
+
+// gatewayReadiness evaluates a Gateway's Programmed condition and assigned
+// addresses into a Readiness observation. Both the dedicated per-tenant and
+// the shared fallback Gateway are judged by this one helper so the criteria
+// cannot drift between the two paths.
+func gatewayReadiness(gw *gatewayv1.Gateway) Readiness {
 	programmed := false
 	programmedReason := "Programmed condition not reported"
 	for _, cond := range gw.Status.Conditions {
@@ -64,12 +103,12 @@ func (g *GatewayAPIExposure) ObserveReadiness(ctx context.Context, req Request) 
 		}
 	}
 	if !programmed {
-		return Readiness{Ready: false, Reason: programmedReason}, nil
+		return Readiness{Ready: false, Reason: programmedReason}
 	}
 	if len(gw.Status.Addresses) == 0 {
-		return Readiness{Ready: false, Reason: "gateway has no assigned address"}, nil
+		return Readiness{Ready: false, Reason: "gateway has no assigned address"}
 	}
-	return Readiness{Ready: true}, nil
+	return Readiness{Ready: true}
 }
 
 // DeriveGatewayAPIHost returns the external hostname for a Gateway API exposed
@@ -91,7 +130,16 @@ func DeriveGatewayAPIHost(namespace, explicitHost string) (string, bool) {
 	return fmt.Sprintf("gw-%s.%s", namespace, baseDomain), true
 }
 
-// perTenantGatewayName returns the name of the per-tenant Gateway API Gateway
+// dedicatedGatewayName returns the name of the dedicated per-gateway Gateway
+// API Gateway created in the tenant namespace for gateways that opt in to a
+// per-gateway certificate. Unlike the shared Gateway lookup, this name is
+// not configurable: it is always the gw-<namespace> convention, matching the
+// reconciler's resource creation for opted-in gateways.
+func dedicatedGatewayName(namespace string) string {
+	return "gw-" + namespace
+}
+
+// perTenantGatewayName returns the name of the shared Gateway API Gateway
 // for a tenant namespace. A shared Gateway name configured via
 // GATEWAY_API_GATEWAY_NAME takes precedence over the per-tenant gw-<namespace>
 // convention, mirroring the reconciler's resource creation.

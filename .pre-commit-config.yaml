@@ -1,0 +1,45 @@
+# Compatibility shim for the pre-commit framework (https://pre-commit.com).
+#
+# HyperShell's Git hooks are managed by Lefthook, not by pre-commit.
+# The real hook definitions live in lefthook.yml, and the checks themselves
+# live in the Makefile (`make check`). Install the hooks with:
+#
+#     make hooks-install
+#
+# Why this file exists:
+#   Some tools detect pre-commit checks only by looking for this file. One
+#   example is the Fleet Insights "AI Enablement" dashboard. Without this
+#   file, they report that the repository has no pre-commit checks.
+#
+# What it does:
+#   It defines one hook that hands off to Lefthook. Nothing here duplicates
+#   the checks, so lefthook.yml and the Makefile stay the single source of
+#   truth. Do not add checks here; add them to the Makefile instead.
+#
+# Why the checks still run only once per commit:
+#   Git keeps a single pre-commit hook file, so only one tool owns it.
+#   1. `make hooks-install` (the supported path): Lefthook owns the hook.
+#      This file is never used, and `make check` runs once.
+#   2. `pre-commit install` alone: pre-commit owns the hook and calls
+#      Lefthook through the entry below. `make check` runs once.
+#   3. `pre-commit install` after `make hooks-install`: pre-commit renames
+#      Lefthook's hook to `pre-commit.legacy` and still runs it. The entry
+#      below sees that and skips itself, so `make check` still runs once.
+#
+# Settings:
+#   - language: system runs the command as is; pre-commit builds no
+#     environment for it.
+#   - pass_filenames: false and always_run: true make it run exactly once,
+#     whichever files are staged.
+repos:
+  - repo: local
+    hooks:
+      - id: lefthook
+        name: Run Lefthook pre-commit jobs (see lefthook.yml)
+        entry: >-
+          sh -c 'grep -qs lefthook "$(git rev-parse --git-path hooks)/pre-commit.legacy"
+          || exec go tool lefthook run pre-commit'
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]

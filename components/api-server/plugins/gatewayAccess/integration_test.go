@@ -13,11 +13,12 @@ import (
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roles"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/users"
 	"github.com/openshift-online/hypershell/components/api-server/test"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 )
 
 // fakeDirectory is an in-memory Keycloak realm directory keyed by lowercased
-// username, standing in for the control-plane projection (GAM-09).
+// username, standing in for the control-plane projection (GTW-ACC-09).
 type fakeDirectory struct {
 	users map[string]gatewayAccess.DirectoryUser
 }
@@ -70,6 +71,7 @@ func accessSvc(dir gatewayAccess.DirectoryResolver) gatewayAccess.Service {
 	return gatewayAccess.ServiceFrom(&environments.Environment().Services)
 }
 
+// Verifies: GTW-ACC-03.01
 func TestAccessList_EnrichedTiers(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -101,6 +103,7 @@ func TestAccessList_EnrichedTiers(t *testing.T) {
 	Expect(caps.CanManageOwners).To(BeTrue())
 }
 
+// Verifies: GTW-ACC-03.02
 func TestAccessList_FilterByRoleAndSearch(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -119,6 +122,7 @@ func TestAccessList_FilterByRoleAndSearch(t *testing.T) {
 	Expect(items[0].Role).To(Equal(gatewayAccess.TierUser))
 }
 
+// Verifies: GTW-ACC-04.02
 func TestGrant_NeverSignedInUserPreProvisions(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -140,6 +144,7 @@ func TestGrant_NeverSignedInUserPreProvisions(t *testing.T) {
 	Expect(*u.Name).To(Equal("Dana Scully"))
 }
 
+// Verifies: GTW-ACC-04.06
 func TestGrant_UnknownRealmUserRejected(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -156,6 +161,7 @@ func TestGrant_UnknownRealmUserRejected(t *testing.T) {
 	Expect(uerr).NotTo(BeNil())
 }
 
+// Verifies: GTW-ACC-04.04, SEC-RBAC-06.04
 func TestGrant_AdminCannotAssignOwner(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -170,6 +176,7 @@ func TestGrant_AdminCannotAssignOwner(t *testing.T) {
 	Expect(aerr.Status).To(Equal(http.StatusForbidden))
 }
 
+// Verifies: GTW-ACC-08.02
 func TestGrant_AdminCanGrantUser(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -185,7 +192,7 @@ func TestGrant_AdminCanGrantUser(t *testing.T) {
 }
 
 // A Grant that targets a user who is already an owner is a change, not a fresh
-// grant; an admin must not be able to use it to demote or alter an owner (GAM-08).
+// grant; an admin must not be able to use it to demote or alter an owner (GTW-ACC-08).
 func TestGrant_AdminCannotDemoteOwner(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -201,6 +208,7 @@ func TestGrant_AdminCannotDemoteOwner(t *testing.T) {
 	Expect(aerr.Status).To(Equal(http.StatusForbidden))
 }
 
+// Verifies: GTW-ACC-05.01, GTW-ACC-05.04
 func TestChangeRole_PromoteInPlaceKeepsBindingID(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -222,10 +230,10 @@ func TestChangeRole_PromoteInPlaceKeepsBindingID(t *testing.T) {
 	item, aerr := svc.ChangeRole(context.Background(), gw, owner, target, gatewayAccess.TierAdmin)
 	Expect(aerr).To(BeNil())
 	Expect(item.Role).To(Equal(gatewayAccess.TierAdmin))
-	// In-place update (GAM-05): same binding id, no delete-then-create.
+	// In-place update (GTW-ACC-05): same binding id, no delete-then-create.
 	Expect(item.RoleBindingID).To(Equal(beforeID))
 
-	// Exactly one binding remains for the target (GAM-10).
+	// Exactly one binding remains for the target (GTW-ACC-10).
 	after, _, _, _ := svc.List(context.Background(), gw, owner, gatewayAccess.ListOptions{Page: 1, Size: 50})
 	count := 0
 	for _, it := range after {
@@ -236,6 +244,7 @@ func TestChangeRole_PromoteInPlaceKeepsBindingID(t *testing.T) {
 	Expect(count).To(Equal(1))
 }
 
+// Verifies: GTW-ACC-05.03
 func TestChangeRole_AdminCannotPromoteToOwner(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -250,6 +259,7 @@ func TestChangeRole_AdminCannotPromoteToOwner(t *testing.T) {
 	Expect(aerr.Status).To(Equal(http.StatusForbidden))
 }
 
+// Verifies: GTW-ACC-07.01
 func TestLastOwner_SoleOwnerCannotDemote(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -263,6 +273,7 @@ func TestLastOwner_SoleOwnerCannotDemote(t *testing.T) {
 	Expect(aerr.Message).NotTo(BeEmpty())
 }
 
+// Verifies: GTW-ACC-07.02
 func TestLastOwner_SoleOwnerCannotBeRevoked(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -275,6 +286,7 @@ func TestLastOwner_SoleOwnerCannotBeRevoked(t *testing.T) {
 	Expect(aerr.Status).To(Equal(http.StatusConflict))
 }
 
+// Verifies: GTW-ACC-06.02
 func TestRevoke_OwnerSelfWhenAnotherOwnerRemains(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -290,6 +302,7 @@ func TestRevoke_OwnerSelfWhenAnotherOwnerRemains(t *testing.T) {
 	Expect(tier).To(Equal(""))
 }
 
+// Verifies: GTW-ACC-06.03
 func TestRevoke_AdminCannotRevokeOwner(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -303,6 +316,7 @@ func TestRevoke_AdminCannotRevokeOwner(t *testing.T) {
 	Expect(aerr.Status).To(Equal(http.StatusForbidden))
 }
 
+// Verifies: GTW-ACC-08.01, SEC-RBAC-06.05
 func TestViewerCannotManage(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -317,6 +331,7 @@ func TestViewerCannotManage(t *testing.T) {
 	Expect(aerr.Status).To(Equal(http.StatusForbidden))
 }
 
+// Verifies: GTW-ACC-10.01
 func TestIdempotentRegrant(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -340,6 +355,7 @@ func TestIdempotentRegrant(t *testing.T) {
 	Expect(count).To(Equal(1))
 }
 
+// Verifies: GTW-ACC-09.01, GTW-ACC-09.02
 func TestDirectorySearch_Authorization(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -381,7 +397,7 @@ func userTierOf(svc gatewayAccess.Service, gw, userID string) (string, error) {
 
 // seedPlatformAdmin provisions a user and gives them the global platform:admin
 // binding (as JWT sync does in production), with NO gateway-scoped binding, so
-// their access-management authority comes solely from platform:admin (GAM-08).
+// their access-management authority comes solely from platform:admin (GTW-ACC-08).
 func seedPlatformAdmin(t *testing.T, username string) string {
 	t.Helper()
 	uid, err := userService().UpsertByUsername(context.Background(), strings.ToLower(username), nil, nil)
@@ -403,10 +419,11 @@ func hasGatewayBinding(t *testing.T, userID, gw string) bool {
 	return false
 }
 
-// GAM-08: a platform:admin manages access on any gateway with owner-equivalent
+// GTW-ACC-08: a platform:admin manages access on any gateway with owner-equivalent
 // authority (including assigning the owner tier) without holding a per-gateway
 // binding, the reported capabilities reflect that, and doing so grants the
 // platform admin no gateway login (no gateway-scoped binding is created for it).
+// Verifies: GTW-ACC-08.03, GTW-ACC-08.04, SEC-RBAC-07.04
 func TestPlatformAdmin_ManagesAccessWithoutBindingOrLogin(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -429,7 +446,7 @@ func TestPlatformAdmin_ManagesAccessWithoutBindingOrLogin(t *testing.T) {
 	Expect(aerr).To(BeNil())
 	Expect(item.Role).To(Equal(gatewayAccess.TierOwner))
 
-	// Can search the directory (GAM-09).
+	// Can search the directory (GTW-ACC-09).
 	candidates, aerr := svc.SearchDirectory(context.Background(), gw, padmin, "er")
 	Expect(aerr).To(BeNil())
 	Expect(len(candidates)).To(Equal(1))
@@ -439,8 +456,9 @@ func TestPlatformAdmin_ManagesAccessWithoutBindingOrLogin(t *testing.T) {
 	Expect(hasGatewayBinding(t, padmin, gw)).To(BeFalse())
 }
 
-// GAM-07/GAM-08: a platform:admin may revoke an owner while another owner
+// GTW-ACC-07/GTW-ACC-08: a platform:admin may revoke an owner while another owner
 // remains, but is still blocked from removing the last remaining owner.
+// Verifies: GTW-ACC-08.05, GTW-ACC-07.02
 func TestPlatformAdmin_RevokeOwnerGuardedByLastOwner(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
@@ -455,8 +473,109 @@ func TestPlatformAdmin_RevokeOwnerGuardedByLastOwner(t *testing.T) {
 	aerr := svc.Revoke(context.Background(), gw, padmin, owner2)
 	Expect(aerr).To(BeNil())
 
-	// One owner remains: the platform admin may not remove the last owner (GAM-07).
+	// One owner remains: the platform admin may not remove the last owner (GTW-ACC-07).
 	aerr = svc.Revoke(context.Background(), gw, padmin, owner1)
 	Expect(aerr).NotTo(BeNil())
 	Expect(aerr.Status).To(Equal(http.StatusConflict))
+}
+
+// seedWithProfile provisions a user with a stored email/name (unlike seed,
+// which leaves both nil) and gives them roleName on gatewayID. Use this when
+// a test needs a later request's claims to present a *changed* email/name so
+// the conditional-write path -- not the already-covered no-op path -- is the
+// one under test.
+func seedWithProfile(t *testing.T, gatewayID, username, email, name, roleName string) string {
+	t.Helper()
+	uid, err := userService().UpsertByUsername(context.Background(), strings.ToLower(username), &email, &name)
+	Expect(err).NotTo(HaveOccurred())
+	_, serr := rbService().SetGatewayRole(context.Background(), uid, gatewayID, roleName)
+	Expect(serr).To(BeNil())
+	return uid
+}
+
+// grantInOwnRequestTransaction reproduces, at the function-call level, the
+// exact per-request transaction shape TransactionMiddleware and
+// UserProvisioningMiddleware give a real HTTP request: db.NewContext binds
+// one transaction to ctx (as TransactionMiddleware does per request), the
+// caller's own conditional profile write runs first in that ctx (as
+// UserProvisioningMiddleware does before any handler runs), then Grant's
+// target pre-provisioning and role bind run in the same ctx, and db.Resolve
+// commits or rolls back (as TransactionMiddleware's deferred resolve does)
+// when the call returns. This is what actually puts two row writes under one
+// transaction's lock lifetime -- the precondition for the deadlock this test
+// guards against -- without needing a real HTTP round trip, JWT, or the
+// directory-resolver override (which only takes effect for a fresh
+// ServiceFrom() call, not the handler bound once at router registration).
+func grantInOwnRequestTransaction(svc gatewayAccess.Service, callerUsername, callerEmail, callerName, gatewayID, targetUsername string) *gatewayAccess.APIError {
+	sessionFactory := environments.Environment().Database.SessionFactory
+	ctx, err := db.NewContext(context.Background(), sessionFactory)
+	Expect(err).NotTo(HaveOccurred())
+	defer db.Resolve(ctx)
+
+	callerID, uerr := userService().UpsertByUsername(ctx, callerUsername, &callerEmail, &callerName)
+	Expect(uerr).NotTo(HaveOccurred())
+
+	_, aerr := svc.Grant(ctx, gatewayID, callerID, gatewayAccess.GrantInput{Username: targetUsername, Role: gatewayAccess.TierUser})
+	return aerr
+}
+
+// TestGrant_ConcurrentMutualGrantsWithChangedProfilesDoNotDeadlock guards the
+// RBAC-3 "Mutual access grant does not deadlock" guarantee under the
+// condition Amber's PR #638 review flagged as untested: two callers whose
+// directory profile changed since the last request grant each other access
+// at the same time. Each request's self-upsert (changed claims -> a real
+// UPDATE) and its Grant's target pre-provisioning (also a real UPDATE, since
+// the fake directory disagrees with what's stored) run inside the one
+// transaction db.NewContext binds to that request -- the exact lock shape
+// (own row, then the other's) that deadlocks if the two requests take it in
+// opposite order. sqlUserDao serializes that conditional write through a
+// single advisory lock (userProfileWriteLockType) instead of the row lock
+// directly, so the two requests can only ever queue behind one shared
+// resource, never each hold a different one while waiting on the other's.
+// Verifies: SEC-RBAC-03.05
+func TestGrant_ConcurrentMutualGrantsWithChangedProfilesDoNotDeadlock(t *testing.T) {
+	test.RegisterIntegration(t)
+	defer gatewayAccess.SetDirectoryResolver(nil)
+
+	gwAlice := "gw-mutual-alice"
+	gwBob := "gw-mutual-bob"
+
+	// Each user already has a stored profile that differs from what their
+	// next request's claims -- and the directory -- will present.
+	seedWithProfile(t, gwAlice, "mutual-alice", "alice-old@example.com", "Alice Old", roles.RoleGatewayOwner)
+	seedWithProfile(t, gwBob, "mutual-bob", "bob-old@example.com", "Bob Old", roles.RoleGatewayOwner)
+
+	dir := realm(
+		gatewayAccess.DirectoryUser{Username: "mutual-alice", Name: "Alice New", Email: "alice-new@example.com"},
+		gatewayAccess.DirectoryUser{Username: "mutual-bob", Name: "Bob New", Email: "bob-new@example.com"},
+	)
+	svc := accessSvc(dir)
+
+	var aliceErr, bobErr *gatewayAccess.APIError
+	done := make(chan struct{}, 2)
+
+	go func() {
+		defer func() { done <- struct{}{} }()
+		aliceErr = grantInOwnRequestTransaction(svc, "mutual-alice", "alice-new@example.com", "Alice New", gwAlice, "mutual-bob")
+	}()
+	go func() {
+		defer func() { done <- struct{}{} }()
+		bobErr = grantInOwnRequestTransaction(svc, "mutual-bob", "bob-new@example.com", "Bob New", gwBob, "mutual-alice")
+	}()
+	<-done
+	<-done
+
+	Expect(aliceErr).To(BeNil())
+	Expect(bobErr).To(BeNil())
+
+	// Both self- and target-upserts actually wrote the changed claims, so
+	// this proved the write path, not the already-covered no-op path.
+	alice, aerr := userService().GetByUsername(context.Background(), "mutual-alice")
+	Expect(aerr).NotTo(HaveOccurred())
+	Expect(alice.Name).NotTo(BeNil())
+	Expect(*alice.Name).To(Equal("Alice New"))
+	bob, berr := userService().GetByUsername(context.Background(), "mutual-bob")
+	Expect(berr).NotTo(HaveOccurred())
+	Expect(bob.Name).NotTo(BeNil())
+	Expect(*bob.Name).To(Equal("Bob New"))
 }

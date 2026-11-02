@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -139,8 +140,8 @@ func (m *rbacAuthzMiddleware) AuthorizeApi(next http.Handler) http.Handler {
 			}
 		}
 
-		if !isAuthorized(r.Method, resource, resourceID, gatewayID, bindings, jwtRoles) {
-			if resource == "service_accounts" || resource == "access" || (r.Method == http.MethodGet && resourceID != "") {
+		if !isAuthorized(r.Method, resource, resourceID, gatewayID, bindings, jwtRoles, extRequestSurface(r.URL.Path)) {
+			if resource == "service_accounts" || resource == "access" || resource == "sandbox_events" || (r.Method == http.MethodGet && resourceID != "") {
 				http.Error(w, "Not Found", http.StatusNotFound)
 			} else {
 				http.Error(w, "Forbidden", http.StatusForbidden)
@@ -242,9 +243,63 @@ func hasGatewayCreator(bindings []BindingSummary) bool {
 	return false
 }
 
+// roleGatewayDedicatedRouteCreator mirrors roles.RoleGatewayDedicatedRouteCreator; kept
+// local to avoid an import cycle with the roles plugin package.
+const roleGatewayDedicatedRouteCreator = "gateway:dedicated-route-creator"
+
+// hasGatewayDedicatedRouteCreator reports whether the caller holds the
+// platform-wide role that entitles it to request a dedicated per-gateway route
+// and wildcard certificate at gateway create.
+func hasGatewayDedicatedRouteCreator(bindings []BindingSummary) bool {
+	for _, b := range bindings {
+		if b.RoleName == roleGatewayDedicatedRouteCreator {
+			return true
+		}
+	}
+	return false
+}
+
+// CanRequestGatewayDedicatedRoute reports whether a caller holding bindings may
+// set GatewayCreateRequest.dedicated_route. The entitlement is platform-wide (a
+// global binding) rather than per-gateway, because the gateway it applies to does
+// not exist yet. platform:admin passes as it does everywhere else; every other
+// caller -- including a plain gateway:creator -- does not, because a dedicated
+// per-gateway route and certificate is a rate-limited resource.
+func CanRequestGatewayDedicatedRoute(bindings []BindingSummary) bool {
+	return hasPlatformAdmin(bindings) || hasGatewayDedicatedRouteCreator(bindings)
+}
+
 func hasPlatformAdmin(bindings []BindingSummary) bool {
 	for _, b := range bindings {
 		if b.RoleName == "platform:admin" {
+			return true
+		}
+	}
+	return false
+}
+
+// roleCIFederationAdmin mirrors roles.RoleCIFederationAdmin; kept local to avoid
+// an import cycle with the roles plugin package.
+const roleCIFederationAdmin = "ci-federation:admin"
+
+// hasCIFederationAdmin reports whether the caller holds the narrow platform-wide
+// role that authorizes the ci_providers ext kind (SEC-RBAC-21). It authorizes
+// nothing else, so it is checked only at the ci_providers gate.
+func hasCIFederationAdmin(bindings []BindingSummary) bool {
+	for _, b := range bindings {
+		if b.RoleName == roleCIFederationAdmin {
+			return true
+		}
+	}
+	return false
+}
+
+// hasAnyGatewayBinding reports whether the caller holds any gateway-scoped
+// binding (owner, admin, or viewer on any gateway). It is the coarse admit gate
+// for ci_trusts, whose per-gateway tenancy is resolved and enforced in-handler.
+func hasAnyGatewayBinding(bindings []BindingSummary) bool {
+	for _, b := range bindings {
+		if b.Scope == "gateway" && b.GatewayID != nil {
 			return true
 		}
 	}
@@ -257,6 +312,107 @@ func hasUsersInventoryAccess(bindings []BindingSummary, _ []string) bool {
 
 func hasDashboardInventoryAccess(bindings []BindingSummary, jwtRoles []string) bool {
 	return hasUsersInventoryAccess(bindings, jwtRoles) || hasGatewayCreator(bindings)
+}
+
+// extKinds are the Extension API kinds served under /api/hypershell/ext/.
+// They are platform-wide authoring kinds (the hsctl extension commands and
+// hsctl apply). The middleware gate requires gateway:creator or
+// platform:admin for every method by default; two kinds use a different gate
+// (ci_providers requires ci-federation:admin, ci_trusts is per-gateway
+// tenancy, see isAuthorized). The gateway-scoped kinds among them
+// (agent_runtimes, secret_sources, ci_trusts) additionally enforce
+// per-resource tenancy in their handlers.
+//
+// Every plugin that registers an ext route with
+// RegisterPrefixedRoutes(_, "ext", ...) MUST have its kind here: a kind absent
+// from this map is fail-closed for every caller including platform:admin
+// (SEC-RBAC-19), which is a latent outage, not a deliberate deny. Keep this map
+// in sync with those plugins.
+var extKinds = map[string]bool{
+	"agent_runtimes":        true,
+	"agent_workspaces":      true,
+	"ci_providers":          true,
+	"ci_trusts":             true,
+	"inference_routes":      true,
+	"provider_bindings":     true,
+	"provider_specs":        true,
+	"repositories":          true,
+	"sandbox_templates":     true,
+	"secret_sources":        true,
+	"workspace_memberships": true,
+}
+
+// ExtKinds returns the registered Extension API kind plural names (the
+// extKinds allow-list keys), sorted. It is the single registration source the
+// Kind conformance gate and the generic CRUD conformance test enumerate from
+// (SDLC-CONF-01, SDLC-CONF-06), so a newly registered ext kind is covered
+// without editing either consumer.
+func ExtKinds() []string {
+	kinds := make([]string, 0, len(extKinds))
+	for kind := range extKinds {
+		kinds = append(kinds, kind)
+	}
+	sort.Strings(kinds)
+	return kinds
+}
+
+// extRequestSurface reports whether the request path targets the Extension
+// API (/api/hypershell/ext/...), whose kinds follow the ext authorization
+// rules instead of the /v1 resource rules.
+func extRequestSurface(path string) bool {
+	return strings.HasPrefix(path, "/api/hypershell/ext/")
+}
+
+// CanManageGatewayResources reports whether a caller holding bindings may
+// manage (create, update, delete) a gateway-scoped resource belonging to
+// gatewayID: a gateway:owner or gateway:admin binding on that gateway, or
+// platform:admin (owner-equivalent for management, GTW-ACC-08). A viewer, a
+// caller bound only to other gateways, and an unbound caller may not. It is
+// the shared in-handler tenancy check for the gateway-scoped extension kinds
+// (agent_runtimes, secret_sources); when RBAC enforcement is disabled the
+// handler skips the check entirely rather than calling this with nil
+// bindings.
+func CanManageGatewayResources(bindings []BindingSummary, gatewayID string) bool {
+	if gatewayID == "" {
+		return false
+	}
+	if hasPlatformAdmin(bindings) {
+		return true
+	}
+	for _, b := range bindings {
+		if b.Scope != "gateway" || b.GatewayID == nil || *b.GatewayID != gatewayID {
+			continue
+		}
+		if b.RoleName == "gateway:owner" || b.RoleName == "gateway:admin" {
+			return true
+		}
+	}
+	return false
+}
+
+// CanReadGatewayResources reports whether a caller holding bindings may read a
+// gateway-scoped resource belonging to gatewayID: a gateway:owner,
+// gateway:admin, or gateway:viewer binding on that gateway, or platform:admin.
+// It is the shared in-handler read-tenancy check for gateway-scoped extension
+// kinds that confine reads to the referenced gateway (ci_trusts, SEC-RBAC-22):
+// a caller with no binding on the gateway may not read its records.
+func CanReadGatewayResources(bindings []BindingSummary, gatewayID string) bool {
+	if gatewayID == "" {
+		return false
+	}
+	if hasPlatformAdmin(bindings) {
+		return true
+	}
+	for _, b := range bindings {
+		if b.Scope != "gateway" || b.GatewayID == nil || *b.GatewayID != gatewayID {
+			continue
+		}
+		switch b.RoleName {
+		case "gateway:owner", "gateway:admin", "gateway:viewer":
+			return true
+		}
+	}
+	return false
 }
 
 func extractResourceInfo(r *http.Request) (resource string, resourceID string) {
@@ -279,6 +435,9 @@ func extractResourceInfoFromRoute(r *http.Request) (resource string, resourceID 
 	}
 	if strings.Contains(pathTemplate, "/gateways/{gateway_id}/service_accounts") {
 		return "service_accounts", mux.Vars(r)["service_account_id"]
+	}
+	if strings.Contains(pathTemplate, "/gateways/{gateway_id}/sandbox_events") {
+		return "sandbox_events", ""
 	}
 	if strings.Contains(pathTemplate, "/gateways/{gateway_id}/access") {
 		// Collection, item (/access/{user_id}), and directory (/access/directory)
@@ -309,12 +468,31 @@ func extractResourceInfoFromRoute(r *http.Request) (resource string, resourceID 
 }
 
 func extractResourceInfoFromPath(path string) (resource string, resourceID string) {
-	const prefix = "/api/hypershell/v1/"
-	if !strings.HasPrefix(path, prefix) {
-		return "", ""
+	const v1Prefix = "/api/hypershell/v1/"
+	if strings.HasPrefix(path, v1Prefix) {
+		return splitResourcePath(strings.Trim(strings.TrimPrefix(path, v1Prefix), "/"))
 	}
+	const extPrefix = "/api/hypershell/ext/"
+	if strings.HasPrefix(path, extPrefix) {
+		// Extension kinds are flat: /<kind> and /<kind>/{id}. The special
+		// gateway-nested shapes live only under /v1.
+		remainder := strings.Trim(strings.TrimPrefix(path, extPrefix), "/")
+		if remainder == "" {
+			return "", ""
+		}
+		parts := strings.Split(remainder, "/")
+		resource = parts[0]
+		if len(parts) > 1 {
+			resourceID = parts[1]
+		}
+		return resource, resourceID
+	}
+	return "", ""
+}
 
-	remainder := strings.Trim(strings.TrimPrefix(path, prefix), "/")
+// splitResourcePath parses the remainder of a /api/hypershell/v1/ path into a
+// resource and resource ID, including the gateway-nested sub-resources.
+func splitResourcePath(remainder string) (resource string, resourceID string) {
 	if remainder == "" {
 		return "", ""
 	}
@@ -329,6 +507,9 @@ func extractResourceInfoFromPath(path string) (resource string, resourceID strin
 				return "service_accounts", parts[i+1]
 			}
 		}
+	}
+	if strings.Contains(remainder, "gateways/") && strings.Contains(remainder, "/sandbox_events") {
+		return "sandbox_events", ""
 	}
 	if strings.Contains(remainder, "gateways/") && strings.Contains(remainder, "/access") {
 		for i, part := range parts {
@@ -349,7 +530,7 @@ func extractResourceInfoFromPath(path string) (resource string, resourceID strin
 }
 
 func extractGatewayID(r *http.Request, resource string) string {
-	if resource == "service_accounts" || resource == "access" {
+	if resource == "service_accounts" || resource == "access" || resource == "sandbox_events" {
 		if gatewayID := mux.Vars(r)["gateway_id"]; gatewayID != "" {
 			return gatewayID
 		}
@@ -381,7 +562,7 @@ func extractGatewayIDFromPath(path string) (resource string, gatewayID string) {
 	return "", ""
 }
 
-func isAuthorized(method string, resource string, resourceID string, gatewayID string, bindings []BindingSummary, jwtRoles []string) bool {
+func isAuthorized(method string, resource string, resourceID string, gatewayID string, bindings []BindingSummary, jwtRoles []string, extSurface bool) bool {
 	// JWT-direct: managed-cluster-registrar is never DB-synced; check JWT claim only.
 	if resource == "registration" && method == http.MethodPost {
 		return hasManagedClusterRegistrar(jwtRoles)
@@ -393,6 +574,41 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 
 	if resource == "gateway_placement_availability" {
 		return method == http.MethodPost && hasGatewayCreator(bindings)
+	}
+
+	// Extension kinds (/api/hypershell/ext/...): the platform-wide authoring
+	// kinds served to hsctl and the generated SDKs. An ext path whose resource
+	// is not a known extension kind fails closed rather than falling through to
+	// the creator fallback below.
+	if extSurface {
+		if !extKinds[resource] {
+			return false
+		}
+		switch resource {
+		case "ci_providers":
+			// A forge registration is a narrow platform operation, not a
+			// gateway-authoring one: it requires the dedicated ci-federation:admin
+			// role (or platform:admin), NOT gateway:creator (SEC-RBAC-21).
+			return hasCIFederationAdmin(bindings) || hasPlatformAdmin(bindings)
+		case "ci_trusts":
+			// A gateway-scoped tenancy kind (SEC-RBAC-22). The referenced gateway
+			// id is not in the ext path (ext kinds are flat and body-addressed),
+			// so this gate admits any caller with a gateway binding, a
+			// gateway:creator, or platform:admin, and the handler enforces
+			// per-gateway tenancy: CanManageGatewayResources on writes and
+			// per-gateway read access on reads. A bare gateway:creator with no
+			// binding on the referenced gateway is admitted here but rejected
+			// in-handler.
+			return hasAnyGatewayBinding(bindings) || hasGatewayCreator(bindings) || hasPlatformAdmin(bindings)
+		default:
+			// Every method requires gateway:creator or platform:admin at this gate
+			// (the authoring posture of "these kinds are authored over HTTP",
+			// grpc_authorization.go). The gateway-scoped kinds (agent_runtimes,
+			// secret_sources) additionally enforce per-resource tenancy in their
+			// handlers: the caller must hold gateway:owner or gateway:admin on the
+			// referenced gateway, or be platform:admin (CanManageGatewayResources).
+			return hasDashboardInventoryAccess(bindings, jwtRoles)
+		}
 	}
 
 	if resource == "managed_clusters" {
@@ -420,8 +636,9 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 		// Collection GET is allowed for any authenticated user. The list
 		// handler filters to accessible IDs and returns 200 with an empty
 		// items array when there are none. Requiring a RoleBinding here
-		// 403s developers on OpenShift (RBAC_DEFAULT_ROLES empty) and the
-		// web console shows "Gateways could not be loaded".
+		// 403s any caller without gateway:creator or a per-gateway binding
+		// (for example a developer whose Keycloak roles grant neither), and
+		// the web console shows "Gateways could not be loaded".
 		if method == http.MethodGet {
 			return true
 		}
@@ -431,7 +648,7 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 	if resource == "service_accounts" && gatewayID != "" {
 		// Any gateway role can reach the service-accounts API. The handler applies
 		// the finer owner/admin-all vs viewer-own visibility and role-cap rules
-		// (admins are capped like owners -- GAM-11).
+		// (admins are capped like owners -- GTW-ACC-11).
 		for _, binding := range bindings {
 			if binding.Scope == "gateway" && binding.GatewayID != nil && *binding.GatewayID == gatewayID &&
 				(binding.RoleName == "gateway:owner" || binding.RoleName == "gateway:admin" || binding.RoleName == "gateway:viewer") {
@@ -443,6 +660,10 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 
 	if resource == "access" && gatewayID != "" {
 		return isAccessFacadeAuthorized(gatewayID, bindings)
+	}
+
+	if resource == "sandbox_events" && gatewayID != "" {
+		return hasSandboxEventsAccess(gatewayID, bindings)
 	}
 
 	if resource == "role_bindings" {
@@ -484,7 +705,7 @@ func isGatewayAuthorized(method string, gatewayID string, bindings []BindingSumm
 			return true
 		case "gateway:admin":
 			// Granted administrator: read and update, but never delete the
-			// gateway (GAM-01). Delete requires gateway:owner.
+			// gateway (GTW-ACC-01). Delete requires gateway:owner.
 			if method != http.MethodDelete {
 				return true
 			}
@@ -504,6 +725,21 @@ func isGatewayAuthorized(method string, gatewayID string, bindings []BindingSumm
 // rules -- owner/admin-only management, owner-tier gating, and last-owner
 // protection -- are enforced in the access facade service (403/409), which can
 // return descriptive messages the middleware cannot.
+// hasSandboxEventsAccess deliberately omits platform:admin. This diagnostic
+// facade is visible only through an explicit gateway binding, so it cannot leak
+// a gateway's existence or sandbox failures to a platform-only administrator.
+func hasSandboxEventsAccess(gatewayID string, bindings []BindingSummary) bool {
+	for _, b := range bindings {
+		if b.Scope == "gateway" && b.GatewayID != nil && *b.GatewayID == gatewayID {
+			switch b.RoleName {
+			case "gateway:owner", "gateway:admin", "gateway:viewer":
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func isAccessFacadeAuthorized(gatewayID string, bindings []BindingSummary) bool {
 	if hasPlatformAdmin(bindings) {
 		return true

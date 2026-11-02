@@ -8,6 +8,10 @@ import { defineConfig, devices } from "@playwright/test";
 const consoleUrl =
   process.env.E2E_CONSOLE_URL ?? "https://console.hypershell.localhost";
 const pageTimeout = Number(process.env.E2E_BROWSER_PAGE_TIMEOUT_MS ?? "90000");
+// Chromium sends *.localhost names to loopback and ignores /etc/hosts. Container
+// mode (tests/e2e/e2e-console-container.sh) sets this to map them to the Kind
+// gateway address instead, e.g. "MAP *.localhost 10.89.0.5".
+const hostResolverRules = process.env.E2E_BROWSER_HOST_RESOLVER_RULES;
 
 export default defineConfig({
   testDir: "./e2e-live",
@@ -33,6 +37,9 @@ export default defineConfig({
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
     video: "retain-on-failure",
+    launchOptions: hostResolverRules
+      ? { args: [`--host-resolver-rules=${hostResolverRules}`] }
+      : {},
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
 });

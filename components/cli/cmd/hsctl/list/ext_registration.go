@@ -2,9 +2,12 @@ package list
 
 import (
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/agentRuntimes"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/ciProviders"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/ciTrusts"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/inferenceRoutes"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/providerBindings"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/providerSpecs"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/repositories"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/sandboxTemplates"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/secretSources"
 
@@ -20,5 +23,8 @@ func init() {
 		providerBindings.Cmd,
 		inferenceRoutes.Cmd,
 		secretSources.Cmd,
+		repositories.Cmd,
+		ciProviders.Cmd,
+		ciTrusts.Cmd,
 	)
 }

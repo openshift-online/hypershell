@@ -1,0 +1,20 @@
+# CITrust - repo-owner self-service, declared here (not central gitops).
+# "Trust this repo's GitHub Actions CI to exchange its forge OIDC token for a
+# workspace-scoped token on the agents gateway." The Repository importer applies
+# it as the repo owner. FK references resolve by name (ci_provider_id -> the
+# CIProvider forge; gateway_id -> base/platform gateway).
+#
+# The subject predicate (repository, protected ref) is the trust boundary
+# (PLAT-CITR-04 / SEC-RBAC-21) -- NOT the token audience, which any repo can set.
+apiVersion: hypershell.redhat.io/v1
+kind: CITrust
+metadata:
+  name: github-actions-hypershell
+  description: Keyless CI for openshift-online/hypershell via GitHub Actions
+spec:
+  ci_provider_id: github-actions
+  gateway_id: agents-gateway
+  subject:
+    repository: openshift-online/hypershell
+    ref_protected: true
+  role: openshell-user

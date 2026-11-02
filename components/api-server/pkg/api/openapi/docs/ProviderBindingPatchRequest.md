@@ -4,9 +4,9 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**Name** | Pointer to **string** |  | [optional] 
-**SecretSourceId** | Pointer to **string** |  | [optional] 
-**RefreshStrategy** | Pointer to **string** |  | [optional] 
+**Name** | Pointer to **string** |  | [optional]
+**SecretSourceId** | Pointer to **string** |  | [optional]
+**RefreshStrategy** | Pointer to **string** |  | [optional]
 
 ## Methods
 
@@ -104,5 +104,3 @@ HasRefreshStrategy returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
-
-

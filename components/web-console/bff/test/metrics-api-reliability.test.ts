@@ -10,6 +10,7 @@ import {
   apiErrorRatePercentPromql,
   apiLatencyP50SecondsCumulativePromql,
   apiLatencyP50SecondsPromql,
+  apiLatencyP95SecondsPromql,
   apiRequestRatePromql,
   queryApiReliability,
 } from "../src/metrics-api-reliability.js";
@@ -67,6 +68,7 @@ function emptyPrometheusResult() {
 }
 
 describe("queryApiReliability", () => {
+  // Verifies: OBS-REL-01.01
   it("maps Prometheus instant and hourly series into API reliability metrics", async () => {
     const prometheus = await startPrometheusStub((request, response) => {
       const url = new URL(request.url ?? "", "http://127.0.0.1");
@@ -84,6 +86,10 @@ describe("queryApiReliability", () => {
         }
         if (query === apiLatencyP50SecondsPromql) {
           response.end(prometheusSample("0.084"));
+          return;
+        }
+        if (query === apiLatencyP95SecondsPromql) {
+          response.end(prometheusSample("0.142"));
           return;
         }
       }
@@ -116,6 +122,15 @@ describe("queryApiReliability", () => {
           );
           return;
         }
+        if (query === apiLatencyP95SecondsPromql) {
+          response.end(
+            prometheusRangeSample([
+              ["1704067200", "NaN"],
+              ["1704070800", "0.142"],
+            ]),
+          );
+          return;
+        }
       }
 
       response.statusCode = 400;
@@ -137,11 +152,15 @@ describe("queryApiReliability", () => {
           { hour: "2024-01-01T00:00", value: 0.09 },
           { hour: "2024-01-01T01:00", value: 0.084 },
         ],
+        hourly_latency_p95_seconds: [
+          { hour: "2024-01-01T01:00", value: 0.142 },
+        ],
         hourly_request_rate: [
           { hour: "2024-01-01T00:00", value: 10.2 },
           { hour: "2024-01-01T01:00", value: 12.5 },
         ],
         latency_p50_seconds: 0.084,
+        latency_p95_seconds: 0.142,
         request_rate: 12.5,
       });
     } finally {
@@ -270,6 +289,7 @@ describe("queryApiReliability", () => {
     }
   });
 
+  // Verifies: OBS-REL-02.02
   it("omits only failed hourly series when instant queries succeed", async () => {
     const prometheus = await startPrometheusStub((request, response) => {
       const url = new URL(request.url ?? "", "http://127.0.0.1");

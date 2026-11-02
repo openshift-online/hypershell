@@ -65,6 +65,7 @@ function prometheusRangeSample(values: [string, string][]) {
 }
 
 describe("queryGatewayProvisionOutcomes", () => {
+  // Verifies: OBS-GPO-02.01
   it("maps Prometheus outcome counters into 24-hour totals and hourly success rates", async () => {
     const prometheus = await startPrometheusStub((request, response) => {
       const url = new URL(request.url ?? "", "http://127.0.0.1");
@@ -153,6 +154,7 @@ describe("queryGatewayProvisionOutcomes", () => {
     }
   });
 
+  // Verifies: OBS-GPO-09.02
   it("returns null success rate when no provisions completed in the window", async () => {
     const prometheus = await startPrometheusStub((request, response) => {
       const url = new URL(request.url ?? "", "http://127.0.0.1");
@@ -204,6 +206,7 @@ describe("queryGatewayProvisionOutcomes", () => {
     }
   });
 
+  // Verifies: OBS-GPO-04.01
   it("falls back to the duration histogram when outcome counters are empty", async () => {
     const prometheus = await startPrometheusStub((request, response) => {
       const url = new URL(request.url ?? "", "http://127.0.0.1");

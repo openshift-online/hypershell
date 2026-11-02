@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"sync"
 	"testing"
@@ -68,16 +69,32 @@ type E2ESuite struct {
 	clusterID    string
 	sandboxImage string
 
-	// clusterIDOverride, when set (by the matrix runner), pins the suite to a
-	// specific cluster id instead of discovering the seeded one. nameSuffix is
-	// appended to the run id so each per-cluster suite's gateway names are unique.
-	clusterIDOverride string
-	nameSuffix        string
-	kubeContext       string
-	skipKubeChecks    bool
+	// matrixCapability, when set (by the matrix runner), makes every positive
+	// workflow and provisioning create place by that one capability selector
+	// (placement.selector=[matrixCapability]) and assert the gateway lands on some
+	// eligible cluster that advertises it (E2E-CORE-30). matrixEligibleClusters is
+	// the set of cluster ids advertising the capability, used for that assertion;
+	// landed records the clusters positive creates resolved to so the matrix can
+	// report the observational landed-cluster union. A plain single-cluster or
+	// performance run leaves matrixCapability empty and keeps the driver's
+	// requirement selector. nameSuffix is appended to the run id so each
+	// per-capability suite's gateway names are unique.
+	matrixCapability       string
+	matrixEligibleClusters map[string]bool
+	landed                 *landedTracker
+	nameSuffix             string
 
 	// primary is the P1 gateway the read-only steps reuse.
 	primary driver.GatewayRef
+	// primaryRouteAddress is the API-published route_address of the primary gateway
+	// (grpcs://host:443), captured in P1.1. P1.4/P1.5 discover the gateway endpoint
+	// from it, so route discovery needs no Kubernetes context (E2E-CORE-39).
+	primaryRouteAddress string
+	// primaryWorkspaceMode is the primary gateway's OpenShell workspace mode,
+	// captured when the gateway reaches Running, so sandbox-wait helpers can
+	// locate its sandbox pods (managed mode runs them in per-workspace
+	// namespaces; see openshell-gateway.spec.md, "Gateway Workspace Mode").
+	primaryWorkspaceMode string
 	// primaryGatewayToken is the per-gateway admin token acquired in P1.3 for the
 	// CLI steps (P1.4/P1.5).
 	primaryGatewayToken driver.Token
@@ -86,16 +103,81 @@ type E2ESuite struct {
 	serviceAccounts *gatewayServiceAccountStore
 	// primaryLocalName is the CLI's local handle for the primary gateway.
 	primaryLocalName string
-	gateways         *gatewayTracker
-	cliCache         *cliCache
-	orphan           *orphanReaper
-	gcTimingLease    *namespaceGCTimingLease
-	controllerReady  *completionBarrier
+	// primaryReadyGateway is the primary gateway's Running response (status
+	// conditions, workspace mode, route address) recorded during provisioning so
+	// P1.1 can assert it without re-provisioning.
+	primaryReadyGateway *sdktypes.Gateway
+	// primaryProvisionDuration is the measured create-to-Running time (TTR) P1.1
+	// logs.
+	primaryProvisionDuration time.Duration
+	// primaryEndpoint is the discovered primary gateway endpoint recorded during
+	// provisioning for P1.4.
+	primaryEndpoint string
+	// primaryState provisions the shared primary gateway exactly once, whether that
+	// happens eagerly at Phase-P1 start or lazily when an isolated step that reads
+	// the primary gateway calls ensurePrimaryGateway. It is shared across step
+	// clones through an explicit pointer so every step observes the same gateway.
+	primaryState  *primaryGatewayState
+	gateways      *gatewayTracker
+	cliCache      *cliCache
+	orphan        *orphanReaper
+	gcTimingLease *namespaceGCTimingLease
+}
+
+// primaryGatewayState holds the shared primary-gateway provisioning result. A full
+// run (eager at Phase-P1 start), a Phase-P1 run, and an isolated step that reads
+// the primary gateway all drive provisioning through once, so the gateway is
+// created a single time and every step clone reads the same recorded artifacts.
+type primaryGatewayState struct {
+	once sync.Once
+
+	ref               driver.GatewayRef
+	ready             *sdktypes.Gateway
+	provisionDuration time.Duration
+	workspaceMode     string
+	token             driver.Token
+	endpoint          string
+	localName         string
+	routeAddress      string
 }
 
 type gatewayTracker struct {
 	mu  sync.Mutex
 	ids []string
+}
+
+// landedTracker records the distinct clusters a matrix suite's positive creates
+// resolved to, shared across step clones by pointer so the matrix can report the
+// observational landed-cluster union (E2E-CORE-30.02).
+type landedTracker struct {
+	mu  sync.Mutex
+	ids map[string]bool
+}
+
+func (l *landedTracker) record(id string) {
+	if l == nil || id == "" {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.ids == nil {
+		l.ids = map[string]bool{}
+	}
+	l.ids[id] = true
+}
+
+func (l *landedTracker) list() []string {
+	if l == nil {
+		return nil
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	out := make([]string, 0, len(l.ids))
+	for id := range l.ids {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
 }
 
 type cliCache struct {
@@ -113,10 +195,11 @@ type orphanReaper struct {
 
 func newE2ESuite(d driver.E2EInfraDriver, clients *harness.Clients) *E2ESuite {
 	return &E2ESuite{
-		driver:   d,
-		clients:  clients,
-		gateways: &gatewayTracker{},
-		cliCache: &cliCache{},
+		driver:       d,
+		clients:      clients,
+		gateways:     &gatewayTracker{},
+		cliCache:     &cliCache{},
+		primaryState: &primaryGatewayState{},
 	}
 }
 
@@ -162,6 +245,9 @@ func (s *E2ESuite) SetupSuite() {
 	s.Require().NoError(err, "invalid gateway authentication mode")
 
 	s.Logf("e2e mode=%s concurrency=%d driver=%s runID=%s", s.mode, s.concurrency, s.driver.Name(), s.runID)
+	if gatewayTLSInsecure(s.driver.Name()) {
+		s.Logf("WARNING: OPENSHELL_GATEWAY_INSECURE=true - gateway TLS verification is disabled; use only as a local diagnostic override")
+	}
 	if gatewayAuth == gatewayAuthServiceAccount {
 		s.serviceAccounts = newGatewayServiceAccountStore(gatewayOIDCIssuer(), s.runID)
 		s.Logf("gateway auth=%s: gateway service accounts; no token exchange, impersonation, platform:admin, or Keycloak admin credentials", gatewayAuth)
@@ -197,7 +283,7 @@ func (s *E2ESuite) SetupSuite() {
 		}
 		return nil
 	})
-	if s.mode == modeLong && !s.skipKubeChecks {
+	if s.mode == modeLong {
 		interval := durationSecondsEnv("E2E_GATEWAY_NAMESPACE_GC_INTERVAL", 30*time.Second)
 		grace := durationSecondsEnv("E2E_GATEWAY_NAMESPACE_GC_GRACE_PERIOD", 30*time.Second)
 		s.runner.Comment("shorten controller namespace-GC timing to interval=%s grace=%s for the P2.3 orphan-reaper assertion", interval, grace)
@@ -217,11 +303,22 @@ func (s *E2ESuite) SetupSuite() {
 	s.Require().NoError(err, "build admin API client")
 	s.admin = api
 
+	// Reap stale e2e gateways leaked by an abnormally terminated prior run before
+	// this run starts. Best-effort and non-fatal; see sweepStaleGateways.
+	s.sweepStaleGateways(s.ctx)
+
 	clusterID, err := s.discoverSeedIDs(s.ctx)
 	s.Require().NoError(err, "discover seeded cluster id")
 	s.clusterID = clusterID
 	s.Logf("seed ids: cluster=%s", clusterID)
 
+	// Seed the synthetic orphan and start its background reaper here, decoupled
+	// from primary-gateway provisioning, so its sweep interval overlaps P1 and P2
+	// and P2.3 only joins the result. An isolated P2.3 run self-seeds the reaper
+	// (see p2_3DeletionAndGC). startOrphanReaper is a no-op outside long mode.
+	if s.mode == modeLong {
+		s.startOrphanReaper(s.T())
+	}
 }
 
 // TearDownSuite restores GC timing, deletes the gateways the suite created, calls
@@ -238,6 +335,7 @@ func (s *E2ESuite) TearDownSuite() {
 	s.runner.SetLogger(s.logger)
 	cleanupStartedAt := time.Now()
 	failedBeforeCleanup := s.T().Failed()
+	diagnosticsCollected := false
 	s.reporter.StepStarted("cleanup", "suite-teardown")
 	defer func() {
 		verdict := outcomeFor(s.T())
@@ -250,8 +348,19 @@ func (s *E2ESuite) TearDownSuite() {
 		}
 		s.reporter.StepFinished("cleanup", "suite-teardown", cleanupOutcome, time.Since(cleanupStartedAt))
 	}()
+	defer func() {
+		// A cleanup-only failure did not exist at the pre-cleanup collection point.
+		// Capture what remains so every failed suite still emits diagnostics.
+		if s.T().Failed() && !diagnosticsCollected {
+			s.collectFailureDiagnostics()
+		}
+	}()
 	if s.orphan != nil && s.orphan.cancel != nil {
 		s.orphan.cancel()
+	}
+	if failedBeforeCleanup {
+		s.collectFailureDiagnostics()
+		diagnosticsCollected = true
 	}
 
 	cleanupAPI := s.admin
@@ -265,7 +374,9 @@ func (s *E2ESuite) TearDownSuite() {
 	// Gateway service accounts are credentials, not resources kept for inspection:
 	// they are revoked and deleted, and their local secrets removed, even with
 	// E2E_SKIP_CLEANUP=1. This runs before the gateways are deleted because the
-	// service-account API lives under the gateway.
+	// service-account API lives under the gateway. It also retires the primary
+	// gateway's service account here (rather than in P2.3) so that retirement
+	// never races with the P2 steps -- notably P2.5 -- that use the primary gateway.
 	var saClient gatewayServiceAccountClient
 	if cleanupAPI != nil {
 		saClient = cleanupAPI.OpenShellGatewayServiceAccounts()
@@ -300,7 +411,7 @@ func (s *E2ESuite) TearDownSuite() {
 		}
 	}
 
-	if s.gcTimingLease != nil && !(s.T().Failed() && s.driver.Name() == "openshift") {
+	if s.gcTimingLease != nil && (!s.T().Failed() || s.driver.Name() != "openshift") {
 		if err := s.gcTimingLease.Release(ctx); err != nil {
 			reportingTest{T: s.T(), logger: s.logger}.Errorf("restore namespace GC timing: %v", err)
 		}
@@ -319,19 +430,40 @@ func (s *E2ESuite) TearDownSuite() {
 // than cascading into dependent steps. P2 and P3 use bounded parallel subtests;
 // E2E_CONCURRENCY=1 preserves strict canonical order for debugging.
 func (s *E2ESuite) TestPhases() {
-	// Phase P0 -- preflight gate.
-	s.gate("P0.1", "authentication", tagShort, s.p0_1Authentication)
-	s.gate("P0.2", "environment-readiness", tagShort, s.p0_2EnvironmentReadiness)
+	// Phase P0 -- preflight gate. Wrapped in a Phase-P0 subtest so a phase or step
+	// can be targeted uniformly (TestE2E/TestPhases/Phase-P0[/P0.1-...]). A gate
+	// failure FailNows its subtest, which marks this parent failed; the check below
+	// stops the run before any dependent phase, preserving the fail-fast semantics.
+	s.Run("Phase-P0", func() {
+		s.gate("P0.1", "authentication", tagShort, s.p0_1Authentication)
+		s.gate("P0.2", "environment-readiness", tagShort, s.p0_2EnvironmentReadiness)
+	})
+	if s.T().Failed() {
+		s.T().FailNow()
+	}
 
-	// Phase P1 -- primary gateway up and reachable.
-	s.gate("P1.1", "provisioning", tagShort, s.p1_1Provisioning)
-	s.gate("P1.2", "infra-verification", tagShort, s.p1_2InfraVerification)
-	s.gate("P1.3", "token-ca-trust", tagShort, s.p1_3TokenAndCATrust)
-	s.gate("P1.4", "route-cli-registration", tagShort, s.p1_4RouteAndCLIRegistration)
-	s.gate("P1.5", "connectivity", tagShort, s.p1_5Connectivity)
+	// Phase P1 -- primary gateway up and reachable. The shared primary gateway is
+	// provisioned once here (eager for full and Phase-P1 runs); isolated P2/P3
+	// steps provision it lazily via ensurePrimaryGateway. The P1 steps are pure
+	// functional assertions over that recorded provisioning.
+	s.Run("Phase-P1", func() {
+		s.ensurePrimaryGateway(s.T())
+		s.gate("P1.1", "provisioning", tagShort, s.p1_1Provisioning)
+		// P1.2 is the kube-level internal-posture check; it is long-only because short
+		// mode is user-facing and SHALL NOT rely on a Kubernetes context (E2E-CORE-39).
+		// The route reachability of P1.5 and the sandbox exec of P2.1 functionally prove
+		// the Deployment, Service, and route in short mode.
+		s.gate("P1.2", "infra-verification", tagLong, s.p1_2InfraVerification)
+		s.gate("P1.3", "token-ca-trust", tagShort, s.p1_3TokenAndCATrust)
+		s.gate("P1.4", "route-cli-registration", tagShort, s.p1_4RouteAndCLIRegistration)
+		s.gate("P1.5", "connectivity", tagShort, s.p1_5Connectivity)
+	})
+	if s.T().Failed() {
+		s.T().FailNow()
+	}
 
-	// Phase P2 -- hard behaviors. At concurrency > 1, start the known longest
-	// steps first. At concurrency 1, retain canonical phase order.
+	// Phase P2 -- hard behaviors, released in canonical phase order and bounded
+	// by the configured concurrency.
 	s.Require().NoError(s.refreshAdminToken(), "refresh admin token before P2")
 	s.T().Run("Phase-P2", func(t *testing.T) {
 		runParallelSubtests(t, s.concurrency, s.p2ParallelSteps())
@@ -345,45 +477,32 @@ func (s *E2ESuite) TestPhases() {
 			s.parallelStep("P3.1", "admin-inventory-validation", tagLong, (*E2ESuite).p3_1AdminInventory),
 		})
 	})
+
+	// Phase P4 -- fail-closed (serial). P2.7 makes the per-cluster Vault unreachable
+	// cluster-wide (Vault is a black box with no per-gateway overrides, so reachability
+	// cannot be broken for a single gateway), which would disrupt any concurrent
+	// provisioning. It therefore runs serially as the final behavior check, after the
+	// parallel P2 wave and read-only P3, and restores Vault reachability before returning.
+	s.Require().NoError(s.refreshAdminToken(), "refresh admin token before P2.7")
+	s.step("P2.7", "vault-fail-closed", tagLong, s.p2_7VaultFailClosed)
 }
 
-// p2ParallelSteps returns the hard-behavior wave in canonical order for a
-// sequential debug run and dependency-aware order for the normal bounded
-// fan-out. P2.4 begins in parallel, but its controller disconnect waits until
-// the Keycloak/controller-sensitive P2.2, P2.5, and P2.6 steps have completed.
+// p2ParallelSteps returns the hard-behavior wave in canonical order. No P2 step
+// stops or restarts the control plane, so the steps need no ordering barrier.
 func (s *E2ESuite) p2ParallelSteps() []parallelSubtest {
-	canonical := []parallelSubtest{
+	return []parallelSubtest{
 		s.parallelStep("P2.1", "sandbox-lifecycle", tagShort, (*E2ESuite).p2_1SandboxLifecycle),
 		s.parallelStep("P2.2", "rbac-enforcement", tagLong, (*E2ESuite).p2_2RBACEnforcement),
 		s.parallelStep("P2.3", "deletion-namespace-gc", tagLong, (*E2ESuite).p2_3DeletionAndGC),
 		s.parallelStep("P2.4", "managedcluster-lifecycle", tagLong, (*E2ESuite).p2_4ManagedClusterLifecycle),
 		s.parallelStep("P2.5", "gateway-access-management", tagLong, (*E2ESuite).p2_5GatewayAccessManagement),
 		s.parallelStep("P2.6", "gateway-service-accounts", tagLong, (*E2ESuite).p2_6GatewayServiceAccounts),
-	}
-	if s.concurrency == 1 {
-		return canonical
-	}
-
-	barrier := newCompletionBarrier(3)
-	s.controllerReady = barrier
-	markControllerSensitive := func(step parallelSubtest) parallelSubtest {
-		run := step.run
-		step.run = func(t *testing.T) {
-			defer barrier.Done()
-			run(t)
-		}
-		return step
-	}
-
-	// Queue the controller-sensitive work before P2.4 so its barrier cannot
-	// consume the last scheduler slot while a required peer is still queued.
-	return []parallelSubtest{
-		canonical[0],
-		canonical[2],
-		markControllerSensitive(canonical[4]),
-		markControllerSensitive(canonical[5]),
-		markControllerSensitive(canonical[1]),
-		canonical[3],
+		// P2.7 (vault-fail-closed) is NOT here: it makes the cluster Vault unreachable
+		// cluster-wide, so it runs serially as the final step (see TestPhases, Phase-P4).
+		s.parallelStep("P2.8", "gateway-sharing-rolebindings", tagLong, (*E2ESuite).p2_8GatewaySharingRoleBindings),
+		s.parallelStep("P2.9", "kata-runtime", tagLong, (*E2ESuite).p2_9KataRuntime),
+		s.parallelStep("P2.10", "alerting-signal", tagLong, (*E2ESuite).p2_10AlertingSignal),
+		s.parallelStep("P2.11", "cli-ui-parity", tagLong, (*E2ESuite).p2_11CLIUIParity),
 	}
 }
 
@@ -491,7 +610,13 @@ func plannedReportSteps() []harness.PlannedStep {
 		{StepID: "P2.4", Name: "managedcluster-lifecycle"},
 		{StepID: "P2.5", Name: "gateway-access-management"},
 		{StepID: "P2.6", Name: "gateway-service-accounts"},
+		{StepID: "P2.8", Name: "gateway-sharing-rolebindings"},
+		{StepID: "P2.9", Name: "kata-runtime"},
+		{StepID: "P2.10", Name: "alerting-signal"},
+		{StepID: "P2.11", Name: "cli-ui-parity"},
 		{StepID: "P3.1", Name: "admin-inventory-validation"},
+		// P2.7 runs serially last (it makes the cluster Vault unreachable); see TestPhases.
+		{StepID: "P2.7", Name: "vault-fail-closed"},
 		{StepID: "cleanup", Name: "suite-teardown"},
 	}
 }
@@ -517,30 +642,37 @@ func (s *E2ESuite) cloneForStep(t *testing.T, stepID string) *E2ESuite {
 	// output is attributed to the correct step rather than guessed.
 	runner.SetLogger(logger)
 	clone := &E2ESuite{
-		logger:              logger,
-		driver:              s.driver,
-		clients:             s.clients,
-		runner:              runner,
-		reporter:            s.reporter,
-		mode:                s.mode,
-		concurrency:         s.concurrency,
-		ctx:                 s.ctx,
-		runID:               s.runID,
-		startedAt:           s.startedAt,
-		apiHost:             s.apiHost,
-		admin:               api,
-		clusterID:           s.clusterID,
-		sandboxImage:        s.sandboxImage,
-		clusterIDOverride:   s.clusterIDOverride,
-		nameSuffix:          s.nameSuffix,
-		primary:             s.primary,
-		primaryGatewayToken: s.primaryGatewayToken,
-		primaryLocalName:    s.primaryLocalName,
-		serviceAccounts:     s.serviceAccounts,
-		gateways:            s.gateways,
-		cliCache:            s.cliCache,
-		orphan:              s.orphan,
-		controllerReady:     s.controllerReady,
+		logger:                   logger,
+		driver:                   s.driver,
+		clients:                  s.clients,
+		runner:                   runner,
+		reporter:                 s.reporter,
+		mode:                     s.mode,
+		concurrency:              s.concurrency,
+		ctx:                      s.ctx,
+		runID:                    s.runID,
+		startedAt:                s.startedAt,
+		apiHost:                  s.apiHost,
+		admin:                    api,
+		clusterID:                s.clusterID,
+		sandboxImage:             s.sandboxImage,
+		matrixCapability:         s.matrixCapability,
+		matrixEligibleClusters:   s.matrixEligibleClusters,
+		landed:                   s.landed,
+		nameSuffix:               s.nameSuffix,
+		primary:                  s.primary,
+		primaryRouteAddress:      s.primaryRouteAddress,
+		primaryGatewayToken:      s.primaryGatewayToken,
+		primaryLocalName:         s.primaryLocalName,
+		primaryWorkspaceMode:     s.primaryWorkspaceMode,
+		primaryReadyGateway:      s.primaryReadyGateway,
+		primaryProvisionDuration: s.primaryProvisionDuration,
+		primaryEndpoint:          s.primaryEndpoint,
+		primaryState:             s.primaryState,
+		serviceAccounts:          s.serviceAccounts,
+		gateways:                 s.gateways,
+		cliCache:                 s.cliCache,
+		orphan:                   s.orphan,
 	}
 	clone.SetT(t)
 	return clone
@@ -575,17 +707,21 @@ func (s *E2ESuite) modeAllows(tag string) bool {
 }
 
 // longOnly runs a long-only sub-check of a short-tagged step as a named subtest.
-// Outside long mode the subtest is skipped rather than silently passed, so the
-// report shows which deep checks a short run did not exercise. A failure inside
-// fn fails the subtest and its parent step.
+// Outside long mode the sub-check is not registered at all (no subtest, no skip
+// line), keeping a short run's output focused on what it actually exercised; the
+// parent step's short-tagged assertions still run and report normally. A failure
+// inside fn fails the subtest and its parent step.
+//
+// This differs from a mode-gated top-level step (see step/parallelStep), which
+// SHALL t.Skip so the per-step pass/fail/skip report and the structured reporter
+// account for it (e2e-testing.spec.md, Three-Outcome Reporting). A longOnly check
+// is a sub-check within a step, not a reported step, so it carries no such record.
 func (s *E2ESuite) longOnly(check string, fn func(t *testing.T)) {
+	if !s.modeAllows(tagLong) {
+		return
+	}
 	s.Run(check, func() {
-		t := s.T()
-		if !s.modeAllows(tagLong) {
-			t.Skipf("%s is long-only; mode is %s", check, s.mode)
-			return
-		}
-		fn(t)
+		fn(s.T())
 	})
 }
 
@@ -638,8 +774,10 @@ func envOrDefault(key, def string) string {
 	return def
 }
 
-// gatewayTLSInsecure honors only an explicit diagnostic override. Both drivers
-// install a trusted CA path, including Kind's local self-signed CA.
+// gatewayTLSInsecure honors only an explicit diagnostic override; SetupSuite
+// logs a warning when it is set. Kind trusts the cluster's cert-manager CA via
+// SSL_CERT_FILE (passed into the CLI container by
+// scripts/kind/openshell-container.sh); OpenShift's endpoint is publicly trusted.
 func gatewayTLSInsecure(_ string) bool {
 	return os.Getenv("OPENSHELL_GATEWAY_INSECURE") == "true"
 }

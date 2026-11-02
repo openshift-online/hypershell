@@ -13,6 +13,7 @@ const reauthResponse = () =>
   );
 
 describe("correlated API fetch", () => {
+  // Verifies: UIS-OBS-08
   it("adds the application invocation correlation identifier", async () => {
     const fetchImplementation = vi
       .fn<typeof globalThis.fetch>()
@@ -77,6 +78,7 @@ describe("correlated API fetch", () => {
     expect(response.status).toBe(401);
   });
 
+  // Verifies: WEB-TRC-03
   it("propagates the W3C trace context supplied by the provider", async () => {
     const fetchImplementation = vi
       .fn<typeof globalThis.fetch>()

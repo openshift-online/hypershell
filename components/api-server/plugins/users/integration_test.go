@@ -15,9 +15,15 @@ import (
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roles"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/users"
 	"github.com/openshift-online/hypershell/components/api-server/test"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/testutil"
 )
+
+func newTestUserDao() users.UserDao {
+	env := environments.Environment()
+	return users.NewUserDao(&env.Database.SessionFactory, db.NewAdvisoryLockFactory(env.Database.SessionFactory))
+}
 
 func jwtContextWithRealmRoles(h *test.Helper, account *testutil.TestAccount, realmRoles []string) context.Context {
 	roleValues := make([]interface{}, len(realmRoles))
@@ -60,6 +66,7 @@ func seedUsers(count int) []string {
 	return ids
 }
 
+// Verifies: PLAT-USR-03.01
 func TestUserList_ForbiddenForGatewayCreator(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 
@@ -71,6 +78,7 @@ func TestUserList_ForbiddenForGatewayCreator(t *testing.T) {
 	Expect(resp.StatusCode).To(Equal(http.StatusForbidden))
 }
 
+// Verifies: PLAT-USR-03.03
 func TestUserList_ForbiddenForHypershellAdminWithoutPlatformAdmin(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 
@@ -83,6 +91,7 @@ func TestUserList_ForbiddenForHypershellAdminWithoutPlatformAdmin(t *testing.T) 
 	Expect(resp.StatusCode).To(Equal(http.StatusForbidden))
 }
 
+// Verifies: PLAT-USR-03.02
 func TestUserList_AllowedForPlatformAdminBinding(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 
@@ -96,6 +105,7 @@ func TestUserList_AllowedForPlatformAdminBinding(t *testing.T) {
 	Expect(*list.Total).To(BeNumerically(">=", 1))
 }
 
+// Verifies: PLAT-USR-03.04
 func TestUserGet_Opaque404ForUnauthorizedCaller(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 
@@ -108,6 +118,7 @@ func TestUserGet_Opaque404ForUnauthorizedCaller(t *testing.T) {
 	Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
 }
 
+// Verifies: PLAT-USR-04.01
 func TestUserList_TotalAvailableWithSizeOne(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 
@@ -141,6 +152,7 @@ func TestUserGet_AllowedForAuthorizedCaller(t *testing.T) {
 // check-then-act race in Upsert: two requests JIT-provisioning the same
 // brand-new OIDC identity at once must not let the losing goroutine see a
 // raw unique-constraint error instead of the persisted user.
+// Verifies: SEC-RBAC-03.02
 func TestUserUpsert_ConcurrentFirstTimeProvisioning(t *testing.T) {
 	test.RegisterIntegration(t)
 
@@ -166,4 +178,73 @@ func TestUserUpsert_ConcurrentFirstTimeProvisioning(t *testing.T) {
 		Expect(ids[i]).NotTo(BeEmpty())
 		Expect(ids[i]).To(Equal(ids[0]))
 	}
+}
+
+// TestUserUpsert_UnchangedProfileIssuesNoUpdate guards the conditional-write
+// behavior: a request whose claims already match the stored profile must not
+// write to (or take a row lock on) the User row. UpdatedAt is GORM's proof of
+// a write; it stays put when there is nothing to change.
+// Verifies: SEC-RBAC-03.03
+func TestUserUpsert_UnchangedProfileIssuesNoUpdate(t *testing.T) {
+	test.RegisterIntegration(t)
+
+	userDao := newTestUserDao()
+	username := fmt.Sprintf("unchanged-profile-%d", time.Now().UnixNano())
+	email := "unchanged@example.com"
+	name := "Unchanged Name"
+
+	before, err := userDao.Upsert(context.Background(), &users.User{Username: username, Email: &email, Name: &name})
+	Expect(err).NotTo(HaveOccurred())
+
+	after, err := userDao.Upsert(context.Background(), &users.User{Username: username, Email: &email, Name: &name})
+	Expect(err).NotTo(HaveOccurred())
+
+	Expect(after.ID).To(Equal(before.ID))
+	Expect(after.UpdatedAt).To(Equal(before.UpdatedAt))
+}
+
+// TestUserUpsert_MissingClaimPreservesStoredValue guards against a
+// claim-less token (service accounts, narrow-scope tokens) clobbering a
+// previously stored profile field with NULL.
+// Verifies: SEC-RBAC-03.04
+func TestUserUpsert_MissingClaimPreservesStoredValue(t *testing.T) {
+	test.RegisterIntegration(t)
+
+	userDao := newTestUserDao()
+	username := fmt.Sprintf("missing-claim-%d", time.Now().UnixNano())
+	email := "keep-me@example.com"
+	name := "Keep Me"
+
+	_, err := userDao.Upsert(context.Background(), &users.User{Username: username, Email: &email, Name: &name})
+	Expect(err).NotTo(HaveOccurred())
+
+	// A later request carries a token with no email/name claim at all.
+	after, err := userDao.Upsert(context.Background(), &users.User{Username: username})
+	Expect(err).NotTo(HaveOccurred())
+
+	Expect(after.Email).NotTo(BeNil())
+	Expect(*after.Email).To(Equal(email))
+	Expect(after.Name).NotTo(BeNil())
+	Expect(*after.Name).To(Equal(name))
+}
+
+// TestUserUpsert_ChangedClaimUpdatesStoredValue guards the other half of the
+// conditional-write rule: a present, differing claim must still be written.
+func TestUserUpsert_ChangedClaimUpdatesStoredValue(t *testing.T) {
+	test.RegisterIntegration(t)
+
+	userDao := newTestUserDao()
+	username := fmt.Sprintf("changed-claim-%d", time.Now().UnixNano())
+	oldEmail := "old@example.com"
+	newEmail := "new@example.com"
+	name := "Same Name"
+
+	_, err := userDao.Upsert(context.Background(), &users.User{Username: username, Email: &oldEmail, Name: &name})
+	Expect(err).NotTo(HaveOccurred())
+
+	after, err := userDao.Upsert(context.Background(), &users.User{Username: username, Email: &newEmail, Name: &name})
+	Expect(err).NotTo(HaveOccurred())
+
+	Expect(after.Email).NotTo(BeNil())
+	Expect(*after.Email).To(Equal(newEmail))
 }

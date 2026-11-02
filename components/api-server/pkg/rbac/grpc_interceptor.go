@@ -2,9 +2,9 @@ package rbac
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
-	"github.com/golang/glog"
 	"google.golang.org/grpc"
 
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
@@ -115,7 +115,7 @@ func provisionUserForGRPC(ctx context.Context, provisioner UserProvisioner, sync
 	payload := &auth.Payload{Username: username}
 	userID, err := provisioner.UpsertFromJWT(ctx, payload)
 	if err != nil {
-		glog.Warningf("gRPC user provisioning failed for %q: %v", username, err)
+		slog.WarnContext(ctx, "gRPC user provisioning failed", "username", username, "error", err)
 		return ctx
 	}
 
@@ -130,7 +130,7 @@ func provisionUserForGRPC(ctx context.Context, provisioner UserProvisioner, sync
 	// no Keycloak realm roles still receive their initial bindings.
 	if syncer != nil {
 		if syncErr := syncer.SyncJWTRoles(ctx, userID, jwtRoles); syncErr != nil {
-			glog.Warningf("gRPC JWT role sync failed for %q: %v", username, syncErr)
+			slog.WarnContext(ctx, "gRPC JWT role sync failed", "username", username, "error", syncErr)
 		}
 	}
 

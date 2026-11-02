@@ -40,21 +40,33 @@ else
     info "Building from working tree ($(git rev-parse --short HEAD))"
   fi
 
+  # KIND_COVERAGE=true adds coverage instrumentation (DEV-LOC-18).
+  read -r -a api_cov_args <<<"$(coverage_build_args api-server)"
+  read -r -a cp_cov_args <<<"$(coverage_build_args control-plane)"
+  read -r -a wc_cov_args <<<"$(coverage_build_args web-console)"
+  if coverage_enabled; then
+    info "KIND_COVERAGE=true - building coverage-instrumented images"
+  fi
+
   info "Building API server..."
   ${CONTAINER_ENGINE} build -t "${api_server_local}" \
     -f "${BUILD_DIR}/components/api-server/Dockerfile" \
     --build-arg GIT_VERSION="${build_version}" \
     --build-arg BUILD_TIME="${build_time}" \
+    ${api_cov_args[@]+"${api_cov_args[@]}"} \
     "${BUILD_DIR}/components/api-server"
 
   info "Building control plane..."
   ${CONTAINER_ENGINE} build -t "${control_plane_local}" \
-    -f "${BUILD_DIR}/components/control-plane/Dockerfile" "${BUILD_DIR}"
+    -f "${BUILD_DIR}/components/control-plane/Dockerfile" \
+    ${cp_cov_args[@]+"${cp_cov_args[@]}"} \
+    "${BUILD_DIR}"
 
   info "Building web console..."
   ${CONTAINER_ENGINE} build -t "${web_console_local}" \
     -f "${BUILD_DIR}/components/web-console/Dockerfile" \
     --build-arg GIT_VERSION="${build_version}" \
+    ${wc_cov_args[@]+"${wc_cov_args[@]}"} \
     "${BUILD_DIR}"
 
   success "All images built"

@@ -12,6 +12,7 @@ func ConvertInferenceRoute(ir openapi.InferenceRoute) *InferenceRoute {
 		Meta: api.Meta{
 			ID: util.NilToEmptyString(ir.Id),
 		},
+		Name:              util.NilToEmptyString(ir.Name),
 		WorkspaceId:       ir.WorkspaceId,
 		ProviderBindingId: ir.ProviderBindingId,
 		Model:             ir.Model,
@@ -31,6 +32,7 @@ func PresentInferenceRoute(ir *InferenceRoute) openapi.InferenceRoute {
 		Href:              reference.Href,
 		CreatedAt:         openapi.PtrTime(ir.CreatedAt),
 		UpdatedAt:         openapi.PtrTime(ir.UpdatedAt),
+		Name:              openapi.PtrString(ir.Name),
 		WorkspaceId:       ir.WorkspaceId,
 		ProviderBindingId: ir.ProviderBindingId,
 		Model:             ir.Model,

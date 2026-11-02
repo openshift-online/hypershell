@@ -1,8 +1,8 @@
 // The routing driving adapter: it makes the URL the authoritative source of route
-// state (GLASS-NAV-05, GLASS-NAV-07), applies the push-versus-replace policy
-// (GLASS-NAV-06), and lets components read route state, dispatch typed navigation
-// actions, and build real link hrefs (GLASS-NAV-08) without touching the History
-// API themselves (GLASS-NAV-04).
+// state (FLT-NAV-05, FLT-NAV-07), applies the push-versus-replace policy
+// (FLT-NAV-06), and lets components read route state, dispatch typed navigation
+// actions, and build real link hrefs (FLT-NAV-08) without touching the History
+// API themselves (FLT-NAV-04).
 
 import {
   createContext,
@@ -53,7 +53,7 @@ export function RouterProvider({
   const [hist] = useState<HistoryPort>(() => history ?? createBrowserHistory());
 
   // Parse the URL synchronously on first render, before any data resolves
-  // (GLASS-NAV-05).
+  // (FLT-NAV-05).
   const [route, setRoute] = useState<RouteState>(() => parseRoute(hist.read()));
 
   // Mirror the live route into a ref so `navigate`, which only runs in event
@@ -65,7 +65,7 @@ export function RouterProvider({
   }, [route]);
 
   // Reconcile from the URL on Back/Forward. The URL is authoritative; we only
-  // read it here and never echo it back as a new entry (GLASS-NAV-07).
+  // read it here and never echo it back as a new entry (FLT-NAV-07).
   useEffect(() => {
     return hist.subscribe(() => {
       setRoute(parseRoute(hist.read()));
@@ -99,7 +99,7 @@ export function RouterProvider({
   // hrefFor runs during render (links compute their href), so it reduces from the
   // route state directly rather than the ref. The final `<a href>` goes through the
   // history adapter so it carries any reverse-proxy base path, keeping copy-link,
-  // open-in-new-tab, and Cmd/Ctrl-click on the correct URL (GLASS-NAV-08/19).
+  // open-in-new-tab, and Cmd/Ctrl-click on the correct URL (FLT-NAV-08/19).
   const hrefFor = useCallback(
     (action: NavAction) => {
       const nextHref = routeToHref(reduceRoute(route, action));
@@ -148,7 +148,7 @@ export function useRoute(): RouteState {
 /**
  * Props for a real link that performs a client-side navigation on a plain click
  * but lets the browser handle copy-link, open-in-new-tab, and Ctrl/Cmd-click
- * (GLASS-NAV-08). Spread onto an `<a>` or a PatternFly `component="a"` element.
+ * (FLT-NAV-08). Spread onto an `<a>` or a PatternFly `component="a"` element.
  */
 export function useNavLink(action: NavAction): {
   readonly href: string;

@@ -3,6 +3,7 @@
 : "${E2E_GATEWAY_AUTH:=identity}"
 GATEWAY_SA_DIR=""
 
+# Verifies: E2E-CORE-40.01
 e2e_validate_gateway_auth() {
   case "$E2E_GATEWAY_AUTH" in
     identity) ;;

@@ -1,6 +1,6 @@
 // Renders a domain StatusBadge as a PatternFly Label. Tone maps to a semantic
 // status token (never a raw color); the label key resolves to translated copy so
-// state is carried by BOTH color and text (brand-color spec UI-BRAND-03).
+// state is carried by BOTH color and text (brand-color spec UIS-BRND-03).
 
 import { Label, type LabelProps } from "@patternfly/react-core";
 import type { MessageDescriptor } from "react-intl";

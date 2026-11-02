@@ -4,15 +4,16 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**Id** | Pointer to **string** |  | [optional] 
-**Kind** | Pointer to **string** |  | [optional] 
-**Href** | Pointer to **string** |  | [optional] 
-**CreatedAt** | Pointer to **time.Time** |  | [optional] 
-**UpdatedAt** | Pointer to **time.Time** |  | [optional] 
-**WorkspaceId** | **string** |  | 
-**ProviderBindingId** | **string** |  | 
-**Model** | **string** | Model alias for LLM inference within the agent workspace | 
-**RepositoryId** | Pointer to **string** | Repository that owns this resource through the control-plane .hypershell import. Null for resources created directly through the REST API or hsctl apply. Set server-side; read-only in the client contract. | [optional] [readonly] 
+**Id** | Pointer to **string** |  | [optional]
+**Kind** | Pointer to **string** |  | [optional]
+**Href** | Pointer to **string** |  | [optional]
+**CreatedAt** | Pointer to **time.Time** |  | [optional]
+**UpdatedAt** | Pointer to **time.Time** |  | [optional]
+**Name** | Pointer to **string** | Queryable find-by-name key (SDLC-CONF-13). Optional on create; defaults to a stable identity derived from workspace_id/provider_binding_id/model when not supplied. | [optional]
+**WorkspaceId** | **string** |  |
+**ProviderBindingId** | **string** |  |
+**Model** | **string** | Model alias for LLM inference within the agent workspace |
+**RepositoryId** | Pointer to **string** | Repository that owns this resource through the control-plane .hypershell import. Null for resources created directly through the REST API or hsctl apply. Set server-side; read-only in the client contract. | [optional] [readonly]
 
 ## Methods
 
@@ -158,6 +159,31 @@ SetUpdatedAt sets UpdatedAt field to given value.
 
 HasUpdatedAt returns a boolean if a field has been set.
 
+### GetName
+
+`func (o *InferenceRoute) GetName() string`
+
+GetName returns the Name field if non-nil, zero value otherwise.
+
+### GetNameOk
+
+`func (o *InferenceRoute) GetNameOk() (*string, bool)`
+
+GetNameOk returns a tuple with the Name field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetName
+
+`func (o *InferenceRoute) SetName(v string)`
+
+SetName sets Name field to given value.
+
+### HasName
+
+`func (o *InferenceRoute) HasName() bool`
+
+HasName returns a boolean if a field has been set.
+
 ### GetWorkspaceId
 
 `func (o *InferenceRoute) GetWorkspaceId() string`
@@ -245,5 +271,3 @@ HasRepositoryId returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
-
-

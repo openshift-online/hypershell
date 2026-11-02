@@ -47,7 +47,7 @@ const (
 // these; a future Jira adapter maps Jira status/labels to the same domain phases
 // behind the same port, with no change here (SDLC-VIS-02).
 const (
-	labelExecutionRecord = "agent/execution-record"
+	labelAllowed         = "agent/allowed"
 	labelWorkable        = "agent/workable"
 	labelReviewableSpec  = "agent/reviewable-spec"
 	labelSpecRejected    = "agent/review-spec-rejected"
@@ -192,12 +192,21 @@ type SDLCHubCluster struct {
 // PR-driven (SDLC-VIS-03): these mirror the shared bundles.PR the Fleet Map freight
 // bar shows, so a pull request is never hidden because its issue link is
 // unrecoverable.
+//
+// Repository and Environments are populated only for GitOps deployment pull requests
+// (the SDLCBundleRow.GitOpsPRs group, SDLC-VIS-25): Repository carries the owner/repo
+// so a GitOps pull request keyed by repository plus number stays distinct from an
+// application pull request that shares its number (FLT-BPR-02), and Environments
+// carries the deployment-environment attribution the shared bundle enrichment supplied
+// (FLT-BPR-06). Both are empty for application pull requests.
 type SDLCPullRequest struct {
-	Number   int    `json:"number"`
-	Title    string `json:"title"`
-	URL      string `json:"url"`
-	Author   string `json:"author,omitempty"`
-	MergedAt string `json:"mergedAt,omitempty"`
+	Number       int      `json:"number"`
+	Title        string   `json:"title"`
+	URL          string   `json:"url"`
+	Author       string   `json:"author,omitempty"`
+	MergedAt     string   `json:"mergedAt,omitempty"`
+	Repository   string   `json:"repository,omitempty"`
+	Environments []string `json:"environments,omitempty"`
 }
 
 // SDLCShippedIssue is one tracked execution record: an issue that shipped in a bundle
@@ -217,19 +226,28 @@ type SDLCShippedIssue struct {
 // SDLCBundleRow is one matrix row: a release bundle (newest first) or the single
 // top Unreleased row, which carries no version and no hub-cluster markers
 // (SDLC-VIS-11). HubClusters lists the instance keys currently running this bundle.
-// A bundle row's contents are PR-driven and split into two groups: Issues holds the
-// bundle's pull requests grouped under the tracked execution record they resolve to,
-// and OtherPRs holds the one-off pull requests with no tracked issue. The Unreleased
-// row carries only tracked issues (shipped records whose pull requests are absent
-// from every bundle) and no OtherPRs.
+// A bundle row's contents are PR-driven and grouped under two repository headings. The
+// APPLICATION repository is split into Issues (the bundle's pull requests grouped under
+// the tracked execution record they resolve to) and OtherPRs (the one-off pull requests
+// with no tracked issue). The DEPLOYMENT repository is GitOpsPRs: the bundle's GitOps
+// deployment pull requests carried straight from the shared bundle enrichment that also
+// feeds Fleet Map (SDLC-VIS-25, FLT-BPR), kept out of the application tracked-issue and
+// other-pull-request grouping. GitOpsStatus reports the GitOps group's range state so
+// the UI can tell a successful-but-empty comparison ("available") from an unavailable
+// lookup ("unavailable") and from a bundle that carries no GitOps fields at all (""),
+// which the UI treats as "GitOps availability unknown" and renders no deployment section.
+// The Unreleased row carries only tracked issues (shipped records whose pull requests are
+// absent from every bundle) and no OtherPRs or GitOps group.
 type SDLCBundleRow struct {
-	Version     string             `json:"version,omitempty"`
-	Digest      string             `json:"digest,omitempty"`
-	Date        string             `json:"date,omitempty"`
-	Unreleased  bool               `json:"unreleased"`
-	HubClusters []string           `json:"hubClusters,omitempty"`
-	Issues      []SDLCShippedIssue `json:"issues"`
-	OtherPRs    []SDLCPullRequest  `json:"otherPRs"`
+	Version      string             `json:"version,omitempty"`
+	Digest       string             `json:"digest,omitempty"`
+	Date         string             `json:"date,omitempty"`
+	Unreleased   bool               `json:"unreleased"`
+	HubClusters  []string           `json:"hubClusters,omitempty"`
+	Issues       []SDLCShippedIssue `json:"issues"`
+	OtherPRs     []SDLCPullRequest  `json:"otherPRs"`
+	GitOpsPRs    []SDLCPullRequest  `json:"gitopsPrs,omitempty"`
+	GitOpsStatus string             `json:"gitopsStatus,omitempty"`
 }
 
 // SDLCMatrix is the release-by-hub-cluster matrix (the Shipped column).
@@ -356,9 +374,13 @@ func (s *SDLC) card(rec SdlcRecord, now time.Time, esc string) SDLCCard {
 // into tracked issues (pull requests grouped under the execution record they resolve
 // to) and one-off pull requests (no tracked issue). The work-item -> PRs resolver is
 // inverted into a PR -> issue map and used only to group, never to attribute issues
-// to bundles. Shipped records whose pull requests are absent from every bundle collect
-// in the single top Unreleased row, which holds only genuinely in-flight tracked work
-// (SDLC-VIS-11).
+// to bundles. The released-vs-unreleased decision does not depend on the compare-window
+// horizon: a record whose pull requests fall in no resolved window but which merged at
+// or before the oldest resolved bundle's build date is contained in that bundle (and
+// every newer one), so it is grouped under that oldest bundle row rather than reported
+// in-flight (SDLC-VIS-22). Only records genuinely merged after the newest resolved
+// bundle collect in the single top Unreleased row, which holds only genuinely in-flight
+// tracked work (SDLC-VIS-11).
 func (s *SDLC) matrix(ctx context.Context, shipped []SdlcRecord) SDLCMatrix {
 	m := SDLCMatrix{HubClusters: []SDLCHubCluster{}, Rows: []SDLCBundleRow{}}
 
@@ -388,7 +410,7 @@ func (s *SDLC) matrix(ctx context.Context, shipped []SdlcRecord) SDLCMatrix {
 	// issues to bundles (bundle contents are the bundle's PR set, below) and adds no
 	// GitHub calls beyond the resolver's own cached lookups.
 	recByNumber := map[int]SdlcRecord{}
-	issueByPR := map[int]int{} // PR number -> tracked execution-record issue number
+	issueByPR := map[int]int{} // PR number -> tracked work-item issue number
 	for _, rec := range shipped {
 		recByNumber[rec.Number] = rec
 		if s.issues == nil {
@@ -441,8 +463,20 @@ func (s *SDLC) matrix(ctx context.Context, shipped []SdlcRecord) SDLCMatrix {
 		grouped := map[int][]SDLCPullRequest{}
 		var issueOrder []int
 		var others []SDLCPullRequest
+		// The SDLC matrix groups the bundle's APPLICATION pull requests only
+		// (rr.rel.PRs); GitOps deployment PRs never fold into the tracked-issue/other-PR
+		// groups (SDLC-VIS-03.06). They are instead carried as the row's separate GitOps
+		// deployment group below (SDLC-VIS-25). Copy only the shared display fields here
+		// (not a full struct conversion): application PRs deliberately leave the
+		// repository and environment identity empty, which belongs to the GitOps group.
 		for _, pr := range rr.rel.PRs {
-			sp := SDLCPullRequest(pr)
+			sp := SDLCPullRequest{
+				Number:   pr.Number,
+				Title:    pr.Title,
+				URL:      pr.URL,
+				Author:   pr.Author,
+				MergedAt: pr.MergedAt,
+			}
 			if issNum, ok := issueByPR[pr.Number]; ok {
 				if _, seen := grouped[issNum]; !seen {
 					issueOrder = append(issueOrder, issNum)
@@ -465,25 +499,92 @@ func (s *SDLC) matrix(ctx context.Context, shipped []SdlcRecord) SDLCMatrix {
 				PRs:      sortedPRs(grouped[issNum]),
 			})
 		}
-		relRows = append(relRows, SDLCBundleRow{
+		row := SDLCBundleRow{
 			Version:     rr.rel.Version,
 			Digest:      rr.rel.Digest,
 			Date:        rr.rel.Date,
 			HubClusters: hubsByKey[rr.key],
 			Issues:      sortedShipped(tracked),
 			OtherPRs:    sortedPRs(others),
-		})
+		}
+		// Carry the bundle's GitOps deployment group straight from the shared bundle
+		// enrichment that also feeds Fleet Map (SDLC-VIS-25): same bundle identity, same
+		// comparison ranges, no second definition of membership and no extra GitHub call.
+		// GitOpsStatus == "" means the enrichment never attempted the group (feature off,
+		// no lock-history provenance, or a legacy snapshot), so the row carries no GitOps
+		// group and the UI renders no deployment section. A set status is forwarded even
+		// when the group is empty, so the UI can tell a successful-but-empty comparison
+		// ("available") from an unavailable lookup ("unavailable"). GitOps records keep
+		// their repository and environment identity and never enter the application
+		// grouping above, so a GitOps PR whose number collides with an application PR
+		// stays a distinct item.
+		if rr.rel.GitOpsStatus != "" {
+			row.GitOpsStatus = rr.rel.GitOpsStatus
+			gitops := make([]SDLCPullRequest, 0, len(rr.rel.GitOpsPRs))
+			for _, pr := range rr.rel.GitOpsPRs {
+				// SDLCPullRequest mirrors PR field-for-field, so a struct conversion
+				// carries every GitOps field, including the repository and environment
+				// identity the deployment group needs; only the JSON tags differ, which
+				// a conversion ignores.
+				gitops = append(gitops, SDLCPullRequest(pr))
+			}
+			row.GitOpsPRs = gitops
+		}
+		relRows = append(relRows, row)
 	}
 
-	// Unreleased holds only genuinely in-flight tracked work: shipped records whose
-	// pull requests are absent from every bundle's PR set. One-off PRs never collect
-	// here (they appear only under the bundle that shipped them).
+	// SDLC-VIS-22: decouple the released-vs-unreleased decision from the compare-window
+	// horizon. The resolved bundle set is bounded, so its SHA compare windows span only
+	// from the oldest to the newest resolved bundle; a pull request merged before the
+	// oldest resolved bundle falls inside no window even though it is contained in that
+	// bundle and every newer one. Find the oldest resolved bundle row and its build date
+	// (relRows mirrors the newest-first `ordered`; the minimum parseable Date is the
+	// oldest). This is purely in-memory over Release.Date fields already in hand: no
+	// additional GitHub call (SDLC-VIS-04).
+	oldestIdx := -1
+	var oldestDate time.Time
+	for i := range relRows {
+		d, err := time.Parse(time.RFC3339, relRows[i].Date)
+		if err != nil {
+			continue
+		}
+		if oldestIdx == -1 || d.Before(oldestDate) {
+			oldestIdx = i
+			oldestDate = d
+		}
+	}
+
+	// Unreleased holds only genuinely in-flight tracked work: shipped records whose pull
+	// requests are absent from every resolved bundle's compare window AND which merged
+	// after the oldest resolved bundle's build date. One-off PRs never collect here (they
+	// appear only under the bundle that shipped them). A window-unplaced record that
+	// merged at or before the oldest resolved bundle's date is pre-horizon: it is already
+	// contained in that bundle, so it is grouped under the oldest resolved bundle row
+	// (SDLC-VIS-22) rather than dropped or reported in-flight.
 	var unreleased []SDLCShippedIssue
+	var preHorizon []SDLCShippedIssue
 	for _, rec := range shipped {
 		if placed[rec.Number] {
 			continue
 		}
-		unreleased = append(unreleased, SDLCShippedIssue{Number: rec.Number, Title: rec.Title, URL: rec.URL, MergedAt: rec.ClosedAt, MergedBy: rec.ClosedBy})
+		si := SDLCShippedIssue{Number: rec.Number, Title: rec.Title, URL: rec.URL, MergedAt: rec.ClosedAt, MergedBy: rec.ClosedBy}
+		// A record whose merge time is missing or unparseable cannot be proven
+		// pre-horizon, so it falls through to Unreleased: that keeps it visible rather
+		// than dropped, which is the safe direction when the boundary is undecidable.
+		if oldestIdx >= 0 {
+			if mt, err := time.Parse(time.RFC3339, rec.ClosedAt); err == nil && !mt.After(oldestDate) {
+				preHorizon = append(preHorizon, si)
+				continue
+			}
+		}
+		unreleased = append(unreleased, si)
+	}
+
+	// Keep pre-horizon items visible in a released position: group them under the oldest
+	// resolved bundle row (SDLC-VIS-22). They carry no bundle PRs of their own (no window
+	// placed them), so they simply join that row's tracked issues.
+	if len(preHorizon) > 0 && oldestIdx >= 0 {
+		relRows[oldestIdx].Issues = sortedShipped(append(relRows[oldestIdx].Issues, preHorizon...))
 	}
 
 	// Unreleased always sits at the top (no version, no hub-cluster markers, no PRs).

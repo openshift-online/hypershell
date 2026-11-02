@@ -161,6 +161,7 @@ func TestHTTPGatewayVersionObserverRejectsRedirects(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-HLTH-04.02
 func TestGatewayVersionUpdateRequest(t *testing.T) {
 	storedVersion := "v0.0.108"
 	gatewayRecord := &pb.Gateway{

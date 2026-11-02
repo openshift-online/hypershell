@@ -9,6 +9,18 @@ rules:
   - apiGroups: [""]
     resources: ["namespaces", "secrets", "configmaps", "services", "serviceaccounts", "persistentvolumeclaims"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # TokenRequest for two ServiceAccounts, both for the Vault credential backend
+  # (HYPERSHELL-369): the control plane mints a vault-audience token for a gateway's
+  # "openshell-gateway" SA to probe Vault as the gateway's own identity, and for its OWN
+  # "hypershell-controller" SA to log in as the scoped Vault provisioner that creates and
+  # deletes per-tenant mounts. serviceaccounts/token is a distinct subresource.
+  - apiGroups: [""]
+    resources: ["serviceaccounts/token"]
+    # Scope to exactly these two SAs: TokenRequest honors resourceNames (the SA name is in
+    # the request path), so the controller can mint tokens for the gateway identity and its
+    # own identity and no other ServiceAccount cluster-wide (CWE-269/CWE-250).
+    resourceNames: ["openshell-gateway", "hypershell-controller"]
+    verbs: ["create"]
   - apiGroups: ["apps"]
     resources: ["deployments", "statefulsets"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]

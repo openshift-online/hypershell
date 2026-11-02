@@ -40,7 +40,7 @@ func (e *UnitTestingEnvImpl) OverrideClients(c *pkgenv.Clients) error {
 
 func (e *UnitTestingEnvImpl) Flags() map[string]string {
 	return map[string]string{
-		"v":                    "0",
+		"log-level":            "info",
 		"logtostderr":          "true",
 		"api-base-url":         "https://api.integration.openshift.com",
 		"enable-https":         "false",

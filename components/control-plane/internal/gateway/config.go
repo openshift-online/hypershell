@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 
@@ -21,13 +22,21 @@ type ImageDefaults interface {
 	DefaultOAuth2ProxyImage() string
 }
 
-// defaultConsoleImage is the OpenShell dashboard image (the per-gateway
-// console). The upstream project publishes it to quay.io, so clusters pull it
-// directly (imagePullPolicy IfNotPresent) rather than building from source.
-// Pinned by digest to the sha-71335e5 build for reproducibility; bump
-// deliberately when adopting a new dashboard contract. Overridable via
-// HYPERSHELL_CONSOLE_IMAGE (e.g. a platform-registry mirror in production).
-const defaultConsoleImage = "quay.io/gkrumbach07/openshell-dashboard@sha256:1d36331138c37aa75285869a21d2aa35ebdab5b1f6980f028b28df405ec5a927"
+// ConsoleImageEnv names the environment variable that sets the OpenShell
+// dashboard image (the per-gateway console). There is no built-in default:
+// the deploy manifests set it, and `make sync-openshell-version` stamps it from
+// OPENSHELL_CONSOLE_IMAGE and OPENSHELL_CONSOLE_DIGEST in OPENSHELL_VERSION.
+const ConsoleImageEnv = "HYPERSHELL_CONSOLE_IMAGE"
+
+// ValidateConsoleImage reports an error when the console image is not
+// configured. The control plane calls it at startup so a missing value stops
+// the process, instead of every console reconcile failing with a warning.
+func ValidateConsoleImage() error {
+	if (StaticImageDefaults{}).DefaultConsoleImage() == "" {
+		return fmt.Errorf("%s is not set; set it to the OpenShell dashboard image pinned by digest", ConsoleImageEnv)
+	}
+	return nil
+}
 
 // defaultOAuth2ProxyImage is the oauth2-proxy sidecar image. Overridable via
 // HYPERSHELL_OAUTH2_PROXY_IMAGE.
@@ -58,11 +67,11 @@ func (StaticImageDefaults) DefaultSandboxRuntimeImage() string {
 	return os.Getenv("GATEWAY_SANDBOX_RUNTIME_IMAGE")
 }
 
+// DefaultConsoleImage resolves the OpenShell dashboard image from
+// HYPERSHELL_CONSOLE_IMAGE. It returns an empty string when the variable is
+// unset; console reconciliation then fails (see ValidateConsoleImage).
 func (StaticImageDefaults) DefaultConsoleImage() string {
-	if v := os.Getenv("HYPERSHELL_CONSOLE_IMAGE"); v != "" {
-		return v
-	}
-	return defaultConsoleImage
+	return os.Getenv(ConsoleImageEnv)
 }
 
 func (StaticImageDefaults) DefaultOAuth2ProxyImage() string {
@@ -86,12 +95,24 @@ type GatewayConfig struct {
 	OIDC                OIDCConfig              `yaml:"oidc"`
 	Route               RouteConfig             `yaml:"route"`
 	CredentialDriver    *CredentialDriverConfig `yaml:"credentialDriver"`
+	// WorkspaceMode selects how the OpenShell Kubernetes driver maps workspaces
+	// to namespaces (shared/managed/operator). Empty means unset: the Helm
+	// chart default (shared) applies, which is how legacy gateways with a NULL
+	// stored mode keep their behavior (openshell-gateway.spec.md, "Gateway
+	// Workspace Mode").
+	WorkspaceMode string `yaml:"workspaceMode"`
 }
 
+// CredentialDriverConfig selects the provider-credential backend. Vault is
+// convention-addressed and is a BLACK BOX to users: there are deliberately NO
+// per-gateway Vault coordinate overrides (address/role/mount/auth), so a gateway can
+// never point itself at a different Vault, assume a different Vault identity, or choose
+// another tenant's mount. Non-standard topologies are handled by control-plane
+// deployment config (GATEWAY_VAULT_* env), not per-gateway API fields. See
+// openshell-gateway-credentials.spec.md (HYPERSHELL-369).
 type CredentialDriverConfig struct {
 	Type              string                   `yaml:"type" json:"type"`
 	KubernetesSecrets *KubernetesSecretsConfig `yaml:"kubernetes_secrets,omitempty" json:"kubernetes_secrets,omitempty"`
-	Vault             *VaultCredentialConfig   `yaml:"vault,omitempty" json:"vault,omitempty"`
 }
 
 // Vault credential-driver conventions (HYPERSHELL-369). A gateway resolved to the
@@ -101,11 +122,22 @@ type CredentialDriverConfig struct {
 // (specs/openshell-gateway-vault.spec.md) and must stay in sync with it - the role
 // name and auth mount are shared literals a mismatch would break authentication on.
 const (
-	VaultDefaultAddress              = "https://openshell-gateway-vault.openshell-vault.svc:8200"
-	VaultDefaultMount                = "secret"
-	VaultDefaultKVVersion            = "2"
-	VaultDefaultAuthMethod           = "kubernetes"
-	VaultDefaultRole                 = "openshell-gateway"
+	VaultDefaultAddress = "https://openshell-gateway-vault.openshell-vault.svc:8200"
+	// VaultTenantMountPrefix is the parent path under which each gateway gets its OWN
+	// KV v2 secrets engine, at VaultTenantMountPrefix+<tenant-namespace> (HYPERSHELL-369).
+	// The former single shared `secret` mount is replaced by these per-tenant mounts, so a
+	// handle leaked from one tenant's namespace is useless against another's mount.
+	VaultTenantMountPrefix = "openshell-gw/"
+	VaultDefaultKVVersion  = "2"
+	VaultDefaultAuthMethod = "kubernetes"
+	VaultDefaultRole       = "openshell-gateway"
+	// VaultProvisionerRole is the Kubernetes-auth role the control plane logs in as to
+	// create and delete per-tenant mounts. Its policy grants sys/mounts/openshell-gw/* and
+	// nothing else - no secret read, no policy or role write - so the control plane can
+	// neither read a provider secret nor rewrite the isolation boundary. It authenticates
+	// with a vault-audience token minted for the controller's OWN ServiceAccount. See
+	// openshell-gateway-credentials.spec.md (Provider Credential Isolation).
+	VaultProvisionerRole             = "openshell-gateway-provisioner"
 	VaultDefaultKubernetesAuthMount  = "kubernetes"
 	VaultServiceAccountTokenPath     = "/var/run/secrets/vault/token"
 	VaultServiceAccountTokenDir      = "/var/run/secrets/vault"
@@ -142,6 +174,27 @@ func VaultRoleDefault() string {
 	return VaultDefaultRole
 }
 
+// VaultMountForNamespace returns the per-tenant KV mount path for a gateway namespace
+// (HYPERSHELL-369): openshell-gw/<namespace>. The OpenShell runtime appends its fixed
+// data/openshell/provider-credentials/<hash> suffix under this mount.
+func VaultMountForNamespace(namespace string) string {
+	return VaultTenantMountPrefix + namespace
+}
+
+// VaultProvisionerServiceAccountDefault is the control plane's own ServiceAccount, whose
+// vault-audience token the control plane mints to log in as the provisioner identity.
+const VaultProvisionerServiceAccountDefault = "hypershell-controller"
+
+// VaultProvisionerServiceAccount returns the control plane's own ServiceAccount name
+// (used to mint the provisioner login token), overridable by the
+// GATEWAY_VAULT_PROVISIONER_SA control-plane environment variable.
+func VaultProvisionerServiceAccount() string {
+	if v := os.Getenv("GATEWAY_VAULT_PROVISIONER_SA"); v != "" {
+		return v
+	}
+	return VaultProvisionerServiceAccountDefault
+}
+
 // VaultCASource returns the namespace and name of the Vault serving-CA source
 // Secret, overridable via GATEWAY_VAULT_CA_SECRET ("namespace/name").
 func VaultCASource() (namespace, name string) {
@@ -157,19 +210,23 @@ type KubernetesSecretsConfig struct {
 	Namespace string `yaml:"namespace,omitempty" json:"namespace,omitempty"`
 }
 
-type VaultCredentialConfig struct {
-	Address             string `yaml:"address" json:"address"`
-	Mount               string `yaml:"mount,omitempty" json:"mount,omitempty"`
-	AuthMethod          string `yaml:"auth_method,omitempty" json:"auth_method,omitempty"`
-	Role                string `yaml:"role" json:"role"`
-	KubernetesAuthMount string `yaml:"kubernetes_auth_mount,omitempty" json:"kubernetes_auth_mount,omitempty"`
-	TimeoutSecs         int    `yaml:"timeout_secs,omitempty" json:"timeout_secs,omitempty"`
-}
-
 type RouteConfig struct {
 	Host    string `yaml:"host" json:"host,omitempty"`
 	Enabled bool   `yaml:"enabled" json:"enabled,omitempty"`
+	// Certificate opts the gateway in to the dedicated per-gateway certificate
+	// provisioning path (route.certificate: {} in the route JSONB): the gateway
+	// gets its own wildcard certificate and Gateway API route instead of riding
+	// the shared spoke-level wildcard. Provision-time only - the API rejects
+	// changes after creation. See
+	// docs/investigations/per-gateway-certificates.md.
+	Certificate *RouteCertificateConfig `yaml:"certificate" json:"certificate,omitempty"`
 }
+
+// RouteCertificateConfig is the opt-in marker for the dedicated per-gateway
+// certificate path. It intentionally carries no fields: the issuer is cluster
+// infrastructure (GATEWAY_EXTERNAL_ISSUER on the controller), never user
+// input, and the hostnames are derived, not chosen.
+type RouteCertificateConfig struct{}
 
 type OIDCConfig struct {
 	Issuer string `yaml:"issuer" json:"issuer,omitempty"`

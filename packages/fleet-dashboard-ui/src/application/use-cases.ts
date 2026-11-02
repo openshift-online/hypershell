@@ -7,6 +7,7 @@ import type { E2eRunDetail, E2eRunsData } from "../domain/e2e-run";
 import type { FleetData } from "../domain/fleet";
 import type { Plane } from "../domain/plane";
 import type { PromotionData } from "../domain/promotion";
+import type { SdlcAgentsData } from "../domain/sdlc-agents";
 import {
   e2eWorkflow,
   noopObservability,
@@ -63,6 +64,13 @@ export async function getSdlc(
     );
     throw error;
   }
+}
+
+export function getSdlcAgents(
+  api: FleetApi,
+  signal?: AbortSignal,
+): Promise<Plane<SdlcAgentsData>> {
+  return api.getSdlcAgents(signal);
 }
 
 // getE2eRuns / getE2eRun publish the e2e-load workflow outcome through the

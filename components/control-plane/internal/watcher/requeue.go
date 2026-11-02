@@ -62,9 +62,9 @@ func PreservesPayloadForRetry(err error) bool {
 	return errors.As(err, &marked)
 }
 
-// retryReasonError attaches a CRM-007 retryable reason code to an error so the
+// retryReasonError attaches a OBS-CRM-07 retryable reason code to an error so the
 // reconcile queue can emit the correct reason attribute on the retry metric
-// (CRM-010). It is transparent to all other error-chain checks (Unwrap passes
+// (OBS-CRM-10). It is transparent to all other error-chain checks (Unwrap passes
 // through), so it composes safely with PreservePayloadForRetry.
 type retryReasonError struct {
 	err    error
@@ -74,7 +74,7 @@ type retryReasonError struct {
 func (e *retryReasonError) Error() string { return e.err.Error() }
 func (e *retryReasonError) Unwrap() error { return e.err }
 
-// WithRetryableReason attaches a CRM-007 retryable reason code to err so the
+// WithRetryableReason attaches a OBS-CRM-07 retryable reason code to err so the
 // queue records an accurate reason label on the retry metric. A nil err returns
 // nil. Compose with PreservePayloadForRetry when both behaviours are needed:
 //
@@ -86,7 +86,7 @@ func WithRetryableReason(err error, reason string) error {
 	return &retryReasonError{err: err, reason: reason}
 }
 
-// retryableReasonFromErr extracts the CRM-007 retryable reason code from err's
+// retryableReasonFromErr extracts the OBS-CRM-07 retryable reason code from err's
 // chain, returning cpotel.ReasonUnknown if no reason was attached.
 func retryableReasonFromErr(err error) string {
 	var re *retryReasonError

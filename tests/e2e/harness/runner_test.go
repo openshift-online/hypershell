@@ -12,6 +12,7 @@ import (
 // per-line redactor cannot match a multi-line block, so the streaming filter must
 // collapse the whole block: the key body lines must never reach the structured
 // stream. Regression for the streamed-PEM leak.
+// Verifies: E2E-CORE-08.01
 func TestCommandRunnerStreamRedactsMultilinePEM(t *testing.T) {
 	var buf bytes.Buffer
 	reporter := NewReporter(&buf, testIdentity())

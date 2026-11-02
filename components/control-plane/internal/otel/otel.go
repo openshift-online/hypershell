@@ -1,7 +1,7 @@
 // Package otel bootstraps OpenTelemetry tracing and metrics for the control
 // plane. Telemetry is opt-in: when OTEL_EXPORTER_OTLP_ENDPOINT is unset, Init
 // returns a no-op shutdown and installs no providers. See
-// specs/platform/control-plane-observability.spec.md (CP-OBS-01).
+// specs/platform/control-plane-observability.spec.md (OBS-CPL-01).
 package otel
 
 import (

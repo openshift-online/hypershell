@@ -25,6 +25,8 @@ function renderNavigation(updatedMinutesAgo?: number) {
         Promise.resolve({ lastSuccessfulRefresh: new Date(), metrics: [] }),
       getReliabilityMetrics: () =>
         Promise.resolve({ lastSuccessfulRefresh: new Date(), metrics: [] }),
+      getAdoptionMetrics: () =>
+        Promise.resolve({ lastSuccessfulRefresh: new Date(), metrics: [] }),
     },
   });
 
@@ -33,7 +35,16 @@ function renderNavigation(updatedMinutesAgo?: number) {
       <DashboardUiProvider
         dashboard={dashboard}
         isAdmin
-        navigation={{ collectionHref: "/", navigate: () => undefined }}
+        navigation={{
+          adoptionHref: "/dashboard/adoption",
+          collectionHref: "/",
+          dashboardHref: "/dashboard",
+          inventoryHref: "/dashboard/inventory",
+          provisioningHref: "/dashboard/provisioning",
+          reliabilityHref: "/dashboard/reliability",
+          usageHref: "/dashboard/usage",
+          navigate: () => undefined,
+        }}
       >
         <DashboardNavigation
           active="provisioning"

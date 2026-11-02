@@ -1,10 +1,11 @@
 import type { GateExecutionProps } from "../e2e-run/gate-execution";
 // The interactive promotion-topology map: the spec's centrepiece visual. It
 // composes the pure model/layout (buildMapModel + computeLayout) with the viewport
-// controller (pan/zoom/momentum) and the SVG layers (lane bands, promotion rails +
-// gates, instance node cards), plus a minimap, a release "freight" bar and a detail
-// panel. It holds ZERO fleet knowledge: everything is derived from the promotion +
-// fleet payloads at runtime (firewall - data-architecture.spec §3.5).
+// controller (pan/zoom/momentum) and the SVG layers (provider lane bands, promotion
+// rails + gates on the centered hub spine, instance node cards), plus a minimap, a
+// release "freight" bar and a detail panel. It holds ZERO fleet knowledge: everything
+// is derived from the promotion + fleet payloads at runtime (firewall -
+// data-architecture.spec §3.5).
 
 import {
   Button,
@@ -21,6 +22,7 @@ import SearchPlusIcon from "@patternfly/react-icons/dist/esm/icons/search-plus-i
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useIntl } from "react-intl";
 
+import type { SdlcAgentMetrics } from "../../../domain/sdlc-agents";
 import { deployedFor, seedForBundle } from "../../../domain/map/bundles";
 import { computeLayout, type NodeBox } from "../../../domain/map/layout";
 import { buildMapModel } from "../../../domain/map/model";
@@ -59,6 +61,11 @@ export interface TopologyMapProps {
   // consumes the selected bundle as a controlled value and reports changes up.
   readonly selectedBundleSeed: string | null;
   readonly onSelectBundle: (seed: string) => void;
+  /** SDLC agent rows grouped by environment, for the per-cluster Agents tab. */
+  readonly agentsByEnv?: ReadonlyMap<string, readonly SdlcAgentMetrics[]>;
+  /** The SDLC-agents plane's `stale` flag, driving the "Monitoring blind" activity
+   *  state in the Agents tab (SDLC-AGT-16). */
+  readonly agentsPlaneStale?: boolean;
 }
 
 /** Cubic bezier with horizontal control handles, from (x1,y1) to (x2,y2). */
@@ -74,6 +81,8 @@ export function TopologyMap({
   topology,
   selectedBundleSeed,
   onSelectBundle,
+  agentsByEnv,
+  agentsPlaneStale,
 }: TopologyMapProps): React.ReactElement {
   const intl = useIntl();
   const model = useMemo(
@@ -128,10 +137,10 @@ export function TopologyMap({
     recenter,
     didPan,
   } = useMapViewport(layout.width, layout.height, containerAspect);
-  // The node/gate selection lives in the URL (GLASS-NAV-09); the shared bundle
+  // The node/gate selection lives in the URL (FLT-NAV-09); the shared bundle
   // selection arrives as a prop (route.bundle). The drawer's selection is derived:
   // a node/gate takes the drawer, otherwise the shared bundle fills it. One source of
-  // truth per concern (the URL), no mirrored local state (GLASS-NAV-05).
+  // truth per concern (the URL), no mirrored local state (FLT-NAV-05).
   const route = useRoute();
   const { navigate } = useRouter();
   const selection: MapSelection | null = useMemo(() => {
@@ -148,7 +157,7 @@ export function TopologyMap({
   }, [route.map.node, route.map.gate, selectedBundleSeed]);
 
   // Close the drawer, clearing the node/gate selection and the shared bundle that
-  // otherwise fills it (GLASS-NAV-09).
+  // otherwise fills it (FLT-NAV-09).
   const closeSelection = () => {
     navigate({ type: "mapClose" });
   };
@@ -202,7 +211,7 @@ export function TopologyMap({
     return new Set(deployedFor(bundle, model.nodes).map((n) => n.id));
   }, [promotion.releaseByDigest, model.nodes, selectedBundleSeed]);
 
-  // Selecting a node/gate is a discrete navigation step (GLASS-NAV-09). The pan guard
+  // Selecting a node/gate is a discrete navigation step (FLT-NAV-09). The pan guard
   // keeps a drag from registering as a click; the reducer handles toggle-off and the
   // node/gate mutual exclusion. The shared bundle stays selected but a node/gate wins
   // the drawer (see the `selection` derivation above), so one thing shows at a time.
@@ -235,8 +244,15 @@ export function TopologyMap({
   const firstCol = layout.columns[0];
   const changeX = firstCol ? firstCol.x - 90 : 40;
   const changeY = layout.hubSpineY;
-  // Column headers sit in the top margin, above the first lane band.
-  const headerY = Math.max((layout.lanes[0]?.y ?? 96) - 40, 24);
+  // Column headers sit in the top margin, above the topmost node row.
+  const topNodeY = layout.nodes.reduce(
+    (min, n) => Math.min(min, n.y),
+    Number.POSITIVE_INFINITY,
+  );
+  const headerY = Math.max(
+    (Number.isFinite(topNodeY) ? topNodeY : 96) - 40,
+    24,
+  );
   const changePts = [
     `${f(changeX)},${f(changeY - 28)}`,
     `${f(changeX + 34)},${f(changeY)}`,
@@ -281,6 +297,8 @@ export function TopologyMap({
                       selection={selection}
                       onClose={closeSelection}
                       onSelectBundle={selectBundle}
+                      agentsByEnv={agentsByEnv}
+                      agentsPlaneStale={agentsPlaneStale}
                       onSelectNode={(id) => {
                         // From a "Deployed on" chip: jump to that node (not a map
                         // click, so no pan guard). The reducer clears any gate; the
@@ -343,7 +361,9 @@ export function TopologyMap({
                   onPointerUp={onPointerUp}
                   onPointerCancel={onPointerUp}
                 >
-                  {/* lane bands + labels (behind everything); one lane per cloud provider */}
+                  {/* provider lane bands + labels (behind everything); one lane per
+              cloud provider, grouping its clusters. The hub-hosting lane straddles the
+              centered spine; the others stack above and below it. */}
                   {layout.lanes.map((lane) => (
                     <g key={lane.key}>
                       <rect
@@ -362,7 +382,7 @@ export function TopologyMap({
                         fontWeight={700}
                         fill={TEXT_SUBTLE}
                       >
-                        {(lane.provider ?? lane.key).toUpperCase()}
+                        {(lane.provider ?? "unassigned").toUpperCase()}
                       </text>
                     </g>
                   ))}

@@ -1,3 +1,5 @@
+import type { DashboardTimeRange } from "../application/dashboard-types";
+
 export const operationalDashboardMetricsQueryRoot = [
   "operational-dashboard",
   "metrics",
@@ -8,9 +10,22 @@ export const reliabilityDashboardMetricsQueryRoot = [
   "metrics",
 ] as const;
 
+export const usageDashboardMetricsQueryRoot = [
+  "usage-dashboard",
+  "metrics",
+] as const;
+
+export const adoptionDashboardMetricsQueryRoot = [
+  "adoption-dashboard",
+  "metrics",
+] as const;
+
 export const operationalDashboardRefreshMilliseconds = 15 * 60 * 1000;
 
 export const reliabilityDashboardRefreshMilliseconds =
+  operationalDashboardRefreshMilliseconds;
+
+export const usageDashboardRefreshMilliseconds =
   operationalDashboardRefreshMilliseconds;
 
 export function operationalDashboardMetricsQueryKey() {
@@ -19,4 +34,14 @@ export function operationalDashboardMetricsQueryKey() {
 
 export function reliabilityDashboardMetricsQueryKey() {
   return [...reliabilityDashboardMetricsQueryRoot] as const;
+}
+
+export function usageDashboardMetricsQueryKey(timeRange?: DashboardTimeRange) {
+  return timeRange === undefined
+    ? ([...usageDashboardMetricsQueryRoot] as const)
+    : ([...usageDashboardMetricsQueryRoot, timeRange] as const);
+}
+
+export function adoptionDashboardMetricsQueryKey(timeRange: 7 | 30) {
+  return [...adoptionDashboardMetricsQueryRoot, timeRange] as const;
 }

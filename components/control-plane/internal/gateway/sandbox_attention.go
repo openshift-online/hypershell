@@ -5,7 +5,7 @@ import (
 )
 
 // Attention windows for sandbox status counts. Measured in wall-clock UTC from
-// evaluation time (gateway-sandbox-attention-status.spec.md SSA-02 / SSA-03).
+// evaluation time (gateway-sandbox-attention-status.spec.md OBS-SBXA-02 / OBS-SBXA-03).
 const (
 	ExpiringSoonWindow = 24 * time.Hour
 	IdleStaleActivity  = 1 * time.Hour
@@ -19,6 +19,7 @@ const (
 // object is available.
 type SandboxObservation struct {
 	Namespace        string
+	Name             string
 	Active           bool
 	ShutdownTime     *time.Time
 	LastActivityTime *time.Time
@@ -61,7 +62,7 @@ func ClassifyAttentionCounts(
 		}
 
 		if orphaned {
-			// Idle requires a live owning Gateway (SSA-03).
+			// Idle requires a live owning Gateway (OBS-SBXA-03).
 			continue
 		}
 		if isIdleSandbox(now, obs) {

@@ -116,6 +116,7 @@ describe("GatewayProvisioningStepper", () => {
     expect(currentStep?.textContent).toContain("Provisioning database");
   });
 
+  // Verifies: GTW-PROG-03.04
   it("renders all-complete steps with success variant", () => {
     const { container } = renderStepper(allComplete, "Running", true);
 

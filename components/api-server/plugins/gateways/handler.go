@@ -1,14 +1,13 @@
 package gateways
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strings"
-	"sync"
-	"time"
 
-	"github.com/golang/glog"
 	"github.com/gorilla/mux"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
@@ -36,77 +35,18 @@ type GatewayOwnerLookup interface {
 }
 
 type gatewayHandler struct {
-	gateway            GatewayService
-	generic            services.GenericService
-	ownerBinding       OwnerBindingCreator
-	visibilityFilter   GatewayVisibilityFilter
-	ownerLookup        GatewayOwnerLookup
-	bindingLookup      rbac.RoleBindingLookup
-	clusters           RegisteredClusterLookup
-	clusterVersions    ClusterProvisioningVersionLookup
-	enforceRBAC        bool
-	placement          PlacementResolver
-	availability       PlacementAvailabilityResolver
-	versionLogThrottle *logThrottle
-}
-
-// provisioningVersionLogInterval throttles the provisioning-version lookup
-// failure log. The lookup runs on every gateway read, so an unthrottled warning
-// would flood the log on a persistent failure; throttling keeps a persistent
-// failure visible without the flood.
-const provisioningVersionLogInterval = time.Minute
-
-// logThrottle rate-limits a recurring log line to at most one emission per
-// interval. It is held by pointer on the handler so value copies of the handler
-// share the same throttle state (and so tests get an isolated instance rather
-// than package-global state).
-type logThrottle struct {
-	interval time.Duration
-	mu       sync.Mutex
-	last     time.Time
-}
-
-// allow reports whether a log line may be emitted now, recording the emission
-// time when it returns true. A nil throttle always allows (unthrottled).
-func (t *logThrottle) allow() bool {
-	if t == nil {
-		return true
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	now := time.Now()
-	if !t.last.IsZero() && now.Sub(t.last) < t.interval {
-		return false
-	}
-	t.last = now
-	return true
-}
-
-// provisioningVersions resolves the provisioning version advertised by each of
-// the given clusters. A nil lookup or a lookup error yields an empty map, so the
-// read-only version enrichment degrades to absent rather than failing the read
-// (consistent with owner-username enrichment). A lookup error is logged, at most
-// once per provisioningVersionLogInterval, so a persistent failure that silently
-// hides every gateway version is observable.
-func (h gatewayHandler) provisioningVersions(ctx context.Context, clusterIDs []string) map[string]string {
-	if h.clusterVersions == nil || len(clusterIDs) == 0 {
-		return map[string]string{}
-	}
-	versions, svcErr := h.clusterVersions(ctx, clusterIDs)
-	if svcErr != nil {
-		h.logProvisioningVersionLookupFailure(svcErr)
-		return map[string]string{}
-	}
-	return versions
-}
-
-// logProvisioningVersionLookupFailure records a provisioning-version lookup
-// failure at most once per provisioningVersionLogInterval. It logs only the
-// error, which carries no secret material.
-func (h gatewayHandler) logProvisioningVersionLookupFailure(err error) {
-	if h.versionLogThrottle.allow() {
-		glog.Warningf("gateway provisioning-version enrichment failed; gateway versions degraded to absent: %v", err)
-	}
+	gateway          GatewayService
+	generic          services.GenericService
+	ownerBinding     OwnerBindingCreator
+	visibilityFilter GatewayVisibilityFilter
+	ownerLookup      GatewayOwnerLookup
+	ownership        GatewayOwnershipLookup
+	bindingLookup    rbac.RoleBindingLookup
+	clusters         RegisteredClusterLookup
+	enforceRBAC      bool
+	dedicatedRoute   dedicatedRouteAuthorizer
+	placement        PlacementResolver
+	availability     PlacementAvailabilityResolver
 }
 
 // callerBindings loads the current caller's role bindings once, or nil when RBAC
@@ -172,32 +112,84 @@ func (h gatewayHandler) GetPlacementAvailability(w http.ResponseWriter, r *http.
 	}, ErrorHandler: handlers.HandleError}, http.StatusOK)
 }
 
-// validateGatewayPhaseValue rejects a phase outside the canonical vocabulary. An
-// absent or empty phase is accepted so the field stays optional.
-func validateGatewayPhaseValue(phase *string) *errors.ServiceError {
-	if phase == nil || *phase == "" {
+// resolveGatewayPlacement validates and resolves a late-bound placement intent for
+// a gateway being created, mutating the model in place. It persists the placement
+// selector so the API server can re-evaluate it, assigns a resolved cluster_id when
+// an eligible cluster matches, and otherwise leaves the gateway unplaced in the
+// Pending phase with an awaiting-placement status so it binds when a matching
+// cluster appears (gateway-provision-placement.spec.md WEB-PLC-07).
+func (h gatewayHandler) resolveGatewayPlacement(ctx context.Context, intent openapi.GatewayPlacementIntent, model *Gateway) *errors.ServiceError {
+	if placementErr := validatePlacementIntent(&intent); placementErr != nil {
+		return placementErr
+	}
+	if h.placement == nil {
+		return errors.GeneralError("gateway placement resolver is unavailable")
+	}
+	placementJSON, marshalErr := marshalPlacement(intent)
+	if marshalErr != nil {
+		return errors.GeneralError("failed to persist gateway placement: %s", marshalErr)
+	}
+	model.Placement = placementJSON
+	clusterID, resolved, placementErr := h.placement(ctx, intent)
+	if placementErr != nil {
+		return placementErr
+	}
+	if resolved {
+		model.ClusterId = clusterID
 		return nil
 	}
-	if !gatewayhealth.IsValidPhase(*phase) {
-		return errors.Validation("phase %q is not a valid gateway phase; allowed: %v", *phase, gatewayhealth.PhaseStrings())
-	}
+	applyAwaitingPlacement(model)
 	return nil
 }
 
-func NewGatewayHandler(gateway GatewayService, generic services.GenericService, ownerBinding OwnerBindingCreator, visibilityFilter GatewayVisibilityFilter, ownerLookup GatewayOwnerLookup, bindingLookup rbac.RoleBindingLookup, clusters RegisteredClusterLookup, clusterVersions ClusterProvisioningVersionLookup, enforceRBAC bool, placement PlacementResolver, availability PlacementAvailabilityResolver) *gatewayHandler {
+// applyAwaitingPlacement marks a late-bound gateway that currently matches no
+// eligible cluster as unplaced: empty cluster_id, the canonical Pending phase, and
+// a human-readable awaiting-placement status. The API server assigns a cluster_id
+// when a matching ManagedCluster becomes available (data-model.spec.md, "Gateway
+// Placement and Late Binding").
+// anyAccessibleUnowned reports whether the caller's authorized gateway set
+// (accessibleIDs) contains at least one gateway the caller does not own
+// (ownedIDs) - the "has other owned gateways" toggle condition for a scoped
+// caller (WEB-UIEX-07, SEC-RBAC-10). It is a true SET DIFFERENCE (some accessible
+// id is absent from the owned set), robust even when the owned set is not a strict
+// subset of the accessible set: a prior `len(accessible) > len(owned)` comparison
+// silently returned the wrong answer whenever the caller owned a gateway outside
+// its accessible set (FINDING 3).
+func anyAccessibleUnowned(accessibleIDs, ownedIDs []string) bool {
+	ownedSet := make(map[string]struct{}, len(ownedIDs))
+	for _, id := range ownedIDs {
+		ownedSet[id] = struct{}{}
+	}
+	for _, id := range accessibleIDs {
+		if _, owned := ownedSet[id]; !owned {
+			return true
+		}
+	}
+	return false
+}
+
+func applyAwaitingPlacement(model *Gateway) {
+	model.ClusterId = ""
+	pending := string(gatewayhealth.PhasePending)
+	model.Phase = &pending
+	status := awaitingPlacementStatus
+	model.Status = &status
+}
+
+func NewGatewayHandler(gateway GatewayService, generic services.GenericService, ownerBinding OwnerBindingCreator, visibilityFilter GatewayVisibilityFilter, ownerLookup GatewayOwnerLookup, ownership GatewayOwnershipLookup, bindingLookup rbac.RoleBindingLookup, clusters RegisteredClusterLookup, enforceRBAC bool, placement PlacementResolver, availability PlacementAvailabilityResolver) *gatewayHandler {
 	h := &gatewayHandler{
-		gateway:            gateway,
-		generic:            generic,
-		ownerBinding:       ownerBinding,
-		visibilityFilter:   visibilityFilter,
-		ownerLookup:        ownerLookup,
-		bindingLookup:      bindingLookup,
-		clusters:           clusters,
-		clusterVersions:    clusterVersions,
-		enforceRBAC:        enforceRBAC,
-		placement:          placement,
-		availability:       availability,
-		versionLogThrottle: &logThrottle{interval: provisioningVersionLogInterval},
+		gateway:          gateway,
+		generic:          generic,
+		ownerBinding:     ownerBinding,
+		visibilityFilter: visibilityFilter,
+		ownerLookup:      ownerLookup,
+		ownership:        ownership,
+		bindingLookup:    bindingLookup,
+		clusters:         clusters,
+		enforceRBAC:      enforceRBAC,
+		dedicatedRoute:   newDedicatedRouteAuthorizer(bindingLookup, enforceRBAC),
+		placement:        placement,
+		availability:     availability,
 	}
 	return h
 }
@@ -210,23 +202,34 @@ func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Action: func() (interface{}, *errors.ServiceError) {
 			ctx := r.Context()
 			gatewayModel := ConvertGateway(gateway)
-			placement := gateway.GetPlacement()
-			if placementErr := validatePlacementIntent(placement); placementErr != nil {
-				return nil, placementErr
+			// dedicated_route is a create-only, user-writable request flag, but only
+			// for a caller holding the platform-wide gateway:dedicated-route-creator
+			// entitlement (or platform:admin). The check is body-dependent, so it lives
+			// here rather than in the path authorization middleware.
+			if svcErr := h.dedicatedRoute.authorizeCreate(ctx, gatewayModel.DedicatedRoute); svcErr != nil {
+				return nil, svcErr
 			}
-			if h.placement == nil {
-				return nil, errors.GeneralError("gateway placement resolver is unavailable")
+			// cluster_id is optional: a gateway is either pinned to a cluster
+			// (cluster_id) or late-bound by a placement selector. Exactly one must be
+			// supplied. See data-model.spec.md, "Gateway Placement and Late Binding".
+			pinnedCluster := strings.TrimSpace(gateway.GetClusterId())
+			hasCluster := pinnedCluster != ""
+			hasPlacement := gateway.HasPlacement()
+			if hasCluster && hasPlacement {
+				return nil, errors.Validation("provide exactly one of cluster_id or placement, not both")
 			}
-			clusterID, placementErr := h.placement(ctx, placement)
-			if placementErr != nil {
-				return nil, placementErr
+			if !hasCluster && !hasPlacement {
+				return nil, errors.Validation("a gateway must be created with either a cluster_id (pinned) or a placement selector (late-bound)")
 			}
-			gatewayModel.ClusterId = clusterID
-			if phaseErr := validateGatewayPhaseValue(gatewayModel.Phase); phaseErr != nil {
-				return nil, phaseErr
-			}
-			if clusterErr := validateClusterReference(ctx, h.clusters, gatewayModel.ClusterId); clusterErr != nil {
-				return nil, clusterErr
+			if hasCluster {
+				if clusterErr := validateClusterReference(ctx, h.clusters, pinnedCluster); clusterErr != nil {
+					return nil, clusterErr
+				}
+				gatewayModel.ClusterId = pinnedCluster
+			} else {
+				if clusterErr := h.resolveGatewayPlacement(ctx, gateway.GetPlacement(), gatewayModel); clusterErr != nil {
+					return nil, clusterErr
+				}
 			}
 			gatewayModel, err := h.gateway.Create(ctx, gatewayModel)
 			if err != nil {
@@ -242,8 +245,7 @@ func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 			// The creator just received a gateway:owner binding (or RBAC is off), so
 			// they can always delete and edit what they just created.
-			versions := h.provisioningVersions(ctx, []string{gatewayModel.ClusterId})
-			return PresentGateway(gatewayModel, "", true, true, versions[gatewayModel.ClusterId]), nil
+			return PresentGateway(gatewayModel, "", true, true), nil
 		},
 		ErrorHandler: handlers.HandleError,
 	}
@@ -251,8 +253,37 @@ func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
 	handlers.Handle(w, r, cfg, http.StatusCreated)
 }
 
+// gatewayPatchRequest is the strict decode target for the Gateway PATCH body. name
+// is the only user-writable field on update (PLAT-DATA-23); every other gateway
+// field is platform-managed / control-plane-only. The generated
+// openapi.GatewayPatchRequest has no required property, so the OpenAPI generator does
+// not emit a DisallowUnknownFields decoder for it; without the strict decode below a
+// user PATCH that sets a control-plane-only field (for example phase) would be
+// silently dropped and return 200 instead of being rejected. This mirrors the strict
+// create contract and is the REST-boundary counterpart to the service field policy
+// (SEC-RBAC-18); the service Replace funnel remains the authoritative backstop for the
+// gRPC and import paths.
+type gatewayPatchRequest struct {
+	Name *string `json:"name,omitempty"`
+}
+
+// UnmarshalJSON decodes the PATCH body and rejects any field outside the update
+// allowlist (name). An unknown field produces a json decode error, which the handler
+// framework surfaces as a 400 naming the offending field.
+func (p *gatewayPatchRequest) UnmarshalJSON(data []byte) error {
+	type alias gatewayPatchRequest
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var decoded alias
+	if err := decoder.Decode(&decoded); err != nil {
+		return err
+	}
+	*p = gatewayPatchRequest(decoded)
+	return nil
+}
+
 func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
-	var patch openapi.GatewayPatchRequest
+	var patch gatewayPatchRequest
 
 	cfg := &handlers.HandlerConfig{
 		Body:       &patch,
@@ -265,71 +296,13 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 				return nil, err
 			}
 
+			// name is the only user-writable field on update (PLAT-DATA-23). Every other
+			// gateway field is platform-managed / control-plane-only and is not part of
+			// the REST PATCH contract (GatewayPatchRequest exposes only name); the service
+			// write funnel enforces the default-deny field policy as the authoritative
+			// backstop (SEC-RBAC-18).
 			if patch.Name != nil {
 				found.Name = *patch.Name
-			}
-			// Only a PATCH that changes cluster_id is validated: re-sending the
-			// stored value is not a reassignment, so an edit of another field on
-			// a legacy gateway is not rejected for a reference it did not touch.
-			if patch.ClusterId != nil && *patch.ClusterId != found.ClusterId {
-				if clusterErr := validateClusterReference(ctx, h.clusters, *patch.ClusterId); clusterErr != nil {
-					return nil, clusterErr
-				}
-				found.ClusterId = *patch.ClusterId
-			}
-			if patch.ExternalDns != nil {
-				found.ExternalDns = patch.ExternalDns
-			}
-			if patch.TlsMode != nil {
-				found.TlsMode = patch.TlsMode
-			}
-			if patch.ServiceType != nil {
-				found.ServiceType = patch.ServiceType
-			}
-			if patch.Status != nil {
-				found.Status = patch.Status
-			}
-			if patch.Phase != nil {
-				if phaseErr := validateGatewayPhaseValue(patch.Phase); phaseErr != nil {
-					return nil, phaseErr
-				}
-				found.Phase = patch.Phase
-			}
-			if patch.Image != nil {
-				found.Image = patch.Image
-			}
-			if patch.SupervisorImage != nil {
-				found.SupervisorImage = patch.SupervisorImage
-			}
-			if len(patch.ServerDnsNames) > 0 {
-				data, _ := json.Marshal(patch.ServerDnsNames)
-				s := string(data)
-				found.ServerDnsNames = &s
-			}
-			if patch.RouteAddress != nil {
-				found.RouteAddress = patch.RouteAddress
-			}
-			// console_address is a control-plane-owned, readOnly field. It is the
-			// trusted "Open gateway console" link shown to viewers, so it must not
-			// be settable through the public REST PATCH (a gateway owner could
-			// otherwise store an arbitrary phishing URL). It is written only via
-			// the internal gRPC UpdateGateway path used by the control plane.
-			// active_sandbox_count is a control-plane-owned observability signal
-			// written only via the gRPC AdjustActiveSandboxCount / SetActiveSandboxCount
-			// RPCs (readOnly on the REST Gateway schema); it is intentionally not
-			// settable via the public REST PATCH, and gRPC UpdateGateway refuses to
-			// mutate it as well.
-			if patch.Oidc != nil {
-				found.Oidc = patch.Oidc
-			}
-			if patch.Route != nil {
-				found.Route = patch.Route
-			}
-			if patch.CredentialDriver != nil {
-				if found.CredentialDriver != nil && *found.CredentialDriver != "" && *patch.CredentialDriver != *found.CredentialDriver {
-					return nil, errors.Conflict("credential driver cannot be changed after provider credentials have been stored; migrate credentials manually first")
-				}
-				found.CredentialDriver = patch.CredentialDriver
 			}
 
 			gatewayModel, err := h.gateway.Replace(ctx, found)
@@ -337,13 +310,44 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 				return nil, err
 			}
 			bindings := h.callerBindings(ctx)
-			versions := h.provisioningVersions(ctx, []string{gatewayModel.ClusterId})
-			return PresentGateway(gatewayModel, "", h.callerCanDelete(bindings, gatewayModel.ID), h.callerCanEdit(bindings, gatewayModel.ID), versions[gatewayModel.ClusterId]), nil
+			return PresentGateway(gatewayModel, "", h.callerCanDelete(bindings, gatewayModel.ID), h.callerCanEdit(bindings, gatewayModel.ID)), nil
 		},
 		ErrorHandler: handlers.HandleError,
 	}
 
 	handlers.Handle(w, r, cfg, http.StatusOK)
+}
+
+// gatewayDefaultOrder and gatewayOrderTiebreak express the gateway list's
+// default newest-first ordering: creation time descending with a stable
+// secondary order by identifier so equal creation timestamps are deterministic
+// across pages. The framework applies them before pagination, so the first page
+// holds the newest accessible gateways overall (WEB-ARCH-02, WEB-API-01).
+const (
+	gatewayDefaultOrder  = "created_at desc"
+	gatewayOrderTiebreak = "gateways.id asc"
+)
+
+// gatewayOrderWithStableTiebreak returns the effective ordering for a gateway
+// list request. With no caller-chosen sort it applies the newest-first default
+// (creation time descending). In all cases it guarantees a stable secondary
+// order by gateway identifier so pagination is deterministic when the primary
+// sort values tie, including for the explicit "created_at desc" the console
+// sends for its newest-first default (WEB-ARCH-02, WEB-API-01). Orderings that
+// are already stable are returned unchanged: an explicit id sort, or the
+// created_by sort which appends its own gateways.id tiebreak in the list DAO.
+func gatewayOrderWithStableTiebreak(orderBy []string) []string {
+	if len(orderBy) == 0 {
+		return []string{gatewayDefaultOrder, gatewayOrderTiebreak}
+	}
+	for _, term := range orderBy {
+		field, _, _ := strings.Cut(strings.TrimSpace(term), " ")
+		switch field {
+		case "id", "gateways.id", "created_by":
+			return orderBy
+		}
+	}
+	return append(orderBy, gatewayOrderTiebreak)
 }
 
 func (h gatewayHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -353,32 +357,104 @@ func (h gatewayHandler) List(w http.ResponseWriter, r *http.Request) {
 
 			listArgs := services.NewListArguments(r.URL.Query())
 
+			// Apply the newest-first default when the caller chose no sort (a
+			// user-chosen sort overrides it and clearing it restores newest-first),
+			// and guarantee a stable id tiebreak for every sort so pagination is
+			// deterministic across pages (WEB-ARCH-02).
+			listArgs.OrderBy = gatewayOrderWithStableTiebreak(listArgs.OrderBy)
+
+			// The "Show only my gateways" ownership filter is requested as a query
+			// flag; the server applies it before pagination (WEB-UIEX-07).
+			onlyMine := r.URL.Query().Get("mine") == "true"
+
 			userID := rbac.GetUserIDFromContext(ctx)
 			hasPlatformAdmin := rbac.HasPlatformAdminRole(ctx, userID)
-			if userID != "" && h.visibilityFilter != nil && !hasPlatformAdmin {
-				accessibleIDs, filterErr := h.visibilityFilter.AccessibleGatewayIDs(ctx, userID)
+			scoped := userID != "" && h.visibilityFilter != nil && !hasPlatformAdmin
+
+			appendSearch := func(filter string) {
+				if listArgs.Search != "" {
+					listArgs.Search = "(" + listArgs.Search + ") and " + filter
+				} else {
+					listArgs.Search = filter
+				}
+			}
+
+			// ownedIDs are the gateways the caller owns (holds gateway:owner),
+			// matched by stable identity rather than display name. They drive both
+			// the ownership filter and, together with the authorized set, the
+			// toggle-visibility flag (WEB-UIEX-07, SEC-RBAC-10).
+			var ownedIDs []string
+			if h.ownership != nil && userID != "" {
+				owned, ownErr := h.ownership.OwnedGatewayIDs(ctx, userID)
+				if ownErr != nil {
+					return nil, errors.GeneralError("failed to resolve owned gateways: %s", ownErr)
+				}
+				ownedIDs = owned
+			}
+
+			var accessibleIDs []string
+			if scoped {
+				ids, filterErr := h.visibilityFilter.AccessibleGatewayIDs(ctx, userID)
 				if filterErr != nil {
 					return nil, errors.GeneralError("failed to check gateway access: %s", filterErr)
 				}
+				accessibleIDs = ids
+			}
+
+			// hasUnownedVisibleGateways reports whether the caller's full authorized
+			// gateway list -- before search, optional filters, and the ownership
+			// filter -- contains at least one gateway the caller can see but does NOT
+			// own. It is computed over the authorized set only and never discloses
+			// gateways the caller cannot see (WEB-API-01, SEC-RBAC-10). For a
+			// scoped (non-admin) caller the authorized set is accessibleIDs, so the
+			// flag is a SET DIFFERENCE - true when some accessible gateway is not in
+			// the owned set - which is robust even if the owned set is not a strict
+			// subset of the accessible set (a size comparison would misfire then);
+			// otherwise a single bounded existence query is used instead of
+			// enumerating pages. (It backs the generated HasOtherOwnedGateways API
+			// field, whose name predates this clarification.)
+			hasUnownedVisibleGateways := false
+			if scoped {
+				hasUnownedVisibleGateways = anyAccessibleUnowned(accessibleIDs, ownedIDs)
+			} else if h.ownership != nil {
+				exists, existsErr := h.ownership.OtherOwnerGatewayExists(ctx, userID)
+				if existsErr != nil {
+					return nil, errors.GeneralError("failed to check gateway ownership: %s", existsErr)
+				}
+				hasUnownedVisibleGateways = exists
+			}
+
+			emptyGatewayList := func() openapi.GatewayList {
+				kindStr := "GatewayList"
+				pageVal := int32(listArgs.Page)
+				sizeVal := int32(0)
+				totalVal := int32(0)
+				flag := hasUnownedVisibleGateways
+				return openapi.GatewayList{
+					Kind:                  &kindStr,
+					Page:                  &pageVal,
+					Size:                  &sizeVal,
+					Total:                 &totalVal,
+					HasOtherOwnedGateways: &flag,
+					Items:                 []openapi.Gateway{},
+				}
+			}
+
+			if scoped {
 				if len(accessibleIDs) == 0 {
-					kindStr := "GatewayList"
-					pageVal := int32(listArgs.Page)
-					sizeVal := int32(0)
-					totalVal := int32(0)
-					return openapi.GatewayList{
-						Kind:  &kindStr,
-						Page:  &pageVal,
-						Size:  &sizeVal,
-						Total: &totalVal,
-						Items: []openapi.Gateway{},
-					}, nil
+					return emptyGatewayList(), nil
 				}
-				idFilter := visibilitySearchFilter(accessibleIDs)
-				if listArgs.Search != "" {
-					listArgs.Search = "(" + listArgs.Search + ") and " + idFilter
-				} else {
-					listArgs.Search = idFilter
+				appendSearch(visibilitySearchFilter(accessibleIDs))
+			}
+
+			// Restrict to owned gateways before pagination when the ownership
+			// filter is on. The owned set is a subset of the authorized set, so
+			// composing it with the visibility filter above stays correct.
+			if onlyMine {
+				if len(ownedIDs) == 0 {
+					return emptyGatewayList(), nil
 				}
+				appendSearch(visibilitySearchFilter(ownedIDs))
 			}
 
 			var gateways []Gateway
@@ -391,27 +467,19 @@ func (h gatewayHandler) List(w http.ResponseWriter, r *http.Request) {
 			pageVal := int32(paging.Page)
 			sizeVal := int32(paging.Size)
 			totalVal := int32(paging.Total)
+			flag := hasUnownedVisibleGateways
 			gatewayList := openapi.GatewayList{
-				Kind:  &kindStr,
-				Page:  &pageVal,
-				Size:  &sizeVal,
-				Total: &totalVal,
-				Items: []openapi.Gateway{},
+				Kind:                  &kindStr,
+				Page:                  &pageVal,
+				Size:                  &sizeVal,
+				Total:                 &totalVal,
+				HasOtherOwnedGateways: &flag,
+				Items:                 []openapi.Gateway{},
 			}
 
 			gatewayIDs := make([]string, len(gateways))
-			clusterIDs := make([]string, 0, len(gateways))
-			seenCluster := make(map[string]struct{}, len(gateways))
 			for i, gw := range gateways {
 				gatewayIDs[i] = gw.ID
-				if gw.ClusterId == "" {
-					continue
-				}
-				if _, seen := seenCluster[gw.ClusterId]; seen {
-					continue
-				}
-				seenCluster[gw.ClusterId] = struct{}{}
-				clusterIDs = append(clusterIDs, gw.ClusterId)
 			}
 			ownerUsernames := map[string]string{}
 			if h.ownerLookup != nil {
@@ -419,10 +487,9 @@ func (h gatewayHandler) List(w http.ResponseWriter, r *http.Request) {
 					ownerUsernames = owners
 				}
 			}
-			versions := h.provisioningVersions(ctx, clusterIDs)
 			bindings := h.callerBindings(ctx)
 			for _, gateway := range gateways {
-				converted := PresentGateway(&gateway, ownerUsernames[gateway.ID], h.callerCanDelete(bindings, gateway.ID), h.callerCanEdit(bindings, gateway.ID), versions[gateway.ClusterId])
+				converted := PresentGateway(&gateway, ownerUsernames[gateway.ID], h.callerCanDelete(bindings, gateway.ID), h.callerCanEdit(bindings, gateway.ID))
 				gatewayList.Items = append(gatewayList.Items, converted)
 			}
 			if listArgs.Fields != nil {
@@ -460,13 +527,11 @@ func (h gatewayHandler) Get(w http.ResponseWriter, r *http.Request) {
 			userID := rbac.GetUserIDFromContext(ctx)
 			if rbac.HasPlatformAdminRole(ctx, userID) {
 				username := auth.GetUsernameFromContext(ctx)
-				glog.Infof("platform:admin action=view gateway_id=%s gateway_name=%s user=%s user_id=%s",
-					gateway.ID, gateway.Name, username, userID)
+				slog.InfoContext(ctx, "platform:admin action", "action", "view", "gateway_id", gateway.ID, "gateway_name", gateway.Name, "user", username, "user_id", userID)
 			}
 
 			bindings := h.callerBindings(ctx)
-			versions := h.provisioningVersions(ctx, []string{gateway.ClusterId})
-			return PresentGateway(gateway, "", h.callerCanDelete(bindings, gateway.ID), h.callerCanEdit(bindings, gateway.ID), versions[gateway.ClusterId]), nil
+			return PresentGateway(gateway, "", h.callerCanDelete(bindings, gateway.ID), h.callerCanEdit(bindings, gateway.ID)), nil
 		},
 	}
 
@@ -497,8 +562,7 @@ func (h gatewayHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 			if isPlatformAdmin {
 				username := auth.GetUsernameFromContext(ctx)
-				glog.Infof("platform:admin action=delete gateway_id=%s gateway_name=%s user=%s user_id=%s",
-					id, gatewayName, username, userID)
+				slog.InfoContext(ctx, "platform:admin action", "action", "delete", "gateway_id", id, "gateway_name", gatewayName, "user", username, "user_id", userID)
 			}
 
 			return nil, nil
@@ -515,6 +579,6 @@ func (h gatewayHandler) MetricsGateways(w http.ResponseWriter, r *http.Request) 
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{"counts": counts}); err != nil {
-		glog.Errorf("Failed to encode gateway metrics response: %v", err)
+		slog.ErrorContext(r.Context(), "Failed to encode gateway metrics response", "error", err)
 	}
 }

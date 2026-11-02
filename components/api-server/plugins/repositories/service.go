@@ -55,8 +55,11 @@ func (s *sqlRepositoryService) validate(ctx context.Context, repository *Reposit
 	if !supportedProviders[repository.Provider] {
 		return errors.Validation("unsupported provider %q; supported providers: github", repository.Provider)
 	}
+	// secret_source_id is optional: a public repository is registered with no
+	// credential and read anonymously. Only FK-validate a non-empty value; an empty
+	// value must not trigger the "does not reference an existing SecretSource" error.
 	if repository.SecretSourceId == "" {
-		return errors.Validation("secret_source_id is required")
+		return nil
 	}
 	exists, err := s.dao.SecretSourceExists(ctx, repository.SecretSourceId)
 	if err != nil {

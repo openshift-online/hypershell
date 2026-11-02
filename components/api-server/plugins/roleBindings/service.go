@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/golang/glog"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roles"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
@@ -24,7 +23,7 @@ type RoleBindingService interface {
 	BindingsForGateway(ctx context.Context, gatewayID string) (RoleBindingList, *errors.ServiceError)
 	// SetGatewayRole converges the user's bindings on gatewayID to exactly one
 	// binding for roleName (one of gateway:owner/admin/viewer), in place where
-	// possible (GAM-05, GAM-10). It emits an UPDATED watch event when an existing
+	// possible (GTW-ACC-05, GTW-ACC-10). It emits an UPDATED watch event when an existing
 	// single binding's role_id is changed in place (no zero-access window), a
 	// CREATED event when a new binding is made, and DELETED events for any surplus
 	// bindings removed during convergence. It performs NO caller authorization;
@@ -34,6 +33,11 @@ type RoleBindingService interface {
 	// gatewayID (one DELETED event each) and returns the number removed. It
 	// performs NO caller authorization.
 	RevokeGatewayAccess(ctx context.Context, userID string, gatewayID string) (int, *errors.ServiceError)
+	// DeleteGatewayBindings deletes every binding scoped to gatewayID, for every
+	// user (one DELETED event each), and returns the number removed. The gateway
+	// delete calls it so no binding outlives its gateway. It performs NO caller
+	// authorization.
+	DeleteGatewayBindings(ctx context.Context, gatewayID string) (int, *errors.ServiceError)
 	FindByUserID(ctx context.Context, userID string) (RoleBindingList, *errors.ServiceError)
 	FindGatewayIDsByUserID(ctx context.Context, userID string) ([]string, *errors.ServiceError)
 	FindOwnerUsernamesByGatewayIDs(ctx context.Context, gatewayIDs []string) (map[string]string, error)
@@ -50,30 +54,22 @@ func NewRoleBindingService(
 	rbDao RoleBindingDao,
 	roleDao roles.RoleDao,
 	events services.EventService,
-	defaultRoles []string,
 ) RoleBindingService {
-	for _, r := range defaultRoles {
-		if !roles.JWTSyncedRoles[r] {
-			glog.Warningf("RBAC_DEFAULT_ROLES: role %q is not in JWTSyncedRoles and will be ignored; add it to JWTSyncedRoles to make it sync-eligible", r)
-		}
-	}
 	return &sqlRoleBindingService{
-		lockFactory:  lockFactory,
-		rbDao:        rbDao,
-		roleDao:      roleDao,
-		events:       events,
-		defaultRoles: defaultRoles,
+		lockFactory: lockFactory,
+		rbDao:       rbDao,
+		roleDao:     roleDao,
+		events:      events,
 	}
 }
 
 var _ RoleBindingService = &sqlRoleBindingService{}
 
 type sqlRoleBindingService struct {
-	lockFactory  db.LockFactory
-	rbDao        RoleBindingDao
-	roleDao      roles.RoleDao
-	events       services.EventService
-	defaultRoles []string
+	lockFactory db.LockFactory
+	rbDao       RoleBindingDao
+	roleDao     roles.RoleDao
+	events      services.EventService
 }
 
 func (s *sqlRoleBindingService) CreateGatewayOwnerBinding(ctx context.Context, userID string, gatewayID string) error {
@@ -93,7 +89,7 @@ func (s *sqlRoleBindingService) CreateGatewayOwnerBinding(ctx context.Context, u
 	// binding (created as a side effect of gateway provisioning), not a client
 	// request, so there is no meaningful originating request span to link. The
 	// trace context stays NULL and the resulting reconcile is knowingly
-	// link-less (RTC-01 tolerates NULL trace context).
+	// link-less (CTRL-TRC-01 tolerates NULL trace context).
 	_, createErr := s.rbDao.Create(ctx, rb)
 	if createErr != nil {
 		return createErr
@@ -116,16 +112,6 @@ func (s *sqlRoleBindingService) CreateGatewayOwnerBinding(ctx context.Context, u
 func (s *sqlRoleBindingService) SyncJWTRoles(ctx context.Context, userID string, jwtRoles []string) error {
 	jwtRoleSet := make(map[string]bool)
 	for _, r := range jwtRoles {
-		if roles.JWTSyncedRoles[r] {
-			jwtRoleSet[r] = true
-		}
-	}
-	// Default roles are always merged regardless of what the JWT carries.
-	// They represent the platform's baseline posture: every authenticated
-	// principal receives these capabilities unless explicitly disabled via
-	// RBAC_DEFAULT_ROLES=. Only roles in JWTSyncedRoles participate in the
-	// sync lifecycle (idempotent add, never revoked by JWT absence).
-	for _, r := range s.defaultRoles {
 		if roles.JWTSyncedRoles[r] {
 			jwtRoleSet[r] = true
 		}
@@ -166,7 +152,7 @@ func (s *sqlRoleBindingService) SyncJWTRoles(ctx context.Context, userID string,
 		// Intentionally no CaptureTraceContext here: JWT role sync is driven by
 		// the login/token flow, not a client mutation of this resource, so there
 		// is no originating request span worth linking. NULL trace context is a
-		// valid state (RTC-01) and these reconciles are knowingly link-less.
+		// valid state (CTRL-TRC-01) and these reconciles are knowingly link-less.
 		if _, createErr := s.rbDao.Create(ctx, rb); createErr != nil {
 			return fmt.Errorf("unable to create binding for role %s: %w", roleName, createErr)
 		}
@@ -228,12 +214,26 @@ func (s *sqlRoleBindingService) Create(ctx context.Context, rb *RoleBinding) (*R
 		}
 	}
 
-	if role.Name == roles.RoleGatewayCreator {
-		return nil, errors.Forbidden("gateway:creator can only be assigned via Keycloak")
+	// ci-federation:admin is API-assignable (SEC-RBAC-21), unlike the Keycloak-owned
+	// roles below: authorization over ci_providers is HyperShell's own RBAC decision,
+	// not a Keycloak realm role. It is a platform-wide grant, so only a platform:admin
+	// -- or the narrow ci-federation:grantor bootstrap role (SEC-RBAC-23) -- may hand
+	// it out. It is NOT in JWTSyncedRoles, so the binding created here is not revoked
+	// by the recipient's next sign-in.
+	if role.Name == roles.RoleCIFederationAdmin {
+		if err := s.validateCallerCanGrantCIFederationAdmin(ctx); err != nil {
+			return nil, err
+		}
 	}
 
-	if role.Name == roles.RolePlatformAdmin {
-		return nil, errors.Forbidden("platform:admin can only be assigned via Keycloak")
+	// Keycloak-owned entitlements: platform-wide roles whose bindings SyncJWTRoles
+	// reconciles from the caller's JWT. A binding created here would be removed by
+	// that caller's next sign-in, so assignment goes through the identity provider.
+	// ci-federation:grantor is in this set: it is itself bootstrapped from a Keycloak
+	// realm role (SEC-RBAC-23), not granted through this API.
+	if role.Name == roles.RoleGatewayCreator || role.Name == roles.RolePlatformAdmin ||
+		role.Name == roles.RoleGatewayDedicatedRouteCreator || role.Name == roles.RoleCIFederationGrantor {
+		return nil, errors.Forbidden("%s can only be assigned via Keycloak", role.Name)
 	}
 
 	rb.CaptureTraceContext(ctx)
@@ -267,6 +267,14 @@ func (s *sqlRoleBindingService) Delete(ctx context.Context, id string) *errors.S
 
 	if role.Name == roles.RoleGatewayOwner || role.Name == roles.RoleGatewayAdmin || role.Name == roles.RoleGatewayViewer {
 		if err := s.validateCallerOwnsGateway(ctx, rb.GatewayID); err != nil {
+			return err
+		}
+	}
+
+	// Revoking a ci-federation:admin binding is as privileged as granting it:
+	// require platform:admin or ci-federation:grantor (SEC-RBAC-23).
+	if role.Name == roles.RoleCIFederationAdmin {
+		if err := s.validateCallerCanGrantCIFederationAdmin(ctx); err != nil {
 			return err
 		}
 	}
@@ -340,7 +348,7 @@ func (s *sqlRoleBindingService) SetGatewayRole(ctx context.Context, userID, gate
 		return created, nil
 	}
 
-	// Converge to exactly one binding (GAM-10): keep the earliest-created,
+	// Converge to exactly one binding (GTW-ACC-10): keep the earliest-created,
 	// delete any surplus so a user never accumulates conflicting bindings.
 	sort.Slice(existing, func(i, j int) bool {
 		if existing[i].CreatedAt.Equal(existing[j].CreatedAt) {
@@ -358,12 +366,12 @@ func (s *sqlRoleBindingService) SetGatewayRole(ctx context.Context, userID, gate
 		}
 	}
 
-	// Already the target role: idempotent no-op success (GAM-10).
+	// Already the target role: idempotent no-op success (GTW-ACC-10).
 	if keep.RoleID == targetRole.ID {
 		return keep, nil
 	}
 
-	// Change in place (GAM-05): a single UPDATED event, no zero-access window.
+	// Change in place (GTW-ACC-05): a single UPDATED event, no zero-access window.
 	keep.RoleID = targetRole.ID
 	keep.CaptureTraceContext(ctx)
 	updated, updErr := s.rbDao.Update(ctx, keep)
@@ -380,6 +388,25 @@ func (s *sqlRoleBindingService) RevokeGatewayAccess(ctx context.Context, userID,
 	existing, err := s.gatewayBindingsForUser(ctx, userID, gatewayID)
 	if err != nil {
 		return 0, errors.GeneralError("unable to look up existing bindings: %s", err)
+	}
+	for _, b := range existing {
+		if delErr := s.rbDao.Delete(ctx, b.ID); delErr != nil {
+			return 0, services.HandleDeleteError("RoleBinding", errors.GeneralError("unable to delete binding: %s", delErr))
+		}
+		if evErr := s.emitBindingEvent(ctx, b.ID, api.DeleteEventType); evErr != nil {
+			return 0, evErr
+		}
+	}
+	return len(existing), nil
+}
+
+func (s *sqlRoleBindingService) DeleteGatewayBindings(ctx context.Context, gatewayID string) (int, *errors.ServiceError) {
+	if gatewayID == "" {
+		return 0, errors.Validation("gateway_id is required")
+	}
+	existing, err := s.rbDao.FindByGatewayID(ctx, gatewayID)
+	if err != nil {
+		return 0, errors.GeneralError("unable to look up gateway bindings: %s", err)
 	}
 	for _, b := range existing {
 		if delErr := s.rbDao.Delete(ctx, b.ID); delErr != nil {
@@ -523,9 +550,44 @@ func (s *sqlRoleBindingService) validateCallerOwnsGateway(ctx context.Context, g
 	return errors.Forbidden("caller must be gateway:owner on the target gateway to grant bindings")
 }
 
+// validateCallerCanGrantCIFederationAdmin authorizes granting or revoking the
+// API-assignable ci-federation:admin role (SEC-RBAC-21/23): the caller must hold a
+// global-scope platform:admin OR ci-federation:grantor binding. The grantor is the
+// narrow, gitops-managed bootstrap role whose only power is this grant, so CI
+// federation can be set up declaratively without handing out platform:admin. As
+// with validateCallerOwnsGateway, an absent caller identity (server-initiated,
+// non-request context) is allowed -- internal grants carry no request principal.
+func (s *sqlRoleBindingService) validateCallerCanGrantCIFederationAdmin(ctx context.Context) *errors.ServiceError {
+	callerUserID := rbac.GetUserIDFromContext(ctx)
+	if callerUserID == "" {
+		return nil
+	}
+
+	callerBindings, err := s.rbDao.FindByUserID(ctx, callerUserID)
+	if err != nil {
+		return errors.GeneralError("unable to look up caller bindings: %s", err)
+	}
+
+	for _, b := range callerBindings {
+		if b.Scope != ScopeGlobal {
+			continue
+		}
+		role, roleErr := s.roleDao.Get(ctx, b.RoleID)
+		if roleErr != nil {
+			continue
+		}
+		if role.Name == roles.RolePlatformAdmin || role.Name == roles.RoleCIFederationGrantor {
+			return nil
+		}
+	}
+
+	return errors.Forbidden("caller must be platform:admin or %s to grant %s",
+		roles.RoleCIFederationGrantor, roles.RoleCIFederationAdmin)
+}
+
 func (s *sqlRoleBindingService) validateScopeMatchesRole(roleName string, rb *RoleBinding) *errors.ServiceError {
 	switch roleName {
-	case roles.RoleGatewayCreator:
+	case roles.RoleGatewayCreator, roles.RoleGatewayDedicatedRouteCreator, roles.RoleCIFederationAdmin, roles.RoleCIFederationGrantor:
 		if rb.Scope != ScopeGlobal {
 			return errors.Validation("role %q requires scope=global", roleName)
 		}

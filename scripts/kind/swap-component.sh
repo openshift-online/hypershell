@@ -277,9 +277,14 @@ EOF
     restore_web_console_from_overlay || true
   fi
 
+  # KIND_COVERAGE=true keeps a swapped component instrumented (DEV-LOC-18).
+  local cov_args=()
+  read -r -a cov_args <<<"$(coverage_build_args "${COMPONENT}")"
+
   info "Building ${COMPONENT} from working tree..."
   ${CONTAINER_ENGINE} build -t "${LOCAL_IMAGE}" \
-    -f "${DOCKERFILE}" ${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"} "${BUILD_CONTEXT}"
+    -f "${DOCKERFILE}" ${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"} \
+    ${cov_args[@]+"${cov_args[@]}"} "${BUILD_CONTEXT}"
 
   info "Loading image into Kind..."
   local tar_file="/tmp/hypershell-${COMPONENT}-dev.tar"

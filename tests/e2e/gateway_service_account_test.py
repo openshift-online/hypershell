@@ -62,6 +62,7 @@ class GatewayServiceAccountTests(unittest.TestCase):
         self.assertNotIn("management-secret", self.path.read_text())
         self.assertNotIn("management-token", self.path.read_text())
 
+    # Verifies: E2E-CORE-40.05
     def test_untrusted_credential_destination_never_receives_secret(self):
         for key, value in [("token_endpoint", "https://attacker.example/token"), ("issuer", "https://attacker.example"),
                            ("audience", "client-b"), ("client_id", "machine-b"), ("grant_type", "password")]:
@@ -139,6 +140,7 @@ exec "$OPENSHELL_BIN" -g "gateway with spaces" status
         self.addCleanup(result.close)
         return result
 
+    # Verifies: E2E-CORE-40.03
     def test_revocation_checks_issuance_then_deletes(self):
         subject.write_private(self.path, self.account)
         with patch.object(subject, "request", side_effect=[(200, {}), self.rejection(), (204, None)]) as request:
@@ -147,6 +149,7 @@ exec "$OPENSHELL_BIN" -g "gateway with spaces" status
         self.assertEqual(request.call_args_list[-1].args[1], "DELETE")
         self.assertFalse(self.path.exists())
 
+    # Verifies: E2E-CORE-40.03
     def test_revocation_does_not_pass_on_server_or_unrelated_oauth_errors(self):
         for rejection in [self.rejection(500), self.rejection(400, "invalid_scope")]:
             with self.subTest(code=rejection.code):

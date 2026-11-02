@@ -47,7 +47,7 @@
   min-height: 0;
 }
 .axisHeader {
-  min-height: 44px;
+  min-height: 78px;
   display: flex;
   align-items: center;
   font-size: 10px;
@@ -94,8 +94,8 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
-  min-height: 44px;
-  gap: 1px;
+  min-height: 78px;
+  gap: 2px;
 }
 .columnHeaderMain {
   font-weight: 700;
@@ -103,15 +103,94 @@
   justify-content: space-between;
   align-items: center;
   gap: var(--pf-t--global--spacer--xs, 4px);
+  min-width: 0;
 }
-/* The agent that acts on items in this column (annotation under the phase name). */
-.columnAgent {
+
+.agentButton {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pf-t--global--spacer--xs, 4px);
+  min-width: 0;
+  font: inherit;
+  font-weight: 700;
+  color: var(--pf-t--global--text--color--regular, #e0e0e0);
+  cursor: pointer;
+}
+.agentButton:hover .agentName,
+.agentButton:focus-visible .agentName {
+  text-decoration: underline;
+}
+.agentButton:focus-visible {
+  outline: 2px solid var(--pf-t--global--color--brand--default, #0066cc);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.agentNamePlain {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pf-t--global--spacer--xs, 4px);
+  min-width: 0;
+  font-weight: 700;
+}
+.agentName {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Phase annotation below the agent name (SDLC-AGT-07). */
+.columnPhase {
   font-size: 10px;
   font-weight: 400;
   color: var(--pf-t--global--text--color--subtle, #9a9da0);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Compact runtime metrics strip below each column header (SDLC-AGT-08). */
+.columnMetrics {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--pf-t--global--spacer--sm, 8px);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.columnMetric {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  white-space: nowrap;
+}
+.columnMetricLabel {
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--pf-t--global--text--color--subtle, #9a9da0);
+}
+
+/* Present-tense liveness cue in the column header (SDLC-AGT-17): the activity
+   state's dot + label, with an optional "last seen" line beneath it. */
+.columnActivity {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.columnLastSeen {
+  font-size: 9px;
+  font-weight: 400;
+  color: var(--pf-t--global--text--color--subtle, #9a9da0);
 }
 
 /* The aging track: a card's vertical position encodes its time-in-phase
@@ -387,45 +466,21 @@
   border-radius: 3px;
 }
 
-/* Phase-transition flight (SDLC-VIS-12a): a full-size clone of the card flies between
+/* Phase-transition flight (SDLC-VIS-20): a full-size clone of the card flies between
    columns (and into the matrix on ship) along the shared arc, landing with the shared
    dust burst. The box is pinned to the card's source rect in viewport coords; the shared
    .flightTravel keyframe (flight-motion.module.css) carries it to the destination. The
    whole mechanism no-ops under prefers-reduced-motion (handled in the shared CSS + the
    useCardFlights hook, which launches nothing). */
+/* z-index must clear the app chrome (PatternFly Page/Drawer stacking contexts, which sit
+   well above a small local value): the overlay is portalled to <body>, so a z-index of 60
+   lost to the drawer/page wrapper and the flying card painted BEHIND the board columns - it
+   had a layout box but was occluded, so the card appeared to flash in/out of its columns
+   instead of gliding. Keep these above PatternFly's modal/drawer range. */
 .flightClone {
   position: fixed;
-  z-index: 60;
+  z-index: 2000;
   pointer-events: none;
-}
-/* Landing impact (shared with the Fleet Map): a shockwave ring + outward dust specks,
-   centred on the landing point. */
-.flightBurst {
-  position: fixed;
-  z-index: 61;
-  pointer-events: none;
-}
-.flightRing {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 20px;
-  height: 20px;
-  margin-left: -10px;
-  margin-top: -10px;
-  border: 2px solid #e4d7bf;
-  border-radius: 50%;
-}
-.flightDust {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 6px;
-  height: 6px;
-  margin-left: -3px;
-  margin-top: -3px;
-  border-radius: 50%;
-  background: #cbb79a;
 }
 
 @keyframes shipEnter {

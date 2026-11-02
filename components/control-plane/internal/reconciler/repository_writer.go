@@ -489,75 +489,104 @@ func (w *grpcImportWriter) ownedGateways(ctx context.Context, repoID string) ([]
 	}
 }
 
+// gatewayManifestPlatformFields are the platform-managed Gateway fields a declarative
+// .hypershell manifest may NOT declare: the import is a non-privileged writer held to
+// the same allowlist as a direct user (name + placement), so a manifest that declares
+// one of these fails that gateway's import (control-plane.spec.md CTRL-CORE-15;
+// data-model.spec.md PLAT-DATA-23). The server-side field policy (SEC-RBAC-18) is the
+// authoritative backstop; this is the friendly early error that names the field.
+var gatewayManifestPlatformFields = []string{
+	"image", "supervisor_image", "server_dns_names", "oidc", "route",
+	"tls_mode", "service_type", "external_dns", "credential_driver",
+	"dev_build", "dev_build_metadata",
+}
+
+// gatewayManifestForbiddenField returns the name of the first platform-managed field a
+// Gateway manifest declares, or "" when it declares only user-writable fields.
+func gatewayManifestForbiddenField(spec map[string]interface{}) string {
+	for _, field := range gatewayManifestPlatformFields {
+		if v, ok := spec[field]; ok && v != nil {
+			return field
+		}
+	}
+	return ""
+}
+
 func (w *grpcImportWriter) upsertGateway(ctx context.Context, repoID string, res RenderedResource) error {
+	// A .hypershell Gateway manifest may declare only name + placement; a platform-managed
+	// field fails this gateway's import with a clear error naming the field (CTRL-CORE-15).
+	// The error is collected per resource by the caller and does not abort the rest of the
+	// import. The server rejects the field even if this check is bypassed (SEC-RBAC-18).
+	if field := gatewayManifestForbiddenField(res.Spec); field != "" {
+		return fmt.Errorf("gateway %s: field %q is platform-managed and cannot be declared in a .hypershell Gateway manifest", res.Name, field)
+	}
 	owned, err := w.ownedGateways(ctx, repoID)
 	if err != nil {
 		return err
 	}
 	clusterID := specString(res.Spec, "cluster_id")
-	externalDNS := specStringPtr(res.Spec, "external_dns")
-	tlsMode := specStringPtr(res.Spec, "tls_mode")
-	serviceType := specStringPtr(res.Spec, "service_type")
-	image := specStringPtr(res.Spec, "image")
-	supervisorImage := specStringPtr(res.Spec, "supervisor_image")
-	oidc := specStringPtr(res.Spec, "oidc")
-	route := specStringPtr(res.Spec, "route")
-	credentialDriver := specStringPtr(res.Spec, "credential_driver")
-	serverDNSNames := specStringSlice(res.Spec, "server_dns_names")
+	placement, err := gatewayPlacement(res.Spec)
+	if err != nil {
+		return fmt.Errorf("gateway %s: %w", res.Name, err)
+	}
 
 	for _, existing := range owned {
 		if existing.GetName() != res.Name {
 			continue
 		}
-		if existing.GetClusterId() == clusterID &&
-			stringPtrEqual(existing.ExternalDns, externalDNS) &&
-			stringPtrEqual(existing.TlsMode, tlsMode) &&
-			stringPtrEqual(existing.ServiceType, serviceType) &&
-			stringPtrEqual(existing.Image, image) &&
-			stringPtrEqual(existing.SupervisorImage, supervisorImage) &&
-			stringPtrEqual(existing.Oidc, oidc) &&
-			stringPtrEqual(existing.Route, route) &&
-			stringPtrEqual(existing.CredentialDriver, credentialDriver) &&
-			stringSliceEqual(existing.GetServerDnsNames(), serverDNSNames) {
-			return nil
-		}
-		// Only send cluster_id when the spec actually declares one. An empty
-		// clusterID would be read by the handler as a reassignment to "" and
-		// rejected; leaving it nil keeps the gateway on its current cluster while
-		// the other changed fields still apply.
-		var clusterIDPtr *string
-		if clusterID != "" {
-			clusterIDPtr = &clusterID
-		}
-		_, err := w.gateways.UpdateGateway(withOwnership(ctx, repoID), &pb.UpdateGatewayRequest{
-			Id:               existing.GetMetadata().GetId(),
-			ClusterId:        clusterIDPtr,
-			ExternalDns:      externalDNS,
-			TlsMode:          tlsMode,
-			ServiceType:      serviceType,
-			Image:            image,
-			SupervisorImage:  supervisorImage,
-			Oidc:             oidc,
-			Route:            route,
-			CredentialDriver: credentialDriver,
-			ServerDnsNames:   serverDNSNames,
-		})
-		return err
+		// The gateway is already imported. An import's writable surface is name + placement
+		// (create-only); name is the match key here and placement cannot be mutated after
+		// create, so there is nothing an import may update (PLAT-DATA-23). The platform
+		// fields the control plane owns are left untouched. The re-import is a no-op.
+		return nil
 	}
+	// On create, supply the user-writable allowlist only: name and exactly one of
+	// cluster_id (pinned) or placement (late-bound), matching the api-server's
+	// exactly-one-of contract (#625, data-model.spec.md). No platform-managed field is
+	// sent; the control plane authors those itself (PLAT-DATA-23, CTRL-CORE-15).
 	_, err = w.gateways.CreateGateway(withOwnership(ctx, repoID), &pb.CreateGatewayRequest{
-		Name:             res.Name,
-		ClusterId:        clusterID,
-		ExternalDns:      externalDNS,
-		TlsMode:          tlsMode,
-		ServiceType:      serviceType,
-		Image:            image,
-		SupervisorImage:  supervisorImage,
-		Oidc:             oidc,
-		Route:            route,
-		CredentialDriver: credentialDriver,
-		ServerDnsNames:   serverDNSNames,
+		Name:      res.Name,
+		ClusterId: clusterID,
+		Placement: placement,
 	})
 	return err
+}
+
+// gatewayPlacement builds the gRPC GatewayPlacementIntent from a rendered Gateway
+// spec's `placement` block, mapping the declarative late-binding manifest onto the
+// api-server create contract (data-model.spec.md, "Gateway Placement and Late
+// Binding"; gateway-provision-placement.spec.md WEB-PLC-01). A `selector` list maps to
+// CapabilitySelectorPlacement; `mode: local-kind` maps to LocalKindPlacement. It
+// returns (nil, nil) when the spec declares no placement at all (a pinned gateway).
+// When a `placement` block IS present but declares neither a non-empty selector nor
+// `mode: local-kind`, it returns an error naming the problem, so a malformed
+// late-bound manifest fails with a clear cause rather than silently rendering a
+// create with neither cluster_id nor placement.
+func gatewayPlacement(spec map[string]interface{}) (*pb.GatewayPlacementIntent, error) {
+	if spec == nil {
+		return nil, nil
+	}
+	raw, ok := spec["placement"]
+	if !ok || raw == nil {
+		return nil, nil
+	}
+	placementMap, ok := raw.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("placement must be a mapping with a selector list or mode: local-kind")
+	}
+	if selector := specStringSlice(placementMap, "selector"); len(selector) > 0 {
+		return &pb.GatewayPlacementIntent{
+			Placement: &pb.GatewayPlacementIntent_CapabilitySelector{
+				CapabilitySelector: &pb.CapabilitySelectorPlacement{Selector: selector},
+			},
+		}, nil
+	}
+	if specString(placementMap, "mode") == "local-kind" {
+		return &pb.GatewayPlacementIntent{
+			Placement: &pb.GatewayPlacementIntent_LocalKind{LocalKind: &pb.LocalKindPlacement{}},
+		}, nil
+	}
+	return nil, fmt.Errorf("placement declares neither a non-empty selector nor mode: local-kind")
 }
 
 // ---- AgentRuntime ----

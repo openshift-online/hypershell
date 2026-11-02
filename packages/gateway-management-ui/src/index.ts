@@ -30,7 +30,6 @@ export type {
   GatewayRecord,
   GatewaySortDirection,
   GatewaySortField,
-  GatewayVersionDrift,
   GatewayWorkflowRuntime,
   OpenShellGatewayServiceAccountCapabilities,
   OpenShellGatewayServiceAccountConnection,
@@ -46,7 +45,9 @@ export type {
   OpenShellGatewayServiceAccountSortField,
   OpenShellGatewayServiceAccountStatus,
 } from "./application/gateway-types";
+export { externalLinkUrls } from "./application/external-links";
 export {
+  kataRuntimeSelector,
   defaultGatewayAccessListRequest,
   defaultOpenShellGatewayServiceAccountListRequest,
   defaultGatewayListRequest,
@@ -64,10 +65,7 @@ export {
   type GatewayProbePublisher,
 } from "./application/gateway-probes";
 export {
-  compareGatewayVersions,
   createGatewayOperations,
-  deriveGatewayVersionDrift,
-  parseGatewayVersion,
   type GatewayOperationDependencies,
 } from "./application/gateway-operations";
 export { normalizeGatewayPlacementClusterIds } from "./application/gateway-placement";

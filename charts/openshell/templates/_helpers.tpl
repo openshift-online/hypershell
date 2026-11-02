@@ -353,6 +353,62 @@ the in-cluster Service DNS, release namespace, service port, and disableTls
 flag - so the default value works for any release name or namespace without
 override.
 */}}
+{{/*
+Whether the gateway supervisor topology is enabled. Read from the
+raw gateway configuration so openshell.effectiveKubernetesConfig can use it.
+*/}}
+{{- define "openshell.supervisorEnabled" -}}
+{{- $kubernetes := get (.Values.gatewayConfig | default dict) "openshell.drivers.kubernetes" | default dict -}}
+{{- if eq (get $kubernetes "supervisor_topology" | default "") "gateway" -}}true{{- end -}}
+{{- end }}
+
+{{/*
+Name of the shared supervisor Deployment and Service (and, with `-token`, its token Secret):
+the fullname with a fixed suffix, within the 63-character Service name limit.
+A fullname without room for the suffix keeps a prefix and a hash of the whole
+fullname, so the name never collapses into another release resource's name.
+*/}}
+{{- define "openshell.supervisorName" -}}
+{{- $suffix := "-supervisor" -}}
+{{- $base := include "openshell.fullname" . -}}
+{{- $room := sub 63 (len $suffix) | int -}}
+{{- if gt (len $base) $room -}}
+{{- $base = printf "%s-%s" ($base | trunc (sub $room 9 | int) | trimSuffix "-") ($base | sha256sum | trunc 8) -}}
+{{- end -}}
+{{- printf "%s%s" $base $suffix -}}
+{{- end }}
+
+{{/*
+Pod labels of the shared supervisor; its Service selects exactly these.
+*/}}
+{{- define "openshell.supervisorSelectorLabels" -}}
+app.kubernetes.io/name: openshell-supervisor
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: supervisor
+{{- end }}
+
+{{/*
+Namespace selector for the sandbox namespaces of this gateway's workspace
+mode: the shared namespace, the managed namespaces it labels, or the
+operator-labeled namespaces.
+*/}}
+{{- define "openshell.supervisorSandboxNamespaces" -}}
+{{- $kubernetes := .kubernetes -}}
+{{- $mode := get $kubernetes "workspace_mode" | default "shared" -}}
+{{- if eq $mode "managed" -}}
+matchLabels:
+  openshell.ai/managed-by: openshell
+  openshell.ai/gateway-id: {{ get $kubernetes "gateway_id" | quote }}
+{{- else if eq $mode "operator" -}}
+{{- $label := regexSplit "==?" (get $kubernetes "operator_namespace_label") 2 -}}
+matchLabels:
+  {{ index $label 0 }}: {{ index $label 1 | quote }}
+{{- else -}}
+matchLabels:
+  kubernetes.io/metadata.name: {{ get $kubernetes "namespace" | quote }}
+{{- end -}}
+{{- end }}
+
 {{- define "openshell.grpcEndpoint" -}}
 {{- if .Values.server.grpcEndpoint -}}
 {{- .Values.server.grpcEndpoint -}}
@@ -561,6 +617,10 @@ like user-supplied schema-v2 fields during compatibility resolution. */}}
 {{- if not (hasKey $kubernetes "supervisor_image") -}}{{- $_ := set $kubernetes "supervisor_image" (include "openshell.supervisorImage" .) -}}{{- end -}}
 {{- if not (hasKey $runtimeConfig "boundary_port") -}}{{- $_ := set $runtimeConfig "boundary_port" 5500 -}}{{- end -}}
 {{- $_ := set $kubernetes "sandbox_runtime" $runtimeConfig -}}
+{{/* The chart owns the shared supervisor and the Secret that delivers its token. */}}
+{{- if include "openshell.supervisorEnabled" . -}}
+{{- $_ := set $kubernetes "shared_supervisor" (dict "service_name" (include "openshell.supervisorName" .) "service_namespace" .Release.Namespace "runtime_port" 5500 "token_secret_name" (printf "%s-token" (include "openshell.supervisorName" .))) -}}
+{{- end -}}
 {{- toYaml $kubernetes -}}
 {{- end }}
 
@@ -568,6 +628,32 @@ like user-supplied schema-v2 fields during compatibility resolution. */}}
 Validate chart values that Helm would otherwise accept silently.
 */}}
 {{- define "openshell.validateValues" -}}
+{{- $kubernetes := include "openshell.effectiveKubernetesConfig" . | fromYaml -}}
+{{- if hasKey $kubernetes "supervisor_topology" -}}
+{{- $topology := get $kubernetes "supervisor_topology" -}}
+{{- if not (has $topology (list "gateway" "workspace")) -}}
+{{- fail "supervisor_topology must be gateway or workspace; omit it to disable the shared supervisor" -}}
+{{- end -}}
+{{- if eq $topology "workspace" -}}
+{{- fail "supervisor_topology=workspace is not implemented" -}}
+{{- end -}}
+{{- $gateway := get (.Values.gatewayConfig | default dict) "openshell.gateway" | default dict -}}
+{{- if ne (get $gateway "compute_driver" | default "kubernetes") "kubernetes" -}}
+{{- fail "supervisor_topology requires the kubernetes compute driver" -}}
+{{- end -}}
+{{- if or (get $kubernetes "https_proxy") (get $kubernetes "proxy_ca_bundle") (get $kubernetes "proxy_auth_secret_name") (get $kubernetes "provider_spiffe_workload_api_socket_path") -}}
+{{- fail "supervisor_topology=gateway does not support upstream proxy settings or provider SPIFFE identity" -}}
+{{- end -}}
+{{- if .Values.server.disableTls -}}
+{{- fail "supervisor_topology=gateway requires gateway TLS; the supervisor token travels only over TLS" -}}
+{{- end -}}
+{{- if and (eq (get $kubernetes "workspace_mode" | default "shared") "operator") (not (regexMatch "^[A-Za-z0-9][-A-Za-z0-9_./]*==?[-A-Za-z0-9_.]*$" (get $kubernetes "operator_namespace_label" | default ""))) -}}
+{{- fail "supervisor_topology=gateway in operator workspace mode requires operator_namespace_label of the form key=value" -}}
+{{- end -}}
+{{- end -}}
+{{- if hasKey (get (.Values.gatewayConfig | default dict) "openshell.drivers.kubernetes" | default dict) "shared_supervisor" -}}
+{{- fail "shared_supervisor is rendered by the chart; set only supervisor_topology" -}}
+{{- end -}}
 {{- $workloadKind := include "openshell.workloadKind" . -}}
 {{- $workload := .Values.workload | default dict -}}
 {{- $maxReplicas := int (include "openshell.maxReplicas" .) -}}
@@ -623,5 +709,9 @@ Validate chart values that Helm would otherwise accept silently.
 {{- end -}}
 {{- if kindIs "invalid" .Values.server.tls.clientCaSecretName -}}
 {{- fail "server.tls.clientCaSecretName cannot be null; omit the key to use the chart default (openshell-server-client-ca), or set to \"\" to disable client certificate verification for HTTPS-only mode" -}}
+{{- end -}}
+{{- $dataStorageSize := .Values.server.dataStorageSize -}}
+{{- if and (eq $workloadKind "statefulset") $dataStorageSize (not (regexMatch "^[0-9]+(\\.[0-9]+)?([KMGTPE]i|[kMGTPE])$" (toString $dataStorageSize))) -}}
+{{- fail "server.dataStorageSize must be a Kubernetes quantity with a unit, such as 20Gi" -}}
 {{- end -}}
 {{- end }}

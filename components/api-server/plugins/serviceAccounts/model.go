@@ -68,8 +68,11 @@ type AuditEvent struct {
 	Action           string `gorm:"not null"`
 	Outcome          string `gorm:"not null"`
 	Role             string `gorm:"not null"`
-	CorrelationID    string
-	ExpiresAt        time.Time
+	// PreviousRole records the role before a role change. It is set only on
+	// update_role events; every other action leaves it null.
+	PreviousRole  *string
+	CorrelationID string
+	ExpiresAt     time.Time
 }
 
 func (AuditEvent) TableName() string {

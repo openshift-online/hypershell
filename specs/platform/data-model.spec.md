@@ -7,12 +7,12 @@
 
 The HyperShell API server provides a control plane for deploying and managing distributed API gateways across multiple Kubernetes clusters and cloud providers.
 
-Gateways and clusters are **top-level resources**. An earlier model included a top-level "Sector" (later renamed "Fleet") organizational unit that grouped these resources via a `fleet_id`; that layer has been removed. There is no sectorization: all gateways belong to the same platform, and tenancy is enforced by RBAC (platform-level `gateway:creator`/`platform:admin` and per-gateway `gateway:owner` (full control incl. delete; grantable, one or more), `gateway:admin` (granted administrators; no delete), and `gateway:viewer`), not by a fleet grouping. See [`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md) and [`gateway-access-management.spec.md`](gateway-access-management.spec.md).
+Gateways and clusters are **top-level resources**. There is no organizational grouping layer: all gateways belong to the same platform, and tenancy is enforced by RBAC (platform-level `gateway:creator`/`platform:admin` and per-gateway `gateway:owner` (full control incl. delete; grantable, one or more), `gateway:admin` (granted administrators; no delete), and `gateway:viewer`). See [`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md) and [`gateway-access-management.spec.md`](gateway-access-management.spec.md).
 
 Current model:
 
-- **ManagedCluster** - a Kubernetes cluster whose control plane has registered into the platform (`oidc_subject`, `last_seen_at`; see [`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md)). Its self-declared, namespaced `capabilities` set is the source of truth for placement, including the single-valued `gateway-version` namespace that advertises the gateway version the control plane provisions onto new gateways. It also tracks API server URL and a kubeconfig secret reference, which are informational: no component consumes `kubeconfig_secret`, because each control plane reconciles its own cluster with in-cluster credentials.
-- **Gateway** - an API gateway instance deployed onto a specific cluster within an API-assigned namespace. Its PostgreSQL database is not modelled in the API: the control plane provisions one database and login role per gateway on the platform's gateway database server (see [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md)). Tracks TLS mode, service type, external DNS, and lifecycle phase.
+- **ManagedCluster** - a Kubernetes cluster whose control plane has registered into the platform (`oidc_subject`, `last_seen_at`; see [`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md)). Its self-declared, namespaced `capabilities` set is the source of truth for placement. It also tracks API server URL and a kubeconfig secret reference, which are informational: no component consumes `kubeconfig_secret`, because each control plane reconciles its own cluster with in-cluster credentials.
+- **Gateway** - an API gateway instance deployed onto a cluster within an API-assigned namespace. Its target cluster MAY be pinned explicitly through `cluster_id`, or left absent and late-bound to a matching `ManagedCluster` through a capability-label `placement` selector (see "Gateway Placement and Late Binding" below). Its PostgreSQL database is not modelled in the API: the control plane provisions one database and login role per gateway on the platform's gateway database server (see [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md)). Its only user-writable fields are `name` (create and update), placement (create only), and the create-only `dedicated_route` request flag (see "Requirement: Gateway Dedicated Route Request Field", PLAT-DATA-26); TLS mode, service type, external DNS, image, OIDC, routing, and lifecycle phase are all control-plane-managed and read-only to users and to the GitOps import (see "Requirement: Gateway Field Ownership and Write Policy", PLAT-DATA-23).
 - **OpenShellGatewayServiceAccount** - a creator-bound automation identity for one Gateway. It stores an OpenShell role and non-secret Keycloak lifecycle metadata.
 - **AgentRuntime** - a scheduled autonomous AI agent, referencing a ManagedCluster, Gateway, and SandboxTemplate, and optionally a Repository. Owns exactly one AgentWorkspace and one or more SecretSources. An optional `selector` (a list of labels) turns the runtime into a repository scanner: it queries the referenced Repository for items carrying any selected label and fans out one sandbox per match.
 - **Repository** - a registered git repository (e.g. `https://github.com/openshift-online/hypershell`) paired with the provider credential HyperShell uses to reach it. The control-plane declarative-import reconciler discovers a `.hypershell/` directory in each registered Repository and renders the declarative HyperShell resources it finds into the API.
@@ -21,6 +21,8 @@ Current model:
 - **ProviderBinding** - wires a ProviderSpec into an AgentWorkspace with workspace-specific credential and refresh configuration.
 - **InferenceRoute** - designates the active ProviderBinding and model alias for LLM inference within an AgentWorkspace. At most one per AgentWorkspace.
 - **SecretSource** - abstract reference to durable credential material (GitHub App PEM, service-account key, gateway identity) in an external backend (Vault, AWS Secrets Manager, Kubernetes). Owned by AgentRuntime; purpose enum drives how the material is consumed (coordinator env for gateway-identity, OpenShell provider configuration for provider material).
+- **CIProvider** - a registered CI OIDC issuer (GitHub Actions, GitLab CI/CD, Forgejo) whose workload tokens may be federated into gateway access. Platform-wide; authorized by the narrow `ci-federation:admin` role (SEC-RBAC-21), not `platform:admin`; referenced by many CITrusts; holds no secret.
+- **CITrust** - a gateway owner or admin's declaration that CI runs matching a subject claim predicate may exchange their OIDC token for a workspace-scoped OpenShell token on a Gateway they manage (`gateway:owner` or `gateway:admin`, or `platform:admin`). The self-service, secret-less way to enable CI on a gateway.
 
 ## Entity Relationship Diagram
 
@@ -44,13 +46,15 @@ erDiagram
     Gateway {
         string ID PK
         string name
-        string cluster_id FK
+        string cluster_id FK "nullable; late-bound by placement when absent"
+        jsonb placement "capability-label selectors or local-kind mode; used when cluster_id is absent"
         string namespace
         string image
         string supervisor_image
         string[] server_dns_names
         jsonb oidc
-        jsonb route
+        jsonb route "nullable - route exposure config (host, certificate)"
+        boolean dedicated_route "nullable - create-only dedicated route + certificate request"
         text route_address
         jsonb credential_driver
         string external_dns
@@ -111,7 +115,7 @@ erDiagram
         string name
         string url
         string provider
-        string secret_source_id FK
+        string secret_source_id FK "nullable; empty = anonymous public read"
         string default_branch
         string import_path
         string status
@@ -200,13 +204,38 @@ erDiagram
         time deleted_at
     }
 
+    CIProvider {
+        string ID PK
+        string name
+        string forge
+        string issuer
+        string jwks_url
+        string audience
+        string status
+        time created_at
+        time updated_at
+        time deleted_at
+    }
+
+    CITrust {
+        string ID PK
+        string ci_provider_id FK
+        string gateway_id FK
+        jsonb subject
+        string role
+        string status
+        time created_at
+        time updated_at
+        time deleted_at
+    }
+
     ManagedCluster ||--o{ Gateway : "hosts"
     Gateway ||--o{ OpenShellGatewayServiceAccount : "authorizes"
     ManagedCluster ||--o{ AgentRuntime : "runs"
     Gateway ||--o{ AgentRuntime : "connects_to"
     SandboxTemplate ||--o{ AgentRuntime : "sandbox_for"
     Repository ||--o{ AgentRuntime : "scanned_by"
-    SecretSource ||--o{ Repository : "authenticates"
+    SecretSource |o--o{ Repository : "authenticates"
     AgentRuntime ||--|| AgentWorkspace : "owns"
     AgentRuntime ||--o{ SecretSource : "declares"
     Gateway ||--o{ AgentWorkspace : "hosts"
@@ -216,35 +245,131 @@ erDiagram
     ProviderSpec ||--o{ ProviderBinding : "bound_by"
     SecretSource ||--o{ ProviderBinding : "credentials_for"
     ProviderBinding ||--o| InferenceRoute : "routed_by"
+    CIProvider ||--o{ CITrust : "federated_by"
+    Gateway ||--o{ CITrust : "trusts_ci"
 ```
 
 ## Requirements
 
-### Requirement: Top-Level Resources
+### Requirement: PLAT-DATA-01 -- Top-Level Resources
 
-ManagedCluster and Gateway SHALL be top-level resources. They SHALL NOT be scoped by a fleet or sector grouping, and their create and update contracts SHALL NOT include a `fleet_id` field.
+ManagedCluster and Gateway SHALL be top-level resources, scoped by no grouping other than the platform itself.
 
-#### Scenario: Create Gateway Without a Fleet Reference
-- GIVEN a valid cluster_id
-- WHEN a POST request is made to `/api/hypershell/v1/gateways`
-- THEN a new Gateway is created as a top-level resource
-- AND the Gateway references a valid cluster resource
-- AND the request SHALL NOT require or accept a `fleet_id`
+#### Scenario: PLAT-DATA-01.01 -- Create Gateway and Provision Its Workload
 
-#### Scenario: Create Gateway With a Direct Image Reference
-
-- GIVEN a valid cluster_id
-- AND an `image` and `supervisor_image` set directly
-- WHEN a POST request is made to `/api/hypershell/v1/gateways`
+- GIVEN a valid `cluster_id` (or a `placement` selector)
+- AND a `name`
+- WHEN a POST request is made to `/api/hypershell/v1/gateways` with only `name` and
+  placement (the user-writable allowlist, PLAT-DATA-23)
 - THEN a new Gateway is created
 - AND the control plane reconciler provisions the gateway workload from the
-  given `image` and `supervisor_image`
+  control-plane-managed `image`/`supervisor_image` (the `GATEWAY_IMAGE`/
+  `GATEWAY_SUPERVISOR_IMAGE` defaults, or an `image` the control plane set explicitly)
 
-### Requirement: Gateway Namespace Ownership
+### Requirement: PLAT-DATA-02 -- Gateway Placement and Late Binding
+
+A Gateway's target cluster SHALL be expressed in one of two ways, and `cluster_id`
+SHALL be OPTIONAL on create:
+
+- **Pinned.** When `cluster_id` is set, the Gateway is pinned to that cluster.
+  This is the existing contract and is UNCHANGED: a set `cluster_id` (on create or
+  on a `PATCH` that sets it) SHALL reference a registered `ManagedCluster` with a
+  non-empty `oidc_subject`, and an empty-string `cluster_id` SHALL still be
+  rejected (see [`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md),
+  "Requirement: Gateways Reference a Registered Cluster").
+- **Late-bound by placement.** When `cluster_id` is ABSENT, the Gateway SHALL
+  instead carry a `placement` selector that declares the TYPE of placement it
+  wants as ManagedCluster capability-label selectors (for example
+  `network/public`, `provider/ibm`) or a `local-kind` mode, exactly as the
+  declarative `.hypershell` Gateway manifest uses. The API server SHALL resolve
+  the selector to a concrete `ManagedCluster` and assign `cluster_id` server-side;
+  this keeps the watch-stream caller binding authoritative, consistent with the
+  server-side placement resolution used for `AgentRuntime`
+  ([`control-plane.spec.md`](./control-plane.spec.md), "AgentRuntime effective
+  cluster resolved server-side"). The selector vocabulary, validation, and
+  random-selection-among-eligible-clusters rules are defined canonically in
+  [`gateway-provision-placement.spec.md`](../web-console/gateway-provision-placement.spec.md)
+  (WEB-PLC-01, WEB-PLC-07). The resolved `cluster_id` is exposed on read exactly as a pinned
+  one.
+
+A create request SHALL provide exactly one of the two: `cluster_id`, or a
+`placement` selector. A request that supplies NEITHER SHALL be rejected, and a
+request that supplies BOTH SHALL be rejected. `placement` SHALL be a desired-spec
+field persisted on the Gateway (not merely request-scoped), because it is
+re-evaluated for late binding after create.
+
+**Requirement-capability selection only.** A `placement` selector declares
+requirement capabilities (`provider/*`, `network/*`, and the other self-declared
+namespaces, see [`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md),
+"Requirement: Self-Declared Capability Labels") and SHALL resolve by random
+selection among the eligible clusters that match it, so a caller expresses the
+TYPE of placement it wants and SHALL NOT choose a specific cluster through this
+contract. Deterministic single-cluster targeting is out of scope here: it is a
+separate `cluster_name` placement selector tracked in its own issue (#857).
+
+**Late binding (no eligible cluster yet).** When a late-bound Gateway's selector
+matches NO eligible `ManagedCluster`, the create SHALL still succeed: the Gateway
+SHALL be persisted with an empty `cluster_id`, SHALL hold in the `Pending` phase
+with a clear awaiting-placement `status`, and SHALL NOT be returned as an error.
+The API server SHALL re-resolve placement for such unplaced Gateways when the
+eligible-cluster set changes (for example when a matching `ManagedCluster`
+registers or updates its capabilities), and SHALL assign `cluster_id` as soon as a
+matching cluster appears. This is the same late-binding model used for agent
+secrets (see [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)):
+a resource is declarable before the thing it binds to exists, and binds when that
+thing appears. An unplaced Gateway (empty `cluster_id`) SHALL NOT be delivered to
+any `cluster_id`-filtered watch or list stream, because no control plane is
+responsible for it until it is placed.
+
+#### Scenario: PLAT-DATA-02.01 -- Create a Gateway pinned to a cluster
+
+- GIVEN a create request with a `cluster_id` that references a registered cluster
+- WHEN the API server validates the request
+- THEN it SHALL accept the request and persist the Gateway on that cluster
+- AND the behavior SHALL be unchanged from the pre-existing pinned contract
+
+#### Scenario: PLAT-DATA-02.02 -- Create a late-bound Gateway that resolves immediately
+
+- GIVEN a create request with NO `cluster_id` and `placement.selector = ["network/public", "provider/ibm"]`
+- AND at least one registered connected `ManagedCluster` carries both labels
+- WHEN the API server resolves placement
+- THEN it SHALL assign a matching cluster's `cluster_id` to the Gateway
+- AND the Gateway SHALL proceed through its normal provisioning lifecycle
+
+#### Scenario: PLAT-DATA-02.03 -- Create a late-bound Gateway that has no eligible cluster yet
+
+- GIVEN a create request with NO `cluster_id` and a `placement.selector` that no registered cluster matches
+- WHEN the API server processes the request
+- THEN it SHALL create the Gateway with an empty `cluster_id` and `phase` `Pending`
+- AND it SHALL NOT return an error
+- AND the Gateway SHALL report an awaiting-placement `status`
+
+#### Scenario: PLAT-DATA-02.04 -- Unplaced Gateway binds when a matching cluster appears
+
+- GIVEN a `Pending` Gateway with an empty `cluster_id` whose `placement.selector` matched no cluster
+- WHEN a `ManagedCluster` that carries every selected label registers
+- THEN the API server SHALL assign that cluster's `cluster_id` to the Gateway
+- AND the Gateway SHALL become eligible for reconciliation on that cluster
+
+#### Scenario: PLAT-DATA-02.05 -- Create request with neither cluster_id nor placement is rejected
+
+- GIVEN a create request with NO `cluster_id` and NO `placement`
+- WHEN the API server validates the request
+- THEN it SHALL reject the request with a validation error
+- AND no Gateway SHALL be created
+
+#### Scenario: PLAT-DATA-02.06 -- Declarative import creates a late-bound Gateway through placement
+
+- GIVEN a `.hypershell` Gateway manifest that declares a `placement` selector and NO `cluster_id`
+- WHEN the control-plane `RepositoryReconciler` imports it (see [`control-plane.spec.md`](./control-plane.spec.md), "Requirement: Import Writer Maps Gateway Placement")
+- THEN the import writer SHALL send a create that carries the `placement` selector and no `cluster_id`
+- AND the API server SHALL accept it under the exactly-one-of contract and late-bind it
+
+### Requirement: PLAT-DATA-03 -- Gateway Namespace Ownership
 
 The API server SHALL assign each Gateway an immutable Kubernetes namespace before persistence and before publishing its creation event. The namespace SHALL be `openshell-<id-hex-8>`, where `id-hex-8` is the lowercase hexadecimal encoding of 8 bytes from the Gateway KSUID's random payload, producing a 26-character namespace (e.g., `openshell-a1b2c3d4e5f67890`). This is stable, collision-safe for realistic gateway counts (~1 in 10^9 at 1M gateways), and a valid Kubernetes DNS label. Namespace SHALL be read-only in the REST contract and SHALL be absent from REST and gRPC create and update inputs.
 
-#### Scenario: Create Gateways Without a Namespace
+#### Scenario: PLAT-DATA-03.01 -- Create Gateways Without a Namespace
 
 - GIVEN two valid Gateway create requests that omit namespace
 - WHEN the API server creates both Gateways
@@ -252,63 +377,77 @@ The API server SHALL assign each Gateway an immutable Kubernetes namespace befor
 - AND the namespaces SHALL be distinct Kubernetes DNS labels
 - AND each creation event SHALL contain the same namespace that was persisted
 
-#### Scenario: Namespace Cannot Be Selected or Updated
+#### Scenario: PLAT-DATA-03.02 -- Namespace Cannot Be Selected or Updated
 
 - GIVEN the REST and gRPC Gateway contracts
 - WHEN a client constructs a create or update request
 - THEN namespace SHALL NOT be available as an input field
 - AND the API-assigned namespace SHALL remain available on Gateway responses and events
 
-### Requirement: Gateway Provisioning Fields
+### Requirement: PLAT-DATA-04 -- Gateway Provisioning Fields
 
-A Gateway SHALL include provisioning configuration fields that the control plane uses to deploy and configure the OpenShell gateway workload on a target cluster. A Gateway MAY be created with `image` set directly (for example, the branch-build workflow in [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md), which provisions a Gateway from a direct `image`/`supervisor_image` reference), in which case the reconciler uses `image` directly. The REST and gRPC create/update requests SHALL accept a Gateway with no `image` set, in which case the control-plane `GATEWAY_IMAGE`/`GATEWAY_SUPERVISOR_IMAGE` environment defaults apply (see [`openshell-gateway.spec.md`](./openshell-gateway.spec.md)).
+A Gateway SHALL include provisioning configuration fields that the control plane uses to deploy and configure the OpenShell gateway workload on a target cluster. These fields are **platform-managed (control-plane-only)** per "Requirement: Gateway Field Ownership and Write Policy" (PLAT-DATA-23): they are NOT part of the user or import create/update contract and are read-only to those callers. When `image` is unset the control-plane `GATEWAY_IMAGE`/`GATEWAY_SUPERVISOR_IMAGE` environment defaults apply (see [`openshell-gateway.spec.md`](./openshell-gateway.spec.md)); when the control plane sets `image` explicitly (for example the branch-build workflow in [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md)) the reconciler uses that reference directly. In every case the value is authored by the control plane or its configuration, never by a user create/`PATCH` or a `.hypershell` import manifest.
 
 > **Relationship to database management fields:** The `image` field provides a direct image reference for the control plane reconciler. A Gateway carries no database configuration at all: the control plane provisions each gateway's database and login role on the platform's gateway database server using the admin credential Secret mounted into the controller (see [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md)).
 
-All fields in the table below SHALL be part of the REST and gRPC Gateway create and update contract as optional inputs (except where marked read-only), exposed through the generated OpenAPI schema (`components/api-server/openapi/openapi.gateways.yaml`) and gRPC message the same way `image`, `supervisor_image`, and `credential_driver` already are. The `dev_build` and `dev_build_metadata` fields are defined by [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md).
+All fields in the table below SHALL be present on the Gateway response schema and on the gRPC message so the control plane can write them over its internal `UpdateGateway` back-channel and every reader can observe them. They SHALL be marked `readOnly` on the REST contract and SHALL be rejected (not silently ignored) when a user or import caller sets or changes them, per PLAT-DATA-23. The `dev_build` and `dev_build_metadata` fields are defined by [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md).
 
-`dev_build` and `dev_build_metadata` SHALL be desired-spec fields because a change
-to either must be re-applied onto workload labels and annotations through Helm
-values. Sandbox workload images are selected per sandbox through OpenShell;
-they are not Gateway resource fields.
+`dedicated_route` is the table's one exception to platform management: it is the create-only user-writable request flag defined by "Requirement: Gateway Dedicated Route Request Field" (PLAT-DATA-26). It is exposed `readOnly` on Gateway responses, and an update that changes it SHALL be rejected per that requirement.
+
+`dev_build` and `dev_build_metadata` SHALL be platform-managed desired-spec fields
+(control-plane-only, like `image`) because a change to either must be re-applied onto
+workload labels and annotations through Helm values. Sandbox workload images are
+selected per sandbox through OpenShell; they are not Gateway resource fields.
 
 | Field | Type | Description |
 |---|---|---|
-| `image` | string | Gateway container image reference (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.1.3-rhaiv.3@sha256:e59fea2fc97144ed2f402af69be73c6dbbf9a76739f042e86c2237f65852284e`) |
+| `image` | string | Gateway container image reference (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.1.5-rhaiv.3@sha256:...`) |
 | `supervisor_image` | string | Supervisor sidecar container image (default supplied by `GATEWAY_SUPERVISOR_IMAGE` env var on the control-plane deployment; see `deploy/base/platform-resources/controller.yaml`) |
 | `server_dns_names` | string[] | DNS names for TLS certificate SANs |
 | `oidc` | JSONB | OIDC authentication config: `{issuer, audience, jwks_ttl, roles_claim, admin_role, user_role, scopes_claim}` |
-| `route` | JSONB | Route exposure config for GRPCRoute provisioning: `{host}` |
+| `route` | JSONB | Route exposure config for GRPCRoute provisioning: `{host, certificate}`. `certificate` is a bare opt-in sub-key for the per-gateway dedicated route and external certificate; it may only be set at creation time (the API rejects changes after the Gateway exists). See [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) |
+| `dedicated_route` | boolean | Create-only user request for the per-gateway dedicated route and wildcard certificate, translated by the API server into the `route` opt-in at create; readOnly afterwards. Nullable: NULL means not requested (same as false). See "Requirement: Gateway Dedicated Route Request Field" (PLAT-DATA-26) |
 | `route_address` | text | Read-only external address populated by the control plane (e.g., `grpcs://hostname:443`) |
 | `gateway_version` | string | Read-only runtime version from the last successful gateway health response |
 | `credential_driver` | JSONB | Credential storage driver config: `{type, kubernetes_secrets, vault}`. `type` is one of `vault`, `kubernetes-secrets`, `kek-db`. When omitted/null it resolves to `vault` (the default; convention-addressed per-cluster Vault, no sub-fields required). See [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) |
+| `workspace_mode` | text | How the OpenShell Kubernetes driver maps workspaces to namespaces: `shared`, `managed`, or `operator`. Platform-managed: the API server defaults it to `managed` at create and no caller may set or change it (the service funnel also enforces the vocabulary and immutability for control-plane writes). Required: every stored Gateway carries a value. See [`openshell-gateway.spec.md`](./openshell-gateway.spec.md), "OSG-CORE-18 -- Gateway Workspace Mode" |
 | `dev_build` | boolean | Marks this Gateway as a dev/branch build (default: false). Control plane passes `hypershell.redhat.io/openshell-dev-build` via Helm `podLabels`. See [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md) |
 | `dev_build_metadata` | JSONB | Dev build provenance: `{ref, sha, repo}`. Control plane passes these via Helm `podAnnotations`. See [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md) |
 
 See [`openshell-gateway.spec.md`](./openshell-gateway.spec.md) and its sub-specs for full provisioning details.
 
-### Requirement: Gateway Deployment Lifecycle
+### Requirement: PLAT-DATA-05 -- Gateway Deployment Lifecycle
 
 A Gateway SHALL track its deployment lifecycle through the `phase` field. The `status` field SHALL reflect operational health.
 
-#### Scenario: Gateway Phase Progression
+#### Scenario: PLAT-DATA-05.01 -- Gateway Phase Progression
 - GIVEN a Gateway in phase "Pending"
 - WHEN the control plane provisions it on the target cluster
 - THEN the phase SHALL transition to "Provisioning"
 - AND upon successful deployment, to "Running"
 
-### Requirement: Gateway Generation Tracking
+### Requirement: PLAT-DATA-06 -- Gateway Generation Tracking
 
 A Gateway SHALL carry a monotonic `generation` and an `observed_generation`
 that together let the control plane distinguish a genuine desired-state change
 from a redundant reconciliation event.
 
+This requirement refines the convergence-latch guarantee of the control-plane
+reconciliation contract
+([`../standards/control-plane/reconciliation-contract.spec.md`](../standards/control-plane/reconciliation-contract.spec.md),
+STD-RCON-06); it refines that contract and does not weaken it.
+
 The API server SHALL increment `generation` whenever any field of the Gateway's
-desired spec changes, including `image`, `supervisor_image`, `server_dns_names`,
-`oidc`, `route`, `credential_driver`, `external_dns`, `tls_mode`,
-`service_type`, and `cluster_id`. It SHALL NOT
-increment `generation` for changes to control-plane-owned observed fields
-(`status`, `phase`, `route_address`, `observed_generation`).
+desired spec changes, including `name`, the platform-managed workload fields
+`image`, `supervisor_image`, `server_dns_names`, `oidc`, `route`,
+`credential_driver`, `external_dns`, `tls_mode`, `service_type`, `placement`, and
+`cluster_id` (including the first time the API server assigns a `cluster_id` to a
+late-bound Gateway). This holds regardless of WHICH writer made the change: a user
+rename and a control-plane write of a platform-managed field both advance
+`generation`; only the control plane may write the platform-managed fields
+(PLAT-DATA-23). It SHALL NOT increment `generation` for changes to
+control-plane-owned observed fields (`status`, `phase`, `route_address`,
+`observed_generation`).
 
 On creation, a Gateway SHALL initialize with `generation = 1` and
 `observed_generation = 0`, so that a newly created Gateway is never spuriously
@@ -338,39 +477,40 @@ regressing the marker, and prevents any write from declaring a `generation`
 converged before it has been applied - a false-converged state would otherwise
 permanently mask drift.
 
-#### Scenario: New gateway starts unconverged
+#### Scenario: PLAT-DATA-06.01 -- New gateway starts unconverged
 - GIVEN a valid Gateway create request
 - WHEN the API server persists the Gateway
 - THEN it SHALL set `generation = 1` and `observed_generation = 0`
 - AND the Gateway SHALL NOT be *converged*, so the control plane provisions it
 
-#### Scenario: Spec change advances generation
+#### Scenario: PLAT-DATA-06.02 -- Spec change advances generation
 - GIVEN a Gateway with `generation` N that has been applied
   (`observed_generation == N`)
-- WHEN a client updates a desired-spec field (e.g. `image`)
+- WHEN a desired-spec field changes (the control plane writes a platform-managed field
+  such as `image`, or a user renames the gateway)
 - THEN the API server SHALL increment `generation` to N+1
 - AND `observed_generation` SHALL remain N until the control plane re-applies
 
-#### Scenario: Control plane writes observed_generation back
+#### Scenario: PLAT-DATA-06.03 -- Control plane writes observed_generation back
 - GIVEN a Gateway with `generation` N+1 and `observed_generation` N
 - WHEN the control plane successfully re-applies the manifests
 - THEN it SHALL set `observed_generation` to N+1 via `UpdateGatewayRequest`
 - AND the API server SHALL accept the write despite `observed_generation` being
   read-only to REST clients
 
-#### Scenario: Out-of-range observed_generation is rejected
+#### Scenario: PLAT-DATA-06.04 -- Out-of-range observed_generation is rejected
 - GIVEN a Gateway with `generation` N+1 and `observed_generation` N
 - WHEN an `UpdateGatewayRequest` sets `observed_generation` below N or above N+1
 - THEN the API server SHALL reject the write
 - AND `observed_generation` SHALL remain N
 
-#### Scenario: Health update does not advance generation
+#### Scenario: PLAT-DATA-06.05 -- Health update does not advance generation
 - GIVEN a converged Gateway with `generation` N
 - WHEN the control plane writes an observed `phase`/`status`/`route_address`
 - THEN `generation` SHALL remain N
 - AND the Gateway SHALL remain converged
 
-### Requirement: Monotonic Provisioning Conditions
+### Requirement: PLAT-DATA-07 -- Monotonic Provisioning Conditions
 
 `provisioning_conditions` is a user-facing progress ladder (see
 [gateway-provisioning-progress.spec.md](gateway-provisioning-progress.spec.md)).
@@ -394,25 +534,287 @@ generation, under the same per-row lock that guards `generation`:
   present only in the persisted document SHALL be retained so a narrower write
   cannot drop a step that already completed.
 
-#### Scenario: Redundant reconcile pass does not regress a completed step
+#### Scenario: PLAT-DATA-07.01 -- Redundant reconcile pass does not regress a completed step
 - GIVEN a Gateway at `generation` N whose `GatewayHealthy` condition is `Complete`
 - WHEN a redundant reconcile pass writes `GatewayHealthy` as `InProgress` at the
   same `generation`
 - THEN the API server SHALL keep `GatewayHealthy` as `Complete`
 
-#### Scenario: Spec change restarts provisioning conditions
+#### Scenario: PLAT-DATA-07.02 -- Spec change restarts provisioning conditions
 - GIVEN a converged Gateway at `generation` N with all conditions `Complete`
-- WHEN a client updates a desired-spec field, advancing `generation` to N+1
+- WHEN a desired-spec field changes (a user rename or a control-plane write of a platform-managed field), advancing `generation` to N+1
 - THEN the API server SHALL clear `provisioning_conditions`
 - AND the control plane SHALL repopulate them for the new generation
 
-#### Scenario: Failure surfaces over a completed step
+#### Scenario: PLAT-DATA-07.03 -- Failure surfaces over a completed step
 - GIVEN a Gateway at `generation` N whose `GatewayDeployed` condition is `Complete`
 - WHEN a reconcile pass writes `GatewayDeployed` as `Failed` at the same
   `generation`
 - THEN the API server SHALL record `GatewayDeployed` as `Failed`
 
-### Requirement: AgentRuntime as a Top-Level Resource
+### Requirement: PLAT-DATA-23 -- Gateway Field Ownership and Write Policy
+
+The Gateway resource SHALL expose exactly ONE non-privileged-writable field after
+create - `name` - plus the create-only inputs at create (placement, and the
+`dedicated_route` request flag, PLAT-DATA-26). Every other Gateway field SHALL be
+owned by the control plane and SHALL NOT be writable by an externally-authored
+caller. This is a single, authoritative, default-deny write policy: it is the
+chokepoint through which REST `PATCH`, gRPC `UpdateGateway`, gRPC `CreateGateway`,
+REST create, and `hsctl apply` all funnel, so no write surface can diverge from it.
+
+**Writer classes.** Because every writer calls the same gateway service write funnel
+(`Replace` for update, `Create` for create), the authorization layer SHALL mark each
+write request with one of three caller kinds, and the field policy SHALL key off that
+marker (enforced for gRPC and REST in [`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md),
+"Requirement: Gateway Field Write Policy"):
+
+| Writer class | How identified | May write |
+|---|---|---|
+| **User** | normal authenticated REST / gRPC / `hsctl apply` caller | the allowlist below |
+| **Import** | control-plane gRPC request carrying the `x-hypershell-import-repository-id` metadata (the declarative `.hypershell` GitOps import; detected exactly as for import ownership) | the allowlist below - identical to a user |
+| **Control plane** | control-plane gRPC request WITHOUT import metadata (the internal reconcile write-back path) | all fields (platform-managed and observed) |
+
+The declarative `.hypershell` import is a NON-privileged writer: an import write
+authenticates as the control plane but carries user-authored git content, so for
+field-policy purposes it is treated exactly like a direct user and is held to the
+same allowlist. Only the control plane's own internal reconcile logic (a
+control-plane gRPC write WITHOUT import metadata) retains full write access.
+
+**Allowlist (the ONLY non-privileged-writable fields).**
+
+- UPDATE (REST `PATCH`, gRPC `UpdateGateway`): `name`.
+- CREATE (REST create, gRPC `CreateGateway`): `name`, exactly one of `placement`
+  or `cluster_id` (per "Requirement: Gateway Placement and Late Binding"), and the
+  create-only `dedicated_route` request flag (PLAT-DATA-26). An Import caller
+  SHALL NOT set `dedicated_route`: the service funnel rejects an import create
+  that requests it with 403, per PLAT-DATA-26.
+
+For a User or Import caller, any field NOT in the allowlist SHALL be rejected when it
+**differs from the stored value** (update) or is **set at all** (create), with the
+rejected field named: `403 Forbidden` over REST, `PermissionDenied` over gRPC. For an
+Import caller the rejection surfaces back through the `RepositoryReconciler` as a
+failed import of that Gateway, so the git author sees the manifest is invalid.
+Re-sending an unchanged platform-managed value SHALL be a no-op (not a rejection), so
+`hsctl apply` and idempotent clients that resend the whole object still work; this
+mirrors the existing "re-sending the stored `cluster_id` is not a reassignment"
+pattern.
+
+**Field ownership.** Every Gateway field SHALL be classified as exactly one of:
+
+- **User-writable (allowlist):** `name` (create + update); `placement` / `cluster_id`
+  (create only; `cluster_id` is otherwise control-plane-assigned by late binding and
+  is NOT user-writable on update); `dedicated_route` (create only; persisted as a
+  nullable boolean where NULL and false both mean not requested, and rejected with
+  409 and delete-and-recreate guidance when an update adds, removes, or changes it -
+  see PLAT-DATA-26).
+- **Platform-managed (control-plane-only desired workload spec):** `image`,
+  `supervisor_image`, `server_dns_names`, `oidc`, `route`, `tls_mode`,
+  `service_type`, `external_dns`, `credential_driver`, `workspace_mode`,
+  `dev_build`, `dev_build_metadata`. These are purely platform-managed; no
+  externally-authored input (direct user API or GitOps import) may declare them.
+  The control plane sets them from its configuration and provisioning logic (for
+  example the `GATEWAY_IMAGE` / `GATEWAY_SUPERVISOR_IMAGE` defaults, the per-gateway
+  Keycloak OIDC client, and the derived ingress hostname). `workspace_mode` is
+  additionally server-defaulted: the API server applies `managed` at create in the
+  service funnel (see [`openshell-gateway.spec.md`](./openshell-gateway.spec.md),
+  "OSG-CORE-18"), and its value semantics (vocabulary, immutability) are enforced
+  there for every writer class, the control plane included.
+- **Control-plane-observed (control-plane-only):** `status`, `phase`, `route_address`,
+  `console_address`, `provisioning_conditions`, `gateway_version`,
+  `observed_generation`, `active_sandbox_count`.
+- **Server-owned (no caller writes):** `namespace`, `generation`, `repository_id`,
+  and the timestamps.
+
+**Default-deny guarantee.** Because the policy is an allowlist, a newly added Gateway
+model field SHALL be control-plane-only automatically, with no per-field change. The
+API server SHALL carry a field-census test that enumerates every Gateway model field
+and asserts each is classified as user-writable (allowlisted) or control-plane-only;
+the test SHALL FAIL when a field is added whose ownership is left undeclared, so the
+default-deny rule is enforced in CI rather than by review alone.
+
+This policy is consistent with the pre-existing read-only treatment of `oidc`
+([`openshell-gateway-oidc.spec.md`](./openshell-gateway-oidc.spec.md),
+"OSG-OIDC-01.02"), `generation`/`observed_generation` (PLAT-DATA-06),
+`provisioning_conditions` (PLAT-DATA-07), `namespace` (PLAT-DATA-03),
+`console_address`, and `active_sandbox_count`; it extends the same control-plane
+ownership to the remaining workload fields.
+
+#### Scenario: PLAT-DATA-23.01 -- User PATCH of a locked field is rejected
+
+- GIVEN an existing Gateway and a `gateway:owner` user caller
+- WHEN the user PATCHes a field outside the allowlist (for example `image`, `oidc`,
+  `route`, `tls_mode`, `cluster_id`, `status`, or `phase`) to a value that differs
+  from the stored one
+- THEN the API server SHALL reject the request with `403 Forbidden` naming the field
+- AND the stored Gateway SHALL be unchanged
+
+#### Scenario: PLAT-DATA-23.02 -- User rename is accepted
+
+- GIVEN an existing Gateway and a `gateway:owner` or `gateway:admin` caller
+- WHEN the caller PATCHes only `name`
+- THEN the API server SHALL accept the request and persist the new name
+
+#### Scenario: PLAT-DATA-23.03 -- Resending an unchanged locked field is a no-op
+
+- GIVEN a Gateway whose `image` is `I`
+- WHEN a user caller sends an update that includes `image: I` (unchanged) and a new `name`
+- THEN the API server SHALL accept the rename and SHALL NOT reject on `image`
+
+#### Scenario: PLAT-DATA-23.04 -- User create may set only name, placement, and the create-only request flag
+
+- GIVEN a create request from a user caller
+- WHEN the request sets `name` and exactly one of `placement` or `cluster_id`, and
+  nothing else (optionally plus `dedicated_route`, PLAT-DATA-26)
+- THEN the API server SHALL accept it
+- WHEN the request additionally sets any platform-managed field (for example `image`
+  or `oidc`)
+- THEN the API server SHALL reject it with `400`/`403` naming the field
+
+#### Scenario: PLAT-DATA-23.05 -- GitOps import is held to the same allowlist
+
+- GIVEN a `.hypershell` Gateway manifest that declares a platform-managed field (for
+  example `image`)
+- WHEN the `RepositoryReconciler` imports it (an Import-kind write)
+- THEN the API server SHALL reject the write naming the field
+- AND the import of that Gateway SHALL fail so the git author sees the manifest is invalid
+
+#### Scenario: PLAT-DATA-23.06 -- Control-plane internal write retains full access
+
+- GIVEN a control-plane gRPC `UpdateGateway` with NO import metadata
+- WHEN it writes platform-managed or observed fields (for example `image`, `route`,
+  `status`, `phase`, `route_address`, `console_address`, `observed_generation`)
+- THEN the API server SHALL accept the write
+
+#### Scenario: PLAT-DATA-23.07 -- A new model field defaults to control-plane-only
+
+- GIVEN a new field is added to the Gateway model without being added to the allowlist
+- WHEN the field-census test runs
+- THEN it SHALL fail until the field's ownership is explicitly declared
+- AND until then a user or import write of the field SHALL be rejected
+
+### Requirement: PLAT-DATA-26 -- Gateway Dedicated Route Request Field
+
+The Gateway create contract SHALL include an optional, create-only, boolean
+`dedicated_route` request field: the user-facing opt-in to the dedicated per-gateway
+route and wildcard certificate path
+([`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md),
+"Requirement: Per-Gateway Dedicated Route and Certificate", OSG-ROUT-12). The field
+is in the same ownership class as `placement`/`cluster_id` (PLAT-DATA-23): writable
+only at create, never on update.
+
+**Persistence.** `dedicated_route` SHALL be persisted as a nullable boolean column
+on the Gateway (NULL for every Gateway created without the request, including every
+pre-existing Gateway). NULL and `false` SHALL both mean "not requested". The field
+SHALL be exposed readOnly on Gateway responses over REST, gRPC, and the OpenAPI
+contract; it records that the request was made, for display and audit.
+
+**Translation at create.** When a create request sets `dedicated_route = true` and
+supplies no `route`, the API server SHALL apply, in the service write funnel, the
+platform-managed route opt-in the control plane already keys on:
+`route = {"enabled": true, "certificate": {}}`. This is a server-applied create
+default on the precedent of `workspace_mode`
+([`openshell-gateway.spec.md`](./openshell-gateway.spec.md), OSG-CORE-18), applied
+after the field policy (so the applied route is never mistaken for a caller-supplied
+one) and validated by the same `route.certificate` shape check an authored route
+must satisfy. An explicit control-plane-authored `route` SHALL win: the request flag
+SHALL NOT overwrite or amend a supplied route document. A request that does not set
+the flag (absent or explicit `false`) SHALL leave the Gateway unrouted by this path.
+
+**Entitlement.** Requesting `dedicated_route` SHALL require the platform-wide
+`gateway:dedicated-route-creator` role (`platform:admin` also qualifies), enforced
+at the two create boundaries - the REST gateway Create handler and the gRPC
+`CreateGateway` handler - because the check is body-dependent and cannot live in
+the path authorization middleware, which never sees the request body. A rejected
+request SHALL return 403 (`PermissionDenied` over gRPC) with a reason naming the
+role and the rate-limit rationale (a dedicated per-gateway route and certificate is
+a rate-limited resource). See
+[`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md),
+"Requirement: Gateway Dedicated Route Creator Role" (SEC-RBAC-20).
+
+**Import rejection.** The declarative `.hypershell` GitOps import SHALL NOT request
+`dedicated_route`: the service funnel SHALL reject an Import-kind create that sets
+it with 403 and an actionable message (the entitlement is granted per user, and an
+import is authored by a Repository rather than a user who can hold it). Privileged
+control-plane writes bypass the entitlement gate.
+
+**Create-only immutability.** Changing `dedicated_route` after create SHALL be
+rejected for every writer class, the control plane included, with 409 and
+delete-and-recreate guidance; the check runs in the service write funnel before
+the default-deny field policy, so the caller gets the specific reason rather than
+the generic field rejection. Adding the request to a Gateway created without it,
+and removing or falsifying it on a Gateway created with it, are both changes; NULL
+vs `false` is not (both mean not requested), so an idempotent client that resends
+the stored object is not rejected. The REST `PATCH` contract (name only) rejects
+the field at the boundary naming it.
+
+#### Scenario: PLAT-DATA-26.01 -- Create with dedicated_route applies the route opt-in
+
+- GIVEN a user create request carrying `name`, placement, and `dedicated_route = true`,
+  and no `route`
+- WHEN the API server processes the create
+- THEN it SHALL persist the Gateway with `route = {"enabled": true, "certificate": {}}`
+- AND `dedicated_route` SHALL read back as true on the response, over REST and gRPC
+- AND a create that does not set the flag (absent or explicit `false`) SHALL be
+  persisted unrouted, with `dedicated_route` false
+
+#### Scenario: PLAT-DATA-26.02 -- An explicit control-plane route wins
+
+- GIVEN a control-plane create carrying `dedicated_route = true` and an explicit
+  route document
+- WHEN the API server processes the create
+- THEN it SHALL keep the explicit route verbatim
+- AND the request flag SHALL NOT overwrite or amend it
+
+#### Scenario: PLAT-DATA-26.03 -- Requesting the flag requires the entitlement
+
+- GIVEN a caller holding only `gateway:creator`
+- WHEN the caller creates a Gateway with `dedicated_route = true` (REST or gRPC)
+- THEN the API server SHALL reject the create with 403 naming
+  `gateway:dedicated-route-creator` and the rate-limit rationale
+- AND no Gateway SHALL be persisted
+- GIVEN a caller holding `gateway:dedicated-route-creator` or `platform:admin`
+- WHEN the caller creates a Gateway with `dedicated_route = true`
+- THEN the API server SHALL accept it and apply the translation
+- AND a create that does not request the flag needs no entitlement
+
+#### Scenario: PLAT-DATA-26.04 -- GitOps import may not request the flag
+
+- GIVEN an Import-kind create (a `.hypershell` Gateway manifest rendered by the
+  `RepositoryReconciler`) that sets `dedicated_route = true`
+- WHEN the create reaches the service funnel
+- THEN it SHALL be rejected with 403 and a message directing the author to create
+  the gateway directly (hsctl or the web console)
+- AND an import create that leaves the flag unset is unaffected
+
+#### Scenario: PLAT-DATA-26.05 -- dedicated_route is create-only
+
+- GIVEN a Gateway created without the request
+- WHEN any writer class (user, import, or control plane) updates it to set
+  `dedicated_route = true`
+- THEN the update SHALL be rejected with 409 and delete-and-recreate guidance
+- GIVEN a Gateway created with `dedicated_route = true`
+- WHEN any writer class removes or falsifies it on update
+- THEN the update SHALL likewise be rejected with 409
+
+#### Scenario: PLAT-DATA-26.06 -- Resending the stored value is a no-op
+
+- GIVEN a Gateway created with `dedicated_route = true` and the server-applied route
+- WHEN an update resends the stored Gateway unchanged
+- THEN the update SHALL be accepted
+- AND changing NULL to `false`, or `false` to NULL, SHALL NOT be treated as a change
+
+#### Scenario: PLAT-DATA-26.07 -- The entitlement check fails closed
+
+- GIVEN a create that requests `dedicated_route` from a user caller whose identity
+  or role-binding lookup is unavailable
+- WHEN the create boundary evaluates the entitlement
+- THEN a missing identity or an unwired lookup SHALL fail closed with the 403
+  rejection
+- AND a lookup failure SHALL surface as a server error rather than an authorization
+  denial, so a transient database problem does not tell the caller to request a role
+  it may already hold
+
+### Requirement: PLAT-DATA-08 -- AgentRuntime as a Top-Level Resource
 
 `AgentRuntime` SHALL be a top-level HyperShell API resource. It references a `Gateway` (which it connects to and whose placement determines where it runs) and a `SandboxTemplate` (the worker execution environment). It MAY reference a `Repository` through a nullable `repository_id` foreign key. It owns exactly one `AgentWorkspace` and one or more `SecretSource` declarations. Schedule configuration (cron expression, coordinator image, concurrency policy, login refresh interval) is embedded directly on `AgentRuntime`.
 
@@ -422,7 +824,7 @@ An `AgentRuntime` SHALL NOT embed gateway-backend-specific fields such as provid
 
 `repository_id` SHALL be nullable. When set, it SHALL reference an existing `Repository`. Deleting a `Repository` that is still referenced by an `AgentRuntime` SHALL be rejected with 409.
 
-#### Scenario: Create AgentRuntime
+#### Scenario: PLAT-DATA-08.01 -- Create AgentRuntime
 
 - GIVEN a valid `gateway_id` and `sandbox_template_id`, and no `cluster_id`
 - AND a valid `cron` expression and `coordinator_image`
@@ -431,7 +833,7 @@ An `AgentRuntime` SHALL NOT embed gateway-backend-specific fields such as provid
 - AND its scheduling cluster is derived from the referenced Gateway's placement
 - AND the controller begins reconciliation: applies cluster resources and provisions the `AgentWorkspace` on the gateway
 
-#### Scenario: Parameters Map Is Bounded
+#### Scenario: PLAT-DATA-08.02 -- Parameters Map Is Bounded
 
 - GIVEN an `AgentRuntime` create request with `parameters`
 - WHEN the API server validates the request
@@ -440,7 +842,7 @@ An `AgentRuntime` SHALL NOT embed gateway-backend-specific fields such as provid
 
 ---
 
-### Requirement: AgentRuntime Repository Selector
+### Requirement: PLAT-DATA-09 -- AgentRuntime Repository Selector
 
 An `AgentRuntime` MAY carry a nullable `selector`: a list of label strings that
 turns the runtime into a repository scanner. When `selector` is non-empty, the
@@ -456,21 +858,21 @@ SHALL reject a create or update that sets a non-empty `selector` without a
 `repository_id` with 422. An empty or absent `selector` leaves the runtime a
 plain scheduled agent that does not scan a repository.
 
-#### Scenario: Reviewer Agent Scans a Repository by Label
+#### Scenario: PLAT-DATA-09.01 -- Reviewer Agent Scans a Repository by Label
 
 - GIVEN an `AgentRuntime` with `repository_id` set and `selector = ["agent/reviewable"]`
 - WHEN the coordinator runs the runtime's scan
 - THEN it SHALL query the referenced `Repository` for issues and pull requests labeled `agent/reviewable`
 - AND it SHALL launch one sandbox from `sandbox_template_id` per matched item
 
-#### Scenario: Selector Without Repository Is Rejected
+#### Scenario: PLAT-DATA-09.02 -- Selector Without Repository Is Rejected
 
 - GIVEN an `AgentRuntime` create or update request with a non-empty `selector`
 - AND no `repository_id`
 - WHEN the API server validates the request
 - THEN it SHALL reject the request with 422
 
-#### Scenario: Match-Any Across Multiple Labels
+#### Scenario: PLAT-DATA-09.03 -- Match-Any Across Multiple Labels
 
 - GIVEN an `AgentRuntime` with `selector = ["agent/reviewable", "agent/ready"]`
 - WHEN the coordinator scans the referenced `Repository`
@@ -479,7 +881,7 @@ plain scheduled agent that does not scan a repository.
 
 ---
 
-### Requirement: Repository as a Top-Level Resource
+### Requirement: PLAT-DATA-10 -- Repository as a Top-Level Resource
 
 `Repository` SHALL be a top-level ADLC extension resource at
 `/api/hypershell/ext/repositories`. A `Repository` records a git repository and
@@ -494,31 +896,85 @@ Fields:
 | `name` | string | Human-readable identifier for the repository registration |
 | `url` | string | Git remote URL (e.g. `https://github.com/openshift-online/hypershell`) |
 | `provider` | string | Provider type the credential targets: `github` (extensible) |
-| `secret_source_id` | string (FK) | References a `SecretSource` holding the durable import credential material. For a GitHub `Repository` this is the GitHub App PEM (plus `app_id` / `installation_id`), not a static installation token; the `RepositoryReconciler` mints the short-lived installation token from the PEM when it reads the subtree (see [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md), "GitHub App Credentials via app-installation-token"). The abstract secret model keeps material in a backend, not in the database |
+| `secret_source_id` | string (FK, OPTIONAL) | OPTIONAL reference to a `SecretSource` holding the durable import credential material. A `Repository` MAY be registered with NO `secret_source_id`: a PUBLIC repository needs no credential and is read anonymously. When set, for a GitHub `Repository` the referenced material is the GitHub App PEM (plus `app_id` / `installation_id`), not a static installation token; the `RepositoryReconciler` mints the short-lived installation token from the PEM when it reads the subtree (see [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md), "GitHub App Credentials via app-installation-token"). The abstract secret model keeps material in a backend, not in the database |
 | `default_branch` | string | Branch the import process reads when none is otherwise specified |
 | `import_path` | string | Directory within the repository to import (default `.hypershell`) |
 | `status` | string | Registration/import health |
 
 `provider` SHALL be validated against the supported provider set. `secret_source_id`
-SHALL reference an existing `SecretSource`.
+is OPTIONAL. When `secret_source_id` is set it SHALL reference an existing
+`SecretSource`, and the create or update SHALL be rejected when it does not. When
+`secret_source_id` is empty or absent it SHALL NOT be foreign-key validated: an empty
+value SHALL NOT be rejected and SHALL NOT produce the "does not reference an existing
+SecretSource" error. A `Repository` with no `secret_source_id` declares a PUBLIC
+repository, which the `RepositoryReconciler` reads anonymously (see
+[`control-plane.spec.md`](./control-plane.spec.md), "Declarative `.hypershell` Import
+Reconciliation", and the resolver note in "Requirement: Declarative `.hypershell`
+Import" below).
 
-#### Scenario: Register a Repository
+`SecretSource` ownership is UNCHANGED by this optionality: a `SecretSource` stays
+owned by its `agent_runtime_id` and `agent_runtime_id` stays required (see
+"Requirement: SecretSource"). With late binding the cluster-local Vault is not known
+until the owning `AgentRuntime`'s gateway is assigned a `ManagedCluster`, so the
+`AgentRuntime` owner is what resolves to a Vault; a `Repository`- or platform-scoped
+`SecretSource` would have no cluster to bind to. Making the `Repository` credential
+optional - rather than loosening `SecretSource` ownership - is therefore the correct
+way to support an anonymous public read.
+
+#### Scenario: PLAT-DATA-10.01 -- Register a Repository with a credential
 
 - GIVEN a valid `url`, `provider = github`, and a `secret_source_id` referencing an existing `SecretSource`
 - WHEN a POST request is made to `/api/hypershell/ext/repositories`
 - THEN a new `Repository` is created
 - AND a server-side process can authenticate to the repository with the referenced credential
 
-#### Scenario: Repository Deletion Blocked by Referencing AgentRuntime
+#### Scenario: PLAT-DATA-10.02 -- Register a public Repository with no credential
+
+- GIVEN a valid `url` and `provider = github` and NO `secret_source_id`
+- WHEN a POST request is made to `/api/hypershell/ext/repositories`
+- THEN a new `Repository` is created without a 400 and without a foreign-key error
+- AND the `RepositoryReconciler` reads the repository anonymously (no `Authorization` header) when no platform credential is configured
+
+#### Scenario: PLAT-DATA-10.03 -- Reject a Repository that names a nonexistent SecretSource
+
+- GIVEN a `secret_source_id` that does not reference any existing `SecretSource`
+- WHEN a POST request is made to `/api/hypershell/ext/repositories`
+- THEN the API server SHALL reject the request with a validation error
+- AND the error SHALL state that the `secret_source_id` does not reference an existing `SecretSource`
+
+#### Scenario: PLAT-DATA-10.04 -- Repository Deletion Blocked by Referencing AgentRuntime
 
 - GIVEN a `Repository` referenced by an `AgentRuntime` via `repository_id`
 - WHEN a DELETE request is made for the `Repository`
 - THEN the API server SHALL reject the request with 409
 - AND the response SHALL identify the blocking `AgentRuntime`
 
+**Anonymous-read rate limit.** The unauthenticated GitHub REST API is rate limited
+to roughly 60 requests per hour. A public-repository import loop that re-reads the
+whole subtree on every short fixed-interval tick exhausts this budget. The PRIMARY
+mitigation is the event-driven import with a slow hourly drift re-check and a
+CONDITIONAL upstream fetch (`If-None-Match`/ETag or branch head commit SHA compare):
+an unchanged subtree costs no heavy git-tree or file reads, which keeps the
+steady-state import within the anonymous limit even with no credential (see
+[`control-plane.spec.md`](./control-plane.spec.md), "Declarative `.hypershell` Import
+Reconciliation"). A configured platform GitHub token (`cfg.GitHubTokenFile`, already
+present in the control plane) additionally raises the limit without any
+per-`Repository` `SecretSource`.
+
+**Open follow-up: private repositories (NOT solved here).** A PRIVATE repository
+needs a read credential. That credential is `Repository`-scoped and has no
+`AgentRuntime` consumer, so it does not fit the AgentRuntime-owned `SecretSource`
+model, which this change deliberately does NOT loosen. This is a recorded ownership
+gap to be decided separately, among: (a) a platform-scoped credential store for the
+`RepositoryReconciler`; (b) a configured platform GitHub token
+(`cfg.GitHubTokenFile`) that covers the private repositories the platform App can
+reach; or (c) a narrow `Repository`-owned-credential exception. This change resolves
+only the PUBLIC (anonymous) case; private-repository credential sourcing remains
+open.
+
 ---
 
-### Requirement: Declarative `.hypershell` Import
+### Requirement: PLAT-DATA-11 -- Declarative `.hypershell` Import
 
 The declarative import SHALL be performed by a single component, the
 `RepositoryReconciler`, which reconciles the `Repository` Kind. It SHALL enumerate
@@ -557,10 +1013,17 @@ objects, and the `GatewayReconciler` reconciles an imported `Gateway` into
 Kubernetes). This division of labor is the established control-plane pattern.
 
 The `RepositoryReconciler` SHALL be hosted by the **control plane**, the reconciler
-of the system, NOT by the API server. It SHALL run as a reconcile LOOP and SHALL perform
-the read and render entirely in-process and in-memory: no git clone, no working
-directory, no persistent disk or PVC, no external `git` / `kustomize` / `hsctl`
-binary, and no Kubernetes `Job`. For each `Repository` the control plane SHALL:
+of the system, NOT by the API server. It SHALL be driven event-first off the
+`WatchRepositories` stream (so a created or changed `Repository` imports in real
+time) with a slow HOURLY periodic drift re-check for upstream changes that produce no
+`Repository` event, and SHALL make the upstream read CONDITIONAL (`If-None-Match`/ETag
+or branch head commit SHA compare) so an unchanged subtree costs no heavy git-tree or
+file reads; the cadence and conditional-fetch contract are defined canonically in
+[`control-plane.spec.md`](./control-plane.spec.md) ("Declarative `.hypershell` Import
+Reconciliation"). It SHALL perform the read and render entirely in-process and
+in-memory: no git clone, no working directory, no persistent disk or PVC, no external
+`git` / `kustomize` / `hsctl` binary, and no Kubernetes `Job`. For each `Repository`
+the control plane SHALL:
 
 1. Resolve the credential used to read the `Repository` subtree. The platform
    GitHub App credential is the DEFAULT transport and reads any GitHub-hosted
@@ -571,6 +1034,13 @@ binary, and no Kubernetes `Job`. For each `Repository` the control plane SHALL:
    read-only secret-store client (`pkg/secretstore`). This is the same read-only
    store access the control plane uses to place `AgentRuntime` secrets; it does NOT
    create an `ExternalSecret` and does NOT depend on External Secrets Operator.
+   When the `Repository` declares NO `secret_source_id` AND no platform credential
+   is configured, the resolver yields an empty token and the import reads the
+   subtree ANONYMOUSLY: the GitHub fetcher SHALL omit the `Authorization` header
+   when the token is empty. Anonymous read works for a PUBLIC repository. The
+   resolver already implements this: it returns the (possibly empty) platform token
+   when `secret_source_id` is empty, and the fetcher sends no `Authorization` header
+   for an empty token.
 2. Read ONLY the `import_path` subtree through the GitHub API at the `Repository`'s
    `default_branch` (or the branch otherwise specified), authenticating with the
    credential resolved in step 1 - the per-`Repository` `secret_source_id` credential
@@ -586,7 +1056,23 @@ binary, and no Kubernetes `Job`. For each `Repository` the control plane SHALL:
    divergent Kustomize implementation.
 4. Reconcile (create / update / prune) the rendered ext resources into the API
    over the generated gRPC write path, marking each written resource with its
-   owning `Repository` (`repository_id`).
+   owning `Repository` (`repository_id`). For an imported `Gateway`, the writer SHALL
+   map the rendered spec's `placement` (a capability-label `selector` list, or
+   `mode: local-kind`) into the CREATE request `placement` field so a declarative
+   late-bound Gateway (placement, no `cluster_id`) satisfies the exactly-one-of create
+   contract in "Requirement: Gateway Placement and Late Binding"; the pinned
+   (`cluster_id`) path is unchanged. The placement-mapping contract is defined
+   canonically in [`control-plane.spec.md`](./control-plane.spec.md) ("Requirement:
+   Import Writer Maps Gateway Placement"). An imported `Gateway` is a NON-privileged
+   write: the writer SHALL send ONLY `name` + placement and SHALL NOT send any
+   platform-managed field, and a manifest that declares one SHALL fail that Gateway's
+   import, per "Requirement: Gateway Field Ownership and Write Policy" (PLAT-DATA-23)
+   and [`control-plane.spec.md`](./control-plane.spec.md) ("Requirement: Import Omits
+   Platform-Managed Gateway Fields"). The import writer SHALL NOT set
+   `dedicated_route` either: an import may not request the dedicated-route
+   entitlement, and an Import-kind create that sets it is rejected by the service
+   funnel with 403 (see "Requirement: Gateway Dedicated Route Request Field",
+   PLAT-DATA-26).
 
 The control plane holds per-cluster in-cluster credentials, read-only secret-store
 access, and the platform GitHub App credential the import requires; the API server
@@ -644,7 +1130,7 @@ by another Repository or created directly through the REST API or `hsctl apply`.
 > scripts found in the repository. Updating `.hypershell/README.md` and removing
 > the `discover.sh` / `run.sh` scripts is a follow-up outside this spec change.
 
-#### Scenario: Import Renders Declared Resources
+#### Scenario: PLAT-DATA-11.01 -- Import Renders Declared Resources
 
 - GIVEN a registered `Repository` whose `.hypershell` directory declares a `SandboxTemplate` and an `AgentRuntime`
 - WHEN the control-plane import reconciler runs
@@ -652,20 +1138,20 @@ by another Repository or created directly through the REST API or `hsctl apply`.
 - AND it SHALL render the kustomization in memory through the shared `pkg/kustomize` `Build` and upsert both resources into the API over the gRPC write path
 - AND the resources SHALL be owned by the `Repository` (`repository_id` set server-side)
 
-#### Scenario: Removed Declaration Is Pruned
+#### Scenario: PLAT-DATA-11.02 -- Removed Declaration Is Pruned
 
 - GIVEN a `Repository` that previously imported an `AgentRuntime`
 - WHEN that `AgentRuntime` is removed from `.hypershell` and the import re-runs
 - THEN the control-plane import reconciler SHALL delete the imported `AgentRuntime` through the API
 
-#### Scenario: Prune Is Scoped to the Owning Repository
+#### Scenario: PLAT-DATA-11.03 -- Prune Is Scoped to the Owning Repository
 
 - GIVEN two `Repository` records, `R1` and `R2`, and an `AgentRuntime` created directly through the REST API
 - WHEN `R1`'s import re-runs after its declarations change
 - THEN the import SHALL prune only resources owned by `R1`
 - AND it SHALL NOT delete resources owned by `R2` or the directly-created `AgentRuntime`
 
-#### Scenario: Idempotent Against Unchanged Repository State
+#### Scenario: PLAT-DATA-11.04 -- Idempotent Against Unchanged Repository State
 
 - GIVEN a `Repository` whose `.hypershell` contents are unchanged since the last import
 - WHEN the control-plane import reconciler runs again
@@ -673,7 +1159,7 @@ by another Repository or created directly through the REST API or `hsctl apply`.
 
 ---
 
-### Requirement: Secret Submission and Storage
+### Requirement: PLAT-DATA-12 -- Secret Submission and Storage
 
 The API server SHALL expose an endpoint that lets a user submit a secret for
 storage in the HyperShell backend. On submission the API server SHALL store the
@@ -689,11 +1175,13 @@ owning agent is placed on a cluster. The API server SHALL write to the secret
 manager ONLY when a value is supplied; when no value is supplied it SHALL persist
 the `SecretSource` reference alone and SHALL perform no `pkg/secretstore` write. A
 reference-only `SecretSource` SHALL carry its convention path so the value can be
-uploaded later: when the request omits `path`, the API server SHALL derive it as
+uploaded later: the API server SHALL derive it as
 `hypershell/secret-sources/<agent_runtime_id>/<name>` (the same deterministic
-location a value-bearing submission is written to). The late-binding model that
-supplies the value afterward, directly into the assigned cluster's local Vault, is
-defined in [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md).
+location a value-bearing submission is written to) on every create, and SHALL
+ignore any client-supplied `path`; the `path` SHALL NOT be settable on update. The
+late-binding model that supplies the value afterward, directly into the assigned
+cluster's local Vault, is defined in
+[`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md).
 
 The API server SHALL NOT persist the raw secret value in the database, SHALL NOT
 resolve a stored secret value in-process, and SHALL NOT clone a git repository.
@@ -702,7 +1190,7 @@ control plane's responsibility, through its read-only `pkg/secretstore` client (
 "Requirement: Declarative `.hypershell` Import" and "Requirement: SecretSource").
 The API server is write-only to the store; the control plane is read-only from it.
 
-#### Scenario: Submit a Secret
+#### Scenario: PLAT-DATA-12.01 -- Submit a Secret
 
 - GIVEN a user POSTs a secret value to the secret-submission endpoint
 - WHEN the API server accepts the submission
@@ -710,14 +1198,14 @@ The API server is write-only to the store; the control plane is read-only from i
 - AND it SHALL persist a `SecretSource` record referencing that stored value in the database
 - AND the response SHALL identify the created `SecretSource`
 
-#### Scenario: Raw Secret Value Is Never Stored in the Database
+#### Scenario: PLAT-DATA-12.02 -- Raw Secret Value Is Never Stored in the Database
 
 - GIVEN a submitted secret value
 - WHEN the API server persists the `SecretSource` record
 - THEN the database record SHALL contain only the reference to the secret manager entry
 - AND it SHALL NOT contain the raw secret value
 
-#### Scenario: Reference-Only SecretSource Is Accepted Without a Value
+#### Scenario: PLAT-DATA-12.03 -- Reference-Only SecretSource Is Accepted Without a Value
 
 - GIVEN a `SecretSource` create request with `name`, `agent_runtime_id`, `purpose`, and `backend` and NO value
 - WHEN the API server accepts the request
@@ -727,7 +1215,7 @@ The API server is write-only to the store; the control plane is read-only from i
 
 ---
 
-### Requirement: AgentRuntime Cluster Resource Provisioning
+### Requirement: PLAT-DATA-13 -- AgentRuntime Cluster Resource Provisioning
 
 The controller SHALL apply the agent's scheduling resources directly to the target cluster's Kubernetes API using the same in-cluster credentials it uses for gateway infrastructure. The controller SHALL create or update the following resources on the target cluster:
 
@@ -737,7 +1225,7 @@ The controller SHALL apply the agent's scheduling resources directly to the targ
 4. The coordinator `gateway-identity` wiring - the OIDC identity the coordinator uses to authenticate TO its gateway. Its material is read cluster-local from the configured secret store (read-only `pkg/secretstore` client) and wired to the coordinator. The controller SHALL NOT render the agent's provider credentials as raw Kubernetes `Secret`s and SHALL NOT create an `ExternalSecret` or depend on External Secrets Operator; provider credentials are realized as OpenShell providers (see "Gateway-Side Provisioning" below and [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)). The control plane SHALL NOT mint or rotate any usable credential for the strategies OpenShell refreshes; for GitHub App credentials a bounded control-plane GitHub rotator mints and updates the installation token (see [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)).
 5. `CronJob` - the coordinator (schedule from `AgentRuntime`, image from `coordinator_image`)
 
-#### Scenario: Cluster Resources Created on AgentRuntime Reconcile
+#### Scenario: PLAT-DATA-13.01 -- Cluster Resources Created on AgentRuntime Reconcile
 
 - GIVEN a new `AgentRuntime` with status `Pending`
 - WHEN the controller runs its reconcile loop
@@ -745,13 +1233,13 @@ The controller SHALL apply the agent's scheduling resources directly to the targ
 - AND the controller SHALL NOT render a raw Kubernetes `Secret` for the agent's provider credentials
 - AND the `AgentRuntime` status SHALL transition to `Provisioning`
 
-#### Scenario: Cluster Resources Updated on AgentRuntime Change
+#### Scenario: PLAT-DATA-13.02 -- Cluster Resources Updated on AgentRuntime Change
 
 - GIVEN an `AgentRuntime` with status `Running`
 - WHEN the `cron` field is updated
 - THEN the controller SHALL update the `CronJob` directly on the target cluster
 
-#### Scenario: AgentRuntime Deletion Removes Cluster Resources
+#### Scenario: PLAT-DATA-13.03 -- AgentRuntime Deletion Removes Cluster Resources
 
 - GIVEN an `AgentRuntime` with status `Running`
 - WHEN the `AgentRuntime` is deleted
@@ -761,7 +1249,7 @@ The controller SHALL apply the agent's scheduling resources directly to the targ
 
 ---
 
-### Requirement: AgentRuntime Reconcile Payload Completeness
+### Requirement: PLAT-DATA-14 -- AgentRuntime Reconcile Payload Completeness
 
 The `AgentRuntime` delivered on the watch and list streams SHALL carry, embedded in
 the same payload, everything the control-plane reconciler needs to provision the
@@ -798,14 +1286,14 @@ provisioning sequence in "Gateway-Side Provisioning" below: the reconciler reads
 workspace name, memberships, provider bindings, and inference route directly from the
 delivered `AgentRuntime` and realizes them on the gateway.
 
-#### Scenario: Watch payload carries the workspace provisioning inputs
+#### Scenario: PLAT-DATA-14.01 -- Watch payload carries the workspace provisioning inputs
 
 - GIVEN an `AgentRuntime` whose `AgentWorkspace` has two memberships, one `ProviderBinding` with a non-empty `refresh_strategy`, and one `InferenceRoute`
 - WHEN the control plane receives the `AgentRuntime` on its watch stream or seeds it from `ListAgentRuntimes`
 - THEN the delivered `AgentRuntime` SHALL embed the resolved workspace name, the two memberships, the `ProviderBinding` with its `refresh_strategy` and `secret_material` references, and the `InferenceRoute`
 - AND the control plane SHALL provision the gateway-side workspace from that single payload without another read against the API server
 
-#### Scenario: No secret bytes are embedded in the payload
+#### Scenario: PLAT-DATA-14.02 -- No secret bytes are embedded in the payload
 
 - GIVEN a `ProviderBinding` whose `refresh_strategy.secret_material` references a `SecretSource` holding a GitHub App PEM
 - WHEN the `AgentRuntime` is delivered on the watch stream
@@ -815,13 +1303,13 @@ delivered `AgentRuntime` and realizes them on the gateway.
 
 ---
 
-### Requirement: Gateway-Side Provisioning
+### Requirement: PLAT-DATA-15 -- Gateway-Side Provisioning
 
 The controller SHALL realize gateway-side objects (AgentWorkspace, WorkspaceMemberships, ProviderBindings, and InferenceRoute) by consuming OpenShell's **existing** provisioning API - the operations the `openshell` CLI drives - as part of its normal reconcile loop, NOT a bespoke gateway gRPC contract OpenShell must implement. This is idempotent and reuses the same admin-connection discipline as gateway database provisioning. Re-running when objects already exist SHALL succeed without error and SHALL update mutable fields (e.g., credential refresh strategy, model alias). The realization operations, their enforcement, and cascade deletion are specified in [`agent-workspace-gateway-api.spec.md`](./agent-workspace-gateway-api.spec.md), and the 1:1 Extension-kind to OpenShell-kind field and lifecycle map is in [`extension-api-openshell-api-mapping.spec.md`](./extension-api-openshell-api-mapping.spec.md).
 
 The controller SHALL realize each `ProviderBinding` as an OpenShell **provider** on the agent's gateway/workspace, from the binding's `provider_spec_id`, its `refresh_strategy`, and the durable material referenced through its `SecretSource`s. It SHALL read that material cluster-local from the assigned cluster's local store (read-only `pkg/secretstore` client) and supply it to OpenShell as provider configuration; it SHALL NOT render the credential as a raw Kubernetes `Secret`. Rotation ownership depends on the `refresh_strategy`: for the strategies OpenShell supports natively (`google-service-account-jwt`, `oauth2-refresh-token`, `oauth2-client-credentials`, `aws-sts-assume-role`, and the no-refresh `static-token`) OpenShell mints and rotates the usable credential and the control plane SHALL NOT mint or rotate it; for GitHub App credentials (the `app-installation-token` intent) a bounded control-plane GitHub rotator mints the installation token from the stored PEM and sets it on the OpenShell provider through `provider update --credential`, because the installed OpenShell CLI has no `app-installation-token` refresh strategy (see [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)). When referenced material is not yet present in the assigned cluster's local store, provider creation SHALL hold under a `SecretPending` condition rather than fail (see [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md) and [`control-plane.spec.md`](./control-plane.spec.md), "AgentRuntime Reconciliation").
 
-#### Scenario: AgentWorkspace Is Created Alongside AgentRuntime
+#### Scenario: PLAT-DATA-15.01 -- AgentWorkspace Is Created Alongside AgentRuntime
 
 - GIVEN an `AgentRuntime` in status `Provisioning`
 - WHEN the controller has applied scheduling resources to the cluster
@@ -829,7 +1317,7 @@ The controller SHALL realize each `ProviderBinding` as an OpenShell **provider**
 - THEN the `AgentWorkspace` status SHALL transition to `Provisioned`
 - AND the `AgentRuntime` status SHALL transition to `Running`
 
-#### Scenario: Workspace Name Collision
+#### Scenario: PLAT-DATA-15.02 -- Workspace Name Collision
 
 - GIVEN an `AgentWorkspace` already exists on the target `Gateway` with name `amber-reviews`
 - WHEN an `AgentRuntime` is created with `workspace.name = amber-reviews` on the same gateway
@@ -838,13 +1326,13 @@ The controller SHALL realize each `ProviderBinding` as an OpenShell **provider**
 
 ---
 
-### Requirement: WorkspaceMembership
+### Requirement: PLAT-DATA-16 -- WorkspaceMembership
 
 An `AgentWorkspace` SHALL have one or more `WorkspaceMembership` records, each binding an OIDC subject to a role. The subject is the UUID from the subject claim of the OIDC identity the agent uses to connect to the gateway.
 
 Valid roles are `admin` and `member`. An agent whose `ProviderBinding` requires credential updates at runtime (for example, `refresh_strategy.type = google-service-account-jwt` or `app-installation-token`) SHALL have an `admin` membership, because the gateway restricts provider credential updates to workspace administrators. For OpenShell-supported strategies OpenShell performs that rotation; for GitHub App credentials the control-plane GitHub rotator performs the rotation by calling `provider update --credential` as a workspace admin (see [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)).
 
-#### Scenario: Admin Role Required for Credential Refresh
+#### Scenario: PLAT-DATA-16.01 -- Admin Role Required for Credential Refresh
 
 - GIVEN a `AgentWorkspace` with a `ProviderBinding` whose `refresh_strategy` is non-empty
 - WHEN the API server creates or updates the `WorkspaceMembership`
@@ -853,7 +1341,7 @@ Valid roles are `admin` and `member`. An agent whose `ProviderBinding` requires 
 
 ---
 
-### Requirement: ProviderSpec Reusability
+### Requirement: PLAT-DATA-17 -- ProviderSpec Reusability
 
 `ProviderSpec` SHALL be a standalone, top-level resource that can be referenced by multiple `ProviderBinding` records across different workspaces and agent runtimes. It defines the capability type and access rules without any workspace-specific credential wiring.
 
@@ -883,7 +1371,7 @@ For `source_control` and `knowledge`, capability fields are:
 
 `ProviderSpec.profile` is an optional opaque JSON document passed through to the gateway provider registration step. Its schema is determined by the gateway backend; the HyperShell API treats it as an uninterpreted blob.
 
-#### Scenario: ProviderSpec Referenced by Multiple Bindings
+#### Scenario: PLAT-DATA-17.01 -- ProviderSpec Referenced by Multiple Bindings
 
 - GIVEN a `ProviderSpec` named `github-app-openshift-online`
 - WHEN two `AgentRuntime` instances each create a `ProviderBinding` referencing it
@@ -891,7 +1379,7 @@ For `source_control` and `knowledge`, capability fields are:
 - AND deleting one `ProviderBinding` SHALL NOT delete the `ProviderSpec`
 - AND the `ProviderSpec` SHALL only be deletable when no `ProviderBinding` references it
 
-#### Scenario: ProviderSpec Category Immutable After Binding
+#### Scenario: PLAT-DATA-17.02 -- ProviderSpec Category Immutable After Binding
 
 - GIVEN a `ProviderSpec` with `category = inference`
 - AND one or more `ProviderBinding` records referencing it
@@ -900,7 +1388,7 @@ For `source_control` and `knowledge`, capability fields are:
 
 ---
 
-### Requirement: ProviderBinding
+### Requirement: PLAT-DATA-18 -- ProviderBinding
 
 A `ProviderBinding` wires a `ProviderSpec` into an `AgentWorkspace` with workspace-specific credential and refresh configuration. It references a `SecretSource` as its durable **material** source (the GitHub App PEM, the Vertex service-account key). The controller realizes the binding as an OpenShell provider from that material plus its `refresh_strategy`; rotation of the usable credential is owned by OpenShell for its native strategies and by the bounded control-plane GitHub rotator for the `app-installation-token` (GitHub App) strategy. The controller uses the `SecretSource.purpose` to determine which material each provider field is configured from.
 
@@ -914,7 +1402,7 @@ A `ProviderBinding` wires a `ProviderSpec` into an `AgentWorkspace` with workspa
 
 The controller translates `refresh_strategy` to the gateway backend's refresh configuration. No backend-specific field names appear in this model.
 
-#### Scenario: ProviderBinding Created with Credential Reference
+#### Scenario: PLAT-DATA-18.01 -- ProviderBinding Created with Credential Reference
 
 - GIVEN a `ProviderSpec` with `category = inference`
 - AND a `SecretSource` with `purpose = service-account-key`
@@ -925,19 +1413,19 @@ The controller translates `refresh_strategy` to the gateway backend's refresh co
 
 ---
 
-### Requirement: InferenceRoute
+### Requirement: PLAT-DATA-19 -- InferenceRoute
 
 An `AgentWorkspace` SHALL have at most one `InferenceRoute`, which designates the active `ProviderBinding` and model alias for all LLM inference calls made by sandboxes in that workspace. Changing the `InferenceRoute` redirects inference traffic without restarting any running sandboxes.
 
 `model` is a string alias that the gateway resolves to a model identifier on the bound provider. The HyperShell API does not validate model names; validation is deferred to the gateway at provisioning time.
 
-#### Scenario: One InferenceRoute Per Workspace
+#### Scenario: PLAT-DATA-19.01 -- One InferenceRoute Per Workspace
 
 - GIVEN an `AgentWorkspace` with an existing `InferenceRoute`
 - WHEN a second `InferenceRoute` is created for the same workspace
 - THEN the API server SHALL reject the request with 409
 
-#### Scenario: InferenceRoute Must Reference an Inference ProviderBinding
+#### Scenario: PLAT-DATA-19.02 -- InferenceRoute Must Reference an Inference ProviderBinding
 
 - GIVEN a `ProviderBinding` referencing a `ProviderSpec` with `category = source_control`
 - WHEN an `InferenceRoute` is created referencing that binding
@@ -945,7 +1433,7 @@ An `AgentWorkspace` SHALL have at most one `InferenceRoute`, which designates th
 
 ---
 
-### Requirement: SandboxTemplate Reusability
+### Requirement: PLAT-DATA-20 -- SandboxTemplate Reusability
 
 `SandboxTemplate` SHALL be a standalone, top-level resource reusable across `AgentRuntime` instances. It defines the ephemeral worker execution environment: an OCI image reference and a `SandboxPolicy`.
 
@@ -980,7 +1468,7 @@ An `AgentWorkspace` SHALL have at most one `InferenceRoute`, which designates th
 
 The sandbox network policy and the `ProviderBinding.capability.allowed_operations` serve different enforcement layers. Sandbox network policy is enforced at the OS process level inside the sandbox; provider allowed operations are enforced by the gateway mediator before forwarding requests to the external provider. Both must permit an operation for it to succeed.
 
-#### Scenario: SandboxTemplate Deletion Blocked by Active AgentRuntime
+#### Scenario: PLAT-DATA-20.01 -- SandboxTemplate Deletion Blocked by Active AgentRuntime
 
 - GIVEN a `SandboxTemplate` referenced by an `AgentRuntime` with status `Running`
 - WHEN a DELETE request is made for the `SandboxTemplate`
@@ -989,7 +1477,7 @@ The sandbox network policy and the `ProviderBinding.capability.allowed_operation
 
 ---
 
-### Requirement: SecretSource
+### Requirement: PLAT-DATA-21 -- SecretSource
 
 A `SecretSource` is an abstract reference to durable credential **material** stored in the configured secret store (Vault, AWS Secrets Manager, or a Kubernetes Secret). It holds long-lived material (a GitHub App PEM, a Vertex service-account key, a gateway identity), NOT a usable, rotatable credential. When producing the agent's workspace the control plane reads the referenced material cluster-local from the store through its read-only `pkg/secretstore` client and uses it to configure an OpenShell provider (see "Gateway-Side Provisioning" and [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)); for provider material it SHALL NOT render a raw Kubernetes `Secret` and SHALL NOT create an `ExternalSecret`. Rotation of the usable credential derived from the material is owned by OpenShell for its native strategies and by the bounded control-plane GitHub rotator for GitHub App credentials (see [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)).
 
@@ -1008,14 +1496,14 @@ A `SecretSource` MAY be a value-less reference (see "Secret Submission and Stora
 
 `SecretSource.key_mappings` is an optional list of `{source_key, target_key}` pairs. When set, only the listed keys are extracted and renamed. When absent, all fields from the backend secret are extracted under their original names.
 
-#### Scenario: Purpose Drives Env Var Wiring Without Operator Annotation
+#### Scenario: PLAT-DATA-21.01 -- Purpose Drives Env Var Wiring Without Operator Annotation
 
 - GIVEN a `SecretSource` with `purpose = gateway-identity`
 - WHEN the controller generates scheduling resources for the `AgentRuntime`
 - THEN the coordinator SHALL receive env vars `GATEWAY_ENDPOINT`, `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_AUDIENCE`, and `OPENSHELL_OIDC_CLIENT_SECRET` from the material read cluster-local
 - AND the operator SHALL NOT need to specify env var names explicitly
 
-#### Scenario: Unknown Backend Path Fails at Provisioning, Not at Persist Time
+#### Scenario: PLAT-DATA-21.02 -- Unknown Backend Path Fails at Provisioning, Not at Persist Time
 
 - GIVEN a `SecretSource` with a valid `path` whose store is unreachable or errors
 - WHEN the control plane reads the `SecretSource` material to configure a provider
@@ -1023,7 +1511,7 @@ A `SecretSource` MAY be a value-less reference (see "Secret Submission and Stora
 - AND the `AgentRuntime` status SHALL reflect the failure
 - AND the `SecretSource` record itself SHALL remain in the database
 
-#### Scenario: Reference-Only Material Not Yet Uploaded Is Pending, Not Failed
+#### Scenario: PLAT-DATA-21.03 -- Reference-Only Material Not Yet Uploaded Is Pending, Not Failed
 
 - GIVEN a reference-only `SecretSource` whose material has not yet been uploaded to the assigned cluster's reachable store
 - WHEN the control plane reconciles the owning `AgentRuntime`
@@ -1033,7 +1521,7 @@ A `SecretSource` MAY be a value-less reference (see "Secret Submission and Stora
 
 ---
 
-### Requirement: AgentRuntime Status Lifecycle
+### Requirement: PLAT-DATA-22 -- AgentRuntime Status Lifecycle
 
 `AgentRuntime.status` SHALL progress through the following states:
 
@@ -1060,13 +1548,101 @@ workspace) are intentionally NOT created until the material appears, so the tabl
 `Degraded` is reserved for a store that is unreachable or errors, or for a
 gateway-side provisioning failure.
 
-#### Scenario: SecretSource Store Failure Degrades AgentRuntime
+#### Scenario: PLAT-DATA-22.01 -- SecretSource Store Failure Degrades AgentRuntime
 
 - GIVEN an `AgentRuntime` with status `Running`
 - WHEN a `SecretSource` store path becomes unreachable and the control plane cannot read its material to configure a provider
 - THEN the `AgentRuntime` status SHALL transition to `Degraded`
 - AND the status message SHALL identify the failing `SecretSource` by name
 - AND the `CronJob` SHALL continue to run but its scheduled executions SHALL fail at gateway login
+
+---
+
+### Requirement: PLAT-DATA-24 -- CIProvider
+
+`CIProvider` SHALL be a standalone, top-level extension resource that registers a CI OIDC issuer (a continuous-integration system that mints workload OIDC tokens) so that `CITrust` records may federate those tokens into gateway-scoped OpenShell access. It is a platform-wide registration authorized by the narrow `ci-federation:admin` role (or `platform:admin`), not by `gateway:creator`; see `security/rbac-enforcement.spec.md` (SEC-RBAC-21). Typically one record per forge or self-managed forge instance. It carries no tenant or gateway data and holds no secret.
+
+`CIProvider.forge` SHALL be one of:
+- `github` - GitHub Actions OIDC (issuer `https://token.actions.githubusercontent.com`)
+- `gitlab` - GitLab CI/CD `id_tokens` (issuer is the instance URL)
+- `forgejo` - Forgejo Actions OIDC
+
+`CIProvider` fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `forge` | string | The forge family, from the enum above. Selects the claim shape `CITrust.subject` uses. |
+| `issuer` | string | The OIDC issuer URL whose tokens this provider validates (e.g. `https://token.actions.githubusercontent.com`, `https://gitlab.cee.redhat.com`) |
+| `jwks_url` | string | The issuer's JWKS endpoint used for signature validation. For a standards-compliant issuer the control plane MAY derive it from OIDC discovery instead |
+| `audience` | string | The platform-pinned audience every federated CI token MUST carry (`aud`). Set once per fleet; tenants cannot override it |
+
+The control plane realizes a `CIProvider` as a validation-only OIDC identity provider on the cluster Keycloak (signature + issuer + audience validation only, no authorization-code flow and no stored client secret). The realization contract is specified in [`ci-trust-ext-api.spec.md`](./ci-trust-ext-api.spec.md) and the platform federation design in the gitops `specs/ci-oidc-federation.spec.md`.
+
+`CIProvider.status.idp_alias` SHALL surface the Keycloak IdP alias the control plane created or adopted (e.g. `github-actions`, `gitlab-ci`).
+
+#### Scenario: PLAT-DATA-24.01 -- CIProvider Referenced by Multiple CITrusts
+
+- GIVEN a `CIProvider` named `github-actions`
+- WHEN two gateway owners each create a `CITrust` referencing it
+- THEN both `CITrust` records SHALL reference the same `CIProvider`
+- AND deleting one `CITrust` SHALL NOT delete the `CIProvider`
+- AND the `CIProvider` SHALL only be deletable when no `CITrust` references it
+
+#### Scenario: PLAT-DATA-24.02 -- CIProvider Issuer Immutable After Trust
+
+- GIVEN a `CIProvider` with one or more `CITrust` records referencing it
+- WHEN a PATCH request attempts to change `issuer` or `audience`
+- THEN the API server SHALL reject the request with 422
+
+---
+
+### Requirement: PLAT-DATA-25 -- CITrust
+
+A `CITrust` wires a `CIProvider` to a single `Gateway` the caller manages (`gateway:owner` or `gateway:admin`, or `platform:admin`), declaring that any CI run whose OIDC token matches `subject` MAY exchange that token for an OpenShell access token scoped to that gateway's workspace. It is the self-service, tenant-owned replacement for operator-managed per-tenant Keycloak configuration: creating a `CITrust` is how a user "enables CI on their own gateway" with no stored secret. The per-gateway tenancy is authorized by the same `CanManageGatewayResources` check the other gateway-scoped ext kinds use; see `security/rbac-enforcement.spec.md` (SEC-RBAC-22).
+
+`CITrust` fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `provider` | ref | The `CIProvider` whose issuer is trusted |
+| `subject` | object | A forge-discriminated claim matcher (see below). Only tokens whose claims match SHALL be accepted |
+| `gateway` | ref | The `Gateway` this CI may operate. The caller MUST be able to manage it (`gateway:owner` or `gateway:admin`, or `platform:admin`); see security below |
+| `role` | string | The gateway role granted to the federated session. It SHALL NOT exceed the caller's own rights on the gateway |
+
+`CITrust.subject` is discriminated by the referenced `CIProvider.forge`:
+
+| Forge | Required | Optional (tighter) |
+|---|---|---|
+| `github` | `repository` (`owner/name`) | `ref`, `environment` |
+| `gitlab` | `project_path` (`group/project`) | `ref`, `ref_protected`, `environment` |
+| `forgejo` | `repository` | `ref` |
+
+The audience is NOT a `CITrust` field; it is inherited, pinned, from the `CIProvider`. The control plane compiles `subject` into an immutable claim predicate and derives the forge-namespaced workspace (`gh-<owner>` for GitHub, `gl-<namespace>` for GitLab) so identities cannot collide across forges or tenants.
+
+The control plane realizes a `CITrust` as: a scoped Keycloak claim-to-workspace mapper, a token-exchange permission from the shared federation client onto the gateway audience, and a gateway RBAC binding granting `role` in the derived workspace. No raw credential or `Secret` is rendered. The realization contract is in [`ci-trust-ext-api.spec.md`](./ci-trust-ext-api.spec.md).
+
+`CITrust.status` SHALL surface `exchange_endpoint` (the cluster Keycloak token endpoint), `workspace` (the derived workspace), and `workflow_hint` (the exact CI snippet the tenant pastes to mint and exchange the token).
+
+#### Scenario: PLAT-DATA-25.01 -- CITrust on an Owned Gateway
+
+- GIVEN a `CIProvider` named `github-actions`
+- AND a `Gateway` the caller owns
+- WHEN the caller creates a `CITrust` referencing both with `subject.repository = myorg/myrepo`
+- THEN the control plane SHALL realize the scoped token-exchange mapping and gateway RBAC binding
+- AND `status.workspace` SHALL be `gh-myorg`
+- AND `status.workflow_hint` SHALL contain a runnable CI snippet
+
+#### Scenario: PLAT-DATA-25.02 -- CITrust on an Unmanaged Gateway Rejected
+
+- GIVEN a `Gateway` the caller can neither own nor administer (no `gateway:owner`, `gateway:admin`, or `platform:admin`)
+- WHEN the caller creates a `CITrust` referencing it
+- THEN the API server SHALL reject the request with 403
+
+#### Scenario: PLAT-DATA-25.03 -- CITrust Role Cannot Exceed Caller Rights
+
+- GIVEN a caller whose rights on the target `Gateway` are below `role`
+- WHEN the caller creates a `CITrust` requesting that `role`
+- THEN the API server SHALL reject the request with 403
 
 ---
 
@@ -1078,6 +1654,7 @@ gateway-side provisioning failure.
 |--------|------|-----------|
 | GET/POST | `/gateways` | List/Create |
 | GET/PATCH/DELETE | `/gateways/{id}` | Get/Update/Delete |
+| GET | `/gateways/{gateway_id}/sandbox_events` | Read recent sandbox Events for one gateway (REST only; see `gateway-sandbox-events.spec.md`) |
 | GET/POST | `/gateways/{gateway_id}/service_accounts` | List/Create gateway OpenShellGatewayServiceAccounts |
 | GET/DELETE | `/gateways/{gateway_id}/service_accounts/{service_account_id}` | Get/Delete an OpenShellGatewayServiceAccount |
 | POST | `/gateways/{gateway_id}/service_accounts/{service_account_id}/revoke` | Permanently revoke an OpenShellGatewayServiceAccount |
@@ -1103,10 +1680,14 @@ gateway-side provisioning failure.
 | GET/PATCH/DELETE | `/secret_sources/{id}` | Get/Update/Delete |
 | GET/POST | `/repositories` | List/Create |
 | GET/PATCH/DELETE | `/repositories/{id}` | Get/Update/Delete |
+| GET/POST | `/ci_providers` | List/Create |
+| GET/PATCH/DELETE | `/ci_providers/{id}` | Get/Update/Delete |
+| GET/POST | `/ci_trusts` | List/Create |
+| GET/PATCH/DELETE | `/ci_trusts/{id}` | Get/Update/Delete |
 
 ## CLI Reference (`hsctl`)
 
-The `hsctl` CLI mirrors the REST API 1-for-1. Every REST operation has a corresponding command.
+The `hsctl` CLI mirrors the REST API 1-for-1 except where a feature explicitly defines a REST-only endpoint. Gateway sandbox Events are REST only in version 1 (`gateway-sandbox-events.spec.md`); they have no `hsctl` command.
 
 ### API ↔ CLI Mapping
 
@@ -1116,9 +1697,10 @@ The `hsctl` CLI mirrors the REST API 1-for-1. Every REST operation has a corresp
 |---|---|---|
 | `GET /api/hypershell/v1/gateways` | `hsctl list gateways` | ✅ implemented |
 | `GET /api/hypershell/v1/gateways/{id}` | `hsctl get gateway <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/gateways` | `hsctl create gateway --name <n> --cluster-id <c> [--image <i>] [--external-dns <dns>] [--tls-mode <mode>]` | ✅ implemented |
-| `PATCH /api/hypershell/v1/gateways/{id}` | `hsctl update gateway <id> [--name <n>] [--image <i>]` | 🔲 planned |
+| `POST /api/hypershell/v1/gateways` | `hsctl create gateway --name <n> (--cluster-id <c> \| [--placement-selector <label>]... [--placement-exclude-selector <label>]... \| --local-kind) [--dedicated-route] [--dry-run]` (name + placement + the create-only `dedicated_route` request, per PLAT-DATA-23 / PLAT-DATA-26; `--dedicated-route` requires the `gateway:dedicated-route-creator` role; the placement flags submit the late-bound shape, see [`hsctl-placement.spec.md`](hsctl-placement.spec.md)) | ✅ implemented |
+| `PATCH /api/hypershell/v1/gateways/{id}` | `hsctl update gateway <id> --name <n>` (rename only, per PLAT-DATA-23) | 🔲 planned |
 | `DELETE /api/hypershell/v1/gateways/{id}` | `hsctl delete gateway <id>` | ✅ implemented |
+| `GET /api/hypershell/v1/gateways/{gateway_id}/sandbox_events` | -- | planned (REST only; see [`gateway-sandbox-events.spec.md`](gateway-sandbox-events.spec.md)) |
 
 #### OpenShellGatewayServiceAccounts
 
@@ -1136,7 +1718,7 @@ The `hsctl` CLI mirrors the REST API 1-for-1. Every REST operation has a corresp
 |---|---|---|
 | `GET /api/hypershell/v1/managed_clusters` | `hsctl list managedClusters` | ✅ implemented |
 | `GET /api/hypershell/v1/managed_clusters/{id}` | `hsctl get managedCluster <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/managed_clusters` | `hsctl create managedCluster --name <n> --api-server-url <url> --kubeconfig-secret <s>` | 🔄 legacy provider and region flags removed; remains an inert placeholder because no control plane serves a manually created record and gateways may not reference it (see `managed-cluster-registration.spec.md`) |
+| `POST /api/hypershell/v1/managed_clusters` | `hsctl create managedCluster --name <n> --api-server-url <url> --kubeconfig-secret <s>` | ✅ implemented; the record is an inert placeholder because no control plane serves a manually created record and gateways may not reference it (see `managed-cluster-registration.spec.md`) |
 | `PATCH /api/hypershell/v1/managed_clusters/{id}` | `hsctl update managedCluster <id> [--status <s>]` | 🔲 planned |
 | `DELETE /api/hypershell/v1/managed_clusters/{id}` | `hsctl delete managedCluster <id>` | ✅ implemented |
 
@@ -1152,11 +1734,11 @@ The `hsctl` CLI mirrors the REST API 1-for-1. Every REST operation has a corresp
 | `GET /api/hypershell/v1/role_bindings/{id}` | `hsctl get roleBinding <id>` | ✅ implemented |
 | `POST /api/hypershell/v1/role_bindings` | `hsctl create roleBinding --role-id <r> --scope <s> [--user-id <u>]` | ✅ implemented |
 | `DELETE /api/hypershell/v1/role_bindings/{id}` | `hsctl delete roleBinding <id>` | ✅ implemented |
-| `GET /api/hypershell/v1/gateways/{gateway_id}/access` | `hsctl list gatewayAccess --gateway-id <gateway_id> [--role <owner\|admin\|user>] [--search <q>]` | planned (see [`gateway-access-management.spec.md`](gateway-access-management.spec.md) GAM-03) |
-| `POST /api/hypershell/v1/gateways/{gateway_id}/access` | `hsctl create gatewayAccess --gateway-id <gateway_id> --user <username> --role <owner\|admin\|user>` | planned (GAM-04) |
-| `PATCH /api/hypershell/v1/gateways/{gateway_id}/access/{user_id}` | `hsctl update gatewayAccess <user_id> --gateway-id <gateway_id> --role <owner\|admin\|user>` | planned (GAM-05) |
-| `DELETE /api/hypershell/v1/gateways/{gateway_id}/access/{user_id}` | `hsctl delete gatewayAccess <user_id> --gateway-id <gateway_id>` | planned (GAM-06) |
-| `GET /api/hypershell/v1/gateways/{gateway_id}/access/directory` | -- (web console only) | planned Keycloak realm user search (GAM-09); serves the "Add users" picker, no CLI command |
+| `GET /api/hypershell/v1/gateways/{gateway_id}/access` | `hsctl list gatewayAccess --gateway-id <gateway_id> [--role <owner\|admin\|user>] [--search <q>]` | planned (see [`gateway-access-management.spec.md`](gateway-access-management.spec.md) GTW-ACC-03) |
+| `POST /api/hypershell/v1/gateways/{gateway_id}/access` | `hsctl create gatewayAccess --gateway-id <gateway_id> --user <username> --role <owner\|admin\|user>` | planned (GTW-ACC-04) |
+| `PATCH /api/hypershell/v1/gateways/{gateway_id}/access/{user_id}` | `hsctl update gatewayAccess <user_id> --gateway-id <gateway_id> --role <owner\|admin\|user>` | planned (GTW-ACC-05) |
+| `DELETE /api/hypershell/v1/gateways/{gateway_id}/access/{user_id}` | `hsctl delete gatewayAccess <user_id> --gateway-id <gateway_id>` | planned (GTW-ACC-06) |
+| `GET /api/hypershell/v1/gateways/{gateway_id}/access/directory` | -- (web console only) | planned Keycloak realm user search (GTW-ACC-09); serves the "Add users" picker, no CLI command |
 
 The gateway access facade is a gateway-scoped, enriched projection over the `role_bindings` resource above: `owner` grants write `gateway:owner` bindings, `admin` grants write `gateway:admin` bindings, and `user` grants write `gateway:viewer` bindings. Only owners may assign, change, or revoke the owner tier; a gateway always keeps at least one owner (last-owner protection). A role change (`PATCH .../access/{user_id}`) mutates the backing `RoleBinding`'s `role_id` in place within one transaction (emitting a `RoleBinding` `UPDATED` event), rather than delete-then-create; the generic `role_bindings` REST resource above remains create/delete-only, and this in-place update is an internal facade/service operation. Granting access to a Keycloak realm user with no existing `User` record pre-provisions one (upsert keyed on `username`) after resolving the user against the realm directory; the public users API remains read-only (see [`registered-users.spec.md`](registered-users.spec.md)).
 
@@ -1178,6 +1760,11 @@ The gateway access facade is a gateway-scoped, enriched projection over the `rol
 | `PATCH /api/hypershell/ext/repositories/{id}` | `hsctl update repository <id> [--secret-source-id <s>] [--default-branch <b>] [--import-path <path>]` | 🔲 planned |
 | `DELETE /api/hypershell/ext/repositories/{id}` | `hsctl delete repository <id>` | 🔲 planned |
 
+The Extension kind resource commands above (including `hsctl list repositories`
+and `hsctl get repository <id>`, where `get` renders the read-only `status`) are
+hand-written and registered through `extgroup`, not produced by the CLI generator;
+their contract is in [`hsctl-extension-commands.spec.md`](hsctl-extension-commands.spec.md).
+
 #### Auth & Context
 
 | Operation | `hsctl` Command | Status |
@@ -1198,8 +1785,8 @@ The gateway access facade is a gateway-scoped, enriched projection over the `rol
 
 | Kind | Fields applied | Status |
 |---|---|---|
-| `Gateway` | `name`, `cluster_id`, `image`, `supervisor_image`, `sandbox_image`, `server_dns_names`, `oidc`, `route`, `external_dns`, `tls_mode`, `service_type`, `dev_build`, `dev_build_metadata` | ✅ implemented |
-| `ManagedCluster` | `name`, `kubeconfig_secret`, `api_server_url` | 🔄 placement metadata moves to registration-owned capabilities and is not writable through `hsctl apply` |
+| `Gateway` | `name`, and exactly one of `cluster_id` (pinned) or `placement` (late-bound selector). A manifest that declares any platform-managed field (`image`, `supervisor_image`, `server_dns_names`, `oidc`, `route`, `external_dns`, `tls_mode`, `service_type`, `credential_driver`, `dev_build`, `dev_build_metadata`) is rejected, per PLAT-DATA-23 - a `.hypershell` import is a non-privileged writer | ✅ implemented |
+| `ManagedCluster` | `name`, `kubeconfig_secret`, `api_server_url` | ✅ implemented; placement metadata is the registration-owned `capabilities` set, which `hsctl apply` cannot write |
 | `AgentRuntime` | `name`, `gateway_id`, `sandbox_template_id`, `repository_id`, `selector`, `cron`, `coordinator_image`, `concurrency_policy`, `login_refresh_seconds`, `parameters` (optional `cluster_id`, derived from the Gateway when omitted) | 🔲 planned |
 | `SandboxTemplate` | `name`, `image`, `name_prefix`, `policy` | 🔲 planned |
 | `ProviderSpec` | `name`, `category`, `capability`, `profile` | 🔲 planned |
@@ -1374,7 +1961,7 @@ hsctl login --url https://api.example.com --issuer-url https://keycloak.example.
 hsctl login --no-browser --url https://api.example.com --issuer-url https://keycloak.example.com/realms/hypershell
 
 hsctl list gateways
-hsctl create gateway --name api-gateway --cluster-id eks-1 --image quay.io/opendatahub/odh-openshell-gateway:v0.1.3-rhaiv.3
+hsctl create gateway --name api-gateway --cluster-id eks-1
 ```
 
 
@@ -1383,7 +1970,6 @@ hsctl create gateway --name api-gateway --cluster-id eks-1 --image quay.io/opend
 | Decision | Rationale |
 |----------|-----------|
 | KSUID for all IDs | Sortable, globally unique, no coordination required |
-| Resources are top-level | Sector/Fleet grouping was removed; tenancy is enforced by RBAC (platform + per-gateway), not by a resource grouping |
 | Secret references (not inline secrets) | Keeps secrets in K8s Secrets, not in the database |
 | Gateway-agnostic capability model | Provider driver names and credential env var conventions are implementation details of the gateway backend. Keeping them out of the API allows the controller to support multiple gateway implementations without API changes. |
 | ProviderSpec as a reusable top-level resource | The same GitHub App or Vertex AI project configuration is shared by multiple agent types. Centralizing it avoids duplication and makes rotation (e.g., new App installation ID) a single change. |
@@ -1397,10 +1983,8 @@ hsctl create gateway --name api-gateway --cluster-id eks-1 --image quay.io/opend
 | No ManifestWork: controller applies cluster resources directly | The controller has direct cluster API access via in-cluster credentials, the same mechanism used for gateway infrastructure. ManifestWork would add an OCM dependency without architectural benefit. |
 | No bootstrap Job: controller realizes gateway-side objects via OpenShell's existing API | Gateway-side workspace, members, and provider objects are realized by the controller through OpenShell's existing provisioning API (the operations the `openshell` CLI drives) in its normal reconcile loop, co-located with existing gateway database provisioning logic, rather than a bespoke gateway gRPC contract. An idempotent imperative Job on the cluster would tie provisioning to a specific OpenShell CLI version. |
 | Repository as a reusable top-level ext resource | A registered repo plus its provider credential is referenced by many agent runtimes and read by the declarative import. Centralizing it keeps credential rotation and `.hypershell` discovery a single registration, not per-runtime config. |
-| Repository credential via SecretSource FK | Reuses the existing abstract secret store model (Vault/AWS/Kubernetes) and the control plane's read-only store access, keeping provider material out of the database and consistent with every other credential in the platform. For a GitHub `Repository` the stored material is the durable App PEM; the `RepositoryReconciler` mints the short-lived installation token from it rather than storing a static token. |
+| Repository credential via OPTIONAL SecretSource FK | Reuses the existing abstract secret store model (Vault/AWS/Kubernetes) and the control plane's read-only store access, keeping provider material out of the database and consistent with every other credential in the platform. For a GitHub `Repository` the stored material is the durable App PEM; the `RepositoryReconciler` mints the short-lived installation token from it rather than storing a static token. The FK is OPTIONAL: a public repository needs no credential and is read anonymously, so requiring a `secret_source_id` would block registering a public repository. `SecretSource` ownership stays with `AgentRuntime` (a `Repository`-scoped `SecretSource` would have no cluster to late-bind a Vault to), so the public case is solved by making the `Repository` credential optional, not by loosening `SecretSource`. Private-repository credential sourcing is a separate open follow-up (platform-scoped store, a configured platform token, or a narrow Repository-owned exception). |
 | AgentRuntime.selector as a label list (match-any) | Declarative repository scanning replaces the imperative `discover.sh` script. A simple label list is enough to express "scan these items" (e.g. `agent/reviewable`); an item matching any label yields one sandbox from the runtime's SandboxTemplate. Requires `repository_id`. |
 | Declarative `.hypershell` import over script invocation | Rendering declared Kustomize YAML into the API is safer and more predictable than executing `discover.sh`/`run.sh` found in an arbitrary repo. Imported resources are owned and pruned by the Repository (reconcile, don't create-or-skip). Deprecates the script-at-endpoint coordinator contract. |
 | `.hypershell` import hosted by the control plane, not the api-server | The import must read each `Repository`'s `secret_source_id` credential and read the `import_path` subtree over the GitHub API. The control plane has read-only secret-store access (`pkg/secretstore`) and the platform GitHub App credential; the api-server has no store read access and no repository read access. Hosting the import in the control plane places it where the credential read and repository access already live and removes the in-process-secret-resolution blocker. The import is the single bounded control-plane path that writes API desired state (over the gRPC write path, `Repository`-scoped), scoped to create/update/prune of `Repository`-owned ext resources. The api-server's only secret role is a write-only POST endpoint that stores the submitted value in the secret store and its reference (a `SecretSource`) in the database. |
 | Import reads the subtree over the GitHub API and renders in-memory; one shared kustomize library | The control-plane runtime image ships no `git` / `kustomize` / `hsctl` binary and no writable disk, so the `RepositoryReconciler` reads only the `import_path` subtree over the GitHub API (no clone, no checkout, no PVC) and renders it in memory. Rendering SHALL use the shared `pkg/kustomize` `Build` in `components/cli` (desired state, to be built), consumed by exactly two callers, `hsctl` and the `RepositoryReconciler`, so there is exactly one kustomize implementation and CLI and server render identically. The `GatewayReconciler` is not a consumer: it renders the gateway workload through Helm. `hsctl apply -k` is refactored off its external-`kustomize`-binary shell-out onto this same package. The accepted trade-off is admitting the kustomize Go library (a library, not a binary or `Job`) into the control-plane module - a deliberate reversal of the earlier "no kustomize in control plane" decision. |
-| Remove GatewayRelease | Gateway `image`/`supervisor_image` fields make the release indirection layer unnecessary; canary rollout was never adopted in practice. Direct image references cover all current use cases. |
-| Remove GatewayNetwork | The reconciler only validates topology vocabulary and writes status - it owns no Kubernetes resources and applies no actual connectivity. Real mesh/tunnel provisioning was never defined by the product. Removing until concrete connectivity semantics are specified. |

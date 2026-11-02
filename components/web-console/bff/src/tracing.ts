@@ -52,7 +52,7 @@ export interface StartProxySpanInput {
   /**
    * The request path (no query string). The tracing adapter collapses resource
    * ids to a bounded route template for the span name and `http.route`, so a
-   * high-cardinality identifier never becomes part of either (WEB-TRACE-07).
+   * high-cardinality identifier never becomes part of either (WEB-TRC-07).
    */
   path: string;
   traceparent?: string;

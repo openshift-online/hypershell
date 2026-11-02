@@ -171,38 +171,77 @@ func (f *GitHubSubtreeFetcher) getBlob(ctx context.Context, owner, name, sha, to
 	}
 }
 
+// HeadRevision returns the import branch's head commit SHA for the Repository
+// through a single lightweight GitHub request (the commits endpoint with the `.sha`
+// media type returns just the SHA, not the full commit). The reconciler compares it
+// against the revision it last imported and skips the heavy tree+blob read when it is
+// unchanged, which keeps the steady-state import within the anonymous rate limit
+// (control-plane.spec.md, "Conditional upstream fetch").
+func (f *GitHubSubtreeFetcher) HeadRevision(ctx context.Context, repo *pb.Repository, token string) (string, error) {
+	owner, name, err := parseGitHubOwnerRepo(repo.GetUrl())
+	if err != nil {
+		return "", err
+	}
+	branch := repo.GetDefaultBranch()
+	if branch == "" {
+		branch = defaultBranch
+	}
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/commits/%s",
+		f.apiBase, url.PathEscape(owner), url.PathEscape(name), url.PathEscape(branch))
+	body, err := f.doGet(ctx, endpoint, "application/vnd.github.sha", token)
+	if err != nil {
+		return "", fmt.Errorf("get head revision %s/%s@%s: %w", owner, name, branch, err)
+	}
+	sha := strings.TrimSpace(string(body))
+	if sha == "" {
+		return "", fmt.Errorf("github returned an empty head revision for %s/%s@%s", owner, name, branch)
+	}
+	return sha, nil
+}
+
 func (f *GitHubSubtreeFetcher) getJSON(ctx context.Context, endpoint, token string, out interface{}) error {
+	body, err := f.doGet(ctx, endpoint, "application/vnd.github+json", token)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(body, out); err != nil {
+		return fmt.Errorf("decode response: %w", err)
+	}
+	return nil
+}
+
+// doGet performs an authenticated GET against the GitHub API and returns the
+// response body, failing on any non-200 status. accept selects the media type
+// (JSON for tree/blob reads, the `.sha` type for the head-revision probe). The
+// GitHub error body never contains the credential, so a bounded snippet is safe to
+// surface for diagnosis.
+func (f *GitHubSubtreeFetcher) doGet(ctx context.Context, endpoint, accept, token string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return fmt.Errorf("build request: %w", err)
+		return nil, fmt.Errorf("build request: %w", err)
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("Accept", accept)
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	resp, err := f.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("request %s: %w", endpoint, err)
+		return nil, fmt.Errorf("request %s: %w", endpoint, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
 	if err != nil {
-		return fmt.Errorf("read response: %w", err)
+		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		// The GitHub error body does not contain the credential; it is safe to
-		// include for diagnosis, bounded in length.
 		snippet := strings.TrimSpace(string(body))
 		if len(snippet) > 256 {
 			snippet = snippet[:256]
 		}
-		return fmt.Errorf("github API returned %d: %s", resp.StatusCode, snippet)
+		return nil, fmt.Errorf("github API returned %d: %s", resp.StatusCode, snippet)
 	}
-	if err := json.Unmarshal(body, out); err != nil {
-		return fmt.Errorf("decode response: %w", err)
-	}
-	return nil
+	return body, nil
 }
 
 // parseGitHubOwnerRepo extracts the owner and repository name from a repository

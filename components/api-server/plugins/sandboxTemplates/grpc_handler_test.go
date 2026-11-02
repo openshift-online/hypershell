@@ -147,6 +147,7 @@ func TestDeleteSandboxTemplate_Success(t *testing.T) {
 // repository_id ownership mark from the reconciled-Repository metadata and ignores a
 // client-supplied repository_id, so ownership cannot be forged (rbac-enforcement.spec.md
 // "Import reconciler writes an owned ext resource and ownership cannot be forged").
+// Verifies: SEC-RBAC-09.06, CTRL-CORE-06.08
 func TestCreateSandboxTemplate_ImportOwnershipBinding(t *testing.T) {
 	svc := &stubSandboxTemplateService{ret: sampleSandboxTemplate()}
 	h := &sandboxTemplateGRPCHandler{service: svc}
@@ -187,6 +188,7 @@ func TestCreateSandboxTemplate_NoImportContextLeavesOwnershipUnset(t *testing.T)
 // a resource owned by a different Repository (or unowned) are refused in the import
 // context (rbac-enforcement.spec.md "Import write is refused outside the owning
 // Repository").
+// Verifies: SEC-RBAC-09.07
 func TestWriteSandboxTemplate_RefusedOutsideOwningRepository(t *testing.T) {
 	ctx := metadata.NewIncomingContext(context.Background(),
 		metadata.Pairs(pkgrbac.ImportRepositoryMetadataKey, "repo-1"))

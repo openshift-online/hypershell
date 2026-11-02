@@ -73,6 +73,7 @@ describe("DashboardInventoryRoute", () => {
     expect(await screen.findByTestId("platform-inventory-page")).toBeTruthy();
   });
 
+  // Verifies: PLAT-INV-06.02
   it("redirects authenticated non-admin users to the operational dashboard", async () => {
     getSessionMock.mockReturnValue({
       data: {

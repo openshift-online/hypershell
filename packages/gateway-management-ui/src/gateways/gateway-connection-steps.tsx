@@ -3,6 +3,7 @@ import {
   AlertActionLink,
   Button,
   Content,
+  ExpandableSection,
   Skeleton,
   Spinner,
   Title,
@@ -22,6 +23,7 @@ import {
   defaultEditor,
   type GatewayConnection,
   installDocsUrl,
+  providerProfileDocsUrl,
   sandboxConnectDocsUrl,
   sandboxName as defaultSandboxName,
   validEditors,
@@ -150,24 +152,51 @@ export function GatewayConnectionSteps({
             </Content>
           </div>
         ) : setupTemplate && setupCopy ? (
-          <CommandBlock
-            copyAriaLabel={intl.formatMessage(messages.copySetupCommand)}
-            copyText={setupCopy}
-            labels={{
-              [modelMarker]: intl.formatMessage(messages.editModel),
-              [providerMarker]: intl.formatMessage(messages.editProviderName),
-            }}
-            markers={setupMarkers}
-            onFieldChange={(marker, value) => {
-              if (marker === providerMarker) {
-                setProviderName(value);
-              } else if (marker === modelMarker) {
-                setModel(value);
-              }
-            }}
-            templateCommand={setupTemplate}
-            values={{ [modelMarker]: model, [providerMarker]: providerName }}
-          />
+          <>
+            <CommandBlock
+              copyAriaLabel={intl.formatMessage(messages.copySetupCommand)}
+              copyText={setupCopy}
+              labels={{
+                [modelMarker]: intl.formatMessage(messages.editModel),
+                [providerMarker]: intl.formatMessage(messages.editProviderName),
+              }}
+              markers={setupMarkers}
+              onFieldChange={(marker, value) => {
+                if (marker === providerMarker) {
+                  setProviderName(value);
+                } else if (marker === modelMarker) {
+                  setModel(value);
+                }
+              }}
+              templateCommand={setupTemplate}
+              values={{ [modelMarker]: model, [providerMarker]: providerName }}
+            />
+            <ExpandableSection
+              toggleText={intl.formatMessage(
+                messages.connectionProfileImportScopeTitle,
+              )}
+            >
+              <Content component="p">
+                {intl.formatMessage(messages.connectionProfileImportScopeNote)}
+              </Content>
+              <Button
+                aria-label={intl.formatMessage(
+                  messages.connectionProfileImportDocsLinkNewTab,
+                )}
+                component="a"
+                href={providerProfileDocsUrl}
+                icon={<ExternalLinkAltIcon aria-hidden />}
+                iconPosition="end"
+                isInline
+                rel="noopener noreferrer"
+                size="sm"
+                target="_blank"
+                variant="link"
+              >
+                {intl.formatMessage(messages.connectionProfileImportDocsLink)}
+              </Button>
+            </ExpandableSection>
+          </>
         ) : (
           <div
             aria-label={intl.formatMessage(messages.connectionLoginUnavailable)}

@@ -72,6 +72,7 @@ func TestCreate_InvalidRoleIsUnprocessable(t *testing.T) {
 	}
 }
 
+// Verifies: PLAT-DATA-16.01
 func TestCreate_MemberWithoutAdminWhenRefreshBearingIsUnprocessable(t *testing.T) {
 	dao := &stubDao{requiresAdmin: true, adminCount: 0}
 	svc := NewWorkspaceMembershipService(dao, noopEvents{})

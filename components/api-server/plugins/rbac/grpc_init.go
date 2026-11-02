@@ -3,10 +3,9 @@ package rbac
 import (
 	"context"
 	"fmt"
-	"os"
+	"log/slog"
 	"sync"
 
-	"github.com/golang/glog"
 	"google.golang.org/grpc"
 
 	pkgrbac "github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
@@ -166,11 +165,11 @@ func (l *lazyRBACInterceptor) init(ctx context.Context) {
 		l.gateways = newGatewayClusterResolver(envServices)
 		l.imports = newRepositoryImportResolver(envServices)
 		if l.controlPlanes == nil {
-			glog.Warning("managedClusters service not registered: registered-cluster control-plane identity is disabled; only RBAC_SERVICE_ACCOUNTS is exempt from gRPC role bindings")
+			slog.Warn("managedClusters service not registered: registered-cluster control-plane identity is disabled; only RBAC_SERVICE_ACCOUNTS is exempt from gRPC role bindings")
 		}
 
 		l.config = pkgrbac.AuthzConfig{
-			EnforceRBAC:     os.Getenv("RBAC_ENFORCE") == "true",
+			EnforceRBAC:     pkgrbac.Enforced(),
 			ServiceAccounts: pkgrbac.ServiceAccountsFromEnv(),
 		}
 	})
@@ -180,8 +179,8 @@ func init() {
 	lazy := &lazyRBACInterceptor{}
 
 	// The managed-cluster caller binding runs first, before role-binding
-	// authorization and regardless of the RBAC_SERVICE_ACCOUNTS allowlist and
-	// RBAC_ENFORCE: a registered control plane may list or watch only its own
+	// authorization and regardless of the RBAC_SERVICE_ACCOUNTS allowlist: a
+	// registered control plane may list or watch only its own
 	// cluster's gateways (managed-cluster-registration.spec.md, "Watch Stream
 	// Caller Binding"). Authorization then decides every hypershell.v1 method
 	// per caller kind (pkg/rbac/grpc_authorization.go): a registered cluster is a

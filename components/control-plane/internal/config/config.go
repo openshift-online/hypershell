@@ -66,7 +66,7 @@ type Config struct {
 	NamespaceGCGracePeriod time.Duration
 
 	// DirectoryRefreshInterval is the cadence of the Keycloak realm directory
-	// projection refresh (GAM-09). Bounded staleness equals this interval.
+	// projection refresh (GTW-ACC-09). Bounded staleness equals this interval.
 	DirectoryRefreshInterval time.Duration
 
 	// GatewayReconcileWorkers bounds how many distinct gateways the control
@@ -146,6 +146,13 @@ type Config struct {
 	// Set to "kata" or "kata-remote" for hardware-enforced VM isolation.
 	SandboxRuntimeClass string
 
+	// CITrustEnabled toggles the CI trust reconciler that realizes CIProvider
+	// and CITrust resources as Keycloak IdPs, claim mappers, and token-exchange
+	// permissions. OFF by default: the reconciler requires a Keycloak admin
+	// client provisioned and accessible. Sourced from
+	// HYPERSHELL_CI_TRUST_ENABLED.
+	CITrustEnabled bool
+
 	// RepositoryImportEnabled toggles the declarative `.hypershell` import
 	// reconciler (the RepositoryReconciler). It is OFF by default: the reconciler
 	// reads repository subtrees over the GitHub API with the platform GitHub App
@@ -155,8 +162,14 @@ type Config struct {
 	// specs/platform/control-plane.spec.md ("Declarative `.hypershell` Import
 	// Reconciliation").
 	RepositoryImportEnabled bool
-	// RepositoryImportInterval is the reconcile cadence of the import loop. Sourced
-	// from HYPERSHELL_REPOSITORY_IMPORT_INTERVAL.
+	// RepositoryImportInterval is the cadence of the SLOW periodic drift re-check
+	// that catches upstream changes producing no Repository event. Real-time import
+	// is driven by the Repository watch stream, so this is deliberately slow
+	// (hourly by default) and, with the conditional head-revision fetch, costs one
+	// lightweight GitHub request per Repository per tick when nothing changed.
+	// Sourced from HYPERSHELL_REPOSITORY_IMPORT_INTERVAL. See
+	// specs/platform/control-plane.spec.md ("Declarative `.hypershell` Import
+	// Reconciliation").
 	RepositoryImportInterval time.Duration
 	// GitHubAPIBase overrides the GitHub REST API base URL (for GitHub Enterprise
 	// or a test server). Sourced from HYPERSHELL_GITHUB_API_BASE; empty uses the
@@ -208,8 +221,9 @@ func Load() (*Config, error) {
 		GatewayDatabaseAdminDir: getEnv("GATEWAY_DATABASE_ADMIN_DIR", DefaultGatewayDatabaseAdminDir),
 		SandboxRuntimeClass:     getEnv("GATEWAY_SANDBOX_RUNTIME_CLASS", ""),
 
+		CITrustEnabled:           getEnvBool("HYPERSHELL_CI_TRUST_ENABLED", false),
 		RepositoryImportEnabled:  getEnvBool("HYPERSHELL_REPOSITORY_IMPORT_ENABLED", false),
-		RepositoryImportInterval: getEnvDuration("HYPERSHELL_REPOSITORY_IMPORT_INTERVAL", 5*time.Minute),
+		RepositoryImportInterval: getEnvDuration("HYPERSHELL_REPOSITORY_IMPORT_INTERVAL", time.Hour),
 		GitHubAPIBase:            getEnv("HYPERSHELL_GITHUB_API_BASE", ""),
 		GitHubTokenFile:          getEnv("HYPERSHELL_GITHUB_TOKEN_FILE", ""),
 	}

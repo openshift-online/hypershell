@@ -10,6 +10,7 @@ import {
   buildSandboxCreateCommand,
   type GatewayConnection,
   installDocsUrl,
+  providerProfileDocsUrl,
 } from "./gateway-connections";
 
 const readyGateway: GatewayConnection = {
@@ -95,6 +96,44 @@ describe("GatewayConnectionSteps", () => {
         ?.closest(".pf-v6-c-code-block")
         ?.querySelector("ol, [data-line-number]"),
     ).toBeNull();
+  });
+
+  it("orders the provider profile import before provider create in the setup commands", () => {
+    const { container } = renderSteps(readyGateway);
+
+    const commandBlocks = Array.from(container.querySelectorAll("code"));
+    const setupCode = commandBlocks.find((code) =>
+      code.textContent.includes("openshell gateway add"),
+    );
+    expect(setupCode).toBeTruthy();
+
+    const text = setupCode?.textContent ?? "";
+    const profileImportAt = text.indexOf("openshell provider profile import");
+    const providerCreateAt = text.indexOf("openshell provider create");
+    expect(profileImportAt).toBeGreaterThanOrEqual(0);
+    expect(providerCreateAt).toBeGreaterThan(profileImportAt);
+    expect(text).toContain("--global");
+    expect(text).toContain("--global-profile");
+  });
+
+  it("discloses the provider profile scope-matching requirement", async () => {
+    const user = userEvent.setup();
+    renderSteps(readyGateway);
+
+    await user.click(
+      screen.getByRole("button", { name: "Provider profile scope" }),
+    );
+
+    expect(
+      screen.getByText(/scope mismatch reproduces/, { exact: false }),
+    ).toBeTruthy();
+
+    const link = screen.getByRole("link", {
+      name: "View provider profile documentation (opens in a new tab)",
+    });
+    expect(link.getAttribute("href")).toBe(providerProfileDocsUrl);
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toContain("noopener");
   });
 
   it("copies the version-matched installation command", async () => {

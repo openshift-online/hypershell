@@ -556,6 +556,7 @@ func newMockKeycloakAdminServer(t *testing.T, clientID, clientUUID string, initi
 	return m
 }
 
+// Verifies: OSG-KCLK-02.02, OSG-HLTH-03.02
 func TestGatewayReconciler_Handle_GatedPhases_ReconcilesKeycloakAndBypassesKubernetes(t *testing.T) {
 	ctx := context.Background()
 	gatedPhases := []string{"Running", "Provisioning", "Degraded"}
@@ -801,6 +802,7 @@ func TestWatchGateways_KeycloakRetryPreservesGatedPayload(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-KCLK-02.02
 func TestGatewayReconciler_Handle_GatedPhase_IdempotentWhenAlreadyEnabled(t *testing.T) {
 	ctx := context.Background()
 	gatewayID := "gw-idempotent"
@@ -900,6 +902,7 @@ func TestGatewayReconciler_Handle_GatedPhase_KeycloakUnconfigured(t *testing.T) 
 	}
 }
 
+// Verifies: OSG-KCLK-02.03
 func TestGatewayReconciler_Handle_GatedPhase_ReportsMissingClientWithoutKubernetes(t *testing.T) {
 	ctx := context.Background()
 	gatewayID := "gw-missing"
@@ -984,6 +987,7 @@ func TestGatewayReconciler_Handle_GatedPhase_ReportsMissingClientWithoutKubernet
 	}
 }
 
+// Verifies: OSG-KCLK-02.04
 func TestGatewayReconciler_Handle_GatedPhase_InvalidIdentityIsTerminal(t *testing.T) {
 	gatewayID := "gw-invalid-identity"
 	foreignClientID := "foreign-client"
@@ -1065,6 +1069,7 @@ func TestGatewayReconciler_Handle_GatedPhase_InvalidIdentityIsTerminal(t *testin
 	}
 }
 
+// Verifies: OSG-KCLK-02.04
 func TestGatewayReconciler_Handle_GatedPhase_InvalidIdentityStatusFailureRetriesNarrowly(t *testing.T) {
 	gatewayID := "gw-invalid-status-failure"
 	foreignClientID := "foreign-client"
@@ -1129,6 +1134,7 @@ func TestGatewayReconciler_Handle_GatedPhase_InvalidIdentityStatusFailureRetries
 	}
 }
 
+// Verifies: OSG-KCLK-02.03
 func TestGatewayReconciler_Handle_GatedPhase_ClearsMissingStatusAfterKeycloakRecovers(t *testing.T) {
 	ctx := context.Background()
 	gatewayID := "gw-recovers"
@@ -1206,6 +1212,7 @@ func TestGatewayReconciler_Handle_GatedPhase_ClearsMissingStatusAfterKeycloakRec
 	}
 }
 
+// Verifies: OSG-KCLK-02.04
 func TestGatewayReconciler_Handle_GatedPhase_ClearsInvalidStatusAfterIdentityRecovers(t *testing.T) {
 	gatewayID := "gw-valid-again"
 	gatewayName := "my-gateway"

@@ -4,21 +4,21 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**Id** | **string** |  | 
-**GatewayId** | **string** |  | 
-**Name** | **string** |  | 
-**Description** | Pointer to **NullableString** |  | [optional] 
-**CredentialType** | **string** |  | 
-**Role** | [**OpenShellGatewayServiceAccountRole**](OpenShellGatewayServiceAccountRole.md) |  | 
-**Status** | [**OpenShellGatewayServiceAccountStatus**](OpenShellGatewayServiceAccountStatus.md) |  | 
-**CreatedByUserId** | **string** |  | 
-**ClientId** | **string** |  | 
-**Subject** | **string** |  | 
-**ExpiresAt** | **time.Time** |  | 
-**RevokedAt** | Pointer to **NullableTime** |  | [optional] 
-**LastError** | Pointer to **NullableString** |  | [optional] 
-**CreatedAt** | **time.Time** |  | 
-**UpdatedAt** | **time.Time** |  | 
+**Id** | **string** |  |
+**GatewayId** | **string** |  |
+**Name** | **string** |  |
+**Description** | Pointer to **NullableString** |  | [optional]
+**CredentialType** | **string** |  |
+**Role** | [**OpenShellGatewayServiceAccountRole**](OpenShellGatewayServiceAccountRole.md) |  |
+**Status** | [**OpenShellGatewayServiceAccountStatus**](OpenShellGatewayServiceAccountStatus.md) |  |
+**CreatedByUserId** | **string** |  |
+**ClientId** | **string** |  |
+**Subject** | **string** |  |
+**ExpiresAt** | **time.Time** |  |
+**RevokedAt** | Pointer to **NullableTime** |  | [optional]
+**LastError** | Pointer to **NullableString** |  | [optional]
+**CreatedAt** | **time.Time** |  |
+**UpdatedAt** | **time.Time** |  |
 
 ## Methods
 
@@ -386,5 +386,3 @@ SetUpdatedAt sets UpdatedAt field to given value.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
-
-

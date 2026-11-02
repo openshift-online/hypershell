@@ -1,4 +1,4 @@
-// Typed navigation actions for the Glass route layer (GLASS-NAV-04, GLASS-NAV-06).
+// Typed navigation actions for the Glass route layer (FLT-NAV-04, FLT-NAV-06).
 //
 // Components dispatch these framework-free actions through the routing adapter
 // instead of mutating `window.location` or `history` directly. `reduceRoute` is a
@@ -24,7 +24,7 @@ export type NavAction =
   // Shell.
   | { readonly type: "tab"; readonly tab: TabKey }
   | { readonly type: "toggleBundle"; readonly seed: string }
-  // Cross-tab links (one Back-addressable step each, GLASS-NAV-08).
+  // Cross-tab links (one Back-addressable step each, FLT-NAV-08).
   | { readonly type: "openHistory"; readonly run: string }
   | { readonly type: "openBundleOnMap"; readonly seed: string }
   // Fleet Map.
@@ -66,7 +66,7 @@ export type NavAction =
 
 /**
  * Text-input and coalesced changes replace the current history entry; everything
- * else is a discrete, Back-addressable navigation step (GLASS-NAV-06).
+ * else is a discrete, Back-addressable navigation step (FLT-NAV-06).
  */
 export function isReplaceAction(action: NavAction): boolean {
   switch (action.type) {
@@ -92,17 +92,17 @@ export function reduceRoute(state: RouteState, action: NavAction): RouteState {
         ...state,
         bundle: selecting ? action.seed : null,
         // Selecting a shared bundle drops any map node/gate so the bundle takes the
-        // map drawer (one thing at a time, GLASS-NAV-09).
+        // map drawer (one thing at a time, FLT-NAV-09).
         map: selecting ? { ...state.map, node: null, gate: null } : state.map,
       });
     }
 
     case "openHistory":
       // Map gate -> E2E history attempt: switch to the E2E tab with that run
-      // selected and its drawer open, as one history step (GLASS-NAV-08).
+      // selected and its drawer open, as one history step (FLT-NAV-08).
       // Carry the gate drawer's execution view (sub-tab, selected step, and
       // viewer state) so stepping from a gate step's logs into run history keeps
-      // the same scope and Logs sub-tab (GLASS-NAV-11); the run and step ids are
+      // the same scope and Logs sub-tab (FLT-NAV-11); the run and step ids are
       // identical across both views. Only an exec context already addressing this
       // run on the E2E tab takes precedence over the carried gate exec.
       return normalizeRoute({
@@ -160,7 +160,7 @@ export function reduceRoute(state: RouteState, action: NavAction): RouteState {
     case "gatePin":
       // Switch the pinned attempt (or the live sentinel), preserving the exec view:
       // the initial auto-pin on open and a pasted deep link must keep their addressed
-      // sub-tab/step (GLASS-NAV-05, GLASS-NAV-10). The selected step simply resolves
+      // sub-tab/step (FLT-NAV-05, FLT-NAV-10). The selected step simply resolves
       // to whole-run logs if it is absent in the new attempt.
       return normalizeRoute({
         ...state,
@@ -260,7 +260,7 @@ export function reduceRoute(state: RouteState, action: NavAction): RouteState {
     case "sdlcOpenEscalationCard":
       // Opens an escalation's issue detail while keeping the list open underneath,
       // so browser Back and the drawer's Back-to-list both return to the list
-      // (GLASS-NAV-13).
+      // (FLT-NAV-13).
       return normalizeRoute({
         ...state,
         sdlc: {
@@ -308,7 +308,7 @@ export function reduceRoute(state: RouteState, action: NavAction): RouteState {
 
     case "e2eSelectRun": {
       // Changing the selected run remounts the detail, resetting its exec view and
-      // closing the previous run's subscription (GLASS-NAV-18).
+      // closing the previous run's subscription (FLT-NAV-18).
       const changed = action.run !== state.e2e.run;
       return normalizeRoute({
         ...state,

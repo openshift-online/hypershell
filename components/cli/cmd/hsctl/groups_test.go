@@ -9,17 +9,22 @@ import (
 // groups every parent's help into core and extension sections. These checks
 // cover the generated parents (get, list, create, delete) and the hand-written
 // service account commands registered on them.
+// Verifies: CLI-EXT-01.01
 func TestParentCommandsSplitCoreAndExtensionHelp(t *testing.T) {
-	ext := []string{"agentRuntime", "sandboxTemplate", "providerSpec", "providerBinding", "inferenceRoute", "secretSource"}
-	extPlural := []string{"agentRuntimes", "sandboxTemplates", "providerSpecs", "providerBindings", "inferenceRoutes", "secretSources"}
+	ext := []string{"agentRuntime", "sandboxTemplate", "providerSpec", "providerBinding", "inferenceRoute", "secretSource", "ciProvider", "ciTrust"}
+	extPlural := []string{"agentRuntimes", "sandboxTemplates", "providerSpecs", "providerBindings", "inferenceRoutes", "secretSources", "ciProviders", "ciTrusts"}
+	// Repository is read-only from the CLI today: it has get and list, but no
+	// create or delete command (see hsctl-extension-commands.spec.md).
+	getExt := append(append([]string{}, ext...), "repository")
+	listExt := append(append([]string{}, extPlural...), "repositories")
 
 	for _, tc := range []struct {
 		verb string
 		core []string
 		ext  []string
 	}{
-		{"get", []string{"gateway", "managedCluster", "role", "roleBinding", "user", "serviceAccount"}, ext},
-		{"list", []string{"gateways", "managedClusters", "roles", "roleBindings", "users", "serviceAccounts"}, extPlural},
+		{"get", []string{"gateway", "managedCluster", "role", "roleBinding", "user", "serviceAccount"}, getExt},
+		{"list", []string{"gateways", "managedClusters", "roles", "roleBindings", "users", "serviceAccounts"}, listExt},
 		{"create", []string{"gateway", "managedCluster", "role", "roleBinding", "user", "serviceAccount"}, ext},
 		{"delete", []string{"gateway", "managedCluster", "roleBinding", "serviceAccount"}, ext},
 	} {
@@ -75,7 +80,7 @@ func TestParentCommandsSplitCoreAndExtensionHelp(t *testing.T) {
 // where these kinds are not served.
 func TestExtensionKindsHaveNoGeneratedUpdate(t *testing.T) {
 	update := subcommand(root, "update")
-	for _, name := range []string{"agentRuntime", "sandboxTemplate", "providerSpec", "providerBinding", "inferenceRoute", "secretSource"} {
+	for _, name := range []string{"agentRuntime", "sandboxTemplate", "providerSpec", "providerBinding", "inferenceRoute", "secretSource", "ciProvider", "ciTrust", "repository"} {
 		if subcommand(update, name) != nil {
 			t.Errorf("update %s exists; a generated one would call the /v1/ prefix", name)
 		}

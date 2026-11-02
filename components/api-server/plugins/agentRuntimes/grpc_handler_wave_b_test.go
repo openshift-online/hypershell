@@ -36,6 +36,7 @@ func TestAgentRuntimeToProto_EmbedsSecretSourcesAndStatusMessage(t *testing.T) {
 	}
 }
 
+// Verifies: PLAT-DATA-14.01
 func TestAgentRuntimeToProto_EmbedsWorkspacePayload(t *testing.T) {
 	ar := &AgentRuntime{Name: "amber"}
 	ar.ID = "ar-1"

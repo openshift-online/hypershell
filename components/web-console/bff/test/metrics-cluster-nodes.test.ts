@@ -44,6 +44,7 @@ function prometheusSample(value: string) {
 }
 
 describe("queryClusterNodes", () => {
+  // Verifies: OBS-NODE-02.01
   it("maps Prometheus total and ready samples into node counts", async () => {
     const prometheus = await startPrometheusStub((request, response) => {
       const url = new URL(request.url ?? "", "http://127.0.0.1");

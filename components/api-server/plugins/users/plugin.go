@@ -5,13 +5,13 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"github.com/openshift-online/hypershell/components/api-server/pkg/extsearch"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/registry"
 	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
-	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/generic"
 )
 
 type ServiceLocator func() UserService
@@ -19,7 +19,7 @@ type ServiceLocator func() UserService
 type ActivityRecorderLocator func() UserActivityRecorder
 
 func NewServiceLocator(env *environments.Env) ServiceLocator {
-	dao := NewUserDao(&env.Database.SessionFactory)
+	dao := NewUserDao(&env.Database.SessionFactory, db.NewAdvisoryLockFactory(env.Database.SessionFactory))
 	activityDao := NewUserActivityDao(&env.Database.SessionFactory)
 	RegisterUserMetrics(dao, activityDao)
 
@@ -68,7 +68,7 @@ func init() {
 
 	pkgserver.RegisterRoutes("users", func(apiV1Router *mux.Router, services pkgserver.ServicesInterface, authMiddleware environments.JWTMiddleware, authzMiddleware auth.AuthorizationMiddleware) {
 		envServices := services.(*environments.Services)
-		userHandler := NewUserHandler(Service(envServices), generic.Service(envServices))
+		userHandler := NewUserHandler(Service(envServices), extsearch.Service(envServices))
 
 		usersRouter := apiV1Router.PathPrefix("/users").Subrouter()
 		usersRouter.HandleFunc("", userHandler.List).Methods(http.MethodGet)

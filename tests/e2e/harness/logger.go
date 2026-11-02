@@ -70,6 +70,22 @@ func ReporterSink(reporter *Reporter) LogSink {
 	}
 }
 
+// RedactDiagnostic removes credential material from arbitrary diagnostic text
+// before it is written to human logs or artifacts. Unlike the structured
+// reporter's per-record path, this also handles a private-key block arriving as
+// separate lines and suppresses an unterminated block through end of input.
+func RedactDiagnostic(message string) string {
+	filter := &pemLineFilter{}
+	lines := strings.Split(message, "\n")
+	safe := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if filtered, ok := filter.line(line); ok {
+			safe = append(safe, redact(filtered))
+		}
+	}
+	return strings.Join(safe, "\n")
+}
+
 // Stream creates an independently scoped line writer for a subprocess. Its
 // human-readable output is still logged once, on completion; extra sinks get
 // lines immediately. Each command owns its PEM state, including partial lines.

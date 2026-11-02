@@ -29,3 +29,18 @@ func TestDesiredStateChangedIgnoresJSONNormalization(t *testing.T) {
 		t.Fatal("cleared oidc not reported as a desired-state change")
 	}
 }
+
+// A workspace_mode change is a desired-spec change: it flips the namespace
+// topology the control plane provisions, so it must advance generation and
+// re-open the convergence gate. (The service funnel rejects such a change
+// before it is written; this guards the comparison itself.)
+func TestDesiredStateChangedWorkspaceMode(t *testing.T) {
+	stored := &Gateway{WorkspaceMode: strPtr("shared")}
+	written := &Gateway{WorkspaceMode: strPtr("managed")}
+	if !desiredStateChanged(stored, written) {
+		t.Fatal("changed workspace_mode not reported as a desired-state change")
+	}
+	if desiredStateChanged(written, &Gateway{WorkspaceMode: strPtr("managed")}) {
+		t.Fatal("unchanged workspace_mode reported as a desired-state change")
+	}
+}

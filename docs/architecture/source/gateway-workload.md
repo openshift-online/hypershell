@@ -45,3 +45,22 @@ graph TB
   style RBAC fill:#f8d7da
   style NP fill:#f8d7da
 ```
+
+### Workspace mode: sandboxes run in per-workspace namespaces (default `managed`)
+
+Newly provisioned gateways default to the OpenShell `managed` workspace mode:
+the gateway auto-creates one namespace per workspace
+(`openshell-<gateway-id>-<workspace>`, labeled `openshell.ai/gateway-id`) and
+runs that workspace's sandbox pods there with plain sandbox names, instead of
+packing every sandbox into the tenant namespace with
+`<workspace>--<name>` pod names (the `shared` mode legacy gateways keep). The
+control plane derives a per-gateway unique `<gateway-id>` (the hexadecimal
+suffix of the tenant namespace) so per-workspace namespaces never collide
+across gateways on one cluster, attributes managed-mode sandbox pods back to
+their gateway for `active_sandbox_count`, and deletes a deleted gateway's
+managed namespaces during gateway deletion cleanup. The mode is
+platform-managed: no caller can set or change it; the API server defaults it
+to `managed` at create, and legacy gateways (created before the field
+existed) keep the chart's `shared` behavior. See
+specs/platform/openshell-gateway.spec.md, "OSG-CORE-18 -- Gateway Workspace
+Mode".

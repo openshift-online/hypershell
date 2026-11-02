@@ -50,6 +50,7 @@ function recordingReporter(
 }
 
 describe("FanOutDomainProbePublisher", () => {
+  // Verifies: UIS-OBS-04
   it("delivers the same immutable fact to every sink in configuration order", () => {
     const calls: string[] = [];
     const receivedByFirst: TestProbe[] = [];
@@ -91,6 +92,7 @@ describe("FanOutDomainProbePublisher", () => {
     });
   });
 
+  // Verifies: UIS-OBS-05
   it("isolates a failing sink and reports only bounded diagnostic fields", () => {
     const received: TestProbe[] = [];
     const failures: Readonly<ProbeDeliveryFailure>[] = [];
@@ -129,6 +131,7 @@ describe("FanOutDomainProbePublisher", () => {
     expect(JSON.stringify(failures)).not.toContain("secret payload");
   });
 
+  // Verifies: UIS-OBS-05
   it("keeps delivery non-throwing when the diagnostic reporter fails", () => {
     const received: TestProbe[] = [];
     const publisher = new FanOutDomainProbePublisher<TestProbe>({
@@ -159,6 +162,7 @@ describe("FanOutDomainProbePublisher", () => {
     });
   });
 
+  // Verifies: UIS-OBS-04
   it("protects later consumers from a sink that attempts mutation", () => {
     const received: TestProbe[] = [];
     const failures: Readonly<ProbeDeliveryFailure>[] = [];
@@ -181,6 +185,7 @@ describe("FanOutDomainProbePublisher", () => {
     expect(received[0]?.fields.outcome).toBe("started");
   });
 
+  // Verifies: UIS-OBS-05
   it("records an out-of-band delivery failure into the same health accounting", () => {
     const failures: Readonly<ProbeDeliveryFailure>[] = [];
     const publisher = new FanOutDomainProbePublisher<TestProbe>({
@@ -212,6 +217,7 @@ describe("FanOutDomainProbePublisher", () => {
     expect(Object.isFrozen(failures[0])).toBe(true);
   });
 
+  // Verifies: UIS-OBS-05
   it("keeps an out-of-band report non-throwing when the diagnostic reporter fails", () => {
     const publisher = new FanOutDomainProbePublisher<TestProbe>({
       failureReporter: {

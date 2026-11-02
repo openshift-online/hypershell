@@ -59,6 +59,7 @@ func TestHostPortFromDockerPortOutput(t *testing.T) {
 // or a leftover backend) fails provisioning with "source database is being
 // accessed by other users" for as long as that session lasts. The production
 // path must succeed anyway.
+// Verifies: OSG-DBS-03.05
 func TestReconcileGatewayDatabaseWhileTemplate1Occupied(t *testing.T) {
 	cli, ok := containerCLI()
 	if !ok {
@@ -150,7 +151,9 @@ func startTLSPostgres(t *testing.T, cli, tlsDir string) string {
 		"-e", "POSTGRES_HOST_AUTH_METHOD=scram-sha-256",
 		"-v", tlsDir+":/tls:ro",
 		"-p", "127.0.0.1::5432",
-		"postgres:15",
+		// Fully qualified so podman without unqualified-search registries
+		// resolves it the same way docker resolves "postgres:15".
+		"docker.io/library/postgres:15",
 		"sh", "-c",
 		"cp /tls/tls.key /tmp/server.key && chown postgres:postgres /tmp/server.key && chmod 600 /tmp/server.key && exec docker-entrypoint.sh postgres -c ssl=on -c ssl_cert_file=/tls/tls.crt -c ssl_key_file=/tmp/server.key",
 	)

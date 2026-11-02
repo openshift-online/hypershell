@@ -38,6 +38,22 @@ func TestResolvePlacementSelectsRandomEligibleCandidate(t *testing.T) {
 	}
 }
 
+func TestResolvePlacementExcludesCandidatesCarryingExcludedLabels(t *testing.T) {
+	got, err := ResolvePlacement(PlacementIntent{
+		Selector:         []string{"network/public", "provider/ibm"},
+		ExcludedSelector: []string{"runtime/kata"},
+	}, []PlacementCandidate{
+		{ID: "kata", Capabilities: []string{"network/public", "provider/ibm", "runtime/kata"}, Connected: true},
+		{ID: "without-kata", Capabilities: []string{"network/public", "provider/ibm"}, Connected: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "without-kata" {
+		t.Fatalf("selected = %q; want without-kata", got)
+	}
+}
+
 func TestResolvePlacementRejectsUnavailablePlacement(t *testing.T) {
 	if _, err := ResolvePlacement(PlacementIntent{Selector: []string{"network/public", "provider/aws"}}, nil); err == nil {
 		t.Fatal("expected unavailable placement error")
@@ -59,10 +75,10 @@ func TestResolvePlacementReturnsRandomSourceFailure(t *testing.T) {
 func TestManagedPlacementAvailableRequiresMatchAll(t *testing.T) {
 	snapshot := placementSnapshot{candidates: []PlacementCandidate{{ID: "public-aws", Capabilities: []string{"network/public", "provider/aws"}, Connected: true}}}
 
-	if !managedPlacementAvailable(snapshot, []string{"network/public", "provider/aws"}) {
+	if !managedPlacementAvailable(snapshot, PlacementIntent{Selector: []string{"network/public", "provider/aws"}}) {
 		t.Fatal("expected public AWS placement to be available")
 	}
-	if managedPlacementAvailable(snapshot, []string{"network/vpn", "provider/aws"}) {
+	if managedPlacementAvailable(snapshot, PlacementIntent{Selector: []string{"network/vpn", "provider/aws"}}) {
 		t.Fatal("expected VPN AWS placement to be unavailable without a VPN cluster")
 	}
 }

@@ -107,6 +107,7 @@ func TestCreateAgentRuntime_Validates(t *testing.T) {
 	}
 }
 
+// Verifies: SEC-RBAC-09.07
 func TestUpdateAgentRuntime_EnforcesOwnership(t *testing.T) {
 	otherRepo := "repo-2"
 	found := &AgentRuntime{Name: "amber", RepositoryId: &otherRepo}
@@ -152,6 +153,7 @@ func TestDeleteAgentRuntime_NilFoundGuard(t *testing.T) {
 	}
 }
 
+// Verifies: SEC-RBAC-09.07
 func TestDeleteAgentRuntime_EnforcesOwnership(t *testing.T) {
 	otherRepo := "repo-2"
 	found := &AgentRuntime{Name: "amber", RepositoryId: &otherRepo}

@@ -104,6 +104,7 @@ func (f *fakeAgentRuntimeDao) RepositoryExists(ctx context.Context, id string) (
 
 func strPtr(s string) *string { return &s }
 
+// Verifies: PLAT-DATA-09.02
 func TestCreate_SelectorWithoutRepository_422(t *testing.T) {
 	svc := agentRuntimes.NewAgentRuntimeService(&fakeAgentRuntimeDao{}, &fakeEventService{})
 	ar := &agentRuntimes.AgentRuntime{

@@ -103,6 +103,7 @@ describe("queryGatewayPhaseCounts", () => {
 });
 
 describe("queryGatewayMetrics", () => {
+  // Verifies: OBS-GFT-03.01
   it("maps Prometheus range samples into daily_fleet_totals", async () => {
     const prometheus = await startPrometheusStub((request, response) => {
       const url = new URL(request.url ?? "/", "http://127.0.0.1");
@@ -164,6 +165,7 @@ describe("queryGatewayMetrics", () => {
     }
   });
 
+  // Verifies: OBS-GFT-03.02
   it("returns counts without daily_fleet_totals when the range query fails", async () => {
     const prometheus = await startPrometheusStub((request, response) => {
       const url = new URL(request.url ?? "/", "http://127.0.0.1");

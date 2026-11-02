@@ -4,7 +4,7 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**Items** | [**[]GatewayDirectoryUser**](GatewayDirectoryUser.md) |  | 
+**Items** | [**[]GatewayDirectoryUser**](GatewayDirectoryUser.md) |  |
 
 ## Methods
 
@@ -47,5 +47,3 @@ SetItems sets Items field to given value.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
-
-

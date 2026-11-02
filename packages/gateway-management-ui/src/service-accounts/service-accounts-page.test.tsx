@@ -53,6 +53,7 @@ const mocks = vi.hoisted(() => ({
   get: vi.fn(),
   list: vi.fn(),
   revoke: vi.fn(),
+  updateRole: vi.fn(),
 }));
 
 const operations: GatewayOperations = {
@@ -74,6 +75,7 @@ const operations: GatewayOperations = {
   removeGateway: vi.fn(),
   renameGateway: vi.fn(),
   revokeOpenShellGatewayServiceAccount: mocks.revoke,
+  updateOpenShellGatewayServiceAccountRole: mocks.updateRole,
 };
 
 function page(
@@ -124,6 +126,10 @@ describe("ServiceAccountsPage", () => {
     mocks.get.mockResolvedValue({ connection, serviceAccount: account });
     mocks.revoke.mockResolvedValue({ ...account, status: "revoking" });
     mocks.delete.mockResolvedValue(undefined);
+    mocks.updateRole.mockResolvedValue({
+      ...account,
+      role: "openshell-admin",
+    });
     mocks.create.mockResolvedValue({
       credential: { ...connection, clientSecret: "literal-client-secret" },
       serviceAccount: account,
@@ -165,6 +171,7 @@ describe("ServiceAccountsPage", () => {
     );
   });
 
+  // Verifies: OSG-SACC-11.03
   it("keeps the one-time secret local while completing setup", async () => {
     const user = userEvent.setup();
     const { queryClient } = renderPage();
@@ -425,6 +432,72 @@ describe("ServiceAccountsPage", () => {
     expect(within(dialog).getByDisplayValue("deploy-bot")).toBeTruthy();
   });
 
+  // Verifies: OSG-SACC-11.06
+  it("edits a ready service account's role in place and refetches", async () => {
+    const user = userEvent.setup();
+    const userAccount = { ...account, role: "openshell-user" as const };
+    mocks.list.mockResolvedValue(page([userAccount]));
+    renderPage();
+    await screen.findByText("deploy-bot");
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Actions for service account deploy-bot",
+      }),
+    );
+    await user.click(screen.getByRole("menuitem", { name: "Edit role" }));
+    const editDialog = await screen.findByRole("dialog", {
+      name: "Edit deploy-bot",
+    });
+    expect(
+      within(editDialog).getByText(/client credentials are unchanged/u),
+    ).toBeTruthy();
+    expect(
+      within(editDialog).getByText("When the change takes effect"),
+    ).toBeTruthy();
+    await user.click(
+      within(editDialog).getByRole("button", { name: "OpenShell role" }),
+    );
+    const adminDescription = screen.getByText(
+      "Can perform OpenShell administrative operations on this gateway.",
+    );
+    const adminOption = adminDescription.closest("button");
+    if (!adminOption) {
+      throw new Error("OpenShell admin option was not rendered as a button");
+    }
+    await user.click(adminOption);
+    await user.click(
+      within(editDialog).getByRole("button", { name: "Save changes" }),
+    );
+
+    await waitFor(() => {
+      expect(mocks.updateRole).toHaveBeenCalledWith("gateway-1", "account-1", {
+        role: "openshell-admin",
+      });
+    });
+    await waitFor(() => {
+      expect(mocks.list.mock.calls.length).toBeGreaterThan(1);
+    });
+  });
+
+  // Verifies: OSG-SACC-11
+  it("offers the edit action only for ready or degraded accounts", async () => {
+    const user = userEvent.setup();
+    mocks.list.mockResolvedValue(
+      page([{ ...account, status: "revoked" as const }]),
+    );
+    renderPage();
+    await screen.findByText("deploy-bot");
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Actions for service account deploy-bot",
+      }),
+    );
+    expect(screen.queryByRole("menuitem", { name: "Edit role" })).toBeNull();
+  });
+
+  // Verifies: OSG-SACC-11.04
   it("loads repeatable setup and confirms revoke and delete separately", async () => {
     const user = userEvent.setup();
     const userAccount = { ...account, role: "openshell-user" as const };

@@ -1,7 +1,7 @@
-# UI-PF-06 - Decision record: the topology canvas is the one sanctioned custom component
+# UIS-PFLY-06 - Decision record: the topology canvas is the one sanctioned custom component
 
 **Status:** Accepted
-**Standard:** `patternfly.spec.md` UI-PF-06 (custom component requires a decision
+**Standard:** `patternfly.spec.md` UIS-PFLY-06 (custom component requires a decision
 record: gap evidenced, alternatives considered, public API, a11y contract,
 retirement path).
 **Context specs:** operational-dashboard `ui-architecture.spec.md` §6 (the one
@@ -96,7 +96,7 @@ zoomOut, fit, didPan }`; `MapNodeCard`, `MapEdges`, `MiniMap`, `FreightBar`,
   canvas controls). Zoom/fit controls are real PatternFly `Button`s with
   catalog `aria-label`s.
 - Target is the AA baseline (§10); automated a11y score alone is **not** proof
-  (UI-VER-08) - behavior is exercised in tests.
+  (UIS-VER-08) - behavior is exercised in tests.
 
 ## 6. Performance posture (§7)
 

@@ -93,6 +93,18 @@ variants by per-architecture digest (`amd64` and `arm64`). `docker`/`podman`
 
 The BFF proxies `/api/*` to the fixed `HYPERSHELL_API_ORIGIN` origin, which defaults to `http://127.0.0.1:8000` for a colocated API. Set that variable to an HTTP(S) origin reachable from the container when the API is deployed separately. Browser cookies and authorization headers are not forwarded; the current product assumption is that all gateway records are visible. `HYPERSHELL_API_TIMEOUT_MS` bounds each upstream request and defaults to 30 seconds.
 
+Production external HTTPS URLs are centralized in
+`packages/gateway-management-ui/src/application/external-links.json`. Run
+`pnpm --filter @openshift-online/hypershell-web-console routes:check` to keep
+the route contract synchronized and reject hard-coded production SPA routes.
+Run
+`pnpm --filter @openshift-online/hypershell-web-console external-links:static`
+to verify registry integrity and reject hard-coded production URLs. Run
+`pnpm --filter @openshift-online/hypershell-web-console external-links:check`
+to also fetch every routable registry URL with `HEAD`, a `GET` fallback,
+bounded concurrency, and a timeout. Loopback and `.local` command endpoints are
+validated but intentionally not fetched.
+
 ## Dashboard metrics
 
 The BFF queries Prometheus from the server. The browser does not receive metrics

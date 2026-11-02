@@ -144,7 +144,7 @@ caller can name a Secret, and there is nothing to place, protect or count.
 
 ## Requirements
 
-### Requirement: Admin Credential Mount
+### Requirement: OSG-DBS-01 -- Admin Credential Mount
 
 The controller Deployment SHALL mount a Secret holding the gateway database server's
 administrative connection read-only at the directory named by
@@ -184,7 +184,7 @@ Admin credential values SHALL NEVER appear in logs, error strings, telemetry, Ev
 or API responses. Error messages MAY name the file that failed validation and the
 directory path; they SHALL NOT include the file contents.
 
-#### Scenario: Password changed in the mounted Secret
+#### Scenario: OSG-DBS-01.01 -- Password changed in the mounted Secret
 
 - GIVEN a running control plane and an admin Secret whose `password` is updated
 - WHEN the kubelet refreshes the mounted files
@@ -192,7 +192,7 @@ directory path; they SHALL NOT include the file contents.
 - THEN it SHALL authenticate with the new password
 - AND no controller restart SHALL be required
 
-#### Scenario: Overlay renames the admin Secret
+#### Scenario: OSG-DBS-01.02 -- Overlay renames the admin Secret
 
 - GIVEN an overlay that mounts a Secret with a different name at
   `GATEWAY_DATABASE_ADMIN_DIR`
@@ -202,7 +202,7 @@ directory path; they SHALL NOT include the file contents.
 
 ---
 
-### Requirement: Startup Precondition
+### Requirement: OSG-DBS-02 -- Startup Precondition
 
 The control plane SHALL validate the admin credential directory before it serves any
 watch stream, and SHALL refuse to start - log a fatal error naming the failing file
@@ -228,28 +228,28 @@ prevent the controller from running.
 > retries do fix, and tying controller liveness to it would take down namespace GC,
 > Keycloak reconciliation and every other controller duty for a database outage.
 
-#### Scenario: Required file missing
+#### Scenario: OSG-DBS-02.01 -- Required file missing
 
 - GIVEN the admin Secret lacks a `sslrootcert` key
 - WHEN the control plane starts
 - THEN it SHALL log a fatal error naming `sslrootcert` and the directory
 - AND SHALL exit non-zero before serving any watch stream
 
-#### Scenario: sslmode set to a weaker value
+#### Scenario: OSG-DBS-02.02 -- sslmode set to a weaker value
 
 - GIVEN the admin Secret carries `sslmode: require`
 - WHEN the control plane starts
 - THEN it SHALL log a fatal error stating that `sslmode` must be `verify-full`
 - AND SHALL exit non-zero
 
-#### Scenario: CA bundle is not PEM
+#### Scenario: OSG-DBS-02.03 -- CA bundle is not PEM
 
 - GIVEN `sslrootcert` contains text that yields no certificate when parsed as PEM
 - WHEN the control plane starts
 - THEN it SHALL log a fatal error naming `sslrootcert`
 - AND SHALL exit non-zero
 
-#### Scenario: Server unreachable at startup
+#### Scenario: OSG-DBS-02.04 -- Server unreachable at startup
 
 - GIVEN valid credential files and a server that is not reachable
 - WHEN the control plane starts
@@ -259,7 +259,7 @@ prevent the controller from running.
 
 ---
 
-### Requirement: Per-Gateway Database Provisioning
+### Requirement: OSG-DBS-03 -- Per-Gateway Database Provisioning
 
 The GatewayReconciler SHALL provision a dedicated PostgreSQL database and login role
 for each gateway by issuing idempotent DDL against the server over an admin
@@ -348,7 +348,7 @@ and return the error to the reconcile queue.
 > HyperShell does not rotate gateway database credentials - see Requirement: No
 > Credential Rotation.
 
-#### Scenario: New gateway provisioned
+#### Scenario: OSG-DBS-03.01 -- New gateway provisioned
 
 - GIVEN a new Gateway
 - WHEN the GatewayReconciler processes the event
@@ -359,14 +359,14 @@ and return the error to the reconcile queue.
 - AND write `openshell-gateway-db-credentials` into the tenant namespace
 - AND proceed to deploy the gateway workload
 
-#### Scenario: Re-reconcile an already-provisioned gateway
+#### Scenario: OSG-DBS-03.02 -- Re-reconcile an already-provisioned gateway
 
 - GIVEN a Gateway whose role and database already exist
 - WHEN the GatewayReconciler re-processes the event
 - THEN it SHALL detect both exist and make no destructive change
 - AND SHALL NOT regenerate or alter the password
 
-#### Scenario: Tenant credentials Secret lost while the role still exists
+#### Scenario: OSG-DBS-03.03 -- Tenant credentials Secret lost while the role still exists
 
 - GIVEN a Gateway whose role `gw_<gatewayID>` exists on the server
 - AND whose tenant-namespace `openshell-gateway-db-credentials` Secret is absent (for
@@ -376,14 +376,14 @@ and return the error to the reconcile queue.
   `ALTER ROLE`, and write the matching tenant Secret
 - AND the gateway SHALL be able to authenticate without operator intervention
 
-#### Scenario: Non-superuser admin creates the database
+#### Scenario: OSG-DBS-03.04 -- Non-superuser admin creates the database
 
 - GIVEN an admin role that has `CREATEDB` and `CREATEROLE` but is not a superuser
 - WHEN the GatewayReconciler provisions a new gateway
 - THEN `CREATE DATABASE gw_<gatewayID> OWNER gw_<gatewayID> TEMPLATE template0` SHALL succeed because
   the admin was granted membership in `gw_<gatewayID>` first
 
-#### Scenario: Template1 is occupied during CREATE DATABASE
+#### Scenario: OSG-DBS-03.05 -- Template1 is occupied during CREATE DATABASE
 
 - GIVEN a session is connected to `template1` (another gateway's `CREATE DATABASE`,
   autovacuum, or a leftover backend)
@@ -391,7 +391,7 @@ and return the error to the reconcile queue.
 - THEN `CREATE DATABASE ... TEMPLATE template0` SHALL succeed
 - AND provisioning SHALL NOT fail with SQLSTATE 55006
 
-#### Scenario: Server unreachable during gateway provisioning
+#### Scenario: OSG-DBS-03.06 -- Server unreachable during gateway provisioning
 
 - GIVEN a Gateway whose database server is unreachable
 - WHEN the GatewayReconciler attempts DDL
@@ -400,7 +400,7 @@ and return the error to the reconcile queue.
 - AND SHALL NOT create the gateway workload
 - AND the reconcile queue SHALL retry
 
-#### Scenario: Admin role lacks required privileges
+#### Scenario: OSG-DBS-03.07 -- Admin role lacks required privileges
 
 - GIVEN an admin role without `CREATEDB` or `CREATEROLE`
 - WHEN the GatewayReconciler attempts to create the role or database
@@ -409,7 +409,7 @@ and return the error to the reconcile queue.
 
 ---
 
-### Requirement: Gateway Credentials Secret
+### Requirement: OSG-DBS-04 -- Gateway Credentials Secret
 
 After per-gateway DDL, the GatewayReconciler SHALL ensure the tenant-namespace Secret
 `openshell-gateway-db-credentials` exists with exactly these keys:
@@ -452,7 +452,7 @@ The `sslmode` in the tenant Secret and in `uri` SHALL always be `require`. There
 no configuration, annotation or environment variable that lowers it further, and
 none that raises it while the chart cannot mount a database CA.
 
-#### Scenario: Credentials Secret written
+#### Scenario: OSG-DBS-04.01 -- Credentials Secret written
 
 - GIVEN a provisioned role and database for a Gateway
 - WHEN the GatewayReconciler writes the tenant credentials Secret
@@ -460,7 +460,7 @@ none that raises it while the chart cannot mount a database CA.
 - AND the Secret SHALL have no `sslrootcert` key
 - AND the Secret SHALL contain no admin `user` or `password`
 
-#### Scenario: Gateway connects over an encrypted connection
+#### Scenario: OSG-DBS-04.02 -- Gateway connects over an encrypted connection
 
 - GIVEN a gateway workload deployed by the Helm chart for a provisioned Gateway
 - WHEN the gateway pod starts
@@ -471,7 +471,7 @@ none that raises it while the chart cannot mount a database CA.
 
 ---
 
-### Requirement: CA Bundle Rotation
+### Requirement: OSG-DBS-05 -- CA Bundle Rotation
 
 When the server's CA changes, the operator SHALL update the admin Secret's
 `sslrootcert` to a bundle containing **both** the old and the new CA for the
@@ -483,7 +483,7 @@ a rotated bundle takes effect without a controller restart. Because the tenant
 Secret carries no CA bundle, a CA rotation SHALL NOT require rewriting tenant
 Secrets, regenerating passwords or restarting gateway Deployments.
 
-#### Scenario: Admin bundle updated
+#### Scenario: OSG-DBS-05.01 -- Admin bundle updated
 
 - GIVEN a running control plane provisioning gateway databases
 - AND the admin Secret's `sslrootcert` now contains the old and the new CA
@@ -494,7 +494,7 @@ Secrets, regenerating passwords or restarting gateway Deployments.
 
 ---
 
-### Requirement: Gateway Workload Type
+### Requirement: OSG-DBS-06 -- Gateway Workload Type
 
 The gateway workload SHALL always be deployed as a Deployment (not a StatefulSet). The
 gateway workload does not require persistent local storage; its data lives in its
@@ -502,7 +502,7 @@ per-gateway database on the server.
 
 ---
 
-### Requirement: Per-Gateway Cleanup
+### Requirement: OSG-DBS-07 -- Per-Gateway Cleanup
 
 When a Gateway is deleted, the control plane SHALL destroy that gateway's database and
 role. Deletion is **unconditional**: there is no retention policy, no per-database
@@ -553,12 +553,12 @@ The Event SHALL be recorded on the **first** failure, not only after retries are
 exhausted, because the reconcile queue is in-memory: if the controller restarts while
 a retry is pending, the pending retry is lost and the API server does not re-deliver
 the delete event for an already soft-deleted row. The Event is therefore the durable
-record that an operator must check the server, and the runbook below is the
-recovery path. A retry that later succeeds leaves the earlier Event in place; the
-Event says a leftover **may** exist, and step 1 of the runbook confirms whether it
-does.
+record that an operator must check the server and drop any leftover role and
+database by hand. A retry that later succeeds leaves the earlier Event in place; the
+Event says a leftover **may** exist, and the operator confirms on the server whether
+it does.
 
-#### Scenario: Delete gateway
+#### Scenario: OSG-DBS-07.01 -- Delete gateway
 
 - GIVEN a Gateway with no active sandboxes
 - WHEN the Gateway is deleted
@@ -567,14 +567,14 @@ does.
 - AND SHALL delete all resources with label `hypershell.redhat.io/managed: "true"` from
   the tenant namespace, including the credentials Secret
 
-#### Scenario: Replay a cleanup whose objects are already gone
+#### Scenario: OSG-DBS-07.02 -- Replay a cleanup whose objects are already gone
 
 - GIVEN a delete event for a Gateway whose database and role are absent
 - WHEN the control plane runs the cleanup
 - THEN it SHALL treat both as successfully cleaned up and SHALL NOT return an error
 - AND SHALL NOT record an `IncompleteFinalization` Event
 
-#### Scenario: Cleanup fails while the server is unreachable
+#### Scenario: OSG-DBS-07.03 -- Cleanup fails while the server is unreachable
 
 - GIVEN a Gateway delete event whose database server is unreachable
 - WHEN the control plane attempts cleanup
@@ -585,17 +585,18 @@ does.
 - AND the role and database SHALL remain on the server until a retry succeeds or an
   operator removes them
 
-#### Scenario: Controller restarts with a cleanup retry pending
+#### Scenario: OSG-DBS-07.04 -- Controller restarts with a cleanup retry pending
 
 - GIVEN a Gateway delete whose database cleanup failed and recorded an Event
 - WHEN the controller restarts before the retry runs
 - THEN the pending retry is lost with the in-memory queue
 - AND the `IncompleteFinalization` Event from the failed attempt SHALL still exist
-- AND the operator runbook SHALL be the recovery path for the leftover objects
+- AND an operator SHALL recover the leftover objects by hand, using the Event to
+  find them
 
 ---
 
-### Requirement: Gateway Deletion With Active Sandboxes (Advisory)
+### Requirement: OSG-DBS-08 -- Gateway Deletion With Active Sandboxes (Advisory)
 
 Active sandboxes SHALL NOT block Gateway deletion. Before an operator deletes a
 Gateway, the active sandbox count is surfaced as a warning so they can see how many
@@ -606,7 +607,7 @@ running sessions the deletion would disrupt (see
 but the count is advisory only: deletion proceeds regardless and reclaims the gateway's
 resources.
 
-#### Scenario: Delete gateway that has active sandboxes
+#### Scenario: OSG-DBS-08.01 -- Delete gateway that has active sandboxes
 
 - GIVEN a Gateway with one or more active sandboxes
 - WHEN a user deletes the Gateway (having been warned of the active sandbox count)
@@ -617,7 +618,7 @@ resources.
 
 ---
 
-### Requirement: No Credential Rotation
+### Requirement: OSG-DBS-09 -- No Credential Rotation
 
 HyperShell SHALL NOT rotate per-gateway database credentials. No Gateway annotation,
 API field, or environment variable triggers a new password. An operator who must
@@ -632,7 +633,7 @@ Admin credential changes are not rotation performed by HyperShell either: the op
 updates the mounted Secret and the control plane reads the new value on its next
 operation (see Requirement: Admin Credential Mount).
 
-#### Scenario: Re-reconciliation does not change the password
+#### Scenario: OSG-DBS-09.01 -- Re-reconciliation does not change the password
 
 - GIVEN a provisioned Gateway whose tenant credentials Secret exists
 - WHEN the GatewayReconciler processes any update event for the Gateway
@@ -643,7 +644,7 @@ operation (see Requirement: Admin Credential Mount).
 
 ---
 
-### Requirement: Database Credential Security
+### Requirement: OSG-DBS-10 -- Database Credential Security
 
 - Admin credentials live only in the mounted Secret and in process memory for the
   duration of one database operation. The control plane SHALL NOT persist them
@@ -658,14 +659,16 @@ operation (see Requirement: Admin Credential Mount).
   wrapped error SHALL include a connection-failure category (`unreachable`,
   `tls_failed`, or `auth_failed`) and a credential-stripped copy of the driver
   message so operators can tell a TLS hostname mismatch from a TCP timeout.
-- Both the admin connection and the gateway connection SHALL use `sslmode=verify-full`
-  with the CA bundle from the admin Secret. `require`, `prefer`, `verify-ca` and
-  `disable` are not accepted anywhere: the control plane refuses to start on a
-  weaker admin `sslmode`, and writes only `verify-full` into tenant Secrets.
-  Development and CI stand-in servers therefore serve TLS with a self-signed CA
+- The admin connection SHALL use `sslmode=verify-full` with the CA bundle from the
+  admin Secret. `require`, `prefer`, `verify-ca` and `disable` are not accepted for
+  it: the control plane refuses to start on a weaker admin `sslmode`.
+- The gateway connection SHALL use `sslmode=require` (see OSG-DBS-04). It is always
+  encrypted and never falls back to plaintext, but it does not verify the server
+  certificate.
+- Development and CI stand-in servers therefore serve TLS with a self-signed CA
   generated by the dev scripts rather than running without TLS.
 
-#### Scenario: Driver error is not echoed with its connection string
+#### Scenario: OSG-DBS-10.01 -- Driver error is not echoed with its connection string
 
 - GIVEN an admin connection that fails with a driver error containing the endpoint,
   the admin user and the DSN
@@ -679,7 +682,7 @@ operation (see Requirement: Admin Credential Mount).
 
 ---
 
-### Requirement: No Database Surface in the API and CLI
+### Requirement: OSG-DBS-11 -- No Database Surface in the API and CLI
 
 The Gateway contract (REST, gRPC, OpenAPI, SDKs, CLI, web console) SHALL NOT carry a
 database reference, and the API SHALL expose no database resource kind. Gateway
@@ -687,7 +690,7 @@ creation SHALL NOT perform a database placement step and SHALL NOT be rejected f
 lack of a registered database. The gateway provisioning form and the gateway details
 view SHALL NOT show a database identifier.
 
-#### Scenario: Create a gateway
+#### Scenario: OSG-DBS-11.01 -- Create a gateway
 
 - GIVEN a valid gateway create request with `name` and `cluster_id`
 - WHEN the API server processes it
@@ -696,26 +699,27 @@ view SHALL NOT show a database identifier.
 
 ---
 
-### Requirement: Development Environments Use the Same Path
+### Requirement: OSG-DBS-12 -- Development Environments Use the Same Path
 
 `make kind-up` and `make openshift-up` SHALL deploy a stand-in PostgreSQL server that
 **serves TLS** with a self-signed CA generated by the dev scripts, and SHALL create
 `hypershell-gateway-database-admin` in the HyperShell namespace with the stand-in
 server's admin connection, `sslmode: verify-full` and that CA as `sslrootcert`. The
 control plane and the gateways then exercise exactly the production path
-(`verify-full`, per-gateway DDL, tenant Secret with CA). No database resource is
+(admin connection at `verify-full`, per-gateway DDL, tenant Secret at
+`sslmode=require`). No database resource is
 seeded and no credentials namespace is created. See
 [`local-development.spec.md`](./local-development.spec.md) and
 [`openshift-development.spec.md`](./openshift-development.spec.md).
 
-#### Scenario: kind-up provisions a gateway database over verified TLS
+#### Scenario: OSG-DBS-12.01 -- kind-up provisions a gateway database over verified TLS
 
 - GIVEN `make kind-up` has deployed the stand-in server and the admin Secret
 - WHEN the seeded Gateway is reconciled
 - THEN the control plane SHALL provision `gw_<gatewayID>` over a `verify-full`
   connection to the stand-in server
-- AND the gateway pod SHALL connect with the self-signed CA from
-  `/etc/openshell-db/ca.crt`
+- AND the gateway pod SHALL connect to `gw_<gatewayID>` over TLS with
+  `sslmode=require`
 
 ---
 
@@ -830,125 +834,21 @@ stringData:
   dbname: gw_2j5k7m9pqrstvwxyz
   user: gw_2j5k7m9pqrstvwxyz
   password: <32-byte-hex-random>
-  sslmode: verify-full
-  sslrootcert: |
-    -----BEGIN CERTIFICATE-----
-    ...same bundle as the admin Secret...
-    -----END CERTIFICATE-----
-  uri: postgresql://gw_2j5k7m9pqrstvwxyz:<password>@mydb.abc123.us-east-1.rds.amazonaws.com:5432/gw_2j5k7m9pqrstvwxyz?sslmode=verify-full&sslrootcert=/etc/openshell-db/ca.crt
+  sslmode: require
+  uri: postgresql://gw_2j5k7m9pqrstvwxyz:<password>@mydb.abc123.us-east-1.rds.amazonaws.com:5432/gw_2j5k7m9pqrstvwxyz?sslmode=require
 ```
 
-Gateway Deployment fragment (rendered by the control plane):
+Gateway container environment (rendered by the OpenShell Helm chart from
+`server.externalDbSecret`; no database CA is mounted):
 
 ```yaml
-args: ["--config", "/etc/openshell/gateway.toml", "--db-url", "$(OPENSHELL_DB_URL)"]
 env:
   - name: OPENSHELL_DB_URL
     valueFrom:
       secretKeyRef:
         name: openshell-gateway-db-credentials
         key: uri
-volumeMounts:
-  - name: database-ca
-    mountPath: /etc/openshell-db
-    readOnly: true
-volumes:
-  - name: database-ca
-    secret:
-      secretName: openshell-gateway-db-credentials
-      items:
-        - key: sslrootcert
-          path: ca.crt
 ```
-
----
-
-## Operator Runbook
-
-### Finding and dropping leftover gateway databases
-
-Per-gateway cleanup retries while the controller is running, but the retry queue is
-in-memory and a failed attempt is recorded as an `IncompleteFinalization` Event (see
-Requirement: Per-Gateway Cleanup). Detect and recover leftovers as follows.
-
-1. **Check for recorded failures** in the control-plane namespace:
-   ```sh
-   kubectl -n <hypershell-namespace> get events \
-     --field-selector reason=IncompleteFinalization
-   ```
-   Each Event names the gateway ID and the `PostgreSQLDatabase gw_<id>` that may
-   have been left behind. A later retry may already have removed it; confirm on the
-   server.
-
-2. **Identify leftover databases** - connect as the admin user and query:
-   ```sql
-   SELECT datname FROM pg_database WHERE datname LIKE 'gw\_%';
-   ```
-   Compare the result to the gateway IDs currently registered in HyperShell
-   (`GET /api/hypershell/v1/gateways`). Any `gw_<id>` database whose gateway ID is
-   no longer in HyperShell is a leftover. (`_` is a `LIKE` wildcard, hence the
-   backslash escape.)
-
-3. **Identify leftover roles** - similarly:
-   ```sql
-   SELECT rolname FROM pg_roles WHERE rolname LIKE 'gw\_%';
-   ```
-
-4. **Terminate, then drop** - for each leftover:
-   ```sql
-   SELECT pg_terminate_backend(pid)
-     FROM pg_stat_activity WHERE datname = 'gw_<id>';
-   DROP DATABASE "gw_<id>" WITH (FORCE);
-   DROP ROLE "gw_<id>";
-   ```
-
-5. **Tenant Secret** - `openshell-gateway-db-credentials` in the gateway's tenant
-   namespace is removed by the platform's label-based namespace cleanup when the
-   gateway namespace is reclaimed. If the namespace was already deleted, the Secret is
-   gone. If it persists, delete it manually.
-
-### Changing the admin password
-
-1. Change the password on the server (`ALTER ROLE hypershell_admin PASSWORD ...`, or
-   the cloud provider's console).
-2. Update `password` in `hypershell-gateway-database-admin` (or in the secret manager
-   when the External Secrets component is used).
-3. Wait for the kubelet to refresh the mounted Secret (typically under a minute). No
-   controller restart is needed; the next database operation uses the new value.
-   Gateway connections are unaffected: they use their own `gw_<id>` roles.
-
-### Rotating the server CA
-
-1. Build a PEM bundle containing the **current** CA and the **new** CA.
-2. Update `sslrootcert` in the admin Secret to that bundle. The controller uses it on
-   its next database operation; on each gateway's next reconcile the tenant Secret's
-   `sslrootcert` is rewritten to match.
-3. Restart gateway Deployments (`kubectl -n openshell-<hex> rollout restart
-   deployment/openshell-gateway`) so every gateway process reads the new bundle from
-   `/etc/openshell-db/ca.crt`. Do this before the server switches to the new chain.
-4. Switch the server to the new certificate chain.
-5. Once every gateway has been restarted and reconciled, replace the bundle with the
-   new CA only and repeat steps 2 and 3.
-
----
-
-## Debugging Reference
-
-| Symptom | Root Cause | Fix |
-|---|---|---|
-| Controller pod crash-loops; log says a gateway database credential file is missing or empty | `hypershell-gateway-database-admin` is absent, not mounted at `GATEWAY_DATABASE_ADMIN_DIR`, or lacks a required key | Create the Secret with `host`, `port`, `user`, `password`, `sslrootcert`; check the volume mount and env var |
-| Controller refuses to start: `sslmode must be verify-full` | The admin Secret sets `sslmode` to `require`, `verify-ca`, `disable` or `prefer` | Remove the key or set it to `verify-full`; there is no downgrade |
-| Controller refuses to start: `sslrootcert` is not PEM | The CA was supplied as a path or DER, or the PEM is truncated | Put the full PEM text of the CA bundle in the `sslrootcert` key |
-| Controller refuses to start: invalid `port` | `port` is not an integer in `1`-`65535` | Correct the value (usually `5432`) |
-| Gateway stuck with `DatabaseReady: Failed` (database service unavailable) | No network path from the control-plane cluster to the server, or DNS failure | Fix VPC peering / security groups / private endpoint; the reconcile retries on its own |
-| Gateway `DatabaseReady: Failed`; controller log shows a certificate verification error | The server certificate does not chain to `sslrootcert`, or its hostname does not match `host` | Supply the provider's current CA bundle; connect by the hostname on the certificate, not an IP |
-| Gateway `DatabaseReady: Failed`; controller log shows a permission error on `CREATE DATABASE`/`CREATE ROLE` | Admin role lacks `CREATEDB` or `CREATEROLE` | Grant `rds_superuser` (AWS) / admin role (IBM) or the two privileges |
-| Gateway `DatabaseReady: Failed`; controller log shows `must be member of role` on `CREATE DATABASE` | The `GRANT gw_<id> TO <admin>` step did not run or was revoked | Check for an older controller image; re-reconcile |
-| Gateway pod `CrashLoopBackOff`, log shows TLS or certificate error connecting to PostgreSQL | Tenant `sslrootcert` is stale after a CA rotation, or the pod predates the rotation | Follow the CA rotation runbook; restart the gateway Deployment |
-| Gateway pod cannot find `/etc/openshell-db/ca.crt` | Gateway Deployment rendered by an older controller without the CA mount, or the tenant Secret lacks `sslrootcert` | Upgrade the controller and re-reconcile; the Secret is rewritten with `sslrootcert` |
-| Gateway delete never completes; `IncompleteFinalization` Event with `PostgreSQLDatabase gw_<id>` | Cleanup cannot reach the server or lacks `pg_signal_backend` to terminate sessions | Restore reachability (the retry completes) or grant `pg_signal_backend`; if the controller restarted, follow the runbook |
-| `gw_*` database or role left on the server after gateway deletion | Cleanup failed and the controller restarted before a retry succeeded | Follow the Operator Runbook above |
-| Admin password changed but the controller still authenticates with the old one | Kubelet has not yet refreshed the mounted Secret, or the Secret was mounted via `subPath` (which is never refreshed) | Wait for the refresh; never mount the admin Secret with `subPath` |
 
 ---
 

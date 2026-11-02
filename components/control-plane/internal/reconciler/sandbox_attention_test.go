@@ -2,6 +2,7 @@ package reconciler
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
+// Verifies: OBS-SBXA-05
 func TestSandboxAttentionReconcileOnce(t *testing.T) {
 	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
 	instance := "hypershell-system"
@@ -122,6 +124,7 @@ func TestSandboxAttentionReconcileOnce(t *testing.T) {
 	}
 }
 
+// Verifies: OBS-SBXA-05
 func TestSandboxAttentionReconcileOnceDegradesWhenSandboxCRsFail(t *testing.T) {
 	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
 	instance := "hypershell-system"
@@ -155,7 +158,7 @@ func TestSandboxAttentionReconcileOnceDegradesWhenSandboxCRsFail(t *testing.T) {
 		},
 		Status: corev1.PodStatus{Phase: corev1.PodRunning},
 	}
-	// Live-namespace pod older than IdleNeverUsedAge: without SSA-05 zeroing,
+	// Live-namespace pod older than IdleNeverUsedAge: without OBS-SBXA-05 zeroing,
 	// ClassifyAttentionCounts would count this as idle from pod CreationTime.
 	wouldBeIdlePod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -169,6 +172,7 @@ func TestSandboxAttentionReconcileOnceDegradesWhenSandboxCRsFail(t *testing.T) {
 
 	var gotCounts gateway.AttentionCounts
 	published := false
+	readinessUnavailable := false
 	r := &SandboxAttentionReconciler{
 		interval:  time.Minute,
 		clusterID: "cluster-a",
@@ -190,6 +194,9 @@ func TestSandboxAttentionReconcileOnceDegradesWhenSandboxCRsFail(t *testing.T) {
 			published = true
 			gotCounts = counts
 		},
+		publishReadinessUnavailable: func(context.Context) {
+			readinessUnavailable = true
+		},
 	}
 
 	r.reconcileOnce(context.Background())
@@ -197,26 +204,90 @@ func TestSandboxAttentionReconcileOnceDegradesWhenSandboxCRsFail(t *testing.T) {
 	if !published {
 		t.Fatal("expected publish despite Sandbox CR list failure")
 	}
+	if !readinessUnavailable {
+		t.Fatal("expected readiness source to be marked unavailable after Sandbox CR list failure")
+	}
 	want := gateway.AttentionCounts{Orphaned: 1, Expiring: 0, Idle: 0}
 	if gotCounts != want {
 		t.Fatalf("counts = %+v, want %+v (expiring/idle must stay zero without CRs)", gotCounts, want)
 	}
 }
 
+func TestSandboxAttentionCertificateFailureClearsSourceAvailability(t *testing.T) {
+	instance := "hypershell-system"
+	managedNS := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name: "openshell-one",
+		Labels: map[string]string{
+			gateway.ManagedLabel:   gateway.ManagedLabelValue,
+			gateway.ManagedByLabel: gateway.ManagedByValue,
+			gateway.InstanceLabel:  instance,
+		},
+	}}
+	fail := false
+	availablePublications := 0
+	unavailablePublications := 0
+	r := &SandboxAttentionReconciler{
+		clusterID: "cluster-a",
+		instance:  instance,
+		now:       time.Now,
+		listNamespaces: func(context.Context) ([]*corev1.Namespace, error) {
+			return []*corev1.Namespace{managedNS}, nil
+		},
+		listPods:      func(context.Context) ([]*corev1.Pod, error) { return nil, nil },
+		listSandboxes: func(context.Context) ([]*unstructured.Unstructured, error) { return nil, nil },
+		listCertificates: func(context.Context, map[string]struct{}) ([][]byte, error) {
+			if fail {
+				return nil, context.DeadlineExceeded
+			}
+			return [][]byte{[]byte("not a certificate")}, nil
+		},
+		publishCertificates: func(context.Context, certificateHealth) {
+			availablePublications++
+		},
+		publishCertificatesUnavailable: func(context.Context) {
+			unavailablePublications++
+		},
+		liveNamespaces: func(context.Context) (map[string]struct{}, error) {
+			return map[string]struct{}{}, nil
+		},
+		publish: func(context.Context, gateway.AttentionCounts) {},
+	}
+
+	r.reconcileOnce(context.Background())
+	fail = true
+	r.reconcileOnce(context.Background())
+
+	if availablePublications != 1 || unavailablePublications != 1 {
+		t.Fatalf("certificate publications = available %d, unavailable %d; want 1 then 1", availablePublications, unavailablePublications)
+	}
+}
+
+// Verifies: OBS-SBXA-06.04
 func TestSandboxAttentionReconcileOnceZerosOnHardFailure(t *testing.T) {
 	var gotCounts gateway.AttentionCounts
 	published := false
+	readinessUnavailable := false
+	certificatesUnavailable := false
 	r := &SandboxAttentionReconciler{
 		interval:  time.Minute,
 		clusterID: "cluster-a",
 		instance:  "hypershell-system",
 		now:       time.Now,
+		listNamespaces: func(ctx context.Context) ([]*corev1.Namespace, error) {
+			return nil, context.DeadlineExceeded
+		},
 		liveNamespaces: func(ctx context.Context) (map[string]struct{}, error) {
 			return nil, context.DeadlineExceeded
 		},
 		publish: func(ctx context.Context, counts gateway.AttentionCounts) {
 			published = true
 			gotCounts = counts
+		},
+		publishReadinessUnavailable: func(context.Context) {
+			readinessUnavailable = true
+		},
+		publishCertificatesUnavailable: func(context.Context) {
+			certificatesUnavailable = true
 		},
 	}
 
@@ -227,5 +298,136 @@ func TestSandboxAttentionReconcileOnceZerosOnHardFailure(t *testing.T) {
 	}
 	if gotCounts != (gateway.AttentionCounts{}) {
 		t.Fatalf("counts = %+v, want zeros", gotCounts)
+	}
+	if !readinessUnavailable || !certificatesUnavailable {
+		t.Fatalf("source availability = readiness %t, certificates %t; want both unavailable", readinessUnavailable, certificatesUnavailable)
+	}
+}
+
+func TestSandboxAttentionReconcilerRecordsUsageMetrics(t *testing.T) {
+	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
+	instance := "hypershell-system"
+	managedNS := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "openshell-live",
+			Labels: map[string]string{
+				gateway.ManagedLabel:   gateway.ManagedLabelValue,
+				gateway.ManagedByLabel: gateway.ManagedByValue,
+				gateway.InstanceLabel:  instance,
+			},
+		},
+	}
+	emptyNS := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "openshell-empty",
+			Labels: map[string]string{
+				gateway.ManagedLabel:   gateway.ManagedLabelValue,
+				gateway.ManagedByLabel: gateway.ManagedByValue,
+				gateway.InstanceLabel:  instance,
+			},
+		},
+	}
+	created := now.Add(-3 * time.Hour)
+	activePod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "sb-1-pod",
+			Namespace:         "openshell-live",
+			CreationTimestamp: metav1.NewTime(now.Add(-time.Hour)),
+			Labels:            map[string]string{gateway.SandboxPodSelector: "h1"},
+			OwnerReferences: []metav1.OwnerReference{{
+				Kind: "Sandbox",
+				Name: "sb-1",
+			}},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+	completedPod := activePod.DeepCopy()
+	completedPod.Status.Phase = corev1.PodSucceeded
+	sandbox := &unstructured.Unstructured{Object: map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"name":              "sb-1",
+			"namespace":         "openshell-live",
+			"creationTimestamp": created.Format(time.RFC3339),
+		},
+	}}
+
+	var gotTotals []map[string]int
+	var gotLifetimes []time.Duration
+	r := &SandboxAttentionReconciler{
+		interval:  time.Minute,
+		clusterID: "cluster-a",
+		instance:  instance,
+		now:       func() time.Time { return now },
+		liveNamespaces: func(ctx context.Context) (map[string]struct{}, error) {
+			return map[string]struct{}{"openshell-live": {}}, nil
+		},
+		listNamespaces: func(ctx context.Context) ([]*corev1.Namespace, error) {
+			return []*corev1.Namespace{managedNS, emptyNS}, nil
+		},
+		listPods: func(ctx context.Context) ([]*corev1.Pod, error) {
+			return []*corev1.Pod{activePod}, nil
+		},
+		listSandboxes: func(ctx context.Context) ([]*unstructured.Unstructured, error) {
+			return []*unstructured.Unstructured{sandbox}, nil
+		},
+		publish: func(ctx context.Context, counts gateway.AttentionCounts) {},
+		publishUsage: func(ctx context.Context, counts map[string]int) {
+			copied := make(map[string]int, len(counts))
+			for namespace, count := range counts {
+				copied[namespace] = count
+			}
+			gotTotals = append(gotTotals, copied)
+		},
+		recordLifetime: func(ctx context.Context, namespace string, lifetime time.Duration) {
+			if namespace != "openshell-live" {
+				t.Errorf("lifetime namespace = %q, want openshell-live", namespace)
+			}
+			gotLifetimes = append(gotLifetimes, lifetime)
+		},
+	}
+
+	r.reconcileOnce(context.Background())
+	if len(gotLifetimes) != 0 {
+		t.Fatalf("initial lifetimes = %v, want none", gotLifetimes)
+	}
+	r.listPods = func(ctx context.Context) ([]*corev1.Pod, error) {
+		return []*corev1.Pod{completedPod}, nil
+	}
+	r.reconcileOnce(context.Background())
+
+	wantTotals := map[string]int{"openshell-live": 1, "openshell-empty": 0}
+	if len(gotTotals) != 2 {
+		t.Fatalf("total exports = %d, want 2", len(gotTotals))
+	}
+	for i, totals := range gotTotals {
+		if !reflect.DeepEqual(totals, wantTotals) {
+			t.Fatalf("total export %d = %#v, want %#v", i, totals, wantTotals)
+		}
+	}
+	if len(gotLifetimes) != 1 || gotLifetimes[0] != 3*time.Hour {
+		t.Fatalf("lifetimes = %v, want one 3h lifetime", gotLifetimes)
+	}
+}
+
+func TestRecordUsageClearsDepartedNamespaceSeries(t *testing.T) {
+	var publications []map[string]int
+	r := &SandboxAttentionReconciler{
+		now: time.Now,
+		publishUsage: func(_ context.Context, counts map[string]int) {
+			copy := make(map[string]int, len(counts))
+			for namespace, count := range counts {
+				copy[namespace] = count
+			}
+			publications = append(publications, copy)
+		},
+	}
+	r.recordUsage(context.Background(), map[string]struct{}{"openshell-live": {}}, nil, nil, false)
+	r.recordUsage(context.Background(), map[string]struct{}{}, nil, nil, false)
+
+	if len(publications) != 2 {
+		t.Fatalf("publications = %d, want 2", len(publications))
+	}
+	if got := publications[1]["openshell-live"]; got != 0 {
+		t.Fatalf("departed namespace total = %d, want 0", got)
 	}
 }

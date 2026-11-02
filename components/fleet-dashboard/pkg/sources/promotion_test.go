@@ -56,10 +56,14 @@ func TestPromotionDerivation(t *testing.T) {
 		"metadata": map[string]any{
 			"name":      "promoter-ns-alpha",
 			"namespace": "promoter-ns",
+			// labels carry identity/grouping only; capabilities come from the annotation.
 			"labels": map[string]any{
 				deliveryLabelPrefix + "role":     "hub",
 				deliveryLabelPrefix + "provider": "aws",
 				deliveryLabelPrefix + "cluster":  "cluster-a",
+			},
+			"annotations": map[string]any{
+				capabilitiesAnnotation: "provider/aws,runtime/kata,network/vpn",
 			},
 		},
 		"spec": map[string]any{"destination": map[string]any{"namespace": "workload-a"}},
@@ -108,6 +112,17 @@ func TestPromotionDerivation(t *testing.T) {
 	if alpha.Role != "hub" || alpha.Provider != "aws" {
 		t.Errorf("alpha delivery labels not surfaced: role=%q provider=%q", alpha.Role, alpha.Provider)
 	}
+	// Capabilities are parsed from the delivery capabilities annotation, emitted in
+	// capabilityNamespaces order (FLT-CAP-01).
+	wantCaps := []string{"provider/aws", "runtime/kata", "network/vpn"}
+	if len(alpha.Capabilities) != len(wantCaps) {
+		t.Fatalf("alpha capabilities = %v, want %v", alpha.Capabilities, wantCaps)
+	}
+	for i, want := range wantCaps {
+		if alpha.Capabilities[i] != want {
+			t.Errorf("alpha capabilities[%d] = %q, want %q", i, alpha.Capabilities[i], want)
+		}
+	}
 	if alpha.ArgoHealth != "Healthy" || alpha.ArgoSync != "Synced" {
 		t.Errorf("alpha argo status not surfaced: health=%q sync=%q", alpha.ArgoHealth, alpha.ArgoSync)
 	}
@@ -134,6 +149,7 @@ func TestPromotionDerivation(t *testing.T) {
 // Application that recorded an operation with retryCount 0 (synced first try)
 // surfaces a genuine 0, while one with no operationState surfaces nil (so the UI
 // omits the row rather than showing a misleading "0").
+// Verifies: FLT-SYNC-02.01, FLT-SYNC-02.02
 func TestPromotionSyncRetriesNullable(t *testing.T) {
 	psGVR := schema.GroupVersionResource{Group: "promoter.argoproj.io", Version: "v1alpha1", Resource: "promotionstrategies"}
 	ctpGVR := schema.GroupVersionResource{Group: "promoter.argoproj.io", Version: "v1alpha1", Resource: "changetransferpolicies"}
@@ -470,4 +486,175 @@ func keysOf(m map[string]*Release) []string {
 		ks = append(ks, k)
 	}
 	return ks
+}
+
+// TestCapabilitiesFromAnnotation covers the delivery capabilities-annotation parser:
+// recognized namespaces are kept and emitted in capabilityNamespaces order, unknown
+// or malformed entries are dropped, whitespace is trimmed, duplicates collapse, and
+// an absent annotation yields no capabilities (FLT-CAP-01).
+func TestCapabilitiesFromAnnotation(t *testing.T) {
+	tests := []struct {
+		name string
+		ann  map[string]string
+		want []string
+	}{
+		{
+			name: "absent annotation yields nil",
+			ann:  map[string]string{deliveryLabelPrefix + "role": "hub"},
+			want: nil,
+		},
+		{
+			name: "recognized entries kept, authored order",
+			ann:  map[string]string{capabilitiesAnnotation: "provider/ibm,network/public,runtime/kata"},
+			want: []string{"provider/ibm", "runtime/kata", "network/public"},
+		},
+		{
+			name: "unknown/identity namespaces dropped",
+			ann:  map[string]string{capabilitiesAnnotation: "provider/aws,role/hub,cluster/cluster-a,runtime/kata"},
+			want: []string{"provider/aws", "runtime/kata"},
+		},
+		{
+			name: "whitespace trimmed, empties skipped, duplicates collapsed",
+			ann:  map[string]string{capabilitiesAnnotation: " provider/aws , ,runtime/kata, runtime/kata "},
+			want: []string{"provider/aws", "runtime/kata"},
+		},
+		{
+			name: "malformed entries dropped",
+			ann:  map[string]string{capabilitiesAnnotation: "provider,provider/,/aws,runtime/kata"},
+			want: []string{"runtime/kata"},
+		},
+		{
+			name: "out-of-order annotation emits in capabilityNamespaces order",
+			ann:  map[string]string{capabilitiesAnnotation: "runtime/kata,provider/aws"},
+			want: []string{"provider/aws", "runtime/kata"},
+		},
+		{
+			// strings.Cut splits on the FIRST "/", so a value that itself contains a
+			// slash is kept intact: only "<namespace>/" is consumed.
+			name: "value with internal slash preserved",
+			ann:  map[string]string{capabilitiesAnnotation: "network/zone/a"},
+			want: []string{"network/zone/a"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := capabilitiesFromAnnotation(tc.ann)
+			if len(got) != len(tc.want) {
+				t.Fatalf("capabilitiesFromAnnotation(%v) = %v, want %v", tc.ann, got, tc.want)
+			}
+			for i, want := range tc.want {
+				if got[i] != want {
+					t.Errorf("capability[%d] = %q, want %q (full: %v)", i, got[i], want, got)
+				}
+			}
+		})
+	}
+}
+
+type fakeIdentities struct {
+	ids map[string][]ClusterIdentity
+	err error
+}
+
+func (f fakeIdentities) ClusterIdentities(context.Context) (map[string][]ClusterIdentity, error) {
+	return f.ids, f.err
+}
+
+// identityFixture builds a strategy with two envs. Both Applications carry the
+// capabilities annotation; alpha deploys into workload-a, beta into workload-b.
+func identityFixture(t *testing.T) (*Promotion, *config.Config) {
+	t.Helper()
+	psGVR := schema.GroupVersionResource{Group: "promoter.argoproj.io", Version: "v1alpha1", Resource: "promotionstrategies"}
+	ctpGVR := schema.GroupVersionResource{Group: "promoter.argoproj.io", Version: "v1alpha1", Resource: "changetransferpolicies"}
+	appGVR := schema.GroupVersionResource{Group: "argoproj.io", Version: "v1alpha1", Resource: "applications"}
+	ps := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "promoter.argoproj.io/v1alpha1",
+		"kind":       "PromotionStrategy",
+		"metadata":   map[string]any{"name": "hypershell", "namespace": "promoter-ns"},
+		"status": map[string]any{"environments": []any{
+			map[string]any{"branch": "env/alpha"},
+			map[string]any{"branch": "env/beta"},
+		}},
+	}}
+	app := func(key, ns string) *unstructured.Unstructured {
+		return &unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": "argoproj.io/v1alpha1",
+			"kind":       "Application",
+			"metadata": map[string]any{
+				"name":        "promoter-ns-" + key,
+				"namespace":   "promoter-ns",
+				"labels":      map[string]any{deliveryLabelPrefix + "cluster": "cluster-a"},
+				"annotations": map[string]any{capabilitiesAnnotation: "provider/aws"},
+			},
+			"spec": map[string]any{"destination": map[string]any{"namespace": ns}},
+		}}
+	}
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{
+		psGVR:  "PromotionStrategyList",
+		ctpGVR: "ChangeTransferPolicyList",
+		appGVR: "ApplicationList",
+	}, ps, app("alpha", "workload-a"), app("beta", "workload-b"))
+	c := &config.Config{
+		PromoterNamespace:     "promoter-ns",
+		PromotionStrategyName: "hypershell",
+		PromoterGroup:         "promoter.argoproj.io",
+		PromoterVersion:       "v1alpha1",
+		ArgoGroup:             "argoproj.io",
+		ArgoVersion:           "v1alpha1",
+	}
+	return NewPromotion(c, dyn, nil, nil, nil, nil), c
+}
+
+// Verifies: FLT-CAP-01.04
+// Verifies: FLT-CAP-01.05
+func TestPromotionCapabilitiesPreferMetric(t *testing.T) {
+	p, _ := identityFixture(t)
+	p.WithClusterIdentities(fakeIdentities{ids: map[string][]ClusterIdentity{
+		"workload-a": {{Cluster: "cluster-a", Capabilities: []string{"provider/ibm", "network/vpn"}, GatewayImage: "quay.io/x/gw:v9"}},
+	}})
+	got, err := p.Promotion(context.Background())
+	if err != nil {
+		t.Fatalf("Promotion: %v", err)
+	}
+	envs := got.(PromotionPayload).Environments
+
+	alpha := envs["alpha"]
+	if want := []string{"provider/ibm", "network/vpn"}; !equalStrings(alpha.Capabilities, want) {
+		t.Errorf("alpha capabilities = %v, want metric set %v", alpha.Capabilities, want)
+	}
+	if alpha.GatewayImage != "quay.io/x/gw:v9" {
+		t.Errorf("alpha gatewayImage = %q", alpha.GatewayImage)
+	}
+	beta := envs["beta"]
+	if want := []string{"provider/aws"}; !equalStrings(beta.Capabilities, want) {
+		t.Errorf("beta capabilities = %v, want annotation fallback %v", beta.Capabilities, want)
+	}
+	if beta.GatewayImage != "" {
+		t.Errorf("beta gatewayImage = %q, want empty", beta.GatewayImage)
+	}
+}
+
+// Verifies: FLT-CAP-01.05
+func TestPromotionCapabilitiesFallbackOnMetricError(t *testing.T) {
+	p, _ := identityFixture(t)
+	p.WithClusterIdentities(fakeIdentities{err: context.DeadlineExceeded})
+	got, err := p.Promotion(context.Background())
+	if err != nil {
+		t.Fatalf("a metrics failure must not fail the promotion payload: %v", err)
+	}
+	if caps := got.(PromotionPayload).Environments["alpha"].Capabilities; !equalStrings(caps, []string{"provider/aws"}) {
+		t.Errorf("alpha capabilities = %v, want annotation fallback", caps)
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

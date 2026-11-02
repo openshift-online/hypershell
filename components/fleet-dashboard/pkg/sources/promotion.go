@@ -3,6 +3,7 @@ package sources
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,6 +36,24 @@ type Promotion struct {
 	// currently-deployed ones plus previously-deployed history cards). 0 disables
 	// history entirely.
 	historyLimit int
+	// identities reads what each control plane reports about itself (capabilities,
+	// default gateway image). nil means the annotation is the only capability
+	// source; WithClusterIdentities wires Prometheus in.
+	identities ClusterIdentityResolver
+}
+
+// ClusterIdentityResolver returns the self-reported identity of every control
+// plane, keyed by the namespace it runs in (OBS-CPL-09). A namespace can map to
+// more than one identity when the same namespace name exists on several physical
+// clusters; ClusterIdentity.Cluster tells them apart.
+type ClusterIdentityResolver interface {
+	ClusterIdentities(ctx context.Context) (map[string][]ClusterIdentity, error)
+}
+
+// WithClusterIdentities sets the source of control-plane-reported identities.
+func (p *Promotion) WithClusterIdentities(r ClusterIdentityResolver) *Promotion {
+	p.identities = r
+	return p
 }
 
 // ReleaseHistory lists the most recent DISTINCT release bundles the fleet has
@@ -68,7 +87,30 @@ type Release struct {
 	// (openshift-online/hypershell) -- the changes the bundle actually ships -- not
 	// the gitops lock-bump PR that promoted it. Populated by a BundleEnricher; nil
 	// when GitHub enrichment is disabled or there is no prior build to diff against.
+	// This is the APPLICATION group (FLT-BPR-03); its membership and freshness
+	// semantics are unchanged by the GitOps group below.
 	PRs []PR `json:"prs,omitempty"`
+	// GitOpsPRs is the deployment (GitOps) pull-request group for this bundle: the
+	// merged pull requests in the GitOps delivery repository (supplied at runtime,
+	// never compiled in) across the bundle's bounded deployment-revision range,
+	// including the lock-update PR and configuration-only PRs (FLT-BPR-04). These are deployment
+	// changes, not changes embedded in the application artifact. nil when the range
+	// is unavailable or GitOps grouping is disabled; see GitOpsStatus to tell an
+	// unavailable range from a successful empty one.
+	GitOpsPRs []PR `json:"gitopsPrs,omitempty"`
+	// GitOpsStatus reports the GitOps group's range state so the UI can render an
+	// error state distinctly from an empty-but-successful one (FLT-BPR-10): "" means
+	// GitOps grouping was not attempted (feature off / no lock-history provenance,
+	// so the UI hides the section), "available" means the bounded compare succeeded
+	// (an empty GitOpsPRs is then a genuine "no deployment changes"), and
+	// "unavailable" means no baseline could be bounded or the compare failed.
+	GitOpsStatus string `json:"gitopsStatus,omitempty"`
+	// DeploymentRevisions records the gitops source (dry) commits and the
+	// environments that resolved to this bundle digest, retained BEFORE releases are
+	// grouped by digest (FLT-BPR-05) so the GitOps range can extend to each
+	// environment's current source commit (FLT-BPR-04.02). Internal only (not
+	// serialized): the UI consumes the resulting GitOpsPRs.
+	DeploymentRevisions []DeploymentRevision `json:"-"`
 	// ManifestsRev is the PUBLIC product source revision the bundle's manifests
 	// were built from (the lock's bundle.manifests.git.revision). The
 	// BundleEnricher diffs consecutive bundles' ManifestsRev over the upstream repo
@@ -76,6 +118,16 @@ type Release struct {
 	// consumes PRs. Empty under the short-SHA fallback or a lock without bundle
 	// provenance.
 	ManifestsRev string `json:"-"`
+}
+
+// DeploymentRevision is one environment's current gitops source (dry) commit for a
+// bundle digest, retained before digest grouping so GitOps ranges can extend to the
+// relevant environment's source commit (FLT-BPR-05). Env is the environment key;
+// DrySHA is the full source commit SHA (not shortened, so a GitHub compare can use
+// it) and is a source commit, never a hydrated artifact (FLT-BPR-07).
+type DeploymentRevision struct {
+	Env    string
+	DrySHA string
 }
 
 // ShortSHAResolver is the default resolver: version == first 8 chars of the SHA.
@@ -176,7 +228,17 @@ type Environment struct {
 	Provider    string `json:"provider,omitempty"`
 	Env         string `json:"env,omitempty"`
 	Cluster     string `json:"cluster,omitempty"`
-	ConsoleURL  string `json:"consoleUrl,omitempty"`
+	// Capabilities are the instance's self-declared capability labels
+	// (namespace/value, see PLAT-CLUS-06). The control plane's own capability info
+	// metric (OBS-CPL-09) wins; the Argo Application's delivery capabilities
+	// annotation is the fallback while a cluster does not report the metric
+	// (FLT-CAP-01). Surfaced for the map card and node drawer. Omitted when empty.
+	Capabilities []string `json:"capabilities,omitempty"`
+	// GatewayImage is the default OpenShell gateway image the instance's control
+	// plane provisions, read from its control-plane info metric (OBS-CPL-09).
+	// Omitted when the control plane does not report it (FLT-CAP-07).
+	GatewayImage string `json:"gatewayImage,omitempty"`
+	ConsoleURL   string `json:"consoleUrl,omitempty"`
 	// GrafanaURL deep-links to the cluster's own per-cluster Grafana instance. Like
 	// ConsoleURL it is the raw value of an Argo "extra link" annotation, so gitops
 	// stays authoritative for the host (no hostname pattern is baked in here).
@@ -198,6 +260,16 @@ func (p *Promotion) Promotion(ctx context.Context) (any, error) {
 
 	prByBranch := p.pullRequestsByBranch(ctx)
 	argoByKey := p.argoByInstance(ctx)
+	// Best-effort: a Prometheus failure leaves every card on its annotation
+	// fallback rather than failing the promotion payload. Logged, not swallowed.
+	var identities map[string][]ClusterIdentity
+	var idErr error
+	if p.identities != nil {
+		identities, idErr = p.identities.ClusterIdentities(ctx)
+	}
+	if idErr != nil {
+		slog.WarnContext(ctx, "cluster identity metrics unavailable; using capability annotations", "error", idErr.Error())
+	}
 
 	payload := PromotionPayload{
 		Environments: map[string]Environment{},
@@ -225,6 +297,15 @@ func (p *Promotion) Promotion(ctx context.Context) (any, error) {
 		// enrichment too, with no second pass.
 		av := p.canonicalRelease(ctx, activeSHA, payload.Releases)
 		pv := p.canonicalRelease(ctx, proposedSHA, payload.Releases)
+
+		// Retain this environment's active source (dry) commit against its bundle
+		// BEFORE the digest grouping collapses SHAs (FLT-BPR-05), so the GitOps range
+		// can extend to the environment's current source commit (FLT-BPR-04.02). av
+		// is the shared *Release for the digest, so every environment on the same
+		// bundle contributes its revision.
+		if av != nil && activeSHA != "" {
+			av.DeploymentRevisions = append(av.DeploymentRevisions, DeploymentRevision{Env: key, DrySHA: activeSHA})
+		}
 
 		// analysisUrl is keyed on the active HYDRATED sha (the promoted,
 		// rendered commit the analysis check-run actually ran against), matching
@@ -261,6 +342,13 @@ func (p *Promotion) Promotion(ctx context.Context) (any, error) {
 			env.Provider = a.provider
 			env.Env = a.env
 			env.Cluster = a.cluster
+			env.Capabilities = a.capabilities
+			if id, ok := identityFor(identities, a.workloadNamespace, a.cluster); ok {
+				if len(id.Capabilities) > 0 {
+					env.Capabilities = id.Capabilities
+				}
+				env.GatewayImage = id.GatewayImage
+			}
 			if activeHydrated != "" && a.cluster != "" && a.workloadNamespace != "" {
 				env.Verification = &VerificationTarget{Revision: activeHydrated, Cluster: a.cluster, Namespace: a.workloadNamespace}
 			}
@@ -436,9 +524,86 @@ func (p *Promotion) argoAppURL(ns, app string) string {
 type argoInfo struct {
 	workloadNamespace                                                           string
 	app, ns, health, sync, role, provider, env, cluster, consoleURL, grafanaURL string
+	// capabilities are the instance's self-declared capabilities (namespace/value),
+	// parsed from its delivery capabilities annotation; empty when none.
+	capabilities []string
 	// syncRetries is status.operationState.retryCount, nil when no operation state
 	// is recorded (unknown) so it stays distinct from a genuine 0.
 	syncRetries *int
+}
+
+// capabilitiesAnnotation is the single, comma-joined capability set the delivery
+// (gitops) repo mirrors onto each managed-cluster Application. It is the FALLBACK
+// capability source: the control plane's own capability info metric (OBS-CPL-09)
+// wins when the cluster reports it, and the annotation covers clusters that do not
+// export telemetry yet. Values are "namespace/value" strings.
+const capabilitiesAnnotation = deliveryLabelPrefix + "capabilities"
+
+// capabilityNamespaces is the allow-list of recognized, PUBLIC product-level
+// capability namespace names (PLAT-CLUS-06), used to validate and order the
+// annotation entries; identity labels (role, cluster, env) are deliberately not in
+// it. The UI treats the result as opaque data and bakes in no vocabulary of its own
+// (FLT-CAP-01).
+var capabilityNamespaces = []string{
+	"provider",
+	"runtime",
+	"network",
+	"region",
+	// The `environment` capability namespace is distinct from the `env` delivery
+	// label that drives the promotion COLUMN grouping (Environment.Env above); do not
+	// collapse them to read `env` here. Nothing emits a delivery.hypershell.app/
+	// environment label today, so this namespace is forward-looking.
+	"environment",
+}
+
+// capabilitiesFromAnnotation parses the comma-joined
+// "delivery.hypershell.app/capabilities" annotation into an ordered, de-duplicated
+// "namespace/value" set. Entries whose namespace is not in capabilityNamespaces, or
+// that are empty / malformed (no "<ns>/<value>" shape), are dropped. Emit order is
+// capabilityNamespaces order (stable regardless of how the annotation was authored);
+// within a namespace, authored order is preserved. No new Kubernetes query or
+// cluster credential is used - the annotation is already on the resolved object - so
+// sourcing stays low-privilege (FLT-CAP-01). Returns nil when the annotation is
+// absent or yields nothing.
+func capabilitiesFromAnnotation(ann map[string]string) []string {
+	raw := ann[capabilitiesAnnotation]
+	if raw == "" {
+		return nil
+	}
+	return normalizeCapabilities(strings.Split(raw, ","))
+}
+
+// normalizeCapabilities applies the capability rules shared by every source (the
+// delivery annotation and the control plane's capability info metric): trim, drop
+// empty, malformed, duplicate, or unrecognized-namespace entries, and order by
+// capabilityNamespaces (authored order kept within a namespace). Returns nil when
+// nothing survives.
+func normalizeCapabilities(entries []string) []string {
+	allowed := make(map[string]bool, len(capabilityNamespaces))
+	for _, ns := range capabilityNamespaces {
+		allowed[ns] = true
+	}
+	// Bucket by namespace so output is ordered by capabilityNamespaces, not by the
+	// order the annotation happened to be authored in.
+	byNS := map[string][]string{}
+	seen := map[string]bool{}
+	for _, part := range entries {
+		capability := strings.TrimSpace(part)
+		if capability == "" || seen[capability] {
+			continue
+		}
+		ns, val, ok := strings.Cut(capability, "/")
+		if !ok || ns == "" || val == "" || !allowed[ns] {
+			continue
+		}
+		seen[capability] = true
+		byNS[ns] = append(byNS[ns], capability)
+	}
+	var caps []string
+	for _, ns := range capabilityNamespaces {
+		caps = append(caps, byNS[ns]...)
+	}
+	return caps
 }
 
 // argoByInstance maps each instance key to its core Argo Application, using the
@@ -498,6 +663,7 @@ func (p *Promotion) argoByInstance(ctx context.Context) map[string]argoInfo {
 			provider:          labels[deliveryLabelPrefix+"provider"],
 			env:               labels[deliveryLabelPrefix+"env"],
 			cluster:           labels[deliveryLabelPrefix+"cluster"],
+			capabilities:      capabilitiesFromAnnotation(ann),
 			consoleURL:        ann["link.argocd.argoproj.io/external-link"],
 			grafanaURL:        ann["link.argocd.argoproj.io/grafana"],
 		}

@@ -14,6 +14,7 @@ import (
 // declarative-import kinds (#525 REPO-C-GRPC): their read methods are
 // platform-admin-only (unfiltered by caller) and every write over gRPC is the
 // control-plane reconciler's exclusive path, denied to users.
+// Verifies: SEC-RBAC-09.05
 func TestAuthorizeUserGRPC_ImportKinds(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -59,8 +59,7 @@ func createManualCluster(t *testing.T) string {
 	t.Helper()
 	svc := managedClusters.Service(&environments.Environment().Services)
 	cluster, svcErr := svc.Create(context.Background(), &managedClusters.ManagedCluster{
-		Name:     "manual-" + strings.ToLower(api.NewID()),
-		Provider: "kind",
+		Name: "manual-" + strings.ToLower(api.NewID()),
 	})
 	if svcErr != nil {
 		t.Fatalf("create manual managed cluster: %v", svcErr)

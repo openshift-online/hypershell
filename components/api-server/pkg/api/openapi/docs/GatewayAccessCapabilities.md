@@ -4,9 +4,9 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**CallerRole** | Pointer to [**GatewayAccessRole**](GatewayAccessRole.md) |  | [optional] 
-**CanManageAccess** | **bool** |  | 
-**CanManageOwners** | **bool** |  | 
+**CallerRole** | Pointer to [**GatewayAccessRole**](GatewayAccessRole.md) |  | [optional]
+**CanManageAccess** | **bool** |  |
+**CanManageOwners** | **bool** |  |
 
 ## Methods
 
@@ -94,5 +94,3 @@ SetCanManageOwners sets CanManageOwners field to given value.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
-
-

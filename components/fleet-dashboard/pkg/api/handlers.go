@@ -9,6 +9,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/openshift-online/hypershell/components/fleet-dashboard/pkg/cache"
@@ -20,6 +21,7 @@ import (
 // so handler tests can supply a fake (e2e-run-log-visibility.spec E2E-LOG-17).
 type E2ERunPlane interface {
 	RunDetail(ctx context.Context, id string) (*sources.E2ERunDetail, error)
+	RunLogs(ctx context.Context, id, stepID, before string, limit int) (*sources.E2ELogPage, error)
 	Stream(w http.ResponseWriter, r *http.Request)
 }
 
@@ -29,6 +31,9 @@ type Handlers struct {
 	Promotion *cache.Source
 	Topology  *cache.Source
 	Instances *cache.Source
+	// SdlcAgents is the SDLC agent runtime telemetry plane (SDLC-AGT spec).
+	// It is unconditional since Prometheus is required config.
+	SdlcAgents *cache.Source
 	// SDLC is the Agent SDLC funnel-visibility plane
 	// (agent-sdlc-visibility-dashboard.spec). It is optional: nil when no source
 	// repository is configured, in which case the route is simply not mounted.
@@ -48,6 +53,7 @@ func (h *Handlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/promotion", h.serve(h.Promotion))
 	mux.HandleFunc("GET /api/topology", h.serve(h.Topology))
 	mux.HandleFunc("GET /api/instances", h.serve(h.Instances))
+	mux.HandleFunc("GET /api/sdlc-agents", h.serve(h.SdlcAgents))
 	if h.SDLC != nil {
 		mux.HandleFunc("GET /api/sdlc", h.serve(h.SDLC))
 	}
@@ -58,6 +64,11 @@ func (h *Handlers) Register(mux *http.ServeMux) {
 	// The run id is a multi-segment address (tenant/namespace/runId), so it uses
 	// the trailing wildcard rather than a single-segment {id}.
 	mux.HandleFunc("GET /api/e2e/runs/{id...}", h.serveE2ERunDetail())
+	// The paginated raw-log history (E2E-LOG-19). The run id is multi-segment, and a
+	// ServeMux trailing wildcard ({id...}) must be the final path segment, so the
+	// id cannot be followed by a literal /logs. The run id therefore rides a "run"
+	// query value, exactly as the live stream endpoint already does.
+	mux.HandleFunc("GET /api/e2e/logs", h.serveE2ERunLogs())
 	mux.HandleFunc("GET /api/e2e/stream", h.serveE2EStream())
 }
 
@@ -120,6 +131,48 @@ func (h *Handlers) serveE2ERunDetail() http.HandlerFunc {
 			return
 		}
 		writeJSON(w, r, http.StatusOK, cache.Snapshot{Data: detail, GeneratedAt: time.Now()})
+	}
+}
+
+// serveE2ERunLogs serves one bounded page of a run's raw-log history addressed by
+// its collision-free id (the "run" query value), with an optional `before`
+// nanosecond cursor, an optional `step` selected-step scope (E2E-LOG-23), and a
+// `limit` (clamped by the source), or 404 when the run's tenant is not
+// addressable. A failed query degrades to a stale-flagged snapshot rather than
+// blanking, like the detail endpoint (E2E-LOG-19/20).
+func (h *Handlers) serveE2ERunLogs() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if h.E2E == nil {
+			writeJSON(w, r, http.StatusOK, e2eFeatureOffSnapshot())
+			return
+		}
+		q := r.URL.Query()
+		id := q.Get("run")
+		before := q.Get("before")
+		// step scopes the page to one step (E2E-LOG-23); absent preserves run-wide.
+		step := q.Get("step")
+		limit := 0
+		if raw := q.Get("limit"); raw != "" {
+			// An unparseable limit falls back to the source default (limit stays 0),
+			// rather than failing the request on a stray query value.
+			if n, err := strconv.Atoi(raw); err == nil {
+				limit = n
+			}
+		}
+		page, err := h.E2E.RunLogs(r.Context(), id, step, before, limit)
+		if err != nil {
+			if errors.Is(err, sources.ErrRunNotFound) {
+				writeJSON(w, r, http.StatusNotFound, map[string]string{"error": "run not found"})
+				return
+			}
+			slog.Default().ErrorContext(r.Context(), "e2e run logs failed", "err", err)
+			// Degrade the log pane rather than blanking it; the raw error can carry the
+			// internal Loki identity, so only a generic message crosses to the browser
+			// (E2E-LOG-08).
+			writeJSON(w, r, http.StatusOK, cache.Snapshot{Stale: true, Error: "e2e log backend unavailable", GeneratedAt: time.Now()})
+			return
+		}
+		writeJSON(w, r, http.StatusOK, cache.Snapshot{Data: page, GeneratedAt: time.Now()})
 	}
 }
 

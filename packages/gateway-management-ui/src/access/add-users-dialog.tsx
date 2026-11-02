@@ -154,7 +154,9 @@ function DirectoryTypeahead({
         <Select
           id="gateway-access-directory-select"
           isOpen={isOpen}
+          maxMenuHeight="min(20rem, 40vh)"
           onOpenChange={setIsOpen}
+          popperProps={{ preventOverflow: true }}
           onSelect={(_event, value) => {
             if (typeof value === "string") {
               choose(value);

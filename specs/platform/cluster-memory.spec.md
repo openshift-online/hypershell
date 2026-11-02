@@ -21,7 +21,7 @@ The operational dashboard `memory` widget and `system-summary` row already exist
 
 ### Relationship to other specifications
 
-- **Operational dashboard** (`web-console/operational-dashboard.spec.md`) owns the `memory` widget, `UtilizationChart` presentation (OP-DASH-13), refresh policy (OP-DASH-09), and dashboard-operator access (OP-DASH-04).
+- **Operational dashboard** (`web-console/operational-dashboard.spec.md`) owns the `memory` widget, `UtilizationChart` presentation (WEB-OPS-13), refresh policy (WEB-OPS-09), and dashboard-operator access (WEB-OPS-04).
 - **Registered users** (`platform/registered-users.spec.md`) follows the same Prometheus-first dashboard pattern via BFF `GET /api/metrics/registered-users`. Cluster memory sources **Prometheus** through a BFF proxy because there is no durable HyperShell `Memory` resource in the API server database.
 - **Gateway metrics dashboard** (`platform/gateway-metrics-dashboard.spec.md`) also uses a BFF Prometheus proxy (`GET /api/metrics/gateways`) for a different UI (`GatewayMetricsDashboard`). The operational dashboard reuses that route for gateway phase counts and adds separate routes for sandboxes, inventory, and registered users.
 - **Gateway collection table** on `/gateways` remains REST-driven and is unrelated to cluster memory metrics.
@@ -30,15 +30,15 @@ CPU, pod capacity, and node inventory are out of scope for this spec (see Non-Go
 
 ## Requirements
 
-### Requirement: CM-01 -- Hub Cluster Scope
+### Requirement: OBS-MEM-01 -- Hub Cluster Scope
 
 Cluster memory metrics SHALL aggregate **schedulable nodes** on the hub Kubernetes cluster where HyperShell platform components are deployed.
 
 The metric SHALL include memory from nodes that can accept workload pods. Control-plane nodes MAY be included when they are schedulable in the target environment (for example, single-node Kind clusters).
 
-The metric SHALL NOT be scoped to individual gateway tenant namespaces, individual HyperShell microservice Deployments, or managed clusters registered in a Fleet.
+The metric SHALL NOT be scoped to individual gateway tenant namespaces, individual HyperShell microservice Deployments, or registered managed clusters.
 
-#### Scenario: Kind hub cluster reports node memory
+#### Scenario: OBS-MEM-01.01 -- Kind hub cluster reports node memory
 
 - GIVEN HyperShell is running on a Kind cluster with one control-plane node
 - WHEN cluster memory metrics are collected
@@ -47,7 +47,7 @@ The metric SHALL NOT be scoped to individual gateway tenant namespaces, individu
 
 ---
 
-### Requirement: CM-02 -- Memory Measurement Contract
+### Requirement: OBS-MEM-02 -- Memory Measurement Contract
 
 The platform SHALL compute three non-negative integer values in **bytes**:
 
@@ -59,9 +59,9 @@ The platform SHALL compute three non-negative integer values in **bytes**:
 
 All three values SHALL use the same node set and the same collection timestamp (Prometheus instant query).
 
-`used_bytes` SHALL NOT exceed `capacity_bytes`. When `capacity_bytes` is zero (no scrape data), the collection SHALL be treated as a failure (CM-06).
+`used_bytes` SHALL NOT exceed `capacity_bytes`. When `capacity_bytes` is zero (no scrape data), the collection SHALL be treated as a failure (OBS-MEM-06).
 
-#### Scenario: Used and available sum to capacity
+#### Scenario: OBS-MEM-02.01 -- Used and available sum to capacity
 
 - GIVEN `capacity_bytes` is `17179869184` and `available_bytes` is `4294967296`
 - WHEN the BFF formats the response
@@ -70,31 +70,31 @@ All three values SHALL use the same node set and the same collection timestamp (
 
 ---
 
-### Requirement: CM-03 -- Prometheus Data Source
+### Requirement: OBS-MEM-03 -- Prometheus Data Source
 
-Hub-cluster memory SHALL be derived from Prometheus instant queries executed by the web-console BFF against the configured `PROMETHEUS_URL` (same origin configuration as `platform/gateway-metrics-dashboard.spec.md` DASH-05).
+Hub-cluster memory SHALL be derived from Prometheus instant queries executed by the web-console BFF against the configured `PROMETHEUS_URL` (same origin configuration as `platform/gateway-metrics-dashboard.spec.md` OBS-GMD-05).
 
-The deployed Prometheus instance SHALL scrape node-level memory series sufficient to evaluate the measurement contract in CM-02. Version 1 SHALL document the canonical PromQL expressions in `packages/operational-dashboard-ui/DATA_SOURCES.md` once scrape targets are chosen during implementation.
+The deployed Prometheus instance SHALL scrape node-level memory series sufficient to evaluate the measurement contract in OBS-MEM-02. Version 1 SHALL document the canonical PromQL expressions in `packages/operational-dashboard-ui/DATA_SOURCES.md` once scrape targets are chosen during implementation.
 
 PromQL queries SHALL aggregate with `sum(...)` across in-scope nodes so a single capacity/available pair is returned per scrape.
 
 The BFF SHALL NOT contact the Kubernetes API directly for memory in version 1.
 
-#### Scenario: Prometheus unavailable fails collection
+#### Scenario: OBS-MEM-03.01 -- Prometheus unavailable fails collection
 
 - GIVEN Prometheus is unreachable from the BFF within the query timeout
 - WHEN a dashboard operator loads operational metrics
 - THEN the BFF memory route SHALL respond with HTTP `502`
-- AND the operational metrics workflow SHALL fail (CM-07)
+- AND the operational metrics workflow SHALL fail (OBS-MEM-07)
 
 ---
 
-### Requirement: CM-04 -- BFF Cluster Memory Route
+### Requirement: OBS-MEM-04 -- BFF Cluster Memory Route
 
 The web-console BFF SHALL expose `GET /api/metrics/cluster-memory` as a same-origin route that:
 
-1. Requires **dashboard-operator authorization** when OIDC is enabled (same role gate as `web-console/operational-dashboard.spec.md` OP-DASH-04: `platform:admin` only)
-2. Executes Prometheus instant queries for hub-cluster memory (CM-03)
+1. Requires **dashboard-operator authorization** when OIDC is enabled (same role gate as `web-console/operational-dashboard.spec.md` WEB-OPS-04: `platform:admin` only)
+2. Executes Prometheus instant queries for hub-cluster memory (OBS-MEM-03)
 3. Returns JSON:
 
 ```json
@@ -109,22 +109,22 @@ The route SHALL NOT forward to the HyperShell API server and SHALL NOT require a
 
 On Prometheus failure, timeout, or non-success Prometheus response status, the BFF SHALL respond with HTTP `502` and `{ "error": "Metrics unavailable", "statusCode": 502 }`. The BFF SHALL NOT return zeroed memory figures as a fallback.
 
-When instant queries succeed, the route MAY also include optional `daily_used` (7 UTC calendar days of daily used GiB) per `platform/hub-cluster-utilization-trends.spec.md` HCUT-03 through HCUT-04.
+When instant queries succeed, the route MAY also include optional `daily_used` (7 UTC calendar days of daily used GiB) per `platform/hub-cluster-utilization-trends.spec.md` OBS-HCUT-03 through OBS-HCUT-04.
 
-#### Scenario: Dashboard administrator receives memory bytes
+#### Scenario: OBS-MEM-04.01 -- Dashboard administrator receives memory bytes
 
 - GIVEN OIDC is enabled and the caller has `platform:admin`
 - AND Prometheus returns successful instant-query results
 - WHEN the caller sends `GET /api/metrics/cluster-memory`
-- THEN the BFF SHALL respond with HTTP `200` and the CM-04 JSON body
+- THEN the BFF SHALL respond with HTTP `200` and the OBS-MEM-04 JSON body
 
-#### Scenario: Authenticated non-admin is rejected
+#### Scenario: OBS-MEM-04.02 -- Authenticated non-admin is rejected
 
 - GIVEN OIDC is enabled and the caller has only `hypershell-users`
 - WHEN the caller sends `GET /api/metrics/cluster-memory`
 - THEN the BFF SHALL respond with HTTP `403`
 
-#### Scenario: Unauthenticated caller is rejected
+#### Scenario: OBS-MEM-04.03 -- Unauthenticated caller is rejected
 
 - GIVEN OIDC is enabled and the caller has no session
 - WHEN the caller sends `GET /api/metrics/cluster-memory`
@@ -132,7 +132,7 @@ When instant queries succeed, the route MAY also include optional `daily_used` (
 
 ---
 
-### Requirement: CM-05 -- Operational Dashboard Metric Mapping
+### Requirement: OBS-MEM-05 -- Operational Dashboard Metric Mapping
 
 The operational dashboard host adapter (`createDashboardControlPlaneAdapter`) SHALL fetch `GET /api/metrics/cluster-memory` with same-origin credentials and emit an `OperationalMetric`:
 
@@ -145,20 +145,20 @@ The operational dashboard host adapter (`createDashboardControlPlaneAdapter`) SH
 
 The adapter SHALL NOT emit `status` for the `memory` metric in version 1.
 
-When BFF `daily_used` is present, the adapter SHALL also emit optional `trend` per `platform/hub-cluster-utilization-trends.spec.md` HCUT-07. When `daily_used` is absent, the adapter SHALL omit `trend`.
+When BFF `daily_used` is present, the adapter SHALL also emit optional `trend` per `platform/hub-cluster-utilization-trends.spec.md` OBS-HCUT-07. When `daily_used` is absent, the adapter SHALL omit `trend`.
 
-The `system-summary` card SHALL continue to source its memory row from the same `memory` metric (OP-DASH-13). The utilization donut SHALL render because `unit` and `total` are present.
+The `system-summary` card SHALL continue to source its memory row from the same `memory` metric (WEB-OPS-13). The utilization donut SHALL render because `unit` and `total` are present.
 
 Available memory in GiB is derivable in the UI as `total - value` and SHALL NOT be duplicated as a separate metric ID in version 1.
 
-#### Scenario: Dashboard memory widget shows utilization
+#### Scenario: OBS-MEM-05.01 -- Dashboard memory widget shows utilization
 
 - GIVEN `used_bytes` is `23622320128` and `capacity_bytes` is `25480396800` (approximately 220 GiB used of 237 GiB capacity)
 - WHEN an authorized dashboard operator opens `/dashboard` and metrics load successfully
 - THEN the `memory` metric SHALL have `value: "220"`, `total: "237"`, and `unit: "GiB"`
 - AND the `memory` widget SHALL render a utilization donut at approximately 93%
 
-#### Scenario: Available memory is implied by capacity minus used
+#### Scenario: OBS-MEM-05.02 -- Available memory is implied by capacity minus used
 
 - GIVEN the `memory` metric has `value: "220"` and `total: "237"`
 - WHEN the operator reads the utilization subtitle ("of 237 GiB")
@@ -166,15 +166,15 @@ Available memory in GiB is derivable in the UI as `total - value` and SHALL NOT 
 
 ---
 
-### Requirement: CM-06 -- Prometheus Scrape Prerequisites
+### Requirement: OBS-MEM-06 -- Prometheus Scrape Prerequisites
 
 The HyperShell deployment manifests SHALL ensure the in-cluster Prometheus instance can scrape node memory metrics on the hub cluster before cluster memory is considered production-ready.
 
-At minimum, the Prometheus `ClusterRole` (or equivalent scrape credentials) and scrape configuration SHALL allow computing CM-02 on Kind and production hub clusters without manual post-install steps.
+At minimum, the Prometheus `ClusterRole` (or equivalent scrape credentials) and scrape configuration SHALL allow computing OBS-MEM-02 on Kind and production hub clusters without manual post-install steps.
 
 `DATA_SOURCES.md` and reconcile wave notes SHALL record the chosen scrape target (for example, node-exporter DaemonSet, kubelet/cAdvisor, or an equivalent platform-supported source).
 
-#### Scenario: Fresh Kind install exposes memory series
+#### Scenario: OBS-MEM-06.01 -- Fresh Kind install exposes memory series
 
 - GIVEN a developer runs `make kind-up` with the documented Prometheus overlay
 - WHEN an operator queries Prometheus for the documented capacity expression
@@ -182,24 +182,24 @@ At minimum, the Prometheus `ClusterRole` (or equivalent scrape credentials) and 
 
 ---
 
-### Requirement: CM-07 -- Refresh and Error Semantics
+### Requirement: OBS-MEM-07 -- Refresh and Error Semantics
 
-Cluster memory SHALL load through the existing operational dashboard metrics query (`useGetMetricsData`) and SHALL inherit its refresh policy (`operationalDashboardRefreshMilliseconds`, currently 15 minutes) and manual refresh behavior (OP-DASH-09).
+Cluster memory SHALL load through the existing operational dashboard metrics query (`useGetMetricsData`) and SHALL inherit its refresh policy (`operationalDashboardRefreshMilliseconds`, currently 15 minutes) and manual refresh behavior (WEB-OPS-09).
 
-A failed `GET /api/metrics/cluster-memory` request SHALL fail only the cluster-memory metric source (OP-DASH-19). The adapter SHALL omit the `memory` metric from the response. The dashboard SHALL NOT display `0` GiB as a fallback used or capacity figure.
+A failed `GET /api/metrics/cluster-memory` request SHALL fail only the cluster-memory metric source (WEB-OPS-19). The adapter SHALL omit the `memory` metric from the response. The dashboard SHALL NOT display `0` GiB as a fallback used or capacity figure.
 
-#### Scenario: Memory query failure omits memory metrics
+#### Scenario: OBS-MEM-07.01 -- Memory query failure omits memory metrics
 
 - GIVEN Prometheus is down
 - AND at least one other metric source succeeds
 - WHEN the operator opens `/dashboard`
-- THEN the dashboard SHALL show its localized partial-load warning (OP-DASH-09)
+- THEN the dashboard SHALL show its localized partial-load warning (WEB-OPS-09)
 - AND the `memory` widget and system-summary memory row SHALL render the localized metric-unavailable state
 - AND the `memory` widget SHALL NOT silently show zero utilization
 
 ---
 
-### Requirement: CM-08 -- Verification
+### Requirement: OBS-MEM-08 -- Verification
 
 The web-console BFF SHALL include unit tests for:
 
@@ -211,7 +211,7 @@ The web console SHALL include unit tests for the dashboard adapter mapping `used
 
 The operational dashboard package SHALL update `mockOperationalDashboardMetrics` only as needed for Storybook fixtures (values may remain representative).
 
-#### Scenario: CI exercises adapter mapping
+#### Scenario: OBS-MEM-08.01 -- CI exercises adapter mapping
 
 - GIVEN a mocked BFF response with known byte values
 - WHEN dashboard adapter unit tests run

@@ -19,8 +19,9 @@ var _ MappedNullable = &GatewayPlacementIntent{}
 
 // GatewayPlacementIntent Exactly one of selector or mode must be supplied.
 type GatewayPlacementIntent struct {
-	Selector []string
-	Mode     *string
+	Selector         []string
+	ExcludedSelector []string
+	Mode             *string
 }
 
 // NewGatewayPlacementIntent instantiates a new GatewayPlacementIntent object
@@ -72,6 +73,38 @@ func (o *GatewayPlacementIntent) SetSelector(v []string) {
 	o.Selector = v
 }
 
+// GetExcludedSelector returns the ExcludedSelector field value if set, zero value otherwise.
+func (o *GatewayPlacementIntent) GetExcludedSelector() []string {
+	if o == nil || IsNil(o.ExcludedSelector) {
+		var ret []string
+		return ret
+	}
+	return o.ExcludedSelector
+}
+
+// GetExcludedSelectorOk returns a tuple with the ExcludedSelector field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *GatewayPlacementIntent) GetExcludedSelectorOk() ([]string, bool) {
+	if o == nil || IsNil(o.ExcludedSelector) {
+		return nil, false
+	}
+	return o.ExcludedSelector, true
+}
+
+// HasExcludedSelector returns a boolean if a field has been set.
+func (o *GatewayPlacementIntent) HasExcludedSelector() bool {
+	if o != nil && !IsNil(o.ExcludedSelector) {
+		return true
+	}
+
+	return false
+}
+
+// SetExcludedSelector gets a reference to the given []string and assigns it to the ExcludedSelector field.
+func (o *GatewayPlacementIntent) SetExcludedSelector(v []string) {
+	o.ExcludedSelector = v
+}
+
 // GetMode returns the Mode field value if set, zero value otherwise.
 func (o *GatewayPlacementIntent) GetMode() string {
 	if o == nil || IsNil(o.Mode) {
@@ -116,6 +149,9 @@ func (o GatewayPlacementIntent) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.Selector) {
 		toSerialize["selector"] = o.Selector
+	}
+	if !IsNil(o.ExcludedSelector) {
+		toSerialize["excludedSelector"] = o.ExcludedSelector
 	}
 	if !IsNil(o.Mode) {
 		toSerialize["mode"] = o.Mode

@@ -98,7 +98,7 @@ OpenShell's existing provisioning API rather than a HyperShell-defined one.
 
 ## Requirements
 
-### Requirement: OpenShell Gateway Admin Session
+### Requirement: AGT-WSP-01 -- OpenShell Gateway Admin Session
 
 The control plane SHALL realize gateway-side workspace objects by calling OpenShell's existing
 provisioning API over a short-lived administrative session to the gateway, opened per
@@ -124,21 +124,21 @@ The administrative identity's credential material SHALL NEVER appear in logs, er
 telemetry, Kubernetes Events, or API responses. Error messages MAY name the gateway and the
 operation that failed; they SHALL NOT include the credential or the durable provider material.
 
-#### Scenario: Endpoint re-resolved per operation
+#### Scenario: AGT-WSP-01.01 -- Endpoint re-resolved per operation
 
 - GIVEN a running control plane that has realized a workspace on a gateway
 - WHEN the gateway's routable OpenShell API endpoint changes and the reconciler next realizes or updates the workspace
 - THEN it SHALL resolve the current endpoint from the `Gateway` resource
 - AND no controller restart SHALL be required
 
-#### Scenario: Realizer calls OpenShell's existing API, not a bespoke contract
+#### Scenario: AGT-WSP-01.02 -- Realizer calls OpenShell's existing API, not a bespoke contract
 
 - GIVEN an `AgentRuntime` to realize
 - WHEN the control plane provisions its workspace graph
 - THEN it SHALL call OpenShell's existing provisioning API (the operations the `openshell` CLI drives) as the gateway admin identity
 - AND it SHALL NOT dial a bespoke `AgentWorkspaceProvisioning` endpoint and SHALL NOT shell out to the `openshell` CLI
 
-#### Scenario: Admin credential never leaks
+#### Scenario: AGT-WSP-01.03 -- Admin credential never leaks
 
 - GIVEN a gateway admin session that fails with a transport error embedding the credential
 - WHEN the control plane logs the failure and sets the `AgentRuntime` status
@@ -147,7 +147,7 @@ operation that failed; they SHALL NOT include the credential or the durable prov
 
 ---
 
-### Requirement: Gateway-Side AgentWorkspace Representation and Identity
+### Requirement: AGT-WSP-02 -- Gateway-Side AgentWorkspace Representation and Identity
 
 Each `AgentRuntime` SHALL own exactly one OpenShell workspace on its `Gateway`, realized from its
 `AgentWorkspace`. The control plane SHALL bind the realized workspace to the owning
@@ -164,7 +164,7 @@ a collision. The workspace lifecycle SHALL be create-or-update on reconcile and 
 `AgentRuntime` deletion; there is no independent gateway-side workspace create or delete outside
 the owning `AgentRuntime`'s reconcile.
 
-#### Scenario: Workspace carries its owner and name
+#### Scenario: AGT-WSP-02.01 -- Workspace carries its owner and name
 
 - GIVEN an `AgentRuntime` whose `AgentWorkspace.name` is `amber-reviews`
 - WHEN the control plane realizes the workspace on the gateway
@@ -173,7 +173,7 @@ the owning `AgentRuntime`'s reconcile.
 
 ---
 
-### Requirement: Idempotent Realization Through OpenShell's Existing Operations
+### Requirement: AGT-WSP-03 -- Idempotent Realization Through OpenShell's Existing Operations
 
 The control plane SHALL realize the workspace and each sub-resource through idempotent
 create-or-update ("ensure") calls to OpenShell's existing operations, as part of its normal
@@ -199,21 +199,21 @@ invariant. Provider and inference calls SHALL carry gateway-agnostic fields only
 plus the durable material for secret-valued fields; they SHALL NOT carry HyperShell-internal
 identifiers or backend-specific field names, which are OpenShell's own translation concern.
 
-#### Scenario: Realization is idempotent across reconciles
+#### Scenario: AGT-WSP-03.01 -- Realization is idempotent across reconciles
 
 - GIVEN an `AgentRuntime` whose workspace, memberships, providers, and inference route are already realized on the gateway
 - WHEN the control plane reconciles it again with unchanged desired state
 - THEN every ensure call SHALL succeed and make no change
 - AND no error SHALL be returned
 
-#### Scenario: Mutable field updated in place
+#### Scenario: AGT-WSP-03.02 -- Mutable field updated in place
 
 - GIVEN a realized inference route bound to model alias `claude-sonnet-4-5`
 - WHEN the `AgentRuntime`'s route is changed to a different model alias
 - THEN the control plane SHALL update the single route in place through `inference set`
 - AND running sandboxes in the workspace SHALL NOT be restarted
 
-#### Scenario: Removed membership is pruned
+#### Scenario: AGT-WSP-03.03 -- Removed membership is pruned
 
 - GIVEN a workspace with memberships for subjects `A` (admin) and `B` (member)
 - WHEN the desired membership set no longer includes `B`
@@ -222,7 +222,7 @@ identifiers or backend-specific field names, which are OpenShell's own translati
 
 ---
 
-### Requirement: Provider Realization Coherence With the Late-Binding Model
+### Requirement: AGT-WSP-04 -- Provider Realization Coherence With the Late-Binding Model
 
 The control plane SHALL realize each `ProviderBinding` as an OpenShell **provider** on the
 agent's workspace through OpenShell's existing provider operations, from the binding's
@@ -255,7 +255,7 @@ workspace `Ready`, and SHALL converge the moment the material appears (see
 [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md), "SecretPending
 Condition Gates Provider Creation").
 
-#### Scenario: Provider realized from durable material, no raw Secret
+#### Scenario: AGT-WSP-04.01 -- Provider realized from durable material, no raw Secret
 
 - GIVEN a `ProviderBinding` whose `SecretSource` material (a service-account key) is present in the assigned cluster's local store
 - WHEN the control plane reconciles the owning `AgentRuntime`
@@ -263,7 +263,7 @@ Condition Gates Provider Creation").
 - AND OpenShell SHALL mint and rotate the usable credential thereafter
 - AND the control plane SHALL render no raw Kubernetes `Secret` and create no `ExternalSecret` for the credential
 
-#### Scenario: Missing material holds provider creation, does not fail
+#### Scenario: AGT-WSP-04.02 -- Missing material holds provider creation, does not fail
 
 - GIVEN a `ProviderBinding` whose referenced material has not yet been uploaded to the assigned cluster's reachable local store
 - WHEN the control plane reconciles the owning `AgentRuntime`
@@ -272,7 +272,7 @@ Condition Gates Provider Creation").
 
 ---
 
-### Requirement: Admin-Membership-Required Enforcement
+### Requirement: AGT-WSP-05 -- Admin-Membership-Required Enforcement
 
 OpenShell restricts provider credential updates and rotation to workspace administrators.
 Rotation itself is owned by OpenShell for its native strategies and by the bounded control-plane
@@ -289,7 +289,7 @@ the create or update with `422` when a `ProviderBinding` with a non-empty `refre
 no admin membership), so the error is reported at request time; OpenShell's own check is the
 authoritative enforcement at the provisioning boundary.
 
-#### Scenario: Refresh-bearing provider without an admin membership is rejected
+#### Scenario: AGT-WSP-05.01 -- Refresh-bearing provider without an admin membership is rejected
 
 - GIVEN a workspace whose memberships are all `role = member`
 - WHEN a provider with a non-empty `refresh_strategy` is realized on it
@@ -297,7 +297,7 @@ authoritative enforcement at the provisioning boundary.
 - AND the HyperShell API surface SHALL report `422`
 - AND the provider SHALL NOT be created on the gateway
 
-#### Scenario: Admin membership present allows the refresh-bearing provider
+#### Scenario: AGT-WSP-05.02 -- Admin membership present allows the refresh-bearing provider
 
 - GIVEN a workspace with at least one `role = admin` membership
 - WHEN a provider with a non-empty `refresh_strategy` is realized on it
@@ -306,7 +306,7 @@ authoritative enforcement at the provisioning boundary.
 
 ---
 
-### Requirement: Workspace Name Collision Enforcement
+### Requirement: AGT-WSP-06 -- Workspace Name Collision Enforcement
 
 A workspace name SHALL be unique per gateway. When an `AgentRuntime` requests a workspace name
 already taken on that gateway by a workspace owned by a DIFFERENT `agent_runtime_id`, the
@@ -322,7 +322,7 @@ neither the `AgentRuntime` nor the `AgentWorkspace` record, so the collision is 
 request time; OpenShell's own uniqueness is the authoritative enforcement at the provisioning
 boundary.
 
-#### Scenario: Name taken by another runtime is rejected
+#### Scenario: AGT-WSP-06.01 -- Name taken by another runtime is rejected
 
 - GIVEN a workspace named `amber-reviews` on a gateway owned by `AgentRuntime` `R1`
 - WHEN `AgentRuntime` `R2` requests a workspace named `amber-reviews` on the same gateway
@@ -330,7 +330,7 @@ boundary.
 - AND the HyperShell API surface SHALL report `409`
 - AND no workspace SHALL be created for `R2`
 
-#### Scenario: Re-realizing the same runtime and name is not a collision
+#### Scenario: AGT-WSP-06.02 -- Re-realizing the same runtime and name is not a collision
 
 - GIVEN a workspace named `amber-reviews` owned by `AgentRuntime` `R1`
 - WHEN the control plane reconciles `R1` again with name `amber-reviews`
@@ -338,7 +338,7 @@ boundary.
 
 ---
 
-### Requirement: Idempotency and Retry Semantics
+### Requirement: AGT-WSP-07 -- Idempotency and Retry Semantics
 
 Every realization operation SHALL be safe to retry. A transient failure (the gateway unreachable,
 a timeout, a transport error) SHALL be a retryable error: the control plane SHALL return a
@@ -357,7 +357,7 @@ A permanent rejection (a `409` name collision or a `422` admin-required precondi
 retried as a transient failure; it SHALL degrade the `AgentRuntime` with a message that identifies
 the cause, and SHALL be resolved by correcting the desired state rather than by backoff.
 
-#### Scenario: Gateway unreachable during realization is retried
+#### Scenario: AGT-WSP-07.01 -- Gateway unreachable during realization is retried
 
 - GIVEN an `AgentRuntime` whose gateway is unreachable
 - WHEN the control plane attempts to realize the workspace
@@ -365,14 +365,14 @@ the cause, and SHALL be resolved by correcting the desired state rather than by 
 - AND set the `AgentRuntime` status to `Degraded` with a user-facing message
 - AND the reconcile queue SHALL retry, converging when the gateway is reachable
 
-#### Scenario: Partial application completes on retry
+#### Scenario: AGT-WSP-07.02 -- Partial application completes on retry
 
 - GIVEN a reconcile that created the workspace but failed before realizing a provider
 - WHEN the reconcile is retried
 - THEN the control plane SHALL detect the workspace exists, make no destructive change, and realize the outstanding provider
 - AND the workspace SHALL be reported `Ready` only after all sub-resources are realized
 
-#### Scenario: Permanent rejection is not retried as transient
+#### Scenario: AGT-WSP-07.03 -- Permanent rejection is not retried as transient
 
 - GIVEN a workspace realization rejected for a name collision
 - WHEN the control plane handles the rejection
@@ -381,7 +381,7 @@ the cause, and SHALL be resolved by correcting the desired state rather than by 
 
 ---
 
-### Requirement: Cascade Deletion Semantics
+### Requirement: AGT-WSP-08 -- Cascade Deletion Semantics
 
 When an `AgentRuntime` is deleted, the control plane SHALL delete its OpenShell workspace and all
 sub-resources through OpenShell's existing delete operations: the workspace, its memberships, the
@@ -405,7 +405,7 @@ is reclaimed by the gateway's own credential-revocation path
 realization removes the workspace and provider registrations on the gateway, not the Vault plane
 itself.
 
-#### Scenario: AgentRuntime deletion cascades on the gateway
+#### Scenario: AGT-WSP-08.01 -- AgentRuntime deletion cascades on the gateway
 
 - GIVEN an `AgentRuntime` with a realized workspace, two memberships, a provider, and an inference route
 - WHEN the `AgentRuntime` is deleted
@@ -413,13 +413,13 @@ itself.
 - AND it SHALL delete the corresponding `AgentWorkspace`, `WorkspaceMembership`, `ProviderBinding`, and `InferenceRoute` records from the database
 - AND it SHALL NOT delete any shared `ProviderSpec`
 
-#### Scenario: Replay a delete whose objects are already gone
+#### Scenario: AGT-WSP-08.02 -- Replay a delete whose objects are already gone
 
 - GIVEN a delete for an `AgentRuntime` whose gateway-side workspace is already absent
 - WHEN the control plane runs the delete
 - THEN it SHALL treat the workspace and sub-resources as successfully cleaned up and SHALL NOT return an error
 
-#### Scenario: Deletion failure is retried, not silently finalized
+#### Scenario: AGT-WSP-08.03 -- Deletion failure is retried, not silently finalized
 
 - GIVEN an `AgentRuntime` delete whose gateway is unreachable
 - WHEN the control plane attempts the delete
@@ -428,7 +428,7 @@ itself.
 
 ---
 
-### Requirement: No Raw-Secret Placement Through This Realization
+### Requirement: AGT-WSP-09 -- No Raw-Secret Placement Through This Realization
 
 This realization SHALL NOT place, render, or rotate a raw Kubernetes `Secret` for any provider
 credential, and SHALL NOT reintroduce the superseded raw-`Secret` credential-materialization
@@ -443,7 +443,7 @@ short-lived installation token it minted from the stored PEM, through the OpenSh
 credential set through OpenShell's own API, NOT a raw Kubernetes `Secret` the control plane places,
 and the durable PEM SHALL remain the only stored GitHub material.
 
-#### Scenario: No minted credential crosses the boundary for an OpenShell-refreshed strategy
+#### Scenario: AGT-WSP-09.01 -- No minted credential crosses the boundary for an OpenShell-refreshed strategy
 
 - GIVEN a provider realized with a `google-service-account-jwt` strategy through OpenShell's existing provider operations
 - WHEN the control plane inspects what it sent and received
@@ -451,7 +451,7 @@ and the durable PEM SHALL remain the only stored GitHub material.
 - AND it SHALL NOT have received or stored a minted, rotatable credential
 - AND no raw credential `Secret` SHALL have been placed by the control plane
 
-#### Scenario: GitHub minted token is set through the provider API, not a raw Secret
+#### Scenario: AGT-WSP-09.02 -- GitHub minted token is set through the provider API, not a raw Secret
 
 - GIVEN a GitHub provider whose durable material is a stored GitHub App PEM
 - WHEN the control-plane GitHub rotator mints an installation token and sets it
@@ -460,7 +460,7 @@ and the durable PEM SHALL remain the only stored GitHub material.
 
 ---
 
-### Requirement: Fully Declarative Over OpenShell Kinds
+### Requirement: AGT-WSP-10 -- Fully Declarative Over OpenShell Kinds
 
 Realizing the Extension kinds through OpenShell's existing API SHALL reproduce the complete
 OpenShell workspace graph an agent needs, so the `sdlc-coordinator`'s imperative
@@ -469,7 +469,7 @@ two-direction gap analysis, and the enumeration of any residual imperative steps
 [`extension-api-openshell-api-mapping.spec.md`](./extension-api-openshell-api-mapping.spec.md).
 This spec SHALL remain consistent with that mapping.
 
-#### Scenario: Realization replaces coordinator self-provisioning
+#### Scenario: AGT-WSP-10.01 -- Realization replaces coordinator self-provisioning
 
 - GIVEN an `AgentRuntime` whose workspace, memberships, provider bindings, and inference route are declared in HyperShell
 - WHEN the control plane reconciles it against OpenShell's existing API

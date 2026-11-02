@@ -22,6 +22,8 @@ export const reconciliationLagP50SecondsPromql =
   "histogram_quantile(0.50, sum(rate(hypershell_reconciliation_lag_seconds_bucket[5m])) by (le))";
 export const staleResourceStatusCountPromql =
   "sum(max by (hypershell_cluster_id) (hypershell_stale_resource_status_count))";
+export const reconciliationResourcesTotalPromql =
+  "sum(max by (hypershell_cluster_id) (hypershell_reconciliation_resources_total))";
 export const reconciliationFailuresByReasonPromql =
   'sum by (resource_kind) (increase(reconcile_outcomes_total{outcome="failed"}[24h]))';
 export const reconciliationRetriesByReasonPromql =
@@ -50,6 +52,9 @@ export interface ControlPlaneReconciliationMetrics {
   reconciliation_successes_count: number;
   reconciliation_lag_p50_seconds?: number;
   stale_resource_status_count: number;
+  reconciliation_resources_total?: number;
+  state_accuracy_percent?: number;
+  observed_matching_desired?: number;
   reconciliation_failures_by_reason?: Record<string, number>;
   reconciliation_retries_by_reason?: Record<string, number>;
   hourly_reconciliation_failures_count?: ReconciliationHourlyPoint[];
@@ -80,6 +85,9 @@ async function queryInstant(
       throw new Error("Prometheus query returned an invalid sample");
     }
     return value;
+  } catch (error) {
+    if (optional) return undefined;
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
@@ -149,13 +157,15 @@ export async function queryControlPlaneReconciliation(
   source: MetricsSource,
   timeoutMs: number,
 ): Promise<ControlPlaneReconciliationMetrics> {
-  const [failures, retries, successes, lag, stale] = await Promise.all([
+  const [failures, retries, successes, lag, stale, total] = await Promise.all([
     queryInstant(source, reconciliationFailureCountPromql, timeoutMs),
     queryInstant(source, reconciliationRetryCountPromql, timeoutMs),
     queryInstant(source, reconciliationSuccessCountPromql, timeoutMs),
     queryInstant(source, reconciliationLagP50SecondsPromql, timeoutMs, true),
     queryInstant(source, staleResourceStatusCountPromql, timeoutMs),
+    queryInstant(source, reconciliationResourcesTotalPromql, timeoutMs, true),
   ]);
+
   if (
     failures === undefined ||
     retries === undefined ||
@@ -164,6 +174,13 @@ export async function queryControlPlaneReconciliation(
   ) {
     throw new Error("Required reconciliation metric is unavailable");
   }
+  const validStatePopulation =
+    total !== undefined &&
+    Number.isInteger(total) &&
+    Number.isInteger(stale) &&
+    total > 0 &&
+    stale >= 0 &&
+    stale <= total;
 
   const [
     hourlyFailures,
@@ -197,6 +214,13 @@ export async function queryControlPlaneReconciliation(
     reconciliation_successes_count: successes,
     ...(lag === undefined ? {} : { reconciliation_lag_p50_seconds: lag }),
     stale_resource_status_count: stale,
+    ...(validStatePopulation
+      ? {
+          reconciliation_resources_total: total,
+          state_accuracy_percent: 100 * (1 - stale / total),
+          observed_matching_desired: total - stale,
+        }
+      : {}),
     ...(failuresByReason
       ? { reconciliation_failures_by_reason: failuresByReason }
       : {}),

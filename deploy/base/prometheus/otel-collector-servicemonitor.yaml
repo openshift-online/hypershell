@@ -16,3 +16,4 @@ spec:
       path: /metrics
       scheme: http
       interval: 30s
+      honorLabels: true

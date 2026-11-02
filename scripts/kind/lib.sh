@@ -247,6 +247,29 @@ restore_swaps_after_reconcile() {
   done
 }
 
+# --- Coverage instrumentation (KIND_COVERAGE, DEV-LOC-18) ---
+
+# coverage_enabled: true when KIND_COVERAGE=true asks for instrumented images.
+coverage_enabled() {
+  [[ "${KIND_COVERAGE:-}" == "true" ]]
+}
+
+# coverage_build_args COMPONENT: print, space-separated on one line, the extra
+# image build arguments that instrument COMPONENT for coverage. Prints nothing
+# when coverage is off. Go services get a -cover binary; the web console gets
+# BFF source maps so NODE_V8_COVERAGE maps back to TypeScript.
+coverage_build_args() {
+  coverage_enabled || return 0
+  case "$1" in
+    api-server|control-plane) echo "--build-arg GO_COVERAGE=true" ;;
+    web-console) echo "--build-arg BFF_SOURCE_MAPS=true" ;;
+    *)
+      error "coverage_build_args: unknown component '$1'"
+      return 1
+      ;;
+  esac
+}
+
 # --- DNS (CoreDNS container) ---
 
 dns_container_running() {

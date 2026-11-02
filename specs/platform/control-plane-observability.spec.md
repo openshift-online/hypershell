@@ -14,7 +14,7 @@ This specification covers the control plane component only. API server instrumen
 
 ## Requirements
 
-### Requirement: CP-OBS-01 -- OTel SDK Bootstrap and Configuration
+### Requirement: OBS-CPL-01 -- OTel SDK Bootstrap and Configuration
 
 The control plane SHALL initialize the OpenTelemetry SDK at startup, configuring a `TracerProvider` and a `MeterProvider` that export telemetry via OTLP to any OTel-compatible collector. Configuration SHALL be deployment configuration, separate from code, supplied through the standard OTel environment variables:
 
@@ -34,7 +34,7 @@ The SDK initialization SHALL be called from `main()` before launching any gorout
 
 **Verification:** Start the control plane with the endpoint set, absent, and set-but-unreachable; confirm export when configured, no initialization and no overhead when absent, and continued reconciliation with logged failures when unreachable. Send SIGTERM after reconciling traffic and confirm a bounded flush.
 
-#### Scenario: Telemetry enabled with a collector endpoint
+#### Scenario: OBS-CPL-01.01 -- Telemetry enabled with a collector endpoint
 
 - GIVEN `OTEL_EXPORTER_OTLP_ENDPOINT` is set to `http://collector:4317`
 - AND `OTEL_TRACES_SAMPLER_ARG` is set to `0.5`
@@ -43,7 +43,7 @@ The SDK initialization SHALL be called from `main()` before launching any gorout
 - AND the sampler SHALL sample 50 percent of root traces
 - AND spans and metrics SHALL be exported to the configured endpoint
 
-#### Scenario: Telemetry disabled when no endpoint is configured
+#### Scenario: OBS-CPL-01.02 -- Telemetry disabled when no endpoint is configured
 
 - GIVEN `OTEL_EXPORTER_OTLP_ENDPOINT` is not set
 - WHEN the control plane starts
@@ -51,7 +51,7 @@ The SDK initialization SHALL be called from `main()` before launching any gorout
 - AND no tracing or metrics instrumentation SHALL be active
 - AND the control plane SHALL operate with no observability overhead
 
-#### Scenario: Collector unreachable at runtime
+#### Scenario: OBS-CPL-01.03 -- Collector unreachable at runtime
 
 - GIVEN `OTEL_EXPORTER_OTLP_ENDPOINT` is set but the collector is unreachable
 - WHEN the control plane reconciles resources
@@ -59,24 +59,24 @@ The SDK initialization SHALL be called from `main()` before launching any gorout
 - AND telemetry export failures SHALL be logged rather than surfaced to reconciler logic
 - AND the control plane SHALL NOT crash or degrade reconciliation because of export errors
 
-#### Scenario: Graceful shutdown flushes telemetry
+#### Scenario: OBS-CPL-01.04 -- Graceful shutdown flushes telemetry
 
 - GIVEN the OTel SDK is initialized and the control plane has reconciled resources
 - WHEN the control plane receives SIGTERM
 - THEN the SDK SHALL flush buffered spans and metrics before the process exits
 - AND the flush SHALL be bounded by a timeout so shutdown does not block indefinitely
 
-### Requirement: CP-OBS-02 -- Reconcile Spans
+### Requirement: OBS-CPL-02 -- Reconcile Spans
 
-The control plane SHALL create one span per resource reconciliation, wrapping each `Handle()` invocation on an event-driven reconciler. The span SHALL be named by the resource kind and event type (for example `reconcile Gateway`, `delete Gateway`, `reconcile Fleet`) so Jaeger groups spans by reconciler. A resource identifier SHALL NOT appear in the span name to keep cardinality bounded per `CP-OBS-06`.
+The control plane SHALL create one span per resource reconciliation, wrapping each `Handle()` invocation on an event-driven reconciler. The span SHALL be named by the resource kind and event type (for example `reconcile Gateway`, `delete Gateway`, `reconcile ManagedCluster`) so Jaeger groups spans by reconciler. A resource identifier SHALL NOT appear in the span name to keep cardinality bounded per `OBS-CPL-06`.
 
 Each reconcile span SHALL record at least the resource kind and event type as span attributes. The span status SHALL reflect the reconcile outcome: OK on success, Error with a description on failure. When a reconcile is skipped because of the phase gate or deduplication, no span SHALL be created for the skipped event.
 
-The continuous reconcilers (health, namespace GC, sandbox count, sandbox attention) SHALL each create a span per tick wrapping the periodic reconcile cycle, named by reconciler (for example `reconcile gateway-health`, `reconcile namespace-gc`, `reconcile sandbox-count`, `reconcile sandbox-attention`).
+The continuous reconcilers (health, namespace GC, sandbox count, sandbox attention, sandbox events) SHALL each create a span per tick wrapping the periodic reconcile cycle, named by reconciler (for example `reconcile gateway-health`, `reconcile namespace-gc`, `reconcile sandbox-count`, `reconcile sandbox-attention`, `reconcile sandbox-events`).
 
 **Verification:** Trigger a gateway create, update, and delete event; confirm one span each named by kind and event type, with the outcome reflected in the span status. Confirm that a phase-gated skip produces no span. Confirm that the health reconciler produces a span per tick.
 
-#### Scenario: Gateway reconcile produces a span
+#### Scenario: OBS-CPL-02.01 -- Gateway reconcile produces a span
 
 - GIVEN the OTel SDK is initialized
 - WHEN a Gateway create event arrives from the watch stream
@@ -84,27 +84,27 @@ The continuous reconcilers (health, namespace GC, sandbox count, sandbox attenti
 - AND the span SHALL record the resource kind and event type
 - AND the span status SHALL be OK if reconciliation succeeds
 
-#### Scenario: Failed reconcile records error status
+#### Scenario: OBS-CPL-02.02 -- Failed reconcile records error status
 
 - GIVEN the OTel SDK is initialized
 - WHEN a Gateway reconciliation fails
 - THEN the reconcile span status SHALL be Error
 - AND the span SHALL record a description of the failure
 
-#### Scenario: Phase-gated skip produces no span
+#### Scenario: OBS-CPL-02.03 -- Phase-gated skip produces no span
 
 - GIVEN the OTel SDK is initialized
 - AND a Gateway has phase `Running`
 - WHEN a Gateway update event arrives
 - THEN no reconcile span SHALL be created for the skipped event
 
-#### Scenario: Health reconciler produces periodic spans
+#### Scenario: OBS-CPL-02.04 -- Health reconciler produces periodic spans
 
 - GIVEN the OTel SDK is initialized
 - WHEN the gateway health reconciler completes a tick
 - THEN one span SHALL be created named `reconcile gateway-health`
 
-### Requirement: CP-OBS-03 -- Outbound gRPC Client Spans
+### Requirement: OBS-CPL-03 -- Outbound gRPC Client Spans
 
 The control plane SHALL register OpenTelemetry gRPC client interceptors, both unary and streaming, on the shared gRPC client connection to the API server. The interceptors SHALL create a client span for each outbound RPC and inject W3C Trace Context into outbound gRPC metadata. The interceptors SHALL be registered once on the dial options so every gRPC service client created from the shared connection is instrumented without per-call changes.
 
@@ -114,7 +114,7 @@ When the control plane issues a gRPC call during a reconcile (for example `Updat
 
 **Verification:** Trigger a reconcile that updates gateway phase via gRPC; confirm a client span named by the full RPC method as a child of the reconcile span, with RPC semantic-convention attributes. Confirm the API server receives `traceparent` metadata.
 
-#### Scenario: Outbound gRPC call produces a client span
+#### Scenario: OBS-CPL-03.01 -- Outbound gRPC call produces a client span
 
 - GIVEN the OTel SDK is initialized
 - WHEN the control plane calls `UpdateGateway` during a reconcile
@@ -122,14 +122,14 @@ When the control plane issues a gRPC call during a reconcile (for example `Updat
 - AND the span SHALL be a child of the active reconcile span
 - AND the span SHALL record the RPC system, service, method, and gRPC status code
 
-#### Scenario: Trace context propagated to the API server
+#### Scenario: OBS-CPL-03.02 -- Trace context propagated to the API server
 
 - GIVEN the OTel SDK is initialized
 - WHEN the control plane makes a gRPC call to the API server
 - THEN W3C Trace Context SHALL be injected into the outbound gRPC metadata
 - AND the API server span SHALL be a child of the control plane client span
 
-### Requirement: CP-OBS-04 -- Watch Stream Lifecycle Spans
+### Requirement: OBS-CPL-04 -- Watch Stream Lifecycle Spans
 
 The control plane SHALL create a span for each watch stream connection attempt, wrapping the `connectAndRecv` cycle in `watchLoop`. The span SHALL be named by the resource kind (for example `watch Gateway`, `watch ManagedCluster`) and SHALL cover the lifetime of the stream from connection to disconnection. The span status SHALL reflect the stream outcome: OK on graceful EOF, Error on unexpected disconnection.
 
@@ -137,14 +137,14 @@ When a watch stream disconnects and reconnects, each connection attempt SHALL pr
 
 **Verification:** Start the control plane with tracing enabled; confirm one span per watch connection named by kind. Disconnect the API server and confirm the span records an error status, and that the reconnection produces a new span.
 
-#### Scenario: Watch stream produces a lifecycle span
+#### Scenario: OBS-CPL-04.01 -- Watch stream produces a lifecycle span
 
 - GIVEN the OTel SDK is initialized
 - WHEN the control plane connects a Gateway watch stream
 - THEN one span SHALL be created named `watch Gateway`
 - AND the span SHALL cover the stream lifetime from connection to disconnection
 
-#### Scenario: Watch reconnection produces a new span
+#### Scenario: OBS-CPL-04.02 -- Watch reconnection produces a new span
 
 - GIVEN the OTel SDK is initialized
 - AND a Gateway watch stream disconnects
@@ -152,17 +152,17 @@ When a watch stream disconnects and reconnects, each connection attempt SHALL pr
 - THEN a new span SHALL be created for the new connection attempt
 - AND the previous span SHALL have recorded an error status
 
-### Requirement: CP-OBS-05 -- Kubernetes API Client Spans
+### Requirement: OBS-CPL-05 -- Kubernetes API Client Spans
 
 The control plane SHALL instrument its Kubernetes API client HTTP transport so that every outbound Kubernetes API call produces a client span. The instrumentation SHALL be applied once on the shared `rest.Config` transport before creating the typed clientset and dynamic client, so every Kubernetes API call is traced without per-call changes.
 
-Each Kubernetes API client span SHALL follow the OpenTelemetry semantic conventions for HTTP and SHALL record at least the request method, URL path, and response status code. The URL path SHALL use the Kubernetes API path pattern (for example `/api/v1/namespaces/{namespace}/deployments/{name}`) to keep span-name cardinality bounded per `CP-OBS-06`.
+Each Kubernetes API client span SHALL follow the OpenTelemetry semantic conventions for HTTP and SHALL record at least the request method, URL path, and response status code. The URL path SHALL use the Kubernetes API path pattern (for example `/api/v1/namespaces/{namespace}/deployments/{name}`) to keep span-name cardinality bounded per `OBS-CPL-06`.
 
 When the control plane makes a Kubernetes API call during a reconcile, the Kubernetes span SHALL be a child of the active reconcile span, joining one trace from the reconcile through the outbound call to the Kubernetes API server.
 
 **Verification:** Trigger a gateway reconcile that creates Kubernetes resources; confirm client spans for the Kubernetes API calls as children of the reconcile span, with HTTP semantic-convention attributes. Confirm span names use bounded path patterns.
 
-#### Scenario: Kubernetes API call produces a client span
+#### Scenario: OBS-CPL-05.01 -- Kubernetes API call produces a client span
 
 - GIVEN the OTel SDK is initialized
 - WHEN the control plane creates a Deployment via the Kubernetes API during a reconcile
@@ -170,7 +170,7 @@ When the control plane makes a Kubernetes API call during a reconcile, the Kuber
 - AND the span SHALL be a child of the active reconcile span
 - AND the span SHALL record the request method, URL path, and response status code
 
-### Requirement: CP-OBS-06 -- Telemetry Privacy and Cardinality
+### Requirement: OBS-CPL-06 -- Telemetry Privacy and Cardinality
 
 Trace spans, span events, and metric attributes SHALL NOT include sensitive data. Bearer tokens, OIDC client secrets, Keycloak credentials, kubeconfig contents, database connection strings, and secret references SHALL NOT appear in telemetry. Raw resource identifiers (KSUIDs, namespace names derived from KSUIDs) SHALL NOT become span-name segments; stable kind names and bounded enumerations SHALL replace raw values. This aligns with `standards/security/security.spec.md`.
 
@@ -178,23 +178,23 @@ Resource identifiers MAY appear as bounded span attributes (for example `hypersh
 
 **Verification:** Run redaction checks with seeded secrets and OIDC credentials; confirm none appear in spans or metric attributes. Confirm span names use kind names with identifiers collapsed.
 
-#### Scenario: OIDC credentials excluded from telemetry
+#### Scenario: OBS-CPL-06.01 -- OIDC credentials excluded from telemetry
 
 - GIVEN the OTel SDK is initialized
 - AND the control plane uses OIDC authentication for gRPC
 - WHEN the control plane reconciles a resource
 - THEN no span attribute or metric label SHALL contain OIDC client secrets, bearer tokens, or Keycloak credentials
 
-#### Scenario: Resource identifiers excluded from span names
+#### Scenario: OBS-CPL-06.02 -- Resource identifiers excluded from span names
 
 - GIVEN the OTel SDK is initialized
 - WHEN the control plane reconciles Gateway `abc123`
 - THEN the span name SHALL be `reconcile Gateway`, not `reconcile Gateway abc123`
 - AND the concrete identifier MAY appear only as a bounded span attribute
 
-### Requirement: CP-OBS-07 -- Reconcile and Watch Metrics via OTLP
+### Requirement: OBS-CPL-07 -- Reconcile and Watch Metrics via OTLP
 
-The control plane SHALL export OpenTelemetry metrics for reconciliation and watch stream health over OTLP alongside traces. Metrics SHALL be labeled with bounded attributes (resource kind, event type, outcome) and SHALL respect the cardinality bounds of `CP-OBS-06`.
+The control plane SHALL export OpenTelemetry metrics for reconciliation and watch stream health over OTLP alongside traces. Metrics SHALL be labeled with bounded attributes (resource kind, event type, outcome) and SHALL respect the cardinality bounds of `OBS-CPL-06`.
 
 | Metric | Type | Unit | Description |
 |--------|------|------|-------------|
@@ -228,7 +228,7 @@ The control plane SHALL record one `gateway.provision.outcomes` observation per 
 
 When exported to Prometheus, the counter SHALL appear as `gateway_provision_outcomes_total{outcome="success|failure"}`. The operational dashboard provision-reliability feature (`platform/gateway-provision-outcomes.spec.md`) consumes that series through the web-console BFF.
 
-The control plane SHALL export `gateway.sandbox.orphaned`, `gateway.sandbox.expiring`, and `gateway.sandbox.idle` as gauges updated from the sandbox attention reconcile tick. Each gauge SHALL report the most recently derived non-negative cluster-local count and SHALL include a low-cardinality `hypershell.cluster_id` attribute (managed-cluster ID, or `default` in single-cluster mode). Derivation rules, pod-only degrade behavior, hard-failure zeroing, and dashboard consumption are owned by `platform/gateway-sandbox-attention-status.spec.md` (SSA-05 / SSA-06). The gauges SHALL NOT contain a sandbox, namespace, or Gateway identifier attribute. When OTLP metrics are disabled (CP-OBS-01), the gauges SHALL NOT be exported.
+The control plane SHALL export `gateway.sandbox.orphaned`, `gateway.sandbox.expiring`, and `gateway.sandbox.idle` as gauges updated from the sandbox attention reconcile tick. Each gauge SHALL report the most recently derived non-negative cluster-local count and SHALL include a low-cardinality `hypershell.cluster_id` attribute (managed-cluster ID, or `default` in single-cluster mode). Derivation rules, pod-only degrade behavior, hard-failure zeroing, and dashboard consumption are owned by `platform/gateway-sandbox-attention-status.spec.md` (OBS-SBXA-05 / OBS-SBXA-06). The gauges SHALL NOT contain a sandbox, namespace, or Gateway identifier attribute. When OTLP metrics are disabled (OBS-CPL-01), the gauges SHALL NOT be exported.
 
 When the OTel SDK initializes with a non-empty instance namespace (`HYPERSHELL_NAMESPACE`), the resource SHALL include `k8s.namespace.name` so Prometheus series carry `k8s_namespace_name` for BFF instance scoping (same contract as provision-time metrics).
 
@@ -238,21 +238,21 @@ Metrics SHALL complement any future Prometheus metrics endpoint and SHALL NOT pr
 
 **Verification:** Trigger reconciliations and watch reconnections; confirm the duration histogram records reconcile latency, the error counter increments on failure, and the reconnect counter increments on watch stream reconnection, all labeled by resource kind.
 
-#### Scenario: Reconcile duration metric recorded
+#### Scenario: OBS-CPL-07.01 -- Reconcile duration metric recorded
 
 - GIVEN the OTel SDK is initialized
 - WHEN a Gateway reconciliation completes
 - THEN `reconcile.duration` SHALL record the reconcile duration
 - AND the sample SHALL be labeled with the resource kind and event type
 
-#### Scenario: Reconcile error metric incremented
+#### Scenario: OBS-CPL-07.02 -- Reconcile error metric incremented
 
 - GIVEN the OTel SDK is initialized
 - WHEN a Gateway reconciliation fails
 - THEN `reconcile.errors` SHALL be incremented
 - AND the sample SHALL be labeled with the resource kind
 
-#### Scenario: Gateway provision duration recorded
+#### Scenario: OBS-CPL-07.03 -- Gateway provision duration recorded
 
 - GIVEN a Gateway has a valid creation time
 - AND the Gateway has not reached `Running`
@@ -261,7 +261,7 @@ Metrics SHALL complement any future Prometheus metrics endpoint and SHALL NOT pr
 - AND a later recovery from `Degraded` to `Running` SHALL NOT record another observation
 - AND the metric SHALL NOT contain the Gateway identifier
 
-#### Scenario: Gateway provision success outcome recorded
+#### Scenario: OBS-CPL-07.04 -- Gateway provision success outcome recorded
 
 - GIVEN a Gateway has not yet contributed a provision observation
 - WHEN the control plane successfully changes its phase to `Running` for the first time
@@ -269,14 +269,14 @@ Metrics SHALL complement any future Prometheus metrics endpoint and SHALL NOT pr
 - AND `gateway.provision.duration` SHALL record the provision duration for the same gateway
 - AND a later recovery from `Degraded` to `Running` SHALL NOT increment the outcomes counter again
 
-#### Scenario: Gateway provision failure outcome recorded
+#### Scenario: OBS-CPL-07.05 -- Gateway provision failure outcome recorded
 
 - GIVEN a Gateway has not yet contributed a provision observation
 - WHEN the control plane successfully changes its phase to `Failed` for the first time
 - THEN `gateway.provision.outcomes` SHALL increment once with `outcome=failure`
 - AND `gateway.provision.duration` SHALL NOT record a duration observation for that gateway
 
-#### Scenario: Sandbox attention gauges exported
+#### Scenario: OBS-CPL-07.06 -- Sandbox attention gauges exported
 
 - GIVEN the OTel SDK is initialized with metrics export enabled
 - AND the control plane has derived orphaned `3`, expiring-soon `12`, and idle `7` for its managed clusters
@@ -286,7 +286,7 @@ Metrics SHALL complement any future Prometheus metrics endpoint and SHALL NOT pr
 - AND `gateway.sandbox.idle` SHALL report `7`
 - AND none of those gauges SHALL contain a sandbox, namespace, or Gateway identifier
 
-#### Scenario: Gateway reconcile queue metrics recorded
+#### Scenario: OBS-CPL-07.07 -- Gateway reconcile queue metrics recorded
 
 - GIVEN all Gateway reconcile workers are busy
 - AND another Gateway key is ready in the queue
@@ -296,7 +296,7 @@ Metrics SHALL complement any future Prometheus metrics endpoint and SHALL NOT pr
 - AND both metrics SHALL use `resource.kind=Gateway`
 - AND neither metric SHALL contain the Gateway identifier
 
-#### Scenario: Retry backoff excluded from queue wait
+#### Scenario: OBS-CPL-07.08 -- Retry backoff excluded from queue wait
 
 - GIVEN a Gateway reconciliation failed
 - AND the queue scheduled a retry after a backoff period
@@ -304,14 +304,99 @@ Metrics SHALL complement any future Prometheus metrics endpoint and SHALL NOT pr
 - THEN `reconcile.queue.wait.duration` SHALL measure from the end of the backoff
 - AND it SHALL NOT include the scheduled backoff period
 
-#### Scenario: Watch reconnect metric incremented
+#### Scenario: OBS-CPL-07.09 -- Watch reconnect metric incremented
 
 - GIVEN the OTel SDK is initialized
 - WHEN a Gateway watch stream disconnects and reconnects
 - THEN `watch.reconnects` SHALL be incremented
 - AND the sample SHALL be labeled with the resource kind
 
-### Requirement: CP-OBS-08 -- Development Trace Export
+### Requirement: OBS-CPL-10 -- Dashboard Health Gauges
+
+The control plane SHALL export these low-cardinality OpenTelemetry gauges for dashboard health calculations:
+
+| OTel instrument | Prometheus series | Meaning |
+| --- | --- | --- |
+| `gateway.sandbox.ready` | `gateway_sandbox_ready` | Provisioned sandboxes whose Kubernetes Ready condition is true |
+| `gateway.certificate.valid` | `gateway_certificate_valid` | Evaluated gateway and console TLS certificates that are currently valid |
+| `gateway.certificate.expired` | `gateway_certificate_expired` | Evaluated certificates whose `notAfter` is in the past |
+| `gateway.certificate.unavailable` | `gateway_certificate_unavailable` | Missing or unreadable certificate status |
+| `gateway.certificate.days_to_expiry_min` | `gateway_certificate_days_to_expiry_min` | Minimum whole or fractional days to expiry among valid evaluated certificates |
+| `oidc.client.synced` | `oidc_client_synced` | Desired gateway OIDC clients present in Keycloak with matching managed state |
+| `oidc.client.expected` | `oidc_client_expected` | Desired gateway OIDC client count from the API-server resource model |
+| `oidc.client.keycloak_connected` | `oidc_client_keycloak_connected` | `1` when the Keycloak comparison completed, otherwise `0` |
+| `oidc.client.health.observed_timestamp_seconds` | `oidc_client_health_observed_timestamp_seconds` | Producer Unix timestamp of the last completed comparison, successful or failed |
+| `oidc.client.health.success_timestamp_seconds` | `oidc_client_health_success_timestamp_seconds` | Producer Unix timestamp of the last fully synchronized comparison; zero until first success |
+| `hypershell.reconciliation.resources.total` | `hypershell_reconciliation_resources_total` | Non-deleted Gateways in the same watch population as the stale-resource gauge, per OBS-CRM-01 |
+
+The sandbox-ready gauge SHALL use the same population and cluster scope as `gateway.sandbox.total`. Certificate gauges SHALL be derived from the gateway and console TLS secrets or routes that the control plane already reconciles. Missing data or a certificate parse failure SHALL increment unavailable; it SHALL NOT increment valid or expired. Certificate contents, private keys, subject names, and secret data SHALL NOT appear in metrics or logs.
+
+Fleet certificate counts SHALL deduplicate control-plane replicas with
+`max by (hypershell_cluster_id)` and then sum the per-cluster values. Fleet
+`soonest_days_to_expiry` SHALL instead deduplicate replicas and take the minimum
+across clusters:
+
+```promql
+min(
+  max by (hypershell_cluster_id) (
+    gateway_certificate_days_to_expiry_min
+  )
+)
+```
+
+The BFF SHALL omit `soonest_days_to_expiry` when no cluster has a valid finite
+sample. It SHALL NOT sum per-cluster minimums.
+
+OIDC gauges SHALL compare the desired gateway client set with the clients returned by the Keycloak Admin API using the existing configured admin credentials. A failed or indeterminate Keycloak request SHALL report disconnected or unknown through the connectivity gauge and SHALL NOT synthesize a 100-percent result from an empty expected-client set.
+
+OIDC health comparison SHALL run independently of sandbox and certificate
+inspection every 30 seconds, with a 25-second overall timeout. Completion,
+including an API/Keycloak error, advances the observation timestamp. Only a
+completed comparison with synchronized count equal to expected count advances
+the success timestamp. A successfully determined empty client set is a completed
+comparison, while its dashboard percentage remains unknown as specified below.
+Neither metric collection nor exporter retries may advance these timestamps.
+
+Fleet **alerts** SHALL retain current Kubernetes pod identity and UID from OTel
+resource enrichment. A failing pod must not be hidden by a healthy peer or by
+retained metrics from an old pod. Missing/stale producer timestamps represent
+unknown telemetry and require a separate alert. This differs from the BFF's
+fleet-count aggregation below: pod identity is resource metadata, not a new
+per-gateway metric attribute. Workload inventory and alert thresholds are defined
+in the GitOps fleet-alerting runbook.
+
+Every gauge SHALL include only the low-cardinality `hypershell.cluster_id` attribute where cluster scope applies. Fleet dashboard-count PromQL SHALL deduplicate replicas with `max by (hypershell_cluster_id)` before applying the metric's fleet operation: summation for counts and minimum for `gateway_certificate_days_to_expiry_min`. No gauge SHALL contain Gateway, sandbox, certificate, namespace, user, or client identifiers.
+
+#### Scenario: OBS-CPL-10.01 -- Unreadable certificate is unavailable
+
+- GIVEN a TLS secret is missing certificate data or its certificate cannot be parsed
+- WHEN certificate health gauges are refreshed
+- THEN `gateway.certificate.unavailable` SHALL include that certificate
+- AND valid and expired counts SHALL NOT include it
+
+#### Scenario: OBS-CPL-10.02 -- Empty OIDC denominator is unknown
+
+- GIVEN the expected OIDC client count is zero or cannot be determined
+- WHEN OIDC sync accuracy is calculated
+- THEN the dashboard contract SHALL report accuracy as unknown
+- AND it SHALL NOT report 100 percent
+
+#### Scenario: OBS-CPL-10.03 -- Gauge labels remain bounded
+
+- GIVEN health gauges are exported from multiple control-plane replicas
+- WHEN Prometheus aggregates fleet health
+- THEN replica observations SHALL be deduplicated by cluster identity
+- AND no resource identifier or secret-derived value SHALL appear as a label
+
+#### Scenario: OBS-CPL-10.04 -- Fleet expiry uses the soonest cluster value
+
+- GIVEN one cluster reports a minimum certificate expiry of 20 days
+- AND another cluster reports a minimum certificate expiry of 5 days
+- WHEN the BFF calculates fleet certificate health
+- THEN `soonest_days_to_expiry` SHALL be 5 days
+- AND it SHALL NOT sum the per-cluster minimums
+
+### Requirement: OBS-CPL-08 -- Development Trace Export
 
 When local development tracing is enabled (`KIND_JAEGER=true`), the control plane Deployment SHALL be configured with `OTEL_EXPORTER_OTLP_ENDPOINT` pointing at the in-cluster Jaeger OTLP/gRPC receiver on port `4317` and `OTEL_METRICS_EXPORTER` set to `none`, so a developer can view the control plane reconcile spans alongside the API server and web console spans in Jaeger. The Jaeger deployment, its ports, the `KIND_JAEGER` gate, and the UI hostname are defined by `platform/local-development.spec.md`; this requirement only binds the control plane to that endpoint.
 
@@ -319,19 +404,50 @@ When `KIND_JAEGER` is unset, the control plane Deployment SHALL NOT receive a co
 
 **Verification:** Bring up the local cluster with `KIND_JAEGER=true`, trigger a reconcile, and confirm the control plane spans appear in Jaeger. Bring it up without `KIND_JAEGER` and confirm the control plane Deployment has no collector endpoint.
 
-#### Scenario: Control plane spans reach the development Jaeger
+#### Scenario: OBS-CPL-08.01 -- Control plane spans reach the development Jaeger
 
 - GIVEN the local cluster is running with `KIND_JAEGER=true`
 - WHEN a gateway reconcile occurs
 - THEN the control plane SHALL export its spans to the in-cluster Jaeger OTLP/gRPC endpoint on port `4317`
 - AND the reconcile span and its child gRPC/Kubernetes spans SHALL appear in Jaeger
 
-#### Scenario: No export when development tracing is disabled
+#### Scenario: OBS-CPL-08.02 -- No export when development tracing is disabled
 
 - GIVEN `KIND_JAEGER` is unset
 - WHEN a developer runs `make kind-up`
 - THEN the control plane Deployment SHALL NOT be given a collector endpoint
 - AND the control plane SHALL run without OTel instrumentation
+
+### Requirement: OBS-CPL-09 -- Cluster Identity Info Metrics
+
+When OTLP metrics are enabled (OBS-CPL-01), the control plane SHALL export two always-`1` observable gauges that describe its own managed cluster:
+
+| Metric | Attributes | Description |
+|--------|------------|-------------|
+| `hypershell.managed_cluster.capability.info` | `managed_cluster`, `capability`, `capability_namespace`, `capability_value` | One series per configured capability |
+| `hypershell.control_plane.info` | `managed_cluster`, `gateway_image` | One series naming the default gateway image |
+
+`managed_cluster` SHALL be `HYPERSHELL_MANAGED_CLUSTER_NAME`. The capability set SHALL be `HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES`, the same set the control plane registers. `capability_namespace` and `capability_value` SHALL be the parts before and after the first `/`. `gateway_image` SHALL be the `GATEWAY_IMAGE` value exactly as configured, without parsing out a tag. The gauges SHALL carry no unit, so Prometheus shows them as `hypershell_managed_cluster_capability_info` and `hypershell_control_plane_info`. When the managed-cluster name is empty, the control plane SHALL NOT export either gauge.
+
+These values are bounded deployment configuration, not resource identifiers, so they satisfy OBS-CPL-06. A consumer SHALL deduplicate control-plane replicas with `max by` or `group by`, not `sum`.
+
+**Verification:** Start the control plane with a collector endpoint and a capability list; confirm Prometheus shows one capability series per entry and one control-plane series with the configured gateway image.
+
+#### Scenario: OBS-CPL-09.01 -- Capabilities and gateway image exported
+
+- GIVEN the OTel SDK is initialized with metrics export enabled
+- AND the control plane is configured as managed cluster `hyp2-spoke1` with capabilities `provider/ibm,network/public`
+- AND `GATEWAY_IMAGE` is `quay.io/opendatahub/odh-openshell-gateway:v0.1.5-rhaiv.2`
+- WHEN metrics are collected
+- THEN `hypershell.managed_cluster.capability.info` SHALL report `1` for each capability, labelled with `managed_cluster=hyp2-spoke1` and the capability's namespace and value
+- AND `hypershell.control_plane.info` SHALL report `1` with `gateway_image` set to the configured image
+
+#### Scenario: OBS-CPL-09.02 -- No identity metrics without a cluster name
+
+- GIVEN the OTel SDK is initialized with metrics export enabled
+- AND `HYPERSHELL_MANAGED_CLUSTER_NAME` is empty
+- WHEN metrics are collected
+- THEN neither identity gauge SHALL be exported
 
 ## Design Decisions
 

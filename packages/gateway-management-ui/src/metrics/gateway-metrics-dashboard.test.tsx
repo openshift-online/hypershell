@@ -27,6 +27,7 @@ describe("GatewayMetricsDashboard", () => {
     vi.restoreAllMocks();
   });
 
+  // Verifies: OBS-GMD-06.02
   it("shows a loading spinner while metrics are fetching", () => {
     vi.spyOn(gatewayMetricsData, "fetchGatewayMetrics").mockReturnValue(
       new Promise(() => undefined),
@@ -38,6 +39,7 @@ describe("GatewayMetricsDashboard", () => {
     expect(container.querySelector(".pf-v6-c-spinner")).toBeTruthy();
   });
 
+  // Verifies: OBS-GMD-06.03
   it("shows recovery guidance when metrics fail to load", async () => {
     vi.spyOn(gatewayMetricsData, "fetchGatewayMetrics").mockRejectedValue(
       new Error("Metrics unavailable"),
@@ -53,6 +55,7 @@ describe("GatewayMetricsDashboard", () => {
     ).toBeTruthy();
   });
 
+  // Verifies: OBS-GMD-06.01, GTW-PHS-05.03
   it("renders all five phase cards when metrics load", async () => {
     vi.spyOn(gatewayMetricsData, "fetchGatewayMetrics").mockResolvedValue({
       Pending: 1,

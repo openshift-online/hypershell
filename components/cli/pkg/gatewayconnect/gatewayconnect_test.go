@@ -52,6 +52,71 @@ func TestBuildConnectionScript_IncludesDriverConfig(t *testing.T) {
 	}
 }
 
+func TestBuildConnectionScript_ProfileImportPrecedesProviderCreate(t *testing.T) {
+	out := buildConnectionScript("gw", "https://gw.test:443", oidcConfig{
+		Issuer:   "https://issuer.test",
+		ClientID: "cli",
+		Audience: "aud",
+	})
+
+	const importCmd = "openshell provider profile import -f google-vertex-ai.yaml --global"
+	if !strings.Contains(out, importCmd) {
+		t.Errorf("expected profile import command %q, got:\n%s", importCmd, out)
+	}
+
+	importAt := strings.Index(out, "openshell provider profile import")
+	createAt := strings.Index(out, "openshell provider create")
+	if importAt < 0 {
+		t.Fatalf("expected profile import step in output, got:\n%s", out)
+	}
+	if createAt < 0 {
+		t.Fatalf("expected provider create step in output, got:\n%s", out)
+	}
+	if importAt >= createAt {
+		t.Errorf("expected profile import (%d) to precede provider create (%d), got:\n%s", importAt, createAt, out)
+	}
+}
+
+func TestBuildConnectionScript_DownloadsProfileBeforeImporting(t *testing.T) {
+	out := buildConnectionScript("gw", "https://gw.test:443", oidcConfig{
+		Issuer:   "https://issuer.test",
+		ClientID: "cli",
+		Audience: "aud",
+	})
+
+	const downloadCmd = "curl -LsSfO https://raw.githubusercontent.com/NVIDIA/OpenShell/main/providers/google-vertex-ai.yaml"
+	if !strings.Contains(out, downloadCmd) {
+		t.Errorf("expected profile download command %q, got:\n%s", downloadCmd, out)
+	}
+
+	downloadAt := strings.Index(out, "curl -LsSfO")
+	importAt := strings.Index(out, "openshell provider profile import")
+	if downloadAt < 0 {
+		t.Fatalf("expected profile download step in output, got:\n%s", out)
+	}
+	if downloadAt >= importAt {
+		t.Errorf("expected profile download (%d) to precede profile import (%d), got:\n%s", downloadAt, importAt, out)
+	}
+}
+
+func TestBuildConnectionScript_ProfileAndProviderScopesMatch(t *testing.T) {
+	out := buildConnectionScript("gw", "https://gw.test:443", oidcConfig{
+		Issuer:   "https://issuer.test",
+		ClientID: "cli",
+		Audience: "aud",
+	})
+
+	if !strings.Contains(out, "import -f google-vertex-ai.yaml --global") {
+		t.Errorf("expected --global scope on the profile import command, got:\n%s", out)
+	}
+	if !strings.Contains(out, "--global-profile") {
+		t.Errorf("expected --global-profile on the provider create command to match the import scope, got:\n%s", out)
+	}
+	if !strings.Contains(out, "must match the scope used") {
+		t.Errorf("expected a comment noting the import and create scopes must match, got:\n%s", out)
+	}
+}
+
 func TestPrintConnectionInstructions_PendingWhenEmpty(t *testing.T) {
 	body := []byte(`{"name":"mygw","phase":"ready"}`)
 	var buf bytes.Buffer

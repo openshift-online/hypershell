@@ -37,6 +37,7 @@ checks manually with `make check`.
 - `components/control-plane/` - Go service, watches API server via gRPC and reconciles gateway resources into K8s
 - `packages/gateway-management-ui/` - Private reusable React package containing canonical gateway management workflows
 - `packages/operational-dashboard-ui/` - Private reusable React package containing the operational metrics dashboard
+- `packages/spec-viewer-ui/` - Spec viewer: search and read `specs/` with test traceability; local via `make spec-ui`, deployed inside the fleet dashboard at `/specs/`
 - `specs/` - Desired state of the system ([platform](specs/platform/), [standards](specs/standards/))
 - `skills/` - Agent skills: [reconcile](skills/build/reconcile), [spec](skills/plan/spec), [full-stack-pipeline](skills/build/full-stack-pipeline), [ui-spec](skills/web-console/ui-spec), [dev-cluster](skills/build/dev-cluster), [patternfly](skills/build/patternfly), [ibm-cluster](skills/deploy/ibm-cluster), [deploy-cluster](skills/deploy/deploy-cluster), [cloud-hub-ingress-bootstrap](skills/deploy/cloud-hub-ingress-bootstrap), [review](skills/review/review-guidance), [amber-review](skills/review/amber-review), [ui-standards](skills/review/ui-standards), [tooling](skills/tooling/), [security-audit](skills/security/run-security-audit)
 - `apm.yml` - APM manifest declaring upstream skill dependencies
@@ -56,8 +57,8 @@ checks manually with `make check`.
 | **Gateway** | API gateway instance deployed on a cluster |
 | **ManagedCluster** | Kubernetes cluster registered into the platform |
 
-All resources are top-level; there is no Fleet/Sector grouping. Tenancy is
-enforced by RBAC (platform-level and per-gateway), not by a resource grouping.
+All resources are top-level; tenancy is enforced by RBAC (platform-level and
+per-gateway), not by a resource grouping.
 Gateway databases are not API resources: the control plane provisions one
 PostgreSQL database and role per gateway on the server named by the mounted
 `hypershell-gateway-database-admin` Secret (`specs/platform/openshell-gateway-database.spec.md`).
@@ -127,12 +128,18 @@ make generate-cli                              # Regenerate hsctl commands and t
 make generate-tui                              # Regenerate only the TUI descriptor
 cd components/cli && go test ./...             # CLI unit tests
 
+# Local agent development
+make fullsend                                  # Start/resume local Fullsend (docs/development/fullsend.md)
+make fullsend-doctor                           # Check local tools and credential configuration
+
 # All Components
 make ci-test                                   # Run all *_test.sh shell unit tests
+bash scripts/funnel-dispatch_test.sh            # Go dispatcher race/vet and migration integration tests
 make unit-test-all                             # Run Go, frontend, and shell unit tests
 make e2e-console                               # Playwright e2e of web console + OpenShell console (needs port 443 from make kind-up)
 pnpm test:e2e:all                              # Bring up Kind with Jaeger and run all three browser e2e suites
 make build-all                                 # Build all container images
+make spec-ui                                   # Search and read specs/ in a local web UI at http://127.0.0.1:5180
 pnpm --filter @openshift-online/hypershell-gateway-management-ui check  # Verify reusable gateway UI
 pnpm --filter @openshift-online/hypershell-operational-dashboard-ui check  # Verify operational dashboard UI
 make kind-up                                   # Start local Kind cluster

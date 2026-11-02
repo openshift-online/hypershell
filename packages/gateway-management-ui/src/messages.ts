@@ -65,23 +65,6 @@ export const messages = defineMessages({
     description:
       "Recovery guidance when remote gateway placements cannot be loaded.",
   },
-  clusterProvider: {
-    id: "app.gateway.cluster.provider",
-    defaultMessage: "Provider: {provider}",
-    description:
-      "Provider context that distinguishes a managed cluster option.",
-  },
-  clusterProviderAndRegion: {
-    id: "app.gateway.cluster.providerAndRegion",
-    defaultMessage: "Provider: {provider}; region: {region}",
-    description:
-      "Provider and region context that distinguishes a managed cluster option.",
-  },
-  clusterRegion: {
-    id: "app.gateway.cluster.region",
-    defaultMessage: "Region: {region}",
-    description: "Region context that distinguishes a managed cluster option.",
-  },
   connectionEditorOptions: {
     id: "app.gateway.connection.editorOptions",
     defaultMessage:
@@ -142,6 +125,31 @@ export const messages = defineMessages({
     description:
       "Shown in the login step while the gateway has not yet reached a running, ready-to-connect phase.",
   },
+  connectionProfileImportDocsLink: {
+    id: "app.gateway.connection.profileImportDocsLink",
+    defaultMessage: "View provider profile documentation",
+    description:
+      "Link text pointing to the OpenShell provider profile documentation.",
+  },
+  connectionProfileImportDocsLinkNewTab: {
+    id: "app.gateway.connection.profileImportDocsLinkNewTab",
+    defaultMessage: "View provider profile documentation (opens in a new tab)",
+    description:
+      "Accessible name for the provider profile documentation link, including that it opens in a new tab.",
+  },
+  connectionProfileImportScopeNote: {
+    id: "app.gateway.connection.profileImportScopeNote",
+    defaultMessage:
+      'The profile import command above uses --global scope. This must match the scope used by the provider create command below (its --global-profile flag here): a scope mismatch reproduces a "provider profile not found" error even after the profile has been imported.',
+    description:
+      "Explains that the provider profile import scope and the provider create scope must match.",
+  },
+  connectionProfileImportScopeTitle: {
+    id: "app.gateway.connection.profileImportScopeTitle",
+    defaultMessage: "Provider profile scope",
+    description:
+      "Toggle text for the expandable section explaining provider profile import scope.",
+  },
   connectionSandboxConnectDescription: {
     id: "app.gateway.connection.sandboxConnect.description",
     defaultMessage:
@@ -167,7 +175,7 @@ export const messages = defineMessages({
   connectionSetupDescription: {
     id: "app.gateway.connection.setup.description",
     defaultMessage:
-      "Run these commands in order to register the gateway, add the Claude on Vertex AI provider, and select the model.",
+      "Run these commands in order to register the gateway, import the provider profile, add the Claude on Vertex AI provider, and select the model.",
     description: "Supporting text for the one-time setup connection step.",
   },
   connectionSetupTitle: {
@@ -240,7 +248,7 @@ export const messages = defineMessages({
     id: "app.gateway.connection.copySetupCommand",
     defaultMessage: "Copy the one-time setup commands",
     description:
-      "Accessible label for copying the gateway registration, provider creation, and model selection commands.",
+      "Accessible label for copying the gateway registration, provider profile import, provider creation, and model selection commands.",
   },
   created: {
     id: "app.table.column.created",
@@ -477,6 +485,19 @@ export const messages = defineMessages({
     defaultMessage: "Adjust or clear the filter to see gateways.",
     description: "Guidance when no gateways match the current filter.",
   },
+  noOwnedGatewaysBody: {
+    id: "app.page.gateways.noOwned.body",
+    defaultMessage:
+      "You do not own any gateways yet. Turn off the ownership filter to see the full list.",
+    description:
+      "Guidance when the ownership filter is on but the user owns no gateways.",
+  },
+  noOwnedGatewaysTitle: {
+    id: "app.page.gateways.noOwned.title",
+    defaultMessage: "No gateways you own",
+    description:
+      "Heading when the ownership filter is on but the user owns no gateways.",
+  },
   notAvailable: {
     id: "app.value.notAvailable",
     defaultMessage: "Not available",
@@ -520,6 +541,34 @@ export const messages = defineMessages({
     defaultMessage: "Network access",
     description: "Network exposure mode for a gateway.",
   },
+  internalServicesQuestion: {
+    id: "app.page.gatewayProvision.internalServicesQuestion",
+    defaultMessage:
+      "Does the gateway need to reach GitLab or other internal Red Hat services?",
+    description:
+      "Question determining whether a gateway requires Red Hat VPN access.",
+  },
+  internalServicesNo: {
+    id: "app.page.gatewayProvision.internalServicesNo",
+    defaultMessage: "No",
+    description: "Option for a gateway that does not need internal services.",
+  },
+  internalServicesYes: {
+    id: "app.page.gatewayProvision.internalServicesYes",
+    defaultMessage: "Yes",
+    description: "Option for a gateway that needs internal Red Hat services.",
+  },
+  internalServicesYesVpn: {
+    id: "app.page.gatewayProvision.internalServicesYesVpn",
+    defaultMessage: "Yes (Requires Red Hat VPN)",
+    description:
+      "Option for a gateway that needs internal Red Hat services and VPN access.",
+  },
+  choiceUnavailable: {
+    id: "app.page.gatewayProvision.choiceUnavailable",
+    defaultMessage: "This option is not available for the selected placement.",
+    description: "Fallback reason shown when a placement choice is disabled.",
+  },
   cloudProvider: {
     id: "app.page.gatewayProvision.cloudProvider",
     defaultMessage: "Cloud provider",
@@ -553,8 +602,15 @@ export const messages = defineMessages({
   },
   awsProviderDescription: {
     id: "app.page.gatewayProvision.awsProviderDescription",
-    defaultMessage: "For workloads that rely heavily on AWS services or data.",
+    defaultMessage:
+      "For publicly accessible workloads that rely heavily on AWS services or data.",
     description: "Description of the AWS provider option.",
+  },
+  awsProviderRadioLabel: {
+    id: "app.page.gatewayProvision.awsProviderRadioLabel",
+    defaultMessage:
+      "AWS (For workloads that rely heavily on AWS services or data)",
+    description: "Accessible label for the AWS provider radio.",
   },
   ibmCloudProvider: {
     id: "app.page.gatewayProvision.ibmCloudProvider",
@@ -564,8 +620,13 @@ export const messages = defineMessages({
   ibmCloudProviderDescription: {
     id: "app.page.gatewayProvision.ibmCloudProviderDescription",
     defaultMessage:
-      "The default home for gateways. General-purpose workloads with no special network or data needs.",
+      "General-purpose workloads with no special network or data needs.",
     description: "Description of the IBM Cloud provider option.",
+  },
+  ibmProviderRadioLabel: {
+    id: "app.page.gatewayProvision.ibmProviderRadioLabel",
+    defaultMessage: "IBM (default)",
+    description: "Accessible label for the default IBM provider radio.",
   },
   unavailableProvider: {
     id: "app.page.gatewayProvision.unavailableProvider",
@@ -693,6 +754,12 @@ export const messages = defineMessages({
     id: "app.gateway.cluster.select",
     defaultMessage: "Select a cluster",
     description: "Accessible label and placeholder for the cluster selector.",
+  },
+  showOnlyMyGateways: {
+    id: "app.page.gateways.showOnlyMine",
+    defaultMessage: "Show only my gateways",
+    description:
+      "On/off switch label that filters the gateway list to only the signed-in user's gateways.",
   },
   status: {
     id: "app.table.column.status",
@@ -840,6 +907,54 @@ export const messages = defineMessages({
     id: "app.gateway.serviceAccounts.field.description",
     defaultMessage: "Description (optional)",
     description: "Label for an optional service-account description.",
+  },
+  editServiceAccountRole: {
+    id: "app.gateway.serviceAccounts.editRole.action",
+    defaultMessage: "Edit role",
+    description: "Row action that opens the in-place role edit dialog.",
+  },
+  editServiceAccountRoleSave: {
+    id: "app.gateway.serviceAccounts.editRole.save",
+    defaultMessage: "Save changes",
+    description:
+      "Confirmation button for the service-account role edit dialog.",
+  },
+  editServiceAccountRoleTitle: {
+    id: "app.gateway.serviceAccounts.editRole.title",
+    defaultMessage: "Edit {serviceAccountName}",
+    description: "Title of the service-account role edit dialog.",
+  },
+  editServiceAccountRoleIntroduction: {
+    id: "app.gateway.serviceAccounts.editRole.introduction",
+    defaultMessage:
+      "Change the OpenShell role or description of {serviceAccountName}. Its client credentials are unchanged.",
+    description: "Introduction of the service-account role edit dialog.",
+  },
+  editServiceAccountRoleEffect: {
+    id: "app.gateway.serviceAccounts.editRole.effect.title",
+    defaultMessage: "When the change takes effect",
+    description:
+      "Heading for the token-lag explanation in the role edit dialog.",
+  },
+  editServiceAccountRoleEffectBody: {
+    id: "app.gateway.serviceAccounts.editRole.effect.body",
+    defaultMessage:
+      "The next token exchange reflects the new role. Access tokens issued before the change keep the prior role until they expire (at most a few minutes).",
+    description:
+      "Token-lag explanation in the service-account role edit dialog.",
+  },
+  serviceAccountRoleNotAllowed: {
+    id: "app.gateway.serviceAccounts.editRole.notAllowed.title",
+    defaultMessage: "The requested role is not permitted",
+    description:
+      "Title shown when a role update exceeds the creator's gateway role.",
+  },
+  serviceAccountRoleNotAllowedBody: {
+    id: "app.gateway.serviceAccounts.editRole.notAllowed.body",
+    defaultMessage:
+      "A service account is capped by its creator's current gateway role, so this account cannot receive that role.",
+    description:
+      "Guidance shown when a role update exceeds the creator's gateway role.",
   },
   clientId: {
     id: "app.gateway.serviceAccounts.clientId",
@@ -1470,7 +1585,7 @@ export const messages = defineMessages({
       "Error shown when a user's subject cannot be resolved for the workspace command.",
   },
   /* eslint-enable sort-keys */
-  /* eslint-disable sort-keys -- Keep gateway version-visibility descriptors together so localization review can audit the running-version column, chip, drift indicator, and provisioning-version choice as one unit. */
+  /* eslint-disable sort-keys -- Keep gateway version-visibility descriptors together so localization review can audit the running-version column, chip, and drift indicator as one unit. */
   version: {
     id: "app.gateway.column.version",
     defaultMessage: "Version",
@@ -1489,30 +1604,78 @@ export const messages = defineMessages({
     description:
       "Accessible name for the running-version chip beside the gateway status indicator.",
   },
-  newerVersionAvailable: {
-    id: "app.gateway.version.newerAvailable",
-    defaultMessage: "Newer version available",
-    description:
-      "Neutral indicator shown beside the version chip when the gateway's running version is older than the version its cluster provisions onto new gateways.",
+  advancedOptions: {
+    id: "app.page.gatewayProvision.advancedOptions",
+    defaultMessage: "Advanced options",
+    description: "Expandable section containing advanced gateway settings.",
   },
-  newerVersionAvailableTooltip: {
-    id: "app.gateway.version.newerAvailable.tooltip",
+  kataQuestion: {
+    id: "app.page.gatewayProvision.kataQuestion",
+    defaultMessage: "Is Kata required?",
+    description:
+      "Question asking whether the gateway needs Kata runtime isolation.",
+  },
+  kataNo: {
+    id: "app.page.gatewayProvision.kataNo",
+    defaultMessage: "No, use the default runtime",
+    description: "Option for a gateway that does not need Kata runtime.",
+  },
+  kataYes: {
+    id: "app.page.gatewayProvision.kataYes",
+    defaultMessage: "Yes, use Kata",
+    description: "Option for a gateway that needs Kata runtime.",
+  },
+  kataUnavailableReason: {
+    id: "app.page.gatewayProvision.kataUnavailableReason",
+    defaultMessage: "Kata is not available for the selected placement.",
+    description: "Tooltip explaining why Kata cannot be selected.",
+  },
+  kataFeature: {
+    id: "app.page.gatewayProvision.kataFeature",
+    defaultMessage: "Kata",
+    description: "Recommendation-card feature label for Kata runtime.",
+  },
+  kataProviderDescription: {
+    id: "app.page.gatewayProvision.kataProviderDescription",
     defaultMessage:
-      "Existing gateways are not upgraded in place. This newer version applies only to gateways you create from now on.",
-    description:
-      "Clarifying help text for the newer-version-available indicator. Must not suggest an upgrade action.",
+      "For workloads that require special security considerations.",
+    description: "Recommendation-card description for Kata runtime placement.",
   },
-  provisioningVersion: {
-    id: "app.page.gatewayProvision.version",
-    defaultMessage: "Provisioning version",
-    description:
-      "Label for the provisioning-version choice on the gateway provision form.",
+  recommendationTitle: {
+    id: "app.page.gatewayProvision.recommendationTitle",
+    defaultMessage: "{network} {provider}",
+    description: "Title for a gateway placement recommendation.",
   },
-  anyVersion: {
-    id: "app.page.gatewayProvision.anyVersion",
-    defaultMessage: "Any version",
+  recommendationKataTitle: {
+    id: "app.page.gatewayProvision.recommendationKataTitle",
+    defaultMessage: "{network} Kata {provider}",
+    description: "Title for a Kata gateway placement recommendation.",
+  },
+  recommended: {
+    id: "app.page.gatewayProvision.recommended",
+    defaultMessage: "Recommended",
+    description: "Label for the default gateway placement recommendation.",
+  },
+  specialized: {
+    id: "app.page.gatewayProvision.specialized",
+    defaultMessage: "Specialized",
     description:
-      "Default provisioning-version option that places the gateway on any eligible cluster regardless of the version it advertises.",
+      "Label for a gateway placement requiring specialized runtime support.",
+  },
+  gatewaySetFeatures: {
+    id: "app.page.gatewayProvision.gatewaySetFeatures",
+    defaultMessage: "Gateway set features",
+    description: "Accessible label for recommendation card feature labels.",
+  },
+  awsProviderAlt: {
+    id: "app.page.gatewayProvision.awsProviderAlt",
+    defaultMessage: "Amazon Web Services",
+    description: "Alternative text for the AWS provider logo.",
+  },
+  ibmProviderAlt: {
+    id: "app.page.gatewayProvision.ibmProviderAlt",
+    defaultMessage: "IBM Cloud",
+    description: "Alternative text for the IBM Cloud provider logo.",
   },
   /* eslint-enable sort-keys */
 });

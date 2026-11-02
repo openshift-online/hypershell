@@ -5,13 +5,13 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"github.com/openshift-online/hypershell/components/api-server/pkg/extsearch"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/registry"
 	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
-	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/generic"
 )
 
 type ServiceLocator func() RoleService
@@ -42,7 +42,7 @@ func init() {
 
 	pkgserver.RegisterRoutes("roles", func(apiV1Router *mux.Router, services pkgserver.ServicesInterface, authMiddleware environments.JWTMiddleware, authzMiddleware auth.AuthorizationMiddleware) {
 		envServices := services.(*environments.Services)
-		roleHandler := NewRoleHandler(Service(envServices), generic.Service(envServices))
+		roleHandler := NewRoleHandler(Service(envServices), extsearch.Service(envServices))
 
 		rolesRouter := apiV1Router.PathPrefix("/roles").Subrouter()
 		rolesRouter.HandleFunc("", roleHandler.List).Methods(http.MethodGet)
@@ -61,4 +61,7 @@ func init() {
 	db.RegisterMigration(migrationAddPlatformAdminRole())
 	db.RegisterMigration(migrationSeedManagedClusterRegistrarRole())
 	db.RegisterMigration(migrationAddGatewayAdminRole())
+	db.RegisterMigration(migrationAddGatewayDedicatedRouteCreatorRole())
+	db.RegisterMigration(migrationAddCIFederationAdminRole())
+	db.RegisterMigration(migrationAddCIFederationGrantorRole())
 }

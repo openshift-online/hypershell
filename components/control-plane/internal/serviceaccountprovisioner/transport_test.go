@@ -17,6 +17,7 @@ func TestListenAndServeRequiresBindAddress(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-SACC-02.02
 func TestListenAndServeServesPlaintextProvisionerCalls(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

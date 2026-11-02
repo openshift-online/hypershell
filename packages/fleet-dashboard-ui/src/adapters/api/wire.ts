@@ -11,6 +11,7 @@ import type { InstancesData } from "../../application/ports";
 import type {
   E2eEventName,
   E2eLogLine,
+  E2eLogPage,
   E2eOutcome,
   E2ePlannedStep,
   E2eRunDetail,
@@ -27,6 +28,7 @@ import type {
   AgentSdlcBundleRow,
   AgentSdlcCard,
   AgentSdlcData,
+  AgentSdlcGitOpsStatus,
   AgentSdlcHubCluster,
   AgentSdlcLabelEvent,
   AgentSdlcMatrix,
@@ -43,6 +45,7 @@ import type {
   RateStats,
 } from "../../domain/fleet";
 import type {
+  GitOpsRangeStatus,
   PromotionData,
   PromotionEnvironment,
   PromotionGate,
@@ -55,6 +58,11 @@ import type {
   TopologyHub,
   TopologySpoke,
 } from "../../domain/topology";
+import type {
+  SdlcAgentsData,
+  SdlcAgentMetrics,
+  SdlcAgentSeries,
+} from "../../domain/sdlc-agents";
 
 /** A pull request within a release bundle, as the delivery GitHub App reports it. */
 interface WirePR {
@@ -63,6 +71,10 @@ interface WirePR {
   readonly url?: string;
   readonly author?: string;
   readonly mergedAt?: string;
+  // The owner/repo the PR belongs to (FLT-BPR-02); absent on older servers.
+  readonly repository?: string;
+  // Environments whose range includes a GitOps PR (FLT-BPR-06); absent otherwise.
+  readonly environments?: readonly string[] | null;
 }
 
 /** A release as the BFF reports it (opaque to the UI beyond its version string). */
@@ -78,6 +90,10 @@ interface WireRelease {
    */
   readonly digest?: string;
   readonly prs?: readonly WirePR[] | null;
+  // The GitOps (deployment) pull-request group and its range state (FLT-BPR-04/10);
+  // absent on older servers, which the UI renders as "no GitOps section".
+  readonly gitopsPrs?: readonly WirePR[] | null;
+  readonly gitopsStatus?: string;
 }
 
 /** A promotion gate on the wire: `{key, phase}` (the domain renames key -> name). */
@@ -102,6 +118,14 @@ interface WirePromotionEnvironment {
   readonly provider?: string;
   readonly env?: string;
   readonly cluster?: string;
+  // Self-declared capability labels (`namespace/value`). The BFF prefers the
+  // control plane's capability metric and falls back to the Argo delivery
+  // annotation. Absent/null on servers that predate the field; treated as an
+  // empty set.
+  readonly capabilities?: readonly string[] | null;
+  // Default gateway image the control plane provisions, from its info metric.
+  // Absent when the control plane does not report it (FLT-CAP-07).
+  readonly gatewayImage?: string;
   readonly argoHealth?: string;
   readonly argoSync?: string;
   // Argo CD sync-operation retry count. Omitted by the BFF when no operation
@@ -163,6 +187,12 @@ function mapEnvironment(
     provider: nullableString(env.provider),
     envLabel: nullableString(env.env),
     cluster: nullableString(env.cluster),
+    // Carry capabilities verbatim, dropping any empty/non-string entry; absent ->
+    // empty set. Each stays an opaque `namespace/value` string (FLT-CAP-01).
+    capabilities: (env.capabilities ?? []).filter(
+      (c): c is string => typeof c === "string" && c !== "",
+    ),
+    gatewayImage: nullableString(env.gatewayImage),
     argoHealth: nullableString(env.argoHealth),
     argoSync: nullableString(env.argoSync),
     // Preserve the 0-vs-unknown distinction: omitted -> null, a real 0 stays 0.
@@ -184,7 +214,18 @@ function mapPR(raw: WirePR): PullRequest {
     url: raw.url ?? "",
     author: raw.author ?? "",
     mergedAt: nullableString(raw.mergedAt),
+    // Repository identity for grouping/keys/links (FLT-BPR-02); "" on older servers.
+    repository: raw.repository ?? "",
+    // Environment attribution for GitOps PRs (FLT-BPR-06); drop any non-string entry.
+    environments: (raw.environments ?? []).filter(
+      (e): e is string => typeof e === "string" && e !== "",
+    ),
   };
+}
+
+/** Narrow the wire GitOps status to the domain union; anything else hides the section. */
+function mapGitOpsStatus(raw: string | undefined): GitOpsRangeStatus | null {
+  return raw === "available" || raw === "unavailable" ? raw : null;
 }
 
 function mapRelease(raw: WireRelease): ReleaseBundle {
@@ -195,8 +236,11 @@ function mapRelease(raw: WireRelease): ReleaseBundle {
     digest: nullableString(raw.digest) ?? nullableString(raw.sha),
     tag: nullableString(raw.tag),
     date: nullableString(raw.date),
-    // PRs "since the previous build"; absent/null on older servers -> empty.
+    // Application PRs "since the previous build"; absent/null on older servers -> empty.
     prs: (raw.prs ?? []).map(mapPR),
+    // GitOps (deployment) PR group and range state (FLT-BPR-04/10).
+    gitopsPrs: (raw.gitopsPrs ?? []).map(mapPR),
+    gitopsStatus: mapGitOpsStatus(raw.gitopsStatus),
   };
 }
 
@@ -540,6 +584,10 @@ interface WireSdlcPullRequest {
   readonly url?: string;
   readonly author?: string;
   readonly mergedAt?: string;
+  // Repository + environment identity for GitOps deployment PRs (SDLC-VIS-25);
+  // absent for application PRs.
+  readonly repository?: string;
+  readonly environments?: readonly string[] | null;
 }
 
 interface WireSdlcShippedIssue {
@@ -559,6 +607,10 @@ interface WireSdlcBundleRow {
   readonly hubClusters?: readonly string[] | null;
   readonly issues?: readonly WireSdlcShippedIssue[] | null;
   readonly otherPRs?: readonly WireSdlcPullRequest[] | null;
+  // The GitOps deployment group and its range state (SDLC-VIS-25); absent on older
+  // servers, which the UI renders as "no deployment section".
+  readonly gitopsPrs?: readonly WireSdlcPullRequest[] | null;
+  readonly gitopsStatus?: string;
 }
 
 interface WireSdlcMatrix {
@@ -617,7 +669,21 @@ function mapSdlcPullRequest(p: WireSdlcPullRequest): AgentSdlcPullRequest {
     url: p.url ?? "",
     author: nullableString(p.author),
     mergedAt: nullableString(p.mergedAt),
+    // Repository identity for GitOps PRs (SDLC-VIS-25); null for application PRs.
+    repository: nullableString(p.repository),
+    // Environment attribution for GitOps PRs (FLT-BPR-06); drop any non-string entry.
+    environments: (p.environments ?? []).filter(
+      (e): e is string => typeof e === "string" && e !== "",
+    ),
   };
+}
+
+/** Narrow the wire SDLC GitOps status to the domain union; anything else (including an
+ *  absent field on an older payload) hides the deployment section (SDLC-VIS-25). */
+function mapSdlcGitOpsStatus(
+  raw: string | undefined,
+): AgentSdlcGitOpsStatus | null {
+  return raw === "available" || raw === "unavailable" ? raw : null;
 }
 
 function mapSdlcShippedIssue(i: WireSdlcShippedIssue): AgentSdlcShippedIssue {
@@ -640,6 +706,8 @@ function mapSdlcBundleRow(r: WireSdlcBundleRow): AgentSdlcBundleRow {
     hubClusters: (r.hubClusters ?? []).slice(),
     issues: (r.issues ?? []).map(mapSdlcShippedIssue),
     otherPRs: (r.otherPRs ?? []).map(mapSdlcPullRequest),
+    gitopsPrs: (r.gitopsPrs ?? []).map(mapSdlcPullRequest),
+    gitopsStatus: mapSdlcGitOpsStatus(r.gitopsStatus),
   };
 }
 
@@ -744,6 +812,13 @@ interface WireE2eStreamEvent {
 interface WireE2eStreamStatus {
   readonly state?: string;
   readonly droppedEntries?: number;
+}
+
+interface WireE2eLogPage {
+  readonly entries?: readonly WireE2eLogLine[] | null;
+  readonly nextCursor?: string;
+  readonly hasMore?: boolean;
+  readonly boundaryTruncated?: boolean;
 }
 
 /** Coerce an optional number to a nullable number, keeping a genuine 0. */
@@ -891,5 +966,90 @@ export function mapE2eStreamStatus(raw: unknown): E2eStreamStatus {
   return {
     state: mapStreamState(wire.state),
     droppedEntries: num(wire.droppedEntries),
+  };
+}
+
+/** Map one paginated raw-log page (E2E-LOG-19). Entries are already chronological-
+ *  ascending from the BFF; an absent cursor is normalized to null. */
+export function mapE2eRunLogPage(raw: unknown): E2eLogPage {
+  const wire = (raw ?? {}) as WireE2eLogPage;
+  return {
+    entries: (wire.entries ?? []).map(mapE2eLogLine),
+    nextCursor: nullableString(wire.nextCursor),
+    hasMore: wire.hasMore === true,
+    boundaryTruncated: wire.boundaryTruncated === true,
+  };
+}
+
+/** Map one live `log` frame into a reduced log line (E2E-LOG-21). Returns null when
+ *  the frame carries no usable line, so the adapter skips it without dropping the
+ *  rest of the stream (E2E-LOG-07). */
+export function mapE2eStreamLog(raw: unknown): E2eLogLine | null {
+  if (raw === null || typeof raw !== "object") {
+    return null;
+  }
+  return mapE2eLogLine(raw);
+}
+
+// --- SDLC Agents (runtime telemetry) ----------------------------------------
+
+interface WireSdlcAgentSeries {
+  times?: readonly number[];
+  queueDepth?: readonly number[];
+  itemsProcessed?: readonly number[];
+  itemsFailed?: readonly number[];
+  provisionSeconds?: readonly number[];
+}
+
+interface WireSdlcAgentMetrics {
+  name?: string;
+  env?: string;
+  replicasOn?: number;
+  replicasTotal?: number;
+  queueDepth?: number;
+  itemsProcessed?: number;
+  itemsFailed?: number;
+  provisionSeconds?: number;
+  lastReportedAt?: number;
+  series?: WireSdlcAgentSeries;
+}
+
+interface WireSdlcAgents {
+  envs?: readonly string[];
+  agents?: readonly WireSdlcAgentMetrics[];
+}
+
+function mapSdlcAgentSeries(w?: WireSdlcAgentSeries): SdlcAgentSeries {
+  return {
+    times: w?.times ?? [],
+    queueDepth: w?.queueDepth ?? [],
+    itemsProcessed: w?.itemsProcessed ?? [],
+    itemsFailed: w?.itemsFailed ?? [],
+    provisionSeconds: w?.provisionSeconds ?? [],
+  };
+}
+
+function mapSdlcAgentRow(w?: WireSdlcAgentMetrics): SdlcAgentMetrics {
+  return {
+    name: w?.name ?? "",
+    env: w?.env ?? "",
+    replicasOn: w?.replicasOn ?? 0,
+    replicasTotal: w?.replicasTotal ?? 0,
+    queueDepth: w?.queueDepth ?? 0,
+    itemsProcessed: w?.itemsProcessed ?? 0,
+    itemsFailed: w?.itemsFailed ?? 0,
+    provisionSeconds: w?.provisionSeconds ?? 0,
+    // Freshness fact (SDLC-AGT-15): defensively default to 0 when absent, matching
+    // the BFF's own 0-when-absent contract.
+    lastReportedAt: w?.lastReportedAt ?? 0,
+    series: mapSdlcAgentSeries(w?.series),
+  };
+}
+
+export function mapSdlcAgents(raw: unknown): SdlcAgentsData {
+  const w = (raw ?? {}) as WireSdlcAgents;
+  return {
+    envs: Array.isArray(w.envs) ? w.envs.map(String) : [],
+    agents: Array.isArray(w.agents) ? w.agents.map(mapSdlcAgentRow) : [],
   };
 }

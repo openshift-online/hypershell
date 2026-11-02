@@ -8,6 +8,7 @@ import {
 } from "./gateway-release-distribution-aggregation";
 
 describe("gateway release distribution aggregation", () => {
+  // Verifies: OBS-RLSD-03.01, OBS-RLSD-03.02
   it("buckets omitted and blank gateway versions as unknown", () => {
     expect(bucketGatewayVersion(undefined)).toBe("unknown");
     expect(bucketGatewayVersion(null)).toBe("unknown");
@@ -15,6 +16,7 @@ describe("gateway release distribution aggregation", () => {
     expect(bucketGatewayVersion(" v1.0.0 ")).toBe("v1.0.0");
   });
 
+  // Verifies: OBS-RLSD-02.01
   it("aggregates gateway versions across list pages", async () => {
     const firstPageItems = Array.from({ length: 100 }, (_value, index) => ({
       gateway_version: index < 99 ? "v1.0.0" : "v1.1.0",
@@ -81,6 +83,7 @@ describe("gateway release distribution aggregation", () => {
     ).rejects.toThrow("Gateway list response was inconsistent");
   });
 
+  // Verifies: OBS-RLSD-04.01
   it("maps the aggregate into the gateway-releases metric", () => {
     expect(
       buildGatewayReleasesMetric({

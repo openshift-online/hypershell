@@ -8,8 +8,8 @@
     "sha256": "e648fb62c53cb68b38972265d5f0688e43b427dfc3478fffa3bd119f9658b879"
   },
   {
-    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/b/bash-5.3.15-2.2.hum1.aarch64.rpm",
-    "sha256": "3dd9469e52e742d70c2971a5fe40f5e51e1ca64272777755e7b9b6191eefcdb7"
+    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/b/bash-5.3.20-1.hum1.aarch64.rpm",
+    "sha256": "ca6c50fe8a07f66ce06a7e3454422909258feec0b1bcac31e6fc97fe4c40c8c8"
   },
   {
     "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/b/bzip2-libs-1.0.8-24.1.hum1.aarch64.rpm",
@@ -36,24 +36,24 @@
     "sha256": "575e21dc62656378a7cd430be4177fd63dddee894c4c0d1e947e8695da9fd03a"
   },
   {
-    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/c/curl-8.22.0-1.1.hum1.aarch64.rpm",
-    "sha256": "061086ff222d2a1545879150ff9bc4628f05e5d28d2c2e38fdf4b702e311c3a6"
+    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/c/curl-8.23.0-0.1.hum1.aarch64.rpm",
+    "sha256": "c79192c2dc22b51aaf14e79e337b04dad42b71e0685b1668f0939b6e2c17cd67"
   },
   {
     "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/c/cyrus-sasl-lib-2.1.28-37.2.hum1.aarch64.rpm",
     "sha256": "48c535afb9d1ac799385d6ee5f0dd5ee1f7f00547743a66a5c010b678121ef6c"
   },
   {
-    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/d/diffutils-3.12-6.1.hum1.aarch64.rpm",
-    "sha256": "df7c3c18179a1c5e71af44623298013ae7fba427e2c2964bbefe92246972849f"
+    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/d/diffutils-3.12-6.2.hum1.aarch64.rpm",
+    "sha256": "eac01f1cc9f32db244c4d003ee135d474e7b2063e639fe442eebc163158e94d7"
   },
   {
-    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/e/ed-1.22.6-1.hum1.aarch64.rpm",
-    "sha256": "c62301de283fb44a8eb49029c0f363774a90f3b1867299af687e91c8be966108"
+    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/e/ed-1.22.6-1.1.hum1.aarch64.rpm",
+    "sha256": "32d326677a71b01f9a59b53e9cd2918b1ba81b38164a6c6eba587005d286da2d"
   },
   {
-    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/e/expat-2.8.5-1.2.hum1.aarch64.rpm",
-    "sha256": "2cb30f566c4d6c19ac6429ded036c579e2baa396a1bbfb47494cf68420940b75"
+    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/e/expat-2.9.0-1.hum1.aarch64.rpm",
+    "sha256": "3e37d513ed0d78afcd0341165a0719e79468ebda14f03581334fd12096f44e86"
   },
   {
     "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/f/filesystem-3.18-59.1.hum1.aarch64.rpm",
@@ -96,8 +96,8 @@
     "sha256": "bb89d49d6ad686a221df4c5ce0098445e366d6ebcaecd972173d91e12fb9f728"
   },
   {
-    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/g/gzip-1.15-1.hum1.aarch64.rpm",
-    "sha256": "68a3f96bbe08720532befa00cc8102db427a9053f5ca515d82617acabe0d420a"
+    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/g/gzip-1.15-1.1.hum1.aarch64.rpm",
+    "sha256": "b24988ff855130011f4806881ba95894e44fbbe8c92b143456ee97880e022471"
   },
   {
     "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/h/hummingbird-gpg-keys-20251124-1.17.hum1.noarch.rpm",
@@ -120,12 +120,12 @@
     "sha256": "be1d3707dd9532963e23635691c733f0dc1a6e8048101d7ae706bdf14dc768ce"
   },
   {
-    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/k/krb5-libs-1.22.2-10.1.hum1.aarch64.rpm",
-    "sha256": "902b93a2a3958858882ac12979dd918c50bd2b0422d7b2966f029e54d2927bea"
+    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/k/krb5-libs-1.22.2-10.3.hum1.aarch64.rpm",
+    "sha256": "7d59fb2883db9bc30193dbdc29fcaa97f2d14c8a94701a6a1125222c918919ae"
   },
   {
-    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/l/less-710-1.hum1.aarch64.rpm",
-    "sha256": "573157b9ae857c45e95a1b307ab8d60aa6606bea83a382f137b59515b4cbf832"
+    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/l/less-710-1.1.hum1.aarch64.rpm",
+    "sha256": "df81a3449098bf329685ba9259328e8c7bf5225371a6e0ecdb536b22c1e33297"
   },
   {
     "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/l/libacl-2.4.0-2.1.hum1.aarch64.rpm",
@@ -156,16 +156,16 @@
     "sha256": "56ac6d861a03032fcb2e8d64868eb1d7aded205a60c885781bb65de3e9a52739"
   },
   {
-    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/l/libcurl-8.22.0-1.1.hum1.aarch64.rpm",
-    "sha256": "6d28b4d16a22ad5a98410f55abf9d2c4fb62b356b1b0f8833c9999d1663eb158"
+    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/l/libcurl-8.23.0-0.1.hum1.aarch64.rpm",
+    "sha256": "f25bae10daeccef0ff808bd09a5f410715e661a0a1eb41471fe99aeb1f44bce5"
   },
   {
     "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/l/libeconf-0.7.9-4.2.hum1.aarch64.rpm",
     "sha256": "566ab850e391f8f623737ff6951d5f8d4eaafe5131b828f2ba23ca16ce7b982a"
   },
   {
-    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/l/libedit-3.1-60.20260512cvs.hum1.aarch64.rpm",
-    "sha256": "34b707a90a098e138cd847bddd161b536fba6b680b633a3b250472c7fb43ecb0"
+    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/l/libedit-3.1-60.20260512cvs.1.hum1.aarch64.rpm",
+    "sha256": "0c60363cea89fd06f62a7749af603eca38ed927d53ba2ef66bf057b2fab66e96"
   },
   {
     "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/l/libevent-2.1.13-1.1.hum1.aarch64.rpm",
@@ -256,12 +256,12 @@
     "sha256": "afa53ba0e692dfc3549128517e373113a8316d48c831a27a66f6d7abc86dbe9d"
   },
   {
-    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/n/ngtcp2-1.22.1-3.1.hum1.aarch64.rpm",
-    "sha256": "711371b3e045f2378bbd4f448fc6b0f6edeeec010edf05c81c87a6ec2580bc56"
+    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/n/ngtcp2-1.25.0-0.1.hum1.aarch64.rpm",
+    "sha256": "12b44d515aae02bc2e3f3f4bedb16de22b7565072466fac4811ad648d333172b"
   },
   {
-    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/n/ngtcp2-crypto-ossl-1.22.1-3.1.hum1.aarch64.rpm",
-    "sha256": "6b750ad130392bdc4b10e21ea1e2aaf2b63ac6921dc24b78a1a123bd030560e7"
+    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/n/ngtcp2-crypto-ossl-1.25.0-0.1.hum1.aarch64.rpm",
+    "sha256": "06a9ef2b6c8e4de298440cdd1554c70d11c322b6488d7de0e7c799b0d74f1754"
   },
   {
     "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/o/oniguruma-6.9.10-5.1.hum1.aarch64.rpm",
@@ -272,12 +272,16 @@
     "sha256": "b39861272eab5d54f9862089ff0eefcb8e82aa6775cc18ca91e0fb9e2c88bc84"
   },
   {
-    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/o/openssh-10.5p1-1.hum1.aarch64.rpm",
-    "sha256": "617bf950500ff641f41861c5c7af7d063206236cf4a82709709c5333ab4cabf5"
+    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/o/openssh-10.5p1-1.3.hum1.aarch64.rpm",
+    "sha256": "419d2fa364ff574eee9502976128c50cea0b9fe755b084f681909af07f4726a5"
   },
   {
-    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/o/openssh-clients-10.5p1-1.hum1.aarch64.rpm",
-    "sha256": "42201104d48e890be7cc13c493cecf935c8de3d6857b218539c1001c1ba2c62a"
+    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/o/openssh-clients-10.5p1-1.3.hum1.aarch64.rpm",
+    "sha256": "7790a7ea72df1156ca765ffc4a3d247716eded679a9ea6357b8d7bb77977c1ca"
+  },
+  {
+    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/o/openssl-3.5.9-0.3.hum1.aarch64.rpm",
+    "sha256": "6e6815429f3b5b513eea7d04c7dc98bdf4d15a8d56f6fcf64b5e9f7c2922f8c1"
   },
   {
     "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/o/openssl-fips-provider-upstream-3.5.9-0.3.hum1.aarch64.rpm",
@@ -300,8 +304,8 @@
     "sha256": "90553568b2bb170bd1b5a1409adf6b085c7a1a12587c40cf45599b3551824844"
   },
   {
-    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/p/patch-2.8-6.1.hum1.aarch64.rpm",
-    "sha256": "b1cac5f8dacd55fd8c41f11904d223c0a6b6033092647aca0eb260595a6842dc"
+    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/p/patch-2.8-6.2.hum1.aarch64.rpm",
+    "sha256": "6578d40713f7322dcb604fbe611ac06c0e5456436bcfcd39e8b0d957bd6354e2"
   },
   {
     "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/p/pcre2-10.49-0.2.hum1.aarch64.rpm",
@@ -340,28 +344,28 @@
     "sha256": "c522b073bcca7ca587570c8b843a0aea3623290bb6fbbfbac87c3c35ae35739a"
   },
   {
-    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/s/sqlite-libs-3.53.4-1.1.hum1.aarch64.rpm",
-    "sha256": "62bcd0c8a1e4f0419b431bd2a9a08f17f4ea918dba8be719520e8913356b9448"
+    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/s/sqlite-libs-3.54.1-1.hum1.aarch64.rpm",
+    "sha256": "8d536b1ab5d83874a7993514d4f5d6a248fe74853307d73ed8734eac6162d935"
   },
   {
     "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/s/systemd-libs-261.2-1.1.hum1.aarch64.rpm",
     "sha256": "78c4b8c6a9cfaf659ef311cf0b930a42b1b81723157efc5435161fbae4039cf1"
   },
   {
-    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/t/tar-1.35-10.hum1.aarch64.rpm",
-    "sha256": "8d6591b20c58f3b3e93ba345b30496406c3d738ce7df104991d7298441b0ddb2"
+    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/t/tar-1.35-10.1.hum1.aarch64.rpm",
+    "sha256": "8f29b3423f7b9d7bc0c87358564edb92a0525f1f90830c37c40a76e215579c13"
   },
   {
     "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/t/tzdata-2026e-1.hum1.noarch.rpm",
     "sha256": "cc263241b7e21d598c99b98c2ee42e95912cddc2689108e9033eb4d177ded87d"
   },
   {
-    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/u/unzip-6.0-71.hum1.aarch64.rpm",
-    "sha256": "6af13eb2ec758d5b92735d80d026c8f3a650bb33128007f287601b6737675271"
+    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/u/unzip-6.0-71.1.hum1.aarch64.rpm",
+    "sha256": "264bb8f0f4f7407f337e944bb183d80312b5cbdb48fb1c5df37cc9bf3c88266d"
   },
   {
-    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/w/which-2.25-2.hum1.aarch64.rpm",
-    "sha256": "2aab5cdf4f23a843fc20d6c4d9244d16a14d759a013df1cb704cae1bd9625d6a"
+    "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/w/which-2.25-2.1.hum1.aarch64.rpm",
+    "sha256": "31b4d5e8c05b18a4cc6aaa3bc0dc4b836ec15f593281f44aec09746b8a52d95f"
   },
   {
     "url": "https://packages.redhat.com/api/pulp-content/public-hummingbird/aarch64/Packages/x/xz-libs-5.8.4-1.1.hum1.aarch64.rpm",

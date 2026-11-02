@@ -22,13 +22,15 @@ var _ MappedNullable = &InferenceRoute{}
 
 // InferenceRoute struct for InferenceRoute
 type InferenceRoute struct {
-	Id                *string    `json:"id,omitempty"`
-	Kind              *string    `json:"kind,omitempty"`
-	Href              *string    `json:"href,omitempty"`
-	CreatedAt         *time.Time `json:"created_at,omitempty"`
-	UpdatedAt         *time.Time `json:"updated_at,omitempty"`
-	WorkspaceId       string     `json:"workspace_id"`
-	ProviderBindingId string     `json:"provider_binding_id"`
+	Id        *string    `json:"id,omitempty"`
+	Kind      *string    `json:"kind,omitempty"`
+	Href      *string    `json:"href,omitempty"`
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+	// Queryable find-by-name key (SDLC-CONF-13). Optional on create; defaults to a stable identity derived from workspace_id/provider_binding_id/model when not supplied.
+	Name              *string `json:"name,omitempty"`
+	WorkspaceId       string  `json:"workspace_id"`
+	ProviderBindingId string  `json:"provider_binding_id"`
 	// Model alias for LLM inference within the agent workspace
 	Model string `json:"model"`
 	// Repository that owns this resource through the control-plane .hypershell import. Null for resources created directly through the REST API or hsctl apply. Set server-side; read-only in the client contract.
@@ -217,6 +219,38 @@ func (o *InferenceRoute) SetUpdatedAt(v time.Time) {
 	o.UpdatedAt = &v
 }
 
+// GetName returns the Name field value if set, zero value otherwise.
+func (o *InferenceRoute) GetName() string {
+	if o == nil || IsNil(o.Name) {
+		var ret string
+		return ret
+	}
+	return *o.Name
+}
+
+// GetNameOk returns a tuple with the Name field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *InferenceRoute) GetNameOk() (*string, bool) {
+	if o == nil || IsNil(o.Name) {
+		return nil, false
+	}
+	return o.Name, true
+}
+
+// HasName returns a boolean if a field has been set.
+func (o *InferenceRoute) HasName() bool {
+	if o != nil && !IsNil(o.Name) {
+		return true
+	}
+
+	return false
+}
+
+// SetName gets a reference to the given string and assigns it to the Name field.
+func (o *InferenceRoute) SetName(v string) {
+	o.Name = &v
+}
+
 // GetWorkspaceId returns the WorkspaceId field value
 func (o *InferenceRoute) GetWorkspaceId() string {
 	if o == nil {
@@ -345,6 +379,9 @@ func (o InferenceRoute) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.UpdatedAt) {
 		toSerialize["updated_at"] = o.UpdatedAt
+	}
+	if !IsNil(o.Name) {
+		toSerialize["name"] = o.Name
 	}
 	toSerialize["workspace_id"] = o.WorkspaceId
 	toSerialize["provider_binding_id"] = o.ProviderBindingId

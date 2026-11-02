@@ -30,13 +30,13 @@ Use PatternFly design guidelines to pick the right building block:
 - **Extensions** - PatternFly ecosystem add-ons where applicable
 - **Component groups** - higher-level compositions for complex data display and navigation
 
-Follow reuse order `UI-PF-05`: existing HyperShell shared component, then applicable PatternFly component or documented pattern, then composition of PatternFly primitives, then one new shared component with admission evidence.
+Follow reuse order `UIS-PFLY-05`: existing HyperShell shared component, then applicable PatternFly component or documented pattern, then composition of PatternFly primitives, then one new shared component with admission evidence.
 
-Do not build custom markup when a PatternFly component, pattern, or composition covers the need (`UI-PF-01`).
+Do not build custom markup when a PatternFly component, pattern, or composition covers the need (`UIS-PFLY-01`).
 
 ## Styling
 
-Use PatternFly design tokens and utility classes instead of custom CSS when they cover the need (`UI-PF-03`):
+Use PatternFly design tokens and utility classes instead of custom CSS when they cover the need (`UIS-PFLY-03`):
 
 - Semantic tokens: `--pf-t--global--*`; component tokens: `--pf-v6-c--*`
 - PatternFly layout, spacing, and typography utilities before writing new rules
@@ -46,7 +46,7 @@ No Tailwind, Bootstrap, MUI, Sass, or CSS-in-JS.
 
 ## Accessibility
 
-PatternFly defaults are a starting point, not sufficient for WCAG compliance (`UI-PF-09`).
+PatternFly defaults are a starting point, not sufficient for WCAG compliance (`UIS-PFLY-09`).
 
 - Provide explicit `aria-label`, `aria-labelledby`, or `aria-describedby` when defaults are vague or missing
 - Icon-only controls always need a localized `aria-label` via `react-intl`

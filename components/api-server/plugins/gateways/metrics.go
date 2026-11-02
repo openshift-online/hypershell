@@ -123,7 +123,7 @@ func newGatewayActiveSandboxesCollector(dao GatewayDao) *gatewayActiveSandboxesC
 		desc: prometheus.NewDesc(
 			prometheus.BuildFQName(metricsNamespace, metricsSubsystem, "active_sandboxes_total"),
 			activeSandboxesHelp,
-			[]string{"managed_cluster"},
+			[]string{"managed_cluster", "gateway_namespace"},
 			nil,
 		),
 	}
@@ -140,6 +140,6 @@ func (c *gatewayActiveSandboxesCollector) Collect(ch chan<- prometheus.Metric) {
 		return
 	}
 	for _, r := range rows {
-		ch <- prometheus.MustNewConstMetric(c.desc, prometheus.GaugeValue, float64(r.Count), r.ClusterName)
+		ch <- prometheus.MustNewConstMetric(c.desc, prometheus.GaugeValue, float64(r.Count), r.ClusterName, r.Namespace)
 	}
 }

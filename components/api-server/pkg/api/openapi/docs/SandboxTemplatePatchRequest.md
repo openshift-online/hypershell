@@ -4,10 +4,10 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**Name** | Pointer to **string** |  | [optional] 
-**Image** | Pointer to **string** |  | [optional] 
-**NamePrefix** | Pointer to **string** |  | [optional] 
-**Policy** | Pointer to **string** |  | [optional] 
+**Name** | Pointer to **string** |  | [optional]
+**Image** | Pointer to **string** |  | [optional]
+**NamePrefix** | Pointer to **string** |  | [optional]
+**Policy** | Pointer to **string** |  | [optional]
 
 ## Methods
 
@@ -130,5 +130,3 @@ HasPolicy returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
-
-

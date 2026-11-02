@@ -13,6 +13,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
 	"github.com/openshift-online/hypershell/components/api-server/test"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
@@ -36,25 +37,16 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
 
-	account := h.NewRandAccount()
-	ctx := h.NewAuthenticatedContext(account)
-	jwtToken := h.CreateJWTString(account)
-
-	conn, err := grpc.NewClient(
-		h.GRPCAddress(),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithPerRPCCredentials(&bearerToken{token: jwtToken}),
-	)
-	Expect(err).NotTo(HaveOccurred())
-	t.Cleanup(func() {
-		Expect(conn.Close()).To(Succeed())
-	})
-
-	grpcClient := pb.NewGatewayServiceClient(conn)
+	// The control plane owns the platform-managed and observed gateway fields exercised
+	// here (external_dns, tls_mode, service_type, status, phase) and the control-plane-only
+	// SetGatewayVersion RPC, so this end-to-end CRUD runs as a control-plane identity
+	// (PLAT-DATA-23). A user may write only name + placement/cluster_id.
+	grpcClient, clusterID := newControlPlaneGatewayClient(t, h)
+	ctx := context.Background()
 
 	createReq := &pb.CreateGatewayRequest{
 		Name:        "TestName",
-		ClusterId:   registerTestCluster(t),
+		ClusterId:   clusterID,
 		ExternalDns: func() *string { s := "TestExternalDns"; return &s }(),
 		TlsMode:     func() *string { s := "TestTlsMode"; return &s }(),
 		ServiceType: func() *string { s := "TestServiceType"; return &s }(),
@@ -84,7 +76,6 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 	updateReq := &pb.UpdateGatewayRequest{
 		Id:          gatewayID,
 		Name:        func() *string { s := "UpdatedName"; return &s }(),
-		ClusterId:   func() *string { s := registerTestCluster(t); return &s }(),
 		ExternalDns: func() *string { s := "UpdatedExternalDns"; return &s }(),
 		TlsMode:     func() *string { s := "UpdatedTlsMode"; return &s }(),
 		ServiceType: func() *string { s := "UpdatedServiceType"; return &s }(),
@@ -117,6 +108,7 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 	Expect(err).To(HaveOccurred())
 }
 
+// Verifies: PLAT-DATA-02.02, PLAT-CLUS-06.01, PLAT-CLUS-06.03, PLAT-CLUS-07.02
 func TestGRPCCapabilitySelectorPlacementSurvivesCapabilityReplacement(t *testing.T) {
 	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
@@ -290,6 +282,7 @@ func TestGRPCWatchGateways(t *testing.T) {
 	Expect(int(listResp.Metadata.Total)).To(BeNumerically(">=", totalItems))
 }
 
+// Verifies: CTRL-WDEL-01.01
 func TestGRPCWatchGatewayDeleteIncludesResource(t *testing.T) {
 	h, _ := test.RegisterIntegration(t)
 	h.StartControllersServer()
@@ -390,6 +383,60 @@ func TestGRPCWatchGatewaysSendsSubscriptionHeader(t *testing.T) {
 	// subscribing. It returning without error proves the handshake fired.
 	_, err = stream.Header()
 	Expect(err).NotTo(HaveOccurred())
+}
+
+// TestGRPCWatchThenListReturnsPreExistingGateways covers the API contract the
+// control plane's startup seed relies on (control-plane.spec.md, "Startup seeds
+// gateways created while the control plane was down"). The watch stream never
+// replays existing gateways, so a gateway created while the control plane was
+// down reaches it only through the ListGateways call it makes once the watch
+// subscription is live. On each fresh connection, that list must return every
+// pre-existing gateway of the caller's cluster and none of another cluster.
+// Verifies: CTRL-CORE-02.03
+func TestGRPCWatchThenListReturnsPreExistingGateways(t *testing.T) {
+	h, _ := test.RegisterIntegration(t)
+	h.StartControllersServer()
+
+	ownID, subject := registerTestClusterWithSubject(t)
+	foreignID := registerTestCluster(t)
+
+	// Create the gateways before any control-plane connection exists.
+	userCtx := h.NewAuthenticatedContext(h.NewRandAccount())
+	service := gateways.Service(&environments.Environment().Services)
+	want := make(map[string]bool, 3)
+	for i := 0; i < 3; i++ {
+		gw, svcErr := service.Create(userCtx, &gateways.Gateway{Name: fmt.Sprintf("startup-seed-own-%d", i), ClusterId: ownID})
+		Expect(svcErr).NotTo(HaveOccurred())
+		want[gw.ID] = true
+	}
+	foreignGw, svcErr := service.Create(userCtx, &gateways.Gateway{Name: "startup-seed-foreign", ClusterId: foreignID})
+	Expect(svcErr).NotTo(HaveOccurred())
+
+	cpAccount := h.NewAccount("service-account-cp-"+subject, "cp", "")
+	cpToken := h.CreateJWTStringWithClaims(cpAccount, test.ControlPlaneClaims(subject))
+
+	for attempt := 0; attempt < 2; attempt++ {
+		cp := pb.NewGatewayServiceClient(dialGRPC(t, h, cpToken))
+		watchCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		t.Cleanup(cancel)
+
+		stream, err := cp.WatchGateways(watchCtx, &pb.WatchGatewaysRequest{ClusterId: strPtr(ownID)})
+		Expect(err).NotTo(HaveOccurred(), "connection %d: open watch", attempt+1)
+		_, err = stream.Header()
+		Expect(err).NotTo(HaveOccurred(), "connection %d: watch subscription header", attempt+1)
+
+		resp, err := cp.ListGateways(watchCtx, &pb.ListGatewaysRequest{Page: 1, Size: 100, ClusterId: strPtr(ownID)})
+		Expect(err).NotTo(HaveOccurred(), "connection %d: list after header", attempt+1)
+		got := make(map[string]bool, len(resp.Items))
+		for _, item := range resp.Items {
+			id := item.GetMetadata().GetId()
+			Expect(id).NotTo(Equal(foreignGw.ID), "connection %d: a foreign cluster's gateway was listed", attempt+1)
+			Expect(item.GetClusterId()).To(Equal(ownID), "connection %d: listed gateway %s", attempt+1, id)
+			got[id] = true
+		}
+		Expect(got).To(Equal(want), "connection %d: list must return every pre-existing own-cluster gateway", attempt+1)
+		cancel()
+	}
 }
 
 func TestGRPCGatewayErrorHandling(t *testing.T) {

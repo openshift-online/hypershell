@@ -47,6 +47,7 @@ func TestWatchLoopDisconnectError(t *testing.T) {
 // A stream that delivers neither an event nor an error (never heartbeats) must be
 // cancelled by the idle watchdog so watchLoop reconnects, rather than block
 // forever. This is the silent-stream failure mode from HYPERSHELL issue #504.
+// Verifies: CTRL-CORE-07.02
 func TestWatchLoopIdleWatchdogReconnects(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -72,6 +73,7 @@ func TestWatchLoopIdleWatchdogReconnects(t *testing.T) {
 
 // A stream that keeps heartbeating faster than the idle timeout must NOT be torn
 // down: an ordinarily quiet-but-healthy stream stays connected.
+// Verifies: CTRL-CORE-07.03
 func TestWatchLoopHeartbeatKeepsStreamAlive(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

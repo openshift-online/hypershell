@@ -5,6 +5,7 @@ import (
 	"time"
 )
 
+// Verifies: OBS-SBXA-01.01, OBS-SBXA-01.02, OBS-SBXA-02.01, OBS-SBXA-02.02, OBS-SBXA-02.03, OBS-SBXA-02.04, OBS-SBXA-03.01, OBS-SBXA-03.02, OBS-SBXA-03.03, OBS-SBXA-03.04, OBS-SBXA-03.05, OBS-SBXA-04.01, OBS-SBXA-04.02
 func TestClassifyAttentionCounts(t *testing.T) {
 	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
 	live := map[string]struct{}{"openshell-live": {}}

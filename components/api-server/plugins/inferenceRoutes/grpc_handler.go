@@ -2,8 +2,8 @@ package inferenceRoutes
 
 import (
 	"context"
+	"log/slog"
 
-	"github.com/golang/glog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -112,7 +112,7 @@ func (h *inferenceRouteGRPCHandler) WatchInferenceRoutes(_ *pb.WatchInferenceRou
 	if err != nil {
 		return status.Errorf(codes.Unavailable, "failed to subscribe: %v", err)
 	}
-	glog.V(4).Infof("WatchInferenceRoutes: subscriber %s connected", sub.ID)
+	slog.DebugContext(ctx, "WatchInferenceRoutes subscriber connected", "subscriber_id", sub.ID)
 
 	// Flush the header once the subscription is live so a client can seed its
 	// state with a LIST without a list-watch gap (see gateways WatchGateways).
@@ -123,7 +123,7 @@ func (h *inferenceRouteGRPCHandler) WatchInferenceRoutes(_ *pb.WatchInferenceRou
 	for {
 		select {
 		case <-ctx.Done():
-			glog.V(4).Infof("WatchInferenceRoutes: subscriber %s disconnected", sub.ID)
+			slog.DebugContext(ctx, "WatchInferenceRoutes subscriber disconnected", "subscriber_id", sub.ID)
 			return nil
 		case evt, ok := <-sub.Events:
 			if !ok {
@@ -143,13 +143,13 @@ func (h *inferenceRouteGRPCHandler) WatchInferenceRoutes(_ *pb.WatchInferenceRou
 			if evt.EventType != api.DeleteEventType {
 				item, svcErr := h.service.Get(ctx, evt.SourceID)
 				if svcErr != nil {
-					glog.Warningf("WatchInferenceRoutes: failed to load inference route %s: %v", evt.SourceID, svcErr)
+					slog.WarnContext(ctx, "WatchInferenceRoutes failed to load inference route", "resource_id", evt.SourceID, "error", svcErr)
 					continue
 				}
 				watchEvent.InferenceRoute = inferenceRouteToProto(item)
 			}
 			if err := stream.Send(watchEvent); err != nil {
-				glog.V(4).Infof("WatchInferenceRoutes: send error for subscriber %s: %v", sub.ID, err)
+				slog.DebugContext(ctx, "WatchInferenceRoutes send failed", "subscriber_id", sub.ID, "error", err)
 				return err
 			}
 		}

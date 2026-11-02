@@ -2,11 +2,10 @@ package users_test
 
 import (
 	"flag"
+	"log/slog"
 	"os"
 	"runtime"
 	"testing"
-
-	"github.com/golang/glog"
 
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/test"
@@ -14,8 +13,9 @@ import (
 
 func TestMain(m *testing.M) {
 	flag.Parse()
-	_ = os.Setenv("RBAC_ENFORCE", "true")
-	glog.Infof("Starting users integration test using go version %s", runtime.Version())
+	// Enforcement needs no opt-in: it follows the mocked JWT authentication
+	// the helper enables (SEC-RBAC-14).
+	slog.Info("Starting users integration test", "go_version", runtime.Version())
 	helper := test.NewHelper(&testing.T{})
 	exitCode := m.Run()
 	helper.Teardown()

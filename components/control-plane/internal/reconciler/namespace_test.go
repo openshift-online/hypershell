@@ -65,6 +65,7 @@ func nsExists(t *testing.T, client kubernetes.Interface, name string) bool {
 	return false
 }
 
+// Verifies: OSG-NSGC-05.01
 func TestReconcileNamespace_OrphanWithinGraceIsStampedNotDeleted(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
@@ -88,6 +89,7 @@ func TestReconcileNamespace_OrphanWithinGraceIsStampedNotDeleted(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-NSGC-02.01, OSG-NSGC-07.01
 func TestReconcileNamespace_OrphanPastGraceIsReaped(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
@@ -158,6 +160,7 @@ func TestRecordGCEvent_InvolvedObjectNamespaceMatchesEventNamespace(t *testing.T
 	}
 }
 
+// Verifies: OSG-NSGC-05.02
 func TestReconcileNamespace_LiveGatewayClearsGraceAndRetains(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
@@ -185,6 +188,7 @@ func TestReconcileNamespace_LiveGatewayClearsGraceAndRetains(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-NSGC-06.03
 func TestReconcileNamespace_StaleLivenessRecheckSparesRevivedGateway(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
@@ -227,6 +231,7 @@ func TestReconcileNamespace_StaleLivenessRecheckSparesRevivedGateway(t *testing.
 	}
 }
 
+// Verifies: OSG-NSGC-06.04
 func TestReconcileNamespace_RecheckErrorDefersReap(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
@@ -280,6 +285,7 @@ func TestReconcileNamespace_UnmanagedIsUntouched(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-NSGC-02.02
 func TestReconcileOnce_OnlySweepsThisInstance(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
@@ -314,11 +320,11 @@ func TestReconcileOnce_OnlySweepsThisInstance(t *testing.T) {
 	}
 }
 
-// Legacy gateway namespaces that predate the instance label are invisible to
-// the sweep until labeled manually: the reconciler must never touch them
-// itself, regardless of how long they have existed or whether they carry a
-// stale gc-eligible-since annotation from before labeling.
-func TestReconcileOnce_UnlabeledLegacyNamespaceIsIgnored(t *testing.T) {
+// A namespace without this instance's label is invisible to the sweep: the
+// reconciler never stamps the label itself, even when the namespace carries a
+// stale gc-eligible-since annotation.
+// Verifies: OSG-NSGC-02
+func TestReconcileOnce_NamespaceWithoutInstanceLabelIsIgnored(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
 	unlabeled := nsWithLabels("openshell-legacy", map[string]string{
@@ -333,14 +339,14 @@ func TestReconcileOnce_UnlabeledLegacyNamespaceIsIgnored(t *testing.T) {
 	r.reconcileOnce(ctx)
 
 	if !nsExists(t, client, "openshell-legacy") {
-		t.Fatalf("unlabeled legacy namespace reaped, want retained until manually labeled")
+		t.Fatalf("namespace without an instance label reaped, want retained")
 	}
 	got, err := client.CoreV1().Namespaces().Get(ctx, "openshell-legacy", metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("get namespace: %v", err)
 	}
 	if _, ok := got.Labels[gateway.InstanceLabel]; ok {
-		t.Errorf("unlabeled legacy namespace was claimed, want unlabeled")
+		t.Errorf("sweep stamped the instance label, want unlabeled")
 	}
 }
 

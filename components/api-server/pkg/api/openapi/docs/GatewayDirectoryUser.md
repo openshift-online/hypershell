@@ -4,10 +4,10 @@
 
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**Username** | **string** |  | 
-**Name** | Pointer to **NullableString** |  | [optional] 
-**Email** | Pointer to **NullableString** |  | [optional] 
-**Subject** | Pointer to **NullableString** |  | [optional] 
+**Username** | **string** |  |
+**Name** | Pointer to **NullableString** |  | [optional]
+**Email** | Pointer to **NullableString** |  | [optional]
+**Subject** | Pointer to **NullableString** |  | [optional]
 
 ## Methods
 
@@ -155,5 +155,3 @@ HasSubject returns a boolean if a field has been set.
 UnsetSubject ensures that no value is present for Subject, not even an explicit nil
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
-
-

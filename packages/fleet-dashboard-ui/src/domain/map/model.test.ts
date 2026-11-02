@@ -164,7 +164,7 @@ describe("buildMapModel - columns", () => {
 });
 
 describe("buildMapModel - lanes", () => {
-  it("lays one lane per provider, sinking hub-hosting clouds to the bottom", () => {
+  it("lays one lane per provider, stable-alphabetical, not sinking hub clouds", () => {
     const model = buildMapModel(
       promotion(["a", "h", "b"], {
         a: env({ name: "a", role: "spoke", provider: "aws" }),
@@ -173,12 +173,28 @@ describe("buildMapModel - lanes", () => {
       }),
       emptyFleet,
     );
-    // spoke-only clouds first (alpha), the hub-hosting cloud last
+    // Plain alphabetical by key; the hub-hosting flag is labeling metadata and no
+    // longer reorders lanes (placement is role-driven in the layout).
     expect(model.lanes.map((l) => l.key)).toEqual(["aws", "gcp", "ibm"]);
     expect(model.lanes.map((l) => l.hostsHub)).toEqual([false, false, true]);
     expect(model.lanes.map((l) => l.provider)).toEqual(["aws", "gcp", "ibm"]);
   });
 
+  it("does not sink a hub-hosting provider that sorts first alphabetically", () => {
+    const model = buildMapModel(
+      promotion(["a", "h", "b"], {
+        a: env({ name: "a", role: "spoke", provider: "mmm" }),
+        h: env({ name: "h", role: "hub", provider: "aaa" }),
+        b: env({ name: "b", role: "spoke", provider: "zzz" }),
+      }),
+      emptyFleet,
+    );
+    // The hub cloud "aaa" stays first (alpha), proving hub-hosting no longer sinks.
+    expect(model.lanes.map((l) => l.key)).toEqual(["aaa", "mmm", "zzz"]);
+    expect(model.lanes.map((l) => l.hostsHub)).toEqual([true, false, false]);
+  });
+
+  // Verifies: FLT-MAP-07.02
   it("groups instances without a provider under a single lane key", () => {
     const model = buildMapModel(
       promotion(["a", "b"], {
@@ -253,6 +269,7 @@ describe("buildMapModel - nodes", () => {
 });
 
 describe("buildMapModel - gates", () => {
+  // Verifies: FLT-SYNC-03.01, FLT-SYNC-03.02
   it("reports each SOURCE column's own gate badge on the gate to its right", () => {
     const model = buildMapModel(
       promotion(["hi", "hp"], {
@@ -727,5 +744,68 @@ describe("buildMapModel - per-cluster attribution", () => {
     // The co-located spoke's own node shows nothing (its counts are on the hub).
     expect(co.gatewaysTotal).toBe(0);
     expect(co.sandboxes).toBe(0);
+  });
+});
+
+describe("buildMapModel capabilities", () => {
+  const emptyFleet: FleetData = { instances: [] };
+
+  // FLT-CAP-01.01: capabilities thread from the environment to the map node in
+  // order, unchanged.
+  it("carries capabilities onto the node in order", () => {
+    const promotion: PromotionData = {
+      order: ["alpha"],
+      environments: {
+        alpha: env({
+          name: "alpha",
+          role: "hub",
+          capabilities: ["provider/aws", "runtime/kata", "network/vpn"],
+        }),
+      },
+      releases: [],
+      releaseByDigest: {},
+      frontier: null,
+    };
+    const model = buildMapModel(promotion, emptyFleet);
+    const node = model.nodes.find((n) => n.id === "alpha");
+    expect(node?.capabilities).toEqual([
+      "provider/aws",
+      "runtime/kata",
+      "network/vpn",
+    ]);
+  });
+
+  // FLT-CAP-01.02: an environment with no capabilities carries an empty set.
+  it("defaults missing capabilities to an empty set", () => {
+    const promotion: PromotionData = {
+      order: ["alpha"],
+      environments: { alpha: env({ name: "alpha", role: "hub" }) },
+      releases: [],
+      releaseByDigest: {},
+      frontier: null,
+    };
+    const model = buildMapModel(promotion, emptyFleet);
+    const node = model.nodes.find((n) => n.id === "alpha");
+    expect(node?.capabilities).toEqual([]);
+  });
+
+  it("derives provider from the provider capability, grouping its lane", () => {
+    const promotion: PromotionData = {
+      order: ["alpha"],
+      environments: {
+        alpha: env({
+          name: "alpha",
+          role: "hub",
+          capabilities: ["provider/aws"],
+        }),
+      },
+      releases: [],
+      releaseByDigest: {},
+      frontier: null,
+    };
+    const model = buildMapModel(promotion, emptyFleet);
+    const node = model.nodes.find((n) => n.id === "alpha");
+    expect(node?.provider).toBe("aws");
+    expect(node?.laneKey).toBe("aws");
   });
 });

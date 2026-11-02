@@ -7,8 +7,12 @@ import type { VerificationTarget } from "../promotion";
 // STAGES - the hubs in `promotion.order`, left -> right - and a spoke (a hub's
 // managed cluster) stacks into its hub's column rather than forming its own stage,
 // so a hub and its managed clusters share one column with no gate between them.
-// Lanes come from `role`/`provider`, the env-type (`envLabel`) only groups column
-// headers, and each column gets a gate to its right reporting that env's own
+// Lanes are the provider grouping derived from `provider`: the layout groups clusters
+// into visible provider lanes AND centers the HUBs on one spine (role governs the spine
+// within the hub-hosting lane; provider governs which band a cluster joins - see
+// specs/platform/fleet-dashboard-map-hub-spine-layout.spec.md). The env-type
+// (`envLabel`) only groups column headers, and each column gets a gate to its right
+// reporting that env's own
 // analysis (the condition to promote out of it). A static ENV->HUB or provider
 // table here would bake the topology into public source; deriving it at runtime is
 // the whole point (data-architecture.spec §3.5 in the gitops repo).
@@ -26,6 +30,7 @@ import {
   type RateStats,
   type SandboxClusterCount,
 } from "../fleet";
+import { capabilityValue } from "./capabilities";
 import { classifySpokes, type SpokeAttribution } from "../spoke-attribution";
 import type { InstanceTopology, TopologyData } from "../topology";
 import {
@@ -72,8 +77,9 @@ export interface MapNode {
   readonly envLabel: string | null;
   /**
    * Lane key: one lane per cloud provider (the provider string, or "none" when
-   * the server omits it). Hub-hosting providers sink to the bottom - geometry is
-   * layout's job.
+   * the server omits it). Provider grouping is a visible lane band AND drives which
+   * band a cluster joins vertically; the HUB/SPOKE role still decides which cluster
+   * holds the centered spine within the hub-hosting lane (geometry is layout's job).
    */
   readonly laneKey: string;
   /** True when the server labels this node's role "hub" (case-insensitive). */
@@ -81,6 +87,15 @@ export interface MapNode {
   readonly role: string | null;
   readonly provider: string | null;
   readonly cluster: string | null;
+  /**
+   * Self-declared capability labels (`namespace/value`), carried through from the
+   * promotion environment's delivery labels. Optional and opaque; an instance with
+   * no capabilities carries an empty set. Drives the card's capability chip row and
+   * the drawer's Capabilities section (FLT-CAP-01).
+   */
+  readonly capabilities?: readonly string[];
+  /** Default gateway image the cluster's control plane provisions (FLT-CAP-07). */
+  readonly gatewayImage?: string | null;
   /** Stable identicon/identiname seed: the active digest, else the instance key. */
   readonly seed: string;
   readonly version: string | null;
@@ -167,11 +182,15 @@ export interface MapColumn {
   readonly envLabel: string | null;
 }
 
-/** A horizontal lane: one per cloud provider (rows are clouds, columns are envs). */
+/**
+ * A provider grouping: one per cloud provider. Rendered as a visible horizontal lane
+ * band; the hub-hosting lane (`hostsHub`) is centered on the spine while the others
+ * stack above and below it (see fleet-dashboard-map-hub-spine-layout.spec.md).
+ */
 export interface MapLane {
   readonly key: string;
   readonly provider: string | null;
-  /** True when any hub-role node lives in this provider's lane. */
+  /** True when any hub-role node belongs to this provider. */
   readonly hostsHub: boolean;
 }
 
@@ -426,7 +445,14 @@ function buildNode(
   topology: InstanceTopology | null,
   brokenOutSpokes: ReadonlySet<string>,
 ): MapNode {
-  const provider = nonEmpty(env.provider);
+  // Capabilities are opaque delivery-label DATA; absent -> empty set (FLT-CAP-01).
+  const capabilities = env.capabilities ?? [];
+  // Provider prefers the `provider` capability, falling back to the dedicated
+  // `provider` delivery field so an instance that only carries one still groups
+  // into its provider lane. Both are the SAME runtime label - no provider list is
+  // baked in (data-architecture.spec §3.5).
+  const provider =
+    capabilityValue(capabilities, "provider") ?? nonEmpty(env.provider);
   const isHub = isHubRole(env.role);
   // A hub card reads its OWN instance and rolls up every cluster except the spokes
   // broken out onto their own node; a spoke card reads its HUB instance (its column
@@ -476,6 +502,8 @@ function buildNode(
     role: nonEmpty(env.role),
     provider,
     cluster: nonEmpty(env.cluster),
+    capabilities,
+    gatewayImage: nonEmpty(env.gatewayImage ?? null),
     seed: nonEmpty(env.activeDigest) ?? env.name,
     version: env.activeRelease,
     digest: env.activeDigest,
@@ -562,10 +590,12 @@ function assignColumns(
 }
 
 /**
- * Order lanes top -> bottom, one per cloud provider: spoke-only clouds on top,
- * hub-hosting clouds sink to the bottom (so the promotion spine reads left->right
- * along the hubs), then stable alphabetical within each group. This mirrors the
- * prototype's per-cloud lanes and is fully derived - no provider list is baked in.
+ * Collect one lane per cloud provider, stable-alphabetical by key. Each lane is a
+ * visible grouping band; the `hostsHub` flag marks the hub-hosting lane the layout
+ * centers on the spine. The layout keeps every HUB on the centered spine and stacks the
+ * remaining provider lanes balanced around it, so a hub-hosting provider is NEVER sorted
+ * to the bottom (specs/platform/fleet-dashboard-map-hub-spine-layout.spec.md). Fully
+ * derived - no provider list is baked in.
  */
 function orderLanes(nodes: readonly MapNode[]): MapLane[] {
   const hostsHub = new Map<string, boolean>();
@@ -574,14 +604,9 @@ function orderLanes(nodes: readonly MapNode[]): MapLane[] {
     providerOf.set(n.laneKey, n.provider);
     hostsHub.set(n.laneKey, (hostsHub.get(n.laneKey) ?? false) || n.isHub);
   }
-  const keys = [...hostsHub.keys()].sort((a, b) => {
-    const ha = hostsHub.get(a) ?? false;
-    const hb = hostsHub.get(b) ?? false;
-    if (ha !== hb) {
-      return ha ? 1 : -1; // hub clouds later => lower
-    }
-    return a < b ? -1 : a > b ? 1 : 0; // stable alpha
-  });
+  const keys = [...hostsHub.keys()].sort((a, b) =>
+    a < b ? -1 : a > b ? 1 : 0,
+  );
   return keys.map((key) => ({
     key,
     provider: providerOf.get(key) ?? null,

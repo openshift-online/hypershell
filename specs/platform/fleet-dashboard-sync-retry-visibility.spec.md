@@ -36,7 +36,7 @@ immediately.
 
 ## Requirements
 
-### Requirement: BFF reads the Argo sync-retry count
+### Requirement: FLT-SYNC-01 -- BFF reads the Argo sync-retry count
 
 The fleet-dashboard BFF promotion source SHALL read
 `status.operationState.retryCount` from each core Argo CD `Application` it already
@@ -45,40 +45,40 @@ supplies `status.health.status` and `status.sync.status`. The BFF SHALL NOT
 introduce any new Kubernetes query, list, watch, or cluster credential to obtain
 this value.
 
-#### Scenario: Retry count present on the Application
+#### Scenario: FLT-SYNC-01.01 -- Retry count present on the Application
 
 - GIVEN an instance whose core Argo CD `Application` is resolved by the promotion source
 - AND the Application reports `status.operationState.retryCount: 9`
 - WHEN the BFF builds that environment
 - THEN the environment's `syncRetries` field SHALL be `9`
 
-#### Scenario: No new cluster access
+#### Scenario: FLT-SYNC-01.02 -- No new cluster access
 
 - GIVEN the BFF already fetches the core Argo CD `Application` per instance
 - WHEN the sync-retry count is added to the environment
 - THEN the value SHALL be read from that already-fetched Application
 - AND no additional Kubernetes query or credential SHALL be introduced
 
-### Requirement: Absent sync data is nullable, not zero
+### Requirement: FLT-SYNC-02 -- Absent sync data is nullable, not zero
 
 The BFF SHALL represent "no operation or unknown retry data" as a null
 `syncRetries`, distinct from a genuine `0` (synced on the first attempt). The
 `syncRetries` field SHALL be omitted from the JSON payload when null.
 
-#### Scenario: Synced on first attempt
+#### Scenario: FLT-SYNC-02.01 -- Synced on first attempt
 
 - GIVEN an Application whose `status.operationState.retryCount` is `0`
 - WHEN the BFF builds that environment
 - THEN `syncRetries` SHALL be `0`
 
-#### Scenario: No operation state available
+#### Scenario: FLT-SYNC-02.02 -- No operation state available
 
 - GIVEN an Application with no `status.operationState` (no recorded operation)
 - WHEN the BFF builds that environment
 - THEN `syncRetries` SHALL be null
 - AND the field SHALL be omitted from the JSON payload
 
-### Requirement: The UI carries the count onto the gate
+### Requirement: FLT-SYNC-03 -- The UI carries the count onto the gate
 
 The fleet-dashboard UI SHALL map the BFF's `syncRetries` field through the wire
 adapter, the promotion domain, and the map model so that a gate carries the
@@ -87,19 +87,19 @@ environment's own analysis, so the source environment's sync retries SHALL belon
 to that gate. The value SHALL remain nullable (`number | null`) end to end,
 preserving the distinction between `0` and unknown.
 
-#### Scenario: Gate inherits its source environment's retry count
+#### Scenario: FLT-SYNC-03.01 -- Gate inherits its source environment's retry count
 
 - GIVEN a source environment whose `syncRetries` is `9`
 - WHEN the map model builds the gate that reports that source environment
 - THEN the gate SHALL carry `syncRetries` equal to `9`
 
-#### Scenario: Unknown retry count stays null through the mapping
+#### Scenario: FLT-SYNC-03.02 -- Unknown retry count stays null through the mapping
 
 - GIVEN a source environment whose `syncRetries` is absent
 - WHEN the wire adapter, domain, and map model process it
 - THEN the gate's `syncRetries` SHALL be null at every layer
 
-### Requirement: The gate pane shows "Sync attempts" with a plain-English tooltip
+### Requirement: FLT-SYNC-04 -- The gate pane shows "Sync attempts" with a plain-English tooltip
 
 The gate details pane SHALL render a "Sync attempts" row showing the gate's
 `syncRetries` value only when that value is not null. The row SHALL be omitted
@@ -109,14 +109,14 @@ a climbing value usually signals a wedged release-analysis gate (a newer commit
 superseded the one being checked) rather than tests still running. The label and
 tooltip strings SHALL be defined as localized messages.
 
-#### Scenario: Count shown with tooltip
+#### Scenario: FLT-SYNC-04.01 -- Count shown with tooltip
 
 - GIVEN a selected gate whose `syncRetries` is `9`
 - WHEN the operator views the gate details pane
 - THEN the pane SHALL show a "Sync attempts" row reading `9`
 - AND the row label SHALL expose a tooltip explaining the count and that a climbing value signals a wedged gate
 
-#### Scenario: Row omitted when unknown
+#### Scenario: FLT-SYNC-04.02 -- Row omitted when unknown
 
 - GIVEN a selected gate whose `syncRetries` is null
 - WHEN the operator views the gate details pane

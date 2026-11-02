@@ -116,6 +116,81 @@ export interface E2eRunDetail extends E2eRunSummary {
   readonly logsTruncated: boolean;
 }
 
+/**
+ * One bounded page of a run's raw-log history (E2E-LOG-19). Entries are
+ * chronological-ascending (oldest first) for display. `nextCursor` is the oldest
+ * timestamp in the page (nanoseconds, decimal string) used to request the
+ * immediately older page; `hasMore` reports the page was full so an older page may
+ * exist.
+ *
+ * `boundaryTruncated` reports that a full page's oldest entries all shared the
+ * cursor's nanosecond, so the cursor could not advance and the remaining entries at
+ * that nanosecond are locally unreachable. It is distinct from end-of-history: the
+ * pane SHALL render a locally-limited state rather than "all history was read"
+ * (E2E-LOG-26). It is optional so a response from a BFF that predates the signal
+ * (where it is absent) is read as not truncated.
+ */
+export interface E2eLogPage {
+  readonly entries: readonly E2eLogLine[];
+  readonly nextCursor: string | null;
+  readonly hasMore: boolean;
+  readonly boundaryTruncated?: boolean;
+}
+
+/**
+ * The upper bound on how many log lines the in-memory buffer retains, so a very
+ * long run does not grow the heap without bound (E2E-LOG-22). The rendered DOM is
+ * bounded separately by the view's render window.
+ */
+export const MAX_LOG_BUFFER = 3000;
+
+/**
+ * Merge incoming log lines into an ordered, de-duplicated buffer, keyed by the
+ * stable per-entry `sequence` and kept chronological-ascending. Both the paginated
+ * history (older pages prepended) and the live stream (newer lines appended) flow
+ * through here, so the one-nanosecond page-boundary overlap and the history-to-live
+ * seam neither drop nor duplicate a line (E2E-LOG-19/21). Returns the previous
+ * reference unchanged when nothing new arrived, so React can skip a re-render.
+ */
+export function mergeLogLines(
+  buffer: readonly E2eLogLine[],
+  incoming: readonly E2eLogLine[],
+): readonly E2eLogLine[] {
+  if (incoming.length === 0) {
+    return buffer;
+  }
+  const bySeq = new Map<number, E2eLogLine>();
+  for (const line of buffer) {
+    bySeq.set(line.sequence, line);
+  }
+  let changed = false;
+  for (const line of incoming) {
+    if (!bySeq.has(line.sequence)) {
+      bySeq.set(line.sequence, line);
+      changed = true;
+    }
+  }
+  if (!changed) {
+    return buffer;
+  }
+  return [...bySeq.values()].sort((a, b) => a.sequence - b.sequence);
+}
+
+/**
+ * Bound a buffer to the most recent `max` lines by dropping the oldest, for live
+ * tailing of a long in-progress run (E2E-LOG-22). Returns the previous reference
+ * unchanged when already within bound.
+ */
+export function boundLogBuffer(
+  buffer: readonly E2eLogLine[],
+  max: number,
+): readonly E2eLogLine[] {
+  if (buffer.length <= max) {
+    return buffer;
+  }
+  return buffer.slice(buffer.length - max);
+}
+
 /** The /api/e2e/runs plane. When disabled the BFF returns only `enabled: false`. */
 export interface E2eRunsData {
   readonly enabled: boolean;

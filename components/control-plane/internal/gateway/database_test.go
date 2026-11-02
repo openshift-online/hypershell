@@ -91,6 +91,7 @@ func validAdminFiles(t *testing.T) map[string]string {
 	}
 }
 
+// Verifies: OSG-DBS-02.01, OSG-DBS-02.02, CTRL-CORE-11.02
 func TestReadAdminCredentials(t *testing.T) {
 	t.Run("complete secret", func(t *testing.T) {
 		files := validAdminFiles(t)
@@ -215,6 +216,7 @@ func TestAdminDSNUsesVerifyFullAndMountedCA(t *testing.T) {
 // CA bundle into the gateway pod for the database connection, so the tenant
 // leg cannot be verify-full. It stays encrypted (sslmode=require) rather than
 // unverified-and-unencrypted.
+// Verifies: OSG-DBS-04.01
 func TestTenantSecretDataUsesRequireNotVerifyFull(t *testing.T) {
 	ca := testCAPEM(t)
 	creds := &adminCredentials{host: "db.example.internal", port: "5432", user: "provisioner", password: "admin", sslrootcert: ca}
@@ -315,6 +317,7 @@ func TestVerifyTenantConnFailureIsRedactedAndBounded(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-DBS-03.05
 func TestCreateGatewayDatabaseSQLUsesTemplate0(t *testing.T) {
 	got := createGatewayDatabaseSQL("gw_abc")
 	if !strings.Contains(got, "TEMPLATE template0") {
@@ -363,6 +366,7 @@ func TestConnErrorCategory(t *testing.T) {
 	}
 }
 
+// Verifies: OSG-DBS-10.01
 func TestRedactDriverError(t *testing.T) {
 	got := redactDriverError(errors.New(`pq: failed to connect to postgres://postgres:s3cret@db.example:5432/postgres?sslmode=verify-full password=s3cret extra`))
 	if strings.Contains(got, "s3cret") {

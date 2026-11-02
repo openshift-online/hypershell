@@ -4,7 +4,7 @@
 # Keycloak --import-realm only creates users on first realm import. Existing Kind
 # clusters keep stale realm-role mappings when keycloak.yaml adds roles (for
 # example platform:admin on the admin user). The operational dashboard requires
-# platform:admin (OP-DASH-04); without this step admin/admin can authenticate
+# platform:admin (WEB-OPS-04); without this step admin/admin can authenticate
 # but is redirected away from /dashboard.
 set -euo pipefail
 

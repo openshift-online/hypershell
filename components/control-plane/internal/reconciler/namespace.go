@@ -45,11 +45,7 @@ const (
 // this control-plane instance created but that no longer have a live Gateway in
 // this instance's API server. Other HyperShell instances on the same cluster are
 // ignored: the sweep selects on hypershell.redhat.io/instance=<HYPERSHELL_NAMESPACE>.
-// Legacy gateway namespaces that predate the instance label (both management
-// labels, no instance label) are not visible to a sweep on their own; the
-// one-shot startup backfill (BackfillInstanceLabels) stamps the instance label
-// onto those this instance still owns per its API server, and this reconciler
-// never claims an unlabeled namespace itself. This reaps namespaces orphaned by a
+// The sweep never stamps the instance label itself. This reaps namespaces orphaned by a
 // delete event missed while the control plane was down, and namespaces whose
 // gateway failed to bootstrap and was then deleted.
 // Reaping is best-effort and idempotent, and is delayed by a grace period
@@ -285,6 +281,19 @@ func (r *NamespaceGCReconciler) reconcileNamespace(ctx context.Context, ns *core
 		return fmt.Errorf("record GC event for %s: %w", ns.Name, err)
 	}
 	cancel()
+
+	// Reclaim the gateway's per-tenant Vault mount before reaping the namespace
+	// (HYPERSHELL-369). This is the safety-net path: a normally-deleted gateway drops its
+	// mount in the event-driven delete flow, but a namespace orphaned past grace (its Gateway
+	// record already gone) would otherwise leak openshell-gw/<ns> in Vault. The record is gone,
+	// so resolve the mount from the namespace and the Vault conventions (empty driver). Best
+	// effort and idempotent: a missing mount, or a cluster with no provider Vault, is a no-op
+	// or a logged warning and never blocks the reap.
+	mountCtx, cancelMount := context.WithTimeout(ctx, namespaceOperationTimeout)
+	if err := gateway.DeleteVaultTenantMount(mountCtx, r.client, gateway.ReconcileOpts{ControlPlaneNamespace: r.cpNamespace}, ns.Name); err != nil {
+		log.Printf("WARN namespace gc: %s: delete vault tenant mount (best-effort): %v", ns.Name, err)
+	}
+	cancelMount()
 
 	deleteCtx, cancel := context.WithTimeout(ctx, namespaceOperationTimeout)
 	defer cancel()

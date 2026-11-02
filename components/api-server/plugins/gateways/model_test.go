@@ -8,6 +8,7 @@ import (
 	"github.com/segmentio/ksuid"
 )
 
+// Verifies: PLAT-DATA-03.01
 func TestBeforeCreateAssignsUniqueKubernetesNamespaces(t *testing.T) {
 	first := &Gateway{Namespace: "caller-selected"}
 	second := &Gateway{}
@@ -39,6 +40,7 @@ func TestBeforeCreateAssignsUniqueKubernetesNamespaces(t *testing.T) {
 	}
 }
 
+// Verifies: PLAT-DATA-06.01
 func TestBeforeCreateInitializesGenerationUnconverged(t *testing.T) {
 	gw := &Gateway{}
 	if err := gw.BeforeCreate(nil); err != nil {

@@ -132,6 +132,12 @@ func authorizeControlPlaneGRPC(ctx context.Context, clusterID, fullMethod string
 				return unexpectedRequest()
 			}
 			return requireNamespaceOnCluster(ctx, gateways, r.GetNamespace(), clusterID)
+		case "ReportSandboxEvents":
+			r, ok := req.(*pb.ReportSandboxEventsRequest)
+			if !ok {
+				return unexpectedRequest()
+			}
+			return requireNamespaceOnCluster(ctx, gateways, r.GetNamespace(), clusterID)
 		}
 		return denied()
 	case "ManagedClusterService":
@@ -202,6 +208,16 @@ func authorizeControlPlaneGRPC(ctx context.Context, clusterID, fullMethod string
 		// payload (data-model.spec.md "AgentRuntime Reconcile Payload Completeness"),
 		// so the control plane does not write them over gRPC. A registered control
 		// plane may READ them; writes over gRPC stay denied.
+		if isReadMethodName(method) {
+			return nil
+		}
+		return denied()
+	case "CIProviderService", "CITrustService":
+		// CIProvider and CITrust are authored over HTTP (CIProvider by a
+		// ci-federation:admin, CITrust by a gateway owner/admin), not by the
+		// import reconciler, and neither is on the declarative-import write path.
+		// A registered control plane may READ them to drive CI federation
+		// reconciliation; all writes over gRPC stay denied (SEC-RBAC-09.08).
 		if isReadMethodName(method) {
 			return nil
 		}
@@ -308,11 +324,14 @@ func authorizeUserGRPC(fullMethod string, req interface{}, bindings []BindingSum
 		return denied()
 	case "RepositoryService", "SandboxTemplateService", "ProviderSpecService",
 		"ProviderBindingService", "InferenceRouteService", "SecretSourceService",
-		"AgentWorkspaceService", "WorkspaceMembershipService":
+		"AgentWorkspaceService", "WorkspaceMembershipService",
+		"CIProviderService", "CITrustService":
 		// These kinds are authored over HTTP; their gRPC read methods are unfiltered
 		// by caller, so only platform:admin (who sees them all over HTTP too) may read
-		// them. Writes over gRPC are the control-plane import reconciler's exclusive
-		// path and are denied to every user caller.
+		// them. Writes over gRPC are denied to every user caller: CIProvider is
+		// authored by a ci-federation:admin and CITrust by a gateway owner/admin,
+		// both over HTTP (SEC-RBAC-09.08), and the other kinds' writes are the
+		// control-plane import reconciler's exclusive path.
 		if isReadMethodName(method) {
 			return allowIf(hasPlatformAdmin(bindings))
 		}

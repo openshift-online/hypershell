@@ -29,6 +29,7 @@ func (k *deletionKeycloak) DeleteGatewayClient(_ context.Context, id string) err
 	return nil
 }
 
+// Verifies: GTW-DEL-06.01, OSG-KCLK-11.01
 func TestDeleteGatewayRetainsIdentityUntilServiceAccountsAreRemoved(t *testing.T) {
 	client := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
 	identity := &deletionKeycloak{serviceAccountErr: errors.New("identity unavailable")}

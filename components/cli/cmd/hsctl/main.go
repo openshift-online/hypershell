@@ -22,6 +22,7 @@ import (
 	tuicmd "github.com/openshift-online/hypershell/components/cli/cmd/hsctl/tui"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/update"
 	updategatewayaccess "github.com/openshift-online/hypershell/components/cli/cmd/hsctl/update/gatewayAccess"
+	updateserviceaccount "github.com/openshift-online/hypershell/components/cli/cmd/hsctl/update/serviceAccount"
 )
 
 var root = &cobra.Command{
@@ -37,6 +38,7 @@ func init() {
 	create.Cmd.AddCommand(createserviceaccount.Cmd)
 	get.Cmd.AddCommand(getserviceaccount.Cmd)
 	list.Cmd.AddCommand(listserviceaccounts.Cmd)
+	update.Cmd.AddCommand(updateserviceaccount.Cmd)
 
 	// Gateway access is a scoped sub-collection (/gateways/{id}/access), like
 	// service accounts, so its commands are hand-maintained too.

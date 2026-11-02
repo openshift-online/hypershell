@@ -2,8 +2,8 @@ package providerBindings
 
 import (
 	"context"
+	"log/slog"
 
-	"github.com/golang/glog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -143,7 +143,7 @@ func (h *providerBindingGRPCHandler) WatchProviderBindings(_ *pb.WatchProviderBi
 	if err != nil {
 		return status.Errorf(codes.Unavailable, "failed to subscribe: %v", err)
 	}
-	glog.V(4).Infof("WatchProviderBindings: subscriber %s connected", sub.ID)
+	slog.DebugContext(ctx, "WatchProviderBindings subscriber connected", "subscriber_id", sub.ID)
 
 	// Flush the header once the subscription is live so a client can seed its
 	// state with a LIST without a list-watch gap (see gateways WatchGateways).
@@ -154,7 +154,7 @@ func (h *providerBindingGRPCHandler) WatchProviderBindings(_ *pb.WatchProviderBi
 	for {
 		select {
 		case <-ctx.Done():
-			glog.V(4).Infof("WatchProviderBindings: subscriber %s disconnected", sub.ID)
+			slog.DebugContext(ctx, "WatchProviderBindings subscriber disconnected", "subscriber_id", sub.ID)
 			return nil
 		case evt, ok := <-sub.Events:
 			if !ok {
@@ -174,13 +174,13 @@ func (h *providerBindingGRPCHandler) WatchProviderBindings(_ *pb.WatchProviderBi
 			if evt.EventType != api.DeleteEventType {
 				item, svcErr := h.service.Get(ctx, evt.SourceID)
 				if svcErr != nil {
-					glog.Warningf("WatchProviderBindings: failed to load provider binding %s: %v", evt.SourceID, svcErr)
+					slog.WarnContext(ctx, "WatchProviderBindings failed to load provider binding", "resource_id", evt.SourceID, "error", svcErr)
 					continue
 				}
 				watchEvent.ProviderBinding = providerBindingToProto(item)
 			}
 			if err := stream.Send(watchEvent); err != nil {
-				glog.V(4).Infof("WatchProviderBindings: send error for subscriber %s: %v", sub.ID, err)
+				slog.DebugContext(ctx, "WatchProviderBindings send failed", "subscriber_id", sub.ID, "error", err)
 				return err
 			}
 		}
