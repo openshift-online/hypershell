@@ -752,14 +752,13 @@ func (r *GatewayReconciler) reconcileExistingGatewayKeycloakClient(ctx context.C
 
 // existingGatewayKeycloakClientID returns the identity recorded when the client
 // was provisioned. Gateway names are mutable, so recomputing from the current name
-// can miss the real client after a rename. client_id is present on newer rows;
-// audience carries the same value on legacy rows. Persisted values cross an API
-// trust boundary, so they are accepted only when they agree, contain no control
-// characters, and match a gateway-owned historical identity format: either the
-// gateway ID itself or a prefix followed by "-<gatewayID>". The prefix is not
-// otherwise restricted because historical clients were provisioned from the raw
-// user-visible gateway name. Only gateways without either persisted value fall
-// back to the provisioning format based on the current name.
+// can miss the real client after a rename. The provisioner stores the same value
+// in client_id and audience. Persisted values cross an API trust boundary, so they
+// are accepted only when both are present, they agree, they contain no control
+// characters, and they end in "-<gatewayID>" after a non-empty prefix. The prefix
+// is not otherwise restricted because gateway names are not validated and clients
+// are provisioned from the raw user-visible name. Only gateways without either
+// persisted value fall back to the provisioning format based on the current name.
 func existingGatewayKeycloakClientID(gatewayID string, gw *pb.Gateway) (string, error) {
 	if gatewayID == "" {
 		return "", invalidGatewayKeycloakClientIdentity("gateway ID is required for Keycloak reconciliation")
@@ -785,19 +784,18 @@ func existingGatewayKeycloakClientID(gatewayID string, gw *pb.Gateway) (string, 
 			return "", invalidGatewayKeycloakClientIdentity("persisted OIDC client identity contains control characters")
 		}
 	}
-	if clientID != "" && audience != "" && clientID != audience {
+	if (clientID == "") != (audience == "") {
+		return "", invalidGatewayKeycloakClientIdentity("persisted OIDC client_id and audience must both be set")
+	}
+	if clientID != audience {
 		return "", invalidGatewayKeycloakClientIdentity("persisted OIDC client_id and audience do not match")
 	}
 
-	persisted := clientID
-	if persisted == "" {
-		persisted = audience
-	}
-	if persisted != "" {
-		if !isGatewayOwnedKeycloakClientID(persisted, gatewayID) {
+	if clientID != "" {
+		if !isGatewayOwnedKeycloakClientID(clientID, gatewayID) {
 			return "", invalidGatewayKeycloakClientIdentity("persisted OIDC client identity is not owned by the gateway")
 		}
-		return persisted, nil
+		return clientID, nil
 	}
 
 	if gw.GetName() == "" {
@@ -816,9 +814,6 @@ func existingGatewayKeycloakClientID(gatewayID string, gw *pb.Gateway) (string, 
 func isGatewayOwnedKeycloakClientID(clientID, gatewayID string) bool {
 	if clientID == "" || containsControlCharacter(clientID) {
 		return false
-	}
-	if clientID == gatewayID {
-		return true
 	}
 	suffix := "-" + gatewayID
 	return strings.HasSuffix(clientID, suffix) && len(clientID) > len(suffix)

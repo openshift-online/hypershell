@@ -32,13 +32,13 @@ func TestGatewayDeletionUsesValidatedStoredIdentity(t *testing.T) {
 		invalid                bool
 	}{
 		{name: "renamed", oidc: `{"client_id":"original-gateway-id","audience":"original-gateway-id"}`, wantClient: "original-gateway-id"},
-		{name: "legacy audience", oidc: `{"audience":"original-gateway-id"}`, wantClient: "original-gateway-id"},
-		{name: "legacy name fallback", wantClient: "renamed-gateway-id"},
-		{name: "another gateway", oidc: `{"client_id":"other-gateway"}`, invalid: true},
+		{name: "name fallback", wantClient: "renamed-gateway-id"},
+		{name: "audience only", oidc: `{"audience":"original-gateway-id"}`, invalid: true},
+		{name: "another gateway", oidc: `{"client_id":"other-gateway","audience":"other-gateway"}`, invalid: true},
 		{name: "conflicting identity", oidc: `{"client_id":"original-gateway-id","audience":"another-gateway-id"}`, invalid: true},
 		{name: "invalid JSON", oidc: `{`, invalid: true},
 		{name: "no identity configured", noKeycloak: true},
-		{name: "missing provisioner", oidc: `{"client_id":"original-gateway-id"}`, noKeycloak: true},
+		{name: "missing provisioner", oidc: `{"client_id":"original-gateway-id","audience":"original-gateway-id"}`, noKeycloak: true},
 		{name: "missing provisioner with invalid identity", oidc: `{`, noKeycloak: true, invalid: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

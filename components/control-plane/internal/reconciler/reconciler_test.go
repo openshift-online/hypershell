@@ -100,32 +100,27 @@ func TestExistingGatewayKeycloakClientID(t *testing.T) {
 			want:    "current-name-" + gatewayID,
 		},
 		{
-			name:    "legacy ID-only audience",
-			gateway: &pb.Gateway{Name: "renamed", Oidc: oidcJSON("", gatewayID)},
-			want:    gatewayID,
-		},
-		{
 			name:    "renamed gateway uses persisted identity",
 			gateway: &pb.Gateway{Name: "new-name", Oidc: oidcJSON("original-name-"+gatewayID, "original-name-"+gatewayID)},
 			want:    "original-name-" + gatewayID,
 		},
 		{
-			name:    "historical raw name characters remain valid",
+			name:    "raw name characters remain valid",
 			gateway: &pb.Gateway{Name: "new-name", Oidc: oidcJSON("Original gateway_日本語-"+gatewayID, "Original gateway_日本語-"+gatewayID)},
 			want:    "Original gateway_日本語-" + gatewayID,
 		},
 		{
-			name:    "historical line separator remains valid",
+			name:    "line separator remains valid",
 			gateway: &pb.Gateway{Name: "new-name", Oidc: oidcJSON("Original\u2028gateway-"+gatewayID, "Original\u2028gateway-"+gatewayID)},
 			want:    "Original\u2028gateway-" + gatewayID,
 		},
 		{
-			name:    "historical paragraph separator remains valid",
+			name:    "paragraph separator remains valid",
 			gateway: &pb.Gateway{Name: "new-name", Oidc: oidcJSON("Original\u2029gateway-"+gatewayID, "Original\u2029gateway-"+gatewayID)},
 			want:    "Original\u2029gateway-" + gatewayID,
 		},
 		{
-			name:    "historical bidi formatting control remains valid",
+			name:    "bidi formatting control remains valid",
 			gateway: &pb.Gateway{Name: "new-name", Oidc: oidcJSON("Original\u202egateway-"+gatewayID, "Original\u202egateway-"+gatewayID)},
 			want:    "Original\u202egateway-" + gatewayID,
 		},
@@ -138,6 +133,21 @@ func TestExistingGatewayKeycloakClientID(t *testing.T) {
 			name:    "foreign persisted identity",
 			gateway: &pb.Gateway{Name: "current-name", Oidc: oidcJSON("foreign-gateway-OTHER", "foreign-gateway-OTHER")},
 			wantErr: "not owned by the gateway",
+		},
+		{
+			name:    "bare gateway ID identity",
+			gateway: &pb.Gateway{Name: "current-name", Oidc: oidcJSON(gatewayID, gatewayID)},
+			wantErr: "not owned by the gateway",
+		},
+		{
+			name:    "audience without client_id",
+			gateway: &pb.Gateway{Name: "current-name", Oidc: oidcJSON("", "current-name-"+gatewayID)},
+			wantErr: "must both be set",
+		},
+		{
+			name:    "client_id without audience",
+			gateway: &pb.Gateway{Name: "current-name", Oidc: oidcJSON("current-name-"+gatewayID, "")},
+			wantErr: "must both be set",
 		},
 		{
 			name:    "mismatched persisted identities",
@@ -1281,7 +1291,6 @@ func TestGatewayReconciler_Handle_GatedPhase_UsesPersistedClientIdentityAfterRen
 		oidc gateway.OIDCConfig
 	}{
 		{name: "client_id", oidc: gateway.OIDCConfig{ClientID: originalClientID, Audience: originalClientID}},
-		{name: "legacy audience", oidc: gateway.OIDCConfig{Audience: originalClientID}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			oidcJSON, err := json.Marshal(tc.oidc)
