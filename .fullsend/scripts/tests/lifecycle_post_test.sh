@@ -84,12 +84,19 @@ cat > "${BIN}/fullsend" <<'MOCK'
 #!/usr/bin/env bash
 set -uo pipefail
 if [[ "${1:-}" == "issues" && "${2:-}" == "post-comment" ]]; then
-  cat >/dev/null
+  shift 2
+  marker=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in --marker) marker="$2"; shift 2;; *) shift;; esac
+  done
+  body="$(cat)"
   if [[ "${MOCK_COMMENT_FAIL:-0}" == 1 ]]; then
     echo "mock fullsend: post-comment failed" >&2
     exit 1
   fi
   printf 'comment\n' >> "${MOCK_COMMENTS:-/dev/null}"
+  [[ -n "${MOCK_MARKERS:-}" ]] && printf '%s\n' "${marker}" >> "${MOCK_MARKERS}"
+  [[ -n "${MOCK_BODY:-}" ]] && printf '%s\n--END--\n' "${body}" >> "${MOCK_BODY}"
   exit 0
 fi
 exit 0
@@ -554,6 +561,81 @@ if [[ "${rc}" != 0 ]] && [[ "${before}" == "${after}" ]] \
   _ok "a review verdict with an empty comment is refused with no label change"
 else
   _no "a review verdict with an empty comment is refused with no label change" "rc=${rc} $(cat "${WORK}/V.out")"
+fi
+
+# ---- Scenario W: a deferred approval posts a visible record, no label change ---
+# An approval whose required checks are not yet green must not be a log-only exit:
+# agent/reviewable-code is left in place AND a visible deferral record is posted so
+# the approval is recoverable by reapply once the checks are green (SDLC-HOOK-07,
+# SDLC-HOOK-10). The sticky marker is the phase marker, so the later green-check
+# verdict edits this record in place with no duplicate (SDLC-HOOK-09).
+S="${WORK}/W.labels"
+_seed "${S}" agent/reviewable-code agent/allowed "${REPO_SCOPE}"
+WCOMMENTS="${WORK}/W.comments"; : > "${WCOMMENTS}"
+WMARKERS="${WORK}/W.markers"; : > "${WMARKERS}"
+WBODY="${WORK}/W.body"; : > "${WBODY}"
+_run code-review \
+  '{"schema_version":"1","phase":"code-review","outcome":"approved","rationale":"lgtm","pr_number":5,"head_sha":"abc","comment":"approved by the reviewer"}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc \
+  MOCK_CHECKRUNS='[{"status":"completed","conclusion":"failure"}]' \
+  MOCK_COMMENTS="${WCOMMENTS}" MOCK_MARKERS="${WMARKERS}" MOCK_BODY="${WBODY}" \
+  > "${WORK}/W.out" 2>&1
+rc=$?
+# The deferral record must carry the SAME phase sticky marker the later verdict
+# uses, so a reapply once checks are green edits it in place with no duplicate
+# (SDLC-HOOK-09), and its body must carry the deferral banner and the reviewer's
+# own comment.
+if [[ "${rc}" == 0 ]] && _has_label "${S}" agent/reviewable-code \
+   && ! _has_label "${S}" agent/review-code-approved \
+   && grep -qxF '<!-- fullsend:code-review-agent -->' "${WMARKERS}" \
+   && grep -q "deferred pending required checks" "${WBODY}" \
+   && grep -q "approved by the reviewer" "${WBODY}" \
+   && grep -q "deferred" "${WORK}/W.out"; then
+  _ok "a deferred approval posts a visible marked record and leaves the item reviewable"
+else
+  _no "a deferred approval posts a visible marked record and leaves the item reviewable" "rc=${rc} marker=$(cat "${WMARKERS}") $(cat "${WORK}/W.out")"
+fi
+
+# ---- Scenario W2: a deferred approval converges to the verdict once checks green -
+# Reapplying the SAME validated result after the checks turn green must apply the
+# approval, and the verdict comment reuses the same phase marker as the deferral
+# record so no duplicate comment is produced (SDLC-HOOK-09 convergence).
+# Continues from scenario W's label store (still agent/reviewable-code).
+W2MARKERS="${WORK}/W2.markers"; : > "${W2MARKERS}"
+_run code-review \
+  '{"schema_version":"1","phase":"code-review","outcome":"approved","rationale":"lgtm","pr_number":5,"head_sha":"abc","comment":"approved by the reviewer"}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc \
+  MOCK_CHECKRUNS='[{"status":"completed","conclusion":"success"}]' \
+  MOCK_MARKERS="${W2MARKERS}" \
+  > "${WORK}/W2.out" 2>&1
+rc=$?
+if [[ "${rc}" == 0 ]] && _has_label "${S}" agent/review-code-approved \
+   && ! _has_label "${S}" agent/reviewable-code \
+   && grep -qxF '<!-- fullsend:code-review-agent -->' "${W2MARKERS}"; then
+  _ok "a deferred approval converges to the verdict (same marker) once checks are green"
+else
+  _no "a deferred approval converges to the verdict (same marker) once checks are green" "rc=${rc} $(cat "${WORK}/W2.out")"
+fi
+
+# ---- Scenario W3: a deferred approval with an empty comment is refused ----------
+# The deferral path enforces the required-review-comment rule like the apply path:
+# a code-review approval with no comment must fail with no record, not post a
+# banner-only deferral and exit 0 (SDLC-HOOK-10 defense in depth).
+S3="${WORK}/W3.labels"
+_seed "${S3}" agent/reviewable-code agent/allowed "${REPO_SCOPE}"
+before="$(sort "${S3}")"
+W3COMMENTS="${WORK}/W3.comments"; : > "${W3COMMENTS}"
+_run code-review \
+  '{"schema_version":"1","phase":"code-review","outcome":"approved","rationale":"lgtm","pr_number":5,"head_sha":"abc","comment":""}' \
+  MOCK_STATE="${S3}" MOCK_HEAD_SHA=abc LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc \
+  MOCK_CHECKRUNS='[{"status":"completed","conclusion":"failure"}]' MOCK_COMMENTS="${W3COMMENTS}" \
+  > "${WORK}/W3.out" 2>&1
+rc=$?
+after="$(sort "${S3}")"
+if [[ "${rc}" != 0 ]] && [[ "${before}" == "${after}" ]] && [[ ! -s "${W3COMMENTS}" ]]; then
+  _ok "a deferred approval with an empty comment fails with no record and no label change"
+else
+  _no "a deferred approval with an empty comment fails with no record and no label change" "rc=${rc} $(cat "${WORK}/W3.out")"
 fi
 
 printf '\n%d passed, %d failed\n' "${PASS}" "${FAIL}"

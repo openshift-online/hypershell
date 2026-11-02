@@ -15,7 +15,9 @@
 #   - no validated result   -> workflow does not advance, no mutation
 #   - invalid/mismatched     -> no mutation, non-zero exit
 #   - stale review           -> no verdict transition, no mutation
-#   - not eligible (checks)   -> approval not applied, no mutation
+#   - deferred (checks)       -> approval not applied, no label change, but a
+#                                visible deferral record is posted so the pending
+#                                approval is recoverable (reapply when checks green)
 #   - label-application error -> actionable error, non-zero exit, not success
 #
 # Environment:
@@ -241,15 +243,56 @@ if lifecycle_phase_is_review "${PHASE}"; then
   fi
 fi
 
-# Required-checks gate for an approval (SDLC-HOOK-07.02).
+# Required-checks gate for an approval (SDLC-HOOK-07.02). When the approval is not
+# yet eligible because the required checks are not green, this is NOT a log-only
+# exit: post a visible deferral record (the review record, SDLC-HOOK-10) and leave
+# agent/reviewable-code in place so the item is still awaiting review. A later
+# green check is not a label event, so the approval is completed by reapplying this
+# same validated result once the checks are green (the recovery procedure in
+# .fullsend/docs/lifecycle-hooks.md). The deferral uses the phase sticky marker, so
+# the reapplied verdict edits this record in place with no duplicate (SDLC-HOOK-09).
 if [[ "${PHASE}" == "code-review" && "${outcome}" == "approved" ]]; then
   checks_state="$(gh_pr_checks_state "${REPO}" "${trusted_pr}")"
   if [[ "${checks_state}" != "green" ]]; then
-    echo "post-lifecycle: required checks are ${checks_state}, not green; approval is not eligible, no mutation" >&2
-    if [[ "${_recovering}" == 1 ]]; then
-      echo "post-lifecycle: ATTENTION: ${REPO}#${NUMBER} has no ${PHASE} phase label and required checks are ${checks_state}; the interrupted approval could not be recovered automatically and needs a human to restore a phase label or re-review once checks are green" >&2
+    echo "post-lifecycle: required checks are ${checks_state}, not green; approval is deferred, no label change" >&2
+    # Defense in depth, consistent with the apply path below: a code-review verdict
+    # requires its review record, so refuse an empty comment here too rather than
+    # posting a banner-only deferral and exiting 0 (SDLC-HOOK-10).
+    if lifecycle_phase_requires_comment "${PHASE}" && [[ -z "${comment}" ]]; then
+      echo "post-lifecycle: ${PHASE} approval is deferred on ${checks_state} checks but the result has no review comment; not posting a record, failing so a rerun retries with a record" >&2
+      exit 1
     fi
-    exit 0
+    _defer_marker="<!-- fullsend:${PHASE}-agent -->"
+    if [[ "${_recovering}" == 1 ]]; then
+      # No phase label remains (an older interrupted transition stranded this item),
+      # so be honest: do NOT claim the item keeps agent/reviewable-code and do NOT
+      # promise an automatic reapply, which cannot fire without a phase-label event.
+      _defer_banner="**Code review approved - deferred, and this item currently has no code-review phase label.** The approval cannot be applied yet because the pull request's required checks are \`${checks_state}\`, not green, and an earlier interrupted transition left this item with no code-review phase label. A maintainer needs to restore \`agent/reviewable-code\` or re-run the review once the required checks are green (see .fullsend/docs/lifecycle-hooks.md, Recovery)."
+    else
+      _defer_banner="**Code review approved - deferred pending required checks.** The approval has been recorded but is not yet applied because the pull request's required checks are currently \`${checks_state}\`, not green. The item keeps \`agent/reviewable-code\` and the approval is applied when this validated result is reapplied once the required checks are green (see .fullsend/docs/lifecycle-hooks.md, Recovery)."
+    fi
+    if [[ -n "${comment}" ]]; then
+      _defer_body="$(printf '%s\n\n---\n\n%s' "${comment}" "${_defer_banner}")"
+    else
+      _defer_body="${_defer_banner}"
+    fi
+    if (( DRY_RUN_ON )); then
+      echo "post-lifecycle: DRY_RUN set, not posting the approval-deferral record" >&2
+      exit 0
+    fi
+    # The deferral record is the whole point of this path: a failed post must NOT
+    # be downgraded to a log-only exit (the behavior this change removes) or
+    # silently swallowed. Fail non-zero so a rerun retries the record; the labels
+    # are unchanged, so the rerun is safe and idempotent (SDLC-HOOK-09).
+    if gh_post_sticky_comment "${REPO}" "${NUMBER}" "${_defer_marker}" "${_defer_body}" >/dev/null 2>&1; then
+      echo "post-lifecycle: posted a visible approval-deferral record on ${REPO}#${NUMBER}; no label change" >&2
+      if [[ "${_recovering}" == 1 ]]; then
+        echo "post-lifecycle: ATTENTION: ${REPO}#${NUMBER} has no ${PHASE} phase label and required checks are ${checks_state}; the interrupted approval needs a human to restore a phase label or re-review once checks are green" >&2
+      fi
+      exit 0
+    fi
+    echo "post-lifecycle: FAILED to post the approval-deferral record on ${REPO}#${NUMBER}; failing so a rerun retries the record rather than leaving a log-only exit" >&2
+    exit 1
   fi
 fi
 

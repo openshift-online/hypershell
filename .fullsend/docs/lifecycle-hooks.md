@@ -122,14 +122,18 @@ A blocked record stays blocked until a human removes `agent/blocked` and the
 superseding rejection label; the pre-script skips any phase while `agent/blocked`
 is present.
 
-Known limitation (pending checks do not re-fire the phase): when a code-review
-approval is deferred because a required check is still pending, the post-script
-exits with no label change and posts no verdict comment. A later check turning
-green is not a label change, so it does not re-fire the harness trigger on its
-own. The verdict lands on the next event that re-triggers the phase (for example
-a new review run, or any label activity on the record). If an approved review is
-left pending this way, re-run the review phase once the checks are green, or
-reapply the validated result through the recovery procedure below.
+Deferred approval (required checks not yet green): when a code-review approval is
+not eligible because a required check is still pending or failing, the post-script
+does NOT exit silently. It leaves `agent/reviewable-code` in place (the item stays
+awaiting review) and posts a visible deferral record through the phase sticky
+comment, so the approval is never a log-only exit. The approval is applied when
+this same validated result is reapplied once the required checks are green; because
+the deferral uses the phase sticky marker, that reapplication edits the record in
+place and produces no duplicate comment (SDLC-HOOK-09). A later check turning green
+is not a label event, so it does not re-fire the harness trigger on its own: either
+re-run the review phase once the checks are green, or reapply the validated result
+through the recovery procedure below. The deferral record on the issue makes a
+pending approval visible rather than leaving it to be inferred from run logs.
 
 ## Single writer (SDLC-HOOK-11)
 
@@ -220,13 +224,36 @@ any label change, so a rerun is safe), and `final-state verification FAILED`
 existing-PR, authorization, scope, block, missing-PR, and prerequisite skip
 paths) with a mocked `gh` (no local dispatcher). `scripts/tests/lifecycle_post_test.sh`
 drives `post-lifecycle.sh` end to end with a mocked `gh` and `fullsend` (no local
-dispatcher). `scripts/tests/lifecycle_schema_test.sh` covers the native read-only
-schema validation. All four are auto-discovered by `make ci-test`.
+dispatcher), including the deferred-approval record path. `scripts/tests/lifecycle_schema_test.sh`
+covers the native read-only schema validation. All are auto-discovered by
+`make ci-test`.
 
-These tests invoke the scripts directly. They assert the behavior of each hook
-and its decision logic, but they do not exercise the harness YAML wiring, the hook
-ordering, or the `validation_loop` invocation through a live Fullsend runtime,
-because no deployed Fullsend is available in CI or the sandbox to drive the
-harnesses end to end (SDLC-HOOK-13). A harness-runtime integration test should be
-added wherever a deployed Fullsend is available; until then the direct-invocation
-tests plus the hook ordering documented above are the operative coverage.
+`scripts/tests/lifecycle_harness_test.sh` is the native Fullsend harness
+integration test (SDLC-HOOK-13.02). It does not invoke the local dispatcher, its
+shell launcher, or its Go program; it reads the real `.fullsend/harness/*.yaml`
+and `.fullsend/schemas/*` files and drives exactly what they declare, in two parts:
+
+- **Part B (runs everywhere, including the plain CI shell runner):** it reads a
+  harness YAML, extracts the declared `pre_script`, `validation_loop.script`,
+  `validation_loop.schema`, `post_script`, and `env.runner.PHASE`, then runs that
+  exact hook chain in order (pre-script records state -> `validation_loop` validates
+  the result read-only -> post-script applies and verifies the transition) against a
+  mocked `gh` and `fullsend` comment primitive. It also asserts every phase harness
+  wires the same three shared hook scripts, so there is one wiring contract across
+  phases. This needs no deployed Fullsend binary.
+- **Part A (runs where the `fullsend` binary is on `PATH`):** it uses the deployed
+  `fullsend dispatch` against the real harness CEL triggers to confirm a synthetic
+  GitHub event routes to the correct harness, and is excluded when a competing phase
+  label is already present or the scope label is absent. Where the binary is not
+  present (the plain CI shell runner on `ubuntu-24.04`, which does not install
+  `fullsend`), Part A records a skip with its reason rather than failing, per the
+  project's "report the limitation explicitly" guidance; Part B still provides the
+  hook-chain coverage there.
+
+Record the deployed Fullsend version Part A was verified against here when running
+it on a Fullsend runner: verified with `fullsend version 0.50.0` (dispatch routing
+of the lifecycle triggers). The harness `pre_script`/`validation_loop`/`post_script`
+runtime ordering and the `FULLSEND_VALIDATED_ITERATION_DIR` output contract should
+still be confirmed against the deployed Fullsend version before production reliance;
+Part B asserts the scripts the harness references chain together regardless of the
+runtime.
