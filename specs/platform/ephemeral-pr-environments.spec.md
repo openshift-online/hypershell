@@ -203,7 +203,12 @@ database namespaces, so the control plane cannot recreate a gateway namespace fr
 a still-live Gateway record mid-teardown; within each tier the namespace deletions
 SHALL be issued concurrently and all awaited, so teardown wall-clock is bounded by
 the slowest namespace rather than their sum, and any delete failure SHALL fail the
-teardown.
+teardown. Each deletion SHALL use one non-blocking delete request followed by
+direct polling of the underlying Namespace until it is confirmed absent, with one
+bounded deadline and periodic Namespace condition logging. Teardown SHALL NOT use
+the OpenShift client's built-in blocking Project waiter or issue a second blocking
+delete after the first request, because that waiter can remain blocked until its
+timeout after the Namespace is already absent.
 
 Deploy OpenShift Environment and Tests / E2E / OpenShift SHALL run as jobs of
 `.github/workflows/e2e.yml`, the Tests e2e stage invoked concurrently with Unit
@@ -356,6 +361,16 @@ SHALL preserve any active per-namespace component swap the same way
 - THEN it SHALL delete the platform (control-plane) namespace group before it deletes the instance-managed gateway namespaces, so the control plane cannot recreate a gateway namespace mid-teardown
 - AND within each tier it SHALL issue the namespace deletions concurrently and await them all
 - AND any delete failure SHALL fail the teardown
+
+#### Scenario: CICD-PREN-02.09 -- Teardown confirms deletion through the Namespace API
+
+- GIVEN an environment Namespace is selected for teardown
+- WHEN teardown requests its deletion
+- THEN it SHALL issue one non-blocking delete request
+- AND it SHALL poll the underlying Namespace until the API confirms it is absent
+- AND it SHALL periodically log the Namespace phase, deletion timestamp, finalizers, and conditions while waiting
+- AND the single polling deadline expiring SHALL fail teardown
+- AND it SHALL NOT wait through `oc delete project --wait=true` or retry the same accepted deletion with another blocking delete
 
 ### Requirement: CICD-PREN-03 -- Extend and Destroy Controls
 

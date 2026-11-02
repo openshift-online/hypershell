@@ -100,9 +100,14 @@ case "\$1 \$2" in
       fi
       exit 0
     fi
+    if grep -qx "\$3" "${DELETED}"; then
+      echo "Error from server (NotFound): namespaces \"\$3\" not found" >&2
+      exit 1
+    fi
     if grep -qx "\$3" "${workdir}/live.txt"; then
       exit 0
     fi
+    echo "Error from server (NotFound): namespaces \"\$3\" not found" >&2
     exit 1
     ;;
   "delete namespace")
