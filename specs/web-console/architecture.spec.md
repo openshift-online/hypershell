@@ -487,6 +487,8 @@ The gateway list SHALL offer a "Show only my gateways" ownership filter so a use
 
 **Authorization boundary.** The ownership filter and its visibility flag SHALL operate only over the caller's authorized gateways and SHALL NOT reveal the existence of gateways the user is not authorized to see (`security/rbac-enforcement.spec.md`, SEC-RBAC-10). Filtering SHALL NOT change access permissions; the API remains the authorization boundary.
 
+**Owned is a subset of accessible.** The set of gateways the user owns SHALL exclude soft-deleted gateways, so it is always a subset of the user's accessible (non-deleted) authorized gateways (WEB-API-01). A gateway whose `gateway:owner` binding is still live but whose gateway row is soft-deleted SHALL NOT count as owned. The toggle's conditional visibility (whether the accessible list contains at least one gateway the user does not own) SHALL be derived from this invariant, so a soft-deleted gateway never corrupts the toggle: a user who still has other visible gateways SHALL still see the toggle.
+
 **Verification:** With gateways spanning several pages, verify the toggle is visible when another user's gateway exists only on a later page and hidden when all accessible gateways belong to the signed-in user. Verify enabling the toggle returns only the user's gateways across all pages with correct totals, resets pagination, and combines with search and sort. Verify the toggle state is encoded in the URL and restored on reload. Verify a user who can see only other people's gateways sees the toggle and a clear empty state when it is enabled, and can turn it off. Verify unauthorized gateways never affect toggle visibility or appear in results.
 
 #### Scenario: WEB-UIEX-07.01 -- Toggle visible when another owner's gateway exists on a later page
@@ -526,6 +528,15 @@ The gateway list SHALL offer a "Show only my gateways" ownership filter so a use
 - WHEN the user opens the gateway list and toggles "Show only my gateways"
 - THEN those unauthorized gateways SHALL NOT influence whether the toggle is shown
 - AND they SHALL NOT appear in the filtered or unfiltered results
+
+#### Scenario: WEB-UIEX-07.06 -- A soft-deleted owned gateway does not corrupt the toggle
+
+- GIVEN the signed-in user owns gateway X
+- AND the user is also authorized to see at least one other gateway the user does not own
+- WHEN gateway X is soft-deleted while the user's `gateway:owner` binding on X is still live
+- THEN the user's owned set SHALL no longer include gateway X
+- AND the owned set SHALL remain a subset of the user's accessible (non-deleted) gateways
+- AND the "Show only my gateways" toggle SHALL stay visible because the accessible set still contains a gateway the user does not own
 
 ### Requirement: WEB-UIEX-04 -- Gateway Placement Selection
 
@@ -742,6 +753,7 @@ Before a feature relies on them, the HyperShell API SHALL define and test:
 - a "my gateways" ownership filter parameter that, when set, restricts the list to gateways the authenticated caller owns (the caller holds `gateway:owner`), matched by the caller's stable identity against the authoritative owner bindings rather than a display name, applied before pagination so the returned items, total, and page count reflect the filtered set, and composable with the search query and sort;
 - a browser-safe existence flag in the gateway list response metadata that reports whether the caller's full authorized gateway list (before search, optional filters, and the ownership filter) contains at least one gateway the caller does not own, computed server-side with a bounded authorization-scoped existence query rather than by enumerating pages, so the console can decide whether to show the "Show only my gateways" toggle (WEB-UIEX-07) without downloading every page;
 - platform:admin users SHALL receive all gateways; other users SHALL receive only gateways where they have `gateway:owner`, `gateway:admin`, or `gateway:viewer` bindings; the ownership filter and the existence flag SHALL operate only over this authorized set and SHALL NOT disclose the existence of gateways the caller is not authorized to see (`security/rbac-enforcement.spec.md`, SEC-RBAC-10);
+- the set of gateways the caller OWNS (the caller holds `gateway:owner`) SHALL exclude soft-deleted gateways, exactly as the authorized (accessible) set excludes them, so the owned set is always a SUBSET of the caller's accessible (non-deleted) set; a gateway whose `gateway:owner` binding is still live but whose gateway row is soft-deleted SHALL NOT be counted as owned. Both the "my gateways" ownership filter and the authorized-set existence flag SHALL be derived from this invariant, so the existence flag (whether the accessible set contains at least one gateway the caller does not own) is computed against sets where owned is a subset of accessible and a soft-deleted gateway can never corrupt it;
 - a managed-cluster placement list containing a stable identifier, display name, and status;
 - gateway provisioning, renaming, and deletion contracts;
 - gateway-scoped service-account list, create, get, revoke, and delete contracts;
