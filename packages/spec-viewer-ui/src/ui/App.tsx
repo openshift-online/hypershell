@@ -385,6 +385,7 @@ function SpecViewer({ specRef, onRefChange }: SpecViewerProps) {
     const listPanel = (
       <DrawerPanelContent
         className="sv-panel"
+        hidden={layout === "document"}
         defaultSize={listWidth === null ? "67%" : `${String(listWidth)}px`}
         increment={16}
         isResizable
@@ -399,38 +400,41 @@ function SpecViewer({ specRef, onRefChange }: SpecViewerProps) {
         {listContent}
       </DrawerPanelContent>
     );
-    content =
-      layout === "list" ? (
-        <div className="sv-list-only">{listContent}</div>
-      ) : (
-        <Drawer
-          className="sv-drawer"
-          isExpanded={layout === "split"}
-          isInline
-          position="start"
-        >
-          <DrawerContent panelContent={listPanel}>
-            <DrawerContentBody className="sv-drawer__body">
-              {source ? (
-                <SourceView
-                  id={source.id}
-                  location={source.location}
-                  revision={source.revision}
-                />
-              ) : (
-                <SpecDocument
-                  catalog={catalogQuery.data}
-                  file={file}
-                  highlightTerms={search.terms}
-                  onFindReferences={findReferences}
-                  node={node}
-                  revision={selection?.revision ?? 0}
-                />
-              )}
-            </DrawerContentBody>
-          </DrawerContent>
-        </Drawer>
-      );
+    // One open drawer for every layout. PatternFly unmounts a closed
+    // panel's contents, and a different tree would remount the table, so
+    // either would lose its expanded rows. The layouts only hide parts.
+    content = (
+      <Drawer
+        className={`sv-drawer sv-drawer--${layout}`}
+        isExpanded
+        isInline
+        position="start"
+      >
+        <DrawerContent panelContent={listPanel}>
+          <DrawerContentBody
+            className="sv-drawer__body"
+            hidden={layout === "list"}
+          >
+            {source ? (
+              <SourceView
+                id={source.id}
+                location={source.location}
+                revision={source.revision}
+              />
+            ) : (
+              <SpecDocument
+                catalog={catalogQuery.data}
+                file={file}
+                highlightTerms={search.terms}
+                onFindReferences={findReferences}
+                node={node}
+                revision={selection?.revision ?? 0}
+              />
+            )}
+          </DrawerContentBody>
+        </DrawerContent>
+      </Drawer>
+    );
   }
 
   return (

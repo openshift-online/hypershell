@@ -32,8 +32,7 @@
  * document gets its own scrollbar instead of growing the page.
  */
 .sv-results,
-.sv-document,
-.sv-list-only {
+.sv-document {
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -53,10 +52,20 @@
   display: none;
 }
 
-/* The list on its own, when the document is hidden. */
-.sv-list-only > * {
-  flex: 1;
-  min-height: 0;
+/*
+ * Layouts hide parts of the one drawer instead of closing it, so nothing
+ * remounts. With the document hidden, the list panel takes the full width;
+ * maximized, the list panel is hidden.
+ */
+.sv-drawer--list > .pf-v6-c-drawer__main > .pf-v6-c-drawer__panel {
+  flex-basis: 100% !important;
+  max-width: none;
+}
+
+.sv-drawer--list .pf-v6-c-drawer__splitter,
+.sv-drawer .sv-drawer__body[hidden],
+.sv-drawer .pf-v6-c-drawer__panel[hidden] {
+  display: none;
 }
 
 /* Keep the document's scrollbar visible where the platform allows it. */

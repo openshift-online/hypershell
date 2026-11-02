@@ -520,6 +520,27 @@ describe("App", () => {
     expect(await screen.findByText(/^1 file/u)).toBeTruthy();
   });
 
+  it("keeps expanded rows when the layout changes", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await ready();
+    await expand(user, "Gateway TLS");
+    await expand(user, "Certificates rotate");
+    const expanded = () =>
+      within(table()).queryByText("Expiring certificate") !== null;
+    expect(expanded()).toBe(true);
+
+    await user.click(screen.getByRole("button", { name: "Hide document" }));
+    expect(expanded()).toBe(true);
+    // Opening an item shows the document again, without a reset.
+    await user.click(within(table()).getByText("Certificates rotate"));
+    expect(expanded()).toBe(true);
+
+    await user.click(screen.getByRole("button", { name: "Maximize document" }));
+    await user.click(screen.getByRole("button", { name: "Restore panels" }));
+    expect(expanded()).toBe(true);
+  });
+
   it("hides, shows, maximizes, and restores the document", async () => {
     const user = userEvent.setup();
     renderApp();
@@ -528,10 +549,9 @@ describe("App", () => {
     expect(screen.getByText("No spec selected")).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Hide document" }));
-    expect(screen.queryByText("No spec selected")).toBeNull();
     expect(
-      screen.queryByRole("separator", { name: "Resize the list panel" }),
-    ).toBeNull();
+      screen.getByText("No spec selected").closest("[hidden]"),
+    ).toBeTruthy();
 
     // Opening an item while the document is hidden shows it again.
     await search(user, "expirng");
@@ -540,8 +560,8 @@ describe("App", () => {
       await screen.findByRole("button", { name: "Hide document" }),
     ).toBeTruthy();
     expect(
-      screen.getByRole("separator", { name: "Resize the list panel" }),
-    ).toBeTruthy();
+      screen.getByRole("region", { name: "Spec document" }).closest("[hidden]"),
+    ).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Maximize document" }));
     const restore = screen.getByRole("button", { name: "Restore panels" });
