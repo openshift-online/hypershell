@@ -1054,13 +1054,6 @@ The NVIDIA docs note that the OpenShift install path is experimental and recomme
 
 ---
 
-## Retired IDs
-
-- `OSG-CORE-18.05`: "Legacy gateway keeps shared behavior". Retired when the
-  null `workspace_mode` path was removed. Gateways that predated the field were
-  backfilled to `shared` by migration `2026110212000001`, and the column is
-  now required. See OSG-CORE-18.08 and OSG-CORE-18.09.
-
 ## References
 
 - [OpenShell Gateway Helm Chart](https://github.com/NVIDIA/OpenShell/tree/main/deploy/helm/openshell) - upstream chart source; consult `values.yaml` when adding new gateway configurations
