@@ -496,3 +496,4 @@ does not exist. "Former file" is the spec the ID lived in, relative to
 | `OSG-ROT-01` | `platform/openshell-gateway-secret-rotation.spec.md` | - | Required the `applyConfigHashAnnotation` config-hash to cover the database credentials Secret. That function was removed in the Helm cutover (#194), and nothing restarts the gateway when the Secret changes. Credential rotation will be designed in a later spec. |
 | `OSG-ROT-01.01` | `platform/openshell-gateway-secret-rotation.spec.md` | - | Retired with OSG-ROT-01. |
 | `OSG-ROT-02` | `platform/openshell-gateway-secret-rotation.spec.md` | - | Reserved a future KEK rotation design that was never built. The KEK is not rotated; credential rotation will be designed in a later spec. |
+| `PLAT-CLUS-07.01` | `platform/managed-cluster-registration.spec.md` | `PLAT-CLUS-07.03` | The capability-less heartbeat shim for control planes older than the capability model was removed; an empty capability set is now rejected. |

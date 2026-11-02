@@ -196,22 +196,20 @@ func capabilityValue(capabilities []string, namespace string) string {
 
 // NormalizeCapabilities validates capability labels and returns a stable,
 // deduplicated representation suitable for persistence and selector matching.
-func NormalizeCapabilities(labels []string, requireNonEmpty bool) ([]string, *errors.ServiceError) {
-	return normalizeCapabilityLabels(labels, requireNonEmpty, true, true)
+// An empty set is rejected: every registration declares at least one label.
+func NormalizeCapabilities(labels []string) ([]string, *errors.ServiceError) {
+	return normalizeCapabilityLabels(labels, true, true)
 }
 
 // NormalizeSelector applies the same vocabulary while collapsing duplicates,
 // because selectors are query intent rather than the declared source-of-truth set.
 func NormalizeSelector(labels []string) ([]string, *errors.ServiceError) {
-	return normalizeCapabilityLabels(labels, true, false, false)
+	return normalizeCapabilityLabels(labels, false, false)
 }
 
-func normalizeCapabilityLabels(labels []string, requireNonEmpty, rejectDuplicates, enforceSingleValue bool) ([]string, *errors.ServiceError) {
+func normalizeCapabilityLabels(labels []string, rejectDuplicates, enforceSingleValue bool) ([]string, *errors.ServiceError) {
 	if len(labels) == 0 {
-		if requireNonEmpty {
-			return nil, errors.Validation("capabilities must contain at least one label")
-		}
-		return nil, nil
+		return nil, errors.Validation("capabilities must contain at least one label")
 	}
 	seen, namespaceCounts := map[string]bool{}, map[string]int{}
 	result := make([]string, 0, len(labels))
@@ -253,14 +251,7 @@ func equalSortedStrings(a, b []string) bool {
 }
 
 func (s *sqlManagedClusterService) Register(ctx context.Context, name string, capabilities []string, oidcSubject string) (*ManagedCluster, bool, *errors.ServiceError) {
-	// Backward compatibility: a capability-less heartbeat is accepted as a no-op
-	// for the capability set. An older control plane that has not yet rolled to a
-	// capability-aware image sends no capabilities every 60s; rejecting it would
-	// stop last_seen_at and disconnect the cluster for the duration of a rolling
-	// upgrade. We therefore allow an empty set here and preserve the stored
-	// capabilities below rather than clobbering them. See
-	// managed-cluster-registration.spec.md, "Capability Deployment Convergence".
-	capabilities, validationErr := NormalizeCapabilities(capabilities, false)
+	capabilities, validationErr := NormalizeCapabilities(capabilities)
 	if validationErr != nil {
 		return nil, false, validationErr
 	}
@@ -281,16 +272,10 @@ func (s *sqlManagedClusterService) Register(ctx context.Context, name string, ca
 		}
 		now := time.Now()
 		existing.LastSeenAt = &now
-		// A capability-less heartbeat (older control plane) is a no-op for the
-		// capability set: keep the stored capabilities rather than wiping them, so
-		// a mixed-version rolling upgrade does not drop placement data.
-		capabilitiesChanged := false
-		if len(capabilities) > 0 {
-			// Both sides are NormalizeCapabilities output (sorted, deduplicated), so a
-			// plain ordered comparison detects a genuine capability change.
-			capabilitiesChanged = !equalSortedStrings(existing.Capabilities, capabilities)
-			existing.Capabilities = append([]string(nil), capabilities...)
-		}
+		// Both sides are NormalizeCapabilities output (sorted, deduplicated), so a
+		// plain ordered comparison detects a genuine capability change.
+		capabilitiesChanged := !equalSortedStrings(existing.Capabilities, capabilities)
+		existing.Capabilities = append([]string(nil), capabilities...)
 		updated, replaceErr := s.managedClusterDao.Replace(ctx, existing)
 		if replaceErr != nil {
 			return nil, false, services.HandleUpdateError("ManagedCluster", replaceErr)
@@ -299,7 +284,7 @@ func (s *sqlManagedClusterService) Register(ctx context.Context, name string, ca
 		// placeable (for example a control plane restart that publishes a new GitOps
 		// capability), so emit an update event to drive gateway late-binding
 		// re-resolution (data-model.spec.md, "Gateway Placement and Late Binding").
-		// An unchanged or capability-less heartbeat emits nothing, so the routine 60s
+		// An unchanged heartbeat emits nothing, so the routine 60s
 		// heartbeat does not churn downstream reconcilers.
 		if capabilitiesChanged {
 			if _, evErr := s.events.Create(ctx, &api.Event{
@@ -338,16 +323,7 @@ func (s *sqlManagedClusterService) Register(ctx context.Context, name string, ca
 		return nil, false, errors.GeneralError("registration lookup failed: %s", delErr)
 	}
 	if deleted != nil {
-		// A capability-less heartbeat preserves the stored set on restore too: the
-		// soft-deleted record still holds its last capabilities, so a downgraded
-		// control plane re-registering within the deletion window keeps its
-		// placement data rather than clearing it. See
-		// managed-cluster-registration.spec.md, "Capability Deployment Convergence".
-		restoreCapabilities := capabilities
-		if len(restoreCapabilities) == 0 {
-			restoreCapabilities = deleted.Capabilities
-		}
-		restored, restoreErr := s.managedClusterDao.Restore(ctx, deleted.ID, "", "", restoreCapabilities, now)
+		restored, restoreErr := s.managedClusterDao.Restore(ctx, deleted.ID, "", "", capabilities, now)
 		if restoreErr != nil {
 			if isUniqueViolation(restoreErr) {
 				if winner, err := s.managedClusterDao.FindByName(ctx, name); err == nil && winner != nil {

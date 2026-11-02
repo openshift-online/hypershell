@@ -28,6 +28,7 @@ func (s *registrationServiceStub) Register(_ context.Context, _ string, capabili
 	return cluster, true, nil
 }
 
+// Verifies: PLAT-CLUS-07
 func TestRegisterCapabilitiesJSONSemantics(t *testing.T) {
 	tests := []struct {
 		name             string
@@ -37,25 +38,19 @@ func TestRegisterCapabilitiesJSONSemantics(t *testing.T) {
 		wantCapabilities []string
 	}{
 		{
-			// Backward compatibility: an older control plane sends a
-			// capability-less heartbeat, which is accepted as a no-op rather than
-			// rejected, so a rolling upgrade does not disconnect the cluster.
-			name:       "omitted is accepted as a capability-less heartbeat",
+			name:       "omitted is rejected",
 			body:       `{"name":"cluster-one"}`,
-			wantStatus: http.StatusCreated,
-			wantCalled: true,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "empty array is accepted as a capability-less heartbeat",
+			name:       "empty array is rejected",
 			body:       `{"name":"cluster-one","capabilities":[]}`,
-			wantStatus: http.StatusCreated,
-			wantCalled: true,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "null is accepted as a capability-less heartbeat",
+			name:       "null is rejected",
 			body:       `{"name":"cluster-one","capabilities":null}`,
-			wantStatus: http.StatusCreated,
-			wantCalled: true,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:             "valid array is accepted",

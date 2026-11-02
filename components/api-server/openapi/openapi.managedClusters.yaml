@@ -335,6 +335,7 @@ components:
       type: object
       required:
         - name
+        - capabilities
       properties:
         name:
           type: string
@@ -342,13 +343,12 @@ components:
         capabilities:
           type: array
           uniqueItems: true
+          minItems: 1
           items:
             type: string
           description: >-
-            Complete self-declared capability set. Optional for backward
-            compatibility: a control plane that predates the capability model may
-            omit it, in which case the heartbeat is accepted as a no-op that
-            preserves any stored capabilities.
+            Complete self-declared capability set, sent on every registration
+            and heartbeat. An omitted, null, or empty set is rejected with 400.
     ManagedClusterRegistrationResponse:
       type: object
       required:

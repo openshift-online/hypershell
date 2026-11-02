@@ -76,12 +76,9 @@ func (h managedClusterHandler) Register(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// A capability-less heartbeat is accepted (requireNonEmpty=false) for backward
-	// compatibility with control planes that have not yet rolled to a
-	// capability-aware image; Register treats the empty set as a no-op and
-	// preserves any stored capabilities. See managed-cluster-registration.spec.md,
-	// "Capability Deployment Convergence".
-	capabilities, svcErr := NormalizeCapabilities(req.Capabilities, false)
+	// Every registration carries the complete capability set; an omitted, null or
+	// empty set is rejected (managed-cluster-registration.spec.md, PLAT-CLUS-07).
+	capabilities, svcErr := NormalizeCapabilities(req.Capabilities)
 	if svcErr != nil {
 		handlers.HandleError(r.Context(), w, svcErr)
 		return

@@ -283,25 +283,23 @@ Every deployed control plane SHALL send its complete GitOps-configured capabilit
 set on registration and each heartbeat. The registration request SHALL NOT derive
 capabilities from the legacy `provider`, `visibility`, or `region` fields.
 
-For backward compatibility during a rolling upgrade, a capability-less heartbeat
-(omitted, `null`, or empty `capabilities`) from a control plane that predates the
-capability model SHALL be accepted rather than rejected, and SHALL be a no-op for
-the capability set: it SHALL update `last_seen_at` and SHALL preserve the stored
-capabilities instead of clearing them. This prevents a mixed-version upgrade from
-disconnecting the cluster or dropping its placement data. A malformed or
-unknown-namespace label is still rejected with 400 (see "Capability input is
-rejected atomically").
+`capabilities` is required on every registration call. A call that omits it,
+sends `null`, or sends an empty array SHALL return 400, the same as any other
+rejected set (PLAT-CLUS-06). This applies to a first registration, a heartbeat,
+and a registration that restores a soft-deleted record. A rejected call SHALL
+change neither the stored capabilities nor `last_seen_at`.
 
-Existing gateway records require no migration because they continue to persist
-the resolved `cluster_id`. A control plane restart SHALL upsert its configured
-capabilities without changing those gateway assignments.
+A control plane restart SHALL upsert its configured capabilities. Gateway
+assignments SHALL NOT change, because each gateway persists its resolved
+`cluster_id`.
 
-#### Scenario: PLAT-CLUS-07.01 -- Capability-less heartbeat preserves the stored set
+#### Scenario: PLAT-CLUS-07.03 -- Capability-less registration is rejected
 
 - GIVEN a registered cluster has `provider/aws` and `network/public`
-- WHEN a heartbeat arrives with omitted or empty `capabilities`
-- THEN the API SHALL accept it and update `last_seen_at`
+- WHEN a heartbeat arrives with omitted, `null`, or empty `capabilities`
+- THEN the API SHALL return 400
 - AND the stored capabilities SHALL remain `provider/aws` and `network/public`
+- AND `last_seen_at` SHALL remain unchanged
 
 #### Scenario: PLAT-CLUS-07.02 -- Restart publishes configured capabilities
 
