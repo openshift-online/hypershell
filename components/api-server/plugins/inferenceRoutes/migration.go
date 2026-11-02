@@ -67,7 +67,11 @@ func migrationAddName() *gormigrate.Migration {
 			if err := tx.Exec(`ALTER TABLE inference_routes ADD COLUMN IF NOT EXISTS name text`).Error; err != nil {
 				return err
 			}
-			return tx.Exec(`UPDATE inference_routes SET name = workspace_id || '/' || provider_binding_id || '/' || model WHERE name IS NULL OR name = ''`).Error
+			// COALESCE each identity term: in SQL `a || '/' || b` yields NULL if ANY
+			// term is NULL, which would leave the row's name NULL and unresolvable
+			// by find-by-name. COALESCE(col,'') matches InferenceRoute.DeriveName,
+			// which joins the Go string fields (empty, never NULL) (SDLC-CONF-13).
+			return tx.Exec(`UPDATE inference_routes SET name = COALESCE(workspace_id,'') || '/' || COALESCE(provider_binding_id,'') || '/' || COALESCE(model,'') WHERE name IS NULL OR name = ''`).Error
 		},
 		Rollback: func(tx *gorm.DB) error {
 			return tx.Exec(`ALTER TABLE inference_routes DROP COLUMN IF EXISTS name`).Error

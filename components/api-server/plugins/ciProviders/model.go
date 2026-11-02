@@ -9,8 +9,13 @@ type CIProvider struct {
 	api.Meta
 	// Name is the queryable find-by-name key (SDLC-CONF-13). hsctl apply resolves
 	// an existing record with search=name = '<name>', so every ext Kind carries a
-	// name column. It defaults to Forge when a client does not supply one.
-	Name           string  `json:"name"`
+	// name column. It defaults to Forge when a client does not supply one. The
+	// uniqueIndex enforces the domain rule "one provider per forge": without it two
+	// providers on the same forge would share the default name and find-by-name
+	// would be ambiguous. The index name matches the CREATE UNIQUE INDEX in
+	// migrationAddName, which carries the constraint onto upgraded hubs where the
+	// original CreateTable already ran.
+	Name           string  `json:"name" gorm:"uniqueIndex"`
 	Forge          string  `json:"forge"`
 	Issuer         string  `json:"issuer" gorm:"uniqueIndex"`
 	JwksUrl        string  `json:"jwks_url"`

@@ -7,6 +7,7 @@ import (
 	"google.golang.org/grpc"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/extsearch"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
@@ -14,7 +15,6 @@ import (
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/registry"
 	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/events"
-	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/generic"
 )
 
 type ServiceLocator func() InferenceRouteService
@@ -44,7 +44,7 @@ func init() {
 
 	pkgserver.RegisterPrefixedRoutes("inferenceRoutes", "ext", func(extRouter *mux.Router, services pkgserver.ServicesInterface, authMiddleware environments.JWTMiddleware, authzMiddleware auth.AuthorizationMiddleware) {
 		envServices := services.(*environments.Services)
-		h := NewInferenceRouteHandler(Service(envServices), generic.Service(envServices))
+		h := NewInferenceRouteHandler(Service(envServices), extsearch.Service(envServices))
 
 		router := extRouter.PathPrefix("/inference_routes").Subrouter()
 		router.HandleFunc("", h.List).Methods(http.MethodGet)
@@ -63,7 +63,7 @@ func init() {
 			}
 			return nil
 		}
-		pb.RegisterInferenceRouteServiceServer(grpcServer, NewInferenceRouteGRPCHandler(Service(envServices), generic.Service(envServices), brokerFunc))
+		pb.RegisterInferenceRouteServiceServer(grpcServer, NewInferenceRouteGRPCHandler(Service(envServices), extsearch.Service(envServices), brokerFunc))
 	})
 
 	presenters.RegisterPath(InferenceRoute{}, "inference_routes")

@@ -68,9 +68,27 @@ func migrationAddName() *gormigrate.Migration {
 			if err := tx.Exec(`ALTER TABLE ci_providers ADD COLUMN IF NOT EXISTS name text`).Error; err != nil {
 				return err
 			}
-			return tx.Exec(`UPDATE ci_providers SET name = forge WHERE name IS NULL OR name = ''`).Error
+			// COALESCE(forge,'') matches CIProvider.BeforeCreate, which defaults a
+			// missing name to the (Go string, never NULL) forge, so a pre-existing
+			// row with a NULL forge backfills to '' rather than a NULL,
+			// find-by-name-unresolvable name (SDLC-CONF-13).
+			if err := tx.Exec(`UPDATE ci_providers SET name = COALESCE(forge,'') WHERE name IS NULL OR name = ''`).Error; err != nil {
+				return err
+			}
+			// Enforce the domain rule "one provider per forge" (the default name is
+			// the forge): without a unique name, two providers on the same forge get
+			// identical names and find-by-name is ambiguous. The unique index makes a
+			// duplicate name a clean conflict rather than a silently ambiguous pair.
+			// Created here (not only via a model tag) so upgraded hubs, where the
+			// original CreateTable already ran, also gain the constraint. On a fresh
+			// database the column already exists from CreateTable and this is the sole
+			// creator of the index.
+			return tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_ci_providers_name ON ci_providers (name)`).Error
 		},
 		Rollback: func(tx *gorm.DB) error {
+			if err := tx.Exec(`DROP INDEX IF EXISTS idx_ci_providers_name`).Error; err != nil {
+				return err
+			}
 			return tx.Exec(`ALTER TABLE ci_providers DROP COLUMN IF EXISTS name`).Error
 		},
 	}

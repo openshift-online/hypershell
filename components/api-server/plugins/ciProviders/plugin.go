@@ -7,6 +7,7 @@ import (
 	"google.golang.org/grpc"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/extsearch"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
@@ -14,7 +15,6 @@ import (
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/registry"
 	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/events"
-	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/generic"
 )
 
 type ServiceLocator func() CIProviderService
@@ -44,7 +44,7 @@ func init() {
 
 	pkgserver.RegisterPrefixedRoutes("ci_providers", "ext", func(extRouter *mux.Router, services pkgserver.ServicesInterface, authMiddleware environments.JWTMiddleware, authzMiddleware auth.AuthorizationMiddleware) {
 		envServices := services.(*environments.Services)
-		h := NewCIProviderHandler(Service(envServices), generic.Service(envServices))
+		h := NewCIProviderHandler(Service(envServices), extsearch.Service(envServices))
 
 		router := extRouter.PathPrefix("/ci_providers").Subrouter()
 		router.HandleFunc("", h.List).Methods(http.MethodGet)
@@ -64,7 +64,7 @@ func init() {
 			}
 			return nil
 		}
-		pb.RegisterCIProviderServiceServer(grpcServer, NewCIProviderGRPCHandler(Service(envServices), generic.Service(envServices), brokerFunc))
+		pb.RegisterCIProviderServiceServer(grpcServer, NewCIProviderGRPCHandler(Service(envServices), extsearch.Service(envServices), brokerFunc))
 	})
 
 	presenters.RegisterPath(CIProvider{}, "ci_providers")

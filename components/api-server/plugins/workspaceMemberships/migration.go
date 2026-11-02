@@ -42,7 +42,12 @@ func migrationAddName() *gormigrate.Migration {
 			if err := tx.Exec(`ALTER TABLE workspace_memberships ADD COLUMN IF NOT EXISTS name text`).Error; err != nil {
 				return err
 			}
-			return tx.Exec(`UPDATE workspace_memberships SET name = workspace_id || '/' || subject WHERE name IS NULL OR name = ''`).Error
+			// COALESCE each identity term: in SQL `a || '/' || b` yields NULL if ANY
+			// term is NULL, which would leave the row's name NULL and unresolvable
+			// by find-by-name. COALESCE(col,'') matches
+			// WorkspaceMembership.DeriveName, which joins the Go string fields
+			// (empty, never NULL) (SDLC-CONF-13).
+			return tx.Exec(`UPDATE workspace_memberships SET name = COALESCE(workspace_id,'') || '/' || COALESCE(subject,'') WHERE name IS NULL OR name = ''`).Error
 		},
 		Rollback: func(tx *gorm.DB) error {
 			return tx.Exec(`ALTER TABLE workspace_memberships DROP COLUMN IF EXISTS name`).Error

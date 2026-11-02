@@ -67,7 +67,11 @@ func migrationAddName() *gormigrate.Migration {
 			if err := tx.Exec(`ALTER TABLE ci_trusts ADD COLUMN IF NOT EXISTS name text`).Error; err != nil {
 				return err
 			}
-			return tx.Exec(`UPDATE ci_trusts SET name = ci_provider_id || '/' || gateway_id || '/' || role WHERE name IS NULL OR name = ''`).Error
+			// COALESCE each identity term: in SQL `a || '/' || b` yields NULL if ANY
+			// term is NULL, which would leave the row's name NULL and unresolvable
+			// by find-by-name. COALESCE(col,'') matches CITrust.DeriveName, which
+			// joins the Go string fields (empty, never NULL) (SDLC-CONF-13).
+			return tx.Exec(`UPDATE ci_trusts SET name = COALESCE(ci_provider_id,'') || '/' || COALESCE(gateway_id,'') || '/' || COALESCE(role,'') WHERE name IS NULL OR name = ''`).Error
 		},
 		Rollback: func(tx *gorm.DB) error {
 			return tx.Exec(`ALTER TABLE ci_trusts DROP COLUMN IF EXISTS name`).Error
