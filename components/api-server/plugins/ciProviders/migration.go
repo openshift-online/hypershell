@@ -58,38 +58,23 @@ func migrationConverge() *gormigrate.Migration {
 // MUST be added under a NEW migration ID that runs on every environment,
 // regardless of prior state - editing the already-shipped body is skipped on
 // upgraded hubs (the #862 lesson), and AutoMigrate is forbidden (SDLC-CONF-02).
-// The add and backfill use idempotent raw SQL that is safe under the production
-// lib/pq + PreferSimpleProtocol driver. Existing rows are backfilled from the
-// forge so a find-by-name search resolves pre-existing records.
+//
+// The name is backfilled from the forge (matching CIProvider.BeforeCreate, which
+// defaults a missing name to the Go string forge, never NULL) and a UNIQUE index
+// enforces the domain rule "one provider per forge": without it two providers on
+// the same forge share the default name and find-by-name is ambiguous. Because a
+// pre-existing forge is NOT guaranteed unique, the shared helper de-duplicates
+// colliding names collision-safely BEFORE creating the index, so a duplicate forge
+// can never fail CREATE UNIQUE INDEX, roll the migration back, and brick startup
+// (FINDING 1). See dbmigrate.AddUniqueNameColumn for the derivation.
 func migrationAddName() *gormigrate.Migration {
 	return &gormigrate.Migration{
 		ID: "2026110213000001",
 		Migrate: func(tx *gorm.DB) error {
-			if err := tx.Exec(`ALTER TABLE ci_providers ADD COLUMN IF NOT EXISTS name text`).Error; err != nil {
-				return err
-			}
-			// COALESCE(forge,'') matches CIProvider.BeforeCreate, which defaults a
-			// missing name to the (Go string, never NULL) forge, so a pre-existing
-			// row with a NULL forge backfills to '' rather than a NULL,
-			// find-by-name-unresolvable name (SDLC-CONF-13).
-			if err := tx.Exec(`UPDATE ci_providers SET name = COALESCE(forge,'') WHERE name IS NULL OR name = ''`).Error; err != nil {
-				return err
-			}
-			// Enforce the domain rule "one provider per forge" (the default name is
-			// the forge): without a unique name, two providers on the same forge get
-			// identical names and find-by-name is ambiguous. The unique index makes a
-			// duplicate name a clean conflict rather than a silently ambiguous pair.
-			// Created here (not only via a model tag) so upgraded hubs, where the
-			// original CreateTable already ran, also gain the constraint. On a fresh
-			// database the column already exists from CreateTable and this is the sole
-			// creator of the index.
-			return tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_ci_providers_name ON ci_providers (name)`).Error
+			return dbmigrate.AddUniqueNameColumn(tx, "ci_providers", "COALESCE(forge,'')")
 		},
 		Rollback: func(tx *gorm.DB) error {
-			if err := tx.Exec(`DROP INDEX IF EXISTS idx_ci_providers_name`).Error; err != nil {
-				return err
-			}
-			return tx.Exec(`ALTER TABLE ci_providers DROP COLUMN IF EXISTS name`).Error
+			return dbmigrate.DropUniqueNameColumn(tx, "ci_providers")
 		},
 	}
 }

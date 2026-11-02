@@ -30,27 +30,25 @@ func migration() *gormigrate.Migration {
 // migrationAddName adds the queryable name column (SDLC-CONF-13) under a NEW
 // migration ID, because workspace_memberships already shipped its table under ID
 // 2026101700000002; editing that body is skipped on upgraded hubs (the #862
-// lesson). The add and backfill use idempotent raw SQL safe under the production
-// lib/pq + PreferSimpleProtocol driver (never AutoMigrate, SDLC-CONF-02).
-// Existing rows are backfilled with a stable identity derived from
-// workspace_id/subject (matching WorkspaceMembership.DeriveName) so a
-// find-by-name search resolves pre-existing records.
+// lesson). It never uses AutoMigrate (SDLC-CONF-02).
+//
+// The name is backfilled from the FULL composite natural key
+// (workspace_id/subject, matching WorkspaceMembership.DeriveName) so it is unique
+// by construction for distinct memberships, and a UNIQUE index makes find-by-name
+// resolve exactly one row. Each identity term is COALESCE'd because `a || '/' || b`
+// yields NULL if ANY term is NULL. Two rows can still share the same composite
+// identity on pre-existing data, so the shared helper de-duplicates colliding names
+// collision-safely BEFORE creating the index, so the unique index can never fail
+// and brick startup (FINDING 1/3). See dbmigrate.AddUniqueNameColumn.
 func migrationAddName() *gormigrate.Migration {
 	return &gormigrate.Migration{
 		ID: "2026110213000004",
 		Migrate: func(tx *gorm.DB) error {
-			if err := tx.Exec(`ALTER TABLE workspace_memberships ADD COLUMN IF NOT EXISTS name text`).Error; err != nil {
-				return err
-			}
-			// COALESCE each identity term: in SQL `a || '/' || b` yields NULL if ANY
-			// term is NULL, which would leave the row's name NULL and unresolvable
-			// by find-by-name. COALESCE(col,'') matches
-			// WorkspaceMembership.DeriveName, which joins the Go string fields
-			// (empty, never NULL) (SDLC-CONF-13).
-			return tx.Exec(`UPDATE workspace_memberships SET name = COALESCE(workspace_id,'') || '/' || COALESCE(subject,'') WHERE name IS NULL OR name = ''`).Error
+			return dbmigrate.AddUniqueNameColumn(tx, "workspace_memberships",
+				`COALESCE(workspace_id,'') || '/' || COALESCE(subject,'')`)
 		},
 		Rollback: func(tx *gorm.DB) error {
-			return tx.Exec(`ALTER TABLE workspace_memberships DROP COLUMN IF EXISTS name`).Error
+			return dbmigrate.DropUniqueNameColumn(tx, "workspace_memberships")
 		},
 	}
 }

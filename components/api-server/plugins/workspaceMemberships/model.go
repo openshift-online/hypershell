@@ -21,8 +21,11 @@ type WorkspaceMembership struct {
 	api.Meta
 	// Name is the queryable find-by-name key (SDLC-CONF-13). It defaults to a
 	// stable identity derived from workspace_id/subject when a client does not
-	// supply one.
-	Name        string `json:"name"`
+	// supply one. The uniqueIndex makes find-by-name resolve exactly one row (an
+	// ambiguous name would make hsctl apply resolve the wrong record); its name
+	// matches the CREATE UNIQUE INDEX in migrationAddName, which carries the
+	// constraint onto upgraded hubs where the original CreateTable already ran.
+	Name        string `json:"name" gorm:"uniqueIndex"`
 	WorkspaceId string `json:"workspace_id"`
 	Subject     string `json:"subject"`
 	Role        string `json:"role"`
