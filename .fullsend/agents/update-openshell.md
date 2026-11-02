@@ -60,10 +60,37 @@ IF `DRY_RUN` is `false`:
   `$REPOSITORY`. Summarize the version change and the triaged release notes in
   the PR body, in [simplified technical english](https://en.wikipedia.org/wiki/Simplified_Technical_English).
   Add the label `agent/reviewable-code`.
-- Never merge, close, or force-push. The merge is always a human's.
+- Never merge or force-push. The merge is always a human's. Close only the
+  superseded auto-update PRs identified in Step 4.
 
-Before you finish, confirm from the GitHub API that the pull request you claim to
-have opened actually exists.
+### Step 4: Close superseded auto-update pull requests
+
+Run this step only after creating the replacement PR with `DRY_RUN=false`.
+Confirm through `GET /repos/$REPOSITORY/pulls/<new-number>` that it exists,
+is open, and has the expected head branch and target version. If creation or
+confirmation fails, leave all existing PRs open.
+
+List **all pages** of open PRs with
+`gh api --paginate "repos/$REPOSITORY/pulls?state=open&per_page=100"`.
+An older PR is superseded only when all of these hold:
+
+- It is a different PR, authored by the same bot as the replacement PR.
+- Its head repository is `$REPOSITORY` and its base branch matches the replacement.
+- Its head branch is exactly `implementer/update-openshell-<old-tag>`, where
+  `<old-tag>` matches `v<major>.<minor>.<patch>-rhaiv.<revision>` (digits only).
+- Its full version is strictly older than the replacement target. Compare
+  `(major, minor, patch, revision)` as integers, including the rhaiv revision;
+  for example, `v0.1.5-rhaiv.9` is older than `v0.1.5-rhaiv.10`.
+
+Recheck each candidate through the PR API before writing. Skip PRs that are no
+longer open or no longer meet the criteria. Comment on each remaining PR via
+`POST /repos/$REPOSITORY/issues/<old-number>/comments` with
+`Superseded by <replacement-PR-URL>, which updates OpenShell to <target>.`, then
+close it via `PATCH /repos/$REPOSITORY/pulls/<old-number>` with `state=closed`.
+Confirm the API reports it closed. Leave its branch intact. Never close unrelated,
+human-authored, same-version, or newer-version PRs, or the replacement itself.
+If listing, commenting, closing, or confirmation fails, report `failed` with the
+replacement PR URL and the cleanup failure; keep the replacement PR open.
 
 ## Report the outcome (RESULT_FILE)
 
@@ -74,7 +101,8 @@ a GitHub action; do it even under `DRY_RUN`):
 {"status": "success|skip|failed", "summary": "<one line under 100 chars>"}
 ```
 
-- `success` -- opened a PR (or, under `DRY_RUN`, produced a complete preview).
+- `success` -- opened a PR and closed any superseded auto-update PRs (or, under
+  `DRY_RUN`, produced a complete preview).
 - `skip` -- already pinned to the latest tag; no change.
 - `failed` -- could not complete; include the reason in `summary`.
 
