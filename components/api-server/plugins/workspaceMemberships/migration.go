@@ -37,7 +37,7 @@ func migration() *gormigrate.Migration {
 // find-by-name search resolves pre-existing records.
 func migrationAddName() *gormigrate.Migration {
 	return &gormigrate.Migration{
-		ID: "2026110200000004",
+		ID: "2026110213000004",
 		Migrate: func(tx *gorm.DB) error {
 			if err := tx.Exec(`ALTER TABLE workspace_memberships ADD COLUMN IF NOT EXISTS name text`).Error; err != nil {
 				return err
