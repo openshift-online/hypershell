@@ -2,11 +2,25 @@ package inferenceRoutes
 
 import (
 	"context"
+	"strings"
 
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/services"
 )
+
+// conflictForDuplicateName maps a PostgreSQL unique-violation on the name index to
+// a 409 that names the conflicting field (SDLC-CONF-13, FINDING 2). name is the
+// only unique index on an InferenceRoute, so a unique violation is always a
+// duplicate find-by-name key. It returns nil for any other error so the caller
+// falls through to its generic error.
+func conflictForDuplicateName(err error, name string) *errors.ServiceError {
+	msg := err.Error()
+	if strings.Contains(msg, "duplicate") || strings.Contains(msg, "unique") {
+		return errors.Conflict("an InferenceRoute named %q already exists", name)
+	}
+	return nil
+}
 
 // inferenceRouteEventSource is the event broker Source string for InferenceRoute
 // mutations. The gRPC watch handler filters the shared broker fan-out on this
@@ -43,6 +57,9 @@ func (s *sqlInferenceRouteService) Get(ctx context.Context, id string) (*Inferen
 func (s *sqlInferenceRouteService) Create(ctx context.Context, inferenceRoute *InferenceRoute) (*InferenceRoute, *errors.ServiceError) {
 	item, err := s.dao.Create(ctx, inferenceRoute)
 	if err != nil {
+		if svcErr := conflictForDuplicateName(err, inferenceRoute.Name); svcErr != nil {
+			return nil, svcErr
+		}
 		return nil, errors.GeneralError("Unable to create inference route: %s", err)
 	}
 	if _, evErr := s.events.Create(ctx, &api.Event{
