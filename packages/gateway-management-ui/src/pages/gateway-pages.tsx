@@ -12,12 +12,11 @@ import {
   Flex,
   FlexItem,
   PageSection,
+  Switch,
   Tab,
   Tabs,
   TabTitleText,
   Title,
-  ToggleGroup,
-  ToggleGroupItem,
 } from "@patternfly/react-core";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useCallback, useMemo, useRef, useState } from "react";
@@ -312,7 +311,7 @@ export function GatewaysPage({
         size: currentCollectionState.size,
         total: gateways.length,
         // An externally supplied gateway list carries no server-computed
-        // authorized-set existence flag, so the ownership toggle stays hidden
+        // authorized-set existence flag, so the ownership switch stays hidden
         // unless it is already enabled (WEB-UIEX-07, WEB-API-01).
         hasOtherOwnedGateways: undefined as boolean | undefined,
       }
@@ -373,15 +372,15 @@ export function GatewaysPage({
       reason,
     );
   };
-  // Toggling the ownership filter resets to the first page and composes with the
-  // active search and sort (WEB-UIEX-07).
+  // Changing the ownership filter switch resets to the first page and composes
+  // with the active search and sort (WEB-UIEX-07).
   const changeOwnershipFilter = (nextOnlyMine: boolean) => {
     applyCollectionState(
       { ...currentCollectionState, onlyMine: nextOnlyMine, page: 1 },
       "filter",
     );
   };
-  // Show the toggle only when the caller's full authorized list contains a
+  // Show the switch only when the caller's full authorized list contains a
   // gateway owned by someone else, and keep it visible while enabled so the user
   // can restore the full list (WEB-UIEX-07). Server-computed over the authorized
   // set only (WEB-API-01, SEC-RBAC-10).
@@ -510,18 +509,18 @@ export function GatewaysPage({
           columns={columns}
           filterControls={
             showOwnershipFilter ? (
-              <ToggleGroup
-                aria-label={intl.formatMessage(messages.gatewayOwnershipFilter)}
-              >
-                <ToggleGroupItem
-                  buttonId="gateways-only-mine"
-                  isSelected={onlyMine}
-                  onChange={() => {
-                    changeOwnershipFilter(!onlyMine);
-                  }}
-                  text={intl.formatMessage(messages.showOnlyMyGateways)}
-                />
-              </ToggleGroup>
+              // "Show only my gateways" is a persistent on/off list filter, so it
+              // is a PatternFly Switch (an on/off control) rather than a
+              // pressed-state toggle button. The visible label is its accessible
+              // name and the switch exposes a boolean on/off state (WEB-UIEX-07).
+              <Switch
+                id="gateways-only-mine"
+                isChecked={onlyMine}
+                label={intl.formatMessage(messages.showOnlyMyGateways)}
+                onChange={(_event, checked) => {
+                  changeOwnershipFilter(checked);
+                }}
+              />
             ) : undefined
           }
           getRowKey={({ id }) => id}

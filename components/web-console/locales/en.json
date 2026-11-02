@@ -2823,13 +2823,9 @@
     "defaultMessage": "No matching gateways",
     "description": "Heading when no gateways match the current filter."
   },
-  "app.page.gateways.ownershipFilter": {
-    "defaultMessage": "Gateway ownership filter",
-    "description": "Accessible label for the toolbar control holding the show-only-my-gateways toggle."
-  },
   "app.page.gateways.showOnlyMine": {
     "defaultMessage": "Show only my gateways",
-    "description": "Toggle label that filters the gateway list to only the signed-in user's gateways."
+    "description": "On/off switch label that filters the gateway list to only the signed-in user's gateways."
   },
   "app.page.homepage.description": {
     "defaultMessage": "Gateway health, quick gateway creation, dashboards, support, and learning resources.",
