@@ -45,7 +45,7 @@ per-gateway).
 | Kind | Key Fields | Purpose |
 |------|-----------|---------|
 | **Gateway** | name, cluster_id, image, supervisor_image, tls_mode | API gateway instance |
-| **ManagedCluster** | name, provider, region, kubeconfig_secret | Registered K8s cluster |
+| **ManagedCluster** | name, kubeconfig_secret, capabilities | Registered K8s cluster |
 
 ## Plugin System
 

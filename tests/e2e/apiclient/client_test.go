@@ -63,7 +63,6 @@ func TestManagedClusterListDecodesCapabilities(t *testing.T) {
 				"id":                "cluster-1",
 				"name":              "cluster",
 				"kubeconfig_secret": "cluster-kubeconfig",
-				"provider":          "kind",
 				"capabilities":      []string{"network/local", "provider/kind"},
 			}},
 		})

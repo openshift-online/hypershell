@@ -280,8 +280,7 @@ them. A heartbeat SHALL replace the prior set in one transaction and update
 ### Requirement: PLAT-CLUS-07 -- Capability Deployment Convergence
 
 Every deployed control plane SHALL send its complete GitOps-configured capability
-set on registration and each heartbeat. The registration request SHALL NOT derive
-capabilities from the legacy `provider`, `visibility`, or `region` fields.
+set on registration and each heartbeat.
 
 `capabilities` is required on every registration call. A call that omits it,
 sends `null`, or sends an empty array SHALL return 400, the same as any other

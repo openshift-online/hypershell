@@ -124,11 +124,8 @@ function managedCluster(
     last_seen_at: "",
     name: "Cluster East",
     oidc_subject: "",
-    provider: "AWS",
-    region: "us-east-1",
     status: "Ready",
     updated_at: null,
-    visibility: "public",
     ...overrides,
   };
 }
@@ -212,8 +209,6 @@ describe("gateway API operations adapter", () => {
         {
           id: "cluster-east",
           name: "Cluster East",
-          provider: "AWS",
-          region: "us-east-1",
           status: "Ready",
         },
       ],

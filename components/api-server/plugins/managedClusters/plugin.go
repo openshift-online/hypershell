@@ -103,4 +103,5 @@ func init() {
 	db.RegisterMigration(migrationAddPlacementVisibility())
 	db.RegisterMigration(migrationAddCapabilities())
 	db.RegisterMigration(migrationUniqueName())
+	db.RegisterMigration(migrationDropPlacementColumns())
 }

@@ -10,9 +10,6 @@ Name | Type | Description | Notes
 **CreatedAt** | Pointer to **time.Time** |  | [optional]
 **UpdatedAt** | Pointer to **time.Time** |  | [optional]
 **Name** | **string** |  |
-**Provider** | **string** | Cloud provider capability used for gateway placement. |
-**Visibility** | Pointer to **string** | Network visibility supported by this control plane for gateway placement. | [optional] [readonly]
-**Region** | Pointer to **string** |  | [optional]
 **KubeconfigSecret** | **string** |  |
 **Status** | Pointer to **string** |  | [optional]
 **ApiServerUrl** | Pointer to **string** |  | [optional]
@@ -24,7 +21,7 @@ Name | Type | Description | Notes
 
 ### NewManagedCluster
 
-`func NewManagedCluster(name string, provider string, kubeconfigSecret string, ) *ManagedCluster`
+`func NewManagedCluster(name string, kubeconfigSecret string, ) *ManagedCluster`
 
 NewManagedCluster instantiates a new ManagedCluster object
 This constructor will assign default values to properties that have it defined,
@@ -183,76 +180,6 @@ and a boolean to check if the value has been set.
 
 SetName sets Name field to given value.
 
-
-### GetProvider
-
-`func (o *ManagedCluster) GetProvider() string`
-
-GetProvider returns the Provider field if non-nil, zero value otherwise.
-
-### GetProviderOk
-
-`func (o *ManagedCluster) GetProviderOk() (*string, bool)`
-
-GetProviderOk returns a tuple with the Provider field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetProvider
-
-`func (o *ManagedCluster) SetProvider(v string)`
-
-SetProvider sets Provider field to given value.
-
-
-### GetVisibility
-
-`func (o *ManagedCluster) GetVisibility() string`
-
-GetVisibility returns the Visibility field if non-nil, zero value otherwise.
-
-### GetVisibilityOk
-
-`func (o *ManagedCluster) GetVisibilityOk() (*string, bool)`
-
-GetVisibilityOk returns a tuple with the Visibility field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetVisibility
-
-`func (o *ManagedCluster) SetVisibility(v string)`
-
-SetVisibility sets Visibility field to given value.
-
-### HasVisibility
-
-`func (o *ManagedCluster) HasVisibility() bool`
-
-HasVisibility returns a boolean if a field has been set.
-
-### GetRegion
-
-`func (o *ManagedCluster) GetRegion() string`
-
-GetRegion returns the Region field if non-nil, zero value otherwise.
-
-### GetRegionOk
-
-`func (o *ManagedCluster) GetRegionOk() (*string, bool)`
-
-GetRegionOk returns a tuple with the Region field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetRegion
-
-`func (o *ManagedCluster) SetRegion(v string)`
-
-SetRegion sets Region field to given value.
-
-### HasRegion
-
-`func (o *ManagedCluster) HasRegion() bool`
-
-HasRegion returns a boolean if a field has been set.
 
 ### GetKubeconfigSecret
 

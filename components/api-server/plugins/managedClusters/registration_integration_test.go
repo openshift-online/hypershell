@@ -162,7 +162,7 @@ func TestManagedClusterRegistrationNameHeldByManualRecord(t *testing.T) {
 	name := uniqueName("local-openshift")
 
 	manual, _, err := client.DefaultAPI.CreateManagedCluster(userCtx).ManagedCluster(openapi.ManagedCluster{
-		Name: name, Provider: "openshift", KubeconfigSecret: "openshift-kubeconfig",
+		Name: name, KubeconfigSecret: "openshift-kubeconfig",
 	}).Execute()
 	Expect(err).NotTo(HaveOccurred())
 	before := clusterCount(client, userCtx)
@@ -219,7 +219,7 @@ func TestManagedClusterNameIsUnique(t *testing.T) {
 
 	userCtx := h.NewAuthenticatedContext(h.NewRandAccount())
 	_, resp, err := client.DefaultAPI.CreateManagedCluster(userCtx).ManagedCluster(openapi.ManagedCluster{
-		Name: name, Provider: "kind", KubeconfigSecret: "kubeconfig",
+		Name: name, KubeconfigSecret: "kubeconfig",
 	}).Execute()
 	Expect(err).To(HaveOccurred())
 	Expect(resp.StatusCode).To(Equal(http.StatusConflict))

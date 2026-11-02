@@ -1770,18 +1770,6 @@
           "type": "string"
         },
         {
-          "property": "provider",
-          "label": "PROVIDER",
-          "priority": 0,
-          "type": "string"
-        },
-        {
-          "property": "region",
-          "label": "REGION",
-          "priority": 0,
-          "type": "string"
-        },
-        {
           "property": "status",
           "label": "STATUS",
           "priority": 0,
@@ -1793,12 +1781,6 @@
           "priority": 0,
           "type": "string",
           "format": "date-time"
-        },
-        {
-          "property": "visibility",
-          "label": "VISIBILITY",
-          "priority": 0,
-          "type": "string"
         }
       ],
       "operationIds": [
@@ -3504,18 +3486,6 @@
           "type": "string"
         },
         {
-          "property": "provider",
-          "label": "PROVIDER",
-          "priority": 0,
-          "type": "string"
-        },
-        {
-          "property": "region",
-          "label": "REGION",
-          "priority": 0,
-          "type": "string"
-        },
-        {
           "property": "status",
           "label": "STATUS",
           "priority": 0,
@@ -3527,12 +3497,6 @@
           "priority": 0,
           "type": "string",
           "format": "date-time"
-        },
-        {
-          "property": "visibility",
-          "label": "VISIBILITY",
-          "priority": 0,
-          "type": "string"
         }
       ],
       "operationIds": [
@@ -4576,17 +4540,6 @@
             "name": "name",
             "type": "string",
             "required": true
-          },
-          {
-            "name": "provider",
-            "type": "string",
-            "required": true,
-            "description": "Cloud provider capability used for gateway placement."
-          },
-          {
-            "name": "region",
-            "type": "string",
-            "required": false
           },
           {
             "name": "status",
@@ -9763,16 +9716,6 @@
           },
           {
             "name": "name",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "provider",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "region",
             "type": "string",
             "required": false
           },

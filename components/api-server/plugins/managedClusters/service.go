@@ -323,7 +323,7 @@ func (s *sqlManagedClusterService) Register(ctx context.Context, name string, ca
 		return nil, false, errors.GeneralError("registration lookup failed: %s", delErr)
 	}
 	if deleted != nil {
-		restored, restoreErr := s.managedClusterDao.Restore(ctx, deleted.ID, "", "", capabilities, now)
+		restored, restoreErr := s.managedClusterDao.Restore(ctx, deleted.ID, capabilities, now)
 		if restoreErr != nil {
 			if isUniqueViolation(restoreErr) {
 				if winner, err := s.managedClusterDao.FindByName(ctx, name); err == nil && winner != nil {

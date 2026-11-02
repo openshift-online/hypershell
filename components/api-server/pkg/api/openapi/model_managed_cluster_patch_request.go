@@ -20,8 +20,6 @@ var _ MappedNullable = &ManagedClusterPatchRequest{}
 // ManagedClusterPatchRequest struct for ManagedClusterPatchRequest
 type ManagedClusterPatchRequest struct {
 	Name             *string `json:"name,omitempty"`
-	Provider         *string `json:"provider,omitempty"`
-	Region           *string `json:"region,omitempty"`
 	KubeconfigSecret *string `json:"kubeconfig_secret,omitempty"`
 	Status           *string `json:"status,omitempty"`
 	ApiServerUrl     *string `json:"api_server_url,omitempty"`
@@ -74,70 +72,6 @@ func (o *ManagedClusterPatchRequest) HasName() bool {
 // SetName gets a reference to the given string and assigns it to the Name field.
 func (o *ManagedClusterPatchRequest) SetName(v string) {
 	o.Name = &v
-}
-
-// GetProvider returns the Provider field value if set, zero value otherwise.
-func (o *ManagedClusterPatchRequest) GetProvider() string {
-	if o == nil || IsNil(o.Provider) {
-		var ret string
-		return ret
-	}
-	return *o.Provider
-}
-
-// GetProviderOk returns a tuple with the Provider field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *ManagedClusterPatchRequest) GetProviderOk() (*string, bool) {
-	if o == nil || IsNil(o.Provider) {
-		return nil, false
-	}
-	return o.Provider, true
-}
-
-// HasProvider returns a boolean if a field has been set.
-func (o *ManagedClusterPatchRequest) HasProvider() bool {
-	if o != nil && !IsNil(o.Provider) {
-		return true
-	}
-
-	return false
-}
-
-// SetProvider gets a reference to the given string and assigns it to the Provider field.
-func (o *ManagedClusterPatchRequest) SetProvider(v string) {
-	o.Provider = &v
-}
-
-// GetRegion returns the Region field value if set, zero value otherwise.
-func (o *ManagedClusterPatchRequest) GetRegion() string {
-	if o == nil || IsNil(o.Region) {
-		var ret string
-		return ret
-	}
-	return *o.Region
-}
-
-// GetRegionOk returns a tuple with the Region field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *ManagedClusterPatchRequest) GetRegionOk() (*string, bool) {
-	if o == nil || IsNil(o.Region) {
-		return nil, false
-	}
-	return o.Region, true
-}
-
-// HasRegion returns a boolean if a field has been set.
-func (o *ManagedClusterPatchRequest) HasRegion() bool {
-	if o != nil && !IsNil(o.Region) {
-		return true
-	}
-
-	return false
-}
-
-// SetRegion gets a reference to the given string and assigns it to the Region field.
-func (o *ManagedClusterPatchRequest) SetRegion(v string) {
-	o.Region = &v
 }
 
 // GetKubeconfigSecret returns the KubeconfigSecret field value if set, zero value otherwise.
@@ -248,12 +182,6 @@ func (o ManagedClusterPatchRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.Name) {
 		toSerialize["name"] = o.Name
-	}
-	if !IsNil(o.Provider) {
-		toSerialize["provider"] = o.Provider
-	}
-	if !IsNil(o.Region) {
-		toSerialize["region"] = o.Region
 	}
 	if !IsNil(o.KubeconfigSecret) {
 		toSerialize["kubeconfig_secret"] = o.KubeconfigSecret

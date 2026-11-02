@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   bucketInventoryField,
+  clusterCapabilityValue,
   countCreatedWithinLookback,
   formatInventoryPlacementLabel,
 } from "./platform-inventory-aggregation";
@@ -12,6 +13,14 @@ describe("platform inventory aggregation helpers", () => {
     expect(bucketInventoryField(null)).toBe("unknown");
     expect(bucketInventoryField("  ")).toBe("unknown");
     expect(bucketInventoryField(" Ready ")).toBe("Ready");
+  });
+
+  it("reads single-valued capability labels by namespace", () => {
+    const capabilities = ["network/public", "provider/aws", "region/us-east-1"];
+    expect(clusterCapabilityValue(capabilities, "provider")).toBe("aws");
+    expect(clusterCapabilityValue(capabilities, "region")).toBe("us-east-1");
+    expect(clusterCapabilityValue(["provider/ibm"], "region")).toBeUndefined();
+    expect(clusterCapabilityValue(undefined, "provider")).toBeUndefined();
   });
 
   it("formats placement labels as region (provider)", () => {

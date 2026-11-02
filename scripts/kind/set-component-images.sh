@@ -78,11 +78,6 @@ swap_control_plane() {
   info "  control-plane -> ${_cp_img}"
   kube set image deployment/hypershell-controller \
     "controller=${_cp_img}" -n "${KIND_NAMESPACE}"
-  # Remove settings used only to start a stale baseline image. Branch images
-  # must pass readiness with the current deployment contract.
-  kube set env deployment/hypershell-controller -n "${KIND_NAMESPACE}" \
-    HYPERSHELL_MANAGED_CLUSTER_PROVIDER- \
-    HYPERSHELL_MANAGED_CLUSTER_VISIBILITY-
   kube rollout status deployment/hypershell-controller \
     -n "${KIND_NAMESPACE}" --timeout="${ROLLOUT_TIMEOUT}"
 }

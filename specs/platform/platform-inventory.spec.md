@@ -34,9 +34,11 @@ Prometheus gateway metrics (`platform/gateway-metrics-dashboard.spec.md`) cover 
 
 Platform inventory version 1 SHALL cover:
 
-| Resource       | List endpoint                             | Aggregated fields                                     |
-| -------------- | ----------------------------------------- | ----------------------------------------------------- |
-| ManagedCluster | `GET /api/hypershell/v1/managed_clusters` | `total`, `status`, `provider`, `region`, `created_at` |
+| Resource       | List endpoint                             | Aggregated fields                                                                    |
+| -------------- | ----------------------------------------- | ------------------------------------------------------------------------------------ |
+| ManagedCluster | `GET /api/hypershell/v1/managed_clusters` | `total`, `status`, `created_at`, and the `provider/` and `region/` capability labels |
+
+The provider and region of a managed cluster are the values of its `provider/` and `region/` capability labels (`managed-cluster-registration.spec.md`). A cluster without one of those labels counts as `unknown` for that dimension.
 
 The adapter SHALL NOT invent counts from gateway `cluster_id` references. Only registered ManagedCluster records returned by the List API SHALL contribute to inventory metrics.
 

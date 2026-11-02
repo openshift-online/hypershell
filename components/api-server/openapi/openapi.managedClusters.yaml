@@ -294,20 +294,9 @@ components:
         - type: object
           required:
             - name
-            - provider
             - kubeconfig_secret
           properties:
             name:
-              type: string
-            provider:
-              type: string
-              description: Cloud provider capability used for gateway placement.
-            visibility:
-              type: string
-              enum: [public, vpn]
-              readOnly: true
-              description: Network visibility supported by this control plane for gateway placement.
-            region:
               type: string
             kubeconfig_secret:
               type: string
@@ -374,10 +363,6 @@ components:
       type: object
       properties:
         name:
-          type: string
-        provider:
-          type: string
-        region:
           type: string
         kubeconfig_secret:
           type: string
