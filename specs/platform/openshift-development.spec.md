@@ -305,7 +305,9 @@ those from the developer machine.
 - WHEN the developer runs `make openshift-up`
 - THEN the scripts render and apply the API server, the control plane, the web
   console, PostgreSQL, and Keycloak from `kustomize build deploy/openshift/`
-- AND the scripts seed a ManagedCluster and a Gateway
+- AND the scripts wait for the control plane to register the `local-openshift`
+  ManagedCluster and do not create a ManagedCluster
+- AND the scripts seed a Gateway named `dev-gateway`
 - AND the scripts report the API Route, the web-console Route, and the Keycloak
   Route when the deployment is ready
 
