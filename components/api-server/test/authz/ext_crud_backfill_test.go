@@ -65,8 +65,11 @@ func TestExtKindsNameBackfillUpgradePath(t *testing.T) {
 	citID := api.NewID()
 	irID := api.NewID()
 	wmID := api.NewID()
-	cipForge := "github"
-	citRole := "developer"
+	// A forge distinct from the env's own ci_provider (which defaults its name to
+	// "github"): ci_providers.name is now uniquely indexed (one provider per
+	// forge, SDLC-CONF-13 / find-by-name ambiguity), so the seeded pre-migration
+	// row must backfill to a different name than the env row.
+	cipForge := "gitlab"
 	irModel := "gpt-4o"
 	wmSubject := "subject-" + short()
 
@@ -87,11 +90,16 @@ func TestExtKindsNameBackfillUpgradePath(t *testing.T) {
 			table:     "ci_trusts",
 			nameMigID: "2026110213000002",
 			id:        citID,
-			// Backfill: name = ci_provider_id || '/' || gateway_id || '/' || role.
-			derivedName: env.ciProviderID + "/" + env.gatewayID + "/" + citRole,
-			insertSQL: `INSERT INTO ci_trusts (id, created_at, updated_at, ci_provider_id, gateway_id, role)
-						VALUES (?, NOW(), NOW(), ?, ?, ?)`,
-			insertArgs: []interface{}{citID, env.ciProviderID, env.gatewayID, citRole},
+			// NULL identity column (role) on a composite kind: the backfill derives
+			// name = COALESCE(ci_provider_id,'') || '/' || COALESCE(gateway_id,'') ||
+			// '/' || COALESCE(role,''). Without the COALESCE, a NULL role makes the
+			// whole `a || '/' || b` expression NULL, leaving this row's name NULL and
+			// unresolvable by find-by-name. The role column is omitted from the INSERT
+			// below so it is genuinely NULL, exercising that exact case (FINDING 3).
+			derivedName: env.ciProviderID + "/" + env.gatewayID + "/",
+			insertSQL: `INSERT INTO ci_trusts (id, created_at, updated_at, ci_provider_id, gateway_id)
+						VALUES (?, NOW(), NOW(), ?, ?)`,
+			insertArgs: []interface{}{citID, env.ciProviderID, env.gatewayID},
 		},
 		{
 			kind:      "inference_routes",
