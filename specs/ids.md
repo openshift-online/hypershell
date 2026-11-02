@@ -46,6 +46,7 @@ listed in `specs/id-rename-map.md`, not here.
 |--------|------|--------------|
 | `CLI-EXT` | `platform/hsctl-extension-commands.spec.md` | 4 |
 | `CLI-GWC` | `platform/hsctl-gateway-connection.spec.md` | 2 |
+| `CLI-PLC` | `platform/hsctl-placement.spec.md` | 4 |
 | `CLI-REL` | `platform/hsctl-release.spec.md` | 6 |
 | `CLI-TUI` | `platform/hsctl-terminal-ui.spec.md` | 4 |
 
