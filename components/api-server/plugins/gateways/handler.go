@@ -401,26 +401,27 @@ func (h gatewayHandler) List(w http.ResponseWriter, r *http.Request) {
 				accessibleIDs = ids
 			}
 
-			// hasOtherOwnedGateways reports whether the caller's full authorized
+			// hasUnownedVisibleGateways reports whether the caller's full authorized
 			// gateway list -- before search, optional filters, and the ownership
-			// filter -- contains at least one gateway the caller does not own. It
-			// is computed over the authorized set only and never discloses
+			// filter -- contains at least one gateway the caller can see but does NOT
+			// own. It is computed over the authorized set only and never discloses
 			// gateways the caller cannot see (WEB-API-01, SEC-RBAC-10). For a
 			// scoped (non-admin) caller the authorized set is accessibleIDs, so the
 			// flag is a SET DIFFERENCE - true when some accessible gateway is not in
 			// the owned set - which is robust even if the owned set is not a strict
 			// subset of the accessible set (a size comparison would misfire then);
 			// otherwise a single bounded existence query is used instead of
-			// enumerating pages.
-			hasOtherOwnedGateways := false
+			// enumerating pages. (It backs the generated HasOtherOwnedGateways API
+			// field, whose name predates this clarification.)
+			hasUnownedVisibleGateways := false
 			if scoped {
-				hasOtherOwnedGateways = anyAccessibleUnowned(accessibleIDs, ownedIDs)
+				hasUnownedVisibleGateways = anyAccessibleUnowned(accessibleIDs, ownedIDs)
 			} else if h.ownership != nil {
 				exists, existsErr := h.ownership.OtherOwnerGatewayExists(ctx, userID)
 				if existsErr != nil {
 					return nil, errors.GeneralError("failed to check gateway ownership: %s", existsErr)
 				}
-				hasOtherOwnedGateways = exists
+				hasUnownedVisibleGateways = exists
 			}
 
 			emptyGatewayList := func() openapi.GatewayList {
@@ -428,7 +429,7 @@ func (h gatewayHandler) List(w http.ResponseWriter, r *http.Request) {
 				pageVal := int32(listArgs.Page)
 				sizeVal := int32(0)
 				totalVal := int32(0)
-				flag := hasOtherOwnedGateways
+				flag := hasUnownedVisibleGateways
 				return openapi.GatewayList{
 					Kind:                  &kindStr,
 					Page:                  &pageVal,
@@ -466,7 +467,7 @@ func (h gatewayHandler) List(w http.ResponseWriter, r *http.Request) {
 			pageVal := int32(paging.Page)
 			sizeVal := int32(paging.Size)
 			totalVal := int32(paging.Total)
-			flag := hasOtherOwnedGateways
+			flag := hasUnownedVisibleGateways
 			gatewayList := openapi.GatewayList{
 				Kind:                  &kindStr,
 				Page:                  &pageVal,
