@@ -70,7 +70,7 @@ func TestGatewayNamespace(t *testing.T) {
 	})
 }
 
-func TestExistingGatewayKeycloakClientID(t *testing.T) {
+func TestGatewayKeycloakClientID(t *testing.T) {
 	gatewayID := "gateway-01ABCDEF"
 	oidcJSON := func(clientID, audience string) *string {
 		t.Helper()
@@ -90,12 +90,17 @@ func TestExistingGatewayKeycloakClientID(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name:    "current identity falls back to current name",
+			name:    "new gateway uses the gateway ID",
 			gateway: &pb.Gateway{Name: "current-name"},
-			want:    "current-name-" + gatewayID,
+			want:    gatewayID,
 		},
 		{
-			name:    "current persisted identity",
+			name:    "persisted gateway ID identity",
+			gateway: &pb.Gateway{Name: "current-name", Oidc: oidcJSON(gatewayID, gatewayID)},
+			want:    gatewayID,
+		},
+		{
+			name:    "persisted name-and-ID identity",
 			gateway: &pb.Gateway{Name: "current-name", Oidc: oidcJSON("current-name-"+gatewayID, "current-name-"+gatewayID)},
 			want:    "current-name-" + gatewayID,
 		},
@@ -135,11 +140,6 @@ func TestExistingGatewayKeycloakClientID(t *testing.T) {
 			wantErr: "not owned by the gateway",
 		},
 		{
-			name:    "bare gateway ID identity",
-			gateway: &pb.Gateway{Name: "current-name", Oidc: oidcJSON(gatewayID, gatewayID)},
-			wantErr: "not owned by the gateway",
-		},
-		{
 			name:    "audience without client_id",
 			gateway: &pb.Gateway{Name: "current-name", Oidc: oidcJSON("", "current-name-"+gatewayID)},
 			wantErr: "must both be set",
@@ -170,33 +170,38 @@ func TestExistingGatewayKeycloakClientID(t *testing.T) {
 			wantErr: "control characters",
 		},
 		{
-			name:    "fallback name with control character",
+			name:    "new gateway ignores a name with control characters",
 			gateway: &pb.Gateway{Name: "bad\nname"},
-			wantErr: "control characters",
+			want:    gatewayID,
+		},
+		{
+			name:    "persisted identity with empty prefix",
+			gateway: &pb.Gateway{Name: "current-name", Oidc: oidcJSON("-"+gatewayID, "-"+gatewayID)},
+			wantErr: "not owned by the gateway",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := existingGatewayKeycloakClientID(gatewayID, tc.gateway)
+			got, err := gatewayKeycloakClientID(gatewayID, tc.gateway)
 			if tc.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
-					t.Fatalf("existingGatewayKeycloakClientID() error = %v, want containing %q", err, tc.wantErr)
+					t.Fatalf("gatewayKeycloakClientID() error = %v, want containing %q", err, tc.wantErr)
 				}
 				var identityErr *gatewayKeycloakClientIdentityError
 				if !errors.As(err, &identityErr) {
-					t.Fatalf("existingGatewayKeycloakClientID() error type = %T, want terminal identity validation", err)
+					t.Fatalf("gatewayKeycloakClientID() error type = %T, want terminal identity validation", err)
 				}
 				if got != "" {
-					t.Fatalf("existingGatewayKeycloakClientID() = %q on error, want empty", got)
+					t.Fatalf("gatewayKeycloakClientID() = %q on error, want empty", got)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("existingGatewayKeycloakClientID() error = %v", err)
+				t.Fatalf("gatewayKeycloakClientID() error = %v", err)
 			}
 			if got != tc.want {
-				t.Fatalf("existingGatewayKeycloakClientID() = %q, want %q", got, tc.want)
+				t.Fatalf("gatewayKeycloakClientID() = %q, want %q", got, tc.want)
 			}
 		})
 	}
@@ -221,9 +226,9 @@ func TestReconcileExistingGatewayKeycloakClient_QuotesAcceptedUnicodeClientIDs(t
 			oidc := string(data)
 			gw := &pb.Gateway{Name: "renamed", Oidc: &oidc}
 
-			got, err := existingGatewayKeycloakClientID(gatewayID, gw)
+			got, err := gatewayKeycloakClientID(gatewayID, gw)
 			if err != nil || got != clientID {
-				t.Fatalf("existingGatewayKeycloakClientID() = %q, %v; want accepted %q", got, err, clientID)
+				t.Fatalf("gatewayKeycloakClientID() = %q, %v; want accepted %q", got, err, clientID)
 			}
 
 			mockKC := newMockKeycloakAdminServer(t, clientID, "", nil)
@@ -575,7 +580,7 @@ func TestGatewayReconciler_Handle_GatedPhases_ReconcilesKeycloakAndBypassesKuber
 		t.Run(fmt.Sprintf("phase=%s", phase), func(t *testing.T) {
 			gatewayID := fmt.Sprintf("gw-%s", uuid.New().String()[:8])
 			gatewayName := "my-gateway"
-			clientID := fmt.Sprintf("%s-%s", gatewayName, gatewayID)
+			clientID := gatewayID
 			clientUUID := fmt.Sprintf("uuid-%s", uuid.New().String())
 
 			initialRep := map[string]interface{}{
@@ -697,7 +702,7 @@ func TestGatewayReconciler_Handle_GatedPhases_ReconcilesKeycloakAndBypassesKuber
 func TestWatchGateways_KeycloakRetryPreservesGatedPayload(t *testing.T) {
 	gatewayID := "gw-keycloak-queue-retry"
 	gatewayName := "my-gateway"
-	clientID := gatewayName + "-" + gatewayID
+	clientID := gatewayID
 	clientUUID := "uuid-keycloak-queue-retry"
 	phase := "Running"
 	convergenceGen := int64(1)
@@ -817,7 +822,7 @@ func TestGatewayReconciler_Handle_GatedPhase_IdempotentWhenAlreadyEnabled(t *tes
 	ctx := context.Background()
 	gatewayID := "gw-idempotent"
 	gatewayName := "my-gateway"
-	clientID := fmt.Sprintf("%s-%s", gatewayName, gatewayID)
+	clientID := gatewayID
 	clientUUID := "uuid-idempotent"
 
 	initialRep := map[string]interface{}{
@@ -917,7 +922,7 @@ func TestGatewayReconciler_Handle_GatedPhase_ReportsMissingClientWithoutKubernet
 	ctx := context.Background()
 	gatewayID := "gw-missing"
 	gatewayName := "my-gateway"
-	clientID := fmt.Sprintf("%s-%s", gatewayName, gatewayID)
+	clientID := gatewayID
 
 	// clientUUID is empty -> GetClientUUID returns ""
 	mockKC := newMockKeycloakAdminServer(t, clientID, "", nil)
@@ -1149,7 +1154,7 @@ func TestGatewayReconciler_Handle_GatedPhase_ClearsMissingStatusAfterKeycloakRec
 	ctx := context.Background()
 	gatewayID := "gw-recovers"
 	gatewayName := "my-gateway"
-	clientID := gatewayName + "-" + gatewayID
+	clientID := gatewayID
 	clientUUID := "uuid-recovers"
 
 	mockKC := newMockKeycloakAdminServer(t, clientID, clientUUID, map[string]interface{}{
@@ -1226,7 +1231,7 @@ func TestGatewayReconciler_Handle_GatedPhase_ClearsMissingStatusAfterKeycloakRec
 func TestGatewayReconciler_Handle_GatedPhase_ClearsInvalidStatusAfterIdentityRecovers(t *testing.T) {
 	gatewayID := "gw-valid-again"
 	gatewayName := "my-gateway"
-	clientID := gatewayName + "-" + gatewayID
+	clientID := gatewayID
 	clientUUID := "uuid-valid-again"
 	mockKC := newMockKeycloakAdminServer(t, clientID, clientUUID, map[string]interface{}{
 		"id":       clientUUID,
@@ -1352,7 +1357,7 @@ func TestGatewayReconciler_Handle_GatedPhase_PropagatesKeycloakLookupError(t *te
 	ctx := context.Background()
 	gatewayID := "gw-err-lookup"
 	gatewayName := "my-gateway"
-	clientID := fmt.Sprintf("%s-%s", gatewayName, gatewayID)
+	clientID := gatewayID
 	clientUUID := "uuid-lookup-err"
 
 	mockKC := newMockKeycloakAdminServer(t, clientID, clientUUID, map[string]interface{}{
@@ -1408,7 +1413,7 @@ func TestGatewayReconciler_Handle_GatedPhase_PropagatesKeycloakUpdateError(t *te
 	ctx := context.Background()
 	gatewayID := "gw-err-update"
 	gatewayName := "my-gateway"
-	clientID := fmt.Sprintf("%s-%s", gatewayName, gatewayID)
+	clientID := gatewayID
 	clientUUID := "uuid-update-err"
 
 	mockKC := newMockKeycloakAdminServer(t, clientID, clientUUID, map[string]interface{}{

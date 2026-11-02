@@ -71,8 +71,9 @@ func TestReconcileKeycloakClientUpdatesExistingClient(t *testing.T) {
 			ClientID:     "provisioner",
 			ClientSecret: clientCredential,
 		},
-		GatewayName: "gateway",
-		GatewayID:   "id",
+		GatewayName:     "gateway",
+		GatewayID:       "id",
+		GatewayClientID: clientID,
 	}
 	var nsConfig NamespaceConfig
 	if err := reconcileKeycloakClient(context.Background(), opts, &nsConfig); err != nil {

@@ -40,13 +40,13 @@ Each gateway receives a dedicated Keycloak OIDC client provisioned automatically
 
 ```
 Realm:       configurable via Keycloak service account secret (e.g., hypershell, hypershell-stage)
-Client:      {name}-{id} (public, PKCE, fullScopeAllowed=false)
-Audience:    {name}-{id} (matches clientId)
+Client:      {client-id} (public, PKCE, fullScopeAllowed=false)
+Audience:    {client-id} (matches clientId)
 Roles claim: hypershell.roles (via client-roles mapper from resource_access.{clientId}.roles)
 Roles:       openshell-admin, openshell-user (client-scoped)
 ```
 
-> **Client ID format:** The Keycloak `clientId` is `{name}-{id}` (e.g., `my-gateway-2FhMpQzXBz`) to prevent name clashes. See [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md) for details.
+> **Client ID format:** `{client-id}` is the gateway's stored Keycloak `clientId`: the gateway ID (e.g., `2FhMpQzXBz`) for new gateways, or `{name}-{id}` for gateways provisioned earlier. See [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md) for details.
 
 > **Realm naming:** The realm name is not hardcoded. Each HyperShell instance reads the realm from the `hypershell-keycloak-admin` Secret's `realm` key. Environments MAY use distinct realm names (e.g., `hypershell-int`, `hypershell-stage`, `hypershell-prod`) or share a realm name when regional Keycloak instances federate to a global instance.
 
@@ -63,7 +63,7 @@ The Gateway API resource SHALL have an `oidc` object containing OIDC configurati
 | Field | Type | Auto-Populated Value | Description |
 |---|---|---|---|
 | `oidc.issuer` | string | `{keycloak-url}/realms/{realm}` | OIDC issuer URL |
-| `oidc.audience` | string | `{name}-{id}` | Expected `aud` claim value in JWT (matches Keycloak clientId) |
+| `oidc.audience` | string | `{client-id}` | Expected `aud` claim value in JWT (matches Keycloak clientId) |
 | `oidc.jwks_ttl` | integer | `3600` | JWKS key cache retention in seconds |
 | `oidc.roles_claim` | string | `"hypershell.roles"` | Dot-delimited path to roles array in JWT claims |
 | `oidc.admin_role` | string | `"openshell-admin"` | Role name conferring admin access |
@@ -115,7 +115,7 @@ When a Gateway has OIDC enabled (non-empty `oidc.issuer`), the GatewayReconciler
 
   [openshell.gateway.oidc]
   issuer        = "https://keycloak.example.com/realms/hypershell"
-  audience      = "my-gateway-2FhMpQzXBz"
+  audience      = "2FhMpQzXBz"
   jwks_ttl_secs = 3600
   roles_claim   = "hypershell.roles"
   admin_role    = "openshell-admin"

@@ -135,8 +135,8 @@ func TestCITrustUpsert_RealizesFederationAndWritesStatus(t *testing.T) {
 	if spec.IdpAlias != "github-actions" {
 		t.Errorf("IdpAlias = %q, want the adopted github-actions alias", spec.IdpAlias)
 	}
-	if spec.GatewayClientID != "prod-gw-1" {
-		t.Errorf("GatewayClientID = %q, want prod-gw-1 ({name}-{id})", spec.GatewayClientID)
+	if spec.GatewayClientID != "gw-1" {
+		t.Errorf("GatewayClientID = %q, want the gateway ID gw-1", spec.GatewayClientID)
 	}
 	if spec.Workspace != "gh-acme" {
 		t.Errorf("Workspace = %q, want gh-acme", spec.Workspace)
@@ -363,5 +363,31 @@ func TestDeriveWorkspace(t *testing.T) {
 		if got := deriveWorkspace(tc.forge, tc.repo, tc.project); got != tc.want {
 			t.Errorf("deriveWorkspace(%q,%q,%q) = %q, want %q", tc.forge, tc.repo, tc.project, got, tc.want)
 		}
+	}
+}
+
+// A renamed gateway keeps the client it was provisioned with, so the exchange
+// audience is the stored client ID, not one built from the new name.
+// Verifies: OSG-KCLK-02.07
+func TestCITrustUpsert_RenamedGatewayUsesStoredClientID(t *testing.T) {
+	kc := &fakeCIKeycloak{}
+	trustSvc := &fakeCITrustSvc{}
+	gw := localGateway()
+	oidc := `{"client_id":"old-name-gw-1","audience":"old-name-gw-1"}`
+	gw.gateway.Oidc = &oidc
+	r := newCITrustTestReconciler(kc, githubProvider(), gw, trustSvc)
+
+	if err := r.Handle(t.Context(), watcher.Event[*pb.CITrust]{
+		Type:       watcher.EventCreated,
+		ResourceID: "trust-1",
+		Resource:   githubTrust(),
+	}); err != nil {
+		t.Fatalf("Handle upsert: %v", err)
+	}
+	if len(kc.ensured) != 1 {
+		t.Fatalf("EnsureCIFederation calls = %d, want 1", len(kc.ensured))
+	}
+	if got := kc.ensured[0].GatewayClientID; got != "old-name-gw-1" {
+		t.Errorf("GatewayClientID = %q, want the stored client old-name-gw-1", got)
 	}
 }

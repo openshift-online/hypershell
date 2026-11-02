@@ -32,7 +32,7 @@ func TestGatewayDeletionUsesValidatedStoredIdentity(t *testing.T) {
 		invalid                bool
 	}{
 		{name: "renamed", oidc: `{"client_id":"original-gateway-id","audience":"original-gateway-id"}`, wantClient: "original-gateway-id"},
-		{name: "name fallback", wantClient: "renamed-gateway-id"},
+		{name: "new gateway uses gateway ID", wantClient: "gateway-id"},
 		{name: "audience only", oidc: `{"audience":"original-gateway-id"}`, invalid: true},
 		{name: "another gateway", oidc: `{"client_id":"other-gateway","audience":"other-gateway"}`, invalid: true},
 		{name: "conflicting identity", oidc: `{"client_id":"original-gateway-id","audience":"another-gateway-id"}`, invalid: true},

@@ -291,7 +291,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 				}
 			}
 			if r.keycloakClient != nil {
-				clientID, err := existingGatewayKeycloakClientID(event.ResourceID, gw)
+				clientID, err := gatewayKeycloakClientID(event.ResourceID, gw)
 				if err != nil {
 					// Invalid stored identity never becomes valid on retry, so failing
 					// here would pin the delete tombstone after namespace and database
@@ -310,7 +310,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 				// A deconfigured provisioner never comes back, so failing here would
 				// pin the delete tombstone after namespace and database cleanup.
 				// Log the recorded identity for operator recovery instead.
-				clientID, idErr := existingGatewayKeycloakClientID(event.ResourceID, gw)
+				clientID, idErr := gatewayKeycloakClientID(event.ResourceID, gw)
 				if idErr != nil {
 					log.Printf("ERROR gateway %s identity cleanup requires the Keycloak client; stored identity cannot be resolved (%v); Keycloak clients may remain for operator recovery", event.ResourceID, idErr)
 					opts.RecordOrphan(ctx, "KeycloakClient", fmt.Sprintf("gateway %s (%s)", gw.Name, event.ResourceID),
@@ -553,6 +553,17 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		Gateway: gwConfig,
 	}
 
+	var gatewayClientID string
+	if r.keycloakConfig != nil {
+		gatewayClientID, err = gatewayKeycloakClientID(event.ResourceID, gw)
+		if err != nil {
+			outcome = cpotel.OutcomeFailed
+			reason = cpotel.ReasonIdentityInvalid
+			reconcileErr = fmt.Errorf("resolve Keycloak client for gateway %q: %w", gw.Name, err)
+			return reconcileErr
+		}
+	}
+
 	opts := gateway.ReconcileOpts{
 		IsOpenShift:           r.isOpenShift,
 		HasCertManager:        r.hasCertManager,
@@ -565,6 +576,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		Keycloak:              r.keycloakConfig,
 		KeycloakClient:        r.keycloakClient,
 		GatewayName:           gw.Name,
+		GatewayClientID:       gatewayClientID,
 		UpdateOIDC:            r.makeOIDCUpdater(event.ResourceID),
 		Exposure:              r.exposure,
 		RouteStillDesired:     r.makeRouteStillDesired(event.ResourceID),
@@ -728,7 +740,7 @@ func (r *GatewayReconciler) reconcileExistingGatewayKeycloakClient(ctx context.C
 	if r.keycloakClient == nil {
 		return nil
 	}
-	clientID, err := existingGatewayKeycloakClientID(gatewayID, gw)
+	clientID, err := gatewayKeycloakClientID(gatewayID, gw)
 	if err != nil {
 		return err
 	}
@@ -750,16 +762,17 @@ func (r *GatewayReconciler) reconcileExistingGatewayKeycloakClient(ctx context.C
 	return nil
 }
 
-// existingGatewayKeycloakClientID returns the identity recorded when the client
-// was provisioned. Gateway names are mutable, so recomputing from the current name
-// can miss the real client after a rename. The provisioner stores the same value
-// in client_id and audience. Persisted values cross an API trust boundary, so they
-// are accepted only when both are present, they agree, they contain no control
-// characters, and they end in "-<gatewayID>" after a non-empty prefix. The prefix
-// is not otherwise restricted because gateway names are not validated and clients
-// are provisioned from the raw user-visible name. Only gateways without either
-// persisted value fall back to the provisioning format based on the current name.
-func existingGatewayKeycloakClientID(gatewayID string, gw *pb.Gateway) (string, error) {
+// gatewayKeycloakClientID returns the gateway's Keycloak client ID. The
+// provisioner stores the client ID in both client_id and audience, and every
+// path reads that stored value, so a rename never moves the gateway to another
+// client. Persisted values cross an API trust boundary, so they are accepted only
+// when both are present, they agree, they contain no control characters, and they
+// are gateway-owned: either the gateway ID itself (the initial format) or a
+// non-empty prefix followed by "-<gatewayID>" (the earlier {name}-{id} format,
+// still used by gateways provisioned before the switch). Gateways without either
+// persisted value, such as a new gateway before its client is provisioned, use
+// the initial client ID: the immutable gateway ID.
+func gatewayKeycloakClientID(gatewayID string, gw *pb.Gateway) (string, error) {
 	if gatewayID == "" {
 		return "", invalidGatewayKeycloakClientIdentity("gateway ID is required for Keycloak reconciliation")
 	}
@@ -797,23 +810,15 @@ func existingGatewayKeycloakClientID(gatewayID string, gw *pb.Gateway) (string, 
 		}
 		return clientID, nil
 	}
-
-	if gw.GetName() == "" {
-		return "", invalidGatewayKeycloakClientIdentity("gateway name is required for Keycloak reconciliation")
-	}
-	fallback := fmt.Sprintf("%s-%s", gw.GetName(), gatewayID)
-	if containsControlCharacter(fallback) {
-		return "", invalidGatewayKeycloakClientIdentity("gateway-derived Keycloak client identity contains control characters")
-	}
-	if !isGatewayOwnedKeycloakClientID(fallback, gatewayID) {
-		return "", invalidGatewayKeycloakClientIdentity("gateway-derived Keycloak client identity is not owned by the gateway")
-	}
-	return fallback, nil
+	return gatewayID, nil
 }
 
 func isGatewayOwnedKeycloakClientID(clientID, gatewayID string) bool {
 	if clientID == "" || containsControlCharacter(clientID) {
 		return false
+	}
+	if clientID == gatewayID {
+		return true
 	}
 	suffix := "-" + gatewayID
 	return strings.HasSuffix(clientID, suffix) && len(clientID) > len(suffix)
