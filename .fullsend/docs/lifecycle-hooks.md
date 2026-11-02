@@ -210,7 +210,20 @@ re-checks live state before acting, so an operator can reapply a validated resul
 without rerunning the agent by invoking `scripts/post-lifecycle.sh` from the run
 directory with the same `PHASE`, `ISSUE_URL`, and recorded `LIFECYCLE_*`
 environment (where the deployed Fullsend interfaces support re-invoking a
-post-script). Failure classes are distinguishable from the post-script logs:
+post-script).
+
+When `FULLSEND_VALIDATED_ITERATION_DIR` is set (the normal flow), the post-script
+acts only on the iteration Fullsend marked as validated. When it is unset, the
+post-script falls back to the highest-numbered `iteration-<N>/output/agent-result.json`.
+That fallback is a HUMAN RECOVERY path only: there is no validated-iteration marker,
+so the post-script cannot prove the selected result passed the native
+`validation_loop`. It therefore logs a loud `WARNING` naming the path, and it still
+re-checks every trusted field (schema version, phase, outcome, the `pr_number`
+against the recorded PR, and head freshness) before acting, but it does not re-run
+the full JSON Schema. Reserve this path for a deliberate operator recovery of a run
+whose validated-iteration marker was lost, not for normal operation.
+
+Failure classes are distinguishable from the post-script logs:
 `no validated agent result` (agent failure), a non-zero exit on a schema or
 identifier problem (invalid output), `review result is stale` (stale output),
 `FAILED to post the required ... review comment` (comment-posting failure, before

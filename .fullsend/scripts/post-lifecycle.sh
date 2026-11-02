@@ -68,6 +68,14 @@ if [[ -n "${FULLSEND_VALIDATED_ITERATION_DIR:-}" ]]; then
     exit 1
   fi
 else
+  # Fallback result discovery: Fullsend did not point us at a validated iteration
+  # dir, so there is no proof the chosen result passed the native validation_loop.
+  # This is a HUMAN RECOVERY path only (see .fullsend/docs/lifecycle-hooks.md,
+  # Recovery): the normal flow always sets FULLSEND_VALIDATED_ITERATION_DIR. We
+  # still re-check every trusted field below (schema_version, phase, outcome,
+  # pr_number against the recorded PR, head freshness), but we do NOT re-run the
+  # full JSON Schema here, so announce the path loudly instead of advancing
+  # silently on possibly-unvalidated output.
   _best=-1
   for _d in iteration-*/output; do
     [[ -f "${_d}/agent-result.json" ]] || continue
@@ -75,6 +83,9 @@ else
     [[ "${_n}" =~ ^[0-9]+$ ]] || continue
     if (( _n > _best )); then _best="${_n}"; RESULT_FILE="${_d}/agent-result.json"; fi
   done
+  if [[ -n "${RESULT_FILE}" ]]; then
+    echo "post-lifecycle: WARNING: FULLSEND_VALIDATED_ITERATION_DIR is unset; selecting ${RESULT_FILE} by highest iteration number without a validated-iteration marker (human recovery path). The trusted-field and evidence checks below still apply, but the full JSON Schema is not re-run here." >&2
+  fi
 fi
 
 if [[ -z "${RESULT_FILE}" || ! -f "${RESULT_FILE}" ]]; then
@@ -236,10 +247,20 @@ if lifecycle_phase_is_review "${PHASE}"; then
     exit 0
   fi
   # If the agent reported which head it reviewed, it must be consistent with the
-  # recorded head (supports a short-SHA prefix).
-  if [[ -n "${r_head_sha}" && "${recorded_head}" != "${r_head_sha}"* && "${r_head_sha}" != "${recorded_head}"* ]]; then
-    echo "post-lifecycle: reviewed head ${r_head_sha} is inconsistent with recorded head ${recorded_head}; review result is stale" >&2
-    exit 0
+  # recorded head (supports a short-SHA prefix). The agent value is untrusted and,
+  # on the fallback result-discovery path, has not passed the JSON Schema, so
+  # re-validate it as a 7-40 char lowercase-hex commit sha BEFORE the glob compare.
+  # Without this, a value like "*" would be used as a glob pattern and match any
+  # recorded head, silently passing the consistency check.
+  if [[ -n "${r_head_sha}" ]]; then
+    if [[ ! "${r_head_sha}" =~ ^[0-9a-f]{7,40}$ ]]; then
+      echo "post-lifecycle: result head_sha '${r_head_sha:0:48}' is not a 7-40 char hex commit sha; treating the review result as stale, no verdict transition" >&2
+      exit 0
+    fi
+    if [[ "${recorded_head}" != "${r_head_sha}"* && "${r_head_sha}" != "${recorded_head}"* ]]; then
+      echo "post-lifecycle: reviewed head ${r_head_sha} is inconsistent with recorded head ${recorded_head}; review result is stale" >&2
+      exit 0
+    fi
   fi
 fi
 
@@ -318,8 +339,17 @@ if lifecycle_phase_is_review "${PHASE}" && [[ "${outcome}" == "rejected" ]]; the
     echo "post-lifecycle: could not read the issue timeline to count rejections; not applying the transition" >&2
     exit 1
   fi
-  prior="$(printf '%s' "${timeline}" | lifecycle_count_rejections "${rej_label}")"
-  prior="${prior:-0}"
+  # Fail closed: the block decision depends on this count, so an empty or
+  # non-numeric result (a jq failure counting an unparseable timeline) must abort
+  # before any mutation rather than defaulting to 0 and silently skipping a required
+  # agent/blocked (SDLC-HOOK-12). Capture a counting failure into an empty value so
+  # the actionable guard below runs instead of a raw jq abort under set -e.
+  prior=""
+  prior="$(printf '%s' "${timeline}" | lifecycle_count_rejections "${rej_label}")" || prior=""
+  if [[ ! "${prior}" =~ ^[0-9]+$ ]]; then
+    echo "post-lifecycle: could not compute a numeric prior-rejection count (got '${prior:0:32}'); not applying the transition" >&2
+    exit 1
+  fi
   # Idempotent count: if this rejection verdict label is already present, a prior
   # (possibly interrupted add-first) attempt already applied it, so the timeline
   # already counts this rejection; adding +1 again on reapply would double-count

@@ -153,8 +153,8 @@ fi
 S="${WORK}/B.labels"
 _seed "${S}" agent/reviewable-spec agent/review-spec-approved agent/allowed
 _run spec-review \
-  '{"schema_version":"1","phase":"spec-review","outcome":"approved","rationale":"g","pr_number":5,"head_sha":"abc","comment":"a"}' \
-  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc \
+  '{"schema_version":"1","phase":"spec-review","outcome":"approved","rationale":"g","pr_number":5,"head_sha":"abc1234","comment":"a"}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 \
   > "${WORK}/B.out" 2>&1
 if _has_label "${S}" agent/review-spec-approved && ! _has_label "${S}" agent/reviewable-spec; then
   _ok "interrupted transition converges to the expected final state"
@@ -170,8 +170,8 @@ fi
 S="${WORK}/B2.labels"
 _seed "${S}" agent/allowed "${REPO_SCOPE}" agent/execution-record
 _run code-review \
-  '{"schema_version":"1","phase":"code-review","outcome":"rejected","rationale":"needs work","pr_number":5,"head_sha":"abc","comment":"rejected"}' \
-  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc \
+  '{"schema_version":"1","phase":"code-review","outcome":"rejected","rationale":"needs work","pr_number":5,"head_sha":"abc1234","comment":"rejected"}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 \
   > "${WORK}/B2.out" 2>&1
 rc=$?
 if [[ "${rc}" == 0 ]] && _has_label "${S}" agent/review-code-rejected \
@@ -189,8 +189,8 @@ S="${WORK}/B3.labels"
 _seed "${S}" agent/review-code-rejected agent/allowed "${REPO_SCOPE}"
 before="$(sort "${S}")"
 _run code-review \
-  '{"schema_version":"1","phase":"code-review","outcome":"approved","rationale":"lgtm","pr_number":5,"head_sha":"abc","comment":"approved"}' \
-  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc \
+  '{"schema_version":"1","phase":"code-review","outcome":"approved","rationale":"lgtm","pr_number":5,"head_sha":"abc1234","comment":"approved"}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 \
   > "${WORK}/B3.out" 2>&1
 rc=$?
 after="$(sort "${S}")"
@@ -209,8 +209,8 @@ _seed "${S}" agent/review-spec-approved agent/allowed
 before="$(sort "${S}")"
 COMMENTS="${WORK}/C.comments"; : > "${COMMENTS}"
 _run spec-review \
-  '{"schema_version":"1","phase":"spec-review","outcome":"approved","rationale":"g","pr_number":5,"head_sha":"abc","comment":"a"}' \
-  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc MOCK_COMMENTS="${COMMENTS}" \
+  '{"schema_version":"1","phase":"spec-review","outcome":"approved","rationale":"g","pr_number":5,"head_sha":"abc1234","comment":"a"}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 MOCK_COMMENTS="${COMMENTS}" \
   > "${WORK}/C.out" 2>&1
 after="$(sort "${S}")"
 if [[ "${before}" == "${after}" ]] && [[ ! -s "${COMMENTS}" ]]; then
@@ -238,8 +238,8 @@ fi
 S="${WORK}/E.labels"
 _seed "${S}" agent/review-spec-approved agent/blocked agent/allowed "${REPO_SCOPE}"
 _run code-implementation \
-  '{"schema_version":"1","phase":"code-implementation","outcome":"completed","rationale":"done","pr_number":5,"head_sha":"abc"}' \
-  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc \
+  '{"schema_version":"1","phase":"code-implementation","outcome":"completed","rationale":"done","pr_number":5,"head_sha":"abc1234"}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 \
   > "${WORK}/E.out" 2>&1
 if _has_label "${S}" agent/blocked && _has_label "${S}" agent/review-spec-approved \
    && _has_label "${S}" agent/reviewable-code; then
@@ -253,8 +253,8 @@ S="${WORK}/F.labels"
 _seed "${S}" agent/reviewable-code agent/allowed
 before="$(sort "${S}")"
 _run code-review \
-  '{"schema_version":"1","phase":"code-review","outcome":"bogus","rationale":"g","pr_number":5,"head_sha":"abc","comment":"a"}' \
-  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc \
+  '{"schema_version":"1","phase":"code-review","outcome":"bogus","rationale":"g","pr_number":5,"head_sha":"abc1234","comment":"a"}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 \
   > "${WORK}/F.out" 2>&1
 rc=$?
 after="$(sort "${S}")"
@@ -286,8 +286,8 @@ S="${WORK}/H.labels"
 _seed "${S}" agent/reviewable-code agent/allowed
 before="$(sort "${S}")"
 _run code-review \
-  '{"schema_version":"1","phase":"code-review","outcome":"approved","rationale":"g","pr_number":999,"head_sha":"abc","comment":"a"}' \
-  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc \
+  '{"schema_version":"1","phase":"code-review","outcome":"approved","rationale":"g","pr_number":999,"head_sha":"abc1234","comment":"a"}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 \
   > "${WORK}/H.out" 2>&1
 rc=$?
 after="$(sort "${S}")"
@@ -301,8 +301,8 @@ fi
 S="${WORK}/I.labels"
 _seed "${S}" agent/reviewable-code agent/allowed
 _run code-review \
-  '{"schema_version":"1","phase":"code-review","outcome":"approved","rationale":"g","pr_number":5,"head_sha":"abc","comment":"a"}' \
-  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc \
+  '{"schema_version":"1","phase":"code-review","outcome":"approved","rationale":"g","pr_number":5,"head_sha":"abc1234","comment":"a"}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 \
   MOCK_CHECKRUNS='[{"status":"completed","conclusion":"failure"}]' \
   > "${WORK}/I.out" 2>&1
 if _has_label "${S}" agent/reviewable-code && ! _has_label "${S}" agent/review-code-approved; then
@@ -316,8 +316,8 @@ S="${WORK}/J.labels"
 _seed "${S}" agent/reviewable-spec agent/allowed
 TL='[{"event":"labeled","label":{"name":"agent/review-spec-rejected"}},{"event":"labeled","label":{"name":"agent/review-spec-rejected"}}]'
 _run spec-review \
-  '{"schema_version":"1","phase":"spec-review","outcome":"rejected","rationale":"no","pr_number":5,"head_sha":"abc","comment":"bad"}' \
-  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc MOCK_TIMELINE="${TL}" \
+  '{"schema_version":"1","phase":"spec-review","outcome":"rejected","rationale":"no","pr_number":5,"head_sha":"abc1234","comment":"bad"}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 MOCK_TIMELINE="${TL}" \
   > "${WORK}/J.out" 2>&1
 if _has_label "${S}" agent/review-spec-rejected && _has_label "${S}" agent/blocked \
    && ! _has_label "${S}" agent/reviewable-spec; then
@@ -345,8 +345,8 @@ S="${WORK}/L.labels"
 _seed "${S}" agent/reviewable-code agent/review-spec-approved agent/allowed
 LCOMMENTS="${WORK}/L.comments"; : > "${LCOMMENTS}"
 _run code-review \
-  '{"schema_version":"1","phase":"code-review","outcome":"approved","rationale":"lgtm","pr_number":5,"head_sha":"abc","comment":"approved"}' \
-  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc \
+  '{"schema_version":"1","phase":"code-review","outcome":"approved","rationale":"lgtm","pr_number":5,"head_sha":"abc1234","comment":"approved"}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 \
   MOCK_CHECKRUNS='[{"status":"completed","conclusion":"success"}]' MOCK_COMMENTS="${LCOMMENTS}" \
   > "${WORK}/L.out" 2>&1
 if _has_label "${S}" agent/review-code-approved && ! _has_label "${S}" agent/reviewable-code \
@@ -360,8 +360,8 @@ fi
 S="${WORK}/M.labels"
 _seed "${S}" agent/reviewable-code agent/allowed
 _run code-review \
-  '{"schema_version":"1","phase":"code-review","outcome":"approved","rationale":"lgtm","pr_number":5,"head_sha":"abc","comment":"a"}' \
-  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc \
+  '{"schema_version":"1","phase":"code-review","outcome":"approved","rationale":"lgtm","pr_number":5,"head_sha":"abc1234","comment":"a"}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 \
   MOCK_CHECKRUNS='[]' MOCK_STATUS_TOTAL=0 \
   > "${WORK}/M.out" 2>&1
 if _has_label "${S}" agent/reviewable-code && ! _has_label "${S}" agent/review-code-approved; then
@@ -454,8 +454,8 @@ fi
 S="${WORK}/Q.labels"
 _seed "${S}" agent/reviewable-code agent/review-spec-approved agent/allowed
 _run code-review \
-  '{"schema_version":"1","phase":"code-review","outcome":"approved","rationale":"lgtm","pr_number":5,"head_sha":"abc","comment":"approved"}' \
-  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc \
+  '{"schema_version":"1","phase":"code-review","outcome":"approved","rationale":"lgtm","pr_number":5,"head_sha":"abc1234","comment":"approved"}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 \
   MOCK_BASE_REF=main MOCK_REQUIRED='ci-required' \
   MOCK_CHECKRUNS='[{"name":"ci-required","id":2,"status":"completed","conclusion":"success"},{"name":"advisory","id":1,"status":"completed","conclusion":"failure"}]' \
   > "${WORK}/Q.out" 2>&1
@@ -469,8 +469,8 @@ fi
 S="${WORK}/R.labels"
 _seed "${S}" agent/reviewable-code agent/allowed
 _run code-review \
-  '{"schema_version":"1","phase":"code-review","outcome":"approved","rationale":"lgtm","pr_number":5,"head_sha":"abc","comment":"a"}' \
-  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc \
+  '{"schema_version":"1","phase":"code-review","outcome":"approved","rationale":"lgtm","pr_number":5,"head_sha":"abc1234","comment":"a"}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 \
   MOCK_BASE_REF=main MOCK_REQUIRED='ci-required' \
   MOCK_CHECKRUNS='[{"name":"advisory","id":1,"status":"completed","conclusion":"success"}]' \
   > "${WORK}/R.out" 2>&1
@@ -506,8 +506,8 @@ fi
 S="${WORK}/T.labels"
 _seed "${S}" agent/review-spec-approved agent/allowed "${REPO_SCOPE}"
 _run code-implementation \
-  '{"schema_version":"1","phase":"code-implementation","outcome":"completed","rationale":"done","pr_number":5,"head_sha":"abc","comment":"fyi"}' \
-  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc \
+  '{"schema_version":"1","phase":"code-implementation","outcome":"completed","rationale":"done","pr_number":5,"head_sha":"abc1234","comment":"fyi"}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 \
   MOCK_COMMENT_FAIL=1 \
   > "${WORK}/T.out" 2>&1
 rc=$?
@@ -530,8 +530,8 @@ _seed "${S}" agent/reviewable-spec agent/review-spec-rejected agent/allowed "${R
 # attempt that already added the label now present on the record.
 TL='[{"event":"labeled","label":{"name":"agent/review-spec-rejected"}},{"event":"labeled","label":{"name":"agent/review-spec-rejected"}}]'
 _run spec-review \
-  '{"schema_version":"1","phase":"spec-review","outcome":"rejected","rationale":"no","pr_number":5,"head_sha":"abc","comment":"bad"}' \
-  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc MOCK_TIMELINE="${TL}" \
+  '{"schema_version":"1","phase":"spec-review","outcome":"rejected","rationale":"no","pr_number":5,"head_sha":"abc1234","comment":"bad"}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 MOCK_TIMELINE="${TL}" \
   > "${WORK}/U.out" 2>&1
 rc=$?
 if [[ "${rc}" == 0 ]] && _has_label "${S}" agent/review-spec-rejected \
@@ -550,8 +550,8 @@ S="${WORK}/V.labels"
 _seed "${S}" agent/reviewable-spec agent/allowed "${REPO_SCOPE}"
 before="$(sort "${S}")"
 _run spec-review \
-  '{"schema_version":"1","phase":"spec-review","outcome":"rejected","rationale":"no","pr_number":5,"head_sha":"abc","comment":""}' \
-  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc \
+  '{"schema_version":"1","phase":"spec-review","outcome":"rejected","rationale":"no","pr_number":5,"head_sha":"abc1234","comment":""}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 \
   > "${WORK}/V.out" 2>&1
 rc=$?
 after="$(sort "${S}")"
@@ -575,8 +575,8 @@ WCOMMENTS="${WORK}/W.comments"; : > "${WCOMMENTS}"
 WMARKERS="${WORK}/W.markers"; : > "${WMARKERS}"
 WBODY="${WORK}/W.body"; : > "${WBODY}"
 _run code-review \
-  '{"schema_version":"1","phase":"code-review","outcome":"approved","rationale":"lgtm","pr_number":5,"head_sha":"abc","comment":"approved by the reviewer"}' \
-  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc \
+  '{"schema_version":"1","phase":"code-review","outcome":"approved","rationale":"lgtm","pr_number":5,"head_sha":"abc1234","comment":"approved by the reviewer"}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 \
   MOCK_CHECKRUNS='[{"status":"completed","conclusion":"failure"}]' \
   MOCK_COMMENTS="${WCOMMENTS}" MOCK_MARKERS="${WMARKERS}" MOCK_BODY="${WBODY}" \
   > "${WORK}/W.out" 2>&1
@@ -603,8 +603,8 @@ fi
 # Continues from scenario W's label store (still agent/reviewable-code).
 W2MARKERS="${WORK}/W2.markers"; : > "${W2MARKERS}"
 _run code-review \
-  '{"schema_version":"1","phase":"code-review","outcome":"approved","rationale":"lgtm","pr_number":5,"head_sha":"abc","comment":"approved by the reviewer"}' \
-  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc \
+  '{"schema_version":"1","phase":"code-review","outcome":"approved","rationale":"lgtm","pr_number":5,"head_sha":"abc1234","comment":"approved by the reviewer"}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 \
   MOCK_CHECKRUNS='[{"status":"completed","conclusion":"success"}]' \
   MOCK_MARKERS="${W2MARKERS}" \
   > "${WORK}/W2.out" 2>&1
@@ -626,8 +626,8 @@ _seed "${S3}" agent/reviewable-code agent/allowed "${REPO_SCOPE}"
 before="$(sort "${S3}")"
 W3COMMENTS="${WORK}/W3.comments"; : > "${W3COMMENTS}"
 _run code-review \
-  '{"schema_version":"1","phase":"code-review","outcome":"approved","rationale":"lgtm","pr_number":5,"head_sha":"abc","comment":""}' \
-  MOCK_STATE="${S3}" MOCK_HEAD_SHA=abc LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc \
+  '{"schema_version":"1","phase":"code-review","outcome":"approved","rationale":"lgtm","pr_number":5,"head_sha":"abc1234","comment":""}' \
+  MOCK_STATE="${S3}" MOCK_HEAD_SHA=abc1234 LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 \
   MOCK_CHECKRUNS='[{"status":"completed","conclusion":"failure"}]' MOCK_COMMENTS="${W3COMMENTS}" \
   > "${WORK}/W3.out" 2>&1
 rc=$?
@@ -636,6 +636,52 @@ if [[ "${rc}" != 0 ]] && [[ "${before}" == "${after}" ]] && [[ ! -s "${W3COMMENT
   _ok "a deferred approval with an empty comment fails with no record and no label change"
 else
   _no "a deferred approval with an empty comment fails with no record and no label change" "rc=${rc} $(cat "${WORK}/W3.out")"
+fi
+
+# ---- Scenario X: a non-hex / glob agent head_sha is treated as stale -----------
+# The agent head_sha is untrusted and, on the fallback path, has not passed the
+# JSON Schema. A value like "*" must not be used as a glob pattern that matches any
+# recorded head: the post-script re-validates it as 7-40 hex and, when it does not
+# match, treats the review result as stale with no verdict and no label change.
+S="${WORK}/X.labels"
+_seed "${S}" agent/reviewable-code agent/allowed "${REPO_SCOPE}"
+before="$(sort "${S}")"
+_run code-review \
+  '{"schema_version":"1","phase":"code-review","outcome":"approved","rationale":"lgtm","pr_number":5,"head_sha":"*","comment":"approved"}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 \
+  > "${WORK}/X.out" 2>&1
+rc=$?
+after="$(sort "${S}")"
+if [[ "${rc}" == 0 ]] && [[ "${before}" == "${after}" ]] \
+   && _has_label "${S}" agent/reviewable-code \
+   && ! _has_label "${S}" agent/review-code-approved \
+   && grep -q "not a 7-40 char hex commit sha" "${WORK}/X.out"; then
+  _ok "a non-hex (glob) agent head_sha is treated as stale with no verdict or label change"
+else
+  _no "a non-hex (glob) agent head_sha is treated as stale with no verdict or label change" "rc=${rc} $(cat "${WORK}/X.out")"
+fi
+
+# ---- Scenario Y: an unparseable timeline fails the rejection closed ------------
+# The block decision for a rejection depends on a numeric prior-rejection count
+# from the timeline (SDLC-HOOK-12). If that count cannot be computed (a jq/read
+# failure yields a non-numeric value) the transition must abort before any mutation
+# rather than default to 0 and silently skip a possibly-required agent/blocked.
+S="${WORK}/Y.labels"
+_seed "${S}" agent/reviewable-spec agent/allowed "${REPO_SCOPE}"
+before="$(sort "${S}")"
+_run spec-review \
+  '{"schema_version":"1","phase":"spec-review","outcome":"rejected","rationale":"no","pr_number":5,"head_sha":"abc1234","comment":"bad"}' \
+  MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 \
+  MOCK_TIMELINE='this is not json' \
+  > "${WORK}/Y.out" 2>&1
+rc=$?
+after="$(sort "${S}")"
+if [[ "${rc}" != 0 ]] && [[ "${before}" == "${after}" ]] \
+   && ! _has_label "${S}" agent/review-spec-rejected \
+   && grep -q "could not compute a numeric prior-rejection count" "${WORK}/Y.out"; then
+  _ok "an unparseable timeline fails the rejection closed with no label change"
+else
+  _no "an unparseable timeline fails the rejection closed with no label change" "rc=${rc} $(cat "${WORK}/Y.out")"
 fi
 
 printf '\n%d passed, %d failed\n' "${PASS}" "${FAIL}"

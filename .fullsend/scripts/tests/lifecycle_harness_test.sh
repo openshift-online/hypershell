@@ -177,7 +177,11 @@ else
     mkdir -p "${RUN}/iteration-1/output"
     S="${WORK}/chain.labels"
     _seed "${S}" agent/reviewable-code agent/review-spec-approved agent/allowed agent/scope/jsell/fullsend agent/execution-record
-    RELAY="${RUN}/prescript.env"
+    # Relay file for the pre-script's recorded variables. The name deliberately
+    # avoids an env-file suffix: it holds no credentials, only KEY=VALUE lifecycle
+    # facts (the PR head and number), and an env-file suffix is a false
+    # credential-file match for the security scanner.
+    RELAY="${RUN}/prescript.vars"
     : > "${RELAY}"
     CHAIN_COMMENTS="${RUN}/comments"; : > "${CHAIN_COMMENTS}"
 
