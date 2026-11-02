@@ -3,10 +3,11 @@
 //
 // GORM AutoMigrate is forbidden across all Kinds (SDLC-CONF-02,
 // specs/standards/platform/cross-cutting.spec.md): its column-diff introspection
-// fails closed on the production PostgreSQL driver and protocol (lib/pq with
-// PreferSimpleProtocol), which poisons the transaction and aborts every
-// subsequent query on the table with SQLSTATE 25P02. The ci_providers/ci_trusts
-// outage on hyp0 was exactly this failure.
+// fails closed under the simple query protocol that every session runs with
+// (PreferSimpleProtocol) - production on the pgx driver
+// (gorm.io/driver/postgres), the integration harness on lib/pq - which poisons
+// the transaction and aborts every subsequent query on the table with SQLSTATE
+// 25P02. The ci_providers/ci_trusts outage on hyp0 was exactly this failure.
 //
 // CreateTable renders the table DDL from the GORM-parsed model schema (the same
 // CREATE TABLE statement AutoMigrate's create path would emit) and executes it
@@ -81,8 +82,9 @@ func CreateTable(tx *gorm.DB, models ...interface{}) error {
 //     helper run - is dropped first so the rebuilt index is always partial, on
 //     fresh and upgraded databases alike.
 //
-// All statements are idempotent raw SQL safe under the production lib/pq +
-// PreferSimpleProtocol driver; it never calls AutoMigrate (SDLC-CONF-02).
+// All statements are idempotent raw SQL safe under PreferSimpleProtocol (the
+// production pgx driver and the lib/pq test harness alike); it never calls
+// AutoMigrate (SDLC-CONF-02).
 func AddUniqueNameColumn(tx *gorm.DB, table, nameExpr string) error {
 	if err := tx.Exec(`ALTER TABLE ` + table + ` ADD COLUMN IF NOT EXISTS name text`).Error; err != nil {
 		return err

@@ -20,10 +20,11 @@ import (
 // RBAC registration source (rbac.ExtKinds, SDLC-CONF-01) and drives a full
 // create -> get -> list -> delete round-trip for each over the real HTTP and
 // database stack, on the integration-testing harness. That harness connects
-// GORM through lib/pq with PreferSimpleProtocol (the same protocol production
-// uses), so a migration or query that aborts under the production driver aborts
-// here too (SDLC-CONF-04): the generic LIST and GET below would return 500 with
-// SQLSTATE 25P02 rather than 200, failing the test.
+// GORM through lib/pq with PreferSimpleProtocol, the same simple query protocol
+// production uses (production itself runs the pgx driver,
+// gorm.io/driver/postgres), so a migration or query that aborts under the
+// production protocol aborts here too (SDLC-CONF-04): the generic LIST and GET
+// below would return 500 with SQLSTATE 25P02 rather than 200, failing the test.
 //
 // Kinds are discovered from the registry, never a hand-kept list: a newly
 // registered ext kind is included automatically and fails this test until it
