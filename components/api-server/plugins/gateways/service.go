@@ -223,8 +223,8 @@ func (s *sqlGatewayService) Replace(ctx context.Context, gateway *Gateway) (*Gat
 		return nil, svcErr
 	}
 	// workspace_mode value semantics apply to every writer class, the control
-	// plane included: vocabulary enforced, stored value immutable, a NULL value
-	// settable exactly once (OSG-CORE-18).
+	// plane included: vocabulary enforced, stored value immutable, an omitted
+	// value keeps the stored one (OSG-CORE-18).
 	if svcErr := enforceGatewayWorkspaceUpdateSemantics(current, gateway); svcErr != nil {
 		return nil, svcErr
 	}

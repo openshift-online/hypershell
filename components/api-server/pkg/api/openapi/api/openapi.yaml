@@ -4737,8 +4737,8 @@ components:
               \ \"shared\" places all sandboxes in the gateway namespace; \"managed\"\
               \ auto-creates per-workspace namespaces; \"operator\" uses pre-provisioned\
               \ namespaces. Platform-managed (PLAT-DATA-23): the API server defaults\
-              \ it to \"managed\" at create, and no caller can set or change it. Null\
-              \ (legacy gateways) keeps the chart's \"shared\" default."
+              \ it to \"managed\" at create, and no caller can set or change it. Always\
+              \ present on a stored gateway."
             enum:
             - shared
             - managed

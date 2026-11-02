@@ -50,9 +50,9 @@ type Gateway struct {
 	// to namespaces (shared/managed/operator). Platform-managed (PLAT-DATA-23):
 	// the API server defaults it to "managed" at create; no caller can set or
 	// change it (the service funnel enforces the vocabulary and immutability).
-	// NULL on gateways created before the field existed; those keep the chart's
-	// shared default (openshell-gateway.spec.md, "OSG-CORE-18 -- Gateway Workspace
-	// Mode").
+	// The column is NOT NULL; gateways that predate it were backfilled to the
+	// "shared" mode they already ran in (openshell-gateway.spec.md, "OSG-CORE-18
+	// -- Gateway Workspace Mode").
 	WorkspaceMode          *string `json:"workspace_mode"`
 	ActiveSandboxCount     *int    `json:"active_sandbox_count"`
 	ProvisioningConditions *string `json:"provisioning_conditions" gorm:"type:jsonb"`

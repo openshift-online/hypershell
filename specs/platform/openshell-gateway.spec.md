@@ -733,19 +733,18 @@ caller-supplied value survives. A user or import caller that declares
 `workspace_mode` on create or update SHALL be rejected naming the field. The
 service funnel SHALL also enforce the field's value semantics for every
 writer class, the control plane included: the vocabulary above, and
-immutability of a stored non-null value (re-sending the stored value is a
-no-op; a null value on a Gateway created before this field existed may be
-set exactly once, which only a control-plane internal write can exercise).
+immutability of the stored value (re-sending the stored value is a no-op, and
+an update that omits the field keeps the stored value).
 
-A null `workspace_mode` (Gateways created before this field existed) SHALL be
-omitted from the Helm values by the GatewayReconciler so the vendored chart
-default (`shared`) keeps applying: legacy Gateways are provisioned exactly as
-before, and only newly created Gateways pick up the `managed` default.
+Every stored Gateway SHALL carry a `workspace_mode`: the column is required
+(`NOT NULL`), so no Gateway is provisioned on the chart's default mode.
 
-The GatewayReconciler SHALL pass a non-null `workspace_mode` into the OpenShell
+The GatewayReconciler SHALL pass the stored `workspace_mode` into the OpenShell
 Helm chart as `server.drivers.kubernetes.workspaceMode`, which the chart
 renders as `workspace_mode` under `[openshell.drivers.kubernetes]` in
-`gateway.toml`.
+`gateway.toml`. A Gateway that reaches the reconciler with an empty or unknown
+mode SHALL fail provisioning as an invalid gateway configuration. It SHALL NOT
+fall back to the chart default.
 
 In `managed` mode the gateway auto-creates one namespace per workspace named
 `openshell-{gateway_id}-{workspace}`. Because HyperShell places many gateways
@@ -792,18 +791,26 @@ it.
 
 #### Scenario: OSG-CORE-18.04 -- Stored mode is immutable
 
-- GIVEN a Gateway with a stored non-null `workspace_mode`
+- GIVEN a Gateway with a stored `workspace_mode`
 - WHEN a control-plane internal update changes it to a different value
 - THEN the update SHALL be rejected with a conflict; re-sending the stored
   value is a no-op
 
-#### Scenario: OSG-CORE-18.05 -- Legacy gateway keeps shared behavior
+#### Scenario: OSG-CORE-18.08 -- An update that omits the mode keeps it
 
-- GIVEN a Gateway persisted before this field existed, with null
+- GIVEN a Gateway with a stored `workspace_mode`
+- WHEN a control-plane internal update omits `workspace_mode`
+- THEN the update SHALL succeed
+- AND the stored `workspace_mode` SHALL be unchanged
+
+#### Scenario: OSG-CORE-18.09 -- A missing mode fails provisioning
+
+- GIVEN a Gateway that reaches the GatewayReconciler with an empty
   `workspace_mode`
 - WHEN the GatewayReconciler provisions it
-- THEN the Helm values SHALL omit `workspaceMode` entirely
-- AND the vendored chart default (`shared`) SHALL continue to apply unchanged
+- THEN provisioning SHALL fail as an invalid gateway configuration
+- AND no Helm release SHALL be installed or upgraded with the chart's default
+  mode
 
 #### Scenario: OSG-CORE-18.06 -- Active sandbox accounting spans managed namespaces
 
@@ -1140,6 +1147,13 @@ The NVIDIA docs recommend cert-manager v1.20+. HyperShell test environments curr
 The NVIDIA docs note that the OpenShift install path is experimental and recommends `server.disableTls=true` for evaluation. HyperShell diverges from this recommendation by keeping TLS enabled, because BackendTLSPolicy re-encrypts traffic from the networking Gateway to the pod, requiring the gateway to terminate TLS on the backend segment.
 
 ---
+
+## Retired IDs
+
+- `OSG-CORE-18.05`: "Legacy gateway keeps shared behavior". Retired when the
+  null `workspace_mode` path was removed. Gateways that predated the field were
+  backfilled to `shared` by migration `2026110212000001`, and the column is
+  now required. See OSG-CORE-18.08 and OSG-CORE-18.09.
 
 ## References
 
