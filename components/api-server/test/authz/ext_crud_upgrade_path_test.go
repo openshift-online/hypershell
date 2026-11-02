@@ -80,6 +80,25 @@ func TestExtKindsUpgradePathConformance(t *testing.T) {
 	assertFindByName(t, env, "ci_providers", cp.GetId(), cpName)
 	assertFindByName(t, env, "ci_trusts", ct.GetId(), ctName)
 
+	// The other two Kinds that gained a name column (SDLC-CONF-13) are exercised
+	// on the same converged, upgraded database: inference_routes and
+	// workspace_memberships both resolve find-by-name over the real stack, so the
+	// name-column migration is proven to run on every affected Kind after an
+	// upgrade, not only the two that also needed convergence.
+	irName := "ir-upgrade-" + short()
+	irReq := openapi.NewInferenceRoute(env.workspaceID, env.providerBindingID, "gpt-4o")
+	irReq.Name = openapi.PtrString(irName)
+	ir, _, err := client.DefaultAPI.CreateInferenceRoute(env.owner.rest).InferenceRoute(*irReq).Execute()
+	Expect(err).NotTo(HaveOccurred(), "create inference_route after convergence: %s", test.APIErrorReason(err))
+	assertFindByName(t, env, "inference_routes", ir.GetId(), irName)
+
+	wmName := "wm-upgrade-" + short()
+	wmReq := openapi.NewWorkspaceMembership(env.workspaceID, "subject-"+short(), "member")
+	wmReq.Name = openapi.PtrString(wmName)
+	wm, _, err := client.DefaultAPI.CreateWorkspaceMembership(env.owner.rest).WorkspaceMembership(*wmReq).Execute()
+	Expect(err).NotTo(HaveOccurred(), "create workspace_membership after convergence: %s", test.APIErrorReason(err))
+	assertFindByName(t, env, "workspace_memberships", wm.GetId(), wmName)
+
 	status, body = env.do(t, http.MethodDelete, "ci_trusts/"+ct.GetId(), "")
 	Expect(status).To(Or(Equal(http.StatusOK), Equal(http.StatusNoContent)), "delete ci_trust after convergence: %s", body)
 	status, body = env.do(t, http.MethodDelete, "ci_providers/"+cp.GetId(), "")
