@@ -84,9 +84,9 @@ export interface GatewayPage<T> {
   total: number;
   // hasOtherOwnedGateways reports whether the caller's full authorized list
   // contains at least one gateway owned by someone else, so the UI can decide
-  // whether to show the "Show only my gateways" toggle (WEB-UIEX-07,
+  // whether to show the "Show only my gateways" switch (WEB-UIEX-07,
   // WEB-API-01). It reflects the authorized set only (SEC-RBAC-10). Optional so
-  // existing page consumers default to hiding the toggle.
+  // existing page consumers default to hiding the switch.
   hasOtherOwnedGateways?: boolean;
 }
 

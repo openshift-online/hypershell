@@ -385,12 +385,6 @@ export const messages = defineMessages({
     defaultMessage: "Gateway name",
     description: "Label for a gateway name form field.",
   },
-  gatewayOwnershipFilter: {
-    id: "app.page.gateways.ownershipFilter",
-    defaultMessage: "Gateway ownership filter",
-    description:
-      "Accessible label for the toolbar control holding the show-only-my-gateways toggle.",
-  },
   gatewayProvisionError: {
     id: "app.page.gatewayProvision.error.title",
     defaultMessage: "Gateway could not be provisioned",
@@ -765,7 +759,7 @@ export const messages = defineMessages({
     id: "app.page.gateways.showOnlyMine",
     defaultMessage: "Show only my gateways",
     description:
-      "Toggle label that filters the gateway list to only the signed-in user's gateways.",
+      "On/off switch label that filters the gateway list to only the signed-in user's gateways.",
   },
   status: {
     id: "app.table.column.status",
