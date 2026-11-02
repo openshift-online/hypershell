@@ -158,8 +158,10 @@ func TestRefsListsSortedBranchesWithTheDefault(t *testing.T) {
 	}
 }
 
+// Verifies: DEV-SPV-04.01
 func TestSpecsReadTheRequestedBranch(t *testing.T) {
-	h := New(countingSource{newFake(t)}).Handler()
+	fake := newFake(t)
+	h := New(countingSource{fake}).Handler()
 	if got := specPaths(t, h, "/specs.json"); got != "platform/feed.spec.md" {
 		t.Errorf("default branch specs = %q, want only platform/feed.spec.md", got)
 	}
@@ -170,8 +172,12 @@ func TestSpecsReadTheRequestedBranch(t *testing.T) {
 	if status != http.StatusNotFound || !strings.Contains(body, "Unknown branch: nope") {
 		t.Errorf("unknown ref = %d %q, want 404", status, body)
 	}
+	if fake.count("nope") != 0 {
+		t.Errorf("unknown ref downloads = %d, want none", fake.count("nope"))
+	}
 }
 
+// Verifies: DEV-SPV-04.03
 func TestReferencesMatchWholeIDsTestsFirst(t *testing.T) {
 	h := New(countingSource{newFake(t)}).Handler()
 	status, body := get(t, h, "/references?id=ABC-DEF-01")
@@ -204,6 +210,7 @@ func TestReferencesMatchWholeIDsTestsFirst(t *testing.T) {
 	}
 }
 
+// Verifies: DEV-SPV-04.02
 func TestFileServesOnlyReadTextFiles(t *testing.T) {
 	h := New(countingSource{newFake(t)}).Handler()
 	status, body := get(t, h, "/file?path=pkg/feed_test.go")
@@ -274,6 +281,7 @@ func TestFailedDownloadIs502AndNotRetriedAtOnce(t *testing.T) {
 
 // An expired branch answers at once from the old copy while the new one
 // downloads; the next request sees the new copy.
+// Verifies: DEV-SPV-05.01
 func TestExpiredBranchIsServedStaleWhileRefreshing(t *testing.T) {
 	fake := newFake(t)
 	server := New(countingSource{fake})
@@ -311,24 +319,27 @@ func TestExpiredBranchIsServedStaleWhileRefreshing(t *testing.T) {
 	}
 }
 
+// Verifies: DEV-SPV-05.02
 func TestCacheKeepsTheMostRecentlyUsedBranches(t *testing.T) {
 	fake := newFake(t)
-	fake.list.Refs = []string{"main", "a", "b", "c"}
-	for _, ref := range []string{"a", "b", "c"} {
+	fake.list.Refs = []string{"main", "a", "b", "c", "d"}
+	for _, ref := range []string{"a", "b", "c", "d"} {
 		fake.archives[ref] = archiveOf(t, map[string]string{"specs/" + ref + ".md": ref})
 	}
 	server := New(countingSource{fake})
-	server.maxRefs = 2
 	now := time.Unix(0, 0)
 	server.now = func() time.Time { return now }
 	h := server.Handler()
-	for _, ref := range []string{"a", "b", "a", "c", "a"} {
+	for _, ref := range []string{"a", "b", "c", "a", "d", "a", "c"} {
 		now = now.Add(time.Second)
 		specPaths(t, h, "/specs.json?ref="+ref)
 	}
-	// b was dropped for c; a stayed because it was used last.
-	if fake.count("a") != 1 || fake.count("b") != 1 || fake.count("c") != 1 {
-		t.Errorf("downloads a=%d b=%d c=%d, want 1 each", fake.count("a"), fake.count("b"), fake.count("c"))
+	// The server keeps 3 branches: b was dropped for d, being the least
+	// recently used; a and c stayed.
+	for _, ref := range []string{"a", "b", "c", "d"} {
+		if fake.count(ref) != 1 {
+			t.Errorf("%s downloads = %d, want 1", ref, fake.count(ref))
+		}
 	}
 	specPaths(t, h, "/specs.json?ref=b")
 	if fake.count("b") != 2 {
@@ -336,6 +347,7 @@ func TestCacheKeepsTheMostRecentlyUsedBranches(t *testing.T) {
 	}
 }
 
+// Verifies: DEV-SPV-04.03
 func TestMentionsID(t *testing.T) {
 	cases := map[string]bool{
 		"ABC-DEF-01 -- title":      true,

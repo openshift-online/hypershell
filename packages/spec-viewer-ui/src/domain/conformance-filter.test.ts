@@ -60,6 +60,7 @@ describe("filterConformance", () => {
     expect(filterConformance(report.root, {})).toBeNull();
   });
 
+  // Verifies: DEV-SPV-09.01
   it("shows matching scenarios and expands the rows above them", () => {
     const view = filterConformance(report.root, { hits: hitsFor("leaves") });
     expect(view).not.toBeNull();
@@ -94,6 +95,7 @@ describe("filterConformance", () => {
     expect(view?.textHits.get("zoo/feed.spec.md")).toHaveLength(1);
   });
 
+  // Verifies: DEV-SPV-10.01
   it("shows starred items, with all scenarios of a starred requirement", () => {
     const view = filterConformance(report.root, {
       starred: new Set([id("Feed the quokka"), id("Unrelated")]),

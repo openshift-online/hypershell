@@ -63,6 +63,7 @@ or group is added here before any requirement uses it.
 |--------|------|--------------|
 | `DEV-LOC` | `platform/local-development.spec.md` | 17 |
 | `DEV-OCP` | `platform/openshift-development.spec.md` | 14 |
+| `DEV-SPV` | `platform/spec-viewer.spec.md` | 17 |
 
 ### E2E
 

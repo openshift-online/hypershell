@@ -131,6 +131,7 @@ describe("classifyHeading", () => {
 });
 
 describe("parseSpecFile", () => {
+  // Verifies: DEV-SPV-07.01
   it("extracts the file title, specs, scenarios, and their parents", () => {
     const file = catalog().filesByPath.get("platform/gateway.spec.md");
     expect(file?.title).toBe("Gateway Provision Time");
@@ -223,6 +224,7 @@ describe("searchSpecs", () => {
     expect(titles("prvdur")).toContain("Provision Duration Contract");
   });
 
+  // Verifies: DEV-SPV-08.01
   it("matches abbreviations only from the start of each word", () => {
     expect(abbreviationScore("rbac", "role-based access control")).toBe(4 / 13);
     expect(abbreviationScore("cfg", "load the config")).toBe(3 / 6);
@@ -278,6 +280,7 @@ describe("searchSpecs query syntax", () => {
       (hit) => specs.nodesById.get(hit.nodeId)?.title,
     );
 
+  // Verifies: DEV-SPV-08.02
   it("matches words spread over a spec and its scenarios", () => {
     expect(titles("seconds observations")).toEqual([
       "Provision Duration Contract",

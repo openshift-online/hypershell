@@ -22,6 +22,7 @@ import {
 const run = promisify(execFile);
 
 describe("idPattern", () => {
+  // Verifies: DEV-SPV-04.03
   it("matches the ID as a whole identifier", () => {
     const pattern = idPattern("QRX-01");
     expect(pattern.test("// QRX-01 -- provision time")).toBe(true);
@@ -71,6 +72,7 @@ describe("createRepository", () => {
     await rm(root, { recursive: true, force: true });
   });
 
+  // Verifies: DEV-SPV-04.03
   it("finds whole-ID mentions in listed text files, tests first", async () => {
     const repository = createRepository(await repositoryRoot(root));
     const tree = await repository.tree(WORKING_TREE);

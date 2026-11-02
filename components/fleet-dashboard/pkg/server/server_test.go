@@ -93,6 +93,7 @@ func TestSPAFallbackForGlassRoutes(t *testing.T) {
 
 // Extra APIs such as the spec viewer's (/specs/api/) sit behind the same auth
 // gate as /api/, get the prefix stripped, and never fall back to the SPA.
+// Verifies: DEV-SPV-02.01, DEV-SPV-02.02
 func TestMountsAreAuthenticatedAndPrefixStripped(t *testing.T) {
 	echo := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "mounted "+r.URL.Path)

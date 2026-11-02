@@ -30,6 +30,7 @@ const fromReport = (citations: ReportCitation[]): string[] =>
 // it can run where Python cannot (the fleet dashboard image). This test runs
 // both over the real repository and fails on any difference.
 describe("traceability parity with make traceability", () => {
+  // Verifies: DEV-SPV-12.01
   it("cites the same tests and methods as the checker", async () => {
     const markers = await findMarkers(
       await createRepository(ROOT).tree(WORKING_TREE),

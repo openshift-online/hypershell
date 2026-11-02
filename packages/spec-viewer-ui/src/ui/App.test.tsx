@@ -20,6 +20,25 @@ The quokka SHALL be handled.
 
 - WHEN the quokka is hungry
 - THEN it is fed
+
+### Requirement: TRC-FED-02 -- Quokka naps
+
+The quokka SHALL nap.
+
+#### Scenario: TRC-FED-02.01 -- Nap without outcome
+
+- WHEN the quokka is tired
+
+### Requirement: TRC-FED-03 -- Quokka is reviewed
+
+**Verification:** Inspection -- a keeper checks by hand.
+
+The quokka SHALL be calm.
+
+#### Scenario: TRC-FED-03.01 -- Keeper looks
+
+- WHEN a keeper looks
+- THEN the quokka is calm
 `;
 
 const LINKING_SPEC = `# Console
@@ -165,6 +184,7 @@ async function expand(user: ReturnType<typeof userEvent.setup>, text: string) {
 }
 
 describe("App", () => {
+  // Verifies: DEV-SPV-09.01
   it("filters the table by a search and opens a scenario", async () => {
     const user = userEvent.setup();
     renderApp();
@@ -209,6 +229,7 @@ describe("App", () => {
     ]);
   });
 
+  // Verifies: DEV-SPV-09.02
   it("shows the matching text when hovering a title", async () => {
     const user = userEvent.setup();
     renderApp();
@@ -232,6 +253,7 @@ describe("App", () => {
     expect(within(table()).queryByText("Certificates rotate")).toBeNull();
   });
 
+  // Verifies: DEV-SPV-10.01
   it("stars items, filters to them, and unstars them", async () => {
     const user = userEvent.setup();
     const stored = renderApp();
@@ -325,11 +347,39 @@ describe("App", () => {
     ).toBe(true);
   });
 
+  // Verifies: DEV-SPV-11.01, DEV-SPV-11.02
+  it("labels each requirement's problems, or how it is verified", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await ready();
+    await expand(user, "Traced");
+    const row = (title: string) => {
+      const found = within(table()).getByText(title).closest("tr");
+      if (!found) throw new Error(`Missing row ${title}`);
+      return within(found);
+    };
+    // A scenario with WHEN and no THEN fails its requirement.
+    expect(row("Quokka naps").getByText("malformed scenarios")).toBeTruthy();
+    await expand(user, "Quokka naps");
+    expect(row("Nap without outcome").getByText("missing THEN")).toBeTruthy();
+    // An inspection-verified requirement needs no test.
+    const reviewed = row("Quokka is reviewed");
+    expect(reviewed.getByText("Verified by Inspection")).toBeTruthy();
+    expect(reviewed.queryByText("untested scenarios")).toBeNull();
+    expect(reviewed.getByText("ok")).toBeTruthy();
+  });
+
+  // Verifies: DEV-SPV-13.01, DEV-SPV-13.02
   it("finds an ID's references from its label and goes back", async () => {
     const user = userEvent.setup();
     renderApp();
     await ready();
-    await expand(user, "Gateway TLS");
+    // The search expands Gateway TLS; the requirement is expanded by hand.
+    await search(user, "rotate");
+    await expand(user, "Certificates rotate");
+    expect(
+      await within(table()).findByText("Expiring certificate"),
+    ).toBeTruthy();
     await user.click(within(table()).getByRole("button", { name: "TLS-01" }));
 
     const tests = await screen.findByRole("tree", { name: "1 test file" });
@@ -345,7 +395,13 @@ describe("App", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Back" }));
-    expect(within(table()).getByText("Certificates rotate")).toBeTruthy();
+    // The same search and the same expanded rows.
+    expect(
+      screen.getByRole<HTMLInputElement>("textbox", { name: "Search specs" })
+        .value,
+    ).toBe("rotate");
+    expect(within(table()).getByText("Expiring certificate")).toBeTruthy();
+    expect(within(table()).queryByText("Traced")).toBeNull();
   });
 
   it("has a resizable list panel", async () => {
@@ -356,6 +412,7 @@ describe("App", () => {
     ).toBeTruthy();
   });
 
+  // Verifies: DEV-SPV-14.01
   it("finds an ID's references from a label in the document", async () => {
     window.history.replaceState(
       null,
@@ -403,6 +460,7 @@ describe("App", () => {
     expect(screen.getByText("Tested scenarios")).toBeTruthy();
   });
 
+  // Verifies: DEV-SPV-14.02
   it("restores saved stars and the selection from the URL", async () => {
     window.history.replaceState(
       null,
@@ -454,6 +512,7 @@ describe("App", () => {
     expect(window.location.search).toBe("");
   });
 
+  // Verifies: DEV-SPV-06.01
   it("opens the branch named in the URL", async () => {
     window.history.replaceState(null, "", "/?ref=feature%2Fx");
     renderApp();
@@ -491,6 +550,32 @@ describe("App", () => {
     expect(
       screen.getByRole("button", { name: "Maximize document" }),
     ).toBeTruthy();
+  });
+
+  // Verifies: DEV-SPV-15.01
+  it("follows the system theme until one is chosen", async () => {
+    // jsdom has no matchMedia; stand in a system that prefers dark mode.
+    const original = Object.getOwnPropertyDescriptor(window, "matchMedia");
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: (query: string) => ({
+        matches: query === "(prefers-color-scheme: dark)",
+        media: query,
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+      }),
+    });
+    try {
+      renderApp();
+      await ready();
+      expect(
+        document.documentElement.classList.contains("pf-v6-theme-dark"),
+      ).toBe(true);
+    } finally {
+      if (original) Object.defineProperty(window, "matchMedia", original);
+      else Reflect.deleteProperty(window, "matchMedia");
+      document.documentElement.classList.remove("pf-v6-theme-dark");
+    }
   });
 
   it("switches between the light and dark themes", async () => {
