@@ -717,6 +717,10 @@ func (s *E2ESuite) p2_2RBACEnforcement(t *testing.T) {
 	}
 
 	victim := s.createGateway(t, "e2e-padmin-del-"+s.runID)
+	// Track the victim before deleting it so a graceful teardown reaps it if the
+	// test aborts between create and delete. Deleting an already-deleted gateway in
+	// teardown is a no-op (404 is treated as success).
+	s.trackGateway(victim.ID)
 	st, body, err = padminAPI.RawJSON(ctx, http.MethodDelete, "/gateways/"+victim.ID, nil)
 	s.Require().NoError(err, "platform-admin DELETE gateway")
 	s.Assert().Truef(st == http.StatusNoContent || st == http.StatusOK || st == http.StatusAccepted, "platform-admin gateway delete should succeed, got %d (%s)", st, string(body))
@@ -744,6 +748,10 @@ func (s *E2ESuite) p2_3DeletionAndGC(t *testing.T) {
 
 	// Delete-driven reap: create an own gateway, delete it, assert its namespace GCs.
 	gw := s.createGateway(t, "e2e-del-"+s.runID)
+	// Track it before the delete so a graceful teardown reaps it if the test aborts
+	// mid-delete. A redundant teardown delete after this step's own delete is a
+	// no-op (404 is treated as success).
+	s.trackGateway(gw.ID)
 	ns := s.waitGatewayNamespace(t, gw.ID)
 	s.Require().NotEmpty(ns, "gateway namespace")
 	s.runner.Show("DELETE /gateways/%s  # then expect namespace %s to be garbage-collected", gw.ID, ns)
