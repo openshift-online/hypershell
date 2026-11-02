@@ -350,7 +350,7 @@ func init() {
 			ownerLookup = rbService
 			bindingLookup = rbService
 		}
-		enforceRBAC := os.Getenv("RBAC_ENFORCE") == "true"
+		enforceRBAC := rbac.Enforced()
 		placement := newRegisteredPlacementService(envServices)
 		gatewayService := Service(envServices)
 		gatewayHandler := NewGatewayHandler(gatewayService, listService(envServices), ownerBinding, visibilityFilter, ownerLookup, ownershipLookup(envServices), bindingLookup, registeredClusterLookup(envServices), enforceRBAC, placement.Resolve, placement.Availability)
@@ -431,7 +431,7 @@ func init() {
 			return nil
 		}
 		placement := newRegisteredPlacementService(envServices)
-		grpcHandler := NewGatewayGRPCHandler(gatewayService, genericService, brokerFunc, registeredClusterLookup(envServices), gatewaySubjectResolver{services: envServices}, newDedicatedRouteAuthorizer(gatewayBindingLookup(envServices), os.Getenv("RBAC_ENFORCE") == "true"), placement.Resolve)
+		grpcHandler := NewGatewayGRPCHandler(gatewayService, genericService, brokerFunc, registeredClusterLookup(envServices), gatewaySubjectResolver{services: envServices}, newDedicatedRouteAuthorizer(gatewayBindingLookup(envServices), rbac.Enforced()), placement.Resolve)
 		SetSandboxEventStore(grpcHandler, sandboxEvents.Store(envServices))
 		pb.RegisterGatewayServiceServer(grpcServer, grpcHandler)
 	})

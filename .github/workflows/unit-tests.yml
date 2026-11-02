@@ -39,6 +39,9 @@ on:
       sdk_typescript:
         type: string
         default: 'false'
+      spec_viewer:
+        type: string
+        default: 'false'
       web_console:
         type: string
         default: 'false'
@@ -69,7 +72,8 @@ jobs:
     if: >-
       inputs.web_console == 'true' ||
       inputs.gateway_management_ui == 'true' ||
-      inputs.operational_dashboard_ui == 'true'
+      inputs.operational_dashboard_ui == 'true' ||
+      inputs.spec_viewer == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:

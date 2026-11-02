@@ -18,7 +18,8 @@ Keycloak is the authority for identity and platform-wide role assignment. The AP
 middleware reads JWT claims, lazily provisions User and RoleBinding records, and evaluates
 authorization against the database projection.
 
-**Keycloak-only, everywhere.** Every deployment SHALL run with `RBAC_ENFORCE=true`. The
+**Keycloak-only, everywhere.** Every deployment SHALL run with JWT authentication on,
+so authorization is enforced in every deployment (SEC-RBAC-14). The
 API server SHALL NOT auto-assign any role; every gateway and fleet permission flows
 exclusively from a role present in the caller's Keycloak JWT. This applies equally to
 human users, control-plane service accounts, and spoke service accounts, and equally
@@ -545,7 +546,9 @@ For a caller that is not a control-plane identity, the rules mirror HTTP:
   SHALL be denied for every caller: `CIProvider` is authored by a `ci-federation:admin`
   over HTTP (SEC-RBAC-21) and `CITrust` by a gateway owner/admin over HTTP
   (SEC-RBAC-22), and neither is on the declarative-import write path.
-- Under `RBAC_ENFORCE=true` an unauthenticated call reaches no `hypershell.v1` method.
+- With authentication on -- every deployment, because enforcement follows
+  authentication (SEC-RBAC-14) -- an unauthenticated call reaches no `hypershell.v1`
+  method.
 
 Control-plane identities are exempt from role bindings but not from scoping. A caller
 whose JWT `sub` is the `oidc_subject` of a registered ManagedCluster is authorized per
@@ -710,9 +713,9 @@ Dedicated Route Creator Role" (SEC-RBAC-20).
 Enforcing the policy in the service funnel - not per handler - closes the
 whole-row-replace gap whereby a gRPC `UpdateGateway` could set more than a REST
 `PATCH`, and closes the import loophole whereby a GitOps manifest could declare
-platform-managed fields the direct user API forbids. This field policy is enforced
-regardless of `RBAC_ENFORCE`: it is an ownership boundary on who authored the value,
-not an access grant, so it does not relax when role enforcement is off; a caller that
+platform-managed fields the direct user API forbids. This field policy is an
+ownership boundary on who authored the value, not an access grant, so it does not
+depend on the request-level role-enforcement mode; a caller that
 needs to author platform-managed fields SHALL do so as the control-plane identity.
 
 #### Scenario: SEC-RBAC-18.01 -- User gRPC UpdateGateway of a locked field is denied
@@ -881,8 +884,8 @@ an unwired lookup, or bindings holding neither `gateway:dedicated-route-creator`
 naming the role and the rate-limit rationale. A binding-lookup failure SHALL surface
 as a server error rather than an authorization denial, so a transient database
 problem does not tell the caller to request a role it may already hold. The check
-SHALL be a no-op exactly when request-level RBAC enforcement is off
-(`RBAC_ENFORCE=false`). A privileged control-plane write bypasses the check; a
+SHALL be a no-op exactly when authentication is off (SEC-RBAC-14), because there is
+then no caller identity whose bindings could be looked up. A privileged control-plane write bypasses the check; a
 declarative-import create that sets the flag is rejected by the service funnel with
 its own message (PLAT-DATA-26), because a control-plane identity holds no user
 bindings.
@@ -1172,19 +1175,43 @@ remove it from the realm entirely, through Keycloak alone.
 - AND the middleware removes the corresponding RoleBinding
 - AND the user can no longer create new gateways
 
-### Requirement: SEC-RBAC-14 -- Production Rollout
+### Requirement: SEC-RBAC-14 -- Enforcement Follows Authentication
 
-RBAC enforcement SHALL be gated behind the `RBAC_ENFORCE` configuration flag. When
-disabled, all authenticated requests pass. When enabled, all requests are evaluated
-against bindings.
+The API server SHALL enforce authorization if and only if JWT authentication is
+enabled. When authentication is on, every authenticated request SHALL be evaluated
+against the caller's bindings, and no deployment SHALL be able to turn enforcement
+off while authentication stays on. When authentication is off (local development,
+`make run-no-auth`), there is no caller identity to evaluate, so authorization is
+not enforced. This closes the fail-open combination in which an overlay enables
+JWT but forgets a separate enforcement flag, and the invalid combination in which
+JWT is off but enforcement is on (which rejected every call with `401 missing
+identity`).
 
-Production deployments SHALL enable enforcement:
-- `RBAC_ENFORCE=true`
+The API server SHALL derive the enforcement decision from the resolved
+authentication configuration (after `API_ENV` overrides) in ONE place and expose
+that single decision to the REST authorization middleware, the gRPC interceptor,
+and every handler-level authorization check. The API server SHALL NOT read any
+separate enforcement environment variable; no environment variable other than
+the authentication configuration SHALL influence the enforcement decision.
 
 No database migration or CLI command is needed to bootstrap users -- built-in Role
 records are seeded via migration; RoleBindings are created dynamically from JWT claims
 on every authenticated request. The first privileged users are provisioned by assigning
-`gateway:creator` or `platform:admin` in Keycloak before enforcement is enabled.
+`gateway:creator` or `platform:admin` in Keycloak.
+
+#### Scenario: SEC-RBAC-14.01 -- Authentication on means enforced
+
+- GIVEN a deployment that enables JWT authentication
+- WHEN an authenticated caller requests an endpoint the caller's bindings do not authorize
+- THEN the request is rejected
+- AND no separate enforcement setting was required or possible
+
+#### Scenario: SEC-RBAC-14.02 -- Authentication off means not enforced
+
+- GIVEN a local deployment run with authentication off (`make run-no-auth`)
+- WHEN a caller hits the API without a JWT
+- THEN the request is not evaluated against bindings
+- AND the API works with no roles granted
 
 ### Requirement: SEC-RBAC-15 -- Database Migration
 
@@ -1225,13 +1252,14 @@ bindings.
 These migrations SHALL run alongside the existing migrations that seed `gateway:creator`,
 `gateway:owner`, and `gateway:viewer` roles.
 
-RoleBindings from JWT claims are synced regardless of whether enforcement is enabled,
-ensuring bindings exist before enforcement is turned on.
+RoleBindings from JWT claims are synced on every authenticated request, so the
+bindings exist from each caller's first sign-in.
 
 #### Operator Note: Production Deployment Requirements
 
-The OpenShift overlay (`deploy/openshift/kustomization.yaml`) SHALL ship with:
-- `RBAC_ENFORCE=true`
+The OpenShift overlay (`deploy/openshift/kustomization.yaml`) SHALL ship with JWT
+authentication enabled, so authorization is enforced (SEC-RBAC-14). No overlay SHALL
+set any separate enforcement variable.
 
 Applying this to a cluster requires that Keycloak realm roles are configured first:
 
@@ -1274,7 +1302,8 @@ development realms ship it pre-assigned to the `hypershell-control-plane` client
 source of truth; the API server does not re-verify role assignment beyond reading the
 JWT claim.
 
-**Isolation guarantee:** In production (`RBAC_ENFORCE=true`), a spoke service account
+**Isolation guarantee:** In production (authentication on, so enforcement on --
+SEC-RBAC-14), a spoke service account
 holding only `managed-cluster-registrar` has no gateway permissions through the HTTP
 API. No role is auto-assigned; the spoke's HTTP access is exactly what Keycloak
 grants. This is the required production configuration. Once the
@@ -1299,7 +1328,7 @@ interceptor exempts it from role bindings, like an `RBAC_SERVICE_ACCOUNTS` entry
 
 #### Scenario: SEC-RBAC-16.03 -- managed-cluster-registrar grants no gateway access
 
-- GIVEN a production deployment with `RBAC_ENFORCE=true`
+- GIVEN a production deployment with authentication on (so enforcement on)
 - AND a spoke service account has only `managed-cluster-registrar` assigned in Keycloak
 - WHEN it calls `GET /api/hypershell/v1/gateways`
 - THEN the response is 200 with an empty items array
@@ -1309,8 +1338,9 @@ interceptor exempts it from role bindings, like an `RBAC_SERVICE_ACCOUNTS` entry
 
 Integration tests SHALL exercise RBAC enforcement with the new five-role model, including
 `managed-cluster-registrar` grant and deny scenarios, and the JWT-direct enforcement path.
-They SHALL also run the api-server as the GitOps hubs run it (`RBAC_ENFORCE=true`, a
-one-entry allowlist) and show that an ordinary user and a
+They SHALL also run the api-server as the GitOps hubs run it (JWT authentication on, so
+RBAC enforcement on -- SEC-RBAC-14 -- with a one-entry allowlist) and show that an
+ordinary user and a
 foreign control plane are refused ManagedCluster writes and cross-tenant or cross-cluster
 gRPC writes (`components/api-server/test/authz`).
 
@@ -1395,6 +1425,7 @@ idempotent migration with `built_in: true`.
 | Auto-assign `gateway:owner` on creation | Creator automatically owns what they create. No separate grant step needed. |
 | `gateway:creator` assigned exclusively via Keycloak | Every deployment sources the role only from Keycloak, directly or through the realm default role for a blanket grant (SEC-RBAC-13). The role cannot be self-assigned via the API. |
 | Removed the API server's blanket default-role environment variable entirely | It defaulted to "on" (`gateway:creator`) when unset, so a deployment that forgot to set it was open by default. Because `SyncJWTRoles` re-merged it on every request, Keycloak could never revoke a role that was also a default. It forced special cases in the authorization code, the e2e suite, and the specs, and the spec and the code disagreed about what the setting was for. Keycloak's realm default role (SEC-RBAC-13) covers the same initial-role need without any of those costs (HYPERSHELL-465). |
+| Removed the API server's separate enforcement variable entirely; enforcement follows authentication | The variable failed open: an overlay that enabled JWT but forgot it let every signed-in caller do everything. JWT off with the variable set was an invalid combination that rejected every call with `401 missing identity`. Seven code sites read it independently and could disagree. Deriving enforcement from the resolved auth config in one place (SEC-RBAC-14) makes both failure modes impossible and removes the per-overlay setting (HYPERSHELL-466). |
 | Per-gateway bindings stored in DB | Gateway-scoped access requires per-resource granularity that JWT claims cannot provide (you'd need dynamic claim values per gateway ID). |
 | 404 on unauthorized singleton GETs | Returning 403 confirms the resource exists. 404 prevents ID enumeration. |
 | OpenShell role bridge | `gateway:owner` maps to `openshell-admin`, `gateway:viewer` maps to `openshell-user`. Ensures consistent access via CLI. |

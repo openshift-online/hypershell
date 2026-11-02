@@ -228,6 +228,12 @@ func (s *sqlGatewayService) Replace(ctx context.Context, gateway *Gateway) (*Gat
 	if svcErr := enforceGatewayWorkspaceUpdateSemantics(current, gateway); svcErr != nil {
 		return nil, svcErr
 	}
+	// credential_driver is fixed after creation for every writer class, the
+	// control plane included: changing it would orphan stored provider
+	// credentials (OSG-CRED-13).
+	if svcErr := enforceGatewayCredentialDriverUpdateSemantics(current, gateway); svcErr != nil {
+		return nil, svcErr
+	}
 	newGeneration := current.Generation
 	if desiredStateChanged(current, gateway) {
 		newGeneration = current.Generation + 1

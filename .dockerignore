@@ -36,6 +36,8 @@ packages/**
 !packages/operational-dashboard-ui/**
 !packages/fleet-dashboard-ui/
 !packages/fleet-dashboard-ui/**
+!packages/spec-viewer-ui/
+!packages/spec-viewer-ui/**
 !components/web-console/
 !components/web-console/**
 !scripts/bootstrap_pnpm.sh

@@ -53,6 +53,32 @@ func migrationAddPlacementVisibility() *gormigrate.Migration {
 	}
 }
 
+// migrationDropPlacementColumns drops the provider, region and visibility
+// columns. Registration-owned capabilities (provider/, region/, network/) carry
+// placement metadata. The rollback restores empty columns so an older API image
+// can start against the database.
+func migrationDropPlacementColumns() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026110200000001",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.Exec(`
+				ALTER TABLE managed_clusters
+					DROP COLUMN IF EXISTS provider,
+					DROP COLUMN IF EXISTS region,
+					DROP COLUMN IF EXISTS visibility
+			`).Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Exec(`
+				ALTER TABLE managed_clusters
+					ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT '',
+					ADD COLUMN IF NOT EXISTS region TEXT,
+					ADD COLUMN IF NOT EXISTS visibility TEXT
+			`).Error
+		},
+	}
+}
+
 func migrationAddCapabilities() *gormigrate.Migration {
 	return &gormigrate.Migration{
 		ID: "2026101200000001",

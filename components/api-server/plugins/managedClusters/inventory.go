@@ -40,24 +40,15 @@ func inventoryBucketOptional(value *string) string {
 	return inventoryBucketString(*value)
 }
 
-// clusterProvider resolves the provider for the inventory metric. Registered
-// clusters self-declare provider through the capability model and no longer write
-// the legacy Provider column, so the column is preferred (manually created
-// records set it directly) and the provider/ capability label is the fallback.
-// Without this, every registered cluster would bucket as provider="unknown".
+// clusterProvider resolves the provider for the inventory metric from the
+// cluster's provider/ capability label.
 func clusterProvider(cluster *ManagedCluster) string {
-	if strings.TrimSpace(cluster.Provider) != "" {
-		return cluster.Provider
-	}
 	return capabilityValue(cluster.Capabilities, providerNamespace)
 }
 
-// clusterRegion resolves the region for the inventory metric with the same
-// column-then-capability precedence as clusterProvider.
+// clusterRegion resolves the region for the inventory metric from the cluster's
+// region/ capability label.
 func clusterRegion(cluster *ManagedCluster) string {
-	if cluster.Region != nil && strings.TrimSpace(*cluster.Region) != "" {
-		return *cluster.Region
-	}
 	return capabilityValue(cluster.Capabilities, regionNamespace)
 }
 

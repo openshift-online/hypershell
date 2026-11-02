@@ -48,6 +48,54 @@ VAULT_UNSEAL_SECRET="openshell-gateway-vault-unseal"
 VAULT_IMAGE="${VAULT_IMAGE:-docker.io/hashicorp/vault:1.19.0}"
 VAULT_ROLE="openshell-gateway"
 
+# One stand-in Vault serves every PR environment on a shared cluster, so concurrent bring-ups
+# must not interleave the root-token steps (generate-root cancels any in-progress attempt) or
+# the self-test. VAULT_LOCK serializes them per cluster: `kubectl create` of the ConfigMap is
+# atomic, so exactly one run holds it. A lock older than VAULT_LOCK_STALE_SECONDS is treated
+# as left by a killed run and removed.
+VAULT_LOCK="openshell-gateway-vault-reconcile-lock"
+VAULT_LOCK_WAIT_SECONDS="${VAULT_LOCK_WAIT_SECONDS:-900}"
+VAULT_LOCK_STALE_SECONDS="${VAULT_LOCK_STALE_SECONDS:-900}"
+VAULT_RUN_ID="$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
+VAULT_LOCK_HELD=""
+
+acquire_vault_lock() {
+  local waited=0 created now age
+  while ! vkube create configmap "${VAULT_LOCK}" -n "${VAULT_NS}" \
+      --from-literal=holder="${VAULT_RUN_ID}" >/dev/null 2>&1; do
+    created="$(vkube get configmap "${VAULT_LOCK}" -n "${VAULT_NS}" \
+      -o jsonpath='{.metadata.creationTimestamp}' 2>/dev/null || true)"
+    if [ -n "${created}" ]; then
+      now="$(date -u +%s)"
+      age=$(( now - $(python3 -c 'import sys,datetime;print(int(datetime.datetime.strptime(sys.argv[1],"%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc).timestamp()))' "${created}") ))
+      if [ "${age}" -gt "${VAULT_LOCK_STALE_SECONDS}" ]; then
+        info "Removing stale Vault reconcile lock (${age}s old)"
+        vkube delete configmap "${VAULT_LOCK}" -n "${VAULT_NS}" --ignore-not-found >/dev/null 2>&1 || true
+        continue
+      fi
+    fi
+    if [ "${waited}" -ge "${VAULT_LOCK_WAIT_SECONDS}" ]; then
+      error "timed out after ${waited}s waiting for Vault reconcile lock ${VAULT_NS}/${VAULT_LOCK}"
+      exit 1
+    fi
+    [ "${waited}" -eq 0 ] && info "Another environment is reconciling this Vault; waiting for the lock..."
+    sleep 5
+    waited=$(( waited + 5 ))
+  done
+  VAULT_LOCK_HELD=1
+}
+
+# release_vault_lock deletes the lock only if this run still holds it, so a run whose lock was
+# reaped as stale never deletes the next holder's lock.
+release_vault_lock() {
+  [ -n "${VAULT_LOCK_HELD}" ] || return 0
+  if [ "$(vkube get configmap "${VAULT_LOCK}" -n "${VAULT_NS}" -o jsonpath='{.data.holder}' 2>/dev/null || true)" = "${VAULT_RUN_ID}" ]; then
+    vkube delete configmap "${VAULT_LOCK}" -n "${VAULT_NS}" --ignore-not-found >/dev/null 2>&1 || true
+  fi
+  VAULT_LOCK_HELD=""
+}
+trap release_vault_lock EXIT
+
 # Pod security: Kind needs an explicit non-root UID + fsGroup so the file-storage emptyDir
 # is writable; OpenShift's restricted SCC assigns both from the namespace range and rejects
 # a hardcoded UID, so omit them there.
@@ -252,6 +300,25 @@ gen_root_token() {
      | sed -n 's/.*"token":[[:space:]]*"\([^"]*\)".*/\1/p'
 }
 
+# provider_policy prints the templated gateway-provider policy for the kubernetes auth
+# accessor $1. apply_config writes it as the shared policy; the self-test writes a throwaway
+# copy for its revocation check.
+provider_policy() {
+  printf '%s\n' \
+    "path \"openshell-gw/{{identity.entity.aliases.$1.metadata.service_account_namespace}}/data/openshell/provider-credentials/*\" {" \
+    '  capabilities = ["create", "read", "update", "delete"]' \
+    '}' \
+    "path \"openshell-gw/{{identity.entity.aliases.$1.metadata.service_account_namespace}}/metadata/openshell/provider-credentials/*\" {" \
+    '  capabilities = ["read", "delete"]' \
+    '}'
+}
+
+# kube_auth_accessor prints the kubernetes auth accessor (it starts with auth_kubernetes_, so
+# grep -o extracts it without jq). $1 = root token.
+kube_auth_accessor() {
+  vxt "$1" vault auth list -format=json | grep -o 'auth_kubernetes_[a-z0-9]*' | head -1
+}
+
 # apply_config writes the full gateway-provider config as root (every step idempotent): the
 # KV v2 engine, kubernetes auth + local-cluster config, the capability-scoped policy, and the
 # shared role. Re-applying is how a policy change in this repo takes effect on an
@@ -267,7 +334,7 @@ apply_config() {
 
   # Resolve the kubernetes auth accessor for ACL templating (accessor starts with
   # auth_kubernetes_, so grep -o extracts it without jq).
-  accessor="$(vxt "$rt" vault auth list -format=json | grep -o 'auth_kubernetes_[a-z0-9]*' | head -1)"
+  accessor="$(kube_auth_accessor "$rt")"
   [ -n "${accessor}" ] || { error "vault fixture: could not resolve kubernetes auth accessor"; exit 1; }
 
   # Templated, capability-model gateway policy: each gateway gets its OWN per-tenant mount
@@ -281,13 +348,7 @@ apply_config() {
   # A handle leaked from another tenant is unusable. The control plane creates the per-tenant
   # mount at provision via the provisioner role below. See openshell-gateway-credentials.spec.md
   # (Provider Credential Isolation).
-  printf '%s\n' \
-    "path \"openshell-gw/{{identity.entity.aliases.${accessor}.metadata.service_account_namespace}}/data/openshell/provider-credentials/*\" {" \
-    '  capabilities = ["create", "read", "update", "delete"]' \
-    '}' \
-    "path \"openshell-gw/{{identity.entity.aliases.${accessor}.metadata.service_account_namespace}}/metadata/openshell/provider-credentials/*\" {" \
-    '  capabilities = ["read", "delete"]' \
-    '}' | vxti "$rt" vault policy write openshell-gateway-provider -
+  provider_policy "${accessor}" | vxti "$rt" vault policy write openshell-gateway-provider -
 
   # bound_service_account_namespaces="" is REQUIRED: a role update MERGES unspecified fields,
   # so on a reused Vault that previously used namespaces='*' omitting it would leave '*' in
@@ -327,69 +388,126 @@ apply_config() {
 # allowed (the OpenShell runtime deletes KV v2 credentials via the metadata endpoint), and
 # ANOTHER tenant's mount is denied (isolation). Fails the script if the policy
 # drifts. See openshell-gateway-credentials.spec.md (Provider Credential Isolation / E2E).
+#
+# The Vault is shared by every PR environment on a cluster, so the self-test never mutates
+# shared state: its namespaces and mounts carry a per-run suffix, and the revocation check
+# deletes a throwaway copy of the policy (with its own role) instead of the shared policy
+# that live gateways use. Everything it creates is removed, on failure too.
 run_selftest() {
-  local rt="$1" ns="openshell-vault-selftest" other="openshell-vault-other" unlabeled="openshell-vault-unlabeled" jwt nolabeljwt out rev denied
+  local rt="$1" id="${VAULT_RUN_ID}" ns other unlabeled revpolicy revrole accessor jwt nolabeljwt out rev denied fail=""
+  ns="openshell-vault-selftest-${id}"
+  other="openshell-vault-other-${id}"
+  unlabeled="openshell-vault-unlabeled-${id}"
+  revpolicy="openshell-gateway-provider-selftest-${id}"
+  revrole="openshell-gateway-selftest-${id}"
+
   # A gateway namespace carries the control plane's managed label, which the gateway role's
   # namespace selector requires; label the selftest namespace to stand in for one.
   vkube create namespace "${ns}" --dry-run=client -o yaml | vkube apply -f - >/dev/null
   vkube label namespace "${ns}" hypershell.redhat.io/managed=true --overwrite >/dev/null
   vkube create serviceaccount openshell-gateway -n "${ns}" --dry-run=client -o yaml | vkube apply -f - >/dev/null
-  jwt="$(vkube create token openshell-gateway -n "${ns}" --audience vault --duration 10m 2>/dev/null || true)"
-  [ -n "${jwt}" ] || { error "vault self-test: could not mint a vault-audience token"; exit 1; }
   # A namespace WITHOUT the managed label stands in for an unrelated/attacker namespace: the
   # role's namespace selector must refuse it at login (defense in depth beyond the policy).
   vkube create namespace "${unlabeled}" --dry-run=client -o yaml | vkube apply -f - >/dev/null
   vkube create serviceaccount openshell-gateway -n "${unlabeled}" --dry-run=client -o yaml | vkube apply -f - >/dev/null
-  nolabeljwt="$(vkube create token openshell-gateway -n "${unlabeled}" --audience vault --duration 10m 2>/dev/null || true)"
-  [ -n "${nolabeljwt}" ] || { error "vault self-test: could not mint the unlabeled-namespace token"; exit 1; }
   # The control plane creates each gateway's per-tenant mount at provision; here the fixture
   # stands in for it (as root), enabling the selftest namespace's mount and a second tenant's
   # mount so cross-tenant denial can be proven.
   vxt "${rt}" vault secrets enable -path="openshell-gw/${ns}" -version=2 kv >/dev/null 2>&1 || true
   vxt "${rt}" vault secrets enable -path="openshell-gw/${other}" -version=2 kv >/dev/null 2>&1 || true
-  # The login + checks run inside the pod; the SA JWT is read from stdin (never argv).
-  out="$(printf '%s\n' "${jwt}" | vxi sh -c '
-    read -r JWT
-    CT=$(vault write -field=token auth/kubernetes/login role='"${VAULT_ROLE}"' jwt="$JWT") || { echo LOGIN_FAILED; exit 1; }
-    export VAULT_TOKEN="$CT"
-    MINE="openshell-gw/'"${ns}"'/openshell/provider-credentials/selftest"
-    OTHER="openshell-gw/'"${other}"'/openshell/provider-credentials/x"
-    if vault kv put "$MINE" value=ok >/dev/null 2>&1 && [ "$(vault kv get -field=value "$MINE" 2>/dev/null)" = "ok" ]; then echo ROUNDTRIP_OK; else echo ROUNDTRIP_FAIL; fi
-    if vault kv list "openshell-gw/'"${ns}"'/openshell/provider-credentials" 2>&1 | grep -qiE "permission denied|403"; then echo LIST_DENIED; else echo LIST_ALLOWED; fi
-    if vault kv metadata delete "$MINE" 2>&1 | grep -qiE "permission denied|403"; then echo META_DELETE_DENIED; else echo META_DELETE_ALLOWED; fi
-    if vault kv get "$OTHER" 2>&1 | grep -qiE "permission denied|403" && vault kv put "$OTHER" value=nope 2>&1 | grep -qiE "permission denied|403"; then echo CROSS_TENANT_DENIED; else echo CROSS_TENANT_ALLOWED; fi
-  ')"
-  printf '%s\n' "${out}" | grep -q ROUNDTRIP_OK        || { error "vault self-test: own-mount round-trip failed (out: ${out})"; exit 1; }
-  printf '%s\n' "${out}" | grep -q LIST_DENIED         || { error "vault self-test: LIST not denied - policy too broad (out: ${out})"; exit 1; }
-  printf '%s\n' "${out}" | grep -q META_DELETE_ALLOWED || { error "vault self-test: metadata delete not allowed - gateway cannot finalize KV v2 credential deletion (out: ${out})"; exit 1; }
-  printf '%s\n' "${out}" | grep -q CROSS_TENANT_DENIED || { error "vault self-test: cross-tenant access not denied - isolation broken (out: ${out})"; exit 1; }
 
-  # Namespace selector: a ServiceAccount in an UNLABELED namespace must be refused at login,
-  # so only control-plane-labeled tenant namespaces can authenticate (HYPERSHELL-369).
-  denied="$(printf '%s\n' "${nolabeljwt}" | vxi sh -c '
-    read -r JWT
-    if vault write -field=token auth/kubernetes/login role='"${VAULT_ROLE}"' jwt="$JWT" >/dev/null 2>&1; then echo SELECTOR_ADMITTED; else echo SELECTOR_DENIED; fi
-  ' || true)"
-  printf '%s\n' "${denied}" | grep -q SELECTOR_DENIED || { error "vault self-test: an unlabeled namespace was admitted - namespace selector not enforced (out: ${denied})"; exit 1; }
+  jwt="$(vkube create token openshell-gateway -n "${ns}" --audience vault --duration 10m 2>/dev/null || true)"
+  nolabeljwt="$(vkube create token openshell-gateway -n "${unlabeled}" --audience vault --duration 10m 2>/dev/null || true)"
+  if [ -z "${jwt}" ]; then
+    fail="vault self-test: could not mint a vault-audience token"
+  elif [ -z "${nolabeljwt}" ]; then
+    fail="vault self-test: could not mint the unlabeled-namespace token"
+  fi
 
-  # Revocation (openshell-gateway-vault.spec.md section 10): removing the policy revokes all
-  # gateway access. Delete the policy as root, confirm the gateway identity is then denied,
-  # and restore it via apply_config (idempotent) so the fixture is left usable. This needs
-  # root, so the caller runs the self-test in the setup window, before root is revoked.
-  vxt "${rt}" vault policy delete openshell-gateway-provider >/dev/null 2>&1 || { error "vault self-test: could not delete policy for the revocation check"; exit 1; }
-  rev="$(printf '%s\n' "${jwt}" | vxi sh -c '
-    read -r JWT
-    CT=$(vault write -field=token auth/kubernetes/login role='"${VAULT_ROLE}"' jwt="$JWT" 2>/dev/null) || CT=""
-    [ -n "$CT" ] && export VAULT_TOKEN="$CT"
-    MINE="openshell-gw/'"${ns}"'/openshell/provider-credentials/selftest"
-    if [ -z "$CT" ] || vault kv get "$MINE" 2>&1 | grep -qiE "permission denied|403"; then echo REVOKED_DENIED; else echo REVOKED_ALLOWED; fi
-  ' || true)"
-  apply_config "${rt}" # restore the policy/role (idempotent); leaves the fixture usable
+  if [ -z "${fail}" ]; then
+    # The login + checks run inside the pod; the SA JWT is read from stdin (never argv).
+    out="$(printf '%s\n' "${jwt}" | vxi sh -c '
+      read -r JWT
+      CT=$(vault write -field=token auth/kubernetes/login role='"${VAULT_ROLE}"' jwt="$JWT") || { echo LOGIN_FAILED; exit 1; }
+      export VAULT_TOKEN="$CT"
+      MINE="openshell-gw/'"${ns}"'/openshell/provider-credentials/selftest"
+      OTHER="openshell-gw/'"${other}"'/openshell/provider-credentials/x"
+      if vault kv put "$MINE" value=ok >/dev/null 2>&1 && [ "$(vault kv get -field=value "$MINE" 2>/dev/null)" = "ok" ]; then echo ROUNDTRIP_OK; else echo ROUNDTRIP_FAIL; fi
+      if vault kv list "openshell-gw/'"${ns}"'/openshell/provider-credentials" 2>&1 | grep -qiE "permission denied|403"; then echo LIST_DENIED; else echo LIST_ALLOWED; fi
+      if vault kv metadata delete "$MINE" 2>&1 | grep -qiE "permission denied|403"; then echo META_DELETE_DENIED; else echo META_DELETE_ALLOWED; fi
+      if vault kv get "$OTHER" 2>&1 | grep -qiE "permission denied|403" && vault kv put "$OTHER" value=nope 2>&1 | grep -qiE "permission denied|403"; then echo CROSS_TENANT_DENIED; else echo CROSS_TENANT_ALLOWED; fi
+    ' || true)"
+    if ! printf '%s\n' "${out}" | grep -q ROUNDTRIP_OK; then
+      fail="vault self-test: own-mount round-trip failed (out: ${out})"
+    elif ! printf '%s\n' "${out}" | grep -q LIST_DENIED; then
+      fail="vault self-test: LIST not denied - policy too broad (out: ${out})"
+    elif ! printf '%s\n' "${out}" | grep -q META_DELETE_ALLOWED; then
+      fail="vault self-test: metadata delete not allowed - gateway cannot finalize KV v2 credential deletion (out: ${out})"
+    elif ! printf '%s\n' "${out}" | grep -q CROSS_TENANT_DENIED; then
+      fail="vault self-test: cross-tenant access not denied - isolation broken (out: ${out})"
+    fi
+  fi
+
+  if [ -z "${fail}" ]; then
+    # Namespace selector: a ServiceAccount in an UNLABELED namespace must be refused at login,
+    # so only control-plane-labeled tenant namespaces can authenticate (HYPERSHELL-369).
+    denied="$(printf '%s\n' "${nolabeljwt}" | vxi sh -c '
+      read -r JWT
+      if vault write -field=token auth/kubernetes/login role='"${VAULT_ROLE}"' jwt="$JWT" >/dev/null 2>&1; then echo SELECTOR_ADMITTED; else echo SELECTOR_DENIED; fi
+    ' || true)"
+    printf '%s\n' "${denied}" | grep -q SELECTOR_DENIED \
+      || fail="vault self-test: an unlabeled namespace was admitted - namespace selector not enforced (out: ${denied})"
+  fi
+
+  if [ -z "${fail}" ]; then
+    # Revocation (openshell-gateway-vault.spec.md section 10): removing the policy revokes all
+    # gateway access. Prove it on a throwaway copy of the policy, bound to a throwaway role
+    # scoped to this run's namespace, so the shared policy that live gateways use is never
+    # deleted. The copy must grant access first, so the denial after deletion is meaningful.
+    accessor="$(kube_auth_accessor "${rt}")"
+    provider_policy "${accessor}" | vxti "${rt}" vault policy write "${revpolicy}" - >/dev/null
+    vxt "${rt}" vault write "auth/kubernetes/role/${revrole}" \
+      bound_service_account_names="openshell-gateway" \
+      bound_service_account_namespaces="${ns}" \
+      audience=vault \
+      token_policies="${revpolicy}" \
+      token_ttl=600 >/dev/null
+    rev="$(printf '%s\n' "${jwt}" | vxi sh -c '
+      read -r JWT
+      MINE="openshell-gw/'"${ns}"'/openshell/provider-credentials/revocation"
+      CT=$(vault write -field=token auth/kubernetes/login role='"${revrole}"' jwt="$JWT" 2>/dev/null) || CT=""
+      if [ -n "$CT" ] && VAULT_TOKEN="$CT" vault kv put "$MINE" value=ok >/dev/null 2>&1; then echo BEFORE_ALLOWED; else echo BEFORE_DENIED; fi
+    ' || true)"
+    if ! printf '%s\n' "${rev}" | grep -q BEFORE_ALLOWED; then
+      fail="vault self-test: throwaway revocation policy did not grant access before removal (out: ${rev})"
+    else
+      vxt "${rt}" vault policy delete "${revpolicy}" >/dev/null 2>&1 \
+        || fail="vault self-test: could not delete the throwaway policy for the revocation check"
+    fi
+    if [ -z "${fail}" ]; then
+      rev="$(printf '%s\n' "${jwt}" | vxi sh -c '
+        read -r JWT
+        MINE="openshell-gw/'"${ns}"'/openshell/provider-credentials/revocation"
+        CT=$(vault write -field=token auth/kubernetes/login role='"${revrole}"' jwt="$JWT" 2>/dev/null) || CT=""
+        if [ -z "$CT" ] || VAULT_TOKEN="$CT" vault kv get "$MINE" 2>&1 | grep -qiE "permission denied|403"; then echo REVOKED_DENIED; else echo REVOKED_ALLOWED; fi
+      ' || true)"
+      printf '%s\n' "${rev}" | grep -q REVOKED_DENIED \
+        || fail="vault self-test: gateway NOT denied after policy removal - revocation broken (out: ${rev})"
+    fi
+  fi
+
+  # Clean up everything this run created, pass or fail.
+  vxt "${rt}" vault delete "auth/kubernetes/role/${revrole}" >/dev/null 2>&1 || true
+  vxt "${rt}" vault policy delete "${revpolicy}" >/dev/null 2>&1 || true
   vxt "${rt}" vault secrets disable "openshell-gw/${ns}" >/dev/null 2>&1 || true
   vxt "${rt}" vault secrets disable "openshell-gw/${other}" >/dev/null 2>&1 || true
   vkube delete namespace "${ns}" --wait=false >/dev/null 2>&1 || true
   vkube delete namespace "${unlabeled}" --wait=false >/dev/null 2>&1 || true
-  printf '%s\n' "${rev}" | grep -q REVOKED_DENIED || { error "vault self-test: gateway NOT denied after policy removal - revocation broken (out: ${rev})"; exit 1; }
+
+  if [ -n "${fail}" ]; then
+    error "${fail}"
+    exit 1
+  fi
   success "Capability policy self-test passed (own-mount round-trip; list denied; metadata-delete allowed; cross-tenant denied; unlabeled-namespace login denied; revoked->denied)"
 }
 
@@ -402,6 +520,10 @@ for _ in $(seq 1 60); do
   sleep 3
 done
 [ -n "${VAULT_API_UP}" ] || { error "Vault API did not come up within 3 minutes"; exit 1; }
+
+# Serialize init / generate-root / config / self-test across environments sharing this
+# Vault; released by the EXIT trap.
+acquire_vault_lock
 
 if vx vault status 2>/dev/null | grep -q "Initialized.*true"; then
   # Already initialized (e.g. a shared cluster across PR environments). Reconcile the config

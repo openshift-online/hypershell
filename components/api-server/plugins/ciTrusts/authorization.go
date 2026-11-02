@@ -2,7 +2,6 @@ package ciTrusts
 
 import (
 	"context"
-	"os"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
@@ -24,11 +23,12 @@ type tenancyAuthorizer struct {
 }
 
 // newTenancyAuthorizer wires the tenancy check from the environment's service
-// registry. It returns nil when RBAC is not enforced, which the handler treats
-// as "not enforced" (allow), mirroring the middleware's RBAC_ENFORCE gate and
-// the agentRuntimes manageAuthorizer.
+// registry. It returns nil when RBAC is not enforced (authentication off,
+// rbac.Enforced), which the handler treats as "not enforced" (allow),
+// mirroring the middleware's enforcement gate and the agentRuntimes
+// manageAuthorizer.
 func newTenancyAuthorizer(envServices *environments.Services) *tenancyAuthorizer {
-	if os.Getenv("RBAC_ENFORCE") != "true" || envServices == nil {
+	if !rbac.Enforced() || envServices == nil {
 		return nil
 	}
 	return &tenancyAuthorizer{bindings: roleBindings.Service(envServices)}

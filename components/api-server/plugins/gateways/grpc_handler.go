@@ -358,6 +358,12 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 		// immutability, and the field policy rejects a user/import change.
 		gateway.WorkspaceMode = req.WorkspaceMode
 	}
+	if req.CredentialDriver != nil {
+		// Platform-managed field: the service funnel rejects any change to the
+		// effective driver (OSG-CRED-13), so carry the request through rather
+		// than silently dropping it.
+		gateway.CredentialDriver = req.CredentialDriver
+	}
 	if len(req.ProvisioningConditions) > 0 {
 		type conditionJSON struct {
 			Type            string `json:"type"`
@@ -388,7 +394,7 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 		// the stored gateway (the opt-in is provision-time only), not a duplicate
 		// creation, so present it as FailedPrecondition rather than the framework's
 		// blanket 409-to-AlreadyExists mapping (API UX review finding 4).
-		if svcErr.Reason == routeCertificateImmutableReason {
+		if svcErr.Reason == routeCertificateImmutableReason || svcErr.Reason == credentialDriverImmutableReason {
 			return nil, status.Error(codes.FailedPrecondition, svcErr.Reason)
 		}
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)

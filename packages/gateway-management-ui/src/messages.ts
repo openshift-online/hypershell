@@ -65,23 +65,6 @@ export const messages = defineMessages({
     description:
       "Recovery guidance when remote gateway placements cannot be loaded.",
   },
-  clusterProvider: {
-    id: "app.gateway.cluster.provider",
-    defaultMessage: "Provider: {provider}",
-    description:
-      "Provider context that distinguishes a managed cluster option.",
-  },
-  clusterProviderAndRegion: {
-    id: "app.gateway.cluster.providerAndRegion",
-    defaultMessage: "Provider: {provider}; region: {region}",
-    description:
-      "Provider and region context that distinguishes a managed cluster option.",
-  },
-  clusterRegion: {
-    id: "app.gateway.cluster.region",
-    defaultMessage: "Region: {region}",
-    description: "Region context that distinguishes a managed cluster option.",
-  },
   connectionEditorOptions: {
     id: "app.gateway.connection.editorOptions",
     defaultMessage:

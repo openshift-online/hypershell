@@ -12,9 +12,6 @@ type ManagedCluster struct {
 	api.Meta
 	hypershellapi.TraceMeta
 	Name             string     `json:"name"`
-	Provider         string     `json:"provider"`
-	Visibility       string     `json:"visibility" gorm:"column:visibility"`
-	Region           *string    `json:"region"`
 	KubeconfigSecret string     `json:"kubeconfig_secret"`
 	Status           *string    `json:"status"`
 	ApiServerUrl     *string    `json:"api_server_url"`
@@ -41,8 +38,6 @@ func (d *ManagedCluster) BeforeCreate(tx *gorm.DB) error {
 
 type ManagedClusterPatchRequest struct {
 	Name             *string `json:"name,omitempty"`
-	Provider         *string `json:"provider,omitempty"`
-	Region           *string `json:"region,omitempty"`
 	KubeconfigSecret *string `json:"kubeconfig_secret,omitempty"`
 	Status           *string `json:"status,omitempty"`
 	ApiServerUrl     *string `json:"api_server_url,omitempty"`
