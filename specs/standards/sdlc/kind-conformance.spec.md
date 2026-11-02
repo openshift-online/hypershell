@@ -204,6 +204,9 @@ Kinds from the registration sources (SDLC-CONF-01) rather than from a hand-kept
 list, so a newly registered Kind is covered without editing the test. A broken
 migration or a missing CRUD operation for any `ext` Kind SHALL fail the test.
 This operationalizes "100% of generated Kinds work" as an enforced invariant.
+The round-trip SHALL include the find-by-name search step required by
+SDLC-CONF-13, so the list search filter path is exercised, not only the
+unfiltered list.
 
 #### Scenario: SDLC-CONF-06.01 -- A newly registered Kind is covered automatically
 
@@ -401,3 +404,154 @@ test SHALL pass; a convergence regression SHALL fail this test.
 - WHEN the upgrade-path conformance test runs
 - THEN the test SHALL fail and name the Kind whose clean table is missing or whose
   stale table remains
+
+### Requirement: SDLC-CONF-13 -- Extension List Search (Find-by-Name) Conforms and Is Round-Trip Tested
+
+The shared `ext` Kind list path SHALL return 200 with the matching items, or an
+empty item list, for a `search=` filter, and SHALL NOT abort with 500 /
+`SQLSTATE 25P02`. This explicitly includes the find-by-name query `hsctl apply`
+issues to resolve whether a record already exists (`search=name = '<name>'`),
+which is the resolution step every `hsctl apply` of an `ext` Kind performs (per
+`CLI-EXT-02`). A search-filtered list SHALL be as queryable as the unfiltered
+list: the presence of a `search` filter SHALL NOT, by itself, poison the request
+transaction. This is distinct from the migration failures of SDLC-CONF-02 and
+SDLC-CONF-11, where the table itself is unqueryable; here the unfiltered list
+succeeds and only the search code path (the list arguments to SQL translation run
+when `search` is present) fails, so a clean table can still return 500 on a
+`search` filter.
+
+**Data model: every registered `ext` Kind SHALL be queryable by find-by-name.**
+Every registered `ext` Kind SHALL carry a queryable `name` column so that the
+find-by-name search (`search=name = '<name>'`) returns the created record for that
+Kind, not only for the Kind a change happened to touch. This explicitly includes
+the four `ext` Kinds whose search path was observed or audited as broken --
+`ci_providers`, `ci_trusts`, `inference_routes`, and `workspace_memberships` --
+each of which SHALL gain a queryable `name` column through the raw-SQL migration
+path (SDLC-CONF-02), reached idempotently through the conformance pass
+(SDLC-CONF-07) so no Kind is fixed in isolation. A Kind whose find-by-name search
+cannot return its own created record is non-conformant.
+
+**The queryable `name` of every affected ext Kind SHALL be unique.** The derived
+`name` is an identifying key, and for each of the four affected Kinds it SHALL be
+unique, so a find-by-name search resolves EXACTLY ONE record and a duplicate name is
+a clean conflict rather than a silently ambiguous match. For `ci_providers` the name
+defaults to its forge (one provider per forge by default); uniqueness is enforced as
+an explicit constraint, coherent with `platform/ci-trust-ext-api.spec.md`
+PLAT-CITR-07, under which a second provider on the same forge family (a distinct
+instance, whose issuer differs) is registered under a distinct `name` -- so
+uniqueness constrains the name key without forbidding multi-instance support. For the
+composite `ext` Kinds (`ci_trusts`, `inference_routes`, `workspace_memberships`) the
+name is derived from the full composite natural key that already identifies the
+record, so it is unique BY CONSTRUCTION: two records with distinct composite
+identities derive distinct names, and two records with the same composite identity
+are the same record. In every case the find-by-name query returns exactly one record,
+never an ambiguous pair.
+
+**The name-column convergence migration SHALL be collision-safe.** Each affected
+Kind gains its `name` column through the raw-SQL migration path (SDLC-CONF-02), which
+backfills pre-existing rows and then builds a unique index on `name`. If pre-existing
+rows would backfill to a DUPLICATE name, the migration SHALL de-duplicate
+idempotently (for example by disambiguating the conflicting names deterministically)
+so that the unique index always builds, rather than fail on a duplicate-key violation
+and block server startup. The migration SHALL converge on every environment
+regardless of its pre-existing data -- a clean database, a partially populated one,
+and one already holding colliding identities SHALL all reach the same conformant end
+state (one unique `name` per row, index built). Because the migration is
+collision-safe, re-running it SHALL be a no-op and SHALL NOT reintroduce a collision.
+
+**Defensive depth: an unknown or invalid search column SHALL be a clean 400, not a
+transaction-poisoning 500 -- for EVERY registered Kind.** Independently of any one
+Kind's columns, and across EVERY registered Kind -- core `/v1` Kinds (for example
+`managed_clusters` and `gateways`) AND extension `ext` Kinds -- the shared list
+search path SHALL reject a `search` filter that names an unknown or invalid column
+with a clean 400 (a client error naming the bad column), and SHALL NOT let that
+filter reach the database and abort the request transaction with a 500 /
+`SQLSTATE 25P02`. Column validation SHALL happen before the search clause is
+compiled into SQL, so that a malformed or unsupported `search` can never poison the
+transaction. This guard SHALL be centralized on the shared list path so that a
+newly registered Kind -- core or extension -- cannot omit it. It is required in
+addition to the per-Kind `name` column above, so that this class of failure can
+never return a 500 again: even a Kind that legitimately lacks a searched column
+SHALL answer with a 400, not a `25P02`.
+
+The create -> get -> list -> delete conformance round-trip of SDLC-CONF-06 and
+the upgrade-path conformance test of SDLC-CONF-12 SHALL include a find-by-name
+search list step (`GET /api/hypershell/ext/<kinds>?search=name = '<created-name>'`)
+that asserts the created record is returned. A conformance round-trip that lists
+only without a `search` filter SHALL NOT be sufficient, because the unfiltered
+list and the search path build different queries, so a broken search path for any
+`ext` Kind SHALL fail continuous integration on the FIRST pull request that
+introduces or regresses it, not in a deployed environment.
+
+Because the list/search handling is shared across the `ext` Kinds (the list
+arguments to SQL path), a fix for one Kind's search path SHALL be a fix for every
+`ext` Kind, and the conformance round-trip SHALL exercise the find-by-name search
+for every registered `ext` Kind, not only the Kind a change happened to touch.
+
+#### Scenario: SDLC-CONF-13.01 -- Find-by-name list returns the record, not 500
+
+- GIVEN an `ext` Kind record created over the real HTTP and database stack with name `N`
+- WHEN a client lists that Kind with `search=name = 'N'`
+- THEN the response SHALL be 200 and SHALL contain the created record
+- AND no query SHALL abort with `SQLSTATE 25P02`
+
+#### Scenario: SDLC-CONF-13.02 -- Search with no match returns an empty list, not 500
+
+- GIVEN an `ext` Kind with no record named `N`
+- WHEN a client lists that Kind with `search=name = 'N'`
+- THEN the response SHALL be 200 with an empty item list
+- AND no query SHALL abort with `SQLSTATE 25P02`
+
+#### Scenario: SDLC-CONF-13.03 -- Conformance round-trip exercises find-by-name for every registered ext Kind
+
+- GIVEN the generic CRUD conformance test (SDLC-CONF-06) and the upgrade-path test (SDLC-CONF-12)
+- WHEN they run the round-trip against the production driver configuration (SDLC-CONF-04) for every registered `ext` Kind
+- THEN each Kind's round-trip SHALL include a find-by-name search list that returns the created record
+- AND any `ext` Kind whose search path aborts the request transaction SHALL fail the test and be named
+
+#### Scenario: SDLC-CONF-13.04 -- hsctl apply find-by-name resolution succeeds
+
+- GIVEN `hsctl apply -f <ext-kind>.yaml` for an `ext` Kind
+- WHEN apply resolves whether the record already exists via `search=name = '<name>'`
+- THEN the resolution request SHALL return 200 (the existing record or an empty list)
+- AND `hsctl apply` SHALL NOT fail with 500 on the find-by-name step
+
+#### Scenario: SDLC-CONF-13.05 -- Every affected ext Kind is queryable by name and resolves to exactly one record
+
+- GIVEN `ci_providers`, `ci_trusts`, `inference_routes`, and `workspace_memberships`
+  each created over the real HTTP and database stack with name `N`
+- WHEN each is listed with `search=name = 'N'`
+- THEN every one SHALL return 200 with EXACTLY its one created record and SHALL NOT abort with `SQLSTATE 25P02`
+- AND no affected Kind SHALL return an ambiguous pair for a single name
+
+#### Scenario: SDLC-CONF-13.06 -- Unknown search column is a clean 400, not a 500, for every registered Kind
+
+- GIVEN any registered Kind -- a core `/v1` Kind (for example `managed_clusters` or
+  `gateways`) or an `ext` Kind -- listed with a `search` filter that names an unknown
+  or invalid column
+- WHEN the shared list search path evaluates the filter
+- THEN the response SHALL be a 400 that names the invalid column
+- AND no query SHALL reach the database or abort the request transaction with 500 / `SQLSTATE 25P02`
+- AND the conformance 400 assertion SHALL cover core Kinds as well as `ext` Kinds, so
+  the guard is verified for every registered Kind, not only `ext` Kinds
+
+#### Scenario: SDLC-CONF-13.07 -- Duplicate pre-existing identities backfill to distinct unique names and the migration completes
+
+- GIVEN a database holding pre-existing rows of an affected `ext` Kind whose backfill
+  from their stored identity would produce a DUPLICATE `name`
+- WHEN the name-column convergence migration runs on that database
+- THEN the migration SHALL de-duplicate the colliding names deterministically and
+  idempotently, SHALL build the unique index on `name`, and SHALL complete without a
+  duplicate-key failure
+- AND server startup SHALL NOT be blocked by the migration
+- AND re-running the migration SHALL be a no-op that does not reintroduce a collision
+
+#### Scenario: SDLC-CONF-13.08 -- A duplicate name is a clean conflict, not a silent ambiguous pair
+
+- GIVEN an affected `ext` Kind already holding a record with name `N`
+- WHEN a second write would produce the same `name N` (for `ci_providers`, a second
+  default registration on the same forge)
+- THEN the write SHALL be rejected as a clean conflict rather than creating a second
+  row that makes find-by-name ambiguous
+- AND a distinct instance registered under a distinct `name` SHALL still succeed
+  (PLAT-CITR-07 multi-instance support)

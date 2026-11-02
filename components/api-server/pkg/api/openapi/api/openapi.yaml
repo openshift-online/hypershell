@@ -6336,6 +6336,11 @@ components:
       allOf:
       - $ref: "#/components/schemas/ObjectReference"
       - properties:
+          name:
+            description: Queryable find-by-name key (SDLC-CONF-13). Optional on create;
+              defaults to a stable identity derived from workspace_id/provider_binding_id/model
+              when not supplied.
+            type: string
           workspace_id:
             type: string
           provider_binding_id:
@@ -6358,6 +6363,7 @@ components:
         workspace_id: workspace_id
         updated_at: 2000-01-23T04:56:07.000+00:00
         kind: kind
+        name: name
         created_at: 2000-01-23T04:56:07.000+00:00
         model: model
         repository_id: repository_id
@@ -6386,6 +6392,7 @@ components:
         - workspace_id: workspace_id
           updated_at: 2000-01-23T04:56:07.000+00:00
           kind: kind
+          name: name
           created_at: 2000-01-23T04:56:07.000+00:00
           model: model
           repository_id: repository_id
@@ -6395,6 +6402,7 @@ components:
         - workspace_id: workspace_id
           updated_at: 2000-01-23T04:56:07.000+00:00
           kind: kind
+          name: name
           created_at: 2000-01-23T04:56:07.000+00:00
           model: model
           repository_id: repository_id
@@ -6613,6 +6621,11 @@ components:
       allOf:
       - $ref: "#/components/schemas/ObjectReference"
       - properties:
+          name:
+            description: Queryable find-by-name key (SDLC-CONF-13). Optional on create;
+              defaults to a stable identity derived from workspace_id/subject when
+              not supplied.
+            type: string
           workspace_id:
             type: string
           subject:
@@ -6635,6 +6648,7 @@ components:
         updated_at: 2000-01-23T04:56:07.000+00:00
         kind: kind
         subject: subject
+        name: name
         created_at: 2000-01-23T04:56:07.000+00:00
         id: id
         href: href
@@ -6662,6 +6676,7 @@ components:
           updated_at: 2000-01-23T04:56:07.000+00:00
           kind: kind
           subject: subject
+          name: name
           created_at: 2000-01-23T04:56:07.000+00:00
           id: id
           href: href
@@ -6670,6 +6685,7 @@ components:
           updated_at: 2000-01-23T04:56:07.000+00:00
           kind: kind
           subject: subject
+          name: name
           created_at: 2000-01-23T04:56:07.000+00:00
           id: id
           href: href
@@ -6913,6 +6929,7 @@ components:
           updated_at: 2000-01-23T04:56:07.000+00:00
           kind: kind
           forge: github
+          name: name
           created_at: 2000-01-23T04:56:07.000+00:00
           id: id
           href: href
@@ -6924,6 +6941,7 @@ components:
           updated_at: 2000-01-23T04:56:07.000+00:00
           kind: kind
           forge: github
+          name: name
           created_at: 2000-01-23T04:56:07.000+00:00
           id: id
           href: href
@@ -6935,6 +6953,11 @@ components:
       allOf:
       - $ref: "#/components/schemas/ObjectReference"
       - properties:
+          name:
+            description: Queryable find-by-name key (SDLC-CONF-13). Optional on create;
+              defaults to the forge when not supplied. Used by hsctl apply to resolve
+              an existing record via search=name = '<name>'.
+            type: string
           forge:
             description: "The forge family: github, gitlab, or forgejo"
             enum:
@@ -6965,6 +6988,7 @@ components:
         updated_at: 2000-01-23T04:56:07.000+00:00
         kind: kind
         forge: github
+        name: name
         created_at: 2000-01-23T04:56:07.000+00:00
         id: id
         href: href
@@ -7020,6 +7044,7 @@ components:
             project_path: project_path
             ref_protected: true
             repository: repository
+          name: name
           created_at: 2000-01-23T04:56:07.000+00:00
           id: id
           href: href
@@ -7038,6 +7063,7 @@ components:
             project_path: project_path
             ref_protected: true
             repository: repository
+          name: name
           created_at: 2000-01-23T04:56:07.000+00:00
           id: id
           href: href
@@ -7051,6 +7077,11 @@ components:
       allOf:
       - $ref: "#/components/schemas/ObjectReference"
       - properties:
+          name:
+            description: Queryable find-by-name key (SDLC-CONF-13). Optional on create;
+              defaults to a stable identity derived from ci_provider_id/gateway_id/role
+              when not supplied.
+            type: string
           ci_provider_id:
             description: Reference to the CIProvider whose issuer is trusted
             type: string
@@ -7080,6 +7111,7 @@ components:
           project_path: project_path
           ref_protected: true
           repository: repository
+        name: name
         created_at: 2000-01-23T04:56:07.000+00:00
         id: id
         href: href

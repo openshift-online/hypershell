@@ -25,11 +25,14 @@ const (
 // AgentWorkspace (data-model.spec.md "WorkspaceMembership"). A workspace that hosts
 // a refresh-bearing ProviderBinding requires at least one admin membership.
 type WorkspaceMembership struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Metadata      *ObjectReference       `protobuf:"bytes,1,opt,name=metadata,proto3" json:"metadata,omitempty"`
-	WorkspaceId   string                 `protobuf:"bytes,2,opt,name=workspace_id,json=workspaceId,proto3" json:"workspace_id,omitempty"`
-	Subject       string                 `protobuf:"bytes,3,opt,name=subject,proto3" json:"subject,omitempty"`
-	Role          string                 `protobuf:"bytes,4,opt,name=role,proto3" json:"role,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Metadata    *ObjectReference       `protobuf:"bytes,1,opt,name=metadata,proto3" json:"metadata,omitempty"`
+	WorkspaceId string                 `protobuf:"bytes,2,opt,name=workspace_id,json=workspaceId,proto3" json:"workspace_id,omitempty"`
+	Subject     string                 `protobuf:"bytes,3,opt,name=subject,proto3" json:"subject,omitempty"`
+	Role        string                 `protobuf:"bytes,4,opt,name=role,proto3" json:"role,omitempty"`
+	// name is the queryable find-by-name key (SDLC-CONF-13); defaults to a stable
+	// identity derived from workspace_id/subject when not supplied.
+	Name          string `protobuf:"bytes,5,opt,name=name,proto3" json:"name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -88,6 +91,13 @@ func (x *WorkspaceMembership) GetSubject() string {
 func (x *WorkspaceMembership) GetRole() string {
 	if x != nil {
 		return x.Role
+	}
+	return ""
+}
+
+func (x *WorkspaceMembership) GetName() string {
+	if x != nil {
+		return x.Name
 	}
 	return ""
 }
@@ -664,12 +674,13 @@ var File_hypershell_v1_workspace_memberships_proto protoreflect.FileDescriptor
 
 const file_hypershell_v1_workspace_memberships_proto_rawDesc = "" +
 	"\n" +
-	")hypershell/v1/workspace_memberships.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\xa2\x01\n" +
+	")hypershell/v1/workspace_memberships.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\xb6\x01\n" +
 	"\x13WorkspaceMembership\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12!\n" +
 	"\fworkspace_id\x18\x02 \x01(\tR\vworkspaceId\x12\x18\n" +
 	"\asubject\x18\x03 \x01(\tR\asubject\x12\x12\n" +
-	"\x04role\x18\x04 \x01(\tR\x04role\"/\n" +
+	"\x04role\x18\x04 \x01(\tR\x04role\x12\x12\n" +
+	"\x04name\x18\x05 \x01(\tR\x04name\"/\n" +
 	"\x1dGetWorkspaceMembershipRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"w\n" +
 	"\x1eGetWorkspaceMembershipResponse\x12U\n" +

@@ -8,6 +8,7 @@ import (
 	"google.golang.org/grpc"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/extsearch"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roles"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/users"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
@@ -20,7 +21,6 @@ import (
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/registry"
 	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/events"
-	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/generic"
 )
 
 type ServiceLocator func() RoleBindingService
@@ -75,7 +75,7 @@ func init() {
 
 	pkgserver.RegisterRoutes("roleBindings", func(apiV1Router *mux.Router, services pkgserver.ServicesInterface, authMiddleware environments.JWTMiddleware, authzMiddleware auth.AuthorizationMiddleware) {
 		envServices := services.(*environments.Services)
-		rbHandler := NewRoleBindingHandler(Service(envServices), generic.Service(envServices))
+		rbHandler := NewRoleBindingHandler(Service(envServices), extsearch.Service(envServices))
 
 		rbRouter := apiV1Router.PathPrefix("/role_bindings").Subrouter()
 		rbRouter.HandleFunc("", rbHandler.List).Methods(http.MethodGet)

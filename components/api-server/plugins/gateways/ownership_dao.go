@@ -41,10 +41,17 @@ func (d *gatewayOwnershipDao) OwnedGatewayIDs(ctx context.Context, userID string
 	}
 	g2 := (*d.sessionFactory).New(ctx)
 	var ids []string
+	// JOIN gateways to exclude soft-deleted gateways: a live gateway:owner
+	// binding on an already-deleted gateway must NOT make it count as owned,
+	// or owned would stop being a subset of accessible (the gateway list
+	// excludes soft-deleted rows) and the "Show only my gateways" toggle would
+	// be computed from a wrong owned set (WEB-API-01, WEB-UIEX-07). This
+	// mirrors the g.deleted_at IS NULL filter in OtherOwnerGatewayExists below.
 	const query = `
 		SELECT DISTINCT rb.gateway_id
 		FROM role_bindings rb
 		JOIN roles r ON r.id = rb.role_id AND r.deleted_at IS NULL
+		JOIN gateways g ON g.id = rb.gateway_id AND g.deleted_at IS NULL
 		WHERE rb.user_id = ?
 		  AND rb.gateway_id IS NOT NULL
 		  AND rb.deleted_at IS NULL

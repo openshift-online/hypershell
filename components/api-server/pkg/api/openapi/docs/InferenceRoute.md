@@ -9,6 +9,7 @@ Name | Type | Description | Notes
 **Href** | Pointer to **string** |  | [optional]
 **CreatedAt** | Pointer to **time.Time** |  | [optional]
 **UpdatedAt** | Pointer to **time.Time** |  | [optional]
+**Name** | Pointer to **string** | Queryable find-by-name key (SDLC-CONF-13). Optional on create; defaults to a stable identity derived from workspace_id/provider_binding_id/model when not supplied. | [optional]
 **WorkspaceId** | **string** |  |
 **ProviderBindingId** | **string** |  |
 **Model** | **string** | Model alias for LLM inference within the agent workspace |
@@ -157,6 +158,31 @@ SetUpdatedAt sets UpdatedAt field to given value.
 `func (o *InferenceRoute) HasUpdatedAt() bool`
 
 HasUpdatedAt returns a boolean if a field has been set.
+
+### GetName
+
+`func (o *InferenceRoute) GetName() string`
+
+GetName returns the Name field if non-nil, zero value otherwise.
+
+### GetNameOk
+
+`func (o *InferenceRoute) GetNameOk() (*string, bool)`
+
+GetNameOk returns a tuple with the Name field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetName
+
+`func (o *InferenceRoute) SetName(v string)`
+
+SetName sets Name field to given value.
+
+### HasName
+
+`func (o *InferenceRoute) HasName() bool`
+
+HasName returns a boolean if a field has been set.
 
 ### GetWorkspaceId
 

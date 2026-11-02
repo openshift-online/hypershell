@@ -14,6 +14,7 @@ func ciProviderToProto(p *CIProvider) *pb.CIProvider {
 			Kind:      "CIProvider",
 			Href:      "/api/hypershell/ext/ci_providers/" + p.ID,
 		},
+		Name:           p.Name,
 		Forge:          p.Forge,
 		Issuer:         p.Issuer,
 		JwksUrl:        p.JwksUrl,

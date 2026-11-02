@@ -223,8 +223,14 @@
       "schemaRef": "#/schemas/CIProvider",
       "label": "CIProvider",
       "identityProperty": "id",
-      "defaultSort": "audience",
+      "defaultSort": "name",
       "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
         {
           "property": "audience",
           "label": "AUDIENCE",
@@ -299,8 +305,14 @@
       "schemaRef": "#/schemas/CITrust",
       "label": "CITrust",
       "identityProperty": "id",
-      "defaultSort": "ci_provider_id",
+      "defaultSort": "name",
       "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
         {
           "property": "ci_provider_id",
           "label": "CI PROVIDER ID",
@@ -369,8 +381,14 @@
       "schemaRef": "#/schemas/InferenceRoute",
       "label": "InferenceRoute",
       "identityProperty": "id",
-      "defaultSort": "created_at",
+      "defaultSort": "name",
       "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
         {
           "property": "created_at",
           "label": "CREATED AT",
@@ -903,8 +921,14 @@
       "schemaRef": "#/schemas/WorkspaceMembership",
       "label": "WorkspaceMembership",
       "identityProperty": "id",
-      "defaultSort": "created_at",
+      "defaultSort": "name",
       "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
         {
           "property": "created_at",
           "label": "CREATED AT",
@@ -2273,8 +2297,14 @@
       "schemaRef": "#/schemas/CIProvider",
       "label": "CIProvider",
       "identityProperty": "id",
-      "defaultSort": "audience",
+      "defaultSort": "name",
       "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
         {
           "property": "audience",
           "label": "AUDIENCE",
@@ -2351,8 +2381,14 @@
       "schemaRef": "#/schemas/CITrust",
       "label": "CITrust",
       "identityProperty": "id",
-      "defaultSort": "ci_provider_id",
+      "defaultSort": "name",
       "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
         {
           "property": "ci_provider_id",
           "label": "CI PROVIDER ID",
@@ -2423,8 +2459,14 @@
       "schemaRef": "#/schemas/InferenceRoute",
       "label": "InferenceRoute",
       "identityProperty": "id",
-      "defaultSort": "created_at",
+      "defaultSort": "name",
       "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
         {
           "property": "created_at",
           "label": "CREATED AT",
@@ -2967,8 +3009,14 @@
       "schemaRef": "#/schemas/WorkspaceMembership",
       "label": "WorkspaceMembership",
       "identityProperty": "id",
-      "defaultSort": "created_at",
+      "defaultSort": "name",
       "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
         {
           "property": "created_at",
           "label": "CREATED AT",
@@ -4112,6 +4160,12 @@
             "required": false
           },
           {
+            "name": "name",
+            "type": "string",
+            "required": false,
+            "description": "Queryable find-by-name key (SDLC-CONF-13). Optional on create; defaults to the forge when not supplied. Used by hsctl apply to resolve an existing record via search=name = '\u003cname\u003e'."
+          },
+          {
             "name": "updated_at",
             "type": "string",
             "format": "date-time",
@@ -4193,6 +4247,12 @@
             "name": "kind",
             "type": "string",
             "required": false
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "required": false,
+            "description": "Queryable find-by-name key (SDLC-CONF-13). Optional on create; defaults to a stable identity derived from ci_provider_id/gateway_id/role when not supplied."
           },
           {
             "name": "role",
@@ -4444,6 +4504,12 @@
             "type": "string",
             "required": true,
             "description": "Model alias for LLM inference within the agent workspace"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "required": false,
+            "description": "Queryable find-by-name key (SDLC-CONF-13). Optional on create; defaults to a stable identity derived from workspace_id/provider_binding_id/model when not supplied."
           },
           {
             "name": "provider_binding_id",
@@ -5219,6 +5285,12 @@
             "name": "kind",
             "type": "string",
             "required": false
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "required": false,
+            "description": "Queryable find-by-name key (SDLC-CONF-13). Optional on create; defaults to a stable identity derived from workspace_id/subject when not supplied."
           },
           {
             "name": "role",

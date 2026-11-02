@@ -3,10 +3,26 @@ package ciTrusts
 import (
 	"context"
 
+	"github.com/openshift-online/hypershell/components/api-server/pkg/dberr"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/services"
 )
+
+// conflictForDuplicateName maps a PostgreSQL unique-violation on the name index to
+// a 409 that names the conflicting field (SDLC-CONF-13, FINDING 2). name is the
+// only unique index on a CITrust, so a unique violation is always a duplicate
+// find-by-name key. The violation is detected by SQLSTATE 23505 through the shared
+// dberr classifier, which covers BOTH driver error types - pgx (*pgconn.PgError) in
+// production and lib/pq in the test session - not by substring-matching the message
+// text, which is fragile against locale and wording changes (FINDING 5). It returns
+// nil for any other error so the caller falls through to its generic error.
+func conflictForDuplicateName(err error, name string) *errors.ServiceError {
+	if dberr.IsUniqueViolation(err) {
+		return errors.Conflict("a CITrust named %q already exists", name)
+	}
+	return nil
+}
 
 const ciTrustEventSource = "CITrusts"
 
@@ -71,6 +87,9 @@ func (s *sqlCITrustService) Create(ctx context.Context, ciTrust *CITrust) (*CITr
 	}
 	item, err := s.dao.Create(ctx, ciTrust)
 	if err != nil {
+		if svcErr := conflictForDuplicateName(err, ciTrust.Name); svcErr != nil {
+			return nil, svcErr
+		}
 		return nil, errors.GeneralError("unable to create CITrust: %s", err)
 	}
 	if _, evErr := s.events.Create(ctx, &api.Event{
@@ -86,6 +105,9 @@ func (s *sqlCITrustService) Create(ctx context.Context, ciTrust *CITrust) (*CITr
 func (s *sqlCITrustService) Replace(ctx context.Context, ciTrust *CITrust) (*CITrust, *errors.ServiceError) {
 	item, err := s.dao.Replace(ctx, ciTrust)
 	if err != nil {
+		if svcErr := conflictForDuplicateName(err, ciTrust.Name); svcErr != nil {
+			return nil, svcErr
+		}
 		return nil, errors.GeneralError("unable to update CITrust: %s", err)
 	}
 	if _, evErr := s.events.Create(ctx, &api.Event{

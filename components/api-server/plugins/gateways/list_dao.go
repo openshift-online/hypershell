@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/openshift-online/hypershell/components/api-server/pkg/extsearch"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roles"
 	trexdao "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/dao"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
@@ -29,9 +30,14 @@ type gatewayListDao struct {
 }
 
 func newGatewayListService(sessionFactory *db.SessionFactory) services.GenericService {
-	return services.NewGenericService(&gatewayListDao{
+	// Wrap with the shared search-column validator so an unknown search column is a
+	// clean 400 before it reaches SQL, never a transaction-poisoning 500 /
+	// SQLSTATE 25P02. Gateways use a bespoke list DAO (the creator join) rather
+	// than the shared generic.Service, so the validation must be applied here too
+	// (issue #871).
+	return extsearch.NewValidatingService(services.NewGenericService(&gatewayListDao{
 		GenericDao: trexdao.NewGenericDao(sessionFactory),
-	})
+	}))
 }
 
 func (d *gatewayListDao) GetInstanceDao(ctx context.Context, model interface{}) trexdao.GenericDao {

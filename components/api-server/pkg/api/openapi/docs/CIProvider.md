@@ -9,6 +9,7 @@ Name | Type | Description | Notes
 **Href** | Pointer to **string** |  | [optional]
 **CreatedAt** | Pointer to **time.Time** |  | [optional]
 **UpdatedAt** | Pointer to **time.Time** |  | [optional]
+**Name** | Pointer to **string** | Queryable find-by-name key (SDLC-CONF-13). Optional on create; defaults to the forge when not supplied. Used by hsctl apply to resolve an existing record via search&#x3D;name &#x3D; &#39;&lt;name&gt;&#39;. | [optional]
 **Forge** | **string** | The forge family: github, gitlab, or forgejo |
 **Issuer** | **string** | The OIDC issuer URL whose tokens this provider validates |
 **JwksUrl** | **string** | The JWKS endpoint used for signature validation |
@@ -158,6 +159,31 @@ SetUpdatedAt sets UpdatedAt field to given value.
 `func (o *CIProvider) HasUpdatedAt() bool`
 
 HasUpdatedAt returns a boolean if a field has been set.
+
+### GetName
+
+`func (o *CIProvider) GetName() string`
+
+GetName returns the Name field if non-nil, zero value otherwise.
+
+### GetNameOk
+
+`func (o *CIProvider) GetNameOk() (*string, bool)`
+
+GetNameOk returns a tuple with the Name field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetName
+
+`func (o *CIProvider) SetName(v string)`
+
+SetName sets Name field to given value.
+
+### HasName
+
+`func (o *CIProvider) HasName() bool`
+
+HasName returns a boolean if a field has been set.
 
 ### GetForge
 
