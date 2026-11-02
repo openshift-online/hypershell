@@ -2,14 +2,20 @@ import "@patternfly/react-core/dist/styles/base.css";
 
 import { Content, PageSection, Title } from "@patternfly/react-core";
 
-import { GatewayListContent, type GatewayListState } from "./gateway-list";
+import {
+  GatewayListContent,
+  type GatewayBulkScenario,
+  type GatewayListState,
+} from "./gateway-list";
 
 export function GatewayListPageSurface({
-  state,
+  bulk = "none",
   ownershipFilterOn = false,
+  state,
 }: {
-  state: GatewayListState;
+  bulk?: GatewayBulkScenario;
   ownershipFilterOn?: boolean;
+  state: GatewayListState;
 }) {
   return (
     <>
@@ -31,6 +37,7 @@ export function GatewayListPageSurface({
         variant="secondary"
       >
         <GatewayListContent
+          bulk={bulk}
           ownershipFilterOn={ownershipFilterOn}
           state={state}
         />
