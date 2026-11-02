@@ -175,3 +175,175 @@ func seedPreNameRow(t *testing.T, g2 *gorm.DB, r preNameRow) {
 	// that would otherwise populate name.
 	exec(t, g2, r.insertSQL, r.insertArgs...)
 }
+
+// collisionPair is two genuine pre-migration rows that backfill to the SAME name:
+// a single-column key with a duplicate value (ci_providers: same forge) or a
+// composite natural key with the same identity (the other three Kinds). The
+// migration must de-duplicate them collision-safely so the UNIQUE index can build.
+type collisionPair struct {
+	kind      string
+	table     string
+	nameMigID string
+	// idLow/idHigh are the two row ids; idLow sorts before idHigh, so after
+	// de-duplication idLow keeps baseName and idHigh is suffixed to baseName/idHigh.
+	idLow      string
+	idHigh     string
+	baseName   string
+	insertSQL  string
+	argsForRow func(id string) []interface{}
+}
+
+// TestExtKindsNameBackfillDeduplicatesCollisions is the collision-safe backfill
+// regression (FINDING 1 and FINDING 3). The name backfill is NOT unique by
+// construction on pre-existing data: two ci_providers can share a forge, and two
+// composite-key rows can share an identity. If the migration created the UNIQUE
+// name index without de-duplicating first, CREATE UNIQUE INDEX would fail on the
+// duplicate, gormigrate would roll the migration back, and the API server would
+// refuse to start on upgraded data.
+//
+// For every affected Kind this test seeds TWO pre-migration rows that backfill to
+// the SAME name, re-runs the migration suite, and asserts:
+//   - the migration COMPLETES (no duplicate-key failure, no rollback);
+//   - both rows end up with distinct, non-empty names (one keeps the derived name,
+//     the other is suffixed with its row id);
+//   - the UNIQUE name index exists;
+//   - find-by-name on the derived name resolves EXACTLY ONE row (the other no
+//     longer answers to the base name, so hsctl apply can never resolve the wrong
+//     record).
+//
+// Without the de-duplication in dbmigrate.AddUniqueNameColumn the Migrate call
+// itself fails, so this whole test fails.
+func TestExtKindsNameBackfillDeduplicatesCollisions(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+	env := newConformanceEnv(t, h, client)
+
+	ctx := context.Background()
+	g2 := h.Env().Database.SessionFactory.New(ctx)
+
+	// A forge distinct from the env's own ci_provider (default name "github") so the
+	// collision is strictly between the two seeded rows, not with the env row.
+	dupForge := "forgejo"
+	dupSubject := "subject-" + short()
+	dupModel := "gpt-4o-dedup"
+	dupRole := "duprole"
+
+	pairs := []collisionPair{
+		{
+			kind:      "ci_providers",
+			table:     "ci_providers",
+			nameMigID: "2026110213000001",
+			baseName:  dupForge, // FINDING 1: two providers on the same forge.
+			insertSQL: `INSERT INTO ci_providers (id, created_at, updated_at, forge, issuer, jwks_url, audience)
+						VALUES (?, NOW(), NOW(), ?, ?, ?, ?)`,
+			argsForRow: func(id string) []interface{} {
+				// Issuer is also uniquely indexed, so each row needs a distinct issuer;
+				// only the forge (and thus the derived name) collides.
+				return []interface{}{id, dupForge, "https://issuer.example/dedup-" + id, "https://example.com/jwks", "hypershell"}
+			},
+		},
+		{
+			kind:      "ci_trusts",
+			table:     "ci_trusts",
+			nameMigID: "2026110213000002",
+			// FINDING 3: same composite identity (ci_provider_id/gateway_id/role).
+			baseName: env.ciProviderID + "/" + env.gatewayID + "/" + dupRole,
+			insertSQL: `INSERT INTO ci_trusts (id, created_at, updated_at, ci_provider_id, gateway_id, role)
+						VALUES (?, NOW(), NOW(), ?, ?, ?)`,
+			argsForRow: func(id string) []interface{} {
+				return []interface{}{id, env.ciProviderID, env.gatewayID, dupRole}
+			},
+		},
+		{
+			kind:      "inference_routes",
+			table:     "inference_routes",
+			nameMigID: "2026110213000003",
+			baseName:  env.workspaceID + "/" + env.providerBindingID + "/" + dupModel,
+			insertSQL: `INSERT INTO inference_routes (id, created_at, updated_at, workspace_id, provider_binding_id, model)
+						VALUES (?, NOW(), NOW(), ?, ?, ?)`,
+			argsForRow: func(id string) []interface{} {
+				return []interface{}{id, env.workspaceID, env.providerBindingID, dupModel}
+			},
+		},
+		{
+			kind:      "workspace_memberships",
+			table:     "workspace_memberships",
+			nameMigID: "2026110213000004",
+			baseName:  env.workspaceID + "/" + dupSubject,
+			insertSQL: `INSERT INTO workspace_memberships (id, created_at, updated_at, workspace_id, subject, role)
+						VALUES (?, NOW(), NOW(), ?, ?, ?)`,
+			argsForRow: func(id string) []interface{} {
+				return []interface{}{id, env.workspaceID, dupSubject, "member"}
+			},
+		},
+	}
+
+	// Assign a sorted id pair to each kind, then seed both colliding rows.
+	for i := range pairs {
+		pairs[i].idLow, pairs[i].idHigh = sortedIDPair()
+		seedCollisionPair(t, g2, pairs[i])
+	}
+
+	// Re-run the migration suite. Only the four un-recorded name migrations run.
+	// This MUST succeed: without collision-safe de-duplication the CREATE UNIQUE
+	// INDEX would fail on the duplicate name and roll the migration back.
+	Expect(rhtrexdb.Migrate(g2)).To(Succeed(),
+		"name-column migration failed on colliding pre-migration rows (de-dup missing? unique index could not build)")
+
+	for _, p := range pairs {
+		p := p
+		t.Run(p.kind, func(t *testing.T) {
+			RegisterTestingT(t)
+
+			// Both rows have distinct, non-empty names: the low-id row keeps the
+			// derived base name, the high-id row is suffixed with its own id.
+			var lowName, highName string
+			Expect(g2.Raw(`SELECT name FROM `+p.table+` WHERE id = ?`, p.idLow).Scan(&lowName).Error).To(Succeed())
+			Expect(g2.Raw(`SELECT name FROM `+p.table+` WHERE id = ?`, p.idHigh).Scan(&highName).Error).To(Succeed())
+			Expect(lowName).To(Equal(p.baseName), "low-id row should keep the derived name for %s", p.table)
+			Expect(highName).To(Equal(p.baseName+"/"+p.idHigh), "high-id row should be suffixed with its id for %s", p.table)
+			Expect(lowName).NotTo(Equal(highName), "collision was not de-duplicated for %s", p.table)
+
+			// The UNIQUE name index exists (it could only build because the names
+			// were made distinct first).
+			Expect(hasIndex(g2, "idx_"+p.table+"_name")).To(BeTrue(),
+				"unique name index missing for %s", p.table)
+
+			// find-by-name on the base name resolves EXACTLY ONE row: the low-id row
+			// answers to it, the high-id row no longer does.
+			assertFindByName(t, env, p.kind, p.idLow, p.baseName)
+			assertNotResolvableByName(t, env, p.kind, p.idHigh, p.baseName)
+			// The suffixed name resolves the high-id row.
+			assertFindByName(t, env, p.kind, p.idHigh, highName)
+		})
+	}
+}
+
+// seedCollisionPair seeds two pre-migration rows that backfill to the same name,
+// after un-recording the name migration and dropping the name column (so the
+// re-run migration re-adds the column, backfills, and de-duplicates).
+func seedCollisionPair(t *testing.T, g2 *gorm.DB, p collisionPair) {
+	t.Helper()
+	exec(t, g2, `DELETE FROM migrations WHERE id = ?`, p.nameMigID)
+	exec(t, g2, `ALTER TABLE `+p.table+` DROP COLUMN IF EXISTS name`)
+	exec(t, g2, p.insertSQL, p.argsForRow(p.idLow)...)
+	exec(t, g2, p.insertSQL, p.argsForRow(p.idHigh)...)
+}
+
+// sortedIDPair returns two distinct ids, the lexicographically smaller first, so a
+// test can predict which row the de-duplication keeps (smallest id) and which it
+// suffixes.
+func sortedIDPair() (string, string) {
+	a, b := api.NewID(), api.NewID()
+	if a > b {
+		return b, a
+	}
+	return a, b
+}
+
+// hasIndex reports whether an index with the given name exists in the current
+// schema.
+func hasIndex(g2 *gorm.DB, name string) bool {
+	var count int64
+	_ = g2.Raw(`SELECT count(*) FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ?`, name).Scan(&count).Error
+	return count > 0
+}
