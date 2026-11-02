@@ -8947,8 +8947,8 @@
           {
             "name": "capabilities",
             "type": "array",
-            "required": false,
-            "description": "Complete self-declared capability set. Optional for backward compatibility: a control plane that predates the capability model may omit it, in which case the heartbeat is accepted as a no-op that preserves any stored capabilities."
+            "required": true,
+            "description": "Complete self-declared capability set, sent on every registration and heartbeat. An omitted, null, or empty set is rejected with 400."
           },
           {
             "name": "name",

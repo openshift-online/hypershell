@@ -175,20 +175,21 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/command/-
         value: "--auth-bypass-methods=/grpc.health.v1.Health/,/grpc.reflection.v1alpha.ServerReflection/"
-  # --- API server: select the development_oidc environment + enforce RBAC ---
+  # --- API server: select the development_oidc environment (JWT on) ---
   # The binary's default `development` environment force-disables JWT in its
   # OverrideConfig, which overrides the --enable-jwt=true flag above. The
   # `development_oidc` environment leaves JWT driven by flags, so JWT
   # enforcement and JWKS loading from Keycloak actually take effect.
   #
-  # RBAC_ENFORCE=true turns on the three-role gateway RBAC model
-  # (gateway:creator/owner/viewer). It is the sole gate for that model
-  # (plugins/rbac/plugin.go) -- independent of --enable-authz, which only adds
-  # the framework's identity-presence check. admin carries gateway:creator (via
-  # the realm_access.roles mapper in deploy/base/keycloak). The shared test-user
-  # seed gives developer only hypershell-users on every environment, so admin
-  # can POST /gateways and developer gets 403 (ephemeral-test-credentials.spec.md,
-  # CICD-CRED-13; rbac-enforcement.spec.md, SEC-RBAC-13).
+  # Authorization is enforced because JWT authentication is on: enforcement
+  # follows authentication (rbac-enforcement.spec.md, SEC-RBAC-14), with no
+  # separate enforcement setting to keep in sync. It is independent of
+  # --enable-authz, which only adds the framework's identity-presence check.
+  # admin carries gateway:creator (via the realm_access.roles mapper in
+  # deploy/base/keycloak). The shared test-user seed gives developer only
+  # hypershell-users on every environment, so admin can POST /gateways and
+  # developer gets 403 (ephemeral-test-credentials.spec.md, CICD-CRED-13;
+  # rbac-enforcement.spec.md, SEC-RBAC-13).
   #
   # RBAC_SERVICE_ACCOUNTS bypasses the gRPC RBAC interceptor for the control
   # plane's service account. The control plane writes gateway status via the
@@ -214,8 +215,6 @@ patches:
                 env:
                   - name: API_ENV
                     value: "development_oidc"
-                  - name: RBAC_ENFORCE
-                    value: "true"
                   - name: RBAC_SERVICE_ACCOUNTS
                     value: "service-account-hypershell-control-plane"
                   - name: HYPERSHELL_PLATFORM_KIND

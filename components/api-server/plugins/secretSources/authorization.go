@@ -2,7 +2,6 @@ package secretSources
 
 import (
 	"context"
-	"os"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/agentRuntimes"
@@ -31,12 +30,13 @@ type runtimeGatewayResolver interface {
 }
 
 // newManageAuthorizer wires the tenancy check from the environment's service
-// registry. It returns nil when RBAC is not enforced, which the handler treats
-// as "not enforced" (allow), mirroring the middleware's RBAC_ENFORCE gate. When
-// RBAC IS enforced the lookup seams must resolve; a missing seam fails closed
-// inside the check rather than allowing.
+// registry. It returns nil when RBAC is not enforced (authentication off,
+// rbac.Enforced), which the handler treats as "not enforced" (allow),
+// mirroring the middleware's enforcement gate. When RBAC IS enforced the
+// lookup seams must resolve; a missing seam fails closed inside the check
+// rather than allowing.
 func newManageAuthorizer(envServices *environments.Services) *manageAuthorizer {
-	if os.Getenv("RBAC_ENFORCE") != "true" || envServices == nil {
+	if !rbac.Enforced() || envServices == nil {
 		return nil
 	}
 	return &manageAuthorizer{

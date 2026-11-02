@@ -121,7 +121,7 @@ The `managed-cluster-registrar` role is required on both the initial registratio
 
 An administrator assigns `managed-cluster-registrar` to each control plane's OIDC client in Keycloak before that control plane is deployed. In production this is an explicit, out-of-band admin step. The development realms (`deploy/base/keycloak`, the Kind and OpenShift overlays) SHALL ship the role already assigned to the `hypershell-control-plane` client, so `make kind-up` and `make openshift-up` produce a control plane that registers without manual steps. Keycloak is the trusted source of truth; the API server does not re-verify role assignment beyond reading the JWT claim.
 
-**Isolation guarantee:** In production (`RBAC_ENFORCE=true`), a control plane holding only `managed-cluster-registrar` has no gateway permissions through the HTTP API. All HTTP permissions flow exclusively from Keycloak. A control plane gains HTTP gateway access only if an administrator also explicitly grants `gateway:creator` or a gateway-scoped binding in Keycloak. Registration does not change this: the control-plane identity it establishes applies to the gRPC API, plus deleting its own record over HTTP (see "Requirement: Control-Plane Identity" and "Requirement: Record Writes and Deregistration").
+**Isolation guarantee:** In production (authentication on, so RBAC enforcement on -- `security/rbac-enforcement.spec.md` SEC-RBAC-14), a control plane holding only `managed-cluster-registrar` has no gateway permissions through the HTTP API. All HTTP permissions flow exclusively from Keycloak. A control plane gains HTTP gateway access only if an administrator also explicitly grants `gateway:creator` or a gateway-scoped binding in Keycloak. Registration does not change this: the control-plane identity it establishes applies to the gRPC API, plus deleting its own record over HTTP (see "Requirement: Control-Plane Identity" and "Requirement: Record Writes and Deregistration").
 
 ---
 
@@ -282,25 +282,23 @@ them. A heartbeat SHALL replace the prior set in one transaction and update
 Every deployed control plane SHALL send its complete GitOps-configured capability
 set on registration and each heartbeat.
 
-For backward compatibility during a rolling upgrade, a capability-less heartbeat
-(omitted, `null`, or empty `capabilities`) from a control plane that predates the
-capability model SHALL be accepted rather than rejected, and SHALL be a no-op for
-the capability set: it SHALL update `last_seen_at` and SHALL preserve the stored
-capabilities instead of clearing them. This prevents a mixed-version upgrade from
-disconnecting the cluster or dropping its placement data. A malformed or
-unknown-namespace label is still rejected with 400 (see "Capability input is
-rejected atomically").
+`capabilities` is required on every registration call. A call that omits it,
+sends `null`, or sends an empty array SHALL return 400, the same as any other
+rejected set (PLAT-CLUS-06). This applies to a first registration, a heartbeat,
+and a registration that restores a soft-deleted record. A rejected call SHALL
+change neither the stored capabilities nor `last_seen_at`.
 
-Existing gateway records require no migration because they continue to persist
-the resolved `cluster_id`. A control plane restart SHALL upsert its configured
-capabilities without changing those gateway assignments.
+A control plane restart SHALL upsert its configured capabilities. Gateway
+assignments SHALL NOT change, because each gateway persists its resolved
+`cluster_id`.
 
-#### Scenario: PLAT-CLUS-07.01 -- Capability-less heartbeat preserves the stored set
+#### Scenario: PLAT-CLUS-07.03 -- Capability-less registration is rejected
 
 - GIVEN a registered cluster has `provider/aws` and `network/public`
-- WHEN a heartbeat arrives with omitted or empty `capabilities`
-- THEN the API SHALL accept it and update `last_seen_at`
+- WHEN a heartbeat arrives with omitted, `null`, or empty `capabilities`
+- THEN the API SHALL return 400
 - AND the stored capabilities SHALL remain `provider/aws` and `network/public`
+- AND `last_seen_at` SHALL remain unchanged
 
 #### Scenario: PLAT-CLUS-07.02 -- Restart publishes configured capabilities
 
@@ -459,7 +457,7 @@ The hub exposes its gRPC API through a public Route (`hub-grpc-tls.spec.md`), so
 #### Scenario: PLAT-CLUS-11.04 -- Registry lookup fails
 
 - GIVEN the ManagedCluster lookup for the caller's `sub` returns a database error
-- WHEN a caller calls any gRPC method under `RBAC_ENFORCE=true`
+- WHEN a caller calls any gRPC method with RBAC enforcement on (authentication on, `security/rbac-enforcement.spec.md` SEC-RBAC-14)
 - THEN the api-server returns `UNAVAILABLE`
 - AND the control plane retries
 

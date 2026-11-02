@@ -22,6 +22,8 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 scan_dirs=(
   "components/fleet-dashboard"
   "packages/fleet-dashboard-ui"
+  # The spec viewer UI ships in the same image (served at /specs/).
+  "packages/spec-viewer-ui"
 )
 
 # Deny-list, extended-regex. Each pattern targets a concrete fleet identifier.

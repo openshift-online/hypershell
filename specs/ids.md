@@ -65,6 +65,7 @@ listed in `specs/id-rename-map.md`, not here.
 |--------|------|--------------|
 | `DEV-LOC` | `platform/local-development.spec.md` | 17 |
 | `DEV-OCP` | `platform/openshift-development.spec.md` | 14 |
+| `DEV-SPV` | `platform/spec-viewer.spec.md` | 17 |
 
 ### E2E
 

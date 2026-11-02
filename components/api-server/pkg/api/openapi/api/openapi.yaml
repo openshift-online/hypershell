@@ -4592,15 +4592,15 @@ components:
             \ Must match on every subsequent call."
           type: string
         capabilities:
-          description: "Complete self-declared capability set. Optional for backward\
-            \ compatibility: a control plane that predates the capability model may\
-            \ omit it, in which case the heartbeat is accepted as a no-op that preserves\
-            \ any stored capabilities."
+          description: "Complete self-declared capability set, sent on every registration\
+            \ and heartbeat. An omitted, null, or empty set is rejected with 400."
           items:
             type: string
+          minItems: 1
           type: array
           uniqueItems: true
       required:
+      - capabilities
       - name
       type: object
     ManagedClusterRegistrationResponse:

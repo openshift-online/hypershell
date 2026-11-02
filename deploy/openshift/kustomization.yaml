@@ -95,10 +95,11 @@ patches:
   # any token carrying hypershell-api is accepted. See
   # specs/platform/oidc-integration.spec.md (Production / Staging).
   #
-  # RBAC_ENFORCE=true turns on the three-role gateway RBAC model
-  # (gateway:creator/owner/viewer); it is the sole gate for that model
-  # (plugins/rbac/plugin.go), independent of --enable-authz. RBAC_SERVICE_ACCOUNTS
-  # bypasses the gRPC RBAC interceptor for the control plane's service account,
+  # Authorization is enforced because JWT authentication is on: enforcement
+  # follows authentication (rbac-enforcement.spec.md, SEC-RBAC-14), with no
+  # separate enforcement setting to keep in sync; it is independent of
+  # --enable-authz. RBAC_SERVICE_ACCOUNTS bypasses the gRPC RBAC interceptor
+  # for the control plane's service account,
   # whose UpdateGateway writes require a JWT like every hypershell RPC
   # (--auth-bypass-methods exempts only health and reflection) and whose gRPC
   # path never syncs JWT roles (pkg/rbac/grpc_interceptor.go). The allowlist is
@@ -151,8 +152,6 @@ patches:
               secretKeyRef:
                 name: hypershell-api-config
                 key: api-service.jwkCertUrl
-          - name: RBAC_ENFORCE
-            value: "true"
           - name: RBAC_SERVICE_ACCOUNTS
             value: "service-account-hypershell-control-plane"
       - op: add
@@ -164,8 +163,8 @@ patches:
       # NOTE: the OCM/Red Hat AMS client stays mocked via API_ENV=development_oidc
       # (enable-mock=true default), so no explicit --enable-mock flag is needed.
       # A self-contained Keycloak deployment has no sso.redhat.com secret files,
-      # and the AMS client is unused here; JWT auth (enable-jwt) and gateway RBAC
-      # (RBAC_ENFORCE) are independent of the mock and stay on.
+      # and the AMS client is unused here; JWT auth (enable-jwt), and with it
+      # gateway RBAC enforcement, is independent of the mock and stays on.
       - op: add
         path: /spec/template/spec/containers/0/command/-
         value: "--jwk-cert-url=$(JWK_CERT_URL)"
