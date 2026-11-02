@@ -933,7 +933,6 @@ the gateway's default workload image through `sandbox.image`.
 | Secret management | Vault | Stores and rotates secrets with cloud-native drivers |
 | Identity | Keycloak | OIDC authentication for gateways and console |
 | Cluster provisioning | Terraform | VPC, subnet, and cluster provisioning |
-| Installer | Tekton pipelines | Reproducible, deterministic deployment pipelines |
 | Monitoring | Prometheus | Metrics collection on all clusters |
 | Dashboards | Grafana | Centralized visualization on hub |
 
@@ -1037,27 +1036,6 @@ This namespace-per-gateway strategy provides:
 - Resource quotas per gateway
 - Self-contained workload lifecycle (delete namespace = delete gateway workload; the gateway database is dropped independently)
 - One shared server per installation, reducing the Postgres footprint across gateways
-
-## Installer Pipeline
-
-Tekton pipelines provide a reproducible installer for HyperShell deployments. The pipeline replaces manual bash scripts with deterministic, auditable steps.
-
-### Requirement: PLAT-ARCH-20 -- Deterministic Installation
-
-HyperShell installation SHALL be performed via Tekton pipelines that execute idempotent steps. Manual `oc apply` or `kubectl` scripts SHALL NOT be the primary installation method in production.
-
-#### Scenario: PLAT-ARCH-20.01 -- Fresh Cluster Installation
-
-- GIVEN a bare OpenShift cluster with Tekton installed
-- WHEN the HyperShell installer pipeline runs
-- AND the platform, Keycloak, and gateway PostgreSQL servers have been provisioned outside the cluster
-- THEN it SHALL provision: cert-manager, API server, controller, ArgoCD, Vault, Keycloak
-- AND it SHALL configure the connection Secrets for the externally provisioned PostgreSQL servers
-- AND the installation SHALL be idempotent (safe to re-run)
-
-### Requirement: PLAT-ARCH-21 -- Cattle Not Pets
-
-Infrastructure SHALL be treated as disposable. Any cluster can be torn down and rebuilt from the pipeline without manual intervention or state recovery.
 
 ## Monitoring Architecture
 
@@ -1204,7 +1182,6 @@ repo while syncing a different path. To fork the repo, edit only that file.
 | Cloud-managed PostgreSQL only | All databases run on externally provisioned, cloud-managed servers that supply backup, point-in-time recovery, and HA. HyperShell registers servers and manages only per-gateway databases and roles, so no database operator or in-cluster PostgreSQL workload is maintained, and there is a single provisioning model. |
 | PostgreSQL on Cloud Hub as source of truth | All Gateway/ManagedCluster resource state lives in Cloud Hub database |
 | ManagedClusters can be standard K8s | Maximizes deployment flexibility; only hubs need OpenShift |
-| Tekton over bash scripts | Deterministic, auditable, cattle-not-pets infrastructure |
 | ArgoCD on every cluster (pull model) | Every cluster runs its own ArgoCD and self-reconciles only its own path from the central GitOps repo. No cluster stores another's kubeconfig and no hub pushes manifests outward, so credential blast radius is minimized and a hub outage never stalls a spoke's platform reconciliation. (Distinct from control-plane tenant reconciliation, which remains a runtime push from the Cloud Hub.) |
 | Prometheus metrics hierarchy | ManagedCluster → Cloud Hub → Global Hub; supports cloud-level and cross-cloud dashboards |
 | Namespace-per-gateway | Isolation boundary for RBAC and resource quotas; the gateway database lives on the registered server outside the cluster |
