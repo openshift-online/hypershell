@@ -73,4 +73,5 @@ func init() {
 	presenters.RegisterKind(&WorkspaceMembership{}, "WorkspaceMembership")
 
 	db.RegisterMigration(migration())
+	db.RegisterMigration(migrationAddName())
 }

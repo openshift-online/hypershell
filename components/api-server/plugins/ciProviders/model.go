@@ -7,6 +7,10 @@ import (
 
 type CIProvider struct {
 	api.Meta
+	// Name is the queryable find-by-name key (SDLC-CONF-13). hsctl apply resolves
+	// an existing record with search=name = '<name>', so every ext Kind carries a
+	// name column. It defaults to Forge when a client does not supply one.
+	Name           string  `json:"name"`
 	Forge          string  `json:"forge"`
 	Issuer         string  `json:"issuer" gorm:"uniqueIndex"`
 	JwksUrl        string  `json:"jwks_url"`
@@ -29,6 +33,12 @@ type CIProviderPatchRequest struct {
 func (d *CIProvider) BeforeCreate(tx *gorm.DB) error {
 	if d.ID == "" {
 		d.ID = api.NewID()
+	}
+	// Guarantee a find-by-name key on every row regardless of entry path (REST or
+	// gRPC). When a client does not supply a name, default to the forge. This
+	// mirrors the migration backfill for pre-existing rows (SDLC-CONF-13).
+	if d.Name == "" {
+		d.Name = d.Forge
 	}
 	return nil
 }

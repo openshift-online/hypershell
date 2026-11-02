@@ -52,3 +52,26 @@ func migrationConverge() *gormigrate.Migration {
 		Rollback: func(tx *gorm.DB) error { return nil },
 	}
 }
+
+// migrationAddName adds the queryable name column (SDLC-CONF-13). ci_providers
+// already shipped its table under migration ID 2026102600000001, so the column
+// MUST be added under a NEW migration ID that runs on every environment,
+// regardless of prior state - editing the already-shipped body is skipped on
+// upgraded hubs (the #862 lesson), and AutoMigrate is forbidden (SDLC-CONF-02).
+// The add and backfill use idempotent raw SQL that is safe under the production
+// lib/pq + PreferSimpleProtocol driver. Existing rows are backfilled from the
+// forge so a find-by-name search resolves pre-existing records.
+func migrationAddName() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026110200000001",
+		Migrate: func(tx *gorm.DB) error {
+			if err := tx.Exec(`ALTER TABLE ci_providers ADD COLUMN IF NOT EXISTS name text`).Error; err != nil {
+				return err
+			}
+			return tx.Exec(`UPDATE ci_providers SET name = forge WHERE name IS NULL OR name = ''`).Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Exec(`ALTER TABLE ci_providers DROP COLUMN IF EXISTS name`).Error
+		},
+	}
+}

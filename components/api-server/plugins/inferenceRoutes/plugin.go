@@ -73,4 +73,5 @@ func init() {
 
 	db.RegisterMigration(migration())
 	db.RegisterMigration(migrationAddRepositoryOwnership())
+	db.RegisterMigration(migrationAddName())
 }

@@ -51,3 +51,26 @@ func migrationAddRepositoryOwnership() *gormigrate.Migration {
 		},
 	}
 }
+
+// migrationAddName adds the queryable name column (SDLC-CONF-13) under a NEW
+// migration ID, because inference_routes already shipped its table under ID
+// 2026100600000014; editing that body is skipped on upgraded hubs (the #862
+// lesson). The add and backfill use idempotent raw SQL safe under the production
+// lib/pq + PreferSimpleProtocol driver (never AutoMigrate, SDLC-CONF-02).
+// Existing rows are backfilled with a stable identity derived from
+// workspace_id/provider_binding_id/model (matching InferenceRoute.DeriveName) so
+// a find-by-name search resolves pre-existing records.
+func migrationAddName() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026110200000003",
+		Migrate: func(tx *gorm.DB) error {
+			if err := tx.Exec(`ALTER TABLE inference_routes ADD COLUMN IF NOT EXISTS name text`).Error; err != nil {
+				return err
+			}
+			return tx.Exec(`UPDATE inference_routes SET name = workspace_id || '/' || provider_binding_id || '/' || model WHERE name IS NULL OR name = ''`).Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Exec(`ALTER TABLE inference_routes DROP COLUMN IF EXISTS name`).Error
+		},
+	}
+}
