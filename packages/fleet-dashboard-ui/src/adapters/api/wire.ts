@@ -28,6 +28,7 @@ import type {
   AgentSdlcBundleRow,
   AgentSdlcCard,
   AgentSdlcData,
+  AgentSdlcGitOpsStatus,
   AgentSdlcHubCluster,
   AgentSdlcLabelEvent,
   AgentSdlcMatrix,
@@ -583,6 +584,10 @@ interface WireSdlcPullRequest {
   readonly url?: string;
   readonly author?: string;
   readonly mergedAt?: string;
+  // Repository + environment identity for GitOps deployment PRs (SDLC-VIS-25);
+  // absent for application PRs.
+  readonly repository?: string;
+  readonly environments?: readonly string[] | null;
 }
 
 interface WireSdlcShippedIssue {
@@ -602,6 +607,10 @@ interface WireSdlcBundleRow {
   readonly hubClusters?: readonly string[] | null;
   readonly issues?: readonly WireSdlcShippedIssue[] | null;
   readonly otherPRs?: readonly WireSdlcPullRequest[] | null;
+  // The GitOps deployment group and its range state (SDLC-VIS-25); absent on older
+  // servers, which the UI renders as "no deployment section".
+  readonly gitopsPrs?: readonly WireSdlcPullRequest[] | null;
+  readonly gitopsStatus?: string;
 }
 
 interface WireSdlcMatrix {
@@ -660,7 +669,21 @@ function mapSdlcPullRequest(p: WireSdlcPullRequest): AgentSdlcPullRequest {
     url: p.url ?? "",
     author: nullableString(p.author),
     mergedAt: nullableString(p.mergedAt),
+    // Repository identity for GitOps PRs (SDLC-VIS-25); null for application PRs.
+    repository: nullableString(p.repository),
+    // Environment attribution for GitOps PRs (FLT-BPR-06); drop any non-string entry.
+    environments: (p.environments ?? []).filter(
+      (e): e is string => typeof e === "string" && e !== "",
+    ),
   };
+}
+
+/** Narrow the wire SDLC GitOps status to the domain union; anything else (including an
+ *  absent field on an older payload) hides the deployment section (SDLC-VIS-25). */
+function mapSdlcGitOpsStatus(
+  raw: string | undefined,
+): AgentSdlcGitOpsStatus | null {
+  return raw === "available" || raw === "unavailable" ? raw : null;
 }
 
 function mapSdlcShippedIssue(i: WireSdlcShippedIssue): AgentSdlcShippedIssue {
@@ -683,6 +706,8 @@ function mapSdlcBundleRow(r: WireSdlcBundleRow): AgentSdlcBundleRow {
     hubClusters: (r.hubClusters ?? []).slice(),
     issues: (r.issues ?? []).map(mapSdlcShippedIssue),
     otherPRs: (r.otherPRs ?? []).map(mapSdlcPullRequest),
+    gitopsPrs: (r.gitopsPrs ?? []).map(mapSdlcPullRequest),
+    gitopsStatus: mapSdlcGitOpsStatus(r.gitopsStatus),
   };
 }
 
