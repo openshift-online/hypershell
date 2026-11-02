@@ -347,7 +347,7 @@ func (s *sqlManagedClusterService) Register(ctx context.Context, name string, ca
 		if len(restoreCapabilities) == 0 {
 			restoreCapabilities = deleted.Capabilities
 		}
-		restored, restoreErr := s.managedClusterDao.Restore(ctx, deleted.ID, "", "", restoreCapabilities, now)
+		restored, restoreErr := s.managedClusterDao.Restore(ctx, deleted.ID, restoreCapabilities, now)
 		if restoreErr != nil {
 			if isUniqueViolation(restoreErr) {
 				if winner, err := s.managedClusterDao.FindByName(ctx, name); err == nil && winner != nil {

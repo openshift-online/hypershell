@@ -164,16 +164,12 @@ describe("gateway shell pages", () => {
     getGatewayPlacementMock.mockResolvedValue({
       id: "cluster-east",
       name: "Cluster East",
-      provider: "AWS",
-      region: "us-east-1",
       status: "Ready",
     });
     getGatewayPlacementsMock.mockResolvedValue([
       {
         id: "cluster-east",
         name: "Cluster East",
-        provider: "AWS",
-        region: "us-east-1",
         status: "Ready",
       },
     ]);
@@ -810,8 +806,6 @@ describe("gateway shell pages", () => {
       .mockResolvedValue({
         id: "cluster-east",
         name: "Cluster East",
-        provider: "AWS",
-        region: "us-east-1",
         status: "Ready",
       });
     renderPage(() => (
@@ -1391,7 +1385,6 @@ describe("gateway shell pages", () => {
       clusterIds.map((id) => ({
         id,
         name: `Name for ${id}`,
-        provider: "AWS",
       })),
     );
 

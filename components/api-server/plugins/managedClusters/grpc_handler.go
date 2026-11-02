@@ -42,17 +42,12 @@ func (h *managedClusterGRPCHandler) CreateManagedCluster(ctx context.Context, re
 	if err := grpcutil.ValidateStringField("name", req.Name, true); err != nil {
 		return nil, err
 	}
-	if err := grpcutil.ValidateStringField("provider", req.Provider, true); err != nil {
-		return nil, err
-	}
 	if err := grpcutil.ValidateStringField("kubeconfig_secret", req.KubeconfigSecret, true); err != nil {
 		return nil, err
 	}
 
 	managedCluster := &ManagedCluster{
 		Name:             req.Name,
-		Provider:         req.Provider,
-		Region:           req.Region,
 		KubeconfigSecret: req.KubeconfigSecret,
 		Status:           req.Status,
 		ApiServerUrl:     req.ApiServerUrl,
@@ -70,16 +65,6 @@ func (h *managedClusterGRPCHandler) UpdateManagedCluster(ctx context.Context, re
 	}
 	if req.Name != nil {
 		if err := grpcutil.ValidateStringField("name", *req.Name, false); err != nil {
-			return nil, err
-		}
-	}
-	if req.Provider != nil {
-		if err := grpcutil.ValidateStringField("provider", *req.Provider, false); err != nil {
-			return nil, err
-		}
-	}
-	if req.Region != nil {
-		if err := grpcutil.ValidateStringField("region", *req.Region, false); err != nil {
 			return nil, err
 		}
 	}
@@ -105,12 +90,6 @@ func (h *managedClusterGRPCHandler) UpdateManagedCluster(ctx context.Context, re
 	}
 	if req.Name != nil {
 		managedCluster.Name = *req.Name
-	}
-	if req.Provider != nil {
-		managedCluster.Provider = *req.Provider
-	}
-	if req.Region != nil {
-		managedCluster.Region = req.Region
 	}
 	if req.KubeconfigSecret != nil {
 		managedCluster.KubeconfigSecret = *req.KubeconfigSecret

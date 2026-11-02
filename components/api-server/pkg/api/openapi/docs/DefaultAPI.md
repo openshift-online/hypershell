@@ -640,7 +640,7 @@ import (
 )
 
 func main() {
-	managedCluster := *openapiclient.NewManagedCluster("Name_example", "Provider_example", "KubeconfigSecret_example") // ManagedCluster | ManagedCluster data
+	managedCluster := *openapiclient.NewManagedCluster("Name_example", "KubeconfigSecret_example") // ManagedCluster | ManagedCluster data
 
 	configuration := openapiclient.NewConfiguration()
 	apiClient := openapiclient.NewAPIClient(configuration)
