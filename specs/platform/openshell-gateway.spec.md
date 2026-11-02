@@ -278,8 +278,9 @@ The control plane SHALL include a GatewayReconciler in `internal/reconciler/` th
 
 - GIVEN the GatewayReconciler receives a Gateway DELETED event
 - WHEN the reconciler processes the event
-- THEN it SHALL delete gateway K8s resources from the namespace
-- AND it SHALL NOT delete the namespace itself because legacy Gateway records may reference caller-selected or shared namespaces
+- THEN it SHALL delete the gateway's managed namespace, which removes the gateway's K8s resources inside it (OSG-NSGC-01)
+- AND it SHALL leave the namespace in place when it lacks the management labels or this instance's `hypershell.redhat.io/instance` label (OSG-NSGC-01.03, OSG-NSGC-01.04)
+- AND when it leaves the namespace in place, it SHALL delete only the resources in it labeled `hypershell.redhat.io/managed=true`, so other workloads in that namespace are not touched
 
 #### Scenario: OSG-CORE-03.04 -- Validation failure
 
