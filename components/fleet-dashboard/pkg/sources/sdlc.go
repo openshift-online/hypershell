@@ -192,12 +192,21 @@ type SDLCHubCluster struct {
 // PR-driven (SDLC-VIS-03): these mirror the shared bundles.PR the Fleet Map freight
 // bar shows, so a pull request is never hidden because its issue link is
 // unrecoverable.
+//
+// Repository and Environments are populated only for GitOps deployment pull requests
+// (the SDLCBundleRow.GitOpsPRs group, SDLC-VIS-25): Repository carries the owner/repo
+// so a GitOps pull request keyed by repository plus number stays distinct from an
+// application pull request that shares its number (FLT-BPR-02), and Environments
+// carries the deployment-environment attribution the shared bundle enrichment supplied
+// (FLT-BPR-06). Both are empty for application pull requests.
 type SDLCPullRequest struct {
-	Number   int    `json:"number"`
-	Title    string `json:"title"`
-	URL      string `json:"url"`
-	Author   string `json:"author,omitempty"`
-	MergedAt string `json:"mergedAt,omitempty"`
+	Number       int      `json:"number"`
+	Title        string   `json:"title"`
+	URL          string   `json:"url"`
+	Author       string   `json:"author,omitempty"`
+	MergedAt     string   `json:"mergedAt,omitempty"`
+	Repository   string   `json:"repository,omitempty"`
+	Environments []string `json:"environments,omitempty"`
 }
 
 // SDLCShippedIssue is one tracked execution record: an issue that shipped in a bundle
@@ -217,19 +226,28 @@ type SDLCShippedIssue struct {
 // SDLCBundleRow is one matrix row: a release bundle (newest first) or the single
 // top Unreleased row, which carries no version and no hub-cluster markers
 // (SDLC-VIS-11). HubClusters lists the instance keys currently running this bundle.
-// A bundle row's contents are PR-driven and split into two groups: Issues holds the
-// bundle's pull requests grouped under the tracked execution record they resolve to,
-// and OtherPRs holds the one-off pull requests with no tracked issue. The Unreleased
-// row carries only tracked issues (shipped records whose pull requests are absent
-// from every bundle) and no OtherPRs.
+// A bundle row's contents are PR-driven and grouped under two repository headings. The
+// APPLICATION repository is split into Issues (the bundle's pull requests grouped under
+// the tracked execution record they resolve to) and OtherPRs (the one-off pull requests
+// with no tracked issue). The DEPLOYMENT repository is GitOpsPRs: the bundle's GitOps
+// deployment pull requests carried straight from the shared bundle enrichment that also
+// feeds Fleet Map (SDLC-VIS-25, FLT-BPR), kept out of the application tracked-issue and
+// other-pull-request grouping. GitOpsStatus reports the GitOps group's range state so
+// the UI can tell a successful-but-empty comparison ("available") from an unavailable
+// lookup ("unavailable") and from a bundle that carries no GitOps fields at all (""),
+// which the UI treats as "GitOps availability unknown" and renders no deployment section.
+// The Unreleased row carries only tracked issues (shipped records whose pull requests are
+// absent from every bundle) and no OtherPRs or GitOps group.
 type SDLCBundleRow struct {
-	Version     string             `json:"version,omitempty"`
-	Digest      string             `json:"digest,omitempty"`
-	Date        string             `json:"date,omitempty"`
-	Unreleased  bool               `json:"unreleased"`
-	HubClusters []string           `json:"hubClusters,omitempty"`
-	Issues      []SDLCShippedIssue `json:"issues"`
-	OtherPRs    []SDLCPullRequest  `json:"otherPRs"`
+	Version      string             `json:"version,omitempty"`
+	Digest       string             `json:"digest,omitempty"`
+	Date         string             `json:"date,omitempty"`
+	Unreleased   bool               `json:"unreleased"`
+	HubClusters  []string           `json:"hubClusters,omitempty"`
+	Issues       []SDLCShippedIssue `json:"issues"`
+	OtherPRs     []SDLCPullRequest  `json:"otherPRs"`
+	GitOpsPRs    []SDLCPullRequest  `json:"gitopsPrs,omitempty"`
+	GitOpsStatus string             `json:"gitopsStatus,omitempty"`
 }
 
 // SDLCMatrix is the release-by-hub-cluster matrix (the Shipped column).
@@ -446,11 +464,11 @@ func (s *SDLC) matrix(ctx context.Context, shipped []SdlcRecord) SDLCMatrix {
 		var issueOrder []int
 		var others []SDLCPullRequest
 		// The SDLC matrix groups the bundle's APPLICATION pull requests only
-		// (rr.rel.PRs); GitOps deployment PRs are a Fleet Map bundle-details concern
-		// and never fold into the tracked-issue/other-PR groups (SDLC-VIS-03.06,
-		// FLT-BPR). Copy the shared fields explicitly: PR carries extra repository and
-		// environment identity that SDLCPullRequest does not, so a struct conversion
-		// no longer applies.
+		// (rr.rel.PRs); GitOps deployment PRs never fold into the tracked-issue/other-PR
+		// groups (SDLC-VIS-03.06). They are instead carried as the row's separate GitOps
+		// deployment group below (SDLC-VIS-25). Copy the shared fields explicitly: PR
+		// carries extra repository and environment identity that application PRs leave
+		// empty, so a struct conversion no longer applies.
 		for _, pr := range rr.rel.PRs {
 			sp := SDLCPullRequest{
 				Number:   pr.Number,
@@ -481,14 +499,42 @@ func (s *SDLC) matrix(ctx context.Context, shipped []SdlcRecord) SDLCMatrix {
 				PRs:      sortedPRs(grouped[issNum]),
 			})
 		}
-		relRows = append(relRows, SDLCBundleRow{
+		row := SDLCBundleRow{
 			Version:     rr.rel.Version,
 			Digest:      rr.rel.Digest,
 			Date:        rr.rel.Date,
 			HubClusters: hubsByKey[rr.key],
 			Issues:      sortedShipped(tracked),
 			OtherPRs:    sortedPRs(others),
-		})
+		}
+		// Carry the bundle's GitOps deployment group straight from the shared bundle
+		// enrichment that also feeds Fleet Map (SDLC-VIS-25): same bundle identity, same
+		// comparison ranges, no second definition of membership and no extra GitHub call.
+		// GitOpsStatus == "" means the enrichment never attempted the group (feature off,
+		// no lock-history provenance, or a legacy snapshot), so the row carries no GitOps
+		// group and the UI renders no deployment section. A set status is forwarded even
+		// when the group is empty, so the UI can tell a successful-but-empty comparison
+		// ("available") from an unavailable lookup ("unavailable"). GitOps records keep
+		// their repository and environment identity and never enter the application
+		// grouping above, so a GitOps PR whose number collides with an application PR
+		// stays a distinct item.
+		if rr.rel.GitOpsStatus != "" {
+			row.GitOpsStatus = rr.rel.GitOpsStatus
+			gitops := make([]SDLCPullRequest, 0, len(rr.rel.GitOpsPRs))
+			for _, pr := range rr.rel.GitOpsPRs {
+				gitops = append(gitops, SDLCPullRequest{
+					Number:       pr.Number,
+					Title:        pr.Title,
+					URL:          pr.URL,
+					Author:       pr.Author,
+					MergedAt:     pr.MergedAt,
+					Repository:   pr.Repository,
+					Environments: pr.Environments,
+				})
+			}
+			row.GitOpsPRs = gitops
+		}
+		relRows = append(relRows, row)
 	}
 
 	// SDLC-VIS-22: decouple the released-vs-unreleased decision from the compare-window

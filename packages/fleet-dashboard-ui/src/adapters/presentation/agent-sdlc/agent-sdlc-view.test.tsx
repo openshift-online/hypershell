@@ -310,6 +310,115 @@ describe("AgentSdlcView matrix", () => {
     });
     expect(groupedLink.getAttribute("href")).toBe("pr-526");
   });
+
+  // Verifies: SDLC-VIS-25.02, SDLC-VIS-25.03, SDLC-VIS-25.06
+  it("renders the GitOps deployment group apart from the application group", () => {
+    const data: AgentSdlcData = {
+      ...EMPTY,
+      matrix: {
+        hubClusters: [],
+        rows: [
+          {
+            version: "v9",
+            digest: "d9",
+            date: null,
+            unreleased: false,
+            hubClusters: [],
+            issues: [],
+            otherPRs: [
+              {
+                number: 42,
+                title: "app change",
+                url: "app-pr-42",
+                author: null,
+                mergedAt: null,
+              },
+            ],
+            gitopsPrs: [
+              {
+                number: 42,
+                title: "bump lock",
+                url: "gitops-pr-42",
+                author: null,
+                mergedAt: null,
+                repository: "acme/gitops-delivery",
+                environments: ["prod", "stage"],
+              },
+            ],
+            gitopsStatus: "available",
+          },
+        ],
+      },
+    };
+    renderView({ data });
+
+    // The count spans both repository groups: 1 application + 1 GitOps = 2 PRs.
+    expect(screen.getByText("0 issues, 2 PRs")).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "Details" }));
+    // Both repository sections render, each clearly identified.
+    expect(screen.getByText("Application changes")).toBeDefined();
+    expect(screen.getByText("Deployment changes (GitOps)")).toBeDefined();
+    // #42 in each repository stays a distinct item with the correct link.
+    const appLink = screen.getByRole("link", { name: /#42 app change/ });
+    expect(appLink.getAttribute("href")).toBe("app-pr-42");
+    const gitopsLink = screen.getByRole("link", { name: /#42 bump lock/ });
+    expect(gitopsLink.getAttribute("href")).toBe("gitops-pr-42");
+    // The GitOps PR shows its deployment-environment attribution.
+    expect(screen.getByText(/Deployed to prod, stage/)).toBeDefined();
+  });
+
+  // Verifies: SDLC-VIS-25.05
+  it("distinguishes empty, unavailable, and legacy GitOps data", () => {
+    const base = {
+      date: null,
+      unreleased: false,
+      hubClusters: [],
+      issues: [],
+      otherPRs: [],
+    };
+    const data: AgentSdlcData = {
+      ...EMPTY,
+      matrix: {
+        hubClusters: [],
+        rows: [
+          // Successful but empty: a clear "no deployment changes" message.
+          {
+            ...base,
+            version: "v-empty",
+            digest: "d-empty",
+            gitopsPrs: [],
+            gitopsStatus: "available",
+          },
+          // Lookup failed: a distinct unavailable message.
+          {
+            ...base,
+            version: "v-failed",
+            digest: "d-failed",
+            gitopsPrs: [],
+            gitopsStatus: "unavailable",
+          },
+          // Legacy payload with no GitOps fields: no deployment section at all.
+          { ...base, version: "v-legacy", digest: "d-legacy" },
+        ],
+      },
+    };
+    renderView({ data });
+
+    // Expand all three bundle rows.
+    for (const btn of screen.getAllByRole("button", { name: "Details" })) {
+      fireEvent.click(btn);
+    }
+
+    expect(
+      screen.getByText("No deployment changes in this bundle."),
+    ).toBeDefined();
+    expect(
+      screen.getByText("Deployment changes are unavailable for this bundle."),
+    ).toBeDefined();
+    // Exactly two deployment sections render (empty + unavailable); the legacy row has none.
+    expect(screen.getAllByText("Deployment changes (GitOps)")).toHaveLength(2);
+  });
 });
 
 describe("AgentSdlcView phase-transition flights", () => {

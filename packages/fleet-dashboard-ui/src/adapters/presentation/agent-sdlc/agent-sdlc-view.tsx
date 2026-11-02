@@ -1200,8 +1200,12 @@ function MatrixIssueList({
   );
 }
 
-/** The one-off pull-request list of a bundle: PRs with no tracked execution record,
- *  each a direct link to GitHub (SDLC-VIS-11). */
+/** A pull-request list inside a bundle: one-off application PRs with no tracked
+ *  execution record, or the GitOps deployment group, each a direct link to GitHub
+ *  (SDLC-VIS-11, SDLC-VIS-25). Rows key by repository plus number so a GitOps PR that
+ *  shares a number with an application PR stays distinct (SDLC-VIS-25.03); the link
+ *  already targets the PR in its own repository. GitOps PRs show their deployment
+ *  environment attribution when the server supplies it (FLT-BPR-06). */
 function MatrixPRList({
   prs,
   nowMs,
@@ -1222,8 +1226,9 @@ function MatrixPRList({
                 user: pr.author,
               })
             : ago;
+        const environments = pr.environments ?? [];
         return (
-          <StackItem key={pr.number}>
+          <StackItem key={`${pr.repository ?? ""}#${String(pr.number)}`}>
             <Button
               component="a"
               variant="link"
@@ -1237,6 +1242,14 @@ function MatrixPRList({
               {prLabel}
             </Button>
             {line ? <Content component="small"> {line}</Content> : null}
+            {environments.length > 0 ? (
+              <Content component="small">
+                <FormattedMessage
+                  {...messages.prEnvironments}
+                  values={{ environments: environments.join(", ") }}
+                />
+              </Content>
+            ) : null}
           </StackItem>
         );
       })}
@@ -1244,9 +1257,49 @@ function MatrixPRList({
   );
 }
 
-/** A bundle row's expanded contents (SDLC-VIS-11): the Unreleased row lists only its
- *  in-flight tracked issues; a released bundle splits its PR-driven contents into a
- *  "Tracked issues" group and an "Other pull requests" group. */
+/** The GitOps deployment-change group inside a released bundle row (SDLC-VIS-25): its
+ *  own repository-identified section with a distinct empty state ("no deployment
+ *  changes") and a distinct unavailable state, mirroring the Fleet Map bundle details.
+ *  Renders nothing when the payload reported no GitOps fields (gitopsStatus null), so an
+ *  older payload shows no deployment section and never claims the lookup succeeded. */
+function MatrixGitopsSection({
+  row,
+  nowMs,
+}: {
+  row: AgentSdlcBundleRow;
+  nowMs?: number;
+}): React.ReactElement | null {
+  const status = row.gitopsStatus;
+  if (!status) {
+    return null;
+  }
+  const gitopsPrs = row.gitopsPrs ?? [];
+  return (
+    <StackItem>
+      <Title headingLevel="h4" size="md">
+        <FormattedMessage {...messages.sectionGitopsChanges} />
+      </Title>
+      {status === "unavailable" ? (
+        <Content component="small">
+          <FormattedMessage {...messages.sdlcBundleGitopsUnavailable} />
+        </Content>
+      ) : gitopsPrs.length > 0 ? (
+        <MatrixPRList prs={gitopsPrs} nowMs={nowMs} />
+      ) : (
+        <Content component="small">
+          <FormattedMessage {...messages.sdlcBundleGitopsNoPrs} />
+        </Content>
+      )}
+    </StackItem>
+  );
+}
+
+/** A bundle row's expanded contents (SDLC-VIS-11, SDLC-VIS-25): the Unreleased row lists
+ *  only its in-flight tracked issues; a released bundle groups its PR-driven contents
+ *  under an application repository section (its "Tracked issues" and "Other pull
+ *  requests" subsections) and a separate deployment repository section (the GitOps
+ *  group). This matches the two-repository contents Fleet Map shows for the same
+ *  bundle. */
 function MatrixBundleContents({
   row,
   mergedLine,
@@ -1256,19 +1309,15 @@ function MatrixBundleContents({
   mergedLine: (issue: AgentSdlcShippedIssue) => string | null;
   nowMs?: number;
 }): React.ReactElement {
-  if (row.issues.length === 0 && row.otherPRs.length === 0) {
-    return (
-      <Content component="small">
-        <FormattedMessage
-          {...(row.unreleased
-            ? messages.sdlcBundleNoIssues
-            : messages.sdlcBundleNoContents)}
-        />
-      </Content>
-    );
-  }
-  // The Unreleased row holds only in-flight tracked work, so it needs no group headers.
+  // The Unreleased row holds only in-flight tracked work: no group headers, no GitOps.
   if (row.unreleased) {
+    if (row.issues.length === 0) {
+      return (
+        <Content component="small">
+          <FormattedMessage {...messages.sdlcBundleNoIssues} />
+        </Content>
+      );
+    }
     return (
       <MatrixIssueList
         issues={row.issues}
@@ -1277,29 +1326,56 @@ function MatrixBundleContents({
       />
     );
   }
+
+  const hasApplication = row.issues.length > 0 || row.otherPRs.length > 0;
+  const hasGitops = Boolean(row.gitopsStatus);
+  // A released bundle with no application PRs and no GitOps grouping at all (e.g. the
+  // oldest bundle with no prior build to diff against) keeps its existing empty state.
+  if (!hasApplication && !hasGitops) {
+    return (
+      <Content component="small">
+        <FormattedMessage {...messages.sdlcBundleNoContents} />
+      </Content>
+    );
+  }
+
   return (
     <Stack hasGutter>
-      {row.issues.length > 0 ? (
-        <StackItem>
-          <Title headingLevel="h4" size="md">
-            <FormattedMessage {...messages.sdlcTrackedIssues} />
-          </Title>
-          <MatrixIssueList
-            issues={row.issues}
-            version={row.version}
-            mergedLine={mergedLine}
-            nowMs={nowMs}
-          />
-        </StackItem>
-      ) : null}
-      {row.otherPRs.length > 0 ? (
-        <StackItem>
-          <Title headingLevel="h4" size="md">
-            <FormattedMessage {...messages.sdlcOtherPRs} />
-          </Title>
-          <MatrixPRList prs={row.otherPRs} nowMs={nowMs} />
-        </StackItem>
-      ) : null}
+      <StackItem>
+        <Title headingLevel="h4" size="md">
+          <FormattedMessage {...messages.sdlcBundleApplicationChanges} />
+        </Title>
+        {hasApplication ? (
+          <Stack hasGutter>
+            {row.issues.length > 0 ? (
+              <StackItem>
+                <Title headingLevel="h5" size="md">
+                  <FormattedMessage {...messages.sdlcTrackedIssues} />
+                </Title>
+                <MatrixIssueList
+                  issues={row.issues}
+                  version={row.version}
+                  mergedLine={mergedLine}
+                  nowMs={nowMs}
+                />
+              </StackItem>
+            ) : null}
+            {row.otherPRs.length > 0 ? (
+              <StackItem>
+                <Title headingLevel="h5" size="md">
+                  <FormattedMessage {...messages.sdlcOtherPRs} />
+                </Title>
+                <MatrixPRList prs={row.otherPRs} nowMs={nowMs} />
+              </StackItem>
+            ) : null}
+          </Stack>
+        ) : (
+          <Content component="small">
+            <FormattedMessage {...messages.sdlcBundleNoApplicationChanges} />
+          </Content>
+        )}
+      </StackItem>
+      <MatrixGitopsSection row={row} nowMs={nowMs} />
     </Stack>
   );
 }

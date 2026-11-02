@@ -1040,11 +1040,35 @@ export const messages = defineMessages({
     defaultMessage: "No work in progress.",
     description: "Shown when the Agent SDLC aging board has no cards.",
   },
+  sdlcBundleApplicationChanges: {
+    id: "fleet.sdlc.bundle.applicationChanges",
+    defaultMessage: "Application changes",
+    description:
+      "Heading for the application repository group inside an expanded release bundle row: the bundle's tracked-issue and other-pull-request sections (openshift-online/hypershell).",
+  },
+  sdlcBundleGitopsNoPrs: {
+    id: "fleet.sdlc.bundle.gitopsNoPrs",
+    defaultMessage: "No deployment changes in this bundle.",
+    description:
+      "Shown in a release bundle's GitOps (deployment) group when the compare succeeded but found no pull requests.",
+  },
+  sdlcBundleGitopsUnavailable: {
+    id: "fleet.sdlc.bundle.gitopsUnavailable",
+    defaultMessage: "Deployment changes are unavailable for this bundle.",
+    description:
+      "Shown in a release bundle's GitOps (deployment) group when the compare range could not be determined or failed.",
+  },
   sdlcBundleIssueCount: {
     id: "fleet.sdlc.bundle.issueCount",
     defaultMessage: "{issues, plural, one {# issue} other {# issues}}",
     description:
       "Tracked-issue count part of a release bundle row's compact summary.",
+  },
+  sdlcBundleNoApplicationChanges: {
+    id: "fleet.sdlc.bundle.noApplicationChanges",
+    defaultMessage: "No application changes in this bundle.",
+    description:
+      "Shown in a release bundle's application repository group when it has no application pull requests (e.g. a deployment-only bundle that still has GitOps changes).",
   },
   sdlcBundleNoContents: {
     id: "fleet.sdlc.bundle.noContents",
