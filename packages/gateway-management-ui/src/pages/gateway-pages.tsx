@@ -507,22 +507,6 @@ export function GatewaysPage({
         <ResourceTable
           ariaLabel={intl.formatMessage(messages.gateways)}
           columns={columns}
-          filterControls={
-            showOwnershipFilter ? (
-              // "Show only my gateways" is a persistent on/off list filter, so it
-              // is a PatternFly Switch (an on/off control) rather than a
-              // pressed-state toggle button. The visible label is its accessible
-              // name and the switch exposes a boolean on/off state (WEB-UIEX-07).
-              <Switch
-                id="gateways-only-mine"
-                isChecked={onlyMine}
-                label={intl.formatMessage(messages.showOnlyMyGateways)}
-                onChange={(_event, checked) => {
-                  changeOwnershipFilter(checked);
-                }}
-              />
-            ) : undefined
-          }
           getRowKey={({ id }) => id}
           hasActiveFilters={
             onlyMine || currentCollectionState.search.trim().length > 0
@@ -581,6 +565,25 @@ export function GatewaysPage({
             />
           )}
           rows={visiblePage?.items ?? []}
+          secondaryFilterControls={
+            showOwnershipFilter ? (
+              // "Show only my gateways" is a persistent on/off list filter, so it
+              // is a PatternFly Switch (an on/off control) rather than a
+              // pressed-state toggle button. The visible label is its accessible
+              // name and the switch exposes a boolean on/off state. It sits on
+              // its own toolbar row directly below the filtering controls,
+              // following the console.redhat.com Clusters list layout
+              // (WEB-UIEX-07).
+              <Switch
+                id="gateways-only-mine"
+                isChecked={onlyMine}
+                label={intl.formatMessage(messages.showOnlyMyGateways)}
+                onChange={(_event, checked) => {
+                  changeOwnershipFilter(checked);
+                }}
+              />
+            ) : undefined
+          }
           state={tableState}
         />
       </PageSection>
