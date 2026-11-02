@@ -2,7 +2,6 @@ package agentRuntimes
 
 import (
 	"context"
-	"os"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
@@ -23,10 +22,11 @@ type manageAuthorizer struct {
 }
 
 // newManageAuthorizer wires the tenancy check from the environment's service
-// registry. It returns nil when RBAC is not enforced, which the handler treats
-// as "not enforced" (allow), mirroring the middleware's RBAC_ENFORCE gate.
+// registry. It returns nil when RBAC is not enforced (authentication off,
+// rbac.Enforced), which the handler treats as "not enforced" (allow),
+// mirroring the middleware's enforcement gate.
 func newManageAuthorizer(envServices *environments.Services) *manageAuthorizer {
-	if os.Getenv("RBAC_ENFORCE") != "true" || envServices == nil {
+	if !rbac.Enforced() || envServices == nil {
 		return nil
 	}
 	return &manageAuthorizer{bindings: roleBindings.Service(envServices)}
