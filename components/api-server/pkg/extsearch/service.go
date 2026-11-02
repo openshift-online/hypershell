@@ -63,7 +63,7 @@ func (s *validatingService) List(ctx context.Context, username string, args *ser
 // correctness gate (FINDING 5).
 func modelPointer(resourceList interface{}) (interface{}, bool) {
 	t := reflect.TypeOf(resourceList)
-	if t == nil || t.Kind() != reflect.Ptr {
+	if t == nil || t.Kind() != reflect.Pointer {
 		return nil, false
 	}
 	slice := t.Elem()
