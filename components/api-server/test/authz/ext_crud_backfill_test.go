@@ -347,3 +347,56 @@ func hasIndex(g2 *gorm.DB, name string) bool {
 	_ = g2.Raw(`SELECT count(*) FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ?`, name).Scan(&count).Error
 	return count > 0
 }
+
+// TestExtKindsNameBackfillDedupIgnoresSoftDeleted is the live-scoped de-duplication
+// regression for FINDING 2. The backfill de-duplication must consider LIVE rows
+// only (deleted_at IS NULL on both sides). The prior UPDATE ordered by id alone and
+// ignored deleted_at, so an OLDER soft-deleted row sharing a name kept the clean
+// derived name and the UPDATE suffixed the LIVE newer row - leaving the live,
+// find-by-name-visible record under a mangled "name/id" key while a tombstone held
+// the clean name.
+//
+// This seeds, in a genuine pre-name shape, a soft-deleted row with the SMALLER id
+// and a live row with the LARGER id, both backfilling to the same derived name,
+// then re-runs the migration suite and asserts the LIVE row keeps the clean name
+// and find-by-name resolves it. Under the old id-only de-duplication the live row
+// would be suffixed, so this test fails.
+func TestExtKindsNameBackfillDedupIgnoresSoftDeleted(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+	env := newConformanceEnv(t, h, client)
+
+	ctx := context.Background()
+	g2 := h.Env().Database.SessionFactory.New(ctx)
+
+	const nameMigID = "2026110213000002" // ci_trusts
+	role := "softdel-dup-" + short()
+	baseName := env.ciProviderID + "/" + env.gatewayID + "/" + role
+
+	// deletedID < liveID so the old id-only de-duplication would keep the
+	// soft-deleted (smaller-id) row's name and suffix the live (larger-id) row.
+	deletedID, liveID := sortedIDPair()
+
+	// Rewrite ci_trusts into its pre-name shape, then seed both rows directly.
+	exec(t, g2, `DELETE FROM migrations WHERE id = ?`, nameMigID)
+	exec(t, g2, `ALTER TABLE ci_trusts DROP COLUMN IF EXISTS name`)
+	// Soft-deleted row (smaller id): deleted_at is set.
+	exec(t, g2, `INSERT INTO ci_trusts (id, created_at, updated_at, deleted_at, ci_provider_id, gateway_id, role)
+				VALUES (?, NOW(), NOW(), NOW(), ?, ?, ?)`, deletedID, env.ciProviderID, env.gatewayID, role)
+	// Live row (larger id): deleted_at NULL.
+	exec(t, g2, `INSERT INTO ci_trusts (id, created_at, updated_at, ci_provider_id, gateway_id, role)
+				VALUES (?, NOW(), NOW(), ?, ?, ?)`, liveID, env.ciProviderID, env.gatewayID, role)
+
+	Expect(rhtrexdb.Migrate(g2)).To(Succeed(),
+		"name migration failed on a soft-deleted/live name collision")
+
+	// The LIVE row keeps the clean derived name; the soft-deleted older row must not
+	// steal it (FINDING 2).
+	var liveName string
+	Expect(g2.Raw(`SELECT name FROM ci_trusts WHERE id = ?`, liveID).Scan(&liveName).Error).To(Succeed())
+	Expect(liveName).To(Equal(baseName),
+		"the live row must keep the clean name; a soft-deleted older row stole it (de-dup not live-scoped?)")
+
+	// The partial unique index exists and find-by-name resolves the live row.
+	Expect(hasIndex(g2, "idx_ci_trusts_name")).To(BeTrue(), "partial unique name index missing")
+	assertFindByName(t, env, "ci_trusts", liveID, baseName)
+}

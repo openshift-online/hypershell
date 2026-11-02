@@ -75,4 +75,5 @@ func init() {
 	db.RegisterMigration(migration())
 	db.RegisterMigration(migrationConverge())
 	db.RegisterMigration(migrationAddName())
+	db.RegisterMigration(migrationPartialIssuerIndex())
 }

@@ -21,11 +21,14 @@ type WorkspaceMembership struct {
 	api.Meta
 	// Name is the queryable find-by-name key (SDLC-CONF-13). It defaults to a
 	// stable identity derived from workspace_id/subject when a client does not
-	// supply one. The uniqueIndex makes find-by-name resolve exactly one row (an
-	// ambiguous name would make hsctl apply resolve the wrong record); its name
-	// matches the CREATE UNIQUE INDEX in migrationAddName, which carries the
-	// constraint onto upgraded hubs where the original CreateTable already ran.
-	Name        string `json:"name" gorm:"uniqueIndex"`
+	// supply one. A PARTIAL UNIQUE index (live rows only) makes find-by-name resolve
+	// exactly one live row (an ambiguous name would make hsctl apply resolve the
+	// wrong record) while leaving a soft-deleted row's lingering name free, so a
+	// reconcile can re-apply a deleted membership without a 409. The index is created
+	// by migrationAddName, NOT by a model-level uniqueIndex tag: a full tag would
+	// make CreateTable build a full index covering deleted rows (SDLC-CONF-13,
+	// FINDING 1).
+	Name        string `json:"name"`
 	WorkspaceId string `json:"workspace_id"`
 	Subject     string `json:"subject"`
 	Role        string `json:"role"`

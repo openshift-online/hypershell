@@ -78,3 +78,36 @@ func migrationAddName() *gormigrate.Migration {
 		},
 	}
 }
+
+// migrationPartialIssuerIndex converges the issuer unique index to a PARTIAL index
+// scoped to LIVE rows (SDLC-CONF-13, FINDING 1, same root cause as the name index).
+//
+// The original ci_providers table shipped with a FULL unique index on issuer
+// (idx_ci_providers_issuer, built by CreateTable from the model's former
+// `gorm:"uniqueIndex"` tag on Issuer). A full index also constrains soft-deleted
+// rows, so a delete-then-recreate that reuses the SAME issuer - exactly what a
+// gitops reconcile / re-apply of a CIProvider does - would 409 on the lingering
+// soft-deleted row and break convergence. GORM soft-delete filters
+// deleted_at IS NULL on reads, so find-by-issuer sees nothing after a delete and
+// the reconcile re-issues CREATE with the same issuer.
+//
+// This runs under a NEW migration ID so it reaches upgraded hubs where the full
+// index was already built under an earlier shipped body (the #862 lesson), and the
+// model tag is removed so CreateTable never rebuilds a full index on a fresh
+// database. It drops any pre-existing index of that name (full or partial) and
+// recreates it PARTIAL. Raw SQL, idempotent, safe under lib/pq +
+// PreferSimpleProtocol (SDLC-CONF-02); a re-run is a drop+recreate no-op.
+func migrationPartialIssuerIndex() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026110214000001",
+		Migrate: func(tx *gorm.DB) error {
+			if err := tx.Exec(`DROP INDEX IF EXISTS idx_ci_providers_issuer`).Error; err != nil {
+				return err
+			}
+			return tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_ci_providers_issuer ON ci_providers (issuer) WHERE deleted_at IS NULL`).Error
+		},
+		// Converging to the live-scoped constraint is intentionally not reversed to
+		// the broken full index.
+		Rollback: func(tx *gorm.DB) error { return nil },
+	}
+}
