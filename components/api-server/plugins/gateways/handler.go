@@ -147,6 +147,27 @@ func (h gatewayHandler) resolveGatewayPlacement(ctx context.Context, intent open
 // a human-readable awaiting-placement status. The API server assigns a cluster_id
 // when a matching ManagedCluster becomes available (data-model.spec.md, "Gateway
 // Placement and Late Binding").
+// anyAccessibleUnowned reports whether the caller's authorized gateway set
+// (accessibleIDs) contains at least one gateway the caller does not own
+// (ownedIDs) - the "has other owned gateways" toggle condition for a scoped
+// caller (WEB-UIEX-07, SEC-RBAC-10). It is a true SET DIFFERENCE (some accessible
+// id is absent from the owned set), robust even when the owned set is not a strict
+// subset of the accessible set: a prior `len(accessible) > len(owned)` comparison
+// silently returned the wrong answer whenever the caller owned a gateway outside
+// its accessible set (FINDING 3).
+func anyAccessibleUnowned(accessibleIDs, ownedIDs []string) bool {
+	ownedSet := make(map[string]struct{}, len(ownedIDs))
+	for _, id := range ownedIDs {
+		ownedSet[id] = struct{}{}
+	}
+	for _, id := range accessibleIDs {
+		if _, owned := ownedSet[id]; !owned {
+			return true
+		}
+	}
+	return false
+}
+
 func applyAwaitingPlacement(model *Gateway) {
 	model.ClusterId = ""
 	pending := string(gatewayhealth.PhasePending)
@@ -385,13 +406,15 @@ func (h gatewayHandler) List(w http.ResponseWriter, r *http.Request) {
 			// filter -- contains at least one gateway the caller does not own. It
 			// is computed over the authorized set only and never discloses
 			// gateways the caller cannot see (WEB-API-01, SEC-RBAC-10). For a
-			// scoped (non-admin) caller the authorized set is accessibleIDs and the
-			// owned set is a subset of it, so a strict size difference is exact and
-			// needs no extra query; otherwise a single bounded existence query is
-			// used instead of enumerating pages.
+			// scoped (non-admin) caller the authorized set is accessibleIDs, so the
+			// flag is a SET DIFFERENCE - true when some accessible gateway is not in
+			// the owned set - which is robust even if the owned set is not a strict
+			// subset of the accessible set (a size comparison would misfire then);
+			// otherwise a single bounded existence query is used instead of
+			// enumerating pages.
 			hasOtherOwnedGateways := false
 			if scoped {
-				hasOtherOwnedGateways = len(accessibleIDs) > len(ownedIDs)
+				hasOtherOwnedGateways = anyAccessibleUnowned(accessibleIDs, ownedIDs)
 			} else if h.ownership != nil {
 				exists, existsErr := h.ownership.OtherOwnerGatewayExists(ctx, userID)
 				if existsErr != nil {
