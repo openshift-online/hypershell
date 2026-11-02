@@ -8,11 +8,10 @@ import {
   EmptyStateBody,
   Pagination,
   SearchInput,
+  Switch,
   Toolbar,
   ToolbarContent,
   ToolbarItem,
-  ToggleGroup,
-  ToggleGroupItem,
   MenuToggle,
 } from "@patternfly/react-core";
 import { EllipsisVIcon } from "@patternfly/react-icons";
@@ -28,7 +27,7 @@ export type GatewayListState = "loaded" | "empty" | "error";
 
 // Ordered newest first (creation time descending); gateways owned by the
 // signed-in user (kim) and by another user (admin) both appear, so the
-// "Show only my gateways" toggle is useful and is shown.
+// "Show only my gateways" switch is useful and is shown.
 const gateways = [
   {
     activeSandboxes: 0,
@@ -94,11 +93,15 @@ function GatewayRowActions({
 function GatewayToolbar({
   itemCount = 0,
   showOwnershipFilter = false,
+  ownershipFilterOn = false,
 }: {
   itemCount?: number;
   showOwnershipFilter?: boolean;
+  ownershipFilterOn?: boolean;
 }) {
-  const [onlyMine, setOnlyMine] = useState(false);
+  // "Show only my gateways" is a persistent on/off list filter, so it is a
+  // PatternFly Switch rather than a pressed-state toggle button (WEB-UIEX-07).
+  const [onlyMine, setOnlyMine] = useState(ownershipFilterOn);
 
   return (
     <Toolbar>
@@ -108,14 +111,12 @@ function GatewayToolbar({
         </ToolbarItem>
         {showOwnershipFilter ? (
           <ToolbarItem>
-            <ToggleGroup aria-label="Gateway ownership filter">
-              <ToggleGroupItem
-                buttonId="gateways-only-mine"
-                isSelected={onlyMine}
-                onChange={() => setOnlyMine((selected) => !selected)}
-                text="Show only my gateways"
-              />
-            </ToggleGroup>
+            <Switch
+              id="gateways-only-mine"
+              label="Show only my gateways"
+              isChecked={onlyMine}
+              onChange={(_event, checked) => setOnlyMine(checked)}
+            />
           </ToolbarItem>
         ) : null}
         <ToolbarItem>
@@ -136,14 +137,28 @@ function GatewayToolbar({
   );
 }
 
-function LoadedGatewayList() {
+function LoadedGatewayList({
+  ownershipFilterOn = false,
+}: {
+  ownershipFilterOn?: boolean;
+}) {
   // Default order is newest first: the Created column sorted descending.
   const sortBy = { index: 4, direction: "desc" as const };
   const onSort = () => undefined;
 
+  // When the switch is on, the API returns only the signed-in user's gateways
+  // (owned by kim); the switch stays visible so the filter can be turned off.
+  const visibleGateways = ownershipFilterOn
+    ? gateways.filter((gateway) => gateway.createdBy === "kim")
+    : gateways;
+
   return (
     <>
-      <GatewayToolbar itemCount={gateways.length} showOwnershipFilter />
+      <GatewayToolbar
+        itemCount={visibleGateways.length}
+        ownershipFilterOn={ownershipFilterOn}
+        showOwnershipFilter
+      />
       <Table aria-label="OpenShell Gateways">
         <Thead>
           <Tr>
@@ -162,7 +177,7 @@ function LoadedGatewayList() {
           </Tr>
         </Thead>
         <Tbody>
-          {gateways.map((gateway) => (
+          {visibleGateways.map((gateway) => (
             <Tr key={gateway.name}>
               <Td dataLabel="Name">
                 <Button
@@ -217,20 +232,37 @@ function ErrorGatewayList() {
   );
 }
 
-export function GatewayListContent({ state }: { state: GatewayListState }) {
+export function GatewayListContent({
+  state,
+  ownershipFilterOn = false,
+}: {
+  state: GatewayListState;
+  ownershipFilterOn?: boolean;
+}) {
   return (
     <>
-      {state === "loaded" ? <LoadedGatewayList /> : null}
+      {state === "loaded" ? (
+        <LoadedGatewayList ownershipFilterOn={ownershipFilterOn} />
+      ) : null}
       {state === "empty" ? <EmptyGatewayList /> : null}
       {state === "error" ? <ErrorGatewayList /> : null}
     </>
   );
 }
 
-export function GatewayListMockup({ state }: { state: GatewayListState }) {
+export function GatewayListMockup({
+  state,
+  ownershipFilterOn = false,
+}: {
+  state: GatewayListState;
+  ownershipFilterOn?: boolean;
+}) {
   return (
     <MockupShell>
-      <GatewayListPageSurface state={state} />
+      <GatewayListPageSurface
+        ownershipFilterOn={ownershipFilterOn}
+        state={state}
+      />
     </MockupShell>
   );
 }

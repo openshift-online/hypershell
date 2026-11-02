@@ -4,7 +4,13 @@ import { Content, PageSection, Title } from "@patternfly/react-core";
 
 import { GatewayListContent, type GatewayListState } from "./gateway-list";
 
-export function GatewayListPageSurface({ state }: { state: GatewayListState }) {
+export function GatewayListPageSurface({
+  state,
+  ownershipFilterOn = false,
+}: {
+  state: GatewayListState;
+  ownershipFilterOn?: boolean;
+}) {
   return (
     <>
       <PageSection
@@ -24,7 +30,10 @@ export function GatewayListPageSurface({ state }: { state: GatewayListState }) {
         isFilled
         variant="secondary"
       >
-        <GatewayListContent state={state} />
+        <GatewayListContent
+          ownershipFilterOn={ownershipFilterOn}
+          state={state}
+        />
       </PageSection>
     </>
   );
