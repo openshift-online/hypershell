@@ -220,7 +220,7 @@ When the GatewayReconciler receives a Gateway ADDED event, it SHALL create a ded
 
 The Keycloak `clientId` SHALL be `{name}-{id}`, where `{name}` is the user-visible gateway name and `{id}` is the API-server resource ID (KSUID). This prevents name clashes when multiple gateways share the same name or when a gateway is deleted and recreated with the same name. Example: a gateway named `my-gateway` with ID `2FhMpQzXBz` produces `clientId = "my-gateway-2FhMpQzXBz"`.
 
-The control plane SHALL persist the provisioned client ID as both OIDC `client_id` and `audience`. For reconciliation of an existing gateway, these persisted values SHALL be used to preserve identity across a gateway rename only when both are non-empty, they agree, and the identity is gateway-owned: a control-character-free identifier with a non-empty prefix followed by `-{gateway-id}`. Control characters, a record with only one of the two values, and foreign or mismatched persisted identities SHALL be rejected before any Keycloak API call. The current `{name}-{id}` format is used only when neither persisted identity value exists. Gateway names are not restricted, so identifiers containing spaces or non-ASCII characters are valid; whenever an accepted identifier is written to a log or error, it SHALL be quoted so Unicode separators and formatting controls cannot inject log structure.
+The control plane SHALL persist the provisioned client ID as both OIDC `client_id` and `audience`. For reconciliation of an existing gateway, these persisted values SHALL be used to preserve identity across a gateway rename only when both are non-empty, they agree, and the identity is gateway-owned: a control-character-free identifier with a non-empty prefix followed by `-{gateway-id}`. Control characters, a record with only one of the two values, and foreign or mismatched persisted identities SHALL be rejected before any Keycloak API call. When neither persisted identity value exists, as on a new gateway before its client is provisioned, the initial client ID is built from the current name in the `{name}-{id}` format. Gateway names are not restricted, so identifiers containing spaces or non-ASCII characters are valid; whenever an accepted identifier is written to a log or error, it SHALL be quoted so Unicode separators and formatting controls cannot inject log structure.
 
 The client SHALL be created with the following properties:
 
@@ -746,7 +746,7 @@ When a gateway-scoped RoleBinding is deleted (after checking no remaining covera
 Gateway deletion SHALL use the same validated OIDC client identity as gateway
 reconciliation. A gateway rename SHALL NOT change the client selected for
 removal. Records without either stored identity field SHALL use the
-name-and-gateway-ID fallback. Invalid or conflicting stored identities SHALL
+initial client ID built from the current name and gateway ID. Invalid or conflicting stored identities SHALL
 NOT request Keycloak cleanup: deletion SHALL log the resolution failure for
 operator recovery and SHALL continue namespace and database cleanup. A missing
 Keycloak provisioner SHALL NOT block gateway finalization: deletion SHALL log
