@@ -12,6 +12,113 @@ export const messages = defineMessages({
     description:
       "Heading for the gateways table column showing the number of active sandbox sessions.",
   },
+  bulkDeleteActiveSandboxWarning: {
+    id: "app.gateway.bulkDelete.activeSandboxWarning",
+    defaultMessage:
+      "{gatewayCount, plural, one {# selected gateway has} other {# selected gateways have}} active sandboxes that will be disrupted by deletion.",
+    description:
+      "Warning in the bulk-delete confirmation dialog when selected gateways still have running sandboxes.",
+  },
+  bulkDeleteButton: {
+    id: "app.gateway.bulkDelete.button",
+    defaultMessage: "Delete",
+    description: "Toolbar action that deletes the selected gateways in bulk.",
+  },
+  bulkDeleteButtonAria: {
+    id: "app.gateway.bulkDelete.buttonAria",
+    defaultMessage:
+      "Delete {count, plural, one {# selected gateway} other {# selected gateways}}",
+    description:
+      "Accessible label for the bulk-delete toolbar action, stating how many gateways are selected.",
+  },
+  bulkDeleteClearSelection: {
+    id: "app.gateway.bulkDelete.clearSelection",
+    defaultMessage: "Clear selection",
+    description: "Action that deselects every selected gateway.",
+  },
+  bulkDeleteConfirmBody: {
+    id: "app.gateway.bulkDelete.confirmBody",
+    defaultMessage:
+      "Deleting a gateway removes it from the platform and starts asynchronous teardown of its clusters, databases, and routing. This cannot be undone. The following gateways will be deleted:",
+    description:
+      "Explanation shown in the bulk-delete confirmation dialog before deletion.",
+  },
+  bulkDeleteConfirmButton: {
+    id: "app.gateway.bulkDelete.confirmButton",
+    defaultMessage:
+      "Delete {count, plural, one {# gateway} other {# gateways}}",
+    description:
+      "Confirming action in the bulk-delete dialog, stating how many gateways will be deleted.",
+  },
+  bulkDeleteConfirmTitle: {
+    id: "app.gateway.bulkDelete.confirmTitle",
+    defaultMessage:
+      "Delete {count, plural, one {# gateway} other {# gateways}}?",
+    description: "Title of the bulk-delete confirmation dialog.",
+  },
+  bulkDeleteResultAccepted: {
+    id: "app.gateway.bulkDelete.resultAccepted",
+    defaultMessage:
+      "{gatewayName}: deletion accepted; resource teardown in progress.",
+    description:
+      "Per-gateway result line for an accepted asynchronous deletion whose teardown has not completed.",
+  },
+  bulkDeleteResultFailed: {
+    id: "app.gateway.bulkDelete.resultFailed",
+    defaultMessage:
+      "{gatewayName}: deletion failed. This gateway stays selected so you can retry it.",
+    description:
+      "Per-gateway result line for a failed deletion that remains selected for retry.",
+  },
+  bulkDeleteResultTitleAllAccepted: {
+    id: "app.gateway.bulkDelete.resultTitleAllAccepted",
+    defaultMessage:
+      "{count, plural, one {# gateway deletion accepted} other {# gateway deletions accepted}}",
+    description:
+      "Results banner title when every bulk deletion was accepted for asynchronous teardown.",
+  },
+  bulkDeleteResultTitleAllFailed: {
+    id: "app.gateway.bulkDelete.resultTitleAllFailed",
+    defaultMessage:
+      "{count, plural, one {# gateway deletion failed} other {# gateway deletions failed}}",
+    description: "Results banner title when every bulk deletion failed.",
+  },
+  bulkDeleteResultTitlePartial: {
+    id: "app.gateway.bulkDelete.resultTitlePartial",
+    defaultMessage:
+      "{failed, number} of {total, number} gateway deletions failed",
+    description: "Results banner title when some bulk deletions failed.",
+  },
+  bulkDeleteRetry: {
+    id: "app.gateway.bulkDelete.retry",
+    defaultMessage: "Retry failed deletions",
+    description:
+      "Action that retries only the failed deletions without resubmitting the accepted ones.",
+  },
+  bulkSelectAriaLabel: {
+    id: "app.gateway.bulkSelect.ariaLabel",
+    defaultMessage: "Select gateways on this page",
+    description:
+      "Accessible label for the header bulk-selection control, whose scope is the current page.",
+  },
+  bulkSelectNone: {
+    id: "app.gateway.bulkSelect.none",
+    defaultMessage: "Select none ({count, number} items)",
+    description:
+      "Menu option that clears the selection in the bulk-selection control.",
+  },
+  bulkSelectPage: {
+    id: "app.gateway.bulkSelect.page",
+    defaultMessage: "Select page ({count, number} items)",
+    description:
+      "Menu option that selects every eligible gateway on the current page.",
+  },
+  bulkSelectSelectedCount: {
+    id: "app.gateway.bulkSelect.selectedCount",
+    defaultMessage: "{count, number} selected",
+    description:
+      "Count of selected gateways shown on the header bulk-selection control.",
+  },
   cancel: {
     id: "app.action.cancel",
     defaultMessage: "Cancel",
@@ -754,6 +861,24 @@ export const messages = defineMessages({
     id: "app.gateway.cluster.select",
     defaultMessage: "Select a cluster",
     description: "Accessible label and placeholder for the cluster selector.",
+  },
+  selectGatewayRow: {
+    id: "app.gateway.bulkSelect.row",
+    defaultMessage: "Select gateway {gatewayName}",
+    description:
+      "Accessible name for a gateway row's selection checkbox, identifying the gateway.",
+  },
+  selectGatewayRowDisabled: {
+    id: "app.gateway.bulkSelect.rowDisabled",
+    defaultMessage: "Select gateway {gatewayName} (deletion not permitted)",
+    description:
+      "Accessible name for a disabled gateway row selection checkbox, explaining why selection is unavailable.",
+  },
+  selectionColumn: {
+    id: "app.gateway.bulkSelect.column",
+    defaultMessage: "Row selection",
+    description:
+      "Screen-reader heading for the gateway table's row-selection column.",
   },
   showOnlyMyGateways: {
     id: "app.page.gateways.showOnlyMine",

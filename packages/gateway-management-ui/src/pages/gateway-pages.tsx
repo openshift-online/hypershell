@@ -17,6 +17,7 @@ import {
   Tabs,
   TabTitleText,
   Title,
+  ToolbarItem,
 } from "@patternfly/react-core";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useCallback, useMemo, useRef, useState } from "react";
@@ -31,6 +32,14 @@ import {
   type OpenShellGatewayServiceAccountListRequest,
 } from "../application/gateway-types";
 import { useGatewayLink, useGatewayUi } from "../gateway-ui-provider";
+import {
+  GatewayBulkDeleteConfirmModal,
+  GatewayBulkDeleteResultBanner,
+  GatewayBulkSelectControl,
+  GatewaySelectionCheckbox,
+  isGatewayDeletable,
+  useGatewayBulkDelete,
+} from "../gateways/gateway-bulk-delete";
 import { useConsoleWaitTracker } from "../gateways/console-wait-tracker";
 import { type GatewayConnection } from "../gateways/gateway-connections";
 import { GatewayConnectionSteps } from "../gateways/gateway-connection-steps";
@@ -386,6 +395,73 @@ export function GatewaysPage({
   // set only (WEB-API-01, SEC-RBAC-10).
   const showOwnershipFilter =
     onlyMine || (visiblePage?.hasOtherOwnedGateways ?? false);
+  // Bulk selection and bulk delete (WEB-UIEX-08). Selection scope is the current
+  // page only; it clears whenever the collection scope changes so a hidden row
+  // can never be deleted.
+  const visibleItems = visiblePage?.items ?? [];
+  const selectionScopeKey = [
+    currentCollectionState.page,
+    currentCollectionState.size,
+    currentCollectionState.search,
+    currentCollectionState.sortField,
+    currentCollectionState.sortDirection,
+    onlyMine,
+  ].join("|");
+  const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  // Reset the selection during render when the collection scope changes, the
+  // React-recommended alternative to a scope-keyed effect. A refetch within the
+  // same scope keeps the selection so failed deletions stay selected for retry.
+  const [trackedSelectionScope, setTrackedSelectionScope] =
+    useState(selectionScopeKey);
+  if (trackedSelectionScope !== selectionScopeKey) {
+    setTrackedSelectionScope(selectionScopeKey);
+    setSelectedIds(new Set());
+  }
+  const removeFromSelection = useCallback((ids: readonly string[]) => {
+    if (ids.length === 0) {
+      return;
+    }
+    setSelectedIds((previous) => {
+      const next = new Set(previous);
+      for (const id of ids) {
+        next.delete(id);
+      }
+      return next;
+    });
+  }, []);
+  const toggleRowSelection = useCallback(
+    (gatewayId: string, selected: boolean) => {
+      setSelectedIds((previous) => {
+        const next = new Set(previous);
+        if (selected) {
+          next.add(gatewayId);
+        } else {
+          next.delete(gatewayId);
+        }
+        return next;
+      });
+    },
+    [],
+  );
+  const bulkDelete = useGatewayBulkDelete({ onAccepted: removeFromSelection });
+  // Eligibility is the authoritative delete capability only; it never bypasses
+  // the server authorization boundary (WEB-UIEX-08). Selection reconciles
+  // against the currently visible rows so a refetch drops removed gateways.
+  const eligibleGateways = visibleItems.filter(isGatewayDeletable);
+  const eligibleCount = eligibleGateways.length;
+  const selectedGateways = eligibleGateways.filter((gateway) =>
+    selectedIds.has(gateway.id),
+  );
+  const selectedCount = selectedGateways.length;
+  const showBulkControls = visibleItems.length > 0;
+  const selectEligiblePage = () => {
+    setSelectedIds(new Set(eligibleGateways.map((gateway) => gateway.id)));
+  };
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+  };
   const columns: readonly ResourceTableColumn<GatewayConnection>[] = [
     {
       id: "name",
@@ -506,6 +582,64 @@ export function GatewaysPage({
       <PageSection hasBodyWrapper={false} isFilled>
         <ResourceTable
           ariaLabel={intl.formatMessage(messages.gateways)}
+          banner={
+            bulkDelete.phase === "results" ? (
+              <GatewayBulkDeleteResultBanner
+                onDismiss={bulkDelete.dismissResults}
+                onRetry={bulkDelete.retryFailed}
+                outcomes={bulkDelete.outcomes}
+              />
+            ) : undefined
+          }
+          bulkActions={
+            showBulkControls ? (
+              <>
+                <ToolbarItem>
+                  <Button
+                    aria-label={intl.formatMessage(
+                      messages.bulkDeleteButtonAria,
+                      { count: selectedCount },
+                    )}
+                    isDanger
+                    isDisabled={selectedCount === 0 || bulkDelete.isBusy}
+                    onClick={() => {
+                      bulkDelete.request(
+                        selectedGateways.map((gateway) => ({
+                          id: gateway.id,
+                          name: gateway.name,
+                          ...(typeof gateway.activeSandboxCount === "number"
+                            ? { activeSandboxCount: gateway.activeSandboxCount }
+                            : {}),
+                        })),
+                      );
+                    }}
+                    variant="secondary"
+                  >
+                    <FormattedMessage {...messages.bulkDeleteButton} />
+                  </Button>
+                </ToolbarItem>
+                {selectedCount > 0 ? (
+                  <ToolbarItem>
+                    <Button onClick={clearSelection} variant="link">
+                      <FormattedMessage
+                        {...messages.bulkDeleteClearSelection}
+                      />
+                    </Button>
+                  </ToolbarItem>
+                ) : null}
+              </>
+            ) : undefined
+          }
+          bulkSelect={
+            showBulkControls ? (
+              <GatewayBulkSelectControl
+                eligibleCount={eligibleCount}
+                onSelectNone={clearSelection}
+                onSelectPage={selectEligiblePage}
+                selectedCount={selectedCount}
+              />
+            ) : undefined
+          }
           columns={columns}
           getRowKey={({ id }) => id}
           hasActiveFilters={
@@ -564,6 +698,17 @@ export function GatewaysPage({
               onRenamed={setRenamedGatewayName}
             />
           )}
+          renderRowSelection={
+            showBulkControls
+              ? (gateway) => (
+                  <GatewaySelectionCheckbox
+                    gateway={gateway}
+                    isSelected={selectedIds.has(gateway.id)}
+                    onToggle={toggleRowSelection}
+                  />
+                )
+              : undefined
+          }
           rows={visiblePage?.items ?? []}
           secondaryFilterControls={
             showOwnershipFilter ? (
@@ -584,8 +729,17 @@ export function GatewaysPage({
               />
             ) : undefined
           }
+          selectionColumnLabel={intl.formatMessage(messages.selectionColumn)}
           state={tableState}
         />
+        {bulkDelete.isConfirmOpen ? (
+          <GatewayBulkDeleteConfirmModal
+            isBusy={bulkDelete.isBusy}
+            onCancel={bulkDelete.cancel}
+            onConfirm={bulkDelete.confirm}
+            targets={bulkDelete.targets}
+          />
+        ) : null}
       </PageSection>
     </>
   );

@@ -1851,4 +1851,281 @@ describe("gateway shell pages", () => {
       .closest("dl");
     expect(within(detailsList as HTMLElement).getByText("-")).toBeTruthy();
   });
+
+  const bulkGateway = (
+    id: string,
+    name: string,
+    canDelete: boolean,
+  ): GatewayConnection => ({
+    ...previewGateway,
+    canDelete,
+    clusterName: "local-kind",
+    id,
+    name,
+  });
+
+  // Verifies: WEB-UIEX-08.01, WEB-UIEX-08.02, WEB-UIEX-08.04
+  it("selects eligible rows, reflects header states, and disables ineligible rows", async () => {
+    const user = userEvent.setup();
+    renderPage(() => (
+      <GatewaysPage
+        gateways={[
+          bulkGateway("gw-a", "gw-a", true),
+          bulkGateway("gw-b", "gw-b", true),
+          bulkGateway("gw-view", "gw-view", false),
+        ]}
+      />
+    ));
+
+    // The view-only row keeps a visible but disabled checkbox whose accessible
+    // name explains why selection is unavailable; it is never selectable
+    // (WEB-UIEX-08.04).
+    const viewOnly = screen.getByRole("checkbox", {
+      name: "Select gateway gw-view (deletion not permitted)",
+    });
+    expect((viewOnly as HTMLInputElement).disabled).toBe(true);
+
+    // Delete starts disabled with nothing selected.
+    expect(
+      screen
+        .getByRole("button", { name: "Delete 0 selected gateways" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+
+    await user.click(
+      screen.getByRole("checkbox", { name: "Select gateway gw-a" }),
+    );
+    expect(screen.getByText("1 selected")).toBeTruthy();
+    // One of two eligible rows selected: the header control is indeterminate.
+    expect(
+      screen.getByRole("checkbox", { name: "Select gateways on this page" }),
+    ).toHaveProperty("indeterminate", true);
+    expect(
+      screen
+        .getByRole("button", { name: "Delete 1 selected gateway" })
+        .hasAttribute("disabled"),
+    ).toBe(false);
+
+    await user.click(
+      screen.getByRole("checkbox", { name: "Select gateway gw-b" }),
+    );
+    expect(screen.getByText("2 selected")).toBeTruthy();
+    // Every eligible row on the page is selected: the header control is checked.
+    expect(
+      screen.getByRole("checkbox", {
+        checked: true,
+        name: "Select gateways on this page",
+      }),
+    ).toBeTruthy();
+  });
+
+  // Verifies: WEB-UIEX-08.01 (deselect all) and current-page header scope
+  it("selects and clears the current page from the header control", async () => {
+    const user = userEvent.setup();
+    renderPage(() => (
+      <GatewaysPage
+        gateways={[
+          bulkGateway("gw-a", "gw-a", true),
+          bulkGateway("gw-b", "gw-b", true),
+          bulkGateway("gw-view", "gw-view", false),
+        ]}
+      />
+    ));
+
+    const header = screen.getByRole("checkbox", {
+      name: "Select gateways on this page",
+    });
+    await user.click(header);
+    // Only the two eligible rows are selected; the view-only row is excluded.
+    expect(screen.getByText("2 selected")).toBeTruthy();
+    expect(
+      screen.getByRole("checkbox", {
+        checked: true,
+        name: "Select gateway gw-a",
+      }),
+    ).toBeTruthy();
+
+    await user.click(
+      screen.getByRole("checkbox", { name: "Select gateways on this page" }),
+    );
+    expect(screen.queryByText("2 selected")).toBeNull();
+  });
+
+  // Verifies: WEB-UIEX-08.03
+  it("clears the selection when the search scope changes", async () => {
+    listGatewaysMock.mockResolvedValue({
+      items: [
+        { ...gatewayResponse("gw-a", "gw-a"), canDelete: true },
+        { ...gatewayResponse("gw-b", "gw-b"), canDelete: true },
+      ],
+      page: 1,
+      size: 20,
+      total: 2,
+    });
+    renderPage(GatewaysPage);
+    await screen.findByRole("link", { name: "gw-a" });
+
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Select gateway gw-a" }),
+    );
+    expect(screen.getByText("1 selected")).toBeTruthy();
+
+    fireEvent.change(
+      screen.getByRole("textbox", {
+        name: "Filter by name, cluster, status, or endpoint",
+      }),
+      { target: { value: "gw-a" } },
+    );
+    // Changing the search scope clears the selection so a hidden row can never be
+    // deleted unexpectedly (WEB-UIEX-08.03).
+    expect(screen.queryByText("1 selected")).toBeNull();
+  });
+
+  // Verifies: WEB-UIEX-08.05
+  it("confirms the bulk-delete scope and makes no deletion on cancel", async () => {
+    const user = userEvent.setup();
+    renderPage(() => (
+      <GatewaysPage
+        gateways={[
+          { ...bulkGateway("gw-a", "gw-a", true), activeSandboxCount: 2 },
+          bulkGateway("gw-b", "gw-b", true),
+        ]}
+      />
+    ));
+
+    await user.click(
+      screen.getByRole("checkbox", { name: "Select gateway gw-a" }),
+    );
+    await user.click(
+      screen.getByRole("checkbox", { name: "Select gateway gw-b" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Delete 2 selected gateways" }),
+    );
+
+    const dialog = screen.getByRole("dialog", { name: /Delete 2 gateways\?/u });
+    expect(within(dialog).getByText("gw-a")).toBeTruthy();
+    expect(within(dialog).getByText("gw-b")).toBeTruthy();
+    // The bulk confirmation shares the per-row delete's active-sandbox warning.
+    expect(
+      within(dialog).getByText(
+        "1 selected gateway has active sandboxes that will be disrupted by deletion.",
+      ),
+    ).toBeTruthy();
+
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(deleteGatewayMock).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("dialog", { name: /Delete 2 gateways\?/u }),
+    ).toBeNull();
+    // Cancelling leaves the selection unchanged.
+    expect(screen.getByText("2 selected")).toBeTruthy();
+  });
+
+  // Verifies: WEB-UIEX-08.06, WEB-UIEX-08.09
+  it("deletes selected gateways, refreshes the list, and reports accepted teardown", async () => {
+    const user = userEvent.setup();
+    listGatewaysMock
+      .mockResolvedValueOnce({
+        items: [
+          { ...gatewayResponse("gw-a", "gw-a"), canDelete: true },
+          { ...gatewayResponse("gw-b", "gw-b"), canDelete: true },
+        ],
+        page: 1,
+        size: 20,
+        total: 2,
+      })
+      .mockResolvedValue({ items: [], page: 1, size: 20, total: 0 });
+    renderPage(GatewaysPage);
+    await screen.findByRole("link", { name: "gw-a" });
+
+    await user.click(
+      screen.getByRole("checkbox", { name: "Select gateway gw-a" }),
+    );
+    await user.click(
+      screen.getByRole("checkbox", { name: "Select gateway gw-b" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Delete 2 selected gateways" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Delete 2 gateways" }));
+
+    await waitFor(() => {
+      expect(deleteGatewayMock).toHaveBeenCalledWith("gw-a");
+    });
+    expect(deleteGatewayMock).toHaveBeenCalledWith("gw-b");
+
+    // An accepted deletion is reported as teardown-in-progress, never completed
+    // cleanup (WEB-UIEX-08.09).
+    expect(
+      await screen.findByText("2 gateway deletions accepted"),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "gw-a: deletion accepted; resource teardown in progress.",
+      ),
+    ).toBeTruthy();
+    // The authoritative list refetches after the requests complete.
+    await waitFor(() => {
+      expect(listGatewaysMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  // Verifies: WEB-UIEX-08.07, WEB-UIEX-08.08
+  it("retains failed deletions for retry without resubmitting the accepted ones", async () => {
+    const user = userEvent.setup();
+    let gbCalls = 0;
+    deleteGatewayMock.mockImplementation((id: string) => {
+      if (id === "gw-b") {
+        gbCalls += 1;
+        return gbCalls === 1
+          ? Promise.reject(new Error("rejected"))
+          : Promise.resolve();
+      }
+      return Promise.resolve();
+    });
+    listGatewaysMock.mockResolvedValue({
+      items: [
+        { ...gatewayResponse("gw-a", "gw-a"), canDelete: true },
+        { ...gatewayResponse("gw-b", "gw-b"), canDelete: true },
+      ],
+      page: 1,
+      size: 20,
+      total: 2,
+    });
+    renderPage(GatewaysPage);
+    await screen.findByRole("link", { name: "gw-a" });
+
+    await user.click(
+      screen.getByRole("checkbox", { name: "Select gateway gw-a" }),
+    );
+    await user.click(
+      screen.getByRole("checkbox", { name: "Select gateway gw-b" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Delete 2 selected gateways" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Delete 2 gateways" }));
+
+    expect(
+      await screen.findByText("1 of 2 gateway deletions failed"),
+    ).toBeTruthy();
+    // The failed gateway stays selected so it can be retried; the accepted one is
+    // dropped from the selection (WEB-UIEX-08.07).
+    expect(screen.getByText("1 selected")).toBeTruthy();
+    expect(deleteGatewayMock).toHaveBeenCalledTimes(2);
+
+    await user.click(
+      screen.getByRole("button", { name: "Retry failed deletions" }),
+    );
+    await waitFor(() => {
+      expect(deleteGatewayMock).toHaveBeenCalledTimes(3);
+    });
+    // Only the failed gateway is resubmitted; the accepted one is not.
+    expect(gbCalls).toBe(2);
+    expect(
+      deleteGatewayMock.mock.calls.filter(([id]) => id === "gw-a"),
+    ).toHaveLength(1);
+    expect(await screen.findByText("1 gateway deletion accepted")).toBeTruthy();
+  });
 });
