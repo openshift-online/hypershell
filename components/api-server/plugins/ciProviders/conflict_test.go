@@ -4,6 +4,7 @@ import (
 	stderrors "errors"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/lib/pq"
 
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
@@ -46,6 +47,24 @@ func TestConflictForUniqueDetectsSQLSTATE(t *testing.T) {
 			err:          &pq.Error{Code: "23505", Constraint: "idx_ci_providers_name", Message: "constraint collision"},
 			wantConflict: true,
 			wantContains: "github",
+		},
+		{
+			// PRODUCTION driver path: the GORM session uses pgx
+			// (gorm.io/driver/postgres) in production, so a unique violation arrives
+			// as *pgconn.PgError, not *pq.Error. A pq-only detector returned nil here
+			// and turned a duplicate name into a 500; the shared dberr classifier
+			// maps it to a 409 attributed by the constraint name. This case fails
+			// against the pq-only code (finding 1).
+			name:         "pgx 23505 on name index -> 409 naming the name",
+			err:          &pgconn.PgError{Code: "23505", ConstraintName: "idx_ci_providers_name"},
+			wantConflict: true,
+			wantContains: "github",
+		},
+		{
+			name:         "pgx 23505 on issuer index -> 409 naming the issuer",
+			err:          &pgconn.PgError{Code: "23505", ConstraintName: "idx_ci_providers_issuer"},
+			wantConflict: true,
+			wantContains: "issuer",
 		},
 		{
 			name:         "non-unique pq error (foreign key 23503) -> not a conflict",

@@ -15,8 +15,8 @@ type CIProvider struct {
 	// migrationAddName, NOT by a model-level uniqueIndex tag. A full tag would make
 	// CreateTable build a full index covering soft-deleted rows, so re-applying a
 	// deleted provider would 409 on the lingering row (SDLC-CONF-13, FINDING 1).
-	Name           string  `json:"name"`
-	Forge          string  `json:"forge"`
+	Name  string `json:"name"`
+	Forge string `json:"forge"`
 	// Issuer is unique per LIVE provider: a distinct forge instance registers a
 	// distinct issuer (PLAT-CITR-07). The uniqueness is a PARTIAL UNIQUE index
 	// (WHERE deleted_at IS NULL), created by migrationPartialIssuerIndex, NOT a

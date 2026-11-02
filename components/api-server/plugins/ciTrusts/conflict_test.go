@@ -4,6 +4,7 @@ import (
 	stderrors "errors"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/lib/pq"
 
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
@@ -24,6 +25,14 @@ func TestConflictForDuplicateNameDetectsSQLSTATE(t *testing.T) {
 		{
 			name:         "23505 -> 409",
 			err:          &pq.Error{Code: "23505", Constraint: "idx_ci_trusts_name"},
+			wantConflict: true,
+		},
+		{
+			// PRODUCTION driver path: pgx surfaces a unique violation as
+			// *pgconn.PgError, which a pq-only detector missed (finding 1), turning a
+			// duplicate name into a 500. The shared dberr classifier maps it to 409.
+			name:         "pgx 23505 -> 409",
+			err:          &pgconn.PgError{Code: "23505", ConstraintName: "idx_ci_trusts_name"},
 			wantConflict: true,
 		},
 		{

@@ -9,10 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/lib/pq"
 	"gorm.io/gorm"
 
+	"github.com/openshift-online/hypershell/components/api-server/pkg/dberr"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
@@ -325,7 +324,7 @@ func (s *sqlManagedClusterService) Register(ctx context.Context, name string, ca
 	if deleted != nil {
 		restored, restoreErr := s.managedClusterDao.Restore(ctx, deleted.ID, capabilities, now)
 		if restoreErr != nil {
-			if isUniqueViolation(restoreErr) {
+			if dberr.IsUniqueViolation(restoreErr) {
 				if winner, err := s.managedClusterDao.FindByName(ctx, name); err == nil && winner != nil {
 					return nil, false, nameCollisionConflict(winner)
 				}
@@ -354,7 +353,7 @@ func (s *sqlManagedClusterService) Register(ctx context.Context, name string, ca
 		// A concurrent registration by another subject can win the name between
 		// the lookup above and this insert; the unique index turns that race
 		// into a conflict, reported with the winner's id when it can be read.
-		if isUniqueViolation(createErr) {
+		if dberr.IsUniqueViolation(createErr) {
 			if winner, err := s.managedClusterDao.FindByName(ctx, name); err == nil && winner != nil {
 				return nil, false, nameCollisionConflict(winner)
 			}
@@ -417,21 +416,4 @@ func nameCollisionConflict(holder *ManagedCluster) *errors.ServiceError {
 		"managed cluster name %q is held by record %s, which %s; an operator must delete that record (and re-point any gateways that reference it) before this control plane can register under that name",
 		holder.Name, holder.ID, owner,
 	)
-}
-
-// isUniqueViolation reports whether err is PostgreSQL SQLSTATE 23505
-// (unique_violation). The GORM session uses pgx in production and lib/pq in the
-// test session, so both driver error types are checked; the message text is
-// never inspected.
-func isUniqueViolation(err error) bool {
-	const uniqueViolation = "23505"
-	var pgErr *pgconn.PgError
-	if stderrors.As(err, &pgErr) {
-		return pgErr.Code == uniqueViolation
-	}
-	var pqErr *pq.Error
-	if stderrors.As(err, &pqErr) {
-		return string(pqErr.Code) == uniqueViolation
-	}
-	return false
 }
