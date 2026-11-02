@@ -1215,11 +1215,11 @@ Test-tier Keycloak principals `admin` / `developer` / `platform-admin` are not b
 |---|-------------|--------|-----|---------------|------|
 | SR-1 | Database Password Rotation | Removed | HyperShell does not rotate per-gateway database credentials; operators rotate on the server or recreate the gateway | - | - |
 | SR-2 | Database Rotation Failure Handling | Removed | No rotation path exists; provisioning repair re-applies a lost tenant Secret with `ALTER ROLE` | `gateway/external_db.go` | - |
-| SR-3 | Config-Hash Coverage for Database Credentials | Present | `applyConfigHashAnnotation` now loops over both `openshell-server-tls` AND `openshell-gateway-db-credentials` Secrets | `gateway/reconciler.go` | SR-W1 ✅ |
-| SR-5 | KEK Rotation (Day-2) | Deferred | Explicitly deferred in spec; no gateway re-encryption API exists | - | Future |
-| SR-6 | TLS Certificate Rotation (cert-manager) | Present | cert-manager handles renewal; `applyConfigHashAnnotation` includes TLS Secret; config-hash triggers restart | `reconciler.go:540-554` | W7 ✅ |
-| SR-7 | Provider Credential Rotation by Driver Type | Deferred | Credential driver fields not yet implemented in reconciler; driver-specific rotation is platform-managed (K8s SA, Vault) | - | Future |
-| SR-8 | Interaction Between Credential Driver and DB Password Rotation | Present | DB password rotation is independent of credential driver; wired after `reconcileDatabaseCredentials()` via `RotateDBCredentials` opt | `gateway/reconciler.go` | SR-W1 ✅ |
+| SR-3 | Config-Hash Coverage for Database Credentials | Removed | Requirement retired (OSG-ROT-01). `applyConfigHashAnnotation` was deleted in the Helm cutover (#194); a changed DB credentials Secret does not restart the gateway | - | - |
+| SR-5 | KEK Rotation (Day-2) | Removed | Requirement retired (OSG-ROT-02). The KEK is not rotated; the chart reuses the existing KEK Secret on every upgrade | - | - |
+| SR-6 | TLS Certificate Renewal (cert-manager) | Present | cert-manager renews; the kubelet updates the mounted `openshell-server-tls` files; the OpenShell gateway file watcher reloads them without a restart | `charts/openshell/templates/_gateway-workload.tpl` (tls-cert mount) | - |
+| SR-7 | Provider Credential Rotation by Driver Type | Present | Driver-specific renewal is platform-managed (K8s SA token, Vault); the control plane wires the driver values and the projected `vault`-audience token. A changed `GATEWAY_VAULT_ADDRESS` reaches a gateway only on its next deploy | `helm/values.go` `buildCredentialDriverValues`/`buildVaultValues` | - |
+| SR-8 | Interaction Between Credential Driver and DB Password Rotation | Removed | No DB password rotation exists, so there is no interaction to handle | - | - |
 
 ### openshell-gateway-namespace-gc.spec.md
 
@@ -1822,8 +1822,8 @@ label-selected pod informer.
 | D14 | Gateway Deletion Protection | DB | API server validation |
 | D12 | DROP COLUMN migration for `database_config` | DB | Column still in DB schema; destructive migration deferred |
 | O6 | Custom raw TOML `config` field | OIDC | Advanced; not blocking |
-| SR-5 | KEK Rotation | Secret Rotation | Requires gateway re-encryption API (Day-2) |
-| SR-7 | Provider Credential Rotation | Secret Rotation | Platform-managed (K8s SA, Vault); no CP action needed |
+| SR-5 | KEK Rotation (Day-2) | Removed | Requirement retired (OSG-ROT-02). The KEK is not rotated; the chart reuses the existing KEK Secret on every upgrade | - | - |
+| SR-7 | Provider Credential Rotation by Driver Type | Present | Driver-specific renewal is platform-managed (K8s SA token, Vault); the control plane wires the driver values and the projected `vault`-audience token. A changed `GATEWAY_VAULT_ADDRESS` reaches a gateway only on its next deploy | `helm/values.go` `buildCredentialDriverValues`/`buildVaultValues` | - |
 | DM-4 | Gateway `status` writeback | Data Model | Depends on CP-4 |
 | lib/pq dead dep | `lib/pq` in go.mod but not imported | CP | Run `go mod tidy` in control-plane to remove dead dependency |
 | CP-4 | Status synchronization / health checks | CP | Needs periodic reconcile loop |
@@ -1845,7 +1845,7 @@ label-selected pod informer.
 2. **Naming: Sector vs Fleet**: Spec now uses "Fleet" (aligned with code). No longer a gap.
 3. **No restart mechanism (cross-spec)**: TLS, OIDC, and Routing specs all require workload restart on config changes. Addressed in Wave 7 via hash annotation.
 4. **Label-based cleanup (cross-spec)**: Database and Routing specs updated to use `hypershell.redhat.io/managed` label-based deletion instead of ownerReferences. ownerReferences were infeasible (DB resources created before Deployment) and unnecessary given explicit cleanup in `DeleteGatewayResources()`.
-5. ~~**Config-hash missing DB credentials**~~: Resolved in SR-W1. `applyConfigHashAnnotation` now includes `openshell-gateway-db-credentials` Secret.
+5. ~~**Config-hash missing DB credentials**~~: Moot. `applyConfigHashAnnotation` was deleted in the Helm cutover (#194) and OSG-ROT-01 was retired; a changed DB credentials Secret does not restart the gateway.
 6. ~~**RoleBinding watcher missing**~~: Resolved in KC-W2. CP now watches 7 resource types (added RoleBindings via `WatchRoleBindings` gRPC stream).
 
 ---
