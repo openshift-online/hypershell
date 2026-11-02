@@ -603,6 +603,25 @@ func TestReconcileGatewayAPIResourcesDedicatedCertificate(t *testing.T) {
 		if !reflect.DeepEqual(hostnames, []string{hostname}) {
 			t.Errorf("spec.hostnames = %v, want [%s]", hostnames, hostname)
 		}
+		// The gRPC path keeps the appProtocol: grpc (HTTP/2) port; only the
+		// sandbox HTTPRoute moves to the HTTP/1.1 port. See OSG-ROUT-13.02.
+		grpcRules, _, _ := unstructured.NestedSlice(grpcRoute.Object, "spec", "rules")
+		grpcRule, ok := grpcRules[0].(map[string]interface{})
+		if !ok {
+			t.Fatalf("grpc rules[0] is not a map: %T", grpcRules[0])
+		}
+		grpcBackendRefs, _, _ := unstructured.NestedSlice(grpcRule, "backendRefs")
+		if len(grpcBackendRefs) != 1 {
+			t.Fatalf("len(grpc backendRefs) = %d, want 1", len(grpcBackendRefs))
+		}
+		grpcBackend, ok := grpcBackendRefs[0].(map[string]interface{})
+		if !ok {
+			t.Fatalf("grpc backendRefs[0] is not a map: %T", grpcBackendRefs[0])
+		}
+		grpcPort, _, _ := unstructured.NestedInt64(grpcBackend, "port")
+		if grpcBackend["name"] != "openshell-gateway" || grpcPort != gatewayServiceGRPCPort {
+			t.Errorf("grpc backendRef = %v, want openshell-gateway:%d", grpcBackend, gatewayServiceGRPCPort)
+		}
 	})
 
 	t.Run("sandbox httproute wildcard-hosts onto the sandbox listener", func(t *testing.T) {
@@ -640,8 +659,11 @@ func TestReconcileGatewayAPIResourcesDedicatedCertificate(t *testing.T) {
 			t.Fatalf("backendRefs[0] is not a map: %T", backendRefs[0])
 		}
 		port, _, _ := unstructured.NestedInt64(backend, "port")
-		if backend["name"] != "openshell-gateway" || port != 8080 {
-			t.Errorf("backendRef = %v, want openshell-gateway:8080", backend)
+		// Sandbox HTTPRoute forwards to the Service's HTTP/1.1 port
+		// (appProtocol: http) so a WebSocket upgrade can traverse the backend
+		// hop; the gRPC (HTTP/2) port cannot. See OSG-ROUT-13.
+		if backend["name"] != "openshell-gateway" || port != gatewayServiceHTTPPort {
+			t.Errorf("backendRef = %v, want openshell-gateway:%d", backend, gatewayServiceHTTPPort)
 		}
 	})
 

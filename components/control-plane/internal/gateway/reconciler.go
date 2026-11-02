@@ -806,6 +806,22 @@ const (
 	sandboxHTTPRouteName = "openshell-gateway-sandbox"
 )
 
+// gateway Service backend ports the tenant routes forward to. These MUST agree
+// with the openshell Helm chart's Service ports (charts/openshell/values.yaml
+// service.port / service.httpPort and templates/service.yaml); the route and
+// the Service are reconciled by different surfaces and are coupled only by these
+// numbers. Both Service ports target the same gateway pod container port; see
+// openshell-gateway-routing.spec.md OSG-ROUT-13 (Dual-Protocol Backend).
+const (
+	// gatewayServiceGRPCPort is the Service port declaring appProtocol: grpc.
+	// The GRPCRoute forwards here; the ingress proxy dials it over HTTP/2.
+	gatewayServiceGRPCPort = int64(8080)
+	// gatewayServiceHTTPPort is the Service port declaring appProtocol: http.
+	// The sandbox HTTPRoute forwards here so the ingress proxy dials the backend
+	// over HTTP/1.1, which a WebSocket upgrade requires (HTTP/2 cannot carry it).
+	gatewayServiceHTTPPort = int64(8090)
+)
+
 // perTenantGatewayName returns the name of the per-tenant Gateway API Gateway
 // a dedicated-certificate gateway is served by (gw-<namespace>). It mirrors the
 // hostname derivation (gw-<namespace>.<base-domain>) so the Gateway, its
@@ -1826,7 +1842,12 @@ func buildSandboxHTTPRoute(namespace, hostname string) *unstructured.Unstructure
 					"backendRefs": []interface{}{
 						map[string]interface{}{
 							"name": "openshell-gateway",
-							"port": int64(8080),
+							// Sandbox-service traffic (plain HTTP and WebSocket)
+							// forwards to the Service's HTTP/1.1 port so the
+							// ingress proxy dials the backend over HTTP/1.1; the
+							// appProtocol: grpc (HTTP/2) port cannot carry a
+							// WebSocket upgrade. See OSG-ROUT-13.
+							"port": gatewayServiceHTTPPort,
 						},
 					},
 				},
@@ -1996,7 +2017,9 @@ func reconcileGatewayAPIRouteResources(ctx context.Context, dynamicClient dynami
 						"backendRefs": []interface{}{
 							map[string]interface{}{
 								"name": "openshell-gateway",
-								"port": int64(8080),
+								// gRPC traffic keeps the appProtocol: grpc
+								// (HTTP/2) port, unchanged by OSG-ROUT-13.
+								"port": gatewayServiceGRPCPort,
 							},
 						},
 					},
