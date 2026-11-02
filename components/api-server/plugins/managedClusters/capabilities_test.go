@@ -7,7 +7,7 @@ import (
 
 // Verifies: PLAT-CLUS-06
 func TestNormalizeCapabilities(t *testing.T) {
-	got, svcErr := NormalizeCapabilities([]string{"runtime/kata", "provider/aws", "network/vpn"}, true)
+	got, svcErr := NormalizeCapabilities([]string{"runtime/kata", "provider/aws", "network/vpn"})
 	if svcErr != nil {
 		t.Fatal(svcErr)
 	}
@@ -22,7 +22,7 @@ func TestNormalizeCapabilities(t *testing.T) {
 		{"provider/aws", "provider/ibm"},
 		{"network/public", "network/public"},
 	} {
-		if _, svcErr := NormalizeCapabilities(labels, true); svcErr == nil {
+		if _, svcErr := NormalizeCapabilities(labels); svcErr == nil {
 			t.Errorf("NormalizeCapabilities(%v) unexpectedly succeeded", labels)
 		}
 	}
