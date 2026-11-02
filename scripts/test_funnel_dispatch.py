@@ -827,25 +827,55 @@ class ProcessTests(unittest.TestCase):
                                 cwd=self.root, stdin=slave, stdout=slave, stderr=slave)
         os.close(slave)
         self.processes.append(proc)
-        self.wait_for(lambda: len(self.runs())==2)
-        os.write(master, b'\x1b[B\r')
-        time.sleep(.5)
-        os.write(master, b'\x1b')
-        time.sleep(.2)
-        os.write(master, b'q')
-        self.assertEqual(proc.wait(timeout=5), 130)
-        output=b''
-        while select.select([master], [], [], .1)[0]:
-            try:
-                chunk=os.read(master,65536)
+        # Drain the pty continuously into one buffer. If nobody reads while the
+        # TUI renders, the pty fills and the render write blocks, so the TUI
+        # stops processing keystrokes (it hangs instead of detaching).
+        captured = bytearray()
+        def pump(timeout):
+            while select.select([master], [], [], timeout)[0]:
+                try:
+                    chunk = os.read(master, 65536)
+                except OSError:
+                    return
                 if not chunk:
-                    break
-                output+=chunk
-            except OSError:
+                    return
+                captured.extend(chunk)
+                timeout = 0
+        def wait_for_frame(needle, since=0, timeout=8):
+            deadline = time.time()+timeout
+            while needle not in captured[since:] and time.time() < deadline:
+                pump(.1)
+            return needle in captured[since:]
+        # Drain while waiting too, so startup frames cannot fill the pty before
+        # the first keystroke.
+        startup = time.time()+8
+        while len(self.runs()) < 2 and time.time() < startup:
+            pump(.1)
+        self.assertEqual(len(self.runs()), 2, 'workers did not start')
+        # The dispatcher records a running worker in SQLite before the TUI's
+        # 400ms tick folds it into the on-screen list, so Enter can arrive while
+        # the list is still empty and open nothing. Re-send "select next, open
+        # logs" until the logs view renders its "h back" hint, rather than
+        # asserting against a single raced snapshot.
+        deadline = time.time()+8
+        while time.time() < deadline:
+            os.write(master, b'\x1b[B\r')
+            if wait_for_frame(b'h back', timeout=1):
                 break
+        self.assertIn(b'h back', captured, 'logs view never rendered its back hint')
+        back = len(captured)
+        os.write(master, b'\x1b')   # back to the list ("H history" is list-only)
+        self.assertTrue(wait_for_frame(b'H history', since=back), 'did not return to the list')
+        os.write(master, b'q')      # detach
+        # Keep draining through the quit: the detach line is written to the pty
+        # just before the process exits, and macOS discards any bytes still
+        # buffered once the slave side closes.
+        self.assertTrue(wait_for_frame(b'Detached. Workers keep running.', since=back, timeout=5),
+                        'dispatcher did not detach')
+        self.assertEqual(proc.wait(timeout=5), 130)
+        output=bytes(captured)
         self.assertIn(b'FULLSEND',output)
         self.assertIn(b'h back',output)
-        self.assertIn(b'Detached. Workers keep running.',output)
         self.assertTrue(any(row['status']=='running' for row in self.rows()))
         self.assertEqual(self.start().wait(timeout=8), 0)
         self.assertEqual(len(self.runs()), 2)
