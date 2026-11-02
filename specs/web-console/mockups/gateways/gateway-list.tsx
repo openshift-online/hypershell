@@ -105,20 +105,12 @@ function GatewayToolbar({
 
   return (
     <Toolbar>
+      {/* Row 1: search, any other filters, and the primary Provision action,
+          following the console.redhat.com Clusters list layout. */}
       <ToolbarContent>
         <ToolbarItem>
           <SearchInput placeholder="Filter by name, cluster, status, or endpoint" />
         </ToolbarItem>
-        {showOwnershipFilter ? (
-          <ToolbarItem>
-            <Switch
-              id="gateways-only-mine"
-              label="Show only my gateways"
-              isChecked={onlyMine}
-              onChange={(_event, checked) => setOnlyMine(checked)}
-            />
-          </ToolbarItem>
-        ) : null}
         <ToolbarItem>
           <ProvisionGatewayButton />
         </ToolbarItem>
@@ -133,6 +125,21 @@ function GatewayToolbar({
           />
         </ToolbarItem>
       </ToolbarContent>
+      {/* Row 2: the ownership switch on its own row directly below the filters
+          (WEB-UIEX-07). The whole row is omitted when the switch is hidden, so
+          no empty toolbar row remains. */}
+      {showOwnershipFilter ? (
+        <ToolbarContent>
+          <ToolbarItem>
+            <Switch
+              id="gateways-only-mine"
+              label="Show only my gateways"
+              isChecked={onlyMine}
+              onChange={(_event, checked) => setOnlyMine(checked)}
+            />
+          </ToolbarItem>
+        </ToolbarContent>
+      ) : null}
     </Toolbar>
   );
 }

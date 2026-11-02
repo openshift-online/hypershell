@@ -53,6 +53,10 @@ interface ResourceTableLabels {
 interface ResourceTableProps<Row> {
   ariaLabel: string;
   columns: readonly ResourceTableColumn<Row>[];
+  /**
+   * Controls rendered inline on the first toolbar row, alongside the search
+   * input and the primary action (for example an additional list filter).
+   */
   filterControls?: React.ReactNode;
   getRowKey: (row: Row) => React.Key;
   hasActiveFilters?: boolean;
@@ -68,6 +72,13 @@ interface ResourceTableProps<Row> {
   primaryAction?: React.ReactNode;
   renderRowAction?: (row: Row) => React.ReactNode;
   rows: readonly Row[];
+  /**
+   * Controls rendered on a second toolbar row directly below the first row,
+   * for a persistent list filter that reads as its own row (for example the
+   * gateway ownership switch, per WEB-UIEX-07). The whole row is omitted when
+   * this is not provided, so no empty toolbar row remains.
+   */
+  secondaryFilterControls?: React.ReactNode;
   state: ResourceTableState;
 }
 
@@ -86,6 +97,7 @@ export function ResourceTable<Row>({
   primaryAction,
   renderRowAction,
   rows,
+  secondaryFilterControls,
   state,
 }: ResourceTableProps<Row>) {
   const activeSortIndex = Math.max(
@@ -169,6 +181,17 @@ export function ResourceTable<Row>({
             />
           </ToolbarItem>
         </ToolbarContent>
+        {/* Secondary toolbar row rendered directly below the filtering
+            controls. It uses PatternFly toolbar layout (a second
+            ToolbarContent) so the row aligns with the first-row controls and
+            the surrounding list content without manual offsets. The whole row
+            is omitted when no secondary controls are provided, so no empty
+            toolbar row remains (WEB-UIEX-07). */}
+        {secondaryFilterControls ? (
+          <ToolbarContent>
+            <ToolbarItem>{secondaryFilterControls}</ToolbarItem>
+          </ToolbarContent>
+        ) : null}
       </Toolbar>
 
       {rows.length > 0 ? (
