@@ -135,7 +135,7 @@ For an opted-in Gateway the control plane SHALL create, in the tenant namespace:
 
    The per-tenant Gateway SHALL carry an `external-dns.kubernetes.io/hostname` infrastructure annotation listing both DNS records comma-separated (`gw-<ns>.<base-domain>,*.gw-<ns>.<base-domain>`), so external-dns publishes both. On clusters without external-dns, the operator adds the two records manually at provision time (documented fallback).
 3. The tenant `GRPCRoute` `openshell-gateway` re-parents onto the per-tenant Gateway (`sectionName: grpc`). Its hostname, the BackendTLSPolicy, the backend-CA ConfigMap, and the `routeAddress` format (`grpcs://<hostname>:443`) are unchanged - the same hostname is now resolved through the per-tenant Gateway's load balancer.
-4. An `HTTPRoute` `openshell-gateway-sandbox` with the wildcard hostname `*.gw-<ns>.<base-domain>`, parented on the per-tenant Gateway's `sandbox` listener, forwarding sandbox-service traffic to the `openshell-gateway` Service on port 8080. The existing BackendTLSPolicy re-encrypt remains in effect (proxy-to-pod leg is TLS with the pod's internal certificate), and the Host header SHALL be preserved through the proxy because the gateway's virtual-hosting keys on it.
+4. An `HTTPRoute` `openshell-gateway-sandbox` with the wildcard hostname `*.gw-<ns>.<base-domain>`, parented on the per-tenant Gateway's `sandbox` listener, forwarding sandbox-service traffic to the `openshell-gateway` Service's HTTP/1.1 backend port (the `http` port, `appProtocol: http`) rather than the gRPC port. Sandbox-service traffic carries plain HTTP and WebSocket, and a WebSocket upgrade cannot traverse an `appProtocol: grpc` (HTTP/2) backend hop - see § Dual-Protocol Backend for Sandbox-Service Traffic (OSG-ROUT-13). The existing BackendTLSPolicy re-encrypt remains in effect (proxy-to-pod leg is TLS with the pod's internal certificate) and covers this port because it targets the `openshell-gateway` Service as a whole, and the Host header SHALL be preserved through the proxy because the gateway's virtual-hosting keys on it.
 5. The per-gateway console re-parents onto the per-tenant Gateway's `sandbox` listener with host `console-<ns>.gw-<ns>.<base-domain>`, which the wildcard SAN already covers (see [`openshell-gateway-console.spec.md`](./openshell-gateway-console.spec.md)).
 
 The reconciler SHALL inject both `gw-<ns>.<base-domain>` and `*.gw-<ns>.<base-domain>` into the Gateway's `server_sans` for opted-in Gateways, so the gateway derives its per-gateway base domain for exposed-service URLs (see [`openshell-gateway-tls.spec.md`](./openshell-gateway-tls.spec.md) § Per-Gateway External Certificate).
@@ -152,7 +152,7 @@ Readiness for an opted-in Gateway SHALL be observed from the per-tenant Gateway 
 - THEN it SHALL create the `Certificate` `openshell-gateway-external` in the tenant namespace with both the exact and the wildcard dnsNames
 - AND it SHALL create the per-tenant `Gateway` `gw-<ns>` with the `grpc` and `sandbox` listeners on port 443, both referencing `openshell-gateway-external-tls`
 - AND the `GRPCRoute` SHALL parent onto the per-tenant Gateway's `grpc` listener and NOT onto the shared Gateway
-- AND it SHALL create the `HTTPRoute` `openshell-gateway-sandbox` with the wildcard hostname, parented on the `sandbox` listener and forwarding to the `openshell-gateway` Service on port 8080
+- AND it SHALL create the `HTTPRoute` `openshell-gateway-sandbox` with the wildcard hostname, parented on the `sandbox` listener and forwarding to the `openshell-gateway` Service's HTTP/1.1 backend port (`http`, `appProtocol: http`), not the gRPC port
 
 #### Scenario: OSG-ROUT-12.02 -- SAN injection for an opted-in gateway
 
@@ -376,6 +376,72 @@ The `openshift-ingress` Role is deployed via `controller-gateway-rbac.yaml` in t
 
 ---
 
+### Requirement: OSG-ROUT-13 -- Dual-Protocol Backend for Sandbox-Service Traffic
+
+The `openshell-gateway` Service SHALL expose two application ports that target
+the **same** gateway pod port (the pod's `grpc` container port), each declaring a
+different `appProtocol` so the ingress proxy dials the matching upstream protocol
+per port:
+
+- The gRPC port (name `grpc`, `appProtocol: grpc`) carries the Gateway's own gRPC
+  traffic. The proxy dials this port over HTTP/2.
+- A second HTTP/1.1 port (name `http`, `appProtocol: http`) carries OpenShell
+  sandbox service exposure (ExposeService) traffic. The proxy dials this port over
+  HTTP/1.1.
+
+Both ports SHALL point at the same backend pod port (`targetPort: grpc`). The
+gateway pod serves gRPC and HTTP on that one listener and selects the protocol per
+connection, so two Service ports with different `appProtocol` values resolve to the
+one pod port without a second container listener.
+
+The sandbox `HTTPRoute` (`openshell-gateway-sandbox`, see § Per-Gateway Dedicated
+Route and Certificate, OSG-ROUT-12) SHALL send its `backendRefs` to the `http`
+port, while the `GRPCRoute` SHALL keep sending its `backendRefs` to the `grpc`
+port. The `BackendTLSPolicy` re-encrypt SHALL cover both ports; it targets the
+`openshell-gateway` Service as a whole (no port `sectionName`), so its validation
+CA and validation hostname (`openshell-gateway.<namespace>.svc.cluster.local`)
+apply to the HTTP/1.1 port without a separate policy.
+
+**Why a second port is required.** Sandbox-service traffic includes plain HTTP and
+WebSocket. A WebSocket upgrade is an HTTP/1.1 mechanism (RFC 6455); HTTP/2 removed
+the `Upgrade` mechanism (RFC 7540 sections 8.1.1 and 8.1.2.2), and its only HTTP/2
+equivalent (RFC 8441 extended `CONNECT`) requires both ends to support it, which
+this backend does not. An `appProtocol: grpc` port makes the proxy dial the backend
+over HTTP/2, so a WebSocket upgrade over that path fails (the proxy returns `503`
+with `upstream connect error or disconnect/reset before headers`). Routing
+sandbox-service traffic to an `appProtocol: http` port makes the proxy dial HTTP/1.1
+and the upgrade completes end to end.
+
+**Sidecar caveat.** This dual-port-to-one-pod-port arrangement works because the
+gateway pod has no service-mesh sidecar; the per-tenant Gateway dials the pod
+directly. If the gateway pod ever gains a sidecar, the HTTP/1.1 path SHALL instead
+use a separate container listener on its own `targetPort` rather than a second
+Service port aliasing the gRPC pod port (see istio/istio#36185).
+
+#### Scenario: OSG-ROUT-13.01 -- WebSocket service reachable over the dedicated route
+
+- GIVEN an opted-in (dedicated-route) Gateway whose sandbox exposes a WebSocket service
+- WHEN a client opens a WebSocket connection to `<sandbox>--<service>.gw-<ns>.<base-domain>` through the per-tenant Gateway's `sandbox` listener
+- THEN the `openshell-gateway-sandbox` HTTPRoute SHALL forward the request to the Service's `http` port (`appProtocol: http`)
+- AND the proxy SHALL dial the backend over HTTP/1.1 and the upgrade SHALL complete (`101 Switching Protocols`)
+- AND the service SHALL exchange WebSocket frames end to end
+
+#### Scenario: OSG-ROUT-13.02 -- gRPC path unchanged
+
+- GIVEN the same opted-in Gateway
+- WHEN a gRPC client reaches the Gateway through its `grpc` listener
+- THEN the `GRPCRoute` SHALL forward to the Service's `grpc` port (`appProtocol: grpc`)
+- AND the proxy SHALL dial the backend over HTTP/2 exactly as before this dual-protocol change
+
+#### Scenario: OSG-ROUT-13.03 -- Both Service ports target one pod port
+
+- GIVEN the `openshell-gateway` Service
+- WHEN its ports are inspected
+- THEN it SHALL expose a `grpc` port (`appProtocol: grpc`) and an `http` port (`appProtocol: http`)
+- AND both SHALL set `targetPort: grpc`, resolving to the single gateway pod container port
+
+---
+
 ## Reconciler Improvements (Planned)
 
 1. **Gateway restart on ConfigMap change**: The gateway workload needs a hash annotation on the ConfigMap content so it automatically restarts when the TOML changes.
@@ -391,6 +457,7 @@ The `openshift-ingress` Role is deployed via `controller-gateway-rbac.yaml` in t
 | Gateway pods Ready but phase stuck `Provisioning`, then `Degraded` after the grace window | The shared Gateway API `Gateway` reports `Programmed=False` / no ADDRESS (cloud LB not provisioned, DNS/quota failure) | `oc get gateway -n $GATEWAY_API_GATEWAY_NAMESPACE $GATEWAY_API_GATEWAY_NAME -o wide`; inspect `.status.conditions` and events on the Gateway / its ELB |
 | `GATEWAY_API_GATEWAY_NAME is required` error | Env var not set on controller | Set `GATEWAY_API_GATEWAY_NAME` to the pre-existing Gateway name |
 | `peer sent no certificates` in gateway logs, client gets `upstream connect error or disconnect/reset before headers` | Gateway requires client certs (mTLS) but ingress proxy cannot present them | Verify `route.enabled` is true -- in Gateway API routing mode the reconciler sets `server.tls.enableMtls=false`; other modes keep the chart default (see TLS spec) |
+| WebSocket upgrade over a dedicated route returns `503` `upstream connect error or disconnect/reset before headers. reset reason: remote reset` while plain HTTP returns `200` | The sandbox HTTPRoute points at an `appProtocol: grpc` (HTTP/2) backend port; HTTP/2 cannot carry a WebSocket upgrade | Point the sandbox HTTPRoute at the Service's `http` port (`appProtocol: http`); see OSG-ROUT-13 |
 
 ---
 

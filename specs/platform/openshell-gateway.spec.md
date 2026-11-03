@@ -428,7 +428,7 @@ For each Gateway resource, the GatewayReconciler SHALL deploy the following Kube
 
 All gateway resources SHALL use fixed names (one gateway per namespace):
 - Deployment: `openshell-gateway`
-- Service: `openshell-gateway` (ClusterIP, ports: `grpc:8080` with `appProtocol: grpc`, `metrics:9090`)
+- Service: `openshell-gateway` (ClusterIP, ports: `grpc:8080` with `appProtocol: grpc`, `http` with `appProtocol: http` targeting the same backend pod port as `grpc` to carry sandbox-service/WebSocket traffic over HTTP/1.1, `metrics:9090` -- see [routing spec](./openshell-gateway-routing.spec.md) OSG-ROUT-13)
 - Internal health Service: `openshell-gateway-health` (ClusterIP, port: `health:8081`)
 - ServiceAccounts: `openshell-gateway`, `openshell-gateway-sandbox`, `openshell-gateway-certgen`
 - ConfigMap: `openshell-gateway-config` (the chart renders `gateway.toml` into it from Helm values; see OSG-CORE-13)
