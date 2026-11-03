@@ -381,3 +381,15 @@ An up/down arrow appears on the active column heading. Duration is elapsed time
 for running jobs and total runtime for finished attempts; unknown durations show
 `-` and sort last in either direction. Agent
 groups remain together. Filtering and sorting affect display only, not scheduling.
+
+
+### PR readiness and conflict recovery
+
+During watch discovery, code-stage records are observed through the shared
+`.fullsend/scripts/refresh-code-state.py` hook. CI status and PR readiness are
+part of review/implementation fingerprints, so a pending-to-green CI change can
+release deduplication. Confirmed conflicts after approval revoke the PR queue
+label and trigger implementation via `agent/code-conflicts`; repair returns to
+review. Running or uncertain workers retain ownership and are not mutated by
+maintenance. See `.fullsend/docs/lifecycle-hooks.md` for the common hosted/local
+contract and the hosted scheduler integration requirement.

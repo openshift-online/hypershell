@@ -87,6 +87,7 @@ def main():
         return
     store = Store(args.state_dir/'state.sqlite3')
     # Reuse domain rules without the Python coordinator loop or gateway side effects.
+    args.refresh_code_state = not args.dry_run
     args.dry_run = True
     coordinator = Coordinator(args, store, -1)
     try:

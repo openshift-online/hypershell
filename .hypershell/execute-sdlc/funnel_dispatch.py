@@ -174,6 +174,7 @@ class Store:
 class GitHub:
     def __init__(self, repo, scope, fullsend_dir):
         self.repo, self.scope, self.fullsend_dir = repo, scope, fullsend_dir
+        self.code_states = {}
 
     def pages(self, resource, **fields):
         args = ['gh', 'api', '--method', 'GET', '--paginate', '--slurp',
@@ -221,7 +222,7 @@ class GitHub:
         # loose number search is not evidence that a PR implements this issue.
         number = item['number']
         references = rf'(?:#{number}|{re.escape(self.repo)}#{number}|{re.escape(item["html_url"])})'
-        closes = re.compile(r'\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+' + references + r'(?![\w/])', re.I)
+        closes = re.compile(r'\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+' + references + r'(?![\w/])', re.I)
         body = item.get('body') or ''
         return [pr for pr in prs if
                 re.search(re.escape(pr['html_url']) + r'(?![\w/])', body) or
@@ -234,6 +235,18 @@ class GitHub:
             raise DispatchError(f'#{item["number"]}: need exactly one linked, open PR; found {ids}. '
                                 'Add an explicit PR URL or a Fixes #N reference; resolve ambiguous links.')
         return matches[0]
+
+    def code_state(self, item, pr, inspect=True):
+        hook = Path(self.fullsend_dir)/'scripts/refresh-code-state.py'
+        if not hook.is_file():
+            return None
+        args = ['python3', str(hook), '--issue-url', item['html_url'],
+                '--pr', str(pr['number']), '--scope', self.scope]
+        if inspect:
+            args.append('--inspect')
+        result = json_command(args)
+        self.code_states[str(item['number'])] = result
+        return result
 
     def phase_job(self, scope, agent, item, prs=None):
         """Use the same live inputs for discovery and pre-launch validation."""
@@ -255,7 +268,15 @@ class GitHub:
                 if not occurrences:
                     raise DispatchError(f'#{item["number"]}: cannot resolve the current rejection event; retry discovery')
                 rejection = max(occurrences)
-        return make_job(scope, agent, item, pr, rejection)
+        job = make_job(scope, agent, item, pr, rejection)
+        if pr and agent in ('code-review', 'code-implementation'):
+            state = self.code_states.get(str(item['number']))
+            if state is None:
+                state = self.code_state(item, pr)
+            if state is not None:
+                job['fingerprint'] = fingerprint([job['fingerprint'],
+                    {key: value for key, value in state.items() if key != 'changed'}])
+        return job
 
     def current(self, number):
         return json_command(['gh', 'api', f'repos/{self.repo}/issues/{number}'])
@@ -452,6 +473,7 @@ class Coordinator:
             if not row or row['status'] != 'succeeded':
                 self.candidates, self.errors = [ingest], []
                 return
+        self.github.code_states.clear()
         items = self.github.discover()
         candidates, errors = ([ingest] if self.args.lifecycle == 'jira' else []), []
         prs = None
@@ -464,6 +486,22 @@ class Coordinator:
                     with self.store.db:
                         self.store.db.execute('UPDATE jobs SET payload=? WHERE key=?', (json.dumps(payload), row['key']))
             try:
+                code_labels = set(self.github.labels(item)) & {
+                    'agent/reviewable-code', 'agent/review-code-approved',
+                    'agent/review-code-rejected', 'agent/code-conflicts'}
+                if item['state'] == 'open' and code_labels:
+                    if prs is None:
+                        prs = self.github.pages('pulls', state='all')
+                    linked = self.github.linked_prs(item, prs)
+                    if len(linked) != 1:
+                        raise DispatchError(f'#{item["number"]}: expected exactly one linked PR for code recovery')
+                    active = self.store.db.execute(
+                        "SELECT 1 FROM jobs WHERE item=? AND status IN ('running','uncertain')",
+                        (str(item['number']),)).fetchone()
+                    inspect = bool(active) or not getattr(self.args, 'refresh_code_state', not self.args.dry_run)
+                    state = self.github.code_state(item, linked[0], inspect)
+                    if state and state['changed']:
+                        item = self.github.current(item['number'])
                 if self.args.lifecycle == 'jira':
                     if 'agent/execution-record' not in self.github.labels(item):
                         # New GitHub-origin records must pass intake first.
@@ -533,6 +571,7 @@ class Coordinator:
             job = dict(job, agent=job['agent'].removeprefix('funnel-'))
         if job['agent'] == 'ingest':
             return True  # The intake harness enforces the gate on both origins.
+        self.github.code_states.pop(str(job['item']), None)
         item = self.github.current(job['item'])
         if not {self.args.scope, 'agent/allowed'} <= set(self.github.labels(item)):
             report(f'{job["key"]}: authorization or scope removed; skipping')
