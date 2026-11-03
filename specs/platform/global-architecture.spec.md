@@ -1157,43 +1157,18 @@ in-cluster ArgoCD applies it. There is no hub-side `Application` that targets a
 remote cluster; **every** ArgoCD `Application`/`ApplicationSet` in the repo has
 `destination: name: in-cluster`, so a cluster's directory *is* its own entrypoint.
 
-```
-hypershell-gitops/
-├── bases/                              # reusable, cluster-agnostic manifests
-│   ├── hypershell/
-│   │   ├── base/                       # ESO wiring, NetworkPolicies, ServiceMonitor, name refs
-│   │   ├── profiles/{main,canary}/     # instance profile overlays
-│   │   ├── keycloak/                   # Keycloak + realm import
-│   │   ├── ingress-openshift/          # OpenShift Route ingress
-│   │   └── ingress-k8s/                # plain-k8s Ingress
-│   └── operators/                      # one base (+ channel overlays) per operator
-│       ├── openshift-gitops/           # ArgoCD itself
-│       ├── openshift-pipelines/
-│       ├── keycloak-operator/
-│       ├── grafana-operator/
-│       ├── vault/                      # Helm repo + init job + cluster-secret-store
-│       └── agent-sandbox-controller/
-├── clusters/                           # ONE directory per cluster (each self-reconciles)
-│   └── vteam-stage/                    # also: hysh-ibm-01 (ROKS), vteam-uat
-│       ├── gitops/                     # <- app-of-apps ENTRYPOINT (bootstrap applies this)
-│       │   ├── kustomization.yaml      #    lists the Applications + repo-url replacement
-│       │   ├── operators.application.yaml      # wave 2  -> ../operators
-│       │   ├── vault-helm.application.yaml      # wave 2  (Helm)
-│       │   ├── eso.application.yaml             # wave 2  (Helm, External Secrets)
-│       │   ├── vault-init.application.yaml      # wave 3  -> ../apps/vault
-│       │   ├── postgres.application.yaml        # wave 4  -> ../apps/postgres
-│       │   ├── keycloak.application.yaml        # wave 5  -> ../apps/keycloak
-│       │   ├── hypershell.applicationset.yaml   # wave 10 -> ../apps/hypershell/*
-│       │   └── repo-url-patch.yaml              # repo-config ConfigMap (fork here)
-│       ├── apps/                       # the overlays the Applications point at
-│       │   ├── hypershell/<inst>/      #   per-instance descriptor (app.yaml) + overlay
-│       │   ├── keycloak/
-│       │   ├── postgres/
-│       │   └── vault/
-│       └── operators/                  # this cluster's OLM Subscriptions (RAW manifests on ROKS)
-└── bin/
-    └── bootstrap                       # bin/bootstrap <cluster>: install ArgoCD + apply clusters/<cluster>/gitops
-```
+The repository README's
+[Directory Structure](https://github.com/openshift-online/hypershell-gitops#-directory-structure)
+section is the authoritative tree. Cluster directories come in two shapes:
+
+- **Numbered phases** (`hypc-*`, `hshells01ue1`, `hshellp01ue1`):
+  `1-terraform/`, `2-configuration/`, `2-db-and-secrets/`, `3-bootstrap-apps/`
+  and `delivery/`. Clusters that host HyperShell units add a `topology.json`
+  that records their hub and spoke units.
+- **App-of-apps** (`hysh-ibm-01`, `hysh-aws-01`): `gitops/` is
+  the entrypoint that `bin/bootstrap <cluster>` applies; `apps/` holds the
+  overlays its Applications point at; `operators/` holds the cluster's OLM
+  Subscriptions.
 
 **How a cluster self-reconciles:**
 
