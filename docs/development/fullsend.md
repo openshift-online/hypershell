@@ -256,7 +256,32 @@ its periodic gateway authentication checks. State is shared across worktrees of
 the same repository; do not change state directories just to bypass a lock.
 
 Use Enter for a run's logs, `d` for details, `H` for history, and `r` to retry a
-failed run. Unknown outcomes require confirming that the prior sandbox stopped.
+failed or canceled run. Unknown outcomes require confirming that the prior sandbox stopped.
+
+To stop a running agent, select it and press `C` (capital C). The **Cancel run**
+confirmation names the issue and agent. Use arrows or `j`/`k` to select **Cancel
+run**, then Enter. **Keep running** is selected by default; Esc closes the prompt.
+This differs from `q` or Ctrl-C, which only detach the dashboard.
+
+Cancellation sends SIGTERM to the Fullsend process and lets Fullsend interrupt
+execution and finish cleanup. The dispatcher retains ownership and shows
+**Canceling** until that process exits and its outcome is saved. Other workers
+continue. The request survives dashboard detachment and restart. There is no
+forced-kill timeout. If cleanup stalls, inspect its log rather than starting a
+second run.
+
+Canceled work stays paused until an explicit `r` retry. Inspect its logs and
+verify that the remote sandbox stopped before retrying, especially if cleanup
+reported errors. Completed GitHub/Jira writes are retained. Fullsend's existing
+validation gates decide whether a post script can run; interruption does not
+invent a failure verdict, undo writes, or guarantee that a post script executes.
+Pre/post-script idempotence supports recovery but does not make separate writes
+transactional.
+
+Workers launched by an older dispatcher do not support cancellation requests.
+The UI reports that limitation without signaling an unverified process. Newly
+launched workers support cancellation; restarting the dashboard does not upgrade
+workers that are already running.
 `?` lists all navigation, filtering, sorting, and gateway shortcuts.
 
 ## Troubleshooting

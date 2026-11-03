@@ -159,7 +159,17 @@ func workerMain(args []string) int {
 	}
 	lock := os.NewFile(3, "run-lock")
 	defer lock.Close()
-	rc := runWorker(job, Adapter{Path: args[5]}, args[6], lock)
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	if _, err = s.db.Exec(`INSERT INTO worker_control(run_id) VALUES(?)`, args[2]); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 127
+	}
+	done := make(chan struct{})
+	go func() { defer close(done); s.watchCancellation(ctx, job.Key, args[2], stop) }()
+	rc := runWorkerContext(ctx, job, Adapter{Path: args[5]}, args[6], lock)
+	stop()
+	<-done
 	if err = s.finishReliably(job.Key, args[2], rc, base, cap); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 127
@@ -167,10 +177,13 @@ func workerMain(args []string) int {
 	return rc
 }
 func runWorker(job Job, a Adapter, root string, lock *os.File) int {
+	return runWorkerContext(context.Background(), job, a, root, lock)
+}
+func runWorkerContext(ctx context.Context, job Job, a Adapter, root string, lock *os.File) int {
 	job.Agent = canonicalAgent(job.Agent)
 	env := map[string]string{"FULLSEND_WORK_ITEM_URL": job.URL, "ISSUE_NUMBER": job.Item, "REPOSITORY": job.Repo, "REPO_FULL_NAME": job.Repo, "LABEL_SCOPE": job.Scope, "DRY_RUN": envDefault("AGENT_DRY_RUN", "false"), "PR_NUMBER": job.PRNumber, "PR_URL": job.PRURL, "PREVIOUS_PHASE": job.PreviousPhase}
 	if job.Agent == "ingest" || job.Agent == "reconcile" {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
 		var credentials json.RawMessage
 		if err := a.call(ctx, "snapshot", map[string]any{"selection": job.Jira, "scope": job.Scope}, &credentials); err != nil {
@@ -204,7 +217,7 @@ func runWorker(job Job, a Adapter, root string, lock *os.File) int {
 			if command[i] != "--fullsend-dir" {
 				continue
 			}
-			helper := exec.Command("python3", filepath.Join(filepath.Dir(a.Path), "local_harness.py"), command[i+1], job.Agent)
+			helper := exec.CommandContext(ctx, "python3", filepath.Join(filepath.Dir(a.Path), "local_harness.py"), command[i+1], job.Agent)
 			helper.Stderr = os.Stderr
 			output, err := helper.Output()
 			if err != nil {
@@ -232,12 +245,15 @@ func runWorker(job Job, a Adapter, root string, lock *os.File) int {
 		command[i+1] = checkout
 		break
 	}
-	cmd := exec.Command(command[0], command[1:]...)
+	cmd := gracefulCommand(ctx, command[0], command[1:]...)
 	cmd.Env = mergeEnv(os.Environ(), env)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.ExtraFiles = []*os.File{lock}
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return 130
+		}
 		if code := cmd.ProcessState; code != nil && code.ExitCode() > 0 {
 			return code.ExitCode()
 		}

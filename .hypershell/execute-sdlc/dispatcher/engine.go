@@ -109,7 +109,7 @@ func rank(status string) int {
 		return 0
 	case "uncertain":
 		return 1
-	case "failed":
+	case "failed", "canceled":
 		return 2
 	default:
 		return 3
@@ -462,7 +462,7 @@ func (e *Engine) run(ctx context.Context) (exit int) {
 				return 1
 			}
 			for _, row := range rows {
-				if row.Scope == e.c.Scope && (row.Status == "failed" || row.Status == "uncertain") {
+				if row.Scope == e.c.Scope && (row.Status == "failed" || row.Status == "uncertain" || row.Status == "canceled") {
 					return 1
 				}
 			}
