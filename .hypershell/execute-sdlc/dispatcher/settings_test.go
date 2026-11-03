@@ -56,6 +56,10 @@ func TestSettingsPersistAndApplyWithoutChangingActiveJob(t *testing.T) {
 	if e.config().Model != "next-model" || !strings.Contains(strings.Join(rows[0].Command, " "), "old-model") {
 		t.Fatal("model timing is incorrect")
 	}
+	result = e.saveSetting(context.Background(), "poll_interval", "10000000")
+	if result.err != nil || e.config().Poll != 10000000 {
+		t.Fatalf("large integer changed representation: %v", result.err)
+	}
 	old := e.config().Repo
 	result = e.saveSetting(context.Background(), "repo", "other/repository")
 	if result.err != nil {
@@ -141,4 +145,25 @@ func TestConfigurationTabEditingDisclosureAndTerminalFrame(t *testing.T) {
 	if m.screen != "" || m.issueGrouping {
 		t.Fatal("tab did not return to agents")
 	}
+}
+
+// Verifies: SDLC-LOC-12
+func TestConfigurationReturnClampsHistorySelection(t *testing.T) {
+	m := sampleModel()
+	defer m.cancel()
+	m.engine.c.Settings = []Setting{{Key: "concurrency", Value: "2", Kind: "number", Effect: "Immediate"}}
+	issue := m.state.Rows[0]
+	m.historyIssue = &issue
+	for i := 0; i < 20; i++ {
+		m.historyRows = append(m.historyRows, issue)
+	}
+	m.index = 19
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(",")})
+	m = updated.(Model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = updated.(Model)
+	if m.historyIssue != nil || m.index >= len(m.visibleRows()) {
+		t.Fatal("configuration retained stale history selection")
+	}
+	_ = m.View()
 }

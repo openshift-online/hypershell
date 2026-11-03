@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -65,8 +66,8 @@ func (e *Engine) saveSetting(ctx context.Context, key, value string) settingsRes
 		return settingsResult{err: fmt.Errorf("this setting is read only")}
 	}
 	var reply struct {
-		Value    any       `json:"value"`
-		Settings []Setting `json:"settings"`
+		Value    json.RawMessage `json:"value"`
+		Settings []Setting       `json:"settings"`
 	}
 	if err := e.adapter().call(ctx, "settings-save", map[string]string{"key": key, "value": value}, &reply); err != nil {
 		if ctx.Err() != nil {
@@ -74,7 +75,13 @@ func (e *Engine) saveSetting(ctx context.Context, key, value string) settingsRes
 		}
 		return settingsResult{err: err}
 	}
-	normalized := fmt.Sprint(reply.Value)
+	var parsed any
+	decoder := json.NewDecoder(bytes.NewReader(reply.Value))
+	decoder.UseNumber()
+	if err := decoder.Decode(&parsed); err != nil {
+		return settingsResult{err: fmt.Errorf("saved, but cannot decode active value: %w", err)}
+	}
+	normalized := fmt.Sprint(parsed)
 	message := "Saved to " + c.SettingsFile + ". " + selected.Effect + "."
 	if selected.Effect != "Restart required" {
 		values := map[string]any{}
@@ -83,7 +90,7 @@ func (e *Engine) saveSetting(ctx context.Context, key, value string) settingsRes
 				return settingsResult{err: fmt.Errorf("saved, but cannot apply runtime settings: %w", err)}
 			}
 		}
-		values[key] = reply.Value
+		values[key] = parsed
 		encoded, err := json.Marshal(values)
 		if err != nil {
 			return settingsResult{err: err}

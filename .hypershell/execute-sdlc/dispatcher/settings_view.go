@@ -96,6 +96,9 @@ func (m Model) updateConfiguration(v tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+		if m.screen != "configuration" {
+			m.restoreSelection(m.selected, nil)
+		}
 		return m, nil
 	}
 	if key == "esc" {
