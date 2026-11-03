@@ -21,7 +21,8 @@ if [[ -f "$config" ]]; then
   source "$config"
   set +a
 fi
-scope="${FULLSEND_LAUNCH_SCOPE:-${FULLSEND_SCOPE:-}}"
+saved_scope="$(python3 "$local_dir/runtime_settings.py")"
+scope="${FULLSEND_LAUNCH_SCOPE:-${saved_scope:-${FULLSEND_SCOPE:-}}}"
 if [[ -z "$scope" ]]; then
   echo 'error: set FULLSEND_SCOPE in .hypershell/fullsend.env or run make fullsend SCOPE=agent/scope/YOUR_NAME/fullsend' >&2
   exit 2

@@ -82,15 +82,31 @@ func (m Model) groupHeading(agent, summary string, width int) string {
 }
 
 func (m Model) viewTabs(issues bool, width int) []string {
-	agentsColor, issuesColor := "6", "8"
-	underline := "━━━━━━"
+	active := 0
 	if issues {
-		agentsColor, issuesColor = "8", "6"
-		underline = "          ━━━━━━"
+		active = 1
 	}
-	left := m.style("Agents", agentsColor, !issues) + "    " + m.style("Issues", issuesColor, issues)
+	return m.viewTabsFor(active, width)
+}
+func (m Model) viewTabsFor(active, width int) []string {
+	labels := []string{"Agents", "Issues", "Configuration"}
+	left := ""
+	underline := ""
+	offset := 0
+	for i, label := range labels {
+		color := "8"
+		if i == active {
+			color = "6"
+			underline = strings.Repeat(" ", offset) + strings.Repeat("━", len(label))
+		}
+		if i > 0 {
+			left += "    "
+		}
+		left += m.style(label, color, i == active)
+		offset += len(label) + 4
+	}
 	hint := "tab switch view"
-	if width > 55 {
+	if width > 65 {
 		left += strings.Repeat(" ", max(2, width-lipgloss.Width(left)-len(hint))) + m.footerHints(hint)
 	}
 	return []string{left, m.style(underline, "6", true)}

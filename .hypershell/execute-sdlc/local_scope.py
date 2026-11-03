@@ -5,11 +5,16 @@ import os
 import subprocess
 import sys
 from urllib.parse import quote
+from runtime_settings import read
 
 
 def main():
     scope = sys.argv[1]
-    repo = os.environ.get('REPOSITORY', 'openshift-online/hypershell')
+    try:
+        repo = read().get('repo',os.environ.get('REPOSITORY', 'openshift-online/hypershell'))
+    except (ValueError,OSError) as exc:
+        print('error: cannot read saved configuration: '+str(exc),file=sys.stderr)
+        return 2
     endpoint = f'repos/{repo}/labels/{quote(scope, safe="")}'
     try:
         result = subprocess.run(['gh', 'api', endpoint], capture_output=True,

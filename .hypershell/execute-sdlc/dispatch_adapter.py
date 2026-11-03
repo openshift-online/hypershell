@@ -16,6 +16,7 @@ from gateway_setup import GatewayManager, GatewaySetupError
 from jira_auth import selected_auth, snapshot
 from reconcile_probe import ReconcileProbe, JiraReader
 from intake_probe import IntakeProbe
+import runtime_settings
 
 
 class RecoveryDiagnostics:
@@ -61,6 +62,11 @@ def main():
         print(json.dumps(snapshot(request['selection'], request['scope'], lock)))
         return
     args = parse_args(sys.argv[2:])
+    if action == 'settings-save':
+        request = json.load(sys.stdin)
+        value = runtime_settings.save(request['key'], request['value'])
+        print(json.dumps({'value':value, 'settings':runtime_settings.view(args), 'settings_file':str(runtime_settings.config_path())}))
+        return
     if args.gateway:
         os.environ['OPENSHELL_GATEWAY'] = args.gateway
         os.environ.pop('OPENSHELL_GATEWAY_ENDPOINT', None)
@@ -72,10 +78,16 @@ def main():
                 os.environ['JIRA_BASE_URL'] = args.jira_selection['site_url']
             manager = GatewayManager(args)
             args.gateway_name = (manager.state or {}).get('name') or manager.name or 'Selected gateway'
+            args.gateway_effective_api = manager.api_url
         env_keys = ('GOOGLE_APPLICATION_CREDENTIALS', 'CLOUD_ML_REGION', 'JIRA_BASE_URL',
                     'OPENSHELL_GATEWAY', 'OPENSHELL_GATEWAY_ENDPOINT')
         result = vars(args)
         result['environment'] = {key: os.environ.get(key) for key in env_keys}
+        for key in runtime_settings.ENV_KEYS: result['environment'][key]=os.environ.get(key)
+        for key in runtime_settings.ENV_KEYS: args.settings_inputs[key]=os.environ.get(key,'')
+        result['settings_file'] = str(runtime_settings.config_path())
+        result['settings'] = runtime_settings.view(args)
+        result['runtime_settings'] = json.dumps(args.settings_inputs)
         print(json.dumps(result, default=str))
         return
     if action == 'gateway':

@@ -274,6 +274,47 @@ remote cleanup verification, and the difference between cancellation and detach.
 - THEN the attempt SHALL appear as canceled, with its logs preserved
 - AND automatic discovery SHALL NOT restart work on the canceled issue
 
+### Requirement: SDLC-LOC-12 -- Visible, persistent configuration
+
+The terminal SHALL provide a Configuration tab using the shared frame, visual
+hierarchy, keyboard navigation, and scroll indicators. It SHALL show effective
+dispatcher settings, their application timing, and masked credential presence.
+The absolute home settings file path SHALL be prominent in both browsing and
+editing, with an explicit disclosure that saving writes the file on disk.
+Read-only values SHALL remain inspectable in full and explain how they are managed.
+
+Edits SHALL validate before saving and use atomic, private JSON storage under
+`$XDG_CONFIG_HOME/hypershell/fullsend.json` (default `~/.config/hypershell/fullsend.json`),
+with `FULLSEND_CONFIG_FILE` available as an explicit location override. Concurrent
+writers SHALL preserve unrelated keys. Malformed files, invalid values, symlinks,
+or failed saves SHALL remain visible errors and SHALL NOT discard existing data.
+Shell env files SHALL NOT be rewritten or evaluated as preference files.
+Credentials SHALL NOT be displayed or written into these preferences.
+
+Worker concurrency and discovery/authentication intervals SHALL update the active
+dispatcher. Lowering concurrency SHALL let running workers finish. Model, inference,
+and failure-backoff changes SHALL apply to new workers, preserving existing worker
+inputs and retry deadlines. Sign-in timeout changes SHALL apply to the next sign-in.
+Scope, repository, storage paths, and authentication-mode changes SHALL be saved
+with a persistent restart-required marker while the current session and helpers
+retain their original identities. The UI SHALL distinguish saved and active values.
+
+Explicit launch options SHALL override saved preferences on restart. Saved
+preferences SHALL override worktree env defaults, which override inherited
+settings. The launcher SHALL reuse a saved scope when no explicit Make scope is
+supplied, while retaining registered-scope validation. Manual preference-file edits
+SHALL load on restart; this limitation and launch-override precedence SHALL be clear.
+
+#### Scenario: SDLC-LOC-12.01 -- Save a live limit and a restart-only identity
+
+- GIVEN two running workers and the Configuration tab
+- WHEN the operator saves a worker limit of one
+- THEN the file SHALL contain the new value and the live limit SHALL change
+- AND existing workers SHALL continue with their original inputs
+- WHEN the operator saves a different repository
+- THEN the saved value SHALL be shown as requiring restart
+- AND discovery, authorization, and running work SHALL retain the current repository
+
 ## Verification and operational documentation
 
 The dispatcher tests cover persistent ownership, detachment, discovery, retries,

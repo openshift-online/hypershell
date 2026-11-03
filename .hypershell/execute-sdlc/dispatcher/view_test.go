@@ -286,7 +286,12 @@ func TestAgentGroupsDefaultOrderAndCompletedToggle(t *testing.T) {
 	}
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	m = next.(Model)
-	if m.issueGrouping {
+	if m.screen != "configuration" {
+		t.Fatal("configuration tab was skipped")
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = next.(Model)
+	if m.issueGrouping || m.screen != "" {
 		t.Fatal("did not return to agent grouping")
 	}
 }
@@ -434,7 +439,7 @@ func TestTerminalPreviewFrames(t *testing.T) {
 		{Job: Job{Key: "832", Scope: m.engine.c.Scope, Item: "832", Title: "Tighten RoleBinding write authorization for authenticated users", Agent: "reconcile"}, Status: "succeeded", Finished: seconds() - 125},
 	}
 	m.state.Active = 2
-	for _, screen := range []string{"overview", "logs", "details", "signin", "filter", "help", "cancel"} {
+	for _, screen := range []string{"overview", "logs", "details", "signin", "filter", "help", "cancel", "configuration", "configuration-edit"} {
 		m.screen = screen
 		if screen == "overview" {
 			m.screen = ""
@@ -451,6 +456,21 @@ func TestTerminalPreviewFrames(t *testing.T) {
 			}}
 		}
 		m.helpOpen = screen == "help"
+		if strings.HasPrefix(screen, "configuration") {
+			m.screen = "configuration"
+			m.configEditing = screen == "configuration-edit"
+			m.configIndex = 1
+			m.configInput = "2"
+			m.configCursor = 1
+			pending := "other/repository"
+			m.engine.c.SettingsFile = "/home/jsell/.config/hypershell/fullsend.json"
+			m.engine.c.Settings = []Setting{{Key: "concurrency", Label: "Worker limit", Value: "10", Effect: "Immediate", Kind: "number"},
+				{Key: "poll_interval", Label: "GitHub discovery (seconds)", Value: "30", Effect: "Immediate", Kind: "number"},
+				{Key: "lifecycle_interval", Label: "Intake checks (seconds)", Value: "180", Effect: "Immediate", Kind: "number"},
+				{Key: "model", Label: "Model override", Value: "claude-opus-4-8", Effect: "Next sandbox", Kind: "text"},
+				{Key: "repo", Label: "Repository", Value: "openshift-online/hypershell", Effect: "Restart required", Kind: "repo", Saved: &pending},
+				{Key: "GH_TOKEN", Label: "GitHub credentials", Value: "Configured (hidden)", Effect: "Read only", Kind: "readonly"}}
+		}
 		if screen == "cancel" {
 			row := m.state.Rows[0]
 			m.pendingCancel = &row

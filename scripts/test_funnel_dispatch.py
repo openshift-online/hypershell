@@ -8,6 +8,7 @@ import pty
 import select
 import struct
 import termios
+import threading
 from pathlib import Path
 import subprocess
 import sys
@@ -362,7 +363,7 @@ class LocalLaunchTests(unittest.TestCase):
         self.fake = self.root/'capture'
         self.fake.write_text('#!/usr/bin/env python3\nimport json,os,sys\nprint(json.dumps(dict(args=sys.argv[1:],model=os.environ.get("FULLSEND_MODEL"),concurrency=os.environ.get("CONCURRENCY"),project=os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID"),intake=os.environ.get("FULLSEND_INTAKE_INTERVAL"))))\n')
         self.fake.chmod(0o755)
-        self.env = dict(os.environ, FUNNEL_DISPATCH_BINARY=str(self.fake))
+        self.env = dict(os.environ, FUNNEL_DISPATCH_BINARY=str(self.fake), FULLSEND_CONFIG_FILE=str(self.root/'settings.json'))
         tools = self.root/'bin'
         tools.mkdir()
         gh = tools/'gh'
@@ -762,7 +763,7 @@ class JiraFixture:
   return io.BytesIO(json.dumps({'issues': [], 'isLast': True}).encode())
 urllib.request.build_opener = lambda *args: JiraFixture()
 """)
-        self.env = dict(os.environ, PATH=str(bindir)+':/usr/bin:/bin', GH_TOKEN='test', MOCK_STATE=str(self.root), PYTHONPATH=str(bindir))
+        self.env = dict(os.environ, PATH=str(bindir)+':/usr/bin:/bin', GH_TOKEN='test', MOCK_STATE=str(self.root), PYTHONPATH=str(bindir), FULLSEND_CONFIG_FILE=str(self.root/'settings.json'))
         self.cmd = ['bash', str(ENTRY), 'agent/scope/test', '--repo', 'test/repo', '--state-dir', str(self.root/'state'),
                     '--concurrency', '2', '--poll-interval', '1', '--lifecycle', 'github-only']
         self.processes = []
@@ -951,6 +952,38 @@ urllib.request.build_opener = lambda *args: JiraFixture()
         self.assertFalse(self.runs())
         proc.terminate()
         proc.wait(timeout=5)
+
+    # Verifies: SDLC-LOC-12
+    def test_tui_configuration_save_updates_disk_and_live_limit(self):
+        master,slave=pty.openpty()
+        self.addCleanup(os.close,master)
+        fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack('HHHH',32,140,0,0))
+        proc=subprocess.Popen(self.cmd+['--watch'],env=dict(self.env,TERM='xterm-256color',NO_COLOR='1',MOCK_DELAYS='{"1":6,"2":6}'),
+                              cwd=self.root,stdin=slave,stdout=slave,stderr=slave)
+        os.close(slave);self.processes.append(proc)
+        output=[];stop=threading.Event()
+        def drain():
+            while not stop.is_set():
+                if select.select([master],[],[],.05)[0]:
+                    try:
+                        chunk=os.read(master,65536)
+                        if not chunk:break
+                        output.append(chunk)
+                    except OSError:break
+        reader=threading.Thread(target=drain,daemon=True);reader.start()
+        self.addCleanup(lambda:(stop.set(),reader.join(timeout=2)))
+        self.wait_for(lambda:b'2/2 running' in b''.join(output))
+        os.write(master,b'\t\t')
+        self.wait_for(lambda:b'SETTINGS FILE' in b''.join(output))
+        os.write(master,b'\r')
+        self.wait_for(lambda:b'enter save to disk' in b''.join(output))
+        os.write(master,b'\x151\r')
+        prefs=self.root/'settings.json'
+        self.wait_for(lambda:prefs.exists() and json.loads(prefs.read_text())['values'].get('concurrency')==1)
+        self.wait_for(lambda:b'2/1 running' in b''.join(output))
+        self.assertTrue(all(row['status']=='running' for row in self.rows()))
+        os.write(master,b'q')
+        self.assertEqual(proc.wait(timeout=5),130)
 
     def test_tui_navigation_and_detach_keep_workers_alive(self):
         master, slave = pty.openpty()

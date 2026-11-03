@@ -9,3 +9,5 @@ export FUNNEL_DISPATCH_BINARY="$dispatch_test_dir/funnel-dispatch"
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p test_funnel_dispatch.py
 
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p test_intake_probe.py
+
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p test_runtime_settings.py

@@ -52,16 +52,16 @@ func startSignIn(parent, ctx context.Context, e *Engine, width, height int) tea.
 	return func() tea.Msg {
 		if err := e.beginGateway(ctx); err != nil {
 			if ctx.Err() != nil {
-				e.finishGateway(parent, e.c, err)
+				e.finishGateway(parent, e.config(), err)
 			}
 			return signInStarted{Err: err}
 		}
 		e.authMu.Lock()
 		finish := func(err error) error {
-			c := e.c
+			c := e.config()
 			if err == nil {
 				var loadErr error
-				c, loadErr = loadConfig(ctx, e.a)
+				c, loadErr = loadConfig(ctx, e.adapter())
 				if loadErr != nil {
 					err = loadErr
 				}
@@ -69,7 +69,7 @@ func startSignIn(parent, ctx context.Context, e *Engine, width, height int) tea.
 			e.finishGateway(parent, c, err)
 			return err
 		}
-		cmd := e.a.command(ctx, "gateway")
+		cmd := e.adapter().command(ctx, "gateway")
 		cmd.Env = mergeEnv(os.Environ(), map[string]string{"NO_COLOR": "1", "TERM": "dumb", "PYTHONUNBUFFERED": "1", "FUNNEL_EMBEDDED_UI": "1"})
 		cmd.Cancel = func() error {
 			if cmd.Process == nil {
@@ -133,7 +133,7 @@ func startSignIn(parent, ctx context.Context, e *Engine, width, height int) tea.
 			if ctx.Err() != nil {
 				err = fmt.Errorf("Sign-in cancelled; the connection has not been restored")
 			}
-			diagnostics, readErr := tail(filepath.Join(e.c.LogDir, "gateway-signin.log"), 32768)
+			diagnostics, readErr := tail(filepath.Join(e.config().LogDir, "gateway-signin.log"), 32768)
 			if readErr == nil && diagnostics != "" {
 				e.note("Gateway sign-in:\n" + diagnostics)
 			}

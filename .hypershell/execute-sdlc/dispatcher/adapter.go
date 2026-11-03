@@ -14,33 +14,37 @@ import (
 )
 
 type Config struct {
-	RetryFailed string             `json:"retry"`
-	Scope       string             `json:"scope"`
-	Watch       bool               `json:"watch"`
-	DryRun      bool               `json:"dry_run"`
-	Plain       bool               `json:"plain"`
-	Status      bool               `json:"status"`
-	Retry       string             `json:"retry_uncertain"`
-	Concurrency int                `json:"concurrency"`
-	Poll        int                `json:"poll_interval"`
-	AuthRetry   int                `json:"auth_retry"`
-	AuthCheck   int                `json:"auth_check_interval"`
-	Backoff     int                `json:"backoff"`
-	BackoffMax  int                `json:"backoff_max"`
-	Lifecycle   string             `json:"lifecycle"`
-	Repo        string             `json:"repo"`
-	FullsendDir string             `json:"fullsend_dir"`
-	TargetRepo  string             `json:"target_repo"`
-	StateDir    string             `json:"state_dir"`
-	LogDir      string             `json:"log_dir"`
-	Model       string             `json:"model"`
-	GatewayName string             `json:"gateway_name"`
-	Jira        json.RawMessage    `json:"jira_selection"`
-	Environment map[string]*string `json:"environment"`
+	SettingsFile string             `json:"settings_file"`
+	Settings     []Setting          `json:"settings"`
+	Runtime      string             `json:"runtime_settings"`
+	RetryFailed  string             `json:"retry"`
+	Scope        string             `json:"scope"`
+	Watch        bool               `json:"watch"`
+	DryRun       bool               `json:"dry_run"`
+	Plain        bool               `json:"plain"`
+	Status       bool               `json:"status"`
+	Retry        string             `json:"retry_uncertain"`
+	Concurrency  int                `json:"concurrency"`
+	Poll         int                `json:"poll_interval"`
+	AuthRetry    int                `json:"auth_retry"`
+	AuthCheck    int                `json:"auth_check_interval"`
+	Backoff      int                `json:"backoff"`
+	BackoffMax   int                `json:"backoff_max"`
+	Lifecycle    string             `json:"lifecycle"`
+	Repo         string             `json:"repo"`
+	FullsendDir  string             `json:"fullsend_dir"`
+	TargetRepo   string             `json:"target_repo"`
+	StateDir     string             `json:"state_dir"`
+	LogDir       string             `json:"log_dir"`
+	Model        string             `json:"model"`
+	GatewayName  string             `json:"gateway_name"`
+	Jira         json.RawMessage    `json:"jira_selection"`
+	Environment  map[string]*string `json:"environment"`
 }
 type Adapter struct {
-	Path string
-	Args []string
+	Runtime string
+	Path    string
+	Args    []string
 }
 
 // Cancel the entire helper process group, including gh/acli child commands.
@@ -71,9 +75,16 @@ func (a Adapter) command(ctx context.Context, action string) *exec.Cmd {
 		// in our foreground process group: Setpgid would stop input with SIGTTIN.
 		cmd := exec.CommandContext(ctx, "python3", args...)
 		cmd.WaitDelay = 2 * time.Second
+		if a.Runtime != "" {
+			cmd.Env = mergeEnv(os.Environ(), map[string]string{"FULLSEND_RUNTIME_SETTINGS": a.Runtime})
+		}
 		return cmd
 	}
-	return contextCommand(ctx, "python3", args...)
+	cmd := contextCommand(ctx, "python3", args...)
+	if a.Runtime != "" {
+		cmd.Env = mergeEnv(os.Environ(), map[string]string{"FULLSEND_RUNTIME_SETTINGS": a.Runtime})
+	}
+	return cmd
 }
 func (a Adapter) call(ctx context.Context, action string, input any, result any) error {
 	cmd := a.command(ctx, action)
@@ -327,6 +338,22 @@ func (s *Store) launch(c Config, a Adapter, j Job) error {
 	root := filepath.Dir(filepath.Dir(filepath.Dir(a.Path)))
 	cmd := exec.Command(executable, "--worker", s.path, j.Key, id, fmt.Sprint(c.Backoff), fmt.Sprint(c.BackoffMax), a.Path, root)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	values := map[string]string{}
+	baseEnv := os.Environ()
+	for key, value := range c.Environment {
+		if value != nil {
+			values[key] = *value
+		} else {
+			filtered := []string{}
+			for _, entry := range baseEnv {
+				if !strings.HasPrefix(entry, key+"=") {
+					filtered = append(filtered, entry)
+				}
+			}
+			baseEnv = filtered
+		}
+	}
+	cmd.Env = mergeEnv(baseEnv, values)
 	cmd.ExtraFiles = []*os.File{lock}
 	cmd.Stdout = out
 	cmd.Stderr = out

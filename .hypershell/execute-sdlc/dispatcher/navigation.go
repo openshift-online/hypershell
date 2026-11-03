@@ -25,7 +25,8 @@ Esc               Cancel editing; clear an applied filter
 n / N             Next / previous filtered result
 o                 Cycle sort column left to right: issue, status, duration
 O                 Reverse sort direction (arrow in column heading)
-Tab               Switch Agents / Issues
+Tab / Shift-Tab   Switch Agents / Issues / Configuration
+,                 Open Configuration
 c                 Show / hide completed runs
 H                 Open or refresh history
 

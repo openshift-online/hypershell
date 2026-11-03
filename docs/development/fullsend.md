@@ -229,8 +229,8 @@ The doctor does not contact Vertex, validate API permissions, or verify gateway
 connectivity. Status reads saved local state; it does not run a live connection
 check. Use the dashboard to inspect logs and completed-job history.
 
-Configuration precedence is: explicit Make overrides, the selected env file,
-then exported shell variables. `ENV_FILE=/path/to/file` selects a different file
+Configuration precedence is: explicit Make/CLI overrides, saved home preferences,
+the selected env file, then exported shell variables. `ENV_FILE=/path/to/file` selects a different file
 instead of `.hypershell/fullsend.env`. Missing explicitly selected files fail.
 If no local file exists, exported variables work alone. The env file is sourced
 as trusted shell code; assignments are automatically exported. Never pass
@@ -246,6 +246,38 @@ The direct script remains available for advanced options:
 To deliberately skip Jira, put `FULLSEND_LIFECYCLE=github-only` in the local env
 file. Leave it unset for the complete lifecycle. Model overrides apply to all
 agents; without one, each harness uses its own configured model.
+
+## Configuration in the dashboard
+
+Press Tab to reach **Configuration**, or press `,` from a work view. The page shows
+the absolute settings path and states that **saving writes the file on disk**.
+The default file is `~/.config/hypershell/fullsend.json`, or
+`$XDG_CONFIG_HOME/hypershell/fullsend.json` when XDG configuration is set.
+`FULLSEND_CONFIG_FILE=/path/to/settings.json` selects another location.
+The file is created on the first save with private permissions. It contains
+validated JSON preferences, not shell code or credentials. The existing trusted
+env file remains available for authentication and launch defaults.
+
+Use arrows or `j`/`k` to select a setting, then Enter to inspect/edit. Choice fields
+use an arrow-selectable menu. Text fields support cursor movement, Home/End,
+Ctrl-U to clear before the cursor, Enter to save, and Escape to discard. Credential
+values stay hidden; read-only rows explain how to manage them. Errors remain in
+the editor and preserve the previous file and active value.
+
+| Setting | When it applies |
+| --- | --- |
+| Worker limit, discovery intervals, gateway check/retry intervals | Immediately; running workers finish even if the limit is lowered |
+| Model, Vertex project/region/credentials path, failure backoff | Next sandbox; current workers and existing retry deadlines keep their settings |
+| Gateway sign-in timeouts | Next sign-in |
+| Scope, repository, lifecycle/auth mode, gateway and storage paths | Restart required; saved and active values are shown separately |
+
+The dispatcher pins current identity settings for its helpers until restart.
+Explicit Make/CLI arguments override saved preferences at the next launch; saved
+preferences override worktree env defaults and inherited environment settings.
+A saved scope is reused by `make fullsend` unless `SCOPE=...` is supplied, and its
+registration is still checked. Edits made directly to the JSON file load on
+restart. Restart by detaching and running `make fullsend` again; existing workers
+continue and are adopted.
 
 ## Intake discovery
 

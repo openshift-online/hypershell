@@ -25,3 +25,8 @@ Advanced dispatcher flags
 
 Intake checks run every 3 minutes without an LLM for unchanged linked work.
 Use INTAKE_INTERVAL=300 or set FULLSEND_INTAKE_INTERVAL=300 in your env file.
+
+Configuration
+  Tab to Configuration or press , in the dashboard.
+  Saves write ~/.config/hypershell/fullsend.json; the page shows the exact path.
+  Each setting says Immediate, Next sandbox, Next sign-in, or Restart required.

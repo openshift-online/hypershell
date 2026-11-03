@@ -18,6 +18,7 @@ import uuid
 
 from reconcile_probe import ReconcileProbe, JiraReader, ProbeError
 from intake_probe import IntakeProbe
+import runtime_settings
 from local_harness import prepare as prepare_local_harness
 from jira_auth import JiraAuthError, selected_auth, snapshot
 from gateway_setup import GatewayManager, GatewaySetupError
@@ -32,14 +33,18 @@ def report(message):
     ui.event(message)
 
 
+def default_adc_path():
+    directory = Path(os.environ.get('CLOUDSDK_CONFIG', str(Path.home()/'.config/gcloud'))).expanduser()
+    return directory/'application_default_credentials.json'
+
+
 def prepare_inference(fullsend_dir):
     harnesses = Path(fullsend_dir)/'harness'
     if not any('CLAUDE_CODE_USE_VERTEX:' in path.read_text()
                for path in harnesses.glob('*.yaml')):
         return
     configured = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
-    config_dir = Path(os.environ.get('CLOUDSDK_CONFIG', str(Path.home()/'.config/gcloud'))).expanduser()
-    credentials = Path(configured).expanduser() if configured else config_dir/'application_default_credentials.json'
+    credentials = Path(configured).expanduser() if configured else default_adc_path()
     if not credentials.is_file() or not os.access(credentials, os.R_OK):
         raise DispatchError('Vertex inference requires a readable credentials file. '
                             'Set GOOGLE_APPLICATION_CREDENTIALS in your exported environment or '
@@ -831,7 +836,9 @@ def parse_args(argv=None):
     parser.add_argument('--status', action='store_true', help='show persisted jobs without starting work')
     parser.add_argument('--retry', metavar='ISSUE:AGENT', help='request another attempt for a failed job without waiting for backoff')
     parser.add_argument('--retry-uncertain', metavar='ITEM:AGENT', help='retry only after verifying that the previous remote run has stopped')
+    preferences = runtime_settings.defaults(parser)
     args = parser.parse_args(argv)
+    runtime_settings.apply(args, preferences)
     if args.retry and (args.status or args.dry_run or args.retry_uncertain):
         parser.error('--retry cannot be combined with --status, --dry-run, or --retry-uncertain')
     if not args.scope.startswith('agent/scope/'):
