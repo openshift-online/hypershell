@@ -85,19 +85,34 @@ never named by a transition and so are preserved. `agent/blocked` is only ever
 added (a review retry limit, or a hard implementation block), never removed, so a
 transition cannot silently clear a human block.
 
-| Phase | Outcome | Add | Remove |
-|-------|---------|-----|--------|
-| triage | workable | `agent/workable` | none |
-| triage | needs-input | `agent/needs-input` | none |
-| triage | duplicate | `agent/duplicate` (+ close issue) | none |
-| spec-implementation | completed | `agent/reviewable-spec` | `agent/workable`, `agent/review-spec-rejected`, stale `agent/review-spec-approved` |
-| spec-implementation | blocked | `agent/blocked` | none |
-| spec-review | approved | `agent/review-spec-approved` | `agent/reviewable-spec`, `agent/review-spec-rejected` |
-| spec-review | rejected | `agent/review-spec-rejected` (+ `agent/blocked` at limit 3) | `agent/reviewable-spec`, `agent/review-spec-approved` |
-| code-implementation | completed | `agent/reviewable-code` | `agent/review-code-rejected`, stale `agent/review-code-approved` |
-| code-implementation | blocked | `agent/blocked` | none |
-| code-review | approved | `agent/review-code-approved` | `agent/reviewable-code`, `agent/review-code-rejected` |
-| code-review | rejected | `agent/review-code-rejected` (+ `agent/blocked` at limit 10) | `agent/reviewable-code`, `agent/review-code-approved` |
+| Phase | Outcome | Issue: add | Issue: remove | Linked PR |
+|-------|---------|------------|---------------|-----------|
+| triage | workable | `agent/workable` | none | none |
+| triage | needs-input | `agent/needs-input` | none | none |
+| triage | duplicate | `agent/duplicate` (+ close issue) | none | none |
+| spec-implementation | completed | `agent/reviewable-spec` | `agent/workable`, `agent/review-spec-rejected`, stale `agent/review-spec-approved` | none |
+| spec-implementation | blocked | `agent/blocked` | none | none |
+| spec-review | approved | `agent/review-spec-approved` | `agent/reviewable-spec`, `agent/review-spec-rejected` | none |
+| spec-review | rejected | `agent/review-spec-rejected` (+ `agent/blocked` at limit 3) | `agent/reviewable-spec`, `agent/review-spec-approved` | none |
+| code-implementation | completed | `agent/reviewable-code` | `agent/review-code-rejected`, stale `agent/review-code-approved`, `agent/code-conflicts` | none |
+| code-implementation | blocked | `agent/blocked` | none | none |
+| code-review | approved | `agent/review-code-approved` | `agent/reviewable-code`, `agent/review-code-rejected` | Add and verify `agent/review-code-approved` before completing issue approval |
+| code-review | rejected | `agent/review-code-rejected` (+ `agent/blocked` at limit 10) | `agent/reviewable-code`, `agent/review-code-approved` | Remove `agent/review-code-approved` |
+
+The columns above distinguish the execution record (issue) from its linked PR.
+An eligible code-review approval labels **both**. The post-script verifies the PR
+label before completing the issue transition. If the PR write fails, the attempt
+fails and the issue remains recoverable; reapplication can also repair a missing
+PR label when the issue already has its approval. Scope and authorization labels
+on the execution record are not copied to the PR.
+
+Readiness maintenance also changes these targets:
+
+| Condition | Execution record (issue) | Linked PR |
+|-----------|--------------------------|-----------|
+| Approval deferred by pending/failing CI or uncertain PR readiness | Keep `agent/reviewable-code` on a fresh review; post a deferral record | Remove any `agent/review-code-approved`; do not grant queue approval |
+| Confirmed conflicts after review or approval | Add `agent/code-conflicts`; remove stale code approval, rejection, and reviewable labels | Remove `agent/review-code-approved` first |
+| Previously approved PR becomes ineligible without confirmed conflicts | Return to `agent/reviewable-code`; remove stale code approval/rejection | Remove `agent/review-code-approved` first |
 
 The code-implementation completed transition preserves `agent/review-spec-approved`
 as a completed prerequisite.
@@ -108,7 +123,8 @@ Before applying a transition the post-script re-reads GitHub and:
 
 - Rejects a review result as stale if the PR head moved since the pre-script
   recorded it, or if the agent's reviewed `head_sha` does not match.
-- Gates a code-review approval on the PR head's checks being green. When the base
+- Requires an open, non-draft PR with known mergeability and no confirmed
+  conflicts, and gates code-review approval on the PR head's checks being green. When the base
   branch defines required status checks in branch protection, the gate is scoped
   to those contexts only (an advisory or always-pending non-required check does
   not block, and a required context that has not reported yet is treated as
@@ -137,7 +153,10 @@ pending approval visible rather than leaving it to be inferred from run logs.
 
 ## Single writer (SDLC-HOOK-11)
 
-Only the five phase post-scripts write phase labels. `ingest` writes the
+The phase post-scripts and shared readiness maintenance hook write phase labels
+through the same transition contract. The maintenance hook handles later CI and
+mergeability changes; its scheduling is described under CI and mergeability
+recovery below. `ingest` writes the
 execution-record marker and the scope label; `reconcile` writes Jira status from
 the GitHub phase labels. Neither writes a GitHub phase label, so there is no
 competing writer.
@@ -148,8 +167,8 @@ harnesses) and applies `agent/reviewable-code` to that pull request directly. Th
 is a deliberate bootstrap hand-off, not a competing writer on a funnel issue: the
 `update-openshell` pull request has no lifecycle pre-script or post-script in its
 harness, so no phase script ever writes labels for it. Routing it through the
-shared contract is tracked as a follow-up; until then this is the single
-acknowledged place outside the five phase post-scripts that writes a phase label,
+shared contract is tracked as a follow-up; until then this is an
+acknowledged agent-side exception to the shared script contract,
 and it only ever writes to its own fresh pull request.
 
 ## Posting the outcome comment (SDLC-HOOK-10)
