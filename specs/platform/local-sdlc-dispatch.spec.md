@@ -116,8 +116,28 @@ to an earlier label set after a new review rejection permits another attempt.
 
 Jira mode SHALL run intake for the scope, reconcile authorized execution records
 of either origin (including closed records), and then dispatch eligible phases.
-Phase outcomes, changed inputs, and periodic drift checks SHALL trigger
-reconciliation. Intake SHALL be repeated periodically for newly selected work.
+Phase outcomes and changed inputs SHALL trigger reconciliation. Periodic Jira
+checks SHALL be read-only scripts comparing persisted fingerprints of relevant
+fields and remote links, using existing ACLI or API-token authentication. Passage
+of time alone SHALL NOT launch an agent for an unchanged open or closed record.
+Successful synchronization SHALL refresh the observed baseline. Probe failures
+SHALL be visible, retry with bounded delay, and SHALL NOT count as an unchanged
+observation or start a model to diagnose authentication/network failure. Persisted
+observations SHALL contain hashes and scheduling metadata, never credentials or
+Jira content. On upgrade, established successful records SHALL reuse their saved
+identity; Jira edits newer than their last successful sync SHALL still trigger
+reconciliation. Intake discovery SHALL run as a mechanical script every 180 seconds by default.
+Its interval SHALL be configurable through Make, the exported environment/local
+env file, and a CLI flag. Explicit invocation options SHALL override the env file,
+which overrides inherited values. Both Jira and GitHub discovery SHALL paginate
+all scoped, authorized records, including closed records. Healthy canonical pairs
+SHALL NOT launch intake models when their ordinary content or lifecycle labels
+change; reconciliation owns those updates. New, unlinked, or ambiguous pairs
+SHALL produce stable work identities based on meaningful inputs. Merely reaching
+the next interval SHALL NOT launch an intake model. Observations SHALL persist
+across restarts. Failed/incomplete discovery SHALL be visible and retried with
+backoff, without overwriting a successful observation or treating an API failure
+as an empty backlog. Failed intake work SHALL retain normal execution backoff.
 Unchanged successful reconciliation SHALL NOT run on every discovery poll.
 `github-only` mode SHALL explicitly omit Jira lifecycle work. Lifecycle agent
 results SHALL contain `status`, `errors`, and `records`; missing output, reported
@@ -132,6 +152,25 @@ again before dispatch and before agent writes.
 - WHEN the result is validated
 - THEN the attempt SHALL be failed and subject to retry backoff
 - AND dependent phase work SHALL remain gated on successful reconciliation
+
+#### Scenario: SDLC-LOC-06.02 -- Mechanical checks of converged records
+
+- GIVEN a successfully reconciled closed execution record and unchanged Jira data
+- WHEN the drift interval elapses or the dispatcher restarts
+- THEN the script SHALL refresh its observation without launching an LLM
+- WHEN relevant Jira content, the GitHub record, or its linked PR changes
+- THEN reconciliation SHALL become eligible subject to ownership and authorization
+- AND an unchanged observation after that successful run SHALL remain deduplicated
+
+#### Scenario: SDLC-LOC-06.03 -- Configurable mechanical intake discovery
+
+- GIVEN healthy canonical pairs and a three-minute default discovery interval
+- WHEN discovery runs repeatedly or the dispatcher restarts
+- THEN no intake agent SHALL launch for unchanged pairs
+- WHEN new, unlinked, or ambiguously linked work appears
+- THEN its stable input identity SHALL make intake eligible
+- AND an API error or incomplete page SHALL remain an error rather than erase work
+- AND configuring a different interval SHALL change the script cadence
 
 ### Requirement: SDLC-LOC-07 -- Gateway recovery
 
@@ -234,6 +273,47 @@ remote cleanup verification, and the difference between cancellation and detach.
 - WHEN Fullsend exits and the outcome is saved
 - THEN the attempt SHALL appear as canceled, with its logs preserved
 - AND automatic discovery SHALL NOT restart work on the canceled issue
+
+### Requirement: SDLC-LOC-12 -- Visible, persistent configuration
+
+The terminal SHALL provide a Configuration tab using the shared frame, visual
+hierarchy, keyboard navigation, and scroll indicators. It SHALL show effective
+dispatcher settings, their application timing, and masked credential presence.
+The absolute home settings file path SHALL be prominent in both browsing and
+editing, with an explicit disclosure that saving writes the file on disk.
+Read-only values SHALL remain inspectable in full and explain how they are managed.
+
+Edits SHALL validate before saving and use atomic, private JSON storage under
+`$XDG_CONFIG_HOME/hypershell/fullsend.json` (default `~/.config/hypershell/fullsend.json`),
+with `FULLSEND_CONFIG_FILE` available as an explicit location override. Concurrent
+writers SHALL preserve unrelated keys. Malformed files, invalid values, symlinks,
+or failed saves SHALL remain visible errors and SHALL NOT discard existing data.
+Shell env files SHALL NOT be rewritten or evaluated as preference files.
+Credentials SHALL NOT be displayed or written into these preferences.
+
+Worker concurrency and discovery/authentication intervals SHALL update the active
+dispatcher. Lowering concurrency SHALL let running workers finish. Model, inference,
+and failure-backoff changes SHALL apply to new workers, preserving existing worker
+inputs and retry deadlines. Sign-in timeout changes SHALL apply to the next sign-in.
+Scope, repository, storage paths, and authentication-mode changes SHALL be saved
+with a persistent restart-required marker while the current session and helpers
+retain their original identities. The UI SHALL distinguish saved and active values.
+
+Explicit launch options SHALL override saved preferences on restart. Saved
+preferences SHALL override worktree env defaults, which override inherited
+settings. The launcher SHALL reuse a saved scope when no explicit Make scope is
+supplied, while retaining registered-scope validation. Manual preference-file edits
+SHALL load on restart; this limitation and launch-override precedence SHALL be clear.
+
+#### Scenario: SDLC-LOC-12.01 -- Save a live limit and a restart-only identity
+
+- GIVEN two running workers and the Configuration tab
+- WHEN the operator saves a worker limit of one
+- THEN the file SHALL contain the new value and the live limit SHALL change
+- AND existing workers SHALL continue with their original inputs
+- WHEN the operator saves a different repository
+- THEN the saved value SHALL be shown as requiring restart
+- AND discovery, authorization, and running work SHALL retain the current repository
 
 ## Verification and operational documentation
 

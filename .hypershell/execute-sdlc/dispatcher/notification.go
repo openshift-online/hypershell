@@ -11,7 +11,7 @@ import (
 func (m *Model) setNotice(text string) {
 	m.notice = text
 	m.noticeUntil = time.Time{}
-	if text == "Gateway access verified." || strings.HasPrefix(text, "Retry requested for ") || text == "Retry cancelled." {
+	if text == "Gateway access verified." || strings.HasPrefix(text, "Retry requested for ") || text == "Retry cancelled." || strings.HasPrefix(text, "Saved to ") {
 		m.noticeUntil = time.Now().Add(8 * time.Second)
 	}
 }
@@ -30,10 +30,16 @@ func (m Model) overlayNotice(lines []string, width, height int) []string {
 	if m.notice == "Gateway access verified." || strings.HasPrefix(m.notice, "Retry requested for ") {
 		role, title = "2", "Success"
 	}
+	if strings.HasPrefix(m.notice, "Saved to ") {
+		role, title = "2", "Saved"
+		if strings.Contains(m.notice, "Restart required") {
+			role, title = "3", "Restart required"
+		}
+	}
 	cardWidth := min(54, width)
 	inner := cardWidth - 4
 	closeHint := "x dismiss"
-	if m.filtering || (m.screen == "signin" && m.signInActive && m.signInPrompt != nil && len(m.signInPrompt.Choices) == 0) {
+	if m.filtering || (m.screen == "configuration" && m.configEditing) || (m.screen == "signin" && m.signInActive && m.signInPrompt != nil && len(m.signInPrompt.Choices) == 0) {
 		closeHint = "ctrl+x close"
 	}
 	heading := title + strings.Repeat(" ", max(1, inner-len(title)-len(closeHint))) + closeHint

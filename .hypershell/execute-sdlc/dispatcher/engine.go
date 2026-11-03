@@ -44,6 +44,8 @@ type retryRequest struct {
 	Done  chan error
 }
 type Engine struct {
+	cfgMu      sync.RWMutex
+	settings   chan settingsRequest
 	retries    chan retryRequest
 	c          Config
 	a          Adapter
@@ -64,7 +66,8 @@ func newEngine(c Config, a Adapter, s *Store) (*Engine, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Engine{retries: make(chan retryRequest), c: c, a: a, store: s, authWake: make(chan struct{}, 1), recovery: make(chan recoveryRequest), diagnostic: f, state: Snapshot{Gateway: c.GatewayName, Connection: "Checking connection"}}, nil
+	a.Runtime = c.Runtime
+	return &Engine{settings: make(chan settingsRequest), retries: make(chan retryRequest), c: c, a: a, store: s, authWake: make(chan struct{}, 1), recovery: make(chan recoveryRequest), diagnostic: f, state: Snapshot{Gateway: c.GatewayName, Connection: "Checking connection"}}, nil
 }
 func (e *Engine) snapshot() Snapshot {
 	e.mu.RLock()
@@ -138,9 +141,9 @@ func (e *Engine) authLoop(ctx context.Context, ch chan<- authResult) {
 		e.authMu.Unlock()
 		if err != nil {
 			err = fmt.Errorf("Gateway check failed: %s", strings.TrimSpace(stderr.String()))
-			delay = time.Duration(e.c.AuthRetry) * time.Second
+			delay = time.Duration(e.config().AuthRetry) * time.Second
 		} else {
-			delay = time.Duration(e.c.AuthCheck) * time.Second
+			delay = time.Duration(e.config().AuthCheck) * time.Second
 		}
 		select {
 		case ch <- authResult{err}:
@@ -189,7 +192,7 @@ func (e *Engine) finishGateway(ctx context.Context, c Config, err error) {
 }
 func (e *Engine) run(ctx context.Context) (exit int) {
 	defer func() { e.update(func(s *Snapshot) { s.Done = true; s.Exit = exit }) }()
-	lockPath := filepath.Join(e.c.StateDir, "dispatcher.lock")
+	lockPath := filepath.Join(e.config().StateDir, "dispatcher.lock")
 	var lock *os.File
 	for {
 		var err error
@@ -221,8 +224,8 @@ func (e *Engine) run(ctx context.Context) (exit int) {
 		e.fail(err)
 		return 1
 	}
-	if e.c.Retry != "" {
-		if err := e.store.retry(e.c.Retry); err != nil {
+	if e.config().Retry != "" {
+		if err := e.store.retry(e.config().Retry); err != nil {
 			e.fail(err)
 			return 1
 		}
@@ -236,10 +239,10 @@ func (e *Engine) run(ctx context.Context) (exit int) {
 	defer cancel()
 	auth := make(chan authResult, 1)
 	discovered := make(chan discovery, 1)
-	if !e.c.DryRun {
+	if !e.config().DryRun {
 		go e.authLoop(ctx, auth)
 	}
-	connected := e.c.DryRun
+	connected := e.config().DryRun
 	candidates := []Job{}
 	attempted := map[string]bool{}
 	inFlight := false
@@ -252,12 +255,22 @@ func (e *Engine) run(ctx context.Context) (exit int) {
 		select {
 		case <-ctx.Done():
 			return 130
+		case request := <-e.settings:
+			result := e.saveSetting(request.ctx, request.key, request.value)
+			if result.err == nil {
+				next = time.Time{}
+				select {
+				case e.authWake <- struct{}{}:
+				default:
+				}
+			}
+			request.done <- result
 		case request := <-e.retries:
 			var err error
 			if request.RunID != "" {
-				err = e.store.retryConfirmedUnknown(request.Key, e.c.Scope, request.RunID)
+				err = e.store.retryConfirmedUnknown(request.Key, e.config().Scope, request.RunID)
 			} else {
-				err = e.store.retryFailed(request.Key, e.c.Scope)
+				err = e.store.retryFailed(request.Key, e.config().Scope)
 			}
 			if err == nil {
 				for key := range attempted {
@@ -275,12 +288,15 @@ func (e *Engine) run(ctx context.Context) (exit int) {
 					e.fail(request.Err)
 					e.update(func(s *Snapshot) { s.RecoveryError = request.Err.Error() })
 				} else {
+					e.cfgMu.Lock()
 					e.c.GatewayName = request.Config.GatewayName
+					e.c.Settings = request.Config.Settings
+					e.cfgMu.Unlock()
 					e.update(func(s *Snapshot) { s.RecoveryError = "" })
 				}
 				e.update(func(s *Snapshot) {
 					s.Recovering = false
-					s.Gateway = e.c.GatewayName
+					s.Gateway = e.config().GatewayName
 					s.Connection = "Checking connection"
 				})
 				connected = false
@@ -315,7 +331,7 @@ func (e *Engine) run(ctx context.Context) (exit int) {
 		case result := <-discovered:
 			inFlight = false
 			haveDiscovery = true
-			next = time.Now().Add(time.Duration(e.c.Poll) * time.Second)
+			next = time.Now().Add(time.Duration(e.config().Poll) * time.Second)
 			candidates = result.Jobs
 			if result.Err != nil {
 				candidates = nil
@@ -328,7 +344,7 @@ func (e *Engine) run(ctx context.Context) (exit int) {
 					s.Errors = result.Errors
 				}
 			})
-			if e.c.DryRun {
+			if e.config().DryRun {
 				for _, job := range candidates {
 					fmt.Printf("WOULD run %s %s\n", job.Key, job.URL)
 				}
@@ -361,17 +377,17 @@ func (e *Engine) run(ctx context.Context) (exit int) {
 			}
 		}
 		lastRunning = running
-		if completed && (e.c.Watch || e.c.Lifecycle == "jira") {
+		if completed && (e.config().Watch || e.config().Lifecycle == "jira") {
 			next = time.Time{}
 		}
-		if !inFlight && (next.IsZero() || e.c.Watch && time.Now().After(next)) {
+		if !inFlight && (next.IsZero() || e.config().Watch && time.Now().After(next)) {
 			inFlight = true
 			e.update(func(s *Snapshot) { s.Busy = true })
 			go func() {
 				var result discovery
 				callCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 				defer cancel()
-				result.Err = e.a.call(callCtx, "discover", nil, &result)
+				result.Err = e.adapter().call(callCtx, "discover", nil, &result)
 				select {
 				case discovered <- result:
 				case <-ctx.Done():
@@ -394,7 +410,7 @@ func (e *Engine) run(ctx context.Context) (exit int) {
 			if job.Agent == "reconcile" {
 				attempt += "/" + job.Fingerprint
 			}
-			if !e.c.Watch && attempted[attempt] {
+			if !e.config().Watch && attempted[attempt] {
 				continue
 			}
 			if !eligible(job, rows, seconds()) {
@@ -402,14 +418,14 @@ func (e *Engine) run(ctx context.Context) (exit int) {
 			}
 			ready++
 			pending = true
-			if len(running) >= e.c.Concurrency || !connected {
+			if len(running) >= e.config().Concurrency || !connected {
 				continue
 			}
 			var allowed struct {
 				Allowed bool `json:"allowed"`
 			}
 			checkCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-			err = e.a.call(checkCtx, "authorize", job, &allowed)
+			err = e.adapter().call(checkCtx, "authorize", job, &allowed)
 			cancel()
 			if ctx.Err() != nil {
 				return 130
@@ -417,7 +433,7 @@ func (e *Engine) run(ctx context.Context) (exit int) {
 			if err != nil {
 				e.fail(err)
 				candidates = nil
-				next = time.Now().Add(time.Duration(e.c.Poll) * time.Second)
+				next = time.Now().Add(time.Duration(e.config().Poll) * time.Second)
 				attempted[attempt] = true
 				break
 			}
@@ -443,7 +459,7 @@ func (e *Engine) run(ctx context.Context) (exit int) {
 			if ctx.Err() != nil {
 				return 130
 			}
-			if err = e.store.launch(e.c, e.a, job); err != nil {
+			if err = e.store.launch(e.config(), e.adapter(), job); err != nil {
 				e.fail(err)
 				return 1
 			}
@@ -457,12 +473,12 @@ func (e *Engine) run(ctx context.Context) (exit int) {
 			}
 		}
 		e.update(func(s *Snapshot) { s.Ready = ready })
-		if !e.c.Watch && len(running) == 0 && !pending && !next.IsZero() {
+		if !e.config().Watch && len(running) == 0 && !pending && !next.IsZero() {
 			if len(e.snapshot().Errors) > 0 {
 				return 1
 			}
 			for _, row := range rows {
-				if row.Scope == e.c.Scope && (row.Status == "failed" || row.Status == "uncertain" || row.Status == "canceled") {
+				if row.Scope == e.config().Scope && (row.Status == "failed" || row.Status == "uncertain" || row.Status == "canceled") {
 					return 1
 				}
 			}

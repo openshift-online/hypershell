@@ -27,7 +27,7 @@ func runMain() int {
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	a := Adapter{path, os.Args[1:]}
+	a := Adapter{Path: path, Args: os.Args[1:]}
 	for _, arg := range a.Args {
 		if arg == "--help" || arg == "-h" {
 			cmd := a.command(ctx, "config")
@@ -90,6 +90,11 @@ func runMain() int {
 			return 1
 		}
 		os.Setenv("GH_TOKEN", strings.TrimSpace(string(data)))
+	}
+	for i := range c.Settings {
+		if c.Settings[i].Key == "GH_TOKEN" && os.Getenv("GH_TOKEN") != "" {
+			c.Settings[i].Value = "Exported (hidden)"
+		}
 	}
 	engine, err := newEngine(c, a, store)
 	if err != nil {
