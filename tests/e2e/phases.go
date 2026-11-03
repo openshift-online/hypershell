@@ -224,6 +224,7 @@ func (st *primaryGatewayState) provision(s *E2ESuite, t *testing.T) {
 
 	running := s.waitGatewayRunning(t, created.ID)
 	st.ref.Namespace = running.Namespace
+	st.ref.ClientID = s.requireGatewayClientID(running)
 	st.workspaceMode = running.WorkspaceMode
 	s.Require().Equal("Running", running.Phase, "primary gateway must reach Running")
 	s.Require().NotEmpty(running.RouteAddress, "running primary gateway publishes route_address")
@@ -276,6 +277,11 @@ func (s *E2ESuite) p1_1Provisioning(t *testing.T) {
 	s.Logf("primary gateway %s (%s) provisioned to Running in %s (TTR)", s.primary.Name, s.primary.ID, s.primaryProvisionDuration)
 }
 
+// p1_2InfraVerification inspects the primary gateway's Kubernetes resources:
+// Deployment, Service, server TLS secret, cert-manager Certificates, database
+// credentials, and NetworkPolicy posture. The step is registered long-only, so
+// every check here runs only in long mode.
+// Verifies: E2E-CORE-13.04
 func (s *E2ESuite) p1_2InfraVerification(t *testing.T) {
 	s.ensurePrimaryGateway(t)
 	s.logger.Additionalf("verify gateway deployment, service, TLS, and database configuration")
@@ -307,9 +313,7 @@ func (s *E2ESuite) p1_2InfraVerification(t *testing.T) {
 	s.Assert().GreaterOrEqual(int(readyReplicas), 1, "gateway deployment ready replicas")
 	s.Assert().NotEmpty(clusterIP, "gateway service ClusterIP")
 
-	s.longOnly("tls-database-config", func(t *testing.T) {
-		s.assertGatewayInfraDetails(t, ns)
-	})
+	s.assertGatewayInfraDetails(t, ns)
 }
 
 // assertGatewayInfraDetails checks the gateway's TLS, database credentials,
@@ -428,8 +432,7 @@ func certificateReady(certificate *unstructured.Unstructured) bool {
 // so it runs in isolation.
 func (s *E2ESuite) p1_3TokenAndCATrust(t *testing.T) {
 	s.ensurePrimaryGateway(t)
-	// The per-gateway Keycloak client is "<gw-name>-<gw-id>".
-	clientID := fmt.Sprintf("%s-%s", s.primary.Name, s.primary.ID)
+	clientID := s.primary.ClientID
 	s.Require().NotEmpty(s.primaryGatewayToken.AccessToken, "primary gateway token acquired in setup")
 	s.longOnly("device-authorization", func(t *testing.T) {
 		if s.driver.Name() != "kind" {
@@ -478,7 +481,7 @@ func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
 	gw := s.createGateway(t, "e2e-sbx-"+s.runID)
 	s.trackGateway(gw.ID)
 	running := s.waitGatewayRunning(t, gw.ID)
-	ref := driver.GatewayRef{Name: running.Name, Namespace: running.Namespace, ID: running.ID}
+	ref := driver.GatewayRef{Name: running.Name, Namespace: running.Namespace, ID: running.ID, ClientID: s.requireGatewayClientID(running)}
 	endpoint, err := gatewayEndpointFromRouteAddress(running.RouteAddress)
 	s.Require().NoError(err, "derive sandbox gateway endpoint from API route_address")
 

@@ -452,8 +452,8 @@ func reconcileConsole(ctx context.Context, dynamicClient dynamic.Interface, clie
 		log.Printf("WARN console: Keycloak not configured; skipping console for namespace %s", namespace)
 		return nil
 	}
-	if opts.GatewayName == "" || opts.GatewayID == "" {
-		log.Printf("WARN console: gateway name and ID are required; skipping console for namespace %s", namespace)
+	if opts.GatewayClientID == "" || opts.GatewayID == "" {
+		log.Printf("WARN console: gateway client ID and gateway ID are required; skipping console for namespace %s", namespace)
 		return nil
 	}
 	// Check the image before any Keycloak or cluster writes, so a missing
@@ -469,7 +469,7 @@ func reconcileConsole(ctx context.Context, dynamicClient dynamic.Interface, clie
 		return nil
 	}
 	consoleURL := "https://" + host
-	gwClientID := fmt.Sprintf("%s-%s", opts.GatewayName, opts.GatewayID)
+	gwClientID := opts.GatewayClientID
 	consoleClientID := gwClientID + "-console"
 	redirectURI := consoleURL + "/oauth2/callback"
 
@@ -1086,8 +1086,8 @@ func deleteConsole(ctx context.Context, dynamicClient dynamic.Interface, clients
 		errs = append(errs, fmt.Errorf("delete console Secret in %s: %w", namespace, err))
 	}
 
-	if opts.Keycloak != nil && opts.GatewayName != "" && opts.GatewayID != "" {
-		consoleClientID := fmt.Sprintf("%s-%s-console", opts.GatewayName, opts.GatewayID)
+	if opts.Keycloak != nil && opts.GatewayClientID != "" && opts.GatewayID != "" {
+		consoleClientID := opts.GatewayClientID + "-console"
 		kc := keycloak.NewClient(
 			opts.Keycloak.ServerURL,
 			opts.Keycloak.Realm,

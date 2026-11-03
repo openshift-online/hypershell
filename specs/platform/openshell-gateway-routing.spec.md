@@ -254,7 +254,7 @@ The control plane SHALL create a BackendTLSPolicy to enable TLS verification fro
 - Create BackendTLSPolicy targeting `openshell-gateway` Service
 - Validation hostname: `openshell-gateway.<namespace>.svc.cluster.local`
 
-**Note:** BackendTLSPolicy only handles server certificate validation (the ingress proxy verifies the gateway pod's certificate). It does NOT support the proxy presenting a client certificate to the backend. Therefore, when routing is enabled the gateway's `client_ca_path` must be stripped from the config -- see `openshell-gateway-tls.spec.md` § Client Certificate Verification Conditional on Routing.
+**Note:** BackendTLSPolicy only handles server certificate validation (the ingress proxy verifies the gateway pod's certificate). It does NOT support the proxy presenting a client certificate to the backend. Therefore, in Gateway API routing mode the control plane sets the Helm value `server.tls.enableMtls=false` -- see `openshell-gateway-tls.spec.md` § Client Certificate Verification Conditional on Routing.
 
 ---
 
@@ -456,7 +456,7 @@ Service port aliasing the gRPC pod port (see istio/istio#36185).
 | `hsctl apply` creates gateway but no external access | No `route` field on Gateway resource | Add `route: {}` to the Gateway resource |
 | Gateway pods Ready but phase stuck `Provisioning`, then `Degraded` after the grace window | The shared Gateway API `Gateway` reports `Programmed=False` / no ADDRESS (cloud LB not provisioned, DNS/quota failure) | `oc get gateway -n $GATEWAY_API_GATEWAY_NAMESPACE $GATEWAY_API_GATEWAY_NAME -o wide`; inspect `.status.conditions` and events on the Gateway / its ELB |
 | `GATEWAY_API_GATEWAY_NAME is required` error | Env var not set on controller | Set `GATEWAY_API_GATEWAY_NAME` to the pre-existing Gateway name |
-| `peer sent no certificates` in gateway logs, client gets `upstream connect error or disconnect/reset before headers` | Gateway config has `client_ca_path` (mTLS) but ingress proxy cannot present client certs | Verify `route.enabled` is true -- the reconciler strips `client_ca_path` when routing is enabled (see TLS spec) |
+| `peer sent no certificates` in gateway logs, client gets `upstream connect error or disconnect/reset before headers` | Gateway requires client certs (mTLS) but ingress proxy cannot present them | Verify `route.enabled` is true -- in Gateway API routing mode the reconciler sets `server.tls.enableMtls=false`; other modes keep the chart default (see TLS spec) |
 | WebSocket upgrade over a dedicated route returns `503` `upstream connect error or disconnect/reset before headers. reset reason: remote reset` while plain HTTP returns `200` | The sandbox HTTPRoute points at an `appProtocol: grpc` (HTTP/2) backend port; HTTP/2 cannot carry a WebSocket upgrade | Point the sandbox HTTPRoute at the Service's `http` port (`appProtocol: http`); see OSG-ROUT-13 |
 
 ---

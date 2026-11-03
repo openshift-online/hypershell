@@ -116,6 +116,29 @@ may use `### Legacy compatibility: <MODULE-GROUP-NN> -- <Name>` instead of
 `### Requirement:`. It still gets an ID and still numbers its scenarios the
 same way.
 
+### Transitional Specs
+
+Behavior kept only for a limited time (compatibility with older data or
+clients, migration-only objects, old formats still accepted) goes in its own
+file, not in the permanent spec. The full rule is STD-IDS-09 in
+`specs/standards/platform/spec-identifiers.spec.md`. In short:
+
+1. Name the file `<parent>.transitional.spec.md`, next to the parent spec.
+2. Register a separate `MODULE-GROUP` prefix for it in `specs/ids.md`.
+3. Use `### Legacy compatibility:` headings for its requirements.
+4. Start it with a callout giving **Transitional** (why), **Remove when** (a
+   checkable condition, not a date), **Check** (a query or command), and
+   **On removal** (what to delete).
+5. Keep the parent spec to the permanent behavior, with one short note that
+   links to the transitional file.
+6. Mark the transitional code with a comment naming the ID, and cite the ID
+   in the tests' `Verifies:` markers.
+
+Example: `specs/platform/openshell-gateway-keycloak.transitional.spec.md`.
+
+When you write or change a spec, ask whether any behavior is only there for
+the transition. If it is, move it to a transitional file.
+
 ### Requirement and Scenario IDs
 
 Full syntax, stability rules, and the enforcement contract are in

@@ -41,7 +41,7 @@ Gateway Lifecycle (Gateway ADDED/DELETED events):
     Control Plane - GatewayReconciler
         |  1. Receives Gateway ADDED event
         |  2. Provisions Keycloak via Admin REST API:
-        |     a. Creates OIDC client (clientId = "{name}-{id}" for uniqueness)
+        |     a. Creates OIDC client (clientId = gateway ID)
         |     b. Creates client roles (openshell-admin, openshell-user)
         |     c. Creates protocol mappers (audience, sub, client-roles)
         |  3. Populates Gateway oidc config (PATCH via API or internal state)
@@ -218,16 +218,18 @@ When the GatewayReconciler receives a Gateway ADDED event, it SHALL create a ded
 
 #### Client ID Format
 
-The Keycloak `clientId` SHALL be `{name}-{id}`, where `{name}` is the user-visible gateway name and `{id}` is the API-server resource ID (KSUID). This prevents name clashes when multiple gateways share the same name or when a gateway is deleted and recreated with the same name. Example: a gateway named `my-gateway` with ID `2FhMpQzXBz` produces `clientId = "my-gateway-2FhMpQzXBz"`.
+The Keycloak `clientId` of a new gateway SHALL be the gateway's API-server resource ID (KSUID). The ID is unique and immutable, so it cannot clash when several gateways share a name or a gateway is deleted and recreated with the same name, and a rename never changes it. Example: a gateway with ID `2FhMpQzXBz` gets `clientId = "2FhMpQzXBz"`. In this and related specs, `{client-id}` means the gateway's stored client ID.
 
-For reconciliation of an existing gateway, persisted OIDC `client_id` and `audience` values SHALL be used to preserve identity across a gateway rename only when both non-empty values agree and the identity is gateway-owned: either exactly the immutable gateway ID (legacy format) or a control-character-free identifier ending in `-{gateway-id}`. Control characters and foreign or mismatched persisted identities SHALL be rejected before any Keycloak API call. The current `{name}-{id}` format is used only when neither persisted identity value exists. Historical identifiers containing spaces or non-ASCII characters remain valid; whenever an accepted identifier is written to a log or error, it SHALL be quoted so Unicode separators and formatting controls cannot inject log structure.
+> Gateways provisioned before this format keep an earlier `{name}-{id}` client ID until they are deleted. That compatibility rule is in [`openshell-gateway-keycloak.transitional.spec.md`](./openshell-gateway-keycloak.transitional.spec.md) (OSG-KCLT-01).
+
+The control plane SHALL persist the provisioned client ID as both OIDC `client_id` and `audience`, and every path that needs the gateway's client (provisioning, existing-client reconciliation, console provisioning and cleanup, role assignment, CI federation, and deletion) SHALL use that stored value rather than derive one from the gateway name. The persisted values SHALL be used only when both are non-empty, they agree, and the identity is gateway-owned: exactly the gateway ID. Control characters, a record with only one of the two values, and foreign or mismatched persisted identities SHALL be rejected before any Keycloak API call. When neither persisted identity value exists, as on a new gateway before its client is provisioned, the initial client ID is the gateway ID. Whenever an accepted identifier is written to a log or error, it SHALL be quoted so Unicode separators and formatting controls cannot inject log structure.
 
 The client SHALL be created with the following properties:
 
 | Property | Value | Notes |
 |---|---|---|
-| `clientId` | `{name}-{id}` | Unique within the realm; used as OIDC `client_id` and `aud` |
-| `name` | `{name}-{id}` | Display name in Keycloak admin console |
+| `clientId` | `{client-id}` | Unique within the realm; used as OIDC `client_id` and `aud` |
+| `name` | `{client-id}` | Display name in Keycloak admin console |
 | `publicClient` | `true` | PKCE flow, no client secret required |
 | `standardFlowEnabled` | `true` | Authorization code flow for browser/CLI |
 | `directAccessGrantsEnabled` | `true` | Retained for human-client compatibility. New automation SHALL use credentials for an OpenShellGatewayServiceAccount instead of a human username and password. |
@@ -247,7 +249,7 @@ After creating the client, the creator's `gateway:owner` role is assigned via th
 
 - GIVEN the GatewayReconciler receives an ADDED event for Gateway `my-gateway` (id=`2FhMpQzXBz`)
 - WHEN the reconciler provisions Keycloak
-- THEN it SHALL create a Keycloak client with `clientId = "my-gateway-2FhMpQzXBz"`
+- THEN it SHALL create a Keycloak client with `clientId = "2FhMpQzXBz"`
 - AND the client SHALL have `fullScopeAllowed = false`
 - AND the client SHALL have `publicClient = true` with `pkce.code.challenge.method = S256`
 - AND OAuth 2.0 Device Authorization Grant SHALL be enabled
@@ -276,7 +278,7 @@ After creating the client, the creator's `gateway:owner` role is assigned via th
 
 #### Scenario: OSG-KCLK-02.04 -- Existing gateway client identity is invalid
 
-- GIVEN an active gateway has malformed OIDC configuration, conflicting `client_id` and `audience`, a foreign persisted identity, a prohibited control character, or another invalid required identity input
+- GIVEN an active gateway has malformed OIDC configuration, conflicting `client_id` and `audience`, only one of `client_id` and `audience`, a foreign persisted identity, a prohibited control character, or another invalid required identity input
 - WHEN the GatewayReconciler performs lightweight existing-client reconciliation
 - THEN it SHALL set Gateway `status` to the fixed value `Keycloak client configuration is invalid`
 - AND it SHALL leave Gateway `phase` unchanged
@@ -297,9 +299,17 @@ After creating the client, the creator's `gateway:owner` role is assigned via th
 
 #### Scenario: OSG-KCLK-02.06 -- Duplicate client ID in Keycloak
 
-- GIVEN a Keycloak client with `clientId = "my-gateway-2FhMpQzXBz"` already exists in the realm
+- GIVEN a Keycloak client with `clientId = "2FhMpQzXBz"` already exists in the realm
 - WHEN the GatewayReconciler attempts to create the client
 - THEN the reconciler SHALL log an error and retry on the next reconciliation cycle
+
+#### Scenario: OSG-KCLK-02.07 -- Renamed gateway keeps its stored client on every path
+
+- GIVEN a gateway has a stored client ID `{client-id}`
+- AND the gateway is renamed to `new-name`
+- WHEN the control plane provisions the gateway or its console, reconciles its existing client, assigns client roles, or configures CI federation
+- THEN each path SHALL use the client `{client-id}`
+- AND no path SHALL create or look up a client derived from `new-name`
 
 ---
 
@@ -334,7 +344,7 @@ Sets the `aud` claim in the access token to match the client ID so the gateway c
 | `name` | `audience` |
 | `protocol` | `openid-connect` |
 | `protocolMapper` | `oidc-audience-mapper` |
-| `config.included.client.audience` | `{clientId}` (e.g., `my-gateway-2FhMpQzXBz`) |
+| `config.included.client.audience` | `{clientId}` (e.g., `2FhMpQzXBz`) |
 | `config.id.token.claim` | `false` |
 | `config.access.token.claim` | `true` |
 
@@ -363,21 +373,21 @@ Maps the client's roles from `resource_access.{clientId}.roles` to a fixed `hype
 | `config.jsonType.label` | `String` |
 | `config.id.token.claim` | `true` |
 | `config.access.token.claim` | `true` |
-| `config.usermodel.clientRoleMapping.clientId` | `{clientId}` (e.g., `my-gateway-2FhMpQzXBz`) |
+| `config.usermodel.clientRoleMapping.clientId` | `{clientId}` (e.g., `2FhMpQzXBz`) |
 
 #### Scenario: OSG-KCLK-04.01 -- All mappers provisioned
 
-- GIVEN a Keycloak client `my-gateway-2FhMpQzXBz` has been created with roles
+- GIVEN a Keycloak client `2FhMpQzXBz` has been created with roles
 - WHEN the GatewayReconciler provisions protocol mappers
-- THEN the audience mapper SHALL set `aud` to `my-gateway-2FhMpQzXBz` in access tokens
+- THEN the audience mapper SHALL set `aud` to `2FhMpQzXBz` in access tokens
 - AND the sub mapper SHALL ensure `sub` is present in access tokens
-- AND the client-roles mapper SHALL map `resource_access.my-gateway-2FhMpQzXBz.roles` to the `hypershell.roles` claim
+- AND the client-roles mapper SHALL map `resource_access.2FhMpQzXBz.roles` to the `hypershell.roles` claim
 
 #### Scenario: OSG-KCLK-04.02 -- Token contains correct claims after provisioning
 
-- GIVEN user `user-a` has the `openshell-admin` and `openshell-user` roles on client `my-gateway-2FhMpQzXBz` (a gateway administrator)
-- WHEN `user-a` obtains a token using `client_id = my-gateway-2FhMpQzXBz`
-- THEN the access token SHALL contain `aud: "my-gateway-2FhMpQzXBz"`
+- GIVEN user `user-a` has the `openshell-admin` and `openshell-user` roles on client `2FhMpQzXBz` (a gateway administrator)
+- WHEN `user-a` obtains a token using `client_id = 2FhMpQzXBz`
+- THEN the access token SHALL contain `aud: "2FhMpQzXBz"`
 - AND the access token SHALL contain `sub: "user-a-sub-id"`
 - AND the access token SHALL contain `hypershell.roles: ["openshell-admin", "openshell-user"]`
 - AND the access token SHALL NOT contain roles from any other gateway's client
@@ -394,7 +404,7 @@ All per-gateway RoleBindings (`gateway:owner`, `gateway:admin`, `gateway:viewer`
 
 For each RoleBinding ADDED or UPDATED event with `scope=gateway`, the control plane SHALL:
 1. Compute the desired union of Keycloak client roles from the user's surviving bindings on this gateway
-2. Resolve the gateway from the binding's `gateway_id` and compute the Keycloak client ID (`{name}-{id}`)
+2. Resolve the gateway from the binding's `gateway_id` and read its stored Keycloak client ID (`{client-id}`)
 3. Resolve the User's Keycloak identity (the `username` from the User record, populated from the JWT `preferred_username` claim at auto-provisioning or pre-provisioning time)
 4. Look up the user in Keycloak (`GET /admin/realms/{realm}/users?username={username}`)
 5. On the gateway's Keycloak client, assign any client role in the desired union not already mapped, and remove any client role mapped but not in the desired union (`POST`/`DELETE /admin/realms/{realm}/users/{user-uuid}/role-mappings/clients/{client-uuid}`)
@@ -455,7 +465,7 @@ The auto-populated OIDC values SHALL be:
 | OIDC Field | Value | Source |
 |---|---|---|
 | `issuer` | `{server-url}/realms/{realm}` | Keycloak service account config |
-| `audience` | `{clientId}` | Provisioned client ID (`{name}-{id}`) |
+| `audience` | `{clientId}` | Provisioned client ID (`{client-id}`) |
 | `jwks_ttl` | `3600` | Default |
 | `roles_claim` | `hypershell.roles` | Fixed claim path from client-roles mapper |
 | `admin_role` | `openshell-admin` | Fixed role name |
@@ -473,8 +483,8 @@ The OIDC fields on the Gateway resource SHALL be read-only -- not settable or up
   ```json
   {
     "issuer": "https://keycloak.example.com/realms/hypershell",
-    "client_id": "my-gateway-2FhMpQzXBz",
-    "audience": "my-gateway-2FhMpQzXBz",
+    "client_id": "2FhMpQzXBz",
+    "audience": "2FhMpQzXBz",
     "jwks_ttl": 3600,
     "roles_claim": "hypershell.roles",
     "admin_role": "openshell-admin",
@@ -485,7 +495,7 @@ The OIDC fields on the Gateway resource SHALL be read-only -- not settable or up
   ```toml
   [openshell.gateway.oidc]
   issuer        = "https://keycloak.example.com/realms/hypershell"
-  audience      = "my-gateway-2FhMpQzXBz"
+  audience      = "2FhMpQzXBz"
   jwks_ttl_secs = 3600
   roles_claim   = "hypershell.roles"
   admin_role    = "openshell-admin"
@@ -525,9 +535,9 @@ Keycloak does not delete related service-account clients when it deletes the gat
 
 #### Scenario: OSG-KCLK-08.01 -- Gateway deletion cleans up Keycloak
 
-- GIVEN a Gateway `my-gateway` (id=`2FhMpQzXBz`) with a corresponding Keycloak client `my-gateway-2FhMpQzXBz`
+- GIVEN a Gateway `my-gateway` (id=`2FhMpQzXBz`) with a corresponding Keycloak client `2FhMpQzXBz`
 - WHEN the GatewayReconciler receives a DELETED event for the Gateway
-- THEN it SHALL look up the client by `clientId` (`GET /admin/realms/{realm}/clients?clientId=my-gateway-2FhMpQzXBz`)
+- THEN it SHALL look up the client by `clientId` (`GET /admin/realms/{realm}/clients?clientId=2FhMpQzXBz`)
 - AND it SHALL delete the client (`DELETE /admin/realms/{realm}/clients/{client-uuid}`)
 - AND the client's roles, mappers, and user role assignments SHALL be automatically removed by Keycloak
 - AND it SHALL separately disable and delete every service-account client for that gateway
@@ -643,7 +653,7 @@ Complete API call sequence for gateway creation:
    ```
    POST /admin/realms/{realm}/clients
    ```
-   Body includes `clientId` (`{name}-{id}`), `publicClient: true`, `fullScopeAllowed: false`, `defaultClientScopes`, PKCE attribute, `redirectUris`, and inline audience mapper via `protocolMappers`.
+   Body includes `clientId` (`{client-id}`), `publicClient: true`, `fullScopeAllowed: false`, `defaultClientScopes`, PKCE attribute, `redirectUris`, and inline audience mapper via `protocolMappers`.
 
 3. **Create openshell-admin role:**
    ```
@@ -673,9 +683,9 @@ Complete API call sequence for gateway creation:
 
 When a gateway-scoped RoleBinding is created:
 
-1. **Resolve gateway name and compute Keycloak client ID** (`{name}-{id}`), **then get the Keycloak client UUID:**
+1. **Read the gateway's stored Keycloak client ID** (`{client-id}`), **then get the Keycloak client UUID:**
    ```
-   GET /admin/realms/{realm}/clients?clientId={name}-{id}
+   GET /admin/realms/{realm}/clients?clientId={client-id}
    ```
 
 2. **Get the Keycloak client role UUID:**
@@ -709,7 +719,7 @@ When a gateway-scoped RoleBinding is deleted (after checking no remaining covera
 
 1. **Look up client by clientId:**
    ```
-   GET /admin/realms/{realm}/clients?clientId={name}-{id}
+   GET /admin/realms/{realm}/clients?clientId={client-id}
    ```
 
 2. **Delete client (cascades roles, mappers, and all user role assignments):**
@@ -745,9 +755,8 @@ When a gateway-scoped RoleBinding is deleted (after checking no remaining covera
 
 Gateway deletion SHALL use the same validated OIDC client identity as gateway
 reconciliation. A gateway rename SHALL NOT change the client selected for
-removal. Existing records with only an audience SHALL retain that identity.
-Records without either stored identity field SHALL use the existing
-name-and-gateway-ID fallback. Invalid or conflicting stored identities SHALL
+removal. Records without either stored identity field SHALL use the
+initial client ID, the gateway ID. Invalid or conflicting stored identities SHALL
 NOT request Keycloak cleanup: deletion SHALL log the resolution failure for
 operator recovery and SHALL continue namespace and database cleanup. A missing
 Keycloak provisioner SHALL NOT block gateway finalization: deletion SHALL log

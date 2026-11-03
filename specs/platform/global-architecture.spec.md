@@ -933,7 +933,6 @@ the gateway's default workload image through `sandbox.image`.
 | Secret management | Vault | Stores and rotates secrets with cloud-native drivers |
 | Identity | Keycloak | OIDC authentication for gateways and console |
 | Cluster provisioning | Terraform | VPC, subnet, and cluster provisioning |
-| Installer | Tekton pipelines | Reproducible, deterministic deployment pipelines |
 | Monitoring | Prometheus | Metrics collection on all clusters |
 | Dashboards | Grafana | Centralized visualization on hub |
 
@@ -1038,27 +1037,6 @@ This namespace-per-gateway strategy provides:
 - Self-contained workload lifecycle (delete namespace = delete gateway workload; the gateway database is dropped independently)
 - One shared server per installation, reducing the Postgres footprint across gateways
 
-## Installer Pipeline
-
-Tekton pipelines provide a reproducible installer for HyperShell deployments. The pipeline replaces manual bash scripts with deterministic, auditable steps.
-
-### Requirement: PLAT-ARCH-20 -- Deterministic Installation
-
-HyperShell installation SHALL be performed via Tekton pipelines that execute idempotent steps. Manual `oc apply` or `kubectl` scripts SHALL NOT be the primary installation method in production.
-
-#### Scenario: PLAT-ARCH-20.01 -- Fresh Cluster Installation
-
-- GIVEN a bare OpenShift cluster with Tekton installed
-- WHEN the HyperShell installer pipeline runs
-- AND the platform, Keycloak, and gateway PostgreSQL servers have been provisioned outside the cluster
-- THEN it SHALL provision: cert-manager, API server, controller, ArgoCD, Vault, Keycloak
-- AND it SHALL configure the connection Secrets for the externally provisioned PostgreSQL servers
-- AND the installation SHALL be idempotent (safe to re-run)
-
-### Requirement: PLAT-ARCH-21 -- Cattle Not Pets
-
-Infrastructure SHALL be treated as disposable. Any cluster can be torn down and rebuilt from the pipeline without manual intervention or state recovery.
-
 ## Monitoring Architecture
 
 Prometheus runs on every cluster. Metrics flow from ManagedClusters → Cloud Hub → Global Hub.
@@ -1157,43 +1135,18 @@ in-cluster ArgoCD applies it. There is no hub-side `Application` that targets a
 remote cluster; **every** ArgoCD `Application`/`ApplicationSet` in the repo has
 `destination: name: in-cluster`, so a cluster's directory *is* its own entrypoint.
 
-```
-hypershell-gitops/
-├── bases/                              # reusable, cluster-agnostic manifests
-│   ├── hypershell/
-│   │   ├── base/                       # ESO wiring, NetworkPolicies, ServiceMonitor, name refs
-│   │   ├── profiles/{main,canary}/     # instance profile overlays
-│   │   ├── keycloak/                   # Keycloak + realm import
-│   │   ├── ingress-openshift/          # OpenShift Route ingress
-│   │   └── ingress-k8s/                # plain-k8s Ingress
-│   └── operators/                      # one base (+ channel overlays) per operator
-│       ├── openshift-gitops/           # ArgoCD itself
-│       ├── openshift-pipelines/
-│       ├── keycloak-operator/
-│       ├── grafana-operator/
-│       ├── vault/                      # Helm repo + init job + cluster-secret-store
-│       └── agent-sandbox-controller/
-├── clusters/                           # ONE directory per cluster (each self-reconciles)
-│   └── vteam-stage/                    # also: hysh-ibm-01 (ROKS), vteam-uat
-│       ├── gitops/                     # <- app-of-apps ENTRYPOINT (bootstrap applies this)
-│       │   ├── kustomization.yaml      #    lists the Applications + repo-url replacement
-│       │   ├── operators.application.yaml      # wave 2  -> ../operators
-│       │   ├── vault-helm.application.yaml      # wave 2  (Helm)
-│       │   ├── eso.application.yaml             # wave 2  (Helm, External Secrets)
-│       │   ├── vault-init.application.yaml      # wave 3  -> ../apps/vault
-│       │   ├── postgres.application.yaml        # wave 4  -> ../apps/postgres
-│       │   ├── keycloak.application.yaml        # wave 5  -> ../apps/keycloak
-│       │   ├── hypershell.applicationset.yaml   # wave 10 -> ../apps/hypershell/*
-│       │   └── repo-url-patch.yaml              # repo-config ConfigMap (fork here)
-│       ├── apps/                       # the overlays the Applications point at
-│       │   ├── hypershell/<inst>/      #   per-instance descriptor (app.yaml) + overlay
-│       │   ├── keycloak/
-│       │   ├── postgres/
-│       │   └── vault/
-│       └── operators/                  # this cluster's OLM Subscriptions (RAW manifests on ROKS)
-└── bin/
-    └── bootstrap                       # bin/bootstrap <cluster>: install ArgoCD + apply clusters/<cluster>/gitops
-```
+The repository README's
+[Directory Structure](https://github.com/openshift-online/hypershell-gitops#-directory-structure)
+section is the authoritative tree. Cluster directories come in two shapes:
+
+- **Numbered phases** (`hypc-*`, `hshells01ue1`, `hshellp01ue1`):
+  `1-terraform/`, `2-configuration/`, `2-db-and-secrets/`, `3-bootstrap-apps/`
+  and `delivery/`. Clusters that host HyperShell units add a `topology.json`
+  that records their hub and spoke units.
+- **App-of-apps** (`hysh-ibm-01`, `hysh-aws-01`): `gitops/` is
+  the entrypoint that `bin/bootstrap <cluster>` applies; `apps/` holds the
+  overlays its Applications point at; `operators/` holds the cluster's OLM
+  Subscriptions.
 
 **How a cluster self-reconciles:**
 
@@ -1229,7 +1182,6 @@ repo while syncing a different path. To fork the repo, edit only that file.
 | Cloud-managed PostgreSQL only | All databases run on externally provisioned, cloud-managed servers that supply backup, point-in-time recovery, and HA. HyperShell registers servers and manages only per-gateway databases and roles, so no database operator or in-cluster PostgreSQL workload is maintained, and there is a single provisioning model. |
 | PostgreSQL on Cloud Hub as source of truth | All Gateway/ManagedCluster resource state lives in Cloud Hub database |
 | ManagedClusters can be standard K8s | Maximizes deployment flexibility; only hubs need OpenShift |
-| Tekton over bash scripts | Deterministic, auditable, cattle-not-pets infrastructure |
 | ArgoCD on every cluster (pull model) | Every cluster runs its own ArgoCD and self-reconciles only its own path from the central GitOps repo. No cluster stores another's kubeconfig and no hub pushes manifests outward, so credential blast radius is minimized and a hub outage never stalls a spoke's platform reconciliation. (Distinct from control-plane tenant reconciliation, which remains a runtime push from the Cloud Hub.) |
 | Prometheus metrics hierarchy | ManagedCluster → Cloud Hub → Global Hub; supports cloud-level and cross-cloud dashboards |
 | Namespace-per-gateway | Isolation boundary for RBAC and resource quotas; the gateway database lives on the registered server outside the cluster |

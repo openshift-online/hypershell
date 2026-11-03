@@ -12,7 +12,7 @@
 
 This specification defines per-gateway OIDC authentication for OpenShell gateways. OIDC enables CLI users and external clients to authenticate via Bearer tokens from an identity provider (e.g., Keycloak). OIDC is the sole authentication mechanism for HyperShell gateways in production.
 
-OIDC configuration is auto-provisioned by the control plane when a gateway is reconciled. The GatewayReconciler provisions a dedicated Keycloak OIDC client per gateway and populates the Gateway resource's `oidc` field automatically. See [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md) for provisioning details. This specification covers how the control plane injects the OIDC configuration into `gateway.toml` and validates it.
+OIDC configuration is auto-provisioned by the control plane when a gateway is reconciled. The GatewayReconciler provisions a dedicated Keycloak OIDC client per gateway and populates the Gateway resource's `oidc` field automatically. See [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md) for provisioning details. This specification covers how the control plane passes the OIDC configuration to the gateway as `server.oidc.*` Helm chart values and validates it.
 
 ---
 
@@ -40,13 +40,13 @@ Each gateway receives a dedicated Keycloak OIDC client provisioned automatically
 
 ```
 Realm:       configurable via Keycloak service account secret (e.g., hypershell, hypershell-stage)
-Client:      {name}-{id} (public, PKCE, fullScopeAllowed=false)
-Audience:    {name}-{id} (matches clientId)
+Client:      {client-id} (public, PKCE, fullScopeAllowed=false)
+Audience:    {client-id} (matches clientId)
 Roles claim: hypershell.roles (via client-roles mapper from resource_access.{clientId}.roles)
 Roles:       openshell-admin, openshell-user (client-scoped)
 ```
 
-> **Client ID format:** The Keycloak `clientId` is `{name}-{id}` (e.g., `my-gateway-2FhMpQzXBz`) to prevent name clashes. See [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md) for details.
+> **Client ID format:** `{client-id}` is the gateway's stored Keycloak `clientId`: the gateway ID (e.g., `2FhMpQzXBz`). See [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md) for details, and [`openshell-gateway-keycloak.transitional.spec.md`](./openshell-gateway-keycloak.transitional.spec.md) for the earlier `{name}-{id}` format that older gateways keep.
 
 > **Realm naming:** The realm name is not hardcoded. Each HyperShell instance reads the realm from the `hypershell-keycloak-admin` Secret's `realm` key. Environments MAY use distinct realm names (e.g., `hypershell-int`, `hypershell-stage`, `hypershell-prod`) or share a realm name when regional Keycloak instances federate to a global instance.
 
@@ -63,7 +63,7 @@ The Gateway API resource SHALL have an `oidc` object containing OIDC configurati
 | Field | Type | Auto-Populated Value | Description |
 |---|---|---|---|
 | `oidc.issuer` | string | `{keycloak-url}/realms/{realm}` | OIDC issuer URL |
-| `oidc.audience` | string | `{name}-{id}` | Expected `aud` claim value in JWT (matches Keycloak clientId) |
+| `oidc.audience` | string | `{client-id}` | Expected `aud` claim value in JWT (matches Keycloak clientId) |
 | `oidc.jwks_ttl` | integer | `3600` | JWKS key cache retention in seconds |
 | `oidc.roles_claim` | string | `"hypershell.roles"` | Dot-delimited path to roles array in JWT claims |
 | `oidc.admin_role` | string | `"openshell-admin"` | Role name conferring admin access |
@@ -76,7 +76,7 @@ The Gateway API resource SHALL have an `oidc` object containing OIDC configurati
 - AND the kustomize overlay does NOT include OIDC fields (they are system-managed)
 - WHEN the GatewayReconciler provisions the Keycloak client
 - THEN the Gateway's `oidc` field SHALL be auto-populated with values derived from the provisioned client
-- AND the GatewayReconciler SHALL generate a `gateway.toml` containing the `[openshell.gateway.oidc]` section
+- AND the GatewayReconciler SHALL set the `server.oidc.*` Helm chart values from the populated `oidc` field
 - AND `allow_unauthenticated_users` SHALL be `false`
 
 #### Scenario: OSG-OIDC-01.02 -- OIDC fields are read-only
@@ -100,34 +100,31 @@ The auto-provisioned OIDC configuration always sets both `admin_role` and `user_
 
 ---
 
-### Requirement: OSG-OIDC-03 -- OIDC Configuration in gateway.toml
+### Requirement: OSG-OIDC-03 -- OIDC Configuration as Helm Values
 
-When a Gateway has OIDC enabled (non-empty `oidc.issuer`), the GatewayReconciler SHALL inject the OIDC configuration into the `gateway.toml` ConfigMap.
+When a Gateway has OIDC enabled (non-empty `oidc.issuer`), the GatewayReconciler SHALL pass the OIDC configuration to the OpenShell Helm chart as `server.oidc.*` values. The chart renders these values into the gateway's runtime configuration.
 
-#### Scenario: OSG-OIDC-03.01 -- OIDC section injected into default gateway.toml
+#### Scenario: OSG-OIDC-03.01 -- OIDC Helm values set for an OIDC-enabled gateway
 
 - GIVEN a Gateway with OIDC enabled
-- WHEN the GatewayReconciler generates the ConfigMap
-- THEN `gateway.toml` SHALL contain:
-  ```toml
-  [openshell.gateway.auth]
-  allow_unauthenticated_users = false
-
-  [openshell.gateway.oidc]
-  issuer        = "https://keycloak.example.com/realms/hypershell"
-  audience      = "my-gateway-2FhMpQzXBz"
-  jwks_ttl_secs = 3600
-  roles_claim   = "hypershell.roles"
-  admin_role    = "openshell-admin"
-  user_role     = "openshell-user"
+- WHEN the GatewayReconciler builds the Helm chart values
+- THEN the values SHALL contain:
+  ```yaml
+  server:
+    oidc:
+      issuer: "https://keycloak.example.com/realms/hypershell"
+      audience: "2FhMpQzXBz"
+      rolesClaim: "hypershell.roles"
+      adminRole: "openshell-admin"
+      userRole: "openshell-user"
   ```
-- AND `allow_unauthenticated_users` SHALL be `false`
+- AND the GatewayReconciler SHALL NOT set `server.auth.allowUnauthenticatedUsers`, so unauthenticated users stay disallowed
 
-#### Scenario: OSG-OIDC-03.03 -- Only non-empty OIDC fields written to TOML
+#### Scenario: OSG-OIDC-03.03 -- Only non-empty OIDC fields set as Helm values
 
 - GIVEN a Gateway with only `oidc.issuer` set (all other fields at zero values)
-- THEN `gateway.toml` SHALL contain only the `issuer` key in the OIDC section
-- AND the upstream gateway SHALL apply its own defaults for omitted fields
+- THEN the Helm values SHALL contain only `server.oidc.issuer` under `server.oidc`
+- AND the chart and upstream gateway SHALL apply their own defaults for omitted fields
 
 ---
 
@@ -140,7 +137,7 @@ The GatewayReconciler SHALL detect changes to OIDC configuration and trigger a g
 - GIVEN a running gateway with OIDC configured for issuer `https://old-keycloak.example.com/realms/hypershell`
 - WHEN the Keycloak service account secret is updated to point to a new Keycloak instance
 - AND the control plane re-populates the Gateway's OIDC fields on the next reconciliation cycle
-- THEN the ConfigMap SHALL be updated with the new OIDC settings
+- THEN the Helm release SHALL be upgraded with the new `server.oidc.*` values
 - AND the gateway pods SHALL be restarted via rolling update
 
 ---
@@ -158,8 +155,15 @@ hsctl login --url "$API_URL" --issuer-url "$OIDC_ISSUER" --insecure
 # 1b. Login to hsctl -- device flow (headless / SSH; prints URL + user code, polls until done)
 hsctl login --no-browser --url "$API_URL" --issuer-url "$OIDC_ISSUER" --insecure
 
-# 2. Register the OpenShell CLI with the gateway
-hsctl gateway setup-cli --gateway-url "$GATEWAY_URL"
+# 2. Register the OpenShell CLI with the gateway. `hsctl get gateway` prints the
+# `openshell gateway add` command with the gateway's OIDC issuer, client ID,
+# audience, and endpoint filled in.
+hsctl get gateway "$GATEWAY_ID" --show-connection
+openshell gateway add --name "$GATEWAY_NAME" \
+  --oidc-issuer "$OIDC_ISSUER" \
+  --oidc-client-id "$OIDC_CLIENT_ID" \
+  --oidc-audience "$OIDC_AUDIENCE" \
+  "$GATEWAY_URL"
 
 # 3. Use OpenShell interactively
 OPENSHELL_GATEWAY_INSECURE=true openshell -g "$GATEWAY_NAME" status
@@ -180,7 +184,7 @@ See [`openshell-gateway-service-accounts.spec.md`](./openshell-gateway-service-a
 | `role 'openshell-user' required` | OIDC `roles_claim` misconfigured or user lacks the required Keycloak client role | Verify user has a RoleBinding and the OIDC Role Bridge has assigned the Keycloak client role |
 | `Invalid client or Invalid client credentials` | The client ID or secret is incorrect. The OpenShellGatewayServiceAccount can also be revoked, expired, or deleted. | Verify the client ID and lifecycle state. Never print the client secret. |
 | Token expires after 5 minutes | Keycloak access-token lifetime | Interactive users refresh their session. OpenShellGatewayServiceAccounts perform another Client Credentials grant without a refresh token. |
-| `openshell gateway add` opens browser | No `--no-browser` flag | Write `metadata.json` directly, then use `hsctl gateway setup-cli` |
+| `openshell gateway add` opens browser | No `--no-browser` flag | Run the login on a machine with a browser. Automation uses an OpenShellGatewayServiceAccount with Client Credentials instead. |
 | `GROUPS` env var returns `1000` in bash | Bash builtin collision - `GROUPS` is a reserved readonly array | Use `USER_GROUPS` instead of `GROUPS` for role/group env vars |
 | `openshell sandbox create` hangs | Blocking interactive command | Background the command and poll for pod status; use `ExecSandbox` for runner startup |
 

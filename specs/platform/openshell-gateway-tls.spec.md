@@ -9,7 +9,7 @@
 
 ## Purpose
 
-This specification defines TLS certificate management for OpenShell gateways deployed by the HyperShell control plane. It covers certificate generation via cert-manager, SAN management, cert rotation, and trusted CA bundle injection. HyperShell gateways use OIDC for authentication; mTLS is not supported.
+This specification defines TLS certificate management for OpenShell gateways deployed by the HyperShell control plane. It covers certificate generation via cert-manager, SAN management, cert rotation, and trusted CA bundle injection. HyperShell gateways use OIDC for authentication. Client certificate verification (mTLS) is turned off only in Gateway API routing mode (OSG-TLS-05).
 
 ---
 
@@ -48,13 +48,14 @@ cert-manager handles TLS certificate lifecycle. The certgen job handles JWT key 
 
 ### Requirement: OSG-TLS-02 -- SAN Management and Cert Rotation
 
-The reconciler monitors `serverDnsNames` on the Gateway API resource and compares them against the `server_sans` key in the `openshell-gateway-config` ConfigMap. When they differ, the reconciler triggers certificate regeneration.
+The reconciler passes the Gateway's `serverDnsNames` to the gateway Helm release as the `certManager.serverDnsNames` value. The chart uses this value for both the `server_sans` setting in `gateway.toml` and the SANs of the internal server `Certificate`. A change to `serverDnsNames` bumps the Gateway generation, and the reconciler runs a Helm upgrade with the new values.
 
 #### Scenario: OSG-TLS-02.01 -- DNS names changed
 
-- GIVEN a Gateway's `serverDnsNames` differ from the ConfigMap's `server_sans`
+- GIVEN a Gateway whose `serverDnsNames` changed since the last applied generation
 - WHEN the GatewayReconciler reconciles
-- THEN it SHALL update the cert-manager Certificate resources with the new SANs
+- THEN it SHALL upgrade the gateway Helm release with the new SANs in `certManager.serverDnsNames`
+- AND the chart SHALL update the cert-manager server Certificate with the new SANs
 - AND cert-manager SHALL regenerate the TLS secrets
 - AND the gateway workload SHALL restart to pick up the new certificates
 
@@ -138,22 +139,22 @@ The control plane ClusterRole SHALL include permissions for TLS-related resource
 
 ### Requirement: OSG-TLS-05 -- Client Certificate Verification Conditional on Routing
 
-The gateway config template includes a `client_ca_path` setting under `[openshell.gateway.tls]` that enables the server to require client certificates (mTLS). This setting SHALL be conditionally applied based on whether the gateway is exposed via Gateway API routing.
+The OpenShell Helm chart value `server.tls.enableMtls` controls whether the gateway server requires client certificates (mTLS). The control plane SHALL set it based on how the gateway is exposed.
 
-#### Scenario: OSG-TLS-05.01 -- Gateway with routing enabled
+#### Scenario: OSG-TLS-05.01 -- Gateway API routing mode
 
 - GIVEN a Gateway with `route.enabled = true`
-- WHEN the GatewayReconciler applies config overrides
-- THEN it SHALL remove the `client_ca_path` setting from `gateway.toml`
-- AND it SHALL remove the `tls-client-ca` volume and volume mount from the Deployment
+- AND the control plane uses Gateway API routing (not OpenShift Route passthrough)
+- WHEN the GatewayReconciler builds the Helm values
+- THEN it SHALL set `server.tls.enableMtls` to `false`
 - BECAUSE the Gateway API ingress proxy (Envoy) terminates external TLS and re-connects to the backend via BackendTLSPolicy, which only handles server certificate validation -- the proxy cannot present a client certificate, so requiring one causes "peer sent no certificates" connection resets
 
-#### Scenario: OSG-TLS-05.02 -- Gateway without routing (direct access)
+#### Scenario: OSG-TLS-05.02 -- Direct access or Route passthrough mode
 
-- GIVEN a Gateway with no `route` configuration or `route.enabled = false`
-- WHEN the GatewayReconciler applies config overrides
-- THEN it SHALL preserve the `client_ca_path` setting and `tls-client-ca` volume mount
-- AND the gateway SHALL require client certificates for all incoming connections (used by supervisors connecting directly)
+- GIVEN a Gateway with no `route` configuration or `route.enabled = false`, or a Gateway exposed through an OpenShift Route in passthrough mode
+- WHEN the GatewayReconciler builds the Helm values
+- THEN it SHALL NOT set `server.tls.enableMtls`, so the chart default (mTLS on) applies
+- AND the gateway SHALL require client certificates for incoming connections (passthrough keeps TLS end to end, so the client presents its certificate to the gateway)
 
 ---
 
@@ -162,10 +163,9 @@ The gateway config template includes a `client_ca_path` setting under `[openshel
 | Symptom | Root Cause | Fix |
 |---|---|---|
 | `DecryptError` in gateway logs | Stale client cert from sandbox after cert rotation | Recreate affected sandboxes |
-| Cert deletion loop (every 30s) | ConfigMap SANs don't match API SANs | Ensure exact match; manual certgen if needed |
 | `invalid peer certificate: UnknownIssuer` | Self-signed CA - CLI doesn't trust gateway CA | Use `OPENSHELL_GATEWAY_INSECURE=true` or trust CA |
 | OIDC discovery fails with TLS error | Gateway can't reach IdP (private CA) | Create `gateway-trusted-ca` ConfigMap |
-| `peer sent no certificates` + `upstream connect error or disconnect/reset before headers` | Gateway requires client certs (mTLS) but ingress proxy cannot present one | Ensure `route.enabled` is true so `client_ca_path` is stripped from config |
+| `peer sent no certificates` + `upstream connect error or disconnect/reset before headers` | Gateway requires client certs (mTLS) but ingress proxy cannot present one | Ensure `route.enabled` is true so the control plane sets `server.tls.enableMtls=false` in Gateway API routing mode |
 
 ---
 
