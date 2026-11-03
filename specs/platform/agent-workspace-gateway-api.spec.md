@@ -3,7 +3,6 @@
 **Date:** 2026-10-18
 **Status:** Active
 **Jira:** HYPERSHELL-412
-**Supersedes the mechanism of:** HYPERSHELL-410 (#604) and its activation (#606/#607) - the bespoke `AgentWorkspaceProvisioning` gateway gRPC contract
 **Related:** [`extension-api-openshell-api-mapping.spec.md`](./extension-api-openshell-api-mapping.spec.md) (the 1:1 Extension-API to OpenShell-API map), [`data-model.spec.md`](./data-model.spec.md) (AgentRuntime, AgentWorkspace, WorkspaceMembership, ProviderBinding, InferenceRoute kinds; "Gateway-Side Provisioning"), [`control-plane.spec.md`](./control-plane.spec.md) ("AgentRuntime Reconciliation", the `ProviderRealizer` seam), [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md) (credentials realized as OpenShell providers; rotation ownership split by strategy - OpenShell for native strategies, a bounded control-plane rotator for GitHub), [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) (the per-gateway admin-connection provisioning channel this reuses the discipline of), [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) (the gateway-provider Vault plane), [`openshell-inference-routing.spec.md`](./openshell-inference-routing.spec.md) (the `inference.local` route this configures)
 
 ## Purpose
@@ -24,29 +23,6 @@ of record for what is actually provisioned on it: the workspace, its memberships
 `inference.local` to a provider and model. The `ProviderRealizer` seam in the
 `AgentRuntimeReconciler` ([`control-plane.spec.md`](./control-plane.spec.md)) is the client of
 OpenShell's existing API.
-
-### Supersession: the bespoke gateway gRPC contract is retired
-
-HYPERSHELL-410 (#604) defined a new `AgentWorkspaceProvisioning` gRPC service (proto, generated
-stubs, and a control-plane client that dials a dedicated endpoint), which #606/#607 activated.
-That mechanism is backwards: it implies OpenShell must grow a server for a HyperShell-specific
-contract, when OpenShell already exposes the exact provisioning operations through its existing
-API (the operations the `openshell` CLI drives, which `bases/agents/sdlc-coordinator/run.sh`
-uses in production today). This specification supersedes that mechanism. It keeps the
-`ProviderRealizer` seam, the provider model, the `app-installation-token` resolver, cluster-local
-Vault material, the `SecretPending` gate, and realize-before-prune; only the realizer's **adapter**
-changes - from "dial a bespoke `AgentWorkspaceProvisioning` endpoint" to "call OpenShell's
-existing provisioning API as the gateway admin identity."
-
-The following artifacts of the superseded mechanism SHALL be removed in the code/reconcile phase
-(this spec is design-only and defines no Go, proto, or OpenAPI code):
-
-- the `AgentWorkspaceProvisioning` proto
-  (`components/api-server/proto/hypershell/gateway/v1/workspace_provisioning.proto`) and its
-  generated stubs;
-- the control-plane client/adapter that dials a bespoke provisioning endpoint
-  (the `workspace_provisioner` dialing path and its `WorkspaceProvisioningPort` bespoke binding);
-- the `HYPERSHELL_GATEWAY_PROVISIONING_ENDPOINT` configuration gate.
 
 ### Scope boundary
 
@@ -136,7 +112,7 @@ operation that failed; they SHALL NOT include the credential or the durable prov
 - GIVEN an `AgentRuntime` to realize
 - WHEN the control plane provisions its workspace graph
 - THEN it SHALL call OpenShell's existing provisioning API (the operations the `openshell` CLI drives) as the gateway admin identity
-- AND it SHALL NOT dial a bespoke `AgentWorkspaceProvisioning` endpoint and SHALL NOT shell out to the `openshell` CLI
+- AND it SHALL NOT dial a bespoke HyperShell-defined gateway gRPC endpoint and SHALL NOT shell out to the `openshell` CLI
 
 #### Scenario: AGT-WSP-01.03 -- Admin credential never leaks
 
@@ -480,11 +456,10 @@ This spec SHALL remain consistent with that mapping.
 
 | Decision | Rationale |
 |----------|-----------|
-| Consume OpenShell's existing API, not a bespoke gateway gRPC contract | OpenShell already exposes workspace, member, provider, refresh, and inference operations (the `openshell` CLI drives them; `sdlc-coordinator` uses them in production). A HyperShell-specific `AgentWorkspaceProvisioning` service would make OpenShell implement a contract for a convenience layer that should consume, not extend, OpenShell's own API |
+| Consume OpenShell's existing API, not a bespoke gateway gRPC contract | OpenShell already exposes workspace, member, provider, refresh, and inference operations (the `openshell` CLI drives them; `sdlc-coordinator` uses them in production). A HyperShell-specific gateway gRPC service would make OpenShell implement a contract for a convenience layer that should consume, not extend, OpenShell's own API |
 | Keep the `ProviderRealizer` seam; change only its adapter | The seam, the provider model, the `SecretPending` gate, realize-before-prune, and cluster-local material all stay; only the realizer's target changes from a bespoke endpoint to OpenShell's existing API, minimizing churn |
 | Gateway admin OIDC identity, short-lived session per operation | Matches how the coordinator authenticates to the gateway and keeps one operational and failure/retry discipline, reusing the per-operation admin-connection pattern of the database channel without reusing a bespoke contract |
 | Use the `openshell` CLI operation surface as the authoritative API, wire details CONFIRM-AGAINST-UPSTREAM | OpenShell's server source is not reachable from this repository; grounding in the CLI operations keeps the spec real and defers exact endpoints/field names to OpenShell upstream without fabricating them |
-| Retire the bespoke proto, client, and `HYPERSHELL_GATEWAY_PROVISIONING_ENDPOINT` gate | Leaving them would preserve the superseded "OpenShell must implement our contract" mechanism; removing them makes the OpenShell-API-consumption model the only path |
 | Carry durable material; mint only the GitHub token, through the provider API | Keeps the realization consistent with `agent-secret-late-binding.spec.md`: for OpenShell-refreshed strategies OpenShell holds and rotates the usable credential; for GitHub the control plane mints the installation token from the PEM and sets it through `provider update --credential`. In no case does the control plane place or rotate a raw Kubernetes `Secret` |
 
 ## References
