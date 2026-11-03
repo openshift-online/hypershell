@@ -137,10 +137,13 @@ Before applying a transition the post-script re-reads GitHub and:
   recorded it, or if the agent's reviewed `head_sha` does not match.
 - Requires an open, non-draft PR with known mergeability and no confirmed
   conflicts, and gates code-review approval on the PR head's checks being green. When the base
-  branch defines required status checks in branch protection, the gate is scoped
+  branch defines required status checks through classic branch protection or
+  active repository/organization rulesets, the gate combines their contexts and is scoped
   to those contexts only (an advisory or always-pending non-required check does
   not block, and a required context that has not reported yet is treated as
-  pending). When branch protection is unreadable or defines no required checks,
+  pending). Failed API responses, including the classic protection endpoint's
+  404 response on a ruleset-only repository, are discarded. Rules are paginated.
+  When neither source supplies required contexts,
   the gate falls back to requiring every reported signal green.
 - Counts prior rejections from the issue timeline (never from the result) since
   the most recent removal of `agent/blocked`, and adds `agent/blocked` when the
@@ -223,14 +226,15 @@ The tooling splits by hook:
 
 `curl` is deliberately unavailable (base policy). The minted token uses the
 harness `role:` and needs permission to read and write issue labels and to read
-pull requests and checks. Branch-protection read is optional: reading
+pull requests and checks. Classic branch-protection read is optional: reading
 `required_status_checks` needs repository administration (read) permission, which
 a least-privilege runner token may lack. When the token can read it, the
-code-review approval gate is scoped to the required contexts; when it cannot (403)
-or the base branch has no required checks, the gate safely falls back to requiring
-every reported signal green, and that fallback is the operative gate. Grant the
-runner token branch-protection read if you need the scoped behavior in
-production.
+code-review approval gate combines those contexts with the required checks from
+`repos/{owner}/{repo}/rules/branches/{branch}`. That endpoint resolves active
+rulesets applying to the branch. An unavailable source never contributes its error
+body as a context. When neither source yields required checks, the gate falls
+back to requiring every reported signal green. Ensure the runner can read
+applicable protection and rules if you need the scoped behavior in production.
 
 ## Recovery (SDLC-HOOK-10)
 

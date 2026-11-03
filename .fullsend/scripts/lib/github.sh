@@ -170,19 +170,28 @@ gh_linked_pr_number() {
   return 0
 }
 
-# Print the branch-protection required status check context names for branch
-# <branch> of <repo>, one per line. Combines the legacy `contexts` list and the
-# newer `checks[].context` objects. A 404 (no protection) or 403 (no permission)
-# is a definitive "no required contexts", not a transient error, so this does a
-# single attempt and never retries; it prints nothing in that case and the caller
-# falls back to the all-signals gate.
+# Union classic branch protection and all active rulesets applying to the branch.
+# Failed gh requests can write JSON error bodies to stdout. Never interpret those
+# bodies as context names. If neither source yields contexts, use the documented
+# all-signals fallback in gh_pr_checks_state.
 gh_required_contexts() {
-  local repo="$1" branch="$2" out
+  local repo="$1" branch="$2" classic="" rules="" pages
   [[ -z "${branch}" ]] && return 0
-  out="$(gh api \
+  if ! classic="$(gh api \
     "repos/${repo}/branches/$(_gh_urlencode "${branch}")/protection/required_status_checks" \
-    --jq '[.contexts[]?] + [.checks[]?.context] | .[]' 2>/dev/null || true)"
-  printf '%s' "${out}" | awk 'NF' | awk '!seen[$0]++'
+    --jq '[.contexts[]?] + [.checks[]?.context] | .[]' 2>/dev/null)"; then
+    classic=""
+  fi
+  if pages="$(gh api "repos/${repo}/rules/branches/$(_gh_urlencode "${branch}")" \
+    --paginate --slurp 2>/dev/null)"; then
+    if ! rules="$(printf '%s' "${pages}" | jq -r '
+      .[][] | select(.type == "required_status_checks") |
+      .parameters.required_status_checks[]?.context | select(type == "string" and length > 0)
+    ' 2>/dev/null)"; then
+      rules=""
+    fi
+  fi
+  printf '%s\n%s\n' "${classic}" "${rules}" | awk 'NF' | awk '!seen[$0]++'
 }
 
 # Normalize a check-runs array (stdin) to "<name>\t<state>" lines, where state is
@@ -221,13 +230,14 @@ _gh_reduce_states() {
 # Prints "green", "pending", or "failing".
 #
 # When the pull request's base branch defines required status checks in branch
-# protection, the gate is scoped to those contexts only, so an advisory or
+# protection or active rulesets, the gate is scoped to those contexts only. An advisory or
 # always-pending non-required check never blocks an approval. A required context
 # that has not reported yet is "pending" (not green), so an approval is never
 # applied before a required check runs.
 #
-# When branch protection is unreadable (no permission) or defines no required
-# checks, the gate falls back to requiring EVERY reported signal to be green,
+# When neither source supplies required contexts (absent or unreadable), the gate
+# falls back to requiring EVERY reported signal to be green. No required
+# list is inferred from an API error response; the fallback includes signals
 # across BOTH the Checks API (check-runs, e.g. GitHub Actions) and the classic
 # Statuses API (status contexts, e.g. Prow/OpenShift). This all-signals fallback
 # is intentional: with no required-check list to scope to, the safe choice is to

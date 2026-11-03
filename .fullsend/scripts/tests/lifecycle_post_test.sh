@@ -55,7 +55,8 @@ esac
 case "${path}" in
   */commits/*/check-runs) if [[ -n "${MOCK_CHECKRUN_PAGES:-}" ]]; then printf '%s' "${MOCK_CHECKRUN_PAGES}"; exit 0; fi; jq -cn --argjson runs "${MOCK_CHECKRUNS:-[]}" '[{check_runs:$runs}]'; exit 0;;
   */commits/*/status) printf '%s' "${MOCK_STATUSES:-[]}"; exit 0;;
-  */protection/required_status_checks) printf '%s' "${MOCK_REQUIRED:-}"; exit 0;;
+  */rules/branches/*) printf '%s' "${MOCK_RULE_PAGES:-[[]]}"; exit 0;;
+  */protection/required_status_checks) if [[ "${MOCK_PROTECTION_ERROR:-0}" == 1 ]]; then printf '{"message":"Branch not protected","status":"404"}'; exit 1; fi; printf '%s' "${MOCK_REQUIRED:-}"; exit 0;;
   */timeline) if [[ -n "${MOCK_TIMELINE_PAGES:-}" ]]; then printf '%s' "${MOCK_TIMELINE_PAGES}"; exit 0; fi; jq -cn --argjson events "${MOCK_TIMELINE:-[]}" '[$events]'; exit 0;;
   */pulls/*)
     case "${jqexpr}" in
@@ -763,6 +764,19 @@ _run code-review '{"schema_version":"1","phase":"code-review","outcome":"rejecte
 if [[ $? == 0 ]] && _has_label "${S}" agent/review-code-rejected && _has_label "${S}" agent/blocked && ! _has_label "${S}" agent/reviewable-code; then
  _ok "rejection counting includes every timeline page without incompatible gh flags"
 else _no "rejection counting includes every timeline page without incompatible gh flags" "$(cat "${WORK}/pages-rejected.out")"; fi
+
+# Verifies: SDLC-HOOK-07.03
+# Real gh emits a JSON body on stdout even when branch protection returns 404.
+# Ruleset-required checks must still permit approval and the linked PR label.
+_seed "${S}" agent/allowed agent/reviewable-code
+_run code-review "${APPROVED}" MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 \
+ LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 MOCK_PROTECTION_ERROR=1 \
+ MOCK_RULE_PAGES='[[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"ci-required"}]}}]]' \
+ MOCK_CHECKRUNS='[{"name":"ci-required","id":2,"status":"completed","conclusion":"success"},{"name":"advisory","id":1,"status":"in_progress","conclusion":null}]' \
+ > "${WORK}/ruleset-green.out" 2>&1
+if [[ $? == 0 ]] && _has_label "${S}" agent/review-code-approved && _has_label "${S}.pr" agent/review-code-approved; then
+ _ok "ruleset approval survives classic 404 body and ignores advisory pending check"
+else _no "ruleset approval survives classic 404 body and ignores advisory pending check" "$(cat "${WORK}/ruleset-green.out")"; fi
 
 printf '\n%d passed, %d failed\n' "${PASS}" "${FAIL}"
 [[ "${FAIL}" -eq 0 ]]

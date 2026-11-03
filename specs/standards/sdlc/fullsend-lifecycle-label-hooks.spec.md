@@ -343,6 +343,13 @@ eligibility to advance. Code approval requires an open, non-draft PR with known
 mergeability, no confirmed conflicts, green required checks, and an unchanged
 reviewed head. The head and base SHALL be checked again before granting the PR
 queue label. Unknown mergeability SHALL defer approval, not authorize it.
+Required contexts SHALL include the union of classic branch protection and all
+active rulesets applying to the base branch, including paginated rules. Failed
+API response bodies SHALL NOT be interpreted as check names. If neither source
+supplies contexts, the gate SHALL require all reported check-run and commit-status
+signals to pass, and SHALL defer if no signals have reported. A missing required
+context SHALL remain pending; an advisory context SHALL NOT block a known set
+of green required contexts.
 
 A review result SHALL be rejected as stale if the reviewed pull request head
 commit changed after the review. A stale review result SHALL NOT advance the
@@ -362,6 +369,15 @@ workflow.
 - GIVEN a validated code-review approval whose required checks are not green
 - WHEN the post-script evaluates eligibility
 - THEN the approval transition is not applied as eligible per the contract
+
+#### Scenario: SDLC-HOOK-07.03 -- Ruleset protection with a classic 404
+
+- GIVEN classic branch protection returns HTTP 404 with a JSON error body
+- AND applicable rulesets define required status checks
+- WHEN the gate evaluates a validated approval
+- THEN it uses the ruleset contexts and discards the classic error body
+- AND approval is eligible only when all required contexts are green
+- AND an unreported or failing required context still prevents approval
 
 ### Requirement: SDLC-HOOK-08 -- Post-Script Applies and Verifies Transitions
 

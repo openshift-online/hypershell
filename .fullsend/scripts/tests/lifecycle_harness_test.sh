@@ -79,6 +79,7 @@ esac
 case "${path}" in
   */commits/*/check-runs) jq -cn --argjson runs "${MOCK_CHECKRUNS:-[]}" '[{check_runs:$runs}]'; exit 0;;
   */commits/*/status) printf '%s' "${MOCK_STATUSES:-[]}"; exit 0;;
+  */rules/branches/*) printf '[[]]'; exit 0;;
   */protection/required_status_checks) printf '%s' "${MOCK_REQUIRED:-}"; exit 0;;
   */timeline) jq -cn --argjson events "${MOCK_TIMELINE:-[]}" '[$events]'; exit 0;;
   */pulls/*)
