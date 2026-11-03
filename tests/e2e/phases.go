@@ -277,6 +277,11 @@ func (s *E2ESuite) p1_1Provisioning(t *testing.T) {
 	s.Logf("primary gateway %s (%s) provisioned to Running in %s (TTR)", s.primary.Name, s.primary.ID, s.primaryProvisionDuration)
 }
 
+// p1_2InfraVerification inspects the primary gateway's Kubernetes resources:
+// Deployment, Service, server TLS secret, cert-manager Certificates, database
+// credentials, and NetworkPolicy posture. The step is registered long-only, so
+// every check here runs only in long mode.
+// Verifies: E2E-CORE-13.04
 func (s *E2ESuite) p1_2InfraVerification(t *testing.T) {
 	s.ensurePrimaryGateway(t)
 	s.logger.Additionalf("verify gateway deployment, service, TLS, and database configuration")
@@ -308,9 +313,7 @@ func (s *E2ESuite) p1_2InfraVerification(t *testing.T) {
 	s.Assert().GreaterOrEqual(int(readyReplicas), 1, "gateway deployment ready replicas")
 	s.Assert().NotEmpty(clusterIP, "gateway service ClusterIP")
 
-	s.longOnly("tls-database-config", func(t *testing.T) {
-		s.assertGatewayInfraDetails(t, ns)
-	})
+	s.assertGatewayInfraDetails(t, ns)
 }
 
 // assertGatewayInfraDetails checks the gateway's TLS, database credentials,

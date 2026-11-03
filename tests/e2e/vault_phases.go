@@ -27,7 +27,7 @@ const (
 //
 // The control-plane suite owns the behaviors the control plane is responsible for:
 //   - the flat-vault-default happy path (a gateway provisions vault-backed, the serving CA
-//     is mirrored, no KEK) is asserted in the short suite by p1_2InfraVerification;
+//     is mirrored, no KEK) is asserted in the long suite by p1_2InfraVerification;
 //   - the real gateway-process resolve under its per-tenant mount
 //     (openshell-gw/<namespace>/.../provider-credentials/*) is exercised end-to-end by the
 //     sandbox lifecycle (p2_1), which drives the actual OpenShell gateway, not a stand-in;
