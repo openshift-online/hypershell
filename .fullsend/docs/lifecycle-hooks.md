@@ -307,3 +307,10 @@ not trigger conflict repair; previously approved records are returned to review
 while eligibility is uncertain. Human blocks and authorization/scope revocation
 stop maintenance writes. A CI or mergeability change is not itself a new code
 review approval, and new head commits still need fresh review.
+
+
+`lifecycle_preflight_test.sh` loads both review harnesses through the installed
+Fullsend CLI using dummy settings and a failing OpenShell stub. It verifies
+that native environment validation succeeds without opening a gateway or
+creating a sandbox. Review preflight commands contain no shell temporary
+`${...}` expressions, which Fullsend would interpret as host-variable templates.

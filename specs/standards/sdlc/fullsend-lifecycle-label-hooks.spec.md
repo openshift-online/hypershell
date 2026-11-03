@@ -546,6 +546,13 @@ across polling, retries, and partial GitHub writes.
 
 ### Requirement: SDLC-HOOK-13 -- Automated Tests and Documentation
 
+Review harness preflight commands SHALL be accepted by Fullsend's native host
+environment validation. Internal shell temporaries SHALL NOT be expressed as
+host-variable templates. Tests with an installed Fullsend binary SHALL load both
+review harnesses using dummy host settings and prevent all gateway execution,
+so shell tests alone cannot miss interpolation errors in the native loader.
+
+
 The transition behavior SHALL be covered by automated tests that exercise all
 allowed transitions and invalid starting states, including: missing or malformed
 JSON and unsupported outcomes; incorrect issue or pull request references; a pull

@@ -31,7 +31,7 @@ validation_loop:
   # read-only validation, and the fullsend CLI the post-script requires to post the
   # verdict review comment. A missing fullsend fails fast here with a clear message
   # instead of wedging every verdict in the post-script's required-comment loop.
-  preflight_check: 'missing=""; python3 -I -c "import jsonschema" 2>/dev/null || missing="python3 jsonschema (validation)"; command -v fullsend >/dev/null 2>&1 || missing="${missing:+${missing} and }the fullsend CLI (verdict review comment)"; if [ -n "${missing}" ]; then echo "code-review harness needs ${missing} on the runner" >&2; exit 1; fi'
+  preflight_check: 'python3 -I -c "import jsonschema" && command -v fullsend >/dev/null 2>&1 || { echo "code-review harness needs python3 with jsonschema and the fullsend CLI on PATH" >&2; exit 1; }'
 env:
   runner:
     FULLSEND_FORGE: github
