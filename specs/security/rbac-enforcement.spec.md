@@ -1243,9 +1243,10 @@ its bindings are assigned via Keycloak and reconciled by `SyncJWTRoles` exactly 
 A migration SHALL also seed the `ci-federation:admin` role record with
 `built_in: true` ("CI Federation Administrator", a display name and description
 naming its scope as `ci_providers` registration only; see "Requirement: CI
-Federation Admin Role", SEC-RBAC-21). Like `gateway:dedicated-route-creator`, it
-IS JWT-synced: its bindings are assigned via Keycloak and reconciled by
-`SyncJWTRoles`. The migration SHALL be additive and idempotent, mirroring the
+Federation Admin Role", SEC-RBAC-21). Unlike `gateway:dedicated-route-creator`, it
+is NOT JWT-synced: it is NOT in `JWTSyncedRoles`, its bindings are granted through
+the RoleBinding API by a `platform:admin` or `ci-federation:grantor` (SEC-RBAC-23),
+and `SyncJWTRoles` SHALL never revoke them. The migration SHALL be additive and idempotent, mirroring the
 `gateway:admin` seed: re-running it SHALL NOT error and SHALL NOT alter existing
 bindings.
 
