@@ -72,7 +72,15 @@ pass "gateway Running in namespace ${GW_NAMESPACE}"
 wait_for_gateway_route "${GW_NAME}" "${GW_NAMESPACE}"
 discover_gateway_endpoint "${GW_NAME}" "${GW_NAMESPACE}"
 GW_LOCAL_NAME="${GW_NAMESPACE}-openshell"
-GW_KC_CLIENT_ID="${GW_NAME}-${GW_ID}"
+# The gateway's stored Keycloak client ID (oidc.client_id): the gateway ID for
+# new gateways, {name}-{id} for older ones.
+GW_KC_CLIENT_ID="$(api_curl "${_DISCOVER_API_HOST}/api/hypershell/v1/gateways/${GW_ID}" | python3 -c '
+import json, sys
+oidc = json.load(sys.stdin).get("oidc") or {}
+if isinstance(oidc, str):
+    oidc = json.loads(oidc) if oidc else {}
+print(oidc.get("client_id", ""))')"
+[[ -n "${GW_KC_CLIENT_ID}" ]] || { fail_test "gateway ${GW_ID} has no stored Keycloak client ID"; exit 1; }
 acquire_gateway_token_with_role "${E2E_OIDC_USERNAME:-admin}" "${E2E_OIDC_PASSWORD:-admin}" "${GW_KC_CLIENT_ID}" openshell-admin
 GW_CONFIG_DIR="${HOME}/.config/openshell/gateways/${GW_LOCAL_NAME}"
 mkdir -p "${GW_CONFIG_DIR}"

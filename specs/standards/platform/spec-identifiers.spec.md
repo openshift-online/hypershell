@@ -63,7 +63,9 @@ A requirement that exists only to document a retained, deprecated, or
 historical behavior MAY use `### Legacy compatibility: <ID> -- <Name>`
 instead of `### Requirement:`. It still carries an ID and still numbers its
 scenarios the same way; the different heading word signals to readers that
-the behavior is being preserved, not newly specified.
+the behavior is being preserved, not newly specified. When the behavior is
+meant to be removed later, it SHALL live in a transitional spec file
+(STD-IDS-09).
 
 No other heading form is valid for a new or edited requirement or scenario.
 
@@ -276,6 +278,53 @@ closing them is planned work.
 - THEN `OSG-TLS-05` SHALL be counted as verified by inspection
 - AND it SHALL NOT appear in the uncovered list
 
+### Requirement: STD-IDS-09 -- Transitional Specs
+
+Behavior that the system keeps only for a limited time SHALL be specified in
+its own transitional spec file, never inside a permanent spec. Typical cases
+are compatibility with data or clients created before a change, objects needed
+only during a migration, and old formats still accepted while they drain.
+
+A transitional spec file:
+
+1. SHALL be named `<parent>.transitional.spec.md`, next to the parent spec it
+   amends, where `<parent>` is the parent file's name without `.spec.md`.
+2. SHALL have its own `MODULE-GROUP` prefix, registered in `specs/ids.md`.
+3. SHALL declare its requirements with `### Legacy compatibility:` headings.
+4. SHALL start with a callout that states:
+   - **Transitional:** why the behavior exists and which change made it
+     temporary;
+   - **Remove when:** a condition that can be checked, not a date;
+   - **Check:** how to test the condition, such as a query or a command;
+   - **On removal:** what to delete in specs, code, and tests.
+
+The parent spec SHALL describe only the permanent behavior. It SHALL link to
+the transitional file in one short note where the transitional behavior
+applies, so readers of the parent know it exists.
+
+Code that exists only for a transitional requirement SHALL carry a comment
+naming the transitional ID, and tests for it SHALL cite that ID in a
+`Verifies:` marker (STD-IDS-07).
+
+When the removal condition holds, the transitional file SHALL be deleted
+along with the code it covers, and its IDs SHALL be retired (STD-IDS-04).
+The marker check (STD-IDS-07.02) then reports every test that still cites a
+deleted ID.
+
+#### Scenario: STD-IDS-09.01 -- Listing every transitional behavior
+
+- GIVEN several specs keep behavior for older data
+- WHEN a contributor lists `specs/**/*.transitional.spec.md`
+- THEN the list SHALL contain every transitional requirement in the repository
+- AND each file SHALL state its removal condition and how to check it
+
+#### Scenario: STD-IDS-09.02 -- Removing a transitional spec
+
+- GIVEN the removal condition of `openshell-gateway-keycloak.transitional.spec.md` holds
+- WHEN a contributor deletes the file and retires its IDs
+- THEN `make check` SHALL fail on each `Verifies:` marker that still cites a deleted ID
+- AND the parent spec SHALL need no change other than removing its link note
+
 ## Decisions Recorded (from HYPERSHELL-419 / issue #636)
 
 1. **A spec is each requirement, not each file.** A file gets one
@@ -308,20 +357,3 @@ closing them is planned work.
    "which commit delivered this requirement" a `git log --grep` search;
    requiring a second, PR-body-only field would duplicate that without
    surviving the squash-merge.
-
-## Migration Note
-
-This change renumbers 918 requirements and assigns IDs to 1747 scenarios
-across 90 spec files. Every reference to a changed ID elsewhere in `specs/`
-was rewritten in the same change (698 rewritten cross-references). Five
-`#### Scenario:` headings were left unlabeled because they illustrate
-behavior in a narrative section outside any file's `## Requirements`
-section (`platform/oidc-integration.spec.md` and
-`standards/sdlc/jira-github-sync.spec.md`). The follow-up change renamed
-them to `#### Example:` so they no longer look like scenarios.
-
-Code and test files that cited a pre-migration ID were rewritten to the
-new IDs in a follow-up change, which also added the STD-IDS-06 check to
-`make check`. That change also renamed a few IDs added after the migration
-in the old style; they are listed under "Later Renames" in
-`specs/id-rename-map.md`.

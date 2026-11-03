@@ -264,10 +264,6 @@ func DeleteGatewayResources(
 
 	if opts.KeycloakClient != nil && opts.GatewayID != "" {
 		kcClientID := opts.GatewayClientID
-		// Defensive for other callers; GatewayReconciler already passes the validated stored identity, including name-id fallback.
-		if kcClientID == "" && opts.GatewayName != "" {
-			kcClientID = fmt.Sprintf("%s-%s", opts.GatewayName, opts.GatewayID)
-		}
 		if kcClientID == "" {
 			return fmt.Errorf("gateway identity is required for cleanup")
 		}
@@ -1269,13 +1265,13 @@ func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig *
 		opts.Keycloak.ClientSecret,
 	)
 
-	if opts.GatewayName == "" {
-		return fmt.Errorf("gateway name is required for keycloak provisioning")
-	}
 	if opts.GatewayID == "" {
 		return fmt.Errorf("gateway ID is required for keycloak provisioning")
 	}
-	kcClientID := fmt.Sprintf("%s-%s", opts.GatewayName, opts.GatewayID)
+	kcClientID := opts.GatewayClientID
+	if kcClientID == "" {
+		return fmt.Errorf("gateway client ID is required for keycloak provisioning")
+	}
 
 	existingUUID, err := kc.GetClientUUID(ctx, kcClientID)
 	if err != nil {

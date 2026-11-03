@@ -224,6 +224,7 @@ func (st *primaryGatewayState) provision(s *E2ESuite, t *testing.T) {
 
 	running := s.waitGatewayRunning(t, created.ID)
 	st.ref.Namespace = running.Namespace
+	st.ref.ClientID = s.requireGatewayClientID(running)
 	st.workspaceMode = running.WorkspaceMode
 	s.Require().Equal("Running", running.Phase, "primary gateway must reach Running")
 	s.Require().NotEmpty(running.RouteAddress, "running primary gateway publishes route_address")
@@ -428,8 +429,7 @@ func certificateReady(certificate *unstructured.Unstructured) bool {
 // so it runs in isolation.
 func (s *E2ESuite) p1_3TokenAndCATrust(t *testing.T) {
 	s.ensurePrimaryGateway(t)
-	// The per-gateway Keycloak client is "<gw-name>-<gw-id>".
-	clientID := fmt.Sprintf("%s-%s", s.primary.Name, s.primary.ID)
+	clientID := s.primary.ClientID
 	s.Require().NotEmpty(s.primaryGatewayToken.AccessToken, "primary gateway token acquired in setup")
 	s.longOnly("device-authorization", func(t *testing.T) {
 		if s.driver.Name() != "kind" {
@@ -478,7 +478,7 @@ func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
 	gw := s.createGateway(t, "e2e-sbx-"+s.runID)
 	s.trackGateway(gw.ID)
 	running := s.waitGatewayRunning(t, gw.ID)
-	ref := driver.GatewayRef{Name: running.Name, Namespace: running.Namespace, ID: running.ID}
+	ref := driver.GatewayRef{Name: running.Name, Namespace: running.Namespace, ID: running.ID, ClientID: s.requireGatewayClientID(running)}
 	endpoint, err := gatewayEndpointFromRouteAddress(running.RouteAddress)
 	s.Require().NoError(err, "derive sandbox gateway endpoint from API route_address")
 

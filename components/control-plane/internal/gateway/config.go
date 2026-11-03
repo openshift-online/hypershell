@@ -230,9 +230,9 @@ type RouteCertificateConfig struct{}
 
 type OIDCConfig struct {
 	Issuer string `yaml:"issuer" json:"issuer,omitempty"`
-	// ClientID is client-facing metadata (the per-gateway Keycloak clientId,
-	// formatted as {name}-{id}) that the console and CLI need for `openshell gateway
-	// add`. It is surfaced on the Gateway resource but not written to gateway.toml,
+	// ClientID is client-facing metadata (the per-gateway Keycloak clientId: the
+	// gateway ID, or {name}-{id} on gateways provisioned before that) that the
+	// console and CLI need for `openshell gateway add`. It is surfaced on the Gateway resource but not written to gateway.toml,
 	// since the gateway server validates issuer and audience, not client id.
 	ClientID    string `yaml:"client_id" json:"client_id,omitempty"`
 	Audience    string `yaml:"audience" json:"audience,omitempty"`
@@ -292,7 +292,8 @@ type ReconcileOpts struct {
 	UpdateOIDC func(ctx context.Context, oidcJSON string) error
 	// GatewayName is the user-visible name of the gateway being reconciled.
 	GatewayName string
-	// GatewayClientID is the validated identity recorded during provisioning.
+	// GatewayClientID is the gateway's validated Keycloak client ID: the stored
+	// identity, or the gateway ID for a gateway whose client is not provisioned yet.
 	GatewayClientID string
 	// KeycloakClient is a Keycloak Admin REST API client for cleanup operations.
 	// Used during gateway deletion to remove the Keycloak OIDC client.

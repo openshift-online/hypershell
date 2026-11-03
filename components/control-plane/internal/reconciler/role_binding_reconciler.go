@@ -233,15 +233,19 @@ func isNotFoundRPC(err error) bool {
 	return false
 }
 
-// resolveKeycloakClientID looks up the gateway by ID and returns the Keycloak
-// client ID in the {name}-{id} format specified by the Keycloak provisioning
-// spec, plus the cluster the gateway is assigned to so the caller can tell
-// whether this control plane owns it.
+// resolveKeycloakClientID looks up the gateway by ID and returns its stored
+// Keycloak client ID (see gatewayKeycloakClientID), plus the cluster the
+// gateway is assigned to so the caller can tell whether this control plane
+// owns it.
 func (r *RoleBindingReconciler) resolveKeycloakClientID(ctx context.Context, gatewayID string) (string, string, error) {
 	client := pb.NewGatewayServiceClient(r.grpcConn)
 	resp, err := client.GetGateway(ctx, &pb.GetGatewayRequest{Id: gatewayID})
 	if err != nil {
 		return "", "", fmt.Errorf("get gateway %s: %w", gatewayID, err)
 	}
-	return fmt.Sprintf("%s-%s", resp.GetGateway().GetName(), gatewayID), resp.GetGateway().GetClusterId(), nil
+	clientID, err := gatewayKeycloakClientID(gatewayID, resp.GetGateway())
+	if err != nil {
+		return "", "", fmt.Errorf("resolve Keycloak client for gateway %s: %w", gatewayID, err)
+	}
+	return clientID, resp.GetGateway().GetClusterId(), nil
 }
