@@ -25,15 +25,13 @@ func TestValidatePlacementIntentNormalizesSelectorAndExcludedSelector(t *testing
 	}
 }
 
-func TestValidatePlacementIntentRejectsExcludedSelectorForLocalKind(t *testing.T) {
-	mode := "local-kind"
+func TestValidatePlacementIntentRejectsMissingSelector(t *testing.T) {
 	intent := openapi.GatewayPlacementIntent{
-		Mode:             &mode,
 		ExcludedSelector: []string{"runtime/kata"},
 	}
 
 	if svcErr := validatePlacementIntent(&intent); svcErr == nil {
-		t.Fatal("expected local-kind placement with excludedSelector to be rejected")
+		t.Fatal("expected a placement without a selector to be rejected")
 	}
 }
 

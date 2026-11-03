@@ -5,13 +5,12 @@
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **Placements** | [**[]GatewayPlacementAvailabilityItem**](GatewayPlacementAvailabilityItem.md) |  |
-**LocalKind** | **bool** |  |
 
 ## Methods
 
 ### NewGatewayPlacementAvailability
 
-`func NewGatewayPlacementAvailability(placements []GatewayPlacementAvailabilityItem, localKind bool, ) *GatewayPlacementAvailability`
+`func NewGatewayPlacementAvailability(placements []GatewayPlacementAvailabilityItem, ) *GatewayPlacementAvailability`
 
 NewGatewayPlacementAvailability instantiates a new GatewayPlacementAvailability object
 This constructor will assign default values to properties that have it defined,
@@ -44,26 +43,6 @@ and a boolean to check if the value has been set.
 `func (o *GatewayPlacementAvailability) SetPlacements(v []GatewayPlacementAvailabilityItem)`
 
 SetPlacements sets Placements field to given value.
-
-
-### GetLocalKind
-
-`func (o *GatewayPlacementAvailability) GetLocalKind() bool`
-
-GetLocalKind returns the LocalKind field if non-nil, zero value otherwise.
-
-### GetLocalKindOk
-
-`func (o *GatewayPlacementAvailability) GetLocalKindOk() (*bool, bool)`
-
-GetLocalKindOk returns a tuple with the LocalKind field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetLocalKind
-
-`func (o *GatewayPlacementAvailability) SetLocalKind(v bool)`
-
-SetLocalKind sets LocalKind field to given value.
 
 
 

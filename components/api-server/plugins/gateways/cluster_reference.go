@@ -13,41 +13,29 @@ import (
 // It returns resolved=true with the selected cluster id when an eligible cluster
 // matches. For a capability-label selector that matches no eligible cluster it
 // returns resolved=false with a nil error, so the caller can late-bind the gateway
-// (create it Pending and awaiting placement) rather than fail. A local-kind intent
-// that cannot be satisfied, and any validation or lookup failure, return a non-nil
-// ServiceError (see gateway-provision-placement.spec.md WEB-PLC-07 and WEB-PLC-08).
+// (create it Pending and awaiting placement) rather than fail. Any validation or
+// lookup failure returns a non-nil ServiceError (see gateway-provision-placement.spec.md
+// WEB-PLC-07).
 type PlacementResolver func(context.Context, openapi.GatewayPlacementIntent) (clusterID string, resolved bool, svcErr *errors.ServiceError)
 type PlacementAvailabilityResolver func(context.Context, [][]string) (openapi.GatewayPlacementAvailability, *errors.ServiceError)
 
 func validatePlacementIntent(intent *openapi.GatewayPlacementIntent) *errors.ServiceError {
-	mode := ""
-	selector := intent.Selector
-	excludedSelector := intent.ExcludedSelector
-	if intent.Mode != nil {
-		mode = *intent.Mode
+	if intent.Selector == nil {
+		return errors.Validation("placement must include a non-empty selector list")
 	}
-	if mode != "" {
-		if mode != "local-kind" || selector != nil || excludedSelector != nil {
-			return errors.Validation("placement mode must be local-kind and cannot include selector or excludedSelector")
-		}
-		return nil
+	normalized, svcErr := managedClusters.NormalizeSelector(intent.Selector)
+	if svcErr != nil {
+		return svcErr
 	}
-	if selector != nil {
-		normalized, svcErr := managedClusters.NormalizeSelector(selector)
+	intent.Selector = normalized
+	if intent.ExcludedSelector != nil {
+		normalized, svcErr = managedClusters.NormalizeSelector(intent.ExcludedSelector)
 		if svcErr != nil {
 			return svcErr
 		}
-		intent.Selector = normalized
-		if excludedSelector != nil {
-			normalized, svcErr = managedClusters.NormalizeSelector(excludedSelector)
-			if svcErr != nil {
-				return svcErr
-			}
-			intent.ExcludedSelector = normalized
-		}
-		return nil
+		intent.ExcludedSelector = normalized
 	}
-	return errors.Validation("placement must include selector or mode")
+	return nil
 }
 
 // RegisteredClusterLookup reports whether id names a ManagedCluster that a

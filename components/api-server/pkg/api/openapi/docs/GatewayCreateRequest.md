@@ -7,7 +7,7 @@ Name | Type | Description | Notes
 **Name** | **string** |  |
 **ClusterId** | Pointer to **string** | Pin the gateway to this managed cluster. Mutually exclusive with placement. | [optional]
 **DedicatedRoute** | Pointer to **bool** | Create-only. Requires the gateway:dedicated-route-creator role and opts the gateway in to a dedicated route and per-gateway wildcard certificate. The platform manages how the dedicated route and certificate are provided. | [optional]
-**Placement** | Pointer to [**NullableGatewayPlacementIntent**](GatewayPlacementIntent.md) |  | [optional]
+**Placement** | Pointer to [**GatewayPlacementIntent**](GatewayPlacementIntent.md) |  | [optional]
 
 ## Methods
 
@@ -123,15 +123,5 @@ SetPlacement sets Placement field to given value.
 
 HasPlacement returns a boolean if a field has been set.
 
-### SetPlacementNil
-
-`func (o *GatewayCreateRequest) SetPlacementNil(b bool)`
-
- SetPlacementNil sets the value for Placement to be an explicit nil
-
-### UnsetPlacement
-`func (o *GatewayCreateRequest) UnsetPlacement()`
-
-UnsetPlacement ensures that no value is present for Placement, not even an explicit nil
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)

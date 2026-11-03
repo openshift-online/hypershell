@@ -17,7 +17,7 @@ func TestGetPlacementAvailabilityAcceptsBatchPost(t *testing.T) {
 			if len(selectors) != 1 {
 				t.Fatalf("selectors = %v", selectors)
 			}
-			return openapi.GatewayPlacementAvailability{LocalKind: true}, nil
+			return openapi.GatewayPlacementAvailability{}, nil
 		},
 	}
 
@@ -28,7 +28,7 @@ func TestGetPlacementAvailabilityAcceptsBatchPost(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 	}
-	if !strings.Contains(response.Body.String(), `"local_kind":true`) {
+	if !strings.Contains(response.Body.String(), `"placements"`) {
 		t.Fatalf("response body = %s", response.Body.String())
 	}
 }

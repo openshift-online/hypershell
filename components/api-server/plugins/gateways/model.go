@@ -20,7 +20,7 @@ type Gateway struct {
 	Namespace string `json:"namespace"`
 	// Placement is the persisted capability-label placement selector for a
 	// late-bound gateway, stored as a JSON-encoded GatewayPlacementIntent
-	// ({"selector":[...]} or {"mode":"local-kind"}). NULL for a gateway pinned with
+	// ({"selector":[...]}). NULL for a gateway pinned with
 	// an explicit ClusterId. The API server resolves it to a concrete ClusterId at
 	// create time and re-evaluates it for late binding. See data-model.spec.md,
 	// "Requirement: Gateway Placement and Late Binding".

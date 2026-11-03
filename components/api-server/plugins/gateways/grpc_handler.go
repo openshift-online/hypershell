@@ -167,10 +167,6 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 			intent.Selector = selector.Selector
 			intent.ExcludedSelector = selector.ExcludedSelector
 			hasPlacement = true
-		} else if req.Placement.GetLocalKind() != nil {
-			mode := "local-kind"
-			intent.Mode = &mode
-			hasPlacement = true
 		} else {
 			return nil, status.Error(codes.InvalidArgument, "placement intent is empty")
 		}
