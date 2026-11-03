@@ -51,7 +51,7 @@ assert_transition "spec-review rejected" spec-review rejected \
 assert_transition "code-impl completed re-opens code review" \
   code-implementation completed \
   "agent/reviewable-code" \
-  "agent/review-code-rejected agent/review-code-approved"
+  "agent/review-code-rejected agent/review-code-approved agent/code-conflicts"
 
 # SDLC-HOOK-01.01 rejected code review ends with one code phase label
 assert_transition "code-review rejected" code-review rejected \

@@ -102,7 +102,7 @@ case "${PHASE}" in
       && _skip "spec already has a review verdict"
     ;;
   code-implementation)
-    if ! { _has "agent/review-spec-approved" || _has "agent/review-code-rejected"; }; then
+    if ! { _has "agent/review-spec-approved" || _has "agent/review-code-rejected" || _has "agent/code-conflicts"; }; then
       _skip "no code-implementation trigger label present"
     fi
     _has "agent/reviewable-code" && _skip "code already reviewable"

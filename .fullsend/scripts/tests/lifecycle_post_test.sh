@@ -45,6 +45,9 @@ done
 _decode() { printf '%s' "${1//\%2F//}"; }
 state="${MOCK_STATE}"
 case "${path}" in
+  */issues/5/labels*) state="${MOCK_PR_LABELS:-${MOCK_STATE}.pr}"; touch "${state}";;
+esac
+case "${path}" in
   */commits/*/check-runs) printf '%s' "${MOCK_CHECKRUNS:-[]}"; exit 0;;
   */commits/*/status) printf '%s' "${MOCK_STATUSES:-[]}"; exit 0;;
   */protection/required_status_checks) printf '%s' "${MOCK_REQUIRED:-}"; exit 0;;
@@ -54,13 +57,15 @@ case "${path}" in
       *base.ref*) printf '%s\t%s' "${MOCK_HEAD_SHA:-}" "${MOCK_BASE_REF:-main}";;
       .head.sha)  printf '%s' "${MOCK_HEAD_SHA:-}";;
       .state)     printf '%s' "${MOCK_PR_STATE:-open}";;
-      *body*)     printf '%s' "${MOCK_PR_BODY:-}";;
+      "") printf '{"head":{"sha":"%s"},"base":{"sha":"base-sha","ref":"main"},"state":"%s","draft":false,"mergeable":%s,"mergeable_state":"%s"}' "${MOCK_HEAD_SHA:-}" "${MOCK_PR_STATE:-open}" "${MOCK_MERGEABLE:-true}" "${MOCK_MERGEABLE_STATE:-clean}";;
+      *body*)     printf '%s' "${MOCK_PR_BODY-Fixes #868}";;
     esac
     exit 0;;
 esac
 case "${method}:${path}" in
   GET:*/issues/*/labels) cat "${state}"; exit 0;;
   POST:*/issues/*/labels)
+    if [[ "${path}" == */issues/5/labels && "${MOCK_PR_ADD_FAIL:-0}" == 1 ]]; then exit 1; fi
     for l in "${adds[@]}"; do grep -qxF "${l}" "${state}" || printf '%s\n' "${l}" >> "${state}"; done
     exit 0;;
   DELETE:*/issues/*/labels/*)
@@ -242,10 +247,10 @@ _run code-implementation \
   MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 \
   > "${WORK}/E.out" 2>&1
 if _has_label "${S}" agent/blocked && _has_label "${S}" agent/review-spec-approved \
-   && _has_label "${S}" agent/reviewable-code; then
-  _ok "code-impl completed preserves a human block and the spec approval"
+   && ! _has_label "${S}" agent/reviewable-code; then
+  _ok "code-impl completion respects a human block and the spec approval"
 else
-  _no "code-impl completed preserves a human block and the spec approval" "$(cat "${WORK}/E.out")"
+  _no "code-impl completion respects a human block and the spec approval" "$(cat "${WORK}/E.out")"
 fi
 
 # ---- Scenario F: invalid outcome is rejected without mutation (HOOK-04.01)-
@@ -683,6 +688,41 @@ if [[ "${rc}" != 0 ]] && [[ "${before}" == "${after}" ]] \
 else
   _no "an unparseable timeline fails the rejection closed with no label change" "rc=${rc} $(cat "${WORK}/Y.out")"
 fi
+
+
+# Approval is a verified transition on both the execution record and linked PR.
+S="${WORK}/PR-mirror.labels"
+_seed "${S}" agent/allowed agent/reviewable-code
+APPROVED='{"schema_version":"1","phase":"code-review","outcome":"approved","rationale":"good","pr_number":5,"head_sha":"abc1234","comment":"approved"}'
+SIGNALS='[{"id":1,"name":"CI","status":"completed","conclusion":"success"}]'
+_run code-review "${APPROVED}" MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 \
+ LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 MOCK_CHECKRUNS="${SIGNALS}" > "${WORK}/mirror.out" 2>&1
+if [[ $? == 0 ]] && _has_label "${S}.pr" agent/review-code-approved && _has_label "${S}" agent/review-code-approved; then
+ _ok "eligible approval labels both the linked PR and execution record"
+else _no "eligible approval labels both the linked PR and execution record" "$(cat "${WORK}/mirror.out")"; fi
+# Reapply with the issue already approved repairs a missing PR label.
+: > "${S}.pr"
+_run code-review "${APPROVED}" MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 \
+ LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 MOCK_CHECKRUNS="${SIGNALS}" > "${WORK}/mirror-retry.out" 2>&1
+if [[ $? == 0 ]] && _has_label "${S}.pr" agent/review-code-approved; then
+ _ok "reapply repairs missing PR approval after issue approval"
+else _no "reapply repairs missing PR approval after issue approval" "$(cat "${WORK}/mirror-retry.out")"; fi
+for mergeable in false null; do
+ _seed "${S}" agent/allowed agent/reviewable-code
+ _seed "${S}.pr" agent/review-code-approved
+ _run code-review "${APPROVED}" MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 \
+  LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 MOCK_CHECKRUNS="${SIGNALS}" MOCK_MERGEABLE="${mergeable}" > "${WORK}/mergeable.out" 2>&1
+ if [[ $? == 0 ]] && ! _has_label "${S}.pr" agent/review-code-approved && ! _has_label "${S}" agent/review-code-approved; then
+  _ok "non-mergeable or unknown PR cannot retain queue approval (${mergeable})"
+ else _no "non-mergeable or unknown PR cannot retain queue approval (${mergeable})" "$(cat "${WORK}/mergeable.out")"; fi
+done
+_seed "${S}" agent/allowed agent/reviewable-code
+: > "${S}.pr"
+_run code-review "${APPROVED}" MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 \
+ LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 MOCK_CHECKRUNS="${SIGNALS}" MOCK_PR_ADD_FAIL=1 GH_MAX_ATTEMPTS=1 > "${WORK}/mirror-fail.out" 2>&1
+if [[ $? != 0 ]] && _has_label "${S}" agent/reviewable-code && ! _has_label "${S}" agent/review-code-approved; then
+ _ok "failed PR approval write leaves issue eligible for retry"
+else _no "failed PR approval write leaves issue eligible for retry" "$(cat "${WORK}/mirror-fail.out")"; fi
 
 printf '\n%d passed, %d failed\n' "${PASS}" "${FAIL}"
 [[ "${FAIL}" -eq 0 ]]

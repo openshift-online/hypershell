@@ -69,6 +69,9 @@ done
 _decode() { printf '%s' "${1//\%2F//}"; }
 state="${MOCK_STATE}"
 case "${path}" in
+  */issues/5/labels*) state="${MOCK_PR_LABELS:-${MOCK_STATE}.pr}"; touch "${state}";;
+esac
+case "${path}" in
   */commits/*/check-runs) printf '%s' "${MOCK_CHECKRUNS:-[]}"; exit 0;;
   */commits/*/status) printf '%s' "${MOCK_STATUSES:-[]}"; exit 0;;
   */protection/required_status_checks) printf '%s' "${MOCK_REQUIRED:-}"; exit 0;;
@@ -78,7 +81,8 @@ case "${path}" in
       *base.ref*) printf '%s\t%s' "${MOCK_HEAD_SHA:-}" "${MOCK_BASE_REF:-main}";;
       .head.sha)  printf '%s' "${MOCK_HEAD_SHA:-}";;
       .state)     printf '%s' "${MOCK_PR_STATE:-open}";;
-      *body*)     printf '%s' "${MOCK_PR_BODY:-}";;
+      "") printf '{"head":{"sha":"%s"},"base":{"sha":"base-sha","ref":"main"},"state":"%s","draft":false,"mergeable":%s,"mergeable_state":"%s"}' "${MOCK_HEAD_SHA:-}" "${MOCK_PR_STATE:-open}" "${MOCK_MERGEABLE:-true}" "${MOCK_MERGEABLE_STATE:-clean}";;
+      *body*)     printf '%s' "${MOCK_PR_BODY-Fixes #868}";;
     esac
     exit 0;;
 esac

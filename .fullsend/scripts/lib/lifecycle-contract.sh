@@ -29,6 +29,7 @@ lifecycle_phase_labels() {
     agent/reviewable-spec \
     agent/review-spec-approved \
     agent/review-spec-rejected \
+    agent/code-conflicts \
     agent/reviewable-code \
     agent/review-code-approved \
     agent/review-code-rejected
@@ -101,6 +102,12 @@ lifecycle_transition() {
   local phase="$1" outcome="$2"
   local add="" remove="" close=0
   case "${phase}:${outcome}" in
+    code-recovery:conflicts)
+      add="agent/code-conflicts"
+      remove="agent/review-code-approved agent/review-code-rejected agent/reviewable-code" ;;
+    code-recovery:waiting)
+      add="agent/reviewable-code"
+      remove="agent/review-code-approved agent/review-code-rejected" ;;
     triage:workable)
       add="agent/workable" ;;
     triage:needs-input)
@@ -120,7 +127,7 @@ lifecycle_transition() {
       remove="agent/reviewable-spec agent/review-spec-approved" ;;
     code-implementation:completed)
       add="agent/reviewable-code"
-      remove="agent/review-code-rejected agent/review-code-approved" ;;
+      remove="agent/review-code-rejected agent/review-code-approved agent/code-conflicts" ;;
     code-implementation:blocked)
       add="agent/blocked" ;;
     code-review:approved)

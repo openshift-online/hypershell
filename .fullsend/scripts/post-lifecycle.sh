@@ -178,6 +178,15 @@ fi
 # ---------------------------------------------------------------------------
 current_labels="$(gh_get_labels "${REPO}" "${NUMBER}")"
 _cur_has() { grep -qxF "$1" <<< "${current_labels}"; }
+_authorized() {
+  local labels
+  labels="$(gh_get_labels "${REPO}" "${NUMBER}")" || return 1
+  grep -qxF agent/allowed <<< "${labels}" || return 1
+  ! grep -qxF agent/blocked <<< "${labels}" || return 1
+  [[ -z "${LABEL_SCOPE:-}" ]] || grep -qxF "${LABEL_SCOPE}" <<< "${labels}"
+}
+_authorized || { echo "post-lifecycle: authorization/scope removed or blocked; no mutation" >&2; exit 0; }
+
 
 # A review verdict normally applies while the record is still awaiting that
 # review (the reviewable-* label is present). When the reviewable-* label is
@@ -204,7 +213,7 @@ esac
 _recovering=0
 if lifecycle_phase_is_review "${PHASE}"; then
   if ! _cur_has "${_reviewable}"; then
-    if _cur_has "${_my_verdict}"; then
+    if _cur_has "${_my_verdict}" && [[ "${PHASE}:${outcome}" != "code-review:approved" ]]; then
       echo "post-lifecycle: ${_my_verdict} already present and ${_reviewable} gone; transition already complete, no mutation" >&2
       exit 0
     fi
@@ -218,8 +227,8 @@ if lifecycle_phase_is_review "${PHASE}"; then
     # recovery (the head moved, or no trusted recorded head is available), the
     # record stays with no phase label, so emit a loud, distinct signal for that
     # case instead of a quiet "stale" exit (SDLC-HOOK-09.02, review follow-up).
-    _recovering=1
-    echo "post-lifecycle: ${_reviewable} gone and no verdict present; recovering an interrupted transition by applying ${_my_verdict} (freshness still checked)" >&2
+    if ! _cur_has "${_my_verdict}"; then _recovering=1; fi
+    echo "post-lifecycle: rechecking completed/interrupted ${_my_verdict} transition (freshness still checked)" >&2
   fi
 
   # Stale check: the pull request head must not have moved since the pre-script
@@ -273,9 +282,23 @@ fi
 # .fullsend/docs/lifecycle-hooks.md). The deferral uses the phase sticky marker, so
 # the reapplied verdict edits this record in place with no duplicate (SDLC-HOOK-09).
 if [[ "${PHASE}" == "code-review" && "${outcome}" == "approved" ]]; then
-  checks_state="$(gh_pr_checks_state "${REPO}" "${trusted_pr}")"
-  if [[ "${checks_state}" != "green" ]]; then
-    echo "post-lifecycle: required checks are ${checks_state}, not green; approval is deferred, no label change" >&2
+  gh_pr_has_execution_link "${REPO}" "${trusted_pr}" "${NUMBER}" || {
+    echo "post-lifecycle: PR is not linked to this execution record; no approval" >&2; exit 1;
+  }
+  code_state="$(gh_pr_code_state "${REPO}" "${trusted_pr}")"
+  if [[ "$(jq -r '.head_sha' <<< "${code_state}")" != "${recorded_head}" ]]; then
+    echo "post-lifecycle: head changed during approval checks; not applying approval" >&2
+    exit 0
+  fi
+  checks_state="$(jq -r '.checks' <<< "${code_state}")"
+  if ! jq -e '.state == "open" and .draft == false and .mergeable == true and .checks == "green"' \
+       <<< "${code_state}" >/dev/null; then
+    readiness="$(jq -r '"checks=\(.checks), state=\(.state), draft=\(.draft), mergeable=\(.mergeable), mergeable_state=\(.mergeable_state)"' <<< "${code_state}")"
+    echo "post-lifecycle: approval deferred on PR readiness: ${readiness}" >&2
+    if (( ! DRY_RUN_ON )); then
+      _authorized || { echo "post-lifecycle: authorization changed during deferral" >&2; exit 0; }
+      gh_remove_label "${REPO}" "${trusted_pr}" agent/review-code-approved
+    fi
     # Defense in depth, consistent with the apply path below: a code-review verdict
     # requires its review record, so refuse an empty comment here too rather than
     # posting a banner-only deferral and exiting 0 (SDLC-HOOK-10).
@@ -288,9 +311,9 @@ if [[ "${PHASE}" == "code-review" && "${outcome}" == "approved" ]]; then
       # No phase label remains (an older interrupted transition stranded this item),
       # so be honest: do NOT claim the item keeps agent/reviewable-code and do NOT
       # promise an automatic reapply, which cannot fire without a phase-label event.
-      _defer_banner="**Code review approved - deferred, and this item currently has no code-review phase label.** The approval cannot be applied yet because the pull request's required checks are \`${checks_state}\`, not green, and an earlier interrupted transition left this item with no code-review phase label. A maintainer needs to restore \`agent/reviewable-code\` or re-run the review once the required checks are green (see .fullsend/docs/lifecycle-hooks.md, Recovery)."
+      _defer_banner="**Code review approved - deferred, and this item currently has no code-review phase label.** The approval cannot be applied yet because the pull request's readiness is \`${readiness}\`, and an earlier interrupted transition left this item with no code-review phase label. A maintainer needs to restore \`agent/reviewable-code\` or re-run the review once the required checks are green (see .fullsend/docs/lifecycle-hooks.md, Recovery)."
     else
-      _defer_banner="**Code review approved - deferred pending required checks.** The approval has been recorded but is not yet applied because the pull request's required checks are currently \`${checks_state}\`, not green. The item keeps \`agent/reviewable-code\` and the approval is applied when this validated result is reapplied once the required checks are green (see .fullsend/docs/lifecycle-hooks.md, Recovery)."
+      _defer_banner="**Code review approved - deferred pending required checks.** The approval has been recorded but is not yet applied because the pull request's PR readiness is \`${readiness}\`. The item keeps \`agent/reviewable-code\` and the approval is applied when this validated result is reapplied once the required checks are green (see .fullsend/docs/lifecycle-hooks.md, Recovery)."
     fi
     if [[ -n "${comment}" ]]; then
       _defer_body="$(printf '%s\n\n---\n\n%s' "${comment}" "${_defer_banner}")"
@@ -410,6 +433,28 @@ if [[ -n "${comment}" ]]; then
     fi
     echo "post-lifecycle: WARNING: failed to post the optional ${PHASE} comment; continuing with the transition" >&2
   fi
+fi
+
+# Queue eligibility is granted only for the same open, conflict-free, green
+# head that was reviewed. Do this before the issue transition so failures can
+# retry while the execution record is still reviewable.
+_authorized || { echo "post-lifecycle: authorization changed before label application" >&2; exit 0; }
+if [[ "${PHASE}:${outcome}" == "code-review:approved" ]]; then
+  latest="$(gh_pr_code_state "${REPO}" "${trusted_pr}")"
+  if ! jq -e --arg sha "${recorded_head}" --arg base "$(jq -r '.base_sha' <<< "${code_state}")" \
+      '.head_sha == $sha and .base_sha == $base and .state == "open" and .draft == false and .mergeable == true and .checks == "green"' \
+      <<< "${latest}" >/dev/null; then
+    echo "post-lifecycle: PR eligibility changed before approval; retry when stable" >&2
+    exit 1
+  fi
+  gh_add_labels "${REPO}" "${trusted_pr}" agent/review-code-approved
+  gh_get_labels "${REPO}" "${trusted_pr}" | grep -qxF agent/review-code-approved || {
+    echo "post-lifecycle: PR approval label verification failed" >&2; exit 1;
+  }
+fi
+
+if [[ "${PHASE}:${outcome}" == "code-review:rejected" ]]; then
+  gh_remove_label "${REPO}" "${trusted_pr}" agent/review-code-approved
 fi
 
 # Add the new phase label(s) BEFORE removing the superseded ones (SDLC-HOOK-09.02).

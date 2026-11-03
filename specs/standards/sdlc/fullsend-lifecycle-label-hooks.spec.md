@@ -48,7 +48,7 @@ treat each category differently:
 - **Phase labels** carry the funnel phase and its within-phase outcome:
   `agent/workable`, `agent/needs-input`, `agent/duplicate`,
   `agent/reviewable-spec`, `agent/review-spec-approved`,
-  `agent/review-spec-rejected`, `agent/reviewable-code`,
+  `agent/review-spec-rejected`, `agent/code-conflicts`, `agent/reviewable-code`,
   `agent/review-code-approved`, `agent/review-code-rejected`. A transition MAY
   add and remove phase labels within the rules of the transition contract.
 - **Scope labels** (`agent/scope/*`) select an item for a run. A transition SHALL
@@ -99,7 +99,7 @@ execution-record, human-block, and unrelated labels are preserved in every case.
 | Spec review | approved | `agent/reviewable-spec` | `agent/review-spec-approved` | `agent/reviewable-spec`, `agent/review-spec-rejected` |
 | Spec review | rejected (under limit) | `agent/reviewable-spec` | `agent/review-spec-rejected` | `agent/reviewable-spec`, `agent/review-spec-approved` |
 | Spec review | rejected (limit reached) | `agent/reviewable-spec` | `agent/review-spec-rejected`, `agent/blocked` | `agent/reviewable-spec`, `agent/review-spec-approved` |
-| Code implementation | completed | `agent/review-spec-approved` or `agent/review-code-rejected` | `agent/reviewable-code` | `agent/review-code-rejected`, stale `agent/review-code-approved` |
+| Code implementation | completed | `agent/review-spec-approved`, `agent/review-code-rejected`, or `agent/code-conflicts` | `agent/reviewable-code` | `agent/review-code-rejected`, stale `agent/review-code-approved`, `agent/code-conflicts` |
 | Code review | approved | `agent/reviewable-code` | `agent/review-code-approved` | `agent/reviewable-code`, `agent/review-code-rejected` |
 | Code review | rejected (under limit) | `agent/reviewable-code` | `agent/review-code-rejected` | `agent/reviewable-code`, `agent/review-code-approved` |
 | Code review | rejected (limit reached) | `agent/reviewable-code` | `agent/review-code-rejected`, `agent/blocked` | `agent/reviewable-code`, `agent/review-code-approved` |
@@ -316,7 +316,10 @@ A schema-valid result SHALL NOT be treated as proof that the work is complete.
 Before applying a transition, the post-script SHALL check the relevant evidence
 against GitHub, including the linked pull request and the commit that was
 implemented or reviewed. The contract SHALL define how required checks affect
-eligibility to advance.
+eligibility to advance. Code approval requires an open, non-draft PR with known
+mergeability, no confirmed conflicts, green required checks, and an unchanged
+reviewed head. The head and base SHALL be checked again before granting the PR
+queue label. Unknown mergeability SHALL defer approval, not authorize it.
 
 A review result SHALL be rejected as stale if the reviewed pull request head
 commit changed after the review. A stale review result SHALL NOT advance the
@@ -465,6 +468,81 @@ superseding rejection label, and the funnel SHALL NOT retry it while blocked.
 - WHEN the post-script decides whether to block
 - THEN it counts prior `agent/review-code-rejected` events from the issue timeline
 - AND it does not take the count from the agent result
+
+### Requirement: SDLC-HOOK-14 -- Code Readiness, Queue Labels, and Later Recovery
+
+The shared observation contract SHALL include PR head and base commits, open/closed
+state, draft status, mergeability and mergeability state, and the normalized
+required-check result. Local discovery and pre-launch authorization SHALL use this
+state in code-review and implementation fingerprints. A successful review attempt
+that deferred approval on pending checks SHALL become eligible again when CI
+changes to green, even if issue content, labels, and PR head are unchanged.
+The local runner MAY rerun review; it SHALL NOT silently treat the earlier process
+exit as proof that approval was applied. Manual replay of the validated result
+remains supported while its evidence is current.
+
+An eligible code-review post-script SHALL apply and verify
+`agent/review-code-approved` on both the linked PR and execution record. It SHALL
+verify the PR link and current authorization, head, base, checks, draft status,
+and mergeability. It SHALL label the PR before completing the issue transition;
+failure to label the PR SHALL fail the attempt and leave recovery possible.
+Reapplication SHALL repair a missing PR label even when the issue already has its
+approval. Rejected or ineligible approval results SHALL NOT retain the PR queue
+label. A changed head SHALL require fresh review; a stale result SHALL never
+approve the new head.
+
+A shared maintenance hook under `.fullsend/scripts/` SHALL revisit code-stage
+records after approval, because a post-script alone cannot observe future changes.
+The local watch loop SHALL call this hook during discovery, including when no
+agent phase currently matches an approved issue. Hosted schedulers SHALL invoke
+the same hook from periodic or PR/check-change processing to obtain the same
+recovery behavior; this does not imply that a hosted trigger is installed by a
+local dispatcher change. Inspect/dry-run calls SHALL be read-only. The local runner
+SHALL avoid recovery mutations on records with running or uncertain worker ownership.
+
+For confirmed conflicts (`mergeable: false`, `mergeable_state: dirty`), the hook
+SHALL revoke the PR queue label first, then converge the execution record onto
+`agent/code-conflicts`, removing stale code approval/rejection/reviewable labels.
+The code implementation harness and pre-script SHALL accept this trigger; completed
+repair SHALL clear it and return the record to code review. Conflict detection
+SHALL NOT count as a review rejection. For a previously approved PR whose checks
+become non-green or whose mergeability becomes unknown, the hook SHALL revoke
+queue eligibility and reopen code review without asserting a confirmed conflict.
+Closed PRs, revoked authorization/scope, human blocks, changing observations, and
+ambiguous PR linkage SHALL NOT authorize recovery writes. Recovery uses the same
+pure lifecycle transition contract as the post-script. It SHALL be idempotent
+across polling, retries, and partial GitHub writes.
+
+#### Scenario: SDLC-HOOK-14.01 -- CI finishes after deferred review
+
+- GIVEN an approved review attempt that exited successfully while CI was pending
+- AND the issue and reviewed PR head have not changed
+- WHEN required checks become green
+- THEN the new readiness fingerprint SHALL permit another code-review attempt
+- AND its post-script SHALL grant approval only after rechecking live evidence
+
+#### Scenario: SDLC-HOOK-14.02 -- Conflicts appear after green CI and approval
+
+- GIVEN an approved PR whose base branch subsequently advances
+- WHEN GitHub confirms merge conflicts during the next maintenance observation
+- THEN the PR queue label SHALL be revoked before issue-state changes
+- AND the issue SHALL become eligible for code implementation through `agent/code-conflicts`
+- AND repair SHALL require another code review before queue approval is restored
+- AND repeated polling SHALL NOT add review rejections or duplicate active work
+
+#### Scenario: SDLC-HOOK-14.03 -- PR approval write fails
+
+- GIVEN an eligible review result for an explicitly linked PR
+- WHEN applying the PR approval label fails
+- THEN the attempt SHALL fail without completing the issue approval transition
+- AND reapplying the same fresh result SHALL be able to complete both labels
+
+#### Scenario: SDLC-HOOK-14.04 -- Uncertain or unauthorized recovery
+
+- GIVEN unknown mergeability, revoked authorization, a human block, or a changed head/base
+- WHEN the maintenance hook evaluates the record
+- THEN it SHALL NOT interpret unknown mergeability as confirmed conflicts
+- AND revoked authorization, blocks, and changing observations SHALL cause no recovery writes
 
 ### Requirement: SDLC-HOOK-13 -- Automated Tests and Documentation
 

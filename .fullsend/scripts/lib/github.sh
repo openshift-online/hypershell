@@ -22,8 +22,9 @@ gh_retry() {
       printf '%s' "${out}"
       rm -f "${errf}"
       return 0
+    else
+      rc=$?
     fi
-    rc=$?
     if (( attempt >= GH_MAX_ATTEMPTS )); then
       cat "${errf}" >&2 || true
       rm -f "${errf}"
@@ -73,13 +74,14 @@ gh_remove_label() {
   local repo="$1" number="$2" label="$3"
   [[ -z "${label}" ]] && return 0
   local path="repos/${repo}/issues/${number}/labels/$(_gh_urlencode "${label}")"
-  local attempt=1
+  local attempt=1 labels
   while true; do
     if gh api -X DELETE "${path}" >/dev/null 2>&1; then
       return 0
     fi
     # Not present any more is success (idempotent / already removed).
-    if ! gh_get_labels "${repo}" "${number}" | grep -qxF "${label}"; then
+    labels="$(gh_get_labels "${repo}" "${number}")" || return 1
+    if ! grep -qxF "${label}" <<< "${labels}"; then
       return 0
     fi
     if (( attempt >= GH_MAX_ATTEMPTS )); then
@@ -299,4 +301,28 @@ _gh_urlencode() {
     esac
   done
   printf '%s' "${out}"
+}
+
+# Shared observable state for approval gates and watcher fingerprints. Unknown
+# mergeability is not a confirmed conflict and never authorizes approval.
+gh_pr_code_state() {
+  local repo="$1" number="$2" before after checks
+  before="$(gh_retry api "repos/${repo}/pulls/${number}")" || return 1
+  checks="$(gh_pr_checks_state "${repo}" "${number}")"
+  after="$(gh_retry api "repos/${repo}/pulls/${number}")" || return 1
+  jq -cn --argjson before "${before}" --argjson pr "${after}" --arg checks "${checks}" '
+    {head_sha:$pr.head.sha, base_sha:$pr.base.sha, state:$pr.state,
+     draft:($pr.draft // false), mergeable:$pr.mergeable,
+     mergeable_state:$pr.mergeable_state,
+     checks:(if $before.head.sha != $pr.head.sha or $before.base.sha != $pr.base.sha
+             then "pending" else $checks end)}'
+}
+
+# Accept a closing reference or an explicit PR URL on the execution record.
+gh_pr_has_execution_link() {
+  local repo="$1" pr="$2" issue="$3" body
+  gh_pr_is_linked "${repo}" "${pr}" "${issue}" && return 0
+  body="$(gh_retry api "repos/${repo}/issues/${issue}" --jq '.body // ""')" || return 1
+  python3 -c 'import re,sys; sys.exit(0 if re.search(re.escape(sys.argv[1])+r"(?![\w/])", sys.argv[2]) else 1)' \
+    "https://github.com/${repo}/pull/${pr}" "${body}"
 }

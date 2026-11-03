@@ -270,3 +270,40 @@ runtime ordering and the `FULLSEND_VALIDATED_ITERATION_DIR` output contract shou
 still be confirmed against the deployed Fullsend version before production reliance;
 Part B asserts the scripts the harness references chain together regardless of the
 runtime.
+
+
+## CI and mergeability recovery
+
+Code readiness includes the PR head/base, state, draft flag, mergeability, and
+normalized required checks. The local dispatcher uses that snapshot in job
+fingerprints. When a deferred review's checks turn green, another review attempt
+can run even though its issue labels and PR head stayed the same. This currently
+reruns review; it does not automatically replay a saved agent artifact.
+
+The code-review post-script applies and verifies `agent/review-code-approved` on
+the linked PR as well as the issue. PR label failure prevents issue completion;
+reapplication repairs partial transitions after rechecking freshness. Approval
+requires a known mergeable, open, non-draft PR with green checks.
+
+To observe changes that occur after the post-script exits, use the shared
+maintenance hook:
+
+```sh
+python3 .fullsend/scripts/refresh-code-state.py \
+  --issue-url https://github.com/OWNER/REPO/issues/123 \
+  --pr 456 --scope agent/scope/YOUR_SCOPE
+```
+
+Add `--inspect` for read-only observation. The local watch loop invokes this for
+code-stage issues automatically and avoids mutations while a worker is running
+or its outcome is unknown. Hosted execution needs its scheduler to invoke this
+same command periodically or on PR/check changes; the post-script cannot watch
+a PR after its process exits, and this change does not install a hosted trigger.
+
+Confirmed conflicts revoke the PR queue label and move the issue to
+`agent/code-conflicts`. Implementation repairs the PR, then returns it to review.
+The conflict is not recorded as a review rejection. Unknown mergeability does
+not trigger conflict repair; previously approved records are returned to review
+while eligibility is uncertain. Human blocks and authorization/scope revocation
+stop maintenance writes. A CI or mergeability change is not itself a new code
+review approval, and new head commits still need fresh review.
