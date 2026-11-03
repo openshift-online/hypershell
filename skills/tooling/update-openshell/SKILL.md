@@ -542,6 +542,72 @@ If a run produced no new lessons, that is itself worth a one-line log entry
 
 Newest first. Each entry: version, date, what happened, what changed in the repo.
 
+- **v0.1.6-rhaiv.3 (2026-11-03, v0.1.6-rhaiv.2 -> v0.1.6-rhaiv.3, no-arg scheduled run):**
+  Mechanical pin bump. Checked for an already-open PR on the resolved target
+  branch and for stale superseded PRs first, per the 2026-11-01 correction below
+  - none found; `#874` (rhaiv.2) is merged and the three previously-stale PRs are
+  already closed, so this run proceeds with a normal new branch/PR.
+  - **Step 0:** no `needs-decision` issue carries an actionable human-directed
+    version; skipped per the agent's Step 1 (explicit "Resolving versions"
+    target, not an issue reply).
+  - **Triage:** 35 commits between the two midstream tags (`gh api .../compare`
+    - under its 300-file cap this time). Two `deploy/rhoai/` commits
+    (`fix(rhoai): refine installer chart and image handling`,
+    `fix(rhoai): inspect rendered dashboard role support`) touch only the ODH
+    installer script directory, not `deploy/helm/openshell/` (the tree this
+    skill vendors) - confirmed via `gh api .../commits/<sha> --jq
+    '.files[].filename'` before dismissing them as out of scope.
+  - **Chart vendor diff was small** (5 files, not the usual ~48) because most of
+    the 35 commits don't touch `deploy/helm/openshell/`:
+    `feat(ocsf)!: emit OCSF 1.8.0 only and deprecate the schema version knobs`
+    changes `values.yaml`'s `server.ocsfLog.schemaVersion` comment and
+    `templates/_toml.tpl` to pass the value through unvalidated instead of
+    rejecting unsupported versions (chart test changed from "rejects an
+    unsupported OCSF schema version" to "passes the deprecated OCSF schema
+    version through for the gateway to report"). HyperShell's Helm values
+    builder never sets `ocsfLog`/`schemaVersion` (`grep -rn "ocsf" components/
+    control-plane/internal/helm/*.go` excluding tests returns nothing) - not
+    adopted, mechanical. `ci/values-skaffold.yaml` gained
+    `openshell.gateway.otlp.agent.enabled` - a chart-repo CI fixture, not
+    something HyperShell renders.
+  - **Proto diff, additive only:** diffed `*.proto` in a scratch clone of the
+    two tags directly (`git diff v0.1.6-rhaiv.2 v0.1.6-rhaiv.3 -- '*.proto'`)
+    rather than trusting the GitHub compare API's file list alone. New
+    `SandboxUpdates` service + `UpdateSandboxRequest`/`SandboxCommandUpdate`/
+    `SandboxMapUpdate` messages in `openshell.proto` (storage-preserving
+    sandbox config updates - update a stopped sandbox's image/command/env/
+    labels without recreating it), a new field on `AgentSpec` in
+    `sandbox_protocol.proto` (`otlp_relay_active`), and a new private
+    `sandbox_image.proto` for the gateway's own internal image-mutation state
+    (explicitly documented upstream as "never embed in public SandboxStatus").
+    No existing field renumbered or removed. Not adopted by HyperShell (no
+    console/control-plane code calls `SandboxUpdates`) and not required to be -
+    purely additive, so the console image did not need a bump for this range.
+  - **RBAC unchanged:** `git diff HEAD -- charts/openshell/templates/
+    clusterrole.yaml charts/openshell/templates/role.yaml` was empty after
+    vendoring: no new verbs/resources to reconcile into `controller-rbac.yaml`.
+  - **`agents.x-k8s.io/v1beta1` reconfirmed** as the chart's primary Sandbox API
+    version (`agent-sandbox-preflight.yaml` still checks `v1beta1` first,
+    falling back to `v1alpha1`); corrected the version number in the
+    `global-architecture.spec.md` citation (content unchanged otherwise).
+  - **needs-decision, still open (not newly filed):** issue #809's auth-gate
+    finding still applies verbatim - `ValidateRenderedGatewayConfig` in
+    `components/control-plane/internal/gateway/validation.go` still only checks
+    the OIDC-enabled case, not the "no auth mechanism at all" case upstream now
+    refuses to start on. Added another status comment to #809 noting it still
+    applies at `v0.1.6-rhaiv.3`, matching the pattern of the four prior bot
+    comments on that issue. Not resolved in this PR; still awaiting a
+    maintainer's auth posture decision.
+  - Build/test: `go build/vet/test` (control-plane) all green; ran each
+    `make check` sub-check's underlying command directly since `make` itself
+    cannot spawn `/bin/sh` in this sandbox (`make: /bin/sh: Operation not
+    permitted` on every recipe, including `vendor-openshell-chart` and
+    `sync-openshell-version` - worked around by running their `git
+    clone`/`cp`/`perl`/`python3` steps directly via the Bash tool) - same
+    symptom as the 2026-10-31 entry below; `check-dependency-age` and
+    `check-cli-drift` were skipped (they need network access to an external
+    repo this sandbox's egress policy blocks, unrelated to this change).
+
 - **Skill correction (2026-11-01, duplicate-PR pollution across runs):** This
   scheduled run resolved the same target (`v0.1.6-rhaiv.2`) as the prior run and
   found that the prior run's PR, `#874`, was still open and already current -
