@@ -12,6 +12,7 @@ from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'.hypershell/execute-sdlc'))
 import runtime_settings as settings
 import funnel_dispatch
+import local_scope
 
 
 class SettingsTests(unittest.TestCase):
@@ -70,6 +71,14 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.read()['repo'],'new/repository')
         os.environ.pop('FULLSEND_RUNTIME_SETTINGS')
         self.assertEqual(funnel_dispatch.parse_args(['agent/scope/test','--dry-run']).concurrency,4)
+
+    def test_registration_checks_the_saved_repository(self):
+        settings.save('repo','saved/repository')
+        scope='agent/scope/saved'
+        from subprocess import CompletedProcess
+        with patch.object(sys,'argv',['scope-check',scope]), patch.object(local_scope.subprocess,'run',return_value=CompletedProcess([],0,json.dumps({'name':scope}))) as run:
+            self.assertEqual(local_scope.main(),0)
+            self.assertIn('repos/saved/repository/labels/',run.call_args[0][0][-1])
 
     def test_effective_paths_do_not_accumulate_repository_suffix(self):
         args=funnel_dispatch.parse_args(['agent/scope/test','--dry-run','--state-dir',self.tmp.name])

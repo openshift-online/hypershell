@@ -28,5 +28,5 @@ Use INTAKE_INTERVAL=300 or set FULLSEND_INTAKE_INTERVAL=300 in your env file.
 
 Configuration
   Tab to Configuration or press , in the dashboard.
-  Saves write ~/.config/hypershell/fullsend.json; the page shows the exact path.
+  Settings file: ~/.config/hypershell/fullsend.json (updated on save).
   Each setting says Immediate, Next sandbox, Next sign-in, or Restart required.

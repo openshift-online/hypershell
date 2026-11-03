@@ -402,6 +402,16 @@ class LocalLaunchTests(unittest.TestCase):
         self.assertEqual(value['intake'],'300')
         self.assertEqual(value['args'],['agent/scope/local','--intake-interval','60','--watch'])
 
+    # Verifies: SDLC-LOC-12
+    def test_saved_scope_is_reused_and_explicit_make_scope_wins(self):
+        (self.root/'settings.json').write_text(json.dumps({'version':1,'values':{'scope':'agent/scope/saved'}}))
+        result=self.invoke()
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(json.loads(result.stdout)['args'][0],'agent/scope/saved')
+        result=self.invoke('fullsend','SCOPE=agent/scope/explicit')
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(json.loads(result.stdout)['args'][0],'agent/scope/explicit')
+
     def test_external_file_with_spaces_and_literal_arguments(self):
         path=self.root/'existing inference.env'
         path.write_text('FULLSEND_SCOPE=agent/scope/external\nANTHROPIC_VERTEX_PROJECT_ID=existing-project\n')

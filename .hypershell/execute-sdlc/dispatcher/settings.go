@@ -39,7 +39,7 @@ func (e *Engine) requestSetting(ctx context.Context, key, value string) settings
 	select {
 	case e.settings <- request:
 	case <-ctx.Done():
-		return settingsResult{err: ctx.Err()}
+		return settingsResult{err: fmt.Errorf("dispatcher is busy; settings were not saved: %w", ctx.Err())}
 	}
 	select {
 	case result := <-request.done:
@@ -69,6 +69,9 @@ func (e *Engine) saveSetting(ctx context.Context, key, value string) settingsRes
 		Settings []Setting `json:"settings"`
 	}
 	if err := e.adapter().call(ctx, "settings-save", map[string]string{"key": key, "value": value}, &reply); err != nil {
+		if ctx.Err() != nil {
+			err = fmt.Errorf("save unconfirmed; inspect %s: %w", c.SettingsFile, ctx.Err())
+		}
 		return settingsResult{err: err}
 	}
 	normalized := fmt.Sprint(reply.Value)
@@ -141,7 +144,7 @@ func (m Model) configurationView(lines []string, w, h int) string {
 	lines = append(lines, "")
 	lines = append(lines, m.style("SETTINGS FILE", "8", true))
 	lines = append(lines, m.wrapped(c.SettingsFile, w-2, "6")...)
-	lines = append(lines, m.wrapped("Saving writes this file on disk. Explicit launch arguments override saved values on restart.", w-2, "8")...)
+	lines = append(lines, m.wrapped("Saving writes this file on disk. Manual file edits load on restart. Explicit launch arguments override saved values on restart.", w-2, "8")...)
 	lines = append(lines, "")
 	if m.state.Monitoring {
 		lines = append(lines, m.wrapped("Monitoring another dispatcher. These are launch settings; edit in its owner terminal.", w-2, "3")...)

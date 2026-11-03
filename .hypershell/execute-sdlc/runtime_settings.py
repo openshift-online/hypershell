@@ -141,8 +141,9 @@ def apply(args, values):
         if key in values:
             if values[key]:os.environ[key]=str(values[key])
             else:os.environ.pop(key,None)
+    active=vars(args)
     args.settings_inputs={s[0]:str(os.environ.get(s[0],'')) if s[0] in ENV_KEYS else
-                          (str(getattr(args,s[0])) if getattr(args,s[0],None) is not None else '') for s in SPECS}
+                          (str(active[s[0]]) if active.get(s[0]) is not None else '') for s in SPECS}
 
 
 def display(value):
@@ -157,7 +158,7 @@ def view(args):
     rows=[dict(key=k,label=label,value=str(args.settings_inputs[k]),effect=effect,kind=kind,choices=choices,
                help=help,saved=str(saved[k]) if k in saved else None) for k,label,effect,kind,choices,help in SPECS]
     for key in ('watch','plain','dry_run','status','retry','retry_uncertain','state_dir','log_dir','env_file'):
-        rows.append(dict(key='effective_'+key,label='Effective '+key.replace('_',' '),value=display(getattr(args,key,'')),
+        rows.append(dict(key='effective_'+key,label='Effective '+key.replace('_',' '),value=display(vars(args).get(key,'')),
                          effect='Read only',kind='readonly',choices=[],help='Set through launch options.'))
     defined={s[0] for s in SPECS}|{'settings_inputs','jira_selection','watch','plain','dry_run','status','retry','retry_uncertain','env_file'}
     for key,value in vars(args).items():
@@ -165,7 +166,7 @@ def view(args):
             rows.append(dict(key='effective_'+key,label=key.replace('_',' ').capitalize(),value=('Hidden' if any(word in key.lower() for word in ('token','secret','password','authorization','credential')) or isinstance(value,dict) else display(value)),
                              effect='Read only',kind='readonly',choices=[],help='Resolved launch configuration.'))
     for key in ('mode','site_url','cloud_id','account_id'):
-        value=getattr(args,'jira_selection',{}).get(key)
+        value=vars(args).get('jira_selection',{}).get(key)
         if value is not None:
             rows.append(dict(key='jira_active_'+key,label='Active Jira '+key.replace('_',' '),value=str(value),effect='Read only',kind='readonly',choices=[],help='Selected by Jira authentication; restart after changing accounts.'))
     visible_environment = {
