@@ -76,6 +76,7 @@ function detail(over: Partial<E2eRunDetail> = {}): E2eRunDetail {
         durationMs: null,
       },
     ],
+    failure: null,
     logs: [
       {
         sequence: 1,
@@ -553,6 +554,25 @@ describe("E2eRunView", () => {
     // the log pane).
     const grid = await screen.findByRole("grid", { name: "Run steps" });
     expect(await within(grid).findByText(/boom: build failed/)).toBeDefined();
+  });
+
+  it("keeps the terminal failure visible outside the diagnostic logs", async () => {
+    const user = userEvent.setup();
+    const d = detail({
+      verdict: "failed",
+      failure: {
+        stepId: "P0.1",
+        message: "intentional OpenShift E2E failure",
+      },
+    });
+    const { api } = makeApi(d);
+    renderView(api, enabled([summary({ verdict: "failed" })]));
+    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+
+    expect(await screen.findByText("This run failed.")).toBeDefined();
+    expect(screen.getByText(/Failed step:/)).toBeDefined();
+    expect(screen.getByText("P0.1")).toBeDefined();
+    expect(screen.getByText("intentional OpenShift E2E failure")).toBeDefined();
   });
 
   it("shows the reporting-incomplete state for a finished-but-terminal-less run", async () => {

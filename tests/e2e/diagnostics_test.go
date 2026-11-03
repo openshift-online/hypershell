@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"os"
@@ -15,6 +16,25 @@ import (
 	"github.com/openshift-online/hypershell/tests/e2e/driver"
 	"github.com/openshift-online/hypershell/tests/e2e/harness"
 )
+
+func TestGitHubActionsDiagnosticGroup(t *testing.T) {
+	t.Setenv("GITHUB_ACTIONS", "true")
+	var out bytes.Buffer
+	end := githubActionsLogGroup(&out, "E2E failure diagnostics")
+	d := &failureDiagnostics{actionsOutput: &out}
+	d.logf("DIAG actionable evidence")
+	end()
+	if got, want := out.String(), "::group::E2E failure diagnostics\nDIAG actionable evidence\n::endgroup::\n"; got != want {
+		t.Fatalf("GitHub Actions log group = %q, want %q", got, want)
+	}
+
+	t.Setenv("GITHUB_ACTIONS", "false")
+	out.Reset()
+	githubActionsLogGroup(&out, "ignored")()
+	if out.Len() != 0 {
+		t.Fatalf("non-Actions diagnostics emitted workflow commands: %q", out.String())
+	}
+}
 
 // TestFailureDiagnostics is the workflow fallback for failures that happen
 // after TestE2E succeeds (for example the live tracing assertion). The normal

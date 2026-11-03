@@ -108,10 +108,17 @@ export interface E2eLogLine {
   readonly truncated: boolean;
 }
 
+/** The concise terminal cause rendered separately from a run's raw logs. */
+export interface E2eFailureSummary {
+  readonly stepId: string;
+  readonly message: string;
+}
+
 /** A single run's detail: summary plus ordered steps and bounded log history. */
 export interface E2eRunDetail extends E2eRunSummary {
   readonly plannedSteps: readonly E2ePlannedStep[];
   readonly steps: readonly E2eStep[];
+  readonly failure: E2eFailureSummary | null;
   readonly logs: readonly E2eLogLine[];
   readonly logsTruncated: boolean;
 }
@@ -241,6 +248,7 @@ function emptyDetail(): E2eRunDetail {
     stepCount: 0,
     plannedSteps: [],
     steps: [],
+    failure: null,
     logs: [],
     logsTruncated: false,
   };
@@ -266,6 +274,7 @@ interface Mutable {
   stepCount: number;
   plannedSteps: readonly E2ePlannedStep[];
   steps: readonly E2eStep[];
+  failure: E2eFailureSummary | null;
   logs: readonly E2eLogLine[];
   logsTruncated: boolean;
 }
@@ -464,6 +473,10 @@ function fold(
         d.reportingComplete = true;
         d.endedAt = ev.timestamp;
         d.durationMs = ev.durationMs;
+        d.failure =
+          d.verdict === VERDICT_FAILED && ev.message !== null
+            ? { stepId: ev.stepId ?? "", message: ev.message }
+            : null;
         break;
       case "log":
         if (logSeen.has(ev.sequence)) {
@@ -526,6 +539,7 @@ function toMutable(base: E2eRunDetail): Mutable {
     stepCount: base.stepCount,
     plannedSteps: base.plannedSteps,
     steps: base.steps,
+    failure: base.failure,
     logs: base.logs,
     logsTruncated: base.logsTruncated,
   };

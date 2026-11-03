@@ -74,6 +74,7 @@ function fakeApi(overrides: Partial<FleetApi> = {}): FleetApi {
     stepCount: 0,
     plannedSteps: [],
     steps: [],
+    failure: null,
     logs: [],
     logsTruncated: false,
   };

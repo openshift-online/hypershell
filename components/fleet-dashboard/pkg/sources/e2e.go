@@ -137,6 +137,9 @@ type E2ERunDetail struct {
 	E2ERunSummary
 	PlannedSteps []E2EPlanned `json:"plannedSteps"`
 	Steps        []E2EStep    `json:"steps"`
+	// Failure is copied from the terminal run_finished record so Glass can keep
+	// the cause visible independently of the raw diagnostic log stream.
+	Failure *E2EFailureSummary `json:"failure,omitempty"`
 	// Logs is intentionally NOT populated by the run-detail endpoint: steps and
 	// verdict come from the small, always-fast lifecycle query, and the raw-log
 	// history is read a bounded page at a time through the logs endpoint (E2E-LOG-19,
@@ -149,6 +152,13 @@ type E2ERunDetail struct {
 	// completeness is reported per page by the logs endpoint's hasMore (E2E-LOG-19),
 	// not by a detail-level flag.
 	LogsTruncated bool `json:"logsTruncated"`
+}
+
+// E2EFailureSummary is the failed step and concise cause retained on a terminal
+// failed run.
+type E2EFailureSummary struct {
+	StepID  string `json:"stepId"`
+	Message string `json:"message"`
 }
 
 // E2ELogPage is one bounded page of a run's raw-log history, served by the
@@ -753,6 +763,9 @@ func reduceRun(tenant string, events []e2eEvent) *E2ERunDetail {
 			detail.ReportingComplete = true
 			detail.EndedAt = ev.Timestamp
 			detail.DurationMs = ev.DurationMs
+			if detail.Verdict == verdictFailed && ev.Message != "" {
+				detail.Failure = &E2EFailureSummary{StepID: ev.StepID, Message: ev.Message}
+			}
 		case e2eEventLog:
 			if len(logs) < maxDetailLogLines {
 				logs = append(logs, E2ELogLine{

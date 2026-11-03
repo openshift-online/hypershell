@@ -29,8 +29,9 @@ const (
 )
 
 type failureDiagnostics struct {
-	suite *E2ESuite
-	dir   string
+	suite         *E2ESuite
+	dir           string
+	actionsOutput io.Writer
 }
 
 // collectFailureDiagnostics captures the same cluster evidence for every Go E2E
@@ -43,15 +44,20 @@ func (s *E2ESuite) collectFailureDiagnostics() {
 		s.Log("DIAG failure diagnostics unavailable: Kubernetes client was not initialized")
 		return
 	}
+	d := &failureDiagnostics{suite: s}
+	if os.Getenv("GITHUB_ACTIONS") == "true" {
+		d.actionsOutput = os.Stdout
+	}
+	endGroup := githubActionsLogGroup(d.actionsOutput, "E2E failure diagnostics")
+	defer endGroup()
 
 	ctx, cancel := context.WithTimeout(context.Background(), durationSecondsEnv(envDiagnosticsTimeout, 45*time.Second))
 	defer cancel()
 
-	d := &failureDiagnostics{suite: s}
 	if base := os.Getenv(envDiagnosticsDir); base != "" {
 		d.dir = filepath.Join(base, diagnosticPathComponent(s.runID))
 	}
-	s.Logf("DIAG collecting failure diagnostics (timeout=%s)", durationSecondsEnv(envDiagnosticsTimeout, 45*time.Second))
+	d.logf("DIAG collecting failure diagnostics (timeout=%s)", durationSecondsEnv(envDiagnosticsTimeout, 45*time.Second))
 	d.section(ctx, "All pods", "pods.txt", d.writeAllPods)
 	d.section(ctx, "Pod descriptions (platform namespace)", "pod-describes.txt", d.writePlatformPodDescriptions)
 	d.section(ctx, "Pod logs (platform namespace)", "pod-logs.txt", d.writePlatformPodLogs)
@@ -65,6 +71,34 @@ func (s *E2ESuite) collectFailureDiagnostics() {
 	d.section(ctx, "OpenShell console", "openshell-console.txt", d.writeConsoleDiagnostics)
 }
 
+// githubActionsLogGroup collapses the high-volume diagnostic dump in the
+// Actions UI while leaving local and structured reporter output unchanged.
+func githubActionsLogGroup(w io.Writer, title string) func() {
+	if os.Getenv("GITHUB_ACTIONS") != "true" || w == nil {
+		return func() {}
+	}
+	_, _ = fmt.Fprintf(w, "::group::%s\n", title)
+	return func() {
+		_, _ = fmt.Fprintln(w, "::endgroup::")
+	}
+}
+
+// logf writes diagnostics directly between the Actions group commands. Go's
+// testing logger buffers output by subtest, which would otherwise move the
+// diagnostic lines outside the group when the test completes. The structured
+// sink still receives the same lines. Non-Actions runs retain normal test logs.
+func (d *failureDiagnostics) logf(format string, args ...any) {
+	message := harness.RedactDiagnostic(fmt.Sprintf(format, args...))
+	if d.actionsOutput != nil {
+		_, _ = fmt.Fprintln(d.actionsOutput, message)
+		if d.suite != nil && d.suite.logger != nil {
+			d.suite.logger.Additionalf("%s", message)
+		}
+		return
+	}
+	d.suite.Logf("%s", message)
+}
+
 func (d *failureDiagnostics) section(ctx context.Context, title, filename string, collect func(context.Context, io.Writer)) {
 	var b strings.Builder
 	collect(ctx, &b)
@@ -76,18 +110,18 @@ func (d *failureDiagnostics) section(ctx context.Context, title, filename string
 		body = "no diagnostic data found"
 	}
 	body = harness.RedactDiagnostic(body)
-	d.suite.Logf("DIAG %s\n%s", title, body)
+	d.logf("DIAG %s\n%s", title, body)
 
 	if d.dir == "" {
 		return
 	}
 	if err := os.MkdirAll(d.dir, 0o700); err != nil {
-		d.suite.Logf("DIAG create artifact directory %s: %v", d.dir, err)
+		d.logf("DIAG create artifact directory %s: %v", d.dir, err)
 		return
 	}
 	path := filepath.Join(d.dir, filename)
 	if err := os.WriteFile(path, []byte(body+"\n"), 0o600); err != nil {
-		d.suite.Logf("DIAG write artifact %s: %v", path, err)
+		d.logf("DIAG write artifact %s: %v", path, err)
 	}
 }
 

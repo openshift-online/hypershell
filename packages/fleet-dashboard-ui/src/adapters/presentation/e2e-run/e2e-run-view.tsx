@@ -1420,9 +1420,20 @@ export function SelectedRunPane({
         <Alert
           variant="danger"
           isInline
-          isPlain
           title={<FormattedMessage {...messages.e2eTestFailed} />}
-        />
+        >
+          {detail.failure ? (
+            <div className={styles.failureSummary}>
+              <strong>
+                <FormattedMessage
+                  {...messages.e2eFailureStep}
+                  values={{ step: <code>{detail.failure.stepId}</code> }}
+                />
+              </strong>
+              <span>{detail.failure.message}</span>
+            </div>
+          ) : null}
+        </Alert>
       ) : null}
       {detail.verdict === "unknown" &&
       !detail.reportingComplete &&

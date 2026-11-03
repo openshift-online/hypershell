@@ -162,6 +162,22 @@ describe("reduceRun", () => {
     expect(failed.verdict).toBe("failed");
   });
 
+  it("retains the terminal failure outside the log stream", () => {
+    const failed = reduceRun([
+      ev({
+        event: "run_finished",
+        sequence: 1,
+        outcome: "failed",
+        stepId: "P0.1",
+        message: "authentication failed",
+      }),
+    ]);
+    expect(failed.failure).toEqual({
+      stepId: "P0.1",
+      message: "authentication failed",
+    });
+  });
+
   it("reduces an empty event list to an unknown, stepless run", () => {
     const detail = reduceRun([]);
     expect(detail.steps).toEqual([]);

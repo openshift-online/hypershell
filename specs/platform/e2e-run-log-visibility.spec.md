@@ -422,6 +422,12 @@ name only for a unique trusted cluster/namespace match, with cluster and namespa
 as supporting context; an unknown or ambiguous instance SHALL fall back to cluster
 and namespace. Search SHALL include instance names and bundle versions.
 
+For a failed run, the lifecycle detail SHALL retain the terminal record's failed
+`stepId` and concise failure `message`. The selected-run pane SHALL render that
+summary in a dedicated danger alert above the Progress and Logs tabs. It SHALL
+not derive the summary from, or place it only inside, the raw log stream, so a
+large diagnostic dump, pagination, or log-query failure cannot hide the cause.
+
 History queries SHALL isolate lifecycle events from the bounded log window so
 chatty output cannot evict the run verdict or steps. Raw-log history SHALL be read
 by cursor-paged queries whose per-page size stays well below the Loki query
@@ -455,6 +461,13 @@ overlap, and surface truncated history or dropped events.
 - GIVEN a fail-fast run where later steps were never reached and a mode-skipped step
 - WHEN the detail renders
 - THEN not-run steps SHALL be distinct from skipped steps, and neither SHALL read as passed
+
+#### Scenario: E2E-LOG-12.05 -- Failure cause remains separate from diagnostics
+
+- GIVEN a failed run whose terminal record carries a failed step and concise cause
+- WHEN the selected-run detail renders with a large or unavailable raw log stream
+- THEN a danger alert above the tabs SHALL show the failed step and cause
+- AND the operator SHALL NOT need to search or load the diagnostic logs to find it
 
 ### Requirement: E2E-LOG-13 -- Domain Observability Probes
 

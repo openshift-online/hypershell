@@ -214,6 +214,24 @@ func TestReduceRunMissingTerminalIsUnknown(t *testing.T) {
 	}
 }
 
+func TestReduceRunRetainsTerminalFailureSummary(t *testing.T) {
+	entries := []LokiEntry{
+		{Line: viaQLine(t, ev(e2eEventRunStarted, 1, nil))},
+		{Line: viaQLine(t, ev(e2eEventRunFinished, 2, map[string]any{
+			"outcome": "failed",
+			"stepId":  "P0.1",
+			"message": "authentication failed",
+		}))},
+	}
+	run := reduceRun("hub-00", parseEntries(t, entries))
+	if run.Failure == nil {
+		t.Fatal("failed terminal record should retain a failure summary")
+	}
+	if run.Failure.StepID != "P0.1" || run.Failure.Message != "authentication failed" {
+		t.Fatalf("failure = %+v", run.Failure)
+	}
+}
+
 func TestReduceRunSkippedVsNotRun(t *testing.T) {
 	// P1.1 is mode-skipped; P1.2 is planned but never started (fail-fast not-run).
 	entries := []LokiEntry{

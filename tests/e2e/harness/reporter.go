@@ -57,6 +57,13 @@ type PlannedStep struct {
 	Name   string `json:"name"`
 }
 
+// FailureSummary is the concise terminal failure Glass can render independently
+// of the raw diagnostic stream.
+type FailureSummary struct {
+	StepID  string
+	Message string
+}
+
 // ReporterIdentity is the run identity supplied by the environment (by
 // hypershell-gitops in production). Every record carries it so a consumer can
 // correlate a run to a promotion by revision and attempt id.
@@ -164,9 +171,14 @@ func (r *Reporter) Log(stepID, message string) {
 // after cleanup has completed so the terminal record observes cleanup errors; a
 // run killed before this record is emitted reads to a consumer as
 // incomplete/unknown, never as passed.
-func (r *Reporter) RunFinished(outcome string, d time.Duration) {
+func (r *Reporter) RunFinished(outcome string, d time.Duration, failure ...FailureSummary) {
 	ms := d.Milliseconds()
-	r.emit(event{Event: eventRunFinished, Outcome: outcome, DurationMs: &ms})
+	ev := event{Event: eventRunFinished, Outcome: outcome, DurationMs: &ms}
+	if len(failure) > 0 {
+		ev.StepID = failure[0].StepID
+		ev.Message, ev.Truncated = boundAndRedact(failure[0].Message)
+	}
+	r.emit(ev)
 }
 
 // emit stamps the shared envelope fields and writes one line under the mutex. A

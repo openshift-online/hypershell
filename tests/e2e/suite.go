@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -120,6 +121,7 @@ type E2ESuite struct {
 	primaryState  *primaryGatewayState
 	gateways      *gatewayTracker
 	cliCache      *cliCache
+	failures      *failureRecorder
 	orphan        *orphanReaper
 	gcTimingLease *namespaceGCTimingLease
 }
@@ -144,6 +146,42 @@ type primaryGatewayState struct {
 type gatewayTracker struct {
 	mu  sync.Mutex
 	ids []string
+}
+
+type recordedFailure struct {
+	stepID  string
+	message string
+}
+
+// failureRecorder retains the first assertion failure across the main suite and
+// parallel step clones so teardown diagnostics cannot displace the cause from the
+// end of either the human log or the structured Glass stream.
+type failureRecorder struct {
+	mu    sync.Mutex
+	first *recordedFailure
+}
+
+func (r *failureRecorder) record(stepID, message string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.first == nil {
+		r.first = &recordedFailure{stepID: stepID, message: message}
+	}
+}
+
+func (r *failureRecorder) get() (recordedFailure, bool) {
+	if r == nil {
+		return recordedFailure{}, false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.first == nil {
+		return recordedFailure{}, false
+	}
+	return *r.first, true
 }
 
 // landedTracker records the distinct clusters a matrix suite's positive creates
@@ -200,6 +238,7 @@ func newE2ESuite(d driver.E2EInfraDriver, clients *harness.Clients) *E2ESuite {
 		gateways:     &gatewayTracker{},
 		cliCache:     &cliCache{},
 		primaryState: &primaryGatewayState{},
+		failures:     &failureRecorder{},
 	}
 }
 
@@ -339,8 +378,13 @@ func (s *E2ESuite) TearDownSuite() {
 	s.reporter.StepStarted("cleanup", "suite-teardown")
 	defer func() {
 		verdict := outcomeFor(s.T())
+		if failure, ok := s.failureSummary(); ok {
+			s.reporter.RunFinished(verdict, time.Since(s.startedAt), failure)
+			return
+		}
 		s.reporter.RunFinished(verdict, time.Since(s.startedAt))
 	}()
+	defer s.reportFailureSummary()
 	defer func() {
 		cleanupOutcome := harness.OutcomePassed
 		if s.T().Failed() && !failedBeforeCleanup {
@@ -407,19 +451,19 @@ func (s *E2ESuite) TearDownSuite() {
 			})
 		}
 		if err := g.Wait(); err != nil {
-			reportingTest{T: s.T(), logger: s.logger}.Errorf("gateway cleanup: %v", err)
+			reportingTest{T: s.T(), logger: s.logger, failures: s.failures}.Errorf("gateway cleanup: %v", err)
 		}
 	}
 
 	if s.gcTimingLease != nil && (!s.T().Failed() || s.driver.Name() != "openshift") {
 		if err := s.gcTimingLease.Release(ctx); err != nil {
-			reportingTest{T: s.T(), logger: s.logger}.Errorf("restore namespace GC timing: %v", err)
+			reportingTest{T: s.T(), logger: s.logger, failures: s.failures}.Errorf("restore namespace GC timing: %v", err)
 		}
 	}
 
 	if s.driver != nil {
 		if err := s.driver.DeSeedTestUsers(ctx); err != nil {
-			reportingTest{T: s.T(), logger: s.logger}.Errorf("de-seed test users: %v", err)
+			reportingTest{T: s.T(), logger: s.logger, failures: s.failures}.Errorf("de-seed test users: %v", err)
 		}
 	}
 
@@ -672,6 +716,7 @@ func (s *E2ESuite) cloneForStep(t *testing.T, stepID string) *E2ESuite {
 		serviceAccounts:          s.serviceAccounts,
 		gateways:                 s.gateways,
 		cliCache:                 s.cliCache,
+		failures:                 s.failures,
 		orphan:                   s.orphan,
 	}
 	clone.SetT(t)
@@ -831,13 +876,82 @@ func (s *E2ESuite) Log(args ...any) { s.Logf("%s", fmt.Sprintln(args...)) }
 // structured sink. FailNow/Helper delegate to the original testing.T unchanged.
 type reportingTest struct {
 	*testing.T
-	logger *harness.Logger
+	logger   *harness.Logger
+	failures *failureRecorder
 }
 
 func (t reportingTest) Errorf(format string, args ...any) {
 	t.Helper()
-	t.logger.Additionalf(format, args...)
-	t.T.Errorf(format, args...)
+	message := fmt.Sprintf(format, args...)
+	t.logger.Additionalf("%s", message)
+	t.failures.record(t.logger.StepID(), message)
+	t.T.Errorf("%s", message)
 }
-func (s *E2ESuite) Assert() *assert.Assertions   { return assert.New(reportingTest{s.T(), s.logger}) }
-func (s *E2ESuite) Require() *require.Assertions { return require.New(reportingTest{s.T(), s.logger}) }
+func (s *E2ESuite) Assert() *assert.Assertions {
+	return assert.New(reportingTest{T: s.T(), logger: s.logger, failures: s.failures})
+}
+func (s *E2ESuite) Require() *require.Assertions {
+	return require.New(reportingTest{T: s.T(), logger: s.logger, failures: s.failures})
+}
+
+func (s *E2ESuite) reportFailureSummary() {
+	failure, ok := s.failureSummary()
+	if !ok {
+		return
+	}
+	logger := s.logger.WithStep(failure.StepID, s.T().Logf)
+	// Human-only: Glass gets the same data on the terminal run_finished record,
+	// where it cannot be lost among thousands of ordinary log entries.
+	logger.Humanf("E2E FAILURE SUMMARY [%s]: %s", failure.StepID, failure.Message)
+}
+
+func (s *E2ESuite) failureSummary() (harness.FailureSummary, bool) {
+	failure, ok := s.failures.get()
+	if !ok {
+		return harness.FailureSummary{}, false
+	}
+	stepID := failure.stepID
+	if stepID == "" {
+		stepID = "unknown"
+	}
+	return harness.FailureSummary{StepID: stepID, Message: conciseFailure(failure.message)}, true
+}
+
+const maxFailureSummaryRunes = 800
+
+// conciseFailure keeps the actionable Error and Messages sections from a
+// Testify diagnostic while dropping stack paths and the redundant test name.
+func conciseFailure(message string) string {
+	safe := harness.RedactDiagnostic(message)
+	parts := make([]string, 0, 4)
+	capturing := false
+	for _, line := range strings.Split(safe, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(line, "Error Trace:"):
+			capturing = false
+		case strings.HasPrefix(line, "Error:"):
+			capturing = true
+			parts = append(parts, strings.TrimSpace(strings.TrimPrefix(line, "Error:")))
+		case strings.HasPrefix(line, "Test:"):
+			capturing = false
+		case strings.HasPrefix(line, "Messages:"):
+			capturing = true
+			parts = append(parts, strings.TrimSpace(strings.TrimPrefix(line, "Messages:")))
+		case capturing:
+			parts = append(parts, line)
+		}
+	}
+	if len(parts) == 0 {
+		parts = append(parts, strings.TrimSpace(safe))
+	}
+	summary := strings.Join(strings.Fields(strings.Join(parts, " | ")), " ")
+	runes := []rune(summary)
+	if len(runes) > maxFailureSummaryRunes {
+		summary = string(runes[:maxFailureSummaryRunes]) + " ...[truncated]"
+	}
+	return summary
+}
