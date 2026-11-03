@@ -3,7 +3,7 @@ import { OperationalDashboardPageSurface } from "./operational-dashboard";
 
 export function OperationalDashboardMockup() {
   return (
-    <MockupShell>
+    <MockupShell activeSection="dashboard">
       <OperationalDashboardPageSurface />
     </MockupShell>
   );

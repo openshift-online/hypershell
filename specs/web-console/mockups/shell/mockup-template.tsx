@@ -13,9 +13,16 @@ import {
   MastheadContent,
   MastheadLogo,
   MastheadMain,
+  MastheadToggle,
   MenuToggle,
+  Nav,
+  NavItem,
+  NavList,
   Page,
   PageSection,
+  PageSidebar,
+  PageSidebarBody,
+  PageToggleButton,
   SkipToContent,
   Toolbar,
   ToolbarContent,
@@ -28,7 +35,16 @@ import { useState } from "react";
 import logo from "../../../../images/brand/logo.png";
 import styles from "./mockup-template.module.css";
 
+export type MockupNavigationSection = "overview" | "gateways" | "dashboard";
+
+const primaryNavigation = [
+  { href: "/", label: "Overview", section: "overview" },
+  { href: "/gateways", label: "Gateways", section: "gateways" },
+  { href: "/dashboard", label: "Dashboard", section: "dashboard" },
+] as const;
+
 export type MockupTemplateProps = {
+  activeSection?: "overview" | "gateways" | "dashboard";
   breadcrumbs?: string[];
   children: React.ReactNode;
   contentVariant?: "default" | "secondary";
@@ -71,6 +87,9 @@ function MockupMasthead() {
   return (
     <Masthead>
       <MastheadMain>
+        <MastheadToggle>
+          <PageToggleButton aria-label="Primary navigation" isHamburgerButton />
+        </MastheadToggle>
         <MastheadBrand>
           <MastheadLogo className={styles.brand} component="a" href="/">
             <img alt="" className={styles.brandLogo} src={logo} />
@@ -99,18 +118,43 @@ function MockupMasthead() {
 }
 
 export function MockupShell({
+  activeSection = "overview",
   breadcrumb,
   children,
 }: {
+  activeSection?: MockupNavigationSection;
   breadcrumb?: React.ReactNode;
   children: React.ReactNode;
 }) {
+  const sidebar = (
+    <PageSidebar>
+      <PageSidebarBody>
+        <Nav aria-label="Primary navigation">
+          <NavList>
+            {primaryNavigation.map(({ href, label, section }) => (
+              <NavItem
+                component="a"
+                href={href}
+                isActive={section === activeSection}
+                key={section}
+              >
+                {label}
+              </NavItem>
+            ))}
+          </NavList>
+        </Nav>
+      </PageSidebarBody>
+    </PageSidebar>
+  );
+
   return (
     <Page
       breadcrumb={breadcrumb}
       isContentFilled
+      isManagedSidebar
       mainContainerId="main-content"
       masthead={<MockupMasthead />}
+      sidebar={sidebar}
       skipToContent={
         <SkipToContent href="#main-content">Skip to content</SkipToContent>
       }
@@ -125,6 +169,7 @@ export function MockupParityFrame({ children }: { children: React.ReactNode }) {
 }
 
 export function MockupTemplate({
+  activeSection = "overview",
   breadcrumbs = [],
   children,
   contentVariant = "default",
@@ -149,7 +194,10 @@ export function MockupTemplate({
   ) : undefined;
 
   return (
-    <MockupShell breadcrumb={showBreadcrumbs ? breadcrumb : undefined}>
+    <MockupShell
+      activeSection={activeSection}
+      breadcrumb={showBreadcrumbs ? breadcrumb : undefined}
+    >
       <PageSection hasBodyWrapper={false}>
         <Flex
           alignItems={{ default: "alignItemsFlexStart" }}

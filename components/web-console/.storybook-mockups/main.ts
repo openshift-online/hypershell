@@ -19,6 +19,7 @@ const config: StorybookConfig = {
           process.cwd(),
           "node_modules/@patternfly/react-core",
         ),
+        "react-intl": resolve(process.cwd(), "node_modules/react-intl"),
         "@patternfly/react-icons": resolve(
           process.cwd(),
           "node_modules/@patternfly/react-icons",

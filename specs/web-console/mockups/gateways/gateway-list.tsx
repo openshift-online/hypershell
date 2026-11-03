@@ -3,12 +3,12 @@ import {
   AlertActionLink,
   Button,
   Checkbox,
-  Content,
   Dropdown,
   DropdownItem,
   DropdownList,
   EmptyState,
   EmptyStateBody,
+  Content,
   List,
   ListItem,
   MenuToggle,
@@ -20,6 +20,8 @@ import {
   ModalVariant,
   Pagination,
   SearchInput,
+  Stack,
+  StackItem,
   Switch,
   Toolbar,
   ToolbarContent,
@@ -27,93 +29,89 @@ import {
   ToolbarItem,
   Tooltip,
 } from "@patternfly/react-core";
-import { EllipsisVIcon } from "@patternfly/react-icons";
+import { CodeIcon, CopyIcon, EllipsisVIcon } from "@patternfly/react-icons";
 import { Table, Tbody, Td, Th, Thead, Tr } from "@patternfly/react-table";
 import { useId, useState } from "react";
 
 import { HealthStatus } from "../common/health-status";
 import { ProvisionGatewayButton } from "../common/provision-gateway-button";
 import { MockupShell } from "../shell/mockup-template";
+import { CommandBlock } from "../../../../packages/gateway-management-ui/src/gateways/editable-command";
 import { GatewayListPageSurface } from "./gateway-list-page-surface";
+import styles from "./gateway-list.module.css";
 
 export type GatewayListState = "loaded" | "empty" | "error";
 
-// Design-review scenarios for row selection and the bulk-delete action
-// (WEB-UIEX-08). Each story fixes one scenario so the selection, confirmation,
-// and partial-failure states can be reviewed deterministically.
 export type GatewayBulkScenario =
-  | "none" // no selection; the bulk-delete action is disabled
-  | "selection" // a subset of eligible rows selected (indeterminate header)
-  | "confirm" // confirmation dialog open for the selected gateways
-  | "partial-failure"; // results banner after a partial-failure bulk delete
+  "none" | "selection" | "confirm" | "partial-failure";
 
 type Gateway = {
   activeSandboxes: number;
-  // Authoritative per-gateway delete capability from the API list response
-  // (can_delete, WEB-UIEX-03/06). Selection eligibility is derived from this,
-  // never from ownership or the ownership filter.
   canDelete: boolean;
-  cluster: string;
+  clusterType: string;
   consoleUrl: string;
   created: string;
   createdBy: string;
   endpoint: string;
   name: string;
   status: string;
+  version: string;
 };
 
-// Ordered newest first (creation time descending). The signed-in user (kim)
-// owns two gateways and can only view a third owned by dana, so the ineligible
-// row shows a disabled selection checkbox and the "Show only my gateways"
-// switch is useful and shown.
 const gateways: Gateway[] = [
   {
-    activeSandboxes: 0,
+    activeSandboxes: 3,
     canDelete: true,
-    cluster: "production-central",
-    consoleUrl: "https://console.prod.example.com",
-    created: "Oct 28, 2026",
-    createdBy: "kim",
-    endpoint: "https://gw-openshell-4lelb22e872df3c5.gw.localhost:443",
-    name: "kim-gateway",
-    status: "Healthy",
-  },
-  {
-    activeSandboxes: 0,
-    canDelete: true,
-    cluster: "development-east",
+    clusterType: "IBM Public",
+    created: "Oct 29, 2026, 9:41 AM",
+    createdBy: "kim-developer",
     consoleUrl: "https://console.dev.example.com",
-    created: "Sep 29, 2026",
-    createdBy: "kim",
     endpoint: "https://gw-openshell-87adafc506ea322b.gw.localhost:443",
-    name: "dev-gateway",
+    name: "payments-gateway",
     status: "Healthy",
+    version: "1.8.0",
   },
   {
-    activeSandboxes: 2,
-    canDelete: false,
-    cluster: "production-central",
-    consoleUrl: "https://console.shared.example.com",
-    created: "Aug 12, 2026",
-    createdBy: "dana",
-    endpoint: "https://gw-openshell-5b1c9d2e4f6a7081.gw.localhost:443",
-    name: "shared-gateway",
+    activeSandboxes: 1,
+    canDelete: true,
+    clusterType: "AWS VPN",
+    created: "Oct 28, 2026, 4:12 PM",
+    createdBy: "alex-operator",
+    consoleUrl: "https://console.prod.example.com",
+    endpoint: "https://gw-openshell-4lelb22e872df3c5.gw.localhost:443",
+    name: "research-gateway",
     status: "Healthy",
+    version: "1.8.0",
+  },
+  {
+    activeSandboxes: 0,
+    canDelete: false,
+    clusterType: "IBM Public Kata",
+    created: "Sep 22, 2026, 11:03 AM",
+    createdBy: "casey-platform",
+    consoleUrl: "https://console.staging.example.com",
+    endpoint: "https://gw-openshell-9f4b40e1c471c047.gw.localhost:443",
+    name: "integrations-gateway",
+    status: "Attention required",
+    version: "1.7.4",
   },
 ];
 
-// Fixed selection per design-review scenario. Only can_delete rows are ever
-// selected; the viewer-only "shared-gateway" is never eligible.
+const connectionCommand = (gatewayName: string, endpoint: string) =>
+  [
+    "openshell gateway add \\",
+    `  ${gatewayName} \\`,
+    `  --endpoint ${endpoint}`,
+  ].join("\n");
+
 function selectedNamesFor(scenario: GatewayBulkScenario): string[] {
   switch (scenario) {
     case "selection":
-      return ["kim-gateway"];
+      return ["payments-gateway"];
     case "confirm":
-      return ["kim-gateway", "dev-gateway"];
+      return ["payments-gateway", "research-gateway"];
     case "partial-failure":
-      // The accepted deletion ("dev-gateway") clears; the failed deletion
-      // ("kim-gateway") stays selected so the user can retry it.
-      return ["kim-gateway"];
+      return ["payments-gateway"];
     default:
       return [];
   }
@@ -158,9 +156,6 @@ function GatewayRowActions({
   );
 }
 
-// Toolbar bulk-selection control (WEB-UIEX-08). A PatternFly MenuToggleCheckbox
-// shows the checked, unchecked, and indeterminate states and the selected count;
-// its menu scopes selection to the eligible rows on the current page only.
 function BulkSelectControl({
   eligibleCount,
   selectedCount,
@@ -170,7 +165,6 @@ function BulkSelectControl({
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const checkboxId = useId();
-
   const isChecked =
     selectedCount === 0 ? false : selectedCount >= eligibleCount ? true : null;
 
@@ -223,16 +217,10 @@ function GatewayToolbar({
   showBulkControls?: boolean;
   showOwnershipFilter?: boolean;
 }) {
-  // "Show only my gateways" is a persistent on/off list filter, so it is a
-  // PatternFly Switch rather than a pressed-state toggle button (WEB-UIEX-07).
   const [onlyMine, setOnlyMine] = useState(ownershipFilterOn);
 
   return (
     <Toolbar>
-      {/* Row 1: selection, search, any other filters, the bulk-delete action,
-          the primary Provision action, and pagination share one intentionally
-          aligned row (WEB-UIEX-08), following the console.redhat.com Clusters
-          list layout. */}
       <ToolbarContent>
         {showBulkControls ? (
           <ToolbarItem>
@@ -243,7 +231,7 @@ function GatewayToolbar({
           </ToolbarItem>
         ) : null}
         <ToolbarItem>
-          <SearchInput placeholder="Filter by name, cluster, status, or endpoint" />
+          <SearchInput placeholder="Filter by name, status, or endpoint" />
         </ToolbarItem>
         {showBulkControls ? (
           <ToolbarGroup>
@@ -267,20 +255,9 @@ function GatewayToolbar({
           <ProvisionGatewayButton />
         </ToolbarItem>
         <ToolbarItem align={{ default: "alignEnd" }}>
-          <Pagination
-            itemCount={itemCount}
-            itemsEnd={itemCount}
-            itemsStart={itemCount ? 1 : 0}
-            page={1}
-            perPage={20}
-            variant="top"
-          />
+          <GatewayPagination itemCount={itemCount} variant="top" />
         </ToolbarItem>
       </ToolbarContent>
-      {/* Row 2: the ownership switch on its own row directly below the filters
-          (WEB-UIEX-07), so it reads as a persistent setting separate from the
-          primary controls. The whole row is omitted when the switch is hidden,
-          so no empty toolbar row remains. */}
       {showOwnershipFilter ? (
         <ToolbarContent>
           <ToolbarItem>
@@ -297,9 +274,118 @@ function GatewayToolbar({
   );
 }
 
-// Confirmation dialog shown before a bulk delete (WEB-UIEX-08). It states how
-// many gateways will be deleted, identifies them, and explains that teardown is
-// asynchronous. Cancel leaves every gateway unchanged.
+function GatewayPagination({
+  itemCount,
+  variant,
+}: {
+  itemCount: number;
+  variant: "top" | "bottom";
+}) {
+  return (
+    <Pagination
+      isCompact
+      itemCount={itemCount}
+      itemsEnd={itemCount}
+      itemsStart={itemCount ? 1 : 0}
+      page={1}
+      perPage={20}
+      perPageOptions={[
+        { title: "10", value: 10 },
+        { title: "20", value: 20 },
+        { title: "50", value: 50 },
+        { title: "100", value: 100 },
+      ]}
+      variant={variant}
+    />
+  );
+}
+
+function CopyValueButton({
+  ariaLabel,
+  icon,
+  tooltip,
+  value,
+}: {
+  ariaLabel: string;
+  icon: React.ReactNode;
+  tooltip: string;
+  value: string;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  return (
+    <Tooltip content={copied ? "Copied" : tooltip} position="top">
+      <Button
+        aria-label={ariaLabel}
+        icon={icon}
+        onClick={() => {
+          void navigator.clipboard.writeText(value);
+          setCopied(true);
+          window.setTimeout(() => setCopied(false), 1500);
+        }}
+        variant="plain"
+      />
+    </Tooltip>
+  );
+}
+
+function GatewayConnectionAction({
+  endpoint,
+  gatewayName,
+  initialIsOpen = false,
+}: {
+  endpoint: string;
+  gatewayName: string;
+  initialIsOpen?: boolean;
+}) {
+  const [isOpen, setIsOpen] = useState(initialIsOpen);
+
+  return (
+    <>
+      <Tooltip content={`View connection command for ${gatewayName}`}>
+        <Button
+          aria-label={`View connection command for ${gatewayName}`}
+          icon={<CodeIcon />}
+          onClick={() => setIsOpen(true)}
+          variant="plain"
+        />
+      </Tooltip>
+      {isOpen ? (
+        <Modal
+          isOpen
+          onClose={() => setIsOpen(false)}
+          variant={ModalVariant.medium}
+        >
+          <ModalHeader title={`Connect to ${gatewayName}`} />
+          <ModalBody>
+            <Stack hasGutter>
+              <StackItem>
+                <Content component="p">
+                  Run this command in a terminal to add the gateway to the
+                  OpenShell CLI.
+                </Content>
+              </StackItem>
+              <StackItem>
+                <div className={styles.steps}>
+                  <CommandBlock
+                    copyAriaLabel={`Copy connection command for ${gatewayName}`}
+                    copyText={connectionCommand(gatewayName, endpoint)}
+                  />
+                </div>
+              </StackItem>
+            </Stack>
+          </ModalBody>
+          <ModalFooter>
+            <Button onClick={() => setIsOpen(false)} variant="primary">
+              Close
+            </Button>
+          </ModalFooter>
+        </Modal>
+      ) : null}
+    </>
+  );
+}
+
 function BulkDeleteConfirmModal({ names }: { names: string[] }) {
   const titleId = useId();
 
@@ -337,9 +423,6 @@ function BulkDeleteConfirmModal({ names }: { names: string[] }) {
   );
 }
 
-// Per-gateway results banner for a partial-failure bulk delete (WEB-UIEX-08).
-// Accepted deletions are distinguished from completed teardown; failures stay
-// selected and can be retried without resubmitting the accepted deletions.
 function BulkDeleteResultBanner() {
   return (
     <Alert
@@ -349,11 +432,11 @@ function BulkDeleteResultBanner() {
     >
       <List>
         <ListItem>
-          dev-gateway: deletion accepted; resource teardown in progress.
+          research-gateway: deletion accepted; resource teardown in progress.
         </ListItem>
         <ListItem>
-          kim-gateway: deletion failed (the request was rejected). This gateway
-          stays selected so you can retry it.
+          payments-gateway: deletion failed (the request was rejected). This
+          gateway stays selected so you can retry it.
         </ListItem>
       </List>
     </Alert>
@@ -391,21 +474,18 @@ function GatewaySelectionCell({
 
 function LoadedGatewayList({
   bulk = "none",
+  connectionModalGateway,
   ownershipFilterOn = false,
 }: {
   bulk?: GatewayBulkScenario;
+  connectionModalGateway?: string;
   ownershipFilterOn?: boolean;
 }) {
-  // Default order is newest first: the Created column sorted descending.
   const sortBy = { index: 5, direction: "desc" as const };
   const onSort = () => undefined;
-
-  // When the switch is on, the API returns only the signed-in user's gateways
-  // (owned by kim); the switch stays visible so the filter can be turned off.
   const visibleGateways = ownershipFilterOn
-    ? gateways.filter((gateway) => gateway.createdBy === "kim")
+    ? gateways.filter((gateway) => gateway.createdBy === "kim-developer")
     : gateways;
-
   const selectedNames = selectedNamesFor(bulk);
   const selectedSet = new Set(selectedNames);
   const eligibleCount = visibleGateways.filter(
@@ -423,20 +503,34 @@ function LoadedGatewayList({
         showOwnershipFilter
       />
       {bulk === "partial-failure" ? <BulkDeleteResultBanner /> : null}
-      <Table aria-label="OpenShell Gateways">
+      <Table aria-label="OpenShell Gateways" variant="compact">
         <Thead>
           <Tr>
             <Th screenReaderText="Row selection" />
-            <Th sort={{ columnIndex: 0, onSort, sortBy: {} }}>Gateway name</Th>
-            <Th sort={{ columnIndex: 1, onSort, sortBy: {} }}>
-              Active sandboxes
+            <Th sort={{ columnIndex: 0, onSort, sortBy: {} }} width={15}>
+              Gateway name
             </Th>
-            <Th sort={{ columnIndex: 2, onSort, sortBy: {} }}>Cluster</Th>
-            <Th sort={{ columnIndex: 3, onSort, sortBy: {} }}>Status</Th>
-            <Th sort={{ columnIndex: 4, onSort, sortBy }}>Created</Th>
-            <Th sort={{ columnIndex: 5, onSort, sortBy: {} }}>Created by</Th>
-            <Th sort={{ columnIndex: 6, onSort, sortBy: {} }}>
-              Gateway endpoint
+            <Th sort={{ columnIndex: 1, onSort, sortBy: {} }} width={10}>
+              Sandboxes
+            </Th>
+            <Th sort={{ columnIndex: 2, onSort, sortBy: {} }} width={10}>
+              Status
+            </Th>
+            <Th sort={{ columnIndex: 3, onSort, sortBy: {} }} width={10}>
+              Version
+            </Th>
+            <Th sort={{ columnIndex: 4, onSort, sortBy: {} }} width={10}>
+              Connect
+            </Th>
+            <Th sort={{ columnIndex: 5, onSort, sortBy }} width={15}>
+              Created
+            </Th>
+            <Th sort={{ columnIndex: 6, onSort, sortBy: {} }} width={10}>
+              Created by
+            </Th>
+            <Th width={10}>Cluster type</Th>
+            <Th sort={{ columnIndex: 7, onSort, sortBy: {} }} width={10}>
+              Endpoint
             </Th>
             <Th screenReaderText="Actions" />
           </Tr>
@@ -460,14 +554,34 @@ function LoadedGatewayList({
                   {gateway.name}
                 </Button>
               </Td>
-              <Td dataLabel="Active sandboxes">{gateway.activeSandboxes}</Td>
-              <Td dataLabel="Cluster">{gateway.cluster}</Td>
+              <Td dataLabel="Sandboxes">{gateway.activeSandboxes}</Td>
               <Td dataLabel="Status">
-                <HealthStatus label={gateway.status} />
+                <HealthStatus
+                  appearance={
+                    gateway.status === "Attention required" ? "warning" : "good"
+                  }
+                  label={gateway.status}
+                />
+              </Td>
+              <Td dataLabel="Version">{gateway.version}</Td>
+              <Td dataLabel="Connect">
+                <GatewayConnectionAction
+                  endpoint={gateway.endpoint}
+                  gatewayName={gateway.name}
+                  initialIsOpen={connectionModalGateway === gateway.name}
+                />
               </Td>
               <Td dataLabel="Created">{gateway.created}</Td>
               <Td dataLabel="Created by">{gateway.createdBy}</Td>
-              <Td dataLabel="Gateway endpoint">{gateway.endpoint}</Td>
+              <Td dataLabel="Cluster type">{gateway.clusterType}</Td>
+              <Td dataLabel="Gateway endpoint">
+                <CopyValueButton
+                  ariaLabel={`Copy endpoint for ${gateway.name}`}
+                  icon={<CopyIcon />}
+                  tooltip={`Copy endpoint: ${gateway.endpoint}`}
+                  value={gateway.endpoint}
+                />
+              </Td>
               <Td isActionCell modifier="fitContent">
                 <GatewayRowActions
                   consoleUrl={gateway.consoleUrl}
@@ -478,6 +592,12 @@ function LoadedGatewayList({
           ))}
         </Tbody>
       </Table>
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <GatewayPagination
+          itemCount={visibleGateways.length}
+          variant="bottom"
+        />
+      </div>
       {bulk === "confirm" ? (
         <BulkDeleteConfirmModal names={selectedNames} />
       ) : null}
@@ -509,17 +629,23 @@ function ErrorGatewayList() {
 
 export function GatewayListContent({
   bulk = "none",
-  ownershipFilterOn = false,
   state,
+  connectionModalGateway,
+  ownershipFilterOn = false,
 }: {
   bulk?: GatewayBulkScenario;
-  ownershipFilterOn?: boolean;
   state: GatewayListState;
+  connectionModalGateway?: string;
+  ownershipFilterOn?: boolean;
 }) {
   return (
     <>
       {state === "loaded" ? (
-        <LoadedGatewayList bulk={bulk} ownershipFilterOn={ownershipFilterOn} />
+        <LoadedGatewayList
+          bulk={bulk}
+          connectionModalGateway={connectionModalGateway}
+          ownershipFilterOn={ownershipFilterOn}
+        />
       ) : null}
       {state === "empty" ? <EmptyGatewayList /> : null}
       {state === "error" ? <ErrorGatewayList /> : null}
@@ -529,17 +655,20 @@ export function GatewayListContent({
 
 export function GatewayListMockup({
   bulk = "none",
-  ownershipFilterOn = false,
   state,
+  connectionModalGateway,
+  ownershipFilterOn = false,
 }: {
   bulk?: GatewayBulkScenario;
-  ownershipFilterOn?: boolean;
   state: GatewayListState;
+  connectionModalGateway?: string;
+  ownershipFilterOn?: boolean;
 }) {
   return (
-    <MockupShell>
+    <MockupShell activeSection="gateways">
       <GatewayListPageSurface
         bulk={bulk}
+        connectionModalGateway={connectionModalGateway}
         ownershipFilterOn={ownershipFilterOn}
         state={state}
       />

@@ -48,6 +48,13 @@ export const BulkDeletePartialFailure: Story = {
   args: { state: "loaded", bulk: "partial-failure" },
 };
 
+export const ConnectionCommand: Story = {
+  args: {
+    state: "loaded",
+    connectionModalGateway: "payments-gateway",
+  },
+};
+
 export const Empty: Story = {
   args: { state: "empty" },
 };

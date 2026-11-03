@@ -430,7 +430,7 @@ function MatrixRowCells({ row }: { row: MatrixRow }) {
 
 export function AgentSdlcDashboardMockup() {
   return (
-    <MockupShell>
+    <MockupShell activeSection="dashboard">
       <AgentSdlcDashboardPageSurface />
     </MockupShell>
   );
