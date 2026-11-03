@@ -704,6 +704,7 @@ generate-tui-check:
 # requirement in specs/platform/e2e-testing.spec.md). TearDownSuite collects
 # failure diagnostics before cleanup for both direct and matrix/promotion runs.
 E2E_GO_TIMEOUT ?= 35m
+E2E_GO ?= go
 # E2E_RUN targets a single phase or step in isolation (the primary gateway is
 # provisioned once in suite setup, so any phase or step is independently runnable).
 # A phase value (Phase-P0..Phase-P3) runs the whole phase; any other value is
@@ -727,7 +728,17 @@ e2e:
 	@echo ""
 	@E2E_PROVISION_TIMEOUT=$${E2E_PROVISION_TIMEOUT:-300} \
 		E2E_SANDBOX_TIMEOUT=$${E2E_SANDBOX_TIMEOUT:-300} \
-		go -C tests/e2e test . -run '$(E2E_RUN_TARGET)' -failfast -v -timeout $(E2E_GO_TIMEOUT)
+		$(E2E_GO) -C tests/e2e test . -run '$(E2E_RUN_TARGET)' -failfast -v -timeout $(E2E_GO_TIMEOUT); \
+		rc=$$?; \
+		if [ "$$rc" -ne 0 ]; then \
+			echo ""; \
+			echo "================ E2E SUITE FAILED ================"; \
+			echo "Review the first Error Trace in this step; diagnostics and cleanup followed it."; \
+			if [ "$${GITHUB_ACTIONS:-}" = "true" ]; then \
+				echo "::error title=E2E suite failed::Review the first Error Trace in the E2E step; diagnostics and cleanup followed it."; \
+			fi; \
+		fi; \
+		exit "$$rc"
 
 # Managed-cluster matrix runner: runs the single-cluster E2ESuite once per
 # registered ManagedCluster and reports a per-cluster pass/fail/skip matrix.
