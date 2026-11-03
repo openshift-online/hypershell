@@ -873,7 +873,7 @@ func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
 	// placement shape and is never pinned to the matrix target, so it exercises the
 	// placement-validation path regardless of which cluster the suite targets.
 	invalidPlacement := gatewayCreateRequestForDriver("e2e-invalid-placement-"+s.runID, s.driver.Name())
-	invalidPlacement.Placement = &gatewayPlacementIntent{Mode: "invalid"}
+	invalidPlacement.Placement = &gatewayPlacementIntent{}
 	st, body, err = s.admin.RawJSON(ctx, http.MethodPost, "/gateways", invalidPlacement)
 	s.Require().NoError(err, "gateway create with invalid placement")
 	s.Assert().Equalf(http.StatusBadRequest, st, "invalid placement must be 400 (body: %s)", string(body))
@@ -1028,10 +1028,10 @@ func (s *E2ESuite) p3_1AdminInventory(t *testing.T) {
 // --- low-level helpers ---
 
 // gatewayPlacementIntent is the client-selected placement intent. The API server
-// resolves it to a registered managed-cluster id during gateway creation. Exactly
-// one of Mode or Selector must be set (GatewayPlacementIntent, openapi.gateways.yaml).
+// resolves it to a registered managed-cluster id during gateway creation. The
+// intent is a capability-label selector list (GatewayPlacementIntent,
+// openapi.gateways.yaml).
 type gatewayPlacementIntent struct {
-	Mode     string   `json:"mode,omitempty"`
 	Selector []string `json:"selector,omitempty"`
 }
 
@@ -1057,7 +1057,7 @@ type gatewayCreateRequest struct {
 func gatewayCreateRequestForDriver(name, driverName string) gatewayCreateRequest {
 	placement := &gatewayPlacementIntent{Selector: []string{"network/public", "provider/aws"}}
 	if driverName == "kind" {
-		placement = &gatewayPlacementIntent{Mode: "local-kind"}
+		placement = &gatewayPlacementIntent{Selector: []string{"provider/kind"}}
 	}
 	return gatewayCreateRequest{
 		Name:      name,
