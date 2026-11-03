@@ -1196,29 +1196,7 @@ cannot silently diverge on any resource that neither allowlist covers.
 
 ## Deploy Directory Structure
 
-The repo root `deploy/` directory contains all kustomize overlays for the platform. It is the **single source of truth** for desired state across all deployment modes (development, testing, and production). The directory structure reflects the layering relationship:
-
-```
-deploy/
-├── base/                           # Foundation: all platform resources (namespace, API, controller, DB, web console, Keycloak)
-│   ├── kustomization.yaml
-│   ├── namespace.yaml              # hypershell-system
-│   ├── api-server.yaml             # Deployment + Service
-│   ├── controller.yaml             # Deployment + Service (includes GATEWAY_IMAGE/GATEWAY_SUPERVISOR_IMAGE env vars)
-│   ├── controller-rbac.yaml        # ClusterRole + ClusterRoleBinding for tenant reconciliation
-│   ├── web-console.yaml            # Deployment + Service
-│   ├── postgres.yaml               # Bundled PostgreSQL Deployment + Service (development stand-in for an external server)
-│   ├── keycloak/                   # Shared Keycloak (base config, realm import)
-│   │   └── ...
-│   └── ...
-├── kind/                           # Kind-specific: bundles Keycloak + shared Gateway; disables OIDC by default
-├── openshift/                      # OpenShift development: bundles Keycloak; adds Routes, TLS, RBAC, NetworkPolicies
-├── ibm/                            # IBM ROKS: Route mode; image mirroring and cluster-wide RBAC
-├── hub/                            # Production (multi-cluster); shared Keycloak per cluster; managed external DB
-├── cloud-hub-ingress-bootstrap/    # Cloud Hub bootstrap: shared Gateway API + wildcard DNS/TLS (AWS/functional clusters)
-├── keycloak/                       # OpenShift Keycloak overlay: adds Route + domain patching
-└── components/                     # (Future) per-component overlays for flexibility
-```
+The repo root `deploy/` directory contains all kustomize overlays for the platform. It is the **single source of truth** for desired state across all deployment modes (development, testing, and production). See [`deploy/`](../../deploy/) for the current layout.
 
 Each overlay builds on `base/` and adds only its specific differences:
 
