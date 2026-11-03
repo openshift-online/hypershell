@@ -431,7 +431,7 @@ All gateway resources SHALL use fixed names (one gateway per namespace):
 - Service: `openshell-gateway` (ClusterIP, ports: `grpc:8080` with `appProtocol: grpc`, `metrics:9090`)
 - Internal health Service: `openshell-gateway-health` (ClusterIP, port: `health:8081`)
 - ServiceAccounts: `openshell-gateway`, `openshell-gateway-sandbox`, `openshell-gateway-certgen`
-- ConfigMap: `openshell-gateway-config` (contains `gateway.toml`)
+- ConfigMap: `openshell-gateway-config` (the chart renders `gateway.toml` into it from Helm values; see OSG-CORE-13)
 - Roles, RoleBindings, ClusterRole, ClusterRoleBinding (see RBAC section below)
 - NetworkPolicies are NOT created (see [helm-adoption decision](./openshell-gateway-helm-adoption.spec.md))
 
@@ -591,63 +591,38 @@ Gateway databases are provisioned on the externally provisioned PostgreSQL serve
 
 ### Requirement: OSG-CORE-13 -- Gateway Configuration (gateway.toml)
 
-The GatewayReconciler SHALL create a ConfigMap (`openshell-gateway-config`) containing a `gateway.toml` file that configures the OpenShell gateway process. The TOML is assembled from the Gateway resource fields and cluster-derived values.
+The GatewayReconciler SHALL configure the OpenShell gateway process through
+Helm values on the vendored OpenShell chart (`charts/openshell`). The control
+plane computes the values from the Gateway resource fields and cluster-derived
+values (`components/control-plane/internal/helm/values.go`). The chart renders
+the `gateway.toml` file into the `openshell-gateway-config` ConfigMap from those
+values and its own defaults. The control plane SHALL NOT write or patch the
+rendered ConfigMap.
 
-#### Base Configuration
+#### Values Set by the Control Plane
 
-The gateway.toml SHALL always contain:
+| Helm value | Source | Rendered effect |
+|------------|--------|-----------------|
+| `server.sandboxNamespace` | The API-assigned gateway namespace | `[openshell.gateway].sandbox_namespace` |
+| `supervisor.image.{registry,repository,tag}` | Gateway `supervisor_image`, defaulting to `GATEWAY_SUPERVISOR_IMAGE` | Supervisor image for sandbox pods |
+| `sandboxRuntime.image.{registry,repository,tag}` | `GATEWAY_SANDBOX_RUNTIME_IMAGE` | Trusted sandbox runtime image |
+| `certManager.serverDnsNames`, `pkiInitJob.serverDnsNames` | Gateway `serverDnsNames` | `[openshell.gateway].server_sans` and the server certificate SANs |
+| `server.defaultRuntimeClassName` | `GATEWAY_SANDBOX_RUNTIME_CLASS`; omitted when unset | `[openshell.gateway].default_runtime_class_name` |
+| `server.drivers.kubernetes.workspaceMode` | Gateway `workspace_mode` (see OSG-CORE-18) | Kubernetes driver `workspace_mode` |
+| `server.sandboxJwt.gatewayId` | Derived from the namespace, `managed` mode only (see OSG-CORE-18) | Gateway JWT `gateway_id` |
+| `server.oidc.*` | Gateway `oidc` fields (see [`openshell-gateway-oidc.spec.md`](./openshell-gateway-oidc.spec.md)) | `[openshell.gateway.oidc]` section |
+| `server.oidc.caConfigMapName` | `gateway-trusted-ca`, only when OIDC is set and the ConfigMap was copied (see OSG-CORE-06) | OIDC CA trust |
+| `server.credentialDrivers.*` | Gateway credential driver (see [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md)) | Credential driver sections, or the KEK credential store for `kek-db` |
+| `server.externalDbSecret` | `openshell-gateway-db-credentials` | `OPENSHELL_DB_URL` from that Secret |
 
-```toml
-[openshell]
-version = 1
+The listener addresses, TLS file paths, gateway JWT key paths, sandbox
+ServiceAccount name, and other process settings come from the chart defaults.
+The control plane does not set them.
 
-[openshell.gateway]
-bind_address             = "0.0.0.0:8080"
-health_bind_address      = "0.0.0.0:8081"
-metrics_bind_address     = "0.0.0.0:9090"
-log_level                = "info"
-sandbox_namespace        = "<tenant-namespace>"
-supervisor_image         = "<Gateway.supervisor_image or default ghcr.io/nvidia/openshell/supervisor:0.0.101>"
-client_tls_secret_name   = "openshell-client-tls"
-enable_loopback_service_http = true
-policy_validation_failure_mode = "fail_closed"
-server_sans              = [<serverDnsNames from Gateway resource>]
-
-[openshell.gateway.tls]
-cert_path      = "/etc/openshell-tls/server/tls.crt"
-key_path       = "/etc/openshell-tls/server/tls.key"
-client_ca_path = "/etc/openshell-tls/client-ca/ca.crt"
-
-# Credential storage is driver-dependent (see openshell-gateway-credentials.spec.md).
-# New gateways default to the Vault driver, which emits credential_drivers = ["vault"]
-# plus an [openshell.credential_drivers.vault] section instead of the KEK block below.
-# The KEK block is emitted only for the explicit `kek-db` driver:
-[openshell.gateway.credential_storage]
-key_encryption_key_env = "OPENSHELL_GATEWAY_CREDENTIAL_KEY_ENCRYPTION_KEY"
-
-[openshell.gateway.auth]
-allow_unauthenticated_users = false
-
-[openshell.gateway.gateway_jwt]
-signing_key_path = "/etc/openshell-jwt/signing.pem"
-public_key_path  = "/etc/openshell-jwt/public.pem"
-kid_path         = "/etc/openshell-jwt/kid"
-gateway_id       = "openshell-gateway"
-ttl_secs         = 3600
-
-[openshell.drivers.kubernetes]
-default_image              = "<vendored chart sandbox.image reference>"
-grpc_endpoint              = "https://openshell-gateway.<namespace>.svc.cluster.local:8080"
-service_account_name       = "openshell-gateway-sandbox"
-supervisor_sideload_method = "image-volume"
-sa_token_ttl_secs          = 3600
-topology                   = "single-cluster"
-
-[openshell.drivers.kubernetes.sidecar]
-image = "<supervisor-image>"
-```
-
-The `supervisor_image` field is configurable on the Gateway resource. If not set, it defaults to the value of the `GATEWAY_SUPERVISOR_IMAGE` environment variable on the control-plane deployment (see `deploy/base/platform-resources/controller.yaml`). The same image is used in both `[openshell.gateway].supervisor_image` and `[openshell.drivers.kubernetes.sidecar].image`.
+The `supervisor_image` field is configurable on the Gateway resource. If not
+set, it defaults to the value of the `GATEWAY_SUPERVISOR_IMAGE` environment
+variable on the control-plane deployment (see
+`deploy/base/platform-resources/controller.yaml`).
 
 The control plane SHALL also pass `GATEWAY_SANDBOX_RUNTIME_IMAGE` into the OpenShell Helm chart as `sandboxRuntime.image.{registry,repository,tag}` on every install and upgrade, pinned to the same OpenShell build (`OPENSHELL_TAG`) as the supervisor. The sandbox runtime and the supervisor speak a versioned boundary protocol; when the runtime is left to the chart default, which resolves to a moving upstream `dev` tag, it skews from the pinned supervisor and every sandbox stays in `Provisioning` with `attachment denied: ... control request payload digest mismatch`.
 
@@ -656,14 +631,13 @@ into `[openshell.drivers.kubernetes].default_image`, with digest taking preceden
 This is the gateway's default workload image, separate from the trusted sandbox
 runtime image. Callers SHALL select a different workload image per sandbox with
 OpenShell's `sandbox create --from <image>`, including an internal-registry mirror
-on restricted-egress clusters. The control plane SHALL NOT patch the rendered
-ConfigMap to select a workload image.
+on restricted-egress clusters. The control plane SHALL NOT set a workload image.
 
 #### server_sans and Exposed-Service Base Domains
 
-`server_sans` carries the `serverDnsNames` from the Gateway resource. The gateway derives its exposed-service base domains from wildcard SANs in this list: it strips the `*.` prefix and uses the remainder as the base domain for ExposeService URLs (`<sandbox>--<service>.<base-domain>`). Without a wildcard SAN naming its external domain, the gateway cannot generate correct external service URLs and falls back to internal base domains.
+The chart renders `server_sans` from the `serverDnsNames` on the Gateway resource. The gateway derives its exposed-service base domains from wildcard SANs in this list: it strips the `*.` prefix and uses the remainder as the base domain for ExposeService URLs (`<sandbox>--<service>.<base-domain>`). Without a wildcard SAN naming its external domain, the gateway cannot generate correct external service URLs and falls back to internal base domains.
 
-For a Gateway that opts in via `route.certificate`, the reconciler SHALL inject both `gw-<ns>.<base-domain>` and `*.gw-<ns>.<base-domain>` into `server_sans`, so exposed-service URLs are served under the Gateway's own domain subtree and covered by the per-gateway wildcard certificate (see [`openshell-gateway-tls.spec.md`](./openshell-gateway-tls.spec.md) § Per-Gateway External Certificate).
+For a Gateway that opts in via `route.certificate`, the reconciler SHALL add both `gw-<ns>.<base-domain>` and `*.gw-<ns>.<base-domain>` to the server DNS name values, so the chart renders them into `server_sans`, so exposed-service URLs are served under the Gateway's own domain subtree and covered by the per-gateway wildcard certificate (see [`openshell-gateway-tls.spec.md`](./openshell-gateway-tls.spec.md) § Per-Gateway External Certificate).
 
 #### Sandbox Runtime Class (optional)
 
@@ -681,12 +655,12 @@ The chart renders this value into `[openshell.gateway].default_runtime_class_nam
 
 #### OIDC Section (conditional)
 
-When `oidc.issuer` is set on the Gateway resource, the reconciler injects the OIDC section. See [`openshell-gateway-oidc.spec.md`](./openshell-gateway-oidc.spec.md).
+When `oidc.issuer` is set on the Gateway resource, the reconciler sets the `server.oidc.*` values and the chart renders the OIDC section. See [`openshell-gateway-oidc.spec.md`](./openshell-gateway-oidc.spec.md).
 
 #### Auth Section
 
-- Default: `allow_unauthenticated_users = false`
-- When OIDC is enabled, the reconciler also injects the `[openshell.gateway.oidc]` section
+- The chart renders `allow_unauthenticated_users = false` by default
+- When OIDC is enabled, the chart also renders the `[openshell.gateway.oidc]` section from the `server.oidc.*` values
 
 #### Workspace Mode Section
 
