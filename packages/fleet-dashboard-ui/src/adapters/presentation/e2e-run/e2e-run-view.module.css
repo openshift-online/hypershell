@@ -117,6 +117,13 @@
   color: var(--pf-t--global--text--color--status--danger--default);
 }
 
+.failureSummary {
+  display: grid;
+  gap: var(--pf-t--global--spacer--xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .attemptControls {
   display: flex;
   align-items: center;

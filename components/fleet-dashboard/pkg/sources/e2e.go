@@ -34,6 +34,7 @@ const (
 	e2eEventStepFinished = "step_finished"
 	e2eEventLog          = "log"
 	e2eEventRunFinished  = "run_finished"
+	diagnosticsStepID    = "diagnostics"
 )
 
 // Run verdicts. A run with no terminal run_finished record reads as unknown
@@ -137,6 +138,9 @@ type E2ERunDetail struct {
 	E2ERunSummary
 	PlannedSteps []E2EPlanned `json:"plannedSteps"`
 	Steps        []E2EStep    `json:"steps"`
+	// Failure is copied from the terminal run_finished record so Glass can keep
+	// the cause visible independently of the raw diagnostic log stream.
+	Failure *E2EFailureSummary `json:"failure,omitempty"`
 	// Logs is intentionally NOT populated by the run-detail endpoint: steps and
 	// verdict come from the small, always-fast lifecycle query, and the raw-log
 	// history is read a bounded page at a time through the logs endpoint (E2E-LOG-19,
@@ -149,6 +153,13 @@ type E2ERunDetail struct {
 	// completeness is reported per page by the logs endpoint's hasMore (E2E-LOG-19),
 	// not by a detail-level flag.
 	LogsTruncated bool `json:"logsTruncated"`
+}
+
+// E2EFailureSummary is the failed step and concise cause retained on a terminal
+// failed run.
+type E2EFailureSummary struct {
+	StepID  string `json:"stepId"`
+	Message string `json:"message"`
 }
 
 // E2ELogPage is one bounded page of a run's raw-log history, served by the
@@ -475,23 +486,8 @@ func (e *E2E) RunLogs(ctx context.Context, id, stepID, before string, limit int)
 	}
 
 	runSelector := e.selector + " |= " + strconv.Quote(runID)
-	if stepID != "" {
-		// Push the step scope into the query so Loki applies the page limit to this
-		// step's lines, not a run-wide page filtered afterwards (E2E-LOG-24). The step
-		// id rides a line filter on the pipeline/body, not a stream label, so run and
-		// step ids never become high-cardinality labels (E2E-LOG-24.03).
-		//
-		// The filter matches the serialized JSON field value token - the step id
-		// wrapped in the (ViaQ-escaped) quote pair as it appears in the structured
-		// event's "stepId":"<id>" field, i.e. the literal bytes \"<id>\" in the Loki
-		// line. Matching the quoted value rather than a bare substring disambiguates
-		// step ids that are prefixes of one another (e.g. "build" vs "build-image")
-		// and low-entropy names that could otherwise appear in another step's message,
-		// so the bounded page is not diluted before the limit. Go-side validation below
-		// still confirms the parsed event's step id matches exactly (defense in depth).
-		runSelector += " |= " + strconv.Quote(`\"`+stepID+`\"`)
-	}
-	entries, hitLimit, err := e.loki.QueryRange(ctx, tenant, runSelector, start, end, size)
+	query := logHistoryQuery(runSelector, stepID)
+	entries, hitLimit, err := e.loki.QueryRange(ctx, tenant, query, start, end, size)
 	if err != nil {
 		e.logger.WarnContext(ctx, "e2e run logs query failed", "tenant", tenant, "err", err)
 		return nil, ErrLogBackendUnavailable
@@ -753,6 +749,9 @@ func reduceRun(tenant string, events []e2eEvent) *E2ERunDetail {
 			detail.ReportingComplete = true
 			detail.EndedAt = ev.Timestamp
 			detail.DurationMs = ev.DurationMs
+			if detail.Verdict == verdictFailed && ev.Message != "" {
+				detail.Failure = &E2EFailureSummary{StepID: ev.StepID, Message: ev.Message}
+			}
 		case e2eEventLog:
 			if len(logs) < maxDetailLogLines {
 				logs = append(logs, E2ELogLine{
@@ -852,13 +851,29 @@ func firstNonEmpty(a, b string) string {
 func lifecycleQuery(selector string) string {
 	return selector + ` |~ "run_started|step_started|step_finished|run_finished"`
 }
+
+// logHistoryQuery narrows a raw-log page before Loki applies its result limit.
+// Whole-run pages omit the high-volume diagnostics scope; operators load that
+// scope explicitly by selecting its step. All pages select log events before the
+// limit so lifecycle records cannot dilute a bounded page. A selected step rides a
+// line filter on the body rather than a high-cardinality stream label. Matching its
+// ViaQ-escaped quoted value disambiguates step ids that prefix one another; Go-side
+// parsing below remains the authoritative exact match.
+func logHistoryQuery(selector, stepID string) string {
+	query := selector + " |= " + strconv.Quote(`\"event\":\"log\"`)
+	if stepID == "" {
+		return query + " != " + strconv.Quote(`\"stepId\":\"`+diagnosticsStepID+`\"`)
+	}
+	return query + " |= " + strconv.Quote(`\"`+stepID+`\"`)
+}
+
 func (e *E2E) runEntries(ctx context.Context, tenant, runID string, start, end time.Time) ([]LokiEntry, bool, error) {
 	selector := e.selector + " |= " + strconv.Quote(runID)
 	lifecycle, structuralLimit, err := e.loki.QueryRange(ctx, tenant, lifecycleQuery(selector), start, end, lokiQueryLimit)
 	if err != nil {
 		return nil, false, err
 	}
-	logs, logLimit, err := e.loki.QueryRange(ctx, tenant, selector, start, end, lokiQueryLimit)
+	logs, logLimit, err := e.loki.QueryRange(ctx, tenant, logHistoryQuery(selector, ""), start, end, lokiQueryLimit)
 	if err != nil {
 		return nil, false, err
 	}

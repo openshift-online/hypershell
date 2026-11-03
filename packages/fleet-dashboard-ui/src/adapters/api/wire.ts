@@ -783,6 +783,10 @@ interface WireE2eLogLine {
 interface WireE2eDetail extends WireE2eSummary {
   readonly plannedSteps?: readonly WireE2ePlanned[] | null;
   readonly steps?: readonly WireE2eStep[] | null;
+  readonly failure?: {
+    readonly stepId?: string;
+    readonly message?: string;
+  } | null;
   readonly logs?: readonly WireE2eLogLine[] | null;
   readonly logsTruncated?: boolean;
 }
@@ -929,6 +933,12 @@ export function mapE2eRunDetail(raw: unknown): E2eRunDetail {
     ...mapE2eSummary(wire),
     plannedSteps: (wire.plannedSteps ?? []).map(mapPlanned),
     steps: (wire.steps ?? []).map(mapE2eStep),
+    failure: wire.failure
+      ? {
+          stepId: wire.failure.stepId ?? "",
+          message: wire.failure.message ?? "",
+        }
+      : null,
     logs: (wire.logs ?? []).map(mapE2eLogLine),
     logsTruncated: wire.logsTruncated === true,
   };

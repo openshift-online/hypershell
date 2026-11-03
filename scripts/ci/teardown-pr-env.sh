@@ -43,7 +43,7 @@ log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 require_non_negative_integer() {
   local name="$1" value="$2"
   if [[ ! "${value}" =~ ^[0-9]+$ ]]; then
-    log "  ERROR ${name} must be a non-negative integer, got ${value}"
+    log "ERROR ${name} must be a non-negative integer, got ${value}"
     exit 1
   fi
 }
@@ -51,7 +51,7 @@ require_non_negative_integer() {
 require_positive_integer() {
   local name="$1" value="$2"
   if [[ ! "${value}" =~ ^[1-9][0-9]*$ ]]; then
-    log "  ERROR ${name} must be a positive integer, got ${value}"
+    log "ERROR ${name} must be a positive integer, got ${value}"
     exit 1
   fi
 }
@@ -95,7 +95,6 @@ request_namespace_deletion() {
   # `oc delete project --wait=true` remained blocked until its 300s timeout.
   if [[ "$(basename "${KUBECTL}")" == "oc" ]]; then
     if err="$("${KUBECTL}" delete project "${ns}" --ignore-not-found --wait=false 2>&1)"; then
-      log "  requested deletion of project ${ns}"
       return 0
     fi
     if grep -qiE 'not found|\(NotFound\)' <<<"${err}"; then
@@ -104,22 +103,31 @@ request_namespace_deletion() {
     log "  WARNING project deletion request failed for ${ns}; trying Namespace API: ${err}"
   fi
   if err="$("${KUBECTL}" delete namespace "${ns}" --ignore-not-found --wait=false 2>&1)"; then
-    log "  requested deletion of namespace ${ns}"
     return 0
   fi
-  log "  WARNING failed to request deletion of namespace ${ns}: ${err}"
+  log "ERROR failed to request deletion of namespace ${ns}: ${err}"
   return 1
 }
 
 wait_for_namespace_gone() {
   local ns="$1"
-  local started_at="${SECONDS}" next_status_at="${SECONDS}" lookup_rc=0
+  local started_at="${SECONDS}" lookup_rc=0
+  local next_status_at=$((SECONDS + DELETE_STATUS_INTERVAL_SECONDS))
   while true; do
     lookup_rc=0
     namespace_lookup "${ns}" || lookup_rc=$?
     if [[ "${lookup_rc}" -eq 1 ]]; then
-      log "  deleted namespace ${ns}"
       return 0
+    fi
+
+    if (( SECONDS - started_at >= DELETE_TIMEOUT_SECONDS )); then
+      if [[ "${lookup_rc}" -eq 2 ]]; then
+        log "  waiting for namespace ${ns}: lookup failed: ${NAMESPACE_LOOKUP_ERROR}"
+      else
+        log_namespace_status "${ns}"
+      fi
+      log "ERROR timed out after ${DELETE_TIMEOUT_SECONDS}s waiting for namespace ${ns} deletion"
+      return 1
     fi
 
     if (( SECONDS >= next_status_at )); then
@@ -129,11 +137,6 @@ wait_for_namespace_gone() {
         log_namespace_status "${ns}"
       fi
       next_status_at=$((SECONDS + DELETE_STATUS_INTERVAL_SECONDS))
-    fi
-
-    if (( SECONDS - started_at >= DELETE_TIMEOUT_SECONDS )); then
-      log "  WARNING timed out after ${DELETE_TIMEOUT_SECONDS}s waiting for namespace ${ns} deletion"
-      return 1
     fi
     sleep "${DELETE_POLL_SECONDS}"
   done
@@ -163,11 +166,10 @@ delete_namespace() {
   local lookup_rc=0
   namespace_lookup "${ns}" || lookup_rc=$?
   if [[ "${lookup_rc}" -eq 1 ]]; then
-    log "  namespace ${ns} already gone"
     return 0
   fi
   if [[ "${lookup_rc}" -eq 2 ]]; then
-    log "  WARNING could not verify namespace ${ns} before deletion: ${NAMESPACE_LOOKUP_ERROR}"
+    log "ERROR could not verify namespace ${ns} before deletion: ${NAMESPACE_LOOKUP_ERROR}"
     return 1
   fi
   request_namespace_deletion "${ns}" || return 1
@@ -202,7 +204,7 @@ delete_namespaces_parallel() {
 delete_instance_managed() {
   local instance="$1"
   if [[ -z "${instance}" ]]; then
-    log "  WARNING refusing to delete instance-managed namespaces with an empty instance identity"
+    log "ERROR refusing to delete instance-managed namespaces with an empty instance identity"
     return 1
   fi
   local selector names ns
@@ -210,11 +212,10 @@ delete_instance_managed() {
   selector="${PR_ENV_CP_MANAGED_LABEL}=${PR_ENV_CP_MANAGED_VALUE},${PR_ENV_CP_MANAGED_BY_LABEL}=${PR_ENV_CP_MANAGED_BY_VALUE},${PR_ENV_CP_INSTANCE_LABEL}=${instance}"
   if ! names="$("${KUBECTL}" get namespace -l "${selector}" \
     -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>&1)"; then
-    log "  WARNING failed to list instance-managed namespaces for ${instance}: ${names}"
+    log "ERROR failed to list instance-managed namespaces for ${instance}: ${names}"
     return 1
   fi
   if [[ -z "${names}" ]]; then
-    log "  no instance-managed namespaces for ${instance}"
     return 0
   fi
   while IFS= read -r ns; do
@@ -222,7 +223,6 @@ delete_instance_managed() {
     if [[ "${ns}" == "${instance}" || "${ns}" == "${instance}-keycloak" ]]; then
       continue
     fi
-    log "  instance workload ${ns} (instance=${instance})"
     to_delete+=("${ns}")
   done <<< "${names}"
   [[ "${#to_delete[@]}" -gt 0 ]] || return 0
@@ -246,7 +246,10 @@ if ! delete_instance_managed "${platform_ns}"; then
   failed=1
 fi
 if [[ "${failed}" -ne 0 ]]; then
-  log "teardown failed for ${platform_ns}"
+  log "ERROR teardown FAILED for ${platform_ns}"
+  if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+    printf '::error title=PR environment teardown failed::Could not fully destroy %s; inspect the ERROR lines above.\n' "${platform_ns}"
+  fi
   exit 1
 fi
 log "teardown complete for ${platform_ns}"

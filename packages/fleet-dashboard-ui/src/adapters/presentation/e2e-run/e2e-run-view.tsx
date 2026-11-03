@@ -136,6 +136,7 @@ export interface ExecControls {
  * constant instead of re-folding an ever-growing array (the old O(n squared) path).
  */
 const MAX_BUFFERED_LOG_EVENTS = MAX_DETAIL_LOG_LINES;
+const DIAGNOSTICS_STEP_ID = "diagnostics";
 
 /**
  * Append one streamed event to the live buffer, deduplicated by sequence (a
@@ -410,13 +411,12 @@ interface RunLogs {
 function useRunLogs(
   id: string,
   selectedStepId: string | null,
-  inertWhenRunWide = false,
+  enabled: boolean,
 ): RunLogs {
   const api = useFleetApi();
-  // A step-scoped instance stays idle while no step is selected, so the run-wide
-  // instance (which drives the independent progress summary and live tail) is the
-  // single run-wide reader - no duplicate run-wide fetch (E2E-LOG-23).
-  const inert = inertWhenRunWide && selectedStepId === null;
+  // History remains idle until the Logs tab is active. Exactly one reader is then
+  // enabled: whole-run or the explicitly selected step (E2E-LOG-23).
+  const inert = !enabled;
   const [lines, setLines] = useState<readonly E2eLogLine[]>([]);
   const [hasMoreOlder, setHasMoreOlder] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -454,6 +454,7 @@ function useRunLogs(
   const inFlight = useRef(false);
   const failedRef = useRef(false);
   const hasMoreRef = useRef(false);
+  const loadedScopeRef = useRef<string | null>(null);
   const scopeRef = useRef<string | null>(selectedStepId);
   const inertRef = useRef(inert);
   const controllerRef = useRef<AbortController | null>(null);
@@ -469,11 +470,6 @@ function useRunLogs(
   // state was already reset during render; this resets the loader refs and fetches.
   useEffect(() => {
     scopeRef.current = selectedStepId;
-    inFlight.current = false;
-    oldestCursor.current = null;
-    linesRef.current = [];
-    failedRef.current = false;
-    hasMoreRef.current = false;
     if (inert) {
       // Idle: no scope is selected for this instance, so it holds no buffer and does
       // not fetch.
@@ -481,6 +477,20 @@ function useRunLogs(
     }
     const controller = new AbortController();
     controllerRef.current = controller;
+    // Returning to a previously loaded tab/scope reuses its bounded buffer. A scope
+    // or retry key change still falls through to a fresh request.
+    if (loadedScopeRef.current === scopeKey) {
+      setLoadingInitial(false);
+      return () => {
+        controller.abort();
+      };
+    }
+    inFlight.current = false;
+    oldestCursor.current = null;
+    linesRef.current = [];
+    failedRef.current = false;
+    hasMoreRef.current = false;
+    setLoadingInitial(true);
     api
       .getE2eRunLogs(id, null, selectedStepId, controller.signal)
       .then((plane) => {
@@ -494,6 +504,7 @@ function useRunLogs(
           return;
         }
         const next = mergeLogLines([], plane.data.entries);
+        loadedScopeRef.current = scopeKey;
         linesRef.current = next;
         setLines(next);
         oldestCursor.current = plane.data.nextCursor;
@@ -520,7 +531,7 @@ function useRunLogs(
     return () => {
       controller.abort();
     };
-  }, [api, id, selectedStepId, inert, reloadNonce]);
+  }, [api, id, selectedStepId, inert, reloadNonce, scopeKey]);
 
   const loadOlder = useCallback(() => {
     // Stop automatic fetching while a failure is pending, so an empty pane that keeps
@@ -1332,13 +1343,20 @@ export function SelectedRunPane({
 
   // Logs are paged (and live-appended) independently of the steps snapshot, so a
   // slow or failed log read never blanks the steps (E2E-LOG-19/20). Two scoped
-  // readers keep the run-wide progress summary independent of the selected-step log
-  // view (E2E-LOG-12/23): runWideLogs is the single run-wide reader (it feeds the
-  // step table's failed-output preview and the run-wide log view, and takes the live
-  // tail); stepLogs requests the selected step's lines directly and stays idle while
-  // no step is selected. The log pane renders whichever matches the current scope.
-  const runWideLogs = useRunLogs(runId, null);
-  const stepLogs = useRunLogs(runId, selectedStepId, true);
+  // readers preserve independent whole-run and selected-step buffers, but both stay
+  // idle on Progress. Opening Logs enables only the active scope, so merely opening
+  // a run performs no paginated raw-log request (E2E-LOG-12/23).
+  const logsActive = activeTab === "logs";
+  const runWideLogs = useRunLogs(
+    runId,
+    null,
+    logsActive && selectedStepId === null,
+  );
+  const stepLogs = useRunLogs(
+    runId,
+    selectedStepId,
+    logsActive && selectedStepId !== null,
+  );
   const activeLogs = selectedStepId === null ? runWideLogs : stepLogs;
   // The live tail opens only while the run is in progress (E2E-LOG-21); the decision
   // comes from the loaded snapshot's terminal state.
@@ -1347,9 +1365,11 @@ export function SelectedRunPane({
   const stepAppendLive = stepLogs.appendLive;
   const appendLive = useCallback(
     (line: E2eLogLine) => {
-      // Fan the live line to both readers: the run-wide buffer always takes it; the
-      // step buffer takes it only when its scope matches (E2E-LOG-21/23).
-      runWideAppendLive(line);
+      // Diagnostics are opt-in: never append them to the whole-run buffer. The step
+      // reader accepts them only while diagnostics is the explicitly selected scope.
+      if (line.stepId !== DIAGNOSTICS_STEP_ID) {
+        runWideAppendLive(line);
+      }
       stepAppendLive(line);
     },
     [runWideAppendLive, stepAppendLive],
@@ -1420,9 +1440,20 @@ export function SelectedRunPane({
         <Alert
           variant="danger"
           isInline
-          isPlain
           title={<FormattedMessage {...messages.e2eTestFailed} />}
-        />
+        >
+          {detail.failure ? (
+            <div className={styles.failureSummary}>
+              <strong>
+                <FormattedMessage
+                  {...messages.e2eFailureStep}
+                  values={{ step: <code>{detail.failure.stepId}</code> }}
+                />
+              </strong>
+              <span>{detail.failure.message}</span>
+            </div>
+          ) : null}
+        </Alert>
       ) : null}
       {detail.verdict === "unknown" &&
       !detail.reportingComplete &&
