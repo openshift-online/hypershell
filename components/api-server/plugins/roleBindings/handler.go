@@ -52,6 +52,15 @@ func (h roleBindingHandler) List(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
 
 			listArgs := services.NewListArguments(r.URL.Query())
+			scope, scopeErr := resolveReadScope(ctx, h.roleBinding)
+			if scopeErr != nil {
+				return nil, scopeErr
+			}
+			search, searchErr := scope.restrictSearch(listArgs.Search)
+			if searchErr != nil {
+				return nil, searchErr
+			}
+			listArgs.Search = search
 			var bindings []RoleBinding
 			paging, err := h.generic.List(ctx, "id", listArgs, &bindings)
 			if err != nil {
@@ -95,6 +104,15 @@ func (h roleBindingHandler) Get(w http.ResponseWriter, r *http.Request) {
 			rb, err := h.roleBinding.Get(ctx, id)
 			if err != nil {
 				return nil, err
+			}
+			scope, scopeErr := resolveReadScope(ctx, h.roleBinding)
+			if scopeErr != nil {
+				return nil, scopeErr
+			}
+			if !scope.canSee(rb) {
+				// Same response as a missing binding: existence is not disclosed
+				// (SEC-RBAC-10.03).
+				return nil, errors.NotFound("RoleBinding with id='%s' not found", id)
 			}
 
 			return PresentRoleBinding(rb), nil

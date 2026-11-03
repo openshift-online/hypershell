@@ -474,7 +474,7 @@ Future iterations may expand platform:admin permissions to include these resourc
 - WHEN user A calls `POST /api/hypershell/v1/gateways`
 - THEN the response is 403 Forbidden
 
-#### Scenario: SEC-RBAC-07.07 -- Platform admin cannot use the low-level role_bindings resource
+#### Scenario: SEC-RBAC-07.07 -- Platform admin cannot create or delete through the low-level role_bindings resource
 
 - GIVEN user A has `platform:admin` only
 - AND user A has no `gateway:owner` binding for gw-1
@@ -1103,6 +1103,57 @@ Denying that list with 403 is a product bug: the web console treats it as
 - WHEN user A calls `GET /api/hypershell/v1/gateways`
 - THEN the response is 200
 - AND `items` is an empty array
+
+The low-level `role_bindings` resource SHALL follow the same rule for reads. A caller
+SHALL see a RoleBinding only when one of these holds:
+
+1. The binding belongs to the caller (`user_id` is the caller).
+2. The binding is gateway-scoped, and the caller holds a binding on that gateway
+   (`gateway:owner`, `gateway:admin`, or `gateway:viewer`). This is the same audience
+   that may read the gateway's access list (GTW-ACC-03).
+3. The caller holds `platform:admin`, which sees every binding.
+
+`GET /api/hypershell/v1/role_bindings` SHALL return only the bindings the caller can
+see, and an empty `items` array when there are none. `GET
+/api/hypershell/v1/role_bindings/{id}` SHALL return 404 for a binding the caller cannot
+see. Write rules for this resource are separate (SEC-RBAC-06, SEC-RBAC-07.07).
+
+A caller-supplied list filter (`search`) SHALL NOT widen what the caller can see. The
+server SHALL check the caller's `search` value on its own before combining it with the
+visibility restriction, and SHALL reject a value that is not a complete, valid
+expression by itself with 400. This covers every list that combines `search` with a
+visibility restriction, including `GET /gateways` and `GET /role_bindings`.
+
+#### Scenario: SEC-RBAC-10.02 -- Gateway member sees that gateway's bindings only
+
+- GIVEN user A holds `gateway:viewer` on gw-1 and no binding on gw-2
+- AND user B holds `gateway:owner` on gw-1 and on gw-2
+- WHEN user A calls `GET /api/hypershell/v1/role_bindings`
+- THEN the response is 200
+- AND `items` contains every binding on gw-1, including user B's
+- AND `items` contains no binding on gw-2
+- AND `items` contains no global-scope binding of another user
+
+#### Scenario: SEC-RBAC-10.03 -- Binding on another gateway is not disclosed
+
+- GIVEN user A has no binding on gw-2
+- AND binding rb-2 grants user B `gateway:owner` on gw-2
+- WHEN user A calls `GET /api/hypershell/v1/role_bindings/rb-2`
+- THEN the response is 404
+
+#### Scenario: SEC-RBAC-10.04 -- Platform admin reads every binding
+
+- GIVEN user A holds `platform:admin` and no gateway binding
+- WHEN user A calls `GET /api/hypershell/v1/role_bindings`
+- THEN `items` contains the bindings on every gateway
+
+#### Scenario: SEC-RBAC-10.05 -- Search cannot escape the visibility restriction
+
+- GIVEN user A can see gw-1 and cannot see gw-2
+- WHEN user A calls `GET /api/hypershell/v1/gateways` with
+  `search=name = 'gw-2') or (name = 'x'`
+- THEN the response is 400
+- AND gw-2 is not returned
 
 For mutation endpoints where the caller lacks write permission, the middleware SHALL
 return 403.

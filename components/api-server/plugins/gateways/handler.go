@@ -11,6 +11,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/extsearch"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/gatewayhealth"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
@@ -370,6 +371,17 @@ func (h gatewayHandler) List(w http.ResponseWriter, r *http.Request) {
 			userID := rbac.GetUserIDFromContext(ctx)
 			hasPlatformAdmin := rbac.HasPlatformAdminRole(ctx, userID)
 			scoped := userID != "" && h.visibilityFilter != nil && !hasPlatformAdmin
+
+			// Check the caller's search on its own before any restriction is
+			// appended. Only a complete, valid expression can be wrapped in
+			// parentheses without closing them early; without this check a value
+			// such as `name = 'x') or (name = 'y'` escapes the visibility filter
+			// and lists gateways the caller cannot see (SEC-RBAC-10.05).
+			if strings.TrimSpace(listArgs.Search) != "" {
+				if searchErr := extsearch.ValidateSearchColumns(listArgs.Search, &Gateway{}); searchErr != nil {
+					return nil, searchErr
+				}
+			}
 
 			appendSearch := func(filter string) {
 				if listArgs.Search != "" {
