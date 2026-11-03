@@ -804,6 +804,7 @@ func (f *stepFilterLoki) QueryRange(_ context.Context, _ string, query string, s
 	f.lastStart = start
 	f.lastEnd = end
 	filters := lineFilters(query)
+	exclusions := lineExclusions(query)
 	var filtered []LokiEntry
 	for _, e := range f.allLogs {
 		if e.TimestampNs >= end.UnixNano() { // query_range end is exclusive
@@ -812,6 +813,15 @@ func (f *stepFilterLoki) QueryRange(_ context.Context, _ string, query string, s
 		matched := true
 		for _, substr := range filters {
 			if !strings.Contains(e.Line, substr) {
+				matched = false
+				break
+			}
+		}
+		if !matched {
+			continue
+		}
+		for _, substr := range exclusions {
+			if strings.Contains(e.Line, substr) {
 				matched = false
 				break
 			}
@@ -834,14 +844,24 @@ func (f *stepFilterLoki) QueryRange(_ context.Context, _ string, query string, s
 // (including the ViaQ-escaped quoted step token, e.g. `\"id\"`) in the pipeline
 // before the limit.
 func lineFilters(query string) []string {
+	return lineFilterOperands(query, `|= "`)
+}
+
+// lineExclusions extracts each LogQL `!= "..."` line-filter operand so the fake
+// can prove a high-volume scope is removed before Loki applies the page limit.
+func lineExclusions(query string) []string {
+	return lineFilterOperands(query, `!= "`)
+}
+
+func lineFilterOperands(query, operator string) []string {
 	var out []string
 	i := 0
 	for {
-		idx := strings.Index(query[i:], `|= "`)
+		idx := strings.Index(query[i:], operator)
 		if idx < 0 {
 			break
 		}
-		i += idx + len(`|= "`)
+		i += idx + len(operator)
 		var sb strings.Builder
 		for i < len(query) {
 			c := query[i]
@@ -925,6 +945,69 @@ func TestRunLogsStepFilteredBeforeLimit(t *testing.T) {
 	// pre-limit step filter returns alpha instead, proving the filter runs first.
 	if page.Entries[0].Message != "alpha-1" || page.Entries[1].Message != "alpha-2" {
 		t.Fatalf("expected the alpha lines ascending, got %+v", page.Entries)
+	}
+}
+
+// TestRunLogsRunWideExcludesDiagnosticsBeforeLimit confirms the default whole-run
+// page keeps the high-volume diagnostics scope out of Loki's result set. The
+// explicit diagnostics scope remains addressable and returns those lines on demand.
+func TestRunLogsRunWideExcludesDiagnosticsBeforeLimit(t *testing.T) {
+	f := &stepFilterLoki{
+		lifecycle: []LokiEntry{{Line: viaQLine(t, ev("run_started", 1, nil))}},
+		allLogs: []LokiEntry{
+			stepLogEntry(t, 4, 400, "diagnostics", "large diagnostics 2"),
+			stepLogEntry(t, 3, 300, "diagnostics", "large diagnostics 1"),
+			stepLogEntry(t, 2, 200, "cleanup", "suite teardown complete"),
+			stepLogEntry(t, 1, 100, "P0.1", "authentication failed"),
+		},
+	}
+
+	page, err := testE2E(f).RunLogs(context.Background(), "hub-00/hypershell/run-1", "", "", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsFilter(lineExclusions(f.lastLogQ), `\"stepId\":\"diagnostics\"`) {
+		t.Fatalf("run-wide query did not exclude diagnostics before the limit: %q", f.lastLogQ)
+	}
+	if len(page.Entries) != 2 || page.Entries[0].StepID != "P0.1" || page.Entries[1].StepID != "cleanup" {
+		t.Fatalf("run-wide page should omit diagnostics, got %+v", page.Entries)
+	}
+
+	diagnostics, err := testE2E(f).RunLogs(context.Background(), "hub-00/hypershell/run-1", "diagnostics", "", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(diagnostics.Entries) != 2 {
+		t.Fatalf("explicit diagnostics scope returned %d lines, want 2: %+v", len(diagnostics.Entries), diagnostics.Entries)
+	}
+}
+
+func TestRunStreamBackfillExcludesDiagnostics(t *testing.T) {
+	f := &stepFilterLoki{
+		lifecycle: []LokiEntry{{Line: viaQLine(t, ev("run_started", 1, nil))}},
+		allLogs: []LokiEntry{
+			stepLogEntry(t, 3, 300, "diagnostics", "large diagnostics"),
+			stepLogEntry(t, 2, 200, "cleanup", "suite teardown complete"),
+		},
+	}
+	entries, _, err := testE2E(f).runEntries(
+		context.Background(),
+		"hub-00",
+		"run-1",
+		time.Unix(0, 0),
+		time.Unix(0, 1000),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsFilter(lineExclusions(f.lastLogQ), `\"stepId\":\"diagnostics\"`) {
+		t.Fatalf("stream backfill query did not exclude diagnostics: %q", f.lastLogQ)
+	}
+	for _, entry := range entries {
+		event, ok := parseViaQEvent(entry.Line)
+		if ok && event.Event == e2eEventLog && event.StepID == diagnosticsStepID {
+			t.Fatalf("stream backfill included diagnostics: %+v", event)
+		}
 	}
 }
 
