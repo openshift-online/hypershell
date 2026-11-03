@@ -18,6 +18,8 @@
 #   PR_ENV_E2E_SECRET_NAME    Secret name (default: hypershell-e2e-client)
 #   PR_ENV_E2E_SECRET_KEY     Secret data key (default: e2e-client-secret)
 #   PR_ENV_KUBECTL            kubectl/oc binary (default: oc)
+#   PR_ENV_SECRET_WAIT_SECONDS  poll deadline before failing (default: 300,
+#                               see wait-for-secret-keys.sh)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,6 +33,18 @@ secret_key="${PR_ENV_E2E_SECRET_KEY:-e2e-client-secret}"
 
 platform_ns="$(pr_env_namespace "${PR_NUMBER}")"
 keycloak_ns="$(pr_env_keycloak_namespace "${platform_ns}")"
+
+# Bounded poll, not a single read: a re-run of only this job (or a redeploy)
+# can start before the Deploy job's ensure-e2e-client-secret step has written
+# the Secret. Reuses the same deadline/poll primitive as the other ephemeral-PR
+# secret waits (ephemeral-ci-secrets.spec.md).
+if ! bash "${SCRIPT_DIR}/wait-for-secret-keys.sh" "${keycloak_ns}" "${secret_name}" "${secret_key}"; then
+  {
+    echo "The workflow must create Secret hypershell-e2e-client"
+    echo "(with the e2e-client-secret key) before Keycloak boots and e2e runs."
+  } >&2
+  exit 1
+fi
 
 encoded="$("${KUBECTL}" get secret "${secret_name}" -n "${keycloak_ns}" \
   -o "jsonpath={.data.${secret_key}}" 2>/dev/null || true)"
