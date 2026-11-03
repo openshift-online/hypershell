@@ -28,12 +28,13 @@ cat > "${BIN}/gh" <<'MOCK'
 set -uo pipefail
 [[ "${1:-}" == "api" ]] || { echo "mock gh: unsupported $*" >&2; exit 2; }
 shift
-method=GET; path=""; jqexpr=""; declare -a adds=(); want_close=0
+slurp=0; method=GET; path=""; jqexpr=""; declare -a adds=(); want_close=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -X) method="$2"; shift 2;;
     --jq) jqexpr="$2"; shift 2;;
-    --paginate|--slurp) shift;;
+    --paginate) shift;;
+    --slurp) slurp=1; shift;;
     -f) case "$2" in
           labels\[\]=*) adds+=("${2#labels[]=}");;
           state=closed) want_close=1;;
@@ -42,16 +43,20 @@ while [[ $# -gt 0 ]]; do
     *) shift;;
   esac
 done
+if [[ "${slurp}" == 1 && -n "${jqexpr}" ]]; then
+  echo 'mock gh: --slurp cannot be combined with --jq' >&2
+  exit 2
+fi
 _decode() { printf '%s' "${1//\%2F//}"; }
 state="${MOCK_STATE}"
 case "${path}" in
   */issues/5/labels*) state="${MOCK_PR_LABELS:-${MOCK_STATE}.pr}"; touch "${state}";;
 esac
 case "${path}" in
-  */commits/*/check-runs) printf '%s' "${MOCK_CHECKRUNS:-[]}"; exit 0;;
+  */commits/*/check-runs) if [[ -n "${MOCK_CHECKRUN_PAGES:-}" ]]; then printf '%s' "${MOCK_CHECKRUN_PAGES}"; exit 0; fi; jq -cn --argjson runs "${MOCK_CHECKRUNS:-[]}" '[{check_runs:$runs}]'; exit 0;;
   */commits/*/status) printf '%s' "${MOCK_STATUSES:-[]}"; exit 0;;
   */protection/required_status_checks) printf '%s' "${MOCK_REQUIRED:-}"; exit 0;;
-  */timeline) printf '%s' "${MOCK_TIMELINE:-[]}"; exit 0;;
+  */timeline) if [[ -n "${MOCK_TIMELINE_PAGES:-}" ]]; then printf '%s' "${MOCK_TIMELINE_PAGES}"; exit 0; fi; jq -cn --argjson events "${MOCK_TIMELINE:-[]}" '[$events]'; exit 0;;
   */pulls/*)
     case "${jqexpr}" in
       *base.ref*) printf '%s\t%s' "${MOCK_HEAD_SHA:-}" "${MOCK_BASE_REF:-main}";;
@@ -733,6 +738,31 @@ _run code-review "${APPROVED}" MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 PR_NUMBER
 if [[ $? != 0 ]] && _has_label "${S}" agent/reviewable-code && ! _has_label "${S}" agent/review-code-approved; then
  _ok "missing trusted head fails the attempt instead of silently succeeding"
 else _no "missing trusted head fails the attempt instead of silently succeeding" "$(cat "${WORK}/missing-state.out")"; fi
+
+
+# Real gh 2.87 rejects --slurp with --jq. The mock enforces that parser rule,
+# while paginated fixtures prove filtering/flattening still handles every page.
+S="${WORK}/paginated.labels"
+_seed "${S}" agent/allowed agent/reviewable-code
+PAGES='[{"check_runs":[{"id":1,"name":"CI","status":"completed","conclusion":"success"}]},{"check_runs":[{"id":2,"name":"CI","status":"in_progress"}]}]'
+_run code-review "${APPROVED}" MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 \
+ LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 MOCK_CHECKRUN_PAGES="${PAGES}" > "${WORK}/pages-pending.out" 2>&1
+if [[ $? == 0 ]] && _has_label "${S}" agent/reviewable-code && ! _has_label "${S}" agent/review-code-approved; then
+ _ok "latest pending check on a later page prevents approval"
+else _no "latest pending check on a later page prevents approval" "$(cat "${WORK}/pages-pending.out")"; fi
+PAGES='[{"check_runs":[{"id":1,"name":"CI","status":"completed","conclusion":"failure"}]},{"check_runs":[{"id":2,"name":"CI","status":"completed","conclusion":"success"}]}]'
+_run code-review "${APPROVED}" MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 \
+ LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 MOCK_CHECKRUN_PAGES="${PAGES}" > "${WORK}/pages-green.out" 2>&1
+if [[ $? == 0 ]] && _has_label "${S}" agent/review-code-approved && _has_label "${S}.pr" agent/review-code-approved; then
+ _ok "latest successful check on a later page permits verified approval"
+else _no "latest successful check on a later page permits verified approval" "$(cat "${WORK}/pages-green.out")"; fi
+_seed "${S}" agent/allowed agent/reviewable-code
+TIMELINE_PAGES="$(jq -cn '[[range(0;4)|{event:"labeled",label:{name:"agent/review-code-rejected"}}],[range(0;5)|{event:"labeled",label:{name:"agent/review-code-rejected"}}]]')"
+_run code-review '{"schema_version":"1","phase":"code-review","outcome":"rejected","pr_number":5,"head_sha":"abc1234","comment":"fix CI"}' \
+ MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 MOCK_TIMELINE_PAGES="${TIMELINE_PAGES}" > "${WORK}/pages-rejected.out" 2>&1
+if [[ $? == 0 ]] && _has_label "${S}" agent/review-code-rejected && _has_label "${S}" agent/blocked && ! _has_label "${S}" agent/reviewable-code; then
+ _ok "rejection counting includes every timeline page without incompatible gh flags"
+else _no "rejection counting includes every timeline page without incompatible gh flags" "$(cat "${WORK}/pages-rejected.out")"; fi
 
 printf '\n%d passed, %d failed\n' "${PASS}" "${FAIL}"
 [[ "${FAIL}" -eq 0 ]]

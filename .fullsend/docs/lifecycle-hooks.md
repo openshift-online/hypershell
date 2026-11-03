@@ -345,3 +345,9 @@ Fullsend CLI using dummy settings and a failing OpenShell stub. It verifies
 that native environment validation succeeds without opening a gateway or
 creating a sandbox. Review preflight commands contain no shell temporary
 `${...}` expressions, which Fullsend would interpret as host-variable templates.
+
+
+Paginated GitHub API calls use `gh api --paginate --slurp` and pipe the returned
+JSON through the standalone `jq` command. They do not combine `--slurp` with
+`gh --jq`, which the installed GitHub CLI rejects. The hook fixtures enforce
+that CLI restriction and cover multi-page check runs and rejection timelines.

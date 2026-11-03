@@ -52,12 +52,13 @@ cat > "${BIN}/gh" <<'MOCK'
 set -uo pipefail
 [[ "${1:-}" == "api" ]] || { echo "mock gh: unsupported $*" >&2; exit 2; }
 shift
-method=GET; path=""; jqexpr=""; declare -a adds=(); want_close=0
+slurp=0; method=GET; path=""; jqexpr=""; declare -a adds=(); want_close=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -X) method="$2"; shift 2;;
     --jq) jqexpr="$2"; shift 2;;
-    --paginate|--slurp) shift;;
+    --paginate) shift;;
+    --slurp) slurp=1; shift;;
     -f) case "$2" in
           labels\[\]=*) adds+=("${2#labels[]=}");;
           state=closed) want_close=1;;
@@ -66,16 +67,20 @@ while [[ $# -gt 0 ]]; do
     *) shift;;
   esac
 done
+if [[ "${slurp}" == 1 && -n "${jqexpr}" ]]; then
+  echo 'mock gh: --slurp cannot be combined with --jq' >&2
+  exit 2
+fi
 _decode() { printf '%s' "${1//\%2F//}"; }
 state="${MOCK_STATE}"
 case "${path}" in
   */issues/5/labels*) state="${MOCK_PR_LABELS:-${MOCK_STATE}.pr}"; touch "${state}";;
 esac
 case "${path}" in
-  */commits/*/check-runs) printf '%s' "${MOCK_CHECKRUNS:-[]}"; exit 0;;
+  */commits/*/check-runs) jq -cn --argjson runs "${MOCK_CHECKRUNS:-[]}" '[{check_runs:$runs}]'; exit 0;;
   */commits/*/status) printf '%s' "${MOCK_STATUSES:-[]}"; exit 0;;
   */protection/required_status_checks) printf '%s' "${MOCK_REQUIRED:-}"; exit 0;;
-  */timeline) printf '%s' "${MOCK_TIMELINE:-[]}"; exit 0;;
+  */timeline) jq -cn --argjson events "${MOCK_TIMELINE:-[]}" '[$events]'; exit 0;;
   */pulls/*)
     case "${jqexpr}" in
       *base.ref*) printf '%s\t%s' "${MOCK_HEAD_SHA:-}" "${MOCK_BASE_REF:-main}";;

@@ -244,9 +244,9 @@ gh_pr_checks_state() {
   [[ -z "${sha}" ]] && { echo "pending"; return 0; }
 
   # Latest check run per name (handles reruns: higher id is newer).
-  runs="$(gh_retry api "repos/${repo}/commits/${sha}/check-runs" --paginate --slurp \
-            --jq '[.[].check_runs[]] | group_by(.name) | map(max_by(.id))' \
-          2>/dev/null || echo '[]')"
+  runs="$(set -o pipefail; gh_retry api "repos/${repo}/commits/${sha}/check-runs" --paginate --slurp 2>/dev/null \
+            | jq '[.[].check_runs[]] | group_by(.name) | map(max_by(.id))' \
+          || echo '[]')"
   # Latest status per context (the combined status endpoint already dedupes).
   statuses="$(gh_retry api "repos/${repo}/commits/${sha}/status" \
                 --jq '[.statuses[]? | {context, state}]' 2>/dev/null || echo '[]')"

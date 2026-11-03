@@ -569,6 +569,11 @@ across polling, retries, and partial GitHub writes.
 
 ### Requirement: SDLC-HOOK-13 -- Automated Tests and Documentation
 
+GitHub pagination tests SHALL model the installed CLI restriction against using
+`--slurp` with `--jq` or `--template`. Timeline rejection counts and latest check
+results SHALL include all pages; JSON filtering MAY run through standalone `jq`
+after page acquisition, preserving request and parse failures.
+
 Review harness preflight commands SHALL be accepted by Fullsend's native host
 environment validation. Internal shell temporaries SHALL NOT be expressed as
 host-variable templates. Tests with an installed Fullsend binary SHALL load both

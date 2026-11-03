@@ -374,7 +374,7 @@ if lifecycle_phase_is_review "${PHASE}" && [[ "${outcome}" == "rejected" ]]; the
   # A failed read must not silently under-count and skip the block, so a genuine
   # fetch failure aborts before any mutation rather than being swallowed.
   if ! timeline="$(gh_retry api "repos/${REPO}/issues/${NUMBER}/timeline" --paginate --slurp \
-                     --jq 'add // []')"; then
+                     | jq 'add // []')"; then
     echo "post-lifecycle: could not read the issue timeline to count rejections; not applying the transition" >&2
     exit 1
   fi
