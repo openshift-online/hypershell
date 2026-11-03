@@ -5,7 +5,23 @@ description: "Triage and label new issues."
 
 ## Inputs and tools
 
-Your parameters come from the environment: `REPOSITORY`, `GITHUB_REPO_URL`, `LABEL_SCOPE`, `TRUSTED_BRANCH` (main), `DRY_RUN`. Use `gh` and the GitHub REST API for all GitHub actions; do not use MCP tools. The working directory is a checkout of `REPOSITORY`. Write your structured result to `$FULLSEND_OUTPUT_DIR/result.json`. Follow the workflow below.
+Your parameters come from the environment: `REPOSITORY`, `GITHUB_REPO_URL`, `LABEL_SCOPE`, `TRUSTED_BRANCH` (main), `DRY_RUN`, `GITHUB_ISSUE_URL` (the single issue that triggered this run). Use `gh` and the GitHub REST API for read-only GitHub actions; do not use MCP tools. The working directory is a checkout of `REPOSITORY`.
+
+You do not change any label. You classify the triggered issue and write a structured result to `$FULLSEND_OUTPUT_DIR/agent-result.json`. A trusted post-script validates that result and applies the lifecycle label transition (see `specs/standards/sdlc/fullsend-lifecycle-label-hooks.spec.md`, SDLC-HOOK). Do NOT add, remove, or create any `agent/*` lifecycle label, and do NOT close the issue yourself.
+
+Write exactly one JSON object to `$FULLSEND_OUTPUT_DIR/agent-result.json`:
+
+```json
+{
+  "schema_version": "1",
+  "phase": "triage",
+  "outcome": "workable | needs-input | duplicate",
+  "rationale": "one or two sentences explaining the classification",
+  "comment": "optional markdown to post on the issue"
+}
+```
+
+`outcome` MUST be one of the three permitted values. The post-script applies the label (`agent/workable`, `agent/needs-input`, or `agent/duplicate`) and, for `duplicate`, closes the issue. Follow the workflow below.
 
 ---
 
@@ -73,17 +89,17 @@ Definition: This issue contains clear intent, does not conflict with other issue
 
 Output: `$ISSUE_TO_CLASSIFICATION_MAP`
 
-### Step 3: Map Actions to Classification
+### Step 3: Write the Result
 
-For each issue in `$ISSUE_TO_CLASSIFICATION_MAP`, execute actions according to the label:
+Determine the classification of the triggered issue `$GITHUB_ISSUE_URL` (the
+other issues provide context for duplicate detection only).
 
-_Note: If the label does not exist, create it._
+Write the result object to `$FULLSEND_OUTPUT_DIR/agent-result.json` with:
+- `outcome`: `workable`, `needs-input`, or `duplicate` for `$GITHUB_ISSUE_URL`.
+- `rationale`: why this classification.
+- `comment` (optional): any note to post on the issue; for `duplicate`, name
+  the issue it duplicates.
 
-- `agent/duplicate`
-Action: Label the issue as `agent/duplicate`. Then, close the issue.
-
-- `agent/needs-input`
-Action: Label the issue as `agent/needs-input`.
-
-- `agent/workable`
-Action: Label the issue as `agent/workable`.
+Do not apply labels and do not close the issue. The trusted post-script reads
+this result, applies `agent/workable`, `agent/needs-input`, or `agent/duplicate`,
+and closes the issue on `duplicate`.

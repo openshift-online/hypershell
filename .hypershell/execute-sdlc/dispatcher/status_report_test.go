@@ -32,3 +32,19 @@ func TestStatusReportScopesAndSummarizes(t *testing.T) {
 		t.Fatal("missing empty-state explanation")
 	}
 }
+
+// Verifies: SDLC-LOC-11
+func TestStatusReportDistinguishesCancelingAndCanceled(t *testing.T) {
+	c := Config{Scope: "agent/scope/test"}
+	rows := []Row{
+		{Job: Job{Scope: c.Scope, Item: "1", Agent: "code-implementation"}, Status: "running", CancelRequested: true},
+		{Job: Job{Scope: c.Scope, Item: "2", Agent: "spec-implementation"}, Status: "canceled", Error: "Verify remote cleanup", Log: "/tmp/canceled agent.log"},
+	}
+	var out bytes.Buffer
+	writeStatusReport(&out, c, rows)
+	for _, want := range []string{"Canceling", "1 canceled", "manual retry", "Verify remote cleanup", "/tmp/canceled agent.log"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("status missing %q: %s", want, out.String())
+		}
+	}
+}

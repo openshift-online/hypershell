@@ -134,6 +134,16 @@ func relativeAge(age float64) string {
 	}
 }
 func rowStatus(r Row) string {
+	if r.Status == "running" && r.CancelRequested {
+		return "Canceling · waiting for cleanup"
+	}
+	if r.Status == "canceled" {
+		if r.Activity == "history" {
+			return "Canceled"
+		}
+		return "Canceled · r to retry"
+	}
+
 	if r.Activity == "history" {
 		switch r.Status {
 		case "failed":
@@ -168,6 +178,8 @@ func rowStatus(r Row) string {
 }
 
 type tickMsg time.Time
+type cancelDone struct{ err error }
+
 type retryDone struct {
 	key string
 	err error
@@ -194,6 +206,8 @@ type Model struct {
 	signInChoice                        int
 	signInResult                        string
 	signInDiagnostics                   bool
+	pendingCancel                       *Row
+	cancelChoice                        int
 	pendingRetry                        *Row
 	issueGrouping                       bool
 	showCompleted                       bool
@@ -374,6 +388,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.index = 0
 			m.selected = ""
 		}
+	case cancelDone:
+		if v.err != nil {
+			m.setNotice(v.err.Error())
+		} else {
+			m.setNotice("Cancel requested. Waiting for Fullsend to stop and finish cleanup.")
+		}
 	case retryDone:
 		if v.err != nil {
 			m.setNotice(v.err.Error())
@@ -381,6 +401,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setNotice("Retry requested for " + v.key + ". Starts when eligible and a worker slot is free.")
 		}
 	case tea.KeyMsg:
+		if m.pendingCancel != nil {
+			switch v.String() {
+			case "esc", "h":
+				m.pendingCancel = nil
+			case "tab", "up", "down", "left", "right", "j", "k":
+				m.cancelChoice = 1 - m.cancelChoice
+				m.confirmScroll = 1000000
+			case "pgup":
+				m.confirmScroll = max(0, m.confirmScroll-1)
+			case "pgdown":
+				m.confirmScroll++
+			case "enter":
+				row := *m.pendingCancel
+				m.pendingCancel = nil
+				if m.cancelChoice == 1 {
+					return m, func() tea.Msg { return cancelDone{m.engine.store.requestCancel(row.Key, m.engine.c.Scope, row.RunID)} }
+				}
+			case "q", "ctrl+c":
+				m.cancel()
+				m.exit = 130
+				return m, tea.Quit
+			}
+			return m, nil
+		}
 		if handled, cmd := m.navigation(v); handled {
 			return m, cmd
 		}
@@ -555,6 +599,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.setNotice("")
 				return m, func() tea.Msg { rows, err := m.engine.store.history(issue); return historyDone{issue, rows, err} }
 			}
+		case "C":
+			if m.historyIssue != nil {
+				m.setNotice("Return to the overview to cancel its current running job.")
+			} else if len(rows) > 0 {
+				row := rows[m.index]
+				if row.Status != "running" || row.Scope != m.engine.c.Scope {
+					m.setNotice("Only a running job in this scope can be canceled.")
+				} else if row.CancelRequested {
+					m.setNotice("Cancellation is already requested. Waiting for cleanup; inspect logs for progress.")
+				} else {
+					m.pendingCancel = &row
+					m.cancelChoice, m.confirmScroll = 0, 0
+					m.setNotice("")
+				}
+			}
 		case "r":
 			if m.historyIssue != nil {
 				m.setNotice("Return to the issue overview to retry its current failed job.")
@@ -572,8 +631,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.confirmScroll = 0
 						m.setNotice("")
 					}
-				} else if row.Status != "failed" {
-					m.setNotice("Only failed jobs can be retried here.")
+				} else if row.Status != "failed" && row.Status != "canceled" {
+					m.setNotice("Only failed or canceled jobs can be retried here.")
 				} else {
 					return m, func() tea.Msg { return retryDone{row.Key, m.engine.requestRetry(m.ctx, row.Key)} }
 				}
@@ -622,7 +681,7 @@ func statusColor(status string) string {
 	switch status {
 	case "failed":
 		return "1"
-	case "uncertain":
+	case "uncertain", "canceled":
 		return "3"
 	case "succeeded":
 		return "2"
@@ -704,7 +763,7 @@ func (m Model) agentGroups(rows []Row, w, budget int) []string {
 					switch item.Status {
 					case "running":
 						running++
-					case "failed", "uncertain":
+					case "failed", "uncertain", "canceled":
 						failed++
 					case "succeeded":
 						done++
@@ -937,6 +996,28 @@ func (m Model) View() string {
 		lines = append(lines, m.style(footer, "8", false))
 		return m.frame(lines, w, h)
 	}
+	if m.pendingCancel != nil {
+		lines = append(lines, m.style("Cancel run?", "3", true), "")
+		row := *m.pendingCancel
+		body := m.wrapped(title(row), w-2, "7")
+		body = append(body, m.style("Agent  "+row.Agent, "6", true), "")
+		body = append(body, m.wrapped("Fullsend will be interrupted and allowed to finish cleanup. Completed changes are kept. Post scripts only run when Fullsend has a valid result; cancellation does not create a review verdict.", w-2, "7")...)
+		body = append(body, "")
+		body = append(body, m.wrapped("The run stays tracked until it stops. It will not retry automatically. Other runs keep working.", w-2, "8")...)
+		body = append(body, "")
+		for i, label := range []string{"Keep running", "Cancel run"} {
+			line := "  " + label
+			if m.cancelChoice == i {
+				line = m.selection("> "+label, w-2)
+			}
+			body = append(body, line)
+		}
+		count := max(1, h-len(lines)-3)
+		start := min(m.confirmScroll, max(0, len(body)-count))
+		lines = append(lines, m.scrollPane(body, start, count, w)...)
+		lines = append(lines, m.scrollIndicator(start, min(len(body), start+count), len(body)), "", m.style("j/k choose   enter confirm   PgUp/PgDn scroll   esc keep running", "8", false))
+		return m.frame(lines, w, h)
+	}
 	if m.pendingRetry != nil {
 		lines = append(lines, m.style("Retry an unknown outcome?", "3", true), "")
 		body := m.retryPrompt(w)
@@ -958,7 +1039,7 @@ func (m Model) View() string {
 		start := max(0, end-count)
 		lines = append(lines, m.scrollPane(content, start, count, w)...)
 		lines = append(lines, m.scrollIndicator(start, end, len(content)))
-		lines = append(lines, "", m.style("j/k scroll   d details   r retry   h back   ? help   q detach", "8", false))
+		lines = append(lines, "", m.style("j/k scroll   d details   r retry  C cancel   C cancel   h back   ? help   q detach", "8", false))
 	} else if m.screen == "details" {
 		header, body := m.detailContent(rows, w)
 		lines = append(lines, header...)
@@ -966,7 +1047,7 @@ func (m Model) View() string {
 		start := min(m.scroll, max(0, len(body)-count))
 		lines = append(lines, m.scrollPane(body, start, count, w)...)
 		lines = append(lines, m.scrollIndicator(start, min(len(body), start+count), len(body)))
-		lines = append(lines, "", m.style("j/k scroll   enter logs   r retry   h back   ? help   q detach", "8", false))
+		lines = append(lines, "", m.style("j/k scroll   enter logs   r retry  C cancel   C cancel   h back   ? help   q detach", "8", false))
 	} else {
 		if m.state.Monitoring {
 			lines = append(lines, "Existing workers are finishing. Scheduling resumes automatically.", "")
@@ -1081,7 +1162,11 @@ func (m Model) View() string {
 			}
 			lines = append(lines, summary)
 		}
-		footer := "j/k select  enter logs  / filter  o sort  O reverse  H history  ? help  q detach"
+		action := "r retry"
+		if len(rows) > 0 && rows[m.index].Status == "running" {
+			action = "C cancel"
+		}
+		footer := "j/k select  enter logs  " + action + "  / filter  o sort  O reverse  H history  ? help  q detach"
 		if m.historyIssue != nil {
 			footer = "j/k select  enter logs  / filter  o sort  O reverse  H refresh  h back  ? help"
 		}

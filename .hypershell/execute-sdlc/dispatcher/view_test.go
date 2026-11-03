@@ -434,7 +434,7 @@ func TestTerminalPreviewFrames(t *testing.T) {
 		{Job: Job{Key: "832", Scope: m.engine.c.Scope, Item: "832", Title: "Tighten RoleBinding write authorization for authenticated users", Agent: "reconcile"}, Status: "succeeded", Finished: seconds() - 125},
 	}
 	m.state.Active = 2
-	for _, screen := range []string{"overview", "logs", "details", "signin", "filter", "help"} {
+	for _, screen := range []string{"overview", "logs", "details", "signin", "filter", "help", "cancel"} {
 		m.screen = screen
 		if screen == "overview" {
 			m.screen = ""
@@ -451,6 +451,13 @@ func TestTerminalPreviewFrames(t *testing.T) {
 			}}
 		}
 		m.helpOpen = screen == "help"
+		if screen == "cancel" {
+			row := m.state.Rows[0]
+			m.pendingCancel = &row
+			m.cancelChoice = 1
+		} else {
+			m.pendingCancel = nil
+		}
 		if screen == "filter" {
 			m.screen = ""
 			m.filter = "code-implementation"

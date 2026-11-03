@@ -184,6 +184,9 @@ class StoreTests(unittest.TestCase):
 
 class DiscoveryTests(unittest.TestCase):
     def setUp(self):
+        observation = patch.object(funnel.GitHub, 'code_state', return_value=None)
+        observation.start()
+        self.addCleanup(observation.stop)
         self.github = funnel.GitHub('test/repo', 'agent/scope/test', '.fullsend')
 
     @patch.object(funnel, 'json_command')
@@ -229,6 +232,9 @@ class DiscoveryTests(unittest.TestCase):
 
 class ImplementationCycleTests(unittest.TestCase):
     def setUp(self):
+        observation = patch.object(funnel.GitHub, 'code_state', return_value=None)
+        observation.start()
+        self.addCleanup(observation.stop)
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.store = funnel.Store(Path(self.tmp.name)/'state.db')
@@ -288,6 +294,61 @@ class ImplementationCycleTests(unittest.TestCase):
                 self.github.phase_job('scope', 'spec-implementation', item, [pr()])
         with self.assertRaises(funnel.DispatchError):
             self.github.phase_job('scope', 'spec-implementation', item, [pr(), pr(11)])
+
+
+class CodeReadinessTests(unittest.TestCase):
+    def test_watch_observes_approved_issues_and_respects_worker_ownership(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = funnel.parse_args(['agent/scope/test', '--dry-run', '--lifecycle', 'github-only'])
+            args.refresh_code_state = True
+            store = funnel.Store(Path(tmp)/'state.db')
+            self.addCleanup(store.db.close)
+            coordinator = funnel.Coordinator(args,store,-1)
+            item = issue()
+            approved = ['agent/scope/test','agent/allowed','agent/review-code-approved']
+            item['labels'] = approved.copy()
+            inspections = []
+            def observe(record, pull, inspect=True):
+                inspections.append(inspect)
+                if not inspect:
+                    item['labels'] = ['agent/scope/test','agent/allowed','agent/code-conflicts']
+                return dict(changed=not inspect, mergeable=False, checks='green')
+            with patch.object(coordinator.github,'discover',return_value=[item]), patch.object(coordinator.github,'pages',return_value=[pr()]), patch.object(coordinator.github,'current',side_effect=lambda n:item), patch.object(coordinator.github,'code_state',side_effect=observe), patch.object(coordinator.github,'classify',side_effect=lambda row:['code-implementation'] if 'agent/code-conflicts' in row['labels'] else []):
+                coordinator.discover()
+                self.assertFalse(inspections[0])
+                self.assertEqual([job['agent'] for job in coordinator.candidates],['code-implementation'])
+                item['labels'] = approved.copy()
+                inspections.clear()
+                active = funnel.make_job(args.scope,'code-review',item)
+                store.start(active,'active.log',100)
+                coordinator.discover()
+                self.assertEqual(inspections,[True])
+                self.assertEqual(item['labels'],approved)
+                self.assertEqual(coordinator.candidates,[])
+
+    # Verifies: SDLC-HOOK-14.01
+    def test_pending_to_green_and_mergeability_changes_release_deduplication(self):
+        github = funnel.GitHub('test/repo','agent/scope/test','.fullsend')
+        item = issue()
+        item['labels'].append('agent/reviewable-code')
+        state = dict(checks='pending', state='open', head_sha='abc', base_sha='base',
+                     mergeable=True, mergeable_state='clean', draft=False, changed=False)
+        with tempfile.TemporaryDirectory() as tmp, patch.object(github,'code_state',side_effect=lambda *args:dict(state)):
+            store = funnel.Store(Path(tmp)/'state.db')
+            try:
+                pending = github.phase_job(github.scope,'code-review',item,[pr()])
+                run = store.start(pending,'run.log',100)
+                store.finish(pending['key'],run,0,60,200,now=101)
+                self.assertFalse(store.eligible(github.phase_job(github.scope,'code-review',item,[pr()]),200))
+                state['checks']='green'
+                green = github.phase_job(github.scope,'code-review',item,[pr()])
+                self.assertTrue(store.eligible(green,200))
+                state['base_sha']='new-base'
+                state.update(mergeable=False,mergeable_state='dirty')
+                conflict = github.phase_job(github.scope,'code-review',item,[pr()])
+                self.assertNotEqual(green['fingerprint'],conflict['fingerprint'])
+            finally:
+                store.db.close()
 
 
 class LocalLaunchTests(unittest.TestCase):
@@ -487,6 +548,11 @@ class ReconcileScheduleTests(unittest.TestCase):
 
 
 class AuthorizationTests(unittest.TestCase):
+    def setUp(self):
+        observation = patch.object(funnel.GitHub, 'code_state', return_value=None)
+        observation.start()
+        self.addCleanup(observation.stop)
+
     def test_removed_authorization_and_stale_labels_cannot_launch(self):
         args=funnel.parse_args(['agent/scope/test','--lifecycle','github-only','--dry-run'])
         store=Mock()
@@ -611,6 +677,9 @@ elif name=='openshell':
 
 class ProcessTests(unittest.TestCase):
     def setUp(self):
+        observation = patch.object(funnel.GitHub, 'code_state', return_value=None)
+        observation.start()
+        self.addCleanup(observation.stop)
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)

@@ -203,6 +203,38 @@ Complete log paths SHALL remain available even when the screen truncates them.
 - WHEN the developer invokes reverse sort
 - THEN ordering and the column's directional arrow SHALL reverse together
 
+### Requirement: SDLC-LOC-11 -- Confirmed graceful cancellation
+
+The overview, logs, and details SHALL offer **Cancel run** for a selected running
+job in the current scope. Confirmation SHALL identify the issue and actual agent,
+explain partial changes and cleanup, support arrow/Vim selection, and default to
+**Keep running**. Cancellation SHALL target an immutable attempt identity and
+reject stale confirmations, other scopes, completed runs, and unsupported legacy
+workers without signaling unverified PIDs.
+
+A durable request SHALL survive dispatcher detachment and restart. The detached
+supervisor SHALL send SIGTERM to Fullsend, retain its ownership lock until
+Fullsend exits and the outcome is persisted, and expose **Canceling** during
+cleanup. Cancellation SHALL NOT force-kill Fullsend, terminate unrelated workers,
+or release capacity while cleanup is active. Completed cancellation SHALL be
+recorded distinctly in the overview and attempt history. The issue SHALL remain
+paused until manual retry; retry SHALL still respect ownership and authorization.
+
+Cancellation SHALL NOT fabricate agent results or lifecycle verdicts. Fullsend's
+validation gates remain authoritative for post-script execution, which is not
+guaranteed on interruption. Documentation SHALL explain retained partial writes,
+remote cleanup verification, and the difference between cancellation and detach.
+
+#### Scenario: SDLC-LOC-11.01 -- Cancel while cleanup takes time
+
+- GIVEN a running worker and an explicitly confirmed cancellation
+- WHEN Fullsend handles SIGTERM but has not finished cleanup
+- THEN the run SHALL remain owned and ineligible for retry
+- AND a restarted dashboard SHALL show the persisted cancellation request
+- WHEN Fullsend exits and the outcome is saved
+- THEN the attempt SHALL appear as canceled, with its logs preserved
+- AND automatic discovery SHALL NOT restart work on the canceled issue
+
 ## Verification and operational documentation
 
 The dispatcher tests cover persistent ownership, detachment, discovery, retries,

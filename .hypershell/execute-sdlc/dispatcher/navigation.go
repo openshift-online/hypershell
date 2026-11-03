@@ -32,6 +32,7 @@ H                 Open or refresh history
 RUN ACTIONS
 d                 Details (diagnostics during sign-in)
 r                 Retry selected run
+C                 Cancel running job (confirmation required)
 s                 Gateway sign-in
 x                 Dismiss notification (Ctrl-x in text fields)
 ?                 Show / close this help
@@ -151,6 +152,9 @@ func durationLabel(r Row) string {
 }
 func tableStatus(r Row) string {
 	if r.Status == "running" {
+		if r.CancelRequested {
+			return "Canceling · cleanup"
+		}
 		if r.Activity != "" && r.Activity != "history" {
 			return r.Activity
 		}
