@@ -17,6 +17,7 @@ import time
 import uuid
 
 from reconcile_probe import ReconcileProbe, JiraReader, ProbeError
+from intake_probe import IntakeProbe
 from local_harness import prepare as prepare_local_harness
 from jira_auth import JiraAuthError, selected_auth, snapshot
 from gateway_setup import GatewayManager, GatewaySetupError
@@ -458,8 +459,11 @@ class Coordinator:
         self.next_discovery = 0
         self.next_auth_check = 0
         self.reconcile_probe = None
+        self.intake_probe = None
         if args.lifecycle == 'jira' and not args.dry_run:
-            self.reconcile_probe = ReconcileProbe(store.db, JiraReader(args.jira_selection, args.scope, args.state_dir))
+            reader = JiraReader(args.jira_selection, args.scope, args.state_dir)
+            self.reconcile_probe = ReconcileProbe(store.db, reader)
+            self.intake_probe = IntakeProbe(store.db, args.scope, reader.intake_items)
 
     def maintain_auth(self, now):
         if self.args.dry_run:
@@ -471,15 +475,15 @@ class Coordinator:
         self.next_auth_check = time.time() + interval
 
     def discover(self):
-        ingest = self.intake_job()
-        if self.args.lifecycle == 'jira':
+        items = self.github.discover()
+        ingest = self.intake_job(items) if self.args.lifecycle == 'jira' else None
+        if ingest is not None:
             row = self.store.get(ingest['key'])
-            if not row or row['status'] != 'succeeded':
+            if not row:
                 self.candidates, self.errors = [ingest], []
                 return
         self.github.code_states.clear()
-        items = self.github.discover()
-        candidates, errors = ([ingest] if self.args.lifecycle == 'jira' else []), []
+        candidates, errors = ([ingest] if ingest is not None else []), []
         prs = None
         for item in items:
             # Backfill display titles for runs created before titles were saved.
@@ -509,7 +513,6 @@ class Coordinator:
                 if self.args.lifecycle == 'jira':
                     if 'agent/execution-record' not in self.github.labels(item):
                         # New GitHub-origin records must pass intake first.
-                        ingest['fingerprint'] = fingerprint([ingest['fingerprint'], item['number']])
                         errors.append(f'#{item["number"]}: awaiting canonical execution-record link from intake; phase work is paused')
                         continue
                     if prs is None:
@@ -529,10 +532,18 @@ class Coordinator:
         for error in errors:
             report(error)
 
-    def intake_job(self):
+    def intake_job(self, items=None):
+        if self.intake_probe is not None:
+            observed = self.intake_probe.observe(items or [], self.args.lifecycle_interval)
+            if observed is None:
+                return None
+        else:
+            # Offline previews do not fetch Jira. Never use the wall clock as a
+            # work identity, even when presenting a partial discovery snapshot.
+            observed = fingerprint(items or [])
         return dict(key=f'{self.args.scope}:funnel-ingest', scope=self.args.scope,
                     item=self.args.scope, agent='ingest', url='', pr_number='', pr_url='',
-                    fingerprint=fingerprint(int(time.time() // self.args.lifecycle_interval)))
+                    fingerprint=observed)
 
     def reconcile_job(self, item, prs):
         job = make_job(self.args.scope, 'reconcile', item)
@@ -564,8 +575,9 @@ class Coordinator:
             if 'source_fingerprint' not in payload:
                 # Recognize the previous clock-bucket format without replaying
                 # every successful or still-running sync during this upgrade.
-                same_inputs = prior['fingerprint'] == fingerprint(
-                    inputs + [int(prior['started'] // self.args.lifecycle_interval)])
+                same_inputs = prior['fingerprint'] in {fingerprint(
+                    inputs + [int(prior['started'] // interval)])
+                    for interval in (self.args.lifecycle_interval, 900)}
             if same_inputs:
                 job['fingerprint'] = prior['fingerprint']
         return job
@@ -806,8 +818,9 @@ def parse_args(argv=None):
     parser.add_argument('--jira-auth', choices=('auto', 'acli', 'api-token'),
                         default=os.environ.get('JIRA_AUTH_MODE', 'auto'),
                         help='auto uses API-token credentials only when both email and token are set, otherwise the active acli OAuth login')
-    parser.add_argument('--lifecycle-interval', type=positive, default='900',
-                        help='seconds between checks for newly scoped issues (default: 900)')
+    parser.add_argument('--intake-interval', '--lifecycle-interval', dest='lifecycle_interval', type=positive,
+                        default=os.environ.get('FULLSEND_INTAKE_INTERVAL', '180'),
+                        help='seconds between mechanical Jira/GitHub intake checks (default: 180)')
     parser.add_argument('--reconcile-interval', type=positive, default='21600',
                         help='seconds between mechanical Jira drift checks; unchanged observations never launch an agent (default: 21600)')
     parser.add_argument('--repo', default=os.environ.get('REPOSITORY', 'openshift-online/hypershell'))

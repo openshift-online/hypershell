@@ -247,6 +247,28 @@ To deliberately skip Jira, put `FULLSEND_LIFECYCLE=github-only` in the local env
 file. Leave it unset for the complete lifecycle. Model overrides apply to all
 agents; without one, each harness uses its own configured model.
 
+## Intake discovery
+
+The dispatcher checks scoped, authorized Jira and GitHub work with a read-only
+script every **three minutes**. It paginates both backlogs and compares canonical
+links. Healthy linked records, including closed records, do not start an intake
+agent. New, unlinked, ambiguous, or meaningfully changed intake work can start one;
+its input fingerprint remains stable between checks. Authentication, pagination,
+and network failures are reported and retried without clearing the last successful
+observation or launching a model to diagnose connectivity.
+
+Configure the interval in seconds:
+
+```sh
+make fullsend INTAKE_INTERVAL=300
+```
+
+Or put `FULLSEND_INTAKE_INTERVAL=300` in `.hypershell/fullsend.env` or your exported
+environment. The direct CLI option is `--intake-interval 300`; the existing
+`--lifecycle-interval` spelling remains an alias. Explicit Make/CLI options win
+over the env file, which wins over inherited environment settings. Failed intake
+attempts retain the normal retry backoff; the discovery timer does not reset it.
+
 ## Reconciliation and drift checks
 
 After a successful sync, unchanged issues stay quiet, including closed issues.

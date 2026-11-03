@@ -15,6 +15,7 @@ from funnel_dispatch import Coordinator, GitHub, Store, parse_args, prepare_infe
 from gateway_setup import GatewayManager, GatewaySetupError
 from jira_auth import selected_auth, snapshot
 from reconcile_probe import ReconcileProbe, JiraReader
+from intake_probe import IntakeProbe
 
 
 class RecoveryDiagnostics:
@@ -107,7 +108,9 @@ def main():
     args.dry_run = True
     coordinator = Coordinator(args, store, -1)
     if args.lifecycle == 'jira' and args.refresh_code_state:
-        coordinator.reconcile_probe = ReconcileProbe(store.db, JiraReader(selected_auth(args.jira_auth), args.scope, args.state_dir))
+        reader = JiraReader(selected_auth(args.jira_auth), args.scope, args.state_dir)
+        coordinator.reconcile_probe = ReconcileProbe(store.db, reader)
+        coordinator.intake_probe = IntakeProbe(store.db, args.scope, reader.intake_items)
     try:
         if action == 'discover':
             coordinator.discover()

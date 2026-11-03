@@ -812,6 +812,7 @@ fullsend fullsend-status fullsend-doctor fullsend-help: export FULLSEND_LAUNCH_S
 fullsend fullsend-status fullsend-doctor fullsend-help: export FULLSEND_LAUNCH_ENV_FILE = $(ENV_FILE)
 fullsend fullsend-status fullsend-doctor fullsend-help: export FULLSEND_LAUNCH_MODEL = $(MODEL)
 fullsend fullsend-status fullsend-doctor fullsend-help: export FULLSEND_LAUNCH_CONCURRENCY = $(if $(filter command line,$(origin CONCURRENCY)),$(CONCURRENCY))
+fullsend fullsend-status fullsend-doctor fullsend-help: export FULLSEND_LAUNCH_INTAKE_INTERVAL = $(INTAKE_INTERVAL)
 fullsend:
 	@bash .hypershell/execute-sdlc/local.sh watch
 fullsend-status:

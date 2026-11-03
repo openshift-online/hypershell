@@ -22,3 +22,6 @@ In the dashboard
 
 Advanced dispatcher flags
   .hypershell/execute-sdlc/funnel-dispatch.sh --help
+
+Intake checks run every 3 minutes without an LLM for unchanged linked work.
+Use INTAKE_INTERVAL=300 or set FULLSEND_INTAKE_INTERVAL=300 in your env file.

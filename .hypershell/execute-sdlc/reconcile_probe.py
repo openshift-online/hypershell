@@ -35,7 +35,9 @@ class JiraReader:
         self.failure = None
         self.failed_at = 0
 
-    def __call__(self, key):
+    def request(self, path, body=None, missing_ok=False):
+        if not path.startswith('/rest/api/3/') or any(c in path for c in ('\\', '#', '\r', '\n')):
+            raise ProbeError('Invalid Jira observation path')
         if self.failure:
             if time.time() - self.failed_at < 60:
                 raise ProbeError(self.failure)
@@ -46,29 +48,76 @@ class JiraReader:
             credentials = self.credentials
             base = credentials['api_base_url']
             if not re.fullmatch(r'https://(?:[A-Za-z0-9-]+\.atlassian\.net|api\.atlassian\.com/ex/jira/[A-Za-z0-9-]+)', base):
-                raise ProbeError('Invalid Jira API base for drift check')
-            opener = build_opener(NoRedirect())
+                raise ProbeError('Invalid Jira API base for observation')
+            data = None if body is None else json.dumps(body).encode()
+            request = Request(base + path, data=data,
+                              headers={'Authorization': credentials['authorization'], 'Accept': 'application/json',
+                                       'Content-Type': 'application/json'})
+            with build_opener(NoRedirect()).open(request, timeout=30) as response:
+                return json.load(response)
+        except HTTPError as exc:
+            if missing_ok and exc.code == 404:
+                return None
+            self.failed_at = time.time()
+            self.failure = 'Jira observation failed; check authentication, permissions and network access'
+            raise ProbeError(self.failure) from None
+        except (JiraAuthError, URLError, OSError, ValueError, KeyError, TypeError):
+            self.failed_at = time.time()
+            self.failure = 'Jira observation failed; check authentication, permissions and network access'
+            raise ProbeError(self.failure) from None
 
-            def get(suffix):
-                request = Request(base + '/rest/api/3/issue/' + key + suffix,
-                                  headers={'Authorization': credentials['authorization'], 'Accept': 'application/json'})
-                with opener.open(request, timeout=30) as response:
-                    return json.load(response)
+    def search(self):
+        query = {'jql': 'labels = ' + json.dumps(self.scope) + ' AND labels = "agent/allowed"',
+                 'fields': ['summary', 'description', 'labels', 'status', 'priority', 'assignee', 'parent'], 'maxResults': 100}
+        items, tokens = [], set()
+        while True:
+            page = self.request('/rest/api/3/search/jql', query)
+            if not isinstance(page, dict) or not isinstance(page.get('issues'), list):
+                raise ProbeError('Invalid Jira intake search response')
+            items.extend(page['issues'])
+            token = page.get('nextPageToken')
+            if page.get('isLast') is True:
+                return items
+            if not token:
+                raise ProbeError('Jira intake search omitted its next page token')
+            if not isinstance(token, str) or token in tokens:
+                raise ProbeError('Jira intake search repeated a page token')
+            tokens.add(token)
+            query['nextPageToken'] = token
 
-            issue = get('?fields=summary,description,priority,labels,parent,status,assignee,issuetype,updated')
-            links = get('/remotelink')
+    def intake_items(self, github):
+        items = list(self.search())
+        known = {item['key'] for item in items}
+        # GitHub-origin epics deliberately have no Jira scope/allowed labels.
+        # Resolve only exact canonical keys on authorized execution records.
+        for item in github:
+            labels = {label['name'] if isinstance(label, dict) else label for label in item['labels']}
+            if not {self.scope, 'agent/allowed', 'agent/execution-record'} <= labels:
+                continue
+            try:
+                key = canonical_key(item.get('body'))
+            except ProbeError:
+                continue  # Ambiguous links are intake work, not an API failure.
+            if not key or key in known:
+                continue
+            counterpart = self.request('/rest/api/3/issue/' + key + '?fields=summary,description,labels,status', missing_ok=True)
+            if counterpart is not None:
+                items.append(counterpart)
+            known.add(key)
+        return items
+
+    def __call__(self, key):
+        try:
+            issue = self.request('/rest/api/3/issue/' + key + '?fields=summary,description,priority,labels,parent,status,assignee,issuetype,updated')
+            links = self.request('/rest/api/3/issue/' + key + '/remotelink')
             fields = issue['fields']
             updated = fields.pop('updated', None)
-            # Label and remote-link ordering is not a content change.
             fields['labels'] = sorted(fields.get('labels') or [])
             links = sorted(links, key=lambda link: json.dumps(link, sort_keys=True))
             digest = hashlib.sha256(json.dumps([fields, links], sort_keys=True).encode()).hexdigest()
             return digest, updated
-        except (JiraAuthError, HTTPError, URLError, OSError, ValueError, KeyError, TypeError):
-            # Do not expose headers, response bodies, or credential-command output.
-            self.failed_at = time.time()
-            self.failure = 'Jira drift check failed; check authentication, permissions and network access'
-            raise ProbeError(self.failure) from None
+        except (ValueError, KeyError, TypeError, AttributeError):
+            raise ProbeError('Invalid Jira reconciliation observation') from None
 
 
 class ReconcileProbe:

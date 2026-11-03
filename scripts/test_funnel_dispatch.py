@@ -360,7 +360,7 @@ class LocalLaunchTests(unittest.TestCase):
         (self.root/'.hypershell').mkdir()
         (self.root/'.hypershell/execute-sdlc').symlink_to(ENTRY.parent, target_is_directory=True)
         self.fake = self.root/'capture'
-        self.fake.write_text('#!/usr/bin/env python3\nimport json,os,sys\nprint(json.dumps(dict(args=sys.argv[1:],model=os.environ.get("FULLSEND_MODEL"),concurrency=os.environ.get("CONCURRENCY"),project=os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID"))))\n')
+        self.fake.write_text('#!/usr/bin/env python3\nimport json,os,sys\nprint(json.dumps(dict(args=sys.argv[1:],model=os.environ.get("FULLSEND_MODEL"),concurrency=os.environ.get("CONCURRENCY"),project=os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID"),intake=os.environ.get("FULLSEND_INTAKE_INTERVAL"))))\n')
         self.fake.chmod(0o755)
         self.env = dict(os.environ, FUNNEL_DISPATCH_BINARY=str(self.fake))
         tools = self.root/'bin'
@@ -390,6 +390,16 @@ class LocalLaunchTests(unittest.TestCase):
         result=self.invoke('fullsend','SCOPE=agent/scope/override','MODEL=chosen-model','CONCURRENCY=10')
         self.assertEqual(result.returncode,0,result.stderr)
         self.assertEqual(json.loads(result.stdout)['args'],['agent/scope/override','--model','chosen-model','--concurrency','10','--watch'])
+
+    # Verifies: SDLC-LOC-06.03
+    def test_make_intake_interval_overrides_file_and_inherited_environment(self):
+        self.env['FULLSEND_INTAKE_INTERVAL']='600'
+        (self.root/'.hypershell/fullsend.env').write_text('FULLSEND_SCOPE=agent/scope/local\nFULLSEND_INTAKE_INTERVAL=300\n')
+        result=self.invoke('fullsend','INTAKE_INTERVAL=60')
+        self.assertEqual(result.returncode,0,result.stderr)
+        value=json.loads(result.stdout)
+        self.assertEqual(value['intake'],'300')
+        self.assertEqual(value['args'],['agent/scope/local','--intake-interval','60','--watch'])
 
     def test_external_file_with_spaces_and_literal_arguments(self):
         path=self.root/'existing inference.env'
@@ -742,7 +752,17 @@ class ProcessTests(unittest.TestCase):
             path = bindir/name
             path.write_text(MOCK_CLI)
             path.chmod(0o755)
-        self.env = dict(os.environ, PATH=str(bindir)+':/usr/bin:/bin', GH_TOKEN='test', MOCK_STATE=str(self.root))
+        # Stub HTTP within child Python interpreters; fake Jira credentials must
+        # never leave this integration fixture for a real tenant.
+        (bindir/'sitecustomize.py').write_text("""import io, json, urllib.request
+class JiraFixture:
+ def open(self, request, timeout=30):
+  if '/rest/api/3/search/jql' not in request.full_url:
+   raise RuntimeError('Unexpected HTTP in fixture')
+  return io.BytesIO(json.dumps({'issues': [], 'isLast': True}).encode())
+urllib.request.build_opener = lambda *args: JiraFixture()
+""")
+        self.env = dict(os.environ, PATH=str(bindir)+':/usr/bin:/bin', GH_TOKEN='test', MOCK_STATE=str(self.root), PYTHONPATH=str(bindir))
         self.cmd = ['bash', str(ENTRY), 'agent/scope/test', '--repo', 'test/repo', '--state-dir', str(self.root/'state'),
                     '--concurrency', '2', '--poll-interval', '1', '--lifecycle', 'github-only']
         self.processes = []

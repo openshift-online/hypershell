@@ -126,7 +126,18 @@ observation or start a model to diagnose authentication/network failure. Persist
 observations SHALL contain hashes and scheduling metadata, never credentials or
 Jira content. On upgrade, established successful records SHALL reuse their saved
 identity; Jira edits newer than their last successful sync SHALL still trigger
-reconciliation. Intake SHALL be repeated periodically for newly selected work.
+reconciliation. Intake discovery SHALL run as a mechanical script every 180 seconds by default.
+Its interval SHALL be configurable through Make, the exported environment/local
+env file, and a CLI flag. Explicit invocation options SHALL override the env file,
+which overrides inherited values. Both Jira and GitHub discovery SHALL paginate
+all scoped, authorized records, including closed records. Healthy canonical pairs
+SHALL NOT launch intake models when their ordinary content or lifecycle labels
+change; reconciliation owns those updates. New, unlinked, or ambiguous pairs
+SHALL produce stable work identities based on meaningful inputs. Merely reaching
+the next interval SHALL NOT launch an intake model. Observations SHALL persist
+across restarts. Failed/incomplete discovery SHALL be visible and retried with
+backoff, without overwriting a successful observation or treating an API failure
+as an empty backlog. Failed intake work SHALL retain normal execution backoff.
 Unchanged successful reconciliation SHALL NOT run on every discovery poll.
 `github-only` mode SHALL explicitly omit Jira lifecycle work. Lifecycle agent
 results SHALL contain `status`, `errors`, and `records`; missing output, reported
@@ -150,6 +161,16 @@ again before dispatch and before agent writes.
 - WHEN relevant Jira content, the GitHub record, or its linked PR changes
 - THEN reconciliation SHALL become eligible subject to ownership and authorization
 - AND an unchanged observation after that successful run SHALL remain deduplicated
+
+#### Scenario: SDLC-LOC-06.03 -- Configurable mechanical intake discovery
+
+- GIVEN healthy canonical pairs and a three-minute default discovery interval
+- WHEN discovery runs repeatedly or the dispatcher restarts
+- THEN no intake agent SHALL launch for unchanged pairs
+- WHEN new, unlinked, or ambiguously linked work appears
+- THEN its stable input identity SHALL make intake eligible
+- AND an API error or incomplete page SHALL remain an error rather than erase work
+- AND configuring a different interval SHALL change the script cadence
 
 ### Requirement: SDLC-LOC-07 -- Gateway recovery
 
