@@ -71,7 +71,7 @@ listed in `specs/id-rename-map.md`, not here.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `E2E-CORE` | `platform/e2e-testing.spec.md` | 51 |
+| `E2E-CORE` | `platform/e2e-testing.spec.md` | 49 |
 | `E2E-COV` | `platform/e2e-feature-coverage.spec.md` | 7 |
 | `E2E-LOG` | `platform/e2e-run-log-visibility.spec.md` | 26 |
 

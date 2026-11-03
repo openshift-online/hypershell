@@ -45,8 +45,8 @@ tests/e2e/ (Go module: github.com/openshift-online/hypershell/tests/e2e)
     │                         ordered phase-step subtests, mode + multi-identity gating
     ├── perf_test.go       -- TestPerformance entry point; PerfHarness (bounded concurrency)
     ├── matrix_test.go     -- TestMatrix entry point; fans the suite across distinct fleet capabilities
-    ├── lifecycle.go       -- the long-only Phase-P4 lifecycle steps of E2ESuite (P4.1 upgrade
-    │                         -> P4.2 fail-closed failed upgrade), run by
+    ├── lifecycle.go       -- the long-only Phase-P4 upgrade-survival step of E2ESuite (P4.1
+    │                         in-place upgrade), run by
     │                         TestE2E after the functional phases; no separate entry point
     ├── driver/            -- E2EInfraDriver interface + Kind and OpenShift implementations + registry
     ├── harness/           -- shared helpers: CommandRunner (demo logging), Reporter
@@ -731,12 +731,11 @@ The ordering principle is: cheap preconditions that gate everything run first an
 
 - **P3.1 Admin inventory + API validation** -- the admin-only `/v1/users` boundary (non-admin `403`, singleton Get an opaque `404`) and rejection of an unknown gateway phase write (see Admin Inventory and API Validation Coverage).
 
-**Phase P4 -- Deployment lifecycle** (long-only, sequential, runs last after P3; skipped in short and perf; see [Deployment Lifecycle Testing](#deployment-lifecycle-testing)):
+**Phase P4 -- Deployment lifecycle** (long-only, single step, runs last after P3; skipped in short and perf; see [Deployment Lifecycle Testing](#deployment-lifecycle-testing)):
 
-- **P4.1 Supported upgrade** -- promote the running platform to the to-version release bundle (all three workload services -- api-server, control-plane, web-console -- moved together, pinned by digest), wait for the healthy-rollout definition, and re-run the suite's own short-mode functional verification; the shared primary gateway provisioned once in setup via `ensurePrimaryGateway`, a sandbox created on it, and its data SHALL survive the upgrade (see [Supported Upgrade And Fail-Closed Failed Upgrade](#requirement-supported-upgrade-and-fail-closed-failed-upgrade)).
-- **P4.2 Fail-closed failed upgrade** -- promote a known-bad to-version bundle, observe it never reaches the healthy-rollout definition within `E2E_LIFECYCLE_ROLLOUT_TIMEOUT` seconds while the last-good replicas keep serving (the short-mode functional verification still passes against last-good), then recover by a forward re-promotion of the last-good bundle digest set (framed as a re-promotion, explicitly NOT a `kubectl rollout undo` / rollback-to-previous-revision), and assert recovery via the healthy-rollout definition.
+- **P4.1 In-place upgrade survival** -- promote the running platform to the to-version release bundle (all three workload services -- api-server, control-plane, web-console -- moved together, pinned by digest), wait for the healthy-rollout definition, and re-run the suite's own short-mode functional verification; the shared primary gateway provisioned once in setup via `ensurePrimaryGateway`, a sandbox created on it, and its data SHALL survive the upgrade in place (see [In-Place Upgrade Preserves Existing Gateways](#requirement-in-place-upgrade-preserves-existing-gateways)).
 
-Mode gating (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)): P0 and P1 run at every depth, but their direct kube-level internal-posture checks are long-only, because short mode is user-facing and SHALL NOT rely on a Kubernetes context. P1.2 (gateway Deployment/Service/TLS/cert-manager/DB-credential/NetworkPolicy inspection) runs nothing in short mode; the kube sub-checks of P0.1 (the control-plane gRPC-auth controller-log check) and P0.2 (platform-dependency API groups and Deployments) are likewise long-only; and the pod-level readiness wait of P2.1 is long-only. Short mode proves the same user-facing outcomes through the API and CLI path (reaching the gateway over its route, and a sandbox `exec`). In P2, only the sandbox step (P2.1) is `short`-tagged; the RBAC step (P2.2) is long-only except the developer-boundary assertion, which `perf` depth also runs; P2.3 through P2.11 are long-only, each with its own opt-in gate where one applies (defined where the step is specified). P3 is long-only. P4 (the lifecycle steps P4.1 and P4.2) is long-only and runs after P3; it is skipped with a recorded skip in short and perf. The admin OIDC token from P0.1 authenticates the admin steps; the RBAC step acquires its own developer and platform-admin tokens.
+Mode gating (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-modes)): P0 and P1 run at every depth, but their direct kube-level internal-posture checks are long-only, because short mode is user-facing and SHALL NOT rely on a Kubernetes context. P1.2 (gateway Deployment/Service/TLS/cert-manager/DB-credential/NetworkPolicy inspection) runs nothing in short mode; the kube sub-checks of P0.1 (the control-plane gRPC-auth controller-log check) and P0.2 (platform-dependency API groups and Deployments) are likewise long-only; and the pod-level readiness wait of P2.1 is long-only. Short mode proves the same user-facing outcomes through the API and CLI path (reaching the gateway over its route, and a sandbox `exec`). In P2, only the sandbox step (P2.1) is `short`-tagged; the RBAC step (P2.2) is long-only except the developer-boundary assertion, which `perf` depth also runs; P2.3 through P2.11 are long-only, each with its own opt-in gate where one applies (defined where the step is specified). P3 is long-only. P4 (the single lifecycle step P4.1) is long-only and runs after P3; it is skipped with a recorded skip in short and perf. The admin OIDC token from P0.1 authenticates the admin steps; the RBAC step acquires its own developer and platform-admin tokens.
 
 **Old area -> new phase step** (for traceability against the former 14-area numbering and the in-flight `e2e-feature-coverage.spec.md`):
 
@@ -761,7 +760,7 @@ Mode gating (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-mode
 
 - GIVEN a running HyperShell environment (Kind or OpenShift)
 - WHEN the e2e test suite runs
-- THEN all phases P0--P4 SHALL be executed in long mode, in the fail-fast / parallel structure of the [Concurrency Model](#requirement-concurrency-model) (short and perf run the `short`-tagged subset and skip the long-only steps P2.3 through P2.11, P3.1, and the lifecycle steps P4.1 and P4.2)
+- THEN all phases P0--P4 SHALL be executed in long mode, in the fail-fast / parallel structure of the [Concurrency Model](#requirement-concurrency-model) (short and perf run the `short`-tagged subset and skip the long-only steps P2.3 through P2.11, P3.1, and the lifecycle step P4.1)
 - AND results SHALL be reported as pass/fail/skip counts with per-step detail
 
 #### Scenario: E2E-CORE-13.02 -- Gateway Provisioning
@@ -1711,7 +1710,7 @@ tests/e2e/                 -- Go module: github.com/openshift-online/hypershell/
   phases.go                -- the phase steps P0-P3 (short/long tagged), infra-agnostic
   perf_test.go             -- TestPerformance entry point + PerfHarness (bounded concurrency, checkpoints)
   matrix_test.go           -- TestMatrix entry point + matrix runner (fans the suite across distinct fleet capabilities)
-  lifecycle.go             -- long-only Phase-P4 lifecycle steps of E2ESuite (P4.1 upgrade -> P4.2 fail-closed failed upgrade); run by TestE2E after the functional phases in long mode; skipped in short and perf; no separate entry point or make target
+  lifecycle.go             -- long-only Phase-P4 upgrade-survival step of E2ESuite (P4.1 in-place upgrade); run by TestE2E after the functional phases in long mode; skipped in short and perf; no separate entry point or make target
   driver/
     driver.go              -- E2EInfraDriver interface + registry + auto-detection (this spec)
     kind.go                -- Kind infra driver (this spec)
@@ -2630,17 +2629,23 @@ failures and allow the two paths to drift.
 ## Deployment Lifecycle Testing
 
 The platform's **production lifecycle is continuous GitOps promotion**, not a manual
-image swap, and it has **no application-level uninstall**. The lifecycle this section
-tests therefore mirrors that production model: supported **upgrade** and
-**fail-closed failed upgrade** with forward re-promotion recovery. The **install**
-path is already validated on every run: CI brings the environment up with `make
-kind-up` / the OpenShift deploy before the suite starts, deploying the component
-images under test, and the long-mode functional phases (P0--P3) then exercise the
-installed platform end to end. This section does not re-spec install. Prod has no
-application uninstall step (whole-cluster decommission via Terraform plus repo
-cleanup lives in the GitOps repo, not this suite), so there is **no uninstall
-phase**: test-environment teardown remains the existing `TearDownSuite` / `kind-down`
-behavior and is not a lifecycle requirement.
+image swap, and it has **no application-level uninstall**. Most of that lifecycle is
+already covered: per-PR CI validates install and the functional path, and the
+production `hypershell-analysis` gate re-runs this suite (short mode) after every
+promotion, so upgrade regressions are already caught in delivery. Rollback is a manual
+GitOps revision revert that this suite does **not** model -- the fail-closed and
+blocking behavior is covered by the GitOps repo's own promoter tests. The one
+uncovered, production-relevant property is that an **in-place platform upgrade must not
+disrupt a pre-existing gateway, its sandbox, or its data**: production gateways are
+long-lived across promotions, yet every other test create-and-deletes its own gateway.
+This section therefore specifies a single **upgrade-survival** check. The **install**
+path is already validated on every run (CI brings the environment up with `make
+kind-up` / the OpenShift deploy, and the long-mode functional phases P0--P3 exercise it
+end to end), so install is not re-spec'd here. Prod has **no application uninstall**
+step (whole-cluster decommission via Terraform plus repo cleanup lives in the GitOps
+repo, not this suite), so there is no uninstall phase: test-environment teardown
+remains the existing `TearDownSuite` / `kind-down` behavior and is not a lifecycle
+requirement.
 
 **The production GitOps promotion model (mirrored here).** In production an upgrade is
 one immutable **release bundle** that moves all three workload services --
@@ -2650,47 +2655,43 @@ services are always the same bundle and never skew relative to each other. The
 api-server runs a `migrate` initContainer ordered after the database via sync-waves
 (DB wave 0 -> workloads wave 1), so migrations run against a ready database. A
 "from-version" / "to-version" is therefore a **release-bundle component-digest set**,
-not an arbitrary per-image tag. A bad release does **not** auto-roll-back: the
-promotion gate fails closed -- the edge blocks, the environment stays frozen at the
-last-good digests, the last-good replicas keep serving, and the downstream cascade
-halts. There is no automated revert; recovery is a **manual forward re-promotion of
-an earlier good bundle** (the tooling even guards against backward Renovate bumps).
-This suite states that model as the thing it mirrors; it does not hard-link
-cross-repo files.
+not an arbitrary per-image tag. This suite states that model as the thing it mirrors;
+it does not hard-link cross-repo files. A bad release failing closed, and recovery by
+forward re-promotion, are production behaviors covered by the GitOps repo's own
+promoter tests, not re-modeled here.
 
-The lifecycle steps are the **long-only Phase P4 of `E2ESuite`**, run by the existing
+The lifecycle check is the **long-only Phase P4 of `E2ESuite`**, run by the existing
 `TestE2E` entry point after the functional phases (P0--P3) complete. There is no
 separate `TestLifecycle` entry point and no `make e2e-lifecycle` target. Because the
 Kind pull-request and merge-queue gate and every manual `make e2e` run `TestE2E` in
 long mode (the default `E2E_MODE`, see [E2E Short and Long
-Modes](#requirement-e2e-short-and-long-modes)), the lifecycle steps run on **every
+Modes](#requirement-e2e-short-and-long-modes)), the lifecycle step runs on **every
 pull request, every merge-queue entry, and every manual long run** -- not opt-in, not
-behind a path filter, not nightly-only, and not a separate target. They are tagged
-`long`, so they are **skipped in short mode and in perf depth** exactly as the other
+behind a path filter, not nightly-only, and not a separate target. It is tagged
+`long`, so it is **skipped in short mode and in perf depth** exactly as the other
 long-only steps are (a recorded skip, never a silent pass). Consistent with the
 suite's phase-wrapping convention (see [Test Framework and Suite
 Structure](#requirement-test-framework-and-suite-structure) and the [Concurrency
 Model](#requirement-concurrency-model)), the lifecycle phase is wrapped as a
-`Phase-P4` subtest and each step is nested under it
-(`TestE2E/TestPhases/Phase-P4/P4.1-upgrade`,
-`.../P4.2-failed-upgrade`), so `go test -run` -- or the `E2E_RUN` Makefile filter --
-can select the whole phase (`-run 'TestE2E/TestPhases/Phase-P4'`, or `make e2e
-E2E_RUN=Phase-P4`) or a single step (`make e2e E2E_RUN=P4.1`).
+`Phase-P4` subtest and its single step is nested under it
+(`TestE2E/TestPhases/Phase-P4/P4.1-upgrade`), so `go test -run` -- or the `E2E_RUN`
+Makefile filter -- can select the whole phase (`-run 'TestE2E/TestPhases/Phase-P4'`,
+or `make e2e E2E_RUN=Phase-P4`) or the step (`make e2e E2E_RUN=P4.1`).
 
-Making upgrade and failed-upgrade part of the long-mode gate adds minutes to that
+Making the upgrade-survival check part of the long-mode gate adds minutes to that
 run; the project accepts that cost against the [20-minute CI
 ceiling](#design-decisions) (raising the `-timeout` if needed) because an opt-in,
-off-the-gate harness would never actually run, which is the behavior these checks
-exist to prevent.
+off-the-gate harness would never actually run, which is the behavior this check
+exists to prevent.
 
-Like the rest of the suite, the lifecycle steps hold no infrastructure-specific
+Like the rest of the suite, the lifecycle step holds no infrastructure-specific
 code: every version read and health check goes through the shared
-`client-go`/controller-runtime client, and every environment transition goes through
+`client-go`/controller-runtime client, and the upgrade transition goes through
 the documented release-bundle digest-promotion path (`scripts/kind/set-component-images.sh`
-and the OpenShift equivalent, applying the bundle's component digests together). They
-add no bring-up, upgrade, or teardown method to the `E2EInfraDriver`: the driver
+and the OpenShift equivalent, applying the bundle's component digests together). It
+adds no bring-up, upgrade, or teardown method to the `E2EInfraDriver`: the driver
 stays the inspection-and-access contract the suite depends on, and the lifecycle
-steps reuse it (and the shared kube client) throughout.
+step reuses it (and the shared kube client) throughout.
 
 ### Lifecycle Architecture
 
@@ -2701,184 +2702,71 @@ tests/e2e/suite_test.go -> TestE2E -> E2ESuite (one testify suite, long mode)
     │                                setup via ensurePrimaryGateway; install is already
     │                                validated by CI bring-up
     │
-    └── Phase P4 lifecycle steps (tests/e2e/lifecycle.go; long-only; run after P0..P3;
-        skipped in short and perf; wrapped as Phase-P4, each step a named subtest):
+    └── Phase P4 lifecycle step (tests/e2e/lifecycle.go; long-only; runs after P0..P3;
+        skipped in short and perf; wrapped as Phase-P4, a single named subtest):
         │
-        ├── P4.1 Supported upgrade -- promote the to-version release bundle (all three
-        │                            workload service digests together) via the documented
-        │                            digest-promotion path; wait for the healthy-rollout
-        │                            definition; re-run the short-mode functional
-        │                            verification; the setup-provisioned primary gateway, a
-        │                            sandbox on it, and its data SHALL survive
-        └── P4.2 Fail-closed failed upgrade -- promote a known-bad to-version bundle;
-                                     observe it never reaches the healthy-rollout definition
-                                     while the last-good replicas keep serving (short-mode
-                                     functional verification still passes against last-good);
-                                     recover by a forward re-promotion of the last-good
-                                     bundle digest set (not a rollout-undo); assert recovery
-                                     via the healthy-rollout definition
+        └── P4.1 In-place upgrade survival -- promote the to-version release bundle (all
+                                     three workload service digests together) via the
+                                     documented digest-promotion path; wait for the
+                                     healthy-rollout definition; re-run the short-mode
+                                     functional verification; the setup-provisioned primary
+                                     gateway, a sandbox on it, and its data SHALL survive
+                                     the upgrade in place
     │
-    records the component digests before/after each transition and, on any failure,
-    the failing phase + version pair, to the lifecycle results dir, and defers the
+    records the component digests before/after the transition and, on failure, the
+    failing phase + version pair, to the lifecycle results dir, and defers the
     environment-independent diagnostic set to E2E-CORE-47 -- on every exit path
 ```
 
-### Requirement: E2E-CORE-49 -- Lifecycle Validation Is Part Of The Long-Mode Suite
+### Requirement: E2E-CORE-49 -- In-Place Upgrade Preserves Existing Gateways
 
-The deployment lifecycle validation (supported upgrade and fail-closed failed
-upgrade) SHALL be realized as the long-only Phase P4 of `E2ESuite`, run by the
-existing `TestE2E` entry point after the functional phases (P0--P3) complete. There
-SHALL be no separate `TestLifecycle` entry point and no `make e2e-lifecycle` target;
-the lifecycle steps are a portion of `TestE2E`, selected by the suite's existing
-depth tagging and per-step `-run`/`E2E_RUN` targeting, not by a second entry point or
-harness.
+Production gateways are long-lived across GitOps promotions, but every other e2e test
+create-and-deletes its own gateway, so nothing proves that an in-place platform upgrade
+leaves a pre-existing gateway intact. This requirement closes that one gap with a single
+upgrade-survival check. The other lifecycle properties are already covered elsewhere:
+per-PR CI validates install and the functional path; the production `hypershell-analysis`
+gate re-runs this suite (short mode) after every promotion; and fail-closed / rollback
+behavior is a manual GitOps revision revert covered by the GitOps repo's own promoter
+tests, not modeled here.
 
-Because the Kind pull-request gate, the merge-queue gate, and every manual `make
-e2e` run `TestE2E` in long mode (the default `E2E_MODE`), the lifecycle steps SHALL
-run on every pull request, every merge-queue entry, and every manual long run. They
-SHALL NOT be opt-in, SHALL NOT sit behind an e2e-path filter of their own, SHALL NOT
-be nightly-only, and SHALL NOT require a separate `make` target. The lifecycle steps
-SHALL be tagged `long`: they SHALL run at long depth, and SHALL NOT run in short
-mode and SHALL NOT run at perf depth, skipping with a recorded skip (never a silent
-pass; see [Three-Outcome Reporting](#requirement-three-outcome-reporting)) exactly
-as the other long-only steps do.
+**Part of the long-mode suite.** The check SHALL be realized as the long-only Phase P4
+of `E2ESuite`, run by the existing `TestE2E` entry point after the functional phases
+(P0--P3) complete, as a single step `P4.1`. There SHALL be no separate `TestLifecycle`
+entry point and no `make e2e-lifecycle` target. Because the Kind pull-request gate, the
+merge-queue gate, and every manual `make e2e` run `TestE2E` in long mode (the default
+`E2E_MODE`), the step SHALL run on every pull request, every merge-queue entry, and
+every manual long run; it SHALL NOT be opt-in, behind an e2e-path filter of its own,
+nightly-only, or a separate `make` target. It SHALL be tagged `long`: it SHALL run at
+long depth and SHALL NOT run in short mode or at perf depth, skipping with a recorded
+skip (never a silent pass; see [Three-Outcome
+Reporting](#requirement-three-outcome-reporting)). Consistent with the suite's
+phase-wrapping convention, the phase SHALL be wrapped in a `Phase-P4` subtest and its
+single step nested under it (`TestE2E/TestPhases/Phase-P4/P4.1-upgrade`), so `go test
+-run` -- or the `E2E_RUN` Makefile filter -- SHALL be able to select the phase (`-run
+'TestE2E/TestPhases/Phase-P4'`, or `make e2e E2E_RUN=Phase-P4`) or the step (`make e2e
+E2E_RUN=P4.1`). The step SHALL reuse the suite's own assertion code for the post-upgrade
+functional verification with no second copy of any check, SHALL hold no
+infrastructure-specific inspection code (every version read and health check goes through
+the shared `client-go`/controller-runtime client), and SHALL drive the upgrade through
+the documented release-bundle digest-promotion path rather than a method added to the
+`E2EInfraDriver`. It SHALL run on both the `kind` and `openshift` overlays with no change
+to the step code.
 
-Consistent with the suite's phase-wrapping convention, the lifecycle phase SHALL be
-wrapped in a `Phase-P4` subtest and each step SHALL be a named subtest nested under
-it (`TestE2E/TestPhases/Phase-P4/P4.1-upgrade`,
-`.../P4.2-failed-upgrade`), so `go test -run` -- or
-the `E2E_RUN` Makefile filter on the `e2e` target -- SHALL be able to select the
-whole phase (`-run 'TestE2E/TestPhases/Phase-P4'`, or `make e2e E2E_RUN=Phase-P4`) or
-a single step (`make e2e E2E_RUN=P4.1`), the same way it targets any other phase or
-step.
+**Release-bundle version model.** A lifecycle version is a **release-bundle
+component-digest set**, not an arbitrary per-image tag. The from-version
+(`E2E_LIFECYCLE_FROM_VERSION`, default the baseline `origin/main` build the environment
+is brought up at) is the bundle the platform is running when Phase P4 begins, and P4.1
+SHALL promote to the to-version (`E2E_LIFECYCLE_TO_VERSION`, default the working-tree /
+target build). Each bundle pins all three workload services -- api-server,
+control-plane, and web-console -- together; a promotion SHALL move all three component
+digests at once and SHALL NOT skew the three services relative to one another within a
+bundle. When the from-version and to-version resolve to the same component-digest set,
+the suite SHALL fail fast in setup, naming both variables, because there is no change to
+exercise.
 
-The lifecycle steps SHALL reuse the suite's own assertion code for the post-transition
-functional verification, with no second copy of any check, and SHALL hold no
-infrastructure-specific inspection code: every version read and health check SHALL
-go through the shared `client-go`/controller-runtime client, and every environment
-transition SHALL go through the documented release-bundle digest-promotion path rather
-than a method added to the `E2EInfraDriver`. They SHALL run on both the `kind` and
-`openshift` overlays with no change to the step code, selecting the driver exactly as
-the rest of the suite does.
-
-#### Scenario: E2E-CORE-49.01 -- Lifecycle Runs In The Long-Mode Gate
-
-- GIVEN the Kind e2e workflow that gates pull requests and merge-queue entries runs `go -C tests/e2e test . -run TestE2E` in long mode
-- WHEN that run reaches the end of the functional phases (P0--P3)
-- THEN it SHALL run Phase P4 (supported upgrade and fail-closed failed upgrade) as part of the same `TestE2E` run
-- AND no separate entry point or `make` target SHALL be required to run them
-
-#### Scenario: E2E-CORE-49.02 -- Lifecycle Is Skipped In Short And Perf
-
-- GIVEN `TestE2E` runs at `E2E_MODE=short`, or the performance harness runs `E2ESuite` at perf depth
-- WHEN the suite reaches Phase P4
-- THEN it SHALL skip the lifecycle upgrade and failed-upgrade steps and record them as skips
-- AND it SHALL NOT report any skipped lifecycle step as a pass
-
-#### Scenario: E2E-CORE-49.03 -- Lifecycle Phase Is Targetable By `E2E_RUN`
-
-- GIVEN every phase is wrapped in a phase-level subtest and every lifecycle step is nested under `Phase-P4`
-- WHEN a developer runs `make e2e E2E_RUN=Phase-P4` (or `go -C tests/e2e test . -run 'TestE2E/TestPhases/Phase-P4'`), or a single step with `E2E_RUN=P4.1`
-- THEN only the selected lifecycle phase or step SHALL run
-- AND all Kubernetes access SHALL go through the shared `client-go`/controller-runtime client, not `oc`
-
-### Requirement: E2E-CORE-50 -- Supported Upgrade And Fail-Closed Failed Upgrade
-
-After the functional phases (P0--P3) complete, the long-mode suite SHALL run Phase P4
-as two ordered steps, each a named subtest nested under `Phase-P4` (`P4.1`, `P4.2`).
-The install path is not re-run here: the environment is already installed at the
-from-version by CI bring-up (`make kind-up` / the OpenShift deploy) and validated by
-the functional phases, so Phase P4 begins from that running platform and the shared
-primary gateway already provisioned once in setup via `ensurePrimaryGateway` (see
-[Test Framework and Suite Structure](#requirement-test-framework-and-suite-structure)):
-
-- **P4.1 Supported upgrade** -- promote the running platform to the to-version
-  release bundle, moving all three workload service digests (api-server,
-  control-plane, web-console) together through the documented digest-promotion path,
-  wait for the rollout to reach the healthy-rollout definition (see [Release-Bundle
-  Version Model And Rollout
-  Verification](#requirement-release-bundle-version-model-and-rollout-verification)),
-  then re-run the suite's short-mode functional verification. The upgrade SHALL
-  preserve in-flight state expressed in terms of the setup-provisioned primary
-  gateway: the shared primary gateway, a sandbox created on it, and its persistent
-  data SHALL survive the upgrade. The upgrade step SHALL NOT create its own gateway to
-  carry pre-upgrade state; it reads the primary gateway provisioned in setup. This
-  in-flight survival assertion is a deliberately-added check that goes beyond what the
-  production GitOps promotion model itself specifies.
-- **P4.2 Fail-closed failed upgrade** -- mirror production's fail-closed behavior.
-  Production has no automated rollback: a bad release leaves the environment frozen at
-  the last-good digests while the last-good replicas keep serving, and recovery is a
-  forward re-promotion of an earlier good bundle, never a backward revert. P4.2 SHALL
-  apply a known-bad to-version bundle (a component digest that cannot reach
-  readiness), observe that it never reaches the healthy-rollout definition within
-  `E2E_LIFECYCLE_ROLLOUT_TIMEOUT` seconds while the last-good replicas keep serving
-  (the short-mode functional verification SHALL still pass against last-good during
-  this window), then RECOVER by a forward re-apply (re-promotion) of the last-good
-  bundle digest set -- explicitly NOT a `kubectl rollout undo` or a
-  rollback-to-previous-revision -- and assert recovery via the healthy-rollout
-  definition over the setup-provisioned primary gateway.
-
-A transition that does not converge within its timeout, or a failed functional
-verification, SHALL fail its step, record the failing phase and version pair (see
-[Release-Bundle Version Model And Rollout
-Verification](#requirement-release-bundle-version-model-and-rollout-verification)),
-and SHALL NOT silently continue into a dependent step.
-
-**No uninstall phase.** The production lifecycle has no application-level uninstall;
-whole-cluster decommission (Terraform plus repo cleanup) belongs to the GitOps repo,
-not this suite. Phase P4 therefore ends at P4.2 and performs no platform removal.
-Test-environment teardown remains the existing `TearDownSuite` / `kind-down` behavior
-unchanged and is not a lifecycle requirement: `TearDownSuite` on current `main`
-retires the primary gateway's service account and deletes the suite's gateways through
-the still-running platform exactly as it does for a non-lifecycle run.
-
-**Naming and the startup sweep.** Phase P4 operates on the setup-provisioned primary
-gateway and creates no gateway of its own; any gateway it does create SHALL follow the
-`e2e-*` naming so the age-guarded startup sweep in `SetupSuite` reaps any orphan a
-crashed lifecycle run leaves.
-
-#### Scenario: E2E-CORE-50.01 -- Upgrade Preserves In-Flight State On The Primary Gateway
-
-- GIVEN a platform running the from-version bundle with the shared primary gateway provisioned in setup via `ensurePrimaryGateway`, a sandbox created on it, and its data
-- WHEN the suite runs P4.1 and promotes the running platform to the to-version release bundle
-- THEN the rollout SHALL reach the healthy-rollout definition and the re-run short-mode functional verification SHALL pass
-- AND the primary gateway, the sandbox on it, and its data that existed before the upgrade SHALL still be present and healthy after it
-
-#### Scenario: E2E-CORE-50.02 -- Failed Upgrade Fails Closed And The Last-Good Replicas Keep Serving
-
-- GIVEN a platform running the from-version bundle
-- WHEN the suite runs P4.2 and promotes a known-bad to-version bundle whose component digest never reaches readiness
-- THEN the bad rollout SHALL NOT reach the healthy-rollout definition within `E2E_LIFECYCLE_ROLLOUT_TIMEOUT` seconds and the last-good replicas SHALL keep serving
-- AND the short-mode functional verification SHALL still pass against the last-good replicas during the frozen window
-- AND the suite SHALL NOT perform any automated rollback or `kubectl rollout undo`
-
-#### Scenario: E2E-CORE-50.03 -- Recovery Is A Forward Re-Promotion Of The Last-Good Bundle
-
-- GIVEN the fail-closed state from P4.2 with the environment frozen at the bad promotion
-- WHEN the suite recovers by re-applying (re-promoting) the last-good bundle digest set forward
-- THEN the recovery SHALL be a forward re-promotion of an earlier good bundle, not a rollback-to-previous-revision
-- AND the platform SHALL reach the healthy-rollout definition and the short-mode functional verification SHALL pass over the setup-provisioned primary gateway
-
-### Requirement: E2E-CORE-51 -- Release-Bundle Version Model And Rollout Verification
-
-A lifecycle version is a **release-bundle component-digest set**, not an arbitrary
-per-image tag. The from-version (`E2E_LIFECYCLE_FROM_VERSION`, default the baseline
-`origin/main` build the environment is brought up at) is the bundle the platform is
-running when Phase P4 begins, and P4.1 SHALL promote to the to-version
-(`E2E_LIFECYCLE_TO_VERSION`, default the working-tree / target build). Each bundle
-pins all three workload services -- api-server, control-plane, and web-console --
-together; a promotion SHALL move all three component digests at once, and the suite
-SHALL NOT skew the three services relative to one another within a bundle. The from/to
-pair SHALL be a supported upgrade pair; an unsupported or unknown pair SHALL fail the
-run with both recorded bundles in the message rather than proceed silently. When the
-from-version and to-version resolve to the same component-digest set, the suite SHALL
-fail fast in setup, naming both variables, because there is no change to exercise. The
-known-bad bundle used by P4.2 is `E2E_LIFECYCLE_BAD_VERSION`, defaulting to a
-synthesized non-ready / invalid component digest.
-
-**Healthy-rollout definition.** The post-upgrade checkpoint SHALL mirror the
-production `hypershell-analysis` promotion gate. A platform SHALL be considered to
-have reached a healthy rollout when, and only when, ALL of the following hold:
+**Healthy-rollout definition.** The post-upgrade checkpoint SHALL mirror the production
+`hypershell-analysis` promotion gate. A platform SHALL be considered to have reached a
+healthy rollout when, and only when, ALL of the following hold:
 
 1. the platform is reconciled to the expected revision -- the deployed workloads match
    the expected to-version bundle (in production, Argo CD Synced + Healthy);
@@ -2888,72 +2776,86 @@ have reached a healthy rollout when, and only when, ALL of the following hold:
    for that service;
 3. the health endpoints return `200` (api-server `/healthcheck`, web-console
    `/health/ready`);
-4. the suite's own short-mode functional verification passes (the production gate runs
-   `TestE2E` in `E2E_MODE=short` -- create -> run -> interact -> delete; the lifecycle
-   checkpoint SHALL re-run that same short-mode functional verification).
+4. the suite's own short-mode functional verification passes (create -> run -> interact
+   -> delete).
 
-The suite SHALL record the component digests observed before and after every lifecycle
-transition -- the image reference and the resolved digest of each platform component,
-read through the shared kube client from the running Deployments -- and SHALL emit that
-record to `E2E_LIFECYCLE_RESULTS_DIR` as a versioned, machine-readable artifact
-alongside the per-phase pass/fail/skip result. The record SHALL be written on every
-exit path, so a completed or a failed run always leaves the exact bundle pair it
-exercised.
+**Survival assertion (the point).** P4.1 SHALL operate on the shared primary gateway
+provisioned once in setup via `ensurePrimaryGateway` (see [Test Framework and Suite
+Structure](#requirement-test-framework-and-suite-structure)); it SHALL NOT create its own
+gateway to carry pre-upgrade state. Before promoting, the step SHALL ensure a sandbox and
+some persistent data exist on that gateway. After the rollout reaches the healthy-rollout
+definition, the SAME primary gateway, its sandbox, and its data SHALL have survived the
+upgrade in place -- present and healthy, not recreated. A transition that does not
+converge within `E2E_LIFECYCLE_ROLLOUT_TIMEOUT` seconds, or a failed functional
+verification, SHALL fail the step and SHALL NOT silently continue.
 
-On any failed lifecycle phase -- a transition that does not converge or a failed
-functional verification -- the record SHALL also identify the failing phase id
-(`P4.1`--`P4.2`) and the bundle pair in play. The lifecycle phase SHALL NOT define a
-parallel diagnostic collector: the environment-independent diagnostic set (pods across
-namespaces, pod descriptions, platform component and Keycloak logs, cluster events,
-Gateway API resources, GitHub Actions `::group::` wrapping versus plain local
-sections, and redaction) is owned by [Environment-Independent Failure
+The suite SHALL record the component digests observed before and after the transition --
+the image reference and resolved digest of each platform component, read through the
+shared kube client from the running Deployments -- and SHALL emit that record, plus the
+per-phase result and (on failure) the failing phase id (`P4.1`) and bundle pair, to
+`E2E_LIFECYCLE_RESULTS_DIR` on every exit path. The lifecycle phase SHALL NOT define a
+parallel diagnostic collector: the environment-independent diagnostic set is owned by
+[Environment-Independent Failure
 Diagnostics](#requirement-environment-independent-failure-diagnostics) (E2E-CORE-47),
-which `TearDownSuite` already drives on a failed run. The lifecycle phase adds only the
-version record and the failing phase id to `E2E_LIFECYCLE_RESULTS_DIR` and relies on
-E2E-CORE-47 for the evidence, so there is one diagnostic path, not two.
+which `TearDownSuite` already drives on a failed run, so there is one diagnostic path,
+not two.
 
-#### Scenario: E2E-CORE-51.01 -- Bundles Recorded Per Transition
+**No uninstall phase.** The production lifecycle has no application-level uninstall
+(whole-cluster decommission belongs to the GitOps repo), so Phase P4 ends at P4.1 and
+performs no platform removal; test-environment teardown remains the existing
+`TearDownSuite` / `kind-down` behavior, unchanged and not a lifecycle requirement. Any
+gateway the step creates SHALL follow the `e2e-*` naming so the age-guarded startup sweep
+in `SetupSuite` reaps an orphan a crashed run leaves.
 
-- GIVEN a lifecycle run with distinct from-version and to-version bundles
-- WHEN the suite completes the upgrade and recovery transitions
-- THEN it SHALL record the resolved per-service component digests observed before and after each transition
-- AND it SHALL write that record to `E2E_LIFECYCLE_RESULTS_DIR` with the per-phase results
+#### Scenario: E2E-CORE-49.01 -- Upgrade Preserves The Existing Gateway, Its Sandbox, And Its Data
 
-#### Scenario: E2E-CORE-51.02 -- Default Bundle Pair Is Baseline To Working Tree
+- GIVEN a platform running the from-version bundle with the shared primary gateway provisioned in setup via `ensurePrimaryGateway`, a sandbox created on it, and its data
+- WHEN the suite runs P4.1 and promotes the running platform in place to the to-version release bundle
+- THEN the rollout SHALL reach the healthy-rollout definition and the re-run short-mode functional verification SHALL pass
+- AND the SAME primary gateway, the sandbox on it, and its data that existed before the upgrade SHALL still be present and healthy after it, having survived in place rather than been recreated
+
+#### Scenario: E2E-CORE-49.02 -- Lifecycle Runs In The Long-Mode Gate And Is Skipped In Short And Perf
+
+- GIVEN the Kind e2e workflow that gates pull requests and merge-queue entries runs `go -C tests/e2e test . -run TestE2E` in long mode
+- WHEN that run reaches the end of the functional phases (P0--P3)
+- THEN it SHALL run Phase P4 (the in-place upgrade-survival step) as part of the same `TestE2E` run, with no separate entry point or `make` target required
+- AND when `TestE2E` runs at `E2E_MODE=short` or the performance harness runs `E2ESuite` at perf depth, the suite SHALL skip P4.1 and record it as a skip, never reporting it as a pass
+
+#### Scenario: E2E-CORE-49.03 -- Lifecycle Phase Is Targetable By `E2E_RUN`
+
+- GIVEN every phase is wrapped in a phase-level subtest and the single lifecycle step is nested under `Phase-P4`
+- WHEN a developer runs `make e2e E2E_RUN=Phase-P4` (or `go -C tests/e2e test . -run 'TestE2E/TestPhases/Phase-P4'`), or the step with `E2E_RUN=P4.1`
+- THEN only the selected lifecycle phase or step SHALL run
+- AND all Kubernetes access SHALL go through the shared `client-go`/controller-runtime client, not `oc`
+
+#### Scenario: E2E-CORE-49.04 -- Default Bundle Pair Is Baseline To Working Tree, And Identical Bundles Fail Fast
 
 - GIVEN `E2E_LIFECYCLE_FROM_VERSION` and `E2E_LIFECYCLE_TO_VERSION` are unset
 - WHEN the suite resolves the bundles
 - THEN the from-version SHALL default to the baseline `origin/main` build and the to-version to the working-tree / target build
+- AND when the from-version and to-version resolve to the same component-digest set, the lifecycle setup SHALL fail fast, name both variables, and SHALL NOT attempt an upgrade transition
 
-#### Scenario: E2E-CORE-51.03 -- Identical Bundles Fail Fast
-
-- GIVEN the from-version and to-version resolve to the same component-digest set
-- WHEN the lifecycle setup runs
-- THEN it SHALL fail fast and name `E2E_LIFECYCLE_FROM_VERSION` and `E2E_LIFECYCLE_TO_VERSION`
-- AND it SHALL NOT attempt an upgrade transition
-
-#### Scenario: E2E-CORE-51.04 -- Healthy Rollout Requires Digest Match, Health Endpoints, And Short-Mode Verification
+#### Scenario: E2E-CORE-49.05 -- Healthy Rollout Requires Digest Match, Health Endpoints, And Short-Mode Verification
 
 - GIVEN the suite has promoted the to-version bundle in P4.1
 - WHEN it evaluates the healthy-rollout definition
 - THEN it SHALL require, for each of api-server / control-plane / web-console, a complete rollout AND an exact Deployment-and-Pod image-digest match to the to-version bundle digest
 - AND it SHALL require the health endpoints to return `200` (api-server `/healthcheck`, web-console `/health/ready`) and the short-mode functional verification to pass
 
-#### Scenario: E2E-CORE-51.05 -- Failed Phase Records Phase Id And Bundles And Defers Diagnostics
+#### Scenario: E2E-CORE-49.06 -- Transition Recorded And Diagnostics Deferred To E2E-CORE-47
 
-- GIVEN P4.2 promotes a known-bad bundle that fails to reach the healthy-rollout definition
-- WHEN the suite reaches its diagnostics path
-- THEN it SHALL write the failing phase id (`P4.2`) and the from-version and to-version component digests to `E2E_LIFECYCLE_RESULTS_DIR`
+- GIVEN a lifecycle run with distinct from-version and to-version bundles
+- WHEN the suite completes or fails the upgrade transition
+- THEN it SHALL write the resolved per-service component digests observed before and after the transition, the per-phase result, and (on failure) the failing phase id (`P4.1`) and bundle pair, to `E2E_LIFECYCLE_RESULTS_DIR` on every exit path
 - AND the environment-independent diagnostic set SHALL be collected by E2E-CORE-47, not by a second lifecycle-specific collector
 
 ### Lifecycle Environment Variables
 
 | Env Var | Default | Description |
 |---------|---------|-------------|
-| `E2E_LIFECYCLE_FROM_VERSION` | baseline `origin/main` build | Release-bundle component-digest set the platform is running when Phase P4 begins and is re-promoted to for recovery after the fail-closed P4.2 upgrade |
+| `E2E_LIFECYCLE_FROM_VERSION` | baseline `origin/main` build | Release-bundle component-digest set the platform is running when Phase P4 begins |
 | `E2E_LIFECYCLE_TO_VERSION` | working-tree / target build | Release-bundle component-digest set the platform is promoted to in P4.1; must differ from the from-version digest set |
-| `E2E_LIFECYCLE_BAD_VERSION` | synthesized non-ready / invalid digest | Deliberately-bad release bundle promoted in P4.2 to exercise the fail-closed path; defaults to a synthesized component digest that cannot reach readiness |
-| `E2E_LIFECYCLE_ROLLOUT_TIMEOUT` | `300` | Seconds to wait for a promotion to reach (or, for the known-bad P4.2 bundle, provably not reach) the healthy-rollout definition |
+| `E2E_LIFECYCLE_ROLLOUT_TIMEOUT` | `300` | Seconds to wait for a promotion to reach the healthy-rollout definition |
 | `E2E_LIFECYCLE_RESULTS_DIR` | `lifecycle-results` | Directory for the version record and per-phase results, and for the failing phase id on a failed run |
 
 ## Design Decisions
@@ -2993,8 +2895,7 @@ E2E-CORE-47 for the evidence, so there is one diagnostic path, not two.
 | Performance test is not wired into PR CI                                                   | A large-scale provisioning run is too heavy and too slow for the per-PR e2e gate (20-minute ceiling). The performance test is run on demand locally, against any OpenShift cluster, or on a schedule. Keeping it out of the PR path avoids flaky, resource-bound CI failures                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | Terminal-native results: versioned JSON + history files + local report                     | Because the test is run manually and not in CI, results must digest from a terminal with no CI service. A documented, versioned JSON schema keeps `jq` filters stable across runs; per-run timestamped files build a local history instead of overwriting; a `make e2e-performance-report` target tabulates recent runs so a user can spot a regression. This gives the trend-comparison benefit of a CI benchmark chart without a CI dependency, and leaves the JSON as a clean hook to add `github-action-benchmark` later if the test is ever wired into CI                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | Report depends only on bash                                                                | The performance harness writes JSON from bash state and the report reads that schema with bash string helpers. Avoiding `python3` and `jq` means the report runs on a plain machine with no extra install. CSV export is opt-in for users who prefer a spreadsheet                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| Lifecycle validation is Phase P4 of the long-mode E2ESuite, not a separate opt-in target | An opt-in, off-the-gate lifecycle harness would never actually run, which is the exact failure mode these checks exist to catch, so supported upgrade and fail-closed failed upgrade are the long-only Phase P4 steps of `E2ESuite` run by the existing `TestE2E`. They therefore run on every pull request, merge-queue entry, and manual long run (the depth the Kind gate uses), with no second entry point, no `make e2e-lifecycle` target, and no path filter of their own. Phase P4 is wrapped like every other phase, so `go test -run` and `make e2e E2E_RUN=Phase-P4` / `E2E_RUN=P4.1` target it. They are tagged `long`, so short mode and perf depth skip them like the other long-only steps. Install is not re-spec'd: CI bring-up installs the platform and the functional phases already validate that path. The cost is added minutes on the long-mode gate; the project accepts it against the 20-minute ceiling (raising `-timeout` if needed) because running these every time is worth more than the opt-in posture that meant they never ran |
-| No application uninstall phase, because production has none | The production lifecycle is continuous GitOps promotion and has no application-level uninstall step; the only teardown is whole-cluster decommission (Terraform plus GitOps-repo cleanup), which belongs to the GitOps repo, not this suite. Modeling an uninstall here would test a path production never runs and would invent retention semantics prod does not have. Phase P4 therefore ends at P4.2 and performs no platform removal. Test-environment teardown stays the existing `TearDownSuite` / `kind-down` behavior, unchanged and not a lifecycle requirement: because no step removes the platform, `TearDownSuite` always runs against a live platform and keeps its normal service-account retirement and gateway deletion. This also drops the former `E2E_LIFECYCLE_SKIP_UNINSTALL` knob, the uninstall `E2E_DISRUPTIVE_GATE_FILE` coupling, and the retention-policy assertions, none of which model anything prod does |
-| Lifecycle transitions use the release-bundle digest-promotion path, not new driver methods | Upgrade and the P4.2 recovery go through the documented release-bundle digest-promotion path (`scripts/kind/set-component-images.sh` and the OpenShift equivalent), applying the bundle's api-server, control-plane, and web-console digests together so the three services never skew within an instance, mirroring how Argo CD reconciles a promoted bundle onto the Deployments. The `E2EInfraDriver` deliberately gains no bring-up, upgrade, or teardown method, staying the inspection-and-access contract the suite depends on. The api-server `migrate` initContainer is ordered after the database via sync-waves (DB wave 0 -> workloads wave 1), so migrations run against a ready database, exactly as the bundle specifies |
-| Failed upgrade is fail-closed; recovery is a forward re-promotion, mirroring GitOps Promoter | Production does not auto-roll-back a bad release: the promotion gate fails closed, the environment stays frozen at the last-good digests, the last-good replicas keep serving, the downstream cascade halts, and recovery is a manual forward re-promotion of an earlier good bundle (the tooling even guards against backward Renovate bumps). P4.2 mirrors that: it promotes a known-bad bundle, asserts it never reaches the healthy-rollout definition while last-good keeps serving, then recovers by forward re-apply of the last-good bundle digest set -- never a `kubectl rollout undo` or rollback-to-previous-revision. The earlier "roll back to last-good" framing mis-modeled prod and is replaced |
+| Phase P4 is scoped to a single in-place-upgrade-survival check | Install and the functional path are covered per-PR; the production `hypershell-analysis` gate re-runs this suite in short mode after every promotion, so post-upgrade regressions are caught in delivery; and rollback is a manual GitOps revision revert whose fail-closed / blocking behavior is covered by the GitOps repo's own promoter tests, not modeled here. The lone uncovered, production-relevant property is that an in-place platform upgrade must not disrupt a pre-existing gateway, its sandbox, or its data -- prod gateways are long-lived across promotions, yet every other test create-and-deletes its own gateway. So Phase P4 is the single long-only step P4.1, part of the long-mode `TestE2E` (not an opt-in, off-the-gate harness that would never run), tagged `long` so short mode and perf depth skip it, and wrapped like every other phase so `go test -run` / `make e2e E2E_RUN=Phase-P4` / `E2E_RUN=P4.1` target it. On a PR that changes neither the schema nor the rollout it is a no-op guard; it earns its minutes on PRs that do |
+| No application uninstall phase, because production has none | Prod's only teardown is whole-cluster decommission (Terraform plus GitOps-repo cleanup), which belongs to the GitOps repo; Phase P4 performs no platform removal, and test-environment teardown stays the existing `TearDownSuite` / `kind-down` behavior, unchanged and not a lifecycle requirement |
+| Lifecycle transition uses the release-bundle digest-promotion path, not new driver methods | The upgrade goes through the documented release-bundle digest-promotion path (`scripts/kind/set-component-images.sh` and the OpenShift equivalent), applying the bundle's api-server, control-plane, and web-console digests together so the three services never skew within an instance, mirroring how Argo CD reconciles a promoted bundle onto the Deployments. The `E2EInfraDriver` deliberately gains no bring-up, upgrade, or teardown method, staying the inspection-and-access contract the suite depends on. The api-server `migrate` initContainer is ordered after the database via sync-waves (DB wave 0 -> workloads wave 1), so migrations run against a ready database, exactly as the bundle specifies |
 | Healthy-rollout checkpoint mirrors the production analysis gate | The post-upgrade checkpoint asserts exactly what the production `hypershell-analysis` gate asserts, so a green in-suite upgrade means the same thing a green production promotion does: the platform is reconciled to the expected revision; for each of api-server / control-plane / web-console the rollout is complete (desired == updated == ready == available) and the Deployment and every running Pod's image digest exactly equals the to-version bundle digest; the health endpoints return `200` (api-server `/healthcheck`, web-console `/health/ready`); and the suite re-runs the same short-mode `TestE2E` functional verification the prod gate runs (create -> run -> interact -> delete). Digest equality, not tag equality, is the check because a bundle is defined by digest |
