@@ -6,27 +6,24 @@
 
 ## Purpose
 
-The control plane assembles each gateway's runtime configuration (the
-`gateway.toml` carried in the `openshell-gateway-config` ConfigMap) by mutating a
-base configuration in place: it rewrites the TLS `server_sans` line, appends an
-`[openshell.gateway.oidc]` section when OIDC is enabled, and appends a
-credential-driver section when a driver is configured. Today the control plane
-validates only the *input* it was given (image reference, DNS names, OIDC field
-coherence, credential-driver fields) and then writes the *generated* artifact to
-the cluster without ever parsing or checking it. A defect in generation - or an
-input combination that yields a structurally incoherent artifact - is therefore
-delivered straight to the workload, and because the ConfigMap's content hash is
-stamped onto the Deployment pod template, a bad artifact also rolls the workload
-onto itself.
+The control plane configures each gateway's runtime through Helm values on the
+vendored OpenShell chart. The chart renders those values into the `gateway.toml`
+carried in the `openshell-gateway-config` ConfigMap: the TLS `server_sans`, an
+`[openshell.gateway.oidc]` section when OIDC is enabled, and a credential-driver
+section when a driver is configured. The control plane validates the *input* it
+was given (image reference, DNS names, OIDC field coherence, credential-driver
+fields). Input validation alone does not check the *rendered* artifact. A defect
+in rendering, or an input combination that yields a structurally incoherent
+artifact, would reach the workload, and because the ConfigMap's content hash is
+stamped onto the Deployment pod template, it would also roll the workload.
 
 This spec defines a validation gate on the *rendered* configuration artifact
-itself, applied before the control plane writes any config-derived resource for
-the gateway (the `openshell-gateway-config` ConfigMap and the workload
-Deployment) or rolls its workload. It refines the "validate the TOML config" clause
+itself, applied before the control plane installs or upgrades the gateway's Helm
+release, which writes the `openshell-gateway-config` ConfigMap and the workload
+Deployment and rolls the workload. It refines the "validate the TOML config" clause
 of the GatewayReconciler requirement in
-[`openshell-gateway.spec.md`](./openshell-gateway.spec.md) and closes the
-long-standing gap that input validation alone does not cover the produced
-artifact. It reuses the canonical phase vocabulary defined in
+[`openshell-gateway.spec.md`](./openshell-gateway.spec.md) and covers the
+rendered artifact that input validation does not. It reuses the canonical phase vocabulary defined in
 [`gateway-phase-vocabulary.spec.md`](./gateway-phase-vocabulary.spec.md) rather
 than introducing new outcome values, and it is a sub-spec of
 [`control-plane.spec.md`](./control-plane.spec.md).
