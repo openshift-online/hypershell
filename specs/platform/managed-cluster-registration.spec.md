@@ -409,6 +409,56 @@ For `WatchAgentRuntimes` and `ListAgentRuntimes` the scoping key is the `AgentRu
 - WHEN it opens any `Watch*` RPC
 - THEN the api-server returns `UNAUTHENTICATED`
 
+### Requirement: PLAT-CLUS-15 -- ListRoleBindings Fails Closed Without a User
+
+`ListRoleBindings` serves two distinct intents that the api-server SHALL keep
+separate and SHALL NOT let silently convert into each other:
+
+- a per-user query, with `user_id` set, that returns only that user's bindings
+  (optionally narrowed by `gateway_id` and the cluster scope of PLAT-CLUS-10); and
+- a deliberate cluster-wide resync, with `user_id` empty and no `gateway_id`, that
+  returns every surviving binding under the caller's mandatory `cluster_id` scope so
+  the control plane recovers a missed owner grant (`control-plane.spec.md`,
+  "Requirement: CTRL-CORE-08 -- Role Binding Resync").
+
+The api-server SHALL reject a `ListRoleBindings` request that carries an empty
+`user_id` together with a `gateway_id` filter. It SHALL return `INVALID_ARGUMENT`
+and SHALL perform no database read for that request. Such a request would otherwise
+degrade a per-user list into a per-gateway, all-user list and disclose every user's
+bindings on that gateway. The rule applies to every caller, independent of the
+cluster-scope check in PLAT-CLUS-10.
+
+The all-binding read SHALL be reachable only through the explicit cluster-wide
+resync branch, defined above. It SHALL NOT be the fallback of a request that merely
+omits `user_id`. The resulting `INVALID_ARGUMENT` is a terminal client error and
+SHALL NOT be retried by the caller.
+
+Existing accepted behavior SHALL be preserved: a request with `user_id` set returns
+only that user's bindings, and the cluster-wide resync continues to reach the
+all-binding read under its mandatory `cluster_id` scope.
+
+#### Scenario: PLAT-CLUS-15.01 -- Empty user with a gateway filter is rejected without a read
+
+- GIVEN a `ListRoleBindings` request with an empty `user_id`, a `gateway_id`, and a valid `cluster_id` scope
+- WHEN the api-server handles the request
+- THEN it SHALL return `INVALID_ARGUMENT`
+- AND it SHALL perform no database read of role bindings
+- AND it SHALL NOT return any binding
+
+#### Scenario: PLAT-CLUS-15.02 -- Per-user gateway query returns only that user
+
+- GIVEN role bindings for several users on the same gateway assigned to `cluster_id: X`
+- WHEN a `ListRoleBindings` request sets `user_id` to one user, `gateway_id` to that gateway, and `cluster_id: X`
+- THEN the response SHALL contain only that user's bindings on that gateway
+- AND no other user's bindings SHALL be returned
+
+#### Scenario: PLAT-CLUS-15.03 -- Cluster-wide resync is the only all-binding path
+
+- GIVEN a `ListRoleBindings` request with an empty `user_id`, no `gateway_id`, and a valid `cluster_id` scope
+- WHEN the api-server handles the request
+- THEN it SHALL read all surviving bindings and return those whose gateway is assigned to that cluster
+- AND this resync branch SHALL be the only request shape that reaches the all-binding read
+
 ### Requirement: PLAT-CLUS-11 -- Control-Plane Identity
 
 A caller whose JWT `sub` matches the `oidc_subject` of a registered `ManagedCluster` SHALL be treated as the control plane of that cluster. On the gRPC API it is authorized without role bindings, but only within its own cluster:
