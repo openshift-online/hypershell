@@ -137,6 +137,22 @@ read -r REPO NUMBER _kind < <(lifecycle_parse_issue_url "${ISSUE_URL}") || {
   exit 1
 }
 
+# This file is written only by the pre-script in the host run root. Never read
+# trusted identity from agent output or source it as shell code. Explicit
+# LIFECYCLE_* values remain available for operator recovery of older artifacts.
+if [[ -e .lifecycle-state.json || -L .lifecycle-state.json ]]; then
+  state="$(python3 -I "${_dir}/lib/run-state.py" read .lifecycle-state.json \
+    "${PHASE}" "${REPO}" "${NUMBER}")" || {
+      echo "post-lifecycle: invalid trusted run state; cannot apply verdict" >&2; exit 1;
+    }
+  while IFS='=' read -r key value; do
+    case "${key}" in
+      LIFECYCLE_PR_NUMBER) LIFECYCLE_PR_NUMBER="${value}" ;;
+      LIFECYCLE_PR_HEAD_SHA) LIFECYCLE_PR_HEAD_SHA="${value}" ;;
+    esac
+  done <<< "${state}"
+fi
+
 # Verify any identifier the agent returned against the trusted recorded value.
 # The pre-script records LIFECYCLE_PR_NUMBER; the review harnesses also pass the
 # forge-resolved PR_NUMBER, used as a trusted fallback if the relay is absent.
@@ -246,7 +262,7 @@ if lifecycle_phase_is_review "${PHASE}"; then
     if [[ "${_recovering}" == 1 ]]; then
       echo "post-lifecycle: ATTENTION: ${REPO}#${NUMBER} has no ${PHASE} phase label and freshness could not be verified; an interrupted transition could not be recovered automatically and needs a human to restore a phase label" >&2
     fi
-    exit 0
+    exit 1
   fi
   if [[ "${current_head}" != "${recorded_head}" ]]; then
     echo "post-lifecycle: pull request head changed (${recorded_head} -> ${current_head}); review result is stale, no verdict transition" >&2
@@ -283,7 +299,7 @@ fi
 # the reapplied verdict edits this record in place with no duplicate (SDLC-HOOK-09).
 if [[ "${PHASE}" == "code-review" && "${outcome}" == "approved" ]]; then
   gh_pr_has_execution_link "${REPO}" "${trusted_pr}" "${NUMBER}" || {
-    echo "post-lifecycle: PR is not linked to this execution record; no approval" >&2; exit 1;
+    echo "post-lifecycle: PR is not linked to this execution record; not applying verdict" >&2; exit 1;
   }
   code_state="$(gh_pr_code_state "${REPO}" "${trusted_pr}")"
   if [[ "$(jq -r '.head_sha' <<< "${code_state}")" != "${recorded_head}" ]]; then

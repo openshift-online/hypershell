@@ -8,7 +8,7 @@
 # Auto-discovered by scripts/run-shell-unit-tests.sh.
 #
 # The pre-script relays KEY=VALUE lines to $FULLSEND_PRESCRIPT_OUTPUT and requests
-# a skip with a `skip=<reason>` line. Each test inspects that relay file.
+# a skip with a `skipped=true` / `reason=<reason>` line. Each test inspects that relay file.
 
 set -uo pipefail
 
@@ -74,7 +74,7 @@ _runpre() {
       bash "${PRE}" )
 }
 _relayed() { grep -q "^$2=" "$1"; }
-_skipped() { grep -q "^skip=" "$1"; }
+_skipped() { grep -qx "skipped=true" "$1"; }
 
 # ---- A: spec-implementation bootstraps a fresh issue with no PR (BLOCKER) --
 R="${WORK}/A.relay"; S="${WORK}/A.labels"

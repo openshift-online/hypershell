@@ -234,6 +234,29 @@ configuration. It SHALL NOT require local dispatcher state or a local database.
 - THEN it records the starting phase labels and the pull request head commit
 - AND that recorded state is available to the post-script
 
+Pre-script skipping SHALL use Fullsend's native `skipped=true` and `reason`
+outputs. An arbitrary `skip=<reason>` output SHALL NOT be treated as a skip.
+Custom outputs SHALL NOT be assumed to become post-script environment variables.
+The trusted phase/record/PR identity SHALL instead be handed off through a private
+host-owned, atomically written run snapshot, outside sandbox/model output.
+The post-script SHALL validate file permissions, ownership, and identity binding
+before using it; it SHALL NOT source the contents as code. Missing/invalid review
+state SHALL fail the attempt rather than report a successful no-op.
+
+#### Scenario: SDLC-HOOK-03.03 -- Native skip prevents execution
+
+- GIVEN a missing authorization or stage prerequisite
+- WHEN the pre-script runs through the installed Fullsend CLI
+- THEN Fullsend SHALL honor `skipped=true` and the reason
+- AND no sandbox or model run SHALL start
+
+#### Scenario: SDLC-HOOK-03.04 -- Separate hook processes share trusted state
+
+- GIVEN a pre-script that records the reviewed head in the host run root
+- WHEN the post-script starts in a separate environment without relay exports
+- THEN it SHALL read and verify that private snapshot for the same phase and record
+- AND missing, mismatched, or non-private state SHALL fail without advancing labels
+
 ### Requirement: SDLC-HOOK-04 -- Structured, Versioned Agent Results
 
 Each phase SHALL define a versioned JSON schema for its agent result. The result

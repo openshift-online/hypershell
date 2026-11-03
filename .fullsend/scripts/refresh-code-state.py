@@ -35,8 +35,8 @@ def refresh(repo, number, pr_number, scope, inspect=False):
     state = observe(repo, pr_number)
     state['changed'] = False
     labels = {label['name'] for label in item['labels']}
-    dry_run = any(os.environ.get(key, '').lower() in ('1', 'true', 'yes')
-                  for key in ('DRY_RUN', 'AGENT_DRY_RUN'))
+    dry_run = (os.environ.get('DRY_RUN', '').lower() in ('1', 'true', 'yes')
+               or os.environ.get('AGENT_DRY_RUN', '').lower() in ('1', 'true', 'yes'))
     if (inspect or dry_run or item['state'] != 'open' or state['state'] != 'open'
             or not {'agent/allowed', scope} <= labels or 'agent/blocked' in labels):
         return state

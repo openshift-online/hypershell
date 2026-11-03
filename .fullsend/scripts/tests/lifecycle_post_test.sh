@@ -724,5 +724,15 @@ if [[ $? != 0 ]] && _has_label "${S}" agent/reviewable-code && ! _has_label "${S
  _ok "failed PR approval write leaves issue eligible for retry"
 else _no "failed PR approval write leaves issue eligible for retry" "$(cat "${WORK}/mirror-fail.out")"; fi
 
+
+# Missing pre-script evidence must fail, so a scheduler does not deduplicate a
+# review that was never applied. No untrusted result field can supply the anchor.
+S="${WORK}/missing-state.labels"
+_seed "${S}" agent/allowed agent/reviewable-code
+_run code-review "${APPROVED}" MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 PR_NUMBER=5 > "${WORK}/missing-state.out" 2>&1
+if [[ $? != 0 ]] && _has_label "${S}" agent/reviewable-code && ! _has_label "${S}" agent/review-code-approved; then
+ _ok "missing trusted head fails the attempt instead of silently succeeding"
+else _no "missing trusted head fails the attempt instead of silently succeeding" "$(cat "${WORK}/missing-state.out")"; fi
+
 printf '\n%d passed, %d failed\n' "${PASS}" "${FAIL}"
 [[ "${FAIL}" -eq 0 ]]

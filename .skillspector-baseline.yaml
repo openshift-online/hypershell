@@ -257,4 +257,16 @@ rules:
   path: ".hypershell/execute-sdlc/fullsend.env.example"
   reason: "Template documents the operator running gcloud ADC login; no autonomous agent session persistence is requested."
 
+
+# Native hook/recovery integration: reviewed argv-only execution (PR #869).
+- id: "AST4"
+  path: ".fullsend/scripts/refresh-code-state.py"
+  reason: "Shared maintenance calls fixed gh/bash executables with argv lists and shell disabled; bash fragments are fixed library invocations with data passed as positional arguments, never model-supplied code."
+- id: "AST4"
+  path: ".fullsend/scripts/tests/test_code_state_refresh.py"
+  reason: "Test fixture invokes a fixed bash revocation check with positional library path and a local failing gh stub; it does not execute model output or contact GitHub."
+- id: "AST4"
+  path: ".fullsend/scripts/tests/test_run_state.py"
+  reason: "Test fixture invokes the current Python interpreter and the checked-in private-state helper with temporary paths and fixed argv; no shell or model-generated code is executed."
+
 fingerprints: []

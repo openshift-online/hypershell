@@ -31,17 +31,29 @@ Each phase harness (`triage`, `spec-implementation`, `spec-review`,
 
 The phase is selected by the `PHASE` environment variable set in each harness.
 
-The `pre_script`, `validation_loop`, and `post_script` hooks, the `skip=` relay
+The `pre_script`, `validation_loop`, and `post_script` hooks, the `skipped=true` / `reason` protocol
 from a pre-script, the `FULLSEND_VALIDATED_ITERATION_DIR` output contract, and
 harness-level output-schema enforcement follow the
 [harness field reference](https://fullsend.sh/docs/reference/harness-reference)
 and [ADR 0022](https://fullsend.sh/docs/ADRs/0022-harness-level-output-schema-enforcement).
-No HyperShell harness used `pre_script` or the `skip=` key before this change, so
-verify hook ordering, the skip relay, the validated-iteration output path, and
-failure propagation against the deployed Fullsend version before relying on them in
-production, and record the verified version here. These scripts are written so the
-direct-invocation tests pass independently of the runtime, so a runtime mismatch
-surfaces as a harness-wiring problem rather than a silent label change.
+Native skipping is tested against installed Fullsend 0.50.0 using stubbed
+external CLIs: a denied precondition produces `skipped=true` plus `reason`, and
+Fullsend exits before creating a sandbox. Custom pre-script outputs are logged
+and exposed to CI outputs; Fullsend does not export them as post-script environment
+variables. The pre-script therefore atomically writes a mode-0600
+`.lifecycle-state.json` next to `FULLSEND_PRESCRIPT_OUTPUT` in the host run root.
+The post-script runs in that root and reads the private snapshot. It verifies the
+file ownership/mode, phase, repository, issue, PR number and recorded head, never
+sources shell text, and never obtains trusted identity from agent output.
+Missing or invalid review state is a non-zero failure, so the dispatcher can
+retry rather than record an unapplied verdict as successful.
+
+The snapshot remains in the run artifacts for recovery. An operator recovering
+an older run can supply the original trusted `LIFECYCLE_*` values explicitly;
+the agent's reported head is not a substitute for pre-script evidence. The
+script-chain test uses separate clean environments and the host state file,
+without manually forwarding the relay values. The full sandbox-to-post-hook
+path still requires validation against a live gateway.
 
 ## The result contract (SDLC-HOOK-04)
 

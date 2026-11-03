@@ -255,12 +255,11 @@ JSON
 
     # Step 3: the harness-declared POST-SCRIPT consumes the validated result from
     # the iteration output dir and applies only the matched transition. The PR head
-    # and number come from the relay the pre-script wrote (not from the result).
+    # and number come from the private host state file, with no relay exports.
     recorded_head="$(sed -n 's/^LIFECYCLE_PR_HEAD_SHA=//p' "${RELAY}")"
     recorded_pr="$(sed -n 's/^LIFECYCLE_PR_NUMBER=//p' "${RELAY}")"
-    ( env -i PATH="${BIN}:/usr/bin:/bin" HOME="${WORK}" LC_ALL=C.UTF-8 \
+    ( cd "${RUN}" && env -i PATH="${BIN}:/usr/bin:/bin" HOME="${WORK}" LC_ALL=C.UTF-8 \
         GH_TOKEN=x PHASE="${RPHASE}" ISSUE_URL="${ISSUE_URL}" \
-        LIFECYCLE_PR_NUMBER="${recorded_pr}" LIFECYCLE_PR_HEAD_SHA="${recorded_head}" \
         FULLSEND_VALIDATED_ITERATION_DIR="${RUN}/iteration-1/output" \
         MOCK_STATE="${S}" MOCK_HEAD_SHA="${recorded_head}" \
         MOCK_CHECKRUNS='[{"status":"completed","conclusion":"success"}]' \

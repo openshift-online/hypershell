@@ -13,12 +13,10 @@
 #   4. Skips the run through Fullsend's pre-script output when a prerequisite no
 #      longer holds, so the agent does not run.
 #
-# Relay contract: every KEY=VALUE line written to $FULLSEND_PRESCRIPT_OUTPUT is
-# exported into the later stages. Uppercase LIFECYCLE_* keys carry recorded
-# state. The lowercase reserved key `skip` requests that Fullsend skip the run;
-# its value is the human-readable reason. The post-script re-derives and
-# re-verifies all of this independently, so a transition is never applied on
-# stale or ineligible state even if the skip is not honored.
+# Fullsend logs/relays pre-script outputs to CI; it does not export arbitrary
+# keys to the post-script. Keep the trusted identity in a private file beside
+# FULLSEND_PRESCRIPT_OUTPUT (the host run root). The post-script runs there.
+# Native skipping uses skipped=true and reason, not a skip=<reason> line.
 
 set -euo pipefail
 export LC_ALL="${LC_ALL:-C.UTF-8}"
@@ -46,7 +44,9 @@ fi
 
 # Append a KEY=VALUE relay line, or print it when no output path is configured
 # (local invocation and tests).
+declare -A recorded=()
 _relay() {
+  recorded["$1"]="$2"
   if [[ -n "${FULLSEND_PRESCRIPT_OUTPUT:-}" ]]; then
     printf '%s=%s\n' "$1" "$2" >> "${FULLSEND_PRESCRIPT_OUTPUT}"
   else
@@ -59,7 +59,8 @@ _relay() {
 _skip() {
   local reason="${1//[$'\r\n']/ }"
   echo "pre-lifecycle: skipping run: ${reason}" >&2
-  _relay skip "${reason}"
+  _relay skipped true
+  _relay reason "${reason}"
   exit 0
 }
 
@@ -156,6 +157,14 @@ elif lifecycle_phase_creates_pr "${PHASE}"; then
     [[ -n "${head_sha}" ]] && _relay LIFECYCLE_PR_HEAD_SHA "${head_sha}"
   fi
 fi
+
+if [[ -n "${FULLSEND_PRESCRIPT_OUTPUT:-}" ]]; then
+  state_dir="$(dirname "${FULLSEND_PRESCRIPT_OUTPUT}")"
+  python3 -I "${_dir}/lib/run-state.py" write "${state_dir}/.lifecycle-state.json" \
+    "${PHASE}" "${REPO}" "${NUMBER}" \
+    "${recorded[LIFECYCLE_PR_NUMBER]:-}" "${recorded[LIFECYCLE_PR_HEAD_SHA]:-}"
+fi
+_relay skipped false
 
 echo "pre-lifecycle: ${PHASE} prerequisites satisfied for ${REPO}#${NUMBER}" >&2
 exit 0
