@@ -7,6 +7,7 @@ import {
   SearchInput,
   Toolbar,
   ToolbarContent,
+  ToolbarGroup,
   ToolbarItem,
 } from "@patternfly/react-core";
 import {
@@ -52,6 +53,15 @@ interface ResourceTableLabels {
 
 interface ResourceTableProps<Row> {
   ariaLabel: string;
+  // Content rendered between the toolbar and the table, e.g. a bulk-action
+  // results banner. Rendered in every row state so it survives a refetch.
+  banner?: React.ReactNode;
+  // Bulk-action controls (e.g. Delete, Clear selection) placed in the primary
+  // toolbar row after the filters.
+  bulkActions?: React.ReactNode;
+  // Header bulk-selection control placed at the start of the primary toolbar
+  // row, before the search input.
+  bulkSelect?: React.ReactNode;
   columns: readonly ResourceTableColumn<Row>[];
   /**
    * Controls rendered inline on the first toolbar row, alongside the search
@@ -71,6 +81,9 @@ interface ResourceTableProps<Row> {
   pageSizeOptions: readonly number[];
   primaryAction?: React.ReactNode;
   renderRowAction?: (row: Row) => React.ReactNode;
+  // When provided, a leading selection column is rendered and this returns the
+  // per-row selection control. The caller owns selection state.
+  renderRowSelection?: (row: Row) => React.ReactNode;
   rows: readonly Row[];
   /**
    * Controls rendered on a second toolbar row directly below the first row,
@@ -79,11 +92,16 @@ interface ResourceTableProps<Row> {
    * this is not provided, so no empty toolbar row remains.
    */
   secondaryFilterControls?: React.ReactNode;
+  // Screen-reader heading for the leading selection column.
+  selectionColumnLabel?: string;
   state: ResourceTableState;
 }
 
 export function ResourceTable<Row>({
   ariaLabel,
+  banner,
+  bulkActions,
+  bulkSelect,
   columns,
   filterControls,
   getRowKey,
@@ -96,8 +114,10 @@ export function ResourceTable<Row>({
   pageSizeOptions,
   primaryAction,
   renderRowAction,
+  renderRowSelection,
   rows,
   secondaryFilterControls,
+  selectionColumnLabel,
   state,
 }: ResourceTableProps<Row>) {
   const activeSortIndex = Math.max(
@@ -140,6 +160,7 @@ export function ResourceTable<Row>({
     <>
       <Toolbar id={`${id}-toolbar`}>
         <ToolbarContent rowWrap={{ default: "wrap", md: "nowrap" }}>
+          {bulkSelect ? <ToolbarItem>{bulkSelect}</ToolbarItem> : null}
           <ToolbarItem>
             <SearchInput
               aria-label={labels.searchAriaLabel}
@@ -154,6 +175,7 @@ export function ResourceTable<Row>({
             />
           </ToolbarItem>
           {filterControls ? <ToolbarItem>{filterControls}</ToolbarItem> : null}
+          {bulkActions ? <ToolbarGroup>{bulkActions}</ToolbarGroup> : null}
           {primaryAction ? <ToolbarItem>{primaryAction}</ToolbarItem> : null}
           <ToolbarItem
             align={{ default: "alignStart", md: "alignEnd" }}
@@ -194,10 +216,15 @@ export function ResourceTable<Row>({
         ) : null}
       </Toolbar>
 
+      {banner}
+
       {rows.length > 0 ? (
         <Table aria-label={ariaLabel} variant="compact">
           <Thead>
             <Tr>
+              {renderRowSelection ? (
+                <Th screenReaderText={selectionColumnLabel} />
+              ) : null}
               {columns.map((column, columnIndex) => (
                 <Th
                   key={column.id}
@@ -219,6 +246,11 @@ export function ResourceTable<Row>({
           <Tbody>
             {rows.map((row) => (
               <Tr key={getRowKey(row)}>
+                {renderRowSelection ? (
+                  <Td dataLabel={selectionColumnLabel}>
+                    {renderRowSelection(row)}
+                  </Td>
+                ) : null}
                 {columns.map((column) => (
                   <Td dataLabel={column.label} key={column.id}>
                     {column.render(row)}
