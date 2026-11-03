@@ -743,9 +743,7 @@ The import writer SHALL:
 - Read the rendered Gateway spec's `placement`. When `placement` declares a
   `selector` (a list of ManagedCluster capability labels), the writer SHALL build a
   `GatewayPlacementIntent` whose `capability_selector` (`CapabilitySelectorPlacement`)
-  carries that selector list. When `placement` declares `mode: local-kind`, the
-  writer SHALL build a `GatewayPlacementIntent` whose `local_kind`
-  (`LocalKindPlacement`) is set. The proto contract is `GatewayPlacementIntent`
+  carries that selector list. The proto contract is `GatewayPlacementIntent`
   (`placement` field `18` on `CreateGatewayRequest`) in
   `components/api-server/proto/hypershell/v1/gateways.proto`.
 - On CREATE, supply EXACTLY ONE of `cluster_id` (pinned) or `placement` (late-bound):
@@ -766,7 +764,7 @@ The import writer SHALL:
   binding re-resolves the already-persisted placement whenever the eligible-cluster
   set changes.
 - Report a malformed placement. When a rendered Gateway declares a `placement` block
-  that is neither a non-empty `selector` list nor `mode: local-kind`, the writer SHALL
+  that is not a non-empty `selector` list, the writer SHALL
   fail the import of that Gateway with an error that names the problem, rather than
   send a create with neither `cluster_id` nor `placement`, so the cause is clear
   instead of surfacing only as the api-server's generic exactly-one-of rejection. The
@@ -775,7 +773,7 @@ The import writer SHALL:
 
 #### Scenario: CTRL-CORE-14.01 -- Import of a malformed placement fails with a clear cause
 
-- GIVEN a `.hypershell` Gateway manifest whose `placement` declares neither a non-empty `selector` nor `mode: local-kind`
+- GIVEN a `.hypershell` Gateway manifest whose `placement` declares no non-empty `selector` list
 - WHEN the import writer reconciles that Gateway
 - THEN it SHALL report an error that names the malformed placement and SHALL NOT send a create or update for that Gateway
 - AND the error SHALL be collected so the rest of the import still runs
@@ -786,12 +784,6 @@ The import writer SHALL:
 - WHEN the import writer creates the Gateway over the gRPC write path
 - THEN the `CreateGatewayRequest` SHALL carry a `placement` with `capability_selector.selector = ["network/public", "provider/ibm"]` and no `cluster_id`
 - AND the API server SHALL late-bind the Gateway to a matching `ManagedCluster`, or create it `Pending` with an awaiting-placement status when none matches
-
-#### Scenario: CTRL-CORE-14.03 -- Import of a local-kind Gateway maps the local-kind mode
-
-- GIVEN a `.hypershell` Gateway manifest with `placement: { mode: local-kind }` and no `cluster_id`
-- WHEN the import writer creates the Gateway
-- THEN the `CreateGatewayRequest` SHALL carry a `placement` with `local_kind` set
 
 #### Scenario: CTRL-CORE-14.04 -- Import of a pinned Gateway is unchanged
 

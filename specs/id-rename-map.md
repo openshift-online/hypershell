@@ -505,3 +505,8 @@ does not exist. "Former file" is the spec the ID lived in, relative to
 | `PLAT-CLUS-14.04` | `platform/managed-cluster-registration.spec.md` | - | Scenario of the removed `managed-cluster/<name>` identity capability requirement. |
 | `PLAT-CLUS-14.05` | `platform/managed-cluster-registration.spec.md` | - | Scenario of the removed `managed-cluster/<name>` identity capability requirement. |
 | `OSG-OIDC-03.02` | `platform/openshell-gateway-oidc.spec.md` | - | Described a custom raw-TOML `config` field on the Gateway that bypassed OIDC injection. The Gateway resource has no such field. |
+| `WEB-PLC-08` | `web-console/gateway-provision-placement.spec.md` | `WEB-PLC-07` | The `mode: local-kind` placement intent was removed; the local Kind cluster is placed with the `provider/kind` capability selector and resolved by the ordinary selector contract (HYPERSHELL-476 / issue #924). |
+| `WEB-PLC-08.01` | `web-console/gateway-provision-placement.spec.md` | `WEB-PLC-07` | Scenario of the removed local-kind placement resolution requirement. |
+| `CLI-PLC-01.03` | `platform/hsctl-placement.spec.md` | `CLI-PLC-01.10` | The `--local-kind` flag was removed; the same local-development create is expressed with `--placement-selector provider/kind` (HYPERSHELL-476 / issue #924). |
+| `CLI-PLC-03.04` | `platform/hsctl-placement.spec.md` | `CLI-PLC-03` | The local-kind dry-run pre-check special case was removed; the ordinary selector pre-check applies. |
+| `CTRL-CORE-14.03` | `platform/control-plane.spec.md` | `CTRL-CORE-14.02` | The import writer no longer maps a `mode: local-kind` placement; the capability-selector mapping covers it (HYPERSHELL-476 / issue #924). |

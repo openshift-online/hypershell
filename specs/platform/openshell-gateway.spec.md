@@ -197,7 +197,8 @@ Gateway SHALL be a first-class HyperShell resource kind, persisted in PostgreSQL
   kind: Gateway
   name: openshell-gateway
   placement:
-    mode: local-kind
+    selector:
+      - provider/kind
   ```
 - WHEN a user runs `hsctl apply -k overlays/tenant-a/`
 - THEN the CLI SHALL render the kustomization and POST the Gateway resource to the API server

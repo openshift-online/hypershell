@@ -47,7 +47,7 @@ erDiagram
         string ID PK
         string name
         string cluster_id FK "nullable; late-bound by placement when absent"
-        jsonb placement "capability-label selectors or local-kind mode; used when cluster_id is absent"
+        jsonb placement "capability-label selectors; used when cluster_id is absent"
         string namespace
         string image
         string supervisor_image
@@ -280,7 +280,7 @@ SHALL be OPTIONAL on create:
 - **Late-bound by placement.** When `cluster_id` is ABSENT, the Gateway SHALL
   instead carry a `placement` selector that declares the TYPE of placement it
   wants as ManagedCluster capability-label selectors (for example
-  `network/public`, `provider/ibm`) or a `local-kind` mode, exactly as the
+  `network/public`, `provider/ibm`), exactly as the
   declarative `.hypershell` Gateway manifest uses. The API server SHALL resolve
   the selector to a concrete `ManagedCluster` and assign `cluster_id` server-side;
   this keeps the watch-stream caller binding authoritative, consistent with the
@@ -1057,8 +1057,7 @@ the control plane SHALL:
 4. Reconcile (create / update / prune) the rendered ext resources into the API
    over the generated gRPC write path, marking each written resource with its
    owning `Repository` (`repository_id`). For an imported `Gateway`, the writer SHALL
-   map the rendered spec's `placement` (a capability-label `selector` list, or
-   `mode: local-kind`) into the CREATE request `placement` field so a declarative
+   map the rendered spec's `placement` (a capability-label `selector` list) into the CREATE request `placement` field so a declarative
    late-bound Gateway (placement, no `cluster_id`) satisfies the exactly-one-of create
    contract in "Requirement: Gateway Placement and Late Binding"; the pinned
    (`cluster_id`) path is unchanged. The placement-mapping contract is defined
@@ -1697,7 +1696,7 @@ The `hsctl` CLI mirrors the REST API 1-for-1 except where a feature explicitly d
 |---|---|---|
 | `GET /api/hypershell/v1/gateways` | `hsctl list gateways` | ✅ implemented |
 | `GET /api/hypershell/v1/gateways/{id}` | `hsctl get gateway <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/gateways` | `hsctl create gateway --name <n> (--cluster-id <c> \| [--placement-selector <label>]... [--placement-exclude-selector <label>]... \| --local-kind) [--dedicated-route] [--dry-run]` (name + placement + the create-only `dedicated_route` request, per PLAT-DATA-23 / PLAT-DATA-26; `--dedicated-route` requires the `gateway:dedicated-route-creator` role; the placement flags submit the late-bound shape, see [`hsctl-placement.spec.md`](hsctl-placement.spec.md)) | ✅ implemented |
+| `POST /api/hypershell/v1/gateways` | `hsctl create gateway --name <n> (--cluster-id <c> \| [--placement-selector <label>]... [--placement-exclude-selector <label>]...) [--dedicated-route] [--dry-run]` (name + placement + the create-only `dedicated_route` request, per PLAT-DATA-23 / PLAT-DATA-26; `--dedicated-route` requires the `gateway:dedicated-route-creator` role; the placement flags submit the late-bound shape, see [`hsctl-placement.spec.md`](hsctl-placement.spec.md)) | ✅ implemented |
 | `PATCH /api/hypershell/v1/gateways/{id}` | `hsctl update gateway <id> --name <n>` (rename only, per PLAT-DATA-23) | 🔲 planned |
 | `DELETE /api/hypershell/v1/gateways/{id}` | `hsctl delete gateway <id>` | ✅ implemented |
 | `GET /api/hypershell/v1/gateways/{gateway_id}/sandbox_events` | -- | planned (REST only; see [`gateway-sandbox-events.spec.md`](gateway-sandbox-events.spec.md)) |
