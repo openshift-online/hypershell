@@ -430,7 +430,9 @@ large diagnostic dump, pagination, or log-query failure cannot hide the cause.
 The suite's conditional `diagnostics` step SHALL render as its own selectable
 progress and log scope below the planned `suite-teardown` step. Diagnostic lines
 SHALL NOT be mixed into the teardown scope. The display order does not change the
-required execution order: evidence is still collected before destructive cleanup.
+required execution order: evidence is still collected before destructive cleanup,
+and the `suite-teardown` lifecycle SHALL start only after that collection finishes
+so its logs and duration describe cleanup alone.
 
 History queries SHALL isolate lifecycle events from the bounded log window so
 chatty output cannot evict the run verdict or steps. Raw-log history SHALL be read

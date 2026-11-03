@@ -368,14 +368,12 @@ func (s *E2ESuite) TearDownSuite() {
 	// Emit the terminal run_finished only after cleanup has run, so it observes
 	// cleanup errors and never reports passed before teardown completes. The
 	// defer guarantees it is the last structured record even if teardown exits
-	// early. cleanupStartedAt and failedBeforeCleanup isolate a cleanup-introduced
-	// failure from an earlier phase failure for the cleanup step's own outcome.
+	// early. failedBeforeCleanup isolates a cleanup-introduced failure from an
+	// earlier phase failure for the cleanup step's own outcome.
 	s.logger = s.logger.WithStep("cleanup", s.T().Logf)
 	s.runner.SetLogger(s.logger)
-	cleanupStartedAt := time.Now()
 	failedBeforeCleanup := s.T().Failed()
 	diagnosticsCollected := false
-	s.reporter.StepStarted("cleanup", "suite-teardown")
 	defer func() {
 		verdict := outcomeFor(s.T())
 		if failure, ok := s.failureSummary(); ok {
@@ -384,26 +382,28 @@ func (s *E2ESuite) TearDownSuite() {
 		}
 		s.reporter.RunFinished(verdict, time.Since(s.startedAt))
 	}()
+	if failedBeforeCleanup {
+		s.collectFailureDiagnostics()
+		diagnosticsCollected = true
+	}
+
+	cleanupStartedAt := time.Now()
+	s.reporter.StepStarted("cleanup", "suite-teardown")
 	defer func() {
 		cleanupOutcome := harness.OutcomePassed
 		if s.T().Failed() && !failedBeforeCleanup {
 			cleanupOutcome = harness.OutcomeFailed
 		}
 		s.reporter.StepFinished("cleanup", "suite-teardown", cleanupOutcome, time.Since(cleanupStartedAt))
-	}()
-	defer func() {
 		// A cleanup-only failure did not exist at the pre-cleanup collection point.
-		// Capture what remains so every failed suite still emits diagnostics.
+		// Finish the teardown section first, then capture what remains in the
+		// independent diagnostics section.
 		if s.T().Failed() && !diagnosticsCollected {
 			s.collectFailureDiagnostics()
 		}
 	}()
 	if s.orphan != nil && s.orphan.cancel != nil {
 		s.orphan.cancel()
-	}
-	if failedBeforeCleanup {
-		s.collectFailureDiagnostics()
-		diagnosticsCollected = true
 	}
 
 	cleanupAPI := s.admin

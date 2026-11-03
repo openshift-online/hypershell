@@ -239,9 +239,9 @@ func TestReduceRunPlacesConditionalDiagnosticsAfterTeardown(t *testing.T) {
 			{"stepId": "setup", "name": "suite-setup"},
 			{"stepId": "cleanup", "name": "suite-teardown"},
 		}}))},
-		{Line: viaQLine(t, ev(e2eEventStepStarted, 2, map[string]any{"stepId": "cleanup", "name": "suite-teardown"}))},
-		{Line: viaQLine(t, ev(e2eEventStepStarted, 3, map[string]any{"stepId": "diagnostics", "name": "failure-diagnostics"}))},
-		{Line: viaQLine(t, ev(e2eEventStepFinished, 4, map[string]any{"stepId": "diagnostics", "name": "failure-diagnostics", "outcome": "passed"}))},
+		{Line: viaQLine(t, ev(e2eEventStepStarted, 2, map[string]any{"stepId": "diagnostics", "name": "failure-diagnostics"}))},
+		{Line: viaQLine(t, ev(e2eEventStepFinished, 3, map[string]any{"stepId": "diagnostics", "name": "failure-diagnostics", "outcome": "passed"}))},
+		{Line: viaQLine(t, ev(e2eEventStepStarted, 4, map[string]any{"stepId": "cleanup", "name": "suite-teardown"}))},
 		{Line: viaQLine(t, ev(e2eEventStepFinished, 5, map[string]any{"stepId": "cleanup", "name": "suite-teardown", "outcome": "passed"}))},
 	}
 	run := reduceRun("hub-00", parseEntries(t, entries))

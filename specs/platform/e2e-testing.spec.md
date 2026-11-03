@@ -532,6 +532,8 @@ Terminal integrity SHALL be preserved. The suite SHALL register cleanup with `t.
 - WHEN structured reporting is enabled
 - THEN it SHALL emit a `diagnostics` step around that collection
 - AND every diagnostic log event SHALL use `stepId: diagnostics`, not `cleanup`
+- AND the `cleanup` step SHALL start after pre-cleanup diagnostics finish, so it
+  contains only suite teardown work and excludes diagnostic collection time
 
 ### Requirement: E2E-CORE-08 -- Structured Reporting Redaction and Bounds
 

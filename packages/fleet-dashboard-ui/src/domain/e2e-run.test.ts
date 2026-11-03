@@ -191,21 +191,21 @@ describe("reduceRun", () => {
       ev({
         event: "step_started",
         sequence: 2,
-        stepId: "cleanup",
-        name: "suite-teardown",
-      }),
-      ev({
-        event: "step_started",
-        sequence: 3,
         stepId: "diagnostics",
         name: "failure-diagnostics",
       }),
       ev({
         event: "step_finished",
-        sequence: 4,
+        sequence: 3,
         stepId: "diagnostics",
         name: "failure-diagnostics",
         outcome: "passed",
+      }),
+      ev({
+        event: "step_started",
+        sequence: 4,
+        stepId: "cleanup",
+        name: "suite-teardown",
       }),
       ev({
         event: "step_finished",
