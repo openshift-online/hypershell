@@ -268,5 +268,8 @@ rules:
 - id: "AST4"
   path: ".fullsend/scripts/tests/test_run_state.py"
   reason: "Test fixture invokes the current Python interpreter and the checked-in private-state helper with temporary paths and fixed argv; no shell or model-generated code is executed."
+- id: "PE3"
+  path: ".hypershell/execute-sdlc/dispatcher/cancel_test.go"
+  reason: "Cancellation test re-executes the test binary with the inherited environment plus a fixed FUNNEL_TEST_CANCEL_WORKER flag to drive a detached worker; it does not read or expose credentials, matching the existing dispatcher test fixtures."
 
 fingerprints: []
