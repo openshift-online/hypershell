@@ -3,6 +3,11 @@
 !package.json
 !pnpm-lock.yaml
 !pnpm-workspace.yaml
+# Hermeto injects a root .npmrc during hermetic Konflux builds (registry ->
+# prefetched file:// deps). It must survive into the build context for the pnpm
+# install stages to resolve offline; a benign committed .npmrc keeps local
+# (non-Hermeto) builds working.
+!.npmrc
 !images/
 images/**
 !images/brand/
@@ -31,9 +36,13 @@ packages/**
 !packages/operational-dashboard-ui/**
 !packages/fleet-dashboard-ui/
 !packages/fleet-dashboard-ui/**
+!packages/spec-viewer-ui/
+!packages/spec-viewer-ui/**
 !components/web-console/
 !components/web-console/**
 !scripts/bootstrap_pnpm.sh
+!prefetch/
+!prefetch/**
 **/node_modules
 **/.react-router
 **/build

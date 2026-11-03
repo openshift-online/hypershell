@@ -21,22 +21,19 @@ import (
 // This phase owns a dedicated gateway, distinct from the primary gateway the
 // gateway-access-management phase (P2.5) shares through /gateways/{id}/access.
 func (s *E2ESuite) p2_8GatewaySharingRoleBindings(t *testing.T) {
-	if s.skipKubeChecks {
-		t.Skip("no per-cluster kube context; skipping gateway sharing checks")
-	}
 	ctx := t.Context()
 
 	gw := s.createGateway(t, "e2e-share-"+s.runID)
 	s.trackGateway(gw.ID)
 	running := s.waitGatewayRunning(t, gw.ID)
-	ref := driver.GatewayRef{Name: running.Name, Namespace: running.Namespace, ID: running.ID}
+	ref := driver.GatewayRef{Name: running.Name, Namespace: running.Namespace, ID: running.ID, ClientID: s.requireGatewayClientID(running)}
 	s.Require().NoError(s.driver.WaitForGatewayRoute(ctx, ref), "wait for sharing gateway route")
 	endpoint, err := s.driver.DiscoverGatewayEndpoint(ctx, ref)
 	s.Require().NoError(err, "discover sharing gateway endpoint")
 	ownerTok, err := s.gatewayToken(ctx, ref)
 	s.Require().NoError(err, "owner per-gateway admin token")
 	ownerLocal := s.registerGateway(t, ref, endpoint, ownerTok.AccessToken)
-	clientID := fmt.Sprintf("%s-%s", gw.Name, gw.ID)
+	clientID := ref.ClientID
 
 	// The second user must have a /users record before it can be resolved. The
 	// record is auto-provisioned on the user's first authenticated platform

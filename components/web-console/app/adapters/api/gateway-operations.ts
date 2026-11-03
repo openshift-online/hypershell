@@ -329,13 +329,10 @@ function optionalNumber(value: unknown): number | undefined {
 const registeredPlacementFilter = "oidc_subject <> ''";
 
 function toGatewayPlacement(cluster: ManagedCluster): GatewayPlacement {
-  const region = optionalString(cluster.region);
   const status = optionalString(cluster.status);
   return {
     id: cluster.id,
     name: cluster.name,
-    provider: cluster.provider,
-    ...(region ? { region } : {}),
     ...(status ? { status } : {}),
   };
 }
@@ -640,6 +637,10 @@ export function createGatewayControlPlaneAdapter(
             page: request.page,
             ...(search === undefined ? {} : { search }),
             size: request.size,
+            // Request the ownership filter server-side so it is applied before
+            // pagination with accurate totals (WEB-UIEX-07); never filter the
+            // already-paginated page on the client.
+            ...(request.onlyMine ? { mine: true } : {}),
           },
           { signal: context.signal },
         );
@@ -660,6 +661,9 @@ export function createGatewayControlPlaneAdapter(
           page: result.page,
           size: request.size,
           total: result.total,
+          // The toggle-visibility flag is advertised only over the caller's
+          // authorized list (WEB-API-01); default to false when absent.
+          hasOtherOwnedGateways: result.has_other_owned_gateways ?? false,
         };
       });
     },

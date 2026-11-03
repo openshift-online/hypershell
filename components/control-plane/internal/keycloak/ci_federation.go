@@ -94,7 +94,7 @@ type CIFederationSpec struct {
 	// FederationClientID is the shared public (keyless) exchange requester, e.g.
 	// "ci-federation".
 	FederationClientID string
-	// GatewayClientID is the gateway's Keycloak client ({name}-{id}); the
+	// GatewayClientID is the gateway's stored Keycloak client ID; the
 	// exchange audience.
 	GatewayClientID string
 	// Workspace is the derived forge-namespaced workspace label, e.g. "gh-acme".

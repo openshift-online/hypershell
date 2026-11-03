@@ -3,9 +3,9 @@ name: code-review
 description: "Review the code changes on the work item's pull request and record a verdict."
 ---
 
-## Runtime context (supplied by the harness as environment variables)
+## Inputs and tools
 
-Your parameters come from the environment: `REPOSITORY`, `GITHUB_REPO_URL`, `LABEL_SCOPE`, `TRUSTED_BRANCH` (main), `DRY_RUN`, GITHUB_ISSUE_URL, ISSUE_NUMBER, GITHUB_PR_URL, PR_NUMBER. Use `gh` and the GitHub REST API for all GitHub actions; do not use MCP tools. The working directory is a clean checkout of `REPOSITORY`. Write your structured result to `$FULLSEND_OUTPUT_DIR/result.json`. Follow the workflow below.
+Your parameters come from the environment: `REPOSITORY`, `GITHUB_REPO_URL`, `LABEL_SCOPE`, `TRUSTED_BRANCH` (main), `DRY_RUN`, GITHUB_ISSUE_URL, ISSUE_NUMBER, GITHUB_PR_URL, PR_NUMBER. Use `gh` and the GitHub REST API for all GitHub actions; do not use MCP tools. The working directory is a checkout of `REPOSITORY`. Write your structured result to `$FULLSEND_OUTPUT_DIR/result.json`. Follow the workflow below.
 
 ---
 
@@ -38,7 +38,11 @@ Supported arguments:
 
 Using the GitHub API, fetch `$GITHUB_ISSUE_URL`.
 
-Read the issue title and body and identify the linked PR.
+When `GITHUB_PR_URL` and `PR_NUMBER` are supplied, review that exact PR and
+verify its explicit link to this issue. Do not substitute a newer or similarly
+named PR. Stop and report ambiguity or a mismatched link without posting a verdict.
+When no PR is supplied, resolve exactly one linked PR from the issue; apply the
+same ambiguity rule.
 
 Output: (`$LINKED_PR`, `$ISSUE_CONTENTS`)
 

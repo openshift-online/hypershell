@@ -88,6 +88,13 @@ help:
 	@echo "  HyperShell Makefile"
 	@echo "  ==================="
 	@echo ""
+	@echo "  Local Fullsend agents"
+	@echo "    fullsend                      Start or resume the dispatcher (watch mode)"
+	@echo "    fullsend-status               Show persisted job state"
+	@echo "    fullsend-doctor               Check local tools and credential configuration"
+	@echo "    fullsend-help                 Show local commands and setup help"
+	@echo "    Setup: docs/development/fullsend.md"
+	@echo ""
 	@echo "  Local Development"
 	@echo "    Targets are kind-<name> or openshift-<name>. They do the same work."
 	@echo ""
@@ -126,6 +133,10 @@ help:
 	@echo "    LOCAL_IMAGES=true        Build baseline images from the working tree (kind-up)"
 	@echo "    BUILD_SOURCE=baseline    With LOCAL_IMAGES=true, build from origin/main"
 	@echo ""
+	@echo "  Tools"
+	@echo "    spec-ui                  Browse and search specs/ in a local web UI"
+	@echo "                             SPEC_VIEWER_PORT=5180, SPEC_VIEWER_SPECS_DIR=../../specs"
+	@echo ""
 	@echo "  Build"
 	@echo "    build-all                Build all container images"
 	@echo "    build-api-server         Build API server container image"
@@ -149,6 +160,7 @@ help:
 	@echo "    lint-sdk-typescript      Lint TypeScript SDK"
 	@echo "    lint-gateway-management-ui  Lint gateway management UI package"
 	@echo "    lint-web-console         Lint web console (app + BFF)"
+	@echo "    lint-spec-viewer         Lint spec viewer"
 	@echo ""
 	@echo "  Policy"
 	@echo "    check                    Run all policy checks"
@@ -168,6 +180,16 @@ help:
 	@echo "    apm-install-force        Install APM dependencies + require skillspector scan (CI)"
 	@echo "    apm-audit                Run APM security audit"
 	@echo ""
+
+# ============================================================================
+# Tools
+# ============================================================================
+
+# Spec viewer dev server (packages/spec-viewer-ui) over this checkout; 127.0.0.1 only.
+# The fleet dashboard image also serves it at /specs/, over GitHub branches.
+.PHONY: spec-ui
+spec-ui: install-js
+	$(PNPM) --filter @openshift-online/hypershell-spec-viewer-ui dev
 
 # ============================================================================
 # Build targets
@@ -221,6 +243,14 @@ test-forbidden-terms-policy:
 .PHONY: check-forbidden-terms
 check-forbidden-terms: test-forbidden-terms-policy
 	python3 scripts/check_forbidden_terms.py
+
+.PHONY: test-kind-conformance-policy
+test-kind-conformance-policy:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_check_kind_conformance.py
+
+.PHONY: check-kind-conformance
+check-kind-conformance: test-kind-conformance-policy
+	python3 scripts/check_kind_conformance.py
 
 .PHONY: test-dependency-pin-policy
 test-dependency-pin-policy:
@@ -308,7 +338,7 @@ check-ci-impact-scopes: test-ci-impact-scopes-policy
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_ci_impact_scopes.py
 
 .PHONY: check
-check: check-forbidden-terms check-dependency-pins check-ci-components check-deploy-orphans check-dependency-age check-openshell-version check-cli-drift check-spec-ids check-ci-impact-scopes test-release-bundle test-coverage-report
+check: check-forbidden-terms check-kind-conformance check-dependency-pins check-ci-components check-deploy-orphans check-dependency-age check-openshell-version check-cli-drift check-spec-ids check-ci-impact-scopes test-release-bundle test-coverage-report
 
 # ============================================================================
 # Git hooks
@@ -394,6 +424,12 @@ lint-gateway-management-ui: install-js
 	$(PNPM) --filter @openshift-online/hypershell-domain-probes build
 	$(PNPM) --filter @openshift-online/hypershell-gateway-management-ui check
 
+.PHONY: lint-spec-viewer
+lint-spec-viewer: install-js
+	$(PNPM) --filter @openshift-online/hypershell-spec-viewer-ui run format:check
+	$(PNPM) --filter @openshift-online/hypershell-spec-viewer-ui run lint
+	$(PNPM) --filter @openshift-online/hypershell-spec-viewer-ui run typecheck
+
 .PHONY: lint-web-console
 lint-web-console: install-js
 	$(PNPM) --filter @openshift-online/hypershell-sdk build
@@ -402,7 +438,7 @@ lint-web-console: install-js
 	$(PNPM) --filter @openshift-online/hypershell-web-console-bff check
 
 .PHONY: lint
-lint: check install-js lint-api-server lint-cli lint-control-plane lint-e2e lint-sdk-typescript lint-gateway-management-ui lint-web-console
+lint: check install-js lint-api-server lint-cli lint-control-plane lint-e2e lint-sdk-typescript lint-gateway-management-ui lint-spec-viewer lint-web-console
 
 # ============================================================================
 # Test targets
@@ -768,3 +804,19 @@ e2e-tracing:
 .PHONY: test-release-bundle
 test-release-bundle:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_release_bundle.py
+
+# Local Fullsend: pass values as environment entries, never interpolate them
+# into shell commands. The trusted env file is sourced only by local.sh.
+.PHONY: fullsend fullsend-status fullsend-doctor fullsend-help
+fullsend fullsend-status fullsend-doctor fullsend-help: export FULLSEND_LAUNCH_SCOPE = $(SCOPE)
+fullsend fullsend-status fullsend-doctor fullsend-help: export FULLSEND_LAUNCH_ENV_FILE = $(ENV_FILE)
+fullsend fullsend-status fullsend-doctor fullsend-help: export FULLSEND_LAUNCH_MODEL = $(MODEL)
+fullsend fullsend-status fullsend-doctor fullsend-help: export FULLSEND_LAUNCH_CONCURRENCY = $(if $(filter command line,$(origin CONCURRENCY)),$(CONCURRENCY))
+fullsend:
+	@bash .hypershell/execute-sdlc/local.sh watch
+fullsend-status:
+	@bash .hypershell/execute-sdlc/local.sh status
+fullsend-doctor:
+	@bash .hypershell/execute-sdlc/local.sh doctor
+fullsend-help:
+	@bash .hypershell/execute-sdlc/local.sh help

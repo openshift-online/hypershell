@@ -241,9 +241,8 @@ func (r *CITrustReconciler) federationSpec(id string, provider *pb.CIProvider, t
 	}
 }
 
-// resolveGatewayClientID looks up the gateway by id and returns the Keycloak
-// client id in the {name}-{id} format the Keycloak provisioning spec specifies,
-// plus the cluster the gateway is assigned to so the caller can tell whether this
+// resolveGatewayClientID looks up the gateway by id and returns its stored
+// Keycloak client id (see gatewayKeycloakClientID), plus the cluster the gateway is assigned to so the caller can tell whether this
 // control plane owns it. It mirrors the RoleBinding reconciler's resolution.
 func (r *CITrustReconciler) resolveGatewayClientID(ctx context.Context, gatewayID string) (string, string, error) {
 	resp, err := r.gatewaySvc.GetGateway(ctx, &pb.GetGatewayRequest{Id: gatewayID})
@@ -251,7 +250,11 @@ func (r *CITrustReconciler) resolveGatewayClientID(ctx context.Context, gatewayI
 		return "", "", fmt.Errorf("get gateway %s: %w", gatewayID, err)
 	}
 	gw := resp.GetGateway()
-	return fmt.Sprintf("%s-%s", gw.GetName(), gatewayID), gw.GetClusterId(), nil
+	clientID, err := gatewayKeycloakClientID(gatewayID, gw)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve Keycloak client for gateway %s: %w", gatewayID, err)
+	}
+	return clientID, gw.GetClusterId(), nil
 }
 
 // workflowHint renders a runnable, secret-free CI snippet hint for the provider's

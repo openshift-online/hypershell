@@ -12,6 +12,7 @@ func ConvertCITrust(r openapi.CITrust) *CITrust {
 		Meta: api.Meta{
 			ID: util.NilToEmptyString(r.Id),
 		},
+		Name:                util.NilToEmptyString(r.Name),
 		CIProviderID:        r.CiProviderId,
 		GatewayID:           r.GatewayId,
 		SubjectRepository:   r.Subject.Repository,
@@ -41,6 +42,7 @@ func PresentCITrust(t *CITrust) openapi.CITrust {
 		Href:         reference.Href,
 		CreatedAt:    openapi.PtrTime(t.CreatedAt),
 		UpdatedAt:    openapi.PtrTime(t.UpdatedAt),
+		Name:         openapi.PtrString(t.Name),
 		CiProviderId: t.CIProviderID,
 		GatewayId:    t.GatewayID,
 		Subject: openapi.CITrustAllOfSubject{

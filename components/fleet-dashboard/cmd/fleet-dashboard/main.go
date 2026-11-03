@@ -25,6 +25,7 @@ import (
 	"github.com/openshift-online/hypershell/components/fleet-dashboard/pkg/metrics"
 	"github.com/openshift-online/hypershell/components/fleet-dashboard/pkg/server"
 	"github.com/openshift-online/hypershell/components/fleet-dashboard/pkg/sources"
+	"github.com/openshift-online/hypershell/components/fleet-dashboard/pkg/specs"
 	"github.com/openshift-online/hypershell/components/fleet-dashboard/web"
 )
 
@@ -62,8 +63,12 @@ func run(logger *slog.Logger) error {
 	// the same FD_GITHUB_REPO: NewGitHubBundles returns nil when disabled, which
 	// NewPromotion treats as the no-op enricher.
 	var bundler sources.BundleEnricher
+	// Keep the concrete enricher so the lock resolver (below) can be wired in as its
+	// GitOps lock-history provenance source once both exist.
+	var githubBundles *sources.GitHubBundles
 	if gb := sources.NewGitHubBundles(cfg); gb != nil {
 		bundler = gb
+		githubBundles = gb
 		logger.Info("github bundle enrichment enabled", "repo", cfg.GitHubRepo)
 	}
 	// Resolve each environment's release by the versions-lock bundle it renders
@@ -80,6 +85,10 @@ func run(logger *slog.Logger) error {
 		versioner = lr
 		hydratedVersioner = lr
 		history = lr
+		// The lock resolver's commit timeline is also the GitOps PR group's
+		// deployment-revision provenance (FLT-BPR-04): wire it into the bundle
+		// enricher so bundle details show the GitOps delivery deployment changes.
+		githubBundles.WithLockHistory(lr)
 		logger.Info("github release-lock version resolution enabled", "repo", cfg.GitHubRepo, "historyLimit", cfg.ReleaseHistoryLimit)
 	}
 	// Capabilities and the default gateway image come from each control plane's
@@ -156,9 +165,18 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
+	// The spec viewer UI is embedded at /specs/. Its data API downloads the
+	// product repository's branches from GitHub at runtime (FD_UPSTREAM_REPO);
+	// the specs are never compiled into this public image.
+	var specSource specs.Source
+	if gh := specs.NewGitHub(cfg.GitHubAPIBase, cfg.UpstreamRepo, cfg.UpstreamTokenFile); gh != nil {
+		specSource = gh
+	}
+	specsAPI := server.Mount{Prefix: "/specs/api/", Handler: specs.New(specSource).Handler()}
+
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,
-		Handler:           server.New(handlers, authn, static),
+		Handler:           server.New(handlers, authn, static, specsAPI),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	// Dedicated /metrics listener, not fronted by the oauth-proxy, scraped

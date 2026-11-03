@@ -140,6 +140,11 @@ func TestSyncConsoleAddressUsesSelectedRouteExposure(t *testing.T) {
 					"name":      gateway.ConsoleDeploymentName,
 					"namespace": namespace,
 				},
+				"spec": map[string]interface{}{
+					// The exposure must serve the derived console host for the address
+					// to be published (see TestSyncConsoleAddressDedicatedRoute below).
+					"host": "console-" + namespace + ".apps.example.com",
+				},
 				"status": map[string]interface{}{
 					"ingress": []interface{}{
 						map[string]interface{}{
@@ -213,6 +218,129 @@ func TestSyncConsoleAddressClearsAddressWithoutBaseDomain(t *testing.T) {
 	}
 	if gotAddress != "" {
 		t.Fatalf("console address = %q, want empty", gotAddress)
+	}
+}
+
+// consoleRouteConfig is the single resolver every console path keys on. The
+// dedicated-route opt-in must survive the parse, or the console-address
+// publisher and the console self-heal drift onto the shared ingress while the
+// published address keeps pointing at the dedicated host.
+func TestConsoleRouteConfig(t *testing.T) {
+	t.Run("dedicated-route opt-in is preserved", func(t *testing.T) {
+		route := `{"enabled":true,"certificate":{}}`
+		gw := &pb.Gateway{Metadata: &pb.ObjectReference{Id: "gw-1"}, Namespace: "openshell-abc", Route: &route}
+		cfg := consoleRouteConfig(gw)
+		if cfg.Certificate == nil {
+			t.Fatal("expected the dedicated-certificate opt-in to be preserved")
+		}
+		if !cfg.Enabled {
+			t.Error("expected the route to be enabled")
+		}
+	})
+
+	t.Run("absent route is enabled without the opt-in", func(t *testing.T) {
+		gw := &pb.Gateway{Metadata: &pb.ObjectReference{Id: "gw-1"}, Namespace: "openshell-abc"}
+		cfg := consoleRouteConfig(gw)
+		if cfg.Certificate != nil {
+			t.Error("expected no dedicated-certificate opt-in")
+		}
+		if !cfg.Enabled {
+			t.Error("expected an absent route to resolve to enabled")
+		}
+	})
+
+	t.Run("invalid route is treated as not opted in", func(t *testing.T) {
+		route := `{"enabled":`
+		gw := &pb.Gateway{Metadata: &pb.ObjectReference{Id: "gw-1"}, Namespace: "openshell-abc", Route: &route}
+		cfg := consoleRouteConfig(gw)
+		if cfg.Certificate != nil {
+			t.Error("expected an invalid route to resolve without the opt-in")
+		}
+	})
+}
+
+// A dedicated-route gateway whose console exposure serves the SHARED host is
+// not servable, whatever the exposure's own readiness says: the dedicated
+// console host the route opt-in derives resolves to a Gateway with no listener
+// for it (through the shared wildcard DNS), so the URL would present a
+// name-mismatched certificate. syncConsoleAddress must retract the published
+// address instead of advertising it, which is also what drives the console
+// self-heal that converges the exposure onto the dedicated host.
+// Verifies: OSG-CON-09.02
+func TestSyncConsoleAddressDedicatedRouteMismatchRetractsAddress(t *testing.T) {
+	t.Setenv("GATEWAY_API_BASE_DOMAIN", "apps.example.com")
+	t.Setenv("GATEWAY_API_GATEWAY_NAME", "openshell-grpc-gateway")
+	const namespace = "openshell-abc"
+
+	replicas := int32(1)
+	clientset := k8sfake.NewSimpleClientset(&appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: gateway.ConsoleDeploymentName, Namespace: namespace},
+		Spec:       appsv1.DeploymentSpec{Replicas: &replicas},
+		Status:     appsv1.DeploymentStatus{ReadyReplicas: replicas},
+	})
+
+	// A fully accepted console HTTPRoute -- on the SHARED host and the shared
+	// Gateway, the shape a pre-dedicated provisioning (or a self-heal that
+	// dropped the route config) leaves behind.
+	consoleRoute := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "gateway.networking.k8s.io/v1",
+		"kind":       "HTTPRoute",
+		"metadata": map[string]interface{}{
+			"name":      gateway.ConsoleDeploymentName,
+			"namespace": namespace,
+		},
+		"spec": map[string]interface{}{
+			"hostnames": []interface{}{"console-" + namespace + ".apps.example.com"},
+			"parentRefs": []interface{}{
+				map[string]interface{}{
+					"name":        "openshell-grpc-gateway",
+					"namespace":   "openshift-ingress",
+					"sectionName": "https",
+				},
+			},
+		},
+		"status": map[string]interface{}{
+			"parents": []interface{}{
+				map[string]interface{}{
+					"controllerName": "gateway.example/controller",
+					"conditions": []interface{}{
+						map[string]interface{}{"type": "Accepted", "status": "True", "reason": "Accepted"},
+						map[string]interface{}{"type": "ResolvedRefs", "status": "True", "reason": "ResolvedRefs"},
+					},
+				},
+			},
+		},
+	}}
+	httpRouteGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "httproutes"}
+	dynamicClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
+		runtime.NewScheme(),
+		map[schema.GroupVersionResource]string{httpRouteGVR: "HTTPRouteList"},
+		consoleRoute,
+	)
+
+	var gotAddress string
+	client := &fakeGatewayClient{updateFn: func(_ context.Context, request *pb.UpdateGatewayRequest, _ ...grpc.CallOption) (*pb.UpdateGatewayResponse, error) {
+		if request.ConsoleAddress == nil {
+			t.Fatal("console address update is nil")
+		}
+		gotAddress = *request.ConsoleAddress
+		return &pb.UpdateGatewayResponse{}, nil
+	}}
+
+	route := `{"enabled":true,"certificate":{}}`
+	gw := &pb.Gateway{
+		Metadata:       &pb.ObjectReference{Id: "gw-1"},
+		Namespace:      namespace,
+		Route:          &route,
+		ConsoleAddress: strPtr("https://console-" + namespace + ".gw-" + namespace + ".apps.example.com"),
+	}
+
+	ready := syncConsoleAddress(context.Background(), clientset, dynamicClient, client, "gw-1", gw, gateway.IngressModeGatewayAPI)
+	if ready {
+		t.Fatal("ready = true, want false when the exposure serves the shared host of a dedicated-route gateway")
+	}
+	if gotAddress != "" {
+		t.Fatalf("console address = %q, want it retracted", gotAddress)
 	}
 }
 

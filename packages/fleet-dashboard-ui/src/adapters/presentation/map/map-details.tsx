@@ -322,6 +322,10 @@ function PrList({ prs }: { prs: readonly PullRequest[] }): React.ReactElement {
         // authorship: the title is the headline line, the author sits beneath it
         // as a distinct, muted byline with the handle emphasised.
         const tipTitle = `${num} ${pr.title}`;
+        // GitOps deployment PRs carry the environments that actually received them
+        // (FLT-BPR-06), surfaced as a muted tooltip line so the row never implies a
+        // change reached an environment it did not.
+        const environments = pr.environments ?? [];
         const hover = (
           <span className={styles.prTip}>
             <span className={styles.prTipTitle}>{tipTitle}</span>
@@ -337,10 +341,21 @@ function PrList({ prs }: { prs: readonly PullRequest[] }): React.ReactElement {
                 />
               </span>
             ) : null}
+            {environments.length > 0 ? (
+              <span className={styles.prTipAuthor}>
+                <FormattedMessage
+                  {...messages.prEnvironments}
+                  values={{ environments: environments.join(", ") }}
+                />
+              </span>
+            ) : null}
           </span>
         );
         return (
-          <ListItem key={pr.number}>
+          // Rows key by repository + number so the same PR number in two
+          // repositories stays distinct (FLT-BPR-11.01); the link already targets
+          // the PR in its own repository (pr.url).
+          <ListItem key={`${pr.repository ?? ""}#${String(pr.number)}`}>
             <Tooltip content={hover} position="top-start">
               <a
                 href={pr.url}
@@ -362,25 +377,36 @@ function PrList({ prs }: { prs: readonly PullRequest[] }): React.ReactElement {
   );
 }
 
-/** Section heading + optional PR-count summary, then the PR list for `bundle`.
- *  When `seed` is given, the bundle's identicon sits beside the heading so the
- *  tab's bundle is identifiable on its own. */
-function BundleContents({
-  bundle,
+/**
+ * One repository's pull-request group inside the bundle details: a heading band
+ * (optional bundle identicon, section title, independent count badge) and the
+ * group's body. The body is the PR list, a distinct empty state, or a distinct
+ * unavailable/error state (FLT-BPR-11.02) -- an unavailable range is never shown as
+ * an empty success. Each section's count and state are independent of the other.
+ */
+function PrSection({
+  title,
+  prs,
+  countMsg,
+  emptyMsg,
   seed,
   onSelectBundle,
+  unavailable = false,
+  unavailableMsg,
 }: {
-  bundle: ReleaseBundle | undefined;
+  title: MessageDescriptor;
+  prs: readonly PullRequest[];
+  countMsg: MessageDescriptor;
+  emptyMsg: MessageDescriptor;
   seed?: string;
   onSelectBundle?: (seed: string) => void;
+  unavailable?: boolean;
+  unavailableMsg?: MessageDescriptor;
 }): React.ReactElement {
   const intl = useIntl();
-  const prs = bundle?.prs ?? [];
-  // The heading reads as one band: identicon, "In this bundle" eyebrow, then the
-  // PR count pinned to the right as a badge so the tab's size is legible at a glance.
-  const prCountSummary = intl.formatMessage(messages.bundlePrSummary, {
-    count: prs.length,
-  });
+  // The heading reads as one band: identicon, eyebrow, then this group's own PR
+  // count pinned to the right as a badge so each section's size is legible at a glance.
+  const prCountSummary = intl.formatMessage(countMsg, { count: prs.length });
   return (
     <>
       <div className={styles.bundleHead}>
@@ -388,9 +414,9 @@ function BundleContents({
           <BundleIdenticon seed={seed} size={20} onSelect={onSelectBundle} />
         ) : null}
         <h4 className={styles.sectionTitle}>
-          <FormattedMessage {...messages.sectionInBundle} />
+          <FormattedMessage {...title} />
         </h4>
-        {prs.length > 0 ? (
+        {!unavailable && prs.length > 0 ? (
           // The badge's visible text is the bare count; aria-label gives it the
           // full "N pull requests" accessible name (title alone is not reliably
           // announced on a non-interactive element).
@@ -404,7 +430,67 @@ function BundleContents({
           </Badge>
         ) : null}
       </div>
-      <PrList prs={prs} />
+      {unavailable ? (
+        <Content component="small">
+          <FormattedMessage {...(unavailableMsg ?? emptyMsg)} />
+        </Content>
+      ) : prs.length > 0 ? (
+        <PrList prs={prs} />
+      ) : (
+        <Content component="small">
+          <FormattedMessage {...emptyMsg} />
+        </Content>
+      )}
+    </>
+  );
+}
+
+/**
+ * The bundle's pull requests in two repository-identified groups (FLT-BPR-01): the
+ * application group (the application repository, existing "in this bundle" behavior)
+ * and, when the server reports it, the GitOps deployment-change group (the GitOps
+ * delivery repository). The GitOps group is labeled as deployment changes and
+ * renders its own count and empty/error state; it is omitted entirely
+ * when the server does not report GitOps grouping (older server / feature off).
+ * When `seed` is given, the bundle's identicon sits beside the application heading
+ * so the tab's bundle is identifiable on its own.
+ */
+function BundleContents({
+  bundle,
+  seed,
+  onSelectBundle,
+}: {
+  bundle: ReleaseBundle | undefined;
+  seed?: string;
+  onSelectBundle?: (seed: string) => void;
+}): React.ReactElement {
+  // Read the groups up front (where `bundle` is still possibly undefined) so the
+  // GitOps branch below does not narrow `bundle` and flag its optional chain.
+  const applicationPrs = bundle?.prs ?? [];
+  const gitopsPrs = bundle?.gitopsPrs ?? [];
+  const gitopsStatus = bundle?.gitopsStatus;
+  return (
+    <>
+      <PrSection
+        title={messages.sectionInBundle}
+        prs={applicationPrs}
+        countMsg={messages.bundlePrSummary}
+        emptyMsg={messages.bundleNoPrs}
+        seed={seed}
+        onSelectBundle={onSelectBundle}
+      />
+      {gitopsStatus ? (
+        <div className={styles.section}>
+          <PrSection
+            title={messages.sectionGitopsChanges}
+            prs={gitopsPrs}
+            countMsg={messages.gitopsPrSummary}
+            emptyMsg={messages.gitopsNoPrs}
+            unavailable={gitopsStatus === "unavailable"}
+            unavailableMsg={messages.gitopsUnavailable}
+          />
+        </div>
+      ) : null}
     </>
   );
 }

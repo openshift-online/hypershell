@@ -14,6 +14,7 @@ import (
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/extsearch"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
@@ -29,12 +30,12 @@ import (
 	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/services"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/events"
-	"github.com/openshift-online/rh-trex-ai/components/api-server/plugins/generic"
 )
 
 type ServiceLocator struct {
-	gateway func() GatewayService
-	list    services.GenericService
+	gateway   func() GatewayService
+	list      services.GenericService
+	ownership GatewayOwnershipLookup
 }
 
 func NewServiceLocator(env *environments.Env) ServiceLocator {
@@ -50,7 +51,8 @@ func NewServiceLocator(env *environments.Env) ServiceLocator {
 				gatewayBindingCleaner(&env.Services),
 			)
 		},
-		list: newGatewayListService(&env.Database.SessionFactory),
+		list:      newGatewayListService(&env.Database.SessionFactory),
+		ownership: newGatewayOwnershipDao(&env.Database.SessionFactory),
 	}
 }
 
@@ -123,6 +125,17 @@ func listService(s *environments.Services) services.GenericService {
 	if obj := s.GetService("Gateways"); obj != nil {
 		locator := obj.(ServiceLocator)
 		return locator.list
+	}
+	return nil
+}
+
+func ownershipLookup(s *environments.Services) GatewayOwnershipLookup {
+	if s == nil {
+		return nil
+	}
+	if obj := s.GetService("Gateways"); obj != nil {
+		locator := obj.(ServiceLocator)
+		return locator.ownership
 	}
 	return nil
 }
@@ -337,10 +350,10 @@ func init() {
 			ownerLookup = rbService
 			bindingLookup = rbService
 		}
-		enforceRBAC := os.Getenv("RBAC_ENFORCE") == "true"
+		enforceRBAC := rbac.Enforced()
 		placement := newRegisteredPlacementService(envServices)
 		gatewayService := Service(envServices)
-		gatewayHandler := NewGatewayHandler(gatewayService, listService(envServices), ownerBinding, visibilityFilter, ownerLookup, bindingLookup, registeredClusterLookup(envServices), enforceRBAC, placement.Resolve, placement.Availability)
+		gatewayHandler := NewGatewayHandler(gatewayService, listService(envServices), ownerBinding, visibilityFilter, ownerLookup, ownershipLookup(envServices), bindingLookup, registeredClusterLookup(envServices), enforceRBAC, placement.Resolve, placement.Availability)
 
 		sandboxEventsHandler := sandboxEvents.NewHandler(sandboxEvents.Store(envServices), func(ctx context.Context, gatewayID string) (string, bool) {
 			gateway, serviceErr := gatewayService.Get(ctx, gatewayID)
@@ -410,7 +423,7 @@ func init() {
 	pkgserver.RegisterGRPCService("gateways", func(grpcServer *grpc.Server, services pkgserver.ServicesInterface) {
 		envServices := services.(*environments.Services)
 		gatewayService := Service(envServices)
-		genericService := generic.Service(envServices)
+		genericService := extsearch.Service(envServices)
 		brokerFunc := func() *pkgserver.EventBroker {
 			if obj := envServices.GetService("EventBroker"); obj != nil {
 				return obj.(*pkgserver.EventBroker)
@@ -418,7 +431,7 @@ func init() {
 			return nil
 		}
 		placement := newRegisteredPlacementService(envServices)
-		grpcHandler := NewGatewayGRPCHandler(gatewayService, genericService, brokerFunc, registeredClusterLookup(envServices), gatewaySubjectResolver{services: envServices}, newDedicatedRouteAuthorizer(gatewayBindingLookup(envServices), os.Getenv("RBAC_ENFORCE") == "true"), placement.Resolve)
+		grpcHandler := NewGatewayGRPCHandler(gatewayService, genericService, brokerFunc, registeredClusterLookup(envServices), gatewaySubjectResolver{services: envServices}, newDedicatedRouteAuthorizer(gatewayBindingLookup(envServices), rbac.Enforced()), placement.Resolve)
 		SetSandboxEventStore(grpcHandler, sandboxEvents.Store(envServices))
 		pb.RegisterGatewayServiceServer(grpcServer, grpcHandler)
 	})
@@ -451,4 +464,5 @@ func init() {
 	db.RegisterMigration(migrationAddPlacement())
 	db.RegisterMigration(migrationAddGatewayWorkspaceMode())
 	db.RegisterMigration(migrationAddGatewayDedicatedRoute())
+	db.RegisterMigration(migrationBackfillGatewayWorkspaceModeShared())
 }

@@ -66,7 +66,10 @@ else
   changed_files_text="$(get_changed_files)"
   changed_files=()
   if [[ -n "${changed_files_text}" ]]; then
-    mapfile -t changed_files <<< "${changed_files_text}"
+    # A read loop instead of mapfile keeps this runnable on macOS bash 3.2.
+    while IFS= read -r line; do
+      changed_files+=("${line}")
+    done <<< "${changed_files_text}"
   fi
 fi
 
@@ -75,7 +78,8 @@ while IFS= read -r component; do
 
   if [[ "${matched}" != true ]]; then
     while IFS= read -r pattern; do
-      for file in "${changed_files[@]}"; do
+      # The +-expansion avoids bash 3.2 treating an empty array as unbound under set -u.
+      for file in ${changed_files[@]+"${changed_files[@]}"}; do
         # Patterns from component-paths.json intentionally use shell globs.
         # shellcheck disable=SC2053
         if [[ "${file}" == ${pattern} ]]; then
@@ -94,8 +98,10 @@ done < <(jq -r 'keys[]' "${config}")
 # them so CI still exercises the discovery path.
 bash_tests="${all_components_changed}"
 if [[ "${bash_tests}" != true ]]; then
-  for file in "${changed_files[@]}"; do
+  for file in ${changed_files[@]+"${changed_files[@]}"}; do
     if [[ "${file}" == ".github/workflows/unit-tests.yml" ||
+          "${file}" == .hypershell/execute-sdlc/* ||
+          "${file}" == .fullsend/* ||
           "${file}" == "scripts/run-shell-unit-tests.sh" ||
           "${file}" == ".github/scripts/detect-components.sh" ||
           "${file}" == "Makefile" ]]; then
@@ -108,7 +114,7 @@ if [[ "${bash_tests}" != true ]]; then
   while IFS= read -r testfile; do
     [[ -z "${testfile}" ]] && continue
     testdir="${testfile%/*}"
-    for file in "${changed_files[@]}"; do
+    for file in ${changed_files[@]+"${changed_files[@]}"}; do
       if [[ "${file}" == "${testfile}" || "${file}" == "${testdir}/"* ]]; then
         bash_tests=true
         break 2

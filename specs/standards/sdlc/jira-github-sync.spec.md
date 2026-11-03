@@ -918,6 +918,25 @@ the Closed-record Done path; no manual Jira edit is required.
 
 ---
 
+### Requirement: SDLC-JIRA-15 -- Execution-Independent Agent Contracts
+
+Hosted and local Fullsend execution SHALL share the `ingest` and `reconcile`
+agent definitions and canonical harness manifests. Execution mode SHALL NOT
+change authorization, canonical-link resolution, per-field authority, credit
+preservation, or partial-failure reporting. Agent instructions SHALL describe
+inputs, workflow, and tools without depending on launcher identity or credential
+refresh mechanics. A shared Jira transport SHALL hide API-token versus OAuth
+handling from the agent. Local scheduling and transport overrides SHALL be
+applied by the runner as specified in
+[Local SDLC Dispatch](../../platform/local-sdlc-dispatch.spec.md).
+
+#### Scenario: SDLC-JIRA-15.01 -- Same responsibility through either launcher
+
+- GIVEN the same authorized execution record and canonical lifecycle agent
+- WHEN hosted or local execution supplies its credentials and task inputs
+- THEN both SHALL use the same task definition and synchronization rules
+- AND local execution SHALL NOT require a second prompt or full harness manifest
+
 ## Design Decisions
 
 | Decision | Rationale |

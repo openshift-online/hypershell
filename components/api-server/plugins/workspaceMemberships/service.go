@@ -4,10 +4,27 @@ import (
 	"context"
 	"regexp"
 
+	"github.com/openshift-online/hypershell/components/api-server/pkg/dberr"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/services"
 )
+
+// conflictForDuplicateName maps a PostgreSQL unique-violation on the name index to
+// a 409 that names the conflicting field (SDLC-CONF-13, FINDING 2). name is the
+// only unique index on a WorkspaceMembership, so a unique violation is always a
+// duplicate find-by-name key. The violation is detected by SQLSTATE 23505 through
+// the shared dberr classifier, which covers BOTH driver error types - pgx
+// (*pgconn.PgError) in production and lib/pq in the test session - not by
+// substring-matching the message text, which is fragile against locale and wording
+// changes (FINDING 5). It returns nil for any other error so the caller falls
+// through to its generic error.
+func conflictForDuplicateName(err error, name string) *errors.ServiceError {
+	if dberr.IsUniqueViolation(err) {
+		return errors.Conflict("a WorkspaceMembership named %q already exists", name)
+	}
+	return nil
+}
 
 // subjectPattern bounds a membership subject to a log-safe token (the OIDC subject the
 // agent uses to connect to the gateway, typically a UUID). It is format-validated at the
@@ -66,6 +83,9 @@ func (s *sqlWorkspaceMembershipService) Create(ctx context.Context, workspaceMem
 	}
 	item, err := s.dao.Create(ctx, workspaceMembership)
 	if err != nil {
+		if svcErr := conflictForDuplicateName(err, workspaceMembership.Name); svcErr != nil {
+			return nil, svcErr
+		}
 		return nil, errors.GeneralError("Unable to create workspace membership: %s", err)
 	}
 	if _, evErr := s.events.Create(ctx, &api.Event{
@@ -91,6 +111,9 @@ func (s *sqlWorkspaceMembershipService) Replace(ctx context.Context, workspaceMe
 	}
 	item, err := s.dao.Replace(ctx, workspaceMembership)
 	if err != nil {
+		if svcErr := conflictForDuplicateName(err, workspaceMembership.Name); svcErr != nil {
+			return nil, svcErr
+		}
 		return nil, errors.GeneralError("Unable to update workspace membership: %s", err)
 	}
 	if _, evErr := s.events.Create(ctx, &api.Event{

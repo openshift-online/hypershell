@@ -45,7 +45,7 @@ per-gateway).
 | Kind | Key Fields | Purpose |
 |------|-----------|---------|
 | **Gateway** | name, cluster_id, image, supervisor_image, tls_mode | API gateway instance |
-| **ManagedCluster** | name, provider, region, kubeconfig_secret | Registered K8s cluster |
+| **ManagedCluster** | name, kubeconfig_secret, capabilities | Registered K8s cluster |
 
 ## Plugin System
 
@@ -61,7 +61,7 @@ Each Kind is a self-contained plugin in `plugins/{kinds}/` with uniform structur
 | `service.go` | Business logic + event handlers (OnUpsert, OnDelete) |
 | `dao.go` | Data access (Get, Create, Replace, Delete, FindByIDs, All) |
 | `presenter.go` | OpenAPI ↔ model conversion |
-| `migration.go` | Gormigrate migration with AutoMigrate |
+| `migration.go` | Gormigrate migration using raw SQL (`dbmigrate.CreateTable` / `tx.Exec`); **never `AutoMigrate`** (SDLC-CONF-02) |
 | `mock_dao.go` | Mock DAO for unit tests |
 | `*_test.go` | Integration tests + test factories |
 

@@ -6,8 +6,7 @@
 **Related:** `local-development.spec.md` -- Kind lifecycle and component swap;
              `e2e-testing.spec.md` -- driver interface contract and Kind CI;
              `ephemeral-pr-environments.spec.md` (HYPERSHELL-240) -- pull-request
-             OpenShift CI, timebox, GitHub-brokered Keycloak, and `e2e-openshell.sh`
-             deprecation;
+             OpenShift CI, timebox, and GitHub-brokered Keycloak;
              `control-plane.spec.md` -- reconciler behavior;
              `openshell-gateway-routing.spec.md` -- GRPCRoute provisioning
 
@@ -24,8 +23,8 @@ This spec owns the OpenShift lifecycle (`make openshift-up` / `make openshift-do
 the `scripts/cluster/drivers/openshift.sh` lifecycle driver), the `deploy/openshift/`
 overlay, and the cluster bootstrap. It does **not** own the e2e driver: the e2e
 suite is now Go (`testify/suite`), and `e2e-testing.spec.md` owns both the
-`E2EInfraDriver` Go interface and its OpenShift implementation (`tests/e2e/driver/openshift.go`),
-which replaced the former shell `tests/e2e/drivers/openshift.sh`. This spec
+`E2EInfraDriver` Go interface and its OpenShift implementation (`tests/e2e/driver/openshift.go`).
+The shell `tests/e2e/drivers/openshift.sh` serves only the smoke and browser launchers. This spec
 supplies the OpenShift environment facts that Go driver depends on (the Routes,
 the shared Gateway base domain, the Keycloak Route issuer, RBAC and SCC posture).
 Automated pull-request CI on OpenShift -- namespace naming, continuous
@@ -306,7 +305,9 @@ those from the developer machine.
 - WHEN the developer runs `make openshift-up`
 - THEN the scripts render and apply the API server, the control plane, the web
   console, PostgreSQL, and Keycloak from `kustomize build deploy/openshift/`
-- AND the scripts seed a ManagedCluster and a Gateway
+- AND the scripts wait for the control plane to register the `local-openshift`
+  ManagedCluster and do not create a ManagedCluster
+- AND the scripts seed a Gateway named `dev-gateway`
 - AND the scripts report the API Route, the web-console Route, and the Keycloak
   Route when the deployment is ready
 
@@ -792,8 +793,7 @@ build, which run the baseline image, and the exact image each one runs.
 ### Requirement: DEV-OCP-07 -- OpenShift E2E Driver Environment
 
 The OpenShift e2e driver is the Go `driver/openshift.go` implementation of the
-`E2EInfraDriver` interface, owned and specified by `e2e-testing.spec.md` (it
-replaced the former shell `tests/e2e/drivers/openshift.sh`). This spec does not
+`E2EInfraDriver` interface, owned and specified by `e2e-testing.spec.md`. This spec does not
 re-specify that interface; it records the OpenShift environment facts the Go driver
 depends on, which `make openshift-up` and the cluster bootstrap guarantee. The Go
 driver reaches the cluster through the shared `client-go`/controller-runtime client
@@ -929,46 +929,13 @@ NOT use the internal image registry (`oc registry`, `oc start-build`).
   `hypershell-controller` cluster-scoped RBAC
 - AND the harness fails if the swap path uses the internal image registry
 
-### Requirement: DEV-OCP-09 -- E2E Script Consolidation
-
-The legacy `components/pr-test/e2e-openshell.sh` script has been superseded by the
-shared e2e harness and the pull-request workflow in
-`ephemeral-pr-environments.spec.md`, which owns the record of its removal
-(HYPERSHELL-250). The ROKS variant `components/pr-test/e2e-openshell-roks.sh` was
-out of scope for that removal and remains. The `pr_test` component and its CI
-wiring remain, rescoped to the ROKS script, until it is also retired or rehomed.
-
-The end state after the Go rewrite: OpenShift-specific e2e logic lives in the Go
-`tests/e2e/driver/openshift.go` (`e2e-testing.spec.md`), the infrastructure-agnostic
-suite is the Go `E2ESuite`, and no OpenShift e2e logic remains hardcoded outside the
-`E2EInfraDriver` model. The former Bash `tests/e2e/e2e-openshell.sh` and
-`tests/e2e/drivers/openshift.sh` are removed by that rewrite's cutover (see Shell
-Suite Removal in `e2e-testing.spec.md`). This spec SHALL NOT require the ROKS script
-or the `pr_test` component to already be removed.
-
-#### Scenario: DEV-OCP-09.01 -- Legacy OpenShift script has been removed
-
-- GIVEN `components/pr-test/e2e-openshell.sh` predated the shared harness
-- WHEN this spec is in effect
-- THEN the script SHALL NOT be present in the repository
-- AND `ephemeral-pr-environments.spec.md` is the contract that recorded its removal
-- AND `components/pr-test/` is not removed while the ROKS variant still lives there
-
-#### Scenario: DEV-OCP-09.02 -- No dangling references after eventual ROKS retirement
-
-- GIVEN the ROKS variant has been retired or rehomed in the future
-- WHEN a maintainer inspects CI configuration and component registration
-- THEN no workflow references the removed path
-- AND `.github/component-paths.json` no longer contains a `pr_test` entry that
-  points to a removed path
-
 ### Requirement: DEV-OCP-10 -- Pull-Request CI Uses This Lifecycle
 
 Automated OpenShift pull-request CI is specified in
 `ephemeral-pr-environments.spec.md` (HYPERSHELL-240). That spec owns namespace
 naming, deploy triggers, origin-only trust boundary, timebox and reaping, the
-access comment, GitHub-brokered Keycloak, e2e grant selection, and the
-`e2e-openshell.sh` deprecation window. This spec SHALL NOT restate those
+access comment, GitHub-brokered Keycloak, e2e grant selection, and the scope
+of the ROKS `pr_test` component. This spec SHALL NOT restate those
 requirements.
 
 The pull-request workflow SHALL deploy and release with the same lifecycle this
@@ -1149,7 +1116,8 @@ Permissions). The overlay SHALL NOT define custom SCC objects. A component swap 
 ephemeral-namespace deployment SHALL NOT relax this posture.
 
 The OpenShift deployment SHALL enforce RBAC the same way the production overlay
-does, with `RBAC_ENFORCE=true` and the control-plane service account in the RBAC
+does, with JWT authentication on (so enforcement follows -- `security/rbac-enforcement.spec.md`
+SEC-RBAC-14) and the control-plane service account in the RBAC
 bypass list. The e2e suite on OpenShift SHALL validate the same RBAC scenarios that
 the Kind suite validates, including the developer role enforcement and the
 platform admin role.
@@ -1164,7 +1132,7 @@ platform admin role.
 
 #### Scenario: DEV-OCP-13.02 -- RBAC is enforced on OpenShift
 
-- GIVEN the OpenShift deployment runs with `RBAC_ENFORCE=true`
+- GIVEN the OpenShift deployment runs with JWT authentication on (so RBAC enforcement is on)
 - WHEN a developer without the required role calls a protected API
 - THEN the API denies the request
 - AND the e2e suite validates the denial the same way it does on Kind
@@ -1228,29 +1196,7 @@ cannot silently diverge on any resource that neither allowlist covers.
 
 ## Deploy Directory Structure
 
-The repo root `deploy/` directory contains all kustomize overlays for the platform. It is the **single source of truth** for desired state across all deployment modes (development, testing, and production). The directory structure reflects the layering relationship:
-
-```
-deploy/
-├── base/                           # Foundation: all platform resources (namespace, API, controller, DB, web console, Keycloak)
-│   ├── kustomization.yaml
-│   ├── namespace.yaml              # hypershell-system
-│   ├── api-server.yaml             # Deployment + Service
-│   ├── controller.yaml             # Deployment + Service (includes GATEWAY_IMAGE/GATEWAY_SUPERVISOR_IMAGE env vars)
-│   ├── controller-rbac.yaml        # ClusterRole + ClusterRoleBinding for tenant reconciliation
-│   ├── web-console.yaml            # Deployment + Service
-│   ├── postgres.yaml               # Bundled PostgreSQL Deployment + Service (development stand-in for an external server)
-│   ├── keycloak/                   # Shared Keycloak (base config, realm import)
-│   │   └── ...
-│   └── ...
-├── kind/                           # Kind-specific: bundles Keycloak + shared Gateway; disables OIDC by default
-├── openshift/                      # OpenShift development: bundles Keycloak; adds Routes, TLS, RBAC, NetworkPolicies
-├── ibm/                            # IBM ROKS: Route mode; image mirroring and cluster-wide RBAC
-├── hub/                            # Production (multi-cluster); shared Keycloak per cluster; managed external DB
-├── cloud-hub-ingress-bootstrap/    # Cloud Hub bootstrap: shared Gateway API + wildcard DNS/TLS (AWS/functional clusters)
-├── keycloak/                       # OpenShift Keycloak overlay: adds Route + domain patching
-└── components/                     # (Future) per-component overlays for flexibility
-```
+The repo root `deploy/` directory contains all kustomize overlays for the platform. It is the **single source of truth** for desired state across all deployment modes (development, testing, and production). See [`deploy/`](../../deploy/) for the current layout.
 
 Each overlay builds on `base/` and adds only its specific differences:
 

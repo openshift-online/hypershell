@@ -56,16 +56,16 @@ OIDC_USERNAME="${OIDC_USERNAME:-admin}"
 OIDC_PASSWORD="${OIDC_PASSWORD:-admin}"
 DEV_USERNAME="${DEV_USERNAME:-developer}"
 DEV_PASSWORD="${DEV_PASSWORD:-developer}"
-# Per-gateway Keycloak client id ({name}-{id}); resolved once the gateway id is
-# known. This is the OIDC audience the gateway pod validates and the client the
+# Per-gateway Keycloak client id, read from the gateway's stored oidc.client_id
+# once it is Running. This is the OIDC audience the gateway pod validates and the client the
 # openshell CLI authenticates against -- NOT the management-plane client.
 GW_OIDC_CLIENT_ID=""
 
 # Mirrored gateway images (ROKS nodes can only pull the internal registry). Used
 # only when this run has to CREATE the gateway; ignored when it already exists.
 REG_MIRROR="${REG_MIRROR:-image-registry.openshift-image-registry.svc:5000/openshift}"
-GW_IMAGE="${GW_IMAGE:-${REG_MIRROR}/openshell-gateway:0.1.5-rhaiv.3}"
-GW_SUPERVISOR_IMAGE="${GW_SUPERVISOR_IMAGE:-${REG_MIRROR}/openshell-supervisor:0.1.5-rhaiv.3}"
+GW_IMAGE="${GW_IMAGE:-${REG_MIRROR}/openshell-gateway:0.1.6-rhaiv.2}"
+GW_SUPERVISOR_IMAGE="${GW_SUPERVISOR_IMAGE:-${REG_MIRROR}/openshell-supervisor:0.1.6-rhaiv.2}"
 
 PASS=0
 FAIL=0
@@ -145,7 +145,7 @@ TOKEN_ENDPOINT="${OIDC_ISSUER}/protocol/openid-connect/token"
 
 # ── Keycloak admin service account (OIDC Role Bridge equivalent) ────────────
 # The gateway pod validates data-plane tokens against its own per-gateway
-# Keycloak client ({name}-{id}): audience = that client id, roles read from the
+# Keycloak client (its stored oidc.client_id): audience = that client id, roles read from the
 # hypershell.roles claim (openshell-admin / openshell-user). Those client roles
 # are normally assigned by the control plane's OIDC Role Bridge, which is driven
 # by a gateway:owner / gateway:viewer RoleBinding. On this cluster the API server
@@ -468,8 +468,18 @@ if [[ -z "$GW_NAMESPACE" ]]; then
 fi
 dim "  Gateway namespace: ${GW_NAMESPACE}"
 
-# Per-gateway Keycloak client id, per openshell-gateway-keycloak.spec.md.
-GW_OIDC_CLIENT_ID="${GW_NAME}-${GW_ID}"
+# Per-gateway Keycloak client id: the stored oidc.client_id (the gateway ID for
+# new gateways, {name}-{id} for older ones), per openshell-gateway-keycloak.spec.md.
+GW_OIDC_CLIENT_ID=$("${HSCTL}" get gateway "${GW_ID}" 2>/dev/null | python3 -c '
+import json, sys
+oidc = json.load(sys.stdin).get("oidc") or {}
+if isinstance(oidc, str):
+    oidc = json.loads(oidc) if oidc else {}
+print(oidc.get("client_id", ""))' 2>/dev/null || true)
+if [[ -z "$GW_OIDC_CLIENT_ID" ]]; then
+  fail_test "Gateway ${GW_ID} has no stored Keycloak client ID (oidc.client_id)"
+  exit 1
+fi
 dim "  Per-gateway OIDC client: ${GW_OIDC_CLIENT_ID}"
 sep
 

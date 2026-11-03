@@ -437,7 +437,7 @@ func validateGatewayServiceAccountCredential(account *sdktypes.OpenShellGatewayS
 		return fmt.Errorf("credential token endpoint is not the expected issuer's HTTPS token endpoint")
 	case c.Issuer != issuer:
 		return fmt.Errorf("credential issuer %q is not the expected issuer", c.Issuer)
-	case c.Audience != fmt.Sprintf("%s-%s", ref.Name, ref.ID):
+	case ref.ClientID == "" || c.Audience != ref.ClientID:
 		return fmt.Errorf("credential audience %q is not the gateway's client", c.Audience)
 	case c.GrantType != "client_credentials":
 		return fmt.Errorf("credential grant type %q is not client_credentials", c.GrantType)
@@ -527,8 +527,10 @@ func (s *E2ESuite) serviceAccountClient() gatewayServiceAccountClient {
 // account's client_credentials token, with no token exchange.
 func (s *E2ESuite) gatewayToken(ctx context.Context, ref driver.GatewayRef) (driver.Token, error) {
 	if !s.usesGatewayServiceAccount() {
-		clientID := fmt.Sprintf("%s-%s", ref.Name, ref.ID)
-		return s.driver.AcquireGatewayTokenWithRole(ctx, s.adminCreds(), clientID, "openshell-admin")
+		if ref.ClientID == "" {
+			return driver.Token{}, fmt.Errorf("gateway %s has no stored Keycloak client ID", ref.ID)
+		}
+		return s.driver.AcquireGatewayTokenWithRole(ctx, s.adminCreds(), ref.ClientID, "openshell-admin")
 	}
 	cred, err := s.serviceAccounts.Acquire(ctx, s.serviceAccountClient(), ref)
 	return driver.Token{AccessToken: cred.AccessToken}, err
@@ -643,4 +645,31 @@ func (s *E2ESuite) cleanupGatewayServiceAccounts(ctx context.Context, client gat
 			reportingTest{T: s.T(), logger: s.logger}.Errorf("remove CLI gateway token: %v", err)
 		}
 	}
+}
+
+// gatewayKeycloakClientID returns the Keycloak client ID stored on a gateway
+// (oidc.client_id). Gateways provisioned before the switch to ID-only client IDs
+// keep their {name}-{id} client, so the format is never assumed.
+func gatewayKeycloakClientID(gw *sdktypes.Gateway) (string, error) {
+	if gw == nil || gw.Oidc == "" {
+		return "", errors.New("gateway has no stored OIDC configuration")
+	}
+	var oidc struct {
+		ClientID string `json:"client_id"`
+	}
+	if err := json.Unmarshal([]byte(gw.Oidc), &oidc); err != nil {
+		return "", fmt.Errorf("parse gateway %s OIDC configuration: %w", gw.ID, err)
+	}
+	if oidc.ClientID == "" {
+		return "", fmt.Errorf("gateway %s has no stored Keycloak client ID", gw.ID)
+	}
+	return oidc.ClientID, nil
+}
+
+// requireGatewayClientID fails the step when a Running gateway has no stored
+// Keycloak client ID.
+func (s *E2ESuite) requireGatewayClientID(gw *sdktypes.Gateway) string {
+	clientID, err := gatewayKeycloakClientID(gw)
+	s.Require().NoError(err, "read the gateway's stored Keycloak client ID")
+	return clientID
 }

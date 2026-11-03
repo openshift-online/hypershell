@@ -223,8 +223,14 @@
       "schemaRef": "#/schemas/CIProvider",
       "label": "CIProvider",
       "identityProperty": "id",
-      "defaultSort": "audience",
+      "defaultSort": "name",
       "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
         {
           "property": "audience",
           "label": "AUDIENCE",
@@ -299,8 +305,14 @@
       "schemaRef": "#/schemas/CITrust",
       "label": "CITrust",
       "identityProperty": "id",
-      "defaultSort": "ci_provider_id",
+      "defaultSort": "name",
       "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
         {
           "property": "ci_provider_id",
           "label": "CI PROVIDER ID",
@@ -369,8 +381,14 @@
       "schemaRef": "#/schemas/InferenceRoute",
       "label": "InferenceRoute",
       "identityProperty": "id",
-      "defaultSort": "created_at",
+      "defaultSort": "name",
       "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
         {
           "property": "created_at",
           "label": "CREATED AT",
@@ -903,8 +921,14 @@
       "schemaRef": "#/schemas/WorkspaceMembership",
       "label": "WorkspaceMembership",
       "identityProperty": "id",
-      "defaultSort": "created_at",
+      "defaultSort": "name",
       "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
         {
           "property": "created_at",
           "label": "CREATED AT",
@@ -1770,18 +1794,6 @@
           "type": "string"
         },
         {
-          "property": "provider",
-          "label": "PROVIDER",
-          "priority": 0,
-          "type": "string"
-        },
-        {
-          "property": "region",
-          "label": "REGION",
-          "priority": 0,
-          "type": "string"
-        },
-        {
           "property": "status",
           "label": "STATUS",
           "priority": 0,
@@ -1793,12 +1805,6 @@
           "priority": 0,
           "type": "string",
           "format": "date-time"
-        },
-        {
-          "property": "visibility",
-          "label": "VISIBILITY",
-          "priority": 0,
-          "type": "string"
         }
       ],
       "operationIds": [
@@ -2291,8 +2297,14 @@
       "schemaRef": "#/schemas/CIProvider",
       "label": "CIProvider",
       "identityProperty": "id",
-      "defaultSort": "audience",
+      "defaultSort": "name",
       "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
         {
           "property": "audience",
           "label": "AUDIENCE",
@@ -2369,8 +2381,14 @@
       "schemaRef": "#/schemas/CITrust",
       "label": "CITrust",
       "identityProperty": "id",
-      "defaultSort": "ci_provider_id",
+      "defaultSort": "name",
       "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
         {
           "property": "ci_provider_id",
           "label": "CI PROVIDER ID",
@@ -2441,8 +2459,14 @@
       "schemaRef": "#/schemas/InferenceRoute",
       "label": "InferenceRoute",
       "identityProperty": "id",
-      "defaultSort": "created_at",
+      "defaultSort": "name",
       "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
         {
           "property": "created_at",
           "label": "CREATED AT",
@@ -2985,8 +3009,14 @@
       "schemaRef": "#/schemas/WorkspaceMembership",
       "label": "WorkspaceMembership",
       "identityProperty": "id",
-      "defaultSort": "created_at",
+      "defaultSort": "name",
       "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
         {
           "property": "created_at",
           "label": "CREATED AT",
@@ -3504,18 +3534,6 @@
           "type": "string"
         },
         {
-          "property": "provider",
-          "label": "PROVIDER",
-          "priority": 0,
-          "type": "string"
-        },
-        {
-          "property": "region",
-          "label": "REGION",
-          "priority": 0,
-          "type": "string"
-        },
-        {
           "property": "status",
           "label": "STATUS",
           "priority": 0,
@@ -3527,12 +3545,6 @@
           "priority": 0,
           "type": "string",
           "format": "date-time"
-        },
-        {
-          "property": "visibility",
-          "label": "VISIBILITY",
-          "priority": 0,
-          "type": "string"
         }
       ],
       "operationIds": [
@@ -4148,6 +4160,12 @@
             "required": false
           },
           {
+            "name": "name",
+            "type": "string",
+            "required": false,
+            "description": "Queryable find-by-name key (SDLC-CONF-13). Optional on create; defaults to the forge when not supplied. Used by hsctl apply to resolve an existing record via search=name = '\u003cname\u003e'."
+          },
+          {
             "name": "updated_at",
             "type": "string",
             "format": "date-time",
@@ -4229,6 +4247,12 @@
             "name": "kind",
             "type": "string",
             "required": false
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "required": false,
+            "description": "Queryable find-by-name key (SDLC-CONF-13). Optional on create; defaults to a stable identity derived from ci_provider_id/gateway_id/role when not supplied."
           },
           {
             "name": "role",
@@ -4482,6 +4506,12 @@
             "description": "Model alias for LLM inference within the agent workspace"
           },
           {
+            "name": "name",
+            "type": "string",
+            "required": false,
+            "description": "Queryable find-by-name key (SDLC-CONF-13). Optional on create; defaults to a stable identity derived from workspace_id/provider_binding_id/model when not supplied."
+          },
+          {
             "name": "provider_binding_id",
             "type": "string",
             "required": true
@@ -4576,17 +4606,6 @@
             "name": "name",
             "type": "string",
             "required": true
-          },
-          {
-            "name": "provider",
-            "type": "string",
-            "required": true,
-            "description": "Cloud provider capability used for gateway placement."
-          },
-          {
-            "name": "region",
-            "type": "string",
-            "required": false
           },
           {
             "name": "status",
@@ -5266,6 +5285,12 @@
             "name": "kind",
             "type": "string",
             "required": false
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "required": false,
+            "description": "Queryable find-by-name key (SDLC-CONF-13). Optional on create; defaults to a stable identity derived from workspace_id/subject when not supplied."
           },
           {
             "name": "role",
@@ -7959,7 +7984,7 @@
           "style": "form",
           "explode": true,
           "type": "string",
-          "description": "Specifies the order by criteria. The syntax of this parameter is\nsimilar to the syntax of the _order by_ clause of an SQL statement,\nbut using the names of the json attributes / column of the account.\nFor example, in order to retrieve all accounts ordered by username:\n\n```sql\nusername asc\n```\n\nOr in order to retrieve all accounts ordered by username _and_ first name:\n\n```sql\nusername asc, firstName asc\n```\n\nIf the parameter isn't provided, or if the value is empty, then\nno explicit ordering will be applied."
+          "description": "Specifies the order by criteria. The syntax of this parameter is\nsimilar to the syntax of the _order by_ clause of an SQL statement,\nbut using the names of the json attributes / column of the account.\nFor example, in order to retrieve all accounts ordered by username:\n\n```sql\nusername asc\n```\n\nOr in order to retrieve all accounts ordered by username _and_ first name:\n\n```sql\nusername asc, firstName asc\n```\n\nIf the parameter isn't provided, or if the value is empty, then\nthe gateway list defaults to newest-first ordering: creation time\ndescending with a stable secondary order by gateway identifier,\napplied before pagination so the first page holds the newest\naccessible gateways overall and equal creation timestamps are\ndeterministic across pages."
         },
         {
           "name": "fields",
@@ -7969,6 +7994,15 @@
           "explode": true,
           "type": "string",
           "description": "Supplies a comma-separated list of fields to be returned.\nFields of sub-structures and of arrays use \u003cstructure\u003e.\u003cfield\u003e notation.\n\u003cstucture\u003e.* means all field of a structure\nExample: For each Subscription to get id, href, plan(id and kind) and labels (all fields)\n\n```\ncurl '/api/v1/subscriptions?fields=id,href,plan.id,plan.kind,labels.*\u0026fetchLabels=true'\n```"
+        },
+        {
+          "name": "mine",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "boolean",
+          "description": "When `true`, restricts the list to gateways the authenticated caller\nowns (the caller holds `gateway:owner`), matched by the caller's stable\nidentity against the authoritative owner bindings rather than a display\nname. The filter is applied before pagination, so the returned items,\ntotal, and page count reflect the filtered set, and it composes with\nthe search query and ordering. It operates only over the caller's\nauthorized gateways and never discloses gateways the caller is not\nauthorized to see (see `has_other_owned_gateways` and SEC-RBAC-10)."
         }
       ],
       "response": {
@@ -8985,8 +9019,8 @@
           {
             "name": "capabilities",
             "type": "array",
-            "required": false,
-            "description": "Complete self-declared capability set. Optional for backward compatibility: a control plane that predates the capability model may omit it, in which case the heartbeat is accepted as a no-op that preserves any stored capabilities."
+            "required": true,
+            "description": "Complete self-declared capability set, sent on every registration and heartbeat. An omitted, null, or empty set is rejected with 400."
           },
           {
             "name": "name",
@@ -9754,16 +9788,6 @@
           },
           {
             "name": "name",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "provider",
-            "type": "string",
-            "required": false
-          },
-          {
-            "name": "region",
             "type": "string",
             "required": false
           },

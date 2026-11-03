@@ -307,3 +307,68 @@ func TestGatewayListSearch(t *testing.T) {
 	Expect(list.GetTotal()).To(Equal(int32(1)))
 	Expect(*list.Items[0].Id).To(Equal(gateways[0].ID))
 }
+
+// TestGatewayListDefaultsToNewestFirst asserts WEB-ARCH-02/WEB-API-01: with no
+// explicit sort the list is ordered by creation time descending (newest first),
+// applied before pagination across the whole result set.
+func TestGatewayListDefaultsToNewestFirst(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+
+	account := h.NewRandAccount()
+	ctx := h.NewAuthenticatedContext(account)
+
+	_, err := newGatewayList("newest-first", 5)
+	Expect(err).NotTo(HaveOccurred())
+
+	list, _, err := client.DefaultAPI.ListGateways(ctx).Execute()
+	Expect(err).NotTo(HaveOccurred(), "Error getting gateway list: %v", err)
+	Expect(list.Items).To(HaveLen(5))
+	for i := 0; i+1 < len(list.Items); i++ {
+		current := list.Items[i].GetCreatedAt()
+		next := list.Items[i+1].GetCreatedAt()
+		Expect(current.Before(next)).To(BeFalse(),
+			"gateways should default to newest-first ordering by creation time")
+	}
+}
+
+// TestGatewayListOnlyMineFilter asserts WEB-UIEX-07/WEB-API-01: the response
+// advertises whether the authorized list contains a gateway the caller does not
+// own (so a console can decide whether to show the toggle), and the `mine`
+// ownership filter is plumbed through to the server and applied before
+// pagination. This integration binary does not provision a caller identity, so
+// the request runs on the platform-admin (non-scoped) path with no owned
+// gateways; it exercises the admin existence-flag branch and the filter
+// plumbing. The scoped-caller flag and the positive "returns my gateways" case
+// are covered by the handler logic and the RBAC-aware suites.
+func TestGatewayListOnlyMineFilter(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+
+	account := h.NewRandAccount()
+	ctx := h.NewAuthenticatedContext(account)
+
+	gateways, err := newGatewayList("only-mine", 2)
+	Expect(err).NotTo(HaveOccurred())
+
+	envServices := &environments.Environment().Services
+	userService := users.Service(envServices)
+	bindingService := roleBindings.Service(envServices)
+
+	otherID, createErr := userService.UpsertByUsername(context.Background(), "only-mine-other-owner", nil, nil)
+	Expect(createErr).NotTo(HaveOccurred())
+	for _, gw := range gateways {
+		Expect(bindingService.CreateGatewayOwnerBinding(context.Background(), otherID, gw.ID)).To(Succeed())
+	}
+
+	// Every gateway is owned by another user, so the existence flag is true.
+	all, _, err := client.DefaultAPI.ListGateways(ctx).Execute()
+	Expect(err).NotTo(HaveOccurred(), "Error listing gateways: %v", err)
+	Expect(all.GetTotal()).To(Equal(int32(2)))
+	Expect(all.GetHasOtherOwnedGateways()).To(BeTrue())
+
+	// The caller owns none of them, so the ownership filter returns an empty set
+	// with an accurate total.
+	mine, _, err := client.DefaultAPI.ListGateways(ctx).Mine(true).Execute()
+	Expect(err).NotTo(HaveOccurred(), "Error listing owned gateways: %v", err)
+	Expect(mine.Items).To(HaveLen(0))
+	Expect(mine.GetTotal()).To(Equal(int32(0)))
+}

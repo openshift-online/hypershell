@@ -57,12 +57,6 @@ func TestCertificateReady(t *testing.T) {
 	}
 }
 
-func TestManagedKubeContextEnvKey(t *testing.T) {
-	if got, want := managedKubeContextEnvKey("west-1.example/edge"), "E2E_MANAGED_KUBECONTEXT_WEST_1_EXAMPLE_EDGE"; got != want {
-		t.Fatalf("managedKubeContextEnvKey() = %q, want %q", got, want)
-	}
-}
-
 func TestValidateGatewayServiceAccountClaims(t *testing.T) {
 	account := &sdktypes.OpenShellGatewayServiceAccountCreateResponse{
 		Subject: "service-subject",

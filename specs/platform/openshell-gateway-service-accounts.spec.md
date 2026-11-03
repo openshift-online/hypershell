@@ -44,7 +44,7 @@ Version 1 does not support WIF, signed client assertions, opaque access tokens, 
 - **Credential bundle** is the one-time `credential` object in the create response. It contains the client credentials and non-secret connection metadata.
 - **Access token** is the short-lived JWT that Keycloak returns after a successful Client Credentials grant. The OpenShell gateway validates it locally.
 - **Creator** is the authenticated HyperShell user that creates the OpenShellGatewayServiceAccount. The OpenShellGatewayServiceAccount remains limited by this user's gateway role. A creator cannot transfer it.
-- **Gateway client** is the existing public Keycloak client `{gateway-name}-{gateway-id}`. Its client ID is the configured gateway audience.
+- **Gateway client** is the existing public Keycloak client `{client-id}`. Its client ID is the configured gateway audience.
 - **Service-account client** is the confidential OIDC client for one OpenShellGatewayServiceAccount. Keycloak uses it to issue access tokens for one gateway audience.
 - **Reconcile** means compare the OpenShellGatewayServiceAccount record with Keycloak and correct differences.
 - **Soft-delete** means set `deleted_at` and hide the record from normal reads. It does not immediately remove the database row.
@@ -435,7 +435,7 @@ The service-account client SHALL NOT receive these permissions:
 
 Keycloak includes a role only when both the service-account assignment and the service-account client scope permit it. HyperShell SHALL configure both controls:
 
-1. Resolve the selected gateway client `{gateway-name}-{gateway-id}` and its `openshell-user` and `openshell-admin` roles.
+1. Resolve the selected gateway client `{client-id}` and its `openshell-user` and `openshell-admin` roles.
 2. Add only the required gateway-client roles to the service-account client's role scope mappings while keeping `fullScopeAllowed = false`.
 3. Resolve the service-account client's service-account user through the Keycloak Admin API.
 4. For `role=openshell-user`, assign only the selected gateway's `openshell-user` role to that service-account user.

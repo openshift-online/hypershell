@@ -14,6 +14,7 @@ func ciTrustToProto(t *CITrust) *pb.CITrust {
 			Kind:      "CITrust",
 			Href:      "/api/hypershell/ext/ci_trusts/" + t.ID,
 		},
+		Name:                   t.Name,
 		CiProviderId:           t.CIProviderID,
 		GatewayId:              t.GatewayID,
 		SubjectRepository:      t.SubjectRepository,

@@ -2,8 +2,8 @@ package roleBindings
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
-	"log/slog"
 	"sort"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
@@ -13,6 +13,7 @@ import (
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/services"
+	"gorm.io/gorm"
 )
 
 type RoleBindingService interface {
@@ -57,32 +58,24 @@ func NewRoleBindingService(
 	roleDao roles.RoleDao,
 	userDao users.UserDao,
 	events services.EventService,
-	defaultRoles []string,
 ) RoleBindingService {
-	for _, r := range defaultRoles {
-		if !roles.JWTSyncedRoles[r] {
-			slog.Warn("RBAC_DEFAULT_ROLES role is not in JWTSyncedRoles and will be ignored; add it to JWTSyncedRoles to make it sync-eligible", "role", r)
-		}
-	}
 	return &sqlRoleBindingService{
-		lockFactory:  lockFactory,
-		rbDao:        rbDao,
-		roleDao:      roleDao,
-		userDao:      userDao,
-		events:       events,
-		defaultRoles: defaultRoles,
+		lockFactory: lockFactory,
+		rbDao:       rbDao,
+		roleDao:     roleDao,
+		userDao:     userDao,
+		events:      events,
 	}
 }
 
 var _ RoleBindingService = &sqlRoleBindingService{}
 
 type sqlRoleBindingService struct {
-	lockFactory  db.LockFactory
-	rbDao        RoleBindingDao
-	roleDao      roles.RoleDao
-	userDao      users.UserDao
-	events       services.EventService
-	defaultRoles []string
+	lockFactory db.LockFactory
+	rbDao       RoleBindingDao
+	roleDao     roles.RoleDao
+	userDao     users.UserDao
+	events      services.EventService
 }
 
 func (s *sqlRoleBindingService) CreateGatewayOwnerBinding(ctx context.Context, userID string, gatewayID string) error {
@@ -125,16 +118,6 @@ func (s *sqlRoleBindingService) CreateGatewayOwnerBinding(ctx context.Context, u
 func (s *sqlRoleBindingService) SyncJWTRoles(ctx context.Context, userID string, jwtRoles []string) error {
 	jwtRoleSet := make(map[string]bool)
 	for _, r := range jwtRoles {
-		if roles.JWTSyncedRoles[r] {
-			jwtRoleSet[r] = true
-		}
-	}
-	// Default roles are always merged regardless of what the JWT carries.
-	// They represent the platform's baseline posture: every authenticated
-	// principal receives these capabilities unless explicitly disabled via
-	// RBAC_DEFAULT_ROLES=. Only roles in JWTSyncedRoles participate in the
-	// sync lifecycle (idempotent add, never revoked by JWT absence).
-	for _, r := range s.defaultRoles {
 		if roles.JWTSyncedRoles[r] {
 			jwtRoleSet[r] = true
 		}
@@ -631,7 +614,13 @@ func (s *sqlRoleBindingService) validateTargetUser(ctx context.Context, rb *Role
 		return errors.GeneralError("role binding service is misconfigured: target user validation is unavailable")
 	}
 	if _, err := s.userDao.Get(ctx, *rb.UserID); err != nil {
-		return errors.NotFound("target user not found")
+		// Only a genuine "record not found" means the target user does not exist.
+		// A transient database fault must surface as a 500, not masquerade as a
+		// missing user, so infrastructure failures stay visible.
+		if stderrors.Is(err, gorm.ErrRecordNotFound) {
+			return errors.NotFound("target user not found")
+		}
+		return errors.GeneralError("unable to validate target user: %s", err)
 	}
 	return nil
 }

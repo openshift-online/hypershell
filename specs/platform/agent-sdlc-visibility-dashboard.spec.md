@@ -50,7 +50,7 @@ adapter with no domain or UI change.
 | ---------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Current phase / column, blocked and paused set | Yes (easy)           | GitHub issues-by-label (`agent/allowed`) on the product repo, one query (SDLC-VIS-23)                                                                                                                   |
 | Which bundle on which hub cluster              | Yes (easy)           | Already resolved by the promotion plane (`lock.go` release lock + `argoByInstance` cluster attribution)                                                                                                 |
-| Bundle contents (tracked issues + one-off PRs) | Yes (medium)         | Existing bundle -> PR enrichment (`bundles.go`, compare API + `(#1234)` parsing) grouped under the work item each PR resolves to; the work-item -> PRs resolver only groups, adding no new GitHub calls |
+| Bundle contents (tracked issues + one-off PRs + GitOps deployment PRs) | Yes (medium)         | Existing bundle -> PR enrichment (`bundles.go`, compare API + `(#1234)` parsing) grouped under the work item each PR resolves to; the work-item -> PRs resolver only groups, adding no new GitHub calls. The GitOps deployment group reuses the shared `GitOpsPRs`/`GitOpsStatus` already enriched for Fleet Map (SDLC-VIS-25, FLT-BPR), adding no new GitHub calls |
 | State over time, aging, rework count           | Yes (hard, the crux) | GitHub Issue Events / Timeline API per issue, reconstructed live; label history is mutable and retained nowhere today                                                                                   |
 | Durable SDLC analytics / history store         | No                   | A retained history store would be a new api-server plugin and migration, out of scope for this BFF-only tab                                                                                             |
 
@@ -156,6 +156,17 @@ issues to bundles, and bundle contents SHALL NOT depend on a closing keyword par
 out of an individual PR body. The plane SHALL NOT stand up a duplicate
 bundle-resolution pipeline for this grouping.
 
+The tracked-issue and other-pull-request grouping SHALL operate over the bundle's
+**application** repository pull requests (`openshift-online/hypershell`). The GitOps
+deployment pull requests (`openshift-online/hypershell-gitops`) SHALL NOT fold into
+the tracked-issue or other-pull-request groups, so release attribution stays driven by
+application changes. The SDLC release-by-hub-cluster matrix SHALL instead surface the
+bundle's GitOps deployment pull requests as a separate deployment group (SDLC-VIS-25),
+reusing the same shared bundle enrichment that already feeds the Fleet Map repository
+split
+([`fleet-dashboard-bundle-pr-repository-split.spec.md`](fleet-dashboard-bundle-pr-repository-split.spec.md),
+FLT-BPR); it SHALL NOT define a second notion of which changes belong to a bundle.
+
 This hop SHALL live behind the `WorkItemPRResolver` port so the unit of work can change
 without a domain or matrix change: the GitHub adapter resolves an issue's linked pull
 requests (authoritatively via GraphQL `closedByPullRequestsReferences` when an upstream
@@ -200,6 +211,19 @@ re-resolution.
 - WHEN the SDLC plane groups the bundle's pull requests
 - THEN the linked pull request SHALL appear under its tracked issue
 - AND the unlinked pull request SHALL appear under the bundle's other pull requests
+
+#### Scenario: SDLC-VIS-03.06 -- GitOps pull requests stay out of the tracked-issue grouping
+
+- GIVEN a bundle with GitOps deployment pull requests (FLT-BPR) and application
+  pull requests
+- WHEN the SDLC plane groups the bundle's pull requests into tracked issues and
+  other pull requests
+- THEN only the application repository pull requests SHALL be grouped into tracked
+  issues and other pull requests
+- AND the GitOps deployment pull requests SHALL NOT appear in the tracked-issue or
+  other-pull-request groups
+- AND the GitOps deployment pull requests SHALL be carried on the bundle as a separate
+  deployment group (SDLC-VIS-25)
 
 #### Scenario: SDLC-VIS-03.04 -- Tracked issue delivered by multiple PRs in one bundle
 
@@ -411,12 +435,16 @@ production, hyp1 stage, hyp2 int), and a marker SHALL sit in each hub cluster's
 **current** bundle row so deployment and drift (how far behind a cluster runs) read
 at a glance. Deployment and drift SHALL NOT be conveyed by color alone.
 
-A bundle row SHALL expand to its contents (PR-driven, per SDLC-VIS-03) shown as two
-groups: **Tracked issues** (pull requests grouped under the execution-record issue
+A bundle row SHALL expand to its contents (PR-driven, per SDLC-VIS-03) shown under two
+repository headings. The **application** repository (`openshift-online/hypershell`) is
+split into **Tracked issues** (pull requests grouped under the execution-record issue
 they resolve to) and **Other pull requests** (one-off pull requests with no tracked
-issue). Each entry SHALL show a "merged Nd ago" relative timestamp. The row summary
-SHALL show both counts, the number of tracked issues and the number of pull requests
-in the bundle (for example "2 issues, 4 PRs").
+issue). The **deployment** repository (`openshift-online/hypershell-gitops`) renders its
+GitOps pull requests as a separate group (SDLC-VIS-25). Each entry SHALL show a "merged Nd
+ago" relative timestamp. The row summary SHALL show the number of tracked application
+issues and the total number of pull requests in the bundle counted across both repository
+groups (for example "2 issues, 4 PRs"); the tracked-issue count SHALL remain an
+application-repository count and SHALL NOT include GitOps pull requests.
 
 The **"Unreleased"** row SHALL hold only genuinely in-flight tracked work: shipped
 execution-record issues merged after the newest resolved bundle's build boundary, whose
@@ -450,10 +478,12 @@ from the Unreleased row into that bundle's row. The matrix SHALL NOT present a n
 
 #### Scenario: SDLC-VIS-11.03 -- Row summary shows issue and PR counts
 
-- GIVEN a bundle with two tracked issues and four pull requests in its PR set
+- GIVEN a bundle with two tracked application issues, three application pull requests, and
+  one GitOps deployment pull request
 - WHEN the bundle row renders
-- THEN its summary SHALL show both counts, the tracked-issue count and the pull-request
-  count
+- THEN its summary SHALL show the tracked-issue count as two
+- AND its summary SHALL show a pull-request count of four, spanning the application and
+  deployment repository groups
 
 #### Scenario: SDLC-VIS-11.04 -- One-off PR appears under its bundle, not Unreleased
 
@@ -476,6 +506,112 @@ from the Unreleased row into that bundle's row. The matrix SHALL NOT present a n
 - GIVEN an issue in the Unreleased row
 - WHEN a bundle is released whose PR set contains that issue's pull requests
 - THEN that issue SHALL appear in that bundle's row instead of Unreleased
+
+### Requirement: SDLC-VIS-25 -- SDLC Matrix Surfaces the Bundle's GitOps Deployment Group
+
+The SDLC release-by-hub-cluster matrix SHALL show the same bundle contents an operator
+sees for that bundle in Fleet Map, so a bundle opened from either surface shows the same
+application and GitOps pull-request sets.
+
+The SDLC plane bundle payload SHALL carry, in addition to the application tracked-issue
+and other-pull-request groups, a separate **GitOps deployment** pull-request group and its
+availability status. Both SHALL be read from the shared bundle enrichment that already
+provides the Fleet Map group split (`GitOpsPRs` and `GitOpsStatus`, FLT-BPR-01 and
+FLT-BPR-10). The plane SHALL use the same bundle identity and the same comparison ranges
+as Fleet Map; it SHALL NOT create a second definition of which changes belong to a bundle
+and SHALL NOT issue additional GitHub requests to populate the GitOps group.
+
+Every GitOps pull-request record carried on the SDLC bundle SHALL retain repository
+identity and SHALL be identified by repository plus pull-request number, never by
+pull-request number alone (FLT-BPR-02). A GitOps pull request whose number collides with
+an application pull request SHALL remain a distinct item. Each GitOps pull-request record
+SHALL expose its number, title, link, author, and merge time, and SHALL preserve any
+deployment-environment attribution supplied by the shared bundle data (FLT-BPR-06). GitOps
+pull requests SHALL NOT enter the application tracked-issue or other-pull-request grouping
+(SDLC-VIS-03).
+
+The matrix UI SHALL render the GitOps deployment group as its own repository-identified
+section beneath the bundle, distinct from the application section, with its own count and
+its own empty and error states. The section SHALL distinguish a successful-but-empty GitOps
+comparison (a clear "no deployment changes" message) from an unavailable lookup (a distinct
+unavailable or error message), mirroring FLT-BPR-10 and FLT-BPR-11. A bundle payload that
+carries no GitOps fields at all (an older response produced before this group existed)
+SHALL be treated as "GitOps availability unknown": the matrix SHALL NOT crash, SHALL NOT
+render a GitOps section, and SHALL NOT claim the GitOps lookup succeeded or that the bundle
+has no deployment changes.
+
+The Unreleased row's current meaning (SDLC-VIS-11) SHALL be unchanged; it SHALL continue to
+hold only genuinely in-flight tracked application work, and this requirement SHALL NOT place
+GitOps pull requests in the Unreleased row.
+
+Fleet Map's existing two-repository bundle-details display (FLT-BPR) SHALL continue to work
+unchanged.
+
+#### Scenario: SDLC-VIS-25.01 -- SDLC bundle reuses the shared GitOps group
+
+- GIVEN the shared bundle enrichment has resolved a bundle's GitOps deployment pull
+  requests and its GitOps availability status
+- WHEN the SDLC plane builds that bundle's payload
+- THEN the payload SHALL carry the GitOps pull-request group and its availability status
+  from the shared bundle enrichment
+- AND the plane SHALL NOT re-resolve the GitOps range or issue an additional GitHub request
+  for the group
+
+#### Scenario: SDLC-VIS-25.02 -- Same bundle shows the same contents from both surfaces
+
+- GIVEN a released bundle with application and GitOps pull requests
+- WHEN an operator opens that bundle from Fleet Map and from the matrix below the SDLC
+  Kanban board
+- THEN both surfaces SHALL show the same application pull-request set
+- AND both surfaces SHALL show the same GitOps deployment pull-request set
+- AND both surfaces SHALL clearly identify each repository
+
+#### Scenario: SDLC-VIS-25.03 -- Same number in two repositories stays distinct
+
+- GIVEN application pull request `#42` and GitOps pull request `#42` both belong to one
+  bundle
+- WHEN the matrix renders that bundle's contents
+- THEN both pull requests SHALL appear, each under its own repository section with the
+  correct link
+- AND neither SHALL be dropped or merged as a duplicate of the other
+
+#### Scenario: SDLC-VIS-25.04 -- GitOps pull requests do not enter application grouping
+
+- GIVEN a bundle whose GitOps pull request resolves to no execution-record issue and whose
+  number matches an application pull request grouped under a tracked issue
+- WHEN the matrix groups the bundle's application pull requests
+- THEN the GitOps pull request SHALL NOT appear under any tracked issue or under the
+  application other-pull-request group
+- AND the GitOps pull request SHALL appear only in the deployment group
+
+#### Scenario: SDLC-VIS-25.05 -- Empty, unavailable, and legacy GitOps data are distinct
+
+- GIVEN three bundles: one whose GitOps comparison succeeded with no pull requests, one
+  whose GitOps lookup failed, and one whose payload carries no GitOps fields
+- WHEN each bundle's contents render in the matrix
+- THEN the successful-empty bundle SHALL show a deployment section with a clear "no
+  deployment changes" empty state
+- AND the failed bundle SHALL show a deployment section in an unavailable or error state,
+  distinct from empty
+- AND the legacy bundle SHALL render without a deployment section and without crashing, and
+  SHALL NOT claim the GitOps lookup succeeded
+
+#### Scenario: SDLC-VIS-25.06 -- Bundle PR count spans both repository groups
+
+- GIVEN a bundle with three application pull requests and two GitOps deployment pull
+  requests
+- WHEN the bundle row summary renders
+- THEN the pull-request count SHALL be five, counted across the application and deployment
+  groups
+- AND the tracked-issue count SHALL remain an application-repository count
+
+#### Scenario: SDLC-VIS-25.07 -- Fleet Map behavior is preserved
+
+- GIVEN a bundle with application and GitOps pull requests
+- WHEN the operator opens that bundle in Fleet Map
+- THEN the Fleet Map bundle details SHALL still render the application and GitOps groups as
+  specified by FLT-BPR
+- AND the SDLC matrix change SHALL NOT alter the Fleet Map bundle-details behavior
 
 ### Requirement: SDLC-VIS-22 -- Released Decision Independent of the Compare-Window Horizon
 
@@ -861,8 +997,10 @@ HYPERSHELL-401 is illustrative only and SHALL NOT be copied literally.
 
 The repository SHALL include: BFF tests for the SDLC source (snapshot envelope,
 never-refreshed 503, stale-serving 200, PR-driven bundle contents grouped into tracked
-issues and other pull requests, a tracked issue delivered by multiple PRs in one
-bundle grouped once, the Unreleased row reduced to shipped issues merged after the newest
+issues and other pull requests, the bundle carrying a separate GitOps deployment group
+and its availability status from the shared bundle enrichment with GitOps pull requests
+kept out of the application tracked-issue and other-pull-request groups (SDLC-VIS-25), a
+tracked issue delivered by multiple PRs in one bundle grouped once, the Unreleased row reduced to shipped issues merged after the newest
 resolved bundle, a shipped record whose merge time precedes the oldest resolved bundle's
 build date landing in a released row rather than Unreleased with no additional GitHub call
 (the compare-window horizon regression, SDLC-VIS-22), rework-from-timeline counting,
@@ -876,8 +1014,12 @@ freight-bar coupling, the aging-board position and SLE line, the rework meter en
 the escalation lane ordering, the phase-transition flight detection (a flight is emitted
 on a server-phase change, forward and backward, and not on the one-second aging
 re-render), the flight registry stability (an aging re-render or unrelated poll does not
-restart or strand an in-flight flight) and reduced-motion suppression, and the matrix
-including both bundle groups and the Unreleased row; and Storybook stories for default,
+restart or strand an in-flight flight) and reduced-motion suppression, the matrix
+including both bundle groups and the Unreleased row, the matrix rendering the GitOps
+deployment section with distinct empty, unavailable, and legacy-missing-fields states and a
+same-number-in-two-repositories case kept distinct, a bundle PR count spanning both
+repository groups, and the application and GitOps contents matching between the Fleet Map
+and matrix surfaces for the same bundle (SDLC-VIS-25); and Storybook stories for default,
 loading, stale, empty-lane, and mid-flight states using a mock SDLC port.
 
 #### Scenario: SDLC-VIS-19.01 -- Storybook shows the board and matrix from a mock port

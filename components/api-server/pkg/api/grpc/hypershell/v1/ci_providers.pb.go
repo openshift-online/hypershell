@@ -33,8 +33,11 @@ type CIProvider struct {
 	Audience       string                 `protobuf:"bytes,5,opt,name=audience,proto3" json:"audience,omitempty"`
 	Status         *string                `protobuf:"bytes,6,opt,name=status,proto3,oneof" json:"status,omitempty"`
 	StatusIdpAlias *string                `protobuf:"bytes,7,opt,name=status_idp_alias,json=statusIdpAlias,proto3,oneof" json:"status_idp_alias,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// name is the queryable find-by-name key (SDLC-CONF-13); defaults to forge
+	// when not supplied on create.
+	Name          string `protobuf:"bytes,8,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CIProvider) Reset() {
@@ -112,6 +115,13 @@ func (x *CIProvider) GetStatus() string {
 func (x *CIProvider) GetStatusIdpAlias() string {
 	if x != nil && x.StatusIdpAlias != nil {
 		return *x.StatusIdpAlias
+	}
+	return ""
+}
+
+func (x *CIProvider) GetName() string {
+	if x != nil {
+		return x.Name
 	}
 	return ""
 }
@@ -712,7 +722,7 @@ var File_hypershell_v1_ci_providers_proto protoreflect.FileDescriptor
 
 const file_hypershell_v1_ci_providers_proto_rawDesc = "" +
 	"\n" +
-	" hypershell/v1/ci_providers.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\x99\x02\n" +
+	" hypershell/v1/ci_providers.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\xad\x02\n" +
 	"\n" +
 	"CIProvider\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12\x14\n" +
@@ -721,7 +731,8 @@ const file_hypershell_v1_ci_providers_proto_rawDesc = "" +
 	"\bjwks_url\x18\x04 \x01(\tR\ajwksUrl\x12\x1a\n" +
 	"\baudience\x18\x05 \x01(\tR\baudience\x12\x1b\n" +
 	"\x06status\x18\x06 \x01(\tH\x00R\x06status\x88\x01\x01\x12-\n" +
-	"\x10status_idp_alias\x18\a \x01(\tH\x01R\x0estatusIdpAlias\x88\x01\x01B\t\n" +
+	"\x10status_idp_alias\x18\a \x01(\tH\x01R\x0estatusIdpAlias\x88\x01\x01\x12\x12\n" +
+	"\x04name\x18\b \x01(\tR\x04nameB\t\n" +
 	"\a_statusB\x13\n" +
 	"\x11_status_idp_alias\"&\n" +
 	"\x14GetCIProviderRequest\x12\x0e\n" +

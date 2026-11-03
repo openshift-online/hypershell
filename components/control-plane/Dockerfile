@@ -11,19 +11,18 @@ FROM go-${BUILDARCH} AS builder
 
 WORKDIR /workspace
 
-# Install Helm via Go toolchain (avoids OS package dependencies).
-# CGO_ENABLED=0 produces a static binary that runs on the distroless runtime.
-# Two copies: a native one to package the chart in this stage, and one built
-# for TARGETARCH that ships in the runtime image, so a cross-platform build
-# (for example arm64 host, amd64 image) does not copy a foreign-arch helm.
-RUN CGO_ENABLED=0 GOBIN=/usr/local/bin go install helm.sh/helm/v3/cmd/helm@v3.14.0
+# Build Helm from the pinned, Hermeto-prefetched tool module in
+# components/control-plane/tools/helm. That module carries a Go `tool` directive
+# on helm.sh/helm/v3/cmd/helm@v3.14.0 so Helm's full dependency tree is tracked
+# in go.sum and resolved through Hermeto, letting this build run hermetically
+# (no network `go install`). CGO_ENABLED=0 produces a static binary for the
+# distroless runtime. Each Konflux build is native (BUILDARCH == TARGETARCH), so
+# one build serves both chart packaging in this stage and the runtime copy.
 ARG TARGETARCH
-RUN CGO_ENABLED=0 GOOS=linux GOARCH="${TARGETARCH}" go install helm.sh/helm/v3/cmd/helm@v3.14.0 && \
-    if [ -x "$(go env GOPATH)/bin/linux_${TARGETARCH}/helm" ]; then \
-      cp "$(go env GOPATH)/bin/linux_${TARGETARCH}/helm" /workspace/helm-runtime; \
-    else \
-      cp "$(go env GOPATH)/bin/helm" /workspace/helm-runtime; \
-    fi
+COPY components/control-plane/tools/helm/go.mod components/control-plane/tools/helm/go.sum components/control-plane/tools/helm/
+RUN cd components/control-plane/tools/helm && \
+    CGO_ENABLED=0 GOOS=linux GOARCH="${TARGETARCH}" go build -mod=mod -o /usr/local/bin/helm helm.sh/helm/v3/cmd/helm && \
+    cp /usr/local/bin/helm /workspace/helm-runtime
 
 COPY components/api-server/go.mod components/api-server/go.sum components/api-server/
 COPY components/cli/go.mod components/cli/go.sum components/cli/

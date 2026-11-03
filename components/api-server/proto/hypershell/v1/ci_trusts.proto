@@ -23,6 +23,9 @@ message CITrust {
   optional string status_exchange_endpoint = 11;
   optional string status_workspace = 12;
   optional string status_workflow_hint = 13;
+  // name is the queryable find-by-name key (SDLC-CONF-13); defaults to a stable
+  // identity derived from ci_provider_id/gateway_id/role when not supplied.
+  string name = 14;
 }
 
 message GetCITrustRequest {

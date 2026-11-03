@@ -28,6 +28,7 @@ import type {
   AgentSdlcBundleRow,
   AgentSdlcCard,
   AgentSdlcData,
+  AgentSdlcGitOpsStatus,
   AgentSdlcHubCluster,
   AgentSdlcLabelEvent,
   AgentSdlcMatrix,
@@ -44,6 +45,7 @@ import type {
   RateStats,
 } from "../../domain/fleet";
 import type {
+  GitOpsRangeStatus,
   PromotionData,
   PromotionEnvironment,
   PromotionGate,
@@ -69,6 +71,10 @@ interface WirePR {
   readonly url?: string;
   readonly author?: string;
   readonly mergedAt?: string;
+  // The owner/repo the PR belongs to (FLT-BPR-02); absent on older servers.
+  readonly repository?: string;
+  // Environments whose range includes a GitOps PR (FLT-BPR-06); absent otherwise.
+  readonly environments?: readonly string[] | null;
 }
 
 /** A release as the BFF reports it (opaque to the UI beyond its version string). */
@@ -84,6 +90,10 @@ interface WireRelease {
    */
   readonly digest?: string;
   readonly prs?: readonly WirePR[] | null;
+  // The GitOps (deployment) pull-request group and its range state (FLT-BPR-04/10);
+  // absent on older servers, which the UI renders as "no GitOps section".
+  readonly gitopsPrs?: readonly WirePR[] | null;
+  readonly gitopsStatus?: string;
 }
 
 /** A promotion gate on the wire: `{key, phase}` (the domain renames key -> name). */
@@ -204,7 +214,18 @@ function mapPR(raw: WirePR): PullRequest {
     url: raw.url ?? "",
     author: raw.author ?? "",
     mergedAt: nullableString(raw.mergedAt),
+    // Repository identity for grouping/keys/links (FLT-BPR-02); "" on older servers.
+    repository: raw.repository ?? "",
+    // Environment attribution for GitOps PRs (FLT-BPR-06); drop any non-string entry.
+    environments: (raw.environments ?? []).filter(
+      (e): e is string => typeof e === "string" && e !== "",
+    ),
   };
+}
+
+/** Narrow the wire GitOps status to the domain union; anything else hides the section. */
+function mapGitOpsStatus(raw: string | undefined): GitOpsRangeStatus | null {
+  return raw === "available" || raw === "unavailable" ? raw : null;
 }
 
 function mapRelease(raw: WireRelease): ReleaseBundle {
@@ -215,8 +236,11 @@ function mapRelease(raw: WireRelease): ReleaseBundle {
     digest: nullableString(raw.digest) ?? nullableString(raw.sha),
     tag: nullableString(raw.tag),
     date: nullableString(raw.date),
-    // PRs "since the previous build"; absent/null on older servers -> empty.
+    // Application PRs "since the previous build"; absent/null on older servers -> empty.
     prs: (raw.prs ?? []).map(mapPR),
+    // GitOps (deployment) PR group and range state (FLT-BPR-04/10).
+    gitopsPrs: (raw.gitopsPrs ?? []).map(mapPR),
+    gitopsStatus: mapGitOpsStatus(raw.gitopsStatus),
   };
 }
 
@@ -560,6 +584,10 @@ interface WireSdlcPullRequest {
   readonly url?: string;
   readonly author?: string;
   readonly mergedAt?: string;
+  // Repository + environment identity for GitOps deployment PRs (SDLC-VIS-25);
+  // absent for application PRs.
+  readonly repository?: string;
+  readonly environments?: readonly string[] | null;
 }
 
 interface WireSdlcShippedIssue {
@@ -579,6 +607,10 @@ interface WireSdlcBundleRow {
   readonly hubClusters?: readonly string[] | null;
   readonly issues?: readonly WireSdlcShippedIssue[] | null;
   readonly otherPRs?: readonly WireSdlcPullRequest[] | null;
+  // The GitOps deployment group and its range state (SDLC-VIS-25); absent on older
+  // servers, which the UI renders as "no deployment section".
+  readonly gitopsPrs?: readonly WireSdlcPullRequest[] | null;
+  readonly gitopsStatus?: string;
 }
 
 interface WireSdlcMatrix {
@@ -637,7 +669,21 @@ function mapSdlcPullRequest(p: WireSdlcPullRequest): AgentSdlcPullRequest {
     url: p.url ?? "",
     author: nullableString(p.author),
     mergedAt: nullableString(p.mergedAt),
+    // Repository identity for GitOps PRs (SDLC-VIS-25); null for application PRs.
+    repository: nullableString(p.repository),
+    // Environment attribution for GitOps PRs (FLT-BPR-06); drop any non-string entry.
+    environments: (p.environments ?? []).filter(
+      (e): e is string => typeof e === "string" && e !== "",
+    ),
   };
+}
+
+/** Narrow the wire SDLC GitOps status to the domain union; anything else (including an
+ *  absent field on an older payload) hides the deployment section (SDLC-VIS-25). */
+function mapSdlcGitOpsStatus(
+  raw: string | undefined,
+): AgentSdlcGitOpsStatus | null {
+  return raw === "available" || raw === "unavailable" ? raw : null;
 }
 
 function mapSdlcShippedIssue(i: WireSdlcShippedIssue): AgentSdlcShippedIssue {
@@ -660,6 +706,8 @@ function mapSdlcBundleRow(r: WireSdlcBundleRow): AgentSdlcBundleRow {
     hubClusters: (r.hubClusters ?? []).slice(),
     issues: (r.issues ?? []).map(mapSdlcShippedIssue),
     otherPRs: (r.otherPRs ?? []).map(mapSdlcPullRequest),
+    gitopsPrs: (r.gitopsPrs ?? []).map(mapSdlcPullRequest),
+    gitopsStatus: mapSdlcGitOpsStatus(r.gitopsStatus),
   };
 }
 

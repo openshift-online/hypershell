@@ -338,8 +338,7 @@ type Gateway struct {
 	RepositoryId *string `protobuf:"bytes,30,opt,name=repository_id,json=repositoryId,proto3,oneof" json:"repository_id,omitempty"`
 	// workspace_mode selects how the OpenShell Kubernetes driver maps workspaces
 	// to namespaces: shared, managed, or operator. Defaults to managed at create;
-	// immutable once stored (a null value may be set exactly once). Null (legacy
-	// gateways) keeps the chart's shared default. See openshell-gateway.spec.md,
+	// always present and immutable once stored. See openshell-gateway.spec.md,
 	// "Gateway Workspace Mode".
 	WorkspaceMode *string `protobuf:"bytes,31,opt,name=workspace_mode,json=workspaceMode,proto3,oneof" json:"workspace_mode,omitempty"`
 	// dedicated_route records that the gateway requested the dedicated route and
@@ -876,8 +875,8 @@ type UpdateGatewayRequest struct {
 	ConsoleAddress         *string                  `protobuf:"bytes,20,opt,name=console_address,json=consoleAddress,proto3,oneof" json:"console_address,omitempty"`
 	ProvisioningConditions []*ProvisioningCondition `protobuf:"bytes,21,rep,name=provisioning_conditions,json=provisioningConditions,proto3" json:"provisioning_conditions,omitempty"`
 	ObservedGeneration     *int64                   `protobuf:"varint,23,opt,name=observed_generation,json=observedGeneration,proto3,oneof" json:"observed_generation,omitempty"`
-	// workspace_mode may only be set on a gateway whose stored value is null
-	// (legacy gateways); changing a stored value is rejected.
+	// workspace_mode may only re-send the stored value; changing it is rejected
+	// and omitting it keeps the stored value.
 	WorkspaceMode *string `protobuf:"bytes,24,opt,name=workspace_mode,json=workspaceMode,proto3,oneof" json:"workspace_mode,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

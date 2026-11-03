@@ -24,9 +24,6 @@ func (s *E2ESuite) p2_9KataRuntime(t *testing.T) {
 	if envOrDefault("E2E_QUALIFY_KATA", "0") != "1" {
 		t.Skip("Kata runtime qualification requires E2E_QUALIFY_KATA=1 and a kata-containers RuntimeClass configured on the cluster's control plane")
 	}
-	if s.skipKubeChecks {
-		t.Skip("no per-cluster kube context; skipping kata runtime checks")
-	}
 	s.ensurePrimaryGateway(t)
 	ctx := t.Context()
 	runtimeClass := envOrDefault("E2E_KATA_RUNTIME_CLASS", "kata-containers")

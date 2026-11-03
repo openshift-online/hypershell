@@ -124,7 +124,7 @@ This spec covers:
 This spec does not change the realm's service-account users, the `hypershell-e2e`
 confidential client, or the GitHub-brokered authentication model - those remain
 defined in `ephemeral-pr-environments.spec.md` and `e2e-testing.spec.md`. It adds
-`de_seed_test_users` to the e2e driver contract (owned in `e2e-testing.spec.md`)
+`DeSeedTestUsers` to the e2e driver contract (owned in `e2e-testing.spec.md`)
 as a no-op on every driver so a test run cannot delete live environment users.
 It does not govern the Keycloak master-realm bootstrap admin.
 It does not prescribe Terraform resource names, IAM JSON, or ESO Helm values; GitOps
@@ -510,7 +510,7 @@ close, or the reaper). Destroying the namespace group removes Keycloak; that is
 the only required cleanup of these accounts. E2e SHALL NOT alter, rotate, or
 delete anything in AWS Secrets Manager or the ESO Secret.
 
-The suite SHALL still call driver function `de_seed_test_users` from the cleanup
+The suite SHALL still call driver method `DeSeedTestUsers` from the cleanup
 trap as `e2e-testing.spec.md` defines. Every driver SHALL no-op that step so a
 test run cannot delete live environment users (Kind static seeds, local OpenShift
 static seeds, and CI-owned rotated seeds alike).
@@ -735,6 +735,37 @@ test-tier principal's password from the cloud store or the ESO Secret.
 - THEN Keycloak SHALL issue that token
 - AND `/pr-extend` SHALL NOT need to re-seed those principals
 
+### Requirement: CICD-CRED-13 -- Consistent Creator and Non-Creator Test Principals
+
+The test-user seed SHALL assign the same realm roles to each test-tier principal
+on Kind, developer-owned OpenShift, and CI-owned PR environments. The `developer`
+principal SHALL hold only `hypershell-users`, without `gateway:creator`. The
+`admin` principal SHALL hold `hypershell-admins`, `hypershell-users`,
+`gateway:creator`, and `platform:admin`, as specified in CICD-CRED-07.
+
+These fixtures SHALL exercise both successful gateway creation as `admin` and
+`403 Forbidden` for gateway creation as `developer` on every environment. The
+seed SHALL NOT add environment-specific extra roles to `developer`. Platform
+roles come only from Keycloak (see `../security/rbac-enforcement.spec.md`,
+Requirement: SEC-RBAC-13).
+
+#### Scenario: CICD-CRED-13.01 -- Kind developer does not hold `gateway:creator`
+
+- GIVEN a developer runs `make kind-up`
+- WHEN the test-user seed reconciles the `developer` principal
+- THEN `developer` SHALL hold only realm role `hypershell-users`
+- AND `developer` calling `POST /api/hypershell/v1/gateways` SHALL receive
+  `403 Forbidden`
+
+#### Scenario: CICD-CRED-13.02 -- OpenShift developer does not hold `gateway:creator`
+
+- GIVEN a developer runs local `make openshift-up`, or a CI-owned PR environment is
+  seeded
+- WHEN the lifecycle seeds the `developer` principal
+- THEN `developer` SHALL hold only realm role `hypershell-users`
+- AND `developer` calling `POST /api/hypershell/v1/gateways` SHALL receive
+  `403 Forbidden`
+
 ## Design Decisions
 
 | Decision | Rationale |
@@ -751,7 +782,7 @@ test-tier principal's password from the cloud store or the ESO Secret.
 | CI-owned OpenShift password-grant does not fall back to username-equals-password | A missing Secret on a public PR environment must fail closed. Falling back to `admin`/`admin` would republish the exposure this spec exists to close. Developer-owned OpenShift keeps those seeds on purpose |
 | CI-owned seed failure is fail-closed | Brokered e2e and impersonation need the users to exist. Warning and continuing would post an access comment for an environment whose impersonation targets were never seeded. Same rule as missing OAuth material |
 | Seed accounts last for the environment lifetime; e2e does not de-seed | `/pr-extend` and other automation (agents, password-grant, impersonation) need the principals after e2e. Closing the password-login window at e2e exit made a retained environment unusable without another seed. Namespace destroy is the cleanup. The AWS secret and ESO Secret are longer-lived alignment copies |
-| Driver `de_seed_test_users` is a no-op on every target | Reuses the suite's established driver-override model (`de_seed_test_users` in `e2e-testing.spec.md`) so the cleanup trap stays one call site. Kind, local OpenShift, and CI-owned PR environments all keep their seeded users until the environment itself is gone |
+| Driver `DeSeedTestUsers` is a no-op on every target | Reuses the suite's established driver-override model (`DeSeedTestUsers` in `e2e-testing.spec.md`) so the cleanup trap stays one call site. Kind, local OpenShift, and CI-owned PR environments all keep their seeded users until the environment itself is gone |
 | Developer-owned environments keep static credentials, Kind or OpenShift | A human running e2e from a laptop - against Kind or after `make openshift-up` - needs `admin`/`admin` and `developer`/`developer`. Restricting those seeds to Kind would break manual OpenShift e2e. AWS and ESO on a laptop would add infrastructure for no local-dev benefit |
 | Developer-owned OpenShift may still publish guessable logins | Those namespaces are the developer's isolation boundary (`ephemeral-pr-environments.spec.md` already excludes them from the CI timebox and reaper) and SHALL NOT use `pr-*` / `hypershell-ci-pr-*` names. The guessable-login closure applies to CI-owned `pr-*` environments, not to a developer exercising the suite by hand |
 | Master bootstrap admin left out of scope | It is Keycloak's own console login, a different credential class from the realm test users |
@@ -760,3 +791,4 @@ test-tier principal's password from the cloud store or the ESO Secret.
 | Brokered PR environments seed users; canonical CI never password-logins | Client-credentials and token exchange resolve users by username. The users must exist for impersonation and for a human username/password login; canonical PR CI never sends those passwords on the public internet |
 | The three test-tier principals double as shared impersonation targets, generalized to any authenticated user | Reusing the seeded principals avoids a second account concept. A GitHub session already carries the `admin` tier's HyperShell API capability (`platform:admin` plus `gateway:creator`), so impersonation exists to reach `developer` and `platform-admin` without a password. Token-exchange impersonation SHALL NOT include other GitHub-brokered users. Interactive admin-console impersonation is owned by `ephemeral-pr-environments.spec.md` |
 | Seed assigns Keycloak realm roles only | `gateway:viewer` is a per-gateway DB binding. A Keycloak seed step cannot grant it. Area 9's `openshell-user` path is a per-gateway client-role grant owned by `ephemeral-pr-environments.spec.md` |
+| Use the same test-tier realm roles on every environment | `admin` exercises gateway creation and `developer` exercises denial on Kind, OpenShift, and PR environments. Environment-specific developer role overrides are unnecessary; e2e derives authorization expectations from token roles (CICD-CRED-13, E2E-CORE-15). |

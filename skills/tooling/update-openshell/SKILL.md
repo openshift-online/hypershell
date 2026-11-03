@@ -149,7 +149,7 @@ grep -rn  "<OLD_VERSION>" . | grep -v '\.git/'      # must return only intention
 | `deploy/base/platform-resources/controller.yaml` | `GATEWAY_IMAGE`, `GATEWAY_SUPERVISOR_IMAGE`, `GATEWAY_SANDBOX_RUNTIME_IMAGE` env vars | Generated pins; run `make sync-openshell-version` |
 | `specs/platform/data-model.spec.md` | `supervisor_image` default | Spec citation |
 | `specs/platform/openshell-gateway.spec.md` | gateway + supervisor defaults | Spec citation (multiple) |
-| `specs/platform/openshell-gateway-credentials.spec.md` | example manifests | Spec citation |
+| `specs/platform/openshell-gateway-credentials.spec.md` | none since a prior rewrite; no image/version pins remain | Keep in the discovery grep in case a future edit reintroduces one |
 | `specs/platform/global-architecture.spec.md` | version in the API-compat note | Also re-check the `v1beta1` claim (see below) |
 | `components/pr-test/e2e-openshell-roks.sh` | `GW_IMAGE`, `GW_SUPERVISOR_IMAGE` defaults | ROKS e2e; uses the mirrored name without the `odh-` prefix, so the two main discovery greps above miss it - use the third grep |
 | `specs/platform/openshell-gateway-database.spec.md` | none since the 2026-09-16 rewrite (no gateway image refs remain) | Keep in the discovery grep; historically **was pinned to a git SHA, not a semver tag** |
@@ -268,6 +268,37 @@ be investigated rather than retaining the old pin silently.
    still an update and must be applied. The NVIDIA base version comparison in Step 2 is
    **FOR TRIAGE ONLY** (to find which release notes to read); it is NOT the update trigger.
    Never conclude "no update needed" because the NVIDIA base matches - compare the full tags.
+
+   **Check for an already-open PR before creating a new branch/PR.** Every run
+   creates a branch named `implementer/update-openshell-<target>`. A naive
+   per-run agent that only checks "is `main` pinned to `<target>`" will create a
+   brand-new PR every time the upstream tag list advances, even though the
+   previous run's PR for the prior target is still open and unreviewed - this
+   happened for four runs in a row (`#810` rhaiv.4, `#822` rhaiv.0, `#845`
+   rhaiv.1, `#874` rhaiv.2), leaving a pile of stale, unreviewed, mutually
+   superseding PRs that a human has to sort out by hand. Before opening a new
+   PR:
+
+   ```bash
+   gh pr list --repo <REPOSITORY> --state open \
+     --search 'implementer/update-openshell- in:head' \
+     --json number,headRefName,title,mergeStateStatus
+   ```
+
+   - If an open PR's `headRefName` already matches
+     `implementer/update-openshell-<resolved-target>` exactly, **do not open a
+     duplicate.** That PR already covers this run's target. Verify it is still
+     current (its CI failures, if any, are pre-existing/unrelated - reproduce
+     the failing check against `main` HEAD before assuming the PR itself is
+     broken), add anything this run learned as a PR comment or a commit on that
+     same branch, and stop. Report the run as a no-op skip, not a new PR.
+   - If older open PRs target a tag that is no longer the latest (superseded by
+     the resolved target, including by this run's own new PR), do not silently
+     leave them to accumulate. This skill does not close PRs itself (closing is
+     a human's call, same as merging), but call them out explicitly in the new
+     PR's body ("supersedes #N, #M - these targeted now-stale tags and should be
+     closed") so a maintainer can clear them in one pass instead of discovering
+     the pile later.
 
    **Agent build track (unmerged upstream branch/commit):**
 
@@ -510,6 +541,125 @@ If a run produced no new lessons, that is itself worth a one-line log entry
 ## Learnings log
 
 Newest first. Each entry: version, date, what happened, what changed in the repo.
+
+- **Skill correction (2026-11-01, duplicate-PR pollution across runs):** This
+  scheduled run resolved the same target (`v0.1.6-rhaiv.2`) as the prior run and
+  found that the prior run's PR, `#874`, was still open and already current -
+  `v0.1.6-rhaiv.2` is still the latest stable midstream tag today, nothing on
+  `main` had changed that affects the footprint, and `#874`'s triage/spec work
+  was already complete and correct. Opening a fifth PR would have been an exact
+  duplicate. Checked the branch-name history instead of just the version
+  resolution step and found three more stale, still-open PRs from the same
+  branch-naming pattern that earlier runs never closed or even flagged:
+  `#810` (`rhaiv.4`), `#822` (`rhaiv.0`), `#845` (`rhaiv.1`) - each superseded by
+  the next day's run, none mentioning the others. This is the
+  create-and-ignore anti-pattern the repo's own CLAUDE.md warns against
+  ("Reconcile, don't create-or-skip"), just applied to PRs instead of resources.
+  Fix: added a "check for an already-open PR" step right after the version
+  exit-condition (see above) that greps open PRs for the
+  `implementer/update-openshell-` branch prefix before creating a new one, skips
+  opening a duplicate when one already matches the resolved target, and
+  requires a new PR's body to call out any older open PRs it supersedes so a
+  human can clear them in one pass. This run took no bump action: no new
+  branch, no new PR. It left a comment on `#874` noting (a) the target is
+  still current, (b) the three stale superseded PRs for a maintainer to close,
+  and (c) that `#874`'s failing "Unit / Shell" check is a pre-existing,
+  unrelated flake in `scripts/funnel-dispatch_test.sh` (reproduced identically
+  against `main` HEAD with no OpenShell-related changes applied, and also seen
+  failing on unrelated branches such as `konflux/references/main` in the same
+  CI window) - not something the version bump introduced, and not something
+  this skill's scope covers fixing. Pushed this skill correction itself as a
+  new commit onto `#874`'s existing branch rather than opening a dedicated PR
+  for a documentation-only change, since `#874` was already open, already
+  about this exact version, and still unmerged.
+
+- **v0.1.6-rhaiv.2 (2026-10-31, v0.1.5-rhaiv.3 -> v0.1.6-rhaiv.2, no-arg scheduled run):**
+  Mechanical pin bump. This run's sandbox had a full Go toolchain and `make`
+  present as binaries, but `make` itself could not spawn `/bin/sh` for any
+  recipe (`make: /bin/sh: Operation not permitted` on every target, including
+  trivial ones) - same symptom as the 2026-10-23 sandbox-limits entry's item 2,
+  but this time Go build/vet/test ran fine directly via the Bash tool, and
+  every `make check` sub-check's underlying `python3`/`scripts/*.sh` command
+  ran fine when invoked directly (not through `make`). `go build/vet/test`
+  (control-plane) and all nine `make check` components (forbidden-terms,
+  kind-conformance, dependency-pins, ci-components, deploy-orphans,
+  dependency-age, sync-openshell-version check mode, cli-drift via
+  `generate-tui.sh --check` + `generate-cli.sh --check`, spec-ids,
+  ci-impact-scopes, release-bundle, coverage-report) passed when run as their
+  underlying commands. Lesson for the footprint/verification sections: treat
+  "`make` works" and "`make`'s recipes can run a shell" as two separate facts
+  to probe, not one.
+  - **Step 0:** `needs-decision` issue #809 (OpenShell's `require authentication
+    or explicit development opt-in` startup gate, from rhaiv.4 forward) has only
+    bot comments (two prior scheduled-bump status updates), no human reply yet -
+    skipped per the "no non-bot comment" rule. Target resolved directly from the
+    stable midstream tag list.
+  - **Triage:** 57 commits over the range. Diffed `*.proto` and `deploy/helm` in
+    a scratch clone (the GitHub compare API truncates at 300 files and would
+    have hidden most of this). Confirmed every proto change
+    (`compute_driver.proto` `SuspendSandbox`/`SuspendSandboxRequest`,
+    `isolation_backend.proto` boundary-prep wording and the
+    `allow_cold_start_fallback` -> `restart_if_restore_fails` rename,
+    `openshell.proto` `SuspendSandbox`/`ResumeSandbox` RPCs and
+    `SANDBOX_PHASE_SUSPENDING`/`SUSPENDED`, `sandbox.proto` supervisor
+    middleware binding policy, `sandbox_protocol.proto` supervisor takeover
+    and recovery-timeout fields, `supervisor_host.proto` the whole supervisor
+    HA/pool message set) is additive only: new RPCs, new messages, new optional
+    fields, or a rename confined to the compute-driver/isolation-backend SPI
+    that HyperShell does not implement (`grep -rn
+    "compute_driver\|isolation_backend\|SuspendSandbox\|ResumeBoundary\|allow_cold_start_fallback"
+    --include=*.go --include=*.proto .` returns nothing). Mechanical for the
+    gRPC/proto contract surface.
+  - **New opt-in chart features, not adopted:** shared supervisor pool/HA
+    (`supervisor.replicas`, `.autoscaling`, `.podDisruptionBudget`,
+    `.affinity`, `recoveryTimeoutSeconds`, all gated on `gatewayConfig`
+    selecting `supervisor_topology = "gateway"`), additional destination-CA
+    trust (`supervisor.network.additionalCaConfigMapName`, gates new
+    ClusterRole/Role `configmaps` get/create grants and a new volume/mount),
+    opaque hashed service-routing hostnames (`server.serviceHostnameFormat`,
+    opt-in, default `""` preserves the existing readable hostname format
+    byte-for-byte), and required-middleware-binding enforcement
+    (`SupervisorMiddlewareService.binding_policy`/`bindings`). Confirmed with
+    `grep -rn "supervisor_topology\|additionalCaConfigMapName\|serviceHostnameFormat"
+    components/ charts/ specs/` that HyperShell's Helm values builder sets none
+    of these, so the chart renders its unconditional/previous-default behavior
+    and no new RBAC renders. The hashed-hostname feature exists upstream to let
+    several same-named gateways share one wildcard cert/domain; it does not
+    apply to HyperShell's own per-tenant-namespace routing design (each
+    gateway's hostname is already disambiguated by its own `gw-<ns>` label or
+    its own opted-in domain subtree - see `openshell-gateway-routing.spec.md`),
+    so there is nothing to adopt here, not just "not yet adopted."
+  - **Unconditional chart change, verified safe:** every gateway pod gains a
+    `gateway-state` `emptyDir` volume mounted at `/var/lib/openshell-state` and
+    an `XDG_STATE_HOME` env var (used to stage supervisor trust material).
+    `components/control-plane/internal/helm` tests (which assert on rendered
+    chart output) still pass unmodified - no TOML key spacing or pod-spec
+    assertion needed updating this run.
+  - **needs-decision, still open (not newly filed):** issue #809's auth-gate
+    finding still applies verbatim at `v0.1.6-rhaiv.2` - `fix(gateway): require
+    authentication or explicit development opt-in` (#4821) is commit
+    `7b0f8ae0` in this range. Added a status comment to #809 noting it still
+    applies at this tag, matching the pattern of the two prior bot comments on
+    that issue. Not resolved in this PR; still awaiting a maintainer's auth
+    posture decision.
+  - **Console:** not bumped. `OPENSHELL_CONSOLE_DIGEST` is still pinned to
+    dashboard release v0.1.1. The dashboard has since cut v0.1.3 (release line
+    0.1, matches our new gateway's `0.1.6` line), which is explicitly "tested
+    on 0.1.6" and adds client support for the new suspend/resume RPCs - more
+    relevant than the v0.1.2 already tracked by open issues #760/#752. This
+    run hit the same `quay.io` unreachable gap as every prior run since
+    2026-10-23 (`curl`/`WebFetch` to `quay.io` and `ghcr.io` both fail at
+    connect, "Permission denied"/`EACCES`; only `github.com` via `git`/`gh`
+    works). Added a comment to #760 naming v0.1.3 instead of filing a new
+    duplicate issue. The console's old proto surface still parses v0.1.6
+    responses fine (every proto change this run is additive), so this is a
+    missing-feature gap, not a broken one - the Sandboxes tab will not hang.
+  - **Footprint fix:** `specs/platform/openshell-gateway-credentials.spec.md`'s
+    footprint row still described "example manifests" to bump, but the file no
+    longer contains any image/version pin (confirmed via `grep -n "image\|v0\.\|v1\."`
+    returning nothing) - a prior rewrite removed them and the row was never
+    corrected. Updated the row's note instead of continuing to check a file
+    with nothing left to check.
 
 - **v0.1.5-rhaiv.3 (2026-10-27, v0.1.5-rhaiv.2 -> v0.1.5-rhaiv.3, no-arg scheduled run):**
   Clean mechanical bump. Pins and chart updated; the Python policy checks that make up

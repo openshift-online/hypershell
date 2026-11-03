@@ -577,14 +577,31 @@ func (h *GatewayHealthReconciler) selfHealConsole(ctx context.Context, gatewayID
 		log.Printf("WARN console self-heal for %s: %v", gatewayID, err)
 		return
 	}
-	opts := gateway.ReconcileOpts{
-		IsOpenShift:   h.isOpenShift,
-		HasGatewayAPI: h.hasGatewayAPI,
-		Keycloak:      h.keycloakConfig,
-		GatewayID:     gatewayID,
-		GatewayName:   gw.GetName(),
+	clientID, err := gatewayKeycloakClientID(gatewayID, gw)
+	if err != nil {
+		log.Printf("WARN console self-heal for %s: stored identity cannot be resolved: %v", gatewayID, err)
+		return
 	}
-	if err := gateway.ReconcileConsole(ctx, h.dynamicClient, h.concreteClientset(), gateway.NamespaceConfig{Name: namespace}, opts); err != nil {
+	opts := gateway.ReconcileOpts{
+		IsOpenShift:     h.isOpenShift,
+		HasGatewayAPI:   h.hasGatewayAPI,
+		Keycloak:        h.keycloakConfig,
+		GatewayID:       gatewayID,
+		GatewayName:     gw.GetName(),
+		GatewayClientID: clientID,
+	}
+	// The self-heal must key on the same route config the console-address
+	// publisher uses (consoleRouteConfig). Passing a bare NamespaceConfig here
+	// drops the gateway's dedicated-route opt-in, so the self-heal of a
+	// dedicated-certificate gateway would re-parent its console onto the shared
+	// ingress -- shared host, shared Gateway, shared-host Keycloak redirect --
+	// while console_address keeps advertising the dedicated host, leaving the
+	// console button pointing at a URL no listener serves.
+	nsConfig := gateway.NamespaceConfig{
+		Name:    namespace,
+		Gateway: gateway.GatewayConfig{Route: consoleRouteConfig(gw)},
+	}
+	if err := gateway.ReconcileConsole(ctx, h.dynamicClient, h.concreteClientset(), nsConfig, opts); err != nil {
 		log.Printf("WARN console self-heal in %s: %v", namespace, err)
 		return
 	}
@@ -622,8 +639,12 @@ func (h *GatewayHealthReconciler) teardownRoute(ctx context.Context, client pb.G
 		// real absence; if confirmed absent, stamp the verification so the next probe is
 		// one interval away.
 		consoleClientID := ""
-		if h.consoleClientChecker != nil && gw.GetName() != "" && gatewayID != "" {
-			consoleClientID = fmt.Sprintf("%s-%s-console", gw.GetName(), gatewayID)
+		if h.consoleClientChecker != nil && gatewayID != "" {
+			if clientID, err := gatewayKeycloakClientID(gatewayID, gw); err != nil {
+				log.Printf("WARN gateway %s: stored identity cannot be resolved (%v); skipping console client absence check", gatewayID, err)
+			} else {
+				consoleClientID = clientID + "-console"
+			}
 		}
 		absent, perr := gateway.RouteResourcesAbsent(ctx, h.dynamicClient, h.clientset, namespace, h.ingressMode, h.consoleClientChecker, consoleClientID)
 		switch {
@@ -647,6 +668,13 @@ func (h *GatewayHealthReconciler) teardownRoute(ctx context.Context, client pb.G
 		Keycloak:      h.keycloakConfig,
 		GatewayID:     gatewayID,
 		GatewayName:   gw.GetName(),
+	}
+	if h.keycloakConfig != nil {
+		if clientID, err := gatewayKeycloakClientID(gatewayID, gw); err != nil {
+			log.Printf("WARN gateway %s: stored identity cannot be resolved (%v); console Keycloak client is left for operator recovery", gatewayID, err)
+		} else {
+			opts.GatewayClientID = clientID
+		}
 	}
 	// Wire an address-clearing callback only when an address is actually stored,
 	// so a gateway that never published one adds no gateway-update traffic.

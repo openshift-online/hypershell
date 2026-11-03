@@ -27,6 +27,8 @@ type CITrust struct {
 	Href      *string    `json:"href,omitempty"`
 	CreatedAt *time.Time `json:"created_at,omitempty"`
 	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+	// Queryable find-by-name key (SDLC-CONF-13). Optional on create; defaults to a stable identity derived from ci_provider_id/gateway_id/role when not supplied.
+	Name *string `json:"name,omitempty"`
 	// Reference to the CIProvider whose issuer is trusted
 	CiProviderId string `json:"ci_provider_id"`
 	// Reference to the Gateway this CI may operate
@@ -220,6 +222,38 @@ func (o *CITrust) SetUpdatedAt(v time.Time) {
 	o.UpdatedAt = &v
 }
 
+// GetName returns the Name field value if set, zero value otherwise.
+func (o *CITrust) GetName() string {
+	if o == nil || IsNil(o.Name) {
+		var ret string
+		return ret
+	}
+	return *o.Name
+}
+
+// GetNameOk returns a tuple with the Name field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *CITrust) GetNameOk() (*string, bool) {
+	if o == nil || IsNil(o.Name) {
+		return nil, false
+	}
+	return o.Name, true
+}
+
+// HasName returns a boolean if a field has been set.
+func (o *CITrust) HasName() bool {
+	if o != nil && !IsNil(o.Name) {
+		return true
+	}
+
+	return false
+}
+
+// SetName gets a reference to the given string and assigns it to the Name field.
+func (o *CITrust) SetName(v string) {
+	o.Name = &v
+}
+
 // GetCiProviderId returns the CiProviderId field value
 func (o *CITrust) GetCiProviderId() string {
 	if o == nil {
@@ -372,6 +406,9 @@ func (o CITrust) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.UpdatedAt) {
 		toSerialize["updated_at"] = o.UpdatedAt
+	}
+	if !IsNil(o.Name) {
+		toSerialize["name"] = o.Name
 	}
 	toSerialize["ci_provider_id"] = o.CiProviderId
 	toSerialize["gateway_id"] = o.GatewayId

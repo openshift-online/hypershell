@@ -27,7 +27,7 @@ const (
 //
 // The control-plane suite owns the behaviors the control plane is responsible for:
 //   - the flat-vault-default happy path (a gateway provisions vault-backed, the serving CA
-//     is mirrored, no KEK) is asserted in the short suite by p1_2InfraVerification;
+//     is mirrored, no KEK) is asserted in the long suite by p1_2InfraVerification;
 //   - the real gateway-process resolve under its per-tenant mount
 //     (openshell-gw/<namespace>/.../provider-credentials/*) is exercised end-to-end by the
 //     sandbox lifecycle (p2_1), which drives the actual OpenShell gateway, not a stand-in;
@@ -54,9 +54,6 @@ const (
 // the final behavior check (after the parallel P2 wave and read-only P3), never concurrently
 // with other gateway provisioning. It needs kube access to mutate the CA source Secret.
 func (s *E2ESuite) p2_7VaultFailClosed(t *testing.T) {
-	if s.skipKubeChecks {
-		t.Skip("no per-cluster kube context; fail-closed needs kube access to make Vault unreachable")
-	}
 	s.vaultFailClosedScenario(t.Context(), t)
 }
 

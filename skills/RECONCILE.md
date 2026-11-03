@@ -158,6 +158,167 @@ Prior: 2026-10-20 (scoped reconciliation of HYPERSHELL-415 / issue #621 / PR #63
 
 **Update (2026-10-16, REPO-C-IMPORT final wave, PR #590):** built the end-to-end `RepositoryReconciler` the #590 re-spec unblocked by replacing git-clone + `hsctl`-binary render with a GitHub-API subtree read + an in-process kustomize library. Green and landed: (1) **`pkg/kustomize` shared library** in `components/cli` (`Build`/`BuildYAML` over a `filesys.FileSystem`, plugins disabled + root-only load restriction via kustomize defaults; dep `sigs.k8s.io/kustomize/api@v0.21.2` + `kyaml@v0.21.2`, both published 2026-09-28/30, >= 14 days old; `k8s.io/kube-openapi` pinned via `replace` to the smd-v6 line `20260721` to avoid the smd-v7 break against apimachinery v0.36.3), unit-tested in memory incl. bases/overlays. (2) **hsctl refactor** - `apply/cmd.go` `loadFromKustomize` now calls `pkg/kustomize.BuildYAML(filesys.MakeFsOnDisk(), dir)` instead of shelling out to the `kustomize` binary; the `exec` path is gone and its tests run in-process (no skip-if-missing). (3) **cli->CP wiring** - `components/control-plane/go.mod` requires + locally `replace`s the cli module. (4) **`RepositoryReconciler`** (`internal/reconciler/repository_{reconciler,github,writer}.go`) - periodic idempotent loop: enumerate Repositories -> resolve credential (per-Repository `secret_source_id` via `pkg/secretstore` + `SecretSourceService` lookup takes precedence over the default platform GitHub App token) -> read ONLY the `import_path` subtree over the GitHub git-trees/blobs API into an in-memory `filesys` (no clone, no disk) -> render via `pkg/kustomize.Build` -> filter to the 7 canonical importable Kinds, excluding `Repository` + admin kinds (ManagedCluster/Role/RoleBinding) -> UPSERT over the gRPC write path with server-side ownership via the `x-hypershell-import-repository-id` binding (#585) -> PRUNE Repository-owned resources no longer present, scoped per Repository. Wired into `main.go` behind `HYPERSHELL_REPOSITORY_IMPORT_ENABLED` (default off) + `HYPERSHELL_GITHUB_TOKEN_FILE`. Fake-backed tests cover render/filter/7-kind/Repository+admin exclusion, upsert, prune, per-Repository prune scoping, credential precedence, the GitHub fetcher (httptest), and ownership-metadata attachment. **FLAGGED (reconcile honesty clause):** the production gRPC writer fully supports the FIVE import-write ext Kinds (SandboxTemplate, ProviderSpec, ProviderBinding, InferenceRoute, SecretSource - exactly the rbac import-write set). `Gateway` and `AgentRuntime` are accepted by the importable filter but return a collected `ErrKindNotWritable`: `Gateway`'s proto message has NO `repository_id` ownership field (cannot be ownership-marked or pruned) and `AgentRuntime` has NO gRPC Create/Update/Delete (only status) - the API surface they need does not exist yet, so a declared Gateway/AgentRuntime is surfaced as a per-resource error, never silently dropped. The "platform GitHub App credential" is consumed as a mounted installation-token file (ESO-refreshed, mirroring fleet-dashboard); full App-JWT->installation-token minting from AppID + private key is not implemented. Gate: `make check` (incl. dependency-age), `make lint-cli`, `make lint-control-plane` (gofmt/vet/golangci-lint 0 issues), cli + control-plane `go build`/`go test` all green; no generated-artifact drift.
 
+**Scoped analysis (2026-10-26, CICD-ECC, issue #776 / PR #779):** reconciled the new
+`specs/platform/konflux-enterprise-contract-conformance.spec.md` (CICD-ECC-01..06).
+Landed the issue-sanctioned **Hermeto pilot** for the single validated Go-only
+component (CICD-ECC-02): `api-server` now sets `hermetic: "true"`,
+`enable-package-registry-proxy: "true"`, and a single-object `prefetch-input`
+`{"type":"gomod","path":"components/api-server"}` in all three pipeline files
+(push, pull-request, merge-queue) - 3 `.tekton` files, additive params in
+`spec.params`. Its build check `hypershell-api-server-main-on-pull-request` is
+**green** with hermetic on, proving the prefetch recipe against the live Konflux
+build. CICD-ECC-05 (single pipeline source) already satisfied: redundant Konflux
+PR **#774 is CLOSED** and `fullsend-sandbox` keeps one authoritative `.tekton` set
+on `main`.
+
+**Completion (2026-10-27, review follow-up, PR #779):** the earlier revision set the
+three hermetic params on all three `api-server` pipeline files but only the
+pull-request pipeline was migrated to Trusted Artifacts (`git-clone-oci-ta`,
+`prefetch-dependencies-oci-ta`, `buildah-remote-oci-ta`); the push and merge-queue
+pipelines kept the standard (non-TA) `prefetch-dependencies` task. Per the review
+root-cause (the standard prefetch task produces no `status.results`, so Conforma's
+`task.rego` cannot read `enable-package-registry-proxy` and the deny rule fires),
+setting the proxy param on a non-TA pipeline has no effect: the **shipped** image is
+built by the push pipeline, so leaving push non-TA would have kept `api-server`
+non-conformant on `main` even though the PR build was green. Converted the push and
+merge-queue pipelines to the identical multi-arch Trusted-Artifacts `pipelineSpec`
+as the green pull-request pipeline, so all three `api-server` files now share one
+`pipelineSpec` (the repo convention already followed by the `agent-runtime`,
+`agent-runtime-slim`, and `fullsend-sandbox` trios). The task graph is unchanged
+(no task added or removed, so no `trusted_task.trusted` violation, CICD-ECC-03);
+only the task variants and Trusted-Artifact wiring (`SOURCE_ARTIFACT` /
+`PREFETCH_ARTIFACT`, `ociStorage`) changed, plus the shared PVC workspace was
+dropped. Verification: all three `pipelineSpec` bodies are byte-identical, the
+pull-request pipeline (the only CI-verifiable form pre-merge) is unchanged except
+its description text and stays green, and push/merge-queue mirror it. The push and
+merge-queue builds themselves can only be confirmed on the first `main` build after
+merge (push pipelines do not run pre-merge), which matches how the proven
+`agent-runtime` TA push pipelines were landed.
+
+**Review follow-up (2026-10-28, code-review rejection, PR #779):** addressed the two
+blocking findings from the maintainer code review. (1) The PR body auto-closed the
+tracking issue (`Closes #776`) while only the `api-server` pilot of eight components
+is conformant; changed to `Part of #776` so merging this increment does not close
+the issue before the acceptance criteria are met. (2) The Trusted-Artifacts
+conversion builds `api-server` as a native multi-arch (`linux/amd64` + `linux/arm64`)
+image index (`ALWAYS_BUILD_INDEX: "true"`), where `main` shipped amd64 only. This is
+intended, not a template side effect: the `api-server` Dockerfile on `main` already
+carries per-arch base images and a `BUILDARCH`/`TARGETARCH` split and documents "Bump
+amd64 and arm64 together", matching the agent-runtime trio's native multi-arch layout.
+Recorded the decision in CICD-ECC-02 (new paragraph + Scenario CICD-ECC-02.07): Go
+components whose Dockerfile carries per-arch base images build the multi-arch index;
+components whose Dockerfile does not stay single-arch until they add them. No pipeline
+mechanics changed, so the green `hypershell-api-server-main-on-pull-request` build is
+preserved.
+
+**Correction (2026-10-26, review follow-up, PR #779):** a prior revision of this PR
+also flipped `cli` to hermetic on the claim that `build-release.sh` is "a pure
+cross-compile loop" and therefore safe. The live Konflux build disproved that:
+`hypershell-cli-main-on-pull-request` went **red** with hermetic on (api-server,
+with the identical three params, stayed green - so the cause is cli-build-specific,
+not param syntax). Per the issue's mandate ("do one Go-only component end to end
+first, confirm it is green, then fan out") and the reviewer's guidance, the cli
+pipeline changes were **reverted** to hermetic off at that time. (This was later
+superseded: cli was converted to a full hermetic TA build and confirmed green -
+see the full-scope delivery note below.) The honesty-clause takeaway: do not flip
+a hermetic flag on an unverified "it looks like a pure cross-compile" assumption -
+require a green build first.
+
+**Full-scope delivery (2026-10-29, maintainer "ship FULL scope in one PR", PR #779):**
+The maintainer rejected partial-scope delivery and reran the funnel. Two earlier
+claims are **corrected** here: (1) the prior note that "this environment has no
+Go/pnpm toolchain and no Konflux / `ec validate` access" is FALSE in the rerun
+environment (go 1.26.7, node 24, pnpm 11, npm, podman/docker, helm, skopeo, and
+live Konflux read access via `oc login` are all present); and (2) the fullsend
+`+dirty` binary was wrongly reasoned to be an unfixable upstream blocker (a clean
+`git` checkout builds a clean binary - see below). No component is deferred; the
+full scope lives in this one PR.
+
+All eight Konflux components are now addressed in PR #779:
+- **`api-server`, `cli`** -- full hermetic Trusted-Artifacts builds
+  (`hermetic: "true"`, proxy, gomod `prefetch-input`), all three pipeline files each.
+- **`control-plane`** -- full hermetic TA. `helm` was a networked
+  `go install helm@v3.14.0`; it is now a tracked tool module
+  (`components/control-plane/tools/helm` with a Go `tool` directive + committed
+  `go.sum`) built from the Hermeto cache, so no build-time network fetch.
+- **`web-console`, `fleet-dashboard`** -- hermetic pnpm (+ gomod for
+  fleet-dashboard). The networked `bootstrap_pnpm.sh` is replaced by a prefetched
+  pnpm bootstrap (`prefetch/pnpm`), and Hermeto's injected root `.npmrc` (registry
+  -> prefetched `file://` cache) is now propagated into every pnpm install stage
+  (the earlier `ERR_PNPM_FETCH_404` was a missing `.npmrc`, not a proxy problem;
+  `.dockerignore` had stripped it). `PNPM_CONFIG_TRUST_LOCKFILE=true` for
+  pnpm 11.15.1 comes from Hermeto `generate-env`, applied by the buildah task.
+- **`agent-runtime`, `agent-runtime-slim`** -- gomod attributed in all three
+  pipeline files each, kept `hermetic: "false"` (their Python/Node tool closures
+  are SHA-256-locked `install-tools.py` downloads). The `fullsend` binary is no
+  longer downloaded from the `+dirty` upstream release: it is built from pinned
+  clean source (`components/agents/third_party/fullsend` submodule @ v0.49.0) in a
+  Go builder stage (`-buildvcs=false`, so no `+dirty`), and its gomod closure is
+  Hermeto-attributed via an added `prefetch-input` entry (CICD-ECC-04 + CICD-ECC-02).
+  Verified locally: the clean checkout builds `vcs.modified=false`, and the konflux
+  hermeto image prefetches its 668-dependency closure cleanly. **Resume 2026-10-29:
+  `gh` is now also built from source** from a pinned tool module
+  (`components/agents/tools/gh` @ gh v2.100.0) and dropped from the SHA-256 tool
+  locks, with the module added to each pipeline's gomod `prefetch-input`
+  (CICD-ECC-02.08).
+- **`fullsend-sandbox`** -- base-registry EC violation already fixed by #797 (merged).
+  **Resume 2026-10-29:** its source-available Go tools `gh` and `gitleaks` are now
+  built from source from pinned tool modules (`components/agents/tools/gh` @ v2.100.0,
+  `components/agents/tools/gitleaks` @ v8.30.1) in a digest-pinned Go tool-builder
+  stage, replacing their release-binary downloads; both modules are added to the
+  sandbox pipeline `prefetch-input`, so the sandbox now has a Hermeto-resolvable
+  gomod ecosystem. Its remaining toolchain (Go, Node, shellcheck, ripgrep, fd),
+  `tirith`, and `acli` stay checksum-pinned.
+
+**Verification (live Konflux, head `979f2623`).** All eight component
+`on-pull-request` builds are GREEN. The authoritative combined pr-group EC
+PipelineRun (`hypershell-main-enterprise-contract-5fvxs`, snapshot pinning all
+eight PR images) reports `0 failures, 3567 warnings` (`WARNING`), with NO `+dirty`
+entries. (Individual-component snapshots mix stale `main` images and must NOT be
+read as PR state.) This confirms:
+- **CICD-ECC-01 / -03:** 0 EC violations; attestation is trusted (0 attestation
+  violations).
+- **CICD-ECC-04:** no `+dirty` / non-reproducible binary anywhere; `fullsend` is
+  now built from pinned clean source and its dependency closure is Hermeto
+  attributed (no `fullsend-ai` PURLs remain in the warnings).
+- **CICD-ECC-05:** `#774` is CLOSED; `fullsend-sandbox` has one pipeline source.
+
+**Attribution (CICD-ECC-02) - verified per component.** Missing-Hermeto-attribution
+warnings by component: `web-console 0`, `api-server 4`, `cli 4`, `control-plane 2`,
+`fleet-dashboard 4`, `agent-runtime 1016`, `agent-runtime-slim 1016`,
+`fullsend-sandbox 1374`. The Go/Node components are effectively fully attributed;
+their 2-4 residual warnings are Go `stdlib` (the toolchain standard library, not a
+Hermeto-prefetchable dependency) and the component's own first-party main-module
+PURL (a self-reference, not a real dependency gap).
+
+**Resume 2026-10-29 -- maintainer decision supersedes the tenant-exception blocker.**
+The prior pass reported the residual `hermeto_attribution_required` warnings as an
+external blocker requiring a tenant-policy exception. The maintainer resolved this:
+accept checksum/upstream provenance for binaries whose source is **unavailable**,
+while **keeping source-available tool rebuilds in this PR** ("we can't get an
+exception, but it's not enforced in Konflux today so it's more for our peace of
+mind"). This is a repository-side acceptance of residual risk, NOT a tenant-policy
+exception; the tenant policy is not modified and the warnings are not suppressed.
+
+Acting on that decision, the previously-blocking warnings were triaged per tool
+(not all were `acli`, as an earlier pass had claimed): the combined report also
+carried `github.com/cli/cli/v2` (`gh`, runtime + sandbox) and
+`github.com/zricethezav/gitleaks/v8` (sandbox) closures. Those tools are
+**source-available**, so they are now **built from source** through Hermeto
+(CICD-ECC-02.08), removing their warnings. The remaining residual is:
+- `atlassian.com/cli` (**acli**, the Atlassian CLI) -- **closed source**, no
+  published module to build from; required for Jira automation. Attributed by
+  SHA-256 digest + upstream provenance (CICD-ECC-02 checksum path). Its residual
+  warnings are the **accepted repository risk recorded as Requirement CICD-ECC-07**.
+- Go `stdlib` and first-party main-module PURLs on the Go/Node product images
+  (toolchain/self-reference metadata, not real dependency gaps).
+
+`sbom_spdx.hermeto_attribution_required` is a non-enforced `WARNING` in Konflux
+today (`enterprise-contract` result is `WARNING`, not a failure). The acceptance is
+narrow (source-unavailable binaries only) and is recorded in the spec (CICD-ECC-07),
+the PR #779 body, and the independent review. Fresh combined-report evidence is
+captured at the resume head and attached to issue #776.
+
 **Prior scoped analysis (2026-09-29)**: `specs/web-console/gateway-provision-placement.spec.md` against `77feccc3` plus the current working tree: 10 Present. GP-W1 made REST creation intent-only and refreshed restored placement metadata; GP-W2 added localized, programmatically associated disabled-network reasons. Superseded by the capability-selector analysis above.
 
 **Go E2E update (2026-10-08)**: Delivered the Go/testify harness, its Kind and
@@ -346,7 +507,7 @@ The first gap analysis found a race between the event-driven reconciler and the 
 | WEB-PLC-01 | Placement intent contract; clients do not submit a concrete cluster | Present | REST create accepts placement intent only and always resolves it; concrete `cluster_id` remains read/internal compatibility data | `openapi/openapi.gateways.yaml`, `plugins/gateways/handler.go` | GP-W1 |
 | WEB-PLC-02 | Mutually exclusive, required VPN/Public selection; no cluster selector | Present | The new radio-card form replaces the former selector; the obsolete selector file is removed in the current working tree | `packages/gateway-management-ui/src/gateways/gateway-create.tsx` | - |
 | WEB-PLC-03 | Provider selection and VPN/AWS constraint | Present | Public prefers IBM when available; VPN forces AWS and disables IBM | `packages/gateway-management-ui/src/gateways/gateway-create.tsx` | - |
-| WEB-PLC-04 | Placement availability from connected registered clusters | Present | Eligibility, automatic refresh, restored provider/visibility/liveness, and localized disabled-network reasons are present | `plugins/gateways/plugin.go`, `plugins/managedClusters/{service.go,dao.go}`, `gateway-create.tsx` | GP-W1, GP-W2 |
+| WEB-PLC-04 | Placement availability from connected registered clusters | Present | Eligibility, automatic refresh, restored capabilities/liveness, and localized disabled-network reasons are present | `plugins/gateways/plugin.go`, `plugins/managedClusters/{service.go,dao.go}`, `gateway-create.tsx` | GP-W1, GP-W2 |
 | WEB-PLC-05 | Kind-only local placement fallback | Present | API-server Kind flag, connected `local-kind` registration, managed-placement suppression, default selection, and intent submission are implemented | `plugins/gateways/plugin.go`, `gateway-create.tsx`, `deploy/kind/kustomization.yaml` | - |
 | WEB-PLC-06 | Submit-time form validation with enabled action | Present | Name and placement validate on activation; the action is disabled only while a request is pending | `packages/gateway-management-ui/src/gateways/gateway-create.tsx` | - |
 | WEB-PLC-07 | Random backend resolution without capacity scoring | Present | Cryptographic uniform index over provider/network/liveness-filtered candidates; no capacity input | `plugins/gateways/placement.go`, `placement_test.go` | - |
@@ -475,7 +636,7 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | G1 | Gateway as API Resource | Present | CRUD + all provisioning fields (image, server_dns_names, oidc, route, route_address) | `gateways.proto` | W5 ✅ |
 | G2 | Shared Kustomize Library | Missing | No library, no CLI, no examples | - | Future |
 | G3 | GatewayReconciler | Present | DELETED handler with namespace cache and full resource cleanup | `reconciler.go` | W6 ✅ |
-| G4 | Gateway Manifest Templating | Present | - | `manifests.go` | W1 ✅ |
+| G4 | Gateway Manifest Templating | Retired | OSG-CORE-04 retired; gateways install through Helm chart values | `internal/helm/values.go` | - |
 | G5 | TLS via cert-manager | Present | - | `reconcileCertManagerResources()` | W2 ✅ |
 | G6 | Trusted CA Bundle Injection | Present | - | `reconcileTrustedCABundle()` | W3 ✅ |
 | G7 | Gateway Config Validation | Present | TOML validation absent | `validation.go` | - |
@@ -488,7 +649,7 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | G14 | OpenShift-Specific Provisioning | Present | - | `reconcileOpenShiftSCC()` | W2 ✅ |
 | G15 | Deployment Failure Handling | Present | Relies on re-delivery rather than explicit requeue | `reconciler.go` | - |
 | G16 | Separation from Agent Config | Present | - | - | - |
-| G17 | SSH Payload Delivery | Missing | `internal/openshell/ssh_upload.go` does not exist | - | Future |
+| G17 | SSH Payload Delivery | Retired | OSG-CORE-17 retired; agent configuration is out of scope (OSG-CORE-16) | - | - |
 | G18 | Per-Tenant Gateway API Resource | Missing | Code creates GRPCRoute only; no per-tenant K8s Gateway | - | W8 |
 
 ### openshell-gateway-database.spec.md
@@ -575,8 +736,7 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | WEB-ARCH-02 | Gateway management routes | Present | - | `routes.ts`, `gateway-ui/` | - |
 | WEB-ARCH-03 | Source/runtime boundaries | Present | - | `eslint.architecture.mjs` | - |
 | WEB-PKG-01 | pnpm workspace | Present | - | `pnpm-workspace.yaml` | - |
-| WEB-PKG-02 | Defensive resolution | Present | - | `pnpm-workspace.yaml` | - |
-| WEB-PKG-03 | Policy migration completeness | Partial | Verify pnpm lockfile inspection | `check_dependency_age.py` | - |
+| WEB-PKG-02 | Defensive resolution | Present | - | `pnpm-workspace.yaml`, `check_dependency_age.py` | - |
 | WEB-PKG-04 | Reusable gateway management UI package | Present | - | `packages/gateway-management-ui/` | - |
 | WEB-SDK-01 | Browser-compatible SDK | Present | - | `components/sdk-typescript/` | - |
 | WEB-AUTH-04 | No-auth dev mode | Present | - | `vite.config.ts` | - |
@@ -1021,7 +1181,7 @@ Test-tier Keycloak principals `admin` / `developer` / `platform-admin` are not b
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| RBAC-1 | Scope-Aware Permission Evaluation | Present | `rbacAuthzMiddleware` evaluates scope-aware bindings; controlled by `RBAC_ENFORCE` env var | `pkg/rbac/authorization.go` | WR4 ✅ |
+| RBAC-1 | Scope-Aware Permission Evaluation | Present | `rbacAuthzMiddleware` evaluates scope-aware bindings; enforced whenever JWT authentication is on (single source of truth, SEC-RBAC-14) | `pkg/rbac/authorization.go` | WR4 ✅ |
 | RBAC-2 | Resource List Filtering | Present | Per-query visibility filtering via `GatewayVisibilityFilter` in gateway List handler; `FindGatewayIDsByUserID` DAO method | `plugins/gateways/handler.go`, `pkg/rbac/visibility_filter.go` | KC-W3 ✅ |
 | RBAC-3 | User Auto-Provisioning | Present | `UserProvisioningMiddleware` upserts User from JWT claims on every authenticated request; `sqlUserDao.Upsert` writes a stored field only when the JWT carries a changed value, taking no UPDATE (no row lock) when the claims already match -- a nil claim never clears a stored value, and a brand-new username still resolves concurrent first-time requests to one row via insert-then-reread | `pkg/rbac/user_provisioning.go`, `plugins/users/service.go`, `plugins/users/dao.go` | WR1 ✅, WR3 ✅, RBAC-3-CW ✅ |
 | RBAC-4 | Bootstrap via Gateway Creation | Present | `gatewayHandler.Create` calls `CreateOwnerBinding` atomically in same DB transaction | `plugins/gateways/handler.go`, `pkg/rbac/gateway_bootstrap.go` | WR3 ✅ |
@@ -1032,7 +1192,7 @@ Test-tier Keycloak principals `admin` / `developer` / `platform-admin` are not b
 | RBAC-9 | gRPC Authorization | Present | `isGRPCAuthorized` evaluates bindings against method type (Get/List/Watch=read, Create/Update=write, Delete=owner-only); lazy init via `RegisterPostAuthGRPC*Interceptor` | `pkg/rbac/grpc_interceptor.go`, `plugins/rbac/grpc_init.go` | WR6 ✅, WR8 ✅ |
 | RBAC-10 | Service Caller Bypass | Present | Authz middleware checks for service caller (ClientID-based) and bypasses RBAC | `pkg/rbac/authorization.go` | WR4 ✅ |
 | RBAC-11 | Error Response Opacity | Present | Singleton GETs return 404 when unauthorized; mutations return generic 403 | `pkg/rbac/authorization.go` | WR4 ✅ |
-| RBAC-12 | Production Rollout | Present | `RBAC_ENFORCE=true` env var enables enforcement; separate from framework `enable-authz` | `plugins/rbac/plugin.go` | WR4 ✅ |
+| RBAC-12 | Enforcement Follows Authentication | Present | Enforcement derives from JWT authentication being on; no separate enforcement variable (SEC-RBAC-14) | `plugins/rbac/plugin.go` | WR4 ✅ |
 | RBAC-13 | Integration Test Coverage | Present | Unit tests: 18 authorization + 6 gRPC (pkg/rbac/). Integration tests: roles (4), roleBindings (12 including hierarchy enforcement, scope FK validation, last-owner protection) | `pkg/rbac/*_test.go`, `plugins/roles/integration_test.go`, `plugins/roleBindings/integration_test.go` | WR7 ✅, WR8 ✅ |
 
 ### openshell-gateway-keycloak.spec.md
@@ -1055,18 +1215,18 @@ Test-tier Keycloak principals `admin` / `developer` / `platform-admin` are not b
 |---|-------------|--------|-----|---------------|------|
 | SR-1 | Database Password Rotation | Removed | HyperShell does not rotate per-gateway database credentials; operators rotate on the server or recreate the gateway | - | - |
 | SR-2 | Database Rotation Failure Handling | Removed | No rotation path exists; provisioning repair re-applies a lost tenant Secret with `ALTER ROLE` | `gateway/external_db.go` | - |
-| SR-3 | Config-Hash Coverage for Database Credentials | Present | `applyConfigHashAnnotation` now loops over both `openshell-server-tls` AND `openshell-gateway-db-credentials` Secrets | `gateway/reconciler.go` | SR-W1 ✅ |
-| SR-5 | KEK Rotation (Day-2) | Deferred | Explicitly deferred in spec; no gateway re-encryption API exists | - | Future |
-| SR-6 | TLS Certificate Rotation (cert-manager) | Present | cert-manager handles renewal; `applyConfigHashAnnotation` includes TLS Secret; config-hash triggers restart | `reconciler.go:540-554` | W7 ✅ |
-| SR-7 | Provider Credential Rotation by Driver Type | Deferred | Credential driver fields not yet implemented in reconciler; driver-specific rotation is platform-managed (K8s SA, Vault) | - | Future |
-| SR-8 | Interaction Between Credential Driver and DB Password Rotation | Present | DB password rotation is independent of credential driver; wired after `reconcileDatabaseCredentials()` via `RotateDBCredentials` opt | `gateway/reconciler.go` | SR-W1 ✅ |
+| SR-3 | Config-Hash Coverage for Database Credentials | Removed | Requirement retired (OSG-ROT-01). `applyConfigHashAnnotation` was deleted in the Helm cutover (#194); a changed DB credentials Secret does not restart the gateway | - | - |
+| SR-5 | KEK Rotation (Day-2) | Removed | Requirement retired (OSG-ROT-02). The KEK is not rotated; the chart reuses the existing KEK Secret on every upgrade | - | - |
+| SR-6 | TLS Certificate Renewal (cert-manager) | Present | cert-manager renews; the kubelet updates the mounted `openshell-server-tls` files; the OpenShell gateway file watcher reloads them without a restart | `charts/openshell/templates/_gateway-workload.tpl` (tls-cert mount) | - |
+| SR-7 | Provider Credential Rotation by Driver Type | Present | Driver-specific renewal is platform-managed (K8s SA token, Vault); the control plane wires the driver values and the projected `vault`-audience token. A changed `GATEWAY_VAULT_ADDRESS` reaches a gateway only on its next deploy | `helm/values.go` `buildCredentialDriverValues`/`buildVaultValues` | - |
+| SR-8 | Interaction Between Credential Driver and DB Password Rotation | Removed | No DB password rotation exists, so there is no interaction to handle | - | - |
 
 ### openshell-gateway-namespace-gc.spec.md
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
 | NGC-1 | Gateway deletion reaps the gateway namespace (cascade + out-of-namespace cleanup) | Present | Delete event deletes the managed namespace (cascading in-namespace resources incl. sandbox pods); ClusterRoleBinding, Keycloak client, cross-namespace credential RBAC cleaned explicitly; best-effort/idempotent; never gated on sandbox count | `gateway/reconciler.go` `DeleteGatewayResources()`, `gateway/namespace.go` | NGC ✅ |
-| NGC-2 | Periodic GC of orphaned namespaces (env-configurable) | Present | `NamespaceGCReconciler` sweeps instance-labeled managed namespaces; each sweep backfills `hypershell.redhat.io/instance` onto unlabeled legacy gateway namespaces (`openshell-*`, not `openshell-db-*`) then reaps orphans past grace. `GATEWAY_NAMESPACE_GC_ENABLED`/`_INTERVAL`/`_GRACE_PERIOD` default true/5m/10m | `reconciler/namespace.go`, `gateway/namespace.go` `BackfillInstanceLabels`, `config/config.go` | NGC ✅ |
+| NGC-2 | Periodic GC of orphaned namespaces (env-configurable) | Present | `NamespaceGCReconciler` sweeps instance-labeled managed namespaces; it never stamps the instance label itself and reaps orphans past grace. `GATEWAY_NAMESPACE_GC_ENABLED`/`_INTERVAL`/`_GRACE_PERIOD` default true/5m/10m | `reconciler/namespace.go`, `gateway/namespace.go`, `config/config.go` | NGC ✅ |
 | NGC-3 | Grace period prevents premature deletion (durable annotation) | Present | `hypershell.redhat.io/gc-eligible-since` (RFC3339) stamped on and measured from the namespace so it survives restarts; cleared when a live Gateway reappears | `gateway/namespace.go` `MarkGCEligible`/`ClearGCEligible` | NGC ✅ |
 | NGC-4 | Do not reap namespaces of live gateways (abort on list failure) | Present | Liveness derived from API-reported Gateways; sweep aborts entirely if Gateways cannot be listed; existing gateway preserved regardless of phase (Degraded/Failed) | `reconciler/namespace.go` | NGC ✅ |
 | NGC-5 | Preserve a durable record before deletion | Present | `GarbageCollected` Event recorded in the control-plane namespace summarizing orphan duration, pod state, and active sandbox count; summary best-effort, never blocks the reap | `reconciler/namespace.go:203` | NGC ✅ |
@@ -1135,7 +1295,7 @@ Test-tier Keycloak principals `admin` / `developer` / `platform-admin` are not b
 
 1. Remove deprecated `cluster_id` from the public REST `GatewayCreateRequest` source contract and regenerate OpenAPI clients/SDKs.
 2. Make the REST create handler always validate and resolve `placement`; retain resolved `cluster_id` only on persisted/read models and internal update paths.
-3. Extend managed-cluster restore to atomically refresh provider, visibility, and `last_seen_at` from the current registration.
+3. Extend managed-cluster restore to atomically refresh capabilities and `last_seen_at` from the current registration.
 4. Add regression tests for direct-cluster rejection/absence, intent resolution, and restored capability refresh.
 5. Verify generated artifacts, API build/vet, focused placement tests, and unchanged gateway read compatibility.
 
@@ -1345,7 +1505,7 @@ Implemented `scripts/cluster/` with a driver model. `make kind-*` wraps today's 
 | WR1 | Data Model Foundation (users, roles, roleBindings plugins, 6 built-in roles) | ✅ Complete |
 | WR2 | API Surface (handlers, presenters, routes for roles + roleBindings) | ✅ Complete |
 | WR3 | User Auto-Provisioning + Fleet Bootstrap (middleware + fleet:owner binding) | ✅ Complete |
-| WR4 | Authorization Middleware (scope-aware evaluation, exempt endpoints, enforcement flag) | ✅ Complete |
+| WR4 | Authorization Middleware (scope-aware evaluation, exempt endpoints, enforcement follows authentication) | ✅ Complete |
 | WR6 | gRPC Authorization (unary + stream interceptors with lazy init) | ✅ Complete |
 | WR7 | Integration Tests (roles: 4 tests, roleBindings: 7 tests) | ✅ Complete |
 | WR8 | Security Hardening (12 PR review findings resolved) | ✅ Complete |
@@ -1356,7 +1516,7 @@ Implemented `scripts/cluster/` with a driver model. `make kind-*` wraps today's 
 
 **Wave R3 summary:** `UserProvisioningMiddleware` upserts User from JWT claims (username, email, name) on every authenticated request. `fleetBootstrapper.CreateOwnerBinding` creates fleet:owner RoleBinding atomically in same DB transaction as fleet creation. Central `plugins/rbac/plugin.go` wires middleware on apiV1Router.
 
-**Wave R4 summary:** `rbacAuthzMiddleware` implements `auth.AuthorizationMiddleware` with scope-aware evaluation: loads caller's RoleBindings via `FindBindingsByUserID`, matches against resource scope extracted from URL. Exempt endpoints: POST /fleets, GET /metadata, GET /openapi. Service caller bypass via ClientID detection. Error opacity: 404 for unauthorized singleton GETs, 403 for mutations. `RBAC_ENFORCE=true` env var controls enforcement.
+**Wave R4 summary:** `rbacAuthzMiddleware` implements `auth.AuthorizationMiddleware` with scope-aware evaluation: loads caller's RoleBindings via `FindBindingsByUserID`, matches against resource scope extracted from URL. Exempt endpoints: POST /fleets, GET /metadata, GET /openapi. Service caller bypass via ClientID detection. Error opacity: 404 for unauthorized singleton GETs, 403 for mutations. Enforcement follows JWT authentication (one source of truth, SEC-RBAC-14).
 
 **Wave R6 summary:** `RBACUnaryInterceptor` and `RBACStreamInterceptor` apply same scope-aware evaluation to gRPC calls. `lazyRBACInterceptor` with `sync.Once` resolves services on first call (registered at init time via `RegisterPostAuthGRPC*Interceptor`). `provisionUserForGRPC` extracts JWT payload and provisions user before authorization.
 
@@ -1396,10 +1556,8 @@ Added `database/sql` + `lib/pq` to control plane. `rotateDatabaseCredentials()` 
 `app.kubernetes.io/managed-by=hypershell-control-plane` and
 `hypershell.redhat.io/managed=true` required, plus
 `hypershell.redhat.io/instance=<HYPERSHELL_NAMESPACE>`) and reaps those orphaned
-past the grace period. Each sweep first claims unlabeled legacy gateway
-namespaces (management labels, no instance label, `openshell-*` not
-`openshell-db-*`) so missed-delete orphans from before the instance label are
-not invisible to GC. Grace timer persisted on the `hypershell.redhat.io/gc-eligible-since`
+past the grace period. The sweep never stamps the instance label; only
+namespace creation and Gateway reconcile do. Grace timer persisted on the `hypershell.redhat.io/gc-eligible-since`
 annotation (RFC3339) and cleared when a Gateway reappears. Sweep aborts entirely
 if Gateways cannot be listed, so a transient API failure never reaps a live
 namespace. A `GarbageCollected` Event is recorded in the control-plane namespace
@@ -1664,8 +1822,8 @@ label-selected pod informer.
 | D14 | Gateway Deletion Protection | DB | API server validation |
 | D12 | DROP COLUMN migration for `database_config` | DB | Column still in DB schema; destructive migration deferred |
 | O6 | Custom raw TOML `config` field | OIDC | Advanced; not blocking |
-| SR-5 | KEK Rotation | Secret Rotation | Requires gateway re-encryption API (Day-2) |
-| SR-7 | Provider Credential Rotation | Secret Rotation | Platform-managed (K8s SA, Vault); no CP action needed |
+| SR-5 | KEK Rotation (Day-2) | Removed | Requirement retired (OSG-ROT-02). The KEK is not rotated; the chart reuses the existing KEK Secret on every upgrade | - | - |
+| SR-7 | Provider Credential Rotation by Driver Type | Present | Driver-specific renewal is platform-managed (K8s SA token, Vault); the control plane wires the driver values and the projected `vault`-audience token. A changed `GATEWAY_VAULT_ADDRESS` reaches a gateway only on its next deploy | `helm/values.go` `buildCredentialDriverValues`/`buildVaultValues` | - |
 | DM-4 | Gateway `status` writeback | Data Model | Depends on CP-4 |
 | lib/pq dead dep | `lib/pq` in go.mod but not imported | CP | Run `go mod tidy` in control-plane to remove dead dependency |
 | CP-4 | Status synchronization / health checks | CP | Needs periodic reconcile loop |
@@ -1687,7 +1845,7 @@ label-selected pod informer.
 2. **Naming: Sector vs Fleet**: Spec now uses "Fleet" (aligned with code). No longer a gap.
 3. **No restart mechanism (cross-spec)**: TLS, OIDC, and Routing specs all require workload restart on config changes. Addressed in Wave 7 via hash annotation.
 4. **Label-based cleanup (cross-spec)**: Database and Routing specs updated to use `hypershell.redhat.io/managed` label-based deletion instead of ownerReferences. ownerReferences were infeasible (DB resources created before Deployment) and unnecessary given explicit cleanup in `DeleteGatewayResources()`.
-5. ~~**Config-hash missing DB credentials**~~: Resolved in SR-W1. `applyConfigHashAnnotation` now includes `openshell-gateway-db-credentials` Secret.
+5. ~~**Config-hash missing DB credentials**~~: Moot. `applyConfigHashAnnotation` was deleted in the Helm cutover (#194) and OSG-ROT-01 was retired; a changed DB credentials Secret does not restart the gateway.
 6. ~~**RoleBinding watcher missing**~~: Resolved in KC-W2. CP now watches 7 resource types (added RoleBindings via `WatchRoleBindings` gRPC stream).
 
 ---

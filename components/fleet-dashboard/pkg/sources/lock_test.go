@@ -50,6 +50,40 @@ func contentsBody(t *testing.T, lockJSON string) string {
 	return string(b)
 }
 
+// TestGitHubLockResolverLockHistory walks the lock commit history and resolves each
+// commit to the bundle digest it selected, newest-first, reusing the per-SHA cache
+// (FLT-BPR-04/08). Commits whose lock is unresolvable (no digest) are dropped.
+func TestGitHubLockResolverLockHistory(t *testing.T) {
+	const lockA = `{"reference":{"tag":"release-bundle-20260930T165529000000Z-aaaa","digest":"sha256:aaaa"}}`
+	const lockB = `{"reference":{"tag":"release-bundle-20260929T165529000000Z-bbbb","digest":"sha256:bbbb"}}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/repos/acme/gitops/commits" && r.URL.Query().Get("path") == lockPath:
+			_, _ = w.Write([]byte(`[{"sha":"commitAAA"},{"sha":"commitBBB"},{"sha":"commitBAD"}]`))
+		case r.URL.Path == "/repos/acme/gitops/contents/"+lockPath && r.URL.Query().Get("ref") == "commitAAA":
+			_, _ = w.Write([]byte(contentsBody(t, lockA)))
+		case r.URL.Path == "/repos/acme/gitops/contents/"+lockPath && r.URL.Query().Get("ref") == "commitBBB":
+			_, _ = w.Write([]byte(contentsBody(t, lockB)))
+		default:
+			// commitBAD has no readable lock -> dropped from the timeline.
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	r := NewGitHubLockResolver(&config.Config{GitHubRepo: "acme/gitops", GitHubAPIBase: srv.URL})
+	history := r.LockHistory(context.Background(), 10)
+	if len(history) != 2 {
+		t.Fatalf("want 2 resolvable lock commits, got %d: %+v", len(history), history)
+	}
+	if history[0].SHA != "commitAAA" || history[0].Digest != "sha256:aaaa" {
+		t.Errorf("newest commit = %+v, want {commitAAA sha256:aaaa}", history[0])
+	}
+	if history[1].SHA != "commitBBB" || history[1].Digest != "sha256:bbbb" {
+		t.Errorf("second commit = %+v, want {commitBBB sha256:bbbb}", history[1])
+	}
+}
+
 // TestGitHubLockResolverResolve resolves a dry SHA to the release bundle its lock
 // references, forwards the installation token, and caches the (immutable) result.
 func TestGitHubLockResolverResolve(t *testing.T) {

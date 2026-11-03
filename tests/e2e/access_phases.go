@@ -77,9 +77,7 @@ func (s *E2ESuite) p2_5GatewayAccessManagement(t *testing.T) {
 	s.Require().NoError(err, "gateway user access grant request")
 	s.Assert().Equalf(http.StatusForbidden, status, "gateway user cannot grant access (body: %s)", string(body))
 
-	if !s.skipKubeChecks {
-		s.exerciseDeveloperSandbox(t)
-	}
+	s.exerciseDeveloperSandbox(t)
 
 	updated, err := access.Update(ctx, gatewayID, devGrant.UserID,
 		&sdktypes.GatewayAccessChangeRoleRequest{Role: sdktypes.GatewayAccessRoleAdmin})
@@ -136,7 +134,7 @@ func (s *E2ESuite) p2_5GatewayAccessManagement(t *testing.T) {
 // Verifies: E2E-CORE-15.01, OSG-KCLK-05.03
 func (s *E2ESuite) exerciseDeveloperSandbox(t *testing.T) {
 	ctx := t.Context()
-	clientID := fmt.Sprintf("%s-%s", s.primary.Name, s.primary.ID)
+	clientID := s.primary.ClientID
 	tok, err := s.driver.AcquireGatewayTokenWithRole(ctx, s.devCreds(), clientID, "openshell-user")
 	s.Require().NoError(err, "developer gateway token carries openshell-user")
 	claims, err := decodeJWTClaims(tok.AccessToken)
@@ -200,7 +198,7 @@ func (s *E2ESuite) p2_6GatewayServiceAccounts(t *testing.T) {
 	s.Require().NotEmpty(created.Subject)
 	s.Require().NotEmpty(created.Credential.ClientSecret)
 	s.Require().Equal("client_credentials", created.Credential.GrantType)
-	s.Require().Equal(fmt.Sprintf("%s-%s", s.primary.Name, s.primary.ID), created.Credential.Audience)
+	s.Require().Equal(s.primary.ClientID, created.Credential.Audience)
 	s.Require().Equal(created.ClientID, created.Credential.ClientID)
 	s.Require().Equal(strings.TrimSuffix(envOrDefault("E2E_OIDC_ISSUER", "https://keycloak.hypershell.localhost/realms/hypershell"), "/"), created.Credential.Issuer)
 	s.Require().Equal(created.Credential.Issuer+"/protocol/openid-connect/token", created.Credential.TokenEndpoint)

@@ -199,6 +199,62 @@ describe("mapPromotion", () => {
     expect(epsilon.activeDigest).toBe("cccccccc");
   });
 
+  it("maps the application and GitOps PR groups with repository identity", () => {
+    const data = mapPromotion({
+      order: ["delta"],
+      environments: {
+        delta: {
+          active: { version: "v1", digest: "sha256:dig" },
+          activeGates: [],
+        },
+      },
+      releases: {
+        "sha256:dig": {
+          version: "v1",
+          digest: "sha256:dig",
+          prs: [
+            {
+              number: 10,
+              title: "App change",
+              url: "https://github.com/acme/app/pull/10",
+              repository: "acme/app",
+            },
+          ],
+          gitopsPrs: [
+            {
+              number: 10,
+              title: "Deploy change",
+              url: "https://github.com/acme/gitops-delivery/pull/10",
+              repository: "acme/gitops-delivery",
+              environments: ["prod", "stage"],
+            },
+          ],
+          gitopsStatus: "available",
+        },
+      },
+    });
+    const bundle = data.releaseByDigest["sha256:dig"];
+    if (!bundle) throw new Error("expected bundle");
+    expect(bundle.prs[0]?.repository).toBe("acme/app");
+    expect(bundle.gitopsPrs?.[0]?.repository).toBe("acme/gitops-delivery");
+    expect(bundle.gitopsPrs?.[0]?.environments).toEqual(["prod", "stage"]);
+    expect(bundle.gitopsStatus).toBe("available");
+  });
+
+  it("maps an unavailable GitOps status and ignores unknown status strings", () => {
+    const data = mapPromotion({
+      releases: {
+        a: { version: "v1", digest: "a", gitopsStatus: "unavailable" },
+        b: { version: "v2", digest: "b", gitopsStatus: "bogus" },
+        c: { version: "v3", digest: "c" },
+      },
+    });
+    expect(data.releaseByDigest.a?.gitopsStatus).toBe("unavailable");
+    // An unrecognized status and an absent status both collapse to null (hidden).
+    expect(data.releaseByDigest.b?.gitopsStatus).toBeNull();
+    expect(data.releaseByDigest.c?.gitopsStatus).toBeNull();
+  });
+
   it("maps absent release versions to null", () => {
     const data = mapPromotion({
       order: ["gamma"],
@@ -469,6 +525,72 @@ describe("mapSdlc", () => {
     expect(data.matrix.rows[1]?.otherPRs[0]?.number).toBe(540);
     expect(data.matrix.rows[1]?.otherPRs[0]?.author).toBe("dependabot");
     expect(data.matrix.rows[1]?.otherPRs[0]?.mergedAt).toBeNull();
+  });
+
+  // Verifies: SDLC-VIS-25.01, SDLC-VIS-25.03, SDLC-VIS-25.05
+  it("decodes the GitOps deployment group with repository/environment identity", () => {
+    const data = mapSdlc({
+      matrix: {
+        hubClusters: [],
+        rows: [
+          {
+            version: "v-available",
+            digest: "da",
+            // A GitOps PR #42 collides with the application PR #42 but stays distinct:
+            // it decodes into gitopsPrs with its own repository identity.
+            otherPRs: [
+              { number: 42, title: "app 42", url: "https://x/pull/42" },
+            ],
+            gitopsPrs: [
+              {
+                number: 42,
+                title: "bump lock",
+                url: "https://gitops/pull/42",
+                author: "promoter",
+                mergedAt: "2026-08-30T00:00:00Z",
+                repository: "acme/gitops-delivery",
+                environments: ["prod", "", 7],
+              },
+            ],
+            gitopsStatus: "available",
+          },
+          {
+            version: "v-unavailable",
+            digest: "du",
+            gitopsStatus: "unavailable",
+          },
+          {
+            // A legacy row with no GitOps fields decodes to no GitOps grouping.
+            version: "v-legacy",
+            digest: "dl",
+          },
+        ],
+      },
+    });
+
+    const [available, unavailable, legacy] = data.matrix.rows;
+    expect(available?.gitopsStatus).toBe("available");
+    expect(available?.gitopsPrs?.[0]?.number).toBe(42);
+    expect(available?.gitopsPrs?.[0]?.repository).toBe("acme/gitops-delivery");
+    // The application #42 stays in otherPRs and is a different record from GitOps #42.
+    expect(available?.otherPRs[0]?.repository).toBeNull();
+    // Non-string environment entries are dropped.
+    expect(available?.gitopsPrs?.[0]?.environments).toEqual(["prod"]);
+    expect(unavailable?.gitopsStatus).toBe("unavailable");
+    expect(unavailable?.gitopsPrs).toEqual([]);
+    // Legacy row: no GitOps fields -> null status, empty group, never "available".
+    expect(legacy?.gitopsStatus).toBeNull();
+    expect(legacy?.gitopsPrs).toEqual([]);
+  });
+
+  it("narrows an unknown GitOps status to null (hide the deployment section)", () => {
+    const data = mapSdlc({
+      matrix: {
+        hubClusters: [],
+        rows: [{ version: "v1", digest: "d1", gitopsStatus: "bogus" }],
+      },
+    });
+    expect(data.matrix.rows[0]?.gitopsStatus).toBeNull();
   });
 
   it("degrades a partial/empty payload to an empty board, lane, and matrix", () => {

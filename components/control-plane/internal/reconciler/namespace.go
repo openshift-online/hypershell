@@ -45,11 +45,7 @@ const (
 // this control-plane instance created but that no longer have a live Gateway in
 // this instance's API server. Other HyperShell instances on the same cluster are
 // ignored: the sweep selects on hypershell.redhat.io/instance=<HYPERSHELL_NAMESPACE>.
-// Legacy gateway namespaces that predate the instance label (both management
-// labels, no instance label) are not visible to a sweep on their own; the
-// one-shot startup backfill (BackfillInstanceLabels) stamps the instance label
-// onto those this instance still owns per its API server, and this reconciler
-// never claims an unlabeled namespace itself. This reaps namespaces orphaned by a
+// The sweep never stamps the instance label itself. This reaps namespaces orphaned by a
 // delete event missed while the control plane was down, and namespaces whose
 // gateway failed to bootstrap and was then deleted.
 // Reaping is best-effort and idempotent, and is delayed by a grace period

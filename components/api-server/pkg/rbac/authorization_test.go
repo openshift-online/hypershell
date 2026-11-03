@@ -274,11 +274,11 @@ func TestIsAuthorized_NoBindingsDenied(t *testing.T) {
 }
 
 func TestIsAuthorized_NoBindingsCanListGateways(t *testing.T) {
-	// OpenShift sets RBAC_DEFAULT_ROLES empty, so a developer JWT (only
-	// hypershell-users) syncs no RoleBindings. Collection GET must still be
-	// allowed: the list handler returns 200 with an empty items array
-	// (rbac-enforcement Error Response Opacity). Denying the list is 403
-	// and the web console shows "Gateways could not be loaded".
+	// A caller whose JWT carries no platform role (just hypershell-users)
+	// syncs no RoleBindings. Collection GET must still be allowed: the list
+	// handler returns 200 with an empty items array (rbac-enforcement Error
+	// Response Opacity). Denying the list is 403 and the web console shows
+	// "Gateways could not be loaded".
 	bindings := []BindingSummary{}
 
 	if !isAuthorized(http.MethodGet, "gateways", "", "", bindings, nil, false) {

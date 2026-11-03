@@ -22,14 +22,22 @@ import (
 	"github.com/openshift-online/hypershell/components/fleet-dashboard/pkg/version"
 )
 
+// Mount is an extra authenticated API served under Prefix (for example
+// "/specs/api/"), with the prefix stripped before Handler sees the request.
+type Mount struct {
+	Prefix  string
+	Handler http.Handler
+}
+
 // New builds the top-level handler.
 //
 //   - /healthz, /readyz                 unauthenticated
 //   - /api/*                            authenticated (auth.Middleware)
+//   - each mount's prefix               authenticated (auth.Middleware)
 //   - everything else                   embedded SPA with index.html fallback
 //
 // /metrics is NOT on this handler; see Metrics() for the dedicated listener.
-func New(h *api.Handlers, authn *auth.Authenticator, static fs.FS) http.Handler {
+func New(h *api.Handlers, authn *auth.Authenticator, static fs.FS, mounts ...Mount) http.Handler {
 	apiMux := http.NewServeMux()
 	h.Register(apiMux)
 
@@ -47,6 +55,10 @@ func New(h *api.Handlers, authn *auth.Authenticator, static fs.FS) http.Handler 
 		_, _ = w.Write([]byte("ready"))
 	})
 	root.Handle("/api/", authn.Middleware(apiMux))
+	for _, m := range mounts {
+		prefix := strings.TrimSuffix(m.Prefix, "/")
+		root.Handle(prefix+"/", authn.Middleware(http.StripPrefix(prefix, m.Handler)))
+	}
 	root.Handle("/", spaHandler(static))
 	return root
 }
@@ -63,11 +75,21 @@ func Metrics() http.Handler {
 
 // spaHandler serves static assets, falling back to index.html for any path that
 // isn't a real file so client-side routes (React Router) resolve on deep links.
+// A folder with its own index.html (the spec viewer at /specs/) serves that
+// document instead.
 func spaHandler(static fs.FS) http.Handler {
 	fileServer := http.FileServer(http.FS(static))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := strings.TrimPrefix(r.URL.Path, "/")
 		if p == "" {
+			serveIndex(w, r, static)
+			return
+		}
+		if folder, ok := strings.CutSuffix(p, "/"); ok {
+			if data, err := fs.ReadFile(static, folder+"/index.html"); err == nil {
+				writeHTML(w, data)
+				return
+			}
 			serveIndex(w, r, static)
 			return
 		}
@@ -85,6 +107,10 @@ func serveIndex(w http.ResponseWriter, r *http.Request, static fs.FS) {
 		http.Error(w, "UI bundle not found", http.StatusNotFound)
 		return
 	}
+	writeHTML(w, data)
+}
+
+func writeHTML(w http.ResponseWriter, data []byte) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write(data)
 }

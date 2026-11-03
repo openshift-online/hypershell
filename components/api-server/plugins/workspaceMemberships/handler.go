@@ -101,8 +101,19 @@ func (h *workspaceMembershipHandler) Patch(w http.ResponseWriter, r *http.Reques
 			if err != nil {
 				return nil, err
 			}
+			// Snapshot the derived find-by-name key from the pre-patch identity so
+			// a patch that mutates a DeriveName input re-derives the name. Role is
+			// not a DeriveName input today (the name derives from
+			// workspace_id/subject), so this is defensive: if a future patch field
+			// touches an identity column, find-by-name still resolves the new
+			// identity, while a client-supplied custom name is preserved
+			// (SDLC-CONF-13).
+			oldDerivedName := DeriveName(found.WorkspaceId, found.Subject)
 			if patch.Role != nil {
 				found.Role = *patch.Role
+			}
+			if found.Name == oldDerivedName {
+				found.Name = DeriveName(found.WorkspaceId, found.Subject)
 			}
 			updated, err := h.service.Replace(ctx, found)
 			if err != nil {

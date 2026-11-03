@@ -166,6 +166,12 @@ func (h *ciTrustHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			if svcErr := h.authorizer.authorizeManageExisting(ctx, found.GatewayID); svcErr != nil {
 				return nil, svcErr
 			}
+			// Snapshot the derived find-by-name key from the pre-patch identity so
+			// a patch that mutates a DeriveName input (role) re-derives the name,
+			// keeping find-by-name resolving the new identity. A client-supplied
+			// custom name (one that does not equal the pre-patch derived value) is
+			// preserved, never clobbered (SDLC-CONF-13).
+			oldDerivedName := DeriveName(found.CIProviderID, found.GatewayID, found.Role)
 			if patch.SubjectRef != nil {
 				found.SubjectRef = patch.SubjectRef
 			}
@@ -177,6 +183,9 @@ func (h *ciTrustHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			}
 			if patch.Role != nil {
 				found.Role = *patch.Role
+			}
+			if found.Name == oldDerivedName {
+				found.Name = DeriveName(found.CIProviderID, found.GatewayID, found.Role)
 			}
 			updated, err := h.service.Replace(ctx, found)
 			if err != nil {

@@ -19,8 +19,6 @@ var args struct {
 	apiServerUrl     string
 	kubeconfigSecret string
 	name             string
-	provider         string
-	region           string
 	status           string
 	bodyFile         string
 }
@@ -30,7 +28,7 @@ var Cmd = &cobra.Command{
 	Short: "Create a managedCluster",
 	Long: "Create a new managedCluster.\n\n" +
 		"Examples:\n" +
-		"  hsctl create managedCluster --api-server-url <value> --kubeconfig-secret <value> --name <value> --provider <value> --region <value> --status <value> \n" +
+		"  hsctl create managedCluster --api-server-url <value> --kubeconfig-secret <value> --name <value> --status <value> \n" +
 		"  hsctl create managedCluster --body request.json",
 	Args: cobra.NoArgs,
 	RunE: run,
@@ -41,8 +39,6 @@ func init() {
 	fs.StringVar(&args.apiServerUrl, "api-server-url", "", "api_server_url value.")
 	fs.StringVar(&args.kubeconfigSecret, "kubeconfig-secret", "", "kubeconfig_secret value.")
 	fs.StringVar(&args.name, "name", "", "name value.")
-	fs.StringVar(&args.provider, "provider", "", "provider value.")
-	fs.StringVar(&args.region, "region", "", "region value.")
 	fs.StringVar(&args.status, "status", "", "status value.")
 	fs.StringVar(&args.bodyFile, "body", "", "File containing the request body as JSON.")
 }
@@ -76,12 +72,6 @@ func run(cmd *cobra.Command, argv []string) error {
 		}
 		if args.name != "" {
 			request["name"] = args.name
-		}
-		if args.provider != "" {
-			request["provider"] = args.provider
-		}
-		if args.region != "" {
-			request["region"] = args.region
 		}
 		if args.status != "" {
 			request["status"] = args.status

@@ -17,6 +17,7 @@ func workspaceMembershipToProto(wm *WorkspaceMembership) *pb.WorkspaceMembership
 			Kind:      "WorkspaceMembership",
 			Href:      "/api/hypershell/ext/workspace_memberships/" + wm.ID,
 		},
+		Name:        wm.Name,
 		WorkspaceId: wm.WorkspaceId,
 		Subject:     wm.Subject,
 		Role:        wm.Role,

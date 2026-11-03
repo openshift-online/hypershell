@@ -1,6 +1,10 @@
 # Investigation: Per-gateway wildcard certificates for sandbox service exposure
 
-**Date:** 2026-09-29 (rev. 3, plan confirmed with user)
+**Date:** 2026-09-29 (rev. 3, plan confirmed with user); **follow-up 2026-10-30:**
+see [`dedicated-route-console-cert.md`](./dedicated-route-console-cert.md) for the
+production incident investigation of the dedicated-route console certificate
+mismatch and the control-plane fixes that keep `console_address` and the console
+exposure consistent.
 **Status:** Investigation / design proposal - no code changed
 **Goal:** Make OpenShell sandbox service exposure (ExposeService HTTP
 virtual-hosting) work. Today the platform provisions one wildcard certificate at

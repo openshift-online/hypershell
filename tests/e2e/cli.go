@@ -189,10 +189,7 @@ func (s *E2ESuite) cliEnv(t *testing.T) []string {
 // "" when E2E_KUBECONTEXT is unset (the wrapper then uses the current context, as
 // in CI). Cached for the suite lifetime.
 func (s *E2ESuite) cliKubeconfig(t *testing.T) string {
-	ctxName := s.kubeContext
-	if ctxName == "" {
-		ctxName = os.Getenv("E2E_KUBECONTEXT")
-	}
+	ctxName := os.Getenv("E2E_KUBECONTEXT")
 	if ctxName == "" {
 		return ""
 	}
@@ -243,7 +240,7 @@ func (s *E2ESuite) registerGateway(t *testing.T, ref driver.GatewayRef, endpoint
 		GatewayPort:     0,
 		AuthMode:        "oidc",
 		OIDCIssuer:      envOrDefault("E2E_OIDC_ISSUER", "https://keycloak.hypershell.localhost/realms/hypershell"),
-		OIDCClientID:    fmt.Sprintf("%s-%s", ref.Name, ref.ID),
+		OIDCClientID:    ref.ClientID,
 		GatewayInsecure: gatewayTLSInsecure(s.driver.Name()),
 	}
 	if s.usesGatewayServiceAccount() {

@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -159,12 +160,23 @@ func TestConsoleDeployment_OpenShiftOverrideStripsFsGroup(t *testing.T) {
 	}
 }
 
-// consoleHTTPRouteWithConditions builds a console HTTPRoute with one parent.
+// consoleHTTPRouteWithConditions builds a console HTTPRoute with one parent,
+// serving the shared-ingress console host on the shared Gateway's listener (the
+// shape buildConsoleHTTPRoute emits for a gateway without the dedicated-route
+// opt-in, under the test base domain and shared Gateway env below).
 func consoleHTTPRouteWithConditions(namespace string, conditions []interface{}) *unstructured.Unstructured {
 	route := &unstructured.Unstructured{}
 	route.SetGroupVersionKind(consoleHTTPRouteGVR.GroupVersion().WithKind("HTTPRoute"))
 	route.SetNamespace(namespace)
 	route.SetName(consoleName)
+	_ = unstructured.SetNestedStringSlice(route.Object, []string{consoleSharedTestHost(namespace)}, "spec", "hostnames")
+	_ = unstructured.SetNestedSlice(route.Object, []interface{}{
+		map[string]interface{}{
+			"name":        "openshell-grpc-gateway",
+			"namespace":   "openshift-ingress",
+			"sectionName": "https",
+		},
+	}, "spec", "parentRefs")
 	if conditions != nil {
 		_ = unstructured.SetNestedSlice(route.Object, []interface{}{
 			map[string]interface{}{
@@ -182,6 +194,7 @@ func consoleOpenShiftRouteWithConditions(namespace string, conditions []interfac
 	route.SetGroupVersionKind(consoleOpenShiftRouteGVR.GroupVersion().WithKind("Route"))
 	route.SetNamespace(namespace)
 	route.SetName(consoleName)
+	_ = unstructured.SetNestedField(route.Object, consoleSharedTestHost(namespace), "spec", "host")
 	if conditions != nil {
 		_ = unstructured.SetNestedSlice(route.Object, []interface{}{
 			map[string]interface{}{
@@ -210,6 +223,24 @@ func newConsoleRouteDynamicClient(objs ...runtime.Object) *dynamicfake.FakeDynam
 	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind, objs...)
 }
 
+// consoleTestBaseDomain is the GATEWAY_API_BASE_DOMAIN the exposure-readiness
+// tests run under; the console host derived for a namespace is
+// console-<ns>.<domain> on the shared ingress and
+// console-<ns>.gw-<ns>.<domain> for the dedicated-route opt-in.
+const consoleTestBaseDomain = "spoke.example.com"
+
+// consoleSharedTestHost is the shared-ingress console host of a namespace
+// under consoleTestBaseDomain.
+func consoleSharedTestHost(namespace string) string {
+	return fmt.Sprintf("console-%s.%s", namespace, consoleTestBaseDomain)
+}
+
+// consoleDedicatedTestHost is the dedicated-route console host of a namespace
+// under consoleTestBaseDomain.
+func consoleDedicatedTestHost(namespace string) string {
+	return fmt.Sprintf("console-%s.gw-%s.%s", namespace, namespace, consoleTestBaseDomain)
+}
+
 // The console Deployment can be Ready while its HTTPRoute is rejected (e.g. a
 // missing or misnamed HTTP listener on the shared Gateway). Publishing
 // console_address then yields a dead "Open console" link, so readiness must
@@ -217,13 +248,15 @@ func newConsoleRouteDynamicClient(objs ...runtime.Object) *dynamicfake.FakeDynam
 func TestConsoleExposureReadyHTTPRoute(t *testing.T) {
 	ctx := context.Background()
 	const ns = "openshell-abc"
+	t.Setenv("GATEWAY_API_BASE_DOMAIN", consoleTestBaseDomain)
+	t.Setenv("GATEWAY_API_GATEWAY_NAME", "openshell-grpc-gateway")
 
 	t.Run("accepted and resolved is ready", func(t *testing.T) {
 		client := newConsoleRouteDynamicClient(consoleHTTPRouteWithConditions(ns, []interface{}{
 			routeCondition("Accepted", "True", "Accepted"),
 			routeCondition("ResolvedRefs", "True", "ResolvedRefs"),
 		}))
-		ready, reason, err := ConsoleExposureReady(ctx, client, ns, IngressModeGatewayAPI)
+		ready, reason, err := ConsoleExposureReady(ctx, client, NamespaceConfig{Name: ns}, IngressModeGatewayAPI)
 		if err != nil {
 			t.Fatalf("ConsoleExposureReady: %v", err)
 		}
@@ -237,7 +270,7 @@ func TestConsoleExposureReadyHTTPRoute(t *testing.T) {
 			routeCondition("Accepted", "False", "NoMatchingListenerHostname"),
 			routeCondition("ResolvedRefs", "True", "ResolvedRefs"),
 		}))
-		ready, reason, err := ConsoleExposureReady(ctx, client, ns, IngressModeGatewayAPI)
+		ready, reason, err := ConsoleExposureReady(ctx, client, NamespaceConfig{Name: ns}, IngressModeGatewayAPI)
 		if err != nil {
 			t.Fatalf("ConsoleExposureReady: %v", err)
 		}
@@ -254,7 +287,7 @@ func TestConsoleExposureReadyHTTPRoute(t *testing.T) {
 			routeCondition("Accepted", "True", "Accepted"),
 			routeCondition("ResolvedRefs", "False", "BackendNotFound"),
 		}))
-		ready, reason, err := ConsoleExposureReady(ctx, client, ns, IngressModeGatewayAPI)
+		ready, reason, err := ConsoleExposureReady(ctx, client, NamespaceConfig{Name: ns}, IngressModeGatewayAPI)
 		if err != nil {
 			t.Fatalf("ConsoleExposureReady: %v", err)
 		}
@@ -268,7 +301,7 @@ func TestConsoleExposureReadyHTTPRoute(t *testing.T) {
 
 	t.Run("no parent status yet is not ready", func(t *testing.T) {
 		client := newConsoleRouteDynamicClient(consoleHTTPRouteWithConditions(ns, nil))
-		ready, _, err := ConsoleExposureReady(ctx, client, ns, IngressModeGatewayAPI)
+		ready, _, err := ConsoleExposureReady(ctx, client, NamespaceConfig{Name: ns}, IngressModeGatewayAPI)
 		if err != nil {
 			t.Fatalf("ConsoleExposureReady: %v", err)
 		}
@@ -279,7 +312,7 @@ func TestConsoleExposureReadyHTTPRoute(t *testing.T) {
 
 	t.Run("missing route is not ready without error", func(t *testing.T) {
 		client := newConsoleRouteDynamicClient()
-		ready, reason, err := ConsoleExposureReady(ctx, client, ns, IngressModeGatewayAPI)
+		ready, reason, err := ConsoleExposureReady(ctx, client, NamespaceConfig{Name: ns}, IngressModeGatewayAPI)
 		if err != nil {
 			t.Fatalf("ConsoleExposureReady on missing route should not error: %v", err)
 		}
@@ -295,13 +328,14 @@ func TestConsoleExposureReadyHTTPRoute(t *testing.T) {
 func TestConsoleExposureReadyOpenShiftRoute(t *testing.T) {
 	ctx := context.Background()
 	const ns = "openshell-abc"
+	t.Setenv("GATEWAY_API_BASE_DOMAIN", consoleTestBaseDomain)
 
 	// Verifies: OSG-CON-05.02
 	t.Run("admitted route is ready", func(t *testing.T) {
 		client := newConsoleRouteDynamicClient(consoleOpenShiftRouteWithConditions(ns, []interface{}{
 			routeCondition("Admitted", "True", "RouteAdmitted"),
 		}))
-		ready, reason, err := ConsoleExposureReady(ctx, client, ns, IngressModeRoute)
+		ready, reason, err := ConsoleExposureReady(ctx, client, NamespaceConfig{Name: ns}, IngressModeRoute)
 		if err != nil {
 			t.Fatalf("ConsoleExposureReady: %v", err)
 		}
@@ -314,7 +348,7 @@ func TestConsoleExposureReadyOpenShiftRoute(t *testing.T) {
 		client := newConsoleRouteDynamicClient(consoleOpenShiftRouteWithConditions(ns, []interface{}{
 			routeCondition("Admitted", "False", "HostAlreadyClaimed"),
 		}))
-		ready, reason, err := ConsoleExposureReady(ctx, client, ns, IngressModeRoute)
+		ready, reason, err := ConsoleExposureReady(ctx, client, NamespaceConfig{Name: ns}, IngressModeRoute)
 		if err != nil {
 			t.Fatalf("ConsoleExposureReady: %v", err)
 		}
@@ -346,7 +380,7 @@ func TestConsoleExposureReadyOpenShiftRoute(t *testing.T) {
 		}, "status", "ingress")
 
 		client := newConsoleRouteDynamicClient(route)
-		ready, reason, err := ConsoleExposureReady(ctx, client, ns, IngressModeRoute)
+		ready, reason, err := ConsoleExposureReady(ctx, client, NamespaceConfig{Name: ns}, IngressModeRoute)
 		if err != nil {
 			t.Fatalf("ConsoleExposureReady: %v", err)
 		}
@@ -371,7 +405,7 @@ func TestConsoleExposureReadyOpenShiftRoute(t *testing.T) {
 		}, "status", "ingress")
 
 		client := newConsoleRouteDynamicClient(route)
-		ready, reason, err := ConsoleExposureReady(ctx, client, ns, IngressModeRoute)
+		ready, reason, err := ConsoleExposureReady(ctx, client, NamespaceConfig{Name: ns}, IngressModeRoute)
 		if err != nil {
 			t.Fatalf("ConsoleExposureReady: %v", err)
 		}
@@ -386,7 +420,7 @@ func TestConsoleExposureReadyOpenShiftRoute(t *testing.T) {
 	// Verifies: OSG-CON-05.03
 	t.Run("route without router status is not ready", func(t *testing.T) {
 		client := newConsoleRouteDynamicClient(consoleOpenShiftRouteWithConditions(ns, nil))
-		ready, reason, err := ConsoleExposureReady(ctx, client, ns, IngressModeRoute)
+		ready, reason, err := ConsoleExposureReady(ctx, client, NamespaceConfig{Name: ns}, IngressModeRoute)
 		if err != nil {
 			t.Fatalf("ConsoleExposureReady: %v", err)
 		}
@@ -397,12 +431,109 @@ func TestConsoleExposureReadyOpenShiftRoute(t *testing.T) {
 
 	t.Run("missing route is not ready", func(t *testing.T) {
 		client := newConsoleRouteDynamicClient()
-		ready, reason, err := ConsoleExposureReady(ctx, client, ns, IngressModeRoute)
+		ready, reason, err := ConsoleExposureReady(ctx, client, NamespaceConfig{Name: ns}, IngressModeRoute)
 		if err != nil {
 			t.Fatalf("ConsoleExposureReady: %v", err)
 		}
 		if ready || reason == "" {
 			t.Errorf("ready = %v, reason = %q; want not ready with a reason", ready, reason)
+		}
+	})
+}
+
+// A dedicated-route gateway (route.certificate) must only count as servable
+// when its console HTTPRoute serves the DEDICATED host
+// (console-<ns>.gw-<ns>.<base-domain>) on the per-tenant Gateway's "sandbox"
+// listener. A console exposure left on the shared ingress -- a gateway
+// provisioned before the controller learned the opt-in, or one deformed by a
+// self-heal that dropped the route config -- is Accepted, but the dedicated
+// host resolves (through the shared wildcard DNS record) to the shared
+// Gateway, which has no listener for it and presents its fallback certificate:
+// every browser refuses the name mismatch. The address publisher must report
+// that exposure not ready instead of advertising the dedicated URL.
+// Verifies: OSG-CON-09.02
+func TestConsoleExposureReadyDedicatedRouteHostAndParent(t *testing.T) {
+	ctx := context.Background()
+	const ns = "openshell-abc"
+	t.Setenv("GATEWAY_API_BASE_DOMAIN", consoleTestBaseDomain)
+	t.Setenv("GATEWAY_API_GATEWAY_NAME", "openshell-grpc-gateway")
+
+	dedicated := NamespaceConfig{
+		Name:    ns,
+		Gateway: GatewayConfig{Route: RouteConfig{Enabled: true, Certificate: &RouteCertificateConfig{}}},
+	}
+
+	accepted := []interface{}{
+		routeCondition("Accepted", "True", "Accepted"),
+		routeCondition("ResolvedRefs", "True", "ResolvedRefs"),
+	}
+
+	t.Run("dedicated host on the per-tenant sandbox listener is ready", func(t *testing.T) {
+		route := consoleHTTPRouteWithConditions(ns, accepted)
+		_ = unstructured.SetNestedStringSlice(route.Object, []string{consoleDedicatedTestHost(ns)}, "spec", "hostnames")
+		_ = unstructured.SetNestedSlice(route.Object, []interface{}{
+			map[string]interface{}{
+				"name":        "gw-" + ns,
+				"namespace":   ns,
+				"sectionName": "sandbox",
+			},
+		}, "spec", "parentRefs")
+		client := newConsoleRouteDynamicClient(route)
+		ready, reason, err := ConsoleExposureReady(ctx, client, dedicated, IngressModeGatewayAPI)
+		if err != nil {
+			t.Fatalf("ConsoleExposureReady: %v", err)
+		}
+		if !ready {
+			t.Errorf("expected ready; reason=%q", reason)
+		}
+	})
+
+	t.Run("shared-host exposure of a dedicated gateway is not ready (the reported incident)", func(t *testing.T) {
+		// An Accepted, fully-resolved console HTTPRoute on the shared ingress:
+		// healthy by every pre-existing readiness signal, but it does not serve
+		// the dedicated console host the gateway's route opt-in derives.
+		client := newConsoleRouteDynamicClient(consoleHTTPRouteWithConditions(ns, accepted))
+		ready, reason, err := ConsoleExposureReady(ctx, client, dedicated, IngressModeGatewayAPI)
+		if err != nil {
+			t.Fatalf("ConsoleExposureReady: %v", err)
+		}
+		if ready {
+			t.Fatal("expected not ready when the exposure serves the shared host of a dedicated-route gateway")
+		}
+		if !strings.Contains(reason, consoleDedicatedTestHost(ns)) {
+			t.Errorf("reason = %q, want it to name the expected dedicated host %q", reason, consoleDedicatedTestHost(ns))
+		}
+	})
+
+	t.Run("dedicated host still parented on the shared Gateway is not ready", func(t *testing.T) {
+		route := consoleHTTPRouteWithConditions(ns, accepted)
+		_ = unstructured.SetNestedStringSlice(route.Object, []string{consoleDedicatedTestHost(ns)}, "spec", "hostnames")
+		client := newConsoleRouteDynamicClient(route)
+		ready, reason, err := ConsoleExposureReady(ctx, client, dedicated, IngressModeGatewayAPI)
+		if err != nil {
+			t.Fatalf("ConsoleExposureReady: %v", err)
+		}
+		if ready {
+			t.Fatal("expected not ready when the dedicated host is not parented on the per-tenant Gateway")
+		}
+		if !strings.Contains(reason, "sandbox") {
+			t.Errorf("reason = %q, want it to name the per-tenant sandbox listener", reason)
+		}
+	})
+
+	t.Run("OpenShift Route serving the shared host of a dedicated gateway is not ready", func(t *testing.T) {
+		client := newConsoleRouteDynamicClient(consoleOpenShiftRouteWithConditions(ns, []interface{}{
+			routeCondition("Admitted", "True", "RouteAdmitted"),
+		}))
+		ready, reason, err := ConsoleExposureReady(ctx, client, dedicated, IngressModeRoute)
+		if err != nil {
+			t.Fatalf("ConsoleExposureReady: %v", err)
+		}
+		if ready {
+			t.Fatal("expected not ready when the Route serves the shared host of a dedicated-route gateway")
+		}
+		if !strings.Contains(reason, consoleDedicatedTestHost(ns)) {
+			t.Errorf("reason = %q, want it to name the expected dedicated host %q", reason, consoleDedicatedTestHost(ns))
 		}
 	})
 }

@@ -54,14 +54,33 @@ export interface AgentSdlcHubCluster {
 
 /** One pull request shipped in a bundle. Bundle contents are PR-driven
  *  (SDLC-VIS-03): these mirror the shared bundle PRs the Fleet Map freight bar
- *  shows, so a pull request is never hidden because its issue link is unrecoverable. */
+ *  shows, so a pull request is never hidden because its issue link is unrecoverable.
+ *  `repository` and `environments` are populated only for GitOps deployment pull
+ *  requests (the bundle's gitopsPrs group, SDLC-VIS-25): repository keys a GitOps PR
+ *  apart from an application PR that shares its number (FLT-BPR-02), and environments
+ *  carries the deployment-environment attribution (FLT-BPR-06). Both are empty for
+ *  application pull requests. */
 export interface AgentSdlcPullRequest {
   readonly number: number;
   readonly title: string;
   readonly url: string;
   readonly author: string | null;
   readonly mergedAt: string | null;
+  /** The owner/repo a GitOps deployment PR belongs to (FLT-BPR-02); absent/null for
+   *  application PRs and on older payloads. */
+  readonly repository?: string | null;
+  /** Deployment environments whose range includes a GitOps PR (FLT-BPR-06); absent or
+   *  empty for application PRs. */
+  readonly environments?: readonly string[];
 }
+
+/** Whether a bundle's GitOps deployment-change range could be bounded and compared
+ *  (SDLC-VIS-25, mirroring FLT-BPR-10). `"available"` means the comparison succeeded
+ *  (an empty gitopsPrs is then a genuine "no deployment changes"); `"unavailable"`
+ *  means the lookup failed. null means GitOps grouping was not reported (an older
+ *  payload with no GitOps fields), so the UI renders no deployment section and never
+ *  claims the lookup succeeded. */
+export type AgentSdlcGitOpsStatus = "available" | "unavailable";
 
 /** One tracked execution record that shipped (or awaits a bundle, in Unreleased).
  *  In a bundle it carries the bundle's pull requests that resolve to it (prs), so a
@@ -79,10 +98,15 @@ export interface AgentSdlcShippedIssue {
 }
 
 /** One matrix row: a release bundle (newest first) or the single Unreleased row.
- *  A bundle row's contents are PR-driven and split into two groups: issues (the
- *  bundle's PRs grouped under the tracked execution record they resolve to) and
- *  otherPRs (one-off PRs with no tracked issue). The Unreleased row carries only
- *  tracked issues and no otherPRs. */
+ *  A bundle row's contents are PR-driven and grouped under two repository headings.
+ *  The APPLICATION repository is split into issues (the bundle's PRs grouped under the
+ *  tracked execution record they resolve to) and otherPRs (one-off PRs with no tracked
+ *  issue). The DEPLOYMENT repository is gitopsPrs: the bundle's GitOps deployment PRs
+ *  carried from the shared bundle enrichment that also feeds Fleet Map (SDLC-VIS-25).
+ *  gitopsStatus tells a successful-but-empty GitOps comparison ("available") from an
+ *  unavailable lookup ("unavailable"); null means the payload reported no GitOps fields
+ *  (an older server), so the UI renders no deployment section. The Unreleased row
+ *  carries only tracked issues and no otherPRs or GitOps group. */
 export interface AgentSdlcBundleRow {
   readonly version: string | null;
   readonly digest: string | null;
@@ -92,6 +116,12 @@ export interface AgentSdlcBundleRow {
   readonly hubClusters: readonly string[];
   readonly issues: readonly AgentSdlcShippedIssue[];
   readonly otherPRs: readonly AgentSdlcPullRequest[];
+  /** The GitOps deployment-change pull-request group (empty when the range succeeded
+   *  with no PRs, or when gitopsStatus is absent). Absent on older payloads. */
+  readonly gitopsPrs?: readonly AgentSdlcPullRequest[];
+  /** The GitOps group's range state, or null/absent when no GitOps fields were reported
+   *  (an older payload), which the UI renders as "no deployment section". */
+  readonly gitopsStatus?: AgentSdlcGitOpsStatus | null;
 }
 
 /** The release-by-hub-cluster matrix (the Shipped column). */
@@ -219,14 +249,15 @@ export function bundleRowExpandKey(row: AgentSdlcBundleRow): string {
 }
 
 /**
- * Total pull requests in a bundle row: every grouped pull request under a tracked
- * issue plus every one-off pull request. This is the "M PRs" count in the row summary
- * (SDLC-VIS-11), equal to the bundle's whole PR set since each PR is either grouped
- * under a tracked issue or listed as a one-off.
+ * Total pull requests in a bundle row, spanning both repository groups (SDLC-VIS-25.06):
+ * every application pull request grouped under a tracked issue, plus every one-off
+ * application pull request, plus every GitOps deployment pull request. This is the "M
+ * PRs" count in the row summary (SDLC-VIS-11); the tracked-issue count stays an
+ * application-repository count and is reported separately.
  */
 export function bundlePRCount(row: AgentSdlcBundleRow): number {
   const grouped = row.issues.reduce((sum, issue) => sum + issue.prs.length, 0);
-  return grouped + row.otherPRs.length;
+  return grouped + row.otherPRs.length + (row.gitopsPrs?.length ?? 0);
 }
 
 /**

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -341,6 +342,20 @@ var extKinds = map[string]bool{
 	"workspace_memberships": true,
 }
 
+// ExtKinds returns the registered Extension API kind plural names (the
+// extKinds allow-list keys), sorted. It is the single registration source the
+// Kind conformance gate and the generic CRUD conformance test enumerate from
+// (SDLC-CONF-01, SDLC-CONF-06), so a newly registered ext kind is covered
+// without editing either consumer.
+func ExtKinds() []string {
+	kinds := make([]string, 0, len(extKinds))
+	for kind := range extKinds {
+		kinds = append(kinds, kind)
+	}
+	sort.Strings(kinds)
+	return kinds
+}
+
 // extRequestSurface reports whether the request path targets the Extension
 // API (/api/hypershell/ext/...), whose kinds follow the ext authorization
 // rules instead of the /v1 resource rules.
@@ -621,8 +636,9 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 		// Collection GET is allowed for any authenticated user. The list
 		// handler filters to accessible IDs and returns 200 with an empty
 		// items array when there are none. Requiring a RoleBinding here
-		// 403s developers on OpenShift (RBAC_DEFAULT_ROLES empty) and the
-		// web console shows "Gateways could not be loaded".
+		// 403s any caller without gateway:creator or a per-gateway binding
+		// (for example a developer whose Keycloak roles grant neither), and
+		// the web console shows "Gateways could not be loaded".
 		if method == http.MethodGet {
 			return true
 		}

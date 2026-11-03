@@ -1571,6 +1571,94 @@
     "defaultMessage": "Could not determine this user's subject ID. The identity directory may be unavailable; try again.",
     "description": "Error shown when a user's subject cannot be resolved for the workspace command."
   },
+  "app.gateway.bulkDelete.activeSandboxWarning": {
+    "defaultMessage": "{gatewayCount, plural, one {# selected gateway has} other {# selected gateways have}} active sandboxes that will be disrupted by deletion.",
+    "description": "Warning in the bulk-delete confirmation dialog when selected gateways still have running sandboxes."
+  },
+  "app.gateway.bulkDelete.button": {
+    "defaultMessage": "Delete",
+    "description": "Toolbar action that deletes the selected gateways in bulk."
+  },
+  "app.gateway.bulkDelete.buttonAria": {
+    "defaultMessage": "Delete {count, plural, one {# selected gateway} other {# selected gateways}}",
+    "description": "Accessible label for the bulk-delete toolbar action, stating how many gateways are selected."
+  },
+  "app.gateway.bulkDelete.clearSelection": {
+    "defaultMessage": "Clear selection",
+    "description": "Action that deselects every selected gateway."
+  },
+  "app.gateway.bulkDelete.confirmBody": {
+    "defaultMessage": "Deleting a gateway removes it from the platform and starts asynchronous teardown of its workload, database, and routing. This cannot be undone. The following gateways will be deleted:",
+    "description": "Explanation shown in the bulk-delete confirmation dialog before deletion."
+  },
+  "app.gateway.bulkDelete.confirmButton": {
+    "defaultMessage": "Delete {count, plural, one {# gateway} other {# gateways}}",
+    "description": "Confirming action in the bulk-delete dialog, stating how many gateways will be deleted."
+  },
+  "app.gateway.bulkDelete.confirmTitle": {
+    "defaultMessage": "Delete {count, plural, one {# gateway} other {# gateways}}?",
+    "description": "Title of the bulk-delete confirmation dialog."
+  },
+  "app.gateway.bulkDelete.resultAccepted": {
+    "defaultMessage": "{gatewayName}: deletion accepted; resource teardown in progress.",
+    "description": "Per-gateway result line for an accepted asynchronous deletion whose teardown has not completed."
+  },
+  "app.gateway.bulkDelete.resultFailed": {
+    "defaultMessage": "{gatewayName}: deletion failed. This gateway stays selected so you can retry it.",
+    "description": "Per-gateway result line for a failed deletion that remains selected for retry."
+  },
+  "app.gateway.bulkDelete.resultTitleAllAccepted": {
+    "defaultMessage": "{count, plural, one {# gateway deletion accepted} other {# gateway deletions accepted}}",
+    "description": "Results banner title when every bulk deletion was accepted for asynchronous teardown."
+  },
+  "app.gateway.bulkDelete.resultTitleAllFailed": {
+    "defaultMessage": "{count, plural, one {# gateway deletion failed} other {# gateway deletions failed}}",
+    "description": "Results banner title when every bulk deletion failed."
+  },
+  "app.gateway.bulkDelete.resultTitlePartial": {
+    "defaultMessage": "{failed, number} of {total, number} gateway deletions failed",
+    "description": "Results banner title when some bulk deletions failed."
+  },
+  "app.gateway.bulkDelete.retry": {
+    "defaultMessage": "Retry failed deletions",
+    "description": "Action that retries only the failed deletions without resubmitting the accepted ones."
+  },
+  "app.gateway.bulkDelete.retrying": {
+    "defaultMessage": "Retrying failed deletions",
+    "description": "Results banner title shown while a retry of the failed deletions is in progress."
+  },
+  "app.gateway.bulkSelect.ariaLabel": {
+    "defaultMessage": "Select gateways on this page",
+    "description": "Accessible label for the header bulk-selection control, whose scope is the current page."
+  },
+  "app.gateway.bulkSelect.column": {
+    "defaultMessage": "Row selection",
+    "description": "Screen-reader heading for the gateway table's row-selection column."
+  },
+  "app.gateway.bulkSelect.none": {
+    "defaultMessage": "Select none ({count, number} items)",
+    "description": "Menu option that clears the selection in the bulk-selection control."
+  },
+  "app.gateway.bulkSelect.options": {
+    "defaultMessage": "Bulk selection options",
+    "description": "Accessible label for the caret button that opens the bulk-selection scope menu (select none or select page)."
+  },
+  "app.gateway.bulkSelect.page": {
+    "defaultMessage": "Select page ({count, number} items)",
+    "description": "Menu option that selects every eligible gateway on the current page."
+  },
+  "app.gateway.bulkSelect.row": {
+    "defaultMessage": "Select gateway {gatewayName}",
+    "description": "Accessible name for a gateway row's selection checkbox, identifying the gateway."
+  },
+  "app.gateway.bulkSelect.rowDisabled": {
+    "defaultMessage": "Select gateway {gatewayName} (deletion not permitted)",
+    "description": "Accessible name for a disabled gateway row selection checkbox, explaining why selection is unavailable."
+  },
+  "app.gateway.bulkSelect.selectedCount": {
+    "defaultMessage": "{count, number} selected",
+    "description": "Count of selected gateways shown on the header bulk-selection control."
+  },
   "app.gateway.cliConnection": {
     "defaultMessage": "CLI connection",
     "description": "Label for a gateway's OpenShell CLI connection command."
@@ -1614,18 +1702,6 @@
   "app.gateway.cluster.noResults": {
     "defaultMessage": "No matching clusters",
     "description": "Status shown when no managed clusters match the search."
-  },
-  "app.gateway.cluster.provider": {
-    "defaultMessage": "Provider: {provider}",
-    "description": "Provider context that distinguishes a managed cluster option."
-  },
-  "app.gateway.cluster.providerAndRegion": {
-    "defaultMessage": "Provider: {provider}; region: {region}",
-    "description": "Provider and region context that distinguishes a managed cluster option."
-  },
-  "app.gateway.cluster.region": {
-    "defaultMessage": "Region: {region}",
-    "description": "Region context that distinguishes a managed cluster option."
   },
   "app.gateway.cluster.registeredOnly": {
     "defaultMessage": "Only clusters with a connected control plane can host a gateway.",
@@ -2819,6 +2895,14 @@
     "defaultMessage": "Filter by name, cluster, status, or endpoint",
     "description": "Placeholder and accessible label for gateway search."
   },
+  "app.page.gateways.noOwned.body": {
+    "defaultMessage": "You do not own any gateways yet. Turn off the ownership filter to see the full list.",
+    "description": "Guidance when the ownership filter is on but the user owns no gateways."
+  },
+  "app.page.gateways.noOwned.title": {
+    "defaultMessage": "No gateways you own",
+    "description": "Heading when the ownership filter is on but the user owns no gateways."
+  },
   "app.page.gateways.noResults.body": {
     "defaultMessage": "Adjust or clear the filter to see gateways.",
     "description": "Guidance when no gateways match the current filter."
@@ -2826,6 +2910,10 @@
   "app.page.gateways.noResults.title": {
     "defaultMessage": "No matching gateways",
     "description": "Heading when no gateways match the current filter."
+  },
+  "app.page.gateways.showOnlyMine": {
+    "defaultMessage": "Show only my gateways",
+    "description": "On/off switch label that filters the gateway list to only the signed-in user's gateways."
   },
   "app.page.homepage.description": {
     "defaultMessage": "Gateway health, quick gateway creation, dashboards, support, and learning resources.",

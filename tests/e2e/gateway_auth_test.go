@@ -28,7 +28,7 @@ const (
 	testClientID  = "service-account-client"
 )
 
-var testGateway = driver.GatewayRef{Name: "e2e-gw-1", Namespace: "gw-ns", ID: "gw-id"}
+var testGateway = driver.GatewayRef{Name: "e2e-gw-1", Namespace: "gw-ns", ID: "gw-id", ClientID: "e2e-gw-1-gw-id"}
 
 // Verifies: E2E-CORE-40.01
 func TestResolveGatewayAuth(t *testing.T) {

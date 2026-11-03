@@ -17,6 +17,9 @@ message CIProvider {
   string audience = 5;
   optional string status = 6;
   optional string status_idp_alias = 7;
+  // name is the queryable find-by-name key (SDLC-CONF-13); defaults to forge
+  // when not supplied on create.
+  string name = 8;
 }
 
 message GetCIProviderRequest {

@@ -12,6 +12,7 @@ func ConvertCIProvider(r openapi.CIProvider) *CIProvider {
 		Meta: api.Meta{
 			ID: util.NilToEmptyString(r.Id),
 		},
+		Name:     util.NilToEmptyString(r.Name),
 		Forge:    r.Forge,
 		Issuer:   r.Issuer,
 		JwksUrl:  r.JwksUrl,
@@ -35,6 +36,7 @@ func PresentCIProvider(p *CIProvider) openapi.CIProvider {
 		Href:      reference.Href,
 		CreatedAt: openapi.PtrTime(p.CreatedAt),
 		UpdatedAt: openapi.PtrTime(p.UpdatedAt),
+		Name:      openapi.PtrString(p.Name),
 		Forge:     p.Forge,
 		Issuer:    p.Issuer,
 		JwksUrl:   p.JwksUrl,

@@ -6,11 +6,12 @@ agent: agents/ingest.md
 description: "Link Jira and GitHub execution records (bidirectional, origin-agnostic)"
 role: coder
 slug: fullsend-ingest
-image: ghcr.io/fullsend-ai/fullsend-sandbox@sha256:bcf8cd84a37623d761d38f2a6f51d20283f8798b7d3eeb9c509a2503c074bd55
+image: quay.io/redhat-user-workloads/hcm-eng-prod-tenant/hypershell-main/hypershell-fullsend-sandbox-main@sha256:373911325896e430b278a6d68885ac87a304542da58d03452f343a4500801fe1
 policy: policies/base.yaml
 providers:
   - vertex-ai
   - github
+  - package-registries
 host_files:
   - src: ${GOOGLE_APPLICATION_CREDENTIALS}
     dest: /tmp/.gcp-credentials.json
@@ -23,6 +24,8 @@ env:
     GH_TOKEN: ${GH_TOKEN}
     REPOSITORY: ${REPOSITORY}
   sandbox:
+    COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+    COREPACK_HOME: /sandbox/.cache/corepack
     FULLSEND_FORGE: github
     CLAUDE_CODE_USE_VERTEX: "1"
     ANTHROPIC_VERTEX_PROJECT_ID: ${ANTHROPIC_VERTEX_PROJECT_ID}
@@ -37,6 +40,9 @@ env:
     JIRA_BASE_URL: https://redhat.atlassian.net
     JIRA_EMAIL: ${JIRA_EMAIL}
     JIRA_API_TOKEN: ${JIRA_API_TOKEN}
+validation_loop:
+  script: scripts/validate-lifecycle.sh
+  max_iterations: 1
 timeout_minutes: 30
 trigger: |
   event.transition.kind == "label_changed"

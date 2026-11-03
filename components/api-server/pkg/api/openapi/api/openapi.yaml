@@ -424,6 +424,14 @@ paths:
         schema:
           type: string
         style: form
+      - description: Restricts the list to gateways the authenticated caller owns
+        explode: true
+        in: query
+        name: mine
+        required: false
+        schema:
+          type: boolean
+        style: form
       responses:
         "200":
           content:
@@ -4297,6 +4305,15 @@ components:
       schema:
         type: string
       style: form
+    mine:
+      description: Restricts the list to gateways the authenticated caller owns
+      explode: true
+      in: query
+      name: mine
+      required: false
+      schema:
+        type: boolean
+      style: form
     gatewayId:
       description: Selected Gateway ID
       in: path
@@ -4456,19 +4473,6 @@ components:
       - properties:
           name:
             type: string
-          provider:
-            description: Cloud provider capability used for gateway placement.
-            type: string
-          visibility:
-            description: Network visibility supported by this control plane for gateway
-              placement.
-            enum:
-            - public
-            - vpn
-            readOnly: true
-            type: string
-          region:
-            type: string
           kubeconfig_secret:
             type: string
           status:
@@ -4497,23 +4501,19 @@ components:
         required:
         - kubeconfig_secret
         - name
-        - provider
         type: object
       example:
+        oidc_subject: oidc_subject
         capabilities:
         - capabilities
         - capabilities
-        visibility: public
-        kind: kind
-        created_at: 2000-01-23T04:56:07.000+00:00
-        oidc_subject: oidc_subject
         updated_at: 2000-01-23T04:56:07.000+00:00
-        provider: provider
+        kind: kind
         name: name
+        created_at: 2000-01-23T04:56:07.000+00:00
         kubeconfig_secret: kubeconfig_secret
         id: id
         href: href
-        region: region
         last_seen_at: 2000-01-23T04:56:07.000+00:00
         status: status
         api_server_url: api_server_url
@@ -4536,54 +4536,42 @@ components:
         id: id
         href: href
         items:
-        - capabilities:
+        - oidc_subject: oidc_subject
+          capabilities:
           - capabilities
           - capabilities
-          visibility: public
-          kind: kind
-          created_at: 2000-01-23T04:56:07.000+00:00
-          oidc_subject: oidc_subject
           updated_at: 2000-01-23T04:56:07.000+00:00
-          provider: provider
+          kind: kind
           name: name
+          created_at: 2000-01-23T04:56:07.000+00:00
           kubeconfig_secret: kubeconfig_secret
           id: id
           href: href
-          region: region
           last_seen_at: 2000-01-23T04:56:07.000+00:00
           status: status
           api_server_url: api_server_url
-        - capabilities:
+        - oidc_subject: oidc_subject
+          capabilities:
           - capabilities
           - capabilities
-          visibility: public
-          kind: kind
-          created_at: 2000-01-23T04:56:07.000+00:00
-          oidc_subject: oidc_subject
           updated_at: 2000-01-23T04:56:07.000+00:00
-          provider: provider
+          kind: kind
           name: name
+          created_at: 2000-01-23T04:56:07.000+00:00
           kubeconfig_secret: kubeconfig_secret
           id: id
           href: href
-          region: region
           last_seen_at: 2000-01-23T04:56:07.000+00:00
           status: status
           api_server_url: api_server_url
     ManagedClusterPatchRequest:
       example:
-        provider: provider
         name: name
         kubeconfig_secret: kubeconfig_secret
-        region: region
         status: status
         api_server_url: api_server_url
       properties:
         name:
-          type: string
-        provider:
-          type: string
-        region:
           type: string
         kubeconfig_secret:
           type: string
@@ -4604,15 +4592,15 @@ components:
             \ Must match on every subsequent call."
           type: string
         capabilities:
-          description: "Complete self-declared capability set. Optional for backward\
-            \ compatibility: a control plane that predates the capability model may\
-            \ omit it, in which case the heartbeat is accepted as a no-op that preserves\
-            \ any stored capabilities."
+          description: "Complete self-declared capability set, sent on every registration\
+            \ and heartbeat. An omitted, null, or empty set is rejected with 400."
           items:
             type: string
+          minItems: 1
           type: array
           uniqueItems: true
       required:
+      - capabilities
       - name
       type: object
     ManagedClusterRegistrationResponse:
@@ -4720,8 +4708,8 @@ components:
               \ \"shared\" places all sandboxes in the gateway namespace; \"managed\"\
               \ auto-creates per-workspace namespaces; \"operator\" uses pre-provisioned\
               \ namespaces. Platform-managed (PLAT-DATA-23): the API server defaults\
-              \ it to \"managed\" at create, and no caller can set or change it. Null\
-              \ (legacy gateways) keeps the chart's \"shared\" default."
+              \ it to \"managed\" at create, and no caller can set or change it. Always\
+              \ present on a stored gateway."
             enum:
             - shared
             - managed
@@ -4832,6 +4820,17 @@ components:
             items:
               $ref: "#/components/schemas/Gateway"
             type: array
+          has_other_owned_gateways:
+            description: "Browser-safe existence flag reporting whether the caller's\
+              \ full authorized gateway list (before search, optional filters, and\
+              \ the `mine` ownership filter) contains at least one gateway the caller\
+              \ does not own. It is computed server-side with a bounded authorization-scoped\
+              \ existence query rather than by enumerating pages, so a console can\
+              \ decide whether to show the \"Show only my gateways\" toggle without\
+              \ downloading every page. It is evaluated only over the caller's authorized\
+              \ gateways and never discloses the existence of gateways the caller\
+              \ is not authorized to see (SEC-RBAC-10)."
+            type: boolean
         type: object
       example:
         total: 1
@@ -4923,6 +4922,7 @@ components:
           name: name
           namespace: namespace
           status: status
+        has_other_owned_gateways: true
     GatewayPatchRequest:
       description: "The only user-writable gateway field on update is name (rename).\
         \ Every other gateway field is platform-managed and control-plane-only; it\
@@ -6336,6 +6336,11 @@ components:
       allOf:
       - $ref: "#/components/schemas/ObjectReference"
       - properties:
+          name:
+            description: Queryable find-by-name key (SDLC-CONF-13). Optional on create;
+              defaults to a stable identity derived from workspace_id/provider_binding_id/model
+              when not supplied.
+            type: string
           workspace_id:
             type: string
           provider_binding_id:
@@ -6358,6 +6363,7 @@ components:
         workspace_id: workspace_id
         updated_at: 2000-01-23T04:56:07.000+00:00
         kind: kind
+        name: name
         created_at: 2000-01-23T04:56:07.000+00:00
         model: model
         repository_id: repository_id
@@ -6386,6 +6392,7 @@ components:
         - workspace_id: workspace_id
           updated_at: 2000-01-23T04:56:07.000+00:00
           kind: kind
+          name: name
           created_at: 2000-01-23T04:56:07.000+00:00
           model: model
           repository_id: repository_id
@@ -6395,6 +6402,7 @@ components:
         - workspace_id: workspace_id
           updated_at: 2000-01-23T04:56:07.000+00:00
           kind: kind
+          name: name
           created_at: 2000-01-23T04:56:07.000+00:00
           model: model
           repository_id: repository_id
@@ -6613,6 +6621,11 @@ components:
       allOf:
       - $ref: "#/components/schemas/ObjectReference"
       - properties:
+          name:
+            description: Queryable find-by-name key (SDLC-CONF-13). Optional on create;
+              defaults to a stable identity derived from workspace_id/subject when
+              not supplied.
+            type: string
           workspace_id:
             type: string
           subject:
@@ -6635,6 +6648,7 @@ components:
         updated_at: 2000-01-23T04:56:07.000+00:00
         kind: kind
         subject: subject
+        name: name
         created_at: 2000-01-23T04:56:07.000+00:00
         id: id
         href: href
@@ -6662,6 +6676,7 @@ components:
           updated_at: 2000-01-23T04:56:07.000+00:00
           kind: kind
           subject: subject
+          name: name
           created_at: 2000-01-23T04:56:07.000+00:00
           id: id
           href: href
@@ -6670,6 +6685,7 @@ components:
           updated_at: 2000-01-23T04:56:07.000+00:00
           kind: kind
           subject: subject
+          name: name
           created_at: 2000-01-23T04:56:07.000+00:00
           id: id
           href: href
@@ -6913,6 +6929,7 @@ components:
           updated_at: 2000-01-23T04:56:07.000+00:00
           kind: kind
           forge: github
+          name: name
           created_at: 2000-01-23T04:56:07.000+00:00
           id: id
           href: href
@@ -6924,6 +6941,7 @@ components:
           updated_at: 2000-01-23T04:56:07.000+00:00
           kind: kind
           forge: github
+          name: name
           created_at: 2000-01-23T04:56:07.000+00:00
           id: id
           href: href
@@ -6935,6 +6953,11 @@ components:
       allOf:
       - $ref: "#/components/schemas/ObjectReference"
       - properties:
+          name:
+            description: Queryable find-by-name key (SDLC-CONF-13). Optional on create;
+              defaults to the forge when not supplied. Used by hsctl apply to resolve
+              an existing record via search=name = '<name>'.
+            type: string
           forge:
             description: "The forge family: github, gitlab, or forgejo"
             enum:
@@ -6965,6 +6988,7 @@ components:
         updated_at: 2000-01-23T04:56:07.000+00:00
         kind: kind
         forge: github
+        name: name
         created_at: 2000-01-23T04:56:07.000+00:00
         id: id
         href: href
@@ -7020,6 +7044,7 @@ components:
             project_path: project_path
             ref_protected: true
             repository: repository
+          name: name
           created_at: 2000-01-23T04:56:07.000+00:00
           id: id
           href: href
@@ -7038,6 +7063,7 @@ components:
             project_path: project_path
             ref_protected: true
             repository: repository
+          name: name
           created_at: 2000-01-23T04:56:07.000+00:00
           id: id
           href: href
@@ -7051,6 +7077,11 @@ components:
       allOf:
       - $ref: "#/components/schemas/ObjectReference"
       - properties:
+          name:
+            description: Queryable find-by-name key (SDLC-CONF-13). Optional on create;
+              defaults to a stable identity derived from ci_provider_id/gateway_id/role
+              when not supplied.
+            type: string
           ci_provider_id:
             description: Reference to the CIProvider whose issuer is trusted
             type: string
@@ -7080,6 +7111,7 @@ components:
           project_path: project_path
           ref_protected: true
           repository: repository
+        name: name
         created_at: 2000-01-23T04:56:07.000+00:00
         id: id
         href: href

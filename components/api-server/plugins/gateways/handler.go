@@ -40,6 +40,7 @@ type gatewayHandler struct {
 	ownerBinding     OwnerBindingCreator
 	visibilityFilter GatewayVisibilityFilter
 	ownerLookup      GatewayOwnerLookup
+	ownership        GatewayOwnershipLookup
 	bindingLookup    rbac.RoleBindingLookup
 	clusters         RegisteredClusterLookup
 	enforceRBAC      bool
@@ -146,6 +147,27 @@ func (h gatewayHandler) resolveGatewayPlacement(ctx context.Context, intent open
 // a human-readable awaiting-placement status. The API server assigns a cluster_id
 // when a matching ManagedCluster becomes available (data-model.spec.md, "Gateway
 // Placement and Late Binding").
+// anyAccessibleUnowned reports whether the caller's authorized gateway set
+// (accessibleIDs) contains at least one gateway the caller does not own
+// (ownedIDs) - the "has other owned gateways" toggle condition for a scoped
+// caller (WEB-UIEX-07, SEC-RBAC-10). It is a true SET DIFFERENCE (some accessible
+// id is absent from the owned set), robust even when the owned set is not a strict
+// subset of the accessible set: a prior `len(accessible) > len(owned)` comparison
+// silently returned the wrong answer whenever the caller owned a gateway outside
+// its accessible set (FINDING 3).
+func anyAccessibleUnowned(accessibleIDs, ownedIDs []string) bool {
+	ownedSet := make(map[string]struct{}, len(ownedIDs))
+	for _, id := range ownedIDs {
+		ownedSet[id] = struct{}{}
+	}
+	for _, id := range accessibleIDs {
+		if _, owned := ownedSet[id]; !owned {
+			return true
+		}
+	}
+	return false
+}
+
 func applyAwaitingPlacement(model *Gateway) {
 	model.ClusterId = ""
 	pending := string(gatewayhealth.PhasePending)
@@ -154,13 +176,14 @@ func applyAwaitingPlacement(model *Gateway) {
 	model.Status = &status
 }
 
-func NewGatewayHandler(gateway GatewayService, generic services.GenericService, ownerBinding OwnerBindingCreator, visibilityFilter GatewayVisibilityFilter, ownerLookup GatewayOwnerLookup, bindingLookup rbac.RoleBindingLookup, clusters RegisteredClusterLookup, enforceRBAC bool, placement PlacementResolver, availability PlacementAvailabilityResolver) *gatewayHandler {
+func NewGatewayHandler(gateway GatewayService, generic services.GenericService, ownerBinding OwnerBindingCreator, visibilityFilter GatewayVisibilityFilter, ownerLookup GatewayOwnerLookup, ownership GatewayOwnershipLookup, bindingLookup rbac.RoleBindingLookup, clusters RegisteredClusterLookup, enforceRBAC bool, placement PlacementResolver, availability PlacementAvailabilityResolver) *gatewayHandler {
 	h := &gatewayHandler{
 		gateway:          gateway,
 		generic:          generic,
 		ownerBinding:     ownerBinding,
 		visibilityFilter: visibilityFilter,
 		ownerLookup:      ownerLookup,
+		ownership:        ownership,
 		bindingLookup:    bindingLookup,
 		clusters:         clusters,
 		enforceRBAC:      enforceRBAC,
@@ -295,6 +318,38 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 	handlers.Handle(w, r, cfg, http.StatusOK)
 }
 
+// gatewayDefaultOrder and gatewayOrderTiebreak express the gateway list's
+// default newest-first ordering: creation time descending with a stable
+// secondary order by identifier so equal creation timestamps are deterministic
+// across pages. The framework applies them before pagination, so the first page
+// holds the newest accessible gateways overall (WEB-ARCH-02, WEB-API-01).
+const (
+	gatewayDefaultOrder  = "created_at desc"
+	gatewayOrderTiebreak = "gateways.id asc"
+)
+
+// gatewayOrderWithStableTiebreak returns the effective ordering for a gateway
+// list request. With no caller-chosen sort it applies the newest-first default
+// (creation time descending). In all cases it guarantees a stable secondary
+// order by gateway identifier so pagination is deterministic when the primary
+// sort values tie, including for the explicit "created_at desc" the console
+// sends for its newest-first default (WEB-ARCH-02, WEB-API-01). Orderings that
+// are already stable are returned unchanged: an explicit id sort, or the
+// created_by sort which appends its own gateways.id tiebreak in the list DAO.
+func gatewayOrderWithStableTiebreak(orderBy []string) []string {
+	if len(orderBy) == 0 {
+		return []string{gatewayDefaultOrder, gatewayOrderTiebreak}
+	}
+	for _, term := range orderBy {
+		field, _, _ := strings.Cut(strings.TrimSpace(term), " ")
+		switch field {
+		case "id", "gateways.id", "created_by":
+			return orderBy
+		}
+	}
+	return append(orderBy, gatewayOrderTiebreak)
+}
+
 func (h gatewayHandler) List(w http.ResponseWriter, r *http.Request) {
 	cfg := &handlers.HandlerConfig{
 		Action: func() (interface{}, *errors.ServiceError) {
@@ -302,32 +357,104 @@ func (h gatewayHandler) List(w http.ResponseWriter, r *http.Request) {
 
 			listArgs := services.NewListArguments(r.URL.Query())
 
+			// Apply the newest-first default when the caller chose no sort (a
+			// user-chosen sort overrides it and clearing it restores newest-first),
+			// and guarantee a stable id tiebreak for every sort so pagination is
+			// deterministic across pages (WEB-ARCH-02).
+			listArgs.OrderBy = gatewayOrderWithStableTiebreak(listArgs.OrderBy)
+
+			// The "Show only my gateways" ownership filter is requested as a query
+			// flag; the server applies it before pagination (WEB-UIEX-07).
+			onlyMine := r.URL.Query().Get("mine") == "true"
+
 			userID := rbac.GetUserIDFromContext(ctx)
 			hasPlatformAdmin := rbac.HasPlatformAdminRole(ctx, userID)
-			if userID != "" && h.visibilityFilter != nil && !hasPlatformAdmin {
-				accessibleIDs, filterErr := h.visibilityFilter.AccessibleGatewayIDs(ctx, userID)
+			scoped := userID != "" && h.visibilityFilter != nil && !hasPlatformAdmin
+
+			appendSearch := func(filter string) {
+				if listArgs.Search != "" {
+					listArgs.Search = "(" + listArgs.Search + ") and " + filter
+				} else {
+					listArgs.Search = filter
+				}
+			}
+
+			// ownedIDs are the gateways the caller owns (holds gateway:owner),
+			// matched by stable identity rather than display name. They drive both
+			// the ownership filter and, together with the authorized set, the
+			// toggle-visibility flag (WEB-UIEX-07, SEC-RBAC-10).
+			var ownedIDs []string
+			if h.ownership != nil && userID != "" {
+				owned, ownErr := h.ownership.OwnedGatewayIDs(ctx, userID)
+				if ownErr != nil {
+					return nil, errors.GeneralError("failed to resolve owned gateways: %s", ownErr)
+				}
+				ownedIDs = owned
+			}
+
+			var accessibleIDs []string
+			if scoped {
+				ids, filterErr := h.visibilityFilter.AccessibleGatewayIDs(ctx, userID)
 				if filterErr != nil {
 					return nil, errors.GeneralError("failed to check gateway access: %s", filterErr)
 				}
+				accessibleIDs = ids
+			}
+
+			// hasUnownedVisibleGateways reports whether the caller's full authorized
+			// gateway list -- before search, optional filters, and the ownership
+			// filter -- contains at least one gateway the caller can see but does NOT
+			// own. It is computed over the authorized set only and never discloses
+			// gateways the caller cannot see (WEB-API-01, SEC-RBAC-10). For a
+			// scoped (non-admin) caller the authorized set is accessibleIDs, so the
+			// flag is a SET DIFFERENCE - true when some accessible gateway is not in
+			// the owned set - which is robust even if the owned set is not a strict
+			// subset of the accessible set (a size comparison would misfire then);
+			// otherwise a single bounded existence query is used instead of
+			// enumerating pages. (It backs the generated HasOtherOwnedGateways API
+			// field, whose name predates this clarification.)
+			hasUnownedVisibleGateways := false
+			if scoped {
+				hasUnownedVisibleGateways = anyAccessibleUnowned(accessibleIDs, ownedIDs)
+			} else if h.ownership != nil {
+				exists, existsErr := h.ownership.OtherOwnerGatewayExists(ctx, userID)
+				if existsErr != nil {
+					return nil, errors.GeneralError("failed to check gateway ownership: %s", existsErr)
+				}
+				hasUnownedVisibleGateways = exists
+			}
+
+			emptyGatewayList := func() openapi.GatewayList {
+				kindStr := "GatewayList"
+				pageVal := int32(listArgs.Page)
+				sizeVal := int32(0)
+				totalVal := int32(0)
+				flag := hasUnownedVisibleGateways
+				return openapi.GatewayList{
+					Kind:                  &kindStr,
+					Page:                  &pageVal,
+					Size:                  &sizeVal,
+					Total:                 &totalVal,
+					HasOtherOwnedGateways: &flag,
+					Items:                 []openapi.Gateway{},
+				}
+			}
+
+			if scoped {
 				if len(accessibleIDs) == 0 {
-					kindStr := "GatewayList"
-					pageVal := int32(listArgs.Page)
-					sizeVal := int32(0)
-					totalVal := int32(0)
-					return openapi.GatewayList{
-						Kind:  &kindStr,
-						Page:  &pageVal,
-						Size:  &sizeVal,
-						Total: &totalVal,
-						Items: []openapi.Gateway{},
-					}, nil
+					return emptyGatewayList(), nil
 				}
-				idFilter := visibilitySearchFilter(accessibleIDs)
-				if listArgs.Search != "" {
-					listArgs.Search = "(" + listArgs.Search + ") and " + idFilter
-				} else {
-					listArgs.Search = idFilter
+				appendSearch(visibilitySearchFilter(accessibleIDs))
+			}
+
+			// Restrict to owned gateways before pagination when the ownership
+			// filter is on. The owned set is a subset of the authorized set, so
+			// composing it with the visibility filter above stays correct.
+			if onlyMine {
+				if len(ownedIDs) == 0 {
+					return emptyGatewayList(), nil
 				}
+				appendSearch(visibilitySearchFilter(ownedIDs))
 			}
 
 			var gateways []Gateway
@@ -340,12 +467,14 @@ func (h gatewayHandler) List(w http.ResponseWriter, r *http.Request) {
 			pageVal := int32(paging.Page)
 			sizeVal := int32(paging.Size)
 			totalVal := int32(paging.Total)
+			flag := hasUnownedVisibleGateways
 			gatewayList := openapi.GatewayList{
-				Kind:  &kindStr,
-				Page:  &pageVal,
-				Size:  &sizeVal,
-				Total: &totalVal,
-				Items: []openapi.Gateway{},
+				Kind:                  &kindStr,
+				Page:                  &pageVal,
+				Size:                  &sizeVal,
+				Total:                 &totalVal,
+				HasOtherOwnedGateways: &flag,
+				Items:                 []openapi.Gateway{},
 			}
 
 			gatewayIDs := make([]string, len(gateways))

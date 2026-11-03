@@ -157,6 +157,58 @@ describe("bundlePRCount", () => {
       }),
     ).toBe(4);
   });
+
+  // Verifies: SDLC-VIS-25.06
+  it("spans the application and GitOps deployment groups", () => {
+    const pr = (number: number): AgentSdlcPullRequest => ({
+      number,
+      title: `pr ${String(number)}`,
+      url: `u-${String(number)}`,
+      author: null,
+      mergedAt: null,
+    });
+    // Three application PRs (one grouped under a tracked issue, two one-off) plus two
+    // GitOps deployment PRs: the count is five across both repository groups.
+    expect(
+      bundlePRCount({
+        version: "v1",
+        digest: "d1",
+        date: null,
+        unreleased: false,
+        hubClusters: [],
+        issues: [
+          {
+            number: 525,
+            title: "tracked",
+            url: "i",
+            mergedAt: null,
+            mergedBy: null,
+            prs: [pr(1)],
+          },
+        ],
+        otherPRs: [pr(2), pr(3)],
+        gitopsPrs: [
+          { ...pr(10), repository: "acme/gitops-delivery" },
+          { ...pr(11), repository: "acme/gitops-delivery" },
+        ],
+        gitopsStatus: "available",
+      }),
+    ).toBe(5);
+  });
+
+  it("ignores an absent GitOps group (legacy payload)", () => {
+    expect(
+      bundlePRCount({
+        version: "v1",
+        digest: "d1",
+        date: null,
+        unreleased: false,
+        hubClusters: [],
+        issues: [],
+        otherPRs: [],
+      }),
+    ).toBe(0);
+  });
 });
 
 describe("bundleRowExpandKey", () => {

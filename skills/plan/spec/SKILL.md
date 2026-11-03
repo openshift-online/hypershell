@@ -51,7 +51,8 @@ Follow the spec format:
 - **Scenarios** -- concrete Given/When/Then examples
 - **IDs** -- a new requirement or scenario in an existing file gets the next
   free counter in that file's registered group (see "Requirement and
-  Scenario IDs" below); never reuse a counter retired from that group. A new
+  Scenario IDs" below); never reuse a counter listed in the Retired IDs
+  table of `specs/id-rename-map.md`. A new
   file registers its `MODULE-GROUP` in `specs/ids.md` before its first
   requirement is drafted.
 
@@ -115,6 +116,29 @@ may use `### Legacy compatibility: <MODULE-GROUP-NN> -- <Name>` instead of
 `### Requirement:`. It still gets an ID and still numbers its scenarios the
 same way.
 
+### Transitional Specs
+
+Behavior kept only for a limited time (compatibility with older data or
+clients, migration-only objects, old formats still accepted) goes in its own
+file, not in the permanent spec. The full rule is STD-IDS-09 in
+`specs/standards/platform/spec-identifiers.spec.md`. In short:
+
+1. Name the file `<parent>.transitional.spec.md`, next to the parent spec.
+2. Register a separate `MODULE-GROUP` prefix for it in `specs/ids.md`.
+3. Use `### Legacy compatibility:` headings for its requirements.
+4. Start it with a callout giving **Transitional** (why), **Remove when** (a
+   checkable condition, not a date), **Check** (a query or command), and
+   **On removal** (what to delete).
+5. Keep the parent spec to the permanent behavior, with one short note that
+   links to the transitional file.
+6. Mark the transitional code with a comment naming the ID, and cite the ID
+   in the tests' `Verifies:` markers.
+
+Example: `specs/platform/openshell-gateway-keycloak.transitional.spec.md`.
+
+When you write or change a spec, ask whether any behavior is only there for
+the transition. If it is, move it to a transitional file.
+
 ### Requirement and Scenario IDs
 
 Full syntax, stability rules, and the enforcement contract are in
@@ -128,8 +152,9 @@ drafting:
 - **Scenario IDs** are `<requirement-ID>.SS`, a 2-digit counter restarting
   at `01` for each requirement.
 - **Never renumber or reuse.** Reordering requirements doesn't change their
-  IDs. A deleted requirement's ID is retired (listed under a `## Retired
-  IDs` section in its spec), never reassigned.
+  IDs. A deleted requirement's or scenario's ID is retired: add a row to the
+  Retired IDs table in `specs/id-rename-map.md` (ID, former file, replacing
+  ID or `-`, reason), never a section in the spec itself. Never reassign it.
 - **One file, one group**, unless the file already hosts more than one
   clearly distinct, independently-evolving sub-area -- check
   `specs/ids.md`'s "Multi-Group Files" section before assuming a second

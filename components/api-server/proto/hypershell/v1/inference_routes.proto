@@ -18,6 +18,9 @@ message InferenceRoute {
   // repository_id is the control-plane import ownership mark; read-only, set
   // server-side, never by a client.
   optional string repository_id = 5;
+  // name is the queryable find-by-name key (SDLC-CONF-13); defaults to a stable
+  // identity derived from workspace_id/provider_binding_id/model when not supplied.
+  string name = 6;
 }
 
 message GetInferenceRouteRequest {

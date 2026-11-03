@@ -25,8 +25,6 @@ const managedCluster = {
   kind: "ManagedCluster",
   kubeconfig_secret: "cluster-east-kubeconfig",
   name: "Cluster East",
-  provider: "AWS",
-  region: "us-east-1",
   status: "Ready",
   updated_at: null,
 };
@@ -260,8 +258,8 @@ test("operates gateway rows and opens provisioning", async ({ page }) => {
   ).toBeVisible();
 
   await expect(
-    page.getByRole("columnheader", { name: "Gateway name" }),
-  ).toHaveAttribute("aria-sort", "ascending");
+    page.getByRole("columnheader", { name: "Created", exact: true }),
+  ).toHaveAttribute("aria-sort", "descending");
   await page.getByRole("button", { name: "Cluster" }).click();
   await expect(
     page.getByRole("columnheader", { name: "Cluster" }),
@@ -274,12 +272,14 @@ test("operates gateway rows and opens provisioning", async ({ page }) => {
   await expect(
     page.getByRole("link", { name: "openshell-gateway-test", exact: true }),
   ).toBeVisible();
-  await expect(page).toHaveURL(/\?q=Cluster\+East&sort=cluster$/u);
+  await expect(page).toHaveURL(
+    /\?q=Cluster\+East&sort=cluster&direction=asc$/u,
+  );
   await page.goBack();
   await expect(page).toHaveURL(/\/gateways$/u);
   await expect(
-    page.getByRole("columnheader", { name: "Gateway name" }),
-  ).toHaveAttribute("aria-sort", "ascending");
+    page.getByRole("columnheader", { name: "Created", exact: true }),
+  ).toHaveAttribute("aria-sort", "descending");
 
   await page.getByRole("link", { name: "Provision gateway" }).click();
   await expect(page).toHaveURL(/\/gateways\/new$/);
@@ -564,9 +564,6 @@ test("provisions a gateway on an existing managed cluster", async ({
   await awsProvider.focus();
   await page.keyboard.press("Space");
   await expect(awsProvider).toBeChecked();
-  await expect(page.getByText("Provider: AWS; region: us-east-1")).toHaveCount(
-    0,
-  );
   await expect(page.getByLabel("Namespace", { exact: true })).toHaveCount(0);
   await expect(page.getByLabel("Gateway release")).toHaveCount(0);
   await expect(page.getByText(/create|register/iu)).toHaveCount(0);

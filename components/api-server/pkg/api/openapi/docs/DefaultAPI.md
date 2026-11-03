@@ -640,7 +640,7 @@ import (
 )
 
 func main() {
-	managedCluster := *openapiclient.NewManagedCluster("Name_example", "Provider_example", "KubeconfigSecret_example") // ManagedCluster | ManagedCluster data
+	managedCluster := *openapiclient.NewManagedCluster("Name_example", "KubeconfigSecret_example") // ManagedCluster | ManagedCluster data
 
 	configuration := openapiclient.NewConfiguration()
 	apiClient := openapiclient.NewAPIClient(configuration)
@@ -3998,7 +3998,7 @@ Name | Type | Description  | Notes
 
 ## ListGateways
 
-> GatewayList ListGateways(ctx).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Execute()
+> GatewayList ListGateways(ctx).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Mine(mine).Execute()
 
 Returns a list of gateways
 
@@ -4020,10 +4020,11 @@ func main() {
 	search := "search_example" // string | Specifies the search criteria (optional)
 	orderBy := "orderBy_example" // string | Specifies the order by criteria (optional)
 	fields := "fields_example" // string | Supplies a comma-separated list of fields to be returned (optional)
+	mine := true // bool | Restricts the list to gateways the authenticated caller owns (optional)
 
 	configuration := openapiclient.NewConfiguration()
 	apiClient := openapiclient.NewAPIClient(configuration)
-	resp, r, err := apiClient.DefaultAPI.ListGateways(context.Background()).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Execute()
+	resp, r, err := apiClient.DefaultAPI.ListGateways(context.Background()).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Mine(mine).Execute()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.ListGateways``: %v\n", err)
 		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
@@ -4049,6 +4050,7 @@ Name | Type | Description  | Notes
  **search** | **string** | Specifies the search criteria |
  **orderBy** | **string** | Specifies the order by criteria |
  **fields** | **string** | Supplies a comma-separated list of fields to be returned |
+ **mine** | **bool** | Restricts the list to gateways the authenticated caller owns |
 
 ### Return type
 
@@ -4881,7 +4883,7 @@ import (
 )
 
 func main() {
-	managedClusterRegistrationRequest := *openapiclient.NewManagedClusterRegistrationRequest("Name_example") // ManagedClusterRegistrationRequest | Registration request
+	managedClusterRegistrationRequest := *openapiclient.NewManagedClusterRegistrationRequest("Name_example", []string{"Capabilities_example"}) // ManagedClusterRegistrationRequest | Registration request
 
 	configuration := openapiclient.NewConfiguration()
 	apiClient := openapiclient.NewAPIClient(configuration)

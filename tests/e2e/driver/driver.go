@@ -22,6 +22,9 @@ type GatewayRef struct {
 	Name      string
 	Namespace string
 	ID        string
+	// ClientID is the gateway's stored Keycloak client ID (oidc.client_id). It is
+	// the gateway ID for new gateways and {name}-{id} for older ones.
+	ClientID string
 }
 
 // Credentials is an OIDC user identity for a token grant. For the password grant

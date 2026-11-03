@@ -9,6 +9,7 @@ Name | Type | Description | Notes
 **Href** | Pointer to **string** |  | [optional]
 **CreatedAt** | Pointer to **time.Time** |  | [optional]
 **UpdatedAt** | Pointer to **time.Time** |  | [optional]
+**Name** | Pointer to **string** | Queryable find-by-name key (SDLC-CONF-13). Optional on create; defaults to a stable identity derived from ci_provider_id/gateway_id/role when not supplied. | [optional]
 **CiProviderId** | **string** | Reference to the CIProvider whose issuer is trusted |
 **GatewayId** | **string** | Reference to the Gateway this CI may operate |
 **Subject** | [**CITrustAllOfSubject**](CITrustAllOfSubject.md) |  |
@@ -158,6 +159,31 @@ SetUpdatedAt sets UpdatedAt field to given value.
 `func (o *CITrust) HasUpdatedAt() bool`
 
 HasUpdatedAt returns a boolean if a field has been set.
+
+### GetName
+
+`func (o *CITrust) GetName() string`
+
+GetName returns the Name field if non-nil, zero value otherwise.
+
+### GetNameOk
+
+`func (o *CITrust) GetNameOk() (*string, bool)`
+
+GetNameOk returns a tuple with the Name field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetName
+
+`func (o *CITrust) SetName(v string)`
+
+SetName sets Name field to given value.
+
+### HasName
+
+`func (o *CITrust) HasName() bool`
+
+HasName returns a boolean if a field has been set.
 
 ### GetCiProviderId
 

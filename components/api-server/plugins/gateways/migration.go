@@ -4,6 +4,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/go-gormigrate/gormigrate/v2"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/dbmigrate"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 )
 
@@ -46,7 +47,7 @@ func migration() *gormigrate.Migration {
 	return &gormigrate.Migration{
 		ID: "2026080312546877",
 		Migrate: func(tx *gorm.DB) error {
-			return tx.AutoMigrate(&Gateway{})
+			return dbmigrate.CreateTable(tx, &Gateway{})
 		},
 		Rollback: func(tx *gorm.DB) error {
 			return tx.Migrator().DropTable(&Gateway{})
@@ -122,10 +123,9 @@ func migrationBackfillLegacyCredentialDriverKEK() *gormigrate.Migration {
 	}
 }
 
-// migrationAddGatewayWorkspaceMode persists the per-gateway OpenShell workspace
-// mode (shared/managed/operator). Existing rows stay NULL so legacy gateways
-// keep the chart's shared default; the create path defaults new gateways to
-// managed (openshell-gateway.spec.md, "Gateway Workspace Mode").
+// migrationAddGatewayWorkspaceMode adds the per-gateway OpenShell workspace
+// mode column (shared/managed/operator). Rows that predate it are backfilled by
+// migrationBackfillGatewayWorkspaceModeShared.
 func migrationAddGatewayWorkspaceMode() *gormigrate.Migration {
 	return &gormigrate.Migration{
 		ID: "2026102012000006",
@@ -134,6 +134,33 @@ func migrationAddGatewayWorkspaceMode() *gormigrate.Migration {
 		},
 		Rollback: func(tx *gorm.DB) error {
 			return tx.Exec("ALTER TABLE gateways DROP COLUMN IF EXISTS workspace_mode").Error
+		},
+	}
+}
+
+// migrationBackfillGatewayWorkspaceModeShared records the mode that gateways
+// created before the workspace_mode column already run in, then makes the column
+// required. Those gateways were provisioned with the Helm value omitted, so the
+// vendored chart default applied: shared. Writing "shared" (not the "managed"
+// create default) keeps their sandboxes in the gateway namespace; the next Helm
+// upgrade renders the same gateway.toml mode they run today. The update is
+// idempotent, and the NOT NULL constraint means a stored mode is always present
+// (openshell-gateway.spec.md, "OSG-CORE-18 -- Gateway Workspace Mode").
+func migrationBackfillGatewayWorkspaceModeShared() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026110212000001",
+		Migrate: func(tx *gorm.DB) error {
+			if err := tx.Exec(`UPDATE gateways
+				SET workspace_mode = 'shared'
+				WHERE workspace_mode IS NULL OR btrim(workspace_mode) = ''`).Error; err != nil {
+				return err
+			}
+			return tx.Exec("ALTER TABLE gateways ALTER COLUMN workspace_mode SET NOT NULL").Error
+		},
+		// The backfilled rows are not distinguishable from gateways whose stored
+		// mode was already shared, so rollback only relaxes the constraint.
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Exec("ALTER TABLE gateways ALTER COLUMN workspace_mode DROP NOT NULL").Error
 		},
 	}
 }

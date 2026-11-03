@@ -15,28 +15,24 @@ func TestBuildClusterInventorySnapshot(t *testing.T) {
 
 	clusters := ManagedClusterList{
 		{
-			Meta:     api.Meta{CreatedAt: recentCreatedAt},
-			Provider: "aws",
-			Region:   strPtr("us-east-1"),
-			Status:   strPtr("Ready"),
+			Meta:         api.Meta{CreatedAt: recentCreatedAt},
+			Status:       strPtr("Ready"),
+			Capabilities: []string{"provider/aws", "region/us-east-1"},
 		},
 		{
-			Meta:     api.Meta{CreatedAt: oldCreatedAt},
-			Provider: "openshift",
-			Region:   nil,
-			Status:   strPtr("Failed"),
+			Meta:         api.Meta{CreatedAt: oldCreatedAt},
+			Status:       strPtr("Failed"),
+			Capabilities: []string{"provider/openshift"},
 		},
 		{
-			Meta:     api.Meta{CreatedAt: recentCreatedAt},
-			Provider: "aws",
-			Region:   strPtr(""),
-			Status:   nil,
+			Meta:         api.Meta{CreatedAt: recentCreatedAt},
+			Status:       nil,
+			Capabilities: []string{"provider/aws"},
 		},
 		{
-			Meta:     api.Meta{CreatedAt: veryRecentCreatedAt},
-			Provider: "gcp",
-			Region:   strPtr("eu-west-1"),
-			Status:   strPtr("Ready"),
+			Meta:         api.Meta{CreatedAt: veryRecentCreatedAt},
+			Status:       strPtr("Ready"),
+			Capabilities: []string{"provider/gcp", "region/eu-west-1"},
 		},
 	}
 
@@ -54,10 +50,8 @@ func TestBuildClusterInventorySnapshot(t *testing.T) {
 	}
 }
 
-// Registered clusters self-declare provider/region through the capability model
-// and no longer write the Provider/Region columns. The inventory metric must
-// derive the buckets from the capability labels; otherwise every registered
-// cluster reports provider="unknown".
+// The inventory metric derives the provider and region buckets from the
+// cluster's provider/ and region/ capability labels.
 func TestBuildClusterInventorySnapshotDerivesFromCapabilities(t *testing.T) {
 	evaluationTime := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
 

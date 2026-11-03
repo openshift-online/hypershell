@@ -27,6 +27,8 @@ type CIProvider struct {
 	Href      *string    `json:"href,omitempty"`
 	CreatedAt *time.Time `json:"created_at,omitempty"`
 	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+	// Queryable find-by-name key (SDLC-CONF-13). Optional on create; defaults to the forge when not supplied. Used by hsctl apply to resolve an existing record via search=name = '<name>'.
+	Name *string `json:"name,omitempty"`
 	// The forge family: github, gitlab, or forgejo
 	Forge string `json:"forge"`
 	// The OIDC issuer URL whose tokens this provider validates
@@ -221,6 +223,38 @@ func (o *CIProvider) SetUpdatedAt(v time.Time) {
 	o.UpdatedAt = &v
 }
 
+// GetName returns the Name field value if set, zero value otherwise.
+func (o *CIProvider) GetName() string {
+	if o == nil || IsNil(o.Name) {
+		var ret string
+		return ret
+	}
+	return *o.Name
+}
+
+// GetNameOk returns a tuple with the Name field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *CIProvider) GetNameOk() (*string, bool) {
+	if o == nil || IsNil(o.Name) {
+		return nil, false
+	}
+	return o.Name, true
+}
+
+// HasName returns a boolean if a field has been set.
+func (o *CIProvider) HasName() bool {
+	if o != nil && !IsNil(o.Name) {
+		return true
+	}
+
+	return false
+}
+
+// SetName gets a reference to the given string and assigns it to the Name field.
+func (o *CIProvider) SetName(v string) {
+	o.Name = &v
+}
+
 // GetForge returns the Forge field value
 func (o *CIProvider) GetForge() string {
 	if o == nil {
@@ -373,6 +407,9 @@ func (o CIProvider) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.UpdatedAt) {
 		toSerialize["updated_at"] = o.UpdatedAt
+	}
+	if !IsNil(o.Name) {
+		toSerialize["name"] = o.Name
 	}
 	toSerialize["forge"] = o.Forge
 	toSerialize["issuer"] = o.Issuer

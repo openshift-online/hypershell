@@ -45,6 +45,42 @@ for _, item := range items {
 return errors.Join(errs...)
 ```
 
+## Database migrations are raw SQL, never AutoMigrate
+
+Every plugin migration creates and evolves its table with raw SQL through
+`tx.Exec`, using idempotent statements (`CREATE TABLE IF NOT EXISTS`,
+`ALTER TABLE ... ADD COLUMN IF NOT EXISTS`). GORM `AutoMigrate` is forbidden: it
+can fail closed on the production PostgreSQL driver and protocol (`lib/pq` with
+`PreferSimpleProtocol`), which poisons the transaction and aborts every
+subsequent query on the table (`SQLSTATE 25P02`). The rule is uniform across all
+Kinds; the Kind conformance gate rejects `AutoMigrate`. See
+`standards/sdlc/kind-conformance.spec.md` (SDLC-CONF-02).
+
+**Pattern to avoid**:
+```go
+db.AutoMigrate(&Resource{}) // BAD: fails closed on lib/pq + PreferSimpleProtocol
+```
+
+**Correct pattern**:
+```go
+tx.Exec(`CREATE TABLE IF NOT EXISTS resources (...)`)
+tx.Exec(`ALTER TABLE resources ADD COLUMN IF NOT EXISTS field text`)
+```
+
+A shipped migration body is immutable. gormigrate records a migration ID as
+applied exactly once, so editing the body of an already-shipped migration never
+re-runs it on an environment that recorded that ID -- the edit repairs only fresh
+databases and silently leaves every upgraded environment on the old behavior. Any
+correction to already-shipped migration behavior ships as a NEW migration with a
+new, unique ID, which converges every environment at deploy. See
+`standards/sdlc/kind-conformance.spec.md` (SDLC-CONF-10, SDLC-CONF-11).
+
+**Pattern to avoid**:
+```go
+// BAD: editing the body of an already-shipped migration ID; skipped on upgraded envs
+gormigrate.Migration{ID: "2026102600000001", Migrate: correctedBody} // was shipped earlier
+```
+
 ## Restricted SecurityContext on all containers
 
 All containers in manifests must set:

@@ -3,9 +3,9 @@ name: ingest
 description: "Bidirectional Jira <-> GitHub intake. Link every in-scope work item as a canonically linked pair."
 ---
 
-## Runtime context (supplied by the harness as environment variables)
+## Inputs and tools
 
-Your parameters come from the environment: `REPOSITORY`, `GITHUB_REPO_URL`, `LABEL_SCOPE`, `TRUSTED_BRANCH` (main), `DRY_RUN`, `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`. Use `gh` and the GitHub REST API for all GitHub actions; use `curl` with Basic auth (`JIRA_EMAIL:JIRA_API_TOKEN`) for all Jira REST API calls against `JIRA_BASE_URL`. Do not use MCP tools. The working directory is a clean checkout of `REPOSITORY`. Write your structured result to `$FULLSEND_OUTPUT_DIR/result.json`. Follow the workflow below.
+Your parameters come from the environment: `REPOSITORY`, `GITHUB_REPO_URL`, `LABEL_SCOPE`, `TRUSTED_BRANCH` (main), `DRY_RUN`, `JIRA_BASE_URL`. Use `gh` and the GitHub REST API for all GitHub actions; use `node .fullsend/scripts/jira-request.mjs METHOD /rest/api/3/PATH [request.json]` for Jira requests. The helper handles authentication; do not construct authentication headers or inspect credentials. Paginate discovery and report request failures. Do not use MCP tools. The working directory is a checkout of `REPOSITORY`. Write your structured result to `$FULLSEND_OUTPUT_DIR/result.json`. Follow the workflow below.
 
 ---
 
@@ -16,8 +16,7 @@ and bidirectional: a Jira epic or story gets a GitHub execution record created
 for it, and a GitHub-origin issue in scope gets a Jira epic created for it, so
 both origins converge on the same canonically linked pair. In every case the
 GitHub issue is the execution record that the rest of the funnel (triage, spec,
-code, review) acts on unchanged. This responsibility is invoked by `execute-sdlc`
-Step 0, before triage, so every later phase operates uniformly on GitHub
+code, review) acts on unchanged. Intake precedes triage so every later phase operates uniformly on GitHub
 execution records of either origin.
 
 Realizes the `Authorization Gate Is Load-Bearing`, `Origin-Agnostic Intake`,
@@ -288,3 +287,15 @@ write, Jira-key write, marker add). If any error was collected, the run MUST
 surface it; partial failures SHALL NOT be silently swallowed.
 
 Output: `$EXECUTION_RECORDS`
+
+## Structured result
+
+Write `$FULLSEND_OUTPUT_DIR/result.json`:
+
+```json
+{"status":"success","errors":[],"records":[{"url":"https://github.com/owner/repo/issues/1"}]}
+```
+
+Use `status: "failed"` and list every error if any write or resolution failed.
+Partial completion is a failure. Honor `DRY_RUN` and report unauthorized records
+as no-write skips. Never apply `agent/allowed`.

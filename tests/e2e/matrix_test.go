@@ -2,10 +2,11 @@ package e2e
 
 import (
 	"os"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/suite"
 
@@ -13,21 +14,31 @@ import (
 	"github.com/openshift-online/hypershell/tests/e2e/harness"
 )
 
-// TestMatrix is the managed-cluster matrix runner. It enumerates registered
-// ManagedClusters and runs the single-cluster E2ESuite once per cluster, bounded
-// by E2E_CONCURRENCY, then reports a per-cluster pass/fail/skip matrix and a single
-// gate verdict (go test's exit status). It adds no assertions beyond the suite.
+// TestMatrix is the managed-cluster matrix runner. It validates placement PER
+// DISTINCT CAPABILITY advertised across the registered fleet, not per cluster, so its
+// cost scales with the bounded capability set rather than the cluster count: "does
+// placement by this capability work" is a property of the software and the fleet's
+// capability set, so running the full suite once per cluster is redundant at fleet
+// scale and does not scale to 100+ clusters (E2E-CORE-30).
 //
-// It defaults to E2E_MODE=short (the promotion/smoke subset) when E2E_MODE is
-// unset, and fails closed: an unregistered, stale, or unreachable cluster is a
-// failure unless E2E_MANAGED_SKIP_UNHEALTHY=1 downgrades it to a skip.
-// Verifies: E2E-CORE-30.02
+// It reads GET /managed_clusters, enumerates the union of distinct capability labels
+// the registered clusters (non-empty oidc_subject) advertise, and runs the E2ESuite
+// in short mode once per distinct capability. Each suite places its positive-workflow
+// and provisioning gateways by that one capability selector
+// (placement.selector = [<capability>]) and asserts the gateway lands on some
+// eligible cluster. Across the run the matrix asserts full capability coverage and
+// reports the observational landed-cluster union (never a failure). The suite count
+// equals the distinct-capability count and is independent of the cluster count.
+//
+// Short mode is user-facing and kube-free, so the matrix needs no Kubernetes context
+// for any cluster and applies no last_seen_at health gate; it enumerates only
+// registered clusters as a structural placement-eligibility precondition, not a
+// health judgment (E2E-CORE-30.04, E2E-CORE-39).
+// Verifies: E2E-CORE-30.01, E2E-CORE-30.02, E2E-CORE-30.03, E2E-CORE-30.04
 func TestMatrix(t *testing.T) {
-	// The matrix is a promotion/smoke gate: default to short unless the caller
-	// pinned a mode.
-	if os.Getenv("E2E_MODE") == "" {
-		t.Setenv("E2E_MODE", modeShort)
-	}
+	// The matrix is the user-facing "does placement by this capability work" gate; it
+	// always runs short mode (the kube-free depth), uniformly across hub and spokes.
+	t.Setenv("E2E_MODE", modeShort)
 
 	clients, err := harness.NewClients()
 	if err != nil {
@@ -55,42 +66,56 @@ func TestMatrix(t *testing.T) {
 		t.Fatalf("list managed clusters: %v", err)
 	}
 
-	allow := parseAllowlist(os.Getenv("E2E_MANAGED_CLUSTERS"))
-	healthyWindow := durationEnvOr("E2E_MANAGED_HEALTHY_WINDOW", 5*time.Minute)
-	skipUnhealthy := os.Getenv("E2E_MANAGED_SKIP_UNHEALTHY") == "1"
+	// Enumerate the distinct capabilities advertised by REGISTERED clusters only
+	// (non-empty oidc_subject). An unregistered cluster has no control plane to
+	// reconcile a gateway and is never a placement target, so enumerating its
+	// capabilities would manufacture a guaranteed-unplaceable capability rather than
+	// exercise a real placement. This is a structural placement-eligibility
+	// precondition, NOT a health judgment: no last_seen_at gate is applied.
+	eligible := map[string]map[string]bool{} // capability -> set of cluster ids advertising it
+	registered := 0
+	for _, c := range list.Items {
+		if c.OidcSubject == "" {
+			continue
+		}
+		registered++
+		for _, capability := range c.Capabilities {
+			if eligible[capability] == nil {
+				eligible[capability] = map[string]bool{}
+			}
+			eligible[capability][c.ID] = true
+		}
+	}
+	capabilities := make([]string, 0, len(eligible))
+	for capability := range eligible {
+		capabilities = append(capabilities, capability)
+	}
+	// Deterministic capability order: at E2E_CONCURRENCY=1 the suites run sequentially
+	// in this order; higher values fan them out within that bound (E2E-CORE-30).
+	sort.Strings(capabilities)
+	if len(capabilities) == 0 {
+		t.Fatalf("no distinct capabilities advertised by any registered managed cluster (registered=%d of %d)", registered, len(list.Items))
+	}
+
 	concurrency := intEnv("E2E_CONCURRENCY", 4)
 	if concurrency < 1 {
 		concurrency = 1
 	}
 
-	type target struct {
-		name, id string
-		healthy  bool
-		reason   string
-	}
-	var targets []target
-	for _, c := range list.Items {
-		if len(allow) > 0 && !allow[c.Name] {
-			continue
-		}
-		if c.OidcSubject == "" {
-			targets = append(targets, target{name: c.Name, id: c.ID, reason: "unregistered (empty oidc_subject)"})
-			continue
-		}
-		healthy, reason := clusterHealthy(c.LastSeenAt, healthyWindow)
-		targets = append(targets, target{name: c.Name, id: c.ID, healthy: healthy, reason: reason})
-	}
-	if len(targets) == 0 {
-		t.Fatalf("no ManagedClusters selected (registered=%d, allowlist=%v)", len(list.Items), allow)
-	}
-
 	var mu sync.Mutex
 	outcomes := map[string]string{}
+	// exercised records the capabilities the matrix actually ran a suite for, so the
+	// run can assert full capability coverage: exercised must equal the distinct
+	// capability set (E2E-CORE-30.02).
+	exercised := map[string]bool{}
+	// landed records the clusters positive creates resolved to across all suites, for
+	// the observational landed-cluster union (E2E-CORE-30.02).
+	landed := &landedTracker{}
 
 	sem := make(chan struct{}, concurrency)
-	for _, tg := range targets {
-		tg := tg
-		t.Run(tg.name, func(t *testing.T) {
+	for _, capability := range capabilities {
+		capability := capability
+		t.Run(capability, func(t *testing.T) {
 			if concurrency > 1 {
 				t.Parallel()
 				select {
@@ -101,50 +126,26 @@ func TestMatrix(t *testing.T) {
 				}
 			}
 
-			if !tg.healthy {
-				if skipUnhealthy {
-					mu.Lock()
-					outcomes[tg.name] = "SKIP (" + tg.reason + ")"
-					mu.Unlock()
-					t.Skipf("cluster %s unhealthy: %s (E2E_MANAGED_SKIP_UNHEALTHY=1)", tg.name, tg.reason)
-					return
-				}
-				mu.Lock()
-				outcomes[tg.name] = "FAIL (" + tg.reason + ")"
-				mu.Unlock()
-				t.Fatalf("cluster %s unhealthy: %s (fail-closed; set E2E_MANAGED_SKIP_UNHEALTHY=1 to downgrade)", tg.name, tg.reason)
-				return
-			}
+			s := newE2ESuite(d, clients)
+			// Place positive creates by this one capability selector and assert each
+			// gateway lands on some cluster that advertises it (E2E-CORE-30). The suite
+			// runs short mode, so it never opens a per-cluster kube context.
+			s.matrixCapability = capability
+			s.matrixEligibleClusters = eligible[capability]
+			s.landed = landed
+			s.nameSuffix = sanitizeCapability(capability)
 
-			clusterClients := clients
-			clusterDriver := d
-			contextName := os.Getenv(managedKubeContextEnvKey(tg.name))
-			if contextName != "" {
-				var contextErr error
-				clusterClients, contextErr = harness.NewClientsForContext(contextName)
-				if contextErr != nil {
-					t.Fatalf("build Kubernetes clients for context %s: %v", contextName, contextErr)
-				}
-				targetDriver, resolveErr := driver.Resolve(t.Context(), clusterClients, d.Name())
-				contextErr = resolveErr
-				if contextErr != nil {
-					t.Fatalf("resolve %s driver for context %s: %v", d.Name(), contextName, contextErr)
-				}
-				clusterDriver = matrixInfraDriver{hub: d, target: targetDriver}
-			}
+			mu.Lock()
+			exercised[capability] = true
+			mu.Unlock()
 
-			s := newE2ESuite(clusterDriver, clusterClients)
-			s.clusterIDOverride = tg.id
-			s.nameSuffix = sanitizeName(tg.name)
-			s.kubeContext = contextName
-			s.skipKubeChecks = contextName == ""
 			suite.Run(t, s)
 
 			mu.Lock()
 			if t.Failed() {
-				outcomes[tg.name] = "FAIL"
+				outcomes[capability] = "FAIL"
 			} else {
-				outcomes[tg.name] = "PASS"
+				outcomes[capability] = "PASS"
 			}
 			mu.Unlock()
 		})
@@ -154,70 +155,41 @@ func TestMatrix(t *testing.T) {
 		mu.Lock()
 		defer mu.Unlock()
 		var b strings.Builder
-		b.WriteString("\n==================== E2E MATRIX ====================\n")
-		for _, tg := range targets {
-			res := outcomes[tg.name]
+		b.WriteString("\n==================== E2E MATRIX (per capability) ====================\n")
+		for _, capability := range capabilities {
+			res := outcomes[capability]
 			if res == "" {
 				res = "UNKNOWN"
 			}
-			b.WriteString("  " + tg.name + ": " + res + "\n")
+			b.WriteString("  " + capability + ": " + res + "\n")
 		}
-		b.WriteString("===================================================\n")
+		// The landed-cluster union is observational, never a coverage assertion: a
+		// single cluster MAY satisfy several capabilities and some clusters MAY never
+		// be landed on, which is expected (E2E-CORE-30.02).
+		b.WriteString("  landed-cluster union: " + strings.Join(landed.list(), ", ") + "\n")
+		b.WriteString("  cost: " + strconv.Itoa(len(capabilities)) + " suite(s) for " + strconv.Itoa(registered) + " registered cluster(s)\n")
+		b.WriteString("=====================================================================\n")
 		t.Log(b.String())
+
+		// Full capability coverage: every distinct capability present across the
+		// registered clusters is exercised by exactly one suite. This guards against a
+		// capability being silently dropped (for example a panic before suite.Run) so a
+		// green matrix cannot hide an unexercised capability (E2E-CORE-30.02).
+		var missing []string
+		for _, capability := range capabilities {
+			if !exercised[capability] {
+				missing = append(missing, capability)
+			}
+		}
+		if len(missing) > 0 {
+			t.Errorf("matrix did not exercise every distinct capability; missing: %s", strings.Join(missing, ", "))
+		}
 	})
 }
 
-func parseAllowlist(v string) map[string]bool {
-	if v == "" {
-		return nil
-	}
-	out := map[string]bool{}
-	for _, name := range strings.Split(v, ",") {
-		if n := strings.TrimSpace(name); n != "" {
-			out[n] = true
-		}
-	}
-	return out
-}
-
-// clusterHealthy reports whether last_seen_at is within window.
-func clusterHealthy(lastSeen *time.Time, window time.Duration) (bool, string) {
-	if lastSeen == nil {
-		return false, "no last_seen_at"
-	}
-	age := time.Since(*lastSeen)
-	if age > window {
-		return false, "stale last_seen_at (" + age.Round(time.Second).String() + " > " + window.String() + ")"
-	}
-	return true, ""
-}
-
-func durationEnvOr(key string, def time.Duration) time.Duration {
-	if v := os.Getenv(key); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
-			return d
-		}
-	}
-	return def
-}
-
-// sanitizeName makes a cluster name safe as part of a gateway name.
-func sanitizeName(name string) string {
+// sanitizeCapability makes a capability label safe as part of a gateway name
+// (provider/aws -> provider-aws).
+func sanitizeCapability(capability string) string {
 	r := strings.NewReplacer("/", "-", ".", "-", ":", "-", " ", "-", "_", "-")
-	return strings.ToLower(r.Replace(name))
-}
-
-func managedKubeContextEnvKey(clusterName string) string {
-	var b strings.Builder
-	b.WriteString("E2E_MANAGED_KUBECONTEXT_")
-	for _, r := range clusterName {
-		if r >= 'a' && r <= 'z' {
-			b.WriteRune(r - ('a' - 'A'))
-		} else if r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
-			b.WriteRune(r)
-		} else {
-			b.WriteByte('_')
-		}
-	}
-	return b.String()
+	return strings.ToLower(r.Replace(capability))
 }

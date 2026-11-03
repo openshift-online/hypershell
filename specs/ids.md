@@ -3,7 +3,8 @@
 Machine-readable registry of every `MODULE-GROUP` prefix in `specs/`, per
 `specs/standards/platform/spec-identifiers.spec.md`. One row per prefix, one
 owning file (except the three multi-group files noted below). A new module
-or group is added here before any requirement uses it.
+or group is added here before any requirement uses it. Retired IDs are
+listed in `specs/id-rename-map.md`, not here.
 
 ## Active Prefixes
 
@@ -26,14 +27,15 @@ or group is added here before any requirement uses it.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `API-OBS` | `platform/api-server-observability.spec.md` | 8 |
+| `API-OBS` | `platform/api-server-observability.spec.md` | 11 |
 
 ### CICD
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `CICD-BLD` | `platform/openshell-branch-build.spec.md` | 8 |
-| `CICD-CRED` | `platform/ephemeral-test-credentials.spec.md` | 12 |
+| `CICD-CRED` | `platform/ephemeral-test-credentials.spec.md` | 13 |
+| `CICD-ECC` | `platform/konflux-enterprise-contract-conformance.spec.md` | 7 |
 | `CICD-MRG` | `platform/mergify-parallel-merge-queue.spec.md` | 12 |
 | `CICD-PREN` | `platform/ephemeral-pr-environments.spec.md` | 12 |
 | `CICD-SEC` | `platform/ephemeral-ci-secrets.spec.md` | 5 |
@@ -44,6 +46,7 @@ or group is added here before any requirement uses it.
 |--------|------|--------------|
 | `CLI-EXT` | `platform/hsctl-extension-commands.spec.md` | 4 |
 | `CLI-GWC` | `platform/hsctl-gateway-connection.spec.md` | 2 |
+| `CLI-PLC` | `platform/hsctl-placement.spec.md` | 4 |
 | `CLI-REL` | `platform/hsctl-release.spec.md` | 6 |
 | `CLI-TUI` | `platform/hsctl-terminal-ui.spec.md` | 4 |
 
@@ -62,6 +65,7 @@ or group is added here before any requirement uses it.
 |--------|------|--------------|
 | `DEV-LOC` | `platform/local-development.spec.md` | 17 |
 | `DEV-OCP` | `platform/openshift-development.spec.md` | 14 |
+| `DEV-SPV` | `platform/spec-viewer.spec.md` | 17 |
 
 ### E2E
 
@@ -75,6 +79,7 @@ or group is added here before any requirement uses it.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
+| `FLT-BPR` | `platform/fleet-dashboard-bundle-pr-repository-split.spec.md` | 12 |
 | `FLT-CAP` | `platform/fleet-dashboard-capability-chips.spec.md` | 7 |
 | `FLT-MAP` | `platform/fleet-dashboard-map-hub-spine-layout.spec.md` | 7 |
 | `FLT-NAV` | `platform/glass-url-addressable-navigation.spec.md` | 21 |
@@ -120,13 +125,14 @@ or group is added here before any requirement uses it.
 | `OSG-CORE` | `platform/openshell-gateway.spec.md` | 17 |
 | `OSG-CRED` | `platform/openshell-gateway-credentials.spec.md` | 12 |
 | `OSG-DBS` | `platform/openshell-gateway-database.spec.md` | 12 |
-| `OSG-HELM` | `platform/openshell-gateway-helm-adoption.spec.md` | 4 |
+| `OSG-HELM` | `platform/openshell-gateway-helm-adoption.spec.md` | 3 |
 | `OSG-HLTH` | `platform/openshell-gateway-health.spec.md` | 6 |
 | `OSG-KCLK` | `platform/openshell-gateway-keycloak.spec.md` | 11 |
+| `OSG-KCLT` | `platform/openshell-gateway-keycloak.transitional.spec.md` | 1 |
 | `OSG-NSGC` | `platform/openshell-gateway-namespace-gc.spec.md` | 8 |
 | `OSG-OIDC` | `platform/openshell-gateway-oidc.spec.md` | 4 |
-| `OSG-ROT` | `platform/openshell-gateway-secret-rotation.spec.md` | 4 |
-| `OSG-ROUT` | `platform/openshell-gateway-routing.spec.md` | 11 |
+| `OSG-ROT` | `platform/openshell-gateway-secret-rotation.spec.md` | 2 |
+| `OSG-ROUT` | `platform/openshell-gateway-routing.spec.md` | 12 |
 | `OSG-SACC` | `platform/openshell-gateway-service-accounts.spec.md` | 18 |
 | `OSG-SBX` | `platform/openshell-gateway-sandbox-count.spec.md` | 7 |
 | `OSG-SEVT` | `platform/gateway-sandbox-events.spec.md` | 6 |
@@ -154,8 +160,10 @@ or group is added here before any requirement uses it.
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `SDLC-AGT` | `platform/sdlc-agent-runtime-telemetry.spec.md` | 17 |
-| `SDLC-JIRA` | `standards/sdlc/jira-github-sync.spec.md` | 14 |
-| `SDLC-VIS` | `platform/agent-sdlc-visibility-dashboard.spec.md` | 24 |
+| `SDLC-CONF` | `standards/sdlc/kind-conformance.spec.md` | 13 |
+| `SDLC-JIRA` | `standards/sdlc/jira-github-sync.spec.md` | 15 |
+| `SDLC-LOC` | `platform/local-sdlc-dispatch.spec.md` | 10 |
+| `SDLC-VIS` | `platform/agent-sdlc-visibility-dashboard.spec.md` | 25 |
 
 ### SEC
 
@@ -169,7 +177,7 @@ or group is added here before any requirement uses it.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `STD-IDS` | `standards/platform/spec-identifiers.spec.md` | 8 |
+| `STD-IDS` | `standards/platform/spec-identifiers.spec.md` | 9 |
 | `STD-RCON` | `standards/control-plane/reconciliation-contract.spec.md` | 13 |
 
 ### UIS
@@ -215,7 +223,7 @@ the rest of `WEB` here for lookup convenience.
 | `WEB-SDK` | `web-console/architecture.spec.md` | 1 |
 | `WEB-SEC` | `web-console/architecture.spec.md` | 1 |
 | `WEB-TRC` | `web-console/tracing.spec.md` | 11 |
-| `WEB-UIEX` | `web-console/architecture.spec.md` | 6 |
+| `WEB-UIEX` | `web-console/architecture.spec.md` | 8 |
 | `WEB-USE` | `web-console/usage-dashboard.spec.md` | 11 |
 | `WEB-VER` | `web-console/gateway-version-visibility.spec.md` | 4 |
 
@@ -249,9 +257,3 @@ from a registered, collision-free code instead of inventing one ad hoc.
 | `STD-XCUT` | `standards/platform/cross-cutting.spec.md` | Cross-cutting constraints reference, not behavior contracts |
 | `STD-NAME` | `standards/platform/naming-multitenancy.spec.md` | Naming-convention reference, not behavior contracts |
 | `WEB-PROV` | `web-console/provisioning-dashboard.spec.md` | User-story/contract outline, no Given/When/Then scenarios yet |
-
-## Retired IDs
-
-None yet. See `specs/standards/platform/spec-identifiers.spec.md` for why
-the pre-migration ad-hoc IDs were renamed rather than retired, and
-`specs/id-rename-map.md` for the old-to-new mapping.

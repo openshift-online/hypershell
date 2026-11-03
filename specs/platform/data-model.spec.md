@@ -298,6 +298,15 @@ request that supplies BOTH SHALL be rejected. `placement` SHALL be a desired-spe
 field persisted on the Gateway (not merely request-scoped), because it is
 re-evaluated for late binding after create.
 
+**Requirement-capability selection only.** A `placement` selector declares
+requirement capabilities (`provider/*`, `network/*`, and the other self-declared
+namespaces, see [`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md),
+"Requirement: Self-Declared Capability Labels") and SHALL resolve by random
+selection among the eligible clusters that match it, so a caller expresses the
+TYPE of placement it wants and SHALL NOT choose a specific cluster through this
+contract. Deterministic single-cluster targeting is out of scope here: it is a
+separate `cluster_name` placement selector tracked in its own issue (#857).
+
 **Late binding (no eligible cluster yet).** When a late-bound Gateway's selector
 matches NO eligible `ManagedCluster`, the create SHALL still succeed: the Gateway
 SHALL be persisted with an empty `cluster_id`, SHALL hold in the `Pending` phase
@@ -392,7 +401,7 @@ selected per sandbox through OpenShell; they are not Gateway resource fields.
 
 | Field | Type | Description |
 |---|---|---|
-| `image` | string | Gateway container image reference (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.1.5-rhaiv.3@sha256:...`) |
+| `image` | string | Gateway container image reference (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.1.6-rhaiv.2@sha256:...`) |
 | `supervisor_image` | string | Supervisor sidecar container image (default supplied by `GATEWAY_SUPERVISOR_IMAGE` env var on the control-plane deployment; see `deploy/base/platform-resources/controller.yaml`) |
 | `server_dns_names` | string[] | DNS names for TLS certificate SANs |
 | `oidc` | JSONB | OIDC authentication config: `{issuer, audience, jwks_ttl, roles_claim, admin_role, user_role, scopes_claim}` |
@@ -401,7 +410,7 @@ selected per sandbox through OpenShell; they are not Gateway resource fields.
 | `route_address` | text | Read-only external address populated by the control plane (e.g., `grpcs://hostname:443`) |
 | `gateway_version` | string | Read-only runtime version from the last successful gateway health response |
 | `credential_driver` | JSONB | Credential storage driver config: `{type, kubernetes_secrets, vault}`. `type` is one of `vault`, `kubernetes-secrets`, `kek-db`. When omitted/null it resolves to `vault` (the default; convention-addressed per-cluster Vault, no sub-fields required). See [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) |
-| `workspace_mode` | text | How the OpenShell Kubernetes driver maps workspaces to namespaces: `shared`, `managed`, or `operator`. Platform-managed: the API server defaults it to `managed` at create and no caller may set or change it (the service funnel also enforces the vocabulary and immutability for control-plane writes). Null (pre-field Gateways) keeps the chart's `shared` default. See [`openshell-gateway.spec.md`](./openshell-gateway.spec.md), "OSG-CORE-18 -- Gateway Workspace Mode" |
+| `workspace_mode` | text | How the OpenShell Kubernetes driver maps workspaces to namespaces: `shared`, `managed`, or `operator`. Platform-managed: the API server defaults it to `managed` at create and no caller may set or change it (the service funnel also enforces the vocabulary and immutability for control-plane writes). Required: every stored Gateway carries a value. See [`openshell-gateway.spec.md`](./openshell-gateway.spec.md), "OSG-CORE-18 -- Gateway Workspace Mode" |
 | `dev_build` | boolean | Marks this Gateway as a dev/branch build (default: false). Control plane passes `hypershell.redhat.io/openshell-dev-build` via Helm `podLabels`. See [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md) |
 | `dev_build_metadata` | JSONB | Dev build provenance: `{ref, sha, repo}`. Control plane passes these via Helm `podAnnotations`. See [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md) |
 
@@ -1688,7 +1697,7 @@ The `hsctl` CLI mirrors the REST API 1-for-1 except where a feature explicitly d
 |---|---|---|
 | `GET /api/hypershell/v1/gateways` | `hsctl list gateways` | ✅ implemented |
 | `GET /api/hypershell/v1/gateways/{id}` | `hsctl get gateway <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/gateways` | `hsctl create gateway --name <n> (--cluster-id <c> \| --placement <sel>) [--dedicated-route]` (name + placement + the create-only `dedicated_route` request, per PLAT-DATA-23 / PLAT-DATA-26; `--dedicated-route` requires the `gateway:dedicated-route-creator` role) | ✅ implemented |
+| `POST /api/hypershell/v1/gateways` | `hsctl create gateway --name <n> (--cluster-id <c> \| [--placement-selector <label>]... [--placement-exclude-selector <label>]... \| --local-kind) [--dedicated-route] [--dry-run]` (name + placement + the create-only `dedicated_route` request, per PLAT-DATA-23 / PLAT-DATA-26; `--dedicated-route` requires the `gateway:dedicated-route-creator` role; the placement flags submit the late-bound shape, see [`hsctl-placement.spec.md`](hsctl-placement.spec.md)) | ✅ implemented |
 | `PATCH /api/hypershell/v1/gateways/{id}` | `hsctl update gateway <id> --name <n>` (rename only, per PLAT-DATA-23) | 🔲 planned |
 | `DELETE /api/hypershell/v1/gateways/{id}` | `hsctl delete gateway <id>` | ✅ implemented |
 | `GET /api/hypershell/v1/gateways/{gateway_id}/sandbox_events` | -- | planned (REST only; see [`gateway-sandbox-events.spec.md`](gateway-sandbox-events.spec.md)) |
@@ -1709,7 +1718,7 @@ The `hsctl` CLI mirrors the REST API 1-for-1 except where a feature explicitly d
 |---|---|---|
 | `GET /api/hypershell/v1/managed_clusters` | `hsctl list managedClusters` | ✅ implemented |
 | `GET /api/hypershell/v1/managed_clusters/{id}` | `hsctl get managedCluster <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/managed_clusters` | `hsctl create managedCluster --name <n> --api-server-url <url> --kubeconfig-secret <s>` | 🔄 legacy provider and region flags removed; remains an inert placeholder because no control plane serves a manually created record and gateways may not reference it (see `managed-cluster-registration.spec.md`) |
+| `POST /api/hypershell/v1/managed_clusters` | `hsctl create managedCluster --name <n> --api-server-url <url> --kubeconfig-secret <s>` | ✅ implemented; the record is an inert placeholder because no control plane serves a manually created record and gateways may not reference it (see `managed-cluster-registration.spec.md`) |
 | `PATCH /api/hypershell/v1/managed_clusters/{id}` | `hsctl update managedCluster <id> [--status <s>]` | 🔲 planned |
 | `DELETE /api/hypershell/v1/managed_clusters/{id}` | `hsctl delete managedCluster <id>` | ✅ implemented |
 
@@ -1777,7 +1786,7 @@ their contract is in [`hsctl-extension-commands.spec.md`](hsctl-extension-comman
 | Kind | Fields applied | Status |
 |---|---|---|
 | `Gateway` | `name`, and exactly one of `cluster_id` (pinned) or `placement` (late-bound selector). A manifest that declares any platform-managed field (`image`, `supervisor_image`, `server_dns_names`, `oidc`, `route`, `external_dns`, `tls_mode`, `service_type`, `credential_driver`, `dev_build`, `dev_build_metadata`) is rejected, per PLAT-DATA-23 - a `.hypershell` import is a non-privileged writer | ✅ implemented |
-| `ManagedCluster` | `name`, `kubeconfig_secret`, `api_server_url` | 🔄 placement metadata moves to registration-owned capabilities and is not writable through `hsctl apply` |
+| `ManagedCluster` | `name`, `kubeconfig_secret`, `api_server_url` | ✅ implemented; placement metadata is the registration-owned `capabilities` set, which `hsctl apply` cannot write |
 | `AgentRuntime` | `name`, `gateway_id`, `sandbox_template_id`, `repository_id`, `selector`, `cron`, `coordinator_image`, `concurrency_policy`, `login_refresh_seconds`, `parameters` (optional `cluster_id`, derived from the Gateway when omitted) | 🔲 planned |
 | `SandboxTemplate` | `name`, `image`, `name_prefix`, `policy` | 🔲 planned |
 | `ProviderSpec` | `name`, `category`, `capability`, `profile` | 🔲 planned |
