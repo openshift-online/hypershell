@@ -427,6 +427,10 @@ For a failed run, the lifecycle detail SHALL retain the terminal record's failed
 summary in a dedicated danger alert above the Progress and Logs tabs. It SHALL
 not derive the summary from, or place it only inside, the raw log stream, so a
 large diagnostic dump, pagination, or log-query failure cannot hide the cause.
+The suite's conditional `diagnostics` step SHALL render as its own selectable
+progress and log scope below the planned `suite-teardown` step. Diagnostic lines
+SHALL NOT be mixed into the teardown scope. The display order does not change the
+required execution order: evidence is still collected before destructive cleanup.
 
 History queries SHALL isolate lifecycle events from the bounded log window so
 chatty output cannot evict the run verdict or steps. Raw-log history SHALL be read
@@ -468,6 +472,13 @@ overlap, and surface truncated history or dropped events.
 - WHEN the selected-run detail renders with a large or unavailable raw log stream
 - THEN a danger alert above the tabs SHALL show the failed step and cause
 - AND the operator SHALL NOT need to search or load the diagnostic logs to find it
+
+#### Scenario: E2E-LOG-12.06 -- Diagnostics are a separate subsection
+
+- GIVEN a failed run emits a conditional `diagnostics` step
+- WHEN the selected-run detail renders
+- THEN `failure diagnostics` SHALL appear below `suite teardown`
+- AND selecting it SHALL scope the log pane to diagnostic lines only
 
 ### Requirement: E2E-LOG-13 -- Domain Observability Probes
 

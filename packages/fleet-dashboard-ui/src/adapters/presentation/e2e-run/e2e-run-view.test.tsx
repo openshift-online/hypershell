@@ -575,6 +575,51 @@ describe("E2eRunView", () => {
     expect(screen.getByText("intentional OpenShift E2E failure")).toBeDefined();
   });
 
+  it("shows failure diagnostics as a selectable section below suite teardown", async () => {
+    const user = userEvent.setup();
+    const d = detail({
+      verdict: "failed",
+      steps: [
+        {
+          stepId: "cleanup",
+          name: "suite-teardown",
+          state: "passed",
+          startedAt: "2026-01-01T00:34:00Z",
+          endedAt: "2026-01-01T00:35:00Z",
+          durationMs: 60000,
+        },
+        {
+          stepId: "diagnostics",
+          name: "failure-diagnostics",
+          state: "passed",
+          startedAt: "2026-01-01T00:34:05Z",
+          endedAt: "2026-01-01T00:34:45Z",
+          durationMs: 40000,
+        },
+      ],
+    });
+    const { api } = makeApi(d);
+    renderView(api, enabled([summary({ verdict: "failed" })]));
+    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+
+    const grid = await screen.findByRole("grid", { name: "Run steps" });
+    const teardown = within(grid).getByRole("button", {
+      name: "suite teardown",
+    });
+    const diagnostics = within(grid).getByRole("button", {
+      name: "failure diagnostics",
+    });
+    expect(
+      teardown.compareDocumentPosition(diagnostics) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+
+    await user.click(screen.getByRole("tab", { name: "Logs" }));
+    expect(
+      screen.getByRole("option", { name: "failure-diagnostics" }),
+    ).toBeDefined();
+  });
+
   it("shows the reporting-incomplete state for a finished-but-terminal-less run", async () => {
     const user = userEvent.setup();
     const d = detail({

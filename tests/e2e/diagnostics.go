@@ -30,6 +30,7 @@ const (
 
 type failureDiagnostics struct {
 	suite         *E2ESuite
+	logger        *harness.Logger
 	dir           string
 	actionsOutput io.Writer
 }
@@ -40,11 +41,18 @@ type failureDiagnostics struct {
 // their pods still exist. When E2E_DIAGNOSTICS_DIR is set, each section is also
 // persisted for the CI artifact uploader; the test log always receives it.
 func (s *E2ESuite) collectFailureDiagnostics() {
+	startedAt := time.Now()
+	diagnosticLogger := s.logger.WithStep("diagnostics", s.T().Logf)
+	s.reporter.StepStarted("diagnostics", "failure-diagnostics")
+	defer func() {
+		s.reporter.StepFinished("diagnostics", "failure-diagnostics", harness.OutcomePassed, time.Since(startedAt))
+	}()
+
 	if s.clients == nil || s.clients.Kube == nil {
-		s.Log("DIAG failure diagnostics unavailable: Kubernetes client was not initialized")
+		diagnosticLogger.Log("DIAG failure diagnostics unavailable: Kubernetes client was not initialized")
 		return
 	}
-	d := &failureDiagnostics{suite: s}
+	d := &failureDiagnostics{suite: s, logger: diagnosticLogger}
 	if os.Getenv("GITHUB_ACTIONS") == "true" {
 		d.actionsOutput = os.Stdout
 	}
@@ -91,12 +99,12 @@ func (d *failureDiagnostics) logf(format string, args ...any) {
 	message := harness.RedactDiagnostic(fmt.Sprintf(format, args...))
 	if d.actionsOutput != nil {
 		_, _ = fmt.Fprintln(d.actionsOutput, message)
-		if d.suite != nil && d.suite.logger != nil {
-			d.suite.logger.Additionalf("%s", message)
+		if d.logger != nil {
+			d.logger.Additionalf("%s", message)
 		}
 		return
 	}
-	d.suite.Logf("%s", message)
+	d.logger.Logf("%s", message)
 }
 
 func (d *failureDiagnostics) section(ctx context.Context, title, filename string, collect func(context.Context, io.Writer)) {

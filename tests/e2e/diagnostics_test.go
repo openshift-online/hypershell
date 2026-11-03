@@ -3,6 +3,7 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -33,6 +34,47 @@ func TestGitHubActionsDiagnosticGroup(t *testing.T) {
 	githubActionsLogGroup(&out, "ignored")()
 	if out.Len() != 0 {
 		t.Fatalf("non-Actions diagnostics emitted workflow commands: %q", out.String())
+	}
+}
+
+func TestFailureDiagnosticsUsesOwnStructuredStep(t *testing.T) {
+	t.Setenv("GITHUB_ACTIONS", "false")
+	var out bytes.Buffer
+	reporter := harness.NewReporter(&out, harness.ReporterIdentity{RunID: "diagnostics-step"})
+	s := &E2ESuite{
+		logger:   harness.NewLogger(t.Logf, harness.ReporterSink(reporter)).WithStep("cleanup", nil),
+		reporter: reporter,
+	}
+	s.SetT(t)
+
+	s.collectFailureDiagnostics()
+
+	var events []struct {
+		Event  string `json:"event"`
+		StepID string `json:"stepId"`
+		Name   string `json:"name"`
+	}
+	for _, line := range bytes.Split(bytes.TrimSpace(out.Bytes()), []byte("\n")) {
+		var event struct {
+			Event  string `json:"event"`
+			StepID string `json:"stepId"`
+			Name   string `json:"name"`
+		}
+		if err := json.Unmarshal(line, &event); err != nil {
+			t.Fatalf("decode event %q: %v", line, err)
+		}
+		events = append(events, event)
+	}
+	if len(events) != 3 {
+		t.Fatalf("events = %+v, want diagnostics start/log/finish", events)
+	}
+	for _, event := range events {
+		if event.StepID != "diagnostics" {
+			t.Errorf("event %+v is attributed to cleanup, want diagnostics", event)
+		}
+	}
+	if events[0].Event != "step_started" || events[0].Name != "failure-diagnostics" || events[2].Event != "step_finished" {
+		t.Fatalf("diagnostics lifecycle = %+v", events)
 	}
 }
 
