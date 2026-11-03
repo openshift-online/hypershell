@@ -190,9 +190,8 @@ SHALL describe these flags as the CLI surface of the gateway create request.
   platform's match-all literal semantics are unchanged (WEB-PLC-07).
 - Placement preferences, weights, or capacity-aware selection; rejected by
   the placement spec's Non-Goals.
-- Selecting a concrete managed cluster by name or identity capability on the
-  user path; deferred to the `managed-cluster/<name>` identity capability
-  work and the `cluster_id` authorization change.
+- Selecting a concrete managed cluster by name on the user path; placement
+  does not support it.
 - Any API server, control-plane, schema, proto, or SDK change.
 - Exposing the persisted `placement` document on the Gateway read model.
 - Changes to `hsctl apply` or the declarative `.hypershell` manifest path,

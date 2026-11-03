@@ -1584,8 +1584,8 @@ sets it to `4`). At `E2E_CONCURRENCY=1` they SHALL run sequentially in a
 deterministic capability order; higher values fan them out within that bound.
 
 **Targeting a specific cluster.** Narrowing a test to named clusters is out of
-scope here: targeting a specific cluster lands with the `managed-cluster/<name>`
-placement selector (#857), not an env-var allowlist on this runner.
+scope here: the runner has no env-var allowlist, and placement does not
+support selecting a cluster by name.
 
 ```text
 clusters = GET /managed_clusters                         # authenticated, short mode (no kube context)
@@ -1836,8 +1836,8 @@ suite reuses the full single-cluster variable set above.
 The matrix enumerates every registered cluster's capabilities with no allowlist,
 no health window, and no per-cluster kube context, so it adds no `E2E_MANAGED_CLUSTERS`,
 `E2E_MANAGED_SKIP_UNHEALTHY`, `E2E_MANAGED_HEALTHY_WINDOW`, or `E2E_MANAGED_KUBECONTEXT_<name>`
-variable. Targeting a specific cluster for a test lands with the `managed-cluster/<name>`
-placement selector (#857), not an env-var allowlist here; continuous per-cluster
+variable. Placement does not support targeting a cluster by name, and the matrix adds no
+env-var allowlist for it; continuous per-cluster
 operational health and in-cluster kube validation are #858.
 
 The console browser suite (`tests/e2e/e2e-console.sh`) adds the following; see
