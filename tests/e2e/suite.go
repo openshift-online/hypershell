@@ -384,7 +384,6 @@ func (s *E2ESuite) TearDownSuite() {
 		}
 		s.reporter.RunFinished(verdict, time.Since(s.startedAt))
 	}()
-	defer s.reportFailureSummary()
 	defer func() {
 		cleanupOutcome := harness.OutcomePassed
 		if s.T().Failed() && !failedBeforeCleanup {
@@ -892,17 +891,6 @@ func (s *E2ESuite) Assert() *assert.Assertions {
 }
 func (s *E2ESuite) Require() *require.Assertions {
 	return require.New(reportingTest{T: s.T(), logger: s.logger, failures: s.failures})
-}
-
-func (s *E2ESuite) reportFailureSummary() {
-	failure, ok := s.failureSummary()
-	if !ok {
-		return
-	}
-	logger := s.logger.WithStep(failure.StepID, s.T().Logf)
-	// Human-only: Glass gets the same data on the terminal run_finished record,
-	// where it cannot be lost among thousands of ordinary log entries.
-	logger.Humanf("E2E FAILURE SUMMARY [%s]: %s", failure.StepID, failure.Message)
 }
 
 func (s *E2ESuite) failureSummary() (harness.FailureSummary, bool) {

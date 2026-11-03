@@ -2584,9 +2584,9 @@ or replace the original test verdict.
 
 Under GitHub Actions, the suite SHALL wrap the complete diagnostic dump in one
 native `::group::E2E failure diagnostics` section so it is collapsed by default.
-After the group closes, the suite SHALL repeat the first failed step and concise
-cause as a prominent terminal failure summary. Outside GitHub Actions, group
-markers SHALL be omitted while the same terminal summary remains visible.
+The original Go failure SHALL remain visible above the collapsed group; the suite
+SHALL NOT repeat it as an additional human-readable terminal summary. Outside
+GitHub Actions, group markers SHALL be omitted.
 
 GitHub Actions SHALL set `E2E_DIAGNOSTICS_DIR` and upload the resulting directory
 on failure. For a later browser or tracing failure after `TestE2E` has passed, or
@@ -2620,7 +2620,7 @@ failures and allow the two paths to drift.
 - GIVEN a failed suite emits thousands of diagnostic lines under GitHub Actions
 - WHEN teardown completes
 - THEN the diagnostic dump SHALL be enclosed by a native collapsible group
-- AND the failed step and concise cause SHALL be repeated after that group
+- AND the original Go failure above the group SHALL remain the single human-readable cause
 
 ### Performance Environment Variables
 

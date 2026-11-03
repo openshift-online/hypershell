@@ -1,7 +1,6 @@
 package e2e
 
 import (
-	"bytes"
 	"os"
 	"os/exec"
 	"strings"
@@ -33,7 +32,7 @@ func TestAssertionFanout(t *testing.T) {
 	}
 }
 
-func TestFailureSummaryFollowsDiagnostics(t *testing.T) {
+func TestTerminalFailureCauseSurvivesDiagnostics(t *testing.T) {
 	if os.Getenv("E2E_FAILURE_SUMMARY_HELPER") == "1" {
 		reporter := harness.NewReporter(os.Stdout, harness.ReporterIdentity{RunID: "summary-test"})
 		failures := &failureRecorder{}
@@ -50,7 +49,6 @@ func TestFailureSummaryFollowsDiagnostics(t *testing.T) {
 		for i := 0; i < 2500; i++ {
 			s.logger.Additionalf("diagnostic-%04d", i)
 		}
-		s.reportFailureSummary()
 		failure, ok := s.failureSummary()
 		if !ok {
 			t.Fatal("failure summary was not retained")
@@ -59,22 +57,21 @@ func TestFailureSummaryFollowsDiagnostics(t *testing.T) {
 		return
 	}
 
-	cmd := exec.Command(os.Args[0], "-test.run=^TestFailureSummaryFollowsDiagnostics$", "-test.v")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestTerminalFailureCauseSurvivesDiagnostics$", "-test.v")
 	cmd.Env = append(os.Environ(), "E2E_FAILURE_SUMMARY_HELPER=1")
 	output, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatal("helper assertion failure no longer fails test")
 	}
 	text := string(output)
-	summary := "E2E FAILURE SUMMARY [P0.1]: intentional failure | actionable reason"
-	if idxSummary, idxLastDiagnostic := strings.LastIndex(text, summary), strings.LastIndex(text, "diagnostic-2499"); idxSummary <= idxLastDiagnostic {
-		t.Fatalf("failure summary did not follow diagnostics (summary=%d diagnostic=%d)", idxSummary, idxLastDiagnostic)
-	}
 	terminal := `"event":"run_finished","runId":"summary-test"`
 	if !strings.Contains(text, terminal) || !strings.Contains(text, `"stepId":"P0.1"`) || !strings.Contains(text, `"message":"intentional failure | actionable reason"`) {
 		t.Fatal("terminal record lost its structured failure summary")
 	}
-	if bytes.Count(output, []byte(summary)) != 1 {
-		t.Fatal("human failure banner should be emitted once")
+	if idxTerminal, idxLastDiagnostic := strings.LastIndex(text, terminal), strings.LastIndex(text, "diagnostic-2499"); idxTerminal <= idxLastDiagnostic {
+		t.Fatalf("terminal failure cause did not follow diagnostics (terminal=%d diagnostic=%d)", idxTerminal, idxLastDiagnostic)
+	}
+	if strings.Contains(text, "E2E FAILURE SUMMARY") {
+		t.Fatal("redundant human failure summary was emitted")
 	}
 }
