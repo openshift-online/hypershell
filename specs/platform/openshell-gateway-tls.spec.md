@@ -48,13 +48,14 @@ cert-manager handles TLS certificate lifecycle. The certgen job handles JWT key 
 
 ### Requirement: OSG-TLS-02 -- SAN Management and Cert Rotation
 
-The reconciler monitors `serverDnsNames` on the Gateway API resource and compares them against the `server_sans` key in the `openshell-gateway-config` ConfigMap. When they differ, the reconciler triggers certificate regeneration.
+The reconciler passes the Gateway's `serverDnsNames` to the gateway Helm release as the `certManager.serverDnsNames` value. The chart uses this value for both the `server_sans` setting in `gateway.toml` and the SANs of the internal server `Certificate`. A change to `serverDnsNames` bumps the Gateway generation, and the reconciler runs a Helm upgrade with the new values.
 
 #### Scenario: OSG-TLS-02.01 -- DNS names changed
 
-- GIVEN a Gateway's `serverDnsNames` differ from the ConfigMap's `server_sans`
+- GIVEN a Gateway whose `serverDnsNames` changed since the last applied generation
 - WHEN the GatewayReconciler reconciles
-- THEN it SHALL update the cert-manager Certificate resources with the new SANs
+- THEN it SHALL upgrade the gateway Helm release with the new SANs in `certManager.serverDnsNames`
+- AND the chart SHALL update the cert-manager server Certificate with the new SANs
 - AND cert-manager SHALL regenerate the TLS secrets
 - AND the gateway workload SHALL restart to pick up the new certificates
 
@@ -162,7 +163,6 @@ The gateway config template includes a `client_ca_path` setting under `[openshel
 | Symptom | Root Cause | Fix |
 |---|---|---|
 | `DecryptError` in gateway logs | Stale client cert from sandbox after cert rotation | Recreate affected sandboxes |
-| Cert deletion loop (every 30s) | ConfigMap SANs don't match API SANs | Ensure exact match; manual certgen if needed |
 | `invalid peer certificate: UnknownIssuer` | Self-signed CA - CLI doesn't trust gateway CA | Use `OPENSHELL_GATEWAY_INSECURE=true` or trust CA |
 | OIDC discovery fails with TLS error | Gateway can't reach IdP (private CA) | Create `gateway-trusted-ca` ConfigMap |
 | `peer sent no certificates` + `upstream connect error or disconnect/reset before headers` | Gateway requires client certs (mTLS) but ingress proxy cannot present one | Ensure `route.enabled` is true so `client_ca_path` is stripped from config |
