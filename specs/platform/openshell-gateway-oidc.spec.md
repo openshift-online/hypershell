@@ -158,8 +158,15 @@ hsctl login --url "$API_URL" --issuer-url "$OIDC_ISSUER" --insecure
 # 1b. Login to hsctl -- device flow (headless / SSH; prints URL + user code, polls until done)
 hsctl login --no-browser --url "$API_URL" --issuer-url "$OIDC_ISSUER" --insecure
 
-# 2. Register the OpenShell CLI with the gateway
-hsctl gateway setup-cli --gateway-url "$GATEWAY_URL"
+# 2. Register the OpenShell CLI with the gateway. `hsctl get gateway` prints the
+# `openshell gateway add` command with the gateway's OIDC issuer, client ID,
+# audience, and endpoint filled in.
+hsctl get gateway "$GATEWAY_ID" --show-connection
+openshell gateway add --name "$GATEWAY_NAME" \
+  --oidc-issuer "$OIDC_ISSUER" \
+  --oidc-client-id "$OIDC_CLIENT_ID" \
+  --oidc-audience "$OIDC_AUDIENCE" \
+  "$GATEWAY_URL"
 
 # 3. Use OpenShell interactively
 OPENSHELL_GATEWAY_INSECURE=true openshell -g "$GATEWAY_NAME" status
@@ -180,7 +187,7 @@ See [`openshell-gateway-service-accounts.spec.md`](./openshell-gateway-service-a
 | `role 'openshell-user' required` | OIDC `roles_claim` misconfigured or user lacks the required Keycloak client role | Verify user has a RoleBinding and the OIDC Role Bridge has assigned the Keycloak client role |
 | `Invalid client or Invalid client credentials` | The client ID or secret is incorrect. The OpenShellGatewayServiceAccount can also be revoked, expired, or deleted. | Verify the client ID and lifecycle state. Never print the client secret. |
 | Token expires after 5 minutes | Keycloak access-token lifetime | Interactive users refresh their session. OpenShellGatewayServiceAccounts perform another Client Credentials grant without a refresh token. |
-| `openshell gateway add` opens browser | No `--no-browser` flag | Write `metadata.json` directly, then use `hsctl gateway setup-cli` |
+| `openshell gateway add` opens browser | No `--no-browser` flag | Run the login on a machine with a browser. Automation uses an OpenShellGatewayServiceAccount with Client Credentials instead. |
 | `GROUPS` env var returns `1000` in bash | Bash builtin collision - `GROUPS` is a reserved readonly array | Use `USER_GROUPS` instead of `GROUPS` for role/group env vars |
 | `openshell sandbox create` hangs | Blocking interactive command | Background the command and poll for pod status; use `ExecSandbox` for runner startup |
 
