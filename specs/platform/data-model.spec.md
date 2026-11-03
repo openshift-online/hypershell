@@ -1728,8 +1728,7 @@ The `hsctl` CLI mirrors the REST API 1-for-1 except where a feature explicitly d
 |---|---|---|
 | `GET /api/hypershell/v1/roles` | `hsctl list roles` | ✅ implemented |
 | `GET /api/hypershell/v1/roles/{id}` | `hsctl get role <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/roles` | `hsctl create role --name <n> [--permissions <json>]` | ✅ implemented |
-| `DELETE /api/hypershell/v1/roles/{id}` | `hsctl delete role <id>` | ✅ implemented |
+| `POST /api/hypershell/v1/roles` | `hsctl create role --name <n> [--permissions <json>]` | ❌ not served: roles are built-in and read-only; the API server registers only the two `GET` routes, so the generated `hsctl create role` command fails |
 | `GET /api/hypershell/v1/role_bindings` | `hsctl list roleBindings` | ✅ implemented |
 | `GET /api/hypershell/v1/role_bindings/{id}` | `hsctl get roleBinding <id>` | ✅ implemented |
 | `POST /api/hypershell/v1/role_bindings` | `hsctl create roleBinding --role-id <r> --scope <s> [--user-id <u>]` | ✅ implemented |
