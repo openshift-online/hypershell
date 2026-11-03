@@ -662,13 +662,13 @@ export const messages = defineMessages({
     defaultMessage: "Red Hat VPN required",
     description: "Label shown above the VPN placement guidance.",
   },
-  localKindPlacement: {
-    id: "app.page.gatewayProvision.localKindPlacement",
-    defaultMessage: "Use local-kind",
+  kindPlacement: {
+    id: "app.page.gatewayProvision.kindPlacement",
+    defaultMessage: "Use Kind",
     description: "Local Kind placement option.",
   },
-  localKindPlacementDescription: {
-    id: "app.page.gatewayProvision.localKindPlacementDescription",
+  kindPlacementDescription: {
+    id: "app.page.gatewayProvision.kindPlacementDescription",
     defaultMessage: "Use the local Kind cluster for development.",
     description: "Description of local Kind placement.",
   },

@@ -172,7 +172,7 @@ describe("homepage browser hooks", () => {
     });
   });
 
-  it("uses local-kind placement when the summary selects the local cluster", async () => {
+  it("uses the Kind capability selector when the summary selects the local cluster", async () => {
     sessionMock.mockReturnValue({
       data: { authenticated: true, roles: ["viewer"] },
       isSuccess: true,
@@ -185,7 +185,7 @@ describe("homepage browser hooks", () => {
 
     render(
       <QueryClientProvider client={createQueryClient()}>
-        <QuickCreateHarness placement={{ mode: "local-kind" }} />
+        <QuickCreateHarness placement={{ selector: ["provider/kind"] }} />
       </QueryClientProvider>,
     );
     await user.click(screen.getByRole("button", { name: "Create gateway" }));
@@ -195,7 +195,7 @@ describe("homepage browser hooks", () => {
     });
     expect(gatewayOperationsMock.provisionGateway).toHaveBeenCalledWith({
       name: "amber-beacon-0000",
-      placement: { mode: "local-kind" },
+      placement: { selector: ["provider/kind"] },
     });
   });
 });
