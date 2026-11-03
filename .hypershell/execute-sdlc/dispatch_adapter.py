@@ -11,9 +11,10 @@ import subprocess
 import sys
 import time
 
-from funnel_dispatch import Coordinator, Store, parse_args, prepare_inference
+from funnel_dispatch import Coordinator, GitHub, Store, parse_args, prepare_inference
 from gateway_setup import GatewayManager, GatewaySetupError
 from jira_auth import selected_auth, snapshot
+from reconcile_probe import ReconcileProbe, JiraReader
 
 
 class RecoveryDiagnostics:
@@ -38,6 +39,21 @@ class RecoveryDiagnostics:
 def main():
     action = sys.argv[1]
     sys.argv[0] = 'funnel-dispatch.sh'
+    if action == 'sync-baseline':
+        request = json.load(sys.stdin)
+        store = Store(request['db'])
+        try:
+            row = store.get(request['key'])
+            if not row or row['run_id'] != request['run_id'] or row['status'] != 'running':
+                raise ValueError('Reconciliation run ownership changed before baseline capture')
+            job = json.loads(row['payload'])
+            probe = ReconcileProbe(store.db, JiraReader(job['jira_auth'], job['scope'], Path(request['db']).parent))
+            body = GitHub(job['repo'], job['scope'], '').current(job['item']).get('body')
+            probe.generation(job['key'], body, row, 0, baseline=True)
+            print('{}')
+        finally:
+            store.db.close()
+        return
     if action == 'snapshot':
         request = json.load(sys.stdin)
         lock = Path(os.environ.get('XDG_STATE_HOME', str(Path.home()/'.local/state')))/'hypershell/funnel/acli-auth.lock'
@@ -90,6 +106,8 @@ def main():
     args.refresh_code_state = not args.dry_run
     args.dry_run = True
     coordinator = Coordinator(args, store, -1)
+    if args.lifecycle == 'jira' and args.refresh_code_state:
+        coordinator.reconcile_probe = ReconcileProbe(store.db, JiraReader(selected_auth(args.jira_auth), args.scope, args.state_dir))
     try:
         if action == 'discover':
             coordinator.discover()

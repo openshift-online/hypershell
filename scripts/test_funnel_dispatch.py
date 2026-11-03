@@ -22,6 +22,7 @@ sys.path.insert(0, str(ENTRY.parent))
 spec = importlib.util.spec_from_file_location('funnel', ENTRY.with_name('funnel_dispatch.py'))
 funnel = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(funnel)
+from reconcile_probe import ReconcileProbe, ProbeError
 
 
 def issue(number=1, **kwargs):
@@ -510,15 +511,13 @@ class ReconcileScheduleTests(unittest.TestCase):
         for now in (1801,3601,10000):
             self.assertEqual(self.job(now)['fingerprint'],first['fingerprint'])
 
-    def test_periodic_drift_is_measured_from_success_not_start(self):
-        first=self.job(1000)
-        self.complete(first,finished=5000)
-        self.assertEqual(self.job(5000+21600-1)['fingerprint'],first['fingerprint'])
-        due=self.job(5000+21600)
-        self.assertNotEqual(due['fingerprint'],first['fingerprint'])
-        self.assertEqual(self.job(5000+21601)['fingerprint'],due['fingerprint'])
-        self.complete(due,started=26601,finished=27000)
-        self.assertEqual(self.job(27001)['fingerprint'],due['fingerprint'])
+    def test_unchanged_closed_sync_does_not_repeat_after_six_hours(self):
+        closed=issue()
+        closed['state']='closed'
+        first=self.job(1000,closed)
+        self.complete(first)
+        for now in (21601,86400,1000000):
+            self.assertEqual(self.job(now,closed)['fingerprint'],first['fingerprint'])
 
     def test_issue_and_pr_changes_sync_immediately(self):
         first=self.job(1000,prs=[pr()])
@@ -545,6 +544,51 @@ class ReconcileScheduleTests(unittest.TestCase):
             funnel.make_job('agent/scope/test','reconcile',issue())['fingerprint'],[],None,1])
         self.complete(legacy)
         self.assertEqual(self.job(4000)['fingerprint'],legacy['fingerprint'])
+
+
+    # Verifies: SDLC-LOC-06.02
+    def test_jira_probes_only_launch_on_content_changes_and_survive_restart(self):
+        read=Mock(return_value=('original','1970-01-01T00:00:00Z'))
+        self.coordinator.reconcile_probe=ReconcileProbe(self.store.db,read)
+        item=issue();item['state']='closed';item['body']='HYPERSHELL-123'
+        first=self.job(1000,item);self.complete(first)
+        for now in (1101,10000,22600,45000):
+            self.assertEqual(self.job(now,item)['fingerprint'],first['fingerprint'])
+        self.assertEqual(read.call_count,3)
+        read.return_value=('edited','1970-01-02T00:00:00Z')
+        changed=self.job(70000,item)
+        self.assertNotEqual(changed['fingerprint'],first['fingerprint'])
+        self.assertEqual(self.job(70001,item)['fingerprint'],changed['fingerprint'])
+        self.complete(changed,started=70001,finished=70100)
+        self.coordinator.reconcile_probe=ReconcileProbe(self.store.db,read)
+        self.assertEqual(self.job(70200,item)['fingerprint'],changed['fingerprint'])
+        # A successful agent's own Jira writes become the new baseline.
+        read.return_value=('agent-writes','1970-01-01T00:00:00Z')
+        self.coordinator.reconcile_probe.generation(changed['key'],item['body'],None,0,now=70300,baseline=True)
+        self.assertEqual(self.job(100000,item)['fingerprint'],changed['fingerprint'])
+
+    # Verifies: SDLC-LOC-06.02
+    def test_jira_failure_is_not_no_drift_and_retries_without_agent(self):
+        read=Mock(side_effect=ProbeError('unavailable'))
+        self.coordinator.reconcile_probe=ReconcileProbe(self.store.db,read)
+        item=issue();item['body']='HYPERSHELL-123'
+        with self.assertRaises(ProbeError):self.job(1000,item)
+        with self.assertRaises(ProbeError):self.job(1001,item)
+        self.assertEqual(read.call_count,1)
+        self.assertEqual(self.store.db.execute('SELECT count(*) FROM runs').fetchone()[0],0)
+        read.side_effect=None;read.return_value=('restored','1970-01-01T00:00:00Z')
+        self.job(1061,item)
+        self.assertEqual(read.call_count,2)
+
+    def test_upgrade_uses_jira_edit_timestamp_without_blanket_replay(self):
+        item=issue();item['state']='closed';item['body']='HYPERSHELL-123'
+        old=self.job(1000,item);self.complete(old)
+        read=Mock(return_value=('baseline','1970-01-01T00:00:00Z'))
+        self.coordinator.reconcile_probe=ReconcileProbe(self.store.db,read)
+        self.assertEqual(self.job(80000,item)['fingerprint'],old['fingerprint'])
+        self.store.db.execute('DELETE FROM reconcile_observations');self.store.db.commit()
+        read.return_value=('changed','1970-01-02T00:00:00Z')
+        self.assertNotEqual(self.job(80001,item)['fingerprint'],old['fingerprint'])
 
 
 class AuthorizationTests(unittest.TestCase):

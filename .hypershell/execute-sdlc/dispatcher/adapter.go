@@ -63,7 +63,7 @@ func contextCommand(ctx context.Context, name string, args ...string) *exec.Cmd 
 }
 func (a Adapter) command(ctx context.Context, action string) *exec.Cmd {
 	args := []string{a.Path, action}
-	if action != "snapshot" {
+	if action != "snapshot" && action != "sync-baseline" {
 		args = append(args, a.Args...)
 	}
 	if action == "gateway" {
@@ -168,6 +168,15 @@ func workerMain(args []string) int {
 	done := make(chan struct{})
 	go func() { defer close(done); s.watchCancellation(ctx, job.Key, args[2], stop) }()
 	rc := runWorkerContext(ctx, job, Adapter{Path: args[5]}, args[6], lock)
+	if rc == 0 && ctx.Err() == nil && canonicalAgent(job.Agent) == "reconcile" {
+		baselineCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		var result json.RawMessage
+		err = (Adapter{Path: args[5]}).call(baselineCtx, "sync-baseline", map[string]string{"db": args[0], "key": job.Key, "run_id": args[2]}, &result)
+		cancel()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Warning: cannot save reconciliation baseline; mechanical observation will retry:", err)
+		}
+	}
 	stop()
 	<-done
 	if err = s.finishReliably(job.Key, args[2], rc, base, cap); err != nil {

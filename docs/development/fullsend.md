@@ -247,6 +247,23 @@ To deliberately skip Jira, put `FULLSEND_LIFECYCLE=github-only` in the local env
 file. Leave it unset for the complete lifecycle. Model overrides apply to all
 agents; without one, each harness uses its own configured model.
 
+## Reconciliation and drift checks
+
+After a successful sync, unchanged issues stay quiet, including closed issues.
+The dispatcher compares GitHub issue/PR inputs on discovery and checks Jira with a
+read-only script every six hours. Relevant Jira fields and remote links are
+fingerprinted; an unchanged observation does not create a sandbox or run an LLM.
+`--reconcile-interval SECONDS` changes the script's check interval. Reopening an
+issue, changing its linked PR, or completing another phase still triggers sync.
+
+The probe uses the configured ACLI or API-token authentication. It stores hashes
+and timing metadata alongside dispatcher state, and refreshes the baseline after
+successful reconciliation. Authentication or network failures are reported and
+retried after 60 seconds without starting an agent. On upgrade, prior successful
+jobs retain their identity; Jira edits newer than their last successful sync are
+reconciled. The first observation establishes the baseline for older unchanged
+records, including their existing remote links.
+
 ## Detach, resume, and inspect failures
 
 `q` or Ctrl-C detaches and prints complete log paths. Existing workers continue.

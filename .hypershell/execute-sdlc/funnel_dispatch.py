@@ -16,6 +16,7 @@ import tempfile
 import time
 import uuid
 
+from reconcile_probe import ReconcileProbe, JiraReader, ProbeError
 from local_harness import prepare as prepare_local_harness
 from jira_auth import JiraAuthError, selected_auth, snapshot
 from gateway_setup import GatewayManager, GatewaySetupError
@@ -456,6 +457,9 @@ class Coordinator:
         self.discovering = False
         self.next_discovery = 0
         self.next_auth_check = 0
+        self.reconcile_probe = None
+        if args.lifecycle == 'jira' and not args.dry_run:
+            self.reconcile_probe = ReconcileProbe(store.db, JiraReader(args.jira_selection, args.scope, args.state_dir))
 
     def maintain_auth(self, now):
         if self.args.dry_run:
@@ -519,8 +523,8 @@ class Coordinator:
                     if (agent.endswith('-review') or agent in ('code-implementation', 'spec-implementation')) and prs is None:
                         prs = self.github.pages('pulls', state='all')
                     candidates.append(self.github.phase_job(self.args.scope, agent, item, prs))
-            except DispatchError as exc:
-                errors.append(str(exc))
+            except (DispatchError, ProbeError) as exc:
+                errors.append(f'#{item["number"]}: {exc}' if isinstance(exc, ProbeError) else str(exc))
         self.candidates, self.errors = candidates, errors
         for error in errors:
             report(error)
@@ -546,9 +550,14 @@ class Coordinator:
         inputs = [job['fingerprint'],
                   [(p['number'], p.get('merged_at'), p['state'], p.get('head', {}).get('sha')) for p in matches],
                   last['run_id'] if last else None]
+        prior = self.store.get(job['key'])
+        if self.reconcile_probe is not None:
+            generation = self.reconcile_probe.generation(job['key'], item.get('body'), prior,
+                                                         self.args.reconcile_interval)
+            if generation:
+                inputs.append({'jira_generation': generation})
         job['source_fingerprint'] = fingerprint(inputs)
         job['fingerprint'] = job['source_fingerprint']
-        prior = self.store.get(job['key'])
         if prior:
             payload = json.loads(prior['payload'])
             same_inputs = payload.get('source_fingerprint') == job['source_fingerprint']
@@ -559,11 +568,6 @@ class Coordinator:
                     inputs + [int(prior['started'] // self.args.lifecycle_interval)])
             if same_inputs:
                 job['fingerprint'] = prior['fingerprint']
-                if (prior['status'] == 'succeeded' and prior['finished'] is not None
-                        and time.time() - prior['finished'] >= self.args.reconcile_interval):
-                    # Stable through discovery/restarts until this check starts;
-                    # the successful attempt resets the elapsed-time schedule.
-                    job['fingerprint'] = fingerprint([job['source_fingerprint'], prior['run_id']])
         return job
 
     def authorized(self, job):
@@ -689,7 +693,7 @@ class Coordinator:
                     self.display()
                     try:
                         self.discover()
-                    except DispatchError as exc:
+                    except (DispatchError, ProbeError) as exc:
                         self.errors = [str(exc)]
                         self.candidates = []  # Never schedule a stale snapshot after discovery fails.
                         report(f'Discovery failed: {exc}; retrying in {self.args.poll_interval}s')
@@ -719,7 +723,7 @@ class Coordinator:
                         if not self.authorized(job):
                             next_poll = 0
                             continue
-                    except DispatchError as exc:
+                    except (DispatchError, ProbeError) as exc:
                         report(f'Cannot verify {job["key"]}: {exc}; retrying at the next poll')
                         self.errors.append(str(exc))
                         attempted.add(attempt_key(job))
@@ -805,7 +809,7 @@ def parse_args(argv=None):
     parser.add_argument('--lifecycle-interval', type=positive, default='900',
                         help='seconds between checks for newly scoped issues (default: 900)')
     parser.add_argument('--reconcile-interval', type=positive, default='21600',
-                        help='seconds after a successful sync before checking unchanged work for Jira drift (default: 21600, six hours)')
+                        help='seconds between mechanical Jira drift checks; unchanged observations never launch an agent (default: 21600)')
     parser.add_argument('--repo', default=os.environ.get('REPOSITORY', 'openshift-online/hypershell'))
     parser.add_argument('--fullsend-dir', default=os.environ.get('FULLSEND_DIR', '.fullsend'))
     parser.add_argument('--target-repo', default=os.environ.get('TARGET_REPO', os.getcwd()))

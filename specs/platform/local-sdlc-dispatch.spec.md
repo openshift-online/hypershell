@@ -116,7 +116,16 @@ to an earlier label set after a new review rejection permits another attempt.
 
 Jira mode SHALL run intake for the scope, reconcile authorized execution records
 of either origin (including closed records), and then dispatch eligible phases.
-Phase outcomes, changed inputs, and periodic drift checks SHALL trigger
+Phase outcomes and changed inputs SHALL trigger reconciliation. Periodic Jira
+checks SHALL be read-only scripts comparing persisted fingerprints of relevant
+fields and remote links, using existing ACLI or API-token authentication. Passage
+of time alone SHALL NOT launch an agent for an unchanged open or closed record.
+Successful synchronization SHALL refresh the observed baseline. Probe failures
+SHALL be visible, retry with bounded delay, and SHALL NOT count as an unchanged
+observation or start a model to diagnose authentication/network failure. Persisted
+observations SHALL contain hashes and scheduling metadata, never credentials or
+Jira content. On upgrade, established successful records SHALL reuse their saved
+identity; Jira edits newer than their last successful sync SHALL still trigger
 reconciliation. Intake SHALL be repeated periodically for newly selected work.
 Unchanged successful reconciliation SHALL NOT run on every discovery poll.
 `github-only` mode SHALL explicitly omit Jira lifecycle work. Lifecycle agent
@@ -132,6 +141,15 @@ again before dispatch and before agent writes.
 - WHEN the result is validated
 - THEN the attempt SHALL be failed and subject to retry backoff
 - AND dependent phase work SHALL remain gated on successful reconciliation
+
+#### Scenario: SDLC-LOC-06.02 -- Mechanical checks of converged records
+
+- GIVEN a successfully reconciled closed execution record and unchanged Jira data
+- WHEN the drift interval elapses or the dispatcher restarts
+- THEN the script SHALL refresh its observation without launching an LLM
+- WHEN relevant Jira content, the GitHub record, or its linked PR changes
+- THEN reconciliation SHALL become eligible subject to ownership and authorization
+- AND an unchanged observation after that successful run SHALL remain deduplicated
 
 ### Requirement: SDLC-LOC-07 -- Gateway recovery
 
