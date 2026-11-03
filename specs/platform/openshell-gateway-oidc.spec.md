@@ -12,7 +12,7 @@
 
 This specification defines per-gateway OIDC authentication for OpenShell gateways. OIDC enables CLI users and external clients to authenticate via Bearer tokens from an identity provider (e.g., Keycloak). OIDC is the sole authentication mechanism for HyperShell gateways in production.
 
-OIDC configuration is auto-provisioned by the control plane when a gateway is reconciled. The GatewayReconciler provisions a dedicated Keycloak OIDC client per gateway and populates the Gateway resource's `oidc` field automatically. See [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md) for provisioning details. This specification covers how the control plane injects the OIDC configuration into `gateway.toml` and validates it.
+OIDC configuration is auto-provisioned by the control plane when a gateway is reconciled. The GatewayReconciler provisions a dedicated Keycloak OIDC client per gateway and populates the Gateway resource's `oidc` field automatically. See [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md) for provisioning details. This specification covers how the control plane passes the OIDC configuration to the gateway as `server.oidc.*` Helm chart values and validates it.
 
 ---
 
@@ -76,7 +76,7 @@ The Gateway API resource SHALL have an `oidc` object containing OIDC configurati
 - AND the kustomize overlay does NOT include OIDC fields (they are system-managed)
 - WHEN the GatewayReconciler provisions the Keycloak client
 - THEN the Gateway's `oidc` field SHALL be auto-populated with values derived from the provisioned client
-- AND the GatewayReconciler SHALL generate a `gateway.toml` containing the `[openshell.gateway.oidc]` section
+- AND the GatewayReconciler SHALL set the `server.oidc.*` Helm chart values from the populated `oidc` field
 - AND `allow_unauthenticated_users` SHALL be `false`
 
 #### Scenario: OSG-OIDC-01.02 -- OIDC fields are read-only
@@ -100,34 +100,31 @@ The auto-provisioned OIDC configuration always sets both `admin_role` and `user_
 
 ---
 
-### Requirement: OSG-OIDC-03 -- OIDC Configuration in gateway.toml
+### Requirement: OSG-OIDC-03 -- OIDC Configuration as Helm Values
 
-When a Gateway has OIDC enabled (non-empty `oidc.issuer`), the GatewayReconciler SHALL inject the OIDC configuration into the `gateway.toml` ConfigMap.
+When a Gateway has OIDC enabled (non-empty `oidc.issuer`), the GatewayReconciler SHALL pass the OIDC configuration to the OpenShell Helm chart as `server.oidc.*` values. The chart renders these values into the gateway's runtime configuration.
 
-#### Scenario: OSG-OIDC-03.01 -- OIDC section injected into default gateway.toml
+#### Scenario: OSG-OIDC-03.01 -- OIDC Helm values set for an OIDC-enabled gateway
 
 - GIVEN a Gateway with OIDC enabled
-- WHEN the GatewayReconciler generates the ConfigMap
-- THEN `gateway.toml` SHALL contain:
-  ```toml
-  [openshell.gateway.auth]
-  allow_unauthenticated_users = false
-
-  [openshell.gateway.oidc]
-  issuer        = "https://keycloak.example.com/realms/hypershell"
-  audience      = "my-gateway-2FhMpQzXBz"
-  jwks_ttl_secs = 3600
-  roles_claim   = "hypershell.roles"
-  admin_role    = "openshell-admin"
-  user_role     = "openshell-user"
+- WHEN the GatewayReconciler builds the Helm chart values
+- THEN the values SHALL contain:
+  ```yaml
+  server:
+    oidc:
+      issuer: "https://keycloak.example.com/realms/hypershell"
+      audience: "my-gateway-2FhMpQzXBz"
+      rolesClaim: "hypershell.roles"
+      adminRole: "openshell-admin"
+      userRole: "openshell-user"
   ```
-- AND `allow_unauthenticated_users` SHALL be `false`
+- AND the GatewayReconciler SHALL NOT set `server.auth.allowUnauthenticatedUsers`, so unauthenticated users stay disallowed
 
-#### Scenario: OSG-OIDC-03.03 -- Only non-empty OIDC fields written to TOML
+#### Scenario: OSG-OIDC-03.03 -- Only non-empty OIDC fields set as Helm values
 
 - GIVEN a Gateway with only `oidc.issuer` set (all other fields at zero values)
-- THEN `gateway.toml` SHALL contain only the `issuer` key in the OIDC section
-- AND the upstream gateway SHALL apply its own defaults for omitted fields
+- THEN the Helm values SHALL contain only `server.oidc.issuer` under `server.oidc`
+- AND the chart and upstream gateway SHALL apply their own defaults for omitted fields
 
 ---
 
@@ -140,7 +137,7 @@ The GatewayReconciler SHALL detect changes to OIDC configuration and trigger a g
 - GIVEN a running gateway with OIDC configured for issuer `https://old-keycloak.example.com/realms/hypershell`
 - WHEN the Keycloak service account secret is updated to point to a new Keycloak instance
 - AND the control plane re-populates the Gateway's OIDC fields on the next reconciliation cycle
-- THEN the ConfigMap SHALL be updated with the new OIDC settings
+- THEN the Helm release SHALL be upgraded with the new `server.oidc.*` values
 - AND the gateway pods SHALL be restarted via rolling update
 
 ---
