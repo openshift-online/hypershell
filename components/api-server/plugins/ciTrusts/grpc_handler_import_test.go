@@ -178,6 +178,76 @@ func TestUpdateCITrust_AppliesSubjectRepositoryAndProjectPath(t *testing.T) {
 	}
 }
 
+// An import is DESIRED STATE: a manifest that omits a previously-set subject field
+// clears it. The import update path REPLACES the mutable subject predicate wholesale,
+// so a nil field in the request clears the stored value rather than leaving it stale
+// (FINDING 1). Before the fix the import path applied subject fields only when
+// non-nil (the human sparse-PATCH rule), so a removed subject field was silently kept
+// -> false convergence and churn.
+func TestUpdateCITrust_ImportClearsOmittedSubjectField(t *testing.T) {
+	oldRef, oldEnv := "refs/heads/main", "prod"
+	owned := &CITrust{
+		Name:               "ct",
+		RepositoryID:       strPtr("repo-1"),
+		SubjectRepository:  strPtr("acme/repo"),
+		SubjectRef:         &oldRef,
+		SubjectEnvironment: &oldEnv,
+	}
+	owned.ID = "ct-1"
+	svc := &captureCITrustService{getResult: owned}
+	h := &ciTrustGRPCHandler{service: svc}
+
+	// The manifest now declares only subject.repository; ref and environment are gone.
+	keepRepo := "acme/repo"
+	resp, err := h.UpdateCITrust(importCtx("repo-1"), &pb.UpdateCITrustRequest{
+		Id:                "ct-1",
+		SubjectRepository: &keepRepo,
+	})
+	if err != nil {
+		t.Fatalf("UpdateCITrust error = %v", err)
+	}
+	if got := resp.GetCiTrust().GetSubjectRef(); got != "" {
+		t.Errorf("subject_ref = %q, want cleared (import replace semantics)", got)
+	}
+	if got := resp.GetCiTrust().GetSubjectEnvironment(); got != "" {
+		t.Errorf("subject_environment = %q, want cleared (import replace semantics)", got)
+	}
+	if got := resp.GetCiTrust().GetSubjectRepository(); got != keepRepo {
+		t.Errorf("subject_repository = %q, want %q retained", got, keepRepo)
+	}
+}
+
+// The human HTTP partial-PATCH path is unchanged (SEC-RBAC-22): a nil field means
+// "unchanged", so updating one subject field must NOT clear the others. This guards the
+// FINDING 1 fix from regressing the human sparse-PATCH contract.
+func TestUpdateCITrust_HumanPatchLeavesOmittedSubjectFieldUnchanged(t *testing.T) {
+	oldRef := "refs/heads/main"
+	found := &CITrust{
+		Name:              "ct",
+		SubjectRepository: strPtr("acme/repo"),
+		SubjectRef:        &oldRef,
+	}
+	found.ID = "ct-1"
+	svc := &captureCITrustService{getResult: found}
+	h := &ciTrustGRPCHandler{service: svc}
+
+	// No import context: human PATCH that touches only subject.repository.
+	newRepo := "acme/renamed"
+	resp, err := h.UpdateCITrust(context.Background(), &pb.UpdateCITrustRequest{
+		Id:                "ct-1",
+		SubjectRepository: &newRepo,
+	})
+	if err != nil {
+		t.Fatalf("UpdateCITrust error = %v", err)
+	}
+	if got := resp.GetCiTrust().GetSubjectRef(); got != oldRef {
+		t.Errorf("subject_ref = %q, want %q unchanged under human PATCH", got, oldRef)
+	}
+	if got := resp.GetCiTrust().GetSubjectRepository(); got != newRepo {
+		t.Errorf("subject_repository = %q, want %q", got, newRepo)
+	}
+}
+
 // An import reconciler may not prune a CITrust it does not own, so one Repository's
 // import never deletes another's or a REST-created trust.
 // Verifies: SEC-RBAC-25

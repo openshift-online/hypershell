@@ -91,6 +91,7 @@ func TestCITrustDeclarativeImportRoundTrip(t *testing.T) {
 		GatewayId:         gatewayR1,
 		Role:              "openshell-user",
 		SubjectRepository: openapi.PtrString("openshift-online/hypershell"),
+		SubjectRef:        openapi.PtrString("refs/heads/main"),
 	})
 	Expect(err).NotTo(HaveOccurred(), "import create CITrust on R1-owned gateway: %v", err)
 	trustID := created.GetCiTrust().GetMetadata().GetId()
@@ -102,6 +103,22 @@ func TestCITrustDeclarativeImportRoundTrip(t *testing.T) {
 	got, err := trusts.GetCITrust(importMD(repo1), &pb.GetCITrustRequest{Id: trustID})
 	Expect(err).NotTo(HaveOccurred(), "get imported CITrust: %v", err)
 	Expect(got.GetCiTrust().GetRepositoryId()).To(Equal(repo1))
+
+	// --- FINDING 1: import is DESIRED STATE. An import update that OMITS a
+	// previously-set subject field CLEARS it (replace semantics), unlike the human
+	// sparse PATCH where nil means "unchanged" (SEC-RBAC-22). The manifest now declares
+	// only subject.repository, so subject_ref must be cleared over the production driver.
+	updated, err := trusts.UpdateCITrust(importMD(repo1), &pb.UpdateCITrustRequest{
+		Id:                trustID,
+		Role:              openapi.PtrString("openshell-user"),
+		SubjectRepository: openapi.PtrString("openshift-online/hypershell"),
+		// SubjectRef intentionally omitted -> import replace must clear it.
+	})
+	Expect(err).NotTo(HaveOccurred(), "import update clearing subject_ref: %v", err)
+	Expect(updated.GetCiTrust().GetSubjectRef()).To(BeEmpty(),
+		"an import update that omits subject_ref must clear it (desired-state replace, FINDING 1)")
+	Expect(updated.GetCiTrust().GetSubjectRepository()).To(Equal("openshift-online/hypershell"),
+		"the declared subject_repository must be retained")
 
 	// --- SEC-RBAC-25.02: import may not author a CITrust on a gateway it does not own ---
 	_, err = trusts.CreateCITrust(importMD(repo1), &pb.CreateCITrustRequest{

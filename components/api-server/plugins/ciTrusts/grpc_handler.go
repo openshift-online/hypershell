@@ -90,23 +90,43 @@ func (h *ciTrustGRPCHandler) UpdateCITrust(ctx context.Context, req *pb.UpdateCI
 	if err := pkgrbac.EnforceImportOwnership(ctx, found.RepositoryID); err != nil {
 		return nil, err
 	}
-	if req.SubjectRepository != nil {
+	if pkgrbac.ImportRepositoryIDFromContext(ctx) != "" {
+		// Declarative import is DESIRED STATE: the mutable subject predicate and role
+		// are REPLACED wholesale with the manifest's values, so a subject field the
+		// manifest omits (nil) is CLEARED rather than left stale (FINDING 1). This is
+		// deliberately different from the human sparse-PATCH path below, where nil means
+		// "unchanged" (SEC-RBAC-22). Status fields are platform-owned (written by the
+		// CITrust reconciler's token-exchange path), so an import never touches them and
+		// they stay out of the replace set.
 		found.SubjectRepository = req.SubjectRepository
-	}
-	if req.SubjectProjectPath != nil {
 		found.SubjectProjectPath = req.SubjectProjectPath
-	}
-	if req.SubjectRef != nil {
 		found.SubjectRef = req.SubjectRef
-	}
-	if req.SubjectEnvironment != nil {
 		found.SubjectEnvironment = req.SubjectEnvironment
-	}
-	if req.SubjectRefProtected != nil {
 		found.SubjectRefProtected = req.SubjectRefProtected
-	}
-	if req.Role != nil {
-		found.Role = *req.Role
+		if req.Role != nil {
+			found.Role = *req.Role
+		}
+	} else {
+		// Human HTTP partial-PATCH (SEC-RBAC-22): nil means "unchanged", so a caller
+		// can update one field without clearing the others.
+		if req.SubjectRepository != nil {
+			found.SubjectRepository = req.SubjectRepository
+		}
+		if req.SubjectProjectPath != nil {
+			found.SubjectProjectPath = req.SubjectProjectPath
+		}
+		if req.SubjectRef != nil {
+			found.SubjectRef = req.SubjectRef
+		}
+		if req.SubjectEnvironment != nil {
+			found.SubjectEnvironment = req.SubjectEnvironment
+		}
+		if req.SubjectRefProtected != nil {
+			found.SubjectRefProtected = req.SubjectRefProtected
+		}
+		if req.Role != nil {
+			found.Role = *req.Role
+		}
 	}
 	if req.StatusExchangeEndpoint != nil {
 		found.StatusExchangeEndpoint = req.StatusExchangeEndpoint
