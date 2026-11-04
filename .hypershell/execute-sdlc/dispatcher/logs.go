@@ -132,7 +132,7 @@ func (m Model) logKey() logRenderKey {
 
 type logSourceLine struct {
 	raw, prose string
-	message    int // zero is CLI output; positive IDs identify Fullsend chat blocks
+	message    int // zero is a CLI line; positive IDs group agent prose
 }
 
 // Classification happens before filtering so matching continuation lines retain
