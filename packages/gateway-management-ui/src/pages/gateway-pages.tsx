@@ -19,6 +19,7 @@ import {
   Title,
   ToolbarItem,
 } from "@patternfly/react-core";
+import { CodeIcon, CopyIcon } from "@patternfly/react-icons";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FormattedMessage, useIntl } from "react-intl";
@@ -515,24 +516,12 @@ export function GatewaysPage({
       // count follows the database null-ordering convention and renders
       // the localized not-available fallback rather than a misleading zero.
       id: "activeSandboxes",
-      label: intl.formatMessage(messages.activeSandboxes),
+      label: intl.formatMessage(messages.sandboxes),
       render: ({ activeSandboxCount }) =>
         typeof activeSandboxCount === "number"
           ? String(activeSandboxCount)
           : intl.formatMessage(messages.notAvailable),
       width: 10,
-    },
-    {
-      id: "cluster",
-      label: intl.formatMessage(messages.cluster),
-      render: (gateway) => (
-        <GatewayCollectionClusterName
-          gateway={gateway}
-          isLoading={placementsQuery.isPending}
-          placementNames={placementNames}
-        />
-      ),
-      width: 20,
     },
     {
       id: "status",
@@ -552,6 +541,26 @@ export function GatewaysPage({
       width: 10,
     },
     {
+      id: "connect",
+      label: intl.formatMessage(messages.connect),
+      render: (gateway) => (
+        <Button
+          aria-label={intl.formatMessage(messages.viewConnectionCommand, {
+            gatewayName: gateway.name,
+          })}
+          icon={<CodeIcon />}
+          onClick={() => {
+            // TODO: Open connection command modal
+          }}
+          title={intl.formatMessage(messages.viewConnectionCommand, {
+            gatewayName: gateway.name,
+          })}
+          variant="plain"
+        />
+      ),
+      width: 8,
+    },
+    {
       id: "created",
       label: intl.formatMessage(messages.created),
       render: ({ createdAt }) => <GatewayCreatedDate createdAt={createdAt} />,
@@ -559,19 +568,39 @@ export function GatewaysPage({
     },
     {
       id: "owner",
-      label: intl.formatMessage(messages.owner),
+      label: intl.formatMessage(messages.createdBy),
       render: ({ createdBy }) =>
         createdBy ?? intl.formatMessage(messages.notAvailable),
       width: 10,
     },
     {
+      id: "clusterType",
+      label: intl.formatMessage(messages.clusterType),
+      render: ({ clusterType }) =>
+        clusterType ?? intl.formatMessage(messages.notAvailable),
+      width: 12,
+    },
+    {
       id: "endpoint",
       label: intl.formatMessage(messages.gatewayEndpoint),
-      render: ({ endpoint }) => (
-        <span className={styles.endpoint}>
-          {endpoint ?? intl.formatMessage(messages.notAvailable)}
-        </span>
+      render: (gateway) => (
+        <Button
+          aria-label={intl.formatMessage(messages.copyEndpoint, {
+            gatewayName: gateway.name,
+          })}
+          icon={<CopyIcon />}
+          onClick={() => {
+            if (gateway.endpoint) {
+              void navigator.clipboard.writeText(gateway.endpoint);
+            }
+          }}
+          title={intl.formatMessage(messages.copyEndpoint, {
+            gatewayName: gateway.name,
+          })}
+          variant="plain"
+        />
       ),
+      width: 10,
     },
   ];
 

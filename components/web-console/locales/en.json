@@ -2635,6 +2635,10 @@
     "defaultMessage": "Operational dashboard",
     "description": "Page and navigation label for the HyperShell dashboard."
   },
+  "app.nav.dashboard.short": {
+    "defaultMessage": "Dashboard",
+    "description": "Short navigation label for the operational dashboard."
+  },
   "app.nav.dashboardAdoption": {
     "defaultMessage": "Adoption dashboard",
     "description": "Page and navigation label for the HyperShell adoption dashboard."
@@ -2650,6 +2654,18 @@
   "app.nav.metrics": {
     "defaultMessage": "Metrics",
     "description": "Navigation label for the gateway metrics dashboard page."
+  },
+  "app.nav.overview": {
+    "defaultMessage": "Overview",
+    "description": "Navigation label for the application homepage overview."
+  },
+  "app.nav.primary.ariaLabel": {
+    "defaultMessage": "Primary navigation",
+    "description": "Accessible label for the application primary navigation."
+  },
+  "app.nav.toggle.ariaLabel": {
+    "defaultMessage": "Toggle navigation",
+    "description": "Accessible label for the navigation toggle button."
   },
   "app.notFound.body": {
     "defaultMessage": "Check the address and try again.",

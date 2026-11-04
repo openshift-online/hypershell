@@ -12,6 +12,7 @@ export type {
   GatewayAccessPage,
   GatewayAccessRole,
   GatewayAccessSortField,
+  GatewayClusterType,
   GatewayControlPlane,
   GatewayDirectoryUser,
   GatewayFailureCode,

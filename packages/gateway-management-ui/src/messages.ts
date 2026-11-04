@@ -12,6 +12,18 @@ export const messages = defineMessages({
     description:
       "Heading for the gateways table column showing the number of active sandbox sessions.",
   },
+  sandboxes: {
+    id: "app.gateway.column.sandboxes",
+    defaultMessage: "Sandboxes",
+    description:
+      "Heading for the gateways table column showing the active sandbox count.",
+  },
+  viewConnectionCommand: {
+    id: "app.gateway.column.viewConnectionCommand",
+    defaultMessage: "View connection command for {gatewayName}",
+    description:
+      "Accessible label and tooltip for the gateway connection command action.",
+  },
   bulkDeleteActiveSandboxWarning: {
     id: "app.gateway.bulkDelete.activeSandboxWarning",
     defaultMessage:
@@ -172,10 +184,30 @@ export const messages = defineMessages({
     defaultMessage: "Cluster",
     description: "Heading for the gateway placement cluster column.",
   },
+  clusterType: {
+    id: "app.gateway.column.clusterType",
+    defaultMessage: "Cluster type",
+    description: "Heading for the gateway cluster type column showing the derived placement category.",
+  },
   clusterLoadError: {
     id: "app.gateway.cluster.loadError.title",
     defaultMessage: "Managed clusters could not be loaded",
     description: "Title shown when remote gateway placements cannot be loaded.",
+  },
+  connect: {
+    id: "app.gateway.column.connect",
+    defaultMessage: "Connect",
+    description: "Heading for the gateway CLI connection command column.",
+  },
+  copyEndpoint: {
+    id: "app.gateway.column.copyEndpoint",
+    defaultMessage: "Copy endpoint for {gatewayName}",
+    description: "Accessible label and tooltip for the gateway endpoint copy action.",
+  },
+  createdBy: {
+    id: "app.gateway.column.createdBy",
+    defaultMessage: "Created by",
+    description: "Heading for the gateway creator column.",
   },
   clusterLoadErrorBody: {
     id: "app.gateway.cluster.loadError.body",

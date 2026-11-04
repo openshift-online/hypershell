@@ -7,13 +7,19 @@ import {
   MastheadContent,
   MastheadLogo,
   MastheadMain,
+  Nav,
+  NavItem,
+  NavList,
   Page,
+  PageSidebar,
+  PageSidebarBody,
+  PageToggleButton,
   SkipToContent,
   Toolbar,
   ToolbarContent,
   ToolbarItem,
 } from "@patternfly/react-core";
-import { MoonIcon, SunIcon } from "@patternfly/react-icons";
+import { BarsIcon, MoonIcon, SunIcon } from "@patternfly/react-icons";
 import {
   gatewayMessages,
   gatewayQueryKey,
@@ -94,6 +100,12 @@ export function ApplicationShell() {
   const masthead = (
     <Masthead>
       <MastheadMain>
+        <PageToggleButton
+          aria-label={intl.formatMessage(messages.toggleNavigation)}
+          variant="plain"
+        >
+          <BarsIcon />
+        </PageToggleButton>
         <MastheadBrand>
           <MastheadLogo
             className={styles.brand}
@@ -156,6 +168,44 @@ export function ApplicationShell() {
     );
   }
 
+  // Determine active navigation item based on current route
+  const isGatewayRoute =
+    pathname.startsWith("/gateways") || pathname === "/gateways";
+  const isDashboardRoute = pathname.startsWith("/dashboard");
+  const isOverviewRoute = pathname === "/";
+
+  const sidebar = (
+    <PageSidebar>
+      <PageSidebarBody>
+        <Nav aria-label={intl.formatMessage(messages.primaryNavigation)}>
+          <NavList>
+            <NavItem
+              isActive={isOverviewRoute}
+              to={routePaths.home}
+              component={Link}
+            >
+              <FormattedMessage {...messages.overview} />
+            </NavItem>
+            <NavItem
+              isActive={isGatewayRoute}
+              to={routePaths.gatewayList}
+              component={Link}
+            >
+              <FormattedMessage {...gatewayMessages.gateways} />
+            </NavItem>
+            <NavItem
+              isActive={isDashboardRoute}
+              to={routePaths.dashboard}
+              component={Link}
+            >
+              <FormattedMessage {...messages.dashboard} />
+            </NavItem>
+          </NavList>
+        </Nav>
+      </PageSidebarBody>
+    </PageSidebar>
+  );
+
   return (
     <DashboardUiProvider
       dashboard={dashboardOperations}
@@ -172,6 +222,7 @@ export function ApplicationShell() {
           isContentFilled
           mainContainerId="main-content"
           masthead={masthead}
+          sidebar={sidebar}
           skipToContent={skipToContent}
         >
           <Outlet />
