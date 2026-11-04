@@ -237,7 +237,7 @@ The adapter SHALL emit a `provisioned-sandboxes` metric whose `value` is the str
 
 When BFF `hourly_active_sandboxes` and `daily_active_sandboxes` are present, the adapter SHALL also emit optional `hourlyTrend` and `trend` per `platform/gateway-sandbox-active-trends.spec.md` OBS-SBXT-06. When a historical field is absent, the adapter SHALL omit the corresponding trend field only.
 
-The `provisioned-sandboxes` metric SHALL remain connected for the Resource summary and Active sandboxes widgets. The standalone `provisioned-sandboxes` grid widget is retired from the default layout and widget catalog.
+The `provisioned-sandboxes` metric SHALL feed the Resource summary and Active sandboxes widgets.
 
 A non-success BFF response for gateway sandboxes SHALL fail the entire `gateway-metrics` source (including `provisioned-gateways`, `provision-time`, and `provision-reliability`). Access control is enforced at the BFF route (dashboard-operator roles per WEB-OPS-04).
 
@@ -866,8 +866,7 @@ The widget SHALL load from the independent `gateway-release-distribution` metric
 - When `releaseDistribution` is present but every bucket count is zero, the chart area SHALL render nothing while the widget shell remains
 
 The default position and height SHALL follow the nine-widget layout in
-WEB-OPS-10. The standalone `provisioned-sandboxes` widget SHALL remain retired;
-the overview SHALL present sandbox totals through Resource summary, Sandbox
+WEB-OPS-10. The overview SHALL present sandbox totals through Resource summary, Sandbox
 status, Active sandboxes, and Attention required.
 
 `localizeDashboardLayoutTemplate` SHALL resolve `gateway-releases#1` through `WIDGET_TITLE_MESSAGE_BY_TYPE`. Partial-failure warnings SHALL label the source through `app.dashboard.metricSource.gatewayReleaseDistribution` (**Gateway releases**).
@@ -891,4 +890,3 @@ status, Active sandboxes, and Attention required.
 - WHEN the dashboard grid renders on a four-column breakpoint
 - THEN `gateway-status#1` SHALL occupy column 2 on the top row
 - AND `gateway-releases#1` SHALL occupy column 3 on the second row
-- AND no `provisioned-sandboxes` widget SHALL appear on the grid

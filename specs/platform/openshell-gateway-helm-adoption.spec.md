@@ -349,15 +349,6 @@ The control plane SHALL NOT install any NetworkPolicies for gateway namespaces, 
 
 **Rationale:** On OVN-Kubernetes (the network plugin used on OpenShift), the default posture is allow-all. Pods within the same namespace -- and across namespaces -- can communicate freely. NetworkPolicies are additive deny: creating any NetworkPolicy that selects a pod with `policyTypes: [Ingress]` switches that pod to deny-by-default, requiring explicit allow rules for all legitimate traffic.
 
-In practice, the existing gateway NetworkPolicies created a self-defeating cycle:
-
-1. `allow-router` selected the gateway pod and permitted cross-namespace ingress from `openshift-ingress` -- but this isolated the gateway pod for all other ingress
-2. `allow-sandbox-v2` was then required to restore sandbox→gateway gRPC connectivity (same namespace, already open without policies)
-3. `sandbox-ssh-v2` was required to restore gateway→sandbox SSH connectivity
-4. `allow-console` was required to restore console→gateway connectivity
-
-**Verified empirically:** On namespace `openshell-3eaf1474f52f561c`, removing all 7 NetworkPolicies had no impact on end-to-end connectivity (local machine → OpenShift ingress → gateway → sandbox exec). Conversely, installing only `allow-router` broke sandbox connectivity by isolating the gateway pod.
-
 **Future consideration:** If a restrictive network policy posture becomes a platform requirement, we will revisit this decision and implement a comprehensive policy set that covers all legitimate traffic directions.
 
 ---

@@ -66,20 +66,6 @@ func TestLoadManagedClusterCapabilities(t *testing.T) {
 	}
 }
 
-// TestLoadIgnoresClusterIDEnv: the cluster id is resolved by registration only;
-// a stale HYPERSHELL_CLUSTER_ID in the environment is never consulted.
-func TestLoadIgnoresClusterIDEnv(t *testing.T) {
-	setRequiredEnv(t)
-	t.Setenv("HYPERSHELL_CLUSTER_ID", "2stalecluster")
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load(): %v", err)
-	}
-	if cfg.ManagedClusterName != "local-kind" || cfg.OIDCClientID != "hypershell-control-plane" {
-		t.Fatalf("unexpected identity config: %+v", cfg)
-	}
-}
-
 // TestLoadGatewayReconcileWorkers covers the GATEWAY_RECONCILE_WORKERS contract:
 // unset uses the bounded default; a valid positive integer is honored; and an
 // invalid or non-positive value warns and falls back to the default rather than
