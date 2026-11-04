@@ -103,6 +103,14 @@ it SHALL NOT duplicate running work or bypass current authorization checks.
 Successful work SHALL be deduplicated by relevant inputs. Implementation identity
 SHALL include the linked PR head and the rejection occurrence so that returning
 to an earlier label set after a new review rejection permits another attempt.
+Review identity SHALL include the latest added event for its reviewable phase
+label. Returning an approved item to review SHALL permit a new run even when
+labels, PR commits and CI return to identical values. Unrelated events, comments,
+polling and restarts SHALL NOT create another review request. Failed event reads
+SHALL block authorization visibly rather than silently reuse stale identity.
+The UI SHALL distinguish a new review request from the historical successful
+process and from manual merge approval; ready work needing a verdict SHALL say
+`Review needed`, with synchronization blockers stated separately.
 
 #### Scenario: SDLC-LOC-05.01 -- Repeated rejection
 
