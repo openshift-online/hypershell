@@ -90,6 +90,12 @@ func (h *ciTrustGRPCHandler) UpdateCITrust(ctx context.Context, req *pb.UpdateCI
 	if err := pkgrbac.EnforceImportOwnership(ctx, found.RepositoryID); err != nil {
 		return nil, err
 	}
+	if req.SubjectRepository != nil {
+		found.SubjectRepository = req.SubjectRepository
+	}
+	if req.SubjectProjectPath != nil {
+		found.SubjectProjectPath = req.SubjectProjectPath
+	}
 	if req.SubjectRef != nil {
 		found.SubjectRef = req.SubjectRef
 	}

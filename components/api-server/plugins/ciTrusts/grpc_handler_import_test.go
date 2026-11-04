@@ -149,6 +149,35 @@ func TestUpdateCITrust_EnforcesOwnership(t *testing.T) {
 	}
 }
 
+// An import reconciler owning the trust may reconcile a changed subject predicate,
+// including subject_repository and subject_project_path, so a manifest subject change
+// is applied rather than silently skipped (reconcile, don't create-or-skip; FINDING 2).
+// Before the fix UpdateCITrustRequest carried neither field, so the gRPC update path
+// could not persist a changed subject.repository/project_path.
+func TestUpdateCITrust_AppliesSubjectRepositoryAndProjectPath(t *testing.T) {
+	oldRepo, oldPath := "acme/old", "grp/old"
+	owned := &CITrust{Name: "ct", RepositoryID: strPtr("repo-1"), SubjectRepository: &oldRepo, SubjectProjectPath: &oldPath}
+	owned.ID = "ct-1"
+	svc := &captureCITrustService{getResult: owned}
+	h := &ciTrustGRPCHandler{service: svc}
+
+	newRepo, newPath := "acme/new", "grp/new"
+	resp, err := h.UpdateCITrust(importCtx("repo-1"), &pb.UpdateCITrustRequest{
+		Id:                 "ct-1",
+		SubjectRepository:  &newRepo,
+		SubjectProjectPath: &newPath,
+	})
+	if err != nil {
+		t.Fatalf("UpdateCITrust error = %v", err)
+	}
+	if got := resp.GetCiTrust().GetSubjectRepository(); got != newRepo {
+		t.Errorf("subject_repository = %q, want %q", got, newRepo)
+	}
+	if got := resp.GetCiTrust().GetSubjectProjectPath(); got != newPath {
+		t.Errorf("subject_project_path = %q, want %q", got, newPath)
+	}
+}
+
 // An import reconciler may not prune a CITrust it does not own, so one Repository's
 // import never deletes another's or a REST-created trust.
 // Verifies: SEC-RBAC-25
