@@ -38,7 +38,7 @@ keycloak_ns="$(pr_env_keycloak_namespace "${platform_ns}")"
 # can start before the Deploy job's ensure-e2e-client-secret step has written
 # the Secret. Reuses the same deadline/poll primitive as the other ephemeral-PR
 # secret waits (ephemeral-ci-secrets.spec.md).
-if ! bash "${SCRIPT_DIR}/wait-for-secret-keys.sh" "${keycloak_ns}" "${secret_name}" "${secret_key}"; then
+if ! bash "${SCRIPT_DIR}/wait-for-secret-keys.sh" "${keycloak_ns}" "${secret_name}" "${secret_key}" >&2; then
   {
     echo "The workflow must create Secret hypershell-e2e-client"
     echo "(with the e2e-client-secret key) before Keycloak boots and e2e runs."
