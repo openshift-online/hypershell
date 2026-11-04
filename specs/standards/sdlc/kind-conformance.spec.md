@@ -17,21 +17,13 @@ This standard turns the full-stack-pipeline skill's Kind Completeness Manifest a
 conformance pass (`skills/build/full-stack-pipeline/SKILL.md`) into an enforced
 guarantee. It governs how Kinds are built (`PLAT-DATA`, `PLAT-CITR`), how they are
 authorized (`SEC-RBAC-19`), how they are scripted (`CLI-EXT`), and how their tests
-run in CI (`E2E-CORE-23`, `E2E-CORE-24`). The driving failure was `CIProvider` and
-`CITrust` shipping without database-backed tests and with an `AutoMigrate`
-migration that fails closed on the production PostgreSQL driver, so that every
-query on `ci_providers`/`ci_trusts` aborted with `SQLSTATE 25P02` in a deployed
-environment while CI stayed green.
+run in CI (`E2E-CORE-23`, `E2E-CORE-24`).
 
-A second failure in the same family drives SDLC-CONF-10 through SDLC-CONF-12: the
-first fix changed the `CIProvider`/`CITrust` migration bodies (`AutoMigrate` ->
-raw SQL) but kept the same migration IDs. Because the framework records a migration
-ID as applied exactly once, the corrected body was skipped on every upgraded hub
-that had already recorded the old ID, so the clean tables were never created and
-the deployed environments stayed broken while a fresh-database conformance test
-passed. Migration corrections therefore SHALL ship as new migration IDs, schema
+A migration is applied exactly once per ID, so a corrected migration body under an
+existing ID never reaches an environment that already recorded that ID.
+Migration corrections therefore SHALL ship as new migration IDs, schema
 convergence SHALL run automatically on deploy, and conformance SHALL exercise the
-upgrade path, not only a fresh database.
+upgrade path, not only a fresh database (SDLC-CONF-10 through SDLC-CONF-12).
 
 ## Requirements
 
@@ -355,12 +347,6 @@ Kind's pinned `TableName()` (SDLC-CONF-02):
   stale table absent) it makes no change and does not error, and it SHALL NOT use
   `AutoMigrate` or poison the transaction on the production driver (`lib/pq` with
   `PreferSimpleProtocol`).
-
-Every migration whose body was rewritten in place by a prior "fix in place" change
-(the `AutoMigrate` -> raw-SQL conversion) SHALL be audited, and each Kind whose
-upgraded-environment schema does not match its intended schema SHALL be brought to
-convergence by this pattern. The audit SHALL NOT assume only `ci_providers` and
-`ci_trusts` are affected.
 
 #### Scenario: SDLC-CONF-11.01 -- Upgraded hub converges to the clean table
 

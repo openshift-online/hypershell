@@ -41,7 +41,7 @@ The Prometheus instance configured for the web-console BFF (`PROMETHEUS_URL`, sa
 
 The canonical series SHALL be `gateway_provision_outcomes_total` with an `outcome` label (`success` or `failure`), derived from the OTLP metric `gateway.provision.outcomes` (OBS-CPL-07).
 
-Deploy and local-development configuration SHALL route control-plane OTLP metrics into that Prometheus instance. When the counter is absent and no qualifying fallback exists (OBS-GPO-04), provision-reliability collection SHALL return zero counts with `success_rate_percent: null` per OBS-GPO-07 rather than synthesizing a non-null success rate.
+Deploy and local-development configuration SHALL route control-plane OTLP metrics into that Prometheus instance. When the counter is absent, provision-reliability collection SHALL return zero counts with `success_rate_percent: null` per OBS-GPO-07 rather than synthesizing a non-null success rate.
 
 `DATA_SOURCES.md` SHALL document the canonical PromQL expressions.
 
@@ -54,7 +54,7 @@ Deploy and local-development configuration SHALL route control-plane OTLP metric
 
 #### Scenario: OBS-GPO-09.02 -- Zero completed provisions in the window
 
-- GIVEN both 24-hour outcome increases and the OBS-GPO-04 fallback resolve to zero total provisions
+- GIVEN both 24-hour outcome increases resolve to zero total provisions
 - WHEN a dashboard operator loads operational metrics
 - THEN the BFF SHALL respond with HTTP `200` and `success_rate_percent: null`
 - AND the adapter SHALL omit the `provision-reliability` metric (OBS-GPO-07)
@@ -155,7 +155,7 @@ The web-console BFF SHALL expose `GET /api/metrics/gateway-provision-outcomes` a
 }
 ```
 
-When no provisions completed in the window and OBS-GPO-04 does not apply, the route SHALL respond with HTTP `200` and:
+When no provisions completed in the window, the route SHALL respond with HTTP `200` and:
 
 ```json
 {
@@ -182,35 +182,6 @@ On Prometheus failure or timeout, the BFF SHALL respond with HTTP `502` and `{ "
 - GIVEN OIDC is enabled and the caller has no session
 - WHEN the caller sends `GET /api/metrics/gateway-provision-outcomes`
 - THEN the BFF SHALL respond with HTTP `401` or redirect to login per existing metrics-route policy
-
----
-
-### Requirement: OBS-GPO-04 -- Duration Histogram Fallback (Migration)
-
-When both 24-hour outcome increases round to zero, the BFF MAY fall back to the provision-duration histogram to surface historical success counts recorded before the outcomes counter existed:
-
-| Fallback step | PromQL |
-| --- | --- |
-| 24-hour success proxy | `sum(increase(gateway_provision_duration_seconds_count[24h]))` |
-| Lifetime success proxy | `sum(gateway_provision_duration_seconds_count)` when the 24-hour proxy is also zero |
-
-When a fallback yields a positive success count, the BFF SHALL:
-
-- Set `success_count_24h` to the fallback value
-- Set `failure_count_24h` to `0`
-- Compute `success_rate_percent` as `100.0` when only successes are known
-- Build `hourly_success_rate` from `sum(increase(gateway_provision_duration_seconds_count[1h]))` over the same 24-hour range when hourly samples exist
-
-The fallback SHALL NOT invent failure counts. It SHALL NOT run when the outcomes counter already reports a non-zero 24-hour total.
-
-#### Scenario: OBS-GPO-04.01 -- Outcomes counter empty but duration histogram has history
-
-- GIVEN both 24-hour outcome increases are zero
-- AND `gateway_provision_duration_seconds_count` is greater than zero
-- WHEN the BFF evaluates `GET /api/metrics/gateway-provision-outcomes`
-- THEN `success_count_24h` SHALL reflect the fallback success count
-- AND `failure_count_24h` SHALL be `0`
-- AND `success_rate_percent` SHALL be `100.0`
 
 ---
 
@@ -304,7 +275,7 @@ When provision-outcomes collection fails (BFF `502`, adapter validation error, o
 
 The web console SHALL include unit tests for:
 
-- BFF route PromQL mapping and JSON response formatting (including hourly buckets and OBS-GPO-04 fallback)
+- BFF route PromQL mapping and JSON response formatting (including hourly buckets)
 - BFF `502` on Prometheus errors
 - Adapter mapping from BFF JSON to `provision-reliability` with `provisionOutcomes` and `successRateTrend`
 - Independent loading: provision-duration failure does not block provision reliability and vice versa (OBS-GPO-06)
@@ -323,7 +294,6 @@ The operational dashboard package SHALL include unit tests or Storybook fixtures
 - Lookback windows other than the rolling 24-hour window in version 1
 - RBAC-scoped success rates derived from the gateway list
 - Treating `Degraded` as a terminal provision failure
-- Synthesizing failure counts during the OBS-GPO-04 duration-histogram fallback
 - Cluster infrastructure metrics (see cluster memory/CPU/pods/nodes specs)
 
 ## Primary Basis

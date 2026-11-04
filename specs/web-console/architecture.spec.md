@@ -236,15 +236,15 @@ The browser SHALL configure the SDK for same-origin `/api` requests with cookie 
 
 **Verification:** Build and import the SDK from both browser and BFF TypeScript configurations. Inspect the browser bundle for `process.env`, embedded API origins, tokens, and CommonJS-only shims. Cancel an in-flight route request and verify upstream cancellation where supported.
 
-### Requirement: WEB-AUTH-04 -- Initial No-Auth Development Mode
+### Requirement: WEB-AUTH-04 -- No-Auth Development Mode
 
-The initial UI MAY operate against an API server started with JWT authentication and authorization disabled. This mode SHALL be restricted to an explicit local/development environment, and the API SHALL remain bound to a loopback or otherwise isolated development interface. Shared, review, staging, and production deployments SHALL fail startup or readiness when authentication is disabled.
+The UI MAY operate against an API server started with JWT authentication and authorization disabled. This mode SHALL be restricted to an explicit local/development environment, and the API SHALL remain bound to a loopback or otherwise isolated development interface. Shared, review, staging, and production deployments SHALL fail startup or readiness when authentication is disabled.
 
 The browser SHALL retain the production-shaped relative `/api` contract. A Vite development proxy or a development-mode BFF SHALL forward requests to the configured local API origin and SHALL omit the bearer header. Authentication mode SHALL be selected and validated by trusted server or development-tool configuration; a browser-visible `VITE_*` flag SHALL NOT enable or disable authentication.
 
-When routes need identity or capability data before OIDC is implemented, the development server MAY return an unmistakably synthetic development session with full development capabilities. Product code SHALL consume the same session interface used by authenticated deployments and SHALL NOT scatter no-auth conditionals through routes, components, or SDK calls.
+When routes need identity or capability data in no-auth mode, the development server MAY return an unmistakably synthetic development session with full development capabilities. Product code SHALL consume the same session interface used by authenticated deployments and SHALL NOT scatter no-auth conditionals through routes, components, or SDK calls.
 
-No-auth execution SHALL NOT count as evidence for login, logout, session rotation or expiry, CSRF protection, role/capability enforcement, 401/403 recovery, or cross-resource authorization. Those behaviors SHALL use contract-faithful mocks during initial development and SHALL pass against an authenticated environment before production availability.
+No-auth execution SHALL NOT count as evidence for login, logout, session rotation or expiry, CSRF protection, role/capability enforcement, 401/403 recovery, or cross-resource authorization. Those behaviors SHALL use contract-faithful mocks in no-auth development and SHALL pass against an authenticated environment.
 
 **Verification:** Start the documented local no-auth workflow and complete a representative gateway route without an authorization header. Attempt to start each non-development environment with authentication disabled and confirm that it fails closed. Search browser code and bundles for an authentication-bypass flag, and inspect test evidence so no-auth journeys are not labeled as authentication coverage.
 

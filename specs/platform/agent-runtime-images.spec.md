@@ -1,6 +1,6 @@
 # Agent runtime images
 
-**Status:** Implemented in source; activation requires tenant and managed release configuration.
+**Status:** Implemented
 **Applies to:** `components/agents/Containerfile.*`, `.tekton/hypershell-agent-runtime*-*.yaml`, `.hypershell/agents`, release bundle publisher and GitOps bundle consumers.
 
 ## ARI-01 -- Two runtime profiles
@@ -80,6 +80,4 @@ and SHA256SUMS. Agent images SHALL NOT create additional GitHub binary assets.
 
 GitOps consumers SHALL accept historical three/four-component bundles and the
 new runtime components, preserve complete inventory, and update only the three
-service deployments. Consumer compatibility SHALL precede publisher activation.
-The tenant and managed release-data changes SHALL remain separate MRs. The first
-complete six-component Snapshot is required for successful new publication.
+service deployments.

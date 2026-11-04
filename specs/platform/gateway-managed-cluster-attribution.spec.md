@@ -7,13 +7,10 @@
 
 Attribute gateway and active-sandbox counts to the **managed cluster** (spoke) a
 gateway actually runs on, rather than lumping every count under the hub instance
-that emits the metric. A single hub `api-server` manages many managed clusters;
-today both `hypershell_gateways_total` and
-`hypershell_gateways_active_sandboxes_total` are emitted as hub-wide database
-aggregates with no spoke dimension, so a gateway running on a spoke is
-mis-reported as running on the hub. This specification adds a `managed_cluster`
-label to both gauges, sourced from the ManagedCluster the gateway references, so
-counts can be grouped per spoke end to end.
+that emits the metric. A single hub `api-server` manages many managed clusters.
+Both `hypershell_gateways_total` and `hypershell_gateways_active_sandboxes_total`
+carry a `managed_cluster` label, sourced from the ManagedCluster the gateway
+references, so counts can be grouped per spoke end to end.
 
 ### Three identities, kept distinct
 
@@ -28,7 +25,7 @@ conflate:
 
 The `cluster`, `provider`, and `region` labels already present on hub metrics are
 **scrape-injected hub identity** (always the hub, e.g. `hyp0` → `hypc-ibm-00`),
-not the spoke a gateway runs on. The `managed_cluster` label introduced here is
+not the spoke a gateway runs on. The `managed_cluster` label is
 **application-emitted** and names the spoke. Managed clusters self-register from
 GitOps, so a ManagedCluster registry `Name` equals its GitOps spoke name; that
 name is therefore the stable join key between these metrics and the fleet
@@ -43,8 +40,7 @@ topology.
 | Managed cluster inventory (registry totals)             | Out of scope                                   | `platform/platform-inventory.spec.md`                           |
 | Map rendering of spokes (nest co-located / link remote) | Out of scope; this spec delivers the data only | `web-console/operational-dashboard.spec.md`                     |
 
-This spec is additive: it does not rename either metric, remove any existing
-label, or change fleet-wide totals. Rendering per-spoke counts on the map -
+Rendering per-spoke counts on the map -
 including resolving co-located versus remote spokes against topology - is
 downstream work that consumes the data this spec exposes.
 
@@ -116,7 +112,7 @@ the collector SHALL emit `prometheus.NewInvalidMetric`.
 - WHEN Prometheus scrapes the metrics endpoint
 - THEN `hypershell_gateways_active_sandboxes_total{managed_cluster="hyp0-spoke0"}` SHALL be `4`
 - AND `hypershell_gateways_active_sandboxes_total{managed_cluster="hyp0-spoke1"}` SHALL be `1`
-- AND the sum across all `managed_cluster` values SHALL equal the prior fleet-wide total
+- AND the sum across all `managed_cluster` values SHALL equal the fleet-wide active-sandbox total
 - AND each sample SHALL retain the Gateway namespace in `gateway_namespace`
 
 ---
@@ -142,23 +138,22 @@ clusters, not the number of gateways.
 
 ---
 
-### Requirement: GTW-ATTR-04 -- Backward-Compatible Fleet Aggregation
+### Requirement: GTW-ATTR-04 -- Fleet Aggregation Across Managed Clusters
 
-This change SHALL be additive. Neither metric SHALL be renamed, and no existing
-label SHALL be removed. Consumers that aggregate fleet-wide totals by summing
-over the new `managed_cluster` label SHALL observe the same totals they observed
-before this change.
+Summing either metric over the `managed_cluster` label SHALL yield the fleet-wide
+total for the hub: every gateway counted by the hub SHALL appear under exactly one
+`managed_cluster` value.
 
 The scrape-injected hub identity labels (`cluster`, `provider`, `region`) SHALL
-remain untouched and SHALL NOT be reinterpreted as spoke identity. Consumers that
-attribute counts to a spoke SHALL use `managed_cluster`, never the scrape-injected
-`cluster` label.
+keep their hub meaning and SHALL NOT be reinterpreted as spoke identity. Consumers
+that attribute counts to a spoke SHALL use `managed_cluster`, never the
+scrape-injected `cluster` label.
 
-#### Scenario: GTW-ATTR-04.01 -- Existing fleet-total consumers are unaffected
+#### Scenario: GTW-ATTR-04.01 -- Fleet totals sum across managed clusters
 
-- GIVEN a consumer computes `sum by (phase) (hypershell_gateways_total{...})`
-- WHEN the `managed_cluster` label is added
-- THEN the per-phase fleet totals SHALL be unchanged
+- GIVEN a hub with gateways in several phases across several managed clusters
+- WHEN a consumer computes `sum by (phase) (hypershell_gateways_total{...})`
+- THEN each per-phase total SHALL equal the number of the hub's gateways in that phase
 
 ---
 

@@ -116,7 +116,7 @@ Provision-duration samples SHALL follow OBS-CPL-07:
 - No Gateway identifier label on the metric
 - Recoveries from `Degraded` to `Running` SHALL NOT produce additional observations
 
-The dashboard SHALL NOT recompute provision duration from gateway list timestamps. The gateway-list `updated_at - created_at` proxy used in the superseded version 1 approach is retired.
+The dashboard SHALL NOT recompute provision duration from gateway list timestamps.
 
 #### Scenario: OBS-GPT-02.01 -- Degraded recovery does not shift percentiles
 
@@ -133,7 +133,7 @@ Hub-cluster provision duration SHALL be derived from Prometheus instant queries 
 
 The BFF SHALL evaluate the existing three PromQL expressions as instant queries and the P99 expression over the selected 7-day window. Queries SHALL aggregate with `sum(...)` across all histogram series so control-plane replicas contribute to one fleet-wide histogram.
 
-The BFF SHALL NOT contact the HyperShell API server or Kubernetes API directly for provision duration in version 2.
+The BFF SHALL NOT contact the HyperShell API server or Kubernetes API directly for provision duration.
 
 #### Scenario: OBS-GPT-03.01 -- Prometheus unavailable fails collection
 
@@ -208,11 +208,9 @@ The `system-summary` card SHALL render **three** provision-duration rows sourced
 
 | Row label (localized) | Field |
 | --- | --- |
-| Provision time (average) | `value` / `provisionDuration.mean` with `unit` |
+| Provision time (average) | `provisionDuration.mean` with `unit` |
 | Provision time (P50) | `provisionDuration.p50` with `unit` |
 | Provision time (P95) | `provisionDuration.p95` with `unit` |
-
-When `provisionDuration` is absent but `value` and `unit` are present, the UI MAY render only the mean row for backward compatibility during rollout.
 
 The Provisioning dashboard SHALL additionally render P99, the localized 5-minute target, a warning when P99 exceeds the target, and a daily P99 sparkline when points are available. Missing observations SHALL render unavailable rather than `0`.
 
@@ -283,15 +281,10 @@ The operational dashboard package SHALL include unit tests or Storybook fixtures
 - Per-gateway provision duration in the UI or API
 - Historical provision-time trends other than the 7-day daily P99 series
 - RBAC-scoped provision duration derived from the gateway list
-- Gateway-list timestamp proxy (`updated_at - created_at`) as a data source
 - Including `Degraded` gateways as provision samples
 - Persisting a dedicated `provisioned_at` timestamp on the Gateway resource
 - Cluster infrastructure metrics (see cluster memory/CPU/pods/nodes specs)
 - Min, max, or arbitrary custom quantiles beyond mean, P50, P95, and P99
-
-## Supersedes
-
-Version 1 of this spec (gateway-list mean from `updated_at - created_at`, OBS-GPT-01 through OBS-GPT-04 and OBS-GPT-06 list-consistency requirements) is superseded by version 2. Implementation that still uses the gateway-list proxy SHALL be treated as drift until GPT-W2 lands.
 
 ## Primary Basis
 

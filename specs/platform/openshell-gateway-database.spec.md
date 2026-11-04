@@ -131,13 +131,13 @@ log/exit-code parsing that the gRPC-watch reconciler pattern avoids.
 
 ### Why a mounted Secret and not an API resource
 
-The previous design registered servers through the API and stored a Secret
-reference per registration. That required a reserved namespace prefix and a fixed
-Secret name to stop an API-level reference from steering the control plane at an
-unrelated Secret, a placement step at gateway creation, a foreign key on Gateway, a
-status vocabulary, deletion protection, and inventory metrics - all for a value that
-is fixed per installation. Mounting the admin Secret into the controller removes
-that whole surface: whoever can deploy the controller chooses the server, no API
+Registering servers through the API would store a Secret reference per
+registration. That would need a reserved namespace prefix and a fixed Secret name
+to stop an API-level reference from steering the control plane at an unrelated
+Secret, a placement step at gateway creation, a foreign key on Gateway, a status
+vocabulary, deletion protection, and inventory metrics - all for a value that is
+fixed per installation. Mounting the admin Secret into the controller avoids that
+whole surface: whoever can deploy the controller chooses the server, no API
 caller can name a Secret, and there is nothing to place, protect or count.
 
 ---

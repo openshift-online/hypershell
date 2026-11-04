@@ -283,11 +283,11 @@ The backend SHALL persist BOTH the `placement` required and excluded selectors (
 - WHEN the backend resolves an intent that excludes `runtime/kata`
 - THEN the backend SHALL select the cluster that does not advertise `runtime/kata`
 
-### Requirement: WEB-PLC-09 -- API and Persistence Compatibility
+### Requirement: WEB-PLC-09 -- API and Persistence
 
-The API contract, generated clients or adapters, authorization boundaries, and gateway provisioning tests SHALL be updated consistently for selector-based placement and batched availability. Existing gateway records and read APIs SHALL continue to expose their resolved `cluster_id`. `cluster_id` SHALL be OPTIONAL (nullable) on Gateway create: a create SHALL supply EITHER an explicit `cluster_id` (pinned) OR a `placement` selector (late-bound), and SHALL NOT accept the former provider/network request shape. The web-console provision form submits only the selector shape; the pinned shape remains available to `hsctl apply` and the declarative `.hypershell` import.
+The API contract, generated clients or adapters, authorization boundaries, and gateway provisioning tests SHALL be updated consistently for selector-based placement and batched availability. Gateway records and read APIs SHALL expose the resolved `cluster_id`. `cluster_id` SHALL be OPTIONAL (nullable) on Gateway create: a create SHALL supply EITHER an explicit `cluster_id` (pinned) OR a `placement` selector (late-bound), and SHALL accept no other placement shape. The web-console provision form submits only the selector shape; the pinned shape remains available to `hsctl apply` and the declarative `.hypershell` import.
 
-The Gateway schema SHALL carry a persisted `placement` field. The placement selector is NO LONGER merely request-scoped: it SHALL be persisted on the Gateway record so the backend can re-resolve it for late binding after create (WEB-PLC-07). A late-bound Gateway's `cluster_id` is nullable until placement resolves.
+The Gateway schema SHALL carry a persisted `placement` field. The placement selector SHALL be persisted on the Gateway record so the backend can re-resolve it for late binding after create (WEB-PLC-07). A late-bound Gateway's `cluster_id` is nullable until placement resolves.
 
 #### Scenario: WEB-PLC-09.01 -- Existing gateway placement remains readable
 

@@ -849,9 +849,7 @@ turns the runtime into a repository scanner. When `selector` is non-empty, the
 coordinator SHALL query the runtime's referenced `Repository` for work items
 (issues and pull requests) and SHALL treat an item as matched when it carries
 **any** of the selected labels (match-any). For each matched item the coordinator
-SHALL launch one sandbox from the runtime's `sandbox_template_id`. This replaces
-the imperative `discover.sh` script contract (see "Declarative `.hypershell`
-Import" below) with a declarative field.
+SHALL launch one sandbox from the runtime's `sandbox_template_id`.
 
 `selector` SHALL be valid only when `repository_id` is also set. The API server
 SHALL reject a create or update that sets a non-empty `selector` without a
@@ -1121,13 +1119,8 @@ SHALL be idempotent. The pruning of imported resources SHALL be scoped to the
 owning `Repository`, so one Repository's import SHALL NOT delete resources owned
 by another Repository or created directly through the REST API or `hsctl apply`.
 
-> **Replaces the script coordinator model.** This declarative import, together
-> with `AgentRuntime.selector`, supersedes the imperative `discover.sh` / `run.sh`
-> "script-at-endpoint" coordinator contract previously documented in
-> `.hypershell/README.md`. That script contract is **deprecated and slated for
-> removal**: the control-plane import SHALL render declared YAML rather than invoke
-> scripts found in the repository. Updating `.hypershell/README.md` and removing
-> the `discover.sh` / `run.sh` scripts is a follow-up outside this spec change.
+The control-plane import SHALL render declared YAML and SHALL NOT invoke scripts
+found in the repository.
 
 #### Scenario: PLAT-DATA-11.01 -- Import Renders Declared Resources
 
@@ -1982,7 +1975,7 @@ hsctl create gateway --name api-gateway --cluster-id eks-1
 | No bootstrap Job: controller realizes gateway-side objects via OpenShell's existing API | Gateway-side workspace, members, and provider objects are realized by the controller through OpenShell's existing provisioning API (the operations the `openshell` CLI drives) in its normal reconcile loop, co-located with existing gateway database provisioning logic, rather than a bespoke gateway gRPC contract. An idempotent imperative Job on the cluster would tie provisioning to a specific OpenShell CLI version. |
 | Repository as a reusable top-level ext resource | A registered repo plus its provider credential is referenced by many agent runtimes and read by the declarative import. Centralizing it keeps credential rotation and `.hypershell` discovery a single registration, not per-runtime config. |
 | Repository credential via OPTIONAL SecretSource FK | Reuses the existing abstract secret store model (Vault/AWS/Kubernetes) and the control plane's read-only store access, keeping provider material out of the database and consistent with every other credential in the platform. For a GitHub `Repository` the stored material is the durable App PEM; the `RepositoryReconciler` mints the short-lived installation token from it rather than storing a static token. The FK is OPTIONAL: a public repository needs no credential and is read anonymously, so requiring a `secret_source_id` would block registering a public repository. `SecretSource` ownership stays with `AgentRuntime` (a `Repository`-scoped `SecretSource` would have no cluster to late-bind a Vault to), so the public case is solved by making the `Repository` credential optional, not by loosening `SecretSource`. Private-repository credential sourcing is a separate open follow-up (platform-scoped store, a configured platform token, or a narrow Repository-owned exception). |
-| AgentRuntime.selector as a label list (match-any) | Declarative repository scanning replaces the imperative `discover.sh` script. A simple label list is enough to express "scan these items" (e.g. `agent/reviewable`); an item matching any label yields one sandbox from the runtime's SandboxTemplate. Requires `repository_id`. |
-| Declarative `.hypershell` import over script invocation | Rendering declared Kustomize YAML into the API is safer and more predictable than executing `discover.sh`/`run.sh` found in an arbitrary repo. Imported resources are owned and pruned by the Repository (reconcile, don't create-or-skip). Deprecates the script-at-endpoint coordinator contract. |
+| AgentRuntime.selector as a label list (match-any) | Declarative repository scanning needs no repository script. A simple label list is enough to express "scan these items" (e.g. `agent/reviewable`); an item matching any label yields one sandbox from the runtime's SandboxTemplate. Requires `repository_id`. |
+| Declarative `.hypershell` import over script invocation | Rendering declared Kustomize YAML into the API is safer and more predictable than executing scripts found in an arbitrary repo. Imported resources are owned and pruned by the Repository (reconcile, don't create-or-skip). |
 | `.hypershell` import hosted by the control plane, not the api-server | The import must read each `Repository`'s `secret_source_id` credential and read the `import_path` subtree over the GitHub API. The control plane has read-only secret-store access (`pkg/secretstore`) and the platform GitHub App credential; the api-server has no store read access and no repository read access. Hosting the import in the control plane places it where the credential read and repository access already live and removes the in-process-secret-resolution blocker. The import is the single bounded control-plane path that writes API desired state (over the gRPC write path, `Repository`-scoped), scoped to create/update/prune of `Repository`-owned ext resources. The api-server's only secret role is a write-only POST endpoint that stores the submitted value in the secret store and its reference (a `SecretSource`) in the database. |
 | Import reads the subtree over the GitHub API and renders in-memory; one shared kustomize library | The control-plane runtime image ships no `git` / `kustomize` / `hsctl` binary and no writable disk, so the `RepositoryReconciler` reads only the `import_path` subtree over the GitHub API (no clone, no checkout, no PVC) and renders it in memory. Rendering SHALL use the shared `pkg/kustomize` `Build` in `components/cli` (desired state, to be built), consumed by exactly two callers, `hsctl` and the `RepositoryReconciler`, so there is exactly one kustomize implementation and CLI and server render identically. The `GatewayReconciler` is not a consumer: it renders the gateway workload through Helm. `hsctl apply -k` is refactored off its external-`kustomize`-binary shell-out onto this same package. The accepted trade-off is admitting the kustomize Go library (a library, not a binary or `Job`) into the control-plane module - a deliberate reversal of the earlier "no kustomize in control plane" decision. |
