@@ -116,6 +116,8 @@ A gateway administrator (owner or admin) SHALL therefore hold **both** `openshel
 
 On every RoleBinding event (created, updated, deleted) for a gateway-scoped binding, the control plane SHALL reconcile the bound user's Keycloak client roles on that gateway to the **exact union** of client roles implied by the user's current surviving bindings on that gateway: it SHALL assign any missing client role and remove any client role no longer backed by a surviving binding. This makes role changes and demotions converge correctly and makes repeated events idempotent.
 
+The removal step SHALL fail **open**. When a delete event would reduce the computed union to **empty** -- removing the user's last client role(s) on the gateway -- the control plane SHALL positively confirm that no binding survives before revoking, and SHALL requeue rather than revoke on an unconfirmed or inconsistent read (GTW-ACC-15). A successful-but-empty `ListRoleBindings` result is not, by itself, proof that the user has no surviving access.
+
 The Role Bridge SHALL NOT depend solely on the `WatchRoleBindings` event stream for delivery. The control plane SHALL also seed and periodically resync the RoleBinding reconciler from `ListRoleBindings` so an owner grant is recovered even when an event is missed or the stream goes silent (`control-plane.spec.md`, "Requirement: Role Binding Resync" and "Requirement: Watch Stream Liveness"). The resync applies the same union reconciliation and is idempotent.
 
 #### Scenario: GTW-ACC-02.01 -- Admin grant assigns both client roles
@@ -137,6 +139,52 @@ The Role Bridge SHALL NOT depend solely on the `WatchRoleBindings` event stream 
 - WHEN the `gateway:viewer` binding is deleted
 - THEN `openshell-user` SHALL remain assigned to user B on gw-1 (still backed by the `gateway:admin` binding)
 - AND `openshell-admin` SHALL remain assigned
+
+---
+
+### Requirement: GTW-ACC-15 -- Confirmed Revocation of a User's Last Gateway Roles
+
+The Role Bridge reconcile (GTW-ACC-02) SHALL fail **open** consistently across both read outcomes that can precede a revoke: an RPC error AND a successful-but-empty binding list. It SHALL never revoke a user's **last** surviving Keycloak client role(s) on a gateway on the strength of a single, successful-but-empty `ListRoleBindings` result carried with a delete event. Such a result SHALL be treated as **unproven**, not authoritative, until it is confirmed, because a transient or partial read during a cross-gateway delete burst would otherwise be amplified into a full wipe of the user's console access on every gateway.
+
+When the control plane handles an `EventDeleted` for a gateway-scoped binding and, after excluding the deleted binding by id (GTW-ACC-02), the computed desired client-role set is **empty** (the reconcile is about to remove the user's last role(s) on this gateway's Keycloak client), the control plane SHALL re-confirm the absence with a second authoritative read before removing any client role. The confirming read SHALL be scoped to the same `(user_id, gateway_id)` and the control plane's own cluster filter, and SHALL apply the same deleted-binding exclusion. This mirrors the gateway seed's point-read confirmation of absence before pruning (`control-plane.spec.md`, CTRL-CORE-02 "gRPC Watch Streams"), which confirms a resource is gone rather than inferring it from one snapshot.
+
+The control plane SHALL proceed to the full revoke **only** when the confirming read succeeds AND again returns zero surviving bindings. If the confirming read returns an error, or returns any surviving binding, the control plane SHALL NOT revoke; it SHALL return a retryable error so the event is requeued, exactly as it already does when the first `ListRoleBindings` returns an RPC error.
+
+This guard SHALL NOT alter the paths that are already backed by a surviving binding:
+
+- When the desired set is **non-empty** (an assignment, or a demotion such as `gateway:admin` to `gateway:viewer` that strips `openshell-admin` while retaining `openshell-user`), the reconcile SHALL proceed without the extra confirmation; every retained and removed role is backed by a surviving binding (GTW-ACC-02).
+- A genuine removal of a user's last binding on a gateway SHALL still revoke both `openshell-admin` and `openshell-user`, once the confirming read returns a consistent empty set.
+- The confirmation SHALL be per `(user_id, gateway_id)`; concurrent delete events for the same user across different gateways SHALL each confirm independently against their own gateway client.
+- A confirmed revoke that re-runs SHALL remain an idempotent no-op.
+
+This requirement hardens only the delete-driven revoke path; the periodic resync restores missing assignments and never revokes (`control-plane.spec.md`, CTRL-CORE-08 "Role Binding Resync").
+
+#### Scenario: GTW-ACC-15.01 -- A still-backed role is not revoked on an unconfirmed empty read
+
+- GIVEN user B still holds a surviving `gateway:viewer` binding on gw-1, so `openshell-user` is still backed
+- WHEN an `EventDeleted` for a role binding on gw-1 is handled and the first `ListRoleBindings` returns an empty list (a transient or partial result)
+- AND the confirming read returns the surviving `gateway:viewer` binding
+- THEN the control plane SHALL NOT remove `openshell-user` or `openshell-admin` from user B on gw-1's Keycloak client
+- AND it SHALL return a retryable error so the event is requeued
+
+#### Scenario: GTW-ACC-15.02 -- Genuine last-binding delete revokes after a consistent empty confirmation
+
+- GIVEN user B's last binding on gw-1 has been deleted and no binding for B on gw-1 survives
+- WHEN the `EventDeleted` is handled and both the first `ListRoleBindings` and the confirming read return an empty list
+- THEN the control plane SHALL remove both `openshell-admin` and `openshell-user` from user B on gw-1's Keycloak client
+
+#### Scenario: GTW-ACC-15.03 -- Demotion is not subject to the extra confirmation
+
+- GIVEN user B holds `gateway:admin` on gw-1 and is demoted to `gateway:viewer`, leaving one surviving `gateway:viewer` binding
+- WHEN the resulting event is reconciled and the computed desired set is `{openshell-user}` (non-empty)
+- THEN the control plane SHALL remove `openshell-admin` and keep `openshell-user` without issuing a confirming read
+
+#### Scenario: GTW-ACC-15.04 -- A confirming-read error blocks the revoke
+
+- GIVEN an `EventDeleted` on gw-1 whose first `ListRoleBindings` returns an empty list
+- WHEN the confirming read returns an RPC error
+- THEN the control plane SHALL NOT remove any client role from the user on gw-1's Keycloak client
+- AND it SHALL return a retryable error so the event is requeued
 
 ---
 
@@ -489,7 +537,7 @@ The directory search (GTW-ACC-09) is a deliberate exception to the CLI mirror: i
 
 The API server SHALL include integration tests covering: enriched access list with search and role filter across all three tiers; grant (owner, admin, user) to a registered user and to a never-signed-in directory user (pre-provisioning); grant to an identity absent from the realm rejected with `404` and no pre-provision/binding; atomic role change (promote and demote, including to/from owner) implemented as an in-place `role_id` update (single `UPDATED` event) with no zero-access window; revoke; last-owner-protection rejections (`409`) for demoting or revoking the sole owner, asserting the response carries a descriptive message; owner-tier authorization (a non-owner admin assigning, demoting, or revoking an owner returns `403`); management authorization (viewer `403`, admin allowed for admin/user tiers, non-member `404`); directory-search authorization and serving from the control-plane projection; and idempotent re-grant.
 
-The control plane SHALL include tests covering the `gateway:owner` and `gateway:admin` bridge mappings and reconcile-to-union on create, update, and delete (including demotion stripping `openshell-admin` while retaining `openshell-user`), and the periodic directory-projection refresh.
+The control plane SHALL include tests covering the `gateway:owner` and `gateway:admin` bridge mappings and reconcile-to-union on create, update, and delete (including demotion stripping `openshell-admin` while retaining `openshell-user`), and the periodic directory-projection refresh. The control-plane tests SHALL additionally cover the confirmed-revocation guard (GTW-ACC-15): a delete event whose first `ListRoleBindings` returns empty but whose confirming read returns a surviving binding asserts no `RemoveClientRole` for the still-backed role(s) and a requeue; a delete event whose reads are consistently empty asserts both client roles are revoked; a demotion with a surviving viewer binding asserts `openshell-admin` removed and `openshell-user` kept with no extra confirmation; and a confirming read that errors asserts a retryable error with no revoke.
 
 The `hsctl` CLI SHALL include tests covering the access commands (GTW-ACC-13), including a last-owner-protection failure surfacing as a non-zero exit.
 
