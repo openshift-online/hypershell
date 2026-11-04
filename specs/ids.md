@@ -97,6 +97,12 @@ listed in `specs/id-rename-map.md`, not here.
 | `GTW-PHS` | `platform/gateway-phase-vocabulary.spec.md` | 5 |
 | `GTW-PROG` | `platform/gateway-provisioning-progress.spec.md` | 5 |
 
+### KATA
+
+| Prefix | File | Requirements |
+|--------|------|--------------|
+| `KATA-ROKS` | `platform/kata-roks-crio-restart.spec.md` | 6 |
+
 ### OBS
 
 | Prefix | File | Requirements |
