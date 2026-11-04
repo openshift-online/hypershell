@@ -359,5 +359,5 @@ func (m Model) tableRow(r Row, prefix string, width int, withAgent bool) string 
 		issueWidth -= 25
 		agent = cell(r.Agent, 24) + " "
 	}
-	return prefix + cell(m.listTitle(r), issueWidth) + " " + agent + m.style(cell(tableStatus(r), 24), statusColor(r.Status), false) + " " + m.style(cell(durationLabel(r), 10), "8", false)
+	return prefix + cell(m.listTitle(r), issueWidth) + " " + agent + m.style(cell(tableStatus(r), 24), rowColor(r), false) + " " + m.style(cell(durationLabel(r), 10), "8", false)
 }

@@ -18,7 +18,18 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// CodeReadiness is display metadata from the shared live PR observation hook.
+// It does not replace worker exit status or authorize transitions in the TUI.
+type CodeReadiness struct {
+	Checks         string `json:"checks"`
+	State          string `json:"state"`
+	Draft          bool   `json:"draft"`
+	Mergeable      *bool  `json:"mergeable"`
+	MergeableState string `json:"mergeable_state"`
+}
+
 type Job struct {
+	CodeReadiness     *CodeReadiness  `json:"code_readiness,omitempty"`
 	Key               string          `json:"key"`
 	Scope             string          `json:"scope"`
 	Agent             string          `json:"agent"`

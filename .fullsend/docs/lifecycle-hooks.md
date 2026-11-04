@@ -122,9 +122,10 @@ Readiness maintenance also changes these targets:
 
 | Condition | Execution record (issue) | Linked PR |
 |-----------|--------------------------|-----------|
-| Approval deferred by pending/failing CI or uncertain PR readiness | Keep `agent/reviewable-code` on a fresh review; post a deferral record | Remove any `agent/review-code-approved`; do not grant queue approval |
+| Approval deferred by pending/unknown CI or uncertain PR readiness | Keep `agent/reviewable-code` on a fresh review; post a deferral record | Remove any `agent/review-code-approved`; do not grant queue approval |
+| Failed required CI during review or after approval | Add `agent/review-code-rejected`; remove code approval and reviewable labels; request implementation | Remove `agent/review-code-approved` first |
 | Confirmed conflicts after review or approval | Add `agent/code-conflicts`; remove stale code approval, rejection, and reviewable labels | Remove `agent/review-code-approved` first |
-| Previously approved PR becomes ineligible without confirmed conflicts | Return to `agent/reviewable-code`; remove stale code approval/rejection | Remove `agent/review-code-approved` first |
+| Previously approved PR has pending/unknown CI or uncertain readiness without confirmed conflicts | Return to `agent/reviewable-code`; remove stale code approval/rejection | Remove `agent/review-code-approved` first |
 
 The code-implementation completed transition preserves `agent/review-spec-approved`
 as a completed prerequisite.
@@ -153,8 +154,19 @@ A blocked record stays blocked until a human removes `agent/blocked` and the
 superseding rejection label; the pre-script skips any phase while `agent/blocked`
 is present.
 
+Failed required CI: a code-merit approval with a failed required check is applied
+as `code-review/rejected`, with a visible explanation appended to the review
+record. The normal timeline-based rejection limit still applies. Readiness
+maintenance also recovers an already deferred or previously approved review into
+`agent/review-code-rejected` when required checks fail, without launching a review
+LLM first. The implementation agent investigates the linked check logs, fixes the
+cause or reruns a transient infrastructure failure, and returns the item for review.
+A failing advisory check does not trigger repair when required contexts are known.
+Pending checks, missing signals and API/mergeability uncertainty do not assert a
+failure and do not consume the rejection budget.
+
 Deferred approval (required checks not yet green): when a code-review approval is
-not eligible because a required check is still pending or failing, the post-script
+not eligible because a required check is still pending or unknown, the post-script
 does NOT exit silently. It leaves `agent/reviewable-code` in place (the item stays
 awaiting review) and posts a visible deferral record through the phase sticky
 comment, so the approval is never a log-only exit. The approval is applied when

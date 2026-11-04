@@ -370,3 +370,17 @@ workers that are already running.
 
 For scheduling semantics, durable state, sandbox toolchains, and contributor
 checks, see the [dispatcher reference](../../.hypershell/execute-sdlc/README.md).
+
+### Review finished, but approval is waiting
+
+`Waiting for CI` means the review process finished but approval has not been
+applied: required checks are pending or unknown. The row stays visible with
+completed runs hidden. Open details (`d`) for the linked PR and next step.
+`Waiting: PR is draft` and `Waiting for PR readiness` identify other approval
+blockers. Discovery revisits these states automatically.
+
+A completed failed required check returns the issue to `code-implementation`
+through `agent/review-code-rejected`, including when a previous review deferred
+approval or the PR was already approved. Implementation investigates the check
+logs and fixes the cause or reruns transient CI. Pending checks do not consume
+the rejection budget; repeated unchanged failures do not create new rejections.

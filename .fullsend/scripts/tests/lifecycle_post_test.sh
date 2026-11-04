@@ -316,8 +316,8 @@ _run code-review \
   MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 \
   MOCK_CHECKRUNS='[{"status":"completed","conclusion":"failure"}]' \
   > "${WORK}/I.out" 2>&1
-if _has_label "${S}" agent/reviewable-code && ! _has_label "${S}" agent/review-code-approved; then
-  _ok "an approval with failing required checks is not applied"
+if _has_label "${S}" agent/review-code-rejected && ! _has_label "${S}" agent/reviewable-code && ! _has_label "${S}" agent/review-code-approved; then
+  _ok "failing required CI rejects a code-merit approval and requests implementation"
 else
   _no "an approval with failing required checks is not applied" "$(cat "${WORK}/I.out")"
 fi
@@ -588,7 +588,7 @@ WBODY="${WORK}/W.body"; : > "${WBODY}"
 _run code-review \
   '{"schema_version":"1","phase":"code-review","outcome":"approved","rationale":"lgtm","pr_number":5,"head_sha":"abc1234","comment":"approved by the reviewer"}' \
   MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 \
-  MOCK_CHECKRUNS='[{"status":"completed","conclusion":"failure"}]' \
+  MOCK_CHECKRUNS='[{"status":"in_progress","conclusion":null}]' \
   MOCK_COMMENTS="${WCOMMENTS}" MOCK_MARKERS="${WMARKERS}" MOCK_BODY="${WBODY}" \
   > "${WORK}/W.out" 2>&1
 rc=$?
