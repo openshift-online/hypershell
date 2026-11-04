@@ -102,11 +102,16 @@ type CredentialResolver interface {
 type ImportWriter interface {
 	// ListOwned returns every resource currently owned by repoID.
 	ListOwned(ctx context.Context, repoID string) ([]ResourceRef, error)
-	// Upsert creates the resource when absent and updates it when present, marking
-	// it owned by repoID. An error for one resource is collected by the caller
-	// rather than aborting the rest of the import. All eight importable Kinds have a
-	// control-plane import write path.
-	Upsert(ctx context.Context, repoID string, res RenderedResource) error
+	// UpsertAll creates each absent resource and updates each changed one, marking
+	// every write owned by repoID. It is given the whole desired set for one pass so
+	// it can fetch any shared read (for example the owned CITrust/Gateway sets and the
+	// CIProvider registry a CITrust upsert resolves against) ONCE per pass rather than
+	// once per resource, keeping a pass O(all) not O(N*all) (FINDING 4). An error for
+	// one resource is collected and returned (already wrapped with the resource's
+	// Kind/Name) without aborting the rest of the import, so one bad declaration never
+	// hides the others. All eight importable Kinds have a control-plane import write
+	// path.
+	UpsertAll(ctx context.Context, repoID string, desired []RenderedResource) []error
 	// Delete removes one Repository-owned resource.
 	Delete(ctx context.Context, repoID string, ref ResourceRef) error
 }
@@ -311,10 +316,11 @@ func (r *RepositoryReconciler) reconcileRepository(ctx context.Context, repo *pb
 	desiredKeys := make(map[ResourceRef]struct{}, len(desired))
 	for _, res := range desired {
 		desiredKeys[ResourceRef{Kind: res.Kind, Name: res.Name}] = struct{}{}
-		if err := r.writer.Upsert(ctx, repoID, res); err != nil {
-			errs = append(errs, fmt.Errorf("upsert %s/%s: %w", res.Kind, res.Name, err))
-		}
 	}
+
+	// Upsert the whole desired set in one call so the writer can share per-pass reads
+	// across resources (FINDING 4). Per-resource errors are collected, not fatal.
+	errs = append(errs, r.writer.UpsertAll(ctx, repoID, desired)...)
 
 	owned, err := r.writer.ListOwned(ctx, repoID)
 	if err != nil {
@@ -416,14 +422,53 @@ func renderImportables(fSys filesys.FileSystem, root string) ([]RenderedResource
 		out = append(out, RenderedResource{Kind: kind, Name: identity, Spec: spec})
 	}
 
-	// Deterministic order keeps logs and tests stable.
+	// Order by dependency precedence (not alphabetically) so a kind that owns a
+	// foreign key another imported kind resolves BY NAME is upserted first, letting a
+	// single import pass succeed. A CITrust resolves its gateway_id against the
+	// Repository's own gateways (#871/#873), so a fresh repo declaring both a Gateway
+	// and a CITrust referencing it must write the Gateway before the CITrust in the
+	// SAME pass (FINDING 1). Within one precedence tier, name keeps the order
+	// deterministic for stable logs and tests.
 	sort.Slice(out, func(i, j int) bool {
+		pi, pj := importKindPrecedence(out[i].Kind), importKindPrecedence(out[j].Kind)
+		if pi != pj {
+			return pi < pj
+		}
 		if out[i].Kind != out[j].Kind {
 			return out[i].Kind < out[j].Kind
 		}
 		return out[i].Name < out[j].Name
 	})
 	return out, nil
+}
+
+// importKindPrecedence returns the upsert order of a Kind within one import pass:
+// dependency targets (the foreign keys another kind resolves) sort before their
+// dependents, so a single pass over a fresh repository succeeds without a second
+// reconcile. Gateway and CIProvider identities must exist before a CITrust that
+// references them is written; CITrust therefore sorts last. An unlisted kind sorts
+// into a neutral middle tier. Lower is earlier.
+func importKindPrecedence(kind string) int {
+	switch kind {
+	case "Gateway":
+		return 0
+	case "ProviderSpec":
+		return 1
+	case "SandboxTemplate":
+		return 1
+	case "SecretSource":
+		return 1
+	case "AgentRuntime":
+		return 2
+	case "ProviderBinding":
+		return 2
+	case "InferenceRoute":
+		return 3
+	case "CITrust":
+		return 4
+	default:
+		return 2
+	}
 }
 
 // resourceIdentity derives the stable identity used to match a desired resource

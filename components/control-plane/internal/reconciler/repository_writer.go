@@ -148,7 +148,40 @@ func (w *grpcImportWriter) ListOwned(ctx context.Context, repoID string) ([]Reso
 	return refs, nil
 }
 
+// UpsertAll reconciles the whole desired set for one import pass. It fetches the
+// reads a CITrust upsert shares - the Repository's owned CITrust and Gateway sets and
+// the CIProvider registry - ONCE for the pass and threads them into every CITrust
+// upsert, so a pass that imports N CITrusts is O(all) not O(N*all) (FINDING 4). A
+// per-resource error is wrapped with the resource's Kind/Name and collected; it does
+// not abort the rest of the pass.
+func (w *grpcImportWriter) UpsertAll(ctx context.Context, repoID string, desired []RenderedResource) []error {
+	// A single shared CITrust cache for the whole pass. It is populated LAZILY on the
+	// first CITrust upsert, not here: because the desired set is ordered so Gateways
+	// upsert before CITrusts (FINDING 1), loading the owned-Gateway set at first-CITrust
+	// time lets a CITrust resolve a Gateway created earlier in the SAME pass, while
+	// still reading each shared set only ONCE per pass (FINDING 4).
+	citrustCache := &citrustPassCache{}
+
+	var errs []error
+	for _, res := range desired {
+		if err := w.upsert(ctx, repoID, res, citrustCache); err != nil {
+			errs = append(errs, fmt.Errorf("upsert %s/%s: %w", res.Kind, res.Name, err))
+		}
+	}
+	return errs
+}
+
+// Upsert reconciles a single resource. It is a convenience entry point (used by
+// focused tests) that shares no per-pass cache; the production import drives the
+// whole pass through UpsertAll so shared reads happen once.
 func (w *grpcImportWriter) Upsert(ctx context.Context, repoID string, res RenderedResource) error {
+	return w.upsert(ctx, repoID, res, nil)
+}
+
+// upsert dispatches one resource to its per-Kind writer. citrustCache carries the
+// per-pass shared reads for the CITrust path; it is nil for the single-resource entry
+// point, in which case the CITrust path fetches them itself.
+func (w *grpcImportWriter) upsert(ctx context.Context, repoID string, res RenderedResource, citrustCache *citrustPassCache) error {
 	switch res.Kind {
 	case "SandboxTemplate":
 		return w.upsertSandboxTemplate(ctx, repoID, res)
@@ -165,7 +198,7 @@ func (w *grpcImportWriter) Upsert(ctx context.Context, repoID string, res Render
 	case "AgentRuntime":
 		return w.upsertAgentRuntime(ctx, repoID, res)
 	case "CITrust":
-		return w.upsertCITrust(ctx, repoID, res)
+		return w.upsertCITrust(ctx, repoID, res, citrustCache)
 	default:
 		return fmt.Errorf("unsupported import kind %q", res.Kind)
 	}
@@ -703,48 +736,90 @@ func (w *grpcImportWriter) ownedCITrusts(ctx context.Context, repoID string) ([]
 	}
 }
 
-// resolveCIProviderIDByName resolves a CIProvider name to its id (#871/#873
-// find-by-name). CIProvider is a platform-wide registration (not importable), so
-// the lookup spans every CIProvider rather than the Repository's owned set. It
-// returns a clear error when the name matches no CIProvider so a bad manifest fails
-// that CITrust's import with a cause rather than a silent FK violation.
-func (w *grpcImportWriter) resolveCIProviderIDByName(ctx context.Context, name string) (string, error) {
-	if name == "" {
-		return "", fmt.Errorf("ci_provider_id is required")
+// citrustPassCache holds the reads a CITrust upsert shares across one import pass:
+// the Repository's owned CITrust set (for name-identity match and drift comparison),
+// its owned Gateway set (for gateway_id by-name resolution scoped to the Repository),
+// and the platform-wide CIProvider registry (for ci_provider_id by-name resolution).
+// It is read ONCE per pass (lazily, on the first CITrust upsert) and reused by every
+// later CITrust, so a pass is O(all) not O(N*all) (FINDING 4). err records a read
+// failure so each CITrust upsert fails with the same cause rather than proceeding on
+// partial reads.
+type citrustPassCache struct {
+	loaded        bool
+	ownedCITrusts []*pb.CITrust
+	ownedGateways []*pb.Gateway
+	ciProviders   []*pb.CIProvider
+	err           error
+}
+
+// ensureCITrustPassCache populates the shared cache on first use. Loading lazily at
+// first-CITrust time (rather than at pass start) is what lets a CITrust resolve a
+// Gateway created earlier in the SAME ordered pass (FINDING 1), while the loaded guard
+// keeps it to a single read per pass (FINDING 4). A pass runs single-threaded, so no
+// synchronization is needed.
+func (w *grpcImportWriter) ensureCITrustPassCache(ctx context.Context, repoID string, cache *citrustPassCache) {
+	if cache.loaded {
+		return
 	}
+	cache.loaded = true
+	cache.ownedCITrusts, cache.err = w.ownedCITrusts(ctx, repoID)
+	if cache.err != nil {
+		return
+	}
+	cache.ownedGateways, cache.err = w.ownedGateways(ctx, repoID)
+	if cache.err != nil {
+		return
+	}
+	cache.ciProviders, cache.err = w.listCIProviders(ctx)
+}
+
+// listCIProviders pages through the platform-wide CIProvider registry. CIProvider is
+// not Repository-owned, so the list spans every registered provider.
+func (w *grpcImportWriter) listCIProviders(ctx context.Context) ([]*pb.CIProvider, error) {
+	var out []*pb.CIProvider
 	for page := int32(1); ; page++ {
 		resp, err := w.ciProviders.ListCIProviders(ctx, &pb.ListCIProvidersRequest{Page: page, Size: w.pageSize})
 		if err != nil {
-			return "", fmt.Errorf("list CI providers: %w", err)
+			return nil, fmt.Errorf("list CI providers: %w", err)
 		}
 		items := resp.GetItems()
-		for _, it := range items {
-			if it.GetName() == name {
-				return it.GetMetadata().GetId(), nil
-			}
-		}
+		out = append(out, items...)
 		if int32(len(items)) < w.pageSize {
-			return "", fmt.Errorf("ci_provider_id %q does not resolve to a registered CIProvider", name)
+			return out, nil
 		}
 	}
 }
 
-// resolveOwnedGatewayIDByName resolves a Gateway name to its id, restricted to the
-// gateways OWNED by this Repository. Restricting resolution to the owned set both
-// resolves the FK by name (#871/#873) and enforces the imported-CITrust tenancy of
-// SEC-RBAC-25 at the writer: a manifest referencing a gateway the Repository does not
-// own fails to resolve, so the control plane never attempts a cross-tenant CITrust
+// resolveCIProviderIDByName resolves a CIProvider name to its id (#871/#873
+// find-by-name) over the pre-fetched registry. CIProvider is a platform-wide
+// registration (not importable), so the lookup spans every CIProvider rather than the
+// Repository's owned set. It returns a clear error when the name matches no CIProvider
+// so a bad manifest fails that CITrust's import with a cause rather than a silent FK
+// violation.
+func resolveCIProviderIDByName(providers []*pb.CIProvider, name string) (string, error) {
+	if name == "" {
+		return "", fmt.Errorf("ci_provider_id is required")
+	}
+	for _, it := range providers {
+		if it.GetName() == name {
+			return it.GetMetadata().GetId(), nil
+		}
+	}
+	return "", fmt.Errorf("ci_provider_id %q does not resolve to a registered CIProvider", name)
+}
+
+// resolveOwnedGatewayIDByName resolves a Gateway name to its id over the pre-fetched
+// set of gateways OWNED by this Repository. Restricting resolution to the owned set
+// both resolves the FK by name (#871/#873) and enforces the imported-CITrust tenancy
+// of SEC-RBAC-25 at the writer: a manifest referencing a gateway the Repository does
+// not own fails to resolve, so the control plane never attempts a cross-tenant CITrust
 // write. The api-server enforces the same gate server-side (the authoritative
 // backstop); this is the friendly early error.
-func (w *grpcImportWriter) resolveOwnedGatewayIDByName(ctx context.Context, repoID, name string) (string, error) {
+func resolveOwnedGatewayIDByName(ownedGateways []*pb.Gateway, name string) (string, error) {
 	if name == "" {
 		return "", fmt.Errorf("gateway_id is required")
 	}
-	owned, err := w.ownedGateways(ctx, repoID)
-	if err != nil {
-		return "", err
-	}
-	for _, gw := range owned {
+	for _, gw := range ownedGateways {
 		if gw.GetName() == name {
 			return gw.GetMetadata().GetId(), nil
 		}
@@ -752,21 +827,28 @@ func (w *grpcImportWriter) resolveOwnedGatewayIDByName(ctx context.Context, repo
 	return "", fmt.Errorf("gateway_id %q does not resolve to a Gateway owned by this repository", name)
 }
 
-// upsertCITrust creates or updates a Repository-owned CITrust. Its ci_provider_id and
-// gateway_id are declared BY NAME in the manifest and resolved to ids here (#871/#873);
-// gateway resolution is scoped to the Repository's owned gateways (SEC-RBAC-25). name
-// identity (the manifest's metadata.name) matches a desired trust against an owned one.
-// Only the mutable fields (role and the subject predicate the update RPC accepts) are
-// compared and updated; ci_provider_id and gateway_id are immutable after create.
-func (w *grpcImportWriter) upsertCITrust(ctx context.Context, repoID string, res RenderedResource) error {
-	ciProviderID, err := w.resolveCIProviderIDByName(ctx, specString(res.Spec, "ci_provider_id"))
-	if err != nil {
-		return fmt.Errorf("CI trust %s: %w", res.Name, err)
+// upsertCITrust creates or updates a Repository-owned CITrust. name identity (the
+// manifest's metadata.name) matches a desired trust against an owned one. Only the
+// mutable fields are compared and updated - role and the full subject predicate
+// (subject_repository, subject_project_path, subject_ref, subject_environment,
+// subject_ref_protected); ci_provider_id and gateway_id are immutable after create. A
+// changed subject.repository or subject.project_path therefore reconciles via update
+// rather than being silently skipped (reconcile, don't create-or-skip; FINDING 2).
+//
+// The ci_provider_id and gateway_id foreign keys are declared BY NAME in the manifest
+// and resolved to ids ONLY on the create branch (FINDING 3): on update they are
+// immutable and unused, so resolving them eagerly would let a since-renamed
+// CIProvider or Gateway fail an update that touches neither. cache carries the shared
+// per-pass reads; when nil (the single-resource entry point) they are fetched here.
+func (w *grpcImportWriter) upsertCITrust(ctx context.Context, repoID string, res RenderedResource, cache *citrustPassCache) error {
+	if cache == nil {
+		cache = &citrustPassCache{}
 	}
-	gatewayID, err := w.resolveOwnedGatewayIDByName(ctx, repoID, specString(res.Spec, "gateway_id"))
-	if err != nil {
-		return fmt.Errorf("CI trust %s: %w", res.Name, err)
+	w.ensureCITrustPassCache(ctx, repoID, cache)
+	if cache.err != nil {
+		return cache.err
 	}
+
 	role := specString(res.Spec, "role")
 	subject := specMap(res.Spec, "subject")
 	subjectRepository := specStringPtr(subject, "repository")
@@ -775,17 +857,17 @@ func (w *grpcImportWriter) upsertCITrust(ctx context.Context, repoID string, res
 	subjectEnvironment := specStringPtr(subject, "environment")
 	subjectRefProtected := specBoolPtr(subject, "ref_protected")
 
-	owned, err := w.ownedCITrusts(ctx, repoID)
-	if err != nil {
-		return err
-	}
-	for _, existing := range owned {
+	for _, existing := range cache.ownedCITrusts {
 		if existing.GetName() != res.Name {
 			continue
 		}
 		// ci_provider_id and gateway_id are immutable (not on the update request); only
-		// role and the subject predicate can change.
+		// role and the subject predicate can change. subject_repository and
+		// subject_project_path are part of that comparison so a changed value is
+		// reconciled, not skipped (FINDING 2).
 		if existing.GetRole() == role &&
+			stringPtrEqual(existing.SubjectRepository, subjectRepository) &&
+			stringPtrEqual(existing.SubjectProjectPath, subjectProjectPath) &&
 			stringPtrEqual(existing.SubjectRef, subjectRef) &&
 			stringPtrEqual(existing.SubjectEnvironment, subjectEnvironment) &&
 			boolPtrEqual(existing.SubjectRefProtected, subjectRefProtected) {
@@ -794,11 +876,24 @@ func (w *grpcImportWriter) upsertCITrust(ctx context.Context, repoID string, res
 		_, err := w.ciTrusts.UpdateCITrust(withOwnership(ctx, repoID), &pb.UpdateCITrustRequest{
 			Id:                  existing.GetMetadata().GetId(),
 			Role:                &role,
+			SubjectRepository:   subjectRepository,
+			SubjectProjectPath:  subjectProjectPath,
 			SubjectRef:          subjectRef,
 			SubjectEnvironment:  subjectEnvironment,
 			SubjectRefProtected: subjectRefProtected,
 		})
 		return err
+	}
+
+	// Create branch: resolve the immutable foreign keys by name only now that the
+	// exists check has determined this is a create (FINDING 3).
+	ciProviderID, err := resolveCIProviderIDByName(cache.ciProviders, specString(res.Spec, "ci_provider_id"))
+	if err != nil {
+		return fmt.Errorf("CI trust %s: %w", res.Name, err)
+	}
+	gatewayID, err := resolveOwnedGatewayIDByName(cache.ownedGateways, specString(res.Spec, "gateway_id"))
+	if err != nil {
+		return fmt.Errorf("CI trust %s: %w", res.Name, err)
 	}
 	name := res.Name
 	_, err = w.ciTrusts.CreateCITrust(withOwnership(ctx, repoID), &pb.CreateCITrustRequest{

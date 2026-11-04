@@ -2,12 +2,14 @@ package reconciler
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
+	"sigs.k8s.io/kustomize/kyaml/filesys"
 )
 
 // importFakeGatewayClient records the Gateway writes the import writer issues and serves a
@@ -21,9 +23,17 @@ type importFakeGatewayClient struct {
 	created        []*pb.CreateGatewayRequest
 	updated        []*pb.UpdateGatewayRequest
 	deleted        []string
+	// createRepoID is stamped onto the gateways CreateGateway reflects into owned so a
+	// same-pass by-name resolution (which filters by repository_id) can see them.
+	createRepoID string
+	createCount  int
+	// listCalls counts ListGateways invocations so a test can assert a pass reads the
+	// owned-gateway set once, not once per CITrust (FINDING 4).
+	listCalls int
 }
 
 func (f *importFakeGatewayClient) ListGateways(ctx context.Context, in *pb.ListGatewaysRequest, _ ...grpc.CallOption) (*pb.ListGatewaysResponse, error) {
+	f.listCalls++
 	f.lastListRepo = in.GetRepositoryId()
 	if md, ok := metadata.FromOutgoingContext(ctx); ok {
 		if vals := md.Get(importRepositoryMetadataKey); len(vals) > 0 {
@@ -35,6 +45,17 @@ func (f *importFakeGatewayClient) ListGateways(ctx context.Context, in *pb.ListG
 
 func (f *importFakeGatewayClient) CreateGateway(_ context.Context, in *pb.CreateGatewayRequest, _ ...grpc.CallOption) (*pb.CreateGatewayResponse, error) {
 	f.created = append(f.created, in)
+	// Reflect the create in the owned set the way the server would, so a later read in
+	// the SAME pass (for example a CITrust resolving this gateway by name) can see it.
+	f.createCount++
+	id := fmt.Sprintf("created-gw-%d", f.createCount)
+	repoID := f.createRepoID
+	f.owned = append(f.owned, &pb.Gateway{
+		Metadata:     &pb.ObjectReference{Id: id},
+		Name:         in.GetName(),
+		RepositoryId: &repoID,
+		ClusterId:    in.GetClusterId(),
+	})
 	return &pb.CreateGatewayResponse{}, nil
 }
 
@@ -374,13 +395,15 @@ func TestUpsertAgentRuntime_CreatesAndUpdates(t *testing.T) {
 // observable without a server.
 type fakeCITrustClient struct {
 	pb.CITrustServiceClient
-	owned   []*pb.CITrust
-	created []*pb.CreateCITrustRequest
-	updated []*pb.UpdateCITrustRequest
-	deleted []string
+	owned     []*pb.CITrust
+	created   []*pb.CreateCITrustRequest
+	updated   []*pb.UpdateCITrustRequest
+	deleted   []string
+	listCalls int
 }
 
 func (f *fakeCITrustClient) ListCITrusts(_ context.Context, _ *pb.ListCITrustsRequest, _ ...grpc.CallOption) (*pb.ListCITrustsResponse, error) {
+	f.listCalls++
 	return &pb.ListCITrustsResponse{Items: f.owned}, nil
 }
 
@@ -402,10 +425,12 @@ func (f *fakeCITrustClient) DeleteCITrust(_ context.Context, in *pb.DeleteCITrus
 // fakeCIProviderClient serves a canned CIProvider list for find-by-name resolution.
 type fakeCIProviderClient struct {
 	pb.CIProviderServiceClient
-	items []*pb.CIProvider
+	items     []*pb.CIProvider
+	listCalls int
 }
 
 func (f *fakeCIProviderClient) ListCIProviders(_ context.Context, _ *pb.ListCIProvidersRequest, _ ...grpc.CallOption) (*pb.ListCIProvidersResponse, error) {
+	f.listCalls++
 	return &pb.ListCIProvidersResponse{Items: f.items}, nil
 }
 
@@ -576,5 +601,165 @@ func TestDelete_CITrust(t *testing.T) {
 	}
 	if len(ctc.deleted) != 1 || ctc.deleted[0] != "ct-id" {
 		t.Fatalf("CITrust deletes = %v, want [ct-id]", ctc.deleted)
+	}
+}
+
+// gatewayAndCITrustFS declares a fresh repository that owns a Gateway AND a CITrust
+// referencing it by name - exactly the shape of .hypershell/base/platform.
+func gatewayAndCITrustFS(t *testing.T) filesys.FileSystem {
+	t.Helper()
+	return inMemFS(t, map[string]string{
+		"/kustomization.yaml": `apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - r.yaml
+`,
+		"/r.yaml": `apiVersion: hypershell.redhat.io/v1
+kind: CITrust
+metadata:
+  name: ct-1
+spec:
+  ci_provider_id: github-actions
+  gateway_id: agents-gateway
+  role: openshell-user
+  subject:
+    repository: acme/repo
+    ref_protected: true
+---
+apiVersion: hypershell.redhat.io/v1
+kind: Gateway
+metadata:
+  name: agents-gateway
+spec:
+  placement:
+    selector:
+      - network/public
+`,
+	})
+}
+
+// TestUpsertAll_SinglePassImportsGatewayThenCITrust proves a fresh repo declaring a
+// Gateway AND a CITrust referencing it imports in a SINGLE pass (FINDING 1):
+// renderImportables orders the Gateway (a foreign-key target) before the CITrust even
+// though the manifest lists the CITrust first and "CITrust" sorts before "Gateway"
+// alphabetically, and the CITrust resolves the gateway created earlier in the same
+// pass. Before the ordering fix the CITrust was upserted first and failed to resolve
+// the not-yet-created gateway, needing a second reconcile.
+func TestUpsertAll_SinglePassImportsGatewayThenCITrust(t *testing.T) {
+	desired, err := renderImportables(gatewayAndCITrustFS(t), "/")
+	if err != nil {
+		t.Fatalf("renderImportables error = %v", err)
+	}
+
+	gwc := &importFakeGatewayClient{createRepoID: "repo-1"} // owns no gateway yet
+	cpc := &fakeCIProviderClient{items: []*pb.CIProvider{ciProvider("cp-id", "github-actions")}}
+	ctc := &fakeCITrustClient{}
+	w := &grpcImportWriter{gateways: gwc, ciProviders: cpc, ciTrusts: ctc, pageSize: 100}
+
+	errs := w.UpsertAll(context.Background(), "repo-1", desired)
+	if len(errs) != 0 {
+		t.Fatalf("single-pass import reported errors: %v", errs)
+	}
+	if len(gwc.created) != 1 || gwc.created[0].GetName() != "agents-gateway" {
+		t.Fatalf("gateway creates = %+v, want one agents-gateway", gwc.created)
+	}
+	if len(ctc.created) != 1 {
+		t.Fatalf("CITrust creates = %+v, want one (CITrust must be created in the same pass)", ctc.created)
+	}
+	if got := ctc.created[0].GetGatewayId(); got != "created-gw-1" {
+		t.Errorf("CITrust gateway_id = %q, want it resolved to the gateway created earlier in the pass", got)
+	}
+}
+
+// TestUpsertCITrust_UpdatesWhenSubjectRepositoryChanges proves a changed
+// subject.repository reconciles via an update instead of being silently skipped
+// (FINDING 2). Before the fix subject_repository was absent from both the drift
+// comparison and UpdateCITrustRequest, so a changed value compared equal and no update
+// was issued.
+func TestUpsertCITrust_UpdatesWhenSubjectRepositoryChanges(t *testing.T) {
+	existing := importCITrust("ct-id", "ct-1", "repo-1")
+	existing.CiProviderId = "cp-id"
+	existing.GatewayId = "gw-id"
+	existing.Role = "openshell-user"
+	oldRepo := "acme/old" // the manifest declares acme/repo
+	existing.SubjectRepository = &oldRepo
+	rp := true
+	existing.SubjectRefProtected = &rp
+	gwc := &importFakeGatewayClient{owned: []*pb.Gateway{importGw("gw-id", "agents-gateway", "repo-1", "c1")}}
+	cpc := &fakeCIProviderClient{items: []*pb.CIProvider{ciProvider("cp-id", "github-actions")}}
+	ctc := &fakeCITrustClient{owned: []*pb.CITrust{existing}}
+	w := &grpcImportWriter{gateways: gwc, ciProviders: cpc, ciTrusts: ctc, pageSize: 100}
+	res := RenderedResource{Kind: "CITrust", Name: "ct-1", Spec: citrustSpec()}
+
+	if err := w.Upsert(context.Background(), "repo-1", res); err != nil {
+		t.Fatalf("Upsert error = %v", err)
+	}
+	if len(ctc.updated) != 1 {
+		t.Fatalf("updated = %+v, want one update reconciling the changed subject.repository", ctc.updated)
+	}
+	if got := ctc.updated[0].GetSubjectRepository(); got != "acme/repo" {
+		t.Errorf("updated subject_repository = %q, want acme/repo", got)
+	}
+}
+
+// TestUpsertCITrust_UpdateSucceedsWhenReferencedProviderAndGatewayRenamed proves an
+// update-only change (role) succeeds even when the referenced CIProvider and Gateway
+// were renamed after the initial import (FINDING 3). The foreign keys are immutable on
+// update, so resolving them is unnecessary; before the fix resolution ran before the
+// exists check and a since-renamed reference failed the whole upsert.
+func TestUpsertCITrust_UpdateSucceedsWhenReferencedProviderAndGatewayRenamed(t *testing.T) {
+	existing := importCITrust("ct-id", "ct-1", "repo-1")
+	existing.CiProviderId = "cp-id"
+	existing.GatewayId = "gw-id"
+	existing.Role = "openshell-admin" // differs from the manifest's openshell-user -> forces an update
+	// Neither the manifest's ci_provider_id ("github-actions") nor gateway_id
+	// ("agents-gateway") resolves any more: both were renamed after the import.
+	gwc := &importFakeGatewayClient{owned: []*pb.Gateway{importGw("gw-id", "agents-gateway-renamed", "repo-1", "c1")}}
+	cpc := &fakeCIProviderClient{items: []*pb.CIProvider{ciProvider("cp-id", "github-actions-renamed")}}
+	ctc := &fakeCITrustClient{owned: []*pb.CITrust{existing}}
+	w := &grpcImportWriter{gateways: gwc, ciProviders: cpc, ciTrusts: ctc, pageSize: 100}
+	res := RenderedResource{Kind: "CITrust", Name: "ct-1", Spec: citrustSpec()}
+
+	if err := w.Upsert(context.Background(), "repo-1", res); err != nil {
+		t.Fatalf("Upsert error = %v, want the update to succeed without resolving the renamed references", err)
+	}
+	if len(ctc.updated) != 1 || ctc.updated[0].GetRole() != "openshell-user" {
+		t.Fatalf("updated = %+v, want one update of ct-id -> openshell-user", ctc.updated)
+	}
+	if len(ctc.created) != 0 {
+		t.Fatalf("a create was issued on an update-only change: %+v", ctc.created)
+	}
+}
+
+// TestUpsertAll_SharesCITrustReadsAcrossMultipleTrusts proves a pass importing several
+// CITrusts is O(all) not O(N*all): the owned-CITrust set, owned-Gateway set, and
+// CIProvider registry are each read ONCE for the whole pass and shared across every
+// CITrust upsert (FINDING 4), and the import remains correct (both trusts created).
+// Before the fix each upsertCITrust re-ran all three scans.
+func TestUpsertAll_SharesCITrustReadsAcrossMultipleTrusts(t *testing.T) {
+	gwc := &importFakeGatewayClient{owned: []*pb.Gateway{importGw("gw-id", "agents-gateway", "repo-1", "c1")}}
+	cpc := &fakeCIProviderClient{items: []*pb.CIProvider{ciProvider("cp-id", "github-actions")}}
+	ctc := &fakeCITrustClient{}
+	w := &grpcImportWriter{gateways: gwc, ciProviders: cpc, ciTrusts: ctc, pageSize: 100}
+	desired := []RenderedResource{
+		{Kind: "CITrust", Name: "ct-1", Spec: citrustSpec()},
+		{Kind: "CITrust", Name: "ct-2", Spec: citrustSpec()},
+	}
+
+	errs := w.UpsertAll(context.Background(), "repo-1", desired)
+	if len(errs) != 0 {
+		t.Fatalf("UpsertAll reported errors: %v", errs)
+	}
+	if len(ctc.created) != 2 {
+		t.Fatalf("CITrust creates = %d, want 2 (both trusts imported)", len(ctc.created))
+	}
+	if ctc.listCalls != 1 {
+		t.Errorf("ListCITrusts calls = %d, want 1 per pass", ctc.listCalls)
+	}
+	if gwc.listCalls != 1 {
+		t.Errorf("ListGateways calls = %d, want 1 per pass", gwc.listCalls)
+	}
+	if cpc.listCalls != 1 {
+		t.Errorf("ListCIProviders calls = %d, want 1 per pass", cpc.listCalls)
 	}
 }

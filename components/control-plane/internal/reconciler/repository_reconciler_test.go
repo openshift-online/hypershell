@@ -3,6 +3,7 @@ package reconciler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"testing"
 
@@ -64,16 +65,20 @@ func newFakeImportWriter() *fakeImportWriter {
 	return &fakeImportWriter{owned: map[string]map[ResourceRef]RenderedResource{}}
 }
 
-func (w *fakeImportWriter) Upsert(ctx context.Context, repoID string, res RenderedResource) error {
-	if err := w.failKinds[res.Kind]; err != nil {
-		return err
+func (w *fakeImportWriter) UpsertAll(ctx context.Context, repoID string, desired []RenderedResource) []error {
+	var errs []error
+	for _, res := range desired {
+		if err := w.failKinds[res.Kind]; err != nil {
+			errs = append(errs, fmt.Errorf("upsert %s/%s: %w", res.Kind, res.Name, err))
+			continue
+		}
+		w.upserts = append(w.upserts, res)
+		if w.owned[repoID] == nil {
+			w.owned[repoID] = map[ResourceRef]RenderedResource{}
+		}
+		w.owned[repoID][ResourceRef{Kind: res.Kind, Name: res.Name}] = res
 	}
-	w.upserts = append(w.upserts, res)
-	if w.owned[repoID] == nil {
-		w.owned[repoID] = map[ResourceRef]RenderedResource{}
-	}
-	w.owned[repoID][ResourceRef{Kind: res.Kind, Name: res.Name}] = res
-	return nil
+	return errs
 }
 
 func (w *fakeImportWriter) ListOwned(ctx context.Context, repoID string) ([]ResourceRef, error) {
