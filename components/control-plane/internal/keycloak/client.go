@@ -264,9 +264,22 @@ func (c *Client) DeleteGatewayServiceAccountClients(ctx context.Context, gateway
 // first+last name when present, else the username.
 func (c *Client) ListRealmUsers(ctx context.Context) ([]RealmUser, error) {
 	const pageSize = 100
-	out := make([]RealmUser, 0)
-	for first := 0; ; first += pageSize {
-		path := fmt.Sprintf("/admin/realms/%s/users?first=%d&max=%d", c.realm, first, pageSize)
+	total, err := c.realmUserCount(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("count realm users: %w", err)
+	}
+	out := make([]RealmUser, 0, total)
+	for first := 0; first < total; first += pageSize {
+		// Cap the page to the users that actually remain. Requesting rows past the
+		// end (first+max > total) makes the Keycloak Admin users endpoint hang for
+		// the full request timeout on a federated realm; that fails the whole
+		// refresh and leaves the directory projection empty (GTW-ACC-09), breaking
+		// console user lookup. The final page is the one that over-fetched before.
+		pageMax := pageSize
+		if remaining := total - first; remaining < pageMax {
+			pageMax = remaining
+		}
+		path := fmt.Sprintf("/admin/realms/%s/users?first=%d&max=%d", c.realm, first, pageMax)
 		response, err := c.doRequest(ctx, http.MethodGet, path, nil)
 		if err != nil {
 			return nil, fmt.Errorf("list realm users: %w", err)
@@ -283,11 +296,27 @@ func (c *Client) ListRealmUsers(ctx context.Context) ([]RealmUser, error) {
 				Subject:  u.ID,
 			})
 		}
-		if len(page) < pageSize {
+		if len(page) < pageMax {
 			break
 		}
 	}
 	return out, nil
+}
+
+// realmUserCount returns the number of users in the configured realm. The count
+// bounds ListRealmUsers' paging so the final page never requests rows past the
+// end of the realm (see ListRealmUsers).
+func (c *Client) realmUserCount(ctx context.Context) (int, error) {
+	path := fmt.Sprintf("/admin/realms/%s/users/count", c.realm)
+	response, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return 0, err
+	}
+	var count int
+	if err := json.Unmarshal(response, &count); err != nil {
+		return 0, fmt.Errorf("parse realm user count: %w", err)
+	}
+	return count, nil
 }
 
 func displayName(u keycloakUser) string {
