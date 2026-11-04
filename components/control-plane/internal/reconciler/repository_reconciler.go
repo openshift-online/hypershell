@@ -100,18 +100,21 @@ type CredentialResolver interface {
 // prune is scoped to a single Repository so one import never deletes another
 // Repository's resources or resources created directly over REST / `hsctl apply`.
 type ImportWriter interface {
-	// ListOwned returns every resource currently owned by repoID.
-	ListOwned(ctx context.Context, repoID string) ([]ResourceRef, error)
+	// ListOwned returns every resource currently owned by repoID. It takes the same
+	// per-pass cache UpsertAll was given so the platform-wide CITrust scan and
+	// owned-filter run ONCE for the whole pass rather than a second time here (FINDING 2).
+	ListOwned(ctx context.Context, repoID string, cache *citrustPassCache) ([]ResourceRef, error)
 	// UpsertAll creates each absent resource and updates each changed one, marking
 	// every write owned by repoID. It is given the whole desired set for one pass so
 	// it can fetch any shared read (for example the owned CITrust/Gateway sets and the
 	// CIProvider registry a CITrust upsert resolves against) ONCE per pass rather than
-	// once per resource, keeping a pass O(all) not O(N*all) (FINDING 4). An error for
-	// one resource is collected and returned (already wrapped with the resource's
-	// Kind/Name) without aborting the rest of the import, so one bad declaration never
-	// hides the others. All eight importable Kinds have a control-plane import write
-	// path.
-	UpsertAll(ctx context.Context, repoID string, desired []RenderedResource) []error
+	// once per resource, keeping a pass O(all) not O(N*all) (FINDING 4). The caller
+	// threads the same cache into ListOwned so the two together scan the CITrust table
+	// once (FINDING 2). An error for one resource is collected and returned (already
+	// wrapped with the resource's Kind/Name) without aborting the rest of the import, so
+	// one bad declaration never hides the others. All eight importable Kinds have a
+	// control-plane import write path.
+	UpsertAll(ctx context.Context, repoID string, desired []RenderedResource, cache *citrustPassCache) []error
 	// Delete removes one Repository-owned resource.
 	Delete(ctx context.Context, repoID string, ref ResourceRef) error
 }
@@ -318,29 +321,27 @@ func (r *RepositoryReconciler) reconcileRepository(ctx context.Context, repo *pb
 		desiredKeys[ResourceRef{Kind: res.Kind, Name: res.Name}] = struct{}{}
 	}
 
+	// One shared per-pass CITrust cache threaded through both UpsertAll and ListOwned so
+	// the platform-wide CITrust scan happens once for the whole pass, not once for the
+	// upserts and again for the prune list (FINDING 2). It loads lazily inside the writer.
+	citrustCache := &citrustPassCache{}
+
 	// Upsert the whole desired set in one call so the writer can share per-pass reads
 	// across resources (FINDING 4). Per-resource errors are collected, not fatal.
-	errs = append(errs, r.writer.UpsertAll(ctx, repoID, desired)...)
+	errs = append(errs, r.writer.UpsertAll(ctx, repoID, desired, citrustCache)...)
 
-	owned, err := r.writer.ListOwned(ctx, repoID)
+	owned, err := r.writer.ListOwned(ctx, repoID, citrustCache)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("list owned resources: %w", err))
 		return errors.Join(errs...)
 	}
 	// Prune in REVERSE dependency order (FINDING 3): a dependent kind must be deleted
 	// BEFORE the kind it references, so we never leave a CITrust pointing at a Gateway
-	// that has already been (soft-)deleted in the same pass. This is the inverse of the
-	// create ordering in importKindPrecedence; within a tier, name keeps prune
-	// deterministic for stable logs and tests.
+	// that has already been (soft-)deleted in the same pass. This is the exact inverse of
+	// the create ordering in renderImportables; both share importOrderLess so the two
+	// directions can never drift apart.
 	sort.Slice(owned, func(i, j int) bool {
-		pi, pj := importKindPrecedence(owned[i].Kind), importKindPrecedence(owned[j].Kind)
-		if pi != pj {
-			return pi > pj
-		}
-		if owned[i].Kind != owned[j].Kind {
-			return owned[i].Kind > owned[j].Kind
-		}
-		return owned[i].Name < owned[j].Name
+		return importOrderLess(owned[i].Kind, owned[i].Name, owned[j].Kind, owned[j].Name, true)
 	})
 	for _, ref := range owned {
 		if _, keep := desiredKeys[ResourceRef{Kind: ref.Kind, Name: ref.Name}]; keep {
@@ -445,16 +446,33 @@ func renderImportables(fSys filesys.FileSystem, root string) ([]RenderedResource
 	// SAME pass (FINDING 1). Within one precedence tier, name keeps the order
 	// deterministic for stable logs and tests.
 	sort.Slice(out, func(i, j int) bool {
-		pi, pj := importKindPrecedence(out[i].Kind), importKindPrecedence(out[j].Kind)
-		if pi != pj {
-			return pi < pj
-		}
-		if out[i].Kind != out[j].Kind {
-			return out[i].Kind < out[j].Kind
-		}
-		return out[i].Name < out[j].Name
+		return importOrderLess(out[i].Kind, out[i].Name, out[j].Kind, out[j].Name, false)
 	})
 	return out, nil
+}
+
+// importOrderLess is the single comparator behind both import orderings (FINDING 3):
+// renderImportables sorts in create order (reverse=false, dependency targets before
+// their dependents) and the prune pass sorts in the exact inverse (reverse=true,
+// dependents before their targets) so a CITrust is deleted before the Gateway it
+// references. Parameterizing one comparator by direction keeps the two from drifting
+// apart. Precedence tiers and the Kind tiebreak follow the direction; Name always sorts
+// ascending so logs and tests stay deterministic in both directions.
+func importOrderLess(kindI, nameI, kindJ, nameJ string, reverse bool) bool {
+	pi, pj := importKindPrecedence(kindI), importKindPrecedence(kindJ)
+	if pi != pj {
+		if reverse {
+			return pi > pj
+		}
+		return pi < pj
+	}
+	if kindI != kindJ {
+		if reverse {
+			return kindI > kindJ
+		}
+		return kindI < kindJ
+	}
+	return nameI < nameJ
 }
 
 // importKindPrecedence returns the upsert order of a Kind within one import pass:

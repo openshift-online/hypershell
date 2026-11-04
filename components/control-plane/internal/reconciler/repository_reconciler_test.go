@@ -65,7 +65,7 @@ func newFakeImportWriter() *fakeImportWriter {
 	return &fakeImportWriter{owned: map[string]map[ResourceRef]RenderedResource{}}
 }
 
-func (w *fakeImportWriter) UpsertAll(ctx context.Context, repoID string, desired []RenderedResource) []error {
+func (w *fakeImportWriter) UpsertAll(ctx context.Context, repoID string, desired []RenderedResource, _ *citrustPassCache) []error {
 	var errs []error
 	for _, res := range desired {
 		if err := w.failKinds[res.Kind]; err != nil {
@@ -81,7 +81,7 @@ func (w *fakeImportWriter) UpsertAll(ctx context.Context, repoID string, desired
 	return errs
 }
 
-func (w *fakeImportWriter) ListOwned(ctx context.Context, repoID string) ([]ResourceRef, error) {
+func (w *fakeImportWriter) ListOwned(ctx context.Context, repoID string, _ *citrustPassCache) ([]ResourceRef, error) {
 	var refs []ResourceRef
 	for ref := range w.owned[repoID] {
 		refs = append(refs, ref)
