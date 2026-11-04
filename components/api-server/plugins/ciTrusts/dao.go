@@ -2,7 +2,9 @@ package ciTrusts
 
 import (
 	"context"
+	"errors"
 
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
@@ -18,6 +20,11 @@ type CITrustDao interface {
 	All(ctx context.Context) (CITrustList, error)
 	CIProviderExists(ctx context.Context, ciProviderID string) (bool, error)
 	GatewayExists(ctx context.Context, gatewayID string) (bool, error)
+	// GatewayRepositoryID returns the repository_id ownership mark of the referenced
+	// gateway (found=false when no live gateway has that id). It backs the imported
+	// CITrust tenancy gate (SEC-RBAC-25): an import may author a CITrust only on a
+	// gateway owned by the same reconciled Repository.
+	GatewayRepositoryID(ctx context.Context, gatewayID string) (repositoryID *string, found bool, err error)
 }
 
 var _ CITrustDao = &sqlCITrustDao{}
@@ -104,4 +111,23 @@ func (d *sqlCITrustDao) GatewayExists(ctx context.Context, gatewayID string) (bo
 		return false, err
 	}
 	return count > 0, nil
+}
+
+func (d *sqlCITrustDao) GatewayRepositoryID(ctx context.Context, gatewayID string) (*string, bool, error) {
+	g2 := (*d.sessionFactory).New(ctx)
+	var row struct {
+		RepositoryID *string `gorm:"column:repository_id"`
+	}
+	// Take returns ErrRecordNotFound when no live gateway has that id; the caller
+	// treats a missing gateway as "not owned" and refuses the import write.
+	if err := g2.Table("gateways").
+		Select("repository_id").
+		Where("id = ? AND deleted_at IS NULL", gatewayID).
+		Take(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	return row.RepositoryID, true, nil
 }

@@ -78,3 +78,41 @@ func migrationAddName() *gormigrate.Migration {
 		},
 	}
 }
+
+// migrationAddRepositoryOwnership adds the nullable repository_id ownership mark so
+// the control-plane declarative-import reconciler can own and per-Repository prune
+// imported CITrusts (PLAT-DATA-25, SEC-RBAC-25, issue #958). It is NULL for a trust
+// created directly over REST or hsctl apply. It runs under a NEW migration ID
+// because ci_trusts already shipped its table (ID 2026102600000002) and the
+// convergence/name migrations: editing a shipped body is skipped on upgraded hubs
+// (the #862 lesson). Raw ALTER TABLE is used instead of AutoMigrate because
+// AutoMigrate's add-column path is unreliable under the test session's lib/pq driver
+// with PreferSimpleProtocol (SDLC-CONF-02). The index matches the model's
+// `column:repository_id;index` tag so a fresh CreateTable and an upgraded ALTER
+// converge on the same schema.
+func migrationAddRepositoryOwnership() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026110400000002",
+		Migrate: func(tx *gorm.DB) error {
+			if err := tx.Exec(`
+				ALTER TABLE ci_trusts
+					ADD COLUMN IF NOT EXISTS repository_id TEXT
+			`).Error; err != nil {
+				return err
+			}
+			return tx.Exec(`
+				CREATE INDEX IF NOT EXISTS idx_ci_trusts_repository_id
+					ON ci_trusts (repository_id)
+			`).Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			if err := tx.Exec(`DROP INDEX IF EXISTS idx_ci_trusts_repository_id`).Error; err != nil {
+				return err
+			}
+			return tx.Exec(`
+				ALTER TABLE ci_trusts
+					DROP COLUMN IF EXISTS repository_id
+			`).Error
+		},
+	}
+}

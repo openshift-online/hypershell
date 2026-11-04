@@ -19,14 +19,20 @@ type CITrust struct {
 	// The gorm column tag pins the snake_case name; GORM's default naming would
 	// mangle the CI initialism to "c_iprovider_id", which the migration never
 	// created (SDLC-CONF-08).
-	CIProviderID           string  `json:"ci_provider_id" gorm:"column:ci_provider_id;index"`
-	GatewayID              string  `json:"gateway_id" gorm:"column:gateway_id;index"`
-	SubjectRepository      *string `json:"subject_repository"`
-	SubjectProjectPath     *string `json:"subject_project_path"`
-	SubjectRef             *string `json:"subject_ref"`
-	SubjectEnvironment     *string `json:"subject_environment"`
-	SubjectRefProtected    *bool   `json:"subject_ref_protected"`
-	Role                   string  `json:"role"`
+	CIProviderID        string  `json:"ci_provider_id" gorm:"column:ci_provider_id;index"`
+	GatewayID           string  `json:"gateway_id" gorm:"column:gateway_id;index"`
+	SubjectRepository   *string `json:"subject_repository"`
+	SubjectProjectPath  *string `json:"subject_project_path"`
+	SubjectRef          *string `json:"subject_ref"`
+	SubjectEnvironment  *string `json:"subject_environment"`
+	SubjectRefProtected *bool   `json:"subject_ref_protected"`
+	Role                string  `json:"role"`
+	// RepositoryID is the ownership mark set by the control-plane declarative
+	// import reconciler (SEC-RBAC-25, PLAT-DATA-25). It is NULL for a CITrust
+	// created directly over REST or hsctl apply, and carries the owning
+	// Repository id for an imported trust so prune is scoped per-Repository. It is
+	// set server-side from trusted metadata, never from a client request body.
+	RepositoryID           *string `json:"repository_id" gorm:"column:repository_id;index"`
 	StatusExchangeEndpoint *string `json:"status_exchange_endpoint"`
 	StatusWorkspace        *string `json:"status_workspace"`
 	StatusWorkflowHint     *string `json:"status_workflow_hint"`

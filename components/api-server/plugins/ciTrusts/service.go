@@ -33,6 +33,10 @@ type CITrustService interface {
 	Delete(ctx context.Context, id string) *errors.ServiceError
 	All(ctx context.Context) (CITrustList, *errors.ServiceError)
 	FindByIDs(ctx context.Context, ids []string) (CITrustList, *errors.ServiceError)
+	// GatewayRepositoryID returns the ownership mark of the referenced gateway (nil
+	// when the gateway is unowned, found=false when no live gateway has that id). It
+	// backs the imported CITrust tenancy gate (SEC-RBAC-25).
+	GatewayRepositoryID(ctx context.Context, gatewayID string) (repositoryID *string, found bool, svcErr *errors.ServiceError)
 }
 
 func NewCITrustService(dao CITrustDao, events services.EventService) CITrustService {
@@ -148,4 +152,12 @@ func (s *sqlCITrustService) FindByIDs(ctx context.Context, ids []string) (CITrus
 		return nil, errors.GeneralError("unable to get CITrusts: %s", err)
 	}
 	return items, nil
+}
+
+func (s *sqlCITrustService) GatewayRepositoryID(ctx context.Context, gatewayID string) (*string, bool, *errors.ServiceError) {
+	repositoryID, found, err := s.dao.GatewayRepositoryID(ctx, gatewayID)
+	if err != nil {
+		return nil, false, errors.GeneralError("unable to resolve gateway ownership: %s", err)
+	}
+	return repositoryID, found, nil
 }
