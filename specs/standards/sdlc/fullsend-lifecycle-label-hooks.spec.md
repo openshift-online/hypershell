@@ -12,16 +12,14 @@
 ## Purpose
 
 The agent SDLC funnel moves a GitHub execution record through phases with a
-label state machine. Today the implementation and review agents receive prose
-instructions to add and remove those phase labels through the GitHub API. The
-model is responsible for remembering every required label step and applying it in
-the correct order. An agent can finish its task and leave a label update
-incomplete, a sequence of separate API calls can fail partway through a
-transition, and conflicting labels can prevent a trigger from matching or leave
-the next phase unclear.
+label state machine. When a model applies those labels from prose instructions,
+it must remember every required label step and its order. An agent can finish
+its task and leave a label update incomplete, a sequence of separate API calls
+can fail partway through a transition, and conflicting labels can prevent a
+trigger from matching or leave the next phase unclear.
 
-This specification moves lifecycle label transitions out of model instructions
-and into shared, deterministic scripts that native Fullsend harness hooks invoke.
+Lifecycle label transitions therefore live in shared, deterministic scripts that
+native Fullsend harness hooks invoke, not in model instructions.
 An agent SHALL perform its assigned work and return a structured result only.
 Fullsend SHALL validate that result. A trusted post-script SHALL then apply the
 permitted label changes and verify the final state. The behavior SHALL live under
@@ -293,10 +291,9 @@ SHALL be verified against the trusted input before it is used.
 ### Requirement: SDLC-HOOK-05 -- Agents Produce Results, Not Label Changes
 
 The implementation and review agents SHALL produce the structured result defined
-for their phase and SHALL stop adding or removing lifecycle labels directly. Agent
-instructions SHALL be updated to describe producing the result, and any referenced
-instruction that would otherwise tell an agent to change a lifecycle label SHALL
-be updated so the agent no longer does so.
+for their phase and SHALL NOT add or remove lifecycle labels directly. Agent
+instructions SHALL describe producing the result, and no referenced instruction
+SHALL tell an agent to change a lifecycle label.
 
 #### Scenario: SDLC-HOOK-05.01 -- An agent does not write a lifecycle label
 
@@ -535,8 +532,7 @@ records after approval, because a post-script alone cannot observe future change
 The local watch loop SHALL call this hook during discovery, including when no
 agent phase currently matches an approved issue. Hosted schedulers SHALL invoke
 the same hook from periodic or PR/check-change processing to obtain the same
-recovery behavior; this does not imply that a hosted trigger is installed by a
-local dispatcher change. Inspect/dry-run calls SHALL be read-only. The local runner
+recovery behavior. Inspect/dry-run calls SHALL be read-only. The local runner
 SHALL avoid recovery mutations on records with running or uncertain worker ownership.
 
 For confirmed conflicts (`mergeable: false`, `mergeable_state: dirty`), the hook
@@ -629,7 +625,7 @@ tools and permissions, and the recovery procedure SHALL be documented.
 
 - Lifecycle label transitions are implemented by shared scripts invoked through
   native Fullsend harness hooks, not by agent prose.
-- Agents return structured, versioned results and no longer directly manage
+- Agents return structured, versioned results and do not directly manage
   lifecycle labels.
 - Every result is validated read-only before any lifecycle label change.
 - A missing, malformed, failed, stale, or unvalidated result cannot advance the
@@ -655,7 +651,7 @@ tools and permissions, and the recovery procedure SHALL be documented.
 
 | Decision | Rationale |
 |----------|-----------|
-| Label transitions live in shared scripts, not agent prose | A deterministic script applies the same labels in the same order every time. Prose left the model responsible for remembering every step, so a finished task could still leave a transition half-applied. |
+| Label transitions live in shared scripts, not agent prose | A deterministic script applies the same labels in the same order every time. Prose leaves the model responsible for remembering every step, so a finished task can still leave a transition half-applied. |
 | Agents return a validated structured result | A fixed-enum, versioned result keeps arbitrary label names, repository targets, and shell commands out of the model output and gives the post-script a trusted contract to act on. |
 | Validation is read-only and precedes any mutation | Deciding whether output is valid must never change workflow state, so an invalid or unvalidated result cannot advance the funnel or leave labels half-changed. |
 | Evidence is checked against GitHub before applying | A schema-valid result is not proof of completed work. Rechecking the pull request and head commit rejects stale reviews and prevents advancing on work that changed. |

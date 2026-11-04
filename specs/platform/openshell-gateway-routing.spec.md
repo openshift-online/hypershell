@@ -442,12 +442,6 @@ Service port aliasing the gRPC pod port (see istio/istio#36185).
 
 ---
 
-## Reconciler Improvements (Planned)
-
-1. **Gateway restart on ConfigMap change**: The gateway workload needs a hash annotation on the ConfigMap content so it automatically restarts when the TOML changes.
-
----
-
 ## Debugging Reference
 
 | Symptom | Root Cause | Fix |

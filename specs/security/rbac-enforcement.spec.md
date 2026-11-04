@@ -760,8 +760,8 @@ and the set of ext-registering plugins SHALL be kept in sync: a plugin that
 registers an ext route but is absent from the allow-list is fail-closed for
 every caller including `platform:admin`, which is a latent outage, not a
 deliberate deny. `CIProvider` (`ci_providers`) and `CITrust` (`ci_trusts`)
-SHALL be in the allow-list; they are the kinds whose absence previously made
-every request to them return 403.
+SHALL be in the allow-list; without an entry every request to them returns
+403.
 
 At the middleware gate, every ext method (read and write) SHALL require
 `gateway:creator` or `platform:admin` by default: these kinds are authored over HTTP
@@ -1264,7 +1264,7 @@ on every authenticated request. The first privileged users are provisioned by as
 - THEN the request is not evaluated against bindings
 - AND the API works with no roles granted
 
-### Requirement: SEC-RBAC-15 -- Database Migration
+### Requirement: SEC-RBAC-15 -- Built-in Role Seed
 
 A database migration SHALL seed the `platform:admin` role record with:
 

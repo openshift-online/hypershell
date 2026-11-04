@@ -13,7 +13,7 @@ Define the authenticated HyperShell homepage, its route relationship to the gate
 
 ### Requirement: WEB-HOME-01 -- Routes
 
-The web console SHALL render `HomepagePage` at `/`. The existing gateway-list experience SHALL move to `/gateways` without changing its filtering, sorting, pagination, query-string state, deleted-gateway and renamed-gateway handling, or authorization behavior. The existing `/gateways/new`, `/gateways/:gatewayId`, `/dashboard`, dashboard subroutes, `/metrics`, and `/login` routes SHALL remain available.
+The web console SHALL render `HomepagePage` at `/`. The gateway-list experience, with its filtering, sorting, pagination, query-string state, deleted-gateway and renamed-gateway handling, and authorization behavior, SHALL live at `/gateways`. The `/gateways/new`, `/gateways/:gatewayId`, `/dashboard`, dashboard subroutes, `/metrics`, and `/login` routes SHALL remain available.
 
 The dashboard-dedicated hostname exception SHALL remain: when the browser hostname selects the dashboard host, `/` SHALL render the existing operational dashboard instead of the homepage.
 
@@ -31,7 +31,7 @@ The BFF SHALL serve the SPA shell for direct navigation and refresh to `/`, `/ga
 - GIVEN an authenticated user navigates directly to `/gateways?search=team&page=2`
 - WHEN the SPA renders
 - THEN the gateway list SHALL restore the query-string state
-- AND filtering, sorting, pagination, and authorization SHALL behave as before
+- AND filtering, sorting, pagination, and authorization SHALL apply
 
 #### Scenario: WEB-HOME-01.03 -- Dashboard host keeps its root behavior
 

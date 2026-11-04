@@ -65,7 +65,7 @@ Go `E2EInfraDriver` interface and its Kind and OpenShift implementations. This
 spec only guarantees the OpenShift environment those implementations run against.
 
 This spec is a behavior contract. It does not contain the driver code or the CI
-YAML. Those are follow-up implementation work.
+YAML.
 
 ### Reserved Terms
 
@@ -1207,12 +1207,6 @@ Each overlay builds on `base/` and adds only its specific differences:
 
 The `keycloak/` overlay (separate from `base/keycloak/`) is used in production to customize the shared Keycloak instance (Route, domain patching).
 
-### Known Limitations in `deploy/openshift/`
+### Placeholder Gateway Base Domain in `deploy/openshift/`
 
-The current `deploy/openshift/` overlay has **unresolved runtime dependencies** documented below. These are not integration gaps but known limitations that the bootstrap workflow (e.g. `skills/deploy/deploy-cluster/SKILL.md`) addresses manually:
-
-1. **Missing `hypershell-api-config` Secret**: The API server and controller Deployments reference a Secret (`hypershell-api-config`) with keys `api-service.{issuerUrl,clientId,clientSecret,jwkCertUrl}`. This Secret is **not defined in the repo**; it must be created manually from the Keycloak realm's client credentials and the Keycloak Route host. Without it, pods fail with `CreateContainerConfigError`. The bootstrap workflow creates this Secret in Step 3 after Keycloak is deployed.
-
-2. **Keycloak bundled but without external Route**: The overlay bundles Keycloak with `KC_HOSTNAME=https://keycloak.hypershell.localhost` (a Kind-only hostname). On real OpenShift clusters, this hostname is unreachable, so tokens minted by the bundled Keycloak carry a bogus, externally-unreachable issuer. The bootstrap workflow deploys Keycloak via the `deploy/keycloak/` overlay (which adds a Route and patches `KC_HOSTNAME`) and creates the `hypershell-api-config` Secret from the actual Route host.
-
-3. **Hardcoded `GATEWAY_API_BASE_DOMAIN` placeholder**: The overlay hardcodes `GATEWAY_API_BASE_DOMAIN=openshell.stage.example.com`, which is a placeholder. This value is only used if Gateway API ingress mode is enabled (via setting `GATEWAY_INGRESS_MODE=gateway-api`); Route mode (the default) does not require it. The bootstrap workflow or operator automation must parameterize this value when switching to Gateway API mode.
+The `deploy/openshift/` overlay sets `GATEWAY_API_BASE_DOMAIN=openshell.stage.example.com` as a placeholder. `make openshift-up` replaces it with the base domain derived from the shared Gateway listener hostname. Any other deployer must set it before the control plane runs in Gateway API ingress mode; Route mode does not use it.

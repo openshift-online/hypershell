@@ -19,8 +19,7 @@ A refining spec MAY add detail and MAY tighten a guarantee; it SHALL NOT weaken
 one. Where a refining spec deliberately deviates, the deviation is a recorded
 exception under this contract (STD-RCON-12), not a silent divergence.
 
-The contract describes the real model, not an idealized one. In particular, and
-in deliberate contrast to the superseded design in closed PR #200:
+The contract describes the real model, not an idealized one. In particular:
 
 - Deletion uses soft-delete of the PostgreSQL row plus a delete tombstone and a
   delete event that carries the pre-delete snapshot. It does **not** use a
@@ -354,40 +353,18 @@ carries this checkpoint.
 - THEN the reviewer SHALL confirm it meets STD-RCON-01 through STD-RCON-11 or records an STD-RCON-12 exception
 - AND a reconciler that meets neither SHALL NOT be approved
 
-## Current Compliance Snapshot
-
-This snapshot records how the code stood against this contract when the contract
-was written (issue #709), so that a known divergence is a recorded decision, not
-a silent one. It is a point-in-time audit, not part of the normative contract;
-the requirements above are the desired state regardless of this column.
-
-| Guarantee | Requirement | Code at adoption |
-|-----------|-------------|------------------|
-| Desired state authoritative; events schedule work | STD-RCON-01 | Compliant |
-| Level-based and idempotent; drift repaired on a later pass | STD-RCON-02 | Compliant |
-| Per-resource serialization and bounded worker pool | STD-RCON-03 | Compliant |
-| Bounded exponential backoff retry | STD-RCON-04 | Compliant |
-| Seed on (re)connect; periodic resync where required | STD-RCON-05 | Compliant (Repository import is the recorded exception, STD-RCON-12) |
-| Convergence latch; reject stale-generation writes | STD-RCON-06 | Compliant |
-| Durable deletion: soft-delete plus tombstone; delete-wins; anti-resurrection | STD-RCON-07 | Compliant |
-| Fail-closed destructive actions; failed read means unknown, not absent | STD-RCON-08 | Partial (companion reconciliation non-compliance issue) |
-| Truthful status; required-operation failure never reported as success | STD-RCON-09 | Partial (companion reconciliation non-compliance issue) |
-| External calls bounded with timeout and context | STD-RCON-10 | Compliant |
-| Single-replica; no leader election | STD-RCON-11 | Compliant (non-goal) |
-
 ## Design Decisions
 
 | Decision | Rationale |
 |----------|-----------|
 | One normative contract referenced by every reconciliation spec | A reader assembled the guarantees from six files and a new reconciler author had no single bar to meet. Collecting them once, with each refining spec pointing back, gives one source of truth and a clear review checkpoint. |
-| Describe the real model, superseding closed PR #200 | PR #200 proposed a contract against a Kubernetes finalizer, a per-write resource-version token, and leader election - none of which the system uses. A contract must match what is built or it misleads the author it exists to guide. |
+| Describe the real model | The system uses no Kubernetes finalizer, per-write resource-version token, or leader election. A contract must match what is built or it misleads the author it exists to guide. |
 | Soft-delete plus tombstone, not a finalizer | The resource's source of truth is PostgreSQL, not a Kubernetes object, so there is no object to carry a finalizer or `deletionTimestamp`. Durability comes from the soft-deleted row, the delete event snapshot, and the queue's bounded-backoff retry with an anti-resurrection tombstone (STD-RCON-07, GTW-DEL). |
 | `generation` / `observed_generation` latch, not a resource-version token | Convergence is a monotonic range check the API server enforces on write-back, which both detects drift and rejects stale or reordered updates without a separate optimistic-concurrency token (STD-RCON-06, PLAT-DATA-06). |
 | Single replica; leader election out of scope | The in-process queue already serializes per key within one process, and the deployment runs one replica. Cross-replica exclusion is a separate HA decision, kept an explicit non-goal so no reconciler is written to assume a leader lease (STD-RCON-11, GTW-CONC). |
-| Record the compliance snapshot and known exceptions | Writing the real state, including the two partial items and the Repository-import exception, keeps a divergence a recorded decision rather than a surprise found later in review (STD-RCON-12). |
+| Record known exceptions | Recording each deviation, such as the Repository-import exception, keeps a divergence a recorded decision rather than a surprise found later in review (STD-RCON-12). |
 
 ## References
 
-- Issue #709 (this contract); supersedes closed PR #200, which proposed a
-  contract against a finalizer and resource-version model the system does not use.
+- Issue #709 (this contract).
 - Companion issue: reconciliation non-compliance fixes (STD-RCON-08, STD-RCON-09).

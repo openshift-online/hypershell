@@ -324,12 +324,11 @@ consumed by both shared UI packages, and shared frontend toolchain inputs.
 
 ### Requirement: CICD-MRG-10 -- Queue Integration
 
-Mergify's bypass of the native GitHub merge-queue requirement is confirmed by
-the repository owner. This change SHALL preserve that setup and the existing
-required checks. Strict up-to-date checks SHALL remain disabled for squash
+Mergify SHALL bypass the native GitHub merge-queue requirement, and the
+existing required checks SHALL stay in place. Strict up-to-date checks SHALL remain disabled for squash
 speculation. GitHub Actions SHALL run on Mergify draft PRs without a blanket
 draft exclusion. Konflux PR pipelines may build optional images; those checks
-SHALL NOT become required gates in this change. Their path filters remain
+SHALL NOT be required gates. Their path filters remain
 separate from lint/unit selection.
 
 #### Scenario: CICD-MRG-10.01 -- Required checks on queue PRs
@@ -375,11 +374,9 @@ ineligible. No paid priorities, scheduling, batching, or two-step CI are needed.
 - THEN Mergify SHALL automatically enqueue it without a manual command
 - AND a missing, pending, failed or cancelled gate SHALL prevent automatic entry
 
-## Rollout and Operations
+## Operations
 
-Merge this configuration PR through the existing manual flow. After it lands,
-observe an approved PR automatically enter and a speculative draft PR report both
-gates. Existing approved, green PRs can also become eligible automatically.
+Approved, green PRs become eligible automatically.
 Keep the approval label off PRs that should not merge. For an incident, remove
 the approval label from affected original PRs and dequeue them before repair;
 reapply approval only when ready. Avoid external merges and edits to queued PRs,

@@ -88,15 +88,17 @@ live outside its namespace, because namespace deletion does not reach them:
 
 - the cluster-scoped ClusterRoleBinding created for the gateway,
 - the gateway's external Keycloak client, and
-- any credential RBAC the gateway created in a separate credential namespace.
+- any credential RBAC the gateway created in a separate credential namespace, and
+- the gateway's per-tenant Vault KV mount (`openshell-gw/<namespace>`) in the
+  per-cluster provider-credential Vault.
 
-> **Future work (not yet implemented):** As gateways gain ownership of
-> out-of-namespace external state that namespace deletion cannot reach (for
-> example secrets written to an external secret store such as HashiCorp Vault),
-> this delete path will need to be extended to reclaim that state too, under the
-> same best-effort, idempotent contract used for the resources above. No such
-> external store is provisioned today, so there is nothing beyond the listed
-> resources to clean up yet.
+The Vault mount is reclaimed on both delete paths. A Vault-backed gateway's
+event-driven delete removes it and records a durable orphan if removal fails,
+without blocking deletion. The orphan-namespace sweep also removes it before it
+reaps the namespace, because the Gateway record is already gone there; the sweep
+resolves the mount from the namespace name. Both paths are best-effort and
+idempotent: an absent mount is success, and a failure is logged and never blocks
+the namespace reap.
 
 Namespace deletion SHALL be best-effort and idempotent: an already-absent or
 already-terminating namespace is treated as success, and a namespace that is not

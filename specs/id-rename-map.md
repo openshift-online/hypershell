@@ -513,3 +513,5 @@ does not exist. "Former file" is the spec the ID lived in, relative to
 | `PLAT-ARCH-20` | `platform/global-architecture.spec.md` | - | Required installation through a Tekton installer pipeline. No such pipeline exists; hub bootstrap is done by the GitOps repository's `bin/bootstrap`. |
 | `PLAT-ARCH-20.01` | `platform/global-architecture.spec.md` | - | Retired with PLAT-ARCH-20. |
 | `PLAT-ARCH-21` | `platform/global-architecture.spec.md` | - | Required clusters to be rebuildable from the Tekton installer pipeline, which does not exist. |
+| `OBS-GPO-04` | `platform/gateway-provision-outcomes.spec.md` | - | Duration-histogram fallback for provisions recorded before the outcomes counter existed. It could report 100% success with zero failures; the counter is the only source now. |
+| `OBS-GPO-04.01` | `platform/gateway-provision-outcomes.spec.md` | - | Retired with OBS-GPO-04. |
