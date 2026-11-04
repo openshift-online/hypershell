@@ -49,6 +49,30 @@ skills/
 
 ## Reconciliation State
 
+### HYPERSHELL-477 -- Kata ROKS CRI-O rolling restart (spec-only, no code gap; issue #934 / PR #946)
+
+Scoped gap analysis of `specs/platform/kata-roks-crio-restart.spec.md`
+(KATA-ROKS-01..06), added by PR #946. Conclusion: zero code gap in this
+repository by design.
+
+| ID | Requirement | Status | Evidence |
+|----|-------------|--------|----------|
+| KATA-ROKS-01 | Automatic CRI-O convergence after Kata install | N/A here | Spec text: owned by `bases/operators/sandboxed-containers` in the separate `hypershell-gitops` repository, not this repo |
+| KATA-ROKS-02 | Rolling, one node at a time | N/A here | Same - `hypershell-gitops`-owned automation |
+| KATA-ROKS-03 | New/replaced nodes converge automatically | N/A here | Same - `hypershell-gitops`-owned automation |
+| KATA-ROKS-04 | Idempotent reconciliation | N/A here | Same - `hypershell-gitops`-owned automation |
+| KATA-ROKS-05 | Scoped to Kata-enabled clusters | N/A here | Same - `hypershell-gitops`-owned automation |
+| KATA-ROKS-06 | Drift is a cluster-validation failure | Deferred | No node-level CRI-O-handler validation framework exists yet in `components/control-plane` or `components/api-server` (only registration-time `runtime/kata` capability storage in `plugins/managedClusters/`, PLAT-CLUS). Spec's own Non-Goals defer the validation implementation to the separate, still-open issue #426 (HYPERSHELL-367 follow-up). Nothing to build here now. |
+
+This follows the established pattern (`global-architecture.spec.md`,
+`openshell-gateway-credentials.spec.md`, `hub-grpc-tls.spec.md`, and others) of
+a spec in this repo documenting behavior that `hypershell-gitops` implements.
+PR #946 is spec-only: `specs/ids.md`, `specs/index.spec.md`,
+`specs/platform/kata-roks-crio-restart.spec.md`, and a cross-link from
+`specs/platform/openshell-gateway.spec.md`. No production code, tests, or
+other artifacts in this repo require changes. CI on PR #946 is green and the
+PR is mergeable with no conflicts.
+
 ### HYPERSHELL-455 -- SLI dashboard gaps (done, issue #807 / PR #817)
 
 Scoped reconciliation of the approved operational and reliability dashboard
@@ -88,9 +112,9 @@ keeps treating it as opaque, ordered data. `provider`/`env`/`role`/`cluster` del
 clean, `go vet ./...`, `golangci-lint` 0 issues, `go test -count=1 ./...`, fleet
 identity firewall, `make check`.
 
-**Last analyzed**: 2026-10-21 (scoped reconciliation of HYPERSHELL-358 / issue #662 / PR #682: `specs/web-console/homepage.spec.md` WEB-HOME-01..16 all Present. Routes and shared route registry, BFF summary/platform-overview aggregation with admin authorization, API-backed homepage view, Quick Create, external-link and route checkers, placement exclusion contract, generated SDKs, focused browser/BFF/backend tests, and package gates are implemented. Amber review corrections require the exact reported list-page item count, reject future cluster heartbeats, and normalize this history to one current entry. UI gate returned Complete without visual review because the user disabled snapshots for this conversation; production/story data-boundary and PatternFly mockup checks passed.)
+**Last analyzed**: 2026-11-04 (scoped gap analysis of HYPERSHELL-477 / issue #934 / PR #946: `specs/platform/kata-roks-crio-restart.spec.md` KATA-ROKS-01..06. Zero code gap in this repo. KATA-ROKS-01..05 describe GitOps automation the spec text explicitly assigns to the separate `hypershell-gitops` repository. KATA-ROKS-06 defers its cluster-validation implementation to the separate, still-open issue #426 (HYPERSHELL-367 follow-up); no node-level CRI-O-handler validation framework exists yet to extend. PR #946 is spec-only - no production code, tests, or other repo artifacts require changes. CI green, PR mergeable with no conflicts.)
 
-**Prior scoped analysis**: 2026-10-20
+**Prior scoped analysis**: 2026-10-21 (scoped reconciliation of HYPERSHELL-358 / issue #662 / PR #682: `specs/web-console/homepage.spec.md` WEB-HOME-01..16 all Present. Routes and shared route registry, BFF summary/platform-overview aggregation with admin authorization, API-backed homepage view, Quick Create, external-link and route checkers, placement exclusion contract, generated SDKs, focused browser/BFF/backend tests, and package gates are implemented. Amber review corrections require the exact reported list-page item count, reject future cluster heartbeats, and normalize this history to one current entry. UI gate returned Complete without visual review because the user disabled snapshots for this conversation; production/story data-boundary and PatternFly mockup checks passed.)
 
 ### HYPERSHELL-404 -- Glass URL-addressable navigation (done, PR #584 branch)
 
@@ -361,6 +385,7 @@ intents, and generated SDKs correctly model array and object response fields.
 | Platform - Cluster Nodes | 1 | 8 | 8 | 0 | 0 | 0 | 100% |
 | Platform - Gateway Provision Time | 1 | 8 | 8 | 0 | 0 | 0 | 100% |
 | Platform - Console Browser Testing | 1 | 12 | 12 | 0 | 0 | 0 | 100% |
+| Platform - Kata ROKS CRI-O Restart | 1 | 6 | 0 | 0 | 0 | 6 | N/A (GitOps-owned; see HYPERSHELL-477 entry) |
 | Web Console - Architecture | 1 | 28 | 21 | 5 | 2 | 0 | 86% |
 | Web Console - Gateway Provision Placement | 1 | 10 | 10 | 0 | 0 | 0 | 100% |
 | Web Console - Operational Dashboard | 1 | 20 | 20 | 0 | 0 | 0 | 100% |
