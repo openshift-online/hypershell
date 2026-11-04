@@ -133,7 +133,85 @@ func relativeAge(age float64) string {
 		return fmt.Sprintf("%dd", n/86400)
 	}
 }
+
+// A successful process can leave approval waiting for live CI/PR readiness.
+func reviewWaiting(r Row) string {
+	if r.Agent != "code-review" || r.Status != "succeeded" || r.Activity == "history" || r.CodeReadiness == nil {
+		return ""
+	}
+	reviewable := false
+	for _, label := range r.Labels {
+		if label == "agent/reviewable-code" {
+			reviewable = true
+		}
+	}
+	if !reviewable || r.CodeReadiness.State != "open" {
+		return ""
+	}
+	state := r.CodeReadiness
+	switch {
+	case state.Checks == "failing":
+		return "CI failed · needs repair"
+	case state.Checks != "green":
+		return "Waiting for CI"
+	case state.Draft:
+		return "Waiting: PR is draft"
+	case state.MergeableState == "dirty":
+		return "Conflicts · needs repair"
+	case state.Mergeable == nil || !*state.Mergeable:
+		return "Waiting for PR readiness"
+	default:
+		return "Approval pending"
+	}
+}
+func reviewSentForRepair(r Row) bool {
+	if r.Agent != "code-review" || r.Status != "succeeded" || r.Activity == "history" || r.CodeReadiness == nil || r.CodeReadiness.Checks != "failing" {
+		return false
+	}
+	for _, label := range r.Labels {
+		if label == "agent/review-code-rejected" {
+			return true
+		}
+	}
+	return false
+}
+func reviewWaitingDetail(r Row) string {
+	if reviewSentForRepair(r) {
+		return "Required CI failed and code review is rejected. The issue has been returned to code implementation to investigate the check logs, fix the cause or rerun transient CI, then request another review."
+	}
+	switch reviewWaiting(r) {
+	case "Waiting for CI":
+		return "The review process finished, but required checks are pending or unknown. Approval has not been applied. Discovery will revisit the review when CI changes; failed required checks return the issue to code implementation."
+	case "CI failed · needs repair":
+		return "Required CI failed. Approval has not been applied. Readiness maintenance will mark code review rejected and request code implementation once worker ownership permits recovery."
+	case "Approval pending":
+		return "The review process finished and PR readiness is green. Approval has not been applied yet. Discovery can schedule a fresh review; process completion alone does not mean approval."
+	case "":
+		return ""
+	default:
+		return "The review process finished, but the PR is not ready for approval. Resolve draft status, mergeability or conflicts on the linked PR. Readiness maintenance will revisit it automatically."
+	}
+}
+func rowColor(r Row) string {
+	if reviewSentForRepair(r) {
+		return "1"
+	}
+	switch reviewWaiting(r) {
+	case "CI failed · needs repair", "Conflicts · needs repair":
+		return "1"
+	case "":
+	default:
+		return "3"
+	}
+	return statusColor(r.Status)
+}
 func rowStatus(r Row) string {
+	if reviewSentForRepair(r) {
+		return "CI failed · rejected"
+	}
+	if waiting := reviewWaiting(r); waiting != "" {
+		return waiting
+	}
 	if r.Status == "running" && r.CancelRequested {
 		return "Canceling · waiting for cleanup"
 	}
@@ -249,7 +327,7 @@ func (m Model) visibleRows() []Row {
 	rows := []Row{}
 	seen := map[string]bool{}
 	for _, r := range m.filterRows(m.scopedRows()) {
-		if r.Status == "succeeded" && !m.showCompleted && !(m.screen != "" && r.Key == m.selected) {
+		if r.Status == "succeeded" && reviewWaiting(r) == "" && !m.showCompleted && !(m.screen != "" && r.Key == m.selected) {
 			continue
 		}
 		group := r.Scope + "\x00" + r.Repo + "\x00" + r.Item
@@ -723,7 +801,7 @@ func (m Model) workHeader(row Row, width int, section string) []string {
 		m.style("Runs  /  "+section, "8", false),
 		m.style(middle(title(row), width), "7", true),
 		m.style("Agent  ", "8", false) + m.style(middle(row.Agent, max(1, width-7)), "7", false),
-		m.style(middle(status, width), statusColor(row.Status), true),
+		m.style(middle(status, width), rowColor(row), true),
 		"",
 	}
 }
@@ -781,7 +859,7 @@ func (m Model) agentGroups(rows []Row, w, budget int) []string {
 			if last != "" {
 				entry = append(entry, "")
 			}
-			running, failed, done := 0, 0, 0
+			running, failed, waiting, done := 0, 0, 0, 0
 			for _, item := range rows {
 				if item.Agent == r.Agent {
 					switch item.Status {
@@ -790,7 +868,11 @@ func (m Model) agentGroups(rows []Row, w, budget int) []string {
 					case "failed", "uncertain", "canceled":
 						failed++
 					case "succeeded":
-						done++
+						if reviewWaiting(item) != "" {
+							waiting++
+						} else {
+							done++
+						}
 					}
 				}
 			}
@@ -800,6 +882,9 @@ func (m Model) agentGroups(rows []Row, w, budget int) []string {
 			}
 			if failed > 0 {
 				counts = append(counts, fmt.Sprintf("%d need attention", failed))
+			}
+			if waiting > 0 {
+				counts = append(counts, fmt.Sprintf("%d waiting", waiting))
 			}
 			if done > 0 {
 				counts = append(counts, fmt.Sprintf("%d completed", done))
@@ -813,7 +898,7 @@ func (m Model) agentGroups(rows []Row, w, budget int) []string {
 		if w >= 70 {
 			entry = append(entry, m.tableRow(r, prefix, w, false))
 		} else {
-			entry = append(entry, prefix+middle(title(r), w-2), "  "+m.style(middle(tableStatus(r)+" · "+durationLabel(r), w-2), statusColor(r.Status), false))
+			entry = append(entry, prefix+middle(title(r), w-2), "  "+m.style(middle(tableStatus(r)+" · "+durationLabel(r), w-2), rowColor(r), false))
 		}
 
 		if i == m.index {
@@ -849,6 +934,14 @@ func (m Model) detailContent(rows []Row, w int) ([]string, []string) {
 			body = append(body, m.style("OUTCOME NOT RECORDED", "3", true))
 			body = append(body, m.wrapped("The local worker stopped without saving its result. Check this log and confirm the remote sandbox has stopped before retrying.", w, "7")...)
 			body = append(body, m.wrapped("Press r to confirm and retry here, or restart with --retry-uncertain "+r.Item+":"+r.Agent, w, "6")...)
+			body = append(body, "")
+		}
+		if message := reviewWaitingDetail(r); message != "" {
+			body = append(body, m.style(completionStatus(r.Finished), "8", false), "", m.style("Approval status", "3", true))
+			body = append(body, m.wrapped(message, w, "7")...)
+			if r.PRURL != "" {
+				body = append(body, m.wrapped(r.PRURL, w, "6")...)
+			}
 			body = append(body, "")
 		}
 		if r.Error != "" {
@@ -900,7 +993,7 @@ func (m *Model) clampScroll() {
 		m.scroll = min(m.scroll, max(0, len(strings.Split(m.logText, "\n"))-m.logPageSize()))
 	}
 	if m.screen == "details" {
-		header, body := m.detailContent(m.visibleRows(), max(12, m.width-4))
+		header, body := m.detailContent(m.visibleRows(), max(10, m.width-6))
 		count := max(1, m.height-2-4-len(header)-3)
 		m.scroll = min(m.scroll, max(0, len(body)-count))
 	}
@@ -1066,15 +1159,15 @@ func (m Model) View() string {
 		start := max(0, end-count)
 		lines = append(lines, m.scrollPane(content, start, count, w)...)
 		lines = append(lines, m.scrollIndicator(start, end, len(content)))
-		lines = append(lines, "", m.style("j/k scroll   d details   r retry  C cancel   C cancel   h back   ? help   q detach", "8", false))
+		lines = append(lines, "", m.style("j/k scroll   d details   r retry  C cancel   h back   ? help   q detach", "8", false))
 	} else if m.screen == "details" {
-		header, body := m.detailContent(rows, w)
+		header, body := m.detailContent(rows, max(10, w-2))
 		lines = append(lines, header...)
 		count := max(1, h-len(lines)-3)
 		start := min(m.scroll, max(0, len(body)-count))
 		lines = append(lines, m.scrollPane(body, start, count, w)...)
 		lines = append(lines, m.scrollIndicator(start, min(len(body), start+count), len(body)))
-		lines = append(lines, "", m.style("j/k scroll   enter logs   r retry  C cancel   C cancel   h back   ? help   q detach", "8", false))
+		lines = append(lines, "", m.style("j/k scroll   enter logs   r retry  C cancel   h back   ? help   q detach", "8", false))
 	} else {
 		if m.state.Monitoring {
 			lines = append(lines, "Existing workers are finishing. Scheduling resumes automatically.", "")
@@ -1119,7 +1212,7 @@ func (m Model) View() string {
 				if i == m.index {
 					prefix = "> "
 				}
-				color := statusColor(r.Status)
+				color := rowColor(r)
 				if w >= 100 {
 					line := m.tableRow(r, prefix, w-2, true)
 					if i == m.index {
@@ -1164,7 +1257,7 @@ func (m Model) View() string {
 		if m.historyIssue == nil {
 			completed := 0
 			for _, r := range m.scopedRows() {
-				if r.Status == "succeeded" {
+				if r.Status == "succeeded" && reviewWaiting(r) == "" {
 					completed++
 				}
 			}

@@ -363,9 +363,10 @@ workflow.
 
 #### Scenario: SDLC-HOOK-07.02 -- Required checks gate eligibility
 
-- GIVEN a validated code-review approval whose required checks are not green
+- GIVEN a validated code-review approval whose required checks are pending or unknown
 - WHEN the post-script evaluates eligibility
-- THEN the approval transition is not applied as eligible per the contract
+- THEN approval is deferred with a visible record and the item stays reviewable
+- AND no rejection is counted
 
 #### Scenario: SDLC-HOOK-07.03 -- Ruleset protection with a classic 404
 
@@ -375,6 +376,14 @@ workflow.
 - THEN it uses the ruleset contexts and discards the classic error body
 - AND approval is eligible only when all required contexts are green
 - AND an unreported or failing required context still prevents approval
+
+#### Scenario: SDLC-HOOK-07.04 -- Failed required CI requests implementation
+
+- GIVEN a fresh validated code-merit approval with a completed failed required check
+- WHEN the post-script evaluates eligibility
+- THEN it applies `code-review/rejected`, not a deferred approval
+- AND its required review record explains the failed CI and implementation handoff
+- AND it revokes the PR queue label and applies the normal timeline rejection limit
 
 ### Requirement: SDLC-HOOK-08 -- Post-Script Applies and Verifies Transitions
 
@@ -540,9 +549,16 @@ SHALL revoke the PR queue label first, then converge the execution record onto
 `agent/code-conflicts`, removing stale code approval/rejection/reviewable labels.
 The code implementation harness and pre-script SHALL accept this trigger; completed
 repair SHALL clear it and return the record to code review. Conflict detection
-SHALL NOT count as a review rejection. For a previously approved PR whose checks
-become non-green or whose mergeability becomes unknown, the hook SHALL revoke
-queue eligibility and reopen code review without asserting a confirmed conflict.
+SHALL NOT count as a review rejection. For a reviewable or previously approved PR
+whose required checks fail, the hook
+SHALL revoke queue eligibility and converge onto `agent/review-code-rejected`,
+remove superseded code approval/reviewable labels, and request implementation.
+It SHALL post a visible CI-recovery record before applying the rejection and use
+the shared timeline rejection budget. Repeated polls SHALL NOT add rejections.
+A rerun that changes failing checks to pending SHALL invalidate the failure
+observation before writes. For a previously approved PR whose checks become
+pending/unknown or whose mergeability becomes unknown, the hook SHALL revoke
+queue eligibility and reopen code review without asserting failure or conflict.
 Closed PRs, revoked authorization/scope, human blocks, changing observations, and
 ambiguous PR linkage SHALL NOT authorize recovery writes. Recovery uses the same
 pure lifecycle transition contract as the post-script. It SHALL be idempotent
@@ -578,6 +594,14 @@ across polling, retries, and partial GitHub writes.
 - WHEN the maintenance hook evaluates the record
 - THEN it SHALL NOT interpret unknown mergeability as confirmed conflicts
 - AND revoked authorization, blocks, and changing observations SHALL cause no recovery writes
+
+#### Scenario: SDLC-HOOK-14.05 -- Failed CI recovers a deferred review
+
+- GIVEN a successful review process whose approval was deferred
+- WHEN required CI is confirmed failing at discovery with no running worker
+- THEN maintenance marks the execution record code-review rejected
+- AND code implementation becomes eligible without a fresh review LLM
+- AND unchanged polling neither posts duplicate records nor consumes more retries
 
 ### Requirement: SDLC-HOOK-13 -- Automated Tests and Documentation
 

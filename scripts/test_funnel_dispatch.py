@@ -631,6 +631,27 @@ class AuthorizationTests(unittest.TestCase):
             with patch.object(coordinator.github, 'current', return_value=changed):
                 self.assertFalse(coordinator.authorized(job))
 
+    def test_discovery_persists_live_readiness_without_changing_completed_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args=funnel.parse_args(['agent/scope/test','--dry-run','--lifecycle','github-only','--target-repo',tmp])
+            store=funnel.Store(Path(tmp)/'state.db')
+            self.addCleanup(store.db.close)
+            coordinator=funnel.Coordinator(args,store,-1)
+            item=issue();item['labels'].append('agent/reviewable-code')
+            job=funnel.make_job(args.scope,'code-review',item,pr())
+            job['repo']='test/repo'
+            run_id=store.start(job,'review.log',time.time()-60)
+            store.finish(job['key'],run_id,0,60,3600)
+            state=dict(checks='pending',state='open',draft=False,mergeable=True,changed=False)
+            with patch.object(coordinator.github,'discover',return_value=[item]), patch.object(coordinator.github,'pages',return_value=[pr()]), patch.object(coordinator.github,'classify',return_value=['code-review']), patch.object(coordinator.github,'code_state',return_value=state):
+                coordinator.discover()
+            row=store.get(job['key'])
+            self.assertEqual(row['status'],'succeeded')
+            self.assertEqual(row['fingerprint'],job['fingerprint'])
+            payload=json.loads(row['payload'])
+            self.assertEqual(payload['code_readiness']['checks'],'pending')
+            self.assertIn('agent/reviewable-code',payload['labels'])
+
     def test_changed_review_head_requires_rediscovery(self):
         args=funnel.parse_args(['agent/scope/test','--lifecycle','github-only','--dry-run'])
         store=Mock()
