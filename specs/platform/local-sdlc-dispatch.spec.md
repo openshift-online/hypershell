@@ -340,8 +340,12 @@ Eligible approved issues whose unique linked PR lacks the queue approval label
 SHALL appear above ordinary work in an **Awaiting approval** section in both
 Agents and Issues views. These items SHALL remain visible when completed runs
 are hidden, support filtering, and retain normal sorting within that section.
+Approval section headings and rows SHALL use a distinct amber/orange semantic
+accent in both themes. Selected approval rows SHALL retain this treatment and
+show a focus rail; plain output SHALL retain explicit status and selection text.
 `A` or Enter SHALL open a shared-frame confirmation, defaulting to keeping the
-PR waiting, with the issue, PR URL, commit and explicit merge-queue consequences.
+PR waiting, with grouped PR/issue details, a commit identifier, explicit merge-queue
+consequences, and spaced choices with descriptions.
 Confirmation SHALL re-read authorization, issue verdict, unique link, head/base,
 required checks, draft state and mergeability before applying/verifying the PR
 label. Changed commits, active/unresolved workers, dry-run or monitor-only mode

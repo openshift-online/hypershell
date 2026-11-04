@@ -201,7 +201,7 @@ func reviewWaitingDetail(r Row) string {
 }
 func rowColor(r Row) string {
 	if r.Status == "awaiting_approval" {
-		return "3"
+		return "approval-text"
 	}
 	if reviewSentForRepair(r) {
 		return "1"
@@ -961,14 +961,12 @@ func (m Model) agentGroups(rows []Row, w, budget int) []string {
 			entry = append(entry, prefix+middle(title(r), w-2), "  "+m.style(middle(tableStatus(r)+" · "+durationLabel(r), w-2), rowColor(r), false))
 		}
 
-		if i == m.index {
-			first := len(entry) - 1
-			if w < 70 {
-				first--
-			}
-			for n := first; n < len(entry); n++ {
-				entry[n] = m.selection(entry[n], w)
-			}
+		first := len(entry) - 1
+		if w < 70 {
+			first--
+		}
+		for n := first; n < len(entry); n++ {
+			entry[n] = m.workRow(entry[n], w, r, i == m.index)
 		}
 		if len(lines)+len(entry) > budget && len(lines) > 0 {
 			break
@@ -1232,9 +1230,8 @@ func (m Model) View() string {
 		header, body := m.detailContent(rows, max(10, w-2))
 		if len(rows) > 0 && rows[m.index].Status == "awaiting_approval" {
 			r := rows[m.index]
-			header = []string{m.style("Merge queue / Awaiting approval", "3", true), ""}
-			body = m.wrapped(title(r), w-2, "7")
-			body = append(body, m.wrapped(r.PRURL, w-2, "6")...)
+			header = []string{m.style("Awaiting your approval", "approval-text", true), ""}
+			body = m.approvalSummary(r, w-2)
 			body = append(body, m.wrapped("Code review approved. The PR does not have merge-queue approval. Press A to review and approve this PR for merging.", w-2, "7")...)
 		}
 		lines = append(lines, header...)
@@ -1305,16 +1302,12 @@ func (m Model) View() string {
 				color := rowColor(r)
 				if w >= 100 {
 					line := m.tableRow(r, prefix, w-2, true)
-					if i == m.index {
-						line = m.selection(line, w)
-					}
+					line = m.workRow(line, w, r, i == m.index)
 					lines = append(lines, line)
 				} else {
 					lines = append(lines, prefix+middle(m.listTitle(r), w-2), "  "+m.style(middle(agentName(r.Agent)+" · "+tableStatus(r)+" · "+durationLabel(r), w-2), color, false))
-					if i == m.index {
-						lines[len(lines)-2] = m.selection(lines[len(lines)-2], w-2)
-						lines[len(lines)-1] = m.selection(lines[len(lines)-1], w-2)
-					}
+					lines[len(lines)-2] = m.workRow(lines[len(lines)-2], w-2, r, i == m.index)
+					lines[len(lines)-1] = m.workRow(lines[len(lines)-1], w-2, r, i == m.index)
 				}
 			}
 			if len(rows) > 0 {

@@ -82,7 +82,7 @@ func TestApprovalConfirmationUsesSharedFixedFrame(t *testing.T) {
 		if lipgloss.Width(view) > m.width || lipgloss.Height(view) != m.height {
 			t.Fatalf("overflow %v: %dx%d", size, lipgloss.Width(view), lipgloss.Height(view))
 		}
-		if !strings.Contains(view, "Merge queue / Approve PR") {
+		if !strings.Contains(view, "Approve PR for merge?") {
 			t.Fatal(view)
 		}
 	}
@@ -109,5 +109,27 @@ func TestApprovalPreview(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, screen+".ansi"), []byte(m.View()), 0600); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestApprovalRowsRetainTintAndFocusWithoutChangingPlainOutput(t *testing.T) {
+	m := sampleModel()
+	defer m.cancel()
+	row := heldApproval()
+	old := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	defer lipgloss.SetColorProfile(old)
+	m.plainColor = false
+	normal := m.workRow("  #856 Awaiting approval", 50, row, false)
+	focused := m.workRow("> #856 Awaiting approval", 50, row, true)
+	if normal == focused || !strings.Contains(focused, "▎") {
+		t.Fatal("approval focus is indistinguishable")
+	}
+	if !strings.Contains(normal, "\x1b[") || lipgloss.Width(normal) != 50 || lipgloss.Width(focused) != 50 {
+		t.Fatal("approval tint lost or overflows")
+	}
+	m.plainColor = true
+	if got := m.workRow("> #856 Awaiting approval", 50, row, true); got != "> #856 Awaiting approval" {
+		t.Fatal("plain semantics changed", got)
 	}
 }

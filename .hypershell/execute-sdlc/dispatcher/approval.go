@@ -67,27 +67,46 @@ func (m Model) updateApproval(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	return m, nil
 }
+func (m Model) approvalSummary(r Row, width int) []string {
+	body := []string{m.style("PULL REQUEST", "8", true), m.style("PR #"+r.PRNumber, "7", true)}
+	body = append(body, m.wrapped(r.PRURL, width, "6")...)
+	body = append(body, "")
+	body = append(body, m.style("ISSUE", "8", true))
+	body = append(body, m.wrapped(title(r), width, "7")...)
+	sha := r.PRHeadSHA
+	if len(sha) > 12 {
+		sha = sha[:12]
+	}
+	body = append(body, m.wrapped("Commit  "+sha, width, "8")...)
+	return body
+}
 func (m Model) approvalView(lines []string, w, h int) string {
 	r := *m.pendingApproval
-	lines = append(lines, m.style("Merge queue / Approve PR", "3", true), "")
-	body := m.wrapped(title(r), w-2, "7")
+	width := max(1, w-2)
+	lines = append(lines, m.style("Approve PR for merge?", "approval-text", true), "")
+	body := m.approvalSummary(r, width)
+	body = append(body, "", m.style("WHAT HAPPENS NEXT", "8", true))
+	body = append(body, m.wrapped("PR #"+r.PRNumber+" can merge automatically when the repository checks pass.", width, "7")...)
+	body = append(body, m.wrapped("We will recheck the commits, CI and authorization before adding the PR approval label. Your automatic approval setting will not change.", width, "8")...)
 	body = append(body, "")
-	body = append(body, m.wrapped(r.PRURL, w-2, "6")...)
-	body = append(body, m.wrapped("PR commit: "+r.PRHeadSHA, w-2, "8")...)
-	body = append(body, "")
-	body = append(body, m.wrapped("Add agent/review-code-approved to this PR? This makes it eligible for automatic merging when repository queue rules pass. Issue approval is already recorded.", w-2, "7")...)
-	body = append(body, m.wrapped("Authorization, linked PR, commits, CI and mergeability will be checked again. This approves only this PR; automatic merge approval stays unchanged in Configuration.", w-2, "8")...)
-	body = append(body, "")
-	for i, label := range []string{"Keep waiting", "Approve PR for merge"} {
-		line := "  " + label
-		if i == m.approvalChoice {
-			line = m.selection("> "+label, w-2)
-		}
-		body = append(body, line)
+	choices := []struct{ title, detail string }{
+		{"Keep waiting", "Leave this PR out of the merge queue."},
+		{"Approve PR for merge", "Allow this PR to enter the merge queue."},
 	}
-	count := max(1, h-len(lines)-4)
+	for i, choice := range choices {
+		if i > 0 {
+			body = append(body, "")
+		}
+		line := "  " + choice.title
+		if i == m.approvalChoice {
+			line = "> " + choice.title
+		}
+		body = append(body, m.workRow(line, width, Row{Status: "awaiting_approval"}, i == m.approvalChoice))
+		body = append(body, m.wrapped("  "+choice.detail, width, "8")...)
+	}
+	count := max(1, h-len(lines)-3)
 	start := min(m.confirmScroll, max(0, len(body)-count))
-	lines = append(lines, m.withScrollbar(body[start:min(len(body), start+count)], start, min(len(body), start+count), len(body), count, w)...)
+	lines = append(lines, m.scrollPane(body, start, count, w)...)
 	lines = append(lines, m.scrollIndicator(start, min(len(body), start+count), len(body)), "", m.style("j/k choose   enter confirm   PgUp/PgDn scroll   esc back   q detach", "8", false))
 	return m.frame(lines, w, h)
 }
