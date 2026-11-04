@@ -3,13 +3,13 @@ package sandboxTemplates
 import (
 	"net/http"
 
-	"github.com/gorilla/mux"
 	"google.golang.org/grpc"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/extsearch"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/routes"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
-	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/authz"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/registry"
@@ -42,18 +42,16 @@ func init() {
 		return NewServiceLocator(env.(*environments.Env))
 	})
 
-	pkgserver.RegisterPrefixedRoutes("sandboxTemplates", "ext", func(extRouter *mux.Router, services pkgserver.ServicesInterface, authMiddleware environments.JWTMiddleware, authzMiddleware auth.AuthorizationMiddleware) {
+	pkgserver.RegisterPrefixedRoutes("sandboxTemplates", "ext", func(apiRouter *pkgserver.APIRouter, services pkgserver.ServicesInterface) {
 		envServices := services.(*environments.Services)
 		h := NewSandboxTemplateHandler(Service(envServices), extsearch.Service(envServices))
 
-		router := extRouter.PathPrefix("/sandbox_templates").Subrouter()
+		router := routes.Resource(apiRouter, "sandbox_templates").PathPrefix("/sandbox_templates").Subrouter()
 		router.HandleFunc("", h.List).Methods(http.MethodGet)
 		router.HandleFunc("/{id}", h.Get).Methods(http.MethodGet)
 		router.HandleFunc("", h.Create).Methods(http.MethodPost)
 		router.HandleFunc("/{id}", h.Patch).Methods(http.MethodPatch)
 		router.HandleFunc("/{id}", h.Delete).Methods(http.MethodDelete)
-		router.Use(authMiddleware.AuthenticateAccountJWT)
-		router.Use(authzMiddleware.AuthorizeApi)
 	})
 
 	pkgserver.RegisterGRPCService("sandboxTemplates", func(grpcServer *grpc.Server, services pkgserver.ServicesInterface) {
@@ -65,7 +63,7 @@ func init() {
 			return nil
 		}
 		pb.RegisterSandboxTemplateServiceServer(grpcServer, NewSandboxTemplateGRPCHandler(Service(envServices), extsearch.Service(envServices), brokerFunc))
-	})
+	}, authz.CRUDResources(pb.SandboxTemplateService_ServiceDesc.ServiceName, "sandbox_templates", "SandboxTemplate", "SandboxTemplates"))
 
 	presenters.RegisterPath(SandboxTemplate{}, "sandbox_templates")
 	presenters.RegisterPath(&SandboxTemplate{}, "sandbox_templates")

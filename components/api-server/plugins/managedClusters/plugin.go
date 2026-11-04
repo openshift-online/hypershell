@@ -3,14 +3,14 @@ package managedClusters
 import (
 	"net/http"
 
-	"github.com/gorilla/mux"
 	"google.golang.org/grpc"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/extsearch"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/routes"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
-	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/authz"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/controllers"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
@@ -50,19 +50,17 @@ func init() {
 		return NewServiceLocator(env.(*environments.Env))
 	})
 
-	pkgserver.RegisterRoutes("managedClusters", func(apiV1Router *mux.Router, services pkgserver.ServicesInterface, authMiddleware environments.JWTMiddleware, authzMiddleware auth.AuthorizationMiddleware) {
+	pkgserver.RegisterRoutes("managedClusters", func(apiRouter *pkgserver.APIRouter, services pkgserver.ServicesInterface) {
 		envServices := services.(*environments.Services)
 		managedClusterHandler := NewManagedClusterHandler(Service(envServices), extsearch.Service(envServices))
 
-		managedClustersRouter := apiV1Router.PathPrefix("/managed_clusters").Subrouter()
+		managedClustersRouter := routes.Resource(apiRouter, "managed_clusters").PathPrefix("/managed_clusters").Subrouter()
 		managedClustersRouter.HandleFunc("", managedClusterHandler.List).Methods(http.MethodGet)
 		managedClustersRouter.HandleFunc("/registration", managedClusterHandler.Register).Methods(http.MethodPost)
 		managedClustersRouter.HandleFunc("/{id}", managedClusterHandler.Get).Methods(http.MethodGet)
 		managedClustersRouter.HandleFunc("", managedClusterHandler.Create).Methods(http.MethodPost)
 		managedClustersRouter.HandleFunc("/{id}", managedClusterHandler.Patch).Methods(http.MethodPatch)
 		managedClustersRouter.HandleFunc("/{id}", managedClusterHandler.Delete).Methods(http.MethodDelete)
-		managedClustersRouter.Use(authMiddleware.AuthenticateAccountJWT)
-		managedClustersRouter.Use(authzMiddleware.AuthorizeApi)
 	})
 
 	pkgserver.RegisterController("ManagedClusters", func(manager *controllers.KindControllerManager, services pkgserver.ServicesInterface) {
@@ -89,7 +87,7 @@ func init() {
 			return nil
 		}
 		pb.RegisterManagedClusterServiceServer(grpcServer, NewManagedClusterGRPCHandler(managedClusterService, genericService, brokerFunc))
-	})
+	}, authz.CRUDResources(pb.ManagedClusterService_ServiceDesc.ServiceName, "managed_clusters", "ManagedCluster", "ManagedClusters"))
 
 	presenters.RegisterPath(ManagedCluster{}, "managed_clusters")
 	presenters.RegisterPath(&ManagedCluster{}, "managed_clusters")

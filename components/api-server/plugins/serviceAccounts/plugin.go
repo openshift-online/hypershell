@@ -9,10 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gorilla/mux"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/routes"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
-	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/registry"
@@ -64,18 +63,16 @@ func init() {
 		return NewServiceLocator(env.(*environments.Env))
 	})
 
-	pkgserver.RegisterRoutes("openShellGatewayServiceAccounts", func(apiV1Router *mux.Router, services pkgserver.ServicesInterface, authMiddleware environments.JWTMiddleware, authzMiddleware auth.AuthorizationMiddleware) {
+	pkgserver.RegisterRoutes("openShellGatewayServiceAccounts", func(apiRouter *pkgserver.APIRouter, services pkgserver.ServicesInterface) {
 		envServices := services.(*environments.Services)
 		handler := NewHandler(ServiceFrom(envServices))
-		router := apiV1Router.PathPrefix("/gateways/{gateway_id}/service_accounts").Subrouter()
+		router := routes.Resource(apiRouter, "service_accounts").PathPrefix("/gateways/{gateway_id}/service_accounts").Subrouter()
 		router.HandleFunc("", handler.List).Methods(http.MethodGet)
 		router.HandleFunc("", handler.Create).Methods(http.MethodPost)
 		router.HandleFunc("/{service_account_id}", handler.Get).Methods(http.MethodGet)
 		router.HandleFunc("/{service_account_id}", handler.Delete).Methods(http.MethodDelete)
 		router.HandleFunc("/{service_account_id}/revoke", handler.Revoke).Methods(http.MethodPost)
 		router.HandleFunc("/{service_account_id}/role", handler.UpdateRole).Methods(http.MethodPost)
-		router.Use(authMiddleware.AuthenticateAccountJWT)
-		router.Use(authzMiddleware.AuthorizeApi)
 	})
 
 	db.RegisterMigration(migration())

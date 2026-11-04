@@ -4,9 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"sync"
-
-	"google.golang.org/grpc"
 
 	pkgrbac "github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
@@ -15,33 +12,7 @@ import (
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/users"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
-	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
 )
-
-type lazyRBACInterceptor struct {
-	once             sync.Once
-	lookup           pkgrbac.RoleBindingLookup
-	provisioner      pkgrbac.UserProvisioner
-	syncer           pkgrbac.JWTRoleSyncer
-	activityRecorder pkgrbac.DailyActivityRecorder
-	config           pkgrbac.AuthzConfig
-	// clusters backs the watch-stream caller binding, which fails closed when
-	// the managed cluster registry is missing.
-	clusters pkgrbac.RegisteredClusterResolver
-	// controlPlanes backs the control-plane identity exemption. It is nil when
-	// the managedClusters plugin is not registered, so that exemption is simply
-	// off (RBAC_SERVICE_ACCOUNTS alone applies) instead of every call failing.
-	controlPlanes pkgrbac.RegisteredClusterResolver
-	// gateways resolves a gateway to its cluster, so a control plane may write
-	// only its own cluster's gateways. nil (gateways plugin absent) makes those
-	// writes fail with Unavailable.
-	gateways pkgrbac.GatewayClusterResolver
-	// imports validates the reconciled Repository on a declarative-import write, so
-	// the control plane may create/update/prune only resources bound to a real
-	// Repository. nil (repositories plugin absent) makes import writes fail with
-	// Unavailable.
-	imports pkgrbac.ImportRepositoryResolver
-}
 
 // managedClusterResolver adapts the managedClusters service to the caller
 // binding's subject -> registered cluster id lookup.
@@ -141,73 +112,26 @@ func (r repositoryImportResolver) RepositoryExists(ctx context.Context, reposito
 	return true, nil
 }
 
-func (l *lazyRBACInterceptor) init(ctx context.Context) {
-	l.once.Do(func() {
-		env := environments.Environment()
-		if env == nil {
-			return
-		}
-		envServices := &env.Services
-
-		rbService := roleBindings.Service(envServices)
-		if rbService != nil {
-			l.lookup = rbService
-			l.syncer = rbService
-		}
-
-		userService := users.Service(envServices)
-		if userService != nil {
-			l.provisioner = pkgrbac.NewUserProvisioner(userService)
-		}
-		l.activityRecorder = users.ActivityRecorder(envServices)
-		l.clusters = managedClusterResolver{envServices: envServices}
-		l.controlPlanes = newControlPlaneResolver(envServices)
-		l.gateways = newGatewayClusterResolver(envServices)
-		l.imports = newRepositoryImportResolver(envServices)
-		if l.controlPlanes == nil {
-			slog.Warn("managedClusters service not registered: registered-cluster control-plane identity is disabled; only RBAC_SERVICE_ACCOUNTS is exempt from gRPC role bindings")
-		}
-
-		l.config = pkgrbac.AuthzConfig{
-			EnforceRBAC:     pkgrbac.Enforced(),
-			ServiceAccounts: pkgrbac.ServiceAccountsFromEnv(),
-		}
-	})
-}
-
-func init() {
-	lazy := &lazyRBACInterceptor{}
-
-	// The managed-cluster caller binding runs first, before role-binding
-	// authorization and regardless of the RBAC_SERVICE_ACCOUNTS allowlist: a
-	// registered control plane may list or watch only its own
-	// cluster's gateways (managed-cluster-registration.spec.md, "Watch Stream
-	// Caller Binding"). Authorization then decides every hypershell.v1 method
-	// per caller kind (pkg/rbac/grpc_authorization.go): a registered cluster is a
-	// control plane scoped to its own cluster ("Control-Plane Identity"), so a
-	// new spoke needs no hub-side config; everyone else gets the HTTP rules.
-	pkgserver.RegisterPostAuthGRPCUnaryInterceptor(func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-		lazy.init(ctx)
-		if err := pkgrbac.CheckClusterCallerBindingUnary(ctx, lazy.clusters, lazy.imports, info.FullMethod, req); err != nil {
-			return nil, err
-		}
-		if lazy.lookup == nil {
-			return handler(ctx, req)
-		}
-		interceptor := pkgrbac.RBACUnaryInterceptor(lazy.lookup, lazy.provisioner, lazy.syncer, lazy.activityRecorder, lazy.controlPlanes, lazy.gateways, lazy.imports, lazy.config)
-		return interceptor(ctx, req, info, handler)
-	})
-
-	pkgserver.RegisterPostAuthGRPCStreamInterceptor(func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		lazy.init(ss.Context())
-		ss, err := pkgrbac.BindClusterCallerStream(ss, info.FullMethod, lazy.clusters)
-		if err != nil {
-			return err
-		}
-		if lazy.lookup == nil {
-			return handler(srv, ss)
-		}
-		interceptor := pkgrbac.RBACStreamInterceptor(lazy.lookup, lazy.provisioner, lazy.syncer, lazy.activityRecorder, lazy.controlPlanes, lazy.gateways, lazy.imports, lazy.config)
-		return interceptor(srv, ss, info, handler)
-	})
+// dependencies resolves the authorizer's services from the environment. A
+// service whose plugin is not registered stays nil (see rbac.Dependencies).
+func dependencies(env *environments.Env) pkgrbac.Dependencies {
+	envServices := &env.Services
+	deps := pkgrbac.Dependencies{
+		ActivityRecorder: users.ActivityRecorder(envServices),
+		Clusters:         managedClusterResolver{envServices: envServices},
+		ControlPlanes:    newControlPlaneResolver(envServices),
+		Gateways:         newGatewayClusterResolver(envServices),
+		Imports:          newRepositoryImportResolver(envServices),
+	}
+	if rbService := roleBindings.Service(envServices); rbService != nil {
+		deps.Lookup = rbService
+		deps.Syncer = rbService
+	}
+	if userService := users.Service(envServices); userService != nil {
+		deps.Provisioner = pkgrbac.NewUserProvisioner(userService)
+	}
+	if deps.ControlPlanes == nil {
+		slog.Warn("managedClusters service not registered: registered-cluster control-plane identity is disabled; only RBAC_SERVICE_ACCOUNTS is exempt from gRPC role bindings")
+	}
+	return deps
 }

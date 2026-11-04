@@ -4,14 +4,14 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/gorilla/mux"
 	"google.golang.org/grpc"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/extsearch"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/routes"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/agentRuntimes"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
-	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/authz"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
@@ -96,18 +96,16 @@ func init() {
 		return NewServiceLocator(env.(*environments.Env))
 	})
 
-	pkgserver.RegisterPrefixedRoutes("agentWorkspaces", "ext", func(extRouter *mux.Router, services pkgserver.ServicesInterface, authMiddleware environments.JWTMiddleware, authzMiddleware auth.AuthorizationMiddleware) {
+	pkgserver.RegisterPrefixedRoutes("agentWorkspaces", "ext", func(apiRouter *pkgserver.APIRouter, services pkgserver.ServicesInterface) {
 		envServices := services.(*environments.Services)
 		h := NewAgentWorkspaceHandler(Service(envServices), extsearch.Service(envServices))
 
-		router := extRouter.PathPrefix("/agent_workspaces").Subrouter()
+		router := routes.Resource(apiRouter, "agent_workspaces").PathPrefix("/agent_workspaces").Subrouter()
 		router.HandleFunc("", h.List).Methods(http.MethodGet)
 		router.HandleFunc("/{id}", h.Get).Methods(http.MethodGet)
 		router.HandleFunc("", h.Create).Methods(http.MethodPost)
 		router.HandleFunc("/{id}", h.Patch).Methods(http.MethodPatch)
 		router.HandleFunc("/{id}", h.Delete).Methods(http.MethodDelete)
-		router.Use(authMiddleware.AuthenticateAccountJWT)
-		router.Use(authzMiddleware.AuthorizeApi)
 	})
 
 	pkgserver.RegisterGRPCService("agentWorkspaces", func(grpcServer *grpc.Server, services pkgserver.ServicesInterface) {
@@ -119,7 +117,7 @@ func init() {
 			return nil
 		}
 		pb.RegisterAgentWorkspaceServiceServer(grpcServer, NewAgentWorkspaceGRPCHandler(Service(envServices), extsearch.Service(envServices), brokerFunc))
-	})
+	}, authz.CRUDResources(pb.AgentWorkspaceService_ServiceDesc.ServiceName, "agent_workspaces", "AgentWorkspace", "AgentWorkspaces"))
 
 	presenters.RegisterPath(AgentWorkspace{}, "agent_workspaces")
 	presenters.RegisterPath(&AgentWorkspace{}, "agent_workspaces")
