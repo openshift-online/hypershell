@@ -18,13 +18,11 @@ const awaitingPlacementStatus = "Awaiting placement: no connected managed cluste
 // storedPlacement is the on-disk JSON shape of a persisted placement selector. It
 // is kept deliberately minimal (independent of the generated openapi type's
 // marshalling) so the stored document is stable: {"selector":[...]} for a
-// capability-label selector or {"mode":"local-kind"} for local-kind placement. The
-// API server re-evaluates it to assign a cluster_id when a matching ManagedCluster
-// becomes available.
+// capability-label selector. The API server re-evaluates it to assign a cluster_id
+// when a matching ManagedCluster becomes available.
 type storedPlacement struct {
 	Selector         []string `json:"selector,omitempty"`
 	ExcludedSelector []string `json:"excludedSelector,omitempty"`
-	Mode             *string  `json:"mode,omitempty"`
 }
 
 // marshalPlacement encodes a placement intent for persistence on the Gateway row.
@@ -32,7 +30,6 @@ func marshalPlacement(intent openapi.GatewayPlacementIntent) (*string, error) {
 	stored := storedPlacement{
 		Selector:         intent.Selector,
 		ExcludedSelector: intent.ExcludedSelector,
-		Mode:             intent.Mode,
 	}
 	data, err := json.Marshal(stored)
 	if err != nil {
@@ -55,12 +52,11 @@ func storedPlacementToIntent(stored *string) (openapi.GatewayPlacementIntent, bo
 		slog.Warn("failed to unmarshal gateway placement", "placement", *stored, "error", err)
 		return openapi.GatewayPlacementIntent{}, false
 	}
-	if len(parsed.Selector) == 0 && parsed.Mode == nil {
+	if len(parsed.Selector) == 0 {
 		return openapi.GatewayPlacementIntent{}, false
 	}
 	return openapi.GatewayPlacementIntent{
 		Selector:         parsed.Selector,
 		ExcludedSelector: parsed.ExcludedSelector,
-		Mode:             parsed.Mode,
 	}, true
 }

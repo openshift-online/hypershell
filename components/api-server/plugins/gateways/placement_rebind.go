@@ -42,12 +42,6 @@ func resolvePendingPlacements(ctx context.Context, svc GatewayService, resolve P
 		if !ok {
 			continue
 		}
-		// Late binding applies only to capability-label selectors. A local-kind
-		// placement resolves or hard-errors at create (WEB-PLC-08) and must not be retried
-		// here, where it would error on every sweep.
-		if intent.Mode != nil {
-			continue
-		}
 		clusterID, resolved, resolveErr := resolve(ctx, intent)
 		if resolveErr != nil {
 			slog.WarnContext(ctx, "late-binding: resolving placement failed, will retry on the next cluster change", "gateway_id", gateway.ID, "error", resolveErr)

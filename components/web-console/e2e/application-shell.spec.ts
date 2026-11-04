@@ -56,7 +56,6 @@ test.beforeEach(async ({ browserName, page }) => {
     ) {
       await route.fulfill({
         body: JSON.stringify({
-          local_kind: false,
           placements: [
             { selector: ["network/public", "provider/aws"], available: true },
             {
@@ -498,7 +497,6 @@ test("provisions a gateway on an existing managed cluster", async ({
         contentType: "application/json",
         status: 200,
         body: JSON.stringify({
-          local_kind: false,
           placements: [
             { selector: ["network/public", "provider/aws"], available: true },
             {

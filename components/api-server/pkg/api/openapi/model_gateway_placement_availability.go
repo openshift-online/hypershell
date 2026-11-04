@@ -22,7 +22,6 @@ var _ MappedNullable = &GatewayPlacementAvailability{}
 // GatewayPlacementAvailability struct for GatewayPlacementAvailability
 type GatewayPlacementAvailability struct {
 	Placements []GatewayPlacementAvailabilityItem `json:"placements"`
-	LocalKind  bool                               `json:"local_kind"`
 }
 
 type _GatewayPlacementAvailability GatewayPlacementAvailability
@@ -31,10 +30,9 @@ type _GatewayPlacementAvailability GatewayPlacementAvailability
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewGatewayPlacementAvailability(placements []GatewayPlacementAvailabilityItem, localKind bool) *GatewayPlacementAvailability {
+func NewGatewayPlacementAvailability(placements []GatewayPlacementAvailabilityItem) *GatewayPlacementAvailability {
 	this := GatewayPlacementAvailability{}
 	this.Placements = placements
-	this.LocalKind = localKind
 	return &this
 }
 
@@ -70,30 +68,6 @@ func (o *GatewayPlacementAvailability) SetPlacements(v []GatewayPlacementAvailab
 	o.Placements = v
 }
 
-// GetLocalKind returns the LocalKind field value
-func (o *GatewayPlacementAvailability) GetLocalKind() bool {
-	if o == nil {
-		var ret bool
-		return ret
-	}
-
-	return o.LocalKind
-}
-
-// GetLocalKindOk returns a tuple with the LocalKind field value
-// and a boolean to check if the value has been set.
-func (o *GatewayPlacementAvailability) GetLocalKindOk() (*bool, bool) {
-	if o == nil {
-		return nil, false
-	}
-	return &o.LocalKind, true
-}
-
-// SetLocalKind sets field value
-func (o *GatewayPlacementAvailability) SetLocalKind(v bool) {
-	o.LocalKind = v
-}
-
 func (o GatewayPlacementAvailability) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -105,7 +79,6 @@ func (o GatewayPlacementAvailability) MarshalJSON() ([]byte, error) {
 func (o GatewayPlacementAvailability) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["placements"] = o.Placements
-	toSerialize["local_kind"] = o.LocalKind
 	return toSerialize, nil
 }
 
@@ -115,7 +88,6 @@ func (o *GatewayPlacementAvailability) UnmarshalJSON(data []byte) (err error) {
 	// that every required field exists as a key in the generic map.
 	requiredProperties := []string{
 		"placements",
-		"local_kind",
 	}
 
 	allProperties := make(map[string]interface{})

@@ -18,14 +18,26 @@ export interface QuickCreateDependencies {
 export const publicQuickCreatePlacement = {
   excludedSelector: [kataRuntimeSelector],
   selector: ["network/public", "provider/ibm"],
-};
-
-export const localQuickCreatePlacement = {
-  mode: "local-kind",
 } as const;
 
-export type QuickCreatePlacement =
-  typeof localQuickCreatePlacement | typeof publicQuickCreatePlacement;
+// WEB-HOME-12: a connected cluster advertising provider/kind takes precedence;
+// Quick Create submits the ordinary Kind capability selector.
+export const kindQuickCreatePlacement = {
+  selector: ["provider/kind"],
+} as const;
+
+export interface QuickCreatePlacement {
+  excludedSelector?: readonly string[];
+  selector: readonly string[];
+}
+
+export function isKindQuickCreatePlacement(
+  placement: QuickCreatePlacement,
+): boolean {
+  return (
+    placement.selector.length === 1 && placement.selector[0] === "provider/kind"
+  );
+}
 
 export const quickCreateMaximumAttempts = 5;
 

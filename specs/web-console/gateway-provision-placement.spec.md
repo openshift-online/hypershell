@@ -14,9 +14,9 @@ The gateway provision request SHALL contain the gateway name and one of these pl
 
 - `{ selector: ["network/vpn", "provider/aws"] }`
 - `{ selector: ["network/public", "provider/aws" | "provider/ibm"] }`
-- `{ mode: "local-kind" }`
+- `{ selector: ["provider/kind"] }` (Kind local development)
 
-A managed-placement intent MAY also carry `excludedSelector`, a non-empty array of capability labels that a candidate cluster SHALL NOT advertise. The required selector and excluded selector SHALL both be validated, normalized, and persisted. The `local-kind` mode SHALL NOT carry an excluded selector. This negative selector is required for workflows such as homepage Quick create that must choose IBM Cloud public placement without Kata.
+A managed-placement intent MAY also carry `excludedSelector`, a non-empty array of capability labels that a candidate cluster SHALL NOT advertise. The required selector and excluded selector SHALL both be validated, normalized, and persisted. This negative selector is required for workflows such as homepage Quick create that must choose IBM Cloud public placement without Kata.
 
 The client SHALL NOT submit a user-selected `cluster_id`. The backend SHALL resolve and assign the concrete `cluster_id` before creating the gateway.
 
@@ -136,7 +136,7 @@ The form SHALL load placement availability automatically when it opens. The form
 
 A placement pair that becomes unavailable before submission SHALL NOT be rejected by the backend; the Gateway SHALL be created unplaced in the `Pending` phase and late-bound when a matching cluster appears (WEB-PLC-07). The form MAY surface the resulting awaiting-placement status so the user understands the Gateway is waiting for a matching cluster.
 
-The provision preview card SHALL render only after placement availability has loaded and the currently selected network/provider pair is available. It SHALL NOT render a default managed recommendation while availability is loading, when no managed placement is available, or for local-kind-only development.
+The provision preview card SHALL render only after placement availability has loaded and the currently selected network/provider pair is available. It SHALL NOT render a default managed recommendation while availability is loading, when no managed placement is available, or for Kind-only development.
 
 #### Scenario: WEB-PLC-04.01 -- AWS is unavailable for Public
 
@@ -176,45 +176,43 @@ The provision preview card SHALL render only after placement availability has lo
 - WHEN the provider controls render
 - THEN IBM Cloud SHALL remain selectable
 
-### Requirement: WEB-PLC-05 -- Local-kind Development Placement
+### Requirement: WEB-PLC-05 -- Kind Development Placement
 
-When the platform is running in the Kind development environment and the registered `local-kind` cluster is connected, and no managed placement is available, the form SHALL expose a **Kind** option under **Local development**. The option SHALL NOT be shown when an AWS or IBM Cloud managed placement is available, or outside the Kind development environment.
+The form SHALL expose a **Kind** option under **Local development** as a plain capability-label placement choice: the option SHALL be offered exactly when placement availability reports the `provider/kind` selector as available (a connected registered cluster advertises `provider/kind`), through the same batched availability check as any other selector (WEB-PLC-04). The form SHALL NOT key the option on a cluster name, a platform environment flag, or any other special case.
 
-Local-kind SHALL be mutually exclusive with VPN and Public. Local-kind SHALL be selected by default only when no managed placement is available.
+Kind SHALL be mutually exclusive with VPN and Public. Kind SHALL be selected by default only when no managed placement is available.
 
-When local-kind is the only available placement, Kind SHALL be the only placement choice rendered. The managed network and provider groups SHALL NOT be rendered in that state.
+When Kind is the only available placement, Kind SHALL be the only placement choice rendered. The managed network and provider groups SHALL NOT be rendered in that state.
 
-When local-kind is the only available placement, the provision preview card
+When Kind is the only available placement, the provision preview card
 SHALL NOT render a default managed-placement recommendation.
 
-Selecting local-kind SHALL submit `{ placement: { mode: "local-kind" } }`.
+Selecting Kind SHALL submit `{ placement: { selector: ["provider/kind"] } }`.
 
-#### Scenario: WEB-PLC-05.01 -- Local-kind appears for Kind development
+#### Scenario: WEB-PLC-05.01 -- Kind appears for Kind development
 
-- GIVEN the platform is running in the Kind development environment
-- AND the registered `local-kind` cluster is connected
+- GIVEN a connected registered cluster advertises `provider/kind`
+- AND no managed placement pair is available
 - WHEN the provision form renders
 - THEN Kind SHALL be visible under Local development
 - AND Kind SHALL be available for selection
 - AND Public, VPN, Amazon Web Services, and IBM Cloud SHALL NOT be rendered
 - AND the provision preview card SHALL NOT render
 
-#### Scenario: WEB-PLC-05.02 -- Local-kind is hidden with managed placement
+#### Scenario: WEB-PLC-05.02 -- Kind composes with managed placement
 
 - GIVEN a managed placement pair is available
-- AND the platform is running in the Kind development environment
-- AND the registered `local-kind` cluster is connected
+- AND a connected registered cluster advertises `provider/kind`
 - WHEN the provision form renders
-- THEN Kind SHALL NOT be visible
+- THEN Kind SHALL remain visible under Local development
 - AND managed placement choices SHALL remain available
 
-#### Scenario: WEB-PLC-05.03 -- Local-kind is hidden outside Kind development
+#### Scenario: WEB-PLC-05.03 -- Kind is hidden without a provider/kind cluster
 
-- GIVEN no managed placement pair is available
-- AND the platform is not running in the Kind development environment
+- GIVEN no connected registered cluster advertises `provider/kind`
 - WHEN the provision form renders
 - THEN Kind SHALL NOT be visible
-- AND the form SHALL explain that no managed placement is currently available
+- AND the form SHALL explain that no managed placement is currently available when no managed placement pair matches either
 
 ### Requirement: WEB-PLC-06 -- Form Submission Validation
 
@@ -244,7 +242,7 @@ When one eligible cluster matches, the backend SHALL select that cluster. When m
 
 The backend SHALL NOT inspect, score, or rank clusters by CPU, memory, pod usage, or other capacity data. The client SHALL neither calculate nor submit the selected cluster.
 
-If no eligible cluster matches the selector, the backend SHALL NOT reject the create: the Gateway is LATE-BOUND. The backend SHALL create the Gateway with an empty `cluster_id`, hold it in the `Pending` phase with a clear awaiting-placement `status`, and bind it when a matching cluster appears, per [`data-model.spec.md`](../platform/data-model.spec.md) ("Requirement: Gateway Placement and Late Binding"). The backend SHALL NOT drop selector labels or fall back to another selector or local-kind. This late-binding model lets a declarative `.hypershell` Gateway (which declares a selector and no `cluster_id`) import successfully even when no matching cluster is connected yet.
+If no eligible cluster matches the selector, the backend SHALL NOT reject the create: the Gateway is LATE-BOUND. The backend SHALL create the Gateway with an empty `cluster_id`, hold it in the `Pending` phase with a clear awaiting-placement `status`, and bind it when a matching cluster appears, per [`data-model.spec.md`](../platform/data-model.spec.md) ("Requirement: Gateway Placement and Late Binding"). The backend SHALL NOT drop selector labels or fall back to another selector. This late-binding model lets a declarative `.hypershell` Gateway (which declares a selector and no `cluster_id`) import successfully even when no matching cluster is connected yet.
 
 The backend SHALL persist BOTH the `placement` required and excluded selectors (so it can re-resolve for late binding) and, once resolved, the selected cluster identifier on the Gateway record. Gateway reconciliation SHALL use the persisted `cluster_id`. The backend SHALL re-resolve placement for an unplaced Gateway when the eligible-cluster set changes, assigning `cluster_id` as soon as a match appears.
 
@@ -285,19 +283,6 @@ The backend SHALL persist BOTH the `placement` required and excluded selectors (
 - WHEN the backend resolves an intent that excludes `runtime/kata`
 - THEN the backend SHALL select the cluster that does not advertise `runtime/kata`
 
-### Requirement: WEB-PLC-08 -- Local-kind Placement Resolution
-
-When local-kind intent is submitted, the backend SHALL resolve it to the registered `local-kind` `ManagedCluster` in the Kind development environment.
-
-The backend SHALL reject local-kind placement with a typed client-visible error when the platform is not running in the Kind development environment, `local-kind` is not registered, or `local-kind` is not connected.
-
-#### Scenario: WEB-PLC-08.01 -- Local-kind resolves to the local cluster
-
-- GIVEN the client submits a valid local-kind intent
-- AND the registered `local-kind` cluster is connected
-- WHEN the backend creates the gateway
-- THEN the gateway SHALL be assigned to `local-kind`
-
 ### Requirement: WEB-PLC-09 -- API and Persistence Compatibility
 
 The API contract, generated clients or adapters, authorization boundaries, and gateway provisioning tests SHALL be updated consistently for selector-based placement and batched availability. Existing gateway records and read APIs SHALL continue to expose their resolved `cluster_id`. `cluster_id` SHALL be OPTIONAL (nullable) on Gateway create: a create SHALL supply EITHER an explicit `cluster_id` (pinned) OR a `placement` selector (late-bound), and SHALL NOT accept the former provider/network request shape. The web-console provision form submits only the selector shape; the pinned shape remains available to `hsctl apply` and the declarative `.hypershell` import.
@@ -313,11 +298,11 @@ The Gateway schema SHALL carry a persisted `placement` field. The placement sele
 ### Requirement: WEB-PLC-10 -- Accessibility and Localization
 
 The internal-services, provider, Kata, availability, disabled-state,
-validation, local-kind, recommendation, and error messages SHALL be localized.
+validation, Kind, recommendation, and error messages SHALL be localized.
 Yes/no controls SHALL use labels that remain specific outside their visual
 group context. The controls SHALL expose accessible names and selected or
 disabled state through semantic PatternFly form controls. Keyboard users SHALL
-be able to select and change network, provider, Kata, and local-kind
+be able to select and change network, provider, Kata, and Kind
 placement without pointer input.
 
 #### Scenario: WEB-PLC-10.01 -- Disabled provider is announced

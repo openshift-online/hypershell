@@ -591,7 +591,8 @@ so per-tenant gateways work without port-forward workarounds.
 gateway database server needs no API resource: the control plane reads the
 `hypershell-gateway-database-admin` Secret that `kind-up` creates. Create a
 Gateway via the API; `cluster_id` is not a request field, create takes a
-required placement intent and `local-kind` selects the seeded ManagedCluster:
+required placement intent and the `provider/kind` capability selector selects
+the seeded ManagedCluster:
 
 ```bash
 # Create a gateway with OIDC
@@ -599,7 +600,7 @@ curl -s -X POST http://localhost:8000/api/hypershell/v1/gateways \
   -H "Content-Type: application/json" \
   -d "{
     \"name\": \"dev-gateway\",
-    \"placement\": {\"mode\": \"local-kind\"},
+    \"placement\": {\"selector\": [\"provider/kind\"]},
     \"oidc\": \"{\\\"issuer\\\":\\\"https://keycloak.hypershell.localhost/realms/hypershell\\\",\\\"audience\\\":\\\"hypershell-frontend\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}\"
   }"
 ```

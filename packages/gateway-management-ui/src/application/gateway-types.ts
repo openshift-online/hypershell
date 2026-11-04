@@ -106,8 +106,12 @@ export type GatewayProvider = "aws" | "ibm";
 
 export const kataRuntimeSelector = "runtime/kata";
 
-export type GatewayPlacementIntent =
-  { mode: "local-kind" } | { selector: string[]; excludedSelector?: string[] };
+export const kindPlacementSelector = "provider/kind";
+
+export interface GatewayPlacementIntent {
+  selector: string[];
+  excludedSelector?: string[];
+}
 
 export type GatewayPlacementUnavailableReason = "no-eligible-cluster";
 
@@ -118,7 +122,6 @@ export interface GatewayPlacementAvailabilityItem {
 }
 
 export interface GatewayPlacementAvailability {
-  localKind: boolean;
   placements: readonly GatewayPlacementAvailabilityItem[];
 }
 

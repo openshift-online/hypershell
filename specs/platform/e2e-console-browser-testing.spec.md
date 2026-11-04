@@ -45,7 +45,7 @@ The suite must:
 
 1. Log in through Keycloak and verify the BFF session identity.
 2. In long mode, submit the empty provisioning form and observe its validation.
-3. Provision a uniquely named gateway and select `local-kind` when offered.
+3. Provision a uniquely named gateway and select the Kind option under Local development when offered.
 4. Wait for the API-reported `Running` phase and verify the rendered status.
 5. Wait for the published console address and verify the accessible console link.
 6. Log into the per-gateway console and verify its workspaces view is usable.

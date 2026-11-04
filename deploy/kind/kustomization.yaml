@@ -217,8 +217,6 @@ patches:
                     value: "development_oidc"
                   - name: RBAC_SERVICE_ACCOUNTS
                     value: "service-account-hypershell-control-plane"
-                  - name: HYPERSHELL_PLATFORM_KIND
-                    value: "true"
   # --- Keycloak: fixed HTTPS issuer reachable in-cluster and from host ---
   # The token `iss` is derived from KC_HOSTNAME. Gateways validate tokens by
   # requiring config.issuer == discovery.issuer == token.iss, so the issuer

@@ -22,11 +22,12 @@ const pageTimeout = Number(process.env.E2E_BROWSER_PAGE_TIMEOUT_MS ?? "90000");
 const keepGateway = process.env.E2E_SKIP_CLEANUP === "1";
 const runId = Math.random().toString(16).slice(2, 10);
 const gatewayName = process.env.E2E_GATEWAY_NAME ?? `e2e-console-gw-${runId}`;
+// Radio label suffix for the local development placement option. The Kind
+// option is offered through the provider/kind availability check and is titled
+// "Use Kind" (WEB-PLC-05); it is no longer named after the seed cluster.
 const placementName =
   process.env.E2E_SEED_CLUSTER_NAME ??
-  (process.env.E2E_INFRA_DRIVER === "openshift"
-    ? "local-openshift"
-    : "local-kind");
+  (process.env.E2E_INFRA_DRIVER === "openshift" ? "local-openshift" : "Kind");
 
 interface Gateway {
   readonly id: string;
@@ -64,15 +65,34 @@ async function readGateway(api: APIRequestContext, id: string) {
 }
 
 async function requirePlacementAvailability(api: APIRequestContext) {
+  // The journey checks the local development radio on the kind driver and a
+  // managed placement otherwise. Assert the matching selector is available so
+  // a missing option fails here with a clear message instead of a radio
+  // locator timeout.
+  const selector =
+    process.env.E2E_INFRA_DRIVER === "openshift"
+      ? ["provider/aws"]
+      : ["provider/kind"];
   const response = await api.post(
     "/api/hypershell/v1/gateways/placement-availability",
-    { data: { selectors: [["provider/aws"]] } },
+    { data: { selectors: [selector] } },
   );
   const body = await response.text();
   expect(
     response.status(),
     `placement availability must be provided by the deployed API: ${body}`,
   ).toBe(200);
+  const availability = JSON.parse(body) as {
+    placements?: { selector: string[]; available: boolean }[];
+  };
+  expect(
+    availability.placements?.find(
+      (placement) =>
+        placement.selector.length === selector.length &&
+        placement.selector.every((label, index) => label === selector[index]),
+    ),
+    `placement availability for ${selector.join(",")}: ${body}`,
+  ).toMatchObject({ available: true });
 }
 
 test.describe("live console user journey", () => {

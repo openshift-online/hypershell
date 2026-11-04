@@ -9,10 +9,7 @@ import type { ObjectReference, ListMeta } from './base.js';
 {{- if ne .Name "GatewayCreateRequest"}}
 {{- if eq .Name "GatewayPlacementIntent"}}
 export type GatewayPlacementIntent =
-  | { mode: 'local-kind' }
-  | { selector: string[]; excludedSelector?: string[] }
-  | { network: 'public'; provider: 'aws' | 'ibm' }
-  | { network: 'vpn'; provider: 'aws' };
+  { selector: string[]; excludedSelector?: string[] };
 {{- else if .IsEnum}}
 export type {{.Name}} = {{range $index, $value := .EnumValues}}{{if $index}} | {{end}}'{{$value.Value}}'{{end}};
 {{else}}

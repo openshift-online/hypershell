@@ -2551,9 +2551,9 @@
     "defaultMessage": "The gateway could not be created. Retry to generate another unique name.",
     "description": "Error shown when quick create cannot create a gateway."
   },
-  "app.homepage.quickCreate.localKindBody": {
-    "defaultMessage": "Quick create makes a gateway on local-kind with a generated name. You can rename it after it starts.",
-    "description": "Explanation shown in the local-kind quick-create dialog."
+  "app.homepage.quickCreate.kindBody": {
+    "defaultMessage": "Quick create makes a gateway on the local Kind cluster with a generated name. You can rename it after it starts.",
+    "description": "Explanation shown in the Kind quick-create dialog."
   },
   "app.homepage.quickCreate.submit": {
     "defaultMessage": "Create gateway",
@@ -2791,17 +2791,17 @@
     "defaultMessage": "Yes, use Kata",
     "description": "Option for a gateway that needs Kata runtime."
   },
+  "app.page.gatewayProvision.kindPlacement": {
+    "defaultMessage": "Use Kind",
+    "description": "Local Kind placement option."
+  },
+  "app.page.gatewayProvision.kindPlacementDescription": {
+    "defaultMessage": "Use the local Kind cluster for development.",
+    "description": "Description of local Kind placement."
+  },
   "app.page.gatewayProvision.localDevelopment": {
     "defaultMessage": "Local development",
     "description": "Form group label for local Kind placement."
-  },
-  "app.page.gatewayProvision.localKindPlacement": {
-    "defaultMessage": "Use local-kind",
-    "description": "Local Kind placement option."
-  },
-  "app.page.gatewayProvision.localKindPlacementDescription": {
-    "defaultMessage": "Use the local Kind cluster for development.",
-    "description": "Description of local Kind placement."
   },
   "app.page.gatewayProvision.networkAccess": {
     "defaultMessage": "Network access",

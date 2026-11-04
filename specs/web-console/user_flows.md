@@ -154,9 +154,9 @@ flowchart LR
 | Intended use - personal or team | All users with create permission | Proposed; needed only if personal and team ownership become different product concepts |
 | Internal services - No or Yes | All users with create permission | Required; No maps to Public and Yes requires Red Hat VPN |
 | Cloud provider - IBM or AWS | All users with create permission | Required for managed placement; available providers depend on network visibility and placement availability |
-| Local development - Use local-kind | Kind development users with no managed placement available | Replaces network and cloud-provider selection when the connected local-kind cluster is available |
+| Local development - Use Kind | Kind development users | Replaces network and cloud-provider selection when a connected cluster advertising `provider/kind` is the only available placement |
 | Placement availability | All users with create permission | Shows whether a matching cluster is available without exposing the selected cluster ID |
-| Provision preview card | All users with create permission | Shows only a verified available managed placement; omitted while loading, without managed placement, or for local-kind-only development |
+| Provision preview card | All users with create permission | Shows only a verified available managed placement; omitted while loading, without managed placement, or for Kind-only development |
 | Team owner | Team users | Proposed; current authorization is based on individual creator and gateway bindings |
 | Initial team members | Team users | Proposed; group access and team membership are not yet defined |
 | Validation and provisioning errors | All users with create permission | Keeps entered values and explains how to recover |
@@ -176,7 +176,7 @@ flowchart LR
     placement -- Yes --> network["Select VPN or Public"]
     network --> provider["Select cloud provider"]
     provider --> submit["Submit gateway"]
-    placement -- No, Kind local-kind available --> local["Select Use local-kind"]
+    placement -- No, Kind placement available --> local["Select Use Kind"]
     local --> submit
     submit --> valid{"Form valid?"}
     valid -- No --> errors["Show field errors"]

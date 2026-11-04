@@ -5,7 +5,6 @@ import (
 	stderrors "errors"
 	"log/slog"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -187,7 +186,6 @@ func (r gatewaySubjectResolver) RegisteredClusterIDForSubject(ctx context.Contex
 
 type placementSnapshot struct {
 	candidates []PlacementCandidate
-	localID    string
 }
 
 type registeredPlacementService struct {
@@ -213,13 +211,6 @@ func (p *registeredPlacementService) snapshot(ctx context.Context) (placementSna
 		if cluster == nil || cluster.OIDCSubject == "" || !PlacementControlPlaneConnected(cluster.LastSeenAt, p.now()) {
 			continue
 		}
-		isLocal := cluster.Name == "local-kind"
-		if isLocal {
-			if os.Getenv("HYPERSHELL_PLATFORM_KIND") == "true" {
-				result.localID = cluster.ID
-			}
-			continue
-		}
 		if len(cluster.Capabilities) == 0 {
 			continue
 		}
@@ -242,8 +233,7 @@ func managedPlacementAvailable(snapshot placementSnapshot, intent PlacementInten
 	return false
 }
 
-// Resolve implements PlacementResolver. A local-kind intent that cannot be
-// satisfied is a hard error (WEB-PLC-08), while a capability-label selector that
+// Resolve implements PlacementResolver. A capability-label selector that
 // matches no eligible cluster yields resolved=false with a nil error so the
 // gateway is late-bound (created Pending, awaiting placement) rather than rejected
 // (WEB-PLC-07).
@@ -251,15 +241,6 @@ func (p *registeredPlacementService) Resolve(ctx context.Context, intent openapi
 	snapshot, svcErr := p.snapshot(ctx)
 	if svcErr != nil {
 		return "", false, svcErr
-	}
-	if intent.Mode != nil && *intent.Mode == "local-kind" {
-		if os.Getenv("HYPERSHELL_PLATFORM_KIND") != "true" {
-			return "", false, errors.Validation("local-kind placement is only available in the Kind development environment")
-		}
-		if snapshot.localID == "" {
-			return "", false, errors.Validation("local-kind placement is unavailable")
-		}
-		return snapshot.localID, true, nil
 	}
 	selector, validationErr := managedClusters.NormalizeSelector(intent.Selector)
 	if validationErr != nil {
@@ -322,7 +303,6 @@ func (p *registeredPlacementService) Availability(ctx context.Context, selectors
 		}
 		availability.Placements = append(availability.Placements, item)
 	}
-	availability.LocalKind = os.Getenv("HYPERSHELL_PLATFORM_KIND") == "true" && snapshot.localID != ""
 	return availability, nil
 }
 

@@ -178,11 +178,11 @@ export const messages = defineMessages({
       "The gateway could not be created. Retry to generate another unique name.",
     description: "Error shown when quick create cannot create a gateway.",
   },
-  homepageQuickCreateLocalKindBody: {
-    id: "app.homepage.quickCreate.localKindBody",
+  homepageQuickCreateKindBody: {
+    id: "app.homepage.quickCreate.kindBody",
     defaultMessage:
-      "Quick create makes a gateway on local-kind with a generated name. You can rename it after it starts.",
-    description: "Explanation shown in the local-kind quick-create dialog.",
+      "Quick create makes a gateway on the local Kind cluster with a generated name. You can rename it after it starts.",
+    description: "Explanation shown in the Kind quick-create dialog.",
   },
   homepageGatewayHealthTitle: {
     id: "app.homepage.gatewayHealth.title",

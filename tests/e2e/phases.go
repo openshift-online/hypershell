@@ -872,15 +872,17 @@ func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
 		s.Assert().NotEqual(collisionName, cluster.Name, "rejected registration creates no cluster record")
 	}
 
-	// 12e: an unsupported placement intent is rejected. This probe keeps its own
-	// placement shape and is never pinned to the matrix target, so it exercises the
-	// placement-validation path regardless of which cluster the suite targets.
+	// 12e: an unsupported placement intent is rejected. The selector list is
+	// schema-valid (present and non-empty) but carries an invalid capability label,
+	// so the request passes OpenAPI request validation and reaches the
+	// placement-validation path regardless of which cluster the suite targets; the
+	// probe is never pinned to the matrix target.
 	invalidPlacement := gatewayCreateRequestForDriver("e2e-invalid-placement-"+s.runID, s.driver.Name())
-	invalidPlacement.Placement = &gatewayPlacementIntent{Mode: "invalid"}
+	invalidPlacement.Placement = &gatewayPlacementIntent{Selector: []string{"not-a-capability-label"}}
 	st, body, err = s.admin.RawJSON(ctx, http.MethodPost, "/gateways", invalidPlacement)
 	s.Require().NoError(err, "gateway create with invalid placement")
 	s.Assert().Equalf(http.StatusBadRequest, st, "invalid placement must be 400 (body: %s)", string(body))
-	s.Assert().Containsf(strings.ToLower(string(body)), "placement", "400 reason should name placement (body: %s)", string(body))
+	s.Assert().Containsf(strings.ToLower(string(body)), "capability label", "400 reason should name the selector validation (body: %s)", string(body))
 
 	// 12f: a cluster_id that references no registered ManagedCluster is rejected
 	// (PLAT-CLUS-09). The user-facing cluster_id create path still exists on the API;
@@ -1031,10 +1033,10 @@ func (s *E2ESuite) p3_1AdminInventory(t *testing.T) {
 // --- low-level helpers ---
 
 // gatewayPlacementIntent is the client-selected placement intent. The API server
-// resolves it to a registered managed-cluster id during gateway creation. Exactly
-// one of Mode or Selector must be set (GatewayPlacementIntent, openapi.gateways.yaml).
+// resolves it to a registered managed-cluster id during gateway creation. The
+// intent is a capability-label selector list (GatewayPlacementIntent,
+// openapi.gateways.yaml).
 type gatewayPlacementIntent struct {
-	Mode     string   `json:"mode,omitempty"`
 	Selector []string `json:"selector,omitempty"`
 }
 
@@ -1060,7 +1062,7 @@ type gatewayCreateRequest struct {
 func gatewayCreateRequestForDriver(name, driverName string) gatewayCreateRequest {
 	placement := &gatewayPlacementIntent{Selector: []string{"network/public", "provider/aws"}}
 	if driverName == "kind" {
-		placement = &gatewayPlacementIntent{Mode: "local-kind"}
+		placement = &gatewayPlacementIntent{Selector: []string{"provider/kind"}}
 	}
 	return gatewayCreateRequest{
 		Name:      name,

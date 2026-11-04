@@ -243,12 +243,12 @@ export function ProvisionGatewayForm({
               role="radiogroup"
             >
               <Radio
-                id="chunky-local-kind"
+                id="chunky-kind"
                 isChecked
-                label="Use local-kind"
+                label="Use Kind"
                 name="chunky-local-development"
                 onChange={() => undefined}
-                value="local-kind"
+                value="provider/kind"
               />
             </FormGroup>
           ) : (
