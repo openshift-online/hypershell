@@ -138,6 +138,12 @@ grep -rln "openshell/\(gateway\|supervisor\):" . | grep -v '\.git/'     # older 
 # neither grep above matches it, so it was missed on two prior bumps. See the
 # 2026-10-27 Learnings entry.
 grep -rln 'openshell-\(gateway\|supervisor\|sandbox\(-runtime\)\?\):' . | grep -v '\.git/' | grep -v 'odh-openshell'
+# Prose citations sometimes drop the leading "v" (e.g. "gateway 0.1.6-rhaiv.2"
+# in global-architecture.spec.md). None of the image-ref greps above match a
+# bare version with no "odh-openshell-..." or "openshell-..." prefix on the
+# same line, so this one is the only net that catches it - run it even though
+# it is noisier:
+grep -rn "<OLD_VERSION_NO_V_PREFIX>" . | grep -v '\.git/'
 grep -rn  "<OLD_VERSION>" . | grep -v '\.git/'      # must return only intentional fixtures afterwards
 ```
 
@@ -150,7 +156,7 @@ grep -rn  "<OLD_VERSION>" . | grep -v '\.git/'      # must return only intention
 | `specs/platform/data-model.spec.md` | `supervisor_image` default | Spec citation |
 | `specs/platform/openshell-gateway.spec.md` | gateway + supervisor defaults | Spec citation (multiple) |
 | `specs/platform/openshell-gateway-credentials.spec.md` | none since a prior rewrite; no image/version pins remain | Keep in the discovery grep in case a future edit reintroduces one |
-| `specs/platform/global-architecture.spec.md` | version in the API-compat note | Also re-check the `v1beta1` claim (see below) |
+| `specs/platform/global-architecture.spec.md` | version in the API-compat note | Writes the tag **without the leading `v`** (`0.1.6-rhaiv.2`, not `v0.1.6-rhaiv.2`) - the main discovery grep (which searches for the `v`-prefixed form) misses it; always also run the bare-digits grep below. Also re-check the `v1beta1` claim (see below) |
 | `components/pr-test/e2e-openshell-roks.sh` | `GW_IMAGE`, `GW_SUPERVISOR_IMAGE` defaults | ROKS e2e; uses the mirrored name without the `odh-` prefix, so the two main discovery greps above miss it - use the third grep |
 | `specs/platform/openshell-gateway-database.spec.md` | none since the 2026-09-16 rewrite (no gateway image refs remain) | Keep in the discovery grep; historically **was pinned to a git SHA, not a semver tag** |
 | `scripts/kind/lib.sh`, `scripts/kind/up.sh` | Defaults sourced from `OPENSHELL_VERSION` | Kind preload must use the same workload image as e2e |
@@ -176,6 +182,13 @@ facts rather than the active pin:
   and the `packages/` and `components/web-console/` test fixtures - these are
   illustrative values, not pins.
 - the arbitrary tag strings in `scripts/test_sync_openshell_version.py`.
+- the `v0.1.5-rhaiv.2` string passed to `RegisterClusterIdentityInfo` in
+  `components/control-plane/internal/otel/metrics_test.go` and asserted in
+  `specs/platform/control-plane-observability.spec.md` (OBS-CPL-09.01) - the
+  test verifies the metric reports whatever `GATEWAY_IMAGE` string it is given
+  verbatim, not that it matches the real pin. Found while sweeping the
+  footprint on the v0.1.6-rhaiv.4 bump (the full-image-string grep flags it
+  because it contains `odh-openshell-gateway:`).
 
 If unsure whether an occurrence is a pin or a fixture, treat it as a pin and note
 the ambiguity in the [Learnings log](#learnings-log).
@@ -195,6 +208,66 @@ docs or an old community-image default.** `sandbox.image.repository` plus
 `latest`) determines `OPENSHELL_SANDBOX_IMAGE`. `make sync-openshell-version`
 refreshes that entry; `make check` rejects a mismatch. A chart-schema change must
 be investigated rather than retaining the old pin silently.
+
+## Local patches to the vendored chart
+
+`charts/openshell/` is documented everywhere else in this skill as "replaced
+wholesale" from the upstream tag - that is true of everything **except** one
+spot, and getting this wrong silently reintroduces a real, previously-fixed
+production bug with no test failure to catch it.
+
+**`charts/openshell/templates/service.yaml`, `values.yaml`, `README.md`, and
+`tests/service_test.yaml` carry a HyperShell-authored patch that does not exist
+upstream**: the `service.httpPort` Service port (`appProtocol: http`,
+default `8090`) implementing OSG-ROUT-13 (Dual-Protocol Backend for
+Sandbox-Service Traffic, `specs/platform/openshell-gateway-routing.spec.md`).
+It was added directly to the vendored tree in commit `50b58030` rather than
+contributed upstream, because the WebSocket-routing fix was needed immediately
+and upstream contribution takes longer. `components/control-plane/internal/gateway/reconciler.go`'s
+`gatewayServiceHTTPPort = 8090` constant and the sandbox `HTTPRoute` it builds
+depend on this port existing on the Service by number; nothing re-derives it
+from the chart at runtime.
+
+**`make vendor-openshell-chart`'s `rm -rf charts/openshell && cp -r ...` erases
+this patch on every single bump**, because it is a real local diff against the
+pristine upstream tree, not something upstream carries forward. This was
+discovered on the v0.1.6-rhaiv.2 -> v0.1.6-rhaiv.4 bump (2026-11-04): the
+vendor step silently dropped the `http` Service port, which would have broken
+every dedicated-route sandbox WebSocket connection with no build or test
+failure (see that Learnings entry for why `go test` cannot catch this).
+
+**After every `make vendor-openshell-chart`, before running `make check` or
+committing:**
+
+```bash
+git diff -- charts/openshell/templates/service.yaml charts/openshell/values.yaml \
+  charts/openshell/README.md charts/openshell/tests/service_test.yaml
+```
+
+If this shows the `httpPort` block, the `service.httpPort: 8090` value, the
+README row, or the whole `service_test.yaml` file as *removed*, the patch did
+not survive vendoring. Re-apply it (the full patch is commit `50b58030` in this
+repo's history: `git show 50b58030 -- charts/openshell/`) before proceeding.
+Confirm the restored diff against `HEAD` shows **zero** change to
+`templates/service.yaml` (it must be byte-identical to the pre-vendor file) and
+only the explanatory-comment addition to `service_test.yaml`.
+
+If a future upstream release adds its own equivalent of this port (check the
+`service.yaml`/`values.yaml` diff for anything port- or protocol-related on
+every bump, not just this check), stop re-applying the local patch and instead
+treat the upstream version as a `needs-decision` item: confirm the port number,
+name, and `appProtocol` the reconciler expects still match before switching
+over, then delete this section's patch-reapplication step.
+
+**Known gap, not fixed by this entry:** `charts/openshell/tests/*.yaml` (the
+Helm `helm-unittest` suite, including `service_test.yaml` above) is not wired
+into `make check` or any CI target in this repo - `grep -rl "helm.*unittest"`
+over the Makefile and CI workflows returns nothing. A removed or broken chart
+template is invisible to every check this skill's Step 5 runs; only a manual
+`git diff` of the vendored tree (as required above) catches it. Wiring
+`helm unittest` into `make check` would close this gap properly; filed as a
+follow-up rather than done in-line here since it is a CI/tooling change, not a
+version bump.
 
 ## Workflow
 
@@ -447,16 +520,28 @@ be investigated rather than retaining the old pin silently.
    Learnings entry).
 
 4. **Verify contracts.** For each `needs-decision` item from step 2, check the
-   thing it touches:
+   thing it touches. There is no separate `manifests/gateway/*.yaml` tree -
+   the control plane renders `gateway.toml` and the Service/RBAC/NetworkPolicy
+   objects straight from the vendored `charts/openshell/` via
+   `components/control-plane/internal/helm/` (`chart.go`, `values.go`,
+   `resources.go`); do not look for the old static-manifest paths:
    - **Gateway config (`gateway.toml`)**: diff the keys the control plane renders
-     (`components/control-plane/manifests/gateway/configmap.yaml`,
-     `components/control-plane/internal/gateway/config.go`) against the new
+     (`charts/openshell/templates/_toml.tpl` and the other `gateway-config`
+     templates, `components/control-plane/internal/gateway/config.go` and
+     `validation.go`'s `ValidateRenderedGatewayConfig`) against the new
      gateway's expected config. A renamed/removed/added key is a code change, not
      a tag bump.
+   - **Service ports**: diff `charts/openshell/templates/service.yaml` and
+     `values.yaml`'s `service.*` block against the hardcoded
+     `gatewayServiceGRPCPort`/`gatewayServiceHTTPPort` constants in
+     `components/control-plane/internal/gateway/reconciler.go`. **This file
+     carries a HyperShell-local patch (the `httpPort` dual-protocol port,
+     OSG-ROUT-13) that upstream does not have** - see
+     [Local patches to the vendored chart](#local-patches-to-the-vendored-chart).
+     A silent port removal here is not caught by `go test` (see that section).
    - **Sandbox API version**: confirm the `agents.x-k8s.io` API version the new
-     gateway requires still matches the RBAC and manifests
-     (`components/control-plane/manifests/gateway/rbac.yaml`,
-     `.../networkpolicy.yaml`, `deploy/base/controller-rbac.yaml`).
+     gateway requires still matches `charts/openshell/templates/clusterrole.yaml`
+     and `role.yaml` against `deploy/base/platform-resources/controller-rbac.yaml`.
    - **Credential drivers**: if upstream changed the pluggable credential storage
      surface, re-check `ValidateCredentialDriverConfig` and the credentials spec.
    - **PKI / TLS / Route**: if upstream shipped ingress/PKI features, evaluate
@@ -492,13 +577,20 @@ does, the item is `needs-decision`:
 
 | Surface | Why it matters | Where HyperShell depends on it |
 |---------|----------------|--------------------------------|
-| Gateway/supervisor config schema (TOML) | Control plane renders `gateway.toml` | `manifests/gateway/configmap.yaml`, `internal/gateway/config.go` |
-| Sandbox CR / `agents.x-k8s.io` API version | Gateway manages sandboxes; RBAC grants on it | `manifests/gateway/rbac.yaml`, `networkpolicy.yaml`, `deploy/base/controller-rbac.yaml` |
+| Gateway/supervisor config schema (TOML) | Control plane renders `gateway.toml` from the vendored chart | `charts/openshell/templates/_toml.tpl` + `gateway-config*.yaml`, `internal/gateway/config.go`, `validation.go`'s `ValidateRenderedGatewayConfig` |
+| Service ports (gRPC vs. HTTP/1.1 backend) | The reconciler's Gateway API routes forward to these ports **by hardcoded number**; a chart change that renames/removes a port breaks routing with no test failure | `charts/openshell/templates/service.yaml`, `values.yaml` `service.*` (carries a HyperShell-local patch, see [Local patches](#local-patches-to-the-vendored-chart)), `internal/gateway/reconciler.go`'s `gatewayServiceGRPCPort`/`gatewayServiceHTTPPort` |
+| Sandbox CR / `agents.x-k8s.io` API version | Gateway manages sandboxes; RBAC grants on it | `charts/openshell/templates/clusterrole.yaml`, `role.yaml`, `deploy/base/platform-resources/controller-rbac.yaml` |
 | Credential storage drivers | HyperShell selects/validates drivers | `ValidateCredentialDriverConfig`, `openshell-gateway-credentials.spec.md` |
 | gRPC/proto surface | API server + control plane speak gRPC; console BFF calls gateway gRPC directly for sandbox/workspace ops | `components/api-server/proto/`; the console's release line covers its gateway proto (Step 3b) |
-| Gateway/supervisor CLI flags & env | Control plane sets them | `configmap.yaml`, deployment manifests |
+| Gateway/supervisor CLI flags & env | Control plane sets them via the chart's `gatewayConfig` values | `charts/openshell/templates/_toml.tpl`, `deployment.yaml`/`statefulset.yaml` |
 | PKI / TLS / ingress (Route, cert-manager, Gateway API) | HyperShell hand-rolls per-tenant PKI + ingress | `internal/gateway/` reconciler, ingress specs |
 | Auth (OIDC) | OIDC is the client auth mechanism (no client mTLS) | `ValidateOIDCConfig`, gateway OIDC config |
+
+Note: there is no `components/control-plane/manifests/gateway/` directory in
+the current architecture (a 2026-11-04 correction - see the Learnings log).
+The control plane renders everything straight from the vendored Helm chart via
+`internal/helm/`. If you find yourself typing that path, stop and look in
+`charts/openshell/templates/` and `internal/helm/` instead.
 
 ## Verification
 
@@ -541,6 +633,81 @@ If a run produced no new lessons, that is itself worth a one-line log entry
 ## Learnings log
 
 Newest first. Each entry: version, date, what happened, what changed in the repo.
+
+- **v0.1.6-rhaiv.4 (2026-11-04, v0.1.6-rhaiv.2 -> v0.1.6-rhaiv.4, no-arg scheduled
+  run, built on `main` directly rather than on the still-open rhaiv.3 PR #923):**
+  Mechanical pins, chart re-vendor, and footprint sweep all landed, but the
+  vendor step surfaced a real near-miss, not a mechanical no-op.
+  - **Near-miss (fixed): the chart vendor step silently deleted a HyperShell-local
+    patch.** `make vendor-openshell-chart`'s wholesale `rm -rf && cp -r` dropped
+    the `service.httpPort` Service port (`charts/openshell/templates/service.yaml`,
+    `values.yaml`, `tests/service_test.yaml`) added by commit `50b58030` to
+    implement OSG-ROUT-13 (WebSocket routing over a dedicated route). That port
+    was never upstream - confirmed by diffing the real `opendatahub-io/openshell`
+    tags directly (`git diff v0.1.6-rhaiv.2 v0.1.6-rhaiv.4 -- .../service.yaml`
+    shows **zero** change upstream). Had this gone out as-is, every dedicated-route
+    gateway's sandbox `HTTPRoute` would have forwarded to Service port 8090, which
+    would no longer exist, breaking all sandbox-service/WebSocket traffic on
+    dedicated routes. Re-applied the patch (template, values, README row, test
+    file) on top of the fresh vendor and confirmed `git diff` against `HEAD` shows
+    the restored files are byte-identical to the pre-vendor versions except an
+    explanatory comment added to the test file. Added the
+    [Local patches to the vendored chart](#local-patches-to-the-vendored-chart)
+    section so every future bump checks this explicitly instead of trusting the
+    wholesale replace.
+  - **Why nothing caught this automatically:** `go build`/`go vet`/`go test` all
+    passed regardless, because `reconciler_test.go`'s OSG-ROUT-13 assertions only
+    check that the reconciler *constructs* the HTTPRoute object pointing at the
+    `gatewayServiceHTTPPort` constant - they never render the real chart to check
+    the Service actually has that port. And `charts/openshell/tests/*.yaml` (the
+    chart's own `helm-unittest` suite, which would have caught it directly) is not
+    wired into `make check` or CI at all. Logged as a known gap in the new section
+    rather than fixed here (wiring a Helm-unittest runner into `make check` is a
+    CI/tooling change, out of scope for a version-bump run).
+  - **Skill correction: stale `manifests/gateway/*.yaml` paths.** Step 4 and the
+    Contract-surfaces table pointed at
+    `components/control-plane/manifests/gateway/{configmap,rbac,networkpolicy}.yaml`,
+    which do not exist anywhere in the current tree (confirmed by grep across the
+    whole repo). The real architecture renders `gateway.toml` and the Service/RBAC
+    objects straight from the vendored chart via `internal/helm/` (`chart.go`,
+    `values.go`, `resources.go`). Corrected both sections to point at
+    `charts/openshell/templates/` and the real Go files.
+  - **Fixture found, added to the do-not-change list:**
+    `components/control-plane/internal/otel/metrics_test.go` and
+    `specs/platform/control-plane-observability.spec.md` (OBS-CPL-09.01) pass
+    `quay.io/opendatahub/odh-openshell-gateway:v0.1.5-rhaiv.2` as an arbitrary
+    `GATEWAY_IMAGE` example string to prove the metric reports the configured
+    value verbatim - not a real pin, and two minor versions behind besides. The
+    footprint discovery grep flags it because it matches
+    `odh-openshell-gateway:`.
+  - **Missed pin found by manual spot-check, not by any grep in the table:**
+    `specs/platform/global-architecture.spec.md`'s API-compat note cites the
+    gateway version **without the leading `v`** ("gateway 0.1.6-rhaiv.2"). None
+    of the three discovery greps match a bare `<major>.<minor>.<patch>-rhaiv.<n>`
+    with no `openshell-gateway:`-style prefix on the same line, so this file
+    silently kept the old pin after every grep in the table came back clean.
+    Added a fourth discovery grep for the bare form and a note on this file's
+    row in the footprint table.
+  - **Range triage (v0.1.6-rhaiv.2 -> v0.1.6-rhaiv.4, 60 commits across two rhaiv
+    patches, same NVIDIA base v0.1.6):** All upstream changes besides the
+    already-known OCSF schema-version deprecation (relaxed validation, still
+    unused by HyperShell - confirmed no `ocsf`/`schema_version` reference
+    anywhere in `components/control-plane`) were dependency bumps, CI, tests, and
+    docs. No Sandbox-API-version change (`agents.x-k8s.io/v1beta1` still primary,
+    `v1alpha1` still the only fallback), no RBAC diff (`clusterrole.yaml`/`role.yaml`
+    byte-identical to the prior vendor), no credential-driver or OIDC change, no
+    gRPC/proto surface change requiring a console bump.
+  - **Console unchanged.** No proto change in range; `OPENSHELL_CONSOLE_DIGEST`
+    left as-is. Issue #760/#752 (console dashboard one release behind, blocked on
+    no `quay.io` network access from this sandbox) is unrelated to this bump and
+    still open; added no new comment since nothing changed for it this run.
+  - **Issue #809 (gateway refuses to start without an auth mechanism) still open,
+    still applies verbatim** at `v0.1.6-rhaiv.4` - this run did not touch
+    `ValidateRenderedGatewayConfig`. Commented on the issue noting the new target
+    tag, consistent with prior bumps.
+  - **Superseded PR #923** (`implementer/update-openshell-v0.1.6-rhaiv.3`, opened
+    by the same bot, same base branch, strictly older full version) per the usual
+    close-after-confirm flow.
 
 - **Skill correction (2026-11-01, duplicate-PR pollution across runs):** This
   scheduled run resolved the same target (`v0.1.6-rhaiv.2`) as the prior run and
