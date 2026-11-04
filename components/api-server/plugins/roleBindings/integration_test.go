@@ -165,7 +165,7 @@ func TestRoleBindingList(t *testing.T) {
 
 	gatewayID := "gw-test-list"
 	// Seed a binding directly through the DAO: this fixture only needs a row to
-	// list, and the low-level Create path now enforces the SEC-RBAC-24 write
+	// list, and the low-level Create path now enforces the SEC-RBAC-25 write
 	// policy (caller ownership and a valid target user) which is out of scope here.
 	targetUser := "gw-test-list-user"
 	_, createErr := roleBindings.NewRoleBindingDao(
@@ -706,9 +706,9 @@ func TestCIFederationGrantorRole(t *testing.T) {
 }
 
 // seedGatewayBinding writes a gateway-scoped binding straight through the DAO,
-// bypassing the SEC-RBAC-24 write policy. Tests use it to stage a caller's
+// bypassing the SEC-RBAC-25 write policy. Tests use it to stage a caller's
 // pre-existing access (owner/viewer) before exercising an authorized write; the
-// write policy itself is covered by the dedicated SEC-RBAC-24 tests below.
+// write policy itself is covered by the dedicated SEC-RBAC-25 tests below.
 func seedGatewayBinding(roleID, userID, gatewayID string) error {
 	_, err := roleBindings.NewRoleBindingDao(
 		&environments.Environment().Database.SessionFactory,
@@ -740,7 +740,7 @@ func seedGlobalBinding(roleID, userID string) (string, error) {
 
 // An unrelated authenticated user cannot delete another user's Keycloak-owned or
 // global binding through the low-level resource.
-// Verifies: SEC-RBAC-24.03
+// Verifies: SEC-RBAC-25.03
 func TestRoleBindingDelete_UnrelatedUserCannotDeleteGlobalBinding(t *testing.T) {
 	test.RegisterIntegration(t)
 
@@ -773,7 +773,7 @@ func TestRoleBindingDelete_UnrelatedUserCannotDeleteGlobalBinding(t *testing.T) 
 
 // The seeded managed-cluster-registrar role has no explicit write policy and is
 // denied for both create and delete.
-// Verifies: SEC-RBAC-24.06
+// Verifies: SEC-RBAC-25.06
 func TestRoleBindingWrite_ManagedClusterRegistrarDenied(t *testing.T) {
 	test.RegisterIntegration(t)
 
@@ -814,7 +814,7 @@ func TestRoleBindingWrite_ManagedClusterRegistrarDenied(t *testing.T) {
 // A user-facing gateway-role write with no authenticated caller identity is
 // rejected; the ownership helper no longer treats a missing caller id as
 // permission.
-// Verifies: SEC-RBAC-24.07
+// Verifies: SEC-RBAC-25.07
 func TestRoleBindingCreate_MissingCallerIdentityRejected(t *testing.T) {
 	test.RegisterIntegration(t)
 
@@ -844,7 +844,7 @@ func TestRoleBindingCreate_MissingCallerIdentityRejected(t *testing.T) {
 // shared write check: a create or delete with no authenticated caller identity is
 // rejected, so the service is the authoritative gate even for the role that is not
 // Keycloak-owned. The previous success-on-missing-identity path is removed.
-// Verifies: SEC-RBAC-24.01, SEC-RBAC-24.07
+// Verifies: SEC-RBAC-25.01, SEC-RBAC-25.07
 func TestRoleBindingWrite_CIFederationAdminMissingIdentityRejected(t *testing.T) {
 	test.RegisterIntegration(t)
 
@@ -880,7 +880,7 @@ func TestRoleBindingWrite_CIFederationAdminMissingIdentityRejected(t *testing.T)
 
 // Last-owner protection: deleting a gateway's only owner binding is refused; once
 // a second owner exists the delete succeeds.
-// Verifies: SEC-RBAC-24.04
+// Verifies: SEC-RBAC-25.04
 func TestRoleBindingDelete_LastOwnerProtected(t *testing.T) {
 	test.RegisterIntegration(t)
 
@@ -923,7 +923,7 @@ func TestRoleBindingDelete_LastOwnerProtected(t *testing.T) {
 
 // Delete authorizes against the binding's stored gateway; a caller who does not
 // own that gateway is refused even though it owns another gateway.
-// Verifies: SEC-RBAC-24.08
+// Verifies: SEC-RBAC-25.08
 func TestRoleBindingDelete_AuthorizesAgainstStoredGateway(t *testing.T) {
 	test.RegisterIntegration(t)
 

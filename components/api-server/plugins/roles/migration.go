@@ -202,7 +202,7 @@ var builtInRoleSeeds = []roleSeed{
 		// SeedRoles, and a test environment re-seeded after ResetDB, ends in the
 		// same state. Registration authority is JWT-direct (SEC-RBAC-16); this
 		// role has no DB-binding lifecycle and is rejected by the role_bindings
-		// write policy (SEC-RBAC-24).
+		// write policy (SEC-RBAC-25).
 		Name:        RoleManagedClusterRegistrar,
 		DisplayName: "Managed Cluster Registrar",
 		Description: "Allows a spoke control-plane to self-register via POST /managed_clusters/registration. JWT-direct: no DB binding lifecycle.",

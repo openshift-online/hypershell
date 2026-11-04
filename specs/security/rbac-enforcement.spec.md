@@ -349,7 +349,7 @@ they own. Gateway admins can grant, change, or revoke only `gateway:admin` and
 always retain at least one owner (last-owner protection, GTW-ACC-07). The console performs
 these grants through the gateway access facade (`GTW-ACC-04`/`GTW-ACC-05`/`GTW-ACC-06`), which writes
 the same RoleBinding records. The low-level generic `/role_bindings` resource writes the
-same records but under the default-deny write policy of SEC-RBAC-24, which requires
+same records but under the default-deny write policy of SEC-RBAC-25, which requires
 `gateway:owner` on the target gateway and denies every role with no explicit rule.
 
 #### Scenario: SEC-RBAC-06.01 -- Owner invites a viewer
@@ -412,7 +412,7 @@ Platform administrators SHALL be able to:
 Platform administrators SHALL NOT be able to:
 
 - Modify gateway configuration (PATCH/PUT operations require `gateway:owner` or `gateway:admin`)
-- Create or delete `RoleBinding` records through the low-level generic `/role_bindings` resource (that resource enforces the default-deny write policy of SEC-RBAC-24, which requires `gateway:owner` on the target gateway and grants `platform:admin` no bypass; platform administrators manage access through the access facade instead)
+- Create or delete `RoleBinding` records through the low-level generic `/role_bindings` resource (that resource enforces the default-deny write policy of SEC-RBAC-25, which requires `gateway:owner` on the target gateway and grants `platform:admin` no bypass; platform administrators manage access through the access facade instead)
 - Create gateways (requires `gateway:creator` role)
 - Read sandbox Events through `GET /api/hypershell/v1/gateways/{gateway_id}/sandbox_events` without a per-gateway binding; the response SHALL be `404` (OSG-SEVT-05)
 - Obtain gateway login from managing access: performing access management creates no gateway-scoped binding for the platform administrator, so they receive no `openshell` CLI access unless separately granted a per-gateway binding (see OpenShell Role Bridge above)
@@ -424,7 +424,7 @@ The `platform:admin` role covers gateway **view**, **delete**, and **access mana
 
 - Modify gateway configuration (PATCH), or create gateways (requires `gateway:creator`)
 - View or modify ManagedClusters
-- Create or delete `RoleBinding` records through the generic `/role_bindings` resource (that resource requires `gateway:owner` on the target gateway under the SEC-RBAC-24 write policy; access is managed through the access facade instead)
+- Create or delete `RoleBinding` records through the generic `/role_bindings` resource (that resource requires `gateway:owner` on the target gateway under the SEC-RBAC-25 write policy; access is managed through the access facade instead)
 - Access platform-level configuration or system administration functions
 
 Future iterations may expand platform:admin permissions to include these resources.
@@ -1081,7 +1081,7 @@ request to a specific `ci_trusts/{id}` MAY be masked as 404 per SEC-RBAC-10.
 - THEN the read SHALL be authorized
 - AND a caller with no binding on gw-1 SHALL NOT read them
 
-### Requirement: SEC-RBAC-24 -- Low-Level RoleBinding Write Authorization
+### Requirement: SEC-RBAC-25 -- Low-Level RoleBinding Write Authorization
 
 The low-level generic `RoleBinding` resource (`POST /api/hypershell/v1/role_bindings`
 and `DELETE /api/hypershell/v1/role_bindings/{id}`) SHALL authorize every create and
@@ -1164,14 +1164,14 @@ review; the rollout SHALL NOT automatically delete or rewrite them. Reconciliati
 later restore a binding a caller deletes; that restoration does not make the deletion
 authorized.
 
-#### Scenario: SEC-RBAC-24.01 -- Unauthenticated caller cannot create or delete
+#### Scenario: SEC-RBAC-25.01 -- Unauthenticated caller cannot create or delete
 
 - GIVEN a caller with no authenticated identity
 - WHEN the caller attempts `POST /api/hypershell/v1/role_bindings` or `DELETE /api/hypershell/v1/role_bindings/{id}`
 - THEN the request SHALL be rejected
 - AND no RoleBinding row and no Event SHALL be written
 
-#### Scenario: SEC-RBAC-24.02 -- Default creator cannot grant itself a Keycloak-owned role
+#### Scenario: SEC-RBAC-25.02 -- Default creator cannot grant itself a Keycloak-owned role
 
 - GIVEN user A holds only the default `gateway:creator` role
 - WHEN user A creates a `role_bindings` entry for itself requesting `platform:admin`, `gateway:creator`, `gateway:dedicated-route-creator`, or `ci-federation:grantor`
@@ -1181,7 +1181,7 @@ authorized.
 - THEN the response SHALL also be 403 Forbidden
 - AND no binding SHALL be created
 
-#### Scenario: SEC-RBAC-24.03 -- Unrelated user cannot delete another user's global binding
+#### Scenario: SEC-RBAC-25.03 -- Unrelated user cannot delete another user's global binding
 
 - GIVEN user A holds only `gateway:creator`
 - AND user B holds a Keycloak-owned or otherwise global binding
@@ -1189,7 +1189,7 @@ authorized.
 - THEN the response SHALL be 403 Forbidden
 - AND user B's binding SHALL remain
 
-#### Scenario: SEC-RBAC-24.04 -- Gateway owner grants and revokes supported roles on their gateway
+#### Scenario: SEC-RBAC-25.04 -- Gateway owner grants and revokes supported roles on their gateway
 
 - GIVEN user A holds `gateway:owner` on gw-1
 - WHEN user A creates a `gateway:viewer`, `gateway:admin`, or `gateway:owner` binding on gw-1 for user B
@@ -1198,7 +1198,7 @@ authorized.
 - THEN the delete SHALL be authorized, subject to last-owner protection (GTW-ACC-07)
 - AND a delete that would remove gw-1's last `gateway:owner` SHALL be refused
 
-#### Scenario: SEC-RBAC-24.05 -- Admin or viewer cannot bypass the owner requirement
+#### Scenario: SEC-RBAC-25.05 -- Admin or viewer cannot bypass the owner requirement
 
 - GIVEN user A holds `gateway:owner` on gw-1 only
 - AND user C holds `gateway:admin` on gw-2 and user V holds `gateway:viewer` on gw-2
@@ -1207,7 +1207,7 @@ authorized.
 - AND when user C or user V attempts the same operation on gw-2 through the low-level resource
 - THEN the response SHALL also be 403 Forbidden (the low-level resource requires `gateway:owner`)
 
-#### Scenario: SEC-RBAC-24.06 -- Role with no explicit policy is rejected for create and delete
+#### Scenario: SEC-RBAC-25.06 -- Role with no explicit policy is rejected for create and delete
 
 - GIVEN the seeded `managed-cluster-registrar` role (or any role the policy does not grant)
 - WHEN a caller creates a binding for that role through the low-level resource
@@ -1216,13 +1216,13 @@ authorized.
 - THEN the response SHALL be 403 Forbidden
 - AND no row or Event SHALL change
 
-#### Scenario: SEC-RBAC-24.07 -- Invalid target is rejected before persistence
+#### Scenario: SEC-RBAC-25.07 -- Invalid target is rejected before persistence
 
 - GIVEN a create through the low-level resource
 - WHEN the caller identity is missing, the target user id is missing or unknown, the referenced gateway does not exist, or the scope and role do not match
 - THEN the request SHALL be rejected before any row or Event is written
 
-#### Scenario: SEC-RBAC-24.08 -- Delete authorizes against stored values
+#### Scenario: SEC-RBAC-25.08 -- Delete authorizes against stored values
 
 - GIVEN an existing `gateway:viewer` binding on gw-1 for user B
 - WHEN user A (who does not own gw-1) deletes it while supplying a scope or gateway id that would otherwise pass
@@ -1230,7 +1230,7 @@ authorized.
 - AND the delete SHALL be refused
 - AND the binding SHALL remain
 
-#### Scenario: SEC-RBAC-24.09 -- Trusted internal and facade workflows still work
+#### Scenario: SEC-RBAC-25.09 -- Trusted internal and facade workflows still work
 
 - GIVEN the server-initiated paths: gateway-owner creation on gateway create, JWT role synchronization, reconciliation, cleanup, and the access facade
 - WHEN each runs through its dedicated internal method or the facade

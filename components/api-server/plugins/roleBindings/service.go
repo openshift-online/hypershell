@@ -214,7 +214,7 @@ func (s *sqlRoleBindingService) Create(ctx context.Context, rb *RoleBinding) (*R
 		return nil, err
 	}
 
-	// SEC-RBAC-24: default-deny write authorization shared by Create and Delete.
+	// SEC-RBAC-25: default-deny write authorization shared by Create and Delete.
 	// It rejects missing caller identity, Keycloak-owned and managed-cluster roles,
 	// gateway writes by a non-owner, and any role with no explicit rule, and gates the
 	// API-assignable ci-federation:admin on platform:admin/ci-federation:grantor
@@ -223,7 +223,7 @@ func (s *sqlRoleBindingService) Create(ctx context.Context, rb *RoleBinding) (*R
 		return nil, err
 	}
 
-	// SEC-RBAC-24 target validation: a create must name a valid, existing target
+	// SEC-RBAC-25 target validation: a create must name a valid, existing target
 	// user. Role and scope are validated above; gateway existence is enforced by
 	// the owner check in authorizeWrite (a nonexistent gateway has no owner).
 	if err := s.validateTargetUser(ctx, rb); err != nil {
@@ -273,7 +273,7 @@ func (s *sqlRoleBindingService) Delete(ctx context.Context, id string) *errors.S
 		defer unlock()
 	}
 
-	// SEC-RBAC-24: authorize the delete against the binding's STORED role, scope,
+	// SEC-RBAC-25: authorize the delete against the binding's STORED role, scope,
 	// and gateway using the same shared, default-deny policy as Create. A
 	// caller-supplied scope or gateway never decides which permissions apply.
 	// Revoking a ci-federation:admin binding is as privileged as granting it, so
@@ -508,7 +508,7 @@ func (s *sqlRoleBindingService) FindByIDs(ctx context.Context, ids []string) (Ro
 	return bindings, nil
 }
 
-// write operations evaluated by the shared SEC-RBAC-24 authorization check.
+// write operations evaluated by the shared SEC-RBAC-25 authorization check.
 const (
 	opCreate = "create"
 	opDelete = "delete"
@@ -517,7 +517,7 @@ const (
 // GatewayAccessLockType and GatewayAccessLockID define the single per-gateway
 // advisory-lock domain shared by this low-level resource and the access facade
 // (plugins/gatewayAccess), so last-owner mutations on either path serialize in the
-// SAME domain and cannot race. SEC-RBAC-24 requires this resource not be a weaker
+// SAME domain and cannot race. SEC-RBAC-25 requires this resource not be a weaker
 // (unserialized) path to removing a gateway's last owner (GTW-ACC-07). This package
 // owns the canonical definition because gatewayAccess already depends on it (the
 // reverse dependency would be a cycle); gatewayAccess references these exported
@@ -544,7 +544,7 @@ func (s *sqlRoleBindingService) acquireGatewayAccessLock(ctx context.Context, ga
 }
 
 // authorizeWrite is the single, default-deny authorization check shared by Create
-// and Delete on the low-level generic /role_bindings resource (SEC-RBAC-24). It
+// and Delete on the low-level generic /role_bindings resource (SEC-RBAC-25). It
 // evaluates the operation, the authenticated caller, the stored role, the scope,
 // and the target gateway, and runs before any row or event is written. A role for
 // which no rule grants the operation is denied, so adding a role to the database
@@ -600,7 +600,7 @@ func (s *sqlRoleBindingService) authorizeWrite(ctx context.Context, op string, r
 	}
 }
 
-// validateTargetUser enforces the SEC-RBAC-24 target requirement for a create: the
+// validateTargetUser enforces the SEC-RBAC-25 target requirement for a create: the
 // binding must name a valid, existing target user. It runs after authorizeWrite so
 // a denied role fails closed with the policy decision rather than disclosing
 // whether a user exists.
@@ -609,7 +609,7 @@ func (s *sqlRoleBindingService) validateTargetUser(ctx context.Context, rb *Role
 		return errors.Validation("user_id is required")
 	}
 	if s.userDao == nil {
-		// Fail closed: the target-user check is a required SEC-RBAC-24 control and
+		// Fail closed: the target-user check is a required SEC-RBAC-25 control and
 		// must never be skipped silently if the dependency is unwired.
 		return errors.GeneralError("role binding service is misconfigured: target user validation is unavailable")
 	}
@@ -665,7 +665,7 @@ func (s *sqlRoleBindingService) validateCallerOwnsGateway(ctx context.Context, g
 
 	callerUserID := rbac.GetUserIDFromContext(ctx)
 	if callerUserID == "" {
-		// SEC-RBAC-24: a missing caller identity never grants permission. The
+		// SEC-RBAC-25: a missing caller identity never grants permission. The
 		// previous success-on-missing-identity path is removed; user-facing
 		// writes without an authenticated caller are rejected here even if the
 		// HTTP middleware did not run first.
@@ -700,7 +700,7 @@ func (s *sqlRoleBindingService) validateCallerOwnsGateway(ctx context.Context, g
 //
 // ci-federation:admin is never granted by a server-initiated path (it is not in
 // JWTSyncedRoles and has no owner-bootstrap step); every grant and revoke is a
-// user-facing write. SEC-RBAC-24 therefore requires that a missing caller identity
+// user-facing write. SEC-RBAC-25 therefore requires that a missing caller identity
 // never authorize the operation, matching validateCallerOwnsGateway: the service is
 // the authoritative gate and does not rely on the HTTP middleware having populated a
 // principal first.

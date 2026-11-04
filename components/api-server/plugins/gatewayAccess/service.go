@@ -25,7 +25,7 @@ const (
 // The per-gateway advisory-lock domain is owned by the roleBindings package
 // (roleBindings.GatewayAccessLockType / GatewayAccessLockID) so this facade and the
 // low-level /role_bindings resource serialize last-owner mutations in one domain
-// (SEC-RBAC-24, GTW-ACC-07). Reference the shared symbols rather than re-declaring
+// (SEC-RBAC-25, GTW-ACC-07). Reference the shared symbols rather than re-declaring
 // the string here, so the two paths cannot diverge.
 
 func tierToRoleName(tier string) string {
