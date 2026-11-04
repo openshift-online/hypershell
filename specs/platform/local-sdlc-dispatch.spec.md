@@ -353,7 +353,11 @@ fixed-height viewport. Raw log text, unwrapped lines, and colors SHALL be the
 default. The developer SHALL be able to toggle Markdown (`m`), wrapping (`w`),
 and color (`a`) independently. Markdown SHALL render through the same terminal
 palette without fetching remote resources or consulting environment-selected
-stylesheets. `NO_COLOR` SHALL prevent ANSI colors even when the color toggle is on.
+stylesheets. Markdown SHALL apply only to recognizable Fullsend `💬` agent prose
+blocks, not CLI progress, commands, tool output, warnings or errors. CLI ANSI colors
+SHALL remain intact when Markdown is enabled. Unmarked output SHALL remain
+literal. Source-line filtering SHALL retain agent-message context even when the
+marker line does not match the filter. `NO_COLOR` SHALL prevent ANSI colors even when the color toggle is on.
 
 The complete source file SHALL remain accessible, including content older than
 64 KiB and the ends of long lines. With wrapping off, Left/Right and H/L SHALL

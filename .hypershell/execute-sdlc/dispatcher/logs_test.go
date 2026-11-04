@@ -155,7 +155,7 @@ func TestMarkdownRenderingNeverWrapsOrTruncatesSourceUnlessEnabled(t *testing.T)
 	old := lipgloss.ColorProfile()
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	defer lipgloss.SetColorProfile(old)
-	text := "# Heading\n\n**bold text** and `code`\n\n" + strings.Repeat("long phrase ", 30) + "UNIQUE_SUFFIX\n\n```go\n" + strings.Repeat("x", 180) + "CODE_SUFFIX\n```\n"
+	text := "  💬 # Heading\n\n**bold text** and `code`\n\n" + strings.Repeat("long phrase ", 30) + "UNIQUE_SUFFIX\n\n```go\n" + strings.Repeat("x", 180) + "CODE_SUFFIX\n```\n"
 	key := logRenderKey{text: text, width: 45, markdown: true, color: true}
 	got := renderLog(key)
 	if got.err != nil {
@@ -298,5 +298,41 @@ func TestLogStatusIndicatorsLiveInBordersWithoutCountRows(t *testing.T) {
 	}
 	if m.logPageSize() != 16 {
 		t.Fatalf("metadata consumed log rows: %d", m.logPageSize())
+	}
+}
+
+func TestMarkdownOnlyRendersAgentProseAndPreservesCLIColor(t *testing.T) {
+	old := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	defer lipgloss.SetColorProfile(old)
+	source := "  • Preparing **CLI literal**\n  💬 # Agent heading\n\n**Agent bold prose**\n\n  ⚙ Bash: echo **literal command**\n\x1b[32mPASS **colored CLI literal**\x1b[0m\nError: **CLI error literal**\n"
+	key := logRenderKey{text: source, width: 90, markdown: true, color: true}
+	got := renderLog(key)
+	if got.err != nil {
+		t.Fatal(got.err)
+	}
+	text := strings.Join(got.lines, "\n")
+	plain := ansi.Strip(text)
+	for _, want := range []string{"**CLI literal**", "**literal command**", "**colored CLI literal**", "**CLI error literal**", "Agent bold prose"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("CLI/prose changed: %q", want)
+		}
+	}
+	if strings.Contains(plain, "**Agent bold prose**") {
+		t.Fatal("agent Markdown not rendered")
+	}
+	if !strings.Contains(text, "\x1b[32mPASS") {
+		t.Fatal("CLI color lost with Markdown on")
+	}
+	key.filter = "Agent bold"
+	got = renderLog(key)
+	if got.matches != 1 || strings.Contains(ansi.Strip(strings.Join(got.lines, "\n")), "**Agent bold") {
+		t.Fatal("filtered continuation lost agent context")
+	}
+	key.text = "# Unmarked CLI output\n**literal CLI text**"
+	key.filter = ""
+	got = renderLog(key)
+	if !strings.Contains(strings.Join(got.lines, "\n"), "**literal CLI text**") {
+		t.Fatal("unmarked CLI was treated as Markdown")
 	}
 }

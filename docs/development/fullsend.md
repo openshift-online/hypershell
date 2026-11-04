@@ -370,7 +370,7 @@ is no separate source-line count row. Filter input uses a row only while typing.
 | Left/Right or `H` / `L` | Pan horizontally with wrapping off |
 | Shift-Left/Right | Pan half a viewport |
 | `0` / `$` | Reach the left/right end of long lines |
-| `m` | Toggle Markdown rendering; default off |
+| `m` | Toggle Markdown for Fullsend `💬` agent prose; default off |
 | `w` | Toggle line wrapping; default off |
 | `a` | Toggle source and semantic colors; default on, subject to `NO_COLOR` |
 | `/` | Filter source lines by a case-insensitive substring |
@@ -386,6 +386,11 @@ Filters update as output grows and are separate from work-list/history filters.
 The source-match count and column/line ranges show what is currently visible.
 Rendering toggles do not modify the log file and remain selected while switching
 between logs during the same dashboard session.
+
+Markdown applies only to marked Fullsend agent prose. CLI progress, commands,
+tool output, warnings and errors retain their source formatting and colors in
+both modes. Unmarked output remains literal. Filters classify message context
+before matching, so matching agent continuation lines still render correctly.
 
 The viewer preserves source colors and highlights familiar Fullsend success,
 warning, and error lines. Source terminal controls are removed so log content

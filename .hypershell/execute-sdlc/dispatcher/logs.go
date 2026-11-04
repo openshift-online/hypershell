@@ -129,6 +129,68 @@ func (m Model) logWidth() int { return max(1, m.width-8) } // frame, pane border
 func (m Model) logKey() logRenderKey {
 	return logRenderKey{m.logText, m.logs.filter, m.logWidth(), m.logs.markdown, m.logs.wrap, !m.plainColor && !m.logs.noColor, lipgloss.HasDarkBackground()}
 }
+
+type logSourceLine struct {
+	raw, prose string
+	message    int // zero is CLI output; positive IDs identify Fullsend chat blocks
+}
+
+// Classification happens before filtering so matching continuation lines retain
+// their message context even if the message marker itself was filtered out.
+func classifyLogLines(lines []string) []logSourceLine {
+	result := make([]logSourceLine, 0, len(lines))
+	active, next := 0, 0
+	for _, line := range lines {
+		plain := ansi.Strip(line)
+		trimmed := strings.TrimSpace(plain)
+		if strings.HasPrefix(trimmed, "💬") {
+			next++
+			active = next
+			prose := strings.TrimLeft(strings.TrimPrefix(trimmed, "💬"), " \ufe0e\ufe0f")
+			result = append(result, logSourceLine{line, prose, active})
+			continue
+		}
+		cli := false
+		for _, prefix := range []string{"⚡", "→", "✓", "✗", "• ", "! ", "⚙", "Error:", "WARNING:", "runtime:", "model:", "post-lifecycle:", "pre-lifecycle:"} {
+			if strings.HasPrefix(trimmed, prefix) {
+				cli = true
+				break
+			}
+		}
+		if strings.HasPrefix(trimmed, "⏳") {
+			// A heartbeat can interleave a message; preserve its CLI formatting
+			// without claiming the next unmarked prose line is CLI output.
+			result = append(result, logSourceLine{raw: line})
+			continue
+		}
+		if cli {
+			active = 0
+		}
+		result = append(result, logSourceLine{line, plain, active})
+	}
+	return result
+}
+func colorCLILog(line string, color bool) string {
+	if !color || strings.Contains(line, "\x1b[") {
+		return line
+	}
+	trimmed := strings.TrimSpace(line)
+	role := ""
+	switch {
+	case strings.HasPrefix(trimmed, "Error:"), strings.HasPrefix(trimmed, "✗"), strings.HasPrefix(trimmed, "FAIL"):
+		role = "1"
+	case strings.HasPrefix(trimmed, "WARNING:"), strings.HasPrefix(trimmed, "!"), strings.HasPrefix(trimmed, "WARN"):
+		role = "3"
+	case strings.HasPrefix(trimmed, "✓"), strings.HasPrefix(trimmed, "PASS"):
+		role = "2"
+	case strings.HasPrefix(trimmed, "→"), strings.HasPrefix(trimmed, "•"):
+		role = "6"
+	}
+	if role != "" {
+		return lipgloss.NewStyle().Foreground(themeColor(role)).Render(line)
+	}
+	return line
+}
 func renderLog(key logRenderKey) *renderedLog {
 	result := &renderedLog{key: key}
 	source := safeLog(key.text, key.color)
@@ -137,49 +199,57 @@ func renderLog(key logRenderKey) *renderedLog {
 		sourceLines = nil
 	}
 	result.total = len(sourceLines)
-	selected := make([]string, 0, len(sourceLines))
+	selected := make([]logSourceLine, 0, len(sourceLines))
 	query := strings.ToLower(key.filter)
-	for _, line := range sourceLines {
-		if query == "" || strings.Contains(strings.ToLower(ansi.Strip(line)), query) {
+	for _, line := range classifyLogLines(sourceLines) {
+		if query == "" || strings.Contains(strings.ToLower(ansi.Strip(line.raw)), query) {
 			selected = append(selected, line)
 		}
 	}
 	result.matches = len(selected)
-	if key.color && !key.markdown {
-		for i, line := range selected {
-			if strings.Contains(line, "\x1b[") {
-				continue
-			}
-			trimmed := strings.TrimSpace(line)
-			color := ""
-			switch {
-			case strings.HasPrefix(trimmed, "Error:"), strings.HasPrefix(trimmed, "✗"), strings.HasPrefix(trimmed, "FAIL"):
-				color = "1"
-			case strings.HasPrefix(trimmed, "WARNING:"), strings.HasPrefix(trimmed, "!"), strings.HasPrefix(trimmed, "WARN"):
-				color = "3"
-			case strings.HasPrefix(trimmed, "✓"), strings.HasPrefix(trimmed, "PASS"):
-				color = "2"
-			case strings.HasPrefix(trimmed, "→"), strings.HasPrefix(trimmed, "•"):
-				color = "6"
-			}
-			if color != "" {
-				selected[i] = lipgloss.NewStyle().Foreground(themeColor(color)).Render(line)
-			}
+	output := make([]string, 0, len(selected))
+	for i := 0; i < len(selected); {
+		line := selected[i]
+		if !key.markdown || line.message == 0 {
+			output = append(output, colorCLILog(line.raw, key.color))
+			i++
+			continue
 		}
-	}
-	text := strings.Join(selected, "\n")
-	if key.markdown && text != "" {
+		end := i + 1
+		for end < len(selected) && selected[end].message == line.message {
+			end++
+		}
+		prose := make([]string, 0, end-i)
+		for _, part := range selected[i:end] {
+			prose = append(prose, part.prose)
+		}
 		width := 0
 		if key.wrap {
-			width = key.width
+			width = max(1, key.width-3)
 		}
-		value, err := markdownLog(ansi.Strip(text), width, key.color)
+		rendered, err := markdownLog(strings.Join(prose, "\n"), width, key.color)
 		if err != nil {
 			result.err = err
+			for _, part := range selected[i:end] {
+				output = append(output, part.raw)
+			}
 		} else {
-			text = safeLog(value, key.color)
+			icon := "💬 "
+			if key.color {
+				icon = lipgloss.NewStyle().Foreground(themeColor("6")).Render("💬 ")
+			}
+			renderedLines := strings.Split(strings.Trim(safeLog(rendered, key.color), "\n"), "\n")
+			for n, text := range renderedLines {
+				prefix := "   "
+				if n == 0 {
+					prefix = icon
+				}
+				output = append(output, prefix+text)
+			}
 		}
+		i = end
 	}
+	text := strings.Join(output, "\n")
 	if key.wrap {
 		text = safeLog(ansi.Wrap(text, key.width, ""), key.color)
 	}
