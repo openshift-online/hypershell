@@ -12,7 +12,6 @@ import {
   List,
   ListItem,
   MenuToggle,
-  MenuToggleCheckbox,
   Modal,
   ModalBody,
   ModalFooter,
@@ -156,61 +155,13 @@ function GatewayRowActions({
   );
 }
 
-function BulkSelectControl({
-  eligibleCount,
-  selectedCount,
-}: {
-  eligibleCount: number;
-  selectedCount: number;
-}) {
-  const [isOpen, setIsOpen] = useState(false);
-  const checkboxId = useId();
-  const isChecked =
-    selectedCount === 0 ? false : selectedCount >= eligibleCount ? true : null;
-
-  return (
-    <Dropdown
-      isOpen={isOpen}
-      onOpenChange={setIsOpen}
-      onSelect={() => setIsOpen(false)}
-      toggle={(toggleRef) => (
-        <MenuToggle
-          aria-label="Bulk selection options"
-          isExpanded={isOpen}
-          onClick={() => setIsOpen((open) => !open)}
-          ref={toggleRef}
-          splitButtonItems={[
-            <MenuToggleCheckbox
-              aria-label="Select gateways on this page"
-              id={`bulk-select-${checkboxId}`}
-              isChecked={isChecked}
-              key="bulk-select-checkbox"
-            >
-              {selectedCount > 0 ? `${selectedCount} selected` : undefined}
-            </MenuToggleCheckbox>,
-          ]}
-        />
-      )}
-    >
-      <DropdownList>
-        <DropdownItem key="none">Select none (0 items)</DropdownItem>
-        <DropdownItem key="page">
-          Select page ({eligibleCount} items)
-        </DropdownItem>
-      </DropdownList>
-    </Dropdown>
-  );
-}
-
 function GatewayToolbar({
-  eligibleCount = 0,
   itemCount = 0,
   ownershipFilterOn = false,
   selectedCount = 0,
   showBulkControls = false,
   showOwnershipFilter = false,
 }: {
-  eligibleCount?: number;
   itemCount?: number;
   ownershipFilterOn?: boolean;
   selectedCount?: number;
@@ -222,14 +173,6 @@ function GatewayToolbar({
   return (
     <Toolbar>
       <ToolbarContent>
-        {showBulkControls ? (
-          <ToolbarItem>
-            <BulkSelectControl
-              eligibleCount={eligibleCount}
-              selectedCount={selectedCount}
-            />
-          </ToolbarItem>
-        ) : null}
         <ToolbarItem>
           <SearchInput placeholder="Filter by name, status, or endpoint" />
         </ToolbarItem>
@@ -254,9 +197,6 @@ function GatewayToolbar({
         <ToolbarItem>
           <ProvisionGatewayButton />
         </ToolbarItem>
-        <ToolbarItem align={{ default: "alignEnd" }}>
-          <GatewayPagination itemCount={itemCount} variant="top" />
-        </ToolbarItem>
       </ToolbarContent>
       {showOwnershipFilter ? (
         <ToolbarContent>
@@ -267,6 +207,9 @@ function GatewayToolbar({
               label="Show only my gateways"
               onChange={(_event, checked) => setOnlyMine(checked)}
             />
+          </ToolbarItem>
+          <ToolbarItem align={{ default: "alignEnd" }}>
+            <GatewayPagination itemCount={itemCount} variant="top" />
           </ToolbarItem>
         </ToolbarContent>
       ) : null}
@@ -491,11 +434,13 @@ function LoadedGatewayList({
   const eligibleCount = visibleGateways.filter(
     (gateway) => gateway.canDelete,
   ).length;
+  const selectAllId = useId();
+  const allSelected = selectedNames.length === eligibleCount;
+  const someSelected = selectedNames.length > 0;
 
   return (
     <>
       <GatewayToolbar
-        eligibleCount={eligibleCount}
         itemCount={visibleGateways.length}
         ownershipFilterOn={ownershipFilterOn}
         selectedCount={selectedNames.length}
@@ -506,7 +451,13 @@ function LoadedGatewayList({
       <Table aria-label="OpenShell Gateways" variant="compact">
         <Thead>
           <Tr>
-            <Th screenReaderText="Row selection" />
+            <Th>
+              <Checkbox
+                aria-label="Select all gateways"
+                id={selectAllId}
+                isChecked={allSelected ? true : someSelected ? null : false}
+              />
+            </Th>
             <Th sort={{ columnIndex: 0, onSort, sortBy: {} }} width={15}>
               Gateway name
             </Th>
