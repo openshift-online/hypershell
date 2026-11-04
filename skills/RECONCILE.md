@@ -55,9 +55,7 @@ PR #946 added `specs/platform/kata-roks-crio-restart.spec.md`. A scoped gap
 analysis found no code gap here: every requirement describes automation for
 `bases/operators/sandboxed-containers`, which lives in the `hypershell-gitops`
 repository. The spec then moved there, with the same IDs, as
-`specs/kata-roks-crio-restart.spec.md`. This repository keeps only a link from
-the "Sandbox Runtime Class" section of `specs/platform/openshell-gateway.spec.md`.
-The retired IDs are listed in `specs/id-rename-map.md`. Nothing to reconcile here.
+`specs/kata-roks-crio-restart.spec.md`. Nothing to reconcile here.
 
 ### HYPERSHELL-455 -- SLI dashboard gaps (done, issue #807 / PR #817)
 
