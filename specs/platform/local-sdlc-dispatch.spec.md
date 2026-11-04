@@ -251,6 +251,16 @@ snapshot explicitly when that is the recorded synchronization failure.
 - AND details SHALL identify Jira authentication and pending CI separately
 - AND pending CI SHALL be described as an approval gate, not a review-launch gate
 
+#### Scenario: SDLC-LOC-09.03 -- Newly labeled issues wait normally for intake
+
+- GIVEN an open issue with `agent/allowed` and the registered scope label
+- AND intake has not yet created or linked its canonical execution record
+- WHEN the dashboard shows the issue waiting for intake
+- THEN it SHALL count it neutrally as an issue waiting for triage
+- AND details SHALL explain that intake links Jira automatically without extra labels
+- AND the normal wait SHALL NOT appear in `Needs attention` or discovery errors
+- AND actual authentication, synchronization, or discovery failures SHALL remain visible separately
+
 ### Requirement: SDLC-LOC-10 -- Navigation, filtering, and sorting
 
 The dashboard SHALL support arrows and coherent Vim-style navigation, search,
