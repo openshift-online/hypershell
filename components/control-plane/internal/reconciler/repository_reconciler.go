@@ -17,11 +17,13 @@ import (
 
 // ImportableKinds is the canonical set of Kinds the RepositoryReconciler imports
 // from a `.hypershell` root, defined in data-model.spec.md ("Declarative
-// `.hypershell` Import"): exactly seven. It is a SUBSET of the Kinds `hsctl apply`
+// `.hypershell` Import"): exactly eight. It is a SUBSET of the Kinds `hsctl apply`
 // accepts; `hsctl apply` also accepts platform-admin Kinds (ManagedCluster, Role,
 // RoleBinding) that are NOT importable through a Repository. `Repository` itself is
 // explicitly EXCLUDED so that importing one repository cannot register further
-// repositories (recursive/transitive import).
+// repositories (recursive/transitive import). `CIProvider` is also EXCLUDED: it is a
+// platform-wide registration authored over HTTP by a ci-federation:admin, not
+// repository-owned (data-model.spec.md PLAT-DATA-25).
 var ImportableKinds = map[string]struct{}{
 	"AgentRuntime":    {},
 	"SandboxTemplate": {},
@@ -30,6 +32,7 @@ var ImportableKinds = map[string]struct{}{
 	"InferenceRoute":  {},
 	"SecretSource":    {},
 	"Gateway":         {},
+	"CITrust":         {},
 }
 
 // isImportableKind reports whether kind is one of the canonical importable Kinds.
@@ -101,7 +104,7 @@ type ImportWriter interface {
 	ListOwned(ctx context.Context, repoID string) ([]ResourceRef, error)
 	// Upsert creates the resource when absent and updates it when present, marking
 	// it owned by repoID. An error for one resource is collected by the caller
-	// rather than aborting the rest of the import. All seven importable Kinds have a
+	// rather than aborting the rest of the import. All eight importable Kinds have a
 	// control-plane import write path.
 	Upsert(ctx context.Context, repoID string, res RenderedResource) error
 	// Delete removes one Repository-owned resource.

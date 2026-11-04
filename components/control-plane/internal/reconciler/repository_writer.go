@@ -22,11 +22,13 @@ const importRepositoryMetadataKey = "x-hypershell-import-repository-id"
 // Repository-owned ext resources over the generated gRPC write path, attaching the
 // x-hypershell-import-repository-id ownership binding (#585) to every write so the
 // API server sets and enforces Repository ownership server-side (the client-side
-// repository_id is never trusted). It supports all seven importable Kinds:
+// repository_id is never trusted). It supports all eight importable Kinds:
 // SandboxTemplate, ProviderSpec, ProviderBinding, SecretSource and Gateway (name
 // identity, create/update/delete), AgentRuntime (name identity,
-// create/update/delete), and InferenceRoute (tuple identity, immutable,
-// create/delete). See security/rbac-enforcement.spec.md ("gRPC Authorization").
+// create/update/delete), InferenceRoute (tuple identity, immutable, create/delete),
+// and CITrust (name identity, create/update/delete; its ci_provider_id and gateway_id
+// foreign keys are resolved BY NAME, #871/#873). See
+// security/rbac-enforcement.spec.md ("gRPC Authorization").
 //
 // Gateway and AgentRuntime are cluster-assigned, so their list reads are normally
 // held to the caller's own cluster. The writer lists them with the same import
@@ -43,6 +45,8 @@ type grpcImportWriter struct {
 	inferenceRoutes  pb.InferenceRouteServiceClient
 	gateways         pb.GatewayServiceClient
 	agentRuntimes    pb.AgentRuntimeServiceClient
+	ciTrusts         pb.CITrustServiceClient
+	ciProviders      pb.CIProviderServiceClient
 	pageSize         int32
 }
 
@@ -57,6 +61,8 @@ func NewGRPCImportWriter(conn *grpc.ClientConn) ImportWriter {
 		inferenceRoutes:  pb.NewInferenceRouteServiceClient(conn),
 		gateways:         pb.NewGatewayServiceClient(conn),
 		agentRuntimes:    pb.NewAgentRuntimeServiceClient(conn),
+		ciTrusts:         pb.NewCITrustServiceClient(conn),
+		ciProviders:      pb.NewCIProviderServiceClient(conn),
 		pageSize:         100,
 	}
 }
@@ -131,6 +137,14 @@ func (w *grpcImportWriter) ListOwned(ctx context.Context, repoID string) ([]Reso
 		refs = append(refs, ResourceRef{Kind: "AgentRuntime", Name: ar.GetName(), ID: ar.GetMetadata().GetId()})
 	}
 
+	cts, err := w.ownedCITrusts(ctx, repoID)
+	if err != nil {
+		return nil, err
+	}
+	for _, ct := range cts {
+		refs = append(refs, ResourceRef{Kind: "CITrust", Name: ct.GetName(), ID: ct.GetMetadata().GetId()})
+	}
+
 	return refs, nil
 }
 
@@ -150,6 +164,8 @@ func (w *grpcImportWriter) Upsert(ctx context.Context, repoID string, res Render
 		return w.upsertGateway(ctx, repoID, res)
 	case "AgentRuntime":
 		return w.upsertAgentRuntime(ctx, repoID, res)
+	case "CITrust":
+		return w.upsertCITrust(ctx, repoID, res)
 	default:
 		return fmt.Errorf("unsupported import kind %q", res.Kind)
 	}
@@ -178,6 +194,9 @@ func (w *grpcImportWriter) Delete(ctx context.Context, repoID string, ref Resour
 		return err
 	case "AgentRuntime":
 		_, err := w.agentRuntimes.DeleteAgentRuntime(ctx, &pb.DeleteAgentRuntimeRequest{Id: ref.ID})
+		return err
+	case "CITrust":
+		_, err := w.ciTrusts.DeleteCITrust(ctx, &pb.DeleteCITrustRequest{Id: ref.ID})
 		return err
 	default:
 		return fmt.Errorf("cannot prune unsupported import kind %q", ref.Kind)
@@ -663,6 +682,139 @@ func (w *grpcImportWriter) upsertAgentRuntime(ctx context.Context, repoID string
 	return err
 }
 
+// ---- CITrust ----
+
+func (w *grpcImportWriter) ownedCITrusts(ctx context.Context, repoID string) ([]*pb.CITrust, error) {
+	var out []*pb.CITrust
+	for page := int32(1); ; page++ {
+		resp, err := w.ciTrusts.ListCITrusts(ctx, &pb.ListCITrustsRequest{Page: page, Size: w.pageSize})
+		if err != nil {
+			return nil, fmt.Errorf("list CI trusts: %w", err)
+		}
+		items := resp.GetItems()
+		for _, it := range items {
+			if it.GetRepositoryId() == repoID {
+				out = append(out, it)
+			}
+		}
+		if int32(len(items)) < w.pageSize {
+			return out, nil
+		}
+	}
+}
+
+// resolveCIProviderIDByName resolves a CIProvider name to its id (#871/#873
+// find-by-name). CIProvider is a platform-wide registration (not importable), so
+// the lookup spans every CIProvider rather than the Repository's owned set. It
+// returns a clear error when the name matches no CIProvider so a bad manifest fails
+// that CITrust's import with a cause rather than a silent FK violation.
+func (w *grpcImportWriter) resolveCIProviderIDByName(ctx context.Context, name string) (string, error) {
+	if name == "" {
+		return "", fmt.Errorf("ci_provider_id is required")
+	}
+	for page := int32(1); ; page++ {
+		resp, err := w.ciProviders.ListCIProviders(ctx, &pb.ListCIProvidersRequest{Page: page, Size: w.pageSize})
+		if err != nil {
+			return "", fmt.Errorf("list CI providers: %w", err)
+		}
+		items := resp.GetItems()
+		for _, it := range items {
+			if it.GetName() == name {
+				return it.GetMetadata().GetId(), nil
+			}
+		}
+		if int32(len(items)) < w.pageSize {
+			return "", fmt.Errorf("ci_provider_id %q does not resolve to a registered CIProvider", name)
+		}
+	}
+}
+
+// resolveOwnedGatewayIDByName resolves a Gateway name to its id, restricted to the
+// gateways OWNED by this Repository. Restricting resolution to the owned set both
+// resolves the FK by name (#871/#873) and enforces the imported-CITrust tenancy of
+// SEC-RBAC-25 at the writer: a manifest referencing a gateway the Repository does not
+// own fails to resolve, so the control plane never attempts a cross-tenant CITrust
+// write. The api-server enforces the same gate server-side (the authoritative
+// backstop); this is the friendly early error.
+func (w *grpcImportWriter) resolveOwnedGatewayIDByName(ctx context.Context, repoID, name string) (string, error) {
+	if name == "" {
+		return "", fmt.Errorf("gateway_id is required")
+	}
+	owned, err := w.ownedGateways(ctx, repoID)
+	if err != nil {
+		return "", err
+	}
+	for _, gw := range owned {
+		if gw.GetName() == name {
+			return gw.GetMetadata().GetId(), nil
+		}
+	}
+	return "", fmt.Errorf("gateway_id %q does not resolve to a Gateway owned by this repository", name)
+}
+
+// upsertCITrust creates or updates a Repository-owned CITrust. Its ci_provider_id and
+// gateway_id are declared BY NAME in the manifest and resolved to ids here (#871/#873);
+// gateway resolution is scoped to the Repository's owned gateways (SEC-RBAC-25). name
+// identity (the manifest's metadata.name) matches a desired trust against an owned one.
+// Only the mutable fields (role and the subject predicate the update RPC accepts) are
+// compared and updated; ci_provider_id and gateway_id are immutable after create.
+func (w *grpcImportWriter) upsertCITrust(ctx context.Context, repoID string, res RenderedResource) error {
+	ciProviderID, err := w.resolveCIProviderIDByName(ctx, specString(res.Spec, "ci_provider_id"))
+	if err != nil {
+		return fmt.Errorf("CI trust %s: %w", res.Name, err)
+	}
+	gatewayID, err := w.resolveOwnedGatewayIDByName(ctx, repoID, specString(res.Spec, "gateway_id"))
+	if err != nil {
+		return fmt.Errorf("CI trust %s: %w", res.Name, err)
+	}
+	role := specString(res.Spec, "role")
+	subject := specMap(res.Spec, "subject")
+	subjectRepository := specStringPtr(subject, "repository")
+	subjectProjectPath := specStringPtr(subject, "project_path")
+	subjectRef := specStringPtr(subject, "ref")
+	subjectEnvironment := specStringPtr(subject, "environment")
+	subjectRefProtected := specBoolPtr(subject, "ref_protected")
+
+	owned, err := w.ownedCITrusts(ctx, repoID)
+	if err != nil {
+		return err
+	}
+	for _, existing := range owned {
+		if existing.GetName() != res.Name {
+			continue
+		}
+		// ci_provider_id and gateway_id are immutable (not on the update request); only
+		// role and the subject predicate can change.
+		if existing.GetRole() == role &&
+			stringPtrEqual(existing.SubjectRef, subjectRef) &&
+			stringPtrEqual(existing.SubjectEnvironment, subjectEnvironment) &&
+			boolPtrEqual(existing.SubjectRefProtected, subjectRefProtected) {
+			return nil
+		}
+		_, err := w.ciTrusts.UpdateCITrust(withOwnership(ctx, repoID), &pb.UpdateCITrustRequest{
+			Id:                  existing.GetMetadata().GetId(),
+			Role:                &role,
+			SubjectRef:          subjectRef,
+			SubjectEnvironment:  subjectEnvironment,
+			SubjectRefProtected: subjectRefProtected,
+		})
+		return err
+	}
+	name := res.Name
+	_, err = w.ciTrusts.CreateCITrust(withOwnership(ctx, repoID), &pb.CreateCITrustRequest{
+		Name:                &name,
+		CiProviderId:        ciProviderID,
+		GatewayId:           gatewayID,
+		Role:                role,
+		SubjectRepository:   subjectRepository,
+		SubjectProjectPath:  subjectProjectPath,
+		SubjectRef:          subjectRef,
+		SubjectEnvironment:  subjectEnvironment,
+		SubjectRefProtected: subjectRefProtected,
+	})
+	return err
+}
+
 // specStringPtr reads an optional string field, returning nil when absent or
 // empty so an omitted field stays unset rather than being written as "".
 func specStringPtr(spec map[string]interface{}, key string) *string {
@@ -689,6 +841,53 @@ func stringPtrEqual(a, b *string) bool {
 // stringToPtr wraps a value so a scalar proto field (returned as "") can be compared
 // against an optional spec value through stringPtrEqual.
 func stringToPtr(s string) *string { return &s }
+
+// specMap reads a nested mapping field (for example a CITrust's `subject` block),
+// returning an empty (non-nil) map when absent so callers can read sub-fields safely.
+func specMap(spec map[string]interface{}, key string) map[string]interface{} {
+	if spec == nil {
+		return map[string]interface{}{}
+	}
+	raw, ok := spec[key]
+	if !ok || raw == nil {
+		return map[string]interface{}{}
+	}
+	m, ok := raw.(map[string]interface{})
+	if !ok {
+		return map[string]interface{}{}
+	}
+	return m
+}
+
+// specBoolPtr reads an optional boolean field as *bool, returning nil when absent so
+// an omitted field stays unset.
+func specBoolPtr(spec map[string]interface{}, key string) *bool {
+	if spec == nil {
+		return nil
+	}
+	raw, ok := spec[key]
+	if !ok || raw == nil {
+		return nil
+	}
+	v, ok := raw.(bool)
+	if !ok {
+		return nil
+	}
+	return &v
+}
+
+// boolPtrEqual compares two optional bools treating nil and a pointer to false as
+// equal, so a skip decision is stable whether the server returns nil or false.
+func boolPtrEqual(a, b *bool) bool {
+	var av, bv bool
+	if a != nil {
+		av = *a
+	}
+	if b != nil {
+		bv = *b
+	}
+	return av == bv
+}
 
 // specStringSlice reads a repeated string field, returning nil when absent so an
 // omitted field compares equal to an empty server value.
