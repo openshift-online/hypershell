@@ -89,7 +89,7 @@ listed in `specs/id-rename-map.md`, not here.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `GTW-ACC` | `platform/gateway-access-management.spec.md` | 14 |
+| `GTW-ACC` | `platform/gateway-access-management.spec.md` | 15 |
 | `GTW-ATTR` | `platform/gateway-managed-cluster-attribution.spec.md` | 6 |
 | `GTW-CFG` | `platform/generated-gateway-config-validation.spec.md` | 4 |
 | `GTW-CONC` | `platform/gateway-reconcile-concurrency.spec.md` | 3 |
