@@ -116,8 +116,6 @@ Provision-duration samples SHALL follow OBS-CPL-07:
 - No Gateway identifier label on the metric
 - Recoveries from `Degraded` to `Running` SHALL NOT produce additional observations
 
-The dashboard SHALL NOT recompute provision duration from gateway list timestamps.
-
 #### Scenario: OBS-GPT-02.01 -- Degraded recovery does not shift percentiles
 
 - GIVEN a gateway already contributed one provision-duration observation when it first reached `Running`

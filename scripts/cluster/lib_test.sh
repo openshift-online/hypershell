@@ -1248,12 +1248,6 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: web-console Dockerfile does not compile on BUILDARCH and bundle native addons on TARGETARCH'
 fi
-if grep -q 'OPENSHIFT_IMAGE_REGISTRY' "${SCRIPT_DIR}/drivers/openshift.sh" "${SCRIPT_DIR}/lib.sh" "${REPO_ROOT}/Makefile"; then
-  FAIL=$((FAIL + 1))
-  echo 'FAIL: OPENSHIFT_IMAGE_REGISTRY is still present; swaps use SWAP_REGISTRY'
-else
-  PASS=$((PASS + 1))
-fi
 if grep -q 'SWAP_REGISTRY:-${IMAGE_REGISTRY}' "${SCRIPT_DIR}/drivers/openshift.sh" "${SCRIPT_DIR}/lib.sh"; then
   FAIL=$((FAIL + 1))
   echo 'FAIL: SWAP_REGISTRY still falls back to IMAGE_REGISTRY'

@@ -440,7 +440,6 @@ class LocalLaunchTests(unittest.TestCase):
         self.assertEqual(result.returncode,0,result.stderr)
         self.assertIn('make fullsend-status',result.stdout)
         self.assertNotIn('usage:',result.stdout)
-        self.assertNotIn('make fullsend-plan',result.stdout)
 
     # Verifies: SDLC-LOC-01.01
     def test_unregistered_or_unverifiable_scope_blocks_start_but_not_status(self):

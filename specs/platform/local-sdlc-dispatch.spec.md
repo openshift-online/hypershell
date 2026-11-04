@@ -27,7 +27,6 @@ Scope registration SHALL NOT grant item authorization; writes still require
 `agent/allowed`. `fullsend-help`, `fullsend-status`, and `fullsend-doctor` SHALL
 provide readable command help, saved job state, and setup diagnostics respectively.
 Status SHALL identify its data as persisted state, not live gateway verification.
-A `fullsend-plan` Make target SHALL NOT be exposed.
 
 #### Scenario: SDLC-LOC-01.01 -- Unknown scope
 

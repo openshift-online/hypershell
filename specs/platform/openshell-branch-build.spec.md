@@ -187,8 +187,7 @@ path of `kind-openshell-up`) seeded, the same Kind Keycloak OIDC config
 `dev-gateway` uses, and `route: {enabled: true}`.
 The control plane SHALL reconcile the gateway workload so that the running
 gateway container and supervisor sidecar use the branch-built images. Image changes SHALL
-be applied by Helm upgrade (see [`openshell-gateway.spec.md`](./openshell-gateway.spec.md)),
-not by patching a static ConfigMap or SSA placeholder.
+be applied by Helm upgrade (see [`openshell-gateway.spec.md`](./openshell-gateway.spec.md)).
 
 #### Scenario: CICD-BLD-04.01 -- Dev gateway runs branch-built images
 

@@ -509,9 +509,7 @@ func main() {
 	// HyperShell ext kind as its OpenShell native kind by consuming OpenShell's EXISTING
 	// provisioning API (the operations the `openshell` CLI drives), through the
 	// reconciler.NewOpenShellProviderRealizer adapter over the gateway.OpenShellProvisioner.
-	// The superseded bespoke AgentWorkspaceProvisioning gRPC contract and its
-	// HYPERSHELL_GATEWAY_PROVISIONING_ENDPOINT gate have been removed. The AgentRuntime
-	// watch payload embeds the workspace name, ProviderBindings, memberships, and inference
+	// The AgentRuntime watch payload embeds the workspace name, ProviderBindings, memberships, and inference
 	// route (data-model.spec.md "AgentRuntime Reconcile Payload Completeness"), so the
 	// realizer can provision from a single event. It is activated through SetProviderRealizer
 	// once a live OpenShell API session factory is wired; until then it stays nil and the

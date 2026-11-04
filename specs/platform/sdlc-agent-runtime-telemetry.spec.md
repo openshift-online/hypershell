@@ -2,7 +2,7 @@
 
 **ID prefix:** SDLC-AGT
 
-**Applies to:** `components/fleet-dashboard` BFF (new `/api/sdlc-agents` plane, Prometheus source), `packages/fleet-dashboard-ui` (board integration, per-cluster agents tab, sparkline cap, health verdict removal, agent activity states), the agent-infrastructure producer in hypershell-gitops (the `sdlc_agent_last_report_timestamp_seconds` freshness fact and its metric lifespan)
+**Applies to:** `components/fleet-dashboard` BFF (new `/api/sdlc-agents` plane, Prometheus source), `packages/fleet-dashboard-ui` (board integration, per-cluster agents tab, sparkline cap, agent activity states), the agent-infrastructure producer in hypershell-gitops (the `sdlc_agent_last_report_timestamp_seconds` freshness fact and its metric lifespan)
 
 ## Purpose
 
@@ -40,8 +40,7 @@ This specification makes agent liveness a first-class, present-tense signal
 derived from facts rather than inferred from the absence of a metric. There is
 no notion of an expected schedule or an "overdue" state: the only question
 asked is "is this agent active right now, or not." The signal has exactly three
-states -- **Active**, **Not active**, and **Monitoring blind** -- and it is
-distinct from the removed `agentHealth()` verdict (SDLC-AGT-10): activity is
+states -- **Active**, **Not active**, and **Monitoring blind**. Activity is
 derived from an absolute freshness fact and the plane's own staleness, not from
 product-guess thresholds, so it is not a disguised SLO.
 
@@ -392,30 +391,6 @@ at 180px so the sparklines remain glanceable.
 - WHEN the metric tiles render
 - THEN the tiles SHALL size by their aspect ratio, unaffected by the cap
 
-### Requirement: SDLC-AGT-10 -- Health Verdict Removal
-
-The derived health indicator (`agentHealth()` returning
-`critical | warning | idle | ok`) SHALL NOT be rendered in any production UI
-surface. The board column header SHALL NOT render a `HealthDot`. The agent
-detail panel head SHALL NOT render a health chip.
-
-The raw counts (replicas, queue, failures) are the honest signal and are
-already shown; a derived verdict built on product-guess thresholds reads as
-a measured SLO but is not one. The `agentHealth` function and `HealthDot`
-component MAY remain exported but SHALL NOT be rendered.
-
-#### Scenario: SDLC-AGT-10.01 -- No health dot on the board
-
-- GIVEN the Agent SDLC board renders
-- WHEN a column header for an agent with telemetry renders
-- THEN no HealthDot or health chip SHALL appear
-
-#### Scenario: SDLC-AGT-10.02 -- No health chip in the detail panel
-
-- GIVEN the agent runtime detail panel opens
-- WHEN the panel head renders
-- THEN no health chip or verdict label SHALL appear
-
 ### Requirement: SDLC-AGT-11 -- Per-Cluster Agents Tab
 
 The promotion topology drawer SHALL include an "Agents" tab after "Bundle"
@@ -598,10 +573,7 @@ The derivation SHALL be:
   **notActive**.
 
 `HEARTBEAT_STALE` is a single generic liveness window, NOT a per-agent schedule;
-it only answers whether the on/off gauge is still live. The activity derivation
-is a fact-based signal distinct from the removed `agentHealth()` verdict
-(SDLC-AGT-10) and SHALL NOT reintroduce `agentHealth()`, `HealthDot`, or
-`HEALTH_COLOR`.
+it only answers whether the on/off gauge is still live.
 
 #### Scenario: SDLC-AGT-16.01 -- Stale plane is blind
 
@@ -690,8 +662,7 @@ active.
 - **Alerting or derived health verdicts.** The plane serves raw telemetry and
   the absolute freshness fact (SDLC-AGT-15); thresholds and alerting are out of
   scope. The present-tense activity signal (SDLC-AGT-16) is derived from facts,
-  not a threshold-guessed verdict, and the removed `agentHealth` function is not
-  rendered (SDLC-AGT-10).
+  not a threshold-guessed verdict.
 - **An expected schedule or "overdue" state.** Liveness answers only "active or
   not active" in the present tense; no notion of when an agent should have run is
   introduced (SDLC-AGT-15, SDLC-AGT-16).

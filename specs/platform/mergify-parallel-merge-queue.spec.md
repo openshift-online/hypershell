@@ -9,11 +9,10 @@
 
 Use Mergify's Open Source plan with cumulative speculative validation, automatic
 queue entry after review and CI, and dependency-aware selective CI. Serial mode
-orders merges while up to ten speculative PRs validate concurrently. Independent
-scope lanes, multi-PR batches, priorities and two-step CI are not used.
+orders merges while up to ten speculative PRs validate concurrently, with one
+queue, one PR per batch and no priorities.
 
-The existing filename is retained for links. The previous parallel-lane design
-is superseded: local impact scopes are coverage-audit metadata only, not Mergify
+Local impact scopes are coverage-audit metadata only, not Mergify
 configuration or runtime CI filters. `.github/component-paths.json` owns runtime
 selection. E2E remains optional, runs on ordinary PRs and main, and is suppressed
 on temporary queue PRs as described below.
@@ -166,8 +165,7 @@ these entries SHALL NOT be uploaded to Mergify or imply independent queue lanes.
 
 The `Tests CI Gate` job in `.github/workflows/tests.yml` SHALL depend only on
 `detect-changes` and `unit`. It SHALL NOT depend on the `e2e` stage. The gate
-SHALL remove the `E2E_RESULT` environment variable and its failure-handling
-logic. The gate SHALL fail only when `detect-changes` did not succeed or the
+SHALL fail only when `detect-changes` did not succeed or the
 `unit` stage failed or was cancelled. A skipped unit stage SHALL pass the gate.
 
 The gate's required check name SHALL remain `Tests CI Gate`. The `Checks CI

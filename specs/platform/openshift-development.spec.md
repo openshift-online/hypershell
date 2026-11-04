@@ -231,8 +231,7 @@ gateway database server: the bundled PostgreSQL SHALL serve TLS with a self-sign
 CA the scripts generate, and `make openshift-up` SHALL create the
 `hypershell-gateway-database-admin` Secret in the platform project with the server's
 admin connection, `sslmode: verify-full` and that CA as `sslrootcert`, before the
-controller starts. No credentials project is created and no database resource is
-seeded through the API.
+controller starts.
 
 The OpenShift overlay SHALL derive `GATEWAY_API_HTTP_LISTENER_NAME` from the
 shared Gateway's actual listener (preferring one literally named `grpc` for
@@ -680,7 +679,7 @@ the driver SHALL use that repository name instead of the component default.
 hostname with no org path, the swap SHALL stop with a clear error. The driver
 SHALL NOT default `SWAP_REGISTRY` to `IMAGE_REGISTRY`; `IMAGE_REGISTRY` is the
 baseline image prefix and SHALL NOT be the swap push destination.
-`OPENSHIFT_IMAGE_REGISTRY` SHALL NOT be used. The driver SHALL NOT push to the
+The driver SHALL NOT push to the
 OpenShift internal registry (`image-registry.openshift-image-registry.svc`)
 from the laptop: that hostname does not resolve outside the cluster, and many
 shared clusters (ROSA/OSD) expose no public registry hostname. The swap SHALL

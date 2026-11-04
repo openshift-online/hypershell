@@ -50,8 +50,7 @@ export const HEARTBEAT_STALE = 180;
  *   falls back to the raw `replicasOn > 0` gauge.
  * - `active` when any replica is on AND the gauge is live; else `notActive`.
  *
- * This is a fact-based signal, distinct from the removed `agentHealth()` verdict
- * (SDLC-AGT-10): it reintroduces no threshold-guessed health.
+ * This is a fact-based signal, not a threshold-guessed health verdict.
  */
 export function agentActivity(
   a: SdlcAgentMetrics,

@@ -107,8 +107,6 @@ Gitops configuration required for every control plane, the hub's co-located one 
 | `HYPERSHELL_API_SERVER_URL` | REST endpoint used for `/registration` (e.g. `https://api.hyp0.infra.hypershell.app`; the in-cluster `http://hypershell-api-server:8000` only where TLS is off) |
 | `HYPERSHELL_GRPC_SERVER_ADDR` | gRPC endpoint the watch streams dial. On a production hub every control plane, co-located or remote, dials the hub's external passthrough Route (e.g. `grpc.hyp0.infra.hypershell.app:443`) with TLS, because the hub's gRPC listener is TLS-only (`hub-grpc-tls.spec.md`). In development environments with gRPC TLS off, an in-cluster address (e.g. `hypershell-api-server:9000`) dialed with plaintext. The control plane selects the transport from this address -- see `control-plane.spec.md` ("gRPC Transport Security"). |
 
-`HYPERSHELL_CLUSTER_ID` is resolved at runtime and SHALL NOT appear in gitops.
-
 Adding a control plane SHALL NOT require configuration on the hub api-server. Once a control plane has registered, its JWT `sub` is a control-plane identity (see "Requirement: Control-Plane Identity"): the RBAC Authorizer authorizes its gRPC calls without role bindings, but only for its own cluster's gateways, fleet-wide reads, status writes, and its own record. `RBAC_SERVICE_ACCOUNTS` is only the bootstrap fallback, for a control plane that must act before or without a registered ManagedCluster; the hub overlays keep `service-account-hypershell-control-plane` (the co-located control plane) on it. It need not list any other control plane.
 
 ---
