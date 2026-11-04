@@ -604,11 +604,19 @@ ownership-scoped reconciler.
 
 **gRPC write authorization for the import.** The import-write Kinds
 (`SandboxTemplate`, `ProviderSpec`, `ProviderBinding`,
-`InferenceRoute`, `SecretSource`) had their gRPC Create / Update / Delete methods
+`InferenceRoute`, `SecretSource`, `CITrust`) had their gRPC Create / Update / Delete methods
 held at default-deny when their gRPC surface was introduced. They SHALL now be
 authorized for the control-plane identity, bounded to the `RepositoryReconciler`'s
 `Repository` scope, and remain denied for every other caller (users, spokes acting
-outside the import). The remaining importable Kinds, `Gateway` and `AgentRuntime`
+outside the import). `CITrust` carries an ADDITIONAL per-gateway tenancy gate
+(SEC-RBAC-22): an import-marked `CITrust` write SHALL be authorized only when the
+referenced `Gateway` is owned by the SAME reconciled `Repository` (resolved by name
+within the import), which is how the non-human importer satisfies that tenancy "as the
+repository owner" without a human identity; the writer SHALL NOT import a `CITrust`
+onto a `Gateway` the `Repository` does not own. This tenancy-via-ownership rule is
+specified canonically in [`security/rbac-enforcement.spec.md`](../../security/rbac-enforcement.spec.md)
+(SEC-RBAC-25) and [`ci-trust-ext-api.spec.md`](./ci-trust-ext-api.spec.md) (PLAT-CITR-10).
+The remaining importable Kinds, `Gateway` and `AgentRuntime`
 (see the canonical importable-Kinds list in
 [`data-model.spec.md`](./data-model.spec.md)), are cluster-assigned: their gRPC
 `Create` / `Update` / `Delete` are authorized for the control-plane identity on the
@@ -621,7 +629,7 @@ across clusters, a `ListGateways` / `ListAgentRuntimes` read that carries the
 reconciled-`Repository` binding AND sets a matching `repository_id` filter for an
 existing `Repository` is exempted from the own-cluster watch-stream caller binding and
 served (and filtered) across clusters; every other read keeps the own-cluster binding.
-The `RepositoryReconciler` upserts and prunes all seven importable Kinds under the same
+The `RepositoryReconciler` upserts and prunes all eight importable Kinds under the same
 `Repository`-scoped ownership mark.
 `Repository` is NOT on the import-write path. The `RepositoryReconciler` reconciles
 the `Repository` Kind but SHALL NEVER upsert `Repository` resources discovered in an
@@ -725,6 +733,14 @@ The authorization contract is specified in
 - WHEN the hourly drift re-check runs
 - THEN the conditional fetch SHALL report a change (new ETag or new branch head commit SHA)
 - AND the reconciler SHALL read, render, and reconcile the changed subtree into the API
+
+#### Scenario: CTRL-CORE-06.12 -- Import reconciles a CITrust on a Repository-owned gateway
+
+- GIVEN a `Repository` whose `.hypershell` root declares a `Gateway` named `agents-gateway` and a `CITrust` whose `ci_provider_id` names a registered `CIProvider` and whose `gateway_id` names `agents-gateway`
+- WHEN the control-plane import reconciler runs
+- THEN it SHALL resolve `ci_provider_id` and `gateway_id` by name and upsert the `CITrust` owned by the `Repository`
+- AND the import-marked `CITrust` write SHALL be authorized because the referenced `Gateway` is owned by the same reconciled `Repository`
+- AND a re-run against unchanged repository state SHALL make no write, and removing the `CITrust` from `.hypershell` SHALL prune only the imported `CITrust`
 
 ### Requirement: CTRL-CORE-14 -- Import Writer Maps Gateway Placement
 

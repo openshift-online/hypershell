@@ -37,8 +37,15 @@ gitops `ci-oidc-federation.spec.md`; a `CIProvider` IS that spec's per-forge IdP
 
 ## Architecture
 
+A `CITrust` reaches the API Server two ways: a human runs `hsctl apply` (or the SDK)
+authorized by the per-gateway tenancy check (SEC-RBAC-22), or the control-plane
+`RepositoryReconciler` imports a `.hypershell`-declared `CITrust` as the repository owner
+(PLAT-CITR-10, SEC-RBAC-25). Both land the same stored record; reconciliation downstream
+is identical.
+
 ```
 user -> hsctl apply CITrust ──▶ API Server (PostgreSQL)
+repo  -> .hypershell import  ──▶ (control-plane RepositoryReconciler, as repo owner)
                                      │ gRPC watch (ext kinds)
                                      ▼
                           Control Plane reconciler (per cluster)
@@ -325,6 +332,63 @@ artifact on a transient admin-API failure (STD-RCON-08).
 - WHEN the periodic realm-reconcile job re-applies the gitops realm configuration
 - THEN the `CITrust` exchange SHALL keep working without a new reconcile pass
 - AND a subsequent reconcile of the unchanged `CITrust` SHALL make no duplicate artifact
+
+---
+
+### Requirement: PLAT-CITR-10 -- Declarative `.hypershell` Import of a CITrust
+
+A `CITrust` SHALL be declarable in a repository's `.hypershell` root and reconciled
+by the control-plane `RepositoryReconciler` as an importable Kind, so a repository can
+enable its own keyless CI federation declaratively next to the `Gateway` it federates
+onto, with no human `hsctl apply` step. `CITrust` is one of the importable Kinds defined
+canonically in [`data-model.spec.md`](./data-model.spec.md) ("Declarative `.hypershell`
+Import", PLAT-DATA-11); `CIProvider` is NOT importable (it is a platform-wide
+registration authored by `ci-federation:admin` over HTTP, PLAT-DATA-24 / SEC-RBAC-21) and
+a manifest references it by name only.
+
+The import SHALL:
+
+- Resolve the `CITrust`'s foreign-key references BY NAME, through the same find-by-name
+  path the ext API exposes (the `name` column added for ext kinds in #871/#873):
+  `ci_provider_id` to the `CIProvider` whose `name` matches, and `gateway_id` to the
+  `Gateway` whose `name` matches. A reference that does not resolve SHALL fail that
+  `CITrust`'s import.
+- Mark the imported `CITrust` with its originating `Repository` (`repository_id`) set
+  server-side, and prune it per-`Repository` when it is removed from `.hypershell`,
+  exactly as for the other importable Kinds. A re-import of unchanged repository state
+  SHALL be idempotent, and a `CITrust` created directly over REST SHALL NOT be pruned by
+  another `Repository`'s import.
+- Be authorized as the control-plane import identity, satisfying the per-gateway tenancy
+  of SEC-RBAC-22 through `Repository` ownership of the referenced gateway rather than a
+  human role binding: the import writes a `CITrust` only onto a `Gateway` the SAME
+  `Repository` owns, which is the "applies as the repository owner" path. This tenancy
+  gate is specified canonically in
+  [`../security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md)
+  (SEC-RBAC-25).
+- Accept the manifest shape without a 400: the nested `spec.subject.{repository,
+  ref_protected}` already matches the presenter; `metadata.description` SHALL be accepted
+  and persisted like the other importable Kinds (gateway and repository manifests also
+  carry a description); and a valid `role` such as `openshell-user` SHALL pass validation.
+
+#### Scenario: PLAT-CITR-10.01 -- CITrust Imports With References Resolved by Name
+
+- GIVEN a `Repository` whose `.hypershell` root declares a `Gateway` named `agents-gateway` (owned by that `Repository`) and a `CITrust` named `github-actions-hypershell` whose `ci_provider_id` names the `github-actions` `CIProvider` and whose `gateway_id` names `agents-gateway`
+- WHEN the control-plane import reconciler runs
+- THEN it SHALL resolve `ci_provider_id` and `gateway_id` by name, upsert the `CITrust` owned by the `Repository`, and leave a `ci_trusts` row with the resolved ids
+- AND the importer SHALL NOT log `ignoring non-importable kind kind=CITrust`
+
+#### Scenario: PLAT-CITR-10.02 -- Description and Role Do Not Fail the Import
+
+- GIVEN an imported `CITrust` manifest carrying `metadata.description` and `role: openshell-user`
+- WHEN the import renders and upserts it
+- THEN the write SHALL NOT be rejected with 400
+- AND the description SHALL be persisted and the role SHALL validate
+
+#### Scenario: PLAT-CITR-10.03 -- Import Cannot Federate Onto a Gateway It Does Not Own
+
+- GIVEN a `Repository` import declaring a `CITrust` whose `gateway_id` names a `Gateway` owned by a different `Repository` or created directly over REST
+- WHEN the import reconciler attempts to write it
+- THEN the write SHALL be refused (SEC-RBAC-25)
 
 ## Security analysis
 

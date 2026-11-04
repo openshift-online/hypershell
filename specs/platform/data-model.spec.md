@@ -988,8 +988,8 @@ Kustomize root: the `RepositoryReconciler` SHALL build the kustomization and
 reconcile the rendered resources into the API.
 
 The Kinds the `RepositoryReconciler` imports are defined here canonically as the
-**importable Kinds**, exactly seven: `AgentRuntime`, `SandboxTemplate`, `ProviderSpec`,
-`ProviderBinding`, `InferenceRoute`, `SecretSource`, and `Gateway`.
+**importable Kinds**, exactly eight: `AgentRuntime`, `SandboxTemplate`, `ProviderSpec`,
+`ProviderBinding`, `InferenceRoute`, `SecretSource`, `Gateway`, and `CITrust`.
 These are the declarable HyperShell Kinds a `.hypershell` root MAY contain. They are
 a SUBSET of the Kinds `hsctl apply` accepts: `hsctl apply` also accepts
 platform-admin Kinds (for example `ManagedCluster`, `Role`, and `RoleBinding`) that
@@ -1002,6 +1002,13 @@ referenced - not re-enumerated - by [`control-plane.spec.md`](./control-plane.sp
 ("Declarative `.hypershell` Import Reconciliation") and
 [`openshell-gateway.spec.md`](./openshell-gateway.spec.md) ("Relationship to the
 RepositoryReconciler") so the importable set never drifts across specs.
+
+`CITrust` is importable so a repository can declare its own keyless CI federation
+alongside the `Gateway` it runs on (PLAT-DATA-25, [`ci-trust-ext-api.spec.md`](./ci-trust-ext-api.spec.md)
+PLAT-CITR-10). `CIProvider` is NOT importable: it is a platform-wide registration of a
+CI OIDC issuer authored by `ci-federation:admin` over HTTP (PLAT-DATA-24, SEC-RBAC-21),
+not a per-repository declaration, so a `.hypershell` root MAY reference a `CIProvider`
+by name from a `CITrust` but SHALL NOT declare one.
 
 The `RepositoryReconciler` upserts these resources into the API only; it does NOT
 provision them cluster-side. Each imported Kind is subsequently reconciled into the
@@ -1071,6 +1078,20 @@ the control plane SHALL:
    funnel with 403 (see "Requirement: Gateway Dedicated Route Request Field",
    PLAT-DATA-26).
 
+**Foreign-key references in an imported manifest SHALL be resolved BY NAME.** A
+`.hypershell` manifest declares cross-resource references by the referent's `name`,
+not by a server-assigned id the author cannot know (for example an `AgentRuntime`'s
+`gateway_id` and `sandbox_template_id`, or a `CITrust`'s `ci_provider_id` and
+`gateway_id`). The import writer SHALL resolve each such reference to the referent's
+id through the same find-by-name path the extension API exposes (the `name` column and
+defensive lookup added for ext kinds in #871/#873), and SHALL fail that resource's
+import when a named referent does not resolve. For a `CITrust` the writer SHALL resolve
+`ci_provider_id` to the `CIProvider` whose `name` matches and `gateway_id` to the
+`Gateway` whose `name` matches - the `Gateway` the same `Repository` imports from the
+same `.hypershell` root. `metadata.description` carried by an imported manifest (as
+`gateway.yaml`, `repository.yaml`, and `ci-trust.yaml` all carry one) SHALL be accepted
+and persisted, exactly as for the other importable Kinds, and SHALL NOT fail the import.
+
 The control plane holds per-cluster in-cluster credentials, read-only secret-store
 access, and the platform GitHub App credential the import requires; the API server
 holds no read access to the secret store and no repository read access. Hosting the
@@ -1106,8 +1127,8 @@ plane is a reader of desired state" principle: the principle holds everywhere ex
 this one named, ownership-scoped reconciler.
 
 Imported resources SHALL be owned by the originating `Repository`. Every one of the
-seven importable Kinds - `AgentRuntime`, `SandboxTemplate`, `ProviderSpec`,
-`ProviderBinding`, `InferenceRoute`, `SecretSource`, and `Gateway` - SHALL carry a
+eight importable Kinds - `AgentRuntime`, `SandboxTemplate`, `ProviderSpec`,
+`ProviderBinding`, `InferenceRoute`, `SecretSource`, `Gateway`, and `CITrust` - SHALL carry a
 nullable, read-only `repository_id` ownership mark for this purpose: it is NULL for a
 resource created directly through the REST API or `hsctl apply`, and set server-side to
 the originating `Repository` for an imported resource, so prune can be scoped to the
@@ -1148,6 +1169,21 @@ found in the repository.
 - GIVEN a `Repository` whose `.hypershell` contents are unchanged since the last import
 - WHEN the control-plane import reconciler runs again
 - THEN it SHALL make no create, update, or prune write to the API
+
+#### Scenario: PLAT-DATA-11.05 -- CITrust Is Imported With References Resolved by Name
+
+- GIVEN a `Repository` whose `.hypershell` root declares a `Gateway` named `agents-gateway` and a `CITrust` whose `ci_provider_id` names a `CIProvider` and whose `gateway_id` names `agents-gateway`
+- WHEN the control-plane import reconciler runs
+- THEN it SHALL resolve `ci_provider_id` to the `CIProvider` of that `name` and `gateway_id` to the `Gateway` of that `name`
+- AND it SHALL upsert the `CITrust` owned by the `Repository` (`repository_id` set server-side)
+- AND re-running the import against unchanged repository state SHALL make no write
+
+#### Scenario: PLAT-DATA-11.06 -- Removed CITrust Is Pruned Within Its Owning Repository
+
+- GIVEN a `Repository` that previously imported a `CITrust`, and another `CITrust` created directly over REST on the same gateway by its owner
+- WHEN that imported `CITrust` is removed from `.hypershell` and the import re-runs
+- THEN the import reconciler SHALL delete only the imported `CITrust`
+- AND it SHALL NOT delete the directly-created `CITrust`
 
 ---
 
@@ -1591,6 +1627,8 @@ The control plane realizes a `CIProvider` as a validation-only OIDC identity pro
 ### Requirement: PLAT-DATA-25 -- CITrust
 
 A `CITrust` wires a `CIProvider` to a single `Gateway` the caller manages (`gateway:owner` or `gateway:admin`, or `platform:admin`), declaring that any CI run whose OIDC token matches `subject` MAY exchange that token for an OpenShell access token scoped to that gateway's workspace. It is the self-service, tenant-owned replacement for operator-managed per-tenant Keycloak configuration: creating a `CITrust` is how a user "enables CI on their own gateway" with no stored secret. The per-gateway tenancy is authorized by the same `CanManageGatewayResources` check the other gateway-scoped ext kinds use; see `security/rbac-enforcement.spec.md` (SEC-RBAC-22).
+
+A `CITrust` is an **importable Kind** (see "Declarative `.hypershell` Import", PLAT-DATA-11): a repository MAY declare its own keyless CI federation in `.hypershell` next to the `Gateway` it federates onto. It therefore carries the same nullable, read-only `repository_id` ownership mark the other importable Kinds carry (NULL when authored directly over REST or `hsctl apply`, set server-side to the originating `Repository` on import), and its `ci_provider_id` and `gateway_id` references are resolved by name on import. The import path's authorization - how a non-human importer satisfies the SEC-RBAC-22 per-gateway tenancy - is defined in [`ci-trust-ext-api.spec.md`](./ci-trust-ext-api.spec.md) (PLAT-CITR-10) and `security/rbac-enforcement.spec.md` (SEC-RBAC-25).
 
 `CITrust` fields:
 
