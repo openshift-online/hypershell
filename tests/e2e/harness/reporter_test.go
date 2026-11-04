@@ -97,6 +97,28 @@ func TestReporterEmitsVersionedEnvelope(t *testing.T) {
 	}
 }
 
+func TestReporterCarriesTerminalFailureSummary(t *testing.T) {
+	var buf bytes.Buffer
+	r := NewReporter(&buf, testIdentity())
+
+	r.RunFinished(OutcomeFailed, time.Second, FailureSummary{
+		StepID:  "P0.1",
+		Message: "authentication failed: password=hunter2",
+	})
+
+	events := decodeEvents(t, buf.Bytes())
+	if len(events) != 1 {
+		t.Fatalf("want 1 event, got %d", len(events))
+	}
+	got := events[0]
+	if got.StepID != "P0.1" {
+		t.Errorf("stepId = %q, want P0.1", got.StepID)
+	}
+	if strings.Contains(got.Message, "hunter2") || !strings.Contains(got.Message, "[REDACTED") {
+		t.Errorf("terminal failure summary was not redacted: %q", got.Message)
+	}
+}
+
 func TestReporterRunIDGeneratedWhenAbsent(t *testing.T) {
 	var buf bytes.Buffer
 	r := NewReporter(&buf, ReporterIdentity{}) // no supplied run id

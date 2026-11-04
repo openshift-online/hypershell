@@ -162,6 +162,66 @@ describe("reduceRun", () => {
     expect(failed.verdict).toBe("failed");
   });
 
+  it("retains the terminal failure outside the log stream", () => {
+    const failed = reduceRun([
+      ev({
+        event: "run_finished",
+        sequence: 1,
+        outcome: "failed",
+        stepId: "P0.1",
+        message: "authentication failed",
+      }),
+    ]);
+    expect(failed.failure).toEqual({
+      stepId: "P0.1",
+      message: "authentication failed",
+    });
+  });
+
+  it("places conditional diagnostics below the planned suite teardown", () => {
+    const detail = reduceRun([
+      ev({
+        event: "run_started",
+        sequence: 1,
+        plannedSteps: [
+          { stepId: "setup", name: "suite-setup" },
+          { stepId: "cleanup", name: "suite-teardown" },
+        ],
+      }),
+      ev({
+        event: "step_started",
+        sequence: 2,
+        stepId: "diagnostics",
+        name: "failure-diagnostics",
+      }),
+      ev({
+        event: "step_finished",
+        sequence: 3,
+        stepId: "diagnostics",
+        name: "failure-diagnostics",
+        outcome: "passed",
+      }),
+      ev({
+        event: "step_started",
+        sequence: 4,
+        stepId: "cleanup",
+        name: "suite-teardown",
+      }),
+      ev({
+        event: "step_finished",
+        sequence: 5,
+        stepId: "cleanup",
+        name: "suite-teardown",
+        outcome: "passed",
+      }),
+    ]);
+    expect(detail.steps.map((step) => step.stepId)).toEqual([
+      "setup",
+      "cleanup",
+      "diagnostics",
+    ]);
+  });
+
   it("reduces an empty event list to an unknown, stepless run", () => {
     const detail = reduceRun([]);
     expect(detail.steps).toEqual([]);

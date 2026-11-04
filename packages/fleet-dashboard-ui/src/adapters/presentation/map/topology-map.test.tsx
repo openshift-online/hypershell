@@ -109,6 +109,7 @@ function renderApp(): void {
           stepCount: 0,
           plannedSteps: [],
           steps: [],
+          failure: null,
           logs: [],
           logsTruncated: false,
         }),

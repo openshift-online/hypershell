@@ -448,7 +448,7 @@ func TestInjectIngressHostnames(t *testing.T) {
 				Route:          RouteConfig{Enabled: true, Certificate: &RouteCertificateConfig{}},
 			},
 		}
-		injectIngressHostnames(nsConfig)
+		injectIngressHostnames(context.Background(), nsConfig)
 		want := []string{
 			"openshell-gateway." + ns + ".svc.cluster.local",
 			hostname,
@@ -468,7 +468,7 @@ func TestInjectIngressHostnames(t *testing.T) {
 			Name:    ns,
 			Gateway: GatewayConfig{Route: RouteConfig{Enabled: true}},
 		}
-		injectIngressHostnames(nsConfig)
+		injectIngressHostnames(context.Background(), nsConfig)
 		want := []string{hostname}
 		if !reflect.DeepEqual(nsConfig.Gateway.ServerDnsNames, want) {
 			t.Errorf("ServerDnsNames = %v, want %v (no wildcard on the shared path)", nsConfig.Gateway.ServerDnsNames, want)
@@ -481,7 +481,7 @@ func TestInjectIngressHostnames(t *testing.T) {
 			Name:    ns,
 			Gateway: GatewayConfig{ServerDnsNames: []string{"existing.example.com"}, Route: RouteConfig{Enabled: true}},
 		}
-		injectIngressHostnames(nsConfig)
+		injectIngressHostnames(context.Background(), nsConfig)
 		want := []string{"existing.example.com"}
 		if !reflect.DeepEqual(nsConfig.Gateway.ServerDnsNames, want) {
 			t.Errorf("ServerDnsNames = %v, want unchanged %v", nsConfig.Gateway.ServerDnsNames, want)

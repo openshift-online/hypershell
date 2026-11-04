@@ -973,10 +973,7 @@ function SummaryProvisionDurationValue({
     return null;
   }
 
-  const durationValue =
-    valueKey === "mean"
-      ? (metric.provisionDuration?.mean ?? metric.value)
-      : metric.provisionDuration?.[valueKey];
+  const durationValue = metric.provisionDuration?.[valueKey];
 
   if (
     durationValue === undefined ||

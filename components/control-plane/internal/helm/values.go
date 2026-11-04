@@ -318,7 +318,9 @@ func (b *ValuesBuilder) buildOIDCValues(values map[string]interface{}) {
 func (b *ValuesBuilder) buildCredentialDriverValues(values map[string]interface{}) {
 	driver := b.Gateway.CredentialDriver
 	if driver == nil {
-		// Default (KEK). Wave 2 of HYPERSHELL-369 flips the omitted default to vault.
+		// No driver: the chart provisions the KEK store. The gateway package resolves an
+		// omitted credential_driver to vault before it builds values, so only direct
+		// callers reach this branch.
 		setNestedValue(values, false, "server", "credentialDrivers", "kubernetesSecrets", "enabled")
 		setNestedValue(values, false, "server", "credentialDrivers", "vault", "enabled")
 		return

@@ -487,7 +487,7 @@ log.
 
 ### Requirement: E2E-CORE-07 -- Structured Reporting Event Lifecycle and Terminal Integrity
 
-When structured reporting is enabled, the event stream SHALL describe the full run lifecycle with these event types: `run_started` (including the planned set of steps), `step_started`, `step_finished` (carrying the outcome `passed`/`failed`/`skipped` and a duration), `log` (carrying a message and, where attributable, the owning `stepId`), and `run_finished` (carrying the overall `passed`/`failed` verdict and a duration). Step records SHALL carry the canonical step id (`P1.1`, `P2.3`, ...) and slug. Events SHALL account for setup and cleanup work (not only the numbered phase steps), for fail-fast steps that are never reached, for mode-skipped steps, for assertion failures, for `panic`/`recover`, for `runtime.Goexit`/`t.Fatal`/`t.Skip`, for suite timeout, and for context cancellation.
+When structured reporting is enabled, the event stream SHALL describe the full run lifecycle with these event types: `run_started` (including the planned set of steps), `step_started`, `step_finished` (carrying the outcome `passed`/`failed`/`skipped` and a duration), `log` (carrying a message and, where attributable, the owning `stepId`), and `run_finished` (carrying the overall `passed`/`failed` verdict and a duration). When an assertion failure is captured, a failed `run_finished` SHALL also carry the first failed step's `stepId` and a concise, redacted failure `message`, so a consumer can present the cause independently of the raw diagnostic stream. Failure diagnostics SHALL use their own conditional `diagnostics` step and log scope rather than the `cleanup` step. Step records SHALL carry the canonical step id (`P1.1`, `P2.3`, ...) and slug. Events SHALL account for setup and cleanup work (not only the numbered phase steps), for fail-fast steps that are never reached, for mode-skipped steps, for assertion failures, for `panic`/`recover`, for `runtime.Goexit`/`t.Fatal`/`t.Skip`, for suite timeout, and for context cancellation.
 
 Terminal integrity SHALL be preserved. The suite SHALL register cleanup with `t.Cleanup` so that terminal records observe cleanup errors, and SHALL NOT emit a `run_finished: passed` before cleanup has completed. A run that is killed without emitting its terminal `run_finished` record (for example SIGKILL) SHALL be interpretable by a consumer as incomplete/unknown -- never as passed and never as still-connected. Because the suite's existing short numeric internal run id is not globally unique, the structured stream SHALL identify the run by the supplied `E2E_REPORT_RUN_ID`; when that variable is absent (a non-Kubernetes invocation with `E2E_REPORT_JSON=1`), the suite SHALL generate a UUID rather than reuse the short internal id. Within a run, `sequence` SHALL be deterministic and strictly increasing so a consumer can order and deduplicate records across reconnects.
 
@@ -518,6 +518,22 @@ Terminal integrity SHALL be preserved. The suite SHALL register cleanup with `t.
 - WHEN a consumer reads the truncated stream
 - THEN the absence of a terminal record SHALL be interpretable as incomplete/unknown
 - AND it SHALL NOT be interpretable as passed or as still-connected
+
+#### Scenario: E2E-CORE-07.05 -- Terminal failure retains the actionable cause
+
+- GIVEN a step fails and teardown emits a large diagnostic dump
+- WHEN the terminal `run_finished` record is emitted
+- THEN it SHALL carry the first failed step's `stepId` and a concise redacted `message`
+- AND a consumer SHALL NOT need to recover the cause by searching raw logs
+
+#### Scenario: E2E-CORE-07.06 -- Diagnostics have an independent log scope
+
+- GIVEN a failed suite collects evidence during teardown
+- WHEN structured reporting is enabled
+- THEN it SHALL emit a `diagnostics` step around that collection
+- AND every diagnostic log event SHALL use `stepId: diagnostics`, not `cleanup`
+- AND the `cleanup` step SHALL start after pre-cleanup diagnostics finish, so it
+  contains only suite teardown work and excludes diagnostic collection time
 
 ### Requirement: E2E-CORE-08 -- Structured Reporting Redaction and Bounds
 
@@ -2568,6 +2584,12 @@ and SHALL be bounded by `E2E_DIAGNOSTICS_TIMEOUT` (45 seconds by default). A
 diagnostic-source or artifact-write failure SHALL be reported but SHALL NOT hide
 or replace the original test verdict.
 
+Under GitHub Actions, the suite SHALL wrap the complete diagnostic dump in one
+native `::group::E2E failure diagnostics` section so it is collapsed by default.
+The original Go failure SHALL remain visible above the collapsed group; the suite
+SHALL NOT repeat it as an additional human-readable terminal summary. Outside
+GitHub Actions, group markers SHALL be omitted.
+
 GitHub Actions SHALL set `E2E_DIAGNOSTICS_DIR` and upload the resulting directory
 on failure. For a later browser or tracing failure after `TestE2E` has passed, or
 for an early failure before `E2ESuite` exists, Actions MAY invoke the opt-in
@@ -2594,6 +2616,13 @@ failures and allow the two paths to drift.
   cluster diagnostic script
 - AND if a later browser or tracing test fails after the suite passes, the
   workflow MAY invoke `TestFailureDiagnostics` to produce the same sections
+
+#### Scenario: E2E-CORE-47.03 -- Diagnostics do not bury the failure
+
+- GIVEN a failed suite emits thousands of diagnostic lines under GitHub Actions
+- WHEN teardown completes
+- THEN the diagnostic dump SHALL be enclosed by a native collapsible group
+- AND the original Go failure above the group SHALL remain the single human-readable cause
 
 ### Performance Environment Variables
 
@@ -2640,7 +2669,6 @@ failures and allow the two paths to drift.
 | 20-minute CI timeout                                                                       | Kind cluster creation takes ~2 min, image pulls ~1-2 min, e2e tests ~5-8 min. A 20-minute ceiling provides margin for slow GitHub runners while preventing runaway jobs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | e2e workflow skips for irrelevant changes                                                  | SDK-only or docs-only changes do not affect the e2e path. Skipping avoids CI time, Konflux work, and a shared-cluster PR namespace that would only run base images. The `detect-components.sh` infrastructure tracks `api_server`, `control_plane`, and `e2e` component paths for "should we re-run e2e" decisions; `Deploy OpenShift Environment` uses that same `should_run` gate. `Tests CI Gate` depends only on detection and unit (CICD-MRG-05), so a skipped e2e does not leave the queue pending. On `merge_group` events and Mergify temporary queue pull requests, the entire e2e stage is suppressed (CICD-MRG-06); E2E validation of merged code happens on push to `main`. |
 | `make kind-up` accepts image overrides                                                     | Passing `IMAGE_TAG=<digest>` or per-component image variables to `make kind-up` allows CI to deploy Konflux-built images directly without a separate load step. Developers can also use this to test specific image versions locally                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| Backward-compatible migration                                                              | The refactoring does not change `make kind-up`. `scripts/kind/up.sh` can be migrated to use `kustomize build deploy/kind/` incrementally. The spec defines the target state; the migration path is incremental                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | OpenShift e2e runs use `make openshift-up` as the environment                              | This spec owns the driver the suite calls. `openshift-development.spec.md` owns bring-up: `make openshift-up`, the `deploy/openshift/` overlay (Routes, Keycloak NetworkPolicy, SCC), namespace rewrite, `${OPENSHIFT_NAMESPACE}-dev-*` cluster RBAC, and cluster bootstrap. Automated OpenShift pull-request CI lives in `ephemeral-pr-environments.spec.md` (HYPERSHELL-240) and is not duplicated here                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | Env vars renamed with `E2E_` prefix                                                        | Suite settings use the `E2E_` prefix (`E2E_SANDBOX_TIMEOUT`, `E2E_PROVISION_TIMEOUT`, `E2E_SKIP_CLEANUP`, `E2E_NAMESPACE`). The prefix avoids collisions with non-e2e configuration and makes the e2e origin of each variable explicit                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | CI uses `make kind-up`, not raw `kind create cluster`                                      | Reuses the same cluster setup path developers use locally. Ensures the CI environment is identical to local development. Avoids a second "create a Kind cluster" implementation that could drift                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |

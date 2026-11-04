@@ -439,16 +439,16 @@ OpenShellGatewayServiceAccount creation (`openshell-gateway-service-accounts.spe
 
 ---
 
-### Requirement: GTW-ACC-12 -- Role Migration
+### Requirement: GTW-ACC-12 -- Gateway Admin Role Seed
 
-Introducing `gateway:admin` SHALL be an additive, idempotent migration. The `gateway:admin` role SHALL be seeded with its permission set (gateway read/update, role_bindings create/read/delete/list, service_accounts manage) alongside the existing built-in roles. Existing `gateway:owner`, `gateway:viewer`, `gateway:creator`, and `platform:admin` bindings SHALL be unaffected, and re-running the migration SHALL be safe.
+The built-in role seed SHALL create the `gateway:admin` role with its permission set (gateway read/update, role_bindings create/read/delete/list, service_accounts manage) alongside the other built-in roles (`gateway:owner`, `gateway:viewer`, `gateway:creator`, and `platform:admin`). The seed SHALL be idempotent and SHALL NOT modify existing role bindings.
 
-No historical `gateway:owner` binding SHALL be rewritten; existing gateways keep their creator as owner. Going forward, owners may add further owners, admins, or viewers, and admins may add admins or viewers.
+A gateway's creator is its owner. Owners may add further owners, admins, or viewers, and admins may add admins or viewers.
 
-#### Scenario: GTW-ACC-12.01 -- Migration seeds the role idempotently
+#### Scenario: GTW-ACC-12.01 -- Role seed is idempotent
 
-- GIVEN a database already migrated with the existing built-in roles
-- WHEN the role seeding migration runs (including on a second run)
+- GIVEN a database with the built-in roles seeded
+- WHEN the role seed runs again
 - THEN a single `gateway:admin` role SHALL exist with its permissions
 - AND no existing binding SHALL be modified
 

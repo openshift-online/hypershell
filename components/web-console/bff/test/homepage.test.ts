@@ -79,7 +79,7 @@ describe("homepage aggregation", () => {
     );
   });
 
-  it("uses local-kind placement for a connected local Kind cluster", async () => {
+  it("uses the Kind capability selector for a connected cluster advertising provider/kind", async () => {
     const now = new Date().toISOString();
     const fetchMock = vi
       .fn()
@@ -116,7 +116,7 @@ describe("homepage aggregation", () => {
         healthy: 1,
         total: 1,
       },
-      quickCreate: { placement: { mode: "local-kind" } },
+      quickCreate: { placement: { selector: ["provider/kind"] } },
     });
   });
 

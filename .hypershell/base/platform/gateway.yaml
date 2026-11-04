@@ -9,7 +9,7 @@
 # because the API server assigns it at creation.
 #
 # This gateway targets a public IBM cluster (the hypc-ibm-00 dev target). For a
-# local kind cluster, replace `placement.selector` with `placement: {mode: local-kind}`.
+# local kind cluster, use `selector: [provider/kind]`.
 apiVersion: hypershell.redhat.io/v1
 kind: Gateway
 metadata:

@@ -175,9 +175,7 @@ Source: BFF `GET /api/metrics/gateway-provision-outcomes`. Spec:
 Success and failure counts from `gateway_provision_outcomes_total`
 (`outcome="success|failure"`, OBS-CPL-07) over the selected 7- or 30-day window.
 The BFF response field names retain the historical `_24h` suffix. When outcome
-counters are empty, the BFF may fall back to
-`gateway_provision_duration_seconds_count` for success counts only (OBS-GPO-04); it
-does not synthesize failure counts.
+counters are empty, the BFF reports zero counts and a null success rate.
 
 The widget includes a daily success-rate sparkline (`successRateTrend`) for the
 selected range when at least two daily buckets are present.

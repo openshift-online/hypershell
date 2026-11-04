@@ -73,7 +73,12 @@ export function useQuickCreateGateway(
             provisionGateway: (name) =>
               gatewayOperations.provisionGateway({
                 name,
-                placement: { ...placement },
+                placement: {
+                  selector: [...placement.selector],
+                  ...(placement.excludedSelector
+                    ? { excludedSelector: [...placement.excludedSelector] }
+                    : {}),
+                },
               }),
           }),
     onSuccess: async (gateway) => {

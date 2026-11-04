@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"strings"
 	"sync"
@@ -58,7 +58,7 @@ func (r *ManagedClusterReconciler) Handle(ctx context.Context, event watcher.Eve
 	_, endSpan := cpotel.StartReconcileSpan(ctx, "ManagedCluster", event.Type.String(), event.Resource.GetMetadata().GetTraceparent())
 	defer func() { endSpan(cpotel.OutcomeSuccess, "", nil) }()
 
-	log.Printf("INFO reconciling ManagedCluster %s (event=%d)", event.ResourceID, event.Type)
+	slog.InfoContext(ctx, "Reconciling ManagedCluster", "managed_cluster", event.ResourceID, "event_type", event.Type)
 	return nil
 }
 
@@ -169,23 +169,30 @@ func NewGatewayReconciler(
 			keycloakConfig.ClientID,
 			keycloakConfig.ClientSecret,
 		)
-		log.Printf("INFO keycloak integration enabled: server=%s realm=%s", keycloakConfig.ServerURL, keycloakConfig.Realm)
+		slog.Info("Keycloak integration enabled", "url", keycloakConfig.ServerURL, "realm", keycloakConfig.Realm)
 	}
 
 	// Derive ingress base domain from environment
 	ingressBaseDomain := os.Getenv("INGRESS_BASE_DOMAIN")
 	if ingressBaseDomain == "" {
 		ingressBaseDomain = "gateway.cluster.local"
-		log.Printf("WARN INGRESS_BASE_DOMAIN not set, using default: %s", ingressBaseDomain)
+		slog.Warn("INGRESS_BASE_DOMAIN not set, using default", "ingress_base_domain", ingressBaseDomain)
 	}
 
 	// Validate external CA issuer for Route passthrough mode
 	if !hasGatewayAPI && externalCAIssuerName == "" {
-		log.Printf("WARN EXTERNAL_CA_ISSUER_NAME not set but Gateway API unavailable; Route passthrough mode will fail cert validation")
+		slog.Warn("EXTERNAL_CA_ISSUER_NAME not set but Gateway API unavailable; Route passthrough mode will fail cert validation")
 	}
 
-	log.Printf("INFO gateway reconciler initialized: helm=%s openshift=%v certmanager=%v gatewayapi=%v ingressMode=%s keycloak=%v ingress=%s ca-issuer=%s",
-		helmClient.ChartPath, isOpenShift, hasCertManager, hasGatewayAPI, ingressMode, kcClient != nil, ingressBaseDomain, externalCAIssuerName)
+	slog.Info("Gateway reconciler initialized",
+		"helm", helmClient.ChartPath,
+		"openshift", isOpenShift,
+		"certmanager", hasCertManager,
+		"gatewayapi", hasGatewayAPI,
+		"ingress_mode", ingressMode,
+		"keycloak", kcClient != nil,
+		"ingress", ingressBaseDomain,
+		"ca_issuer", externalCAIssuerName)
 
 	return &GatewayReconciler{
 		active:                make(map[string]struct{}),
@@ -227,7 +234,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 
 	gw := event.Resource
 	if gw == nil {
-		log.Printf("WARN gateway event %s has nil resource, skipping", event.ResourceID)
+		slog.WarnContext(ctx, "Gateway event has nil resource, skipping", "gateway_id", event.ResourceID)
 		return nil
 	}
 	previousPhase := gw.GetPhase()
@@ -266,9 +273,9 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		if namespaceErr != nil {
 			// Without a recorded namespace there is nothing deterministic to clean
 			// up; NamespaceGC remains the namespace backstop.
-			log.Printf("WARN gateway %s deleted but %v; skipping namespace cleanup", event.ResourceID, namespaceErr)
+			slog.WarnContext(ctx, "Gateway deleted but namespace unresolved; skipping namespace cleanup", "gateway_id", event.ResourceID, "error", namespaceErr)
 		} else {
-			log.Printf("INFO gateway %s deleted, cleaning up resources in namespace %s", event.ResourceID, namespace)
+			slog.InfoContext(ctx, "Gateway deleted, cleaning up resources", "gateway_id", event.ResourceID, "namespace", namespace)
 			opts := gateway.ReconcileOpts{
 				IsOpenShift:           r.isOpenShift,
 				HasCertManager:        r.hasCertManager,
@@ -287,7 +294,11 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			// already tolerated as best-effort.
 			opts.RecordOrphan = func(rctx context.Context, resourceKind, resourceName, reason string) {
 				if err := recordIncompleteFinalizationEvent(rctx, r.clientset, r.controlPlaneNamespace, event.ResourceID, resourceKind, resourceName, reason); err != nil {
-					log.Printf("ERROR gateway %s: failed to record IncompleteFinalization Event for %s %q: %v", event.ResourceID, resourceKind, resourceName, err)
+					slog.ErrorContext(ctx, "Failed to record IncompleteFinalization Event",
+						"gateway_id", event.ResourceID,
+						"kind", resourceKind,
+						"name", resourceName,
+						"error", err)
 				}
 			}
 			if r.keycloakClient != nil {
@@ -298,7 +309,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 					// cleanup. Keycloak is not contacted. Record the leak durably (not
 					// just a log line) so the orphaned Keycloak clients are visible to
 					// operators for recovery.
-					log.Printf("ERROR gateway %s stored identity cannot be resolved (%v); skipping Keycloak cleanup; Keycloak clients may remain for operator recovery", event.ResourceID, err)
+					slog.ErrorContext(ctx, "Gateway stored identity cannot be resolved; skipping Keycloak cleanup; Keycloak clients may remain for operator recovery", "gateway_id", event.ResourceID, "error", err)
 					opts.RecordOrphan(ctx, "KeycloakClient", fmt.Sprintf("gateway %s (%s)", gw.Name, event.ResourceID),
 						fmt.Sprintf("stored identity cannot be resolved (%v); Keycloak clients could not be deleted", err))
 				} else {
@@ -312,11 +323,14 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 				// Log the recorded identity for operator recovery instead.
 				clientID, idErr := gatewayKeycloakClientID(event.ResourceID, gw)
 				if idErr != nil {
-					log.Printf("ERROR gateway %s identity cleanup requires the Keycloak client; stored identity cannot be resolved (%v); Keycloak clients may remain for operator recovery", event.ResourceID, idErr)
+					slog.ErrorContext(ctx, "Gateway identity cleanup requires the Keycloak client; stored identity cannot be resolved; Keycloak clients may remain for operator recovery", "gateway_id", event.ResourceID, "error", idErr)
 					opts.RecordOrphan(ctx, "KeycloakClient", fmt.Sprintf("gateway %s (%s)", gw.Name, event.ResourceID),
 						fmt.Sprintf("Keycloak provisioner is deconfigured and stored identity cannot be resolved (%v); Keycloak clients could not be deleted", idErr))
 				} else {
-					log.Printf("ERROR gateway %s identity cleanup requires the Keycloak client; leaving Keycloak clients %q and %q for operator recovery", event.ResourceID, clientID, clientID+"-console")
+					slog.ErrorContext(ctx, "Gateway identity cleanup requires the Keycloak client; leaving Keycloak clients for operator recovery",
+						"gateway_id", event.ResourceID,
+						"client_id", clientID,
+						"console_client_id", clientID+"-console")
 					opts.RecordOrphan(ctx, "KeycloakClient", clientID,
 						"Keycloak provisioner is deconfigured; the gateway Keycloak client could not be deleted")
 					opts.RecordOrphan(ctx, "KeycloakClient", clientID+"-console",
@@ -337,7 +351,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			if err := gateway.DeleteGatewayResources(ctx, r.dynamicClient, r.clientset, r.helmClient, namespace, opts, credentialNamespaces...); err != nil {
 				deleteErrs = append(deleteErrs, fmt.Errorf("delete gateway resources in %s: %w", namespace, err))
 			} else {
-				log.Printf("INFO gateway %s resources cleaned up from namespace %s", event.ResourceID, namespace)
+				slog.InfoContext(ctx, "Gateway resources cleaned up", "gateway_id", event.ResourceID, "namespace", namespace)
 			}
 
 			// Delete the gateway's per-tenant Vault KV mount (openshell-gw/<namespace>),
@@ -356,7 +370,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 				// gateway was Vault-backed. Record a durable orphan for operator reclaim and
 				// let the delete proceed rather than pinning the tombstone on a value we do
 				// not understand.
-				log.Printf("WARN gateway %s: cannot determine credential driver during deletion (%v); skipping Vault mount reclaim", event.ResourceID, driverErr)
+				slog.WarnContext(ctx, "Gateway cannot determine credential driver during deletion; skipping Vault mount reclaim", "gateway_id", event.ResourceID, "error", driverErr)
 				opts.RecordOrphan(ctx, "VaultTenantMount", namespace,
 					fmt.Sprintf("stored credential_driver could not be parsed (%v); if this gateway was Vault-backed, mount %s may remain", driverErr, gateway.VaultMountForNamespace(namespace)))
 			case vaultBacked:
@@ -367,11 +381,14 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 					// delete tombstone forever. Record a durable orphan for operator reclaim and
 					// complete the deletion; the gateway database is already dropped, so a
 					// left-behind mount holds only unreferenced, un-listable entries.
-					log.Printf("WARN gateway %s: per-tenant Vault mount %s could not be deleted (%v); recording orphan and completing deletion", event.ResourceID, gateway.VaultMountForNamespace(namespace), err)
+					slog.WarnContext(ctx, "Gateway per-tenant Vault mount could not be deleted; recording orphan and completing deletion",
+						"gateway_id", event.ResourceID,
+						"mount", gateway.VaultMountForNamespace(namespace),
+						"error", err)
 					opts.RecordOrphan(ctx, "VaultTenantMount", namespace,
 						fmt.Sprintf("per-tenant Vault mount %s could not be deleted during gateway deletion and may remain: %v", gateway.VaultMountForNamespace(namespace), err))
 				} else {
-					log.Printf("INFO deleted vault tenant mount for namespace %s", namespace)
+					slog.InfoContext(ctx, "Deleted vault tenant mount", "namespace", namespace)
 				}
 			}
 
@@ -399,8 +416,11 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		return reconcileErr
 	}
 
-	log.Printf("INFO reconciling Gateway %s name=%q namespace=%s (event=%d)",
-		event.ResourceID, gw.Name, gw.Namespace, event.Type)
+	slog.InfoContext(ctx, "Reconciling Gateway",
+		"gateway_id", event.ResourceID,
+		"gateway_name", gw.Name,
+		"namespace", gw.Namespace,
+		"event_type", event.Type)
 
 	// The convergence gate prevents redundant re-provisioning: skip re-applying
 	// manifests only when the Gateway is converged (observed_generation ==
@@ -466,7 +486,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 				return watcher.WithRetryableReason(watcher.PreservePayloadForRetry(reconcileErr), reason)
 			}
 		}
-		log.Printf("DEBUG gateway %s converged at generation %d, skipping reconciliation", event.ResourceID, gw.Generation)
+		slog.DebugContext(ctx, "Gateway converged, skipping reconciliation", "gateway_id", event.ResourceID, "generation", gw.Generation)
 		outcome = cpotel.OutcomeNoop
 		return nil
 	}
@@ -604,7 +624,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			if failedGateway := r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseFailed), failReason); failedGateway != nil {
 				observeGatewayProvisionFailure(ctx, event.ResourceID)
 			}
-			log.Printf("ERROR gateway %s generated configuration invalid in namespace %s: %v", gw.Name, namespace, renderErr.Err)
+			slog.ErrorContext(ctx, "Gateway generated configuration invalid", "gateway_name", gw.Name, "namespace", namespace, "error", renderErr.Err)
 			outcome = cpotel.OutcomeFailed
 			reason = cpotel.ReasonInvalidConfig
 		} else if r.updateGatewayPhase(ctx, event.ResourceID, string(gatewayhealth.PhaseFailed)) {
@@ -632,12 +652,12 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			Host:      routeHost,
 		})
 		if err != nil {
-			log.Printf("WARN gateway %s: failed to resolve route address: %v", gw.Name, err)
+			slog.WarnContext(ctx, "Gateway failed to resolve route address", "gateway_name", gw.Name, "error", err)
 		} else if addr != "" {
 			if err := r.updateRouteAddress(ctx, event.ResourceID, addr); err != nil {
-				log.Printf("WARN gateway %s: failed to publish route address: %v", gw.Name, err)
+				slog.WarnContext(ctx, "Gateway failed to publish route address", "gateway_name", gw.Name, "error", err)
 			} else {
-				log.Printf("INFO gateway %s: published route address %s", gw.Name, addr)
+				slog.InfoContext(ctx, "Gateway published route address", "gateway_name", gw.Name, "addr", addr)
 			}
 		}
 	}
@@ -659,7 +679,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		gateway.SetCondition(conditions, gateway.ConditionGatewayHealthy, gateway.StatusFailed, "Gateway health check timed out - the gateway workload is not yet ready")
 		r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
 		r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseDegraded), reason)
-		log.Printf("WARN gateway %s applied but not ready in namespace %s: %s", gw.Name, namespace, reason)
+		slog.WarnContext(ctx, "Gateway applied but not ready", "gateway_name", gw.Name, "namespace", namespace, "reason", reason)
 		return nil
 	}
 
@@ -683,12 +703,12 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			if runningGateway := r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseRunning), gatewayhealth.StatusHealthy); runningGateway != nil {
 				observeGatewayProvisionSuccess(ctx, runningGateway)
 			}
-			log.Printf("INFO gateway %s provisioned and route ready in namespace %s", gw.Name, namespace)
+			slog.InfoContext(ctx, "Gateway provisioned and route ready", "gateway_name", gw.Name, "namespace", namespace)
 		} else {
 			// Route gate not yet passed: hold at Provisioning. The continuous health
 			// reconciler promotes to Running once the route is ready.
 			r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseProvisioning), "Deployment ready; awaiting route readiness")
-			log.Printf("INFO gateway %s deployment ready in namespace %s; awaiting route readiness", gw.Name, namespace)
+			slog.InfoContext(ctx, "Gateway deployment ready; awaiting route readiness", "gateway_name", gw.Name, "namespace", namespace)
 		}
 	} else {
 		gateway.SetCondition(conditions, gateway.ConditionGatewayHealthy, gateway.StatusComplete, "")
@@ -697,7 +717,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		if runningGateway := r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseRunning), gatewayhealth.StatusHealthy); runningGateway != nil {
 			observeGatewayProvisionSuccess(ctx, runningGateway)
 		}
-		log.Printf("INFO gateway %s provisioned and ready in namespace %s", gw.Name, namespace)
+		slog.InfoContext(ctx, "Gateway provisioned and ready", "gateway_name", gw.Name, "namespace", namespace)
 	}
 
 	// The console can start after the gateway is ready. Poll the console in the
@@ -758,7 +778,7 @@ func (r *GatewayReconciler) reconcileExistingGatewayKeycloakClient(ctx context.C
 	if err := r.keycloakClient.EnsureE2ETokenExchange(ctx, clientUUID); err != nil {
 		return fmt.Errorf("reconcile e2e token-exchange on Keycloak client %q: %w", clientID, err)
 	}
-	log.Printf("INFO reconciled Keycloak client %q (uuid=%q)", clientID, clientUUID)
+	slog.InfoContext(ctx, "Reconciled Keycloak client", "client_id", clientID, "uuid", clientUUID)
 	return nil
 }
 
@@ -878,7 +898,7 @@ func (r *GatewayReconciler) pollRouteReady(ctx context.Context, namespace string
 	return poll(ctx, interval, window, func() bool {
 		rr, err := r.exposure.ObserveReadiness(ctx, exposure.Request{Namespace: namespace})
 		if err != nil {
-			log.Printf("WARN gateway route readiness for %s: %v", namespace, err)
+			slog.WarnContext(ctx, "Gateway route readiness check failed", "namespace", namespace, "error", err)
 			return false
 		}
 		return rr.Ready
@@ -910,7 +930,7 @@ func (r *GatewayReconciler) publishConsoleAddressWhenReady(ctx context.Context, 
 				// a NotFound until the window elapses.
 				return true
 			}
-			log.Printf("WARN console publisher: get gateway %s: %v", gatewayID, err)
+			slog.WarnContext(ctx, "Console publisher: get gateway failed", "gateway_id", gatewayID, "error", err)
 			return false
 		}
 		current := resp.GetGateway()
@@ -1085,7 +1105,7 @@ func (r *GatewayReconciler) updateGatewayHealth(ctx context.Context, gatewayID, 
 		Status: &status,
 	})
 	if err != nil {
-		log.Printf("WARN failed to update gateway %s health to %s (%s): %v", gatewayID, phase, status, err)
+		slog.WarnContext(ctx, "Failed to update gateway health", "gateway_id", gatewayID, "phase", phase, "status", status, "error", err)
 		return nil
 	}
 	return response.GetGateway()
@@ -1098,7 +1118,7 @@ func (r *GatewayReconciler) updateGatewayPhase(ctx context.Context, gatewayID st
 		Phase: &phase,
 	})
 	if err != nil {
-		log.Printf("WARN failed to update gateway %s phase to %s: %v", gatewayID, phase, err)
+		slog.WarnContext(ctx, "Failed to update gateway phase", "gateway_id", gatewayID, "phase", phase, "error", err)
 		return false
 	}
 	return true
@@ -1134,7 +1154,7 @@ func (r *GatewayReconciler) updateProvisioningConditions(ctx context.Context, ga
 		ProvisioningConditions: pbConditions,
 	})
 	if err != nil {
-		log.Printf("WARN failed to update provisioning conditions for gateway %s: %v", gatewayID, err)
+		slog.WarnContext(ctx, "Failed to update provisioning conditions", "gateway_id", gatewayID, "error", err)
 	}
 }
 
@@ -1175,7 +1195,7 @@ func syncConsoleAddress(ctx context.Context, clientset kubernetes.Interface, dyn
 	}
 	namespace, err := gatewayNamespace(gw)
 	if err != nil {
-		log.Printf("WARN console address for %s: %v", gatewayID, err)
+		slog.WarnContext(ctx, "Console address failed", "gateway_id", gatewayID, "error", err)
 		return false
 	}
 	// Gateways opted in to the dedicated per-gateway certificate serve their
@@ -1194,7 +1214,7 @@ func syncConsoleAddress(ctx context.Context, clientset kubernetes.Interface, dyn
 	if hasURL {
 		ready, _, err = gateway.DeploymentReadiness(ctx, clientset, namespace, gateway.ConsoleDeploymentName)
 		if err != nil {
-			log.Printf("WARN console readiness for %s: %v", namespace, err)
+			slog.WarnContext(ctx, "Console readiness check failed", "namespace", namespace, "error", err)
 			return false
 		}
 	}
@@ -1207,11 +1227,11 @@ func syncConsoleAddress(ctx context.Context, clientset kubernetes.Interface, dyn
 		// that presents a mismatched certificate.
 		exposureReady, reason, exposureErr := gateway.ConsoleExposureReady(ctx, dynamicClient, nsConfig, ingressMode)
 		if exposureErr != nil {
-			log.Printf("WARN console exposure readiness for %s: %v", namespace, exposureErr)
+			slog.WarnContext(ctx, "Console exposure readiness check failed", "namespace", namespace, "error", exposureErr)
 			return false
 		}
 		if !exposureReady {
-			log.Printf("INFO console for %s not servable yet: %s", namespace, reason)
+			slog.InfoContext(ctx, "Console not servable yet", "namespace", namespace, "reason", reason)
 			ready = false
 		}
 	}
@@ -1223,10 +1243,10 @@ func syncConsoleAddress(ctx context.Context, clientset kubernetes.Interface, dyn
 		Id:             gatewayID,
 		ConsoleAddress: &desired,
 	}); err != nil {
-		log.Printf("WARN failed to set console address for %s to %q: %v", gatewayID, desired, err)
+		slog.WarnContext(ctx, "Failed to set console address", "gateway_id", gatewayID, "address", desired, "error", err)
 		return false
 	}
-	log.Printf("INFO console address for %s set to %q (consoleReady=%v)", gatewayID, desired, ready)
+	slog.InfoContext(ctx, "Console address set", "gateway_id", gatewayID, "address", desired, "console_ready", ready)
 	return ready
 }
 
@@ -1244,7 +1264,7 @@ func syncConsoleAddress(ctx context.Context, clientset kubernetes.Interface, dyn
 func consoleRouteConfig(gw *pb.Gateway) gateway.RouteConfig {
 	routeConfig, err := effectiveRouteConfig(gw)
 	if err != nil {
-		log.Printf("WARN console route config for gateway %s: invalid route config: %v", gw.GetMetadata().GetId(), err)
+		slog.Warn("Console route config invalid", "gateway_id", gw.GetMetadata().GetId(), "error", err)
 		return gateway.RouteConfig{}
 	}
 	return routeConfig
@@ -1263,7 +1283,7 @@ func (r *GatewayReconciler) updateObservedGeneration(ctx context.Context, gatewa
 	if err != nil {
 		// Intentional soft failure: the gateway stays unconverged (observed_generation
 		// unchanged) and re-applies on the next watch event, so no work is lost.
-		log.Printf("WARN failed to update gateway %s observed_generation to %d: %v", gatewayID, generation, err)
+		slog.WarnContext(ctx, "Failed to update gateway observed_generation", "gateway_id", gatewayID, "generation", generation, "error", err)
 	}
 }
 
@@ -1350,6 +1370,6 @@ func NewStubGatewayReconciler() *StubGatewayReconciler {
 }
 
 func (r *StubGatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.Gateway]) error {
-	log.Printf("INFO [stub] reconciling Gateway %s (event=%d)", event.ResourceID, event.Type)
+	slog.InfoContext(ctx, "Stub reconciling Gateway", "gateway_id", event.ResourceID, "event_type", event.Type)
 	return nil
 }

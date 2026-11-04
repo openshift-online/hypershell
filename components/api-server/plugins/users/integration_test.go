@@ -32,7 +32,7 @@ func jwtContextWithRealmRoles(h *test.Helper, account *testutil.TestAccount, rea
 	}
 
 	claims := jwt.MapClaims{
-		"iss":      h.Env().Config.APIClient.TokenURL,
+		"iss":      testutil.TestJWTIssuer,
 		"username": account.Username,
 		"typ":      "Bearer",
 		"iat":      time.Now().Unix(),

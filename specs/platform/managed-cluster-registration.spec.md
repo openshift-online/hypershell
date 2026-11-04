@@ -109,7 +109,7 @@ Gitops configuration required for every control plane, the hub's co-located one 
 
 `HYPERSHELL_CLUSTER_ID` is resolved at runtime and SHALL NOT appear in gitops.
 
-Adding a control plane SHALL NOT require configuration on the hub api-server. Once a control plane has registered, its JWT `sub` is a control-plane identity (see "Requirement: Control-Plane Identity"): the gRPC RBAC interceptor authorizes it without role bindings, but only for its own cluster's gateways, fleet-wide reads, status writes, and its own record. `RBAC_SERVICE_ACCOUNTS` is only the bootstrap fallback, for a control plane that must act before or without a registered ManagedCluster; the hub overlays keep `service-account-hypershell-control-plane` (the co-located control plane) on it. It need not list any other control plane.
+Adding a control plane SHALL NOT require configuration on the hub api-server. Once a control plane has registered, its JWT `sub` is a control-plane identity (see "Requirement: Control-Plane Identity"): the RBAC Authorizer authorizes its gRPC calls without role bindings, but only for its own cluster's gateways, fleet-wide reads, status writes, and its own record. `RBAC_SERVICE_ACCOUNTS` is only the bootstrap fallback, for a control plane that must act before or without a registered ManagedCluster; the hub overlays keep `service-account-hypershell-control-plane` (the co-located control plane) on it. It need not list any other control plane.
 
 ---
 
@@ -358,7 +358,7 @@ matching cluster appears (late binding).
 
 The four gRPC watch RPCs (`WatchGateways`, `WatchManagedClusters`, `WatchRoleBindings`, `WatchAgentRuntimes`) SHALL require a valid JWT; they SHALL NOT appear in `--auth-bypass-methods` in any environment that runs the control plane with OIDC credentials, and never on a hub that exposes gRPC externally (`hub-grpc-tls.spec.md`).
 
-For `WatchGateways`, `ListGateways`, `WatchRoleBindings`, `ListRoleBindings`, `WatchAgentRuntimes`, and `ListAgentRuntimes`, when the caller's JWT `sub` matches the `oidc_subject` of a registered `ManagedCluster`, the request SHALL carry `cluster_id` equal to that record's id: a missing `cluster_id` SHALL be rejected with `INVALID_ARGUMENT` and a different one with `PERMISSION_DENIED`. The check runs in the gRPC RBAC interceptor before the handler subscribes to the event broker, and applies regardless of `RBAC_SERVICE_ACCOUNTS`. Callers whose `sub` is not a registered cluster (users, `hsctl`) are unaffected by this rule and continue through the existing role-binding authorization.
+For `WatchGateways`, `ListGateways`, `WatchRoleBindings`, `ListRoleBindings`, `WatchAgentRuntimes`, and `ListAgentRuntimes`, when the caller's JWT `sub` matches the `oidc_subject` of a registered `ManagedCluster`, the request SHALL carry `cluster_id` equal to that record's id: a missing `cluster_id` SHALL be rejected with `INVALID_ARGUMENT` and a different one with `PERMISSION_DENIED`. The check runs in the RBAC Authorizer (`security/rbac-enforcement.spec.md`, SEC-RBAC-24) before the handler subscribes to the event broker, and applies regardless of `RBAC_SERVICE_ACCOUNTS`. Callers whose `sub` is not a registered cluster (users, `hsctl`) are unaffected by this rule and continue through the existing role-binding authorization.
 
 For `WatchGateways` and `ListGateways` the scoping key is the gateway's assigned `cluster_id`. A late-bound gateway that is not yet placed (empty `cluster_id`, see [`data-model.spec.md`](./data-model.spec.md), "Requirement: Gateway Placement and Late Binding") matches no `cluster_id` filter and SHALL NOT be delivered to any filtered stream until the API server assigns it a `cluster_id`; at that point it is delivered to the owning cluster's stream like any pinned gateway.
 
@@ -408,6 +408,56 @@ For `WatchAgentRuntimes` and `ListAgentRuntimes` the scoping key is the `AgentRu
 - GIVEN a gRPC client with no bearer token
 - WHEN it opens any `Watch*` RPC
 - THEN the api-server returns `UNAUTHENTICATED`
+
+### Requirement: PLAT-CLUS-15 -- ListRoleBindings Fails Closed Without a User
+
+`ListRoleBindings` serves two distinct intents that the api-server SHALL keep
+separate and SHALL NOT let silently convert into each other:
+
+- a per-user query, with `user_id` set, that returns only that user's bindings
+  (optionally narrowed by `gateway_id` and the cluster scope of PLAT-CLUS-10); and
+- a deliberate cluster-wide resync, with `user_id` empty and no `gateway_id`, that
+  returns every surviving binding under the caller's mandatory `cluster_id` scope so
+  the control plane recovers a missed owner grant (`control-plane.spec.md`,
+  "Requirement: CTRL-CORE-08 -- Role Binding Resync").
+
+The api-server SHALL reject a `ListRoleBindings` request that carries an empty
+`user_id` together with a `gateway_id` filter. It SHALL return `INVALID_ARGUMENT`
+and SHALL perform no database read for that request. Such a request would otherwise
+degrade a per-user list into a per-gateway, all-user list and disclose every user's
+bindings on that gateway. The rule applies to every caller, independent of the
+cluster-scope check in PLAT-CLUS-10.
+
+The all-binding read SHALL be reachable only through the explicit cluster-wide
+resync branch, defined above. It SHALL NOT be the fallback of a request that merely
+omits `user_id`. The resulting `INVALID_ARGUMENT` is a terminal client error and
+SHALL NOT be retried by the caller.
+
+Existing accepted behavior SHALL be preserved: a request with `user_id` set returns
+only that user's bindings, and the cluster-wide resync continues to reach the
+all-binding read under its mandatory `cluster_id` scope.
+
+#### Scenario: PLAT-CLUS-15.01 -- Empty user with a gateway filter is rejected without a read
+
+- GIVEN a `ListRoleBindings` request with an empty `user_id`, a `gateway_id`, and a valid `cluster_id` scope
+- WHEN the api-server handles the request
+- THEN it SHALL return `INVALID_ARGUMENT`
+- AND it SHALL perform no database read of role bindings
+- AND it SHALL NOT return any binding
+
+#### Scenario: PLAT-CLUS-15.02 -- Per-user gateway query returns only that user
+
+- GIVEN role bindings for several users on the same gateway assigned to `cluster_id: X`
+- WHEN a `ListRoleBindings` request sets `user_id` to one user, `gateway_id` to that gateway, and `cluster_id: X`
+- THEN the response SHALL contain only that user's bindings on that gateway
+- AND no other user's bindings SHALL be returned
+
+#### Scenario: PLAT-CLUS-15.03 -- Cluster-wide resync is the only all-binding path
+
+- GIVEN a `ListRoleBindings` request with an empty `user_id`, no `gateway_id`, and a valid `cluster_id` scope
+- WHEN the api-server handles the request
+- THEN it SHALL read all surviving bindings and return those whose gateway is assigned to that cluster
+- AND this resync branch SHALL be the only request shape that reaches the all-binding read
 
 ### Requirement: PLAT-CLUS-11 -- Control-Plane Identity
 

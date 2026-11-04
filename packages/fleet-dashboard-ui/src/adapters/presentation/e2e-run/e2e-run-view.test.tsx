@@ -76,6 +76,7 @@ function detail(over: Partial<E2eRunDetail> = {}): E2eRunDetail {
         durationMs: null,
       },
     ],
+    failure: null,
     logs: [
       {
         sequence: 1,
@@ -397,6 +398,11 @@ describe("E2eRunView", () => {
     await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
     // Wait for the snapshot detail to resolve.
     await screen.findByRole("tab", { name: "Progress" });
+    await user.click(screen.getByRole("tab", { name: "Logs" }));
+    await waitFor(() => {
+      /* eslint-disable-next-line @typescript-eslint/unbound-method -- asserting mock calls */
+      expect(api.getE2eRunLogs).toHaveBeenCalledTimes(1);
+    });
 
     act(() => {
       handlers.current?.onStatus({ state: "live", droppedEntries: 0 });
@@ -456,6 +462,11 @@ describe("E2eRunView", () => {
     );
     await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
     await screen.findByRole("tab", { name: "Progress" });
+    await user.click(screen.getByRole("tab", { name: "Logs" }));
+    await waitFor(() => {
+      /* eslint-disable-next-line @typescript-eslint/unbound-method -- asserting mock calls */
+      expect(api.getE2eRunLogs).toHaveBeenCalledTimes(1);
+    });
 
     // Stream far more log lines than the buffer window: the buffer must stay bounded
     // (dropping the oldest, E2E-LOG-22) while still showing the newest line.
@@ -548,11 +559,187 @@ describe("E2eRunView", () => {
     const { api } = makeApi(d, { getE2eRunLogs });
     renderView(api, enabled([summary({ verdict: "failed" })]));
     await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
-    // The Progress tab's failed-step preview reads the paginated log buffer, not the
-    // (now empty) detail logs. Scope to the steps grid (the same line also renders in
-    // the log pane).
+    const initialGrid = await screen.findByRole("grid", { name: "Run steps" });
+    // Progress does not fetch raw logs just to populate the optional preview.
+    expect(within(initialGrid).queryByText(/boom: build failed/)).toBeNull();
+    expect(getE2eRunLogs).not.toHaveBeenCalled();
+
+    // Once Logs has loaded the bounded page, returning to Progress reuses that
+    // buffer for the failed-step preview without another request.
+    await user.click(screen.getByRole("tab", { name: "Logs" }));
+    expect((await screen.findByTestId("e2e-log-line")).textContent).toContain(
+      "boom: build failed",
+    );
+    await user.click(screen.getByRole("tab", { name: "Progress" }));
     const grid = await screen.findByRole("grid", { name: "Run steps" });
     expect(await within(grid).findByText(/boom: build failed/)).toBeDefined();
+    expect(getE2eRunLogs).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the terminal failure visible outside the diagnostic logs", async () => {
+    const user = userEvent.setup();
+    const d = detail({
+      verdict: "failed",
+      failure: {
+        stepId: "P0.1",
+        message: "intentional OpenShift E2E failure",
+      },
+    });
+    const { api } = makeApi(d);
+    renderView(api, enabled([summary({ verdict: "failed" })]));
+    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+
+    expect(await screen.findByText("This run failed.")).toBeDefined();
+    expect(screen.getByText(/Failed step:/)).toBeDefined();
+    expect(screen.getByText("P0.1")).toBeDefined();
+    expect(screen.getByText("intentional OpenShift E2E failure")).toBeDefined();
+  });
+
+  it("shows failure diagnostics as a selectable section below suite teardown", async () => {
+    const user = userEvent.setup();
+    const d = detail({
+      verdict: "failed",
+      steps: [
+        {
+          stepId: "cleanup",
+          name: "suite-teardown",
+          state: "passed",
+          startedAt: "2026-01-01T00:34:00Z",
+          endedAt: "2026-01-01T00:35:00Z",
+          durationMs: 60000,
+        },
+        {
+          stepId: "diagnostics",
+          name: "failure-diagnostics",
+          state: "passed",
+          startedAt: "2026-01-01T00:34:05Z",
+          endedAt: "2026-01-01T00:34:45Z",
+          durationMs: 40000,
+        },
+      ],
+    });
+    const getE2eRunLogs = vi
+      .fn()
+      .mockResolvedValue(
+        plane({ entries: [], nextCursor: null, hasMore: false }),
+      );
+    const { api } = makeApi(d, { getE2eRunLogs });
+    renderView(api, enabled([summary({ verdict: "failed" })]));
+    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+
+    const grid = await screen.findByRole("grid", { name: "Run steps" });
+    const teardown = within(grid).getByRole("button", {
+      name: "suite teardown",
+    });
+    const diagnostics = within(grid).getByRole("button", {
+      name: "failure diagnostics",
+    });
+    expect(
+      teardown.compareDocumentPosition(diagnostics) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+
+    // Opening the detail on Progress uses lifecycle data only. Raw logs, including
+    // diagnostics, stay idle until the operator opens the Logs tab.
+    expect(getE2eRunLogs).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("tab", { name: "Logs" }));
+    await waitFor(() => {
+      expect(getE2eRunLogs).toHaveBeenLastCalledWith(
+        "tenant-1/ns/run-1",
+        null,
+        null,
+        expect.anything(),
+      );
+    });
+    expect(
+      screen.getByRole("option", { name: "failure-diagnostics" }),
+    ).toBeDefined();
+
+    await user.selectOptions(
+      screen.getByLabelText("Log scope"),
+      screen.getByRole("option", { name: "failure-diagnostics" }),
+    );
+    await waitFor(() => {
+      expect(getE2eRunLogs).toHaveBeenLastCalledWith(
+        "tenant-1/ns/run-1",
+        null,
+        "diagnostics",
+        expect.anything(),
+      );
+    });
+  });
+
+  it("keeps live diagnostics out of whole-run logs until explicitly selected", async () => {
+    const user = userEvent.setup();
+    const d = detail({
+      reportingComplete: false,
+      verdict: "unknown",
+      endedAt: null,
+      steps: [
+        {
+          stepId: "diagnostics",
+          name: "failure-diagnostics",
+          state: "running",
+          startedAt: "2026-01-01T00:34:05Z",
+          endedAt: null,
+          durationMs: null,
+        },
+      ],
+    });
+    const { api, handlers } = makeApi(d);
+    renderView(
+      api,
+      enabled([summary({ reportingComplete: false, verdict: "unknown" })]),
+    );
+    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await user.click(await screen.findByRole("tab", { name: "Logs" }));
+    await waitFor(() => {
+      /* eslint-disable-next-line @typescript-eslint/unbound-method -- asserting mock calls */
+      expect(api.getE2eRunLogs).toHaveBeenCalledTimes(1);
+    });
+
+    act(() => {
+      handlers.current?.onLog({
+        sequence: 10,
+        timestamp: "t10",
+        stepId: "diagnostics",
+        message: "diagnostic payload must stay opt-in",
+        truncated: false,
+      });
+      handlers.current?.onLog({
+        sequence: 11,
+        timestamp: "t11",
+        stepId: "cleanup",
+        message: "ordinary whole-run line",
+        truncated: false,
+      });
+    });
+    expect(await screen.findByText(/ordinary whole-run line/)).toBeDefined();
+    expect(
+      screen.queryByText(/diagnostic payload must stay opt-in/),
+    ).toBeNull();
+
+    await user.selectOptions(
+      screen.getByLabelText("Log scope"),
+      screen.getByRole("option", { name: "failure-diagnostics" }),
+    );
+    await waitFor(() => {
+      /* eslint-disable-next-line @typescript-eslint/unbound-method -- asserting mock calls */
+      expect(api.getE2eRunLogs).toHaveBeenCalledTimes(2);
+    });
+    act(() => {
+      handlers.current?.onLog({
+        sequence: 12,
+        timestamp: "t12",
+        stepId: "diagnostics",
+        message: "selected diagnostic payload",
+        truncated: false,
+      });
+    });
+    expect(
+      await screen.findByText(/selected diagnostic payload/),
+    ).toBeDefined();
   });
 
   it("shows the reporting-incomplete state for a finished-but-terminal-less run", async () => {

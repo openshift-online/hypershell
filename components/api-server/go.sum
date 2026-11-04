@@ -295,6 +295,8 @@ github.com/opencontainers/image-spec v1.1.1 h1:y0fUlFfIZhPF1W537XOLg0/fcx6zcHCJw
 github.com/opencontainers/image-spec v1.1.1/go.mod h1:qpqAh3Dmcf36wStyyWU+kCeDgrGnAve2nCC8+7h8Q0M=
 github.com/openshift-online/rh-trex-ai/components/api-server v0.0.0-20261029165438-8f11b55b73f2 h1:1faN59aFiMC1+JY6W9AMTgPbyEKrblwDUTfgt9vV/vo=
 github.com/openshift-online/rh-trex-ai/components/api-server v0.0.0-20261029165438-8f11b55b73f2/go.mod h1:la63b8NbNTkvewAQwqkjK83M38Y/utGrxOOax7sCXnc=
+github.com/openshift-online/rh-trex-ai/components/api-server v0.0.0-20261104131823-af39aef36b4e h1:fRslUghM4Gwkqw4wEbwg1edJa5XHDm80Rk22wl6QpFo=
+github.com/openshift-online/rh-trex-ai/components/api-server v0.0.0-20261104131823-af39aef36b4e/go.mod h1:la63b8NbNTkvewAQwqkjK83M38Y/utGrxOOax7sCXnc=
 github.com/openzipkin/zipkin-go v0.1.6/go.mod h1:QgAqvLzwWbR/WpD4A3cGpPtJrZXNIiJc5AZX7/PBEpw=
 github.com/pelletier/go-toml v1.2.0/go.mod h1:5z9KED0ma1S8pY6P1sdut58dfprrGBbd/94hg7ilaic=
 github.com/pierrec/lz4 v2.0.5+incompatible/go.mod h1:pdkljMzZIN41W+lC3N2tnIh5sFi+IEE17M5jbnwPHcY=

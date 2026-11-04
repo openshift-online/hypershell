@@ -24,7 +24,6 @@ message ProvisioningCondition {
 message GatewayPlacementIntent {
   oneof placement {
     CapabilitySelectorPlacement capability_selector = 1;
-    LocalKindPlacement local_kind = 2;
   }
 }
 
@@ -32,8 +31,6 @@ message CapabilitySelectorPlacement {
   repeated string selector = 1;
   repeated string excluded_selector = 2;
 }
-
-message LocalKindPlacement {}
 
 message Gateway {
   ObjectReference metadata = 1;

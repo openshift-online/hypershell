@@ -397,6 +397,11 @@ export const messages = defineMessages({
     defaultMessage: "Expand",
     description: "E2E execution panel e2eExpandLogs",
   },
+  e2eFailureStep: {
+    id: "fleet.e2e.failureStep",
+    defaultMessage: "Failed step: {step}",
+    description: "Label for the E2E step that caused a failed run.",
+  },
   e2eFlow: {
     id: "fleet.e2eFlow",
     defaultMessage: "{from} → {to}",

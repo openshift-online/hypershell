@@ -681,6 +681,7 @@ describe("mapE2eRunDetail", () => {
         { stepId: "a", name: "A", state: "failed", durationMs: 10 },
         { stepId: "b", name: "B", state: "bogus" },
       ],
+      failure: { stepId: "a", message: "assertion failed" },
       logs: [{ sequence: 1, timestamp: "t", message: "hi", stepId: "a" }],
       logsTruncated: true,
     });
@@ -688,6 +689,10 @@ describe("mapE2eRunDetail", () => {
     expect(detail.steps[0]?.state).toBe("failed");
     // An unrecognized state coerces to not-run, never passed.
     expect(detail.steps[1]?.state).toBe("not-run");
+    expect(detail.failure).toEqual({
+      stepId: "a",
+      message: "assertion failed",
+    });
     expect(detail.logs[0]?.message).toBe("hi");
     expect(detail.logsTruncated).toBe(true);
   });
@@ -697,6 +702,7 @@ describe("mapE2eRunDetail", () => {
     expect(detail.steps).toEqual([]);
     expect(detail.logs).toEqual([]);
     expect(detail.plannedSteps).toEqual([]);
+    expect(detail.failure).toBeNull();
     expect(detail.verdict).toBe("unknown");
   });
 });

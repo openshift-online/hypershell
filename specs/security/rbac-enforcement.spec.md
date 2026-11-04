@@ -745,13 +745,12 @@ The Extension API kinds served under `/api/hypershell/ext/` (`AgentRuntime`,
 `AgentWorkspace`, `WorkspaceMembership`, `SandboxTemplate`, `ProviderSpec`,
 `ProviderBinding`, `InferenceRoute`, `SecretSource`, `Repository`, `CIProvider`,
 `CITrust`) SHALL sit
-behind the same authentication and authorization middleware as the `/v1`
-kinds. The framework's route builder mounts the `ext` prefix on a subrouter
-separate from `/v1`, so the RBAC middleware SHALL be registered on that
-subrouter as well (`RegisterPrefixedRoutes("rbac", "ext", ...)`, exercised by
-`components/api-server/test/authz`). The framework's own authorizer checks
-identity presence only and SHALL NOT be treated as an authorization boundary
-for these routes.
+behind the same authentication and authorization as the `/v1` kinds. The
+framework mounts the `ext` prefix on a subrouter separate from `/v1` and
+applies the same Authorizer to it (SEC-RBAC-24), with `Surface` set to `ext`
+(exercised by `components/api-server/test/authz`). The framework's built-in
+`RequireIdentity` policy checks identity presence only and SHALL NOT be used
+as the authorization boundary for these routes.
 
 Every extension kind registered by a plugin with
 `RegisterPrefixedRoutes(_, "ext", ...)` SHALL be present in the RBAC
@@ -762,8 +761,8 @@ and the set of ext-registering plugins SHALL be kept in sync: a plugin that
 registers an ext route but is absent from the allow-list is fail-closed for
 every caller including `platform:admin`, which is a latent outage, not a
 deliberate deny. `CIProvider` (`ci_providers`) and `CITrust` (`ci_trusts`)
-SHALL be in the allow-list; they are the kinds whose absence previously made
-every request to them return 403.
+SHALL be in the allow-list; without an entry every request to them returns
+403.
 
 At the middleware gate, every ext method (read and write) SHALL require
 `gateway:creator` or `platform:admin` by default: these kinds are authored over HTTP
@@ -1422,7 +1421,7 @@ on every authenticated request. The first privileged users are provisioned by as
 - THEN the request is not evaluated against bindings
 - AND the API works with no roles granted
 
-### Requirement: SEC-RBAC-15 -- Database Migration
+### Requirement: SEC-RBAC-15 -- Built-in Role Seed
 
 A database migration SHALL seed the `platform:admin` role record with:
 
@@ -1602,6 +1601,57 @@ idempotent migration with `built_in: true`.
 - AND a JWT carrying the realm role SHALL sync the global binding the grant path checks
 
 ---
+
+### Requirement: SEC-RBAC-24 -- Framework Enforcement Point
+
+Every rule in this spec SHALL be decided by one policy: HyperShell's RBAC
+Authorizer (`pkg/rbac.Authorizer`), an implementation of the rh-trex-ai
+`authz.Authorizer` interface (rh-trex-ai `specs/security/authorization.spec.md`,
+SEC-002). Every HyperShell environment SHALL return it from its
+`OverrideAuthorizer` hook. TRex then calls it after authentication on both
+transports; plugins SHALL NOT attach authorization middleware or interceptors
+of their own.
+
+- **REST.** Every plugin route SHALL be declared with `APIRouter.Resource(kind)`
+  on `/v1` and on the `ext` prefix. A route declared any other way is denied with
+  403 by the framework. A deny is 403, a deny that hides existence (SEC-RBAC-10)
+  is 404, and a failed lookup is 503.
+- **gRPC.** Every `RegisterGRPCService` call SHALL declare every method of its
+  service in its method table, with the `watch` action for the server-streaming
+  `Watch*` methods. An undeclared method is denied with `PERMISSION_DENIED`.
+  Streams are decided when they open, and the Watch Stream Caller Binding
+  (managed-cluster-registration.spec.md, PLAT-CLUS-10) is checked again on the
+  request message.
+- **User provisioning.** The Authorizer SHALL provision the caller's User and
+  sync its JWT roles (SEC-RBAC-03) in its `Enrich` step, which TRex runs once per
+  request before the decision. On gRPC it SHALL do nothing when the call carries
+  no verified token (JWT off).
+- **Status codes outside a decision.** A TRex decision can only express allow,
+  `PERMISSION_DENIED`/403, `NOT_FOUND`/404 and `UNAVAILABLE`/503. Where a gRPC
+  rule returns another code (`INVALID_ARGUMENT` for a registered cluster that
+  omits `cluster_id`, PLAT-CLUS-10; `INTERNAL` for an unexpected request type),
+  the Authorizer SHALL hold that status in the call context and a HyperShell
+  interceptor that runs right after authorization SHALL return it before the
+  handler runs. The handler SHALL NOT be reached.
+
+#### Scenario: SEC-RBAC-24.01 -- Plugin route is authorized by the framework
+
+- GIVEN a plugin that declares its routes with `Resource("gateways")`
+- AND a caller with no binding on gateway `g-1`
+- WHEN the caller sends `GET /api/hypershell/v1/gateways/g-1`
+- THEN TRex calls the RBAC Authorizer and the response is 404
+
+#### Scenario: SEC-RBAC-24.02 -- Undeclared gRPC method is denied
+
+- GIVEN a gRPC service whose method table omits one of its methods
+- WHEN any caller invokes that method
+- THEN the call fails with `PERMISSION_DENIED` and the handler is not reached
+
+#### Scenario: SEC-RBAC-24.03 -- Missing cluster_id keeps its status code
+
+- GIVEN a control plane registered as cluster `X`
+- WHEN it calls `ListGateways` without `cluster_id`
+- THEN the call fails with `INVALID_ARGUMENT` and the handler is not reached
 
 ## API Reference
 

@@ -208,12 +208,16 @@ func TestUpsertGateway_CreatesLateBoundWithCapabilitySelector(t *testing.T) {
 	}
 }
 
-// Verifies: CTRL-CORE-14.03
-func TestUpsertGateway_CreatesLateBoundWithLocalKind(t *testing.T) {
+// Verifies: CTRL-CORE-14.02
+// (the Kind local-development shape is the same capability-selector mapping;
+// the retired local-kind mode scenario is recorded in specs/id-rename-map.md).
+func TestUpsertGateway_CreatesLateBoundWithKindSelector(t *testing.T) {
 	gwc := &importFakeGatewayClient{}
 	w := &grpcImportWriter{gateways: gwc, pageSize: 100}
 	res := RenderedResource{Kind: "Gateway", Name: "dev-gateway", Spec: map[string]interface{}{
-		"placement": map[string]interface{}{"mode": "local-kind"},
+		"placement": map[string]interface{}{
+			"selector": []interface{}{"provider/kind"},
+		},
 	}}
 
 	if err := w.Upsert(context.Background(), "repo-1", res); err != nil {
@@ -224,10 +228,14 @@ func TestUpsertGateway_CreatesLateBoundWithLocalKind(t *testing.T) {
 	}
 	created := gwc.created[0]
 	if created.GetClusterId() != "" {
-		t.Errorf("cluster_id = %q, want empty for a local-kind gateway", created.GetClusterId())
+		t.Errorf("cluster_id = %q, want empty for a late-bound gateway", created.GetClusterId())
 	}
-	if created.GetPlacement().GetLocalKind() == nil {
-		t.Errorf("placement = %+v, want local_kind set", created.GetPlacement())
+	sel := created.GetPlacement().GetCapabilitySelector()
+	if sel == nil {
+		t.Fatalf("placement = %+v, want a capability_selector", created.GetPlacement())
+	}
+	if got := sel.GetSelector(); len(got) != 1 || got[0] != "provider/kind" {
+		t.Errorf("selector = %v, want [provider/kind]", got)
 	}
 }
 
@@ -257,9 +265,9 @@ func TestUpsertGateway_LateBoundNoOpAfterServerAssignsCluster(t *testing.T) {
 func TestUpsertGateway_MalformedPlacementReportsError(t *testing.T) {
 	gwc := &importFakeGatewayClient{}
 	w := &grpcImportWriter{gateways: gwc, pageSize: 100}
-	// A placement block that is present but declares neither a non-empty selector nor
-	// mode: local-kind must fail with a clear error, not silently create a gateway
-	// with neither cluster_id nor placement.
+	// A placement block that is present but declares no non-empty selector list must
+	// fail with a clear error, not silently create a gateway with neither cluster_id
+	// nor placement.
 	res := RenderedResource{Kind: "Gateway", Name: "gw-bad", Spec: map[string]interface{}{
 		"placement": map[string]interface{}{"mode": "nonsense"},
 	}}

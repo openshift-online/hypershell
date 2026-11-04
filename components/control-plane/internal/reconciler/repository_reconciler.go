@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"sort"
 	"sync"
 	"time"
@@ -176,7 +176,7 @@ func NewRepositoryReconciler(repos pb.RepositoryServiceClient, creds CredentialR
 // again on each tick. Real-time response to a created or changed Repository is
 // handled by the watch stream through Handle, not this loop.
 func (r *RepositoryReconciler) Run(ctx context.Context) error {
-	log.Printf("INFO repository import reconciler started (drift re-check interval=%s, event-driven via Repository watch)", r.interval)
+	slog.InfoContext(ctx, "Repository import reconciler started (event-driven via Repository watch)", "interval", r.interval)
 	r.reconcileOnce(ctx)
 	ticker := time.NewTicker(r.interval)
 	defer ticker.Stop()
@@ -217,14 +217,17 @@ func (r *RepositoryReconciler) Handle(ctx context.Context, event watcher.Event[*
 func (r *RepositoryReconciler) reconcileOnce(ctx context.Context) {
 	repos, err := r.listRepositories(ctx)
 	if err != nil {
-		log.Printf("WARN repository import: listing repositories failed: %v", err)
+		slog.WarnContext(ctx, "Repository import: listing repositories failed", "error", err)
 		return
 	}
 	for _, repo := range repos {
 		// force=false: the periodic pass uses the conditional head-revision check and
 		// skips the heavy read when the subtree is unchanged.
 		if err := r.reconcileRepository(ctx, repo, false); err != nil {
-			log.Printf("WARN repository import: reconciling repository %s (%s) failed: %v", repo.GetName(), repo.GetMetadata().GetId(), err)
+			slog.WarnContext(ctx, "Repository import: reconciling repository failed",
+				"name", repo.GetName(),
+				"repository_id", repo.GetMetadata().GetId(),
+				"error", err)
 		}
 	}
 }
@@ -278,7 +281,10 @@ func (r *RepositoryReconciler) reconcileRepository(ctx context.Context, repo *pb
 		rev, revErr := cond.HeadRevision(ctx, repo, token)
 		switch {
 		case revErr != nil:
-			log.Printf("WARN repository import: head revision probe for %s (%s) failed, reading in full: %v", repo.GetName(), repoID, revErr)
+			slog.WarnContext(ctx, "Repository import: head revision probe failed, reading in full",
+				"name", repo.GetName(),
+				"repository_id", repoID,
+				"error", revErr)
 		case !force && rev != "" && r.revisionUnchanged(repoID, rev):
 			return nil
 		default:
@@ -319,7 +325,10 @@ func (r *RepositoryReconciler) reconcileRepository(ctx context.Context, repo *pb
 		if err := r.writer.Delete(ctx, repoID, ref); err != nil {
 			errs = append(errs, fmt.Errorf("prune %s/%s: %w", ref.Kind, ref.Name, err))
 		} else {
-			log.Printf("INFO repository import: pruned %s/%s owned by repository %s", ref.Kind, ref.Name, repoID)
+			slog.InfoContext(ctx, "Repository import: pruned owned resource",
+				"kind", ref.Kind,
+				"name", ref.Name,
+				"repository_id", repoID)
 		}
 	}
 
@@ -386,7 +395,7 @@ func renderImportables(fSys filesys.FileSystem, root string) ([]RenderedResource
 		if !isImportableKind(kind) {
 			// Repository, ManagedCluster, Role, RoleBinding, and anything else are
 			// deliberately ignored by the import.
-			log.Printf("INFO repository import: ignoring non-importable kind %s/%s", kind, res.GetName())
+			slog.Info("Repository import: ignoring non-importable kind", "kind", kind, "name", res.GetName())
 			continue
 		}
 		doc, err := res.Map()

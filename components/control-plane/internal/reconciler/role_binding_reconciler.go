@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
@@ -72,12 +72,12 @@ func (r *RoleBindingReconciler) Handle(ctx context.Context, event watcher.Event[
 
 	rb := event.Resource
 	if rb == nil {
-		log.Printf("WARN role binding event %s has nil resource, skipping", event.ResourceID)
+		slog.WarnContext(ctx, "Role binding event has nil resource, skipping", "role_binding_id", event.ResourceID)
 		return nil
 	}
 
 	if r.keycloakClient == nil {
-		log.Printf("DEBUG role binding %s: keycloak not configured, skipping", event.ResourceID)
+		slog.DebugContext(ctx, "Role binding keycloak not configured, skipping", "role_binding_id", event.ResourceID)
 		return nil
 	}
 
@@ -89,7 +89,7 @@ func (r *RoleBindingReconciler) Handle(ctx context.Context, event watcher.Event[
 	}()
 
 	if rb.GatewayId == nil || *rb.GatewayId == "" {
-		log.Printf("DEBUG role binding %s: no gateway_id (global scope), skipping keycloak sync", event.ResourceID)
+		slog.DebugContext(ctx, "Role binding has no gateway_id (global scope), skipping keycloak sync", "role_binding_id", event.ResourceID)
 		return nil
 	}
 
@@ -99,7 +99,7 @@ func (r *RoleBindingReconciler) Handle(ctx context.Context, event watcher.Event[
 			reconcileErr = fmt.Errorf("role binding %s: role name not yet resolved", event.ResourceID)
 			return reconcileErr
 		}
-		log.Printf("DEBUG role binding %s: role %q has no keycloak mapping, skipping", event.ResourceID, rb.RoleName)
+		slog.DebugContext(ctx, "Role binding role has no keycloak mapping, skipping", "role_binding_id", event.ResourceID, "role", rb.RoleName)
 		return nil
 	}
 
@@ -120,14 +120,18 @@ func (r *RoleBindingReconciler) Handle(ctx context.Context, event watcher.Event[
 			// and every resync interval, forever, for every such binding, drowning
 			// real errors and tripping alerts. Deletion of roles a gone binding no
 			// longer backs stays the stream's job (the resync never prunes).
-			log.Printf("DEBUG role binding %s: gateway %s no longer exists; nothing to reconcile", event.ResourceID, *rb.GatewayId)
+			slog.DebugContext(ctx, "Role binding gateway no longer exists; nothing to reconcile", "role_binding_id", event.ResourceID, "gateway_id", *rb.GatewayId)
 			return nil
 		}
 		reconcileErr = fmt.Errorf("resolve keycloak client id for role binding %s: %w", event.ResourceID, err)
 		return reconcileErr
 	}
 	if gatewayClusterID != r.clusterID {
-		log.Printf("DEBUG role binding %s: gateway %s belongs to cluster %s, not this cluster (%s); skipping keycloak sync", event.ResourceID, *rb.GatewayId, gatewayClusterID, r.clusterID)
+		slog.DebugContext(ctx, "Role binding gateway belongs to another cluster, skipping keycloak sync",
+			"role_binding_id", event.ResourceID,
+			"gateway_id", *rb.GatewayId,
+			"gateway_cluster", gatewayClusterID,
+			"cluster", r.clusterID)
 		return nil
 	}
 
@@ -159,14 +163,14 @@ func (r *RoleBindingReconciler) Handle(ctx context.Context, event watcher.Event[
 
 	for _, kcRole := range allGatewayKcRoles {
 		if desired[kcRole] {
-			log.Printf("INFO assigning keycloak role %s to user %s on client %s", kcRole, username, kcClientID)
+			slog.InfoContext(ctx, "Assigning keycloak role to user", "role", kcRole, "username", username, "client_id", kcClientID)
 			if err := r.keycloakClient.AssignClientRole(ctx, kcClientID, username, kcRole); err != nil {
 				reconcileErr = fmt.Errorf("assign keycloak role %s to user %s on client %s: %w", kcRole, username, kcClientID, err)
 				return reconcileErr
 			}
 			continue
 		}
-		log.Printf("INFO removing keycloak role %s from user %s on client %s", kcRole, username, kcClientID)
+		slog.InfoContext(ctx, "Removing keycloak role from user", "role", kcRole, "username", username, "client_id", kcClientID)
 		if err := r.keycloakClient.RemoveClientRole(ctx, kcClientID, username, kcRole); err != nil {
 			reconcileErr = fmt.Errorf("remove keycloak role %s from user %s on client %s: %w", kcRole, username, kcClientID, err)
 			return reconcileErr

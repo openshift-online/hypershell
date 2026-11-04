@@ -15,6 +15,7 @@ LIVE="${workdir}/live.txt"
 FAIL_DELETE="${workdir}/fail_delete"
 KEEP_LIVE="${workdir}/keep_live"
 CALLS="${workdir}/calls.txt"
+OUTPUT="${workdir}/output.txt"
 
 write_stub() {
   cat > "${workdir}/kubectl" <<EOF
@@ -70,7 +71,7 @@ run_teardown() {
     PR_ENV_DELETE_TIMEOUT_SECONDS="${PR_ENV_DELETE_TIMEOUT_SECONDS:-300}" \
     PR_ENV_DELETE_POLL_SECONDS="${PR_ENV_DELETE_POLL_SECONDS:-2}" \
     PR_ENV_DELETE_STATUS_INTERVAL_SECONDS="${PR_ENV_DELETE_STATUS_INTERVAL_SECONDS:-30}" \
-    bash "${SCRIPT_DIR}/teardown-pr-env.sh" >/dev/null
+    bash "${SCRIPT_DIR}/teardown-pr-env.sh" >"${OUTPUT}" 2>&1
 }
 
 # Already-gone namespaces are success; no delete is issued.
@@ -119,6 +120,14 @@ if [[ "${deleted_sorted}" == "${expected}" ]]; then
 else
   FAIL=$((FAIL + 1))
   printf 'FAIL: teardown deleted the wrong set (got=%q want=%q)\n' "${deleted_sorted}" "${expected}"
+fi
+if [[ "$(wc -l <"${OUTPUT}" | tr -d ' ')" == "2" ]] &&
+   ! grep -qE 'requested deletion of|waiting for namespace|deleted namespace|instance workload' "${OUTPUT}"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: successful teardown must log only its start and completion summary'
+  cat "${OUTPUT}"
 fi
 
 # A failed oc/kubectl delete must fail the script (fail closed).
@@ -198,6 +207,14 @@ if PR_ENV_DELETE_TIMEOUT_SECONDS=0 PR_ENV_DELETE_POLL_SECONDS=1 run_teardown hyp
   echo 'FAIL: teardown succeeded while the namespace remained live'
 else
   PASS=$((PASS + 1))
+fi
+if grep -q 'waiting for namespace hypershell-ci-pr-1:' "${OUTPUT}" &&
+   grep -q 'ERROR timed out after 0s waiting for namespace hypershell-ci-pr-1 deletion' "${OUTPUT}"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: a teardown timeout must show the final Namespace state and an explicit error'
+  cat "${OUTPUT}"
 fi
 delete_requests="$(grep -cE '^delete (project|namespace) hypershell-ci-pr-1( |$)' "${CALLS}" || true)"
 if [[ "${delete_requests}" == "1" ]]; then

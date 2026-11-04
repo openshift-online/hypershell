@@ -51,9 +51,9 @@ The tenant SHALL register the CLI Component and ImageRepository. The managed rel
 
 The final pipeline SHALL mount the GitHub App private key from Secret `hypershell-github-release` in `hcm-eng-prod-tenant`, with keys `app-id`, `installation-id`, and `private-key.pem`. On every run it SHALL sign an RS256 App JWT and request an installation token restricted to the `hypershell` repository and Contents write permission. The token SHALL remain in process memory. The App installation must permit creating the bundle tag. Credentials SHALL NOT be stored in source or passed on command lines.
 
-The GitHub App and tenant secret were provisioned and live publication succeeded on 2026-10-09. Their absence SHALL NOT cause a fallback to an anonymous or developer credential. A missing secret prevents the publication step from starting; invalid App configuration or token exchange fails before publication.
+The absence of the GitHub App or tenant secret SHALL NOT cause a fallback to an anonymous or developer credential. A missing secret prevents the publication step from starting; invalid App configuration or token exchange fails before publication.
 
-The documented RelEng Vault/ExternalSecret SOP provisions secrets in `rhtap-releng-tenant`. It SHALL NOT be assumed to provision this tenant's secret. Before activation, RelEng must confirm an approved secret delivery mechanism for `hcm-eng-prod-tenant`. If using Vault, the source record must include `generated-by`, `generated-on`, `owner-team`, and `expires` provenance metadata. Existing Quay write access for the API-server build repository is reused for bundle publication; released component images are public.
+The documented RelEng Vault/ExternalSecret SOP provisions secrets in `rhtap-releng-tenant`. It SHALL NOT be assumed to provision this tenant's secret. The tenant secret SHALL be delivered through a RelEng-approved mechanism for `hcm-eng-prod-tenant`. If it is delivered through Vault, the source record must include `generated-by`, `generated-on`, `owner-team`, and `expires` provenance metadata. Existing Quay write access for the API-server build repository is reused for bundle publication; released component images are public.
 
 ### Requirement: CLI-REL-06 -- Partial and empty managed artifact lists
 
@@ -87,4 +87,4 @@ Snapshot completeness is the sole publication gate for component coverage: a Sna
 
 ## Validation
 
-Local tests cover incomplete Snapshots, mismatched digests, ancestry, extraction, draft publication and retries. They also cover a partial managed artifact list and an artifact list that is empty after excluding independently distributed components, which SHALL still publish from the complete Snapshot digests. Cross-compilation validates all five targets. The four-component flow was verified in a live Konflux release on 2026-10-09. The six-component extension requires the rollout in `agent-runtime-images.spec.md`.
+Local tests cover incomplete Snapshots, mismatched digests, ancestry, extraction, draft publication and retries. They also cover a partial managed artifact list and an artifact list that is empty after excluding independently distributed components, which SHALL still publish from the complete Snapshot digests. Cross-compilation validates all five targets.

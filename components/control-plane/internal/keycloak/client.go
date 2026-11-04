@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -145,38 +145,38 @@ func (e *UserNotFoundError) Error() string {
 // ProvisionGatewayClient creates a Keycloak OIDC client for a gateway with
 // roles and protocol mappers. Returns the Keycloak-internal client UUID.
 func (c *Client) ProvisionGatewayClient(ctx context.Context, gatewayName string) (string, error) {
-	log.Printf("INFO keycloak: creating OIDC client %s in realm %s", gatewayName, c.realm)
+	slog.InfoContext(ctx, "Creating Keycloak OIDC client", "gateway_name", gatewayName, "realm", c.realm)
 	clientUUID, err := c.createClient(ctx, gatewayName)
 	if err != nil {
 		return "", fmt.Errorf("create keycloak client: %w", err)
 	}
-	log.Printf("INFO keycloak: created client %s (uuid=%s)", gatewayName, clientUUID)
+	slog.InfoContext(ctx, "Created Keycloak client", "gateway_name", gatewayName, "client_uuid", clientUUID)
 
-	log.Printf("INFO keycloak: creating roles [openshell-admin, openshell-user] on client %s", gatewayName)
+	slog.InfoContext(ctx, "Creating Keycloak client roles", "gateway_name", gatewayName, "roles", []string{"openshell-admin", "openshell-user"})
 	if err := c.createClientRoles(ctx, clientUUID); err != nil {
-		log.Printf("WARN keycloak: role creation failed for %s, rolling back client: %v", gatewayName, err)
+		slog.WarnContext(ctx, "Keycloak role creation failed, rolling back client", "gateway_name", gatewayName, "error", err)
 		if rollbackErr := c.deleteClientByUUID(ctx, clientUUID); rollbackErr != nil {
-			log.Printf("WARN keycloak: failed to rollback client %s after role creation failure: %v", gatewayName, rollbackErr)
+			slog.WarnContext(ctx, "Failed to roll back Keycloak client after role creation failure", "gateway_name", gatewayName, "error", rollbackErr)
 		}
 		return "", fmt.Errorf("create client roles: %w", err)
 	}
-	log.Printf("INFO keycloak: created roles on client %s", gatewayName)
+	slog.InfoContext(ctx, "Created Keycloak client roles", "gateway_name", gatewayName)
 
-	log.Printf("INFO keycloak: creating protocol mappers on client %s", gatewayName)
+	slog.InfoContext(ctx, "Creating Keycloak protocol mappers", "gateway_name", gatewayName)
 	if err := c.createProtocolMappers(ctx, clientUUID, gatewayName); err != nil {
-		log.Printf("WARN keycloak: protocol mapper creation failed for %s, rolling back client: %v", gatewayName, err)
+		slog.WarnContext(ctx, "Keycloak protocol mapper creation failed, rolling back client", "gateway_name", gatewayName, "error", err)
 		if rollbackErr := c.deleteClientByUUID(ctx, clientUUID); rollbackErr != nil {
-			log.Printf("WARN keycloak: failed to rollback client %s after mapper creation failure: %v", gatewayName, rollbackErr)
+			slog.WarnContext(ctx, "Failed to roll back Keycloak client after mapper creation failure", "gateway_name", gatewayName, "error", rollbackErr)
 		}
 		return "", fmt.Errorf("create protocol mappers: %w", err)
 	}
-	log.Printf("INFO keycloak: created protocol mappers on client %s", gatewayName)
+	slog.InfoContext(ctx, "Created Keycloak protocol mappers", "gateway_name", gatewayName)
 
-	log.Printf("INFO keycloak: granting %s token-exchange on client %s", e2eClientID, gatewayName)
+	slog.InfoContext(ctx, "Granting token-exchange on Keycloak client", "grantee_client_id", e2eClientID, "gateway_name", gatewayName)
 	if err := c.EnsureE2ETokenExchange(ctx, clientUUID); err != nil {
-		log.Printf("WARN keycloak: token-exchange grant failed for %s, rolling back client: %v", gatewayName, err)
+		slog.WarnContext(ctx, "Keycloak token-exchange grant failed, rolling back client", "gateway_name", gatewayName, "error", err)
 		if rollbackErr := c.deleteClientByUUID(ctx, clientUUID); rollbackErr != nil {
-			log.Printf("WARN keycloak: failed to rollback client %s after token-exchange grant failure: %v", gatewayName, rollbackErr)
+			slog.WarnContext(ctx, "Failed to roll back Keycloak client after token-exchange grant failure", "gateway_name", gatewayName, "error", rollbackErr)
 		}
 		return "", fmt.Errorf("grant e2e token-exchange: %w", err)
 	}
@@ -187,20 +187,20 @@ func (c *Client) ProvisionGatewayClient(ctx context.Context, gatewayName string)
 // DeleteGatewayClient removes the Keycloak client for a gateway.
 // Returns nil if the client does not exist.
 func (c *Client) DeleteGatewayClient(ctx context.Context, gatewayName string) error {
-	log.Printf("INFO keycloak: looking up client %s for deletion", gatewayName)
+	slog.InfoContext(ctx, "Looking up Keycloak client for deletion", "gateway_name", gatewayName)
 	clientUUID, err := c.getClientUUID(ctx, gatewayName)
 	if err != nil {
 		return err
 	}
 	if clientUUID == "" {
-		log.Printf("INFO keycloak: client %s not found, nothing to delete", gatewayName)
+		slog.InfoContext(ctx, "Keycloak client not found, nothing to delete", "gateway_name", gatewayName)
 		return nil
 	}
-	log.Printf("INFO keycloak: deleting client %s (uuid=%s)", gatewayName, clientUUID)
+	slog.InfoContext(ctx, "Deleting Keycloak client", "gateway_name", gatewayName, "client_uuid", clientUUID)
 	if err := c.deleteClientByUUID(ctx, clientUUID); err != nil {
 		return err
 	}
-	log.Printf("INFO keycloak: deleted client %s", gatewayName)
+	slog.InfoContext(ctx, "Deleted Keycloak client", "gateway_name", gatewayName)
 	return nil
 }
 
@@ -300,9 +300,9 @@ func displayName(u keycloakUser) string {
 
 // AssignClientRole assigns a Keycloak client role to a user on a gateway.
 func (c *Client) AssignClientRole(ctx context.Context, gatewayName, username, roleName string) error {
-	log.Printf("INFO keycloak: assigning role %s to user %s on client %s", roleName, username, gatewayName)
+	slog.InfoContext(ctx, "Assigning Keycloak client role to user", "role", roleName, "username", username, "gateway_name", gatewayName)
 
-	log.Printf("INFO keycloak: resolving client UUID for %s", gatewayName)
+	slog.InfoContext(ctx, "Resolving Keycloak client UUID", "gateway_name", gatewayName)
 	clientUUID, err := c.getClientUUID(ctx, gatewayName)
 	if err != nil {
 		return fmt.Errorf("get client UUID for %s: %w", gatewayName, err)
@@ -310,21 +310,21 @@ func (c *Client) AssignClientRole(ctx context.Context, gatewayName, username, ro
 	if clientUUID == "" {
 		return &ClientNotFoundError{ClientID: gatewayName}
 	}
-	log.Printf("INFO keycloak: resolved client %s to uuid=%s", gatewayName, clientUUID)
+	slog.InfoContext(ctx, "Resolved Keycloak client UUID", "gateway_name", gatewayName, "client_uuid", clientUUID)
 
-	log.Printf("INFO keycloak: resolving role %s on client %s", roleName, gatewayName)
+	slog.InfoContext(ctx, "Resolving Keycloak client role", "role", roleName, "gateway_name", gatewayName)
 	roleUUID, err := c.getClientRoleUUID(ctx, clientUUID, roleName)
 	if err != nil {
 		return fmt.Errorf("get role UUID for %s on %s: %w", roleName, gatewayName, err)
 	}
-	log.Printf("INFO keycloak: resolved role %s to uuid=%s", roleName, roleUUID)
+	slog.InfoContext(ctx, "Resolved Keycloak client role UUID", "role", roleName, "role_uuid", roleUUID)
 
-	log.Printf("INFO keycloak: resolving user %s", username)
+	slog.InfoContext(ctx, "Resolving Keycloak user", "username", username)
 	userUUID, err := c.getUserUUID(ctx, username)
 	if err != nil {
 		return fmt.Errorf("get user UUID for %s: %w", username, err)
 	}
-	log.Printf("INFO keycloak: resolved user %s to uuid=%s", username, userUUID)
+	slog.InfoContext(ctx, "Resolved Keycloak user UUID", "username", username, "user_uuid", userUUID)
 
 	roles := []keycloakRole{{ID: roleUUID, Name: roleName}}
 	body, _ := json.Marshal(roles)
@@ -336,20 +336,20 @@ func (c *Client) AssignClientRole(ctx context.Context, gatewayName, username, ro
 		return fmt.Errorf("assign role %s to %s on %s: %w", roleName, username, gatewayName, err)
 	}
 
-	log.Printf("INFO keycloak: assigned role %s to user %s on client %s", roleName, username, gatewayName)
+	slog.InfoContext(ctx, "Assigned Keycloak client role to user", "role", roleName, "username", username, "gateway_name", gatewayName)
 	return nil
 }
 
 // RemoveClientRole removes a Keycloak client role from a user on a gateway.
 func (c *Client) RemoveClientRole(ctx context.Context, gatewayName, username, roleName string) error {
-	log.Printf("INFO keycloak: removing role %s from user %s on client %s", roleName, username, gatewayName)
+	slog.InfoContext(ctx, "Removing Keycloak client role from user", "role", roleName, "username", username, "gateway_name", gatewayName)
 
 	clientUUID, err := c.getClientUUID(ctx, gatewayName)
 	if err != nil {
 		return fmt.Errorf("get client UUID for %s: %w", gatewayName, err)
 	}
 	if clientUUID == "" {
-		log.Printf("INFO keycloak: client %s not found, nothing to remove", gatewayName)
+		slog.InfoContext(ctx, "Keycloak client not found, nothing to remove", "gateway_name", gatewayName)
 		return nil
 	}
 
@@ -366,7 +366,7 @@ func (c *Client) RemoveClientRole(ctx context.Context, gatewayName, username, ro
 			// nothing to remove. Mirror the missing-client no-op above and treat
 			// this as a terminal success rather than a retryable provisioning
 			// race (which only applies to the assign path).
-			log.Printf("INFO keycloak: user %s not found, nothing to remove", username)
+			slog.InfoContext(ctx, "Keycloak user not found, nothing to remove", "username", username)
 			return nil
 		}
 		return fmt.Errorf("get user UUID for %s: %w", username, err)
@@ -382,7 +382,7 @@ func (c *Client) RemoveClientRole(ctx context.Context, gatewayName, username, ro
 		return fmt.Errorf("remove role %s from %s on %s: %w", roleName, username, gatewayName, err)
 	}
 
-	log.Printf("INFO keycloak: removed role %s from user %s on client %s", roleName, username, gatewayName)
+	slog.InfoContext(ctx, "Removed Keycloak client role from user", "role", roleName, "username", username, "gateway_name", gatewayName)
 	return nil
 }
 
@@ -391,13 +391,13 @@ func (c *Client) RemoveClientRole(ctx context.Context, gatewayName, username, ro
 func (c *Client) GetClientUUID(ctx context.Context, gatewayName string) (string, error) {
 	uuid, err := c.getClientUUID(ctx, gatewayName)
 	if err != nil {
-		log.Printf("WARN keycloak: failed to look up client %s: %v", gatewayName, err)
+		slog.WarnContext(ctx, "Failed to look up Keycloak client", "gateway_name", gatewayName, "error", err)
 		return "", err
 	}
 	if uuid == "" {
-		log.Printf("INFO keycloak: client %s not found in realm %s", gatewayName, c.realm)
+		slog.InfoContext(ctx, "Keycloak client not found in realm", "gateway_name", gatewayName, "realm", c.realm)
 	} else {
-		log.Printf("INFO keycloak: client %s found (uuid=%s)", gatewayName, uuid)
+		slog.InfoContext(ctx, "Keycloak client found", "gateway_name", gatewayName, "client_uuid", uuid)
 	}
 	return uuid, nil
 }
@@ -532,11 +532,11 @@ func (c *Client) EnsureE2ETokenExchange(ctx context.Context, targetClientUUID st
 		return fmt.Errorf("look up %s client: %w", e2eClientID, err)
 	}
 	if e2e == nil {
-		log.Printf("INFO keycloak: %s client not present; skipping token-exchange grants", e2eClientID)
+		slog.InfoContext(ctx, "Keycloak e2e client not present, skipping token-exchange grants", "client_id", e2eClientID)
 		return nil
 	}
 	if !e2e.Enabled {
-		log.Printf("INFO keycloak: %s client is present but disabled; skipping token-exchange grants", e2eClientID)
+		slog.InfoContext(ctx, "Keycloak e2e client is present but disabled, skipping token-exchange grants", "client_id", e2eClientID)
 		return nil
 	}
 	e2eUUID := e2e.ID
@@ -977,7 +977,7 @@ func (c *Client) ensureToken(ctx context.Context) (string, error) {
 		return c.token, nil
 	}
 
-	log.Printf("INFO keycloak: acquiring admin token from %s/realms/%s (client_id=%s)", c.serverURL, c.realm, c.clientID)
+	slog.InfoContext(ctx, "Acquiring Keycloak admin token", "url", c.serverURL, "realm", c.realm, "client_id", c.clientID)
 	tokenURL := fmt.Sprintf("%s/realms/%s/protocol/openid-connect/token", c.serverURL, c.realm)
 	data := url.Values{
 		"grant_type":    {"client_credentials"},
@@ -1018,7 +1018,7 @@ func (c *Client) ensureToken(ctx context.Context) (string, error) {
 
 	c.token = tok.AccessToken
 	c.tokenExpiry = time.Now().Add(time.Duration(float64(tok.ExpiresIn)*0.8) * time.Second)
-	log.Printf("INFO keycloak: acquired admin token (expires_in=%ds)", tok.ExpiresIn)
+	slog.InfoContext(ctx, "Acquired Keycloak admin token", "expires_in_seconds", tok.ExpiresIn)
 	return c.token, nil
 }
 
@@ -1065,43 +1065,43 @@ func (c *Client) doRequestRaw(ctx context.Context, method, path string, body []b
 // web console, wires it to the given gateway client for audience and role
 // mappers, and returns the new client's UUID and generated client secret.
 func (c *Client) ProvisionConsoleClient(ctx context.Context, consoleClientID, gatewayClientID, redirectURI, webOrigin string) (clientUUID string, clientSecret string, err error) {
-	log.Printf("INFO keycloak: creating confidential console client %s in realm %s", consoleClientID, c.realm)
+	slog.InfoContext(ctx, "Creating confidential Keycloak console client", "client_id", consoleClientID, "realm", c.realm)
 	clientUUID, err = c.createConsoleClient(ctx, consoleClientID, gatewayClientID, redirectURI, webOrigin)
 	if err != nil {
 		return "", "", fmt.Errorf("create console keycloak client: %w", err)
 	}
-	log.Printf("INFO keycloak: created console client %s (uuid=%s)", consoleClientID, clientUUID)
+	slog.InfoContext(ctx, "Created Keycloak console client", "client_id", consoleClientID, "client_uuid", clientUUID)
 
-	log.Printf("INFO keycloak: creating protocol mappers on console client %s", consoleClientID)
+	slog.InfoContext(ctx, "Creating protocol mappers on Keycloak console client", "client_id", consoleClientID)
 	if err = c.createConsoleProtocolMappers(ctx, clientUUID, gatewayClientID); err != nil {
-		log.Printf("WARN keycloak: protocol mapper creation failed for %s, rolling back client: %v", consoleClientID, err)
+		slog.WarnContext(ctx, "Keycloak console protocol mapper creation failed, rolling back client", "client_id", consoleClientID, "error", err)
 		if rollbackErr := c.deleteClientByUUID(ctx, clientUUID); rollbackErr != nil {
-			log.Printf("WARN keycloak: failed to rollback console client %s after mapper creation failure: %v", consoleClientID, rollbackErr)
+			slog.WarnContext(ctx, "Failed to roll back Keycloak console client after mapper creation failure", "client_id", consoleClientID, "error", rollbackErr)
 		}
 		return "", "", fmt.Errorf("create console protocol mappers: %w", err)
 	}
-	log.Printf("INFO keycloak: created protocol mappers on console client %s", consoleClientID)
+	slog.InfoContext(ctx, "Created protocol mappers on Keycloak console client", "client_id", consoleClientID)
 
-	log.Printf("INFO keycloak: granting console client %s scope for gateway client %s roles", consoleClientID, gatewayClientID)
+	slog.InfoContext(ctx, "Granting Keycloak console client scope for gateway client roles", "client_id", consoleClientID, "gateway_client_id", gatewayClientID)
 	if err = c.addConsoleScopeMappings(ctx, clientUUID, gatewayClientID); err != nil {
-		log.Printf("WARN keycloak: scope mapping failed for %s, rolling back client: %v", consoleClientID, err)
+		slog.WarnContext(ctx, "Keycloak console scope mapping failed, rolling back client", "client_id", consoleClientID, "error", err)
 		if rollbackErr := c.deleteClientByUUID(ctx, clientUUID); rollbackErr != nil {
-			log.Printf("WARN keycloak: failed to rollback console client %s after scope mapping failure: %v", consoleClientID, rollbackErr)
+			slog.WarnContext(ctx, "Failed to roll back Keycloak console client after scope mapping failure", "client_id", consoleClientID, "error", rollbackErr)
 		}
 		return "", "", fmt.Errorf("grant console scope mappings: %w", err)
 	}
-	log.Printf("INFO keycloak: granted console client %s scope for gateway client %s roles", consoleClientID, gatewayClientID)
+	slog.InfoContext(ctx, "Granted Keycloak console client scope for gateway client roles", "client_id", consoleClientID, "gateway_client_id", gatewayClientID)
 
-	log.Printf("INFO keycloak: fetching client secret for console client %s", consoleClientID)
+	slog.InfoContext(ctx, "Fetching Keycloak console client secret", "client_id", consoleClientID)
 	clientSecret, err = c.getClientSecret(ctx, clientUUID)
 	if err != nil {
-		log.Printf("WARN keycloak: secret fetch failed for %s, rolling back client: %v", consoleClientID, err)
+		slog.WarnContext(ctx, "Keycloak console client secret fetch failed, rolling back client", "client_id", consoleClientID, "error", err)
 		if rollbackErr := c.deleteClientByUUID(ctx, clientUUID); rollbackErr != nil {
-			log.Printf("WARN keycloak: failed to rollback console client %s after secret fetch failure: %v", consoleClientID, rollbackErr)
+			slog.WarnContext(ctx, "Failed to roll back Keycloak console client after secret fetch failure", "client_id", consoleClientID, "error", rollbackErr)
 		}
 		return "", "", fmt.Errorf("get console client secret: %w", err)
 	}
-	log.Printf("INFO keycloak: provisioned console client %s (uuid=%s)", consoleClientID, clientUUID)
+	slog.InfoContext(ctx, "Provisioned Keycloak console client", "client_id", consoleClientID, "client_uuid", clientUUID)
 
 	return clientUUID, clientSecret, nil
 }
@@ -1109,20 +1109,20 @@ func (c *Client) ProvisionConsoleClient(ctx context.Context, consoleClientID, ga
 // DeleteConsoleClient removes the Keycloak client for a web console.
 // Returns nil if the client does not exist.
 func (c *Client) DeleteConsoleClient(ctx context.Context, consoleClientID string) error {
-	log.Printf("INFO keycloak: looking up console client %s for deletion", consoleClientID)
+	slog.InfoContext(ctx, "Looking up Keycloak console client for deletion", "client_id", consoleClientID)
 	clientUUID, err := c.getClientUUID(ctx, consoleClientID)
 	if err != nil {
 		return err
 	}
 	if clientUUID == "" {
-		log.Printf("INFO keycloak: console client %s not found, nothing to delete", consoleClientID)
+		slog.InfoContext(ctx, "Keycloak console client not found, nothing to delete", "client_id", consoleClientID)
 		return nil
 	}
-	log.Printf("INFO keycloak: deleting console client %s (uuid=%s)", consoleClientID, clientUUID)
+	slog.InfoContext(ctx, "Deleting Keycloak console client", "client_id", consoleClientID, "client_uuid", clientUUID)
 	if err := c.deleteClientByUUID(ctx, clientUUID); err != nil {
 		return err
 	}
-	log.Printf("INFO keycloak: deleted console client %s", consoleClientID)
+	slog.InfoContext(ctx, "Deleted Keycloak console client", "client_id", consoleClientID)
 	return nil
 }
 

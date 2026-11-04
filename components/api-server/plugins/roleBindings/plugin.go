@@ -4,16 +4,16 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/gorilla/mux"
 	"google.golang.org/grpc"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/extsearch"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/routes"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roles"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/users"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
-	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/authz"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/controllers"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
@@ -74,17 +74,15 @@ func init() {
 		return NewServiceLocator(env.(*environments.Env))
 	})
 
-	pkgserver.RegisterRoutes("roleBindings", func(apiV1Router *mux.Router, services pkgserver.ServicesInterface, authMiddleware environments.JWTMiddleware, authzMiddleware auth.AuthorizationMiddleware) {
+	pkgserver.RegisterRoutes("roleBindings", func(apiRouter *pkgserver.APIRouter, services pkgserver.ServicesInterface) {
 		envServices := services.(*environments.Services)
 		rbHandler := NewRoleBindingHandler(Service(envServices), extsearch.Service(envServices))
 
-		rbRouter := apiV1Router.PathPrefix("/role_bindings").Subrouter()
+		rbRouter := routes.Resource(apiRouter, "role_bindings").PathPrefix("/role_bindings").Subrouter()
 		rbRouter.HandleFunc("", rbHandler.List).Methods(http.MethodGet)
 		rbRouter.HandleFunc("/{id}", rbHandler.Get).Methods(http.MethodGet)
 		rbRouter.HandleFunc("", rbHandler.Create).Methods(http.MethodPost)
 		rbRouter.HandleFunc("/{id}", rbHandler.Delete).Methods(http.MethodDelete)
-		rbRouter.Use(authMiddleware.AuthenticateAccountJWT)
-		rbRouter.Use(authzMiddleware.AuthorizeApi)
 	})
 
 	pkgserver.RegisterController("RoleBindings", func(manager *controllers.KindControllerManager, services pkgserver.ServicesInterface) {
@@ -112,6 +110,9 @@ func init() {
 			return nil
 		}
 		pb.RegisterRoleBindingServiceServer(grpcServer, NewRoleBindingGRPCHandler(rbService, roleService, userService, gatewayClusterLookup(envServices), brokerFunc))
+	}, authz.GRPCResources{
+		"/" + pb.RoleBindingService_ServiceDesc.ServiceName + "/ListRoleBindings":  {Kind: "role_bindings", Action: authz.ActionList},
+		"/" + pb.RoleBindingService_ServiceDesc.ServiceName + "/WatchRoleBindings": {Kind: "role_bindings", Action: authz.ActionWatch},
 	})
 
 	presenters.RegisterPath(RoleBinding{}, "role_bindings")

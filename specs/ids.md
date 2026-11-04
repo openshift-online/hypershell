@@ -101,7 +101,7 @@ listed in `specs/id-rename-map.md`, not here.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `OBS-CPL` | `platform/control-plane-observability.spec.md` | 10 |
+| `OBS-CPL` | `platform/control-plane-observability.spec.md` | 11 |
 | `OBS-CPU` | `platform/cluster-cpu.spec.md` | 8 |
 | `OBS-CRM` | `platform/control-plane-reconciliation-metrics.spec.md` | 13 |
 | `OBS-GFT` | `platform/gateway-fleet-total-trend.spec.md` | 9 |
@@ -144,7 +144,7 @@ listed in `specs/id-rename-map.md`, not here.
 |--------|------|--------------|
 | `PLAT-ARCH` | `platform/global-architecture.spec.md` | 19 |
 | `PLAT-CITR` | `platform/ci-trust-ext-api.spec.md` | 9 |
-| `PLAT-CLUS` | `platform/managed-cluster-registration.spec.md` | 13 |
+| `PLAT-CLUS` | `platform/managed-cluster-registration.spec.md` | 15 |
 | `PLAT-DATA` | `platform/data-model.spec.md` | 25 |
 | `PLAT-INV` | `platform/platform-inventory.spec.md` | 10 |
 | `PLAT-USR` | `platform/registered-users.spec.md` | 15 |
@@ -161,8 +161,9 @@ listed in `specs/id-rename-map.md`, not here.
 |--------|------|--------------|
 | `SDLC-AGT` | `platform/sdlc-agent-runtime-telemetry.spec.md` | 17 |
 | `SDLC-CONF` | `standards/sdlc/kind-conformance.spec.md` | 13 |
+| `SDLC-HOOK` | `standards/sdlc/fullsend-lifecycle-label-hooks.spec.md` | 14 |
 | `SDLC-JIRA` | `standards/sdlc/jira-github-sync.spec.md` | 15 |
-| `SDLC-LOC` | `platform/local-sdlc-dispatch.spec.md` | 10 |
+| `SDLC-LOC` | `platform/local-sdlc-dispatch.spec.md` | 12 |
 | `SDLC-VIS` | `platform/agent-sdlc-visibility-dashboard.spec.md` | 25 |
 
 ### SEC
@@ -218,7 +219,7 @@ the rest of `WEB` here for lookup convenience.
 | `WEB-OBS` | `web-console/architecture.spec.md` | 2 |
 | `WEB-OPS` | `web-console/operational-dashboard.spec.md` | 29 |
 | `WEB-PKG` | `web-console/architecture.spec.md` | 4 |
-| `WEB-PLC` | `web-console/gateway-provision-placement.spec.md` | 10 |
+| `WEB-PLC` | `web-console/gateway-provision-placement.spec.md` | 9 |
 | `WEB-QUAL` | `web-console/architecture.spec.md` | 3 |
 | `WEB-SDK` | `web-console/architecture.spec.md` | 1 |
 | `WEB-SEC` | `web-console/architecture.spec.md` | 1 |

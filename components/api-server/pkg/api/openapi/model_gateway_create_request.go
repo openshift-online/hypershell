@@ -25,8 +25,8 @@ type GatewayCreateRequest struct {
 	// Pin the gateway to this managed cluster. Mutually exclusive with placement.
 	ClusterId *string `json:"cluster_id,omitempty"`
 	// Create-only. Requires the gateway:dedicated-route-creator role and opts the gateway in to a dedicated route and per-gateway wildcard certificate. The platform manages how the dedicated route and certificate are provided.
-	DedicatedRoute *bool                          `json:"dedicated_route,omitempty"`
-	Placement      NullableGatewayPlacementIntent `json:"placement,omitempty"`
+	DedicatedRoute *bool                   `json:"dedicated_route,omitempty"`
+	Placement      *GatewayPlacementIntent `json:"placement,omitempty"`
 }
 
 type _GatewayCreateRequest GatewayCreateRequest
@@ -137,47 +137,36 @@ func (o *GatewayCreateRequest) SetDedicatedRoute(v bool) {
 	o.DedicatedRoute = &v
 }
 
-// GetPlacement returns the Placement field value if set, zero value otherwise (both if not set or set to explicit null).
+// GetPlacement returns the Placement field value if set, zero value otherwise.
 func (o *GatewayCreateRequest) GetPlacement() GatewayPlacementIntent {
-	if o == nil || IsNil(o.Placement.Get()) {
+	if o == nil || IsNil(o.Placement) {
 		var ret GatewayPlacementIntent
 		return ret
 	}
-	return *o.Placement.Get()
+	return *o.Placement
 }
 
 // GetPlacementOk returns a tuple with the Placement field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-// NOTE: If the value is an explicit nil, `nil, true` will be returned
 func (o *GatewayCreateRequest) GetPlacementOk() (*GatewayPlacementIntent, bool) {
-	if o == nil {
+	if o == nil || IsNil(o.Placement) {
 		return nil, false
 	}
-	return o.Placement.Get(), o.Placement.IsSet()
+	return o.Placement, true
 }
 
 // HasPlacement returns a boolean if a field has been set.
 func (o *GatewayCreateRequest) HasPlacement() bool {
-	if o != nil && o.Placement.IsSet() {
+	if o != nil && !IsNil(o.Placement) {
 		return true
 	}
 
 	return false
 }
 
-// SetPlacement gets a reference to the given NullableGatewayPlacementIntent and assigns it to the Placement field.
+// SetPlacement gets a reference to the given GatewayPlacementIntent and assigns it to the Placement field.
 func (o *GatewayCreateRequest) SetPlacement(v GatewayPlacementIntent) {
-	o.Placement.Set(&v)
-}
-
-// SetPlacementNil sets the value for Placement to be an explicit nil
-func (o *GatewayCreateRequest) SetPlacementNil() {
-	o.Placement.Set(nil)
-}
-
-// UnsetPlacement ensures that no value is present for Placement, not even an explicit nil
-func (o *GatewayCreateRequest) UnsetPlacement() {
-	o.Placement.Unset()
+	o.Placement = &v
 }
 
 func (o GatewayCreateRequest) MarshalJSON() ([]byte, error) {
@@ -197,8 +186,8 @@ func (o GatewayCreateRequest) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.DedicatedRoute) {
 		toSerialize["dedicated_route"] = o.DedicatedRoute
 	}
-	if o.Placement.IsSet() {
-		toSerialize["placement"] = o.Placement.Get()
+	if !IsNil(o.Placement) {
+		toSerialize["placement"] = o.Placement
 	}
 	return toSerialize, nil
 }

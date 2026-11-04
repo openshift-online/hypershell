@@ -362,3 +362,58 @@ func TestGRPCListRoleBindingsClusterWideResync(t *testing.T) {
 	_, err = rbClient.ListRoleBindings(context.Background(), &pb.ListRoleBindingsRequest{})
 	Expect(status.Code(err)).To(Equal(codes.InvalidArgument), "list without user_id or cluster_id: %v", err)
 }
+
+// ListRoleBindings fails closed when user_id is empty and gateway_id is set
+// (PLAT-CLUS-15): the request is rejected with INVALID_ARGUMENT rather than
+// degrading into a per-gateway, all-user list that discloses every user's
+// bindings on that gateway. A per-user query that sets both user_id and
+// gateway_id still returns only that user's bindings on that gateway.
+// Verifies: PLAT-CLUS-15.01, PLAT-CLUS-15.02
+func TestGRPCListRoleBindingsFailsClosedWithoutUser(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+	h.StartControllersServer()
+
+	accountA := h.NewRandAccount()
+	ctxA := h.NewAuthenticatedContext(accountA)
+	userA, err := users.Service(&environments.Environment().Services).UpsertByUsername(context.Background(), accountA.Username, nil, nil)
+	Expect(err).NotTo(HaveOccurred())
+
+	accountB := h.NewRandAccount()
+	userB, err := users.Service(&environments.Environment().Services).UpsertByUsername(context.Background(), accountB.Username, nil, nil)
+	Expect(err).NotTo(HaveOccurred())
+
+	clusterX := registerRoleBindingTestCluster(t)
+
+	// Both users own the same gateway on cluster X.
+	gatewayID, bindingA := createGatewayWithOwnerBinding(ctxA, client, userA, "rb-failclosed", clusterX)
+	rbService := roleBindings.Service(&environments.Environment().Services)
+	Expect(rbService.CreateGatewayOwnerBinding(context.Background(), userB, gatewayID)).To(Succeed())
+
+	conn, err := grpc.NewClient(
+		h.GRPCAddress(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithPerRPCCredentials(&roleBindingBearerToken{token: h.CreateJWTString(accountA)}),
+	)
+	Expect(err).NotTo(HaveOccurred())
+	t.Cleanup(func() {
+		Expect(conn.Close()).To(Succeed())
+	})
+	rbClient := pb.NewRoleBindingServiceClient(conn)
+
+	ids := func(resp *pb.ListRoleBindingsResponse) []string {
+		out := make([]string, 0, len(resp.GetItems()))
+		for _, item := range resp.GetItems() {
+			out = append(out, item.GetMetadata().GetId())
+		}
+		return out
+	}
+
+	// Empty user_id with a gateway_id: rejected, never a per-gateway all-user list.
+	_, err = rbClient.ListRoleBindings(context.Background(), &pb.ListRoleBindingsRequest{GatewayId: &gatewayID, ClusterId: &clusterX})
+	Expect(status.Code(err)).To(Equal(codes.InvalidArgument), "empty user_id with gateway_id: %v", err)
+
+	// Per-user query with both user_id and gateway_id: only user A's binding.
+	scoped, err := rbClient.ListRoleBindings(context.Background(), &pb.ListRoleBindingsRequest{UserId: &userA, GatewayId: &gatewayID})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(ids(scoped)).To(ConsistOf(bindingA))
+}

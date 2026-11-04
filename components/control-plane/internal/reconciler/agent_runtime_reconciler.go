@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
@@ -175,12 +175,12 @@ func (r *AgentRuntimeReconciler) SetProviderRealizer(p ProviderRealizer) {
 func (r *AgentRuntimeReconciler) Handle(ctx context.Context, event watcher.Event[*pb.AgentRuntime]) error {
 	ar := event.Resource
 	if ar == nil {
-		log.Printf("WARN AgentRuntime event %s has nil resource, skipping", event.ResourceID)
+		slog.WarnContext(ctx, "AgentRuntime event has nil resource, skipping", "agent_runtime_id", event.ResourceID)
 		return nil
 	}
 
 	if r.kube == nil {
-		log.Printf("WARN AgentRuntime %s: no kubernetes client available; cluster-side provisioning disabled", event.ResourceID)
+		slog.WarnContext(ctx, "AgentRuntime has no kubernetes client available; cluster-side provisioning disabled", "agent_runtime_id", event.ResourceID)
 		return nil
 	}
 
@@ -197,7 +197,11 @@ func (r *AgentRuntimeReconciler) Handle(ctx context.Context, event watcher.Event
 // failed), or a hold at Provisioning with a SecretPending status message when a
 // referenced value has not yet been uploaded to a reachable store.
 func (r *AgentRuntimeReconciler) handleUpsert(ctx context.Context, ar *pb.AgentRuntime, namespace string) error {
-	log.Printf("INFO reconciling AgentRuntime %s name=%q namespace=%s sources=%d", ar.GetMetadata().GetId(), ar.GetName(), namespace, len(ar.GetSecretSources()))
+	slog.InfoContext(ctx, "Reconciling AgentRuntime",
+		"agent_runtime_id", ar.GetMetadata().GetId(),
+		"name", ar.GetName(),
+		"namespace", namespace,
+		"sources", len(ar.GetSecretSources()))
 
 	// Mark Provisioning before applying so the first reconcile of a new runtime is
 	// observable as in-progress rather than stuck at Pending. Only the initial
@@ -250,7 +254,7 @@ func (r *AgentRuntimeReconciler) handleUpsert(ctx context.Context, ar *pb.AgentR
 			// that degrades the runtime.
 			msg := fmt.Sprintf("SecretSource %q: %s", source.GetName(), reason)
 			r.setStatus(ctx, ar, agentRuntimeStatusDegraded, &msg)
-			log.Printf("WARN AgentRuntime %s degraded: %s", ar.GetMetadata().GetId(), msg)
+			slog.WarnContext(ctx, "AgentRuntime degraded", "agent_runtime_id", ar.GetMetadata().GetId(), "message", msg)
 			return fmt.Errorf("reconcile agent runtime %s: place secret for %q: %w", ar.GetMetadata().GetId(), source.GetName(), err)
 		}
 		desiredSecrets[secretName(source)] = struct{}{}
@@ -286,7 +290,7 @@ func (r *AgentRuntimeReconciler) handleUpsert(ctx context.Context, ar *pb.AgentR
 	}
 
 	r.setStatus(ctx, ar, agentRuntimeStatusRunning, nil)
-	log.Printf("INFO AgentRuntime %s provisioned in namespace %s", ar.GetMetadata().GetId(), namespace)
+	slog.InfoContext(ctx, "AgentRuntime provisioned", "agent_runtime_id", ar.GetMetadata().GetId(), "namespace", namespace)
 	return nil
 }
 
@@ -324,7 +328,7 @@ func (r *AgentRuntimeReconciler) realizeProviders(ctx context.Context, ar *pb.Ag
 			}
 			msg := fmt.Sprintf("SecretSource %q: provider material read failed", source.GetName())
 			r.setStatus(ctx, ar, agentRuntimeStatusDegraded, &msg)
-			log.Printf("WARN AgentRuntime %s degraded: %s", ar.GetMetadata().GetId(), msg)
+			slog.WarnContext(ctx, "AgentRuntime degraded", "agent_runtime_id", ar.GetMetadata().GetId(), "message", msg)
 			return fmt.Errorf("reconcile agent runtime %s: read provider material for %q: %w", ar.GetMetadata().GetId(), source.GetName(), err)
 		}
 		materials = append(materials, ProviderMaterial{Source: source, Material: material})
@@ -332,7 +336,7 @@ func (r *AgentRuntimeReconciler) realizeProviders(ctx context.Context, ar *pb.Ag
 	if err := r.providers.RealizeProviders(ctx, ar, materials); err != nil {
 		msg := "provider realization failed"
 		r.setStatus(ctx, ar, agentRuntimeStatusDegraded, &msg)
-		log.Printf("WARN AgentRuntime %s degraded: %s", ar.GetMetadata().GetId(), msg)
+		slog.WarnContext(ctx, "AgentRuntime degraded", "agent_runtime_id", ar.GetMetadata().GetId(), "message", msg)
 		return fmt.Errorf("reconcile agent runtime %s: realize providers: %w", ar.GetMetadata().GetId(), err)
 	}
 	return nil
@@ -361,7 +365,10 @@ func (r *AgentRuntimeReconciler) readMaterial(ctx context.Context, source *pb.Se
 func (r *AgentRuntimeReconciler) holdSecretPending(ctx context.Context, ar *pb.AgentRuntime, source *pb.SecretSource, cause error) error {
 	msg := secretPendingMessage(r.clusterName, r.secretStoreMount, source)
 	r.setStatus(ctx, ar, agentRuntimeStatusProvisioning, &msg)
-	log.Printf("INFO AgentRuntime %s: SecretPending for %q: %s", ar.GetMetadata().GetId(), source.GetName(), msg)
+	slog.InfoContext(ctx, "AgentRuntime SecretPending",
+		"agent_runtime_id", ar.GetMetadata().GetId(),
+		"secret", source.GetName(),
+		"message", msg)
 	return fmt.Errorf("reconcile agent runtime %s: secret %q pending upload: %w", ar.GetMetadata().GetId(), source.GetName(), cause)
 }
 
@@ -409,7 +416,7 @@ func secretPendingMessage(clusterName, mount string, source *pb.SecretSource) st
 // handleDelete writes Terminating (best-effort; the row may already be gone) and
 // removes the cluster resources by deleting the namespace, which cascades.
 func (r *AgentRuntimeReconciler) handleDelete(ctx context.Context, ar *pb.AgentRuntime, namespace string) error {
-	log.Printf("INFO AgentRuntime %s deleted, removing resources in namespace %s", ar.GetMetadata().GetId(), namespace)
+	slog.InfoContext(ctx, "AgentRuntime deleted, removing resources", "agent_runtime_id", ar.GetMetadata().GetId(), "namespace", namespace)
 	r.setStatus(ctx, ar, agentRuntimeStatusTerminating, nil)
 	// Remove the gateway-side OpenShell providers when a realizer is wired. This is
 	// best-effort: a failure here is logged and must not block cluster-side cleanup
@@ -417,7 +424,7 @@ func (r *AgentRuntimeReconciler) handleDelete(ctx context.Context, ar *pb.AgentR
 	// error is surfaced in the log, not silently swallowed.
 	if r.providers != nil {
 		if err := r.providers.DeleteProviders(ctx, ar); err != nil {
-			log.Printf("WARN AgentRuntime %s: delete gateway providers failed (continuing with cluster cleanup): %v", ar.GetMetadata().GetId(), err)
+			slog.WarnContext(ctx, "Delete gateway providers failed, continuing with cluster cleanup", "agent_runtime_id", ar.GetMetadata().GetId(), "error", err)
 		}
 	}
 	if err := deleteAgentRuntimeNamespace(ctx, r.kube, namespace); err != nil {
@@ -435,7 +442,7 @@ func (r *AgentRuntimeReconciler) pruneSecrets(ctx context.Context, ar *pb.AgentR
 	if err != nil {
 		// A list failure must not strand provisioning; it is logged and tolerated.
 		// The next reconcile retries the prune.
-		log.Printf("WARN AgentRuntime %s: unable to list secrets for prune in %s: %v", ar.GetMetadata().GetId(), namespace, err)
+		slog.WarnContext(ctx, "Unable to list secrets for prune", "agent_runtime_id", ar.GetMetadata().GetId(), "namespace", namespace, "error", err)
 		return nil
 	}
 	for i := range list.Items {
@@ -446,7 +453,7 @@ func (r *AgentRuntimeReconciler) pruneSecrets(ctx context.Context, ar *pb.AgentR
 		if err := client.Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
 			return fmt.Errorf("delete stale secret %s/%s: %w", namespace, name, err)
 		}
-		log.Printf("INFO AgentRuntime %s: pruned stale secret %s/%s", ar.GetMetadata().GetId(), namespace, name)
+		slog.InfoContext(ctx, "Pruned stale secret", "agent_runtime_id", ar.GetMetadata().GetId(), "namespace", namespace, "name", name)
 	}
 	return nil
 }
@@ -471,7 +478,7 @@ func (r *AgentRuntimeReconciler) setStatus(ctx context.Context, ar *pb.AgentRunt
 		return
 	}
 	if err := r.statusWriter(ctx, ar.GetMetadata().GetId(), status, message); err != nil {
-		log.Printf("WARN AgentRuntime %s: failed to write status %q: %v", ar.GetMetadata().GetId(), status, err)
+		slog.WarnContext(ctx, "Failed to write AgentRuntime status", "agent_runtime_id", ar.GetMetadata().GetId(), "status", status, "error", err)
 	}
 }
 

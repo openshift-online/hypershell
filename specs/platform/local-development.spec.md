@@ -434,16 +434,24 @@ The system SHALL provide per-component Make targets that build a single componen
 
 ### Requirement: DEV-LOC-03 -- Cluster Teardown
 
-The system SHALL provide a `make kind-down` target that completely removes the local development cluster.
+The system SHALL provide a `make kind-down` target that removes the HyperShell
+platform from the local cluster -- it deletes the platform namespace and its
+resources -- without destroying the Kind cluster itself, and a `make kind-teardown`
+target that destroys the Kind cluster. `make kind-down` SHALL leave the Kind cluster,
+the stand-in `external-cloud-db` server in its own namespace, and shared operators in
+place; when no HyperShell namespaces remain it SHALL point the developer at `make
+kind-teardown` to destroy the cluster. `make kind-teardown` SHALL be safe to run when
+no cluster exists.
 
-#### Scenario: DEV-LOC-03.01 -- Teardown Running Cluster
-- GIVEN a Kind cluster is running
+#### Scenario: DEV-LOC-03.01 -- Platform Removal Keeps The Cluster
+- GIVEN a Kind cluster is running with the HyperShell platform deployed
 - WHEN a developer runs `make kind-down`
-- THEN the Kind cluster and all associated resources SHALL be deleted
+- THEN the platform namespace and its resources SHALL be deleted
+- AND the Kind cluster, the stand-in `external-cloud-db` server, and shared operators SHALL remain
 
 #### Scenario: DEV-LOC-03.02 -- Teardown When No Cluster Exists
 - GIVEN no Kind cluster exists
-- WHEN a developer runs `make kind-down`
+- WHEN a developer runs `make kind-teardown`
 - THEN the command SHALL exit without error
 
 ### Requirement: DEV-LOC-04 -- Cluster Status

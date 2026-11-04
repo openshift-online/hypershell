@@ -15,9 +15,7 @@ export interface HomepageSummary {
       }
     | { available: false };
   quickCreate?: {
-    placement:
-      | { mode: "local-kind" }
-      | { excludedSelector: string[]; selector: string[] };
+    placement: { excludedSelector?: string[]; selector: string[] };
   };
 }
 

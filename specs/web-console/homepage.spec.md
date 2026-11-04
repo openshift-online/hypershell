@@ -13,7 +13,7 @@ Define the authenticated HyperShell homepage, its route relationship to the gate
 
 ### Requirement: WEB-HOME-01 -- Routes
 
-The web console SHALL render `HomepagePage` at `/`. The existing gateway-list experience SHALL move to `/gateways` without changing its filtering, sorting, pagination, query-string state, deleted-gateway and renamed-gateway handling, or authorization behavior. The existing `/gateways/new`, `/gateways/:gatewayId`, `/dashboard`, dashboard subroutes, `/metrics`, and `/login` routes SHALL remain available.
+The web console SHALL render `HomepagePage` at `/`. The gateway-list experience, with its filtering, sorting, pagination, query-string state, deleted-gateway and renamed-gateway handling, and authorization behavior, SHALL live at `/gateways`. The `/gateways/new`, `/gateways/:gatewayId`, `/dashboard`, dashboard subroutes, `/metrics`, and `/login` routes SHALL remain available.
 
 The dashboard-dedicated hostname exception SHALL remain: when the browser hostname selects the dashboard host, `/` SHALL render the existing operational dashboard instead of the homepage.
 
@@ -31,7 +31,7 @@ The BFF SHALL serve the SPA shell for direct navigation and refresh to `/`, `/ga
 - GIVEN an authenticated user navigates directly to `/gateways?search=team&page=2`
 - WHEN the SPA renders
 - THEN the gateway list SHALL restore the query-string state
-- AND filtering, sorting, pagination, and authorization SHALL behave as before
+- AND filtering, sorting, pagination, and authorization SHALL apply
 
 #### Scenario: WEB-HOME-01.03 -- Dashboard host keeps its root behavior
 
@@ -253,19 +253,19 @@ Create a gateway SHALL navigate to `/gateways/new`. View gateways and View my ga
 
 ### Requirement: WEB-HOME-12 -- Quick Create Gateway
 
-Quick create SHALL create a real Gateway through the existing gateway operations application port. The BFF SHALL derive placement availability from connected registered clusters. A connected `local-kind` cluster SHALL take precedence and Quick Create SHALL submit `mode: local-kind`. Otherwise, Quick Create SHALL submit IBM Cloud public placement that requires both `network/public` and `provider/ibm` and excludes `runtime/kata`.
+Quick create SHALL create a real Gateway through the existing gateway operations application port. The BFF SHALL derive placement availability from connected registered clusters. A connected cluster advertising `provider/kind` SHALL take precedence and Quick Create SHALL submit `selector: ["provider/kind"]`. Otherwise, Quick Create SHALL submit IBM Cloud public placement that requires both `network/public` and `provider/ibm` and excludes `runtime/kata`.
 
 Quick Create SHALL be hidden while placement availability is loading or unavailable. It SHALL NOT submit the public IBM intent merely as a silent fallback.
 
-The Quick Create dialog SHALL describe the placement that will be used. In local-kind mode it SHALL state that the gateway will be created on `local-kind` with a generated name. For public IBM placement it SHALL state that the gateway will be created on IBM Cloud public with a generated name.
+The Quick Create dialog SHALL describe the placement that will be used. When the Kind selector is used it SHALL state that the gateway will be created on the local Kind cluster with a generated name. For public IBM placement it SHALL state that the gateway will be created on IBM Cloud public with a generated name.
 
 On success, the workflow SHALL invalidate gateway queries and navigate to the created gateway detail route. On failure, the modal SHALL remain open, show a useful localized error, and allow retry or cancel. A name-conflict response SHALL generate a new unique candidate and retry a bounded number of times.
 
-#### Scenario: WEB-HOME-12.01 -- Quick create submits local-kind placement
+#### Scenario: WEB-HOME-12.01 -- Quick create submits the Kind capability selector
 
-- GIVEN the BFF reports a connected `local-kind` cluster
+- GIVEN the BFF reports a connected cluster advertising `provider/kind`
 - WHEN the user activates Create gateway in Quick create
-- THEN the placement intent SHALL use `mode: local-kind`
+- THEN the placement intent SHALL use `selector: ["provider/kind"]`
 
 #### Scenario: WEB-HOME-12.02 -- Quick create submits the intended public placement
 
@@ -277,7 +277,7 @@ On success, the workflow SHALL invalidate gateway queries and navigate to the cr
 
 #### Scenario: WEB-HOME-12.03 -- Quick create is hidden without an eligible cluster
 
-- GIVEN the BFF reports no connected `local-kind` cluster and no connected public IBM cluster without Kata
+- GIVEN the BFF reports no connected cluster advertising `provider/kind` and no connected public IBM cluster without Kata
 - WHEN the homepage renders
 - THEN the Quick Create action SHALL NOT be shown
 
@@ -298,9 +298,9 @@ On success, the workflow SHALL invalidate gateway queries and navigate to the cr
 
 #### Scenario: WEB-HOME-12.06 -- Dialog copy matches placement
 
-- GIVEN the BFF reports a connected `local-kind` cluster
+- GIVEN the BFF reports a connected cluster advertising `provider/kind`
 - WHEN the user opens Quick create
-- THEN the dialog SHALL say that the gateway will be created on `local-kind` with a generated name
+- THEN the dialog SHALL say that the gateway will be created on the local Kind cluster with a generated name
 
 - GIVEN the BFF reports an eligible public IBM cluster without Kata
 - WHEN the user opens Quick create

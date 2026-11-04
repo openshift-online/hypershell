@@ -3,7 +3,7 @@ package gateway
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	"k8s.io/client-go/kubernetes"
@@ -73,6 +73,6 @@ func DeleteVaultTenantMount(ctx context.Context, clientset kubernetes.Interface,
 // failed on its own terms. Tokens are short-TTL, so an un-revoked one still expires.
 func revokeVaultToken(ctx context.Context, c *vaultClient, token string) {
 	if err := c.revokeSelf(ctx, token); err != nil {
-		log.Printf("WARN could not revoke vault token after use (it will expire at its TTL): %v", err)
+		slog.WarnContext(ctx, "Could not revoke vault token after use (it will expire at its TTL)", "error", err)
 	}
 }

@@ -8,9 +8,61 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server/grpcutil"
 )
+
+// readTrackingService embeds RoleBindingService so it satisfies the interface
+// without implementing every method, and records whether either list read was
+// invoked. Only the read paths ListRoleBindings can reach are overridden; any
+// other call panics (nil embedded interface) and fails the test loudly.
+type readTrackingService struct {
+	RoleBindingService
+	findByUserIDCalled bool
+	allCalled          bool
+}
+
+func (s *readTrackingService) FindByUserID(context.Context, string) (RoleBindingList, *errors.ServiceError) {
+	s.findByUserIDCalled = true
+	return RoleBindingList{}, nil
+}
+
+func (s *readTrackingService) All(context.Context) (RoleBindingList, *errors.ServiceError) {
+	s.allCalled = true
+	return RoleBindingList{}, nil
+}
+
+// PLAT-CLUS-15.01: a ListRoleBindings request with an empty user_id and a
+// gateway_id is rejected with InvalidArgument and reads no role bindings.
+func TestListRoleBindingsFailsClosedWithoutUser(t *testing.T) {
+	svc := &readTrackingService{}
+	lookup := func(context.Context, string) (string, bool, *errors.ServiceError) { return "", false, nil }
+	h := &roleBindingGRPCHandler{service: svc, gatewayClusters: lookup}
+
+	gatewayID := "gw-x"
+	clusterID := "cluster-x"
+	_, err := h.ListRoleBindings(context.Background(), &pb.ListRoleBindingsRequest{
+		GatewayId: &gatewayID,
+		ClusterId: &clusterID,
+	})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("empty user_id with gateway_id: code = %s, want InvalidArgument (err=%v)", status.Code(err), err)
+	}
+	if svc.findByUserIDCalled || svc.allCalled {
+		t.Fatalf("rejected request read role bindings (FindByUserID=%v, All=%v); want no read", svc.findByUserIDCalled, svc.allCalled)
+	}
+
+	// The same empty user_id with no gateway_id is the cluster-wide resync path:
+	// it reaches the all-binding read.
+	_, err = h.ListRoleBindings(context.Background(), &pb.ListRoleBindingsRequest{ClusterId: &clusterID})
+	if err != nil {
+		t.Fatalf("cluster-wide resync: unexpected error %v", err)
+	}
+	if !svc.allCalled {
+		t.Fatal("cluster-wide resync did not reach the all-binding read")
+	}
+}
 
 func TestLoadRoleBindingWithRetryRetriesNotFound(t *testing.T) {
 	attempts := 0

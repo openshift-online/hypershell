@@ -175,11 +175,9 @@ The database SHALL NOT contain:
 
 The model does not include `last_used_at`. The gateway validates access tokens locally and does not report each use to HyperShell. Usage reporting requires a separate audited event design.
 
-### Schema and Migration
+### Storage
 
-The API server SHALL add the OpenShellGatewayServiceAccount table through a forward migration. The migration SHALL add foreign keys and indexes for status and expiration. It SHALL also add a partial unique index for active `(gateway_id, name)` values.
-
-The migration SHALL contain no secret column. Existing Gateways and RoleBindings require no backfill. Applying only the schema migration SHALL create no Keycloak clients.
+The OpenShellGatewayServiceAccount table SHALL have foreign keys and indexes for status and expiration. It SHALL also have a partial unique index for active `(gateway_id, name)` values. The table SHALL contain no secret column.
 
 Deleting an OpenShellGatewayServiceAccount or Gateway SHALL preserve referential integrity. The deletion SHALL also preserve non-secret audit records.
 

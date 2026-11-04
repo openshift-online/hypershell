@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -63,7 +63,7 @@ func ReconcileGateway(
 	// that hostname, so it -- not the operator -- injects it into the cert SANs
 	// here, before cert-manager mints the certificate below.
 	if ingressMode != IngressModeNone && nsConfig.Gateway.Route.Enabled {
-		injectIngressHostnames(&nsConfig)
+		injectIngressHostnames(ctx, &nsConfig)
 	}
 
 	// Vault-backed gateways fail closed: verify the per-cluster Vault is reachable
@@ -89,7 +89,7 @@ func ReconcileGateway(
 		return fmt.Errorf("database reconciler for gateway in namespace %s: %w", nsConfig.Name, err)
 	}
 	if err := dbReconciler.Reconcile(ctx, dynamicClient, clientset, nsConfig.Name, opts.GatewayID); err != nil {
-		log.Printf("ERROR gateway database provisioning in %s: %v", nsConfig.Name, err)
+		slog.ErrorContext(ctx, "Gateway database provisioning failed", "namespace", nsConfig.Name, "error", err)
 		report(ConditionDatabaseReady, StatusFailed, "Database provisioning failed - unable to provision the gateway database")
 		return err
 	}
@@ -156,7 +156,7 @@ func ReconcileGateway(
 	// (sandbox pods need privileged SCC to schedule)
 	if opts.IsOpenShift {
 		if err := reconcileOpenShiftSCC(ctx, dynamicClient, nsConfig.Name); err != nil {
-			log.Printf("WARN failed to reconcile OpenShift SCC binding in %s: %v", nsConfig.Name, err)
+			slog.WarnContext(ctx, "Failed to reconcile OpenShift SCC binding", "namespace", nsConfig.Name, "error", err)
 		}
 	}
 
@@ -191,29 +191,29 @@ func ReconcileGateway(
 			}
 		} else {
 			if err := DeleteGatewayAPIResources(ctx, dynamicClient, clientset, nsConfig.Name, opts); err != nil {
-				log.Printf("WARN failed to remove Gateway API resources in %s: %v", nsConfig.Name, err)
+				slog.WarnContext(ctx, "Failed to remove Gateway API resources", "namespace", nsConfig.Name, "error", err)
 			}
 		}
 	case IngressModeRoute:
 		if nsConfig.Gateway.Route.Enabled {
 			if err := reconcileRouteResources(ctx, dynamicClient, nsConfig, opts); err != nil {
-				log.Printf("WARN failed to reconcile Route resources in %s: %v", nsConfig.Name, err)
+				slog.WarnContext(ctx, "Failed to reconcile Route resources", "namespace", nsConfig.Name, "error", err)
 			}
 			if err := ReconcileConsole(ctx, dynamicClient, clientset, nsConfig, opts); err != nil {
-				log.Printf("WARN failed to reconcile console in %s: %v", nsConfig.Name, err)
+				slog.WarnContext(ctx, "Failed to reconcile console", "namespace", nsConfig.Name, "error", err)
 			}
 		} else {
 			if err := DeleteRouteResources(ctx, dynamicClient, clientset, nsConfig.Name, opts); err != nil {
-				log.Printf("WARN failed to remove Route resources in %s: %v", nsConfig.Name, err)
+				slog.WarnContext(ctx, "Failed to remove Route resources", "namespace", nsConfig.Name, "error", err)
 			}
 		}
 	default:
-		log.Printf("INFO no ingress mode selected for %s (not OpenShift and no Gateway API); skipping tenant ingress", nsConfig.Name)
+		slog.InfoContext(ctx, "No ingress mode selected (not OpenShift and no Gateway API); skipping tenant ingress", "namespace", nsConfig.Name)
 	}
 
 	report(ConditionGatewayDeployed, StatusComplete, "")
 
-	log.Printf("INFO gateway reconciled in namespace %s", nsConfig.Name)
+	slog.InfoContext(ctx, "Gateway reconciled", "namespace", nsConfig.Name)
 	return nil
 }
 
@@ -239,7 +239,7 @@ func DeleteGatewayResources(
 	// Uninstall Helm release (removes all chart-managed resources in the namespace)
 	if helmClient != nil {
 		if err := helmClient.Uninstall(ctx, namespace); err != nil {
-			log.Printf("WARN failed to uninstall helm release in namespace %s: %v", namespace, err)
+			slog.WarnContext(ctx, "Failed to uninstall helm release", "namespace", namespace, "error", err)
 		}
 	}
 
@@ -251,7 +251,7 @@ func DeleteGatewayResources(
 	crbName := fmt.Sprintf("openshell-gateway-node-reader-%s", namespace)
 	if err := dynamicClient.Resource(crbGVR).Delete(ctx, crbName, metav1.DeleteOptions{}); err != nil {
 		if !k8serrors.IsNotFound(err) {
-			log.Printf("WARN failed to delete ClusterRoleBinding %s: %v", crbName, err)
+			slog.WarnContext(ctx, "Failed to delete ClusterRoleBinding", "name", crbName, "error", err)
 			// This cluster-scoped binding has no owning namespace to cascade-reap
 			// it and no reconciler that reclaims leaked bindings, so a failure here
 			// is a silent orphan unless it is recorded durably.
@@ -259,7 +259,7 @@ func DeleteGatewayResources(
 				fmt.Sprintf("delete failed during gateway deletion: %v", err))
 		}
 	} else {
-		log.Printf("INFO deleted ClusterRoleBinding %s", crbName)
+		slog.InfoContext(ctx, "Deleted ClusterRoleBinding", "name", crbName)
 	}
 
 	if opts.KeycloakClient != nil && opts.GatewayID != "" {
@@ -272,26 +272,26 @@ func DeleteGatewayResources(
 			// account may still be enabled. Returning an error makes teardown retry.
 			return fmt.Errorf("delete gateway service-account clients: %w", err)
 		}
-		log.Printf("INFO deleted keycloak service-account clients for gateway %s", opts.GatewayID)
+		slog.InfoContext(ctx, "Deleted keycloak service-account clients", "gateway_id", opts.GatewayID)
 
 		// The console namespaced resources are swept by label above, but the
 		// console Keycloak client must be deleted explicitly (it lives in the
 		// realm, not the namespace). Best-effort: log the orphan on failure.
 		consoleClientID := kcClientID + "-console"
 		if err := opts.KeycloakClient.DeleteConsoleClient(ctx, consoleClientID); err != nil {
-			log.Printf("WARN failed to delete console client %s (orphaned): %v", consoleClientID, err)
+			slog.WarnContext(ctx, "Failed to delete console client (orphaned)", "client_id", consoleClientID, "error", err)
 			recordOrphan(ctx, opts, "KeycloakClient", consoleClientID,
 				fmt.Sprintf("delete failed during gateway deletion: %v", err))
 		} else {
-			log.Printf("INFO deleted console client %s", consoleClientID)
+			slog.InfoContext(ctx, "Deleted console client", "client_id", consoleClientID)
 		}
 
 		if err := opts.KeycloakClient.DeleteGatewayClient(ctx, kcClientID); err != nil {
-			log.Printf("WARN failed to delete keycloak client %s (orphaned): %v", kcClientID, err)
+			slog.WarnContext(ctx, "Failed to delete keycloak client (orphaned)", "client_id", kcClientID, "error", err)
 			recordOrphan(ctx, opts, "KeycloakClient", kcClientID,
 				fmt.Sprintf("delete failed during gateway deletion: %v", err))
 		} else {
-			log.Printf("INFO deleted keycloak client %s", kcClientID)
+			slog.InfoContext(ctx, "Deleted keycloak client", "client_id", kcClientID)
 		}
 	}
 
@@ -314,11 +314,11 @@ func DeleteGatewayResources(
 	for _, credNS := range credentialNamespaces {
 		if credNS != "" && credNS != namespace {
 			deleteCredentialSecretsRBAC(ctx, dynamicClient, credNS)
-			log.Printf("INFO cleaned up credential RBAC from namespace %s", credNS)
+			slog.InfoContext(ctx, "Cleaned up credential RBAC", "namespace", credNS)
 		}
 	}
 
-	log.Printf("INFO gateway out-of-namespace resources cleaned up for namespace %s", namespace)
+	slog.InfoContext(ctx, "Gateway out-of-namespace resources cleaned up", "namespace", namespace)
 	return nil
 }
 
@@ -399,18 +399,23 @@ func DeleteLabeledNamespaceResources(
 			if k8serrors.IsNotFound(err) {
 				continue
 			}
-			log.Printf("WARN failed to list %s in namespace %s for cleanup: %v", gvr.Resource, namespace, err)
+			slog.WarnContext(ctx, "Failed to list resources for cleanup", "kind", gvr.Resource, "namespace", namespace, "error", err)
 			continue
 		}
 		for i := range list.Items {
 			name := list.Items[i].GetName()
 			if err := dynamicClient.Resource(gvr).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
 				if !k8serrors.IsNotFound(err) {
-					log.Printf("WARN failed to delete %s %s in namespace %s: %v", gvr.Resource, name, namespace, err)
+					slog.WarnContext(ctx, "Failed to delete resource",
+						"kind", gvr.Resource,
+						"name", name,
+						"namespace", namespace,
+						"error", err,
+					)
 				}
 				continue
 			}
-			log.Printf("INFO deleted %s %s from namespace %s", gvr.Resource, name, namespace)
+			slog.InfoContext(ctx, "Deleted resource", "kind", gvr.Resource, "name", name, "namespace", namespace)
 		}
 	}
 }
@@ -469,12 +474,12 @@ func DeleteGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interf
 		if err := opts.UpdateRouteAddress(ctx, ""); err != nil {
 			errs = append(errs, fmt.Errorf("clear routeAddress in %s: %w", namespace, err))
 		} else {
-			log.Printf("INFO cleared routeAddress for gateway in %s", namespace)
+			slog.InfoContext(ctx, "Cleared routeAddress for gateway", "namespace", namespace)
 		}
 	}
 
 	if len(errs) == 0 {
-		log.Printf("INFO Gateway API resources removed from namespace %s", namespace)
+		slog.InfoContext(ctx, "Gateway API resources removed", "namespace", namespace)
 	}
 	return errors.Join(errs...)
 }
@@ -678,13 +683,13 @@ func reconcileRouteResources(ctx context.Context, dynamicClient dynamic.Interfac
 
 	hostname, err := deriveGatewayHostname(nsConfig)
 	if err != nil {
-		log.Printf("WARN %v", err)
+		slog.WarnContext(ctx, "Cannot derive gateway hostname; skipping Route resources", "error", err)
 		return nil
 	}
 
 	publishRouteAddress(ctx, opts, namespace, hostname)
 
-	log.Printf("INFO Route resources reconciled in namespace %s (hostname=%s)", namespace, hostname)
+	slog.InfoContext(ctx, "Route resources reconciled", "namespace", namespace, "hostname", hostname)
 	return nil
 }
 
@@ -712,12 +717,12 @@ func DeleteRouteResources(ctx context.Context, dynamicClient dynamic.Interface, 
 		if err := opts.UpdateRouteAddress(ctx, ""); err != nil {
 			errs = append(errs, fmt.Errorf("clear routeAddress in %s: %w", namespace, err))
 		} else {
-			log.Printf("INFO cleared routeAddress for gateway in %s", namespace)
+			slog.InfoContext(ctx, "Cleared routeAddress for gateway", "namespace", namespace)
 		}
 	}
 
 	if len(errs) == 0 {
-		log.Printf("INFO Route resources removed from namespace %s", namespace)
+		slog.InfoContext(ctx, "Route resources removed", "namespace", namespace)
 	}
 	return errors.Join(errs...)
 }
@@ -763,14 +768,14 @@ func waitForSecret(ctx context.Context, clientset kubernetes.Interface, namespac
 		watcher.Stop()
 
 		if appeared {
-			log.Printf("INFO secret %s/%s is available", namespace, name)
+			slog.InfoContext(ctx, "Secret is available", "namespace", namespace, "name", name)
 			return nil
 		}
 
 		if watchCtx.Err() != nil {
 			return fmt.Errorf("timed out waiting for secret %s/%s: %w", namespace, name, watchCtx.Err())
 		}
-		log.Printf("INFO watch for secret %s/%s closed early; re-establishing", namespace, name)
+		slog.InfoContext(ctx, "Watch for secret closed early; re-establishing", "namespace", namespace, "name", name)
 	}
 }
 
@@ -991,19 +996,19 @@ func reconcileResource(ctx context.Context, dynamicClient dynamic.Interface, obj
 			if err != nil {
 				return fmt.Errorf("create %s %s: %w", gvk.Kind, name, err)
 			}
-			log.Printf("INFO created %s %s in %s", gvk.Kind, name, namespace)
+			slog.InfoContext(ctx, "Created resource", "kind", gvk.Kind, "name", name, "namespace", namespace)
 			return nil
 		}
 		return fmt.Errorf("get %s %s: %w", gvk.Kind, name, err)
 	}
 
 	if gvk.Kind == "Job" {
-		log.Printf("DEBUG job %s already exists, skipping update", name)
+		slog.DebugContext(ctx, "Job already exists, skipping update", "name", name)
 		return nil
 	}
 
 	if gvk.Kind == "PersistentVolumeClaim" {
-		log.Printf("DEBUG PVC %s already exists, skipping update", name)
+		slog.DebugContext(ctx, "PVC already exists, skipping update", "name", name)
 		return nil
 	}
 
@@ -1049,7 +1054,7 @@ func kindToResource(kind string) string {
 		return resource
 	}
 
-	log.Printf("DEBUG unknown kind %s, using naive plural", kind)
+	slog.Debug("Unknown kind, using naive plural", "kind", kind)
 	return strings.ToLower(kind) + "s"
 }
 
@@ -1146,7 +1151,7 @@ func reconcileOpenShiftSCC(ctx context.Context, dynamicClient dynamic.Interface,
 		if _, createErr := dynamicClient.Resource(roleBindingGVR).Namespace(namespace).Create(ctx, binding, metav1.CreateOptions{}); createErr != nil {
 			return fmt.Errorf("create SCC RoleBinding: %w", createErr)
 		}
-		log.Printf("INFO created privileged SCC binding for openshell-gateway-sandbox in %s", namespace)
+		slog.InfoContext(ctx, "Created privileged SCC binding for openshell-gateway-sandbox", "namespace", namespace)
 		return nil
 	}
 
@@ -1196,19 +1201,19 @@ func reconcileTrustedCABundle(ctx context.Context, clientset *kubernetes.Clients
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			if _, err := clientset.CoreV1().ConfigMaps(targetNamespace).Create(ctx, targetCM, metav1.CreateOptions{}); err != nil {
-				log.Printf("WARN failed to create trusted CA ConfigMap in %s: %v", targetNamespace, err)
+				slog.WarnContext(ctx, "Failed to create trusted CA ConfigMap", "namespace", targetNamespace, "error", err)
 				return false
 			}
-			log.Printf("INFO copied trusted CA ConfigMap to %s", targetNamespace)
+			slog.InfoContext(ctx, "Copied trusted CA ConfigMap", "namespace", targetNamespace)
 			return true
 		}
-		log.Printf("WARN failed to get trusted CA ConfigMap in %s: %v", targetNamespace, err)
+		slog.WarnContext(ctx, "Failed to get trusted CA ConfigMap", "namespace", targetNamespace, "error", err)
 		return false
 	}
 
 	targetCM.ResourceVersion = existing.ResourceVersion
 	if _, err := clientset.CoreV1().ConfigMaps(targetNamespace).Update(ctx, targetCM, metav1.UpdateOptions{}); err != nil {
-		log.Printf("WARN failed to update trusted CA ConfigMap in %s: %v", targetNamespace, err)
+		slog.WarnContext(ctx, "Failed to update trusted CA ConfigMap", "namespace", targetNamespace, "error", err)
 		return false
 	}
 	return true
@@ -1228,12 +1233,12 @@ func reconcileVaultCABundle(ctx context.Context, clientset *kubernetes.Clientset
 
 	secret, err := clientset.CoreV1().Secrets(srcNamespace).Get(ctx, srcName, metav1.GetOptions{})
 	if err != nil {
-		log.Printf("WARN vault serving CA source Secret %s/%s not readable; gateway falls back to platform trust roots: %v", srcNamespace, srcName, err)
+		slog.WarnContext(ctx, "Vault serving CA source Secret not readable; gateway falls back to platform trust roots", "namespace", srcNamespace, "secret", srcName, "error", err)
 		return false
 	}
 	caPEM, ok := secret.Data[VaultCAKey]
 	if !ok || len(caPEM) == 0 {
-		log.Printf("WARN vault serving CA source Secret %s/%s has no %q key", srcNamespace, srcName, VaultCAKey)
+		slog.WarnContext(ctx, "Vault serving CA source Secret has no CA key", "namespace", srcNamespace, "secret", srcName, "key", VaultCAKey)
 		return false
 	}
 
@@ -1255,19 +1260,19 @@ func reconcileVaultCABundle(ctx context.Context, clientset *kubernetes.Clientset
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			if _, err := clientset.CoreV1().ConfigMaps(targetNamespace).Create(ctx, targetCM, metav1.CreateOptions{}); err != nil {
-				log.Printf("WARN failed to create vault CA ConfigMap in %s: %v", targetNamespace, err)
+				slog.WarnContext(ctx, "Failed to create vault CA ConfigMap", "namespace", targetNamespace, "error", err)
 				return false
 			}
-			log.Printf("INFO copied vault serving CA ConfigMap to %s", targetNamespace)
+			slog.InfoContext(ctx, "Copied vault serving CA ConfigMap", "namespace", targetNamespace)
 			return true
 		}
-		log.Printf("WARN failed to get vault CA ConfigMap in %s: %v", targetNamespace, err)
+		slog.WarnContext(ctx, "Failed to get vault CA ConfigMap", "namespace", targetNamespace, "error", err)
 		return false
 	}
 
 	targetCM.ResourceVersion = existing.ResourceVersion
 	if _, err := clientset.CoreV1().ConfigMaps(targetNamespace).Update(ctx, targetCM, metav1.UpdateOptions{}); err != nil {
-		log.Printf("WARN failed to update vault CA ConfigMap in %s: %v", targetNamespace, err)
+		slog.WarnContext(ctx, "Failed to update vault CA ConfigMap", "namespace", targetNamespace, "error", err)
 		return false
 	}
 	return true
@@ -1301,13 +1306,13 @@ func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig *
 		if err := kc.EnsureE2ETokenExchange(ctx, existingUUID); err != nil {
 			return fmt.Errorf("reconcile e2e token-exchange on keycloak client %s: %w", kcClientID, err)
 		}
-		log.Printf("INFO reconciled keycloak client %s (uuid=%s)", kcClientID, existingUUID)
+		slog.InfoContext(ctx, "Reconciled keycloak client", "client_id", kcClientID, "uuid", existingUUID)
 	} else {
 		clientUUID, err := kc.ProvisionGatewayClient(ctx, kcClientID)
 		if err != nil {
 			return fmt.Errorf("provision keycloak client %s: %w", kcClientID, err)
 		}
-		log.Printf("INFO provisioned keycloak client %s (uuid=%s)", kcClientID, clientUUID)
+		slog.InfoContext(ctx, "Provisioned keycloak client", "client_id", kcClientID, "uuid", clientUUID)
 	}
 
 	oidcConfig := OIDCConfig{
@@ -1335,7 +1340,7 @@ func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig *
 			return fmt.Errorf("marshal oidc config: %w", err)
 		}
 		if err := opts.UpdateOIDC(ctx, string(oidcJSON)); err != nil {
-			log.Printf("WARN failed to persist oidc config for %s: %v", kcClientID, err)
+			slog.WarnContext(ctx, "Failed to persist oidc config", "client_id", kcClientID, "error", err)
 		}
 	}
 
@@ -1377,10 +1382,10 @@ func deleteCredentialSecretsRBAC(ctx context.Context, dynamicClient dynamic.Inte
 
 	name := "openshell-gateway-credential-secrets"
 	if err := dynamicClient.Resource(roleBindingGVR).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		log.Printf("WARN failed to delete credential secrets RoleBinding in %s: %v", namespace, err)
+		slog.WarnContext(ctx, "Failed to delete credential secrets RoleBinding", "namespace", namespace, "error", err)
 	}
 	if err := dynamicClient.Resource(roleGVR).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		log.Printf("WARN failed to delete credential secrets Role in %s: %v", namespace, err)
+		slog.WarnContext(ctx, "Failed to delete credential secrets Role", "namespace", namespace, "error", err)
 	}
 }
 
@@ -1446,14 +1451,14 @@ func reconcileCredentialSecretsRBAC(
 		return fmt.Errorf("reconcile credential secrets RoleBinding: %w", err)
 	}
 
-	log.Printf("INFO reconciled credential secrets RBAC in %s for gateway in %s", credentialNamespace, gatewayNamespace)
+	slog.InfoContext(ctx, "Reconciled credential secrets RBAC", "credential_namespace", credentialNamespace, "namespace", gatewayNamespace)
 	return nil
 }
 
 func DetectOpenShift(clientset *kubernetes.Clientset) bool {
 	_, resources, err := clientset.Discovery().ServerGroupsAndResources()
 	if err != nil {
-		log.Printf("WARN failed to discover API groups, assuming non-OpenShift: %v", err)
+		slog.Warn("Failed to discover API groups, assuming non-OpenShift", "error", err)
 		return false
 	}
 	for _, list := range resources {
@@ -1467,7 +1472,7 @@ func DetectOpenShift(clientset *kubernetes.Clientset) bool {
 func DetectCertManager(clientset *kubernetes.Clientset) bool {
 	_, resources, err := clientset.Discovery().ServerGroupsAndResources()
 	if err != nil {
-		log.Printf("WARN failed to discover API groups for cert-manager detection: %v", err)
+		slog.Warn("Failed to discover API groups for cert-manager detection", "error", err)
 		return false
 	}
 	for _, list := range resources {
@@ -1481,7 +1486,7 @@ func DetectCertManager(clientset *kubernetes.Clientset) bool {
 func DetectGatewayAPI(clientset *kubernetes.Clientset) bool {
 	_, resources, err := clientset.Discovery().ServerGroupsAndResources()
 	if err != nil {
-		log.Printf("WARN failed to discover API groups for Gateway API detection: %v", err)
+		slog.Warn("Failed to discover API groups for Gateway API detection", "error", err)
 		return false
 	}
 	for _, list := range resources {
@@ -1657,10 +1662,10 @@ func deriveGatewayHostname(nsConfig NamespaceConfig) (string, error) {
 // prefix and derives its exposed-service base domain from it, so without the
 // wildcard entry it cannot generate valid sandbox service URLs. See
 // docs/investigations/per-gateway-certificates.md (Gap C).
-func injectIngressHostnames(nsConfig *NamespaceConfig) {
+func injectIngressHostnames(ctx context.Context, nsConfig *NamespaceConfig) {
 	hostname, err := deriveGatewayHostname(*nsConfig)
 	if err != nil {
-		log.Printf("WARN cannot add ingress hostname to gateway certificate SANs in %s: %v", nsConfig.Name, err)
+		slog.WarnContext(ctx, "Cannot add ingress hostname to gateway certificate SANs", "namespace", nsConfig.Name, "error", err)
 		return
 	}
 	nsConfig.Gateway.ServerDnsNames = appendDNSNameIfMissing(nsConfig.Gateway.ServerDnsNames, hostname)
@@ -1695,9 +1700,9 @@ func publishRouteAddress(ctx context.Context, opts ReconcileOpts, namespace, hos
 	}
 	routeAddress := fmt.Sprintf("grpcs://%s:443", hostname)
 	if err := opts.UpdateRouteAddress(ctx, routeAddress); err != nil {
-		log.Printf("WARN failed to publish routeAddress %s for gateway in %s: %v", routeAddress, namespace, err)
+		slog.WarnContext(ctx, "Failed to publish routeAddress for gateway", "route_address", routeAddress, "namespace", namespace, "error", err)
 	} else {
-		log.Printf("INFO published routeAddress %s for gateway in %s", routeAddress, namespace)
+		slog.InfoContext(ctx, "Published routeAddress for gateway", "route_address", routeAddress, "namespace", namespace)
 	}
 }
 
@@ -1868,7 +1873,7 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 		images = StaticImageDefaults{}
 	}
 	if err := reconcileConsole(ctx, dynamicClient, clientset, nsConfig, opts, images); err != nil {
-		log.Printf("WARN failed to reconcile console in %s: %v", nsConfig.Name, err)
+		slog.WarnContext(ctx, "Failed to reconcile console", "namespace", nsConfig.Name, "error", err)
 	}
 
 	return nil
@@ -1895,13 +1900,13 @@ func reconcileGatewayAPIRouteResources(ctx context.Context, dynamicClient dynami
 	var gwName, gwNS string
 	if dedicatedCert {
 		if gatewayExternalIssuerName() == "" {
-			log.Printf("WARN route.certificate requires GATEWAY_EXTERNAL_ISSUER to be set on the controller")
+			slog.WarnContext(ctx, "route.certificate requires GATEWAY_EXTERNAL_ISSUER to be set on the controller")
 			return fmt.Errorf("route.certificate requires GATEWAY_EXTERNAL_ISSUER to be set on the controller: %w", errExternalIssuerUnset)
 		}
 	} else {
 		gwName = gatewayIngressName()
 		if gwName == "" {
-			log.Printf("WARN GATEWAY_API_GATEWAY_NAME is required -- set it to the name of a pre-existing Gateway resource")
+			slog.WarnContext(ctx, "GATEWAY_API_GATEWAY_NAME is required -- set it to the name of a pre-existing Gateway resource")
 			return fmt.Errorf("GATEWAY_API_GATEWAY_NAME is required")
 		}
 		gwNS = gatewayIngressNamespace()
@@ -1912,7 +1917,7 @@ func reconcileGatewayAPIRouteResources(ctx context.Context, dynamicClient dynami
 	// address published through the port.
 	hostname, ok := exposure.DeriveGatewayAPIHost(namespace, routeConfig.Host)
 	if !ok {
-		log.Printf("WARN cannot derive GRPCRoute hostname: GATEWAY_API_BASE_DOMAIN not set")
+		slog.WarnContext(ctx, "Cannot derive GRPCRoute hostname: GATEWAY_API_BASE_DOMAIN not set")
 		return nil
 	}
 
@@ -1924,12 +1929,12 @@ func reconcileGatewayAPIRouteResources(ctx context.Context, dynamicClient dynami
 	if opts.Exposure != nil && opts.UpdateRouteAddress != nil {
 		routeAddress, err := opts.Exposure.ResolveAddress(ctx, exposure.Request{Namespace: namespace, Host: routeConfig.Host})
 		if err != nil {
-			log.Printf("WARN failed to resolve routeAddress for gateway in %s: %v", namespace, err)
+			slog.WarnContext(ctx, "Failed to resolve routeAddress for gateway", "namespace", namespace, "error", err)
 		} else if routeAddress != "" {
 			if err := opts.UpdateRouteAddress(ctx, routeAddress); err != nil {
-				log.Printf("WARN failed to publish routeAddress %s for gateway in %s: %v", routeAddress, namespace, err)
+				slog.WarnContext(ctx, "Failed to publish routeAddress for gateway", "route_address", routeAddress, "namespace", namespace, "error", err)
 			} else {
-				log.Printf("INFO published routeAddress %s for gateway in %s", routeAddress, namespace)
+				slog.InfoContext(ctx, "Published routeAddress for gateway", "route_address", routeAddress, "namespace", namespace)
 			}
 		}
 	}
@@ -1958,7 +1963,7 @@ func reconcileGatewayAPIRouteResources(ctx context.Context, dynamicClient dynami
 				return fmt.Errorf("re-check route intent in %s: %w", namespace, err)
 			}
 			if !desired {
-				log.Printf("INFO gateway in %s no longer routed after external TLS wait; skipping per-tenant Gateway creation (health loop owns teardown)", namespace)
+				slog.InfoContext(ctx, "Gateway no longer routed after external TLS wait; skipping per-tenant Gateway creation (health loop owns teardown)", "namespace", namespace)
 				return nil
 			}
 		}
@@ -1979,9 +1984,19 @@ func reconcileGatewayAPIRouteResources(ctx context.Context, dynamicClient dynami
 	} else {
 		listenerName := sharedGatewayListenerName()
 		if os.Getenv("GATEWAY_API_HTTP_LISTENER_NAME") == "" {
-			log.Printf("INFO using Gateway %s/%s listener %s for tenant %s (GATEWAY_API_HTTP_LISTENER_NAME unset; a NoMatchingParent GRPCRoute will not self-heal)", gwNS, gwName, listenerName, namespace)
+			slog.InfoContext(ctx, "Using Gateway listener for tenant (GATEWAY_API_HTTP_LISTENER_NAME unset; a NoMatchingParent GRPCRoute will not self-heal)",
+				"gateway_namespace", gwNS,
+				"gateway_name", gwName,
+				"listener", listenerName,
+				"namespace", namespace,
+			)
 		} else {
-			log.Printf("INFO using Gateway %s/%s listener %s for tenant %s", gwNS, gwName, listenerName, namespace)
+			slog.InfoContext(ctx, "Using Gateway listener for tenant",
+				"gateway_namespace", gwNS,
+				"gateway_name", gwName,
+				"listener", listenerName,
+				"namespace", namespace,
+			)
 		}
 
 		parentRef = map[string]interface{}{
@@ -2059,7 +2074,7 @@ func reconcileGatewayAPIRouteResources(ctx context.Context, dynamicClient dynami
 			return fmt.Errorf("re-check route intent in %s: %w", namespace, err)
 		}
 		if !desired {
-			log.Printf("INFO gateway in %s no longer routed after TLS wait; skipping route/console resource creation (health loop owns teardown)", namespace)
+			slog.InfoContext(ctx, "Gateway no longer routed after TLS wait; skipping route/console resource creation (health loop owns teardown)", "namespace", namespace)
 			return nil
 		}
 	}
@@ -2087,13 +2102,13 @@ func reconcileGatewayAPIRouteResources(ctx context.Context, dynamicClient dynami
 		if err != nil {
 			if k8serrors.IsNotFound(err) {
 				if _, err := clientset.CoreV1().ConfigMaps(namespace).Create(ctx, backendCA, metav1.CreateOptions{}); err != nil {
-					log.Printf("WARN failed to create backend CA ConfigMap: %v", err)
+					slog.WarnContext(ctx, "Failed to create backend CA ConfigMap", "error", err)
 				}
 			}
 		} else {
 			backendCA.ResourceVersion = existing.ResourceVersion
 			if _, err := clientset.CoreV1().ConfigMaps(namespace).Update(ctx, backendCA, metav1.UpdateOptions{}); err != nil {
-				log.Printf("WARN failed to update backend CA ConfigMap: %v", err)
+				slog.WarnContext(ctx, "Failed to update backend CA ConfigMap", "error", err)
 			}
 		}
 
@@ -2133,13 +2148,13 @@ func reconcileGatewayAPIRouteResources(ctx context.Context, dynamicClient dynami
 			},
 		}
 		if err := reconcileResource(ctx, dynamicClient, btlsPolicy); err != nil {
-			log.Printf("WARN failed to reconcile BackendTLSPolicy (may require OpenShift 4.22+): %v", err)
+			slog.WarnContext(ctx, "Failed to reconcile BackendTLSPolicy (may require OpenShift 4.22+)", "error", err)
 		}
 	}
 
 	// The route address is published deterministically at the top of this
 	// function, so no readiness-gated discovery is required here.
 
-	log.Printf("INFO Gateway API resources reconciled in namespace %s (hostname=%s)", namespace, hostname)
+	slog.InfoContext(ctx, "Gateway API resources reconciled", "namespace", namespace, "hostname", hostname)
 	return nil
 }

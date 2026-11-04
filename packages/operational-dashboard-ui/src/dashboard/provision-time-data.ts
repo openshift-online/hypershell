@@ -23,9 +23,7 @@ function parseSeconds(value: string | undefined): number | undefined {
 export function parseProvisionDurationStats(
   metric: OperationalMetric,
 ): ProvisionDurationStats | undefined {
-  const meanSeconds = parseSeconds(
-    metric.provisionDuration?.mean ?? metric.value,
-  );
+  const meanSeconds = parseSeconds(metric.provisionDuration?.mean);
   const p50Seconds = parseSeconds(metric.provisionDuration?.p50);
   const p95Seconds = parseSeconds(metric.provisionDuration?.p95);
   const p99Seconds = parseSeconds(metric.provisionDuration?.p99);
