@@ -8,19 +8,19 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gorilla/mux"
 	"google.golang.org/grpc"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/extsearch"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/routes"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/sandboxEvents"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
-	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/authz"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/controllers"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
@@ -311,7 +311,7 @@ func init() {
 		return NewServiceLocator(env.(*environments.Env))
 	})
 
-	pkgserver.RegisterRoutes("gateways", func(apiV1Router *mux.Router, services pkgserver.ServicesInterface, authMiddleware environments.JWTMiddleware, authzMiddleware auth.AuthorizationMiddleware) {
+	pkgserver.RegisterRoutes("gateways", func(apiRouter *pkgserver.APIRouter, services pkgserver.ServicesInterface) {
 		envServices := services.(*environments.Services)
 		var ownerBinding OwnerBindingCreator
 		var visibilityFilter GatewayVisibilityFilter
@@ -342,25 +342,19 @@ func init() {
 			}
 			return gateway.Namespace, true
 		})
-		sandboxEventsRouter := apiV1Router.PathPrefix("/gateways/{gateway_id}/sandbox_events").Subrouter()
+		sandboxEventsRouter := routes.Resource(apiRouter, "sandbox_events").PathPrefix("/gateways/{gateway_id}/sandbox_events").Subrouter()
 		sandboxEventsRouter.HandleFunc("", sandboxEventsHandler.List).Methods(http.MethodGet)
-		sandboxEventsRouter.Use(authMiddleware.AuthenticateAccountJWT)
-		sandboxEventsRouter.Use(authzMiddleware.AuthorizeApi)
 
-		gatewaysRouter := apiV1Router.PathPrefix("/gateways").Subrouter()
+		gatewaysRouter := routes.Resource(apiRouter, "gateways").PathPrefix("/gateways").Subrouter()
 		gatewaysRouter.HandleFunc("", gatewayHandler.List).Methods(http.MethodGet)
 		gatewaysRouter.HandleFunc("/placement-availability", gatewayHandler.GetPlacementAvailability).Methods(http.MethodPost)
 		gatewaysRouter.HandleFunc("/{id}", gatewayHandler.Get).Methods(http.MethodGet)
 		gatewaysRouter.HandleFunc("", gatewayHandler.Create).Methods(http.MethodPost)
 		gatewaysRouter.HandleFunc("/{id}", gatewayHandler.Patch).Methods(http.MethodPatch)
 		gatewaysRouter.HandleFunc("/{id}", gatewayHandler.Delete).Methods(http.MethodDelete)
-		gatewaysRouter.Use(authMiddleware.AuthenticateAccountJWT)
-		gatewaysRouter.Use(authzMiddleware.AuthorizeApi)
 
-		metricsRouter := apiV1Router.PathPrefix("/metrics").Subrouter()
+		metricsRouter := routes.Resource(apiRouter, "metrics").PathPrefix("/metrics").Subrouter()
 		metricsRouter.HandleFunc("/gateways", gatewayHandler.MetricsGateways).Methods(http.MethodGet)
-		metricsRouter.Use(authMiddleware.AuthenticateAccountJWT)
-		metricsRouter.Use(authzMiddleware.AuthorizeApi)
 	})
 
 	pkgserver.RegisterController("Gateways", func(manager *controllers.KindControllerManager, services pkgserver.ServicesInterface) {
@@ -414,7 +408,7 @@ func init() {
 		grpcHandler := NewGatewayGRPCHandler(gatewayService, genericService, brokerFunc, registeredClusterLookup(envServices), gatewaySubjectResolver{services: envServices}, newDedicatedRouteAuthorizer(gatewayBindingLookup(envServices), rbac.Enforced()), placement.Resolve)
 		SetSandboxEventStore(grpcHandler, sandboxEvents.Store(envServices))
 		pb.RegisterGatewayServiceServer(grpcServer, grpcHandler)
-	})
+	}, gatewayGRPCResources())
 
 	presenters.RegisterPath(Gateway{}, "gateways")
 	presenters.RegisterPath(&Gateway{}, "gateways")
@@ -445,4 +439,17 @@ func init() {
 	db.RegisterMigration(migrationAddGatewayWorkspaceMode())
 	db.RegisterMigration(migrationAddGatewayDedicatedRoute())
 	db.RegisterMigration(migrationBackfillGatewayWorkspaceModeShared())
+}
+
+// gatewayGRPCResources declares every GatewayService method for authorization.
+// The control-plane-owned writes are updates of the gateway; sandbox events are
+// created under it.
+func gatewayGRPCResources() authz.GRPCResources {
+	resources := authz.CRUDResources(pb.GatewayService_ServiceDesc.ServiceName, "gateways", "Gateway", "Gateways")
+	method := func(name string) string { return "/" + pb.GatewayService_ServiceDesc.ServiceName + "/" + name }
+	resources[method("AdjustActiveSandboxCount")] = authz.GRPCResource{Kind: "gateways", Action: authz.ActionUpdate}
+	resources[method("SetActiveSandboxCount")] = authz.GRPCResource{Kind: "gateways", Action: authz.ActionUpdate}
+	resources[method("SetGatewayVersion")] = authz.GRPCResource{Kind: "gateways", Action: authz.ActionUpdate}
+	resources[method("ReportSandboxEvents")] = authz.GRPCResource{Kind: "sandbox_events", Action: authz.ActionCreate}
+	return resources
 }

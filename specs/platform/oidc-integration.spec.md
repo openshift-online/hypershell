@@ -101,7 +101,7 @@ A new environment file `e_development_oidc.go` SHALL be added alongside the exis
 - `OverrideConfig` SHALL NOT set `c.Auth.EnableJWT = false`  -- the CLI flag `--enable-jwt=true` SHALL take effect
 - `Flags()` SHALL set `"enable-jwt": "true"` and `"jwk-cert-url"` pointing to the configured JWKS endpoint
 - `Flags()` SHALL set `"enable-authz": "false"`  -- authorization remains disabled; JWT validates identity only
-- `Flags()` SHALL set `"enable-mock": "true"`  -- mock authz client, since authz is disabled
+- `OverrideAuthorizer` SHALL return the RBAC Authorizer, like every environment (`security/rbac-enforcement.spec.md`, SEC-RBAC-24)
 
 The environment SHALL be activated via `API_ENV=development_oidc`. The `environments.go` registration SHALL include the new environment in the environment map.
 

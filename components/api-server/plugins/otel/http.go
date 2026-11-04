@@ -4,10 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
-	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
-	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/logger"
-	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
@@ -29,13 +26,6 @@ func otelHTTPHandler(next http.Handler) http.Handler {
 			return r.Method
 		}),
 	)
-}
-
-// registerHTTPRouteMiddleware installs the route-tagging middleware on the v1
-// subrouter. It runs inside the router (after route matching), where
-// mux.CurrentRoute is populated, so it can read the templated path.
-func registerHTTPRouteMiddleware(apiV1Router *mux.Router, _ pkgserver.ServicesInterface, _ environments.JWTMiddleware, _ auth.AuthorizationMiddleware) {
-	apiV1Router.Use(routeTagMiddleware)
 }
 
 // routeTagMiddleware refines the server span created by otelHTTPHandler: it sets
