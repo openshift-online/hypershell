@@ -28,7 +28,7 @@ import {
   ToolbarItem,
   Tooltip,
 } from "@patternfly/react-core";
-import { CodeIcon, CopyIcon, EllipsisVIcon } from "@patternfly/react-icons";
+import { CopyIcon, EllipsisVIcon } from "@patternfly/react-icons";
 import { Table, Tbody, Td, Th, Thead, Tr } from "@patternfly/react-table";
 import { useId, useState } from "react";
 
@@ -118,40 +118,63 @@ function selectedNamesFor(scenario: GatewayBulkScenario): string[] {
 
 function GatewayRowActions({
   consoleUrl,
+  endpoint,
   gatewayName,
+  initialConnectionOpen = false,
 }: {
   consoleUrl: string;
+  endpoint: string;
   gatewayName: string;
+  initialConnectionOpen?: boolean;
 }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [isConnectionOpen, setIsConnectionOpen] = useState(
+    initialConnectionOpen,
+  );
 
   return (
-    <Dropdown
-      isOpen={isOpen}
-      onOpenChange={setIsOpen}
-      onSelect={() => setIsOpen(false)}
-      popperProps={{ position: "right" }}
-      toggle={(toggleRef) => (
-        <MenuToggle
-          aria-label={`Actions for ${gatewayName}`}
-          isExpanded={isOpen}
-          onClick={() => setIsOpen((open) => !open)}
-          ref={toggleRef}
-          variant="plain"
-        >
-          <EllipsisVIcon />
-        </MenuToggle>
-      )}
-    >
-      <DropdownList>
-        <DropdownItem isExternalLink rel="noreferrer" to={consoleUrl}>
-          Open gateway console
-        </DropdownItem>
-        <DropdownItem>Copy CLI connection command</DropdownItem>
-        <DropdownItem>Rename gateway</DropdownItem>
-        <DropdownItem isDanger>Delete gateway</DropdownItem>
-      </DropdownList>
-    </Dropdown>
+    <>
+      <Dropdown
+        isOpen={isOpen}
+        onOpenChange={setIsOpen}
+        onSelect={() => setIsOpen(false)}
+        popperProps={{ position: "right" }}
+        toggle={(toggleRef) => (
+          <MenuToggle
+            aria-label={`Actions for ${gatewayName}`}
+            isExpanded={isOpen}
+            onClick={() => setIsOpen((open) => !open)}
+            ref={toggleRef}
+            variant="plain"
+          >
+            <EllipsisVIcon />
+          </MenuToggle>
+        )}
+      >
+        <DropdownList>
+          <DropdownItem isExternalLink rel="noreferrer" to={consoleUrl}>
+            Open gateway console
+          </DropdownItem>
+          <DropdownItem onClick={() => setIsConnectionOpen(true)}>
+            Connection command
+          </DropdownItem>
+          <DropdownItem
+            icon={<CopyIcon />}
+            onClick={() => void navigator.clipboard.writeText(endpoint)}
+          >
+            Copy endpoint
+          </DropdownItem>
+          <DropdownItem>Rename gateway</DropdownItem>
+          <DropdownItem isDanger>Delete gateway</DropdownItem>
+        </DropdownList>
+      </Dropdown>
+      <GatewayConnectionModal
+        endpoint={endpoint}
+        gatewayName={gatewayName}
+        isOpen={isConnectionOpen}
+        onClose={() => setIsConnectionOpen(false)}
+      />
+    </>
   );
 }
 
@@ -243,89 +266,44 @@ function GatewayPagination({
   );
 }
 
-function CopyValueButton({
-  ariaLabel,
-  icon,
-  tooltip,
-  value,
-}: {
-  ariaLabel: string;
-  icon: React.ReactNode;
-  tooltip: string;
-  value: string;
-}) {
-  const [copied, setCopied] = useState(false);
-
-  return (
-    <Tooltip content={copied ? "Copied" : tooltip} position="top">
-      <Button
-        aria-label={ariaLabel}
-        icon={icon}
-        onClick={() => {
-          void navigator.clipboard.writeText(value);
-          setCopied(true);
-          window.setTimeout(() => setCopied(false), 1500);
-        }}
-        variant="plain"
-      />
-    </Tooltip>
-  );
-}
-
-function GatewayConnectionAction({
+function GatewayConnectionModal({
   endpoint,
   gatewayName,
-  initialIsOpen = false,
+  isOpen,
+  onClose,
 }: {
   endpoint: string;
   gatewayName: string;
-  initialIsOpen?: boolean;
+  isOpen: boolean;
+  onClose: () => void;
 }) {
-  const [isOpen, setIsOpen] = useState(initialIsOpen);
-
   return (
-    <>
-      <Tooltip content={`View connection command for ${gatewayName}`}>
-        <Button
-          aria-label={`View connection command for ${gatewayName}`}
-          icon={<CodeIcon />}
-          onClick={() => setIsOpen(true)}
-          variant="plain"
-        />
-      </Tooltip>
-      {isOpen ? (
-        <Modal
-          isOpen
-          onClose={() => setIsOpen(false)}
-          variant={ModalVariant.medium}
-        >
-          <ModalHeader title={`Connect to ${gatewayName}`} />
-          <ModalBody>
-            <Stack hasGutter>
-              <StackItem>
-                <Content component="p">
-                  Run this command in a terminal to add the gateway to the
-                  OpenShell CLI.
-                </Content>
-              </StackItem>
-              <StackItem>
-                <div className={styles.steps}>
-                  <CommandBlock
-                    copyAriaLabel={`Copy connection command for ${gatewayName}`}
-                    copyText={connectionCommand(gatewayName, endpoint)}
-                  />
-                </div>
-              </StackItem>
-            </Stack>
-          </ModalBody>
-          <ModalFooter>
-            <Button onClick={() => setIsOpen(false)} variant="primary">
-              Close
-            </Button>
-          </ModalFooter>
-        </Modal>
-      ) : null}
-    </>
+    <Modal isOpen={isOpen} onClose={onClose} variant={ModalVariant.medium}>
+      <ModalHeader title={`Connect to ${gatewayName}`} />
+      <ModalBody>
+        <Stack hasGutter>
+          <StackItem>
+            <Content component="p">
+              Run this command in a terminal to add the gateway to the OpenShell
+              CLI.
+            </Content>
+          </StackItem>
+          <StackItem>
+            <div className={styles.steps}>
+              <CommandBlock
+                copyAriaLabel={`Copy connection command for ${gatewayName}`}
+                copyText={connectionCommand(gatewayName, endpoint)}
+              />
+            </div>
+          </StackItem>
+        </Stack>
+      </ModalBody>
+      <ModalFooter>
+        <Button onClick={onClose} variant="primary">
+          Close
+        </Button>
+      </ModalFooter>
+    </Modal>
   );
 }
 
@@ -458,30 +436,20 @@ function LoadedGatewayList({
                 isChecked={allSelected ? true : someSelected ? null : false}
               />
             </Th>
-            <Th sort={{ columnIndex: 0, onSort, sortBy: {} }} width={15}>
+            <Th sort={{ columnIndex: 0, onSort, sortBy: {} }} width={30}>
               Gateway name
             </Th>
-            <Th sort={{ columnIndex: 1, onSort, sortBy: {} }} width={10}>
+            <Th sort={{ columnIndex: 1, onSort, sortBy: {} }} width={15}>
               Sandboxes
             </Th>
-            <Th sort={{ columnIndex: 2, onSort, sortBy: {} }} width={10}>
+            <Th sort={{ columnIndex: 2, onSort, sortBy: {} }} width={20}>
               Status
             </Th>
-            <Th sort={{ columnIndex: 3, onSort, sortBy: {} }} width={10}>
+            <Th sort={{ columnIndex: 3, onSort, sortBy: {} }} width={15}>
               Version
             </Th>
-            <Th sort={{ columnIndex: 4, onSort, sortBy: {} }} width={10}>
-              Connect
-            </Th>
-            <Th sort={{ columnIndex: 5, onSort, sortBy }} width={15}>
+            <Th sort={{ columnIndex: 4, onSort, sortBy }} width={20}>
               Created
-            </Th>
-            <Th sort={{ columnIndex: 6, onSort, sortBy: {} }} width={10}>
-              Created by
-            </Th>
-            <Th width={10}>Cluster type</Th>
-            <Th sort={{ columnIndex: 7, onSort, sortBy: {} }} width={10}>
-              Endpoint
             </Th>
             <Th screenReaderText="Actions" />
           </Tr>
@@ -515,28 +483,15 @@ function LoadedGatewayList({
                 />
               </Td>
               <Td dataLabel="Version">{gateway.version}</Td>
-              <Td dataLabel="Connect">
-                <GatewayConnectionAction
-                  endpoint={gateway.endpoint}
-                  gatewayName={gateway.name}
-                  initialIsOpen={connectionModalGateway === gateway.name}
-                />
-              </Td>
               <Td dataLabel="Created">{gateway.created}</Td>
-              <Td dataLabel="Created by">{gateway.createdBy}</Td>
-              <Td dataLabel="Cluster type">{gateway.clusterType}</Td>
-              <Td dataLabel="Gateway endpoint">
-                <CopyValueButton
-                  ariaLabel={`Copy endpoint for ${gateway.name}`}
-                  icon={<CopyIcon />}
-                  tooltip={`Copy endpoint: ${gateway.endpoint}`}
-                  value={gateway.endpoint}
-                />
-              </Td>
               <Td isActionCell modifier="fitContent">
                 <GatewayRowActions
                   consoleUrl={gateway.consoleUrl}
+                  endpoint={gateway.endpoint}
                   gatewayName={gateway.name}
+                  initialConnectionOpen={
+                    connectionModalGateway === gateway.name
+                  }
                 />
               </Td>
             </Tr>
