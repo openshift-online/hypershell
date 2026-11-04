@@ -126,7 +126,8 @@ def main():
     try:
         if action == 'discover':
             coordinator.discover()
-            print(json.dumps({'jobs': coordinator.candidates, 'errors': coordinator.errors}))
+            print(json.dumps({'jobs': coordinator.candidates, 'errors': coordinator.errors,
+                              'waiting_for_triage': coordinator.waiting_for_triage}))
         elif action == 'authorize':
             print(json.dumps({'allowed': coordinator.authorized(json.load(sys.stdin))}))
         else:

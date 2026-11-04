@@ -826,10 +826,20 @@ func (m Model) firstColumn() string {
 	return "ISSUE"
 }
 
+func waitingForTriageLabel(count int) string {
+	if count == 1 {
+		return "1 issue waiting for triage"
+	}
+	return fmt.Sprintf("%d issues waiting for triage", count)
+}
+
 func (m Model) agentGroups(rows []Row, w, budget int) []string {
 	if len(rows) == 0 {
 		if m.currentFilter() != "" {
 			return []string{"No matching runs. Press / to edit the filter; Esc clears it."}
+		}
+		if len(m.state.WaitingForTriage) > 0 {
+			return []string{"New issues will be linked to Jira automatically."}
 		}
 		for _, r := range m.scopedRows() {
 			if r.Status == "succeeded" {
@@ -985,6 +995,13 @@ func (m Model) detailContent(rows []Row, w int) ([]string, []string) {
 		}
 		for _, problem := range m.state.Errors {
 			body = append(body, m.wrapped(problem, w, "3")...)
+		}
+	}
+	if len(m.state.WaitingForTriage) > 0 {
+		body = append(body, "", m.style("Waiting for triage", "6", true))
+		body = append(body, m.wrapped(waitingForTriageLabel(len(m.state.WaitingForTriage))+". New issues are linked to Jira automatically before triage starts. No additional labels are needed.", w, "7")...)
+		for _, issue := range m.state.WaitingForTriage {
+			body = append(body, m.wrapped(fmt.Sprintf("#%d  %s", issue.Number, issue.Title), w, "8")...)
 		}
 	}
 	return header, body
@@ -1248,6 +1265,9 @@ func (m Model) View() string {
 				if m.currentFilter() != "" {
 					message = "No matching runs. Press / to edit the filter; Esc clears it."
 				}
+				if m.historyIssue == nil && m.currentFilter() == "" && len(m.state.WaitingForTriage) > 0 {
+					message = "New issues will be linked to Jira automatically."
+				}
 				lines = append(lines, message)
 			}
 			if len(rows) > count {
@@ -1266,7 +1286,11 @@ func (m Model) View() string {
 			if m.showCompleted {
 				action = "hide"
 			}
-			summary = m.style(fmt.Sprintf("%d completed runs · c to %s", completed, action), "8", false)
+			summaryText := fmt.Sprintf("%d completed runs · c to %s", completed, action)
+			if len(m.state.WaitingForTriage) > 0 {
+				summaryText = waitingForTriageLabel(len(m.state.WaitingForTriage)) + " · " + summaryText
+			}
+			summary = m.style(summaryText, "8", false)
 		}
 		if len(m.state.Errors) > 0 {
 			lines = append(lines, m.style(fmt.Sprintf("%d problem(s) need attention. Press d for details.", len(m.state.Errors)), "3", false))

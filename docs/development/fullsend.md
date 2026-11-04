@@ -396,6 +396,14 @@ The viewer preserves source colors and highlights familiar Fullsend success,
 warning, and error lines. Source terminal controls are removed so log content
 cannot move the cursor, erase the interface, or alter your clipboard.
 
+Newly labeled issues appear as **N issues waiting for triage** while intake
+creates or links their Jira records. This is normal queue status: adding
+`agent/allowed` and your registered `agent/scope/*` label is sufficient. Do not
+add the execution-record marker yourself. Intake checks every three minutes by
+default; the dashboard's intake interval setting controls that timing. Actual
+Jira/GitHub authentication or synchronization failures remain under **Needs
+attention**, separate from this automatic waiting state.
+
 ## Troubleshooting
 
 | Symptom | Next step |

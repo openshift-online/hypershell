@@ -298,6 +298,38 @@ class ImplementationCycleTests(unittest.TestCase):
             self.github.phase_job('scope', 'spec-implementation', item, [pr(), pr(11)])
 
 
+class PendingTriageTests(unittest.TestCase):
+    def test_unlinked_authorized_issues_are_normal_queue_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args=funnel.parse_args(['agent/scope/test','--dry-run','--lifecycle','jira'])
+            store=funnel.Store(Path(tmp)/'state.db');self.addCleanup(store.db.close)
+            coordinator=funnel.Coordinator(args,store,-1)
+            record=issue(708)
+            blocked=issue(709);blocked['labels'].append('agent/blocked')
+            closed=issue(710);closed['state']='closed'
+            with patch.object(coordinator.github,'discover',return_value=[record,blocked,closed]):
+                # First intake launch must already expose the normal queue count.
+                coordinator.discover()
+                self.assertEqual([i['number'] for i in coordinator.waiting_for_triage],[708])
+                self.assertEqual(coordinator.errors,[])
+                ingest=coordinator.candidates[0]
+                self.assertIn(ingest['agent'],('ingest','funnel-ingest'))
+                run=store.start(ingest,'intake.log',time.time())
+                store.finish(ingest['key'],run,0,60,3600)
+                # The cached/no-new-launch path is also informational, not an error.
+                coordinator.discover()
+                self.assertEqual(coordinator.errors,[])
+                self.assertEqual(len(coordinator.waiting_for_triage),1)
+                self.assertFalse(any(j['agent']=='issue-triage' for j in coordinator.candidates))
+            record['labels'].append('agent/execution-record')
+            reconcile=funnel.make_job(args.scope,'reconcile',record)
+            with patch.object(coordinator.github,'discover',return_value=[record]), patch.object(coordinator.github,'pages',return_value=[]), patch.object(coordinator,'reconcile_job',return_value=reconcile):
+                coordinator.discover()
+                self.assertEqual(coordinator.waiting_for_triage,[])
+                self.assertEqual(coordinator.errors,[])
+                self.assertTrue(any(j['agent']=='reconcile' for j in coordinator.candidates))
+
+
 class CodeReadinessTests(unittest.TestCase):
     def test_watch_observes_approved_issues_and_respects_worker_ownership(self):
         with tempfile.TemporaryDirectory() as tmp:
