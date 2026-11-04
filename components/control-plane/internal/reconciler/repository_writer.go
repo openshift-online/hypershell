@@ -718,6 +718,24 @@ func (w *grpcImportWriter) upsertAgentRuntime(ctx context.Context, repoID string
 // ---- CITrust ----
 
 func (w *grpcImportWriter) ownedCITrusts(ctx context.Context, repoID string) ([]*pb.CITrust, error) {
+	all, err := w.listAllCITrusts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []*pb.CITrust
+	for _, it := range all {
+		if it.GetRepositoryId() == repoID {
+			out = append(out, it)
+		}
+	}
+	return out, nil
+}
+
+// listAllCITrusts pages through EVERY CITrust (all Repositories plus human/REST-created
+// trusts). CITrust names are globally unique, so the import needs the whole set to
+// decide whether a desired name is free, owned by this Repository, or already taken by
+// another owner (FINDING 4).
+func (w *grpcImportWriter) listAllCITrusts(ctx context.Context) ([]*pb.CITrust, error) {
 	var out []*pb.CITrust
 	for page := int32(1); ; page++ {
 		resp, err := w.ciTrusts.ListCITrusts(ctx, &pb.ListCITrustsRequest{Page: page, Size: w.pageSize})
@@ -725,11 +743,7 @@ func (w *grpcImportWriter) ownedCITrusts(ctx context.Context, repoID string) ([]
 			return nil, fmt.Errorf("list CI trusts: %w", err)
 		}
 		items := resp.GetItems()
-		for _, it := range items {
-			if it.GetRepositoryId() == repoID {
-				out = append(out, it)
-			}
-		}
+		out = append(out, items...)
 		if int32(len(items)) < w.pageSize {
 			return out, nil
 		}
@@ -745,7 +759,12 @@ func (w *grpcImportWriter) ownedCITrusts(ctx context.Context, repoID string) ([]
 // failure so each CITrust upsert fails with the same cause rather than proceeding on
 // partial reads.
 type citrustPassCache struct {
-	loaded        bool
+	loaded bool
+	// allCITrusts is EVERY CITrust (all Repositories plus REST/human-created), used to
+	// detect a name collision with a trust this Repository does not own (FINDING 4).
+	allCITrusts []*pb.CITrust
+	// ownedCITrusts is the subset of allCITrusts owned by this Repository, used for
+	// name-identity match and drift comparison.
 	ownedCITrusts []*pb.CITrust
 	ownedGateways []*pb.Gateway
 	ciProviders   []*pb.CIProvider
@@ -762,9 +781,17 @@ func (w *grpcImportWriter) ensureCITrustPassCache(ctx context.Context, repoID st
 		return
 	}
 	cache.loaded = true
-	cache.ownedCITrusts, cache.err = w.ownedCITrusts(ctx, repoID)
+	// List EVERY CITrust once, then derive the Repository-owned subset. The full set is
+	// needed to detect a name already taken by another Repository or a human over REST
+	// (FINDING 4); the owned subset drives name-identity match and drift.
+	cache.allCITrusts, cache.err = w.listAllCITrusts(ctx)
 	if cache.err != nil {
 		return
+	}
+	for _, ct := range cache.allCITrusts {
+		if ct.GetRepositoryId() == repoID {
+			cache.ownedCITrusts = append(cache.ownedCITrusts, ct)
+		}
 	}
 	cache.ownedGateways, cache.err = w.ownedGateways(ctx, repoID)
 	if cache.err != nil {
@@ -831,15 +858,19 @@ func resolveOwnedGatewayIDByName(ownedGateways []*pb.Gateway, name string) (stri
 // manifest's metadata.name) matches a desired trust against an owned one. Only the
 // mutable fields are compared and updated - role and the full subject predicate
 // (subject_repository, subject_project_path, subject_ref, subject_environment,
-// subject_ref_protected); ci_provider_id and gateway_id are immutable after create. A
-// changed subject.repository or subject.project_path therefore reconciles via update
-// rather than being silently skipped (reconcile, don't create-or-skip; FINDING 2).
+// subject_ref_protected). On the import path the api-server applies those with REPLACE
+// semantics, so a subject field the manifest omits is cleared, not left stale (desired
+// state; FINDING 1).
 //
-// The ci_provider_id and gateway_id foreign keys are declared BY NAME in the manifest
-// and resolved to ids ONLY on the create branch (FINDING 3): on update they are
-// immutable and unused, so resolving them eagerly would let a since-renamed
-// CIProvider or Gateway fail an update that touches neither. cache carries the shared
-// per-pass reads; when nil (the single-resource entry point) they are fetched here.
+// ci_provider_id and gateway_id are IMMUTABLE after create. They are declared BY NAME
+// in the manifest and resolved to ids both to create a new trust and, on an existing
+// trust, to detect a changed foreign key: a same-named trust whose resolved
+// ci_provider_id/gateway_id no longer matches the stored row is NOT a silent no-op - it
+// is reported as an immutable-field error that requires recreating the trust under a new
+// name (FINDING 2). A desired name already taken by another Repository or a human over
+// REST is likewise reported as a clear, non-retryable error instead of an endlessly
+// retried duplicate-name 409 (FINDING 4). cache carries the shared per-pass reads; when
+// nil (the single-resource entry point) they are fetched here.
 func (w *grpcImportWriter) upsertCITrust(ctx context.Context, repoID string, res RenderedResource, cache *citrustPassCache) error {
 	if cache == nil {
 		cache = &citrustPassCache{}
@@ -857,14 +888,35 @@ func (w *grpcImportWriter) upsertCITrust(ctx context.Context, repoID string, res
 	subjectEnvironment := specStringPtr(subject, "environment")
 	subjectRefProtected := specBoolPtr(subject, "ref_protected")
 
+	// Resolve the immutable foreign keys by name up front. They are needed both to
+	// create a trust and to detect a changed FK on an existing one (FINDING 2). A name
+	// that no longer resolves is a bad manifest and fails this trust's import with a
+	// clear cause.
+	ciProviderID, err := resolveCIProviderIDByName(cache.ciProviders, specString(res.Spec, "ci_provider_id"))
+	if err != nil {
+		return fmt.Errorf("CI trust %s: %w", res.Name, err)
+	}
+	gatewayID, err := resolveOwnedGatewayIDByName(cache.ownedGateways, specString(res.Spec, "gateway_id"))
+	if err != nil {
+		return fmt.Errorf("CI trust %s: %w", res.Name, err)
+	}
+
 	for _, existing := range cache.ownedCITrusts {
 		if existing.GetName() != res.Name {
 			continue
 		}
-		// ci_provider_id and gateway_id are immutable (not on the update request); only
-		// role and the subject predicate can change. subject_repository and
-		// subject_project_path are part of that comparison so a changed value is
-		// reconciled, not skipped (FINDING 2).
+		// ci_provider_id and gateway_id are immutable. A same-named trust whose FK has
+		// changed cannot be reconciled by update; report it rather than silently updating
+		// subject/role against a stale FK or recording false convergence (FINDING 2).
+		if existing.GetCiProviderId() != ciProviderID || existing.GetGatewayId() != gatewayID {
+			return fmt.Errorf("CI trust %s: ci_provider_id and gateway_id are immutable but the manifest resolves to different references (ci_provider_id %q->%q, gateway_id %q->%q); recreate the trust under a new metadata.name to change them",
+				res.Name, existing.GetCiProviderId(), ciProviderID, existing.GetGatewayId(), gatewayID)
+		}
+		// Only role and the subject predicate can change. subject_repository and
+		// subject_project_path are part of this comparison so a changed value is
+		// reconciled, not skipped (FINDING 2 of the prior pass). The import update applies
+		// REPLACE semantics server-side, so a cleared field drives an update here because
+		// the stored value still differs from the (nil) desired value (FINDING 1).
 		if existing.GetRole() == role &&
 			stringPtrEqual(existing.SubjectRepository, subjectRepository) &&
 			stringPtrEqual(existing.SubjectProjectPath, subjectProjectPath) &&
@@ -885,15 +937,14 @@ func (w *grpcImportWriter) upsertCITrust(ctx context.Context, repoID string, res
 		return err
 	}
 
-	// Create branch: resolve the immutable foreign keys by name only now that the
-	// exists check has determined this is a create (FINDING 3).
-	ciProviderID, err := resolveCIProviderIDByName(cache.ciProviders, specString(res.Spec, "ci_provider_id"))
-	if err != nil {
-		return fmt.Errorf("CI trust %s: %w", res.Name, err)
-	}
-	gatewayID, err := resolveOwnedGatewayIDByName(cache.ownedGateways, specString(res.Spec, "gateway_id"))
-	if err != nil {
-		return fmt.Errorf("CI trust %s: %w", res.Name, err)
+	// Create branch. The desired name is not owned by this Repository. If a trust with
+	// this globally-unique name already exists under a DIFFERENT owner (another
+	// Repository or a human/REST create), a create would 409 on every pass; report a
+	// clear, non-retryable error instead of looping forever (FINDING 4).
+	for _, other := range cache.allCITrusts {
+		if other.GetName() == res.Name {
+			return fmt.Errorf("CI trust %s: a CITrust with this name already exists and is not owned by this repository (owned by another Repository or created directly over REST); it cannot be adopted by import - rename it in the manifest or remove the conflicting trust", res.Name)
+		}
 	}
 	name := res.Name
 	_, err = w.ciTrusts.CreateCITrust(withOwnership(ctx, repoID), &pb.CreateCITrustRequest{

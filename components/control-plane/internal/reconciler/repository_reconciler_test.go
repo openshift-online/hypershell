@@ -86,7 +86,15 @@ func (w *fakeImportWriter) ListOwned(ctx context.Context, repoID string) ([]Reso
 	for ref := range w.owned[repoID] {
 		refs = append(refs, ref)
 	}
+	// Return refs in dependency-ASCENDING (create/list) order, mirroring the production
+	// grpcImportWriter.ListOwned (which appends Gateway before CITrust). This is the
+	// adversarial order for prune: the reconciler MUST re-sort to reverse so a dependent
+	// kind is deleted before the kind it references (FINDING 3).
 	sort.Slice(refs, func(i, j int) bool {
+		pi, pj := importKindPrecedence(refs[i].Kind), importKindPrecedence(refs[j].Kind)
+		if pi != pj {
+			return pi < pj
+		}
 		if refs[i].Kind != refs[j].Kind {
 			return refs[i].Kind < refs[j].Kind
 		}
@@ -337,6 +345,50 @@ spec:
 	}
 	if _, stillOwned := writer.owned["abc"][ResourceRef{Kind: "ProviderSpec", Name: "drop-me"}]; stillOwned {
 		t.Error("drop-me still owned after prune")
+	}
+}
+
+// Prune runs in REVERSE dependency order: a CITrust (which references a Gateway by FK)
+// is deleted BEFORE the Gateway it points at, so a pass never leaves a dangling CITrust
+// against a soft-deleted Gateway (FINDING 3). Before the fix prune followed ListOwned
+// order (Gateway before CITrust), deleting the Gateway first.
+func TestReconcileRepository_PrunesCITrustBeforeGateway(t *testing.T) {
+	writer := newFakeImportWriter()
+	// The repository already owns a Gateway and a CITrust; the new manifest declares
+	// neither, so both are pruned in one pass.
+	writer.owned["abc"] = map[ResourceRef]RenderedResource{
+		{Kind: "Gateway", Name: "gw"}: {Kind: "Gateway", Name: "gw"},
+		{Kind: "CITrust", Name: "ct"}: {Kind: "CITrust", Name: "ct"},
+	}
+	fetcher := &fakeFetcher{fsys: inMemFS(t, map[string]string{
+		"/kustomization.yaml": "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - r.yaml\n",
+		"/r.yaml": `apiVersion: hypershell.redhat.io/v1
+kind: SandboxTemplate
+metadata:
+  name: keep
+spec:
+  image: img:v1
+`,
+	}), root: "/"}
+	r := newReconciler(&fakeRepoClient{}, &fakeResolver{token: "t"}, fetcher, writer)
+
+	if err := r.reconcileRepository(context.Background(), repo("abc"), false); err != nil {
+		t.Fatalf("reconcile error = %v", err)
+	}
+	ctIdx, gwIdx := -1, -1
+	for i, d := range writer.deletes {
+		switch d.Kind {
+		case "CITrust":
+			ctIdx = i
+		case "Gateway":
+			gwIdx = i
+		}
+	}
+	if ctIdx == -1 || gwIdx == -1 {
+		t.Fatalf("deletes = %+v, want both CITrust and Gateway pruned", writer.deletes)
+	}
+	if ctIdx > gwIdx {
+		t.Fatalf("CITrust pruned at index %d, Gateway at %d; want CITrust before Gateway (reverse dependency order)", ctIdx, gwIdx)
 	}
 }
 

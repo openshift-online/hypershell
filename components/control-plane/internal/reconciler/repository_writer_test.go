@@ -568,6 +568,67 @@ func TestUpsertCITrust_RejectsUnknownCIProvider(t *testing.T) {
 	}
 }
 
+// ci_provider_id and gateway_id are immutable. A same-named owned trust whose manifest
+// now resolves to a DIFFERENT gateway must not be silently reconciled (subject/role
+// updated against a stale FK, or a false no-op); it is reported as an immutable-field
+// error that requires recreating the trust under a new name (FINDING 2). Before the fix
+// the FKs were omitted from both the drift comparison and the update request, so a
+// changed FK on an otherwise-matching trust was a silent no-op.
+func TestUpsertCITrust_RejectsChangedImmutableGateway(t *testing.T) {
+	// The owned trust already matches the manifest's role and subject, so before the fix
+	// the upsert returned a silent no-op; its stored gateway_id, however, differs from
+	// what the manifest's gateway name now resolves to.
+	existing := importCITrust("ct-id", "ct-1", "repo-1")
+	existing.CiProviderId = "cp-id"
+	existing.GatewayId = "stale-gw-id" // manifest's agents-gateway now resolves to gw-id
+	existing.Role = "openshell-user"
+	sr := "acme/repo"
+	existing.SubjectRepository = &sr
+	rp := true
+	existing.SubjectRefProtected = &rp
+	gwc := &importFakeGatewayClient{owned: []*pb.Gateway{importGw("gw-id", "agents-gateway", "repo-1", "c1")}}
+	cpc := &fakeCIProviderClient{items: []*pb.CIProvider{ciProvider("cp-id", "github-actions")}}
+	ctc := &fakeCITrustClient{owned: []*pb.CITrust{existing}}
+	w := &grpcImportWriter{gateways: gwc, ciProviders: cpc, ciTrusts: ctc, pageSize: 100}
+	res := RenderedResource{Kind: "CITrust", Name: "ct-1", Spec: citrustSpec()}
+
+	err := w.Upsert(context.Background(), "repo-1", res)
+	if err == nil {
+		t.Fatal("expected an immutable-FK error for a changed gateway_id, got nil")
+	}
+	if !strings.Contains(err.Error(), "immutable") {
+		t.Errorf("error = %v, want it to explain the FK is immutable", err)
+	}
+	if len(ctc.updated) != 0 || len(ctc.created) != 0 {
+		t.Fatalf("a write was issued despite a changed immutable FK: updated=%+v created=%+v", ctc.updated, ctc.created)
+	}
+}
+
+// A desired name already taken by a CITrust this Repository does NOT own (another
+// Repository, or a human/REST create) cannot be adopted: the create would 409 on every
+// pass. The import reports a clear, non-retryable error instead of looping forever
+// (FINDING 4). Before the fix only the repo's own owned set was consulted, so a foreign
+// name fell through to the create branch and re-issued a doomed create each pass.
+func TestUpsertCITrust_RejectsNameOwnedByAnotherOwner(t *testing.T) {
+	foreign := importCITrust("other-id", "ct-1", "repo-2") // same name, different owner
+	gwc := &importFakeGatewayClient{owned: []*pb.Gateway{importGw("gw-id", "agents-gateway", "repo-1", "c1")}}
+	cpc := &fakeCIProviderClient{items: []*pb.CIProvider{ciProvider("cp-id", "github-actions")}}
+	ctc := &fakeCITrustClient{owned: []*pb.CITrust{foreign}}
+	w := &grpcImportWriter{gateways: gwc, ciProviders: cpc, ciTrusts: ctc, pageSize: 100}
+	res := RenderedResource{Kind: "CITrust", Name: "ct-1", Spec: citrustSpec()}
+
+	err := w.Upsert(context.Background(), "repo-1", res)
+	if err == nil {
+		t.Fatal("expected an error importing a name owned by another owner, got nil")
+	}
+	if !strings.Contains(err.Error(), "not owned by this repository") {
+		t.Errorf("error = %v, want it to explain the name cannot be adopted", err)
+	}
+	if len(ctc.created) != 0 {
+		t.Fatalf("a create was issued despite a cross-owner name collision: %+v", ctc.created)
+	}
+}
+
 // ownedCITrusts filters by repository_id, so prune is scoped per-Repository: a CITrust
 // owned by another Repository or created directly over REST (no ownership mark) is not
 // enumerated and therefore never pruned.
@@ -702,26 +763,28 @@ func TestUpsertCITrust_UpdatesWhenSubjectRepositoryChanges(t *testing.T) {
 	}
 }
 
-// TestUpsertCITrust_UpdateSucceedsWhenReferencedProviderAndGatewayRenamed proves an
-// update-only change (role) succeeds even when the referenced CIProvider and Gateway
-// were renamed after the initial import (FINDING 3). The foreign keys are immutable on
-// update, so resolving them is unnecessary; before the fix resolution ran before the
-// exists check and a since-renamed reference failed the whole upsert.
-func TestUpsertCITrust_UpdateSucceedsWhenReferencedProviderAndGatewayRenamed(t *testing.T) {
+// TestUpsertCITrust_UpdateSucceedsWhenReferencesResolveToSameIDs proves an update-only
+// change (role) succeeds as long as the manifest's by-name references still resolve to
+// the SAME immutable ci_provider_id/gateway_id the trust was created with. The FK
+// immutability check compares ids, not names, so a CIProvider/Gateway rename that the
+// manifest tracks is NOT treated as a changed FK and does not block the update
+// (FINDING 2). Only a reference that resolves to a DIFFERENT id is rejected (see
+// TestUpsertCITrust_RejectsChangedImmutableGateway).
+func TestUpsertCITrust_UpdateSucceedsWhenReferencesResolveToSameIDs(t *testing.T) {
 	existing := importCITrust("ct-id", "ct-1", "repo-1")
 	existing.CiProviderId = "cp-id"
 	existing.GatewayId = "gw-id"
 	existing.Role = "openshell-admin" // differs from the manifest's openshell-user -> forces an update
-	// Neither the manifest's ci_provider_id ("github-actions") nor gateway_id
-	// ("agents-gateway") resolves any more: both were renamed after the import.
-	gwc := &importFakeGatewayClient{owned: []*pb.Gateway{importGw("gw-id", "agents-gateway-renamed", "repo-1", "c1")}}
-	cpc := &fakeCIProviderClient{items: []*pb.CIProvider{ciProvider("cp-id", "github-actions-renamed")}}
+	// The manifest's ci_provider_id ("github-actions") and gateway_id ("agents-gateway")
+	// still resolve to the same immutable ids the trust was created with.
+	gwc := &importFakeGatewayClient{owned: []*pb.Gateway{importGw("gw-id", "agents-gateway", "repo-1", "c1")}}
+	cpc := &fakeCIProviderClient{items: []*pb.CIProvider{ciProvider("cp-id", "github-actions")}}
 	ctc := &fakeCITrustClient{owned: []*pb.CITrust{existing}}
 	w := &grpcImportWriter{gateways: gwc, ciProviders: cpc, ciTrusts: ctc, pageSize: 100}
 	res := RenderedResource{Kind: "CITrust", Name: "ct-1", Spec: citrustSpec()}
 
 	if err := w.Upsert(context.Background(), "repo-1", res); err != nil {
-		t.Fatalf("Upsert error = %v, want the update to succeed without resolving the renamed references", err)
+		t.Fatalf("Upsert error = %v, want the update to succeed when references resolve to the same ids", err)
 	}
 	if len(ctc.updated) != 1 || ctc.updated[0].GetRole() != "openshell-user" {
 		t.Fatalf("updated = %+v, want one update of ct-id -> openshell-user", ctc.updated)

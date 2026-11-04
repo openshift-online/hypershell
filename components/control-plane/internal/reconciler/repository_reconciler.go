@@ -327,6 +327,21 @@ func (r *RepositoryReconciler) reconcileRepository(ctx context.Context, repo *pb
 		errs = append(errs, fmt.Errorf("list owned resources: %w", err))
 		return errors.Join(errs...)
 	}
+	// Prune in REVERSE dependency order (FINDING 3): a dependent kind must be deleted
+	// BEFORE the kind it references, so we never leave a CITrust pointing at a Gateway
+	// that has already been (soft-)deleted in the same pass. This is the inverse of the
+	// create ordering in importKindPrecedence; within a tier, name keeps prune
+	// deterministic for stable logs and tests.
+	sort.Slice(owned, func(i, j int) bool {
+		pi, pj := importKindPrecedence(owned[i].Kind), importKindPrecedence(owned[j].Kind)
+		if pi != pj {
+			return pi > pj
+		}
+		if owned[i].Kind != owned[j].Kind {
+			return owned[i].Kind > owned[j].Kind
+		}
+		return owned[i].Name < owned[j].Name
+	})
 	for _, ref := range owned {
 		if _, keep := desiredKeys[ResourceRef{Kind: ref.Kind, Name: ref.Name}]; keep {
 			continue
