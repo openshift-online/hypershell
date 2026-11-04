@@ -355,6 +355,40 @@ launched workers support cancellation; restarting the dashboard does not upgrade
 workers that are already running.
 `?` lists all navigation, filtering, sorting, and gateway shortcuts.
 
+## Read and filter agent logs
+
+Press Enter on a run to open its full log. The bordered pane shows source text
+with wrapping off by default. Long lines can be panned rather than cut off, and
+output older than 64 KiB remains available. The header keeps the issue and agent
+visible; the mode bar shows rendering options and whether the pane is following.
+
+| Key | Log action |
+| --- | --- |
+| `j` / `k`, arrows, PgUp/PgDn | Scroll vertically |
+| Left/Right or `H` / `L` | Pan horizontally with wrapping off |
+| Shift-Left/Right | Pan half a viewport |
+| `0` / `$` | Reach the left/right end of long lines |
+| `m` | Toggle Markdown rendering; default off |
+| `w` | Toggle line wrapping; default off |
+| `a` | Toggle source and semantic colors; default on, subject to `NO_COLOR` |
+| `/` | Filter source lines by a case-insensitive substring |
+| Enter / Esc while typing | Keep / cancel the filter edit |
+| Esc with an applied filter | Clear the filter before navigating back |
+| `f` / `G` | Resume following the end of the log |
+| `d` / `h` | Open details / return to the work list |
+| `?` | Show all shortcuts, including retry and cancellation |
+
+Scrolling up pauses following: new output will not pull you away from what you
+are reading. Scrolling back to the bottom resumes following automatically.
+Filters update as output grows and are separate from work-list/history filters.
+The source-match count and column/line ranges show what is currently visible.
+Rendering toggles do not modify the log file and remain selected while switching
+between logs during the same dashboard session.
+
+The viewer preserves source colors and highlights familiar Fullsend success,
+warning, and error lines. Source terminal controls are removed so log content
+cannot move the cursor, erase the interface, or alter your clipboard.
+
 ## Troubleshooting
 
 | Symptom | Next step |
@@ -373,7 +407,12 @@ checks, see the [dispatcher reference](../../.hypershell/execute-sdlc/README.md)
 
 ### Review finished, but approval is waiting
 
-`Waiting for CI` means the review process finished but approval has not been
+`Awaiting new review` means the live PR revision has not been reviewed. An older
+review attempt does not lend its status or duration to the new revision. Details
+separates Jira synchronization/authentication failures that prevent review from
+starting from pending CI that prevents approval.
+
+`Waiting for CI` means a review of the current revision finished but approval has not been
 applied: required checks are pending or unknown. The row stays visible with
 completed runs hidden. Open details (`d`) for the linked PR and next step.
 `Waiting: PR is draft` and `Waiting for PR readiness` identify other approval

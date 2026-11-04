@@ -1,0 +1,452 @@
+package main
+
+import (
+	"fmt"
+	"io"
+	"os"
+	"strings"
+	"unicode"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
+	glamansi "github.com/charmbracelet/glamour/ansi"
+	"github.com/charmbracelet/glamour/styles"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/cellbuf"
+	"github.com/muesli/termenv"
+)
+
+type logViewState struct {
+	path                    string
+	info                    os.FileInfo
+	offset                  int64
+	x                       int
+	markdown, wrap, noColor bool
+	filter, filterBefore    string
+	filtering               bool
+	readError               string
+	cache                   *renderedLog
+}
+type logRenderKey struct {
+	text, filter                string
+	width                       int
+	markdown, wrap, color, dark bool
+}
+type renderedLog struct {
+	key                   logRenderKey
+	lines                 []string
+	width, matches, total int
+	err                   error
+}
+
+// Keep printable graphemes and SGR colors/styles only. Logs cannot move the
+// cursor, erase the screen, set titles, open links or write to the clipboard.
+func safeLog(text string, color bool) string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	var out strings.Builder
+	var state byte
+	parser := ansi.NewParser()
+	parser.SetDataSize(1024)
+	var pen cellbuf.Style
+	for len(text) > 0 {
+		seq, width, n, next := ansi.DecodeSequence(text, state, parser)
+		if n <= 0 {
+			break
+		}
+		state = next
+		text = text[n:]
+		switch {
+		case width > 0:
+			out.WriteString(seq)
+		case seq == "\n" || seq == "\r":
+			out.WriteByte('\n')
+			if color && !pen.Empty() {
+				out.WriteString(pen.Sequence())
+			}
+		case seq == "\t":
+			out.WriteString("    ")
+		case color && strings.HasPrefix(seq, "\x1b[") && strings.HasSuffix(seq, "m"):
+			params := strings.TrimSuffix(strings.TrimPrefix(seq, "\x1b["), "m")
+			if strings.IndexFunc(params, func(r rune) bool { return !unicode.IsDigit(r) && r != ';' && r != ':' }) < 0 {
+				cellbuf.ReadStyle(parser.Params(), &pen)
+				pen.SlowBlink(false).RapidBlink(false).Conceal(false)
+				out.WriteString(ansi.ResetStyle + pen.Sequence())
+			}
+		}
+	}
+	return out.String()
+}
+
+func markdownLog(text string, width int, color bool) (string, error) {
+	// Start with a compact, neutral style, then apply the terminal's semantic
+	// palette. No background detection queries, environment styles, or file loads.
+	style := styles.ASCIIStyleConfig
+	zero := uint(0)
+	style.Document.Margin = &zero
+	style.Document.BlockPrefix = ""
+	style.Document.BlockSuffix = ""
+	bold := true
+	style.Strong = glamansi.StylePrimitive{Bold: &bold}
+	italic, crossed := true, true
+	style.Emph = glamansi.StylePrimitive{Italic: &italic}
+	style.Strikethrough = glamansi.StylePrimitive{CrossedOut: &crossed}
+	style.H1.Prefix = ""
+	style.H2.Prefix = ""
+	style.H3.Prefix = ""
+	style.H4.Prefix = ""
+	style.H5.Prefix = ""
+	style.H6.Prefix = ""
+	style.Heading.Bold = &bold
+	if color {
+		fg, accent, muted := "#f4f4f4", "#92c5f9", "#b8bbbe"
+		if !lipgloss.HasDarkBackground() {
+			fg, accent, muted = "#151515", "#0066cc", "#4f5255"
+		}
+		style.Document.Color = &fg
+		style.Heading.Color = &accent
+		style.Code.Color = &accent
+		style.Link.Color = &accent
+		style.LinkText.Color = &accent
+		style.BlockQuote.Color = &muted
+		style.CodeBlock.Theme = "github"
+		if lipgloss.HasDarkBackground() {
+			style.CodeBlock.Theme = "github-dark"
+		}
+	}
+	profile := termenv.Ascii
+	if color {
+		profile = termenv.Profile(lipgloss.ColorProfile())
+	}
+	renderer, err := glamour.NewTermRenderer(glamour.WithStyles(style), glamour.WithColorProfile(profile), glamour.WithWordWrap(width), glamour.WithPreservedNewLines())
+	if err != nil {
+		return "", err
+	}
+	return renderer.Render(text)
+}
+
+func (m Model) logWidth() int { return max(1, m.width-8) } // frame, pane border, scrollbar
+func (m Model) logKey() logRenderKey {
+	return logRenderKey{m.logText, m.logs.filter, m.logWidth(), m.logs.markdown, m.logs.wrap, !m.plainColor && !m.logs.noColor, lipgloss.HasDarkBackground()}
+}
+func renderLog(key logRenderKey) *renderedLog {
+	result := &renderedLog{key: key}
+	source := safeLog(key.text, key.color)
+	sourceLines := strings.Split(strings.TrimSuffix(source, "\n"), "\n")
+	if source == "" {
+		sourceLines = nil
+	}
+	result.total = len(sourceLines)
+	selected := make([]string, 0, len(sourceLines))
+	query := strings.ToLower(key.filter)
+	for _, line := range sourceLines {
+		if query == "" || strings.Contains(strings.ToLower(ansi.Strip(line)), query) {
+			selected = append(selected, line)
+		}
+	}
+	result.matches = len(selected)
+	if key.color && !key.markdown {
+		for i, line := range selected {
+			if strings.Contains(line, "\x1b[") {
+				continue
+			}
+			trimmed := strings.TrimSpace(line)
+			color := ""
+			switch {
+			case strings.HasPrefix(trimmed, "Error:"), strings.HasPrefix(trimmed, "✗"), strings.HasPrefix(trimmed, "FAIL"):
+				color = "1"
+			case strings.HasPrefix(trimmed, "WARNING:"), strings.HasPrefix(trimmed, "!"), strings.HasPrefix(trimmed, "WARN"):
+				color = "3"
+			case strings.HasPrefix(trimmed, "✓"), strings.HasPrefix(trimmed, "PASS"):
+				color = "2"
+			case strings.HasPrefix(trimmed, "→"), strings.HasPrefix(trimmed, "•"):
+				color = "6"
+			}
+			if color != "" {
+				selected[i] = lipgloss.NewStyle().Foreground(themeColor(color)).Render(line)
+			}
+		}
+	}
+	text := strings.Join(selected, "\n")
+	if key.markdown && text != "" {
+		width := 0
+		if key.wrap {
+			width = key.width
+		}
+		value, err := markdownLog(ansi.Strip(text), width, key.color)
+		if err != nil {
+			result.err = err
+		} else {
+			text = safeLog(value, key.color)
+		}
+	}
+	if key.wrap {
+		text = safeLog(ansi.Wrap(text, key.width, ""), key.color)
+	}
+	result.lines = strings.Split(strings.TrimSuffix(text, "\n"), "\n")
+	if len(selected) == 0 {
+		result.lines = nil
+	}
+	for _, line := range result.lines {
+		result.width = max(result.width, ansi.StringWidth(line))
+	}
+	return result
+}
+func (m Model) logContent() *renderedLog {
+	key := m.logKey()
+	if m.logs.cache != nil && m.logs.cache.key == key {
+		return m.logs.cache
+	}
+	return renderLog(key)
+}
+func (m *Model) prepareLogs() { m.logs.cache = m.logContent() }
+
+// Read appended bytes, retaining the full log instead of a trailing 64 KiB.
+// File identity and size also detect replacement/truncation. Nothing is written.
+func (m *Model) refreshLog(path string) {
+	before := len(m.logContent().lines)
+	paused := m.scroll > 0
+	info, err := os.Stat(path)
+	if err != nil {
+		m.logs.readError = "Cannot read log: " + err.Error()
+		return
+	}
+	if !info.Mode().IsRegular() {
+		m.logs.readError = "Log path is not a regular file"
+		return
+	}
+	reset := m.logs.path != path || m.logs.info == nil || !os.SameFile(info, m.logs.info) || info.Size() < m.logs.offset
+	if !reset && info.Size() == m.logs.offset && info.ModTime().Equal(m.logs.info.ModTime()) {
+		m.logs.readError = ""
+		return
+	}
+	if !reset && info.Size() == m.logs.offset {
+		reset = true
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		m.logs.readError = "Cannot open log: " + err.Error()
+		return
+	}
+	offset := m.logs.offset
+	if reset {
+		offset = 0
+	}
+	if _, err = file.Seek(offset, io.SeekStart); err != nil {
+		file.Close()
+		m.logs.readError = "Cannot seek log: " + err.Error()
+		return
+	}
+	data, err := io.ReadAll(file)
+	closeErr := file.Close()
+	if err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		m.logs.readError = "Cannot load log: " + err.Error()
+		return
+	}
+	if reset {
+		m.logText = string(data)
+		m.scroll = 0
+	} else {
+		m.logText += string(data)
+	}
+	m.logs.path = path
+	m.logs.info = info
+	m.logs.offset = offset + int64(len(data))
+	m.logs.readError = ""
+	m.prepareLogs()
+	if paused && !reset {
+		m.scroll += len(m.logContent().lines) - before
+	}
+	m.clampLogScroll()
+}
+func (m *Model) openLog(path string) {
+	m.screen = "logs"
+	m.scroll = 0
+	m.logs.x = 0
+	if m.logs.path != path {
+		m.logText = ""
+		m.logs.path = ""
+		m.logs.info = nil
+		m.logs.offset = 0
+		m.logs.cache = nil
+	}
+	m.refreshLog(path)
+}
+func (m Model) logPageSize() int { return max(1, m.height-19) }
+func (m *Model) clampLogScroll() {
+	m.prepareLogs()
+	content := m.logContent()
+	m.scroll = max(0, min(m.scroll, max(0, len(content.lines)-m.logPageSize())))
+	if m.logs.wrap {
+		m.logs.x = 0
+	} else {
+		m.logs.x = max(0, min(m.logs.x, max(0, content.width-m.logWidth())))
+	}
+}
+func (m *Model) setLogFilter(value string) { m.logs.filter = value; m.scroll = 0; m.clampLogScroll() }
+
+func (m *Model) logNavigation(v tea.KeyMsg) (bool, tea.Cmd) {
+	key := v.String()
+	if m.logs.filtering {
+		switch key {
+		case "ctrl+c":
+			m.cancel()
+			m.exit = 130
+			return true, tea.Quit
+		case "ctrl+x":
+			m.setNotice("")
+		case "enter":
+			m.logs.filtering = false
+		case "esc":
+			m.setLogFilter(m.logs.filterBefore)
+			m.logs.filtering = false
+		case "backspace", "ctrl+h":
+			r := []rune(m.logs.filter)
+			if len(r) > 0 {
+				m.setLogFilter(string(r[:len(r)-1]))
+			}
+		case "ctrl+u":
+			m.setLogFilter("")
+		default:
+			if v.Type == tea.KeyRunes {
+				m.setLogFilter(m.logs.filter + strings.ReplaceAll(clean(string(v.Runes)), "\n", ""))
+			}
+		}
+		return true, nil
+	}
+	switch key {
+	case "/":
+		m.logs.filterBefore = m.logs.filter
+		m.logs.filtering = true
+	case "esc":
+		if m.logs.filter == "" {
+			return false, nil
+		}
+		m.setLogFilter("")
+	case "m":
+		m.logs.markdown = !m.logs.markdown
+		m.clampLogScroll()
+	case "w":
+		m.logs.wrap = !m.logs.wrap
+		m.clampLogScroll()
+	case "a":
+		m.logs.noColor = !m.logs.noColor
+		m.clampLogScroll()
+	case "f":
+		m.scroll = 0
+	case "left", "H":
+		m.logs.x -= 4
+		m.clampLogScroll()
+	case "right", "L":
+		m.logs.x += 4
+		m.clampLogScroll()
+	case "shift+left":
+		m.logs.x -= max(1, m.logWidth()/2)
+		m.clampLogScroll()
+	case "shift+right":
+		m.logs.x += max(1, m.logWidth()/2)
+		m.clampLogScroll()
+	case "0":
+		m.logs.x = 0
+	case "$":
+		m.logs.x = m.logContent().width
+		m.clampLogScroll()
+	default:
+		return false, nil
+	}
+	return true, nil
+}
+func onOff(value bool) string {
+	if value {
+		return "on"
+	}
+	return "off"
+}
+func (m Model) logsView(lines []string, row Row, w, h int) []string {
+	section := "Logs"
+	if awaitingNewReview(row) {
+		section = "Previous review logs"
+	}
+	lines = append(lines, m.workHeader(row, w, section)...)
+	lines = append(lines, m.style(middle(row.Log, w), "8", false))
+	following := "Following"
+	if m.scroll > 0 {
+		following = "Paused · G resumes"
+	}
+	lines = append(lines, m.style(fmt.Sprintf("Markdown %s · Wrap %s · Color %s · %s", onOff(m.logs.markdown), onOff(m.logs.wrap), onOff(!m.logs.noColor && !m.plainColor), following), "8", false))
+	content := m.logContent()
+	filter := fmt.Sprintf("%d source lines", content.total)
+	if m.logs.filter != "" {
+		filter = fmt.Sprintf("Filter: %s · %d/%d source lines", m.logs.filter, content.matches, content.total)
+	}
+	if m.logs.filtering {
+		filter = "/ " + m.logs.filter + "▏  Enter keep · Esc cancel"
+	}
+	lines = append(lines, m.style(middle(filter, w), "6", false))
+	count := max(1, h-len(lines)-5) // pane border, range, blank, footer
+	end := max(min(len(content.lines), count), len(content.lines)-m.scroll)
+	end = min(end, len(content.lines))
+	start := max(0, end-count)
+	border := func(text string) string { return m.style(text, "log-border", false) }
+	lines = append(lines, border("┌"+strings.Repeat("─", max(0, w-2))+"┐"))
+	pane := make([]string, count)
+	for i := range pane {
+		line := ""
+		if start+i < end {
+			line = ansi.Cut(content.lines[start+i], m.logs.x, m.logs.x+m.logWidth())
+		}
+		if !m.plainColor && !m.logs.noColor {
+			line += "\x1b[0m"
+		}
+		pane[i] = line + strings.Repeat(" ", max(0, m.logWidth()-ansi.StringWidth(line)))
+	}
+	if len(content.lines) == 0 {
+		empty := "Waiting for log output..."
+		if m.logs.filter != "" {
+			empty = "No log lines match this filter."
+		}
+		pane[0] = m.style(middle(empty, m.logWidth()), "8", false)
+	}
+	if m.logs.readError != "" {
+		pane[0] = m.style(middle(m.logs.readError, m.logWidth()), "1", false)
+	}
+	if content.err != nil {
+		pane[0] = m.style(middle("Markdown rendering failed; showing source: "+content.err.Error(), m.logWidth()), "1", false)
+	}
+	track := m.withScrollbar(pane, start, end, len(content.lines), count, w-2)
+	for _, line := range track {
+		lines = append(lines, border("│")+line+border("│"))
+	}
+	lines = append(lines, border("└"+strings.Repeat("─", max(0, w-2))+"┘"))
+	rangeText := m.scrollIndicator(start, end, len(content.lines))
+	if len(content.lines) == 0 {
+		rangeText = m.style("No lines to display", "8", false)
+	}
+	if !m.logs.wrap && content.width > m.logWidth() {
+		rangeText += m.style(fmt.Sprintf(" · Cols %d-%d of %d · ←/→ pan", m.logs.x+1, min(content.width, m.logs.x+m.logWidth()), content.width), "8", false)
+	}
+	lines = append(lines, rangeText, "")
+	pan := ""
+	if !m.logs.wrap {
+		pan = "  ←/→ pan"
+	}
+	footer := "j/k scroll" + pan + "  / filter  m markdown  w wrap  a color  f follow  d details  h back  ? help  q detach"
+	if w < 110 {
+		footer = "j/k scroll" + pan + "  / filter  m/w/a modes  h back  ? help"
+	}
+	if w < 70 {
+		footer = "j/k scroll  / filter  m/w/a modes  h back  ? help"
+	}
+	if w < 48 {
+		footer = "↑↓ scroll  / filter  h back  ? help"
+	}
+
+	if m.logs.filtering {
+		footer = "Type filter  Enter keep  Esc cancel  Ctrl-u clear  Ctrl-c detach"
+	}
+	lines = append(lines, m.style(footer, "8", false))
+	return lines
+}

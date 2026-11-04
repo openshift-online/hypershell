@@ -149,6 +149,9 @@ func reviewWaiting(r Row) string {
 		return ""
 	}
 	state := r.CodeReadiness
+	if state.ReviewCurrent == nil || !*state.ReviewCurrent {
+		return "Awaiting new review"
+	}
 	switch {
 	case state.Checks == "failing":
 		return "CI failed · needs repair"
@@ -164,6 +167,8 @@ func reviewWaiting(r Row) string {
 		return "Approval pending"
 	}
 }
+func awaitingNewReview(r Row) bool { return reviewWaiting(r) == "Awaiting new review" }
+
 func reviewSentForRepair(r Row) bool {
 	if r.Agent != "code-review" || r.Status != "succeeded" || r.Activity == "history" || r.CodeReadiness == nil || r.CodeReadiness.Checks != "failing" {
 		return false
@@ -180,6 +185,8 @@ func reviewWaitingDetail(r Row) string {
 		return "Required CI failed and code review is rejected. The issue has been returned to code implementation to investigate the check logs, fix the cause or rerun transient CI, then request another review."
 	}
 	switch reviewWaiting(r) {
+	case "Awaiting new review":
+		return "This PR revision has not been reviewed. The previous review belongs to older work; its duration is available in history. Jira synchronization must succeed before a new review can start. Pending CI prevents approval, but does not by itself prevent starting a review."
 	case "Waiting for CI":
 		return "The review process finished, but required checks are pending or unknown. Approval has not been applied. Discovery will revisit the review when CI changes; failed required checks return the issue to code implementation."
 	case "CI failed · needs repair":
@@ -268,6 +275,7 @@ type historyDone struct {
 	err   error
 }
 type Model struct {
+	logs                                    logViewState
 	configReturn                            string
 	configIndex, configChoice, configCursor int
 	configEditing, configSaving             bool
@@ -409,12 +417,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		rows := m.visibleRows()
 		m.restoreSelection(m.selected, previous)
 		if m.screen == "logs" && len(rows) > 0 {
-			value, err := tail(rows[m.index].Log, 65536)
-			if err != nil {
-				m.logText = "Log is not available yet: " + err.Error()
-			} else {
-				m.logText = value
-			}
+			m.refreshLog(rows[m.index].Log)
 		}
 		if m.state.Done {
 			m.exit = m.state.Exit
@@ -674,14 +677,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.scroll = 0
 		case "enter", "l":
 			if len(rows) > 0 {
-				m.screen = "logs"
-				m.scroll = 0
-				value, err := tail(rows[m.index].Log, 65536)
-				if err != nil {
-					m.logText = err.Error()
-				} else {
-					m.logText = value
-				}
+				m.openLog(rows[m.index].Log)
 			}
 		case "H":
 			if len(rows) > 0 || m.historyIssue != nil {
@@ -808,7 +804,7 @@ func (m Model) workHeader(row Row, width int, section string) []string {
 
 func (m Model) wrapped(text string, width int, color string) []string {
 	// Sanitize external text before styling; never strip ANSI from styled lines.
-	wrapped := ansi.Hardwrap(clean(text), width, true)
+	wrapped := ansi.Wrap(clean(text), width, "")
 	lines := strings.Split(wrapped, "\n")
 	for i := range lines {
 		lines[i] = m.style(lines[i], color, false)
@@ -937,10 +933,27 @@ func (m Model) detailContent(rows []Row, w int) ([]string, []string) {
 			body = append(body, "")
 		}
 		if message := reviewWaitingDetail(r); message != "" {
-			body = append(body, m.style(completionStatus(r.Finished), "8", false), "", m.style("Approval status", "3", true))
+			heading := "Approval status"
+			completed := completionStatus(r.Finished)
+			if awaitingNewReview(r) {
+				heading = "Review scheduling"
+				completed = "Previous review: " + completed
+			}
+			body = append(body, m.style(completed, "8", false), "", m.style(heading, "3", true))
 			body = append(body, m.wrapped(message, w, "7")...)
 			if r.PRURL != "" {
 				body = append(body, m.wrapped(r.PRURL, w, "6")...)
+			}
+			body = append(body, "")
+		}
+		if len(r.ReviewBlockers) > 0 {
+			body = append(body, m.style("Current blockers", "3", true))
+			for _, blocker := range r.ReviewBlockers {
+				body = append(body, m.wrapped("- "+blocker, w, "7")...)
+			}
+			if r.SyncLog != "" {
+				body = append(body, m.style("Synchronization log", "6", false))
+				body = append(body, m.wrapped(r.SyncLog, w, "7")...)
 			}
 			body = append(body, "")
 		}
@@ -976,9 +989,6 @@ func (m Model) detailContent(rows []Row, w int) ([]string, []string) {
 	}
 	return header, body
 }
-func (m Model) logPageSize() int {
-	return max(1, m.height-2-11-3)
-}
 func (m *Model) clampScroll() {
 	if m.screen == "signin" {
 		text := strings.Join(m.signInBody(max(10, m.width-6)), "\n")
@@ -990,7 +1000,7 @@ func (m *Model) clampScroll() {
 		m.confirmScroll = min(m.confirmScroll, max(0, total-max(1, m.height-11)))
 	}
 	if m.screen == "logs" {
-		m.scroll = min(m.scroll, max(0, len(strings.Split(m.logText, "\n"))-m.logPageSize()))
+		m.clampLogScroll()
 	}
 	if m.screen == "details" {
 		header, body := m.detailContent(m.visibleRows(), max(10, m.width-6))
@@ -1150,16 +1160,7 @@ func (m Model) View() string {
 
 	rows := m.visibleRows()
 	if m.screen == "logs" && len(rows) > 0 {
-		row := rows[m.index]
-		lines = append(lines, m.workHeader(row, w, "Logs")...)
-		lines = append(lines, m.style(middle(row.Log, w), "8", false), "")
-		content := strings.Split(m.logText, "\n")
-		count := max(1, h-len(lines)-3)
-		end := max(min(len(content), count), len(content)-m.scroll)
-		start := max(0, end-count)
-		lines = append(lines, m.scrollPane(content, start, count, w)...)
-		lines = append(lines, m.scrollIndicator(start, end, len(content)))
-		lines = append(lines, "", m.style("j/k scroll   d details   r retry  C cancel   h back   ? help   q detach", "8", false))
+		lines = m.logsView(lines, rows[m.index], w, h)
 	} else if m.screen == "details" {
 		header, body := m.detailContent(rows, max(10, w-2))
 		lines = append(lines, header...)

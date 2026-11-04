@@ -402,7 +402,8 @@ def make_job(scope, agent, item, pr=None, rejection=None):
     return dict(key=f'{item["number"]}:{storage_agent}', scope=scope, agent=agent,
                 item=str(item['number']), title=item.get('title', ''), url=item['html_url'], fingerprint=fingerprint(context),
                 labels=GitHub.labels(item),
-                pr_number=str(pr['number']) if pr else '', pr_url=pr['html_url'] if pr else '')
+                pr_number=str(pr['number']) if pr else '', pr_url=pr['html_url'] if pr else '',
+                pr_head_sha=(pr.get('head', {}).get('sha', '') if pr else ''))
 
 
 def worker(db_path, key, run_id, lock_fd, base, cap):
@@ -516,10 +517,28 @@ class Coordinator:
                     if state and state['changed']:
                         item = self.github.current(item['number'])
                     if state:
+                        # Reuse this observation for legacy fingerprint comparison;
+                        # display metadata must not issue a second readiness read.
+                        self.github.code_states[str(item['number'])] = state
                         row = self.store.get(f'{item["number"]}:code-review')
                         if row:
                             payload = json.loads(row['payload'])
-                            payload['code_readiness'] = state
+                            observed = dict(state)
+                            head = payload.get('pr_head_sha')
+                            if head:
+                                current_review = head == state.get('head_sha')
+                            else:
+                                # Legacy attempts did not save their head separately.
+                                # An identical readiness fingerprint proves the same inputs.
+                                current_review = row['fingerprint'] == self.github.phase_job(
+                                    self.args.scope, 'code-review', item, linked)['fingerprint']
+                                if current_review:
+                                    payload['pr_head_sha'] = state.get('head_sha', '')
+                            implementation = self.store.get(f'{item["number"]}:code-implementation')
+                            if implementation and implementation['started'] > row['started']:
+                                current_review = False
+                            observed['review_current'] = current_review
+                            payload['code_readiness'] = observed
                             payload['labels'] = self.github.labels(item)
                             with self.store.db:
                                 self.store.db.execute('UPDATE jobs SET payload=? WHERE key=?',
