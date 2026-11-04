@@ -13,6 +13,7 @@ class MergeApprovalTests(unittest.TestCase):
     def setUp(self):
         self.github=Mock(repo='o/r', scope='agent/scope/test')
         self.github.labels=GitHub.labels
+        self.github.review_request.return_value=None
         self.item=dict(number=42,state='open',html_url='https://github.com/o/r/issues/42',title='Test',labels=['agent/allowed','agent/scope/test',approval.LABEL])
         self.pr=dict(number=5,state='open',html_url='https://github.com/o/r/pull/5',labels=[])
         self.state=dict(changed=False,state='open',draft=False,mergeable=True,checks='green',head_sha='head',base_sha='base')

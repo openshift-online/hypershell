@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Local Fullsend coordinator. SQLite stores outcomes; flock owns execution."""
 import argparse
+from datetime import datetime
 import fcntl
 import hashlib
 import json
@@ -255,7 +256,21 @@ class GitHub:
         self.code_states[str(item['number'])] = result
         return result
 
-    def phase_job(self, scope, agent, item, prs=None):
+    def review_request(self, item, agent):
+        if agent not in ('code-review', 'spec-review'):
+            return None
+        label = 'agent/reviewable-' + agent.split('-')[0]
+        if label not in self.labels(item):
+            return None
+        events = self.pages(f'issues/{item["number"]}/events')
+        requests = [event for event in events if event.get('event') == 'labeled'
+                    and (event.get('label') or {}).get('name') == label
+                    and isinstance(event.get('id'), int)]
+        if not requests:
+            raise DispatchError(f'#{item["number"]}: cannot resolve the current review request; retry discovery')
+        return max(requests, key=lambda event: event['id'])
+
+    def phase_job(self, scope, agent, item, prs=None, include_review_request=True):
         """Use the same live inputs for discovery and pre-launch validation."""
         implementation = agent in ('code-implementation', 'spec-implementation')
         pr, rejection = None, None
@@ -275,7 +290,8 @@ class GitHub:
                 if not occurrences:
                     raise DispatchError(f'#{item["number"]}: cannot resolve the current rejection event; retry discovery')
                 rejection = max(occurrences)
-        job = make_job(scope, agent, item, pr, rejection)
+        request = self.review_request(item, agent) if include_review_request else None
+        job = make_job(scope, agent, item, pr, rejection, request)
         if pr and agent in ('code-review', 'code-implementation'):
             state = self.code_states.get(str(item['number']))
             if state is None:
@@ -392,16 +408,19 @@ class GatewayAuth:
                 self.login.wait(timeout=5)
 
 
-def make_job(scope, agent, item, pr=None, rejection=None):
+def make_job(scope, agent, item, pr=None, rejection=None, review_request=None):
     context = dict(labels=GitHub.labels(item), body=item.get('body'), title=item.get('title'),
                    state=item['state'], pr=pr and [pr['number'], pr.get('head', {}).get('sha')])
     if rejection is not None:
         context['rejection_event'] = rejection
+    if review_request is not None:
+        context['review_request_event'] = str(review_request['id'])
     # Preserve existing storage identities when reusing the shared agent names.
     storage_agent = 'funnel-reconcile' if agent == 'reconcile' else agent
     return dict(key=f'{item["number"]}:{storage_agent}', scope=scope, agent=agent,
                 item=str(item['number']), title=item.get('title', ''), url=item['html_url'], fingerprint=fingerprint(context),
                 labels=GitHub.labels(item),
+                review_request_event=str(review_request['id']) if review_request else '',
                 pr_number=str(pr['number']) if pr else '', pr_url=pr['html_url'] if pr else '',
                 pr_head_sha=(pr.get('head', {}).get('sha', '') if pr else ''))
 
@@ -537,9 +556,17 @@ class Coordinator:
                                 # Legacy attempts did not save their head separately.
                                 # An identical readiness fingerprint proves the same inputs.
                                 current_review = row['fingerprint'] == self.github.phase_job(
-                                    self.args.scope, 'code-review', item, linked)['fingerprint']
+                                    self.args.scope, 'code-review', item, linked, include_review_request=False)['fingerprint']
                                 if current_review:
                                     payload['pr_head_sha'] = state.get('head_sha', '')
+                            request = self.github.review_request(item, 'code-review')
+                            if request:
+                                prior = payload.get('review_request_event')
+                                if prior:
+                                    current_review = current_review and prior == str(request['id'])
+                                elif request.get('created_at'):
+                                    requested_at = datetime.fromisoformat(request['created_at'].replace('Z','+00:00')).timestamp()
+                                    current_review = current_review and requested_at <= row['started']
                             implementation = self.store.get(f'{item["number"]}:code-implementation')
                             if implementation and implementation['started'] > row['started']:
                                 current_review = False

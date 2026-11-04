@@ -462,3 +462,10 @@ checks, draft state and mergeability are rechecked. Changed or ineligible PRs
 cannot be approved from an old screen. Active or unresolved workers prevent the
 action. Failures appear as dismissible notifications; normal discovery revisits
 eligibility. This action does not rerun an agent or change the configured policy.
+
+`Review needed` means the current review request has no applied verdict, even if
+an older review process completed successfully. The dispatcher identifies each
+return to review by its GitHub label event, so identical labels, commits and CI do
+not suppress a new request. `Review needed · Jira sync` means synchronization must
+finish first. This is separate from **Awaiting approval**, which asks the operator
+to let an already approved PR enter the merge queue.

@@ -164,10 +164,12 @@ func reviewWaiting(r Row) string {
 	case state.Mergeable == nil || !*state.Mergeable:
 		return "Waiting for PR readiness"
 	default:
-		return "Approval pending"
+		return "Review needed"
 	}
 }
-func awaitingNewReview(r Row) bool { return reviewWaiting(r) == "Awaiting new review" }
+func awaitingNewReview(r Row) bool {
+	return reviewWaiting(r) == "Awaiting new review" || reviewWaiting(r) == "Review needed"
+}
 
 func reviewSentForRepair(r Row) bool {
 	if r.Agent != "code-review" || r.Status != "succeeded" || r.Activity == "history" || r.CodeReadiness == nil || r.CodeReadiness.Checks != "failing" {
@@ -186,13 +188,13 @@ func reviewWaitingDetail(r Row) string {
 	}
 	switch reviewWaiting(r) {
 	case "Awaiting new review":
-		return "This PR revision has not been reviewed. The previous review belongs to older work; its duration is available in history. Jira synchronization must succeed before a new review can start. Pending CI prevents approval, but does not by itself prevent starting a review."
+		return "The current review request has not been completed. The previous run belongs to an earlier request or PR revision; its duration is available in history. Jira synchronization must succeed before a new review can start. Pending CI prevents approval, but does not by itself prevent starting a review."
 	case "Waiting for CI":
 		return "The review process finished, but required checks are pending or unknown. Approval has not been applied. Discovery will revisit the review when CI changes; failed required checks return the issue to code implementation."
 	case "CI failed · needs repair":
 		return "Required CI failed. Approval has not been applied. Readiness maintenance will mark code review rejected and request code implementation once worker ownership permits recovery."
-	case "Approval pending":
-		return "The review process finished and PR readiness is green. Approval has not been applied yet. Discovery can schedule a fresh review; process completion alone does not mean approval."
+	case "Review needed":
+		return "This issue needs a code-review verdict for its current review request. The previous run does not satisfy that request. A new review starts when synchronization succeeds and a worker slot is available; approval to merge is a separate step."
 	case "":
 		return ""
 	default:
@@ -226,6 +228,9 @@ func rowStatus(r Row) string {
 		return "CI failed · rejected"
 	}
 	if waiting := reviewWaiting(r); waiting != "" {
+		if (waiting == "Review needed" || waiting == "Awaiting new review") && r.SyncLog != "" {
+			return "Review needed · Jira sync"
+		}
 		return waiting
 	}
 	if r.Status == "running" && r.CancelRequested {
@@ -914,7 +919,7 @@ func (m Model) agentGroups(rows []Row, w, budget int) []string {
 			if last != "" {
 				entry = append(entry, "")
 			}
-			running, failed, waiting, done := 0, 0, 0, 0
+			running, failed, waiting, done, needsReview := 0, 0, 0, 0, 0
 			for _, item := range rows {
 				if item.Agent == r.Agent {
 					switch item.Status {
@@ -923,7 +928,9 @@ func (m Model) agentGroups(rows []Row, w, budget int) []string {
 					case "failed", "uncertain", "canceled":
 						failed++
 					case "succeeded":
-						if reviewWaiting(item) != "" {
+						if awaitingNewReview(item) && item.SyncLog == "" {
+							needsReview++
+						} else if reviewWaiting(item) != "" {
 							waiting++
 						} else {
 							done++
@@ -937,6 +944,9 @@ func (m Model) agentGroups(rows []Row, w, budget int) []string {
 			}
 			if failed > 0 {
 				counts = append(counts, fmt.Sprintf("%d need attention", failed))
+			}
+			if needsReview > 0 {
+				counts = append(counts, fmt.Sprintf("%d need review", needsReview))
 			}
 			if waiting > 0 {
 				counts = append(counts, fmt.Sprintf("%d waiting", waiting))

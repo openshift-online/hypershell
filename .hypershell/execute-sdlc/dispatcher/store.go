@@ -30,24 +30,25 @@ type CodeReadiness struct {
 }
 
 type Job struct {
-	PRBaseSHA         string          `json:"pr_base_sha,omitempty"`
-	PRHeadSHA         string          `json:"pr_head_sha,omitempty"`
-	CodeReadiness     *CodeReadiness  `json:"code_readiness,omitempty"`
-	Key               string          `json:"key"`
-	Scope             string          `json:"scope"`
-	Agent             string          `json:"agent"`
-	Item              string          `json:"item"`
-	Title             string          `json:"title,omitempty"`
-	URL               string          `json:"url"`
-	Fingerprint       string          `json:"fingerprint"`
-	SourceFingerprint string          `json:"source_fingerprint,omitempty"`
-	Labels            []string        `json:"labels,omitempty"`
-	PRNumber          string          `json:"pr_number"`
-	PRURL             string          `json:"pr_url"`
-	PreviousPhase     string          `json:"previous_phase,omitempty"`
-	Repo              string          `json:"repo,omitempty"`
-	Command           []string        `json:"command,omitempty"`
-	Jira              json.RawMessage `json:"jira_auth,omitempty"`
+	ReviewRequestEvent string          `json:"review_request_event,omitempty"`
+	PRBaseSHA          string          `json:"pr_base_sha,omitempty"`
+	PRHeadSHA          string          `json:"pr_head_sha,omitempty"`
+	CodeReadiness      *CodeReadiness  `json:"code_readiness,omitempty"`
+	Key                string          `json:"key"`
+	Scope              string          `json:"scope"`
+	Agent              string          `json:"agent"`
+	Item               string          `json:"item"`
+	Title              string          `json:"title,omitempty"`
+	URL                string          `json:"url"`
+	Fingerprint        string          `json:"fingerprint"`
+	SourceFingerprint  string          `json:"source_fingerprint,omitempty"`
+	Labels             []string        `json:"labels,omitempty"`
+	PRNumber           string          `json:"pr_number"`
+	PRURL              string          `json:"pr_url"`
+	PreviousPhase      string          `json:"previous_phase,omitempty"`
+	Repo               string          `json:"repo,omitempty"`
+	Command            []string        `json:"command,omitempty"`
+	Jira               json.RawMessage `json:"jira_auth,omitempty"`
 }
 type Row struct {
 	Job
