@@ -495,7 +495,7 @@ func TestListRealmUsersNeverOverFetchesPastEnd(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "t", "expires_in": 300})
 	})
 	mux.HandleFunc(fmt.Sprintf("/admin/realms/%s/users/count", testRealm), func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprintf(w, "%d", total)
+		_, _ = fmt.Fprintf(w, "%d", total)
 	})
 	mux.HandleFunc(fmt.Sprintf("/admin/realms/%s/users", testRealm), func(w http.ResponseWriter, r *http.Request) {
 		first, _ := strconv.Atoi(r.URL.Query().Get("first"))
