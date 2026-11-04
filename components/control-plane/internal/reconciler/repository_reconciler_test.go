@@ -176,6 +176,18 @@ spec:
   cluster_id: c1
 ---
 apiVersion: hypershell.redhat.io/v1
+kind: CITrust
+metadata:
+  name: ct-1
+spec:
+  ci_provider_id: github-actions
+  gateway_id: gw-1
+  role: openshell-user
+  subject:
+    repository: acme/repo
+    ref_protected: true
+---
+apiVersion: hypershell.redhat.io/v1
 kind: Repository
 metadata:
   name: nested-repo
@@ -206,7 +218,7 @@ metadata:
 		t.Fatalf("renderImportables() error = %v", err)
 	}
 
-	// Exactly the seven importable kinds, Repository + admin kinds excluded.
+	// Exactly the eight importable kinds, Repository + admin kinds excluded.
 	want := map[string]string{
 		"SandboxTemplate": "tmpl-1",
 		"ProviderSpec":    "ps-1",
@@ -215,6 +227,7 @@ metadata:
 		"InferenceRoute":  "ws-1|pb-1|gpt",
 		"AgentRuntime":    "ar-1",
 		"Gateway":         "gw-1",
+		"CITrust":         "ct-1",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("renderImportables() returned %d resources, want %d: %+v", len(got), len(want), got)
@@ -523,9 +536,9 @@ spec:
 	}
 }
 
-// TestReconcileRepository_AllSevenKindsImport confirms every importable Kind flows
+// TestReconcileRepository_AllEightKindsImport confirms every importable Kind flows
 // through the writer's upsert path (no not-writable branch) in a single import.
-func TestReconcileRepository_AllSevenKindsImport(t *testing.T) {
+func TestReconcileRepository_AllEightKindsImport(t *testing.T) {
 	writer := newFakeImportWriter()
 	fetcher := &fakeFetcher{fsys: inMemFS(t, map[string]string{
 		"/kustomization.yaml": "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - r.yaml\n",
@@ -581,16 +594,28 @@ metadata:
   name: gw-1
 spec:
   cluster_id: c1
+---
+apiVersion: hypershell.redhat.io/v1
+kind: CITrust
+metadata:
+  name: ct-1
+spec:
+  ci_provider_id: github-actions
+  gateway_id: gw-1
+  role: openshell-user
+  subject:
+    repository: acme/repo
+    ref_protected: true
 `,
 	}), root: "/"}
 	r := newReconciler(&fakeRepoClient{}, &fakeResolver{token: "t"}, fetcher, writer)
 	if err := r.reconcileRepository(context.Background(), repo("abc"), false); err != nil {
 		t.Fatalf("reconcile error = %v", err)
 	}
-	if len(writer.upserts) != 7 {
-		t.Fatalf("upserts = %d, want 7 (all importable kinds)", len(writer.upserts))
+	if len(writer.upserts) != 8 {
+		t.Fatalf("upserts = %d, want 8 (all importable kinds)", len(writer.upserts))
 	}
-	for _, kind := range []string{"SandboxTemplate", "ProviderSpec", "ProviderBinding", "SecretSource", "InferenceRoute", "AgentRuntime", "Gateway"} {
+	for _, kind := range []string{"SandboxTemplate", "ProviderSpec", "ProviderBinding", "SecretSource", "InferenceRoute", "AgentRuntime", "Gateway", "CITrust"} {
 		found := false
 		for _, u := range writer.upserts {
 			if u.Kind == kind {

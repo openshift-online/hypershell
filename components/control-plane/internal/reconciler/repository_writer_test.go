@@ -366,3 +366,215 @@ func TestUpsertAgentRuntime_CreatesAndUpdates(t *testing.T) {
 		t.Fatalf("updated = %+v, want one update of a1 -> gw-1", arc2.updated)
 	}
 }
+
+// ---- CITrust ----
+
+// fakeCITrustClient records CITrust writes and serves a canned list, so the import
+// writer's by-name resolution, idempotency, and per-Repository ownership are
+// observable without a server.
+type fakeCITrustClient struct {
+	pb.CITrustServiceClient
+	owned   []*pb.CITrust
+	created []*pb.CreateCITrustRequest
+	updated []*pb.UpdateCITrustRequest
+	deleted []string
+}
+
+func (f *fakeCITrustClient) ListCITrusts(_ context.Context, _ *pb.ListCITrustsRequest, _ ...grpc.CallOption) (*pb.ListCITrustsResponse, error) {
+	return &pb.ListCITrustsResponse{Items: f.owned}, nil
+}
+
+func (f *fakeCITrustClient) CreateCITrust(_ context.Context, in *pb.CreateCITrustRequest, _ ...grpc.CallOption) (*pb.CreateCITrustResponse, error) {
+	f.created = append(f.created, in)
+	return &pb.CreateCITrustResponse{}, nil
+}
+
+func (f *fakeCITrustClient) UpdateCITrust(_ context.Context, in *pb.UpdateCITrustRequest, _ ...grpc.CallOption) (*pb.UpdateCITrustResponse, error) {
+	f.updated = append(f.updated, in)
+	return &pb.UpdateCITrustResponse{}, nil
+}
+
+func (f *fakeCITrustClient) DeleteCITrust(_ context.Context, in *pb.DeleteCITrustRequest, _ ...grpc.CallOption) (*pb.DeleteCITrustResponse, error) {
+	f.deleted = append(f.deleted, in.GetId())
+	return &pb.DeleteCITrustResponse{}, nil
+}
+
+// fakeCIProviderClient serves a canned CIProvider list for find-by-name resolution.
+type fakeCIProviderClient struct {
+	pb.CIProviderServiceClient
+	items []*pb.CIProvider
+}
+
+func (f *fakeCIProviderClient) ListCIProviders(_ context.Context, _ *pb.ListCIProvidersRequest, _ ...grpc.CallOption) (*pb.ListCIProvidersResponse, error) {
+	return &pb.ListCIProvidersResponse{Items: f.items}, nil
+}
+
+func ciProvider(id, name string) *pb.CIProvider {
+	return &pb.CIProvider{Metadata: &pb.ObjectReference{Id: id}, Name: name}
+}
+
+func importCITrust(id, name, repoID string) *pb.CITrust {
+	rid := repoID
+	return &pb.CITrust{Metadata: &pb.ObjectReference{Id: id}, Name: name, RepositoryId: &rid}
+}
+
+func citrustSpec() map[string]interface{} {
+	return map[string]interface{}{
+		"ci_provider_id": "github-actions",
+		"gateway_id":     "agents-gateway",
+		"role":           "openshell-user",
+		"subject": map[string]interface{}{
+			"repository":    "acme/repo",
+			"ref_protected": true,
+		},
+	}
+}
+
+// Verifies: PLAT-CITR-10, CTRL-CORE-06
+func TestUpsertCITrust_CreatesResolvingByName(t *testing.T) {
+	gwc := &importFakeGatewayClient{owned: []*pb.Gateway{importGw("gw-id", "agents-gateway", "repo-1", "c1")}}
+	cpc := &fakeCIProviderClient{items: []*pb.CIProvider{ciProvider("cp-id", "github-actions")}}
+	ctc := &fakeCITrustClient{}
+	w := &grpcImportWriter{gateways: gwc, ciProviders: cpc, ciTrusts: ctc, pageSize: 100}
+	res := RenderedResource{Kind: "CITrust", Name: "ct-1", Spec: citrustSpec()}
+
+	if err := w.Upsert(context.Background(), "repo-1", res); err != nil {
+		t.Fatalf("Upsert error = %v", err)
+	}
+	if len(ctc.created) != 1 {
+		t.Fatalf("created = %+v, want one create", ctc.created)
+	}
+	c := ctc.created[0]
+	if c.GetCiProviderId() != "cp-id" {
+		t.Errorf("ci_provider_id = %q, want resolved id cp-id", c.GetCiProviderId())
+	}
+	if c.GetGatewayId() != "gw-id" {
+		t.Errorf("gateway_id = %q, want resolved id gw-id", c.GetGatewayId())
+	}
+	if c.GetName() != "ct-1" {
+		t.Errorf("name = %q, want manifest metadata.name ct-1", c.GetName())
+	}
+	if c.GetRole() != "openshell-user" || c.GetSubjectRepository() != "acme/repo" || !c.GetSubjectRefProtected() {
+		t.Errorf("subject/role not mapped: %+v", c)
+	}
+}
+
+// A re-import of an unchanged CITrust issues no write (idempotent).
+// Verifies: CTRL-CORE-06
+func TestUpsertCITrust_SkipsWhenUnchanged(t *testing.T) {
+	existing := importCITrust("ct-id", "ct-1", "repo-1")
+	existing.CiProviderId = "cp-id"
+	existing.GatewayId = "gw-id"
+	existing.Role = "openshell-user"
+	sr := "acme/repo"
+	existing.SubjectRepository = &sr
+	rp := true
+	existing.SubjectRefProtected = &rp
+	gwc := &importFakeGatewayClient{owned: []*pb.Gateway{importGw("gw-id", "agents-gateway", "repo-1", "c1")}}
+	cpc := &fakeCIProviderClient{items: []*pb.CIProvider{ciProvider("cp-id", "github-actions")}}
+	ctc := &fakeCITrustClient{owned: []*pb.CITrust{existing}}
+	w := &grpcImportWriter{gateways: gwc, ciProviders: cpc, ciTrusts: ctc, pageSize: 100}
+	res := RenderedResource{Kind: "CITrust", Name: "ct-1", Spec: citrustSpec()}
+
+	if err := w.Upsert(context.Background(), "repo-1", res); err != nil {
+		t.Fatalf("Upsert error = %v", err)
+	}
+	if len(ctc.created) != 0 || len(ctc.updated) != 0 {
+		t.Fatalf("unchanged CITrust caused writes: created=%+v updated=%+v", ctc.created, ctc.updated)
+	}
+}
+
+func TestUpsertCITrust_UpdatesWhenRoleChanges(t *testing.T) {
+	existing := importCITrust("ct-id", "ct-1", "repo-1")
+	existing.CiProviderId = "cp-id"
+	existing.GatewayId = "gw-id"
+	existing.Role = "openshell-admin" // differs from the manifest's openshell-user
+	gwc := &importFakeGatewayClient{owned: []*pb.Gateway{importGw("gw-id", "agents-gateway", "repo-1", "c1")}}
+	cpc := &fakeCIProviderClient{items: []*pb.CIProvider{ciProvider("cp-id", "github-actions")}}
+	ctc := &fakeCITrustClient{owned: []*pb.CITrust{existing}}
+	w := &grpcImportWriter{gateways: gwc, ciProviders: cpc, ciTrusts: ctc, pageSize: 100}
+	res := RenderedResource{Kind: "CITrust", Name: "ct-1", Spec: citrustSpec()}
+
+	if err := w.Upsert(context.Background(), "repo-1", res); err != nil {
+		t.Fatalf("Upsert error = %v", err)
+	}
+	if len(ctc.updated) != 1 || ctc.updated[0].GetId() != "ct-id" || ctc.updated[0].GetRole() != "openshell-user" {
+		t.Fatalf("updated = %+v, want one update of ct-id -> openshell-user", ctc.updated)
+	}
+}
+
+// An import may not author a CITrust on a gateway the Repository does not own; name
+// resolution is scoped to owned gateways, so the control plane never attempts a
+// cross-tenant write (the api-server enforces the same gate server-side).
+// Verifies: SEC-RBAC-25.02
+func TestUpsertCITrust_RejectsGatewayNotOwned(t *testing.T) {
+	// The Repository owns no gateway named agents-gateway (owned list empty).
+	gwc := &importFakeGatewayClient{}
+	cpc := &fakeCIProviderClient{items: []*pb.CIProvider{ciProvider("cp-id", "github-actions")}}
+	ctc := &fakeCITrustClient{}
+	w := &grpcImportWriter{gateways: gwc, ciProviders: cpc, ciTrusts: ctc, pageSize: 100}
+	res := RenderedResource{Kind: "CITrust", Name: "ct-1", Spec: citrustSpec()}
+
+	err := w.Upsert(context.Background(), "repo-1", res)
+	if err == nil {
+		t.Fatal("Upsert expected error for a gateway the repository does not own, got nil")
+	}
+	if !strings.Contains(err.Error(), "agents-gateway") {
+		t.Errorf("error = %v, want it to name the unresolved gateway", err)
+	}
+	if len(ctc.created) != 0 {
+		t.Fatalf("a cross-tenant create was issued: %+v", ctc.created)
+	}
+}
+
+func TestUpsertCITrust_RejectsUnknownCIProvider(t *testing.T) {
+	gwc := &importFakeGatewayClient{owned: []*pb.Gateway{importGw("gw-id", "agents-gateway", "repo-1", "c1")}}
+	cpc := &fakeCIProviderClient{} // no providers registered
+	ctc := &fakeCITrustClient{}
+	w := &grpcImportWriter{gateways: gwc, ciProviders: cpc, ciTrusts: ctc, pageSize: 100}
+	res := RenderedResource{Kind: "CITrust", Name: "ct-1", Spec: citrustSpec()}
+
+	err := w.Upsert(context.Background(), "repo-1", res)
+	if err == nil {
+		t.Fatal("Upsert expected error for an unknown ci_provider_id, got nil")
+	}
+	if len(ctc.created) != 0 {
+		t.Fatalf("a create was issued despite unresolved ci_provider_id: %+v", ctc.created)
+	}
+}
+
+// ownedCITrusts filters by repository_id, so prune is scoped per-Repository: a CITrust
+// owned by another Repository or created directly over REST (no ownership mark) is not
+// enumerated and therefore never pruned.
+// Verifies: CTRL-CORE-06.01
+func TestOwnedCITrusts_FilterByRepository(t *testing.T) {
+	ctc := &fakeCITrustClient{owned: []*pb.CITrust{
+		importCITrust("mine", "ct-mine", "repo-1"),
+		importCITrust("other", "ct-other", "repo-2"),
+		{Metadata: &pb.ObjectReference{Id: "rest"}, Name: "ct-rest"}, // REST-created, no ownership
+	}}
+	// Exercise the owned-list reader directly, mirroring the gateway/agent-runtime
+	// focused test: ListOwned additionally touches the other kinds' clients this test
+	// does not wire.
+	w := &grpcImportWriter{ciTrusts: ctc, pageSize: 100}
+	got, err := w.ownedCITrusts(context.Background(), "repo-1")
+	if err != nil {
+		t.Fatalf("ownedCITrusts error = %v", err)
+	}
+	if len(got) != 1 || got[0].GetName() != "ct-mine" {
+		t.Fatalf("owned CITrusts = %+v, want only ct-mine (repo-2's and the REST-created trust must be excluded)", got)
+	}
+}
+
+// TestDelete_CITrust confirms the Delete dispatch routes a CITrust prune to the
+// DeleteCITrust RPC.
+func TestDelete_CITrust(t *testing.T) {
+	ctc := &fakeCITrustClient{}
+	w := &grpcImportWriter{ciTrusts: ctc, pageSize: 100}
+	if err := w.Delete(context.Background(), "repo-1", ResourceRef{Kind: "CITrust", Name: "ct-1", ID: "ct-id"}); err != nil {
+		t.Fatalf("delete CITrust error = %v", err)
+	}
+	if len(ctc.deleted) != 1 || ctc.deleted[0] != "ct-id" {
+		t.Fatalf("CITrust deletes = %v, want [ct-id]", ctc.deleted)
+	}
+}
