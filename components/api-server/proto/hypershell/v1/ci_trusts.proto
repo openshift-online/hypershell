@@ -26,6 +26,10 @@ message CITrust {
   // name is the queryable find-by-name key (SDLC-CONF-13); defaults to a stable
   // identity derived from ci_provider_id/gateway_id/role when not supplied.
   string name = 14;
+  // repository_id is the control-plane import ownership mark; read-only, set
+  // server-side from the reconciled-Repository metadata, never by a client
+  // (data-model.spec.md PLAT-DATA-25, SEC-RBAC-26).
+  optional string repository_id = 15;
 }
 
 message GetCITrustRequest {
@@ -45,6 +49,13 @@ message CreateCITrustRequest {
   optional string subject_environment = 6;
   optional bool subject_ref_protected = 7;
   string role = 8;
+  // name is the optional find-by-name key (SDLC-CONF-13); the declarative import
+  // supplies the manifest's metadata.name so the imported trust keeps its stable
+  // identity. When empty the server derives it from ci_provider_id/gateway_id/role.
+  optional string name = 9;
+  // repository_id is ignored server-side: import ownership is taken from the
+  // trusted reconciled-Repository metadata, never the request body (SEC-RBAC-26).
+  optional string repository_id = 10;
 }
 
 message CreateCITrustResponse {
@@ -61,6 +72,12 @@ message UpdateCITrustRequest {
   optional string status_exchange_endpoint = 7;
   optional string status_workspace = 8;
   optional string status_workflow_hint = 9;
+  // subject_repository and subject_project_path are mutable so a declarative
+  // import can reconcile a changed subject predicate rather than silently skipping
+  // it (reconcile, don't create-or-skip). They are part of the claim-match subject,
+  // not immutable identity.
+  optional string subject_repository = 10;
+  optional string subject_project_path = 11;
 }
 
 message UpdateCITrustResponse {

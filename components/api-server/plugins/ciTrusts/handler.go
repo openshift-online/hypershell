@@ -172,6 +172,16 @@ func (h *ciTrustHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			// custom name (one that does not equal the pre-patch derived value) is
 			// preserved, never clobbered (SDLC-CONF-13).
 			oldDerivedName := DeriveName(found.CIProviderID, found.GatewayID, found.Role)
+			// subject_repository and subject_project_path are updatable over gRPC
+			// (the declarative-import path), so the human REST PATCH must accept them
+			// too or a PATCH would silently drop them (FINDING 4). nil means
+			// "unchanged", matching the sparse-PATCH semantics of the other fields.
+			if patch.SubjectRepository != nil {
+				found.SubjectRepository = patch.SubjectRepository
+			}
+			if patch.SubjectProjectPath != nil {
+				found.SubjectProjectPath = patch.SubjectProjectPath
+			}
 			if patch.SubjectRef != nil {
 				found.SubjectRef = patch.SubjectRef
 			}

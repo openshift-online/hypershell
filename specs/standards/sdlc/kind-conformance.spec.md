@@ -266,6 +266,13 @@ only coverage is mock-based.
 - THEN create, get, list, and delete SHALL each succeed
 - AND no query SHALL abort with `SQLSTATE 25P02`
 
+#### Scenario: SDLC-CONF-08.03 -- CITrust round-trips through the declarative importer
+
+- GIVEN a `CITrust` declared in a `.hypershell` root referencing a `CIProvider` and a `Gateway` by name
+- WHEN the control-plane import path reconciles it against the production driver (not only `hsctl apply`)
+- THEN the importer SHALL resolve the references by name, upsert a `ci_trusts` row owned by the `Repository`, and leave it queryable
+- AND re-import SHALL be idempotent and removal from the manifest SHALL prune the imported row
+
 ### Requirement: SDLC-CONF-09 -- Deployed-Environment Convergence After a Migration Fix
 
 When a migration fix ships for a Kind whose table is already in a bad state in a

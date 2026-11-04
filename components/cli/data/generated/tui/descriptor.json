@@ -351,6 +351,12 @@
           "type": "string"
         },
         {
+          "property": "repository_id",
+          "label": "REPOSITORY ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
           "property": "role",
           "label": "ROLE",
           "priority": 0,
@@ -2414,6 +2420,12 @@
         {
           "property": "kind",
           "label": "KIND",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "repository_id",
+          "label": "REPOSITORY ID",
           "priority": 0,
           "type": "string"
         },

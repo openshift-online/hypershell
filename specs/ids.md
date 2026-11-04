@@ -143,7 +143,7 @@ listed in `specs/id-rename-map.md`, not here.
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `PLAT-ARCH` | `platform/global-architecture.spec.md` | 19 |
-| `PLAT-CITR` | `platform/ci-trust-ext-api.spec.md` | 9 |
+| `PLAT-CITR` | `platform/ci-trust-ext-api.spec.md` | 10 |
 | `PLAT-CLUS` | `platform/managed-cluster-registration.spec.md` | 15 |
 | `PLAT-DATA` | `platform/data-model.spec.md` | 25 |
 | `PLAT-INV` | `platform/platform-inventory.spec.md` | 10 |
@@ -171,7 +171,7 @@ listed in `specs/id-rename-map.md`, not here.
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `SEC-OIDC` | `platform/oidc-integration.spec.md` | 11 |
-| `SEC-RBAC` | `security/rbac-enforcement.spec.md` | 25 |
+| `SEC-RBAC` | `security/rbac-enforcement.spec.md` | 26 |
 | `SEC-STD` | `standards/security/security.spec.md` | 4 |
 
 ### STD

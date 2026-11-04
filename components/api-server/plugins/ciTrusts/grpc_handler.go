@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	pkgrbac "github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server/grpcutil"
@@ -47,7 +48,15 @@ func (h *ciTrustGRPCHandler) CreateCITrust(ctx context.Context, req *pb.CreateCI
 	if err := grpcutil.ValidateStringField("role", req.Role, true); err != nil {
 		return nil, err
 	}
+	// Imported CITrust tenancy (SEC-RBAC-26): on the declarative-import path the
+	// trust may be authored ONLY on a gateway owned by the SAME reconciled
+	// Repository. With no import context this is a no-op and the human HTTP path
+	// (SEC-RBAC-22) is unchanged.
+	if err := h.enforceImportGatewayOwnership(ctx, req.GatewayId); err != nil {
+		return nil, err
+	}
 	item := &CITrust{
+		Name:                req.GetName(),
 		CIProviderID:        req.CiProviderId,
 		GatewayID:           req.GatewayId,
 		SubjectRepository:   req.SubjectRepository,
@@ -56,6 +65,9 @@ func (h *ciTrustGRPCHandler) CreateCITrust(ctx context.Context, req *pb.CreateCI
 		SubjectEnvironment:  req.SubjectEnvironment,
 		SubjectRefProtected: req.SubjectRefProtected,
 		Role:                req.Role,
+		// Import ownership is set server-side from trusted metadata; a client-supplied
+		// repository_id is ignored so ownership cannot be forged (SEC-RBAC-26).
+		RepositoryID: pkgrbac.ImportOwnershipMark(ctx),
 	}
 	created, svcErr := h.service.Create(ctx, item)
 	if svcErr != nil {
@@ -72,17 +84,56 @@ func (h *ciTrustGRPCHandler) UpdateCITrust(ctx context.Context, req *pb.UpdateCI
 	if svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
-	if req.SubjectRef != nil {
+	// On the import path a reconciler may update ONLY a CITrust its own Repository
+	// owns; a trust owned by another Repository or created directly over REST is
+	// refused (SEC-RBAC-26). With no import context this is a no-op.
+	if err := pkgrbac.EnforceImportOwnership(ctx, found.RepositoryID); err != nil {
+		return nil, err
+	}
+	if pkgrbac.ImportRepositoryIDFromContext(ctx) != "" {
+		// Declarative import is DESIRED STATE: the mutable subject predicate and role
+		// are REPLACED wholesale with the manifest's values, so a subject field the
+		// manifest omits (nil) is CLEARED rather than left stale (FINDING 1). This is
+		// deliberately different from the human sparse-PATCH path below, where nil means
+		// "unchanged" (SEC-RBAC-22). Status fields are platform-owned (written by the
+		// CITrust reconciler's token-exchange path), so an import never touches them and
+		// they stay out of the replace set.
+		found.SubjectRepository = req.SubjectRepository
+		found.SubjectProjectPath = req.SubjectProjectPath
 		found.SubjectRef = req.SubjectRef
-	}
-	if req.SubjectEnvironment != nil {
 		found.SubjectEnvironment = req.SubjectEnvironment
-	}
-	if req.SubjectRefProtected != nil {
 		found.SubjectRefProtected = req.SubjectRefProtected
-	}
-	if req.Role != nil {
-		found.Role = *req.Role
+		if req.Role != nil {
+			found.Role = *req.Role
+		}
+		// Role is required on the import update path too, symmetric with CreateCITrust
+		// (FINDING 1): a manifest that drops role reaches here as Role="" and the REPLACE
+		// above would persist an empty role, silently breaking the Keycloak
+		// token-exchange role mapping. Reject it instead of recording false convergence.
+		if err := grpcutil.ValidateStringField("role", found.Role, true); err != nil {
+			return nil, err
+		}
+	} else {
+		// Human HTTP partial-PATCH (SEC-RBAC-22): nil means "unchanged", so a caller
+		// can update one field without clearing the others.
+		if req.SubjectRepository != nil {
+			found.SubjectRepository = req.SubjectRepository
+		}
+		if req.SubjectProjectPath != nil {
+			found.SubjectProjectPath = req.SubjectProjectPath
+		}
+		if req.SubjectRef != nil {
+			found.SubjectRef = req.SubjectRef
+		}
+		if req.SubjectEnvironment != nil {
+			found.SubjectEnvironment = req.SubjectEnvironment
+		}
+		if req.SubjectRefProtected != nil {
+			found.SubjectRefProtected = req.SubjectRefProtected
+		}
+		if req.Role != nil {
+			found.Role = *req.Role
+		}
 	}
 	if req.StatusExchangeEndpoint != nil {
 		found.StatusExchangeEndpoint = req.StatusExchangeEndpoint
@@ -104,10 +155,42 @@ func (h *ciTrustGRPCHandler) DeleteCITrust(ctx context.Context, req *pb.DeleteCI
 	if err := grpcutil.ValidateRequiredID(req.Id); err != nil {
 		return nil, err
 	}
+	found, svcErr := h.service.Get(ctx, req.Id)
+	if svcErr != nil {
+		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+	}
+	// On the import path a reconciler may prune ONLY a CITrust its own Repository
+	// owns, so one Repository's import never deletes another Repository's or a
+	// REST/hsctl-created trust (SEC-RBAC-26). With no import context this is a no-op.
+	if err := pkgrbac.EnforceImportOwnership(ctx, found.RepositoryID); err != nil {
+		return nil, err
+	}
 	if svcErr := h.service.Delete(ctx, req.Id); svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
 	return &pb.DeleteCITrustResponse{}, nil
+}
+
+// enforceImportGatewayOwnership implements the imported CITrust tenancy gate
+// (SEC-RBAC-26): when the write carries a reconciled-Repository import binding, the
+// referenced gateway MUST be owned by that SAME Repository (same repository_id
+// ownership mark). A gateway owned by another Repository, by a human, or created
+// directly over REST (nil ownership), or a missing gateway, is refused. With no
+// import context the check is skipped so the human HTTP tenancy path (SEC-RBAC-22)
+// is unchanged.
+func (h *ciTrustGRPCHandler) enforceImportGatewayOwnership(ctx context.Context, gatewayID string) error {
+	importRepositoryID := pkgrbac.ImportRepositoryIDFromContext(ctx)
+	if importRepositoryID == "" {
+		return nil
+	}
+	ownerRepositoryID, found, svcErr := h.service.GatewayRepositoryID(ctx, gatewayID)
+	if svcErr != nil {
+		return grpcutil.ServiceErrorToGRPC(svcErr)
+	}
+	if !found || ownerRepositoryID == nil || *ownerRepositoryID != importRepositoryID {
+		return status.Error(codes.PermissionDenied, "a repository import may author a CITrust only on a gateway it owns")
+	}
+	return nil
 }
 
 func (h *ciTrustGRPCHandler) ListCITrusts(ctx context.Context, req *pb.ListCITrustsRequest) (*pb.ListCITrustsResponse, error) {
