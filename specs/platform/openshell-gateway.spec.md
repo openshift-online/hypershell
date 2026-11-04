@@ -649,7 +649,6 @@ When `GATEWAY_SANDBOX_RUNTIME_CLASS` is unset or empty (the default), the contro
 **Kata Containers:** Setting `GATEWAY_SANDBOX_RUNTIME_CLASS=kata` (or `kata-remote`) enables hardware-enforced VM isolation for every sandbox. Each sandbox pod runs inside a lightweight VM with its own kernel rather than sharing the host kernel. This requires:
 1. The [OpenShift Sandboxed Containers Operator](https://docs.openshift.com/container-platform/latest/sandboxed_containers/sandboxed-containers-overview.html) (or equivalent) installed on the cluster, which creates the `kata` `RuntimeClass` object.
 2. Worker nodes configured to support hardware virtualization (KVM).
-3. On a cluster with no Machine Config Operator (for example a ROKS spoke), CRI-O on every worker node reloading the operator's drop-in configuration so it lists the `kata` runtime handler. See `platform/kata-roks-crio-restart.spec.md` (KATA-ROKS) for the required rolling-restart automation; without it, sandbox pods that request `kata` stay in `PodInitializing`.
 
 `GATEWAY_SANDBOX_RUNTIME_CLASS` is a cluster-wide setting: all gateways on the cluster use the same sandbox RuntimeClass. Per-gateway runtime class selection is not supported.
 
