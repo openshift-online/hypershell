@@ -374,7 +374,9 @@ over action shortcuts. A no-match state and source match count SHALL be visible.
 New output SHALL be followed while at the bottom. Scrolling up SHALL pause
 following and preserve the inspected position when output is appended. Scrolling
 back to the bottom or pressing f/G SHALL resume following. Following/paused state
-and each rendering mode SHALL be visible. Reads SHALL detect truncation or file
+and each rendering mode SHALL be visible in the top pane border. Line/column
+ranges and active-filter match counts SHALL appear in the bottom border, without
+a redundant source-line count row. Filter editing MAY use one temporary input row. Reads SHALL detect truncation or file
 replacement, preserve errors as visible diagnostics, and avoid rereading an
 unchanged file or rerendering unchanged content on every poll. Toggles SHALL NOT
 change the original log file.

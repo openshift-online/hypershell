@@ -264,7 +264,7 @@ func TestLogPaneStaysBoundedInShortTerminals(t *testing.T) {
 		m.logText = strings.Repeat("earlier output\n", 50) + "newest output"
 		m.clampLogScroll()
 		view := m.View()
-		if lipgloss.Height(view) != m.height || !strings.Contains(view, "┌") || !strings.Contains(view, "└") || !strings.Contains(view, "newest output") || !strings.Contains(view, "Lines ") {
+		if lipgloss.Height(view) != m.height || !strings.Contains(view, "┌") || !strings.Contains(view, "└") || !strings.Contains(view, "┐") || !strings.Contains(view, "┘") || !strings.Contains(view, "newest output") || !strings.Contains(view, "Lines ") {
 			t.Fatalf("incomplete pane at %v: %s", size, view)
 		}
 		m = press(m, "g")
@@ -273,5 +273,30 @@ func TestLogPaneStaysBoundedInShortTerminals(t *testing.T) {
 			t.Fatalf("cannot inspect top at %v", size)
 		}
 		m.cancel()
+	}
+}
+
+func TestLogStatusIndicatorsLiveInBordersWithoutCountRows(t *testing.T) {
+	m := sampleModel()
+	defer m.cancel()
+	m.screen = "logs"
+	m.width = 120
+	m.height = 32
+	m.logText = strings.Repeat("line\n", 40)
+	m.clampLogScroll()
+	view := m.View()
+	if strings.Contains(view, "source lines") {
+		t.Fatal("redundant count row")
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "Markdown off") && (!strings.Contains(line, "┌") || !strings.Contains(line, "┐") || !strings.Contains(line, "Following")) {
+			t.Fatalf("mode indicators outside border: %s", line)
+		}
+		if strings.Contains(line, "Lines ") && (!strings.Contains(line, "└") || !strings.Contains(line, "┘")) {
+			t.Fatalf("range outside border: %s", line)
+		}
+	}
+	if m.logPageSize() != 16 {
+		t.Fatalf("metadata consumed log rows: %d", m.logPageSize())
 	}
 }

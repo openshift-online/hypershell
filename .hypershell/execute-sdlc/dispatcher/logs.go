@@ -276,12 +276,15 @@ func (m *Model) openLog(path string) {
 	m.refreshLog(path)
 }
 func (m Model) logPageSize() int {
-	fixed := 19
+	fixed := 16
 	if m.height-2 < 22 {
 		fixed -= 2
 	}
 	if m.height-2 < 18 {
 		fixed--
+	}
+	if m.logs.filtering {
+		fixed++
 	}
 	return max(1, m.height-fixed)
 }
@@ -374,6 +377,20 @@ func onOff(value bool) string {
 	}
 	return "off"
 }
+
+// Metadata belongs to the pane outline; it consumes no log rows.
+func (m Model) logBorder(width int, leftEdge, rightEdge, left, right, rightColor string) string {
+	room := max(0, width-6)
+	right = middle(right, max(0, room/2))
+	left = middle(left, max(0, room-ansi.StringWidth(right)-2))
+	gap := max(0, width-6-ansi.StringWidth(left)-ansi.StringWidth(right))
+	edge := func(text string) string { return m.style(text, "log-border", false) }
+	if right == "" {
+		return edge(leftEdge+"─ ") + m.style(left, "8", false) + edge(" "+strings.Repeat("─", max(0, width-5-ansi.StringWidth(left)))+rightEdge)
+	}
+	return edge(leftEdge+"─ ") + m.style(left, "8", false) + edge(" "+strings.Repeat("─", max(0, gap-2))+" ") + m.style(right, rightColor, false) + edge(" ─"+rightEdge)
+}
+
 func (m Model) logsView(lines []string, row Row, w, h int) []string {
 	section := "Logs"
 	if awaitingNewReview(row) {
@@ -387,26 +404,28 @@ func (m Model) logsView(lines []string, row Row, w, h int) []string {
 	if h >= 18 {
 		lines = append(lines, m.style(middle(row.Log, w), "8", false))
 	}
-	following := "Following"
-	if m.scroll > 0 {
-		following = "Paused · G resumes"
-	}
-	lines = append(lines, m.style(fmt.Sprintf("Markdown %s · Wrap %s · Color %s · %s", onOff(m.logs.markdown), onOff(m.logs.wrap), onOff(!m.logs.noColor && !m.plainColor), following), "8", false))
 	content := m.logContent()
-	filter := fmt.Sprintf("%d source lines", content.total)
-	if m.logs.filter != "" {
-		filter = fmt.Sprintf("Filter: %s · %d/%d source lines", m.logs.filter, content.matches, content.total)
-	}
 	if m.logs.filtering {
-		filter = "/ " + m.logs.filter + "▏  Enter keep · Esc cancel"
+		lines = append(lines, m.style(middle("/ "+m.logs.filter+"▏  Enter keep · Esc cancel", w), "6", false))
 	}
-	lines = append(lines, m.style(middle(filter, w), "6", false))
-	count := max(1, h-len(lines)-5) // pane border, range, blank, footer
+	count := max(1, h-len(lines)-4) // pane border, blank, footer
 	end := max(min(len(content.lines), count), len(content.lines)-m.scroll)
 	end = min(end, len(content.lines))
 	start := max(0, end-count)
 	border := func(text string) string { return m.style(text, "log-border", false) }
-	lines = append(lines, border("┌"+strings.Repeat("─", max(0, w-2))+"┐"))
+	following, followColor := "Following", "2"
+	if m.scroll > 0 {
+		following, followColor = "Paused · G resumes", "3"
+	}
+	label := "Markdown"
+	if w < 80 {
+		label = "MD"
+	}
+	modes := fmt.Sprintf("%s %s · Wrap %s · Color %s", label, onOff(m.logs.markdown), onOff(m.logs.wrap), onOff(!m.logs.noColor && !m.plainColor))
+	if m.logs.filter != "" && !m.logs.filtering {
+		modes = "/" + m.logs.filter + " · " + modes
+	}
+	lines = append(lines, m.logBorder(w, "┌", "┐", modes, following, followColor))
 	pane := make([]string, count)
 	for i := range pane {
 		line := ""
@@ -435,15 +454,24 @@ func (m Model) logsView(lines []string, row Row, w, h int) []string {
 	for _, line := range track {
 		lines = append(lines, border("│")+line+border("│"))
 	}
-	lines = append(lines, border("└"+strings.Repeat("─", max(0, w-2))+"┘"))
-	rangeText := m.scrollIndicator(start, end, len(content.lines))
+	rangeText := ansi.Strip(m.scrollIndicator(start, end, len(content.lines)))
+	if w < 90 {
+		rangeText = fmt.Sprintf("Lines %d-%d/%d", min(start+1, end), end, len(content.lines))
+	}
 	if len(content.lines) == 0 {
-		rangeText = m.style("No lines to display", "8", false)
+		rangeText = "No lines to display"
 	}
+	columns := ""
 	if !m.logs.wrap && content.width > m.logWidth() {
-		rangeText += m.style(fmt.Sprintf(" · Cols %d-%d of %d · ←/→ pan", m.logs.x+1, min(content.width, m.logs.x+m.logWidth()), content.width), "8", false)
+		columns = fmt.Sprintf("Cols %d-%d/%d", m.logs.x+1, min(content.width, m.logs.x+m.logWidth()), content.width)
 	}
-	lines = append(lines, rangeText, "")
+	if m.logs.filter != "" {
+		if columns != "" {
+			columns += " · "
+		}
+		columns += fmt.Sprintf("Matches %d/%d", content.matches, content.total)
+	}
+	lines = append(lines, m.logBorder(w, "└", "┘", rangeText, columns, "8"), "")
 	pan := ""
 	if !m.logs.wrap {
 		pan = "  ←/→ pan"

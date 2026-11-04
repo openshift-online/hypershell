@@ -30,7 +30,7 @@ Have these commands on your PATH:
 
 | Tool | Purpose |
 | --- | --- |
-| Go 1.25+ | Build the local dispatcher; cached binaries are reused |
+| Go 1.26.7+ | Build the local dispatcher with its patched module toolchain; cached binaries are reused |
 | Python 3, Bash, Git, Make | Launch, credential adapters, isolated worktree snapshots |
 | `gh` | GitHub discovery and agent access |
 | `fullsend` | Run the repository's harnesses; this workflow was exercised with 0.50.0 |
@@ -360,7 +360,9 @@ workers that are already running.
 Press Enter on a run to open its full log. The bordered pane shows source text
 with wrapping off by default. Long lines can be panned rather than cut off, and
 output older than 64 KiB remains available. The header keeps the issue and agent
-visible; the mode bar shows rendering options and whether the pane is following.
+visible. The top border shows rendering options and whether the pane is following;
+the bottom border shows line/column ranges and active-filter match counts. There
+is no separate source-line count row. Filter input uses a row only while typing.
 
 | Key | Log action |
 | --- | --- |
