@@ -120,14 +120,12 @@ func deployGatewayViaHelm(
 }
 
 // effectiveCredentialDriver resolves an unspecified credential_driver to the flat
-// default, vault (HYPERSHELL-369). An explicit driver (non-empty Type) is returned
+// default, vault. An explicit driver (non-empty Type) is returned
 // unchanged, so a user who asks for a specific backend (kek-db / kubernetes-secrets)
 // always gets it. Both a nil driver and an empty-type object (`credential_driver:
 // {}`) count as unspecified and resolve to vault, preserving any supplied overrides.
-//
-// Prerequisite (see openshell-gateway-credentials.spec.md): every gateway-hosting
-// cluster must run its per-cluster Vault before this default takes effect; a cluster
-// without its Vault should pin new gateways to kek-db explicitly.
+// A cluster without a per-cluster Vault pins new gateways to kek-db explicitly
+// (see openshell-gateway-credentials.spec.md).
 func effectiveCredentialDriver(driver *CredentialDriverConfig) *CredentialDriverConfig {
 	if driver != nil && driver.Type != "" {
 		return driver

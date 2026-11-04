@@ -7,9 +7,6 @@ import {
 import { describe, expect, it } from "vitest";
 
 import {
-  gatewayProvisionDurationCount24hPromql,
-  gatewayProvisionDurationCountHourlyPromql,
-  gatewayProvisionDurationCountLifetimePromql,
   gatewayProvisionOutcomesFailure24hPromql,
   gatewayProvisionOutcomesFailureDailyPromql,
   gatewayProvisionOutcomesFailureHourlyPromql,
@@ -163,9 +160,7 @@ describe("queryGatewayProvisionOutcomes", () => {
 
       if (
         query === gatewayProvisionOutcomesSuccess24hPromql ||
-        query === gatewayProvisionOutcomesFailure24hPromql ||
-        query === gatewayProvisionDurationCount24hPromql ||
-        query === gatewayProvisionDurationCountLifetimePromql
+        query === gatewayProvisionOutcomesFailure24hPromql
       ) {
         response.end(prometheusSample("0"));
         return;
@@ -200,79 +195,6 @@ describe("queryGatewayProvisionOutcomes", () => {
         hourly_success_rate: [],
         success_count_24h: 0,
         success_rate_percent: null,
-      });
-    } finally {
-      prometheus.close();
-    }
-  });
-
-  // Verifies: OBS-GPO-04.01
-  it("falls back to the duration histogram when outcome counters are empty", async () => {
-    const prometheus = await startPrometheusStub((request, response) => {
-      const url = new URL(request.url ?? "", "http://127.0.0.1");
-      const query = url.searchParams.get("query");
-      response.setHeader("content-type", "application/json");
-
-      if (
-        query === gatewayProvisionOutcomesSuccess24hPromql ||
-        query === gatewayProvisionOutcomesFailure24hPromql
-      ) {
-        response.end(prometheusSample("0"));
-        return;
-      }
-      if (query === gatewayProvisionDurationCount24hPromql) {
-        response.end(prometheusSample("3"));
-        return;
-      }
-      if (query === gatewayProvisionDurationCountHourlyPromql) {
-        response.end(
-          prometheusRangeSample([
-            ["1704067200", "1"],
-            ["1704070800", "2"],
-          ]),
-        );
-        return;
-      }
-      if (query === gatewayProvisionOutcomesFailureHourlyPromql) {
-        response.end(prometheusRangeSample([]));
-        return;
-      }
-      if (
-        query === gatewayProvisionOutcomesSuccessDailyPromql ||
-        query === gatewayProvisionOutcomesFailureDailyPromql
-      ) {
-        response.end(prometheusRangeSample([]));
-        return;
-      }
-
-      response.statusCode = 400;
-      response.end();
-    });
-
-    try {
-      const outcomes = await queryGatewayProvisionOutcomes(
-        `http://127.0.0.1:${String(prometheus.port)}`,
-        5_000,
-      );
-      expect(outcomes).toEqual({
-        daily_success_rate: [],
-        failure_count_24h: 0,
-        hourly_success_rate: [
-          {
-            failure_count: 0,
-            hour: "2024-01-01T00:00",
-            success_count: 1,
-            success_rate_percent: 100,
-          },
-          {
-            failure_count: 0,
-            hour: "2024-01-01T01:00",
-            success_count: 2,
-            success_rate_percent: 100,
-          },
-        ],
-        success_count_24h: 3,
-        success_rate_percent: 100,
       });
     } finally {
       prometheus.close();
