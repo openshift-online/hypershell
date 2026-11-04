@@ -515,3 +515,17 @@ does not exist. "Former file" is the spec the ID lived in, relative to
 | `PLAT-ARCH-21` | `platform/global-architecture.spec.md` | - | Required clusters to be rebuildable from the Tekton installer pipeline, which does not exist. |
 | `OBS-GPO-04` | `platform/gateway-provision-outcomes.spec.md` | - | Duration-histogram fallback for provisions recorded before the outcomes counter existed. It could report 100% success with zero failures; the counter is the only source now. |
 | `OBS-GPO-04.01` | `platform/gateway-provision-outcomes.spec.md` | - | Retired with OBS-GPO-04. |
+| `KATA-ROKS-01` | `platform/kata-roks-crio-restart.spec.md` | - | Moved to `specs/kata-roks-crio-restart.spec.md` in the hypershell-gitops repository with the same ID, because all of its automation lives there. |
+| `KATA-ROKS-01.01` | `platform/kata-roks-crio-restart.spec.md` | - | Moved with KATA-ROKS-01. |
+| `KATA-ROKS-01.02` | `platform/kata-roks-crio-restart.spec.md` | - | Moved with KATA-ROKS-01. |
+| `KATA-ROKS-02` | `platform/kata-roks-crio-restart.spec.md` | - | Moved to `specs/kata-roks-crio-restart.spec.md` in the hypershell-gitops repository with the same ID, because all of its automation lives there. |
+| `KATA-ROKS-02.01` | `platform/kata-roks-crio-restart.spec.md` | - | Moved with KATA-ROKS-02. |
+| `KATA-ROKS-02.02` | `platform/kata-roks-crio-restart.spec.md` | - | Moved with KATA-ROKS-02. |
+| `KATA-ROKS-03` | `platform/kata-roks-crio-restart.spec.md` | - | Moved to `specs/kata-roks-crio-restart.spec.md` in the hypershell-gitops repository with the same ID, because all of its automation lives there. |
+| `KATA-ROKS-03.01` | `platform/kata-roks-crio-restart.spec.md` | - | Moved with KATA-ROKS-03. |
+| `KATA-ROKS-04` | `platform/kata-roks-crio-restart.spec.md` | - | Moved to `specs/kata-roks-crio-restart.spec.md` in the hypershell-gitops repository with the same ID, because all of its automation lives there. |
+| `KATA-ROKS-04.01` | `platform/kata-roks-crio-restart.spec.md` | - | Moved with KATA-ROKS-04. |
+| `KATA-ROKS-05` | `platform/kata-roks-crio-restart.spec.md` | - | Moved to `specs/kata-roks-crio-restart.spec.md` in the hypershell-gitops repository with the same ID, because all of its automation lives there. |
+| `KATA-ROKS-05.01` | `platform/kata-roks-crio-restart.spec.md` | - | Moved with KATA-ROKS-05. |
+| `KATA-ROKS-06` | `platform/kata-roks-crio-restart.spec.md` | - | Moved to `specs/kata-roks-crio-restart.spec.md` in the hypershell-gitops repository with the same ID, because all of its automation lives there. |
+| `KATA-ROKS-06.01` | `platform/kata-roks-crio-restart.spec.md` | - | Moved with KATA-ROKS-06. |
