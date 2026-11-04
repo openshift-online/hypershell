@@ -159,6 +159,31 @@ func (r *RoleBindingReconciler) Handle(ctx context.Context, event watcher.Event[
 		for _, kcRole := range kcRoles {
 			desired[kcRole] = true
 		}
+	} else if len(desired) == 0 {
+		// GTW-ACC-15: the reconcile is about to remove the user's LAST client
+		// role(s) on this gateway on the strength of a single successful-but-empty
+		// ListRoleBindings carried with a delete event. A transient or partial
+		// read during a cross-gateway delete burst would otherwise be amplified
+		// into a full wipe of the user's console access. Treat the empty result as
+		// unproven: re-confirm absence with a second authoritative read (mirroring
+		// the gateway seed's point-read confirmation in watcher.go) before
+		// revoking, and requeue rather than revoke on an unconfirmed or
+		// inconsistent read. The removal path thus fails OPEN on both an RPC error
+		// (handled above) and a successful-but-empty list. The confirming read uses
+		// the same (user_id, gateway_id), cluster filter, and deleted-binding
+		// exclusion.
+		confirmed, err := r.effectiveKcRoles(ctx, rb, excludeID)
+		if err != nil {
+			reconcileErr = fmt.Errorf("confirm absence of surviving role bindings for role binding %s before revoke: %w", event.ResourceID, err)
+			return reconcileErr
+		}
+		if len(confirmed) != 0 {
+			// The confirming read disagrees with the first empty result: a role is
+			// still backed by a surviving binding. Do not revoke anything; requeue
+			// so a later consistent read drives the correct desired state.
+			reconcileErr = fmt.Errorf("role binding %s: first ListRoleBindings returned empty but the confirming read found %d surviving client role(s); requeuing rather than revoking the user's last gateway roles", event.ResourceID, len(confirmed))
+			return reconcileErr
+		}
 	}
 
 	for _, kcRole := range allGatewayKcRoles {
