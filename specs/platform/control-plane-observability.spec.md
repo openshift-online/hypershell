@@ -1,7 +1,7 @@
 # Control Plane Observability
 
 **Status:** Draft
-**Applies to:** `components/control-plane` reconciler spans, gRPC watch stream lifecycle, outbound gRPC and Kubernetes API calls, reconcile metrics, and the local development observability workflow
+**Applies to:** `components/control-plane` reconciler spans, logs, gRPC watch stream lifecycle, outbound gRPC and Kubernetes API calls, reconcile metrics, and the local development observability workflow
 **Jira:** HYPERSHELL-79
 
 ## Purpose
@@ -25,6 +25,7 @@ The control plane SHALL initialize the OpenTelemetry SDK at startup, configuring
 | `OTEL_TRACES_SAMPLER_ARG` | `1.0` | Root-trace sampling ratio (`0.0` to `1.0`) for the parent-based sampler |
 | `OTEL_SERVICE_NAME` | `hypershell-controller` | Service name reported in spans and metrics |
 | `OTEL_METRICS_EXPORTER` | (unset -- metrics enabled) | Set to `none` to export traces only and skip the OTLP metric exporter; use against a trace-only backend such as Jaeger |
+| `OTEL_LOGS_EXPORTER` | (unset -- logs enabled) | Set to `none` to skip the OTLP log exporter of `OBS-CPL-11`; use against a backend without a logs service, such as Jaeger or the Kind collector |
 
 The SDK SHALL use a parent-based trace-id-ratio sampler so a child span inherits the parent's sampling decision and only a root span is subject to the configured ratio. The SDK SHALL install a W3C Trace Context propagator, composed with baggage, as the global propagator.
 
@@ -448,6 +449,49 @@ These values are bounded deployment configuration, not resource identifiers, so 
 - AND `HYPERSHELL_MANAGED_CLUSTER_NAME` is empty
 - WHEN metrics are collected
 - THEN neither identity gauge SHALL be exported
+
+### Requirement: OBS-CPL-11 -- Trace-Correlated Logs
+
+The control plane SHALL log only through the Go standard library `log/slog`. Code SHALL pass the reconcile or request context to the log call whenever one is in scope, use a constant message, and put variable data in snake_case attributes, with errors under the `error` key. The standard library `log` package SHALL NOT be used outside the logging setup, and a lint rule SHALL enforce this.
+
+The level SHALL be `HYPERSHELL_LOG_LEVEL` (`debug`, `info`, `warn`, `error`; default `info`) and the format `HYPERSHELL_LOG_FORMAT` (`text` or `json`; default `text`). An unknown value SHALL fall back to the default with a warning and SHALL NOT stop the control plane.
+
+`main()` SHALL install one default logger before anything else logs. That logger SHALL:
+
+1. Write every record at or above the configured level to standard error. A record logged with a context that carries a valid span SHALL include `trace_id` and `span_id` attributes, so a log line can be joined to its trace.
+2. When the OTel SDK is initialized (`OBS-CPL-01`) and `OTEL_LOGS_EXPORTER` is not `none`, also export every record at or above the configured level over OTLP through a `LoggerProvider` that shares the SDK resource (`service.name`, `k8s.namespace.name`). Exported records SHALL carry the trace and span identifiers of their context.
+
+Log records SHALL follow the privacy rules of `OBS-CPL-06`: no secrets, tokens, passwords, keys, or certificate contents. Exporter errors SHALL be written to standard error and SHALL NOT be fed back into the log exporter. The log exporter SHALL be flushed with the trace and metric providers on shutdown.
+
+**Verification:** Unit tests confirm `trace_id` and `span_id` on standard-error records logged with a span context, their absence without one, the level filter on both outputs, and that standard library `log` output does not reach the exporter. The lint rule fails on an import of `log` outside the logging package. With a collector that accepts OTLP logs, a reconcile's log records reach the collector with the trace identifier of the reconcile span.
+
+#### Scenario: OBS-CPL-11.01 -- Log records carry the trace of the reconcile
+
+- GIVEN the OTel SDK is initialized and `OTEL_LOGS_EXPORTER` is not `none`
+- WHEN a reconciler logs with the context of its reconcile span
+- THEN the standard-error record SHALL include the `trace_id` and `span_id` of that span
+- AND the exported OTLP log record SHALL carry the same trace and span identifiers
+
+#### Scenario: OBS-CPL-11.02 -- Level filter
+
+- GIVEN `HYPERSHELL_LOG_LEVEL` is `warn`
+- WHEN the control plane logs an info record and a warn record
+- THEN only the warn record SHALL be written to standard error
+- AND only the warn record SHALL be exported
+
+#### Scenario: OBS-CPL-11.03 -- Log export disabled
+
+- GIVEN `OTEL_EXPORTER_OTLP_ENDPOINT` is not set, or `OTEL_LOGS_EXPORTER` is `none`
+- WHEN the control plane logs a record
+- THEN the record SHALL be written to standard error only
+- AND no OTLP log exporter SHALL be created
+
+#### Scenario: OBS-CPL-11.04 -- Unknown level falls back to info
+
+- GIVEN `HYPERSHELL_LOG_LEVEL` is `verbose`
+- WHEN the control plane starts
+- THEN it SHALL log at `info`
+- AND it SHALL write a warning naming the ignored value
 
 ## Design Decisions
 

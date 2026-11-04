@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"runtime"
@@ -32,6 +32,7 @@ import (
 	"github.com/openshift-online/hypershell/components/control-plane/internal/grpctransport"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/helm"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/logging"
 	cpotel "github.com/openshift-online/hypershell/components/control-plane/internal/otel"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/reconciler"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/registration"
@@ -67,7 +68,7 @@ func registerWithBackoff(ctx context.Context, regClient registrar, initialBackof
 			return "", fmt.Errorf("managed cluster name cannot be registered by this control plane; an operator must remove the conflicting ManagedCluster record (and re-point its gateways) or change HYPERSHELL_MANAGED_CLUSTER_NAME: %w", err)
 		}
 
-		log.Printf("WARN managed-cluster registration failed (retrying in %s): %v", backoff, err)
+		slog.WarnContext(ctx, "Managed-cluster registration failed, retrying", "backoff", backoff, "error", err)
 		select {
 		case <-ctx.Done():
 			return "", fmt.Errorf("registration cancelled: %w", ctx.Err())
@@ -92,12 +93,12 @@ func helmBinaryPath() string {
 	return "/usr/local/bin/helm"
 }
 
-// buildInfo returns a single-line summary of the binary's provenance for the
+// buildInfo returns the binary's provenance as slog attributes for the
 // startup log: Go toolchain, target platform, and the VCS revision and build
 // time recorded by the Go linker. It helps correlate a running controller with
 // the exact commit and image it was built from. Values are best-effort; when
 // build metadata is absent (for example a plain `go run`) they report "unknown".
-func buildInfo() string {
+func buildInfo() []any {
 	revision, vcsTime := "unknown", "unknown"
 	if info, ok := debug.ReadBuildInfo(); ok {
 		for _, setting := range info.Settings {
@@ -109,14 +110,41 @@ func buildInfo() string {
 			}
 		}
 	}
-	return fmt.Sprintf("revision=%s vcs-time=%s go=%s platform=%s/%s",
-		revision, vcsTime, runtime.Version(), runtime.GOOS, runtime.GOARCH)
+	return []any{
+		"revision", revision,
+		"vcs_time", vcsTime,
+		"go_version", runtime.Version(),
+		"platform", runtime.GOOS + "/" + runtime.GOARCH,
+	}
+}
+
+// installLogging makes the control-plane logger the slog default before
+// anything else logs (OBS-CPL-11). An unknown level or format falls back to
+// info and text, with a warning, so a typo never stops the controller.
+func installLogging() {
+	level, levelErr := logging.ParseLevel(os.Getenv("HYPERSHELL_LOG_LEVEL"))
+	format, formatErr := logging.ParseFormat(os.Getenv("HYPERSHELL_LOG_FORMAT"))
+	logging.Install(os.Stderr, level, format)
+	if levelErr != nil {
+		slog.Warn("Ignoring HYPERSHELL_LOG_LEVEL", "error", levelErr)
+	}
+	if formatErr != nil {
+		slog.Warn("Ignoring HYPERSHELL_LOG_FORMAT", "error", formatErr)
+	}
+}
+
+// fatal logs msg at error level and exits, replacing log.Fatalf.
+func fatal(msg string, args ...any) {
+	slog.Error(msg, args...)
+	os.Exit(1)
 }
 
 func main() {
+	installLogging()
+
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("loading config: %v", err)
+		fatal("Failed to load config", "error", err)
 	}
 
 	// Gateway database provisioning is a hard startup precondition: the admin
@@ -125,40 +153,44 @@ func main() {
 	// with a clear message instead of failing every gateway later. The server is
 	// not contacted at startup; reachability is checked per reconcile with retries.
 	if err := gateway.ValidateAdminCredentialsDir(cfg.GatewayDatabaseAdminDir); err != nil {
-		log.Fatalf("gateway database admin credentials (GATEWAY_DATABASE_ADMIN_DIR=%s): %v", cfg.GatewayDatabaseAdminDir, err)
+		fatal("Invalid gateway database admin credentials", "path", cfg.GatewayDatabaseAdminDir, "error", err)
 	}
 	databaseConfig := gateway.DatabaseConfig{AdminCredentialsDir: cfg.GatewayDatabaseAdminDir}
 
 	// The console image has no built-in default. Fail here with a clear message
 	// instead of logging a console warning for every gateway later.
 	if err := gateway.ValidateConsoleImage(); err != nil {
-		log.Fatalf("console image: %v", err)
+		fatal("Invalid console image", "error", err)
 	}
 
 	grpcTransport := grpctransport.Classify(cfg.GRPCServerAddr)
-	log.Printf("INFO hypershell-controller starting")
-	log.Printf("INFO build %s", buildInfo())
-	log.Printf("INFO grpc=%s (transport=%s) api=%s namespace=%s managed-cluster-name=%s",
-		cfg.GRPCServerAddr, grpcTransport, cfg.APIServerURL, cfg.Namespace, cfg.ManagedClusterName)
+	slog.Info("hypershell-controller starting", buildInfo()...)
+	slog.Info("Controller settings",
+		"grpc_addr", cfg.GRPCServerAddr,
+		"grpc_transport", grpcTransport,
+		"api_url", cfg.APIServerURL,
+		"namespace", cfg.Namespace,
+		"managed_cluster", cfg.ManagedClusterName,
+	)
 
 	// Verify helm binary is available
 	helmBin := helmBinaryPath()
 	if err := helm.VerifyHelmAvailable(context.Background(), helmBin); err != nil {
-		log.Fatalf("helm binary verification failed: %v", err)
+		fatal("Helm binary verification failed", "error", err)
 	}
 
 	// Verify Helm chart is available
 	if err := helm.VerifyChartPath(cfg.HelmChartPath); err != nil {
-		log.Fatalf("helm chart verification failed: %v", err)
+		fatal("Helm chart verification failed", "error", err)
 	}
-	log.Printf("INFO helm chart verified at %s", cfg.HelmChartPath)
+	slog.Info("Helm chart verified", "chart", cfg.HelmChartPath)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
 	otelShutdown, otelErr := cpotel.Init(ctx, cfg.Namespace)
 	if otelErr != nil {
-		log.Printf("WARN OpenTelemetry initialization failed, continuing without telemetry: %v", otelErr)
+		slog.WarnContext(ctx, "OpenTelemetry initialization failed, continuing without telemetry", "error", otelErr)
 	}
 	defer cpotel.Shutdown(otelShutdown)
 	unregisterIdentityInfo, identityErr := cpotel.RegisterClusterIdentityInfo(
@@ -167,7 +199,7 @@ func main() {
 		gateway.StaticImageDefaults{}.DefaultGatewayImage(),
 	)
 	if identityErr != nil {
-		log.Printf("WARN cluster identity info metrics unavailable: %v", identityErr)
+		slog.WarnContext(ctx, "Cluster identity info metrics unavailable", "error", identityErr)
 	} else {
 		defer func() { _ = unregisterIdentityInfo() }()
 	}
@@ -180,7 +212,7 @@ func main() {
 	tokenProvider := auth.NewTokenProvider(cfg.OIDCIssuer, cfg.OIDCClientID, cfg.OIDCClientSecret)
 	if cfg.OIDCTokenEndpoint != "" {
 		tokenProvider.SetTokenEndpoint(cfg.OIDCTokenEndpoint)
-		log.Printf("INFO using explicit OIDC token endpoint: %s", cfg.OIDCTokenEndpoint)
+		slog.InfoContext(ctx, "Using explicit OIDC token endpoint", "url", cfg.OIDCTokenEndpoint)
 	}
 	dialOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(grpctransport.Credentials(cfg.GRPCServerAddr)),
@@ -201,17 +233,17 @@ func main() {
 
 	conn, err := grpc.NewClient(cfg.GRPCServerAddr, dialOpts...)
 	if err != nil {
-		log.Fatalf("connecting to gRPC server: %v", err)
+		fatal("Failed to connect to gRPC server", "error", err)
 	}
 	defer func() {
 		if err := conn.Close(); err != nil {
-			log.Printf("ERROR closing gRPC connection: %v", err)
+			slog.ErrorContext(ctx, "Failed to close gRPC connection", "error", err)
 		}
 	}()
 
 	k8sConfig, err := rest.InClusterConfig()
 	if err != nil {
-		log.Printf("WARN not running in-cluster, gateway reconciliation will be limited: %v", err)
+		slog.WarnContext(ctx, "Not running in-cluster, gateway reconciliation will be limited", "error", err)
 	}
 
 	if k8sConfig != nil {
@@ -224,12 +256,12 @@ func main() {
 	if k8sConfig != nil {
 		clientset, err = kubernetes.NewForConfig(k8sConfig)
 		if err != nil {
-			log.Fatalf("creating kubernetes clientset: %v", err)
+			fatal("Failed to create kubernetes clientset", "error", err)
 		}
 
 		dynamicClient, err = dynamic.NewForConfig(k8sConfig)
 		if err != nil {
-			log.Fatalf("creating dynamic client: %v", err)
+			fatal("Failed to create dynamic client", "error", err)
 		}
 	}
 
@@ -238,7 +270,7 @@ func main() {
 	// fails, per-tenant mount provisioning fails closed later with a clear error.
 	if clientset != nil {
 		if err := gateway.EnsureControlPlaneNamespaceLabel(ctx, clientset, cfg.Namespace); err != nil {
-			log.Printf("WARN could not label control-plane namespace %s (provider-Vault provisioner login may be denied until resolved): %v", cfg.Namespace, err)
+			slog.WarnContext(ctx, "Could not label control-plane namespace, provider-Vault provisioner login may be denied until resolved", "namespace", cfg.Namespace, "error", err)
 		}
 	}
 
@@ -260,15 +292,15 @@ func main() {
 		case gateway.IngressModeGatewayAPI:
 			gwClient, gwErr := gatewayclient.NewForConfig(k8sConfig)
 			if gwErr != nil {
-				log.Fatalf("creating gateway-api client: %v", gwErr)
+				fatal("Failed to create gateway-api client", "error", gwErr)
 			}
 			exposurePort = exposure.NewGatewayAPIExposure(gwClient)
-			log.Printf("INFO gateway exposure port enabled (gateway-api adapter)")
+			slog.InfoContext(ctx, "Gateway exposure port enabled", "adapter", "gateway-api")
 		case gateway.IngressModeRoute:
 			exposurePort = exposure.NewRouteExposure(dynamicClient)
-			log.Printf("INFO gateway exposure port enabled (route adapter)")
+			slog.InfoContext(ctx, "Gateway exposure port enabled", "adapter", "route")
 		default:
-			log.Printf("INFO gateway exposure port disabled (ingress mode none); routed gateways gated on Deployment readiness only")
+			slog.InfoContext(ctx, "Gateway exposure port disabled, routed gateways gated on Deployment readiness only", "ingress_mode", "none")
 		}
 	}
 
@@ -290,9 +322,9 @@ func main() {
 				ClientID:     string(kcSecret.Data["client-id"]),
 				ClientSecret: string(kcSecret.Data["client-secret"]),
 			}
-			log.Printf("INFO keycloak admin secret found: server=%s realm=%s", keycloakConfig.ServerURL, keycloakConfig.Realm)
+			slog.InfoContext(ctx, "Keycloak admin secret found", "url", keycloakConfig.ServerURL, "realm", keycloakConfig.Realm)
 		} else {
-			log.Printf("INFO keycloak admin secret not found, keycloak integration disabled: %v", kcErr)
+			slog.InfoContext(ctx, "Keycloak admin secret not found, keycloak integration disabled", "error", kcErr)
 		}
 	}
 
@@ -315,7 +347,7 @@ func main() {
 			keycloakConfig.ClientID,
 			keycloakConfig.ClientSecret,
 		)
-		log.Printf("INFO role binding reconciler enabled with keycloak integration")
+		slog.InfoContext(ctx, "Role binding reconciler enabled with keycloak integration")
 	}
 
 	var gatewayReconciler watcher.Handler[*pb.Gateway]
@@ -350,9 +382,9 @@ func main() {
 		supervise("service-account provisioner", func(ctx context.Context) error {
 			return serviceaccountprovisioner.ListenAndServe(ctx, transportConfig, provisionerServer, directorySvc)
 		})
-		log.Printf("INFO service-account provisioner launched on %s (in-cluster, NetworkPolicy-restricted)", cfg.ServiceAccountProvisionerAddress)
+		slog.InfoContext(ctx, "Service-account provisioner launched (in-cluster, NetworkPolicy-restricted)", "addr", cfg.ServiceAccountProvisionerAddress)
 	} else {
-		log.Printf("INFO service-account provisioner disabled")
+		slog.InfoContext(ctx, "Service-account provisioner disabled")
 	}
 
 	// Mandatory cluster identity: resolve cluster_id by registration before any
@@ -365,13 +397,16 @@ func main() {
 	clusterID, regErr := registerWithBackoff(ctx, regClient, time.Second)
 	if regErr != nil {
 		if ctx.Err() != nil {
-			log.Printf("INFO shutdown signal received before registration completed; stopping")
+			slog.InfoContext(ctx, "Shutdown signal received before registration completed, stopping")
 			wg.Wait()
 			return
 		}
-		log.Fatalf("FATAL managed-cluster registration failed: %v", regErr)
+		fatal("Managed-cluster registration failed", "error", regErr)
 	}
-	log.Printf("INFO registered as cluster_id=%s (name=%s); scoping gateway watch, seed, health, sandbox counts, and namespace GC to it", clusterID, cfg.ManagedClusterName)
+	slog.InfoContext(ctx, "Registered managed cluster, scoping gateway watch, seed, health, sandbox counts, and namespace GC to it",
+		"cluster_id", clusterID,
+		"managed_cluster", cfg.ManagedClusterName,
+	)
 
 	if clientset != nil && dynamicClient != nil {
 		gr, grErr := reconciler.NewGatewayReconciler(
@@ -390,13 +425,13 @@ func main() {
 			cfg.SandboxRuntimeClass,
 		)
 		if grErr != nil {
-			log.Printf("WARN gateway reconciler disabled: %v", grErr)
+			slog.WarnContext(ctx, "Gateway reconciler disabled", "error", grErr)
 			gatewayReconciler = reconciler.NewStubGatewayReconciler()
 		} else {
 			gatewayReconciler = gr
 		}
 	} else {
-		log.Printf("WARN no kubernetes client available, using stub gateway reconciler")
+		slog.WarnContext(ctx, "No kubernetes client available, using stub gateway reconciler")
 		gatewayReconciler = reconciler.NewStubGatewayReconciler()
 	}
 
@@ -425,9 +460,9 @@ func main() {
 				if err != nil {
 					consecutiveFailures++
 					if consecutiveFailures >= 5 {
-						log.Printf("ERROR heartbeat has failed %d consecutive times; hub may be unreachable: %v", consecutiveFailures, err)
+						slog.ErrorContext(ctx, "Heartbeat has failed repeatedly, hub may be unreachable", "count", consecutiveFailures, "error", err)
 					} else {
-						log.Printf("WARN heartbeat registration failed: %v", err)
+						slog.WarnContext(ctx, "Heartbeat registration failed", "error", err)
 					}
 					continue
 				}
@@ -437,7 +472,10 @@ func main() {
 				// Every watch and reconciler is scoped to the old id, so restart
 				// to pick up the new identity rather than serve a stale filter.
 				if heartbeatID != clusterID {
-					log.Fatalf("FATAL registered cluster_id changed from %s to %s (ManagedCluster record was recreated); exiting so the control plane restarts with the new identity", clusterID, heartbeatID)
+					fatal("Registered cluster_id changed (ManagedCluster record was recreated), exiting so the control plane restarts with the new identity",
+						"previous_cluster_id", clusterID,
+						"cluster_id", heartbeatID,
+					)
 				}
 			}
 		}
@@ -492,7 +530,7 @@ func main() {
 	// degraded until a store is configured.
 	secretReader, secretReaderErr := secretstore.NewReaderFromEnv()
 	if secretReaderErr != nil {
-		log.Printf("WARN secret store reader misconfigured, SecretSource placement will fail: %v", secretReaderErr)
+		slog.WarnContext(ctx, "Secret store reader misconfigured, SecretSource placement will fail", "error", secretReaderErr)
 		secretReader = secretstore.NewErrorReader(secretReaderErr)
 	}
 	agentRuntimeReconciler := reconciler.NewAgentRuntimeReconciler(agentRuntimeKube, secretReader, conn, clusterID)
@@ -507,7 +545,7 @@ func main() {
 	// that adapter is wired the realizer stays nil and the reconciler keeps the transitional
 	// raw-Secret placement so the live fleet does not regress (realize-before-prune applies
 	// once the realizer is set).
-	log.Printf("INFO gateway-side provider realization over OpenShell's existing API is not yet active (live OpenShell API session factory pending upstream); using transitional raw-Secret placement")
+	slog.InfoContext(ctx, "Gateway-side provider realization over OpenShell's existing API is not yet active (live OpenShell API session factory pending upstream), using transitional raw-Secret placement")
 
 	supervise("AgentRuntime watch", func(ctx context.Context) error {
 		return watcher.WatchAgentRuntimes(ctx, conn, agentRuntimeReconciler, clusterID, cfg.WatchIdleTimeout)
@@ -515,7 +553,7 @@ func main() {
 
 	if cfg.CITrustEnabled {
 		if kcClient == nil {
-			log.Printf("WARN CI trust reconciler enabled but no Keycloak client available; CI trust reconciliation will not function until Keycloak is configured")
+			slog.WarnContext(ctx, "CI trust reconciler enabled but no Keycloak client available, CI trust reconciliation will not function until Keycloak is configured")
 		}
 		ciProviderReconciler := reconciler.NewCIProviderReconciler(kcClient, conn)
 		supervise("CIProvider watch", func(ctx context.Context) error {
@@ -525,12 +563,12 @@ func main() {
 		supervise("CITrust watch", func(ctx context.Context) error {
 			return watcher.WatchCITrusts(ctx, conn, ciTrustReconciler, cfg.WatchIdleTimeout)
 		})
-		log.Printf("INFO CI trust reconciler launched (CIProvider + CITrust watches)")
+		slog.InfoContext(ctx, "CI trust reconciler launched (CIProvider + CITrust watches)")
 	} else {
-		log.Printf("INFO CI trust reconciler disabled (HYPERSHELL_CI_TRUST_ENABLED=false)")
+		slog.InfoContext(ctx, "CI trust reconciler disabled", "setting", "HYPERSHELL_CI_TRUST_ENABLED=false")
 	}
 
-	log.Printf("INFO all %d watch streams launched", watchCount)
+	slog.InfoContext(ctx, "All watch streams launched", "count", watchCount)
 
 	// The declarative `.hypershell` import reconciler (RepositoryReconciler) is the
 	// single git-to-API sync component: for each registered Repository it reads only
@@ -546,12 +584,15 @@ func main() {
 		if cfg.GitHubTokenFile != "" {
 			tokenBytes, tokenErr := os.ReadFile(cfg.GitHubTokenFile)
 			if tokenErr != nil {
-				log.Printf("WARN repository import: reading GitHub token file %s failed; default platform credential unavailable (private repositories with a secret_source_id still work): %v", cfg.GitHubTokenFile, tokenErr)
+				slog.WarnContext(ctx, "Repository import: reading GitHub token file failed, default platform credential unavailable (private repositories with a secret_source_id still work)",
+					"path", cfg.GitHubTokenFile,
+					"error", tokenErr,
+				)
 			} else {
 				platformToken = strings.TrimSpace(string(tokenBytes))
 			}
 		} else {
-			log.Printf("INFO repository import: no HYPERSHELL_GITHUB_TOKEN_FILE set; only repositories with a per-Repository secret_source_id credential (or public repositories) can be read")
+			slog.InfoContext(ctx, "Repository import: no HYPERSHELL_GITHUB_TOKEN_FILE set, only repositories with a per-Repository secret_source_id credential (or public repositories) can be read")
 		}
 		importResolver := reconciler.NewSecretStoreCredentialResolverWithGitHubApp(secretReader, pb.NewSecretSourceServiceClient(conn), platformToken, nil, cfg.GitHubAPIBase)
 		importFetcher := reconciler.NewGitHubSubtreeFetcher(nil, cfg.GitHubAPIBase)
@@ -571,9 +612,9 @@ func main() {
 		supervise("Repository watch", func(ctx context.Context) error {
 			return watcher.WatchRepositories(ctx, conn, repositoryReconciler, cfg.WatchIdleTimeout)
 		})
-		log.Printf("INFO repository import reconciler launched (drift re-check interval=%s, event-driven via Repository watch)", cfg.RepositoryImportInterval)
+		slog.InfoContext(ctx, "Repository import reconciler launched (event-driven via Repository watch)", "interval", cfg.RepositoryImportInterval)
 	} else {
-		log.Printf("INFO repository import reconciler disabled (HYPERSHELL_REPOSITORY_IMPORT_ENABLED=false)")
+		slog.InfoContext(ctx, "Repository import reconciler disabled", "setting", "HYPERSHELL_REPOSITORY_IMPORT_ENABLED=false")
 	}
 
 	// The continuous gateway health reconciler keeps each Gateway's phase and
@@ -582,9 +623,9 @@ func main() {
 	if clientset != nil {
 		healthReconciler := reconciler.NewGatewayHealthReconciler(clientset, dynamicClient, conn, exposurePort, keycloakConfig, clusterID, cfg.Namespace)
 		supervise("gateway health reconciler", healthReconciler.Run)
-		log.Printf("INFO gateway health reconciler launched")
+		slog.InfoContext(ctx, "Gateway health reconciler launched")
 	} else {
-		log.Printf("WARN no kubernetes client available, gateway health reconciliation disabled")
+		slog.WarnContext(ctx, "No kubernetes client available, gateway health reconciliation disabled")
 	}
 
 	// The sandbox-count reconciler maintains each Gateway's active_sandbox_count
@@ -594,23 +635,23 @@ func main() {
 	if clientset != nil {
 		sandboxCountReconciler := reconciler.NewSandboxCountReconciler(clientset, conn, 0, clusterID)
 		supervise("sandbox count reconciler", sandboxCountReconciler.Run)
-		log.Printf("INFO sandbox count reconciler launched")
+		slog.InfoContext(ctx, "Sandbox count reconciler launched")
 
 		if dynamicClient != nil {
 			sandboxAttentionReconciler := reconciler.NewSandboxAttentionReconciler(
 				clientset, dynamicClient, conn, 0, clusterID, cfg.Namespace, kcClient,
 			)
 			supervise("sandbox attention reconciler", sandboxAttentionReconciler.Run)
-			log.Printf("INFO sandbox attention reconciler launched")
+			slog.InfoContext(ctx, "Sandbox attention reconciler launched")
 
 			sandboxEventsReconciler := reconciler.NewSandboxEventsReconciler(clientset, dynamicClient, conn, 0, clusterID, 0)
 			supervise("sandbox events reconciler", sandboxEventsReconciler.Run)
-			log.Printf("INFO sandbox events reconciler launched")
+			slog.InfoContext(ctx, "Sandbox events reconciler launched")
 		} else {
-			log.Printf("WARN no dynamic client available, sandbox attention and events reconciliation disabled")
+			slog.WarnContext(ctx, "No dynamic client available, sandbox attention and events reconciliation disabled")
 		}
 	} else {
-		log.Printf("WARN no kubernetes client available, sandbox count reconciliation disabled")
+		slog.WarnContext(ctx, "No kubernetes client available, sandbox count reconciliation disabled")
 	}
 
 	// The namespace GC reconciler reaps gateway namespaces the control plane
@@ -622,15 +663,17 @@ func main() {
 			clientset, conn, cfg.NamespaceGCInterval, cfg.NamespaceGCGracePeriod, cfg.Namespace, clusterID,
 		)
 		supervise("namespace GC reconciler", gcReconciler.Run)
-		log.Printf("INFO namespace GC reconciler launched (interval=%s grace=%s)",
-			cfg.NamespaceGCInterval, cfg.NamespaceGCGracePeriod)
+		slog.InfoContext(ctx, "Namespace GC reconciler launched",
+			"interval", cfg.NamespaceGCInterval,
+			"grace_period", cfg.NamespaceGCGracePeriod,
+		)
 	} else if clientset != nil {
-		log.Printf("INFO namespace GC reconciler disabled (GATEWAY_NAMESPACE_GC_ENABLED=false)")
+		slog.InfoContext(ctx, "Namespace GC reconciler disabled", "setting", "GATEWAY_NAMESPACE_GC_ENABLED=false")
 	}
 
 	<-ctx.Done()
-	log.Printf("INFO shutdown signal received, waiting for background components to stop")
+	slog.InfoContext(ctx, "Shutdown signal received, waiting for background components to stop")
 	wg.Wait()
 
-	log.Printf("INFO hypershell-controller stopped")
+	slog.InfoContext(ctx, "hypershell-controller stopped")
 }

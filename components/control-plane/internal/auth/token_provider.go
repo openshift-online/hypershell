@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -91,7 +91,7 @@ func (tp *TokenProvider) Token() (string, error) {
 	ttl := time.Duration(expiresIn) * time.Second
 	refreshAfter := ttl * 8 / 10
 	tp.expiry = time.Now().Add(refreshAfter)
-	log.Printf("INFO got OIDC access token for client %q; refresh in %s", tp.clientID, refreshAfter)
+	slog.Info("Got OIDC access token", "client_id", tp.clientID, "refresh_in", refreshAfter)
 
 	return tp.token, nil
 }
@@ -109,7 +109,7 @@ func (tp *TokenProvider) discover() (string, error) {
 	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {
-			log.Printf("WARN closing discovery response body: %v", closeErr)
+			slog.Warn("Failed to close discovery response body", "error", closeErr)
 		}
 	}()
 
@@ -153,7 +153,7 @@ func (tp *TokenProvider) fetchToken() (string, int, error) {
 	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {
-			log.Printf("WARN closing token response body: %v", closeErr)
+			slog.Warn("Failed to close token response body", "error", closeErr)
 		}
 	}()
 

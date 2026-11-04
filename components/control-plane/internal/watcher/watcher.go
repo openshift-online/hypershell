@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -87,7 +87,7 @@ func WatchManagedClusters(ctx context.Context, conn *grpc.ClientConn, handler Ha
 				ResourceID: event.ResourceId,
 				Resource:   event.ManagedCluster,
 			}); err != nil {
-				log.Printf("ERROR handling managed cluster %s: %v", event.ResourceId, err)
+				slog.ErrorContext(ctx, "Failed to handle managed cluster event", "managed_cluster", event.ResourceId, "error", err)
 			}
 		}
 	})
@@ -123,7 +123,7 @@ func WatchRepositories(ctx context.Context, conn *grpc.ClientConn, handler Handl
 				ResourceID: event.ResourceId,
 				Resource:   event.Repository,
 			}); err != nil {
-				log.Printf("ERROR handling repository %s: %v", event.ResourceId, err)
+				slog.ErrorContext(ctx, "Failed to handle repository event", "name", event.ResourceId, "error", err)
 			}
 		}
 	})
@@ -474,7 +474,7 @@ func seedGateways(ctx context.Context, client pb.GatewayServiceClient, sink gate
 			if status.Code(err) != codes.NotFound {
 				// Confirmation failed for another reason (transient RPC error, etc.):
 				// absence is unproven, so keep the retry; a later seed reconfirms.
-				log.Printf("WARN could not confirm gateway %s absence during seed; keeping its retry: %v", id, err)
+				slog.WarnContext(ctx, "Could not confirm gateway absence during seed, keeping its retry", "gateway_id", id, "error", err)
 				continue
 			}
 			// NotFound: the gateway really is gone. pruneIfNonDelete checks the
@@ -502,7 +502,10 @@ func seedGateways(ctx context.Context, client pb.GatewayServiceClient, sink gate
 		}, false)
 	}
 
-	log.Printf("INFO seeded %d gateway(s) into reconcile queue on watch (re)connect (%d forced past the phase gate for recovery, %d absent retries pruned)", seeded, forced, pruned)
+	slog.InfoContext(ctx, "Seeded gateways into reconcile queue on watch (re)connect",
+		"count", seeded,
+		"forced_past_phase_gate", forced,
+		"absent_retries_pruned", pruned)
 	return nil
 }
 
@@ -726,7 +729,7 @@ func WatchRoleBindings(ctx context.Context, conn *grpc.ClientConn, handler Handl
 					return
 				case <-ticker.C:
 					if err := seedRoleBindings(runCtx, client, rq, clusterID); err != nil && runCtx.Err() == nil {
-						log.Printf("WARN role binding resync failed; retrying next interval: %v", err)
+						slog.WarnContext(runCtx, "Role binding resync failed, retrying next interval", "error", err)
 					}
 				}
 			}
@@ -782,7 +785,7 @@ func seedRoleBindings(ctx context.Context, client pb.RoleBindingServiceClient, s
 		})
 		seeded++
 	}
-	log.Printf("INFO seeded %d role binding(s) into reconcile queue on role binding watch (re)connect/resync", seeded)
+	slog.InfoContext(ctx, "Seeded role bindings into reconcile queue on role binding watch (re)connect/resync", "count", seeded)
 	return nil
 }
 
@@ -918,7 +921,7 @@ func seedAgentRuntimes(ctx context.Context, client pb.AgentRuntimeServiceClient,
 		})
 		seeded++
 	}
-	log.Printf("INFO seeded %d agent runtime(s) into reconcile queue on agent runtime watch (re)connect", seeded)
+	slog.InfoContext(ctx, "Seeded agent runtimes into reconcile queue on agent runtime watch (re)connect", "count", seeded)
 	return nil
 }
 
@@ -993,7 +996,7 @@ func WatchCIProviders(ctx context.Context, conn *grpc.ClientConn, handler Handle
 				ResourceID: event.ResourceId,
 				Resource:   event.CiProvider,
 			}); err != nil {
-				log.Printf("ERROR handling CI provider %s: %v", event.ResourceId, err)
+				slog.ErrorContext(ctx, "Failed to handle CI provider event", "name", event.ResourceId, "error", err)
 			}
 		}
 	})
@@ -1023,7 +1026,7 @@ func WatchCITrusts(ctx context.Context, conn *grpc.ClientConn, handler Handler[*
 				ResourceID: event.ResourceId,
 				Resource:   event.CiTrust,
 			}); err != nil {
-				log.Printf("ERROR handling CI trust %s: %v", event.ResourceId, err)
+				slog.ErrorContext(ctx, "Failed to handle CI trust event", "name", event.ResourceId, "error", err)
 			}
 		}
 	})
@@ -1046,7 +1049,7 @@ func watchLoop(ctx context.Context, kind string, idleTimeout time.Duration, conn
 		default:
 		}
 
-		log.Printf("INFO connecting %s watch stream...", kind)
+		slog.InfoContext(ctx, "Connecting watch stream", "kind", kind)
 		// Scope each attempt to its own cancelable context so the RPC -- and its
 		// server-side broker subscription -- is torn down before we reconnect.
 		// connectAndRecv can return while the stream is still healthy (e.g. a
@@ -1083,7 +1086,7 @@ func watchLoop(ctx context.Context, kind string, idleTimeout time.Duration, conn
 		endSpan(err)
 
 		reconnected = true
-		log.Printf("WARN %s watch stream disconnected: %v; reconnecting in %v", kind, err, backoff)
+		slog.WarnContext(ctx, "Watch stream disconnected, reconnecting", "kind", kind, "error", err, "backoff", backoff)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -1128,7 +1131,7 @@ func startIdleWatchdog(ctx context.Context, kind string, idleTimeout time.Durati
 				}
 				timer.Reset(idleTimeout)
 			case <-timer.C:
-				log.Printf("WARN %s watch stream idle for %s with no events or error; cancelling the attempt to reconnect and reseed", kind, idleTimeout)
+				slog.WarnContext(ctx, "Watch stream idle with no events or error, cancelling the attempt to reconnect and reseed", "kind", kind, "idle_timeout", idleTimeout)
 				cancel()
 				return
 			}

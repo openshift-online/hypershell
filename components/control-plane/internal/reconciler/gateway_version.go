@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -45,7 +45,7 @@ func (h *GatewayHealthReconciler) reconcileGatewayVersion(ctx context.Context, c
 
 	if h.healthAccessCheckDue(namespace) {
 		if err := gateway.ReconcileGatewayHealthAccess(ctx, h.clientset, namespace); err != nil {
-			log.Printf("WARN gateway version: reconcile access for %s: %v", gatewayID, err)
+			slog.WarnContext(ctx, "Gateway version: reconcile access failed", "gateway_id", gatewayID, "error", err)
 			return
 		}
 		h.mu.Lock()
@@ -60,7 +60,7 @@ func (h *GatewayHealthReconciler) reconcileGatewayVersion(ctx context.Context, c
 		h.mu.Lock()
 		delete(h.healthAccessCheckedAt, namespace)
 		h.mu.Unlock()
-		log.Printf("WARN gateway version: observe runtime for %s: %v", gatewayID, err)
+		slog.WarnContext(ctx, "Gateway version: observe runtime failed", "gateway_id", gatewayID, "error", err)
 		return
 	}
 	request := gatewayVersionUpdateRequest(gatewayRecord, observedVersion)
@@ -71,10 +71,10 @@ func (h *GatewayHealthReconciler) reconcileGatewayVersion(ctx context.Context, c
 	updateCtx, cancel := context.WithTimeout(ctx, defaultGatewayVersionTimeout)
 	defer cancel()
 	if _, err := client.SetGatewayVersion(updateCtx, request); err != nil {
-		log.Printf("WARN gateway version: store runtime version for %s: %v", gatewayID, err)
+		slog.WarnContext(ctx, "Gateway version: store runtime version failed", "gateway_id", gatewayID, "error", err)
 		return
 	}
-	log.Printf("INFO gateway version: %s runtime version set to %s", gatewayID, observedVersion)
+	slog.InfoContext(ctx, "Gateway runtime version set", "gateway_id", gatewayID, "version", observedVersion)
 }
 
 func gatewayVersionUpdateRequest(gatewayRecord *pb.Gateway, observedVersion string) *pb.SetGatewayVersionRequest {

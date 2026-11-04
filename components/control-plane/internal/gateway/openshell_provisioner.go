@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 )
 
 // OpenShellProvisioner realizes an AgentRuntime's workspace on the OpenShell gateway it
@@ -205,7 +205,7 @@ func (p *OpenShellProvisioner) Realize(ctx context.Context, spec WorkspaceSpec) 
 	if err != nil {
 		return fmt.Errorf("gateway %s: open openshell session: %w", spec.GatewayID, err)
 	}
-	defer closeAndLog(closeSession)
+	defer closeAndLog(ctx, closeSession)
 
 	if err := api.EnsureWorkspace(ctx, spec.AgentRuntimeID, spec.WorkspaceName); err != nil {
 		return wrapWorkspaceError(spec, "ensure workspace", permanentCollision, err)
@@ -264,7 +264,7 @@ func (p *OpenShellProvisioner) Delete(ctx context.Context, gatewayID, agentRunti
 	if err != nil {
 		return fmt.Errorf("gateway %s: open openshell session: %w", gatewayID, err)
 	}
-	defer closeAndLog(closeSession)
+	defer closeAndLog(ctx, closeSession)
 
 	if err := api.DeleteWorkspace(ctx, workspaceName); err != nil {
 		return fmt.Errorf("gateway %s: delete workspace %q: %w", gatewayID, workspaceName, err)
@@ -314,11 +314,11 @@ func wrapWorkspaceError(spec WorkspaceSpec, op string, permit permanentClass, er
 
 // closeAndLog closes a short-lived OpenShell session, logging a non-nil close error
 // without failing the operation (the provisioning result has already been determined).
-func closeAndLog(closeSession func() error) {
+func closeAndLog(ctx context.Context, closeSession func() error) {
 	if closeSession == nil {
 		return
 	}
 	if err := closeSession(); err != nil {
-		log.Printf("WARN openshell workspace provisioning: close session: %v", err)
+		slog.WarnContext(ctx, "OpenShell workspace provisioning: failed to close session", "error", err)
 	}
 }

@@ -3,7 +3,7 @@ package reconciler
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
@@ -111,8 +111,10 @@ func (r *SandboxAttentionReconciler) Run(ctx context.Context) error {
 	}()
 	defer func() { stopHealth(); <-healthDone }()
 
-	log.Printf("INFO sandbox attention reconciler started (interval=%s cluster_id=%q instance=%s)",
-		r.interval, r.clusterID, r.instance)
+	slog.InfoContext(ctx, "Sandbox attention reconciler started",
+		"interval", r.interval,
+		"cluster", r.clusterID,
+		"instance", r.instance)
 	r.reconcileOnce(ctx)
 	ticker := time.NewTicker(r.interval)
 	defer ticker.Stop()
@@ -140,7 +142,7 @@ func (r *SandboxAttentionReconciler) reconcileOnce(ctx context.Context) {
 	namespaces, err := r.listNamespaces(listCtx)
 	if err != nil {
 		tickErr = err
-		log.Printf("WARN sandbox attention: list managed namespaces: %v", err)
+		slog.WarnContext(ctx, "Sandbox attention: list managed namespaces failed", "error", err)
 		r.publishDashboardHealthUnavailable(ctx)
 		r.publishZero(ctx)
 		return
@@ -155,7 +157,7 @@ func (r *SandboxAttentionReconciler) reconcileOnce(ctx context.Context) {
 	pods, err := r.listPods(listCtx)
 	if err != nil {
 		tickErr = err
-		log.Printf("WARN sandbox attention: list sandbox pods: %v", err)
+		slog.WarnContext(ctx, "Sandbox attention: list sandbox pods failed", "error", err)
 		r.publishDashboardHealthUnavailable(ctx)
 		r.publishZero(ctx)
 		return
@@ -168,7 +170,7 @@ func (r *SandboxAttentionReconciler) reconcileOnce(ctx context.Context) {
 	sandboxes, err := r.listSandboxes(listCtx)
 	crListFailed := err != nil
 	if crListFailed {
-		log.Printf("WARN sandbox attention: list sandbox CRs (degrading to pod-only orphaned counts): %v", err)
+		slog.WarnContext(ctx, "Sandbox attention: list sandbox CRs failed (degrading to pod-only orphaned counts)", "error", err)
 		sandboxes = nil
 	}
 
@@ -182,7 +184,7 @@ func (r *SandboxAttentionReconciler) reconcileOnce(ctx context.Context) {
 	if r.listCertificates != nil && r.publishCertificates != nil {
 		materials, certErr := r.listCertificates(listCtx, eligible)
 		if certErr != nil {
-			log.Printf("WARN dashboard health: evaluate certificates: %v", certErr)
+			slog.WarnContext(ctx, "Dashboard health: evaluate certificates failed", "error", certErr)
 			if r.publishCertificatesUnavailable != nil {
 				r.publishCertificatesUnavailable(ctx)
 			}
@@ -194,7 +196,7 @@ func (r *SandboxAttentionReconciler) reconcileOnce(ctx context.Context) {
 	live, err := r.liveNamespaces(listCtx)
 	if err != nil {
 		tickErr = err
-		log.Printf("WARN sandbox attention: list live gateway namespaces: %v", err)
+		slog.WarnContext(ctx, "Sandbox attention: list live gateway namespaces failed", "error", err)
 		r.publishZero(ctx)
 		return
 	}
@@ -206,8 +208,10 @@ func (r *SandboxAttentionReconciler) reconcileOnce(ctx context.Context) {
 	}
 
 	r.publish(ctx, counts)
-	log.Printf("INFO sandbox attention: exported %s (eligible_ns=%d observations=%d)",
-		gateway.FormatAttentionCounts(counts), len(eligible), len(observations))
+	slog.InfoContext(ctx, "Sandbox attention exported",
+		"counts", gateway.FormatAttentionCounts(counts),
+		"eligible_ns", len(eligible),
+		"observations", len(observations))
 }
 
 func (r *SandboxAttentionReconciler) recordUsage(
@@ -325,7 +329,7 @@ func (r *SandboxAttentionReconciler) observeOIDCHealth(ctx context.Context) {
 	}
 	gateways, err := r.listGateways(ctx)
 	if err != nil {
-		log.Printf("WARN dashboard health: list desired OIDC clients: %v", err)
+		slog.WarnContext(ctx, "Dashboard health: list desired OIDC clients failed", "error", err)
 		r.publishOIDCObservation(ctx, 0, 0, false)
 		return
 	}
@@ -338,7 +342,7 @@ func (r *SandboxAttentionReconciler) observeOIDCHealth(ctx context.Context) {
 	for _, clientID := range clientIDs {
 		inSync, inspectErr := r.oidcInspector.GatewayClientSynced(ctx, clientID)
 		if inspectErr != nil {
-			log.Printf("WARN dashboard health: compare desired OIDC clients: %v", inspectErr)
+			slog.WarnContext(ctx, "Dashboard health: compare desired OIDC clients failed", "error", inspectErr)
 			r.publishOIDCObservation(ctx, synced, len(clientIDs), false)
 			return
 		}

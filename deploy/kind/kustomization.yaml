@@ -102,6 +102,11 @@ patches:
                     value: "http://hypershell-api-server.hypershell-system.svc.cluster.local:8000"
                   - name: OTEL_EXPORTER_OTLP_ENDPOINT
                     value: "http://otel-collector.hypershell-system.svc.cluster.local:4317"
+                  # The Kind collector has a metrics pipeline only. Without
+                  # this, the controller's log exporter (OBS-CPL-11) would
+                  # log a periodic "Unimplemented" upload error.
+                  - name: OTEL_LOGS_EXPORTER
+                    value: "none"
             dnsConfig:
               options:
                 - name: use-vc

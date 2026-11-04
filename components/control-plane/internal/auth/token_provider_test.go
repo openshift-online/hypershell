@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,17 +15,9 @@ import (
 
 func TestTokenGrantLogContainsSafeRefreshDetails(t *testing.T) {
 	var output bytes.Buffer
-	priorWriter := log.Writer()
-	priorFlags := log.Flags()
-	priorPrefix := log.Prefix()
-	log.SetOutput(&output)
-	log.SetFlags(0)
-	log.SetPrefix("")
-	t.Cleanup(func() {
-		log.SetOutput(priorWriter)
-		log.SetFlags(priorFlags)
-		log.SetPrefix(priorPrefix)
-	})
+	prior := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&output, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(prior) })
 
 	var grants atomic.Int32
 	server := newTokenServer(t, &grants)
@@ -37,7 +29,7 @@ func TestTokenGrantLogContainsSafeRefreshDetails(t *testing.T) {
 	}
 
 	message := output.String()
-	if !strings.Contains(message, `client "client-id\nforged-entry"; refresh in 4m0s`) {
+	if !strings.Contains(message, `client_id="client-id\nforged-entry" refresh_in=4m0s`) {
 		t.Fatalf("token grant log = %q, want quoted client ID and refresh interval", message)
 	}
 	for _, forbidden := range []string{"token-1", "client-secret", "\nforged-entry"} {

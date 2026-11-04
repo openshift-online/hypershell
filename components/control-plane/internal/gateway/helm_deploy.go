@@ -3,7 +3,7 @@ package gateway
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"strings"
 
@@ -76,14 +76,14 @@ func deployGatewayViaHelm(
 	// Install or upgrade the release
 	if status == nil {
 		// No release exists, install it
-		log.Printf("INFO installing helm release in namespace %s", nsConfig.Name)
+		slog.InfoContext(ctx, "Installing helm release", "namespace", nsConfig.Name)
 		if err := helmClient.Install(ctx, nsConfig.Name, values); err != nil {
 			return fmt.Errorf("helm install: %w", err)
 		}
 	} else if status.Status == "failed" {
 		// A previous install/upgrade ran to completion but with an error. Helm
 		// allows retrying this via a normal upgrade.
-		log.Printf("INFO retrying failed helm release in namespace %s (status: %s)", nsConfig.Name, status.Status)
+		slog.InfoContext(ctx, "Retrying failed helm release", "namespace", nsConfig.Name, "status", status.Status)
 		if err := helmClient.Upgrade(ctx, nsConfig.Name, values); err != nil {
 			return fmt.Errorf("helm upgrade: %w", err)
 		}
@@ -96,7 +96,7 @@ func deployGatewayViaHelm(
 		// retry forever. The only clean recovery is to discard the stuck release
 		// and reinstall; nothing the chart renders can have been left in a
 		// working state while the release was still pending.
-		log.Printf("INFO helm release in namespace %s is stuck (status: %s); reinstalling", nsConfig.Name, status.Status)
+		slog.InfoContext(ctx, "Helm release is stuck; reinstalling", "namespace", nsConfig.Name, "status", status.Status)
 		if err := helmClient.Uninstall(ctx, nsConfig.Name); err != nil {
 			return fmt.Errorf("uninstall stuck helm release: %w", err)
 		}
@@ -104,18 +104,18 @@ func deployGatewayViaHelm(
 			return fmt.Errorf("reinstall helm release: %w", err)
 		}
 	} else if status.Status == "deployed" {
-		log.Printf("INFO upgrading deployed helm release in namespace %s", nsConfig.Name)
+		slog.InfoContext(ctx, "Upgrading deployed helm release", "namespace", nsConfig.Name)
 		if err := helmClient.Upgrade(ctx, nsConfig.Name, values); err != nil {
 			return fmt.Errorf("helm upgrade: %w", err)
 		}
 	} else {
-		log.Printf("INFO upgrading helm release in namespace %s (current status: %s)", nsConfig.Name, status.Status)
+		slog.InfoContext(ctx, "Upgrading helm release", "namespace", nsConfig.Name, "status", status.Status)
 		if err := helmClient.Upgrade(ctx, nsConfig.Name, values); err != nil {
 			return fmt.Errorf("helm upgrade: %w", err)
 		}
 	}
 
-	log.Printf("INFO helm release deployed in namespace %s", nsConfig.Name)
+	slog.InfoContext(ctx, "Helm release deployed", "namespace", nsConfig.Name)
 	return nil
 }
 

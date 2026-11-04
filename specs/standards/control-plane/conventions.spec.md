@@ -35,7 +35,7 @@ SecurityContext: &corev1.SecurityContext{
 
 ```go
 if errors.IsNotFound(err) {
-    log.Printf("Resource %s/%s deleted, skipping", namespace, name)
+    slog.InfoContext(ctx, "Resource deleted, skipping", "namespace", namespace, "name", name)
     return nil
 }
 

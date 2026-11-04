@@ -2,7 +2,7 @@ package config
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -29,7 +29,6 @@ type Config struct {
 	GRPCServerAddr string
 	APIServerURL   string
 	Namespace      string
-	LogLevel       string
 
 	// ManagedClusterName is the human-readable name this control plane
 	// registers under (e.g. hyp0-mc1, or local-kind in the Kind overlay), unique
@@ -188,7 +187,6 @@ func Load() (*Config, error) {
 		GRPCServerAddr:                   getEnv("HYPERSHELL_GRPC_SERVER_ADDR", "localhost:9000"),
 		APIServerURL:                     getEnv("HYPERSHELL_API_SERVER_URL", "http://localhost:8000"),
 		Namespace:                        getEnv("HYPERSHELL_NAMESPACE", "hypershell"),
-		LogLevel:                         strings.ToLower(getEnv("HYPERSHELL_LOG_LEVEL", "info")),
 		ManagedClusterName:               getEnv("HYPERSHELL_MANAGED_CLUSTER_NAME", ""),
 		ManagedClusterCapabilities:       parseCapabilities(getEnv("HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES", "")),
 		OIDCIssuer:                       getEnv("OIDC_ISSUER", ""),
@@ -302,7 +300,7 @@ func getEnvBool(key string, fallback bool) bool {
 	}
 	parsed, err := strconv.ParseBool(v)
 	if err != nil {
-		log.Printf("WARN invalid bool for %s=%q, using default %v: %v", key, v, fallback, err)
+		slog.Warn("Invalid bool environment variable, using default", "name", key, "value", v, "default", fallback, "error", err)
 		return fallback
 	}
 	return parsed
@@ -321,11 +319,11 @@ func getEnvInt(key string, fallback, min int) int {
 	}
 	parsed, err := strconv.Atoi(v)
 	if err != nil {
-		log.Printf("WARN invalid int for %s=%q, using default %d: %v", key, v, fallback, err)
+		slog.Warn("Invalid int environment variable, using default", "name", key, "value", v, "default", fallback, "error", err)
 		return fallback
 	}
 	if parsed < min {
-		log.Printf("WARN %s=%d is below the minimum %d, using default %d", key, parsed, min, fallback)
+		slog.Warn("Environment variable is below the minimum, using default", "name", key, "value", parsed, "minimum", min, "default", fallback)
 		return fallback
 	}
 	return parsed
@@ -338,7 +336,7 @@ func getEnvDuration(key string, fallback time.Duration) time.Duration {
 	}
 	parsed, err := time.ParseDuration(v)
 	if err != nil {
-		log.Printf("WARN invalid duration for %s=%q, using default %s: %v", key, v, fallback, err)
+		slog.Warn("Invalid duration environment variable, using default", "name", key, "value", v, "default", fallback, "error", err)
 		return fallback
 	}
 	return parsed
