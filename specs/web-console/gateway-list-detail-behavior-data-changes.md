@@ -148,6 +148,13 @@ These values reflect the current cluster categories. Do not model a general or o
 - Provide a gateway-console alternative for users who prefer not to work in a terminal.
 - Link automation use cases to Service accounts from both User access and Connection.
 
+### Provisioning timeline continuity
+
+- After a user creates a gateway, land on that gateway's Commands tab and show the existing provisioning progress timeline with its current behavior.
+- When the user later opens the gateway detail page, land on the default Details tab with the Overview card.
+- On that later detail-page entry, show the provisioning timeline only if the installation is still in progress or ended with an error. If the Gateway is already successfully installed at page load, do not show the timeline.
+- Once an installation timeline is shown during a visit, keep it visible across tab navigation and after installation succeeds. The completed timeline remains available until the user leaves that gateway and returns, which starts the entry rule above again.
+
 ### Tab loading and refresh
 
 **Current behavior**
