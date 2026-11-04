@@ -43,6 +43,9 @@ func (d gatewayOwnerUsersDao) All(context.Context) (RoleBindingList, error) {
 func (d gatewayOwnerUsersDao) CountGatewayOwnerUsers(context.Context) (int64, error) {
 	return d.count, nil
 }
+func (d gatewayOwnerUsersDao) CountOwnersByGatewayID(context.Context, string) (int64, error) {
+	return 0, nil
+}
 
 func TestGatewayOwnerUsersCollector(t *testing.T) {
 	collector := newGatewayOwnerUsersCollector(gatewayOwnerUsersDao{count: 7})
