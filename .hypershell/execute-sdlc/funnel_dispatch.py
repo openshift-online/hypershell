@@ -515,6 +515,15 @@ class Coordinator:
                     state = self.github.code_state(item, linked[0], inspect)
                     if state and state['changed']:
                         item = self.github.current(item['number'])
+                    if state:
+                        row = self.store.get(f'{item["number"]}:code-review')
+                        if row:
+                            payload = json.loads(row['payload'])
+                            payload['code_readiness'] = state
+                            payload['labels'] = self.github.labels(item)
+                            with self.store.db:
+                                self.store.db.execute('UPDATE jobs SET payload=? WHERE key=?',
+                                                      (json.dumps(payload), row['key']))
                 if self.args.lifecycle == 'jira':
                     if 'agent/execution-record' not in self.github.labels(item):
                         # New GitHub-origin records must pass intake first.

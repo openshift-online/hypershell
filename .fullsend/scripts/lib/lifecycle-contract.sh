@@ -105,6 +105,9 @@ lifecycle_transition() {
     code-recovery:conflicts)
       add="agent/code-conflicts"
       remove="agent/review-code-approved agent/review-code-rejected agent/reviewable-code" ;;
+    code-recovery:ci-failed)
+      add="agent/review-code-rejected"
+      remove="agent/review-code-approved agent/reviewable-code" ;;
     code-recovery:waiting)
       add="agent/reviewable-code"
       remove="agent/review-code-approved agent/review-code-rejected" ;;

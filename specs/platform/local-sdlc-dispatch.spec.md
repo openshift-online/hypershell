@@ -219,6 +219,13 @@ agent names, issue numbers, and titles with middle truncation when necessary.
 Status, duration, and relative completion time SHALL provide temporal context.
 Notifications SHALL use a consistent dismissible card; success notices SHALL
 expire. Interactive sign-in choices SHALL support arrow-key selection.
+A successful review process SHALL NOT imply that approval was applied. Reviews
+awaiting required CI, draft resolution, or known mergeability SHALL remain visible
+in the main lists with explicit waiting text and a non-success semantic color,
+even when completed runs are hidden. Logs and details SHALL share that status;
+details SHALL explain the blocker, linked PR, and the automatic next step.
+Waiting reviews SHALL NOT count as completed runs. History SHALL continue to
+report the completed attempt, independently of current readiness.
 
 #### Scenario: SDLC-LOC-09.01 -- Inspect a run
 
