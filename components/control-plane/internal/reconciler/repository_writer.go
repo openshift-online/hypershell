@@ -74,7 +74,10 @@ func withOwnership(ctx context.Context, repoID string) context.Context {
 	return metadata.AppendToOutgoingContext(ctx, importRepositoryMetadataKey, repoID)
 }
 
-func (w *grpcImportWriter) ListOwned(ctx context.Context, repoID string) ([]ResourceRef, error) {
+func (w *grpcImportWriter) ListOwned(ctx context.Context, repoID string, cache *citrustPassCache) ([]ResourceRef, error) {
+	if cache == nil {
+		cache = &citrustPassCache{}
+	}
 	var refs []ResourceRef
 
 	sts, err := w.ownedSandboxTemplates(ctx, repoID)
@@ -137,11 +140,16 @@ func (w *grpcImportWriter) ListOwned(ctx context.Context, repoID string) ([]Reso
 		refs = append(refs, ResourceRef{Kind: "AgentRuntime", Name: ar.GetName(), ID: ar.GetMetadata().GetId()})
 	}
 
-	cts, err := w.ownedCITrusts(ctx, repoID)
-	if err != nil {
-		return nil, err
+	// Reuse the per-pass snapshot: when UpsertAll already loaded the cache this is a
+	// no-op and no second platform-wide CITrust scan happens; when the pass had no
+	// CITrust to upsert (cache unloaded) this is the single scan for the pass (FINDING 2).
+	// cache.ownedCITrusts is the already-filtered owned subset, so the owned-filter loop
+	// is not repeated here either.
+	w.ensureCITrustPassCache(ctx, repoID, cache)
+	if cache.err != nil {
+		return nil, cache.err
 	}
-	for _, ct := range cts {
+	for _, ct := range cache.ownedCITrusts {
 		refs = append(refs, ResourceRef{Kind: "CITrust", Name: ct.GetName(), ID: ct.GetMetadata().GetId()})
 	}
 
@@ -154,17 +162,21 @@ func (w *grpcImportWriter) ListOwned(ctx context.Context, repoID string) ([]Reso
 // upsert, so a pass that imports N CITrusts is O(all) not O(N*all) (FINDING 4). A
 // per-resource error is wrapped with the resource's Kind/Name and collected; it does
 // not abort the rest of the pass.
-func (w *grpcImportWriter) UpsertAll(ctx context.Context, repoID string, desired []RenderedResource) []error {
-	// A single shared CITrust cache for the whole pass. It is populated LAZILY on the
+func (w *grpcImportWriter) UpsertAll(ctx context.Context, repoID string, desired []RenderedResource, cache *citrustPassCache) []error {
+	// The caller threads one shared CITrust cache through UpsertAll and ListOwned so the
+	// platform-wide CITrust scan happens once per pass (FINDING 2). When called without
+	// one (focused tests) a local cache is used. The cache is populated LAZILY on the
 	// first CITrust upsert, not here: because the desired set is ordered so Gateways
 	// upsert before CITrusts (FINDING 1), loading the owned-Gateway set at first-CITrust
 	// time lets a CITrust resolve a Gateway created earlier in the SAME pass, while
 	// still reading each shared set only ONCE per pass (FINDING 4).
-	citrustCache := &citrustPassCache{}
+	if cache == nil {
+		cache = &citrustPassCache{}
+	}
 
 	var errs []error
 	for _, res := range desired {
-		if err := w.upsert(ctx, repoID, res, citrustCache); err != nil {
+		if err := w.upsert(ctx, repoID, res, cache); err != nil {
 			errs = append(errs, fmt.Errorf("upsert %s/%s: %w", res.Kind, res.Name, err))
 		}
 	}
@@ -838,7 +850,7 @@ func resolveCIProviderIDByName(providers []*pb.CIProvider, name string) (string,
 // resolveOwnedGatewayIDByName resolves a Gateway name to its id over the pre-fetched
 // set of gateways OWNED by this Repository. Restricting resolution to the owned set
 // both resolves the FK by name (#871/#873) and enforces the imported-CITrust tenancy
-// of SEC-RBAC-25 at the writer: a manifest referencing a gateway the Repository does
+// of SEC-RBAC-26 at the writer: a manifest referencing a gateway the Repository does
 // not own fails to resolve, so the control plane never attempts a cross-tenant CITrust
 // write. The api-server enforces the same gate server-side (the authoritative
 // backstop); this is the friendly early error.

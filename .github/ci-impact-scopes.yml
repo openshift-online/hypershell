@@ -302,6 +302,7 @@ scopes:
           - .github/actions/openshift-cluster-login/**
           - .github/workflows/pr-environment-*.yml
           - .github/workflows/ci-federation-test.yml
+          - .github/workflows/ci-sandbox-test.yml
         exclude:
           - '**/README.md'
           - '**/AGENTS.md'

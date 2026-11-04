@@ -531,7 +531,7 @@ func TestUpsertCITrust_UpdatesWhenRoleChanges(t *testing.T) {
 // An import may not author a CITrust on a gateway the Repository does not own; name
 // resolution is scoped to owned gateways, so the control plane never attempts a
 // cross-tenant write (the api-server enforces the same gate server-side).
-// Verifies: SEC-RBAC-25.02
+// Verifies: SEC-RBAC-26.02
 func TestUpsertCITrust_RejectsGatewayNotOwned(t *testing.T) {
 	// The Repository owns no gateway named agents-gateway (owned list empty).
 	gwc := &importFakeGatewayClient{}
@@ -717,7 +717,7 @@ func TestUpsertAll_SinglePassImportsGatewayThenCITrust(t *testing.T) {
 	ctc := &fakeCITrustClient{}
 	w := &grpcImportWriter{gateways: gwc, ciProviders: cpc, ciTrusts: ctc, pageSize: 100}
 
-	errs := w.UpsertAll(context.Background(), "repo-1", desired)
+	errs := w.UpsertAll(context.Background(), "repo-1", desired, &citrustPassCache{})
 	if len(errs) != 0 {
 		t.Fatalf("single-pass import reported errors: %v", errs)
 	}
@@ -794,6 +794,85 @@ func TestUpsertCITrust_UpdateSucceedsWhenReferencesResolveToSameIDs(t *testing.T
 	}
 }
 
+// The empty* fakes below serve an empty owned list for the kinds ListOwned enumerates
+// besides CITrust, so a full ListOwned can run without a live backend. Each implements
+// only the single List method ListOwned calls; the rest are satisfied by the embedded
+// nil interface.
+type emptySandboxTemplateClient struct {
+	pb.SandboxTemplateServiceClient
+}
+
+func (emptySandboxTemplateClient) ListSandboxTemplates(_ context.Context, _ *pb.ListSandboxTemplatesRequest, _ ...grpc.CallOption) (*pb.ListSandboxTemplatesResponse, error) {
+	return &pb.ListSandboxTemplatesResponse{}, nil
+}
+
+type emptyProviderSpecClient struct{ pb.ProviderSpecServiceClient }
+
+func (emptyProviderSpecClient) ListProviderSpecs(_ context.Context, _ *pb.ListProviderSpecsRequest, _ ...grpc.CallOption) (*pb.ListProviderSpecsResponse, error) {
+	return &pb.ListProviderSpecsResponse{}, nil
+}
+
+type emptyProviderBindingClient struct {
+	pb.ProviderBindingServiceClient
+}
+
+func (emptyProviderBindingClient) ListProviderBindings(_ context.Context, _ *pb.ListProviderBindingsRequest, _ ...grpc.CallOption) (*pb.ListProviderBindingsResponse, error) {
+	return &pb.ListProviderBindingsResponse{}, nil
+}
+
+type emptySecretSourceClient struct{ pb.SecretSourceServiceClient }
+
+func (emptySecretSourceClient) ListSecretSources(_ context.Context, _ *pb.ListSecretSourcesRequest, _ ...grpc.CallOption) (*pb.ListSecretSourcesResponse, error) {
+	return &pb.ListSecretSourcesResponse{}, nil
+}
+
+type emptyInferenceRouteClient struct{ pb.InferenceRouteServiceClient }
+
+func (emptyInferenceRouteClient) ListInferenceRoutes(_ context.Context, _ *pb.ListInferenceRoutesRequest, _ ...grpc.CallOption) (*pb.ListInferenceRoutesResponse, error) {
+	return &pb.ListInferenceRoutesResponse{}, nil
+}
+
+// fullOwnedWriter wires a grpcImportWriter with every client ListOwned enumerates, the
+// CITrust/Gateway/CIProvider ones being the given fakes and the rest empty.
+func fullOwnedWriter(gwc *importFakeGatewayClient, cpc *fakeCIProviderClient, ctc *fakeCITrustClient) *grpcImportWriter {
+	return &grpcImportWriter{
+		sandboxTemplates: emptySandboxTemplateClient{},
+		providerSpecs:    emptyProviderSpecClient{},
+		providerBindings: emptyProviderBindingClient{},
+		secretSources:    emptySecretSourceClient{},
+		inferenceRoutes:  emptyInferenceRouteClient{},
+		gateways:         gwc,
+		agentRuntimes:    &fakeAgentRuntimeClient{},
+		ciTrusts:         ctc,
+		ciProviders:      cpc,
+		pageSize:         100,
+	}
+}
+
+// TestUpsertAllThenListOwned_ScansCITrustsOncePerPass proves the per-pass CITrust cache
+// is threaded from UpsertAll into ListOwned, so the platform-wide CITrust table is scanned
+// ONCE for the whole pass rather than again to build the prune list (FINDING 2). Before
+// the fix ListOwned called ownedCITrusts, which re-ran listAllCITrusts, so the same pass
+// scanned the table twice (listCalls == 2).
+func TestUpsertAllThenListOwned_ScansCITrustsOncePerPass(t *testing.T) {
+	gwc := &importFakeGatewayClient{owned: []*pb.Gateway{importGw("gw-id", "agents-gateway", "repo-1", "c1")}}
+	cpc := &fakeCIProviderClient{items: []*pb.CIProvider{ciProvider("cp-id", "github-actions")}}
+	ctc := &fakeCITrustClient{}
+	w := fullOwnedWriter(gwc, cpc, ctc)
+	desired := []RenderedResource{{Kind: "CITrust", Name: "ct-1", Spec: citrustSpec()}}
+
+	cache := &citrustPassCache{}
+	if errs := w.UpsertAll(context.Background(), "repo-1", desired, cache); len(errs) != 0 {
+		t.Fatalf("UpsertAll reported errors: %v", errs)
+	}
+	if _, err := w.ListOwned(context.Background(), "repo-1", cache); err != nil {
+		t.Fatalf("ListOwned error = %v", err)
+	}
+	if ctc.listCalls != 1 {
+		t.Errorf("ListCITrusts calls = %d across UpsertAll+ListOwned, want 1 (shared per-pass scan)", ctc.listCalls)
+	}
+}
+
 // TestUpsertAll_SharesCITrustReadsAcrossMultipleTrusts proves a pass importing several
 // CITrusts is O(all) not O(N*all): the owned-CITrust set, owned-Gateway set, and
 // CIProvider registry are each read ONCE for the whole pass and shared across every
@@ -809,7 +888,7 @@ func TestUpsertAll_SharesCITrustReadsAcrossMultipleTrusts(t *testing.T) {
 		{Kind: "CITrust", Name: "ct-2", Spec: citrustSpec()},
 	}
 
-	errs := w.UpsertAll(context.Background(), "repo-1", desired)
+	errs := w.UpsertAll(context.Background(), "repo-1", desired, &citrustPassCache{})
 	if len(errs) != 0 {
 		t.Fatalf("UpsertAll reported errors: %v", errs)
 	}
