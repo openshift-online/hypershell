@@ -39,8 +39,6 @@ func (e *DevOidcEnvImpl) Flags() map[string]string {
 		"log-level":            "debug",
 		"enable-jwt":           "true",
 		"enable-authz":         "false",
-		"debug":                "false",
-		"enable-mock":          "true",
 		"enable-https":         "false",
 		"enable-metrics-https": "false",
 		"api-server-hostname":  "localhost",

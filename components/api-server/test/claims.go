@@ -13,13 +13,17 @@ import (
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/testutil"
 )
 
+// TestJWTIssuer is the "iss" claim of the tokens these helpers sign. The test
+// environments do not set --jwt-issuer, so the value is not checked.
+const TestJWTIssuer = "https://sso.hypershell.test/auth/realms/test"
+
 // CreateJWTStringWithClaims signs a test JWT for account like CreateJWTString,
 // then applies extra claims on top (for example "sub" or "realm_access"). It is
 // used to act as an OIDC client_credentials caller, such as a control plane
 // whose JWT subject is the key of its ManagedCluster registration.
 func (helper *Helper) CreateJWTStringWithClaims(account *testutil.TestAccount, extra jwt.MapClaims) string {
 	claims := jwt.MapClaims{
-		"iss":        helper.AppConfig.APIClient.TokenURL,
+		"iss":        TestJWTIssuer,
 		"username":   strings.ToLower(account.Username),
 		"first_name": account.FirstName,
 		"last_name":  account.LastName,
