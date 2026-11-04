@@ -1,12 +1,15 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
 func waitingReview() Row {
-	r := Row{Job: Job{Key: "832:code-review", Scope: "agent/scope/test", Agent: "code-review", Item: "832", Title: "RoleBinding authorization", PRURL: "https://github.com/test/repo/pull/834", Labels: []string{"agent/reviewable-code"}, CodeReadiness: &CodeReadiness{State: "open", Checks: "pending"}}, Status: "succeeded", Finished: seconds() - 60}
+	current := true
+	r := Row{Job: Job{Key: "832:code-review", Scope: "agent/scope/test", Agent: "code-review", Item: "832", Title: "RoleBinding authorization", PRURL: "https://github.com/test/repo/pull/834", Labels: []string{"agent/reviewable-code"}, CodeReadiness: &CodeReadiness{State: "open", Checks: "pending", ReviewCurrent: &current}}, Status: "succeeded", Finished: seconds() - 60}
 	return r
 }
 
@@ -90,5 +93,73 @@ func TestFailedCIHandoffIsExplicitInCompletedReview(t *testing.T) {
 	}
 	if !strings.Contains(reviewWaitingDetail(r), "returned to code implementation") {
 		t.Fatal("missing next step")
+	}
+}
+
+func TestNewRevisionAwaitsReviewAndShowsIndependentSynchronizationBlocker(t *testing.T) {
+	s := testStore(t)
+	r := waitingReview()
+	current := false
+	r.CodeReadiness.ReviewCurrent = &current
+	r.Started = seconds() - 1000
+	r.Finished = seconds() - 100
+	if rowStatus(r) != "Awaiting new review" || durationLabel(r) != "-" {
+		t.Fatal("old review masquerades as current work")
+	}
+	dir := t.TempDir()
+	reviewID, err := s.start(r.Job, "previous-review.log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.finish(r.Key, reviewID, 0, 30, 3600); err != nil {
+		t.Fatal(err)
+	}
+	sync := r.Job
+	sync.Key = "832:reconcile"
+	sync.Agent = "reconcile"
+	path := filepath.Join(dir, "sync.log")
+	if err = os.WriteFile(path, []byte("snapshot: acli authentication has expired"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	syncID, err := s.start(sync, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.finish(sync.Key, syncID, 127, 30, 3600); err != nil {
+		t.Fatal(err)
+	}
+	e, err := newEngine(Config{Scope: r.Scope, LogDir: dir}, Adapter{}, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.diagnostic.Close()
+	rows, err := e.publishRows()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if row.Agent != "code-review" {
+			continue
+		}
+		if len(row.ReviewBlockers) != 2 || row.SyncLog != path {
+			t.Fatalf("missing blockers: %+v", row)
+		}
+		if !strings.Contains(strings.Join(row.ReviewBlockers, " "), "Jira authentication expired") {
+			t.Fatal(row.ReviewBlockers)
+		}
+		m := sampleModel()
+		defer m.cancel()
+		m.state.Rows = rows
+		m.screen = "details"
+		m.selected = row.Key
+		m.width = 120
+		m.height = 45
+		m.restoreSelection(row.Key, nil)
+		view := strings.Join(strings.Fields(m.View()), " ")
+		for _, want := range []string{"Awaiting new review", "Review scheduling", "Jira authentication expired", "Required CI is pending"} {
+			if !strings.Contains(view, want) {
+				t.Fatalf("missing %q: %s", want, view)
+			}
+		}
 	}
 }

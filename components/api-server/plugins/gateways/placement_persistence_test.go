@@ -15,6 +15,7 @@ func TestMarshalPlacementEncodesSelector(t *testing.T) {
 	}
 	if stored == nil {
 		t.Fatal("expected a non-nil stored placement")
+		return
 	}
 	var decoded storedPlacement
 	if err := json.Unmarshal([]byte(*stored), &decoded); err != nil {

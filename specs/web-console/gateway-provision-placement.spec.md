@@ -66,8 +66,6 @@ The client SHALL NOT submit a user-selected `cluster_id`. The backend SHALL reso
 
 The provision form SHALL present the question "Does the gateway need to reach GitLab or other internal Red Hat services?" with mutually exclusive choices labeled "No" and "Yes (Requires Red Hat VPN)". The form SHALL require exactly one answer before submission. "No" SHALL map to Public and "Yes" SHALL map to VPN. When both Public and VPN are available and the user has not made a choice, "No" SHALL be selected by default. When only one network is available, the corresponding answer SHALL be selected automatically.
 
-The form SHALL NOT present the former cluster selector.
-
 #### Scenario: WEB-PLC-02.01 -- Network visibility is required
 
 - GIVEN the gateway name is valid

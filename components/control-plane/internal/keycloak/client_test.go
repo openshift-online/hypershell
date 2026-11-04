@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -474,6 +475,90 @@ func TestEnsureConsoleClientConfig_ReconcilesDrift(t *testing.T) {
 
 	if len(scopeGranted) != 1 || scopeGranted[0].Name != "openshell-user" {
 		t.Errorf("expected the gateway role to be granted into the console scope, got %v", scopeGranted)
+	}
+}
+
+// TestListRealmUsersNeverOverFetchesPastEnd pins the fix for the empty directory
+// projection (GTW-ACC-09): ListRealmUsers must cap the final page to the users
+// that remain. Requesting rows past the end hangs a federated Keycloak, which
+// failed the whole refresh and left console user lookup finding nobody.
+func TestListRealmUsersNeverOverFetchesPastEnd(t *testing.T) {
+	const total = 250 // not a multiple of the 100 page size: forces a partial final page
+
+	users := make([]keycloakUser, total)
+	for i := range users {
+		users[i] = keycloakUser{ID: fmt.Sprintf("id-%d", i), Username: fmt.Sprintf("user%d", i)}
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc(fmt.Sprintf("/realms/%s/protocol/openid-connect/token", testRealm), func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "t", "expires_in": 300})
+	})
+	mux.HandleFunc(fmt.Sprintf("/admin/realms/%s/users/count", testRealm), func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprintf(w, "%d", total)
+	})
+	mux.HandleFunc(fmt.Sprintf("/admin/realms/%s/users", testRealm), func(w http.ResponseWriter, r *http.Request) {
+		first, _ := strconv.Atoi(r.URL.Query().Get("first"))
+		pageMax, _ := strconv.Atoi(r.URL.Query().Get("max"))
+		// Model the real failure: a federated realm hangs (504) when asked for
+		// rows past the end, instead of returning a short page.
+		if first+pageMax > total {
+			t.Errorf("over-fetch past end: first=%d max=%d total=%d", first, pageMax, total)
+			http.Error(w, "gateway timeout", http.StatusGatewayTimeout)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(users[first : first+pageMax])
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	kc := NewClient(srv.URL, testRealm, testAdminClientID, testAdminSecret)
+	got, err := kc.ListRealmUsers(t.Context())
+	if err != nil {
+		t.Fatalf("ListRealmUsers: %v", err)
+	}
+	if len(got) != total {
+		t.Fatalf("got %d users, want %d", len(got), total)
+	}
+}
+
+func TestListRealmUsers_CountFailureStopsPaging(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		status  int
+		body    string
+		wantErr string
+	}{
+		{name: "unavailable", status: http.StatusGatewayTimeout, body: "gateway timeout", wantErr: "returned 504"},
+		{name: "malformed", status: http.StatusOK, body: "invalid", wantErr: "parse realm user count"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case fmt.Sprintf("/realms/%s/protocol/openid-connect/token", testRealm):
+					writeTokenResponse(t, w, "token")
+				case fmt.Sprintf("/admin/realms/%s/users/count", testRealm):
+					w.WriteHeader(tt.status)
+					if _, err := io.WriteString(w, tt.body); err != nil {
+						t.Errorf("write count response: %v", err)
+					}
+				default:
+					t.Errorf("unexpected request after count failure: %s", r.URL.Path)
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+
+			client := NewClient(server.URL, testRealm, testAdminClientID, testAdminSecret)
+			users, err := client.ListRealmUsers(t.Context())
+			if err == nil || !strings.HasPrefix(err.Error(), "count realm users:") || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("ListRealmUsers error = %v, want count failure containing %q", err, tt.wantErr)
+			}
+			if users != nil {
+				t.Fatalf("ListRealmUsers returned %d users on count failure, want nil", len(users))
+			}
+		})
 	}
 }
 
@@ -995,6 +1080,9 @@ func TestListRealmUsers_PagesAndMapsNames(t *testing.T) {
 	mux.HandleFunc(fmt.Sprintf("/realms/%s/protocol/openid-connect/token", testRealm), func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"access_token": "fake-token", "expires_in": 300})
+	})
+	mux.HandleFunc(fmt.Sprintf("/admin/realms/%s/users/count", testRealm), func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("2"))
 	})
 	mux.HandleFunc(fmt.Sprintf("/admin/realms/%s/users", testRealm), func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

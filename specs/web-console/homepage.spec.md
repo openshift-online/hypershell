@@ -67,7 +67,7 @@ The homepage SHALL follow the approved `Parity/Homepage` surface. On extra-large
 
 When an announcement is configured, the homepage SHALL render an inline PatternFly info alert above the two-column grid. When no announcement is configured, the homepage SHALL render no alert.
 
-The production page SHALL preserve the approved mockup's icon choices, descriptions, card hierarchy, spacing, responsive stacking, and PatternFly dark-mode chart text treatment. It SHALL NOT include Platform pulse.
+The production page SHALL preserve the approved mockup's icon choices, descriptions, card hierarchy, spacing, responsive stacking, and PatternFly dark-mode chart text treatment.
 
 #### Scenario: WEB-HOME-03.01 -- Cards follow the approved hierarchy
 
@@ -404,6 +404,6 @@ The production Storybook story for the announcement SHALL use the same approved 
 ## Non-Goals
 
 - This specification does not move the dashboard-dedicated hostname root to the homepage.
-- This specification does not add Platform pulse or dashboard widgets to the homepage.
+- This specification does not add dashboard widgets to the homepage.
 - This specification does not replace the full gateway provisioning page; Quick create is an additional shortcut.
 - This specification does not make external-link availability a runtime page dependency.

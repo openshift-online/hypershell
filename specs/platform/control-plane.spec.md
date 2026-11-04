@@ -75,8 +75,7 @@ control plane on a remote cluster.
 OIDC client credentials (`OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`) are
 required configuration. When either is missing the control plane SHALL log a fatal
 error naming the missing variable and exit non-zero before opening any Kubernetes or
-gRPC connection. The control plane SHALL NOT read a cluster id from configuration:
-`HYPERSHELL_CLUSTER_ID` SHALL NOT be consulted and SHALL NOT appear in gitops.
+gRPC connection. The control plane SHALL NOT read a cluster id from configuration.
 
 Each control plane SHALL use its own OIDC client, so that its JWT `sub` claim is
 unique across the fleet; the registration upsert key and the watch-stream caller
@@ -306,8 +305,7 @@ existing provisioning API.
 
 The realization seam SHALL be **live**: the `ProviderRealizer` is constructed as a
 client of OpenShell's existing provisioning API
-([`agent-workspace-gateway-api.spec.md`](./agent-workspace-gateway-api.spec.md)) - NOT a
-bespoke `AgentWorkspaceProvisioning` gRPC contract - and the reconciler SHALL drive it on
+([`agent-workspace-gateway-api.spec.md`](./agent-workspace-gateway-api.spec.md)), and the reconciler SHALL drive it on
 every reconcile rather than hold a transitional behavior. The reconcile SHALL run the
 realization sequence in this order, reading its inputs from the embedded reconcile payload
 ([`data-model.spec.md`](./data-model.spec.md), "AgentRuntime Reconcile Payload
@@ -1115,7 +1113,7 @@ The control plane SHALL continuously reconcile the `phase` and `status` fields o
 | Separate module from API server | Independent lifecycle, separate deployment |
 | No controller-runtime dependency | Lightweight, custom reconciliation without CRD overhead |
 | Every control plane is a registered spoke; no single-cluster mode | One code path and one deployment shape. The hub's co-located control plane exercises registration, cluster filtering, authenticated watches, and TLS on every hub and in every development environment, so those paths are tested continuously instead of only at the first remote spoke. An unfiltered mode would also make server-side enforcement of cluster scoping impossible, because the server could not tell an unidentified hub controller from a misbehaving spoke. |
-| Cluster identity is resolved by registration, never configured | A configured `HYPERSHELL_CLUSTER_ID` can drift from the record the hub holds, and a copy-pasted value silently makes two control planes fight over one cluster. Registration ties the id to the OIDC subject, which the hub can verify. |
+| Cluster identity is resolved by registration, never configured | A configured cluster id can drift from the record the hub holds, and a copy-pasted value silently makes two control planes fight over one cluster. Registration ties the id to the OIDC subject, which the hub can verify. |
 | One OIDC client per control plane | The JWT `sub` is the registration key and the identity the watch-stream binding checks. Sharing a client across control planes would collapse them into one subject and break both. |
 | One control plane per cluster, in-cluster credentials only | No hub holds a spoke kubeconfig, so a compromised hub cannot reach into spokes and a spoke keeps reconciling its own gateways while the hub is unreachable. Matches the platform GitOps pull model in `global-architecture.spec.md`. |
 | Transport security inferred from the dial address, not a separate `HYPERSHELL_GRPC_TLS` flag | The address already tells you whether the hop leaves the cluster. A second flag could drift from the address (TLS off against an external host, or on against an in-cluster one) with no compile-time or admission check to catch it. |

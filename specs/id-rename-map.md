@@ -515,3 +515,8 @@ does not exist. "Former file" is the spec the ID lived in, relative to
 | `PLAT-ARCH-21` | `platform/global-architecture.spec.md` | - | Required clusters to be rebuildable from the Tekton installer pipeline, which does not exist. |
 | `OBS-GPO-04` | `platform/gateway-provision-outcomes.spec.md` | - | Duration-histogram fallback for provisions recorded before the outcomes counter existed. It could report 100% success with zero failures; the counter is the only source now. |
 | `OBS-GPO-04.01` | `platform/gateway-provision-outcomes.spec.md` | - | Retired with OBS-GPO-04. |
+| `OSG-DBS-11` | `platform/openshell-gateway-database.spec.md` | - | Only forbade a database surface in the API and CLI that no longer exists. |
+| `OSG-DBS-11.01` | `platform/openshell-gateway-database.spec.md` | - | Retired with OSG-DBS-11. |
+| `SDLC-AGT-10` | `platform/sdlc-agent-runtime-telemetry.spec.md` | - | Only required the removed `agentHealth()` verdict to stay unrendered; SDLC-AGT-16 and SDLC-AGT-17 define the activity signal. |
+| `SDLC-AGT-10.01` | `platform/sdlc-agent-runtime-telemetry.spec.md` | - | Retired with SDLC-AGT-10. |
+| `SDLC-AGT-10.02` | `platform/sdlc-agent-runtime-telemetry.spec.md` | - | Retired with SDLC-AGT-10. |

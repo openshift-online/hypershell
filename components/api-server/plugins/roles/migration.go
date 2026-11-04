@@ -195,6 +195,21 @@ var builtInRoleSeeds = []roleSeed{
 			"role_bindings": []string{"create", "delete"},
 		},
 	},
+	{
+		// Kept in lockstep with migrationSeedManagedClusterRegistrarRole
+		// (2026091000000002): every built-in role is created by a migration for
+		// existing databases AND listed here so a fresh database seeded through
+		// SeedRoles, and a test environment re-seeded after ResetDB, ends in the
+		// same state. Registration authority is JWT-direct (SEC-RBAC-16); this
+		// role has no DB-binding lifecycle and is rejected by the role_bindings
+		// write policy (SEC-RBAC-25).
+		Name:        RoleManagedClusterRegistrar,
+		DisplayName: "Managed Cluster Registrar",
+		Description: "Allows a spoke control-plane to self-register via POST /managed_clusters/registration. JWT-direct: no DB binding lifecycle.",
+		Permissions: map[string]interface{}{
+			"managed_clusters": []string{"register"},
+		},
+	},
 }
 
 func migrationAddPlatformAdminRole() *gormigrate.Migration {
