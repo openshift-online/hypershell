@@ -108,15 +108,26 @@ transition cannot silently clear a human block.
 | spec-review | rejected | `agent/review-spec-rejected` (+ `agent/blocked` at limit 3) | `agent/reviewable-spec`, `agent/review-spec-approved` | none |
 | code-implementation | completed | `agent/reviewable-code` | `agent/review-code-rejected`, stale `agent/review-code-approved`, `agent/code-conflicts` | none |
 | code-implementation | blocked | `agent/blocked` | none | none |
-| code-review | approved | `agent/review-code-approved` | `agent/reviewable-code`, `agent/review-code-rejected` | Add and verify `agent/review-code-approved` before completing issue approval |
+| code-review | approved | `agent/review-code-approved` | `agent/reviewable-code`, `agent/review-code-rejected` | When automatic approval is enabled, add and verify `agent/review-code-approved` before issue approval; otherwise withhold/remove and verify its absence |
 | code-review | rejected | `agent/review-code-rejected` (+ `agent/blocked` at limit 10) | `agent/reviewable-code`, `agent/review-code-approved` | Remove `agent/review-code-approved` |
 
 The columns above distinguish the execution record (issue) from its linked PR.
-An eligible code-review approval labels **both**. The post-script verifies the PR
+By default, an eligible code-review approval labels **both**. The post-script verifies the PR
 label before completing the issue transition. If the PR write fails, the attempt
 fails and the issue remains recoverable; reapplication can also repair a missing
 PR label when the issue already has its approval. Scope and authorization labels
 on the execution record are not copied to the PR.
+
+Trusted runner policy `FULLSEND_AUTO_MERGE=disabled` (also `false` or `0`)
+keeps the issue verdict but withholds/removes the PR approval label and verifies
+its absence. `enabled` (default, also `true` or `1`) preserves dual approval.
+Invalid policy values fail before mutation; dry-run changes neither target.
+This is runner policy, never agent output, and Fullsend inherits it for host-side
+hooks. Existing freshness, CI, authorization and rejection gates still apply.
+The local dispatcher exposes this through env, CLI, home preferences and the
+Configuration tab; held ready PRs can be explicitly approved with confirmation
+in its Awaiting approval section. Policy changes affect new sandboxes and do
+not revoke already queued PRs.
 
 Readiness maintenance also changes these targets:
 

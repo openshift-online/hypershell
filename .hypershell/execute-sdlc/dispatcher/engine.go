@@ -15,6 +15,7 @@ import (
 )
 
 type Snapshot struct {
+	AwaitingApproval             []Row
 	ConnectionError              string
 	RecoveryError                string
 	Rows                         []Row
@@ -27,9 +28,10 @@ type Snapshot struct {
 	Exit                         int
 }
 type discovery struct {
-	Jobs   []Job    `json:"jobs"`
-	Errors []string `json:"errors"`
-	Err    error
+	AwaitingApproval []Row    `json:"awaiting_approval"`
+	Jobs             []Job    `json:"jobs"`
+	Errors           []string `json:"errors"`
+	Err              error
 }
 type authResult struct{ Err error }
 type recoveryRequest struct {
@@ -74,6 +76,7 @@ func (e *Engine) snapshot() Snapshot {
 	defer e.mu.RUnlock()
 	s := e.state
 	s.Rows = append([]Row(nil), s.Rows...)
+	s.AwaitingApproval = append([]Row(nil), s.AwaitingApproval...)
 	s.Errors = append([]string(nil), s.Errors...)
 	return s
 }
@@ -368,6 +371,7 @@ func (e *Engine) run(ctx context.Context) (exit int) {
 				s.NextDiscovery = next
 				if result.Err == nil {
 					s.Errors = result.Errors
+					s.AwaitingApproval = result.AwaitingApproval
 				}
 			})
 			if e.config().DryRun {

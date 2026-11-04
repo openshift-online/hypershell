@@ -48,6 +48,11 @@ ISSUE_URL="${ISSUE_URL:-${GITHUB_ISSUE_URL:-${FULLSEND_WORK_ITEM_URL:-}}}"
 : "${GH_TOKEN:?GH_TOKEN must be set}"
 
 _is_truthy() { case "${1:-}" in 1 | true | TRUE | yes | YES) return 0 ;; *) return 1 ;; esac; }
+case "${FULLSEND_AUTO_MERGE:-enabled}" in
+  enabled | true | 1) AUTO_MERGE_ON=1 ;;
+  disabled | false | 0) AUTO_MERGE_ON=0 ;;
+  *) echo 'post-lifecycle: FULLSEND_AUTO_MERGE must be enabled or disabled' >&2; exit 1 ;;
+esac
 DRY_RUN_ON=0
 _is_truthy "${DRY_RUN:-}" && DRY_RUN_ON=1
 
@@ -473,10 +478,19 @@ if [[ "${PHASE}:${outcome}" == "code-review:approved" ]]; then
     echo "post-lifecycle: PR eligibility changed before approval; retry when stable" >&2
     exit 1
   fi
-  gh_add_labels "${REPO}" "${trusted_pr}" agent/review-code-approved
-  gh_get_labels "${REPO}" "${trusted_pr}" | grep -qxF agent/review-code-approved || {
-    echo "post-lifecycle: PR approval label verification failed" >&2; exit 1;
-  }
+  if [[ "${AUTO_MERGE_ON}" == 1 ]]; then
+    gh_add_labels "${REPO}" "${trusted_pr}" agent/review-code-approved
+    gh_get_labels "${REPO}" "${trusted_pr}" | grep -qxF agent/review-code-approved || {
+      echo "post-lifecycle: PR approval label verification failed" >&2; exit 1;
+    }
+  else
+    gh_remove_label "${REPO}" "${trusted_pr}" agent/review-code-approved
+    pr_labels="$(gh_get_labels "${REPO}" "${trusted_pr}")"
+    if grep -qxF agent/review-code-approved <<< "${pr_labels}"; then
+      echo "post-lifecycle: cannot hold PR for manual merge approval" >&2; exit 1
+    fi
+    echo "post-lifecycle: review approved; PR awaits manual merge approval" >&2
+  fi
 fi
 
 if [[ "${PHASE}:${outcome}" == "code-review:rejected" ]]; then

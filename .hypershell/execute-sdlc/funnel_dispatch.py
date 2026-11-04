@@ -481,6 +481,7 @@ class Coordinator:
         self.next_auth_check = time.time() + interval
 
     def discover(self):
+        self.awaiting_approval = []
         items = self.github.discover()
         ingest = self.intake_job(items) if self.args.lifecycle == 'jira' else None
         if ingest is not None:
@@ -516,6 +517,11 @@ class Coordinator:
                     state = self.github.code_state(item, linked[0], inspect)
                     if state and state['changed']:
                         item = self.github.current(item['number'])
+                    if state and not active and 'agent/review-code-approved' in self.github.labels(item):
+                        from merge_approval import pending
+                        approval = pending(self.github, item, linked[0], state)
+                        if approval:
+                            self.awaiting_approval.append(approval)
                     if state:
                         # Reuse this observation for legacy fingerprint comparison;
                         # display metadata must not issue a second readiness read.
@@ -837,6 +843,8 @@ def parse_args(argv=None):
     parser.add_argument('--gateway-state', type=Path, help='local gateway state (default: TARGET_REPO/.hypershell/.funnel-gateway.json)')
     parser.add_argument('--gateway-login-timeout', type=positive, default='120', help='seconds before offering recovery from a stuck browser login')
     parser.add_argument('--gateway-ready-timeout', type=positive, default='600', help='seconds to wait for a created gateway before offering recovery again')
+    parser.add_argument('--auto-merge', nargs='?', const='enabled', choices=('enabled','disabled'), type=lambda v: runtime_settings.validate('auto_merge', v), default=os.environ.get('FULLSEND_AUTO_MERGE', 'enabled'), help='enabled (default) queues approved PRs; disabled holds them for manual approval')
+    parser.add_argument('--no-auto-merge', dest='auto_merge', action='store_const', const='disabled')
     parser.add_argument('--model', default=os.environ.get('FULLSEND_MODEL'))
     parser.add_argument('--concurrency', type=positive, default=os.environ.get('CONCURRENCY', '3'))
     parser.add_argument('--poll-interval', type=positive, default=os.environ.get('POLL_INTERVAL', '30'))

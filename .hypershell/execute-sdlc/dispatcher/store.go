@@ -30,6 +30,7 @@ type CodeReadiness struct {
 }
 
 type Job struct {
+	PRBaseSHA         string          `json:"pr_base_sha,omitempty"`
 	PRHeadSHA         string          `json:"pr_head_sha,omitempty"`
 	CodeReadiness     *CodeReadiness  `json:"code_readiness,omitempty"`
 	Key               string          `json:"key"`

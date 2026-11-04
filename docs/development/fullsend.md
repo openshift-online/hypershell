@@ -430,3 +430,35 @@ through `agent/review-code-rejected`, including when a previous review deferred
 approval or the PR was already approved. Implementation investigates the check
 logs and fixes the cause or reruns transient CI. Pending checks do not consume
 the rejection budget; repeated unchanged failures do not create new rejections.
+
+### Hold reviewed PRs for manual merge approval
+
+Automatic merge approval is enabled by default. To hold a reviewed PR before it
+enters the repository merge queue, use any of these options:
+
+- Make: `make fullsend AUTO_MERGE=disabled`
+- Environment or your env file: `FULLSEND_AUTO_MERGE=disabled`
+- Dispatcher CLI: `--no-auto-merge` (or `--auto-merge disabled`)
+- Home preferences: `{"version":1,"values":{"auto_merge":"disabled"}}`
+- Configuration tab: **Automatic merge approval**, then choose **disabled**.
+
+The Configuration tab shows the absolute preferences path and saves the value on
+disk. This setting applies to the next sandbox, including workers launched without
+restarting the dispatcher. Running sandboxes retain their original policy. It does
+not revoke labels on PRs already queued. Changing it back to enabled affects new
+reviews; held PRs still require an explicit approval or a new review.
+
+With approval disabled, the trusted review post-script still marks the issue
+`agent/review-code-approved`, but withholds or removes that label on its linked PR.
+The agent's responsibilities and review requirements are unchanged. This controls
+the Fullsend PR queue label; it does not disable other repository merge mechanisms.
+
+Ready, approved issues whose linked PR lacks the queue label appear at the top of
+both work views under **Awaiting approval**. Select one and press **A** or **Enter**.
+The confirmation shows the issue, PR and commit, explains merge eligibility, and
+starts on **Keep waiting**. Choose **Approve PR for merge** to add the label for
+that PR only. Live authorization, the unique link, unchanged head/base, required
+checks, draft state and mergeability are rechecked. Changed or ineligible PRs
+cannot be approved from an old screen. Active or unresolved workers prevent the
+action. Failures appear as dismissible notifications; normal discovery revisits
+eligibility. This action does not rerun an agent or change the configured policy.

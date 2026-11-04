@@ -11,3 +11,5 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p test_funnel
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p test_intake_probe.py
 
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p test_runtime_settings.py
+
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p test_merge_approval.py

@@ -16,6 +16,7 @@ SPECS = [
  ('reconcile_interval','Jira drift checks (seconds)','Immediate','number',[], ''),
  ('auth_check_interval','Gateway checks (seconds)','Immediate','number',[], ''),
  ('auth_retry','Gateway retry (seconds)','Immediate','number',[], ''),
+ ('auto_merge','Automatic merge approval','Next sandbox','choice',['enabled','disabled'], 'Disabled keeps issue approval and holds the PR for manual approval. Running sandboxes and already queued PRs are unaffected.'),
  ('model','Model override','Next sandbox','text',[], 'Empty uses each harness model.'),
  ('backoff','Initial failure backoff (seconds)','Next sandbox','number',[], 'Existing retry deadlines are preserved.'),
  ('backoff_max','Maximum failure backoff (seconds)','Next sandbox','number',[], ''),
@@ -48,6 +49,8 @@ def validate(key, value):
     spec = next((s for s in SPECS if s[0] == key), None)
     if spec is None:
         raise ValueError('Unknown preference key')
+    if key == 'auto_merge':
+        value = {'true':'enabled','false':'disabled','1':'enabled','0':'disabled'}.get(str(value).lower(),str(value).lower())
     if not isinstance(value, (str,int)) or isinstance(value,bool):
         raise ValueError('Setting must be text or an integer')
     text = str(value)
