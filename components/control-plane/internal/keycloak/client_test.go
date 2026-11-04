@@ -523,6 +523,45 @@ func TestListRealmUsersNeverOverFetchesPastEnd(t *testing.T) {
 	}
 }
 
+func TestListRealmUsers_CountFailureStopsPaging(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		status  int
+		body    string
+		wantErr string
+	}{
+		{name: "unavailable", status: http.StatusGatewayTimeout, body: "gateway timeout", wantErr: "returned 504"},
+		{name: "malformed", status: http.StatusOK, body: "invalid", wantErr: "parse realm user count"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case fmt.Sprintf("/realms/%s/protocol/openid-connect/token", testRealm):
+					writeTokenResponse(t, w, "token")
+				case fmt.Sprintf("/admin/realms/%s/users/count", testRealm):
+					w.WriteHeader(tt.status)
+					if _, err := io.WriteString(w, tt.body); err != nil {
+						t.Errorf("write count response: %v", err)
+					}
+				default:
+					t.Errorf("unexpected request after count failure: %s", r.URL.Path)
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+
+			client := NewClient(server.URL, testRealm, testAdminClientID, testAdminSecret)
+			users, err := client.ListRealmUsers(t.Context())
+			if err == nil || !strings.HasPrefix(err.Error(), "count realm users:") || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("ListRealmUsers error = %v, want count failure containing %q", err, tt.wantErr)
+			}
+			if users != nil {
+				t.Fatalf("ListRealmUsers returned %d users on count failure, want nil", len(users))
+			}
+		})
+	}
+}
+
 func TestDeleteConsoleClient_NotFound(t *testing.T) {
 	srv, _ := newFakeKeycloak(t)
 	kc := NewClient(srv.URL, testRealm, testAdminClientID, testAdminSecret)

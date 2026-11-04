@@ -270,11 +270,9 @@ func (c *Client) ListRealmUsers(ctx context.Context) ([]RealmUser, error) {
 	}
 	out := make([]RealmUser, 0, total)
 	for first := 0; first < total; first += pageSize {
-		// Cap the page to the users that actually remain. Requesting rows past the
-		// end (first+max > total) makes the Keycloak Admin users endpoint hang for
-		// the full request timeout on a federated realm; that fails the whole
-		// refresh and leaves the directory projection empty (GTW-ACC-09), breaking
-		// console user lookup. The final page is the one that over-fetched before.
+		// Cap pages to the count snapshot: over-fetching a federated realm can
+		// time out. Concurrent deletes can still invalidate this bound; on error
+		// the directory keeps its previous snapshot and retries next cycle.
 		pageMax := pageSize
 		if remaining := total - first; remaining < pageMax {
 			pageMax = remaining
@@ -303,9 +301,8 @@ func (c *Client) ListRealmUsers(ctx context.Context) ([]RealmUser, error) {
 	return out, nil
 }
 
-// realmUserCount returns the number of users in the configured realm. The count
-// bounds ListRealmUsers' paging so the final page never requests rows past the
-// end of the realm (see ListRealmUsers).
+// realmUserCount returns a snapshot of the configured realm's user count to
+// bound ListRealmUsers' paging. It is not atomic with the subsequent page reads.
 func (c *Client) realmUserCount(ctx context.Context) (int, error) {
 	path := fmt.Sprintf("/admin/realms/%s/users/count", c.realm)
 	response, err := c.doRequest(ctx, http.MethodGet, path, nil)
