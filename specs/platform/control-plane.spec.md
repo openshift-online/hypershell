@@ -613,7 +613,7 @@ within the import), which is how the non-human importer satisfies that tenancy "
 repository owner" without a human identity; the writer SHALL NOT import a `CITrust`
 onto a `Gateway` the `Repository` does not own. This tenancy-via-ownership rule is
 specified canonically in [`security/rbac-enforcement.spec.md`](../../security/rbac-enforcement.spec.md)
-(SEC-RBAC-25) and [`ci-trust-ext-api.spec.md`](./ci-trust-ext-api.spec.md) (PLAT-CITR-10).
+(SEC-RBAC-26) and [`ci-trust-ext-api.spec.md`](./ci-trust-ext-api.spec.md) (PLAT-CITR-10).
 The remaining importable Kinds, `Gateway` and `AgentRuntime`
 (see the canonical importable-Kinds list in
 [`data-model.spec.md`](./data-model.spec.md)), are cluster-assigned: their gRPC

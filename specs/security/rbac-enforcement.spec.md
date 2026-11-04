@@ -555,7 +555,7 @@ For a caller that is not a control-plane identity, the rules mirror HTTP:
   reconciliation; `platform:admin` MAY also list, watch, and get it. Its gRPC
   create/update/delete SHALL be DENIED for every user caller, and SHALL be authorized
   ONLY for the control-plane identity on the `Repository`-scoped import terms below,
-  with the additional per-gateway tenancy gate specified in SEC-RBAC-25 (the referenced
+  with the additional per-gateway tenancy gate specified in SEC-RBAC-26 (the referenced
   `Gateway` must be owned by the same reconciled `Repository`).
 - With authentication on -- every deployment, because enforcement follows
   authentication (SEC-RBAC-14) -- an unauthenticated call reaches no `hypershell.v1`
@@ -576,7 +576,7 @@ plane writes HyperShell API desired state. The gRPC `Create`, `Update`, and `Del
 methods for the import-write kinds (`SandboxTemplate`, `ProviderSpec`,
 `ProviderBinding`, `InferenceRoute`, `SecretSource`, `CITrust`) SHALL be authorized for the
 control-plane identity and SHALL remain denied for every other caller. `CITrust`
-additionally requires the per-gateway tenancy gate of SEC-RBAC-25 on the import path: an
+additionally requires the per-gateway tenancy gate of SEC-RBAC-26 on the import path: an
 import-marked `CITrust` write is authorized only when the referenced `Gateway` is owned
 by the same reconciled `Repository`. `Repository`
 is NOT an import-write kind: the import reconciler reconciles the `Repository` Kind but
@@ -696,7 +696,7 @@ so these rules are the only boundary between tenants, and between clusters, on t
 
 - GIVEN the control-plane import reconciler reconciling `Repository` R1 whose `.hypershell` declares a `Gateway` owned by R1 and a `CITrust` referencing that gateway by name
 - WHEN it calls `CreateCITrust` as the control-plane identity with R1's import metadata
-- THEN the write SHALL be authorized, the server SHALL set `repository_id` to R1, and the per-gateway tenancy gate SHALL be satisfied because the referenced `Gateway` is owned by R1 (SEC-RBAC-25)
+- THEN the write SHALL be authorized, the server SHALL set `repository_id` to R1, and the per-gateway tenancy gate SHALL be satisfied because the referenced `Gateway` is owned by R1 (SEC-RBAC-26)
 - WHEN the same import attempts a `CITrust` referencing a `Gateway` not owned by R1
 - THEN the write SHALL be refused
 
@@ -1063,7 +1063,7 @@ that gateway (PLAT-CITR-03 / PLAT-DATA-25.03).
 This human-caller tenancy gate has one non-human counterpart: the declarative
 `.hypershell` import (PLAT-DATA-25, PLAT-CITR-10), which authors a `CITrust` as the
 control-plane import identity rather than a gateway owner. On that path the equivalent
-of this gate is Repository ownership of the referenced gateway, specified in SEC-RBAC-25;
+of this gate is Repository ownership of the referenced gateway, specified in SEC-RBAC-26;
 the HTTP tenancy check here is unchanged for every human caller.
 
 **Deny-by-default.** A caller with no `gateway:owner`, `gateway:admin`, or
@@ -1673,7 +1673,7 @@ of their own.
 - WHEN it calls `ListGateways` without `cluster_id`
 - THEN the call fails with `INVALID_ARGUMENT` and the handler is not reached
 
-### Requirement: SEC-RBAC-25 -- Imported CITrust Tenancy via Repository Ownership
+### Requirement: SEC-RBAC-26 -- Imported CITrust Tenancy via Repository Ownership
 
 A `CITrust` authored over HTTP is authorized by the per-gateway tenancy check
 (SEC-RBAC-22): the human caller must manage the referenced gateway. A `CITrust`
@@ -1696,20 +1696,20 @@ reconciled `Repository` SHALL be refused, exactly as a cross-tenant human write 
 refused under SEC-RBAC-22. This gate does NOT relax the HTTP tenancy check for any human
 caller; it only defines the non-human import counterpart.
 
-#### Scenario: SEC-RBAC-25.01 -- Import authors a CITrust on its own Repository-owned gateway
+#### Scenario: SEC-RBAC-26.01 -- Import authors a CITrust on its own Repository-owned gateway
 
 - GIVEN `Repository` R1 whose `.hypershell` declares a `Gateway` owned by R1 and a `CITrust` referencing that gateway by name with `role: openshell-user`
 - WHEN the import reconciler writes the `CITrust` as the control-plane import identity
 - THEN the write SHALL be authorized and the `CITrust` SHALL be owned by R1
 - AND the `role` SHALL be accepted because R1 owns the referenced gateway
 
-#### Scenario: SEC-RBAC-25.02 -- Import cannot author a CITrust on a gateway it does not own
+#### Scenario: SEC-RBAC-26.02 -- Import cannot author a CITrust on a gateway it does not own
 
 - GIVEN `Repository` R1's import declares a `CITrust` referencing a `Gateway` owned by `Repository` R2 (or owned by a human, or created directly over REST)
 - WHEN the import reconciler attempts to write that `CITrust`
 - THEN the write SHALL be refused
 
-#### Scenario: SEC-RBAC-25.03 -- Human HTTP tenancy is unchanged
+#### Scenario: SEC-RBAC-26.03 -- Human HTTP tenancy is unchanged
 
 - GIVEN a human caller with no management rights on gateway gw-1
 - WHEN the caller creates a `CITrust` referencing gw-1 over HTTP

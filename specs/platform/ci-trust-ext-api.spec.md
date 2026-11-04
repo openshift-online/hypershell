@@ -40,7 +40,7 @@ gitops `ci-oidc-federation.spec.md`; a `CIProvider` IS that spec's per-forge IdP
 A `CITrust` reaches the API Server two ways: a human runs `hsctl apply` (or the SDK)
 authorized by the per-gateway tenancy check (SEC-RBAC-22), or the control-plane
 `RepositoryReconciler` imports a `.hypershell`-declared `CITrust` as the repository owner
-(PLAT-CITR-10, SEC-RBAC-25). Both land the same stored record; reconciliation downstream
+(PLAT-CITR-10, SEC-RBAC-26). Both land the same stored record; reconciliation downstream
 is identical.
 
 ```
@@ -364,7 +364,7 @@ The import SHALL:
   `Repository` owns, which is the "applies as the repository owner" path. This tenancy
   gate is specified canonically in
   [`../security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md)
-  (SEC-RBAC-25).
+  (SEC-RBAC-26).
 - Accept the manifest shape without a 400: the nested `spec.subject.{repository,
   ref_protected}` already matches the presenter; `metadata.description` SHALL be accepted
   and persisted like the other importable Kinds (gateway and repository manifests also
@@ -388,7 +388,7 @@ The import SHALL:
 
 - GIVEN a `Repository` import declaring a `CITrust` whose `gateway_id` names a `Gateway` owned by a different `Repository` or created directly over REST
 - WHEN the import reconciler attempts to write it
-- THEN the write SHALL be refused (SEC-RBAC-25)
+- THEN the write SHALL be refused (SEC-RBAC-26)
 
 ## Security analysis
 

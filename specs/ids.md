@@ -171,7 +171,7 @@ listed in `specs/id-rename-map.md`, not here.
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `SEC-OIDC` | `platform/oidc-integration.spec.md` | 11 |
-| `SEC-RBAC` | `security/rbac-enforcement.spec.md` | 25 |
+| `SEC-RBAC` | `security/rbac-enforcement.spec.md` | 26 |
 | `SEC-STD` | `standards/security/security.spec.md` | 4 |
 
 ### STD
