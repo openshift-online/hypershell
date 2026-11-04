@@ -264,9 +264,20 @@ func (c *Client) DeleteGatewayServiceAccountClients(ctx context.Context, gateway
 // first+last name when present, else the username.
 func (c *Client) ListRealmUsers(ctx context.Context) ([]RealmUser, error) {
 	const pageSize = 100
-	out := make([]RealmUser, 0)
-	for first := 0; ; first += pageSize {
-		path := fmt.Sprintf("/admin/realms/%s/users?first=%d&max=%d", c.realm, first, pageSize)
+	total, err := c.realmUserCount(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("count realm users: %w", err)
+	}
+	out := make([]RealmUser, 0, total)
+	for first := 0; first < total; first += pageSize {
+		// Cap pages to the count snapshot: over-fetching a federated realm can
+		// time out. Concurrent deletes can still invalidate this bound; on error
+		// the directory keeps its previous snapshot and retries next cycle.
+		pageMax := pageSize
+		if remaining := total - first; remaining < pageMax {
+			pageMax = remaining
+		}
+		path := fmt.Sprintf("/admin/realms/%s/users?first=%d&max=%d", c.realm, first, pageMax)
 		response, err := c.doRequest(ctx, http.MethodGet, path, nil)
 		if err != nil {
 			return nil, fmt.Errorf("list realm users: %w", err)
@@ -283,11 +294,26 @@ func (c *Client) ListRealmUsers(ctx context.Context) ([]RealmUser, error) {
 				Subject:  u.ID,
 			})
 		}
-		if len(page) < pageSize {
+		if len(page) < pageMax {
 			break
 		}
 	}
 	return out, nil
+}
+
+// realmUserCount returns a snapshot of the configured realm's user count to
+// bound ListRealmUsers' paging. It is not atomic with the subsequent page reads.
+func (c *Client) realmUserCount(ctx context.Context) (int, error) {
+	path := fmt.Sprintf("/admin/realms/%s/users/count", c.realm)
+	response, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return 0, err
+	}
+	var count int
+	if err := json.Unmarshal(response, &count); err != nil {
+		return 0, fmt.Errorf("parse realm user count: %w", err)
+	}
+	return count, nil
 }
 
 func displayName(u keycloakUser) string {
