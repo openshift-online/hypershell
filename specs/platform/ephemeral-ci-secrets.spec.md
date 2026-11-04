@@ -2,9 +2,12 @@
 
 **Date:** 2026-09-21
 **Status:** Draft
-**Related:** `ephemeral-pr-environments.spec.md` (HYPERSHELL-240) -- origin
-             pull-request OpenShift CI, the GitHub OAuth App, the cluster login the
-             workflow needs, and the origin-only trust boundary;
+**Related:** `ephemeral-pr-environments.spec.md` (HYPERSHELL-240) --
+             pull-request OpenShift CI, the GitHub OAuth App, and the cluster
+             login the workflow needs;
+             `ephemeral-pr-ok-to-test.spec.md` -- which jobs may request GitHub
+             OIDC, `/ok-to-test` for fork pull requests, and the rule that
+             cluster login runs only from origin default-branch workflows;
              `ephemeral-test-credentials.spec.md` -- test-tier Keycloak passwords in
              the same cloud store, aligned in-cluster by ESO; this spec does not
              restate that payload;
@@ -22,7 +25,7 @@ AWS Secrets Manager on `hysh-aws-01` and removes it from GitHub Actions.
 
 ## Purpose
 
-The origin-repository OpenShift pull-request workflow must log in to `hysh-aws-01`
+The OpenShift pull-request workflow must log in to `hysh-aws-01`
 and must supply the GitHub OAuth App that Keycloak brokers to. Those values are
 rotated, shared with in-cluster consumers, and too privileged to keep as GitHub
 Actions secrets.
@@ -48,6 +51,8 @@ This spec covers:
 
 This spec does not define pull-request namespace naming, timeboxing, or GitHub
 brokering behavior (`ephemeral-pr-environments.spec.md`). It does not define
+who may start the OpenShift cycle or which jobs may set `id-token: write`
+(`ephemeral-pr-ok-to-test.spec.md`). It does not define
 test-tier principal passwords (`ephemeral-test-credentials.spec.md`). It does not
 prescribe Terraform or workflow YAML.
 
@@ -132,25 +137,26 @@ The OpenShift pull-request workflow SHALL assume an IAM role with GitHub's OIDC
 token (`token.actions.githubusercontent.com`, audience `sts.amazonaws.com`). Static
 AWS access keys SHALL NOT be stored as Actions secrets for this purpose.
 
-Fork pull requests SHALL NOT receive cluster login. Standing secrets in AWS via
-OIDC are not GitHub Actions `secrets.*`, so GitHub's automatic withhold of
-repository secrets from fork jobs does not apply. GitHub's default OIDC subject
-for a `pull_request` job is `repo:<owner>/<repo>:pull_request` for every pull
-request against that repository; it does not encode whether the head branch lives
-in a fork. IAM conditions on that subject therefore SHALL NOT be treated as a
-fork deny.
+Standing secrets in AWS via OIDC are not GitHub Actions `secrets.*`, so GitHub's
+automatic withhold of repository secrets from fork jobs does not apply. GitHub's
+default OIDC subject for a `pull_request` job is `repo:<owner>/<repo>:pull_request`
+for every pull request against that repository; it does not encode whether the
+head branch lives in a fork. IAM conditions on that subject therefore SHALL NOT
+be treated as a fork deny.
 
-The workflow SHALL refuse to request an OIDC token and SHALL NOT assume the CI
-IAM role unless `github.event.pull_request.head.repo.full_name` equals
-`github.repository`. Fork jobs SHALL NOT set `id-token: write`. That job-level
-gate is the fork deny; it replaces Actions-secret withholding.
+Which jobs may request an OIDC token is owned by
+`ephemeral-pr-ok-to-test.spec.md`: only jobs whose workflow definition GitHub
+loaded from the origin default branch SHALL set `id-token: write` or assume the
+CI role. `pull_request` jobs SHALL NOT. Fork pull requests SHALL receive cluster
+login only after `/ok-to-test`, through that default-branch path, not by adding
+`id-token: write` to a `pull_request` job.
 
 The IAM trust policy SHALL require audience `sts.amazonaws.com`, the origin
-repository, `job_workflow_ref` pinning this workflow file, and a `pull_request`
-subject (or equivalent origin ref). If the job later uses a GitHub Environment,
-the subject claim becomes `repo:<owner>/<repo>:environment:<name>` instead of
-`repo:<owner>/<repo>:pull_request`; the trust policy SHALL match the subject the
-job actually issues.
+repository, `job_workflow_ref` pinning the default-branch OpenShift workflow
+files, and the subject that workflow actually issues (a
+`ref:refs/heads/<default>` subject, an `environment:<name>` subject if that
+workflow uses a GitHub Environment, or the equivalent `workflow_run` /
+`issue_comment` subject). It SHALL NOT trust `repo:<owner>/<repo>:pull_request`.
 
 The role SHALL be allowed only `secretsmanager:GetSecretValue` and
 `secretsmanager:DescribeSecret`, and only on `hysh-aws-01/ci/cluster-login`. It
@@ -173,10 +179,9 @@ artifacts.
 This matches the existing GitHub OIDC issuer and `AssumeRoleWithWebIdentity` pattern
 already used to read AWS Secrets Manager from Actions in `hypershell-gitops`.
 
-#### Scenario: Origin workflow can read cluster login
+#### Scenario: Default-branch OpenShift workflow can read cluster login
 
-- GIVEN an origin-repository pull request runs the OpenShift environment workflow
-- AND `github.event.pull_request.head.repo.full_name` equals `github.repository`
+- GIVEN the origin default-branch OpenShift workflow runs for a pull request
 - WHEN the job needs cluster login
 - THEN it SHALL exchange its GitHub OIDC token for the CI IAM role
 - AND SHALL read `hysh-aws-01/ci/cluster-login`
@@ -199,14 +204,21 @@ already used to read AWS Secrets Manager from Actions in `hypershell-gitops`.
 - AND Keycloak SHALL still receive that material from ESO as ESO Aligns
   In-Cluster Standing Secrets requires
 
-#### Scenario: Fork job never requests OIDC
+#### Scenario: pull_request job never requests OIDC
 
-- GIVEN a pull request whose head branch lives in a fork
-- WHEN GitHub evaluates this workflow
+- GIVEN a `pull_request` job in Tests / E2E, origin or fork
+- WHEN GitHub evaluates that job
 - THEN the job SHALL NOT set `id-token: write`
 - AND it SHALL NOT request an OIDC token
 - AND it SHALL NOT assume the CI IAM role
 - AND it SHALL NOT receive cluster login or OAuth material
+
+#### Scenario: IAM denies pull_request subjects
+
+- GIVEN the CI IAM role trust policy
+- WHEN a job presents an OIDC token whose subject is
+  `repo:<origin>:pull_request`
+- THEN AWS SHALL deny `AssumeRoleWithWebIdentity`
 
 #### Scenario: No static AWS key in Actions
 
@@ -278,7 +290,7 @@ rotate the AWS secret and, if the IAM trust was wrong, correct the role.
 | Secondary spec, not a fold-in to test-tier credentials | Test-tier passwords, cluster kubeconfig, and the GitHub OAuth App are different credential classes with different consumers. One spec per class keeps rotation and IAM boundaries reviewable |
 | AWS Secrets Manager, not GitHub Actions secrets | Actions secrets do not rotate with the fleet, are a second copy of cluster and OAuth material, and cannot be the in-cluster source Keycloak needs. The cloud operator's store already backs ESO on this cluster |
 | GitHub OIDC into IAM, no static AWS keys in Actions | Same issuer already used from Actions in `hypershell-gitops`. Removing standing secrets from GitHub is wasted if the replacement is a long-lived AWS key stored as an Actions secret |
-| Fork deny is a job-level gate, not IAM `sub` | GitHub's default `pull_request` subject does not encode fork vs origin. The workflow checks `head.repo.full_name` and withholds `id-token: write` before OIDC; IAM pins repository and `job_workflow_ref` |
+| Default-branch OIDC, not IAM `sub` as a fork filter | GitHub's default `pull_request` subject does not encode fork vs origin, and `pull_request` runs YAML the pull request can edit. `ephemeral-pr-ok-to-test.spec.md` moves cluster login to origin default-branch workflows and drops `pull_request` from the IAM trust. `/ok-to-test` is the fork grant on that path |
 | CI IAM reads only `hysh-aws-01/ci/cluster-login` | OAuth is ESO-only. Fetching the App secret onto the runner re-creates the Actions-secret blast radius this spec removes |
 | Runner-only vs in-cluster split | The cluster login must never land in a public-internet PR namespace. The OAuth App secret must land in Keycloak. ESO for the second, OIDC fetch for the first |
 | Cluster-login JSON is `server` plus `token` | One pinned shape so Terraform and the workflow cannot disagree. `oc login --server --token` is the OpenShift-native path; a kubeconfig blob is a second encoding of the same facts |

@@ -66,9 +66,10 @@ Machine-readable index for autonomous reconciliation (`/reconcile` skill).
 | `platform/openshell-branch-build.spec.md` | platform | OpenShell branch builds, dev gateway provisioning | ALL | local-development, openshell-gateway |
 | `platform/oidc-integration.spec.md` | platform | API JWT validation, BFF OIDC session, IdP client config, Kind opt-in | API, WEB, CP | local-development, openshell-gateway-oidc, web-console/architecture |
 | `platform/e2e-testing.spec.md` | platform | Infra drivers, e2e test suite, CI workflow, deploy overlays | ALL | local-development, control-plane, openshell-gateway-routing |
-| `platform/ephemeral-pr-environments.spec.md` | platform | Per-PR OpenShift namespaces, GitHub-brokered Keycloak, origin-only CI, timebox/reaper | CI, ALL | e2e-testing, openshift-development |
+| `platform/ephemeral-pr-environments.spec.md` | platform | Per-PR OpenShift namespaces, GitHub-brokered Keycloak, timebox/reaper | CI, ALL | e2e-testing, openshift-development, ephemeral-pr-ok-to-test |
+| `platform/ephemeral-pr-ok-to-test.spec.md` | platform | `/ok-to-test` fork grant, default-branch cluster login, IAM trust subjects | CI | ephemeral-pr-environments, ephemeral-ci-secrets, e2e-testing |
 | `platform/ephemeral-test-credentials.spec.md` | platform | Test-tier Keycloak passwords, AWS SM, ESO, seed/de-seed | CI, ALL | ephemeral-pr-environments, ephemeral-ci-secrets, e2e-testing, security |
-| `platform/ephemeral-ci-secrets.spec.md` | platform | Standing GHA secrets in AWS SM, GitHub OIDC, ESO OAuth alignment | CI | ephemeral-pr-environments, security |
+| `platform/ephemeral-ci-secrets.spec.md` | platform | Standing GHA secrets in AWS SM, GitHub OIDC, ESO OAuth alignment | CI | ephemeral-pr-environments, ephemeral-pr-ok-to-test, security |
 | `platform/openshell-image-auto-update.spec.md` | platform | Renovate customManager, OpenShell image bumps, merge policy | CI | e2e-testing, control-plane |
 | `platform/api-server-observability.spec.md` | platform | API OTel SDK bootstrap, HTTP/gRPC server spans, W3C trace continuation, request metrics | API | web-console/tracing, security, local-development, e2e-testing |
 | `platform/control-plane-observability.spec.md` | platform | CP OTel SDK bootstrap, reconcile spans, gRPC client spans, watch lifecycle, K8s API spans, reconcile metrics | CP | api-server-observability, control-plane, security, local-development |

@@ -23,14 +23,18 @@
              `ephemeral-ci-secrets.spec.md` -- standing OpenShift pull-request CI
              secrets (cluster login, GitHub OAuth App) in AWS Secrets Manager,
              GitHub OIDC into that store, and ESO alignment of the in-cluster
-             subset; this spec owns only the workflow that consumes them
+             subset; this spec owns only the workflow that consumes them;
+             `ephemeral-pr-ok-to-test.spec.md` -- who may start this cycle,
+             `/ok-to-test` for fork pull requests, and the rule that cluster
+             login runs only from origin default-branch workflow definitions
 
 ## Purpose
 
-HyperShell runs a standard ephemeral e2e cycle for every origin pull request
-whose e2e-relevant paths changed: it deploys the full stack, runs the OpenShift
-e2e suite against it, and destroys the environment in the same run, whether the
-suite passed or failed. This is the default, so a pull request cannot silently
+HyperShell runs a standard ephemeral e2e cycle for every e2e-relevant origin
+pull request, and for every e2e-relevant fork pull request a write-access
+collaborator has marked `/ok-to-test`: it deploys the full stack, runs the
+OpenShift e2e suite against it, and destroys the environment in the same run,
+whether the suite passed or failed. This is the default, so a pull request cannot silently
 retain a shared-cluster environment -- most notably, a failed deploy or a failed
 e2e run does not leave an environment behind. An origin PR that changes only
 e2e-irrelevant paths SHALL NOT receive an environment: deploying would only
@@ -69,26 +73,28 @@ image gating remain defined in `e2e-testing.spec.md`. This spec adds the
 pull-request-scoped concerns those specs leave open: the deterministic per-PR
 namespace naming, the ephemeral-by-default deploy/test/destroy cycle, the
 `/pr-extend` and `/pr-destroy` slash-command controls and their authorization, the
-deploy-serialization rule, the origin-only trust boundary, the inactivity
+deploy-serialization rule, the `/ok-to-test` trust boundary, the inactivity
 timebox and external reaping of retained environments, the per-commit
 pull-request comment, and a Keycloak authentication model that brokers to GitHub
 (restricted to the `openshift-online` organization plus an allowlist) instead of
 Red Hat SSO. GitHub brokering lets an allowlisted outside contributor log in to
-an already-deployed origin-repo environment; it does not deploy fork pull
-requests onto the shared cluster.
+an already-deployed environment; the allowlist is login, not deploy.
+Fork pull requests receive this cycle only after `/ok-to-test`
+(`ephemeral-pr-ok-to-test.spec.md`).
 
 ### Scope
 
 This spec covers:
 
 - the per-pull-request ephemeral environment naming and identity,
-- the ephemeral-by-default deploy/test/destroy cycle triggered by pull-request
-  open, synchronize (push), and reopen on the origin repository,
+- the ephemeral-by-default deploy/test/destroy cycle triggered after Tests
+  succeeds for an origin pull request, and for a fork pull request only after
+  `/ok-to-test` (`ephemeral-pr-ok-to-test.spec.md`),
 - the `/pr-extend` opt-in that marks a pull request retained, and the `/pr-destroy`
   opt-out that frees a retained environment early, including their authorization,
 - the close/merge destroy path,
-- the origin-only trust boundary (fork pull requests do not receive cluster
-  credentials),
+- the trust boundary (`ephemeral-pr-ok-to-test.spec.md`: cluster login from
+  origin default-branch workflows; fork pull requests after `/ok-to-test`),
 - the per-pull-request deploy serialization rule,
 - the inactivity timebox and the out-of-band reaper for retained environments,
 - the per-commit pull-request comment and secure credential handoff,
@@ -193,31 +199,36 @@ gateway and database namespaces, and per-namespace swaps), so a torn-down
 ephemeral cycle leaves no HyperShell-owned residue.
 
 Deploy OpenShift Environment and Tests / E2E / OpenShift SHALL run as jobs of
-`.github/workflows/e2e.yml`, the Tests e2e stage invoked after Unit succeeds
-(`e2e-testing.spec.md`). They SHALL share that workflow's `plan-images`
-`should_run` gate, so an e2e-irrelevant pull request does not consume a
-cluster namespace, and a unit failure never deploys. OpenShift SHALL
-`needs:` Deploy OpenShift Environment; there SHALL be no cross-workflow poller
-between deploy and the suite. `/pr-extend` and `/pr-destroy` live in
+a workflow whose definition GitHub loaded from the origin default branch,
+after the Tests stage has succeeded, as `ephemeral-pr-ok-to-test.spec.md`
+defines. They SHALL share the Tests `plan-images` / `should_run` gate
+(`e2e-testing.spec.md`), so an e2e-irrelevant pull request does not consume a
+cluster namespace, and a unit failure never deploys. Kind e2e SHALL remain a
+job of `.github/workflows/e2e.yml` on `pull_request` and `merge_group` and
+SHALL NOT receive cluster login. OpenShift SHALL `needs:` Deploy OpenShift
+Environment inside that default-branch workflow; there SHALL be no poller that
+waits on a check name. `/pr-extend` and `/pr-destroy` live in
 `.github/workflows/pr-environment-commands.yml` (`issue_comment`). A dedicated
 destroy workflow SHALL trigger on `closed` (which covers both merge and close)
 to destroy a retained environment (see the Timebox and Reaping requirement), so
-Tests runs do not list a skipped Destroy check. None of these jobs SHALL run
-on `merge_group`. Kind e2e, as `e2e-testing.spec.md` defines, remains the
+Tests runs do not list a skipped Destroy check. None of these OpenShift jobs
+SHALL run on `merge_group`. Kind e2e, as `e2e-testing.spec.md` defines, remains the
 merge-queue gate; this environment does not share a namespace with a
 merge-queue SHA.
 
-Deploy and OpenShift SHALL run only for pull requests targeting the origin
-repository. Fork pull requests SHALL NOT receive cluster credentials and SHALL
-NOT get an environment (see Pull-Request Trust Boundary). The workflows SHALL
-NOT use `pull_request_target`.
+Origin pull requests SHALL receive this cycle without `/ok-to-test`. Fork
+pull requests SHALL receive it only when marked `/ok-to-test` approved
+(`ephemeral-pr-ok-to-test.spec.md`). The workflows SHALL NOT use
+`pull_request_target` to check out pull-request code and then execute it with
+cluster credentials.
 
-A deploying run is an origin-repository `pull_request` whose `plan-images` job
+A deploying run is a default-branch OpenShift run whose `plan-images` job
 sets `should_run=true` using the same e2e-relevant path gate
 `e2e-testing.spec.md` defines (api-server, control-plane,
 web-console/gateway-management-ui Konflux paths, deploy manifests, e2e tests,
-and pr-test). When `should_run` is false, or when the e2e stage does not run
-because Unit failed, CI SHALL skip `Deploy OpenShift Environment`: it SHALL NOT log
+and pr-test), for an origin pull request or an `/ok-to-test` approved fork.
+When `should_run` is false, or when Tests did not succeed, CI SHALL skip
+`Deploy OpenShift Environment`: it SHALL NOT log
 in to the cluster, SHALL NOT run `make openshift-up`, and SHALL NOT post or
 update the access comment.
 
@@ -299,9 +310,9 @@ SHALL preserve any active per-namespace component swap the same way
 
 #### Scenario: E2e-irrelevant pull request skips deploy
 
-- GIVEN an origin pull request whose three-dot diff contains only
+- GIVEN a pull request whose three-dot diff contains only
   e2e-irrelevant paths (for example `docs/` or `components/sdk-typescript/`)
-- WHEN the Tests e2e stage runs
+- WHEN the OpenShift cycle is evaluated after Tests
 - THEN `plan-images` SHALL set `should_run=false`
 - AND the `Deploy OpenShift Environment` job SHALL be skipped
 - AND the workflow SHALL NOT consume a cluster namespace
@@ -364,9 +375,10 @@ comment's `author_association` alone. A comment from a user without that
 permission SHALL NOT change the retained state, deploy, or tear down anything;
 the workflow SHALL acknowledge the refusal rather than act silently. Because the
 comment-triggered workflow runs with repository credentials, it SHALL perform the
-permission check before using any cluster credential, and it SHALL act only on
-pull requests targeting the origin repository (fork pull requests receive no
-cluster credentials, per Pull-Request Trust Boundary).
+permission check before using any cluster credential. On a fork pull request
+it SHALL act only when that pull request is `/ok-to-test` approved
+(`ephemeral-pr-ok-to-test.spec.md`); an unapproved fork SHALL NOT be
+extended or destroyed with cluster credentials.
 
 When a pull request accumulates more than one command comment (for example
 `/pr-extend`, then `/pr-destroy`, then `/pr-extend`), the latest by `created_at` SHALL
@@ -521,7 +533,7 @@ exercises. The suite SHALL run on the pull request's first e2e-relevant deployme
 every later e2e-relevant deployment for that pull request, using the same
 `plan-images` / `should_run` gate the Kind e2e job uses, so each e2e-relevant
 commit is validated against a live environment the same way Kind validates it.
-An origin PR that changes only e2e-irrelevant paths SHALL skip Tests / E2E /
+An e2e-irrelevant pull request SHALL skip Tests / E2E /
 OpenShift and SHALL skip `Deploy OpenShift Environment`, using the same
 `plan-images` / `should_run` gate. On failure
 the job SHALL collect the diagnostics `e2e-testing.spec.md` defines before the
@@ -535,9 +547,10 @@ fresh environment for the current head commit.
 The e2e suite's authentication SHALL set `E2E_OIDC_GRANT=client_credentials` and
 use the non-interactive path this spec defines (see Automated E2E Authentication),
 because the environment's interactive login is GitHub-brokered and brokered users
-have no password grant. Deploy and the suite live as distinct jobs in the Tests
-e2e stage so a deploy failure and an e2e failure surface as distinct checks;
-teardown is a last step of OpenShift and fails that check if destroy fails.
+have no password grant. Deploy and the suite live as distinct jobs in the
+default-branch OpenShift workflow so a deploy failure and an e2e failure
+surface as distinct checks; teardown is a last step of OpenShift and fails
+that check if destroy fails.
 
 #### Scenario: E2E runs on every e2e-relevant deployment
 
@@ -546,7 +559,7 @@ teardown is a last step of OpenShift and fails that check if destroy fails.
 - WHEN Tests / E2E / OpenShift starts after `Deploy OpenShift Environment` succeeds
 - THEN it SHALL run the OpenShift e2e suite against the environment
 - AND it SHALL run the suite again on each later e2e-relevant commit's deployment
-- AND an origin PR with `should_run=false` SHALL skip this job and SHALL skip
+- AND a pull request with `should_run=false` SHALL skip this job and SHALL skip
   `Deploy OpenShift Environment`
 
 #### Scenario: Retained environment survives a failing run
@@ -876,33 +889,33 @@ public artifact.
 
 ### Requirement: Pull-Request Trust Boundary
 
-The workflow SHALL run only on `pull_request` events from the origin repository
-(the repository that holds the workflow). Cluster login and the GitHub OAuth App
+Who may start this cycle, which jobs may request GitHub OIDC, and how a fork
+pull request is approved are owned by `ephemeral-pr-ok-to-test.spec.md`. This
+spec SHALL NOT restate those rules. Cluster login and the GitHub OAuth App
 secret SHALL NOT live as GitHub Actions secrets; they SHALL live in AWS Secrets
-Manager and SHALL be consumed as `ephemeral-ci-secrets.spec.md` defines (GitHub
-OIDC into IAM for runner-only cluster login, only after the job confirms the head
-repository is the origin; ESO for the in-cluster OAuth copy). The workflow SHALL
-NOT request an OIDC token and SHALL NOT set `id-token: write` unless
-`github.event.pull_request.head.repo.full_name` equals `github.repository`. It
-SHALL NOT use `pull_request_target`. Fork pull requests SHALL NOT receive the
-cluster login, the GitHub OAuth client secret, or any other secret this
-workflow needs, and SHALL NOT get an environment. The GitHub organization gate
-and allowlist (see GitHub-Brokered Keycloak Authentication) govern interactive
-login to an already-deployed origin-repo environment; they SHALL NOT be used as
-a reason to deploy untrusted pull-request trees with cluster credentials.
+Manager and SHALL be consumed as `ephemeral-ci-secrets.spec.md` defines.
 
-#### Scenario: Origin pull request is deployed
+The GitHub organization gate and allowlist (see GitHub-Brokered Keycloak
+Authentication) govern interactive login to an already-deployed environment;
+they SHALL NOT be used as a reason to deploy untrusted pull-request trees with
+cluster credentials. `/ok-to-test` is that reason, and only for a
+write-access collaborator.
+
+#### Scenario: Origin pull request is deployed from the default-branch workflow
 
 - GIVEN a pull request opened against the origin repository by a repository
   collaborator
-- WHEN the workflow runs
+- AND Tests has succeeded with `should_run=true`
+- WHEN the origin default-branch OpenShift workflow runs
 - THEN it SHALL deploy the environment with the cluster credentials
+- AND the `pull_request` Tests job SHALL NOT have set `id-token: write`
 
-#### Scenario: Fork pull request is not deployed
+#### Scenario: Ungated fork pull request is not deployed
 
 - GIVEN a pull request whose head branch lives in a fork
-- WHEN GitHub evaluates this workflow
-- THEN the job SHALL NOT set `id-token: write`
+- AND the pull request is not marked `/ok-to-test` approved
+- WHEN Tests runs on `pull_request`
+- THEN that job SHALL NOT set `id-token: write`
 - AND it SHALL NOT request an OIDC token or assume the CI IAM role
 - AND it SHALL NOT receive cluster credentials
 - AND it SHALL NOT create or update a `hypershell-ci-pr-*` environment
@@ -911,7 +924,7 @@ a reason to deploy untrusted pull-request trees with cluster credentials.
 
 The per-pull-request environment's Keycloak SHALL broker interactive
 authentication to GitHub, and SHALL NOT broker to Red Hat SSO, so an allowlisted
-outside contributor can log in to an already-deployed origin-repo environment.
+outside contributor can log in to an already-deployed environment.
 This is the one intentional divergence from the Keycloak model in
 `local-development.spec.md` and the downstream Red Hat SSO brokering described
 there: the realm structure (realm `hypershell`, the `hypershell-frontend`,
@@ -1029,7 +1042,8 @@ either, for the same reason.
 
 - GIVEN a GitHub user who is not a member of `openshift-online`
 - AND that username is on the environment's allowlist
-- AND an origin-repo pull request has already deployed the environment
+- AND an origin-repo or `/ok-to-test` approved fork pull request has already
+  deployed the environment
 - WHEN they log in through GitHub
 - THEN the web console SHALL create their HyperShell session
 - AND that allowlist entry SHALL NOT have caused CI to deploy a fork pull request
@@ -1427,16 +1441,16 @@ exists).
 | Retained state is a `pr-environment/pr-extended` PR label, so `/pr-extend` is sticky | A label on the pull request is durable and derivable each run without external storage, so retention persists across commits (the developer extends once, not per commit) and every workflow run reads the same source of truth |
 | Latest authorized command comment by `created_at` wins; the label caches it | `issue_comment` runs can execute out of order or concurrently, so `/pr-extend` then `/pr-destroy` then `/pr-extend` must not depend on which run finishes last. Deriving state from the newest authorized command and reconciling the label to it makes the outcome deterministic and ignores an interleaved unauthorized `/pr-destroy` |
 | `/pr-extend` redeploys when nothing is up; failing runs still tear down | The ephemeral cycle may have already destroyed the environment by the time a developer reads the comment. Redeploying on `/pr-extend` avoids a grace-window race and keeps the default aggressive: a fresh environment for the current head is a better debug target than a half-torn-down one |
-| `/pr-extend` and `/pr-destroy` require write access, checked before using credentials | The comment-triggered workflow runs with repository and cluster credentials; an arbitrary commenter must not be able to pin or delete shared-cluster environments. A GitHub permission check (not `author_association`) matches the existing origin-only trust boundary |
+| `/pr-extend` and `/pr-destroy` require write access, checked before using credentials | The comment-triggered workflow runs with repository and cluster credentials; an arbitrary commenter must not be able to pin or delete shared-cluster environments. A GitHub permission check (not `author_association`) matches `/ok-to-test`. Fork pull requests additionally need `/ok-to-test` before these commands may use cluster credentials |
 | Every deploy stamps `expires-at`; retained gets the inactivity window, unretained a short backstop | The reaper keys on `expires-at`. A retained PR wants a multi-day inactivity timebox; an unretained PR relies on in-run teardown but needs a short backstop so a crashed teardown is still reclaimed promptly. `make openshift-up` does not stamp either; local dev is not time-boxed |
 | Seed after every image swap; reuse existing named resources, except `dev-gateway` | `SKIP_SEED` on `openshift-up` keeps the baseline image from seeing the seed POST; `make openshift-seed` after the swap exercises this PR's contract. Gateway names are not unique, so later reconciles must look up `dev-gateway` (and the other seed names) rather than POST a second copy. `dev-gateway` is the one exception: Keycloak runs on in-memory storage with no persistent volume, so a Keycloak pod restart discards its dynamically-provisioned OIDC client while the `dev-gateway` row survives untouched in PostgreSQL, and the reconciler deliberately never auto-recreates a missing client (`openshell-gateway-keycloak.spec.md`, "Existing gateway client is missing"). Reusing a `dev-gateway` that predates the current Keycloak instance would permanently strand it in status `Keycloak client is missing`, so seeding deletes and recreates it on every run instead. This is a stopgap until Keycloak has durable storage across restarts |
-| Origin `pull_request` only; Kind remains the merge-queue gate | `merge_group` has no stable pull-request number the way this namespace is keyed, and would race a `synchronize` swap on the same namespace. Fork PRs must not receive cluster credentials; the allowlist is login, not deploy |
+| Default-branch OpenShift cycle; Kind remains the merge-queue gate | `merge_group` has no stable pull-request number the way this namespace is keyed, and would race a `synchronize` swap on the same namespace. Cluster login runs only from origin default-branch workflows (`ephemeral-pr-ok-to-test.spec.md`). Fork PRs receive that cycle after `/ok-to-test`; the allowlist is login, not deploy |
 | Per-PR concurrency group | Two in-flight swaps on one namespace can leave mixed digests; cancelling or queuing the older run keeps the comment SHA honest |
 | One GitHub OAuth App and one stable callback | GitHub does not allow wildcard redirect URIs and limits callback URLs, so per-PR Keycloak Routes cannot be registered as GitHub callbacks. A cluster-scoped callback, like the shared Gateway, is the identity infrastructure this workflow depends on |
 | Hidden HTML comment marker | Later runs have to find "the" access comment; a stable marker avoids editing an unrelated comment or posting duplicates |
 | Immutable digests over untrusted tags | The environment runs exactly the artifact CI verified; pinning by `@sha256:` means a tag that is later re-pushed cannot silently change what the environment runs. A tag is a last-resort fallback only when no digest exists, and the fallback is recorded rather than silent |
 | In-run teardown is primary; close and reaper are the other paths | The ephemeral cycle destroys its own environment as the last step of Tests / E2E / OpenShift unless retained, and close/`/pr-destroy` frees a retained one promptly. The timebox/reaper is the backstop for a crashed teardown or a quiet retained PR, so nothing lingers when an event does not fire |
-| Deploy lives in the e2e stage after Unit, not a parallel PR Environment workflow | A separate workflow would deploy even when Unit fails and would need a cross-workflow poller for the suite. Putting Deploy OpenShift Environment in `e2e.yml` behind the same `should_run` gate means unit failure skips deploy, OpenShift can `needs:` deploy, and teardown can be a last step of the suite job |
+| Deploy lives in a default-branch OpenShift workflow after Tests, not in the `pull_request` e2e stage | A `pull_request` job runs YAML the pull request can edit, so it must not receive `id-token: write`. Starting OpenShift from the origin default branch after Tests succeeds keeps unit-failure skip and the `should_run` gate without giving fork (or origin-branch) workflow YAML cluster login. Kind stays in `e2e.yml` on `pull_request` |
 | Reaper invokes the `make openshift-down` teardown rather than reimplementing it | The reaper and `make openshift-down` must remove the same things (namespace group, cluster RBAC, instance-managed gateway/database namespaces, swaps). Running one teardown code path per expired environment stops the two from drifting, so adding a resource to teardown does not silently leave the reaper on a stale definition. Gateway and ManagedDatabase namespaces are siblings of the platform project and periodic GC dies with the controller, so this shared path is what keeps e2e leftovers off the shared cluster |
 | One updated comment per pull request, carrying the completed-swap commit SHA | The pull request shows the live environment's current state instead of a growing list of stale comments; pinning the SHA whose digest swap completed prevents claiming a commit the swap did not deploy |
 | GitHub brokering, not Red Hat SSO | These are developer/debug environments; GitHub identity plus an organization gate and allowlist lets an outside contributor log in to an origin-repo environment, where Red Hat SSO would tie the environment to production identity |
@@ -1444,5 +1458,5 @@ exists).
 | Authenticated users get `platform:admin` and `gateway:creator`; narrower tiers by self-service impersonation | `platform:admin` is view and delete only; create requires `gateway:creator`. A single GitHub identity federates to one Keycloak user, so there is no account picker between tiers. Reusing the shared `developer` and `platform-admin` test-tier principals (`ephemeral-test-credentials.spec.md`) as impersonation targets, open to any authenticated user rather than only a designated admin, lets every contributor verify a narrower HyperShell API boundary with the same login and without a password. Impersonation does not include other GitHub-brokered users. Per-gateway sandbox create stays an e2e driver grant. Impersonation works between seed and de-seed; after de-seed it waits for the next seed |
 | Area 9 grants `openshell-user` on the gateway client before token exchange | Kind already uses `assign_gateway_client_role` because there is no user-id discovery path to create a `gateway:viewer` RoleBinding for a non-owner. The OpenShift driver does the same so a brokered PR env has a specified path to an `openshell-user` token. That grant is not a Keycloak realm-role seed |
 | Dedicated `hypershell-e2e` client, imported only when enabled | Brokered GitHub users have no password grant. A per-PR realm cannot share a standing AWS or Actions provisioner secret, and `hypershell-provisioner` is too privileged (`manage-clients` / `manage-users`). Token exchange onto the HyperShell API client and onto the per-gateway client covers area 9 without a password grant. Omitting the client from Kind/local/hub imports (and gating control-plane grants on `enabled==true`) keeps the impersonation identity out of production reconcile paths. `E2E_OIDC_GRANT` keeps Kind and local OpenShift on the password grant against the static seeds |
-| Standing CI secrets in AWS Secrets Manager, not GitHub Actions | Cluster login and the GitHub OAuth App must rotate with the fleet and, for OAuth, must also land in Keycloak. `ephemeral-ci-secrets.spec.md` owns that inventory, the origin-only job-level OIDC gate, GitHub OIDC fetch of cluster login, and ESO alignment of OAuth so this spec can treat them as cluster infrastructure |
+| Standing CI secrets in AWS Secrets Manager, not GitHub Actions | Cluster login and the GitHub OAuth App must rotate with the fleet and, for OAuth, must also land in Keycloak. `ephemeral-ci-secrets.spec.md` owns that inventory, GitHub OIDC fetch of cluster login, and ESO alignment of OAuth so this spec can treat them as cluster infrastructure. Which jobs may request OIDC is `ephemeral-pr-ok-to-test.spec.md` |
 | Deprecate `e2e-openshell.sh` now, remove it later; leave ROKS alone | This workflow is the canonical pull-request OpenShift e2e path, so the legacy `e2e-openshell.sh` is superseded. Team members still run it, so it is deprecated first (notice + docs pointing at the shared harness) and removed later once that usage migrates. New coverage lands only in `tests/e2e/`. The ROKS variant is out of scope; the `pr_test` component stays until both scripts are gone |

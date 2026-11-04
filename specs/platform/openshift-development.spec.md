@@ -981,10 +981,12 @@ outside the driver model. This spec SHALL NOT require the script or the
 
 Automated OpenShift pull-request CI is specified in
 `ephemeral-pr-environments.spec.md` (HYPERSHELL-240). That spec owns namespace
-naming, deploy triggers, origin-only trust boundary, timebox and reaping, the
-access comment, GitHub-brokered Keycloak, e2e grant selection, and the
-`e2e-openshell.sh` deprecation window. This spec SHALL NOT restate those
-requirements.
+naming, deploy triggers, timebox and reaping, the access comment,
+GitHub-brokered Keycloak, e2e grant selection, and the `e2e-openshell.sh`
+deprecation window. Who may start that cycle, `/ok-to-test` for fork pull
+requests, and the rule that cluster login runs only from origin default-branch
+workflows are specified in `ephemeral-pr-ok-to-test.spec.md`. This spec SHALL
+NOT restate those requirements.
 
 The pull-request workflow SHALL deploy and release with the same lifecycle this
 spec defines: `make openshift-up` and `make openshift-down`, the
@@ -995,13 +997,15 @@ drift. `make openshift-up` SHALL NOT stamp a pull-request timebox; expiry is a
 CI annotation defined in `ephemeral-pr-environments.spec.md`.
 
 Kind e2e, including the merge-queue gate, stays in `e2e-testing.spec.md`. The
-OpenShift pull-request job SHALL run for origin `pull_request` events that
-trigger Kind e2e, and for changes under `deploy/openshift/` or the OpenShift
-lifecycle scripts. It SHALL NOT run on `merge_group`.
+OpenShift pull-request job SHALL run for origin pull requests that trigger Kind
+e2e, for `/ok-to-test` approved fork pull requests
+(`ephemeral-pr-ok-to-test.spec.md`), and for changes under `deploy/openshift/`
+or the OpenShift lifecycle scripts. It SHALL NOT run on `merge_group`.
 
 #### Scenario: CI reuses the local-dev lifecycle
 
-- GIVEN an origin pull request that triggers this workflow
+- GIVEN an origin pull request, or an `/ok-to-test` approved fork pull request,
+  that triggers this workflow
 - WHEN the workflow deploys the environment
 - THEN it SHALL run `make openshift-up` with `OPENSHIFT_NAMESPACE` set as
   `ephemeral-pr-environments.spec.md` defines
