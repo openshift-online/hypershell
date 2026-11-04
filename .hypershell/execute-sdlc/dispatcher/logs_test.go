@@ -254,3 +254,24 @@ func TestLogColorContinuesAcrossFilteredAndWrappedLines(t *testing.T) {
 		}
 	}
 }
+
+func TestLogPaneStaysBoundedInShortTerminals(t *testing.T) {
+	for _, size := range [][2]int{{62, 18}, {80, 24}, {120, 40}} {
+		m := sampleModel()
+		m.screen = "logs"
+		m.width = size[0]
+		m.height = size[1]
+		m.logText = strings.Repeat("earlier output\n", 50) + "newest output"
+		m.clampLogScroll()
+		view := m.View()
+		if lipgloss.Height(view) != m.height || !strings.Contains(view, "┌") || !strings.Contains(view, "└") || !strings.Contains(view, "newest output") || !strings.Contains(view, "Lines ") {
+			t.Fatalf("incomplete pane at %v: %s", size, view)
+		}
+		m = press(m, "g")
+		m = press(m, "g")
+		if !strings.Contains(m.View(), "earlier output") || !strings.Contains(m.View(), "Paused") {
+			t.Fatalf("cannot inspect top at %v", size)
+		}
+		m.cancel()
+	}
+}

@@ -275,7 +275,16 @@ func (m *Model) openLog(path string) {
 	}
 	m.refreshLog(path)
 }
-func (m Model) logPageSize() int { return max(1, m.height-19) }
+func (m Model) logPageSize() int {
+	fixed := 19
+	if m.height-2 < 22 {
+		fixed -= 2
+	}
+	if m.height-2 < 18 {
+		fixed--
+	}
+	return max(1, m.height-fixed)
+}
 func (m *Model) clampLogScroll() {
 	m.prepareLogs()
 	content := m.logContent()
@@ -370,8 +379,14 @@ func (m Model) logsView(lines []string, row Row, w, h int) []string {
 	if awaitingNewReview(row) {
 		section = "Previous review logs"
 	}
-	lines = append(lines, m.workHeader(row, w, section)...)
-	lines = append(lines, m.style(middle(row.Log, w), "8", false))
+	header := m.workHeader(row, w, section)
+	if h < 22 {
+		header = []string{m.style(middle(title(row), w), "7", true), m.style(middle(row.Agent+" · "+rowStatus(row), w), rowColor(row), false), ""}
+	}
+	lines = append(lines, header...)
+	if h >= 18 {
+		lines = append(lines, m.style(middle(row.Log, w), "8", false))
+	}
 	following := "Following"
 	if m.scroll > 0 {
 		following = "Paused · G resumes"
