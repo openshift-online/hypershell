@@ -44,7 +44,7 @@ type CITrust struct {
 	Name string `protobuf:"bytes,14,opt,name=name,proto3" json:"name,omitempty"`
 	// repository_id is the control-plane import ownership mark; read-only, set
 	// server-side from the reconciled-Repository metadata, never by a client
-	// (data-model.spec.md PLAT-DATA-25, SEC-RBAC-25).
+	// (data-model.spec.md PLAT-DATA-25, SEC-RBAC-26).
 	RepositoryId  *string `protobuf:"bytes,15,opt,name=repository_id,json=repositoryId,proto3,oneof" json:"repository_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -288,7 +288,7 @@ type CreateCITrustRequest struct {
 	// identity. When empty the server derives it from ci_provider_id/gateway_id/role.
 	Name *string `protobuf:"bytes,9,opt,name=name,proto3,oneof" json:"name,omitempty"`
 	// repository_id is ignored server-side: import ownership is taken from the
-	// trusted reconciled-Repository metadata, never the request body (SEC-RBAC-25).
+	// trusted reconciled-Repository metadata, never the request body (SEC-RBAC-26).
 	RepositoryId  *string `protobuf:"bytes,10,opt,name=repository_id,json=repositoryId,proto3,oneof" json:"repository_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

@@ -28,7 +28,7 @@ message CITrust {
   string name = 14;
   // repository_id is the control-plane import ownership mark; read-only, set
   // server-side from the reconciled-Repository metadata, never by a client
-  // (data-model.spec.md PLAT-DATA-25, SEC-RBAC-25).
+  // (data-model.spec.md PLAT-DATA-25, SEC-RBAC-26).
   optional string repository_id = 15;
 }
 
@@ -54,7 +54,7 @@ message CreateCITrustRequest {
   // identity. When empty the server derives it from ci_provider_id/gateway_id/role.
   optional string name = 9;
   // repository_id is ignored server-side: import ownership is taken from the
-  // trusted reconciled-Repository metadata, never the request body (SEC-RBAC-25).
+  // trusted reconciled-Repository metadata, never the request body (SEC-RBAC-26).
   optional string repository_id = 10;
 }
 
