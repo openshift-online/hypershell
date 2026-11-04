@@ -81,7 +81,7 @@ func migrationAddName() *gormigrate.Migration {
 
 // migrationAddRepositoryOwnership adds the nullable repository_id ownership mark so
 // the control-plane declarative-import reconciler can own and per-Repository prune
-// imported CITrusts (PLAT-DATA-25, SEC-RBAC-25, issue #958). It is NULL for a trust
+// imported CITrusts (PLAT-DATA-25, SEC-RBAC-26, issue #958). It is NULL for a trust
 // created directly over REST or hsctl apply. It runs under a NEW migration ID
 // because ci_trusts already shipped its table (ID 2026102600000002) and the
 // convergence/name migrations: editing a shipped body is skipped on upgraded hubs

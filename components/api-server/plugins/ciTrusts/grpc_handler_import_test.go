@@ -21,12 +21,13 @@ func importCtx(repositoryID string) context.Context {
 }
 
 // captureCITrustService records writes and serves canned reads, plus a configurable
-// gateway-ownership answer for the SEC-RBAC-25 gate, so the import handlers can be
+// gateway-ownership answer for the SEC-RBAC-26 gate, so the import handlers can be
 // tested in isolation.
 type captureCITrustService struct {
 	getResult *CITrust
 	getErr    *errors.ServiceError
 	created   *CITrust
+	replaced  *CITrust
 	deletedID string
 
 	gatewayOwner      *string
@@ -44,6 +45,7 @@ func (s *captureCITrustService) Create(_ context.Context, ct *CITrust) (*CITrust
 	return ct, nil
 }
 func (s *captureCITrustService) Replace(_ context.Context, ct *CITrust) (*CITrust, *errors.ServiceError) {
+	s.replaced = ct
 	return ct, nil
 }
 func (s *captureCITrustService) Delete(_ context.Context, id string) *errors.ServiceError {
@@ -72,7 +74,7 @@ func importCreateReq() *pb.CreateCITrustRequest {
 
 // An import create on a gateway the SAME Repository owns is authorized, and the server
 // sets repository_id from the trusted metadata (never the request body).
-// Verifies: SEC-RBAC-25.01, PLAT-DATA-25
+// Verifies: SEC-RBAC-26.01, PLAT-DATA-25
 func TestCreateCITrust_ImportSetsOwnershipOnOwnedGateway(t *testing.T) {
 	svc := &captureCITrustService{gatewayOwner: strPtr("repo-1"), gatewayFound: true}
 	h := &ciTrustGRPCHandler{service: svc}
@@ -94,7 +96,7 @@ func TestCreateCITrust_ImportSetsOwnershipOnOwnedGateway(t *testing.T) {
 
 // An import create on a gateway owned by ANOTHER Repository (or unowned / nonexistent)
 // is refused.
-// Verifies: SEC-RBAC-25.02
+// Verifies: SEC-RBAC-26.02
 func TestCreateCITrust_ImportRejectedOnForeignGateway(t *testing.T) {
 	cases := map[string]*captureCITrustService{
 		"owned by another repository": {gatewayOwner: strPtr("repo-2"), gatewayFound: true},
@@ -117,7 +119,7 @@ func TestCreateCITrust_ImportRejectedOnForeignGateway(t *testing.T) {
 
 // With no import context the gateway-ownership gate is skipped (the human HTTP tenancy
 // path, SEC-RBAC-22, is unchanged) and no ownership mark is set.
-// Verifies: SEC-RBAC-25.03
+// Verifies: SEC-RBAC-26.03
 func TestCreateCITrust_NoImportContextSkipsGateAndOwnership(t *testing.T) {
 	svc := &captureCITrustService{}
 	h := &ciTrustGRPCHandler{service: svc}
@@ -136,7 +138,7 @@ func TestCreateCITrust_NoImportContextSkipsGateAndOwnership(t *testing.T) {
 
 // An import reconciler may not update a CITrust owned by another Repository or created
 // directly over REST.
-// Verifies: SEC-RBAC-25
+// Verifies: SEC-RBAC-26
 func TestUpdateCITrust_EnforcesOwnership(t *testing.T) {
 	otherRepo := "repo-2"
 	found := &CITrust{Name: "ct", RepositoryID: &otherRepo}
@@ -156,14 +158,16 @@ func TestUpdateCITrust_EnforcesOwnership(t *testing.T) {
 // could not persist a changed subject.repository/project_path.
 func TestUpdateCITrust_AppliesSubjectRepositoryAndProjectPath(t *testing.T) {
 	oldRepo, oldPath := "acme/old", "grp/old"
-	owned := &CITrust{Name: "ct", RepositoryID: strPtr("repo-1"), SubjectRepository: &oldRepo, SubjectProjectPath: &oldPath}
+	owned := &CITrust{Name: "ct", RepositoryID: strPtr("repo-1"), Role: "openshell-user", SubjectRepository: &oldRepo, SubjectProjectPath: &oldPath}
 	owned.ID = "ct-1"
 	svc := &captureCITrustService{getResult: owned}
 	h := &ciTrustGRPCHandler{service: svc}
 
 	newRepo, newPath := "acme/new", "grp/new"
+	role := "openshell-user"
 	resp, err := h.UpdateCITrust(importCtx("repo-1"), &pb.UpdateCITrustRequest{
 		Id:                 "ct-1",
+		Role:               &role,
 		SubjectRepository:  &newRepo,
 		SubjectProjectPath: &newPath,
 	})
@@ -189,6 +193,7 @@ func TestUpdateCITrust_ImportClearsOmittedSubjectField(t *testing.T) {
 	owned := &CITrust{
 		Name:               "ct",
 		RepositoryID:       strPtr("repo-1"),
+		Role:               "openshell-user",
 		SubjectRepository:  strPtr("acme/repo"),
 		SubjectRef:         &oldRef,
 		SubjectEnvironment: &oldEnv,
@@ -197,10 +202,13 @@ func TestUpdateCITrust_ImportClearsOmittedSubjectField(t *testing.T) {
 	svc := &captureCITrustService{getResult: owned}
 	h := &ciTrustGRPCHandler{service: svc}
 
-	// The manifest now declares only subject.repository; ref and environment are gone.
+	// The manifest now declares only subject.repository and role; ref and environment
+	// are gone.
 	keepRepo := "acme/repo"
+	role := "openshell-user"
 	resp, err := h.UpdateCITrust(importCtx("repo-1"), &pb.UpdateCITrustRequest{
 		Id:                "ct-1",
+		Role:              &role,
 		SubjectRepository: &keepRepo,
 	})
 	if err != nil {
@@ -214,6 +222,28 @@ func TestUpdateCITrust_ImportClearsOmittedSubjectField(t *testing.T) {
 	}
 	if got := resp.GetCiTrust().GetSubjectRepository(); got != keepRepo {
 		t.Errorf("subject_repository = %q, want %q retained", got, keepRepo)
+	}
+}
+
+// role is required on the import update path too, symmetric with CreateCITrust
+// (FINDING 1). Because the import path REPLACES role wholesale, a manifest that drops
+// role reaches here as Role="" and would persist an empty role, silently breaking the
+// Keycloak token-exchange role mapping. The update must be rejected, not recorded as
+// convergence. Before the fix the import path set found.Role="" with no validation and
+// the Replace succeeded.
+func TestUpdateCITrust_ImportRejectsEmptyRole(t *testing.T) {
+	owned := &CITrust{Name: "ct", RepositoryID: strPtr("repo-1"), Role: "openshell-user"}
+	owned.ID = "ct-1"
+	svc := &captureCITrustService{getResult: owned}
+	h := &ciTrustGRPCHandler{service: svc}
+
+	emptyRole := ""
+	_, err := h.UpdateCITrust(importCtx("repo-1"), &pb.UpdateCITrustRequest{
+		Id:   "ct-1",
+		Role: &emptyRole,
+	})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("import update with empty role: code = %s, want InvalidArgument", status.Code(err))
 	}
 }
 
@@ -250,7 +280,7 @@ func TestUpdateCITrust_HumanPatchLeavesOmittedSubjectFieldUnchanged(t *testing.T
 
 // An import reconciler may not prune a CITrust it does not own, so one Repository's
 // import never deletes another's or a REST-created trust.
-// Verifies: SEC-RBAC-25
+// Verifies: SEC-RBAC-26
 func TestDeleteCITrust_EnforcesOwnership(t *testing.T) {
 	restCreated := &CITrust{Name: "ct"} // no ownership mark
 	restCreated.ID = "ct-1"

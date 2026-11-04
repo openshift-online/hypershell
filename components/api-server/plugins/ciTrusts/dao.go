@@ -22,7 +22,7 @@ type CITrustDao interface {
 	GatewayExists(ctx context.Context, gatewayID string) (bool, error)
 	// GatewayRepositoryID returns the repository_id ownership mark of the referenced
 	// gateway (found=false when no live gateway has that id). It backs the imported
-	// CITrust tenancy gate (SEC-RBAC-25): an import may author a CITrust only on a
+	// CITrust tenancy gate (SEC-RBAC-26): an import may author a CITrust only on a
 	// gateway owned by the same reconciled Repository.
 	GatewayRepositoryID(ctx context.Context, gatewayID string) (repositoryID *string, found bool, err error)
 }

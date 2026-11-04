@@ -213,7 +213,7 @@ func authorizeControlPlaneGRPC(ctx context.Context, clusterID, fullMethod string
 		}
 		return denied()
 	case "CITrustService":
-		// CITrust is on the declarative-import write path (SEC-RBAC-09.09, SEC-RBAC-25):
+		// CITrust is on the declarative-import write path (SEC-RBAC-09.09, SEC-RBAC-26):
 		// a registered control plane may READ it, and an import-marked write is
 		// authorized only when the write carries the reconciled Repository id in trusted
 		// metadata and that Repository exists (authorizeImportWrite / import_binding.go).

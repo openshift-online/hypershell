@@ -35,7 +35,7 @@ type CITrustService interface {
 	FindByIDs(ctx context.Context, ids []string) (CITrustList, *errors.ServiceError)
 	// GatewayRepositoryID returns the ownership mark of the referenced gateway (nil
 	// when the gateway is unowned, found=false when no live gateway has that id). It
-	// backs the imported CITrust tenancy gate (SEC-RBAC-25).
+	// backs the imported CITrust tenancy gate (SEC-RBAC-26).
 	GatewayRepositoryID(ctx context.Context, gatewayID string) (repositoryID *string, found bool, svcErr *errors.ServiceError)
 }
 

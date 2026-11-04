@@ -16,7 +16,7 @@ import (
 )
 
 // importMD returns a context carrying the reconciled-Repository import binding, the
-// trusted gRPC metadata the server reads CITrust ownership and the SEC-RBAC-25
+// trusted gRPC metadata the server reads CITrust ownership and the SEC-RBAC-26
 // gateway-ownership gate from.
 func importMD(repositoryID string) context.Context {
 	return metadata.AppendToOutgoingContext(context.Background(), rbac.ImportRepositoryMetadataKey, repositoryID)
@@ -38,9 +38,9 @@ func registerImportRepository(t *testing.T, client *openapi.APIClient, owner pri
 // plane, carrying a reconciled-Repository binding, upserts a CITrust referencing a
 // CIProvider and a Repository-owned Gateway. The server SHALL set repository_id
 // ownership from the trusted metadata, leave the row queryable, enforce the
-// SEC-RBAC-25 gateway-ownership tenancy gate, and scope prune per-Repository.
+// SEC-RBAC-26 gateway-ownership tenancy gate, and scope prune per-Repository.
 //
-// Verifies: SDLC-CONF-08.03, PLAT-CITR-10, SEC-RBAC-25.01, SEC-RBAC-25.02, SEC-RBAC-09.09
+// Verifies: SDLC-CONF-08.03, PLAT-CITR-10, SEC-RBAC-26.01, SEC-RBAC-26.02, SEC-RBAC-09.09
 func TestCITrustDeclarativeImportRoundTrip(t *testing.T) {
 	RegisterTestingT(t)
 	h, client := test.RegisterIntegration(t)
@@ -83,7 +83,7 @@ func TestCITrustDeclarativeImportRoundTrip(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred(), "import create gateway owned by R2: %v", err)
 	gatewayR2 := gw2.GetGateway().GetMetadata().GetId()
 
-	// --- SEC-RBAC-25.01: import authors a CITrust on its own R1-owned gateway ---
+	// --- SEC-RBAC-26.01: import authors a CITrust on its own R1-owned gateway ---
 	name := "github-actions-" + short()
 	created, err := trusts.CreateCITrust(importMD(repo1), &pb.CreateCITrustRequest{
 		Name:              &name,
@@ -120,7 +120,7 @@ func TestCITrustDeclarativeImportRoundTrip(t *testing.T) {
 	Expect(updated.GetCiTrust().GetSubjectRepository()).To(Equal("openshift-online/hypershell"),
 		"the declared subject_repository must be retained")
 
-	// --- SEC-RBAC-25.02: import may not author a CITrust on a gateway it does not own ---
+	// --- SEC-RBAC-26.02: import may not author a CITrust on a gateway it does not own ---
 	_, err = trusts.CreateCITrust(importMD(repo1), &pb.CreateCITrustRequest{
 		Name:         openapi.PtrString("cross-tenant-" + short()),
 		CiProviderId: ciProviderID,

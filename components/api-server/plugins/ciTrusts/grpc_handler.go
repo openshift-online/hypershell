@@ -48,7 +48,7 @@ func (h *ciTrustGRPCHandler) CreateCITrust(ctx context.Context, req *pb.CreateCI
 	if err := grpcutil.ValidateStringField("role", req.Role, true); err != nil {
 		return nil, err
 	}
-	// Imported CITrust tenancy (SEC-RBAC-25): on the declarative-import path the
+	// Imported CITrust tenancy (SEC-RBAC-26): on the declarative-import path the
 	// trust may be authored ONLY on a gateway owned by the SAME reconciled
 	// Repository. With no import context this is a no-op and the human HTTP path
 	// (SEC-RBAC-22) is unchanged.
@@ -66,7 +66,7 @@ func (h *ciTrustGRPCHandler) CreateCITrust(ctx context.Context, req *pb.CreateCI
 		SubjectRefProtected: req.SubjectRefProtected,
 		Role:                req.Role,
 		// Import ownership is set server-side from trusted metadata; a client-supplied
-		// repository_id is ignored so ownership cannot be forged (SEC-RBAC-25).
+		// repository_id is ignored so ownership cannot be forged (SEC-RBAC-26).
 		RepositoryID: pkgrbac.ImportOwnershipMark(ctx),
 	}
 	created, svcErr := h.service.Create(ctx, item)
@@ -86,7 +86,7 @@ func (h *ciTrustGRPCHandler) UpdateCITrust(ctx context.Context, req *pb.UpdateCI
 	}
 	// On the import path a reconciler may update ONLY a CITrust its own Repository
 	// owns; a trust owned by another Repository or created directly over REST is
-	// refused (SEC-RBAC-25). With no import context this is a no-op.
+	// refused (SEC-RBAC-26). With no import context this is a no-op.
 	if err := pkgrbac.EnforceImportOwnership(ctx, found.RepositoryID); err != nil {
 		return nil, err
 	}
@@ -105,6 +105,13 @@ func (h *ciTrustGRPCHandler) UpdateCITrust(ctx context.Context, req *pb.UpdateCI
 		found.SubjectRefProtected = req.SubjectRefProtected
 		if req.Role != nil {
 			found.Role = *req.Role
+		}
+		// Role is required on the import update path too, symmetric with CreateCITrust
+		// (FINDING 1): a manifest that drops role reaches here as Role="" and the REPLACE
+		// above would persist an empty role, silently breaking the Keycloak
+		// token-exchange role mapping. Reject it instead of recording false convergence.
+		if err := grpcutil.ValidateStringField("role", found.Role, true); err != nil {
+			return nil, err
 		}
 	} else {
 		// Human HTTP partial-PATCH (SEC-RBAC-22): nil means "unchanged", so a caller
@@ -154,7 +161,7 @@ func (h *ciTrustGRPCHandler) DeleteCITrust(ctx context.Context, req *pb.DeleteCI
 	}
 	// On the import path a reconciler may prune ONLY a CITrust its own Repository
 	// owns, so one Repository's import never deletes another Repository's or a
-	// REST/hsctl-created trust (SEC-RBAC-25). With no import context this is a no-op.
+	// REST/hsctl-created trust (SEC-RBAC-26). With no import context this is a no-op.
 	if err := pkgrbac.EnforceImportOwnership(ctx, found.RepositoryID); err != nil {
 		return nil, err
 	}
@@ -165,7 +172,7 @@ func (h *ciTrustGRPCHandler) DeleteCITrust(ctx context.Context, req *pb.DeleteCI
 }
 
 // enforceImportGatewayOwnership implements the imported CITrust tenancy gate
-// (SEC-RBAC-25): when the write carries a reconciled-Repository import binding, the
+// (SEC-RBAC-26): when the write carries a reconciled-Repository import binding, the
 // referenced gateway MUST be owned by that SAME Repository (same repository_id
 // ownership mark). A gateway owned by another Repository, by a human, or created
 // directly over REST (nil ownership), or a missing gateway, is refused. With no

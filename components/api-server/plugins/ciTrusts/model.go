@@ -28,7 +28,7 @@ type CITrust struct {
 	SubjectRefProtected *bool   `json:"subject_ref_protected"`
 	Role                string  `json:"role"`
 	// RepositoryID is the ownership mark set by the control-plane declarative
-	// import reconciler (SEC-RBAC-25, PLAT-DATA-25). It is NULL for a CITrust
+	// import reconciler (SEC-RBAC-26, PLAT-DATA-25). It is NULL for a CITrust
 	// created directly over REST or hsctl apply, and carries the owning
 	// Repository id for an imported trust so prune is scoped per-Repository. It is
 	// set server-side from trusted metadata, never from a client request body.
@@ -46,6 +46,8 @@ func (CITrust) TableName() string { return "ci_trusts" }
 type CITrustList []*CITrust
 
 type CITrustPatchRequest struct {
+	SubjectRepository   *string `json:"subject_repository"`
+	SubjectProjectPath  *string `json:"subject_project_path"`
 	SubjectRef          *string `json:"subject_ref"`
 	SubjectEnvironment  *string `json:"subject_environment"`
 	SubjectRefProtected *bool   `json:"subject_ref_protected"`
