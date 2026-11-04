@@ -106,6 +106,14 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 
 	_, err = grpcClient.GetGateway(ctx, getReq)
 	Expect(err).To(HaveOccurred())
+
+	// include_deleted bypasses the soft-delete filter so the control plane can
+	// re-read a deleting record to reconcile teardown from it on a nil-payload
+	// delete event (watch-delete-events.spec.md CTRL-WDEL-02, CTRL-WDEL-04).
+	softDeleted, err := grpcClient.GetGateway(ctx, &pb.GetGatewayRequest{Id: gatewayID, IncludeDeleted: true})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(softDeleted.Gateway.Metadata.Id).To(Equal(gatewayID))
+	Expect(softDeleted.Gateway.Namespace).To(Equal(gatewayNamespace))
 }
 
 // Verifies: PLAT-DATA-02.02, PLAT-CLUS-06.01, PLAT-CLUS-06.03, PLAT-CLUS-07.02

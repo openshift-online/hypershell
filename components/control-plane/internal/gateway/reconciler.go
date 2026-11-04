@@ -346,15 +346,20 @@ func recordOrphan(ctx context.Context, opts ReconcileOpts, resourceKind, resourc
 // gateway stamps on everything it creates) are deleted, so co-tenant workloads
 // sharing the namespace are never touched: the same no-collateral guarantee that
 // keeps GC from reaping a shared namespace. The namespace itself is never
-// deleted here. It is best-effort - per-resource failures are logged and do not
-// abort the sweep, matching DeleteGatewayResources - and the caller invokes it
-// only when the namespace was left in place.
+// deleted here. The caller invokes it only when the namespace was left in place.
+//
+// The sweep attempts every resource type regardless of an individual failure and
+// aggregates the failures into the returned error rather than swallowing them, so
+// a partial sweep is retried and never silently leaks an owned resource
+// (GTW-DEL-03). A resource type whose CRD is not installed (list returns
+// NotFound) is skipped without failing the sweep (GTW-DEL-02.01), and a target
+// already absent at delete time is treated as success.
 func DeleteLabeledNamespaceResources(
 	ctx context.Context,
 	dynamicClient dynamic.Interface,
 	namespace string,
 	opts ReconcileOpts,
-) {
+) error {
 	labelSelector := fmt.Sprintf("%s=%s", ManagedLabel, ManagedLabelValue)
 
 	namespacedResources := []schema.GroupVersionResource{
@@ -389,6 +394,7 @@ func DeleteLabeledNamespaceResources(
 		)
 	}
 
+	var errs []error
 	for _, gvr := range namespacedResources {
 		list, err := dynamicClient.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{
 			LabelSelector: labelSelector,
@@ -400,6 +406,7 @@ func DeleteLabeledNamespaceResources(
 				continue
 			}
 			slog.WarnContext(ctx, "Failed to list resources for cleanup", "kind", gvr.Resource, "namespace", namespace, "error", err)
+			errs = append(errs, fmt.Errorf("list %s in %s: %w", gvr.Resource, namespace, err))
 			continue
 		}
 		for i := range list.Items {
@@ -412,12 +419,14 @@ func DeleteLabeledNamespaceResources(
 						"namespace", namespace,
 						"error", err,
 					)
+					errs = append(errs, fmt.Errorf("delete %s %s in %s: %w", gvr.Resource, name, namespace, err))
 				}
 				continue
 			}
 			slog.InfoContext(ctx, "Deleted resource", "kind", gvr.Resource, "name", name, "namespace", namespace)
 		}
 	}
+	return errors.Join(errs...)
 }
 
 // Sentinel errors for the dedicated-certificate provisioning path. They let
@@ -660,18 +669,129 @@ func RouteResourcesAbsent(ctx context.Context, dynamicClient dynamic.Interface, 
 
 // readServerTLSCA returns the PEM-encoded ca.crt from the per-namespace
 // openshell-server-tls secret (issued by the openshell-ca-issuer alongside the
-// gateway server certificate). It returns an empty string when the secret or the
-// ca.crt key is absent; callers that require the CA (Gateway API BackendTLSPolicy,
-// reencrypt Route) treat empty as "not yet available" and retry.
-func readServerTLSCA(ctx context.Context, clientset kubernetes.Interface, namespace string) string {
+// gateway server certificate). It distinguishes a genuinely absent CA from a
+// failed read (OSG-ROUT-14): a NotFound Secret, or a Secret present without a
+// ca.crt key, is a genuine "no CA" state and returns ("", nil) so callers may
+// proceed without the backend-CA material. Any other read error (for example a
+// transient API failure) is returned so the caller retries instead of reading an
+// unconfirmed read as "no CA" and disabling backend TLS verification.
+func readServerTLSCA(ctx context.Context, clientset kubernetes.Interface, namespace string) (string, error) {
 	tlsSecret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "openshell-server-tls", metav1.GetOptions{})
 	if err != nil {
-		return ""
+		if k8serrors.IsNotFound(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("read openshell-server-tls secret in %s: %w", namespace, err)
 	}
 	if ca, ok := tlsSecret.Data["ca.crt"]; ok {
-		return string(ca)
+		return string(ca), nil
 	}
-	return ""
+	return "", nil
+}
+
+// reconcileBackendTLS reconciles the backend-CA ConfigMap and the dependent
+// BackendTLSPolicy as an ordered, fail-closed pair (OSG-ROUT-14, OSG-ROUT-15,
+// OSG-ROUT-16).
+//
+//   - The CA read distinguishes a genuinely absent CA from a failed read: a read
+//     failure is surfaced so the pass retries, and a genuinely absent CA returns
+//     without creating backend-TLS material.
+//   - The backend-CA ConfigMap write must succeed before the dependent
+//     BackendTLSPolicy is created; a ConfigMap write failure is surfaced and stops
+//     before the policy, so the policy never references a missing or stale CA.
+//   - A BackendTLSPolicy error is tolerated only when the CRD is not installed
+//     (the Gateway API transport policy is unavailable, which surfaces as a
+//     NotFound from the dynamic client); every other error (RBAC, conflict, API
+//     outage) is surfaced so the pass retries.
+func reconcileBackendTLS(ctx context.Context, dynamicClient dynamic.Interface, clientset kubernetes.Interface, namespace string) error {
+	caData, err := readServerTLSCA(ctx, clientset, namespace)
+	if err != nil {
+		return err
+	}
+	if caData == "" {
+		return nil
+	}
+
+	backendCA := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      backendCAConfigMapName,
+			Namespace: namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/name":       "openshell",
+				"app.kubernetes.io/component":  "gateway",
+				"app.kubernetes.io/managed-by": "hypershell-control-plane",
+				"hypershell.redhat.io/managed": "true",
+			},
+		},
+		Data: map[string]string{
+			"ca.crt": caData,
+		},
+	}
+
+	existing, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, backendCAConfigMapName, metav1.GetOptions{})
+	switch {
+	case err == nil:
+		backendCA.ResourceVersion = existing.ResourceVersion
+		if _, err := clientset.CoreV1().ConfigMaps(namespace).Update(ctx, backendCA, metav1.UpdateOptions{}); err != nil {
+			return fmt.Errorf("update backend CA ConfigMap in %s: %w", namespace, err)
+		}
+	case k8serrors.IsNotFound(err):
+		if _, err := clientset.CoreV1().ConfigMaps(namespace).Create(ctx, backendCA, metav1.CreateOptions{}); err != nil {
+			return fmt.Errorf("create backend CA ConfigMap in %s: %w", namespace, err)
+		}
+	default:
+		return fmt.Errorf("read backend CA ConfigMap in %s: %w", namespace, err)
+	}
+
+	btlsPolicy := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "gateway.networking.k8s.io/v1",
+			"kind":       "BackendTLSPolicy",
+			"metadata": map[string]interface{}{
+				"name":      "openshell-gateway",
+				"namespace": namespace,
+				"labels": map[string]interface{}{
+					"app.kubernetes.io/name":       "openshell",
+					"app.kubernetes.io/component":  "gateway",
+					"app.kubernetes.io/managed-by": "hypershell-control-plane",
+					"hypershell.redhat.io/managed": "true",
+				},
+			},
+			"spec": map[string]interface{}{
+				"targetRefs": []interface{}{
+					map[string]interface{}{
+						"group": "",
+						"kind":  "Service",
+						"name":  "openshell-gateway",
+					},
+				},
+				"validation": map[string]interface{}{
+					"caCertificateRefs": []interface{}{
+						map[string]interface{}{
+							"group": "",
+							"kind":  "ConfigMap",
+							"name":  backendCAConfigMapName,
+						},
+					},
+					"hostname": fmt.Sprintf("openshell-gateway.%s.svc.cluster.local", namespace),
+				},
+			},
+		},
+	}
+	if err := reconcileResource(ctx, dynamicClient, btlsPolicy); err != nil {
+		// Tolerate ONLY the "CRD not installed" case. reconcileResource creates the
+		// policy when it is absent, so it only returns a NotFound when the
+		// BackendTLSPolicy resource type itself is unknown to the API server (the
+		// Gateway API transport policy is unavailable, e.g. before OpenShift 4.22).
+		// Every other error (RBAC denial, conflict, API outage) must surface so the
+		// pass retries rather than disabling backend TLS verification silently.
+		if k8serrors.IsNotFound(err) {
+			slog.WarnContext(ctx, "BackendTLSPolicy CRD not installed; skipping backend TLS policy (requires Gateway API transport policy support, e.g. OpenShift 4.22+)", "namespace", namespace)
+			return nil
+		}
+		return fmt.Errorf("reconcile BackendTLSPolicy in %s: %w", namespace, err)
+	}
+	return nil
 }
 
 // reconcileRouteResources handles the non-Route resources needed when the
@@ -1340,7 +1460,11 @@ func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig *
 			return fmt.Errorf("marshal oidc config: %w", err)
 		}
 		if err := opts.UpdateOIDC(ctx, string(oidcJSON)); err != nil {
-			slog.WarnContext(ctx, "Failed to persist oidc config", "client_id", kcClientID, "error", err)
+			// Surface the write-back failure so the pass retries (OSG-OIDC-05):
+			// swallowing it leaves the API server's stored OIDC configuration out
+			// of sync with the deployed gateway until an unrelated change triggers
+			// another pass.
+			return fmt.Errorf("persist oidc config for %s: %w", kcClientID, err)
 		}
 	}
 
@@ -2079,77 +2203,8 @@ func reconcileGatewayAPIRouteResources(ctx context.Context, dynamicClient dynami
 		}
 	}
 
-	caData := readServerTLSCA(ctx, clientset, namespace)
-
-	if caData != "" {
-		backendCA := &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      backendCAConfigMapName,
-				Namespace: namespace,
-				Labels: map[string]string{
-					"app.kubernetes.io/name":       "openshell",
-					"app.kubernetes.io/component":  "gateway",
-					"app.kubernetes.io/managed-by": "hypershell-control-plane",
-					"hypershell.redhat.io/managed": "true",
-				},
-			},
-			Data: map[string]string{
-				"ca.crt": caData,
-			},
-		}
-
-		existing, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, backendCAConfigMapName, metav1.GetOptions{})
-		if err != nil {
-			if k8serrors.IsNotFound(err) {
-				if _, err := clientset.CoreV1().ConfigMaps(namespace).Create(ctx, backendCA, metav1.CreateOptions{}); err != nil {
-					slog.WarnContext(ctx, "Failed to create backend CA ConfigMap", "error", err)
-				}
-			}
-		} else {
-			backendCA.ResourceVersion = existing.ResourceVersion
-			if _, err := clientset.CoreV1().ConfigMaps(namespace).Update(ctx, backendCA, metav1.UpdateOptions{}); err != nil {
-				slog.WarnContext(ctx, "Failed to update backend CA ConfigMap", "error", err)
-			}
-		}
-
-		btlsPolicy := &unstructured.Unstructured{
-			Object: map[string]interface{}{
-				"apiVersion": "gateway.networking.k8s.io/v1",
-				"kind":       "BackendTLSPolicy",
-				"metadata": map[string]interface{}{
-					"name":      "openshell-gateway",
-					"namespace": namespace,
-					"labels": map[string]interface{}{
-						"app.kubernetes.io/name":       "openshell",
-						"app.kubernetes.io/component":  "gateway",
-						"app.kubernetes.io/managed-by": "hypershell-control-plane",
-						"hypershell.redhat.io/managed": "true",
-					},
-				},
-				"spec": map[string]interface{}{
-					"targetRefs": []interface{}{
-						map[string]interface{}{
-							"group": "",
-							"kind":  "Service",
-							"name":  "openshell-gateway",
-						},
-					},
-					"validation": map[string]interface{}{
-						"caCertificateRefs": []interface{}{
-							map[string]interface{}{
-								"group": "",
-								"kind":  "ConfigMap",
-								"name":  backendCAConfigMapName,
-							},
-						},
-						"hostname": fmt.Sprintf("openshell-gateway.%s.svc.cluster.local", namespace),
-					},
-				},
-			},
-		}
-		if err := reconcileResource(ctx, dynamicClient, btlsPolicy); err != nil {
-			slog.WarnContext(ctx, "Failed to reconcile BackendTLSPolicy (may require OpenShift 4.22+)", "error", err)
-		}
+	if err := reconcileBackendTLS(ctx, dynamicClient, clientset, namespace); err != nil {
+		return err
 	}
 
 	// The route address is published deterministically at the top of this

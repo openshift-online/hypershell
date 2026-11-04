@@ -80,7 +80,15 @@ func (h *gatewayGRPCHandler) GetGateway(ctx context.Context, req *pb.GetGatewayR
 		return nil, err
 	}
 
-	gateway, svcErr := h.service.Get(ctx, req.Id)
+	// include_deleted bypasses the soft-delete filter so a caller can re-read a
+	// deleting record (deleted_at set). The control plane relies on this to
+	// reconcile teardown from the record on a nil-payload delete event
+	// (watch-delete-events.spec.md CTRL-WDEL-02, CTRL-WDEL-04).
+	get := h.service.Get
+	if req.GetIncludeDeleted() {
+		get = h.service.GetUnscoped
+	}
+	gateway, svcErr := get(ctx, req.Id)
 	if svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
