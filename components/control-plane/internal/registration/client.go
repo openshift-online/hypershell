@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -88,7 +88,7 @@ func (c *Client) Register(ctx context.Context) (string, error) {
 	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {
-			log.Printf("WARN closing registration response body: %v", closeErr)
+			slog.WarnContext(ctx, "Failed to close registration response body", "error", closeErr)
 		}
 	}()
 

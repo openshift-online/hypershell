@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
@@ -96,7 +96,7 @@ func (r *CITrustReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	id := event.ResourceID
 
 	if r.keycloakClient == nil {
-		log.Printf("DEBUG CITrust %s: keycloak not configured, skipping", id)
+		slog.DebugContext(ctx, "CITrust keycloak not configured, skipping", "ci_trust_id", id)
 		return nil
 	}
 
@@ -126,7 +126,11 @@ func (r *CITrustReconciler) handleUpsert(ctx context.Context, id string, trust *
 		return fmt.Errorf("CITrust %s: resolve gateway %s: %w", id, trust.GetGatewayId(), err)
 	}
 	if gatewayCluster != r.clusterID {
-		log.Printf("DEBUG CITrust %s: gateway %s belongs to cluster %s, not this cluster (%s); skipping", id, trust.GetGatewayId(), gatewayCluster, r.clusterID)
+		slog.DebugContext(ctx, "CITrust gateway belongs to another cluster, skipping",
+			"ci_trust_id", id,
+			"gateway_id", trust.GetGatewayId(),
+			"gateway_cluster", gatewayCluster,
+			"cluster", r.clusterID)
 		return nil
 	}
 
@@ -154,7 +158,12 @@ func (r *CITrustReconciler) handleUpsert(ctx context.Context, id string, trust *
 		return fmt.Errorf("CITrust %s: update status: %w", id, err)
 	}
 
-	log.Printf("INFO CITrust %s reconciled: workspace=%s gateway_client=%s idp=%s role=%s", id, spec.Workspace, gatewayClientID, spec.IdpAlias, trust.GetRole())
+	slog.InfoContext(ctx, "CITrust reconciled",
+		"ci_trust_id", id,
+		"workspace", spec.Workspace,
+		"gateway_client", gatewayClientID,
+		"idp", spec.IdpAlias,
+		"role", trust.GetRole())
 	return nil
 }
 
@@ -167,7 +176,7 @@ func (r *CITrustReconciler) handleDelete(ctx context.Context, id string, trust *
 			// provider (and its adopted IdP context) is already torn down. The IdP
 			// alias that targets the per-trust mapper is then unknowable, so there is
 			// nothing left for this reconciler to revoke.
-			log.Printf("WARN CITrust %s: CI provider %s not found on delete; cannot resolve IdP alias to revoke", id, trust.GetCiProviderId())
+			slog.WarnContext(ctx, "CITrust CI provider not found on delete; cannot resolve IdP alias to revoke", "ci_trust_id", id, "ci_provider_id", trust.GetCiProviderId())
 			return nil
 		}
 		return err
@@ -182,10 +191,14 @@ func (r *CITrustReconciler) handleDelete(ctx context.Context, id string, trust *
 		if !isNotFoundRPC(resolveErr) {
 			return fmt.Errorf("CITrust %s: resolve gateway %s: %w", id, trust.GetGatewayId(), resolveErr)
 		}
-		log.Printf("DEBUG CITrust %s: gateway %s no longer exists; revoking shared IdP mapper", id, trust.GetGatewayId())
+		slog.DebugContext(ctx, "CITrust gateway no longer exists; revoking shared IdP mapper", "ci_trust_id", id, "gateway_id", trust.GetGatewayId())
 	} else {
 		if gatewayCluster != r.clusterID {
-			log.Printf("DEBUG CITrust %s: gateway %s belongs to cluster %s, not this cluster (%s); skipping", id, trust.GetGatewayId(), gatewayCluster, r.clusterID)
+			slog.DebugContext(ctx, "CITrust gateway belongs to another cluster, skipping",
+				"ci_trust_id", id,
+				"gateway_id", trust.GetGatewayId(),
+				"gateway_cluster", gatewayCluster,
+				"cluster", r.clusterID)
 			return nil
 		}
 		gatewayClientID = clientID
@@ -196,7 +209,7 @@ func (r *CITrustReconciler) handleDelete(ctx context.Context, id string, trust *
 		return fmt.Errorf("CITrust %s: revoke keycloak federation: %w", id, err)
 	}
 
-	log.Printf("INFO CITrust %s revoked: workspace=%s idp=%s", id, spec.Workspace, spec.IdpAlias)
+	slog.InfoContext(ctx, "CITrust revoked", "ci_trust_id", id, "workspace", spec.Workspace, "idp", spec.IdpAlias)
 	return nil
 }
 

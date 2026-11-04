@@ -3,7 +3,7 @@ package otel
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"math"
 	"strings"
 	"sync"
@@ -440,7 +440,7 @@ func RecordReconcileDuration(ctx context.Context, kind, eventType, outcome strin
 		return
 	}
 	if !isValidOutcome(outcome) {
-		log.Printf("WARN invalid reconcile outcome %q for duration metric (kind=%s); metric not recorded", outcome, kind)
+		slog.WarnContext(ctx, "Invalid reconcile outcome for duration metric, metric not recorded", "outcome", outcome, "kind", kind)
 		return
 	}
 	reconcileDuration.Record(ctx, time.Since(start).Milliseconds(), metric.WithAttributes(
@@ -659,7 +659,7 @@ func RecordReconciliationRetry(ctx context.Context, kind, reason string) {
 	}
 	validatedReason := validateRetryableReason(reason)
 	if validatedReason != reason {
-		log.Printf("WARN unrecognized retryable reason %q for kind %s; using %q", reason, kind, validatedReason)
+		slog.WarnContext(ctx, "Unrecognized retryable reason, using validated reason", "reason", reason, "kind", kind, "validated_reason", validatedReason)
 	}
 	reconciliationRetries.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("resource.kind", kind),
@@ -828,7 +828,7 @@ func RecordReconcileOutcome(ctx context.Context, kind, outcome string) {
 		return
 	}
 	if !isValidOutcome(outcome) {
-		log.Printf("WARN invalid reconcile outcome %q for kind %s; metric not recorded", outcome, kind)
+		slog.WarnContext(ctx, "Invalid reconcile outcome, metric not recorded", "outcome", outcome, "kind", kind)
 		return
 	}
 	reconcileOutcomes.Add(ctx, 1, metric.WithAttributes(
@@ -847,7 +847,7 @@ func RecordReconcileFailedWithReason(ctx context.Context, kind, reason string) {
 	}
 	validatedReason := validateFailedReason(reason)
 	if validatedReason != reason {
-		log.Printf("WARN unrecognized failed reason %q for kind %s; using %q", reason, kind, validatedReason)
+		slog.WarnContext(ctx, "Unrecognized failed reason, using validated reason", "reason", reason, "kind", kind, "validated_reason", validatedReason)
 	}
 	reconcileFailed.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("resource.kind", kind),

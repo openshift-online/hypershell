@@ -1,0 +1,18 @@
+version: "2"
+linters:
+  enable:
+    - depguard
+  settings:
+    depguard:
+      rules:
+        # The control plane logs only through log/slog with the context, so
+        # lines carry a level, attributes and trace IDs (OBS-CPL-11).
+        no-stdlib-log:
+          files:
+            - $all
+            - "!$test"
+            # The logging setup points the standard log package at stderr.
+            - "!**/internal/logging/*.go"
+          deny:
+            - pkg: log$
+              desc: log through log/slog with the context (OBS-CPL-11)

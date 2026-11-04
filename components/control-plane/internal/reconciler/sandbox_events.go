@@ -3,7 +3,7 @@ package reconciler
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"sort"
 	"time"
 
@@ -55,7 +55,7 @@ func NewSandboxEventsReconciler(client kubernetes.Interface, dynamicClient dynam
 }
 
 func (r *SandboxEventsReconciler) Run(ctx context.Context) error {
-	log.Printf("INFO sandbox events reconciler started (interval=%s)", r.interval)
+	slog.InfoContext(ctx, "Sandbox events reconciler started", "interval", r.interval)
 	r.reconcileOnce(ctx)
 	ticker := time.NewTicker(r.interval)
 	defer ticker.Stop()
@@ -78,32 +78,32 @@ func (r *SandboxEventsReconciler) reconcileOnce(ctx context.Context) {
 	live, err := r.liveNamespaces(listCtx)
 	if err != nil {
 		tickErr = err
-		log.Printf("WARN sandbox events: list live gateway namespaces: %v", err)
+		slog.WarnContext(ctx, "Sandbox events: list live gateway namespaces failed", "error", err)
 		return
 	}
 	pods, err := r.listPods(listCtx)
 	if err != nil {
 		tickErr = err
-		log.Printf("WARN sandbox events: list sandbox pods: %v", err)
+		slog.WarnContext(ctx, "Sandbox events: list sandbox pods failed", "error", err)
 		return
 	}
 	sandboxes, err := r.listSandboxes(listCtx)
 	if err != nil {
 		tickErr = err
-		log.Printf("WARN sandbox events: list Sandbox CRs: %v", err)
+		slog.WarnContext(ctx, "Sandbox events: list Sandbox CRs failed", "error", err)
 		return
 	}
 	events, err := r.listEvents(listCtx, sortedNamespaces(live))
 	if err != nil {
 		tickErr = err
-		log.Printf("WARN sandbox events: list Kubernetes Events: %v", err)
+		slog.WarnContext(ctx, "Sandbox events: list Kubernetes Events failed", "error", err)
 		return
 	}
 	groups := selectSandboxEvents(pods, gateway.IndexSandboxes(sandboxes), events, live, r.limit)
 	for _, group := range groups {
 		if err := r.report(ctx, group.namespace, group.sandbox, group.events); err != nil {
 			tickErr = err
-			log.Printf("WARN sandbox events: report %s/%s: %v", group.namespace, group.sandbox, err)
+			slog.WarnContext(ctx, "Sandbox events: report failed", "namespace", group.namespace, "sandbox", group.sandbox, "error", err)
 		}
 	}
 }

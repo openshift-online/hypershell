@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -197,7 +197,7 @@ func (c *Client) EnsureCIFederation(ctx context.Context, spec CIFederationSpec) 
 // the delete forever, so these are treated as already-revoked rather than failed.
 func (c *Client) DeleteCIFederation(ctx context.Context, spec CIFederationSpec) error {
 	if spec.IdpAlias == "" || spec.TrustID == "" {
-		log.Printf("INFO keycloak: CI federation delete for trust %q has no idp_alias to resolve; nothing to revoke", spec.TrustID)
+		slog.InfoContext(ctx, "Keycloak CI federation delete has no idp_alias to resolve, nothing to revoke", "trust_id", spec.TrustID)
 		return nil
 	}
 	if err := c.deleteCITrustIdpMapper(ctx, spec.IdpAlias, spec.TrustID); err != nil {
@@ -325,7 +325,7 @@ func (c *Client) deleteCITrustIdpMapper(ctx context.Context, idpAlias, trustID s
 		return err
 	}
 	if existing == nil {
-		log.Printf("INFO keycloak: CI trust mapper %q not found on IdP %q, nothing to delete", name, idpAlias)
+		slog.InfoContext(ctx, "Keycloak CI trust mapper not found on IdP, nothing to delete", "name", name, "idp_alias", idpAlias)
 		return nil
 	}
 	path := fmt.Sprintf("/admin/realms/%s/identity-provider/instances/%s/mappers/%s",

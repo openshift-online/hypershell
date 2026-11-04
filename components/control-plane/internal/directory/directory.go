@@ -6,7 +6,7 @@ package directory
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -53,7 +53,7 @@ func NewProjection(l lister, interval time.Duration) *Projection {
 // so the console "Add users" picker is not blank for a full refresh interval after
 // a fresh deploy, when Keycloak may not have finished importing the realm yet.
 func (p *Projection) Run(ctx context.Context) error {
-	log.Printf("INFO keycloak directory projection started (interval=%s)", p.interval)
+	slog.InfoContext(ctx, "Keycloak directory projection started", "interval", p.interval)
 	p.refreshOnce(ctx)
 	// ponytail: fast-poll while empty; a realm that is genuinely empty keeps
 	// polling at startupRetryInterval forever rather than falling back to the
@@ -84,13 +84,13 @@ func (p *Projection) Run(ctx context.Context) error {
 func (p *Projection) refreshOnce(ctx context.Context) {
 	users, err := p.lister.ListRealmUsers(ctx)
 	if err != nil {
-		log.Printf("WARN keycloak directory refresh failed, keeping previous snapshot: %v", err)
+		slog.WarnContext(ctx, "Keycloak directory refresh failed, keeping previous snapshot", "error", err)
 		return
 	}
 	p.mu.Lock()
 	p.users = users
 	p.mu.Unlock()
-	log.Printf("INFO keycloak directory refreshed (%d users)", len(users))
+	slog.InfoContext(ctx, "Keycloak directory refreshed", "count", len(users))
 }
 
 func (p *Projection) snapshot() []keycloak.RealmUser {

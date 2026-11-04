@@ -8,7 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/url"
 	"os"
@@ -241,7 +241,7 @@ func openAdminConn(ctx context.Context, creds *adminCredentials) (*sql.DB, func(
 
 	release := func() {
 		if cerr := db.Close(); cerr != nil {
-			log.Printf("WARN gateway database: close admin connection: %v", cerr)
+			slog.WarnContext(ctx, "Gateway database: failed to close admin connection", "error", cerr)
 		}
 	}
 
@@ -443,7 +443,7 @@ func verifyTenantConn(ctx context.Context, creds *adminCredentials, gatewayID, p
 	for attempt := 0; attempt < tenantProbeMaxAttempts; attempt++ {
 		if attempt > 0 {
 			delay := tenantProbeDelay(attempt - 1)
-			log.Printf("WARN tenant database probe for gateway %s: %s, retrying in %s", gatewayID, connErrorCategory(last), delay)
+			slog.WarnContext(ctx, "Tenant database probe failed, retrying", "gateway_id", gatewayID, "reason", connErrorCategory(last), "backoff", delay)
 			select {
 			case <-ctx.Done():
 				return fmt.Errorf("verify tenant connection for gateway %s: %w", gatewayID, ctx.Err())
@@ -452,7 +452,7 @@ func verifyTenantConn(ctx context.Context, creds *adminCredentials, gatewayID, p
 		}
 		last = pingTenant(ctx, dsn)
 		if last == nil {
-			log.Printf("INFO verified tenant database connection for gateway %s", gatewayID)
+			slog.InfoContext(ctx, "Verified tenant database connection", "gateway_id", gatewayID)
 			return nil
 		}
 		if ctx.Err() != nil {
@@ -473,7 +473,7 @@ func pingTenant(ctx context.Context, dsn string) error {
 	db.SetMaxOpenConns(1)
 	defer func() {
 		if cerr := db.Close(); cerr != nil {
-			log.Printf("WARN tenant database probe: close connection: %v", cerr)
+			slog.WarnContext(ctx, "Tenant database probe: failed to close connection", "error", cerr)
 		}
 	}()
 	return db.PingContext(ctx)
@@ -523,7 +523,7 @@ func execCreateGatewayDatabase(ctx context.Context, db *sql.DB, gatewayID, pgNam
 	var last error
 	for attempt := 0; attempt < 8; attempt++ {
 		if _, err := db.ExecContext(ctx, stmt); err == nil {
-			log.Printf("INFO created database %s for gateway %s", pgName, gatewayID)
+			slog.InfoContext(ctx, "Created database", "database", pgName, "gateway_id", gatewayID)
 			return nil
 		} else {
 			last = err
@@ -532,7 +532,7 @@ func execCreateGatewayDatabase(ctx context.Context, db *sql.DB, gatewayID, pgNam
 			return fmt.Errorf("CREATE DATABASE for gateway %s: %w", gatewayID, last)
 		}
 		delay := time.Duration(attempt+1) * 200 * time.Millisecond
-		log.Printf("WARN CREATE DATABASE for gateway %s: source database busy, retrying in %s: %v", gatewayID, delay, last)
+		slog.WarnContext(ctx, "CREATE DATABASE failed: source database busy, retrying", "gateway_id", gatewayID, "backoff", delay, "error", last)
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("CREATE DATABASE for gateway %s: %w", gatewayID, ctx.Err())
@@ -566,7 +566,7 @@ func reconcileGatewayDatabaseDDL(ctx context.Context, db *sql.DB, adminUser, pgN
 			return false, fmt.Errorf("CREATE ROLE for gateway %s: DDL execution failed (credentials redacted)", gatewayID)
 		}
 		changed = true
-		log.Printf("INFO created database role %s for gateway %s", pgName, gatewayID)
+		slog.InfoContext(ctx, "Created database role", "role", pgName, "gateway_id", gatewayID)
 	} else if freshPassword {
 		// Provisioning repair, not credential rotation: the role exists but its
 		// tenant Secret is gone, so the server-side password is re-synced to the
@@ -577,7 +577,7 @@ func reconcileGatewayDatabaseDDL(ctx context.Context, db *sql.DB, adminUser, pgN
 			return false, fmt.Errorf("ALTER ROLE password for gateway %s: DDL execution failed (credentials redacted)", gatewayID)
 		}
 		changed = true
-		log.Printf("INFO repaired database role password for gateway %s (tenant Secret was absent)", gatewayID)
+		slog.InfoContext(ctx, "Repaired database role password (tenant Secret was absent)", "gateway_id", gatewayID)
 	}
 	// Out-of-band password drift (tenant Secret present, server-side password
 	// changed externally) is not reconciled or detected here: a steady-state
@@ -741,7 +741,7 @@ func ReconcileGatewayDatabase(
 		if _, err := clientset.CoreV1().Secrets(tenantNamespace).Create(ctx, secret, metav1.CreateOptions{}); err != nil {
 			return fmt.Errorf("create gateway credentials secret %s/%s: %w", tenantNamespace, tenantGatewayDBSecretName, err)
 		}
-		log.Printf("INFO created gateway credentials secret %s in %s", tenantGatewayDBSecretName, tenantNamespace)
+		slog.InfoContext(ctx, "Created gateway credentials secret", "secret", tenantGatewayDBSecretName, "namespace", tenantNamespace)
 	} else {
 		updated := existingSecret.DeepCopy()
 		if updated.Labels == nil {
@@ -758,7 +758,7 @@ func ReconcileGatewayDatabase(
 		}
 	}
 
-	log.Printf("INFO database provisioning complete for gateway %s in namespace %s", gatewayID, tenantNamespace)
+	slog.InfoContext(ctx, "Database provisioning complete", "gateway_id", gatewayID, "namespace", tenantNamespace)
 	return nil
 }
 
@@ -799,7 +799,7 @@ func dropGatewayDatabase(ctx context.Context, db *sql.DB, gatewayID string) erro
 		"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()",
 		pgName,
 	); err != nil {
-		log.Printf("WARN database cleanup for gateway %s: terminate backends failed (proceeding): %v", gatewayID, err)
+		slog.WarnContext(ctx, "Database cleanup: terminate backends failed (proceeding)", "gateway_id", gatewayID, "error", err)
 	}
 
 	// Drop the database first: the role owns it.
@@ -811,7 +811,7 @@ func dropGatewayDatabase(ctx context.Context, db *sql.DB, gatewayID string) erro
 		if _, err := db.ExecContext(ctx, fmt.Sprintf("DROP DATABASE %s WITH (FORCE)", pgQuoteIdent(pgName))); err != nil {
 			return fmt.Errorf("DROP DATABASE failed: %w", err)
 		}
-		log.Printf("INFO dropped database %s for gateway %s", pgName, gatewayID)
+		slog.InfoContext(ctx, "Dropped database", "database", pgName, "gateway_id", gatewayID)
 	}
 
 	var roleExists bool
@@ -822,7 +822,7 @@ func dropGatewayDatabase(ctx context.Context, db *sql.DB, gatewayID string) erro
 		if _, err := db.ExecContext(ctx, fmt.Sprintf("DROP ROLE %s", pgQuoteIdent(pgName))); err != nil {
 			return fmt.Errorf("DROP ROLE failed: %w", err)
 		}
-		log.Printf("INFO dropped role %s for gateway %s", pgName, gatewayID)
+		slog.InfoContext(ctx, "Dropped database role", "role", pgName, "gateway_id", gatewayID)
 	}
 	return nil
 }
