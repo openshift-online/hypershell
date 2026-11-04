@@ -329,6 +329,26 @@ settings. The launcher SHALL reuse a saved scope when no explicit Make scope is
 supplied, while retaining registered-scope validation. Manual preference-file edits
 SHALL load on restart; this limitation and launch-override precedence SHALL be clear.
 
+Automatic merge approval SHALL default to enabled and be configurable through
+`FULLSEND_AUTO_MERGE`, CLI `--auto-merge enabled|disabled` / `--no-auto-merge`,
+home preference `auto_merge`, Make `AUTO_MERGE`, and the Configuration tab.
+It SHALL use the existing precedence and private persistence rules. Changes SHALL
+apply to new sandboxes without restarting; the UI SHALL disclose that running
+sandboxes and already queued PRs retain their existing policy/labels.
+
+Eligible approved issues whose unique linked PR lacks the queue approval label
+SHALL appear above ordinary work in an **Awaiting approval** section in both
+Agents and Issues views. These items SHALL remain visible when completed runs
+are hidden, support filtering, and retain normal sorting within that section.
+`A` or Enter SHALL open a shared-frame confirmation, defaulting to keeping the
+PR waiting, with the issue, PR URL, commit and explicit merge-queue consequences.
+Confirmation SHALL re-read authorization, issue verdict, unique link, head/base,
+required checks, draft state and mergeability before applying/verifying the PR
+label. Changed commits, active/unresolved workers, dry-run or monitor-only mode
+SHALL prevent the write. This action SHALL NOT rerun an agent or change policy.
+A failed final eligibility check SHALL revoke the just-applied queue label.
+Failures SHALL be visible; subsequent discovery SHALL refresh the section.
+
 #### Scenario: SDLC-LOC-12.01 -- Save a live limit and a restart-only identity
 
 - GIVEN two running workers and the Configuration tab

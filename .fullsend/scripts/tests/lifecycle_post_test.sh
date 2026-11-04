@@ -778,5 +778,36 @@ if [[ $? == 0 ]] && _has_label "${S}" agent/review-code-approved && _has_label "
  _ok "ruleset approval survives classic 404 body and ignores advisory pending check"
 else _no "ruleset approval survives classic 404 body and ignores advisory pending check" "$(cat "${WORK}/ruleset-green.out")"; fi
 
+# Disabled queue approval preserves the issue verdict and revokes any PR label.
+for policy in disabled false; do
+ S="${WORK}/manual-${policy}.labels"
+ _seed "${S}" agent/allowed agent/reviewable-code
+ _seed "${S}.pr" agent/review-code-approved
+ _run code-review "${APPROVED}" MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 \
+  LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 FULLSEND_AUTO_MERGE="${policy}" \
+  MOCK_CHECKRUNS='[{"id":1,"name":"CI","status":"completed","conclusion":"success"}]' > "${WORK}/manual.out" 2>&1
+ if [[ $? == 0 ]] && _has_label "${S}" agent/review-code-approved && ! _has_label "${S}" agent/reviewable-code && ! _has_label "${S}.pr" agent/review-code-approved; then
+  _ok "${policy} keeps issue approval and holds the PR"
+ else _no "${policy} keeps issue approval and holds the PR" "$(cat "${WORK}/manual.out")"; fi
+ # Reapply an already approved issue; it must converge without queueing it.
+ _run code-review "${APPROVED}" MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 \
+  LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 FULLSEND_AUTO_MERGE="${policy}" \
+  MOCK_CHECKRUNS='[{"id":1,"name":"CI","status":"completed","conclusion":"success"}]' > "${WORK}/manual.out" 2>&1
+ if [[ $? == 0 ]] && _has_label "${S}" agent/review-code-approved && ! _has_label "${S}.pr" agent/review-code-approved; then
+  _ok "${policy} is idempotent on approved issues"
+ else _no "${policy} is idempotent on approved issues" "$(cat "${WORK}/manual.out")"; fi
+done
+_seed "${S}" agent/allowed agent/reviewable-code
+_run code-review "${APPROVED}" MOCK_STATE="${S}" FULLSEND_AUTO_MERGE=invalid > "${WORK}/invalid-policy.out" 2>&1
+if [[ $? != 0 ]] && _has_label "${S}" agent/reviewable-code && ! _has_label "${S}" agent/review-code-approved; then
+ _ok "invalid merge policy fails before transitions"
+else _no "invalid merge policy fails before transitions"; fi
+_run code-review "${APPROVED}" MOCK_STATE="${S}" MOCK_HEAD_SHA=abc1234 \
+ LIFECYCLE_PR_NUMBER=5 LIFECYCLE_PR_HEAD_SHA=abc1234 FULLSEND_AUTO_MERGE=disabled DRY_RUN=true \
+ MOCK_CHECKRUNS='[{"id":1,"name":"CI","status":"completed","conclusion":"success"}]' > "${WORK}/dry-policy.out" 2>&1
+if [[ $? == 0 ]] && _has_label "${S}" agent/reviewable-code && ! _has_label "${S}" agent/review-code-approved; then
+ _ok "disabled policy respects dry-run"
+else _no "disabled policy respects dry-run" "$(cat "${WORK}/dry-policy.out")"; fi
+
 printf '\n%d passed, %d failed\n' "${PASS}" "${FAIL}"
 [[ "${FAIL}" -eq 0 ]]

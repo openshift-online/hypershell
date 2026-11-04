@@ -12,12 +12,13 @@ First run
   3. Run make fullsend-doctor, fix any reported problems, then make fullsend.
 
 Overrides
+  make fullsend AUTO_MERGE=disabled   Hold reviewed PRs for manual approval.
   make fullsend CONCURRENCY=4
   make fullsend MODEL=YOUR_APPROVED_MODEL_ID
   make fullsend SCOPE=agent/scope/YOUR_NAME/fullsend ENV_FILE=/path/to/file
 
 In the dashboard
-  Enter logs   d details   H history   s sign in   ? shortcuts   q detach
+  A approve held PR (confirmation)   Enter logs   d details   H history   s sign in   ? shortcuts   q detach
   Detaching keeps workers running. Run make fullsend again to resume monitoring.
 
 Advanced dispatcher flags
