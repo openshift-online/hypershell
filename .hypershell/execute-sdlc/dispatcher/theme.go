@@ -19,6 +19,8 @@ func themeColor(role string) lipgloss.TerminalColor {
 		return lipgloss.AdaptiveColor{Light: "#f0f0f0", Dark: "#303030"}
 	case "canvas":
 		return lipgloss.AdaptiveColor{Light: "#ffffff", Dark: "#151515"}
+	case "log-border":
+		return lipgloss.AdaptiveColor{Light: "#8a8d90", Dark: "#b8bbbe"}
 	case "scroll-track":
 		return lipgloss.AdaptiveColor{Light: "#8a8d90", Dark: "#62666a"}
 	case "brand":

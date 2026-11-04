@@ -21,6 +21,7 @@ import (
 // CodeReadiness is display metadata from the shared live PR observation hook.
 // It does not replace worker exit status or authorize transitions in the TUI.
 type CodeReadiness struct {
+	ReviewCurrent  *bool  `json:"review_current,omitempty"`
 	Checks         string `json:"checks"`
 	State          string `json:"state"`
 	Draft          bool   `json:"draft"`
@@ -29,6 +30,7 @@ type CodeReadiness struct {
 }
 
 type Job struct {
+	PRHeadSHA         string          `json:"pr_head_sha,omitempty"`
 	CodeReadiness     *CodeReadiness  `json:"code_readiness,omitempty"`
 	Key               string          `json:"key"`
 	Scope             string          `json:"scope"`
@@ -48,16 +50,18 @@ type Job struct {
 }
 type Row struct {
 	Job
-	Status          string  `json:"status"`
-	Failures        int     `json:"failures"`
-	Next            float64 `json:"next_at"`
-	Started         float64 `json:"started"`
-	Finished        float64 `json:"finished"`
-	RunID           string  `json:"run_id"`
-	Log             string  `json:"log"`
-	Error           string  `json:"error"`
-	Activity        string  `json:"activity,omitempty"`
-	CancelRequested bool    `json:"cancel_requested,omitempty"`
+	ReviewBlockers  []string `json:"review_blockers,omitempty"`
+	SyncLog         string   `json:"sync_log,omitempty"`
+	Status          string   `json:"status"`
+	Failures        int      `json:"failures"`
+	Next            float64  `json:"next_at"`
+	Started         float64  `json:"started"`
+	Finished        float64  `json:"finished"`
+	RunID           string   `json:"run_id"`
+	Log             string   `json:"log"`
+	Error           string   `json:"error"`
+	Activity        string   `json:"activity,omitempty"`
+	CancelRequested bool     `json:"cancel_requested,omitempty"`
 }
 type Store struct {
 	db   *sql.DB
