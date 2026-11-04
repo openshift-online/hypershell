@@ -234,7 +234,7 @@ oc -n hypershell patch deploy hypershell-api-server --type=json -p "[
     \"--grpc-server-bindaddress=0.0.0.0:9000\",
     \"--health-check-server-bindaddress=0.0.0.0:4434\",
     \"--enable-authz=true\", \"--enable-jwt=true\",
-    \"--enable-mock=true\", \"--enable-https=false\", \"--enable-metrics-https=false\",
+    \"--enable-https=false\", \"--enable-metrics-https=false\",
     \"--db-host-file=/secrets/db.host\", \"--db-port-file=/secrets/db.port\",
     \"--db-name-file=/secrets/db.name\", \"--db-user-file=/secrets/db.user\",
     \"--db-password-file=/secrets/db.password\", \"--db-sslmode=disable\",
@@ -539,7 +539,6 @@ If a custom domain with wildcard DNS is configured later:
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | API returns 200 (no auth) on unauthenticated requests | `API_ENV=development` forcibly disables JWT in `OverrideConfig` | Set `API_ENV=development_oidc` |
-| API server crashes with `ReadFiles` / missing secret files | `API_ENV=production` requires secret files on disk | Use `development_oidc` + `--enable-mock=true` instead |
 | Controller exits with `... is required: every control plane registers with the hub` | `HYPERSHELL_MANAGED_CLUSTER_NAME`, `OIDC_ISSUER`, `OIDC_CLIENT_ID`, or `OIDC_CLIENT_SECRET` env var missing | Set the cluster name and all three OIDC env vars on the controller deployment |
 | Controller exits with `managed-cluster registration failed: ... registration conflict` | A ManagedCluster with the controller's name already exists and was not registered by it (e.g. created with `POST /managed_clusters`) | Delete that record (re-point its gateways) and restart the controller |
 | Controller gets `Unauthenticated: missing authorization token` on gRPC | Controller image lacks OIDC token provider (old pinned digest) | Upgrade controller to `:latest` image |
@@ -558,15 +557,13 @@ If a custom domain with wildcard DNS is configured later:
 
 The API server `API_ENV` environment variable selects the runtime behavior:
 
-| `API_ENV` | JWT Auth | Mock Secrets | Use Case |
-|-----------|----------|-------------|----------|
-| `development` | **Forcibly disabled** | Yes | Local dev without auth |
-| `development_oidc` | Enabled (flags) | Yes | Dev with Keycloak OIDC |
-| `production` | Enabled | No (reads files) | Production with external SSO |
+| `API_ENV` | JWT Auth | Use Case |
+|-----------|----------|----------|
+| `development` | **Forcibly disabled** | Local dev without auth |
+| `development_oidc` | Enabled (flags) | Dev with Keycloak OIDC |
+| `production` | Enabled (flags) | Production with external SSO |
 
-This deployment uses `development_oidc` + `--enable-mock=true` to enable JWT
-auth while avoiding the need for production secret files. `--enable-mock=true`
-makes `ReadFiles()` return nil (skipping disk reads for OCM/SSO secrets).
+This deployment uses `development_oidc` to enable JWT auth against Keycloak.
 `--enable-https=false` and `--enable-metrics-https=false` are required because
 the API server pod doesn't have TLS certs; the OpenShift Route handles TLS.
 
