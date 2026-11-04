@@ -449,8 +449,14 @@ type UpdateCITrustRequest struct {
 	StatusExchangeEndpoint *string                `protobuf:"bytes,7,opt,name=status_exchange_endpoint,json=statusExchangeEndpoint,proto3,oneof" json:"status_exchange_endpoint,omitempty"`
 	StatusWorkspace        *string                `protobuf:"bytes,8,opt,name=status_workspace,json=statusWorkspace,proto3,oneof" json:"status_workspace,omitempty"`
 	StatusWorkflowHint     *string                `protobuf:"bytes,9,opt,name=status_workflow_hint,json=statusWorkflowHint,proto3,oneof" json:"status_workflow_hint,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	// subject_repository and subject_project_path are mutable so a declarative
+	// import can reconcile a changed subject predicate rather than silently skipping
+	// it (reconcile, don't create-or-skip). They are part of the claim-match subject,
+	// not immutable identity.
+	SubjectRepository  *string `protobuf:"bytes,10,opt,name=subject_repository,json=subjectRepository,proto3,oneof" json:"subject_repository,omitempty"`
+	SubjectProjectPath *string `protobuf:"bytes,11,opt,name=subject_project_path,json=subjectProjectPath,proto3,oneof" json:"subject_project_path,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *UpdateCITrustRequest) Reset() {
@@ -542,6 +548,20 @@ func (x *UpdateCITrustRequest) GetStatusWorkspace() string {
 func (x *UpdateCITrustRequest) GetStatusWorkflowHint() string {
 	if x != nil && x.StatusWorkflowHint != nil {
 		return *x.StatusWorkflowHint
+	}
+	return ""
+}
+
+func (x *UpdateCITrustRequest) GetSubjectRepository() string {
+	if x != nil && x.SubjectRepository != nil {
+		return *x.SubjectRepository
+	}
+	return ""
+}
+
+func (x *UpdateCITrustRequest) GetSubjectProjectPath() string {
+	if x != nil && x.SubjectProjectPath != nil {
+		return *x.SubjectProjectPath
 	}
 	return ""
 }
@@ -930,7 +950,7 @@ const file_hypershell_v1_ci_trusts_proto_rawDesc = "" +
 	"\x05_nameB\x10\n" +
 	"\x0e_repository_id\"J\n" +
 	"\x15CreateCITrustResponse\x121\n" +
-	"\bci_trust\x18\x01 \x01(\v2\x16.hypershell.v1.CITrustR\aciTrust\"\xb8\x04\n" +
+	"\bci_trust\x18\x01 \x01(\v2\x16.hypershell.v1.CITrustR\aciTrust\"\xd3\x05\n" +
 	"\x14UpdateCITrustRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12$\n" +
 	"\vsubject_ref\x18\x02 \x01(\tH\x00R\n" +
@@ -941,7 +961,10 @@ const file_hypershell_v1_ci_trusts_proto_rawDesc = "" +
 	"\x06status\x18\x06 \x01(\tH\x04R\x06status\x88\x01\x01\x12=\n" +
 	"\x18status_exchange_endpoint\x18\a \x01(\tH\x05R\x16statusExchangeEndpoint\x88\x01\x01\x12.\n" +
 	"\x10status_workspace\x18\b \x01(\tH\x06R\x0fstatusWorkspace\x88\x01\x01\x125\n" +
-	"\x14status_workflow_hint\x18\t \x01(\tH\aR\x12statusWorkflowHint\x88\x01\x01B\x0e\n" +
+	"\x14status_workflow_hint\x18\t \x01(\tH\aR\x12statusWorkflowHint\x88\x01\x01\x122\n" +
+	"\x12subject_repository\x18\n" +
+	" \x01(\tH\bR\x11subjectRepository\x88\x01\x01\x125\n" +
+	"\x14subject_project_path\x18\v \x01(\tH\tR\x12subjectProjectPath\x88\x01\x01B\x0e\n" +
 	"\f_subject_refB\x16\n" +
 	"\x14_subject_environmentB\x18\n" +
 	"\x16_subject_ref_protectedB\a\n" +
@@ -949,7 +972,9 @@ const file_hypershell_v1_ci_trusts_proto_rawDesc = "" +
 	"\a_statusB\x1b\n" +
 	"\x19_status_exchange_endpointB\x13\n" +
 	"\x11_status_workspaceB\x17\n" +
-	"\x15_status_workflow_hint\"J\n" +
+	"\x15_status_workflow_hintB\x15\n" +
+	"\x13_subject_repositoryB\x17\n" +
+	"\x15_subject_project_path\"J\n" +
 	"\x15UpdateCITrustResponse\x121\n" +
 	"\bci_trust\x18\x01 \x01(\v2\x16.hypershell.v1.CITrustR\aciTrust\"&\n" +
 	"\x14DeleteCITrustRequest\x12\x0e\n" +

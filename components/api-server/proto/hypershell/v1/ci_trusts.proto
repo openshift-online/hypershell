@@ -72,6 +72,12 @@ message UpdateCITrustRequest {
   optional string status_exchange_endpoint = 7;
   optional string status_workspace = 8;
   optional string status_workflow_hint = 9;
+  // subject_repository and subject_project_path are mutable so a declarative
+  // import can reconcile a changed subject predicate rather than silently skipping
+  // it (reconcile, don't create-or-skip). They are part of the claim-match subject,
+  // not immutable identity.
+  optional string subject_repository = 10;
+  optional string subject_project_path = 11;
 }
 
 message UpdateCITrustResponse {
