@@ -51,7 +51,12 @@ func TestLoginDefaultsToTheHyperShellOIDCClient(t *testing.T) {
 	}
 	flag := login.Flags().Lookup("client-id")
 	if flag == nil {
+		// The explicit return is unreachable after t.Fatal but makes the
+		// nil-guard visible to staticcheck's SA5011 flow analysis, which does not
+		// model t.Fatal as terminating (it otherwise reports a possible nil deref
+		// on flag.DefValue below under the CI toolchain).
 		t.Fatal("login has no --client-id flag")
+		return
 	}
 	if flag.DefValue != "hypershell-cli" || flag.Value.String() != "hypershell-cli" {
 		t.Errorf("--client-id default = %q (value %q), want hypershell-cli", flag.DefValue, flag.Value.String())
