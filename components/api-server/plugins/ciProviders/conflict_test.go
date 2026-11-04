@@ -85,6 +85,7 @@ func TestConflictForUniqueDetectsSQLSTATE(t *testing.T) {
 			if tc.wantConflict {
 				if got == nil {
 					t.Fatalf("expected a 409 conflict, got nil")
+					return
 				}
 				if got.Code != errors.ErrorConflict {
 					t.Fatalf("expected ErrorConflict (409), got code %d", got.Code)
