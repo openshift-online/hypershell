@@ -98,7 +98,7 @@ jobs:
           echo "Exchange OK. Gateway token claims:"
           payload="$(echo "$access" | cut -d. -f2 | tr '_-' '/+')"
           case $(( ${#payload} % 4 )) in 2) payload="$payload==";; 3) payload="$payload=";; esac
-          echo "$payload" | base64 -d 2>/dev/null | jq '{aud, azp, preferred_username, scope, workspace, groups}' || true
+          echo "$payload" | base64 -d 2>/dev/null | jq '{aud, azp, preferred_username, scope, hypershell_roles: .["hypershell.roles"], resource_access, groups}' || true
 
       - name: Install OpenShell CLI
         run: |
