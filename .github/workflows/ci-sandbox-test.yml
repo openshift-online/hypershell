@@ -32,7 +32,7 @@ on:
         default: agent-runtime-slim
       openshell_version:
         required: false
-        default: v0.1.3-rhaiv.3
+        default: v0.1.2-rhaiv.0
   push:
     branches: [ci-sandbox-proof]
     paths: ['.github/workflows/ci-sandbox-test.yml']
@@ -52,7 +52,7 @@ env:
   GATEWAY_NAME: ${{ inputs.gateway_name || 'agents-gateway' }}
   WORKSPACE: ${{ inputs.workspace || 'default' }}
   SANDBOX_TEMPLATE: ${{ inputs.sandbox_template || 'agent-runtime-slim' }}
-  OPENSHELL_VERSION: ${{ inputs.openshell_version || 'v0.1.3-rhaiv.3' }}
+  OPENSHELL_VERSION: ${{ inputs.openshell_version || 'v0.1.2-rhaiv.0' }}
 
 jobs:
   sandbox:
