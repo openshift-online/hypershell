@@ -634,6 +634,28 @@ If a run produced no new lessons, that is itself worth a one-line log entry
 
 Newest first. Each entry: version, date, what happened, what changed in the repo.
 
+- **Skill confirmation (2026-11-05, already-open-PR check worked as designed):**
+  This scheduled run resolved the same target as the prior run,
+  `v0.1.6-rhaiv.4` - still the latest stable midstream tag, unchanged since
+  PR #941 opened the day before. Per the "Check for an already-open PR before
+  creating a new branch/PR" step, found #941 (`implementer/update-openshell-v0.1.6-rhaiv.4`,
+  authored by this same bot identity) already open, `MERGEABLE`, and targeting
+  this exact resolved version with a complete pin sweep, chart re-vendor, and
+  the local `service.httpPort` patch restored (see the entry below). Attempting
+  to "create a new branch of the form `implementer/update-openshell-<target>`"
+  here would have collided with #941's existing branch of the identical name -
+  a non-fast-forward push that could only succeed by force-pushing someone
+  else's (in this case, the same bot's own) open PR branch, which this skill
+  never does. Took no bump action and opened no new PR; instead posted a
+  confirmation comment on #941 restating the independently-reproduced triage
+  result and flagging that its branch is 17 commits behind `main` with two
+  failing checks (`Checks CI Gate`, `SkillSpector security scan`) that could
+  not be diagnosed from this sandbox (no network path to the Actions
+  log-storage CDN to read the failure logs) - recommended a rebase before
+  merge rather than guessing at a fix. This is the scenario the 2026-11-01
+  duplicate-PR-pollution correction was written to prevent, and it worked:
+  zero new branches, zero new PRs, one informative comment.
+
 - **v0.1.6-rhaiv.4 (2026-11-04, v0.1.6-rhaiv.2 -> v0.1.6-rhaiv.4, no-arg scheduled
   run, built on `main` directly rather than on the still-open rhaiv.3 PR #923):**
   Mechanical pins, chart re-vendor, and footprint sweep all landed, but the
