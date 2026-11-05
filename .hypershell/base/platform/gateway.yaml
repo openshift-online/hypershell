@@ -20,5 +20,8 @@ spec:
     selector:
       - network/public
       - provider/ibm
-  # TLS stays enabled (edge). The gateway is never declared insecure here.
-  tls_mode: edge
+  # TLS mode (edge) is platform-managed: the control plane authors it, and a
+  # .hypershell Gateway manifest may declare only name + placement. Declaring
+  # tls_mode here is a forbidden platform-managed field and fails the whole
+  # repository import (data-model.spec.md PLAT-DATA-23, CTRL-CORE-15), so it is
+  # intentionally omitted.

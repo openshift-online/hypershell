@@ -32,6 +32,7 @@ H                 Open or refresh history
 
 RUN ACTIONS
 d                 Details (diagnostics during sign-in)
+A                 Approve selected PR for merge (confirmation required)
 r                 Retry selected run
 C                 Cancel running job (confirmation required)
 s                 Gateway sign-in

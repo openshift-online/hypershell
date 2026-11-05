@@ -526,7 +526,8 @@ The local runner MAY rerun review; it SHALL NOT silently treat the earlier proce
 exit as proof that approval was applied. Manual replay of the validated result
 remains supported while its evidence is current.
 
-An eligible code-review post-script SHALL apply and verify
+With automatic merge approval enabled (the default), an eligible code-review
+post-script SHALL apply and verify
 `agent/review-code-approved` on both the linked PR and execution record. It SHALL
 verify the PR link and current authorization, head, base, checks, draft status,
 and mergeability. It SHALL label the PR before completing the issue transition;
@@ -535,6 +536,14 @@ Reapplication SHALL repair a missing PR label even when the issue already has it
 approval. Rejected or ineligible approval results SHALL NOT retain the PR queue
 label. A changed head SHALL require fresh review; a stale result SHALL never
 approve the new head.
+
+Trusted runner policy `FULLSEND_AUTO_MERGE=disabled` SHALL preserve approval on
+an eligible execution record while withholding/removing the linked PR approval
+label and verifying its absence. Enabled policy SHALL retain dual-target approval.
+The policy SHALL NOT originate in agent output or alter the agent's responsibilities.
+Invalid policy values SHALL fail before mutation. Both policies SHALL retain all
+freshness, authorization, readiness, rejection and dry-run gates. Reapplying a
+fresh approved result with disabled policy SHALL converge without queuing its PR.
 
 A shared maintenance hook under `.fullsend/scripts/` SHALL revisit code-stage
 records after approval, because a post-script alone cannot observe future changes.

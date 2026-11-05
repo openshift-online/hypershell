@@ -53,6 +53,7 @@ var importExtKindServices = map[string]struct{}{
 	"ProviderBindingService": {},
 	"InferenceRouteService":  {},
 	"SecretSourceService":    {},
+	"CITrustService":         {},
 }
 
 // isImportExtKindService reports whether service is one of the owned import ext kinds.

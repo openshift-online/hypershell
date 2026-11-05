@@ -164,10 +164,12 @@ func reviewWaiting(r Row) string {
 	case state.Mergeable == nil || !*state.Mergeable:
 		return "Waiting for PR readiness"
 	default:
-		return "Approval pending"
+		return "Review needed"
 	}
 }
-func awaitingNewReview(r Row) bool { return reviewWaiting(r) == "Awaiting new review" }
+func awaitingNewReview(r Row) bool {
+	return reviewWaiting(r) == "Awaiting new review" || reviewWaiting(r) == "Review needed"
+}
 
 func reviewSentForRepair(r Row) bool {
 	if r.Agent != "code-review" || r.Status != "succeeded" || r.Activity == "history" || r.CodeReadiness == nil || r.CodeReadiness.Checks != "failing" {
@@ -186,13 +188,13 @@ func reviewWaitingDetail(r Row) string {
 	}
 	switch reviewWaiting(r) {
 	case "Awaiting new review":
-		return "This PR revision has not been reviewed. The previous review belongs to older work; its duration is available in history. Jira synchronization must succeed before a new review can start. Pending CI prevents approval, but does not by itself prevent starting a review."
+		return "The current review request has not been completed. The previous run belongs to an earlier request or PR revision; its duration is available in history. Jira synchronization must succeed before a new review can start. Pending CI prevents approval, but does not by itself prevent starting a review."
 	case "Waiting for CI":
 		return "The review process finished, but required checks are pending or unknown. Approval has not been applied. Discovery will revisit the review when CI changes; failed required checks return the issue to code implementation."
 	case "CI failed · needs repair":
 		return "Required CI failed. Approval has not been applied. Readiness maintenance will mark code review rejected and request code implementation once worker ownership permits recovery."
-	case "Approval pending":
-		return "The review process finished and PR readiness is green. Approval has not been applied yet. Discovery can schedule a fresh review; process completion alone does not mean approval."
+	case "Review needed":
+		return "This issue needs a code-review verdict for its current review request. The previous run does not satisfy that request. A new review starts when synchronization succeeds and a worker slot is available; approval to merge is a separate step."
 	case "":
 		return ""
 	default:
@@ -200,6 +202,9 @@ func reviewWaitingDetail(r Row) string {
 	}
 }
 func rowColor(r Row) string {
+	if r.Status == "awaiting_approval" {
+		return "approval-text"
+	}
 	if reviewSentForRepair(r) {
 		return "1"
 	}
@@ -213,10 +218,19 @@ func rowColor(r Row) string {
 	return statusColor(r.Status)
 }
 func rowStatus(r Row) string {
+	if r.Status == "awaiting_approval" {
+		if r.Activity != "" {
+			return r.Activity
+		}
+		return "Awaiting approval"
+	}
 	if reviewSentForRepair(r) {
 		return "CI failed · rejected"
 	}
 	if waiting := reviewWaiting(r); waiting != "" {
+		if (waiting == "Review needed" || waiting == "Awaiting new review") && r.SyncLog != "" {
+			return "Review needed · Jira sync"
+		}
 		return waiting
 	}
 	if r.Status == "running" && r.CancelRequested {
@@ -296,6 +310,10 @@ type Model struct {
 	signInChoice                            int
 	signInResult                            string
 	signInDiagnostics                       bool
+	pendingApproval                         *Row
+	approvalChoice                          int
+	approvalBusy                            bool
+	approvalKey                             string
 	pendingCancel                           *Row
 	cancelChoice                            int
 	pendingRetry                            *Row
@@ -321,6 +339,11 @@ func tick() tea.Cmd {
 }
 func (m Model) scopedRows() []Row {
 	rows := []Row{}
+	for _, r := range m.state.AwaitingApproval {
+		if r.Scope == m.engine.config().Scope {
+			rows = append(rows, r)
+		}
+	}
 	for _, r := range m.state.Rows {
 		if r.Scope == m.engine.config().Scope || r.Status == "running" {
 			rows = append(rows, r)
@@ -366,6 +389,14 @@ func (m Model) visibleRows() []Row {
 	if m.issueGrouping {
 		rows = m.orderRows(rows)
 	}
+	for i := range rows {
+		if m.approvalBusy && rows[i].Key == m.approvalKey {
+			rows[i].Activity = "Checking approval…"
+		}
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		return rows[i].Status == "awaiting_approval" && rows[j].Status != "awaiting_approval"
+	})
 	return rows
 }
 func (m *Model) restoreSelection(key string, issue *Row) {
@@ -473,6 +504,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.index = 0
 			m.selected = ""
 		}
+	case approvalDone:
+		m.approvalBusy = false
+		if v.err != nil {
+			m.setNotice("Approval failed: " + v.err.Error())
+		} else {
+			m.setNotice("PR #" + v.pr + " approved for the merge queue.")
+			m.engine.update(func(s *Snapshot) {
+				kept := []Row{}
+				for _, r := range s.AwaitingApproval {
+					if r.Key != v.key {
+						kept = append(kept, r)
+					}
+				}
+				s.AwaitingApproval = kept
+			})
+			m.state = m.engine.snapshot()
+			m.screen = ""
+			m.restoreSelection("", nil)
+		}
 	case cancelDone:
 		if v.err != nil {
 			m.setNotice(v.err.Error())
@@ -497,6 +547,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		if m.screen == "configuration" && !m.helpOpen {
 			return m.updateConfiguration(v)
+		}
+		if m.pendingApproval != nil {
+			return m.updateApproval(v)
 		}
 		if m.pendingCancel != nil {
 			switch v.String() {
@@ -675,8 +728,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.screen = ""
 			m.scroll = 0
+		case "A":
+			if len(rows) > 0 {
+				return m.beginApproval(rows[m.index])
+			}
 		case "enter", "l":
 			if len(rows) > 0 {
+				if rows[m.index].Status == "awaiting_approval" {
+					return m.beginApproval(rows[m.index])
+				}
 				m.openLog(rows[m.index].Log)
 			}
 		case "H":
@@ -851,11 +911,15 @@ func (m Model) agentGroups(rows []Row, w, budget int) []string {
 	for i := start; i < len(rows); i++ {
 		r := rows[i]
 		entry := []string{}
-		if r.Agent != last {
+		group := r.Agent
+		if r.Status == "awaiting_approval" {
+			group = "Awaiting approval"
+		}
+		if group != last {
 			if last != "" {
 				entry = append(entry, "")
 			}
-			running, failed, waiting, done := 0, 0, 0, 0
+			running, failed, waiting, done, needsReview := 0, 0, 0, 0, 0
 			for _, item := range rows {
 				if item.Agent == r.Agent {
 					switch item.Status {
@@ -864,7 +928,9 @@ func (m Model) agentGroups(rows []Row, w, budget int) []string {
 					case "failed", "uncertain", "canceled":
 						failed++
 					case "succeeded":
-						if reviewWaiting(item) != "" {
+						if awaitingNewReview(item) && item.SyncLog == "" {
+							needsReview++
+						} else if reviewWaiting(item) != "" {
 							waiting++
 						} else {
 							done++
@@ -879,13 +945,21 @@ func (m Model) agentGroups(rows []Row, w, budget int) []string {
 			if failed > 0 {
 				counts = append(counts, fmt.Sprintf("%d need attention", failed))
 			}
+			if needsReview > 0 {
+				counts = append(counts, fmt.Sprintf("%d need review", needsReview))
+			}
 			if waiting > 0 {
 				counts = append(counts, fmt.Sprintf("%d waiting", waiting))
 			}
 			if done > 0 {
 				counts = append(counts, fmt.Sprintf("%d completed", done))
 			}
-			entry = append(entry, m.groupHeading(r.Agent, strings.Join(counts, " · "), w))
+			heading := r.Agent
+			if r.Status == "awaiting_approval" {
+				heading = "Awaiting approval"
+				counts = []string{"A approve"}
+			}
+			entry = append(entry, m.groupHeading(heading, strings.Join(counts, " · "), w))
 		}
 		prefix := "  "
 		if i == m.index {
@@ -897,20 +971,18 @@ func (m Model) agentGroups(rows []Row, w, budget int) []string {
 			entry = append(entry, prefix+middle(title(r), w-2), "  "+m.style(middle(tableStatus(r)+" · "+durationLabel(r), w-2), rowColor(r), false))
 		}
 
-		if i == m.index {
-			first := len(entry) - 1
-			if w < 70 {
-				first--
-			}
-			for n := first; n < len(entry); n++ {
-				entry[n] = m.selection(entry[n], w)
-			}
+		first := len(entry) - 1
+		if w < 70 {
+			first--
+		}
+		for n := first; n < len(entry); n++ {
+			entry[n] = m.workRow(entry[n], w, r, i == m.index)
 		}
 		if len(lines)+len(entry) > budget && len(lines) > 0 {
 			break
 		}
 		lines = append(lines, entry...)
-		last = r.Agent
+		last = group
 		end = i + 1
 	}
 	lines = m.withScrollbar(lines, start, end, len(rows), budget, outerWidth)
@@ -1126,6 +1198,9 @@ func (m Model) View() string {
 		lines = append(lines, m.style(footer, "8", false))
 		return m.frame(lines, w, h)
 	}
+	if m.pendingApproval != nil {
+		return m.approvalView(lines, w, h)
+	}
 	if m.pendingCancel != nil {
 		lines = append(lines, m.style("Cancel run?", "3", true), "")
 		row := *m.pendingCancel
@@ -1163,12 +1238,22 @@ func (m Model) View() string {
 		lines = m.logsView(lines, rows[m.index], w, h)
 	} else if m.screen == "details" {
 		header, body := m.detailContent(rows, max(10, w-2))
+		if len(rows) > 0 && rows[m.index].Status == "awaiting_approval" {
+			r := rows[m.index]
+			header = []string{m.style("Awaiting your approval", "approval-text", true), ""}
+			body = m.approvalSummary(r, w-2)
+			body = append(body, m.wrapped("Code review approved. The PR does not have merge-queue approval. Press A to review and approve this PR for merging.", w-2, "7")...)
+		}
 		lines = append(lines, header...)
 		count := max(1, h-len(lines)-3)
 		start := min(m.scroll, max(0, len(body)-count))
 		lines = append(lines, m.scrollPane(body, start, count, w)...)
 		lines = append(lines, m.scrollIndicator(start, min(len(body), start+count), len(body)))
-		lines = append(lines, "", m.style("j/k scroll   enter logs   r retry  C cancel   h back   ? help   q detach", "8", false))
+		footer := "j/k scroll   enter logs   r retry  C cancel   h back   ? help   q detach"
+		if len(rows) > 0 && rows[m.index].Status == "awaiting_approval" {
+			footer = "j/k scroll   A approve   h back   ? help   q detach"
+		}
+		lines = append(lines, "", m.style(footer, "8", false))
 	} else {
 		if m.state.Monitoring {
 			lines = append(lines, "Existing workers are finishing. Scheduling resumes automatically.", "")
@@ -1179,7 +1264,7 @@ func (m Model) View() string {
 			lines = append(lines, m.style(middle(title(*m.historyIssue), w), "7", true), m.style("Run history · up to 200 attempts · H refresh · esc back", "8", false), "")
 		}
 		if m.historyIssue == nil && !m.issueGrouping {
-			lines = append(lines, m.viewTabs(false, w)...)
+			lines = append(lines, m.viewTabs(m.issueGrouping, w)...)
 			if controls := m.listControls(); controls != "" {
 				lines = append(lines, m.style(controls, "8", false))
 			}
@@ -1201,6 +1286,9 @@ func (m Model) View() string {
 			lines = append(lines, m.tableHeading(w-2, true))
 			paneHeight := max(1, h-len(lines)-6)
 			count := paneHeight
+			if m.historyIssue == nil && len(m.state.AwaitingApproval) > 0 {
+				count = max(1, count-2)
+			}
 			if w < 100 {
 				count = max(1, count/2)
 			}
@@ -1209,6 +1297,14 @@ func (m Model) View() string {
 			listStart := len(lines)
 			for i := start; i < end; i++ {
 				r := rows[i]
+				if m.historyIssue == nil && len(m.state.AwaitingApproval) > 0 {
+					if r.Status == "awaiting_approval" && (i == start || rows[i-1].Status != "awaiting_approval") {
+						lines = append(lines, m.groupHeading("Awaiting approval", "A approve", w-2))
+					}
+					if r.Status != "awaiting_approval" && (i == start || rows[i-1].Status == "awaiting_approval") {
+						lines = append(lines, m.groupHeading("Work", "", w-2))
+					}
+				}
 				prefix := "  "
 				if i == m.index {
 					prefix = "> "
@@ -1216,16 +1312,12 @@ func (m Model) View() string {
 				color := rowColor(r)
 				if w >= 100 {
 					line := m.tableRow(r, prefix, w-2, true)
-					if i == m.index {
-						line = m.selection(line, w)
-					}
+					line = m.workRow(line, w, r, i == m.index)
 					lines = append(lines, line)
 				} else {
 					lines = append(lines, prefix+middle(m.listTitle(r), w-2), "  "+m.style(middle(agentName(r.Agent)+" · "+tableStatus(r)+" · "+durationLabel(r), w-2), color, false))
-					if i == m.index {
-						lines[len(lines)-2] = m.selection(lines[len(lines)-2], w-2)
-						lines[len(lines)-1] = m.selection(lines[len(lines)-1], w-2)
-					}
+					lines[len(lines)-2] = m.workRow(lines[len(lines)-2], w-2, r, i == m.index)
+					lines[len(lines)-1] = m.workRow(lines[len(lines)-1], w-2, r, i == m.index)
 				}
 			}
 			if len(rows) > 0 {
@@ -1284,10 +1376,16 @@ func (m Model) View() string {
 			lines = append(lines, summary)
 		}
 		action := "r retry"
+		if len(rows) > 0 && rows[m.index].Status == "awaiting_approval" {
+			action = "d details"
+		}
 		if len(rows) > 0 && rows[m.index].Status == "running" {
 			action = "C cancel"
 		}
 		footer := "j/k select  enter logs  " + action + "  / filter  o sort  O reverse  H history  ? help  q detach"
+		if len(rows) > 0 && rows[m.index].Status == "awaiting_approval" {
+			footer = strings.Replace(footer, "enter logs", "enter approve", 1)
+		}
 		if m.historyIssue != nil {
 			footer = "j/k select  enter logs  / filter  o sort  O reverse  H refresh  h back  ? help"
 		}
