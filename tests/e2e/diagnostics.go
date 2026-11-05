@@ -77,6 +77,37 @@ func (s *E2ESuite) collectFailureDiagnostics() {
 	d.section(ctx, "Platform events", "events.txt", d.writePlatformEvents)
 	d.section(ctx, "Gateway API and managed namespaces", "gateway-api.txt", d.writeGatewayDiagnostics)
 	d.section(ctx, "OpenShell console", "openshell-console.txt", d.writeConsoleDiagnostics)
+	if len(s.gatewayIDs()) > 0 && s.admin != nil {
+		d.section(ctx, "Tracked gateways (API)", "gateways.txt", d.writeTrackedGateways)
+	}
+}
+
+// githubActionsLogGroup collapses the high-volume diagnostic dump in the
+// Actions UI while leaving local and structured reporter output unchanged.
+func githubActionsLogGroup(w io.Writer, title string) func() {
+	if os.Getenv("GITHUB_ACTIONS") != "true" || w == nil {
+		return func() {}
+	}
+	_, _ = fmt.Fprintf(w, "::group::%s\n", title)
+	return func() {
+		_, _ = fmt.Fprintln(w, "::endgroup::")
+	}
+}
+
+// logf writes diagnostics directly between the Actions group commands. Go's
+// testing logger buffers output by subtest, which would otherwise move the
+// diagnostic lines outside the group when the test completes. The structured
+// sink still receives the same lines. Non-Actions runs retain normal test logs.
+func (d *failureDiagnostics) logf(format string, args ...any) {
+	message := harness.RedactDiagnostic(fmt.Sprintf(format, args...))
+	if d.actionsOutput != nil {
+		_, _ = fmt.Fprintln(d.actionsOutput, message)
+		if d.logger != nil {
+			d.logger.Additionalf("%s", message)
+		}
+		return
+	}
+	d.logger.Logf("%s", message)
 }
 
 // githubActionsLogGroup collapses the high-volume diagnostic dump in the
@@ -119,6 +150,9 @@ func (d *failureDiagnostics) section(ctx context.Context, title, filename string
 	}
 	body = harness.RedactDiagnostic(body)
 	d.logf("DIAG %s\n%s", title, body)
+	if d.suite != nil && d.suite.reporter != nil {
+		d.suite.reporter.Diagnostic("diagnostics", title, body, diagnosticSectionSeverity(title, body))
+	}
 
 	if d.dir == "" {
 		return
@@ -577,4 +611,46 @@ func diagnosticPathComponent(value string) string {
 		}
 		return '_'
 	}, value)
+}
+
+func (d *failureDiagnostics) writeTrackedGateways(ctx context.Context, w io.Writer) {
+	if d.suite == nil || d.suite.admin == nil {
+		return
+	}
+	for _, gwID := range d.suite.gatewayIDs() {
+		reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		gw, err := d.suite.admin.Gateways().Get(reqCtx, gwID)
+		cancel()
+		if err != nil {
+			writeDiagnosticf(w, "gateway %s: get failed: %v\n", gwID, err)
+			continue
+		}
+		conditions := make([]string, 0, len(gw.ProvisioningConditions))
+		for _, c := range gw.ProvisioningConditions {
+			conditions = append(conditions, fmt.Sprintf("%v=%v reason=%q message=%q", c["type"], c["status"], c["reason"], c["message"]))
+		}
+		writeDiagnosticf(w, "gateway %s name=%s phase=%s conditions=[%s]\n",
+			gwID, gw.Name, gw.Phase, strings.Join(conditions, "; "))
+	}
+}
+
+func diagnosticSectionSeverity(title, body string) string {
+	lower := strings.ToLower(body)
+	switch {
+	case strings.Contains(lower, "panic:") ||
+		strings.Contains(lower, "crashloopbackoff") ||
+		strings.Contains(lower, "imagepullbackoff") ||
+		strings.Contains(lower, "errimagepull") ||
+		strings.Contains(lower, "oomkilled"):
+		return "error"
+	case strings.Contains(body, "Warning ") ||
+		strings.Contains(body, "phase=Failed") ||
+		strings.Contains(body, "phase=Pending") ||
+		strings.Contains(lower, "level=error") ||
+		strings.Contains(lower, "\"level\":\"error\""):
+		return "warn"
+	default:
+		_ = title
+		return "info"
+	}
 }

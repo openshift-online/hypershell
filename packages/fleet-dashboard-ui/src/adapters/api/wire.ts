@@ -9,7 +9,11 @@
 
 import type { InstancesData } from "../../application/ports";
 import type {
+  E2eDiagnosticSection,
+  E2eDiagnosticSeverity,
+  E2eDiagnosticsData,
   E2eEventName,
+  E2eFailureSummary,
   E2eLogLine,
   E2eLogPage,
   E2eOutcome,
@@ -780,7 +784,24 @@ interface WireE2eLogLine {
   readonly truncated?: boolean;
 }
 
+interface WireE2eFailure {
+  readonly stepId?: string;
+  readonly message?: string;
+}
+
+interface WireE2eDiagnostic {
+  readonly title?: string;
+  readonly body?: string;
+  readonly severity?: string;
+}
+
+interface WireE2eDiagnostics {
+  readonly diagnostics?: readonly WireE2eDiagnostic[] | null;
+}
+
 interface WireE2eDetail extends WireE2eSummary {
+  readonly failure?: WireE2eFailure | null;
+  readonly diagnostics?: readonly WireE2eDiagnostic[] | null;
   readonly plannedSteps?: readonly WireE2ePlanned[] | null;
   readonly steps?: readonly WireE2eStep[] | null;
   readonly failure?: {
@@ -926,11 +947,50 @@ export function mapE2eRuns(raw: unknown): E2eRunsData {
   };
 }
 
+function mapE2eFailure(
+  raw: WireE2eFailure | null | undefined,
+): E2eFailureSummary | null {
+  if (!raw) {
+    return null;
+  }
+  const stepId = raw.stepId ?? "";
+  const message = raw.message ?? "";
+  if (stepId === "" && message === "") {
+    return null;
+  }
+  return { stepId, message };
+}
+
+function mapDiagnosticSeverity(
+  v: string | undefined,
+): E2eDiagnosticSeverity | undefined {
+  return v === "info" || v === "warn" || v === "error" ? v : undefined;
+}
+
+function mapE2eDiagnostic(raw: WireE2eDiagnostic): E2eDiagnosticSection {
+  const severity = mapDiagnosticSeverity(raw.severity);
+  return {
+    title: raw.title ?? "",
+    body: raw.body ?? "",
+    ...(severity !== undefined ? { severity } : {}),
+  };
+}
+
+/** Map the /api/e2e/diagnostics?run=<id> plane data (DIAGNOSTICS_CONTRACT). */
+export function mapE2eDiagnostics(raw: unknown): E2eDiagnosticsData {
+  const wire = (raw ?? {}) as WireE2eDiagnostics;
+  return {
+    diagnostics: (wire.diagnostics ?? []).map(mapE2eDiagnostic),
+  };
+}
+
 /** Map the /api/e2e/runs/{id} plane data: a summary plus steps and bounded logs. */
 export function mapE2eRunDetail(raw: unknown): E2eRunDetail {
   const wire = (raw ?? {}) as WireE2eDetail;
   return {
     ...mapE2eSummary(wire),
+    failure: mapE2eFailure(wire.failure),
+    diagnostics: (wire.diagnostics ?? []).map(mapE2eDiagnostic),
     plannedSteps: (wire.plannedSteps ?? []).map(mapPlanned),
     steps: (wire.steps ?? []).map(mapE2eStep),
     failure: wire.failure

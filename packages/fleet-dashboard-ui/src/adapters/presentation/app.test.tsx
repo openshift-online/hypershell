@@ -54,6 +54,7 @@ const emptyE2eRun: E2eRunDetail = {
 const e2eApi = {
   getE2eRuns: () => Promise.resolve(plane<E2eRunsData>(emptyE2eRuns)),
   getE2eRun: () => Promise.resolve(plane<E2eRunDetail>(emptyE2eRun)),
+  getE2eDiagnostics: () => Promise.resolve(plane({ diagnostics: [] })),
   getE2eRunLogs: () =>
     Promise.resolve(plane({ entries: [], nextCursor: null, hasMore: false })),
   streamE2eRun: () => () => {
@@ -65,6 +66,7 @@ const e2eApi = {
   FleetApi,
   | "getE2eRuns"
   | "getE2eRun"
+  | "getE2eDiagnostics"
   | "getE2eRunLogs"
   | "streamE2eRun"
   | "getSdlcAgents"

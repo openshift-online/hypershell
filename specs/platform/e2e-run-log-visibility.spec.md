@@ -989,6 +989,41 @@ state.
 - WHEN the pane renders that page
 - THEN it SHALL show the locally-limited history state, NOT end-of-history, and SHALL NOT keep requesting the same older page
 
+### Requirement: E2E-LOG-27 -- Lazy Failure Diagnostics Endpoint
+
+When the Go E2E suite collects failure diagnostics (E2E-CORE-27), the structured
+reporter SHALL emit redacted, `PIPE_BUF`-bounded diagnostic chunks (and legacy
+`DIAG <title>\n<body>` log sections). `GET /api/e2e/runs/{id}` SHALL NOT query Loki for
+diagnostic bodies; it SHALL retain the `diagnostics` step state (`passed` / `skipped` /
+`not-run` / `running`) in `steps` so the UI can enable or disable the diagnostics
+control without fetching bodies. `GET /api/e2e/diagnostics?run=<id>` SHALL be the only
+endpoint that queries the Loki diagnostics stream and SHALL reduce the entries into an
+ordered `diagnostics` array of `{ title, body, severity? }` sections. Whole-run raw-log
+pagination (`GET /api/e2e/logs` without `step`) SHALL bound its Loki time range to the
+run's lifecycle window plus the configured margin and exclude diagnostic payloads before
+Loki applies the page limit.
+
+#### Scenario: E2E-LOG-27.01 -- Lazy diagnostics endpoint exposes structured failure diagnostics
+
+- GIVEN a failed run that emitted failure-diagnostics sections
+- WHEN `GET /api/e2e/runs/{id}` is requested
+- THEN the response SHALL include the `diagnostics` step state in `steps` without querying Loki for diagnostic bodies
+- AND WHEN `GET /api/e2e/diagnostics?run=<id>` is requested
+- THEN the response SHALL include the reassembled `diagnostics` sections under `data.diagnostics`
+
+### Requirement: E2E-LOG-28 -- Concise Failure Summary on Failed Run Detail
+
+A failed run's detail (`E2ERunDetail` / `E2eFailureSummary`) SHALL carry the failed
+`stepId` and concise failure `message` extracted from the terminal failure record so
+the UI can display the failure summary header without printing raw assertion diffs
+or loading raw log pages.
+
+#### Scenario: E2E-LOG-28.01 -- Failed run detail carries failure summary
+
+- GIVEN a failed run whose terminal record identifies the failed step and failure message
+- WHEN the run detail is reduced
+- THEN the detail SHALL expose the failed `stepId` and concise `message` for the header alert
+
 ## Non-Goals
 
 - Owning the log pipeline. The central Loki receiver, retention, the

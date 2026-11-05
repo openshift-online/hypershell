@@ -54,6 +54,10 @@ import {
   Thead,
   Tr,
 } from "@patternfly/react-table";
+import AngleDownIcon from "@patternfly/react-icons/dist/esm/icons/angle-down-icon";
+import AngleRightIcon from "@patternfly/react-icons/dist/esm/icons/angle-right-icon";
+import CompressArrowsAltIcon from "@patternfly/react-icons/dist/esm/icons/compress-arrows-alt-icon";
+import ExpandArrowsAltIcon from "@patternfly/react-icons/dist/esm/icons/expand-arrows-alt-icon";
 import BanIcon from "@patternfly/react-icons/dist/esm/icons/ban-icon";
 import CheckCircleIcon from "@patternfly/react-icons/dist/esm/icons/check-circle-icon";
 import ExclamationCircleIcon from "@patternfly/react-icons/dist/esm/icons/exclamation-circle-icon";
@@ -80,17 +84,24 @@ import {
   applyEvents,
   boundLogBuffer,
   elapsedSeconds,
+  extractFailureMessage,
+  groupRunAttempts,
+  isDiagnosticsStep,
   isRunning,
   logsForStep,
   mergeLogLines,
+  orderStepsCanonical,
   reduceRun,
   runDurationMs,
   runBundle,
   runTargetInstance,
   runsNewestFirst,
+  stepDurationMs,
+  stepStateRank,
   MAX_DETAIL_LOG_LINES,
   MAX_LOG_BUFFER,
   type E2eLogLine,
+  type E2eRunAttemptItem,
   type E2eRunDetail,
   type E2eRunEvent,
   type E2eRunsData,
@@ -106,6 +117,7 @@ import {
 import type { ExecState, SortState } from "../../../domain/navigation/route";
 import { messages } from "../../../messages";
 import { useFleetApi } from "../../query/api-context";
+import { useE2eDiagnostics } from "../../query/hooks";
 import { useObservability } from "../../observability/observability-context";
 import { useRoute, useRouter } from "../../routing/router";
 import { NavLinkButton } from "../nav-link-button";
@@ -727,6 +739,20 @@ function RunsTable({
   nowMs: number;
 }): React.ReactElement {
   const intl = useIntl();
+  const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const toggleGroup = useCallback((groupKey: string) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupKey)) {
+        next.delete(groupKey);
+      } else {
+        next.add(groupKey);
+      }
+      return next;
+    });
+  }, []);
   const { sorted, column } = useTableSort(
     runs,
     (run) => [
@@ -742,11 +768,161 @@ function RunsTable({
     onSort,
     2,
   );
+  const groups = useMemo(
+    () => groupRunAttempts(sorted, promotion),
+    [sorted, promotion],
+  );
+
+  const renderAttemptRow = (
+    item: E2eRunAttemptItem,
+    opts: {
+      readonly groupKey: string;
+      readonly totalAttempts: number;
+      readonly isParent: boolean;
+      readonly isExpanded: boolean;
+    },
+  ): React.ReactElement => {
+    const { run, attemptNumber } = item;
+    const selected = run.id === selectedId;
+    const hasOlder = opts.totalAttempts > 1;
+    const olderCount = opts.totalAttempts - 1;
+    const collapsed = !opts.isParent && !opts.isExpanded;
+    const rowClasses = [
+      selected ? styles.selectedRow : "",
+      !opts.isParent ? styles.nestedAttemptRow : "",
+      collapsed ? styles.collapsedAttemptRow : "",
+    ]
+      .filter((c) => c !== "")
+      .join(" ");
+    // Nested cells reveal with motion (height + padding animate between the
+    // collapsed and open states); the parent row renders its content directly.
+    const reveal = (node: React.ReactNode): React.ReactNode =>
+      opts.isParent ? (
+        node
+      ) : (
+        <div className={styles.attemptReveal}>
+          <div className={styles.attemptRevealInner}>{node}</div>
+        </div>
+      );
+    return (
+      <Tr
+        key={run.id}
+        isRowSelected={selected}
+        className={rowClasses !== "" ? rowClasses : undefined}
+      >
+        <Td dataLabel={intl.formatMessage(messages.e2eColumnBundle)}>
+          {reveal(<RunBundleIdentity bundle={runBundle(run, promotion)} />)}
+        </Td>
+        <Td dataLabel={intl.formatMessage(messages.e2eColumnTarget)}>
+          {reveal(
+            <>
+              <span>{runTargetInstance(run, promotion) ?? run.cluster}</span>
+              <small className={styles.instance}>
+                {runTargetInstance(run, promotion)
+                  ? intl.formatMessage(messages.e2eTargetLocation, {
+                      cluster: run.cluster,
+                      namespace: run.namespace,
+                    })
+                  : run.namespace}
+              </small>
+            </>,
+          )}
+        </Td>
+        <Td dataLabel={intl.formatMessage(messages.e2eColumnRevision)}>
+          {reveal(
+            <NavLinkButton
+              action={{ type: "e2eSelectRun", run: run.id }}
+              onActivate={onActivate}
+              aria-label={intl.formatMessage(messages.e2eRunSelect, {
+                revision: run.revision,
+                attempt: run.runId,
+              })}
+            >
+              {run.revision !== ""
+                ? run.revision.slice(0, 8)
+                : intl.formatMessage(messages.valueNone)}
+            </NavLinkButton>,
+          )}
+        </Td>
+        <Td dataLabel={intl.formatMessage(messages.e2eColumnAttempt)}>
+          {reveal(
+            <span className={styles.attemptCell}>
+              {opts.isParent && hasOlder ? (
+                <Button
+                  variant="plain"
+                  size="sm"
+                  isInline
+                  aria-expanded={opts.isExpanded}
+                  aria-label={intl.formatMessage(messages.e2eAttemptsToggle, {
+                    expanded: String(opts.isExpanded),
+                    count: olderCount,
+                  })}
+                  onClick={() => {
+                    toggleGroup(opts.groupKey);
+                  }}
+                  icon={
+                    <AngleRightIcon
+                      className={[
+                        styles.chevron,
+                        opts.isExpanded ? styles.chevronOpen : "",
+                      ]
+                        .filter((c) => c !== "")
+                        .join(" ")}
+                    />
+                  }
+                />
+              ) : null}
+              <span title={run.runId}>
+                {opts.isParent ? (
+                  <FormattedMessage {...messages.e2eAttemptMostRecent} />
+                ) : (
+                  intl.formatMessage(messages.e2eAttemptNumber, {
+                    number: attemptNumber,
+                  })
+                )}
+              </span>
+              <code className={styles.attemptId} title={run.runId}>
+                {run.runId.slice(0, 8)}
+              </code>
+              {opts.isParent && hasOlder ? (
+                <Label isCompact>
+                  <FormattedMessage
+                    {...messages.e2eAttemptCount}
+                    values={{ count: opts.totalAttempts }}
+                  />
+                </Label>
+              ) : null}
+            </span>,
+          )}
+        </Td>
+        <Td dataLabel={intl.formatMessage(messages.e2eColumnStarted)}>
+          {reveal(formatAgo(intl, run.startedAt, nowMs))}
+        </Td>
+        <Td dataLabel={intl.formatMessage(messages.e2eColumnDuration)}>
+          {reveal(formatDuration(intl, runDurationMs(run, nowMs)))}
+        </Td>
+        <Td dataLabel={intl.formatMessage(messages.e2eColumnVerdict)}>
+          {reveal(
+            <span className={styles.inline}>
+              <StatusChip visual={verdictVisual(run.verdict)} />
+              {!run.hasStructuredSteps ? (
+                <Label isCompact icon={<OutlinedCircleIcon />}>
+                  <FormattedMessage {...messages.e2eNoStructuredSteps} />
+                </Label>
+              ) : null}
+            </span>,
+          )}
+        </Td>
+      </Tr>
+    );
+  };
+
   return (
     <Table
       gridBreakPoint=""
       aria-label={intl.formatMessage(messages.e2eRunsAria)}
       variant="compact"
+      className={styles.runsTable}
     >
       <Thead>
         <Tr>
@@ -773,66 +949,33 @@ function RunsTable({
           </Th>
         </Tr>
       </Thead>
-      <Tbody>
-        {sorted.map((run) => {
-          const selected = run.id === selectedId;
-          return (
-            <Tr
-              key={run.id}
-              isRowSelected={selected}
-              className={selected ? styles.selectedRow : undefined}
-            >
-              <Td dataLabel={intl.formatMessage(messages.e2eColumnBundle)}>
-                <RunBundleIdentity bundle={runBundle(run, promotion)} />
-              </Td>
-              <Td dataLabel={intl.formatMessage(messages.e2eColumnTarget)}>
-                <span>{runTargetInstance(run, promotion) ?? run.cluster}</span>
-                <small className={styles.instance}>
-                  {runTargetInstance(run, promotion)
-                    ? intl.formatMessage(messages.e2eTargetLocation, {
-                        cluster: run.cluster,
-                        namespace: run.namespace,
-                      })
-                    : run.namespace}
-                </small>
-              </Td>
-              <Td dataLabel={intl.formatMessage(messages.e2eColumnRevision)}>
-                <NavLinkButton
-                  action={{ type: "e2eSelectRun", run: run.id }}
-                  onActivate={onActivate}
-                  aria-label={intl.formatMessage(messages.e2eRunSelect, {
-                    revision: run.revision,
-                    attempt: run.runId,
-                  })}
-                >
-                  {run.revision !== ""
-                    ? run.revision.slice(0, 8)
-                    : intl.formatMessage(messages.valueNone)}
-                </NavLinkButton>
-              </Td>
-              <Td dataLabel={intl.formatMessage(messages.e2eColumnAttempt)}>
-                <span title={run.runId}>{run.runId.slice(0, 8)}</span>
-              </Td>
-              <Td dataLabel={intl.formatMessage(messages.e2eColumnStarted)}>
-                {formatAgo(intl, run.startedAt, nowMs)}
-              </Td>
-              <Td dataLabel={intl.formatMessage(messages.e2eColumnDuration)}>
-                {formatDuration(intl, runDurationMs(run, nowMs))}
-              </Td>
-              <Td dataLabel={intl.formatMessage(messages.e2eColumnVerdict)}>
-                <span className={styles.inline}>
-                  <StatusChip visual={verdictVisual(run.verdict)} />
-                  {!run.hasStructuredSteps ? (
-                    <Label isCompact icon={<OutlinedCircleIcon />}>
-                      <FormattedMessage {...messages.e2eNoStructuredSteps} />
-                    </Label>
-                  ) : null}
-                </span>
-              </Td>
-            </Tr>
-          );
-        })}
-      </Tbody>
+      {groups.map((group) => {
+        const hasOlder = group.attempts.length > 1;
+        const olderSelected = group.attempts
+          .slice(1)
+          .some((item) => item.run.id === selectedId);
+        const isExpanded = expandedGroups.has(group.key) || olderSelected;
+        return (
+          <Tbody key={group.key}>
+            {renderAttemptRow(group.latest, {
+              groupKey: group.key,
+              totalAttempts: group.attempts.length,
+              isParent: true,
+              isExpanded,
+            })}
+            {hasOlder
+              ? group.attempts.slice(1).map((item) =>
+                  renderAttemptRow(item, {
+                    groupKey: group.key,
+                    totalAttempts: group.attempts.length,
+                    isParent: false,
+                    isExpanded,
+                  }),
+                )
+              : null}
+          </Tbody>
+        );
+      })}
     </Table>
   );
 }
@@ -859,95 +1002,163 @@ function StepsTable({
   nowMs: number;
 }): React.ReactElement {
   const intl = useIntl();
+  const effectiveLogs = logLines.length > 0 ? logLines : detail.logs;
+  const orderedSteps = useMemo(
+    () => orderStepsCanonical(detail.steps, detail.plannedSteps),
+    [detail.steps, detail.plannedSteps],
+  );
   const { sorted, column } = useTableSort(
-    detail.steps,
+    orderedSteps,
     (step) => [
-      step.name || step.stepId,
-      step.state,
-      step.durationMs ??
-        (step.state === "running" && step.startedAt
-          ? nowMs - Date.parse(step.startedAt)
-          : null),
+      (step.name !== ""
+        ? step.name.replaceAll("-", " ")
+        : step.stepId
+      ).toLowerCase(),
+      stepStateRank(step.state),
+      stepDurationMs(
+        step,
+        nowMs,
+        detail.steps,
+        effectiveLogs,
+        detail.startedAt,
+      ),
     ],
     sort,
     onSort,
   );
+  const sortValue = sort ? `${String(sort.col)}:${sort.dir}` : "order";
   return (
-    <Table
-      gridBreakPoint=""
-      className={styles.stepsTable}
-      aria-label={intl.formatMessage(messages.e2eStepsAria)}
-      variant="compact"
-    >
-      <Thead>
-        <Tr>
-          <Th sort={column(0)}>
-            <FormattedMessage {...messages.e2eColumnStep} />
-          </Th>
-          <Th sort={column(1)}>
-            <FormattedMessage {...messages.e2eColumnState} />
-          </Th>
-          <Th sort={column(2)}>
-            <FormattedMessage {...messages.e2eColumnDuration} />
-          </Th>
-        </Tr>
-      </Thead>
-      <Tbody>
-        {sorted.map((step) => {
-          const dur =
-            step.durationMs ??
-            (step.state === "running" && step.startedAt !== null
-              ? runDurationMs(
-                  {
-                    startedAt: step.startedAt,
-                    endedAt: null,
-                    durationMs: null,
-                  },
-                  nowMs,
-                )
-              : null);
-          const selected = step.stepId === selectedStepId;
-          // The failed-step snippet is best-effort from whatever log pages have
-          // loaded (the newest page loads on open); empty until logs arrive.
-          const lastOutput =
-            step.state === "failed"
-              ? logsForStep(logLines, step.stepId).at(-1)?.message
-              : null;
-          return (
-            <Tr
-              key={step.stepId}
-              isRowSelected={selected}
-              className={selected ? styles.selectedRow : undefined}
-            >
-              <Td dataLabel={intl.formatMessage(messages.e2eColumnStep)}>
-                <Button
-                  variant="link"
-                  isInline
-                  onClick={() => {
-                    onSelectStep(step.stepId);
-                  }}
-                >
-                  {step.name !== ""
-                    ? step.name.replaceAll("-", " ")
-                    : step.stepId}
-                </Button>
-                {lastOutput ? (
-                  <small className={styles.failureOutput}>
-                    {lastOutput.slice(0, 180)}
-                  </small>
-                ) : null}
-              </Td>
-              <Td dataLabel={intl.formatMessage(messages.e2eColumnState)}>
-                <StatusChip visual={stepStateVisual(step.state)} />
-              </Td>
-              <Td dataLabel={intl.formatMessage(messages.e2eColumnDuration)}>
-                {formatDuration(intl, dur)}
-              </Td>
-            </Tr>
-          );
-        })}
-      </Tbody>
-    </Table>
+    <div>
+      <div className={styles.stepsToolbar}>
+        <FormSelect
+          className={styles.stepSortSelect}
+          value={sortValue}
+          aria-label={intl.formatMessage(messages.e2eStepSortLabel)}
+          onChange={(_, value) => {
+            if (value === "order") {
+              onSort(null);
+              return;
+            }
+            const [colStr, dirStr] = value.split(":");
+            const col = Number(colStr);
+            const dir = dirStr === "desc" ? "desc" : "asc";
+            if (Number.isInteger(col) && col >= 0 && col <= 2) {
+              onSort({ col, dir });
+            }
+          }}
+        >
+          <FormSelectOption
+            value="order"
+            label={intl.formatMessage(messages.e2eStepSortOrder)}
+          />
+          <FormSelectOption
+            value="1:asc"
+            label={intl.formatMessage(messages.e2eStepSortFailure)}
+          />
+          <FormSelectOption
+            value="0:asc"
+            label={intl.formatMessage(messages.e2eStepSortAlphaAsc)}
+          />
+          <FormSelectOption
+            value="0:desc"
+            label={intl.formatMessage(messages.e2eStepSortAlphaDesc)}
+          />
+          <FormSelectOption
+            value="2:desc"
+            label={intl.formatMessage(messages.e2eStepSortDurationDesc)}
+          />
+          <FormSelectOption
+            value="2:asc"
+            label={intl.formatMessage(messages.e2eStepSortDurationAsc)}
+          />
+          {sortValue === "1:desc" ? (
+            <FormSelectOption
+              value="1:desc"
+              label={intl.formatMessage(messages.e2eStepSortStateDesc)}
+            />
+          ) : null}
+        </FormSelect>
+      </div>
+      <Table
+        gridBreakPoint=""
+        className={styles.stepsTable}
+        aria-label={intl.formatMessage(messages.e2eStepsAria)}
+        variant="compact"
+      >
+        <Thead>
+          <Tr>
+            <Th sort={column(0)}>
+              <FormattedMessage {...messages.e2eColumnStep} />
+            </Th>
+            <Th sort={column(1)}>
+              <FormattedMessage {...messages.e2eColumnState} />
+            </Th>
+            <Th sort={column(2)}>
+              <FormattedMessage {...messages.e2eColumnDuration} />
+            </Th>
+          </Tr>
+        </Thead>
+        <Tbody>
+          {sorted.map((step) => {
+            const dur = stepDurationMs(
+              step,
+              nowMs,
+              detail.steps,
+              effectiveLogs,
+              detail.startedAt,
+            );
+            const selected = step.stepId === selectedStepId;
+            // The failed-step output is resolved from the loaded log buffer (or the
+            // detail's failure summary / logs fallback) and rendered in full in the
+            // code block below while the header alert shows only the concise Messages:
+            // summary.
+            const lastOutput =
+              step.state === "failed"
+                ? (logsForStep(logLines, step.stepId).at(-1)?.message ??
+                  logsForStep(detail.logs, step.stepId).at(-1)?.message ??
+                  (detail.failure?.stepId === step.stepId
+                    ? detail.failure.message
+                    : null))
+                : null;
+            return (
+              <Tr
+                key={step.stepId}
+                isRowSelected={selected}
+                className={selected ? styles.selectedRow : undefined}
+              >
+                <Td dataLabel={intl.formatMessage(messages.e2eColumnStep)}>
+                  <div className={styles.stepCellContent}>
+                    {step.name !== "" && step.stepId !== step.name ? (
+                      <span className={styles.stepIdBadge}>{step.stepId}</span>
+                    ) : null}
+                    <Button
+                      variant="link"
+                      isInline
+                      onClick={() => {
+                        onSelectStep(step.stepId);
+                      }}
+                    >
+                      {step.name !== ""
+                        ? step.name.replaceAll("-", " ")
+                        : step.stepId}
+                    </Button>
+                  </div>
+                  {lastOutput ? (
+                    <code className={styles.failureOutput}>{lastOutput}</code>
+                  ) : null}
+                </Td>
+                <Td dataLabel={intl.formatMessage(messages.e2eColumnState)}>
+                  <StatusChip visual={stepStateVisual(step.state)} />
+                </Td>
+                <Td dataLabel={intl.formatMessage(messages.e2eColumnDuration)}>
+                  {formatDuration(intl, dur)}
+                </Td>
+              </Tr>
+            );
+          })}
+        </Tbody>
+      </Table>
+    </div>
   );
 }
 
@@ -978,6 +1189,9 @@ function LogPane({
   // URL-represented (FLT-NAV-11).
   const [following, setFollowing] = useState(true);
   const [timestamps, setTimestamps] = useState(false);
+  // Transient view toggle: maximize the expanded log modal to the full table
+  // width (not URL-represented, resets when the modal closes).
+  const [maximized, setMaximized] = useState(false);
   const paneRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   // Scroll anchor captured before an older page is prepended, so the viewport does
@@ -1102,6 +1316,11 @@ function LogPane({
     setFollowing(atBottom);
   }, []);
 
+  const orderedSteps = useMemo(
+    () => orderStepsCanonical(detail.steps, detail.plannedSteps),
+    [detail.steps, detail.plannedSteps],
+  );
+
   const content = (
     <Stack hasGutter>
       <StackItem>
@@ -1117,7 +1336,7 @@ function LogPane({
               value=""
               label={intl.formatMessage(messages.e2eLogScopeRun)}
             />
-            {detail.steps.map((step) => (
+            {orderedSteps.map((step) => (
               <FormSelectOption
                 key={step.stepId}
                 value={step.stepId}
@@ -1272,12 +1491,33 @@ function LogPane({
     <Modal
       isOpen
       variant={ModalVariant.large}
+      className={[styles.logModalBox, maximized ? styles.logModalMax : ""]
+        .filter((c) => c !== "")
+        .join(" ")}
       onClose={() => {
+        setMaximized(false);
         onExpanded(false);
       }}
       aria-label={intl.formatMessage(messages.e2eLogPaneTitle)}
     >
-      <ModalHeader title={intl.formatMessage(messages.e2eLogPaneTitle)} />
+      <ModalHeader>
+        <span className={styles.logModalTitle}>
+          <span>{intl.formatMessage(messages.e2eLogPaneTitle)}</span>
+          <Button
+            variant="plain"
+            size="sm"
+            aria-label={intl.formatMessage(
+              maximized ? messages.e2eLogMinimize : messages.e2eLogExpand,
+            )}
+            icon={
+              maximized ? <CompressArrowsAltIcon /> : <ExpandArrowsAltIcon />
+            }
+            onClick={() => {
+              setMaximized((v) => !v);
+            }}
+          />
+        </span>
+      </ModalHeader>
       <ModalBody>{content}</ModalBody>
     </Modal>
   ) : (
@@ -1318,6 +1558,9 @@ export function SelectedRunPane({
   const observability = useObservability();
   const [snapshot, setSnapshot] = useState<E2eRunDetail | null>(null);
   const [backendUnavailable, setBackendUnavailable] = useState(false);
+  const [expandedDiagnosticsRunId, setExpandedDiagnosticsRunId] = useState<
+    string | null
+  >(null);
   // The log scope and sub-tab are URL-represented via the shared controls, so they
   // survive reload and Back/Forward without restarting the live stream (FLT-NAV-18).
   const selectedStepId = controls.exec.step;
@@ -1381,6 +1624,14 @@ export function SelectedRunPane({
     appendLive,
     observability,
   );
+  const diagnosticsStep = detail?.steps.find(isDiagnosticsStep);
+  const canExpandDiagnostics =
+    diagnosticsStep !== undefined &&
+    diagnosticsStep.state !== "skipped" &&
+    diagnosticsStep.state !== "not-run";
+  const diagnosticsExpanded =
+    canExpandDiagnostics && expandedDiagnosticsRunId === runId;
+  const diagnosticsQuery = useE2eDiagnostics(runId, diagnosticsExpanded);
 
   if (detail === null) {
     return backendUnavailable ? (
@@ -1399,6 +1650,34 @@ export function SelectedRunPane({
   const streamState = status?.state ?? null;
   const dropped = status?.droppedEntries ?? 0;
   const liveDisconnected = streamState !== null && streamState !== "live";
+  const failedStep = detail.steps.find((step) => step.state === "failed");
+  const failureStepId =
+    (detail.failure?.stepId && detail.failure.stepId !== ""
+      ? detail.failure.stepId
+      : null) ??
+    failedStep?.stepId ??
+    null;
+  const rawFailureMessage =
+    (detail.failure?.message && detail.failure.message.trim() !== ""
+      ? detail.failure.message
+      : null) ??
+    (failedStep
+      ? (logsForStep(runWideLogs.lines, failedStep.stepId).at(-1)?.message ??
+        logsForStep(detail.logs, failedStep.stepId).at(-1)?.message ??
+        null)
+      : null);
+  const conciseFailureMessage =
+    rawFailureMessage !== null
+      ? extractFailureMessage(rawFailureMessage)
+      : null;
+  const diagnostics = diagnosticsQuery.data?.data.diagnostics ?? [];
+  const emptyDiagnosticsState: E2eStepState =
+    diagnosticsStep &&
+    (diagnosticsStep.state === "skipped" || diagnosticsStep.state === "not-run")
+      ? diagnosticsStep.state
+      : detail.verdict === "passed"
+        ? "skipped"
+        : "not-run";
 
   return (
     <div className={styles.detail}>
@@ -1442,15 +1721,21 @@ export function SelectedRunPane({
           isInline
           title={<FormattedMessage {...messages.e2eTestFailed} />}
         >
-          {detail.failure ? (
-            <div className={styles.failureSummary}>
-              <strong>
+          {failureStepId !== null ||
+          (conciseFailureMessage !== null && conciseFailureMessage !== "") ? (
+            <div className={styles.failureDetail}>
+              {failureStepId !== null ? (
                 <FormattedMessage
                   {...messages.e2eFailureStep}
-                  values={{ step: <code>{detail.failure.stepId}</code> }}
+                  values={{ step: <code>{failureStepId}</code> }}
                 />
-              </strong>
-              <span>{detail.failure.message}</span>
+              ) : null}
+              {conciseFailureMessage !== null &&
+              conciseFailureMessage !== "" ? (
+                <span className={styles.failureMessage}>
+                  {conciseFailureMessage}
+                </span>
+              ) : null}
             </div>
           ) : null}
         </Alert>
@@ -1510,6 +1795,97 @@ export function SelectedRunPane({
           })}
         </small>
       </div>
+
+      <section
+        className={
+          canExpandDiagnostics
+            ? styles.diagnosticsSection
+            : styles.diagnosticsSectionEmpty
+        }
+        aria-label={intl.formatMessage(messages.e2eDiagnosticsTitle)}
+      >
+        <div className={styles.diagnosticEmptyHeader}>
+          <Button
+            variant="plain"
+            size="sm"
+            isInline
+            isDisabled={!canExpandDiagnostics}
+            className={styles.diagnosticsToggle}
+            aria-expanded={canExpandDiagnostics ? diagnosticsExpanded : false}
+            onClick={() => {
+              setExpandedDiagnosticsRunId(diagnosticsExpanded ? null : runId);
+            }}
+            icon={
+              canExpandDiagnostics && diagnosticsExpanded ? (
+                <AngleDownIcon />
+              ) : (
+                <AngleRightIcon />
+              )
+            }
+          >
+            <FormattedMessage {...messages.e2eDiagnosticsShow} />
+          </Button>
+          <StatusChip
+            visual={stepStateVisual(
+              canExpandDiagnostics
+                ? diagnosticsStep.state
+                : emptyDiagnosticsState,
+            )}
+          />
+        </div>
+        {!canExpandDiagnostics ? (
+          <p className={styles.diagnosticEmptyNote}>
+            <FormattedMessage
+              {...(emptyDiagnosticsState === "skipped"
+                ? messages.e2eDiagnosticsSkipped
+                : messages.e2eDiagnosticsNotRun)}
+            />
+          </p>
+        ) : diagnosticsExpanded ? (
+          diagnosticsQuery.isPending ? (
+            <div
+              className={styles.logLoadingRow}
+              role="status"
+              aria-live="polite"
+            >
+              <Spinner size="sm" />
+              <span>
+                <FormattedMessage {...messages.e2eDiagnosticsLoading} />
+              </span>
+            </div>
+          ) : diagnostics.length > 0 ? (
+            diagnostics.map((diag, idx) => (
+              <div
+                key={`${diag.title}-${String(idx)}`}
+                className={styles.diagnosticItem}
+              >
+                <div className={styles.diagnosticHeader}>
+                  <strong>{diag.title}</strong>
+                  {diag.severity ? (
+                    <Label
+                      isCompact
+                      color={
+                        diag.severity === "error"
+                          ? "red"
+                          : diag.severity === "warn"
+                            ? "orange"
+                            : "blue"
+                      }
+                    >
+                      {diag.severity}
+                    </Label>
+                  ) : null}
+                </div>
+                <pre className={styles.diagnosticBody}>{diag.body}</pre>
+              </div>
+            ))
+          ) : (
+            <p className={styles.diagnosticEmptyNote}>
+              <FormattedMessage {...messages.e2eDiagnosticsNotRun} />
+            </p>
+          )
+        ) : null}
+      </section>
 
       <Tabs
         activeKey={activeTab}

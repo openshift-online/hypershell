@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { IntlProvider } from "react-intl";
@@ -110,6 +111,9 @@ function makeApi(
     getSdlcAgents: vi.fn(),
     getE2eRuns: vi.fn(),
     getE2eRun: vi.fn().mockResolvedValue(plane(runDetail)),
+    getE2eDiagnostics: vi
+      .fn()
+      .mockResolvedValue(plane({ diagnostics: runDetail.diagnostics ?? [] })),
     getE2eRunLogs: vi
       .fn()
       .mockResolvedValue(
@@ -127,30 +131,40 @@ function makeApi(
 }
 
 function renderView(api: FleetApi, data: E2eRunsData): void {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   render(
     <IntlProvider locale="en" defaultLocale="en">
-      <FleetApiProvider value={api}>
-        <RouterProvider
-          history={createMemoryHistory({ path: "/e2e", search: "" })}
-        >
-          <E2eRunView data={data} nowMs={NOW} />
-        </RouterProvider>
-      </FleetApiProvider>
+      <QueryClientProvider client={queryClient}>
+        <FleetApiProvider value={api}>
+          <RouterProvider
+            history={createMemoryHistory({ path: "/e2e", search: "" })}
+          >
+            <E2eRunView data={data} nowMs={NOW} />
+          </RouterProvider>
+        </FleetApiProvider>
+      </QueryClientProvider>
     </IntlProvider>,
   );
 }
 
 /** Render a gate execution drawer with a gate selected so route.map.exec applies. */
 function renderGate(api: FleetApi, ui: React.ReactElement): void {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   render(
     <IntlProvider locale="en">
-      <FleetApiProvider value={api}>
-        <RouterProvider
-          history={createMemoryHistory({ path: "/", search: "?gate=g1" })}
-        >
-          {ui}
-        </RouterProvider>
-      </FleetApiProvider>
+      <QueryClientProvider client={queryClient}>
+        <FleetApiProvider value={api}>
+          <RouterProvider
+            history={createMemoryHistory({ path: "/", search: "?gate=g1" })}
+          >
+            {ui}
+          </RouterProvider>
+        </FleetApiProvider>
+      </QueryClientProvider>
     </IntlProvider>,
   );
 }
@@ -1326,5 +1340,399 @@ describe("log pagination and degraded log pane", () => {
     // Auto-fetch stops: a further intersection does not re-request the boundary page.
     scrollSentinelIntoView();
     expect(getE2eRunLogs).toHaveBeenCalledTimes(2);
+  });
+
+  it("extracts Messages for the failed-run header and keeps the full diff in the step code block", async () => {
+    const user = userEvent.setup();
+    const rawDiff =
+      'Not equal: | expected: "Running" | actual: "Provisioning" | Diff: | --- Expected | +++ Actual | @@ -1 +1 @@ | -Running | +Provisioning | primary gateway reached Running';
+    const d = detail({
+      verdict: "failed",
+      failure: {
+        stepId: "P1.1",
+        message: rawDiff,
+      },
+      steps: [
+        {
+          stepId: "P1.1",
+          name: "Primary gateway",
+          state: "failed",
+          startedAt: "2026-01-01T00:30:00Z",
+          endedAt: "2026-01-01T00:31:30Z",
+          durationMs: 0,
+        },
+      ],
+      logs: [
+        {
+          sequence: 1,
+          timestamp: "2026-01-01T00:31:30Z",
+          stepId: "P1.1",
+          message: rawDiff,
+          truncated: false,
+        },
+      ],
+    });
+    const { api } = makeApi(d);
+    renderView(api, enabled([summary({ verdict: "failed" })]));
+
+    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await screen.findByText("This run failed.");
+
+    // The failed-run header shows the concise Messages text and step id, not the raw diff.
+    expect(screen.getByText("primary gateway reached Running")).toBeDefined();
+    expect(screen.getByText("Failed step:")).toBeDefined();
+
+    // The full diff output remains in the step table code block below (not truncated to 180 chars).
+    const stepsTable = (
+      await screen.findByRole("button", { name: "Primary gateway" })
+    ).closest("table");
+    if (!stepsTable) throw new Error("expected a steps table");
+    expect(within(stepsTable).getByText(rawDiff)).toBeDefined();
+    // Step duration derives 1m 30s from startedAt/endedAt even though durationMs was 0.
+    expect(within(stepsTable).getByText("1m 30s")).toBeDefined();
+  });
+
+  it("shows derived non-zero duration in the runs table for failed runs when durationMs is 0", () => {
+    const { api } = makeApi(detail());
+    renderView(
+      api,
+      enabled([
+        summary({
+          verdict: "failed",
+          startedAt: "2026-01-01T00:30:00Z",
+          endedAt: "2026-01-01T00:32:15Z",
+          durationMs: 0,
+        }),
+      ]),
+    );
+    expect(screen.getByText("2m 15s")).toBeDefined();
+  });
+
+  it("nests multiple attempts of the same revision under an attempt counter, latest first", async () => {
+    const user = userEvent.setup();
+    const { api } = makeApi(detail());
+    const attempt1 = summary({
+      id: "tenant-1/ns/run-1",
+      runId: "1111aaaa",
+      revision: "rev99999",
+      startedAt: "2026-01-01T00:10:00Z",
+      verdict: "failed",
+    });
+    const attempt2 = summary({
+      id: "tenant-1/ns/run-2",
+      runId: "2222bbbb",
+      revision: "rev99999",
+      startedAt: "2026-01-01T00:20:00Z",
+      verdict: "failed",
+    });
+    const attempt3 = summary({
+      id: "tenant-1/ns/run-3",
+      runId: "3333cccc",
+      revision: "rev99999",
+      startedAt: "2026-01-01T00:30:00Z",
+      verdict: "passed",
+    });
+    renderView(api, enabled([attempt1, attempt2, attempt3]));
+
+    // Primary row displays the latest attempt as "Most Recent" and the total count badge.
+    expect(screen.getByText("Most Recent")).toBeDefined();
+    expect(screen.getByText("3 attempts")).toBeDefined();
+
+    // Expand nested attempts to reveal Attempt 2 and Attempt 1.
+    const toggle = screen.getByRole("button", {
+      name: "Show 2 earlier attempts",
+    });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    await user.click(toggle);
+    expect(
+      screen
+        .getByRole("button", { name: "Hide earlier attempts" })
+        .getAttribute("aria-expanded"),
+    ).toBe("true");
+    expect(screen.getByText("Attempt 2")).toBeDefined();
+    expect(screen.getByText("Attempt 1")).toBeDefined();
+  });
+
+  it("renders a collapsed-by-default Show Diagnostics toggle that fetches lazily on expand, and stays disabled/greyed-out when skipped or not-run", async () => {
+    const user = userEvent.setup();
+    const dWithDiagStep = detail({
+      verdict: "failed",
+      steps: [
+        {
+          stepId: "P1.1",
+          name: "Primary gateway",
+          state: "failed",
+          startedAt: "2026-01-01T00:30:00Z",
+          endedAt: "2026-01-01T00:31:00Z",
+          durationMs: 60_000,
+        },
+        {
+          stepId: "diagnostics",
+          name: "failure diagnostics",
+          state: "passed",
+          startedAt: "2026-01-01T00:31:00Z",
+          endedAt: "2026-01-01T00:31:03Z",
+          durationMs: 3_000,
+        },
+      ],
+    });
+    const getE2eDiagnostics = vi.fn().mockResolvedValue(
+      plane({
+        diagnostics: [
+          {
+            title: "All pods",
+            body: "hypershell-server-0   0/1   CrashLoopBackOff",
+            severity: "error" as const,
+          },
+          {
+            title: "Platform events",
+            body: "Warning BackOff restarting failed container",
+            severity: "warn" as const,
+          },
+        ],
+      }),
+    );
+    const { api } = makeApi(dWithDiagStep, { getE2eDiagnostics });
+    const view = render(
+      <IntlProvider locale="en">
+        <QueryClientProvider
+          client={
+            new QueryClient({ defaultOptions: { queries: { retry: false } } })
+          }
+        >
+          <FleetApiProvider value={api}>
+            <RouterProvider
+              history={createMemoryHistory({ path: "/e2e", search: "" })}
+            >
+              <E2eRunView
+                data={enabled([summary({ verdict: "failed" })])}
+                nowMs={NOW}
+              />
+            </RouterProvider>
+          </FleetApiProvider>
+        </QueryClientProvider>
+      </IntlProvider>,
+    );
+
+    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    const diagSection = await screen.findByRole("region", {
+      name: "Diagnostics",
+    });
+
+    // Collapsed by default: no fetch has happened yet.
+    const showBtn = within(diagSection).getByRole("button", {
+      name: "Show Diagnostics",
+    });
+    expect(showBtn.getAttribute("aria-expanded")).toBe("false");
+    expect(getE2eDiagnostics).not.toHaveBeenCalled();
+
+    // Expanding triggers the lazy fetch and renders the sections.
+    await user.click(showBtn);
+    expect(showBtn.getAttribute("aria-expanded")).toBe("true");
+    expect(getE2eDiagnostics).toHaveBeenCalledTimes(1);
+    expect(await within(diagSection).findByText("All pods")).toBeDefined();
+    expect(
+      within(diagSection).getByText(
+        /hypershell-server-0\s+0\/1\s+CrashLoopBackOff/,
+      ),
+    ).toBeDefined();
+    expect(within(diagSection).getByText("Platform events")).toBeDefined();
+    view.unmount();
+
+    // Passing run with skipped diagnostics step -> toggle disabled, Skipped note, no fetch
+    const skippedGetDiags = vi.fn();
+    const { api: passedApi } = makeApi(
+      detail({
+        verdict: "passed",
+        steps: [
+          {
+            stepId: "diagnostics",
+            name: "failure diagnostics",
+            state: "skipped",
+            startedAt: null,
+            endedAt: null,
+            durationMs: null,
+          },
+        ],
+      }),
+      { getE2eDiagnostics: skippedGetDiags },
+    );
+    const passedView = render(
+      <IntlProvider locale="en">
+        <QueryClientProvider
+          client={
+            new QueryClient({ defaultOptions: { queries: { retry: false } } })
+          }
+        >
+          <FleetApiProvider value={passedApi}>
+            <RouterProvider
+              history={createMemoryHistory({ path: "/e2e", search: "" })}
+            >
+              <E2eRunView
+                data={enabled([summary({ verdict: "passed" })])}
+                nowMs={NOW}
+              />
+            </RouterProvider>
+          </FleetApiProvider>
+        </QueryClientProvider>
+      </IntlProvider>,
+    );
+    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    const passedDiag = await screen.findByRole("region", {
+      name: "Diagnostics",
+    });
+    const passedBtn = within(passedDiag).getByRole("button", {
+      name: "Show Diagnostics",
+    });
+    expect(passedBtn.hasAttribute("disabled")).toBe(true);
+    expect(within(passedDiag).getByText("Skipped")).toBeDefined();
+    expect(
+      within(passedDiag).getByText(
+        "No failure diagnostics needed (run passed).",
+      ),
+    ).toBeDefined();
+    expect(skippedGetDiags).not.toHaveBeenCalled();
+    passedView.unmount();
+
+    // Failed/in-progress run with not-run diagnostics step -> toggle disabled, Not run note, no fetch
+    const notRunGetDiags = vi.fn();
+    const { api: emptyFailedApi } = makeApi(
+      detail({
+        verdict: "failed",
+        steps: [
+          {
+            stepId: "diagnostics",
+            name: "failure diagnostics",
+            state: "not-run",
+            startedAt: null,
+            endedAt: null,
+            durationMs: null,
+          },
+        ],
+      }),
+      { getE2eDiagnostics: notRunGetDiags },
+    );
+    renderView(emptyFailedApi, enabled([summary({ verdict: "failed" })]));
+    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    const emptyFailedDiag = await screen.findByRole("region", {
+      name: "Diagnostics",
+    });
+    const notRunBtn = within(emptyFailedDiag).getByRole("button", {
+      name: "Show Diagnostics",
+    });
+    expect(notRunBtn.hasAttribute("disabled")).toBe(true);
+    expect(within(emptyFailedDiag).getByText("Not run")).toBeDefined();
+    expect(
+      within(emptyFailedDiag).getByText("No failure diagnostics collected."),
+    ).toBeDefined();
+    expect(notRunGetDiags).not.toHaveBeenCalled();
+  });
+
+  it("renders steps in canonical step order by default and allows sorting by failure, alphabetically, or duration", async () => {
+    const user = userEvent.setup();
+    const dUnordered = detail({
+      verdict: "failed",
+      steps: [
+        {
+          stepId: "cleanup",
+          name: "suite-teardown",
+          state: "passed",
+          startedAt: "2026-01-01T00:05:00Z",
+          endedAt: "2026-01-01T00:05:05Z",
+          durationMs: 5_000,
+        },
+        {
+          stepId: "P2.7",
+          name: "vault-fail-closed",
+          state: "failed",
+          startedAt: "2026-01-01T00:03:00Z",
+          endedAt: "2026-01-01T00:03:30Z",
+          durationMs: 30_000,
+        },
+        {
+          stepId: "P0.1",
+          name: "authentication",
+          state: "passed",
+          startedAt: "2026-01-01T00:01:00Z",
+          endedAt: "2026-01-01T00:01:10Z",
+          durationMs: 10_000,
+        },
+        {
+          stepId: "P3.1",
+          name: "audit-log-continuity",
+          state: "not-run",
+          startedAt: null,
+          endedAt: null,
+          durationMs: null,
+        },
+        {
+          stepId: "setup",
+          name: "suite-setup",
+          state: "passed",
+          startedAt: "2026-01-01T00:00:00Z",
+          endedAt: "2026-01-01T00:00:02Z",
+          durationMs: 2_000,
+        },
+      ],
+    });
+    const { api } = makeApi(dUnordered);
+    renderView(api, enabled([summary({ verdict: "failed" })]));
+
+    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    const stepsTable = await screen.findByRole("grid", { name: "Run steps" });
+
+    const stepButtonNames = () =>
+      within(stepsTable)
+        .getAllByRole("button")
+        .filter((btn) =>
+          [
+            "suite setup",
+            "authentication",
+            "vault fail closed",
+            "audit log continuity",
+            "suite teardown",
+          ].includes(btn.textContent || ""),
+        )
+        .map((btn) => btn.textContent);
+
+    // Default order is canonical E2E execution order: setup -> P0.1 -> P2.7 -> P3.1 -> cleanup
+    expect(stepButtonNames()).toEqual([
+      "suite setup",
+      "authentication",
+      "vault fail closed",
+      "audit log continuity",
+      "suite teardown",
+    ]);
+
+    const sortSelect = screen.getByRole("combobox", { name: "Sort steps" });
+
+    // Sort by failure (Failed first)
+    await user.selectOptions(sortSelect, "1:asc");
+    expect(stepButtonNames()[0]).toBe("vault fail closed");
+    expect(stepButtonNames()[4]).toBe("audit log continuity");
+
+    // Sort alphabetically (A-Z)
+    await user.selectOptions(sortSelect, "0:asc");
+    expect(stepButtonNames()).toEqual([
+      "audit log continuity",
+      "authentication",
+      "suite setup",
+      "suite teardown",
+      "vault fail closed",
+    ]);
+
+    // Sort by duration (longest first)
+    await user.selectOptions(sortSelect, "2:desc");
+    expect(stepButtonNames()[0]).toBe("vault fail closed");
+
+    // Return to canonical step order
+    await user.selectOptions(sortSelect, "order");
+    expect(stepButtonNames()).toEqual([
+      "suite setup",
+      "authentication",
+      "vault fail closed",
+      "audit log continuity",
+      "suite teardown",
+    ]);
   });
 });

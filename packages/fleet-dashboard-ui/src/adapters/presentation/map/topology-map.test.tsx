@@ -114,6 +114,7 @@ function renderApp(): void {
           logsTruncated: false,
         }),
       ),
+    getE2eDiagnostics: () => Promise.resolve(plane({ diagnostics: [] })),
     getE2eRunLogs: () =>
       Promise.resolve(plane({ entries: [], nextCursor: null, hasMore: false })),
     getSdlcAgents: () =>

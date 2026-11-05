@@ -3,7 +3,11 @@
 // live - keeping that logic out of both adapters and components.
 
 import type { AgentSdlcData } from "../domain/agent-sdlc";
-import type { E2eRunDetail, E2eRunsData } from "../domain/e2e-run";
+import type {
+  E2eDiagnosticsData,
+  E2eRunDetail,
+  E2eRunsData,
+} from "../domain/e2e-run";
 import type { FleetData } from "../domain/fleet";
 import type { Plane } from "../domain/plane";
 import type { PromotionData } from "../domain/promotion";
@@ -112,4 +116,12 @@ export async function getE2eRun(
     );
     throw error;
   }
+}
+
+export function getE2eDiagnostics(
+  api: FleetApi,
+  id: string,
+  signal?: AbortSignal,
+): Promise<Plane<E2eDiagnosticsData>> {
+  return api.getE2eDiagnostics(id, signal);
 }

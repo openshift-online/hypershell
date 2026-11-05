@@ -293,11 +293,29 @@ export const messages = defineMessages({
     description:
       "Relative time since an end-to-end run started (minutes, hours, days, or just now).",
   },
+  e2eAttemptCount: {
+    id: "fleet.e2e.attemptCount",
+    defaultMessage: "{count, plural, one {# attempt} other {# attempts}}",
+    description:
+      "Badge showing how many total attempts exist for a grouped revision row.",
+  },
   e2eAttemptLatest: {
     id: "fleet.e2eAttemptLatest",
     defaultMessage: "Latest (live)",
     description:
       "Attempt selector option in the gate execution panel that follows the current (live) run instead of a pinned historical attempt.",
+  },
+  e2eAttemptMostRecent: {
+    id: "fleet.e2e.attemptMostRecent",
+    defaultMessage: "Most Recent",
+    description:
+      "Label shown for the latest attempt row in the recent-runs table.",
+  },
+  e2eAttemptNumber: {
+    id: "fleet.e2e.attemptNumber",
+    defaultMessage: "Attempt {number}",
+    description:
+      "1-based chronological attempt label shown for older attempts in the recent-runs table.",
   },
   e2eAttemptOption: {
     id: "fleet.e2eAttemptOption",
@@ -313,6 +331,13 @@ export const messages = defineMessages({
     id: "fleet.e2eAttemptShort",
     defaultMessage: "Attempt {id}",
     description: "E2E execution panel e2eAttemptShort",
+  },
+  e2eAttemptsToggle: {
+    id: "fleet.e2e.attemptsToggle",
+    defaultMessage:
+      "{expanded, select, true {Hide earlier attempts} other {Show {count, plural, one {# earlier attempt} other {# earlier attempts}}}}",
+    description:
+      "Accessible label for the expand toggle on a grouped run row with multiple attempts.",
   },
   e2eBackendUnavailable: {
     id: "fleet.e2e.backendUnavailable",
@@ -376,6 +401,36 @@ export const messages = defineMessages({
     defaultMessage: "Verdict",
     description: "Recent-runs table column header for a run's overall verdict.",
   },
+  e2eDiagnosticsLoading: {
+    id: "fleet.e2e.diagnostics.loading",
+    defaultMessage: "Loading diagnostics…",
+    description:
+      "Loading state shown when the user expands the Diagnostics section and sections are being fetched.",
+  },
+  e2eDiagnosticsNotRun: {
+    id: "fleet.e2e.diagnostics.notRun",
+    defaultMessage: "No failure diagnostics collected.",
+    description:
+      "Muted note shown in the Diagnostics section when no failure diagnostics were run.",
+  },
+  e2eDiagnosticsShow: {
+    id: "fleet.e2e.diagnostics.show",
+    defaultMessage: "Show Diagnostics",
+    description:
+      "Toggle button label to expand or collapse the lazy failure diagnostics section.",
+  },
+  e2eDiagnosticsSkipped: {
+    id: "fleet.e2e.diagnostics.skipped",
+    defaultMessage: "No failure diagnostics needed (run passed).",
+    description:
+      "Muted note shown in the Diagnostics section when the run passed and failure diagnostics were skipped.",
+  },
+  e2eDiagnosticsTitle: {
+    id: "fleet.e2e.diagnostics.title",
+    defaultMessage: "Diagnostics",
+    description:
+      "Heading above the failure diagnostics sections in the selected run detail pane.",
+  },
   e2eDisabled: {
     id: "fleet.e2e.disabled",
     defaultMessage: "End-to-end run reporting is not enabled.",
@@ -400,7 +455,8 @@ export const messages = defineMessages({
   e2eFailureStep: {
     id: "fleet.e2e.failureStep",
     defaultMessage: "Failed step: {step}",
-    description: "Label for the E2E step that caused a failed run.",
+    description:
+      "Prefix in the failed-run banner identifying which step failed.",
   },
   e2eFlow: {
     id: "fleet.e2eFlow",
@@ -467,6 +523,18 @@ export const messages = defineMessages({
     id: "fleet.e2e.live.label",
     defaultMessage: "Live",
     description: "Marker shown while a run's live stream is connected.",
+  },
+  e2eLogExpand: {
+    id: "fleet.e2e.log.expand",
+    defaultMessage: "Expand to full width",
+    description:
+      "Accessible label for the button that maximizes the log modal to the full table width.",
+  },
+  e2eLogMinimize: {
+    id: "fleet.e2e.log.minimize",
+    defaultMessage: "Minimize",
+    description:
+      "Accessible label for the button that restores the maximized log modal to its default width.",
   },
   e2eLogPaneAria: {
     id: "fleet.e2e.log.paneAria",
@@ -647,6 +715,49 @@ export const messages = defineMessages({
     id: "fleet.e2e.stepsAria",
     defaultMessage: "Run steps",
     description: "Accessible name for the run's steps table.",
+  },
+  e2eStepSortAlphaAsc: {
+    id: "fleet.e2e.stepSort.alphaAsc",
+    defaultMessage: "Alphabetical (A-Z)",
+    description: "Sort option for E2E steps: alphabetical ascending.",
+  },
+  e2eStepSortAlphaDesc: {
+    id: "fleet.e2e.stepSort.alphaDesc",
+    defaultMessage: "Alphabetical (Z-A)",
+    description: "Sort option for E2E steps: alphabetical descending.",
+  },
+  e2eStepSortDurationAsc: {
+    id: "fleet.e2e.stepSort.durationAsc",
+    defaultMessage: "Duration (shortest first)",
+    description: "Sort option for E2E steps: shortest duration first.",
+  },
+  e2eStepSortDurationDesc: {
+    id: "fleet.e2e.stepSort.durationDesc",
+    defaultMessage: "Duration (longest first)",
+    description: "Sort option for E2E steps: longest duration first.",
+  },
+  e2eStepSortFailure: {
+    id: "fleet.e2e.stepSort.failure",
+    defaultMessage: "Failed first",
+    description:
+      "Sort option for E2E steps: failed steps first, then running, passed, skipped, not-run.",
+  },
+  e2eStepSortLabel: {
+    id: "fleet.e2e.stepSort.label",
+    defaultMessage: "Sort steps",
+    description: "Accessible label for the E2E steps sort selector.",
+  },
+  e2eStepSortOrder: {
+    id: "fleet.e2e.stepSort.order",
+    defaultMessage: "Step order",
+    description:
+      "Default sort option for E2E steps: canonical execution step order.",
+  },
+  e2eStepSortStateDesc: {
+    id: "fleet.e2e.stepSort.stateDesc",
+    defaultMessage: "State (not-run first)",
+    description:
+      "Sort option for E2E steps: reverse status order (not-run first).",
   },
   e2eStepsTitle: {
     id: "fleet.e2e.stepsTitle",
