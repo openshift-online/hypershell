@@ -677,7 +677,7 @@ describe("mapE2eRunDetail diagnostics and failure", () => {
       failure: {
         stepId: "P1.1",
         stepName: "Primary gateway",
-        message: "primary gateway reached Running",
+        message: "primary gateway did not reach Running",
       },
       diagnostics: [
         {
@@ -698,7 +698,7 @@ describe("mapE2eRunDetail diagnostics and failure", () => {
     });
     expect(withDiag.failure).toEqual({
       stepId: "P1.1",
-      message: "primary gateway reached Running",
+      message: "primary gateway did not reach Running",
     });
     expect(withDiag.diagnostics).toEqual([
       {

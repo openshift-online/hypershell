@@ -1155,10 +1155,10 @@ describe("log pagination and degraded log pane", () => {
     expect(getE2eRunLogs).toHaveBeenCalledTimes(2);
   });
 
-  it("extracts Messages for the failed-run header and keeps the full diff in the step code block", async () => {
+  it("extracts Messages for the failed-run header and reveals the full diff when the failed state is expanded", async () => {
     const user = userEvent.setup();
     const rawDiff =
-      'Not equal: | expected: "Running" | actual: "Provisioning" | Diff: | --- Expected | +++ Actual | @@ -1 +1 @@ | -Running | +Provisioning | primary gateway reached Running';
+      'Not equal: | expected: "Running" | actual: "Provisioning" | Diff: | --- Expected | +++ Actual | @@ -1 +1 @@ | -Running | +Provisioning | primary gateway did not reach Running';
     const d = detail({
       verdict: "failed",
       failure: {
@@ -1191,18 +1191,28 @@ describe("log pagination and degraded log pane", () => {
     await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
     await screen.findByText("This run failed.");
 
-    // The failed-run header shows the concise Messages text and step id, not the raw diff.
-    expect(screen.getByText("primary gateway reached Running")).toBeDefined();
+    // The failed-run header and the failed step both show the concise Messages
+    // text (not the raw diff), and the header names the failed step.
+    expect(
+      screen.getAllByText("primary gateway did not reach Running").length,
+    ).toBeGreaterThan(0);
     expect(screen.getByText("Failed step:")).toBeDefined();
 
-    // The full diff output remains in the step table code block below (not truncated to 180 chars).
     const stepsTable = (
       await screen.findByRole("button", { name: "Primary gateway" })
     ).closest("table");
     if (!stepsTable) throw new Error("expected a steps table");
-    expect(within(stepsTable).getByText(rawDiff)).toBeDefined();
+    // The full diff is hidden until the failed step's details are expanded.
+    expect(within(stepsTable).queryByText(/\+Provisioning/)).toBeNull();
     // Step duration derives 1m 30s from startedAt/endedAt even though durationMs was 0.
     expect(within(stepsTable).getByText("1m 30s")).toBeDefined();
+
+    // Expanding "Show details" reveals the full diff, de-collapsed to one line
+    // per segment in the mono code panel.
+    await user.click(
+      within(stepsTable).getByRole("button", { name: "Show details" }),
+    );
+    expect(within(stepsTable).getByText(/\+Provisioning/)).toBeDefined();
   });
 
   it("shows derived non-zero duration in the runs table for failed runs when durationMs is 0", () => {
@@ -1398,12 +1408,8 @@ describe("log pagination and degraded log pane", () => {
       name: "Show Diagnostics",
     });
     expect(passedBtn.hasAttribute("disabled")).toBe(true);
-    expect(within(passedDiag).getByText("Skipped")).toBeDefined();
-    expect(
-      within(passedDiag).getByText(
-        "No failure diagnostics needed (run passed).",
-      ),
-    ).toBeDefined();
+    // The skipped state shows a single note, not a duplicate "Skipped" chip.
+    expect(within(passedDiag).getByText("Skipped (run passed)")).toBeDefined();
     expect(skippedGetDiags).not.toHaveBeenCalled();
     passedView.unmount();
 
@@ -1434,7 +1440,7 @@ describe("log pagination and degraded log pane", () => {
       name: "Show Diagnostics",
     });
     expect(notRunBtn.hasAttribute("disabled")).toBe(true);
-    expect(within(emptyFailedDiag).getByText("Not run")).toBeDefined();
+    // Only the single note is shown for the not-run state (no duplicate chip).
     expect(
       within(emptyFailedDiag).getByText("No failure diagnostics collected."),
     ).toBeDefined();

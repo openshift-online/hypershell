@@ -43,12 +43,12 @@ const bundleB = {
 };
 
 // Pipe-collapsed testify assertion, exactly as it reaches the glass view. The
-// header should surface only the trailing "primary gateway reached Running";
+// header should surface only the trailing "primary gateway did not reach Running";
 // the full diff stays in the failed-step code block below it.
 const FAILURE_MESSAGE =
   'Not equal: | expected: "Running" | actual : "Provisioning" | ' +
   "Diff: | --- Expected | +++ Actual | @@ -1 +1 @@ | -Running | +Provisioning | " +
-  "primary gateway reached Running";
+  "primary gateway did not reach Running";
 
 interface MockRun {
   readonly runId: string;
@@ -195,7 +195,7 @@ function logsFor(run: MockRun, nowMs: number): Record<string, unknown>[] {
         nowMs,
         base - 40_000,
         "P1.1",
-        "primary gateway reached Running",
+        "primary gateway did not reach Running",
       ),
       logLine(4, nowMs, base - 42_000, "P1.2", "routes verified"),
       logLine(

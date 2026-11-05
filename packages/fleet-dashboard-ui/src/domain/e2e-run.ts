@@ -412,6 +412,23 @@ export function extractFailureMessage(raw: string): string {
   return trimmed;
 }
 
+/**
+ * Expand a pipe-collapsed testify failure (segments joined by " | ") back into
+ * its original multi-line form for display. Input that has no pipe separators
+ * (already multi-line, or a plain message) is returned trimmed and unchanged.
+ */
+export function expandFailureOutput(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed.includes("|")) {
+    return trimmed;
+  }
+  return trimmed
+    .split("|")
+    .map((segment) => segment.trim())
+    .filter((segment) => segment !== "")
+    .join("\n");
+}
+
 function derivedFailure(
   verdict: E2eVerdict,
   steps: readonly E2eStep[],

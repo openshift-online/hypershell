@@ -84,6 +84,7 @@ import {
   applyEvents,
   boundLogBuffer,
   elapsedSeconds,
+  expandFailureOutput,
   extractFailureMessage,
   groupRunAttempts,
   isDiagnosticsStep,
@@ -728,19 +729,16 @@ function RunsTable({
   nowMs: number;
 }): React.ReactElement {
   const intl = useIntl();
-  const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(
-    () => new Set(),
+  // Per-group explicit expand/collapse overrides. A group with no override
+  // follows the auto-open default (open while it owns the selected older
+  // attempt); once the user toggles a group their choice wins, so a group opened
+  // by selecting a nested attempt can still be collapsed even while its drawer is
+  // open and the selection persists (FLT-NAV-12).
+  const [overrides, setOverrides] = useState<ReadonlyMap<string, boolean>>(
+    () => new Map(),
   );
-  const toggleGroup = useCallback((groupKey: string) => {
-    setExpandedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(groupKey)) {
-        next.delete(groupKey);
-      } else {
-        next.add(groupKey);
-      }
-      return next;
-    });
+  const setGroupExpanded = useCallback((groupKey: string, value: boolean) => {
+    setOverrides((prev) => new Map(prev).set(groupKey, value));
   }, []);
   const { sorted, column } = useTableSort(
     runs,
@@ -847,7 +845,7 @@ function RunsTable({
                     count: olderCount,
                   })}
                   onClick={() => {
-                    toggleGroup(opts.groupKey);
+                    setGroupExpanded(opts.groupKey, !opts.isExpanded);
                   }}
                   icon={
                     <AngleRightIcon
@@ -943,7 +941,7 @@ function RunsTable({
         const olderSelected = group.attempts
           .slice(1)
           .some((item) => item.run.id === selectedId);
-        const isExpanded = expandedGroups.has(group.key) || olderSelected;
+        const isExpanded = overrides.get(group.key) ?? olderSelected;
         return (
           <Tbody key={group.key}>
             {renderAttemptRow(group.latest, {
@@ -991,6 +989,22 @@ function StepsTable({
   nowMs: number;
 }): React.ReactElement {
   const intl = useIntl();
+  // Which failed steps have their full error output expanded (the step cell shows
+  // only the concise Messages: summary until expanded).
+  const [expandedErrors, setExpandedErrors] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const toggleError = useCallback((stepId: string) => {
+    setExpandedErrors((prev) => {
+      const next = new Set(prev);
+      if (next.has(stepId)) {
+        next.delete(stepId);
+      } else {
+        next.add(stepId);
+      }
+      return next;
+    });
+  }, []);
   const effectiveLogs = logLines.length > 0 ? logLines : detail.logs;
   const orderedSteps = useMemo(
     () => orderStepsCanonical(detail.steps, detail.plannedSteps),
@@ -1109,6 +1123,12 @@ function StepsTable({
                     ? detail.failure.message
                     : null))
                 : null;
+            // Show only the concise Messages: summary inline; the full output is
+            // revealed by expanding the Error pill in the state cell.
+            const conciseFailure = lastOutput
+              ? extractFailureMessage(lastOutput)
+              : null;
+            const errorExpanded = expandedErrors.has(step.stepId);
             return (
               <Tr
                 key={step.stepId}
@@ -1132,8 +1152,33 @@ function StepsTable({
                         : step.stepId}
                     </Button>
                   </div>
-                  {lastOutput ? (
-                    <code className={styles.failureOutput}>{lastOutput}</code>
+                  {conciseFailure ? (
+                    <div className={styles.failureBlock}>
+                      <span className={styles.failureMessage}>
+                        {conciseFailure}
+                      </span>
+                      <Button
+                        variant="link"
+                        isInline
+                        className={styles.showDetails}
+                        aria-expanded={errorExpanded}
+                        onClick={() => {
+                          toggleError(step.stepId);
+                        }}
+                      >
+                        <FormattedMessage {...messages.e2eStepError} />
+                        {errorExpanded ? (
+                          <AngleDownIcon className={styles.detailsChevron} />
+                        ) : (
+                          <AngleRightIcon className={styles.detailsChevron} />
+                        )}
+                      </Button>
+                    </div>
+                  ) : null}
+                  {lastOutput && errorExpanded ? (
+                    <pre className={styles.failureOutput}>
+                      {expandFailureOutput(lastOutput)}
+                    </pre>
                   ) : null}
                 </Td>
                 <Td dataLabel={intl.formatMessage(messages.e2eColumnState)}>
@@ -1491,21 +1536,19 @@ function LogPane({
     >
       <ModalHeader>
         <span className={styles.logModalTitle}>
-          <span>{intl.formatMessage(messages.e2eLogPaneTitle)}</span>
-          <Button
-            variant="plain"
-            size="sm"
-            aria-label={intl.formatMessage(
-              maximized ? messages.e2eLogMinimize : messages.e2eLogExpand,
-            )}
-            icon={
-              maximized ? <CompressArrowsAltIcon /> : <ExpandArrowsAltIcon />
-            }
-            onClick={() => {
-              setMaximized((v) => !v);
-            }}
-          />
+          {intl.formatMessage(messages.e2eLogPaneTitle)}
         </span>
+        <Button
+          variant="plain"
+          className={styles.logMaximize}
+          aria-label={intl.formatMessage(
+            maximized ? messages.e2eLogMinimize : messages.e2eLogExpand,
+          )}
+          icon={maximized ? <CompressArrowsAltIcon /> : <ExpandArrowsAltIcon />}
+          onClick={() => {
+            setMaximized((v) => !v);
+          }}
+        />
       </ModalHeader>
       <ModalBody>{content}</ModalBody>
     </Modal>
@@ -1806,23 +1849,17 @@ export function SelectedRunPane({
           >
             <FormattedMessage {...messages.e2eDiagnosticsShow} />
           </Button>
-          <StatusChip
-            visual={stepStateVisual(
-              canExpandDiagnostics
-                ? diagnosticsStep.state
-                : emptyDiagnosticsState,
-            )}
-          />
+          {!canExpandDiagnostics ? (
+            <span className={styles.diagnosticEmptyNote}>
+              <FormattedMessage
+                {...(emptyDiagnosticsState === "skipped"
+                  ? messages.e2eDiagnosticsSkipped
+                  : messages.e2eDiagnosticsNotRun)}
+              />
+            </span>
+          ) : null}
         </div>
-        {!canExpandDiagnostics ? (
-          <p className={styles.diagnosticEmptyNote}>
-            <FormattedMessage
-              {...(emptyDiagnosticsState === "skipped"
-                ? messages.e2eDiagnosticsSkipped
-                : messages.e2eDiagnosticsNotRun)}
-            />
-          </p>
-        ) : diagnosticsExpanded ? (
+        {diagnosticsExpanded ? (
           diagnosticsQuery.isPending ? (
             <div
               className={styles.logLoadingRow}
@@ -1980,6 +2017,9 @@ export function E2eRunView(props: E2eRunViewProps): React.ReactElement {
       typeof window.matchMedia === "function" &&
       window.matchMedia("(min-width: 1600px)").matches,
   );
+  // Transient toggle: widen the detail drawer to the full table width (not
+  // URL-represented; resets when the drawer closes).
+  const [detailMaximized, setDetailMaximized] = useState(false);
   const triggerRef = useRef<HTMLElement | null>(null);
   const headingRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -1996,6 +2036,7 @@ export function E2eRunView(props: E2eRunViewProps): React.ReactElement {
   const close = useCallback(() => {
     // Closing preserves the selected run (FLT-NAV-12); only the drawer closes.
     navigate({ type: "e2eDrawer", open: false });
+    setDetailMaximized(false);
     triggerRef.current?.focus();
   }, [navigate]);
   useEffect(() => {
@@ -2073,6 +2114,12 @@ export function E2eRunView(props: E2eRunViewProps): React.ReactElement {
                 maxSize="100%"
                 resizeAriaLabel={intl.formatMessage(messages.e2eResizeDetails)}
                 focusTrap={{ enabled: isExpanded && !inline }}
+                className={[
+                  styles.detailPanel,
+                  detailMaximized ? styles.detailPanelMax : "",
+                ]
+                  .filter((c) => c !== "")
+                  .join(" ")}
               >
                 <DrawerHead>
                   <div ref={headingRef} tabIndex={-1}>
@@ -2088,6 +2135,24 @@ export function E2eRunView(props: E2eRunViewProps): React.ReactElement {
                     </Title>
                   </div>
                   <DrawerActions>
+                    <Button
+                      variant="plain"
+                      aria-label={intl.formatMessage(
+                        detailMaximized
+                          ? messages.e2eDetailMinimize
+                          : messages.e2eDetailExpand,
+                      )}
+                      icon={
+                        detailMaximized ? (
+                          <CompressArrowsAltIcon />
+                        ) : (
+                          <ExpandArrowsAltIcon />
+                        )
+                      }
+                      onClick={() => {
+                        setDetailMaximized((v) => !v);
+                      }}
+                    />
                     <DrawerCloseButton
                       aria-label={intl.formatMessage(messages.drawerClose)}
                       onClick={close}

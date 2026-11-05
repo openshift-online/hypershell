@@ -401,6 +401,18 @@ export const messages = defineMessages({
     defaultMessage: "Verdict",
     description: "Recent-runs table column header for a run's overall verdict.",
   },
+  e2eDetailExpand: {
+    id: "fleet.e2e.detail.expand",
+    defaultMessage: "Expand to full width",
+    description:
+      "Accessible label for the button that widens the run detail drawer to the full table width.",
+  },
+  e2eDetailMinimize: {
+    id: "fleet.e2e.detail.minimize",
+    defaultMessage: "Restore width",
+    description:
+      "Accessible label for the button that restores the run detail drawer to its default width.",
+  },
   e2eDiagnosticsLoading: {
     id: "fleet.e2e.diagnostics.loading",
     defaultMessage: "Loading diagnostics…",
@@ -421,9 +433,9 @@ export const messages = defineMessages({
   },
   e2eDiagnosticsSkipped: {
     id: "fleet.e2e.diagnostics.skipped",
-    defaultMessage: "No failure diagnostics needed (run passed).",
+    defaultMessage: "Skipped (run passed)",
     description:
-      "Muted note shown in the Diagnostics section when the run passed and failure diagnostics were skipped.",
+      "Inline status shown in the collapsed Diagnostics header when the run passed and failure diagnostics were skipped.",
   },
   e2eDiagnosticsTitle: {
     id: "fleet.e2e.diagnostics.title",
@@ -710,6 +722,12 @@ export const messages = defineMessages({
     id: "fleet.e2e.state.skipped",
     defaultMessage: "Skipped",
     description: "Step state: a mode-skipped step (distinct from not-run).",
+  },
+  e2eStepError: {
+    id: "fleet.e2e.step.error",
+    defaultMessage: "Show details",
+    description:
+      "Toggle shown next to a failed step's concise message to reveal or hide the full error output.",
   },
   e2eStepsAria: {
     id: "fleet.e2e.stepsAria",
