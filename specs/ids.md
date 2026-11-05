@@ -143,7 +143,7 @@ listed in `specs/id-rename-map.md`, not here.
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `PLAT-ARCH` | `platform/global-architecture.spec.md` | 19 |
-| `PLAT-CITR` | `platform/ci-trust-ext-api.spec.md` | 10 |
+| `PLAT-CITR` | `platform/ci-trust-ext-api.spec.md` | 12 |
 | `PLAT-CLUS` | `platform/managed-cluster-registration.spec.md` | 15 |
 | `PLAT-DATA` | `platform/data-model.spec.md` | 25 |
 | `PLAT-INV` | `platform/platform-inventory.spec.md` | 10 |
