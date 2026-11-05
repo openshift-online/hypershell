@@ -143,11 +143,15 @@ jobs:
           echo "Wrote $dir/{metadata.json,oidc_token.json} (token redacted):"
           jq '.' "$dir/metadata.json"
 
-      - name: Verify gateway auth (whoami)
+      - name: Verify gateway auth (supported probe)
         env:
           OPENSHELL_GATEWAY: ${{ env.GATEWAY_NAME }}
           OPENSHELL_WORKSPACE: ${{ env.WORKSPACE }}
-        run: openshell -vv whoami --output json
+        run: |
+          set -euo pipefail
+          # whoami is not implemented by this gateway version; sandbox list is a
+          # supported RPC and proves the injected token authenticates.
+          openshell sandbox list
 
       - name: Create a sandbox on the gateway (the proof)
         id: sbx
