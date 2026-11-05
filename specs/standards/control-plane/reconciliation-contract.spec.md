@@ -148,16 +148,20 @@ so a persistently failing key does not starve the pool or stop being retried.
 ### Requirement: STD-RCON-05 -- Seed on (Re)connect; Periodic Resync Where Required
 
 Because a watch stream does not replay resources that already exist, every watch
-stream SHALL seed from a `List`, scoped to the control plane's own `cluster_id`,
-on every (re)connect, and SHALL queue each listed resource for reconciliation
-once the subscription is live. Where a single missed event would otherwise leave
-state unconverged with no list-driven recovery, the control plane SHALL also run
-a periodic resync (for example the RoleBinding resync, the continuous health
-reconcile, and the orphaned-namespace garbage collector). Seed and resync SHALL
-be idempotent.
+stream SHALL seed from a `List` on every (re)connect, and SHALL queue each listed
+resource for reconciliation once the subscription is live. A cluster-scoped watch
+SHALL scope that `List` to the control plane's own `cluster_id`. A platform-level
+resource whose watch takes no cluster filter (for example `Repository`,
+`CIProvider`, and `CITrust`) SHALL seed from an unfiltered `List`; its per-resource
+reconcile SHALL still skip a resource bound to a `Gateway` on another cluster, so an
+unfiltered list does not cause a control plane to act for a gateway it does not own.
+Where a single missed event would otherwise leave state unconverged with no
+list-driven recovery, the control plane SHALL also run a periodic resync (for
+example the RoleBinding resync, the CITrust resync, the continuous health reconcile,
+and the orphaned-namespace garbage collector). Seed and resync SHALL be idempotent.
 
 **Verification:** Inspection -- refined and tested by CTRL-CORE-02, CTRL-CORE-07,
-CTRL-CORE-08.
+CTRL-CORE-08, CTRL-CORE-16.
 
 #### Scenario: STD-RCON-05.01 -- Startup seeds resources created while down
 
