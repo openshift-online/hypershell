@@ -7,58 +7,52 @@
 # It proves (1) the federation token authenticates the CLI to the gateway with no
 # browser, and (2) whether the CITrust role (openshell-user) may create a sandbox.
 #
-# Prereqs (already live): CIProvider github-actions, CITrust for
-# openshift-online/hypershell on agents-gateway with role openshell-user, and the
-# gateway's token-exchange grants (fgap-v1). See
-# hypershell-gitops .../22-ci-federation/CI-FEDERATION.md.
+# NOTE: the `push` trigger on the ci-sandbox-proof branch is TEMPORARY, so the POC
+# can run before it lives on the default branch (workflow_dispatch requires that).
+# Remove it and keep only workflow_dispatch before merging to main.
 name: CI Sandbox Test
 
 on:
   workflow_dispatch:
     inputs:
       gateway_audience:
-        description: Keycloak client id of the target gateway (CITrust gateway_id's client)
         required: false
         default: agents-gateway-3KyQy4zrE0XfYuT5QKu8ag6LpyP
       gateway_endpoint:
-        description: Gateway OpenShell API endpoint (grpc over TLS)
         required: false
         default: https://gw-openshell-df7bb5873f92e373.hyp0-spoke1.infra.hypershell.app:443
       gateway_name:
-        description: Local openshell gateway registration name
         required: false
         default: agents-gateway
       workspace:
-        description: OpenShell workspace scope (the CITrust status_workspace; default if unsure)
         required: false
         default: default
       sandbox_template:
-        description: Named sandbox template on the gateway (the .hypershell SandboxTemplate)
         required: false
         default: agent-runtime-slim
       openshell_version:
-        description: OpenShell CLI version to install (match the gateway)
         required: false
         default: v0.1.3-rhaiv.3
-      keycloak_url:
-        required: false
-        default: https://keycloak.hyp0.infra.hypershell.app
-      realm:
-        required: false
-        default: hypershell
-      fleet_audience:
-        required: false
-        default: openshell-fleet
-      requester_client:
-        required: false
-        default: ci-federation
-      idp_alias:
-        required: false
-        default: github-actions
+  push:
+    branches: [ci-sandbox-proof]
+    paths: ['.github/workflows/ci-sandbox-test.yml']
 
 permissions:
   contents: read
   id-token: write
+
+env:
+  KEYCLOAK_URL: https://keycloak.hyp0.infra.hypershell.app
+  REALM: hypershell
+  FLEET_AUDIENCE: openshell-fleet
+  REQUESTER: ci-federation
+  IDP_ALIAS: github-actions
+  GATEWAY_AUDIENCE: ${{ inputs.gateway_audience || 'agents-gateway-3KyQy4zrE0XfYuT5QKu8ag6LpyP' }}
+  GATEWAY_ENDPOINT: ${{ inputs.gateway_endpoint || 'https://gw-openshell-df7bb5873f92e373.hyp0-spoke1.infra.hypershell.app:443' }}
+  GATEWAY_NAME: ${{ inputs.gateway_name || 'agents-gateway' }}
+  WORKSPACE: ${{ inputs.workspace || 'default' }}
+  SANDBOX_TEMPLATE: ${{ inputs.sandbox_template || 'agent-runtime-slim' }}
+  OPENSHELL_VERSION: ${{ inputs.openshell_version || 'v0.1.3-rhaiv.3' }}
 
 jobs:
   sandbox:
@@ -69,12 +63,10 @@ jobs:
 
       - name: Mint GitHub Actions OIDC token
         id: oidc
-        env:
-          AUD: ${{ inputs.fleet_audience }}
         run: |
           set -euo pipefail
           tok="$(curl -sS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${AUD}" | jq -r '.value')"
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${FLEET_AUDIENCE}" | jq -r '.value')"
           [[ -n "$tok" && "$tok" != "null" ]] || { echo "Failed to mint OIDC token" >&2; exit 1; }
           echo "::add-mask::$tok"
           echo "token=$tok" >> "$GITHUB_OUTPUT"
@@ -83,11 +75,6 @@ jobs:
         id: exchange
         env:
           OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
-          KEYCLOAK_URL: ${{ inputs.keycloak_url }}
-          REALM: ${{ inputs.realm }}
-          REQUESTER: ${{ inputs.requester_client }}
-          IDP_ALIAS: ${{ inputs.idp_alias }}
-          GATEWAY_AUDIENCE: ${{ inputs.gateway_audience }}
         run: |
           set -euo pipefail
           resp="$(curl -sS -X POST \
@@ -114,8 +101,6 @@ jobs:
           echo "$payload" | base64 -d 2>/dev/null | jq '{aud, azp, preferred_username, scope, workspace, groups}' || true
 
       - name: Install OpenShell CLI
-        env:
-          OPENSHELL_VERSION: ${{ inputs.openshell_version }}
         run: |
           set -euo pipefail
           sh scripts/install-openshell.sh
@@ -123,35 +108,27 @@ jobs:
 
       - name: Inject the federation token into the openshell gateway store
         env:
-          GW_NAME: ${{ inputs.gateway_name }}
-          GW_ENDPOINT: ${{ inputs.gateway_endpoint }}
-          GW_AUDIENCE: ${{ inputs.gateway_audience }}
-          KEYCLOAK_URL: ${{ inputs.keycloak_url }}
-          REALM: ${{ inputs.realm }}
-          REQUESTER: ${{ inputs.requester_client }}
           ACCESS_TOKEN: ${{ steps.exchange.outputs.access_token }}
           EXPIRES_IN: ${{ steps.exchange.outputs.expires_in }}
         run: |
           set -euo pipefail
-          dir="$HOME/.config/openshell/gateways/${GW_NAME}"
+          dir="$HOME/.config/openshell/gateways/${GATEWAY_NAME}"
           mkdir -p "$dir"
           issuer="${KEYCLOAK_URL}/realms/${REALM}"
           now="$(date +%s)"
           expires_at=$(( now + EXPIRES_IN ))
-          # Non-secret gateway metadata (same shape openshell writes itself).
           cat > "$dir/metadata.json" <<EOF
           {
-            "name": "${GW_NAME}",
-            "gateway_endpoint": "${GW_ENDPOINT}",
+            "name": "${GATEWAY_NAME}",
+            "gateway_endpoint": "${GATEWAY_ENDPOINT}",
             "is_remote": true,
             "gateway_port": 0,
             "auth_mode": "oidc",
             "oidc_issuer": "${issuer}",
             "oidc_client_id": "${REQUESTER}",
-            "oidc_audience": "${GW_AUDIENCE}"
+            "oidc_audience": "${GATEWAY_AUDIENCE}"
           }
           EOF
-          # The exchanged, workspace-scoped token stands in for a browser login.
           umask 077
           cat > "$dir/oidc_token.json" <<EOF
           {
@@ -162,30 +139,27 @@ jobs:
             "client_id": "${REQUESTER}"
           }
           EOF
-          echo -n "${GW_NAME}" > "$HOME/.config/openshell/active_gateway"
+          echo -n "${GATEWAY_NAME}" > "$HOME/.config/openshell/active_gateway"
           echo "Wrote $dir/{metadata.json,oidc_token.json} (token redacted):"
           jq '.' "$dir/metadata.json"
 
       - name: Verify gateway auth (whoami)
         env:
-          OPENSHELL_GATEWAY: ${{ inputs.gateway_name }}
-          OPENSHELL_WORKSPACE: ${{ inputs.workspace }}
-        run: |
-          set -euo pipefail
-          openshell -vv whoami --output json || { echo "whoami FAILED" >&2; exit 1; }
+          OPENSHELL_GATEWAY: ${{ env.GATEWAY_NAME }}
+          OPENSHELL_WORKSPACE: ${{ env.WORKSPACE }}
+        run: openshell -vv whoami --output json
 
       - name: Create a sandbox on the gateway (the proof)
         id: sbx
         env:
-          OPENSHELL_GATEWAY: ${{ inputs.gateway_name }}
-          OPENSHELL_WORKSPACE: ${{ inputs.workspace }}
-          TEMPLATE: ${{ inputs.sandbox_template }}
+          OPENSHELL_GATEWAY: ${{ env.GATEWAY_NAME }}
+          OPENSHELL_WORKSPACE: ${{ env.WORKSPACE }}
         run: |
           set -euo pipefail
           name="ci-proof-${GITHUB_RUN_ID}"
           echo "name=$name" >> "$GITHUB_OUTPUT"
           echo "::group::sandbox create"
-          openshell -vv sandbox create --name "$name" --template "$TEMPLATE" -- \
+          openshell -vv sandbox create --name "$name" --template "$SANDBOX_TEMPLATE" -- \
             bash -lc 'echo "HELLO FROM SANDBOX"; echo "host=$(hostname)"; echo "user=$(whoami)"; uname -a'
           echo "::endgroup::"
           echo "::group::sandbox list"
@@ -195,9 +169,9 @@ jobs:
       - name: Cleanup
         if: always()
         env:
-          OPENSHELL_GATEWAY: ${{ inputs.gateway_name }}
-          OPENSHELL_WORKSPACE: ${{ inputs.workspace }}
+          OPENSHELL_GATEWAY: ${{ env.GATEWAY_NAME }}
+          OPENSHELL_WORKSPACE: ${{ env.WORKSPACE }}
         run: |
           set +e
-          [ -n "${{ steps.sbx.outputs.name }}" ] && openshell sandbox delete "${{ steps.sbx.outputs.name }}" 2>/dev/null
+          [ -n "${{ steps.sbx.outputs.name }}" ] && openshell sandbox delete "${{ steps.sbx.outputs.name }}"
           true
