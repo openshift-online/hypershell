@@ -258,3 +258,20 @@ patches:
       spec:
         strategy:
           type: Recreate
+  # Without this the api-server/web-console pods start as soon as their
+  # migrate/none initContainer finishes, which races Keycloak coming up (apply
+  # happens back-to-back, with no readiness wait between them). A slow Keycloak
+  # then crash-loops the api-server on its one-shot JWKS load
+  # (docs/research/keycloak-readiness-ordering.md), and the growing
+  # CrashLoopBackOff delay can outlast the rollout-wait window. Kind avoids this
+  # with the same guard (deploy/kind/wait-for-keycloak.patch.yaml); port it here.
+  - target:
+      kind: Deployment
+      name: hypershell-api-server
+      namespace: hypershell-system
+    path: wait-for-keycloak.patch.yaml
+  - target:
+      kind: Deployment
+      name: hypershell-web-console
+      namespace: hypershell-system
+    path: wait-for-keycloak.patch.yaml
