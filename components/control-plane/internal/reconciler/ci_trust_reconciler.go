@@ -27,12 +27,14 @@ type ciFederationKeycloak interface {
 	Issuer() string
 }
 
-// CITrustReconciler reconciles CITrust resources into Keycloak 26.x
-// external-to-internal token-exchange v2 artifacts: a per-trust scoped
-// claim-to-workspace IdP mapper (the subject trust boundary), a token-exchange
-// authorization onto the gateway client, and a gateway RBAC binding on the
-// derived workspace. Each CITrust declares that CI workloads matching a subject
-// predicate may federate into a specific gateway with a given role, keyless.
+// CITrustReconciler reconciles CITrust resources into Keycloak token-exchange
+// artifacts: a per-trust scoped claim-to-workspace IdP mapper (the subject trust
+// boundary), a token-exchange authorization onto the gateway client, and a gateway
+// RBAC binding on the derived workspace. The token-exchange authorization mechanism
+// is config-driven (PLAT-CITR-08): tokenExchangeMode selects fgap-v1 fine-grained
+// grants (PLAT-CITR-11) or the external-to-internal v2 client attribute. Each
+// CITrust declares that CI workloads matching a subject predicate may federate into
+// a specific gateway with a given role, keyless.
 //
 // On upsert: resolve the CIProvider (forge + adopted IdP alias) and the gateway
 // (Keycloak client + owning cluster), derive the forge-namespaced workspace,
@@ -46,10 +48,11 @@ type CITrustReconciler struct {
 	ciProviderSvc      pb.CIProviderServiceClient
 	gatewaySvc         pb.GatewayServiceClient
 	federationClientID string
+	tokenExchangeMode  keycloak.TokenExchangeMode
 	clusterID          string
 }
 
-func NewCITrustReconciler(kc *keycloak.Client, conn *grpc.ClientConn, clusterID string) *CITrustReconciler {
+func NewCITrustReconciler(kc *keycloak.Client, conn *grpc.ClientConn, clusterID string, tokenExchangeMode keycloak.TokenExchangeMode) *CITrustReconciler {
 	var client ciFederationKeycloak
 	// A typed-nil *keycloak.Client stored in an interface is non-nil, which would
 	// defeat the nil guard in Handle; only wrap a real client.
@@ -62,6 +65,7 @@ func NewCITrustReconciler(kc *keycloak.Client, conn *grpc.ClientConn, clusterID 
 		ciProviderSvc:      pb.NewCIProviderServiceClient(conn),
 		gatewaySvc:         pb.NewGatewayServiceClient(conn),
 		federationClientID: defaultCIFederationClientID,
+		tokenExchangeMode:  tokenExchangeMode,
 		clusterID:          clusterID,
 	}
 }
@@ -243,6 +247,7 @@ func (r *CITrustReconciler) federationSpec(id string, provider *pb.CIProvider, t
 		GatewayClientID:    gatewayClientID,
 		Workspace:          workspace,
 		Role:               trust.GetRole(),
+		Mode:               r.tokenExchangeMode,
 		Subject: keycloak.CISubjectPredicate{
 			Repository:      trust.GetSubjectRepository(),
 			RepositoryOwner: keycloak.OwnerFromRepository(trust.GetSubjectRepository()),

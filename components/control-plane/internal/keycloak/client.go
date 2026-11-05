@@ -26,6 +26,16 @@ const (
 	tokenExchangeDecisionStrategy = "UNANIMOUS"
 )
 
+// tokenExchangePolicyName is the deterministic name of the fine-grained
+// authorization v1 client policy that authorizes a single requester client to
+// token-exchange. It is derived from the requester client id so each requester
+// gets its own policy and a repeated reconcile finds the same one (idempotent).
+// For the e2e requester it yields e2eTokenExchangePolicyName; for the CI
+// federation requester it yields "ci-federation-token-exchange".
+func tokenExchangePolicyName(requesterClientID string) string {
+	return requesterClientID + "-token-exchange"
+}
+
 // Client wraps the Keycloak Admin REST API for gateway OIDC provisioning.
 // Configuration and httpClient do not change after construction. The HTTP
 // client supports concurrent requests. mu protects token and tokenExpiry.
@@ -612,61 +622,75 @@ func (c *Client) EnsureE2ETokenExchange(ctx context.Context, targetClientUUID st
 	return nil
 }
 
+// ensureE2EClientPolicy finds-or-creates the e2e requester's token-exchange client
+// policy. It is a thin wrapper over the generalized ensureTokenExchangeClientPolicy
+// so the e2e impersonation path and the CI federation path share one implementation
+// (PLAT-CITR-11 generalization).
 func (c *Client) ensureE2EClientPolicy(ctx context.Context, realmMgmtUUID, e2eClientUUID string) (string, error) {
-	if id, err := c.findE2EClientPolicy(ctx, realmMgmtUUID); err != nil {
+	return c.ensureTokenExchangeClientPolicy(ctx, realmMgmtUUID, e2eClientUUID, e2eTokenExchangePolicyName)
+}
+
+// ensureTokenExchangeClientPolicy finds-or-creates a fine-grained authorization v1
+// client policy named policyName that authorizes exactly requesterClientUUID to
+// token-exchange. It is idempotent: an existing policy of that name is reused, and a
+// 409 from a concurrent create re-reads rather than failing. This is the reusable
+// building block for both the e2e impersonation requester and the CI federation
+// requester (PLAT-CITR-11).
+func (c *Client) ensureTokenExchangeClientPolicy(ctx context.Context, realmMgmtUUID, requesterClientUUID, policyName string) (string, error) {
+	if id, err := c.findTokenExchangeClientPolicy(ctx, realmMgmtUUID, policyName); err != nil {
 		return "", err
 	} else if id != "" {
 		return id, nil
 	}
 
 	payload, err := json.Marshal(map[string]interface{}{
-		"name":             e2eTokenExchangePolicyName,
+		"name":             policyName,
 		"logic":            "POSITIVE",
 		"decisionStrategy": tokenExchangeDecisionStrategy,
-		"clients":          []string{e2eClientUUID},
+		"clients":          []string{requesterClientUUID},
 	})
 	if err != nil {
-		return "", fmt.Errorf("marshal %s policy: %w", e2eTokenExchangePolicyName, err)
+		return "", fmt.Errorf("marshal %s policy: %w", policyName, err)
 	}
 
 	path := fmt.Sprintf("/admin/realms/%s/clients/%s/authz/resource-server/policy/client", c.realm, realmMgmtUUID)
 	resp, err := c.doRequestRaw(ctx, http.MethodPost, path, payload)
 	if err != nil {
-		return "", fmt.Errorf("create %s policy: %w", e2eTokenExchangePolicyName, err)
+		return "", fmt.Errorf("create %s policy: %w", policyName, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode == http.StatusConflict {
-		id, err := c.findE2EClientPolicy(ctx, realmMgmtUUID)
+		id, err := c.findTokenExchangeClientPolicy(ctx, realmMgmtUUID, policyName)
 		if err != nil {
 			return "", err
 		}
 		if id == "" {
-			return "", fmt.Errorf("create %s policy returned 409 but the policy was not found", e2eTokenExchangePolicyName)
+			return "", fmt.Errorf("create %s policy returned 409 but the policy was not found", policyName)
 		}
 		return id, nil
 	}
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("create %s policy returned %d: %s", e2eTokenExchangePolicyName, resp.StatusCode, string(body))
+		return "", fmt.Errorf("create %s policy returned %d: %s", policyName, resp.StatusCode, string(body))
 	}
 
 	var created authzPolicy
 	if err := json.Unmarshal(body, &created); err != nil {
-		return "", fmt.Errorf("parse %s policy: %w", e2eTokenExchangePolicyName, err)
+		return "", fmt.Errorf("parse %s policy: %w", policyName, err)
 	}
 	if created.ID == "" {
-		return "", fmt.Errorf("create %s policy returned no id", e2eTokenExchangePolicyName)
+		return "", fmt.Errorf("create %s policy returned no id", policyName)
 	}
 	return created.ID, nil
 }
 
-func (c *Client) findE2EClientPolicy(ctx context.Context, realmMgmtUUID string) (string, error) {
+func (c *Client) findTokenExchangeClientPolicy(ctx context.Context, realmMgmtUUID, policyName string) (string, error) {
 	path := fmt.Sprintf("/admin/realms/%s/clients/%s/authz/resource-server/policy/search?name=%s",
-		c.realm, realmMgmtUUID, url.QueryEscape(e2eTokenExchangePolicyName))
+		c.realm, realmMgmtUUID, url.QueryEscape(policyName))
 	resp, err := c.doRequestRaw(ctx, http.MethodGet, path, nil)
 	if err != nil {
-		return "", fmt.Errorf("search %s policy: %w", e2eTokenExchangePolicyName, err)
+		return "", fmt.Errorf("search %s policy: %w", policyName, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
@@ -678,12 +702,12 @@ func (c *Client) findE2EClientPolicy(ctx context.Context, realmMgmtUUID string) 
 		return "", nil
 	}
 	if resp.StatusCode >= 400 {
-		return "", fmt.Errorf("search %s policy returned %d: %s", e2eTokenExchangePolicyName, resp.StatusCode, string(body))
+		return "", fmt.Errorf("search %s policy returned %d: %s", policyName, resp.StatusCode, string(body))
 	}
 
 	var found authzPolicy
 	if err := json.Unmarshal(body, &found); err != nil {
-		return "", fmt.Errorf("parse %s policy search: %w", e2eTokenExchangePolicyName, err)
+		return "", fmt.Errorf("parse %s policy search: %w", policyName, err)
 	}
 	return found.ID, nil
 }
@@ -749,8 +773,29 @@ func (c *Client) attachPolicyToPermission(ctx context.Context, realmMgmtUUID, pe
 	return nil
 }
 
+// enableTokenExchangePermissions enables fine-grained authorization v1 on a
+// Keycloak client and returns its token-exchange scope-permission id.
 func (c *Client) enableTokenExchangePermissions(ctx context.Context, targetClientUUID string) (string, error) {
 	path := fmt.Sprintf("/admin/realms/%s/clients/%s/management/permissions", c.realm, targetClientUUID)
+	return c.enableTokenExchangeManagementPermissions(ctx, path, fmt.Sprintf("client %s", targetClientUUID))
+}
+
+// enableIdpTokenExchangePermissions enables fine-grained authorization v1 on a
+// Keycloak identity provider and returns its token-exchange scope-permission id. It
+// is the IdP analogue of enableTokenExchangePermissions and backs the IdP
+// token-exchange grant in fgap-v1 mode (PLAT-CITR-11).
+func (c *Client) enableIdpTokenExchangePermissions(ctx context.Context, idpAlias string) (string, error) {
+	path := fmt.Sprintf("/admin/realms/%s/identity-provider/instances/%s/management/permissions",
+		c.realm, url.PathEscape(idpAlias))
+	return c.enableTokenExchangeManagementPermissions(ctx, path, fmt.Sprintf("IdP %s", idpAlias))
+}
+
+// enableTokenExchangeManagementPermissions PUTs {enabled:true} to a management
+// permissions endpoint (a client's or an IdP's) and returns the token-exchange
+// scope-permission id, re-reading once if the PUT response omitted it. resourceDesc
+// names the resource for error messages. This is the reusable building block shared
+// by the e2e impersonation path and the CI federation fgap-v1 grants (PLAT-CITR-11).
+func (c *Client) enableTokenExchangeManagementPermissions(ctx context.Context, path, resourceDesc string) (string, error) {
 	payload, err := json.Marshal(managementPermissions{Enabled: true})
 	if err != nil {
 		return "", fmt.Errorf("marshal management permissions: %w", err)
@@ -758,13 +803,13 @@ func (c *Client) enableTokenExchangePermissions(ctx context.Context, targetClien
 
 	body, err := c.doRequest(ctx, http.MethodPut, path, payload)
 	if err != nil {
-		return "", fmt.Errorf("enable management permissions on client %s: %w", targetClientUUID, err)
+		return "", fmt.Errorf("enable management permissions on %s: %w", resourceDesc, err)
 	}
 
 	var perms managementPermissions
 	if len(bytes.TrimSpace(body)) > 0 {
 		if err := json.Unmarshal(body, &perms); err != nil {
-			return "", fmt.Errorf("parse management permissions for client %s: %w", targetClientUUID, err)
+			return "", fmt.Errorf("parse management permissions for %s: %w", resourceDesc, err)
 		}
 	}
 	if permID := perms.ScopePermissions[tokenExchangeScope]; permID != "" {
@@ -773,14 +818,14 @@ func (c *Client) enableTokenExchangePermissions(ctx context.Context, targetClien
 
 	getBody, err := c.doRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
-		return "", fmt.Errorf("get management permissions for client %s: %w", targetClientUUID, err)
+		return "", fmt.Errorf("get management permissions for %s: %w", resourceDesc, err)
 	}
 	if err := json.Unmarshal(getBody, &perms); err != nil {
-		return "", fmt.Errorf("parse management permissions for client %s: %w", targetClientUUID, err)
+		return "", fmt.Errorf("parse management permissions for %s: %w", resourceDesc, err)
 	}
 	permID := perms.ScopePermissions[tokenExchangeScope]
 	if permID == "" {
-		return "", fmt.Errorf("client %s has no token-exchange permission; enable admin-fine-grained-authz:v1", targetClientUUID)
+		return "", fmt.Errorf("%s has no token-exchange permission; enable admin-fine-grained-authz:v1", resourceDesc)
 	}
 	return permID, nil
 }

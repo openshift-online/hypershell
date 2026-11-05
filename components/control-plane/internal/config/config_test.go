@@ -183,3 +183,41 @@ func TestLoadGatewayResources(t *testing.T) {
 		}
 	})
 }
+
+// TestLoadCITokenExchangeMode covers PLAT-CITR-08: the token-exchange authorization
+// mode is config-driven. It defaults to fgap-v1 (the live fleet mode), accepts the
+// two valid modes, and rejects an unknown value rather than silently falling back.
+func TestLoadCITokenExchangeMode(t *testing.T) {
+	t.Run("defaults to fgap-v1", func(t *testing.T) {
+		setRequiredEnv(t)
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() error: %v", err)
+		}
+		if cfg.CITokenExchangeMode != CITokenExchangeModeFGAPv1 {
+			t.Errorf("CITokenExchangeMode = %q, want the default %q", cfg.CITokenExchangeMode, CITokenExchangeModeFGAPv1)
+		}
+	})
+
+	for _, mode := range []string{CITokenExchangeModeFGAPv1, CITokenExchangeModeV2Attribute} {
+		t.Run("accepts "+mode, func(t *testing.T) {
+			setRequiredEnv(t)
+			t.Setenv("HYPERSHELL_CI_TOKEN_EXCHANGE_MODE", mode)
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() error: %v", err)
+			}
+			if cfg.CITokenExchangeMode != mode {
+				t.Errorf("CITokenExchangeMode = %q, want %q", cfg.CITokenExchangeMode, mode)
+			}
+		})
+	}
+
+	t.Run("rejects unknown", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("HYPERSHELL_CI_TOKEN_EXCHANGE_MODE", "v3-magic")
+		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "HYPERSHELL_CI_TOKEN_EXCHANGE_MODE") {
+			t.Fatalf("Load() error = %v, want HYPERSHELL_CI_TOKEN_EXCHANGE_MODE error", err)
+		}
+	})
+}

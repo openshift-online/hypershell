@@ -17,6 +17,16 @@ const (
 	testFederationID  = "ci-federation"
 	testWorkspace     = "gh-acme"
 	testGatewayRoleID = "role-openshell-user-uuid"
+
+	// fgap-v1 fixtures (PLAT-CITR-11). The realm-management client hosts the
+	// authorization resource server; the IdP and gateway client each have a
+	// token-exchange scope permission the federation requester's client policy is
+	// attached to.
+	testRealmMgmtUUID   = "realm-management-uuid"
+	testFederationUUID  = "ci-federation-uuid"
+	testIdpTEPermID     = "idp-te-perm"
+	testGatewayTEPermID = "gw-te-perm"
+	testFedPolicyID     = "fed-te-policy"
 )
 
 // fakeCIKeycloak is a stateful httptest fake of the Keycloak admin REST surface
@@ -27,6 +37,11 @@ type fakeCIKeycloak struct {
 	mu sync.Mutex
 
 	idpExists bool
+	// idpConfig is the IdP instance's config block. disableTypeClaimCheck is owned
+	// declaratively by the gitops Terraform IdP config (PLAT-CITR-12); a PUT to the
+	// IdP instance would replace this map, so a test can prove the reconciler never
+	// clobbers it.
+	idpConfig map[string]string
 	// idpMappers maps mapper name -> representation, keyed as Keycloak would.
 	idpMappers map[string]idpMapper
 	nextID     int
@@ -45,6 +60,27 @@ type fakeCIKeycloak struct {
 	// can assert which group a role landed on (cross-trust isolation).
 	groupRoleMappings map[string][][]keycloakRole
 
+	// fgap-v1 state (PLAT-CITR-11).
+	// federationClientExists / federationClientEnabled control the shared requester.
+	federationClientExists  bool
+	federationClientEnabled bool
+	// fgapEnabled records every management/permissions resource that had
+	// fine-grained authorization enabled (the IdP alias and the gateway client UUID).
+	fgapEnabled []string
+	// policyCreates counts federation client-policy POSTs (idempotency: want 1).
+	policyCreates int
+	policyExists  bool
+	// permPolicies maps a token-exchange scope-permission id -> set of attached
+	// policy ids, so a test can assert each grant carries the requester policy.
+	permPolicies map[string]map[string]bool
+	// permPutCount counts permission/scope PUTs per permission id (idempotency: a
+	// re-run that finds the policy already attached must not PUT again).
+	permPutCount map[string]int
+	// v1PermAPIReturns501 makes the v1 management/permissions endpoints answer 501,
+	// as a fleet Keycloak with fine-grained admin authorization v1 disabled would.
+	// v2-attribute mode must never reach them (PLAT-CITR-08.02).
+	v1PermAPIReturns501 bool
+
 	requests []string // method+path trail, for ordering assertions
 }
 
@@ -52,12 +88,18 @@ func newFakeCIKeycloak(t *testing.T) (*httptest.Server, *fakeCIKeycloak) {
 	t.Helper()
 	state := &fakeCIKeycloak{
 		idpExists:           true,
+		idpConfig:           map[string]string{"disableTypeClaimCheck": "true"},
 		idpMappers:          map[string]idpMapper{},
 		groups:              map[string]string{},
 		gatewayClientExists: true,
 		gatewayAttrs:        map[string]string{},
 		roleExists:          true,
 		groupRoleMappings:   map[string][][]keycloakRole{},
+
+		federationClientExists:  true,
+		federationClientEnabled: true,
+		permPolicies:            map[string]map[string]bool{},
+		permPutCount:            map[string]int{},
 	}
 
 	mux := http.NewServeMux()
@@ -76,8 +118,20 @@ func newFakeCIKeycloak(t *testing.T) (*httptest.Server, *fakeCIKeycloak) {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
+		if r.Method == http.MethodPut {
+			// Model a clobbering IdP write: replace the config with the PUT body's
+			// config. The reconciler must never do this, so this branch should never
+			// run during a CITrust reconcile (asserted by PLAT-CITR-12 test).
+			var rep struct {
+				Config map[string]string `json:"config"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&rep)
+			state.idpConfig = rep.Config
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"alias": testIdpAlias})
+		_ = json.NewEncoder(w).Encode(map[string]any{"alias": testIdpAlias, "config": state.idpConfig})
 	})
 
 	// IdP mappers collection (GET list, POST create).
@@ -160,16 +214,132 @@ func newFakeCIKeycloak(t *testing.T) (*httptest.Server, *fakeCIKeycloak) {
 		}
 	})
 
-	// Clients collection -- resolve gateway clientId -> uuid.
+	// Clients collection -- resolve gateway / realm-management / federation
+	// requester clientId -> uuid.
 	mux.HandleFunc(fmt.Sprintf("/admin/realms/%s/clients", testRealm), func(w http.ResponseWriter, r *http.Request) {
 		state.mu.Lock()
 		defer state.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Query().Get("clientId") == testGatewayClientID && state.gatewayClientExists {
-			_ = json.NewEncoder(w).Encode([]keycloakClient{{ID: testGatewayUUID, ClientID: testGatewayClientID}})
+		switch r.URL.Query().Get("clientId") {
+		case testGatewayClientID:
+			if state.gatewayClientExists {
+				_ = json.NewEncoder(w).Encode([]keycloakClient{{ID: testGatewayUUID, ClientID: testGatewayClientID}})
+				return
+			}
+		case realmManagementClientID:
+			_ = json.NewEncoder(w).Encode([]keycloakClient{{ID: testRealmMgmtUUID, ClientID: realmManagementClientID}})
 			return
+		case testFederationID:
+			if state.federationClientExists {
+				_ = json.NewEncoder(w).Encode([]keycloakClient{{ID: testFederationUUID, ClientID: testFederationID, Enabled: state.federationClientEnabled}})
+				return
+			}
 		}
 		_ = json.NewEncoder(w).Encode([]keycloakClient{})
+	})
+
+	// fgap-v1: management/permissions on the IdP and on the gateway client (enable
+	// fine-grained authorization, return the token-exchange scope permission id).
+	idpPermPath := fmt.Sprintf("/admin/realms/%s/identity-provider/instances/%s/management/permissions", testRealm, testIdpAlias)
+	mux.HandleFunc(idpPermPath, func(w http.ResponseWriter, r *http.Request) {
+		state.mu.Lock()
+		defer state.mu.Unlock()
+		state.requests = append(state.requests, r.Method+" idp mgmt-permissions")
+		if state.v1PermAPIReturns501 {
+			http.Error(w, "not implemented", http.StatusNotImplemented)
+			return
+		}
+		if r.Method == http.MethodPut {
+			state.fgapEnabled = append(state.fgapEnabled, testIdpAlias)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(managementPermissions{
+			Enabled:          true,
+			ScopePermissions: map[string]string{tokenExchangeScope: testIdpTEPermID},
+		})
+	})
+	gwPermPath := fmt.Sprintf("/admin/realms/%s/clients/%s/management/permissions", testRealm, testGatewayUUID)
+	mux.HandleFunc(gwPermPath, func(w http.ResponseWriter, r *http.Request) {
+		state.mu.Lock()
+		defer state.mu.Unlock()
+		state.requests = append(state.requests, r.Method+" gw mgmt-permissions")
+		if state.v1PermAPIReturns501 {
+			http.Error(w, "not implemented", http.StatusNotImplemented)
+			return
+		}
+		if r.Method == http.MethodPut {
+			state.fgapEnabled = append(state.fgapEnabled, testGatewayUUID)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(managementPermissions{
+			Enabled:          true,
+			ScopePermissions: map[string]string{tokenExchangeScope: testGatewayTEPermID},
+		})
+	})
+
+	// fgap-v1: realm-management authorization resource server -- client policy
+	// find/create and token-exchange scope-permission read/attach.
+	authzBase := fmt.Sprintf("/admin/realms/%s/clients/%s/authz/resource-server/", testRealm, testRealmMgmtUUID)
+	mux.HandleFunc(authzBase, func(w http.ResponseWriter, r *http.Request) {
+		state.mu.Lock()
+		defer state.mu.Unlock()
+		rest := strings.TrimPrefix(r.URL.Path, authzBase)
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case rest == "policy/search" && r.Method == http.MethodGet:
+			if !state.policyExists {
+				// Keycloak returns 404 from policy search-by-name when none exists.
+				w.WriteHeader(http.StatusNotFound)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "HTTP 404 Not Found"})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(authzPolicy{ID: testFedPolicyID, Name: tokenExchangePolicyName(testFederationID)})
+		case rest == "policy/client" && r.Method == http.MethodPost:
+			var payload struct {
+				Name    string   `json:"name"`
+				Clients []string `json:"clients"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&payload)
+			if payload.Name != tokenExchangePolicyName(testFederationID) {
+				t.Errorf("policy name = %q, want %q", payload.Name, tokenExchangePolicyName(testFederationID))
+			}
+			if len(payload.Clients) != 1 || payload.Clients[0] != testFederationUUID {
+				t.Errorf("policy clients = %v, want [%s] (scoped to the requester)", payload.Clients, testFederationUUID)
+			}
+			state.policyCreates++
+			state.policyExists = true
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(authzPolicy{ID: testFedPolicyID, Name: tokenExchangePolicyName(testFederationID)})
+		case strings.HasSuffix(rest, "/associatedPolicies") && r.Method == http.MethodGet:
+			permID := strings.TrimSuffix(strings.TrimPrefix(rest, "policy/"), "/associatedPolicies")
+			out := make([]authzPolicy, 0)
+			for id := range state.permPolicies[permID] {
+				out = append(out, authzPolicy{ID: id, Name: tokenExchangePolicyName(testFederationID)})
+			}
+			_ = json.NewEncoder(w).Encode(out)
+		case strings.HasPrefix(rest, "permission/scope/") && r.Method == http.MethodGet:
+			permID := strings.TrimPrefix(rest, "permission/scope/")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": permID, "name": "token-exchange.permission", "type": "scope",
+				"logic": "POSITIVE", "decisionStrategy": "UNANIMOUS",
+			})
+		case strings.HasPrefix(rest, "permission/scope/") && r.Method == http.MethodPut:
+			permID := strings.TrimPrefix(rest, "permission/scope/")
+			var rep struct {
+				Policies []string `json:"policies"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&rep)
+			if state.permPolicies[permID] == nil {
+				state.permPolicies[permID] = map[string]bool{}
+			}
+			for _, id := range rep.Policies {
+				state.permPolicies[permID][id] = true
+			}
+			state.permPutCount[permID]++
+			w.WriteHeader(http.StatusCreated)
+		default:
+			http.Error(w, "unexpected authz request "+r.Method+" "+r.URL.Path, http.StatusNotFound)
+		}
 	})
 
 	// Gateway client role resolution.
@@ -252,11 +422,20 @@ func githubSpec() CIFederationSpec {
 		GatewayClientID:    testGatewayClientID,
 		Workspace:          testWorkspace,
 		Role:               "openshell-user",
+		// The base spec exercises v2-attribute mode; the fgap-v1 tests override Mode.
+		Mode: TokenExchangeModeV2Attribute,
 		Subject: CISubjectPredicate{
 			Repository:      "acme/app",
 			RepositoryOwner: "acme",
 		},
 	}
+}
+
+// githubFGAPSpec is the base github spec in fgap-v1 token-exchange mode.
+func githubFGAPSpec() CIFederationSpec {
+	s := githubSpec()
+	s.Mode = TokenExchangeModeFGAPv1
+	return s
 }
 
 func TestEnsureCIFederation_CreatesAllArtifacts(t *testing.T) {
@@ -650,6 +829,182 @@ func TestDeleteCIFederation_EmptyIdPAliasIsNoOp(t *testing.T) {
 	if err := client.DeleteCIFederation(t.Context(), spec); err != nil {
 		t.Fatalf("delete with empty idp_alias should be a no-op, got %v", err)
 	}
+}
+
+// TestEnsureCIFederation_FGAPv1AttachesBothGrants locks PLAT-CITR-11.01: in
+// fgap-v1 mode the reconciler enables fine-grained authorization on BOTH the IdP
+// and the target gateway client, and attaches the federation requester's client
+// policy to each one's token-exchange scope permission. The v2 attribute is NOT set.
+func TestEnsureCIFederation_FGAPv1AttachesBothGrants(t *testing.T) {
+	server, state := newFakeCIKeycloak(t)
+	client := ciTestClient(server)
+
+	if err := client.EnsureCIFederation(t.Context(), githubFGAPSpec()); err != nil {
+		t.Fatalf("EnsureCIFederation (fgap-v1): %v", err)
+	}
+
+	// Fine-grained authorization enabled on both the IdP and the gateway client.
+	if !containsString(state.fgapEnabled, testIdpAlias) {
+		t.Errorf("fine-grained authorization not enabled on the IdP; fgapEnabled=%v", state.fgapEnabled)
+	}
+	if !containsString(state.fgapEnabled, testGatewayUUID) {
+		t.Errorf("fine-grained authorization not enabled on the gateway client; fgapEnabled=%v", state.fgapEnabled)
+	}
+
+	// The requester client policy is attached to BOTH token-exchange scope permissions.
+	if !state.permPolicies[testIdpTEPermID][testFedPolicyID] {
+		t.Errorf("IdP token-exchange permission %q does not carry the requester policy; have %v", testIdpTEPermID, state.permPolicies[testIdpTEPermID])
+	}
+	if !state.permPolicies[testGatewayTEPermID][testFedPolicyID] {
+		t.Errorf("gateway-client token-exchange permission %q does not carry the requester policy; have %v", testGatewayTEPermID, state.permPolicies[testGatewayTEPermID])
+	}
+
+	// fgap-v1 mode does NOT set the v2 attribute (mode separation).
+	if state.gatewayAttrs[standardTokenExchangeEnabledAttribute] == "true" {
+		t.Error("fgap-v1 mode must not set the v2 standard.token.exchange.enabled attribute")
+	}
+}
+
+// TestEnsureCIFederation_FGAPv1Idempotent locks PLAT-CITR-11.02: a repeated
+// reconcile reuses the existing policy and permission associations and creates no
+// duplicate policy or permission attach.
+func TestEnsureCIFederation_FGAPv1Idempotent(t *testing.T) {
+	server, state := newFakeCIKeycloak(t)
+	client := ciTestClient(server)
+
+	for pass := 1; pass <= 2; pass++ {
+		if err := client.EnsureCIFederation(t.Context(), githubFGAPSpec()); err != nil {
+			t.Fatalf("EnsureCIFederation (fgap-v1) pass %d: %v", pass, err)
+		}
+	}
+
+	if state.policyCreates != 1 {
+		t.Errorf("federation policy creates = %d, want 1 (reused on the second pass)", state.policyCreates)
+	}
+	// Each permission is attached once; the second pass finds the policy already
+	// associated and skips the PUT.
+	if got := state.permPutCount[testIdpTEPermID]; got != 1 {
+		t.Errorf("IdP permission PUTs = %d, want 1 (no duplicate attach)", got)
+	}
+	if got := state.permPutCount[testGatewayTEPermID]; got != 1 {
+		t.Errorf("gateway permission PUTs = %d, want 1 (no duplicate attach)", got)
+	}
+}
+
+// TestEnsureCIFederation_DefaultModeIsFGAPv1 locks the config default: a spec with
+// no explicit mode is realized as fgap-v1 (the live fleet mode), so an unconfigured
+// reconcile still attaches the grants the fleet requires.
+func TestEnsureCIFederation_DefaultModeIsFGAPv1(t *testing.T) {
+	server, state := newFakeCIKeycloak(t)
+	client := ciTestClient(server)
+
+	spec := githubSpec()
+	spec.Mode = "" // unset -> default
+	if err := client.EnsureCIFederation(t.Context(), spec); err != nil {
+		t.Fatalf("EnsureCIFederation (default mode): %v", err)
+	}
+	if !state.permPolicies[testIdpTEPermID][testFedPolicyID] || !state.permPolicies[testGatewayTEPermID][testFedPolicyID] {
+		t.Errorf("default mode did not attach the fgap-v1 grants; idp=%v gw=%v", state.permPolicies[testIdpTEPermID], state.permPolicies[testGatewayTEPermID])
+	}
+	if state.gatewayAttrs[standardTokenExchangeEnabledAttribute] == "true" {
+		t.Error("default mode must be fgap-v1, not v2-attribute")
+	}
+}
+
+// TestEnsureCIFederation_V2ModeSkipsV1PermissionAPI locks PLAT-CITR-08.02: in
+// v2-attribute mode the reconciler authorizes the exchange via the client attribute
+// and never calls the v1 management/permissions API, so a Keycloak whose v1 API
+// returns 501 does not fail the reconcile.
+func TestEnsureCIFederation_V2ModeSkipsV1PermissionAPI(t *testing.T) {
+	server, state := newFakeCIKeycloak(t)
+	client := ciTestClient(server)
+
+	if err := client.EnsureCIFederation(t.Context(), githubSpec()); err != nil {
+		t.Fatalf("EnsureCIFederation (v2-attribute): %v", err)
+	}
+	// The v2 attribute is set and no fine-grained authorization was enabled (the v1
+	// management/permissions API was never called).
+	if state.gatewayAttrs[standardTokenExchangeEnabledAttribute] != "true" {
+		t.Errorf("v2-attribute mode did not set the exchange attribute; attrs=%v", state.gatewayAttrs)
+	}
+	if len(state.fgapEnabled) != 0 {
+		t.Errorf("v2-attribute mode must not call the v1 management/permissions API; fgapEnabled=%v", state.fgapEnabled)
+	}
+	if state.policyCreates != 0 {
+		t.Errorf("v2-attribute mode must not create fgap-v1 client policies; got %d", state.policyCreates)
+	}
+}
+
+// TestEnsureCIFederation_V2ModeToleratesV1Returning501 is the direct
+// PLAT-CITR-08.02 regression: with the v1 permission API answering 501 (as a fleet
+// Keycloak with fine-grained admin authorization v1 disabled would), v2-attribute
+// reconciliation still succeeds because it never calls that API.
+func TestEnsureCIFederation_V2ModeToleratesV1Returning501(t *testing.T) {
+	server, state := newFakeCIKeycloak(t)
+	state.v1PermAPIReturns501 = true
+	client := ciTestClient(server)
+
+	if err := client.EnsureCIFederation(t.Context(), githubSpec()); err != nil {
+		t.Fatalf("EnsureCIFederation (v2-attribute, v1 API 501) must not fail: %v", err)
+	}
+	if state.gatewayAttrs[standardTokenExchangeEnabledAttribute] != "true" {
+		t.Errorf("v2-attribute mode did not set the exchange attribute; attrs=%v", state.gatewayAttrs)
+	}
+	if len(state.fgapEnabled) != 0 {
+		t.Errorf("v2-attribute mode reached the v1 permission API: %v", state.fgapEnabled)
+	}
+}
+
+// TestEnsureCIFederation_FGAPv1RequiresFederationClient locks that a missing shared
+// federation requester client fails closed (nothing to scope the grant to) rather
+// than silently authorizing no one.
+func TestEnsureCIFederation_FGAPv1RequiresFederationClient(t *testing.T) {
+	server, state := newFakeCIKeycloak(t)
+	state.federationClientExists = false
+	client := ciTestClient(server)
+
+	err := client.EnsureCIFederation(t.Context(), githubFGAPSpec())
+	if err == nil {
+		t.Fatal("expected an error when the federation requester client is absent")
+	}
+	if state.policyCreates != 0 {
+		t.Errorf("no policy should be created without the requester client; got %d", state.policyCreates)
+	}
+}
+
+// TestEnsureCIFederation_PreservesDisableTypeClaimCheck locks PLAT-CITR-12.02: the
+// CITrust reconcile adopts the gitops-owned IdP and never issues a clobbering PUT to
+// the IdP instance, so disableTypeClaimCheck survives reconciliation in every mode.
+func TestEnsureCIFederation_PreservesDisableTypeClaimCheck(t *testing.T) {
+	for _, spec := range []CIFederationSpec{githubFGAPSpec(), githubSpec()} {
+		t.Run(string(spec.Mode), func(t *testing.T) {
+			server, state := newFakeCIKeycloak(t)
+			client := ciTestClient(server)
+
+			if err := client.EnsureCIFederation(t.Context(), spec); err != nil {
+				t.Fatalf("EnsureCIFederation: %v", err)
+			}
+			if state.idpConfig["disableTypeClaimCheck"] != "true" {
+				t.Errorf("disableTypeClaimCheck = %q after reconcile, want it preserved as \"true\"", state.idpConfig["disableTypeClaimCheck"])
+			}
+			// Belt and suspenders: the reconciler must not PUT the IdP instance at all.
+			for _, req := range state.requests {
+				if req == "PUT idp" {
+					t.Error("reconciler issued a clobbering PUT to the IdP instance; it must adopt the gitops-owned IdP, not overwrite it")
+				}
+			}
+		})
+	}
+}
+
+// containsString reports whether s is in xs.
+func containsString(xs []string, s string) bool {
+	for _, x := range xs {
+		if x == s {
+			return true
+		}
+	}
+	return false
 }
 
 func assertClaim(t *testing.T, claims []map[string]string, key, value string) {
