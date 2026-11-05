@@ -1,4 +1,6 @@
 {
+  "enmaasApiEndpoint": "https://api.enmaas.devshift.net",
+  "enmaasDocs": "https://source.redhat.com/departments/products_and_global_engineering/workload_management/enmaas",
   "hyperShellRepository": "https://github.com/openshift-online/hypershell/",
   "localInferenceEndpoint": "https://inference.local",
   "openShellDocs": "https://docs.nvidia.com/openshell/about/overview",

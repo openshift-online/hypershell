@@ -7,6 +7,7 @@ import {
   MastheadContent,
   MastheadLogo,
   MastheadMain,
+  MastheadToggle,
   Nav,
   NavItem,
   NavList,
@@ -19,7 +20,7 @@ import {
   ToolbarContent,
   ToolbarItem,
 } from "@patternfly/react-core";
-import { BarsIcon, MoonIcon, SunIcon } from "@patternfly/react-icons";
+import { MoonIcon, SunIcon } from "@patternfly/react-icons";
 import {
   gatewayMessages,
   gatewayQueryKey,
@@ -100,12 +101,12 @@ export function ApplicationShell() {
   const masthead = (
     <Masthead>
       <MastheadMain>
-        <PageToggleButton
-          aria-label={intl.formatMessage(messages.toggleNavigation)}
-          variant="plain"
-        >
-          <BarsIcon />
-        </PageToggleButton>
+        <MastheadToggle>
+          <PageToggleButton
+            aria-label={intl.formatMessage(messages.toggleNavigation)}
+            isHamburgerButton
+          />
+        </MastheadToggle>
         <MastheadBrand>
           <MastheadLogo
             className={styles.brand}
@@ -170,35 +171,30 @@ export function ApplicationShell() {
 
   // Determine active navigation item based on current route
   const isGatewayRoute =
-    pathname.startsWith("/gateways") || pathname === "/gateways";
-  const isDashboardRoute = pathname.startsWith("/dashboard");
-  const isOverviewRoute = pathname === "/";
+    pathname.startsWith(routePaths.gatewayList) ||
+    pathname === routePaths.gatewayList;
+  const isDashboardRoute = pathname.startsWith(routePaths.dashboard);
+  const isOverviewRoute = pathname === routePaths.home;
 
   const sidebar = (
     <PageSidebar>
       <PageSidebarBody>
         <Nav aria-label={intl.formatMessage(messages.primaryNavigation)}>
           <NavList>
-            <NavItem
-              isActive={isOverviewRoute}
-              to={routePaths.home}
-              component={Link}
-            >
-              <FormattedMessage {...messages.overview} />
+            <NavItem isActive={isOverviewRoute} key={routePaths.home}>
+              <Link to={routePaths.home}>
+                {intl.formatMessage(messages.overview)}
+              </Link>
             </NavItem>
-            <NavItem
-              isActive={isGatewayRoute}
-              to={routePaths.gatewayList}
-              component={Link}
-            >
-              <FormattedMessage {...gatewayMessages.gateways} />
+            <NavItem isActive={isGatewayRoute} key={routePaths.gatewayList}>
+              <Link to={routePaths.gatewayList}>
+                {intl.formatMessage(gatewayMessages.gateways)}
+              </Link>
             </NavItem>
-            <NavItem
-              isActive={isDashboardRoute}
-              to={routePaths.dashboard}
-              component={Link}
-            >
-              <FormattedMessage {...messages.dashboard} />
+            <NavItem isActive={isDashboardRoute} key={routePaths.dashboard}>
+              <Link to={routePaths.dashboard}>
+                {intl.formatMessage(messages.dashboard)}
+              </Link>
             </NavItem>
           </NavList>
         </Nav>
@@ -220,6 +216,7 @@ export function ApplicationShell() {
         <Page
           breadcrumb={breadcrumb}
           isContentFilled
+          isManagedSidebar
           mainContainerId="main-content"
           masthead={masthead}
           sidebar={sidebar}

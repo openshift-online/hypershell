@@ -93,7 +93,9 @@ export type { GatewayConnection } from "./gateways/gateway-connections";
 export {
   GatewayPage,
   GatewaysPage,
+  toGatewayDetailAttention,
   toGatewayDetailTab,
+  type GatewayDetailAttention,
   type GatewayDetailTab,
   type GatewayPageProps,
   type GatewaysPageProps,

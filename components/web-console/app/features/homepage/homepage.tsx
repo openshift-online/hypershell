@@ -419,7 +419,9 @@ function GatewayHealthCard({
                           <Button
                             component={Link}
                             {...{
-                              to: gatewayDetailPath(gateway.gatewayId),
+                              to: `${gatewayDetailPath(
+                                gateway.gatewayId,
+                              )}?attention=gateway-health`,
                             }}
                             variant="link"
                           >

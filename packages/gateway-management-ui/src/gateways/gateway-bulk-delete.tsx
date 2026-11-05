@@ -15,7 +15,6 @@ import {
   Modal,
   ModalBody,
   ModalFooter,
-  ModalHeader,
   ModalVariant,
   Spinner,
   Tooltip,
@@ -25,6 +24,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { FormattedMessage, useIntl } from "react-intl";
 
 import { useGatewayUi } from "../gateway-ui-provider";
+import { AlertModalHeader } from "../shared/alert-modal-header";
 import { messages } from "../messages";
 import { type GatewayConnection } from "./gateway-connections";
 import { reconcileGatewayCachesAfterDelete } from "./gateway-data";
@@ -414,12 +414,11 @@ export function GatewayBulkDeleteConfirmModal({
       onClose={isBusy ? undefined : onCancel}
       variant={ModalVariant.small}
     >
-      <ModalHeader
+      <AlertModalHeader
         labelId={titleId}
         title={intl.formatMessage(messages.bulkDeleteConfirmTitle, {
           count: targets.length,
         })}
-        titleIconVariant="warning"
       />
       <ModalBody>
         <Content id={descriptionId}>

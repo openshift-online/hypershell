@@ -77,7 +77,7 @@ export function GatewayStatus({
   // when no explicit label was provided - respect caller's label if given
   const displayText =
     label ??
-    ((appearance === "warning" || appearance === "danger")
+    (appearance === "warning" || appearance === "danger"
       ? intl.formatMessage(messages.attentionRequired)
       : status);
 

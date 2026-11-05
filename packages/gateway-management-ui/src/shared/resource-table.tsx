@@ -20,6 +20,8 @@ import {
   type ThProps,
 } from "@patternfly/react-table";
 
+import styles from "./resource-table.module.css";
+
 export interface ResourceTableColumn<Row> {
   id: string;
   label: string;
@@ -163,6 +165,34 @@ export function ResourceTable<Row>({
     }
   };
 
+  const topPagination = (
+    <ToolbarItem
+      align={{ default: "alignStart", md: "alignEnd" }}
+      variant="pagination"
+    >
+      <Pagination
+        isCompact
+        itemCount={itemCount}
+        onSetPage={(_event, nextPage) => {
+          onStateChange({ ...state, page: nextPage }, "page");
+        }}
+        onPerPageSelect={(_event, nextPageSize) => {
+          onStateChange(
+            { ...state, page: 1, pageSize: nextPageSize },
+            "page-size",
+          );
+        }}
+        page={state.page}
+        perPage={state.pageSize}
+        perPageOptions={pageSizeOptions.map((value) => ({
+          title: String(value),
+          value,
+        }))}
+        widgetId={`${id}-pagination`}
+      />
+    </ToolbarItem>
+  );
+
   return (
     <>
       <Toolbar id={`${id}-toolbar`}>
@@ -184,31 +214,7 @@ export function ResourceTable<Row>({
           {filterControls ? <ToolbarItem>{filterControls}</ToolbarItem> : null}
           {bulkActions ? <ToolbarGroup>{bulkActions}</ToolbarGroup> : null}
           {primaryAction ? <ToolbarItem>{primaryAction}</ToolbarItem> : null}
-          <ToolbarItem
-            align={{ default: "alignStart", md: "alignEnd" }}
-            variant="pagination"
-          >
-            <Pagination
-              isCompact
-              itemCount={itemCount}
-              onSetPage={(_event, nextPage) => {
-                onStateChange({ ...state, page: nextPage }, "page");
-              }}
-              onPerPageSelect={(_event, nextPageSize) => {
-                onStateChange(
-                  { ...state, page: 1, pageSize: nextPageSize },
-                  "page-size",
-                );
-              }}
-              page={state.page}
-              perPage={state.pageSize}
-              perPageOptions={pageSizeOptions.map((value) => ({
-                title: String(value),
-                value,
-              }))}
-              widgetId={`${id}-pagination`}
-            />
-          </ToolbarItem>
+          {secondaryFilterControls ? null : topPagination}
         </ToolbarContent>
         {/* Secondary toolbar row rendered directly below the filtering
             controls. It uses PatternFly toolbar layout (a second
@@ -219,6 +225,7 @@ export function ResourceTable<Row>({
         {secondaryFilterControls ? (
           <ToolbarContent>
             <ToolbarItem>{secondaryFilterControls}</ToolbarItem>
+            {topPagination}
           </ToolbarContent>
         ) : null}
       </Toolbar>
@@ -275,35 +282,29 @@ export function ResourceTable<Row>({
           </Table>
           {/* Bottom pagination for long lists (WEB-GLIS-02.03) */}
           {showBottomPagination ? (
-            <Toolbar id={`${id}-bottom-toolbar`}>
-              <ToolbarContent>
-                <ToolbarItem
-                  align={{ default: "alignEnd" }}
-                  variant="pagination"
-                >
-                  <Pagination
-                    itemCount={itemCount}
-                    onSetPage={(_event, nextPage) => {
-                      onStateChange({ ...state, page: nextPage }, "page");
-                    }}
-                    onPerPageSelect={(_event, nextPageSize) => {
-                      onStateChange(
-                        { ...state, page: 1, pageSize: nextPageSize },
-                        "page-size",
-                      );
-                    }}
-                    page={state.page}
-                    perPage={state.pageSize}
-                    perPageOptions={pageSizeOptions.map((value) => ({
-                      title: String(value),
-                      value,
-                    }))}
-                    variant="bottom"
-                    widgetId={`${id}-bottom-pagination`}
-                  />
-                </ToolbarItem>
-              </ToolbarContent>
-            </Toolbar>
+            <div className={styles.bottomPagination}>
+              <Pagination
+                isCompact
+                itemCount={itemCount}
+                onSetPage={(_event, nextPage) => {
+                  onStateChange({ ...state, page: nextPage }, "page");
+                }}
+                onPerPageSelect={(_event, nextPageSize) => {
+                  onStateChange(
+                    { ...state, page: 1, pageSize: nextPageSize },
+                    "page-size",
+                  );
+                }}
+                page={state.page}
+                perPage={state.pageSize}
+                perPageOptions={pageSizeOptions.map((value) => ({
+                  title: String(value),
+                  value,
+                }))}
+                variant="bottom"
+                widgetId={`${id}-bottom-pagination`}
+              />
+            </div>
           ) : null}
         </>
       ) : (

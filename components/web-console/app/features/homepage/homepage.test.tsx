@@ -145,7 +145,7 @@ describe("HomepagePageSurface", () => {
       screen
         .getByRole("link", { name: "research-gateway" })
         .getAttribute("href"),
-    ).toBe("/gateways/gateway-17");
+    ).toBe("/gateways/gateway-17?attention=gateway-health");
     expect(
       screen.getByText("Talk to the team in #forum-hypershell"),
     ).toBeTruthy();
@@ -240,6 +240,16 @@ describe("HomepagePageSurface", () => {
         .querySelector(".pf-v6-c-icon__content")
         ?.getAttribute("class"),
     ).toContain("pf-m-warning");
+  });
+
+  it("links gateway needs attention to the gateway context", () => {
+    renderSurface();
+
+    expect(
+      screen
+        .getByRole("link", { name: "research-gateway" })
+        .getAttribute("href"),
+    ).toBe("/gateways/gateway-17?attention=gateway-health");
   });
 
   it("shows the support link when summary data is unavailable", () => {

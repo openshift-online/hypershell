@@ -1,16 +1,13 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { IntlProvider } from "react-intl";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { GatewayConnectionSteps } from "./gateway-connection-steps";
 import {
   buildOpenShellInstallCommand,
-  buildSandboxConnectCommand,
-  buildSandboxCreateCommand,
   type GatewayConnection,
-  installDocsUrl,
-  providerProfileDocsUrl,
+  shellArgument,
 } from "./gateway-connections";
 
 const readyGateway: GatewayConnection = {
@@ -28,299 +25,232 @@ const readyGateway: GatewayConnection = {
   status: "Running",
 };
 
-function renderSteps(gateway: GatewayConnection) {
+const stepTitles = [
+  "Install the OpenShell CLI",
+  "Add this gateway",
+  "Create the EnMaaS provider profile",
+  "Import the EnMaaS provider profile",
+  "Connect this gateway to EnMaaS",
+  "Create a Claude sandbox",
+  "Open Claude in the sandbox",
+] as const;
+
+function renderSteps(
+  gateway: GatewayConnection = readyGateway,
+  isProvisioning = false,
+) {
   return render(
     <IntlProvider locale="en">
-      <GatewayConnectionSteps gateway={gateway} />
+      <GatewayConnectionSteps
+        gateway={gateway}
+        isProvisioning={isProvisioning}
+      />
     </IntlProvider>,
   );
 }
 
+function expandedToggles() {
+  return screen
+    .getAllByRole("button")
+    .filter((button) => button.getAttribute("aria-expanded") === "true");
+}
+
+function getStepToggle(title: string) {
+  const escapedTitle = title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return screen.getByRole("button", {
+    name: new RegExp(`^\\d+${escapedTitle}(?:One-time)?$`, "u"),
+  });
+}
+
 describe("GatewayConnectionSteps", () => {
-  it("renders the setup, sandbox create, and sandbox connect steps", () => {
-    renderSteps(readyGateway);
+  it("renders the mockup's seven guided setup steps", () => {
+    renderSteps();
 
-    expect(
-      screen.getByRole("heading", { name: "One-time setup" }),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("heading", { name: "Create a sandbox" }),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("heading", { name: "Connect to a sandbox" }),
-    ).toBeTruthy();
-  });
-
-  it("renders installation before the combined setup commands", () => {
-    const { container } = renderSteps(readyGateway);
-
-    expect(screen.getByText("Prerequisite")).toBeTruthy();
-    expect(
-      screen.getByText(
-        /Install the OpenShell CLI version for this gateway before you add the provider/,
-      ),
-    ).toBeTruthy();
-
-    const link = screen.getByRole("link", {
-      name: "View installation documentation (opens in a new tab)",
+    stepTitles.forEach((title) => {
+      expect(getStepToggle(title)).toBeTruthy();
     });
-    expect(link.getAttribute("href")).toBe(installDocsUrl);
-    expect(link.getAttribute("target")).toBe("_blank");
-    expect(link.getAttribute("rel")).toContain("noopener");
-    expect(link.classList.contains("pf-m-small")).toBe(true);
-    expect(link.textContent).toContain("View installation documentation");
-
-    const installCommand = buildOpenShellInstallCommand(readyGateway);
-    expect(installCommand).toBeDefined();
-
-    const commandBlocks = Array.from(container.querySelectorAll("code"));
-    const registrationIndex = commandBlocks.findIndex((code) =>
-      code.textContent.includes("openshell gateway add"),
-    );
-    const installationIndex = commandBlocks.findIndex(
-      (code) => code.textContent === installCommand,
-    );
-    const providerIndex = commandBlocks.findIndex((code) =>
-      code.textContent.includes("openshell provider create"),
-    );
-
-    expect(installationIndex).toBeGreaterThanOrEqual(0);
-    expect(installationIndex).toBeLessThan(registrationIndex);
-    expect(registrationIndex).toBe(providerIndex);
-
-    const installationCode = commandBlocks[installationIndex];
-    expect(installationCode?.textContent).toContain("\\\n");
-    expect(installationCode?.textContent.split("\n")).toHaveLength(4);
+    expect(screen.getAllByText("One-time")).toHaveLength(5);
     expect(
-      installationCode
-        ?.closest(".pf-v6-c-code-block")
-        ?.querySelector("ol, [data-line-number]"),
-    ).toBeNull();
+      screen.getByRole("button", { name: "Copy all commands" }),
+    ).toBeTruthy();
+    expect(screen.getByText("Before you begin")).toBeTruthy();
   });
 
-  it("orders the provider profile import before provider create in the setup commands", () => {
-    const { container } = renderSteps(readyGateway);
-
-    const commandBlocks = Array.from(container.querySelectorAll("code"));
-    const setupCode = commandBlocks.find((code) =>
-      code.textContent.includes("openshell gateway add"),
-    );
-    expect(setupCode).toBeTruthy();
-
-    const text = setupCode?.textContent ?? "";
-    const profileImportAt = text.indexOf("openshell provider profile import");
-    const providerCreateAt = text.indexOf("openshell provider create");
-    expect(profileImportAt).toBeGreaterThanOrEqual(0);
-    expect(providerCreateAt).toBeGreaterThan(profileImportAt);
-    expect(text).toContain("--global");
-    expect(text).toContain("--global-profile");
-  });
-
-  it("discloses the provider profile scope-matching requirement", async () => {
+  it("expands only one connection step at a time", async () => {
     const user = userEvent.setup();
-    renderSteps(readyGateway);
+    renderSteps();
 
-    await user.click(
-      screen.getByRole("button", { name: "Provider profile scope" }),
-    );
-
+    expect(expandedToggles()).toHaveLength(0);
+    await user.click(getStepToggle("Add this gateway"));
+    expect(expandedToggles()).toHaveLength(1);
     expect(
-      screen.getByText(/scope mismatch reproduces/, { exact: false }),
-    ).toBeTruthy();
-
-    const link = screen.getByRole("link", {
-      name: "View provider profile documentation (opens in a new tab)",
-    });
-    expect(link.getAttribute("href")).toBe(providerProfileDocsUrl);
-    expect(link.getAttribute("target")).toBe("_blank");
-    expect(link.getAttribute("rel")).toContain("noopener");
-  });
-
-  it("copies the version-matched installation command", async () => {
-    const user = userEvent.setup();
-    renderSteps(readyGateway);
-
-    await user.click(
-      screen.getByRole("button", {
-        name: "Copy the OpenShell installation command",
-      }),
-    );
-
-    expect(await navigator.clipboard.readText()).toBe(
-      buildOpenShellInstallCommand(readyGateway),
-    );
-  });
-
-  it("highlights all command blocks with Shiki", async () => {
-    const { container } = renderSteps(readyGateway);
-
-    await waitFor(() => {
-      expect(container.querySelectorAll(".shiki")).toHaveLength(4);
-    });
-
-    const highlightedCommands = Array.from(
-      container.querySelectorAll<HTMLElement>(".shiki"),
-      (block) => block.textContent,
-    );
+      getStepToggle("Add this gateway").getAttribute("aria-expanded"),
+    ).toBe("true");
     expect(
-      highlightedCommands.some((command) =>
-        command.includes("openshell gateway add"),
-      ),
-    ).toBe(true);
-    expect(
-      highlightedCommands.some((command) =>
-        command.includes("OPENSHELL_VERSION=v0.0.109"),
-      ),
-    ).toBe(true);
+      getStepToggle("Install the OpenShell CLI").getAttribute("aria-expanded"),
+    ).toBe("false");
+    await user.click(getStepToggle("Add this gateway"));
+    expect(expandedToggles()).toHaveLength(0);
   });
 
-  it("copies the raw sandbox command, not the highlighted markup", async () => {
+  it("copies every resolved command from the guided setup", async () => {
     const user = userEvent.setup();
-    renderSteps(readyGateway);
+    renderSteps();
 
-    await user.click(
-      screen.getByRole("button", { name: "Copy the create-sandbox command" }),
-    );
-
-    expect(await navigator.clipboard.readText()).toBe(
-      buildSandboxCreateCommand(),
-    );
-  });
-
-  it("edits the provider name once and mirrors it into both setup slots", async () => {
-    const user = userEvent.setup();
-    const { container } = renderSteps(readyGateway);
-
-    await waitFor(() => {
-      expect(container.querySelectorAll(".shiki")).toHaveLength(4);
-    });
-
-    const providerFields = screen.getAllByRole("textbox", {
-      name: "Provider name (editable)",
-    });
-    expect(providerFields).toHaveLength(2);
-
-    const [firstProvider] = providerFields;
-    if (firstProvider) {
-      firstProvider.textContent = "acme";
-      fireEvent.input(firstProvider);
-    }
-
-    await waitFor(() => {
-      expect(providerFields[1]?.textContent).toBe("acme");
-    });
-
-    await user.click(
-      screen.getByRole("button", { name: "Copy the one-time setup commands" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Copy all commands" }));
 
     const copied = await navigator.clipboard.readText();
+    expect(copied).toContain(buildOpenShellInstallCommand(readyGateway));
     expect(copied).toContain("openshell gateway add");
-    expect(copied).toContain("--name acme");
-    expect(copied).toContain("--provider acme");
+    expect(copied).toContain("openshell gateway select gateway-1");
+    expect(copied).toContain("cat > enmaas.yaml <<'YAML'");
+    expect(copied).toContain(
+      "openshell profile import -f enmaas.yaml --global",
+    );
+    expect(copied).toContain("openshell provider create");
+    expect(copied).toContain("--type enmaas");
+    expect(copied).toContain("openshell sandbox create");
+    expect(copied).toContain("openshell sandbox connect enmaas-claude");
   });
 
-  it("edits the sandbox name and copies the resolved command", async () => {
+  it("keeps multiline provider and sandbox commands executable", async () => {
     const user = userEvent.setup();
-    renderSteps(readyGateway);
+    renderSteps();
 
-    const sandboxField = await screen.findByRole("textbox", {
-      name: "Sandbox name (editable)",
-    });
-    sandboxField.textContent = "scratch";
-    fireEvent.input(sandboxField);
+    await user.click(screen.getByRole("button", { name: "Copy all commands" }));
 
-    await user.click(
-      screen.getByRole("button", { name: "Copy the create-sandbox command" }),
+    const copied = await navigator.clipboard.readText();
+    expect(copied).toContain("openshell provider create \\\n");
+    expect(copied).not.toContain("openshell provider create\n");
+    expect(copied).toContain("openshell sandbox create \\\n");
+    expect(copied).not.toContain("openshell sandbox create\n");
+  });
+
+  it("safely encodes a gateway name in the gateway lookup command", async () => {
+    const user = userEvent.setup();
+    const unsafeGatewayName = 'gateway"; touch compromised; #';
+    renderSteps({ ...readyGateway, name: unsafeGatewayName });
+
+    await user.click(screen.getByRole("button", { name: "Copy all commands" }));
+
+    const copied = await navigator.clipboard.readText();
+    expect(copied).toContain(
+      `grep -qF -- ${shellArgument(`"name": "${unsafeGatewayName}"`)}`,
     );
-
-    expect(await navigator.clipboard.readText()).toBe(
-      buildSandboxCreateCommand("scratch"),
+    expect(copied).toContain(
+      `openshell gateway select ${shellArgument(unsafeGatewayName)}`,
     );
   });
 
-  it("copies the raw sandbox connect command", async () => {
+  it("reports a failed copy-all operation", async () => {
     const user = userEvent.setup();
-    renderSteps(readyGateway);
+    const clipboardWrite = vi
+      .spyOn(navigator.clipboard, "writeText")
+      .mockRejectedValue(new Error("denied"));
+    renderSteps();
 
+    await user.click(screen.getByRole("button", { name: "Copy all commands" }));
+
+    expect(await screen.findByText("Copy failed")).toBeTruthy();
+    clipboardWrite.mockRestore();
+  });
+
+  it("uses form values in the provider and sandbox commands", async () => {
+    const user = userEvent.setup();
+    renderSteps();
+
+    await user.click(getStepToggle("Connect this gateway to EnMaaS"));
+    await user.clear(screen.getByLabelText("Provider name"));
+    await user.type(screen.getByLabelText("Provider name"), "acme");
     await user.click(
       screen.getByRole("button", {
-        name: "Copy the connect-sandbox command",
+        name: "Copy command for step 5, Connect this gateway to EnMaaS",
       }),
     );
+    const providerCommand = await navigator.clipboard.readText();
+    expect(providerCommand).toContain("--name acme");
+    expect(providerCommand).toContain("openshell provider create");
 
-    expect(await navigator.clipboard.readText()).toBe(
-      buildSandboxConnectCommand(),
-    );
-  });
-
-  it("mirrors an edited sandbox name into both create and connect commands", async () => {
-    const user = userEvent.setup();
-    renderSteps(readyGateway);
-
-    const createField = await screen.findByRole("textbox", {
-      name: "Sandbox name (editable)",
-    });
-    createField.textContent = "scratch";
-    fireEvent.input(createField);
-
-    await user.click(
-      screen.getByRole("button", { name: "Copy the create-sandbox command" }),
-    );
-    expect(await navigator.clipboard.readText()).toBe(
-      buildSandboxCreateCommand("scratch"),
-    );
-
+    await user.click(getStepToggle("Create a Claude sandbox"));
+    await user.clear(screen.getByLabelText("Sandbox name"));
+    await user.type(screen.getByLabelText("Sandbox name"), "scratch");
+    await user.clear(screen.getByLabelText("Claude model"));
+    await user.type(screen.getByLabelText("Claude model"), "acme-model");
     await user.click(
       screen.getByRole("button", {
-        name: "Copy the connect-sandbox command",
+        name: "Copy command for step 6, Create a Claude sandbox",
+      }),
+    );
+    const sandboxCommand = await navigator.clipboard.readText();
+    expect(sandboxCommand).toContain("--name scratch");
+    expect(sandboxCommand).toContain("--provider acme");
+    expect(sandboxCommand).toContain("--model acme-model");
+
+    await user.click(getStepToggle("Open Claude in the sandbox"));
+    await user.click(
+      screen.getByRole("button", {
+        name: "Copy command for step 7, Open Claude in the sandbox",
       }),
     );
     expect(await navigator.clipboard.readText()).toBe(
-      buildSandboxConnectCommand("scratch"),
+      "openshell sandbox connect scratch",
     );
   });
 
-  it("hides the installation prerequisite until the gateway is ready", () => {
-    renderSteps({
-      ...readyGateway,
-      phase: "Provisioning",
-      status: "Provisioning",
-    });
+  it("keeps the gateway step pending while provisioning", async () => {
+    const user = userEvent.setup();
+    renderSteps(readyGateway, true);
 
-    expect(screen.getByRole("status")).toBeTruthy();
-    expect(screen.queryByText("Prerequisite")).toBeNull();
+    await user.click(getStepToggle("Add this gateway"));
+
     expect(
-      screen.queryByText(
-        /Install the OpenShell CLI version for this gateway before you add the provider/,
-      ),
-    ).toBeNull();
-    expect(
-      screen.queryByRole("link", {
-        name: "View installation documentation (opens in a new tab)",
-      }),
-    ).toBeNull();
+      screen.getByText("Waiting for gateway provisioning..."),
+    ).toBeTruthy();
     expect(
       screen.queryByRole("button", {
-        name: "Copy the one-time setup commands",
+        name: "Copy command for step 2, Add this gateway",
       }),
-    ).toBeNull();
-    expect(
-      screen.queryByText(/OPENSHELL_VERSION=/, { selector: "code" }),
     ).toBeNull();
   });
 
-  it("hides the installation prerequisite without a reconciled version", () => {
+  it("withholds gateway-dependent commands until provisioning completes", async () => {
+    const user = userEvent.setup();
+    renderSteps({ ...readyGateway, phase: "Provisioning" }, true);
+
+    const gatewayDependentSteps = [
+      { number: 4, title: "Import the EnMaaS provider profile" },
+      { number: 5, title: "Connect this gateway to EnMaaS" },
+      { number: 6, title: "Create a Claude sandbox" },
+      { number: 7, title: "Open Claude in the sandbox" },
+    ];
+
+    for (const { number, title } of gatewayDependentSteps) {
+      await user.click(getStepToggle(title));
+      expect(
+        screen.getByText("Waiting for gateway provisioning..."),
+      ).toBeTruthy();
+      expect(
+        screen.queryByRole("button", {
+          name: `Copy command for step ${String(number)}, ${title}`,
+        }),
+      ).toBeNull();
+    }
+
+    expect(screen.queryByLabelText("Provider name")).toBeNull();
+    expect(screen.queryByLabelText("Sandbox name")).toBeNull();
+  });
+
+  it("omits unavailable commands from copy-all", async () => {
+    const user = userEvent.setup();
     renderSteps({ ...readyGateway, gatewayVersion: undefined });
 
-    expect(screen.queryByText("Prerequisite")).toBeNull();
-    expect(
-      screen.queryByRole("link", {
-        name: "View installation documentation (opens in a new tab)",
-      }),
-    ).toBeNull();
-    expect(
-      screen.getByRole("button", { name: "Copy the one-time setup commands" }),
-    ).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Copy all commands" }));
+
+    const copied = await navigator.clipboard.readText();
+    expect(copied).not.toContain("OPENSHELL_VERSION=");
+    expect(copied).toContain("openshell gateway add");
+    await waitFor(() => {
+      expect(getStepToggle("Install the OpenShell CLI")).toBeTruthy();
+    });
   });
 });
