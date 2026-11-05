@@ -22,6 +22,7 @@ import (
 type E2ERunPlane interface {
 	RunDetail(ctx context.Context, id string) (*sources.E2ERunDetail, error)
 	RunLogs(ctx context.Context, id, stepID, before string, limit int) (*sources.E2ELogPage, error)
+	RunDiagnostics(ctx context.Context, id string) (*sources.E2EDiagnosticsPayload, error)
 	Stream(w http.ResponseWriter, r *http.Request)
 }
 
@@ -69,6 +70,7 @@ func (h *Handlers) Register(mux *http.ServeMux) {
 	// id cannot be followed by a literal /logs. The run id therefore rides a "run"
 	// query value, exactly as the live stream endpoint already does.
 	mux.HandleFunc("GET /api/e2e/logs", h.serveE2ERunLogs())
+	mux.HandleFunc("GET /api/e2e/diagnostics", h.serveE2ERunDiagnostics())
 	mux.HandleFunc("GET /api/e2e/stream", h.serveE2EStream())
 }
 
@@ -173,6 +175,31 @@ func (h *Handlers) serveE2ERunLogs() http.HandlerFunc {
 			return
 		}
 		writeJSON(w, r, http.StatusOK, cache.Snapshot{Data: page, GeneratedAt: time.Now()})
+	}
+}
+
+// serveE2ERunDiagnostics lazily serves a run's failure-diagnostics sections
+// addressed by its collision-free id (the "run" query value), or 404 when the
+// run's tenant is not addressable. Opening a run detail never hits this query;
+// only expanding the diagnostics view in the UI invokes it (E2E-LOG-27).
+func (h *Handlers) serveE2ERunDiagnostics() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if h.E2E == nil {
+			writeJSON(w, r, http.StatusOK, e2eFeatureOffSnapshot())
+			return
+		}
+		id := r.URL.Query().Get("run")
+		payload, err := h.E2E.RunDiagnostics(r.Context(), id)
+		if err != nil {
+			if errors.Is(err, sources.ErrRunNotFound) {
+				writeJSON(w, r, http.StatusNotFound, map[string]string{"error": "run not found"})
+				return
+			}
+			slog.Default().ErrorContext(r.Context(), "e2e run diagnostics failed", "err", err)
+			writeJSON(w, r, http.StatusOK, cache.Snapshot{Stale: true, Error: "e2e log backend unavailable", GeneratedAt: time.Now()})
+			return
+		}
+		writeJSON(w, r, http.StatusOK, cache.Snapshot{Data: payload, GeneratedAt: time.Now()})
 	}
 }
 

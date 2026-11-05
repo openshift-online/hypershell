@@ -10,4 +10,5 @@ export const queryKeys = {
   sdlcAgents: ["sdlc-agents"] as const,
   e2eRuns: ["e2e", "runs"] as const,
   e2eRun: (id: string) => ["e2e", "run", id] as const,
+  e2eDiagnostics: (id: string) => ["e2e", "diagnostics", id] as const,
 };

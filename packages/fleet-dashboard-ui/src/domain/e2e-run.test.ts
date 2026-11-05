@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import {
   applyEvents,
   boundLogBuffer,
+  extractFailureMessage,
+  groupRunAttempts,
   runBundle,
   runTargetInstance,
   elapsedSeconds,
@@ -12,13 +14,17 @@ import {
   makeRunId,
   MAX_DETAIL_LOG_LINES,
   mergeLogLines,
+  orderStepsCanonical,
   reduceRun,
   runDurationMs,
   runsNewestFirst,
   runsForVerification,
+  stepDurationMs,
+  stepStateRank,
   type E2eLogLine,
   type E2eRunEvent,
   type E2eRunSummary,
+  type E2eStep,
 } from "./e2e-run";
 
 // Neutral placeholders only (hub-a/tenant-1/run-1); no fleet identifiers appear in
@@ -491,5 +497,284 @@ describe("mergeLogLines / boundLogBuffer", () => {
     const buffer = [line(1), line(2), line(3), line(4)];
     expect(boundLogBuffer(buffer, 2).map((l) => l.sequence)).toEqual([3, 4]);
     expect(boundLogBuffer(buffer, 10)).toBe(buffer);
+  });
+});
+
+describe("extractFailureMessage", () => {
+  it("extracts the Messages section from multiline testify output", () => {
+    const raw = [
+      "\tError Trace:\t/work/e2e_test.go:142",
+      "\tError:      \tNot equal:",
+      '\t            \texpected: "Running"',
+      '\t            \tactual  : "Provisioning"',
+      "\t            \tDiff:",
+      "\t            \t--- Expected",
+      "\t            \t+++ Actual",
+      "\t            \t@@ -1 +1 @@",
+      "\t            \t-Running",
+      "\t            \t+Provisioning",
+      "\tTest:       \tTestPrimaryGateway",
+      "\tMessages:   \tprimary gateway reached Running",
+    ].join("\n");
+    expect(extractFailureMessage(raw)).toBe("primary gateway reached Running");
+  });
+
+  it("extracts the trailing message from pipe-collapsed testify diff output", () => {
+    const collapsed =
+      'Not equal: | expected: "Running" | actual: "Provisioning" | Diff: | --- Expected | +++ Actual | @@ -1 +1 @@ | -Running | +Provisioning | primary gateway reached Running';
+    expect(extractFailureMessage(collapsed)).toBe(
+      "primary gateway reached Running",
+    );
+  });
+
+  it("extracts inline Messages: label when pipe-collapsed", () => {
+    const inline =
+      'Not equal: | expected: "Running" | actual: "Provisioning" | Messages: | primary gateway reached Running';
+    expect(extractFailureMessage(inline)).toBe(
+      "primary gateway reached Running",
+    );
+  });
+
+  it("falls back gracefully to the raw text when no Messages section is present", () => {
+    expect(extractFailureMessage("rollout timed out after 5m")).toBe(
+      "rollout timed out after 5m",
+    );
+    expect(extractFailureMessage("   ")).toBe("");
+  });
+});
+
+describe("failed run and step duration derivations", () => {
+  it("ignores durationMs: 0 on a failed run when timestamps or step durations are present", () => {
+    expect(
+      runDurationMs(
+        {
+          startedAt: "2026-01-01T00:00:00Z",
+          endedAt: "2026-01-01T00:02:15Z",
+          durationMs: 0,
+        },
+        0,
+      ),
+    ).toBe(135_000);
+
+    expect(
+      runDurationMs(
+        {
+          startedAt: "2026-01-01T00:00:00Z",
+          endedAt: null,
+          durationMs: 0,
+          steps: [
+            {
+              stepId: "s1",
+              name: "Step 1",
+              state: "passed",
+              startedAt: "2026-01-01T00:00:00Z",
+              endedAt: "2026-01-01T00:00:20Z",
+              durationMs: 20_000,
+            },
+            {
+              stepId: "s2",
+              name: "Step 2",
+              state: "failed",
+              startedAt: "2026-01-01T00:00:20Z",
+              endedAt: "2026-01-01T00:00:55Z",
+              durationMs: 0,
+            },
+          ],
+        },
+        Date.parse("2026-01-01T01:00:00Z"),
+      ),
+    ).toBe(55_000);
+  });
+
+  it("derives failed step duration from timestamps or logs when durationMs is 0 or null", () => {
+    const failedStep = {
+      stepId: "P1.1",
+      name: "Gateway",
+      state: "failed" as const,
+      startedAt: null,
+      endedAt: null,
+      durationMs: 0,
+    };
+    const steps = [
+      {
+        stepId: "P1.0",
+        name: "Setup",
+        state: "passed" as const,
+        startedAt: "2026-01-01T00:00:00Z",
+        endedAt: "2026-01-01T00:00:10Z",
+        durationMs: 10_000,
+      },
+      failedStep,
+    ];
+    const logs: E2eLogLine[] = [
+      {
+        sequence: 1,
+        timestamp: "2026-01-01T00:00:10Z",
+        stepId: "P1.1",
+        message: "waiting for gateway",
+        truncated: false,
+      },
+      {
+        sequence: 2,
+        timestamp: "2026-01-01T00:00:42Z",
+        stepId: "P1.1",
+        message: "gateway failed",
+        truncated: false,
+      },
+    ];
+    expect(
+      stepDurationMs(failedStep, 0, steps, logs, "2026-01-01T00:00:00Z"),
+    ).toBe(32_000);
+  });
+});
+
+describe("groupRunAttempts", () => {
+  const baseRun: E2eRunSummary = {
+    id: "tenant-1/ns/run-1",
+    runId: "run-1",
+    tenant: "tenant-1",
+    cluster: "tenant-1",
+    bodyCluster: "hub-a",
+    namespace: "ns",
+    revision: "rev-aaa",
+    sourceRevision: "src-1",
+    startedAt: "2026-01-01T00:00:00Z",
+    endedAt: "2026-01-01T00:01:00Z",
+    durationMs: 60_000,
+    verdict: "failed",
+    reportingComplete: true,
+    hasStructuredSteps: true,
+    stepCount: 2,
+  };
+
+  it("groups runs sharing (bundle + target + revision) and assigns 1-based attempt numbers latest-first", () => {
+    const attempt1: E2eRunSummary = {
+      ...baseRun,
+      id: "tenant-1/ns/run-1",
+      runId: "11111111",
+      startedAt: "2026-01-01T00:10:00Z",
+      verdict: "failed",
+    };
+    const attempt2: E2eRunSummary = {
+      ...baseRun,
+      id: "tenant-1/ns/run-2",
+      runId: "22222222",
+      startedAt: "2026-01-01T00:20:00Z",
+      verdict: "failed",
+    };
+    const attempt3: E2eRunSummary = {
+      ...baseRun,
+      id: "tenant-1/ns/run-3",
+      runId: "33333333",
+      startedAt: "2026-01-01T00:30:00Z",
+      verdict: "passed",
+    };
+    const otherRev: E2eRunSummary = {
+      ...baseRun,
+      id: "tenant-1/ns/run-other",
+      runId: "44444444",
+      revision: "rev-bbb",
+      startedAt: "2026-01-01T00:25:00Z",
+      verdict: "passed",
+    };
+
+    const sorted = runsNewestFirst([attempt1, attempt2, attempt3, otherRev]);
+    const groups = groupRunAttempts(sorted);
+    expect(groups).toHaveLength(2);
+
+    const firstGroup = groups[0];
+    if (!firstGroup) throw new Error("expected first group");
+    expect(firstGroup.latest.run.runId).toBe("33333333");
+    expect(firstGroup.latest.attemptNumber).toBe(3);
+    expect(firstGroup.attempts).toHaveLength(3);
+    expect(
+      firstGroup.attempts.map((a) => [a.run.runId, a.attemptNumber]),
+    ).toEqual([
+      ["33333333", 3],
+      ["22222222", 2],
+      ["11111111", 1],
+    ]);
+
+    const secondGroup = groups[1];
+    if (!secondGroup) throw new Error("expected second group");
+    expect(secondGroup.latest.run.runId).toBe("44444444");
+    expect(secondGroup.latest.attemptNumber).toBe(1);
+    expect(secondGroup.attempts).toHaveLength(1);
+  });
+});
+
+describe("orderStepsCanonical and stepStateRank", () => {
+  const makeStep = (
+    stepId: string,
+    name: string,
+    state: E2eStep["state"] = "passed",
+    startedAt: string | null = null,
+  ): E2eStep => ({
+    stepId,
+    name,
+    state,
+    startedAt,
+    endedAt: null,
+    durationMs: 1000,
+  });
+
+  it("orders setup, numbered phase steps (P0 -> P3 numerically), diagnostics, and cleanup in canonical sequence", () => {
+    const unordered: E2eStep[] = [
+      makeStep("cleanup", "suite-teardown"),
+      makeStep("P2.10", "exec-roundtrip"),
+      makeStep("P3.1", "audit-log-continuity"),
+      makeStep("P2.7", "vault-fail-closed"),
+      makeStep("diagnostics", "failure-diagnostics", "failed"),
+      makeStep("P2.2", "secondary-gateway-exec"),
+      makeStep("P0.2", "environment-readiness"),
+      makeStep("setup", "suite-setup"),
+      makeStep("P1.1", "provisioning"),
+      makeStep("P0.1", "authentication"),
+    ];
+
+    const ordered = orderStepsCanonical(unordered);
+    expect(ordered.map((s) => s.stepId)).toEqual([
+      "setup",
+      "P0.1",
+      "P0.2",
+      "P1.1",
+      "P2.2",
+      "P2.7",
+      "P2.10",
+      "P3.1",
+      "diagnostics",
+      "cleanup",
+    ]);
+  });
+
+  it("respects plannedSteps order for non-phase steps and falls back to startedAt when unplanned", () => {
+    const steps: E2eStep[] = [
+      makeStep("deploy", "Deploy", "passed", "2026-01-01T00:02:00Z"),
+      makeStep("build", "Build", "passed", "2026-01-01T00:01:00Z"),
+      makeStep("verify", "Verify", "passed", "2026-01-01T00:03:00Z"),
+    ];
+
+    // Without plannedSteps, orders by startedAt
+    expect(orderStepsCanonical(steps).map((s) => s.stepId)).toEqual([
+      "build",
+      "deploy",
+      "verify",
+    ]);
+
+    // With plannedSteps, respects planned sequence
+    expect(
+      orderStepsCanonical(steps, [
+        { stepId: "verify", name: "Verify" },
+        { stepId: "build", name: "Build" },
+        { stepId: "deploy", name: "Deploy" },
+      ]).map((s) => s.stepId),
+    ).toEqual(["verify", "build", "deploy"]);
+  });
+
+  it("ranks step states from failed -> running -> passed -> skipped -> not-run", () => {
+    expect(stepStateRank("failed")).toBeLessThan(stepStateRank("running"));
+    expect(stepStateRank("running")).toBeLessThan(stepStateRank("passed"));
+    expect(stepStateRank("passed")).toBeLessThan(stepStateRank("skipped"));
+    expect(stepStateRank("skipped")).toBeLessThan(stepStateRank("not-run"));
   });
 });

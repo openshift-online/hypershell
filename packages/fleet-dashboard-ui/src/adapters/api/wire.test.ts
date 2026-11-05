@@ -6,6 +6,7 @@ import {
   orderedEnvironments,
 } from "../../domain/promotion";
 import {
+  mapE2eDiagnostics,
   mapE2eRunDetail,
   mapE2eRunLogPage,
   mapE2eRuns,
@@ -667,6 +668,65 @@ describe("mapE2eStreamLog", () => {
   });
 });
 
+describe("mapE2eRunDetail diagnostics and failure", () => {
+  it("maps diagnostics and failure from the wire payload and defaults safely when omitted", () => {
+    const withDiag = mapE2eRunDetail({
+      id: "tenant-1/ns/run-1",
+      runId: "run-1",
+      verdict: "failed",
+      failure: {
+        stepId: "P1.1",
+        stepName: "Primary gateway",
+        message: "primary gateway reached Running",
+      },
+      diagnostics: [
+        {
+          title: "All pods",
+          body: "pod/a CrashLoopBackOff",
+          severity: "error",
+        },
+        {
+          title: "Platform events",
+          body: "Warning BackOff",
+          severity: "warn",
+        },
+        {
+          title: "Info section",
+          body: "ok",
+        },
+      ],
+    });
+    expect(withDiag.failure).toEqual({
+      stepId: "P1.1",
+      message: "primary gateway reached Running",
+    });
+    expect(withDiag.diagnostics).toEqual([
+      {
+        title: "All pods",
+        body: "pod/a CrashLoopBackOff",
+        severity: "error",
+      },
+      {
+        title: "Platform events",
+        body: "Warning BackOff",
+        severity: "warn",
+      },
+      {
+        title: "Info section",
+        body: "ok",
+      },
+    ]);
+
+    const withoutDiag = mapE2eRunDetail({
+      id: "tenant-1/ns/run-2",
+      runId: "run-2",
+      verdict: "passed",
+    });
+    expect(withoutDiag.failure).toBeNull();
+    expect(withoutDiag.diagnostics).toEqual([]);
+  });
+});
+
 describe("mapSdlcAgents", () => {
   // Verifies: SDLC-AGT-02.01
   it("projects the full plane shape (camelCase wire -> domain)", () => {
@@ -746,5 +806,34 @@ describe("mapSdlcAgents", () => {
   it("tolerates a null/non-record payload", () => {
     expect(mapSdlcAgents(null)).toEqual({ envs: [], agents: [] });
     expect(mapSdlcAgents(undefined)).toEqual({ envs: [], agents: [] });
+  });
+});
+
+describe("mapE2eDiagnostics", () => {
+  it("maps diagnostic sections and normalizes severity", () => {
+    expect(
+      mapE2eDiagnostics({
+        diagnostics: [
+          {
+            title: "All pods",
+            body: "pod-0 CrashLoopBackOff",
+            severity: "error",
+          },
+          { title: "Events", body: "Warning BackOff", severity: "warn" },
+          { title: "Cluster info", body: "ok", severity: "unknown" },
+        ],
+      }),
+    ).toEqual({
+      diagnostics: [
+        {
+          title: "All pods",
+          body: "pod-0 CrashLoopBackOff",
+          severity: "error",
+        },
+        { title: "Events", body: "Warning BackOff", severity: "warn" },
+        { title: "Cluster info", body: "ok" },
+      ],
+    });
+    expect(mapE2eDiagnostics(null)).toEqual({ diagnostics: [] });
   });
 });

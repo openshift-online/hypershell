@@ -109,12 +109,216 @@
   margin-inline-end: var(--pf-t--global--spacer--sm);
 }
 
+.failureDetail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pf-t--global--spacer--xs, 4px) var(--pf-t--global--spacer--sm, 8px);
+  align-items: baseline;
+}
+
+.failureMessage {
+  font-family: var(--pf-t--global--font--family--mono, monospace);
+  overflow-wrap: anywhere;
+}
+
 .failureOutput {
   display: block;
   max-width: 24rem;
+  font-family: var(--pf-t--global--font--family--mono, monospace);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   color: var(--pf-t--global--text--color--status--danger--default);
+}
+
+.attemptCell {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--pf-t--global--spacer--xs, 4px) var(--pf-t--global--spacer--sm, 8px);
+}
+
+.attemptId {
+  color: var(--pf-t--global--text--color--subtle, #9a9da0);
+  font-family: var(--pf-t--global--font--family--mono, monospace);
+}
+
+.nestedAttemptRow {
+  background: var(
+    --pf-t--global--background--color--secondary--default,
+    #1b1d21
+  );
+}
+
+/* Center every runs-table cell vertically. The two-line Bundle cell (name over
+   version) makes each row taller than its single-line cells, so without this the
+   attempt text, toggle icon, and other cells top-align against that height and
+   rest at the top edge instead of sitting centered in the whitespace. */
+.runsTable td {
+  vertical-align: middle;
+}
+
+.runsTable td > .inline {
+  display: flex;
+}
+
+.nestedAttemptRow .attemptCell {
+  padding-inline-start: var(--pf-t--global--spacer--md, 16px);
+}
+
+/* Nested attempt rows stay mounted and reveal with motion. Each cell's content
+   lives in a grid wrapper whose single row animates from 0fr (collapsed) to 1fr
+   (open); the cell's block padding and bottom border animate alongside so a
+   collapsed row occupies no height. Keeping the rows mounted lets the close
+   animate too (unmounting would make collapse instant). */
+.attemptReveal {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 220ms ease;
+}
+
+.attemptReveal > .attemptRevealInner {
+  overflow: hidden;
+  min-height: 0;
+}
+
+.collapsedAttemptRow .attemptReveal {
+  grid-template-rows: 0fr;
+}
+
+.nestedAttemptRow > td {
+  transition:
+    padding-block-start 220ms ease,
+    padding-block-end 220ms ease;
+}
+
+.collapsedAttemptRow > td {
+  padding-block-start: 0;
+  padding-block-end: 0;
+  border-block-end-width: 0;
+}
+
+/* Toggle chevron rotates between the collapsed and open states. */
+.chevron {
+  transition: transform 200ms ease;
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .attemptReveal,
+  .nestedAttemptRow > td,
+  .chevron {
+    transition: none;
+  }
+}
+
+/* Log modal maximize/restore. The box width is driven by PatternFly's modal-box
+   width custom property; we transition the resolved width so toggling between the
+   large variant and near-full width animates. The :global compound beats PF's
+   own .pf-v6-c-modal-box.pf-m-lg specificity so the override wins. */
+:global(.pf-v6-c-modal-box).logModalBox {
+  transition:
+    width 240ms ease,
+    max-width 240ms ease;
+}
+
+:global(.pf-v6-c-modal-box.pf-m-lg).logModalMax {
+  --pf-v6-c-modal-box--Width: 98vw;
+  --pf-v6-c-modal-box--MaxWidth: 98vw;
+}
+
+.logModalTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--pf-t--global--spacer--sm, 8px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :global(.pf-v6-c-modal-box).logModalBox {
+    transition: none;
+  }
+}
+
+.diagnosticsSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pf-t--global--spacer--sm, 8px);
+  margin-top: var(--pf-t--global--spacer--xs, 4px);
+  border: 1px solid var(--pf-t--global--border--color--default, #444548);
+  border-radius: var(--pf-t--global--border--radius--small, 4px);
+  padding: var(--pf-t--global--spacer--sm, 8px);
+}
+
+.diagnosticsToggle {
+  font-weight: var(--pf-t--global--font--weight--body--bold, 700);
+}
+
+.diagnosticsSectionEmpty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pf-t--global--spacer--xs, 4px);
+  margin-top: var(--pf-t--global--spacer--xs, 4px);
+  border: 1px dashed var(--pf-t--global--border--color--default, #444548);
+  border-radius: var(--pf-t--global--border--radius--small, 4px);
+  background: var(
+    --pf-t--global--background--color--secondary--default,
+    #1b1d21
+  );
+  padding: var(--pf-t--global--spacer--sm, 8px);
+  color: var(--pf-t--global--text--color--subtle, #9a9da0);
+  opacity: 0.75;
+}
+
+.diagnosticEmptyHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pf-t--global--spacer--sm, 8px);
+  flex-wrap: wrap;
+}
+
+.diagnosticsTitleMuted {
+  color: var(--pf-t--global--text--color--subtle, #9a9da0);
+  margin: 0;
+}
+
+.diagnosticEmptyNote {
+  font-size: var(--pf-t--global--font--size--body--sm, 0.85rem);
+  color: var(--pf-t--global--text--color--subtle, #9a9da0);
+  margin: 0;
+}
+
+.diagnosticItem {
+  border: 1px solid var(--pf-t--global--border--color--default, #444548);
+  border-radius: var(--pf-t--global--border--radius--small, 4px);
+  background: var(
+    --pf-t--global--background--color--secondary--default,
+    #1b1d21
+  );
+  padding: var(--pf-t--global--spacer--sm, 8px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--pf-t--global--spacer--xs, 4px);
+}
+
+.diagnosticHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--pf-t--global--spacer--sm, 8px);
+  flex-wrap: wrap;
+  font-weight: var(--pf-t--global--font--weight--body--bold, 700);
+}
+
+.diagnosticBody {
+  margin: 0;
+  max-height: 16rem;
+  overflow: auto;
+  font-family: var(--pf-t--global--font--family--mono, monospace);
+  font-size: var(--pf-t--global--font--size--body--sm, 0.85rem);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .attemptControls {
@@ -128,6 +332,32 @@
 }
 .attemptControls > :last-child {
   white-space: nowrap;
+}
+
+.stepsToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--pf-t--global--spacer--sm, 8px);
+  margin-bottom: var(--pf-t--global--spacer--sm, 8px);
+}
+
+.stepSortSelect {
+  width: auto;
+  max-width: 15rem;
+}
+
+.stepCellContent {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--pf-t--global--spacer--xs, 4px);
+}
+
+.stepIdBadge {
+  color: var(--pf-t--global--text--color--subtle, #9a9da0);
+  font-family: var(--pf-t--global--font--family--mono, monospace);
+  font-size: var(--pf-t--global--font--size--body--sm, 0.85rem);
 }
 
 .stepsTable {
@@ -179,7 +409,7 @@
 }
 
 .bundleIdentity {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: var(--pf-t--global--spacer--sm);
 }

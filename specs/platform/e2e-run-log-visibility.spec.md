@@ -386,7 +386,11 @@ logs a bounded page at a time by infinite scroll rather than in one fetch
 (see E2E-LOG-19, E2E-LOG-22): it SHALL render the most recent page first, load
 older pages automatically as the operator scrolls toward the oldest end with a
 visible loading indicator, and preserve the operator's scroll position when older
-lines are prepended, without a "Load more" button. The view SHALL offer
+lines are prepended, without a "Load more" button. Raw-log history SHALL remain
+idle while Progress is active and SHALL issue its first page request only when the
+operator opens Logs or selects a step, so opening a run requires only the lifecycle
+query for completed runs. An in-progress run MAY still read a diagnostics-excluding
+raw-log backfill for its snapshot-to-tail seam (E2E-LOG-21). The view SHALL offer
 follow/pause, bounded rendering of long logs,
 a choice between a selected step's logs and the whole run's logs, and retained
 history after the Pod is deleted. A selected step's logs SHALL be fetched scoped to
@@ -422,6 +426,21 @@ name only for a unique trusted cluster/namespace match, with cluster and namespa
 as supporting context; an unknown or ambiguous instance SHALL fall back to cluster
 and namespace. Search SHALL include instance names and bundle versions.
 
+For a failed run, the lifecycle detail SHALL retain the terminal record's failed
+`stepId` and concise failure `message`. The selected-run pane SHALL render that
+summary in a dedicated danger alert above the Progress and Logs tabs. It SHALL
+not derive the summary from, or place it only inside, the raw log stream, so a
+large diagnostic dump, pagination, or log-query failure cannot hide the cause.
+The suite's conditional `diagnostics` step SHALL render as its own selectable
+progress and log scope below the planned `suite-teardown` step. Diagnostic lines
+SHALL NOT be mixed into the teardown scope or the default whole-run log scope. The
+BFF SHALL exclude them in Loki before applying the default page limit, and SHALL
+load them only when the operator explicitly selects the diagnostics scope. The
+display order does not change the required execution order: evidence is still
+collected before destructive cleanup,
+and the `suite-teardown` lifecycle SHALL start only after that collection finishes
+so its logs and duration describe cleanup alone.
+
 History queries SHALL isolate lifecycle events from the bounded log window so
 chatty output cannot evict the run verdict or steps. Raw-log history SHALL be read
 by cursor-paged queries whose per-page size stays well below the Loki query
@@ -455,6 +474,28 @@ overlap, and surface truncated history or dropped events.
 - GIVEN a fail-fast run where later steps were never reached and a mode-skipped step
 - WHEN the detail renders
 - THEN not-run steps SHALL be distinct from skipped steps, and neither SHALL read as passed
+
+#### Scenario: E2E-LOG-12.05 -- Failure cause remains separate from diagnostics
+
+- GIVEN a failed run whose terminal record carries a failed step and concise cause
+- WHEN the selected-run detail renders with a large or unavailable raw log stream
+- THEN a danger alert above the tabs SHALL show the failed step and cause
+- AND the operator SHALL NOT need to search or load the diagnostic logs to find it
+
+#### Scenario: E2E-LOG-12.06 -- Diagnostics are a separate subsection
+
+- GIVEN a failed run emits a conditional `diagnostics` step
+- WHEN the selected-run detail renders
+- THEN `failure diagnostics` SHALL appear below `suite teardown`
+- AND selecting it SHALL scope the log pane to diagnostic lines only
+- AND the Progress tab and default whole-run log scope SHALL NOT load diagnostic lines
+
+#### Scenario: E2E-LOG-12.07 -- Raw logs are lazy
+
+- GIVEN a selected completed run opens on Progress
+- WHEN its lifecycle detail renders
+- THEN the browser SHALL NOT request raw-log history
+- AND opening Logs SHALL request only the active whole-run or selected-step scope
 
 ### Requirement: E2E-LOG-13 -- Domain Observability Probes
 
@@ -543,11 +584,14 @@ early step's lines are returned without first reading a run-wide page (E2E-LOG-2
 E2E-LOG-24), parsing and filtering against wrapped ViaQ events, malformed records,
 and unrelated events, a lifecycle-bounded time range for a completed step and the
 documented fallback when lifecycle timing is missing (E2E-LOG-25), and a stable
-lower bound across a step's pages. UI tests SHALL cover event
+lower bound across a step's pages. They SHALL prove that the default whole-run
+query excludes diagnostics before the limit while an explicit diagnostics scope
+still returns them. UI tests SHALL cover event
 reduction and ordering, duplicate and reconnect behavior, parallel steps, the
 skipped-versus-not-run distinction, missing terminal records, malformed messages,
 output escaping, auth/session expiry, recent attempts, exact-SHA correlation, live
-steps and logs, reconnect state, failure, and retained history. UI tests SHALL also
+steps and logs, reconnect state, failure, retained history, and zero paginated
+raw-log requests while a completed run remains on Progress. UI tests SHALL also
 cover infinite scroll: the older-page load firing from the scroll observer rather
 than a click, the loading indicator while a page is in flight, preserved scroll
 position on prepend, stopping at `hasMoreOlder` false, and merging live-streamed
@@ -637,6 +681,12 @@ bounded-page contract SHALL apply to the selected step's pages (E2E-LOG-23), and
 page SHALL be filtered in Loki before the limit (E2E-LOG-24) and bounded by the
 step's lifecycle window (E2E-LOG-25).
 
+The default whole-run page SHALL select structured `log` events and exclude the
+`diagnostics` step in the LogQL pipeline before Loki applies the page limit. This
+keeps the normal failure and teardown history useful without transferring the large
+diagnostic payload. A request with `step=diagnostics` SHALL bypass that exclusion
+and return the diagnostic step normally.
+
 #### Scenario: E2E-LOG-19.01 -- Newest page then older pages by cursor
 
 - GIVEN a chatty run with more log lines than one page
@@ -668,6 +718,13 @@ step's lifecycle window (E2E-LOG-25).
 - WHEN the client requests the older page whose oldest entries all share the cursor's nanosecond
 - THEN the server SHALL stop paging rather than return a cursor that cannot advance
 - AND it SHALL report the stop as a locally-limited boundary, distinct from end-of-history, so the pane shows the local limit rather than claiming all history was read
+
+#### Scenario: E2E-LOG-19.06 -- Diagnostics are opt-in
+
+- GIVEN a failed run whose diagnostics are larger than one page
+- WHEN the client requests the default whole-run page
+- THEN the Loki query SHALL exclude diagnostics before applying the page limit
+- AND a request with `step=diagnostics` SHALL return diagnostic lines normally
 
 ### Requirement: E2E-LOG-20 -- Run Detail Decoupled From Raw Logs
 
@@ -706,6 +763,8 @@ run would render nothing. On handoff, the newest history page and the live strea
 SHALL be reconciled by `sequence` (or `(timestampNs, line)`) so the seam between the
 last history line and the first live line neither drops nor duplicates a line,
 consistent with the snapshot-to-tail bridge (E2E-LOG-06).
+The browser SHALL append diagnostic live frames only to an explicitly selected
+diagnostics buffer, never to the default whole-run buffer.
 
 #### Scenario: E2E-LOG-21.01 -- Live log frames append for an in-progress run
 
@@ -772,8 +831,9 @@ The raw-log history API SHALL accept an optional selected step so a run's histor
 can be read scoped to one step. An optional `stepId` SHALL be threaded through the
 frontend `FleetApi` port (`getE2eRunLogs`), the HTTP adapter, the BFF logs handler
 (`GET /api/e2e/logs`, E2E-LOG-19), and the BFF log-source interface (`RunLogs`).
-When `stepId` is absent, the endpoint SHALL preserve the existing run-wide behavior
-(E2E-LOG-19) unchanged. The history scope SHALL be the pair `(run id, step id)`:
+When `stepId` is absent, the endpoint SHALL preserve the operator-focused run-wide
+behavior from E2E-LOG-19, including its diagnostics exclusion. The history scope
+SHALL be the pair `(run id, step id)`:
 the log buffer, pagination cursor, loading/error state, and request cancellation
 SHALL be tied to that scope, so the browser requests a step's logs directly instead
 of keeping a run-wide buffer and applying a render-time step filter. On a selection
@@ -792,7 +852,7 @@ results) so one step's history can never populate another step's view.
 
 - GIVEN a logs request that carries no `stepId`
 - WHEN the endpoint serves the page
-- THEN it SHALL behave exactly as the run-wide raw-log history (E2E-LOG-19)
+- THEN it SHALL return the run-wide raw-log history with diagnostics excluded (E2E-LOG-19)
 
 #### Scenario: E2E-LOG-23.03 -- Rapid switching does not contaminate the view
 
@@ -928,6 +988,41 @@ state.
 - GIVEN a page whose oldest entries all share the cursor's nanosecond so the backend reports a locally-limited boundary (E2E-LOG-19)
 - WHEN the pane renders that page
 - THEN it SHALL show the locally-limited history state, NOT end-of-history, and SHALL NOT keep requesting the same older page
+
+### Requirement: E2E-LOG-27 -- Lazy Failure Diagnostics Endpoint
+
+When the Go E2E suite collects failure diagnostics (E2E-CORE-27), the structured
+reporter SHALL emit redacted, `PIPE_BUF`-bounded diagnostic chunks (and legacy
+`DIAG <title>\n<body>` log sections). `GET /api/e2e/runs/{id}` SHALL NOT query Loki for
+diagnostic bodies; it SHALL retain the `diagnostics` step state (`passed` / `skipped` /
+`not-run` / `running`) in `steps` so the UI can enable or disable the diagnostics
+control without fetching bodies. `GET /api/e2e/diagnostics?run=<id>` SHALL be the only
+endpoint that queries the Loki diagnostics stream and SHALL reduce the entries into an
+ordered `diagnostics` array of `{ title, body, severity? }` sections. Whole-run raw-log
+pagination (`GET /api/e2e/logs` without `step`) SHALL bound its Loki time range to the
+run's lifecycle window plus the configured margin and exclude diagnostic payloads before
+Loki applies the page limit.
+
+#### Scenario: E2E-LOG-27.01 -- Lazy diagnostics endpoint exposes structured failure diagnostics
+
+- GIVEN a failed run that emitted failure-diagnostics sections
+- WHEN `GET /api/e2e/runs/{id}` is requested
+- THEN the response SHALL include the `diagnostics` step state in `steps` without querying Loki for diagnostic bodies
+- AND WHEN `GET /api/e2e/diagnostics?run=<id>` is requested
+- THEN the response SHALL include the reassembled `diagnostics` sections under `data.diagnostics`
+
+### Requirement: E2E-LOG-28 -- Concise Failure Summary on Failed Run Detail
+
+A failed run's detail (`E2ERunDetail` / `E2eFailureSummary`) SHALL carry the failed
+`stepId` and concise failure `message` extracted from the terminal failure record so
+the UI can display the failure summary header without printing raw assertion diffs
+or loading raw log pages.
+
+#### Scenario: E2E-LOG-28.01 -- Failed run detail carries failure summary
+
+- GIVEN a failed run whose terminal record identifies the failed step and failure message
+- WHEN the run detail is reduced
+- THEN the detail SHALL expose the failed `stepId` and concise `message` for the header alert
 
 ## Non-Goals
 

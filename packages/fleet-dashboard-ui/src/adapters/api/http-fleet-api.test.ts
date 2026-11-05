@@ -179,6 +179,32 @@ describe("createHttpFleetApi", () => {
       expect.anything(),
     );
   });
+
+  it("requests failure diagnostics via the run query parameter", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      okResponse({
+        data: {
+          diagnostics: [
+            { title: "Pod status", body: "gateway-0 0/1", severity: "error" },
+          ],
+        },
+        generatedAt: "2026-01-01T00:00:00Z",
+        stale: false,
+        error: null,
+      }),
+    );
+    const api = createHttpFleetApi({ basePath: "/api", fetchImpl });
+
+    const plane = await api.getE2eDiagnostics("tenant-1/ns/run-1");
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "/api/e2e/diagnostics?run=tenant-1%2Fns%2Frun-1",
+      expect.anything(),
+    );
+    expect(plane.data.diagnostics).toEqual([
+      { title: "Pod status", body: "gateway-0 0/1", severity: "error" },
+    ]);
+  });
 });
 
 /** A controllable EventSource double for the SSE stream tests. */

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/openshift-online/hypershell/components/fleet-dashboard/pkg/config"
@@ -33,7 +34,9 @@ const (
 	e2eEventStepStarted  = "step_started"
 	e2eEventStepFinished = "step_finished"
 	e2eEventLog          = "log"
+	e2eEventDiagnostic   = "diagnostic"
 	e2eEventRunFinished  = "run_finished"
+	diagnosticsStepID    = "diagnostics"
 )
 
 // Run verdicts. A run with no terminal run_finished record reads as unknown
@@ -72,6 +75,9 @@ type e2eEvent struct {
 	Timestamp      string       `json:"timestamp"`
 	StepID         string       `json:"stepId"`
 	Name           string       `json:"name"`
+	Title          string       `json:"title"`
+	Severity       string       `json:"severity"`
+	Chunk          int          `json:"chunk"`
 	Outcome        string       `json:"outcome"`
 	DurationMs     *int64       `json:"durationMs"`
 	Message        string       `json:"message"`
@@ -137,6 +143,9 @@ type E2ERunDetail struct {
 	E2ERunSummary
 	PlannedSteps []E2EPlanned `json:"plannedSteps"`
 	Steps        []E2EStep    `json:"steps"`
+	// Failure is copied from the terminal run_finished record so Glass can keep
+	// the cause visible independently of the raw diagnostic log stream.
+	Failure *E2EFailureSummary `json:"failure,omitempty"`
 	// Logs is intentionally NOT populated by the run-detail endpoint: steps and
 	// verdict come from the small, always-fast lifecycle query, and the raw-log
 	// history is read a bounded page at a time through the logs endpoint (E2E-LOG-19,
@@ -149,6 +158,29 @@ type E2ERunDetail struct {
 	// completeness is reported per page by the logs endpoint's hasMore (E2E-LOG-19),
 	// not by a detail-level flag.
 	LogsTruncated bool `json:"logsTruncated"`
+}
+
+// E2EDiagnosticsPayload is the /api/e2e/diagnostics plane data: the titled
+// failure-diagnostics sections captured for one run, fetched lazily when the
+// operator expands the diagnostics view so opening a run detail never queries
+// the diagnostics stream (E2E-LOG-27).
+type E2EDiagnosticsPayload struct {
+	Diagnostics []E2EDiagnosticSection `json:"diagnostics"`
+}
+
+// E2EDiagnosticSection is one titled failure-diagnostics section returned by
+// the lazy diagnostics endpoint (E2E-CORE-27, E2E-LOG-27).
+type E2EDiagnosticSection struct {
+	Title    string `json:"title"`
+	Body     string `json:"body"`
+	Severity string `json:"severity,omitempty"`
+}
+
+// E2EFailureSummary is the failed step and concise cause retained on a terminal
+// failed run.
+type E2EFailureSummary struct {
+	StepID  string `json:"stepId"`
+	Message string `json:"message"`
 }
 
 // E2ELogPage is one bounded page of a run's raw-log history, served by the
@@ -211,6 +243,43 @@ type E2E struct {
 	// broker shares bounded upstream tails across subscribed browsers within this
 	// replica (E2E-LOG-05); created lazily by the stream handler.
 	broker *tailBroker
+
+	// windowMu guards windowCache, which retains the reduced lifecycle window for
+	// recently seen runs so RunDetail, RunLogs, and stepLogWindow can bound Loki
+	// query_range requests to the run's actual time span instead of scanning the
+	// entire 168h lookback window on every request.
+	windowMu    sync.RWMutex
+	windowCache map[string]*E2ERunDetail
+}
+
+const maxWindowCacheEntries = 512
+
+func (e *E2E) cacheRunWindow(run *E2ERunDetail) {
+	if e == nil || run == nil || run.ID == "" || run.StartedAt == "" {
+		return
+	}
+	e.windowMu.Lock()
+	defer e.windowMu.Unlock()
+	if e.windowCache == nil {
+		e.windowCache = make(map[string]*E2ERunDetail)
+	}
+	if len(e.windowCache) >= maxWindowCacheEntries {
+		for k := range e.windowCache {
+			delete(e.windowCache, k)
+			break
+		}
+	}
+	e.windowCache[run.ID] = run
+}
+
+func (e *E2E) cachedRunWindow(id string) (*E2ERunDetail, bool) {
+	if e == nil || id == "" {
+		return nil, false
+	}
+	e.windowMu.RLock()
+	defer e.windowMu.RUnlock()
+	run, ok := e.windowCache[id]
+	return run, ok
 }
 
 // NewE2E builds the e2e-run source from config, or returns nil when the feature
@@ -237,6 +306,7 @@ func newE2EWithClient(c *config.Config, loki LokiClient) *E2E {
 		logPageSize:   c.E2ELogPageSize,
 		logTimeMargin: c.E2ELogTimeMargin,
 		logger:        slog.Default(),
+		windowCache:   make(map[string]*E2ERunDetail),
 	}
 	e.broker = newTailBroker(loki, e.selector, e.logger)
 	return e
@@ -277,6 +347,7 @@ func (e *E2E) Runs(ctx context.Context) (any, error) {
 				e.logger.WarnContext(ctx, "skipping e2e run with empty namespace", "tenant", tenant, "runId", run.RunID)
 				continue
 			}
+			e.cacheRunWindow(run)
 			all = append(all, run.E2ERunSummary)
 		}
 	}
@@ -343,11 +414,23 @@ func (e *E2E) RunDetail(ctx context.Context, id string) (*E2ERunDetail, error) {
 	}
 	end := time.Now()
 	start := end.Add(-e.window)
+	queryStart, queryEnd := start, end
+	if cached, ok := e.cachedRunWindow(id); ok {
+		if lower, upper, bok := e.boundsForRun(cached, end); bok {
+			if lower.After(queryStart) && lower.Before(queryEnd) {
+				queryStart = lower
+			}
+			if upper.Before(queryEnd) && upper.After(queryStart) {
+				queryEnd = upper
+			}
+		}
+	}
 
 	runSelector := e.selector + " |= " + strconv.Quote(runID)
-	// Only the lifecycle query runs here; its line count is small by construction, so
-	// its limit flag is not a raw-log-truncation signal and is intentionally ignored.
-	lifecycle, _, err := e.loki.QueryRange(ctx, tenant, lifecycleQuery(runSelector), start, end, lokiQueryLimit)
+	// Only the lifecycle query runs here; its line count is small by construction,
+	// so its limit flag is not a raw-log-truncation signal and is intentionally
+	// ignored. Opening a run detail never queries the diagnostics stream (E2E-LOG-27).
+	lifecycle, _, err := e.loki.QueryRange(ctx, tenant, lifecycleQuery(runSelector), queryStart, queryEnd, lokiQueryLimit)
 	if err != nil {
 		// The lifecycle/steps query itself failed, so there is nothing cheap to serve:
 		// this is the genuine backend-unavailable case (E2E-LOG-20). Log the detailed
@@ -358,8 +441,18 @@ func (e *E2E) RunDetail(ctx context.Context, id string) (*E2ERunDetail, error) {
 		return nil, ErrLogBackendUnavailable
 	}
 
-	for _, run := range reduceRunsForTenant(tenant, lifecycle) {
+	runs := reduceRunsForTenant(tenant, lifecycle)
+	if len(runs) == 0 && (!queryStart.Equal(start) || !queryEnd.Equal(end)) {
+		lifecycle, _, err = e.loki.QueryRange(ctx, tenant, lifecycleQuery(runSelector), start, end, lokiQueryLimit)
+		if err != nil {
+			e.logger.WarnContext(ctx, "e2e run detail fallback lifecycle query failed", "tenant", tenant, "err", err)
+			return nil, ErrLogBackendUnavailable
+		}
+		runs = reduceRunsForTenant(tenant, lifecycle)
+	}
+	for _, run := range runs {
 		if run.RunID == runID && run.Namespace == namespace {
+			e.cacheRunWindow(run)
 			if e.versioner != nil {
 				run.Bundle = e.versioner.ResolveHydrated(ctx, run.Revision)
 			}
@@ -367,6 +460,45 @@ func (e *E2E) RunDetail(ctx context.Context, id string) (*E2ERunDetail, error) {
 		}
 	}
 	return nil, ErrRunNotFound
+}
+
+// RunDiagnostics lazily fetches and reduces the failure-diagnostics sections for
+// one run addressed by its collision-free id (E2E-LOG-27). It is the ONLY path
+// that queries Loki for the diagnostics stream (structured diagnostic events,
+// stepId:"diagnostics"/"failure-diagnostics" log lines, and legacy DIAG log
+// sections), so opening a run detail or paging run-wide logs never pays the cost
+// of scanning diagnostic bodies.
+func (e *E2E) RunDiagnostics(ctx context.Context, id string) (*E2EDiagnosticsPayload, error) {
+	tenant, namespace, runID, err := parseRunID(id)
+	if err != nil {
+		return nil, err
+	}
+	if !e.tenantAllowed(tenant) {
+		return nil, ErrRunNotFound
+	}
+	end := time.Now()
+	start := end.Add(-e.window)
+	queryStart, queryEnd := start, end
+	if cached, ok := e.cachedRunWindow(id); ok {
+		if lower, upper, bok := e.boundsForRun(cached, end); bok {
+			if lower.After(queryStart) && lower.Before(queryEnd) {
+				queryStart = lower
+			}
+			if upper.Before(queryEnd) && upper.After(queryStart) {
+				queryEnd = upper
+			}
+		}
+	}
+
+	runSelector := e.selector + " |= " + strconv.Quote(runID)
+	entries, _, err := e.loki.QueryRange(ctx, tenant, diagnosticsQuery(runSelector), queryStart, queryEnd, lokiQueryLimit)
+	if err != nil {
+		e.logger.WarnContext(ctx, "e2e run diagnostics query failed", "tenant", tenant, "err", err)
+		return nil, ErrLogBackendUnavailable
+	}
+	return &E2EDiagnosticsPayload{
+		Diagnostics: reduceDiagnostics(namespace, runID, entries),
+	}, nil
 }
 
 // maxLogPageSize is the server-side clamp on a client-supplied logs page size, so
@@ -401,8 +533,8 @@ func clampLogPageSize(requested, def int) int {
 // is filtered to that one step - the step id is pushed into the Loki query as a
 // line filter so the limit applies to that step's lines rather than a run-wide
 // page (E2E-LOG-24), and the time range is bounded by the step's lifecycle window
-// (E2E-LOG-25). When stepID is empty the endpoint preserves the run-wide behavior
-// unchanged.
+// (E2E-LOG-25). When stepID is empty the endpoint bounds the query to the run's
+// lifecycle window when available, falling back to the configured history window.
 //
 // before is an optional nanosecond-timestamp cursor (exclusive upper bound;
 // empty means the newest page). limit is clamped to the server-side maximum. The
@@ -433,11 +565,14 @@ func (e *E2E) RunLogs(ctx context.Context, id, stepID, before string, limit int)
 		hasBefore = true
 	}
 
-	// Resolve the query time range. Run-wide history uses a window relative to the
-	// cursor (E2E-LOG-19); a selected step bounds the range to that step's lifecycle
-	// window with a configurable ingestion/skew margin and a STABLE lower bound that
-	// does not move backward as the cursor pages older (E2E-LOG-25).
+	// Resolve the query time range. A selected step bounds the range to that step's
+	// lifecycle window with a configurable ingestion/skew margin and a STABLE lower
+	// bound that does not move backward as the cursor pages older (E2E-LOG-25).
+	// Whole-run queries likewise bound the range to the run's lifecycle window when
+	// known so a run with fewer than limit log lines does not force Loki to scan the
+	// entire 168h history window backward.
 	var start, end time.Time
+	hasBoundedStart := false
 	if stepID != "" {
 		lower, upper, ok, werr := e.stepLogWindow(ctx, tenant, namespace, runID, stepID)
 		if werr != nil {
@@ -446,6 +581,7 @@ func (e *E2E) RunLogs(ctx context.Context, id, stepID, before string, limit int)
 		}
 		if ok {
 			start, end = lower, upper
+			hasBoundedStart = true
 		} else {
 			// Documented fallback: lifecycle timing is missing or incomplete, so fall
 			// back to the configured history window rather than silently omitting valid
@@ -454,8 +590,13 @@ func (e *E2E) RunLogs(ctx context.Context, id, stepID, before string, limit int)
 			start = end.Add(-e.window)
 		}
 	} else {
-		end = time.Now()
-		start = end.Add(-e.window)
+		if lower, upper, ok := e.runLogWindow(ctx, tenant, namespace, runID); ok {
+			start, end = lower, upper
+			hasBoundedStart = true
+		} else {
+			end = time.Now()
+			start = end.Add(-e.window)
+		}
 	}
 
 	if hasBefore {
@@ -463,35 +604,21 @@ func (e *E2E) RunLogs(ctx context.Context, id, stepID, before string, limit int)
 		// end = before + 1ns keeps the boundary timestamp in range and no entry that
 		// shares the cursor's exact nanosecond is dropped. The caller de-dupes the
 		// re-delivered boundary entries by sequence (E2E-LOG-19). The cursor only ever
-		// narrows the upper bound; the lower bound stays fixed (E2E-LOG-25).
+		// narrows the upper bound; the lower bound stays fixed when lifecycle-bounded
+		// (E2E-LOG-25).
 		cursorEnd := time.Unix(0, beforeNs+1)
 		if cursorEnd.Before(end) {
 			end = cursorEnd
 		}
-		if stepID == "" {
-			// Run-wide history keeps its relative lookback window around the cursor.
+		if !hasBoundedStart || !start.Before(end) {
+			// Fallback when lifecycle timing is unavailable or cursor precedes start.
 			start = end.Add(-e.window)
 		}
 	}
 
 	runSelector := e.selector + " |= " + strconv.Quote(runID)
-	if stepID != "" {
-		// Push the step scope into the query so Loki applies the page limit to this
-		// step's lines, not a run-wide page filtered afterwards (E2E-LOG-24). The step
-		// id rides a line filter on the pipeline/body, not a stream label, so run and
-		// step ids never become high-cardinality labels (E2E-LOG-24.03).
-		//
-		// The filter matches the serialized JSON field value token - the step id
-		// wrapped in the (ViaQ-escaped) quote pair as it appears in the structured
-		// event's "stepId":"<id>" field, i.e. the literal bytes \"<id>\" in the Loki
-		// line. Matching the quoted value rather than a bare substring disambiguates
-		// step ids that are prefixes of one another (e.g. "build" vs "build-image")
-		// and low-entropy names that could otherwise appear in another step's message,
-		// so the bounded page is not diluted before the limit. Go-side validation below
-		// still confirms the parsed event's step id matches exactly (defense in depth).
-		runSelector += " |= " + strconv.Quote(`\"`+stepID+`\"`)
-	}
-	entries, hitLimit, err := e.loki.QueryRange(ctx, tenant, runSelector, start, end, size)
+	query := logHistoryQuery(runSelector, stepID)
+	entries, hitLimit, err := e.loki.QueryRange(ctx, tenant, query, start, end, size)
 	if err != nil {
 		e.logger.WarnContext(ctx, "e2e run logs query failed", "tenant", tenant, "err", err)
 		return nil, ErrLogBackendUnavailable
@@ -557,6 +684,58 @@ func (e *E2E) RunLogs(ctx context.Context, id, stepID, before string, limit int)
 	return page, nil
 }
 
+// boundsForRun computes the [lower, upper] Loki query window for a run from its
+// lifecycle timestamps plus the configured ingestion/skew margin.
+func (e *E2E) boundsForRun(run *E2ERunDetail, now time.Time) (lower, upper time.Time, ok bool) {
+	if run == nil || run.StartedAt == "" {
+		return time.Time{}, time.Time{}, false
+	}
+	st, err := time.Parse(time.RFC3339Nano, run.StartedAt)
+	if err != nil {
+		return time.Time{}, time.Time{}, false
+	}
+	lower = st.Add(-e.logTimeMargin)
+	upper = now
+	if run.ReportingComplete && run.EndedAt != "" {
+		if et, err := time.Parse(time.RFC3339Nano, run.EndedAt); err == nil && !et.Before(st) {
+			candidate := et.Add(e.logTimeMargin)
+			if candidate.Before(upper) {
+				upper = candidate
+			}
+		}
+	}
+	if !lower.Before(upper) {
+		return time.Time{}, time.Time{}, false
+	}
+	return lower, upper, true
+}
+
+// runLogWindow resolves the lifecycle-bounded Loki time range for a whole-run
+// raw-log query when cached or discoverable from lifecycle events.
+func (e *E2E) runLogWindow(ctx context.Context, tenant, namespace, runID string) (lower, upper time.Time, ok bool) {
+	now := time.Now()
+	id := makeRunID(tenant, namespace, runID)
+	if cached, found := e.cachedRunWindow(id); found {
+		if l, u, bok := e.boundsForRun(cached, now); bok {
+			return l, u, true
+		}
+	}
+	start := now.Add(-e.window)
+	runSelector := e.selector + " |= " + strconv.Quote(runID)
+	lifecycle, _, err := e.loki.QueryRange(ctx, tenant, lifecycleQuery(runSelector), start, now, lokiQueryLimit)
+	if err != nil {
+		return time.Time{}, time.Time{}, false
+	}
+	for _, run := range reduceRunsForTenant(tenant, lifecycle) {
+		if run.RunID != runID || run.Namespace != namespace {
+			continue
+		}
+		e.cacheRunWindow(run)
+		return e.boundsForRun(run, now)
+	}
+	return time.Time{}, time.Time{}, false
+}
+
 // stepLogWindow resolves the lifecycle-bounded Loki time range for a selected
 // step's raw-log history (E2E-LOG-25). It reads the same small, always-fast
 // lifecycle query the run detail uses (E2E-LOG-20) to recover the step's start and
@@ -574,8 +753,23 @@ func (e *E2E) RunLogs(ctx context.Context, id, stepID, before string, limit int)
 // suite event timestamps and the Loki ingestion timestamps are not identical; the
 // margin absorbs that skew and ingestion delay (E2E-LOG-25).
 func (e *E2E) stepLogWindow(ctx context.Context, tenant, namespace, runID, stepID string) (lower, upper time.Time, ok bool, err error) {
+	id := makeRunID(tenant, namespace, runID)
 	end := time.Now()
 	start := end.Add(-e.window)
+	if cached, found := e.cachedRunWindow(id); found {
+		for _, step := range cached.Steps {
+			if step.StepID == stepID && step.State != stepStateRunning && step.StartedAt != "" && step.EndedAt != "" {
+				st, serr := time.Parse(time.RFC3339Nano, step.StartedAt)
+				et, eerr := time.Parse(time.RFC3339Nano, step.EndedAt)
+				if serr == nil && eerr == nil {
+					return st.Add(-e.logTimeMargin), et.Add(e.logTimeMargin), true, nil
+				}
+			}
+		}
+		if l, _, bok := e.boundsForRun(cached, end); bok && l.After(start) && l.Before(end) {
+			start = l
+		}
+	}
 	runSelector := e.selector + " |= " + strconv.Quote(runID)
 	lifecycle, _, qerr := e.loki.QueryRange(ctx, tenant, lifecycleQuery(runSelector), start, end, lokiQueryLimit)
 	if qerr != nil {
@@ -585,6 +779,7 @@ func (e *E2E) stepLogWindow(ctx context.Context, tenant, namespace, runID, stepI
 		if run.RunID != runID || run.Namespace != namespace {
 			continue
 		}
+		e.cacheRunWindow(run)
 		for _, step := range run.Steps {
 			if step.StepID != stepID {
 				continue
@@ -753,6 +948,9 @@ func reduceRun(tenant string, events []e2eEvent) *E2ERunDetail {
 			detail.ReportingComplete = true
 			detail.EndedAt = ev.Timestamp
 			detail.DurationMs = ev.DurationMs
+			if detail.Verdict == verdictFailed && ev.Message != "" {
+				detail.Failure = &E2EFailureSummary{StepID: ev.StepID, Message: ev.Message}
+			}
 		case e2eEventLog:
 			if len(logs) < maxDetailLogLines {
 				logs = append(logs, E2ELogLine{
@@ -777,6 +975,149 @@ func reduceRun(tenant string, events []e2eEvent) *E2ERunDetail {
 	detail.StepCount = len(detail.Steps)
 	detail.ID = makeRunID(tenant, detail.Namespace, detail.RunID)
 	return detail
+}
+
+// reduceDiagnostics reduces a run's diagnostics Loki entries into ordered,
+// deduplicated E2EDiagnosticSection items. Structured e2eEventDiagnostic chunks
+// are reassembled by Title in sequence order and take precedence over legacy
+// DIAG log sections with the same Title. Always returns a non-nil slice so the
+// JSON envelope serializes `"diagnostics": []` when empty (E2E-LOG-27).
+func reduceDiagnostics(namespace, runID string, entries []LokiEntry) []E2EDiagnosticSection {
+	var raw []e2eEvent
+	for _, entry := range entries {
+		ev, ok := parseViaQEvent(entry.Line)
+		if !ok || ev.RunID != runID {
+			continue
+		}
+		if ev.Namespace != "" && namespace != "" && ev.Namespace != namespace {
+			continue
+		}
+		raw = append(raw, ev)
+	}
+	ordered := dedupeBySequence(raw)
+
+	var structuredDiags []E2EDiagnosticSection
+	structuredDiagIdx := map[string]int{}
+	var legacyDiags []E2EDiagnosticSection
+	legacyDiagIdx := map[string]int{}
+	var fallbackLines []string
+
+	for _, ev := range ordered {
+		switch ev.Event {
+		case e2eEventDiagnostic:
+			title := strings.TrimSpace(firstNonEmpty(ev.Title, ev.Name))
+			if title == "" {
+				title = firstNonEmpty(ev.StepID, diagnosticsStepID)
+			}
+			severity := normalizeDiagnosticSeverity(ev.Severity)
+			if idx, exists := structuredDiagIdx[title]; exists {
+				if ev.Chunk > 0 {
+					structuredDiags[idx].Body += ev.Message
+				} else {
+					structuredDiags[idx].Body = ev.Message
+				}
+				if severity != "" {
+					structuredDiags[idx].Severity = severity
+				}
+			} else {
+				structuredDiagIdx[title] = len(structuredDiags)
+				structuredDiags = append(structuredDiags, E2EDiagnosticSection{
+					Title:    title,
+					Body:     ev.Message,
+					Severity: severity,
+				})
+			}
+		case e2eEventLog:
+			if title, body, ok := parseDiagLogMessage(ev.Message); ok {
+				if idx, exists := legacyDiagIdx[title]; exists {
+					legacyDiags[idx].Body = body
+				} else {
+					legacyDiagIdx[title] = len(legacyDiags)
+					legacyDiags = append(legacyDiags, E2EDiagnosticSection{
+						Title:    title,
+						Body:     body,
+						Severity: inferDiagSeverity(title, body),
+					})
+				}
+				continue
+			}
+			if (ev.StepID == diagnosticsStepID || ev.StepID == "failure-diagnostics") &&
+				!strings.HasPrefix(ev.Message, "DIAG collecting failure diagnostics") &&
+				strings.TrimSpace(ev.Message) != "" {
+				fallbackLines = append(fallbackLines, strings.TrimRight(ev.Message, "\n"))
+			}
+		}
+	}
+
+	out := make([]E2EDiagnosticSection, 0, len(structuredDiags)+len(legacyDiags))
+	out = append(out, structuredDiags...)
+	for _, d := range legacyDiags {
+		if _, exists := structuredDiagIdx[d.Title]; !exists {
+			out = append(out, d)
+		}
+	}
+	if len(out) == 0 && len(fallbackLines) > 0 {
+		body := strings.Join(fallbackLines, "\n")
+		out = append(out, E2EDiagnosticSection{
+			Title:    "Failure diagnostics",
+			Body:     body,
+			Severity: inferDiagSeverity("Failure diagnostics", body),
+		})
+	}
+	return out
+}
+
+// parseDiagLogMessage extracts a titled diagnostic section from a log event
+// formatted as "DIAG <title>\n<body>" (emitted by failureDiagnostics.section).
+// Single-line "DIAG collecting..." status lines without a newline are ignored.
+func parseDiagLogMessage(msg string) (title, body string, ok bool) {
+	if !strings.HasPrefix(msg, "DIAG ") {
+		return "", "", false
+	}
+	rest := strings.TrimPrefix(msg, "DIAG ")
+	nl := strings.IndexByte(rest, '\n')
+	if nl <= 0 {
+		return "", "", false
+	}
+	title = strings.TrimSpace(rest[:nl])
+	body = strings.TrimRight(rest[nl+1:], "\n")
+	if title == "" || strings.TrimSpace(body) == "" {
+		return "", "", false
+	}
+	return title, body, true
+}
+
+func normalizeDiagnosticSeverity(sev string) string {
+	switch strings.ToLower(strings.TrimSpace(sev)) {
+	case "info", "warn", "error":
+		return strings.ToLower(strings.TrimSpace(sev))
+	default:
+		return ""
+	}
+}
+
+func inferDiagSeverity(title, body string) string {
+	lowerTitle := strings.ToLower(title)
+	lowerBody := strings.ToLower(body)
+	switch {
+	case strings.Contains(lowerTitle, "error") ||
+		strings.Contains(lowerBody, "panic:") ||
+		strings.Contains(lowerBody, "crashloopbackoff") ||
+		strings.Contains(lowerBody, "imagepullbackoff") ||
+		strings.Contains(lowerBody, "errimagepull") ||
+		strings.Contains(lowerBody, "oomkilled"):
+		return "error"
+	case strings.Contains(lowerTitle, "warn") ||
+		strings.Contains(body, "Warning ") ||
+		strings.Contains(body, "phase=Failed") ||
+		strings.Contains(body, "phase=Pending") ||
+		strings.Contains(lowerBody, "level=error") ||
+		strings.Contains(lowerBody, "\"level\":\"error\"") ||
+		strings.Contains(lowerBody, "forbidden"):
+		return "warn"
+	default:
+		return "info"
+	}
 }
 
 // orderSteps lists planned steps in planned order, then any remaining seen steps
@@ -852,13 +1193,55 @@ func firstNonEmpty(a, b string) string {
 func lifecycleQuery(selector string) string {
 	return selector + ` |~ "run_started|step_started|step_finished|run_finished"`
 }
+
+// diagnosticsQuery selects only failure-diagnostics records for a run (structured
+// diagnostic events, log records scoped to the diagnostics step, and legacy DIAG
+// log sections). It is used exclusively by the lazy RunDiagnostics endpoint so
+// default run-list, run-detail, and run-wide log queries never scan diagnostic
+// payloads (E2E-LOG-27).
+func diagnosticsQuery(selector string) string {
+	return selector + ` |~ "event.{1,6}diagnostic|stepId.{1,6}(failure-)?diagnostics|DIAG "`
+}
+
+// logHistoryQuery narrows a raw-log page before Loki applies its result limit.
+// Whole-run pages omit the high-volume diagnostics scope (both the diagnostics
+// step and legacy DIAG dumps emitted during cleanup); operators load that
+// scope explicitly by selecting its step or expanding the lazy diagnostics view.
+// All pages select log events before the limit so lifecycle records cannot
+// dilute a bounded page. A selected step rides a line filter on the body rather
+// than a high-cardinality stream label. Matching its ViaQ-escaped quoted value
+// disambiguates step ids that prefix one another; Go-side parsing below remains
+// the authoritative exact match.
+func logHistoryQuery(selector, stepID string) string {
+	query := selector + " |= " + strconv.Quote(`\"event\":\"log\"`)
+	if stepID == "" {
+		return query + " != " + strconv.Quote(`\"stepId\":\"`+diagnosticsStepID+`\"`) + " != " + strconv.Quote(`\"message\":\"DIAG `)
+	}
+	return query + " |= " + strconv.Quote(`\"`+stepID+`\"`)
+}
+
 func (e *E2E) runEntries(ctx context.Context, tenant, runID string, start, end time.Time) ([]LokiEntry, bool, error) {
 	selector := e.selector + " |= " + strconv.Quote(runID)
 	lifecycle, structuralLimit, err := e.loki.QueryRange(ctx, tenant, lifecycleQuery(selector), start, end, lokiQueryLimit)
 	if err != nil {
 		return nil, false, err
 	}
-	logs, logLimit, err := e.loki.QueryRange(ctx, tenant, selector, start, end, lokiQueryLimit)
+	logStart, logEnd := start, end
+	for _, run := range reduceRunsForTenant(tenant, lifecycle) {
+		if run.RunID != runID {
+			continue
+		}
+		e.cacheRunWindow(run)
+		if lower, upper, ok := e.boundsForRun(run, end); ok {
+			if lower.After(logStart) && lower.Before(logEnd) {
+				logStart = lower
+			}
+			if upper.Before(logEnd) && upper.After(logStart) {
+				logEnd = upper
+			}
+		}
+	}
+	logs, logLimit, err := e.loki.QueryRange(ctx, tenant, logHistoryQuery(selector, ""), logStart, logEnd, maxDetailLogLines)
 	if err != nil {
 		return nil, false, err
 	}

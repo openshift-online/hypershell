@@ -97,6 +97,28 @@ func TestReporterEmitsVersionedEnvelope(t *testing.T) {
 	}
 }
 
+func TestReporterCarriesTerminalFailureSummary(t *testing.T) {
+	var buf bytes.Buffer
+	r := NewReporter(&buf, testIdentity())
+
+	r.RunFinished(OutcomeFailed, time.Second, FailureSummary{
+		StepID:  "P0.1",
+		Message: "authentication failed: password=hunter2",
+	})
+
+	events := decodeEvents(t, buf.Bytes())
+	if len(events) != 1 {
+		t.Fatalf("want 1 event, got %d", len(events))
+	}
+	got := events[0]
+	if got.StepID != "P0.1" {
+		t.Errorf("stepId = %q, want P0.1", got.StepID)
+	}
+	if strings.Contains(got.Message, "hunter2") || !strings.Contains(got.Message, "[REDACTED") {
+		t.Errorf("terminal failure summary was not redacted: %q", got.Message)
+	}
+}
+
 func TestReporterRunIDGeneratedWhenAbsent(t *testing.T) {
 	var buf bytes.Buffer
 	r := NewReporter(&buf, ReporterIdentity{}) // no supplied run id
@@ -264,3 +286,39 @@ func TestReporterWriteErrorDoesNotPanic(t *testing.T) {
 	r.Log("P1.1", "line")
 	r.RunFinished(OutcomeFailed, time.Second)
 }
+
+func TestReporterDiagnosticChunksAndRedactsWithinPipeBuf(t *testing.T) {
+	var buf bytes.Buffer
+	r := NewReporter(&buf, testIdentity())
+	largeBody := "Authorization: Bearer super-secret-token\n" + strings.Repeat("pod-line-with-details\n", 250)
+	r.Diagnostic("diagnostics", "All pods", largeBody, "warn")
+
+	for _, line := range bytes.Split(bytes.TrimRight(buf.Bytes(), "\n"), []byte("\n")) {
+		if len(line)+1 > maxRecord {
+			t.Fatalf("diagnostic line %d bytes exceeds maxRecord %d", len(line)+1, maxRecord)
+		}
+	}
+
+	events := decodeEvents(t, buf.Bytes())
+	if len(events) < 2 {
+		t.Fatalf("expected multi-chunk diagnostic events, got %d", len(events))
+	}
+	var reassembled strings.Builder
+	for i, ev := range events {
+		if ev.Event != eventDiagnostic {
+			t.Fatalf("event[%d].Event = %q, want %q", i, ev.Event, eventDiagnostic)
+		}
+		if ev.Title != "All pods" || ev.Severity != "warn" || ev.Chunk != i+1 {
+			t.Fatalf("unexpected diagnostic metadata on chunk %d: %+v", i+1, ev)
+		}
+		reassembled.WriteString(ev.Message)
+	}
+	got := reassembled.String()
+	if strings.Contains(got, "super-secret-token") {
+		t.Fatal("diagnostic output leaked bearer token")
+	}
+	if !strings.Contains(got, "[REDACTED]") {
+		t.Fatal("expected redacted marker in diagnostic output")
+	}
+}
+
