@@ -148,10 +148,12 @@ jobs:
           OPENSHELL_GATEWAY: ${{ env.GATEWAY_NAME }}
           OPENSHELL_WORKSPACE: ${{ env.WORKSPACE }}
         run: |
-          set -euo pipefail
-          # whoami is not implemented by this gateway version; sandbox list is a
-          # supported RPC and proves the injected token authenticates.
+          set +e
+          # whoami and sandbox list are UNIMPLEMENTED on this gateway version;
+          # tolerate them. The real auth+authz gate is `sandbox create` below.
           openshell sandbox list
+          echo "(probe exit $? -- tolerated; sandbox create is the gate)"
+          true
 
       - name: Create a sandbox on the gateway (the proof)
         id: sbx
