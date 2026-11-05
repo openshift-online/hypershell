@@ -27,7 +27,7 @@ import {
   Title,
   ToolbarItem,
 } from "@patternfly/react-core";
-import { CodeIcon, CopyIcon, SyncAltIcon } from "@patternfly/react-icons";
+import { CodeIcon, CopyIcon, ExternalLinkAltIcon, SyncAltIcon } from "@patternfly/react-icons";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FormattedMessage, useIntl } from "react-intl";
@@ -1012,7 +1012,6 @@ export function GatewayPage({
                       aria-label={intl.formatMessage(messages.refreshGatewayDetails)}
                       icon={<SyncAltIcon />}
                       onClick={() => void gatewayQuery.refetch()}
-                      title={intl.formatMessage(messages.refreshGatewayDetails)}
                       variant="plain"
                     />
                   </FlexItem>
@@ -1054,7 +1053,11 @@ export function GatewayPage({
                               <FormattedMessage {...messages.clusterType} />
                             </DescriptionListTerm>
                             <DescriptionListDescription>
-                              {connection.clusterType ?? intl.formatMessage(messages.notAvailable)}
+                              {connection.clusterType?.trim() ? (
+                                connection.clusterType
+                              ) : (
+                                <FormattedMessage {...messages.notAvailable} />
+                              )}
                             </DescriptionListDescription>
                           </DescriptionListGroup>
                         </DescriptionList>
@@ -1086,7 +1089,11 @@ export function GatewayPage({
                               <FormattedMessage {...messages.createdBy} />
                             </DescriptionListTerm>
                             <DescriptionListDescription>
-                              {connection.createdBy ?? intl.formatMessage(messages.notAvailable)}
+                              {connection.createdBy?.trim() ? (
+                                connection.createdBy
+                              ) : (
+                                <FormattedMessage {...messages.notAvailable} />
+                              )}
                             </DescriptionListDescription>
                           </DescriptionListGroup>
                         </DescriptionList>
@@ -1122,7 +1129,7 @@ export function GatewayPage({
                               <Button
                                 component="a"
                                 href={connection.consoleUrl}
-                                icon={<span>↗</span>}
+                                icon={<ExternalLinkAltIcon />}
                                 iconPosition="end"
                                 rel="noopener noreferrer"
                                 target="_blank"
@@ -1222,7 +1229,6 @@ export function GatewayPage({
                       aria-label={intl.formatMessage(messages.refreshGatewayDetails)}
                       icon={<SyncAltIcon />}
                       onClick={() => void gatewayQuery.refetch()}
-                      title={intl.formatMessage(messages.refreshGatewayDetails)}
                       variant="plain"
                     />
                   </FlexItem>
