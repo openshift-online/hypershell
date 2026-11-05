@@ -2998,5 +2998,53 @@
   "app.version.console": {
     "defaultMessage": "Console build: {version}",
     "description": "Web console build version shown in the identity menu. The version is the source commit the console image was built from."
+  },
+  "app.gateway.details.heading": {
+    "defaultMessage": "Details",
+    "description": "Heading for the gateway Details tab content."
+  },
+  "app.gateway.details.description": {
+    "defaultMessage": "Review the gateway's current state and configuration.",
+    "description": "Description for the gateway Details tab."
+  },
+  "app.gateway.details.overview": {
+    "defaultMessage": "Overview",
+    "description": "Heading for the gateway Overview card."
+  },
+  "app.gateway.details.identity": {
+    "defaultMessage": "Identity",
+    "description": "Heading for the gateway Identity card."
+  },
+  "app.gateway.details.placement": {
+    "defaultMessage": "Placement",
+    "description": "Heading for the gateway Placement card."
+  },
+  "app.gateway.details.refresh": {
+    "defaultMessage": "Refresh gateway details",
+    "description": "Accessible label for the refresh gateway details button."
+  },
+  "app.gateway.details.openConsole": {
+    "defaultMessage": "Open gateway console",
+    "description": "Button label to open the gateway console in a new tab."
+  },
+  "app.gateway.details.gatewayId": {
+    "defaultMessage": "Gateway ID",
+    "description": "Label for the gateway identifier field."
+  },
+  "app.gateway.connection.description": {
+    "defaultMessage": "Connect a terminal to this gateway and start a Claude sandbox.",
+    "description": "Description for the gateway Connection tab."
+  },
+  "app.gateway.connection.automateThisGateway": {
+    "defaultMessage": "Automate this gateway",
+    "description": "Heading for the automation entry point card."
+  },
+  "app.gateway.connection.automateThisGatewayDescription": {
+    "defaultMessage": "CI/CD pipelines and bots should use service accounts.",
+    "description": "Description for the automation entry point card."
+  },
+  "app.gateway.connection.viewServiceAccounts": {
+    "defaultMessage": "View service accounts",
+    "description": "Link to the service accounts tab from the automation card."
   }
 }

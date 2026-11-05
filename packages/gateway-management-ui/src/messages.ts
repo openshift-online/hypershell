@@ -1861,5 +1861,65 @@ export const messages = defineMessages({
     defaultMessage: "IBM Cloud",
     description: "Alternative text for the IBM Cloud provider logo.",
   },
+  details: {
+    id: "app.gateway.details.heading",
+    defaultMessage: "Details",
+    description: "Heading for the gateway Details tab content.",
+  },
+  detailsTabDescription: {
+    id: "app.gateway.details.description",
+    defaultMessage: "Review the gateway's current state and configuration.",
+    description: "Description for the gateway Details tab.",
+  },
+  overview: {
+    id: "app.gateway.details.overview",
+    defaultMessage: "Overview",
+    description: "Heading for the gateway Overview card.",
+  },
+  identity: {
+    id: "app.gateway.details.identity",
+    defaultMessage: "Identity",
+    description: "Heading for the gateway Identity card.",
+  },
+  placement: {
+    id: "app.gateway.details.placement",
+    defaultMessage: "Placement",
+    description: "Heading for the gateway Placement card.",
+  },
+  refreshGatewayDetails: {
+    id: "app.gateway.details.refresh",
+    defaultMessage: "Refresh gateway details",
+    description: "Accessible label for the refresh gateway details button.",
+  },
+  openGatewayConsole: {
+    id: "app.gateway.details.openConsole",
+    defaultMessage: "Open gateway console",
+    description: "Button label to open the gateway console in a new tab.",
+  },
+  gatewayId: {
+    id: "app.gateway.details.gatewayId",
+    defaultMessage: "Gateway ID",
+    description: "Label for the gateway identifier field.",
+  },
+  connectionTabDescription: {
+    id: "app.gateway.connection.description",
+    defaultMessage: "Connect a terminal to this gateway and start a Claude sandbox.",
+    description: "Description for the gateway Connection tab.",
+  },
+  automateThisGateway: {
+    id: "app.gateway.connection.automateThisGateway",
+    defaultMessage: "Automate this gateway",
+    description: "Heading for the automation entry point card.",
+  },
+  automateThisGatewayDescription: {
+    id: "app.gateway.connection.automateThisGatewayDescription",
+    defaultMessage: "CI/CD pipelines and bots should use service accounts.",
+    description: "Description for the automation entry point card.",
+  },
+  viewServiceAccounts: {
+    id: "app.gateway.connection.viewServiceAccounts",
+    defaultMessage: "View service accounts",
+    description: "Link to the service accounts tab from the automation card.",
+  },
   /* eslint-enable sort-keys */
 });

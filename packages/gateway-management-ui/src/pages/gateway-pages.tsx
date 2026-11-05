@@ -3,6 +3,10 @@ import {
   AlertActionCloseButton,
   AlertGroup,
   Button,
+  Card,
+  CardBody,
+  CardHeader,
+  CardTitle,
   Content,
   DescriptionList,
   DescriptionListDescription,
@@ -11,7 +15,11 @@ import {
   Divider,
   Flex,
   FlexItem,
+  Grid,
+  GridItem,
   PageSection,
+  Stack,
+  StackItem,
   Switch,
   Tab,
   Tabs,
@@ -19,7 +27,7 @@ import {
   Title,
   ToolbarItem,
 } from "@patternfly/react-core";
-import { CodeIcon, CopyIcon } from "@patternfly/react-icons";
+import { CodeIcon, CopyIcon, SyncAltIcon } from "@patternfly/react-icons";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FormattedMessage, useIntl } from "react-intl";
@@ -988,58 +996,207 @@ export function GatewayPage({
               </TabTitleText>
             }
           >
-            <DescriptionList isHorizontal>
-              <DescriptionListGroup>
-                <DescriptionListTerm>
-                  <FormattedMessage {...messages.status} />
-                </DescriptionListTerm>
-                <DescriptionListDescription>
-                  <GatewayStatus status={connection.status} />
-                </DescriptionListDescription>
-              </DescriptionListGroup>
-              <DescriptionListGroup>
-                <DescriptionListTerm>
-                  <FormattedMessage {...messages.version} />
-                </DescriptionListTerm>
-                <DescriptionListDescription>
-                  {connection.gatewayVersion?.trim() ? (
-                    connection.gatewayVersion
-                  ) : (
-                    <FormattedMessage {...messages.versionPlaceholder} />
-                  )}
-                </DescriptionListDescription>
-              </DescriptionListGroup>
-              <DescriptionListGroup>
-                <DescriptionListTerm>
-                  <FormattedMessage {...messages.cluster} />
-                </DescriptionListTerm>
-                <DescriptionListDescription>
-                  <GatewayDetailClusterName gateway={connection} />
-                </DescriptionListDescription>
-              </DescriptionListGroup>
-              <DescriptionListGroup>
-                <DescriptionListTerm>
-                  <FormattedMessage {...messages.gatewayEndpoint} />
-                </DescriptionListTerm>
-                <DescriptionListDescription>
-                  {connection.endpoint ? (
-                    <div className={styles.endpointCopy}>
-                      <GatewayEndpointCopy gateway={connection} />
-                    </div>
-                  ) : (
-                    <FormattedMessage {...messages.notAvailable} />
-                  )}
-                </DescriptionListDescription>
-              </DescriptionListGroup>
-              <DescriptionListGroup>
-                <DescriptionListTerm>
-                  <FormattedMessage {...messages.namespace} />
-                </DescriptionListTerm>
-                <DescriptionListDescription>
-                  {visibleGateway.namespace}
-                </DescriptionListDescription>
-              </DescriptionListGroup>
-            </DescriptionList>
+            <Stack hasGutter>
+              <StackItem>
+                <Flex justifyContent={{ default: "justifyContentSpaceBetween" }}>
+                  <FlexItem>
+                    <Title headingLevel="h2" size="xl">
+                      <FormattedMessage {...messages.details} />
+                    </Title>
+                    <Content component="p">
+                      <FormattedMessage {...messages.detailsTabDescription} />
+                    </Content>
+                  </FlexItem>
+                  <FlexItem>
+                    <Button
+                      aria-label={intl.formatMessage(messages.refreshGatewayDetails)}
+                      icon={<SyncAltIcon />}
+                      onClick={() => void gatewayQuery.refetch()}
+                      title={intl.formatMessage(messages.refreshGatewayDetails)}
+                      variant="plain"
+                    />
+                  </FlexItem>
+                </Flex>
+              </StackItem>
+              <StackItem>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>
+                      <Title headingLevel="h2" size="xl">
+                        <FormattedMessage {...messages.overview} />
+                      </Title>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardBody>
+                    <Grid hasGutter>
+                      <GridItem lg={6} span={12}>
+                        <DescriptionList>
+                          <DescriptionListGroup>
+                            <DescriptionListTerm>
+                              <FormattedMessage {...messages.status} />
+                            </DescriptionListTerm>
+                            <DescriptionListDescription>
+                              <GatewayStatus status={connection.status} />
+                            </DescriptionListDescription>
+                          </DescriptionListGroup>
+                          <DescriptionListGroup>
+                            <DescriptionListTerm>
+                              <FormattedMessage {...messages.sandboxes} />
+                            </DescriptionListTerm>
+                            <DescriptionListDescription>
+                              {typeof connection.activeSandboxCount === "number"
+                                ? connection.activeSandboxCount
+                                : intl.formatMessage(messages.notAvailable)}
+                            </DescriptionListDescription>
+                          </DescriptionListGroup>
+                          <DescriptionListGroup>
+                            <DescriptionListTerm>
+                              <FormattedMessage {...messages.clusterType} />
+                            </DescriptionListTerm>
+                            <DescriptionListDescription>
+                              {connection.clusterType ?? intl.formatMessage(messages.notAvailable)}
+                            </DescriptionListDescription>
+                          </DescriptionListGroup>
+                        </DescriptionList>
+                      </GridItem>
+                      <GridItem lg={6} span={12}>
+                        <DescriptionList>
+                          <DescriptionListGroup>
+                            <DescriptionListTerm>
+                              <FormattedMessage {...messages.version} />
+                            </DescriptionListTerm>
+                            <DescriptionListDescription>
+                              {connection.gatewayVersion?.trim() ? (
+                                connection.gatewayVersion
+                              ) : (
+                                <FormattedMessage {...messages.versionPlaceholder} />
+                              )}
+                            </DescriptionListDescription>
+                          </DescriptionListGroup>
+                          <DescriptionListGroup>
+                            <DescriptionListTerm>
+                              <FormattedMessage {...messages.created} />
+                            </DescriptionListTerm>
+                            <DescriptionListDescription>
+                              <GatewayCreatedDate createdAt={connection.createdAt} />
+                            </DescriptionListDescription>
+                          </DescriptionListGroup>
+                          <DescriptionListGroup>
+                            <DescriptionListTerm>
+                              <FormattedMessage {...messages.createdBy} />
+                            </DescriptionListTerm>
+                            <DescriptionListDescription>
+                              {connection.createdBy ?? intl.formatMessage(messages.notAvailable)}
+                            </DescriptionListDescription>
+                          </DescriptionListGroup>
+                        </DescriptionList>
+                      </GridItem>
+                      <GridItem span={12}>
+                        <Flex
+                          alignItems={{ default: "alignItemsFlexEnd" }}
+                          flexWrap={{ default: "wrap" }}
+                          justifyContent={{
+                            default: "justifyContentSpaceBetween",
+                          }}
+                        >
+                          <FlexItem grow={{ default: "grow" }}>
+                            <DescriptionList>
+                              <DescriptionListGroup>
+                                <DescriptionListTerm>
+                                  <FormattedMessage {...messages.gatewayEndpoint} />
+                                </DescriptionListTerm>
+                                <DescriptionListDescription>
+                                  {connection.endpoint ? (
+                                    <div className={styles.endpointCopy}>
+                                      <GatewayEndpointCopy gateway={connection} />
+                                    </div>
+                                  ) : (
+                                    <FormattedMessage {...messages.notAvailable} />
+                                  )}
+                                </DescriptionListDescription>
+                              </DescriptionListGroup>
+                            </DescriptionList>
+                          </FlexItem>
+                          {connection.consoleUrl ? (
+                            <FlexItem>
+                              <Button
+                                component="a"
+                                href={connection.consoleUrl}
+                                icon={<span>↗</span>}
+                                iconPosition="end"
+                                rel="noopener noreferrer"
+                                target="_blank"
+                                variant="secondary"
+                              >
+                                <FormattedMessage {...messages.openGatewayConsole} />
+                              </Button>
+                            </FlexItem>
+                          ) : null}
+                        </Flex>
+                      </GridItem>
+                    </Grid>
+                  </CardBody>
+                </Card>
+              </StackItem>
+              <StackItem>
+                <Grid hasGutter>
+                  <GridItem lg={6} span={12}>
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>
+                          <Title headingLevel="h2" size="xl">
+                            <FormattedMessage {...messages.identity} />
+                          </Title>
+                        </CardTitle>
+                      </CardHeader>
+                      <CardBody>
+                        <DescriptionList>
+                          <DescriptionListGroup>
+                            <DescriptionListTerm>
+                              <FormattedMessage {...messages.gatewayId} />
+                            </DescriptionListTerm>
+                            <DescriptionListDescription>
+                              {visibleGateway.id}
+                            </DescriptionListDescription>
+                          </DescriptionListGroup>
+                          <DescriptionListGroup>
+                            <DescriptionListTerm>
+                              <FormattedMessage {...messages.namespace} />
+                            </DescriptionListTerm>
+                            <DescriptionListDescription>
+                              {visibleGateway.namespace}
+                            </DescriptionListDescription>
+                          </DescriptionListGroup>
+                        </DescriptionList>
+                      </CardBody>
+                    </Card>
+                  </GridItem>
+                  <GridItem lg={6} span={12}>
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>
+                          <Title headingLevel="h2" size="xl">
+                            <FormattedMessage {...messages.placement} />
+                          </Title>
+                        </CardTitle>
+                      </CardHeader>
+                      <CardBody>
+                        <DescriptionList>
+                          <DescriptionListGroup>
+                            <DescriptionListTerm>
+                              <FormattedMessage {...messages.cluster} />
+                            </DescriptionListTerm>
+                            <DescriptionListDescription>
+                              <GatewayDetailClusterName gateway={connection} />
+                            </DescriptionListDescription>
+                          </DescriptionListGroup>
+                        </DescriptionList>
+                      </CardBody>
+                    </Card>
+                  </GridItem>
+                </Grid>
+              </StackItem>
+            </Stack>
           </Tab>
           <Tab
             eventKey="connection"
@@ -1049,25 +1206,143 @@ export function GatewayPage({
               </TabTitleText>
             }
           >
-            <Content component="p">
-              <Button
-                isInline
-                onClick={() => {
-                  changeTab("service-accounts");
-                }}
-                variant="link"
-              >
-                <FormattedMessage {...messages.manageServiceAccounts} />
-              </Button>
-            </Content>
-            <GatewayConnectionSteps
-              gateway={connection}
-              isProvisioning={
-                !connection.phase ||
-                connection.phase.toLocaleLowerCase() === "pending" ||
-                connection.phase.toLocaleLowerCase() === "provisioning"
-              }
-            />
+            <Stack hasGutter>
+              <StackItem>
+                <Flex justifyContent={{ default: "justifyContentSpaceBetween" }}>
+                  <FlexItem>
+                    <Title headingLevel="h2" size="xl">
+                      <FormattedMessage {...messages.connectionTab} />
+                    </Title>
+                    <Content component="p">
+                      <FormattedMessage {...messages.connectionTabDescription} />
+                    </Content>
+                  </FlexItem>
+                  <FlexItem>
+                    <Button
+                      aria-label={intl.formatMessage(messages.refreshGatewayDetails)}
+                      icon={<SyncAltIcon />}
+                      onClick={() => void gatewayQuery.refetch()}
+                      title={intl.formatMessage(messages.refreshGatewayDetails)}
+                      variant="plain"
+                    />
+                  </FlexItem>
+                </Flex>
+              </StackItem>
+              <StackItem>
+                <GatewayConnectionSteps
+                  gateway={connection}
+                  isProvisioning={
+                    !connection.phase ||
+                    connection.phase.toLocaleLowerCase() === "pending" ||
+                    connection.phase.toLocaleLowerCase() === "provisioning"
+                  }
+                />
+              </StackItem>
+              <StackItem>
+                <Grid hasGutter>
+                  <GridItem lg={6} span={12}>
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>
+                          <Title headingLevel="h2" size="xl">
+                            <FormattedMessage {...messages.overview} />
+                          </Title>
+                        </CardTitle>
+                      </CardHeader>
+                      <CardBody>
+                        <DescriptionList>
+                          <DescriptionListGroup>
+                            <DescriptionListTerm>
+                              <FormattedMessage {...messages.gatewayEndpoint} />
+                            </DescriptionListTerm>
+                            <DescriptionListDescription>
+                              {connection.endpoint ? (
+                                <div className={styles.endpointCopy}>
+                                  <GatewayEndpointCopy gateway={connection} />
+                                </div>
+                              ) : (
+                                <FormattedMessage {...messages.notAvailable} />
+                              )}
+                            </DescriptionListDescription>
+                          </DescriptionListGroup>
+                        </DescriptionList>
+                      </CardBody>
+                    </Card>
+                  </GridItem>
+                  <GridItem lg={6} span={12}>
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>
+                          <Title headingLevel="h2" size="xl">
+                            <FormattedMessage {...messages.identity} />
+                          </Title>
+                        </CardTitle>
+                      </CardHeader>
+                      <CardBody>
+                        <DescriptionList>
+                          <DescriptionListGroup>
+                            <DescriptionListTerm>
+                              <FormattedMessage {...messages.gatewayId} />
+                            </DescriptionListTerm>
+                            <DescriptionListDescription>
+                              {visibleGateway.id}
+                            </DescriptionListDescription>
+                          </DescriptionListGroup>
+                        </DescriptionList>
+                      </CardBody>
+                    </Card>
+                  </GridItem>
+                  <GridItem span={12}>
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>
+                          <Title headingLevel="h2" size="xl">
+                            <FormattedMessage {...messages.placement} />
+                          </Title>
+                        </CardTitle>
+                      </CardHeader>
+                      <CardBody>
+                        <DescriptionList>
+                          <DescriptionListGroup>
+                            <DescriptionListTerm>
+                              <FormattedMessage {...messages.cluster} />
+                            </DescriptionListTerm>
+                            <DescriptionListDescription>
+                              <GatewayDetailClusterName gateway={connection} />
+                            </DescriptionListDescription>
+                          </DescriptionListGroup>
+                        </DescriptionList>
+                      </CardBody>
+                    </Card>
+                  </GridItem>
+                </Grid>
+              </StackItem>
+              <StackItem>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>
+                      <Title headingLevel="h2" size="xl">
+                        <FormattedMessage {...messages.automateThisGateway} />
+                      </Title>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardBody>
+                    <Content component="p">
+                      <FormattedMessage {...messages.automateThisGatewayDescription} />
+                    </Content>
+                    <Button
+                      isInline
+                      onClick={() => {
+                        changeTab("service-accounts");
+                      }}
+                      variant="link"
+                    >
+                      <FormattedMessage {...messages.viewServiceAccounts} />
+                    </Button>
+                  </CardBody>
+                </Card>
+              </StackItem>
+            </Stack>
           </Tab>
           <Tab
             eventKey="user-access"
