@@ -1399,4 +1399,3 @@ func TestRunLogsRunWideLifecycleBoundedWindow(t *testing.T) {
 		t.Errorf("second page start moved to %v, want stable %v", f.lastStart.UTC(), wantLower.UTC())
 	}
 }
-

@@ -121,13 +121,27 @@
   overflow-wrap: anywhere;
 }
 
+/* The full concatenated testify output, de-collapsed to one line per segment and
+   shown as a scrollable mono code panel when the step's details are expanded. */
 .failureOutput {
   display: block;
-  max-width: 24rem;
+  margin: var(--pf-t--global--spacer--sm, 8px) 0 0;
+  max-height: 16rem;
+  overflow: auto;
+  padding: var(--pf-t--global--spacer--sm, 8px)
+    var(--pf-t--global--spacer--md, 16px);
+  border: 1px solid var(--pf-t--global--border--color--default, #444548);
+  border-radius: var(--pf-t--global--border--radius--small, 4px);
+  background: var(
+    --pf-t--global--background--color--secondary--default,
+    #1b1d21
+  );
   font-family: var(--pf-t--global--font--family--mono, monospace);
+  font-size: var(--pf-t--global--font--size--body--sm, 0.85rem);
+  line-height: var(--pf-t--global--font--line-height--body, 1.5);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  color: var(--pf-t--global--text--color--status--danger--default);
+  color: var(--pf-t--global--text--color--regular, #e0e0e0);
 }
 
 .attemptCell {
@@ -221,18 +235,50 @@
 :global(.pf-v6-c-modal-box).logModalBox {
   transition:
     width 240ms ease,
-    max-width 240ms ease;
+    max-width 240ms ease,
+    block-size 240ms ease,
+    max-height 240ms ease;
 }
 
+/* Maximize the log modal to the full page, both axes. */
 :global(.pf-v6-c-modal-box.pf-m-lg).logModalMax {
   --pf-v6-c-modal-box--Width: 98vw;
   --pf-v6-c-modal-box--MaxWidth: 98vw;
+  --pf-v6-c-modal-box--MaxHeight: 98vh;
+  block-size: 98vh;
 }
 
 .logModalTitle {
-  display: flex;
-  align-items: center;
-  gap: var(--pf-t--global--spacer--sm, 8px);
+  display: block;
+}
+
+/* Place the maximize toggle immediately to the left of PatternFly's absolute
+   close (X), sharing its inset so the two sit adjacent and vertically aligned. */
+:global(.pf-v6-c-modal-box) .logMaximize {
+  position: absolute;
+  inset-block-start: var(--pf-v6-c-modal-box__close--InsetBlockStart);
+  inset-inline-end: calc(
+    var(--pf-v6-c-modal-box__close--InsetInlineEnd) + 2.5rem
+  );
+}
+
+/* Detail drawer maximize/restore. The panel width comes from PatternFly's
+   FlexBasis custom property (seeded inline by defaultSize and by resize drags);
+   overriding the resolved --FlexBasis with !important beats that inline value in
+   both the resizable and fixed states, and the flex-basis transition animates
+   the expand/restore. */
+:global(.pf-v6-c-drawer__panel).detailPanel {
+  transition: flex-basis 240ms ease;
+}
+
+:global(.pf-v6-c-drawer__panel).detailPanelMax {
+  --pf-v6-c-drawer__panel--FlexBasis: 100% !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :global(.pf-v6-c-drawer__panel).detailPanel {
+    transition: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -282,6 +328,47 @@
 .diagnosticsTitleMuted {
   color: var(--pf-t--global--text--color--subtle, #9a9da0);
   margin: 0;
+}
+
+.diagnosticStatus {
+  display: flex;
+  align-items: center;
+  gap: var(--pf-t--global--spacer--sm, 8px);
+}
+
+/* A failed step's concise message plus the Show details toggle, sitting under
+   the step name; the full error expands below when toggled. */
+.failureBlock {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pf-t--global--spacer--sm, 8px);
+  margin-top: var(--pf-t--global--spacer--xs, 4px);
+}
+
+.failureMessage {
+  color: var(--pf-t--global--text--color--status--danger--default, #ff8a8a);
+  font-size: var(--pf-t--global--font--size--body--sm, 0.85rem);
+}
+
+.detailsChevron {
+  margin-inline-start: var(--pf-t--global--spacer--xs, 4px);
+}
+
+/* Render the Show details link in the danger color to match the failure. */
+:global(.pf-v6-c-button.pf-m-link).showDetails {
+  --pf-v6-c-button--m-link--Color: var(
+    --pf-t--global--text--color--status--danger--default,
+    #ff8a8a
+  );
+  --pf-v6-c-button--m-link--hover--Color: var(
+    --pf-t--global--text--color--status--danger--default,
+    #ff8a8a
+  );
+  --pf-v6-c-button--m-link__icon--Color: var(
+    --pf-t--global--text--color--status--danger--default,
+    #ff8a8a
+  );
 }
 
 .diagnosticEmptyNote {

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyEvents,
   boundLogBuffer,
+  expandFailureOutput,
   extractFailureMessage,
   groupRunAttempts,
   runBundle,
@@ -574,24 +575,26 @@ describe("extractFailureMessage", () => {
       "\t            \t-Running",
       "\t            \t+Provisioning",
       "\tTest:       \tTestPrimaryGateway",
-      "\tMessages:   \tprimary gateway reached Running",
+      "\tMessages:   \tprimary gateway did not reach Running",
     ].join("\n");
-    expect(extractFailureMessage(raw)).toBe("primary gateway reached Running");
+    expect(extractFailureMessage(raw)).toBe(
+      "primary gateway did not reach Running",
+    );
   });
 
   it("extracts the trailing message from pipe-collapsed testify diff output", () => {
     const collapsed =
-      'Not equal: | expected: "Running" | actual: "Provisioning" | Diff: | --- Expected | +++ Actual | @@ -1 +1 @@ | -Running | +Provisioning | primary gateway reached Running';
+      'Not equal: | expected: "Running" | actual: "Provisioning" | Diff: | --- Expected | +++ Actual | @@ -1 +1 @@ | -Running | +Provisioning | primary gateway did not reach Running';
     expect(extractFailureMessage(collapsed)).toBe(
-      "primary gateway reached Running",
+      "primary gateway did not reach Running",
     );
   });
 
   it("extracts inline Messages: label when pipe-collapsed", () => {
     const inline =
-      'Not equal: | expected: "Running" | actual: "Provisioning" | Messages: | primary gateway reached Running';
+      'Not equal: | expected: "Running" | actual: "Provisioning" | Messages: | primary gateway did not reach Running';
     expect(extractFailureMessage(inline)).toBe(
-      "primary gateway reached Running",
+      "primary gateway did not reach Running",
     );
   });
 
@@ -600,6 +603,30 @@ describe("extractFailureMessage", () => {
       "rollout timed out after 5m",
     );
     expect(extractFailureMessage("   ")).toBe("");
+  });
+});
+
+describe("expandFailureOutput", () => {
+  it("expands a pipe-collapsed testify diff into one line per segment", () => {
+    const collapsed =
+      'Not equal: | expected: "Running" | actual: "Provisioning" | Diff: | -Running | +Provisioning | primary gateway did not reach Running';
+    expect(expandFailureOutput(collapsed)).toBe(
+      [
+        "Not equal:",
+        'expected: "Running"',
+        'actual: "Provisioning"',
+        "Diff:",
+        "-Running",
+        "+Provisioning",
+        "primary gateway did not reach Running",
+      ].join("\n"),
+    );
+  });
+
+  it("returns non-pipe input trimmed and unchanged", () => {
+    expect(expandFailureOutput("  rollout timed out after 5m  ")).toBe(
+      "rollout timed out after 5m",
+    );
   });
 });
 

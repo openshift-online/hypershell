@@ -110,34 +110,6 @@ func (d *failureDiagnostics) logf(format string, args ...any) {
 	d.logger.Logf("%s", message)
 }
 
-// githubActionsLogGroup collapses the high-volume diagnostic dump in the
-// Actions UI while leaving local and structured reporter output unchanged.
-func githubActionsLogGroup(w io.Writer, title string) func() {
-	if os.Getenv("GITHUB_ACTIONS") != "true" || w == nil {
-		return func() {}
-	}
-	_, _ = fmt.Fprintf(w, "::group::%s\n", title)
-	return func() {
-		_, _ = fmt.Fprintln(w, "::endgroup::")
-	}
-}
-
-// logf writes diagnostics directly between the Actions group commands. Go's
-// testing logger buffers output by subtest, which would otherwise move the
-// diagnostic lines outside the group when the test completes. The structured
-// sink still receives the same lines. Non-Actions runs retain normal test logs.
-func (d *failureDiagnostics) logf(format string, args ...any) {
-	message := harness.RedactDiagnostic(fmt.Sprintf(format, args...))
-	if d.actionsOutput != nil {
-		_, _ = fmt.Fprintln(d.actionsOutput, message)
-		if d.logger != nil {
-			d.logger.Additionalf("%s", message)
-		}
-		return
-	}
-	d.logger.Logf("%s", message)
-}
-
 func (d *failureDiagnostics) section(ctx context.Context, title, filename string, collect func(context.Context, io.Writer)) {
 	var b strings.Builder
 	collect(ctx, &b)

@@ -145,7 +145,6 @@ export interface E2eRunAttemptGroup {
 
 /** A single run's detail: summary plus ordered steps and bounded log history. */
 export interface E2eRunDetail extends E2eRunSummary {
-  readonly failure?: E2eFailureSummary | null;
   readonly diagnostics?: readonly E2eDiagnosticSection[];
   readonly plannedSteps: readonly E2ePlannedStep[];
   readonly steps: readonly E2eStep[];
@@ -277,7 +276,6 @@ function emptyDetail(): E2eRunDetail {
     reportingComplete: false,
     hasStructuredSteps: false,
     stepCount: 0,
-    failure: null,
     diagnostics: [],
     plannedSteps: [],
     steps: [],
@@ -305,7 +303,6 @@ interface Mutable {
   reportingComplete: boolean;
   hasStructuredSteps: boolean;
   stepCount: number;
-  failure: E2eFailureSummary | null;
   diagnostics: readonly E2eDiagnosticSection[];
   plannedSteps: readonly E2ePlannedStep[];
   steps: readonly E2eStep[];
@@ -413,6 +410,23 @@ export function extractFailureMessage(raw: string): string {
   }
 
   return trimmed;
+}
+
+/**
+ * Expand a pipe-collapsed testify failure (segments joined by " | ") back into
+ * its original multi-line form for display. Input that has no pipe separators
+ * (already multi-line, or a plain message) is returned trimmed and unchanged.
+ */
+export function expandFailureOutput(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed.includes("|")) {
+    return trimmed;
+  }
+  return trimmed
+    .split("|")
+    .map((segment) => segment.trim())
+    .filter((segment) => segment !== "")
+    .join("\n");
 }
 
 function derivedFailure(
@@ -651,7 +665,7 @@ function fold(
   const steps = orderSteps(planned, stepOrder, stepById);
   return {
     ...d,
-    failure: derivedFailure(d.verdict, steps, logs) ?? d.failure,
+    failure: d.failure ?? derivedFailure(d.verdict, steps, logs),
     plannedSteps: planned,
     steps,
     logs,
@@ -680,7 +694,6 @@ function toMutable(base: E2eRunDetail): Mutable {
     reportingComplete: base.reportingComplete,
     hasStructuredSteps: base.hasStructuredSteps,
     stepCount: base.stepCount,
-    failure: base.failure ?? null,
     diagnostics: base.diagnostics ?? [],
     plannedSteps: base.plannedSteps,
     steps: base.steps,
