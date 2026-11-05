@@ -559,7 +559,7 @@ func main() {
 		})
 		ciTrustReconciler := reconciler.NewCITrustReconciler(kcClient, conn, clusterID)
 		supervise("CITrust watch", func(ctx context.Context) error {
-			return watcher.WatchCITrusts(ctx, conn, ciTrustReconciler, cfg.WatchIdleTimeout)
+			return watcher.WatchCITrusts(ctx, conn, ciTrustReconciler, cfg.WatchIdleTimeout, cfg.CITrustResyncInterval)
 		})
 		slog.InfoContext(ctx, "CI trust reconciler launched (CIProvider + CITrust watches)")
 	} else {
