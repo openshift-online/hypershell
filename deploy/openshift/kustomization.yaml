@@ -128,9 +128,7 @@ patches:
           # AFTER flag parsing, which silently clobbers --enable-jwt=true below
           # and leaves REST with no identity so RBAC 401s every request.
           # "development_oidc" is the purpose-built environment for a
-          # self-contained Keycloak: it leaves EnableJWT to the flags and keeps
-          # the OCM/AMS client mocked (enable-mock=true default), so the
-          # api-server does NOT require sso.redhat.com secret files. Any overlay
+          # self-contained Keycloak: it leaves EnableJWT to the flags. Any overlay
           # that enables JWT against a self-hosted IdP MUST set this. Mirrors the
           # deploy/kind overlay and the gitops jwt-enforce component.
           - name: API_ENV
@@ -160,11 +158,6 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/command/-
         value: "--enable-authz=true"
-      # NOTE: the OCM/Red Hat AMS client stays mocked via API_ENV=development_oidc
-      # (enable-mock=true default), so no explicit --enable-mock flag is needed.
-      # A self-contained Keycloak deployment has no sso.redhat.com secret files,
-      # and the AMS client is unused here; JWT auth (enable-jwt), and with it
-      # gateway RBAC enforcement, is independent of the mock and stays on.
       - op: add
         path: /spec/template/spec/containers/0/command/-
         value: "--jwk-cert-url=$(JWK_CERT_URL)"
@@ -265,3 +258,20 @@ patches:
       spec:
         strategy:
           type: Recreate
+  # Without this the api-server/web-console pods start as soon as their
+  # migrate/none initContainer finishes, which races Keycloak coming up (apply
+  # happens back-to-back, with no readiness wait between them). A slow Keycloak
+  # then crash-loops the api-server on its one-shot JWKS load
+  # (docs/research/keycloak-readiness-ordering.md), and the growing
+  # CrashLoopBackOff delay can outlast the rollout-wait window. Kind avoids this
+  # with the same guard (deploy/kind/wait-for-keycloak.patch.yaml); port it here.
+  - target:
+      kind: Deployment
+      name: hypershell-api-server
+      namespace: hypershell-system
+    path: wait-for-keycloak.patch.yaml
+  - target:
+      kind: Deployment
+      name: hypershell-web-console
+      namespace: hypershell-system
+    path: wait-for-keycloak.patch.yaml

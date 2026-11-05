@@ -914,13 +914,11 @@ the gateway's default workload image through `sandbox.image`.
 1. **[RESOLVED] ROKS Gateway API availability.** Verified on 2026-08-15 across two clusters: on the old 4.17 cluster the CRDs were absent; on the new `hysh-ibm-01` (4.21.27) the CRDs and feature gates are present but the Gateway API is **non-functional** (CIO `istiod` cannot pull OSSM images; IDMS denied by the HostedCluster; CIO reverts patches; OperatorHub broken). **Decision:** the IBM Cloud Hub uses the `route` ingress mode (`deploy/ibm`, `GATEWAY_INGRESS_MODE=route`), not Gateway API. See "IBM Cloud Cloud Hub - Route ingress mode".
 2. **IBM base domain.** What exact subdomain - e.g. `openshell.ibm-stage.example.com`?
    Confirm it is delegated within the Route53 `example.com` zone.
-3. **[RESOLVED - BUG] Control-plane config surface.** Verified on 2026-08-15: The Go code reads `GATEWAY_API_BASE_DOMAIN` and `GATEWAY_API_GATEWAY_CLASS`. However, it **completely ignores** the gateway name and namespace config. `internal/gateway/reconciler.go` currently hardcodes the `GRPCRoute` `parentRefs` to `name: openshell-gateway` inside the tenant's own namespace. This is a severe bug that provisions one Load Balancer per tenant. This code must be patched to respect `GATEWAY_API_GATEWAY_NAME` and `GATEWAY_API_GATEWAY_NAMESPACE` to use the shared ingress gateway.
-4. **DNS record creation.** Reproduce the AWS pattern (static Route53 wildcard
+3. **DNS record creation.** Reproduce the AWS pattern (static Route53 wildcard
    CNAME, no external-dns), or introduce `external-dns` to automate it on IBM?
-5. **Route53 credentials on IBM.** Provision the `certmgr-<cluster>-example-com-sa`
+4. **Route53 credentials on IBM.** Provision the `certmgr-<cluster>-example-com-sa`
    secret (IAM user scoped to the `example.com` zone) on the IBM cluster.
-6. **[RESOLVED] VPC LB scope.** Verified on 2026-08-15: The default OpenShift router on this IBM cluster uses a public VPC Load Balancer (`service.kubernetes.io/ibm-load-balancer-cloud-provider-ip-type: public`). We will match this public exposure for the Gateway API VPC LB.
-7. **Legacy Route-based gateways.** The AWS cluster still has older tenants on
+5. **Legacy Route-based gateways.** The AWS cluster still has older tenants on
    `Route`/`passthrough` under `*.apps.rosa...`. Is a migration of existing tenants
    in scope, or parity for new tenants only?
 

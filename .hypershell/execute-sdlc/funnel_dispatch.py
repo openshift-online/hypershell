@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Local Fullsend coordinator. SQLite stores outcomes; flock owns execution."""
 import argparse
+from datetime import datetime
 import fcntl
 import hashlib
 import json
@@ -255,7 +256,21 @@ class GitHub:
         self.code_states[str(item['number'])] = result
         return result
 
-    def phase_job(self, scope, agent, item, prs=None):
+    def review_request(self, item, agent):
+        if agent not in ('code-review', 'spec-review'):
+            return None
+        label = 'agent/reviewable-' + agent.split('-')[0]
+        if label not in self.labels(item):
+            return None
+        events = self.pages(f'issues/{item["number"]}/events')
+        requests = [event for event in events if event.get('event') == 'labeled'
+                    and (event.get('label') or {}).get('name') == label
+                    and isinstance(event.get('id'), int)]
+        if not requests:
+            raise DispatchError(f'#{item["number"]}: cannot resolve the current review request; retry discovery')
+        return max(requests, key=lambda event: event['id'])
+
+    def phase_job(self, scope, agent, item, prs=None, include_review_request=True):
         """Use the same live inputs for discovery and pre-launch validation."""
         implementation = agent in ('code-implementation', 'spec-implementation')
         pr, rejection = None, None
@@ -275,7 +290,8 @@ class GitHub:
                 if not occurrences:
                     raise DispatchError(f'#{item["number"]}: cannot resolve the current rejection event; retry discovery')
                 rejection = max(occurrences)
-        job = make_job(scope, agent, item, pr, rejection)
+        request = self.review_request(item, agent) if include_review_request else None
+        job = make_job(scope, agent, item, pr, rejection, request)
         if pr and agent in ('code-review', 'code-implementation'):
             state = self.code_states.get(str(item['number']))
             if state is None:
@@ -392,17 +408,21 @@ class GatewayAuth:
                 self.login.wait(timeout=5)
 
 
-def make_job(scope, agent, item, pr=None, rejection=None):
+def make_job(scope, agent, item, pr=None, rejection=None, review_request=None):
     context = dict(labels=GitHub.labels(item), body=item.get('body'), title=item.get('title'),
                    state=item['state'], pr=pr and [pr['number'], pr.get('head', {}).get('sha')])
     if rejection is not None:
         context['rejection_event'] = rejection
+    if review_request is not None:
+        context['review_request_event'] = str(review_request['id'])
     # Preserve existing storage identities when reusing the shared agent names.
     storage_agent = 'funnel-reconcile' if agent == 'reconcile' else agent
     return dict(key=f'{item["number"]}:{storage_agent}', scope=scope, agent=agent,
                 item=str(item['number']), title=item.get('title', ''), url=item['html_url'], fingerprint=fingerprint(context),
                 labels=GitHub.labels(item),
-                pr_number=str(pr['number']) if pr else '', pr_url=pr['html_url'] if pr else '')
+                review_request_event=str(review_request['id']) if review_request else '',
+                pr_number=str(pr['number']) if pr else '', pr_url=pr['html_url'] if pr else '',
+                pr_head_sha=(pr.get('head', {}).get('sha', '') if pr else ''))
 
 
 def worker(db_path, key, run_id, lock_fd, base, cap):
@@ -480,6 +500,7 @@ class Coordinator:
         self.next_auth_check = time.time() + interval
 
     def discover(self):
+        self.awaiting_approval = []
         items = self.github.discover()
         ingest = self.intake_job(items) if self.args.lifecycle == 'jira' else None
         if ingest is not None:
@@ -515,6 +536,46 @@ class Coordinator:
                     state = self.github.code_state(item, linked[0], inspect)
                     if state and state['changed']:
                         item = self.github.current(item['number'])
+                    if state and not active and 'agent/review-code-approved' in self.github.labels(item):
+                        from merge_approval import pending
+                        approval = pending(self.github, item, linked[0], state)
+                        if approval:
+                            self.awaiting_approval.append(approval)
+                    if state:
+                        # Reuse this observation for legacy fingerprint comparison;
+                        # display metadata must not issue a second readiness read.
+                        self.github.code_states[str(item['number'])] = state
+                        row = self.store.get(f'{item["number"]}:code-review')
+                        if row:
+                            payload = json.loads(row['payload'])
+                            observed = dict(state)
+                            head = payload.get('pr_head_sha')
+                            if head:
+                                current_review = head == state.get('head_sha')
+                            else:
+                                # Legacy attempts did not save their head separately.
+                                # An identical readiness fingerprint proves the same inputs.
+                                current_review = row['fingerprint'] == self.github.phase_job(
+                                    self.args.scope, 'code-review', item, linked, include_review_request=False)['fingerprint']
+                                if current_review:
+                                    payload['pr_head_sha'] = state.get('head_sha', '')
+                            request = self.github.review_request(item, 'code-review')
+                            if request:
+                                prior = payload.get('review_request_event')
+                                if prior:
+                                    current_review = current_review and prior == str(request['id'])
+                                elif request.get('created_at'):
+                                    requested_at = datetime.fromisoformat(request['created_at'].replace('Z','+00:00')).timestamp()
+                                    current_review = current_review and requested_at <= row['started']
+                            implementation = self.store.get(f'{item["number"]}:code-implementation')
+                            if implementation and implementation['started'] > row['started']:
+                                current_review = False
+                            observed['review_current'] = current_review
+                            payload['code_readiness'] = observed
+                            payload['labels'] = self.github.labels(item)
+                            with self.store.db:
+                                self.store.db.execute('UPDATE jobs SET payload=? WHERE key=?',
+                                                      (json.dumps(payload), row['key']))
                 if self.args.lifecycle == 'jira':
                     if 'agent/execution-record' not in self.github.labels(item):
                         # New GitHub-origin records must pass intake first.
@@ -809,6 +870,8 @@ def parse_args(argv=None):
     parser.add_argument('--gateway-state', type=Path, help='local gateway state (default: TARGET_REPO/.hypershell/.funnel-gateway.json)')
     parser.add_argument('--gateway-login-timeout', type=positive, default='120', help='seconds before offering recovery from a stuck browser login')
     parser.add_argument('--gateway-ready-timeout', type=positive, default='600', help='seconds to wait for a created gateway before offering recovery again')
+    parser.add_argument('--auto-merge', nargs='?', const='enabled', choices=('enabled','disabled'), type=lambda v: runtime_settings.validate('auto_merge', v), default=os.environ.get('FULLSEND_AUTO_MERGE', 'enabled'), help='enabled (default) queues approved PRs; disabled holds them for manual approval')
+    parser.add_argument('--no-auto-merge', dest='auto_merge', action='store_const', const='disabled')
     parser.add_argument('--model', default=os.environ.get('FULLSEND_MODEL'))
     parser.add_argument('--concurrency', type=positive, default=os.environ.get('CONCURRENCY', '3'))
     parser.add_argument('--poll-interval', type=positive, default=os.environ.get('POLL_INTERVAL', '30'))

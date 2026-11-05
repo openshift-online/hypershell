@@ -6,7 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
@@ -445,15 +445,15 @@ func reconcileConsole(ctx context.Context, dynamicClient dynamic.Interface, clie
 
 	ingressMode := gatewayIngressMode(opts)
 	if ingressMode == IngressModeNone {
-		log.Printf("WARN console: no ingress mode selected; skipping console for namespace %s", namespace)
+		slog.WarnContext(ctx, "Console: no ingress mode selected; skipping console", "namespace", namespace)
 		return nil
 	}
 	if opts.Keycloak == nil {
-		log.Printf("WARN console: Keycloak not configured; skipping console for namespace %s", namespace)
+		slog.WarnContext(ctx, "Console: Keycloak not configured; skipping console", "namespace", namespace)
 		return nil
 	}
 	if opts.GatewayClientID == "" || opts.GatewayID == "" {
-		log.Printf("WARN console: gateway client ID and gateway ID are required; skipping console for namespace %s", namespace)
+		slog.WarnContext(ctx, "Console: gateway client ID and gateway ID are required; skipping console", "namespace", namespace)
 		return nil
 	}
 	// Check the image before any Keycloak or cluster writes, so a missing
@@ -465,7 +465,7 @@ func reconcileConsole(ctx context.Context, dynamicClient dynamic.Interface, clie
 
 	host, ok := deriveConsoleHost(nsConfig)
 	if !ok {
-		log.Printf("WARN console: GATEWAY_API_BASE_DOMAIN not set; skipping console for namespace %s", namespace)
+		slog.WarnContext(ctx, "Console: GATEWAY_API_BASE_DOMAIN not set; skipping console", "namespace", namespace)
 		return nil
 	}
 	consoleURL := "https://" + host
@@ -490,7 +490,7 @@ func reconcileConsole(ctx context.Context, dynamicClient dynamic.Interface, clie
 		if err != nil {
 			return fmt.Errorf("provision console client %s: %w", consoleClientID, err)
 		}
-		log.Printf("INFO provisioned console client %s", consoleClientID)
+		slog.InfoContext(ctx, "Provisioned console client", "client_id", consoleClientID)
 	} else {
 		clientSecret, err = kc.GetConsoleClientSecret(ctx, consoleClientID)
 		if err != nil {
@@ -506,7 +506,7 @@ func reconcileConsole(ctx context.Context, dynamicClient dynamic.Interface, clie
 		if err = kc.EnsureConsoleClientConfig(ctx, consoleClientID, gwClientID, redirectURI, consoleURL); err != nil {
 			return fmt.Errorf("ensure console client config for %s: %w", consoleClientID, err)
 		}
-		log.Printf("INFO console client %s already exists (uuid=%s), config reconciled", consoleClientID, existingUUID)
+		slog.InfoContext(ctx, "Console client already exists, config reconciled", "client_id", consoleClientID, "uuid", existingUUID)
 	}
 
 	// The oauth2-proxy issuer must match the issuer the gateway validates, so the
@@ -566,11 +566,16 @@ func reconcileConsole(ctx context.Context, dynamicClient dynamic.Interface, clie
 	// opt-in, the shared Gateway's HTTP listener otherwise.
 	switch {
 	case ingressMode == IngressModeGatewayAPI && nsConfig.Gateway.Route.Certificate != nil:
-		log.Printf("INFO console reconciled in namespace %s (host=%s gateway=gw-%s listener=sandbox)", namespace, host, namespace)
+		slog.InfoContext(ctx, "Console reconciled",
+			"namespace", namespace,
+			"host", host,
+			"gateway", "gw-"+namespace,
+			"listener", "sandbox",
+		)
 	case ingressMode == IngressModeGatewayAPI:
-		log.Printf("INFO console reconciled in namespace %s (host=%s listener=%s)", namespace, host, sharedGatewayListenerName())
+		slog.InfoContext(ctx, "Console reconciled", "namespace", namespace, "host", host, "listener", sharedGatewayListenerName())
 	default:
-		log.Printf("INFO console reconciled in namespace %s (host=%s)", namespace, host)
+		slog.InfoContext(ctx, "Console reconciled", "namespace", namespace, "host", host)
 	}
 	return nil
 }
@@ -633,7 +638,7 @@ func reconcileConsoleSecret(ctx context.Context, clientset kubernetes.Interface,
 		if _, err := clientset.CoreV1().Secrets(namespace).Create(ctx, secret, metav1.CreateOptions{}); err != nil {
 			return fmt.Errorf("create console secret: %w", err)
 		}
-		log.Printf("INFO created console secret %s in %s", consoleSecretName, namespace)
+		slog.InfoContext(ctx, "Created console secret", "secret", consoleSecretName, "namespace", namespace)
 		return nil
 	}
 
@@ -641,7 +646,7 @@ func reconcileConsoleSecret(ctx context.Context, clientset kubernetes.Interface,
 	if _, err := clientset.CoreV1().Secrets(namespace).Update(ctx, secret, metav1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("update console secret: %w", err)
 	}
-	log.Printf("INFO updated console secret %s in %s", consoleSecretName, namespace)
+	slog.InfoContext(ctx, "Updated console secret", "secret", consoleSecretName, "namespace", namespace)
 	return nil
 }
 
@@ -1097,7 +1102,7 @@ func deleteConsole(ctx context.Context, dynamicClient dynamic.Interface, clients
 		if err := kc.DeleteConsoleClient(ctx, consoleClientID); err != nil {
 			errs = append(errs, fmt.Errorf("delete console client %s (orphaned): %w", consoleClientID, err))
 		} else {
-			log.Printf("INFO deleted console client %s", consoleClientID)
+			slog.InfoContext(ctx, "Deleted console client", "client_id", consoleClientID)
 		}
 	}
 
@@ -1105,7 +1110,7 @@ func deleteConsole(ctx context.Context, dynamicClient dynamic.Interface, clients
 		if err := opts.UpdateConsoleAddress(ctx, ""); err != nil {
 			errs = append(errs, fmt.Errorf("clear consoleAddress in %s: %w", namespace, err))
 		} else {
-			log.Printf("INFO cleared consoleAddress for gateway in %s", namespace)
+			slog.InfoContext(ctx, "Cleared consoleAddress for gateway", "namespace", namespace)
 		}
 	}
 

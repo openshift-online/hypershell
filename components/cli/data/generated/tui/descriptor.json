@@ -351,6 +351,12 @@
           "type": "string"
         },
         {
+          "property": "repository_id",
+          "label": "REPOSITORY ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
           "property": "role",
           "label": "ROLE",
           "priority": 0,
@@ -996,15 +1002,6 @@
       "kind": "collection",
       "schemaRef": "#/schemas/GatewayPlacementAvailability",
       "label": "GatewayPlacementAvailability",
-      "defaultSort": "local_kind",
-      "columns": [
-        {
-          "property": "local_kind",
-          "label": "LOCAL KIND",
-          "priority": 0,
-          "type": "boolean"
-        }
-      ],
       "operationIds": [
         "getGatewayPlacementAvailability"
       ],
@@ -2423,6 +2420,12 @@
         {
           "property": "kind",
           "label": "KIND",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "repository_id",
+          "label": "REPOSITORY ID",
           "priority": 0,
           "type": "string"
         },
@@ -4337,7 +4340,7 @@
             "name": "placement",
             "type": "object",
             "required": false,
-            "description": "Exactly one of selector or mode must be supplied."
+            "description": "Late-bound placement by ManagedCluster capability-label selector. A non-empty selector list must be supplied."
           }
         ]
       },

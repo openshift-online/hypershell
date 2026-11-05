@@ -66,6 +66,7 @@ import {
   useHomepageSummary,
   useQuickCreateGateway,
 } from "./use-homepage";
+import { isKindQuickCreatePlacement } from "../../application/homepage/quick-create";
 import { useSession } from "../shell/use-session";
 import { hasDashboardAdminRole } from "../../lib/session-roles";
 
@@ -202,7 +203,8 @@ function WelcomeCard({
 }>) {
   const quickCreateTitleId = useId();
   const placement = quickCreatePlacement?.placement;
-  const isLocalKind = placement !== undefined && "mode" in placement;
+  const isKindPlacement =
+    placement !== undefined && isKindQuickCreatePlacement(placement);
   return (
     <>
       <Card>
@@ -291,8 +293,8 @@ function WelcomeCard({
         <ModalBody>
           <Content>
             <FormattedMessage
-              {...(isLocalKind
-                ? messages.homepageQuickCreateLocalKindBody
+              {...(isKindPlacement
+                ? messages.homepageQuickCreateKindBody
                 : messages.homepageQuickCreateBody)}
             />
           </Content>

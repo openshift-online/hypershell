@@ -75,8 +75,7 @@ control plane on a remote cluster.
 OIDC client credentials (`OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`) are
 required configuration. When either is missing the control plane SHALL log a fatal
 error naming the missing variable and exit non-zero before opening any Kubernetes or
-gRPC connection. The control plane SHALL NOT read a cluster id from configuration:
-`HYPERSHELL_CLUSTER_ID` SHALL NOT be consulted and SHALL NOT appear in gitops.
+gRPC connection. The control plane SHALL NOT read a cluster id from configuration.
 
 Each control plane SHALL use its own OIDC client, so that its JWT `sub` claim is
 unique across the fleet; the registration upsert key and the watch-stream caller
@@ -306,8 +305,7 @@ existing provisioning API.
 
 The realization seam SHALL be **live**: the `ProviderRealizer` is constructed as a
 client of OpenShell's existing provisioning API
-([`agent-workspace-gateway-api.spec.md`](./agent-workspace-gateway-api.spec.md)) - NOT a
-bespoke `AgentWorkspaceProvisioning` gRPC contract - and the reconciler SHALL drive it on
+([`agent-workspace-gateway-api.spec.md`](./agent-workspace-gateway-api.spec.md)), and the reconciler SHALL drive it on
 every reconcile rather than hold a transitional behavior. The reconcile SHALL run the
 realization sequence in this order, reading its inputs from the embedded reconcile payload
 ([`data-model.spec.md`](./data-model.spec.md), "AgentRuntime Reconcile Payload
@@ -604,11 +602,19 @@ ownership-scoped reconciler.
 
 **gRPC write authorization for the import.** The import-write Kinds
 (`SandboxTemplate`, `ProviderSpec`, `ProviderBinding`,
-`InferenceRoute`, `SecretSource`) had their gRPC Create / Update / Delete methods
+`InferenceRoute`, `SecretSource`, `CITrust`) had their gRPC Create / Update / Delete methods
 held at default-deny when their gRPC surface was introduced. They SHALL now be
 authorized for the control-plane identity, bounded to the `RepositoryReconciler`'s
 `Repository` scope, and remain denied for every other caller (users, spokes acting
-outside the import). The remaining importable Kinds, `Gateway` and `AgentRuntime`
+outside the import). `CITrust` carries an ADDITIONAL per-gateway tenancy gate
+(SEC-RBAC-22): an import-marked `CITrust` write SHALL be authorized only when the
+referenced `Gateway` is owned by the SAME reconciled `Repository` (resolved by name
+within the import), which is how the non-human importer satisfies that tenancy "as the
+repository owner" without a human identity; the writer SHALL NOT import a `CITrust`
+onto a `Gateway` the `Repository` does not own. This tenancy-via-ownership rule is
+specified canonically in [`security/rbac-enforcement.spec.md`](../../security/rbac-enforcement.spec.md)
+(SEC-RBAC-26) and [`ci-trust-ext-api.spec.md`](./ci-trust-ext-api.spec.md) (PLAT-CITR-10).
+The remaining importable Kinds, `Gateway` and `AgentRuntime`
 (see the canonical importable-Kinds list in
 [`data-model.spec.md`](./data-model.spec.md)), are cluster-assigned: their gRPC
 `Create` / `Update` / `Delete` are authorized for the control-plane identity on the
@@ -621,7 +627,7 @@ across clusters, a `ListGateways` / `ListAgentRuntimes` read that carries the
 reconciled-`Repository` binding AND sets a matching `repository_id` filter for an
 existing `Repository` is exempted from the own-cluster watch-stream caller binding and
 served (and filtered) across clusters; every other read keeps the own-cluster binding.
-The `RepositoryReconciler` upserts and prunes all seven importable Kinds under the same
+The `RepositoryReconciler` upserts and prunes all eight importable Kinds under the same
 `Repository`-scoped ownership mark.
 `Repository` is NOT on the import-write path. The `RepositoryReconciler` reconciles
 the `Repository` Kind but SHALL NEVER upsert `Repository` resources discovered in an
@@ -726,6 +732,14 @@ The authorization contract is specified in
 - THEN the conditional fetch SHALL report a change (new ETag or new branch head commit SHA)
 - AND the reconciler SHALL read, render, and reconcile the changed subtree into the API
 
+#### Scenario: CTRL-CORE-06.12 -- Import reconciles a CITrust on a Repository-owned gateway
+
+- GIVEN a `Repository` whose `.hypershell` root declares a `Gateway` named `agents-gateway` and a `CITrust` whose `ci_provider_id` names a registered `CIProvider` and whose `gateway_id` names `agents-gateway`
+- WHEN the control-plane import reconciler runs
+- THEN it SHALL resolve `ci_provider_id` and `gateway_id` by name and upsert the `CITrust` owned by the `Repository`
+- AND the import-marked `CITrust` write SHALL be authorized because the referenced `Gateway` is owned by the same reconciled `Repository`
+- AND a re-run against unchanged repository state SHALL make no write, and removing the `CITrust` from `.hypershell` SHALL prune only the imported `CITrust`
+
 ### Requirement: CTRL-CORE-14 -- Import Writer Maps Gateway Placement
 
 When the `RepositoryReconciler` imports a `Gateway`, the import writer SHALL map the
@@ -743,9 +757,7 @@ The import writer SHALL:
 - Read the rendered Gateway spec's `placement`. When `placement` declares a
   `selector` (a list of ManagedCluster capability labels), the writer SHALL build a
   `GatewayPlacementIntent` whose `capability_selector` (`CapabilitySelectorPlacement`)
-  carries that selector list. When `placement` declares `mode: local-kind`, the
-  writer SHALL build a `GatewayPlacementIntent` whose `local_kind`
-  (`LocalKindPlacement`) is set. The proto contract is `GatewayPlacementIntent`
+  carries that selector list. The proto contract is `GatewayPlacementIntent`
   (`placement` field `18` on `CreateGatewayRequest`) in
   `components/api-server/proto/hypershell/v1/gateways.proto`.
 - On CREATE, supply EXACTLY ONE of `cluster_id` (pinned) or `placement` (late-bound):
@@ -766,7 +778,7 @@ The import writer SHALL:
   binding re-resolves the already-persisted placement whenever the eligible-cluster
   set changes.
 - Report a malformed placement. When a rendered Gateway declares a `placement` block
-  that is neither a non-empty `selector` list nor `mode: local-kind`, the writer SHALL
+  that is not a non-empty `selector` list, the writer SHALL
   fail the import of that Gateway with an error that names the problem, rather than
   send a create with neither `cluster_id` nor `placement`, so the cause is clear
   instead of surfacing only as the api-server's generic exactly-one-of rejection. The
@@ -775,7 +787,7 @@ The import writer SHALL:
 
 #### Scenario: CTRL-CORE-14.01 -- Import of a malformed placement fails with a clear cause
 
-- GIVEN a `.hypershell` Gateway manifest whose `placement` declares neither a non-empty `selector` nor `mode: local-kind`
+- GIVEN a `.hypershell` Gateway manifest whose `placement` declares no non-empty `selector` list
 - WHEN the import writer reconciles that Gateway
 - THEN it SHALL report an error that names the malformed placement and SHALL NOT send a create or update for that Gateway
 - AND the error SHALL be collected so the rest of the import still runs
@@ -786,12 +798,6 @@ The import writer SHALL:
 - WHEN the import writer creates the Gateway over the gRPC write path
 - THEN the `CreateGatewayRequest` SHALL carry a `placement` with `capability_selector.selector = ["network/public", "provider/ibm"]` and no `cluster_id`
 - AND the API server SHALL late-bind the Gateway to a matching `ManagedCluster`, or create it `Pending` with an awaiting-placement status when none matches
-
-#### Scenario: CTRL-CORE-14.03 -- Import of a local-kind Gateway maps the local-kind mode
-
-- GIVEN a `.hypershell` Gateway manifest with `placement: { mode: local-kind }` and no `cluster_id`
-- WHEN the import writer creates the Gateway
-- THEN the `CreateGatewayRequest` SHALL carry a `placement` with `local_kind` set
 
 #### Scenario: CTRL-CORE-14.04 -- Import of a pinned Gateway is unchanged
 
@@ -1107,7 +1113,7 @@ The control plane SHALL continuously reconcile the `phase` and `status` fields o
 | Separate module from API server | Independent lifecycle, separate deployment |
 | No controller-runtime dependency | Lightweight, custom reconciliation without CRD overhead |
 | Every control plane is a registered spoke; no single-cluster mode | One code path and one deployment shape. The hub's co-located control plane exercises registration, cluster filtering, authenticated watches, and TLS on every hub and in every development environment, so those paths are tested continuously instead of only at the first remote spoke. An unfiltered mode would also make server-side enforcement of cluster scoping impossible, because the server could not tell an unidentified hub controller from a misbehaving spoke. |
-| Cluster identity is resolved by registration, never configured | A configured `HYPERSHELL_CLUSTER_ID` can drift from the record the hub holds, and a copy-pasted value silently makes two control planes fight over one cluster. Registration ties the id to the OIDC subject, which the hub can verify. |
+| Cluster identity is resolved by registration, never configured | A configured cluster id can drift from the record the hub holds, and a copy-pasted value silently makes two control planes fight over one cluster. Registration ties the id to the OIDC subject, which the hub can verify. |
 | One OIDC client per control plane | The JWT `sub` is the registration key and the identity the watch-stream binding checks. Sharing a client across control planes would collapse them into one subject and break both. |
 | One control plane per cluster, in-cluster credentials only | No hub holds a spoke kubeconfig, so a compromised hub cannot reach into spokes and a spoke keeps reconciling its own gateways while the hub is unreachable. Matches the platform GitOps pull model in `global-architecture.spec.md`. |
 | Transport security inferred from the dial address, not a separate `HYPERSHELL_GRPC_TLS` flag | The address already tells you whether the hop leaves the cluster. A second flag could drift from the address (TLS off against an external host, or on against an in-cluster one) with no compile-time or admission check to catch it. |

@@ -137,6 +137,10 @@ func TestIsImportExtKindWrite(t *testing.T) {
 	cases := map[string]bool{
 		"/hypershell.v1.SandboxTemplateService/CreateSandboxTemplate": true,
 		"/hypershell.v1.SecretSourceService/DeleteSecretSource":       true,
+		"/hypershell.v1.CITrustService/CreateCITrust":                 true,
+		"/hypershell.v1.CITrustService/DeleteCITrust":                 true,
+		"/hypershell.v1.CITrustService/ListCITrusts":                  false,
+		"/hypershell.v1.CIProviderService/CreateCIProvider":           false,
 		"/hypershell.v1.SandboxTemplateService/ListSandboxTemplates":  false,
 		"/hypershell.v1.RepositoryService/CreateRepository":           false,
 		"/hypershell.v1.GatewayService/CreateGateway":                 false,

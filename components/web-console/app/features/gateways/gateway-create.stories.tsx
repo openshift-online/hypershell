@@ -12,8 +12,12 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { expect, userEvent, within } from "storybook/test";
 
 const placementAvailability: GatewayPlacementAvailability = {
-  localKind: true,
   placements: [
+    {
+      available: false,
+      reason: "no-eligible-cluster",
+      selector: ["provider/kind"],
+    },
     { available: true, selector: ["network/public", "provider/aws"] },
     { available: true, selector: ["network/vpn", "provider/aws"] },
     { available: true, selector: ["network/public", "provider/ibm"] },
@@ -26,16 +30,19 @@ const placementAvailability: GatewayPlacementAvailability = {
 } as const;
 
 const localDevelopmentAvailability: GatewayPlacementAvailability = {
-  localKind: true,
-  placements: placementAvailability.placements.map(({ selector }) => ({
-    available: false,
-    reason: "no-eligible-cluster",
-    selector,
-  })),
+  placements: [
+    { available: true, selector: ["provider/kind"] },
+    ...placementAvailability.placements
+      .filter(({ selector }) => selector[0] !== "provider/kind")
+      .map(({ selector }) => ({
+        available: false,
+        reason: "no-eligible-cluster" as const,
+        selector,
+      })),
+  ],
 } as const;
 
 const vpnUnavailableAvailability: GatewayPlacementAvailability = {
-  localKind: false,
   placements: [
     {
       available: true,
@@ -70,7 +77,6 @@ const getGatewayPlacementAvailability = (
   selectors: readonly (readonly string[])[],
 ) =>
   Promise.resolve({
-    localKind: true,
     placements: selectors.map((selector) => ({
       available:
         !selector.includes("runtime/kata") &&
@@ -127,9 +133,7 @@ export const Default: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 
-    await expect(
-      canvas.queryByRole("radio", { name: "Use local-kind" }),
-    ).toBeNull();
+    await expect(canvas.queryByRole("radio", { name: "Use Kind" })).toBeNull();
     await expect(canvas.getByRole("radio", { name: "No" })).toBeVisible();
     await expect(
       canvas.getByRole("radio", { name: "Yes (Requires Red Hat VPN)" }),
@@ -160,9 +164,7 @@ export const LocalDevelopmentOnly: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 
-    await expect(
-      canvas.getByRole("radio", { name: "Use local-kind" }),
-    ).toBeVisible();
+    await expect(canvas.getByRole("radio", { name: "Use Kind" })).toBeVisible();
     await expect(canvas.queryByRole("radio", { name: "No" })).toBeNull();
     await expect(
       canvas.queryByRole("radio", { name: "Yes (Requires Red Hat VPN)" }),

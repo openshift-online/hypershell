@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
@@ -101,7 +101,10 @@ func NewNamespaceGCReconciler(client kubernetes.Interface, grpcConn *grpc.Client
 
 // Run drives the garbage-collection loop until the context is cancelled.
 func (r *NamespaceGCReconciler) Run(ctx context.Context) error {
-	log.Printf("INFO namespace GC reconciler started (interval=%s grace=%s instance=%s)", r.interval, r.gracePeriod, r.cpNamespace)
+	slog.InfoContext(ctx, "Namespace GC reconciler started",
+		"interval", r.interval,
+		"grace_period", r.gracePeriod,
+		"instance", r.cpNamespace)
 	r.reconcileOnce(ctx)
 	ticker := time.NewTicker(r.interval)
 	defer ticker.Stop()
@@ -129,7 +132,7 @@ func (r *NamespaceGCReconciler) reconcileOnce(ctx context.Context) {
 	// orphans of this one.
 	if r.cpNamespace == "" {
 		tickErr = fmt.Errorf("no control-plane namespace configured; refusing to sweep")
-		log.Printf("WARN namespace gc: %v", tickErr)
+		slog.WarnContext(ctx, "Namespace GC failed", "error", tickErr)
 		return
 	}
 
@@ -139,14 +142,14 @@ func (r *NamespaceGCReconciler) reconcileOnce(ctx context.Context) {
 	live, err := r.liveNamespaces(ctx)
 	if err != nil {
 		tickErr = err
-		log.Printf("WARN namespace gc: build live gateway set: %v", err)
+		slog.WarnContext(ctx, "Namespace GC: build live gateway set failed", "error", err)
 		return
 	}
 
 	selector, err := gateway.ManagedNamespaceSelector(r.cpNamespace)
 	if err != nil {
 		tickErr = err
-		log.Printf("WARN namespace gc: %v", tickErr)
+		slog.WarnContext(ctx, "Namespace GC failed", "error", tickErr)
 		return
 	}
 	listCtx, cancel := context.WithTimeout(ctx, namespaceListTimeout)
@@ -156,7 +159,7 @@ func (r *NamespaceGCReconciler) reconcileOnce(ctx context.Context) {
 	cancel()
 	if err != nil {
 		tickErr = err
-		log.Printf("WARN namespace gc: list managed namespaces: %v", err)
+		slog.WarnContext(ctx, "Namespace GC: list managed namespaces failed", "error", err)
 		return
 	}
 
@@ -164,7 +167,7 @@ func (r *NamespaceGCReconciler) reconcileOnce(ctx context.Context) {
 		ns := &namespaces.Items[i]
 		if err := r.reconcileNamespace(ctx, ns, live); err != nil {
 			tickErr = errors.Join(tickErr, err)
-			log.Printf("WARN namespace gc: %s: %v", ns.Name, err)
+			slog.WarnContext(ctx, "Namespace GC: reconcile namespace failed", "namespace", ns.Name, "error", err)
 		}
 	}
 }
@@ -234,8 +237,10 @@ func (r *NamespaceGCReconciler) reconcileNamespace(ctx context.Context, ns *core
 
 	elapsed := r.now().UTC().Sub(eligibleSince)
 	if elapsed < r.gracePeriod {
-		log.Printf("INFO namespace gc: %s orphaned for %s, within grace period %s; deferring",
-			ns.Name, elapsed.Round(time.Second), r.gracePeriod)
+		slog.InfoContext(ctx, "Namespace GC: orphaned namespace within grace period, deferring",
+			"namespace", ns.Name,
+			"orphaned_for", elapsed.Round(time.Second),
+			"grace_period", r.gracePeriod)
 		return nil
 	}
 
@@ -250,7 +255,7 @@ func (r *NamespaceGCReconciler) reconcileNamespace(ctx context.Context, ns *core
 		return fmt.Errorf("re-check liveness before reaping %s: %w", ns.Name, err)
 	}
 	if _, ok := freshLive[ns.Name]; ok {
-		log.Printf("INFO namespace gc: %s became live again before reap; clearing grace timer", ns.Name)
+		slog.InfoContext(ctx, "Namespace GC: namespace became live again before reap, clearing grace timer", "namespace", ns.Name)
 		clearCtx, cancel := context.WithTimeout(ctx, namespaceOperationTimeout)
 		defer cancel()
 		return gateway.ClearGCEligible(clearCtx, r.client, ns)
@@ -263,18 +268,18 @@ func (r *NamespaceGCReconciler) reconcileNamespace(ctx context.Context, ns *core
 	summary, sErr := gateway.SummarizeNamespace(summaryCtx, r.client, ns.Name)
 	cancel()
 	if sErr != nil {
-		log.Printf("WARN namespace gc: %s: summarize pods: %v", ns.Name, sErr)
+		slog.WarnContext(ctx, "Namespace GC: summarize pods failed", "namespace", ns.Name, "error", sErr)
 	}
 	countCtx, cancel := context.WithTimeout(ctx, namespaceOperationTimeout)
 	activeSandboxes, aErr := gateway.CountActiveSandboxes(countCtx, r.client, ns.Name)
 	cancel()
 	if aErr != nil {
-		log.Printf("WARN namespace gc: %s: count sandboxes: %v", ns.Name, aErr)
+		slog.WarnContext(ctx, "Namespace GC: count sandboxes failed", "namespace", ns.Name, "error", aErr)
 	}
 
 	reason := fmt.Sprintf("orphaned for %s (no live gateway); workloads: %s; active sandboxes: %d",
 		elapsed.Round(time.Second), summary.String(), activeSandboxes)
-	log.Printf("INFO namespace gc: reaping namespace %s: %s", ns.Name, reason)
+	slog.InfoContext(ctx, "Namespace GC: reaping namespace", "namespace", ns.Name, "reason", reason)
 	eventCtx, cancel := context.WithTimeout(ctx, namespaceOperationTimeout)
 	if err := r.recordGCEvent(eventCtx, ns.Name, reason); err != nil {
 		cancel()
@@ -291,7 +296,7 @@ func (r *NamespaceGCReconciler) reconcileNamespace(ctx context.Context, ns *core
 	// or a logged warning and never blocks the reap.
 	mountCtx, cancelMount := context.WithTimeout(ctx, namespaceOperationTimeout)
 	if err := gateway.DeleteVaultTenantMount(mountCtx, r.client, gateway.ReconcileOpts{ControlPlaneNamespace: r.cpNamespace}, ns.Name); err != nil {
-		log.Printf("WARN namespace gc: %s: delete vault tenant mount (best-effort): %v", ns.Name, err)
+		slog.WarnContext(ctx, "Namespace GC: delete vault tenant mount failed (best-effort)", "namespace", ns.Name, "error", err)
 	}
 	cancelMount()
 

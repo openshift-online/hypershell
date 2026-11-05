@@ -448,26 +448,15 @@ components:
 
     GatewayPlacementIntent:
       type: object
-      description: Exactly one of selector or mode must be supplied.
-      oneOf:
-        - title: Capability selector placement
-          required: [selector]
-          not:
-            required: [mode]
-        - title: Local Kind placement
-          required: [mode]
-          not:
-            anyOf:
-              - required: [selector]
-              - required: [excludedSelector]
+      description: >-
+        Late-bound placement by ManagedCluster capability-label selector. A
+        non-empty selector list must be supplied.
+      required: [selector]
       properties:
         selector:
           $ref: '#/components/schemas/GatewayPlacementSelector'
         excludedSelector:
           $ref: '#/components/schemas/GatewayPlacementSelector'
-        mode:
-          type: string
-          enum: [local-kind]
     GatewayPlacementSelector:
       type: array
       minItems: 1
@@ -496,14 +485,12 @@ components:
           enum: [no-eligible-cluster]
     GatewayPlacementAvailability:
       type: object
-      required: [placements, local_kind]
+      required: [placements]
       properties:
         placements:
           type: array
           items:
             $ref: '#/components/schemas/GatewayPlacementAvailabilityItem'
-        local_kind:
-          type: boolean
     # NEW SCHEMA START
     GatewayList:
     # NEW SCHEMA END

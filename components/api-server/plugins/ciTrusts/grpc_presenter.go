@@ -23,6 +23,7 @@ func ciTrustToProto(t *CITrust) *pb.CITrust {
 		SubjectEnvironment:     t.SubjectEnvironment,
 		SubjectRefProtected:    t.SubjectRefProtected,
 		Role:                   t.Role,
+		RepositoryId:           t.RepositoryID,
 		StatusExchangeEndpoint: t.StatusExchangeEndpoint,
 		StatusWorkspace:        t.StatusWorkspace,
 		StatusWorkflowHint:     t.StatusWorkflowHint,

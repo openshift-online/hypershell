@@ -20,9 +20,7 @@ the truth held in the control plane's in-memory watch cache. This gives an
 accurate count without a costly, repeated full-namespace poll of Kubernetes.
 
 This spec is a sub-spec of [`control-plane.spec.md`](./control-plane.spec.md).
-It owns the `active_sandbox_count` mechanism, which was previously attributed to
-the health reconciler in
-[`openshell-gateway-health.spec.md`](./openshell-gateway-health.spec.md). The
+It owns the `active_sandbox_count` mechanism. The
 delete-confirmation warning that consumes this count is defined in
 [`openshell-gateway-namespace-gc.spec.md`](./openshell-gateway-namespace-gc.spec.md)
 (§ Surface Active Sandbox Count Before Deletion). Namespace assignment and

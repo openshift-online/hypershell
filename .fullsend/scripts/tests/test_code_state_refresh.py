@@ -19,19 +19,24 @@ class RefreshTests(unittest.TestCase):
         self.state = dict(head_sha='head', base_sha='base', state='open', draft=False,
                           mergeable=False, mergeable_state='dirty', checks='green')
         self.writes = []
+        self.timeline = []
         def api(path, *args):
+            if path.endswith('/timeline'):
+                return [self.timeline]
             if '/pulls/' in path:
                 return copy.deepcopy(self.pr)
             number = int(path.split('/issues/')[1].split('/')[0])
             if path.endswith('/labels'):
                 return [{'name': name} for name in self.labels[number]]
             return dict(self.item, labels=[{'name': name} for name in self.labels[number]])
-        def run(*args):
-            if args[0] == 'bash' and 'lifecycle_transition' in args[2]:
-                return refresh.subprocess.check_output(args, text=True)
+        def run(*args, input=None):
+            if args[0] == 'bash' and any(name in args[2] for name in (
+                    'lifecycle_transition', 'lifecycle_block_rule', 'lifecycle_count_rejections')):
+                return refresh.subprocess.check_output(args, input=input, text=True)
             self.writes.append(args)
             if args[0]=='bash':
-                self.labels[int(args[-2])].add(args[-1])
+                if 'gh_add_labels' in args[2]:
+                    self.labels[int(args[-2])].add(args[-1])
             else:
                 number = int(args[-1].split('/issues/')[1].split('/')[0])
                 from urllib.parse import unquote
@@ -100,6 +105,45 @@ class RefreshTests(unittest.TestCase):
         self.call()
         self.assertIn('agent/reviewable-code',self.labels[1])
         self.assertNotIn('agent/review-code-approved',self.labels[5])
+
+    def test_failed_ci_returns_deferred_or_approved_review_to_implementation(self):
+        for phase in ('agent/reviewable-code', 'agent/review-code-approved'):
+            self.labels[1] = {'agent/allowed', 'agent/scope/test', phase}
+            self.state.update(checks='failing', mergeable=True, mergeable_state='blocked')
+            self.pr.update(mergeable=True, mergeable_state='blocked')
+            self.assertTrue(self.call()['changed'])
+            self.assertIn('agent/review-code-rejected', self.labels[1])
+            self.assertNotIn('agent/reviewable-code', self.labels[1])
+            self.assertNotIn('agent/review-code-approved', self.labels[5])
+            self.writes.clear()
+            self.assertFalse(self.call()['changed'])
+            self.assertEqual(self.writes, [])
+
+    def test_ci_recovery_uses_timeline_limit(self):
+        self.state.update(checks='failing', mergeable=True, mergeable_state='blocked')
+        self.timeline = [{'event':'labeled', 'label':{'name':'agent/review-code-rejected'}}] * 9
+        self.call()
+        self.assertIn('agent/blocked', self.labels[1])
+
+    def test_ci_rerun_or_new_head_before_write_aborts_recovery(self):
+        self.state.update(checks='failing', mergeable=True, mergeable_state='blocked')
+        for change in ({'checks':'pending'}, {'head_sha':'new'}):
+            with patch.object(refresh, 'observe', side_effect=[dict(self.state), dict(self.state, **change)]):
+                with self.assertRaisesRegex(ValueError, 'CI state changed'):
+                    self.call()
+        self.assertEqual(self.writes, [])
+
+    def test_ci_recovery_cannot_silently_lose_the_record(self):
+        self.state.update(checks='failing', mergeable=True, mergeable_state='blocked')
+        original = refresh.run
+        def run(*args, **kwargs):
+            if 'gh_post_sticky_comment' in args[2]:
+                raise RuntimeError('record failed')
+            return original(*args, **kwargs)
+        with patch.object(refresh, 'run', run):
+            with self.assertRaisesRegex(RuntimeError, 'record failed'):
+                self.call()
+        self.assertNotIn('agent/review-code-rejected', self.labels[1])
 
 
 class RevocationFailureTests(unittest.TestCase):

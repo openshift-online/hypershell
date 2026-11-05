@@ -30,7 +30,7 @@ Have these commands on your PATH:
 
 | Tool | Purpose |
 | --- | --- |
-| Go 1.25+ | Build the local dispatcher; cached binaries are reused |
+| Go 1.26.7+ | Build the local dispatcher with its patched module toolchain; cached binaries are reused |
 | Python 3, Bash, Git, Make | Launch, credential adapters, isolated worktree snapshots |
 | `gh` | GitHub discovery and agent access |
 | `fullsend` | Run the repository's harnesses; this workflow was exercised with 0.50.0 |
@@ -355,6 +355,47 @@ launched workers support cancellation; restarting the dashboard does not upgrade
 workers that are already running.
 `?` lists all navigation, filtering, sorting, and gateway shortcuts.
 
+## Read and filter agent logs
+
+Press Enter on a run to open its full log. The bordered pane shows source text
+with wrapping off by default. Long lines can be panned rather than cut off, and
+output older than 64 KiB remains available. The header keeps the issue and agent
+visible. The top border shows rendering options and whether the pane is following;
+the bottom border shows line/column ranges and active-filter match counts. There
+is no separate source-line count row. Filter input uses a row only while typing.
+
+| Key | Log action |
+| --- | --- |
+| `j` / `k`, arrows, PgUp/PgDn | Scroll vertically |
+| Left/Right or `H` / `L` | Pan horizontally with wrapping off |
+| Shift-Left/Right | Pan half a viewport |
+| `0` / `$` | Reach the left/right end of long lines |
+| `m` | Toggle Markdown for Fullsend `💬` agent prose; default off |
+| `w` | Toggle line wrapping; default off |
+| `a` | Toggle source and semantic colors; default on, subject to `NO_COLOR` |
+| `/` | Filter source lines by a case-insensitive substring |
+| Enter / Esc while typing | Keep / cancel the filter edit |
+| Esc with an applied filter | Clear the filter before navigating back |
+| `f` / `G` | Resume following the end of the log |
+| `d` / `h` | Open details / return to the work list |
+| `?` | Show all shortcuts, including retry and cancellation |
+
+Scrolling up pauses following: new output will not pull you away from what you
+are reading. Scrolling back to the bottom resumes following automatically.
+Filters update as output grows and are separate from work-list/history filters.
+The source-match count and column/line ranges show what is currently visible.
+Rendering toggles do not modify the log file and remain selected while switching
+between logs during the same dashboard session.
+
+Markdown applies only to marked Fullsend agent prose. CLI progress, commands,
+tool output, warnings and errors retain their source formatting and colors in
+both modes. Unmarked output remains literal. Filters classify message context
+before matching, so matching agent continuation lines still render correctly.
+
+The viewer preserves source colors and highlights familiar Fullsend success,
+warning, and error lines. Source terminal controls are removed so log content
+cannot move the cursor, erase the interface, or alter your clipboard.
+
 ## Troubleshooting
 
 | Symptom | Next step |
@@ -370,3 +411,61 @@ workers that are already running.
 
 For scheduling semantics, durable state, sandbox toolchains, and contributor
 checks, see the [dispatcher reference](../../.hypershell/execute-sdlc/README.md).
+
+### Review finished, but approval is waiting
+
+`Awaiting new review` means the live PR revision has not been reviewed. An older
+review attempt does not lend its status or duration to the new revision. Details
+separates Jira synchronization/authentication failures that prevent review from
+starting from pending CI that prevents approval.
+
+`Waiting for CI` means a review of the current revision finished but approval has not been
+applied: required checks are pending or unknown. The row stays visible with
+completed runs hidden. Open details (`d`) for the linked PR and next step.
+`Waiting: PR is draft` and `Waiting for PR readiness` identify other approval
+blockers. Discovery revisits these states automatically.
+
+A completed failed required check returns the issue to `code-implementation`
+through `agent/review-code-rejected`, including when a previous review deferred
+approval or the PR was already approved. Implementation investigates the check
+logs and fixes the cause or reruns transient CI. Pending checks do not consume
+the rejection budget; repeated unchanged failures do not create new rejections.
+
+### Hold reviewed PRs for manual merge approval
+
+Automatic merge approval is enabled by default. To hold a reviewed PR before it
+enters the repository merge queue, use any of these options:
+
+- Make: `make fullsend AUTO_MERGE=disabled`
+- Environment or your env file: `FULLSEND_AUTO_MERGE=disabled`
+- Dispatcher CLI: `--no-auto-merge` (or `--auto-merge disabled`)
+- Home preferences: `{"version":1,"values":{"auto_merge":"disabled"}}`
+- Configuration tab: **Automatic merge approval**, then choose **disabled**.
+
+The Configuration tab shows the absolute preferences path and saves the value on
+disk. This setting applies to the next sandbox, including workers launched without
+restarting the dispatcher. Running sandboxes retain their original policy. It does
+not revoke labels on PRs already queued. Changing it back to enabled affects new
+reviews; held PRs still require an explicit approval or a new review.
+
+With approval disabled, the trusted review post-script still marks the issue
+`agent/review-code-approved`, but withholds or removes that label on its linked PR.
+The agent's responsibilities and review requirements are unchanged. This controls
+the Fullsend PR queue label; it does not disable other repository merge mechanisms.
+
+Ready, approved issues whose linked PR lacks the queue label appear at the top of
+both work views under **Awaiting approval**. Select one and press **A** or **Enter**.
+The confirmation shows the issue, PR and commit, explains merge eligibility, and
+starts on **Keep waiting**. Choose **Approve PR for merge** to add the label for
+that PR only. Live authorization, the unique link, unchanged head/base, required
+checks, draft state and mergeability are rechecked. Changed or ineligible PRs
+cannot be approved from an old screen. Active or unresolved workers prevent the
+action. Failures appear as dismissible notifications; normal discovery revisits
+eligibility. This action does not rerun an agent or change the configured policy.
+
+`Review needed` means the current review request has no applied verdict, even if
+an older review process completed successfully. The dispatcher identifies each
+return to review by its GitHub label event, so identical labels, commits and CI do
+not suppress a new request. `Review needed · Jira sync` means synchronization must
+finish first. This is separate from **Awaiting approval**, which asks the operator
+to let an already approved PR enter the merge queue.

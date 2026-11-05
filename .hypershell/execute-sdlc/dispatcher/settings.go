@@ -110,6 +110,14 @@ func (e *Engine) saveSetting(ctx context.Context, key, value string) settingsRes
 			c.Backoff = n
 		case "backoff_max":
 			c.BackoffMax = n
+		case "auto_merge":
+			env := make(map[string]*string, len(c.Environment)+1)
+			for k, v := range c.Environment {
+				env[k] = v
+			}
+			v := normalized
+			env["FULLSEND_AUTO_MERGE"] = &v
+			c.Environment = env
 		case "model":
 			c.Model = normalized
 		case "ANTHROPIC_VERTEX_PROJECT_ID", "CLOUD_ML_REGION", "GOOGLE_APPLICATION_CREDENTIALS":

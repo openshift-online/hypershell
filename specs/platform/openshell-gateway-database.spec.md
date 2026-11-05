@@ -26,8 +26,7 @@ server is deployment configuration of the control plane, not a domain object.
 
 The control plane issues the `CREATE DATABASE` / `CREATE ROLE` / `GRANT` statements
 itself, over a short-lived administrative connection. No operator is required and no
-in-cluster PostgreSQL workload is created. There is a single provisioning model: the
-control plane reads no setting that selects an alternative.
+in-cluster PostgreSQL workload is created.
 
 PostgreSQL is the only supported database backend for HyperShell gateways.
 
@@ -131,13 +130,13 @@ log/exit-code parsing that the gRPC-watch reconciler pattern avoids.
 
 ### Why a mounted Secret and not an API resource
 
-The previous design registered servers through the API and stored a Secret
-reference per registration. That required a reserved namespace prefix and a fixed
-Secret name to stop an API-level reference from steering the control plane at an
-unrelated Secret, a placement step at gateway creation, a foreign key on Gateway, a
-status vocabulary, deletion protection, and inventory metrics - all for a value that
-is fixed per installation. Mounting the admin Secret into the controller removes
-that whole surface: whoever can deploy the controller chooses the server, no API
+Registering servers through the API would store a Secret reference per
+registration. That would need a reserved namespace prefix and a fixed Secret name
+to stop an API-level reference from steering the control plane at an unrelated
+Secret, a placement step at gateway creation, a foreign key on Gateway, a status
+vocabulary, deletion protection, and inventory metrics - all for a value that is
+fixed per installation. Mounting the admin Secret into the controller avoids that
+whole surface: whoever can deploy the controller chooses the server, no API
 caller can name a Secret, and there is nothing to place, protect or count.
 
 ---
@@ -679,23 +678,6 @@ operation (see Requirement: Admin Credential Mount).
   message
 - AND the condition message SHALL be the user-facing summary defined in
   [`gateway-provisioning-progress.spec.md`](./gateway-provisioning-progress.spec.md)
-
----
-
-### Requirement: OSG-DBS-11 -- No Database Surface in the API and CLI
-
-The Gateway contract (REST, gRPC, OpenAPI, SDKs, CLI, web console) SHALL NOT carry a
-database reference, and the API SHALL expose no database resource kind. Gateway
-creation SHALL NOT perform a database placement step and SHALL NOT be rejected for
-lack of a registered database. The gateway provisioning form and the gateway details
-view SHALL NOT show a database identifier.
-
-#### Scenario: OSG-DBS-11.01 -- Create a gateway
-
-- GIVEN a valid gateway create request with `name` and `cluster_id`
-- WHEN the API server processes it
-- THEN it SHALL create the Gateway without consulting any database registry
-- AND the response SHALL contain no database field
 
 ---
 

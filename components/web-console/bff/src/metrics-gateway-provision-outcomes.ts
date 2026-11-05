@@ -17,12 +17,6 @@ export const gatewayProvisionOutcomesSuccessDailyPromql =
   'sum(increase(gateway_provision_outcomes_total{outcome="success"}[1d]))';
 export const gatewayProvisionOutcomesFailureDailyPromql =
   'sum(increase(gateway_provision_outcomes_total{outcome="failure"}[1d]))';
-export const gatewayProvisionDurationCount24hPromql =
-  "sum(increase(gateway_provision_duration_seconds_count[24h]))";
-export const gatewayProvisionDurationCountLifetimePromql =
-  "sum(gateway_provision_duration_seconds_count)";
-export const gatewayProvisionDurationCountHourlyPromql =
-  "sum(increase(gateway_provision_duration_seconds_count[1h]))";
 
 export interface GatewayProvisionHourlySuccessRate {
   failure_count: number;
@@ -259,14 +253,6 @@ function outcomeMetricSelector(
   return `{${namespaceLabel},outcome="${outcome}"}`;
 }
 
-function durationCountMetric(namespace?: string): string {
-  if (!namespace) {
-    return "gateway_provision_duration_seconds_count";
-  }
-
-  return `gateway_provision_duration_seconds_count${namespaceSelector(namespace, "k8s_namespace_name")}`;
-}
-
 export async function queryGatewayProvisionOutcomes(
   prometheusUrl: MetricsSource,
   timeoutMs: number,
@@ -275,26 +261,22 @@ export async function queryGatewayProvisionOutcomes(
 ): Promise<GatewayProvisionOutcomes> {
   const successSelector = outcomeMetricSelector(namespace, "success");
   const failureSelector = outcomeMetricSelector(namespace, "failure");
-  const durationCountMetricName = durationCountMetric(namespace);
   const window = rangeDays === undefined ? "24h" : `${String(rangeDays)}d`;
   const success24hQuery = `sum(increase(gateway_provision_outcomes_total${successSelector}[${window}]))`;
   const failure24hQuery = `sum(increase(gateway_provision_outcomes_total${failureSelector}[${window}]))`;
   const successHourlyQuery = `sum(increase(gateway_provision_outcomes_total${successSelector}[1h]))`;
   const failureHourlyQuery = `sum(increase(gateway_provision_outcomes_total${failureSelector}[1h]))`;
-  const durationCount24hQuery = `sum(increase(${durationCountMetricName}[${window}]))`;
-  const durationCountLifetimeQuery = `sum(${durationCountMetricName})`;
-  const durationCountHourlyQuery = `sum(increase(${durationCountMetricName}[1h]))`;
   const successDailyQuery = `sum(increase(gateway_provision_outcomes_total${successSelector}[1d]))`;
   const failureDailyQuery = `sum(increase(gateway_provision_outcomes_total${failureSelector}[1d]))`;
 
-  let successCount24h = roundCount(
+  const successCount24h = roundCount(
     await queryPrometheusInstantNumber(
       prometheusUrl,
       success24hQuery,
       timeoutMs,
     ),
   );
-  let failureCount24h = roundCount(
+  const failureCount24h = roundCount(
     await queryPrometheusInstantNumber(
       prometheusUrl,
       failure24hQuery,
@@ -302,47 +284,10 @@ export async function queryGatewayProvisionOutcomes(
     ),
   );
 
-  let successHourlyIncreases: Map<number, number>;
-  let failureHourlyIncreases: Map<number, number>;
+  let successHourlyIncreases = new Map<number, number>();
+  let failureHourlyIncreases = new Map<number, number>();
 
-  if (successCount24h === 0 && failureCount24h === 0) {
-    const durationCount24h = roundCount(
-      await queryPrometheusInstantNumber(
-        prometheusUrl,
-        durationCount24hQuery,
-        timeoutMs,
-      ),
-    );
-
-    if (durationCount24h > 0) {
-      successCount24h = durationCount24h;
-      failureCount24h = 0;
-      successHourlyIncreases = await queryPrometheusHourlyIncreases(
-        prometheusUrl,
-        durationCountHourlyQuery,
-        timeoutMs,
-      );
-      failureHourlyIncreases = new Map();
-    } else {
-      const lifetimeSuccessCount = roundCount(
-        await queryPrometheusInstantNumber(
-          prometheusUrl,
-          durationCountLifetimeQuery,
-          timeoutMs,
-        ),
-      );
-
-      if (lifetimeSuccessCount > 0) {
-        successCount24h = lifetimeSuccessCount;
-        failureCount24h = 0;
-        successHourlyIncreases = new Map();
-        failureHourlyIncreases = new Map();
-      } else {
-        successHourlyIncreases = new Map();
-        failureHourlyIncreases = new Map();
-      }
-    }
-  } else {
+  if (successCount24h > 0 || failureCount24h > 0) {
     successHourlyIncreases = await queryPrometheusHourlyIncreases(
       prometheusUrl,
       successHourlyQuery,

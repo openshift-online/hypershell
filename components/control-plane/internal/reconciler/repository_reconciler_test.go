@@ -3,6 +3,7 @@ package reconciler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"testing"
 
@@ -64,24 +65,36 @@ func newFakeImportWriter() *fakeImportWriter {
 	return &fakeImportWriter{owned: map[string]map[ResourceRef]RenderedResource{}}
 }
 
-func (w *fakeImportWriter) Upsert(ctx context.Context, repoID string, res RenderedResource) error {
-	if err := w.failKinds[res.Kind]; err != nil {
-		return err
+func (w *fakeImportWriter) UpsertAll(ctx context.Context, repoID string, desired []RenderedResource, _ *citrustPassCache) []error {
+	var errs []error
+	for _, res := range desired {
+		if err := w.failKinds[res.Kind]; err != nil {
+			errs = append(errs, fmt.Errorf("upsert %s/%s: %w", res.Kind, res.Name, err))
+			continue
+		}
+		w.upserts = append(w.upserts, res)
+		if w.owned[repoID] == nil {
+			w.owned[repoID] = map[ResourceRef]RenderedResource{}
+		}
+		w.owned[repoID][ResourceRef{Kind: res.Kind, Name: res.Name}] = res
 	}
-	w.upserts = append(w.upserts, res)
-	if w.owned[repoID] == nil {
-		w.owned[repoID] = map[ResourceRef]RenderedResource{}
-	}
-	w.owned[repoID][ResourceRef{Kind: res.Kind, Name: res.Name}] = res
-	return nil
+	return errs
 }
 
-func (w *fakeImportWriter) ListOwned(ctx context.Context, repoID string) ([]ResourceRef, error) {
+func (w *fakeImportWriter) ListOwned(ctx context.Context, repoID string, _ *citrustPassCache) ([]ResourceRef, error) {
 	var refs []ResourceRef
 	for ref := range w.owned[repoID] {
 		refs = append(refs, ref)
 	}
+	// Return refs in dependency-ASCENDING (create/list) order, mirroring the production
+	// grpcImportWriter.ListOwned (which appends Gateway before CITrust). This is the
+	// adversarial order for prune: the reconciler MUST re-sort to reverse so a dependent
+	// kind is deleted before the kind it references (FINDING 3).
 	sort.Slice(refs, func(i, j int) bool {
+		pi, pj := importKindPrecedence(refs[i].Kind), importKindPrecedence(refs[j].Kind)
+		if pi != pj {
+			return pi < pj
+		}
 		if refs[i].Kind != refs[j].Kind {
 			return refs[i].Kind < refs[j].Kind
 		}
@@ -176,6 +189,18 @@ spec:
   cluster_id: c1
 ---
 apiVersion: hypershell.redhat.io/v1
+kind: CITrust
+metadata:
+  name: ct-1
+spec:
+  ci_provider_id: github-actions
+  gateway_id: gw-1
+  role: openshell-user
+  subject:
+    repository: acme/repo
+    ref_protected: true
+---
+apiVersion: hypershell.redhat.io/v1
 kind: Repository
 metadata:
   name: nested-repo
@@ -206,7 +231,7 @@ metadata:
 		t.Fatalf("renderImportables() error = %v", err)
 	}
 
-	// Exactly the seven importable kinds, Repository + admin kinds excluded.
+	// Exactly the eight importable kinds, Repository + admin kinds excluded.
 	want := map[string]string{
 		"SandboxTemplate": "tmpl-1",
 		"ProviderSpec":    "ps-1",
@@ -215,6 +240,7 @@ metadata:
 		"InferenceRoute":  "ws-1|pb-1|gpt",
 		"AgentRuntime":    "ar-1",
 		"Gateway":         "gw-1",
+		"CITrust":         "ct-1",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("renderImportables() returned %d resources, want %d: %+v", len(got), len(want), got)
@@ -319,6 +345,50 @@ spec:
 	}
 	if _, stillOwned := writer.owned["abc"][ResourceRef{Kind: "ProviderSpec", Name: "drop-me"}]; stillOwned {
 		t.Error("drop-me still owned after prune")
+	}
+}
+
+// Prune runs in REVERSE dependency order: a CITrust (which references a Gateway by FK)
+// is deleted BEFORE the Gateway it points at, so a pass never leaves a dangling CITrust
+// against a soft-deleted Gateway (FINDING 3). Before the fix prune followed ListOwned
+// order (Gateway before CITrust), deleting the Gateway first.
+func TestReconcileRepository_PrunesCITrustBeforeGateway(t *testing.T) {
+	writer := newFakeImportWriter()
+	// The repository already owns a Gateway and a CITrust; the new manifest declares
+	// neither, so both are pruned in one pass.
+	writer.owned["abc"] = map[ResourceRef]RenderedResource{
+		{Kind: "Gateway", Name: "gw"}: {Kind: "Gateway", Name: "gw"},
+		{Kind: "CITrust", Name: "ct"}: {Kind: "CITrust", Name: "ct"},
+	}
+	fetcher := &fakeFetcher{fsys: inMemFS(t, map[string]string{
+		"/kustomization.yaml": "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - r.yaml\n",
+		"/r.yaml": `apiVersion: hypershell.redhat.io/v1
+kind: SandboxTemplate
+metadata:
+  name: keep
+spec:
+  image: img:v1
+`,
+	}), root: "/"}
+	r := newReconciler(&fakeRepoClient{}, &fakeResolver{token: "t"}, fetcher, writer)
+
+	if err := r.reconcileRepository(context.Background(), repo("abc"), false); err != nil {
+		t.Fatalf("reconcile error = %v", err)
+	}
+	ctIdx, gwIdx := -1, -1
+	for i, d := range writer.deletes {
+		switch d.Kind {
+		case "CITrust":
+			ctIdx = i
+		case "Gateway":
+			gwIdx = i
+		}
+	}
+	if ctIdx == -1 || gwIdx == -1 {
+		t.Fatalf("deletes = %+v, want both CITrust and Gateway pruned", writer.deletes)
+	}
+	if ctIdx > gwIdx {
+		t.Fatalf("CITrust pruned at index %d, Gateway at %d; want CITrust before Gateway (reverse dependency order)", ctIdx, gwIdx)
 	}
 }
 
@@ -523,9 +593,9 @@ spec:
 	}
 }
 
-// TestReconcileRepository_AllSevenKindsImport confirms every importable Kind flows
+// TestReconcileRepository_AllEightKindsImport confirms every importable Kind flows
 // through the writer's upsert path (no not-writable branch) in a single import.
-func TestReconcileRepository_AllSevenKindsImport(t *testing.T) {
+func TestReconcileRepository_AllEightKindsImport(t *testing.T) {
 	writer := newFakeImportWriter()
 	fetcher := &fakeFetcher{fsys: inMemFS(t, map[string]string{
 		"/kustomization.yaml": "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - r.yaml\n",
@@ -581,16 +651,28 @@ metadata:
   name: gw-1
 spec:
   cluster_id: c1
+---
+apiVersion: hypershell.redhat.io/v1
+kind: CITrust
+metadata:
+  name: ct-1
+spec:
+  ci_provider_id: github-actions
+  gateway_id: gw-1
+  role: openshell-user
+  subject:
+    repository: acme/repo
+    ref_protected: true
 `,
 	}), root: "/"}
 	r := newReconciler(&fakeRepoClient{}, &fakeResolver{token: "t"}, fetcher, writer)
 	if err := r.reconcileRepository(context.Background(), repo("abc"), false); err != nil {
 		t.Fatalf("reconcile error = %v", err)
 	}
-	if len(writer.upserts) != 7 {
-		t.Fatalf("upserts = %d, want 7 (all importable kinds)", len(writer.upserts))
+	if len(writer.upserts) != 8 {
+		t.Fatalf("upserts = %d, want 8 (all importable kinds)", len(writer.upserts))
 	}
-	for _, kind := range []string{"SandboxTemplate", "ProviderSpec", "ProviderBinding", "SecretSource", "InferenceRoute", "AgentRuntime", "Gateway"} {
+	for _, kind := range []string{"SandboxTemplate", "ProviderSpec", "ProviderBinding", "SecretSource", "InferenceRoute", "AgentRuntime", "Gateway", "CITrust"} {
 		found := false
 		for _, u := range writer.upserts {
 			if u.Kind == kind {

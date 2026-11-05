@@ -52,7 +52,8 @@ func PresentCITrust(t *CITrust) openapi.CITrust {
 			Environment:  t.SubjectEnvironment,
 			RefProtected: t.SubjectRefProtected,
 		},
-		Role: t.Role,
+		Role:         t.Role,
+		RepositoryId: t.RepositoryID,
 	}
 	if t.StatusExchangeEndpoint != nil || t.StatusWorkspace != nil || t.StatusWorkflowHint != nil {
 		result.Status = &openapi.CITrustAllOfStatus{

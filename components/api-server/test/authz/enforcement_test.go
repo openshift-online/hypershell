@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/test"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
@@ -26,6 +27,13 @@ func newCandidateServer(t *testing.T, h *test.Helper, enableJWT bool) string {
 	serverConfig.BindAddress = "127.0.0.1:0"
 	cfg.Auth, cfg.Server = &auth, &serverConfig
 	env.Config = &cfg
+	// The Authorizer follows its environment's authentication config, so the
+	// candidate server gets its own.
+	authorizer, err := rbac.ForEnvironment(&env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env.Authorizer = authorizer
 
 	global := environments.Environment()
 	saved := global.Config.Auth.EnableJWT

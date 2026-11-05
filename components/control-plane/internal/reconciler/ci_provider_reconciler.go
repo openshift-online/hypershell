@@ -3,7 +3,7 @@ package reconciler
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
@@ -70,7 +70,10 @@ func (r *CIProviderReconciler) handleUpsert(ctx context.Context, id string, prov
 	//   - JWKS URL: provider.GetJwksUrl()
 	//   - Audience: provider.GetAudience()
 	//   - No user login flow (validation-only)
-	log.Printf("INFO CIProvider %s: would ensure Keycloak IdP alias=%s issuer=%s (Keycloak integration pending)", id, alias, provider.GetIssuer())
+	slog.InfoContext(ctx, "CIProvider would ensure Keycloak IdP (Keycloak integration pending)",
+		"ci_provider_id", id,
+		"idp_alias", alias,
+		"issuer", provider.GetIssuer())
 
 	statusIdpAlias := alias
 	_, err := r.ciProviderSvc.UpdateCIProvider(ctx, &pb.UpdateCIProviderRequest{
@@ -81,7 +84,7 @@ func (r *CIProviderReconciler) handleUpsert(ctx context.Context, id string, prov
 		return fmt.Errorf("updating CI provider %s status: %w", id, err)
 	}
 
-	log.Printf("INFO CIProvider %s reconciled: idp_alias=%s", id, alias)
+	slog.InfoContext(ctx, "CIProvider reconciled", "ci_provider_id", id, "idp_alias", alias)
 	return nil
 }
 
@@ -92,7 +95,7 @@ func (r *CIProviderReconciler) handleDelete(ctx context.Context, id string, prov
 	}
 
 	// TODO(PLAT-DATA-24): delete the Keycloak IdP by alias
-	log.Printf("INFO CIProvider %s: would delete Keycloak IdP alias=%s (Keycloak integration pending)", id, alias)
+	slog.InfoContext(ctx, "CIProvider would delete Keycloak IdP (Keycloak integration pending)", "ci_provider_id", id, "idp_alias", alias)
 
 	return nil
 }

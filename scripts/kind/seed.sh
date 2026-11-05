@@ -245,8 +245,9 @@ if [[ -z "${seed_failed}" ]]; then
     # to enabled, the per-gateway Keycloak OIDC client is set by
     # reconcileKeycloakClient, and namespace is server-derived (BeforeCreate sets
     # openshell-<hex> from the ksuid). cluster_id is server-resolved from the
-    # placement intent, and local-kind selects the ManagedCluster awaited above.
-    GW_BODY="{\"name\":\"dev-gateway\",\"placement\":{\"mode\":\"local-kind\"}}"
+    # placement intent, and the provider/kind capability selector selects the
+    # ManagedCluster awaited above.
+    GW_BODY="{\"name\":\"dev-gateway\",\"placement\":{\"selector\":[\"provider/kind\"]}}"
     GW_RAW=$(api_post "${API_URL}/api/hypershell/v1/gateways" "${GW_BODY}")
     GW_HTTP=$(echo "${GW_RAW}" | tail -1)
     GW_RESP=$(echo "${GW_RAW}" | sed '$d')

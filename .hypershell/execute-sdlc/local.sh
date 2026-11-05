@@ -32,6 +32,7 @@ if [[ "$scope" != agent/scope/* || "$scope" == agent/scope/ ]]; then
   exit 2
 fi
 args=("$scope")
+[[ -z "${FULLSEND_LAUNCH_AUTO_MERGE:-}" ]] || args+=(--auto-merge "$FULLSEND_LAUNCH_AUTO_MERGE")
 [[ -z "${FULLSEND_LAUNCH_INTAKE_INTERVAL:-}" ]] || args+=(--intake-interval "$FULLSEND_LAUNCH_INTAKE_INTERVAL")
 [[ -z "${FULLSEND_LAUNCH_MODEL:-}" ]] || args+=(--model "$FULLSEND_LAUNCH_MODEL")
 [[ -z "${FULLSEND_LAUNCH_CONCURRENCY:-}" ]] || args+=(--concurrency "$FULLSEND_LAUNCH_CONCURRENCY")

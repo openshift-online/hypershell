@@ -4936,17 +4936,15 @@ components:
           type: string
       type: object
     GatewayPlacementIntent:
-      description: Exactly one of selector or mode must be supplied.
+      description: Late-bound placement by ManagedCluster capability-label selector.
+        A non-empty selector list must be supplied.
       example:
-        mode: local-kind
         excludedSelector:
         - excludedSelector
         - excludedSelector
         selector:
         - selector
         - selector
-      nullable: true
-      oneOf: []
       properties:
         selector:
           items:
@@ -4958,14 +4956,11 @@ components:
             type: string
           minItems: 1
           type: array
-        mode:
-          enum:
-          - local-kind
-          type: string
+      required:
+      - selector
       type: object
     GatewayPlacementAvailability:
       example:
-        local_kind: true
         placements:
         - reason: no-eligible-cluster
           available: true
@@ -4982,10 +4977,7 @@ components:
           items:
             $ref: "#/components/schemas/GatewayPlacementAvailabilityItem"
           type: array
-        local_kind:
-          type: boolean
       required:
-      - local_kind
       - placements
       type: object
     OpenShellGatewayServiceAccountRole:
@@ -6713,7 +6705,6 @@ components:
         cluster_id: cluster_id
         name: name
         placement:
-          mode: local-kind
           excludedSelector:
           - excludedSelector
           - excludedSelector
@@ -7046,6 +7037,7 @@ components:
             repository: repository
           name: name
           created_at: 2000-01-23T04:56:07.000+00:00
+          repository_id: repository_id
           id: id
           href: href
           gateway_id: gateway_id
@@ -7065,6 +7057,7 @@ components:
             repository: repository
           name: name
           created_at: 2000-01-23T04:56:07.000+00:00
+          repository_id: repository_id
           id: id
           href: href
           gateway_id: gateway_id
@@ -7093,6 +7086,12 @@ components:
           role:
             description: The gateway role granted to the federated CI session
             type: string
+          repository_id:
+            description: Repository that owns this CITrust through the control-plane
+              .hypershell import. Null for trusts created directly through the REST
+              API or hsctl apply. Set server-side; read-only in the client contract.
+            readOnly: true
+            type: string
           status:
             $ref: "#/components/schemas/CITrust_allOf_status"
         required:
@@ -7113,6 +7112,7 @@ components:
           repository: repository
         name: name
         created_at: 2000-01-23T04:56:07.000+00:00
+        repository_id: repository_id
         id: id
         href: href
         gateway_id: gateway_id

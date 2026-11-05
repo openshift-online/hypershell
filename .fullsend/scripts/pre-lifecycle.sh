@@ -43,10 +43,16 @@ if ! lifecycle_outcomes "${PHASE}" >/dev/null; then
 fi
 
 # Append a KEY=VALUE relay line, or print it when no output path is configured
-# (local invocation and tests).
-declare -A recorded=()
+# (local invocation and tests). The pull request values are also kept for the
+# run-state file. Plain variables, not an associative array: this script runs on
+# the host, and macOS ships Bash 3.2, which has no `declare -A`.
+recorded_pr_number=""
+recorded_pr_head_sha=""
 _relay() {
-  recorded["$1"]="$2"
+  case "$1" in
+    LIFECYCLE_PR_NUMBER) recorded_pr_number="$2" ;;
+    LIFECYCLE_PR_HEAD_SHA) recorded_pr_head_sha="$2" ;;
+  esac
   if [[ -n "${FULLSEND_PRESCRIPT_OUTPUT:-}" ]]; then
     printf '%s=%s\n' "$1" "$2" >> "${FULLSEND_PRESCRIPT_OUTPUT}"
   else
@@ -162,7 +168,7 @@ if [[ -n "${FULLSEND_PRESCRIPT_OUTPUT:-}" ]]; then
   state_dir="$(dirname "${FULLSEND_PRESCRIPT_OUTPUT}")"
   python3 -I "${_dir}/lib/run-state.py" write "${state_dir}/.lifecycle-state.json" \
     "${PHASE}" "${REPO}" "${NUMBER}" \
-    "${recorded[LIFECYCLE_PR_NUMBER]:-}" "${recorded[LIFECYCLE_PR_HEAD_SHA]:-}"
+    "${recorded_pr_number}" "${recorded_pr_head_sha}"
 fi
 _relay skipped false
 

@@ -85,9 +85,12 @@ func TestResolvePendingPlacementsSkipsFailuresAndPlacesTheRest(t *testing.T) {
 	}
 }
 
-func TestResolvePendingPlacementsSkipsLocalKind(t *testing.T) {
-	localKind := newUnplacedGateway("gw-local", `{"mode":"local-kind"}`)
-	svc := &fakeRebindService{unplaced: GatewayList{localKind}}
+func TestResolvePendingPlacementsSkipsLegacyModeDocument(t *testing.T) {
+	// A legacy {"mode":"local-kind"} document from a pre-selector dev cluster
+	// carries no selector, so storedPlacementToIntent reports it as
+	// contentless and the sweep leaves it untouched.
+	legacy := newUnplacedGateway("gw-legacy", `{"mode":"local-kind"}`)
+	svc := &fakeRebindService{unplaced: GatewayList{legacy}}
 
 	called := false
 	resolve := func(ctx context.Context, intent openapi.GatewayPlacementIntent) (string, bool, *svcerrors.ServiceError) {
@@ -99,9 +102,9 @@ func TestResolvePendingPlacementsSkipsLocalKind(t *testing.T) {
 		t.Fatalf("resolvePendingPlacements: %v", err)
 	}
 	if called {
-		t.Fatal("expected local-kind placement to be skipped, not re-resolved")
+		t.Fatal("expected the legacy mode document to be skipped, not re-resolved")
 	}
 	if len(svc.replaced) != 0 {
-		t.Fatalf("expected no placement for local-kind, got %+v", svc.replaced)
+		t.Fatalf("expected no placement for the legacy mode document, got %+v", svc.replaced)
 	}
 }

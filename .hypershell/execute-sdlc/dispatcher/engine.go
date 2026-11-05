@@ -15,6 +15,7 @@ import (
 )
 
 type Snapshot struct {
+	AwaitingApproval             []Row
 	ConnectionError              string
 	RecoveryError                string
 	Rows                         []Row
@@ -27,9 +28,10 @@ type Snapshot struct {
 	Exit                         int
 }
 type discovery struct {
-	Jobs   []Job    `json:"jobs"`
-	Errors []string `json:"errors"`
-	Err    error
+	AwaitingApproval []Row    `json:"awaiting_approval"`
+	Jobs             []Job    `json:"jobs"`
+	Errors           []string `json:"errors"`
+	Err              error
 }
 type authResult struct{ Err error }
 type recoveryRequest struct {
@@ -74,6 +76,7 @@ func (e *Engine) snapshot() Snapshot {
 	defer e.mu.RUnlock()
 	s := e.state
 	s.Rows = append([]Row(nil), s.Rows...)
+	s.AwaitingApproval = append([]Row(nil), s.AwaitingApproval...)
 	s.Errors = append([]string(nil), s.Errors...)
 	return s
 }
@@ -100,6 +103,32 @@ func (e *Engine) publishRows() ([]Row, error) {
 		if rows[i].Status == "running" {
 			active++
 			rows[i].Activity = activity(rows[i].Log)
+		}
+	}
+	for i := range rows {
+		r := &rows[i]
+		if reviewWaiting(*r) == "" {
+			continue
+		}
+		if r.CodeReadiness.Checks != "green" {
+			r.ReviewBlockers = append(r.ReviewBlockers, "Required CI is "+r.CodeReadiness.Checks+"; approval cannot be applied yet.")
+		}
+		for _, sync := range rows {
+			if !sameIssue(*r, sync) || (sync.Agent != "reconcile" && sync.Agent != "funnel-reconcile") || sync.Status == "succeeded" {
+				continue
+			}
+			blocker := "Jira synchronization must succeed before a new review can start."
+			if sync.Status == "running" {
+				blocker = "Jira synchronization is running; review starts after it succeeds."
+			}
+			if sync.Status == "failed" {
+				blocker = "Jira synchronization failed; " + strings.ToLower(rowStatus(sync)) + ". Review cannot start yet."
+				if text, err := tail(sync.Log, 4096); err == nil && strings.Contains(text, "snapshot: acli") && strings.Contains(text, "expired") {
+					blocker = "Jira authentication expired; synchronization is retrying. Review cannot start until synchronization succeeds."
+				}
+			}
+			r.ReviewBlockers = append(r.ReviewBlockers, blocker)
+			r.SyncLog = sync.Log
 		}
 	}
 	sort.SliceStable(rows, func(i, j int) bool { return rank(rows[i].Status) < rank(rows[j].Status) })
@@ -342,6 +371,7 @@ func (e *Engine) run(ctx context.Context) (exit int) {
 				s.NextDiscovery = next
 				if result.Err == nil {
 					s.Errors = result.Errors
+					s.AwaitingApproval = result.AwaitingApproval
 				}
 			})
 			if e.config().DryRun {

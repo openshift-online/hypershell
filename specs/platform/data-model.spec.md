@@ -7,7 +7,7 @@
 
 The HyperShell API server provides a control plane for deploying and managing distributed API gateways across multiple Kubernetes clusters and cloud providers.
 
-Gateways and clusters are **top-level resources**. There is no organizational grouping layer: all gateways belong to the same platform, and tenancy is enforced by RBAC (platform-level `gateway:creator`/`platform:admin` and per-gateway `gateway:owner` (full control incl. delete; grantable, one or more), `gateway:admin` (granted administrators; no delete), and `gateway:viewer`). See [`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md) and [`gateway-access-management.spec.md`](gateway-access-management.spec.md).
+Gateways and clusters are **top-level resources**. Tenancy is enforced by RBAC (platform-level `gateway:creator`/`platform:admin` and per-gateway `gateway:owner` (full control incl. delete; grantable, one or more), `gateway:admin` (granted administrators; no delete), and `gateway:viewer`). See [`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md) and [`gateway-access-management.spec.md`](gateway-access-management.spec.md).
 
 Current model:
 
@@ -47,7 +47,7 @@ erDiagram
         string ID PK
         string name
         string cluster_id FK "nullable; late-bound by placement when absent"
-        jsonb placement "capability-label selectors or local-kind mode; used when cluster_id is absent"
+        jsonb placement "capability-label selectors; used when cluster_id is absent"
         string namespace
         string image
         string supervisor_image
@@ -280,7 +280,7 @@ SHALL be OPTIONAL on create:
 - **Late-bound by placement.** When `cluster_id` is ABSENT, the Gateway SHALL
   instead carry a `placement` selector that declares the TYPE of placement it
   wants as ManagedCluster capability-label selectors (for example
-  `network/public`, `provider/ibm`) or a `local-kind` mode, exactly as the
+  `network/public`, `provider/ibm`), exactly as the
   declarative `.hypershell` Gateway manifest uses. The API server SHALL resolve
   the selector to a concrete `ManagedCluster` and assign `cluster_id` server-side;
   this keeps the watch-stream caller binding authoritative, consistent with the
@@ -849,9 +849,7 @@ turns the runtime into a repository scanner. When `selector` is non-empty, the
 coordinator SHALL query the runtime's referenced `Repository` for work items
 (issues and pull requests) and SHALL treat an item as matched when it carries
 **any** of the selected labels (match-any). For each matched item the coordinator
-SHALL launch one sandbox from the runtime's `sandbox_template_id`. This replaces
-the imperative `discover.sh` script contract (see "Declarative `.hypershell`
-Import" below) with a declarative field.
+SHALL launch one sandbox from the runtime's `sandbox_template_id`.
 
 `selector` SHALL be valid only when `repository_id` is also set. The API server
 SHALL reject a create or update that sets a non-empty `selector` without a
@@ -990,8 +988,8 @@ Kustomize root: the `RepositoryReconciler` SHALL build the kustomization and
 reconcile the rendered resources into the API.
 
 The Kinds the `RepositoryReconciler` imports are defined here canonically as the
-**importable Kinds**, exactly seven: `AgentRuntime`, `SandboxTemplate`, `ProviderSpec`,
-`ProviderBinding`, `InferenceRoute`, `SecretSource`, and `Gateway`.
+**importable Kinds**, exactly eight: `AgentRuntime`, `SandboxTemplate`, `ProviderSpec`,
+`ProviderBinding`, `InferenceRoute`, `SecretSource`, `Gateway`, and `CITrust`.
 These are the declarable HyperShell Kinds a `.hypershell` root MAY contain. They are
 a SUBSET of the Kinds `hsctl apply` accepts: `hsctl apply` also accepts
 platform-admin Kinds (for example `ManagedCluster`, `Role`, and `RoleBinding`) that
@@ -1004,6 +1002,13 @@ referenced - not re-enumerated - by [`control-plane.spec.md`](./control-plane.sp
 ("Declarative `.hypershell` Import Reconciliation") and
 [`openshell-gateway.spec.md`](./openshell-gateway.spec.md) ("Relationship to the
 RepositoryReconciler") so the importable set never drifts across specs.
+
+`CITrust` is importable so a repository can declare its own keyless CI federation
+alongside the `Gateway` it runs on (PLAT-DATA-25, [`ci-trust-ext-api.spec.md`](./ci-trust-ext-api.spec.md)
+PLAT-CITR-10). `CIProvider` is NOT importable: it is a platform-wide registration of a
+CI OIDC issuer authored by `ci-federation:admin` over HTTP (PLAT-DATA-24, SEC-RBAC-21),
+not a per-repository declaration, so a `.hypershell` root MAY reference a `CIProvider`
+by name from a `CITrust` but SHALL NOT declare one.
 
 The `RepositoryReconciler` upserts these resources into the API only; it does NOT
 provision them cluster-side. Each imported Kind is subsequently reconciled into the
@@ -1057,8 +1062,7 @@ the control plane SHALL:
 4. Reconcile (create / update / prune) the rendered ext resources into the API
    over the generated gRPC write path, marking each written resource with its
    owning `Repository` (`repository_id`). For an imported `Gateway`, the writer SHALL
-   map the rendered spec's `placement` (a capability-label `selector` list, or
-   `mode: local-kind`) into the CREATE request `placement` field so a declarative
+   map the rendered spec's `placement` (a capability-label `selector` list) into the CREATE request `placement` field so a declarative
    late-bound Gateway (placement, no `cluster_id`) satisfies the exactly-one-of create
    contract in "Requirement: Gateway Placement and Late Binding"; the pinned
    (`cluster_id`) path is unchanged. The placement-mapping contract is defined
@@ -1073,6 +1077,20 @@ the control plane SHALL:
    entitlement, and an Import-kind create that sets it is rejected by the service
    funnel with 403 (see "Requirement: Gateway Dedicated Route Request Field",
    PLAT-DATA-26).
+
+**Foreign-key references in an imported manifest SHALL be resolved BY NAME.** A
+`.hypershell` manifest declares cross-resource references by the referent's `name`,
+not by a server-assigned id the author cannot know (for example an `AgentRuntime`'s
+`gateway_id` and `sandbox_template_id`, or a `CITrust`'s `ci_provider_id` and
+`gateway_id`). The import writer SHALL resolve each such reference to the referent's
+id through the same find-by-name path the extension API exposes (the `name` column and
+defensive lookup added for ext kinds in #871/#873), and SHALL fail that resource's
+import when a named referent does not resolve. For a `CITrust` the writer SHALL resolve
+`ci_provider_id` to the `CIProvider` whose `name` matches and `gateway_id` to the
+`Gateway` whose `name` matches - the `Gateway` the same `Repository` imports from the
+same `.hypershell` root. `metadata.description` carried by an imported manifest (as
+`gateway.yaml`, `repository.yaml`, and `ci-trust.yaml` all carry one) SHALL be accepted
+and persisted, exactly as for the other importable Kinds, and SHALL NOT fail the import.
 
 The control plane holds per-cluster in-cluster credentials, read-only secret-store
 access, and the platform GitHub App credential the import requires; the API server
@@ -1109,8 +1127,8 @@ plane is a reader of desired state" principle: the principle holds everywhere ex
 this one named, ownership-scoped reconciler.
 
 Imported resources SHALL be owned by the originating `Repository`. Every one of the
-seven importable Kinds - `AgentRuntime`, `SandboxTemplate`, `ProviderSpec`,
-`ProviderBinding`, `InferenceRoute`, `SecretSource`, and `Gateway` - SHALL carry a
+eight importable Kinds - `AgentRuntime`, `SandboxTemplate`, `ProviderSpec`,
+`ProviderBinding`, `InferenceRoute`, `SecretSource`, `Gateway`, and `CITrust` - SHALL carry a
 nullable, read-only `repository_id` ownership mark for this purpose: it is NULL for a
 resource created directly through the REST API or `hsctl apply`, and set server-side to
 the originating `Repository` for an imported resource, so prune can be scoped to the
@@ -1122,13 +1140,8 @@ SHALL be idempotent. The pruning of imported resources SHALL be scoped to the
 owning `Repository`, so one Repository's import SHALL NOT delete resources owned
 by another Repository or created directly through the REST API or `hsctl apply`.
 
-> **Replaces the script coordinator model.** This declarative import, together
-> with `AgentRuntime.selector`, supersedes the imperative `discover.sh` / `run.sh`
-> "script-at-endpoint" coordinator contract previously documented in
-> `.hypershell/README.md`. That script contract is **deprecated and slated for
-> removal**: the control-plane import SHALL render declared YAML rather than invoke
-> scripts found in the repository. Updating `.hypershell/README.md` and removing
-> the `discover.sh` / `run.sh` scripts is a follow-up outside this spec change.
+The control-plane import SHALL render declared YAML and SHALL NOT invoke scripts
+found in the repository.
 
 #### Scenario: PLAT-DATA-11.01 -- Import Renders Declared Resources
 
@@ -1156,6 +1169,21 @@ by another Repository or created directly through the REST API or `hsctl apply`.
 - GIVEN a `Repository` whose `.hypershell` contents are unchanged since the last import
 - WHEN the control-plane import reconciler runs again
 - THEN it SHALL make no create, update, or prune write to the API
+
+#### Scenario: PLAT-DATA-11.05 -- CITrust Is Imported With References Resolved by Name
+
+- GIVEN a `Repository` whose `.hypershell` root declares a `Gateway` named `agents-gateway` and a `CITrust` whose `ci_provider_id` names a `CIProvider` and whose `gateway_id` names `agents-gateway`
+- WHEN the control-plane import reconciler runs
+- THEN it SHALL resolve `ci_provider_id` to the `CIProvider` of that `name` and `gateway_id` to the `Gateway` of that `name`
+- AND it SHALL upsert the `CITrust` owned by the `Repository` (`repository_id` set server-side)
+- AND re-running the import against unchanged repository state SHALL make no write
+
+#### Scenario: PLAT-DATA-11.06 -- Removed CITrust Is Pruned Within Its Owning Repository
+
+- GIVEN a `Repository` that previously imported a `CITrust`, and another `CITrust` created directly over REST on the same gateway by its owner
+- WHEN that imported `CITrust` is removed from `.hypershell` and the import re-runs
+- THEN the import reconciler SHALL delete only the imported `CITrust`
+- AND it SHALL NOT delete the directly-created `CITrust`
 
 ---
 
@@ -1600,6 +1628,8 @@ The control plane realizes a `CIProvider` as a validation-only OIDC identity pro
 
 A `CITrust` wires a `CIProvider` to a single `Gateway` the caller manages (`gateway:owner` or `gateway:admin`, or `platform:admin`), declaring that any CI run whose OIDC token matches `subject` MAY exchange that token for an OpenShell access token scoped to that gateway's workspace. It is the self-service, tenant-owned replacement for operator-managed per-tenant Keycloak configuration: creating a `CITrust` is how a user "enables CI on their own gateway" with no stored secret. The per-gateway tenancy is authorized by the same `CanManageGatewayResources` check the other gateway-scoped ext kinds use; see `security/rbac-enforcement.spec.md` (SEC-RBAC-22).
 
+A `CITrust` is an **importable Kind** (see "Declarative `.hypershell` Import", PLAT-DATA-11): a repository MAY declare its own keyless CI federation in `.hypershell` next to the `Gateway` it federates onto. It therefore carries the same nullable, read-only `repository_id` ownership mark the other importable Kinds carry (NULL when authored directly over REST or `hsctl apply`, set server-side to the originating `Repository` on import), and its `ci_provider_id` and `gateway_id` references are resolved by name on import. The import path's authorization - how a non-human importer satisfies the SEC-RBAC-22 per-gateway tenancy - is defined in [`ci-trust-ext-api.spec.md`](./ci-trust-ext-api.spec.md) (PLAT-CITR-10) and `security/rbac-enforcement.spec.md` (SEC-RBAC-26).
+
 `CITrust` fields:
 
 | Field | Type | Description |
@@ -1697,7 +1727,7 @@ The `hsctl` CLI mirrors the REST API 1-for-1 except where a feature explicitly d
 |---|---|---|
 | `GET /api/hypershell/v1/gateways` | `hsctl list gateways` | ✅ implemented |
 | `GET /api/hypershell/v1/gateways/{id}` | `hsctl get gateway <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/gateways` | `hsctl create gateway --name <n> (--cluster-id <c> \| [--placement-selector <label>]... [--placement-exclude-selector <label>]... \| --local-kind) [--dedicated-route] [--dry-run]` (name + placement + the create-only `dedicated_route` request, per PLAT-DATA-23 / PLAT-DATA-26; `--dedicated-route` requires the `gateway:dedicated-route-creator` role; the placement flags submit the late-bound shape, see [`hsctl-placement.spec.md`](hsctl-placement.spec.md)) | ✅ implemented |
+| `POST /api/hypershell/v1/gateways` | `hsctl create gateway --name <n> (--cluster-id <c> \| [--placement-selector <label>]... [--placement-exclude-selector <label>]...) [--dedicated-route] [--dry-run]` (name + placement + the create-only `dedicated_route` request, per PLAT-DATA-23 / PLAT-DATA-26; `--dedicated-route` requires the `gateway:dedicated-route-creator` role; the placement flags submit the late-bound shape, see [`hsctl-placement.spec.md`](hsctl-placement.spec.md)) | ✅ implemented |
 | `PATCH /api/hypershell/v1/gateways/{id}` | `hsctl update gateway <id> --name <n>` (rename only, per PLAT-DATA-23) | 🔲 planned |
 | `DELETE /api/hypershell/v1/gateways/{id}` | `hsctl delete gateway <id>` | ✅ implemented |
 | `GET /api/hypershell/v1/gateways/{gateway_id}/sandbox_events` | -- | planned (REST only; see [`gateway-sandbox-events.spec.md`](gateway-sandbox-events.spec.md)) |
@@ -1983,7 +2013,7 @@ hsctl create gateway --name api-gateway --cluster-id eks-1
 | No bootstrap Job: controller realizes gateway-side objects via OpenShell's existing API | Gateway-side workspace, members, and provider objects are realized by the controller through OpenShell's existing provisioning API (the operations the `openshell` CLI drives) in its normal reconcile loop, co-located with existing gateway database provisioning logic, rather than a bespoke gateway gRPC contract. An idempotent imperative Job on the cluster would tie provisioning to a specific OpenShell CLI version. |
 | Repository as a reusable top-level ext resource | A registered repo plus its provider credential is referenced by many agent runtimes and read by the declarative import. Centralizing it keeps credential rotation and `.hypershell` discovery a single registration, not per-runtime config. |
 | Repository credential via OPTIONAL SecretSource FK | Reuses the existing abstract secret store model (Vault/AWS/Kubernetes) and the control plane's read-only store access, keeping provider material out of the database and consistent with every other credential in the platform. For a GitHub `Repository` the stored material is the durable App PEM; the `RepositoryReconciler` mints the short-lived installation token from it rather than storing a static token. The FK is OPTIONAL: a public repository needs no credential and is read anonymously, so requiring a `secret_source_id` would block registering a public repository. `SecretSource` ownership stays with `AgentRuntime` (a `Repository`-scoped `SecretSource` would have no cluster to late-bind a Vault to), so the public case is solved by making the `Repository` credential optional, not by loosening `SecretSource`. Private-repository credential sourcing is a separate open follow-up (platform-scoped store, a configured platform token, or a narrow Repository-owned exception). |
-| AgentRuntime.selector as a label list (match-any) | Declarative repository scanning replaces the imperative `discover.sh` script. A simple label list is enough to express "scan these items" (e.g. `agent/reviewable`); an item matching any label yields one sandbox from the runtime's SandboxTemplate. Requires `repository_id`. |
-| Declarative `.hypershell` import over script invocation | Rendering declared Kustomize YAML into the API is safer and more predictable than executing `discover.sh`/`run.sh` found in an arbitrary repo. Imported resources are owned and pruned by the Repository (reconcile, don't create-or-skip). Deprecates the script-at-endpoint coordinator contract. |
+| AgentRuntime.selector as a label list (match-any) | Declarative repository scanning needs no repository script. A simple label list is enough to express "scan these items" (e.g. `agent/reviewable`); an item matching any label yields one sandbox from the runtime's SandboxTemplate. Requires `repository_id`. |
+| Declarative `.hypershell` import over script invocation | Rendering declared Kustomize YAML into the API is safer and more predictable than executing scripts found in an arbitrary repo. Imported resources are owned and pruned by the Repository (reconcile, don't create-or-skip). |
 | `.hypershell` import hosted by the control plane, not the api-server | The import must read each `Repository`'s `secret_source_id` credential and read the `import_path` subtree over the GitHub API. The control plane has read-only secret-store access (`pkg/secretstore`) and the platform GitHub App credential; the api-server has no store read access and no repository read access. Hosting the import in the control plane places it where the credential read and repository access already live and removes the in-process-secret-resolution blocker. The import is the single bounded control-plane path that writes API desired state (over the gRPC write path, `Repository`-scoped), scoped to create/update/prune of `Repository`-owned ext resources. The api-server's only secret role is a write-only POST endpoint that stores the submitted value in the secret store and its reference (a `SecretSource`) in the database. |
 | Import reads the subtree over the GitHub API and renders in-memory; one shared kustomize library | The control-plane runtime image ships no `git` / `kustomize` / `hsctl` binary and no writable disk, so the `RepositoryReconciler` reads only the `import_path` subtree over the GitHub API (no clone, no checkout, no PVC) and renders it in memory. Rendering SHALL use the shared `pkg/kustomize` `Build` in `components/cli` (desired state, to be built), consumed by exactly two callers, `hsctl` and the `RepositoryReconciler`, so there is exactly one kustomize implementation and CLI and server render identically. The `GatewayReconciler` is not a consumer: it renders the gateway workload through Helm. `hsctl apply -k` is refactored off its external-`kustomize`-binary shell-out onto this same package. The accepted trade-off is admitting the kustomize Go library (a library, not a binary or `Job`) into the control-plane module - a deliberate reversal of the earlier "no kustomize in control plane" decision. |

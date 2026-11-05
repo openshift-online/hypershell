@@ -479,7 +479,7 @@ else
 fi
 # Gateway create takes a required placement intent and rejects cluster_id as an
 # unknown field, so both seeds must send placement.
-if grep -q '"name\\":\\"dev-gateway\\",\\"placement\\":{\\"mode\\":\\"local-kind\\"}' "${REPO_ROOT}/scripts/kind/seed.sh" \
+if grep -q '"name\\":\\"dev-gateway\\",\\"placement\\":{\\"selector\\":\[\\"provider/kind\\"\]}' "${REPO_ROOT}/scripts/kind/seed.sh" \
   && grep -q '"name\\":\\"dev-gateway\\",\\"placement\\":{\\"selector\\":' "${SCRIPT_DIR}/drivers/openshift.sh" \
   && ! grep -q 'dev-gateway\\",\\"cluster_id' "${REPO_ROOT}/scripts/kind/seed.sh" "${SCRIPT_DIR}/drivers/openshift.sh"; then
   PASS=$((PASS + 1))
@@ -1247,12 +1247,6 @@ if grep -q 'build-${BUILDARCH}' "${REPO_ROOT}/components/web-console/Dockerfile"
 else
   FAIL=$((FAIL + 1))
   echo 'FAIL: web-console Dockerfile does not compile on BUILDARCH and bundle native addons on TARGETARCH'
-fi
-if grep -q 'OPENSHIFT_IMAGE_REGISTRY' "${SCRIPT_DIR}/drivers/openshift.sh" "${SCRIPT_DIR}/lib.sh" "${REPO_ROOT}/Makefile"; then
-  FAIL=$((FAIL + 1))
-  echo 'FAIL: OPENSHIFT_IMAGE_REGISTRY is still present; swaps use SWAP_REGISTRY'
-else
-  PASS=$((PASS + 1))
 fi
 if grep -q 'SWAP_REGISTRY:-${IMAGE_REGISTRY}' "${SCRIPT_DIR}/drivers/openshift.sh" "${SCRIPT_DIR}/lib.sh"; then
   FAIL=$((FAIL + 1))

@@ -48,7 +48,7 @@ The API server's gRPC watch handler processes events asynchronously from the eve
 
 ### Requirement: CTRL-WDEL-03 -- Control Plane SHALL Prefer Event Resource Over In-Memory Cache
 
-The GatewayReconciler SHALL read the namespace (and other fields) from `event.Resource` when available. The in-memory `namespaces` map SHALL be removed because it is unreliable across restarts and adds complexity.
+The GatewayReconciler SHALL read the namespace (and other fields) from `event.Resource` when available.
 
 #### Scenario: CTRL-WDEL-03.01 -- Delete event with resource populated
 
@@ -71,4 +71,3 @@ The GatewayReconciler SHALL read the namespace (and other fields) from `event.Re
 | Unscoped DAO query rather than stashing before delete | Simpler: no changes to the `Delete()` service method or HTTP handler; the watch handler is the only consumer that needs the deleted state. |
 | Apply to Gateways only (initially) | Gateways are the only Kind where delete cleanup requires resource fields. Other Kinds can adopt the pattern when needed. |
 | Graceful degradation on missing record | Hard deletes or data purges should not crash the watch stream; a warning is sufficient since manual cleanup is already the fallback today. |
-| Remove in-memory namespace cache | The cache is the root cause of the bug; keeping it alongside the fix adds dead code and a false sense of redundancy. |

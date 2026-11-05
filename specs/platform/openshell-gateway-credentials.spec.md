@@ -18,7 +18,7 @@ specification defines how the GatewayReconciler selects and configures a credent
 storage driver per gateway: the API field, validation, `gateway.toml` generation, RBAC,
 deployment wiring, Vault serving-CA propagation, fail-closed behavior, and cleanup.
 
-**Default backend (HYPERSHELL-369).** New gateways store provider credentials in
+**Default backend.** New gateways store provider credentials in
 **Vault** by default. Each cluster that hosts gateways runs its own dedicated Vault for
 provider secrets (stood up by `hypershell-gitops`; see the GitOps counterpart). The
 Vault is **convention-addressed**: its address, auth mount, shared role and serving CA are
@@ -84,20 +84,17 @@ import caller that attempts to set or change it SHALL be rejected.
 
 | `credential_driver` | Resolves to | Notes |
 |---|---|---|
-| omitted / null | `vault` | **Default (HYPERSHELL-369).** Convention-addressed per-cluster Vault; no user input required |
+| omitted / null | `vault` | **Default.** Convention-addressed per-cluster Vault; no user input required |
 | `type: vault` | `vault` | Explicit; same outcome as omitted. No sub-fields (black box) |
 | `type: kubernetes-secrets` | Kubernetes Secrets | Explicit opt-in; unchanged |
-| `type: kek-db` | KEK-encrypted database | Explicit opt-in to the former default; provisions the KEK Secret |
+| `type: kek-db` | KEK-encrypted database | Explicit opt-in; provisions the KEK Secret |
 
-> **Default flip (HYPERSHELL-369).** `vault` is the **flat default**: an omitted
-> `credential_driver` resolves to `vault` in control-plane code, with no per-deployment
-> selector. **Prerequisite:** every gateway-hosting cluster must already run its
-> per-cluster Vault (stood up by `hypershell-gitops`) before this default takes effect -
-> so the GitOps per-cluster Vault rollout MUST merge before (or together with) this
-> change. An *explicit* `credential_driver` (set by the control plane from its
-> configuration, per PLAT-DATA-23) is always honored, so a cluster that does not yet
-> have its Vault should be configured so the control plane sets `kek-db` explicitly on
-> new gateways until it does.
+> `vault` is the **flat default**: an omitted `credential_driver` resolves to `vault`
+> in control-plane code, with no per-deployment selector. Every gateway-hosting cluster
+> runs its per-cluster Vault (stood up by `hypershell-gitops`). An *explicit*
+> `credential_driver` (set by the control plane from its configuration, per
+> PLAT-DATA-23) is always honored, so a cluster without a Vault SHALL be configured so
+> the control plane sets `kek-db` explicitly on new gateways.
 
 An **unspecified** `type` - the field omitted/null, *or* an object with an empty
 `type` (`credential_driver: {}`) - is treated the same as omitted and resolves to the
@@ -903,7 +900,7 @@ credential_driver:
 
 - [OpenShell PR #2437 - Provider credential storage drivers](https://github.com/NVIDIA/OpenShell/pull/2437)
 - `hypershell-gitops` `specs/openshell-gateway-vault.spec.md` - the per-cluster Vault (HYPERSHELL-369)
-- [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) - KEK/default-driver history, per-gateway DB
+- [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) - KEK driver, per-gateway DB
 - [`openshell-gateway-tls.spec.md`](./openshell-gateway-tls.spec.md) - trusted-CA-bundle propagation pattern
 - [`gateway-provisioning-progress.spec.md`](./gateway-provisioning-progress.spec.md) - `EnvironmentReady` condition
 - [`openshell-gateway-health.spec.md`](./openshell-gateway-health.spec.md) - `Degraded` runtime phase

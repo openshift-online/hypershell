@@ -37,7 +37,7 @@ Code review workflow that classifies issues as:
 
 Review is rejected for any of the following reasons:
 - Implementation review has findings
-- Failing CI
+- Failing required CI
 - Merge conflicts
 - Needs rebase
 
@@ -72,9 +72,14 @@ context of `$ISSUE_CONTENTS`.
 
 Review must be rejected for any of the following reasons:
 - Implementation review has findings
-- Failing CI
+- Failing required CI
 - Merge conflicts
 - Needs rebase
+
+Pending or unreported CI is not a failed check. A completed failed required
+check requires `rejected`, even when the code itself looks correct. Include the
+failing check and a link in the review so implementation can inspect the cause;
+an infrastructure failure may need a rerun rather than a code edit.
 
 Verdict must be one of `approved` or `rejected`.
 

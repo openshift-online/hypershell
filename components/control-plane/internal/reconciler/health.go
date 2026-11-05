@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"sync"
 	"time"
@@ -195,7 +195,7 @@ func (h *GatewayHealthReconciler) concreteClientset() *kubernetes.Clientset {
 		// refactor drives a routed teardown/console path with a non-concrete fake,
 		// the misconfiguration is diagnosable here instead of surfacing as an opaque
 		// nil dereference deep inside the gateway helpers.
-		log.Printf("WARN gateway health: clientset is %T, not *kubernetes.Clientset; routed teardown/console helpers require the concrete client", h.clientset)
+		slog.Warn("Gateway health: clientset is not *kubernetes.Clientset; routed teardown/console helpers require the concrete client", "type", fmt.Sprintf("%T", h.clientset))
 	}
 	return cs
 }
@@ -207,7 +207,7 @@ func routeReadyTimeout() time.Duration {
 		if d, err := time.ParseDuration(v); err == nil && d > 0 {
 			return d
 		}
-		log.Printf("WARN invalid GATEWAY_ROUTE_READY_TIMEOUT %q; using default %s", v, defaultRouteReadyTimeout)
+		slog.Warn("Invalid GATEWAY_ROUTE_READY_TIMEOUT, using default", "value", v, "default", defaultRouteReadyTimeout)
 	}
 	return defaultRouteReadyTimeout
 }
@@ -219,14 +219,17 @@ func deploymentReadyTimeout() time.Duration {
 		if d, err := time.ParseDuration(v); err == nil && d > 0 {
 			return d
 		}
-		log.Printf("WARN invalid GATEWAY_DEPLOYMENT_READY_TIMEOUT %q; using default %s", v, defaultDeploymentReadyTimeout)
+		slog.Warn("Invalid GATEWAY_DEPLOYMENT_READY_TIMEOUT, using default", "value", v, "default", defaultDeploymentReadyTimeout)
 	}
 	return defaultDeploymentReadyTimeout
 }
 
 // Run drives the health reconciliation loop until the context is cancelled.
 func (h *GatewayHealthReconciler) Run(ctx context.Context) error {
-	log.Printf("INFO gateway health reconciler started (interval=%s routeReadyTimeout=%s ingressMode=%s)", h.interval, h.routeReadyTimeout, h.ingressMode)
+	slog.InfoContext(ctx, "Gateway health reconciler started",
+		"interval", h.interval,
+		"route_ready_timeout", h.routeReadyTimeout,
+		"ingress_mode", h.ingressMode)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -260,7 +263,7 @@ func (h *GatewayHealthReconciler) reconcileOnce(ctx context.Context) {
 	gateways, err := listAllGateways(ctx, client, h.clusterID)
 	if err != nil {
 		tickErr = err
-		log.Printf("WARN gateway health: list gateways: %v", err)
+		slog.WarnContext(ctx, "Gateway health: list gateways failed", "error", err)
 		return
 	}
 
@@ -393,12 +396,12 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 
 	namespace, err := gatewayNamespace(gw)
 	if err != nil {
-		log.Printf("WARN gateway health: %s: %v", gatewayID, err)
+		slog.WarnContext(ctx, "Gateway health: reconcile failed", "gateway_id", gatewayID, "error", err)
 		return "", false
 	}
 	ready, rollingOut, reason, err := gateway.ObserveGatewayRollout(ctx, h.clientset, namespace, gateway.GatewayDeploymentName)
 	if err != nil {
-		log.Printf("WARN gateway health: %s: %v", gatewayID, err)
+		slog.WarnContext(ctx, "Gateway health: reconcile failed", "gateway_id", gatewayID, "error", err)
 		return "", false
 	}
 
@@ -452,10 +455,10 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 		case driverErr != nil:
 			// A malformed stored driver is not assumed to be vault: do not probe (or degrade)
 			// a gateway whose credential driver we cannot parse. Log and leave the phase.
-			log.Printf("WARN gateway health: %s: cannot determine credential driver (%v); skipping Vault probe", gatewayID, driverErr)
+			slog.WarnContext(ctx, "Gateway health: cannot determine credential driver, skipping Vault probe", "gateway_id", gatewayID, "error", driverErr)
 		case vaultBacked:
 			if err := h.vaultReachableCached(ctx); err != nil {
-				log.Printf("WARN gateway health: %s: provider Vault unreachable: %v", gatewayID, err)
+				slog.WarnContext(ctx, "Gateway health: provider Vault unreachable", "gateway_id", gatewayID, "error", err)
 				cpotel.RecordGatewayVaultUnreachable(ctx, h.clusterID)
 				desiredPhase, desiredStatus = string(gatewayhealth.PhaseDegraded), "Vault credential backend unreachable"
 			}
@@ -491,14 +494,18 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 
 	response, err := client.UpdateGateway(ctx, update)
 	if err != nil {
-		log.Printf("WARN gateway health: update %s to %s: %v", gatewayID, desiredPhase, err)
+		slog.WarnContext(ctx, "Gateway health: update phase failed", "gateway_id", gatewayID, "phase", desiredPhase, "error", err)
 		return namespace, ready
 	}
 	if isGatewayProvisionCompletion(phase, desiredPhase) {
 		observeGatewayProvisionSuccess(ctx, response.GetGateway())
 	}
 
-	log.Printf("INFO gateway health: %s %s -> %s (%s)", gatewayID, phase, desiredPhase, desiredStatus)
+	slog.InfoContext(ctx, "Gateway health: phase changed",
+		"gateway_id", gatewayID,
+		"from_phase", phase,
+		"phase", desiredPhase,
+		"status", desiredStatus)
 	return namespace, ready
 }
 
@@ -574,12 +581,12 @@ func (h *GatewayHealthReconciler) selfHealConsole(ctx context.Context, gatewayID
 	}
 	namespace, err := gatewayNamespace(gw)
 	if err != nil {
-		log.Printf("WARN console self-heal for %s: %v", gatewayID, err)
+		slog.WarnContext(ctx, "Console self-heal failed", "gateway_id", gatewayID, "error", err)
 		return
 	}
 	clientID, err := gatewayKeycloakClientID(gatewayID, gw)
 	if err != nil {
-		log.Printf("WARN console self-heal for %s: stored identity cannot be resolved: %v", gatewayID, err)
+		slog.WarnContext(ctx, "Console self-heal: stored identity cannot be resolved", "gateway_id", gatewayID, "error", err)
 		return
 	}
 	opts := gateway.ReconcileOpts{
@@ -602,10 +609,10 @@ func (h *GatewayHealthReconciler) selfHealConsole(ctx context.Context, gatewayID
 		Gateway: gateway.GatewayConfig{Route: consoleRouteConfig(gw)},
 	}
 	if err := gateway.ReconcileConsole(ctx, h.dynamicClient, h.concreteClientset(), nsConfig, opts); err != nil {
-		log.Printf("WARN console self-heal in %s: %v", namespace, err)
+		slog.WarnContext(ctx, "Console self-heal failed", "namespace", namespace, "error", err)
 		return
 	}
-	log.Printf("INFO console self-heal reconciled in %s", namespace)
+	slog.InfoContext(ctx, "Console self-heal reconciled", "namespace", namespace)
 }
 
 // teardownRoute removes the exposure for the selected ingress mode and removes
@@ -615,7 +622,7 @@ func (h *GatewayHealthReconciler) selfHealConsole(ctx context.Context, gatewayID
 func (h *GatewayHealthReconciler) teardownRoute(ctx context.Context, client pb.GatewayServiceClient, gatewayID string, gw *pb.Gateway) {
 	namespace, err := gatewayNamespace(gw)
 	if err != nil {
-		log.Printf("WARN route teardown for %s: %v", gatewayID, err)
+		slog.WarnContext(ctx, "Route teardown failed", "gateway_id", gatewayID, "error", err)
 		return
 	}
 	// A prior clean teardown lets us skip the (expensive) per-tick delete and
@@ -641,7 +648,7 @@ func (h *GatewayHealthReconciler) teardownRoute(ctx context.Context, client pb.G
 		consoleClientID := ""
 		if h.consoleClientChecker != nil && gatewayID != "" {
 			if clientID, err := gatewayKeycloakClientID(gatewayID, gw); err != nil {
-				log.Printf("WARN gateway %s: stored identity cannot be resolved (%v); skipping console client absence check", gatewayID, err)
+				slog.WarnContext(ctx, "Gateway stored identity cannot be resolved; skipping console client absence check", "gateway_id", gatewayID, "error", err)
 			} else {
 				consoleClientID = clientID + "-console"
 			}
@@ -652,13 +659,13 @@ func (h *GatewayHealthReconciler) teardownRoute(ctx context.Context, client pb.G
 			// Leave the verification timestamp stale so the next tick re-probes rather
 			// than waiting a full interval, and re-run teardown now in case resources
 			// reappeared while the probe was failing.
-			log.Printf("WARN route teardown: cannot confirm resource absence in %s; re-running teardown: %v", namespace, perr)
+			slog.WarnContext(ctx, "Route teardown: cannot confirm resource absence, re-running teardown", "namespace", namespace, "error", perr)
 			h.clearRouteTornDown(gatewayID)
 		case absent:
 			h.markVerified(gatewayID)
 			return
 		default:
-			log.Printf("INFO route/console resources reappeared in %s (stale provision after teardown); re-running teardown", namespace)
+			slog.InfoContext(ctx, "Route/console resources reappeared (stale provision after teardown), re-running teardown", "namespace", namespace)
 			h.clearRouteTornDown(gatewayID)
 		}
 	}
@@ -671,7 +678,7 @@ func (h *GatewayHealthReconciler) teardownRoute(ctx context.Context, client pb.G
 	}
 	if h.keycloakConfig != nil {
 		if clientID, err := gatewayKeycloakClientID(gatewayID, gw); err != nil {
-			log.Printf("WARN gateway %s: stored identity cannot be resolved (%v); console Keycloak client is left for operator recovery", gatewayID, err)
+			slog.WarnContext(ctx, "Gateway stored identity cannot be resolved; console Keycloak client is left for operator recovery", "gateway_id", gatewayID, "error", err)
 		} else {
 			opts.GatewayClientID = clientID
 		}
@@ -715,11 +722,11 @@ func (h *GatewayHealthReconciler) teardownRoute(ctx context.Context, client pb.G
 	if teardownErr != nil {
 		// Leave the gateway unmarked so the next tick retries until every
 		// route-owned resource and stored address is gone.
-		log.Printf("WARN route teardown in %s (gateway no longer routed): %v", namespace, teardownErr)
+		slog.WarnContext(ctx, "Route teardown failed (gateway no longer routed)", "namespace", namespace, "error", teardownErr)
 		return
 	}
 	h.markRouteTornDown(gatewayID)
-	log.Printf("INFO route and console torn down in %s (gateway no longer routed)", namespace)
+	slog.InfoContext(ctx, "Route and console torn down (gateway no longer routed)", "namespace", namespace)
 }
 
 // teardownSettled is the cheap first gate teardownRoute consults before doing
@@ -808,7 +815,7 @@ func (h *GatewayHealthReconciler) dueForVerify(gatewayID string) bool {
 func (h *GatewayHealthReconciler) evaluateRouteReadiness(ctx context.Context, gatewayID, namespace, currentPhase string) (string, string) {
 	rr, err := h.exposure.ObserveReadiness(ctx, exposure.Request{Namespace: namespace})
 	if err != nil {
-		log.Printf("WARN gateway health: observe exposure for %s: %v", gatewayID, err)
+		slog.WarnContext(ctx, "Gateway health: observe exposure failed", "gateway_id", gatewayID, "error", err)
 		return "", ""
 	}
 	if rr.Ready {

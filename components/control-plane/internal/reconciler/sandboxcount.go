@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -119,7 +119,7 @@ func NewSandboxCountReconciler(client kubernetes.Interface, grpcConn *grpc.Clien
 // from the synced cache, and then self-heals on every resync tick while the
 // informer's event handlers keep the count current between ticks.
 func (r *SandboxCountReconciler) Run(ctx context.Context) error {
-	log.Printf("INFO sandbox count reconciler started (resync=%s)", r.resyncInterval)
+	slog.InfoContext(ctx, "Sandbox count reconciler started", "resync_interval", r.resyncInterval)
 	r.baseCtx = ctx
 
 	factory := informers.NewSharedInformerFactoryWithOptions(
@@ -145,7 +145,7 @@ func (r *SandboxCountReconciler) Run(ctx context.Context) error {
 		// Cache sync only fails when the context is cancelled during startup.
 		return ctx.Err()
 	}
-	log.Printf("INFO sandbox count reconciler cache synced")
+	slog.InfoContext(ctx, "Sandbox count reconciler cache synced")
 
 	// Enable incremental deltas only now that the initial LIST has populated the
 	// cache, then immediately reconcile to the absolute truth so a restart
@@ -245,7 +245,7 @@ func (r *SandboxCountReconciler) applyDelta(namespace string, delta int) {
 	ctx, cancel := context.WithTimeout(r.baseCtx, sandboxCountRPCTimeout)
 	defer cancel()
 	if err := r.adjust(ctx, namespace, delta); err != nil {
-		log.Printf("WARN sandbox count: adjust %s by %+d: %v", namespace, delta, err)
+		slog.WarnContext(ctx, "Sandbox count: adjust failed", "namespace", namespace, "delta", delta, "error", err)
 	}
 }
 
@@ -287,7 +287,7 @@ func (r *SandboxCountReconciler) selfHeal(ctx context.Context, lister corelister
 	cancel()
 	if err != nil {
 		tickErr = err
-		log.Printf("WARN sandbox count: list gateway namespaces: %v", err)
+		slog.WarnContext(ctx, "Sandbox count: list gateway namespaces failed", "error", err)
 		return
 	}
 	for _, ns := range namespaces {
@@ -309,13 +309,13 @@ func (r *SandboxCountReconciler) healNamespace(ctx context.Context, lister corel
 
 	count, err := countActiveSandboxes(lister, namespace)
 	if err != nil {
-		log.Printf("WARN sandbox count: read cache for %s: %v", namespace, err)
+		slog.WarnContext(ctx, "Sandbox count: read cache failed", "namespace", namespace, "error", err)
 		return err
 	}
 	rpcCtx, cancel := context.WithTimeout(ctx, sandboxCountRPCTimeout)
 	defer cancel()
 	if err := r.set(rpcCtx, namespace, count); err != nil {
-		log.Printf("WARN sandbox count: set %s to %d: %v", namespace, count, err)
+		slog.WarnContext(ctx, "Sandbox count: set count failed", "namespace", namespace, "count", count, "error", err)
 		return err
 	}
 	return nil

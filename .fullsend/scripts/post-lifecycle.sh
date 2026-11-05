@@ -48,6 +48,11 @@ ISSUE_URL="${ISSUE_URL:-${GITHUB_ISSUE_URL:-${FULLSEND_WORK_ITEM_URL:-}}}"
 : "${GH_TOKEN:?GH_TOKEN must be set}"
 
 _is_truthy() { case "${1:-}" in 1 | true | TRUE | yes | YES) return 0 ;; *) return 1 ;; esac; }
+case "${FULLSEND_AUTO_MERGE:-enabled}" in
+  enabled | true | 1) AUTO_MERGE_ON=1 ;;
+  disabled | false | 0) AUTO_MERGE_ON=0 ;;
+  *) echo 'post-lifecycle: FULLSEND_AUTO_MERGE must be enabled or disabled' >&2; exit 1 ;;
+esac
 DRY_RUN_ON=0
 _is_truthy "${DRY_RUN:-}" && DRY_RUN_ON=1
 
@@ -289,14 +294,9 @@ if lifecycle_phase_is_review "${PHASE}"; then
   fi
 fi
 
-# Required-checks gate for an approval (SDLC-HOOK-07.02). When the approval is not
-# yet eligible because the required checks are not green, this is NOT a log-only
-# exit: post a visible deferral record (the review record, SDLC-HOOK-10) and leave
-# agent/reviewable-code in place so the item is still awaiting review. A later
-# green check is not a label event, so the approval is completed by reapplying this
-# same validated result once the checks are green (the recovery procedure in
-# .fullsend/docs/lifecycle-hooks.md). The deferral uses the phase sticky marker, so
-# the reapplied verdict edits this record in place with no duplicate (SDLC-HOOK-09).
+# Completed failing required checks reject the review and request implementation.
+# Pending/unknown checks and uncertain PR readiness defer approval. Both paths
+# retain the trusted reviewed-head and authorization checks above.
 if [[ "${PHASE}" == "code-review" && "${outcome}" == "approved" ]]; then
   gh_pr_has_execution_link "${REPO}" "${trusted_pr}" "${NUMBER}" || {
     echo "post-lifecycle: PR is not linked to this execution record; not applying verdict" >&2; exit 1;
@@ -307,7 +307,22 @@ if [[ "${PHASE}" == "code-review" && "${outcome}" == "approved" ]]; then
     exit 0
   fi
   checks_state="$(jq -r '.checks' <<< "${code_state}")"
-  if ! jq -e '.state == "open" and .draft == false and .mergeable == true and .checks == "green"' \
+  if [[ "${checks_state}" == "failing" ]] && jq -e '.state == "open"' <<< "${code_state}" >/dev/null; then
+    # Use the ordinary rejection path: required comment, timeline retry limit,
+    # queue-label revocation, add-first writes and final label verification.
+    latest="$(gh_pr_code_state "${REPO}" "${trusted_pr}")"
+    if ! jq -e --arg sha "${recorded_head}" --arg base "$(jq -r '.base_sha' <<< "${code_state}")" \
+        '.head_sha == $sha and .base_sha == $base and .state == "open" and .checks == "failing"' \
+        <<< "${latest}" >/dev/null; then
+      echo "post-lifecycle: CI changed during rejection checks; retry when stable" >&2
+      exit 1
+    fi
+    [[ -n "${comment}" ]] || { echo "post-lifecycle: code-review requires a review comment" >&2; exit 1; }
+    outcome="rejected"
+    comment="$(printf '%s\n\n---\n\n%s' "${comment}" \
+      '**Code review rejected: required CI failed.** Returning this item to code implementation. Inspect the failing checks on the linked PR; fix the cause or rerun a transient infrastructure failure, then return it for review. The code-merit assessment above does not grant merge approval.')"
+    echo "post-lifecycle: required CI failed; applying code-review/rejected and requesting implementation" >&2
+  elif ! jq -e '.state == "open" and .draft == false and .mergeable == true and .checks == "green"' \
        <<< "${code_state}" >/dev/null; then
     readiness="$(jq -r '"checks=\(.checks), state=\(.state), draft=\(.draft), mergeable=\(.mergeable), mergeable_state=\(.mergeable_state)"' <<< "${code_state}")"
     echo "post-lifecycle: approval deferred on PR readiness: ${readiness}" >&2
@@ -463,10 +478,19 @@ if [[ "${PHASE}:${outcome}" == "code-review:approved" ]]; then
     echo "post-lifecycle: PR eligibility changed before approval; retry when stable" >&2
     exit 1
   fi
-  gh_add_labels "${REPO}" "${trusted_pr}" agent/review-code-approved
-  gh_get_labels "${REPO}" "${trusted_pr}" | grep -qxF agent/review-code-approved || {
-    echo "post-lifecycle: PR approval label verification failed" >&2; exit 1;
-  }
+  if [[ "${AUTO_MERGE_ON}" == 1 ]]; then
+    gh_add_labels "${REPO}" "${trusted_pr}" agent/review-code-approved
+    gh_get_labels "${REPO}" "${trusted_pr}" | grep -qxF agent/review-code-approved || {
+      echo "post-lifecycle: PR approval label verification failed" >&2; exit 1;
+    }
+  else
+    gh_remove_label "${REPO}" "${trusted_pr}" agent/review-code-approved
+    pr_labels="$(gh_get_labels "${REPO}" "${trusted_pr}")"
+    if grep -qxF agent/review-code-approved <<< "${pr_labels}"; then
+      echo "post-lifecycle: cannot hold PR for manual merge approval" >&2; exit 1
+    fi
+    echo "post-lifecycle: review approved; PR awaits manual merge approval" >&2
+  fi
 fi
 
 if [[ "${PHASE}:${outcome}" == "code-review:rejected" ]]; then

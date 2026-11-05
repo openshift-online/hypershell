@@ -348,7 +348,9 @@ they own. Gateway admins can grant, change, or revoke only `gateway:admin` and
 `gateway:viewer`; they SHALL NOT assign, change, or revoke the owner tier. A gateway SHALL
 always retain at least one owner (last-owner protection, GTW-ACC-07). The console performs
 these grants through the gateway access facade (`GTW-ACC-04`/`GTW-ACC-05`/`GTW-ACC-06`), which writes
-the same RoleBinding records.
+the same RoleBinding records. The low-level generic `/role_bindings` resource writes the
+same records but under the default-deny write policy of SEC-RBAC-25, which requires
+`gateway:owner` on the target gateway and denies every role with no explicit rule.
 
 #### Scenario: SEC-RBAC-06.01 -- Owner invites a viewer
 
@@ -410,7 +412,7 @@ Platform administrators SHALL be able to:
 Platform administrators SHALL NOT be able to:
 
 - Modify gateway configuration (PATCH/PUT operations require `gateway:owner` or `gateway:admin`)
-- Create or delete `RoleBinding` records through the low-level generic `/role_bindings` resource (that endpoint still requires `gateway:owner` or `gateway:admin` on the gateway; platform administrators manage access through the access facade instead)
+- Create or delete `RoleBinding` records through the low-level generic `/role_bindings` resource (that resource enforces the default-deny write policy of SEC-RBAC-25, which requires `gateway:owner` on the target gateway and grants `platform:admin` no bypass; platform administrators manage access through the access facade instead)
 - Create gateways (requires `gateway:creator` role)
 - Read sandbox Events through `GET /api/hypershell/v1/gateways/{gateway_id}/sandbox_events` without a per-gateway binding; the response SHALL be `404` (OSG-SEVT-05)
 - Obtain gateway login from managing access: performing access management creates no gateway-scoped binding for the platform administrator, so they receive no `openshell` CLI access unless separately granted a per-gateway binding (see OpenShell Role Bridge above)
@@ -422,7 +424,7 @@ The `platform:admin` role covers gateway **view**, **delete**, and **access mana
 
 - Modify gateway configuration (PATCH), or create gateways (requires `gateway:creator`)
 - View or modify ManagedClusters
-- Create or delete `RoleBinding` records through the generic `/role_bindings` resource (access is managed through the access facade instead)
+- Create or delete `RoleBinding` records through the generic `/role_bindings` resource (that resource requires `gateway:owner` on the target gateway under the SEC-RBAC-25 write policy; access is managed through the access facade instead)
 - Access platform-level configuration or system administration functions
 
 Future iterations may expand platform:admin permissions to include these resources.
@@ -539,13 +541,22 @@ For a caller that is not a control-plane identity, the rules mirror HTTP:
   import-write kinds among them (all except `RepositoryService`), declarative-import writes
   are authorized only for the control-plane identity (see below); `RepositoryService` is NOT
   on the import-write path because the import never upserts `Repository` resources.
-- `CIProviderService` and `CITrustService`: authored over HTTP (`hsctl` and the SDKs),
-  like `AgentWorkspaceService`. A registered control-plane identity MAY READ them
-  (list/watch/get) to drive `CIProvider`/`CITrust` reconciliation; `platform:admin`
-  MAY also list, watch, and get them. All writes (create/update/delete) over gRPC
-  SHALL be denied for every caller: `CIProvider` is authored by a `ci-federation:admin`
-  over HTTP (SEC-RBAC-21) and `CITrust` by a gateway owner/admin over HTTP
-  (SEC-RBAC-22), and neither is on the declarative-import write path.
+- `CIProviderService`: authored over HTTP (`hsctl` and the SDKs), like
+  `AgentWorkspaceService`. A registered control-plane identity MAY READ it
+  (list/watch/get) to drive `CIProvider` reconciliation; `platform:admin` MAY also
+  list, watch, and get it. All writes (create/update/delete) over gRPC SHALL be denied
+  for every caller: `CIProvider` is authored by a `ci-federation:admin` over HTTP
+  (SEC-RBAC-21) and is NOT on the declarative-import write path.
+- `CITrustService`: authored over HTTP by a gateway owner/admin (SEC-RBAC-22) AND, as
+  of the declarative `.hypershell` import of `CITrust` (PLAT-DATA-25,
+  [`../platform/ci-trust-ext-api.spec.md`](../platform/ci-trust-ext-api.spec.md)
+  PLAT-CITR-10), authored on the declarative-import write path. A registered
+  control-plane identity MAY READ it (list/watch/get) to drive `CITrust`
+  reconciliation; `platform:admin` MAY also list, watch, and get it. Its gRPC
+  create/update/delete SHALL be DENIED for every user caller, and SHALL be authorized
+  ONLY for the control-plane identity on the `Repository`-scoped import terms below,
+  with the additional per-gateway tenancy gate specified in SEC-RBAC-26 (the referenced
+  `Gateway` must be owned by the same reconciled `Repository`).
 - With authentication on -- every deployment, because enforcement follows
   authentication (SEC-RBAC-14) -- an unauthenticated call reaches no `hypershell.v1`
   method.
@@ -563,8 +574,11 @@ declarative `.hypershell` import reconciler (see
 `.hypershell` Import Reconciliation") is the single bounded path by which the control
 plane writes HyperShell API desired state. The gRPC `Create`, `Update`, and `Delete`
 methods for the import-write kinds (`SandboxTemplate`, `ProviderSpec`,
-`ProviderBinding`, `InferenceRoute`, `SecretSource`) SHALL be authorized for the
-control-plane identity and SHALL remain denied for every other caller. `Repository`
+`ProviderBinding`, `InferenceRoute`, `SecretSource`, `CITrust`) SHALL be authorized for the
+control-plane identity and SHALL remain denied for every other caller. `CITrust`
+additionally requires the per-gateway tenancy gate of SEC-RBAC-26 on the import path: an
+import-marked `CITrust` write is authorized only when the referenced `Gateway` is owned
+by the same reconciled `Repository`. `Repository`
 is NOT an import-write kind: the import reconciler reconciles the `Repository` Kind but
 SHALL NEVER upsert `Repository` resources discovered in an import (it is excluded from
 the canonical importable set in
@@ -668,13 +682,23 @@ so these rules are the only boundary between tenants, and between clusters, on t
 - WHEN the import reconciler for `Repository` R1 attempts to update or delete it
 - THEN the write SHALL be refused
 
-#### Scenario: SEC-RBAC-09.08 -- Control plane reads CI kinds but no one writes them over gRPC
+#### Scenario: SEC-RBAC-09.08 -- Control plane reads CI kinds; CIProvider writes and user CITrust writes are denied over gRPC
 
 - GIVEN a registered control-plane identity reconciling CI federation
 - WHEN it calls `WatchCITrusts`, `ListCIProviders`, or `GetCIProvider`
 - THEN the read SHALL be authorized
-- WHEN any caller (user or control plane) calls `CreateCIProvider`, `UpdateCITrust`, or `DeleteCITrust` over gRPC
-- THEN the request SHALL return PermissionDenied (these kinds are authored over HTTP)
+- WHEN any caller (user or control plane) calls `CreateCIProvider` over gRPC
+- THEN the request SHALL return PermissionDenied (`CIProvider` is authored over HTTP and is not importable)
+- WHEN a user caller (without a control-plane identity) calls `CreateCITrust`, `UpdateCITrust`, or `DeleteCITrust` over gRPC
+- THEN the request SHALL return PermissionDenied (a user authors `CITrust` over HTTP)
+
+#### Scenario: SEC-RBAC-09.09 -- Import reconciler writes a CITrust owned by its Repository on that Repository's gateway
+
+- GIVEN the control-plane import reconciler reconciling `Repository` R1 whose `.hypershell` declares a `Gateway` owned by R1 and a `CITrust` referencing that gateway by name
+- WHEN it calls `CreateCITrust` as the control-plane identity with R1's import metadata
+- THEN the write SHALL be authorized, the server SHALL set `repository_id` to R1, and the per-gateway tenancy gate SHALL be satisfied because the referenced `Gateway` is owned by R1 (SEC-RBAC-26)
+- WHEN the same import attempts a `CITrust` referencing a `Gateway` not owned by R1
+- THEN the write SHALL be refused
 
 ### Requirement: SEC-RBAC-18 -- Gateway Field Write Policy
 
@@ -743,13 +767,12 @@ The Extension API kinds served under `/api/hypershell/ext/` (`AgentRuntime`,
 `AgentWorkspace`, `WorkspaceMembership`, `SandboxTemplate`, `ProviderSpec`,
 `ProviderBinding`, `InferenceRoute`, `SecretSource`, `Repository`, `CIProvider`,
 `CITrust`) SHALL sit
-behind the same authentication and authorization middleware as the `/v1`
-kinds. The framework's route builder mounts the `ext` prefix on a subrouter
-separate from `/v1`, so the RBAC middleware SHALL be registered on that
-subrouter as well (`RegisterPrefixedRoutes("rbac", "ext", ...)`, exercised by
-`components/api-server/test/authz`). The framework's own authorizer checks
-identity presence only and SHALL NOT be treated as an authorization boundary
-for these routes.
+behind the same authentication and authorization as the `/v1` kinds. The
+framework mounts the `ext` prefix on a subrouter separate from `/v1` and
+applies the same Authorizer to it (SEC-RBAC-24), with `Surface` set to `ext`
+(exercised by `components/api-server/test/authz`). The framework's built-in
+`RequireIdentity` policy checks identity presence only and SHALL NOT be used
+as the authorization boundary for these routes.
 
 Every extension kind registered by a plugin with
 `RegisterPrefixedRoutes(_, "ext", ...)` SHALL be present in the RBAC
@@ -760,8 +783,8 @@ and the set of ext-registering plugins SHALL be kept in sync: a plugin that
 registers an ext route but is absent from the allow-list is fail-closed for
 every caller including `platform:admin`, which is a latent outage, not a
 deliberate deny. `CIProvider` (`ci_providers`) and `CITrust` (`ci_trusts`)
-SHALL be in the allow-list; they are the kinds whose absence previously made
-every request to them return 403.
+SHALL be in the allow-list; without an entry every request to them returns
+403.
 
 At the middleware gate, every ext method (read and write) SHALL require
 `gateway:creator` or `platform:admin` by default: these kinds are authored over HTTP
@@ -1037,6 +1060,12 @@ same resolution-and-enforcement pattern `agent_runtimes` and `secret_sources`
 use. The `role` a `CITrust` grants SHALL NOT exceed the caller's own rights on
 that gateway (PLAT-CITR-03 / PLAT-DATA-25.03).
 
+This human-caller tenancy gate has one non-human counterpart: the declarative
+`.hypershell` import (PLAT-DATA-25, PLAT-CITR-10), which authors a `CITrust` as the
+control-plane import identity rather than a gateway owner. On that path the equivalent
+of this gate is Repository ownership of the referenced gateway, specified in SEC-RBAC-26;
+the HTTP tenancy check here is unchanged for every human caller.
+
 **Deny-by-default.** A caller with no `gateway:owner`, `gateway:admin`, or
 `platform:admin` authority over the referenced gateway SHALL be denied: an
 unbound caller, a `gateway:creator` with no binding on that gateway, and a
@@ -1079,6 +1108,162 @@ request to a specific `ci_trusts/{id}` MAY be masked as 404 per SEC-RBAC-10.
 - WHEN caller R reads the `CITrust` records for gw-1
 - THEN the read SHALL be authorized
 - AND a caller with no binding on gw-1 SHALL NOT read them
+
+### Requirement: SEC-RBAC-25 -- Low-Level RoleBinding Write Authorization
+
+The low-level generic `RoleBinding` resource (`POST /api/hypershell/v1/role_bindings`
+and `DELETE /api/hypershell/v1/role_bindings/{id}`) SHALL authorize every create and
+every delete against an explicit, default-deny write policy. A caller SHALL change a
+binding only when a rule grants that exact operation on that exact target role. Being
+authenticated, or holding an unrelated role binding, SHALL NOT by itself authorize a
+write. A role for which no rule grants the operation SHALL be denied, so adding a role
+to the database never silently makes it assignable or removable through this resource.
+
+This requirement governs write authorization only. It SHALL NOT broaden or narrow read
+access to roles, role bindings, or any other resource.
+
+**Write policy.** The resource SHALL enforce this table for both create and delete:
+
+| Target role | Create | Delete |
+| --- | --- | --- |
+| `gateway:owner`, `gateway:admin`, `gateway:viewer` | Require the caller to hold `gateway:owner` on the exact target gateway | Require the caller to hold `gateway:owner` on the stored binding's actual gateway |
+| Keycloak-owned platform roles (`platform:admin`, `gateway:creator`, `gateway:dedicated-route-creator`, `ci-federation:grantor`) | Reject; these are JWT-synced and managed through Keycloak | Reject; these are JWT-synced and managed through Keycloak |
+| `ci-federation:admin` | API-assignable (SEC-RBAC-21): require the caller to hold `platform:admin` or `ci-federation:grantor` (global scope); the binding must be `scope=global` | Require the same authority (`platform:admin` or `ci-federation:grantor`) |
+| `managed-cluster-registrar` | Reject direct user assignment; registration stays JWT-controlled (SEC-RBAC-16) | Reject direct user deletion |
+| Any other or future role | Reject until an explicit policy is added | Reject until an explicit policy is added |
+
+The gateway-role rows SHALL reuse the same gateway ownership and owner-removal rules as
+the supported access-management workflow (`platform/gateway-access-management.spec.md`
+GTW-ACC-04/GTW-ACC-05/GTW-ACC-06), including last-owner protection (GTW-ACC-07): a
+delete that would remove a gateway's last `gateway:owner` SHALL be refused. The
+low-level resource SHALL NOT be a weaker path than the access facade and SHALL NOT let a
+`gateway:admin` or `gateway:viewer` bypass the owner requirement. Richer delegation (a
+`gateway:admin` granting `gateway:admin`/`gateway:viewer`) remains available through the
+access facade, not this generic resource.
+
+`platform:admin` SHALL NOT receive a blanket bypass on this low-level resource; a
+platform administrator manages access through the facade at
+`/api/hypershell/v1/gateways/{id}/access` instead (SEC-RBAC-07). A `platform:admin` who
+also holds `gateway:owner` on the target gateway qualifies through that ownership, like
+any other owner.
+
+**Shared enforcement in the service.** A single shared authorization check SHALL be
+used by both `Create` and `Delete`. It SHALL evaluate the operation, the authenticated
+caller, the stored role, the scope, and the target gateway, and SHALL run before any row
+or event is written. For delete, the service SHALL load the existing binding and
+authorize against its stored role, scope, and gateway; it SHALL NOT trust a
+caller-supplied scope or gateway to decide which permissions apply. The HTTP RBAC
+middleware MAY remain as an additional coarse gate, but the service check SHALL be the
+authoritative decision and SHALL hold even when the service is called outside the REST
+handler. These rules SHALL apply equally to create and delete and SHALL NOT depend on
+the middleware having run first.
+
+**Missing identity.** A user-facing write with no authenticated caller identity SHALL be
+rejected. The ownership check SHALL NOT treat a missing caller user id as permission;
+the previous success-on-missing-identity path SHALL be removed.
+
+**Target validation.** A create SHALL require a valid, existing target user and an
+existing role. A gateway-scoped binding SHALL reference an existing gateway and use
+`scope=gateway`; a global role SHALL use `scope=global`. Missing or empty user, role, or
+gateway ids, and scope/role combinations that do not match, SHALL be rejected before
+persistence.
+
+**No persistent effect on denial.** A rejected create or delete SHALL leave both the
+RoleBinding rows and the Event stream unchanged.
+
+**Trusted internal operations stay explicit.** Server-initiated writes -- initial
+gateway-owner creation on gateway create (SEC-RBAC-04), JWT role synchronization
+(SEC-RBAC-03), control-plane reconciliation, and cleanup -- SHALL be performed through
+dedicated internal methods with a defined caller and purpose, NOT by permitting
+anonymous service calls or a general client-controlled bypass of this policy. Existing
+gRPC restrictions (SEC-RBAC-09: `RoleBindingService` is denied to user callers) and
+managed-cluster boundaries SHALL remain intact.
+
+Regression coverage SHALL exercise this policy through the real RBAC middleware and the
+role-binding service (`components/api-server/plugins/roleBindings`,
+`components/api-server/test/authz`), proving that denied operations make no persistent
+change and that the legitimate workflows above remain functional.
+
+#### Operator Note: Pre-Deployment Binding Inventory
+
+Before this policy is deployed, an operator SHALL inspect whether any existing
+RoleBinding uses a role the new policy would reject. Such bindings SHALL be reported for
+review; the rollout SHALL NOT automatically delete or rewrite them. Reconciliation may
+later restore a binding a caller deletes; that restoration does not make the deletion
+authorized.
+
+#### Scenario: SEC-RBAC-25.01 -- Unauthenticated caller cannot create or delete
+
+- GIVEN a caller with no authenticated identity
+- WHEN the caller attempts `POST /api/hypershell/v1/role_bindings` or `DELETE /api/hypershell/v1/role_bindings/{id}`
+- THEN the request SHALL be rejected
+- AND no RoleBinding row and no Event SHALL be written
+
+#### Scenario: SEC-RBAC-25.02 -- Default creator cannot grant itself a Keycloak-owned role
+
+- GIVEN user A holds only the default `gateway:creator` role
+- WHEN user A creates a `role_bindings` entry for itself requesting `platform:admin`, `gateway:creator`, `gateway:dedicated-route-creator`, or `ci-federation:grantor`
+- THEN the response SHALL be 403 Forbidden naming the role as Keycloak-managed
+- AND no binding SHALL be created
+- AND WHEN user A requests the API-assignable `ci-federation:admin` (SEC-RBAC-21) without holding `platform:admin` or `ci-federation:grantor`
+- THEN the response SHALL also be 403 Forbidden
+- AND no binding SHALL be created
+
+#### Scenario: SEC-RBAC-25.03 -- Unrelated user cannot delete another user's global binding
+
+- GIVEN user A holds only `gateway:creator`
+- AND user B holds a Keycloak-owned or otherwise global binding
+- WHEN user A deletes user B's binding through the low-level resource
+- THEN the response SHALL be 403 Forbidden
+- AND user B's binding SHALL remain
+
+#### Scenario: SEC-RBAC-25.04 -- Gateway owner grants and revokes supported roles on their gateway
+
+- GIVEN user A holds `gateway:owner` on gw-1
+- WHEN user A creates a `gateway:viewer`, `gateway:admin`, or `gateway:owner` binding on gw-1 for user B
+- THEN the create SHALL be authorized
+- WHEN user A later deletes one of those bindings
+- THEN the delete SHALL be authorized, subject to last-owner protection (GTW-ACC-07)
+- AND a delete that would remove gw-1's last `gateway:owner` SHALL be refused
+
+#### Scenario: SEC-RBAC-25.05 -- Admin or viewer cannot bypass the owner requirement
+
+- GIVEN user A holds `gateway:owner` on gw-1 only
+- AND user C holds `gateway:admin` on gw-2 and user V holds `gateway:viewer` on gw-2
+- WHEN user A creates or deletes a binding on gw-2 (a gateway A does not own)
+- THEN the response SHALL be 403 Forbidden
+- AND when user C or user V attempts the same operation on gw-2 through the low-level resource
+- THEN the response SHALL also be 403 Forbidden (the low-level resource requires `gateway:owner`)
+
+#### Scenario: SEC-RBAC-25.06 -- Role with no explicit policy is rejected for create and delete
+
+- GIVEN the seeded `managed-cluster-registrar` role (or any role the policy does not grant)
+- WHEN a caller creates a binding for that role through the low-level resource
+- THEN the response SHALL be 403 Forbidden
+- AND when a caller deletes an existing binding for that role
+- THEN the response SHALL be 403 Forbidden
+- AND no row or Event SHALL change
+
+#### Scenario: SEC-RBAC-25.07 -- Invalid target is rejected before persistence
+
+- GIVEN a create through the low-level resource
+- WHEN the caller identity is missing, the target user id is missing or unknown, the referenced gateway does not exist, or the scope and role do not match
+- THEN the request SHALL be rejected before any row or Event is written
+
+#### Scenario: SEC-RBAC-25.08 -- Delete authorizes against stored values
+
+- GIVEN an existing `gateway:viewer` binding on gw-1 for user B
+- WHEN user A (who does not own gw-1) deletes it while supplying a scope or gateway id that would otherwise pass
+- THEN the service SHALL authorize against the binding's stored role, scope, and gw-1 ownership
+- AND the delete SHALL be refused
+- AND the binding SHALL remain
+
+#### Scenario: SEC-RBAC-25.09 -- Trusted internal and facade workflows still work
+
+- GIVEN the server-initiated paths: gateway-owner creation on gateway create, JWT role synchronization, reconciliation, cleanup, and the access facade
+- WHEN each runs through its dedicated internal method or the facade
+- THEN each SHALL continue to create or remove bindings as before
+- AND none SHALL depend on an anonymous service call or a general client-controlled bypass
 
 ### Requirement: SEC-RBAC-10 -- Error Response Opacity
 
@@ -1184,8 +1369,7 @@ level or higher to ensure visibility in operational monitoring and security audi
 
 ### Requirement: SEC-RBAC-13 -- Platform Role Bootstrap via Keycloak Realm Default Role
 
-The API server SHALL NOT read any environment-based default-role configuration and
-SHALL NOT merge any role into a caller's bindings beyond what `SyncJWTRoles` reads
+The API server SHALL NOT merge any role into a caller's bindings beyond what `SyncJWTRoles` reads
 from the JWT (SEC-RBAC-01, SEC-RBAC-03). The JWT-synced platform-wide roles
 (`gateway:creator`, `platform:admin`, `gateway:dedicated-route-creator`,
 `ci-federation:grantor`) are populated exclusively from the caller's JWT
@@ -1233,17 +1417,12 @@ enabled. When authentication is on, every authenticated request SHALL be evaluat
 against the caller's bindings, and no deployment SHALL be able to turn enforcement
 off while authentication stays on. When authentication is off (local development,
 `make run-no-auth`), there is no caller identity to evaluate, so authorization is
-not enforced. This closes the fail-open combination in which an overlay enables
-JWT but forgets a separate enforcement flag, and the invalid combination in which
-JWT is off but enforcement is on (which rejected every call with `401 missing
-identity`).
+not enforced.
 
 The API server SHALL derive the enforcement decision from the resolved
 authentication configuration (after `API_ENV` overrides) in ONE place and expose
 that single decision to the REST authorization middleware, the gRPC interceptor,
-and every handler-level authorization check. The API server SHALL NOT read any
-separate enforcement environment variable; no environment variable other than
-the authentication configuration SHALL influence the enforcement decision.
+and every handler-level authorization check.
 
 No database migration or CLI command is needed to bootstrap users -- built-in Role
 records are seeded via migration; RoleBindings are created dynamically from JWT claims
@@ -1255,7 +1434,6 @@ on every authenticated request. The first privileged users are provisioned by as
 - GIVEN a deployment that enables JWT authentication
 - WHEN an authenticated caller requests an endpoint the caller's bindings do not authorize
 - THEN the request is rejected
-- AND no separate enforcement setting was required or possible
 
 #### Scenario: SEC-RBAC-14.02 -- Authentication off means not enforced
 
@@ -1264,7 +1442,7 @@ on every authenticated request. The first privileged users are provisioned by as
 - THEN the request is not evaluated against bindings
 - AND the API works with no roles granted
 
-### Requirement: SEC-RBAC-15 -- Database Migration
+### Requirement: SEC-RBAC-15 -- Built-in Role Seed
 
 A database migration SHALL seed the `platform:admin` role record with:
 
@@ -1310,8 +1488,7 @@ bindings exist from each caller's first sign-in.
 #### Operator Note: Production Deployment Requirements
 
 The OpenShift overlay (`deploy/openshift/kustomization.yaml`) SHALL ship with JWT
-authentication enabled, so authorization is enforced (SEC-RBAC-14). No overlay SHALL
-set any separate enforcement variable.
+authentication enabled, so authorization is enforced (SEC-RBAC-14).
 
 Applying this to a cluster requires that Keycloak realm roles are configured first:
 
@@ -1445,6 +1622,99 @@ idempotent migration with `built_in: true`.
 
 ---
 
+### Requirement: SEC-RBAC-24 -- Framework Enforcement Point
+
+Every rule in this spec SHALL be decided by one policy: HyperShell's RBAC
+Authorizer (`pkg/rbac.Authorizer`), an implementation of the rh-trex-ai
+`authz.Authorizer` interface (rh-trex-ai `specs/security/authorization.spec.md`,
+SEC-002). Every HyperShell environment SHALL return it from its
+`OverrideAuthorizer` hook. TRex then calls it after authentication on both
+transports; plugins SHALL NOT attach authorization middleware or interceptors
+of their own.
+
+- **REST.** Every plugin route SHALL be declared with `APIRouter.Resource(kind)`
+  on `/v1` and on the `ext` prefix. A route declared any other way is denied with
+  403 by the framework. A deny is 403, a deny that hides existence (SEC-RBAC-10)
+  is 404, and a failed lookup is 503.
+- **gRPC.** Every `RegisterGRPCService` call SHALL declare every method of its
+  service in its method table, with the `watch` action for the server-streaming
+  `Watch*` methods. An undeclared method is denied with `PERMISSION_DENIED`.
+  Streams are decided when they open, and the Watch Stream Caller Binding
+  (managed-cluster-registration.spec.md, PLAT-CLUS-10) is checked again on the
+  request message.
+- **User provisioning.** The Authorizer SHALL provision the caller's User and
+  sync its JWT roles (SEC-RBAC-03) in its `Enrich` step, which TRex runs once per
+  request before the decision. On gRPC it SHALL do nothing when the call carries
+  no verified token (JWT off).
+- **Status codes outside a decision.** A TRex decision can only express allow,
+  `PERMISSION_DENIED`/403, `NOT_FOUND`/404 and `UNAVAILABLE`/503. Where a gRPC
+  rule returns another code (`INVALID_ARGUMENT` for a registered cluster that
+  omits `cluster_id`, PLAT-CLUS-10; `INTERNAL` for an unexpected request type),
+  the Authorizer SHALL hold that status in the call context and a HyperShell
+  interceptor that runs right after authorization SHALL return it before the
+  handler runs. The handler SHALL NOT be reached.
+
+#### Scenario: SEC-RBAC-24.01 -- Plugin route is authorized by the framework
+
+- GIVEN a plugin that declares its routes with `Resource("gateways")`
+- AND a caller with no binding on gateway `g-1`
+- WHEN the caller sends `GET /api/hypershell/v1/gateways/g-1`
+- THEN TRex calls the RBAC Authorizer and the response is 404
+
+#### Scenario: SEC-RBAC-24.02 -- Undeclared gRPC method is denied
+
+- GIVEN a gRPC service whose method table omits one of its methods
+- WHEN any caller invokes that method
+- THEN the call fails with `PERMISSION_DENIED` and the handler is not reached
+
+#### Scenario: SEC-RBAC-24.03 -- Missing cluster_id keeps its status code
+
+- GIVEN a control plane registered as cluster `X`
+- WHEN it calls `ListGateways` without `cluster_id`
+- THEN the call fails with `INVALID_ARGUMENT` and the handler is not reached
+
+### Requirement: SEC-RBAC-26 -- Imported CITrust Tenancy via Repository Ownership
+
+A `CITrust` authored over HTTP is authorized by the per-gateway tenancy check
+(SEC-RBAC-22): the human caller must manage the referenced gateway. A `CITrust`
+authored on the declarative `.hypershell` import path has no human caller - it is
+written by the control-plane import identity (SEC-RBAC-09, PLAT-CITR-10). On that path
+the system SHALL enforce an equivalent tenancy gate from `Repository` ownership rather
+than a human role binding: an import-marked `CITrust` create, update, or delete SHALL be
+authorized ONLY when the `Gateway` the `CITrust` references (resolved by name within the
+same import) is itself owned by the SAME reconciled `Repository` (same `repository_id`
+ownership mark). This is the "applies as the repository owner" semantics: a `Repository`
+may enable keyless CI only on a gateway it declares and owns, and never on a gateway
+owned by another `Repository`, by a human, or created directly over REST.
+
+Because the import identity is thereby owner-equivalent on its own `Repository`-owned
+gateway, the imported `CITrust`'s `role` (for example `openshell-user`) SHALL be accepted
+on that gateway without a separate human rights comparison; the "role SHALL NOT exceed
+the caller's rights" bound of SEC-RBAC-22 is satisfied because the owner of the gateway
+is the author. An import-marked `CITrust` whose referenced `Gateway` is NOT owned by the
+reconciled `Repository` SHALL be refused, exactly as a cross-tenant human write is
+refused under SEC-RBAC-22. This gate does NOT relax the HTTP tenancy check for any human
+caller; it only defines the non-human import counterpart.
+
+#### Scenario: SEC-RBAC-26.01 -- Import authors a CITrust on its own Repository-owned gateway
+
+- GIVEN `Repository` R1 whose `.hypershell` declares a `Gateway` owned by R1 and a `CITrust` referencing that gateway by name with `role: openshell-user`
+- WHEN the import reconciler writes the `CITrust` as the control-plane import identity
+- THEN the write SHALL be authorized and the `CITrust` SHALL be owned by R1
+- AND the `role` SHALL be accepted because R1 owns the referenced gateway
+
+#### Scenario: SEC-RBAC-26.02 -- Import cannot author a CITrust on a gateway it does not own
+
+- GIVEN `Repository` R1's import declares a `CITrust` referencing a `Gateway` owned by `Repository` R2 (or owned by a human, or created directly over REST)
+- WHEN the import reconciler attempts to write that `CITrust`
+- THEN the write SHALL be refused
+
+#### Scenario: SEC-RBAC-26.03 -- Human HTTP tenancy is unchanged
+
+- GIVEN a human caller with no management rights on gateway gw-1
+- WHEN the caller creates a `CITrust` referencing gw-1 over HTTP
+- THEN the request SHALL be rejected with 403 under SEC-RBAC-22, unaffected by the import path
+
 ## API Reference
 
 | Method | Path | Operation |
@@ -1476,8 +1746,6 @@ idempotent migration with `built_in: true`.
 | Gateway owners can grant co-owners | No hierarchy restriction. Team leads assign `gateway:creator` to team members or invite them as owners/viewers per gateway. Simple mental model. |
 | Auto-assign `gateway:owner` on creation | Creator automatically owns what they create. No separate grant step needed. |
 | `gateway:creator` assigned exclusively via Keycloak | Every deployment sources the role only from Keycloak, directly or through the realm default role for a blanket grant (SEC-RBAC-13). The role cannot be self-assigned via the API. |
-| Removed the API server's blanket default-role environment variable entirely | It defaulted to "on" (`gateway:creator`) when unset, so a deployment that forgot to set it was open by default. Because `SyncJWTRoles` re-merged it on every request, Keycloak could never revoke a role that was also a default. It forced special cases in the authorization code, the e2e suite, and the specs, and the spec and the code disagreed about what the setting was for. Keycloak's realm default role (SEC-RBAC-13) covers the same initial-role need without any of those costs (HYPERSHELL-465). |
-| Removed the API server's separate enforcement variable entirely; enforcement follows authentication | The variable failed open: an overlay that enabled JWT but forgot it let every signed-in caller do everything. JWT off with the variable set was an invalid combination that rejected every call with `401 missing identity`. Seven code sites read it independently and could disagree. Deriving enforcement from the resolved auth config in one place (SEC-RBAC-14) makes both failure modes impossible and removes the per-overlay setting (HYPERSHELL-466). |
 | Per-gateway bindings stored in DB | Gateway-scoped access requires per-resource granularity that JWT claims cannot provide (you'd need dynamic claim values per gateway ID). |
 | 404 on unauthorized singleton GETs | Returning 403 confirms the resource exists. 404 prevents ID enumeration. |
 | OpenShell role bridge | `gateway:owner` maps to `openshell-admin`, `gateway:viewer` maps to `openshell-user`. Ensures consistent access via CLI. |

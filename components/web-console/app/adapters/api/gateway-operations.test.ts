@@ -738,7 +738,6 @@ describe("gateway API operations adapter", () => {
 
   it("maps backend placement availability", async () => {
     gatewayApi.placementAvailability.mockResolvedValue({
-      local_kind: true,
       placements: [
         {
           available: true,
@@ -764,7 +763,6 @@ describe("gateway API operations adapter", () => {
         context,
       ),
     ).resolves.toEqual({
-      localKind: true,
       placements: [
         {
           available: true,
