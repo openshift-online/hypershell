@@ -372,6 +372,11 @@ export const messages = defineMessages({
     description:
       "Accessible label for copying a specific gateway's CLI connection command.",
   },
+  connectionCommandModal: {
+    id: "app.gateway.connectionCommandModal.title",
+    defaultMessage: "Connection command for {gatewayName}",
+    description: "Title for the modal showing the CLI connection command.",
+  },
   copyGatewayEndpoint: {
     id: "app.gateway.copyEndpoint",
     defaultMessage: "Copy gateway endpoint for {gatewayName}",
@@ -935,6 +940,11 @@ export const messages = defineMessages({
     defaultMessage: "Status",
     description: "Heading for a resource status column.",
   },
+  attentionRequired: {
+    id: "app.gateway.status.attentionRequired",
+    defaultMessage: "Attention required",
+    description: "Status text shown for unhealthy gateways (warning or danger states).",
+  },
   /* eslint-disable sort-keys -- Keep this secret-sensitive workflow's descriptors together so localization review can audit the complete journey as one unit. */
   serviceAccountsTab: {
     id: "app.gateway.serviceAccounts.tab",
@@ -1494,6 +1504,11 @@ export const messages = defineMessages({
     id: "app.gateway.access.tab",
     defaultMessage: "Manage access",
     description: "Label for the gateway detail Manage access tab.",
+  },
+  userAccessTab: {
+    id: "app.gateway.userAccess.tab",
+    defaultMessage: "User access",
+    description: "Label for the gateway detail User access tab.",
   },
   accessHeading: {
     id: "app.gateway.access.heading",

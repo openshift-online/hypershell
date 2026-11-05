@@ -49,6 +49,7 @@ import {
   GatewayEndpointCopy,
 } from "../gateways/gateway-detail-header";
 import { GatewayProvisioningStepper } from "../gateways/gateway-provisioning-stepper";
+import { GatewayConnectionCommandModal } from "../gateways/gateway-connection-command-modal";
 import {
   gatewayListQueryKey,
   gatewayNeedsStatusPolling,
@@ -275,6 +276,8 @@ export function GatewaysPage({
   const [renamedGatewayName, setRenamedGatewayName] = useState<string>();
   const [localCollectionState, setLocalCollectionState] =
     useState<GatewayListRequest>({ ...defaultGatewayListRequest });
+  const [connectionCommandGateway, setConnectionCommandGateway] =
+    useState<GatewayConnection | null>(null);
   const currentCollectionState = collectionState ?? localCollectionState;
   const debouncedGatewaySearch = useDebouncedValue(
     currentCollectionState.search.trim(),
@@ -550,7 +553,7 @@ export function GatewaysPage({
           })}
           icon={<CodeIcon />}
           onClick={() => {
-            // TODO: Open connection command modal
+            setConnectionCommandGateway(gateway);
           }}
           title={intl.formatMessage(messages.viewConnectionCommand, {
             gatewayName: gateway.name,
@@ -583,24 +586,12 @@ export function GatewaysPage({
     {
       id: "endpoint",
       label: intl.formatMessage(messages.gatewayEndpoint),
-      render: (gateway) => (
-        <Button
-          aria-label={intl.formatMessage(messages.copyEndpoint, {
-            gatewayName: gateway.name,
-          })}
-          icon={<CopyIcon />}
-          onClick={() => {
-            if (gateway.endpoint) {
-              void navigator.clipboard.writeText(gateway.endpoint);
-            }
-          }}
-          title={intl.formatMessage(messages.copyEndpoint, {
-            gatewayName: gateway.name,
-          })}
-          variant="plain"
-        />
+      render: ({ endpoint }) => (
+        <span className={styles.endpoint}>
+          {endpoint ?? intl.formatMessage(messages.notAvailable)}
+        </span>
       ),
-      width: 10,
+      width: 20,
     },
   ];
 
@@ -811,28 +802,37 @@ export function GatewaysPage({
             targets={bulkDelete.targets}
           />
         ) : null}
+        {connectionCommandGateway ? (
+          <GatewayConnectionCommandModal
+            gateway={connectionCommandGateway}
+            isOpen={true}
+            onClose={() => {
+              setConnectionCommandGateway(null);
+            }}
+          />
+        ) : null}
       </PageSection>
     </>
   );
 }
 
 export type GatewayDetailTab =
-  "connection" | "details" | "manage-access" | "service-accounts";
+  "connection" | "details" | "user-access" | "service-accounts";
 
 const gatewayDetailTabs: readonly GatewayDetailTab[] = [
-  "connection",
-  "manage-access",
-  "service-accounts",
   "details",
+  "connection",
+  "user-access",
+  "service-accounts",
 ];
 
-/** Normalizes an arbitrary tab value, defaulting unknown values to Connection. */
+/** Normalizes an arbitrary tab value, defaulting unknown values to Details. */
 export function toGatewayDetailTab(
   value: string | null | undefined,
 ): GatewayDetailTab {
   return value && (gatewayDetailTabs as readonly string[]).includes(value)
     ? (value as GatewayDetailTab)
-    : "connection";
+    : "details";
 }
 
 export interface GatewayPageProps {
@@ -862,7 +862,7 @@ export function GatewayPage({
   const intl = useIntl();
   const { gateways, navigation } = useGatewayUi();
   const trackConsoleWait = useConsoleWaitTracker();
-  const [localTab, setLocalTab] = useState<GatewayDetailTab>("connection");
+  const [localTab, setLocalTab] = useState<GatewayDetailTab>("details");
   const currentTab = activeTab ?? localTab;
   // The service-accounts tab may register a guard while it holds an
   // unrecoverable one-time secret. Consulting it here prevents a tab switch from
@@ -981,65 +981,6 @@ export function GatewayPage({
           unmountOnExit
         >
           <Tab
-            eventKey="connection"
-            title={
-              <TabTitleText>
-                <FormattedMessage {...messages.connectionTab} />
-              </TabTitleText>
-            }
-          >
-            <Content component="p">
-              <Button
-                isInline
-                onClick={() => {
-                  changeTab("service-accounts");
-                }}
-                variant="link"
-              >
-                <FormattedMessage {...messages.manageServiceAccounts} />
-              </Button>
-            </Content>
-            <GatewayConnectionSteps
-              gateway={connection}
-              isProvisioning={
-                !connection.phase ||
-                connection.phase.toLocaleLowerCase() === "pending" ||
-                connection.phase.toLocaleLowerCase() === "provisioning"
-              }
-            />
-          </Tab>
-          <Tab
-            eventKey="manage-access"
-            title={
-              <TabTitleText>
-                <FormattedMessage {...messages.manageAccessTab} />
-              </TabTitleText>
-            }
-          >
-            <AccessPage
-              gatewayId={gatewayId}
-              isActive={currentTab === "manage-access"}
-              key={gatewayId}
-            />
-          </Tab>
-          <Tab
-            eventKey="service-accounts"
-            title={
-              <TabTitleText>
-                <FormattedMessage {...messages.serviceAccountsTab} />
-              </TabTitleText>
-            }
-          >
-            <ServiceAccountsPage
-              collectionState={serviceAccountCollectionState}
-              gatewayId={gatewayId}
-              isActive={currentTab === "service-accounts"}
-              key={gatewayId}
-              onCollectionStateChange={onServiceAccountCollectionStateChange}
-              registerLeaveGuard={registerLeaveGuard}
-            />
-          </Tab>
-          <Tab
             eventKey="details"
             title={
               <TabTitleText>
@@ -1099,6 +1040,65 @@ export function GatewayPage({
                 </DescriptionListDescription>
               </DescriptionListGroup>
             </DescriptionList>
+          </Tab>
+          <Tab
+            eventKey="connection"
+            title={
+              <TabTitleText>
+                <FormattedMessage {...messages.connectionTab} />
+              </TabTitleText>
+            }
+          >
+            <Content component="p">
+              <Button
+                isInline
+                onClick={() => {
+                  changeTab("service-accounts");
+                }}
+                variant="link"
+              >
+                <FormattedMessage {...messages.manageServiceAccounts} />
+              </Button>
+            </Content>
+            <GatewayConnectionSteps
+              gateway={connection}
+              isProvisioning={
+                !connection.phase ||
+                connection.phase.toLocaleLowerCase() === "pending" ||
+                connection.phase.toLocaleLowerCase() === "provisioning"
+              }
+            />
+          </Tab>
+          <Tab
+            eventKey="user-access"
+            title={
+              <TabTitleText>
+                <FormattedMessage {...messages.userAccessTab} />
+              </TabTitleText>
+            }
+          >
+            <AccessPage
+              gatewayId={gatewayId}
+              isActive={currentTab === "user-access"}
+              key={gatewayId}
+            />
+          </Tab>
+          <Tab
+            eventKey="service-accounts"
+            title={
+              <TabTitleText>
+                <FormattedMessage {...messages.serviceAccountsTab} />
+              </TabTitleText>
+            }
+          >
+            <ServiceAccountsPage
+              collectionState={serviceAccountCollectionState}
+              gatewayId={gatewayId}
+              isActive={currentTab === "service-accounts"}
+              key={gatewayId}
+              onCollectionStateChange={onServiceAccountCollectionStateChange}
+              registerLeaveGuard={registerLeaveGuard}
+            />
           </Tab>
         </Tabs>
       </PageSection>

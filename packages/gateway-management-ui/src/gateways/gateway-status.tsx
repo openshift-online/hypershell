@@ -7,11 +7,13 @@ import {
   PendingIcon,
   UnknownIcon,
 } from "@patternfly/react-icons";
+import { useIntl } from "react-intl";
 
 import {
   type GatewayStatusAppearance,
   gatewayStatusAppearance,
 } from "./gateway-connections";
+import { messages } from "../messages";
 import styles from "./gateway-status.module.css";
 
 function GatewayStatusIcon({
@@ -68,7 +70,16 @@ export function GatewayStatus({
   label?: React.ReactNode;
   status: string;
 }) {
+  const intl = useIntl();
   const appearance = gatewayStatusAppearance(status);
+
+  // Show "Attention required" for unhealthy states (WEB-GLIS-03), but only
+  // when no explicit label was provided - respect caller's label if given
+  const displayText =
+    label ??
+    ((appearance === "warning" || appearance === "danger")
+      ? intl.formatMessage(messages.attentionRequired)
+      : status);
 
   return (
     <span
@@ -79,7 +90,7 @@ export function GatewayStatus({
       }
     >
       <GatewayStatusIcon appearance={appearance} />
-      <span>{label ?? status}</span>
+      <span>{displayText}</span>
     </span>
   );
 }
