@@ -217,12 +217,24 @@ enabling it to create, watch, and manage all gateways it creates.
 
 The middleware SHALL automatically create a User record when a JWT-authenticated caller
 is seen for the first time. The User record SHALL be populated from standard OIDC claims
-(`preferred_username`, `email`, `given_name`, `family_name`).
+(`sub`, `preferred_username`, `email`, `given_name`, `family_name`).
 
 Auto-provisioning SHALL use insert-or-update semantics keyed on `username` to handle
 concurrent first-time requests without a race: when no row exists yet, two concurrent
 first requests for the same username SHALL both resolve to the single row that gets
 created, instead of one failing on a unique-constraint error.
+
+**Subject capture.** On creation, the User record SHALL also store the JWT's `sub`
+claim (the Keycloak OIDC subject, a stable UUID distinct from the human-readable,
+mutable `preferred_username`) in an internal-only `subject` field. Unlike `email` and
+`name`, `subject` is not a profile field subject to update-on-mismatch: once a row has
+a non-empty `subject`, auto-provisioning SHALL NOT overwrite it, so a later request
+cannot silently repoint an existing User at a different upstream identity. `subject`
+SHALL NOT be exposed by the public `User` schema (`platform/registered-users.spec.md`,
+PLAT-USR-02); it exists only so system-managed automation that must address the real
+OIDC identity -- for example automatic default-workspace membership
+(`platform/gateway-access-management.spec.md`, GTW-ACC-16) -- can do so without a
+second resolution step on every use.
 
 When a User row already exists, auto-provisioning SHALL write to a stored profile field
 (`email`, `name`) only when the JWT carries a claim for that field and the claim's value
@@ -284,6 +296,15 @@ needed to match the JWT claims.
 - AND each caller's JWT carries a directory profile claim that differs from what is stored, so each request's auto-provisioning self-upsert and Grant's target pre-provisioning both write
 - WHEN user A grants user B gateway access and user B grants user A gateway access at the same time
 - THEN both grants SHALL complete without a database deadlock error
+
+#### Scenario: SEC-RBAC-03.06 -- Subject captured on creation and never overwritten
+
+- GIVEN no User record exists for username `alice`
+- WHEN `alice` authenticates for the first time with a JWT carrying `sub: "11111111-aaaa-bbbb-cccc-222222222222"`
+- THEN the created User record SHALL store that value in its internal `subject` field
+- GIVEN that User record already has a non-empty `subject`
+- WHEN a later request for `alice` carries a JWT with a different `sub` value
+- THEN auto-provisioning SHALL leave the stored `subject` unchanged
 
 ### Requirement: SEC-RBAC-04 -- Gateway Creation Bootstrap
 

@@ -236,7 +236,7 @@ The request SHALL identify the target user by a directory identity (`username`, 
 
 The target identity SHALL be resolved against the Keycloak realm directory before any binding is created. If the identity does not correspond to a user in the realm, the request SHALL be rejected with `404 Not Found` and a clear error (the person must exist in the realm to be granted access); no `User` record SHALL be pre-provisioned and no binding SHALL be created. Resolution SHALL reuse the directory projection / lookup of GTW-ACC-09.
 
-When the target identity resolves to a realm user that has no existing HyperShell `User` record, the API server SHALL **pre-provision** one from the Keycloak directory record (upsert keyed on `username`, populating `username`, `email`, and `name`) before creating the binding, so the binding references a real `user_id` and the Role Bridge can resolve the Keycloak user by username. Pre-provisioning SHALL use the same upsert semantics as JWT auto-provisioning (`security/rbac-enforcement.spec.md`) and SHALL NOT expand the public users API, which remains read-only (`registered-users.spec.md`).
+When the target identity resolves to a realm user that has no existing HyperShell `User` record, the API server SHALL **pre-provision** one from the Keycloak directory record (upsert keyed on `username`, populating `username`, `email`, `name`, and the internal `subject` field with the directory record's Keycloak OIDC `sub`) before creating the binding, so the binding references a real `user_id` and the Role Bridge can resolve the Keycloak user by username. As with JWT auto-provisioning (SEC-RBAC-03), pre-provisioning SHALL NOT overwrite an already-populated `subject`. Pre-provisioning SHALL use the same upsert semantics as JWT auto-provisioning (`security/rbac-enforcement.spec.md`) and SHALL NOT expand the public users API, which remains read-only (`registered-users.spec.md`).
 
 Granting SHALL be idempotent with respect to the effective role (GTW-ACC-10). On success the endpoint SHALL return the resulting grant item (GTW-ACC-03 shape).
 
@@ -557,7 +557,9 @@ The `hsctl` CLI SHALL include tests covering the access commands (GTW-ACC-13), i
 
 Gateway access is projected into Keycloak client roles (GTW-ACC-02); it SHALL also be projected into OpenShell **workspace** access for the gateway's reserved `default` workspace, because that workspace is where a standard (`openshell-user`) subject actually operates on sandboxes. A granted HyperShell role whose Keycloak projection includes `openshell-user` but NOT `openshell-admin` -- that is, `gateway:viewer` -- SHALL therefore cause HyperShell to create a system-managed `DefaultWorkspaceMembership` (`data-model.spec.md`, PLAT-DATA-27) for that gateway and the granted user's identity, with `role=user` and `source=gateway_access`. A granted role whose projection includes `openshell-admin` (`gateway:owner` or `gateway:admin`) SHALL cause HyperShell to create no such membership, because `openshell-admin` already bypasses OpenShell workspace authorization including on `default` (`openshell-gateway-keycloak.spec.md`).
 
-**Subject.** The membership's `subject` SHALL be the granted `User.username`, the same identity the Keycloak Role Bridge already resolves against the realm directory by username (GTW-ACC-02, `openshell-gateway-keycloak.spec.md`, "User lookup by subject"); HyperShell does not separately capture a human user's raw OIDC `sub` claim, and reusing the already-resolvable username keeps this automation consistent with the existing Role Bridge identity resolution rather than introducing a second one.
+**Subject.** The membership's `subject` SHALL be the granted `User`'s internal `subject` field (the Keycloak OIDC `sub`, `security/rbac-enforcement.spec.md` SEC-RBAC-03), NOT `User.username`. OpenShell's own workspace-membership authorization check matches a request's access token on its `sub` claim, not `preferred_username`; `username` is a separate, human-readable, mutable value (PLAT-USR-02) that does not appear in that check. Writing `username` as the subject would create a row that never matches the real token, leaving `reconciliation_status = ready` while the grantee is in practice still denied -- so `username` SHALL NOT be used here.
+
+A grant target's `subject` is normally already populated: either from a prior sign-in (JWT auto-provisioning, SEC-RBAC-03) or from this same grant's own pre-provisioning step, which resolves the realm directory record before creating the binding (GTW-ACC-04) and now also stores its `subject` (`sub`) on the `User` row. If a target `User` row predates this field and still has an empty `subject` when a tier change (demotion into the User tier) needs to create a `DefaultWorkspaceMembership`, HyperShell SHALL resolve it via the same realm directory lookup used at grant time (GTW-ACC-04, keyed on the User's stored `username`), store it on the `User` row, and use it. This is a side effect of servicing a new qualifying grant/change event for that identity, not a standing backfill of existing memberships (the issue's version-1 scope excludes backfilling identities that have no new qualifying event).
 
 **Convergence on change and revoke.** Changing a user's tier (GTW-ACC-05) between the User tier (`gateway:viewer`) and an administrator tier (`gateway:owner` or `gateway:admin`) SHALL converge the membership exactly as it converges Keycloak client roles: promoting out of the User tier SHALL delete the `DefaultWorkspaceMembership`; demoting into the User tier SHALL create one (subject to the member-limit check, GTW-ACC-17). Revoking a user's access (GTW-ACC-06) SHALL delete their `DefaultWorkspaceMembership` on that gateway if one exists. Re-granting a tier the user already effectively holds SHALL remain idempotent (GTW-ACC-10) and SHALL NOT create a duplicate membership row.
 
@@ -566,9 +568,10 @@ Gateway access is projected into Keycloak client roles (GTW-ACC-02); it SHALL al
 #### Scenario: GTW-ACC-16.01 -- Granting user access creates default-workspace membership
 
 - GIVEN user D has no binding on gw-1
+- AND D's `User` record has `subject = "d-sub-id"` and `username = "dana"`
 - WHEN an owner of gw-1 grants D the `user` role
 - THEN a `gateway:viewer` binding SHALL be created for D on gw-1
-- AND HyperShell SHALL create a `DefaultWorkspaceMembership` for gw-1 with D's username and `role=user`, `source=gateway_access`
+- AND HyperShell SHALL create a `DefaultWorkspaceMembership` for gw-1 with `subject = "d-sub-id"` (D's stored OIDC subject, NOT `"dana"`) and `role=user`, `source=gateway_access`
 
 #### Scenario: GTW-ACC-16.02 -- Granting admin or owner access creates no membership
 
@@ -599,6 +602,13 @@ Gateway access is projected into Keycloak client roles (GTW-ACC-02); it SHALL al
 - GIVEN user B holds `gateway:viewer` on gw-1 and a `DefaultWorkspaceMembership`
 - WHEN an admin grants B the `user` role again
 - THEN B SHALL still hold exactly one `DefaultWorkspaceMembership` row on gw-1
+
+#### Scenario: GTW-ACC-16.07 -- Demotion resolves a missing subject via the realm directory
+
+- GIVEN user B holds `gateway:admin` on gw-1 and no `DefaultWorkspaceMembership`
+- AND B's `User` record predates subject capture and has an empty `subject`, but `username = "bob"`
+- WHEN B's access is changed to `user`
+- THEN HyperShell SHALL resolve `"bob"`'s `sub` from the realm directory (GTW-ACC-04), store it as B's `User.subject`, and create a `DefaultWorkspaceMembership` for B on gw-1 using that resolved `subject`, not `"bob"`
 
 ---
 

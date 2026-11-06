@@ -69,7 +69,7 @@ The `User` OpenAPI schema SHALL expose:
 | `name` | string | Optional display name |
 | `created_at` | date-time | Read-only; first provisioning timestamp |
 
-The schema SHALL NOT expose internal RBAC bindings, Keycloak subject identifiers, or session metadata.
+The schema SHALL NOT expose internal RBAC bindings, Keycloak subject identifiers, or session metadata. The `User` record additionally stores an internal-only `subject` field (the JWT `sub` claim captured at provisioning, `security/rbac-enforcement.spec.md` SEC-RBAC-03) used by system-managed automation such as automatic default-workspace membership (`gateway-access-management.spec.md`, GTW-ACC-16); it is never part of this public schema.
 
 #### Scenario: PLAT-USR-02.01 -- Auto-provisioned user appears in List output
 
