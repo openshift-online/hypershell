@@ -40,10 +40,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           {
-            echo '<details><summary>TEMP DEBUG: api-server unit test output (tail)</summary>'
+            echo '<details><summary>TEMP DEBUG: api-server unit test failures</summary>'
             echo
             echo '```'
-            tail -c 60000 /tmp/api-server-test.log
+            grep -n -B 5 -A 60 -- '--- FAIL\|^FAIL\|panic:\|DATA RACE' /tmp/api-server-test.log | head -c 55000
             echo '```'
             echo '</details>'
           } > /tmp/pr-comment-body.md
