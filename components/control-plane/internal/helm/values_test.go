@@ -868,4 +868,9 @@ func TestBuild_AdditionalCARendersInChart(t *testing.T) {
 	if !strings.Contains(string(out), want) {
 		t.Errorf("rendered chart does not contain %q", want)
 	}
+	// The workload must mount the named ConfigMap on that path; a value the
+	// chart ignores would leave the TOML pointing at a missing volume.
+	if !strings.Contains(string(out), `name: "destination-ca"`) {
+		t.Errorf("rendered workload does not mount the destination CA ConfigMap:\n%s", out)
+	}
 }

@@ -106,24 +106,31 @@ ConfigMap.
 The Gateway API resource SHALL have an optional `additional_ca_bundle` string
 field (inline PEM), part of the REST and gRPC create and update contracts, the
 `gateways` table (via schema migration), and the Gateway provisioning fields
-table in `data-model.spec.md`. When set, the control plane SHALL materialize the
-bundle as a ConfigMap named `gateway-additional-ca` (key `ca.crt`, labeled
-`hypershell.redhat.io/managed: "true"`) in the gateway's tenant namespace, and
-SHALL set `supervisor.network.additionalCaConfigMapName` to
-`gateway-additional-ca` in the rendered OpenShell chart values. The chart-owned
-name space is `openshell-gateway-*` (fullname-prefixed), so a control-plane
-owned `gateway-additional-ca` cannot collide with chart-adopted objects -- the
-same separation the `gateway-trusted-ca` ConfigMap already relies on.
+table in `data-model.spec.md`. When set, the control plane SHALL compose it with
+the operator tier (OSG-ACA-04) into an effective bundle, and SHALL materialize
+that bundle as a CONTENT-ADDRESSED ConfigMap named
+`openshell-destination-ca-<sha256[:8]>` (key `ca.crt`, labeled
+`hypershell.redhat.io/managed: "true"`) in the gateway's tenant namespace,
+setting `supervisor.network.additionalCaConfigMapName` to that name in the
+rendered OpenShell chart values. The name embeds the bundle digest, so any
+change to the effective trust produces a new ConfigMap name, which changes the
+workload volume reference and rolls the gateway through the normal Helm upgrade
+path -- no imperative restart, no pod annotation, and old generations remain
+mountable until namespace cleanup. The control plane SHALL additionally
+x509-validate the user bundle on its own before composition, so a valid
+operator bundle cannot mask invalid user material inside a merged PEM (defense
+in depth behind the API boundary).
 
 #### Scenario: OSG-ACA-01.01 -- bundle set at create
 
 - GIVEN a Gateway create request with `additional_ca_bundle` containing one or
   more PEM certificate blocks
 - WHEN the GatewayReconciler provisions the gateway
-- THEN a ConfigMap named `gateway-additional-ca` with key `ca.crt` SHALL exist
-  in the gateway's tenant namespace containing the bundle verbatim
+- THEN a content-addressed ConfigMap with key `ca.crt` SHALL exist in the
+  gateway's tenant namespace containing the effective bundle (the user bundle
+  when no operator tier applies, otherwise the composed bundle per OSG-ACA-04)
 - AND the rendered chart values SHALL set
-  `supervisor.network.additionalCaConfigMapName: gateway-additional-ca`
+  `supervisor.network.additionalCaConfigMapName` to that content-addressed name
 - AND the rendered gateway TOML SHALL contain
   `[openshell.supervisor.network] additional_ca_bundle` pointing at the staged
   mount
@@ -132,10 +139,10 @@ same separation the `gateway-trusted-ca` ConfigMap already relies on.
 
 - GIVEN a Gateway with `additional_ca_bundle` unset or empty
 - WHEN the GatewayReconciler provisions or reconciles the gateway
-- THEN no `gateway-additional-ca` ConfigMap SHALL exist in the tenant namespace
-- AND the chart value SHALL NOT be set
-- AND gateway startup and sandbox egress SHALL use default trust roots only
-  (no failure, no rendered mount)
+- THEN no user-tier trust SHALL apply; when the operator tier is configured it
+  still materializes per OSG-ACA-04, otherwise the chart value SHALL NOT be set
+- AND gateway startup and sandbox egress SHALL use default trust roots (or the
+  operator tier only), with no failure and no user-tier rendered mount
 
 #### Scenario: OSG-ACA-01.03 -- bundle rejected at the API boundary
 
@@ -160,29 +167,31 @@ same separation the `gateway-trusted-ca` ConfigMap already relies on.
 ### Requirement: OSG-ACA-02 -- rotation updates the running gateway
 
 Updating `additional_ca_bundle` SHALL rotate the gateway's trust: the control
-plane SHALL re-materialize the ConfigMap and, because the chart's
+plane SHALL re-materialize the effective bundle and, because the chart's
 `checksum/gateway-config` annotation does not cover the operator-owned
-ConfigMap and subPath mounts are not live-updated, SHALL explicitly roll the
-gateway workload when the materialized bundle data changes. The roll SHALL be
-driven through Helm: the bundle's SHA-256 checksum is set as a `podAnnotations`
-entry (`hypershell.redhat.io/additional-ca-checksum`) on the gateway workload
-whenever the bundle is present, so a bundle change changes the pod template and
-the Helm upgrade rolls the StatefulSet automatically (the same values-driven
-label/annotation pattern `dev_build` uses; `podAnnotations` is a chart surface
-that already exists in the vendored chart). The control plane
-SHALL NOT attempt hot-reload (startup-only gateway configuration upstream).
-Running sandboxes retain their trust generation until stopped; stop/start of a
-sandbox reconciles it to the new generation while preserving sandbox identity
-and durable workspace contents (upstream lifecycle behavior).
+ConfigMap and subPath mounts are not live-updated, SHALL roll the gateway
+workload when the effective bundle changes. The roll is INHERENT to the
+content-addressed naming (OSG-ACA-01): a changed bundle produces a new
+`openshell-destination-ca-<digest>` name, which changes the workload volume
+reference, so the Helm upgrade rolls the gateway Deployment with no imperative
+restart and no pod annotation. Because the name is derived from content rather
+than from the Gateway spec generation, trust changes also bypass the
+generation-gate convergence check (`DestinationCATrustNeedsUpdate`), so
+operator-tier and user-tier rotations apply to converged gateways. The control
+plane SHALL NOT attempt hot-reload (startup-only gateway configuration
+upstream). Running sandboxes retain their trust generation until stopped;
+stop/start of a sandbox reconciles it to the new generation while preserving
+sandbox identity and durable workspace contents (upstream lifecycle behavior).
 
 #### Scenario: OSG-ACA-02.01 -- operator or user rotates the bundle
 
 - GIVEN a gateway is running with trust generation N
 - WHEN the Gateway's `additional_ca_bundle` is updated via the API and the
   GatewayReconciler runs
-- THEN the `gateway-additional-ca` ConfigMap data SHALL be updated
-- AND the gateway workload SHALL roll (the checksum pod annotation changes the
-  pod template, so the Helm upgrade restarts the StatefulSet; Helm's own
+- THEN a NEW content-addressed ConfigMap generation SHALL be materialized (the
+  old generation remains mountable until namespace cleanup)
+- AND the gateway workload SHALL roll (the volume reference changes to the new
+  name, so the Helm upgrade restarts the Deployment; Helm's own
   `checksum/gateway-config` would not detect the change)
 - AND the new gateway pods SHALL start with generation N+1
 - AND running sandboxes SHALL retain generation N until stopped
@@ -193,21 +202,62 @@ and durable workspace contents (upstream lifecycle behavior).
 
 Removing the bundle SHALL be declarative (follow-source semantics): clearing
 `additional_ca_bundle` (set to null/empty) SHALL cause the control plane to
-delete the tenant `gateway-additional-ca` ConfigMap and stop setting the chart
-value, rolling the gateway back to default trust roots on the next reconcile.
+stop including user-tier trust in the effective bundle. When the operator tier
+is configured it resumes unchanged (a new content-addressed generation rolls
+the gateway onto operator trust only); otherwise no destination-CA ConfigMap is
+referenced and the gateway rolls back to default trust roots on the next
+reconcile. Superseded generations are reclaimed by namespace cleanup.
 
 #### Scenario: OSG-ACA-03.01 -- bundle cleared
 
 - GIVEN a gateway is running with a materialized additional CA bundle
 - WHEN the Gateway's `additional_ca_bundle` is cleared via the API and the
   GatewayReconciler runs
-- THEN the tenant `gateway-additional-ca` ConfigMap SHALL be deleted
-- AND the chart value SHALL NOT be set on the subsequent Helm upgrade
-- AND the gateway workload SHALL restart without the additional-CA mount and
-  use default trust roots
+- THEN the effective bundle SHALL no longer contain the user PEM
+- AND the chart value on the subsequent Helm upgrade SHALL reference the
+  operator tier's generation, or SHALL NOT be set when no operator tier applies
+- AND the gateway workload SHALL restart without the user-tier trust (operator
+  trust only, or default trust roots)
 - AND sandboxes SHALL reconcile to default trust on stop/start
 
 ---
+
+### Requirement: OSG-ACA-04 -- user and operator tier composition
+
+The hub-wide operator tier (`GATEWAY_ADDITIONAL_CA_CONFIGMAP_NAME`, optionally
+capability-gated by `GATEWAY_ADDITIONAL_CA_REQUIRED_CAPABILITY`; see
+`destination_ca.go`) and the per-gateway user tier SHALL compose per a single
+hub-wide policy, `GATEWAY_ADDITIONAL_CA_MERGE_MODE`:
+
+- `merge` (DEFAULT): when a gateway declares user trust AND the operator tier
+  is configured, the effective bundle concatenates both PEMs, so fleet-wide
+  operator trust (for example a private GitLab CA) keeps applying alongside
+  user-authored trust. Gateways without a user bundle take the operator tier
+  unchanged; gateways on hubs without an operator tier take the user bundle
+  unchanged.
+- `user-only`: a gateway with a user bundle replaces the operator tier for
+  that gateway; gateways without a user bundle still take the operator tier.
+
+#### Scenario: OSG-ACA-04.01 -- merge is the default
+
+- GIVEN a hub with the operator tier configured and a gateway whose
+  `additional_ca_bundle` is set
+- WHEN the GatewayReconciler materializes destination trust
+- THEN the effective bundle SHALL contain both PEMs
+- AND the content-addressed name SHALL differ from either tier alone
+
+#### Scenario: OSG-ACA-04.02 -- user-only policy replaces operator trust
+
+- GIVEN a hub with `GATEWAY_ADDITIONAL_CA_MERGE_MODE=user-only` and a gateway
+  whose `additional_ca_bundle` is set
+- THEN the effective bundle SHALL be exactly the user PEM
+
+#### Scenario: OSG-ACA-04.03 -- no user bundle keeps the operator tier
+
+- GIVEN a hub with the operator tier configured and a gateway whose
+  `additional_ca_bundle` is empty
+- THEN the effective bundle SHALL be exactly the operator PEM, unchanged by
+  the merge policy
 
 ## Integration plan
 
@@ -218,10 +268,9 @@ value, rolling the gateway back to default trust roots on the next reconcile.
    "Re-diff status" above) -- no value-name, mount-path, or RBAC changes;
    only the unconditional state volume and chart unit tests differ from the
    PR-diff description.
-2. The opendatahub fork (`OPENSHELL_CHART_REPO`) syncs upstream main and tags
-   a release containing the merge, with `odh-openshell-*` images built at
-   that tag. PENDING as of 2026-10-27 (fork `main` is still at the
-   pre-merge `v0.1.5-rhaiv.4`).
+2. The opendatahub fork (`OPENSHELL_CHART_REPO`) tagged releases containing
+   the merge (`v0.1.6-rhaiv.*`); HyperShell main vendored `v0.1.6-rhaiv.4`
+   (the additional-CA chart surfaces are in `charts/openshell` on main). DONE.
 
 ### Phase 1 -- Vendored chart bump (this repo; after the fork tag)
 
@@ -241,57 +290,47 @@ value, rolling the gateway back to default trust roots on the next reconcile.
 
 ### Phase 2 -- API field + control-plane plumbing (this repo; CAN START PRE-MERGE)
 
-Everything in this phase is inert until the Phase 1 chart bump lands: setting
-`supervisor.network.additionalCaConfigMapName` on a chart that does not read it
-is a Helm no-op, and no user can set the new API field before it ships. It can
-therefore be implemented and merged before upstream merges.
+LANDED (rebased onto main, which had since shipped the operator tier and the
+v0.1.6-rhaiv.4 chart). The user tier builds on main's operator-tier machinery
+rather than duplicating it:
 
-1. **API field** (`components/api-server`): add `additional_ca_bundle` to the
-   Gateway schema in `openapi.gateways.yaml` (Gateway, create request, patch
-   request), the `Gateway`/`CreateGatewayRequest`/`UpdateGatewayRequest`
-   messages in `proto/hypershell/v1/gateways.proto` (regenerate `pb.go`), the
-   GORM model and wire structs (`plugins/gateways/model.go`, following
-   `supervisor_image`), and an up/down migration adding
-   `additional_ca_bundle TEXT` to `gateways` (`plugins/gateways/migration.go`).
-2. **API validation**: on create and update, when the field is non-empty it must
-   contain at least one `-----BEGIN CERTIFICATE-----` /
-   `-----END CERTIFICATE-----` block pair, no `PRIVATE KEY` blocks, and be at
-   most 256 KiB (our bound, comfortably under the upstream ~1 MiB ConfigMap
-   bound). Reject with a field-naming validation error; never echo contents.
-3. **Control-plane materialization** (`components/control-plane`): thread the
-   field `pb.Gateway` → `gateway.GatewayConfig.AdditionalCABundle`
-   (`internal/gateway/config.go`, next to `SupervisorImage`) →
-   `internal/reconciler/reconciler.go` gwConfig assembly (~line 460). Add
-   `reconcileAdditionalCABundle` to `internal/gateway/reconciler.go`, modeled on
-   `reconcileTrustedCABundle` (~line 1034): non-empty bundle → create-or-update
-   `gateway-additional-ca` in the tenant namespace (key `ca.crt`, managed
-   labels); empty → delete the ConfigMap if present. Returns presence and
-   whether the data changed.
-4. **Values plumbing**: thread the presence bool through `deployGatewayViaHelm`
-   (`helm_deploy.go` ~line 14) into `ValuesBuilder` (`internal/helm/values.go`)
-   as `HasAdditionalCA` (next to `HasTrustedCA` ~line 97 / `HasVaultCA`
-   ~line 99); in `Build`, when set:
-   `setNestedValue(values, "gateway-additional-ca", "supervisor", "network",
-   "additionalCaConfigMapName")`. Do NOT pass `openshell.supervisor.network`
-   through `gatewayConfig` -- the chart fails rendering if that table is set
-   there (enforced upstream).
-5. **Gateway roll on change**: when the bundle is present, set its SHA-256 as a
-   Helm `podAnnotations` entry
-   (`hypershell.redhat.io/additional-ca-checksum`). The vendored chart already
-   applies top-level `podAnnotations` to the gateway workload pod template
-   (`_gateway-workload.tpl`), so any bundle change changes the pod template and
-   the Helm upgrade rolls the StatefulSet automatically -- no imperative
-   restart, no post-Helm patching, no uncovered-checksum gap. This uses a chart
-   surface that exists in the current vendored chart (pre-bump), so rotation
-   behavior is complete before Phase 1. Clearing the bundle omits the
-   annotation, which rolls the gateway back to default trust the same way.
-6. **Tests**: API model/presenter/validation tests (accept/rotate/clear/reject
-   paths); `values_test.go` (value set only when bundle present; not set when
-   absent; checksum annotation tracks the bundle); `helm_deploy_test.go`
-   (signature threading); reconciler unit tests for materialization
-   (create/update/delete/absent). The chart-render test asserting the rendered
-   TOML/mount belongs to Phase 1 (the current vendored chart ignores the value)
-   -- add it when the chart lands.
+1. **API field** (`components/api-server`): `additional_ca_bundle` on the
+   Gateway schema (`openapi.gateways.yaml`), proto messages
+   (`Gateway=33`/`CreateGatewayRequest=21`/`UpdateGatewayRequest=25`, renumbered
+   twice as main claimed earlier numbers), the GORM model, migration
+   `migrationAddAdditionalCABundle`, presenters, and the PLAT-DATA-23
+   field-policy classification (user-writable, the allowlist amendment).
+2. **API validation** (`additional_ca_bundle_validation.go`): PEM CERTIFICATE
+   blocks only, no `PRIVATE KEY`, no other `BEGIN` block types, at most 256 KiB
+   (comfortably under the upstream ~1 MiB ConfigMap bound). Field-naming
+   validation errors that never echo contents; REST PATCH distinguishes omitted
+   from explicit null (both null and empty string clear).
+3. **Control-plane composition** (`internal/gateway/destination_ca.go`):
+   `destinationCABundle` composes the user bundle with the operator tier per
+   OSG-ACA-04, x509-validates the user PEM on its own before composition
+   (fail closed), and derives the content-addressed
+   `openshell-destination-ca-<sha256[:8]>` name.
+   `reconcileDestinationCABundle` materializes the effective bundle in the
+   tenant namespace (key `ca.crt`, managed labels; old generations retained).
+   `DestinationCATrustNeedsUpdate` (the generation-gate bypass) takes the user
+   bundle so user rotations reach converged gateways.
+4. **Values plumbing**: `ValuesBuilder.AdditionalCAConfigMapName` (main's
+   operator-tier field, now carrying the composed name) →
+   `supervisor.network.additionalCaConfigMapName`. Do NOT pass
+   `openshell.supervisor.network` through `gatewayConfig` -- the chart fails
+   rendering if that table is set there (enforced upstream).
+5. **Gateway roll on change**: inherent to the content-addressed naming (see
+   OSG-ACA-02) -- a changed effective bundle changes the volume reference and
+   the Helm upgrade rolls the Deployment. No pod annotation, no imperative
+   restart.
+6. **Tests** (landed): API validation/presenter/desired-state/gRPC CRUD
+   coverage; `values_test.go` (name set only when present, omitted when empty;
+   the chart-render test `TestBuild_AdditionalCARendersInChart` asserts the
+   rendered TOML derives `additional_ca_bundle` and the workload mounts the
+   named ConfigMap against the vendored v0.1.6 chart);
+   `destination_ca_test.go` (operator tier, user tier, merge and user-only
+   composition, fail-closed validation, rotation generations, capability
+   gating).
 
 ### Phase 3 -- Validation
 
@@ -329,46 +368,57 @@ therefore be implemented and merged before upstream merges.
 
 ## Decisions
 
-Resolved during spec review (2026-08-25):
-
-1. **Per-gateway, not per-hub.** The bundle is a user-supplied Gateway field.
-   A hub-wide operator-managed default was considered and rejected for the
-   initial cut: one mechanism, one reconcile surface, and it directly serves the
-   stated requirement that gateway owners configure and rotate their own trust.
-   A hub-level base merged with a per-gateway override remains a possible
-   follow-up if fleet operators later need to push one CA to all gateways; that
-   would add a merge step in the reconciler, not change this spec's API surface.
+1. **Per-gateway user tier, composed with the operator tier.** The user
+   bundle is a Gateway field (the stated requirement: gateway owners configure
+   and rotate their own trust). HyperShell main later shipped a hub-wide
+   operator tier (`GATEWAY_ADDITIONAL_CA_CONFIGMAP_NAME`); rather than
+   duplicating it, the user tier composes with it per a merge policy (OSG-ACA-04
+   and decision 6).
 2. **Inline PEM field, not a resource reference.** `additional_ca_bundle` is a
    plain string on Gateway create/update, like `credential_driver` and `image`.
    A reference to a secret-like resource would require a new resource kind or
    extending `SecretSource` (which is AgentRuntime-owned today) -- a much larger
    API surface for non-secret material. CA certificates are public material;
    storing PEM in the `gateways` table is acceptable.
-3. **Tenant ConfigMap name `gateway-additional-ca`.** Same name shape as the
-   `gateway-trusted-ca` precedent (control-plane-owned, unprefixed; the chart
-   owns `openshell-gateway-*`). No collision with chart-adopted objects.
-4. **Follow-source removal semantics.** Clearing the field deletes the tenant
-   ConfigMap and unsets the chart value (declarative; gitops/API is the source
-   of truth). The alternative -- keeping the last mirror ("sticky" trust) -- has
-   no clean removal path and can drift silently. Accidental clearing is visible
-   in the API and reversible by re-setting the field.
+3. **Content-addressed ConfigMap naming** (`openshell-destination-ca-<digest>`,
+   shared with the operator tier). SUPERSEDES the original fixed-name
+   `gateway-additional-ca` decision: adopting main's content-addressed pattern
+   makes the roll-on-rotation inherent (a name change changes the workload
+   volume reference), deletes the pod-annotation machinery, and retains old
+   generations for running pods until namespace cleanup.
+4. **Follow-source removal semantics.** Clearing the field removes user-tier
+   trust from the effective bundle (declarative; the API is the source of
+   truth); the operator tier, if configured, resumes unchanged. The
+   alternative -- keeping the last mirror ("sticky" trust) -- has no clean
+   removal path and can drift silently. Accidental clearing is visible in the
+   API and reversible by re-setting the field.
 5. **Control plane owns the gateway roll on rotation.** Upstream deliberately
    excludes the operator-owned ConfigMap from `checksum/gateway-config`, and
-   subPath mounts are not live-updated, so the HyperShell control plane must
-   roll the gateway workload when the bundle changes. Mechanism: the bundle
-   checksum rides Helm `podAnnotations`, so the roll happens through the normal
-   Helm upgrade path (identical to how `dev_build` passes pod labels). This was
+   subPath mounts are not live-updated, so the control plane must roll the
+   gateway workload when the bundle changes. Mechanism: the content-addressed
+   name change (decision 3), through the normal Helm upgrade path. This was
    upstream-neutral in the original plan (an optional enhancement); it is
    REQUIRED now that rotation is user-facing.
+6. **Tier composition is a hub-wide policy, merge by default.** When both
+   tiers exist for one gateway the default (`GATEWAY_ADDITIONAL_CA_MERGE_MODE`
+   unset or `merge`) concatenates the PEMs: the operator tier already applies
+   hub-wide when enabled, so merging adds nothing the operator did not opt
+   into, and a user setting a bundle does not silently drop fleet trust.
+   `user-only` makes the user bundle replace the operator tier for gateways
+   that declare one (user decision, 2026-11: "offer to merge optionally").
+7. **PLAT-DATA-23 allowlist amendment.** `additional_ca_bundle` is
+   user-writable (create + update) -- user-authored trust material, not
+   platform provisioning config -- recorded as an explicit exception in the
+   default-deny Gateway field policy (see `data-model.spec.md`).
 
 ---
 
 ## Work-item checklist
 
 - [x] Phase 0a: upstream merge (merged 2026-10-27, `2c31ac7e`) + re-diff (done, no material divergence)
-- [ ] Phase 0b: fork sync + tag + images (PENDING; fork main still pre-merge)
-- [x] Phase 2: API field + validation + migration (pre-merge safe; landed)
-- [x] Phase 2: control-plane materialization + values plumbing + roll-on-change + tests (pre-merge safe; landed)
-- [ ] Phase 1: `OPENSHELL_TAG` bump, `vendor-openshell-chart`, chart diff review, chart-render test
-- [ ] Phase 3: kind validation, ROKS e2e scenario
+- [x] Phase 0b: fork sync + tag + images (`v0.1.6-rhaiv.*`; HyperShell main vendored `v0.1.6-rhaiv.4`)
+- [x] Phase 1: vendored chart on main carries the additional-CA surfaces; chart-render test landed (`TestBuild_AdditionalCARendersInChart`)
+- [x] Phase 2: API field + validation + migration + PLAT-DATA-23 classification (landed)
+- [x] Phase 2: control-plane two-tier composition + values plumbing + inherent roll + tests (landed, unified with main's operator tier)
+- [ ] Phase 3: kind validation, ROKS e2e scenario (user tier + composition + rotation)
 - [ ] Phase 4: rotation runbook; console form exposure (follow-up)
