@@ -195,9 +195,12 @@ test.describe("live console user journey", () => {
       )
       .toBe("Running");
     await page.goto(`/gateways/${createdGatewayId}`);
-    await expect(page.getByText(gateway?.status ?? "Running")).toBeVisible({
-      timeout: pageTimeout,
-    });
+    await expect(
+      page
+        .getByRole("heading", { level: 1, name: gatewayName })
+        .locator("..")
+        .getByText(gateway?.status ?? "Running"),
+    ).toBeVisible({ timeout: pageTimeout });
   });
 
   test("opens the published OpenShell console", async ({ page }) => {
