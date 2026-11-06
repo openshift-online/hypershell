@@ -23,7 +23,7 @@ func membershipService() defaultWorkspaceMemberships.MembershipService {
 func TestGrant_UserTierCreatesDefaultWorkspaceMembership(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
-	gw := "gw-dwm-grant-user"
+	gw := seedGateway(t, "gw-dwm-grant-user")
 	owner := seed(t, gw, "owner-dwm1", roles.RoleGatewayOwner)
 
 	dir := realm(gatewayAccess.DirectoryUser{Username: "dana", Name: "Dana", Subject: "sub-dana-1"})
@@ -46,7 +46,7 @@ func TestGrant_UserTierCreatesDefaultWorkspaceMembership(t *testing.T) {
 func TestGrant_AdminOrOwnerTierCreatesNoDefaultWorkspaceMembership(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
-	gw := "gw-dwm-grant-admin"
+	gw := seedGateway(t, "gw-dwm-grant-admin")
 	owner := seed(t, gw, "owner-dwm2", roles.RoleGatewayOwner)
 
 	dir := realm(gatewayAccess.DirectoryUser{Username: "erin", Subject: "sub-erin-1"})
@@ -64,7 +64,7 @@ func TestGrant_AdminOrOwnerTierCreatesNoDefaultWorkspaceMembership(t *testing.T)
 func TestChangeRole_PromotionOutOfUserTierRemovesMembership(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
-	gw := "gw-dwm-promote"
+	gw := seedGateway(t, "gw-dwm-promote")
 	owner := seed(t, gw, "owner-dwm3", roles.RoleGatewayOwner)
 
 	dir := realm(gatewayAccess.DirectoryUser{Username: "ben", Subject: "sub-ben-1"})
@@ -87,7 +87,7 @@ func TestChangeRole_PromotionOutOfUserTierRemovesMembership(t *testing.T) {
 func TestChangeRole_DemotionIntoUserTierCreatesMembership(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
-	gw := "gw-dwm-demote"
+	gw := seedGateway(t, "gw-dwm-demote")
 	owner := seed(t, gw, "owner-dwm4", roles.RoleGatewayOwner)
 
 	dir := realm(gatewayAccess.DirectoryUser{Username: "cal", Subject: "sub-cal-1"})
@@ -111,7 +111,7 @@ func TestChangeRole_DemotionIntoUserTierCreatesMembership(t *testing.T) {
 func TestRevoke_DeletesDefaultWorkspaceMembership(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
-	gw := "gw-dwm-revoke"
+	gw := seedGateway(t, "gw-dwm-revoke")
 	owner := seed(t, gw, "owner-dwm5", roles.RoleGatewayOwner)
 
 	dir := realm(gatewayAccess.DirectoryUser{Username: "fay", Subject: "sub-fay-1"})
@@ -131,7 +131,7 @@ func TestRevoke_DeletesDefaultWorkspaceMembership(t *testing.T) {
 func TestGrant_ReGrantingSameTierStaysOneMembershipRow(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
-	gw := "gw-dwm-idempotent"
+	gw := seedGateway(t, "gw-dwm-idempotent")
 	owner := seed(t, gw, "owner-dwm6", roles.RoleGatewayOwner)
 
 	dir := realm(gatewayAccess.DirectoryUser{Username: "gus", Subject: "sub-gus-1"})
@@ -150,7 +150,7 @@ func TestGrant_ReGrantingSameTierStaysOneMembershipRow(t *testing.T) {
 func TestChangeRole_DemotionResolvesMissingSubjectViaDirectory(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
-	gw := "gw-dwm-backfill"
+	gw := seedGateway(t, "gw-dwm-backfill")
 	owner := seed(t, gw, "owner-dwm7", roles.RoleGatewayOwner)
 	// seed() provisions the User row directly (bypassing Grant's pre-provisioning),
 	// so "bob" has no stored subject yet, mirroring a User row that predates
@@ -181,7 +181,7 @@ func TestGrant_RejectedAtDefaultWorkspaceMemberLimit(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
 	defer withLoweredMemberLimit(2)()
-	gw := "gw-dwm-limit-grant"
+	gw := seedGateway(t, "gw-dwm-limit-grant")
 	owner := seed(t, gw, "owner-dwm8", roles.RoleGatewayOwner)
 
 	fillDefaultWorkspaceToLimit(t, gw)
@@ -202,7 +202,7 @@ func TestChangeRole_DemotionRejectedAtDefaultWorkspaceMemberLimit(t *testing.T) 
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
 	defer withLoweredMemberLimit(2)()
-	gw := "gw-dwm-limit-demote"
+	gw := seedGateway(t, "gw-dwm-limit-demote")
 	owner := seed(t, gw, "owner-dwm9", roles.RoleGatewayOwner)
 
 	dir := realm(gatewayAccess.DirectoryUser{Username: "hal", Subject: "sub-hal-1"})
@@ -226,7 +226,7 @@ func TestGrant_OwnerAndAdminGrantsAreNotSubjectToTheLimit(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
 	defer withLoweredMemberLimit(2)()
-	gw := "gw-dwm-limit-admin-exempt"
+	gw := seedGateway(t, "gw-dwm-limit-admin-exempt")
 	owner := seed(t, gw, "owner-dwm10", roles.RoleGatewayOwner)
 
 	fillDefaultWorkspaceToLimit(t, gw)

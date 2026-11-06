@@ -9,6 +9,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/openshift-online/hypershell/components/api-server/plugins/gatewayAccess"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roles"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/users"
@@ -61,6 +62,22 @@ func rbService() roleBindings.RoleBindingService {
 func userService() users.UserService {
 	return users.Service(&environments.Environment().Services)
 }
+func gatewayService() gateways.GatewayService {
+	return gateways.Service(&environments.Environment().Services)
+}
+
+// seedGateway creates a real Gateway row through the service's normal create
+// path and returns its generated ID. gatewayAccess automation now writes a
+// DefaultWorkspaceMembership row with a DB-level foreign key to gateways
+// (data-model.spec.md PLAT-DATA-27), so any test that exercises a TierUser
+// grant/change-role/revoke needs a backing gateway, not just an opaque string
+// scope key.
+func seedGateway(t *testing.T, name string) string {
+	t.Helper()
+	gw, serr := gatewayService().Create(context.Background(), &gateways.Gateway{Name: name})
+	Expect(serr).To(BeNil())
+	return gw.ID
+}
 
 // seed provisions a user and gives them roleName on gatewayID, returning the
 // user's id. It uses the service's convergence path (no caller authz).
@@ -83,7 +100,7 @@ func accessSvc(dir gatewayAccess.DirectoryResolver) gatewayAccess.Service {
 func TestAccessList_EnrichedTiers(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
-	gw := "gw-list-enriched"
+	gw := seedGateway(t, "gw-list-enriched")
 
 	owner := seed(t, gw, "first-owner", roles.RoleGatewayOwner)
 	seed(t, gw, "second-owner", roles.RoleGatewayOwner)
@@ -115,7 +132,7 @@ func TestAccessList_EnrichedTiers(t *testing.T) {
 func TestAccessList_FilterByRoleAndSearch(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
-	gw := "gw-list-filter"
+	gw := seedGateway(t, "gw-list-filter")
 
 	owner := seed(t, gw, "owner-ff", roles.RoleGatewayOwner)
 	seed(t, gw, "alice-user", roles.RoleGatewayViewer)
@@ -134,7 +151,7 @@ func TestAccessList_FilterByRoleAndSearch(t *testing.T) {
 func TestGrant_NeverSignedInUserPreProvisions(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
-	gw := "gw-grant-newuser"
+	gw := seedGateway(t, "gw-grant-newuser")
 	owner := seed(t, gw, "owner-np", roles.RoleGatewayOwner)
 
 	dir := realm(gatewayAccess.DirectoryUser{Username: "dana", Name: "Dana Scully", Email: "dana@example.com", Subject: "sub-dana"})
@@ -156,7 +173,7 @@ func TestGrant_NeverSignedInUserPreProvisions(t *testing.T) {
 func TestGrant_UnknownRealmUserRejected(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
-	gw := "gw-grant-ghost"
+	gw := seedGateway(t, "gw-grant-ghost")
 	owner := seed(t, gw, "owner-gh", roles.RoleGatewayOwner)
 
 	svc := accessSvc(realm()) // empty realm
@@ -173,7 +190,7 @@ func TestGrant_UnknownRealmUserRejected(t *testing.T) {
 func TestGrant_AdminCannotAssignOwner(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
-	gw := "gw-admin-noowner"
+	gw := seedGateway(t, "gw-admin-noowner")
 	seed(t, gw, "owner-ao", roles.RoleGatewayOwner)
 	admin := seed(t, gw, "admin-ao", roles.RoleGatewayAdmin)
 
@@ -188,7 +205,7 @@ func TestGrant_AdminCannotAssignOwner(t *testing.T) {
 func TestGrant_AdminCanGrantUser(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
-	gw := "gw-admin-grants"
+	gw := seedGateway(t, "gw-admin-grants")
 	seed(t, gw, "owner-ag", roles.RoleGatewayOwner)
 	admin := seed(t, gw, "admin-ag", roles.RoleGatewayAdmin)
 
@@ -204,7 +221,7 @@ func TestGrant_AdminCanGrantUser(t *testing.T) {
 func TestGrant_AdminCannotDemoteOwner(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
-	gw := "gw-admin-nodemote-owner"
+	gw := seedGateway(t, "gw-admin-nodemote-owner")
 	seed(t, gw, "owner-dm", roles.RoleGatewayOwner)  // existing owner (target)
 	seed(t, gw, "owner-dm2", roles.RoleGatewayOwner) // second owner, so last-owner guard is not the cause
 	admin := seed(t, gw, "admin-dm", roles.RoleGatewayAdmin)
@@ -220,7 +237,7 @@ func TestGrant_AdminCannotDemoteOwner(t *testing.T) {
 func TestChangeRole_PromoteInPlaceKeepsBindingID(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
-	gw := "gw-change-inplace"
+	gw := seedGateway(t, "gw-change-inplace")
 	owner := seed(t, gw, "owner-ip", roles.RoleGatewayOwner)
 	target := seed(t, gw, "target-ip", roles.RoleGatewayViewer)
 
@@ -256,7 +273,7 @@ func TestChangeRole_PromoteInPlaceKeepsBindingID(t *testing.T) {
 func TestChangeRole_AdminCannotPromoteToOwner(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
-	gw := "gw-admin-nopromote"
+	gw := seedGateway(t, "gw-admin-nopromote")
 	seed(t, gw, "owner-ap2", roles.RoleGatewayOwner)
 	admin := seed(t, gw, "admin-ap2", roles.RoleGatewayAdmin)
 	target := seed(t, gw, "viewer-ap2", roles.RoleGatewayViewer)
@@ -271,7 +288,7 @@ func TestChangeRole_AdminCannotPromoteToOwner(t *testing.T) {
 func TestLastOwner_SoleOwnerCannotDemote(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
-	gw := "gw-sole-demote"
+	gw := seedGateway(t, "gw-sole-demote")
 	owner := seed(t, gw, "sole-owner-d", roles.RoleGatewayOwner)
 
 	svc := accessSvc(realm())
@@ -285,7 +302,7 @@ func TestLastOwner_SoleOwnerCannotDemote(t *testing.T) {
 func TestLastOwner_SoleOwnerCannotBeRevoked(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
-	gw := "gw-sole-revoke"
+	gw := seedGateway(t, "gw-sole-revoke")
 	owner := seed(t, gw, "sole-owner-r", roles.RoleGatewayOwner)
 
 	svc := accessSvc(realm())
@@ -298,7 +315,7 @@ func TestLastOwner_SoleOwnerCannotBeRevoked(t *testing.T) {
 func TestRevoke_OwnerSelfWhenAnotherOwnerRemains(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
-	gw := "gw-two-owners"
+	gw := seedGateway(t, "gw-two-owners")
 	a := seed(t, gw, "owner-a-two", roles.RoleGatewayOwner)
 	seed(t, gw, "owner-e-two", roles.RoleGatewayOwner)
 
@@ -314,7 +331,7 @@ func TestRevoke_OwnerSelfWhenAnotherOwnerRemains(t *testing.T) {
 func TestRevoke_AdminCannotRevokeOwner(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
-	gw := "gw-admin-norevoke-owner"
+	gw := seedGateway(t, "gw-admin-norevoke-owner")
 	owner := seed(t, gw, "owner-nr", roles.RoleGatewayOwner)
 	admin := seed(t, gw, "admin-nr", roles.RoleGatewayAdmin)
 
@@ -328,7 +345,7 @@ func TestRevoke_AdminCannotRevokeOwner(t *testing.T) {
 func TestViewerCannotManage(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
-	gw := "gw-viewer-nomanage"
+	gw := seedGateway(t, "gw-viewer-nomanage")
 	seed(t, gw, "owner-vn", roles.RoleGatewayOwner)
 	viewer := seed(t, gw, "viewer-vn", roles.RoleGatewayViewer)
 
@@ -343,7 +360,7 @@ func TestViewerCannotManage(t *testing.T) {
 func TestIdempotentRegrant(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
-	gw := "gw-idempotent"
+	gw := seedGateway(t, "gw-idempotent")
 	owner := seed(t, gw, "owner-id", roles.RoleGatewayOwner)
 	dir := realm(gatewayAccess.DirectoryUser{Username: "repeat"})
 	svc := accessSvc(dir)
@@ -367,7 +384,7 @@ func TestIdempotentRegrant(t *testing.T) {
 func TestDirectorySearch_Authorization(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
-	gw := "gw-dir-authz"
+	gw := seedGateway(t, "gw-dir-authz")
 	admin := seed(t, gw, "admin-dir", roles.RoleGatewayAdmin)
 	viewer := seed(t, gw, "viewer-dir", roles.RoleGatewayViewer)
 
@@ -435,7 +452,7 @@ func hasGatewayBinding(t *testing.T, userID, gw string) bool {
 func TestPlatformAdmin_ManagesAccessWithoutBindingOrLogin(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
-	gw := "gw-padmin-manage"
+	gw := seedGateway(t, "gw-padmin-manage")
 	seed(t, gw, "owner-pa", roles.RoleGatewayOwner)
 	padmin := seedPlatformAdmin(t, "padmin-pa")
 
@@ -470,7 +487,7 @@ func TestPlatformAdmin_ManagesAccessWithoutBindingOrLogin(t *testing.T) {
 func TestPlatformAdmin_RevokeOwnerGuardedByLastOwner(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
-	gw := "gw-padmin-revoke"
+	gw := seedGateway(t, "gw-padmin-revoke")
 	owner1 := seed(t, gw, "owner-r1", roles.RoleGatewayOwner)
 	owner2 := seed(t, gw, "owner-r2", roles.RoleGatewayOwner)
 	padmin := seedPlatformAdmin(t, "padmin-rv")
@@ -545,8 +562,8 @@ func TestGrant_ConcurrentMutualGrantsWithChangedProfilesDoNotDeadlock(t *testing
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
 
-	gwAlice := "gw-mutual-alice"
-	gwBob := "gw-mutual-bob"
+	gwAlice := seedGateway(t, "gw-mutual-alice")
+	gwBob := seedGateway(t, "gw-mutual-bob")
 
 	// Each user already has a stored profile that differs from what their
 	// next request's claims -- and the directory -- will present.
