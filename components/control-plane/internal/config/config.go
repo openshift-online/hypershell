@@ -129,6 +129,16 @@ type Config struct {
 	// runs). See specs/platform/control-plane.spec.md ("Role Binding Resync").
 	RoleBindingResyncInterval time.Duration
 
+	// DefaultWorkspaceMembershipResyncInterval is how often, while the
+	// DefaultWorkspaceMembership watch stream is connected, the control plane
+	// re-lists its cluster's live memberships and reconciles them per gateway, so
+	// a membership create/delete is recovered even when its event is missed or
+	// the stream goes silent. The reconciler also seeds on every (re)connect.
+	// Sourced from HYPERSHELL_DEFAULT_WORKSPACE_MEMBERSHIP_RESYNC_INTERVAL; a
+	// non-positive value disables the periodic resync (the per-connect seed still
+	// runs). See specs/platform/control-plane.spec.md, CTRL-CORE-20.
+	DefaultWorkspaceMembershipResyncInterval time.Duration
+
 	// Helm chart configuration
 	HelmChartPath     string
 	HelmChartRegistry string
@@ -226,8 +236,9 @@ func Load() (*Config, error) {
 		GRPCKeepaliveTime:    getEnvDuration("HYPERSHELL_GRPC_KEEPALIVE_TIME", 5*time.Minute),
 		GRPCKeepaliveTimeout: getEnvDuration("HYPERSHELL_GRPC_KEEPALIVE_TIMEOUT", 10*time.Second),
 
-		WatchIdleTimeout:          getEnvDuration("HYPERSHELL_WATCH_IDLE_TIMEOUT", 10*time.Minute),
-		RoleBindingResyncInterval: getEnvDuration("HYPERSHELL_ROLE_BINDING_RESYNC_INTERVAL", 5*time.Minute),
+		WatchIdleTimeout:                         getEnvDuration("HYPERSHELL_WATCH_IDLE_TIMEOUT", 10*time.Minute),
+		RoleBindingResyncInterval:                getEnvDuration("HYPERSHELL_ROLE_BINDING_RESYNC_INTERVAL", 5*time.Minute),
+		DefaultWorkspaceMembershipResyncInterval: getEnvDuration("HYPERSHELL_DEFAULT_WORKSPACE_MEMBERSHIP_RESYNC_INTERVAL", 5*time.Minute),
 
 		HelmChartPath:     getEnv("HELM_CHART_PATH", "/charts/openshell.tgz"),
 		HelmChartRegistry: getEnv("HELM_CHART_REGISTRY", ""),

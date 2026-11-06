@@ -13,7 +13,9 @@ import (
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/gatewayhealth"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/defaultWorkspaceMemberships"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	trexerrors "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
@@ -30,6 +32,10 @@ const (
 	GatewayActiveQuota         = 100
 	AccessTokenLifetimeSeconds = 300
 
+	// serviceAccountsLockType is the package-private per-gateway lock domain
+	// (see acquireGatewayLock). It is deliberately NOT the lock domain shared
+	// with gatewayAccess (see acquireMembershipLimitLock): most service-account
+	// lifecycle mutations have no cross-plugin invariant to serialize against.
 	serviceAccountsLockType db.LockType = "gateway-service-accounts"
 
 	// provisioningReclaimAfter is how long a row may remain in Provisioning before
@@ -190,19 +196,53 @@ type service struct {
 	// scanLimit is the reconciliation scan page size. It defaults to
 	// reconcileScanLimit; tests override it to exercise multi-page drains.
 	scanLimit int
+	// memberships backs the OSG-SACC-19 automatic default-workspace membership
+	// automation. nil (e.g. in a test that does not wire it) makes every
+	// membership hook a no-op, so existing behavior is unaffected.
+	memberships defaultWorkspaceMemberships.MembershipService
 }
 
-func NewService(dao ServiceAccountDao, gatewayService GatewayLookup, bindings BindingLookup, provisioner ServiceAccountProvisioner, lockFactory db.LockFactory) Service {
-	return &service{dao: dao, gateways: gatewayService, bindings: bindings, provisioner: provisioner, lockFactory: lockFactory, now: time.Now, scanLimit: reconcileScanLimit}
+func NewService(dao ServiceAccountDao, gatewayService GatewayLookup, bindings BindingLookup, provisioner ServiceAccountProvisioner, lockFactory db.LockFactory, memberships defaultWorkspaceMemberships.MembershipService) Service {
+	return &service{dao: dao, gateways: gatewayService, bindings: bindings, provisioner: provisioner, lockFactory: lockFactory, now: time.Now, scanLimit: reconcileScanLimit, memberships: memberships}
 }
 
-// acquireGatewayLock takes the shared per-gateway advisory lock that serializes
-// every service-account lifecycle mutation for a gateway (foreground Create,
-// Revoke, Delete, gateway cleanup, and background reconciliation all contend for
-// it) so no two paths can observe and act on a stale snapshot concurrently. The
+// acquireGatewayLock takes the package-private per-gateway advisory lock that
+// serializes every service-account lifecycle mutation for a gateway
+// (foreground Create, Revoke, Delete, gateway cleanup, and background
+// reconciliation all contend for it) so no two such paths can observe and act
+// on a stale snapshot concurrently. It does NOT serialize against gatewayAccess
+// (see acquireMembershipLimitLock for the narrow slice of work that must). The
 // returned function releases the lock and must be deferred by the caller.
 func (s *service) acquireGatewayLock(ctx context.Context, gatewayID string) (func(), error) {
 	owner, err := s.lockFactory.NewAdvisoryLock(ctx, gatewayID, serviceAccountsLockType)
+	if err != nil {
+		return nil, err
+	}
+	return func() { s.lockFactory.Unlock(ctx, owner) }, nil
+}
+
+// acquireMembershipLimitLock takes the SAME per-gateway advisory-lock domain
+// gatewayAccess uses for RoleBinding mutations (roleBindings.GatewayAccessLockType
+// / GatewayAccessLockID), not the package-private acquireGatewayLock domain
+// above. It must be held from the GTW-ACC-17/OSG-SACC-19 member-limit check
+// through the matching DefaultWorkspaceMembership create: both gatewayAccess
+// (a user-tier grant or a demotion into it) and serviceAccounts (an
+// openshell-user create, or an admin-to-user role downgrade) count the
+// gateway's live membership rows and reject before persisting a new one, and a
+// per-plugin lock domain would let a concurrent operation on each side observe
+// the count below the limit and both persist, exceeding it.
+//
+// This is deliberately narrower than acquireGatewayLock: it is taken only
+// around the check-then-create critical section (Create, and UpdateRole's
+// admin-to-user downgrade), not around Revoke/Delete/reconciliation, which
+// never add a membership row and so have no limit to race on. Scoping it this
+// way means routine service-account revocation, deletion, and background
+// reconciliation for a gateway never block behind a concurrent gateway-access
+// grant on the same gateway (and vice versa); only the narrow slice of work
+// that shares the limit does. The returned function releases the lock and must
+// be deferred by the caller.
+func (s *service) acquireMembershipLimitLock(ctx context.Context, gatewayID string) (func(), error) {
+	owner, err := s.lockFactory.NewAdvisoryLock(ctx, roleBindings.GatewayAccessLockID(gatewayID), roleBindings.GatewayAccessLockType)
 	if err != nil {
 		return nil, err
 	}
@@ -267,6 +307,29 @@ func (s *service) Create(ctx context.Context, gatewayID, userID string, input Cr
 	} else if duplicate {
 		return nil, &APIError{Status: http.StatusConflict, Code: "service_account_name_exists", Message: "An active service account already uses this name"}
 	}
+	// OSG-SACC-19: the default-workspace member-limit check runs before any
+	// Keycloak provisioning or record persistence, so a rejection leaves no
+	// Keycloak client and no OpenShellGatewayServiceAccount row behind.
+	// openshell-admin needs no membership (it bypasses workspace authorization),
+	// so it is never subject to this check and never needs the lock below. Nor
+	// does a nil memberships service (automation not wired): there is no
+	// membership row and no cross-plugin limit to race on.
+	//
+	// The lock is held from here through the eventual membership create
+	// (spanning the Keycloak provisioning call in between): gatewayAccess counts
+	// the same live DefaultWorkspaceMembership rows before its own grant, under
+	// the same lock domain (acquireMembershipLimitLock), so a concurrent grant
+	// and create cannot each observe the count below the limit and both persist.
+	if input.Role == RoleUser && s.memberships != nil {
+		memberUnlock, lockErr := s.acquireMembershipLimitLock(ctx, gatewayID)
+		if lockErr != nil {
+			return nil, internalProblem()
+		}
+		defer memberUnlock()
+	}
+	if problem := s.checkDefaultWorkspaceMemberLimit(ctx, gatewayID, input.Role); problem != nil {
+		return nil, problem
+	}
 
 	expiresAt := s.now().UTC().Add(DefaultExpiration)
 	if input.ExpiresAt != nil {
@@ -327,6 +390,21 @@ func (s *service) Create(ctx context.Context, gatewayID, userID string, input Cr
 	account.Subject = provisioned.Subject
 	account.Status = StatusReady
 	account.LastError = nil
+	// OSG-SACC-19: an openshell-user account's provisioned subject (never the
+	// creator's own) gets automatic default-workspace membership. A failure here
+	// aborts the create the same way an audit-persistence failure does, cleaning
+	// up the Keycloak client that was just provisioned.
+	if account.Role == RoleUser && s.memberships != nil {
+		if _, merr := s.memberships.Create(ctx, gatewayID, account.Subject, defaultWorkspaceMemberships.SourceServiceAccount); merr != nil {
+			slog.WarnContext(ctx, "default workspace membership create failed", "gateway_id", gatewayID, "service_account_id", account.ID, "error", merr)
+			_ = s.provisioner.DeleteServiceAccount(ctx, provisioned.ClientUUID, account.GatewayID, account.ID)
+			account.Status = StatusError
+			reason := "default_workspace_membership_failed"
+			account.LastError = &reason
+			_ = s.dao.Update(ctx, account)
+			return nil, internalProblem()
+		}
+	}
 	if err := s.audit(ctx, account, userID, "create", "succeeded"); err != nil {
 		_ = s.provisioner.DeleteServiceAccount(ctx, provisioned.ClientUUID, account.GatewayID, account.ID)
 		account.Status = StatusError
@@ -444,6 +522,11 @@ func (s *service) Revoke(ctx context.Context, gatewayID, id, userID string) (*Op
 		account.RevokedAt = nil
 		return account, false, nil
 	}
+	// OSG-SACC-19.04: revoking an openshell-user account deletes its default
+	// workspace membership. Best-effort: the account is already durably
+	// revoked, so a membership-cleanup failure does not undo that; it is logged
+	// and left for the next reconcile/cleanup pass to retry.
+	s.deleteDefaultWorkspaceMembership(ctx, account)
 	return account, true, nil
 }
 
@@ -484,6 +567,25 @@ func (s *service) UpdateRole(ctx context.Context, gatewayID, id, userID string, 
 	if problem := validateRoleUpdateInput(&input, creatorAccess); problem != nil {
 		return nil, false, problem
 	}
+	// OSG-SACC-19.08: a downgrade to openshell-user that would add a new default
+	// workspace membership is rejected outright (the role-update request, not
+	// just the membership) when the gateway is already at the 1,000-member
+	// limit. The lock is held from here through the membership create below (see
+	// acquireMembershipLimitLock): gatewayAccess checks and creates against the
+	// same count under the same lock domain, so a concurrent grant and this
+	// downgrade cannot each observe the count below the limit and both persist.
+	// A nil memberships service (automation not wired) needs neither the check
+	// nor the lock: there is no membership row and no cross-plugin limit.
+	if input.Role == RoleUser && account.Role != RoleUser && s.memberships != nil {
+		memberUnlock, lockErr := s.acquireMembershipLimitLock(ctx, gatewayID)
+		if lockErr != nil {
+			return nil, false, internalProblem()
+		}
+		defer memberUnlock()
+		if problem := s.checkDefaultWorkspaceMemberLimit(ctx, gatewayID, input.Role); problem != nil {
+			return nil, false, problem
+		}
+	}
 	gateway, oidc, problem := s.readyGateway(ctx, gatewayID)
 	if problem != nil {
 		return nil, false, problem
@@ -503,6 +605,34 @@ func (s *service) UpdateRole(ctx context.Context, gatewayID, id, userID string, 
 	// reconcileOne drives Keycloak toward the persisted role.
 	if err := s.dao.Update(ctx, account); err != nil {
 		return nil, false, serviceUnavailableProblem("The role update request could not be stored")
+	}
+	// OSG-SACC-19.07/19.08: the membership follows the persisted role, not
+	// Keycloak convergence (which may stay pending/degraded below), and is
+	// converged BEFORE the Keycloak call so a failure here can still revert
+	// cleanly (no provider-side state to undo yet). A downgrade to
+	// openshell-user already passed the limit check above, but a transient
+	// failure here must still fail the whole request -- not just log it -- and
+	// revert the persisted role: there is no later reconcile pass that retries
+	// membership convergence for an already-Ready account (reconcileOne only
+	// (re)converges it on specific transitions: expire, revoke, gateway
+	// deletion, forced downgrade), so leaving the role persisted while the
+	// membership silently failed would strand the account indefinitely.
+	if !roleUnchanged {
+		var membershipErr *trexerrors.ServiceError
+		if previousRole == RoleAdmin && account.Role == RoleUser && s.memberships != nil {
+			_, membershipErr = s.memberships.Create(ctx, gatewayID, account.Subject, defaultWorkspaceMemberships.SourceServiceAccount)
+		} else if previousRole == RoleUser && account.Role == RoleAdmin && s.memberships != nil && account.Subject != "" {
+			// Not deleteDefaultWorkspaceMembership: that helper gates on
+			// account.Role == RoleUser, which no longer holds here since
+			// account.Role was already updated to RoleAdmin above.
+			membershipErr = s.memberships.DeleteByGatewayAndSubject(ctx, gatewayID, account.Subject)
+		}
+		if membershipErr != nil {
+			slog.WarnContext(ctx, "default workspace membership convergence failed on role update, reverting", "gateway_id", gatewayID, "service_account_id", account.ID, "error", membershipErr)
+			account.Role = previousRole
+			_ = s.dao.Update(ctx, account)
+			return nil, false, internalProblem()
+		}
 	}
 	if err := s.auditRoleUpdate(ctx, account, userID, "started", previousRole); err != nil {
 		return account, false, nil
@@ -597,6 +727,9 @@ func (s *service) Delete(ctx context.Context, gatewayID, id, userID string) (*Op
 	if err := s.dao.SoftDelete(ctx, account); err != nil {
 		return account, false, nil
 	}
+	// OSG-SACC-19.05: deletion ensures no membership survives, idempotently, a
+	// no-op if Revoke already removed it.
+	s.deleteDefaultWorkspaceMembership(ctx, account)
 	return account, true, nil
 }
 
@@ -860,6 +993,9 @@ func (s *service) reconcileOne(ctx context.Context, account *OpenShellGatewaySer
 		account.Status = StatusExpired
 		account.RevokedAt = &now
 		account.LastError = nil
+		// OSG-SACC-19.06: expiration deletes the membership the same pass that
+		// marks the account expired.
+		s.deleteDefaultWorkspaceMembership(ctx, account)
 		if err := s.audit(ctx, account, "system", "expire", "succeeded"); err != nil {
 			return err
 		}
@@ -880,6 +1016,7 @@ func (s *service) reconcileOne(ctx context.Context, account *OpenShellGatewaySer
 		account.Status = StatusRevoked
 		account.RevokedAt = &now
 		account.LastError = nil
+		s.deleteDefaultWorkspaceMembership(ctx, account)
 		if err := s.audit(ctx, account, "system", "revoke", outcome); err != nil {
 			return err
 		}
@@ -907,6 +1044,10 @@ func (s *service) reconcileOne(ctx context.Context, account *OpenShellGatewaySer
 			account.Status = StatusRevoked
 			account.RevokedAt = &now
 			account.LastError = nil
+			// Idempotent: the gateway-deletion cascade (PLAT-DATA-27.05) may have
+			// already removed this membership along with every other
+			// DefaultWorkspaceMembership row for this gateway.
+			s.deleteDefaultWorkspaceMembership(ctx, account)
 			if err := s.audit(ctx, account, "system", "revoke", "gateway_deleted"); err != nil {
 				return err
 			}
@@ -942,6 +1083,19 @@ func (s *service) reconcileOne(ctx context.Context, account *OpenShellGatewaySer
 		return s.failReconcile(ctx, account, observedStatus, err)
 	}
 	if downgraded {
+		// Membership create runs BEFORE account.Role is mutated, and a failure
+		// returns through failReconcile without ever setting it: persisting
+		// Role=RoleAdmin unchanged (only Status moves to Degraded) keeps
+		// `downgraded` true on the next pass, so the whole sequence --
+		// including this membership create -- retries. Reversing the order
+		// (mutate Role first) would persist RoleUser even on a membership
+		// failure, making `downgraded` false forever after and stranding the
+		// account with no membership and no future retry.
+		if s.memberships != nil {
+			if _, merr := s.memberships.Create(ctx, account.GatewayID, account.Subject, defaultWorkspaceMemberships.SourceServiceAccount); merr != nil {
+				return s.failReconcile(ctx, account, observedStatus, fmt.Errorf("create default workspace membership for forced role downgrade: %w", merr))
+			}
+		}
 		account.Role = RoleUser
 		if err := s.audit(ctx, account, "system", "role_downgrade", "succeeded"); err != nil {
 			return err
@@ -1011,6 +1165,15 @@ func (s *service) cleanupUndeliveredAccount(ctx context.Context, account *OpenSh
 	} else if err := s.provisioner.DeleteManagedServiceAccount(ctx, account.GatewayID, account.ID); err != nil {
 		return err
 	}
+	// OSG-SACC-19: Create() can fail (audit-persistence or final dao.Update
+	// error) after the default-workspace membership was already created,
+	// leaving an undelivered account that lands here via the StatusError
+	// reconcile branch. Without this, the membership row would survive the
+	// account it was created for indefinitely, permanently consuming a slot
+	// against the gateway's 1,000-member OpenShell cap. Idempotent and a
+	// no-op for openshell-admin accounts and accounts that never reached the
+	// membership-create step.
+	s.deleteDefaultWorkspaceMembership(ctx, account)
 	if err := s.audit(ctx, account, actor, "create", "failed"); err != nil {
 		return err
 	}
@@ -1189,6 +1352,43 @@ func gatewayEndpoint(routeAddress string) string {
 		return "http://" + strings.TrimPrefix(endpoint, "grpc://")
 	}
 	return endpoint
+}
+
+// checkDefaultWorkspaceMemberLimit enforces OSG-SACC-19's "Member-limit check
+// precedes provisioning": it is a no-op for any role other than openshell-user
+// (openshell-admin never gets a membership) and rejects with 409 when adding
+// the resulting membership would exceed the gateway's 1,000-member default
+// workspace limit.
+func (s *service) checkDefaultWorkspaceMemberLimit(ctx context.Context, gatewayID, role string) *APIError {
+	if role != RoleUser || s.memberships == nil {
+		return nil
+	}
+	count, serr := s.memberships.CountLiveForGateway(ctx, gatewayID)
+	if serr != nil {
+		return internalProblem()
+	}
+	if count >= defaultWorkspaceMemberships.MemberLimit {
+		defaultWorkspaceMemberships.RecordMemberLimitViolation()
+		return &APIError{Status: http.StatusConflict, Code: "default_workspace_member_limit", Message: "The gateway's default OpenShell workspace is at its 1,000-member limit"}
+	}
+	return nil
+}
+
+// deleteDefaultWorkspaceMembership removes account's default workspace
+// membership, if any (OSG-SACC-19, "Lifecycle cleanup"). It is a no-op for
+// openshell-admin (which never has one) and is idempotent (OSG-SACC-19.05): an
+// absent membership is not an error. Failures are logged, not propagated: the
+// account's lifecycle transition that triggered this call has already been
+// persisted and must not be undone by an OpenShell-side cleanup failure
+// (mirroring CTRL-CORE-20's failure-isolation principle on the control-plane
+// side of this same automation).
+func (s *service) deleteDefaultWorkspaceMembership(ctx context.Context, account *OpenShellGatewayServiceAccount) {
+	if account.Role != RoleUser || s.memberships == nil || account.Subject == "" {
+		return
+	}
+	if serr := s.memberships.DeleteByGatewayAndSubject(ctx, account.GatewayID, account.Subject); serr != nil {
+		slog.WarnContext(ctx, "default workspace membership delete failed", "gateway_id", account.GatewayID, "service_account_id", account.ID, "error", serr)
+	}
 }
 
 func (s *service) audit(ctx context.Context, account *OpenShellGatewayServiceAccount, actor, action, outcome string) error {

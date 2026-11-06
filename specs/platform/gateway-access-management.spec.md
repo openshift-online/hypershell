@@ -4,7 +4,7 @@
 **Status:** Draft
 **Applies to:** `components/api-server` roleBindings/roles/gateways/users plugins and RBAC middleware, `components/control-plane` Keycloak client and RoleBinding reconciler, `components/sdk-typescript`, `components/web-console` BFF
 **Parent:** `security/rbac-enforcement.spec.md` -- scope-aware RBAC model and RoleBinding storage
-**Related:** `openshell-gateway-keycloak.spec.md` -- per-gateway Keycloak clients and the OIDC Role Bridge; `openshell-gateway-service-accounts.spec.md` -- gateway-nested sub-resource and role capping; `registered-users.spec.md` -- registered User records and the read-only users inventory; `data-model.spec.md` -- Gateway, Role, RoleBinding, and User kinds; `web-console/gateway-access-management.spec.md` -- the Manage access console surface
+**Related:** `openshell-gateway-keycloak.spec.md` -- per-gateway Keycloak clients and the OIDC Role Bridge; `openshell-gateway-service-accounts.spec.md` -- gateway-nested sub-resource and role capping, and the parallel automatic default-workspace-membership hook for service accounts (OSG-SACC-19); `registered-users.spec.md` -- registered User records and the read-only users inventory; `data-model.spec.md` -- Gateway, Role, RoleBinding, User, and `DefaultWorkspaceMembership` (PLAT-DATA-27) kinds; `control-plane.spec.md` -- reconciliation of `DefaultWorkspaceMembership` against OpenShell (CTRL-CORE-20); `web-console/gateway-access-management.spec.md` -- the Manage access console surface
 
 ---
 
@@ -236,7 +236,7 @@ The request SHALL identify the target user by a directory identity (`username`, 
 
 The target identity SHALL be resolved against the Keycloak realm directory before any binding is created. If the identity does not correspond to a user in the realm, the request SHALL be rejected with `404 Not Found` and a clear error (the person must exist in the realm to be granted access); no `User` record SHALL be pre-provisioned and no binding SHALL be created. Resolution SHALL reuse the directory projection / lookup of GTW-ACC-09.
 
-When the target identity resolves to a realm user that has no existing HyperShell `User` record, the API server SHALL **pre-provision** one from the Keycloak directory record (upsert keyed on `username`, populating `username`, `email`, and `name`) before creating the binding, so the binding references a real `user_id` and the Role Bridge can resolve the Keycloak user by username. Pre-provisioning SHALL use the same upsert semantics as JWT auto-provisioning (`security/rbac-enforcement.spec.md`) and SHALL NOT expand the public users API, which remains read-only (`registered-users.spec.md`).
+When the target identity resolves to a realm user that has no existing HyperShell `User` record, the API server SHALL **pre-provision** one from the Keycloak directory record (upsert keyed on `username`, populating `username`, `email`, `name`, and the internal `subject` field with the directory record's Keycloak OIDC `sub`) before creating the binding, so the binding references a real `user_id` and the Role Bridge can resolve the Keycloak user by username. As with JWT auto-provisioning (SEC-RBAC-03), pre-provisioning SHALL NOT overwrite an already-populated `subject`. Pre-provisioning SHALL use the same upsert semantics as JWT auto-provisioning (`security/rbac-enforcement.spec.md`) and SHALL NOT expand the public users API, which remains read-only (`registered-users.spec.md`).
 
 Granting SHALL be idempotent with respect to the effective role (GTW-ACC-10). On success the endpoint SHALL return the resulting grant item (GTW-ACC-03 shape).
 
@@ -535,7 +535,7 @@ The directory search (GTW-ACC-09) is a deliberate exception to the CLI mirror: i
 
 ### Requirement: GTW-ACC-14 -- Verification
 
-The API server SHALL include integration tests covering: enriched access list with search and role filter across all three tiers; grant (owner, admin, user) to a registered user and to a never-signed-in directory user (pre-provisioning); grant to an identity absent from the realm rejected with `404` and no pre-provision/binding; atomic role change (promote and demote, including to/from owner) implemented as an in-place `role_id` update (single `UPDATED` event) with no zero-access window; revoke; last-owner-protection rejections (`409`) for demoting or revoking the sole owner, asserting the response carries a descriptive message; owner-tier authorization (a non-owner admin assigning, demoting, or revoking an owner returns `403`); management authorization (viewer `403`, admin allowed for admin/user tiers, non-member `404`); directory-search authorization and serving from the control-plane projection; and idempotent re-grant.
+The API server SHALL include integration tests covering: enriched access list with search and role filter across all three tiers; grant (owner, admin, user) to a registered user and to a never-signed-in directory user (pre-provisioning); grant to an identity absent from the realm rejected with `404` and no pre-provision/binding; atomic role change (promote and demote, including to/from owner) implemented as an in-place `role_id` update (single `UPDATED` event) with no zero-access window; revoke; last-owner-protection rejections (`409`) for demoting or revoking the sole owner, asserting the response carries a descriptive message; owner-tier authorization (a non-owner admin assigning, demoting, or revoking an owner returns `403`); management authorization (viewer `403`, admin allowed for admin/user tiers, non-member `404`); directory-search authorization and serving from the control-plane projection; idempotent re-grant; automatic `DefaultWorkspaceMembership` creation on a `user`-tier grant and demotion, its absence on an `owner`/`admin` grant, its removal on revoke and on promotion out of the `user` tier (GTW-ACC-16); and the default-workspace member-limit rejection, atomic with the primary RoleBinding write, before any `DefaultWorkspaceMembership` row is persisted (GTW-ACC-17).
 
 The control plane SHALL include tests covering the `gateway:owner` and `gateway:admin` bridge mappings and reconcile-to-union on create, update, and delete (including demotion stripping `openshell-admin` while retaining `openshell-user`), and the periodic directory-projection refresh. The control-plane tests SHALL additionally cover the confirmed-revocation guard (GTW-ACC-15): a delete event whose first `ListRoleBindings` returns empty but whose confirming read returns a surviving binding asserts no `RemoveClientRole` for the still-backed role(s) and a requeue; a delete event whose reads are consistently empty asserts both client roles are revoked; a demotion with a surviving viewer binding asserts `openshell-admin` removed and `openshell-user` kept with no extra confirmation; and a confirming read that errors asserts a retryable error with no revoke.
 
@@ -550,3 +550,94 @@ The `hsctl` CLI SHALL include tests covering the access commands (GTW-ACC-13), i
 - THEN they SHALL assert `409` on demoting or revoking the sole owner
 - AND assert that a non-owner admin touching the Owner tier returns `403`
 - AND assert that demoting an admin removes `openshell-admin` while keeping `openshell-user`
+
+---
+
+### Requirement: GTW-ACC-16 -- Automatic Default-Workspace Membership on Gateway Access Grant
+
+Gateway access is projected into Keycloak client roles (GTW-ACC-02); it SHALL also be projected into OpenShell **workspace** access for the gateway's reserved `default` workspace, because that workspace is where a standard (`openshell-user`) subject actually operates on sandboxes. A granted HyperShell role whose Keycloak projection includes `openshell-user` but NOT `openshell-admin` -- that is, `gateway:viewer` -- SHALL therefore cause HyperShell to create a system-managed `DefaultWorkspaceMembership` (`data-model.spec.md`, PLAT-DATA-27) for that gateway and the granted user's identity, with `role=user` and `source=gateway_access`. A granted role whose projection includes `openshell-admin` (`gateway:owner` or `gateway:admin`) SHALL cause HyperShell to create no such membership, because `openshell-admin` already bypasses OpenShell workspace authorization including on `default` (`openshell-gateway-keycloak.spec.md`).
+
+**Subject.** The membership's `subject` SHALL be the granted `User`'s internal `subject` field (the Keycloak OIDC `sub`, `security/rbac-enforcement.spec.md` SEC-RBAC-03), NOT `User.username`. OpenShell's own workspace-membership authorization check matches a request's access token on its `sub` claim, not `preferred_username`; `username` is a separate, human-readable, mutable value (PLAT-USR-02) that does not appear in that check. Writing `username` as the subject would create a row that never matches the real token, leaving `reconciliation_status = ready` while the grantee is in practice still denied -- so `username` SHALL NOT be used here.
+
+A grant target's `subject` is normally already populated: either from a prior sign-in (JWT auto-provisioning, SEC-RBAC-03) or from this same grant's own pre-provisioning step, which resolves the realm directory record before creating the binding (GTW-ACC-04) and now also stores its `subject` (`sub`) on the `User` row. If a target `User` row predates this field and still has an empty `subject` when a tier change (demotion into the User tier) needs to create a `DefaultWorkspaceMembership`, HyperShell SHALL resolve it via the same realm directory lookup used at grant time (GTW-ACC-04, keyed on the User's stored `username`), store it on the `User` row, and use it. This is a side effect of servicing a new qualifying grant/change event for that identity, not a standing backfill of existing memberships (the issue's version-1 scope excludes backfilling identities that have no new qualifying event).
+
+**Convergence on change and revoke.** Changing a user's tier (GTW-ACC-05) between the User tier (`gateway:viewer`) and an administrator tier (`gateway:owner` or `gateway:admin`) SHALL converge the membership exactly as it converges Keycloak client roles: promoting out of the User tier SHALL delete the `DefaultWorkspaceMembership`; demoting into the User tier SHALL create one (subject to the member-limit check, GTW-ACC-17). Revoking a user's access (GTW-ACC-06) SHALL delete their `DefaultWorkspaceMembership` on that gateway if one exists. Re-granting a tier the user already effectively holds SHALL remain idempotent (GTW-ACC-10) and SHALL NOT create a duplicate membership row.
+
+**System-managed and audited.** This automation SHALL run as a trusted, system-managed side effect of the already-authorized grant, change, or revoke operation (GTW-ACC-08 continues to gate the primary operation); the caller needs no separate workspace-membership permission. The resulting audit record SHALL identify the triggering gateway-access operation, the gateway, the target subject, the role, and the system actor, not the caller's own (absent) workspace-membership permission.
+
+#### Scenario: GTW-ACC-16.01 -- Granting user access creates default-workspace membership
+
+- GIVEN user D has no binding on gw-1
+- AND D's `User` record has `subject = "d-sub-id"` and `username = "dana"`
+- WHEN an owner of gw-1 grants D the `user` role
+- THEN a `gateway:viewer` binding SHALL be created for D on gw-1
+- AND HyperShell SHALL create a `DefaultWorkspaceMembership` for gw-1 with `subject = "d-sub-id"` (D's stored OIDC subject, NOT `"dana"`) and `role=user`, `source=gateway_access`
+
+#### Scenario: GTW-ACC-16.02 -- Granting admin or owner access creates no membership
+
+- GIVEN user D has no binding on gw-1
+- WHEN an owner of gw-1 grants D the `admin` role
+- THEN HyperShell SHALL create no `DefaultWorkspaceMembership` for D on gw-1
+
+#### Scenario: GTW-ACC-16.03 -- Promotion out of the User tier removes the membership
+
+- GIVEN user B holds `gateway:viewer` on gw-1 and a `DefaultWorkspaceMembership`
+- WHEN B's access is changed to `admin`
+- THEN HyperShell SHALL delete B's `DefaultWorkspaceMembership` on gw-1
+
+#### Scenario: GTW-ACC-16.04 -- Demotion into the User tier creates the membership
+
+- GIVEN user B holds `gateway:admin` on gw-1 and no `DefaultWorkspaceMembership`
+- WHEN B's access is changed to `user`
+- THEN HyperShell SHALL create a `DefaultWorkspaceMembership` for B on gw-1 with `role=user`
+
+#### Scenario: GTW-ACC-16.05 -- Revoking access deletes the membership
+
+- GIVEN user B holds `gateway:viewer` on gw-1 and a `DefaultWorkspaceMembership`
+- WHEN an owner or admin of gw-1 revokes B's access
+- THEN HyperShell SHALL delete B's `DefaultWorkspaceMembership` on gw-1
+
+#### Scenario: GTW-ACC-16.06 -- Re-granting the same tier is idempotent
+
+- GIVEN user B holds `gateway:viewer` on gw-1 and a `DefaultWorkspaceMembership`
+- WHEN an admin grants B the `user` role again
+- THEN B SHALL still hold exactly one `DefaultWorkspaceMembership` row on gw-1
+
+#### Scenario: GTW-ACC-16.07 -- Demotion resolves a missing subject via the realm directory
+
+- GIVEN user B holds `gateway:admin` on gw-1 and no `DefaultWorkspaceMembership`
+- AND B's `User` record predates subject capture and has an empty `subject`, but `username = "bob"`
+- WHEN B's access is changed to `user`
+- THEN HyperShell SHALL resolve `"bob"`'s `sub` from the realm directory (GTW-ACC-04), store it as B's `User.subject`, and create a `DefaultWorkspaceMembership` for B on gw-1 using that resolved `subject`, not `"bob"`
+
+---
+
+### Requirement: GTW-ACC-17 -- Default-Workspace Member-Limit Enforcement at Grant Time
+
+OpenShell enforces a 1,000-member limit on a workspace. HyperShell owns the full desired membership set for each gateway's `default` workspace (`data-model.spec.md`, PLAT-DATA-27), so it SHALL enforce this limit itself, at the point a gateway-access operation would add a new `DefaultWorkspaceMembership` row, rather than discovering the rejection later from OpenShell.
+
+Before persisting any RoleBinding write that implies creating a new `DefaultWorkspaceMembership` -- a grant (GTW-ACC-04) that assigns the `user` tier, or a change (GTW-ACC-05) that demotes a user into the `user` tier -- HyperShell SHALL count the gateway's current live `DefaultWorkspaceMembership` rows and SHALL reject the entire gateway-access operation with `409 Conflict` and a clear, actionable error when completing it would bring that count to more than 1,000. On rejection, HyperShell SHALL persist neither the RoleBinding change nor any `DefaultWorkspaceMembership` row: the primary operation fails atomically with the membership check, not partially. This check and the RoleBinding write SHALL happen while holding the same per-gateway advisory lock an `openshell-user` OpenShellGatewayServiceAccount create and an admin-to-user role downgrade also hold for their own member-limit check (OSG-SACC-19; `roleBindings.GatewayAccessLockType`/`GatewayAccessLockID`, `components/api-server/plugins/roleBindings/service.go`), so neither a concurrent gateway-access grant nor a concurrent service-account create for the same gateway can observe the count below the limit and both persist, exceeding it. A database transaction alone would not prevent this: two concurrent transactions can each read the count as not-yet-at-the-limit before either commits.
+
+A grant or change that does not add a new `DefaultWorkspaceMembership` row (granting or changing to `owner` or `admin`, or re-granting a tier the user already holds) SHALL NOT be subject to this check.
+
+#### Scenario: GTW-ACC-17.01 -- Grant rejected at the default-workspace member limit
+
+- GIVEN gw-1's `default` workspace already has 1,000 live `DefaultWorkspaceMembership` rows
+- WHEN an owner of gw-1 grants a new user the `user` role
+- THEN HyperShell SHALL reject the grant with `409 Conflict` and a clear error
+- AND no RoleBinding SHALL be created for that user on gw-1
+- AND no `DefaultWorkspaceMembership` row SHALL be created
+
+#### Scenario: GTW-ACC-17.02 -- Demotion into the User tier is rejected at the limit
+
+- GIVEN gw-1's `default` workspace already has 1,000 live `DefaultWorkspaceMembership` rows
+- AND user B holds `gateway:admin` on gw-1 with no `DefaultWorkspaceMembership`
+- WHEN an owner changes B's access to `user`
+- THEN HyperShell SHALL reject the change with `409 Conflict`
+- AND B SHALL remain `gateway:admin` on gw-1
+
+#### Scenario: GTW-ACC-17.03 -- Owner and admin grants are not subject to the limit
+
+- GIVEN gw-1's `default` workspace already has 1,000 live `DefaultWorkspaceMembership` rows
+- WHEN an owner of gw-1 grants a new user the `admin` role
+- THEN the grant SHALL succeed, because granting `admin` creates no `DefaultWorkspaceMembership` row

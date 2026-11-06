@@ -23,6 +23,7 @@ Current model:
 - **SecretSource** - abstract reference to durable credential material (GitHub App PEM, service-account key, gateway identity) in an external backend (Vault, AWS Secrets Manager, Kubernetes). Owned by AgentRuntime; purpose enum drives how the material is consumed (coordinator env for gateway-identity, OpenShell provider configuration for provider material).
 - **CIProvider** - a registered CI OIDC issuer (GitHub Actions, GitLab CI/CD, Forgejo) whose workload tokens may be federated into gateway access. Platform-wide; authorized by the narrow `ci-federation:admin` role (SEC-RBAC-21), not `platform:admin`; referenced by many CITrusts; holds no secret.
 - **CITrust** - a gateway owner or admin's declaration that CI runs matching a subject claim predicate may exchange their OIDC token for a workspace-scoped OpenShell token on a Gateway they manage (`gateway:owner` or `gateway:admin`, or `platform:admin`). The self-service, secret-less way to enable CI on a gateway.
+- **DefaultWorkspaceMembership** - HyperShell's desired-state record that a `subject` (a human gateway user or a provisioned OpenShellGatewayServiceAccount) SHALL be a member, with OpenShell role `user`, of its Gateway's reserved, always-present `default` OpenShell workspace. Gateway-scoped and internal-only (no public CRUD): created and deleted by the gateway-access (`gateway-access-management.spec.md`, GTW-ACC-16/17) and service-account (`openshell-gateway-service-accounts.spec.md`, OSG-SACC-19) automation hooks, and reconciled against OpenShell by the control plane (`control-plane.spec.md`, CTRL-CORE-20). It is NOT an `AgentWorkspace`/`WorkspaceMembership`: those model AgentRuntime-owned workspaces, while a gateway's `default` workspace is gateway-owned, permanent, and created by OpenShell itself at gateway startup.
 
 ## Entity Relationship Diagram
 
@@ -229,6 +230,19 @@ erDiagram
         time deleted_at
     }
 
+    DefaultWorkspaceMembership {
+        string ID PK
+        string gateway_id FK
+        string subject
+        string role
+        string source
+        string reconciliation_status
+        string last_reconcile_error
+        time created_at
+        time updated_at
+        time deleted_at
+    }
+
     ManagedCluster ||--o{ Gateway : "hosts"
     Gateway ||--o{ OpenShellGatewayServiceAccount : "authorizes"
     ManagedCluster ||--o{ AgentRuntime : "runs"
@@ -247,6 +261,7 @@ erDiagram
     ProviderBinding ||--o| InferenceRoute : "routed_by"
     CIProvider ||--o{ CITrust : "federated_by"
     Gateway ||--o{ CITrust : "trusts_ci"
+    Gateway ||--o{ DefaultWorkspaceMembership : "authorizes_default_workspace"
 ```
 
 ## Requirements
@@ -1676,6 +1691,74 @@ The control plane realizes a `CITrust` as: a scoped Keycloak claim-to-workspace 
 
 ---
 
+### Requirement: PLAT-DATA-27 -- DefaultWorkspaceMembership
+
+A `DefaultWorkspaceMembership` is a gateway-scoped, internal-only resource recording that one `subject` SHALL hold OpenShell workspace role `user` in its `Gateway`'s reserved `default` OpenShell workspace. OpenShell creates and protects the `default` workspace itself at gateway startup (`ensure_default_workspace`) and rejects deleting it; `DefaultWorkspaceMembership` never creates or deletes that workspace, only membership within it.
+
+It is distinct from `AgentWorkspace`/`WorkspaceMembership` (PLAT-DATA-15/PLAT-DATA-16): those model workspaces owned by an `AgentRuntime`, each created and named by HyperShell. A gateway's `default` workspace is gateway-owned, permanent, and not runtime-owned, so it is modeled as its own Kind rather than overloading `WorkspaceMembership` with a workspace that has no owning `AgentWorkspace` row.
+
+**Fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | string | HyperShell resource ID |
+| `gateway_id` | string (FK) | The owning `Gateway`. SHALL reference an existing `Gateway`; a create naming a nonexistent `Gateway` SHALL be rejected |
+| `subject` | string | The real Keycloak OIDC `sub` HyperShell checks the member's access token against: for a human gateway user, the `User`'s internal `subject` field (`security/rbac-enforcement.spec.md`, SEC-RBAC-03), never `User.username`; for a service account, its provisioned stable subject (never the creator's subject). SHALL pass the same validation `WorkspaceMembership.subject` already applies: a non-empty token of letters, digits, and `. _ : @ -`, at most 255 characters (PLAT-DATA-16; `components/api-server/plugins/workspaceMemberships/service.go`, `subjectPattern`) |
+| `role` | string | OpenShell workspace role. SHALL be `user` in version 1; no other value SHALL be accepted. Automatic membership is never created with `admin`, because an OpenShell workspace `admin` can perform sensitive operations (for example credential refresh) that this automation SHALL NOT grant |
+| `source` | string | Origin of the desired row: `gateway_access` (`gateway-access-management.spec.md`, GTW-ACC-16) or `service_account` (`openshell-gateway-service-accounts.spec.md`, OSG-SACC-19) |
+| `reconciliation_status` | string | Control-plane-owned: `pending` (desired state persisted, not yet reconciled), `ready` (OpenShell reports the membership), or `failed` (reconciliation is persistently failing or hit a terminal error). See `control-plane.spec.md`, CTRL-CORE-20 |
+| `last_reconcile_error` | string, nullable | Control-plane-owned stable error summary set when `reconciliation_status = failed`; SHALL NOT contain a raw OpenShell error body or any credential |
+
+**Uniqueness.** A live (non-deleted) `(gateway_id, subject)` pair SHALL be unique: at most one live `DefaultWorkspaceMembership` row SHALL exist for a given gateway and subject at a time, mirroring the idempotent-by-`(gateway, subject)` contract of its automation hooks (GTW-ACC-16, OSG-SACC-19).
+
+**No public CRUD.** `DefaultWorkspaceMembership` SHALL NOT be a standard kind or an ADLC extension kind: it SHALL have no entry in the "API Reference" tables below, no REST route, no `hsctl` command, and no `hsctl apply` Kind. It SHALL be written only by the trusted, system-managed automation hooks (GTW-ACC-16, GTW-ACC-17, OSG-SACC-19) and read only by the control plane's reconciler (over the same internal gRPC Kind machinery every resource Kind already uses for control-plane watch/list, which is orthogonal to public REST exposure) and by the metrics surfaces that report on it (`control-plane-reconciliation-metrics.spec.md`, OBS-CRM-14). A caller SHALL NOT be able to create, read, update, or delete a `DefaultWorkspaceMembership` directly through any public API, so this automation cannot become a user-callable way to grant arbitrary workspace membership.
+
+**Auditing.** Every create or delete of a `DefaultWorkspaceMembership` SHALL produce an audit record identifying the triggering operation (the specific gateway-access or service-account operation), the target subject, the gateway, the role, and the system actor -- never attributed to the caller's own workspace-membership permission, since the caller performing the triggering operation may hold none.
+
+**Member-limit enforcement happens upstream.** The 1,000-member OpenShell workspace limit SHALL be enforced by the originating operation (the gateway-access grant/change, GTW-ACC-17, or the service-account create/role-update, OSG-SACC-19) BEFORE a new `DefaultWorkspaceMembership` row is persisted, not by this resource's own write path after the fact.
+
+**Gateway deletion cascade.** Deleting a `Gateway` SHALL delete every `DefaultWorkspaceMembership` row for that gateway. This requires no corresponding OpenShell-side cleanup call: the gateway's OpenShell instance and its `default` workspace are removed with the gateway deployment itself (`openshell-gateway-service-accounts.spec.md`, OSG-SACC-10; `gateway-deletion-finalization.spec.md`).
+
+#### Scenario: PLAT-DATA-27.01 -- Unique live row per (gateway, subject)
+
+- GIVEN a live `DefaultWorkspaceMembership` for `gw-1` and subject `dana`
+- WHEN the gateway-access automation (GTW-ACC-16) attempts to create another live `DefaultWorkspaceMembership` for `gw-1` and `dana`
+- THEN HyperShell SHALL treat the operation as an idempotent no-op rather than create a second live row
+
+#### Scenario: PLAT-DATA-27.02 -- Subject validation reuses WorkspaceMembership's rule
+
+- GIVEN a `DefaultWorkspaceMembership` write whose `subject` contains a character outside letters, digits, `.`, `_`, `:`, `@`, and `-`, or exceeds 255 characters
+- WHEN HyperShell validates the write
+- THEN it SHALL reject it with the same validation rule `WorkspaceMembership.subject` enforces (PLAT-DATA-16)
+
+#### Scenario: PLAT-DATA-27.03 -- Role is always user in version 1
+
+- WHEN any automation hook attempts to write a `DefaultWorkspaceMembership` with `role` other than `user`
+- THEN HyperShell SHALL reject the write
+
+#### Scenario: PLAT-DATA-27.04 -- No public route exists
+
+- GIVEN the generated REST, `hsctl`, and `hsctl apply` surfaces
+- WHEN they are enumerated
+- THEN none SHALL expose a create, read, update, or delete operation for `DefaultWorkspaceMembership`
+
+#### Scenario: PLAT-DATA-27.05 -- Gateway deletion cascades
+
+- GIVEN `gw-1` has three live `DefaultWorkspaceMembership` rows
+- WHEN `gw-1` is deleted
+- THEN HyperShell SHALL delete all three `DefaultWorkspaceMembership` rows
+- AND it SHALL make no separate OpenShell-side cleanup call for them, because `gw-1`'s OpenShell instance and `default` workspace are removed with the gateway deployment
+
+#### Scenario: PLAT-DATA-27.06 -- Reconciliation status reflects convergence
+
+- GIVEN a `DefaultWorkspaceMembership` is freshly created with `reconciliation_status = pending`
+- WHEN the control plane observes OpenShell reporting the membership (CTRL-CORE-20)
+- THEN HyperShell SHALL set `reconciliation_status = ready`
+- GIVEN the control plane instead cannot converge the membership after its retry policy is exhausted
+- THEN HyperShell SHALL set `reconciliation_status = failed` and populate `last_reconcile_error` with a stable, credential-free summary
+
+---
+
 ## API Reference
 
 ### Standard kinds - `/api/hypershell/v1/`
@@ -1714,6 +1797,8 @@ The control plane realizes a `CITrust` as: a scoped Keycloak claim-to-workspace 
 | GET/PATCH/DELETE | `/ci_providers/{id}` | Get/Update/Delete |
 | GET/POST | `/ci_trusts` | List/Create |
 | GET/PATCH/DELETE | `/ci_trusts/{id}` | Get/Update/Delete |
+
+`DefaultWorkspaceMembership` (PLAT-DATA-27) is deliberately absent from both tables above: it is internal-only, with no public REST route, no `hsctl` command, and no `hsctl apply` Kind.
 
 ## CLI Reference (`hsctl`)
 

@@ -54,7 +54,7 @@ listed in `specs/id-rename-map.md`, not here.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `CTRL-CORE` | `platform/control-plane.spec.md` | 19 |
+| `CTRL-CORE` | `platform/control-plane.spec.md` | 20 |
 | `CTRL-TLS` | `platform/hub-grpc-tls.spec.md` | 5 |
 | `CTRL-TRC` | `platform/reconcile-trace-correlation.spec.md` | 5 |
 | `CTRL-WDEL` | `platform/watch-delete-events.spec.md` | 4 |
@@ -89,7 +89,7 @@ listed in `specs/id-rename-map.md`, not here.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `GTW-ACC` | `platform/gateway-access-management.spec.md` | 15 |
+| `GTW-ACC` | `platform/gateway-access-management.spec.md` | 17 |
 | `GTW-ATTR` | `platform/gateway-managed-cluster-attribution.spec.md` | 6 |
 | `GTW-CFG` | `platform/generated-gateway-config-validation.spec.md` | 4 |
 | `GTW-CONC` | `platform/gateway-reconcile-concurrency.spec.md` | 3 |
@@ -103,7 +103,7 @@ listed in `specs/id-rename-map.md`, not here.
 |--------|------|--------------|
 | `OBS-CPL` | `platform/control-plane-observability.spec.md` | 11 |
 | `OBS-CPU` | `platform/cluster-cpu.spec.md` | 8 |
-| `OBS-CRM` | `platform/control-plane-reconciliation-metrics.spec.md` | 13 |
+| `OBS-CRM` | `platform/control-plane-reconciliation-metrics.spec.md` | 14 |
 | `OBS-GFT` | `platform/gateway-fleet-total-trend.spec.md` | 9 |
 | `OBS-GMD` | `platform/gateway-metrics-dashboard.spec.md` | 8 |
 | `OBS-GPO` | `platform/gateway-provision-outcomes.spec.md` | 9 |
@@ -133,7 +133,7 @@ listed in `specs/id-rename-map.md`, not here.
 | `OSG-OIDC` | `platform/openshell-gateway-oidc.spec.md` | 5 |
 | `OSG-ROT` | `platform/openshell-gateway-secret-rotation.spec.md` | 2 |
 | `OSG-ROUT` | `platform/openshell-gateway-routing.spec.md` | 15 |
-| `OSG-SACC` | `platform/openshell-gateway-service-accounts.spec.md` | 18 |
+| `OSG-SACC` | `platform/openshell-gateway-service-accounts.spec.md` | 19 |
 | `OSG-SBX` | `platform/openshell-gateway-sandbox-count.spec.md` | 7 |
 | `OSG-SEVT` | `platform/gateway-sandbox-events.spec.md` | 6 |
 | `OSG-TLS` | `platform/openshell-gateway-tls.spec.md` | 5 |
@@ -145,7 +145,7 @@ listed in `specs/id-rename-map.md`, not here.
 | `PLAT-ARCH` | `platform/global-architecture.spec.md` | 19 |
 | `PLAT-CITR` | `platform/ci-trust-ext-api.spec.md` | 12 |
 | `PLAT-CLUS` | `platform/managed-cluster-registration.spec.md` | 15 |
-| `PLAT-DATA` | `platform/data-model.spec.md` | 25 |
+| `PLAT-DATA` | `platform/data-model.spec.md` | 27 |
 | `PLAT-INV` | `platform/platform-inventory.spec.md` | 10 |
 | `PLAT-USR` | `platform/registered-users.spec.md` | 15 |
 

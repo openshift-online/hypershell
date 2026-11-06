@@ -10,6 +10,14 @@ type User struct {
 	Username string  `json:"username" gorm:"uniqueIndex"`
 	Email    *string `json:"email"`
 	Name     *string `json:"name"`
+	// Subject is the Keycloak OIDC `sub` claim captured at provisioning
+	// (security/rbac-enforcement.spec.md, SEC-RBAC-03). It is internal-only:
+	// deliberately NOT json-tagged, so it can never be serialized by a generic
+	// marshal of this struct, and PresentUser does not reference it, so it never
+	// reaches the public User schema (platform/registered-users.spec.md,
+	// PLAT-USR-02). Once non-empty it is never overwritten (dao.go,
+	// updateChangedFields).
+	Subject string `json:"-"`
 }
 
 type UserList []*User

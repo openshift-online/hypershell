@@ -4,7 +4,7 @@
 **Version:** 0.2.0
 **Created:** 2026-09-23
 **Updated:** 2026-10-28
-**Tracks:** [HYPERSHELL-286](https://redhat.atlassian.net/browse/HYPERSHELL-286), [HYPERSHELL-455](https://redhat.atlassian.net/browse/HYPERSHELL-455)
+**Tracks:** [HYPERSHELL-286](https://redhat.atlassian.net/browse/HYPERSHELL-286), [HYPERSHELL-455](https://redhat.atlassian.net/browse/HYPERSHELL-455), [HYPERSHELL-488](https://redhat.atlassian.net/browse/HYPERSHELL-488)
 
 ## Purpose
 
@@ -331,6 +331,46 @@ Tests SHALL verify:
 - THEN the reason attribute SHALL be `unknown`
 - AND the failure detail SHALL be logged at ERROR level
 - AND no raw error string SHALL appear in the metric label
+
+### Requirement: OBS-CRM-14 -- Default-Workspace Membership Reconciliation Metrics
+
+`DefaultWorkspaceMembership` reconciliation (`control-plane.spec.md`, CTRL-CORE-20) is a full-desired-state, per-gateway-batched convergence rather than a per-event reconcile, so it does not map cleanly onto the per-event `resource.kind`/`event.type`/`outcome` taxonomy above (OBS-CRM-06 through OBS-CRM-12). It is instead observed through four purpose-built metrics, fleet-wide and scoped only by the bounded `hypershell_cluster_id` label (no gateway or subject identifier, consistent with the cardinality rules of OBS-CRM-02 and OBS-CRM-12):
+
+| Metric | Type | Emitted by | Meaning |
+| --- | --- | --- | --- |
+| `hypershell_default_workspace_membership_pending` | Gauge | Control plane | Count of live `DefaultWorkspaceMembership` rows with `reconciliation_status = pending` across gateways tracked by this control plane |
+| `hypershell_default_workspace_membership_failed` | Gauge | Control plane | Count of live `DefaultWorkspaceMembership` rows with `reconciliation_status = failed` |
+| `hypershell_default_workspace_reconciliation_last_success_timestamp_seconds` | Gauge | Control plane | Unix timestamp of the most recent reconcile pass (CTRL-CORE-20) that converged any gateway's `default` workspace membership without error |
+| `hypershell_default_workspace_member_limit_violations_total` | Counter | API server | Count of gateway-access grants/changes (GTW-ACC-17) and OpenShellGatewayServiceAccount creates/role-updates (OSG-SACC-19) rejected because completing them would exceed the 1,000-member `default`-workspace limit |
+
+The pending and failed gauges SHALL be rebuilt from the same `DefaultWorkspaceMembership` watch population the control plane tracks, following the same seed-and-reconnect discipline as the state-accuracy gauges in OBS-CRM-01, and SHALL be scoped to the control plane's own `hypershell.cluster_id`. The last-success gauge SHALL advance only on a reconcile pass that completes with no error; it SHALL NOT advance on a `noop` pass that found nothing to do, so a stalled reconciler is visible as a gauge that stops advancing. `hypershell_default_workspace_member_limit_violations_total` is emitted by the API server, not the control plane, because the 1,000-member check runs in the API server's write path (GTW-ACC-17, OSG-SACC-19) before any `DefaultWorkspaceMembership` row is persisted; it is documented alongside the control-plane metrics here because operators reason about default-workspace-membership health as one unit.
+
+#### Scenario: OBS-CRM-14.01 -- Pending gauge reflects unconverged rows
+
+- GIVEN two gateways each have one `DefaultWorkspaceMembership` row with `reconciliation_status = pending`
+- WHEN the control plane publishes `hypershell_default_workspace_membership_pending`
+- THEN its value SHALL be two for this control plane's `hypershell_cluster_id`
+
+#### Scenario: OBS-CRM-14.02 -- Failed gauge reflects persistently failing rows
+
+- GIVEN one `DefaultWorkspaceMembership` row has `reconciliation_status = failed`
+- WHEN the control plane publishes `hypershell_default_workspace_membership_failed`
+- THEN its value SHALL be one
+- AND the value SHALL return to zero once that row reconciles to `ready`
+
+#### Scenario: OBS-CRM-14.03 -- Last-success timestamp advances only on a converging pass
+
+- GIVEN the control plane's last successful `DefaultWorkspaceMembership` reconcile pass completed at time T
+- WHEN a subsequent pass fails transiently
+- THEN `hypershell_default_workspace_reconciliation_last_success_timestamp_seconds` SHALL remain T
+- WHEN a later pass converges successfully at time T+N
+- THEN the gauge SHALL advance to T+N
+
+#### Scenario: OBS-CRM-14.04 -- Member-limit violation increments the counter
+
+- GIVEN a gateway's `default` workspace is already at the 1,000-member limit
+- WHEN a gateway-access grant (GTW-ACC-17) or OpenShellGatewayServiceAccount create (OSG-SACC-19) is rejected because of that limit
+- THEN the API server SHALL increment `hypershell_default_workspace_member_limit_violations_total`
 
 ## Assumptions
 

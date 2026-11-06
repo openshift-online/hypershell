@@ -160,6 +160,24 @@ func authorizeControlPlaneGRPC(ctx context.Context, clusterID, fullMethod string
 			return nil
 		}
 		return denied()
+	case "DefaultWorkspaceMembershipService":
+		// DefaultWorkspaceMembership is internal-only (PLAT-DATA-27): it has no
+		// public REST route and is never authored by a user. A registered control
+		// plane may list/watch the full desired membership set it reconciles
+		// (CTRL-CORE-20), scoped to its own cluster by the caller binding, and
+		// report reconciliation status back for a membership whose gateway is on
+		// its own cluster (mirroring UpdateGateway's requireGatewayOnCluster).
+		if method == "ListDefaultWorkspaceMemberships" || method == "WatchDefaultWorkspaceMemberships" {
+			return nil
+		}
+		if method == "UpdateDefaultWorkspaceMembershipStatus" {
+			r, ok := req.(*pb.UpdateDefaultWorkspaceMembershipStatusRequest)
+			if !ok {
+				return unexpectedRequest()
+			}
+			return requireGatewayOnCluster(ctx, gateways, r.GetGatewayId(), clusterID, denied)
+		}
+		return denied()
 	case "AgentRuntimeService":
 		// A declarative-import write (Create/Update/Delete) marked with the reconciled
 		// Repository id is authorized as an import write; the handler sets and enforces

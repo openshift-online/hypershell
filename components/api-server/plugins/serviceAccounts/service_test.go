@@ -1175,7 +1175,7 @@ func gatewayWithoutOIDC() *gateways.Gateway {
 }
 
 func newTestService(dao *memoryDAO, kc *fakeKeycloak, bindings fakeBindings, now time.Time) Service {
-	result := NewService(dao, fakeGateway{gateway: testGateway()}, bindings, kc, db.NewNoOpLockFactory())
+	result := NewService(dao, fakeGateway{gateway: testGateway()}, bindings, kc, db.NewNoOpLockFactory(), nil)
 	result.(*service).now = func() time.Time { return now }
 	return result
 }
@@ -1183,7 +1183,7 @@ func newTestService(dao *memoryDAO, kc *fakeKeycloak, bindings fakeBindings, now
 // newTestServiceWith builds a service with an explicit gateway lookup and lock
 // factory so tests can inject transient/404 gateway failures or count locking.
 func newTestServiceWith(dao *memoryDAO, kc ServiceAccountProvisioner, bindings fakeBindings, now time.Time, gateway GatewayLookup, lockFactory db.LockFactory) Service {
-	result := NewService(dao, gateway, bindings, kc, lockFactory)
+	result := NewService(dao, gateway, bindings, kc, lockFactory, nil)
 	result.(*service).now = func() time.Time { return now }
 	return result
 }
@@ -1202,10 +1202,17 @@ func testGateway() *gateways.Gateway {
 type countingLockFactory struct {
 	acquired int
 	released int
+	// lastID and lastType record the most recent NewAdvisoryLock call's
+	// arguments so a test can assert WHICH lock domain a lifecycle path
+	// acquires, not just that it acquired one.
+	lastID   string
+	lastType db.LockType
 }
 
-func (f *countingLockFactory) NewAdvisoryLock(_ context.Context, id string, _ db.LockType) (string, error) {
+func (f *countingLockFactory) NewAdvisoryLock(_ context.Context, id string, lockType db.LockType) (string, error) {
 	f.acquired++
+	f.lastID = id
+	f.lastType = lockType
 	return id, nil
 }
 
@@ -1439,6 +1446,12 @@ type memoryDAO struct {
 	// live rows. It lets tests model a stale scan snapshot that disagrees with the
 	// committed row a locked reconciliation re-reads.
 	reconcileSnapshots []OpenShellGatewayServiceAccount
+	// auditFailOnOutcome, when non-empty, makes the next CreateAudit call whose
+	// event.Outcome matches it fail instead of succeeding, then clears itself. It
+	// lets a test exercise a failure between a side effect that already
+	// committed (for example a default-workspace membership create) and the
+	// audit record that would normally follow it.
+	auditFailOnOutcome string
 }
 
 func newMemoryDAO() *memoryDAO {
@@ -1625,6 +1638,10 @@ func (d *memoryDAO) SoftDelete(_ context.Context, account *OpenShellGatewayServi
 func (d *memoryDAO) CreateAudit(_ context.Context, event *AuditEvent) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.auditFailOnOutcome != "" && event.Outcome == d.auditFailOnOutcome {
+		d.auditFailOnOutcome = ""
+		return errors.New("simulated audit failure")
+	}
 	copy := *event
 	d.audits = append(d.audits, &copy)
 	return nil

@@ -81,4 +81,5 @@ func init() {
 	db.RegisterMigration(migration())
 	db.RegisterMigration(activityMigration())
 	db.RegisterMigration(activityIndexMigration())
+	db.RegisterMigration(migrationAddSubject())
 }

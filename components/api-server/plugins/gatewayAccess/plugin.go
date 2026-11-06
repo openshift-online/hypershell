@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/routes"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/defaultWorkspaceMemberships"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/users"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
@@ -22,6 +23,7 @@ func NewServiceLocator(env *environments.Env) ServiceLocator {
 			users.Service(&env.Services),
 			newDirectoryResolverFromEnvironment(),
 			db.NewAdvisoryLockFactory(env.Database.SessionFactory),
+			defaultWorkspaceMemberships.Service(&env.Services),
 		)
 	}
 }

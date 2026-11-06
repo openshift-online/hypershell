@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-03
 **Status:** Active
-**Related:** `managed-cluster-registration.spec.md` (registration API, watch-stream caller binding), `hub-grpc-tls.spec.md` (hub-side gRPC TLS Route and certificate, HYPERSHELL-333), `security/rbac-enforcement.spec.md` (`managed-cluster-registrar`), `gateway-access-management.spec.md` (GTW-ACC-02 Keycloak Role Bridge union reconciliation)
+**Related:** `managed-cluster-registration.spec.md` (registration API, watch-stream caller binding), `hub-grpc-tls.spec.md` (hub-side gRPC TLS Route and certificate, HYPERSHELL-333), `security/rbac-enforcement.spec.md` (`managed-cluster-registrar`), `gateway-access-management.spec.md` (GTW-ACC-02 Keycloak Role Bridge union reconciliation; GTW-ACC-16/17 `DefaultWorkspaceMembership` automation), `openshell-gateway-service-accounts.spec.md` (OSG-SACC-19 `DefaultWorkspaceMembership` automation), `data-model.spec.md` (PLAT-DATA-27 `DefaultWorkspaceMembership`), `control-plane-reconciliation-metrics.spec.md` (OBS-CRM-14 `DefaultWorkspaceMembership` metrics)
 
 ## Overview
 
@@ -28,7 +28,7 @@ Managed Cluster (Gateway pods, Services, Configs)
 
 ### Watcher
 
-The Watcher establishes gRPC streaming connections to the API server for each resource Kind (Gateways, ManagedClusters, RoleBindings, AgentRuntimes, and Repositories). On each event (create, update, delete), it dispatches to the Reconciler. Gateway events are dispatched through a per-gateway reconcile queue drained by a bounded worker pool: work for a single gateway is serialized while distinct gateways reconcile concurrently up to a configurable cap. The pool size and its configuration are defined in [`gateway-reconcile-concurrency.spec.md`](./gateway-reconcile-concurrency.spec.md). AgentRuntime events are dispatched to the AgentRuntime reconciler (see "Requirement: AgentRuntime Reconciliation" below). Repository events are dispatched to the `RepositoryReconciler` so a created or changed `Repository` is imported in real time, instead of waiting for the next periodic drift pass (see "Requirement: Declarative `.hypershell` Import Reconciliation" below).
+The Watcher establishes gRPC streaming connections to the API server for each resource Kind (Gateways, ManagedClusters, RoleBindings, AgentRuntimes, Repositories, and DefaultWorkspaceMemberships). On each event (create, update, delete), it dispatches to the Reconciler. Gateway events are dispatched through a per-gateway reconcile queue drained by a bounded worker pool: work for a single gateway is serialized while distinct gateways reconcile concurrently up to a configurable cap. The pool size and its configuration are defined in [`gateway-reconcile-concurrency.spec.md`](./gateway-reconcile-concurrency.spec.md). AgentRuntime events are dispatched to the AgentRuntime reconciler (see "Requirement: AgentRuntime Reconciliation" below). Repository events are dispatched to the `RepositoryReconciler` so a created or changed `Repository` is imported in real time, instead of waiting for the next periodic drift pass (see "Requirement: Declarative `.hypershell` Import Reconciliation" below). DefaultWorkspaceMembership events are coalesced per gateway and dispatched to the default-workspace-membership reconciler (see "Requirement: CTRL-CORE-20 -- DefaultWorkspaceMembership Reconciliation" below); `DefaultWorkspaceMembership` has no public REST surface (`data-model.spec.md`, PLAT-DATA-27), but it is watched internally like any other Kind.
 
 ### Reconciler
 
@@ -42,6 +42,7 @@ The Reconciler receives resource events from the Watcher and converges the Kuber
 - Provision and reconcile OpenShellGatewayServiceAccount identities in Keycloak through an internal in-cluster gRPC service
 - Reconcile AgentRuntime resources into cluster scheduling resources and gateway-side workspace objects (see "AgentRuntime Reconciliation" below)
 - Run the `RepositoryReconciler` (the declarative `.hypershell` import reconciler): for each registered `Repository`, read only its `import_path` subtree through the GitHub API (no git clone), render that subtree in memory with the shared kustomize library, and reconcile (create/update/prune) the rendered `Repository`-owned ext resources into the API over the gRPC write path (see "Declarative `.hypershell` Import Reconciliation" below)
+- Reconcile `DefaultWorkspaceMembership` resources against each gateway's OpenShell `default` workspace (see "DefaultWorkspaceMembership Reconciliation" below)
 - Update resource status back to the API server
 
 #### Gateway Provisioning Specifications
@@ -1232,7 +1233,7 @@ The control plane SHALL read the gateway database server's administrative connec
 - GIVEN the admin Secret is mounted with `host`, `port`, `user`, `password` and a PEM `sslrootcert`
 - WHEN the control plane starts
 - THEN it SHALL validate the files without connecting to the server
-- AND it SHALL serve watch streams for Gateways, ManagedClusters, RoleBindings, AgentRuntimes and Repositories
+- AND it SHALL serve watch streams for Gateways, ManagedClusters, RoleBindings, AgentRuntimes, Repositories, and DefaultWorkspaceMemberships
 
 #### Scenario: CTRL-CORE-11.02 -- Controller refuses to start on invalid admin credential files
 - GIVEN a required admin credential file is missing, or `sslmode` is present with a value other than `verify-full`
@@ -1267,6 +1268,61 @@ The control plane SHALL continuously reconcile the `phase` and `status` fields o
 - WHEN its desired spec changes and the API server advances `generation`
 - THEN the control plane SHALL re-apply the gateway manifests despite the `Running` phase
 - AND set `observed_generation` to the applied `generation` upon success
+
+### Requirement: CTRL-CORE-20 -- DefaultWorkspaceMembership Reconciliation
+
+The control plane SHALL watch `DefaultWorkspaceMembership` resources (`data-model.spec.md`, PLAT-DATA-27) and reconcile each gateway's set of live rows against that gateway's OpenShell `default` workspace, using OpenShell's existing workspace-member operations (`workspace member add --workspace default --subject <subject> --role user`, `workspace member remove --workspace default --subject <subject>`; `extension-api-openshell-api-mapping.spec.md`) exactly as it already does for `WorkspaceMembership`. It SHALL NOT call `EnsureWorkspace` or any workspace-create operation for `default`: OpenShell already creates and protects that workspace at gateway startup (`ensure_default_workspace`) and rejects deleting it, so this reconciler only ever adds or removes **members**, never the workspace itself.
+
+**Full desired-state convergence, not partial.** HyperShell owns the full desired membership set for a gateway's `default` workspace. On each reconcile pass for a gateway, the control plane SHALL load ALL live `DefaultWorkspaceMembership` rows for that gateway, convert them to the full set of desired OpenShell membership specs, and reconcile the `default` workspace's ACTUAL membership to exactly that full set -- adding members present in the desired set but absent from OpenShell, and removing members present in OpenShell but absent from the desired set. This is deliberately NOT a partial or managed-subject-only reconciliation (unlike, for example, a reconciler that only ever adds its own managed subjects and never touches others): a membership added directly in OpenShell outside HyperShell SHALL be removed on the next reconcile pass, because HyperShell's desired state is authoritative for this workspace.
+
+**Batching and coalescing.** Reconcile work SHALL be batched and coalesced per gateway: multiple `DefaultWorkspaceMembership` events for the same gateway arriving close together SHALL be coalesced into one reconcile pass against the latest desired set, following the same per-key coalescing discipline the gateway reconcile queue already uses (`gateway-reconcile-concurrency.spec.md`). A gateway whose membership set is unchanged since its last successful reconcile SHALL be reconciled as a no-op.
+
+**Retry priority.** Transient failures (OpenShell or its gateway unavailable, a timeout, a conflict) SHALL be retried with backoff, consistent with the control-plane reconciliation contract (`../standards/control-plane/reconciliation-contract.spec.md`). The control plane reconciles a gateway's membership set through a single `OpenShellAPI.ReconcileMemberships` call per pass (`internal/gateway/openshell_provisioner.go`); it has no visibility into, or control over, partial progress within that call, so the removals-before-additions ordering below is a correctness requirement on that method's implementation, not a behavior the `DefaultWorkspaceMembershipReconciler` in this repository independently sequences or can verify today. When a reconcile pass must apply both additions and removals and cannot complete all of them in one pass, the `ReconcileMemberships` implementation SHALL prioritize committing removals (deletions/revocations) over additions and SHALL make a committed removal durable independently of the rest of the call, so a retry of the full desired set does not re-attempt a removal that already succeeded, because a failed removal leaves a subject with OpenShell access it should no longer have, which is a more significant exposure than a failed addition merely delaying a grant.
+
+**Failure isolation.** A transient `DefaultWorkspaceMembership` reconciliation failure SHALL NOT revoke the subject's underlying HyperShell gateway access (the RoleBinding, GTW-ACC-16) and SHALL NOT delete or revoke the underlying OpenShellGatewayServiceAccount (OSG-SACC-19): the desired-state write that created the `DefaultWorkspaceMembership` row already happened as a side effect of an authorized primary operation, and OpenShell-side convergence failures are independent, asynchronous, and retried on their own -- they SHALL NOT be propagated back to fail or undo the primary grant or service-account creation after the fact.
+
+**Status.** The control plane SHALL set a `DefaultWorkspaceMembership`'s `reconciliation_status` to `ready` once OpenShell confirms the membership, to `pending` while a desired row has not yet been confirmed, and to `failed` when reconciliation for that row is persistently failing or has hit a terminal (non-retryable) error, populating `last_reconcile_error` with a stable, credential-free summary (PLAT-DATA-27).
+
+#### Scenario: CTRL-CORE-20.01 -- Full set reconciled, not EnsureWorkspace
+
+- GIVEN a gateway's `default` workspace already exists in OpenShell (created at gateway startup)
+- AND the gateway has two live `DefaultWorkspaceMembership` rows
+- WHEN the control plane reconciles that gateway
+- THEN it SHALL call no workspace-create or `EnsureWorkspace` operation for `default`
+- AND it SHALL converge OpenShell's `default` workspace membership to exactly those two subjects with role `user`
+
+#### Scenario: CTRL-CORE-20.02 -- A manually added OpenShell member is removed
+
+- GIVEN a gateway's OpenShell `default` workspace has a member that corresponds to no live `DefaultWorkspaceMembership` row (added directly in OpenShell, outside HyperShell)
+- WHEN the control plane reconciles that gateway
+- THEN it SHALL remove that member from the `default` workspace, because HyperShell's desired state is the full, authoritative set
+
+#### Scenario: CTRL-CORE-20.03 -- Coalesced events produce one reconcile pass
+
+- GIVEN three `DefaultWorkspaceMembership` create/delete events for the same gateway arrive within one coalescing window
+- WHEN the control plane drains its queue
+- THEN it SHALL perform one reconcile pass against the latest desired set for that gateway, not three separate passes
+
+#### Scenario: CTRL-CORE-20.04 -- Removals are retried ahead of additions
+
+- GIVEN a reconcile pass for a gateway must both add one member and remove another, and the `OpenShellAPI.ReconcileMemberships` call for the addition fails transiently while the removal succeeds
+- WHEN the control plane retries the pass
+- THEN the removal SHALL already be durable and SHALL NOT be re-attempted
+- AND outstanding removals SHALL be retried before outstanding additions on any pass that must choose an order under a transient failure
+- AND this ordering and partial-durability behavior is a contract requirement on the `ReconcileMemberships` implementation (`internal/gateway/openshell_provisioner.go`), verified against the real OpenShell adapter once it is wired, not by a `DefaultWorkspaceMembershipReconciler`-level test in this repository, because the reconciler observes only the single call's overall success or failure
+
+#### Scenario: CTRL-CORE-20.05 -- A reconciliation failure does not revoke gateway access
+
+- GIVEN a user's `DefaultWorkspaceMembership` was created as a side effect of a gateway-access grant (GTW-ACC-16)
+- WHEN OpenShell is unavailable and the membership reconcile fails
+- THEN the user's underlying `gateway:viewer` RoleBinding and Keycloak `openshell-user` role SHALL remain intact
+- AND the `DefaultWorkspaceMembership` SHALL be marked `failed` or remain `pending` and retried, independently of the grant
+
+#### Scenario: CTRL-CORE-20.06 -- Status transitions from pending to ready
+
+- GIVEN a freshly created `DefaultWorkspaceMembership` with `reconciliation_status = pending`
+- WHEN the control plane confirms OpenShell reports the membership
+- THEN it SHALL set `reconciliation_status = ready`
 
 ## Known Limitations
 

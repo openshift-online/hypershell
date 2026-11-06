@@ -53,6 +53,20 @@ type OpenShellAPI interface {
 	EnsureWorkspace(ctx context.Context, agentRuntimeID, workspaceName string) error
 	// ReconcileMemberships converges the FULL membership set: adds missing, updates
 	// changed roles, removes memberships no longer declared. OpenShell `workspace member`.
+	//
+	// CTRL-CORE-20 "Retry priority": an implementation SHALL commit removals
+	// (deletions/revocations) ahead of additions within one call, and SHALL make
+	// a committed removal durable independently of the rest of the call, so that
+	// if the call returns an error partway through, a retry of the full desired
+	// set does NOT re-attempt removals that already succeeded and still
+	// prioritizes any remaining removals over remaining additions. A leftover
+	// member with access it should no longer have is a more significant exposure
+	// than a delayed grant. The caller (DefaultWorkspaceMembershipReconciler)
+	// has no visibility into partial success within a single call and cannot
+	// enforce or verify this ordering itself; it is a correctness requirement on
+	// the implementation of this method, verified against the real OpenShell
+	// adapter once it is wired (see OpenShellSessionFactory), not by a reconciler-
+	// level test in this repository.
 	ReconcileMemberships(ctx context.Context, workspaceName string, memberships []MembershipSpec) error
 	// EnsureProvider creates or updates one OpenShell provider. OpenShell `provider
 	// create` / `provider update`. The credential it carries is either a static credential

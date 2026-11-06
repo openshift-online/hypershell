@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/defaultWorkspaceMemberships"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roles"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/users"
@@ -110,18 +111,19 @@ type Service interface {
 }
 
 type service struct {
-	dao       *dao
-	bindings  roleBindings.RoleBindingService
-	users     users.UserService
-	directory DirectoryResolver
-	locks     db.LockFactory
+	dao         *dao
+	bindings    roleBindings.RoleBindingService
+	users       users.UserService
+	directory   DirectoryResolver
+	locks       db.LockFactory
+	memberships defaultWorkspaceMemberships.MembershipService
 }
 
-func NewService(d *dao, bindings roleBindings.RoleBindingService, userService users.UserService, directory DirectoryResolver, locks db.LockFactory) Service {
+func NewService(d *dao, bindings roleBindings.RoleBindingService, userService users.UserService, directory DirectoryResolver, locks db.LockFactory, memberships defaultWorkspaceMemberships.MembershipService) Service {
 	if directory == nil {
 		directory = unconfiguredResolver{}
 	}
-	return &service{dao: d, bindings: bindings, users: userService, directory: directory, locks: locks}
+	return &service{dao: d, bindings: bindings, users: userService, directory: directory, locks: locks, memberships: memberships}
 }
 
 var _ Service = &service{}
@@ -223,8 +225,11 @@ func (s *service) Grant(ctx context.Context, gatewayID, callerUserID string, inp
 
 	// Pre-provision the HyperShell User from the directory record (upsert by
 	// username), so the binding references a real user_id and the control plane
-	// can resolve the Keycloak user by username.
-	targetUserID, uerr := s.users.UpsertByUsername(ctx, strings.ToLower(dirUser.Username), optStr(dirUser.Email), optStr(dirUser.Name))
+	// can resolve the Keycloak user by username. The directory record's real
+	// Keycloak OIDC subject is captured too (GTW-ACC-16): it is what
+	// convergeDefaultWorkspaceMembership below addresses the membership to,
+	// never the mutable username.
+	targetUserID, uerr := s.users.UpsertByUsernameWithSubject(ctx, strings.ToLower(dirUser.Username), optStr(dirUser.Email), optStr(dirUser.Name), dirUser.Subject)
 	if uerr != nil {
 		return GrantItem{}, serverError("unable to provision user record")
 	}
@@ -251,8 +256,18 @@ func (s *service) Grant(ctx context.Context, gatewayID, callerUserID string, inp
 	if aerr := s.guardLastOwner(ctx, gatewayID, targetUserID, input.Role); aerr != nil {
 		return GrantItem{}, aerr
 	}
+	// GTW-ACC-17: reject before the RoleBinding write when this grant would add a
+	// new DefaultWorkspaceMembership row (a fresh user-tier grant, or converging
+	// an existing owner/admin down into the user tier). A re-grant of a tier the
+	// target already holds creates no new row and is not subject to the limit.
+	if aerr := s.checkDefaultWorkspaceMemberLimit(ctx, gatewayID, input.Role, current); aerr != nil {
+		return GrantItem{}, aerr
+	}
 	if _, serr := s.bindings.SetGatewayRole(ctx, targetUserID, gatewayID, tierToRoleName(input.Role)); serr != nil {
 		return GrantItem{}, fromServiceError(serr)
+	}
+	if aerr := s.convergeDefaultWorkspaceMembership(ctx, gatewayID, targetUserID, input.Role); aerr != nil {
+		return GrantItem{}, aerr
 	}
 	return s.grantItem(ctx, gatewayID, targetUserID)
 }
@@ -280,8 +295,14 @@ func (s *service) ChangeRole(ctx context.Context, gatewayID, callerUserID, targe
 	if aerr := s.guardLastOwner(ctx, gatewayID, targetUserID, tier); aerr != nil {
 		return GrantItem{}, aerr
 	}
+	if aerr := s.checkDefaultWorkspaceMemberLimit(ctx, gatewayID, tier, current); aerr != nil {
+		return GrantItem{}, aerr
+	}
 	if _, serr := s.bindings.SetGatewayRole(ctx, targetUserID, gatewayID, tierToRoleName(tier)); serr != nil {
 		return GrantItem{}, fromServiceError(serr)
+	}
+	if aerr := s.convergeDefaultWorkspaceMembership(ctx, gatewayID, targetUserID, tier); aerr != nil {
+		return GrantItem{}, aerr
 	}
 	return s.grantItem(ctx, gatewayID, targetUserID)
 }
@@ -310,6 +331,9 @@ func (s *service) Revoke(ctx context.Context, gatewayID, callerUserID, targetUse
 	}
 	if _, serr := s.bindings.RevokeGatewayAccess(ctx, targetUserID, gatewayID); serr != nil {
 		return fromServiceError(serr)
+	}
+	if aerr := s.convergeDefaultWorkspaceMembership(ctx, gatewayID, targetUserID, ""); aerr != nil {
+		return aerr
 	}
 	return nil
 }
@@ -399,6 +423,113 @@ func grantItemFromRow(r accessRow) GrantItem {
 		Role:          roleNameToTier(r.RoleName),
 		GrantedAt:     r.GrantedAt,
 	}
+}
+
+// isNewDefaultWorkspaceMembership reports whether converging to newTier would
+// create a DefaultWorkspaceMembership row that does not already exist: a fresh
+// user-tier grant, or a change into the user tier from a non-user tier
+// (GTW-ACC-16, "Convergence on change and revoke"). A re-grant of the tier the
+// target already holds creates no new row.
+func isNewDefaultWorkspaceMembership(newTier, currentTier string) bool {
+	return newTier == TierUser && currentTier != TierUser
+}
+
+// checkDefaultWorkspaceMemberLimit enforces GTW-ACC-17: an operation that would
+// add a new DefaultWorkspaceMembership row is rejected with 409 before the
+// RoleBinding write when the gateway's default workspace is already at the
+// 1,000-member limit. It is a no-op for any operation that does not add a new
+// row (owner/admin grants, or re-granting the tier the target already holds).
+func (s *service) checkDefaultWorkspaceMemberLimit(ctx context.Context, gatewayID, newTier, currentTier string) *APIError {
+	if !isNewDefaultWorkspaceMembership(newTier, currentTier) {
+		return nil
+	}
+	if s.memberships == nil {
+		return nil
+	}
+	count, serr := s.memberships.CountLiveForGateway(ctx, gatewayID)
+	if serr != nil {
+		return fromServiceError(serr)
+	}
+	if count >= defaultWorkspaceMemberships.MemberLimit {
+		defaultWorkspaceMemberships.RecordMemberLimitViolation()
+		return conflictErr("this gateway's default OpenShell workspace is at its 1,000-member limit; remove a member before granting user-tier access")
+	}
+	return nil
+}
+
+// convergeDefaultWorkspaceMembership makes the target's DefaultWorkspaceMembership
+// on gatewayID match newTier: present when newTier is the user tier, absent
+// otherwise (GTW-ACC-16, "Convergence on change and revoke"). newTier is "" for
+// a revoke. Both directions are idempotent, so a re-grant or an already-absent
+// membership is a no-op.
+//
+// It runs after the RoleBinding write (SetGatewayRole/RevokeGatewayAccess)
+// already succeeded, so a failure here does not, by itself, undo that write in
+// this function's own logic. It relies instead on the framework's per-request
+// transaction (TransactionMiddleware): every HTTP write in this codebase runs
+// inside one DB transaction that is rolled back whenever the handler's final
+// response status is >= 400, and every error path below returns an APIError
+// with such a status. So in the real HTTP flow (plugins/gatewayAccess/handler.go)
+// a convergence failure here also undoes the RoleBinding write in the same
+// request, not just this function's own write. A caller that invokes Grant/
+// ChangeRole/Revoke directly outside that HTTP transaction (as this package's
+// own service-level tests do) does not get that rollback for free.
+func (s *service) convergeDefaultWorkspaceMembership(ctx context.Context, gatewayID, targetUserID, newTier string) *APIError {
+	if s.memberships == nil {
+		return nil
+	}
+	if newTier == TierUser {
+		subject, aerr := s.resolveSubject(ctx, targetUserID)
+		if aerr != nil {
+			return aerr
+		}
+		if _, serr := s.memberships.Create(ctx, gatewayID, subject, defaultWorkspaceMemberships.SourceGatewayAccess); serr != nil {
+			return fromServiceError(serr)
+		}
+		return nil
+	}
+	user, serr := s.users.Get(ctx, targetUserID)
+	if serr != nil {
+		return fromServiceError(serr)
+	}
+	if user.Subject == "" {
+		// A membership can only exist for a subject that was resolved and stored
+		// on this User row (above), so an empty subject means there is nothing to
+		// remove.
+		return nil
+	}
+	if serr := s.memberships.DeleteByGatewayAndSubject(ctx, gatewayID, user.Subject); serr != nil {
+		return fromServiceError(serr)
+	}
+	return nil
+}
+
+// resolveSubject returns targetUserID's real Keycloak OIDC subject, resolving
+// and storing it from the realm directory when the stored User row predates
+// subject capture (GTW-ACC-16.07). It is keyed on the User's stored username,
+// the same directory lookup Grant uses (GTW-ACC-04).
+func (s *service) resolveSubject(ctx context.Context, targetUserID string) (string, *APIError) {
+	user, serr := s.users.Get(ctx, targetUserID)
+	if serr != nil {
+		return "", fromServiceError(serr)
+	}
+	if user.Subject != "" {
+		return user.Subject, nil
+	}
+	dirUser, found, derr := s.directory.Resolve(ctx, user.Username)
+	if derr != nil {
+		if errors.Is(derr, ErrDirectoryUnavailable) {
+			return "", serviceUnavailable("the identity directory is not available")
+		}
+		return "", serviceUnavailable("directory lookup failed")
+	}
+	if !found || dirUser.Subject == "" {
+		return "", serverError("unable to resolve the OpenShell identity subject for this user")
+	}
+	if _, uerr := s.users.UpsertByUsernameWithSubject(ctx, user.Username, nil, nil, dirUser.Subject); uerr != nil {
+		return "", serverError("unable to store resolved user subject")
+	}
+	return dirUser.Subject, nil
 }
 
 func (s *service) lock(ctx context.Context, gatewayID string) (func(), *APIError) {
