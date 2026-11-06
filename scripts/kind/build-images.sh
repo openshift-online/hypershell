@@ -59,8 +59,16 @@ else
   info "Building control plane..."
   ${CONTAINER_ENGINE} build -t "${control_plane_local}" \
     -f "${BUILD_DIR}/components/control-plane/Dockerfile" \
+    --build-arg OPENSHELL_TAG="${OPENSHELL_TAG}" \
     ${cp_cov_args[@]+"${cp_cov_args[@]}"} \
     "${BUILD_DIR}"
+
+  # Inspect the just-built image's configuration (not the Dockerfile) to confirm
+  # it carries the single supported OpenShell release label
+  # (specs/platform/openshell-image-auto-update.spec.md, CICD-IMG-05).
+  info "Verifying controller image OpenShell release label..."
+  PYTHONDONTWRITEBYTECODE=1 python3 "${REPO_ROOT}/scripts/check_controller_image_label.py" \
+    --engine "${CONTAINER_ENGINE}" --expected "${OPENSHELL_TAG}" "${control_plane_local}"
 
   info "Building web console..."
   ${CONTAINER_ENGINE} build -t "${web_console_local}" \

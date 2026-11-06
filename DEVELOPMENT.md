@@ -352,6 +352,41 @@ This builds api-server, control-plane, and web-console images locally and loads
 them into Kind. The Dockerfiles drop the local `rh-trex-ai` replace directive at
 build time, so no external dependency checkout is needed.
 
+### Controller image OpenShell release label
+
+Every built controller (control-plane) image carries one label,
+`app.hypershell.openshell.version`, naming the single OpenShell gateway and
+supervisor release that build supports (for example `v0.1.6-rhaiv.4`). The value
+always holds exactly one release identifier - never a list, range, or wildcard.
+It is distinct from `org.opencontainers.image.version`, which is the controller's
+own version.
+
+The value is sourced from `OPENSHELL_TAG` in `OPENSHELL_VERSION` (the same source
+the deployment manifests use). `make build-controller` reads it straight from the
+file, and `make sync-openshell-version` stamps it into the Konflux pipeline build
+args, so `OPENSHELL_VERSION` stays the single source of truth.
+`make check-openshell-version` fails if the label value drifts or is missing.
+
+Read the value from a built image configuration (not the Dockerfile) with any
+container tool, for example:
+
+```bash
+# Locally built image
+podman inspect --format '{{ index .Config.Labels "app.hypershell.openshell.version" }}' \
+  localhost/hypershell-controller:dev
+
+# Published multi-arch image
+skopeo inspect --config docker://<controller-image-ref> \
+  | jq -r '.config.Labels["app.hypershell.openshell.version"]'
+```
+
+To validate a published image's label across every architecture variant against
+`OPENSHELL_TAG`, run:
+
+```bash
+make check-controller-image-label IMAGE=<controller-image-ref>
+```
+
 ### Kind environment variables
 
 | Variable | Default | Description |
