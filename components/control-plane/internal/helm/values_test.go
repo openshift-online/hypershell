@@ -647,8 +647,10 @@ func TestBuild_WorkspaceModeRendersInChart(t *testing.T) {
 					SupervisorImage:     "quay.io/test/supervisor:v1@" + digest,
 					SandboxRuntimeImage: "quay.io/test/runtime@" + digest,
 					WorkspaceMode:       mode,
+					ServerDnsNames:      []string{"gateway.example.com"},
 				},
-				Namespace: "openshell-deadbeefdeadbeef",
+				Namespace:      "openshell-deadbeefdeadbeef",
+				HasCertManager: true,
 				OperatorWorkspace: &OperatorWorkspaceConfig{
 					NamespaceLabelKey: "hypershell.io/gateway",
 					AllowedPodLabels:  []string{"openclaw.dev/*"},
@@ -682,6 +684,8 @@ func TestBuild_WorkspaceModeRendersInChart(t *testing.T) {
 			}
 			if mode == "operator" {
 				want = append(want, `operator_namespace_label = "hypershell.io/gateway=openshell-deadbeefdeadbeef"`, `allow_driver_config = true`)
+				// The advertised service domain must also be covered by the server certificate.
+				want = append(want, `server_sans = ["gateway.example.com", "*.openshell.localhost"]`, `- "*.openshell.localhost"`)
 			}
 			for _, expected := range want {
 				if !strings.Contains(string(out), expected) {

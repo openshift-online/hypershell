@@ -88,7 +88,7 @@ YAML
   --from-file="occ=$OCE_KIND_STATE/secrets/routing-key" --dry-run=client -o json | "${k[@]}" apply -f -
 python3 "$here/render-oce.py"
 source "$here/openshell-images.env"
-export GATEWAY_SUPERVISOR_IMAGE
+export GATEWAY_SUPERVISOR_IMAGE GATEWAY_SANDBOX_RUNTIME_IMAGE
 python3 - "$here/runtime-admission.yaml" <<'PYTHON'
 import json, os, sys
 from pathlib import Path
@@ -98,6 +98,7 @@ for key, value in {
     '__GATEWAY_NAMESPACE__': os.environ['GATEWAY_NAMESPACE'],
     '__RUNTIME_IMAGE__': json.loads((state/'images.json').read_text())['runtime'],
     '__SUPERVISOR_IMAGE__': os.environ['GATEWAY_SUPERVISOR_IMAGE'],
+    '__SANDBOX_IMAGE__': os.environ['GATEWAY_SANDBOX_RUNTIME_IMAGE'],
 }.items():
     text = text.replace(key, value)
 (state/'runtime-admission.yaml').write_text(text)

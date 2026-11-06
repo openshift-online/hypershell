@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import tomllib
 
 state = Path(os.environ["OCE_KIND_STATE"]).resolve()
 oce = Path(os.environ["OCE_REPO"]).resolve()
@@ -40,6 +41,8 @@ def gateway_scope(value):
 
 images = json.loads((state / "images.json").read_text())
 service = get("-n", gateway_namespace, "get", "service", "openshell-gateway")
+gateway_config = tomllib.loads(get("-n", gateway_namespace, "get", "configmap", "openshell-gateway-config")["data"]["gateway.toml"])
+sandbox_account = gateway_config["openshell"]["drivers"]["kubernetes"]["service_account_name"]
 database = get("-n", "external-cloud-db", "get", "service", "postgres")
 database_pods = get("-n", "external-cloud-db", "get", "pods", "-l", "app=postgres")
 api = get("-n", "default", "get", "service", "kubernetes")
@@ -60,6 +63,10 @@ compute["runtime"]["nodeSelector"] = {"oce-role": "control"}
 sandbox = installation["drivers"]["sandbox"]["configuration"]
 sandbox["gateway"] = gateway_scope(sandbox["gateway"])
 sandbox["gateway"]["operatorNamespaceLabels"] = {"hypershell.io/gateway": gateway_namespace}
+# Tenant resources must use the ServiceAccount selected by HyperShell's chart.
+for resource in sandbox["gateway"]["operatorWorkspaceResources"]:
+    if resource["kind"] == "ServiceAccount" and resource["metadata"]["name"] == "openshell-sandbox":
+        resource["metadata"]["name"] = sandbox_account
 write("installation.json", installation)
 values = render("values.jq", {
     "cluster": "hypershell-oce", "controller": images["controller"],

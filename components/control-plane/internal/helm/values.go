@@ -3,6 +3,7 @@ package helm
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -252,8 +253,13 @@ func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
 	}
 
 	// Server DNS names for TLS certificate SANs
-	if len(b.Gateway.ServerDnsNames) > 0 {
-		setNestedValue(values, b.Gateway.ServerDnsNames, "pkiInitJob", "serverDnsNames")
+	dnsNames := b.Gateway.ServerDnsNames
+	// Operator clients reach sandbox services through OpenShell's internal routing domain.
+	if b.Gateway.WorkspaceMode == "operator" && !slices.Contains(dnsNames, "*.openshell.localhost") {
+		dnsNames = append(slices.Clone(dnsNames), "*.openshell.localhost")
+	}
+	if len(dnsNames) > 0 {
+		setNestedValue(values, dnsNames, "pkiInitJob", "serverDnsNames")
 		if b.HasCertManager {
 			// When cert-manager is enabled the chart ignores pkiInitJob.serverDnsNames:
 			// server_sans in gateway.toml and the internal server Certificate both
@@ -261,7 +267,7 @@ func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
 			// same source. buildIngressValues runs after this and deliberately
 			// overwrites certManager.serverDnsNames with just the Route host in
 			// external-issuer passthrough mode, so that later write still wins.
-			setNestedValue(values, b.Gateway.ServerDnsNames, "certManager", "serverDnsNames")
+			setNestedValue(values, dnsNames, "certManager", "serverDnsNames")
 		}
 	}
 
