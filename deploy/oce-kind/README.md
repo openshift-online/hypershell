@@ -20,9 +20,11 @@ Python 3.11 or newer with PyYAML, and registry/GitHub access. This run uses Kube
 Calico 3.31.0, Envoy Gateway 1.6.7, and the HyperShell versions in
 [`OPENSHELL_VERSION`](../../OPENSHELL_VERSION) and [`Makefile`](../../Makefile).
 Allow about 16 GiB of RAM for the running stack and additional RAM and disk for
-parallel image builds. Use OCE branch `fix/hypershell-runtime-networking`, commit
-`080810ac2`, for the namespace-aware network helper. This local commit is not
-published; carry the branch with this setup when using another machine. It is
+parallel image builds. Use OCE branch `fix/hypershell-runtime-networking` from
+[`bsquizz/openclaw-enterprise`](https://github.com/bsquizz/openclaw-enterprise/tree/fix/hypershell-runtime-networking),
+pinned to commit [`080810ac2`](https://github.com/bsquizz/openclaw-enterprise/commit/080810ac2a05b98f065655a9b29cdc9ec28ab14e),
+for the namespace-aware network helper. The change is published in companion
+draft [OCE PR #4954](https://github.com/openclaw/openclaw-enterprise/pull/4954) and is
 based on tested runtime source `2096c8cbde286c50ab7aafa08fd0f3bb3f4623c2` and
 changes only operator helpers and instructions. Build both OCE images from
 that checkout. The public
