@@ -19,7 +19,7 @@ Name | Type | Description | Notes
 **Phase** | Pointer to **string** | Control-plane-observed lifecycle phase (PLAT-DATA-23) | [optional] [readonly]
 **Image** | Pointer to **string** | Container image for the gateway deployment; platform-managed, control-plane-only (PLAT-DATA-23) | [optional] [readonly]
 **SupervisorImage** | Pointer to **string** | Container image for the supervisor sidecar; platform-managed, control-plane-only (PLAT-DATA-23) | [optional] [readonly]
-**AdditionalCaBundle** | Pointer to **string** | User-supplied PEM bundle of additional destination CA certificates for sandbox egress to private-PKI destinations; empty means default trust roots. User-writable on create and update (PLAT-DATA-23 allowlist exception) | [optional]
+**AdditionalCaBundle** | Pointer to **NullableString** | User-supplied PEM bundle of additional destination CA certificates for sandbox egress to private-PKI destinations; empty means default trust roots. User-writable on create and update (PLAT-DATA-23 allowlist exception) | [optional]
 **ServerDnsNames** | Pointer to **[]string** | DNS names for TLS certificate SANs; platform-managed, control-plane-only (PLAT-DATA-23) | [optional] [readonly]
 **RouteAddress** | Pointer to **string** | External route address populated by the control plane | [optional] [readonly]
 **ConsoleAddress** | Pointer to **string** | Web console address populated by the control plane | [optional] [readonly]
@@ -442,6 +442,16 @@ SetAdditionalCaBundle sets AdditionalCaBundle field to given value.
 
 HasAdditionalCaBundle returns a boolean if a field has been set.
 
+### SetAdditionalCaBundleNil
+
+`func (o *Gateway) SetAdditionalCaBundleNil(b bool)`
+
+ SetAdditionalCaBundleNil sets the value for AdditionalCaBundle to be an explicit nil
+
+### UnsetAdditionalCaBundle
+`func (o *Gateway) UnsetAdditionalCaBundle()`
+
+UnsetAdditionalCaBundle ensures that no value is present for AdditionalCaBundle, not even an explicit nil
 ### GetServerDnsNames
 
 `func (o *Gateway) GetServerDnsNames() []string`

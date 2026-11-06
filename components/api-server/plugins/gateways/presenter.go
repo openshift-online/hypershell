@@ -16,7 +16,9 @@ func ConvertGateway(gateway openapi.GatewayCreateRequest) *Gateway {
 	// additional_ca_bundle is the one workload-relevant field on the create
 	// allowlist besides name/placement/dedicated_route (PLAT-DATA-23):
 	// user-authored trust material, validated by the handler before persistence.
-	return &Gateway{Name: gateway.Name, DedicatedRoute: gateway.DedicatedRoute, AdditionalCABundle: gateway.AdditionalCaBundle}
+	// The property is nullable: an explicit null and an omitted field both
+	// resolve to no user trust.
+	return &Gateway{Name: gateway.Name, DedicatedRoute: gateway.DedicatedRoute, AdditionalCABundle: gateway.AdditionalCaBundle.Get()}
 }
 
 // PresentGateway converts a Gateway model to its REST representation.
@@ -40,7 +42,6 @@ func PresentGateway(gateway *Gateway, createdBy string, canDelete bool, canEdit 
 		Phase:              gateway.Phase,
 		Image:              gateway.Image,
 		SupervisorImage:    gateway.SupervisorImage,
-		AdditionalCaBundle: gateway.AdditionalCABundle,
 		RouteAddress:       gateway.RouteAddress,
 		ConsoleAddress:     gateway.ConsoleAddress,
 		GatewayVersion:     gateway.GatewayVersion,
@@ -58,6 +59,12 @@ func PresentGateway(gateway *Gateway, createdBy string, canDelete bool, canEdit 
 			}
 			return nil
 		}(),
+	}
+
+	// additional_ca_bundle is nullable on the response: a gateway without user
+	// trust presents JSON null, distinguishing it from an empty-string clear.
+	if gateway.AdditionalCABundle != nil {
+		g.AdditionalCaBundle.Set(gateway.AdditionalCABundle)
 	}
 
 	if createdBy != "" {

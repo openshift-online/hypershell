@@ -94,9 +94,9 @@ func TestDestinationCAReconciliation(t *testing.T) {
 
 // TestDestinationCAUserBundle covers the per-gateway user tier and its
 // composition with the operator tier: a user bundle alone materializes a
-// content-addressed ConfigMap, the default merge policy concatenates both
-// tiers, "user-only" makes the user bundle replace operator trust, invalid
-// user PEM fails closed, and rotating the user bundle produces a new
+// content-addressed ConfigMap, the default policy makes the user bundle
+// override operator trust, "merge" opts a hub into concatenating both tiers,
+// invalid user PEM fails closed, and rotating the user bundle produces a new
 // generation name (which rolls the Deployment volume).
 func TestDestinationCAUserBundle(t *testing.T) {
 	ctx := context.Background()
@@ -113,13 +113,25 @@ func TestDestinationCAUserBundle(t *testing.T) {
 		t.Fatalf("user bundle not copied verbatim: %v", err)
 	}
 
-	// Default merge policy: the operator tier composes with the user tier.
+	// Default policy: the user bundle OVERRIDES the operator tier for this
+	// gateway. The gateway owner explicitly declared their trust, so no operator
+	// roots are injected into it.
 	operatorCA := testDestinationCA(t)
 	source := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "corporate-ca", Namespace: "cp"}, Data: map[string]string{"ca.crt": operatorCA}}
 	if _, err := client.CoreV1().ConfigMaps("cp").Create(ctx, source, metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("GATEWAY_ADDITIONAL_CA_CONFIGMAP_NAME", "corporate-ca")
+	overridden, err := reconcileDestinationCABundle(ctx, client, "cp", "tenant", userCA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overridden != name {
+		t.Fatalf("default policy must reduce to the user bundle generation: %q vs %q", overridden, name)
+	}
+
+	// merge policy: opting in composes the user and operator PEMs.
+	t.Setenv("GATEWAY_ADDITIONAL_CA_MERGE_MODE", "merge")
 	merged, err := reconcileDestinationCABundle(ctx, client, "cp", "tenant", userCA)
 	if err != nil {
 		t.Fatal(err)
@@ -139,17 +151,9 @@ func TestDestinationCAUserBundle(t *testing.T) {
 		t.Fatal("merged bundle must contain both the user and operator PEMs")
 	}
 
-	// user-only policy: the user bundle replaces operator trust for this gateway.
-	t.Setenv("GATEWAY_ADDITIONAL_CA_MERGE_MODE", "user-only")
-	userOnly, err := reconcileDestinationCABundle(ctx, client, "cp", "tenant", userCA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if userOnly != name {
-		t.Fatalf("user-only policy must reduce to the user bundle generation: %q vs %q", userOnly, name)
-	}
-
-	// A gateway without a user bundle still takes the operator tier unchanged.
+	// A gateway without a user bundle still takes the operator tier unchanged,
+	// under either policy.
+	t.Setenv("GATEWAY_ADDITIONAL_CA_MERGE_MODE", "")
 	operatorOnly, err := reconcileDestinationCABundle(ctx, client, "cp", "tenant", "")
 	if err != nil {
 		t.Fatal(err)

@@ -4666,7 +4666,9 @@ components:
               for sandbox egress to private-PKI destinations; empty means default
               trust roots. User-writable on create and update (PLAT-DATA-23 allowlist
               exception)
+            nullable: true
             type: string
+            x-file-input: true
           server_dns_names:
             description: "DNS names for TLS certificate SANs; platform-managed, control-plane-only\
               \ (PLAT-DATA-23)"
@@ -4950,7 +4952,9 @@ components:
             for sandbox egress to private-PKI destinations; empty means default trust
             roots. Set to null or empty string to clear the bundle. User-writable
             on update (PLAT-DATA-23 allowlist exception)
+          nullable: true
           type: string
+          x-file-input: true
       type: object
     GatewayPlacementIntent:
       description: Late-bound placement by ManagedCluster capability-label selector.
@@ -6749,7 +6753,9 @@ components:
           description: User-supplied PEM bundle of additional destination CA certificates
             for sandbox egress to private-PKI destinations; empty means default trust
             roots. User-writable on create (PLAT-DATA-23 allowlist exception)
+          nullable: true
           type: string
+          x-file-input: true
       required:
       - name
       type: object

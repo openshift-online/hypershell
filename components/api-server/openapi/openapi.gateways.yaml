@@ -309,6 +309,7 @@ components:
               description: Container image for the supervisor sidecar; platform-managed, control-plane-only (PLAT-DATA-23)
             additional_ca_bundle:
               type: string
+              nullable: true
               description: User-supplied PEM bundle of additional destination CA certificates for sandbox egress to private-PKI destinations; empty means default trust roots. User-writable on create and update (PLAT-DATA-23 allowlist exception)
               x-file-input: true
             server_dns_names:
@@ -451,6 +452,7 @@ components:
           $ref: '#/components/schemas/GatewayPlacementIntent'
         additional_ca_bundle:
           type: string
+          nullable: true
           description: User-supplied PEM bundle of additional destination CA certificates for sandbox egress to private-PKI destinations; empty means default trust roots. User-writable on create (PLAT-DATA-23 allowlist exception)
           x-file-input: true
     GatewayPlacementIntent:
@@ -538,6 +540,7 @@ components:
           type: string
         additional_ca_bundle:
           type: string
+          nullable: true
           description: User-supplied PEM bundle of additional destination CA certificates for sandbox egress to private-PKI destinations; empty means default trust roots. Set to null or empty string to clear the bundle. User-writable on update (PLAT-DATA-23 allowlist exception)
           x-file-input: true
   parameters:

@@ -47,13 +47,13 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 	additionalCABundle := "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----"
 
 	createReq := &pb.CreateGatewayRequest{
-		Name:        "TestName",
-		ClusterId:   clusterID,
-		ExternalDns: func() *string { s := "TestExternalDns"; return &s }(),
-		TlsMode:     func() *string { s := "TestTlsMode"; return &s }(),
-		ServiceType: func() *string { s := "TestServiceType"; return &s }(),
-		Status:      func() *string { s := "TestStatus"; return &s }(),
-		Phase:       func() *string { s := "Provisioning"; return &s }(),
+		Name:               "TestName",
+		ClusterId:          clusterID,
+		ExternalDns:        func() *string { s := "TestExternalDns"; return &s }(),
+		TlsMode:            func() *string { s := "TestTlsMode"; return &s }(),
+		ServiceType:        func() *string { s := "TestServiceType"; return &s }(),
+		Status:             func() *string { s := "TestStatus"; return &s }(),
+		Phase:              func() *string { s := "Provisioning"; return &s }(),
 		AdditionalCaBundle: &additionalCABundle,
 	}
 	created, err := grpcClient.CreateGateway(ctx, createReq)
@@ -78,13 +78,13 @@ func TestGRPCGatewayCRUD(t *testing.T) {
 	Expect(versionResp.GetGatewayVersion()).To(Equal("v0.0.109-rh9a8f8"))
 
 	updateReq := &pb.UpdateGatewayRequest{
-		Id:          gatewayID,
-		Name:        func() *string { s := "UpdatedName"; return &s }(),
-		ExternalDns: func() *string { s := "UpdatedExternalDns"; return &s }(),
-		TlsMode:     func() *string { s := "UpdatedTlsMode"; return &s }(),
-		ServiceType: func() *string { s := "UpdatedServiceType"; return &s }(),
-		Status:      func() *string { s := "UpdatedStatus"; return &s }(),
-		Phase:       func() *string { s := "Running"; return &s }(),
+		Id:                 gatewayID,
+		Name:               func() *string { s := "UpdatedName"; return &s }(),
+		ExternalDns:        func() *string { s := "UpdatedExternalDns"; return &s }(),
+		TlsMode:            func() *string { s := "UpdatedTlsMode"; return &s }(),
+		ServiceType:        func() *string { s := "UpdatedServiceType"; return &s }(),
+		Status:             func() *string { s := "UpdatedStatus"; return &s }(),
+		Phase:              func() *string { s := "Running"; return &s }(),
 		AdditionalCaBundle: func() *string { s := ""; return &s }(),
 	}
 	updated, err := grpcClient.UpdateGateway(ctx, updateReq)

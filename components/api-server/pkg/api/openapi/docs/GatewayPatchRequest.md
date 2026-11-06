@@ -5,7 +5,7 @@
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **Name** | Pointer to **string** |  | [optional]
-**AdditionalCaBundle** | Pointer to **string** | User-supplied PEM bundle of additional destination CA certificates for sandbox egress to private-PKI destinations; empty means default trust roots. Set to null or empty string to clear the bundle. User-writable on update (PLAT-DATA-23 allowlist exception) | [optional]
+**AdditionalCaBundle** | Pointer to **NullableString** | User-supplied PEM bundle of additional destination CA certificates for sandbox egress to private-PKI destinations; empty means default trust roots. Set to null or empty string to clear the bundle. User-writable on update (PLAT-DATA-23 allowlist exception) | [optional]
 
 ## Methods
 
@@ -76,5 +76,15 @@ SetAdditionalCaBundle sets AdditionalCaBundle field to given value.
 
 HasAdditionalCaBundle returns a boolean if a field has been set.
 
+### SetAdditionalCaBundleNil
+
+`func (o *GatewayPatchRequest) SetAdditionalCaBundleNil(b bool)`
+
+ SetAdditionalCaBundleNil sets the value for AdditionalCaBundle to be an explicit nil
+
+### UnsetAdditionalCaBundle
+`func (o *GatewayPatchRequest) UnsetAdditionalCaBundle()`
+
+UnsetAdditionalCaBundle ensures that no value is present for AdditionalCaBundle, not even an explicit nil
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)

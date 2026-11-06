@@ -229,28 +229,28 @@ capability-gated by `GATEWAY_ADDITIONAL_CA_REQUIRED_CAPABILITY`; see
 `destination_ca.go`) and the per-gateway user tier SHALL compose per a single
 hub-wide policy, `GATEWAY_ADDITIONAL_CA_MERGE_MODE`:
 
-- `merge` (DEFAULT): when a gateway declares user trust AND the operator tier
-  is configured, the effective bundle concatenates both PEMs, so fleet-wide
-  operator trust (for example a private GitLab CA) keeps applying alongside
-  user-authored trust. Gateways without a user bundle take the operator tier
-  unchanged; gateways on hubs without an operator tier take the user bundle
-  unchanged.
-- `user-only`: a gateway with a user bundle replaces the operator tier for
-  that gateway; gateways without a user bundle still take the operator tier.
+- `user-only` (DEFAULT): a gateway with a user bundle OVERRIDES the operator
+  tier for that gateway -- the gateway owner explicitly declared their trust,
+  so no operator roots are injected into it. Gateways without a user bundle
+  take the operator tier unchanged.
+- `merge`: opting in concatenates both PEMs when a gateway declares user trust
+  AND the operator tier is configured, so fleet-wide operator trust (for
+  example a private GitLab CA) keeps applying alongside user-authored trust.
 
-#### Scenario: OSG-ACA-04.01 -- merge is the default
+#### Scenario: OSG-ACA-04.01 -- override is the default
 
 - GIVEN a hub with the operator tier configured and a gateway whose
   `additional_ca_bundle` is set
 - WHEN the GatewayReconciler materializes destination trust
+- THEN the effective bundle SHALL be exactly the user PEM (the operator tier
+  is overridden for that gateway)
+
+#### Scenario: OSG-ACA-04.02 -- merge policy composes both tiers
+
+- GIVEN a hub with `GATEWAY_ADDITIONAL_CA_MERGE_MODE=merge` and a gateway
+  whose `additional_ca_bundle` is set
 - THEN the effective bundle SHALL contain both PEMs
 - AND the content-addressed name SHALL differ from either tier alone
-
-#### Scenario: OSG-ACA-04.02 -- user-only policy replaces operator trust
-
-- GIVEN a hub with `GATEWAY_ADDITIONAL_CA_MERGE_MODE=user-only` and a gateway
-  whose `additional_ca_bundle` is set
-- THEN the effective bundle SHALL be exactly the user PEM
 
 #### Scenario: OSG-ACA-04.03 -- no user bundle keeps the operator tier
 
@@ -399,13 +399,14 @@ rather than duplicating it:
    name change (decision 3), through the normal Helm upgrade path. This was
    upstream-neutral in the original plan (an optional enhancement); it is
    REQUIRED now that rotation is user-facing.
-6. **Tier composition is a hub-wide policy, merge by default.** When both
+6. **Tier composition is a hub-wide policy, override by default.** When both
    tiers exist for one gateway the default (`GATEWAY_ADDITIONAL_CA_MERGE_MODE`
-   unset or `merge`) concatenates the PEMs: the operator tier already applies
-   hub-wide when enabled, so merging adds nothing the operator did not opt
-   into, and a user setting a bundle does not silently drop fleet trust.
-   `user-only` makes the user bundle replace the operator tier for gateways
-   that declare one (user decision, 2026-11: "offer to merge optionally").
+   unset or `user-only`) makes the user bundle replace the operator tier: the
+   gateway owner explicitly declared their trust, so nothing else is injected
+   into it. `merge` is the explicit opt-in for hubs that want fleet-wide
+   operator trust (for example a private GitLab CA) to keep applying alongside
+   user-authored trust (user decision, 2026-11: "offer to merge optionally" --
+   merging is the option, not the default).
 7. **PLAT-DATA-23 allowlist amendment.** `additional_ca_bundle` is
    user-writable (create + update) -- user-authored trust material, not
    platform provisioning config -- recorded as an explicit exception in the

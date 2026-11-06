@@ -59,7 +59,7 @@ type Gateway struct {
 	// default trust roots only. USER-WRITABLE (create and update) per the
 	// PLAT-DATA-23 allowlist: it is user-authored trust material, not platform
 	// provisioning config. See openshell-gateway-additional-ca.spec.md.
-	AdditionalCABundle *string `json:"additional_ca_bundle"`
+	AdditionalCABundle     *string `json:"additional_ca_bundle"`
 	ActiveSandboxCount     *int    `json:"active_sandbox_count"`
 	ProvisioningConditions *string `json:"provisioning_conditions" gorm:"type:jsonb"`
 	Generation             int64   `json:"generation" gorm:"not null;default:1"`

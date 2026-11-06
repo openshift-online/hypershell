@@ -61,6 +61,7 @@ const listRequest = {
 function gateway(overrides: Partial<Gateway> = {}): Gateway {
   return {
     active_sandbox_count: 0,
+    additional_ca_bundle: null,
     can_delete: false,
     can_edit: false,
     cluster_id: "",

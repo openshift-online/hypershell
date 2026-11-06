@@ -18,10 +18,12 @@ import (
 // Vault and gateway mTLS trust. A configured but unavailable bundle fails closed.
 // userBundle is the gateway's API-validated additional_ca_bundle (empty when the
 // gateway declares no user trust). The two tiers compose per the merge policy
-// (destinationCAMergeMode): by default the effective bundle concatenates the user
-// and operator PEMs, so fleet-wide operator trust keeps applying alongside
-// user-authored trust; "user-only" makes a user bundle replace the operator tier
-// for that gateway. Gateways without a user bundle always take the operator tier.
+// (destinationCAMergeMode): by DEFAULT a user bundle OVERRIDES the operator
+// tier for that gateway -- the gateway owner explicitly declared their trust,
+// so nothing else is injected into it. Setting "merge" opts a hub into
+// concatenating the user and operator PEMs, so fleet-wide operator trust
+// (for example a private GitLab CA) keeps applying alongside user-authored
+// trust. Gateways without a user bundle always take the operator tier.
 func destinationCABundle(ctx context.Context, client kubernetes.Interface, namespace, userBundle string) (string, string, error) {
 	operatorBundle, err := operatorDestinationCABundle(ctx, client, namespace)
 	if err != nil {
@@ -37,7 +39,9 @@ func destinationCABundle(ctx context.Context, client kubernetes.Interface, names
 	switch {
 	case userBundle == "":
 		// operator tier only (or nothing)
-	case operatorBundle == "" || destinationCAMergeMode() == "user-only":
+	case operatorBundle == "" || destinationCAMergeMode() != "merge":
+		// Default: the user bundle overrides the operator tier. "merge" is the
+		// explicit opt-in to composing both tiers.
 		bundle = userBundle
 	default:
 		bundle = userBundle + "\n" + operatorBundle
@@ -77,14 +81,15 @@ func operatorDestinationCABundle(ctx context.Context, client kubernetes.Interfac
 }
 
 // destinationCAMergeMode is the hub-wide composition policy for the user and
-// operator destination-CA tiers: "merge" (default) concatenates both bundles
-// when a gateway declares user trust; "user-only" makes the user bundle replace
-// the operator tier for that gateway.
+// operator destination-CA tiers: "user-only" (default) makes the user bundle
+// override the operator tier for gateways that declare one; "merge"
+// concatenates both bundles when a gateway declares user trust, so
+// fleet-wide operator trust keeps applying alongside it.
 func destinationCAMergeMode() string {
 	if mode := strings.TrimSpace(os.Getenv("GATEWAY_ADDITIONAL_CA_MERGE_MODE")); mode != "" {
 		return mode
 	}
-	return "merge"
+	return "user-only"
 }
 
 func reconcileDestinationCABundle(ctx context.Context, client kubernetes.Interface, sourceNamespace, namespace, userBundle string) (string, error) {
