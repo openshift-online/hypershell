@@ -605,8 +605,8 @@ rendered ConfigMap.
 | Helm value | Source | Rendered effect |
 |------------|--------|-----------------|
 | `server.sandboxNamespace` | The API-assigned gateway namespace | `[openshell.gateway].sandbox_namespace` |
-| `supervisor.image.{registry,repository,tag}` | Gateway `supervisor_image`, defaulting to `GATEWAY_SUPERVISOR_IMAGE` | Supervisor image for sandbox pods |
-| `sandboxRuntime.image.{registry,repository,tag}` | `GATEWAY_SANDBOX_RUNTIME_IMAGE` | Trusted sandbox runtime image |
+| `supervisor.image.{registry,repository,tag,digest}` | Gateway `supervisor_image`, defaulting to `GATEWAY_SUPERVISOR_IMAGE` | Supervisor image for sandbox pods; a configured digest is preserved (see OSG-HELM-05) |
+| `sandboxRuntime.image.{registry,repository,tag,digest}` | `GATEWAY_SANDBOX_RUNTIME_IMAGE` | Trusted sandbox runtime image; a configured digest is preserved (see OSG-HELM-05) |
 | `certManager.serverDnsNames`, `pkiInitJob.serverDnsNames` | Gateway `serverDnsNames` | `[openshell.gateway].server_sans` and the server certificate SANs |
 | `server.defaultRuntimeClassName` | `GATEWAY_SANDBOX_RUNTIME_CLASS`; omitted when unset | `[openshell.gateway].default_runtime_class_name` |
 | `server.drivers.kubernetes.workspaceMode` | Gateway `workspace_mode` (see OSG-CORE-18) | Kubernetes driver `workspace_mode` |
@@ -625,7 +625,7 @@ set, it defaults to the value of the `GATEWAY_SUPERVISOR_IMAGE` environment
 variable on the control-plane deployment (see
 `deploy/base/platform-resources/controller.yaml`).
 
-The control plane SHALL also pass `GATEWAY_SANDBOX_RUNTIME_IMAGE` into the OpenShell Helm chart as `sandboxRuntime.image.{registry,repository,tag}` on every install and upgrade, pinned to the same OpenShell build (`OPENSHELL_TAG`) as the supervisor. The sandbox runtime and the supervisor speak a versioned boundary protocol; when the runtime is left to the chart default, which resolves to a moving upstream `dev` tag, it skews from the pinned supervisor and every sandbox stays in `Provisioning` with `attachment denied: ... control request payload digest mismatch`.
+The control plane SHALL also pass `GATEWAY_SANDBOX_RUNTIME_IMAGE` into the OpenShell Helm chart as `sandboxRuntime.image.{registry,repository,tag,digest}` on every install and upgrade, pinned to the same OpenShell build (`OPENSHELL_TAG`) as the supervisor. When the configured reference carries a digest, the control plane SHALL preserve it so the rendered runtime image uses that digest (see OSG-HELM-05). The sandbox runtime and the supervisor speak a versioned boundary protocol; when the runtime is left to the chart default, which resolves to a moving upstream `dev` tag, it skews from the pinned supervisor and every sandbox stays in `Provisioning` with `attachment denied: ... control request payload digest mismatch`.
 
 The chart SHALL render its `sandbox.image.repository`, `tag`, and `digest` values
 into `[openshell.drivers.kubernetes].default_image`, with digest taking precedence.
