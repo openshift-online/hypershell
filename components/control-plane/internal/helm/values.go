@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/distribution/reference"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -186,22 +187,32 @@ func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
 		setNestedValue(values, b.AdditionalCAConfigMapName, "supervisor", "network", "additionalCaConfigMapName")
 	}
 
-	// Chart image fields preserve a selected digest rather than falling back to its tag.
-	for component, image := range map[string]string{
-		"gateway":        b.Gateway.Image,
-		"supervisor":     b.Gateway.SupervisorImage,
-		"sandboxRuntime": b.Gateway.SandboxRuntimeImage,
-	} {
-		if image == "" {
-			continue
+	// Image values. The chart uses <image>.image.{registry,repository,tag,digest}
+	// and prepends global.image.registry (ghcr.io/nvidia) when the per-image
+	// registry is unset. We always pass fully-qualified image references from the
+	// gateway's resolved image, so we split registry out and set it explicitly
+	// per-image to prevent the global prefix from being applied. A configured
+	// digest is preserved so the chart renders the exact pinned content
+	// (OSG-HELM-05); a malformed reference is a validation error rather than a
+	// silently dropped or replaced reference.
+	if b.Gateway.Image != "" {
+		if err := setImageValues(values, b.Gateway.Image, "gateway", "image"); err != nil {
+			return fmt.Errorf("gateway image: %w", err)
 		}
-		reg, repo, tag := splitImageRefFull(image)
-		setNestedValue(values, reg, component, "image", "registry")
-		setNestedValue(values, repo, component, "image", "repository")
-		if _, digest, pinned := strings.Cut(image, "@"); pinned {
-			setNestedValue(values, digest, component, "image", "digest")
-		} else {
-			setNestedValue(values, tag, component, "image", "tag")
+	}
+
+	if b.Gateway.SupervisorImage != "" {
+		if err := setImageValues(values, b.Gateway.SupervisorImage, "supervisor", "image"); err != nil {
+			return fmt.Errorf("supervisor image: %w", err)
+		}
+	}
+
+	// The sandbox runtime and supervisor speak a versioned boundary protocol, so
+	// the runtime must be pinned to the same OpenShell build as the supervisor.
+	// Left unset, the chart defaults to a moving upstream tag.
+	if b.Gateway.SandboxRuntimeImage != "" {
+		if err := setImageValues(values, b.Gateway.SandboxRuntimeImage, "sandboxRuntime", "image"); err != nil {
+			return fmt.Errorf("sandbox runtime image: %w", err)
 		}
 	}
 
@@ -485,55 +496,81 @@ func (b *ValuesBuilder) buildOpenShiftValues(values map[string]interface{}) {
 	setNestedValue(values, nil, "securityContext", "runAsUser")
 }
 
-// splitImageRef splits an image reference into repository and tag.
-// Digest is handled separately through the chart image.digest field.
-// When both tag and digest are present
-// (image:tag@sha256:...), the tag is retained. Handles registry ports
-// (registry:5000/image) by comparing colon position to last slash.
-func splitImageRef(image string) (repo, tag string) {
-	if at := strings.LastIndex(image, "@"); at != -1 {
-		image = image[:at]
-	}
-	lastSlash := strings.LastIndex(image, "/")
-	lastColon := strings.LastIndex(image, ":")
-	if lastColon <= lastSlash {
-		return image, "latest"
-	}
-	return image[:lastColon], image[lastColon+1:]
+// parsedImage holds a container image reference split into the parts the chart
+// consumes under <image>.image.{registry,repository,tag,digest}.
+type parsedImage struct {
+	registry   string
+	repository string
+	tag        string
+	digest     string
 }
 
-// splitImageRefFull splits an image reference into registry, repository, and tag.
-// The registry is the first path component if it contains a dot or colon, or is
-// "localhost" -- the same heuristic used by the Docker distribution library.
-// This is needed for the v0.1.2 chart, which applies global.image.registry as a
-// prefix when the per-image registry is unset. By extracting the registry here
-// and setting it explicitly, the chart's global prefix is suppressed.
-func splitImageRefFull(image string) (registry, repo, tag string) {
-	_, tag = splitImageRef(image)
-
-	// Strip digest and tag to work with path only
-	withoutTag := image
-	if at := strings.LastIndex(image, "@"); at != -1 {
-		withoutTag = image[:at]
+// parseImageRef parses a container image reference into its registry,
+// repository, optional tag and optional digest, preserving a configured digest
+// (OSG-HELM-05). It uses the canonical distribution/reference parser so registry
+// ports (registry.example:5000/repo) and tag-plus-digest references are handled
+// correctly. The registry is the reference domain; when the reference carries no
+// domain the registry is empty and the chart applies global.image.registry. A
+// malformed reference is returned as an error so the caller reports a validation
+// error instead of silently dropping or replacing parts of the reference.
+func parseImageRef(image string) (parsedImage, error) {
+	ref, err := reference.Parse(strings.TrimSpace(image))
+	if err != nil {
+		return parsedImage{}, fmt.Errorf("invalid image reference %q: %w", image, err)
 	}
-	lastSlash := strings.LastIndex(withoutTag, "/")
-	lastColon := strings.LastIndex(withoutTag, ":")
-	if lastColon > lastSlash {
-		withoutTag = withoutTag[:lastColon]
+	named, ok := ref.(reference.Named)
+	if !ok {
+		return parsedImage{}, fmt.Errorf("invalid image reference %q: missing repository name", image)
 	}
 
-	// Split on the first slash to isolate the potential registry component
-	slashIdx := strings.Index(withoutTag, "/")
-	if slashIdx == -1 {
-		return "", withoutTag, tag
+	parsed := parsedImage{
+		registry:   reference.Domain(named),
+		repository: reference.Path(named),
 	}
-	first := withoutTag[:slashIdx]
-	rest := withoutTag[slashIdx+1:]
+	if tagged, ok := ref.(reference.Tagged); ok {
+		parsed.tag = tagged.Tag()
+	}
+	if digested, ok := ref.(reference.Digested); ok {
+		parsed.digest = digested.Digest().String()
+	}
+	return parsed, nil
+}
 
-	if strings.Contains(first, ".") || strings.Contains(first, ":") || first == "localhost" {
-		return first, rest, tag
+// setImageValues parses an image reference and writes its parts under the given
+// value path prefix (for example "gateway", "image"). A configured digest is
+// preserved so the chart renders the exact pinned content; the chart image
+// helpers give image.digest priority over image.tag (see the openshell.image
+// helper in charts/openshell/templates/_helpers.tpl), so the rendered reference
+// uses the digest when both a tag and a digest are present. A digest-only
+// reference sets only the digest and never falls back to a tag or "latest"; a
+// reference with neither a tag nor a digest defaults to the "latest" tag.
+// A malformed reference is returned as an error (OSG-HELM-05).
+func setImageValues(values map[string]interface{}, image string, prefix ...string) error {
+	parsed, err := parseImageRef(image)
+	if err != nil {
+		return err
 	}
-	return "", withoutTag, tag
+
+	path := func(leaf string) []string {
+		p := make([]string, 0, len(prefix)+1)
+		p = append(p, prefix...)
+		return append(p, leaf)
+	}
+
+	setNestedValue(values, parsed.registry, path("registry")...)
+	setNestedValue(values, parsed.repository, path("repository")...)
+	if parsed.digest != "" {
+		setNestedValue(values, parsed.digest, path("digest")...)
+	}
+	switch {
+	case parsed.tag != "":
+		setNestedValue(values, parsed.tag, path("tag")...)
+	case parsed.digest == "":
+		// Neither tag nor digest: default to "latest" (Docker semantics) rather
+		// than letting the chart fall back to its app version.
+		setNestedValue(values, "latest", path("tag")...)
+	}
+	return nil
 }
 
 // setNestedValue sets a value in a nested map structure.
