@@ -42,6 +42,14 @@ func (f fakeDirectory) Search(_ context.Context, query string, _ int) ([]gateway
 func realm(users ...gatewayAccess.DirectoryUser) fakeDirectory {
 	m := map[string]gatewayAccess.DirectoryUser{}
 	for _, u := range users {
+		if u.Subject == "" {
+			// A real Keycloak realm directory entry always carries a `sub`
+			// (GTW-ACC-09); default one here so tests that do not care about
+			// the subject (most of this file predates GTW-ACC-16) still model
+			// a realistic directory record instead of an identity gateway-access
+			// automation cannot resolve a subject for.
+			u.Subject = "sub-" + strings.ToLower(u.Username)
+		}
 		m[strings.ToLower(u.Username)] = u
 	}
 	return fakeDirectory{users: m}

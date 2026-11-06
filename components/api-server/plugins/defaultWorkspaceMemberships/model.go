@@ -26,8 +26,10 @@ const RoleUser = "user"
 // MemberLimit is OpenShell's per-workspace member cap (GTW-ACC-17, OSG-SACC-19).
 // Both automation hooks (gatewayAccess and serviceAccounts) check their
 // gateway's live row count against this single source of truth before
-// persisting a new membership.
-const MemberLimit = 1000
+// persisting a new membership. It is a var, not a const, so an integration
+// test can lower it temporarily and exercise the at-limit rejection path
+// without inserting 1,000 real rows.
+var MemberLimit int64 = 1000
 
 // Source identifies which automation hook created a row.
 const (

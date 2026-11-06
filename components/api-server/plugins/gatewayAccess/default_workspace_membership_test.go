@@ -180,6 +180,7 @@ func TestChangeRole_DemotionResolvesMissingSubjectViaDirectory(t *testing.T) {
 func TestGrant_RejectedAtDefaultWorkspaceMemberLimit(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
+	defer withLoweredMemberLimit(2)()
 	gw := "gw-dwm-limit-grant"
 	owner := seed(t, gw, "owner-dwm8", roles.RoleGatewayOwner)
 
@@ -200,6 +201,7 @@ func TestGrant_RejectedAtDefaultWorkspaceMemberLimit(t *testing.T) {
 func TestChangeRole_DemotionRejectedAtDefaultWorkspaceMemberLimit(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
+	defer withLoweredMemberLimit(2)()
 	gw := "gw-dwm-limit-demote"
 	owner := seed(t, gw, "owner-dwm9", roles.RoleGatewayOwner)
 
@@ -223,6 +225,7 @@ func TestChangeRole_DemotionRejectedAtDefaultWorkspaceMemberLimit(t *testing.T) 
 func TestGrant_OwnerAndAdminGrantsAreNotSubjectToTheLimit(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
+	defer withLoweredMemberLimit(2)()
 	gw := "gw-dwm-limit-admin-exempt"
 	owner := seed(t, gw, "owner-dwm10", roles.RoleGatewayOwner)
 
@@ -234,15 +237,26 @@ func TestGrant_OwnerAndAdminGrantsAreNotSubjectToTheLimit(t *testing.T) {
 	Expect(aerr).To(BeNil())
 }
 
+// withLoweredMemberLimit temporarily lowers the package-wide member limit so a
+// test can exercise the at-limit rejection path (GTW-ACC-17) by seeding a
+// handful of rows instead of 1,000 real ones. The returned func restores the
+// original limit; call it via defer.
+func withLoweredMemberLimit(limit int64) func() {
+	original := defaultWorkspaceMemberships.MemberLimit
+	defaultWorkspaceMemberships.MemberLimit = limit
+	return func() { defaultWorkspaceMemberships.MemberLimit = original }
+}
+
 // fillDefaultWorkspaceToLimit seeds gatewayID's default workspace with exactly
 // defaultWorkspaceMemberships.MemberLimit live rows, directly through the
 // membership service (bypassing gateway-access automation, which is exactly
-// what is under test).
+// what is under test). Callers lower MemberLimit first (withLoweredMemberLimit)
+// so this seeds a handful of rows, not 1,000.
 func fillDefaultWorkspaceToLimit(t *testing.T, gatewayID string) {
 	t.Helper()
 	svc := membershipService()
-	for i := 0; i < defaultWorkspaceMemberships.MemberLimit; i++ {
-		_, serr := svc.Create(context.Background(), gatewayID, "filler-subject-"+strconv.Itoa(i), defaultWorkspaceMemberships.SourceGatewayAccess)
+	for i := int64(0); i < defaultWorkspaceMemberships.MemberLimit; i++ {
+		_, serr := svc.Create(context.Background(), gatewayID, "filler-subject-"+strconv.FormatInt(i, 10), defaultWorkspaceMemberships.SourceGatewayAccess)
 		Expect(serr).To(BeNil())
 	}
 }
