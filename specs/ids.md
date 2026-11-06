@@ -36,6 +36,7 @@ listed in `specs/id-rename-map.md`, not here.
 | `CICD-BLD` | `platform/openshell-branch-build.spec.md` | 8 |
 | `CICD-CRED` | `platform/ephemeral-test-credentials.spec.md` | 13 |
 | `CICD-ECC` | `platform/konflux-enterprise-contract-conformance.spec.md` | 7 |
+| `CICD-IMG` | `platform/openshell-image-auto-update.spec.md` | 6 |
 | `CICD-MRG` | `platform/mergify-parallel-merge-queue.spec.md` | 12 |
 | `CICD-PREN` | `platform/ephemeral-pr-environments.spec.md` | 12 |
 | `CICD-SEC` | `platform/ephemeral-ci-secrets.spec.md` | 5 |
@@ -253,7 +254,6 @@ from a registered, collision-free code instead of inventing one ad hoc.
 | (none) | `index.spec.md` | The spec tree's own index; hosts this registry pointer, not requirements |
 | `AGT-IMG` | `platform/agent-runtime-images.spec.md` | Image/pipeline description, no Given/When/Then contracts yet |
 | `E2E-CON` | `platform/e2e-console-browser-testing.spec.md` | Driver/config description, no Given/When/Then contracts yet |
-| `CICD-IMG` | `platform/openshell-image-auto-update.spec.md` | Renovate pipeline description, no Given/When/Then contracts yet |
 | `STD-CTRL` | `standards/control-plane/conventions.spec.md` | Coding conventions reference, not behavior contracts |
 | `STD-XCUT` | `standards/platform/cross-cutting.spec.md` | Cross-cutting constraints reference, not behavior contracts |
 | `STD-NAME` | `standards/platform/naming-multitenancy.spec.md` | Naming-convention reference, not behavior contracts |
