@@ -27,6 +27,11 @@ func TestValidateImageReference(t *testing.T) {
 		{name: "localhost registry with port", ref: "localhost:5000/hypershell-controller:dev", wantErr: false},
 		{name: "shell metacharacter rejected", ref: "postgres:18;rm -rf /", wantErr: true},
 		{name: "command substitution rejected", ref: "postgres:$(whoami)", wantErr: true},
+		// The Helm values builder parses with distribution/reference, which
+		// rejects uppercase repository paths. Input validation must agree so such a
+		// reference is rejected here rather than passing validation and then
+		// hard-failing Build() on every reconcile (a permanent reconcile block).
+		{name: "uppercase repository rejected", ref: "quay.io/MyOrg/gateway:v1", wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
