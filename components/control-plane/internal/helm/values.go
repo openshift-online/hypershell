@@ -124,6 +124,8 @@ type ValuesBuilder struct {
 	ExternalCAIssuerKind string
 	// HasTrustedCA indicates whether the gateway-trusted-ca ConfigMap exists
 	HasTrustedCA bool
+	// AdditionalCAConfigMapName supplies destination TLS roots to sandbox supervisors.
+	AdditionalCAConfigMapName string
 	// HasVaultCA indicates whether the per-tenant openshell-gateway-vault-ca
 	// ConfigMap (the mirrored Vault serving CA) exists, so the vault driver's
 	// caConfigMapName is set only when the gateway can actually mount it.
@@ -177,6 +179,10 @@ func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
 	// fullname (release-name + chart-name) would produce "openshell-gateway-helm-chart".
 	// Pin fullnameOverride so every chart resource uses the expected name.
 	setNestedValue(values, ReleaseName, "fullnameOverride")
+
+	if b.AdditionalCAConfigMapName != "" {
+		setNestedValue(values, b.AdditionalCAConfigMapName, "supervisor", "network", "additionalCaConfigMapName")
+	}
 
 	// Image values. The v0.1.2 chart uses gateway.image.{registry,repository,tag}
 	// and prepends global.image.registry (ghcr.io/nvidia) when the per-image

@@ -486,9 +486,18 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 				return watcher.WithRetryableReason(watcher.PreservePayloadForRetry(reconcileErr), reason)
 			}
 		}
-		slog.DebugContext(ctx, "Gateway converged, skipping reconciliation", "gateway_id", event.ResourceID, "generation", gw.Generation)
-		outcome = cpotel.OutcomeNoop
-		return nil
+		needsTrustUpdate, err := gateway.DestinationCATrustNeedsUpdate(ctx, r.clientset, r.controlPlaneNamespace, gw.GetNamespace())
+		if err != nil {
+			outcome = cpotel.OutcomeRetryable
+			reason = cpotel.ReasonDependencyNotReady
+			reconcileErr = fmt.Errorf("check destination TLS trust: %w", err)
+			return watcher.WithRetryableReason(watcher.PreservePayloadForRetry(reconcileErr), reason)
+		}
+		if !needsTrustUpdate {
+			slog.DebugContext(ctx, "Gateway converged, skipping reconciliation", "gateway_id", event.ResourceID, "generation", gw.Generation)
+			outcome = cpotel.OutcomeNoop
+			return nil
+		}
 	}
 
 	namespace, err := gatewayNamespace(gw)
