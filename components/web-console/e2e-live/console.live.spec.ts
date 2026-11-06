@@ -276,6 +276,7 @@ test.describe("live console user journey", () => {
         },
       )
       .not.toBe("");
+    await page.getByRole("tab", { name: "Connection" }).click();
     const docs = page.getByRole("link", {
       name: /^View installation documentation/iu,
     });
