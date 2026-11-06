@@ -95,6 +95,9 @@ jobs:
     if: inputs.api_server == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    permissions:
+      contents: read
+      pull-requests: write
     # All plugins/* packages self-provision PostgreSQL via testcontainers-go
     # once API_ENV=integration_testing is set (see the Makefile's test target).
     steps:
@@ -107,7 +110,27 @@ jobs:
           cache-dependency-path: components/api-server/go.sum
       - name: Run API server unit tests
         working-directory: components/api-server
-        run: make test GO_TEST_FLAGS="-coverprofile=coverage.out -covermode=atomic"
+        run: |
+          set -o pipefail
+          make test GO_TEST_FLAGS="-coverprofile=coverage.out -covermode=atomic" 2>&1 | tee /tmp/api-server-test.log
+      # TEMPORARY diagnostic step (HYPERSHELL-488): this sandbox cannot reach
+      # GitHub's Actions log blob storage to debug the "exit code 2" failure
+      # any other way. Posts the tail of the test log as a PR comment so it is
+      # readable via the REST API. Remove before merge.
+      - name: Post failure excerpt on PR (TEMP DEBUG)
+        if: failure() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo '<details><summary>TEMP DEBUG: api-server unit test failure excerpt</summary>'
+            echo
+            echo '```'
+            tail -c 60000 /tmp/api-server-test.log
+            echo '```'
+            echo '</details>'
+          } > /tmp/pr-comment-body.md
+          gh pr comment "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --body-file /tmp/pr-comment-body.md
       - name: Upload api-server coverage
         if: github.event_name == 'pull_request' || github.event_name == 'push'
         # Coverage reporting must never block a merge on a Codecov outage.
