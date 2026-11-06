@@ -1,5 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# HyperShell-local addition (not upstream): re-applied after every
+# `make vendor-openshell-chart` because the wholesale chart replace erases it.
+# See skills/tooling/update-openshell/SKILL.md "Local patches to the vendored
+# chart" and specs/platform/openshell-gateway-routing.spec.md OSG-ROUT-13.
 
 suite: Gateway Service
 templates:
