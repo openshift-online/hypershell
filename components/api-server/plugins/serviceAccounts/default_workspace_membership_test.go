@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/openshift-online/hypershell/components/api-server/plugins/defaultWorkspaceMemberships"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	trexerrors "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 )
@@ -419,5 +420,143 @@ func TestReconcile_ForcedDowngradeRetriesMembershipCreateAfterTransientFailure(t
 	}
 	if _, found := memberships.items[membershipKey("gateway-id", "subject-id")]; !found {
 		t.Fatalf("expected the membership created on retry, got %#v", memberships.items)
+	}
+}
+
+// Regression test: Create() can fail AFTER the default-workspace membership
+// row is already durably created -- here, the "create succeeded" audit write
+// fails right after a successful membership create. That failure marks the
+// account StatusError without undoing the membership. The background
+// reconciler's StatusError cleanup path (cleanupUndeliveredAccount) must also
+// delete the now-orphaned membership, not just the account: otherwise it
+// would survive indefinitely, permanently consuming a slot against the
+// gateway's 1,000-member OpenShell cap.
+func TestCreate_AuditFailureAfterMembershipCreateDoesNotLeakMembership(t *testing.T) {
+	dao := newMemoryDAO()
+	dao.auditFailOnOutcome = "succeeded"
+	memberships := newFakeMemberships()
+	kc := &fakeKeycloak{configured: true}
+	service := newTestServiceWithMemberships(dao, kc, testBindings("creator", "gateway:owner"), time.Now().UTC(), memberships)
+
+	if _, problem := service.Create(t.Context(), "gateway-id", "creator", CreateInput{Name: "bot", Role: RoleUser}); problem == nil {
+		t.Fatal("expected Create() to fail when the post-membership audit write fails")
+	}
+
+	// The account landed in StatusError with the membership already created.
+	if len(dao.items) != 1 {
+		t.Fatalf("expected exactly one account, got %#v", dao.items)
+	}
+	var stored *OpenShellGatewayServiceAccount
+	for _, a := range dao.items {
+		stored = a
+	}
+	if stored.Status != StatusError {
+		t.Fatalf("expected the account in StatusError, got %#v", stored)
+	}
+	if len(memberships.items) != 1 {
+		t.Fatalf("expected the membership created before the audit failure to still exist, got %#v", memberships.items)
+	}
+
+	// The background reconciler's StatusError cleanup path must also remove
+	// the orphaned membership.
+	if err := service.ReconcileOnce(t.Context()); err != nil {
+		t.Fatalf("ReconcileOnce() error = %v", err)
+	}
+	if len(dao.items) != 0 {
+		t.Fatalf("expected the undelivered account to be soft-deleted, got %#v", dao.items)
+	}
+	if len(memberships.items) != 0 {
+		t.Fatalf("expected the orphaned default workspace membership to be deleted, got %#v", memberships.items)
+	}
+}
+
+// Regression test for the cross-plugin race on the GTW-ACC-17/OSG-SACC-19
+// 1,000-member limit: a concurrent gatewayAccess grant and serviceAccounts
+// create for the same gateway must serialize through the SAME advisory-lock
+// domain, or both could observe the live membership count below the limit and
+// both persist, exceeding it. Asserts that creating an openshell-user account
+// (with the membership automation wired) acquires both the package-private
+// per-gateway lock (name/quota invariants) AND the shared
+// roleBindings.GatewayAccessLockType/GatewayAccessLockID domain (the
+// membership-limit critical section) -- not just the private one.
+func TestCreate_AcquiresTheSharedGatewayAccessLockDomain(t *testing.T) {
+	dao := newMemoryDAO()
+	kc := &fakeKeycloak{configured: true}
+	locks := &countingLockFactory{}
+	memberships := newFakeMemberships()
+	svc := NewService(dao, fakeGateway{gateway: testGateway()}, testBindings("creator", "gateway:owner"), kc, locks, memberships)
+
+	if _, problem := svc.Create(t.Context(), "gateway-id", "creator", CreateInput{Name: "bot", Role: RoleUser}); problem != nil {
+		t.Fatalf("Create() problem = %#v", problem)
+	}
+	// Two nested locks: the private serviceAccountsLockType lock acquired first
+	// (name/quota checks), and the shared membership-limit lock acquired after it
+	// and released before it (LIFO), so it is the most recently acquired.
+	if locks.acquired != 2 {
+		t.Fatalf("lock acquisitions = %d, want 2 (private + shared membership-limit lock)", locks.acquired)
+	}
+	if locks.released != locks.acquired {
+		t.Fatalf("lock releases = %d, acquisitions = %d; lock leaked", locks.released, locks.acquired)
+	}
+	if locks.lastType != roleBindings.GatewayAccessLockType {
+		t.Fatalf("lock type = %q, want %q (roleBindings.GatewayAccessLockType, shared with gatewayAccess)", locks.lastType, roleBindings.GatewayAccessLockType)
+	}
+	if locks.lastID != roleBindings.GatewayAccessLockID("gateway-id") {
+		t.Fatalf("lock id = %q, want %q (roleBindings.GatewayAccessLockID, shared with gatewayAccess)", locks.lastID, roleBindings.GatewayAccessLockID("gateway-id"))
+	}
+}
+
+// An openshell-admin create never touches the shared membership-limit lock: it
+// has no membership row and nothing to race against gatewayAccess over, so it
+// acquires only the package-private per-gateway lock.
+func TestCreate_AdminDoesNotAcquireTheSharedGatewayAccessLockDomain(t *testing.T) {
+	dao := newMemoryDAO()
+	kc := &fakeKeycloak{configured: true}
+	locks := &countingLockFactory{}
+	memberships := newFakeMemberships()
+	svc := NewService(dao, fakeGateway{gateway: testGateway()}, testBindings("creator", "gateway:owner"), kc, locks, memberships)
+
+	if _, problem := svc.Create(t.Context(), "gateway-id", "creator", CreateInput{Name: "admin-bot", Role: RoleAdmin}); problem != nil {
+		t.Fatalf("Create() problem = %#v", problem)
+	}
+	if locks.acquired != 1 {
+		t.Fatalf("lock acquisitions = %d, want 1 (private lock only)", locks.acquired)
+	}
+	if locks.lastType != serviceAccountsLockType {
+		t.Fatalf("lock type = %q, want %q (package-private, not shared with gatewayAccess)", locks.lastType, serviceAccountsLockType)
+	}
+}
+
+// OSG-SACC-19.08's admin-to-user downgrade creates a membership subject to the
+// same limit as Create(), so it must acquire the same shared lock domain, not
+// just the package-private per-gateway lock.
+func TestUpdateRole_DowngradeToUserAcquiresTheSharedGatewayAccessLockDomain(t *testing.T) {
+	dao := newMemoryDAO()
+	now := time.Now().UTC()
+	account := &OpenShellGatewayServiceAccount{
+		GatewayID: "gateway-id", Name: "bot", CreatedByUserID: "creator", Status: StatusReady,
+		Role: RoleAdmin, CredentialType: CredentialTypeClientSecret, KeycloakClientID: "client-id",
+		KeycloakClientUUID: "client-uuid", Subject: "subject-id", ExpiresAt: now.Add(time.Hour),
+	}
+	dao.seed(account)
+	kc := &fakeKeycloak{configured: true}
+	locks := &countingLockFactory{}
+	memberships := newFakeMemberships()
+	svc := NewService(dao, fakeGateway{gateway: testGateway()}, testBindings("creator", "gateway:owner"), kc, locks, memberships)
+
+	if _, _, problem := svc.UpdateRole(t.Context(), "gateway-id", account.ID, "creator", RoleUpdateInput{Role: RoleUser}); problem != nil {
+		t.Fatalf("UpdateRole() problem = %#v", problem)
+	}
+	if locks.acquired != 2 {
+		t.Fatalf("lock acquisitions = %d, want 2 (private + shared membership-limit lock)", locks.acquired)
+	}
+	if locks.released != locks.acquired {
+		t.Fatalf("lock releases = %d, acquisitions = %d; lock leaked", locks.released, locks.acquired)
+	}
+	if locks.lastType != roleBindings.GatewayAccessLockType {
+		t.Fatalf("lock type = %q, want %q (roleBindings.GatewayAccessLockType, shared with gatewayAccess)", locks.lastType, roleBindings.GatewayAccessLockType)
+	}
+	if locks.lastID != roleBindings.GatewayAccessLockID("gateway-id") {
+		t.Fatalf("lock id = %q, want %q (roleBindings.GatewayAccessLockID, shared with gatewayAccess)", locks.lastID, roleBindings.GatewayAccessLockID("gateway-id"))
 	}
 }

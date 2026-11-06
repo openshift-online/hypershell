@@ -515,14 +515,24 @@ const (
 )
 
 // GatewayAccessLockType and GatewayAccessLockID define the single per-gateway
-// advisory-lock domain shared by this low-level resource and the access facade
-// (plugins/gatewayAccess), so last-owner mutations on either path serialize in the
-// SAME domain and cannot race. SEC-RBAC-25 requires this resource not be a weaker
-// (unserialized) path to removing a gateway's last owner (GTW-ACC-07). This package
-// owns the canonical definition because gatewayAccess already depends on it (the
-// reverse dependency would be a cycle); gatewayAccess references these exported
-// symbols rather than hand-copying the string, so the two paths cannot silently
-// diverge.
+// advisory-lock domain shared by this low-level resource, the access facade
+// (plugins/gatewayAccess), and the serviceAccounts plugin's narrow
+// membership-limit critical section (serviceAccounts.acquireMembershipLimitLock),
+// so mutations on any of those paths serialize in the SAME domain and cannot
+// race. SEC-RBAC-25 requires this resource not be a weaker (unserialized) path
+// to removing a gateway's last owner (GTW-ACC-07); GTW-ACC-17/OSG-SACC-19
+// require the same serialization so a concurrent gateway-access grant and
+// service-account create cannot both observe the default-workspace member
+// count below the 1,000-member limit and both persist, exceeding it.
+// serviceAccounts' OTHER per-gateway lifecycle mutations (Revoke, Delete,
+// reconciliation) use a separate, package-private lock domain: they add no
+// membership row, so they have nothing to race with gatewayAccess over, and
+// serializing them against this domain too would make routine service-account
+// cleanup block behind unrelated gateway-access grants for no correctness
+// benefit. This package owns the canonical definition because gatewayAccess
+// and serviceAccounts already depend on it (the reverse dependency would be a
+// cycle); callers reference these exported symbols rather than hand-copying
+// the string, so the paths cannot silently diverge.
 const GatewayAccessLockType db.LockType = "gateway_access"
 
 // GatewayAccessLockID returns the advisory-lock id for a gateway's access domain.
