@@ -33,6 +33,7 @@ import {
   buildOpenShellInstallCommand,
   isGatewayReadyToConnect,
   type GatewayConnection,
+  installDocsUrl,
   sandboxConnectDocsUrl,
   shellArgument,
 } from "./gateway-connections";
@@ -313,6 +314,22 @@ export function GatewayConnectionSteps({
           <Content component="p">
             {intl.formatMessage(messages.connectionBeforeYouBegin)}
           </Content>
+          <Button
+            aria-label={intl.formatMessage(
+              messages.connectionInstallLinkNewTab,
+            )}
+            component="a"
+            href={installDocsUrl}
+            icon={<ExternalLinkAltIcon aria-hidden />}
+            iconPosition="end"
+            isInline
+            rel="noopener noreferrer"
+            size="sm"
+            target="_blank"
+            variant="link"
+          >
+            <FormattedMessage {...messages.connectionInstallLink} />
+          </Button>
           <Button
             aria-label={intl.formatMessage(messages.connectionEnmaasLinkNewTab)}
             component="a"

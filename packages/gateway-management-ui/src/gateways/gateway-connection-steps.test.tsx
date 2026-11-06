@@ -7,6 +7,7 @@ import { GatewayConnectionSteps } from "./gateway-connection-steps";
 import {
   buildOpenShellInstallCommand,
   type GatewayConnection,
+  installDocsUrl,
   shellArgument,
 } from "./gateway-connections";
 
@@ -74,6 +75,12 @@ describe("GatewayConnectionSteps", () => {
       screen.getByRole("button", { name: "Copy all commands" }),
     ).toBeTruthy();
     expect(screen.getByText("Before you begin")).toBeTruthy();
+    const installDocs = screen.getByRole("link", {
+      name: "View installation documentation (opens in a new tab)",
+    });
+    expect(installDocs.getAttribute("href")).toBe(installDocsUrl);
+    expect(installDocs.getAttribute("target")).toBe("_blank");
+    expect(installDocs.getAttribute("rel")).toContain("noopener");
   });
 
   it("expands only one connection step at a time", async () => {

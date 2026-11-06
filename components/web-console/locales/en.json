@@ -1871,6 +1871,14 @@
     "defaultMessage": "Install the OpenShell CLI",
     "description": "Title for the CLI installation connection step."
   },
+  "app.gateway.connection.installLink": {
+    "defaultMessage": "View installation documentation",
+    "description": "Link text pointing to the OpenShell CLI installation documentation."
+  },
+  "app.gateway.connection.installLinkNewTab": {
+    "defaultMessage": "View installation documentation (opens in a new tab)",
+    "description": "Accessible name for the OpenShell CLI installation documentation link, including that it opens in a new tab."
+  },
   "app.gateway.connection.login.unavailable": {
     "defaultMessage": "This gateway is still provisioning. Its connection command becomes available once the gateway is running.",
     "description": "Shown in the login step while the gateway has not yet reached a running, ready-to-connect phase."

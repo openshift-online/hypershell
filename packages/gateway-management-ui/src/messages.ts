@@ -302,6 +302,18 @@ export const messages = defineMessages({
     defaultMessage: "Import the EnMaaS provider profile",
     description: "Title for the import-profile connection step.",
   },
+  connectionInstallLink: {
+    id: "app.gateway.connection.installLink",
+    defaultMessage: "View installation documentation",
+    description:
+      "Link text pointing to the OpenShell CLI installation documentation.",
+  },
+  connectionInstallLinkNewTab: {
+    id: "app.gateway.connection.installLinkNewTab",
+    defaultMessage: "View installation documentation (opens in a new tab)",
+    description:
+      "Accessible name for the OpenShell CLI installation documentation link, including that it opens in a new tab.",
+  },
   connectionInstallStepDescription: {
     id: "app.gateway.connection.install.description",
     defaultMessage:
