@@ -17,7 +17,7 @@ import (
 // destinationCABundle reads operator-controlled roots, independently of OIDC,
 // Vault and gateway mTLS trust. A configured but unavailable bundle fails closed.
 func destinationCABundle(ctx context.Context, client kubernetes.Interface, namespace string) (string, string, error) {
-	source := strings.TrimSpace(os.Getenv("GATEWAY_ADDITIONAL_CA_CONFIGMAP_NAME"))
+	source := destinationCASourceName()
 	if source == "" {
 		return "", "", nil
 	}
@@ -64,7 +64,7 @@ func reconcileDestinationCABundle(ctx context.Context, client kubernetes.Interfa
 // DestinationCATrustNeedsUpdate lets operator trust changes bypass the gateway
 // spec generation gate. Controller startup rechecks existing gateways.
 func DestinationCATrustNeedsUpdate(ctx context.Context, client kubernetes.Interface, sourceNamespace, namespace string) (bool, error) {
-	if strings.TrimSpace(os.Getenv("GATEWAY_ADDITIONAL_CA_CONFIGMAP_NAME")) == "" {
+	if destinationCASourceName() == "" {
 		return false, nil
 	}
 	if namespace == "" {
@@ -87,4 +87,23 @@ func DestinationCATrustNeedsUpdate(ctx context.Context, client kubernetes.Interf
 		}
 	}
 	return name != "", nil
+}
+
+// destinationCASourceName applies an optional operator capability selector using
+// the same capability declaration that the controller registers with the API.
+func destinationCASourceName() string {
+	required := strings.TrimSpace(os.Getenv("GATEWAY_ADDITIONAL_CA_REQUIRED_CAPABILITY"))
+	if required != "" {
+		matched := false
+		for _, capability := range strings.Split(os.Getenv("HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES"), ",") {
+			if strings.TrimSpace(capability) == required {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return ""
+		}
+	}
+	return strings.TrimSpace(os.Getenv("GATEWAY_ADDITIONAL_CA_CONFIGMAP_NAME"))
 }

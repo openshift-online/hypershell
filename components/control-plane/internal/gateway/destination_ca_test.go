@@ -99,3 +99,32 @@ func TestDestinationCADisabled(t *testing.T) {
 		t.Fatalf("disabled trust touched cluster: %q %v", name, err)
 	}
 }
+
+func TestDestinationCACapabilitySelection(t *testing.T) {
+	t.Setenv("GATEWAY_ADDITIONAL_CA_CONFIGMAP_NAME", "corporate-ca")
+	t.Setenv("GATEWAY_ADDITIONAL_CA_REQUIRED_CAPABILITY", "network/vpn")
+	for _, tc := range []struct {
+		name, capabilities string
+		enabled            bool
+	}{
+		{"vpn", "provider/aws,network/vpn", true},
+		{"trimmed", "provider/aws, network/vpn ,", true},
+		{"public", "provider/aws,network/public", false},
+		{"missing", "", false},
+		{"exact match", "network/vpn-other", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES", tc.capabilities)
+			client := fake.NewSimpleClientset()
+			// An eligible instance must read the configured source and fail if missing.
+			// An ineligible instance must not access Kubernetes or propagate extra trust.
+			_, err := reconcileDestinationCABundle(context.Background(), client, "cp", "tenant")
+			if tc.enabled != (err != nil) {
+				t.Fatalf("enabled=%v, error=%v", tc.enabled, err)
+			}
+			if !tc.enabled && len(client.Actions()) != 0 {
+				t.Fatal("ineligible cluster accessed CA resources")
+			}
+		})
+	}
+}
