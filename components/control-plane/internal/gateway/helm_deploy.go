@@ -60,6 +60,7 @@ func deployGatewayViaHelm(
 		HasVaultCA:                 hasVaultCA,
 		Resources:                  opts.GatewayResources,
 		SandboxRuntimeClass:        opts.SandboxRuntimeClass,
+		OperatorWorkspace:          opts.OperatorWorkspace,
 	}
 
 	values, err := valuesBuilder.Build()

@@ -46,6 +46,30 @@ func TestGatewayPostDefaultsWorkspaceModeToManaged(t *testing.T) {
 	Expect(*retrieved.WorkspaceMode).To(Equal("managed"))
 }
 
+// A deployment operator can select externally owned workspaces without letting
+// gateway users change the field. The stored decision survives later defaults.
+func TestGatewayPostOperatorWorkspaceDefault(t *testing.T) {
+	t.Setenv("GATEWAY_DEFAULT_WORKSPACE_MODE", "operator")
+	h, client := test.RegisterIntegration(t)
+	ctx := h.NewAuthenticatedContext(h.NewRandAccount())
+	registerTestCluster(t)
+	created, resp, err := client.DefaultAPI.CreateGateway(ctx).
+		GatewayCreateRequest(managedGatewayCreateRequest("operator-default")).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+	Expect(*created.WorkspaceMode).To(Equal("operator"))
+	t.Setenv("GATEWAY_DEFAULT_WORKSPACE_MODE", "managed")
+	retrieved, _, err := client.DefaultAPI.GetGateway(ctx, *created.Id).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(*retrieved.WorkspaceMode).To(Equal("operator"))
+
+	t.Setenv("GATEWAY_DEFAULT_WORKSPACE_MODE", "invalid")
+	_, _, err = client.DefaultAPI.CreateGateway(ctx).
+		GatewayCreateRequest(managedGatewayCreateRequest("invalid-default")).Execute()
+	Expect(err).To(HaveOccurred())
+	expectNoGatewayNamed(ctx, client, "invalid-default")
+}
+
 // TestGatewayPostRejectsWorkspaceMode proves workspace_mode is platform-managed
 // (PLAT-DATA-23): the strict create contract rejects a body that declares it,
 // naming the field, and nothing is persisted.

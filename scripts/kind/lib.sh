@@ -614,15 +614,11 @@ reconcile_keycloak_seed_users() {
   if [[ -n "${KIND_KEYCLOAK_URL:-}" ]]; then
     KEYCLOAK_BASE_URL="${KIND_KEYCLOAK_URL%/}"
   else
-    KEYCLOAK_BASE_URL="https://${KEYCLOAK_HOSTNAME}"
+    KEYCLOAK_BASE_URL="https://${KEYCLOAK_HOSTNAME}${PORT_SUFFIX:-}"
   fi
   KEYCLOAK_CURL_INSECURE=true
   TEST_USER_PASSWORD_SOURCE=static
-  if [[ -n "${KIND_KEYCLOAK_URL:-}" ]]; then
-    info "Reconciling Keycloak seed users via ${KIND_KEYCLOAK_URL}..."
-  else
-    info "Reconciling Keycloak seed users at https://${KEYCLOAK_HOSTNAME}..."
-  fi
+  info "Reconciling Keycloak seed users via ${KEYCLOAK_BASE_URL}..."
   if ! keycloak_reconcile_test_users; then
     error "Failed to reconcile static Keycloak test-tier principals"
     return 1

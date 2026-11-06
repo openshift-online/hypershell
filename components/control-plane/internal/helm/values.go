@@ -136,6 +136,7 @@ type ValuesBuilder struct {
 	// by this gateway. Empty string omits the field (cluster default, typically runc).
 	// Set to "kata" or "kata-remote" to run sandboxes inside lightweight VMs.
 	SandboxRuntimeClass string
+	OperatorWorkspace   *OperatorWorkspaceConfig
 }
 
 // Build computes Helm chart values from the Gateway configuration.
@@ -178,33 +179,23 @@ func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
 	// Pin fullnameOverride so every chart resource uses the expected name.
 	setNestedValue(values, ReleaseName, "fullnameOverride")
 
-	// Image values. The v0.1.2 chart uses gateway.image.{registry,repository,tag}
-	// and prepends global.image.registry (ghcr.io/nvidia) when the per-image
-	// registry is unset. We always pass fully-qualified image references from the
-	// gateway's resolved image, so we split registry out and set it explicitly
-	// per-image to prevent the global prefix from being applied.
-	if b.Gateway.Image != "" {
-		reg, repo, tag := splitImageRefFull(b.Gateway.Image)
-		setNestedValue(values, reg, "gateway", "image", "registry")
-		setNestedValue(values, repo, "gateway", "image", "repository")
-		setNestedValue(values, tag, "gateway", "image", "tag")
-	}
-
-	if b.Gateway.SupervisorImage != "" {
-		reg, repo, tag := splitImageRefFull(b.Gateway.SupervisorImage)
-		setNestedValue(values, reg, "supervisor", "image", "registry")
-		setNestedValue(values, repo, "supervisor", "image", "repository")
-		setNestedValue(values, tag, "supervisor", "image", "tag")
-	}
-
-	// The sandbox runtime and supervisor speak a versioned boundary protocol, so
-	// the runtime must be pinned to the same OpenShell build as the supervisor.
-	// Left unset, the chart defaults to a moving upstream tag.
-	if b.Gateway.SandboxRuntimeImage != "" {
-		reg, repo, tag := splitImageRefFull(b.Gateway.SandboxRuntimeImage)
-		setNestedValue(values, reg, "sandboxRuntime", "image", "registry")
-		setNestedValue(values, repo, "sandboxRuntime", "image", "repository")
-		setNestedValue(values, tag, "sandboxRuntime", "image", "tag")
+	// Chart image fields preserve a selected digest rather than falling back to its tag.
+	for component, image := range map[string]string{
+		"gateway":        b.Gateway.Image,
+		"supervisor":     b.Gateway.SupervisorImage,
+		"sandboxRuntime": b.Gateway.SandboxRuntimeImage,
+	} {
+		if image == "" {
+			continue
+		}
+		reg, repo, tag := splitImageRefFull(image)
+		setNestedValue(values, reg, component, "image", "registry")
+		setNestedValue(values, repo, component, "image", "repository")
+		if _, digest, pinned := strings.Cut(image, "@"); pinned {
+			setNestedValue(values, digest, component, "image", "digest")
+		} else {
+			setNestedValue(values, tag, component, "image", "tag")
+		}
 	}
 
 	// Workload configuration
@@ -245,6 +236,19 @@ func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
 			return err
 		}
 		setNestedValue(values, gatewayID, "server", "sandboxJwt", "gatewayId")
+	}
+
+	if b.Gateway.WorkspaceMode == "operator" {
+		if b.OperatorWorkspace == nil {
+			return fmt.Errorf("operator workspace mode requires GATEWAY_OPERATOR_WORKSPACE")
+		}
+		setNestedValue(values, false, "workspaceResources", "enabled")
+		setNestedValue(values, b.OperatorWorkspace.NamespaceLabelKey+"="+b.Namespace, "server", "drivers", "kubernetes", "operatorNamespaceLabel")
+		// The trusted workspace operator supplies its own PVCs, identities and policy.
+		setNestedValue(values, true, "server", "drivers", "kubernetes", "allowDriverConfig")
+		setNestedValue(values, false, "server", "drivers", "kubernetes", "resourceAdmission", "enabled")
+		setNestedValue(values, b.OperatorWorkspace.AllowedPodLabels, "gatewayConfig", "openshell.drivers.kubernetes", "allowed_pod_labels")
+		setNestedValue(values, true, "gatewayConfig", "openshell.gateway.mtls_auth", "enabled")
 	}
 
 	// Server DNS names for TLS certificate SANs
@@ -426,9 +430,9 @@ func (b *ValuesBuilder) buildIngressValues(values map[string]interface{}) error 
 		// Default: Kubernetes Gateway API mode. The reconciler creates the
 		// GRPCRoute, BackendTLSPolicy, and backend-ca ConfigMap after the helm
 		// release is installed, so the chart's own grpcRoute and backendTLSPolicy
-		// templates stay disabled (defaults from buildCoreValues). Only mTLS must
-		// be disabled because the Gateway proxy cannot present client certificates.
-		setNestedValue(values, false, "server", "tls", "enableMtls")
+		// templates stay disabled (defaults from buildCoreValues). Operator clients
+		// use mTLS directly; OpenShell also accepts bearer-only OIDC through ingress.
+		setNestedValue(values, b.Gateway.WorkspaceMode == "operator", "server", "tls", "enableMtls")
 		return nil
 	}
 
@@ -470,8 +474,8 @@ func (b *ValuesBuilder) buildOpenShiftValues(values map[string]interface{}) {
 }
 
 // splitImageRef splits an image reference into repository and tag.
-// The chart template joins repo:tag with a colon, so @sha256:... digest
-// suffixes are stripped. When both tag and digest are present
+// Digest is handled separately through the chart image.digest field.
+// When both tag and digest are present
 // (image:tag@sha256:...), the tag is retained. Handles registry ports
 // (registry:5000/image) by comparing colon position to last slash.
 func splitImageRef(image string) (repo, tag string) {

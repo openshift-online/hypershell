@@ -2,6 +2,9 @@
 
 HyperShell provisions and manages [OpenShell](https://github.com/NVIDIA/OpenShell) gateways at scale and across clouds.
 
+For a shared local cluster with OpenClaw Enterprise, see the
+[OCE and HyperShell kind setup](deploy/oce-kind/README.md).
+
 ## Local agent development
 
 Run the Fullsend dispatcher with `make fullsend`. See the

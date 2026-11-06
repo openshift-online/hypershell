@@ -675,8 +675,8 @@ A Gateway SHALL carry a `workspace_mode` field selecting how the OpenShell
 Kubernetes driver maps workspaces to namespaces (`shared`, `managed`, or
 `operator`, the vocabulary the vendored chart and the upstream gateway
 accept). The field is platform-managed (PLAT-DATA-23): the API server SHALL
-default `workspace_mode` to `managed` in the gateway service create funnel,
-after the field-policy check, so every creator class (REST, gRPC, `hsctl
+default `workspace_mode` to `GATEWAY_DEFAULT_WORKSPACE_MODE` (or `managed`
+when unset) in the gateway service create funnel, after the field-policy check, so every creator class (REST, gRPC, `hsctl
 apply`, `.hypershell` import, control plane) receives the default and no
 caller-supplied value survives. A user or import caller that declares
 `workspace_mode` on create or update SHALL be rejected naming the field. The
@@ -684,6 +684,10 @@ service funnel SHALL also enforce the field's value semantics for every
 writer class, the control plane included: the vocabulary above, and
 immutability of the stored value (re-sending the stored value is a no-op, and
 an update that omits the field keeps the stored value).
+
+The deployment default SHALL use the same validated vocabulary. Invalid
+configuration SHALL reject creation before persistence. Changing this setting
+SHALL NOT change an existing Gateway.
 
 Every stored Gateway SHALL carry a `workspace_mode`: the column is required
 (`NOT NULL`), so no Gateway is provisioned on the chart's default mode.
@@ -711,9 +715,18 @@ mode for a Gateway whose namespace does not match the generated
 `openshell-{16-hex}` shape, because no unique `gateway_id` can be derived for
 it.
 
+Operator mode requires deployment-owned `GATEWAY_OPERATOR_WORKSPACE` JSON with
+`namespaceLabelKey` and `allowedPodLabels`. The controller SHALL reject invalid
+configuration at startup and refuse operator provisioning when it is absent.
+The namespace selector value SHALL be the gateway's own API-assigned namespace.
+The controller enables external driver configuration and mTLS, retains the
+client CA with Gateway API ingress, and disables resource-admission labels for
+this trusted operator. Gateway users cannot set these deployment values. See
+[the shared OCE development installation](../../deploy/oce-kind/README.md).
+
 #### Scenario: OSG-CORE-18.01 -- New gateway defaults to managed
 
-- GIVEN the API server creates a Gateway with no `workspace_mode`
+- GIVEN the deployment default is unset and the API server creates a Gateway with no `workspace_mode`
 - THEN the persisted Gateway SHALL carry `workspace_mode = "managed"`
 - AND the GatewayReconciler SHALL pass `workspaceMode: managed` and a unique
   `gatewayId` into the Helm chart
