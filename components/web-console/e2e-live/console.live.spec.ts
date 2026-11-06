@@ -286,8 +286,7 @@ test.describe("live console user journey", () => {
     await expect(docs).toHaveAttribute("target", "_blank");
     await expect(docs).toHaveAttribute("rel", /noopener/u);
     const installStep = page.getByRole("button", {
-      name: "1 Install the OpenShell CLI",
-      exact: true,
+      name: /^1 Install the OpenShell CLI/u,
     });
     await installStep.click();
     await expect(installStep).toHaveAttribute("aria-expanded", "true");
