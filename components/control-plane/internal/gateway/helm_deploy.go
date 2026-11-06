@@ -53,6 +53,7 @@ func deployGatewayViaHelm(
 		HasVaultCA:                  hasVaultCA,
 		Resources:                   opts.GatewayResources,
 		SandboxRuntimeClass:         opts.SandboxRuntimeClass,
+		OperatorWorkspace:           opts.OperatorWorkspace,
 		OperatorNamespaceLabelKey:   opts.OperatorNamespaceLabelKey,
 		OperatorSandboxRuntimeClass: opts.OperatorSandboxRuntimeClass,
 	}

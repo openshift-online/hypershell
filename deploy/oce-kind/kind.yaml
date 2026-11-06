@@ -1,0 +1,27 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  apiServerAddress: "127.0.0.1"
+  disableDefaultCNI: true
+  podSubnet: "10.244.0.0/16"
+nodes:
+  - role: control-plane
+    image: kindest/node:v1.35.0@sha256:4613778f3cfcd10e615029370f5786704559103cf27bef934597ba562b269661
+    extraMounts:
+      - hostPath: __HYPERSHELL_REPO__
+        containerPath: /mnt/host
+      - hostPath: __STATE__/pod-security.yaml
+        containerPath: /etc/kubernetes/pod-security.yaml
+        readOnly: true
+    kubeadmConfigPatches:
+      - |
+        kind: ClusterConfiguration
+        apiServer:
+          extraArgs:
+            admission-control-config-file: /etc/kubernetes/pod-security.yaml
+          extraVolumes:
+            - name: pod-security
+              hostPath: /etc/kubernetes/pod-security.yaml
+              mountPath: /etc/kubernetes/pod-security.yaml
+              readOnly: true
+              pathType: File

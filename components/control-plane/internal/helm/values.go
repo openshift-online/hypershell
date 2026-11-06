@@ -3,6 +3,7 @@ package helm
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/distribution/reference"
@@ -133,6 +134,7 @@ type ValuesBuilder struct {
 	// operator stamps on an operator-mode gateway's tenant namespaces. The driver's
 	// operatorNamespaceLabel selector is built as <key>=<namespace> so a gateway
 	// discovers only its own tenant namespaces (OSG-OPWS-02). Operator mode only.
+	OperatorWorkspace         *OperatorWorkspaceConfig
 	OperatorNamespaceLabelKey string
 	// OperatorSandboxRuntimeClass is the administrator-approved sandbox RuntimeClass
 	// applied to server.defaultRuntimeClassName for operator-mode gateways ONLY
@@ -266,15 +268,32 @@ func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
 		setNestedValue(values, b.OperatorSandboxRuntimeClass, "server", "defaultRuntimeClassName")
 	}
 
+	if b.Gateway.WorkspaceMode == "operator" {
+		if b.OperatorWorkspace == nil {
+			return fmt.Errorf("operator workspace mode requires GATEWAY_OPERATOR_WORKSPACE")
+		}
+		setNestedValue(values, false, "workspaceResources", "enabled")
+		// The trusted workspace operator supplies its own PVCs, identities and policy.
+		setNestedValue(values, true, "server", "drivers", "kubernetes", "allowDriverConfig")
+		setNestedValue(values, false, "server", "drivers", "kubernetes", "resourceAdmission", "enabled")
+		setNestedValue(values, b.OperatorWorkspace.AllowedPodLabels, "gatewayConfig", "openshell.drivers.kubernetes", "allowed_pod_labels")
+		setNestedValue(values, true, "gatewayConfig", "openshell.gateway.mtls_auth", "enabled")
+	}
+
 	// Server DNS names for TLS certificate SANs
-	if len(b.Gateway.ServerDnsNames) > 0 {
-		setNestedValue(values, b.Gateway.ServerDnsNames, "pkiInitJob", "serverDnsNames")
+	dnsNames := b.Gateway.ServerDnsNames
+	// Operator clients reach sandbox services through OpenShell's internal routing domain.
+	if b.Gateway.WorkspaceMode == "operator" && !slices.Contains(dnsNames, "*.openshell.localhost") {
+		dnsNames = append(slices.Clone(dnsNames), "*.openshell.localhost")
+	}
+	if len(dnsNames) > 0 {
+		setNestedValue(values, dnsNames, "pkiInitJob", "serverDnsNames")
 		if b.HasCertManager {
 			// When cert-manager is enabled the chart ignores pkiInitJob.serverDnsNames:
 			// server_sans in gateway.toml and the internal server Certificate both
 			// come from certManager.serverDnsNames instead. Set both keys from the
 			// same source.
-			setNestedValue(values, b.Gateway.ServerDnsNames, "certManager", "serverDnsNames")
+			setNestedValue(values, dnsNames, "certManager", "serverDnsNames")
 		}
 	}
 
@@ -434,9 +453,9 @@ func (b *ValuesBuilder) buildIngressValues(values map[string]interface{}) error 
 	// Kubernetes Gateway API mode. The reconciler creates the GRPCRoute,
 	// BackendTLSPolicy, and backend-ca ConfigMap after the helm release is
 	// installed, so the chart's own grpcRoute and backendTLSPolicy templates stay
-	// disabled (defaults from buildCoreValues). Only mTLS must be disabled
-	// because the Gateway proxy cannot present client certificates.
-	setNestedValue(values, false, "server", "tls", "enableMtls")
+	// disabled (defaults from buildCoreValues). Operator clients use mTLS directly;
+	// OpenShell also accepts bearer-only OIDC through ingress.
+	setNestedValue(values, b.Gateway.WorkspaceMode == "operator", "server", "tls", "enableMtls")
 	return nil
 }
 

@@ -135,6 +135,7 @@ type GatewayReconciler struct {
 	// scope operator-mode gateways to their own tenant namespaces
 	// (GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY); empty fails operator gateways closed
 	// and skips the operator tenant-namespace sweep on delete (OSG-OPWS-02/04/06).
+	operatorWorkspace         *helm.OperatorWorkspaceConfig
 	operatorNamespaceLabelKey string
 	// operatorSandboxRuntimeClass is the administrator-approved sandbox RuntimeClass
 	// applied to operator-mode gateways only (GATEWAY_OPERATOR_SANDBOX_RUNTIME_CLASS).
@@ -221,6 +222,7 @@ func NewGatewayReconciler(
 	clusterID string,
 	gatewayResources *corev1.ResourceRequirements,
 	sandboxRuntimeClass string,
+	operatorWorkspace *helm.OperatorWorkspaceConfig,
 	operatorNamespaceLabelKey string,
 	operatorSandboxRuntimeClass string,
 ) (*GatewayReconciler, error) {
@@ -277,6 +279,7 @@ func NewGatewayReconciler(
 		clusterID:                   clusterID,
 		gatewayResources:            gatewayResources,
 		sandboxRuntimeClass:         sandboxRuntimeClass,
+		operatorWorkspace:           operatorWorkspace,
 		operatorNamespaceLabelKey:   operatorNamespaceLabelKey,
 		operatorSandboxRuntimeClass: operatorSandboxRuntimeClass,
 	}, nil
@@ -719,6 +722,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		IngressBaseDomain:           r.ingressBaseDomain,
 		GatewayResources:            r.gatewayResources,
 		SandboxRuntimeClass:         r.sandboxRuntimeClass,
+		OperatorWorkspace:           r.operatorWorkspace,
 		OperatorNamespaceLabelKey:   r.operatorNamespaceLabelKey,
 		OperatorSandboxRuntimeClass: r.operatorSandboxRuntimeClass,
 	}

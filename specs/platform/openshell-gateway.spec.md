@@ -724,6 +724,15 @@ mode for a Gateway whose namespace does not match the generated
 `openshell-{16-hex}` shape, because no unique `gateway_id` can be derived for
 it.
 
+Operator mode requires deployment-owned `GATEWAY_OPERATOR_WORKSPACE` JSON with
+`namespaceLabelKey` and `allowedPodLabels`. The controller SHALL reject invalid
+configuration at startup and refuse operator provisioning when it is absent.
+The namespace selector value SHALL be the gateway's own API-assigned namespace.
+The controller enables external driver configuration and mTLS, retains the
+client CA with Gateway API ingress, and disables resource-admission labels for
+this trusted operator. Gateway users cannot set these deployment values. See
+[the shared OCE development installation](../../deploy/oce-kind/README.md).
+
 #### Scenario: OSG-CORE-18.01 -- New gateway defaults to managed
 
 - GIVEN the API server creates a Gateway with no `workspace_mode`
