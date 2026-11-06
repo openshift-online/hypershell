@@ -188,6 +188,9 @@ export function ResourceTable<Row>({
           title: String(value),
           value,
         }))}
+        titles={{
+          paginationAriaLabel: `${ariaLabel} top pagination`,
+        }}
         widgetId={`${id}-pagination`}
       />
     </ToolbarItem>
@@ -301,6 +304,9 @@ export function ResourceTable<Row>({
                   title: String(value),
                   value,
                 }))}
+                titles={{
+                  paginationAriaLabel: `${ariaLabel} bottom pagination`,
+                }}
                 variant="bottom"
                 widgetId={`${id}-bottom-pagination`}
               />

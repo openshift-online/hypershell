@@ -182,17 +182,17 @@ export function ApplicationShell() {
         <Nav aria-label={intl.formatMessage(messages.primaryNavigation)}>
           <NavList>
             <NavItem isActive={isOverviewRoute} key={routePaths.home}>
-              <Link to={routePaths.home}>
+              <Link className={styles.navLink} to={routePaths.home}>
                 {intl.formatMessage(messages.overview)}
               </Link>
             </NavItem>
             <NavItem isActive={isGatewayRoute} key={routePaths.gatewayList}>
-              <Link to={routePaths.gatewayList}>
+              <Link className={styles.navLink} to={routePaths.gatewayList}>
                 {intl.formatMessage(gatewayMessages.gateways)}
               </Link>
             </NavItem>
             <NavItem isActive={isDashboardRoute} key={routePaths.dashboard}>
-              <Link to={routePaths.dashboard}>
+              <Link className={styles.navLink} to={routePaths.dashboard}>
                 {intl.formatMessage(messages.dashboard)}
               </Link>
             </NavItem>

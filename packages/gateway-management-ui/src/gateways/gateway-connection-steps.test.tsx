@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { IntlProvider } from "react-intl";
 import { describe, expect, it, vi } from "vitest";
@@ -160,8 +160,9 @@ describe("GatewayConnectionSteps", () => {
     renderSteps();
 
     await user.click(getStepToggle("Connect this gateway to EnMaaS"));
-    await user.clear(screen.getByLabelText("Provider name"));
-    await user.type(screen.getByLabelText("Provider name"), "acme");
+    fireEvent.change(screen.getByLabelText("Provider name"), {
+      target: { value: "acme" },
+    });
     await user.click(
       screen.getByRole("button", {
         name: "Copy command for step 5, Connect this gateway to EnMaaS",
@@ -172,10 +173,12 @@ describe("GatewayConnectionSteps", () => {
     expect(providerCommand).toContain("openshell provider create");
 
     await user.click(getStepToggle("Create a Claude sandbox"));
-    await user.clear(screen.getByLabelText("Sandbox name"));
-    await user.type(screen.getByLabelText("Sandbox name"), "scratch");
-    await user.clear(screen.getByLabelText("Claude model"));
-    await user.type(screen.getByLabelText("Claude model"), "acme-model");
+    fireEvent.change(screen.getByLabelText("Sandbox name"), {
+      target: { value: "scratch" },
+    });
+    fireEvent.change(screen.getByLabelText("Claude model"), {
+      target: { value: "acme-model" },
+    });
     await user.click(
       screen.getByRole("button", {
         name: "Copy command for step 6, Create a Claude sandbox",
