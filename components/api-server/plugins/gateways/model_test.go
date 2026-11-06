@@ -79,6 +79,7 @@ func TestDesiredStateChanged(t *testing.T) {
 		{"observed route_address ignored", func(g *Gateway) { g.RouteAddress = str("grpcs://x") }, false},
 		{"observed generation ignored", func(g *Gateway) { g.ObservedGeneration = 5 }, false},
 		{"desired image changed", func(g *Gateway) { g.Image = str("img:2") }, true},
+		{"desired additional CA bundle changed", func(g *Gateway) { g.AdditionalCABundle = str(testAdditionalCACertificate) }, true},
 		{"desired cluster changed", func(g *Gateway) { g.ClusterId = "c2" }, true},
 		{"desired oidc changed", func(g *Gateway) { g.Oidc = str(`{"issuer":"b"}`) }, true},
 		{"desired route set from nil", func(g *Gateway) { g.Route = str(`{"host":"h"}`) }, true},

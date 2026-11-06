@@ -29,6 +29,7 @@ func gatewayToProto(d *Gateway) *pb.Gateway {
 		Phase:              d.Phase,
 		Image:              d.Image,
 		SupervisorImage:    d.SupervisorImage,
+		AdditionalCaBundle: d.AdditionalCABundle,
 		RouteAddress:       d.RouteAddress,
 		ConsoleAddress:     d.ConsoleAddress,
 		GatewayVersion:     d.GatewayVersion,

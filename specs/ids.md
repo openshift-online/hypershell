@@ -121,6 +121,7 @@ listed in `specs/id-rename-map.md`, not here.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
+| `OSG-ACA` | `platform/openshell-gateway-additional-ca.spec.md` | 4 |
 | `OSG-CON` | `platform/openshell-gateway-console.spec.md` | 9 |
 | `OSG-CORE` | `platform/openshell-gateway.spec.md` | 17 |
 | `OSG-CRED` | `platform/openshell-gateway-credentials.spec.md` | 12 |

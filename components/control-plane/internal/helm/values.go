@@ -124,7 +124,11 @@ type ValuesBuilder struct {
 	ExternalCAIssuerKind string
 	// HasTrustedCA indicates whether the gateway-trusted-ca ConfigMap exists
 	HasTrustedCA bool
-	// AdditionalCAConfigMapName supplies destination TLS roots to sandbox supervisors.
+	// AdditionalCAConfigMapName supplies destination TLS roots to sandbox
+	// supervisors: the content-addressed ConfigMap carrying the gateway's
+	// effective destination-CA bundle (user additional_ca_bundle composed with
+	// the operator tier per the merge policy). Empty disables additional
+	// destination trust. See specs/platform/openshell-gateway-additional-ca.spec.md.
 	AdditionalCAConfigMapName string
 	// HasVaultCA indicates whether the per-tenant openshell-gateway-vault-ca
 	// ConfigMap (the mirrored Vault serving CA) exists, so the vault driver's

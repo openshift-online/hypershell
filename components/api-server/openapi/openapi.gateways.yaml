@@ -307,6 +307,11 @@ components:
               type: string
               readOnly: true
               description: Container image for the supervisor sidecar; platform-managed, control-plane-only (PLAT-DATA-23)
+            additional_ca_bundle:
+              type: string
+              nullable: true
+              description: User-supplied PEM bundle of additional destination CA certificates for sandbox egress to private-PKI destinations; empty means default trust roots. User-writable on create and update (PLAT-DATA-23 allowlist exception)
+              x-file-input: true
             server_dns_names:
               type: array
               items:
@@ -445,7 +450,11 @@ components:
             Late-bind the gateway by capability-label selector. Mutually exclusive
             with cluster_id.
           $ref: '#/components/schemas/GatewayPlacementIntent'
-
+        additional_ca_bundle:
+          type: string
+          nullable: true
+          description: User-supplied PEM bundle of additional destination CA certificates for sandbox egress to private-PKI destinations; empty means default trust roots. User-writable on create (PLAT-DATA-23 allowlist exception)
+          x-file-input: true
     GatewayPlacementIntent:
       type: object
       description: >-
@@ -520,14 +529,20 @@ components:
     # NEW SCHEMA END
       type: object
       description: >-
-        The only user-writable gateway field on update is name (rename). Every other
-        gateway field is platform-managed and control-plane-only; it is not part of the
-        update contract and is rejected if a user or import caller changes it
-        (data-model.spec.md "Requirement: Gateway Field Ownership and Write Policy",
-        PLAT-DATA-23).
+        The only user-writable gateway fields on update are name (rename) and
+        additional_ca_bundle (user-authored trust material, PLAT-DATA-23 allowlist
+        exception). Every other gateway field is platform-managed and
+        control-plane-only; it is not part of the update contract and is rejected if a
+        user or import caller changes it (data-model.spec.md "Requirement: Gateway
+        Field Ownership and Write Policy", PLAT-DATA-23).
       properties:
         name:
           type: string
+        additional_ca_bundle:
+          type: string
+          nullable: true
+          description: User-supplied PEM bundle of additional destination CA certificates for sandbox egress to private-PKI destinations; empty means default trust roots. Set to null or empty string to clear the bundle. User-writable on update (PLAT-DATA-23 allowlist exception)
+          x-file-input: true
   parameters:
       id:
         name: id

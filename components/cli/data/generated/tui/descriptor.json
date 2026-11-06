@@ -1521,6 +1521,12 @@
           "format": "int32"
         },
         {
+          "property": "additional_ca_bundle",
+          "label": "ADDITIONAL CA BUNDLE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
           "property": "can_delete",
           "label": "CAN DELETE",
           "priority": 0,
@@ -3287,6 +3293,12 @@
           "format": "int32"
         },
         {
+          "property": "additional_ca_bundle",
+          "label": "ADDITIONAL CA BUNDLE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
           "property": "can_delete",
           "label": "CAN DELETE",
           "priority": 0,
@@ -4319,6 +4331,12 @@
         "required": true,
         "contentType": "application/json",
         "fields": [
+          {
+            "name": "additional_ca_bundle",
+            "type": "string",
+            "required": false,
+            "description": "User-supplied PEM bundle of additional destination CA certificates for sandbox egress to private-PKI destinations; empty means default trust roots. User-writable on create (PLAT-DATA-23 allowlist exception)"
+          },
           {
             "name": "cluster_id",
             "type": "string",
@@ -9625,6 +9643,12 @@
         "required": true,
         "contentType": "application/json",
         "fields": [
+          {
+            "name": "additional_ca_bundle",
+            "type": "string",
+            "required": false,
+            "description": "User-supplied PEM bundle of additional destination CA certificates for sandbox egress to private-PKI destinations; empty means default trust roots. Set to null or empty string to clear the bundle. User-writable on update (PLAT-DATA-23 allowlist exception)"
+          },
           {
             "name": "name",
             "type": "string",

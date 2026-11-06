@@ -16,8 +16,9 @@ import (
 )
 
 var args struct {
-	name     string
-	bodyFile string
+	additionalCaBundle string
+	name               string
+	bodyFile           string
 }
 
 var Cmd = &cobra.Command{
@@ -26,7 +27,7 @@ var Cmd = &cobra.Command{
 	Short:   "Update a gateway by ID",
 	Long: "Update a gateway by ID using PATCH. Only the flags that are set are sent.\n\n" +
 		"Examples:\n" +
-		"  hsctl update gateway ID --name <value>\n" +
+		"  hsctl update gateway ID --additional-ca-bundle <value> --name <value>\n" +
 		"  hsctl update gateway ID --body request.json",
 	Args: cobra.ExactArgs(1),
 	RunE: run,
@@ -34,6 +35,7 @@ var Cmd = &cobra.Command{
 
 func init() {
 	fs := Cmd.Flags()
+	fs.StringVar(&args.additionalCaBundle, "additional-ca-bundle", "", "additional_ca_bundle value.")
 	fs.StringVar(&args.name, "name", "", "name value.")
 	fs.StringVar(&args.bodyFile, "body", "", "File containing the request body as JSON.")
 }
@@ -50,6 +52,9 @@ func run(cmd *cobra.Command, argv []string) error {
 		}
 	} else {
 		request := map[string]interface{}{}
+		if cmd.Flags().Changed("additional-ca-bundle") {
+			request["additional_ca_bundle"] = args.additionalCaBundle
+		}
 		if cmd.Flags().Changed("name") {
 			request["name"] = args.name
 		}

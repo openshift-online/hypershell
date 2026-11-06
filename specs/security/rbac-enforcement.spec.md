@@ -722,9 +722,10 @@ field policy from that marker:
 - **`control-plane`** - a control-plane gRPC request WITHOUT import metadata (the
   internal reconcile write-back path).
 
-A `user` or `import` caller SHALL be allowed to write only the allowlist (`name` on
-update; `name` + exactly one of `placement`/`cluster_id` + the create-only
-`dedicated_route` request flag on create, PLAT-DATA-26). Any other field
+A `user` or `import` caller SHALL be allowed to write only the allowlist (`name` and
+`additional_ca_bundle` on update; `name`, `additional_ca_bundle`, exactly one of
+`placement`/`cluster_id`, and the create-only `dedicated_route` request flag on
+create, PLAT-DATA-26). Any other field
 that differs from the stored value (update) or is set (create) SHALL be rejected,
 naming the field: `403 Forbidden` over REST, `PERMISSION_DENIED` over gRPC. Re-sending
 an unchanged value SHALL be a no-op. Only a `control-plane` (non-import) caller SHALL

@@ -325,6 +325,7 @@ func desiredStateChanged(current, next *Gateway) bool {
 		!strEq(current.ServiceType, next.ServiceType) ||
 		!strEq(current.Image, next.Image) ||
 		!strEq(current.SupervisorImage, next.SupervisorImage) ||
+		!strEq(current.AdditionalCABundle, next.AdditionalCABundle) ||
 		!strEq(current.ServerDnsNames, next.ServerDnsNames) ||
 		!jsonEq(current.Oidc, next.Oidc) ||
 		!jsonEq(current.Route, next.Route) ||

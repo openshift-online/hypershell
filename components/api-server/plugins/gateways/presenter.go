@@ -13,7 +13,12 @@ import (
 // by the handler before persistence (PLAT-DATA-23). Every other gateway field is
 // platform-managed and set only by the control plane, so none is copied here.
 func ConvertGateway(gateway openapi.GatewayCreateRequest) *Gateway {
-	return &Gateway{Name: gateway.Name, DedicatedRoute: gateway.DedicatedRoute}
+	// additional_ca_bundle is the one workload-relevant field on the create
+	// allowlist besides name/placement/dedicated_route (PLAT-DATA-23):
+	// user-authored trust material, validated by the handler before persistence.
+	// The property is nullable: an explicit null and an omitted field both
+	// resolve to no user trust.
+	return &Gateway{Name: gateway.Name, DedicatedRoute: gateway.DedicatedRoute, AdditionalCABundle: gateway.AdditionalCaBundle.Get()}
 }
 
 // PresentGateway converts a Gateway model to its REST representation.
@@ -54,6 +59,12 @@ func PresentGateway(gateway *Gateway, createdBy string, canDelete bool, canEdit 
 			}
 			return nil
 		}(),
+	}
+
+	// additional_ca_bundle is nullable on the response: a gateway without user
+	// trust presents JSON null, distinguishing it from an empty-string clear.
+	if gateway.AdditionalCABundle != nil {
+		g.AdditionalCaBundle.Set(gateway.AdditionalCABundle)
 	}
 
 	if createdBy != "" {
