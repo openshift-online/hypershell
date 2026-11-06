@@ -198,7 +198,7 @@ test.describe("live console user journey", () => {
     await expect(
       page
         .getByRole("heading", { level: 1, name: gatewayName })
-        .locator("..")
+        .locator("../..")
         .getByText(gateway?.status ?? "Running"),
     ).toBeVisible({ timeout: pageTimeout });
   });
