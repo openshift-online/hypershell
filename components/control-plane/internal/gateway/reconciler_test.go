@@ -328,7 +328,9 @@ func TestDeleteLabeledNamespaceResources(t *testing.T) {
 
 	// Default opts: the optional cert-manager / Gateway API GVRs are not swept, so
 	// they need not be registered above.
-	DeleteLabeledNamespaceResources(context.Background(), dc, ns, ReconcileOpts{})
+	if err := DeleteLabeledNamespaceResources(context.Background(), dc, ns, ReconcileOpts{}); err != nil {
+		t.Fatalf("DeleteLabeledNamespaceResources: %v", err)
+	}
 
 	// Every labeled resource this gateway created is gone.
 	labeled := []struct {

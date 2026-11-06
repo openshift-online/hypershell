@@ -142,6 +142,25 @@ The GatewayReconciler SHALL detect changes to OIDC configuration and trigger a g
 
 ---
 
+### Requirement: OSG-OIDC-05 -- Resolved OIDC Configuration Is Persisted Durably
+
+When the control plane resolves a gateway's OIDC configuration and writes it back
+to the API server (so the stored Gateway reflects the issuer, audience, and role
+claims the running pod uses), a failed write-back SHALL be surfaced so the
+reconcile pass retries. The control plane SHALL NOT log the write-back failure and
+report the pass successful, because that leaves the API server's stored OIDC
+configuration out of sync with the deployed gateway until an unrelated change
+triggers another pass.
+
+#### Scenario: OSG-OIDC-05.01 -- Failed OIDC write-back is retried, not swallowed
+
+- GIVEN a reconcile pass that resolved a gateway's OIDC configuration
+- WHEN the write-back of that configuration to the API server fails
+- THEN the control plane SHALL surface the error so the pass is retried
+- AND it SHALL NOT report the reconcile successful with the stored OIDC configuration left unwritten
+
+---
+
 ## CLI Authentication Flow
 
 ```bash

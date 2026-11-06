@@ -712,10 +712,16 @@ func (x *CreateGatewayResponse) GetGateway() *Gateway {
 }
 
 type GetGatewayRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// include_deleted returns the record even when it is soft-deleted
+	// (deleted_at set), using the unscoped query. The control plane uses this to
+	// re-read a deleting gateway for a nil-payload delete event so teardown can be
+	// reconciled from the record instead of being silently skipped
+	// (watch-delete-events.spec.md CTRL-WDEL-04).
+	IncludeDeleted bool `protobuf:"varint,2,opt,name=include_deleted,json=includeDeleted,proto3" json:"include_deleted,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *GetGatewayRequest) Reset() {
@@ -753,6 +759,13 @@ func (x *GetGatewayRequest) GetId() string {
 		return x.Id
 	}
 	return ""
+}
+
+func (x *GetGatewayRequest) GetIncludeDeleted() bool {
+	if x != nil {
+		return x.IncludeDeleted
+	}
+	return false
 }
 
 type GetGatewayResponse struct {
@@ -1953,9 +1966,10 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x0f_workspace_modeB\x12\n" +
 	"\x10_dedicated_route\"I\n" +
 	"\x15CreateGatewayResponse\x120\n" +
-	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"#\n" +
+	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"L\n" +
 	"\x11GetGatewayRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"F\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
+	"\x0finclude_deleted\x18\x02 \x01(\bR\x0eincludeDeleted\"F\n" +
 	"\x12GetGatewayResponse\x120\n" +
 	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"\xf4\a\n" +
 	"\x14UpdateGatewayRequest\x12\x0e\n" +

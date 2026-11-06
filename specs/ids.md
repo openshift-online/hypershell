@@ -57,7 +57,7 @@ listed in `specs/id-rename-map.md`, not here.
 | `CTRL-CORE` | `platform/control-plane.spec.md` | 15 |
 | `CTRL-TLS` | `platform/hub-grpc-tls.spec.md` | 5 |
 | `CTRL-TRC` | `platform/reconcile-trace-correlation.spec.md` | 5 |
-| `CTRL-WDEL` | `platform/watch-delete-events.spec.md` | 3 |
+| `CTRL-WDEL` | `platform/watch-delete-events.spec.md` | 4 |
 
 ### DEV
 
@@ -130,9 +130,9 @@ listed in `specs/id-rename-map.md`, not here.
 | `OSG-KCLK` | `platform/openshell-gateway-keycloak.spec.md` | 11 |
 | `OSG-KCLT` | `platform/openshell-gateway-keycloak.transitional.spec.md` | 1 |
 | `OSG-NSGC` | `platform/openshell-gateway-namespace-gc.spec.md` | 8 |
-| `OSG-OIDC` | `platform/openshell-gateway-oidc.spec.md` | 4 |
+| `OSG-OIDC` | `platform/openshell-gateway-oidc.spec.md` | 5 |
 | `OSG-ROT` | `platform/openshell-gateway-secret-rotation.spec.md` | 2 |
-| `OSG-ROUT` | `platform/openshell-gateway-routing.spec.md` | 12 |
+| `OSG-ROUT` | `platform/openshell-gateway-routing.spec.md` | 15 |
 | `OSG-SACC` | `platform/openshell-gateway-service-accounts.spec.md` | 18 |
 | `OSG-SBX` | `platform/openshell-gateway-sandbox-count.spec.md` | 7 |
 | `OSG-SEVT` | `platform/gateway-sandbox-events.spec.md` | 6 |
