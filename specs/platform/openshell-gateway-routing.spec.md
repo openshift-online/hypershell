@@ -254,6 +254,10 @@ The control plane SHALL create a BackendTLSPolicy to enable TLS verification fro
 - Create BackendTLSPolicy targeting `openshell-gateway` Service
 - Validation hostname: `openshell-gateway.<namespace>.svc.cluster.local`
 
+The CA read, the ordered backend-CA ConfigMap and BackendTLSPolicy writes, and
+the tolerance for a missing BackendTLSPolicy CRD follow OSG-ROUT-14, OSG-ROUT-15,
+and OSG-ROUT-16.
+
 **Note:** BackendTLSPolicy only handles server certificate validation (the ingress proxy verifies the gateway pod's certificate). It does NOT support the proxy presenting a client certificate to the backend. Therefore, in Gateway API routing mode the control plane sets the Helm value `server.tls.enableMtls=false` -- see `openshell-gateway-tls.spec.md` § Client Certificate Verification Conditional on Routing.
 
 ---
@@ -439,6 +443,75 @@ Service port aliasing the gRPC pod port (see istio/istio#36185).
 - WHEN its ports are inspected
 - THEN it SHALL expose a `grpc` port (`appProtocol: grpc`) and an `http` port (`appProtocol: http`)
 - AND both SHALL set `targetPort: grpc`, resolving to the single gateway pod container port
+
+---
+
+### Requirement: OSG-ROUT-14 -- Backend CA Read Distinguishes Absent From Failed
+
+When the control plane reads `ca.crt` from the `openshell-server-tls` Secret to
+build the backend-CA material, it SHALL distinguish a genuinely absent CA from a
+failed read. A Secret that is `NotFound`, or that is present without a `ca.crt`
+key, is a genuine "no CA" state and MAY proceed without the backend-CA ConfigMap
+and BackendTLSPolicy. Any other error reading the Secret (for example a transient
+API failure) SHALL be surfaced so the reconcile pass retries. The control plane
+SHALL NOT read a failed Secret read as "no CA" and SHALL NOT disable backend TLS
+verification on the strength of an unconfirmed read.
+
+#### Scenario: OSG-ROUT-14.01 -- Transient read failure retries instead of disabling backend TLS
+
+- GIVEN a routed Gateway whose `openshell-server-tls` Secret read fails transiently
+- WHEN the control plane reconciles the route resources
+- THEN it SHALL return an error so the pass is retried
+- AND it SHALL NOT skip the backend-CA ConfigMap and BackendTLSPolicy as if the CA were absent
+
+#### Scenario: OSG-ROUT-14.02 -- Genuinely absent CA proceeds without backend TLS material
+
+- GIVEN a routed Gateway whose `openshell-server-tls` Secret is absent or has no `ca.crt` key
+- WHEN the control plane reconciles the route resources
+- THEN it SHALL treat the CA as absent
+- AND it MAY proceed without creating the backend-CA ConfigMap or BackendTLSPolicy
+
+---
+
+### Requirement: OSG-ROUT-15 -- Dependent BackendTLSPolicy Requires a Durable Backend CA
+
+The backend-CA ConfigMap (`openshell-gateway-backend-ca`) and the BackendTLSPolicy
+that references it SHALL be reconciled as an ordered, fail-closed pair. A create or
+update failure on the backend-CA ConfigMap SHALL be surfaced, and the control
+plane SHALL NOT create or update the dependent BackendTLSPolicy after a failed
+ConfigMap write. A BackendTLSPolicy SHALL NOT be left referencing a missing or
+stale CA ConfigMap.
+
+#### Scenario: OSG-ROUT-15.01 -- ConfigMap write failure stops before the dependent policy
+
+- GIVEN a routed Gateway whose backend-CA ConfigMap create or update fails
+- WHEN the control plane reconciles the route resources
+- THEN it SHALL surface the ConfigMap write error
+- AND it SHALL NOT create or update the BackendTLSPolicy that references that ConfigMap
+
+---
+
+### Requirement: OSG-ROUT-16 -- BackendTLSPolicy Errors Tolerated Only When the CRD Is Absent
+
+Reconciling the BackendTLSPolicy SHALL tolerate only the case where the
+BackendTLSPolicy CRD is not installed on the cluster (the Gateway API transport
+policy is unavailable); that case MAY be logged and skipped. Every other error
+(for example an RBAC denial, a conflict, or an API outage) SHALL be surfaced so
+the reconcile pass retries, rather than being logged and discarded.
+
+#### Scenario: OSG-ROUT-16.01 -- Missing CRD is tolerated
+
+- GIVEN a cluster where the BackendTLSPolicy CRD is not installed
+- WHEN the control plane reconciles the BackendTLSPolicy
+- THEN it SHALL treat the absent CRD as a tolerated, skipped step without failing the pass
+
+#### Scenario: OSG-ROUT-16.02 -- Non-CRD errors are surfaced
+
+- GIVEN a cluster where the BackendTLSPolicy CRD is installed
+- AND reconciling the BackendTLSPolicy fails with an RBAC, conflict, or API-outage error
+- WHEN the control plane reconciles the BackendTLSPolicy
+- THEN it SHALL surface the error so the pass is retried
+- AND it SHALL NOT discard the error as if the CRD were absent
 
 ---
 

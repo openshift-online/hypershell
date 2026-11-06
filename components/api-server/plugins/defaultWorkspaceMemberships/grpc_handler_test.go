@@ -10,7 +10,7 @@ import (
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 )
 
-// Verifies: a registered control plane cannot use its own (legitimate)
+// A registered control plane must not be able to use its own (legitimate)
 // gateway_id to overwrite the status of a membership row that actually belongs
 // to a different gateway. The gRPC authorization layer only checks that the
 // REQUEST's gateway_id belongs to the caller's cluster; this handler is the one
