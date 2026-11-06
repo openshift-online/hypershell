@@ -125,7 +125,7 @@ listed in `specs/id-rename-map.md`, not here.
 | `OSG-CORE` | `platform/openshell-gateway.spec.md` | 17 |
 | `OSG-CRED` | `platform/openshell-gateway-credentials.spec.md` | 12 |
 | `OSG-DBS` | `platform/openshell-gateway-database.spec.md` | 12 |
-| `OSG-HELM` | `platform/openshell-gateway-helm-adoption.spec.md` | 3 |
+| `OSG-HELM` | `platform/openshell-gateway-helm-adoption.spec.md` | 4 |
 | `OSG-HLTH` | `platform/openshell-gateway-health.spec.md` | 7 |
 | `OSG-KCLK` | `platform/openshell-gateway-keycloak.spec.md` | 11 |
 | `OSG-KCLT` | `platform/openshell-gateway-keycloak.transitional.spec.md` | 1 |
