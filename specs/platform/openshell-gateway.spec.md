@@ -792,7 +792,9 @@ it.
 
 When the configured platform is OpenShift (`HYPERSHELL_CLUSTER_PLATFORM=openshift`, see [`control-plane.spec.md`](./control-plane.spec.md), CTRL-CORE-16), its reconcilers SHALL adjust gateway Deployments to conform to OpenShift's SecurityContextConstraints (SCC) and PodSecurity admission requirements. The gateway adjustments follow the [NVIDIA OpenShell OpenShift deployment guide](https://docs.nvidia.com/openshell/kubernetes/openshift).
 
-The platform type SHALL come from configuration, NOT from Kubernetes API discovery. The control plane SHALL NOT decide these pod security and SCC adjustments by probing for the `route.openshift.io` API group, and a discovery failure (missing, stale, forbidden, or unreachable group) SHALL NOT switch an OpenShell gateway on OpenShift to the fixed UID/group defaults or skip the required security setup (CTRL-CORE-16, CTRL-CORE-17). Discovery remains the authority only for feature prerequisites such as Gateway API ingress resources (OSG-ROUT-02, CTRL-CORE-18, CTRL-CORE-19), never for the configured platform type.
+The configured platform SHALL select pod security and SCC integration
+(CTRL-CORE-16). The shared dependency-discovery contract SHALL determine availability
+of feature prerequisites such as Gateway API resources (CTRL-CORE-18, CTRL-CORE-19).
 
 **Key difference from vanilla Kubernetes:** OpenShift enforces the `restricted` PodSecurity standard by default. Hardcoded `fsGroup`, `runAsUser`, and `runAsGroup` values conflict with OpenShift's SCC admission controller, which assigns UIDs and GIDs from each namespace's allocated ranges. Additionally, sandbox pods require the `privileged` SCC to function correctly.
 
@@ -816,21 +818,20 @@ The platform type SHALL come from configuration, NOT from Kubernetes API discove
 - AND it SHALL clear the `securityContext.runAsUser` field (set to null/omit) so that OpenShift's SCC admission controller assigns the UID from the namespace's allocated range
 - AND all gateway containers SHALL set `securityContext.seccompProfile.type` to `RuntimeDefault` to satisfy the `restricted:latest` PodSecurity standard
 
-#### Scenario: OSG-CORE-14.03 -- Gateway deployment on vanilla Kubernetes (unchanged)
+#### Scenario: OSG-CORE-14.03 -- Kubernetes gateway pod security context
 
 - GIVEN `HYPERSHELL_CLUSTER_PLATFORM=kubernetes` (e.g., Kind, EKS, GKE)
 - WHEN the reconciler applies gateway manifests
-- THEN it SHALL NOT modify `podSecurityContext.fsGroup` or `securityContext.runAsUser` (the chart defaults are correct for non-OpenShift)
-- AND it SHALL NOT create SCC bindings (SCC is an OpenShift-only concept)
-- AND the `seccompProfile.type: RuntimeDefault` SHALL still be set (it is valid on all Kubernetes clusters)
+- THEN it SHALL render the gateway chart's configured `podSecurityContext.fsGroup` and `securityContext.runAsUser` values
+- AND gateway containers SHALL use `seccompProfile.type: RuntimeDefault`
 
 #### Scenario: OSG-CORE-14.04 -- Platform from configuration, prerequisites from discovery
 
 - GIVEN `HYPERSHELL_CLUSTER_PLATFORM=openshift`
 - WHEN the reconciler reconciles a gateway
-- THEN it SHALL apply the SCC/security adjustments because the configured platform is OpenShift, NOT because a `route.openshift.io` discovery probe succeeded
+- THEN it SHALL apply the OpenShift SCC/security integration defined in OSG-CORE-14.01 and OSG-CORE-14.02
 - AND it SHALL determine Gateway API ingress availability from the shared, refreshable dependency discovery (OSG-ROUT-02, CTRL-CORE-18), distinguishing present, confirmed-absent, and unknown/unavailable
-- AND a discovery failure SHALL NOT clear the OpenShift SCC/security adjustments
+- AND it SHALL keep the configured OpenShift security behavior through dependency discovery failures
 
 #### Scenario: OSG-CORE-14.05 -- OpenShift security retained when an unrelated group is stale
 
@@ -838,7 +839,7 @@ The platform type SHALL come from configuration, NOT from Kubernetes API discove
 - AND an unrelated API group (for example `projectcalico.org/v3`) fails discovery as stale
 - WHEN the reconciler reconciles a gateway
 - THEN it SHALL still clear `podSecurityContext.fsGroup` and `securityContext.runAsUser` and bind the `privileged` SCC
-- AND it SHALL NOT render the gateway pod with fixed `runAsUser`/`fsGroup` because of the unrelated discovery failure
+- AND OpenShift admission SHALL assign the gateway pod identity from the namespace's allocated range
 
 ---
 
@@ -902,7 +903,7 @@ Gateway provisioning SHALL be independent of agent definitions. Agent-specific c
 
 | Variable | Default | Description |
 |---|---|---|
-| `HYPERSHELL_CLUSTER_PLATFORM` | `openshift` (transitional default when unset; see CTRL-CORE-16) | Explicit cluster platform type, the single authority for platform-specific behavior such as the OpenShift pod security and SCC adjustments (OSG-CORE-14). Supported values are `openshift` and `kubernetes`; any other non-empty value fails controller startup. The control plane SHALL NOT infer the platform from API discovery. Specified in [`control-plane.spec.md`](./control-plane.spec.md) (CTRL-CORE-16). |
+| `HYPERSHELL_CLUSTER_PLATFORM` | *(required; no default)* | Host platform: `openshift` or `kubernetes`. Selects platform-specific pod security and SCC integration (OSG-CORE-14). Validated at startup (CTRL-CORE-16). |
 | `GATEWAY_IMAGE` | *(required)* | Gateway container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.1.6-rhaiv.4@sha256:...`). Sets the default when a Gateway resource does not specify `image`. |
 | `GATEWAY_SUPERVISOR_IMAGE` | *(required)* | Supervisor sidecar container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-supervisor:v0.1.6-rhaiv.4@sha256:...`). Sets the default when a Gateway resource does not specify `supervisor_image`. |
 | `GATEWAY_SANDBOX_RUNTIME_CLASS` | *(unset - cluster default RuntimeClass)* | Kubernetes `RuntimeClass` name applied to every sandbox pod on the cluster (e.g. `kata`, `kata-remote`). Passed to the chart as `server.defaultRuntimeClassName`. Omitted from chart values when unset, so sandbox pods carry no `runtimeClassName` field and the cluster default (runc) is used. Requires the named `RuntimeClass` to exist on the cluster. |

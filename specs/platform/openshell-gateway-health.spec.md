@@ -411,31 +411,29 @@ that targets an endpoint that is not yet programmed and routable.
 
 ### Requirement: OSG-HLTH-07 -- Dependency Prerequisite State Is Visible And Recoverable
 
-A Gateway that cannot be fully provisioned because a required Kubernetes API or
-resource is unavailable SHALL NOT be reported as `Running` or as successfully
-provisioned. The control plane SHALL instead surface the waiting or prerequisite state
-through the Gateway `phase`, `status`, and provisioning conditions, naming the required
-group/version/resource and whether it is unknown/unavailable (retryable) or confirmed
-absent (a prerequisite to install), consistent with
-[`control-plane.spec.md`](./control-plane.spec.md) (CTRL-CORE-19).
+A Gateway waiting for a required API/resource SHALL expose a dependency condition
+through its phase, status, and provisioning conditions. The condition SHALL name
+the required group/version/resource and distinguish unknown/unavailable
+(retryable) from confirmed absent (a prerequisite to install), following
+CTRL-CORE-19.
 
-Process health SHALL stay separate from a Gateway waiting on a dependency: a recoverable
-API outage SHALL NOT crash or restart-loop the controller. The control plane SHALL keep
-running and SHALL recover the Gateway without a restart once the dependency becomes
-available, in line with the continuous health reconciliation of OSG-HLTH-02 and the
-desired-state provisioning gate of OSG-HLTH-03.
+The controller SHALL report process health separately from Gateway dependency
+status. Its reconciliation machinery SHALL remain active through dependency
+outages and converge the Gateway after the prerequisite becomes available, in
+line with OSG-HLTH-02 and OSG-HLTH-03. Gateway provisioning SHALL complete after
+its required resources are reconciled and its workload and configured route meet
+the readiness criteria in this specification.
 
-#### Scenario: OSG-HLTH-07.01 -- Required API unavailable surfaces a waiting state, not false success
+#### Scenario: OSG-HLTH-07.01 -- Unavailable API produces a retryable condition
 
-- GIVEN a Gateway whose required ingress API is currently unknown/unavailable (transport or stale-group discovery error)
+- GIVEN a Gateway's required ingress API is unknown/unavailable
 - WHEN the control plane reconciles the Gateway
-- THEN it SHALL keep the Gateway out of `Running`, surface a waiting/retryable reason naming the required API, and retry with bounded backoff
-- AND it SHALL NOT report the Gateway as successfully provisioned without the dependent resources
-- AND the controller process SHALL stay healthy and SHALL NOT restart-loop
+- THEN it SHALL expose a waiting/retryable condition naming the API and retry with bounded backoff
+- AND the controller SHALL continue reporting process health and running independent reconciliation work
 
-#### Scenario: OSG-HLTH-07.02 -- Confirmed-absent prerequisite recovers without a restart
+#### Scenario: OSG-HLTH-07.02 -- Installing a prerequisite restores readiness
 
-- GIVEN a Gateway whose required prerequisite (for example cert-manager) is confirmed absent by a successful discovery
+- GIVEN successful discovery confirms a Gateway prerequisite is absent
 - WHEN the control plane reconciles the Gateway
-- THEN it SHALL set a `Degraded`/prerequisite state with a reason naming the missing prerequisite
-- AND after the prerequisite is installed, a later reconcile SHALL converge the Gateway to `Running` with no controller restart
+- THEN it SHALL set a Degraded/prerequisite condition identifying the required resource
+- AND after the prerequisite is installed, the running controller SHALL reconcile the Gateway to Running once its workload and configured route meet readiness criteria

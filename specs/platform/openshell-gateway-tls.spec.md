@@ -22,9 +22,8 @@ The GatewayReconciler SHALL use cert-manager for all TLS certificate lifecycle m
 cert-manager availability is a feature prerequisite determined through the shared,
 refreshable dependency discovery ([`control-plane.spec.md`](./control-plane.spec.md),
 CTRL-CORE-18), distinguishing present, confirmed absent, and unknown/unavailable. The
-reconciler SHALL gate only the TLS-dependent work on this prerequisite (CTRL-CORE-19);
-a cert-manager discovery failure SHALL NOT fail controller startup or block unrelated
-reconciliation.
+reconciler SHALL use this prerequisite to gate TLS-dependent work (CTRL-CORE-19)
+while the controller continues startup and independent reconciliation.
 
 #### Scenario: OSG-TLS-01.01 -- cert-manager present
 
@@ -41,16 +40,17 @@ reconciliation.
 
 - GIVEN a successful discovery confirms cert-manager is NOT installed on the cluster
 - WHEN the GatewayReconciler provisions a gateway
-- THEN it SHALL report a clear prerequisite error that cert-manager is a required cluster prerequisite, and SHALL NOT report the gateway as successfully provisioned
-- AND it SHALL NOT deploy the gateway, SHALL NOT silently omit the required certificates, and SHALL leave independent reconciliation work running
-- AND after cert-manager is installed, a later reconcile SHALL provision the gateway without a controller restart
+- THEN it SHALL report a prerequisite condition identifying cert-manager
+- AND it SHALL keep independent reconciliation work running
+- AND after cert-manager is installed, the running controller SHALL reconcile the gateway's required certificates and workload before completing provisioning
 
-#### Scenario: OSG-TLS-01.03 -- cert-manager unknown/unavailable is retried, not treated as absent
+#### Scenario: OSG-TLS-01.03 -- cert-manager unavailable
 
 - GIVEN cert-manager discovery fails with a transport, authorization, or stale-group error
 - WHEN the GatewayReconciler provisions a gateway that requires cert-manager
 - THEN it SHALL mark the affected gateway as waiting/retryable and retry with bounded backoff
-- AND it SHALL NOT treat cert-manager as confirmed absent, SHALL NOT fail controller startup, and SHALL NOT render the gateway as provisioned without its certificates
+- AND the controller SHALL continue reporting process health and reconciling independent work
+- AND gateway provisioning SHALL complete after its required certificates and workload are reconciled
 
 **Cluster prerequisite:** cert-manager (v1.20+ recommended) must be installed cluster-wide by an administrator before gateways can use it.
 
