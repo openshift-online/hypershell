@@ -33,7 +33,9 @@ case "${COMPONENT}" in
     BASELINE_IMAGE="${control_plane_ref}"
     DOCKERFILE="components/control-plane/Dockerfile"
     BUILD_CONTEXT="."
-    BUILD_ARGS=()
+    # Supplies the app.hypershell.openshell.version image label
+    # (specs/platform/openshell-image-auto-update.spec.md, CICD-IMG-02).
+    BUILD_ARGS=(--build-arg "OPENSHELL_TAG=${OPENSHELL_TAG}")
     ;;
   web-console)
     DEPLOYMENT="hypershell-web-console"

@@ -651,6 +651,21 @@ jobs:
           fi
           echo "All required Konflux builds succeeded."
 
+      # Inspect the actually-published multi-arch controller image index (not the
+      # Dockerfile, not a local single-arch build) and confirm every architecture
+      # variant carries one identical, non-empty app.hypershell.openshell.version
+      # label equal to OPENSHELL_TAG and distinct from the controller's own
+      # version (specs/platform/openshell-image-auto-update.spec.md,
+      # CICD-IMG-04/CICD-IMG-05). Only runs when this PR built a fresh
+      # control-plane image; a reused main baseline is covered by its own build.
+      - name: Verify controller image OpenShell release label
+        if: needs.plan-images.outputs.wait_control_plane == 'true'
+        env:
+          CONTROL_PLANE_IMAGE: ${{ needs.plan-images.outputs.control_plane_image }}
+        run: |
+          PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_controller_image_label.py \
+            "${CONTROL_PLANE_IMAGE}"
+
       - name: Swap component images
         env:
           API_SERVER_IMAGE: ${{ needs.plan-images.outputs.api_server_image }}

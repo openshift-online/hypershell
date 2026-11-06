@@ -806,3 +806,46 @@ func TestBuild_ServerDnsNames(t *testing.T) {
 		})
 	}
 }
+
+func TestBuild_AdditionalCARendersInChart(t *testing.T) {
+	helmBin, err := exec.LookPath("helm")
+	if err != nil {
+		t.Skip("helm binary not found on PATH")
+	}
+	chart, err := filepath.Abs(filepath.Join("..", "..", "..", "..", "charts", "openshell"))
+	if err != nil {
+		t.Fatalf("resolve chart path: %v", err)
+	}
+
+	builder := ValuesBuilder{
+		Gateway: GatewayConfig{
+			WorkspaceMode:   "shared",
+			Image:           "quay.io/test/gateway:v1",
+			SupervisorImage: "quay.io/test/supervisor:v1",
+		},
+		Namespace:                 "test-ns",
+		AdditionalCAConfigMapName: "destination-ca",
+	}
+	values, err := builder.Build()
+	if err != nil {
+		t.Fatalf("Build() returned error: %v", err)
+	}
+	raw, err := json.Marshal(values)
+	if err != nil {
+		t.Fatalf("marshal values: %v", err)
+	}
+	valuesFile := filepath.Join(t.TempDir(), "values.json")
+	if err := os.WriteFile(valuesFile, raw, 0o600); err != nil {
+		t.Fatalf("write values: %v", err)
+	}
+
+	out, err := exec.Command(helmBin, "template", "t", chart, "-f", valuesFile,
+		"--set", "agentSandbox.preflight.enabled=false").CombinedOutput()
+	if err != nil {
+		t.Fatalf("helm template: %v\n%s", err, out)
+	}
+	want := `additional_ca_bundle = "/etc/openshell-tls/additional-ca-source/ca.crt"`
+	if !strings.Contains(string(out), want) {
+		t.Errorf("rendered chart does not contain %q", want)
+	}
+}

@@ -48,6 +48,7 @@ Follow the spec format:
 
 - **Purpose section** -- one paragraph describing the domain or feature
 - **Requirements** -- each states an observable behavior using RFC 2119 keywords (SHALL, MUST, SHOULD, MAY)
+- **Contract clarity** -- apply the behavior and configuration rules below.
 - **Scenarios** -- concrete Given/When/Then examples
 - **IDs** -- a new requirement or scenario in an existing file gets the next
   free counter in that file's registered group (see "Requirement and
@@ -115,6 +116,36 @@ A requirement that documents a retained, deprecated, or historical behavior
 may use `### Legacy compatibility: <MODULE-GROUP-NN> -- <Name>` instead of
 `### Requirement:`. It still gets an ID and still numbers its scenarios the
 same way.
+
+### Behavior and Configuration Contracts
+
+- **State the intended outcome positively.** Describe what the system does for
+  each supported case. For example, write "renders the configured Kubernetes pod
+  security context" rather than "does not create SCC bindings." Keep a negative
+  requirement when the prohibition itself is a meaningful security boundary or
+  observable contract; avoid exclusions that merely describe today's code paths.
+- **Specify desired behavior independently of today's defects.** Use code to
+  understand constraints and existing contracts. Put incident history and the
+  reason for a change in the issue or PR description. Requirements should remain
+  useful after the current bug and implementation are gone.
+- **Give each setting one consistent contract.** State its exact name, accepted
+  values, whether it is required, and its default when optional. A required
+  setting has no default; validation reports configuration errors. An optional
+  setting defines the behavior used when omitted. Keep tables, requirements,
+  scenarios, and deployment examples consistent with that choice.
+- **Separate the contract from rollout sequencing.** Describe deployment order
+  in the issue or PR. Add a compatibility behavior only when that behavior is
+  itself intended and justified; a current implementation gap does not establish
+  a need for a fallback. When compatibility is required, use the transitional
+  spec rules below and keep the permanent contract clear.
+- **Name the subject precisely.** Distinguish the host platform, API dependency
+  availability, placement capability labels, and application features. Describe
+  platform-specific outcomes directly rather than defining one platform through
+  features excluded from another.
+
+During the critic pass, check for required settings with defaults, contradictory
+omission behavior, bug-specific exclusions, and rollout workarounds presented as
+permanent requirements. Rewrite these into a single intended behavior contract.
 
 ### Transitional Specs
 
