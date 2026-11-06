@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/distribution/reference"
 	toml "github.com/pelletier/go-toml/v2"
 )
 
@@ -43,6 +44,17 @@ func ValidateImageReference(ref string) error {
 		strings.Contains(ref, "|") || strings.Contains(ref, "`") ||
 		strings.Contains(ref, "$") || strings.Contains(ref, "\n") {
 		return fmt.Errorf("image reference contains invalid characters: %q", ref)
+	}
+
+	// Reject at input anything the Helm values builder's canonical parser would
+	// reject at reconcile time (helm.parseImageRef uses the same
+	// distribution/reference parser). The regex above is lowercased before
+	// matching, so it accepts uppercase repository paths that the parser rejects
+	// ("repository name must be lowercase"); without this check such a reference
+	// passes input validation but then hard-fails Build() on every reconcile,
+	// turning a cleanly rejectable input into a permanent reconcile block.
+	if _, err := reference.Parse(strings.TrimSpace(ref)); err != nil {
+		return fmt.Errorf("invalid image reference %q: %w", ref, err)
 	}
 
 	return nil
