@@ -286,7 +286,8 @@ test.describe("live console user journey", () => {
     await expect(docs).toHaveAttribute("target", "_blank");
     await expect(docs).toHaveAttribute("rel", /noopener/u);
     const installStep = page.getByRole("button", {
-      name: /Install the OpenShell CLI/u,
+      name: "1 Install the OpenShell CLI",
+      exact: true,
     });
     await installStep.click();
     await expect(installStep).toHaveAttribute("aria-expanded", "true");
@@ -340,7 +341,21 @@ test.describe("live console user journey", () => {
     if (gatewayId === undefined) return;
     const createdGatewayId = gatewayId;
     await logIn(page);
+    await expect
+      .poll(
+        async () =>
+          (
+            await page.request.get(
+              `/api/hypershell/v1/gateways/${createdGatewayId}`,
+            )
+          ).status(),
+        { timeout: pageTimeout, intervals: [2_000, 5_000] },
+      )
+      .toBe(200);
     await page.goto(`/gateways/${createdGatewayId}`);
+    await expect(
+      page.getByRole("heading", { name: gatewayName, exact: true }),
+    ).toBeVisible();
     await page.getByRole("button", { name: "Actions" }).click();
     await page.getByRole("menuitem", { name: "Delete gateway" }).click();
     const dialog = page.getByRole("dialog", {
