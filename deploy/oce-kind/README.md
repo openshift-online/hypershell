@@ -35,7 +35,7 @@ commit it, print its Secret files, or share it as troubleshooting evidence.
 ```bash
 set -euo pipefail
 umask 077
-export HYPERSHELL_REPO="$PWD"
+export HYPERSHELL_REPO=/absolute/path/to/hypershell
 export OCE_REPO=/absolute/path/to/openclaw-enterprise
 export OCE_KIND_STATE="$HOME/.local/state/oce-hypershell-kind"
 mkdir -p "$OCE_KIND_STATE"
@@ -92,10 +92,10 @@ saves the workspace mode. The controller [loads operator settings](../../compone
 and carries them through the reconciler into the [Helm values builder](../../components/control-plane/internal/helm/values.go).
 These are deployment settings, not user-writable API fields:
 
-| Setting | Owner | Effect |
-|---|---|---|
-| `GATEWAY_DEFAULT_WORKSPACE_MODE` | API server | Selects the mode saved for newly created gateways; unset retains `managed`. Existing gateways retain their mode. |
-| `GATEWAY_OPERATOR_WORKSPACE` | Controller | JSON with `namespaceLabelKey` and `allowedPodLabels`. Required for operator-mode gateways; invalid input fails controller startup. |
+| Setting                          | Owner      | Effect                                                                                                                             |
+| -------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `GATEWAY_DEFAULT_WORKSPACE_MODE` | API server | Selects the mode saved for newly created gateways; unset retains `managed`. Existing gateways retain their mode.                   |
+| `GATEWAY_OPERATOR_WORKSPACE`     | Controller | JSON with `namespaceLabelKey` and `allowedPodLabels`. Required for operator-mode gateways; invalid input fails controller startup. |
 
 The controller combines the configured label key with each gateway's own
 namespace as the value. For this installation, OCE labels each tenant namespace
@@ -277,14 +277,23 @@ curl --fail --silent --show-error --noproxy '*' \
 
 ## Deploy a Codex Agent
 
-For an OpenAI-compatible proxy, first set the Installation's
+### Configure EnMaaS
+
+Complete the OCE installation and activation above, then use these steps to run
+Codex with an EnMaaS API key and `gpt-6-luna`. Continue in the same operator shell.
+
+#### 1. Set the proxy endpoint
+
+Set the Installation's
 [shared model provider](https://github.com/openclaw/openclaw-enterprise/blob/2096c8cbde286c50ab7aafa08fd0f3bb3f4623c2/docs/reference/drivers/kubernetes-compute/model-provider.md).
+This setting applies to new API-key deployments across the Installation and
+currently has no Console editor.
 The Agent's JSON `models.providers.codex.baseUrl` does not select this endpoint.
 Keep that field at `http://127.0.0.1:9`; the OpenClaw gateway reaches Codex over
-authenticated WebSocket transport. In the same operator shell:
+authenticated WebSocket transport.
 
 ```bash
-MODEL_BASE_URL='https://models.example.com/v1' # Replace with your authorized proxy.
+MODEL_BASE_URL='https://api.enmaas.devshift.net/v1'
 RUN_DIR="$OCE_KIND_STATE"
 export CONTEXT=kind-hypershell-oce
 PLATFORM_NS=oce-system RELEASE=oce
@@ -300,18 +309,65 @@ source "$OCE_REPO/docs/snippets/openshell-quickstart/operator-session.sh"
 upgrade_installation
 ```
 
-This setting applies to new API-key deployments across the Installation. Set
-`config.authorized_base_url` to the same URL when registering the `openai`
-Credential Source. Existing sources have immutable destination authorization:
-register a replacement using the same Secret reference, grant the Agent's
-principal `operate` on it, and update the Agent's `harnessAuth` and
-`credentialSources` bindings before deploying. A proxy key registered without
-this authorization defaults to OpenAI and can fail with HTTP 401/403.
+Wait for the OCE API and worker rollouts to complete.
+
+#### 2. Register the EnMaaS API key
+
+Save the key in an owner-only file outside the checkout. Set `credential_file`
+below to its absolute path. The commands read the key from that file; do not
+paste it into the command or commit the file. Use names that are not already
+registered in the selected Namespace.
+
+```bash
+set +x
+namespace=$(cat "$OCE_KIND_STATE/namespace-id")
+base="/namespaces/$namespace"
+credential_file=/secure/path/to/enmaas-api-key
+jq -n --rawfile key "$credential_file" \
+  '{name:"enmaas-api-key",value:($key|rtrimstr("\n"))}' |
+  request POST "$base/secrets" --data-binary @- > "$RUN_DIR/enmaas-secret.json"
+jq --arg url "$MODEL_BASE_URL" \
+  '{name:"enmaas",type:"openai",config:{authorized_base_url:$url},secrets:{api_key:.data.ref}}' \
+  "$RUN_DIR/enmaas-secret.json" |
+  request POST "$base/credential-sources" --data-binary @- > "$RUN_DIR/enmaas-source.json"
+modelSource=$(jq -er '.data|select(.state=="ready")|.id' "$RUN_DIR/enmaas-source.json")
+```
+
+The source must authorize `https://api.enmaas.devshift.net/v1` explicitly.
+Omitting `authorized_base_url` authorizes OpenAI's default endpoint and can
+cause HTTP 401/403. Existing sources cannot change destination authorization;
+register a replacement using their existing Secret reference instead of
+creating another Secret.
+
+#### 3. Select the model and bind the credential
+
+Use `gpt-6-luna` as the Codex model ID. OCE's existing configuration template
+adds the `codex/` prefix and retains the disabled HTTP fallback:
+
+```bash
+MODEL=gpt-6-luna
+jq -n --arg model "$MODEL" \
+  -f "$OCE_REPO/docs/snippets/openshell-quickstart/codex-configuration.jq" \
+  > "$RUN_DIR/enmaas-configuration.json"
+```
+
+For an existing Agent, update its Configuration so `agents.defaults.model` is
+`codex/gpt-6-luna`, the matching `agents.defaults.models` entry selects the
+`codex` runtime, and `models.providers.codex.models` contains ID `gpt-6-luna`.
+Preserve its other settings; do not replace the whole Configuration with the
+new-Agent template.
 
 Follow the matching OCE
 [Agent deployment guide](https://github.com/openclaw/openclaw-enterprise/blob/2096c8cbde286c50ab7aafa08fd0f3bb3f4623c2/docs/guides/deploy/deploy-first-agent.md)
-to register an authorized credential, create a dedicated Codex Agent, and deploy
-it. After its gateway Service exists, apply the per-Agent network grants below.
+to create or update a dedicated Agent using the registered `modelSource` and
+selected `MODEL`; skip its credential-registration step. Set
+`harnessAuth.method` to `credential_source`, set `harnessAuth.sourceId` to
+`$modelSource`, and include that source ID in `credentialSources`. Grant the Agent's principal
+`operate` on that exact source, then deploy a new version.
+
+### Apply the Agent network grants
+
+After its gateway Service exists, apply the per-Agent network grants below.
 The OCE helper's `--openshell-namespace` option selects the HyperShell gateway.
 No OCE image rebuild is needed when applying this helper fix to an existing
 installation.
