@@ -285,9 +285,11 @@ test.describe("live console user journey", () => {
     });
     await expect(docs).toHaveAttribute("target", "_blank");
     await expect(docs).toHaveAttribute("rel", /noopener/u);
-    await page
-      .getByRole("button", { name: /Install the OpenShell CLI/u })
-      .click();
+    const installStep = page.getByRole("button", {
+      name: /Install the OpenShell CLI/u,
+    });
+    await installStep.click();
+    await expect(installStep).toHaveAttribute("aria-expanded", "true");
 
     // E2E-COV-05.01/05.04: the console must render the REAL, version-derived install
     // command, not a pinned constant. Scrape the exact text the UI hands the operator
@@ -306,7 +308,7 @@ test.describe("live console user journey", () => {
       ? installVersion
       : `v${installVersion}`;
     const copyInstall = page.getByRole("button", {
-      name: "Copy the OpenShell installation command",
+      name: "Copy command for step 1, Install the OpenShell CLI",
     });
     await expect(copyInstall).toBeVisible({ timeout: pageTimeout });
     await copyInstall.click();
