@@ -408,3 +408,34 @@ that targets an endpoint that is not yet programmed and routable.
 - GIVEN a routed Gateway that transitions to `phase` `Running`
 - WHEN the console next renders the Gateway detail
 - THEN it SHALL present the connection command as ready to use
+
+### Requirement: OSG-HLTH-07 -- Dependency Prerequisite State Is Visible And Recoverable
+
+A Gateway that cannot be fully provisioned because a required Kubernetes API or
+resource is unavailable SHALL NOT be reported as `Running` or as successfully
+provisioned. The control plane SHALL instead surface the waiting or prerequisite state
+through the Gateway `phase`, `status`, and provisioning conditions, naming the required
+group/version/resource and whether it is unknown/unavailable (retryable) or confirmed
+absent (a prerequisite to install), consistent with
+[`control-plane.spec.md`](./control-plane.spec.md) (CTRL-CORE-19).
+
+Process health SHALL stay separate from a Gateway waiting on a dependency: a recoverable
+API outage SHALL NOT crash or restart-loop the controller. The control plane SHALL keep
+running and SHALL recover the Gateway without a restart once the dependency becomes
+available, in line with the continuous health reconciliation of OSG-HLTH-02 and the
+desired-state provisioning gate of OSG-HLTH-03.
+
+#### Scenario: OSG-HLTH-07.01 -- Required API unavailable surfaces a waiting state, not false success
+
+- GIVEN a Gateway whose required ingress API is currently unknown/unavailable (transport or stale-group discovery error)
+- WHEN the control plane reconciles the Gateway
+- THEN it SHALL keep the Gateway out of `Running`, surface a waiting/retryable reason naming the required API, and retry with bounded backoff
+- AND it SHALL NOT report the Gateway as successfully provisioned without the dependent resources
+- AND the controller process SHALL stay healthy and SHALL NOT restart-loop
+
+#### Scenario: OSG-HLTH-07.02 -- Confirmed-absent prerequisite recovers without a restart
+
+- GIVEN a Gateway whose required prerequisite (for example cert-manager) is confirmed absent by a successful discovery
+- WHEN the control plane reconciles the Gateway
+- THEN it SHALL set a `Degraded`/prerequisite state with a reason naming the missing prerequisite
+- AND after the prerequisite is installed, a later reconcile SHALL converge the Gateway to `Running` with no controller restart

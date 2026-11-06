@@ -19,10 +19,16 @@ This specification defines TLS certificate management for OpenShell gateways dep
 
 The GatewayReconciler SHALL use cert-manager for all TLS certificate lifecycle management. cert-manager is the sole certificate generation strategy.
 
-#### Scenario: OSG-TLS-01.01 -- cert-manager installed
+cert-manager availability is a feature prerequisite determined through the shared,
+refreshable dependency discovery ([`control-plane.spec.md`](./control-plane.spec.md),
+CTRL-CORE-18), distinguishing present, confirmed absent, and unknown/unavailable. The
+reconciler SHALL gate only the TLS-dependent work on this prerequisite (CTRL-CORE-19);
+a cert-manager discovery failure SHALL NOT fail controller startup or block unrelated
+reconciliation.
 
-- GIVEN cert-manager is installed on the cluster (Certificate, Issuer CRDs are available)
-- AND the GatewayReconciler detects cert-manager availability (via API discovery for `cert-manager.io` API group)
+#### Scenario: OSG-TLS-01.01 -- cert-manager present
+
+- GIVEN discovery confirms cert-manager is present on the cluster (Certificate, Issuer CRDs are available in the `cert-manager.io` API group)
 - WHEN the reconciler provisions a gateway
 - THEN it SHALL create cert-manager resources for TLS certificate lifecycle:
   - A self-signed `Issuer` (`openshell-selfsigned`) in the project namespace
@@ -31,12 +37,20 @@ The GatewayReconciler SHALL use cert-manager for all TLS certificate lifecycle m
   - A server `Certificate` (`openshell-server`, creates `openshell-server-tls` Secret with SANs from `serverDnsNames`)
   - A client `Certificate` (`openshell-client`, creates `openshell-client-tls` Secret)
 
-#### Scenario: OSG-TLS-01.02 -- cert-manager not installed
+#### Scenario: OSG-TLS-01.02 -- cert-manager confirmed absent
 
-- GIVEN cert-manager is NOT installed on the cluster
+- GIVEN a successful discovery confirms cert-manager is NOT installed on the cluster
 - WHEN the GatewayReconciler provisions a gateway
-- THEN it SHALL log an error indicating cert-manager is a required cluster prerequisite
-- AND it SHALL NOT deploy the gateway until cert-manager is available
+- THEN it SHALL report a clear prerequisite error that cert-manager is a required cluster prerequisite, and SHALL NOT report the gateway as successfully provisioned
+- AND it SHALL NOT deploy the gateway, SHALL NOT silently omit the required certificates, and SHALL leave independent reconciliation work running
+- AND after cert-manager is installed, a later reconcile SHALL provision the gateway without a controller restart
+
+#### Scenario: OSG-TLS-01.03 -- cert-manager unknown/unavailable is retried, not treated as absent
+
+- GIVEN cert-manager discovery fails with a transport, authorization, or stale-group error
+- WHEN the GatewayReconciler provisions a gateway that requires cert-manager
+- THEN it SHALL mark the affected gateway as waiting/retryable and retry with bounded backoff
+- AND it SHALL NOT treat cert-manager as confirmed absent, SHALL NOT fail controller startup, and SHALL NOT render the gateway as provisioned without its certificates
 
 **Cluster prerequisite:** cert-manager (v1.20+ recommended) must be installed cluster-wide by an administrator before gateways can use it.
 

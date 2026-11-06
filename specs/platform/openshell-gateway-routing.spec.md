@@ -39,21 +39,44 @@ Requires:
 
 ## Requirements
 
-### Requirement: OSG-ROUT-02 -- Gateway API Detection
+### Requirement: OSG-ROUT-02 -- Gateway API Prerequisite Discovery
 
-The control plane SHALL detect at startup whether the cluster supports the Gateway API for route provisioning.
+The control plane SHALL determine whether the cluster supports the Gateway API for
+route provisioning through the shared, refreshable dependency discovery
+([`control-plane.spec.md`](./control-plane.spec.md), CTRL-CORE-18), distinguishing three
+states: present, confirmed absent, and unknown/unavailable. Gateway API availability is
+a feature prerequisite; it is NOT how the control plane decides the cluster platform
+type, which is configured explicitly (CTRL-CORE-16). A discovery result SHALL NOT be
+cached as permanent: the control plane SHALL refresh it and SHALL be able to begin (or
+stop) route provisioning when the Gateway API becomes available (or is removed) without
+a controller restart.
 
-#### Scenario: OSG-ROUT-02.01 -- Gateway API available
+A transport, authorization, or stale-group discovery error SHALL map to
+unknown/unavailable, NOT to confirmed absent. When the Gateway API is unknown/unavailable
+the control plane SHALL NOT disable route provisioning as though the API were absent and
+SHALL NOT switch the ingress mode: it SHALL keep the controller running, mark the
+affected route provisioning as waiting/retryable, and retry with bounded backoff
+(CTRL-CORE-19). Only a successful discovery that confirms the group is not present SHALL
+be treated as confirmed absent.
 
-- GIVEN the `gateway.networking.k8s.io` API group is available (Gateway, GRPCRoute, BackendTLSPolicy CRDs exist)
+#### Scenario: OSG-ROUT-02.01 -- Gateway API present
+
+- GIVEN discovery confirms the `gateway.networking.k8s.io/v1` API group is present with the `GRPCRoute` resource (Gateway, GRPCRoute, BackendTLSPolicy CRDs exist)
 - AND `GATEWAY_API_GATEWAY_NAME` is set to the name of a pre-existing Gateway resource
 - THEN the control plane SHALL enable Gateway API route provisioning
 
-#### Scenario: OSG-ROUT-02.02 -- Gateway API not available
+#### Scenario: OSG-ROUT-02.02 -- Gateway API confirmed absent
 
-- GIVEN the `gateway.networking.k8s.io` API group is NOT available
-- THEN the control plane SHALL disable route provisioning
-- AND gateways with `route` configuration SHALL log a warning and skip route resource creation
+- GIVEN a successful discovery confirms the `gateway.networking.k8s.io` API group is NOT present
+- THEN the control plane SHALL report a clear prerequisite state for gateways with `route` configuration and SHALL NOT create route resources
+- AND after the Gateway API is installed, a later reconcile SHALL enable route provisioning without a controller restart
+
+#### Scenario: OSG-ROUT-02.03 -- Gateway API unknown/unavailable is retried, not treated as absent
+
+- GIVEN discovery of the `gateway.networking.k8s.io` group fails with a transport or stale-group error
+- WHEN the control plane reconciles a gateway with `route` configuration
+- THEN it SHALL mark the route provisioning as waiting/retryable and retry with bounded backoff
+- AND it SHALL NOT disable route provisioning as confirmed absent, SHALL NOT switch the ingress mode, and SHALL NOT report the gateway as successfully provisioned without its route
 
 ---
 

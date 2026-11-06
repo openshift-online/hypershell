@@ -790,7 +790,9 @@ it.
 
 ### Requirement: OSG-CORE-14 -- OpenShift-Specific Gateway Provisioning
 
-When the control plane detects that it is running on an OpenShift cluster (the `route.openshift.io` API group is available), its reconcilers SHALL adjust gateway Deployments to conform to OpenShift's SecurityContextConstraints (SCC) and PodSecurity admission requirements. The gateway adjustments follow the [NVIDIA OpenShell OpenShift deployment guide](https://docs.nvidia.com/openshell/kubernetes/openshift).
+When the configured platform is OpenShift (`HYPERSHELL_CLUSTER_PLATFORM=openshift`, see [`control-plane.spec.md`](./control-plane.spec.md), CTRL-CORE-16), its reconcilers SHALL adjust gateway Deployments to conform to OpenShift's SecurityContextConstraints (SCC) and PodSecurity admission requirements. The gateway adjustments follow the [NVIDIA OpenShell OpenShift deployment guide](https://docs.nvidia.com/openshell/kubernetes/openshift).
+
+The platform type SHALL come from configuration, NOT from Kubernetes API discovery. The control plane SHALL NOT decide these pod security and SCC adjustments by probing for the `route.openshift.io` API group, and a discovery failure (missing, stale, forbidden, or unreachable group) SHALL NOT switch an OpenShell gateway on OpenShift to the fixed UID/group defaults or skip the required security setup (CTRL-CORE-16, CTRL-CORE-17). Discovery remains the authority only for feature prerequisites such as Gateway API ingress resources (OSG-ROUT-02, CTRL-CORE-18, CTRL-CORE-19), never for the configured platform type.
 
 **Key difference from vanilla Kubernetes:** OpenShift enforces the `restricted` PodSecurity standard by default. Hardcoded `fsGroup`, `runAsUser`, and `runAsGroup` values conflict with OpenShift's SCC admission controller, which assigns UIDs and GIDs from each namespace's allocated ranges. Additionally, sandbox pods require the `privileged` SCC to function correctly.
 
@@ -816,20 +818,27 @@ When the control plane detects that it is running on an OpenShift cluster (the `
 
 #### Scenario: OSG-CORE-14.03 -- Gateway deployment on vanilla Kubernetes (unchanged)
 
-- GIVEN the GatewayReconciler is deploying a gateway to a non-OpenShift cluster (e.g., Kind, EKS, GKE)
+- GIVEN `HYPERSHELL_CLUSTER_PLATFORM=kubernetes` (e.g., Kind, EKS, GKE)
 - WHEN the reconciler applies gateway manifests
 - THEN it SHALL NOT modify `podSecurityContext.fsGroup` or `securityContext.runAsUser` (the chart defaults are correct for non-OpenShift)
 - AND it SHALL NOT create SCC bindings (SCC is an OpenShift-only concept)
 - AND the `seccompProfile.type: RuntimeDefault` SHALL still be set (it is valid on all Kubernetes clusters)
 
-#### Scenario: OSG-CORE-14.04 -- Platform detection reuse
+#### Scenario: OSG-CORE-14.04 -- Platform from configuration, prerequisites from discovery
 
-- GIVEN the GatewayReconciler already detects OpenShift for SCC/security adjustments
-- AND the GatewayReconciler detects Gateway API availability for GRPCRoute provisioning
-- WHEN the reconciler initializes
-- THEN it SHALL reuse the same `isOpenShift` detection result for SCC/security adjustments
-- AND it SHALL reuse the same `hasGatewayAPI` detection result for GRPCRoute provisioning
-- AND both detections SHALL occur once at startup, not per-reconciliation
+- GIVEN `HYPERSHELL_CLUSTER_PLATFORM=openshift`
+- WHEN the reconciler reconciles a gateway
+- THEN it SHALL apply the SCC/security adjustments because the configured platform is OpenShift, NOT because a `route.openshift.io` discovery probe succeeded
+- AND it SHALL determine Gateway API ingress availability from the shared, refreshable dependency discovery (OSG-ROUT-02, CTRL-CORE-18), distinguishing present, confirmed-absent, and unknown/unavailable
+- AND a discovery failure SHALL NOT clear the OpenShift SCC/security adjustments
+
+#### Scenario: OSG-CORE-14.05 -- OpenShift security retained when an unrelated group is stale
+
+- GIVEN `HYPERSHELL_CLUSTER_PLATFORM=openshift`
+- AND an unrelated API group (for example `projectcalico.org/v3`) fails discovery as stale
+- WHEN the reconciler reconciles a gateway
+- THEN it SHALL still clear `podSecurityContext.fsGroup` and `securityContext.runAsUser` and bind the `privileged` SCC
+- AND it SHALL NOT render the gateway pod with fixed `runAsUser`/`fsGroup` because of the unrelated discovery failure
 
 ---
 
@@ -893,6 +902,7 @@ Gateway provisioning SHALL be independent of agent definitions. Agent-specific c
 
 | Variable | Default | Description |
 |---|---|---|
+| `HYPERSHELL_CLUSTER_PLATFORM` | `openshift` (transitional default when unset; see CTRL-CORE-16) | Explicit cluster platform type, the single authority for platform-specific behavior such as the OpenShift pod security and SCC adjustments (OSG-CORE-14). Supported values are `openshift` and `kubernetes`; any other non-empty value fails controller startup. The control plane SHALL NOT infer the platform from API discovery. Specified in [`control-plane.spec.md`](./control-plane.spec.md) (CTRL-CORE-16). |
 | `GATEWAY_IMAGE` | *(required)* | Gateway container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.1.6-rhaiv.4@sha256:...`). Sets the default when a Gateway resource does not specify `image`. |
 | `GATEWAY_SUPERVISOR_IMAGE` | *(required)* | Supervisor sidecar container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-supervisor:v0.1.6-rhaiv.4@sha256:...`). Sets the default when a Gateway resource does not specify `supervisor_image`. |
 | `GATEWAY_SANDBOX_RUNTIME_CLASS` | *(unset - cluster default RuntimeClass)* | Kubernetes `RuntimeClass` name applied to every sandbox pod on the cluster (e.g. `kata`, `kata-remote`). Passed to the chart as `server.defaultRuntimeClassName`. Omitted from chart values when unset, so sandbox pods carry no `runtimeClassName` field and the cluster default (runc) is used. Requires the named `RuntimeClass` to exist on the cluster. |
@@ -994,9 +1004,9 @@ Each row names a chart value and the HyperShell input that sets it:
 | `podLabels["hypershell.redhat.io/openshell-dev-build"]` | `Gateway.dev_build`; set only when true | `internal/helm/values.go` |
 | `podAnnotations["hypershell.redhat.io/openshell-dev-build-*"]` | `Gateway.dev_build_metadata.{ref,sha,repo}` | `internal/helm/values.go` |
 | `pkiInitJob.serverDnsNames={...}` | `serverDnsNames` field on the Gateway API resource. When cert-manager is present, the same names also go to `certManager.serverDnsNames`, because the chart then ignores `pkiInitJob.serverDnsNames` | `internal/helm/values.go` |
-| `certManager.enabled=true` | Auto-detected: the control plane checks for the `cert-manager.io` API group once at startup through `gateway.DetectCertManager()`. The result sets `certManager.enabled` | `internal/gateway/reconciler.go`, `internal/reconciler/reconciler.go`, `internal/helm/values.go` |
-| `podSecurityContext.fsGroup=null` | On OpenShift only: set to null so the SCC assigns `fsGroup` | `internal/helm/values.go` (`buildOpenShiftValues`) |
-| `securityContext.runAsUser=null` | On OpenShift only: set to null so the SCC assigns `runAsUser` | `internal/helm/values.go` (`buildOpenShiftValues`) |
+| `certManager.enabled=true` | Prerequisite discovery: the control plane checks for the `cert-manager.io` API group through the shared, refreshable dependency discovery (OSG-TLS-01, CTRL-CORE-18), distinguishing present, confirmed-absent, and unknown/unavailable; a transient discovery failure is not treated as confirmed absent and is retried. The present result sets `certManager.enabled` | `internal/gateway/reconciler.go`, `internal/reconciler/reconciler.go`, `internal/helm/values.go` |
+| `podSecurityContext.fsGroup=null` | When `HYPERSHELL_CLUSTER_PLATFORM=openshift` (not from discovery): set to null so the SCC assigns `fsGroup` | `internal/helm/values.go` (`buildOpenShiftValues`) |
+| `securityContext.runAsUser=null` | When `HYPERSHELL_CLUSTER_PLATFORM=openshift` (not from discovery): set to null so the SCC assigns `runAsUser` | `internal/helm/values.go` (`buildOpenShiftValues`) |
 | `server.disableTls=true` | **NOT used.** BackendTLSPolicy re-encrypts traffic from the networking Gateway to the pod, requiring the gateway to serve TLS. TLS remains enabled on all clusters | N/A |
 | `server.externalDbSecret` | `openshell-gateway-db-credentials`, provisioned by the control plane; the chart injects the Secret's `uri` key as `OPENSHELL_DB_URL`. The chart reads no other key and cannot mount a database CA, so the `uri` uses `sslmode=require` | `internal/gateway/database.go`, `internal/helm/values.go` |
 | `workload.kind=deployment` | Always Deployment - PostgreSQL is the sole backend | `internal/helm/values.go` |

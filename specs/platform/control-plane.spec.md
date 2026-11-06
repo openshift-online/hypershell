@@ -853,6 +853,217 @@ When the `RepositoryReconciler` imports a `Gateway`, the import writer SHALL:
 - WHEN the import writer creates the Gateway
 - THEN the `CreateGatewayRequest` SHALL carry only `name` and the mapped `placement`, and no platform-managed field
 
+### Requirement: CTRL-CORE-16 -- Explicit Cluster Platform Configuration
+
+The cluster platform type is deployment configuration, NOT something the control
+plane infers at runtime. The control plane SHALL read the platform type from the
+`HYPERSHELL_CLUSTER_PLATFORM` environment variable, whose only supported values are
+`openshift` and `kubernetes`. This setting is the single authority for every
+platform-specific behavior, in particular the OpenShift pod security and SCC
+adjustments defined in [`openshell-gateway.spec.md`](./openshell-gateway.spec.md)
+("Requirement: OSG-CORE-14 -- OpenShift-Specific Gateway Provisioning").
+
+The control plane SHALL NEVER derive the platform type from Kubernetes API discovery.
+Whether the `route.openshift.io` API group (or any other group) is present, absent,
+stale, forbidden, or unreachable SHALL NOT change the configured platform type. A
+discovery failure SHALL NOT switch an OpenShell gateway on an OpenShift cluster to
+fixed UID/group pod-security defaults, and SHALL NOT skip the platform's required
+security setup. Discovery remains the authority ONLY for feature prerequisites such
+as cert-manager and Gateway API resources (CTRL-CORE-18, CTRL-CORE-19), never for the
+configured platform type.
+
+The control plane SHALL validate the setting:
+
+- An unsupported non-empty value is invalid operator configuration. The control plane
+  SHALL log a fatal error naming `HYPERSHELL_CLUSTER_PLATFORM` and the unsupported
+  value, and exit non-zero, exactly as it rejects other invalid configuration. This is
+  distinct from a dependency being unavailable (CTRL-CORE-17), which SHALL NOT exit.
+- A missing value is a transitional migration state, not a discovery fallback. When
+  `HYPERSHELL_CLUSTER_PLATFORM` is unset the control plane SHALL apply a single
+  documented default platform of `openshift`, SHALL log prominently that the default
+  was applied because the setting was unset, and SHALL NOT consult API discovery to
+  choose the platform. The default is `openshift` so a fleet cluster that has not yet
+  received the setting never silently switches to vanilla-Kubernetes fixed-UID pod
+  security.
+
+Every HyperShell-owned application deployment path SHALL set the variable explicitly:
+OpenShift deployment paths (including the ephemeral OpenShift PR/E2E manifests,
+`ephemeral-pr-environments.spec.md`) SHALL set `HYPERSHELL_CLUSTER_PLATFORM=openshift`,
+and the Kind/local Kubernetes manifests (`local-development.spec.md`) SHALL set
+`HYPERSHELL_CLUSTER_PLATFORM=kubernetes`. The fleet GitOps hub and spoke controller
+bases set `openshift`; that change MAY be staged ahead of a supporting controller
+image because the current controller does not read the variable. Making the setting
+mandatory (a fatal error when unset, retiring the transitional default) SHALL be
+deferred until every deployment path is confirmed to supply it; the transitional
+default behavior and the later cutover to mandatory SHALL both be covered by tests.
+
+#### Scenario: CTRL-CORE-16.01 -- OpenShift platform selected from configuration
+
+- GIVEN `HYPERSHELL_CLUSTER_PLATFORM=openshift`
+- WHEN the control plane reconciles a gateway
+- THEN it SHALL apply the OpenShift pod security and SCC adjustments (OSG-CORE-14)
+- AND it SHALL do so regardless of whether any API group fails discovery
+
+#### Scenario: CTRL-CORE-16.02 -- Kubernetes platform selected from configuration
+
+- GIVEN `HYPERSHELL_CLUSTER_PLATFORM=kubernetes`
+- WHEN the control plane reconciles a gateway
+- THEN it SHALL use the vanilla-Kubernetes pod security defaults and SHALL NOT create SCC bindings
+
+#### Scenario: CTRL-CORE-16.03 -- Unsupported value is rejected at startup
+
+- GIVEN `HYPERSHELL_CLUSTER_PLATFORM=openstack`
+- WHEN the control plane starts
+- THEN it SHALL log a fatal error naming `HYPERSHELL_CLUSTER_PLATFORM` and the unsupported value and exit non-zero
+
+#### Scenario: CTRL-CORE-16.04 -- Missing value applies the documented default, never discovery
+
+- GIVEN `HYPERSHELL_CLUSTER_PLATFORM` is unset
+- AND the `route.openshift.io` API group fails discovery at startup
+- WHEN the control plane starts
+- THEN it SHALL apply the documented default platform `openshift` and log that the default was applied because the setting was unset
+- AND it SHALL NOT infer the platform from discovery and SHALL NOT switch to fixed-UID pod security because discovery failed
+
+### Requirement: CTRL-CORE-17 -- Controller Startup Independent of API Discovery
+
+The control plane SHALL start, report health, and run its reconciliation and retry
+machinery regardless of the outcome of Kubernetes API discovery. A missing, stale,
+forbidden, or temporarily unreachable API group SHALL NOT fail controller startup or
+stop the process. This is dependency availability and is separate from invalid operator
+configuration (CTRL-CORE-16, CTRL-CORE-11), which SHALL still be rejected.
+
+A discovery failure SHALL NOT make the control plane report that every feature is
+absent. The control plane SHALL distinguish three dependency states: present,
+confirmed absent, and unknown/unavailable (see CTRL-CORE-18). A partial discovery
+failure in an unrelated API group, for example a stale `projectcalico.org/v3`, SHALL
+NOT block reconciliation of unrelated work and SHALL NOT mark unrelated groups absent.
+The control plane SHALL retain the valid discovery results for the other groups, or
+query the specific group/version it needs, rather than discarding the whole discovery
+result when one group fails.
+
+Capability state SHALL NOT be frozen at construction. The control plane SHALL be able
+to recover the use of an API that becomes available after startup without a process
+restart (CTRL-CORE-18, CTRL-CORE-19).
+
+#### Scenario: CTRL-CORE-17.01 -- Startup survives an unrelated stale discovery group
+
+- GIVEN discovery returns a stale-group error for `projectcalico.org/v3` at controller startup
+- WHEN the control plane starts
+- THEN it SHALL start, open its watch streams, and report process health normally
+- AND it SHALL NOT set OpenShift, cert-manager, and Gateway API all to absent because an unrelated group was stale
+- AND it SHALL continue reconciling work that does not need the failed group
+
+#### Scenario: CTRL-CORE-17.02 -- Startup survives a required API being unreachable
+
+- GIVEN the Gateway API group cannot be reached at startup (transport error)
+- WHEN the control plane starts
+- THEN it SHALL start and report process health, and SHALL NOT exit
+- AND it SHALL treat the Gateway API as unknown/unavailable, not confirmed absent
+- AND it SHALL retry the dependency so route provisioning recovers when the API becomes reachable
+
+### Requirement: CTRL-CORE-18 -- Shared, Refreshable Dependency Discovery
+
+The control plane SHALL determine API and resource availability through a single
+shared dependency-discovery component, or an equivalent shared contract, used
+consistently by exposure setup, gateway provisioning, health checks, and
+managed-cluster reconciliation. Separate per-path startup probes SHALL NOT leave these
+paths with conflicting permanent capability flags.
+
+The component SHALL report one of three states for each queried dependency:
+
+- **present** - discovery succeeded and the group/version/resource exists.
+- **confirmed absent** - discovery succeeded and the group/version/resource does not
+  exist. Only a successful discovery result SHALL yield confirmed absent.
+- **unknown/unavailable** - discovery failed for a transport, authorization, or
+  staleness reason. A transport error, a forbidden error, or a stale-group error SHALL
+  map to unknown/unavailable and SHALL NOT be reported as confirmed absent.
+
+The component SHALL refresh dependency state and SHALL NOT cache an initial discovery
+failure for the lifetime of the process. During a temporary discovery failure it SHALL
+preserve the last-known-good result for groups that previously resolved, so an
+unrelated transient failure does not erase known-present features. Preserving a
+last-known-good result SHALL NOT make an actually unavailable dependency appear usable:
+a real API operation that fails SHALL still be reported and retried (CTRL-CORE-19).
+
+#### Scenario: CTRL-CORE-18.01 -- Stale group maps to unknown, not absent
+
+- GIVEN a discovery call returns a stale-group error for the queried group
+- WHEN the control plane evaluates that dependency
+- THEN it SHALL report the dependency as unknown/unavailable
+- AND it SHALL NOT report it as confirmed absent
+
+#### Scenario: CTRL-CORE-18.02 -- Confirmed absent requires a successful discovery
+
+- GIVEN discovery succeeds and the `cert-manager.io` group is not present in the result
+- WHEN the control plane evaluates the cert-manager dependency
+- THEN it SHALL report cert-manager as confirmed absent
+
+#### Scenario: CTRL-CORE-18.03 -- Initial failure is not cached for the process lifetime
+
+- GIVEN the Gateway API dependency was unknown/unavailable at startup because discovery failed
+- WHEN a later discovery refresh succeeds and the group is present
+- THEN the control plane SHALL report the Gateway API as present
+- AND dependent work SHALL proceed without a controller restart
+
+#### Scenario: CTRL-CORE-18.04 -- Last-known-good is preserved across a transient failure
+
+- GIVEN the Gateway API group was confirmed present on a prior successful discovery
+- WHEN a later discovery pass fails transiently for an unrelated group
+- THEN the control plane SHALL retain the Gateway API as present from the last-known-good result
+- AND it SHALL NOT flip the Gateway API to absent because of the unrelated transient failure
+
+### Requirement: CTRL-CORE-19 -- Gate Only The Work That Needs A Dependency
+
+Before it performs an operation, the control plane SHALL check the specific APIs and
+resources that operation actually requires, keeping the existing resource-level checks
+(including the `GRPCRoute` check for Gateway API ingress). A dependency failure SHALL
+gate only the dependent work, never the whole controller.
+
+- When a required API or resource is unknown/unavailable (transport, authorization, or
+  stale discovery, per CTRL-CORE-18), the control plane SHALL keep running, mark the
+  affected reconciliation as waiting/retryable, and retry with bounded backoff. It
+  SHALL NOT declare the API absent because of a transport or authorization error, and
+  SHALL NOT switch ingress modes because the configured mode's API cannot currently be
+  reached.
+- When successful discovery confirms a required API or resource is not installed, the
+  control plane SHALL report a clear prerequisite/configuration error on the affected
+  gateway or feature, SHALL leave independent reconciliation work running, and SHALL
+  recheck so installing the prerequisite recovers the feature without a HyperShell
+  restart.
+- The control plane SHALL NOT silently omit required certificate, ingress, or security
+  resources and then report that gateway provisioning succeeded. A gateway that is
+  missing a required dependency SHALL surface a waiting or prerequisite state, not a
+  false success.
+
+The control plane SHALL report the affected gateway or feature, the required
+group/version/resource, the error, and the retry or prerequisite state through logs and
+the existing status/provisioning conditions (see
+[`openshell-gateway-health.spec.md`](./openshell-gateway-health.spec.md)). Process
+health SHALL stay separate from a feature waiting on a dependency, so a recoverable API
+outage SHALL NOT trigger a controller restart loop.
+
+#### Scenario: CTRL-CORE-19.01 -- Unrelated stale discovery does not block gateway work
+
+- GIVEN discovery reports `projectcalico.org/v3` stale while OpenShift Routes, cert-manager, and Gateway API resolve successfully
+- WHEN the control plane reconciles a gateway
+- THEN it SHALL provision the gateway, including its certificates and ingress, using the successfully resolved dependencies
+- AND the stale unrelated group SHALL NOT block the gateway reconciliation
+
+#### Scenario: CTRL-CORE-19.02 -- A required API that is unavailable marks the feature waiting
+
+- GIVEN a gateway with `route` configuration and the Gateway API group currently unreachable (transport error)
+- WHEN the control plane reconciles that gateway
+- THEN it SHALL keep running, mark the route provisioning as waiting/retryable, and retry with bounded backoff
+- AND it SHALL NOT report the Gateway API as absent, SHALL NOT switch ingress mode, and SHALL NOT report the gateway as successfully provisioned without its route
+
+#### Scenario: CTRL-CORE-19.03 -- A confirmed-absent prerequisite reports a clear error and recovers
+
+- GIVEN successful discovery confirms cert-manager is not installed
+- WHEN the control plane reconciles a gateway that requires cert-manager
+- THEN it SHALL report a clear prerequisite error on that gateway and SHALL NOT claim it was provisioned
+- AND it SHALL continue reconciling gateways that do not need cert-manager
+- AND after cert-manager is installed, a later reconcile SHALL provision the gateway without a HyperShell restart
+
 ### Requirement: CTRL-CORE-07 -- Watch Stream Liveness
 
 A watch stream SHALL NOT be trusted to stay healthy merely because it has not
@@ -1121,4 +1332,6 @@ The control plane SHALL continuously reconcile the `phase` and `status` fields o
 | AgentRuntime effective cluster resolved server-side, not client-side | An `AgentRuntime` may omit `cluster_id` and derive placement from its Gateway. If each control plane resolved placement and filtered client-side, every control plane would receive every AgentRuntime and the cluster scoping could not be enforced at the hub. Resolving the derived cluster server-side keeps the watch-stream caller binding authoritative, exactly as for Gateways and RoleBindings. The control plane re-resolves only as defense in depth. |
 | AgentRuntime AND the declarative `.hypershell` import both reconciled by the control plane | The control plane holds the in-cluster credentials needed to apply AgentRuntime scheduling resources and already dials each gateway's gRPC API, so cluster-side and gateway-side provisioning belong there. The declarative `.hypershell` import also belongs there: it must read each `Repository`'s credential from the secret store and read the `import_path` subtree over the GitHub API, and the control plane has read-only secret-store access (`pkg/secretstore`) and the platform GitHub App credential while the api-server has neither store read access nor repository read access. The import is the single, bounded path by which the control plane writes API desired state, scoped to create/update/prune of `Repository`-owned ext resources; everywhere else the control plane stays a reader of desired state (see "Declarative `.hypershell` Import Reconciliation" and [`data-model.spec.md`](./data-model.spec.md), "Declarative `.hypershell` Import"). The import is driven event-first off the `WatchRepositories` stream with a slow hourly drift re-check and a conditional upstream fetch, so a `Repository` change imports in real time while an unchanged subtree costs no heavy GitHub reads, rather than a short fixed-interval full re-fetch that exhausted the anonymous GitHub rate limit. |
 | Import reads the `import_path` subtree over the GitHub API, not a git clone | The control-plane distroless runtime image ships no `git` binary and mounts no writable working directory or PVC. Reading only the `import_path` subtree over the GitHub API with the platform GitHub App credential keeps the import in-process and in-memory, avoids a full repository checkout, and needs no on-disk working copy. It also narrows the blast radius: the reconciler fetches only the declarative root, not the whole repository. |
+| Cluster platform configured explicitly (`HYPERSHELL_CLUSTER_PLATFORM`), never inferred from API discovery | The platform type is deployment configuration that is known at deploy time; it does not change at runtime. Guessing it from discovery made an unrelated, transient discovery failure (a stale `projectcalico.org/v3` group) flip the controller to vanilla-Kubernetes pod security on an OpenShift cluster, so OpenShift rejected the gateway pod's fixed UID/group and provisioning failed. An explicit setting removes that coupling: discovery still gates feature prerequisites (cert-manager, Gateway API), but never the platform type. |
+| Dependency availability is three-state (present / confirmed-absent / unknown) with refresh, not a permanent boolean captured at startup | A single boolean captured once at construction could not tell "the API is not installed" from "discovery failed transiently", so one stale group froze every feature flag to absent for the process lifetime and forced a restart to recover. Mapping transport, authorization, and stale-group errors to unknown/unavailable (retryable) and only a successful discovery to confirmed-absent, through a shared refreshable component, lets the controller keep running, gate only the dependent work, and recover without a restart. |
 | Kustomize rendered in-process by a shared Go LIBRARY, reversing the earlier "no kustomize in control plane" | This deliberately reverses the prior decision that kept Kustomize out of the control plane. The reversal admits the kustomize Go LIBRARY (not a binary, not a `Job`) into the control plane so rendering happens in-process in-memory. The single shared implementation SHALL be `pkg/kustomize` (exported `Build`) in `components/cli`, to be built and then consumed by exactly two callers: `hsctl` and the control plane's `RepositoryReconciler`; `hsctl apply -k` is refactored off its external-`kustomize`-binary shell-out onto this package, and the control-plane module imports the cli module. One implementation renders for `hsctl` and the `RepositoryReconciler`, so CLI and server render identically and there is no second, divergent renderer to drift. The `GatewayReconciler` is NOT a consumer of this library: it renders the gateway workload through Helm. The accepted trade-off is a kustomize library dependency in the control-plane module. |

@@ -54,7 +54,7 @@ listed in `specs/id-rename-map.md`, not here.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `CTRL-CORE` | `platform/control-plane.spec.md` | 15 |
+| `CTRL-CORE` | `platform/control-plane.spec.md` | 19 |
 | `CTRL-TLS` | `platform/hub-grpc-tls.spec.md` | 5 |
 | `CTRL-TRC` | `platform/reconcile-trace-correlation.spec.md` | 5 |
 | `CTRL-WDEL` | `platform/watch-delete-events.spec.md` | 3 |
@@ -126,7 +126,7 @@ listed in `specs/id-rename-map.md`, not here.
 | `OSG-CRED` | `platform/openshell-gateway-credentials.spec.md` | 12 |
 | `OSG-DBS` | `platform/openshell-gateway-database.spec.md` | 12 |
 | `OSG-HELM` | `platform/openshell-gateway-helm-adoption.spec.md` | 3 |
-| `OSG-HLTH` | `platform/openshell-gateway-health.spec.md` | 6 |
+| `OSG-HLTH` | `platform/openshell-gateway-health.spec.md` | 7 |
 | `OSG-KCLK` | `platform/openshell-gateway-keycloak.spec.md` | 11 |
 | `OSG-KCLT` | `platform/openshell-gateway-keycloak.transitional.spec.md` | 1 |
 | `OSG-NSGC` | `platform/openshell-gateway-namespace-gc.spec.md` | 8 |
