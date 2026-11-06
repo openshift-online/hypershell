@@ -39,21 +39,41 @@ Requires:
 
 ## Requirements
 
-### Requirement: OSG-ROUT-02 -- Gateway API Detection
+### Requirement: OSG-ROUT-02 -- Gateway API Prerequisite Discovery
 
-The control plane SHALL detect at startup whether the cluster supports the Gateway API for route provisioning.
+The control plane SHALL evaluate Gateway API resources through the shared,
+refreshable dependency-discovery contract (CTRL-CORE-18), using the present,
+confirmed-absent, and unknown/unavailable states. This prerequisite determines
+when the controller can reconcile the gateway's configured ingress resources.
 
-#### Scenario: OSG-ROUT-02.01 -- Gateway API available
+For unknown/unavailable dependencies, the controller SHALL report route
+provisioning as waiting/retryable and retry with bounded backoff. For a
+confirmed-absent prerequisite, it SHALL report the required resources to install.
+It SHALL refresh dependency state and resume route provisioning when the required
+resources become available (CTRL-CORE-19). The configured ingress mode SHALL remain
+stable throughout these state changes.
 
-- GIVEN the `gateway.networking.k8s.io` API group is available (Gateway, GRPCRoute, BackendTLSPolicy CRDs exist)
-- AND `GATEWAY_API_GATEWAY_NAME` is set to the name of a pre-existing Gateway resource
-- THEN the control plane SHALL enable Gateway API route provisioning
+#### Scenario: OSG-ROUT-02.01 -- Gateway API present
 
-#### Scenario: OSG-ROUT-02.02 -- Gateway API not available
+- GIVEN discovery confirms the required Gateway, GRPCRoute, and BackendTLSPolicy resources are present
+- AND `GATEWAY_API_GATEWAY_NAME` identifies a pre-existing Gateway
+- WHEN the control plane reconciles a gateway using Gateway API ingress
+- THEN it SHALL reconcile the gateway's ingress resources
 
-- GIVEN the `gateway.networking.k8s.io` API group is NOT available
-- THEN the control plane SHALL disable route provisioning
-- AND gateways with `route` configuration SHALL log a warning and skip route resource creation
+#### Scenario: OSG-ROUT-02.02 -- Gateway API confirmed absent
+
+- GIVEN successful discovery confirms a required Gateway API resource is absent
+- WHEN the control plane reconciles a gateway using Gateway API ingress
+- THEN it SHALL report a prerequisite condition identifying the resource to install
+- AND after the resource is installed, the running controller SHALL resume route provisioning
+
+#### Scenario: OSG-ROUT-02.03 -- Gateway API unavailable
+
+- GIVEN discovery of a required Gateway API resource fails with a transport, authorization, or stale-group error
+- WHEN the control plane reconciles a gateway using Gateway API ingress
+- THEN it SHALL mark route provisioning as waiting/retryable and retry with bounded backoff
+- AND it SHALL retain the configured ingress mode
+- AND gateway provisioning SHALL complete after its required ingress resources are reconciled
 
 ---
 
