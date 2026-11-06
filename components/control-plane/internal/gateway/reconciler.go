@@ -119,6 +119,12 @@ func ReconcileGateway(
 	// Step 4: GatewayDeployed
 	report(ConditionGatewayDeployed, StatusInProgress, "")
 
+	additionalCA, err := reconcileDestinationCABundle(ctx, clientset, opts.ControlPlaneNamespace, nsConfig.Name)
+	if err != nil {
+		report(ConditionGatewayDeployed, StatusFailed, "Destination TLS trust bundle is unavailable or invalid")
+		return err
+	}
+
 	// Copy trusted CA bundle (for OIDC issuer verification)
 	hasTrustedCA := reconcileTrustedCABundle(ctx, clientset, opts.ControlPlaneNamespace, nsConfig.Name)
 
@@ -163,7 +169,7 @@ func ReconcileGateway(
 	// Deploy gateway via Helm
 	// The chart handles: Deployment, Services, RBAC, cert-manager, GRPCRoute,
 	// BackendTLSPolicy, Route, credential KEK
-	if err := deployGatewayViaHelm(ctx, helmClient, nsConfig, opts, hasTrustedCA, hasVaultCA); err != nil {
+	if err := deployGatewayViaHelm(ctx, helmClient, nsConfig, opts, hasTrustedCA, hasVaultCA, additionalCA); err != nil {
 		report(ConditionGatewayDeployed, StatusFailed, "Gateway deployment failed - unable to deploy the gateway workload")
 		return fmt.Errorf("deploy gateway via helm in %s: %w", nsConfig.Name, err)
 	}

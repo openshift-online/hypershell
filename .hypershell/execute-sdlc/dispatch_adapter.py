@@ -67,6 +67,21 @@ def main():
         value = runtime_settings.save(request['key'], request['value'])
         print(json.dumps({'value':value, 'settings':runtime_settings.view(args), 'settings_file':str(runtime_settings.config_path())}))
         return
+    if action == 'approve-merge':
+        from merge_approval import approve
+        if args.dry_run or args.status:
+            raise ValueError('Merge approval is unavailable in dry-run or status mode')
+        request = json.load(sys.stdin)
+        approval_store = Store(args.state_dir/'state.sqlite3')
+        try:
+            active = approval_store.db.execute("SELECT 1 FROM jobs WHERE item=? AND status IN ('running','uncertain')", (str(request.get('item','')),)).fetchone()
+            if active:
+                raise ValueError('A worker still owns this issue; wait for it to finish before approving')
+            approve(GitHub(args.repo, args.scope, args.fullsend_dir), request)
+        finally:
+            approval_store.db.close()
+        print('{}')
+        return
     if args.gateway:
         os.environ['OPENSHELL_GATEWAY'] = args.gateway
         os.environ.pop('OPENSHELL_GATEWAY_ENDPOINT', None)
@@ -82,7 +97,7 @@ def main():
         env_keys = ('GOOGLE_APPLICATION_CREDENTIALS', 'CLOUD_ML_REGION', 'JIRA_BASE_URL',
                     'OPENSHELL_GATEWAY', 'OPENSHELL_GATEWAY_ENDPOINT')
         result = vars(args)
-        result['environment'] = {key: os.environ.get(key) for key in env_keys}
+        result['environment'] = {'FULLSEND_AUTO_MERGE':args.auto_merge, **{key: os.environ.get(key) for key in env_keys}}
         for key in runtime_settings.ENV_KEYS: result['environment'][key]=os.environ.get(key)
         for key in runtime_settings.ENV_KEYS: args.settings_inputs[key]=os.environ.get(key,'')
         result['settings_file'] = str(runtime_settings.config_path())
@@ -126,7 +141,7 @@ def main():
     try:
         if action == 'discover':
             coordinator.discover()
-            print(json.dumps({'jobs': coordinator.candidates, 'errors': coordinator.errors}))
+            print(json.dumps({'jobs': coordinator.candidates, 'errors': coordinator.errors, 'awaiting_approval':getattr(coordinator,'awaiting_approval',[])}))
         elif action == 'authorize':
             print(json.dumps({'allowed': coordinator.authorized(json.load(sys.stdin))}))
         else:

@@ -158,6 +158,67 @@ The OpenShell Helm chart value `server.tls.enableMtls` controls whether the gate
 
 ---
 
+### Requirement: OSG-TLS-07 -- Sandbox Destination CA Trust
+
+Sandbox supervisors verify destination TLS independently of the workload. The
+control plane SHALL support operator-provided public CA roots without disabling
+upstream certificate verification. This trust SHALL remain separate from gateway
+mTLS, OIDC issuer trust, and Vault serving-CA trust. It SHALL NOT authorize network
+destinations or bypass private-address restrictions on advisor-proposed policies.
+
+#### Scenario: OSG-TLS-07.01 -- Capability-selected corporate trust
+
+- GIVEN `GATEWAY_ADDITIONAL_CA_CONFIGMAP_NAME` names a ConfigMap in the controller namespace
+- AND `GATEWAY_ADDITIONAL_CA_REQUIRED_CAPABILITY` is `network/vpn`
+- WHEN `HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES` contains that exact comma-separated capability (ignoring surrounding whitespace)
+- THEN the controller SHALL apply the public destination CA bundle to every gateway it manages
+- AND instances without that capability SHALL NOT read or propagate the bundle
+- AND an unset required capability SHALL allow an explicitly configured bundle on any instance
+- AND an unset ConfigMap name SHALL leave destination trust unconfigured
+- AND GitOps SHALL configure the corporate bundle for every instance declaring `network/vpn`, including future instances
+
+#### Scenario: OSG-TLS-07.02 -- Bundle validation and propagation
+
+- GIVEN an eligible instance with a configured source ConfigMap
+- WHEN provisioning or reconciling a gateway
+- THEN the controller SHALL read PEM certificates from `ca.crt`, accepting `ca-bundle.crt` as a fallback
+- AND a missing, unreadable, or certificate-free source SHALL fail reconciliation with the source identified
+- AND the controller SHALL copy public certificates into a content-addressed ConfigMap in the gateway namespace
+- AND it SHALL set `supervisor.network.additionalCaConfigMapName` in the gateway Helm values
+- AND the gateway SHALL stage this trust for its sandbox supervisors through OpenShell's additional-CA support
+- AND no private key SHALL be required in the source bundle
+
+#### Scenario: OSG-TLS-07.03 -- Existing gateways and rotation
+
+- GIVEN an eligible instance whose source bundle or capability configuration has changed
+- WHEN the controller starts and seeds existing gateways, or receives a gateway reconciliation event
+- THEN it SHALL check destination trust even when the Gateway API generation has already converged
+- AND a changed content-addressed volume reference SHALL cause a Helm upgrade and gateway rollout
+- AND old ConfigMap generations SHALL remain mountable until gateway namespace cleanup
+- AND running sandbox supervisors SHALL acquire the new trust on sandbox stop/start, preserving durable workspace data
+- AND changing trust SHALL NOT require deleting sandboxes or regenerating gateway mTLS certificates
+
+Source ConfigMap changes are not watched directly. Operators SHALL restart the
+controller after a bundle update to ensure all existing gateways are rechecked.
+Sandbox stop/start interrupts running processes and SHALL be coordinated with owners.
+
+#### Scenario: OSG-TLS-07.04 -- Removing configured trust
+
+- GIVEN the bundle setting is removed or its capability selector no longer matches
+- WHEN a Gateway spec update advances its generation and triggers provisioning
+- THEN the controller SHALL omit the additional-CA Helm value
+- AND affected sandboxes SHALL require stop/start to discard their previous trust generation
+
+Removing a setting alone SHALL NOT bypass the normal convergence gate on an
+ineligible instance. Gateway spec reconciliation is required to remove previously
+applied trust from already-converged gateways.
+
+**Verification:** `internal/gateway/destination_ca_test.go` covers eligibility,
+validation, propagation, and trust rotation; `internal/helm/values_test.go` renders
+the vendored chart to verify the supervisor trust path.
+
+---
+
 ## Debugging Reference
 
 | Symptom | Root Cause | Fix |

@@ -212,12 +212,23 @@ func authorizeControlPlaneGRPC(ctx context.Context, clusterID, fullMethod string
 			return nil
 		}
 		return denied()
-	case "CIProviderService", "CITrustService":
-		// CIProvider and CITrust are authored over HTTP (CIProvider by a
-		// ci-federation:admin, CITrust by a gateway owner/admin), not by the
-		// import reconciler, and neither is on the declarative-import write path.
-		// A registered control plane may READ them to drive CI federation
-		// reconciliation; all writes over gRPC stay denied (SEC-RBAC-09.08).
+	case "CITrustService":
+		// CITrust is on the declarative-import write path (SEC-RBAC-09.09, SEC-RBAC-26):
+		// a registered control plane may READ it, and an import-marked write is
+		// authorized only when the write carries the reconciled Repository id in trusted
+		// metadata and that Repository exists (authorizeImportWrite / import_binding.go).
+		// The handler then sets the repository_id ownership mark server-side and refuses
+		// a write whose referenced gateway is not owned by that same Repository. A user
+		// CITrust write over gRPC stays denied (authorizeUserGRPC, SEC-RBAC-09.08).
+		if isReadMethodName(method) {
+			return nil
+		}
+		return authorizeImportWrite(ctx, imports)
+	case "CIProviderService":
+		// CIProvider is a platform-wide registration authored over HTTP by a
+		// ci-federation:admin; it is NOT importable. A registered control plane may READ
+		// it to drive CI federation reconciliation; writes over gRPC stay denied
+		// (SEC-RBAC-09.08).
 		if isReadMethodName(method) {
 			return nil
 		}

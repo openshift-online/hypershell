@@ -60,6 +60,13 @@ func TestSettingsPersistAndApplyWithoutChangingActiveJob(t *testing.T) {
 	if result.err != nil || e.config().Poll != 10000000 {
 		t.Fatalf("large integer changed representation: %v", result.err)
 	}
+	result = e.saveSetting(context.Background(), "auto_merge", "disabled")
+	if result.err != nil {
+		t.Fatal(result.err)
+	}
+	if value := e.config().Environment["FULLSEND_AUTO_MERGE"]; value == nil || *value != "disabled" {
+		t.Fatal("merge policy not applied to new workers")
+	}
 	old := e.config().Repo
 	result = e.saveSetting(context.Background(), "repo", "other/repository")
 	if result.err != nil {

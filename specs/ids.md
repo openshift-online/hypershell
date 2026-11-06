@@ -89,7 +89,7 @@ listed in `specs/id-rename-map.md`, not here.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `GTW-ACC` | `platform/gateway-access-management.spec.md` | 14 |
+| `GTW-ACC` | `platform/gateway-access-management.spec.md` | 15 |
 | `GTW-ATTR` | `platform/gateway-managed-cluster-attribution.spec.md` | 6 |
 | `GTW-CFG` | `platform/generated-gateway-config-validation.spec.md` | 4 |
 | `GTW-CONC` | `platform/gateway-reconcile-concurrency.spec.md` | 3 |
@@ -143,7 +143,7 @@ listed in `specs/id-rename-map.md`, not here.
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `PLAT-ARCH` | `platform/global-architecture.spec.md` | 19 |
-| `PLAT-CITR` | `platform/ci-trust-ext-api.spec.md` | 9 |
+| `PLAT-CITR` | `platform/ci-trust-ext-api.spec.md` | 12 |
 | `PLAT-CLUS` | `platform/managed-cluster-registration.spec.md` | 15 |
 | `PLAT-DATA` | `platform/data-model.spec.md` | 25 |
 | `PLAT-INV` | `platform/platform-inventory.spec.md` | 10 |
@@ -171,7 +171,7 @@ listed in `specs/id-rename-map.md`, not here.
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `SEC-OIDC` | `platform/oidc-integration.spec.md` | 11 |
-| `SEC-RBAC` | `security/rbac-enforcement.spec.md` | 25 |
+| `SEC-RBAC` | `security/rbac-enforcement.spec.md` | 26 |
 | `SEC-STD` | `standards/security/security.spec.md` | 4 |
 
 ### STD

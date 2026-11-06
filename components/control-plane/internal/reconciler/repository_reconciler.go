@@ -17,11 +17,13 @@ import (
 
 // ImportableKinds is the canonical set of Kinds the RepositoryReconciler imports
 // from a `.hypershell` root, defined in data-model.spec.md ("Declarative
-// `.hypershell` Import"): exactly seven. It is a SUBSET of the Kinds `hsctl apply`
+// `.hypershell` Import"): exactly eight. It is a SUBSET of the Kinds `hsctl apply`
 // accepts; `hsctl apply` also accepts platform-admin Kinds (ManagedCluster, Role,
 // RoleBinding) that are NOT importable through a Repository. `Repository` itself is
 // explicitly EXCLUDED so that importing one repository cannot register further
-// repositories (recursive/transitive import).
+// repositories (recursive/transitive import). `CIProvider` is also EXCLUDED: it is a
+// platform-wide registration authored over HTTP by a ci-federation:admin, not
+// repository-owned (data-model.spec.md PLAT-DATA-25).
 var ImportableKinds = map[string]struct{}{
 	"AgentRuntime":    {},
 	"SandboxTemplate": {},
@@ -30,6 +32,7 @@ var ImportableKinds = map[string]struct{}{
 	"InferenceRoute":  {},
 	"SecretSource":    {},
 	"Gateway":         {},
+	"CITrust":         {},
 }
 
 // isImportableKind reports whether kind is one of the canonical importable Kinds.
@@ -97,13 +100,21 @@ type CredentialResolver interface {
 // prune is scoped to a single Repository so one import never deletes another
 // Repository's resources or resources created directly over REST / `hsctl apply`.
 type ImportWriter interface {
-	// ListOwned returns every resource currently owned by repoID.
-	ListOwned(ctx context.Context, repoID string) ([]ResourceRef, error)
-	// Upsert creates the resource when absent and updates it when present, marking
-	// it owned by repoID. An error for one resource is collected by the caller
-	// rather than aborting the rest of the import. All seven importable Kinds have a
+	// ListOwned returns every resource currently owned by repoID. It takes the same
+	// per-pass cache UpsertAll was given so the platform-wide CITrust scan and
+	// owned-filter run ONCE for the whole pass rather than a second time here (FINDING 2).
+	ListOwned(ctx context.Context, repoID string, cache *citrustPassCache) ([]ResourceRef, error)
+	// UpsertAll creates each absent resource and updates each changed one, marking
+	// every write owned by repoID. It is given the whole desired set for one pass so
+	// it can fetch any shared read (for example the owned CITrust/Gateway sets and the
+	// CIProvider registry a CITrust upsert resolves against) ONCE per pass rather than
+	// once per resource, keeping a pass O(all) not O(N*all) (FINDING 4). The caller
+	// threads the same cache into ListOwned so the two together scan the CITrust table
+	// once (FINDING 2). An error for one resource is collected and returned (already
+	// wrapped with the resource's Kind/Name) without aborting the rest of the import, so
+	// one bad declaration never hides the others. All eight importable Kinds have a
 	// control-plane import write path.
-	Upsert(ctx context.Context, repoID string, res RenderedResource) error
+	UpsertAll(ctx context.Context, repoID string, desired []RenderedResource, cache *citrustPassCache) []error
 	// Delete removes one Repository-owned resource.
 	Delete(ctx context.Context, repoID string, ref ResourceRef) error
 }
@@ -308,16 +319,30 @@ func (r *RepositoryReconciler) reconcileRepository(ctx context.Context, repo *pb
 	desiredKeys := make(map[ResourceRef]struct{}, len(desired))
 	for _, res := range desired {
 		desiredKeys[ResourceRef{Kind: res.Kind, Name: res.Name}] = struct{}{}
-		if err := r.writer.Upsert(ctx, repoID, res); err != nil {
-			errs = append(errs, fmt.Errorf("upsert %s/%s: %w", res.Kind, res.Name, err))
-		}
 	}
 
-	owned, err := r.writer.ListOwned(ctx, repoID)
+	// One shared per-pass CITrust cache threaded through both UpsertAll and ListOwned so
+	// the platform-wide CITrust scan happens once for the whole pass, not once for the
+	// upserts and again for the prune list (FINDING 2). It loads lazily inside the writer.
+	citrustCache := &citrustPassCache{}
+
+	// Upsert the whole desired set in one call so the writer can share per-pass reads
+	// across resources (FINDING 4). Per-resource errors are collected, not fatal.
+	errs = append(errs, r.writer.UpsertAll(ctx, repoID, desired, citrustCache)...)
+
+	owned, err := r.writer.ListOwned(ctx, repoID, citrustCache)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("list owned resources: %w", err))
 		return errors.Join(errs...)
 	}
+	// Prune in REVERSE dependency order (FINDING 3): a dependent kind must be deleted
+	// BEFORE the kind it references, so we never leave a CITrust pointing at a Gateway
+	// that has already been (soft-)deleted in the same pass. This is the exact inverse of
+	// the create ordering in renderImportables; both share importOrderLess so the two
+	// directions can never drift apart.
+	sort.Slice(owned, func(i, j int) bool {
+		return importOrderLess(owned[i].Kind, owned[i].Name, owned[j].Kind, owned[j].Name, true)
+	})
 	for _, ref := range owned {
 		if _, keep := desiredKeys[ResourceRef{Kind: ref.Kind, Name: ref.Name}]; keep {
 			continue
@@ -413,14 +438,70 @@ func renderImportables(fSys filesys.FileSystem, root string) ([]RenderedResource
 		out = append(out, RenderedResource{Kind: kind, Name: identity, Spec: spec})
 	}
 
-	// Deterministic order keeps logs and tests stable.
+	// Order by dependency precedence (not alphabetically) so a kind that owns a
+	// foreign key another imported kind resolves BY NAME is upserted first, letting a
+	// single import pass succeed. A CITrust resolves its gateway_id against the
+	// Repository's own gateways (#871/#873), so a fresh repo declaring both a Gateway
+	// and a CITrust referencing it must write the Gateway before the CITrust in the
+	// SAME pass (FINDING 1). Within one precedence tier, name keeps the order
+	// deterministic for stable logs and tests.
 	sort.Slice(out, func(i, j int) bool {
-		if out[i].Kind != out[j].Kind {
-			return out[i].Kind < out[j].Kind
-		}
-		return out[i].Name < out[j].Name
+		return importOrderLess(out[i].Kind, out[i].Name, out[j].Kind, out[j].Name, false)
 	})
 	return out, nil
+}
+
+// importOrderLess is the single comparator behind both import orderings (FINDING 3):
+// renderImportables sorts in create order (reverse=false, dependency targets before
+// their dependents) and the prune pass sorts in the exact inverse (reverse=true,
+// dependents before their targets) so a CITrust is deleted before the Gateway it
+// references. Parameterizing one comparator by direction keeps the two from drifting
+// apart. Precedence tiers and the Kind tiebreak follow the direction; Name always sorts
+// ascending so logs and tests stay deterministic in both directions.
+func importOrderLess(kindI, nameI, kindJ, nameJ string, reverse bool) bool {
+	pi, pj := importKindPrecedence(kindI), importKindPrecedence(kindJ)
+	if pi != pj {
+		if reverse {
+			return pi > pj
+		}
+		return pi < pj
+	}
+	if kindI != kindJ {
+		if reverse {
+			return kindI > kindJ
+		}
+		return kindI < kindJ
+	}
+	return nameI < nameJ
+}
+
+// importKindPrecedence returns the upsert order of a Kind within one import pass:
+// dependency targets (the foreign keys another kind resolves) sort before their
+// dependents, so a single pass over a fresh repository succeeds without a second
+// reconcile. Gateway and CIProvider identities must exist before a CITrust that
+// references them is written; CITrust therefore sorts last. An unlisted kind sorts
+// into a neutral middle tier. Lower is earlier.
+func importKindPrecedence(kind string) int {
+	switch kind {
+	case "Gateway":
+		return 0
+	case "ProviderSpec":
+		return 1
+	case "SandboxTemplate":
+		return 1
+	case "SecretSource":
+		return 1
+	case "AgentRuntime":
+		return 2
+	case "ProviderBinding":
+		return 2
+	case "InferenceRoute":
+		return 3
+	case "CITrust":
+		return 4
+	default:
+		return 2
+	}
 }
 
 // resourceIdentity derives the stable identity used to match a desired resource

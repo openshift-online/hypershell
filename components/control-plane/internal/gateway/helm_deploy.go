@@ -18,6 +18,7 @@ func deployGatewayViaHelm(
 	opts ReconcileOpts,
 	hasTrustedCA bool,
 	hasVaultCA bool,
+	additionalCA string,
 ) error {
 	// Build Helm values from gateway configuration
 	valuesBuilder := &helm.ValuesBuilder{
@@ -57,6 +58,7 @@ func deployGatewayViaHelm(
 		ExternalCAIssuerName:       opts.ExternalCAIssuerName,
 		ExternalCAIssuerKind:       opts.ExternalCAIssuerKind,
 		HasTrustedCA:               hasTrustedCA,
+		AdditionalCAConfigMapName:  additionalCA,
 		HasVaultCA:                 hasVaultCA,
 		Resources:                  opts.GatewayResources,
 		SandboxRuntimeClass:        opts.SandboxRuntimeClass,

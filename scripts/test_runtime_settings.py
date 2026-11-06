@@ -23,6 +23,16 @@ class SettingsTests(unittest.TestCase):
         self.env.start();self.addCleanup(self.env.stop)
         os.environ.pop('FULLSEND_RUNTIME_SETTINGS',None)
 
+    def test_merge_policy_precedence_and_validation(self):
+        with patch.dict(os.environ,{'FULLSEND_AUTO_MERGE':'false'}):
+            self.assertEqual(funnel_dispatch.parse_args(['agent/scope/test','--dry-run']).auto_merge,'disabled')
+            settings.save('auto_merge',True)
+            self.assertEqual(funnel_dispatch.parse_args(['agent/scope/test','--dry-run']).auto_merge,'enabled')
+            self.assertEqual(funnel_dispatch.parse_args(['agent/scope/test','--dry-run','--no-auto-merge']).auto_merge,'disabled')
+            with patch.dict(os.environ,{'FULLSEND_RUNTIME_SETTINGS':'{"auto_merge":"disabled"}'}):
+                self.assertEqual(funnel_dispatch.parse_args(['agent/scope/test','--dry-run','--auto-merge']).auto_merge,'disabled')
+        with self.assertRaises(ValueError):settings.save('auto_merge','perhaps')
+
     def test_atomic_private_save_preserves_other_values_and_concurrent_edits(self):
         self.assertEqual(settings.read(),{})
         with ThreadPoolExecutor(max_workers=2) as executor:

@@ -35,8 +35,10 @@ type CITrust struct {
 	GatewayId string              `json:"gateway_id"`
 	Subject   CITrustAllOfSubject `json:"subject"`
 	// The gateway role granted to the federated CI session
-	Role   string              `json:"role"`
-	Status *CITrustAllOfStatus `json:"status,omitempty"`
+	Role string `json:"role"`
+	// Repository that owns this CITrust through the control-plane .hypershell import. Null for trusts created directly through the REST API or hsctl apply. Set server-side; read-only in the client contract.
+	RepositoryId *string             `json:"repository_id,omitempty"`
+	Status       *CITrustAllOfStatus `json:"status,omitempty"`
 }
 
 type _CITrust CITrust
@@ -350,6 +352,38 @@ func (o *CITrust) SetRole(v string) {
 	o.Role = v
 }
 
+// GetRepositoryId returns the RepositoryId field value if set, zero value otherwise.
+func (o *CITrust) GetRepositoryId() string {
+	if o == nil || IsNil(o.RepositoryId) {
+		var ret string
+		return ret
+	}
+	return *o.RepositoryId
+}
+
+// GetRepositoryIdOk returns a tuple with the RepositoryId field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *CITrust) GetRepositoryIdOk() (*string, bool) {
+	if o == nil || IsNil(o.RepositoryId) {
+		return nil, false
+	}
+	return o.RepositoryId, true
+}
+
+// HasRepositoryId returns a boolean if a field has been set.
+func (o *CITrust) HasRepositoryId() bool {
+	if o != nil && !IsNil(o.RepositoryId) {
+		return true
+	}
+
+	return false
+}
+
+// SetRepositoryId gets a reference to the given string and assigns it to the RepositoryId field.
+func (o *CITrust) SetRepositoryId(v string) {
+	o.RepositoryId = &v
+}
+
 // GetStatus returns the Status field value if set, zero value otherwise.
 func (o *CITrust) GetStatus() CITrustAllOfStatus {
 	if o == nil || IsNil(o.Status) {
@@ -414,6 +448,9 @@ func (o CITrust) ToMap() (map[string]interface{}, error) {
 	toSerialize["gateway_id"] = o.GatewayId
 	toSerialize["subject"] = o.Subject
 	toSerialize["role"] = o.Role
+	if !IsNil(o.RepositoryId) {
+		toSerialize["repository_id"] = o.RepositoryId
+	}
 	if !IsNil(o.Status) {
 		toSerialize["status"] = o.Status
 	}
