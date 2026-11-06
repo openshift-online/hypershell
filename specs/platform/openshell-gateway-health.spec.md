@@ -408,3 +408,32 @@ that targets an endpoint that is not yet programmed and routable.
 - GIVEN a routed Gateway that transitions to `phase` `Running`
 - WHEN the console next renders the Gateway detail
 - THEN it SHALL present the connection command as ready to use
+
+### Requirement: OSG-HLTH-07 -- Dependency Prerequisite State Is Visible And Recoverable
+
+A Gateway waiting for a required API/resource SHALL expose a dependency condition
+through its phase, status, and provisioning conditions. The condition SHALL name
+the required group/version/resource and distinguish unknown/unavailable
+(retryable) from confirmed absent (a prerequisite to install), following
+CTRL-CORE-19.
+
+The controller SHALL report process health separately from Gateway dependency
+status. Its reconciliation machinery SHALL remain active through dependency
+outages and converge the Gateway after the prerequisite becomes available, in
+line with OSG-HLTH-02 and OSG-HLTH-03. Gateway provisioning SHALL complete after
+its required resources are reconciled and its workload and configured route meet
+the readiness criteria in this specification.
+
+#### Scenario: OSG-HLTH-07.01 -- Unavailable API produces a retryable condition
+
+- GIVEN a Gateway's required ingress API is unknown/unavailable
+- WHEN the control plane reconciles the Gateway
+- THEN it SHALL expose a waiting/retryable condition naming the API and retry with bounded backoff
+- AND the controller SHALL continue reporting process health and running independent reconciliation work
+
+#### Scenario: OSG-HLTH-07.02 -- Installing a prerequisite restores readiness
+
+- GIVEN successful discovery confirms a Gateway prerequisite is absent
+- WHEN the control plane reconciles the Gateway
+- THEN it SHALL set a Degraded/prerequisite condition identifying the required resource
+- AND after the prerequisite is installed, the running controller SHALL reconcile the Gateway to Running once its workload and configured route meet readiness criteria

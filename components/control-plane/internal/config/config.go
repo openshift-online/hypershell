@@ -136,7 +136,7 @@ type Config struct {
 	// the stream goes silent. The reconciler also seeds on every (re)connect.
 	// Sourced from HYPERSHELL_DEFAULT_WORKSPACE_MEMBERSHIP_RESYNC_INTERVAL; a
 	// non-positive value disables the periodic resync (the per-connect seed still
-	// runs). See specs/platform/control-plane.spec.md, CTRL-CORE-16.
+	// runs). See specs/platform/control-plane.spec.md, CTRL-CORE-20.
 	DefaultWorkspaceMembershipResyncInterval time.Duration
 
 	// Helm chart configuration

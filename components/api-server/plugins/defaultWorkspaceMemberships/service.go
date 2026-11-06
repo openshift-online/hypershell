@@ -50,7 +50,7 @@ type MembershipService interface {
 	All(ctx context.Context) (DefaultWorkspaceMembershipList, *errors.ServiceError)
 	CountByStatus(ctx context.Context) (map[string]int64, *errors.ServiceError)
 	// UpdateStatus is the control-plane's reconciliation status write-back
-	// (CTRL-CORE-16), reached over DefaultWorkspaceMembershipService's
+	// (CTRL-CORE-20), reached over DefaultWorkspaceMembershipService's
 	// UpdateDefaultWorkspaceMembershipStatus RPC.
 	UpdateStatus(ctx context.Context, id, status string, lastReconcileError *string) (*DefaultWorkspaceMembership, *errors.ServiceError)
 }

@@ -485,7 +485,7 @@ func main() {
 		roleBindingReconciler = reconciler.NewRoleBindingReconciler(kcClient, conn, clusterID)
 	}
 
-	// DefaultWorkspaceMembership reconciliation (CTRL-CORE-16): the watch and
+	// DefaultWorkspaceMembership reconciliation (CTRL-CORE-20): the watch and
 	// reconciler always run, like ManagedCluster/Gateway/AgentRuntime, because
 	// the OBS-CRM-14 pending/failed gauges must reflect the watch population
 	// regardless of OpenShell session-factory configuration. The reconciler's

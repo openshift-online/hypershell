@@ -25,7 +25,7 @@ const (
 // it has no public REST route, no hsctl command, and no OpenAPI schema. It is
 // written only by the trusted gateway-access (GTW-ACC-16/17) and
 // service-account (OSG-SACC-19) automation hooks, and read only by the control
-// plane's reconciler (CTRL-CORE-16) and the metrics surfaces that report on it
+// plane's reconciler (CTRL-CORE-20) and the metrics surfaces that report on it
 // (OBS-CRM-14). metadata.href is intentionally empty: there is no REST path to
 // link to.
 type DefaultWorkspaceMembership struct {

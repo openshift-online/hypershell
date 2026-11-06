@@ -15,7 +15,7 @@ import (
 
 // DefaultWorkspaceMembershipReconciler reconciles each gateway's live
 // DefaultWorkspaceMembership rows (data-model.spec.md, PLAT-DATA-27) against
-// that gateway's OpenShell "default" workspace membership (CTRL-CORE-16).
+// that gateway's OpenShell "default" workspace membership (CTRL-CORE-20).
 //
 // It never calls EnsureWorkspace or any workspace-create operation: OpenShell
 // already creates and protects the "default" workspace at gateway startup and
@@ -27,7 +27,7 @@ import (
 // added directly in OpenShell outside HyperShell is removed on the next pass.
 //
 // It is keyed and dispatched per gateway (see watcher.WatchDefaultWorkspaceMemberships),
-// which gives it the batching/coalescing CTRL-CORE-16 requires for free: the
+// which gives it the batching/coalescing CTRL-CORE-20 requires for free: the
 // reconcile queue already serializes and coalesces work per key, so multiple
 // membership events for the same gateway arriving close together collapse into
 // one Handle call against the latest desired set.
@@ -124,7 +124,7 @@ func (r *DefaultWorkspaceMembershipReconciler) Handle(ctx context.Context, event
 	// Full desired-state convergence: ReconcileMemberships adds subjects present
 	// in specs but absent from OpenShell and removes OpenShell members absent
 	// from specs, including a membership added directly in OpenShell outside
-	// HyperShell (CTRL-CORE-16.02).
+	// HyperShell (CTRL-CORE-20.02).
 	if err := api.ReconcileMemberships(ctx, defaultWorkspaceName, specs); err != nil {
 		reconcileErr = fmt.Errorf("reconcile default workspace memberships for gateway %s: %w", gatewayID, err)
 		r.markRows(ctx, rows, false, reconcileErr)
@@ -137,7 +137,7 @@ func (r *DefaultWorkspaceMembershipReconciler) Handle(ctx context.Context, event
 }
 
 // markRows reports each row's reconciliation status back to the API server
-// (CTRL-CORE-16, "Status") and republishes the OBS-CRM-14 pending/failed
+// (CTRL-CORE-20, "Status") and republishes the OBS-CRM-14 pending/failed
 // gauges. A failure here is logged, not returned: it must not mask (or be
 // conflated with) the primary reconcile outcome already decided above, and the
 // status write-back is itself retried on the next pass through this same

@@ -9,7 +9,7 @@
 // OSG-SACC-19) automation hooks through the MembershipService interface in service.go,
 // which run in the same process and so call it directly rather than over gRPC
 // (mirroring RoleBindingService, which also has no gRPC Create/Delete). It is
-// read by the control plane's reconciler (CTRL-CORE-16) over
+// read by the control plane's reconciler (CTRL-CORE-20) over
 // DefaultWorkspaceMembershipService's List/Watch RPCs, and by the metrics
 // surfaces that report on it (OBS-CRM-14).
 package defaultWorkspaceMemberships
@@ -37,7 +37,7 @@ const (
 	SourceServiceAccount = "service_account"
 )
 
-// ReconciliationStatus is control-plane-owned (CTRL-CORE-16).
+// ReconciliationStatus is control-plane-owned (CTRL-CORE-20).
 const (
 	StatusPending = "pending"
 	StatusReady   = "ready"

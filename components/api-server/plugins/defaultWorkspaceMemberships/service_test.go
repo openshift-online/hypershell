@@ -295,8 +295,8 @@ func TestDeleteAllForGateway_RemovesOnlyThatGatewaysRows(t *testing.T) {
 	}
 }
 
-// CTRL-CORE-16 status write-back.
-// Verifies: CTRL-CORE-16
+// CTRL-CORE-20 status write-back.
+// Verifies: CTRL-CORE-20
 func TestUpdateStatus_RejectsUnknownStatus(t *testing.T) {
 	dao := newFakeDao()
 	svc := NewService(dao, noopEvents{})

@@ -20,7 +20,7 @@ import (
 // this plugin registers NO REST route, NO OpenAPI schema, NO hsctl command, and
 // NO presenters.RegisterPath/RegisterKind entry. It registers only a gRPC
 // service exposing List/Watch (read, for the control plane's reconciler,
-// CTRL-CORE-16) and the reconciliation-status write-back. Create and Delete are
+// CTRL-CORE-20) and the reconciliation-status write-back. Create and Delete are
 // plain Go calls the gatewayAccess and serviceAccounts plugins make directly
 // through ServiceLocator (same process), never over gRPC or HTTP.
 

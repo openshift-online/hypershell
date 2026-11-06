@@ -4,7 +4,7 @@
 **Status:** Draft
 **Tracks:** [HYPERSHELL-49](https://redhat.atlassian.net/browse/HYPERSHELL-49) - Service account provisioning via federated Keycloak
 **Parent:** `openshell-gateway-keycloak.spec.md` - per-gateway Keycloak clients and role mapping
-**Related:** `openshell-gateway-oidc.spec.md`, `security/rbac-enforcement.spec.md`, `standards/security/security.spec.md`, `web-console/architecture.spec.md`, `standards/ui/`, `data-model.spec.md` (`DefaultWorkspaceMembership`, PLAT-DATA-27), `gateway-access-management.spec.md` (the parallel automatic-membership hook for human gateway access, GTW-ACC-16), and `control-plane.spec.md` (reconciliation of automatic default-workspace membership, CTRL-CORE-16)
+**Related:** `openshell-gateway-oidc.spec.md`, `security/rbac-enforcement.spec.md`, `standards/security/security.spec.md`, `web-console/architecture.spec.md`, `standards/ui/`, `data-model.spec.md` (`DefaultWorkspaceMembership`, PLAT-DATA-27), `gateway-access-management.spec.md` (the parallel automatic-membership hook for human gateway access, GTW-ACC-16), and `control-plane.spec.md` (reconciliation of automatic default-workspace membership, CTRL-CORE-20)
 **Upstream:** [Keycloak service accounts](https://www.keycloak.org/docs/latest/server_admin/#_service_accounts), [Keycloak Admin REST API](https://www.keycloak.org/docs-api/latest/rest-api/), and [OpenShell gateway authentication](https://docs.nvidia.com/openshell/reference/gateway-auth)
 
 ---

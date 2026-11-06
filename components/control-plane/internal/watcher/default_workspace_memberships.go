@@ -15,7 +15,7 @@ import (
 // WatchDefaultWorkspaceMemberships streams DefaultWorkspaceMembership events
 // for this control plane's own cluster (data-model.spec.md, PLAT-DATA-27) and
 // dispatches each to the handler through a reconcile queue keyed by GATEWAY id,
-// not by the membership row's own id. CTRL-CORE-16 reconciles a gateway's FULL
+// not by the membership row's own id. CTRL-CORE-20 reconciles a gateway's FULL
 // live membership set as one unit, so keying the queue by gateway gives the
 // "coalesced per gateway" batching the spec requires for free: multiple
 // membership events for the same gateway arriving close together collapse into

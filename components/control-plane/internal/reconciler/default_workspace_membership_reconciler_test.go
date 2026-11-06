@@ -92,7 +92,7 @@ func newRecordingDefaultWorkspaceMembershipConn(t *testing.T) (*grpc.ClientConn,
 // fakeOpenShellAPI implements gateway.OpenShellAPI, recording ReconcileMemberships
 // calls and failing the test if any other method is invoked: the
 // DefaultWorkspaceMembership reconciler must call ONLY ReconcileMemberships
-// against the "default" workspace (CTRL-CORE-16: never EnsureWorkspace or any
+// against the "default" workspace (CTRL-CORE-20: never EnsureWorkspace or any
 // other operation).
 type fakeOpenShellAPI struct {
 	t                     *testing.T
@@ -103,7 +103,7 @@ type fakeOpenShellAPI struct {
 }
 
 func (f *fakeOpenShellAPI) EnsureWorkspace(context.Context, string, string) error {
-	f.t.Fatal("EnsureWorkspace must never be called for the default workspace (CTRL-CORE-16)")
+	f.t.Fatal("EnsureWorkspace must never be called for the default workspace (CTRL-CORE-20)")
 	return nil
 }
 
@@ -147,8 +147,8 @@ func membership(id, gatewayID, subject, status string) *pb.DefaultWorkspaceMembe
 	}
 }
 
-// CTRL-CORE-16 "nil session factory" posture (not yet active).
-// Verifies: CTRL-CORE-16
+// CTRL-CORE-20 "nil session factory" posture (not yet active).
+// Verifies: CTRL-CORE-20
 func TestDefaultWorkspaceMembershipHandle_NilSessionIsNoop(t *testing.T) {
 	conn, _ := newRecordingDefaultWorkspaceMembershipConn(t)
 	r := NewDefaultWorkspaceMembershipReconciler(conn, "cluster-1", nil)
@@ -159,7 +159,7 @@ func TestDefaultWorkspaceMembershipHandle_NilSessionIsNoop(t *testing.T) {
 }
 
 // Full set reconciled, no EnsureWorkspace.
-// Verifies: CTRL-CORE-16.01
+// Verifies: CTRL-CORE-20.01
 func TestDefaultWorkspaceMembershipHandle_ReconcilesFullSetAgainstDefaultWorkspace(t *testing.T) {
 	conn, svc := newRecordingDefaultWorkspaceMembershipConn(t)
 	svc.setItems(
@@ -205,9 +205,9 @@ func TestDefaultWorkspaceMembershipHandle_ReconcilesFullSetAgainstDefaultWorkspa
 	}
 }
 
-// CTRL-CORE-16 status transitions to failed with a stable,
+// CTRL-CORE-20 status transitions to failed with a stable,
 // credential-free reason on an OpenShell error.
-// Verifies: CTRL-CORE-16
+// Verifies: CTRL-CORE-20
 func TestDefaultWorkspaceMembershipHandle_FailureMarksRowsFailed(t *testing.T) {
 	conn, svc := newRecordingDefaultWorkspaceMembershipConn(t)
 	svc.setItems(membership("m-1", "gw-1", "sub-a", "pending"))
@@ -242,7 +242,7 @@ func TestDefaultWorkspaceMembershipHandle_FailureMarksRowsFailed(t *testing.T) {
 // A gateway with no live memberships is reconciled as a no-op (empty desired
 // set), not skipped: OpenShell still converges to zero members if any were
 // added outside HyperShell.
-// Verifies: CTRL-CORE-16
+// Verifies: CTRL-CORE-20
 func TestDefaultWorkspaceMembershipHandle_EmptySetStillReconciles(t *testing.T) {
 	conn, _ := newRecordingDefaultWorkspaceMembershipConn(t)
 	api := &fakeOpenShellAPI{t: t}

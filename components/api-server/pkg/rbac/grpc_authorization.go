@@ -164,7 +164,7 @@ func authorizeControlPlaneGRPC(ctx context.Context, clusterID, fullMethod string
 		// DefaultWorkspaceMembership is internal-only (PLAT-DATA-27): it has no
 		// public REST route and is never authored by a user. A registered control
 		// plane may list/watch the full desired membership set it reconciles
-		// (CTRL-CORE-16), scoped to its own cluster by the caller binding, and
+		// (CTRL-CORE-20), scoped to its own cluster by the caller binding, and
 		// report reconciliation status back for a membership whose gateway is on
 		// its own cluster (mirroring UpdateGateway's requireGatewayOnCluster).
 		if method == "ListDefaultWorkspaceMemberships" || method == "WatchDefaultWorkspaceMemberships" {

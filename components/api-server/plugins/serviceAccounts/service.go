@@ -1311,7 +1311,7 @@ func (s *service) checkDefaultWorkspaceMemberLimit(ctx context.Context, gatewayI
 // absent membership is not an error. Failures are logged, not propagated: the
 // account's lifecycle transition that triggered this call has already been
 // persisted and must not be undone by an OpenShell-side cleanup failure
-// (mirroring CTRL-CORE-16's failure-isolation principle on the control-plane
+// (mirroring CTRL-CORE-20's failure-isolation principle on the control-plane
 // side of this same automation).
 func (s *service) deleteDefaultWorkspaceMembership(ctx context.Context, account *OpenShellGatewayServiceAccount) {
 	if account.Role != RoleUser || s.memberships == nil || account.Subject == "" {

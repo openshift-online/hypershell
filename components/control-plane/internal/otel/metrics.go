@@ -323,7 +323,7 @@ func registerMetrics() error {
 		return err
 	}
 
-	// OBS-CRM-14: DefaultWorkspaceMembership reconciliation (CTRL-CORE-16) is a
+	// OBS-CRM-14: DefaultWorkspaceMembership reconciliation (CTRL-CORE-20) is a
 	// full-desired-state, per-gateway-batched convergence, so it is observed
 	// through these purpose-built metrics rather than the per-event
 	// resource.kind/event.type/outcome taxonomy above.

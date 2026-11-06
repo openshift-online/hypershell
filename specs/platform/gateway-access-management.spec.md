@@ -4,7 +4,7 @@
 **Status:** Draft
 **Applies to:** `components/api-server` roleBindings/roles/gateways/users plugins and RBAC middleware, `components/control-plane` Keycloak client and RoleBinding reconciler, `components/sdk-typescript`, `components/web-console` BFF
 **Parent:** `security/rbac-enforcement.spec.md` -- scope-aware RBAC model and RoleBinding storage
-**Related:** `openshell-gateway-keycloak.spec.md` -- per-gateway Keycloak clients and the OIDC Role Bridge; `openshell-gateway-service-accounts.spec.md` -- gateway-nested sub-resource and role capping, and the parallel automatic default-workspace-membership hook for service accounts (OSG-SACC-19); `registered-users.spec.md` -- registered User records and the read-only users inventory; `data-model.spec.md` -- Gateway, Role, RoleBinding, User, and `DefaultWorkspaceMembership` (PLAT-DATA-27) kinds; `control-plane.spec.md` -- reconciliation of `DefaultWorkspaceMembership` against OpenShell (CTRL-CORE-16); `web-console/gateway-access-management.spec.md` -- the Manage access console surface
+**Related:** `openshell-gateway-keycloak.spec.md` -- per-gateway Keycloak clients and the OIDC Role Bridge; `openshell-gateway-service-accounts.spec.md` -- gateway-nested sub-resource and role capping, and the parallel automatic default-workspace-membership hook for service accounts (OSG-SACC-19); `registered-users.spec.md` -- registered User records and the read-only users inventory; `data-model.spec.md` -- Gateway, Role, RoleBinding, User, and `DefaultWorkspaceMembership` (PLAT-DATA-27) kinds; `control-plane.spec.md` -- reconciliation of `DefaultWorkspaceMembership` against OpenShell (CTRL-CORE-20); `web-console/gateway-access-management.spec.md` -- the Manage access console surface
 
 ---
 

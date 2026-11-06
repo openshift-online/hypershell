@@ -17,7 +17,7 @@ func (f *fakeDefaultWorkspaceMembershipSink) enqueue(ev Event[*pb.DefaultWorkspa
 	f.events = append(f.events, ev)
 }
 
-// CTRL-CORE-16 reconciles a gateway's FULL live membership set as one unit, so
+// CTRL-CORE-20 reconciles a gateway's FULL live membership set as one unit, so
 // the reconcile queue must be keyed by the membership's GATEWAY id, not its own
 // row id: two different rows for the same gateway must coalesce onto the same
 // key, and Handle must receive that gateway id as event.ResourceID.
