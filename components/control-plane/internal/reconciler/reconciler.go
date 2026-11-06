@@ -135,6 +135,7 @@ type GatewayReconciler struct {
 	// sandboxRuntimeClass is the Kubernetes RuntimeClass name applied to every
 	// sandbox pod (GATEWAY_SANDBOX_RUNTIME_CLASS); empty uses the cluster default.
 	sandboxRuntimeClass string
+	operatorWorkspace   *helm.OperatorWorkspaceConfig
 	// gatewayClientOverride, when non-nil, supplies the GatewayServiceClient used
 	// by the nil-payload delete re-read (CTRL-WDEL-04). Production leaves it nil
 	// and dials grpcConn; tests inject a fake without standing up a gRPC server.
@@ -200,6 +201,7 @@ func NewGatewayReconciler(
 	clusterID string,
 	gatewayResources *corev1.ResourceRequirements,
 	sandboxRuntimeClass string,
+	operatorWorkspace *helm.OperatorWorkspaceConfig,
 ) (*GatewayReconciler, error) {
 	if database.AdminCredentialsDir == "" {
 		return nil, fmt.Errorf("gateway database admin credentials directory is required")
@@ -263,6 +265,7 @@ func NewGatewayReconciler(
 		database:              database,
 		clusterID:             clusterID,
 		gatewayResources:      gatewayResources,
+		operatorWorkspace:     operatorWorkspace,
 		sandboxRuntimeClass:   sandboxRuntimeClass,
 	}, nil
 }
@@ -706,6 +709,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		IngressBaseDomain:     r.ingressBaseDomain,
 		GatewayResources:      r.gatewayResources,
 		SandboxRuntimeClass:   r.sandboxRuntimeClass,
+		OperatorWorkspace:     r.operatorWorkspace,
 	}
 
 	conditions := gateway.InitConditions(r.keycloakConfig != nil)

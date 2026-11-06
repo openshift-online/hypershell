@@ -1,6 +1,7 @@
 package gateways
 
 import (
+	"os"
 	"strings"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
@@ -57,7 +58,7 @@ var gatewayFieldOwnership = map[string]gatewayFieldClass{
 	"oidc":              fieldPlatformManaged,
 	"route":             fieldPlatformManaged,
 	"credential_driver": fieldPlatformManaged,
-	"workspace_mode":    fieldPlatformManaged, // server-defaulted to managed at create (OSG-CORE-18); no caller may set or change it
+	"workspace_mode":    fieldPlatformManaged, // server-defaulted at create (OSG-CORE-18); no caller may set or change it
 
 	// Control-plane-observed.
 	"status":                  fieldObserved,
@@ -229,13 +230,19 @@ func validateGatewayWorkspaceValue(mode string) *errors.ServiceError {
 }
 
 // applyGatewayWorkspaceCreateDefault defaults a created gateway's workspace_mode
-// to managed. The field is platform-managed (PLAT-DATA-23): the field policy
+// to the deployment default (managed when unset). The field is platform-managed (PLAT-DATA-23): the field policy
 // above has already rejected a user/import-supplied value, so a non-nil value
 // reaching here can only come from a control-plane internal write -- its
 // vocabulary is validated regardless, as defense in depth.
 func applyGatewayWorkspaceCreateDefault(gateway *Gateway) *errors.ServiceError {
 	if gateway.WorkspaceMode == nil || strings.TrimSpace(*gateway.WorkspaceMode) == "" {
 		mode := defaultGatewayWorkspaceMode
+		if configured := os.Getenv("GATEWAY_DEFAULT_WORKSPACE_MODE"); configured != "" {
+			if err := validateGatewayWorkspaceValue(configured); err != nil {
+				return errors.Validation("invalid GATEWAY_DEFAULT_WORKSPACE_MODE: %s", configured)
+			}
+			mode = configured
+		}
 		gateway.WorkspaceMode = &mode
 		return nil
 	}

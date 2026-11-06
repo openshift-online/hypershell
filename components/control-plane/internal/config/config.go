@@ -155,6 +155,7 @@ type Config struct {
 	// GATEWAY_SANDBOX_RUNTIME_CLASS; empty string uses the cluster default (runc).
 	// Set to "kata" or "kata-remote" for hardware-enforced VM isolation.
 	SandboxRuntimeClass string
+	OperatorWorkspace   *helm.OperatorWorkspaceConfig
 
 	// CITrustEnabled toggles the CI trust reconciler that realizes CIProvider
 	// and CITrust resources as Keycloak IdPs, claim mappers, and token-exchange
@@ -276,6 +277,14 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("invalid GATEWAY_RESOURCES: %w", err)
 		}
 		cfg.GatewayResources = &rr
+	}
+
+	if v := os.Getenv("GATEWAY_OPERATOR_WORKSPACE"); v != "" {
+		workspace, err := helm.ParseOperatorWorkspace(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid GATEWAY_OPERATOR_WORKSPACE: %w", err)
+		}
+		cfg.OperatorWorkspace = workspace
 	}
 
 	// Validate Helm configuration

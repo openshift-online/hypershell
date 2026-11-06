@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/helm"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -336,6 +337,7 @@ type ReconcileOpts struct {
 	// Empty string uses the cluster default (runc). Set to "kata" or "kata-remote"
 	// to run sandboxes inside lightweight VMs for hardware-enforced isolation.
 	SandboxRuntimeClass string
+	OperatorWorkspace   *helm.OperatorWorkspaceConfig
 }
 
 // OrphanRecorder records a durable, operator-visible signal that a gateway-owned
