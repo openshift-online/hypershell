@@ -310,5 +310,61 @@ class SandboxImageSyncTest(unittest.TestCase):
         self.assertIn("OPENSHELL_CONSOLE_DIGEST must", output.getvalue())
 
 
+TEKTON_PIPELINE = """\
+  - name: path-context
+    value: .
+  - name: build-args
+    value:
+    - OPENSHELL_TAG={tag}
+  pipelineSpec:
+"""
+
+
+class TektonBuildArgTest(unittest.TestCase):
+    def _write(self, text):
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False
+        ) as f:
+            f.write(text)
+            f.flush()
+            return Path(f.name)
+
+    # Verifies: CICD-IMG-05.02
+    def test_detects_stale_build_arg(self):
+        path = self._write(TEKTON_PIPELINE.format(tag="v0.0.1-rhaiv.0"))
+        mismatches = MOD.stamp_tekton_build_arg(
+            path, "v0.1.6-rhaiv.4", check_only=True
+        )
+        path.unlink()
+        self.assertEqual(len(mismatches), 1)
+        self.assertIn("v0.0.1-rhaiv.0", mismatches[0])
+
+    # Verifies: CICD-IMG-02.01
+    def test_stamps_build_arg(self):
+        path = self._write(TEKTON_PIPELINE.format(tag="v0.0.1-rhaiv.0"))
+        MOD.stamp_tekton_build_arg(path, "v0.1.6-rhaiv.4", check_only=False)
+        content = path.read_text()
+        path.unlink()
+        self.assertIn("- OPENSHELL_TAG=v0.1.6-rhaiv.4", content)
+        self.assertNotIn("v0.0.1-rhaiv.0", content)
+
+    def test_no_mismatch_when_current(self):
+        path = self._write(TEKTON_PIPELINE.format(tag="v0.1.6-rhaiv.4"))
+        mismatches = MOD.stamp_tekton_build_arg(
+            path, "v0.1.6-rhaiv.4", check_only=True
+        )
+        path.unlink()
+        self.assertEqual(mismatches, [])
+
+    # Verifies: CICD-IMG-05.01
+    def test_missing_build_arg_is_an_error(self):
+        path = self._write(
+            "  - name: path-context\n    value: .\n  pipelineSpec:\n"
+        )
+        with self.assertRaises(RuntimeError):
+            MOD.stamp_tekton_build_arg(path, "v0.1.6-rhaiv.4", check_only=True)
+        path.unlink()
+
+
 if __name__ == "__main__":
     unittest.main()
