@@ -13,6 +13,13 @@ type UserService interface {
 	Create(ctx context.Context, user *User) (*User, *errors.ServiceError)
 	Upsert(ctx context.Context, user *User) (*User, *errors.ServiceError)
 	UpsertByUsername(ctx context.Context, username string, email *string, name *string) (string, error)
+	// UpsertByUsernameWithSubject is UpsertByUsername plus the real Keycloak OIDC
+	// subject (SEC-RBAC-03), used wherever the caller already resolved it: JWT
+	// auto-provisioning, and gateway-access pre-provisioning and its
+	// subject-backfill fallback (GTW-ACC-16, GTW-ACC-16.07). An empty subject is
+	// a no-op on the subject column (dao.go, updateChangedFields): this lets
+	// every other UpsertByUsername call site stay unchanged.
+	UpsertByUsernameWithSubject(ctx context.Context, username string, email *string, name *string, subject string) (string, error)
 	All(ctx context.Context) (UserList, *errors.ServiceError)
 	FindByIDs(ctx context.Context, ids []string) (UserList, *errors.ServiceError)
 }
@@ -62,10 +69,15 @@ func (s *sqlUserService) Upsert(ctx context.Context, user *User) (*User, *errors
 }
 
 func (s *sqlUserService) UpsertByUsername(ctx context.Context, username string, email *string, name *string) (string, error) {
+	return s.UpsertByUsernameWithSubject(ctx, username, email, name, "")
+}
+
+func (s *sqlUserService) UpsertByUsernameWithSubject(ctx context.Context, username string, email *string, name *string, subject string) (string, error) {
 	user := &User{
 		Username: username,
 		Email:    email,
 		Name:     name,
+		Subject:  subject,
 	}
 	user, err := s.userDao.Upsert(ctx, user)
 	if err != nil {

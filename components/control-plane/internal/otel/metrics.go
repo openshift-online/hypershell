@@ -49,6 +49,9 @@ var (
 	reconcileFailed                    metric.Int64Counter
 	capabilityInfo                     metric.Int64ObservableGauge
 	controlPlaneInfo                   metric.Int64ObservableGauge
+	defaultWorkspaceMembershipPending  metric.Int64Gauge
+	defaultWorkspaceMembershipFailed   metric.Int64Gauge
+	defaultWorkspaceReconcileLastOK    metric.Int64Gauge
 )
 
 // Reconciliation outcome taxonomy (OBS-CRM-06). These are the single source of
@@ -315,6 +318,35 @@ func registerMetrics() error {
 		"hypershell.reconciliation.resources.total",
 		metric.WithUnit("{resource}"),
 		metric.WithDescription("Non-deleted Gateways in the control-plane watch population"),
+	)
+	if err != nil {
+		return err
+	}
+
+	// OBS-CRM-14: DefaultWorkspaceMembership reconciliation (CTRL-CORE-16) is a
+	// full-desired-state, per-gateway-batched convergence, so it is observed
+	// through these purpose-built metrics rather than the per-event
+	// resource.kind/event.type/outcome taxonomy above.
+	defaultWorkspaceMembershipPending, err = meter.Int64Gauge(
+		"hypershell.default_workspace_membership.pending",
+		metric.WithUnit("{membership}"),
+		metric.WithDescription("Live DefaultWorkspaceMembership rows with reconciliation_status=pending tracked by this control plane"),
+	)
+	if err != nil {
+		return err
+	}
+	defaultWorkspaceMembershipFailed, err = meter.Int64Gauge(
+		"hypershell.default_workspace_membership.failed",
+		metric.WithUnit("{membership}"),
+		metric.WithDescription("Live DefaultWorkspaceMembership rows with reconciliation_status=failed tracked by this control plane"),
+	)
+	if err != nil {
+		return err
+	}
+	defaultWorkspaceReconcileLastOK, err = meter.Int64Gauge(
+		"hypershell.default_workspace.reconciliation.last_success_timestamp_seconds",
+		metric.WithUnit("s"),
+		metric.WithDescription("Unix timestamp of the most recent DefaultWorkspaceMembership reconcile pass that converged a gateway's default workspace membership without error"),
 	)
 	if err != nil {
 		return err

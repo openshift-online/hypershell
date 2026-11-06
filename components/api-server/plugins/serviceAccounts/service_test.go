@@ -1175,7 +1175,7 @@ func gatewayWithoutOIDC() *gateways.Gateway {
 }
 
 func newTestService(dao *memoryDAO, kc *fakeKeycloak, bindings fakeBindings, now time.Time) Service {
-	result := NewService(dao, fakeGateway{gateway: testGateway()}, bindings, kc, db.NewNoOpLockFactory())
+	result := NewService(dao, fakeGateway{gateway: testGateway()}, bindings, kc, db.NewNoOpLockFactory(), nil)
 	result.(*service).now = func() time.Time { return now }
 	return result
 }
@@ -1183,7 +1183,7 @@ func newTestService(dao *memoryDAO, kc *fakeKeycloak, bindings fakeBindings, now
 // newTestServiceWith builds a service with an explicit gateway lookup and lock
 // factory so tests can inject transient/404 gateway failures or count locking.
 func newTestServiceWith(dao *memoryDAO, kc ServiceAccountProvisioner, bindings fakeBindings, now time.Time, gateway GatewayLookup, lockFactory db.LockFactory) Service {
-	result := NewService(dao, gateway, bindings, kc, lockFactory)
+	result := NewService(dao, gateway, bindings, kc, lockFactory, nil)
 	result.(*service).now = func() time.Time { return now }
 	return result
 }

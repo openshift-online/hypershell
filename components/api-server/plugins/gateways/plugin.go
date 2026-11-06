@@ -15,6 +15,7 @@ import (
 	"github.com/openshift-online/hypershell/components/api-server/pkg/extsearch"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/routes"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/defaultWorkspaceMemberships"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/sandboxEvents"
@@ -76,20 +77,31 @@ func (l ServiceLocator) GatewayClusterLookup() roleBindings.GatewayClusterLookup
 	}
 }
 
-// gatewayBindingCleaner deletes a gateway's role bindings through the role
-// bindings plugin, looked up per call so it follows the service registry. It
-// is a no-op when that plugin is absent.
+// gatewayBindingCleaner deletes a gateway's role bindings and, per
+// PLAT-DATA-27.05, every DefaultWorkspaceMembership row for the gateway
+// (regardless of whether gateway-access or service-account automation created
+// it), through their respective plugins, looked up per call so it follows the
+// service registry. Each cleanup is a no-op when its plugin is absent. No
+// OpenShell-side cleanup call is made for the memberships: the gateway's
+// OpenShell instance and its default workspace are removed with the gateway
+// deployment itself.
 func gatewayBindingCleaner(s *environments.Services) GatewayBindingCleaner {
 	return func(ctx context.Context, gatewayID string) *errors.ServiceError {
 		rbService := roleBindings.Service(s)
-		if rbService == nil {
-			return nil
+		if rbService != nil {
+			removed, svcErr := rbService.DeleteGatewayBindings(ctx, gatewayID)
+			if svcErr != nil {
+				return svcErr
+			}
+			slog.InfoContext(ctx, "Deleted role bindings of deleted gateway", "gateway_id", gatewayID, "count", removed)
 		}
-		removed, svcErr := rbService.DeleteGatewayBindings(ctx, gatewayID)
-		if svcErr != nil {
-			return svcErr
+		if membershipService := defaultWorkspaceMemberships.Service(s); membershipService != nil {
+			removed, svcErr := membershipService.DeleteAllForGateway(ctx, gatewayID)
+			if svcErr != nil {
+				return svcErr
+			}
+			slog.InfoContext(ctx, "Deleted default workspace memberships of deleted gateway", "gateway_id", gatewayID, "count", removed)
 		}
-		slog.InfoContext(ctx, "Deleted role bindings of deleted gateway", "gateway_id", gatewayID, "count", removed)
 		return nil
 	}
 }

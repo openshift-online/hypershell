@@ -9,6 +9,9 @@ import (
 
 type UserUpserter interface {
 	UpsertByUsername(ctx context.Context, username string, email *string, name *string) (userID string, err error)
+	// UpsertByUsernameWithSubject additionally captures the real Keycloak OIDC
+	// subject (SEC-RBAC-03). users.UserService implements both.
+	UpsertByUsernameWithSubject(ctx context.Context, username string, email *string, name *string, subject string) (userID string, err error)
 }
 
 type defaultUserProvisioner struct {
@@ -33,5 +36,13 @@ func (p *defaultUserProvisioner) UpsertFromJWT(ctx context.Context, payload *aut
 		name = &fullName
 	}
 
-	return p.upserter.UpsertByUsername(ctx, payload.Username, email, name)
+	// auth.Payload (vendored from rh-trex-ai) carries no subject field, so the
+	// JWT "sub" claim (SEC-RBAC-03) is read directly from the verified token
+	// already stashed in ctx by the framework's auth middleware -- the same
+	// extraction subjectFromGRPCContext uses for the gRPC path, which also
+	// works unmodified here since both transports store the token under the
+	// same context key (auth.ContextAuthKey / auth.TokenFromContext).
+	subject := subjectFromGRPCContext(ctx)
+
+	return p.upserter.UpsertByUsernameWithSubject(ctx, payload.Username, email, name, subject)
 }

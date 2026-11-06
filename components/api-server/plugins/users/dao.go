@@ -160,6 +160,13 @@ func (d *sqlUserDao) updateChangedFields(ctx context.Context, existing, incoming
 	if incoming.Name != nil && (existing.Name == nil || *existing.Name != *incoming.Name) {
 		updates["name"] = *incoming.Name
 	}
+	// Unlike email/name, subject (SEC-RBAC-03) is write-once: it is set only
+	// when the stored value is still empty, and never overwritten once
+	// populated, so a later request cannot silently repoint an existing User at
+	// a different upstream identity (SEC-RBAC-03.06).
+	if incoming.Subject != "" && existing.Subject == "" {
+		updates["subject"] = incoming.Subject
+	}
 	if len(updates) == 0 {
 		return existing, nil
 	}
@@ -183,6 +190,19 @@ func (d *sqlUserDao) updateChangedFields(ctx context.Context, existing, incoming
 // insertIfAbsent inserts user, leaving any row a concurrent caller already
 // created in place, then re-reads by username so every racing caller
 // resolves to the same canonical row.
+//
+// A losing caller's fields that differ from the row that won (email, name,
+// and -- since SEC-RBAC-03 -- subject) are silently dropped on this first
+// insert; there is no merge after an ON CONFLICT DO NOTHING. For subject this
+// is narrower than it looks: in production every call site that provisions a
+// real identity (HTTP and gRPC JWT auto-provisioning, gateway-access
+// pre-provisioning) always supplies it, so the only way to lose it here is two
+// concurrent first-ever requests for the same brand-new username where one
+// omits it (today, only UpsertByUsername call sites that pass no subject, used
+// by tests and any legacy caller). Even then it is not permanent: subject
+// capture runs on every authenticated request, so the identity's very next
+// request re-supplies it and updateChangedFields backfills the still-empty
+// column.
 func (d *sqlUserDao) insertIfAbsent(ctx context.Context, user *User) (*User, error) {
 	g2 := (*d.sessionFactory).New(ctx)
 	if err := g2.Clauses(clause.OnConflict{

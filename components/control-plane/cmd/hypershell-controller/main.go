@@ -441,7 +441,7 @@ func main() {
 	gatewayQueue := watcher.NewGatewayReconcileQueue(ctx, gatewayReconciler, cfg.GatewayReconcileWorkers)
 	defer gatewayQueue.Stop()
 
-	watchCount := 3 // managed clusters, gateways, agent runtimes
+	watchCount := 4 // managed clusters, gateways, agent runtimes, default workspace memberships
 	if kcClient != nil {
 		watchCount++ // role bindings
 	}
@@ -485,6 +485,18 @@ func main() {
 		roleBindingReconciler = reconciler.NewRoleBindingReconciler(kcClient, conn, clusterID)
 	}
 
+	// DefaultWorkspaceMembership reconciliation (CTRL-CORE-16): the watch and
+	// reconciler always run, like ManagedCluster/Gateway/AgentRuntime, because
+	// the OBS-CRM-14 pending/failed gauges must reflect the watch population
+	// regardless of OpenShell session-factory configuration. The reconciler's
+	// actual OpenShell calls stay inert (session is nil) until a live
+	// gateway.OpenShellSessionFactory is wired -- the same "not yet active"
+	// posture the AgentRuntime provider realizer takes below, for the same
+	// reason: the OpenShell upstream client surface is not yet reachable from
+	// this repository.
+	var defaultWorkspaceMembershipSession gateway.OpenShellSessionFactory
+	defaultWorkspaceMembershipReconciler := reconciler.NewDefaultWorkspaceMembershipReconciler(conn, clusterID, defaultWorkspaceMembershipSession)
+
 	supervise("ManagedCluster watch", func(ctx context.Context) error {
 		return watcher.WatchManagedClusters(ctx, conn, clusterReconciler, cfg.WatchIdleTimeout)
 	})
@@ -496,6 +508,9 @@ func main() {
 			return watcher.WatchRoleBindings(ctx, conn, roleBindingReconciler, clusterID, cfg.WatchIdleTimeout, cfg.RoleBindingResyncInterval)
 		})
 	}
+	supervise("DefaultWorkspaceMembership watch", func(ctx context.Context) error {
+		return watcher.WatchDefaultWorkspaceMemberships(ctx, conn, defaultWorkspaceMembershipReconciler, clusterID, cfg.WatchIdleTimeout, cfg.DefaultWorkspaceMembershipResyncInterval)
+	})
 
 	// AgentRuntime watch (issue #521): cluster-scoped, seed-on-reconnect transport
 	// feeding the Wave B reconciler. It applies cluster-side scheduling resources
