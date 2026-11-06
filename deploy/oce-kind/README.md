@@ -277,6 +277,37 @@ curl --fail --silent --show-error --noproxy '*' \
 
 ## Deploy a Codex Agent
 
+For an OpenAI-compatible proxy, first set the Installation's
+[shared model provider](https://github.com/openclaw/openclaw-enterprise/blob/2096c8cbde286c50ab7aafa08fd0f3bb3f4623c2/docs/reference/drivers/kubernetes-compute/model-provider.md).
+The Agent's JSON `models.providers.codex.baseUrl` does not select this endpoint.
+Keep that field at `http://127.0.0.1:9`; the OpenClaw gateway reaches Codex over
+authenticated WebSocket transport. In the same operator shell:
+
+```bash
+MODEL_BASE_URL='https://models.example.com/v1' # Replace with your authorized proxy.
+RUN_DIR="$OCE_KIND_STATE"
+export CONTEXT=kind-hypershell-oce
+PLATFORM_NS=oce-system RELEASE=oce
+OCE_CHART="$OCE_REPO/deploy/helm/openclaw-enterprise"
+INSTALLATION_FILE="$RUN_DIR/installation.json" VALUES_FILE="$RUN_DIR/values.json"
+OCC_SERVICE_KEY_FILE="$RUN_DIR/initial-admin-service-key.json"
+cp "$INSTALLATION_FILE" "$RUN_DIR/installation-before-model-provider.json"
+jq --arg url "$MODEL_BASE_URL" \
+  '.drivers.compute.configuration.runtime.modelProvider={protocol:"openai-responses",baseUrl:$url}' \
+  "$INSTALLATION_FILE" > "$RUN_DIR/installation-next.json"
+mv "$RUN_DIR/installation-next.json" "$INSTALLATION_FILE"
+source "$OCE_REPO/docs/snippets/openshell-quickstart/operator-session.sh"
+upgrade_installation
+```
+
+This setting applies to new API-key deployments across the Installation. Set
+`config.authorized_base_url` to the same URL when registering the `openai`
+Credential Source. Existing sources have immutable destination authorization:
+register a replacement using the same Secret reference, grant the Agent's
+principal `operate` on it, and update the Agent's `harnessAuth` and
+`credentialSources` bindings before deploying. A proxy key registered without
+this authorization defaults to OpenAI and can fail with HTTP 401/403.
+
 Follow the matching OCE
 [Agent deployment guide](https://github.com/openclaw/openclaw-enterprise/blob/2096c8cbde286c50ab7aafa08fd0f3bb3f4623c2/docs/guides/deploy/deploy-first-agent.md)
 to register an authorized credential, create a dedicated Codex Agent, and deploy
@@ -308,13 +339,16 @@ of the saved default. If a deployment already failed, inspect its error before
 deploying another version.
 
 During verification on 2026-11-06, the OpenClaw gateway, Codex sandbox and
-supervisor all reached Kubernetes Ready. The sandbox enforced Landlock and
-allowed the Codex model probe to reach `https://api.openai.com/v1/responses`.
-That probe returned HTTP 401/403, so OCE correctly failed the Agent deployment
-with `RUNTIME_AUTHENTICATION_FAILED`. A successful model turn remains unverified.
-Use a credential valid for the selected source type, then deploy a new version;
-the held authentication failure does not retry automatically. An `openai`
-source requires a key accepted by OpenAI, not a proxy-specific key.
+supervisor all reached Kubernetes Ready. The sandbox enforced Landlock, Codex
+passed its model probe, and OCE activated the Agent revision. A request through
+the private OpenClaw WebSocket returned `OCE_READY` using the configured HTTPS
+Responses proxy. Live admission checks accepted the pinned controller workload
+and rejected both an unapproved image and Pod creation by the gateway identity.
+
+An earlier deployment failed with `RUNTIME_AUTHENTICATION_FAILED` because a
+proxy key was sent to OpenAI's default endpoint. Correct both the Installation
+provider and the source's destination authorization before deploying a new
+version. The held authentication failure does not retry automatically.
 
 The deployment verified on 2026-11-06 uses OCE Namespace `hypershell`; the
 initial empty `default` Namespace was deleted after diagnosing a certificate
