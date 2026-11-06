@@ -16,13 +16,16 @@ machine; the OCE Console forward binds only to loopback.
 ## Prerequisites and source
 
 Use Linux with Docker, kind, kubectl, Helm 3, kustomize, Go, Node.js, jq, OpenSSL,
-Python 3 with PyYAML, and registry/GitHub access. This run uses Kubernetes 1.35.0,
+Python 3.11 or newer with PyYAML, and registry/GitHub access. This run uses Kubernetes 1.35.0,
 Calico 3.31.0, Envoy Gateway 1.6.7, and the HyperShell versions in
 [`OPENSHELL_VERSION`](../../OPENSHELL_VERSION) and [`Makefile`](../../Makefile).
 Allow about 16 GiB of RAM for the running stack and additional RAM and disk for
-parallel image builds. Use OCE commit
-`2096c8cbde286c50ab7aafa08fd0f3bb3f4623c2`; its scripts and chart are part of the
-installation inputs. Build both OCE images from this commit. The public
+parallel image builds. Use OCE branch `fix/hypershell-runtime-networking`, commit
+`080810ac2`, for the namespace-aware network helper. This local commit is not
+published; carry the branch with this setup when using another machine. It is
+based on tested runtime source `2096c8cbde286c50ab7aafa08fd0f3bb3f4623c2` and
+changes only operator helpers and instructions. Build both OCE images from
+that checkout. The public
 `latest` alias inspected during setup targets an older OpenShell integration.
 
 Run from this HyperShell branch. These commands keep the default kubeconfig and
@@ -101,6 +104,9 @@ through their operator selector. The controller enables external driver
 configuration, disables resource-approval labels for this trusted operator, and
 preserves mTLS authentication alongside OIDC. Give this gateway only trusted
 operator accounts: it can attach resources in the selected namespaces.
+Operator-mode certificates also cover `*.openshell.localhost`, the internal
+domain OpenShell advertises for sandbox services. This keeps Codex WebSocket
+connections subject to hostname verification.
 
 Apply the supplied deployment patches with strategic merge, then seed through
 HyperShell's normal authenticated API:
@@ -214,6 +220,8 @@ dedicated OpenShell client certificate with `CN=oce-controller` and
 renders OCE's existing OpenShell templates, prepares protected bootstrap storage,
 and runs `occ installation install` with a durable receipt. It refuses to rerun
 an attempted installation; inspect the receipt before resuming a failed attempt.
+The renderer reads the gateway's configured sandbox ServiceAccount name and
+uses it for the tenant ServiceAccount.
 
 The generated `installation.json` points at
 `https://openshell-gateway.<gateway namespace>.svc:8080`. No second OpenShell
@@ -226,10 +234,13 @@ flow, and grants OCE its tenant-local roles. It waits for the default Namespace
 to become `ready`. This requires OCE to register its operator Workspace through
 the HyperShell-created gateway with mTLS.
 
-The RuntimeClass admission policy admits only the Agent Sandbox controller in
-this gateway's labeled namespaces with the pinned OCE runtime and OpenShell
-supervisor images. It rejects privileged containers, host namespaces and
-hostPath volumes. Kubernetes administrator credentials remain privileged.
+The RuntimeClass admission policy permits the Agent Sandbox controller to create
+workloads and the owning OpenShell gateway to update them to release scheduling
+gates. Workloads must use this gateway's labeled namespaces and the pinned OCE
+runtime and OpenShell supervisor images. The bootstrap init container must use
+the pinned OpenShell sandbox image. The policy rejects privileged containers,
+host namespaces and hostPath volumes. Kubernetes administrator credentials
+remain privileged.
 
 ## Access and verification
 
@@ -264,13 +275,46 @@ curl --fail --silent --show-error --noproxy '*' \
   jq -e '.data==null'
 ```
 
-This setup proves the shared cluster, controller readiness, authenticated OCE
-access, and operator Workspace registration. It does not configure model
-credentials or prove an Agent model turn. Follow the matching OCE
+## Deploy a Codex Agent
+
+Follow the matching OCE
 [Agent deployment guide](https://github.com/openclaw/openclaw-enterprise/blob/2096c8cbde286c50ab7aafa08fd0f3bb3f4623c2/docs/guides/deploy/deploy-first-agent.md)
-for that separate workflow, including per-Agent network grants. The normal OCE
-quickstart assumes OpenShell is in `oce-system`; adapt those grants to the
-HyperShell gateway namespace used here.
+to register an authorized credential, create a dedicated Codex Agent, and deploy
+it. After its gateway Service exists, apply the per-Agent network grants below.
+The OCE helper's `--openshell-namespace` option selects the HyperShell gateway.
+No OCE image rebuild is needed when applying this helper fix to an existing
+installation.
+
+```bash
+export CONTEXT=kind-hypershell-oce
+namespace=$(cat "$OCE_KIND_STATE/namespace-id")
+agent='<Agent ID from the Console URL>'
+tenant=$(kubectl get namespace -l "openclaw.dev/namespace=$namespace" -o json |
+  jq -er '.items|select(length==1)|first.metadata.name')
+python3 "$OCE_REPO/docs/snippets/openshell-quickstart/kubernetes/service-policies.py" \
+  --tenant "$tenant" --namespace-id "$namespace" --agent-id "$agent" \
+  --openshell-namespace "$GATEWAY_NAMESPACE" > "$OCE_KIND_STATE/agent-service-peers.json"
+kubectl apply -f "$OCE_KIND_STATE/agent-service-peers.json"
+kubectl -n "$tenant" get pods
+```
+
+If the renderer reports that the gateway Service is absent, wait for the first
+deployment to create it and rerun the command. These grants cover the Agent
+gateway, OpenShell management, supervisor, DNS, and private Envoy route. They
+retain OCE's default-deny policy. Repeat for each Agent; do not substitute a
+namespace-wide allow rule. Rerun after a redeployment replaces its gateway
+Service, because the policies include that Service's IP. For another logical Namespace, use its ID instead
+of the saved default. If a deployment already failed, inspect its error before
+deploying another version.
+
+During verification on 2026-11-06, the OpenClaw gateway, Codex sandbox and
+supervisor all reached Kubernetes Ready. The sandbox enforced Landlock and
+allowed the Codex model probe to reach `https://api.openai.com/v1/responses`.
+That probe returned HTTP 401/403, so OCE correctly failed the Agent deployment
+with `RUNTIME_AUTHENTICATION_FAILED`. A successful model turn remains unverified.
+Use a credential valid for the selected source type, then deploy a new version;
+the held authentication failure does not retry automatically. An `openai`
+source requires a key accepted by OpenAI, not a proxy-specific key.
 
 The deployment verified on 2026-11-06 uses OCE Namespace `hypershell`; the
 initial empty `default` Namespace was deleted after diagnosing a certificate
