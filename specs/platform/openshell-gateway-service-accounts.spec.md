@@ -4,7 +4,7 @@
 **Status:** Draft
 **Tracks:** [HYPERSHELL-49](https://redhat.atlassian.net/browse/HYPERSHELL-49) - Service account provisioning via federated Keycloak
 **Parent:** `openshell-gateway-keycloak.spec.md` - per-gateway Keycloak clients and role mapping
-**Related:** `openshell-gateway-oidc.spec.md`, `security/rbac-enforcement.spec.md`, `standards/security/security.spec.md`, `web-console/architecture.spec.md`, `standards/ui/`, and `data-model.spec.md`
+**Related:** `openshell-gateway-oidc.spec.md`, `security/rbac-enforcement.spec.md`, `standards/security/security.spec.md`, `web-console/architecture.spec.md`, `standards/ui/`, `data-model.spec.md` (`DefaultWorkspaceMembership`, PLAT-DATA-27), `gateway-access-management.spec.md` (the parallel automatic-membership hook for human gateway access, GTW-ACC-16), and `control-plane.spec.md` (reconciliation of automatic default-workspace membership, CTRL-CORE-16)
 **Upstream:** [Keycloak service accounts](https://www.keycloak.org/docs/latest/server_admin/#_service_accounts), [Keycloak Admin REST API](https://www.keycloak.org/docs-api/latest/rest-api/), and [OpenShell gateway authentication](https://docs.nvidia.com/openshell/reference/gateway-auth)
 
 ---
@@ -17,7 +17,7 @@ A user selects a gateway, an OpenShell role, and an expiration time. HyperShell 
 
 HyperShell derives the gateway audience. It also limits the selected role to the creator's current gateway role. Callers cannot set audiences, claims, or access-token lifetimes.
 
-Version 1 does not support WIF, signed client assertions, opaque access tokens, personal access tokens, or multi-gateway client credentials. It also excludes configurable OpenShell scopes and automatic workspace-membership management.
+Version 1 does not support WIF, signed client assertions, opaque access tokens, personal access tokens, or multi-gateway client credentials. It also excludes configurable OpenShell scopes. An `openshell-user` OpenShellGatewayServiceAccount automatically receives membership in the gateway's reserved `default` OpenShell workspace (`DefaultWorkspaceMembership`, OSG-SACC-19); automatic membership in any other OpenShell workspace remains excluded (OSG-SACC-13).
 
 ## Product Decisions
 
@@ -1031,25 +1031,26 @@ The grant does not return a refresh token. The integration SHALL NOT depend on `
 - AND the client secret SHALL not appear in command output
 - AND the gateway SHALL receive only the short-lived access token
 
-### Requirement: OSG-SACC-13 -- Workspace Membership Is a Separate Grant
+### Requirement: OSG-SACC-13 -- Workspace Membership Is a Separate Grant (Beyond the Default Workspace)
 
-Each service-account client has its own service-account user and stable JWT `sub`. It does not inherit the creator's OpenShell workspace memberships.
+Each service-account client has its own service-account user and stable JWT `sub`. It does not inherit the creator's OpenShell workspace memberships, with one exception: an `openshell-user` OpenShellGatewayServiceAccount automatically receives membership in the gateway's reserved `default` OpenShell workspace, because gateway access already implies default-workspace access ("Requirement: OSG-SACC-19"). It does NOT inherit membership in any other OpenShell workspace the creator belongs to.
 
-An `openshell-admin` OpenShellGatewayServiceAccount can perform OpenShell administrative operations. OpenShell permits this role to bypass workspace membership.
+An `openshell-admin` OpenShellGatewayServiceAccount can perform OpenShell administrative operations. OpenShell permits this role to bypass workspace membership entirely, including in the `default` workspace; it therefore receives no automatic membership of any kind (OSG-SACC-19).
 
-An `openshell-user` OpenShellGatewayServiceAccount can authenticate and call identity or status operations. Workspace operations require a gateway administrator to add the OpenShellGatewayServiceAccount subject to each workspace.
+An `openshell-user` OpenShellGatewayServiceAccount can authenticate, call identity or status operations, and act on sandboxes in the `default` workspace from its automatic membership. Operations scoped to any OTHER workspace still require a gateway administrator to add the OpenShellGatewayServiceAccount subject to that workspace.
 
-HyperShell SHALL return the non-secret subject. UI and CLI output SHALL label it as the service-account subject and explain the separate workspace grant. The UI SHALL keep the subject available with a copy action after the one-time client-secret view closes.
+HyperShell SHALL return the non-secret subject. UI and CLI output SHALL label it as the service-account subject and explain the separate non-default-workspace grant. The UI SHALL keep the subject available with a copy action after the one-time client-secret view closes.
 
-Version 1 excludes automatic workspace discovery, selection, membership creation, and membership cleanup. HyperShell SHALL NOT report that `openshell-user` grants access to the creator's workspaces.
+Version 1 excludes automatic discovery, selection, membership creation, and membership cleanup for every OpenShell workspace OTHER than the gateway's reserved `default` workspace. HyperShell SHALL NOT report that `openshell-user` grants access to the creator's non-default workspaces.
 
-#### Scenario: OSG-SACC-13.01 -- openshell-user OpenShellGatewayServiceAccount has no workspace membership
+#### Scenario: OSG-SACC-13.01 -- openshell-user OpenShellGatewayServiceAccount has default-workspace membership but no other workspace membership
 
 - GIVEN a viewer creates an `openshell-user` OpenShellGatewayServiceAccount
-- AND no OpenShell workspace contains the returned service-account subject
+- AND no OTHER OpenShell workspace contains the returned service-account subject
 - WHEN its access token calls `whoami`
 - THEN the gateway SHALL authenticate it as `openshell-user`
-- BUT workspace-scoped operations SHALL remain denied until an authorized gateway administrator adds that subject as a workspace member
+- AND the subject SHALL already be a member of the gateway's `default` workspace with role `user` (OSG-SACC-19)
+- BUT operations scoped to any other workspace SHALL remain denied until an authorized gateway administrator adds that subject as a member of that workspace
 
 ### Requirement: OSG-SACC-14 -- Scopes Are Not Configurable in Version 1
 
@@ -1132,8 +1133,76 @@ Automated verification SHALL cover:
 - Expiration, explicit revocation, final deletion, gateway cascade cleanup, retries, and orphan reconciliation.
 - CI access-token renewal through another Client Credentials grant.
 - The distinct workspace-membership requirement for `openshell-user` OpenShellGatewayServiceAccounts.
+- Automatic default-workspace membership creation on `openshell-user` service-account creation, its absence for `openshell-admin`, its removal on revoke/expire/delete and on an in-place role change to `openshell-admin`, its creation on an in-place role change to `openshell-user`, the member-limit rejection before any Keycloak provisioning or record persistence, and idempotency of the automation.
 
 No test fixture, golden response, failure message, or CI artifact SHALL retain a real client secret or access token.
+
+### Requirement: OSG-SACC-19 -- Automatic Default-Workspace Membership for openshell-user Service Accounts
+
+Gateway access already implies access to the gateway's reserved `default` OpenShell workspace (`gateway-access-management.spec.md`, GTW-ACC-16). An OpenShellGatewayServiceAccount is a gateway-access identity, so it SHALL receive the same automatic default-workspace membership a human `openshell-user` receives, using the stable **provisioned service-account subject** (the Keycloak service-account user ID set at creation, OSG-SACC-01) as the membership's subject -- never the creator's own subject, because the creator may not be, and need not be, a member of any workspace themselves.
+
+When HyperShell creates an OpenShellGatewayServiceAccount with `role=openshell-user`, it SHALL create a `DefaultWorkspaceMembership` (`data-model.spec.md`, PLAT-DATA-27) for that gateway and that provisioned subject, with `role=user` and `source=service_account`. When HyperShell creates one with `role=openshell-admin`, it SHALL create no such membership: `openshell-admin` already bypasses OpenShell workspace authorization (OSG-SACC-13), so a membership would be meaningless and SHALL NOT be created.
+
+**Member-limit check precedes provisioning.** Before HyperShell provisions any Keycloak client for a `role=openshell-user` create request, it SHALL check whether adding the resulting membership would bring the gateway's `default` workspace membership count (the count of its own live `DefaultWorkspaceMembership` rows for that gateway, which HyperShell owns as the full desired-state source of truth) to more than OpenShell's 1,000-member workspace limit. When it would, HyperShell SHALL reject the create request with `409 Conflict` and a clear, actionable error, and SHALL provision no Keycloak client and persist no OpenShellGatewayServiceAccount record and no `DefaultWorkspaceMembership` row. This check SHALL run before the synchronous Keycloak provisioning step of OSG-SACC-01, not after.
+
+**Lifecycle cleanup.** Revoking an `openshell-user` OpenShellGatewayServiceAccount (OSG-SACC-07) SHALL delete its `DefaultWorkspaceMembership` if one exists. Deleting one (OSG-SACC-07) SHALL likewise ensure no `DefaultWorkspaceMembership` row survives it (a no-op if revoke already removed it). Expiration (OSG-SACC-07) SHALL delete the membership at the same time the OpenShellGatewayServiceAccount is marked `expired`. An in-place role change (OSG-SACC-18) from `openshell-user` to `openshell-admin` SHALL delete the membership; a change from `openshell-admin` to `openshell-user` SHALL create it, subject to the same member-limit check, which SHALL reject the role-update request (rather than the membership alone) when it would exceed the limit.
+
+**System-managed, audited, idempotent.** This automation SHALL run as a trusted, system-managed side effect of an already-authorized service-account operation; the caller needs no separate workspace-membership permission, and the resulting audit record SHALL identify the triggering operation, the gateway, the target subject, the role, and the system actor -- not the caller's own (absent) workspace-membership permission. The operation SHALL be idempotent by `(gateway_id, subject)`: re-running it (for example during reconciliation or a retried request) SHALL NOT create a duplicate `DefaultWorkspaceMembership` row.
+
+#### Scenario: OSG-SACC-19.01 -- Creating an openshell-user service account creates default-workspace membership
+
+- GIVEN a viewer creates an OpenShellGatewayServiceAccount on `gw-alpha` with `role=openshell-user`
+- WHEN the create completes and HyperShell returns the provisioned subject
+- THEN HyperShell SHALL have created a `DefaultWorkspaceMembership` for `gw-alpha` with that subject and `role=user`, `source=service_account`
+
+#### Scenario: OSG-SACC-19.02 -- Creating an openshell-admin service account creates no membership
+
+- GIVEN an owner creates an OpenShellGatewayServiceAccount on `gw-alpha` with `role=openshell-admin`
+- WHEN the create completes
+- THEN HyperShell SHALL create no `DefaultWorkspaceMembership` for the provisioned subject
+
+#### Scenario: OSG-SACC-19.03 -- Member limit rejects the create before any provisioning
+
+- GIVEN `gw-alpha`'s `default` workspace already has 1,000 live `DefaultWorkspaceMembership` rows
+- WHEN a caller creates an OpenShellGatewayServiceAccount on `gw-alpha` with `role=openshell-user`
+- THEN HyperShell SHALL reject the request with `409 Conflict` and a clear error
+- AND it SHALL provision no Keycloak client
+- AND it SHALL persist neither an OpenShellGatewayServiceAccount record nor a `DefaultWorkspaceMembership` row
+
+#### Scenario: OSG-SACC-19.04 -- Revoking an openshell-user service account deletes its membership
+
+- GIVEN an `openshell-user` OpenShellGatewayServiceAccount on `gw-alpha` has a `DefaultWorkspaceMembership`
+- WHEN it is revoked
+- THEN HyperShell SHALL delete the `DefaultWorkspaceMembership`
+
+#### Scenario: OSG-SACC-19.05 -- Deleting an already-revoked service account is idempotent
+
+- GIVEN an `openshell-user` OpenShellGatewayServiceAccount was revoked and its `DefaultWorkspaceMembership` already deleted
+- WHEN the OpenShellGatewayServiceAccount is deleted
+- THEN HyperShell SHALL find no `DefaultWorkspaceMembership` to delete
+- AND the delete SHALL still succeed
+
+#### Scenario: OSG-SACC-19.06 -- Expiration deletes the membership
+
+- GIVEN an `openshell-user` OpenShellGatewayServiceAccount reaches `expires_at` and has a `DefaultWorkspaceMembership`
+- WHEN the expiration reconciler marks it `expired`
+- THEN HyperShell SHALL delete the `DefaultWorkspaceMembership`
+
+#### Scenario: OSG-SACC-19.07 -- Role upgrade to admin removes the membership
+
+- GIVEN a `ready` `openshell-user` OpenShellGatewayServiceAccount has a `DefaultWorkspaceMembership`
+- WHEN an authorized caller changes its role to `openshell-admin` (OSG-SACC-18)
+- THEN HyperShell SHALL delete the `DefaultWorkspaceMembership`
+
+#### Scenario: OSG-SACC-19.08 -- Role downgrade to user creates the membership, subject to the limit
+
+- GIVEN a `ready` `openshell-admin` OpenShellGatewayServiceAccount has no `DefaultWorkspaceMembership`
+- WHEN an authorized caller changes its role to `openshell-user` (OSG-SACC-18)
+- AND the gateway's `default` workspace is below the 1,000-member limit
+- THEN HyperShell SHALL create a `DefaultWorkspaceMembership` for the provisioned subject with `role=user`
+- GIVEN the gateway's `default` workspace is instead already at the 1,000-member limit
+- WHEN the same role change is requested
+- THEN HyperShell SHALL reject the role-update request with `409 Conflict` and SHALL NOT change the OpenShellGatewayServiceAccount's role
 
 ## Explicitly Deferred
 
@@ -1144,7 +1213,7 @@ No test fixture, golden response, failure message, or CI artifact SHALL retain a
 | User-configurable access-token lifetime                                 | It increases the revocation delay. Jobs can request new access tokens when needed.                                                                        |
 | Arbitrary Keycloak/OpenShell roles                                      | The selected role is restricted to `openshell-user` or `openshell-admin` and capped by the creator's binding.                                             |
 | OpenShell scope selection                                               | Gateways currently disable scope enforcement with `scopes_claim = ""`.                                                                                    |
-| Automatic workspace memberships                                         | Requires a separate gateway administration and lifecycle contract.                                                                                        |
+| Automatic membership in any OpenShell workspace OTHER than `default`    | Requires a separate gateway administration and lifecycle contract. Automatic membership in the gateway's reserved `default` workspace IS implemented for `openshell-user` service accounts (OSG-SACC-19); `openshell-admin` needs none because it already bypasses workspace authorization. |
 | In-place secret rotation                                                | Keycloak 26.2 dual-secret rotation is a disabled preview feature. Replacement OpenShellGatewayServiceAccounts provide a stable workflow without downtime. |
 | Audit-retention period                                                  | A platform-wide audit policy must define the period. This specification requires an audit event but does not set its retention period.                    |
 | Public secret recovery                                                  | Conflicts with one-time delivery and expands the consequence of a management-session compromise.                                                          |
