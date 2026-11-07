@@ -5,7 +5,7 @@ go 1.26.4
 toolchain go1.26.7
 
 require (
-	github.com/go-gormigrate/gormigrate/v2 v2.1.6
+	github.com/go-gormigrate/gormigrate/v2 v2.1.7
 	github.com/golang-jwt/jwt/v4 v4.5.2
 	github.com/gorilla/mux v1.7.3
 	github.com/jackc/pgx/v5 v5.6.0
