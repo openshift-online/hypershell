@@ -48,6 +48,11 @@ spec:
               value: "5"
           securityContext:
             allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop:
                 - ALL
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
