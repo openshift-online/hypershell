@@ -1130,6 +1130,64 @@ sole mechanism for revoking roles a deleted binding no longer backs.
 - WHEN the RoleBinding seed or resync attempts to list
 - THEN it SHALL be refused rather than issue an unfiltered list (`managed-cluster-registration.spec.md`)
 
+### Requirement: CTRL-CORE-16 -- CI Trust Resync
+
+The realization of a `CITrust` SHALL NOT depend solely on a single long-lived
+`WatchCITrusts` stream. The CITrust stream is almost always idle (it sends an
+event only when a trust changes), so a `CITrust` that already exists when the
+reconciler starts, or that predates the reconciler being enabled, would otherwise
+never have its Keycloak artifacts realized: no per-trust group, no gateway
+client-role binding, and no IdP advanced-group mapper (`ci-trust-ext-api.spec.md`,
+PLAT-CITR-02). The CI identity would then authenticate but carry no gateway role,
+and the gateway would reject it. This mirrors the gap that CTRL-CORE-08 closes for
+RoleBindings.
+
+The control plane SHALL seed the CITrust reconciler from a `ListCITrusts` call on
+every `WatchCITrusts` (re)connect, and SHALL additionally re-list on a regular
+configurable interval while the stream is connected. Each listed `CITrust` SHALL
+be reconciled through the same idempotent realization path as a live event
+(`ci-trust-ext-api.spec.md`, PLAT-CITR-02 and PLAT-CITR-09), so its per-trust
+group, gateway client-role binding, and IdP advanced-group mapper converge. The
+resync SHALL be idempotent: a `CITrust` whose artifacts are already realized SHALL
+produce no change.
+
+`CITrust` is a platform-scoped resource, so unlike the RoleBinding watch
+(CTRL-CORE-08) the `WatchCITrusts` stream and the `ListCITrusts` seed take no
+cluster filter. The list SHALL remain unfiltered by design. The per-trust reconcile
+SHALL still skip a trust whose referenced `Gateway` belongs to another cluster, so
+an unfiltered list does not cause a control plane to realize artifacts for a
+gateway it does not own.
+
+Because a plain `ListCITrusts` reports only surviving trusts, the resync SHALL
+close the list-watch gap the same way the gateway watch does: it SHALL wait for the
+watch subscription to be live before listing (so an event that fires during the
+list is not lost), and it SHALL rely on the stream, not the list, to deliver
+deletions. The resync restores missing realization; it SHALL NOT be the sole
+mechanism for revoking the subject mapper a deleted `CITrust` no longer backs
+(`ci-trust-ext-api.spec.md`, PLAT-CITR-05).
+
+#### Scenario: CTRL-CORE-16.01 -- Pre-existing trust realized on reconnect or resync
+
+- GIVEN a `CITrust` whose referenced `Gateway` is in scope for this control plane already exists in the API server
+- AND the `WatchCITrusts` stream never delivered its create event (it predated the reconciler or the event was missed)
+- WHEN the control plane reconnects the stream, or the periodic resync interval elapses
+- THEN the control plane SHALL list the CITrusts and reconcile this trust through the same realization as a live event
+- AND SHALL realize its per-trust group, its gateway client-role binding, and its IdP advanced-group mapper (`ci-trust-ext-api.spec.md`, PLAT-CITR-02)
+- AND an exchanged token for the trust's subject SHALL carry the granted gateway role
+
+#### Scenario: CTRL-CORE-16.02 -- Resync is idempotent
+
+- GIVEN every in-scope `CITrust` is already realized in Keycloak
+- WHEN the periodic resync lists and reconciles them again
+- THEN the control plane SHALL make no change to any group, client-role binding, or IdP mapper
+
+#### Scenario: CTRL-CORE-16.03 -- Unfiltered list skips a trust for another cluster's gateway
+
+- GIVEN the `ListCITrusts` seed returns a `CITrust` whose referenced `Gateway` is owned by a different cluster
+- WHEN the control plane reconciles the listed trust
+- THEN it SHALL skip that trust rather than realize artifacts for a gateway it does not own
+- AND the unfiltered platform-scoped list SHALL still be issued, since `CITrust` carries no cluster filter
+
 ### Requirement: CTRL-CORE-09 -- gRPC Transport Security
 
 The control plane SHALL select gRPC transport credentials from `HYPERSHELL_GRPC_SERVER_ADDR`

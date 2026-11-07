@@ -129,6 +129,18 @@ type Config struct {
 	// runs). See specs/platform/control-plane.spec.md ("Role Binding Resync").
 	RoleBindingResyncInterval time.Duration
 
+	// CITrustResyncInterval is how often, while the CITrust watch stream is
+	// connected, the control plane re-lists every CITrust and reconciles each, so a
+	// trust that predates the reconciler (or whose create event was missed) has its
+	// Keycloak artifacts realized even when no live event ever arrives. The
+	// reconciler also seeds on every (re)connect. CITrust is a platform-scoped
+	// resource, so the list is unfiltered; the per-trust reconcile still skips a
+	// trust whose gateway belongs to another cluster. Sourced from
+	// HYPERSHELL_CI_TRUST_RESYNC_INTERVAL; a non-positive value disables the
+	// periodic resync (the per-connect seed still runs). See
+	// specs/platform/control-plane.spec.md ("CI Trust Resync").
+	CITrustResyncInterval time.Duration
+
 	// Helm chart configuration
 	HelmChartPath     string
 	HelmChartRegistry string
@@ -228,6 +240,7 @@ func Load() (*Config, error) {
 
 		WatchIdleTimeout:          getEnvDuration("HYPERSHELL_WATCH_IDLE_TIMEOUT", 10*time.Minute),
 		RoleBindingResyncInterval: getEnvDuration("HYPERSHELL_ROLE_BINDING_RESYNC_INTERVAL", 5*time.Minute),
+		CITrustResyncInterval:     getEnvDuration("HYPERSHELL_CI_TRUST_RESYNC_INTERVAL", 5*time.Minute),
 
 		HelmChartPath:     getEnv("HELM_CHART_PATH", "/charts/openshell.tgz"),
 		HelmChartRegistry: getEnv("HELM_CHART_REGISTRY", ""),

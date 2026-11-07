@@ -1002,34 +1002,179 @@ func WatchCIProviders(ctx context.Context, conn *grpc.ClientConn, handler Handle
 	})
 }
 
-// WatchCITrusts streams CITrust events and drives each through the handler.
-// CITrust is a platform-level resource (not cluster-scoped), so the watch takes
-// no cluster filter, mirroring WatchManagedClusters and WatchRepositories.
-func WatchCITrusts(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.CITrust], idleTimeout time.Duration) error {
+// ciTrustSeedPageSize is the page size used when listing existing CITrusts to seed
+// the reconcile queue. It matches gatewaySeedPageSize (the server caps a page at
+// MaxPageSize=500), so a fleet's trusts seed in as few round trips as possible.
+const ciTrustSeedPageSize = 500
+
+// WatchCITrusts streams CITrust events and drives each through a reconcile queue,
+// seeding from ListCITrusts on every (re)connect and re-listing on a configurable
+// periodic interval while connected. Without the seed a CITrust that predates the
+// reconciler (or whose create event the almost-always-idle stream missed) would
+// never have its Keycloak artifacts realized -- no per-trust group, gateway
+// client-role binding, or IdP advanced-group mapper -- so the CI identity would
+// authenticate but carry no gateway role. This mirrors WatchRoleBindings
+// (CTRL-CORE-08); see specs/platform/control-plane.spec.md ("CI Trust Resync").
+//
+// CITrust is a platform-scoped resource, so unlike WatchRoleBindings the stream
+// and the ListCITrusts seed take no cluster filter (mirroring WatchCIProviders and
+// WatchRepositories). The per-trust reconcile still skips a trust whose gateway
+// belongs to another cluster (see the CITrust reconciler's cluster check), so an
+// unfiltered list does not cause a control plane to realize artifacts for a
+// gateway it does not own.
+func WatchCITrusts(ctx context.Context, conn *grpc.ClientConn, handler Handler[*pb.CITrust], idleTimeout, resyncInterval time.Duration) error {
 	client := pb.NewCITrustServiceClient(conn)
+	rq := newReconcileQueue(ctx, "CITrust", handler)
+	defer rq.stop()
 	return watchLoop(ctx, "CITrust", idleTimeout, func(ctx context.Context, heartbeat func()) error {
-		stream, err := client.WatchCITrusts(ctx, &pb.WatchCITrustsRequest{})
+		// Derive a cancelable child so the receiver and the seed/resync goroutines
+		// can cancel and join each other without waiting for watchLoop to cancel the
+		// parent attempt ctx (mirrors WatchGateways and WatchRoleBindings).
+		runCtx, runCancel := context.WithCancel(ctx)
+		defer runCancel()
+
+		stream, err := client.WatchCITrusts(runCtx, &pb.WatchCITrustsRequest{})
 		if err != nil {
 			return fmt.Errorf("starting CI trust watch: %w", err)
 		}
-		for {
-			event, err := stream.Recv()
-			if err == io.EOF {
-				return nil
-			}
-			if err != nil {
-				return fmt.Errorf("receiving CI trust event: %w", err)
-			}
-			heartbeat()
-			if err := handler.Handle(ctx, Event[*pb.CITrust]{
-				Type:       toEventType(event.Type),
-				ResourceID: event.ResourceId,
-				Resource:   event.CiTrust,
-			}); err != nil {
-				slog.ErrorContext(ctx, "Failed to handle CI trust event", "name", event.ResourceId, "error", err)
-			}
+		// Wait for the subscription header before seeding, so a trust event that
+		// fires during the seed LIST is captured by the watch rather than lost -- the
+		// same list-watch gap WatchGateways closes. The api-server flushes the header
+		// only after it subscribes to the broker.
+		if _, err := stream.Header(); err != nil {
+			return fmt.Errorf("awaiting CI trust watch subscription header: %w", err)
 		}
+		heartbeat()
+
+		// Drain live events concurrently with the seed so the broker's bounded
+		// per-subscriber buffer does not fill and drop events while the (potentially
+		// slow) seed LIST runs.
+		streamErr := make(chan error, 1)
+		go func() {
+			defer close(streamErr)
+			for {
+				event, err := stream.Recv()
+				if err == io.EOF {
+					runCancel()
+					streamErr <- nil
+					return
+				}
+				if err != nil {
+					runCancel()
+					streamErr <- fmt.Errorf("receiving CI trust event: %w", err)
+					return
+				}
+				heartbeat()
+				rq.enqueue(Event[*pb.CITrust]{
+					Type:       toEventType(event.Type),
+					ResourceID: event.ResourceId,
+					Resource:   event.CiTrust,
+				})
+			}
+		}()
+
+		// Seed from the current inventory on every (re)connect. The watch stream
+		// sends only future events and never replays existing trusts, so without this
+		// LIST a CITrust whose create event was missed (or that predates the
+		// reconciler) never has its Keycloak artifacts realized.
+		if err := seedCITrusts(runCtx, client, rq); err != nil {
+			// Distinguish a receiver-caused cancellation from a genuine seed failure
+			// (same reasoning as WatchGateways) so neither masks the other.
+			if runCtx.Err() != nil {
+				recvErr := <-streamErr
+				if recvErr != nil {
+					return recvErr
+				}
+				return err
+			}
+			runCancel()
+			<-streamErr
+			return err
+		}
+
+		// Periodically re-seed while the stream stays connected, so a pre-existing
+		// trust is realized even when a single event is missed and the stream never
+		// reconnects on its own. A transient resync LIST failure is logged and
+		// retried on the next tick rather than tearing down a healthy stream.
+		resyncDone := make(chan struct{})
+		go func() {
+			defer close(resyncDone)
+			if resyncInterval <= 0 {
+				return
+			}
+			ticker := time.NewTicker(resyncInterval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-runCtx.Done():
+					return
+				case <-ticker.C:
+					if err := seedCITrusts(runCtx, client, rq); err != nil && runCtx.Err() == nil {
+						slog.WarnContext(runCtx, "CI trust resync failed, retrying next interval", "error", err)
+					}
+				}
+			}
+		}()
+
+		recvErr := <-streamErr
+		runCancel()
+		<-resyncDone
+		return recvErr
 	})
+}
+
+// ciTrustSeedSink is the subset of the reconcile queue that seedCITrusts drives:
+// enqueue a CITrust for reconciliation. A test seam.
+type ciTrustSeedSink interface {
+	enqueue(Event[*pb.CITrust])
+}
+
+// The reconcile queue is the production ciTrustSeedSink.
+var _ ciTrustSeedSink = (*reconcileQueue[*pb.CITrust])(nil)
+
+// seedCITrusts lists every CITrust and enqueues each for reconciliation, so a
+// trust whose create event the watch missed or dropped while silent -- or that
+// predates the reconciler entirely -- is still realized. It is the LIST half of
+// the list-then-watch pattern the gateway, role-binding, and agent-runtime watches
+// already use.
+//
+// CITrust is platform-scoped, so unlike seedRoleBindings the list carries no
+// cluster filter (CTRL-CORE-16); the per-trust reconcile skips a trust for another
+// cluster's gateway. Like seedRoleBindings it does NOT prune: a plain ListCITrusts
+// reports only surviving trusts, so an absence cannot be distinguished from a trust
+// the list simply did not return, and the stream remains the authority for
+// deletions (and thus for revoking a subject mapper a deleted trust no longer
+// backs). The per-event realization is idempotent, so re-seeding a trust whose
+// artifacts are already realized is a no-op. See
+// specs/platform/control-plane.spec.md ("CI Trust Resync").
+func seedCITrusts(ctx context.Context, client pb.CITrustServiceClient, sink ciTrustSeedSink) error {
+	var seeded int
+	for page := int32(1); ; page++ {
+		resp, err := client.ListCITrusts(ctx, &pb.ListCITrustsRequest{Page: page, Size: ciTrustSeedPageSize})
+		if err != nil {
+			return fmt.Errorf("listing CI trusts to seed reconcile queue: %w", err)
+		}
+		items := resp.GetItems()
+		for _, ct := range items {
+			if ct == nil {
+				continue
+			}
+			sink.enqueue(Event[*pb.CITrust]{
+				Type:       EventUpdated,
+				ResourceID: ct.GetMetadata().GetId(),
+				Resource:   ct,
+			})
+			seeded++
+		}
+		// Stop on the authoritative Total, or a short/empty page (defensive, so a
+		// misreported Total cannot spin forever) -- mirrors listGatewaysOnce.
+		total := int(resp.GetMetadata().GetTotal())
+		if len(items) == 0 || len(items) < ciTrustSeedPageSize || (total > 0 && seeded >= total) {
+			break
+		}
+	}
+	slog.InfoContext(ctx, "Seeded CI trusts into reconcile queue on CI trust watch (re)connect/resync", "count", seeded)
+	return nil
 }
 
 // watchLoop connects a watch stream, drives connectAndRecv, and reconnects with
