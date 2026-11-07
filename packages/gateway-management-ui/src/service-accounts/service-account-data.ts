@@ -5,6 +5,7 @@ import type {
 
 export const serviceAccountSearchDebounceMilliseconds = 300;
 export const serviceAccountStatusPollMilliseconds = 5_000;
+const serviceAccountExpiringSoonMilliseconds = 7 * 24 * 60 * 60 * 1000;
 
 const transitionalStatuses = new Set([
   "degraded",
@@ -17,6 +18,22 @@ export function serviceAccountNeedsPolling(
   account: Pick<OpenShellGatewayServiceAccountRecord, "status">,
 ): boolean {
   return transitionalStatuses.has(account.status);
+}
+
+export function isServiceAccountExpiringSoon(
+  account: Pick<OpenShellGatewayServiceAccountRecord, "expiresAt" | "status">,
+  now = Date.now(),
+): boolean {
+  if (account.status !== "ready") {
+    return false;
+  }
+  const expiresAt = Date.parse(account.expiresAt);
+  const remainingMilliseconds = expiresAt - now;
+  return (
+    Number.isFinite(expiresAt) &&
+    remainingMilliseconds > 0 &&
+    remainingMilliseconds <= serviceAccountExpiringSoonMilliseconds
+  );
 }
 
 export function serviceAccountListQueryKey(

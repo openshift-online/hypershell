@@ -24,26 +24,29 @@ status, action, form control, navigation element, and responsive layout.
 
 ## Common mappings
 
-| Purpose | Prefer |
-|---|---|
-| Page regions | `PageSection`, `Content`, `Title` |
-| Responsive layout | `Grid`, `Gallery`, `Flex`, `Stack`, layout props, utilities |
-| Grouped surface | `Card`, `CardHeader`, `CardTitle`, `CardBody` |
-| Simple textual list | `List`, `ListItem` |
-| Structured resource rows | `DataList` or `Table` pattern |
-| Status | `Label`, `Alert`, `HelperText`, shared status component |
-| Actions and links styled as actions | `Button` with the appropriate variant/component |
-| Metrics and term/value data | `DescriptionList`, `Grid`, existing dashboard component |
-| Empty/loading/error | PatternFly empty-state, skeleton/progress, and alert patterns |
+| Purpose                             | Prefer                                                        |
+| ----------------------------------- | ------------------------------------------------------------- |
+| Page regions                        | `PageSection`, `Content`, `Title`                             |
+| Responsive layout                   | `Grid`, `Gallery`, `Flex`, `Stack`, layout props, utilities   |
+| Grouped surface                     | `Card`, `CardHeader`, `CardTitle`, `CardBody`                 |
+| Simple textual list                 | `List`, `ListItem`                                            |
+| Structured resource rows            | `DataList` or `Table` pattern                                 |
+| Status                              | `Label`, `Alert`, `HelperText`, shared status component       |
+| Actions and links styled as actions | `Button` with the appropriate variant/component               |
+| Metrics and term/value data         | `DescriptionList`, `Grid`, existing dashboard component       |
+| Empty/loading/error                 | PatternFly empty-state, skeleton/progress, and alert patterns |
 
 Do not recreate these with styled `div`, `span`, `ul`, `li`, `a`, or native
 form controls.
 
 For full pages, the parity root is the page surface, not an inner content grid.
 Use `PageSection data-page-region="header" variant="default"` for the visible
-header and `PageSection data-page-region="body" variant="secondary" isFilled`
-for the main region. Preserve the approved variant or background treatment in
-the surface component. Put neither region in a story decorator or shell.
+header and a `PageSection data-page-region="body" isFilled` for the main
+region. Use the secondary body variant for multi-section pages whose distinct
+content is grouped in cards; use the default white body variant for pages with
+a single primary content type. Preserve the approved variant or background
+treatment in the surface component. Put neither region in a story decorator or
+shell.
 
 ## CSS admission
 

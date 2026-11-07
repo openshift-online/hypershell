@@ -1,5 +1,6 @@
 import { gatewayCanonicalPhases } from "./gateway-data";
 import { externalLinkUrls } from "../application/external-links";
+import { type GatewayClusterType } from "../application/gateway-types";
 
 export interface GatewayConnection {
   activeSandboxCount?: number;
@@ -7,6 +8,7 @@ export interface GatewayConnection {
   canEdit?: boolean;
   clusterId: string;
   clusterName: string;
+  clusterType?: GatewayClusterType;
   consoleUrl?: string;
   createdAt?: string;
   createdBy?: string;

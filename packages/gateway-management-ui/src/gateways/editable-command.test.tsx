@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { IntlProvider } from "react-intl";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { CommandBlock, sanitizeFieldValue } from "./editable-command";
 
@@ -112,5 +112,19 @@ describe("CommandBlock", () => {
     await user.click(screen.getByRole("button", { name: "Copy the command" }));
 
     expect(await navigator.clipboard.readText()).toBe("run --a prod --b prod");
+  });
+
+  it("reports a failed copy operation", async () => {
+    const user = userEvent.setup();
+    const clipboardWrite = vi
+      .spyOn(navigator.clipboard, "writeText")
+      .mockRejectedValue(new Error("denied"));
+    render(<Harness />);
+
+    await user.click(screen.getByRole("button", { name: "Copy the command" }));
+
+    const copyButton = await screen.findByTitle("Copy failed");
+    expect(copyButton).toBeTruthy();
+    clipboardWrite.mockRestore();
   });
 });

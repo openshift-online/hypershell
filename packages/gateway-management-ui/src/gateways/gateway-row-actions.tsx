@@ -22,10 +22,12 @@ import styles from "./gateway-row-actions.module.css";
 
 export function GatewayRowActions({
   gateway,
+  onConnectionCommand,
   onDeleted,
   onRenamed,
 }: {
   gateway: GatewayConnection;
+  onConnectionCommand: () => void;
   onDeleted: () => void;
   onRenamed: (gatewayName: string) => void;
 }) {
@@ -33,7 +35,9 @@ export function GatewayRowActions({
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [isRenameOpen, setIsRenameOpen] = useState(false);
-  const [copyResult, setCopyResult] = useState<"error" | "success">();
+  const [endpointCopyResult, setEndpointCopyResult] = useState<
+    "error" | "success"
+  >();
   const connectionCommand = buildGatewayAddCommand(gateway);
   // Disable delete/rename only when the server has explicitly told us the caller
   // cannot. An absent capability (older server) leaves it enabled; the API 403
@@ -41,15 +45,15 @@ export function GatewayRowActions({
   const canDelete = gateway.canDelete !== false;
   const canEdit = gateway.canEdit !== false;
 
-  const copyConnectionCommand = async () => {
-    if (!connectionCommand) {
+  const copyEndpoint = async () => {
+    if (!gateway.endpoint) {
       return;
     }
     try {
-      await navigator.clipboard.writeText(connectionCommand);
-      setCopyResult("success");
+      await navigator.clipboard.writeText(gateway.endpoint);
+      setEndpointCopyResult("success");
     } catch {
-      setCopyResult("error");
+      setEndpointCopyResult("error");
     }
   };
 
@@ -93,10 +97,19 @@ export function GatewayRowActions({
           {connectionCommand ? (
             <DropdownItem
               onClick={() => {
-                void copyConnectionCommand();
+                onConnectionCommand();
               }}
             >
-              <FormattedMessage {...messages.copyCliConnectionCommand} />
+              <FormattedMessage {...messages.connectionCommandAction} />
+            </DropdownItem>
+          ) : null}
+          {gateway.endpoint ? (
+            <DropdownItem
+              onClick={() => {
+                void copyEndpoint();
+              }}
+            >
+              <FormattedMessage {...messages.copyEndpointAction} />
             </DropdownItem>
           ) : null}
           <DropdownItem
@@ -168,7 +181,7 @@ export function GatewayRowActions({
           onDeleted();
         }}
       />
-      {copyResult ? (
+      {endpointCopyResult ? (
         <AlertGroup
           aria-label={intl.formatMessage(messages.notifications)}
           isLiveRegion
@@ -179,21 +192,21 @@ export function GatewayRowActions({
               <AlertActionCloseButton
                 aria-label={intl.formatMessage(messages.close)}
                 onClose={() => {
-                  setCopyResult(undefined);
+                  setEndpointCopyResult(undefined);
                 }}
               />
             }
             onTimeout={() => {
-              setCopyResult(undefined);
+              setEndpointCopyResult(undefined);
             }}
             timeout={8000}
             title={intl.formatMessage(
-              copyResult === "success"
-                ? messages.cliConnectionCommandCopied
-                : messages.cliConnectionCommandCopyFailed,
+              endpointCopyResult === "success"
+                ? messages.gatewayEndpointCopied
+                : messages.gatewayEndpointCopyFailed,
               { gatewayName: gateway.name },
             )}
-            variant={copyResult === "success" ? "success" : "danger"}
+            variant={endpointCopyResult === "success" ? "success" : "danger"}
           />
         </AlertGroup>
       ) : null}

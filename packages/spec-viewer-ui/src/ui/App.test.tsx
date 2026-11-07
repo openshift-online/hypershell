@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { IntlProvider } from "react-intl";
 
@@ -169,10 +175,12 @@ async function ready() {
   await screen.findByRole("treegrid", { name: "Spec conformance" });
 }
 
-async function search(user: ReturnType<typeof userEvent.setup>, text: string) {
-  await user.type(
+async function search(text: string) {
+  fireEvent.change(
     await screen.findByRole("textbox", { name: "Search specs" }),
-    text,
+    {
+      target: { value: text },
+    },
   );
 }
 
@@ -193,7 +201,7 @@ describe("App", () => {
     expect(document.activeElement).toBe(input);
     expect(within(table()).getByText("Traced")).toBeTruthy();
 
-    await search(user, "expirng");
+    await search("expirng");
     // The matching scenario shows, with the rows above it expanded.
     expect(
       await within(table()).findByText("Expiring certificate"),
@@ -215,7 +223,7 @@ describe("App", () => {
     const user = userEvent.setup();
     renderApp();
     await ready();
-    await search(user, "certifcate");
+    await search("certifcate");
     await user.click(await within(table()).findByText("Expiring certificate"));
     const document = screen.getByRole("region", { name: "Spec document" });
     const marks = [...document.querySelectorAll(`mark.${MATCH_CLASS}`)].map(
@@ -234,7 +242,7 @@ describe("App", () => {
     const user = userEvent.setup();
     renderApp();
     await ready();
-    await search(user, "renewed");
+    await search("renewed");
     await user.hover(await within(table()).findByText("Expiring certificate"));
     const tooltip = await screen.findByRole("tooltip");
     expect(within(tooltip).getByText("renewed").tagName).toBe("MARK");
@@ -244,7 +252,7 @@ describe("App", () => {
     const user = userEvent.setup();
     renderApp();
     await ready();
-    await search(user, "history");
+    await search("history");
     await user.hover(await within(table()).findByText("Gateway TLS"));
     const tooltip = await screen.findByRole("tooltip");
     expect(within(tooltip).getByText("platform/tls.spec.md")).toBeTruthy();
@@ -375,7 +383,7 @@ describe("App", () => {
     renderApp();
     await ready();
     // The search expands Gateway TLS; the requirement is expanded by hand.
-    await search(user, "rotate");
+    await search("rotate");
     await expand(user, "Certificates rotate");
     expect(
       await within(table()).findByText("Expiring certificate"),
@@ -554,7 +562,7 @@ describe("App", () => {
     ).toBeTruthy();
 
     // Opening an item while the document is hidden shows it again.
-    await search(user, "expirng");
+    await search("expirng");
     await user.click(await within(table()).findByText("Expiring certificate"));
     expect(
       await screen.findByRole("button", { name: "Hide document" }),

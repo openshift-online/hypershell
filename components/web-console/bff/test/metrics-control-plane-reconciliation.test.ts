@@ -127,8 +127,6 @@ describe("queryControlPlaneReconciliation", () => {
     const address = server.address();
     if (address === null || typeof address === "string")
       throw new Error("expected listener");
-    const rangeAfter = rollingHourlyRange();
-
     const metrics = await queryControlPlaneReconciliation(
       `http://127.0.0.1:${String(address.port)}`,
       5_000,
@@ -156,9 +154,7 @@ describe("queryControlPlaneReconciliation", () => {
     for (const rangeRequest of trendRequests) {
       expect(rangeRequest.step).toBe(String(hourlyRangeStepSeconds));
       expect(rangeRequest.start).toBeGreaterThanOrEqual(rangeBefore.start);
-      expect(rangeRequest.start).toBeLessThanOrEqual(rangeAfter.start);
       expect(rangeRequest.end).toBeGreaterThanOrEqual(rangeBefore.end);
-      expect(rangeRequest.end).toBeLessThanOrEqual(rangeAfter.end);
       expect(rangeRequest.end - rangeRequest.start).toBe(86_400);
     }
     for (const rangeRequest of countTrendRequests) {

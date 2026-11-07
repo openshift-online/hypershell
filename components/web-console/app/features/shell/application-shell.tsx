@@ -7,7 +7,14 @@ import {
   MastheadContent,
   MastheadLogo,
   MastheadMain,
+  MastheadToggle,
+  Nav,
+  NavItem,
+  NavList,
   Page,
+  PageSidebar,
+  PageSidebarBody,
+  PageToggleButton,
   SkipToContent,
   Toolbar,
   ToolbarContent,
@@ -94,6 +101,12 @@ export function ApplicationShell() {
   const masthead = (
     <Masthead>
       <MastheadMain>
+        <MastheadToggle>
+          <PageToggleButton
+            aria-label={intl.formatMessage(messages.toggleNavigation)}
+            isHamburgerButton
+          />
+        </MastheadToggle>
         <MastheadBrand>
           <MastheadLogo
             className={styles.brand}
@@ -156,6 +169,39 @@ export function ApplicationShell() {
     );
   }
 
+  // Determine active navigation item based on current route
+  const isGatewayRoute =
+    pathname.startsWith(routePaths.gatewayList) ||
+    pathname === routePaths.gatewayList;
+  const isDashboardRoute = pathname.startsWith(routePaths.dashboard);
+  const isOverviewRoute = pathname === routePaths.home;
+
+  const sidebar = (
+    <PageSidebar>
+      <PageSidebarBody>
+        <Nav aria-label={intl.formatMessage(messages.primaryNavigation)}>
+          <NavList>
+            <NavItem isActive={isOverviewRoute} key={routePaths.home}>
+              <Link className={styles.navLink} to={routePaths.home}>
+                {intl.formatMessage(messages.overview)}
+              </Link>
+            </NavItem>
+            <NavItem isActive={isGatewayRoute} key={routePaths.gatewayList}>
+              <Link className={styles.navLink} to={routePaths.gatewayList}>
+                {intl.formatMessage(gatewayMessages.gateways)}
+              </Link>
+            </NavItem>
+            <NavItem isActive={isDashboardRoute} key={routePaths.dashboard}>
+              <Link className={styles.navLink} to={routePaths.dashboard}>
+                {intl.formatMessage(messages.dashboard)}
+              </Link>
+            </NavItem>
+          </NavList>
+        </Nav>
+      </PageSidebarBody>
+    </PageSidebar>
+  );
+
   return (
     <DashboardUiProvider
       dashboard={dashboardOperations}
@@ -170,8 +216,10 @@ export function ApplicationShell() {
         <Page
           breadcrumb={breadcrumb}
           isContentFilled
+          isManagedSidebar
           mainContainerId="main-content"
           masthead={masthead}
+          sidebar={sidebar}
           skipToContent={skipToContent}
         >
           <Outlet />

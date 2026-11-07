@@ -8,6 +8,8 @@ web-console mockup or shared component.
 
 - Use `gateway` when describing the gateway that connects to OpenShell.
 - Use a lowercase `g` in `gateway` unless it begins a sentence or is a label.
+- Use `Provision gateway` instead of `Add gateway` for the action that creates
+  a gateway.
 - Always write `Red Hat` with both words capitalized and separated by a space.
   Do not use `RH`, `red hat`, or `RedHat`.
 - Always write `HyperShell` as one word with a capital `H` and capital `S`.
@@ -16,6 +18,14 @@ web-console mockup or shared component.
   systems restricted to Red Hat employees or requiring VPN access, use
   `internal Red Hat` or `internal to Red Hat`, whichever fits the sentence.
   Capitalize `Internal` only when it begins a sentence or label.
+
+## Dates
+
+- Use `MMM dd, yyyy` for English date-only values, with a zero-padded two-digit
+  day, for example `Oct 05, 2026`.
+- When a value includes a time, keep the same date format and append the
+  localized time, for example `Oct 05, 2026, 9:35 PM`. Consequential
+  timestamps must also include the required time-zone context.
 
 ## Alerts and errors
 
@@ -34,6 +44,14 @@ web-console mockup or shared component.
 
 - Keep the page header containing the title and optional refresh action in its
   own PatternFly `PageSection`, followed by a separate main-content section.
+- For pages with multiple distinct content sections, such as a home or landing
+  page, group each section's content inside PatternFly cards and use the
+  PatternFly secondary main-section treatment. In light mode this renders a
+  gray page background with white card surfaces.
+- For pages with a single primary content type, such as one table, form, list,
+  or detail view, use the default white main-section treatment. Do not place
+  gray-backed content directly on a gray page background or add cards solely to
+  compensate for a secondary page background.
 - Use breadcrumbs as the primary navigation method when a page moves deeper
   into a section. The parent breadcrumb should link back to its collection or
   parent page.
@@ -52,12 +70,20 @@ web-console mockup or shared component.
 
 - Use the default PatternFly table spacing; do not use a condensed table unless
   the product design explicitly requires it.
-- Make applicable table columns sortable. Show an active sort direction only
-  on the column currently sorted.
+- When a table requires pagination, render PatternFly pagination controls both
+  above and below the table. The two controls must share the same pagination
+  state and page-size options.
+- Enable sorting on every table column unless sorting is not technically
+  possible or the data set is very small. Show an active sort direction only on
+  the column currently sorted.
 - Put row actions in an unlabeled final column using the PatternFly action-cell
   and kebab-menu pattern.
 - Mark external row actions with PatternFly's `isExternalLink` treatment and
   use the external destination URL.
+- Use the PatternFly deletion pattern when a modal confirms that something will
+  be deleted or permanently disabled with no easy recovery. Place a warning
+  icon to the left of the modal title and give the confirming primary action
+  the PatternFly danger treatment.
 
 ## Status and shared actions
 

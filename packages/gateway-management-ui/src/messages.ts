@@ -12,6 +12,12 @@ export const messages = defineMessages({
     description:
       "Heading for the gateways table column showing the number of active sandbox sessions.",
   },
+  attentionRequired: {
+    id: "app.gateway.status.attentionRequired",
+    defaultMessage: "Attention required",
+    description:
+      "Status text shown for unhealthy gateways (warning or danger states).",
+  },
   bulkDeleteActiveSandboxWarning: {
     id: "app.gateway.bulkDelete.activeSandboxWarning",
     defaultMessage:
@@ -162,6 +168,12 @@ export const messages = defineMessages({
       "CLI connection command for {gatewayName} could not be copied",
     description: "Error notification when copying a gateway CLI command fails.",
   },
+  clipboardCopyFailed: {
+    id: "app.clipboard.copyFailed",
+    defaultMessage: "Copy failed",
+    description:
+      "Failure feedback shown when text could not be copied to the clipboard.",
+  },
   close: {
     id: "app.action.close",
     defaultMessage: "Close",
@@ -184,35 +196,117 @@ export const messages = defineMessages({
     description:
       "Recovery guidance when remote gateway placements cannot be loaded.",
   },
-  connectionEditorOptions: {
-    id: "app.gateway.connection.editorOptions",
-    defaultMessage:
-      "Supported interactive editors are <code>vscode</code> and <code>cursor</code>.",
+  clusterType: {
+    id: "app.gateway.column.clusterType",
+    defaultMessage: "Cluster type",
     description:
-      "Info note listing the supported editor values for the connect-sandbox command. Editor names are wrapped in <code> tags.",
+      "Heading for the gateway cluster type column showing the derived placement category.",
+  },
+  connect: {
+    id: "app.gateway.column.connect",
+    defaultMessage: "Connect",
+    description: "Heading for the gateway CLI connection command column.",
+  },
+  connectionAddGatewayDescription: {
+    id: "app.gateway.connection.addGateway.description",
+    defaultMessage:
+      "Adds and authenticates the gateway if needed, then selects it. Existing gateway registrations are reused.",
+    description: "Supporting text for the add-gateway connection step.",
+  },
+  connectionAddGatewayTitle: {
+    id: "app.gateway.connection.addGateway.title",
+    defaultMessage: "Add this gateway",
+    description: "Title for the add-gateway connection step.",
+  },
+  connectionBeforeYouBegin: {
+    id: "app.gateway.connection.beforeYouBegin",
+    defaultMessage:
+      "Export your EnMaaS key as ENMAAS_KEY in your terminal. The provider command will prompt for it if the variable is not set.",
+    description: "Prerequisite guidance shown above the connection steps.",
+  },
+  connectionBeforeYouBeginTitle: {
+    id: "app.gateway.connection.beforeYouBegin.title",
+    defaultMessage: "Before you begin",
+    description: "Title for the connection prerequisite guidance.",
+  },
+  connectionCommandAction: {
+    id: "app.gateway.rowActions.connectionCommand",
+    defaultMessage: "Connection command",
+    description: "Menu action that opens a gateway connection command modal.",
+  },
+  connectionCommandHelper: {
+    id: "app.gateway.connectionCommandModal.helper",
+    defaultMessage:
+      "Run this command in a terminal to add the gateway to the OpenShell CLI.",
+    description:
+      "Helper text for the modal showing a gateway's CLI connection command.",
+  },
+  connectionCommandModal: {
+    id: "app.gateway.connectionCommandModal.title",
+    defaultMessage: "Connect to {gatewayName}",
+    description: "Title for the modal showing how to connect to a gateway.",
+  },
+  connectionConnectEnmaasDescription: {
+    id: "app.gateway.connection.connectEnmaas.description",
+    defaultMessage:
+      "Creates the provider if needed. It prompts for your EnMaaS key only when creating a new provider.",
+    description: "Supporting text for the connect-gateway-to-EnMaaS step.",
+  },
+  connectionConnectEnmaasTitle: {
+    id: "app.gateway.connection.connectEnmaas.title",
+    defaultMessage: "Connect this gateway to EnMaaS",
+    description: "Title for the connect-gateway-to-EnMaaS connection step.",
+  },
+  connectionCreateProfileDescription: {
+    id: "app.gateway.connection.createProfile.description",
+    defaultMessage:
+      "Creates the local provider profile that binds your EnMaaS key to the EnMaaS endpoint.",
+    description: "Supporting text for the create-profile connection step.",
+  },
+  connectionCreateProfileTitle: {
+    id: "app.gateway.connection.createProfile.title",
+    defaultMessage: "Create the EnMaaS provider profile",
+    description: "Title for the create-profile connection step.",
   },
   connectionEditorOptionsLink: {
     id: "app.gateway.connection.editorOptionsLink",
-    defaultMessage: "OpenShell connect documentation",
+    defaultMessage: "OpenShell connection documentation",
     description:
       "Link text pointing to the OpenShell sandbox connect CLI documentation.",
   },
   connectionEditorOptionsLinkNewTab: {
     id: "app.gateway.connection.editorOptionsLinkNewTab",
-    defaultMessage: "Sandbox connect reference (opens in a new tab)",
+    defaultMessage: "OpenShell connection documentation (opens in a new tab)",
     description:
       "Accessible name for the sandbox connect docs link, including that it opens in a new tab.",
   },
-  connectionEditorOptionsTitle: {
-    id: "app.gateway.connection.editorOptionsTitle",
-    defaultMessage: "Editor options",
-    description: "Title for the editor options info alert.",
+  connectionEnmaasLink: {
+    id: "app.gateway.connection.enmaas.link",
+    defaultMessage: "Learn about EnMaaS and get a key",
+    description: "Link text for the EnMaaS documentation.",
+  },
+  connectionEnmaasLinkNewTab: {
+    id: "app.gateway.connection.enmaas.linkNewTab",
+    defaultMessage: "Learn about EnMaaS and get a key (opens in a new tab)",
+    description:
+      "Accessible name for the EnMaaS documentation link, including that it opens in a new tab.",
+  },
+  connectionImportProfileDescription: {
+    id: "app.gateway.connection.importProfile.description",
+    defaultMessage:
+      "Validates and imports the EnMaaS provider profile if it is not already installed.",
+    description: "Supporting text for the import-profile connection step.",
+  },
+  connectionImportProfileTitle: {
+    id: "app.gateway.connection.importProfile.title",
+    defaultMessage: "Import the EnMaaS provider profile",
+    description: "Title for the import-profile connection step.",
   },
   connectionInstallLink: {
     id: "app.gateway.connection.installLink",
     defaultMessage: "View installation documentation",
     description:
-      "Link text pointing to the NVIDIA OpenShell installation documentation.",
+      "Link text pointing to the OpenShell CLI installation documentation.",
   },
   connectionInstallLinkNewTab: {
     id: "app.gateway.connection.installLinkNewTab",
@@ -220,22 +314,16 @@ export const messages = defineMessages({
     description:
       "Accessible name for the OpenShell CLI installation documentation link, including that it opens in a new tab.",
   },
-  connectionInstallPrereq: {
-    id: "app.gateway.connection.installPrereq",
+  connectionInstallStepDescription: {
+    id: "app.gateway.connection.install.description",
     defaultMessage:
-      "Install the OpenShell CLI version for this gateway before you add the provider.",
-    description: "Prerequisite note shown before the one-time setup commands.",
+      "Only needed once. Installs the OpenShell CLI version that matches this gateway.",
+    description: "Supporting text for the CLI installation connection step.",
   },
-  connectionInstallPrereqTitle: {
-    id: "app.gateway.connection.installPrereqTitle",
-    defaultMessage: "Prerequisite",
-    description: "Title for the CLI installation prerequisite alert.",
-  },
-  connectionLoginConfigureTitle: {
-    id: "app.gateway.connection.loginConfigure.title",
-    defaultMessage: "Log in and configure",
-    description:
-      "Sub-header for the login and configuration command within one-time setup.",
+  connectionInstallStepTitle: {
+    id: "app.gateway.connection.install.title",
+    defaultMessage: "Install the OpenShell CLI",
+    description: "Title for the CLI installation connection step.",
   },
   connectionLoginUnavailable: {
     id: "app.gateway.connection.login.unavailable",
@@ -244,63 +332,57 @@ export const messages = defineMessages({
     description:
       "Shown in the login step while the gateway has not yet reached a running, ready-to-connect phase.",
   },
-  connectionProfileImportDocsLink: {
-    id: "app.gateway.connection.profileImportDocsLink",
-    defaultMessage: "View provider profile documentation",
-    description:
-      "Link text pointing to the OpenShell provider profile documentation.",
+  connectionModelNameLabel: {
+    id: "app.gateway.connection.modelName.label",
+    defaultMessage: "Claude model",
+    description: "Label for the Claude model used by the sandbox command.",
   },
-  connectionProfileImportDocsLinkNewTab: {
-    id: "app.gateway.connection.profileImportDocsLinkNewTab",
-    defaultMessage: "View provider profile documentation (opens in a new tab)",
-    description:
-      "Accessible name for the provider profile documentation link, including that it opens in a new tab.",
+  connectionOneTime: {
+    id: "app.gateway.connection.oneTime",
+    defaultMessage: "One-time",
+    description: "Label marking a connection step that only needs to run once.",
   },
-  connectionProfileImportScopeNote: {
-    id: "app.gateway.connection.profileImportScopeNote",
+  connectionOpenClaudeDescription: {
+    id: "app.gateway.connection.openClaude.description",
     defaultMessage:
-      'The profile import command above uses --global scope. This must match the scope used by the provider create command below (its --global-profile flag here): a scope mismatch reproduces a "provider profile not found" error even after the profile has been imported.',
-    description:
-      "Explains that the provider profile import scope and the provider create scope must match.",
+      "Attaches directly to the running Claude process in the sandbox.",
+    description: "Supporting text for the open-Claude connection step.",
   },
-  connectionProfileImportScopeTitle: {
-    id: "app.gateway.connection.profileImportScopeTitle",
-    defaultMessage: "Provider profile scope",
-    description:
-      "Toggle text for the expandable section explaining provider profile import scope.",
+  connectionOpenClaudeTitle: {
+    id: "app.gateway.connection.openClaude.title",
+    defaultMessage: "Open Claude in the sandbox",
+    description: "Title for the open-Claude-in-sandbox connection step.",
   },
-  connectionSandboxConnectDescription: {
-    id: "app.gateway.connection.sandboxConnect.description",
-    defaultMessage:
-      "Disconnecting does not stop the sandbox process. Connect attaches to the same process instance and replays recent output.",
-    description: "Supporting text for the connect-to-sandbox connection step.",
+  connectionProviderNameHelper: {
+    id: "app.gateway.connection.providerName.helper",
+    defaultMessage: "Also used when creating the sandbox.",
+    description: "Helper text for the connection provider name field.",
   },
-  connectionSandboxConnectTitle: {
-    id: "app.gateway.connection.sandboxConnect.title",
-    defaultMessage: "Connect to a sandbox",
-    description: "Title for the connect-to-sandbox connection step.",
+  connectionProviderNameLabel: {
+    id: "app.gateway.connection.providerName.label",
+    defaultMessage: "Provider name",
+    description: "Label for the connection provider name field.",
   },
   connectionSandboxDescription: {
     id: "app.gateway.connection.sandbox.description",
     defaultMessage:
-      "Once setup is done, run this whenever you want a fresh sandbox running Claude through this gateway.",
+      "Creates the sandbox if needed. Exit Claude to explore the sandbox file system.",
     description: "Supporting text for the create-sandbox connection step.",
+  },
+  connectionSandboxNameHelper: {
+    id: "app.gateway.connection.sandboxName.helper",
+    defaultMessage: "The sandbox name is also used when connecting to Claude.",
+    description: "Helper text for the connection sandbox name field.",
+  },
+  connectionSandboxNameLabel: {
+    id: "app.gateway.connection.sandboxName.label",
+    defaultMessage: "Sandbox name",
+    description: "Label for the connection sandbox name field.",
   },
   connectionSandboxTitle: {
     id: "app.gateway.connection.sandbox.title",
-    defaultMessage: "Create a sandbox",
+    defaultMessage: "Create a Claude sandbox",
     description: "Title for the create-sandbox connection step.",
-  },
-  connectionSetupDescription: {
-    id: "app.gateway.connection.setup.description",
-    defaultMessage:
-      "Run these commands in order to register the gateway, import the provider profile, add the Claude on Vertex AI provider, and select the model.",
-    description: "Supporting text for the one-time setup connection step.",
-  },
-  connectionSetupTitle: {
-    id: "app.gateway.connection.setup.title",
-    defaultMessage: "One-time setup",
-    description: "Title for the consolidated one-time setup connection step.",
   },
   connectionTab: {
     id: "app.gateway.connection.tab",
@@ -329,6 +411,11 @@ export const messages = defineMessages({
     defaultMessage: "Copy",
     description: "Tooltip for a button that copies text to the clipboard.",
   },
+  copyAllConnectionCommands: {
+    id: "app.gateway.connection.copyAll",
+    defaultMessage: "Copy all commands",
+    description: "Action that copies every visible connection command.",
+  },
   copyCliConnectionCommand: {
     id: "app.gateway.copyCliConnectionCommand",
     defaultMessage: "Copy CLI connection command",
@@ -339,6 +426,23 @@ export const messages = defineMessages({
     defaultMessage: "Copy connection command for {gatewayName}",
     description:
       "Accessible label for copying a specific gateway's CLI connection command.",
+  },
+  copyConnectionStepCommand: {
+    id: "app.gateway.connection.copyStep",
+    defaultMessage: "Copy command for step {number}, {title}",
+    description:
+      "Accessible label for copying one command in the connection guide.",
+  },
+  copyEndpoint: {
+    id: "app.gateway.column.copyEndpoint",
+    defaultMessage: "Copy endpoint for {gatewayName}",
+    description:
+      "Accessible label and tooltip for the gateway endpoint copy action.",
+  },
+  copyEndpointAction: {
+    id: "app.gateway.rowActions.copyEndpoint",
+    defaultMessage: "Copy endpoint",
+    description: "Menu action that copies a gateway's network endpoint.",
   },
   copyGatewayEndpoint: {
     id: "app.gateway.copyEndpoint",
@@ -373,6 +477,11 @@ export const messages = defineMessages({
     id: "app.table.column.created",
     defaultMessage: "Created",
     description: "Heading for a resource creation date column.",
+  },
+  createdBy: {
+    id: "app.gateway.column.createdBy",
+    defaultMessage: "Created by",
+    description: "Heading for the gateway creator column.",
   },
   deleteGateway: {
     id: "app.gateway.delete",
@@ -451,7 +560,7 @@ export const messages = defineMessages({
   },
   filterGateways: {
     id: "app.page.gateways.filter",
-    defaultMessage: "Filter by name, cluster, status, or endpoint",
+    defaultMessage: "Filter by name, status, or endpoint",
     description: "Placeholder and accessible label for gateway search.",
   },
   gateway: {
@@ -488,6 +597,16 @@ export const messages = defineMessages({
     id: "app.gateway.endpoint",
     defaultMessage: "Gateway endpoint",
     description: "Label for an OpenShell gateway network endpoint.",
+  },
+  gatewayEndpointCopied: {
+    id: "app.gateway.endpoint.copied",
+    defaultMessage: "Endpoint for {gatewayName} copied",
+    description: "Confirmation shown after a gateway endpoint is copied.",
+  },
+  gatewayEndpointCopyFailed: {
+    id: "app.gateway.endpoint.copyFailed",
+    defaultMessage: "Endpoint for {gatewayName} could not be copied",
+    description: "Error shown when copying a gateway endpoint fails.",
   },
   gatewayLoadError: {
     id: "app.gateway.load.error.title",
@@ -653,6 +772,18 @@ export const messages = defineMessages({
     id: "app.page.gatewayProvision.description",
     defaultMessage: "Configure a new OpenShell gateway.",
     description: "Supporting text on the gateway provisioning page.",
+  },
+  sandboxes: {
+    id: "app.gateway.column.sandboxes",
+    defaultMessage: "Sandboxes",
+    description:
+      "Heading for the gateways table column showing the active sandbox count.",
+  },
+  viewConnectionCommand: {
+    id: "app.gateway.column.viewConnectionCommand",
+    defaultMessage: "View connection command for {gatewayName}",
+    description:
+      "Accessible label and tooltip for the gateway connection command action.",
   },
   /* eslint-disable sort-keys -- Keep gateway placement descriptors together for localization review. */
   networkAccess: {
@@ -1034,6 +1165,59 @@ export const messages = defineMessages({
     defaultMessage:
       "You do not have permission to create a service account for this gateway.",
     description: "Explanation for a disabled service-account create action.",
+  },
+  gatewayNeedsAttention: {
+    id: "app.gateway.detail.attention.gatewayHealth.title",
+    defaultMessage: "Gateway needs attention",
+    description: "Title for a gateway health warning.",
+  },
+  gatewayHealthAttentionBody: {
+    id: "app.gateway.detail.attention.gatewayHealth.body",
+    defaultMessage:
+      "Connection health is degraded. Active sandboxes may be affected.",
+    description:
+      "Explains the effect of degraded gateway health when the count is unknown.",
+  },
+  gatewayHealthAttentionBodyWithCount: {
+    id: "app.gateway.detail.attention.gatewayHealth.bodyWithCount",
+    defaultMessage:
+      "Connection health is degraded. {activeSandboxCount, plural, =0 {No active sandboxes are affected.} one {# active sandbox may be affected.} other {# active sandboxes may be affected.}}",
+    description:
+      "Explains the effect of degraded gateway health with the affected count.",
+  },
+  serviceAccountExpiringTitle: {
+    id: "app.gateway.detail.attention.serviceAccountExpiring.title",
+    defaultMessage:
+      "{count, plural, one {# service account expires} other {# service accounts expire}} within 7 days",
+    description: "Title for service accounts expiring within seven days.",
+  },
+  serviceAccountExpiringBody: {
+    id: "app.gateway.detail.attention.serviceAccountExpiring.body",
+    defaultMessage:
+      "Review and rotate credentials before automation access stops.",
+    description: "Guidance for service accounts expiring within seven days.",
+  },
+  serviceAccountExpiringTabBody: {
+    id: "app.gateway.detail.attention.serviceAccountExpiring.tabBody",
+    defaultMessage:
+      "Review the affected accounts and rotate credentials before expiration.",
+    description:
+      "Guidance shown on the service-accounts tab for accounts expiring within seven days.",
+  },
+  viewAllSandboxes: {
+    id: "app.gateway.detail.attention.gatewayHealth.viewAllSandboxes",
+    defaultMessage: "View all sandboxes",
+    description: "Action that opens all gateway sandboxes in a new tab.",
+  },
+  reviewServiceAccounts: {
+    id: "app.gateway.detail.attention.serviceAccountExpiring.action",
+    defaultMessage: "Review service accounts",
+    description: "Action that opens the service-accounts tab.",
+  },
+  dismissGatewayAttention: {
+    id: "app.gateway.detail.attention.dismiss",
+    defaultMessage: "Dismiss attention alert",
+    description: "Accessible label for dismissing a gateway attention alert.",
   },
   viewServiceAccountDetails: {
     id: "app.gateway.serviceAccounts.viewDetails",
@@ -1463,6 +1647,11 @@ export const messages = defineMessages({
     defaultMessage: "Manage access",
     description: "Label for the gateway detail Manage access tab.",
   },
+  userAccessTab: {
+    id: "app.gateway.userAccess.tab",
+    defaultMessage: "User access",
+    description: "Label for the gateway detail User access tab.",
+  },
   accessHeading: {
     id: "app.gateway.access.heading",
     defaultMessage: "Gateway access",
@@ -1813,6 +2002,62 @@ export const messages = defineMessages({
     id: "app.page.gatewayProvision.ibmProviderAlt",
     defaultMessage: "IBM Cloud",
     description: "Alternative text for the IBM Cloud provider logo.",
+  },
+  details: {
+    id: "app.gateway.details.heading",
+    defaultMessage: "Details",
+    description: "Heading for the gateway Details tab content.",
+  },
+  detailsTabDescription: {
+    id: "app.gateway.details.description",
+    defaultMessage: "Review the gateway's current state and configuration.",
+    description: "Description for the gateway Details tab.",
+  },
+  overview: {
+    id: "app.gateway.details.overview",
+    defaultMessage: "Overview",
+    description: "Heading for the gateway Overview card.",
+  },
+  identity: {
+    id: "app.gateway.details.identity",
+    defaultMessage: "Identity",
+    description: "Heading for the gateway Identity card.",
+  },
+  placement: {
+    id: "app.gateway.details.placement",
+    defaultMessage: "Placement",
+    description: "Heading for the gateway Placement card.",
+  },
+  refreshGatewayDetails: {
+    id: "app.gateway.details.refresh",
+    defaultMessage: "Refresh gateway details",
+    description: "Accessible label for the refresh gateway details button.",
+  },
+  gatewayId: {
+    id: "app.gateway.details.gatewayId",
+    defaultMessage: "Gateway ID",
+    description: "Label for the gateway identifier field.",
+  },
+  connectionTabDescription: {
+    id: "app.gateway.connection.description",
+    defaultMessage:
+      "Connect your terminal to this gateway and start a Claude sandbox attached to EnMaaS.",
+    description: "Description for the gateway Connection tab.",
+  },
+  automateThisGateway: {
+    id: "app.gateway.connection.automateThisGateway",
+    defaultMessage: "Automate this gateway",
+    description: "Heading for the automation entry point card.",
+  },
+  automateThisGatewayDescription: {
+    id: "app.gateway.connection.automateThisGatewayDescription",
+    defaultMessage: "CI/CD pipelines and bots should use service accounts.",
+    description: "Description for the automation entry point card.",
+  },
+  viewServiceAccounts: {
+    id: "app.gateway.connection.viewServiceAccounts",
+    defaultMessage: "View service accounts",
+    description: "Link to the service accounts tab from the automation card.",
   },
   /* eslint-enable sort-keys */
 });

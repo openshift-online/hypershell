@@ -7,11 +7,14 @@ export interface ProvisioningCondition {
   type: string;
 }
 
+export type GatewayClusterType = "AWS VPN" | "IBM Public" | "IBM Public Kata";
+
 export interface GatewayRecord {
   activeSandboxCount?: number;
   canDelete?: boolean;
   canEdit?: boolean;
   clusterId: string;
+  clusterType?: GatewayClusterType;
   consoleUrl?: string;
   createdAt?: string;
   createdBy?: string;

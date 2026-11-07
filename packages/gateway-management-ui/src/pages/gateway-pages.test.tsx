@@ -32,6 +32,19 @@ const previewGateway: GatewayConnection = {
 };
 const previewGateways = [previewGateway] as const;
 
+const completedProvisioningConditions = [
+  {
+    conditionStatus: "Complete" as const,
+    message: "",
+    type: "EnvironmentReady",
+  },
+  {
+    conditionStatus: "Complete" as const,
+    message: "",
+    type: "GatewayHealthy",
+  },
+];
+
 const {
   deleteGatewayMock,
   getGatewayPlacementMock,
@@ -153,6 +166,21 @@ function renderPage(Page: () => React.ReactNode) {
   );
 }
 
+function openConnectionTab() {
+  fireEvent.click(screen.getByRole("tab", { name: "Connection" }));
+}
+
+function getConnectionStepToggle(title: string) {
+  const escapedTitle = title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return screen.getByRole("button", {
+    name: new RegExp(`^\\d+${escapedTitle}(?:One-time)?$`, "u"),
+  });
+}
+
+function expandConnectionStep(title: string) {
+  fireEvent.click(getConnectionStepToggle(title));
+}
+
 describe("gateway shell pages", () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -213,13 +241,17 @@ describe("gateway shell pages", () => {
     expect(screen.queryByRole("button", { name: "Connect with the CLI" })).toBe(
       null,
     );
-    // Connection is the default tab and leads with the login command.
+    expect(
+      screen.getByRole("tab", { name: "Details", selected: true }),
+    ).toBeTruthy();
+    await user.click(screen.getByRole("tab", { name: "Connection" }));
     expect(
       screen.getByRole("tab", { name: "Connection", selected: true }),
     ).toBeTruthy();
-    expect(
-      screen.getByText(/openshell gateway add/, { selector: "code" }),
-    ).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Copy all commands" }));
+    expect(await navigator.clipboard.readText()).toContain(
+      "openshell gateway add",
+    );
 
     // Operational configuration lives behind the Details tab.
     await user.click(screen.getByRole("tab", { name: "Details" }));
@@ -260,8 +292,13 @@ describe("gateway shell pages", () => {
     await user.click(screen.getByRole("button", { name: "Actions" }));
     await user.click(screen.getByRole("menuitem", { name: "Delete gateway" }));
     let dialog = screen.getByRole("dialog", {
-      name: "Delete Team gateway?",
+      name: "Warning alert:Delete Team gateway?",
     });
+    const title = dialog.querySelector(".pf-v6-c-modal-box__title");
+    expect(title?.className).toContain("pf-m-warning");
+    expect(
+      title?.querySelector(".pf-v6-c-modal-box__title-icon svg"),
+    ).toBeTruthy();
     expect(
       within(dialog).getByText(
         "Deleting Team gateway will permanently remove the gateway. This action cannot be undone.",
@@ -272,7 +309,9 @@ describe("gateway shell pages", () => {
 
     await user.click(screen.getByRole("button", { name: "Actions" }));
     await user.click(screen.getByRole("menuitem", { name: "Delete gateway" }));
-    dialog = screen.getByRole("dialog", { name: "Delete Team gateway?" });
+    dialog = screen.getByRole("dialog", {
+      name: "Warning alert:Delete Team gateway?",
+    });
     await user.click(
       within(dialog).getByRole("button", { name: "Delete gateway" }),
     );
@@ -280,7 +319,9 @@ describe("gateway shell pages", () => {
       expect(deleteGatewayMock).toHaveBeenCalledWith("gateway-1");
     });
     expect(
-      screen.queryByRole("dialog", { name: "Delete Team gateway?" }),
+      screen.queryByRole("dialog", {
+        name: "Warning alert:Delete Team gateway?",
+      }),
     ).toBeNull();
   });
 
@@ -291,6 +332,8 @@ describe("gateway shell pages", () => {
         gatewayId="gateway-1"
       />
     ));
+    openConnectionTab();
+    expandConnectionStep("Add this gateway");
 
     expect(
       screen.queryByRole("link", {
@@ -304,7 +347,7 @@ describe("gateway shell pages", () => {
     expect(cliCmd.textContent).not.toContain("--oidc-");
   });
 
-  it("walks through gateway connection with provider and sandbox commands", () => {
+  it("walks through the EnMaaS connection guide", () => {
     renderPage(() => (
       <GatewayPage
         gateway={{
@@ -324,39 +367,29 @@ describe("gateway shell pages", () => {
         gatewayId="gateway-1"
       />
     ));
+    openConnectionTab();
 
-    // The one-time commands run before the reusable sandbox command.
-    expect(
-      screen.getByRole("heading", { level: 2, name: "One-time setup" }),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("heading", { level: 2, name: "Create a sandbox" }),
-    ).toBeTruthy();
+    for (const title of [
+      "Install the OpenShell CLI",
+      "Add this gateway",
+      "Create the EnMaaS provider profile",
+      "Import the EnMaaS provider profile",
+      "Connect this gateway to EnMaaS",
+      "Create a Claude sandbox",
+      "Open Claude in the sandbox",
+    ]) {
+      expandConnectionStep(title);
+    }
 
-    const registrationCommand = screen.getByText(/openshell gateway add/, {
-      selector: "code",
-    });
-    const installationCommand = screen.getByText(
-      /OPENSHELL_VERSION=v0\.0\.109/,
-      {
+    expect(
+      screen.getByText(/openshell sandbox connect enmaas-claude/u, {
         selector: "code",
-      },
-    );
-    const providerCommand = screen.getByText(/openshell provider create/, {
-      selector: "code",
-    });
-    const commandBlocks = Array.from(document.querySelectorAll("code"));
-
-    expect(commandBlocks.indexOf(installationCommand)).toBeLessThan(
-      commandBlocks.indexOf(registrationCommand),
-    );
-    expect(registrationCommand).toBe(providerCommand);
-    expect(installationCommand.textContent).not.toContain("openshell status");
-    expect(installationCommand.textContent).not.toContain("jq");
-    expect(providerCommand.textContent).toContain("--from-gcloud-adc");
-    expect(providerCommand.textContent).toContain("openshell inference set");
+      }),
+    ).toBeTruthy();
     expect(
-      screen.getByText(/openshell sandbox create/, { selector: "code" }),
+      screen.getByText(/openshell profile import -f enmaas\.yaml --global/u, {
+        selector: "code",
+      }),
     ).toBeTruthy();
   });
 
@@ -370,13 +403,15 @@ describe("gateway shell pages", () => {
         gatewayId="gateway-1"
       />
     ));
+    openConnectionTab();
+    expandConnectionStep("Add this gateway");
 
     expect(
-      screen.getByRole("status", {
-        name: "This gateway is still provisioning. Its connection command becomes available once the gateway is running.",
-      }),
+      screen.getByText("Waiting for gateway provisioning..."),
     ).toBeTruthy();
-    expect(screen.queryByDisplayValue(/openshell gateway add/u)).toBeNull();
+    expect(
+      screen.queryByText(/openshell gateway add/u, { selector: "code" }),
+    ).toBeNull();
   });
 
   // Verifies: OSG-HLTH-06.01
@@ -393,6 +428,8 @@ describe("gateway shell pages", () => {
         gatewayId="gateway-1"
       />
     ));
+    openConnectionTab();
+    expandConnectionStep("Add this gateway");
 
     expect(
       screen.getByText("Waiting for gateway provisioning..."),
@@ -459,6 +496,44 @@ describe("gateway shell pages", () => {
     ).toBeNull();
   });
 
+  it("hides the provisioning timeline for a healthy gateway visited from another page", () => {
+    renderPage(() => (
+      <GatewayPage
+        gateway={{
+          ...gatewayResponse("gateway-1", "Team gateway"),
+          provisioningConditions: completedProvisioningConditions,
+          status: "Healthy",
+        }}
+        gatewayId="gateway-1"
+      />
+    ));
+
+    expect(
+      screen.queryByRole("list", { name: "Provisioning progress" }),
+    ).toBeNull();
+    expect(
+      screen.getByRole("tablist").closest("section")?.className,
+    ).not.toContain("pf-m-secondary");
+  });
+
+  it("keeps the provisioning timeline for the provisioning session", () => {
+    renderPage(() => (
+      <GatewayPage
+        gateway={{
+          ...gatewayResponse("gateway-1", "Team gateway"),
+          provisioningConditions: completedProvisioningConditions,
+          status: "Healthy",
+        }}
+        gatewayId="gateway-1"
+        isProvisioningSession
+      />
+    ));
+
+    expect(
+      screen.getByRole("list", { name: "Provisioning progress" }),
+    ).toBeTruthy();
+  });
+
   it("shows connection commands for failed and degraded gateways", () => {
     for (const phase of ["Failed", "Degraded"]) {
       const { unmount } = renderPage(() => (
@@ -477,6 +552,81 @@ describe("gateway shell pages", () => {
       ).toBeNull();
       unmount();
     }
+  });
+
+  it("shows degraded gateway health with the affected sandbox count", () => {
+    mockServiceAccountCollection();
+    renderPage(() => (
+      <GatewayPage
+        gateway={{
+          ...gatewayResponse("gateway-1", "Team gateway"),
+          activeSandboxCount: 3,
+          consoleUrl: "https://console.example.test",
+          phase: "Running",
+          status: "Degraded",
+        }}
+        gatewayId="gateway-1"
+      />
+    ));
+
+    expect(screen.getByText("Gateway needs attention")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Connection health is degraded. 3 active sandboxes may be affected.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen
+        .getByRole("link", { name: "View all sandboxes" })
+        .getAttribute("href"),
+    ).toBe("https://console.example.test/sandboxes");
+  });
+
+  it("shows service-account expiration on Overview and Service accounts", async () => {
+    const user = userEvent.setup();
+    gatewayOperations.listOpenShellGatewayServiceAccounts.mockResolvedValue({
+      capabilities: {
+        allowedRoles: ["openshell-user"],
+        canCreate: true,
+        canManageAll: true,
+      },
+      items: [
+        {
+          clientId: "service-client",
+          createdAt: "2026-08-21T12:00:00Z",
+          createdByUserId: "user-1",
+          expiresAt: new Date(
+            Date.now() + 3 * 24 * 60 * 60 * 1000,
+          ).toISOString(),
+          gatewayId: "gateway-1",
+          id: "account-1",
+          name: "release-bot",
+          role: "openshell-user",
+          status: "ready",
+          subject: "service-subject",
+          updatedAt: "2026-08-21T12:00:00Z",
+        },
+      ],
+      page: 1,
+      size: 20,
+      total: 1,
+    });
+    renderPage(() => (
+      <GatewayPage
+        gateway={gatewayResponse("gateway-1", "Team gateway")}
+        gatewayId="gateway-1"
+      />
+    ));
+
+    expect(
+      await screen.findByText("1 service account expires within 7 days"),
+    ).toBeTruthy();
+
+    await user.click(screen.getByRole("tab", { name: "Service accounts" }));
+
+    expect(
+      screen.getAllByText("1 service account expires within 7 days").length,
+    ).toBe(1);
   });
 
   it("encodes service-account and detail tabs through its host", async () => {
@@ -678,6 +828,7 @@ describe("gateway shell pages", () => {
 
   it("shows the installation command when the reconciled version arrives", async () => {
     vi.useFakeTimers();
+    const clipboardWrite = vi.spyOn(navigator.clipboard, "writeText");
     gatewayOperations.getGateway
       .mockResolvedValueOnce({
         ...gatewayResponse("gateway-1", "Team gateway"),
@@ -692,9 +843,13 @@ describe("gateway shell pages", () => {
 
     const view = renderPage(() => <GatewayPage gatewayId="gateway-1" />);
     await act(async () => vi.advanceTimersByTimeAsync(0));
+    openConnectionTab();
+    fireEvent.click(screen.getByRole("button", { name: "Copy all commands" }));
 
     expect(gatewayOperations.getGateway).toHaveBeenCalledOnce();
-    expect(screen.queryByText("Prerequisite")).toBeNull();
+    expect(clipboardWrite).toHaveBeenLastCalledWith(
+      expect.not.stringContaining("OPENSHELL_VERSION="),
+    );
 
     await act(async () => vi.advanceTimersByTimeAsync(5_000));
     await act(async () => {
@@ -704,12 +859,10 @@ describe("gateway shell pages", () => {
     });
 
     expect(gatewayOperations.getGateway).toHaveBeenCalledTimes(2);
-    expect(screen.getByText("Prerequisite")).toBeTruthy();
-    expect(
-      Array.from(document.querySelectorAll("code")).some((element) =>
-        element.textContent.includes("OPENSHELL_VERSION=v0.0.109"),
-      ),
-    ).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Copy all commands" }));
+    expect(clipboardWrite).toHaveBeenLastCalledWith(
+      expect.stringContaining("OPENSHELL_VERSION=v0.0.109"),
+    );
 
     await act(async () => vi.advanceTimersByTimeAsync(10_000));
     expect(gatewayOperations.getGateway).toHaveBeenCalledTimes(2);
@@ -951,7 +1104,7 @@ describe("gateway shell pages", () => {
     );
   });
 
-  it("requests one new page when pagination changes", async () => {
+  it("requests one new page from the bottom pagination control", async () => {
     const user = userEvent.setup();
     listGatewaysMock.mockImplementation(
       (request: { page: number; size: number }) =>
@@ -970,7 +1123,11 @@ describe("gateway shell pages", () => {
     renderPage(GatewaysPage);
 
     await screen.findByRole("link", { name: "Gateway page 1" });
-    await user.click(screen.getByRole("button", { name: "Go to next page" }));
+    const bottomPagination = screen
+      .getAllByRole("button", { name: "Go to next page" })
+      .find((button) => button.closest(".pf-v6-c-pagination.pf-m-bottom"));
+    expect(bottomPagination).toBeTruthy();
+    await user.click(bottomPagination as HTMLButtonElement);
     await screen.findByRole("link", { name: "Gateway page 2" });
 
     expect(listGatewaysMock).toHaveBeenCalledTimes(2);
@@ -1034,7 +1191,7 @@ describe("gateway shell pages", () => {
 
     await screen.findByRole("link", { name: "openshell-gateway-test" });
     const filter = screen.getByRole("textbox", {
-      name: "Filter by name, cluster, status, or endpoint",
+      name: "Filter by name, status, or endpoint",
     });
     fireEvent.change(filter, { target: { value: "openshell" } });
     await waitFor(() => {
@@ -1062,7 +1219,7 @@ describe("gateway shell pages", () => {
 
     await user.type(
       screen.getByRole("textbox", {
-        name: "Filter by name, cluster, status, or endpoint",
+        name: "Filter by name, status, or endpoint",
       }),
       "east",
     );
@@ -1145,7 +1302,7 @@ describe("gateway shell pages", () => {
       "sort",
     );
 
-    await user.click(within(table).getByRole("button", { name: "Created by" }));
+    await user.click(within(table).getByRole("button", { name: "Created" }));
     expect(onCollectionStateChange).toHaveBeenLastCalledWith(
       {
         onlyMine: false,
@@ -1153,14 +1310,14 @@ describe("gateway shell pages", () => {
         search: "",
         size: 20,
         sortDirection: "asc",
-        sortField: "owner",
+        sortField: "created",
       },
       "sort",
     );
 
     fireEvent.change(
       screen.getByRole("textbox", {
-        name: "Filter by name, cluster, status, or endpoint",
+        name: "Filter by name, status, or endpoint",
       }),
       { target: { value: "East cluster" } },
     );
@@ -1181,9 +1338,6 @@ describe("gateway shell pages", () => {
   it("renders the ownership filter as an on/off switch that requests the server-side filter", async () => {
     const user = userEvent.setup();
     listGatewaysMock.mockResolvedValue({
-      // The authorized set contains a gateway owned by someone else, so the
-      // server reports the existence flag and the switch is shown (WEB-API-01).
-      hasOtherOwnedGateways: true,
       items: [gatewayResponse("gateway-1", "Team gateway")],
       page: 1,
       size: 20,
@@ -1199,6 +1353,15 @@ describe("gateway shell pages", () => {
       checked: false,
       name: "Show only my gateways",
     });
+    const ownershipToolbarRow = ownershipSwitch.closest(
+      ".pf-v6-c-toolbar__content",
+    );
+    expect(
+      screen
+        .getAllByRole("button", { name: "1 - 1 of 1" })
+        .find((button) => button.id === "gateways-pagination-top-toggle")
+        ?.closest(".pf-v6-c-toolbar__content"),
+    ).toBe(ownershipToolbarRow);
     expect(ownershipSwitch.getAttribute("aria-pressed")).toBeNull();
     listGatewaysMock.mockClear();
 
@@ -1241,9 +1404,7 @@ describe("gateway shell pages", () => {
   it("links the gateway list to provisioning", () => {
     renderPage(() => <GatewaysPage gateways={previewGateways} />);
 
-    expect(screen.getByRole("columnheader", { name: "Cluster" })).toBeTruthy();
     expect(screen.getByRole("columnheader", { name: "Created" })).toBeTruthy();
-    expect(screen.getByText("local-kind")).toBeTruthy();
     expect(screen.getByText("Aug 10, 2026")).toBeTruthy();
     expect(
       screen
@@ -1271,44 +1432,15 @@ describe("gateway shell pages", () => {
     ));
 
     expect(
-      screen.getByRole("columnheader", { name: "Active sandboxes" }),
+      screen.getByRole("columnheader", { name: "Sandboxes" }),
     ).toBeTruthy();
 
     const busyRow = screen.getByRole("row", { name: /gw-busy/u });
     expect(within(busyRow).getByText("3")).toBeTruthy();
 
     const idleRow = screen.getByRole("row", { name: /gw-idle/u });
-    const sandboxCell = idleRow.querySelector(
-      "[data-label='Active sandboxes']",
-    );
+    const sandboxCell = idleRow.querySelector("[data-label='Sandboxes']");
     expect(sandboxCell?.textContent).toBe("Not available");
-  });
-
-  it("shows the gateway owner with a not-available fallback when unset", () => {
-    renderPage(() => (
-      <GatewaysPage
-        gateways={[
-          {
-            ...previewGateway,
-            createdBy: "alice@example.com",
-            id: "gw-owned",
-            name: "gw-owned",
-          },
-          { ...previewGateway, id: "gw-unowned", name: "gw-unowned" },
-        ]}
-      />
-    ));
-
-    expect(
-      screen.getByRole("columnheader", { name: "Created by" }),
-    ).toBeTruthy();
-
-    const ownedRow = screen.getByRole("row", { name: /gw-owned/u });
-    expect(within(ownedRow).getByText("alice@example.com")).toBeTruthy();
-
-    const unownedRow = screen.getByRole("row", { name: /gw-unowned/u });
-    const ownerCell = unownedRow.querySelector("[data-label='Created by']");
-    expect(ownerCell?.textContent).toBe("Not available");
   });
 
   it("sorts the gateway list by creation date", async () => {
@@ -1361,7 +1493,7 @@ describe("gateway shell pages", () => {
       />
     ));
 
-    await user.click(screen.getByRole("button", { name: "Active sandboxes" }));
+    await user.click(screen.getByRole("button", { name: "Sandboxes" }));
 
     expect(onCollectionStateChange).toHaveBeenCalledWith(
       {
@@ -1387,105 +1519,42 @@ describe("gateway shell pages", () => {
     ).toBeTruthy();
   });
 
-  it("resolves managed-cluster names without displaying their identifiers", async () => {
-    renderPage(() => (
-      <GatewaysPage
-        gateways={[
-          {
-            ...previewGateway,
-            clusterId: "cluster-east",
-            clusterName: "",
-          },
-        ]}
-      />
-    ));
+  it("renders the mockup table columns, headers, and widths", () => {
+    renderPage(() => <GatewaysPage gateways={previewGateways} />);
 
-    expect(await screen.findByText("Cluster East")).toBeTruthy();
-    expect(screen.queryByText("cluster-east")).toBeNull();
-    expect(getGatewayPlacementsMock).toHaveBeenCalledWith(
-      ["cluster-east"],
-      expect.any(AbortSignal),
+    const expectedColumns = [
+      { name: "Gateway name", width: "30%" },
+      { name: "Sandboxes", width: "15%" },
+      { name: "Status", width: "20%" },
+      { name: "Version", width: "15%" },
+      { name: "Created", width: "20%" },
+    ];
+    const headers = screen.getAllByRole("columnheader");
+    const dataHeaders = headers.filter((header) =>
+      expectedColumns.some(({ name }) => header.textContent === name),
     );
-    expect(getGatewayPlacementMock).not.toHaveBeenCalled();
-  });
 
-  it("shows an unavailable state instead of a cluster identifier", async () => {
-    getGatewayPlacementsMock.mockRejectedValue(new Error("unavailable"));
-    renderPage(() => (
-      <GatewaysPage
-        gateways={[
-          {
-            ...previewGateway,
-            clusterId: "cluster-east",
-            clusterName: "",
-          },
-        ]}
-      />
-    ));
-
-    expect(await screen.findAllByText("Not available")).toBeTruthy();
-    expect(screen.queryByText("cluster-east")).toBeNull();
-  });
-
-  it("resolves a cold page of distinct cluster names with one batch request", async () => {
-    const gateways = Array.from({ length: 20 }, (_, index) => ({
-      ...gatewayResponse(
-        `gateway-${String(index)}`,
-        `Gateway ${String(index)}`,
-      ),
-      clusterId: `cluster-${String(index)}`,
-    }));
-    const clusterIds = gateways.map(({ clusterId }) => clusterId).sort();
-    listGatewaysMock.mockResolvedValue({
-      items: gateways,
-      page: 1,
-      size: 20,
-      total: 20,
+    expect(dataHeaders.map((header) => header.textContent)).toEqual(
+      expectedColumns.map(({ name }) => name),
+    );
+    expectedColumns.forEach(({ width }, index) => {
+      expect(dataHeaders[index]?.className).toContain(
+        `pf-m-width-${width.replace("%", "")}`,
+      );
     });
-    getGatewayPlacementsMock.mockResolvedValue(
-      clusterIds.map((id) => ({
-        id,
-        name: `Name for ${id}`,
-      })),
-    );
-
-    renderPage(() => <GatewaysPage />);
-
-    expect(await screen.findByText("Name for cluster-0")).toBeTruthy();
-    expect(listGatewaysMock).toHaveBeenCalledOnce();
-    expect(getGatewayPlacementsMock).toHaveBeenCalledOnce();
-    expect(getGatewayPlacementsMock).toHaveBeenCalledWith(
-      clusterIds,
-      expect.any(AbortSignal),
-    );
-    expect(getGatewayPlacementMock).not.toHaveBeenCalled();
+    expect(screen.queryByRole("columnheader", { name: "Connect" })).toBeNull();
+    expect(
+      screen.queryByRole("columnheader", { name: "Created by" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("columnheader", { name: "Cluster type" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("columnheader", { name: "Gateway endpoint" }),
+    ).toBeNull();
   });
 
-  it("deduplicates repeated cluster identifiers before batch resolution", async () => {
-    renderPage(() => (
-      <GatewaysPage
-        gateways={[
-          { ...previewGateway, clusterId: "cluster-east", clusterName: "" },
-          {
-            ...previewGateway,
-            clusterId: "cluster-east",
-            clusterName: "",
-            id: "gateway-2",
-            name: "gateway-2",
-          },
-        ]}
-      />
-    ));
-
-    expect(await screen.findAllByText("Cluster East")).toHaveLength(2);
-    expect(getGatewayPlacementsMock).toHaveBeenCalledOnce();
-    expect(getGatewayPlacementsMock).toHaveBeenCalledWith(
-      ["cluster-east"],
-      expect.any(AbortSignal),
-    );
-  });
-
-  it("provides console and CLI actions from the gateway row menu", async () => {
+  it("provides console, connection, and endpoint actions from the gateway row menu", async () => {
     const user = userEvent.setup();
     const writeText = vi.fn();
     Object.defineProperty(window.navigator, "clipboard", {
@@ -1511,18 +1580,51 @@ describe("gateway shell pages", () => {
     expect(
       consoleMenuItem.querySelector(".pf-v6-c-menu__item-external-icon svg"),
     ).toBeTruthy();
+
     await user.click(
       screen.getByRole("menuitem", {
-        name: "Copy CLI connection command",
+        name: "Connection command",
       }),
     );
-    expect(writeText).toHaveBeenCalledWith(
-      expect.stringContaining("openshell gateway add"),
-    );
+    const connectionDialog = screen.getByRole("dialog");
     expect(
-      await screen.findByText(
-        "CLI connection command for openshell-gateway-test copied",
+      within(connectionDialog).getByRole("heading", {
+        name: "Connect to openshell-gateway-test",
+      }),
+    ).toBeTruthy();
+    expect(
+      within(connectionDialog).getByText(
+        "Run this command in a terminal to add the gateway to the OpenShell CLI.",
       ),
+    ).toBeTruthy();
+    expect(within(connectionDialog).getByRole("code").textContent).toBe(
+      [
+        "openshell gateway add",
+        "  --name openshell-gateway-test",
+        "  --oidc-issuer https://issuer.example.test/realms/openshell",
+        "  --oidc-client-id openshell-cli",
+        "  --oidc-audience openshell-cli",
+        "  https://gateway.example.test:443",
+      ].join(" \\\n"),
+    );
+    const modalCloseButton = within(connectionDialog).getAllByRole("button", {
+      name: "Close",
+    })[1];
+    expect(modalCloseButton).toBeTruthy();
+    if (!modalCloseButton) {
+      throw new Error("Expected the connection modal close button");
+    }
+    await user.click(modalCloseButton);
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Actions for openshell-gateway-test",
+      }),
+    );
+    await user.click(screen.getByRole("menuitem", { name: "Copy endpoint" }));
+    expect(writeText).toHaveBeenCalledWith(previewGateway.endpoint);
+    expect(
+      await screen.findByText("Endpoint for openshell-gateway-test copied"),
     ).toBeTruthy();
 
     renameGatewayMock.mockResolvedValue(
@@ -1566,8 +1668,13 @@ describe("gateway shell pages", () => {
       }),
     );
     const dialog = screen.getByRole("dialog", {
-      name: "Delete openshell-gateway-test?",
+      name: "Warning alert:Delete openshell-gateway-test?",
     });
+    const title = dialog.querySelector(".pf-v6-c-modal-box__title");
+    expect(title?.className).toContain("pf-m-warning");
+    expect(
+      title?.querySelector(".pf-v6-c-modal-box__title-icon svg"),
+    ).toBeTruthy();
     await user.click(
       within(dialog).getByRole("button", { name: "Delete gateway" }),
     );
@@ -1591,7 +1698,7 @@ describe("gateway shell pages", () => {
     );
     await user.click(screen.getByRole("menuitem", { name: "Delete gateway" }));
     const dialog = screen.getByRole("dialog", {
-      name: "Delete openshell-gateway-test?",
+      name: "Warning alert:Delete openshell-gateway-test?",
     });
     await user.click(
       within(dialog).getByRole("button", { name: "Delete gateway" }),
@@ -1606,7 +1713,7 @@ describe("gateway shell pages", () => {
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(
       screen.queryByRole("dialog", {
-        name: "Delete openshell-gateway-test?",
+        name: "Warning alert:Delete openshell-gateway-test?",
       }),
     ).toBeNull();
   });
@@ -1624,7 +1731,7 @@ describe("gateway shell pages", () => {
     );
     await user.click(screen.getByRole("menuitem", { name: "Delete gateway" }));
     const dialog = screen.getByRole("dialog", {
-      name: "Delete openshell-gateway-test?",
+      name: "Warning alert:Delete openshell-gateway-test?",
     });
     expect(
       within(dialog).getByText(
@@ -1654,7 +1761,7 @@ describe("gateway shell pages", () => {
     );
     await user.click(screen.getByRole("menuitem", { name: "Delete gateway" }));
     const dialog = screen.getByRole("dialog", {
-      name: "Delete openshell-gateway-test?",
+      name: "Warning alert:Delete openshell-gateway-test?",
     });
     expect(within(dialog).queryByText(/active sandbox/u)).toBeNull();
   });
@@ -1705,7 +1812,7 @@ describe("gateway shell pages", () => {
     ).toBeNull();
   });
 
-  it("reports and dismisses a failed CLI command copy", async () => {
+  it("reports and dismisses a failed endpoint copy", async () => {
     const user = userEvent.setup();
     Object.defineProperty(window.navigator, "clipboard", {
       configurable: true,
@@ -1720,19 +1827,19 @@ describe("gateway shell pages", () => {
     );
     await user.click(
       screen.getByRole("menuitem", {
-        name: "Copy CLI connection command",
+        name: "Copy endpoint",
       }),
     );
 
     expect(
       await screen.findByText(
-        "CLI connection command for openshell-gateway-test could not be copied",
+        "Endpoint for openshell-gateway-test could not be copied",
       ),
     ).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Close" }));
     expect(
       screen.queryByText(
-        "CLI connection command for openshell-gateway-test could not be copied",
+        "Endpoint for openshell-gateway-test could not be copied",
       ),
     ).toBeNull();
   });
@@ -1972,7 +2079,7 @@ describe("gateway shell pages", () => {
 
     fireEvent.change(
       screen.getByRole("textbox", {
-        name: "Filter by name, cluster, status, or endpoint",
+        name: "Filter by name, status, or endpoint",
       }),
       { target: { value: "gw-a" } },
     );
@@ -2103,7 +2210,14 @@ describe("gateway shell pages", () => {
     renderPage(GatewaysPage);
 
     await screen.findByRole("link", { name: "gw-1-0" });
-    await user.click(screen.getByRole("button", { name: "Go to next page" }));
+    const nextPageButton = screen.getAllByRole("button", {
+      name: "Go to next page",
+    })[0];
+    expect(nextPageButton).toBeTruthy();
+    if (!nextPageButton) {
+      throw new Error("Expected the next-page button");
+    }
+    await user.click(nextPageButton);
     await screen.findByRole("link", { name: "gw-2-0" });
 
     await user.click(
