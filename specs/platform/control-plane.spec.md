@@ -629,7 +629,7 @@ existing `Repository` is exempted from the own-cluster watch-stream caller bindi
 served (and filtered) across clusters; every other `Gateway` or `AgentRuntime` list or
 watch read keeps the own-cluster binding. The control-plane identity's `GetGateway`
 point read is fleet-wide (it resolves any gateway by id across clusters, canonically in
-[`security/rbac-enforcement.spec.md`](../../security/rbac-enforcement.spec.md)
+[`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md)
 SEC-RBAC-09 and [`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md)
 PLAT-CLUS-11); gateway writes stay own-cluster.
 The `RepositoryReconciler` upserts and prunes all eight importable Kinds under the same
