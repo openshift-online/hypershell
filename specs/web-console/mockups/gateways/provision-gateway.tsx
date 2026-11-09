@@ -343,7 +343,7 @@ export function ProvisionGatewayParityMockup({
   localDevelopmentOnly?: boolean;
 }) {
   return (
-    <MockupShell>
+    <MockupShell activeSection="gateways">
       <ProvisionGatewayPageSurface
         localDevelopmentOnly={localDevelopmentOnly}
       />

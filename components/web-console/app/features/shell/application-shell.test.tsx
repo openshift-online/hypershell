@@ -83,8 +83,11 @@ describe("ApplicationShell", () => {
     });
   });
 
-  it("provides the focused HyperShell gateway shell", () => {
+  it("provides the focused HyperShell gateway shell", async () => {
+    const user = userEvent.setup();
     const { container } = renderShell();
+
+    await user.click(screen.getByRole("button", { name: "Toggle navigation" }));
 
     expect(
       screen
@@ -95,10 +98,53 @@ describe("ApplicationShell", () => {
     expect(container.querySelector('img[src*="logo.png"]')).toBeTruthy();
     expect(screen.queryByText("Administration")).toBeNull();
 
+    const primaryNavigation = screen.getByRole("navigation", {
+      name: "Primary navigation",
+    });
     expect(
-      screen.queryByRole("navigation", { name: "Primary navigation" }),
-    ).toBeNull();
+      within(primaryNavigation)
+        .getByRole("link", { name: "Overview" })
+        .getAttribute("href"),
+    ).toBe("/");
+    expect(
+      within(primaryNavigation)
+        .getByRole("link", { name: "OpenShell Gateways" })
+        .getAttribute("href"),
+    ).toBe("/gateways");
+    expect(
+      within(primaryNavigation)
+        .getByRole("link", { name: "Dashboard" })
+        .getAttribute("href"),
+    ).toBe("/dashboard");
     expect(screen.queryByText("Connect with the CLI")).toBeNull();
+  });
+
+  it("navigates from the primary sidebar and marks the current page", async () => {
+    const user = userEvent.setup();
+    renderShell();
+
+    await user.click(screen.getByRole("button", { name: "Toggle navigation" }));
+
+    const primaryNavigation = screen.getByRole("navigation", {
+      name: "Primary navigation",
+    });
+    const overviewLink = within(primaryNavigation).getByRole("link", {
+      name: "Overview",
+    });
+    const gatewaysLink = within(primaryNavigation).getByRole("link", {
+      name: "OpenShell Gateways",
+    });
+
+    expect(overviewLink.className).toContain("pf-m-current");
+    expect(gatewaysLink.className).not.toContain("pf-m-current");
+
+    await user.click(gatewaysLink);
+
+    expect(
+      screen.getByRole("heading", { level: 1, name: "/gateways" }),
+    ).toBeTruthy();
+    expect(gatewaysLink.className).toContain("pf-m-current");
+    expect(overviewLink.className).not.toContain("pf-m-current");
   });
 
   it("uses the gateway name for a gateway deep link", async () => {

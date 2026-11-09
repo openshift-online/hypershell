@@ -1,13 +1,19 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type * as GatewayUi from "@openshift-online/hypershell-gateway-management-ui";
 import type {
+  GatewayDetailAttention,
   OpenShellGatewayServiceAccountListRequest,
   ServiceAccountLeaveDecision,
   ServiceAccountLeaveGuard,
 } from "@openshift-online/hypershell-gateway-management-ui";
 import { useEffect, useRef, useState } from "react";
-import { createMemoryRouter, Link, RouterProvider } from "react-router";
+import {
+  createMemoryRouter,
+  Link,
+  RouterProvider,
+  type InitialEntry,
+} from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import GatewayRoute from "./gateway";
@@ -19,8 +25,12 @@ const GO_ELSEWHERE = "go elsewhere";
 const LEAVE = "leave";
 const STAY = "stay";
 const FILTER_DEGRADED = "filter degraded";
+const CHANGE_CONNECTION = "change connection";
 const ELSEWHERE_HEADING = "Elsewhere";
 const SA_STATUS_TESTID = "sa-status";
+const PROVISIONING_SESSION_TESTID = "provisioning-session";
+const ATTENTION_TESTID = "attention";
+const DISMISS_ATTENTION = "dismiss attention";
 
 // Replace GatewayPage with a controllable stub so the test exercises only the
 // route-level navigation blocker wiring. The stub owns a leave guard exactly as
@@ -31,10 +41,20 @@ vi.mock(
   async (importOriginal) => {
     const actual = await importOriginal<typeof GatewayUi>();
     function StubGatewayPage({
+      activeTab,
+      attention,
+      isProvisioningSession,
+      onAttentionDismiss,
+      onTabChange,
       onLeaveGuardChange,
       onServiceAccountCollectionStateChange,
       serviceAccountCollectionState,
     }: {
+      activeTab?: string;
+      attention?: GatewayDetailAttention;
+      isProvisioningSession?: boolean;
+      onAttentionDismiss?: (attention: GatewayDetailAttention) => void;
+      onTabChange?: (tab: string) => void;
       onLeaveGuardChange?: (guard: ServiceAccountLeaveGuard | null) => void;
       onServiceAccountCollectionStateChange?: (
         state: OpenShellGatewayServiceAccountListRequest,
@@ -60,6 +80,27 @@ vi.mock(
       }, [onLeaveGuardChange]);
       return (
         <div>
+          <button
+            onClick={() => {
+              onTabChange?.("connection");
+            }}
+            type="button"
+          >
+            {CHANGE_CONNECTION}
+          </button>
+          <span>{activeTab}</span>
+          <span data-testid={PROVISIONING_SESSION_TESTID}>
+            {String(isProvisioningSession)}
+          </span>
+          <span data-testid={ATTENTION_TESTID}>{attention ?? ""}</span>
+          <button
+            onClick={() => {
+              onAttentionDismiss?.("gateway-health");
+            }}
+            type="button"
+          >
+            {DISMISS_ATTENTION}
+          </button>
           <button
             onClick={() => {
               setBlocking(true);
@@ -121,7 +162,7 @@ vi.mock(
 );
 
 function renderRoute(
-  initialEntries = ["/gateways/gateway-a"],
+  initialEntries: InitialEntry[] = ["/gateways/gateway-a"],
   initialIndex = 0,
 ) {
   const router = createMemoryRouter(
@@ -149,6 +190,61 @@ describe("GatewayRoute navigation blocker", () => {
     expect(
       screen.getByRole("heading", { name: ELSEWHERE_HEADING }),
     ).toBeTruthy();
+  });
+
+  it("gives the connection tab a unique URL", async () => {
+    const user = userEvent.setup();
+    const router = renderRoute();
+
+    await user.click(screen.getByRole("button", { name: CHANGE_CONNECTION }));
+
+    await waitFor(() => {
+      expect(router.state.location.search).toBe("?tab=connection");
+    });
+  });
+
+  it("clears attention context when the user changes tabs", async () => {
+    const user = userEvent.setup();
+    const router = renderRoute([
+      "/gateways/gateway-a?attention=gateway-health",
+    ]);
+
+    await user.click(screen.getByRole("button", { name: CHANGE_CONNECTION }));
+
+    await waitFor(() => {
+      expect(router.state.location.search).toBe("?tab=connection");
+    });
+  });
+
+  it("passes provision-session navigation state to the gateway page", () => {
+    renderRoute([
+      {
+        pathname: "/gateways/gateway-a",
+        state: { gatewayProvisioned: true },
+      },
+    ]);
+
+    expect(screen.getByTestId(PROVISIONING_SESSION_TESTID).textContent).toBe(
+      "true",
+    );
+  });
+
+  it("parses and dismisses gateway attention context", async () => {
+    const user = userEvent.setup();
+    const router = renderRoute([
+      "/gateways/gateway-a?attention=gateway-health",
+    ]);
+
+    expect(screen.getByTestId(ATTENTION_TESTID).textContent).toBe(
+      "gateway-health",
+    );
+
+    await user.click(screen.getByRole("button", { name: DISMISS_ATTENTION }));
+
+    await waitFor(() => {
+      expect(router.state.location.search).toBe("");
+      expect(screen.getByTestId(ATTENTION_TESTID).textContent).toBe("");
+    });
   });
 
   it("blocks an in-app navigation and stays when the user cancels", async () => {

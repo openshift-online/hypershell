@@ -282,7 +282,7 @@ export function UsageDashboardMockup({
   isAdmin = true,
 }: Readonly<{ isAdmin?: boolean }>) {
   return (
-    <MockupShell>
+    <MockupShell activeSection="dashboard">
       <UsageDashboardPageSurface isAdmin={isAdmin} />
     </MockupShell>
   );

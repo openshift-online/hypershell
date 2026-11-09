@@ -161,6 +161,7 @@ function AccountDetails({
 
 export interface ServiceAccountsPageProps {
   collectionState?: OpenShellGatewayServiceAccountListRequest;
+  expiringServiceAccounts?: readonly OpenShellGatewayServiceAccountRecord[];
   gatewayId: string;
   isActive?: boolean;
   onCollectionStateChange?: (
@@ -172,6 +173,7 @@ export interface ServiceAccountsPageProps {
 
 export function ServiceAccountsPage({
   collectionState,
+  expiringServiceAccounts = [],
   gatewayId,
   isActive = true,
   onCollectionStateChange,
@@ -316,6 +318,19 @@ export function ServiceAccountsPage({
             title={intl.formatMessage(messages.serviceAccountOwnScope)}
             variant="info"
           />
+        </StackItem>
+      ) : null}
+      {expiringServiceAccounts.length > 0 ? (
+        <StackItem>
+          <Alert
+            isInline
+            title={intl.formatMessage(messages.serviceAccountExpiringTitle, {
+              count: expiringServiceAccounts.length,
+            })}
+            variant="warning"
+          >
+            {intl.formatMessage(messages.serviceAccountExpiringTabBody)}
+          </Alert>
         </StackItem>
       ) : null}
       {capabilities && !capabilities.canCreate ? (

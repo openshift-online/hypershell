@@ -171,7 +171,7 @@ export function CommandBlock({
 }) {
   const intl = useIntl();
   const id = useId();
-  const [copied, setCopied] = useState(false);
+  const [copyResult, setCopyResult] = useState<"copied" | "error">();
   const [parts, setParts] = useState<CommandPart[]>();
 
   // Highlight asynchronously so the plain command renders immediately and the
@@ -189,9 +189,13 @@ export function CommandBlock({
     };
   }, [templateCommand, markers]);
 
-  const handleCopy = () => {
-    void navigator.clipboard.writeText(copyText);
-    setCopied(true);
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(copyText);
+      setCopyResult("copied");
+    } catch {
+      setCopyResult("error");
+    }
   };
 
   return (
@@ -200,18 +204,29 @@ export function CommandBlock({
         <CodeBlockAction>
           <ClipboardCopyButton
             aria-label={copyAriaLabel}
-            exitDelay={copied ? 1500 : 600}
+            exitDelay={copyResult === "copied" ? 1500 : 600}
             id={`${id}-copy-button`}
             maxWidth="110px"
-            onClick={handleCopy}
+            onClick={() => {
+              void handleCopy();
+            }}
             onTooltipHidden={() => {
-              setCopied(false);
+              if (copyResult === "copied") {
+                setCopyResult(undefined);
+              }
             }}
             variant="plain"
+            title={
+              copyResult === "error"
+                ? intl.formatMessage(messages.clipboardCopyFailed)
+                : undefined
+            }
           >
-            {copied
+            {copyResult === "copied"
               ? intl.formatMessage(messages.copied)
-              : intl.formatMessage(messages.copy)}
+              : copyResult === "error"
+                ? intl.formatMessage(messages.clipboardCopyFailed)
+                : intl.formatMessage(messages.copy)}
           </ClipboardCopyButton>
         </CodeBlockAction>
       }
