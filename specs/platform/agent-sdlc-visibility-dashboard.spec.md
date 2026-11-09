@@ -262,6 +262,24 @@ GitHub rate limits regardless of the number of concurrent viewers.
 - WHEN the dashboard runs
 - THEN the GitHub request rate SHALL be bounded by the refresh loop alone
 
+#### Scenario: SDLC-VIS-04.03 -- Unchanged issues cost only the listing
+
+The GitHub App installation's REST budget is shared by every dashboard GitHub
+reader, so the per-refresh cost SHALL NOT grow with the number of `agent/allowed`
+issues, open or closed.
+
+- GIVEN a refresh has already read every in-scope issue's timeline
+- WHEN the next refresh runs and no issue's `updated_at` has changed
+- THEN the plane SHALL reuse each issue's cached label history and SHALL NOT re-read
+  its timeline
+- AND the issue listing SHALL be sent as a conditional request (`If-None-Match`), so
+  an unchanged listing answers 304, which GitHub does not count against the rate limit
+- AND an issue whose `updated_at` changed SHALL have only its own timeline re-read
+- AND a timeline read that failed or was truncated SHALL NOT be cached, so it is
+  retried on the next refresh
+- AND the work-item -> PRs timeline retry for a record with no linked PRs SHALL also
+  be a conditional request
+
 ### Requirement: SDLC-VIS-05 -- Fleet-Identity Firewall Preserved
 
 The SDLC plane SHALL obtain the source repository slug and any allowlist from
