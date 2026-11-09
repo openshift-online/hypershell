@@ -2,13 +2,7 @@
 // each plane refetches on a bounded interval and TanStack pauses refetching when
 // the tab is hidden (refetchIntervalInBackground defaults to false).
 
-import { useContext } from "react";
-import {
-  QueryClient,
-  QueryClientContext,
-  useQuery,
-  type UseQueryResult,
-} from "@tanstack/react-query";
+import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
 import type { AgentSdlcData } from "../../domain/agent-sdlc";
 import type { SdlcAgentsData } from "../../domain/sdlc-agents";
@@ -143,23 +137,20 @@ export function useE2eRun(
   });
 }
 
-const fallbackQueryClient = new QueryClient({
-  defaultOptions: { queries: { retry: false } },
-});
-
 export function useE2eDiagnostics(
   id: string | null,
   expanded: boolean,
 ): UseQueryResult<Plane<E2eDiagnosticsData>> {
   const api = useFleetApi();
-  const contextClient = useContext(QueryClientContext);
-  return useQuery(
-    {
-      queryKey: queryKeys.e2eDiagnostics(id ?? ""),
-      queryFn: ({ signal }) => getE2eDiagnostics(api, id ?? "", signal),
-      // Only fetch diagnostics once a run is selected and the section is expanded.
-      enabled: id !== null && expanded,
-    },
-    contextClient ?? fallbackQueryClient,
-  );
+  const observability = useObservability();
+  return useQuery({
+    queryKey: queryKeys.e2eDiagnostics(id ?? ""),
+    queryFn: ({ signal }) =>
+      getE2eDiagnostics(api, id ?? "", signal, observability),
+    // Only fetch diagnostics once a run is selected and the section is expanded.
+    enabled: id !== null && expanded,
+    staleTime: 30_000,
+    refetchInterval: expanded ? 30_000 : false,
+    retry: false,
+  });
 }

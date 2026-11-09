@@ -63,6 +63,7 @@ import CheckCircleIcon from "@patternfly/react-icons/dist/esm/icons/check-circle
 import ExclamationCircleIcon from "@patternfly/react-icons/dist/esm/icons/exclamation-circle-icon";
 import ExclamationTriangleIcon from "@patternfly/react-icons/dist/esm/icons/exclamation-triangle-icon";
 import InProgressIcon from "@patternfly/react-icons/dist/esm/icons/in-progress-icon";
+import InfoCircleIcon from "@patternfly/react-icons/dist/esm/icons/info-circle-icon";
 import OutlinedCircleIcon from "@patternfly/react-icons/dist/esm/icons/outlined-circle-icon";
 import PauseIcon from "@patternfly/react-icons/dist/esm/icons/pause-icon";
 import PlayIcon from "@patternfly/react-icons/dist/esm/icons/play-icon";
@@ -102,6 +103,7 @@ import {
   MAX_DETAIL_LOG_LINES,
   MAX_LOG_BUFFER,
   type E2eLogLine,
+  type E2eDiagnosticSeverity,
   type E2eRunAttemptItem,
   type E2eRunDetail,
   type E2eRunEvent,
@@ -269,6 +271,29 @@ function stepStateVisual(state: E2eStepState): Visual {
         icon: OutlinedCircleIcon,
         tone: TONE_COLOR.unknown,
         message: messages.e2eStateNotRun,
+      };
+  }
+}
+
+function diagnosticVisual(severity: E2eDiagnosticSeverity): Visual {
+  switch (severity) {
+    case "error":
+      return {
+        icon: ExclamationCircleIcon,
+        tone: TONE_COLOR.danger,
+        message: messages.e2eDiagnosticsError,
+      };
+    case "warn":
+      return {
+        icon: ExclamationTriangleIcon,
+        tone: TONE_COLOR.warning,
+        message: messages.e2eDiagnosticsWarning,
+      };
+    case "info":
+      return {
+        icon: InfoCircleIcon,
+        tone: TONE_COLOR.info,
+        message: messages.e2eDiagnosticsInfo,
       };
   }
 }
@@ -751,9 +776,13 @@ function RunsTable({
   const setGroupExpanded = useCallback((groupKey: string, value: boolean) => {
     setOverrides((prev) => new Map(prev).set(groupKey, value));
   }, []);
-  const { sorted, column } = useTableSort(
-    runs,
-    (run) => [
+  const attemptGroups = useMemo(
+    () => groupRunAttempts(runs, promotion),
+    [runs, promotion],
+  );
+  const { sorted: groups, column } = useTableSort(
+    attemptGroups,
+    ({ latest: { run } }) => [
       run.revision,
       run.runId,
       Date.parse(run.startedAt),
@@ -765,10 +794,6 @@ function RunsTable({
     sort,
     onSort,
     2,
-  );
-  const groups = useMemo(
-    () => groupRunAttempts(sorted, promotion),
-    [sorted, promotion],
   );
 
   const renderAttemptRow = (
@@ -806,6 +831,8 @@ function RunsTable({
       <Tr
         key={run.id}
         isRowSelected={selected}
+        inert={collapsed}
+        aria-hidden={collapsed || undefined}
         className={rowClasses !== "" ? rowClasses : undefined}
       >
         <Td dataLabel={intl.formatMessage(messages.e2eColumnBundle)}>
@@ -1714,6 +1741,10 @@ export function SelectedRunPane({
       ? extractFailureMessage(rawFailureMessage)
       : null;
   const diagnostics = diagnosticsQuery.data?.data.diagnostics ?? [];
+  const diagnosticsFailed =
+    diagnosticsQuery.isError ||
+    diagnosticsQuery.data?.stale === true ||
+    Boolean(diagnosticsQuery.data?.error);
   const emptyDiagnosticsState: E2eStepState =
     diagnosticsStep &&
     (diagnosticsStep.state === "skipped" || diagnosticsStep.state === "not-run")
@@ -1878,6 +1909,23 @@ export function SelectedRunPane({
             </span>
           ) : null}
         </div>
+        {diagnosticsExpanded && diagnosticsFailed ? (
+          <Alert
+            variant="warning"
+            isInline
+            isPlain
+            title={<FormattedMessage {...messages.e2eDiagnosticsFailed} />}
+            actionLinks={
+              <AlertActionLink
+                onClick={() => {
+                  void diagnosticsQuery.refetch();
+                }}
+              >
+                <FormattedMessage {...messages.e2eLogsRetry} />
+              </AlertActionLink>
+            }
+          />
+        ) : null}
         {diagnosticsExpanded ? (
           diagnosticsQuery.isPending ? (
             <div
@@ -1899,28 +1947,17 @@ export function SelectedRunPane({
                 <div className={styles.diagnosticHeader}>
                   <strong>{diag.title}</strong>
                   {diag.severity ? (
-                    <Label
-                      isCompact
-                      color={
-                        diag.severity === "error"
-                          ? "red"
-                          : diag.severity === "warn"
-                            ? "orange"
-                            : "blue"
-                      }
-                    >
-                      {diag.severity}
-                    </Label>
+                    <StatusChip visual={diagnosticVisual(diag.severity)} />
                   ) : null}
                 </div>
                 <pre className={styles.diagnosticBody}>{diag.body}</pre>
               </div>
             ))
-          ) : (
+          ) : !diagnosticsFailed ? (
             <p className={styles.diagnosticEmptyNote}>
               <FormattedMessage {...messages.e2eDiagnosticsNotRun} />
             </p>
-          )
+          ) : null
         ) : null}
       </section>
 
@@ -2056,7 +2093,13 @@ export function E2eRunView(props: E2eRunViewProps): React.ReactElement {
     // Closing preserves the selected run (FLT-NAV-12); only the drawer closes.
     navigate({ type: "e2eDrawer", open: false });
     setDetailMaximized(false);
-    triggerRef.current?.focus();
+    const trigger = triggerRef.current;
+    const focusTarget = trigger?.closest("[inert]")
+      ? trigger
+          .closest("tbody")
+          ?.querySelector<HTMLElement>("button[aria-expanded]")
+      : trigger;
+    focusTarget?.focus();
   }, [navigate]);
   useEffect(() => {
     if (!isExpanded) return;

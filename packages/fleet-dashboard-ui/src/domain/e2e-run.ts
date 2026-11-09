@@ -743,6 +743,7 @@ export function applyEvents(
 export function runDurationMs(
   run: Pick<E2eRunSummary, "startedAt" | "endedAt" | "durationMs"> & {
     readonly steps?: readonly E2eStep[];
+    readonly reportingComplete?: boolean;
   },
   nowMs: number,
 ): number | null {
@@ -762,6 +763,7 @@ export function runDurationMs(
   if (
     run.steps &&
     run.steps.length > 0 &&
+    run.reportingComplete !== false &&
     !run.steps.some((s) => s.state === "running")
   ) {
     let earliest = Number.isNaN(start) ? Number.POSITIVE_INFINITY : start;

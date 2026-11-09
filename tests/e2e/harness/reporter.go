@@ -203,23 +203,18 @@ func (r *Reporter) Diagnostic(stepID, title, body, severity string) {
 }
 
 func splitUTF8Chunks(s string, chunkSize, maxChunks int) []string {
-	if len(s) <= chunkSize {
-		return []string{s}
-	}
 	var out []string
 	remaining := s
 	for len(remaining) > 0 && len(out) < maxChunks {
-		if len(remaining) <= chunkSize {
-			out = append(out, remaining)
-			remaining = ""
-			break
-		}
-		cut := chunkSize
-		for cut > 0 && (remaining[cut]&0xC0) == 0x80 {
-			cut--
-		}
-		if cut == 0 {
-			cut = chunkSize
+		cut := len(remaining)
+		encodedSize := 0
+		for offset, character := range remaining {
+			encoded, _ := json.Marshal(string(character))
+			encodedSize += len(encoded) - 2
+			if encodedSize > chunkSize && offset > 0 {
+				cut = offset
+				break
+			}
 		}
 		out = append(out, remaining[:cut])
 		remaining = remaining[cut:]

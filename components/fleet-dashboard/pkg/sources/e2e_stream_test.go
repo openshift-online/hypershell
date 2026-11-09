@@ -114,6 +114,49 @@ func TestStreamBackfillThenLiveWithDedup(t *testing.T) {
 	}
 }
 
+func TestStreamBackfillUsesSelectedNamespaceWindow(t *testing.T) {
+	runStart := time.Now().UTC().Add(-3 * time.Hour).Truncate(time.Second)
+	runEnd := runStart.Add(5 * time.Minute)
+	loki := &stepFilterLoki{
+		lifecycle: []LokiEntry{
+			{Line: viaQLine(t, ev(e2eEventRunStarted, 1, map[string]any{"namespace": "another-namespace", "timestamp": runStart.Add(time.Hour).Format(time.RFC3339Nano)}))},
+			{Line: viaQLine(t, ev(e2eEventRunFinished, 2, map[string]any{"namespace": "another-namespace", "timestamp": runEnd.Add(time.Hour).Format(time.RFC3339Nano), "outcome": "passed"}))},
+			{Line: viaQLine(t, ev(e2eEventRunStarted, 1, map[string]any{"timestamp": runStart.Format(time.RFC3339Nano)}))},
+			{Line: viaQLine(t, ev(e2eEventRunFinished, 2, map[string]any{"timestamp": runEnd.Format(time.RFC3339Nano), "outcome": "passed"}))},
+		},
+	}
+	source := testE2EWithMargin(loki, time.Minute)
+	request := httptest.NewRequest(http.MethodGet, "/api/e2e/stream?run=hub-00/hypershell/run-1", nil)
+	source.Stream(httptest.NewRecorder(), request)
+	wantStart := runStart.Add(-time.Minute)
+	wantEnd := runEnd.Add(time.Minute)
+	if !loki.lastStart.Equal(wantStart) || !loki.lastEnd.Equal(wantEnd) {
+		t.Fatalf("backfill window = [%s, %s], want [%s, %s]", loki.lastStart, loki.lastEnd, wantStart, wantEnd)
+	}
+}
+
+func TestStreamKeepsDiagnosticBodiesOnLazyEndpoint(t *testing.T) {
+	loki := &fakeLoki{history: map[string][]LokiEntry{"hub-00": nil}}
+	source := testE2E(loki)
+	tail := loki.tailChan("hub-00")
+	frames, cleanup := startStream(t, source, makeRunID("hub-00", "hypershell", "run-1"))
+	defer cleanup()
+	awaitFrame(t, frames, "live status", func(frame streamFrame) bool { return frame.Kind == "status" })
+	tail <- TailMessage{Entries: []LokiEntry{
+		{Line: viaQLine(t, ev(e2eEventDiagnostic, 1, map[string]any{"title": "All pods", "message": "large structured body"}))},
+		{Line: viaQLine(t, ev(e2eEventLog, 2, map[string]any{"stepId": "diagnostics", "message": "large legacy body"}))},
+		{Line: viaQLine(t, ev(e2eEventLog, 3, map[string]any{"stepId": "failure-diagnostics", "message": "another legacy body"}))},
+		{Line: viaQLine(t, ev(e2eEventLog, 4, map[string]any{"stepId": "cleanup", "message": "DIAG All pods\nlarge body"}))},
+		{Line: viaQLine(t, ev(e2eEventStepFinished, 5, map[string]any{"stepId": "diagnostics", "outcome": "passed"}))},
+	}}
+	frame := awaitFrame(t, frames, "diagnostics lifecycle", func(frame streamFrame) bool {
+		return frame.Kind == "event" || frame.Kind == "log"
+	})
+	if frame.Kind != "event" || frame.Event == nil || frame.Event.Sequence != 5 {
+		t.Fatalf("stream forwarded a diagnostic body instead of its lifecycle: %+v", frame)
+	}
+}
+
 // Verifies: E2E-LOG-06.02
 func TestStreamSurfacesDroppedEntries(t *testing.T) {
 	loki := &fakeLoki{history: map[string][]LokiEntry{"hub-00": nil}}

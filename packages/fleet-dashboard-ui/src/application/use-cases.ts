@@ -118,10 +118,31 @@ export async function getE2eRun(
   }
 }
 
-export function getE2eDiagnostics(
+export async function getE2eDiagnostics(
   api: FleetApi,
   id: string,
   signal?: AbortSignal,
+  observability: ObservabilityPort = noopObservability,
 ): Promise<Plane<E2eDiagnosticsData>> {
-  return api.getE2eDiagnostics(id, signal);
+  observability.publishE2eWorkflow(
+    e2eWorkflow("e2e.diagnostics.load", "started"),
+  );
+  try {
+    const plane = await api.getE2eDiagnostics(id, signal);
+    observability.publishE2eWorkflow(
+      e2eWorkflow(
+        "e2e.diagnostics.load",
+        plane.stale || plane.error ? "failed" : "succeeded",
+      ),
+    );
+    return plane;
+  } catch (error) {
+    observability.publishE2eWorkflow(
+      e2eWorkflow(
+        "e2e.diagnostics.load",
+        signal?.aborted ? "cancelled" : "failed",
+      ),
+    );
+    throw error;
+  }
 }

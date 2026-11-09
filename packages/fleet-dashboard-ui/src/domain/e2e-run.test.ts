@@ -631,6 +631,34 @@ describe("expandFailureOutput", () => {
 });
 
 describe("failed run and step duration derivations", () => {
+  it("keeps live duration advancing between steps", () => {
+    const run = {
+      ...reduceRun([]),
+      startedAt: "2026-01-01T00:00:00Z",
+      reportingComplete: false,
+      steps: [
+        {
+          stepId: "setup",
+          name: "Setup",
+          state: "passed" as const,
+          startedAt: "2026-01-01T00:00:00Z",
+          endedAt: "2026-01-01T00:00:10Z",
+          durationMs: 10_000,
+        },
+        {
+          stepId: "next",
+          name: "Next",
+          state: "not-run" as const,
+          startedAt: null,
+          endedAt: null,
+          durationMs: null,
+        },
+      ],
+    };
+    expect(runDurationMs(run, Date.parse("2026-01-01T00:00:30Z"))).toBe(30_000);
+    expect(runDurationMs(run, Date.parse("2026-01-01T00:01:00Z"))).toBe(60_000);
+  });
+
   it("ignores durationMs: 0 on a failed run when timestamps or step durations are present", () => {
     expect(
       runDurationMs(

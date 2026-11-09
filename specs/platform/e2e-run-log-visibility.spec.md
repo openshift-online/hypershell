@@ -502,10 +502,14 @@ overlap, and surface truncated history or dropped events.
 The e2e-run view SHALL publish typed workflow and dependency facts through the
 dashboard's fan-out observability port, consistent with the "domain probes for UI
 observability" convention and `specs/standards/ui/domain-observability.spec.md`.
-Loading recent runs and run detail SHALL publish a workflow probe with outcomes
+Loading recent runs, run detail, and lazy diagnostics SHALL publish a workflow probe with outcomes
 `started`, `succeeded`, `failed`, and `cancelled`; the live subscription SHALL
 publish connect, disconnect, reconnect, and dropped-entry facts. Production browser
 and BFF code SHALL NOT make raw console or direct telemetry calls.
+
+The diagnostics workflow is `e2e.diagnostics.load`. Each dependency invocation
+SHALL publish `started` and exactly one terminal outcome; a degraded snapshot
+SHALL report `failed`, and an aborted request SHALL report `cancelled`.
 
 #### Scenario: E2E-LOG-13.01 -- Stream lifecycle publishes facts
 
@@ -1002,6 +1006,14 @@ ordered `diagnostics` array of `{ title, body, severity? }` sections. Whole-run 
 pagination (`GET /api/e2e/logs` without `step`) SHALL bound its Loki time range to the
 run's lifecycle window plus the configured margin and exclude diagnostic payloads before
 Loki applies the page limit.
+
+Live SSE subscriptions SHALL exclude diagnostic bodies before Loki tail delivery
+while retaining the diagnostics step's lifecycle events. The diagnostics view
+SHALL fetch only while expanded, refresh at a bounded 30-second cadence while
+expanded, and reuse results for 30 seconds when reopened or remounted. A failed
+request or degraded snapshot SHALL show an unavailable state with Retry rather
+than claim that diagnostics were not collected. Severity labels SHALL be localized
+and use the dashboard's existing semantic status colors, not brand red for errors.
 
 #### Scenario: E2E-LOG-27.01 -- Lazy diagnostics endpoint exposes structured failure diagnostics
 

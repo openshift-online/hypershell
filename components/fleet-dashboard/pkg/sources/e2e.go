@@ -308,7 +308,7 @@ func newE2EWithClient(c *config.Config, loki LokiClient) *E2E {
 		logger:        slog.Default(),
 		windowCache:   make(map[string]*E2ERunDetail),
 	}
-	e.broker = newTailBroker(loki, e.selector, e.logger)
+	e.broker = newTailBroker(loki, e.selector+` !~ "event.{1,6}diagnostic|event.{1,6}log.*(stepId.{1,6}(failure-)?diagnostics.{1,2}[,}]|message.{1,6}DIAG )"`, e.logger)
 	return e
 }
 
@@ -870,13 +870,14 @@ func parseViaQEvent(line string) (e2eEvent, bool) {
 // detail. Malformed records are isolated (E2E-LOG-07): they are skipped and the
 // remaining records still reduce.
 func reduceRunsForTenant(tenant string, entries []LokiEntry) []*E2ERunDetail {
-	byRun := map[string][]e2eEvent{}
+	byRun := map[struct{ namespace, runID string }][]e2eEvent{}
 	for _, entry := range entries {
 		ev, ok := parseViaQEvent(entry.Line)
 		if !ok {
 			continue
 		}
-		byRun[ev.RunID] = append(byRun[ev.RunID], ev)
+		key := struct{ namespace, runID string }{ev.Namespace, ev.RunID}
+		byRun[key] = append(byRun[key], ev)
 	}
 	out := make([]*E2ERunDetail, 0, len(byRun))
 	for _, events := range byRun {
@@ -1215,12 +1216,12 @@ func diagnosticsQuery(selector string) string {
 func logHistoryQuery(selector, stepID string) string {
 	query := selector + " |= " + strconv.Quote(`\"event\":\"log\"`)
 	if stepID == "" {
-		return query + " != " + strconv.Quote(`\"stepId\":\"`+diagnosticsStepID+`\"`) + " != " + strconv.Quote(`\"message\":\"DIAG `)
+		return query + " != " + strconv.Quote(`\"stepId\":\"`+diagnosticsStepID+`\"`) + " != " + strconv.Quote(`\"stepId\":\"failure-diagnostics\"`) + " != " + strconv.Quote(`\"message\":\"DIAG `)
 	}
 	return query + " |= " + strconv.Quote(`\"`+stepID+`\"`)
 }
 
-func (e *E2E) runEntries(ctx context.Context, tenant, runID string, start, end time.Time) ([]LokiEntry, bool, error) {
+func (e *E2E) runEntries(ctx context.Context, tenant, namespace, runID string, start, end time.Time) ([]LokiEntry, bool, error) {
 	selector := e.selector + " |= " + strconv.Quote(runID)
 	lifecycle, structuralLimit, err := e.loki.QueryRange(ctx, tenant, lifecycleQuery(selector), start, end, lokiQueryLimit)
 	if err != nil {
@@ -1228,7 +1229,7 @@ func (e *E2E) runEntries(ctx context.Context, tenant, runID string, start, end t
 	}
 	logStart, logEnd := start, end
 	for _, run := range reduceRunsForTenant(tenant, lifecycle) {
-		if run.RunID != runID {
+		if run.RunID != runID || run.Namespace != namespace {
 			continue
 		}
 		e.cacheRunWindow(run)

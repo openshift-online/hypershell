@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   MAX_LOG_BUFFER,
   type E2eLogPage,
+  type E2eDiagnosticsData,
   type E2eRunDetail,
   type E2eRunsData,
   type E2eRunSummary,
@@ -130,12 +131,16 @@ function makeApi(
   return { api, handlers };
 }
 
-function renderView(api: FleetApi, data: E2eRunsData): void {
+function renderView(
+  api: FleetApi,
+  data: E2eRunsData,
+  translations?: Record<string, string>,
+): void {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   render(
-    <IntlProvider locale="en" defaultLocale="en">
+    <IntlProvider locale="en" defaultLocale="en" messages={translations}>
       <QueryClientProvider client={queryClient}>
         <FleetApiProvider value={api}>
           <RouterProvider
@@ -838,21 +843,26 @@ describe("gate execution", () => {
   });
   it("keeps the inspected attempt pinned when a newer retry arrives", async () => {
     const { api } = makeApi(detail({ reportingComplete: false }));
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
     const history = createMemoryHistory({ path: "/", search: "?gate=g1" });
     const view = (runs: readonly E2eRunSummary[]) => (
       <IntlProvider locale="en">
-        <FleetApiProvider value={api}>
-          <RouterProvider history={history}>
-            <GateExecution
-              target={{
-                revision: "abc1234",
-                cluster: "tenant-1",
-                namespace: "ns",
-              }}
-              data={enabled(runs)}
-            />
-          </RouterProvider>
-        </FleetApiProvider>
+        <QueryClientProvider client={queryClient}>
+          <FleetApiProvider value={api}>
+            <RouterProvider history={history}>
+              <GateExecution
+                target={{
+                  revision: "abc1234",
+                  cluster: "tenant-1",
+                  namespace: "ns",
+                }}
+                data={enabled(runs)}
+              />
+            </RouterProvider>
+          </FleetApiProvider>
+        </QueryClientProvider>
       </IntlProvider>
     );
     const rendered = render(view([summary()]));
@@ -876,24 +886,29 @@ describe("gate execution", () => {
   // Verifies: FLT-NAV-10.02
   it("follows the current attempt in explicit live mode (FLT-NAV-10)", async () => {
     const { api } = makeApi(detail({ reportingComplete: false }));
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
     const history = createMemoryHistory({
       path: "/",
       search: "?gate=g1&gattempt=live",
     });
     const view = (runs: readonly E2eRunSummary[]) => (
       <IntlProvider locale="en">
-        <FleetApiProvider value={api}>
-          <RouterProvider history={history}>
-            <GateExecution
-              target={{
-                revision: "abc1234",
-                cluster: "tenant-1",
-                namespace: "ns",
-              }}
-              data={enabled(runs)}
-            />
-          </RouterProvider>
-        </FleetApiProvider>
+        <QueryClientProvider client={queryClient}>
+          <FleetApiProvider value={api}>
+            <RouterProvider history={history}>
+              <GateExecution
+                target={{
+                  revision: "abc1234",
+                  cluster: "tenant-1",
+                  namespace: "ns",
+                }}
+                data={enabled(runs)}
+              />
+            </RouterProvider>
+          </FleetApiProvider>
+        </QueryClientProvider>
       </IntlProvider>
     );
     const rendered = render(view([summary()]));
@@ -1453,6 +1468,10 @@ describe("log pagination and degraded log pane", () => {
       name: "Show 2 earlier attempts",
     });
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("link", { name: /1111aaaa/ })).toBeNull();
+    const hiddenAttempt = screen.getByText("Attempt 1").closest("tr");
+    expect(hiddenAttempt?.hasAttribute("inert")).toBe(true);
+    expect(hiddenAttempt?.getAttribute("aria-hidden")).toBe("true");
     await user.click(toggle);
     expect(
       screen
@@ -1461,7 +1480,180 @@ describe("log pagination and degraded log pane", () => {
     ).toBe("true");
     expect(screen.getByText("Attempt 2")).toBeDefined();
     expect(screen.getByText("Attempt 1")).toBeDefined();
+    expect(hiddenAttempt?.hasAttribute("inert")).toBe(false);
+    expect(hiddenAttempt?.getAttribute("aria-hidden")).not.toBe("true");
   });
+
+  it("sorts attempt groups by the latest visible attempt", async () => {
+    const user = userEvent.setup();
+    const { api } = makeApi(detail());
+    renderView(
+      api,
+      enabled([
+        summary({
+          id: "old",
+          runId: "old",
+          revision: "group-a",
+          startedAt: "2026-01-01T00:00:00Z",
+          durationMs: 1000,
+        }),
+        summary({
+          id: "latest",
+          runId: "latest",
+          revision: "group-a",
+          startedAt: "2026-01-01T00:40:00Z",
+          durationMs: 10_000,
+        }),
+        summary({
+          id: "other",
+          runId: "other",
+          revision: "group-b",
+          startedAt: "2026-01-01T00:20:00Z",
+          durationMs: 5000,
+        }),
+      ]),
+    );
+    await user.click(screen.getByRole("button", { name: "Duration" }));
+    expect(
+      screen
+        .getAllByRole("link", { name: /Open run/ })[0]
+        ?.getAttribute("aria-label"),
+    ).toContain("group-b");
+    await user.click(screen.getByRole("button", { name: "Duration" }));
+    expect(
+      screen
+        .getAllByRole("link", { name: /Open run/ })[0]
+        ?.getAttribute("aria-label"),
+    ).toContain("group-a");
+  });
+
+  it("restores focus to the group toggle when the selected attempt is collapsed", async () => {
+    const user = userEvent.setup();
+    const { api } = makeApi(detail());
+    renderView(
+      api,
+      enabled([
+        summary(),
+        summary({
+          id: "tenant-1/ns/run-2",
+          runId: "run-2",
+          startedAt: "2026-01-01T00:40:00Z",
+        }),
+      ]),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Show 1 earlier attempt" }),
+    );
+    await user.click(
+      screen.getByRole("link", { name: /Open run abc1234.*run-1/ }),
+    );
+    await screen.findByRole("button", { name: "Build" });
+    await user.click(
+      screen.getByRole("button", { name: "Hide earlier attempts" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Close details" }));
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Show 1 earlier attempt" }),
+    );
+  });
+
+  it("localizes diagnostic severity and uses semantic danger colors", async () => {
+    const user = userEvent.setup();
+    const { api } = makeApi(
+      detail({
+        steps: [
+          {
+            stepId: "diagnostics",
+            name: "failure diagnostics",
+            state: "passed",
+            startedAt: null,
+            endedAt: null,
+            durationMs: 1000,
+          },
+        ],
+        diagnostics: [
+          { title: "All pods", body: "CrashLoopBackOff", severity: "error" },
+        ],
+      }),
+    );
+    renderView(api, enabled([summary()]), {
+      "fleet.e2e.diagnostics.error": "Erreur",
+    });
+    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    const region = await screen.findByRole("region", { name: "Diagnostics" });
+    await user.click(
+      within(region).getByRole("button", { name: "Show Diagnostics" }),
+    );
+    const severity = await within(region).findByText("Erreur");
+    expect(severity.querySelector("svg")?.getAttribute("style")).toContain(
+      "--pf-t--global--color--status--danger--default",
+    );
+    expect(within(region).queryByText("error")).toBeNull();
+  });
+
+  it.each(["rejected", "degraded"])(
+    "shows a recoverable diagnostics failure for a %s response",
+    async (failure) => {
+      const user = userEvent.setup();
+      const runDetail = detail({
+        steps: [
+          {
+            stepId: "diagnostics",
+            name: "failure diagnostics",
+            state: "passed",
+            startedAt: null,
+            endedAt: null,
+            durationMs: 1000,
+          },
+        ],
+      });
+      const getE2eDiagnostics =
+        vi.fn<() => Promise<Plane<E2eDiagnosticsData>>>();
+      if (failure === "rejected") {
+        getE2eDiagnostics.mockRejectedValueOnce(
+          new Error("network unavailable"),
+        );
+      } else {
+        getE2eDiagnostics.mockResolvedValueOnce({
+          ...plane({ diagnostics: [] }),
+          stale: true,
+          error: "e2e log backend unavailable",
+        });
+      }
+      getE2eDiagnostics.mockResolvedValue(
+        plane({
+          diagnostics: [
+            {
+              title: "Recovered diagnostics",
+              body: "available",
+              severity: "info",
+            },
+          ],
+        }),
+      );
+      const { api } = makeApi(runDetail, { getE2eDiagnostics });
+      renderView(api, enabled([summary()]));
+      await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+      const region = await screen.findByRole("region", { name: "Diagnostics" });
+      await user.click(
+        within(region).getByRole("button", { name: "Show Diagnostics" }),
+      );
+      expect(
+        await within(region).findByText("Could not load diagnostics."),
+      ).toBeDefined();
+      expect(
+        within(region).queryByText("No failure diagnostics collected."),
+      ).toBeNull();
+      await user.click(within(region).getByRole("button", { name: "Retry" }));
+      expect(
+        await within(region).findByText("Recovered diagnostics"),
+      ).toBeDefined();
+      expect(
+        within(region).queryByText("Could not load diagnostics."),
+      ).toBeNull();
+      expect(getE2eDiagnostics).toHaveBeenCalledTimes(2);
+    },
+  );
 
   it("renders a collapsed-by-default Show Diagnostics toggle that fetches lazily on expand, and stays disabled/greyed-out when skipped or not-run", async () => {
     const user = userEvent.setup();

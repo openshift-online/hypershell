@@ -322,3 +322,28 @@ func TestReporterDiagnosticChunksAndRedactsWithinPipeBuf(t *testing.T) {
 	}
 }
 
+func TestReporterDiagnosticPreservesEscapedChunks(t *testing.T) {
+	for _, body := range []string{
+		"begin" + strings.Repeat("\t", 2400) + "end",
+		strings.Repeat("<>&\x00\u2028日本語", 200),
+	} {
+		var output bytes.Buffer
+		reporter := NewReporter(&output, testIdentity())
+		reporter.Diagnostic("diagnostics", "Escaped output", body, "info")
+		var reassembled strings.Builder
+		for _, record := range bytes.Split(bytes.TrimSpace(output.Bytes()), []byte("\n")) {
+			if len(record)+1 > maxRecord {
+				t.Fatalf("record exceeds PIPE_BUF: %d", len(record)+1)
+			}
+		}
+		for _, diagnostic := range decodeEvents(t, output.Bytes()) {
+			if diagnostic.Truncated {
+				t.Fatal("diagnostic chunk was truncated during encoding")
+			}
+			reassembled.WriteString(diagnostic.Message)
+		}
+		if reassembled.String() != body {
+			t.Fatalf("reassembled %d bytes, want %d", reassembled.Len(), len(body))
+		}
+	}
+}

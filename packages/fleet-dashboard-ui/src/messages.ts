@@ -413,6 +413,21 @@ export const messages = defineMessages({
     description:
       "Accessible label for the button that restores the run detail drawer to its default width.",
   },
+  e2eDiagnosticsError: {
+    id: "fleet.e2e.diagnostics.error",
+    defaultMessage: "Error",
+    description: "Error severity of a diagnostic section.",
+  },
+  e2eDiagnosticsFailed: {
+    id: "fleet.e2e.diagnostics.failed",
+    defaultMessage: "Could not load diagnostics.",
+    description: "Recoverable diagnostics request failure, paired with Retry.",
+  },
+  e2eDiagnosticsInfo: {
+    id: "fleet.e2e.diagnostics.info",
+    defaultMessage: "Information",
+    description: "Informational severity of a diagnostic section.",
+  },
   e2eDiagnosticsLoading: {
     id: "fleet.e2e.diagnostics.loading",
     defaultMessage: "Loading diagnostics…",
@@ -442,6 +457,11 @@ export const messages = defineMessages({
     defaultMessage: "Diagnostics",
     description:
       "Heading above the failure diagnostics sections in the selected run detail pane.",
+  },
+  e2eDiagnosticsWarning: {
+    id: "fleet.e2e.diagnostics.warning",
+    defaultMessage: "Warning",
+    description: "Warning severity of a diagnostic section.",
   },
   e2eDisabled: {
     id: "fleet.e2e.disabled",

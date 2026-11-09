@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -993,6 +994,7 @@ func TestRunStreamBackfillExcludesDiagnostics(t *testing.T) {
 	entries, _, err := testE2E(f).runEntries(
 		context.Background(),
 		"hub-00",
+		"hypershell",
 		"run-1",
 		time.Unix(0, 0),
 		time.Unix(0, 1000),
@@ -1008,6 +1010,55 @@ func TestRunStreamBackfillExcludesDiagnostics(t *testing.T) {
 		if ok && event.Event == e2eEventLog && event.StepID == diagnosticsStepID {
 			t.Fatalf("stream backfill included diagnostics: %+v", event)
 		}
+	}
+}
+
+func TestLiveQueryExcludesOnlyDiagnosticBodies(t *testing.T) {
+	source := testE2E(&fakeLoki{})
+	parts := strings.SplitN(source.broker.selector, " !~ ", 2)
+	if len(parts) != 2 {
+		t.Fatalf("live query has no diagnostic exclusion: %s", source.broker.selector)
+	}
+	exclusion := regexp.MustCompile(strings.Trim(parts[1], `"`))
+	for _, test := range []struct {
+		event   string
+		stepID  string
+		message string
+		exclude bool
+	}{
+		{e2eEventDiagnostic, "diagnostics", "structured body", true},
+		{e2eEventLog, "diagnostics", "legacy body", true},
+		{e2eEventLog, "failure-diagnostics", "legacy body", true},
+		{e2eEventLog, "cleanup", "DIAG All pods\nbody", true},
+		{e2eEventStepStarted, "diagnostics", "", false},
+		{e2eEventStepFinished, "diagnostics", "", false},
+		{e2eEventLog, "diagnostics-extra", "ordinary output", false},
+		{e2eEventRunFinished, "cleanup", "DIAG collection failed", false},
+	} {
+		line := viaQLine(t, ev(test.event, 1, map[string]any{"stepId": test.stepID, "message": test.message}))
+		if excluded := exclusion.MatchString(line); excluded != test.exclude {
+			t.Errorf("event=%s step=%s excluded=%v, want %v", test.event, test.stepID, excluded, test.exclude)
+		}
+	}
+}
+
+func TestReduceRunsKeepsNamespaceCollisionsSeparate(t *testing.T) {
+	entries := []LokiEntry{
+		{Line: viaQLine(t, ev(e2eEventRunStarted, 1, nil))},
+		{Line: viaQLine(t, ev(e2eEventRunFinished, 2, map[string]any{"outcome": "passed"}))},
+		{Line: viaQLine(t, ev(e2eEventRunStarted, 1, map[string]any{"namespace": "another-namespace"}))},
+		{Line: viaQLine(t, ev(e2eEventRunFinished, 2, map[string]any{"namespace": "another-namespace", "outcome": "failed"}))},
+	}
+	runs := reduceRunsForTenant("hub-00", entries)
+	if len(runs) != 2 {
+		t.Fatalf("reduced %d runs, want two independent namespace-scoped runs", len(runs))
+	}
+	verdicts := map[string]string{}
+	for _, run := range runs {
+		verdicts[run.Namespace] = run.Verdict
+	}
+	if verdicts["hypershell"] != verdictPassed || verdicts["another-namespace"] != verdictFailed {
+		t.Fatalf("run verdicts crossed namespaces: %+v", verdicts)
 	}
 }
 
