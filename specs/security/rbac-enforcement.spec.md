@@ -563,10 +563,21 @@ For a caller that is not a control-plane identity, the rules mirror HTTP:
 
 Control-plane identities are exempt from role bindings but not from scoping. A caller
 whose JWT `sub` is the `oidc_subject` of a registered ManagedCluster is authorized per
-`platform/managed-cluster-registration.spec.md`, "Control-Plane Identity": its own
-cluster's gateways, platform-wide reads, and deleting its own record. A username on the `RBAC_SERVICE_ACCOUNTS` allowlist that is not
-registered keeps the bootstrap exemption, except for ManagedCluster record writes; an
-allowlisted account that is registered is scoped as a control plane.
+`platform/managed-cluster-registration.spec.md`, "Control-Plane Identity": fleet-wide
+reads of the records it reconciles, writes only to its own cluster's gateways, and
+deleting its own record. `GetGateway` is a fleet-wide read for a control-plane identity:
+it SHALL resolve a gateway by id regardless of the gateway's owning cluster and SHALL
+NOT return `NOT_FOUND` for a foreign-cluster gateway, so the hub control plane can
+resolve a spoke-placed gateway while reconciling (for example a `CITrust` whose gateway
+is on another cluster). The gateway writes (`UpdateGateway`, `SetGatewayVersion`,
+`AdjustActiveSandboxCount`, `SetActiveSandboxCount`, `ReportSandboxEvents`) stay
+own-cluster only and return `PERMISSION_DENIED` for a foreign-cluster gateway. This
+fleet-wide read applies ONLY to the control-plane identity; a non-control-plane caller
+keeps the per-gateway `GetGateway` rules above, including the `NOT_FOUND`
+existence-hiding when it has no access. A username on the `RBAC_SERVICE_ACCOUNTS`
+allowlist that is not registered keeps the bootstrap exemption, except for
+ManagedCluster record writes; an allowlisted account that is registered is scoped as a
+control plane.
 
 **Declarative-import writes (control-plane identity only).** The control-plane
 declarative `.hypershell` import reconciler (see
@@ -627,8 +638,11 @@ served across clusters, ONLY when ALL hold: the caller is the registered
 control-plane identity; the call carries the reconciled-`Repository` id in trusted
 metadata; the request sets the `repository_id` read filter equal to that id; and the
 named `Repository` exists. The server then filters the result to that `Repository`
-server-side. Any other read keeps the own-cluster binding, so this exemption does not
-widen a tenant's or a spoke's view beyond one named `Repository` it is reconciling.
+server-side. Any other `Gateway` or `AgentRuntime` list or watch read keeps the
+own-cluster binding, so this import-list exemption does not widen a tenant's or a
+spoke's view beyond one named `Repository` it is reconciling. The fleet-wide
+`GetGateway` point read of a control-plane identity (above) is a separate read and is
+not governed by this list exemption.
 
 The hub's gRPC API is reachable from outside the cluster (`platform/hub-grpc-tls.spec.md`),
 so these rules are the only boundary between tenants, and between clusters, on that API.
