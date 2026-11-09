@@ -1610,8 +1610,11 @@ sets it to `4`). At `E2E_CONCURRENCY=1` they SHALL run sequentially in a
 deterministic capability order; higher values fan them out within that bound.
 
 **Targeting a specific cluster.** Narrowing a test to named clusters is out of
-scope here: the runner has no env-var allowlist, and placement does not
-support selecting a cluster by name.
+scope here: the runner has no env-var allowlist, and the matrix uses only the
+capability-selector placement path, which does not target a cluster by name. The
+platform-admin `managed-cluster/<name>` identity selector
+([`data-model.spec.md`](data-model.spec.md), PLAT-DATA-27) can target a cluster by
+name, but the matrix does not use it.
 
 ```text
 clusters = GET /managed_clusters                         # authenticated, short mode (no kube context)
@@ -1862,8 +1865,9 @@ suite reuses the full single-cluster variable set above.
 The matrix enumerates every registered cluster's capabilities with no allowlist,
 no health window, and no per-cluster kube context, so it adds no `E2E_MANAGED_CLUSTERS`,
 `E2E_MANAGED_SKIP_UNHEALTHY`, `E2E_MANAGED_HEALTHY_WINDOW`, or `E2E_MANAGED_KUBECONTEXT_<name>`
-variable. Placement does not support targeting a cluster by name, and the matrix adds no
-env-var allowlist for it; continuous per-cluster
+variable. The matrix uses only capability-selector placement and adds no env-var allowlist
+for cluster-by-name targeting; the platform-admin `managed-cluster/<name>` identity
+selector (PLAT-DATA-27) is not used by the matrix. Continuous per-cluster
 operational health and in-cluster kube validation are #858.
 
 The console browser suite (`tests/e2e/e2e-console.sh`) adds the following; see

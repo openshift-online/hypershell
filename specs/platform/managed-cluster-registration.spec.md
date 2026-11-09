@@ -255,6 +255,15 @@ malformed labels, duplicate labels, an empty set, and more than one label in the
 single-valued `provider`, `region`, or `environment` namespaces SHALL return
 400. The value segment SHALL also use lowercase DNS-label syntax.
 
+The `managed-cluster/` namespace is NOT a recognized capability namespace: it is a
+distinct selector-layer identity namespace used only at placement time to target a
+cluster by name (see [`data-model.spec.md`](./data-model.spec.md), "Requirement:
+Admin ManagedCluster Identity Selector", PLAT-DATA-27). A `managed-cluster/<name>`
+label submitted as a stored capability on registration or create SHALL be rejected
+400 as an unknown namespace, exactly like any other unrecognized namespace, so the
+identity token never becomes a stored, advertised capability. Keeping the two
+namespace sets disjoint is what makes the identity token unambiguous.
+
 The registering control plane SHALL be the only writer of `capabilities`.
 Generic ManagedCluster create and patch requests SHALL NOT assign or modify
 them. A heartbeat SHALL replace the prior set in one transaction and update
@@ -274,6 +283,13 @@ them. A heartbeat SHALL replace the prior set in one transaction and update
 - WHEN it registers with an unknown namespace or malformed label
 - THEN the API SHALL return 400
 - AND its prior capabilities and `last_seen_at` SHALL remain unchanged
+
+#### Scenario: PLAT-CLUS-06.04 -- managed-cluster is rejected as a stored capability
+
+- GIVEN a registered cluster has a valid capability set
+- WHEN it registers with a `managed-cluster/<name>` label among its `capabilities`
+- THEN the API SHALL return 400 as for any unknown namespace
+- AND no `managed-cluster/` label SHALL ever appear in the cluster's advertised capabilities
 
 ### Requirement: PLAT-CLUS-07 -- Capability Deployment Convergence
 

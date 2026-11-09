@@ -236,6 +236,8 @@ The existing gateway-name validation and normalization rules SHALL remain unchan
 
 The backend SHALL validate every required and excluded selector label using the ManagedCluster capability vocabulary. It SHALL normalize order and duplicates, reject malformed or unknown labels, and resolve a valid selector to registered clusters with connected control planes whose capability sets contain every required label and none of the excluded labels. Selector matching SHALL be literal and case-sensitive after validation; partial, wildcard, and match-any semantics SHALL NOT apply.
 
+The `managed-cluster/` namespace is the one exception to validating a selector label against the capability vocabulary: it is a distinct selector-layer identity token (not a capability) that a platform admin uses to target one cluster by name, defined canonically in [`../platform/data-model.spec.md`](../platform/data-model.spec.md) ("Requirement: Admin ManagedCluster Identity Selector", PLAT-DATA-27) and gated by [`../security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md) (SEC-RBAC-28). The backend SHALL recognize a `managed-cluster/<name>` token rather than reject it as an unknown label, and SHALL resolve it by name under those rules. The web-console provision form SHALL NOT submit this token: it is an `hsctl` and API path for platform admins, and the form continues to submit only capability selectors.
+
 When one eligible cluster matches, the backend SHALL select that cluster. When multiple eligible clusters match, the backend SHALL select one at random. Each matching eligible cluster SHALL have an equal probability of selection.
 
 The backend SHALL NOT inspect, score, or rank clusters by CPU, memory, pod usage, or other capacity data. The client SHALL neither calculate nor submit the selected cluster.
@@ -280,6 +282,13 @@ The backend SHALL persist BOTH the `placement` required and excluded selectors (
 - AND one advertises `runtime/kata`
 - WHEN the backend resolves an intent that excludes `runtime/kata`
 - THEN the backend SHALL select the cluster that does not advertise `runtime/kata`
+
+#### Scenario: WEB-PLC-07.06 -- The admin identity token is resolved, not rejected as unknown
+
+- GIVEN a `platform:admin` caller submits `selector: ["managed-cluster/hyp0-mc1"]` over `hsctl` or the API
+- WHEN the backend validates the selector
+- THEN it SHALL NOT reject the `managed-cluster/` label as an unknown capability
+- AND it SHALL resolve the cluster by name per PLAT-DATA-27, under the platform-admin gate (SEC-RBAC-28)
 
 ### Requirement: WEB-PLC-09 -- API and Persistence
 

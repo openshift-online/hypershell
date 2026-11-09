@@ -305,8 +305,11 @@ namespaces, see [`managed-cluster-registration.spec.md`](./managed-cluster-regis
 "Requirement: Self-Declared Capability Labels") and SHALL resolve by random
 selection among the eligible clusters that match it, so a caller expresses the
 TYPE of placement it wants and SHALL NOT choose a specific cluster through this
-contract. Deterministic single-cluster targeting is out of scope here: it is a
-separate `cluster_name` placement selector tracked in its own issue (#857).
+requirement-capability contract. Deterministic single-cluster targeting is NOT
+part of this contract: it is the separate `managed-cluster/<name>` identity
+selector of "Requirement: Admin ManagedCluster Identity Selector"
+(PLAT-DATA-27), a selector-layer targeting token resolved by cluster name and
+gated to `platform:admin`, never a requirement capability.
 
 **Late binding (no eligible cluster yet).** When a late-bound Gateway's selector
 matches NO eligible `ManagedCluster`, the create SHALL still succeed: the Gateway
@@ -365,6 +368,82 @@ responsible for it until it is placed.
 - WHEN the control-plane `RepositoryReconciler` imports it (see [`control-plane.spec.md`](./control-plane.spec.md), "Requirement: Import Writer Maps Gateway Placement")
 - THEN the import writer SHALL send a create that carries the `placement` selector and no `cluster_id`
 - AND the API server SHALL accept it under the exactly-one-of contract and late-bind it
+
+### Requirement: PLAT-DATA-27 -- Admin ManagedCluster Identity Selector
+
+A `placement` selector MAY carry a `managed-cluster/<name>` identity token that
+targets ONE specific `ManagedCluster` by its unique name (PLAT-CLUS-06,
+PLAT-CLUS-02), so a platform administrator can place a Gateway deterministically
+on a single cluster for operations, debugging, or targeted validation. The token
+rides the existing `placement` selector surface (PLAT-DATA-02); it SHALL NOT
+introduce a new create field. It supersedes the server-assigned
+`managed-cluster/<name>` identity capability that was removed from the
+ManagedCluster registration contract (see
+[`id-rename-map.md`](../id-rename-map.md)): the behavior is now a selector-layer
+token resolved by name, NOT a capability.
+
+**A selector-layer token, never a capability.** `managed-cluster/` SHALL be a
+distinct selector namespace, separate from the self-declared capability
+namespaces `provider`, `network`, `region`, `runtime`, and `environment`
+(PLAT-CLUS-06). Because the namespaces are disjoint, a label in the
+`managed-cluster/` namespace is unambiguously the identity-targeting token. The
+token SHALL be resolver-level only: it SHALL NOT be stored on a `ManagedCluster`,
+SHALL NOT be advertised in any capability list on `GET /managed_clusters`, and
+SHALL NOT be synthesized onto placement candidates. No read-filtering of the
+ManagedCluster capability surface is required, because the token is never a
+capability.
+
+**Platform-admin gate on USE.** A create request (REST or gRPC) whose `placement`
+required or excluded selector references a `managed-cluster/<name>` token, and a
+placement-availability probe that references one, SHALL require `platform:admin`.
+A caller without `platform:admin` SHALL be rejected with 403 (`PermissionDenied`
+over gRPC) BEFORE name resolution, so the gate confines the USE of the token and
+does not merely hide a value. The authorization-layer enforcement is defined in
+[`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md),
+"Requirement: Admin ManagedCluster Selector Gate" (SEC-RBAC-28).
+
+**Deterministic resolution.** After the gate passes, the API server SHALL resolve
+a `managed-cluster/<name>` token to the `ManagedCluster` whose unique `name`
+equals `<name>` and SHALL assign its id as the Gateway's `cluster_id`. Unlike a
+requirement-capability selector (which late-binds when no eligible cluster
+matches, PLAT-DATA-02), the identity selector SHALL fail fast, mirroring the
+pinned `cluster_id` rules (PLAT-CLUS-09): a name that matches no
+`ManagedCluster` SHALL be rejected with 400, and a name that matches a record
+with an empty `oidc_subject` (an unregistered placeholder) SHALL be rejected with
+400 stating the cluster has no registered control plane. A selector that combines
+the identity token with capability labels SHALL additionally require the named
+cluster to satisfy those labels (literal match-all, WEB-PLC-07); a named cluster
+that does not SHALL be rejected with 400.
+
+#### Scenario: PLAT-DATA-27.01 -- Platform admin targets a cluster by name
+
+- GIVEN a caller holding `platform:admin`
+- AND a registered `ManagedCluster` named `hyp0-mc1` with a non-empty `oidc_subject`
+- WHEN the caller creates a Gateway with `placement.selector = ["managed-cluster/hyp0-mc1"]` and no `cluster_id`
+- THEN the API server SHALL resolve the token to that cluster and assign its id as `cluster_id`
+- AND the Gateway SHALL proceed through its normal provisioning lifecycle
+
+#### Scenario: PLAT-DATA-27.02 -- Non-admin use of the token is rejected before resolution
+
+- GIVEN a caller holding only `gateway:creator`
+- WHEN the caller creates a Gateway whose `placement` required or excluded selector references `managed-cluster/<name>` (REST or gRPC)
+- THEN the API server SHALL reject the create with 403 (`PermissionDenied` over gRPC) before resolving the name
+- AND no Gateway SHALL be created
+
+#### Scenario: PLAT-DATA-27.03 -- Unknown or unregistered name is rejected
+
+- GIVEN a caller holding `platform:admin`
+- WHEN the caller creates a Gateway with `placement.selector = ["managed-cluster/absent"]` naming no `ManagedCluster`
+- THEN the API server SHALL reject the create with 400
+- AND a name that matches a record with an empty `oidc_subject` SHALL likewise be rejected with 400 stating the cluster has no registered control plane
+- AND no Gateway SHALL be created
+
+#### Scenario: PLAT-DATA-27.04 -- The token is never a stored capability
+
+- GIVEN a registered `ManagedCluster` targeted by `managed-cluster/<name>`
+- WHEN `GET /managed_clusters` returns that cluster
+- THEN its advertised `capabilities` SHALL NOT contain any `managed-cluster/` label
+- AND the resolver SHALL NOT compare the token against any stored capability nor synthesize it onto a placement candidate
 
 ### Requirement: PLAT-DATA-03 -- Gateway Namespace Ownership
 

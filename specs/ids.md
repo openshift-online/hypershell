@@ -47,7 +47,7 @@ listed in `specs/id-rename-map.md`, not here.
 |--------|------|--------------|
 | `CLI-EXT` | `platform/hsctl-extension-commands.spec.md` | 4 |
 | `CLI-GWC` | `platform/hsctl-gateway-connection.spec.md` | 2 |
-| `CLI-PLC` | `platform/hsctl-placement.spec.md` | 4 |
+| `CLI-PLC` | `platform/hsctl-placement.spec.md` | 5 |
 | `CLI-REL` | `platform/hsctl-release.spec.md` | 6 |
 | `CLI-TUI` | `platform/hsctl-terminal-ui.spec.md` | 4 |
 
@@ -146,7 +146,7 @@ listed in `specs/id-rename-map.md`, not here.
 | `PLAT-ARCH` | `platform/global-architecture.spec.md` | 19 |
 | `PLAT-CITR` | `platform/ci-trust-ext-api.spec.md` | 12 |
 | `PLAT-CLUS` | `platform/managed-cluster-registration.spec.md` | 15 |
-| `PLAT-DATA` | `platform/data-model.spec.md` | 25 |
+| `PLAT-DATA` | `platform/data-model.spec.md` | 26 |
 | `PLAT-INV` | `platform/platform-inventory.spec.md` | 10 |
 | `PLAT-USR` | `platform/registered-users.spec.md` | 15 |
 
@@ -172,7 +172,7 @@ listed in `specs/id-rename-map.md`, not here.
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `SEC-OIDC` | `platform/oidc-integration.spec.md` | 11 |
-| `SEC-RBAC` | `security/rbac-enforcement.spec.md` | 27 |
+| `SEC-RBAC` | `security/rbac-enforcement.spec.md` | 28 |
 | `SEC-STD` | `standards/security/security.spec.md` | 4 |
 
 ### STD
