@@ -11,7 +11,7 @@ Gateways and clusters are **top-level resources**. Tenancy is enforced by RBAC (
 
 Current model:
 
-- **ManagedCluster** - a Kubernetes cluster whose control plane has registered into the platform (`oidc_subject`, `last_seen_at`; see [`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md)). Its self-declared, namespaced `capabilities` set is the source of truth for placement. It also tracks API server URL and a kubeconfig secret reference, which are informational: no component consumes `kubeconfig_secret`, because each control plane reconciles its own cluster with in-cluster credentials.
+- **ManagedCluster** - a Kubernetes cluster whose control plane has registered into the platform (`oidc_subject`, `last_seen_at`; see [`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md)). Its self-declared, namespaced `capabilities` set is the source of truth for placement. It also carries a spoke-reported `health` verdict from the cluster's on-cluster self-check (see [`managed-cluster-self-healthcheck.spec.md`](./managed-cluster-self-healthcheck.spec.md), and PLAT-DATA-27 below), distinct from `last_seen_at` liveness and from the reconciler-owned `status`. It also tracks API server URL and a kubeconfig secret reference, which are informational: no component consumes `kubeconfig_secret`, because each control plane reconciles its own cluster with in-cluster credentials.
 - **Gateway** - an API gateway instance deployed onto a cluster within an API-assigned namespace. Its target cluster MAY be pinned explicitly through `cluster_id`, or left absent and late-bound to a matching `ManagedCluster` through a capability-label `placement` selector (see "Gateway Placement and Late Binding" below). Its PostgreSQL database is not modelled in the API: the control plane provisions one database and login role per gateway on the platform's gateway database server (see [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md)). Its only user-writable fields are `name` (create and update), placement (create only), and the create-only `dedicated_route` request flag (see "Requirement: Gateway Dedicated Route Request Field", PLAT-DATA-26); TLS mode, service type, external DNS, image, OIDC, routing, and lifecycle phase are all control-plane-managed and read-only to users and to the GitOps import (see "Requirement: Gateway Field Ownership and Write Policy", PLAT-DATA-23).
 - **OpenShellGatewayServiceAccount** - a creator-bound automation identity for one Gateway. It stores an OpenShell role and non-secret Keycloak lifecycle metadata.
 - **AgentRuntime** - a scheduled autonomous AI agent, referencing a ManagedCluster, Gateway, and SandboxTemplate, and optionally a Repository. Owns exactly one AgentWorkspace and one or more SecretSources. An optional `selector` (a list of labels) turns the runtime into a repository scanner: it queries the referenced Repository for items carrying any selected label and fans out one sandbox per match.
@@ -36,6 +36,7 @@ erDiagram
         string[] capabilities
         string kubeconfig_secret
         string status
+        jsonb health "nullable; spoke-reported self-check readiness verdict (PLAT-DATA-27)"
         string api_server_url
         time last_seen_at
         time created_at
@@ -849,6 +850,39 @@ the field at the boundary naming it.
 - AND a lookup failure SHALL surface as a server error rather than an authorization
   denial, so a transient database problem does not tell the caller to request a role
   it may already hold
+
+### Requirement: PLAT-DATA-27 -- ManagedCluster Health Verdict Field
+
+`ManagedCluster` SHALL carry a nullable `health` field holding the spoke-reported
+on-cluster self-check verdict (`managed-cluster-self-healthcheck.spec.md`,
+PLAT-HLTH-03). The field SHALL be written only by the registering control plane,
+through the registration/heartbeat path (`managed-cluster-registration.spec.md`,
+PLAT-CLUS-16); it SHALL be read-only to generic `POST /managed_clusters` and
+`PATCH /managed_clusters/{id}` requests, which SHALL NOT assign or modify it. The
+API server SHALL surface it on `GET /managed_clusters` and
+`GET /managed_clusters/{id}` over REST and gRPC.
+
+`health` is distinct from the other two cluster signals and SHALL NOT be conflated
+with them: `last_seen_at` is passive liveness (PLAT-CLUS-05) and remains the
+liveness floor, the control-plane-reconciler-owned `status` is the hub's view of
+cluster state, and `health` is the spoke's own operational-readiness verdict. The
+stored verdict SHALL follow the shape in PLAT-HLTH-03 (an `overall` rollup, an
+`observed_at`, a `duration_ms`, and a `conditions` list). It SHALL be null until
+the first verdict is reported.
+
+#### Scenario: PLAT-DATA-27.01 -- Health is control-plane-reported and read-only elsewhere
+
+- GIVEN a registered `ManagedCluster`
+- WHEN a `PATCH /managed_clusters/{id}` request attempts to set `health`
+- THEN the API server SHALL NOT modify the stored verdict
+- AND a heartbeat from the registering control plane SHALL be able to update it
+
+#### Scenario: PLAT-DATA-27.02 -- Health surfaced on reads
+
+- GIVEN a `ManagedCluster` whose control plane has reported a verdict
+- WHEN a client reads `GET /managed_clusters/{id}`
+- THEN the response SHALL include the stored `health` verdict
+- AND a cluster that has never reported one SHALL read back `health` as null
 
 ### Requirement: PLAT-DATA-08 -- AgentRuntime as a Top-Level Resource
 

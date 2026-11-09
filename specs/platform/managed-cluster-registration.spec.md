@@ -3,7 +3,7 @@
 **Date:** 2026-09-09
 **Status:** Draft
 **Ticket:** HYPERSHELL-326, HYPERSHELL-333
-**Related:** `security/rbac-enforcement.spec.md` (managed-cluster-registrar role), `platform/data-model.spec.md` (ManagedCluster entity), `platform/control-plane.spec.md` (mandatory cluster identity, startup flow, gRPC transport security), `platform/hub-grpc-tls.spec.md` (hub-side TLS Route every control plane's `HYPERSHELL_GRPC_SERVER_ADDR` dials in production)
+**Related:** `security/rbac-enforcement.spec.md` (managed-cluster-registrar role), `platform/data-model.spec.md` (ManagedCluster entity, `health` field PLAT-DATA-27), `platform/control-plane.spec.md` (mandatory cluster identity, startup flow, gRPC transport security), `platform/hub-grpc-tls.spec.md` (hub-side TLS Route every control plane's `HYPERSHELL_GRPC_SERVER_ADDR` dials in production), `platform/managed-cluster-self-healthcheck.spec.md` (the on-cluster self-check verdict this heartbeat carries, PLAT-HLTH-06)
 
 ---
 
@@ -68,6 +68,7 @@ without an API-server code change.
 | `oidc_subject` | string | OIDC `sub` claim of the service account that registered this cluster. Set server-side; not writable via PATCH. Unique index with `name`. |
 | `last_seen_at` | timestamp | Updated on every `/registration` call. Null until first registration. |
 | `capabilities` | string set | Capability labels self-declared by the control plane and replaced on each registration call. Used by placement selectors. |
+| `health` | jsonb | The most recent on-cluster self-check verdict the control plane reports on the heartbeat (`managed-cluster-self-healthcheck.spec.md`, PLAT-HLTH-06). Stored verbatim; shape and ownership are defined by PLAT-DATA-27. Null until the first verdict is reported. |
 
 `name` SHALL be unique across all `ManagedCluster` records, registered or not, so that discovery by name (seed scripts, e2e, operators) is unambiguous.
 
@@ -79,7 +80,7 @@ without an API-server code change.
 | 5 - 30 min | Unknown |
 | > 30 min | Offline |
 
-These thresholds are informational and may be tuned per deployment. The `status` field on `ManagedCluster` continues to reflect the control-plane reconciler's view of cluster state; `last_seen_at` is a separate, spoke-reported liveness signal.
+These thresholds are informational and may be tuned per deployment. The `status` field on `ManagedCluster` continues to reflect the control-plane reconciler's view of cluster state; `last_seen_at` is a separate, spoke-reported liveness signal. The `health` field is a third, distinct signal: the spoke-reported operational-readiness verdict from the on-cluster self-check (`managed-cluster-self-healthcheck.spec.md`). `last_seen_at` remains the liveness floor; `health` layers the readiness verdict on top and never regresses liveness (PLAT-CLUS-16).
 
 **Manually created records.** `POST /api/hypershell/v1/managed_clusters` still creates a record with an empty `oidc_subject`. No control plane serves such a record, and a gateway cannot be assigned to one: a gateway create (or a `PATCH` that sets `cluster_id`) referencing a record with an empty `oidc_subject` is rejected with 400 (see "Requirement: Gateways Reference a Registered Cluster"), so the placeholder never holds gateways and never has any to reconcile. The control plane that later wants that name receives 409 until an operator deletes the manual record. Manual creation is therefore an inert placeholder, not a way to add a cluster to the fleet; the fleet grows only through registration.
 
@@ -561,6 +562,51 @@ release promotion.
 - WHEN the e2e suite runs area 12
 - THEN it SHALL assert the registration, idempotency, RBAC, and collision behavior above against the live API
 
+### Requirement: PLAT-CLUS-16 -- Self-Check Verdict Carried on the Heartbeat
+
+`POST /managed_clusters/registration` SHALL accept an OPTIONAL `health` object in
+the request body carrying the control plane's most recent on-cluster self-check
+verdict (`managed-cluster-self-healthcheck.spec.md`, PLAT-HLTH-06). When present,
+the API server SHALL store it on the matching `ManagedCluster` record's `health`
+field (PLAT-DATA-27) in the same transaction that updates `last_seen_at`, and
+SHALL surface it through `GET /managed_clusters` and `GET /managed_clusters/{id}`.
+
+Reporting the verdict SHALL NOT regress liveness or registration semantics. Every
+call SHALL still update `last_seen_at` (PLAT-CLUS-05) whether or not it carries a
+`health` object. A call that omits `health` (absent or `null`) SHALL be a no-op
+for the stored verdict and SHALL preserve it rather than clearing it, the same
+backward-compatible rule capabilities follow (PLAT-CLUS-07), so a mixed-version
+rolling upgrade never drops a cluster's verdict. The narrow registration response
+(`{ "cluster_id" }` only) SHALL be unchanged. A malformed `health` object SHALL
+be rejected with 400 atomically, changing neither the stored verdict nor
+`last_seen_at`.
+
+Only the registering control plane SHALL write `health`. Generic
+`POST /managed_clusters` and `PATCH /managed_clusters/{id}` requests SHALL NOT
+assign or modify it (PLAT-DATA-27).
+
+#### Scenario: PLAT-CLUS-16.01 -- Verdict stored and surfaced on the heartbeat
+
+- GIVEN a registered control plane that computed a self-check verdict
+- WHEN its next heartbeat carries the `health` object
+- THEN the verdict SHALL be stored on the `ManagedCluster` record
+- AND `GET /managed_clusters` SHALL surface it
+- AND `last_seen_at` SHALL be updated to the call time
+
+#### Scenario: PLAT-CLUS-16.02 -- Health-less heartbeat preserves the stored verdict
+
+- GIVEN a `ManagedCluster` that already stores a verdict
+- WHEN a heartbeat arrives with no `health` object
+- THEN the stored verdict SHALL remain unchanged
+- AND `last_seen_at` SHALL still be updated
+
+#### Scenario: PLAT-CLUS-16.03 -- Malformed verdict rejected atomically
+
+- GIVEN a registered control plane with a stored verdict
+- WHEN it sends a heartbeat whose `health` object is malformed
+- THEN the API SHALL return 400
+- AND the stored verdict and `last_seen_at` SHALL remain unchanged
+
 ---
 
 ## Design Decisions
@@ -584,6 +630,7 @@ release promotion.
 | 403 and 409 exit immediately; other failures retry with backoff | A 403 means the Keycloak role is absent and a 409 means an operator must remove a record; retrying either is pointless and delays operator awareness. Network or 5xx errors are transient; exponential backoff recovers automatically without operator intervention. |
 | `(oidc_subject, name)` upsert key | `oidc_subject` alone allows a control plane to change its human name between deployments. Requiring both prevents accidental name changes and makes conflicts explicit rather than silent. |
 | `last_seen_at` as passive liveness, not a status field | Keeps the control plane's self-reported liveness separate from the hub reconciler's view of cluster state. The `status` field remains the reconciler's domain. |
+| Self-check verdict carried on the heartbeat, not a new endpoint | The heartbeat already runs on a loop, authenticates the spoke, and writes only the spoke's own record. Carrying the readiness verdict there reuses that path and leaves the RBAC surface unchanged, consistent with the single-`/registration`-endpoint decision. A health-less heartbeat preserves the stored verdict so a rolling upgrade never drops it (`managed-cluster-self-healthcheck.spec.md`). |
 | No active health probing from the hub | Control planes call in; the hub does not need to reach out. Avoids hub-to-spoke credential management and works across network topologies where the hub cannot initiate connections to spokes. |
 | Role assigned by admin in production, pre-assigned in dev realms | The `managed-cluster-registrar` role is a privilege gate. A Keycloak admin must explicitly grant it before a production control plane can self-register, providing a human control point for fleet membership. Development realms are code-owned, so the grant ships with them. |
 | JWT-direct enforcement, not DB-synced | `managed-cluster-registrar` is not in `JWTSyncedRoles` because it should never be auto-assigned (unlike `gateway:creator`) and does not need a DB binding lifecycle. A live JWT claim check in `isAuthorized` is sufficient and avoids polluting the sync table with a role that applies to a narrow class of service accounts. |
