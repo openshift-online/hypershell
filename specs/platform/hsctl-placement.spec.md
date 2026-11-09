@@ -159,19 +159,23 @@ excluded labels are enforced at create time.
 
 ### Requirement: CLI-PLC-04 -- Help and Discovery
 
-The `hsctl create gateway` help SHALL document both creation shapes (pinned
-and late-bound), the repeat syntax for the selector flags, a region example
+The `hsctl create gateway` help SHALL document the late-bound placement
+surface: the repeat syntax for the selector flags, a region example
 (`--placement-selector region/<region>`), the `--dry-run` pre-check, and the
-awaiting-placement meaning of an empty `cluster_id`. The API-to-CLI mapping
-table in [`platform/data-model.spec.md`](../platform/data-model.spec.md)
-SHALL describe these flags as the CLI surface of the gateway create request.
+awaiting-placement meaning of an empty `cluster_id`. The pinned shape still
+exists and works, but its `--cluster-id` flag is hidden (CLI-PLC-05), so the
+help SHALL NOT advertise a `--cluster-id` pinned example. The awaiting-placement
+note describes the empty `cluster_id` FIELD on the created Gateway, not the flag,
+so it stays in the help. The API-to-CLI mapping table in
+[`platform/data-model.spec.md`](../platform/data-model.spec.md) SHALL describe
+these flags as the CLI surface of the gateway create request.
 
-#### Scenario: CLI-PLC-04.01 -- Help shows both shapes and the repeat syntax
+#### Scenario: CLI-PLC-04.01 -- Help shows the late-bound surface and the repeat syntax
 
 - WHEN the user runs `hsctl create gateway --help`
-- THEN the output SHALL show a pinned example using `--cluster-id`
-- AND a late-bound example repeating `--placement-selector`
+- THEN the output SHALL show a late-bound example repeating `--placement-selector`
 - AND a `--dry-run` example
+- AND the output SHALL NOT surface the hidden `--cluster-id` flag
 
 ### Requirement: CLI-PLC-05 -- Admin Identity Selector Namespace
 
@@ -189,9 +193,23 @@ recognize the `managed-cluster/` namespace as a syntactically valid selector so 
 The CLI SHALL NOT enforce the platform-admin entitlement or resolve the cluster
 name itself: the server's platform-admin gate (SEC-RBAC-28) and name resolution
 (PLAT-DATA-27) remain authoritative, and their 403 or 400 message SHALL be
-surfaced verbatim. The `--cluster-id` help SHALL note that `--cluster-id` pins any
-caller's Gateway to a cluster id, whereas `managed-cluster/<name>` is a
-platform-admin-only selector that targets a cluster by name.
+surfaced verbatim.
+
+`hsctl` SHALL hide the `--cluster-id` flag from `hsctl create gateway --help`
+(marked hidden, cobra `Hidden: true` semantics) while STILL accepting it and
+honoring the pinned `cluster_id` contract (PLAT-DATA-02) when a caller supplies it
+explicitly. Hiding the flag steers callers toward the `--placement-selector`
+surface, and makes single-cluster targeting by name the platform-admin
+`managed-cluster/<name>` selector rather than a pinned id. Hiding is a
+discoverability nudge, NOT an authorization change: `cluster_id` pinning stays open
+to any caller, through the API and through the hidden flag, exactly as before. The
+flag's behavior when supplied is unchanged, including its mutual exclusivity with
+the placement flags (CLI-PLC-01) and its `--dry-run` pre-check (CLI-PLC-03).
+
+> **Design decision (reviewer: squizzi).** `--cluster-id` is hidden-but-functional
+> in `hsctl`; `cluster_id` authorization is deliberately UNCHANGED and remains open
+> to all callers. This is a CLI help-visibility change only, not an enforcement
+> boundary.
 
 #### Scenario: CLI-PLC-05.01 -- Identity selector maps into the placement intent
 
