@@ -3,7 +3,7 @@
 **Date:** 2026-09-09
 **Status:** Draft
 **Ticket:** HYPERSHELL-326, HYPERSHELL-333
-**Related:** `security/rbac-enforcement.spec.md` (managed-cluster-registrar role), `platform/data-model.spec.md` (ManagedCluster entity, `health` field PLAT-DATA-27), `platform/control-plane.spec.md` (mandatory cluster identity, startup flow, gRPC transport security), `platform/hub-grpc-tls.spec.md` (hub-side TLS Route every control plane's `HYPERSHELL_GRPC_SERVER_ADDR` dials in production), `platform/managed-cluster-self-healthcheck.spec.md` (the on-cluster self-check verdict this heartbeat carries, PLAT-HLTH-06)
+**Related:** `security/rbac-enforcement.spec.md` (managed-cluster-registrar role), `platform/data-model.spec.md` (ManagedCluster entity, `health` field PLAT-DATA-27), `platform/control-plane.spec.md` (mandatory cluster identity, startup flow, gRPC transport security), `platform/hub-grpc-tls.spec.md` (hub-side TLS Route every control plane's `HYPERSHELL_GRPC_SERVER_ADDR` dials in production), `platform/managed-cluster-self-healthcheck.spec.md` (the on-cluster self-check verdict this heartbeat carries, PLAT-HLTH-05)
 
 ---
 
@@ -68,7 +68,7 @@ without an API-server code change.
 | `oidc_subject` | string | OIDC `sub` claim of the service account that registered this cluster. Set server-side; not writable via PATCH. Unique index with `name`. |
 | `last_seen_at` | timestamp | Updated on every `/registration` call. Null until first registration. |
 | `capabilities` | string set | Capability labels self-declared by the control plane and replaced on each registration call. Used by placement selectors. |
-| `health` | jsonb | The most recent on-cluster self-check verdict the control plane reports on the heartbeat (`managed-cluster-self-healthcheck.spec.md`, PLAT-HLTH-06). Stored verbatim; shape and ownership are defined by PLAT-DATA-27. Null until the first verdict is reported. |
+| `health` | jsonb | The most recent on-cluster self-check verdict the control plane reports on the heartbeat (`managed-cluster-self-healthcheck.spec.md`, PLAT-HLTH-05). Stored verbatim; shape and ownership are defined by PLAT-DATA-27. Null until the first verdict is reported. |
 
 `name` SHALL be unique across all `ManagedCluster` records, registered or not, so that discovery by name (seed scripts, e2e, operators) is unambiguous.
 
@@ -566,7 +566,7 @@ release promotion.
 
 `POST /managed_clusters/registration` SHALL accept an OPTIONAL `health` object in
 the request body carrying the control plane's most recent on-cluster self-check
-verdict (`managed-cluster-self-healthcheck.spec.md`, PLAT-HLTH-06). When present,
+verdict (`managed-cluster-self-healthcheck.spec.md`, PLAT-HLTH-05). When present,
 the API server SHALL store it on the matching `ManagedCluster` record's `health`
 field (PLAT-DATA-27) in the same transaction that updates `last_seen_at`, and
 SHALL surface it through `GET /managed_clusters` and `GET /managed_clusters/{id}`.
