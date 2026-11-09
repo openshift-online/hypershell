@@ -161,7 +161,7 @@ example the RoleBinding resync, the CITrust resync, the continuous health reconc
 and the orphaned-namespace garbage collector). Seed and resync SHALL be idempotent.
 
 **Verification:** Inspection -- refined and tested by CTRL-CORE-02, CTRL-CORE-07,
-CTRL-CORE-08, CTRL-CORE-16.
+CTRL-CORE-08, CTRL-CORE-20.
 
 #### Scenario: STD-RCON-05.01 -- Startup seeds resources created while down
 

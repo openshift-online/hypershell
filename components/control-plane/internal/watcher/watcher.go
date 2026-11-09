@@ -1139,7 +1139,7 @@ var _ ciTrustSeedSink = (*reconcileQueue[*pb.CITrust])(nil)
 // already use.
 //
 // CITrust is platform-scoped, so unlike seedRoleBindings the list carries no
-// cluster filter (CTRL-CORE-16); the per-trust reconcile skips a trust for another
+// cluster filter (CTRL-CORE-20); the per-trust reconcile skips a trust for another
 // cluster's gateway. Like seedRoleBindings it does NOT prune: a plain ListCITrusts
 // reports only surviving trusts, so an absence cannot be distinguished from a trust
 // the list simply did not return, and the stream remains the authority for

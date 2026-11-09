@@ -49,7 +49,7 @@ func (f *syncCIKeycloak) ensuredSpecs() []keycloak.CIFederationSpec {
 // reconciler calls from a fixed inventory and, in WatchCITrusts, sends the
 // subscription header and then blocks without ever sending an event. A pre-existing
 // trust can therefore reach the reconciler only through the startup seed or the
-// periodic resync, never through a live watch event -- exactly the gap CTRL-CORE-16
+// periodic resync, never through a live watch event -- exactly the gap CTRL-CORE-20
 // closes.
 type silentCITrustServer struct {
 	pb.UnimplementedCITrustServiceServer
@@ -115,7 +115,7 @@ func newCITrustSeedConn(t *testing.T, srv *silentCITrustServer) *grpc.ClientConn
 // pass realizes the same CIFederationSpec, and EnsureCIFederation is itself
 // idempotent (internal/keycloak/ci_federation.go). This runs the real WatchCITrusts
 // entry point so it fails if WatchCITrusts stops seeding or resyncing.
-// Verifies: CTRL-CORE-16.01, CTRL-CORE-16.02
+// Verifies: CTRL-CORE-20.01, CTRL-CORE-20.02
 func TestWatchCITrusts_StartupSeedsPreExistingTrust(t *testing.T) {
 	srv := &silentCITrustServer{
 		trusts:   []*pb.CITrust{githubTrust()},
@@ -195,7 +195,7 @@ func TestWatchCITrusts_StartupSeedsPreExistingTrust(t *testing.T) {
 // A trust whose referenced gateway belongs to another cluster must be skipped even
 // though the unfiltered platform-scoped list still returns it: the per-trust
 // reconcile, not the list, enforces ownership (CITrust carries no cluster filter).
-// Verifies: CTRL-CORE-16.03
+// Verifies: CTRL-CORE-20.03
 func TestWatchCITrusts_SeedSkipsForeignClusterTrust(t *testing.T) {
 	srv := &silentCITrustServer{
 		trusts:   []*pb.CITrust{githubTrust()},

@@ -1130,7 +1130,7 @@ sole mechanism for revoking roles a deleted binding no longer backs.
 - WHEN the RoleBinding seed or resync attempts to list
 - THEN it SHALL be refused rather than issue an unfiltered list (`managed-cluster-registration.spec.md`)
 
-### Requirement: CTRL-CORE-16 -- CI Trust Resync
+### Requirement: CTRL-CORE-20 -- CI Trust Resync
 
 The realization of a `CITrust` SHALL NOT depend solely on a single long-lived
 `WatchCITrusts` stream. The CITrust stream is almost always idle (it sends an
@@ -1166,7 +1166,7 @@ deletions. The resync restores missing realization; it SHALL NOT be the sole
 mechanism for revoking the subject mapper a deleted `CITrust` no longer backs
 (`ci-trust-ext-api.spec.md`, PLAT-CITR-05).
 
-#### Scenario: CTRL-CORE-16.01 -- Pre-existing trust realized on reconnect or resync
+#### Scenario: CTRL-CORE-20.01 -- Pre-existing trust realized on reconnect or resync
 
 - GIVEN a `CITrust` whose referenced `Gateway` is in scope for this control plane already exists in the API server
 - AND the `WatchCITrusts` stream never delivered its create event (it predated the reconciler or the event was missed)
@@ -1175,13 +1175,13 @@ mechanism for revoking the subject mapper a deleted `CITrust` no longer backs
 - AND SHALL realize its per-trust group, its gateway client-role binding, and its IdP advanced-group mapper (`ci-trust-ext-api.spec.md`, PLAT-CITR-02)
 - AND an exchanged token for the trust's subject SHALL carry the granted gateway role
 
-#### Scenario: CTRL-CORE-16.02 -- Resync is idempotent
+#### Scenario: CTRL-CORE-20.02 -- Resync is idempotent
 
 - GIVEN every in-scope `CITrust` is already realized in Keycloak
 - WHEN the periodic resync lists and reconciles them again
 - THEN the control plane SHALL make no change to any group, client-role binding, or IdP mapper
 
-#### Scenario: CTRL-CORE-16.03 -- Unfiltered list skips a trust for another cluster's gateway
+#### Scenario: CTRL-CORE-20.03 -- Unfiltered list skips a trust for another cluster's gateway
 
 - GIVEN the `ListCITrusts` seed returns a `CITrust` whose referenced `Gateway` is owned by a different cluster
 - WHEN the control plane reconciles the listed trust

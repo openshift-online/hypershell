@@ -80,7 +80,7 @@ func ctWithID(id string) *pb.CITrust {
 // seedCITrusts is the LIST half of the CI trust list-then-watch: it must enqueue
 // every listed trust as an update so a trust whose create event the watch missed --
 // or that predates the reconciler -- is realized.
-// Verifies: CTRL-CORE-16.01
+// Verifies: CTRL-CORE-20.01
 func TestSeedCITrusts_EnqueuesEveryTrust(t *testing.T) {
 	srv := &listCITrustServer{items: []*pb.CITrust{ctWithID("ct-1"), ctWithID("ct-2"), ctWithID("ct-3")}}
 	conn := newCITrustWatchConn(t, srv)
