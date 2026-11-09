@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -993,6 +994,7 @@ func TestRunStreamBackfillExcludesDiagnostics(t *testing.T) {
 	entries, _, err := testE2E(f).runEntries(
 		context.Background(),
 		"hub-00",
+		"hypershell",
 		"run-1",
 		time.Unix(0, 0),
 		time.Unix(0, 1000),
@@ -1008,6 +1010,55 @@ func TestRunStreamBackfillExcludesDiagnostics(t *testing.T) {
 		if ok && event.Event == e2eEventLog && event.StepID == diagnosticsStepID {
 			t.Fatalf("stream backfill included diagnostics: %+v", event)
 		}
+	}
+}
+
+func TestLiveQueryExcludesOnlyDiagnosticBodies(t *testing.T) {
+	source := testE2E(&fakeLoki{})
+	parts := strings.SplitN(source.broker.selector, " !~ ", 2)
+	if len(parts) != 2 {
+		t.Fatalf("live query has no diagnostic exclusion: %s", source.broker.selector)
+	}
+	exclusion := regexp.MustCompile(strings.Trim(parts[1], `"`))
+	for _, test := range []struct {
+		event   string
+		stepID  string
+		message string
+		exclude bool
+	}{
+		{e2eEventDiagnostic, "diagnostics", "structured body", true},
+		{e2eEventLog, "diagnostics", "legacy body", true},
+		{e2eEventLog, "failure-diagnostics", "legacy body", true},
+		{e2eEventLog, "cleanup", "DIAG All pods\nbody", true},
+		{e2eEventStepStarted, "diagnostics", "", false},
+		{e2eEventStepFinished, "diagnostics", "", false},
+		{e2eEventLog, "diagnostics-extra", "ordinary output", false},
+		{e2eEventRunFinished, "cleanup", "DIAG collection failed", false},
+	} {
+		line := viaQLine(t, ev(test.event, 1, map[string]any{"stepId": test.stepID, "message": test.message}))
+		if excluded := exclusion.MatchString(line); excluded != test.exclude {
+			t.Errorf("event=%s step=%s excluded=%v, want %v", test.event, test.stepID, excluded, test.exclude)
+		}
+	}
+}
+
+func TestReduceRunsKeepsNamespaceCollisionsSeparate(t *testing.T) {
+	entries := []LokiEntry{
+		{Line: viaQLine(t, ev(e2eEventRunStarted, 1, nil))},
+		{Line: viaQLine(t, ev(e2eEventRunFinished, 2, map[string]any{"outcome": "passed"}))},
+		{Line: viaQLine(t, ev(e2eEventRunStarted, 1, map[string]any{"namespace": "another-namespace"}))},
+		{Line: viaQLine(t, ev(e2eEventRunFinished, 2, map[string]any{"namespace": "another-namespace", "outcome": "failed"}))},
+	}
+	runs := reduceRunsForTenant("hub-00", entries)
+	if len(runs) != 2 {
+		t.Fatalf("reduced %d runs, want two independent namespace-scoped runs", len(runs))
+	}
+	verdicts := map[string]string{}
+	for _, run := range runs {
+		verdicts[run.Namespace] = run.Verdict
+	}
+	if verdicts["hypershell"] != verdictPassed || verdicts["another-namespace"] != verdictFailed {
+		t.Fatalf("run verdicts crossed namespaces: %+v", verdicts)
 	}
 }
 
@@ -1227,5 +1278,175 @@ func TestE2EBundleEnrichment(t *testing.T) {
 		if revision != "hydrated-sha" {
 			t.Fatalf("resolved wrong revision: %s", revision)
 		}
+	}
+}
+
+// Verifies: E2E-LOG-27
+func TestRunDetailDoesNotQueryDiagnosticsAndKeepsDiagnosticsStepState(t *testing.T) {
+	f := &stepFilterLoki{
+		lifecycle: []LokiEntry{
+			{Line: viaQLine(t, ev("run_started", 1, map[string]any{"plannedSteps": []any{
+				map[string]any{"stepId": "setup", "name": "suite-setup"},
+				map[string]any{"stepId": "cleanup", "name": "suite-teardown"},
+			}}))},
+			{Line: viaQLine(t, ev("step_started", 2, map[string]any{"stepId": "diagnostics", "name": "failure-diagnostics"}))},
+			{Line: viaQLine(t, ev("step_finished", 3, map[string]any{"stepId": "diagnostics", "name": "failure-diagnostics", "outcome": "passed"}))},
+			{Line: viaQLine(t, ev("run_finished", 4, map[string]any{"outcome": "failed"}))},
+		},
+		allLogs: []LokiEntry{
+			{TimestampNs: 300, Line: viaQLine(t, ev("diagnostic", 3, map[string]any{
+				"stepId":   "diagnostics",
+				"title":    "All pods",
+				"severity": "warn",
+				"chunk":    1,
+				"message":  "hypershell/api-0 phase=Pending",
+			}))},
+		},
+	}
+
+	source := testE2E(f)
+	detail, err := source.RunDetail(context.Background(), "hub-00/hypershell/run-1")
+	if err != nil {
+		t.Fatalf("RunDetail: %v", err)
+	}
+	if f.logQueries != 0 {
+		t.Fatalf("RunDetail must not query non-lifecycle/diagnostics stream, got %d log/diagnostics queries (%q)", f.logQueries, f.lastLogQ)
+	}
+	var diagStep *E2EStep
+	for i := range detail.Steps {
+		if detail.Steps[i].StepID == "diagnostics" {
+			diagStep = &detail.Steps[i]
+			break
+		}
+	}
+	if diagStep == nil || diagStep.State != stepStatePassed {
+		t.Fatalf("expected diagnostics step with state=passed in detail.Steps, got %#v (steps=%#v)", diagStep, detail.Steps)
+	}
+}
+
+// Verifies: E2E-LOG-27
+func TestRunDiagnosticsExposesStructuredAndLegacyDiagnosticsLazily(t *testing.T) {
+	chunk1 := ev("diagnostic", 3, map[string]any{
+		"stepId":   "diagnostics",
+		"title":    "All pods",
+		"severity": "warn",
+		"chunk":    1,
+		"message":  "hypershell/api-0 phase=Pending\n",
+	})
+	chunk2 := ev("diagnostic", 4, map[string]any{
+		"stepId":   "diagnostics",
+		"title":    "All pods",
+		"severity": "warn",
+		"chunk":    2,
+		"message":  "hypershell/worker-0 phase=Running",
+	})
+	dupDiagLog := ev("log", 5, map[string]any{
+		"stepId":  "diagnostics",
+		"message": "DIAG All pods\ntruncated log copy that should be deduplicated in favor of structured diagnostic chunks",
+	})
+	legacyOnlyDiagLog := ev("log", 6, map[string]any{
+		"stepId":  "diagnostics",
+		"message": "DIAG Platform events\nWarning FailedScheduling 0/3 nodes are available",
+	})
+	normalLog := ev("log", 2, map[string]any{
+		"stepId":  "deploy",
+		"message": "waiting for deployment rollout",
+	})
+
+	loki := &fakeLoki{history: map[string][]LokiEntry{"hub-00": {
+		{Line: viaQLine(t, ev("run_started", 1, nil))},
+		{Line: viaQLine(t, normalLog)},
+		{Line: viaQLine(t, chunk1)},
+		{Line: viaQLine(t, chunk2)},
+		{Line: viaQLine(t, dupDiagLog)},
+		{Line: viaQLine(t, legacyOnlyDiagLog)},
+		{Line: viaQLine(t, ev("run_finished", 7, map[string]any{
+			"status": "failed",
+		}))},
+	}}}
+
+	source := testE2E(loki)
+	payload, err := source.RunDiagnostics(context.Background(), "hub-00/hypershell/run-1")
+	if err != nil {
+		t.Fatalf("RunDiagnostics: %v", err)
+	}
+	if len(payload.Diagnostics) != 2 {
+		t.Fatalf("expected 2 diagnostic sections, got %#v", payload.Diagnostics)
+	}
+	if payload.Diagnostics[0].Title != "All pods" ||
+		payload.Diagnostics[0].Severity != "warn" ||
+		payload.Diagnostics[0].Body != "hypershell/api-0 phase=Pending\nhypershell/worker-0 phase=Running" {
+		t.Errorf("unexpected reassembled structured diagnostic: %#v", payload.Diagnostics[0])
+	}
+	if payload.Diagnostics[1].Title != "Platform events" ||
+		payload.Diagnostics[1].Severity != "warn" ||
+		payload.Diagnostics[1].Body != "Warning FailedScheduling 0/3 nodes are available" {
+		t.Errorf("unexpected legacy DIAG diagnostic: %#v", payload.Diagnostics[1])
+	}
+
+	// Empty run returns non-nil empty slice.
+	emptySource := testE2E(&fakeLoki{history: map[string][]LokiEntry{"hub-00": {}}})
+	emptyPayload, err := emptySource.RunDiagnostics(context.Background(), "hub-00/hypershell/run-1")
+	if err != nil {
+		t.Fatalf("RunDiagnostics empty: %v", err)
+	}
+	if emptyPayload.Diagnostics == nil || len(emptyPayload.Diagnostics) != 0 {
+		t.Fatalf("expected non-nil empty diagnostics slice, got %#v", emptyPayload.Diagnostics)
+	}
+
+	// Disallowed tenant returns ErrRunNotFound.
+	if _, err := emptySource.RunDiagnostics(context.Background(), "other-tenant/hypershell/run-1"); !errors.Is(err, ErrRunNotFound) {
+		t.Fatalf("expected ErrRunNotFound for unknown tenant, got %v", err)
+	}
+
+	// Backend failure returns ErrLogBackendUnavailable without leaking raw error.
+	errSource := testE2E(&fakeLoki{queryErr: errors.New("loki.internal:3100 boom")})
+	if _, err := errSource.RunDiagnostics(context.Background(), "hub-00/hypershell/run-1"); !errors.Is(err, ErrLogBackendUnavailable) {
+		t.Fatalf("expected ErrLogBackendUnavailable, got %v", err)
+	}
+}
+
+func TestRunLogsRunWideLifecycleBoundedWindow(t *testing.T) {
+	const (
+		runStart = "2026-10-15T10:00:00Z"
+		runEnd   = "2026-10-15T10:05:00Z"
+	)
+	margin := time.Minute
+	f := &stepFilterLoki{
+		lifecycle: []LokiEntry{
+			{Line: viaQLine(t, ev("run_started", 1, map[string]any{"timestamp": runStart}))},
+			{Line: viaQLine(t, ev("step_started", 2, map[string]any{"stepId": "alpha", "name": "alpha", "timestamp": runStart}))},
+			{Line: viaQLine(t, ev("step_finished", 3, map[string]any{"stepId": "alpha", "name": "alpha", "outcome": "passed", "timestamp": runEnd}))},
+			{Line: viaQLine(t, ev("run_finished", 4, map[string]any{"outcome": "passed", "timestamp": runEnd}))},
+		},
+		allLogs: []LokiEntry{
+			stepLogEntry(t, 13, mustNanos(t, "2026-10-15T10:03:00Z"), "alpha", "a3"),
+			stepLogEntry(t, 12, mustNanos(t, "2026-10-15T10:02:00Z"), "alpha", "a2"),
+			stepLogEntry(t, 11, mustNanos(t, "2026-10-15T10:01:00Z"), "alpha", "a1"),
+		},
+	}
+	e := testE2EWithMargin(f, margin)
+
+	first, err := e.RunLogs(context.Background(), "hub-00/hypershell/run-1", "", "", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantLower := time.Unix(0, mustNanos(t, runStart)).Add(-margin)
+	wantUpper := time.Unix(0, mustNanos(t, runEnd)).Add(margin)
+	if !f.lastStart.Equal(wantLower) {
+		t.Errorf("first page start = %v, want run start minus margin %v", f.lastStart.UTC(), wantLower.UTC())
+	}
+	if !f.lastEnd.Equal(wantUpper) {
+		t.Errorf("first page end = %v, want run end plus margin %v", f.lastEnd.UTC(), wantUpper.UTC())
+	}
+	if !first.HasMore || first.NextCursor == "" {
+		t.Fatalf("expected second page cursor: %+v", first)
+	}
+
+	if _, err := e.RunLogs(context.Background(), "hub-00/hypershell/run-1", "", first.NextCursor, 2); err != nil {
+		t.Fatal(err)
+	}
+	if !f.lastStart.Equal(wantLower) {
+		t.Errorf("second page start moved to %v, want stable %v", f.lastStart.UTC(), wantLower.UTC())
 	}
 }

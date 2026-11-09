@@ -6,12 +6,17 @@ import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
 import type { AgentSdlcData } from "../../domain/agent-sdlc";
 import type { SdlcAgentsData } from "../../domain/sdlc-agents";
-import type { E2eRunDetail, E2eRunsData } from "../../domain/e2e-run";
+import type {
+  E2eDiagnosticsData,
+  E2eRunDetail,
+  E2eRunsData,
+} from "../../domain/e2e-run";
 import type { FleetData } from "../../domain/fleet";
 import type { Plane } from "../../domain/plane";
 import type { PromotionData } from "../../domain/promotion";
 import type { InstancesData, TopologyData } from "../../application/ports";
 import {
+  getE2eDiagnostics,
   getE2eRun,
   getE2eRuns,
   getFleet,
@@ -129,5 +134,23 @@ export function useE2eRun(
     // Only fetch a detail once a run is selected.
     enabled: id !== null,
     refetchInterval: REFETCH_MS.e2eRun,
+  });
+}
+
+export function useE2eDiagnostics(
+  id: string | null,
+  expanded: boolean,
+): UseQueryResult<Plane<E2eDiagnosticsData>> {
+  const api = useFleetApi();
+  const observability = useObservability();
+  return useQuery({
+    queryKey: queryKeys.e2eDiagnostics(id ?? ""),
+    queryFn: ({ signal }) =>
+      getE2eDiagnostics(api, id ?? "", signal, observability),
+    // Only fetch diagnostics once a run is selected and the section is expanded.
+    enabled: id !== null && expanded,
+    staleTime: 30_000,
+    refetchInterval: expanded ? 30_000 : false,
+    retry: false,
   });
 }

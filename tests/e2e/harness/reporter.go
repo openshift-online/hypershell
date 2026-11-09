@@ -24,6 +24,7 @@ const (
 	eventStepStarted  = "step_started"
 	eventStepFinished = "step_finished"
 	eventLog          = "log"
+	eventDiagnostic   = "diagnostic"
 	eventRunFinished  = "run_finished"
 )
 
@@ -90,6 +91,9 @@ type event struct {
 	Timestamp      string        `json:"timestamp"`
 	StepID         string        `json:"stepId,omitempty"`
 	Name           string        `json:"name,omitempty"`
+	Title          string        `json:"title,omitempty"`
+	Severity       string        `json:"severity,omitempty"`
+	Chunk          int           `json:"chunk,omitempty"`
 	Outcome        string        `json:"outcome,omitempty"`
 	DurationMs     *int64        `json:"durationMs,omitempty"`
 	Message        string        `json:"message,omitempty"`
@@ -165,6 +169,60 @@ func (r *Reporter) Log(stepID, message string) {
 	}
 	body, truncated := boundAndRedact(message)
 	r.emit(event{Event: eventLog, StepID: stepID, Message: body, Truncated: truncated})
+}
+
+const (
+	maxDiagnosticChunkSize = 2400
+	maxDiagnosticChunks    = 16
+)
+
+// Diagnostic emits a redacted failure-diagnostics section as one or more
+// PIPE_BUF-bounded diagnostic records keyed by title and chunk index so the
+// BFF can reassemble multi-kilobyte sections without truncating at a single
+// log line's budget.
+func (r *Reporter) Diagnostic(stepID, title, body, severity string) {
+	if r == nil {
+		return
+	}
+	title = strings.TrimSpace(redact(title))
+	safeBody := strings.TrimRight(redact(body), "\n")
+	if title == "" || strings.TrimSpace(safeBody) == "" {
+		return
+	}
+	chunks := splitUTF8Chunks(safeBody, maxDiagnosticChunkSize, maxDiagnosticChunks)
+	for i, chunk := range chunks {
+		r.emit(event{
+			Event:    eventDiagnostic,
+			StepID:   stepID,
+			Title:    title,
+			Severity: severity,
+			Chunk:    i + 1,
+			Message:  chunk,
+		})
+	}
+}
+
+func splitUTF8Chunks(s string, chunkSize, maxChunks int) []string {
+	var out []string
+	remaining := s
+	for len(remaining) > 0 && len(out) < maxChunks {
+		cut := len(remaining)
+		encodedSize := 0
+		for offset, character := range remaining {
+			encoded, _ := json.Marshal(string(character))
+			encodedSize += len(encoded) - 2
+			if encodedSize > chunkSize && offset > 0 {
+				cut = offset
+				break
+			}
+		}
+		out = append(out, remaining[:cut])
+		remaining = remaining[cut:]
+	}
+	if len(remaining) > 0 && len(out) > 0 {
+		out[len(out)-1] = fmt.Sprintf("%s\n...[truncated %d bytes]", out[len(out)-1], len(remaining))
+	}
+	return out
 }
 
 // RunFinished emits the terminal run_finished event. It must be called only

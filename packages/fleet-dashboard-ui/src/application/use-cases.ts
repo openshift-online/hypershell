@@ -3,7 +3,11 @@
 // live - keeping that logic out of both adapters and components.
 
 import type { AgentSdlcData } from "../domain/agent-sdlc";
-import type { E2eRunDetail, E2eRunsData } from "../domain/e2e-run";
+import type {
+  E2eDiagnosticsData,
+  E2eRunDetail,
+  E2eRunsData,
+} from "../domain/e2e-run";
 import type { FleetData } from "../domain/fleet";
 import type { Plane } from "../domain/plane";
 import type { PromotionData } from "../domain/promotion";
@@ -109,6 +113,35 @@ export async function getE2eRun(
   } catch (error) {
     observability.publishE2eWorkflow(
       e2eWorkflow("e2e.run.load", signal?.aborted ? "cancelled" : "failed"),
+    );
+    throw error;
+  }
+}
+
+export async function getE2eDiagnostics(
+  api: FleetApi,
+  id: string,
+  signal?: AbortSignal,
+  observability: ObservabilityPort = noopObservability,
+): Promise<Plane<E2eDiagnosticsData>> {
+  observability.publishE2eWorkflow(
+    e2eWorkflow("e2e.diagnostics.load", "started"),
+  );
+  try {
+    const plane = await api.getE2eDiagnostics(id, signal);
+    observability.publishE2eWorkflow(
+      e2eWorkflow(
+        "e2e.diagnostics.load",
+        plane.stale || plane.error ? "failed" : "succeeded",
+      ),
+    );
+    return plane;
+  } catch (error) {
+    observability.publishE2eWorkflow(
+      e2eWorkflow(
+        "e2e.diagnostics.load",
+        signal?.aborted ? "cancelled" : "failed",
+      ),
     );
     throw error;
   }

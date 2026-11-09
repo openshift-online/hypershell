@@ -5,6 +5,7 @@
 import type { AgentSdlcData } from "../domain/agent-sdlc";
 import type { SdlcAgentsData } from "../domain/sdlc-agents";
 import type {
+  E2eDiagnosticsData,
   E2eLogLine,
   E2eLogPage,
   E2eRunDetail,
@@ -66,6 +67,14 @@ export interface FleetApi {
   getSdlcAgents(signal?: AbortSignal): Promise<Plane<SdlcAgentsData>>;
   getE2eRuns(signal?: AbortSignal): Promise<Plane<E2eRunsData>>;
   getE2eRun(id: string, signal?: AbortSignal): Promise<Plane<E2eRunDetail>>;
+  /**
+   * Lazily fetch the failure-diagnostics sections for a run (DIAGNOSTICS_CONTRACT).
+   * Only called when the user expands the "Show Diagnostics" section.
+   */
+  getE2eDiagnostics(
+    id: string,
+    signal?: AbortSignal,
+  ): Promise<Plane<E2eDiagnosticsData>>;
   /**
    * Read one bounded page of a run's raw-log history (E2E-LOG-19). `before` is the
    * nanosecond cursor of the oldest line already held (omit for the newest page);

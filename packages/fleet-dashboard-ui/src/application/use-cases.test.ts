@@ -13,6 +13,7 @@ import type {
   SdlcWorkflowOutcome,
 } from "./observability";
 import {
+  getE2eDiagnostics,
   getE2eRun,
   getE2eRuns,
   getFleet,
@@ -88,6 +89,7 @@ function fakeApi(overrides: Partial<FleetApi> = {}): FleetApi {
     getSdlcAgents: vi.fn().mockResolvedValue(plane(sdlcAgents)),
     getE2eRuns: vi.fn().mockResolvedValue(plane(e2eRuns)),
     getE2eRun: vi.fn().mockResolvedValue(plane(e2eRun)),
+    getE2eDiagnostics: vi.fn().mockResolvedValue(plane({ diagnostics: [] })),
     getE2eRunLogs: vi
       .fn()
       .mockResolvedValue(
@@ -214,9 +216,14 @@ describe("getE2eRuns / getE2eRun observability", () => {
     const controller = new AbortController();
     await getE2eRuns(api, controller.signal);
     await getE2eRun(api, "t/n/r", controller.signal);
+    await getE2eDiagnostics(api, "t/n/r", controller.signal);
     /* eslint-disable @typescript-eslint/unbound-method -- asserting on vi.fn() mocks */
     expect(api.getE2eRuns).toHaveBeenCalledWith(controller.signal);
     expect(api.getE2eRun).toHaveBeenCalledWith("t/n/r", controller.signal);
+    expect(api.getE2eDiagnostics).toHaveBeenCalledWith(
+      "t/n/r",
+      controller.signal,
+    );
     /* eslint-enable @typescript-eslint/unbound-method */
   });
 
@@ -229,6 +236,57 @@ describe("getE2eRuns / getE2eRun observability", () => {
       { name: "e2e.runs.load", outcome: "succeeded" },
       { name: "e2e.run.load", outcome: "started" },
       { name: "e2e.run.load", outcome: "succeeded" },
+    ]);
+  });
+
+  it("publishes diagnostic load success, degraded, failure and cancellation outcomes", async () => {
+    const { port, e2e } = recordingObservability();
+    await getE2eDiagnostics(fakeApi(), "t/n/r", undefined, port);
+    await getE2eDiagnostics(
+      fakeApi({
+        getE2eDiagnostics: vi.fn().mockResolvedValue({
+          ...plane({ diagnostics: [] }),
+          stale: true,
+          error: "unavailable",
+        }),
+      }),
+      "t/n/r",
+      undefined,
+      port,
+    );
+    await expect(
+      getE2eDiagnostics(
+        fakeApi({
+          getE2eDiagnostics: vi
+            .fn()
+            .mockRejectedValue(new Error("unavailable")),
+        }),
+        "t/n/r",
+        undefined,
+        port,
+      ),
+    ).rejects.toThrow("unavailable");
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      getE2eDiagnostics(
+        fakeApi({
+          getE2eDiagnostics: vi.fn().mockRejectedValue(new Error("aborted")),
+        }),
+        "t/n/r",
+        controller.signal,
+        port,
+      ),
+    ).rejects.toThrow("aborted");
+    expect(e2e).toEqual([
+      { name: "e2e.diagnostics.load", outcome: "started" },
+      { name: "e2e.diagnostics.load", outcome: "succeeded" },
+      { name: "e2e.diagnostics.load", outcome: "started" },
+      { name: "e2e.diagnostics.load", outcome: "failed" },
+      { name: "e2e.diagnostics.load", outcome: "started" },
+      { name: "e2e.diagnostics.load", outcome: "failed" },
+      { name: "e2e.diagnostics.load", outcome: "started" },
+      { name: "e2e.diagnostics.load", outcome: "cancelled" },
     ]);
   });
 

@@ -108,14 +108,44 @@ export interface E2eLogLine {
   readonly truncated: boolean;
 }
 
-/** The concise terminal cause rendered separately from a run's raw logs. */
+/** Concise failure summary carried on a failed run's detail (E2E-LOG-28). */
 export interface E2eFailureSummary {
   readonly stepId: string;
   readonly message: string;
 }
 
+/** Severity level for a structured failure diagnostic section. */
+export type E2eDiagnosticSeverity = "info" | "warn" | "error";
+
+/** One failure-diagnostics section attached to a run detail (DIAGNOSTICS_CONTRACT). */
+export interface E2eDiagnosticSection {
+  readonly title: string;
+  readonly body: string;
+  readonly severity?: E2eDiagnosticSeverity;
+}
+
+/** Lazy failure-diagnostics payload returned by GET /api/e2e/diagnostics?run=<id>. */
+export interface E2eDiagnosticsData {
+  readonly diagnostics: readonly E2eDiagnosticSection[];
+}
+
+/** One run attempt within a grouped (bundle + target + revision) series. */
+export interface E2eRunAttemptItem {
+  readonly run: E2eRunSummary;
+  /** 1-based chronological attempt index (oldest = 1, latest = N). */
+  readonly attemptNumber: number;
+}
+
+/** A group of run attempts for the same (bundle + target + revision), latest-first. */
+export interface E2eRunAttemptGroup {
+  readonly key: string;
+  readonly latest: E2eRunAttemptItem;
+  readonly attempts: readonly E2eRunAttemptItem[];
+}
+
 /** A single run's detail: summary plus ordered steps and bounded log history. */
 export interface E2eRunDetail extends E2eRunSummary {
+  readonly diagnostics?: readonly E2eDiagnosticSection[];
   readonly plannedSteps: readonly E2ePlannedStep[];
   readonly steps: readonly E2eStep[];
   readonly failure: E2eFailureSummary | null;
@@ -246,6 +276,7 @@ function emptyDetail(): E2eRunDetail {
     reportingComplete: false,
     hasStructuredSteps: false,
     stepCount: 0,
+    diagnostics: [],
     plannedSteps: [],
     steps: [],
     failure: null,
@@ -272,6 +303,7 @@ interface Mutable {
   reportingComplete: boolean;
   hasStructuredSteps: boolean;
   stepCount: number;
+  diagnostics: readonly E2eDiagnosticSection[];
   plannedSteps: readonly E2ePlannedStep[];
   steps: readonly E2eStep[];
   failure: E2eFailureSummary | null;
@@ -306,6 +338,130 @@ function stepStateFromOutcome(outcome: E2eOutcome | null): E2eStepState {
 
 function verdictFromOutcome(outcome: E2eOutcome | null): E2eVerdict {
   return outcome === VERDICT_PASSED ? VERDICT_PASSED : VERDICT_FAILED;
+}
+
+/**
+ * Extract the human-readable `Messages:` summary from a testify assertion failure
+ * (multiline or pipe-collapsed), falling back to the trimmed raw text when no
+ * `Messages:` section is present.
+ */
+export function extractFailureMessage(raw: string): string {
+  const trimmed = raw.trim();
+  if (trimmed === "") {
+    return "";
+  }
+
+  // 1. Explicit `Messages:` label (multiline testify output or pipe-separated).
+  const messagesMatches = [
+    ...trimmed.matchAll(/(?:^|[\r\n|])\s*Messages\s*:\s*([\s\S]*)$/gi),
+  ];
+  if (messagesMatches.length > 0) {
+    const tail = messagesMatches[messagesMatches.length - 1]?.[1] ?? "";
+    const cleanedLines: string[] = [];
+    for (const part of tail.split(/\r?\n|\|/)) {
+      const line = part.trim();
+      if (line === "") {
+        continue;
+      }
+      if (/^(?:Error Trace|Error|Test)\s*:/i.test(line)) {
+        break;
+      }
+      cleanedLines.push(line);
+    }
+    if (cleanedLines.length > 0) {
+      return cleanedLines.join(" ");
+    }
+  }
+
+  // 2. Pipe-collapsed testify diff where the `Messages:` label was already stripped
+  // by the BFF's conciseFailure() helper, leaving the message as the trailing
+  // segment(s) after the diff/assertion lines.
+  if (trimmed.includes("|")) {
+    const segments = trimmed
+      .split("|")
+      .map((s) => s.trim())
+      .filter((s) => s !== "");
+    const hasTestifyMarker = segments.some((s) =>
+      /^(?:(?:Failed step:\s*\S+\s+)?(?:Not equal|equal|elements differ)\s*:|expected\s*:|actual\s*:|Diff\s*:|---\s*Expected|\+\+\+\s*Actual)/i.test(
+        s,
+      ),
+    );
+    if (hasTestifyMarker) {
+      const isDiffOrAssertionSegment = (s: string): boolean =>
+        /^(?:(?:Failed step:\s*\S+\s+)?(?:Not equal|equal|elements differ|expected|actual|Diff|Error|Error Trace|Test)\s*:|---\s*Expected|\+\+\+\s*Actual|@@\s*[-+]|[-+](?:[^\s]|$)|\.{3}$|\([A-Za-z0-9_.*[\]]+\))/i.test(
+          s,
+        );
+      let lastMarkerIndex = -1;
+      for (let i = 0; i < segments.length; i++) {
+        if (isDiffOrAssertionSegment(segments[i] ?? "")) {
+          lastMarkerIndex = i;
+        }
+      }
+      if (lastMarkerIndex >= 0 && lastMarkerIndex < segments.length - 1) {
+        const trailing = segments
+          .slice(lastMarkerIndex + 1)
+          .join(" ")
+          .trim();
+        if (trailing !== "") {
+          return trailing;
+        }
+      }
+    }
+  }
+
+  return trimmed;
+}
+
+/**
+ * Expand a pipe-collapsed testify failure (segments joined by " | ") back into
+ * its original multi-line form for display. Input that has no pipe separators
+ * (already multi-line, or a plain message) is returned trimmed and unchanged.
+ */
+export function expandFailureOutput(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed.includes("|")) {
+    return trimmed;
+  }
+  return trimmed
+    .split("|")
+    .map((segment) => segment.trim())
+    .filter((segment) => segment !== "")
+    .join("\n");
+}
+
+function derivedFailure(
+  verdict: E2eVerdict,
+  steps: readonly E2eStep[],
+  logs: readonly E2eLogLine[],
+): E2eFailureSummary | null {
+  if (verdict !== VERDICT_FAILED) {
+    return null;
+  }
+  const failedStep = steps.find((step) => step.state === STEP_FAILED);
+  const stepId = failedStep?.stepId ?? "";
+  let message = "";
+  if (stepId !== "") {
+    for (let i = logs.length - 1; i >= 0; i--) {
+      const line = logs[i];
+      if (line?.stepId === stepId && line.message.trim() !== "") {
+        message = line.message.trim();
+        break;
+      }
+    }
+  }
+  if (message === "") {
+    for (let i = logs.length - 1; i >= 0; i--) {
+      const line = logs[i];
+      if (line && line.message.trim() !== "") {
+        message = line.message.trim();
+        break;
+      }
+    }
+  }
+  if (stepId === "" && message === "") {
+    return null;
+  }
+  return { stepId, message };
 }
 
 /**
@@ -509,6 +665,7 @@ function fold(
   const steps = orderSteps(planned, stepOrder, stepById);
   return {
     ...d,
+    failure: d.failure ?? derivedFailure(d.verdict, steps, logs),
     plannedSteps: planned,
     steps,
     logs,
@@ -537,6 +694,7 @@ function toMutable(base: E2eRunDetail): Mutable {
     reportingComplete: base.reportingComplete,
     hasStructuredSteps: base.hasStructuredSteps,
     stepCount: base.stepCount,
+    diagnostics: base.diagnostics ?? [],
     plannedSteps: base.plannedSteps,
     steps: base.steps,
     failure: base.failure,
@@ -577,26 +735,179 @@ export function applyEvents(
 }
 
 /**
- * A run's wall-clock duration in milliseconds. Prefers the reported durationMs;
- * otherwise derives it from start/end, or from start to `nowMs` while still running.
- * Returns null when the start is unparseable.
+ * A run's wall-clock duration in milliseconds. Prefers a positive reported durationMs;
+ * when durationMs is null or 0 (for example when a failed run's summary omits or
+ * zeroes durationMs), derives it from start/end, step timestamps/durations, or
+ * from start to `nowMs` while still running. Returns null when the start is unparseable.
  */
 export function runDurationMs(
-  run: Pick<E2eRunSummary, "startedAt" | "endedAt" | "durationMs">,
+  run: Pick<E2eRunSummary, "startedAt" | "endedAt" | "durationMs"> & {
+    readonly steps?: readonly E2eStep[];
+    readonly reportingComplete?: boolean;
+  },
   nowMs: number,
 ): number | null {
-  if (run.durationMs !== null) {
+  if (run.durationMs !== null && run.durationMs > 0) {
     return run.durationMs;
   }
   const start = Date.parse(run.startedAt);
-  if (Number.isNaN(start)) {
-    return null;
+  const explicitEnd =
+    run.endedAt !== null ? Date.parse(run.endedAt) : Number.NaN;
+  if (
+    !Number.isNaN(start) &&
+    !Number.isNaN(explicitEnd) &&
+    explicitEnd > start
+  ) {
+    return explicitEnd - start;
   }
-  const end = run.endedAt !== null ? Date.parse(run.endedAt) : nowMs;
-  if (Number.isNaN(end)) {
-    return null;
+  if (
+    run.steps &&
+    run.steps.length > 0 &&
+    run.reportingComplete !== false &&
+    !run.steps.some((s) => s.state === "running")
+  ) {
+    let earliest = Number.isNaN(start) ? Number.POSITIVE_INFINITY : start;
+    let latest = !Number.isNaN(explicitEnd)
+      ? explicitEnd
+      : Number.NEGATIVE_INFINITY;
+    let summed = 0;
+    for (const step of run.steps) {
+      if (step.startedAt !== null) {
+        const s = Date.parse(step.startedAt);
+        if (!Number.isNaN(s) && s < earliest) {
+          earliest = s;
+        }
+      }
+      if (step.endedAt !== null) {
+        const e = Date.parse(step.endedAt);
+        if (!Number.isNaN(e) && e > latest) {
+          latest = e;
+        }
+      }
+      if (step.durationMs !== null && step.durationMs > 0) {
+        summed += step.durationMs;
+      }
+    }
+    if (
+      Number.isFinite(earliest) &&
+      Number.isFinite(latest) &&
+      latest > earliest
+    ) {
+      return latest - earliest;
+    }
+    if (summed > 0) {
+      return summed;
+    }
   }
-  return Math.max(end - start, 0);
+  const end =
+    run.endedAt !== null
+      ? explicitEnd
+      : !Number.isNaN(start)
+        ? nowMs
+        : Number.NaN;
+  if (!Number.isNaN(start) && !Number.isNaN(end) && end > start) {
+    return end - start;
+  }
+  if (run.durationMs !== null) {
+    return run.durationMs;
+  }
+  if (!Number.isNaN(start) && !Number.isNaN(end)) {
+    return Math.max(end - start, 0);
+  }
+  return null;
+}
+
+/**
+ * A step's wall-clock duration in milliseconds. Prefers a positive reported
+ * `durationMs`; when `durationMs` is null or 0 (for example when a step fails before
+ * or immediately upon its gate assertion), derives elapsed time from `startedAt` and
+ * `endedAt` (or `nowMs` while running), from the step's log timestamps, or from the
+ * preceding step's completion timestamp.
+ */
+export function stepDurationMs(
+  step: E2eStep,
+  nowMs: number,
+  steps?: readonly E2eStep[],
+  logs?: readonly E2eLogLine[],
+  runStartedAt?: string | null,
+): number | null {
+  if (step.durationMs !== null && step.durationMs > 0) {
+    return step.durationMs;
+  }
+  const start =
+    step.startedAt !== null ? Date.parse(step.startedAt) : Number.NaN;
+  const end =
+    step.endedAt !== null
+      ? Date.parse(step.endedAt)
+      : step.state === STEP_RUNNING
+        ? nowMs
+        : Number.NaN;
+  if (!Number.isNaN(start) && !Number.isNaN(end) && end > start) {
+    return end - start;
+  }
+  if (logs && logs.length > 0) {
+    let minLog = Number.NaN;
+    let maxLog = Number.NaN;
+    for (const line of logs) {
+      if (line.stepId !== step.stepId) {
+        continue;
+      }
+      const t = Date.parse(line.timestamp);
+      if (Number.isNaN(t)) {
+        continue;
+      }
+      if (Number.isNaN(minLog) || t < minLog) {
+        minLog = t;
+      }
+      if (Number.isNaN(maxLog) || t > maxLog) {
+        maxLog = t;
+      }
+    }
+    const effectiveStart = !Number.isNaN(start)
+      ? Math.min(start, Number.isNaN(minLog) ? start : minLog)
+      : minLog;
+    const effectiveEnd = !Number.isNaN(end)
+      ? Math.max(end, Number.isNaN(maxLog) ? end : maxLog)
+      : maxLog;
+    if (
+      !Number.isNaN(effectiveStart) &&
+      !Number.isNaN(effectiveEnd) &&
+      effectiveEnd > effectiveStart
+    ) {
+      return effectiveEnd - effectiveStart;
+    }
+  }
+  if (step.state === STEP_FAILED && !Number.isNaN(end)) {
+    let foundPrev = false;
+    if (steps) {
+      const idx = steps.findIndex((s) => s.stepId === step.stepId);
+      for (let i = idx - 1; i >= 0; i--) {
+        const prev = steps[i];
+        const prevIso = prev?.endedAt ?? prev?.startedAt ?? null;
+        if (prevIso) {
+          foundPrev = true;
+          const prevEnd = Date.parse(prevIso);
+          if (!Number.isNaN(prevEnd) && end > prevEnd) {
+            return end - prevEnd;
+          }
+          break;
+        }
+      }
+    }
+    if (!foundPrev && runStartedAt) {
+      const runStart = Date.parse(runStartedAt);
+      if (!Number.isNaN(runStart) && end > runStart) {
+        return end - runStart;
+      }
+    }
+  }
+  if (step.durationMs !== null) {
+    return step.durationMs;
+  }
+  if (!Number.isNaN(start) && !Number.isNaN(end)) {
+    return Math.max(end - start, 0);
+  }
+  return null;
 }
 
 /** Whole seconds elapsed from an ISO instant to `nowMs`; null when unparseable. */
@@ -634,6 +945,147 @@ export function logsForStep(
   stepId: string,
 ): readonly E2eLogLine[] {
   return logs.filter((l) => l.stepId === stepId);
+}
+
+/**
+ * Numeric rank for step state so sorting by status/failure orders steps from
+ * most actionable to least actionable: failed -> running -> passed -> skipped -> not-run.
+ */
+export function stepStateRank(state: E2eStepState): number {
+  switch (state) {
+    case "failed":
+      return 0;
+    case "running":
+      return 1;
+    case "passed":
+      return 2;
+    case "skipped":
+      return 3;
+    case "not-run":
+      return 4;
+  }
+}
+
+const PHASE_STEP_RE = /^p(\d+)(?:\.(\d+))?(?:$|[-_\s:])/i;
+
+function parseStepPhase(value: string): readonly [number, number] | null {
+  const m = PHASE_STEP_RE.exec(value.trim());
+  if (!m) {
+    return null;
+  }
+  const major = Number(m[1]);
+  const minor = m[2] !== undefined ? Number(m[2]) : 0;
+  return [major, minor];
+}
+
+/** Identify whether a step is the failure-diagnostics step (DIAGNOSTICS_CONTRACT). */
+export function isDiagnosticsStep(
+  step: Pick<E2eStep, "stepId" | "name">,
+): boolean {
+  const id = step.stepId.trim().toLowerCase();
+  const name = step.name.trim().toLowerCase();
+  return (
+    id === "diagnostics" ||
+    id === "failure-diagnostics" ||
+    name === "diagnostics" ||
+    name === "failure-diagnostics" ||
+    name === "failure diagnostics"
+  );
+}
+
+function classifyStepOrder(step: E2eStep): {
+  readonly category: number;
+  readonly phase: readonly [number, number] | null;
+} {
+  const id = step.stepId.trim().toLowerCase();
+  const name = step.name.trim().toLowerCase();
+  if (
+    id === "setup" ||
+    id === "suite-setup" ||
+    name === "setup" ||
+    name === "suite-setup"
+  ) {
+    return { category: 0, phase: null };
+  }
+  if (isDiagnosticsStep(step)) {
+    return { category: 3, phase: null };
+  }
+  if (
+    id === "cleanup" ||
+    id === "suite-teardown" ||
+    id === "teardown" ||
+    name === "cleanup" ||
+    name === "suite-teardown" ||
+    name === "teardown"
+  ) {
+    return { category: 4, phase: null };
+  }
+  const phase = parseStepPhase(step.stepId) ?? parseStepPhase(step.name);
+  if (phase) {
+    return { category: 1, phase };
+  }
+  return { category: 2, phase: null };
+}
+
+/**
+ * Order E2E steps in their canonical test-execution sequence:
+ * 1. Suite setup (`setup` / `suite-setup`)
+ * 2. Numbered phase steps (`P0.1`, `P0.2`, `P1.1`..`P1.5`, `P2.1`..`P2.11`, `P3.1`)
+ *    sorted numerically by (phase, subphase) so `P2.2` precedes `P2.10` and `P2.7`
+ *    precedes `P3.1` even when parallel subtests finish out of order or plannedSteps
+ *    lists phases non-monotonically.
+ * 3. Other steps in `plannedSteps` order (or `startedAt` order when `plannedSteps`
+ *    is absent, then original index).
+ * 4. Failure diagnostics (`diagnostics` / `failure-diagnostics`).
+ * 5. Suite teardown (`cleanup` / `suite-teardown`).
+ */
+export function orderStepsCanonical(
+  steps: readonly E2eStep[],
+  plannedSteps: readonly E2ePlannedStep[] = [],
+): readonly E2eStep[] {
+  const plannedIndex = new Map<string, number>();
+  plannedSteps.forEach((p, idx) => {
+    if (!plannedIndex.has(p.stepId)) {
+      plannedIndex.set(p.stepId, idx);
+    }
+  });
+
+  return steps
+    .map((step, index) => ({
+      step,
+      index,
+      meta: classifyStepOrder(step),
+      plannedIdx: plannedIndex.get(step.stepId),
+      startMs: step.startedAt ? Date.parse(step.startedAt) : Number.NaN,
+    }))
+    .sort((a, b) => {
+      if (a.meta.category !== b.meta.category) {
+        return a.meta.category - b.meta.category;
+      }
+      if (a.meta.phase && b.meta.phase) {
+        if (a.meta.phase[0] !== b.meta.phase[0]) {
+          return a.meta.phase[0] - b.meta.phase[0];
+        }
+        if (a.meta.phase[1] !== b.meta.phase[1]) {
+          return a.meta.phase[1] - b.meta.phase[1];
+        }
+      }
+      if (a.plannedIdx !== undefined && b.plannedIdx !== undefined) {
+        if (a.plannedIdx !== b.plannedIdx) {
+          return a.plannedIdx - b.plannedIdx;
+        }
+      } else if (a.plannedIdx !== undefined || b.plannedIdx !== undefined) {
+        return a.plannedIdx !== undefined ? -1 : 1;
+      } else if (
+        Number.isFinite(a.startMs) &&
+        Number.isFinite(b.startMs) &&
+        a.startMs !== b.startMs
+      ) {
+        return a.startMs - b.startMs;
+      }
+      return a.index - b.index;
+    })
+    .map((entry) => entry.step);
 }
 
 /** Never substitute a different revision or cluster's "latest" run for a gate.
@@ -681,4 +1133,62 @@ export function runBundle(
   if (matches.length !== 1) return null;
   const digest = matches[0]?.activeDigest;
   return digest ? (promotion?.releaseByDigest[digest] ?? null) : null;
+}
+
+/**
+ * Group runs sharing the same (bundle, target, revision) so multiple attempts of
+ * the same revision collapse under a single row with a 1-based attempt counter
+ * (latest attempt first, e.g. Attempt 3, Attempt 2, Attempt 1). Outer group order
+ * preserves the caller's sorted run order.
+ */
+export function groupRunAttempts(
+  runs: readonly E2eRunSummary[],
+  promotion?: PromotionData,
+): readonly E2eRunAttemptGroup[] {
+  const buckets = new Map<string, E2eRunSummary[]>();
+  const groupOrder: string[] = [];
+
+  for (const run of runs) {
+    const bundle = runBundle(run, promotion);
+    const bundleKey =
+      bundle?.digest ??
+      bundle?.version ??
+      run.bundle?.version ??
+      run.sourceRevision ??
+      "";
+    const targetKey = `${run.cluster}/${run.namespace}`;
+    const key = `${bundleKey}::${targetKey}::${run.revision}`;
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = [];
+      buckets.set(key, bucket);
+      groupOrder.push(key);
+    }
+    bucket.push(run);
+  }
+
+  const out: E2eRunAttemptGroup[] = [];
+  for (const key of groupOrder) {
+    const bucket = buckets.get(key);
+    if (!bucket || bucket.length === 0) {
+      continue;
+    }
+    const orderedNewestFirst = runsNewestFirst(bucket);
+    const total = orderedNewestFirst.length;
+    const attempts: E2eRunAttemptItem[] = orderedNewestFirst.map(
+      (run, idx) => ({
+        run,
+        attemptNumber: total - idx,
+      }),
+    );
+    const latest = attempts[0];
+    if (latest) {
+      out.push({
+        key,
+        latest,
+        attempts,
+      });
+    }
+  }
+  return out;
 }

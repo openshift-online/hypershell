@@ -502,10 +502,14 @@ overlap, and surface truncated history or dropped events.
 The e2e-run view SHALL publish typed workflow and dependency facts through the
 dashboard's fan-out observability port, consistent with the "domain probes for UI
 observability" convention and `specs/standards/ui/domain-observability.spec.md`.
-Loading recent runs and run detail SHALL publish a workflow probe with outcomes
+Loading recent runs, run detail, and lazy diagnostics SHALL publish a workflow probe with outcomes
 `started`, `succeeded`, `failed`, and `cancelled`; the live subscription SHALL
 publish connect, disconnect, reconnect, and dropped-entry facts. Production browser
 and BFF code SHALL NOT make raw console or direct telemetry calls.
+
+The diagnostics workflow is `e2e.diagnostics.load`. Each dependency invocation
+SHALL publish `started` and exactly one terminal outcome; a degraded snapshot
+SHALL report `failed`, and an aborted request SHALL report `cancelled`.
 
 #### Scenario: E2E-LOG-13.01 -- Stream lifecycle publishes facts
 
@@ -988,6 +992,49 @@ state.
 - GIVEN a page whose oldest entries all share the cursor's nanosecond so the backend reports a locally-limited boundary (E2E-LOG-19)
 - WHEN the pane renders that page
 - THEN it SHALL show the locally-limited history state, NOT end-of-history, and SHALL NOT keep requesting the same older page
+
+### Requirement: E2E-LOG-27 -- Lazy Failure Diagnostics Endpoint
+
+When the Go E2E suite collects failure diagnostics (E2E-CORE-27), the structured
+reporter SHALL emit redacted, `PIPE_BUF`-bounded diagnostic chunks (and legacy
+`DIAG <title>\n<body>` log sections). `GET /api/e2e/runs/{id}` SHALL NOT query Loki for
+diagnostic bodies; it SHALL retain the `diagnostics` step state (`passed` / `skipped` /
+`not-run` / `running`) in `steps` so the UI can enable or disable the diagnostics
+control without fetching bodies. `GET /api/e2e/diagnostics?run=<id>` SHALL be the only
+endpoint that queries the Loki diagnostics stream and SHALL reduce the entries into an
+ordered `diagnostics` array of `{ title, body, severity? }` sections. Whole-run raw-log
+pagination (`GET /api/e2e/logs` without `step`) SHALL bound its Loki time range to the
+run's lifecycle window plus the configured margin and exclude diagnostic payloads before
+Loki applies the page limit.
+
+Live SSE subscriptions SHALL exclude diagnostic bodies before Loki tail delivery
+while retaining the diagnostics step's lifecycle events. The diagnostics view
+SHALL fetch only while expanded, refresh at a bounded 30-second cadence while
+expanded, and reuse results for 30 seconds when reopened or remounted. A failed
+request or degraded snapshot SHALL show an unavailable state with Retry rather
+than claim that diagnostics were not collected. Severity labels SHALL be localized
+and use the dashboard's existing semantic status colors, not brand red for errors.
+
+#### Scenario: E2E-LOG-27.01 -- Lazy diagnostics endpoint exposes structured failure diagnostics
+
+- GIVEN a failed run that emitted failure-diagnostics sections
+- WHEN `GET /api/e2e/runs/{id}` is requested
+- THEN the response SHALL include the `diagnostics` step state in `steps` without querying Loki for diagnostic bodies
+- AND WHEN `GET /api/e2e/diagnostics?run=<id>` is requested
+- THEN the response SHALL include the reassembled `diagnostics` sections under `data.diagnostics`
+
+### Requirement: E2E-LOG-28 -- Concise Failure Summary on Failed Run Detail
+
+A failed run's detail (`E2ERunDetail` / `E2eFailureSummary`) SHALL carry the failed
+`stepId` and concise failure `message` extracted from the terminal failure record so
+the UI can display the failure summary header without printing raw assertion diffs
+or loading raw log pages.
+
+#### Scenario: E2E-LOG-28.01 -- Failed run detail carries failure summary
+
+- GIVEN a failed run whose terminal record identifies the failed step and failure message
+- WHEN the run detail is reduced
+- THEN the detail SHALL expose the failed `stepId` and concise `message` for the header alert
 
 ## Non-Goals
 

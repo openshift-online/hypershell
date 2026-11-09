@@ -6,6 +6,7 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite",
+    "dev:mock": "FD_DEV_MOCK=1 vite",
     "preview": "vite preview",
     "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test:run && pnpm run build",
     "format:check": "prettier --check .",

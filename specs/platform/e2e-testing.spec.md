@@ -489,6 +489,14 @@ log.
 
 When structured reporting is enabled, the event stream SHALL describe the full run lifecycle with these event types: `run_started` (including the planned set of steps), `step_started`, `step_finished` (carrying the outcome `passed`/`failed`/`skipped` and a duration), `log` (carrying a message and, where attributable, the owning `stepId`), and `run_finished` (carrying the overall `passed`/`failed` verdict and a duration). When an assertion failure is captured, a failed `run_finished` SHALL also carry the first failed step's `stepId` and a concise, redacted failure `message`, so a consumer can present the cause independently of the raw diagnostic stream. Failure diagnostics SHALL use their own conditional `diagnostics` step and log scope rather than the `cleanup` step. Step records SHALL carry the canonical step id (`P1.1`, `P2.3`, ...) and slug. Events SHALL account for setup and cleanup work (not only the numbered phase steps), for fail-fast steps that are never reached, for mode-skipped steps, for assertion failures, for `panic`/`recover`, for `runtime.Goexit`/`t.Fatal`/`t.Skip`, for suite timeout, and for context cancellation.
 
+Failure diagnostic sections SHALL additionally emit `diagnostic` records with
+`stepId`, `title`, `severity` (`info` / `warn` / `error`), a one-based `chunk` index,
+and a `message` body. Bodies SHALL be redacted before splitting on UTF-8 boundaries.
+The chunk budget SHALL account for JSON escaping so each NDJSON record, including
+its trailing newline, remains within 4096 bytes without dropping bytes between
+chunks. Each section SHALL emit at most 16 chunks and SHALL include an explicit
+truncation marker when that limit is reached.
+
 Terminal integrity SHALL be preserved. The suite SHALL register cleanup with `t.Cleanup` so that terminal records observe cleanup errors, and SHALL NOT emit a `run_finished: passed` before cleanup has completed. A run that is killed without emitting its terminal `run_finished` record (for example SIGKILL) SHALL be interpretable by a consumer as incomplete/unknown -- never as passed and never as still-connected. Because the suite's existing short numeric internal run id is not globally unique, the structured stream SHALL identify the run by the supplied `E2E_REPORT_RUN_ID`; when that variable is absent (a non-Kubernetes invocation with `E2E_REPORT_JSON=1`), the suite SHALL generate a UUID rather than reuse the short internal id. Within a run, `sequence` SHALL be deterministic and strictly increasing so a consumer can order and deduplicate records across reconnects.
 
 #### Scenario: E2E-CORE-07.01 -- Full lifecycle with planned steps
