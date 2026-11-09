@@ -231,6 +231,34 @@ of the current `phase`, and SHALL set `observed_generation` to the applied
 remain unchanged so the change is retried, and the `phase` SHALL be set per the
 existing provisioning failure semantics.
 
+A reconcile pass SHALL apply one snapshot of the Gateway's desired state and
+SHALL acknowledge only the `generation` of that snapshot (PLAT-DATA-06). The
+control plane resolves and persists its own generated configuration - for
+example the gateway's OIDC configuration (OSG-OIDC-05) - before it captures that
+snapshot and the `generation` it applies, so a newly created Gateway converges in
+a single provisioning pass rather than leaving a newer `generation` behind that
+triggers a second full apply and resets `phase` to `Provisioning` just after the
+Gateway first reaches `Running`. When a newer desired `generation` arrives while
+a pass is applying, the control plane SHALL acknowledge only the `generation` it
+applied and SHALL leave the newer `generation` pending for its own
+reconciliation; reading the latest `generation` at the end of a pass is not proof
+that its configuration was applied.
+
+The convergence gate SHALL be evaluated against the authoritative stored
+`generation` and `observed_generation`, not against a watch event's payload, so a
+duplicate or stale queued event for a converged Gateway SHALL NOT cause another
+full manifest re-apply (Helm upgrade). While the full re-apply is gated, the
+control plane SHALL still run, against authoritative state, its lightweight drift
+reconciliations - existing Keycloak client attributes
+([`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md))
+and the gateway's destination-CA trust bundle - together with its continuous
+health and runtime-version observation, so external desired state and recoverable
+drift converge without a full Helm upgrade. A destination-CA trust change SHALL
+still take effect for a converged Gateway without a `generation` advance. A
+Gateway whose provisioning did not complete is not converged
+(`observed_generation < generation`) and SHALL still re-apply through the normal
+gate to finish.
+
 Because the convergence gate suppresses the provisioning body once a Gateway is
 converged, the continuous health reconciler - not the provisioning body - owns
 finalizing the user-facing provisioning conditions after convergence. When the
@@ -272,6 +300,43 @@ to `Degraded`, and a `Degraded` Gateway SHALL still be able to return to
 - WHEN the control plane processes the change
 - THEN it SHALL re-apply the gateway manifests rather than skip on phase
 - AND SHALL set `observed_generation` to the applied `generation` upon success
+
+#### Scenario: OSG-HLTH-03.04 -- New gateway with generated OIDC config converges in one pass
+
+- GIVEN a newly created Gateway whose OIDC configuration the control plane
+  generates during provisioning
+- WHEN the first provisioning pass resolves and persists that OIDC configuration
+  before it captures the snapshot and the `generation` it applies
+- THEN the pass SHALL acknowledge the exact `generation` whose complete desired
+  configuration it applied
+- AND the control plane SHALL NOT run a second full apply that resets the `phase`
+  to `Provisioning` after the Gateway first reaches `Running`
+
+#### Scenario: OSG-HLTH-03.05 -- Stale queued event after convergence takes the lightweight path
+
+- GIVEN a converged Gateway (`observed_generation == generation`)
+- WHEN a duplicate or stale queued watch event is processed
+- THEN the control plane SHALL evaluate the gate against the stored `generation`
+  and `observed_generation`, not against the event payload
+- AND it SHALL skip the full manifest re-apply
+- AND it SHALL still run the lightweight Keycloak client, destination-CA trust,
+  health, and runtime-version reconciliations
+
+#### Scenario: OSG-HLTH-03.06 -- Destination-CA trust change applies to a converged gateway
+
+- GIVEN a converged Gateway with `phase` `Running`
+- WHEN its destination-CA trust bundle drifts from the desired bundle
+- THEN the control plane SHALL update the destination-CA trust for the Gateway
+  even though a full manifest re-apply is gated
+- AND it SHALL NOT advance `generation` or require a spec change to do so
+
+#### Scenario: OSG-HLTH-03.07 -- Newer generation arrives during a provisioning pass
+
+- GIVEN a provisioning pass applying the snapshot at `generation` N
+- WHEN a desired-spec change advances `generation` to N+1 before the pass
+  completes
+- THEN the pass SHALL set `observed_generation` to N only
+- AND `generation` N+1 SHALL remain pending for its own reconciliation pass
 
 ### Requirement: OSG-HLTH-04 -- Gateway Runtime Version Is Reconciled
 
