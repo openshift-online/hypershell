@@ -548,7 +548,10 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
       if (onCreated) {
         await onCreated(gateway.id);
       } else {
-        await navigation.navigate(navigation.detailHref(gateway.id));
+        const detailHref = navigation.detailHref(gateway.id);
+        await navigation.navigate(`${detailHref}?tab=connection`, {
+          state: { gatewayProvisioned: true },
+        });
       }
     },
     onError: () => {

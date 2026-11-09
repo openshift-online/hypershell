@@ -22,6 +22,7 @@ type WaitingIssue struct {
 
 type Snapshot struct {
 	WaitingForTriage             []WaitingIssue
+	AwaitingApproval             []Row
 	ConnectionError              string
 	RecoveryError                string
 	Rows                         []Row
@@ -35,6 +36,7 @@ type Snapshot struct {
 }
 type discovery struct {
 	WaitingForTriage []WaitingIssue `json:"waiting_for_triage"`
+	AwaitingApproval []Row          `json:"awaiting_approval"`
 	Jobs             []Job          `json:"jobs"`
 	Errors           []string       `json:"errors"`
 	Err              error
@@ -82,6 +84,7 @@ func (e *Engine) snapshot() Snapshot {
 	defer e.mu.RUnlock()
 	s := e.state
 	s.Rows = append([]Row(nil), s.Rows...)
+	s.AwaitingApproval = append([]Row(nil), s.AwaitingApproval...)
 	s.Errors = append([]string(nil), s.Errors...)
 	s.WaitingForTriage = append([]WaitingIssue(nil), s.WaitingForTriage...)
 	return s
@@ -378,6 +381,7 @@ func (e *Engine) run(ctx context.Context) (exit int) {
 				if result.Err == nil {
 					s.Errors = result.Errors
 					s.WaitingForTriage = append([]WaitingIssue(nil), result.WaitingForTriage...)
+					s.AwaitingApproval = result.AwaitingApproval
 				}
 			})
 			if e.config().DryRun {

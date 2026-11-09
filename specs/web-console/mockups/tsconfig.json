@@ -30,6 +30,9 @@
       "@patternfly/react-core": [
         "../../../components/web-console/node_modules/@patternfly/react-core"
       ],
+      "react-intl": [
+        "../../../components/web-console/node_modules/react-intl"
+      ],
       "@patternfly/react-core/*": [
         "../../../components/web-console/node_modules/@patternfly/react-core/*"
       ],

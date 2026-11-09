@@ -69,6 +69,9 @@ KIND_DNS_PORT?=5553
 GATEWAY_API_GATEWAY_NAME?=openshell-grpc-gateway
 GATEWAY_API_GATEWAY_NAMESPACE?=openshift-ingress
 GATEWAY_IMAGE?=$(shell . ./OPENSHELL_VERSION && echo "$${OPENSHELL_GATEWAY_IMAGE}:$${OPENSHELL_TAG}")
+# Single supported OpenShell release, stamped onto the controller image as the
+# app.hypershell.openshell.version label (specs/platform/openshell-image-auto-update.spec.md).
+OPENSHELL_TAG?=$(shell . ./OPENSHELL_VERSION && echo "$${OPENSHELL_TAG}")
 
 # Service hostnames (routed through the networking Gateway)
 API_HOSTNAME=api.hypershell.localhost
@@ -218,6 +221,7 @@ build-api-server:
 .PHONY: build-controller
 build-controller:
 	$(CONTAINER_ENGINE) build -t $(control_plane_local) \
+		--build-arg OPENSHELL_TAG=$(OPENSHELL_TAG) \
 		-f components/control-plane/Dockerfile .
 
 .PHONY: build-cli
@@ -303,11 +307,22 @@ vendor-openshell-chart:
 
 .PHONY: test-openshell-version-policy
 test-openshell-version-policy:
-	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_sync_openshell_version.py
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
+		scripts/test_sync_openshell_version.py \
+		scripts/test_check_controller_image_label.py
 
 .PHONY: check-openshell-version
 check-openshell-version: test-openshell-version-policy
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/sync_openshell_version.py
+
+.PHONY: check-controller-image-label
+# Inspect a built controller image's configuration and verify the single
+# supported OpenShell release label across every architecture variant
+# (specs/platform/openshell-image-auto-update.spec.md, CICD-IMG-04/05). Pass the
+# image reference in IMAGE, e.g. `make check-controller-image-label IMAGE=...`.
+check-controller-image-label:
+	@test -n "$(IMAGE)" || { echo "Set IMAGE=<controller image reference>"; exit 2; }
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_controller_image_label.py "$(IMAGE)"
 
 .PHONY: test-spec-ids-policy
 test-spec-ids-policy:
@@ -813,6 +828,7 @@ fullsend fullsend-status fullsend-doctor fullsend-help: export FULLSEND_LAUNCH_E
 fullsend fullsend-status fullsend-doctor fullsend-help: export FULLSEND_LAUNCH_MODEL = $(MODEL)
 fullsend fullsend-status fullsend-doctor fullsend-help: export FULLSEND_LAUNCH_CONCURRENCY = $(if $(filter command line,$(origin CONCURRENCY)),$(CONCURRENCY))
 fullsend fullsend-status fullsend-doctor fullsend-help: export FULLSEND_LAUNCH_INTAKE_INTERVAL = $(INTAKE_INTERVAL)
+fullsend fullsend-status fullsend-doctor fullsend-help: export FULLSEND_LAUNCH_AUTO_MERGE = $(AUTO_MERGE)
 fullsend:
 	@bash .hypershell/execute-sdlc/local.sh watch
 fullsend-status:

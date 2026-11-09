@@ -195,9 +195,12 @@ test.describe("live console user journey", () => {
       )
       .toBe("Running");
     await page.goto(`/gateways/${createdGatewayId}`);
-    await expect(page.getByText(gateway?.status ?? "Running")).toBeVisible({
-      timeout: pageTimeout,
-    });
+    await expect(
+      page
+        .getByRole("heading", { level: 1, name: gatewayName })
+        .locator("../..")
+        .getByText(gateway?.status ?? "Running"),
+    ).toBeVisible({ timeout: pageTimeout });
   });
 
   test("opens the published OpenShell console", async ({ page }) => {
@@ -273,6 +276,7 @@ test.describe("live console user journey", () => {
         },
       )
       .not.toBe("");
+    await page.getByRole("tab", { name: "Connection" }).click();
     const docs = page.getByRole("link", {
       name: /^View installation documentation/iu,
     });
@@ -281,6 +285,11 @@ test.describe("live console user journey", () => {
     });
     await expect(docs).toHaveAttribute("target", "_blank");
     await expect(docs).toHaveAttribute("rel", /noopener/u);
+    const installStep = page.getByRole("button", {
+      name: /^1 Install the OpenShell CLI/u,
+    });
+    await installStep.click();
+    await expect(installStep).toHaveAttribute("aria-expanded", "true");
 
     // E2E-COV-05.01/05.04: the console must render the REAL, version-derived install
     // command, not a pinned constant. Scrape the exact text the UI hands the operator
@@ -299,7 +308,7 @@ test.describe("live console user journey", () => {
       ? installVersion
       : `v${installVersion}`;
     const copyInstall = page.getByRole("button", {
-      name: "Copy the OpenShell installation command",
+      name: "Copy command for step 1, Install the OpenShell CLI",
     });
     await expect(copyInstall).toBeVisible({ timeout: pageTimeout });
     await copyInstall.click();
@@ -331,7 +340,21 @@ test.describe("live console user journey", () => {
     if (gatewayId === undefined) return;
     const createdGatewayId = gatewayId;
     await logIn(page);
+    await expect
+      .poll(
+        async () =>
+          (
+            await page.request.get(
+              `/api/hypershell/v1/gateways/${createdGatewayId}`,
+            )
+          ).status(),
+        { timeout: pageTimeout, intervals: [2_000, 5_000] },
+      )
+      .toBe(200);
     await page.goto(`/gateways/${createdGatewayId}`);
+    await expect(
+      page.getByRole("heading", { name: gatewayName, exact: true }),
+    ).toBeVisible();
     await page.getByRole("button", { name: "Actions" }).click();
     await page.getByRole("menuitem", { name: "Delete gateway" }).click();
     const dialog = page.getByRole("dialog", {

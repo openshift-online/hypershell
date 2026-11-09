@@ -58,6 +58,7 @@ func TestBeforeCreateInitializesGenerationUnconverged(t *testing.T) {
 	}
 }
 
+// Verifies: PLAT-DATA-06.08
 func TestDesiredStateChanged(t *testing.T) {
 	str := func(s string) *string { return &s }
 	base := func() *Gateway {

@@ -287,9 +287,6 @@ type ReconcileOpts struct {
 	// Keycloak holds the Keycloak Admin REST API configuration. Nil means
 	// Keycloak integration is not configured.
 	Keycloak *KeycloakConfig
-	// UpdateOIDC is an optional callback that PATCHes the oidc field on the
-	// API-server Gateway via gRPC.
-	UpdateOIDC func(ctx context.Context, oidcJSON string) error
 	// GatewayName is the user-visible name of the gateway being reconciled.
 	GatewayName string
 	// GatewayClientID is the gateway's validated Keycloak client ID: the stored

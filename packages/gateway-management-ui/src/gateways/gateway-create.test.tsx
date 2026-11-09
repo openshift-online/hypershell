@@ -153,6 +153,22 @@ describe("GatewayCreatePage", () => {
     });
   });
 
+  it("navigates to the connection tab after provisioning", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await enterNameAndSelectPublic(user);
+    await user.click(screen.getByRole("button", { name: "Provision gateway" }));
+
+    await waitFor(() => {
+      expect(navigate).toHaveBeenCalledWith(
+        "/gateways/gateway-1?tab=connection",
+        {
+          state: { gatewayProvisioned: true },
+        },
+      );
+    });
+  });
+
   it("submits an explicit Kata request when Kata is selected", async () => {
     const user = userEvent.setup();
     renderPage();
@@ -331,7 +347,10 @@ describe("GatewayCreatePage", () => {
     expect(submit.classList.contains("pf-m-progress")).toBe(true);
     resolveProvision?.({ id: "gateway-1", name: "team-gateway" });
     await waitFor(() => {
-      expect(navigate).toHaveBeenCalledWith("/gateways/gateway-1");
+      expect(navigate).toHaveBeenCalledWith(
+        "/gateways/gateway-1?tab=connection",
+        { state: { gatewayProvisioned: true } },
+      );
     });
   });
 

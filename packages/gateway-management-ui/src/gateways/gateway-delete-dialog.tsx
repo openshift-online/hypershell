@@ -4,7 +4,6 @@ import {
   Modal,
   ModalBody,
   ModalFooter,
-  ModalHeader,
   ModalVariant,
   Stack,
   StackItem,
@@ -16,6 +15,7 @@ import { FormattedMessage, useIntl } from "react-intl";
 import { useGatewayUi } from "../gateway-ui-provider";
 import { messages } from "../messages";
 import { reconcileGatewayCachesAfterDelete } from "./gateway-data";
+import { AlertModalHeader } from "../shared/alert-modal-header";
 
 interface GatewayDeleteDialogProps {
   activeSandboxCount?: number;
@@ -60,7 +60,7 @@ export function GatewayDeleteDialog({
       onClose={deletion.isPending ? undefined : close}
       variant={ModalVariant.small}
     >
-      <ModalHeader
+      <AlertModalHeader
         labelId={titleId}
         title={intl.formatMessage(messages.deleteGatewayTitle, {
           gatewayName,

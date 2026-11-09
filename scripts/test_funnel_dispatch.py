@@ -328,9 +328,61 @@ class PendingTriageTests(unittest.TestCase):
                 self.assertEqual(coordinator.waiting_for_triage,[])
                 self.assertEqual(coordinator.errors,[])
                 self.assertTrue(any(j['agent']=='reconcile' for j in coordinator.candidates))
+class ReviewRequestCycleTests(unittest.TestCase):
+    # Verifies: SDLC-LOC-05
+    def test_return_to_identical_review_state_is_a_new_request(self):
+        for phase in ('code','spec'):
+            with self.subTest(phase=phase), tempfile.TemporaryDirectory() as tmp:
+                args=funnel.parse_args(['agent/scope/test','--dry-run','--lifecycle','github-only'])
+                store=funnel.Store(Path(tmp)/'state.db');self.addCleanup(store.db.close)
+                coordinator=funnel.Coordinator(args,store,-1)
+                github=coordinator.github
+                agent=phase+'-review';label='agent/reviewable-'+phase
+                item=issue();item['labels'].append(label)
+                pull=pr()
+                state=dict(head_sha='abc',base_sha='base',state='open',checks='green',draft=False,mergeable=True,mergeable_state='clean',changed=False)
+                events=[dict(id=10,event='labeled',label=dict(name=label),created_at='1970-01-01T00:00:01Z')]
+                def pages(resource,**fields):return [pull] if resource=='pulls' else list(events)
+                with patch.object(github,'pages',side_effect=pages), patch.object(github,'discover',return_value=[item]), patch.object(github,'classify',return_value=[agent]), patch.object(github,'current',return_value=item), patch.object(github,'code_state',return_value=state):
+                    first=github.phase_job(args.scope,agent,item,[pull])
+                    run=store.start(first,'old.log',100);store.finish(first['key'],run,0,60,200,now=110)
+                    events.append(dict(id=11,event='labeled',label=dict(name='unrelated')))
+                    self.assertEqual(first['fingerprint'],github.phase_job(args.scope,agent,item,[pull])['fingerprint'])
+                    # Approval was revoked and the identical phase label was restored.
+                    events.append(dict(id=12,event='labeled',label=dict(name=label),created_at='1970-01-01T00:03:00Z'))
+                    self.assertFalse(coordinator.authorized(first))
+                    coordinator.discover()
+                    second=coordinator.candidates[0]
+                    if phase=='code':
+                        saved=json.loads(store.get(first['key'])['payload'])
+                        self.assertFalse(saved['code_readiness']['review_current'])
+                        self.assertEqual(saved['review_request_event'],'10')
+                    self.assertNotEqual(first['fingerprint'],second['fingerprint'])
+                    self.assertEqual(second['review_request_event'],'12')
+                    self.assertTrue(store.eligible(second,200))
+                    run=store.start(second,'new.log',200);store.finish(second['key'],run,0,60,400,now=210)
+                    coordinator.discover()
+                    self.assertFalse(store.eligible(coordinator.candidates[0],400))
+                    # A new dispatcher observes the same identity after restart.
+                    other=funnel.GitHub(args.repo,args.scope,args.fullsend_dir)
+                    with patch.object(other,'pages',side_effect=pages), patch.object(other,'code_state',return_value=state):
+                        self.assertEqual(second['fingerprint'],other.phase_job(args.scope,agent,item,[pull])['fingerprint'])
 
+    def test_unreadable_or_missing_review_event_fails_closed(self):
+        github=funnel.GitHub('test/repo','agent/scope/test','.fullsend')
+        item=issue();item['labels'].append('agent/reviewable-code')
+        for result in ([],[dict(id=1,event='labeled',label=dict(name='other'))]):
+            with patch.object(github,'pages',return_value=result):
+                with self.assertRaises(funnel.DispatchError):github.phase_job(github.scope,'code-review',item,[pr()])
+        with patch.object(github,'pages',side_effect=funnel.DispatchError('API unavailable')):
+            with self.assertRaises(funnel.DispatchError):github.phase_job(github.scope,'code-review',item,[pr()])
 
 class CodeReadinessTests(unittest.TestCase):
+    def setUp(self):
+        # Older completed-run fixtures predate review-request identity.
+        request = patch.object(funnel.GitHub, 'review_request', return_value=None)
+        request.start();self.addCleanup(request.stop)
+
     def test_watch_observes_approved_issues_and_respects_worker_ownership(self):
         with tempfile.TemporaryDirectory() as tmp:
             args = funnel.parse_args(['agent/scope/test', '--dry-run', '--lifecycle', 'github-only'])
@@ -645,6 +697,9 @@ class ReconcileScheduleTests(unittest.TestCase):
 
 class AuthorizationTests(unittest.TestCase):
     def setUp(self):
+        # Older completed-run fixtures predate review-request identity.
+        request = patch.object(funnel.GitHub, 'review_request', return_value=None)
+        request.start();self.addCleanup(request.stop)
         observation = patch.object(funnel.GitHub, 'code_state', return_value=None)
         observation.start()
         self.addCleanup(observation.stop)

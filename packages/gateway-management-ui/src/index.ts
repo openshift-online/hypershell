@@ -12,6 +12,7 @@ export type {
   GatewayAccessPage,
   GatewayAccessRole,
   GatewayAccessSortField,
+  GatewayClusterType,
   GatewayControlPlane,
   GatewayDirectoryUser,
   GatewayFailureCode,
@@ -92,7 +93,9 @@ export type { GatewayConnection } from "./gateways/gateway-connections";
 export {
   GatewayPage,
   GatewaysPage,
+  toGatewayDetailAttention,
   toGatewayDetailTab,
+  type GatewayDetailAttention,
   type GatewayDetailTab,
   type GatewayPageProps,
   type GatewaysPageProps,

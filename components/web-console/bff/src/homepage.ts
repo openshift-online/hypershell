@@ -52,6 +52,15 @@ interface GatewayListItem {
   status?: string;
 }
 
+const healthyGatewayStatuses = new Set([
+  "active",
+  "available",
+  "healthy",
+  "ready",
+  "running",
+  "succeeded",
+]);
+
 interface ManagedClusterItem {
   capabilities?: string[];
   id?: string;
@@ -147,7 +156,10 @@ async function queryGatewayHealth(
   for (const gateway of gateways) {
     const phase = gateway.phase?.trim() ?? "Unknown";
     const status = gateway.status?.trim() ?? phase;
-    if (phase === "Running") {
+    if (
+      phase.toLocaleLowerCase() === "running" &&
+      healthyGatewayStatuses.has(status.toLocaleLowerCase())
+    ) {
       healthy += 1;
       continue;
     }

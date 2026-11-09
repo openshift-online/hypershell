@@ -3,7 +3,7 @@ import { MockupShell } from "../shell/mockup-template";
 
 export function AdoptionDashboardMockup() {
   return (
-    <MockupShell>
+    <MockupShell activeSection="dashboard">
       <AdoptionDashboardPageSurface />
     </MockupShell>
   );

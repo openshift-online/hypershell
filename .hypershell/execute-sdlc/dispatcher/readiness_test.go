@@ -63,7 +63,7 @@ func TestReviewWaitingReflectsRequiredCIAndPRReadiness(t *testing.T) {
 		{"green", true, &yes, "clean", "Waiting: PR is draft"},
 		{"green", false, nil, "unknown", "Waiting for PR readiness"},
 		{"green", false, &no, "dirty", "Conflicts · needs repair"},
-		{"green", false, &yes, "clean", "Approval pending"},
+		{"green", false, &yes, "clean", "Review needed"},
 	} {
 		r := waitingReview()
 		r.CodeReadiness.Checks = tc.checks
@@ -156,10 +156,28 @@ func TestNewRevisionAwaitsReviewAndShowsIndependentSynchronizationBlocker(t *tes
 		m.height = 45
 		m.restoreSelection(row.Key, nil)
 		view := strings.Join(strings.Fields(m.View()), " ")
-		for _, want := range []string{"Awaiting new review", "Review scheduling", "Jira authentication expired", "Required CI is pending"} {
+		for _, want := range []string{"Review needed · Jira sync", "Review scheduling", "Jira authentication expired", "Required CI is pending"} {
 			if !strings.Contains(view, want) {
 				t.Fatalf("missing %q: %s", want, view)
 			}
 		}
+	}
+}
+
+func TestReviewNeededIsDistinctFromManualMergeApproval(t *testing.T) {
+	r := waitingReview()
+	r.CodeReadiness.Checks = "green"
+	yes := true
+	r.CodeReadiness.Mergeable = &yes
+	if rowStatus(r) != "Review needed" || durationLabel(r) != "-" {
+		t.Fatal("old review still appears current", rowStatus(r), durationLabel(r))
+	}
+	r.SyncLog = "sync.log"
+	if rowStatus(r) != "Review needed · Jira sync" {
+		t.Fatal("missing synchronization blocker", rowStatus(r))
+	}
+	held := heldApproval()
+	if rowStatus(held) != "Awaiting approval" {
+		t.Fatal("manual approval conflated with review")
 	}
 }

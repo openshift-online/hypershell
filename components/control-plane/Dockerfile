@@ -46,6 +46,15 @@ ARG TARGETARCH
 # (KIND_COVERAGE=true, specs/platform/local-development.spec.md DEV-LOC-18).
 # Release builds leave it off.
 ARG GO_COVERAGE=false
+# Fail the build early if the supported OpenShell release was not supplied, so a
+# controller image can never publish an empty app.hypershell.openshell.version
+# label (specs/platform/openshell-image-auto-update.spec.md, CICD-IMG-05). The
+# final distroless stage has no shell, so this build-time guard lives here.
+ARG OPENSHELL_TAG
+RUN test -n "${OPENSHELL_TAG}" || { \
+    echo "ERROR: OPENSHELL_TAG build-arg is required (run make sync-openshell-version)" >&2; \
+    exit 1; \
+  }
 RUN cover_flags=""; \
   if [ "${GO_COVERAGE}" = "true" ]; then \
     cover_flags="-cover -covermode=atomic -coverpkg=github.com/openshift-online/hypershell/components/control-plane/..."; \
@@ -74,5 +83,17 @@ ENTRYPOINT ["/usr/local/bin/hypershell-controller"]
 LABEL org.opencontainers.image.title="HyperShell Controller" \
       org.opencontainers.image.description="Control plane that reconciles HyperShell resources via gRPC watch streams" \
       org.opencontainers.image.version="0.0.1"
+
+# The single OpenShell gateway and supervisor release this controller build
+# supports, sourced from OPENSHELL_TAG in OPENSHELL_VERSION
+# (specs/platform/openshell-image-auto-update.spec.md, CICD-IMG-01..06). This is
+# distinct from org.opencontainers.image.version above, which is the controller's
+# own version; it is never a list, range, or wildcard. Local builds pass
+# --build-arg OPENSHELL_TAG straight from OPENSHELL_VERSION; the Konflux pipelines
+# pass it through build-args that `make sync-openshell-version` stamps and
+# `make check-openshell-version` validates, so OPENSHELL_VERSION stays the single
+# source of truth.
+ARG OPENSHELL_TAG
+LABEL app.hypershell.openshell.version="${OPENSHELL_TAG}"
 
 # Release pipeline verification: force an on-push build to confirm bundle creation (no-op).

@@ -1,6 +1,6 @@
 # CI Trust Extension API - self-service keyless CI on a gateway
 
-**Date:** 2026-10-28
+**Date:** 2026-11-04
 **Status:** Draft
 **Related:** [`data-model.spec.md`](./data-model.spec.md) (CIProvider / CITrust kinds, PLAT-DATA-24/25), [`../security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md) (CIProvider `ci-federation:admin` authorization SEC-RBAC-21, CITrust per-gateway tenancy SEC-RBAC-22), gitops `specs/ci-oidc-federation.spec.md` (platform Keycloak federation design), [`control-plane.spec.md`](./control-plane.spec.md) (reconciler), `gateway-access-management.spec.md` (GTW-ACC Keycloak role bridge), [`agent-workspace-gateway-api.spec.md`](./agent-workspace-gateway-api.spec.md) (workspace scoping)
 
@@ -37,8 +37,15 @@ gitops `ci-oidc-federation.spec.md`; a `CIProvider` IS that spec's per-forge IdP
 
 ## Architecture
 
+A `CITrust` reaches the API Server two ways: a human runs `hsctl apply` (or the SDK)
+authorized by the per-gateway tenancy check (SEC-RBAC-22), or the control-plane
+`RepositoryReconciler` imports a `.hypershell`-declared `CITrust` as the repository owner
+(PLAT-CITR-10, SEC-RBAC-26). Both land the same stored record; reconciliation downstream
+is identical.
+
 ```
 user -> hsctl apply CITrust ──▶ API Server (PostgreSQL)
+repo  -> .hypershell import  ──▶ (control-plane RepositoryReconciler, as repo owner)
                                      │ gRPC watch (ext kinds)
                                      ▼
                           Control Plane reconciler (per cluster)
@@ -58,19 +65,35 @@ later, at CI time (no control-plane involvement):
 The control plane already provisions Keycloak clients and protocol mappers
 programmatically for gateways (`ProvisionGatewayClient`, `createProtocolMappers`
 in `components/control-plane/internal/keycloak/client.go`). CIProvider/CITrust
-reconciliation reuses that admin-REST client, but the CI exchange is realized
-through the Keycloak 26.x **external-to-internal token-exchange v2** mechanism
-(`TOKEN_EXCHANGE_EXTERNAL_INTERNAL_V2`), not the legacy v1 path. The production
-fleet Keycloak runs 26.x with legacy token exchange (`TOKEN_EXCHANGE`) and
-fine-grained admin authorization v1 (`ADMIN_FINE_GRAINED_AUTHZ`) **disabled**, so
-the v1 token-exchange permission API
-(`.../identity-provider/instances/<alias>/management/permissions`) returns 501.
-The e2e impersonation helper `EnsureE2ETokenExchange` /
-`enableTokenExchangePermissions` is the v1 path and SHALL NOT be used for CI
-federation; it remains valid only for the separate e2e impersonation subsystem on
-a Keycloak where v1 is enabled (`ephemeral-pr-environments.spec.md`). The CI
-exchange requester is a **public** (keyless) client; the CI run's OIDC token is
-the only credential. See PLAT-CITR-08.
+reconciliation reuses that admin-REST client. The CI exchange authorization is
+**config-driven** (PLAT-CITR-08): the control plane selects, by configuration and
+not by code, how it realizes the token-exchange grant, because fleet Keycloaks run
+different token-exchange generations. Two modes exist:
+
+- **fgap-v1 mode** (the hyp0 fleet today): Keycloak runs legacy token exchange
+  (`TOKEN_EXCHANGE`) with fine-grained admin authorization v1
+  (`ADMIN_FINE_GRAINED_AUTHZ`) **enabled**. External-to-internal exchange is gated
+  by two fine-grained grants the control plane SHALL attach (PLAT-CITR-11): an IdP
+  token-exchange grant and a target-gateway-client token-exchange grant, each
+  scoped to the shared federation requester client. The v2 external-internal path
+  is not usable here because it rejects `subject_issuer` and does not wire IdP
+  token-exchange permissions.
+- **v2-attribute mode**: Keycloak runs external-to-internal token-exchange v2
+  (`TOKEN_EXCHANGE_EXTERNAL_INTERNAL_V2`); the control plane authorizes the
+  exchange by setting the `standard.token.exchange.enabled` attribute on the
+  target gateway client, and the v1 permission API
+  (`.../identity-provider/instances/<alias>/management/permissions`) is neither
+  needed nor called.
+
+Selecting the mode by configuration lets the fleet revert to v2 (RHBK >= 26.7,
+once v2 wires IdP token-exchange permissions) with a configuration change and no
+code change. The CI exchange requester is a **public** (keyless) client in every
+mode; the CI run's OIDC token is the only credential. The fgap-v1 grants reuse the
+same admin-REST flow as the e2e helper `EnsureE2ETokenExchange` /
+`enableTokenExchangePermissions`, generalized from the fixed `hypershell-e2e`
+requester to the CI federation requester (PLAT-CITR-11); that helper's own
+impersonation use on the separate e2e subsystem
+(`ephemeral-pr-environments.spec.md`) is unchanged.
 
 ## Requirements
 
@@ -132,9 +155,10 @@ secret:
 2. A **token-exchange authorization** that allows the shared, **public** (keyless)
    federation client to exchange a token from the `CIProvider` IdP onto the target
    gateway's audience, so the exchange grant can mint a gateway-scoped token. It
-   SHALL be realized through the Keycloak 26.x external-to-internal token-exchange
-   v2 admin-REST path and SHALL NOT use the v1 token-exchange permission API (per
-   PLAT-CITR-08).
+   SHALL be realized through the configured authorization mode (PLAT-CITR-08): the
+   two fine-grained v1 grants scoped to the federation requester client
+   (PLAT-CITR-11) in fgap-v1 mode, or the external-to-internal v2 attribute on the
+   gateway client in v2-attribute mode.
 3. A **gateway RBAC binding** granting `role` to that per-trust group on the
    referenced `Gateway`, so a matched identity holds exactly the role its own
    `CITrust` grants on its own gateway and nothing more.
@@ -273,33 +297,53 @@ exists.
 
 ---
 
-### Requirement: PLAT-CITR-08 -- Keycloak 26.x External-to-Internal Token Exchange v2
+### Requirement: PLAT-CITR-08 -- Config-Driven Token-Exchange Authorization Mode
 
-The control plane SHALL realize the CI token exchange using the Keycloak 26.x
-external-to-internal token-exchange v2 mechanism
+The control plane SHALL select how it realizes the CI token-exchange authorization
+by **configuration, not by code** (separate configuration from code): a configured
+mode SHALL choose between the fine-grained-authorization v1 grant flow (fgap-v1
+mode, PLAT-CITR-11) and the external-to-internal token-exchange v2 attribute flow
+(v2-attribute mode). Moving the fleet from one mode to the other -- for example
+reverting to v2 once a Keycloak release (RHBK >= 26.7) wires IdP token-exchange
+permissions into v2 -- SHALL require only a configuration change and SHALL NOT
+require a code change. In every mode the requester SHALL be the shared **public**
+federation client and the CI run's OIDC token SHALL be the only credential; no
+client secret SHALL be required anywhere in CI.
+
+In **v2-attribute mode** the control plane SHALL authorize the exchange through the
+Keycloak external-to-internal token-exchange v2 mechanism
 (`TOKEN_EXCHANGE_EXTERNAL_INTERNAL_V2`), driven through the Keycloak admin REST
-API. The requester SHALL be the shared **public** federation client, and the CI
-run's OIDC token SHALL be the only credential; no client secret SHALL be required
-anywhere in CI.
+API, by setting the `standard.token.exchange.enabled` attribute on the target
+gateway client; it SHALL NOT call the v1 token-exchange permission API
+(`.../identity-provider/instances/<alias>/management/permissions`).
 
-The control plane SHALL NOT use the legacy v1 token-exchange mechanisms on the
-production fleet Keycloak: it SHALL NOT rely on legacy `TOKEN_EXCHANGE`, on
-`ADMIN_FINE_GRAINED_AUTHZ` v1, or on the v1 token-exchange permission API
-(`.../identity-provider/instances/<alias>/management/permissions`), which that
-Keycloak has disabled and which returns 501. The v1 e2e helper
-(`EnsureE2ETokenExchange` / `enableTokenExchangePermissions`) SHALL NOT be used for
-CI federation.
+In **fgap-v1 mode** the control plane SHALL authorize the exchange through the
+fine-grained admin authorization v1 permission API by attaching the two grants of
+PLAT-CITR-11, and SHALL NOT rely on the v2 attribute as the authorization.
 
-The exchange this authorizes is a token-exchange grant at the realm token endpoint
-presenting the forge's OIDC JWT as the `subject_token`, the `CIProvider` IdP alias
-as the `subject_issuer`, and the referenced gateway's client as the `audience`; a
-successful exchange returns a workspace-scoped access token.
+Each mode SHALL realize only the artifacts its own mechanism needs, and the
+reconciler SHALL NOT fail because a mechanism the OTHER mode uses is unavailable on
+the running Keycloak: in v2-attribute mode a 501 from the v1 permission API SHALL
+NOT fail reconciliation, and in fgap-v1 mode the absence of v2 external-internal
+support SHALL NOT fail reconciliation.
 
-#### Scenario: PLAT-CITR-08.01 -- v1 Permission API Is Not Called
+The exchange this authorizes is, in both modes, a token-exchange grant at the realm
+token endpoint presenting the forge's OIDC JWT as the `subject_token`, the
+`CIProvider` IdP alias as the `subject_issuer`, and the referenced gateway's client
+as the `audience`; a successful exchange returns a workspace-scoped access token.
 
-- GIVEN a production fleet Keycloak 26.x with legacy token exchange and fine-grained admin authorization v1 disabled
-- WHEN the control plane reconciles a `CITrust`
-- THEN it SHALL authorize the exchange through the v2 admin-REST path
+#### Scenario: PLAT-CITR-08.01 -- Mode Is Selected by Configuration, Not Code
+
+- GIVEN a fleet Keycloak running fine-grained admin authorization v1 (fgap-v1)
+- WHEN the control plane is configured for fgap-v1 mode
+- THEN it SHALL authorize the exchange through the v1 fine-grained grant flow (PLAT-CITR-11)
+- AND reconfiguring the same build to v2-attribute mode SHALL switch it to the v2 attribute flow with no code change
+
+#### Scenario: PLAT-CITR-08.02 -- The Inactive Mode's API Is Not Required
+
+- GIVEN the control plane configured for v2-attribute mode on a Keycloak whose v1 permission API returns 501
+- WHEN it reconciles a `CITrust`
+- THEN it SHALL authorize the exchange through the v2 attribute flow
 - AND it SHALL NOT call the v1 token-exchange permission API
 - AND reconciliation SHALL NOT fail because that v1 API returns 501
 
@@ -311,7 +355,9 @@ CITrust reconciliation SHALL be idempotent and re-entrant: repeated reconciles o
 an unchanged `CITrust` SHALL converge to the same Keycloak state without creating
 duplicate artifacts or erroring on already-present ones, per the reconciliation
 contract (`specs/standards/control-plane/reconciliation-contract.spec.md`,
-STD-RCON-02). Every realized artifact SHALL coexist with the periodic
+STD-RCON-02). This idempotency SHALL cover whichever token-exchange authorization
+artifacts the configured mode (PLAT-CITR-08) realizes, including the fgap-v1 scope
+permissions and client policies of PLAT-CITR-11 in fgap-v1 mode. Every realized artifact SHALL coexist with the periodic
 realm-reconcile job that re-applies the gitops realm configuration: artifacts the
 control plane creates SHALL NOT be pruned by that job, and artifacts the gitops
 configuration owns (the IdP and its claim mappers) SHALL be adopted rather than
@@ -325,6 +371,145 @@ artifact on a transient admin-API failure (STD-RCON-08).
 - WHEN the periodic realm-reconcile job re-applies the gitops realm configuration
 - THEN the `CITrust` exchange SHALL keep working without a new reconcile pass
 - AND a subsequent reconcile of the unchanged `CITrust` SHALL make no duplicate artifact
+
+---
+
+### Requirement: PLAT-CITR-10 -- Declarative `.hypershell` Import of a CITrust
+
+A `CITrust` SHALL be declarable in a repository's `.hypershell` root and reconciled
+by the control-plane `RepositoryReconciler` as an importable Kind, so a repository can
+enable its own keyless CI federation declaratively next to the `Gateway` it federates
+onto, with no human `hsctl apply` step. `CITrust` is one of the importable Kinds defined
+canonically in [`data-model.spec.md`](./data-model.spec.md) ("Declarative `.hypershell`
+Import", PLAT-DATA-11); `CIProvider` is NOT importable (it is a platform-wide
+registration authored by `ci-federation:admin` over HTTP, PLAT-DATA-24 / SEC-RBAC-21) and
+a manifest references it by name only.
+
+The import SHALL:
+
+- Resolve the `CITrust`'s foreign-key references BY NAME, through the same find-by-name
+  path the ext API exposes (the `name` column added for ext kinds in #871/#873):
+  `ci_provider_id` to the `CIProvider` whose `name` matches, and `gateway_id` to the
+  `Gateway` whose `name` matches. A reference that does not resolve SHALL fail that
+  `CITrust`'s import.
+- Mark the imported `CITrust` with its originating `Repository` (`repository_id`) set
+  server-side, and prune it per-`Repository` when it is removed from `.hypershell`,
+  exactly as for the other importable Kinds. A re-import of unchanged repository state
+  SHALL be idempotent, and a `CITrust` created directly over REST SHALL NOT be pruned by
+  another `Repository`'s import.
+- Be authorized as the control-plane import identity, satisfying the per-gateway tenancy
+  of SEC-RBAC-22 through `Repository` ownership of the referenced gateway rather than a
+  human role binding: the import writes a `CITrust` only onto a `Gateway` the SAME
+  `Repository` owns, which is the "applies as the repository owner" path. This tenancy
+  gate is specified canonically in
+  [`../security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md)
+  (SEC-RBAC-26).
+- Accept the manifest shape without a 400: the nested `spec.subject.{repository,
+  ref_protected}` already matches the presenter; `metadata.description` SHALL be accepted
+  and persisted like the other importable Kinds (gateway and repository manifests also
+  carry a description); and a valid `role` such as `openshell-user` SHALL pass validation.
+
+#### Scenario: PLAT-CITR-10.01 -- CITrust Imports With References Resolved by Name
+
+- GIVEN a `Repository` whose `.hypershell` root declares a `Gateway` named `agents-gateway` (owned by that `Repository`) and a `CITrust` named `github-actions-hypershell` whose `ci_provider_id` names the `github-actions` `CIProvider` and whose `gateway_id` names `agents-gateway`
+- WHEN the control-plane import reconciler runs
+- THEN it SHALL resolve `ci_provider_id` and `gateway_id` by name, upsert the `CITrust` owned by the `Repository`, and leave a `ci_trusts` row with the resolved ids
+- AND the importer SHALL NOT log `ignoring non-importable kind kind=CITrust`
+
+#### Scenario: PLAT-CITR-10.02 -- Description and Role Do Not Fail the Import
+
+- GIVEN an imported `CITrust` manifest carrying `metadata.description` and `role: openshell-user`
+- WHEN the import renders and upserts it
+- THEN the write SHALL NOT be rejected with 400
+- AND the description SHALL be persisted and the role SHALL validate
+
+#### Scenario: PLAT-CITR-10.03 -- Import Cannot Federate Onto a Gateway It Does Not Own
+
+- GIVEN a `Repository` import declaring a `CITrust` whose `gateway_id` names a `Gateway` owned by a different `Repository` or created directly over REST
+- WHEN the import reconciler attempts to write it
+- THEN the write SHALL be refused (SEC-RBAC-26)
+
+---
+
+### Requirement: PLAT-CITR-11 -- Fine-Grained v1 Token-Exchange Grants
+
+In fgap-v1 mode (PLAT-CITR-08), external-to-internal token exchange is gated by two
+independent fine-grained authorization v1 checks, and the control plane SHALL
+attach BOTH for each `CITrust`, each scoped to the shared public federation
+(requester) client:
+
+1. **IdP token-exchange grant.** The control plane SHALL enable fine-grained
+   authorization on the `CIProvider` IdP, SHALL create a client policy naming the
+   federation requester client, and SHALL attach that policy to the IdP's
+   `token-exchange` scope permission on the `realm-management` resource server.
+   Without it the IdP-level exchange-authorization check denies the exchange.
+2. **Target-client token-exchange grant.** The control plane SHALL enable
+   fine-grained authorization on the target gateway client, SHALL create a client
+   policy naming the federation requester client, and SHALL attach that policy to
+   that client's `token-exchange` scope permission on the `realm-management`
+   resource server. Without it the target-client-level exchange-authorization check
+   denies the exchange.
+
+Both grants SHALL generalize the existing fgap-v1 building blocks
+(`EnsureE2ETokenExchange` / `enableTokenExchangePermissions`) from the fixed
+`hypershell-e2e` requester to the CI federation requester client, rather than
+duplicating that flow. The grants SHALL be scoped to the requester client: only
+the named federation client -- not any client -- SHALL be authorized to exchange
+onto the IdP and onto the gateway client. This fixes the per-requester
+exchange-scoping behavior the reconciler previously left unresolved. Both grants
+SHALL be idempotent: a repeated reconcile SHALL reuse an existing permission, scope
+permission, and client policy rather than create a duplicate (PLAT-CITR-09).
+
+#### Scenario: PLAT-CITR-11.01 -- Both Grants Attached for the Requester
+
+- GIVEN the control plane in fgap-v1 mode reconciles a `CITrust` for a gateway
+- WHEN reconciliation completes
+- THEN fine-grained authorization SHALL be enabled on the `CIProvider` IdP and its `token-exchange` scope permission SHALL carry a client policy naming the federation requester client
+- AND fine-grained authorization SHALL be enabled on the target gateway client and its `token-exchange` scope permission SHALL carry a client policy naming the federation requester client
+- AND a CI token matching the trust SHALL exchange onto the gateway with no manual admin-API step
+
+#### Scenario: PLAT-CITR-11.02 -- Grants Are Idempotent on Re-Run
+
+- GIVEN a `CITrust` whose two fgap-v1 grants are already realized
+- WHEN the control plane reconciles the unchanged `CITrust` again
+- THEN it SHALL reuse the existing permissions and client policies
+- AND it SHALL NOT create a duplicate permission or client policy
+
+#### Scenario: PLAT-CITR-11.03 -- Missing Either Grant Denies the Exchange
+
+- GIVEN only the IdP token-exchange grant is present and the target-client grant is absent
+- WHEN a matching CI token is presented for exchange onto the gateway
+- THEN Keycloak SHALL deny the exchange at the target-client exchange-authorization check
+- AND a complete reconcile SHALL attach both grants so the exchange succeeds
+
+---
+
+### Requirement: PLAT-CITR-12 -- OIDC IdP Type-Claim Check Disabled for Forge Tokens
+
+A GitHub Actions OIDC token carries `typ: "JWT"`, which is not in Keycloak's set of
+supported token types, so the IdP's type-claim check SHALL be disabled
+(`disableTypeClaimCheck = true`) on the `CIProvider` IdP or the forge token is
+rejected before any exchange-authorization gate is reached. This attribute is owned
+**declaratively by the gitops Keycloak IdP configuration** (the Terraform IdP
+module), not minted per `CITrust` by the control plane, consistent with the
+IdP-adoption rule (PLAT-CITR-01): the control plane SHALL adopt the gitops-owned
+IdP and SHALL NOT strip or override this attribute. When the control plane itself
+creates the IdP (no gitops-provisioned IdP exists to adopt), it SHALL set
+`disableTypeClaimCheck = true` so forge tokens validate.
+
+#### Scenario: PLAT-CITR-12.01 -- Forge Token Type Claim Does Not Block Exchange
+
+- GIVEN a `CIProvider` IdP for GitHub Actions whose tokens carry `typ: "JWT"`
+- WHEN a CI token is presented for token exchange
+- THEN the IdP SHALL NOT reject the token for its type claim
+- AND the exchange SHALL proceed to the token-exchange authorization gates
+
+#### Scenario: PLAT-CITR-12.02 -- Adopted IdP Attribute Is Preserved
+
+- GIVEN a gitops-provisioned `github-actions` IdP with `disableTypeClaimCheck = true`
+- WHEN the control plane reconciles a `CIProvider` that adopts it
+- THEN the control plane SHALL NOT strip or override `disableTypeClaimCheck`
+- AND the attribute SHALL remain set after reconciliation
 
 ## Security analysis
 

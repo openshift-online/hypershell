@@ -383,4 +383,24 @@ export const messages = defineMessages({
       "Gateway phase metrics dashboard showing running, provisioning, degraded, and failed gateway counts.",
     description: "Browser metadata description for the gateway metrics page.",
   },
+  primaryNavigation: {
+    id: "app.nav.primary.ariaLabel",
+    defaultMessage: "Primary navigation",
+    description: "Accessible label for the application primary navigation.",
+  },
+  toggleNavigation: {
+    id: "app.nav.toggle.ariaLabel",
+    defaultMessage: "Toggle navigation",
+    description: "Accessible label for the navigation toggle button.",
+  },
+  overview: {
+    id: "app.nav.overview",
+    defaultMessage: "Overview",
+    description: "Navigation label for the application homepage overview.",
+  },
+  dashboard: {
+    id: "app.nav.dashboard.short",
+    defaultMessage: "Dashboard",
+    description: "Short navigation label for the operational dashboard.",
+  },
 });

@@ -401,7 +401,7 @@ selected per sandbox through OpenShell; they are not Gateway resource fields.
 
 | Field | Type | Description |
 |---|---|---|
-| `image` | string | Gateway container image reference (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.1.6-rhaiv.2@sha256:...`) |
+| `image` | string | Gateway container image reference (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.1.6-rhaiv.4@sha256:...`) |
 | `supervisor_image` | string | Supervisor sidecar container image (default supplied by `GATEWAY_SUPERVISOR_IMAGE` env var on the control-plane deployment; see `deploy/base/platform-resources/controller.yaml`) |
 | `server_dns_names` | string[] | DNS names for TLS certificate SANs |
 | `oidc` | JSONB | OIDC authentication config: `{issuer, audience, jwks_ttl, roles_claim, admin_role, user_role, scopes_claim}` |
@@ -438,16 +438,16 @@ reconciliation contract
 STD-RCON-06); it refines that contract and does not weaken it.
 
 The API server SHALL increment `generation` whenever any field of the Gateway's
-desired spec changes, including `name`, the platform-managed workload fields
-`image`, `supervisor_image`, `server_dns_names`, `oidc`, `route`,
-`credential_driver`, `external_dns`, `tls_mode`, `service_type`, `placement`, and
+desired spec changes: the platform-managed workload fields `image`,
+`supervisor_image`, `server_dns_names`, `oidc`, `route`, `credential_driver`,
+`external_dns`, `tls_mode`, `service_type`, `workspace_mode`, `placement`, and
 `cluster_id` (including the first time the API server assigns a `cluster_id` to a
-late-bound Gateway). This holds regardless of WHICH writer made the change: a user
-rename and a control-plane write of a platform-managed field both advance
-`generation`; only the control plane may write the platform-managed fields
-(PLAT-DATA-23). It SHALL NOT increment `generation` for changes to
+late-bound Gateway). Only the control plane may write the platform-managed fields
+(PLAT-DATA-23), so after creation only a control-plane write advances
+`generation`. It SHALL NOT increment `generation` for changes to the identity
+fields `name` and `namespace`, which do not alter the deployed workload, or to
 control-plane-owned observed fields (`status`, `phase`, `route_address`,
-`observed_generation`).
+`observed_generation`). A user rename therefore does not trigger a reconcile.
 
 On creation, a Gateway SHALL initialize with `generation = 1` and
 `observed_generation = 0`, so that a newly created Gateway is never spuriously
@@ -457,6 +457,17 @@ provisioning.
 `observed_generation` is control-plane-owned. The control plane SHALL set it to
 the `generation` it last successfully applied to the cluster. A Gateway is
 *converged* when `observed_generation == generation`.
+
+A reconcile pass SHALL apply one snapshot of the Gateway's desired state and
+SHALL acknowledge the `generation` of that snapshot. Configuration the control
+plane generates itself (the `oidc` document) is desired state, so writing it
+advances `generation`. The control plane SHALL persist generated configuration
+before it captures the snapshot to apply, and SHALL take the snapshot from the
+record the API server returns for that write. A first pass therefore converges
+a new Gateway: its generated configuration does not leave a newer generation
+behind that triggers a second full apply. When a newer `generation` arrives
+while a pass is applying, the control plane SHALL acknowledge only the
+generation it applied and leave the newer one pending for its own pass.
 
 The two fields differ in contract writability:
 
@@ -487,7 +498,7 @@ permanently mask drift.
 - GIVEN a Gateway with `generation` N that has been applied
   (`observed_generation == N`)
 - WHEN a desired-spec field changes (the control plane writes a platform-managed field
-  such as `image`, or a user renames the gateway)
+  such as `image`)
 - THEN the API server SHALL increment `generation` to N+1
 - AND `observed_generation` SHALL remain N until the control plane re-applies
 
@@ -509,6 +520,30 @@ permanently mask drift.
 - WHEN the control plane writes an observed `phase`/`status`/`route_address`
 - THEN `generation` SHALL remain N
 - AND the Gateway SHALL remain converged
+
+#### Scenario: PLAT-DATA-06.06 -- Generated configuration converges in the first pass
+- GIVEN a new Gateway with `generation = 1` and no stored `oidc`
+- WHEN the control plane provisions it and persists its generated `oidc`,
+  which advances `generation` to 2
+- THEN the control plane SHALL apply the workload from the stored generation-2
+  record and SHALL set `observed_generation` to 2
+- AND a later event for generation 2 SHALL NOT start another full apply
+- AND a pass whose stored `oidc` already matches SHALL NOT write it again
+
+#### Scenario: PLAT-DATA-06.07 -- A stale or overtaken event acknowledges only what it applied
+- GIVEN a pass triggered by an event for generation N
+- WHEN the stored record has advanced past N by the time the pass persists its
+  generated configuration
+- THEN the pass SHALL apply the stored record returned by that write and
+  acknowledge that record's generation
+- AND a generation that arrives after the snapshot was taken SHALL remain
+  pending (`observed_generation < generation`) until its own pass applies it
+
+#### Scenario: PLAT-DATA-06.08 -- Rename does not advance generation
+- GIVEN a converged Gateway with `generation` N
+- WHEN a user renames it
+- THEN `generation` SHALL remain N
+- AND the Gateway SHALL remain converged, so the control plane does not re-apply it
 
 ### Requirement: PLAT-DATA-07 -- Monotonic Provisioning Conditions
 
@@ -542,7 +577,7 @@ generation, under the same per-row lock that guards `generation`:
 
 #### Scenario: PLAT-DATA-07.02 -- Spec change restarts provisioning conditions
 - GIVEN a converged Gateway at `generation` N with all conditions `Complete`
-- WHEN a desired-spec field changes (a user rename or a control-plane write of a platform-managed field), advancing `generation` to N+1
+- WHEN a desired-spec field changes (a control-plane write of a platform-managed field), advancing `generation` to N+1
 - THEN the API server SHALL clear `provisioning_conditions`
 - AND the control plane SHALL repopulate them for the new generation
 
@@ -988,8 +1023,8 @@ Kustomize root: the `RepositoryReconciler` SHALL build the kustomization and
 reconcile the rendered resources into the API.
 
 The Kinds the `RepositoryReconciler` imports are defined here canonically as the
-**importable Kinds**, exactly seven: `AgentRuntime`, `SandboxTemplate`, `ProviderSpec`,
-`ProviderBinding`, `InferenceRoute`, `SecretSource`, and `Gateway`.
+**importable Kinds**, exactly eight: `AgentRuntime`, `SandboxTemplate`, `ProviderSpec`,
+`ProviderBinding`, `InferenceRoute`, `SecretSource`, `Gateway`, and `CITrust`.
 These are the declarable HyperShell Kinds a `.hypershell` root MAY contain. They are
 a SUBSET of the Kinds `hsctl apply` accepts: `hsctl apply` also accepts
 platform-admin Kinds (for example `ManagedCluster`, `Role`, and `RoleBinding`) that
@@ -1002,6 +1037,13 @@ referenced - not re-enumerated - by [`control-plane.spec.md`](./control-plane.sp
 ("Declarative `.hypershell` Import Reconciliation") and
 [`openshell-gateway.spec.md`](./openshell-gateway.spec.md) ("Relationship to the
 RepositoryReconciler") so the importable set never drifts across specs.
+
+`CITrust` is importable so a repository can declare its own keyless CI federation
+alongside the `Gateway` it runs on (PLAT-DATA-25, [`ci-trust-ext-api.spec.md`](./ci-trust-ext-api.spec.md)
+PLAT-CITR-10). `CIProvider` is NOT importable: it is a platform-wide registration of a
+CI OIDC issuer authored by `ci-federation:admin` over HTTP (PLAT-DATA-24, SEC-RBAC-21),
+not a per-repository declaration, so a `.hypershell` root MAY reference a `CIProvider`
+by name from a `CITrust` but SHALL NOT declare one.
 
 The `RepositoryReconciler` upserts these resources into the API only; it does NOT
 provision them cluster-side. Each imported Kind is subsequently reconciled into the
@@ -1071,6 +1113,20 @@ the control plane SHALL:
    funnel with 403 (see "Requirement: Gateway Dedicated Route Request Field",
    PLAT-DATA-26).
 
+**Foreign-key references in an imported manifest SHALL be resolved BY NAME.** A
+`.hypershell` manifest declares cross-resource references by the referent's `name`,
+not by a server-assigned id the author cannot know (for example an `AgentRuntime`'s
+`gateway_id` and `sandbox_template_id`, or a `CITrust`'s `ci_provider_id` and
+`gateway_id`). The import writer SHALL resolve each such reference to the referent's
+id through the same find-by-name path the extension API exposes (the `name` column and
+defensive lookup added for ext kinds in #871/#873), and SHALL fail that resource's
+import when a named referent does not resolve. For a `CITrust` the writer SHALL resolve
+`ci_provider_id` to the `CIProvider` whose `name` matches and `gateway_id` to the
+`Gateway` whose `name` matches - the `Gateway` the same `Repository` imports from the
+same `.hypershell` root. `metadata.description` carried by an imported manifest (as
+`gateway.yaml`, `repository.yaml`, and `ci-trust.yaml` all carry one) SHALL be accepted
+and persisted, exactly as for the other importable Kinds, and SHALL NOT fail the import.
+
 The control plane holds per-cluster in-cluster credentials, read-only secret-store
 access, and the platform GitHub App credential the import requires; the API server
 holds no read access to the secret store and no repository read access. Hosting the
@@ -1106,8 +1162,8 @@ plane is a reader of desired state" principle: the principle holds everywhere ex
 this one named, ownership-scoped reconciler.
 
 Imported resources SHALL be owned by the originating `Repository`. Every one of the
-seven importable Kinds - `AgentRuntime`, `SandboxTemplate`, `ProviderSpec`,
-`ProviderBinding`, `InferenceRoute`, `SecretSource`, and `Gateway` - SHALL carry a
+eight importable Kinds - `AgentRuntime`, `SandboxTemplate`, `ProviderSpec`,
+`ProviderBinding`, `InferenceRoute`, `SecretSource`, `Gateway`, and `CITrust` - SHALL carry a
 nullable, read-only `repository_id` ownership mark for this purpose: it is NULL for a
 resource created directly through the REST API or `hsctl apply`, and set server-side to
 the originating `Repository` for an imported resource, so prune can be scoped to the
@@ -1148,6 +1204,21 @@ found in the repository.
 - GIVEN a `Repository` whose `.hypershell` contents are unchanged since the last import
 - WHEN the control-plane import reconciler runs again
 - THEN it SHALL make no create, update, or prune write to the API
+
+#### Scenario: PLAT-DATA-11.05 -- CITrust Is Imported With References Resolved by Name
+
+- GIVEN a `Repository` whose `.hypershell` root declares a `Gateway` named `agents-gateway` and a `CITrust` whose `ci_provider_id` names a `CIProvider` and whose `gateway_id` names `agents-gateway`
+- WHEN the control-plane import reconciler runs
+- THEN it SHALL resolve `ci_provider_id` to the `CIProvider` of that `name` and `gateway_id` to the `Gateway` of that `name`
+- AND it SHALL upsert the `CITrust` owned by the `Repository` (`repository_id` set server-side)
+- AND re-running the import against unchanged repository state SHALL make no write
+
+#### Scenario: PLAT-DATA-11.06 -- Removed CITrust Is Pruned Within Its Owning Repository
+
+- GIVEN a `Repository` that previously imported a `CITrust`, and another `CITrust` created directly over REST on the same gateway by its owner
+- WHEN that imported `CITrust` is removed from `.hypershell` and the import re-runs
+- THEN the import reconciler SHALL delete only the imported `CITrust`
+- AND it SHALL NOT delete the directly-created `CITrust`
 
 ---
 
@@ -1591,6 +1662,8 @@ The control plane realizes a `CIProvider` as a validation-only OIDC identity pro
 ### Requirement: PLAT-DATA-25 -- CITrust
 
 A `CITrust` wires a `CIProvider` to a single `Gateway` the caller manages (`gateway:owner` or `gateway:admin`, or `platform:admin`), declaring that any CI run whose OIDC token matches `subject` MAY exchange that token for an OpenShell access token scoped to that gateway's workspace. It is the self-service, tenant-owned replacement for operator-managed per-tenant Keycloak configuration: creating a `CITrust` is how a user "enables CI on their own gateway" with no stored secret. The per-gateway tenancy is authorized by the same `CanManageGatewayResources` check the other gateway-scoped ext kinds use; see `security/rbac-enforcement.spec.md` (SEC-RBAC-22).
+
+A `CITrust` is an **importable Kind** (see "Declarative `.hypershell` Import", PLAT-DATA-11): a repository MAY declare its own keyless CI federation in `.hypershell` next to the `Gateway` it federates onto. It therefore carries the same nullable, read-only `repository_id` ownership mark the other importable Kinds carry (NULL when authored directly over REST or `hsctl apply`, set server-side to the originating `Repository` on import), and its `ci_provider_id` and `gateway_id` references are resolved by name on import. The import path's authorization - how a non-human importer satisfies the SEC-RBAC-22 per-gateway tenancy - is defined in [`ci-trust-ext-api.spec.md`](./ci-trust-ext-api.spec.md) (PLAT-CITR-10) and `security/rbac-enforcement.spec.md` (SEC-RBAC-26).
 
 `CITrust` fields:
 

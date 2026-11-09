@@ -776,8 +776,10 @@ Mode gating (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-mode
 
 - GIVEN the HyperShell API is reachable (via `DiscoverAPIHost`)
 - WHEN a gateway is created via `POST /api/hypershell/v1/gateways`
-- THEN the test SHALL poll the API until the gateway phase is `Running` or `E2E_PROVISION_TIMEOUT` seconds have elapsed
-- AND a timeout SHALL be reported as a test failure
+- THEN the test SHALL poll the API in one bounded wait until a single response meets all four readiness conditions: phase is `Running`; `generation` is greater than 0 and `observed_generation` equals `generation`; the provisioning conditions are present and `Complete`; and `route_address` is set
+- AND the test SHALL NOT combine checks from different responses; the gateway it records as ready, and the provisioning duration it reports, SHALL come from that one response
+- AND the wait SHALL be bounded by `E2E_PROVISION_TIMEOUT` plus `E2E_CONDITIONS_SETTLE_TIMEOUT` seconds
+- AND a timeout SHALL be reported as a test failure that names the last observed phase, `generation`, `observed_generation`, route state, and the readiness check that failed
 
 #### Scenario: E2E-CORE-13.03 -- Seeded Cluster Discovery
 
@@ -1804,6 +1806,7 @@ The functional, performance, and matrix suites are Go only (see [Single Function
 | `E2E_SANDBOX_TIMEOUT` | `120` | Seconds to wait for sandbox pod readiness and for each `active_sandbox_count` assertion |
 | `E2E_SANDBOX_DELETE_TIMEOUT` | `120` | Seconds to wait for a deleted sandbox to be fully removed from the gateway store (`openshell sandbox list`) |
 | `E2E_PROVISION_TIMEOUT` | `180` | Seconds to wait for gateway provisioning |
+| `E2E_CONDITIONS_SETTLE_TIMEOUT` | `60` | Extra seconds added to `E2E_PROVISION_TIMEOUT` for the primary gateway readiness wait, so provisioning conditions and the route have time to settle (E2E-CORE-13.02) |
 | `E2E_GC_TIMEOUT` | `180` | Seconds to wait for the managed namespace to be garbage collected after a gateway delete |
 | `E2E_ORPHAN_GC_TIMEOUT` | `90` | Seconds from orphan namespace seed time for the periodic reaper to delete the synthetic orphan (validated in P2.3) |
 | `E2E_SKIP_CLEANUP` | `0` | Set to `1` to keep test resources after run |

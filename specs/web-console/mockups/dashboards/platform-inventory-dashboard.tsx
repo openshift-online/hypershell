@@ -1,9 +1,4 @@
-import {
-  Button,
-  Content,
-  PageSection,
-  Title,
-} from "@patternfly/react-core";
+import { Button, Content, PageSection, Title } from "@patternfly/react-core";
 import { PlusCircleIcon } from "@patternfly/react-icons";
 import {
   DashboardFilters,
@@ -118,7 +113,7 @@ export function PlatformInventoryDashboardPageSurface() {
 
 export function PlatformInventoryDashboardMockup() {
   return (
-    <MockupShell>
+    <MockupShell activeSection="dashboard">
       <PlatformInventoryDashboardPageSurface />
     </MockupShell>
   );

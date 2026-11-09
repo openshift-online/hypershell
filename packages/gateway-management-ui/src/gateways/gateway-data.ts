@@ -412,6 +412,7 @@ export function toGatewayConnection(
     clusterId,
     // The name is resolved from the ManagedCluster the id references.
     clusterName: "",
+    ...(gateway.clusterType ? { clusterType: gateway.clusterType } : {}),
     ...(gateway.consoleUrl ? { consoleUrl: gateway.consoleUrl } : {}),
     ...(gateway.createdAt ? { createdAt: gateway.createdAt } : {}),
     ...(gateway.createdBy ? { createdBy: gateway.createdBy } : {}),

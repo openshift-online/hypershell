@@ -177,8 +177,9 @@ The GatewayReconciler SHALL translate Gateway resource fields and cluster-derive
 | Gateway / CP Config | Helm Value | Notes |
 |---|---|---|
 | `ReleaseName` constant (`openshell-gateway`) | `fullnameOverride` | Upstream chart name is `helm-chart`; override pins all resource names to `openshell-gateway` |
-| Gateway `image` field | `image.repository`, `image.tag` | Split at last `:` |
-| Gateway `supervisor_image` field | `supervisorImage.repository`, `supervisorImage.tag` | Split at last `:` |
+| Gateway `image` field | `gateway.image.{registry,repository,tag,digest}` | Parsed into parts; a configured digest is preserved. See OSG-HELM-05 |
+| Gateway `supervisor_image` field | `supervisor.image.{registry,repository,tag,digest}` | Parsed into parts; a configured digest is preserved. See OSG-HELM-05 |
+| Gateway `sandbox_runtime_image` (from `GATEWAY_SANDBOX_RUNTIME_IMAGE`) | `sandboxRuntime.image.{registry,repository,tag,digest}` | Parsed into parts; a configured digest is preserved. See OSG-HELM-05 |
 | Always `deployment` | `workload.kind` | PostgreSQL backend, never StatefulSet |
 | `1` | `replicaCount` | Single replica per gateway |
 | `GATEWAY_RESOURCES` (else defaults) | `resources` | Default requests `cpu: 100m`, `memory: 512Mi`; limits `cpu: 500m`, `memory: 1Gi`. Always set: chart default is `{}` (no limits) |
@@ -285,6 +286,81 @@ Set only when the target cluster is detected as OpenShift.
 - THEN it SHALL produce a `map[string]interface{}` that maps all Gateway fields to chart values
 - AND unset optional fields (e.g. no OIDC) SHALL be omitted from the values map
 - AND the computed values SHALL be deterministic for the same Gateway state
+
+---
+
+### Requirement: OSG-HELM-05 -- Image Digest Preservation
+
+The GatewayReconciler SHALL preserve an explicitly configured container image
+digest when it builds Helm values for the gateway, supervisor and sandbox-runtime
+images. A configured image digest identifies the exact content that was tested and
+approved; the values builder SHALL NOT drop it, replace a digest reference with a
+tag, or fall back to `latest` when a digest is present.
+
+The values builder SHALL parse each image reference into its registry, repository,
+optional tag and optional digest parts, handling a registry port (for example
+`registry.example:5000/repo`) correctly, and SHALL set `gateway.image.digest`,
+`supervisor.image.digest` and `sandboxRuntime.image.digest` whenever the
+corresponding reference carries a digest. When a reference carries both a tag and a
+digest, the rendered image SHALL use the digest. The chart gives
+`image.digest` priority over `image.tag` (see the `openshell.image` helper in
+`charts/openshell/templates/_helpers.tpl`); the values builder SHALL supply the
+digest so this priority takes effect.
+
+An image reference that is malformed, or that cannot be parsed into valid parts,
+SHALL be reported as a validation error. The values builder SHALL NOT silently
+drop or replace parts of an unparseable reference.
+
+This requirement constrains only how an operator-selected image reference is carried
+through to the rendered deployment. Fleet upgrade scheduling and release promotion
+policy are out of scope.
+
+#### Scenario: OSG-HELM-05.01 -- Tag-only reference keeps working
+
+- GIVEN a configured image `quay.io/opendatahub/odh-openshell-gateway:v0.1.5` with no digest
+- WHEN the GatewayReconciler builds Helm values
+- THEN it SHALL set `gateway.image.registry` to `quay.io`, `gateway.image.repository` to `opendatahub/odh-openshell-gateway` and `gateway.image.tag` to `v0.1.5`
+- AND it SHALL NOT set `gateway.image.digest`
+- AND the rendered gateway image SHALL be `quay.io/opendatahub/odh-openshell-gateway:v0.1.5`
+
+#### Scenario: OSG-HELM-05.02 -- Tag-plus-digest reference renders with the digest
+
+- GIVEN a configured image `quay.io/opendatahub/odh-openshell-gateway:v0.1.5@sha256:abc...` with both a tag and a digest
+- WHEN the GatewayReconciler builds Helm values
+- THEN it SHALL set `gateway.image.digest` to `sha256:abc...`
+- AND the rendered gateway image SHALL be `quay.io/opendatahub/odh-openshell-gateway@sha256:abc...`
+- AND the rendered reference SHALL NOT use the tag `v0.1.5`
+
+#### Scenario: OSG-HELM-05.03 -- Digest-only reference never falls back to a tag
+
+- GIVEN a configured image `quay.io/opendatahub/odh-openshell-gateway@sha256:abc...` with a digest and no tag
+- WHEN the GatewayReconciler builds Helm values
+- THEN it SHALL set `gateway.image.digest` to `sha256:abc...`
+- AND it SHALL NOT set `gateway.image.tag`
+- AND the rendered gateway image SHALL be `quay.io/opendatahub/odh-openshell-gateway@sha256:abc...`
+- AND the rendered reference SHALL NOT use `latest`, the global image tag, or the chart app version
+
+#### Scenario: OSG-HELM-05.04 -- Registry port is parsed correctly
+
+- GIVEN a configured image `registry.example:5000/openshell/gateway:v1@sha256:abc...`
+- WHEN the GatewayReconciler builds Helm values
+- THEN it SHALL set `gateway.image.registry` to `registry.example:5000`, `gateway.image.repository` to `openshell/gateway` and `gateway.image.digest` to `sha256:abc...`
+- AND the rendered gateway image SHALL be `registry.example:5000/openshell/gateway@sha256:abc...`
+
+#### Scenario: OSG-HELM-05.05 -- Digest preserved for supervisor and sandbox-runtime images
+
+- GIVEN a configured supervisor image and sandbox-runtime image that each carry a digest
+- WHEN the GatewayReconciler builds Helm values
+- THEN it SHALL set `supervisor.image.digest` and `sandboxRuntime.image.digest` to the respective digests
+- AND the rendered supervisor and sandbox-runtime image references SHALL use those digests
+- AND any gateway-image consumer rendered by the chart (for example the certificate-generation job) SHALL use the gateway digest
+
+#### Scenario: OSG-HELM-05.06 -- Malformed reference is a validation error
+
+- GIVEN a configured image reference that cannot be parsed into valid registry, repository, tag and digest parts
+- WHEN the GatewayReconciler builds Helm values
+- THEN it SHALL return a validation error that names the invalid reference
+- AND it SHALL NOT silently drop or replace any part of the reference
 
 ---
 

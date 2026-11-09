@@ -145,7 +145,7 @@ export function CostDashboardPageSurface() {
 
 export function CostDashboardMockup() {
   return (
-    <MockupShell>
+    <MockupShell activeSection="dashboard">
       <CostDashboardPageSurface />
     </MockupShell>
   );

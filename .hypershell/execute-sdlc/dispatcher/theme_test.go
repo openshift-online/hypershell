@@ -68,3 +68,19 @@ func TestThemeContrastTruecolorAndStandard256Palette(t *testing.T) {
 		}
 	}
 }
+
+func TestApprovalSurfaceContrast(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		for _, profile := range []termenv.Profile{termenv.TrueColor, termenv.ANSI256} {
+			convert := func(hex string) string { return fmt.Sprint(profile.Color(hex)) }
+			for _, bg := range []string{"canvas", "approval-surface", "approval-selected"} {
+				for _, fg := range []string{"7", "approval-text", "approval-accent"} {
+					ratio := contrast(convert(themeHex(fg, dark)), convert(themeHex(bg, dark)))
+					if ratio < 4.5 {
+						t.Errorf("approval %s on %s dark=%v profile=%v contrast %.2f", fg, bg, dark, profile, ratio)
+					}
+				}
+			}
+		}
+	}
+}

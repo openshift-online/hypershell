@@ -26,10 +26,10 @@ export const OwnershipFilterOn: Story = {
   args: { state: "loaded", ownershipFilterOn: true },
 };
 
-// Row selection active: one eligible gateway is selected, so the toolbar
-// bulk-selection control shows the indeterminate state and the selected count,
-// and the Delete bulk action is enabled. The viewer-only "shared-gateway" row
-// keeps a disabled checkbox with an accessible explanation (WEB-UIEX-08).
+// Row selection active: one eligible gateway is selected, so the table-header
+// select-all checkbox is indeterminate and the Delete bulk action is enabled.
+// The viewer-only "shared-gateway" row keeps a disabled checkbox with an
+// accessible explanation (WEB-UIEX-08).
 export const SelectionActive: Story = {
   args: { state: "loaded", bulk: "selection" },
 };
@@ -46,6 +46,13 @@ export const BulkDeleteConfirm: Story = {
 // it can be retried without resubmitting the accepted deletions (WEB-UIEX-08).
 export const BulkDeletePartialFailure: Story = {
   args: { state: "loaded", bulk: "partial-failure" },
+};
+
+export const ConnectionCommand: Story = {
+  args: {
+    state: "loaded",
+    connectionModalGateway: "payments-gateway",
+  },
 };
 
 export const Empty: Story = {
