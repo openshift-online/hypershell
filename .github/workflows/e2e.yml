@@ -903,6 +903,8 @@ jobs:
       - name: Resolve OpenShift namespace
         run: bash scripts/ci/resolve-openshift-namespace.sh
 
+      # Keep these inputs in sync with the "Redeploy environment torn down by
+      # a prior attempt" step in e2e-openshift below.
       - name: Deploy OpenShift Environment
         uses: ./.github/actions/deploy-pr-environment
         with:
@@ -1000,6 +1002,40 @@ jobs:
         uses: ./.github/actions/openshift-cluster-login
         with:
           role-arn: ${{ env.PR_ENV_AWS_ROLE_ARN }}
+
+      - name: Check whether the environment is still up
+        id: env-check
+        run: |
+          if bash scripts/ci/pr-env-is-up.sh; then
+            echo "is_up=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "is_up=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      # "Re-run failed jobs" does not re-run `deploy` once it has succeeded,
+      # but a prior e2e-openshift attempt's own "Destroy unretained
+      # environment" step below may have already torn the environment down
+      # on its way out. Redeploy it here so the retry has something to test
+      # against instead of failing closed on a missing namespace
+      # (ephemeral-pr-environments.spec.md). Keep these inputs in sync with
+      # the `deploy` job's "Deploy OpenShift Environment" step above.
+      - name: Redeploy environment torn down by a prior attempt
+        if: steps.env-check.outputs.is_up == 'false'
+        uses: ./.github/actions/deploy-pr-environment
+        with:
+          pr_number: ${{ github.event.pull_request.number }}
+          head_sha: ${{ needs.plan-images.outputs.konflux_ref }}
+          updated: ${{ github.event.action == 'synchronize' && 'true' || 'false' }}
+          retained: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'pr-environment/pr-extended') && 'true' || 'false' }}
+          wait_api_server: ${{ needs.plan-images.outputs.wait_api_server }}
+          wait_control_plane: ${{ needs.plan-images.outputs.wait_control_plane }}
+          wait_web_console: ${{ needs.plan-images.outputs.wait_web_console }}
+          api_server_image: ${{ needs.plan-images.outputs.api_server_image }}
+          control_plane_image: ${{ needs.plan-images.outputs.control_plane_image }}
+          web_console_image: ${{ needs.plan-images.outputs.web_console_image }}
+          api_server_check_regexp: ${{ github.event_name == 'push' && 'hypershell-api-server-main-on-push$' || github.event_name == 'merge_group' && 'hypershell-api-server-main-on-merge-queue$' || 'hypershell-api-server-main-on-pull-request$' }}
+          control_plane_check_regexp: ${{ github.event_name == 'push' && 'hypershell-control-plane-main-on-push$' || github.event_name == 'merge_group' && 'hypershell-control-plane-main-on-merge-queue$' || 'hypershell-control-plane-main-on-pull-request$' }}
+          web_console_check_regexp: ${{ github.event_name == 'push' && 'hypershell-web-console-main-on-push$' || github.event_name == 'merge_group' && 'hypershell-web-console-main-on-merge-queue$' || 'hypershell-web-console-main-on-pull-request$' }}
 
       - name: Run OpenShift e2e suite
         id: e2e-suite

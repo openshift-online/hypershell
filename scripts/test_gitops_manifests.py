@@ -75,6 +75,40 @@ class GitOpsManifestTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(render(path, legacy=True))
 
+    def test_openshift_keycloak_guard_is_restricted_and_uses_jwks_url(self):
+        resources = render("openshift", legacy=True)
+        for deployment_name in ("hypershell-api-server", "hypershell-web-console"):
+            with self.subTest(deployment=deployment_name):
+                deployment = resources[("apps", "Deployment", "hypershell-system", deployment_name)]
+                init_container = next(
+                    container
+                    for container in deployment["spec"]["template"]["spec"]["initContainers"]
+                    if container["name"] == "wait-for-keycloak"
+                )
+                self.assertEqual(
+                    init_container["env"][0],
+                    {
+                        "name": "KEYCLOAK_ENDPOINT",
+                        "valueFrom": {
+                            "secretKeyRef": {
+                                "name": "hypershell-api-config",
+                                "key": "api-service.jwkCertUrl",
+                            }
+                        },
+                    },
+                )
+                self.assertEqual(
+                    init_container["securityContext"],
+                    {
+                        "allowPrivilegeEscalation": False,
+                        "privileged": False,
+                        "readOnlyRootFilesystem": True,
+                        "capabilities": {"drop": ["ALL"]},
+                        "runAsNonRoot": True,
+                        "seccompProfile": {"type": "RuntimeDefault"},
+                    },
+                )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
