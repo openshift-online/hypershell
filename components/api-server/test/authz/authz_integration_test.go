@@ -309,7 +309,7 @@ func createGateway(t *testing.T, client *openapi.APIClient, owner principal, clu
 	return &openapi.Gateway{Id: &id, Namespace: created.GetGateway().GetNamespace()}
 }
 
-// Verifies: PLAT-CLUS-11.02
+// Verifies: PLAT-CLUS-11.02, PLAT-CLUS-11.06
 func TestGRPCControlPlaneWritesAreScopedToItsCluster(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	a := registerSpoke(t, h, client)
@@ -330,8 +330,13 @@ func TestGRPCControlPlaneWritesAreScopedToItsCluster(t *testing.T) {
 	Expect(grpcCode(err)).To(Equal(codes.PermissionDenied), "SetActiveSandboxCount on another cluster's gateway: %v", err)
 	_, err = gwB.UpdateGateway(ctx, &pb.UpdateGatewayRequest{Id: gwA.GetId(), Image: strPtr("quay.io/evil/gateway:latest")})
 	Expect(grpcCode(err)).To(Equal(codes.PermissionDenied), "UpdateGateway on another cluster's gateway: %v", err)
-	_, err = gwB.GetGateway(ctx, &pb.GetGatewayRequest{Id: gwA.GetId()})
-	Expect(grpcCode(err)).To(Equal(codes.NotFound), "GetGateway on another cluster's gateway: %v", err)
+	// PLAT-CLUS-11.06 / SEC-RBAC-09: GetGateway is a fleet-wide read for a
+	// control-plane identity. Control plane B resolves A's gateway by id (so the
+	// hub can read a spoke-placed gateway while reconciling), NOT NOT_FOUND. The
+	// writes above stay own-cluster only.
+	readForeign, err := gwB.GetGateway(ctx, &pb.GetGatewayRequest{Id: gwA.GetId()})
+	Expect(err).NotTo(HaveOccurred(), "GetGateway on another cluster's gateway should be a fleet-wide read: %v", err)
+	Expect(readForeign.GetGateway().GetMetadata().GetId()).To(Equal(gwA.GetId()))
 	_, err = gwB.DeleteGateway(ctx, &pb.DeleteGatewayRequest{Id: gwA.GetId()})
 	Expect(grpcCode(err)).To(Equal(codes.PermissionDenied), "DeleteGateway on another cluster's gateway: %v", err)
 
