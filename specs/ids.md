@@ -93,6 +93,7 @@ listed in `specs/id-rename-map.md`, not here.
 |--------|------|--------------|
 | `GTW-ACC` | `platform/gateway-access-management.spec.md` | 15 |
 | `GTW-ATTR` | `platform/gateway-managed-cluster-attribution.spec.md` | 6 |
+| `GTW-BOOT` | `platform/default-workspace-membership-bootstrap.spec.md` | 7 |
 | `GTW-CFG` | `platform/generated-gateway-config-validation.spec.md` | 4 |
 | `GTW-CONC` | `platform/gateway-reconcile-concurrency.spec.md` | 3 |
 | `GTW-DEL` | `platform/gateway-deletion-finalization.spec.md` | 8 |
