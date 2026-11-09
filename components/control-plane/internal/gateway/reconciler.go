@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -1441,14 +1440,30 @@ func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig *
 		slog.InfoContext(ctx, "Provisioned keycloak client", "client_id", kcClientID, "uuid", clientUUID)
 	}
 
+	// The controller persists this configuration before the pass captures its
+	// desired snapshot (see DesiredOIDCConfig), so the gateway deploys the same
+	// value the API server stores for the generation being applied.
+	nsConfig.Gateway.OIDC = DesiredOIDCConfig(opts.Keycloak, kcClientID)
+
+	return nil
+}
+
+// DesiredOIDCConfig returns the OIDC configuration the control plane generates
+// for a gateway whose Keycloak client ID is clientID. It depends only on the
+// Keycloak configuration and the client ID, not on the Keycloak client existing,
+// so the controller can resolve and persist it before it applies any workload
+// configuration.
+func DesiredOIDCConfig(kcConfig *KeycloakConfig, clientID string) OIDCConfig {
 	oidcConfig := OIDCConfig{
-		Issuer:     kc.Issuer(),
-		ClientID:   kcClientID,
-		Audience:   kcClientID,
+		ClientID:   clientID,
+		Audience:   clientID,
 		JwksTTL:    3600,
 		RolesClaim: "hypershell.roles",
 		AdminRole:  "openshell-admin",
 		UserRole:   "openshell-user",
+	}
+	if kcConfig != nil {
+		oidcConfig.Issuer = keycloak.NewClient(kcConfig.ServerURL, kcConfig.Realm, "", "").Issuer()
 	}
 	// The Keycloak Admin API server URL must be reachable in-cluster, but the
 	// gateway's client-facing issuer (consumed by the gateway pod, console, and
@@ -1458,23 +1473,7 @@ func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig *
 	if issuerURL := os.Getenv("GATEWAY_OIDC_ISSUER_URL"); issuerURL != "" {
 		oidcConfig.Issuer = issuerURL
 	}
-	nsConfig.Gateway.OIDC = oidcConfig
-
-	if opts.UpdateOIDC != nil {
-		oidcJSON, err := json.Marshal(oidcConfig)
-		if err != nil {
-			return fmt.Errorf("marshal oidc config: %w", err)
-		}
-		if err := opts.UpdateOIDC(ctx, string(oidcJSON)); err != nil {
-			// Surface the write-back failure so the pass retries (OSG-OIDC-05):
-			// swallowing it leaves the API server's stored OIDC configuration out
-			// of sync with the deployed gateway until an unrelated change triggers
-			// another pass.
-			return fmt.Errorf("persist oidc config for %s: %w", kcClientID, err)
-		}
-	}
-
-	return nil
+	return oidcConfig
 }
 
 func reconcileCredentialDriverResources(

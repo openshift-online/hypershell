@@ -150,7 +150,9 @@ claims the running pod uses), a failed write-back SHALL be surfaced so the
 reconcile pass retries. The control plane SHALL NOT log the write-back failure and
 report the pass successful, because that leaves the API server's stored OIDC
 configuration out of sync with the deployed gateway until an unrelated change
-triggers another pass.
+triggers another pass. The write-back SHALL happen before the pass applies any
+workload configuration, so a failed write leaves `observed_generation`
+unchanged (PLAT-DATA-06).
 
 #### Scenario: OSG-OIDC-05.01 -- Failed OIDC write-back is retried, not swallowed
 

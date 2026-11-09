@@ -458,6 +458,17 @@ provisioning.
 the `generation` it last successfully applied to the cluster. A Gateway is
 *converged* when `observed_generation == generation`.
 
+A reconcile pass SHALL apply one snapshot of the Gateway's desired state and
+SHALL acknowledge the `generation` of that snapshot. Configuration the control
+plane generates itself (the `oidc` document) is desired state, so writing it
+advances `generation`. The control plane SHALL persist generated configuration
+before it captures the snapshot to apply, and SHALL take the snapshot from the
+record the API server returns for that write. A first pass therefore converges
+a new Gateway: its generated configuration does not leave a newer generation
+behind that triggers a second full apply. When a newer `generation` arrives
+while a pass is applying, the control plane SHALL acknowledge only the
+generation it applied and leave the newer one pending for its own pass.
+
 The two fields differ in contract writability:
 
 - `generation` SHALL be read-only across all client-facing REST and gRPC
@@ -509,6 +520,24 @@ permanently mask drift.
 - WHEN the control plane writes an observed `phase`/`status`/`route_address`
 - THEN `generation` SHALL remain N
 - AND the Gateway SHALL remain converged
+
+#### Scenario: PLAT-DATA-06.06 -- Generated configuration converges in the first pass
+- GIVEN a new Gateway with `generation = 1` and no stored `oidc`
+- WHEN the control plane provisions it and persists its generated `oidc`,
+  which advances `generation` to 2
+- THEN the control plane SHALL apply the workload from the stored generation-2
+  record and SHALL set `observed_generation` to 2
+- AND a later event for generation 2 SHALL NOT start another full apply
+- AND a pass whose stored `oidc` already matches SHALL NOT write it again
+
+#### Scenario: PLAT-DATA-06.07 -- A stale or overtaken event acknowledges only what it applied
+- GIVEN a pass triggered by an event for generation N
+- WHEN the stored record has advanced past N by the time the pass persists its
+  generated configuration
+- THEN the pass SHALL apply the stored record returned by that write and
+  acknowledge that record's generation
+- AND a generation that arrives after the snapshot was taken SHALL remain
+  pending (`observed_generation < generation`) until its own pass applies it
 
 ### Requirement: PLAT-DATA-07 -- Monotonic Provisioning Conditions
 

@@ -592,6 +592,32 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		}
 	}
 
+	var gatewayClientID string
+	if r.keycloakConfig != nil {
+		clientID, err := gatewayKeycloakClientID(event.ResourceID, gw)
+		if err != nil {
+			outcome = cpotel.OutcomeFailed
+			reason = cpotel.ReasonIdentityInvalid
+			reconcileErr = fmt.Errorf("resolve Keycloak client for gateway %q: %w", gw.Name, err)
+			return reconcileErr
+		}
+		gatewayClientID = clientID
+
+		// Controller-generated configuration is part of desired state, so writing
+		// it advances generation. Persist it before capturing the snapshot this
+		// pass applies, then build everything from that snapshot: the generation
+		// acknowledged below is then exactly the one whose configuration was
+		// deployed. See data-model.spec.md § Gateway Generation Tracking.
+		snapshot, err := r.persistGeneratedOIDC(ctx, event.ResourceID, gw, gatewayClientID)
+		if err != nil {
+			outcome = cpotel.OutcomeRetryable
+			reason = cpotel.ReasonGRPCUnavailable
+			reconcileErr = fmt.Errorf("reconcile gateway %s: %w", gw.Name, err)
+			return reconcileErr
+		}
+		gw = snapshot
+	}
+
 	namespace, err := gatewayNamespace(gw)
 	if err != nil {
 		outcome = cpotel.OutcomeFailed
@@ -674,17 +700,6 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		Gateway: gwConfig,
 	}
 
-	var gatewayClientID string
-	if r.keycloakConfig != nil {
-		gatewayClientID, err = gatewayKeycloakClientID(event.ResourceID, gw)
-		if err != nil {
-			outcome = cpotel.OutcomeFailed
-			reason = cpotel.ReasonIdentityInvalid
-			reconcileErr = fmt.Errorf("resolve Keycloak client for gateway %q: %w", gw.Name, err)
-			return reconcileErr
-		}
-	}
-
 	opts := gateway.ReconcileOpts{
 		IsOpenShift:           r.isOpenShift,
 		HasCertManager:        r.hasCertManager,
@@ -698,7 +713,6 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		KeycloakClient:        r.keycloakClient,
 		GatewayName:           gw.Name,
 		GatewayClientID:       gatewayClientID,
-		UpdateOIDC:            r.makeOIDCUpdater(event.ResourceID),
 		Exposure:              r.exposure,
 		RouteStillDesired:     r.makeRouteStillDesired(event.ResourceID),
 		ExternalCAIssuerName:  r.externalCAIssuerName,
@@ -764,6 +778,9 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	}
 
 	// Manifests applied successfully: acknowledge the generation we converged on.
+	// gw is the snapshot the manifests were built from (persistGeneratedOIDC), so
+	// this is the generation whose complete desired configuration was applied; a
+	// newer generation that arrived mid-pass stays pending for its own pass.
 	// Readiness/health below only affects phase, not convergence. On failure
 	// above we returned without writing, so the change is retried. The gateway is
 	// now converged, so the convergence gate suppresses further re-provisioning
@@ -1450,18 +1467,48 @@ func (r *GatewayReconciler) selectGatewayImage(gw *pb.Gateway) (string, error) {
 	return image, nil
 }
 
-func (r *GatewayReconciler) makeOIDCUpdater(gatewayID string) func(ctx context.Context, oidcJSON string) error {
-	return func(ctx context.Context, oidcJSON string) error {
-		client := pb.NewGatewayServiceClient(r.grpcConn)
-		_, err := client.UpdateGateway(ctx, &pb.UpdateGatewayRequest{
-			Id:   gatewayID,
-			Oidc: &oidcJSON,
-		})
-		if err != nil {
-			return fmt.Errorf("update gateway %s oidc: %w", gatewayID, err)
+// persistGeneratedOIDC resolves the controller-generated OIDC configuration for
+// gw and returns the snapshot the pass must apply.
+//
+// When the stored configuration already matches, gw itself is the snapshot and
+// nothing is written. Otherwise the configuration is written first, and the
+// record the API server returns for that write is the snapshot: it is the stored
+// state at its generation, including any concurrent desired-state change, so the
+// pass applies and acknowledges one consistent generation. A failed write is
+// returned so the pass retries before anything is applied (OSG-OIDC-05).
+func (r *GatewayReconciler) persistGeneratedOIDC(ctx context.Context, gatewayID string, gw *pb.Gateway, clientID string) (*pb.Gateway, error) {
+	desired := gateway.DesiredOIDCConfig(r.keycloakConfig, clientID)
+	if stored := gw.GetOidc(); stored != "" {
+		var current gateway.OIDCConfig
+		if err := json.Unmarshal([]byte(stored), &current); err == nil && current == desired {
+			return gw, nil
 		}
-		return nil
 	}
+	oidcJSON, err := json.Marshal(desired)
+	if err != nil {
+		return nil, fmt.Errorf("marshal oidc config for %s: %w", clientID, err)
+	}
+	oidc := string(oidcJSON)
+	resp, err := r.gatewayServiceClient().UpdateGateway(ctx, &pb.UpdateGatewayRequest{
+		Id:   gatewayID,
+		Oidc: &oidc,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("persist oidc config for %s: %w", clientID, err)
+	}
+	snapshot := resp.GetGateway()
+	if snapshot == nil {
+		return nil, fmt.Errorf("persist oidc config for %s: API server returned no gateway", clientID)
+	}
+	// Metadata and field names only: the OIDC document carries no secret, but
+	// keep its values out of the log anyway.
+	slog.InfoContext(ctx, "Persisted generated gateway configuration before apply",
+		"gateway_id", gatewayID,
+		"changed_fields", "oidc",
+		"event_generation", gw.GetGeneration(),
+		"apply_generation", snapshot.GetGeneration(),
+	)
+	return snapshot, nil
 }
 
 type StubGatewayReconciler struct{}
