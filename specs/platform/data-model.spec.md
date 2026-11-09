@@ -438,16 +438,16 @@ reconciliation contract
 STD-RCON-06); it refines that contract and does not weaken it.
 
 The API server SHALL increment `generation` whenever any field of the Gateway's
-desired spec changes, including `name`, the platform-managed workload fields
-`image`, `supervisor_image`, `server_dns_names`, `oidc`, `route`,
-`credential_driver`, `external_dns`, `tls_mode`, `service_type`, `placement`, and
+desired spec changes: the platform-managed workload fields `image`,
+`supervisor_image`, `server_dns_names`, `oidc`, `route`, `credential_driver`,
+`external_dns`, `tls_mode`, `service_type`, `workspace_mode`, `placement`, and
 `cluster_id` (including the first time the API server assigns a `cluster_id` to a
-late-bound Gateway). This holds regardless of WHICH writer made the change: a user
-rename and a control-plane write of a platform-managed field both advance
-`generation`; only the control plane may write the platform-managed fields
-(PLAT-DATA-23). It SHALL NOT increment `generation` for changes to
+late-bound Gateway). Only the control plane may write the platform-managed fields
+(PLAT-DATA-23), so after creation only a control-plane write advances
+`generation`. It SHALL NOT increment `generation` for changes to the identity
+fields `name` and `namespace`, which do not alter the deployed workload, or to
 control-plane-owned observed fields (`status`, `phase`, `route_address`,
-`observed_generation`).
+`observed_generation`). A user rename therefore does not trigger a reconcile.
 
 On creation, a Gateway SHALL initialize with `generation = 1` and
 `observed_generation = 0`, so that a newly created Gateway is never spuriously
@@ -498,7 +498,7 @@ permanently mask drift.
 - GIVEN a Gateway with `generation` N that has been applied
   (`observed_generation == N`)
 - WHEN a desired-spec field changes (the control plane writes a platform-managed field
-  such as `image`, or a user renames the gateway)
+  such as `image`)
 - THEN the API server SHALL increment `generation` to N+1
 - AND `observed_generation` SHALL remain N until the control plane re-applies
 
@@ -539,6 +539,12 @@ permanently mask drift.
 - AND a generation that arrives after the snapshot was taken SHALL remain
   pending (`observed_generation < generation`) until its own pass applies it
 
+#### Scenario: PLAT-DATA-06.08 -- Rename does not advance generation
+- GIVEN a converged Gateway with `generation` N
+- WHEN a user renames it
+- THEN `generation` SHALL remain N
+- AND the Gateway SHALL remain converged, so the control plane does not re-apply it
+
 ### Requirement: PLAT-DATA-07 -- Monotonic Provisioning Conditions
 
 `provisioning_conditions` is a user-facing progress ladder (see
@@ -571,7 +577,7 @@ generation, under the same per-row lock that guards `generation`:
 
 #### Scenario: PLAT-DATA-07.02 -- Spec change restarts provisioning conditions
 - GIVEN a converged Gateway at `generation` N with all conditions `Complete`
-- WHEN a desired-spec field changes (a user rename or a control-plane write of a platform-managed field), advancing `generation` to N+1
+- WHEN a desired-spec field changes (a control-plane write of a platform-managed field), advancing `generation` to N+1
 - THEN the API server SHALL clear `provisioning_conditions`
 - AND the control plane SHALL repopulate them for the new generation
 
