@@ -135,6 +135,55 @@ type GatewayReconciler struct {
 	// sandboxRuntimeClass is the Kubernetes RuntimeClass name applied to every
 	// sandbox pod (GATEWAY_SANDBOX_RUNTIME_CLASS); empty uses the cluster default.
 	sandboxRuntimeClass string
+	// gatewayClientOverride, when non-nil, supplies the GatewayServiceClient used
+	// by the nil-payload delete re-read (CTRL-WDEL-04). Production leaves it nil
+	// and dials grpcConn; tests inject a fake without standing up a gRPC server.
+	gatewayClientOverride pb.GatewayServiceClient
+}
+
+// gatewayServiceClient returns the GatewayServiceClient used for direct gRPC
+// reads. It honors a test-injected override and otherwise dials the shared
+// connection, matching every other call site in this package.
+func (r *GatewayReconciler) gatewayServiceClient() pb.GatewayServiceClient {
+	if r.gatewayClientOverride != nil {
+		return r.gatewayClientOverride
+	}
+	return pb.NewGatewayServiceClient(r.grpcConn)
+}
+
+// rereadDeletingGateway re-reads a deleting Gateway record with the unscoped
+// query (include_deleted) so a nil-payload delete event can reconcile teardown
+// from the record (CTRL-WDEL-02, CTRL-WDEL-04). It returns an error when the
+// record cannot be loaded so the caller can defer and retry rather than report a
+// delete complete while owned resources were never reconciled.
+func (r *GatewayReconciler) rereadDeletingGateway(ctx context.Context, id string) (*pb.Gateway, error) {
+	resp, err := r.gatewayServiceClient().GetGateway(ctx, &pb.GetGatewayRequest{Id: id, IncludeDeleted: true})
+	if err != nil {
+		return nil, err
+	}
+	gw := resp.GetGateway()
+	if gw == nil {
+		return nil, fmt.Errorf("unscoped re-read returned no gateway record for %s", id)
+	}
+	return gw, nil
+}
+
+// recordDeleteOrphans records the no-silent-orphan signal for each named
+// owned-resource class that a delete could not reconcile, as a durable,
+// operator-visible Event in addition to the retryable error the caller returns
+// (GTW-DEL-07). It is used where an out-of-namespace class (the per-gateway
+// database, the Keycloak clients) has no namespace-GC recovery path. Callers name
+// only the classes the gateway actually owns so operators are not sent chasing a
+// resource that was never created.
+func (r *GatewayReconciler) recordDeleteOrphans(ctx context.Context, gatewayID, resourceName, reason string, kinds ...string) {
+	for _, kind := range kinds {
+		if err := recordIncompleteFinalizationEvent(ctx, r.clientset, r.controlPlaneNamespace, gatewayID, kind, resourceName, reason); err != nil {
+			slog.ErrorContext(ctx, "Failed to record IncompleteFinalization Event",
+				"gateway_id", gatewayID,
+				"kind", kind,
+				"error", err)
+		}
+	}
 }
 
 func NewGatewayReconciler(
@@ -234,8 +283,32 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 
 	gw := event.Resource
 	if gw == nil {
-		slog.WarnContext(ctx, "Gateway event has nil resource, skipping", "gateway_id", event.ResourceID)
-		return nil
+		if event.Type != watcher.EventDeleted {
+			// A create/update event with no payload carries no desired state to
+			// reconcile toward, so there is nothing to do and nothing to orphan.
+			slog.WarnContext(ctx, "Gateway event has nil resource, skipping", "gateway_id", event.ResourceID)
+			return nil
+		}
+		// Nil-payload delete (CTRL-WDEL-04): the API server delivers nil-payload
+		// delete events to unscoped subscribers, so this is reachable in normal
+		// operation. Returning success here would orphan the gateway's
+		// out-of-namespace resources (its database and Keycloak clients), which
+		// have no namespace-GC recovery path. Re-read the deleting record with the
+		// unscoped query and reconcile teardown from it; when it cannot be loaded,
+		// record the no-silent-orphan signal and return a retryable error so the
+		// delete is retried (GTW-DEL-04, GTW-DEL-07).
+		reread, rereadErr := r.rereadDeletingGateway(ctx, event.ResourceID)
+		if rereadErr != nil {
+			slog.ErrorContext(ctx, "Nil-payload gateway delete could not re-read the deleting record; deferring and recording orphan signal", "gateway_id", event.ResourceID, "error", rereadErr)
+			// The record cannot be inspected, so over-signal both out-of-namespace
+			// classes rather than risk a silent orphan.
+			r.recordDeleteOrphans(ctx, event.ResourceID, event.ResourceID,
+				fmt.Sprintf("nil-payload delete could not re-read the deleting gateway record (%v); the per-gateway database and Keycloak clients could not be reconciled", rereadErr),
+				"PostgreSQLDatabase", "KeycloakClient")
+			return fmt.Errorf("re-read deleting gateway %s for nil-payload delete: %w", event.ResourceID, rereadErr)
+		}
+		slog.InfoContext(ctx, "Nil-payload gateway delete re-read the deleting record; reconciling teardown from it", "gateway_id", event.ResourceID)
+		gw = reread
 	}
 	previousPhase := gw.GetPhase()
 	if event.PhaseBeforeRetry != "" {
@@ -271,9 +344,26 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 
 		namespace, namespaceErr := gatewayNamespace(gw)
 		if namespaceErr != nil {
-			// Without a recorded namespace there is nothing deterministic to clean
-			// up; NamespaceGC remains the namespace backstop.
-			slog.WarnContext(ctx, "Gateway deleted but namespace unresolved; skipping namespace cleanup", "gateway_id", event.ResourceID, "error", namespaceErr)
+			// A missing namespace is an unresolved precondition, not a completed
+			// delete: without it the gateway's owned resources (its per-gateway
+			// database, Keycloak clients, and in-namespace workloads) cannot be
+			// located and reconciled toward absence. Reporting success here would
+			// silently orphan the out-of-namespace classes, which have no
+			// namespace-GC recovery path. Record the no-silent-orphan signal for
+			// those classes and return a retryable error so the delete is retried
+			// (GTW-DEL-01, GTW-DEL-04, GTW-DEL-07).
+			slog.ErrorContext(ctx, "Gateway deleted but namespace unresolved; owned resources cannot be reconciled toward absence", "gateway_id", event.ResourceID, "error", namespaceErr)
+			// The record is loaded here, so signal only the classes this gateway
+			// actually owns: every gateway owns a database, but a gateway with no
+			// OIDC configured never had Keycloak clients.
+			orphanKinds := []string{"PostgreSQLDatabase"}
+			if gw.GetOidc() != "" {
+				orphanKinds = append(orphanKinds, "KeycloakClient")
+			}
+			r.recordDeleteOrphans(ctx, event.ResourceID, gw.GetName(),
+				fmt.Sprintf("gateway namespace is unresolved (%v); the owned resources could not be reconciled", namespaceErr),
+				orphanKinds...)
+			deleteErrs = append(deleteErrs, fmt.Errorf("resolve namespace for gateway %s: %w", event.ResourceID, namespaceErr))
 		} else {
 			slog.InfoContext(ctx, "Gateway deleted, cleaning up resources", "gateway_id", event.ResourceID, "namespace", namespace)
 			opts := gateway.ReconcileOpts{
@@ -399,7 +489,9 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			if err != nil {
 				deleteErrs = append(deleteErrs, fmt.Errorf("delete gateway namespace %s: %w", namespace, err))
 			} else if !deleted {
-				gateway.DeleteLabeledNamespaceResources(ctx, r.dynamicClient, namespace, opts)
+				if err := gateway.DeleteLabeledNamespaceResources(ctx, r.dynamicClient, namespace, opts); err != nil {
+					deleteErrs = append(deleteErrs, fmt.Errorf("sweep labeled resources in %s: %w", namespace, err))
+				}
 			}
 			// A managed-mode gateway created cluster-scoped per-workspace
 			// namespaces the Helm uninstall and namespace GC never reap; sweep them
@@ -486,9 +578,44 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 				return watcher.WithRetryableReason(watcher.PreservePayloadForRetry(reconcileErr), reason)
 			}
 		}
-		slog.DebugContext(ctx, "Gateway converged, skipping reconciliation", "gateway_id", event.ResourceID, "generation", gw.Generation)
-		outcome = cpotel.OutcomeNoop
-		return nil
+		needsTrustUpdate, err := gateway.DestinationCATrustNeedsUpdate(ctx, r.clientset, r.controlPlaneNamespace, gw.GetNamespace())
+		if err != nil {
+			outcome = cpotel.OutcomeRetryable
+			reason = cpotel.ReasonDependencyNotReady
+			reconcileErr = fmt.Errorf("check destination TLS trust: %w", err)
+			return watcher.WithRetryableReason(watcher.PreservePayloadForRetry(reconcileErr), reason)
+		}
+		if !needsTrustUpdate {
+			slog.DebugContext(ctx, "Gateway converged, skipping reconciliation", "gateway_id", event.ResourceID, "generation", gw.Generation)
+			outcome = cpotel.OutcomeNoop
+			return nil
+		}
+	}
+
+	var gatewayClientID string
+	if r.keycloakConfig != nil {
+		clientID, err := gatewayKeycloakClientID(event.ResourceID, gw)
+		if err != nil {
+			outcome = cpotel.OutcomeFailed
+			reason = cpotel.ReasonIdentityInvalid
+			reconcileErr = fmt.Errorf("resolve Keycloak client for gateway %q: %w", gw.Name, err)
+			return reconcileErr
+		}
+		gatewayClientID = clientID
+
+		// Controller-generated configuration is part of desired state, so writing
+		// it advances generation. Persist it before capturing the snapshot this
+		// pass applies, then build everything from that snapshot: the generation
+		// acknowledged below is then exactly the one whose configuration was
+		// deployed. See data-model.spec.md § Gateway Generation Tracking.
+		snapshot, err := r.persistGeneratedOIDC(ctx, event.ResourceID, gw, gatewayClientID)
+		if err != nil {
+			outcome = cpotel.OutcomeRetryable
+			reason = cpotel.ReasonGRPCUnavailable
+			reconcileErr = fmt.Errorf("reconcile gateway %s: %w", gw.Name, err)
+			return reconcileErr
+		}
+		gw = snapshot
 	}
 
 	namespace, err := gatewayNamespace(gw)
@@ -573,17 +700,6 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		Gateway: gwConfig,
 	}
 
-	var gatewayClientID string
-	if r.keycloakConfig != nil {
-		gatewayClientID, err = gatewayKeycloakClientID(event.ResourceID, gw)
-		if err != nil {
-			outcome = cpotel.OutcomeFailed
-			reason = cpotel.ReasonIdentityInvalid
-			reconcileErr = fmt.Errorf("resolve Keycloak client for gateway %q: %w", gw.Name, err)
-			return reconcileErr
-		}
-	}
-
 	opts := gateway.ReconcileOpts{
 		IsOpenShift:           r.isOpenShift,
 		HasCertManager:        r.hasCertManager,
@@ -597,7 +713,6 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		KeycloakClient:        r.keycloakClient,
 		GatewayName:           gw.Name,
 		GatewayClientID:       gatewayClientID,
-		UpdateOIDC:            r.makeOIDCUpdater(event.ResourceID),
 		Exposure:              r.exposure,
 		RouteStillDesired:     r.makeRouteStillDesired(event.ResourceID),
 		ExternalCAIssuerName:  r.externalCAIssuerName,
@@ -663,6 +778,9 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	}
 
 	// Manifests applied successfully: acknowledge the generation we converged on.
+	// gw is the snapshot the manifests were built from (persistGeneratedOIDC), so
+	// this is the generation whose complete desired configuration was applied; a
+	// newer generation that arrived mid-pass stays pending for its own pass.
 	// Readiness/health below only affects phase, not convergence. On failure
 	// above we returned without writing, so the change is retried. The gateway is
 	// now converged, so the convergence gate suppresses further re-provisioning
@@ -1349,18 +1467,48 @@ func (r *GatewayReconciler) selectGatewayImage(gw *pb.Gateway) (string, error) {
 	return image, nil
 }
 
-func (r *GatewayReconciler) makeOIDCUpdater(gatewayID string) func(ctx context.Context, oidcJSON string) error {
-	return func(ctx context.Context, oidcJSON string) error {
-		client := pb.NewGatewayServiceClient(r.grpcConn)
-		_, err := client.UpdateGateway(ctx, &pb.UpdateGatewayRequest{
-			Id:   gatewayID,
-			Oidc: &oidcJSON,
-		})
-		if err != nil {
-			return fmt.Errorf("update gateway %s oidc: %w", gatewayID, err)
+// persistGeneratedOIDC resolves the controller-generated OIDC configuration for
+// gw and returns the snapshot the pass must apply.
+//
+// When the stored configuration already matches, gw itself is the snapshot and
+// nothing is written. Otherwise the configuration is written first, and the
+// record the API server returns for that write is the snapshot: it is the stored
+// state at its generation, including any concurrent desired-state change, so the
+// pass applies and acknowledges one consistent generation. A failed write is
+// returned so the pass retries before anything is applied (OSG-OIDC-05).
+func (r *GatewayReconciler) persistGeneratedOIDC(ctx context.Context, gatewayID string, gw *pb.Gateway, clientID string) (*pb.Gateway, error) {
+	desired := gateway.DesiredOIDCConfig(r.keycloakConfig, clientID)
+	if stored := gw.GetOidc(); stored != "" {
+		var current gateway.OIDCConfig
+		if err := json.Unmarshal([]byte(stored), &current); err == nil && current == desired {
+			return gw, nil
 		}
-		return nil
 	}
+	oidcJSON, err := json.Marshal(desired)
+	if err != nil {
+		return nil, fmt.Errorf("marshal oidc config for %s: %w", clientID, err)
+	}
+	oidc := string(oidcJSON)
+	resp, err := r.gatewayServiceClient().UpdateGateway(ctx, &pb.UpdateGatewayRequest{
+		Id:   gatewayID,
+		Oidc: &oidc,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("persist oidc config for %s: %w", clientID, err)
+	}
+	snapshot := resp.GetGateway()
+	if snapshot == nil {
+		return nil, fmt.Errorf("persist oidc config for %s: API server returned no gateway", clientID)
+	}
+	// Metadata and field names only: the OIDC document carries no secret, but
+	// keep its values out of the log anyway.
+	slog.InfoContext(ctx, "Persisted generated gateway configuration before apply",
+		"gateway_id", gatewayID,
+		"changed_fields", "oidc",
+		"event_generation", gw.GetGeneration(),
+		"apply_generation", snapshot.GetGeneration(),
+	)
+	return snapshot, nil
 }
 
 type StubGatewayReconciler struct{}

@@ -25,6 +25,17 @@ const DefaultGatewayDatabaseAdminDir = "/etc/hypershell/gateway-database"
 // specs/platform/gateway-reconcile-concurrency.spec.md.
 const DefaultGatewayReconcileWorkers = 4
 
+// CI token-exchange authorization modes (PLAT-CITR-08). These string values match
+// keycloak.TokenExchangeMode; the string is converted at the reconciler boundary so
+// the config package stays free of a keycloak dependency.
+const (
+	// CITokenExchangeModeFGAPv1 is fine-grained authorization v1 (the live fleet
+	// mode and the default).
+	CITokenExchangeModeFGAPv1 = "fgap-v1"
+	// CITokenExchangeModeV2Attribute is external-to-internal token-exchange v2.
+	CITokenExchangeModeV2Attribute = "v2-attribute"
+)
+
 type Config struct {
 	GRPCServerAddr string
 	APIServerURL   string
@@ -164,6 +175,15 @@ type Config struct {
 	// HYPERSHELL_CI_TRUST_ENABLED.
 	CITrustEnabled bool
 
+	// CITokenExchangeMode selects how the CI trust reconciler authorizes the
+	// token-exchange grant (PLAT-CITR-08): "fgap-v1" attaches two fine-grained
+	// authorization v1 grants scoped to the federation requester client
+	// (PLAT-CITR-11), while "v2-attribute" sets the external-to-internal v2
+	// attribute on the gateway client. The choice is deployment configuration, not
+	// code, so moving the fleet between modes needs no code change. Sourced from
+	// HYPERSHELL_CI_TOKEN_EXCHANGE_MODE; defaults to fgap-v1, the live fleet mode.
+	CITokenExchangeMode string
+
 	// RepositoryImportEnabled toggles the declarative `.hypershell` import
 	// reconciler (the RepositoryReconciler). It is OFF by default: the reconciler
 	// reads repository subtrees over the GitHub API with the platform GitHub App
@@ -233,6 +253,7 @@ func Load() (*Config, error) {
 		SandboxRuntimeClass:     getEnv("GATEWAY_SANDBOX_RUNTIME_CLASS", ""),
 
 		CITrustEnabled:           getEnvBool("HYPERSHELL_CI_TRUST_ENABLED", false),
+		CITokenExchangeMode:      getEnv("HYPERSHELL_CI_TOKEN_EXCHANGE_MODE", CITokenExchangeModeFGAPv1),
 		RepositoryImportEnabled:  getEnvBool("HYPERSHELL_REPOSITORY_IMPORT_ENABLED", false),
 		RepositoryImportInterval: getEnvDuration("HYPERSHELL_REPOSITORY_IMPORT_INTERVAL", time.Hour),
 		GitHubAPIBase:            getEnv("HYPERSHELL_GITHUB_API_BASE", ""),
@@ -273,6 +294,17 @@ func Load() (*Config, error) {
 	// Validate Helm configuration
 	if cfg.HelmChartRegistry != "" && cfg.HelmChartVersion == "" {
 		return nil, fmt.Errorf("HELM_CHART_VERSION is required when HELM_CHART_REGISTRY is set")
+	}
+
+	// The CI token-exchange authorization mode is config-driven (PLAT-CITR-08); an
+	// unknown value is a deployment error, not something to silently fall back on,
+	// because it decides which Keycloak authorization artifacts the reconciler
+	// realizes.
+	switch cfg.CITokenExchangeMode {
+	case CITokenExchangeModeFGAPv1, CITokenExchangeModeV2Attribute:
+	default:
+		return nil, fmt.Errorf("invalid HYPERSHELL_CI_TOKEN_EXCHANGE_MODE %q: want %q or %q",
+			cfg.CITokenExchangeMode, CITokenExchangeModeFGAPv1, CITokenExchangeModeV2Attribute)
 	}
 
 	return cfg, nil

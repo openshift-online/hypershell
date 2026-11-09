@@ -260,6 +260,209 @@ func TestParseGatewayResources(t *testing.T) {
 	}
 }
 
+// TestBuild_ImageDigestPreservation locks in OSG-HELM-05: the values builder
+// parses each image reference into registry/repository/tag/digest, preserves an
+// explicitly configured digest, never falls back to a tag or "latest" for a
+// digest-only reference, handles a registry port, and reports a malformed
+// reference as a validation error.
+// Verifies: OSG-HELM-05.01, OSG-HELM-05.02, OSG-HELM-05.03, OSG-HELM-05.04, OSG-HELM-05.05, OSG-HELM-05.06
+func TestBuild_ImageDigestPreservation(t *testing.T) {
+	const digest = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+
+	nested := func(m map[string]interface{}, path ...string) interface{} {
+		var cur interface{} = m
+		for _, k := range path {
+			mm, ok := cur.(map[string]interface{})
+			if !ok {
+				return nil
+			}
+			cur = mm[k]
+		}
+		return cur
+	}
+
+	t.Run("tag-only keeps working and sets no digest (05.01)", func(t *testing.T) {
+		builder := ValuesBuilder{
+			Gateway:   GatewayConfig{WorkspaceMode: "shared", Image: "quay.io/opendatahub/odh-openshell-gateway:v0.1.5"},
+			Namespace: "test-ns",
+		}
+		values, err := builder.Build()
+		if err != nil {
+			t.Fatalf("Build() returned error: %v", err)
+		}
+		if got := nested(values, "gateway", "image", "registry"); got != "quay.io" {
+			t.Errorf("gateway.image.registry = %v, want quay.io", got)
+		}
+		if got := nested(values, "gateway", "image", "repository"); got != "opendatahub/odh-openshell-gateway" {
+			t.Errorf("gateway.image.repository = %v, want opendatahub/odh-openshell-gateway", got)
+		}
+		if got := nested(values, "gateway", "image", "tag"); got != "v0.1.5" {
+			t.Errorf("gateway.image.tag = %v, want v0.1.5", got)
+		}
+		if got := nested(values, "gateway", "image", "digest"); got != nil {
+			t.Errorf("gateway.image.digest should be absent, got %v", got)
+		}
+	})
+
+	t.Run("tag-plus-digest carries the digest (05.02)", func(t *testing.T) {
+		builder := ValuesBuilder{
+			Gateway:   GatewayConfig{WorkspaceMode: "shared", Image: "quay.io/opendatahub/odh-openshell-gateway:v0.1.5@" + digest},
+			Namespace: "test-ns",
+		}
+		values, err := builder.Build()
+		if err != nil {
+			t.Fatalf("Build() returned error: %v", err)
+		}
+		if got := nested(values, "gateway", "image", "digest"); got != digest {
+			t.Errorf("gateway.image.digest = %v, want %v", got, digest)
+		}
+	})
+
+	t.Run("digest-only never falls back to a tag (05.03)", func(t *testing.T) {
+		builder := ValuesBuilder{
+			Gateway:   GatewayConfig{WorkspaceMode: "shared", Image: "quay.io/opendatahub/odh-openshell-gateway@" + digest},
+			Namespace: "test-ns",
+		}
+		values, err := builder.Build()
+		if err != nil {
+			t.Fatalf("Build() returned error: %v", err)
+		}
+		if got := nested(values, "gateway", "image", "digest"); got != digest {
+			t.Errorf("gateway.image.digest = %v, want %v", got, digest)
+		}
+		if got := nested(values, "gateway", "image", "tag"); got != nil {
+			t.Errorf("gateway.image.tag should be absent for a digest-only reference, got %v", got)
+		}
+	})
+
+	t.Run("registry port is parsed correctly (05.04)", func(t *testing.T) {
+		builder := ValuesBuilder{
+			Gateway:   GatewayConfig{WorkspaceMode: "shared", Image: "registry.example:5000/openshell/gateway:v1@" + digest},
+			Namespace: "test-ns",
+		}
+		values, err := builder.Build()
+		if err != nil {
+			t.Fatalf("Build() returned error: %v", err)
+		}
+		if got := nested(values, "gateway", "image", "registry"); got != "registry.example:5000" {
+			t.Errorf("gateway.image.registry = %v, want registry.example:5000", got)
+		}
+		if got := nested(values, "gateway", "image", "repository"); got != "openshell/gateway" {
+			t.Errorf("gateway.image.repository = %v, want openshell/gateway", got)
+		}
+		if got := nested(values, "gateway", "image", "digest"); got != digest {
+			t.Errorf("gateway.image.digest = %v, want %v", got, digest)
+		}
+	})
+
+	t.Run("digest preserved for supervisor and sandbox-runtime (05.05)", func(t *testing.T) {
+		builder := ValuesBuilder{
+			Gateway: GatewayConfig{
+				WorkspaceMode:       "shared",
+				Image:               "quay.io/test/gateway:v1",
+				SupervisorImage:     "quay.io/test/supervisor@" + digest,
+				SandboxRuntimeImage: "quay.io/test/sandbox@" + digest,
+			},
+			Namespace: "test-ns",
+		}
+		values, err := builder.Build()
+		if err != nil {
+			t.Fatalf("Build() returned error: %v", err)
+		}
+		if got := nested(values, "supervisor", "image", "digest"); got != digest {
+			t.Errorf("supervisor.image.digest = %v, want %v", got, digest)
+		}
+		if got := nested(values, "sandboxRuntime", "image", "digest"); got != digest {
+			t.Errorf("sandboxRuntime.image.digest = %v, want %v", got, digest)
+		}
+	})
+
+	t.Run("malformed reference is a validation error (05.06)", func(t *testing.T) {
+		builder := ValuesBuilder{
+			Gateway:   GatewayConfig{WorkspaceMode: "shared", Image: "quay.io/Invalid Image:tag"},
+			Namespace: "test-ns",
+		}
+		_, err := builder.Build()
+		if err == nil {
+			t.Fatalf("Build() succeeded for a malformed image reference, want error")
+		}
+		if !strings.Contains(err.Error(), "quay.io/Invalid Image:tag") {
+			t.Errorf("error %q does not name the invalid reference", err)
+		}
+	})
+}
+
+// TestBuild_ImageDigestRendersInChart guards the value path end-to-end: a
+// configured digest on the gateway, supervisor and sandbox-runtime images must
+// survive through the vendored chart to the rendered image references, including
+// gateway-image consumers such as the certificate-generation job. A key the
+// chart does not read silently no-ops, dropping back to a tag or the chart app
+// version. Skipped without a helm binary.
+// Verifies: OSG-HELM-05.02, OSG-HELM-05.05
+func TestBuild_ImageDigestRendersInChart(t *testing.T) {
+	helmBin, err := exec.LookPath("helm")
+	if err != nil {
+		t.Skip("helm binary not found on PATH")
+	}
+	chart, err := filepath.Abs(filepath.Join("..", "..", "..", "..", "charts", "openshell"))
+	if err != nil {
+		t.Fatalf("resolve chart path: %v", err)
+	}
+
+	const (
+		gwDigest   = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+		supDigest  = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+		sandDigest = "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+	)
+
+	builder := ValuesBuilder{
+		Gateway: GatewayConfig{
+			WorkspaceMode:       "shared",
+			Image:               "quay.io/test/gateway:v1@" + gwDigest,
+			SupervisorImage:     "quay.io/test/supervisor:v1@" + supDigest,
+			SandboxRuntimeImage: "quay.io/test/sandbox:v1@" + sandDigest,
+		},
+		Namespace: "test-ns",
+	}
+	values, err := builder.Build()
+	if err != nil {
+		t.Fatalf("Build() returned error: %v", err)
+	}
+	raw, err := json.Marshal(values)
+	if err != nil {
+		t.Fatalf("marshal values: %v", err)
+	}
+	valuesFile := filepath.Join(t.TempDir(), "values.json")
+	if err := os.WriteFile(valuesFile, raw, 0o600); err != nil {
+		t.Fatalf("write values: %v", err)
+	}
+
+	out, err := exec.Command(helmBin, "template", "t", chart, "-f", valuesFile,
+		"--set", "agentSandbox.preflight.enabled=false").CombinedOutput()
+	if err != nil {
+		t.Fatalf("helm template: %v\n%s", err, out)
+	}
+	rendered := string(out)
+
+	// The gateway image (used by the workload and the certgen job) must render
+	// with the digest and must not fall back to the tag.
+	gatewayRef := "quay.io/test/gateway@" + gwDigest
+	if !strings.Contains(rendered, gatewayRef) {
+		t.Errorf("rendered chart does not carry the gateway digest %q", gatewayRef)
+	}
+	if strings.Contains(rendered, "quay.io/test/gateway:v1") {
+		t.Errorf("rendered chart uses the gateway tag instead of the digest")
+	}
+	// The supervisor and sandbox-runtime references reach the gateway config with
+	// their digests.
+	if want := `supervisor_image = "quay.io/test/supervisor@` + supDigest + `"`; !strings.Contains(rendered, want) {
+		t.Errorf("rendered chart does not carry the supervisor digest %q", want)
+	}
+	if want := `sandbox_runtime_image = "quay.io/test/sandbox@` + sandDigest + `"`; !strings.Contains(rendered, want) {
+		t.Errorf("rendered chart does not carry the sandbox runtime digest %q", want)
+	}
+}
+
 // TestBuild_SandboxRuntimeImage locks in that the sandbox runtime image is
 // pinned alongside the supervisor. The two speak a versioned boundary protocol;
 // leaving the runtime to the chart default (a moving upstream tag) skews it from
@@ -786,5 +989,48 @@ func TestBuild_ServerDnsNames(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestBuild_AdditionalCARendersInChart(t *testing.T) {
+	helmBin, err := exec.LookPath("helm")
+	if err != nil {
+		t.Skip("helm binary not found on PATH")
+	}
+	chart, err := filepath.Abs(filepath.Join("..", "..", "..", "..", "charts", "openshell"))
+	if err != nil {
+		t.Fatalf("resolve chart path: %v", err)
+	}
+
+	builder := ValuesBuilder{
+		Gateway: GatewayConfig{
+			WorkspaceMode:   "shared",
+			Image:           "quay.io/test/gateway:v1",
+			SupervisorImage: "quay.io/test/supervisor:v1",
+		},
+		Namespace:                 "test-ns",
+		AdditionalCAConfigMapName: "destination-ca",
+	}
+	values, err := builder.Build()
+	if err != nil {
+		t.Fatalf("Build() returned error: %v", err)
+	}
+	raw, err := json.Marshal(values)
+	if err != nil {
+		t.Fatalf("marshal values: %v", err)
+	}
+	valuesFile := filepath.Join(t.TempDir(), "values.json")
+	if err := os.WriteFile(valuesFile, raw, 0o600); err != nil {
+		t.Fatalf("write values: %v", err)
+	}
+
+	out, err := exec.Command(helmBin, "template", "t", chart, "-f", valuesFile,
+		"--set", "agentSandbox.preflight.enabled=false").CombinedOutput()
+	if err != nil {
+		t.Fatalf("helm template: %v\n%s", err, out)
+	}
+	want := `additional_ca_bundle = "/etc/openshell-tls/additional-ca-source/ca.crt"`
+	if !strings.Contains(string(out), want) {
+		t.Errorf("rendered chart does not contain %q", want)
 	}
 }

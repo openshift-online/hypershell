@@ -159,6 +159,38 @@ func TestCITrustUpsert_RealizesFederationAndWritesStatus(t *testing.T) {
 	}
 }
 
+// TestCITrustUpsert_PropagatesConfiguredMode locks PLAT-CITR-08: the control plane
+// selects the token-exchange authorization mode by configuration, and the reconciler
+// carries that configured mode onto every CIFederationSpec it realizes, with no code
+// change between modes.
+func TestCITrustUpsert_PropagatesConfiguredMode(t *testing.T) {
+	for _, mode := range []keycloak.TokenExchangeMode{
+		keycloak.TokenExchangeModeFGAPv1,
+		keycloak.TokenExchangeModeV2Attribute,
+	} {
+		t.Run(string(mode), func(t *testing.T) {
+			kc := &fakeCIKeycloak{}
+			r := newCITrustTestReconciler(kc, githubProvider(), localGateway(), &fakeCITrustSvc{})
+			r.tokenExchangeMode = mode
+
+			err := r.Handle(t.Context(), watcher.Event[*pb.CITrust]{
+				Type:       watcher.EventCreated,
+				ResourceID: "trust-1",
+				Resource:   githubTrust(),
+			})
+			if err != nil {
+				t.Fatalf("Handle upsert: %v", err)
+			}
+			if len(kc.ensured) != 1 {
+				t.Fatalf("EnsureCIFederation calls = %d, want 1", len(kc.ensured))
+			}
+			if kc.ensured[0].Mode != mode {
+				t.Errorf("spec.Mode = %q, want the configured %q", kc.ensured[0].Mode, mode)
+			}
+		})
+	}
+}
+
 func TestCITrustUpsert_SkipsForeignCluster(t *testing.T) {
 	kc := &fakeCIKeycloak{}
 	trustSvc := &fakeCITrustSvc{}
@@ -280,7 +312,7 @@ func TestCITrustDelete_MissingProviderIsNoOp(t *testing.T) {
 }
 
 func TestCITrustHandle_NilKeycloakSkips(t *testing.T) {
-	r := NewCITrustReconciler(nil, nil, testClusterID)
+	r := NewCITrustReconciler(nil, nil, testClusterID, keycloak.TokenExchangeModeFGAPv1)
 	err := r.Handle(t.Context(), watcher.Event[*pb.CITrust]{
 		Type:       watcher.EventCreated,
 		ResourceID: "trust-1",

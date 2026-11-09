@@ -194,8 +194,8 @@ func (s *E2ESuite) ensurePrimaryGateway(t *testing.T) {
 	s.primaryRouteAddress = st.routeAddress
 }
 
-// provision creates (or adopts) the primary gateway, waits for it to reach Running
-// with settled provisioning conditions, acquires its per-gateway token, discovers
+// provision creates (or adopts) the primary gateway, waits for one API response
+// that shows it fully ready (see primaryGatewayReadiness), acquires its per-gateway token, discovers
 // its endpoint, and registers it with the CLI, recording each artifact on st. It
 // runs under primaryState.once, so a provisioning failure (a testify FailNow)
 // stops the calling step.
@@ -222,30 +222,28 @@ func (st *primaryGatewayState) provision(s *E2ESuite, t *testing.T) {
 	}
 	st.ref = driver.GatewayRef{Name: created.Name, Namespace: created.Namespace, ID: created.ID}
 
-	running := s.waitGatewayRunning(t, created.ID)
+	// One bounded poll accepts a single API response that is Running, has
+	// observed its current generation, has complete provisioning conditions, and
+	// publishes a route address. Checking all four on the same response keeps a
+	// phase flip (a second reconcile pass, a pod restart) from slipping between
+	// two separate waits (HYPERSHELL-492).
+	readyTimeout := durationSecondsEnv("E2E_PROVISION_TIMEOUT", 180*time.Second) +
+		durationSecondsEnv("E2E_CONDITIONS_SETTLE_TIMEOUT", 60*time.Second)
+	running, last, err := waitPrimaryGatewayReady(t.Context(), 5*time.Second, readyTimeout, func(ctx context.Context) (*sdktypes.Gateway, error) {
+		return s.admin.Gateways().Get(ctx, created.ID)
+	})
+	if err != nil {
+		s.dumpGatewayDiagnostics(t, created.ID, last)
+		s.Require().NoError(err, "primary gateway %s never became ready", created.ID)
+	}
 	st.ref.Namespace = running.Namespace
 	st.ref.ClientID = s.requireGatewayClientID(running)
 	st.workspaceMode = running.WorkspaceMode
-	s.Require().Equal("Running", running.Phase, "primary gateway must reach Running")
-	s.Require().NotEmpty(running.RouteAddress, "running primary gateway publishes route_address")
-
-	var conditionsErr error
-	conditionsWaitErr := harness.Poll(t.Context(), 5*time.Second, durationSecondsEnv("E2E_CONDITIONS_SETTLE_TIMEOUT", 60*time.Second), func(ctx context.Context) (bool, error) {
-		current, err := s.admin.Gateways().Get(ctx, created.ID)
-		if err != nil {
-			return false, nil
-		}
-		if conditionsErr = validateProvisioningConditions(current.ProvisioningConditions); conditionsErr == nil {
-			running = current
-			return true, nil
-		}
-		return false, nil
-	})
-	s.Require().NoError(conditionsWaitErr, "primary gateway provisioning conditions did not settle: %v", conditionsErr)
 	st.ready = running
 	st.provisionDuration = time.Since(start)
 	st.routeAddress = running.RouteAddress
-	s.Logf("primary gateway %s (%s) Running in namespace %s route=%s after %s", running.Name, running.ID, running.Namespace, running.RouteAddress, st.provisionDuration)
+	s.Logf("primary gateway %s (%s) ready: phase=%s generation=%d observed_generation=%d namespace=%s route=%s after %s",
+		running.Name, running.ID, running.Phase, running.Generation, running.ObservedGeneration, running.Namespace, running.RouteAddress, st.provisionDuration)
 
 	// Per-gateway token (the P1.3 artifact): a token exchange in identity mode, a
 	// client_credentials token in service_account mode.
@@ -263,16 +261,17 @@ func (st *primaryGatewayState) provision(s *E2ESuite, t *testing.T) {
 }
 
 // p1_1Provisioning asserts the shared primary gateway (created in setup via
-// ensurePrimaryGateway) reconciled to Running with valid provisioning conditions
-// and workspace mode, and logs the recorded provisioning duration (TTR). The
+// ensurePrimaryGateway) reached Running with its current generation observed,
+// complete provisioning conditions, and a route address, all in one API
+// response, plus a valid workspace mode, and logs the recorded provisioning duration (TTR). The
 // gateway itself is created in setup, not here, so this step runs in isolation.
 // Verifies: E2E-CORE-13.02
 func (s *E2ESuite) p1_1Provisioning(t *testing.T) {
 	s.ensurePrimaryGateway(t)
 	s.Require().NotNil(s.primaryReadyGateway, "primary gateway provisioned in setup")
-	s.Require().Equal("Running", s.primaryReadyGateway.Phase, "primary gateway reached Running")
-	s.Require().NotEmpty(s.primaryReadyGateway.RouteAddress, "running primary gateway publishes route_address")
-	s.Require().NoError(validateProvisioningConditions(s.primaryReadyGateway.ProvisioningConditions), "primary gateway provisioning conditions complete")
+	// primaryReadyGateway is the one response that met every readiness check, so
+	// phase, generation, conditions, and route all describe the same moment.
+	s.Require().NoError(primaryGatewayReadiness(s.primaryReadyGateway), "primary gateway ready in one API response")
 	s.Assert().Containsf(gatewayWorkspaceModes, s.primaryWorkspaceMode, "primary gateway workspace mode %q is valid", s.primaryWorkspaceMode)
 	s.Logf("primary gateway %s (%s) provisioned to Running in %s (TTR)", s.primary.Name, s.primary.ID, s.primaryProvisionDuration)
 }
@@ -1111,6 +1110,74 @@ func (s *E2ESuite) assertLandedOnEligibleCluster(resolvedClusterID string) error
 	}
 	s.landed.record(resolvedClusterID)
 	return nil
+}
+
+// primaryGatewayReadiness reports why one gateway API response is not yet a
+// ready primary gateway, or nil when it is. Every check reads the same response:
+// phase is Running, the controller has observed the current generation, the
+// provisioning conditions are complete, and the route address is published.
+func primaryGatewayReadiness(gw *sdktypes.Gateway) error {
+	if gw == nil {
+		return fmt.Errorf("no gateway response")
+	}
+	if gw.Phase != "Running" {
+		return fmt.Errorf("phase is %q, want Running", gw.Phase)
+	}
+	if gw.Generation <= 0 {
+		return fmt.Errorf("generation is %d, want > 0", gw.Generation)
+	}
+	if gw.ObservedGeneration != gw.Generation {
+		return fmt.Errorf("observed_generation %d does not match generation %d", gw.ObservedGeneration, gw.Generation)
+	}
+	if err := validateProvisioningConditions(gw.ProvisioningConditions); err != nil {
+		return fmt.Errorf("provisioning conditions not complete: %w", err)
+	}
+	if strings.TrimSpace(gw.RouteAddress) == "" {
+		return fmt.Errorf("route_address is empty")
+	}
+	return nil
+}
+
+// waitPrimaryGatewayReady polls get until one response passes
+// primaryGatewayReadiness and returns that exact response. On timeout it
+// returns the last response it saw and an error naming its phase, generation,
+// observed_generation, route state, and the reason it was not ready. A failed
+// get is treated as transient and polled again.
+func waitPrimaryGatewayReady(ctx context.Context, interval, timeout time.Duration, get func(context.Context) (*sdktypes.Gateway, error)) (*sdktypes.Gateway, *sdktypes.Gateway, error) {
+	var last *sdktypes.Gateway
+	var reason error
+	var ready *sdktypes.Gateway
+	err := harness.Poll(ctx, interval, timeout, func(ctx context.Context) (bool, error) {
+		gw, err := get(ctx)
+		if err != nil {
+			reason = fmt.Errorf("get gateway: %w", err)
+			return false, nil
+		}
+		last = gw
+		if reason = primaryGatewayReadiness(gw); reason != nil {
+			return false, nil
+		}
+		ready = gw
+		return true, nil
+	})
+	if err != nil {
+		return nil, last, fmt.Errorf("%w; %s", err, describeGatewayReadiness(last, reason))
+	}
+	return ready, ready, nil
+}
+
+// describeGatewayReadiness summarizes the last observed gateway state for a
+// readiness timeout message.
+func describeGatewayReadiness(gw *sdktypes.Gateway, reason error) string {
+	if gw == nil {
+		return fmt.Sprintf("no gateway response observed (last error: %v)", reason)
+	}
+	route := "set"
+	if strings.TrimSpace(gw.RouteAddress) == "" {
+		route = "empty"
+	}
+	return fmt.Sprintf("last phase=%q generation=%d observed_generation=%d route_address=%s; not ready: %v",
+		gw.Phase, gw.Generation, gw.ObservedGeneration, route, reason)
 }
 
 func validateProvisioningConditions(conditions []map[string]any) error {

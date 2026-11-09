@@ -853,6 +853,173 @@ When the `RepositoryReconciler` imports a `Gateway`, the import writer SHALL:
 - WHEN the import writer creates the Gateway
 - THEN the `CreateGatewayRequest` SHALL carry only `name` and the mapped `placement`, and no platform-managed field
 
+### Requirement: CTRL-CORE-16 -- Explicit Cluster Platform Configuration
+
+The control plane SHALL read its host platform from the required
+`HYPERSHELL_CLUSTER_PLATFORM` deployment setting. The accepted values are
+`openshift` and `kubernetes`. The setting has no default.
+
+The configured platform SHALL determine platform-specific pod security and SCC
+integration (OSG-CORE-14). Discovery SHALL determine feature dependency availability
+(CTRL-CORE-18, CTRL-CORE-19).
+
+The control plane SHALL validate required deployment configuration before starting
+its reconciliation machinery. Configuration errors SHALL identify the setting and
+accepted values, and startup SHALL exit non-zero on invalid configuration. API
+dependency availability is handled during reconciliation (CTRL-CORE-17).
+
+Every HyperShell-owned deployment path SHALL supply the setting explicitly:
+
+| Deployment | `HYPERSHELL_CLUSTER_PLATFORM` |
+|---|---|
+| Fleet GitOps hub and spoke controllers | `openshift` |
+| OpenShift application and ephemeral PR/E2E manifests | `openshift` |
+| Kind/local Kubernetes manifests | `kubernetes` |
+
+#### Scenario: CTRL-CORE-16.01 -- OpenShift platform configuration
+
+- GIVEN `HYPERSHELL_CLUSTER_PLATFORM=openshift`
+- WHEN the control plane reconciles a gateway
+- THEN it SHALL apply OpenShift pod security and SCC integration (OSG-CORE-14)
+- AND it SHALL use dependency discovery to check the APIs required by each feature
+
+#### Scenario: CTRL-CORE-16.02 -- Kubernetes platform configuration
+
+- GIVEN `HYPERSHELL_CLUSTER_PLATFORM=kubernetes`
+- WHEN the control plane reconciles a gateway
+- THEN it SHALL render the gateway chart's configured Kubernetes pod security context (OSG-CORE-14.03)
+
+#### Scenario: CTRL-CORE-16.03 -- Invalid platform value
+
+- GIVEN `HYPERSHELL_CLUSTER_PLATFORM=openstack`
+- WHEN the control plane validates deployment configuration
+- THEN it SHALL report a configuration error naming the setting and its accepted values
+- AND startup SHALL exit non-zero
+
+#### Scenario: CTRL-CORE-16.04 -- Required platform configuration validation
+
+- GIVEN deployment configuration omits the required `HYPERSHELL_CLUSTER_PLATFORM` setting
+- WHEN the control plane validates deployment configuration
+- THEN it SHALL report a configuration error naming the required setting
+- AND startup SHALL exit non-zero
+
+### Requirement: CTRL-CORE-17 -- Controller Startup Independent of API Discovery
+
+With valid deployment configuration, the control plane SHALL start its health
+reporting, watch streams, and reconciliation/retry machinery independently of API
+dependency availability. Reconciliation SHALL handle dependency errors through the
+per-feature states and retries defined in CTRL-CORE-18 and CTRL-CORE-19.
+
+For partial discovery results, the control plane SHALL retain successful results
+for unaffected groups and continue work whose prerequisites are available.
+Dependency refresh SHALL allow the running controller to resume affected work
+when an API becomes available.
+
+#### Scenario: CTRL-CORE-17.01 -- Startup with partial discovery
+
+- GIVEN valid deployment configuration
+- AND discovery returns a stale-group error for `projectcalico.org/v3`
+- AND cert-manager and Gateway API discovery succeed
+- WHEN the control plane starts
+- THEN it SHALL open its watch streams and report process health
+- AND it SHALL reconcile gateway features using their available dependencies
+
+#### Scenario: CTRL-CORE-17.02 -- Startup with an unavailable feature dependency
+
+- GIVEN valid deployment configuration
+- AND the Gateway API group is unreachable
+- WHEN the control plane starts
+- THEN it SHALL run its reconciliation machinery and report process health
+- AND it SHALL report Gateway API availability as unknown/unavailable
+- AND it SHALL retry dependent work as defined in CTRL-CORE-19
+
+### Requirement: CTRL-CORE-18 -- Shared, Refreshable Dependency Discovery
+
+Exposure setup, gateway provisioning, health checks, and managed-cluster
+reconciliation SHALL use a consistent shared dependency-discovery contract.
+It SHALL report a state for each required group/version/resource:
+
+- **present**: successful discovery confirms the resource exists.
+- **confirmed absent**: successful discovery confirms the resource is absent.
+- **unknown/unavailable**: transport, authorization, or stale-discovery errors
+  prevent a current determination.
+
+The discovery component SHALL refresh state with bounded retries and retain the
+last successful result for each dependency. A partial discovery result SHALL
+preserve successfully resolved groups while recording errors for failed groups.
+Actual API operation failures SHALL be reported and retried by the affected
+reconciliation work (CTRL-CORE-19).
+
+#### Scenario: CTRL-CORE-18.01 -- Stale discovery produces unknown state
+
+- GIVEN a discovery call returns a stale-group error for the queried group
+- WHEN the control plane evaluates that dependency
+- THEN it SHALL report the dependency as unknown/unavailable
+- AND it SHALL refresh discovery with bounded retries
+
+#### Scenario: CTRL-CORE-18.02 -- Successful discovery confirms absence
+
+- GIVEN discovery succeeds and reports the `cert-manager.io` group absent
+- WHEN the control plane evaluates the cert-manager dependency
+- THEN it SHALL report cert-manager as confirmed absent
+
+#### Scenario: CTRL-CORE-18.03 -- Dependency discovery recovers
+
+- GIVEN the Gateway API dependency is unknown/unavailable
+- WHEN a later discovery refresh confirms the required resources are present
+- THEN the control plane SHALL report Gateway API as present
+- AND the running controller SHALL resume dependent reconciliation work
+
+#### Scenario: CTRL-CORE-18.04 -- Partial discovery preserves successful results
+
+- GIVEN prior discovery confirmed Gateway API resources present
+- WHEN a later discovery pass fails for an unrelated group
+- THEN the control plane SHALL retain Gateway API's last successful result
+- AND it SHALL record the unrelated group's discovery error separately
+
+### Requirement: CTRL-CORE-19 -- Reconcile Features According to Their Dependencies
+
+Each reconciliation operation SHALL check the specific APIs and resources it
+requires, including `GRPCRoute` for Gateway API ingress.
+
+- An unknown/unavailable dependency SHALL put affected work in a waiting/retryable
+  state with bounded backoff.
+- A confirmed-absent prerequisite SHALL produce a prerequisite condition identifying
+  the resource to install, with periodic rechecks for its availability.
+- Independent reconciliation work SHALL continue while a feature waits.
+- Configured platform and ingress choices SHALL remain stable through dependency
+  failures.
+- Gateway provisioning SHALL succeed after the required security, certificate,
+  workload, and configured ingress resources have been reconciled successfully.
+
+Logs and existing status/provisioning conditions SHALL identify the affected
+feature, required group/version/resource, error, and retry or prerequisite state
+(OSG-HLTH-07). The controller SHALL report process health separately from feature
+dependency status and recover dependent work during the same process lifetime.
+
+#### Scenario: CTRL-CORE-19.01 -- Available dependencies permit gateway provisioning
+
+- GIVEN discovery reports Calico stale while cert-manager and Gateway API resolve successfully
+- WHEN the control plane reconciles a gateway
+- THEN it SHALL provision its required security, certificate, workload, and ingress resources
+- AND it SHALL record Calico's discovery error separately
+
+#### Scenario: CTRL-CORE-19.02 -- Unavailable dependency produces a retryable condition
+
+- GIVEN a gateway uses Gateway API ingress and the Gateway API group is unreachable
+- WHEN the control plane reconciles the gateway
+- THEN it SHALL mark route provisioning as waiting/retryable and retry with bounded backoff
+- AND it SHALL retain the gateway's configured ingress mode
+- AND it SHALL keep independent reconciliation work running
+
+#### Scenario: CTRL-CORE-19.03 -- Installing a prerequisite resumes reconciliation
+
+- GIVEN successful discovery confirms cert-manager is absent
+- WHEN the control plane reconciles a gateway requiring cert-manager
+- THEN it SHALL report a prerequisite condition identifying cert-manager
+- AND it SHALL continue independent reconciliation work
+- AND after cert-manager is installed, the running controller SHALL reconcile the gateway's required resources and converge it to Running
+
 ### Requirement: CTRL-CORE-07 -- Watch Stream Liveness
 
 A watch stream SHALL NOT be trusted to stay healthy merely because it has not
@@ -1179,4 +1346,6 @@ The control plane SHALL continuously reconcile the `phase` and `status` fields o
 | AgentRuntime effective cluster resolved server-side, not client-side | An `AgentRuntime` may omit `cluster_id` and derive placement from its Gateway. If each control plane resolved placement and filtered client-side, every control plane would receive every AgentRuntime and the cluster scoping could not be enforced at the hub. Resolving the derived cluster server-side keeps the watch-stream caller binding authoritative, exactly as for Gateways and RoleBindings. The control plane re-resolves only as defense in depth. |
 | AgentRuntime AND the declarative `.hypershell` import both reconciled by the control plane | The control plane holds the in-cluster credentials needed to apply AgentRuntime scheduling resources and already dials each gateway's gRPC API, so cluster-side and gateway-side provisioning belong there. The declarative `.hypershell` import also belongs there: it must read each `Repository`'s credential from the secret store and read the `import_path` subtree over the GitHub API, and the control plane has read-only secret-store access (`pkg/secretstore`) and the platform GitHub App credential while the api-server has neither store read access nor repository read access. The import is the single, bounded path by which the control plane writes API desired state, scoped to create/update/prune of `Repository`-owned ext resources; everywhere else the control plane stays a reader of desired state (see "Declarative `.hypershell` Import Reconciliation" and [`data-model.spec.md`](./data-model.spec.md), "Declarative `.hypershell` Import"). The import is driven event-first off the `WatchRepositories` stream with a slow hourly drift re-check and a conditional upstream fetch, so a `Repository` change imports in real time while an unchanged subtree costs no heavy GitHub reads, rather than a short fixed-interval full re-fetch that exhausted the anonymous GitHub rate limit. |
 | Import reads the `import_path` subtree over the GitHub API, not a git clone | The control-plane distroless runtime image ships no `git` binary and mounts no writable working directory or PVC. Reading only the `import_path` subtree over the GitHub API with the platform GitHub App credential keeps the import in-process and in-memory, avoids a full repository checkout, and needs no on-disk working copy. It also narrows the blast radius: the reconciler fetches only the declarative root, not the whole repository. |
+| Explicit platform configuration (`HYPERSHELL_CLUSTER_PLATFORM`) | Deployment configuration supplies the host platform deterministically. Platform-specific security and API feature availability have separate contracts. |
+| Shared, refreshable API dependency state | Present, confirmed-absent, and unknown/unavailable states let reconciliation report the appropriate prerequisite or retry condition. A shared contract keeps provisioning, exposure, and health consistent while independent work continues. |
 | Kustomize rendered in-process by a shared Go LIBRARY, reversing the earlier "no kustomize in control plane" | This deliberately reverses the prior decision that kept Kustomize out of the control plane. The reversal admits the kustomize Go LIBRARY (not a binary, not a `Job`) into the control plane so rendering happens in-process in-memory. The single shared implementation SHALL be `pkg/kustomize` (exported `Build`) in `components/cli`, to be built and then consumed by exactly two callers: `hsctl` and the control plane's `RepositoryReconciler`; `hsctl apply -k` is refactored off its external-`kustomize`-binary shell-out onto this package, and the control-plane module imports the cli module. One implementation renders for `hsctl` and the `RepositoryReconciler`, so CLI and server render identically and there is no second, divergent renderer to drift. The `GatewayReconciler` is NOT a consumer of this library: it renders the gateway workload through Helm. The accepted trade-off is a kustomize library dependency in the control-plane module. |

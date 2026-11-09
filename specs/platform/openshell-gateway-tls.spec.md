@@ -19,10 +19,15 @@ This specification defines TLS certificate management for OpenShell gateways dep
 
 The GatewayReconciler SHALL use cert-manager for all TLS certificate lifecycle management. cert-manager is the sole certificate generation strategy.
 
-#### Scenario: OSG-TLS-01.01 -- cert-manager installed
+cert-manager availability is a feature prerequisite determined through the shared,
+refreshable dependency discovery ([`control-plane.spec.md`](./control-plane.spec.md),
+CTRL-CORE-18), distinguishing present, confirmed absent, and unknown/unavailable. The
+reconciler SHALL use this prerequisite to gate TLS-dependent work (CTRL-CORE-19)
+while the controller continues startup and independent reconciliation.
 
-- GIVEN cert-manager is installed on the cluster (Certificate, Issuer CRDs are available)
-- AND the GatewayReconciler detects cert-manager availability (via API discovery for `cert-manager.io` API group)
+#### Scenario: OSG-TLS-01.01 -- cert-manager present
+
+- GIVEN discovery confirms cert-manager is present on the cluster (Certificate, Issuer CRDs are available in the `cert-manager.io` API group)
 - WHEN the reconciler provisions a gateway
 - THEN it SHALL create cert-manager resources for TLS certificate lifecycle:
   - A self-signed `Issuer` (`openshell-selfsigned`) in the project namespace
@@ -31,12 +36,21 @@ The GatewayReconciler SHALL use cert-manager for all TLS certificate lifecycle m
   - A server `Certificate` (`openshell-server`, creates `openshell-server-tls` Secret with SANs from `serverDnsNames`)
   - A client `Certificate` (`openshell-client`, creates `openshell-client-tls` Secret)
 
-#### Scenario: OSG-TLS-01.02 -- cert-manager not installed
+#### Scenario: OSG-TLS-01.02 -- cert-manager confirmed absent
 
-- GIVEN cert-manager is NOT installed on the cluster
+- GIVEN a successful discovery confirms cert-manager is NOT installed on the cluster
 - WHEN the GatewayReconciler provisions a gateway
-- THEN it SHALL log an error indicating cert-manager is a required cluster prerequisite
-- AND it SHALL NOT deploy the gateway until cert-manager is available
+- THEN it SHALL report a prerequisite condition identifying cert-manager
+- AND it SHALL keep independent reconciliation work running
+- AND after cert-manager is installed, the running controller SHALL reconcile the gateway's required certificates and workload before completing provisioning
+
+#### Scenario: OSG-TLS-01.03 -- cert-manager unavailable
+
+- GIVEN cert-manager discovery fails with a transport, authorization, or stale-group error
+- WHEN the GatewayReconciler provisions a gateway that requires cert-manager
+- THEN it SHALL mark the affected gateway as waiting/retryable and retry with bounded backoff
+- AND the controller SHALL continue reporting process health and reconciling independent work
+- AND gateway provisioning SHALL complete after its required certificates and workload are reconciled
 
 **Cluster prerequisite:** cert-manager (v1.20+ recommended) must be installed cluster-wide by an administrator before gateways can use it.
 
@@ -155,6 +169,67 @@ The OpenShell Helm chart value `server.tls.enableMtls` controls whether the gate
 - WHEN the GatewayReconciler builds the Helm values
 - THEN it SHALL NOT set `server.tls.enableMtls`, so the chart default (mTLS on) applies
 - AND the gateway SHALL require client certificates for incoming connections (passthrough keeps TLS end to end, so the client presents its certificate to the gateway)
+
+---
+
+### Requirement: OSG-TLS-07 -- Sandbox Destination CA Trust
+
+Sandbox supervisors verify destination TLS independently of the workload. The
+control plane SHALL support operator-provided public CA roots without disabling
+upstream certificate verification. This trust SHALL remain separate from gateway
+mTLS, OIDC issuer trust, and Vault serving-CA trust. It SHALL NOT authorize network
+destinations or bypass private-address restrictions on advisor-proposed policies.
+
+#### Scenario: OSG-TLS-07.01 -- Capability-selected corporate trust
+
+- GIVEN `GATEWAY_ADDITIONAL_CA_CONFIGMAP_NAME` names a ConfigMap in the controller namespace
+- AND `GATEWAY_ADDITIONAL_CA_REQUIRED_CAPABILITY` is `network/vpn`
+- WHEN `HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES` contains that exact comma-separated capability (ignoring surrounding whitespace)
+- THEN the controller SHALL apply the public destination CA bundle to every gateway it manages
+- AND instances without that capability SHALL NOT read or propagate the bundle
+- AND an unset required capability SHALL allow an explicitly configured bundle on any instance
+- AND an unset ConfigMap name SHALL leave destination trust unconfigured
+- AND GitOps SHALL configure the corporate bundle for every instance declaring `network/vpn`, including future instances
+
+#### Scenario: OSG-TLS-07.02 -- Bundle validation and propagation
+
+- GIVEN an eligible instance with a configured source ConfigMap
+- WHEN provisioning or reconciling a gateway
+- THEN the controller SHALL read PEM certificates from `ca.crt`, accepting `ca-bundle.crt` as a fallback
+- AND a missing, unreadable, or certificate-free source SHALL fail reconciliation with the source identified
+- AND the controller SHALL copy public certificates into a content-addressed ConfigMap in the gateway namespace
+- AND it SHALL set `supervisor.network.additionalCaConfigMapName` in the gateway Helm values
+- AND the gateway SHALL stage this trust for its sandbox supervisors through OpenShell's additional-CA support
+- AND no private key SHALL be required in the source bundle
+
+#### Scenario: OSG-TLS-07.03 -- Existing gateways and rotation
+
+- GIVEN an eligible instance whose source bundle or capability configuration has changed
+- WHEN the controller starts and seeds existing gateways, or receives a gateway reconciliation event
+- THEN it SHALL check destination trust even when the Gateway API generation has already converged
+- AND a changed content-addressed volume reference SHALL cause a Helm upgrade and gateway rollout
+- AND old ConfigMap generations SHALL remain mountable until gateway namespace cleanup
+- AND running sandbox supervisors SHALL acquire the new trust on sandbox stop/start, preserving durable workspace data
+- AND changing trust SHALL NOT require deleting sandboxes or regenerating gateway mTLS certificates
+
+Source ConfigMap changes are not watched directly. Operators SHALL restart the
+controller after a bundle update to ensure all existing gateways are rechecked.
+Sandbox stop/start interrupts running processes and SHALL be coordinated with owners.
+
+#### Scenario: OSG-TLS-07.04 -- Removing configured trust
+
+- GIVEN the bundle setting is removed or its capability selector no longer matches
+- WHEN a Gateway spec update advances its generation and triggers provisioning
+- THEN the controller SHALL omit the additional-CA Helm value
+- AND affected sandboxes SHALL require stop/start to discard their previous trust generation
+
+Removing a setting alone SHALL NOT bypass the normal convergence gate on an
+ineligible instance. Gateway spec reconciliation is required to remove previously
+applied trust from already-converged gateways.
+
+**Verification:** `internal/gateway/destination_ca_test.go` covers eligibility,
+validation, propagation, and trust rotation; `internal/helm/values_test.go` renders
+the vendored chart to verify the supervisor trust path.
 
 ---
 
