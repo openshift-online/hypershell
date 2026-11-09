@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
@@ -235,6 +236,39 @@ func TestHandle_OIDCWriteFailureStopsBeforeApplyAndKeepsObservedGeneration(t *te
 	// observed_generation update, so nothing claims the generation was applied.
 	if len(client.requests) != 1 || client.requests[0].Oidc == nil {
 		t.Fatalf("UpdateGateway requests = %+v, want exactly the failed OIDC write", client.requests)
+	}
+}
+
+// Verifies: PLAT-DATA-06.06
+func TestHandle_InvalidStoredIdentityIsNotOverwritten(t *testing.T) {
+	t.Setenv("GATEWAY_OIDC_ISSUER_URL", "")
+	// A stored OIDC identity whose client_id and audience disagree is invalid.
+	// The pass must stop before generating configuration, so it never replaces
+	// that identity with a generated one.
+	invalid := `{"client_id":"one-` + generatedConfigGatewayID + `","audience":"two-` + generatedConfigGatewayID + `"}`
+	client := &recordingGatewayClient{respond: func(*pb.UpdateGatewayRequest) (*pb.UpdateGatewayResponse, error) {
+		t.Fatal("UpdateGateway must not be called for an invalid stored identity")
+		return nil, nil
+	}}
+	r := newGeneratedConfigReconciler(client)
+	observed := int64(0)
+
+	err := r.Handle(t.Context(), watcher.Event[*pb.Gateway]{
+		Type:       watcher.EventUpdated,
+		ResourceID: generatedConfigGatewayID,
+		Resource: &pb.Gateway{
+			Metadata:           &pb.ObjectReference{Id: generatedConfigGatewayID},
+			Name:               "invalid-identity",
+			Generation:         2,
+			ObservedGeneration: &observed,
+			Oidc:               &invalid,
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "resolve Keycloak client") {
+		t.Fatalf("Handle error = %v, want the invalid Keycloak identity reported", err)
+	}
+	if len(client.requests) != 0 {
+		t.Fatalf("UpdateGateway requests = %d, want 0", len(client.requests))
 	}
 }
 
