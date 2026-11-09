@@ -221,3 +221,37 @@ func TestLoadCITokenExchangeMode(t *testing.T) {
 		}
 	})
 }
+
+// TestLoadSelfCheckInterval covers PLAT-HLTH-04: the self-check cadence is
+// deployment configuration with a documented default, and a zero, unset, or
+// invalid value falls back to that default.
+func TestLoadSelfCheckInterval(t *testing.T) {
+	cases := []struct {
+		name  string
+		value string
+		set   bool
+		want  string
+	}{
+		{name: "unset falls back to default", set: false, want: DefaultSelfCheckInterval.String()},
+		{name: "explicit value is adopted", set: true, value: "30s", want: "30s"},
+		{name: "zero falls back to default", set: true, value: "0s", want: DefaultSelfCheckInterval.String()},
+		{name: "invalid falls back to default", set: true, value: "nonsense", want: DefaultSelfCheckInterval.String()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setRequiredEnv(t)
+			if tc.set {
+				t.Setenv("HYPERSHELL_SELF_CHECK_INTERVAL", tc.value)
+			} else {
+				_ = os.Unsetenv("HYPERSHELL_SELF_CHECK_INTERVAL")
+			}
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() error: %v", err)
+			}
+			if cfg.SelfCheckInterval.String() != tc.want {
+				t.Fatalf("SelfCheckInterval = %s, want %s", cfg.SelfCheckInterval, tc.want)
+			}
+		})
+	}
+}

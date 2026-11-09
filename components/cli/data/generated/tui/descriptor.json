@@ -9044,6 +9044,11 @@
             "description": "Complete self-declared capability set, sent on every registration and heartbeat. An omitted, null, or empty set is rejected with 400."
           },
           {
+            "name": "health",
+            "required": false,
+            "description": "Optional on-cluster self-check verdict (PLAT-CLUS-16). When present it is stored on the ManagedCluster in the same operation that updates last_seen_at. Omitting it (absent or null) preserves the stored verdict; a malformed verdict is rejected with 400 without changing the stored verdict or last_seen_at."
+          },
+          {
             "name": "name",
             "type": "string",
             "required": true,

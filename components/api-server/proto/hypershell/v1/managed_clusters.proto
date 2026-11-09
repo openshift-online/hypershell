@@ -13,6 +13,23 @@ message ManagedCluster {
   optional string status = 7;
   optional string api_server_url = 8;
   repeated string capabilities = 9;
+  optional ManagedClusterHealth health = 10;
+}
+
+// ManagedClusterHealth is the spoke-reported on-cluster self-check verdict
+// (managed-cluster-self-healthcheck.spec.md, PLAT-HLTH-03), surfaced read-only.
+message ManagedClusterHealth {
+  string overall = 1;
+  optional string observed_at = 2;
+  int64 duration_ms = 3;
+  repeated ManagedClusterHealthCondition conditions = 4;
+}
+
+message ManagedClusterHealthCondition {
+  string name = 1;
+  string status = 2;
+  optional string last_transition_at = 3;
+  string message = 4;
 }
 
 message CreateManagedClusterRequest {

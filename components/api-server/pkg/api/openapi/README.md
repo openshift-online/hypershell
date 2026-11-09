@@ -211,6 +211,8 @@ Class | Method | HTTP request | Description
  - [InferenceRouteList](docs/InferenceRouteList.md)
  - [List](docs/List.md)
  - [ManagedCluster](docs/ManagedCluster.md)
+ - [ManagedClusterHealth](docs/ManagedClusterHealth.md)
+ - [ManagedClusterHealthCondition](docs/ManagedClusterHealthCondition.md)
  - [ManagedClusterList](docs/ManagedClusterList.md)
  - [ManagedClusterPatchRequest](docs/ManagedClusterPatchRequest.md)
  - [ManagedClusterRegistrationRequest](docs/ManagedClusterRegistrationRequest.md)

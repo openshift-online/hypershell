@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	. "github.com/onsi/gomega"
 
@@ -207,6 +208,178 @@ func TestManagedClusterRegistrationNameHeldByAnotherControlPlane(t *testing.T) {
 	Expect(err).To(HaveOccurred())
 	Expect(resp.StatusCode).To(Equal(http.StatusConflict))
 	Expect(clusterCount(client, userCtx)).To(Equal(before))
+}
+
+// healthVerdict builds a well-formed self-check verdict for registration tests.
+func healthVerdict(overall string) openapi.ManagedClusterHealth {
+	observed := time.Now().UTC()
+	transition := observed.Add(-time.Hour)
+	return openapi.ManagedClusterHealth{
+		Overall:    overall,
+		ObservedAt: &observed,
+		DurationMs: openapi.PtrInt64(842),
+		Conditions: []openapi.ManagedClusterHealthCondition{
+			{Name: "oidc-issuer-reachable", Status: "fail", LastTransitionAt: &transition, Message: openapi.PtrString("issuer returned 503")},
+			{Name: "images-pullable", Status: "pass", LastTransitionAt: &transition},
+		},
+	}
+}
+
+// The heartbeat carries the self-check verdict: the hub stores it on the record,
+// surfaces it on GET, and updates last_seen_at in the same call.
+// Verifies: PLAT-CLUS-16.01, PLAT-DATA-27.02
+func TestManagedClusterRegistrationStoresAndSurfacesHealthVerdict(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+	ctx := controlPlaneContext(h, uniqueName("cp"))
+	name := uniqueName("hyp0-mc")
+
+	// A cluster that has never reported a verdict reads back health as null.
+	created, resp, err := client.DefaultAPI.RegisterManagedCluster(ctx).
+		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: name, Capabilities: []string{"network/public", "provider/aws"}}).
+		Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+
+	before, _, err := client.DefaultAPI.GetManagedCluster(ctx, created.ClusterId).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(before.Health).To(BeNil(), "health is null until the first verdict is reported")
+	Expect(before.LastSeenAt).NotTo(BeNil())
+
+	// A heartbeat carrying the verdict stores it.
+	verdict := healthVerdict("failing")
+	_, resp, err = client.DefaultAPI.RegisterManagedCluster(ctx).
+		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{
+			Name:         name,
+			Capabilities: []string{"network/public", "provider/aws"},
+			Health:       &verdict,
+		}).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+	after, _, err := client.DefaultAPI.GetManagedCluster(ctx, created.ClusterId).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(after.Health).NotTo(BeNil(), "GET must surface the stored verdict")
+	Expect(after.Health.Overall).To(Equal("failing"))
+	Expect(after.Health.Conditions).To(HaveLen(2))
+	Expect(after.Health.GetDurationMs()).To(Equal(int64(842)))
+	Expect(after.LastSeenAt).NotTo(BeNil())
+
+	// GET /managed_clusters surfaces it too.
+	list, _, err := client.DefaultAPI.ListManagedClusters(ctx).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	var found bool
+	for _, item := range list.Items {
+		if item.GetId() == created.ClusterId {
+			found = true
+			Expect(item.Health).NotTo(BeNil())
+			Expect(item.Health.Overall).To(Equal("failing"))
+		}
+	}
+	Expect(found).To(BeTrue(), "the list must include the registered cluster")
+}
+
+// A health-less heartbeat is a no-op for the stored verdict: it is preserved, and
+// last_seen_at is still updated, so a mixed-version rolling upgrade never drops a
+// cluster's verdict.
+// Verifies: PLAT-CLUS-16.02
+func TestManagedClusterHealthLessHeartbeatPreservesVerdict(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+	ctx := controlPlaneContext(h, uniqueName("cp"))
+	name := uniqueName("hyp0-mc")
+
+	verdict := healthVerdict("degraded")
+	created, resp, err := client.DefaultAPI.RegisterManagedCluster(ctx).
+		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{
+			Name:         name,
+			Capabilities: []string{"network/public", "provider/aws"},
+			Health:       &verdict,
+		}).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+
+	// A later heartbeat with no health object preserves the stored verdict.
+	_, resp, err = client.DefaultAPI.RegisterManagedCluster(ctx).
+		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: name, Capabilities: []string{"network/public", "provider/aws"}}).
+		Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+	after, _, err := client.DefaultAPI.GetManagedCluster(ctx, created.ClusterId).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(after.Health).NotTo(BeNil(), "the stored verdict must be preserved")
+	Expect(after.Health.Overall).To(Equal("degraded"))
+	Expect(after.LastSeenAt).NotTo(BeNil())
+}
+
+// A malformed verdict is rejected with 400 and changes neither the stored verdict
+// nor last_seen_at.
+// Verifies: PLAT-CLUS-16.03
+func TestManagedClusterMalformedHealthRejectedAtomically(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+	ctx := controlPlaneContext(h, uniqueName("cp"))
+	name := uniqueName("hyp0-mc")
+
+	verdict := healthVerdict("healthy")
+	created, resp, err := client.DefaultAPI.RegisterManagedCluster(ctx).
+		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{
+			Name:         name,
+			Capabilities: []string{"network/public", "provider/aws"},
+			Health:       &verdict,
+		}).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+
+	before, _, err := client.DefaultAPI.GetManagedCluster(ctx, created.ClusterId).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(before.Health).NotTo(BeNil())
+
+	// A verdict with an out-of-enumeration overall is malformed and rejected.
+	malformed := healthVerdict("failing")
+	malformed.Overall = "bogus"
+	_, resp, err = client.DefaultAPI.RegisterManagedCluster(ctx).
+		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{
+			Name:         name,
+			Capabilities: []string{"network/public", "provider/aws"},
+			Health:       &malformed,
+		}).Execute()
+	Expect(err).To(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+
+	after, _, err := client.DefaultAPI.GetManagedCluster(ctx, created.ClusterId).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(after.Health).NotTo(BeNil(), "the stored verdict must be unchanged")
+	Expect(after.Health.Overall).To(Equal("healthy"))
+}
+
+// health is control-plane-reported and read-only to a generic PATCH: a PATCH never
+// assigns or modifies the stored verdict.
+// Verifies: PLAT-DATA-27.01
+func TestManagedClusterHealthReadOnlyToPatch(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+	ctx := controlPlaneContext(h, uniqueName("cp"))
+	name := uniqueName("hyp0-mc")
+
+	verdict := healthVerdict("failing")
+	created, resp, err := client.DefaultAPI.RegisterManagedCluster(ctx).
+		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{
+			Name:         name,
+			Capabilities: []string{"network/public", "provider/aws"},
+			Health:       &verdict,
+		}).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+
+	// A PATCH has no health field in its contract and must not disturb the verdict.
+	userCtx := h.NewAuthenticatedContext(h.NewRandAccount())
+	_, _, err = client.DefaultAPI.UpdateManagedCluster(userCtx, created.ClusterId).
+		ManagedClusterPatchRequest(openapi.ManagedClusterPatchRequest{Status: openapi.PtrString("Ready")}).
+		Execute()
+	Expect(err).NotTo(HaveOccurred())
+
+	after, _, err := client.DefaultAPI.GetManagedCluster(ctx, created.ClusterId).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(after.Health).NotTo(BeNil(), "PATCH must not clear the stored verdict")
+	Expect(after.Health.Overall).To(Equal("failing"))
 }
 
 // name is unique across all records: a manual create reusing a registered name

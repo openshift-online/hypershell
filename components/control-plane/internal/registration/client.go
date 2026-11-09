@@ -30,6 +30,18 @@ type TokenSource interface {
 	Token() (string, error)
 }
 
+// HealthProvider supplies the most recent on-cluster self-check verdict to carry
+// on the heartbeat (specs/platform/managed-cluster-self-healthcheck.spec.md,
+// PLAT-HLTH-05, PLAT-CLUS-16). LatestHealth returns the verdict value to
+// serialize under the request's `health` field, or nil when none has been
+// produced yet. Returning nil yields a health-less heartbeat that the hub treats
+// as a no-op for the stored verdict (PLAT-CLUS-16.02). It is an interface rather
+// than a concrete type so the registration package stays decoupled from the
+// self-check package.
+type HealthProvider interface {
+	LatestHealth() any
+}
+
 // Client registers a control plane with the hub API server.
 type Client struct {
 	apiServerURL string
@@ -37,6 +49,7 @@ type Client struct {
 	capabilities []string
 	tokens       TokenSource
 	httpClient   *http.Client
+	health       HealthProvider
 }
 
 // NewClient creates a registration Client.
@@ -50,9 +63,21 @@ func NewClient(apiServerURL, clusterName string, capabilities []string, tokens T
 	}
 }
 
+// WithHealthProvider wires the self-check verdict source so every subsequent
+// Register call carries the latest verdict on the heartbeat (PLAT-HLTH-05). It
+// returns the receiver for chaining and is safe to call once during startup.
+func (c *Client) WithHealthProvider(health HealthProvider) *Client {
+	c.health = health
+	return c
+}
+
 type registrationRequest struct {
 	Name         string   `json:"name"`
 	Capabilities []string `json:"capabilities"`
+	// Health carries the most recent self-check verdict. It is omitted entirely
+	// when no verdict is available, so a health-less heartbeat preserves the
+	// stored verdict on the hub (PLAT-CLUS-16.02).
+	Health any `json:"health,omitempty"`
 }
 
 type registrationResponse struct {
@@ -69,7 +94,11 @@ func (c *Client) Register(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("get OIDC token: %w", err)
 	}
 
-	body, err := json.Marshal(registrationRequest{Name: c.clusterName, Capabilities: c.capabilities})
+	reqBody := registrationRequest{Name: c.clusterName, Capabilities: c.capabilities}
+	if c.health != nil {
+		reqBody.Health = c.health.LatestHealth()
+	}
+	body, err := json.Marshal(reqBody)
 	if err != nil {
 		return "", fmt.Errorf("marshal registration request: %w", err)
 	}

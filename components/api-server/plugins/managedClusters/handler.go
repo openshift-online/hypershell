@@ -83,7 +83,18 @@ func (h managedClusterHandler) Register(w http.ResponseWriter, r *http.Request) 
 		handlers.HandleError(r.Context(), w, svcErr)
 		return
 	}
-	cluster, created, svcErr := h.managedCluster.Register(ctx, req.Name, capabilities, oidcSubject)
+
+	// An optional self-check verdict (PLAT-CLUS-16): absent or null is a no-op
+	// that preserves the stored verdict; a malformed one is rejected with 400
+	// here, before any write, so neither the stored verdict nor last_seen_at
+	// changes (PLAT-CLUS-16.03).
+	health := ConvertHealthVerdict(req.Health)
+	if svcErr := ValidateHealthVerdict(health); svcErr != nil {
+		handlers.HandleError(r.Context(), w, svcErr)
+		return
+	}
+
+	cluster, created, svcErr := h.managedCluster.Register(ctx, req.Name, capabilities, oidcSubject, health)
 	if svcErr != nil {
 		handlers.HandleError(r.Context(), w, svcErr)
 		return

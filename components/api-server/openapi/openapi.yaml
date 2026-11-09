@@ -154,6 +154,10 @@ components:
               type: string
     ManagedCluster:
       $ref: 'openapi.managedClusters.yaml#/components/schemas/ManagedCluster'
+    ManagedClusterHealth:
+      $ref: 'openapi.managedClusters.yaml#/components/schemas/ManagedClusterHealth'
+    ManagedClusterHealthCondition:
+      $ref: 'openapi.managedClusters.yaml#/components/schemas/ManagedClusterHealthCondition'
     ManagedClusterList:
       $ref: 'openapi.managedClusters.yaml#/components/schemas/ManagedClusterList'
     ManagedClusterPatchRequest:

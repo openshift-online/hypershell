@@ -4498,25 +4498,86 @@ components:
             readOnly: true
             type: array
             uniqueItems: true
+          health:
+            allOf:
+            - $ref: "#/components/schemas/ManagedClusterHealth"
+            description: Spoke-reported on-cluster self-check verdict (PLAT-DATA-27).
+              Written only by the registering control plane through the registration/heartbeat
+              path; read-only to generic create/patch. Null until the first verdict
+              is reported.
+            readOnly: true
         required:
         - kubeconfig_secret
         - name
         type: object
       example:
-        oidc_subject: oidc_subject
         capabilities:
         - capabilities
         - capabilities
-        updated_at: 2000-01-23T04:56:07.000+00:00
         kind: kind
-        name: name
         created_at: 2000-01-23T04:56:07.000+00:00
+        health: ""
+        oidc_subject: oidc_subject
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        name: name
         kubeconfig_secret: kubeconfig_secret
         id: id
         href: href
         last_seen_at: 2000-01-23T04:56:07.000+00:00
         status: status
         api_server_url: api_server_url
+    ManagedClusterHealth:
+      description: "On-cluster self-check verdict reported by the control plane (managed-cluster-self-healthcheck.spec.md,\
+        \ PLAT-HLTH-03). Stored verbatim on the ManagedCluster."
+      properties:
+        overall:
+          description: Rollup of the per-check conditions.
+          enum:
+          - healthy
+          - degraded
+          - failing
+          type: string
+        observed_at:
+          description: When the last self-check run completed.
+          format: date-time
+          type: string
+        duration_ms:
+          description: Duration of the last self-check run in milliseconds.
+          format: int64
+          type: integer
+        conditions:
+          description: One condition per check in the bounded check catalog.
+          items:
+            $ref: "#/components/schemas/ManagedClusterHealthCondition"
+          type: array
+      required:
+      - conditions
+      - overall
+      type: object
+    ManagedClusterHealthCondition:
+      properties:
+        name:
+          description: Stable check name from the bounded check-name enumeration (PLAT-HLTH-02).
+          type: string
+        status:
+          description: Status of this check on the last run.
+          enum:
+          - pass
+          - warn
+          - fail
+          - unknown
+          type: string
+        last_transition_at:
+          description: When this condition's status last changed.
+          format: date-time
+          type: string
+        message:
+          description: Human-readable detail for this check.
+          type: string
+      required:
+      - name
+      - status
+      type: object
     ManagedClusterList:
       allOf:
       - $ref: "#/components/schemas/List"
@@ -4536,28 +4597,30 @@ components:
         id: id
         href: href
         items:
-        - oidc_subject: oidc_subject
-          capabilities:
+        - capabilities:
           - capabilities
           - capabilities
-          updated_at: 2000-01-23T04:56:07.000+00:00
           kind: kind
-          name: name
           created_at: 2000-01-23T04:56:07.000+00:00
+          health: ""
+          oidc_subject: oidc_subject
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          name: name
           kubeconfig_secret: kubeconfig_secret
           id: id
           href: href
           last_seen_at: 2000-01-23T04:56:07.000+00:00
           status: status
           api_server_url: api_server_url
-        - oidc_subject: oidc_subject
-          capabilities:
+        - capabilities:
           - capabilities
           - capabilities
-          updated_at: 2000-01-23T04:56:07.000+00:00
           kind: kind
-          name: name
           created_at: 2000-01-23T04:56:07.000+00:00
+          health: ""
+          oidc_subject: oidc_subject
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          name: name
           kubeconfig_secret: kubeconfig_secret
           id: id
           href: href
@@ -4586,6 +4649,7 @@ components:
         - capabilities
         - capabilities
         name: name
+        health: ""
       properties:
         name:
           description: "Human-readable spoke name, unique per platform (e.g. hyp0-mc1).\
@@ -4599,6 +4663,14 @@ components:
           minItems: 1
           type: array
           uniqueItems: true
+        health:
+          allOf:
+          - $ref: "#/components/schemas/ManagedClusterHealth"
+          description: Optional on-cluster self-check verdict (PLAT-CLUS-16). When
+            present it is stored on the ManagedCluster in the same operation that
+            updates last_seen_at. Omitting it (absent or null) preserves the stored
+            verdict; a malformed verdict is rejected with 400 without changing the
+            stored verdict or last_seen_at.
       required:
       - capabilities
       - name
