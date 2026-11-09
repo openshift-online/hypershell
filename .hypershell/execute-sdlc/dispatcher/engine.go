@@ -14,7 +14,14 @@ import (
 	"time"
 )
 
+type WaitingIssue struct {
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+	URL    string `json:"url"`
+}
+
 type Snapshot struct {
+	WaitingForTriage             []WaitingIssue
 	AwaitingApproval             []Row
 	ConnectionError              string
 	RecoveryError                string
@@ -28,9 +35,10 @@ type Snapshot struct {
 	Exit                         int
 }
 type discovery struct {
-	AwaitingApproval []Row    `json:"awaiting_approval"`
-	Jobs             []Job    `json:"jobs"`
-	Errors           []string `json:"errors"`
+	WaitingForTriage []WaitingIssue `json:"waiting_for_triage"`
+	AwaitingApproval []Row          `json:"awaiting_approval"`
+	Jobs             []Job          `json:"jobs"`
+	Errors           []string       `json:"errors"`
 	Err              error
 }
 type authResult struct{ Err error }
@@ -78,6 +86,7 @@ func (e *Engine) snapshot() Snapshot {
 	s.Rows = append([]Row(nil), s.Rows...)
 	s.AwaitingApproval = append([]Row(nil), s.AwaitingApproval...)
 	s.Errors = append([]string(nil), s.Errors...)
+	s.WaitingForTriage = append([]WaitingIssue(nil), s.WaitingForTriage...)
 	return s
 }
 func (e *Engine) update(fn func(*Snapshot)) { e.mu.Lock(); defer e.mu.Unlock(); fn(&e.state) }
@@ -371,6 +380,7 @@ func (e *Engine) run(ctx context.Context) (exit int) {
 				s.NextDiscovery = next
 				if result.Err == nil {
 					s.Errors = result.Errors
+					s.WaitingForTriage = append([]WaitingIssue(nil), result.WaitingForTriage...)
 					s.AwaitingApproval = result.AwaitingApproval
 				}
 			})

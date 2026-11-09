@@ -473,6 +473,7 @@ class Coordinator:
         self.github = GitHub(args.repo, args.scope, args.fullsend_dir)
         self.active = {row['key']: None for row in store.db.execute("SELECT key FROM jobs WHERE status='running'")}
         self.candidates, self.errors = [], []
+        self.waiting_for_triage = []
         if self.active:
             report(f'Resumed monitoring {len(self.active)} running worker(s). Free slots can accept new work.')
         manager = None if args.dry_run else GatewayManager(args)
@@ -502,6 +503,10 @@ class Coordinator:
     def discover(self):
         self.awaiting_approval = []
         items = self.github.discover()
+        self.waiting_for_triage = [
+            dict(number=item['number'], title=item.get('title', ''), url=item['html_url'])
+            for item in items if self.args.lifecycle == 'jira' and item['state'] == 'open'
+            and not {'agent/execution-record', 'agent/blocked'}.intersection(self.github.labels(item))]
         ingest = self.intake_job(items) if self.args.lifecycle == 'jira' else None
         if ingest is not None:
             row = self.store.get(ingest['key'])
@@ -579,7 +584,6 @@ class Coordinator:
                 if self.args.lifecycle == 'jira':
                     if 'agent/execution-record' not in self.github.labels(item):
                         # New GitHub-origin records must pass intake first.
-                        errors.append(f'#{item["number"]}: awaiting canonical execution-record link from intake; phase work is paused')
                         continue
                     if prs is None:
                         prs = self.github.pages('pulls', state='all')
