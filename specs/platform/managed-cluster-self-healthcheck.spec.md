@@ -245,9 +245,12 @@ promotion.
 The control plane SHALL emit the health verdict and its per-check conditions as
 OpenTelemetry signals, integrating with `control-plane-observability.spec.md`
 (OBS-CPL-12), so operators can alert on degraded or failing clusters. The signals
-SHALL be low cardinality: labeled only by the `hypershell.cluster_id` and the
-bounded check-name enumeration (PLAT-HLTH-02), never by raw resource identifiers,
-and SHALL respect the telemetry privacy and cardinality rules of OBS-CPL-06.
+SHALL be low cardinality: the overall verdict gauge labeled only by the
+`managed_cluster` attribute (= `HYPERSHELL_MANAGED_CLUSTER_NAME`), and the per-check
+condition gauge labeled only by `managed_cluster` and the bounded check-name
+enumeration (PLAT-HLTH-02, carried in the `check` attribute), never by raw resource
+identifiers, and SHALL respect the telemetry privacy and cardinality rules of
+OBS-CPL-06.
 
 When OTLP metrics are disabled (OBS-CPL-01), the health signals SHALL NOT be
 exported, and the self-check loop and reporting path (PLAT-HLTH-05) SHALL still
@@ -258,8 +261,8 @@ run.
 - GIVEN the OTel SDK is initialized with metrics export enabled
 - AND the control plane computed a `failing` verdict with a `fail` OIDC condition
 - WHEN the self-check run completes
-- THEN the overall verdict SHALL be exported as a gauge labeled by `hypershell.cluster_id`
-- AND the per-check condition status SHALL be exported labeled by the bounded check name
+- THEN the overall verdict SHALL be exported as a gauge labeled by `managed_cluster` (= `HYPERSHELL_MANAGED_CLUSTER_NAME`)
+- AND the per-check condition status SHALL be exported labeled by `managed_cluster` and the bounded check name (the `check` attribute)
 - AND no raw resource identifier SHALL appear as a label
 
 #### Scenario: PLAT-HLTH-07.02 -- No export when metrics are disabled
