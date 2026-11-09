@@ -107,9 +107,10 @@ func runStream(t *testing.T, resolver RegisteredClusterResolver, lookup RoleBind
 
 var enforcedWithAllowlist = AuthzConfig{EnforceRBAC: true, ServiceAccounts: []string{hubSA}}
 
-// A registered control plane needs no role bindings, but only for its own
-// cluster's gateways, fleet-wide reads, status writes, and its own record.
-// Verifies: PLAT-CLUS-11.02, PLAT-CLUS-03.02, OSG-SEVT-02.02
+// A registered control plane needs no role bindings. Its GetGateway is a
+// fleet-wide read (any cluster's gateway, no NOT_FOUND), while its gateway
+// writes, status writes, and record deletion stay scoped to its own cluster.
+// Verifies: PLAT-CLUS-11.02, PLAT-CLUS-11.06, PLAT-CLUS-03.02, OSG-SEVT-02.02
 func TestRegisteredClusterIsScopedToItsCluster(t *testing.T) {
 	ctx := grpcCallerContext(t, spokeUsername, spokeSub)
 	tests := []struct {
@@ -119,8 +120,12 @@ func TestRegisteredClusterIsScopedToItsCluster(t *testing.T) {
 		want   codes.Code
 	}{
 		{"get own gateway", gatewaySvc("GetGateway"), &pb.GetGatewayRequest{Id: "gw-own"}, codes.OK},
-		{"get foreign gateway", gatewaySvc("GetGateway"), &pb.GetGatewayRequest{Id: "gw-foreign"}, codes.NotFound},
-		{"get unknown gateway", gatewaySvc("GetGateway"), &pb.GetGatewayRequest{Id: "gw-missing"}, codes.NotFound},
+		// PLAT-CLUS-11.06: GetGateway is a fleet-wide read for a control-plane
+		// identity. A foreign-cluster gateway is authorized (NOT NOT_FOUND); the
+		// authz layer no longer hides its existence. A genuinely missing gateway
+		// also passes authz here (the handler returns the real not-found).
+		{"get foreign gateway (fleet-wide read)", gatewaySvc("GetGateway"), &pb.GetGatewayRequest{Id: "gw-foreign"}, codes.OK},
+		{"get unknown gateway (fleet-wide read)", gatewaySvc("GetGateway"), &pb.GetGatewayRequest{Id: "gw-missing"}, codes.OK},
 		{"update own gateway", gatewaySvc("UpdateGateway"), &pb.UpdateGatewayRequest{Id: "gw-own"}, codes.OK},
 		{"update own gateway keeping its cluster", gatewaySvc("UpdateGateway"), &pb.UpdateGatewayRequest{Id: "gw-own", ClusterId: strPtr("cluster-spoke3")}, codes.OK},
 		{"move own gateway to another cluster", gatewaySvc("UpdateGateway"), &pb.UpdateGatewayRequest{Id: "gw-own", ClusterId: strPtr("cluster-other")}, codes.PermissionDenied},
@@ -155,6 +160,52 @@ func TestRegisteredClusterIsScopedToItsCluster(t *testing.T) {
 	for _, method := range []string{watchGateways, gatewaySvc("WatchGateways"), "/hypershell.v1.ManagedClusterService/WatchManagedClusters"} {
 		if called, err := runStream(t, registeredSpokes(), fakeLookup{}, enforcedWithAllowlist, ctx, method); err != nil || !called {
 			t.Fatalf("stream %s: handler=%v err=%v", method, called, err)
+		}
+	}
+}
+
+// TestControlPlaneGetGatewayIsFleetWideButWritesStayScoped pins the three-part
+// contract of the fleet-wide GetGateway read (PLAT-CLUS-11.06, SEC-RBAC-09):
+//
+//  1. a control-plane identity registered on cluster-spoke3 MAY GetGateway a
+//     gateway owned by another cluster (gw-foreign) and gets the gateway, not
+//     NOT_FOUND. This is what unblocks the hub reconciler resolving a
+//     spoke-placed gateway's client id (e.g. a CITrust on another cluster).
+//  2. the fleet-wide read is ONLY for the control-plane identity: a
+//     non-control-plane caller with no access to that gateway STILL gets
+//     NOT_FOUND, so existence-hiding on the user path is preserved.
+//  3. a control-plane WRITE to that same foreign gateway is STILL denied with
+//     PERMISSION_DENIED; widening the read does not widen any write.
+//
+// Verifies: PLAT-CLUS-11.06, PLAT-CLUS-11.02
+func TestControlPlaneGetGatewayIsFleetWideButWritesStayScoped(t *testing.T) {
+	cpCtx := grpcCallerContext(t, spokeUsername, spokeSub)
+	foreign := &pb.GetGatewayRequest{Id: "gw-foreign"}
+
+	// 1. Control-plane fleet-wide read of a foreign-cluster gateway.
+	if called, err := runUnary(t, registeredSpokes(), fakeLookup{}, nil, enforcedWithAllowlist, cpCtx, gatewaySvc("GetGateway"), foreign); !called || err != nil {
+		t.Fatalf("control-plane GetGateway on a foreign gateway: handler=%v err=%v, want reached with no error", called, err)
+	}
+
+	// 2. A non-control-plane caller with no binding on that gateway still gets
+	//    NOT_FOUND (existence-hiding preserved on the user path).
+	if got := status.Code(authorizeUserGRPC(gatewaySvc("GetGateway"), foreign, nil)); got != codes.NotFound {
+		t.Fatalf("user GetGateway without access = %s, want NotFound (existence-hiding)", got)
+	}
+	if got := status.Code(authorizeUserGRPC(gatewaySvc("GetGateway"), foreign, []BindingSummary{creatorBinding})); got != codes.NotFound {
+		t.Fatalf("creator GetGateway on another gateway = %s, want NotFound (existence-hiding)", got)
+	}
+
+	// 3. Control-plane writes to the same foreign gateway stay PERMISSION_DENIED.
+	for _, w := range []struct {
+		method string
+		req    interface{}
+	}{
+		{gatewaySvc("UpdateGateway"), &pb.UpdateGatewayRequest{Id: "gw-foreign"}},
+		{gatewaySvc("SetGatewayVersion"), &pb.SetGatewayVersionRequest{Id: "gw-foreign"}},
+	} {
+		if called, err := runUnary(t, registeredSpokes(), fakeLookup{}, nil, enforcedWithAllowlist, cpCtx, w.method, w.req); called || status.Code(err) != codes.PermissionDenied {
+			t.Fatalf("control-plane %s on a foreign gateway: handler=%v code=%s, want PermissionDenied", w.method, called, status.Code(err))
 		}
 	}
 }

@@ -461,8 +461,8 @@ all-binding read under its mandatory `cluster_id` scope.
 
 A caller whose JWT `sub` matches the `oidc_subject` of a registered `ManagedCluster` SHALL be treated as the control plane of that cluster. On the gRPC API it is authorized without role bindings, but only within its own cluster:
 
-- It MAY read every fleet-wide record it reconciles from: `Get`/`List`/`Watch` on managed clusters. Gateway and role-binding lists and watches remain scoped by the Watch Stream Caller Binding.
-- It MAY call `GetGateway`, `UpdateGateway`, `SetGatewayVersion`, `AdjustActiveSandboxCount`, `SetActiveSandboxCount`, and `ReportSandboxEvents` only for a gateway whose `cluster_id` is its own. `GetGateway` for another cluster's gateway SHALL return `NOT_FOUND`; the writes SHALL return `PERMISSION_DENIED`. `UpdateGateway` SHALL NOT change `cluster_id` to any other cluster. A sandbox-count write for a namespace no live gateway backs is a no-op and is let through, and a sandbox-events report for such a namespace is a no-op as well (`platform/gateway-sandbox-events.spec.md`, OSG-SEVT-02).
+- It MAY read every fleet-wide record it reconciles from: `Get`/`List`/`Watch` on managed clusters, and `GetGateway` for any gateway by id. A `GetGateway` read is fleet-wide: the control-plane identity SHALL resolve a gateway by id regardless of the gateway's owning cluster, and SHALL NOT receive `NOT_FOUND` for a gateway owned by another cluster. Gateway and role-binding lists and watches remain scoped by the Watch Stream Caller Binding.
+- It MAY call the gateway writes `UpdateGateway`, `SetGatewayVersion`, `AdjustActiveSandboxCount`, `SetActiveSandboxCount`, and `ReportSandboxEvents` only for a gateway whose `cluster_id` is its own. A write to another cluster's gateway SHALL return `PERMISSION_DENIED`. `UpdateGateway` SHALL NOT change `cluster_id` to any other cluster. A sandbox-count write for a namespace no live gateway backs is a no-op and is let through, and a sandbox-events report for such a namespace is a no-op as well (`platform/gateway-sandbox-events.spec.md`, OSG-SEVT-02).
 - It MAY delete only its own `ManagedCluster` record, and SHALL NOT create or update any.
 - Any other `hypershell.v1` method (for example `CreateGateway`, `DeleteGateway`) SHALL be refused.
 - On both the gRPC and HTTP APIs it SHALL NOT be recorded as a daily-active user.
@@ -494,7 +494,13 @@ The hub exposes its gRPC API through a public Route (`hub-grpc-tls.spec.md`), so
 - GIVEN control planes registered as `X` and `Y`, and a gateway assigned to `X`
 - WHEN `Y` calls `UpdateGateway`, `SetGatewayVersion`, or `AdjustActiveSandboxCount` for that gateway, or `UpdateGateway` on its own gateway with `cluster_id: X`
 - THEN the api-server returns `PERMISSION_DENIED`
-- AND `GetGateway` for that gateway returns `NOT_FOUND`
+
+#### Scenario: PLAT-CLUS-11.06 -- Control plane reads another cluster's gateway
+
+- GIVEN control planes registered as `X` and `Y`, and a gateway assigned to `X`
+- WHEN `Y` calls `GetGateway` for that gateway
+- THEN the api-server returns the gateway
+- AND the response SHALL NOT be `NOT_FOUND`
 
 #### Scenario: PLAT-CLUS-11.03 -- Unregistered caller cannot use control-plane-only writes
 

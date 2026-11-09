@@ -100,11 +100,14 @@ func authorizeControlPlaneGRPC(ctx context.Context, clusterID, fullMethod string
 			// this control plane's own (cluster_binding.go).
 			return nil
 		case "GetGateway":
-			r, ok := req.(*pb.GetGatewayRequest)
-			if !ok {
-				return unexpectedRequest()
-			}
-			return requireGatewayOnCluster(ctx, gateways, r.GetId(), clusterID, notFound)
+			// PLAT-CLUS-11 / SEC-RBAC-09: a control-plane identity's GetGateway is a
+			// fleet-wide read. It resolves any gateway by id regardless of the owning
+			// cluster (the hub reconciler needs to read spoke-owned gateways, e.g. to
+			// resolve a CITrust's gateway client id), so this returns nil like the
+			// ListGateways/WatchGateways fleet-wide read above. Cross-cluster
+			// isolation and existence-hiding stay on the non-control-plane path
+			// (authorizeUserGRPC), and all Gateway WRITES below remain own-cluster-only.
+			return nil
 		case "UpdateGateway":
 			r, ok := req.(*pb.UpdateGatewayRequest)
 			if !ok {
