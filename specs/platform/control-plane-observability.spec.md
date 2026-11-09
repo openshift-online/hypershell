@@ -497,7 +497,7 @@ Log records SHALL follow the privacy rules of `OBS-CPL-06`: no secrets, tokens, 
 
 When OTLP metrics are enabled (OBS-CPL-01), the control plane SHALL export the
 on-cluster self-check verdict (`managed-cluster-self-healthcheck.spec.md`,
-PLAT-HLTH-08) as OpenTelemetry gauges so operators can alert on degraded or
+PLAT-HLTH-07) as OpenTelemetry gauges so operators can alert on degraded or
 failing clusters:
 
 | Metric | Attributes | Description |
@@ -513,7 +513,7 @@ endpoint, or free-text message SHALL appear as a label or metric value. A consum
 SHALL deduplicate control-plane replicas with `max by` or `group by`, not `sum`.
 When the managed-cluster name is empty, the control plane SHALL NOT export either
 gauge. When OTLP metrics are disabled, the gauges SHALL NOT be exported while the
-self-check loop and its hub reporting still run (PLAT-HLTH-08).
+self-check loop and its hub reporting still run (PLAT-HLTH-07).
 
 **Verification:** Start the control plane with a collector endpoint and drive the
 self-check loop through a healthy and a failing verdict; confirm the overall gauge
