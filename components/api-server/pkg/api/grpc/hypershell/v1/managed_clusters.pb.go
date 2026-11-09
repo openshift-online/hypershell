@@ -29,6 +29,7 @@ type ManagedCluster struct {
 	Status           *string                `protobuf:"bytes,7,opt,name=status,proto3,oneof" json:"status,omitempty"`
 	ApiServerUrl     *string                `protobuf:"bytes,8,opt,name=api_server_url,json=apiServerUrl,proto3,oneof" json:"api_server_url,omitempty"`
 	Capabilities     []string               `protobuf:"bytes,9,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	Health           *ManagedClusterHealth  `protobuf:"bytes,10,opt,name=health,proto3,oneof" json:"health,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -105,6 +106,151 @@ func (x *ManagedCluster) GetCapabilities() []string {
 	return nil
 }
 
+func (x *ManagedCluster) GetHealth() *ManagedClusterHealth {
+	if x != nil {
+		return x.Health
+	}
+	return nil
+}
+
+// ManagedClusterHealth is the spoke-reported on-cluster self-check verdict
+// (managed-cluster-self-healthcheck.spec.md, PLAT-HLTH-03), surfaced read-only.
+type ManagedClusterHealth struct {
+	state         protoimpl.MessageState           `protogen:"open.v1"`
+	Overall       string                           `protobuf:"bytes,1,opt,name=overall,proto3" json:"overall,omitempty"`
+	ObservedAt    *string                          `protobuf:"bytes,2,opt,name=observed_at,json=observedAt,proto3,oneof" json:"observed_at,omitempty"`
+	DurationMs    int64                            `protobuf:"varint,3,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
+	Conditions    []*ManagedClusterHealthCondition `protobuf:"bytes,4,rep,name=conditions,proto3" json:"conditions,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ManagedClusterHealth) Reset() {
+	*x = ManagedClusterHealth{}
+	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ManagedClusterHealth) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ManagedClusterHealth) ProtoMessage() {}
+
+func (x *ManagedClusterHealth) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ManagedClusterHealth.ProtoReflect.Descriptor instead.
+func (*ManagedClusterHealth) Descriptor() ([]byte, []int) {
+	return file_hypershell_v1_managed_clusters_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *ManagedClusterHealth) GetOverall() string {
+	if x != nil {
+		return x.Overall
+	}
+	return ""
+}
+
+func (x *ManagedClusterHealth) GetObservedAt() string {
+	if x != nil && x.ObservedAt != nil {
+		return *x.ObservedAt
+	}
+	return ""
+}
+
+func (x *ManagedClusterHealth) GetDurationMs() int64 {
+	if x != nil {
+		return x.DurationMs
+	}
+	return 0
+}
+
+func (x *ManagedClusterHealth) GetConditions() []*ManagedClusterHealthCondition {
+	if x != nil {
+		return x.Conditions
+	}
+	return nil
+}
+
+type ManagedClusterHealthCondition struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Name             string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Status           string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	LastTransitionAt *string                `protobuf:"bytes,3,opt,name=last_transition_at,json=lastTransitionAt,proto3,oneof" json:"last_transition_at,omitempty"`
+	Message          string                 `protobuf:"bytes,4,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *ManagedClusterHealthCondition) Reset() {
+	*x = ManagedClusterHealthCondition{}
+	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ManagedClusterHealthCondition) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ManagedClusterHealthCondition) ProtoMessage() {}
+
+func (x *ManagedClusterHealthCondition) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ManagedClusterHealthCondition.ProtoReflect.Descriptor instead.
+func (*ManagedClusterHealthCondition) Descriptor() ([]byte, []int) {
+	return file_hypershell_v1_managed_clusters_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ManagedClusterHealthCondition) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ManagedClusterHealthCondition) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *ManagedClusterHealthCondition) GetLastTransitionAt() string {
+	if x != nil && x.LastTransitionAt != nil {
+		return *x.LastTransitionAt
+	}
+	return ""
+}
+
+func (x *ManagedClusterHealthCondition) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
 type CreateManagedClusterRequest struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	Name             string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -117,7 +263,7 @@ type CreateManagedClusterRequest struct {
 
 func (x *CreateManagedClusterRequest) Reset() {
 	*x = CreateManagedClusterRequest{}
-	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[1]
+	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -129,7 +275,7 @@ func (x *CreateManagedClusterRequest) String() string {
 func (*CreateManagedClusterRequest) ProtoMessage() {}
 
 func (x *CreateManagedClusterRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[1]
+	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -142,7 +288,7 @@ func (x *CreateManagedClusterRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateManagedClusterRequest.ProtoReflect.Descriptor instead.
 func (*CreateManagedClusterRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_managed_clusters_proto_rawDescGZIP(), []int{1}
+	return file_hypershell_v1_managed_clusters_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *CreateManagedClusterRequest) GetName() string {
@@ -182,7 +328,7 @@ type CreateManagedClusterResponse struct {
 
 func (x *CreateManagedClusterResponse) Reset() {
 	*x = CreateManagedClusterResponse{}
-	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[2]
+	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -194,7 +340,7 @@ func (x *CreateManagedClusterResponse) String() string {
 func (*CreateManagedClusterResponse) ProtoMessage() {}
 
 func (x *CreateManagedClusterResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[2]
+	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -207,7 +353,7 @@ func (x *CreateManagedClusterResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateManagedClusterResponse.ProtoReflect.Descriptor instead.
 func (*CreateManagedClusterResponse) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_managed_clusters_proto_rawDescGZIP(), []int{2}
+	return file_hypershell_v1_managed_clusters_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *CreateManagedClusterResponse) GetManagedCluster() *ManagedCluster {
@@ -226,7 +372,7 @@ type GetManagedClusterRequest struct {
 
 func (x *GetManagedClusterRequest) Reset() {
 	*x = GetManagedClusterRequest{}
-	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[3]
+	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -238,7 +384,7 @@ func (x *GetManagedClusterRequest) String() string {
 func (*GetManagedClusterRequest) ProtoMessage() {}
 
 func (x *GetManagedClusterRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[3]
+	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -251,7 +397,7 @@ func (x *GetManagedClusterRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetManagedClusterRequest.ProtoReflect.Descriptor instead.
 func (*GetManagedClusterRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_managed_clusters_proto_rawDescGZIP(), []int{3}
+	return file_hypershell_v1_managed_clusters_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *GetManagedClusterRequest) GetId() string {
@@ -270,7 +416,7 @@ type GetManagedClusterResponse struct {
 
 func (x *GetManagedClusterResponse) Reset() {
 	*x = GetManagedClusterResponse{}
-	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[4]
+	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -282,7 +428,7 @@ func (x *GetManagedClusterResponse) String() string {
 func (*GetManagedClusterResponse) ProtoMessage() {}
 
 func (x *GetManagedClusterResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[4]
+	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -295,7 +441,7 @@ func (x *GetManagedClusterResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetManagedClusterResponse.ProtoReflect.Descriptor instead.
 func (*GetManagedClusterResponse) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_managed_clusters_proto_rawDescGZIP(), []int{4}
+	return file_hypershell_v1_managed_clusters_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *GetManagedClusterResponse) GetManagedCluster() *ManagedCluster {
@@ -318,7 +464,7 @@ type UpdateManagedClusterRequest struct {
 
 func (x *UpdateManagedClusterRequest) Reset() {
 	*x = UpdateManagedClusterRequest{}
-	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[5]
+	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -330,7 +476,7 @@ func (x *UpdateManagedClusterRequest) String() string {
 func (*UpdateManagedClusterRequest) ProtoMessage() {}
 
 func (x *UpdateManagedClusterRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[5]
+	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -343,7 +489,7 @@ func (x *UpdateManagedClusterRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateManagedClusterRequest.ProtoReflect.Descriptor instead.
 func (*UpdateManagedClusterRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_managed_clusters_proto_rawDescGZIP(), []int{5}
+	return file_hypershell_v1_managed_clusters_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *UpdateManagedClusterRequest) GetId() string {
@@ -390,7 +536,7 @@ type UpdateManagedClusterResponse struct {
 
 func (x *UpdateManagedClusterResponse) Reset() {
 	*x = UpdateManagedClusterResponse{}
-	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[6]
+	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -402,7 +548,7 @@ func (x *UpdateManagedClusterResponse) String() string {
 func (*UpdateManagedClusterResponse) ProtoMessage() {}
 
 func (x *UpdateManagedClusterResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[6]
+	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -415,7 +561,7 @@ func (x *UpdateManagedClusterResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateManagedClusterResponse.ProtoReflect.Descriptor instead.
 func (*UpdateManagedClusterResponse) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_managed_clusters_proto_rawDescGZIP(), []int{6}
+	return file_hypershell_v1_managed_clusters_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *UpdateManagedClusterResponse) GetManagedCluster() *ManagedCluster {
@@ -434,7 +580,7 @@ type DeleteManagedClusterRequest struct {
 
 func (x *DeleteManagedClusterRequest) Reset() {
 	*x = DeleteManagedClusterRequest{}
-	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[7]
+	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -446,7 +592,7 @@ func (x *DeleteManagedClusterRequest) String() string {
 func (*DeleteManagedClusterRequest) ProtoMessage() {}
 
 func (x *DeleteManagedClusterRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[7]
+	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -459,7 +605,7 @@ func (x *DeleteManagedClusterRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteManagedClusterRequest.ProtoReflect.Descriptor instead.
 func (*DeleteManagedClusterRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_managed_clusters_proto_rawDescGZIP(), []int{7}
+	return file_hypershell_v1_managed_clusters_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *DeleteManagedClusterRequest) GetId() string {
@@ -479,7 +625,7 @@ type ListManagedClustersRequest struct {
 
 func (x *ListManagedClustersRequest) Reset() {
 	*x = ListManagedClustersRequest{}
-	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[8]
+	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -491,7 +637,7 @@ func (x *ListManagedClustersRequest) String() string {
 func (*ListManagedClustersRequest) ProtoMessage() {}
 
 func (x *ListManagedClustersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[8]
+	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -504,7 +650,7 @@ func (x *ListManagedClustersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListManagedClustersRequest.ProtoReflect.Descriptor instead.
 func (*ListManagedClustersRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_managed_clusters_proto_rawDescGZIP(), []int{8}
+	return file_hypershell_v1_managed_clusters_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ListManagedClustersRequest) GetPage() int32 {
@@ -531,7 +677,7 @@ type ListManagedClustersResponse struct {
 
 func (x *ListManagedClustersResponse) Reset() {
 	*x = ListManagedClustersResponse{}
-	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[9]
+	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -543,7 +689,7 @@ func (x *ListManagedClustersResponse) String() string {
 func (*ListManagedClustersResponse) ProtoMessage() {}
 
 func (x *ListManagedClustersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[9]
+	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -556,7 +702,7 @@ func (x *ListManagedClustersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListManagedClustersResponse.ProtoReflect.Descriptor instead.
 func (*ListManagedClustersResponse) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_managed_clusters_proto_rawDescGZIP(), []int{9}
+	return file_hypershell_v1_managed_clusters_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ListManagedClustersResponse) GetItems() []*ManagedCluster {
@@ -581,7 +727,7 @@ type DeleteManagedClusterResponse struct {
 
 func (x *DeleteManagedClusterResponse) Reset() {
 	*x = DeleteManagedClusterResponse{}
-	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[10]
+	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -593,7 +739,7 @@ func (x *DeleteManagedClusterResponse) String() string {
 func (*DeleteManagedClusterResponse) ProtoMessage() {}
 
 func (x *DeleteManagedClusterResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[10]
+	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -606,7 +752,7 @@ func (x *DeleteManagedClusterResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteManagedClusterResponse.ProtoReflect.Descriptor instead.
 func (*DeleteManagedClusterResponse) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_managed_clusters_proto_rawDescGZIP(), []int{10}
+	return file_hypershell_v1_managed_clusters_proto_rawDescGZIP(), []int{12}
 }
 
 type WatchManagedClustersRequest struct {
@@ -617,7 +763,7 @@ type WatchManagedClustersRequest struct {
 
 func (x *WatchManagedClustersRequest) Reset() {
 	*x = WatchManagedClustersRequest{}
-	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[11]
+	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -629,7 +775,7 @@ func (x *WatchManagedClustersRequest) String() string {
 func (*WatchManagedClustersRequest) ProtoMessage() {}
 
 func (x *WatchManagedClustersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[11]
+	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -642,7 +788,7 @@ func (x *WatchManagedClustersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchManagedClustersRequest.ProtoReflect.Descriptor instead.
 func (*WatchManagedClustersRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_managed_clusters_proto_rawDescGZIP(), []int{11}
+	return file_hypershell_v1_managed_clusters_proto_rawDescGZIP(), []int{13}
 }
 
 type WatchManagedClustersResponse struct {
@@ -656,7 +802,7 @@ type WatchManagedClustersResponse struct {
 
 func (x *WatchManagedClustersResponse) Reset() {
 	*x = WatchManagedClustersResponse{}
-	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[12]
+	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -668,7 +814,7 @@ func (x *WatchManagedClustersResponse) String() string {
 func (*WatchManagedClustersResponse) ProtoMessage() {}
 
 func (x *WatchManagedClustersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[12]
+	mi := &file_hypershell_v1_managed_clusters_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -681,7 +827,7 @@ func (x *WatchManagedClustersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchManagedClustersResponse.ProtoReflect.Descriptor instead.
 func (*WatchManagedClustersResponse) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_managed_clusters_proto_rawDescGZIP(), []int{12}
+	return file_hypershell_v1_managed_clusters_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *WatchManagedClustersResponse) GetType() EventType {
@@ -709,16 +855,35 @@ var File_hypershell_v1_managed_clusters_proto protoreflect.FileDescriptor
 
 const file_hypershell_v1_managed_clusters_proto_rawDesc = "" +
 	"\n" +
-	"$hypershell/v1/managed_clusters.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\x97\x02\n" +
+	"$hypershell/v1/managed_clusters.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\xe4\x02\n" +
 	"\x0eManagedCluster\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12+\n" +
 	"\x11kubeconfig_secret\x18\x06 \x01(\tR\x10kubeconfigSecret\x12\x1b\n" +
 	"\x06status\x18\a \x01(\tH\x00R\x06status\x88\x01\x01\x12)\n" +
 	"\x0eapi_server_url\x18\b \x01(\tH\x01R\fapiServerUrl\x88\x01\x01\x12\"\n" +
-	"\fcapabilities\x18\t \x03(\tR\fcapabilitiesB\t\n" +
+	"\fcapabilities\x18\t \x03(\tR\fcapabilities\x12@\n" +
+	"\x06health\x18\n" +
+	" \x01(\v2#.hypershell.v1.ManagedClusterHealthH\x02R\x06health\x88\x01\x01B\t\n" +
 	"\a_statusB\x11\n" +
-	"\x0f_api_server_url\"\xc4\x01\n" +
+	"\x0f_api_server_urlB\t\n" +
+	"\a_health\"\xd5\x01\n" +
+	"\x14ManagedClusterHealth\x12\x18\n" +
+	"\aoverall\x18\x01 \x01(\tR\aoverall\x12$\n" +
+	"\vobserved_at\x18\x02 \x01(\tH\x00R\n" +
+	"observedAt\x88\x01\x01\x12\x1f\n" +
+	"\vduration_ms\x18\x03 \x01(\x03R\n" +
+	"durationMs\x12L\n" +
+	"\n" +
+	"conditions\x18\x04 \x03(\v2,.hypershell.v1.ManagedClusterHealthConditionR\n" +
+	"conditionsB\x0e\n" +
+	"\f_observed_at\"\xaf\x01\n" +
+	"\x1dManagedClusterHealthCondition\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\x121\n" +
+	"\x12last_transition_at\x18\x03 \x01(\tH\x00R\x10lastTransitionAt\x88\x01\x01\x12\x18\n" +
+	"\amessage\x18\x04 \x01(\tR\amessageB\x15\n" +
+	"\x13_last_transition_at\"\xc4\x01\n" +
 	"\x1bCreateManagedClusterRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12+\n" +
 	"\x11kubeconfig_secret\x18\x05 \x01(\tR\x10kubeconfigSecret\x12\x1b\n" +
@@ -779,51 +944,55 @@ func file_hypershell_v1_managed_clusters_proto_rawDescGZIP() []byte {
 	return file_hypershell_v1_managed_clusters_proto_rawDescData
 }
 
-var file_hypershell_v1_managed_clusters_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_hypershell_v1_managed_clusters_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_hypershell_v1_managed_clusters_proto_goTypes = []any{
-	(*ManagedCluster)(nil),               // 0: hypershell.v1.ManagedCluster
-	(*CreateManagedClusterRequest)(nil),  // 1: hypershell.v1.CreateManagedClusterRequest
-	(*CreateManagedClusterResponse)(nil), // 2: hypershell.v1.CreateManagedClusterResponse
-	(*GetManagedClusterRequest)(nil),     // 3: hypershell.v1.GetManagedClusterRequest
-	(*GetManagedClusterResponse)(nil),    // 4: hypershell.v1.GetManagedClusterResponse
-	(*UpdateManagedClusterRequest)(nil),  // 5: hypershell.v1.UpdateManagedClusterRequest
-	(*UpdateManagedClusterResponse)(nil), // 6: hypershell.v1.UpdateManagedClusterResponse
-	(*DeleteManagedClusterRequest)(nil),  // 7: hypershell.v1.DeleteManagedClusterRequest
-	(*ListManagedClustersRequest)(nil),   // 8: hypershell.v1.ListManagedClustersRequest
-	(*ListManagedClustersResponse)(nil),  // 9: hypershell.v1.ListManagedClustersResponse
-	(*DeleteManagedClusterResponse)(nil), // 10: hypershell.v1.DeleteManagedClusterResponse
-	(*WatchManagedClustersRequest)(nil),  // 11: hypershell.v1.WatchManagedClustersRequest
-	(*WatchManagedClustersResponse)(nil), // 12: hypershell.v1.WatchManagedClustersResponse
-	(*ObjectReference)(nil),              // 13: hypershell.v1.ObjectReference
-	(*ListMeta)(nil),                     // 14: hypershell.v1.ListMeta
-	(EventType)(0),                       // 15: hypershell.v1.EventType
+	(*ManagedCluster)(nil),                // 0: hypershell.v1.ManagedCluster
+	(*ManagedClusterHealth)(nil),          // 1: hypershell.v1.ManagedClusterHealth
+	(*ManagedClusterHealthCondition)(nil), // 2: hypershell.v1.ManagedClusterHealthCondition
+	(*CreateManagedClusterRequest)(nil),   // 3: hypershell.v1.CreateManagedClusterRequest
+	(*CreateManagedClusterResponse)(nil),  // 4: hypershell.v1.CreateManagedClusterResponse
+	(*GetManagedClusterRequest)(nil),      // 5: hypershell.v1.GetManagedClusterRequest
+	(*GetManagedClusterResponse)(nil),     // 6: hypershell.v1.GetManagedClusterResponse
+	(*UpdateManagedClusterRequest)(nil),   // 7: hypershell.v1.UpdateManagedClusterRequest
+	(*UpdateManagedClusterResponse)(nil),  // 8: hypershell.v1.UpdateManagedClusterResponse
+	(*DeleteManagedClusterRequest)(nil),   // 9: hypershell.v1.DeleteManagedClusterRequest
+	(*ListManagedClustersRequest)(nil),    // 10: hypershell.v1.ListManagedClustersRequest
+	(*ListManagedClustersResponse)(nil),   // 11: hypershell.v1.ListManagedClustersResponse
+	(*DeleteManagedClusterResponse)(nil),  // 12: hypershell.v1.DeleteManagedClusterResponse
+	(*WatchManagedClustersRequest)(nil),   // 13: hypershell.v1.WatchManagedClustersRequest
+	(*WatchManagedClustersResponse)(nil),  // 14: hypershell.v1.WatchManagedClustersResponse
+	(*ObjectReference)(nil),               // 15: hypershell.v1.ObjectReference
+	(*ListMeta)(nil),                      // 16: hypershell.v1.ListMeta
+	(EventType)(0),                        // 17: hypershell.v1.EventType
 }
 var file_hypershell_v1_managed_clusters_proto_depIdxs = []int32{
-	13, // 0: hypershell.v1.ManagedCluster.metadata:type_name -> hypershell.v1.ObjectReference
-	0,  // 1: hypershell.v1.CreateManagedClusterResponse.managed_cluster:type_name -> hypershell.v1.ManagedCluster
-	0,  // 2: hypershell.v1.GetManagedClusterResponse.managed_cluster:type_name -> hypershell.v1.ManagedCluster
-	0,  // 3: hypershell.v1.UpdateManagedClusterResponse.managed_cluster:type_name -> hypershell.v1.ManagedCluster
-	0,  // 4: hypershell.v1.ListManagedClustersResponse.items:type_name -> hypershell.v1.ManagedCluster
-	14, // 5: hypershell.v1.ListManagedClustersResponse.metadata:type_name -> hypershell.v1.ListMeta
-	15, // 6: hypershell.v1.WatchManagedClustersResponse.type:type_name -> hypershell.v1.EventType
-	0,  // 7: hypershell.v1.WatchManagedClustersResponse.managed_cluster:type_name -> hypershell.v1.ManagedCluster
-	3,  // 8: hypershell.v1.ManagedClusterService.GetManagedCluster:input_type -> hypershell.v1.GetManagedClusterRequest
-	1,  // 9: hypershell.v1.ManagedClusterService.CreateManagedCluster:input_type -> hypershell.v1.CreateManagedClusterRequest
-	5,  // 10: hypershell.v1.ManagedClusterService.UpdateManagedCluster:input_type -> hypershell.v1.UpdateManagedClusterRequest
-	7,  // 11: hypershell.v1.ManagedClusterService.DeleteManagedCluster:input_type -> hypershell.v1.DeleteManagedClusterRequest
-	8,  // 12: hypershell.v1.ManagedClusterService.ListManagedClusters:input_type -> hypershell.v1.ListManagedClustersRequest
-	11, // 13: hypershell.v1.ManagedClusterService.WatchManagedClusters:input_type -> hypershell.v1.WatchManagedClustersRequest
-	4,  // 14: hypershell.v1.ManagedClusterService.GetManagedCluster:output_type -> hypershell.v1.GetManagedClusterResponse
-	2,  // 15: hypershell.v1.ManagedClusterService.CreateManagedCluster:output_type -> hypershell.v1.CreateManagedClusterResponse
-	6,  // 16: hypershell.v1.ManagedClusterService.UpdateManagedCluster:output_type -> hypershell.v1.UpdateManagedClusterResponse
-	10, // 17: hypershell.v1.ManagedClusterService.DeleteManagedCluster:output_type -> hypershell.v1.DeleteManagedClusterResponse
-	9,  // 18: hypershell.v1.ManagedClusterService.ListManagedClusters:output_type -> hypershell.v1.ListManagedClustersResponse
-	12, // 19: hypershell.v1.ManagedClusterService.WatchManagedClusters:output_type -> hypershell.v1.WatchManagedClustersResponse
-	14, // [14:20] is the sub-list for method output_type
-	8,  // [8:14] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	15, // 0: hypershell.v1.ManagedCluster.metadata:type_name -> hypershell.v1.ObjectReference
+	1,  // 1: hypershell.v1.ManagedCluster.health:type_name -> hypershell.v1.ManagedClusterHealth
+	2,  // 2: hypershell.v1.ManagedClusterHealth.conditions:type_name -> hypershell.v1.ManagedClusterHealthCondition
+	0,  // 3: hypershell.v1.CreateManagedClusterResponse.managed_cluster:type_name -> hypershell.v1.ManagedCluster
+	0,  // 4: hypershell.v1.GetManagedClusterResponse.managed_cluster:type_name -> hypershell.v1.ManagedCluster
+	0,  // 5: hypershell.v1.UpdateManagedClusterResponse.managed_cluster:type_name -> hypershell.v1.ManagedCluster
+	0,  // 6: hypershell.v1.ListManagedClustersResponse.items:type_name -> hypershell.v1.ManagedCluster
+	16, // 7: hypershell.v1.ListManagedClustersResponse.metadata:type_name -> hypershell.v1.ListMeta
+	17, // 8: hypershell.v1.WatchManagedClustersResponse.type:type_name -> hypershell.v1.EventType
+	0,  // 9: hypershell.v1.WatchManagedClustersResponse.managed_cluster:type_name -> hypershell.v1.ManagedCluster
+	5,  // 10: hypershell.v1.ManagedClusterService.GetManagedCluster:input_type -> hypershell.v1.GetManagedClusterRequest
+	3,  // 11: hypershell.v1.ManagedClusterService.CreateManagedCluster:input_type -> hypershell.v1.CreateManagedClusterRequest
+	7,  // 12: hypershell.v1.ManagedClusterService.UpdateManagedCluster:input_type -> hypershell.v1.UpdateManagedClusterRequest
+	9,  // 13: hypershell.v1.ManagedClusterService.DeleteManagedCluster:input_type -> hypershell.v1.DeleteManagedClusterRequest
+	10, // 14: hypershell.v1.ManagedClusterService.ListManagedClusters:input_type -> hypershell.v1.ListManagedClustersRequest
+	13, // 15: hypershell.v1.ManagedClusterService.WatchManagedClusters:input_type -> hypershell.v1.WatchManagedClustersRequest
+	6,  // 16: hypershell.v1.ManagedClusterService.GetManagedCluster:output_type -> hypershell.v1.GetManagedClusterResponse
+	4,  // 17: hypershell.v1.ManagedClusterService.CreateManagedCluster:output_type -> hypershell.v1.CreateManagedClusterResponse
+	8,  // 18: hypershell.v1.ManagedClusterService.UpdateManagedCluster:output_type -> hypershell.v1.UpdateManagedClusterResponse
+	12, // 19: hypershell.v1.ManagedClusterService.DeleteManagedCluster:output_type -> hypershell.v1.DeleteManagedClusterResponse
+	11, // 20: hypershell.v1.ManagedClusterService.ListManagedClusters:output_type -> hypershell.v1.ListManagedClustersResponse
+	14, // 21: hypershell.v1.ManagedClusterService.WatchManagedClusters:output_type -> hypershell.v1.WatchManagedClustersResponse
+	16, // [16:22] is the sub-list for method output_type
+	10, // [10:16] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_hypershell_v1_managed_clusters_proto_init() }
@@ -834,14 +1003,16 @@ func file_hypershell_v1_managed_clusters_proto_init() {
 	file_hypershell_v1_common_proto_init()
 	file_hypershell_v1_managed_clusters_proto_msgTypes[0].OneofWrappers = []any{}
 	file_hypershell_v1_managed_clusters_proto_msgTypes[1].OneofWrappers = []any{}
-	file_hypershell_v1_managed_clusters_proto_msgTypes[5].OneofWrappers = []any{}
+	file_hypershell_v1_managed_clusters_proto_msgTypes[2].OneofWrappers = []any{}
+	file_hypershell_v1_managed_clusters_proto_msgTypes[3].OneofWrappers = []any{}
+	file_hypershell_v1_managed_clusters_proto_msgTypes[7].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_hypershell_v1_managed_clusters_proto_rawDesc), len(file_hypershell_v1_managed_clusters_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   13,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
