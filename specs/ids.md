@@ -103,7 +103,7 @@ listed in `specs/id-rename-map.md`, not here.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `OBS-CPL` | `platform/control-plane-observability.spec.md` | 11 |
+| `OBS-CPL` | `platform/control-plane-observability.spec.md` | 12 |
 | `OBS-CPU` | `platform/cluster-cpu.spec.md` | 8 |
 | `OBS-CRM` | `platform/control-plane-reconciliation-metrics.spec.md` | 13 |
 | `OBS-GFT` | `platform/gateway-fleet-total-trend.spec.md` | 9 |
@@ -149,6 +149,7 @@ listed in `specs/id-rename-map.md`, not here.
 | `PLAT-CITR` | `platform/ci-trust-ext-api.spec.md` | 16 |
 | `PLAT-CLUS` | `platform/managed-cluster-registration.spec.md` | 15 |
 | `PLAT-DATA` | `platform/data-model.spec.md` | 27 |
+| `PLAT-HLTH` | `platform/managed-cluster-self-healthcheck.spec.md` | 8 |
 | `PLAT-INV` | `platform/platform-inventory.spec.md` | 10 |
 | `PLAT-USR` | `platform/registered-users.spec.md` | 15 |
 
