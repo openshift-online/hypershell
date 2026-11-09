@@ -49,6 +49,8 @@ var (
 	reconcileFailed                    metric.Int64Counter
 	capabilityInfo                     metric.Int64ObservableGauge
 	controlPlaneInfo                   metric.Int64ObservableGauge
+	managedClusterHealth               metric.Int64Gauge
+	managedClusterHealthCheck          metric.Int64Gauge
 )
 
 // Reconciliation outcome taxonomy (OBS-CRM-06). These are the single source of
@@ -361,6 +363,24 @@ func registerMetrics() error {
 		"hypershell.control_plane.info",
 		metric.WithDescription("Default gateway image this control plane provisions; always 1"),
 	)
+	if err != nil {
+		return err
+	}
+
+	// Managed-cluster self-check health gauges (OBS-CPL-12). Low cardinality: the
+	// overall gauge carries only managed_cluster, the per-check gauge only
+	// managed_cluster and the bounded check name.
+	managedClusterHealth, err = meter.Int64Gauge(
+		"hypershell.managed_cluster.health",
+		metric.WithDescription("On-cluster self-check overall verdict (2 healthy, 1 degraded, 0 failing)"),
+	)
+	if err != nil {
+		return err
+	}
+	managedClusterHealthCheck, err = meter.Int64Gauge(
+		"hypershell.managed_cluster.health.check",
+		metric.WithDescription("On-cluster self-check per-check condition status (1 pass, 0 otherwise)"),
+	)
 	return err
 }
 
@@ -633,6 +653,34 @@ func RecordGatewayVaultUnreachable(ctx context.Context, clusterID string) {
 	gatewayVaultUnreachable.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("hypershell.cluster_id", clusterID),
 	))
+}
+
+// RecordManagedClusterHealth exports the on-cluster self-check verdict as the
+// OBS-CPL-12 health gauges: the overall rollup labeled only by managed_cluster,
+// and one per-check series labeled by managed_cluster and the bounded check name.
+// The caller passes the already-encoded bounded numeric states, so no raw
+// resource identifier, secret, endpoint, or free-text message ever becomes a
+// label or value (OBS-CPL-06).
+//
+// Nothing is exported when metrics are disabled (the gauges are nil) or when the
+// managed-cluster name is empty; the self-check loop and its hub reporting still
+// run (PLAT-HLTH-07.02, OBS-CPL-12.02).
+func RecordManagedClusterHealth(ctx context.Context, clusterName string, overall int64, checks map[string]int64) {
+	if clusterName == "" {
+		return
+	}
+	clusterAttr := attribute.String("managed_cluster", clusterName)
+	if managedClusterHealth != nil {
+		managedClusterHealth.Record(ctx, overall, metric.WithAttributes(clusterAttr))
+	}
+	if managedClusterHealthCheck != nil {
+		for check, state := range checks {
+			managedClusterHealthCheck.Record(ctx, state, metric.WithAttributes(
+				clusterAttr,
+				attribute.String("check", check),
+			))
+		}
+	}
 }
 
 // RecordReconcileError increments the reconcile error counter.

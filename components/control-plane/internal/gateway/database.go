@@ -86,6 +86,26 @@ func ValidateAdminCredentialsDir(dir string) error {
 	return err
 }
 
+// AdminServerReachable reports whether the gateway database server named by the
+// mounted admin Secret accepts a TCP connection within timeout. It reads the
+// mounted credentials for the host and port only (no SQL is run), so it is a
+// cheap reachability probe for the on-cluster self-check
+// (specs/platform/managed-cluster-self-healthcheck.spec.md, PLAT-HLTH-02). A
+// credential read error is returned so the caller can distinguish "secret
+// missing" from "server unreachable".
+func AdminServerReachable(ctx context.Context, dir string, timeout time.Duration) error {
+	creds, err := readAdminCredentials(dir)
+	if err != nil {
+		return err
+	}
+	dialer := net.Dialer{Timeout: timeout}
+	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(creds.host, creds.port))
+	if err != nil {
+		return fmt.Errorf("gateway database server %s unreachable: %w", net.JoinHostPort(creds.host, creds.port), err)
+	}
+	return conn.Close()
+}
+
 // readAdminCredentials reads and validates the mounted admin Secret. Every
 // required file must be present and non-empty, sslrootcert must parse as PEM
 // certificates, port must be a TCP port and sslmode, when present, must be

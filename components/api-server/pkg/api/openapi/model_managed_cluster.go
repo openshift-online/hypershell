@@ -37,6 +37,8 @@ type ManagedCluster struct {
 	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
 	// Registration-owned capability labels used by match-all placement selectors.
 	Capabilities []string `json:"capabilities,omitempty"`
+	// Spoke-reported on-cluster self-check verdict (PLAT-DATA-27). Written only by the registering control plane through the registration/heartbeat path; read-only to generic create/patch. Null until the first verdict is reported.
+	Health *ManagedClusterHealth `json:"health,omitempty"`
 }
 
 type _ManagedCluster ManagedCluster
@@ -428,6 +430,38 @@ func (o *ManagedCluster) SetCapabilities(v []string) {
 	o.Capabilities = v
 }
 
+// GetHealth returns the Health field value if set, zero value otherwise.
+func (o *ManagedCluster) GetHealth() ManagedClusterHealth {
+	if o == nil || IsNil(o.Health) {
+		var ret ManagedClusterHealth
+		return ret
+	}
+	return *o.Health
+}
+
+// GetHealthOk returns a tuple with the Health field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *ManagedCluster) GetHealthOk() (*ManagedClusterHealth, bool) {
+	if o == nil || IsNil(o.Health) {
+		return nil, false
+	}
+	return o.Health, true
+}
+
+// HasHealth returns a boolean if a field has been set.
+func (o *ManagedCluster) HasHealth() bool {
+	if o != nil && !IsNil(o.Health) {
+		return true
+	}
+
+	return false
+}
+
+// SetHealth gets a reference to the given ManagedClusterHealth and assigns it to the Health field.
+func (o *ManagedCluster) SetHealth(v ManagedClusterHealth) {
+	o.Health = &v
+}
+
 func (o ManagedCluster) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -469,6 +503,9 @@ func (o ManagedCluster) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Capabilities) {
 		toSerialize["capabilities"] = o.Capabilities
+	}
+	if !IsNil(o.Health) {
+		toSerialize["health"] = o.Health
 	}
 	return toSerialize, nil
 }
