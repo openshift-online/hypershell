@@ -6694,15 +6694,16 @@ components:
     GatewayCreateRequest:
       description: "A gateway is created with only its user-writable fields: a name,\
         \ exactly one of cluster_id (pinned) or placement (late-bound), and the optional\
-        \ create-only dedicated_route request. Every other gateway field is platform-managed\
-        \ and control-plane-only; it is not part of the create contract and is rejected\
-        \ if supplied (data-model.spec.md \"Requirement: Gateway Field Ownership and\
-        \ Write Policy\", PLAT-DATA-23). The web-console provision form submits the\
-        \ placement shape; the pinned shape is available to hsctl apply and the declarative\
-        \ .hypershell import. dedicated_route is rejected on update: it cannot be\
-        \ added, removed, or changed after creation."
+        \ create-only dedicated_route request, and the create-only workspace_mode\
+        \ operator opt-in. Every other gateway field is platform-managed and control-plane-only;\
+        \ it is not part of the create contract and is rejected if supplied (data-model.spec.md\
+        \ \"Requirement: Gateway Field Ownership and Write Policy\", PLAT-DATA-23).\
+        \ The web-console provision form submits the placement shape; the pinned shape\
+        \ is available to hsctl apply and the declarative .hypershell import. dedicated_route\
+        \ is rejected on update: it cannot be added, removed, or changed after creation."
       example:
         cluster_id: cluster_id
+        workspace_mode: workspace_mode
         name: name
         placement:
           excludedSelector:
@@ -6725,6 +6726,14 @@ components:
             certificate. The platform manages how the dedicated route and certificate
             are provided.
           type: boolean
+        workspace_mode:
+          description: "Create-only per-gateway operator-managed workspace opt-in.\
+            \ The only accepted value is \"operator\", which requires the gateway:operator-workspace-creator\
+            \ role (platform:admin also qualifies) and provisions the gateway with\
+            \ operator-owned workspace namespaces (OSG-OPWS-01). Omit for the default\
+            \ managed mode; shared and managed are platform-managed and not caller-settable.\
+            \ Immutable after creation."
+          type: string
         placement:
           $ref: "#/components/schemas/GatewayPlacementIntent"
       required:

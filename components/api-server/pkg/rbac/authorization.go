@@ -240,6 +240,34 @@ func CanRequestGatewayDedicatedRoute(bindings []BindingSummary) bool {
 	return hasPlatformAdmin(bindings) || hasGatewayDedicatedRouteCreator(bindings)
 }
 
+// roleGatewayOperatorWorkspaceCreator mirrors
+// roles.RoleGatewayOperatorWorkspaceCreator; kept local to avoid an import cycle
+// with the roles plugin package.
+const roleGatewayOperatorWorkspaceCreator = "gateway:operator-workspace-creator"
+
+// hasGatewayOperatorWorkspaceCreator reports whether the caller holds the
+// platform-wide role that entitles it to select operator workspace mode at
+// gateway create.
+func hasGatewayOperatorWorkspaceCreator(bindings []BindingSummary) bool {
+	for _, b := range bindings {
+		if b.RoleName == roleGatewayOperatorWorkspaceCreator {
+			return true
+		}
+	}
+	return false
+}
+
+// CanRequestGatewayOperatorWorkspace reports whether a caller holding bindings
+// may set GatewayCreateRequest.workspace_mode = operator. The entitlement is
+// platform-wide (a global binding) rather than per-gateway, because the gateway
+// it applies to does not exist yet. platform:admin passes as it does everywhere
+// else; every other caller -- including a plain gateway:creator -- does not,
+// because operator mode widens a gateway's access to external operator-owned
+// namespaces (SEC-RBAC-28 / OSG-OPWS-01).
+func CanRequestGatewayOperatorWorkspace(bindings []BindingSummary) bool {
+	return hasPlatformAdmin(bindings) || hasGatewayOperatorWorkspaceCreator(bindings)
+}
+
 func hasPlatformAdmin(bindings []BindingSummary) bool {
 	for _, b := range bindings {
 		if b.RoleName == "platform:admin" {

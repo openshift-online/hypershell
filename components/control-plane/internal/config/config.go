@@ -175,6 +175,22 @@ type Config struct {
 	// Set to "kata" or "kata-remote" for hardware-enforced VM isolation.
 	SandboxRuntimeClass string
 
+	// OperatorNamespaceLabelKey is the administrator-approved label KEY the
+	// external operator sets on an operator-mode gateway's tenant namespaces. The
+	// control plane scopes each operator gateway to its own tenant namespaces with
+	// the selector <key>=<gateway-namespace> (OSG-OPWS-02); it is control-plane
+	// configuration, never caller input. Sourced from
+	// GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY; empty disables operator provisioning
+	// (an operator gateway then fails closed, OSG-OPWS-04).
+	OperatorNamespaceLabelKey string
+
+	// OperatorSandboxRuntimeClass is the administrator-approved sandbox
+	// RuntimeClass applied ONLY to operator-mode gateways (OSG-OPWS-03); ordinary
+	// gateways keep SandboxRuntimeClass. Sourced from
+	// GATEWAY_OPERATOR_SANDBOX_RUNTIME_CLASS; empty disables operator provisioning
+	// (an operator gateway then fails closed, OSG-OPWS-04).
+	OperatorSandboxRuntimeClass string
+
 	// CITrustEnabled toggles the CI trust reconciler that realizes CIProvider
 	// and CITrust resources as Keycloak IdPs, claim mappers, and token-exchange
 	// permissions. OFF by default: the reconciler requires a Keycloak admin
@@ -256,6 +272,9 @@ func Load() (*Config, error) {
 
 		GatewayDatabaseAdminDir: getEnv("GATEWAY_DATABASE_ADMIN_DIR", DefaultGatewayDatabaseAdminDir),
 		SandboxRuntimeClass:     getEnv("GATEWAY_SANDBOX_RUNTIME_CLASS", ""),
+
+		OperatorNamespaceLabelKey:   getEnv("GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY", ""),
+		OperatorSandboxRuntimeClass: getEnv("GATEWAY_OPERATOR_SANDBOX_RUNTIME_CLASS", ""),
 
 		CITrustEnabled:           getEnvBool("HYPERSHELL_CI_TRUST_ENABLED", false),
 		CITokenExchangeMode:      getEnv("HYPERSHELL_CI_TOKEN_EXCHANGE_MODE", CITokenExchangeModeFGAPv1),

@@ -36,18 +36,19 @@ type GatewayOwnerLookup interface {
 }
 
 type gatewayHandler struct {
-	gateway          GatewayService
-	generic          services.GenericService
-	ownerBinding     OwnerBindingCreator
-	visibilityFilter GatewayVisibilityFilter
-	ownerLookup      GatewayOwnerLookup
-	ownership        GatewayOwnershipLookup
-	bindingLookup    rbac.RoleBindingLookup
-	clusters         RegisteredClusterLookup
-	enforceRBAC      bool
-	dedicatedRoute   dedicatedRouteAuthorizer
-	placement        PlacementResolver
-	availability     PlacementAvailabilityResolver
+	gateway           GatewayService
+	generic           services.GenericService
+	ownerBinding      OwnerBindingCreator
+	visibilityFilter  GatewayVisibilityFilter
+	ownerLookup       GatewayOwnerLookup
+	ownership         GatewayOwnershipLookup
+	bindingLookup     rbac.RoleBindingLookup
+	clusters          RegisteredClusterLookup
+	enforceRBAC       bool
+	dedicatedRoute    dedicatedRouteAuthorizer
+	operatorWorkspace operatorWorkspaceAuthorizer
+	placement         PlacementResolver
+	availability      PlacementAvailabilityResolver
 }
 
 // callerBindings loads the current caller's role bindings once, or nil when RBAC
@@ -179,18 +180,19 @@ func applyAwaitingPlacement(model *Gateway) {
 
 func NewGatewayHandler(gateway GatewayService, generic services.GenericService, ownerBinding OwnerBindingCreator, visibilityFilter GatewayVisibilityFilter, ownerLookup GatewayOwnerLookup, ownership GatewayOwnershipLookup, bindingLookup rbac.RoleBindingLookup, clusters RegisteredClusterLookup, enforceRBAC bool, placement PlacementResolver, availability PlacementAvailabilityResolver) *gatewayHandler {
 	h := &gatewayHandler{
-		gateway:          gateway,
-		generic:          generic,
-		ownerBinding:     ownerBinding,
-		visibilityFilter: visibilityFilter,
-		ownerLookup:      ownerLookup,
-		ownership:        ownership,
-		bindingLookup:    bindingLookup,
-		clusters:         clusters,
-		enforceRBAC:      enforceRBAC,
-		dedicatedRoute:   newDedicatedRouteAuthorizer(bindingLookup, enforceRBAC),
-		placement:        placement,
-		availability:     availability,
+		gateway:           gateway,
+		generic:           generic,
+		ownerBinding:      ownerBinding,
+		visibilityFilter:  visibilityFilter,
+		ownerLookup:       ownerLookup,
+		ownership:         ownership,
+		bindingLookup:     bindingLookup,
+		clusters:          clusters,
+		enforceRBAC:       enforceRBAC,
+		dedicatedRoute:    newDedicatedRouteAuthorizer(bindingLookup, enforceRBAC),
+		operatorWorkspace: newOperatorWorkspaceAuthorizer(bindingLookup, enforceRBAC),
+		placement:         placement,
+		availability:      availability,
 	}
 	return h
 }
@@ -208,6 +210,13 @@ func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
 			// entitlement (or platform:admin). The check is body-dependent, so it lives
 			// here rather than in the path authorization middleware.
 			if svcErr := h.dedicatedRoute.authorizeCreate(ctx, gatewayModel.DedicatedRoute); svcErr != nil {
+				return nil, svcErr
+			}
+			// workspace_mode = operator is a create-only user-writable selection, but only
+			// for a caller holding the platform-wide gateway:operator-workspace-creator
+			// entitlement (or platform:admin). The check is body-dependent, so it lives
+			// here rather than in the path authorization middleware (OSG-OPWS-01 / SEC-RBAC-28).
+			if svcErr := h.operatorWorkspace.authorizeCreate(ctx, gatewayModel.WorkspaceMode); svcErr != nil {
 				return nil, svcErr
 			}
 			// cluster_id is optional: a gateway is either pinned to a cluster

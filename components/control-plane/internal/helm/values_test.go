@@ -804,6 +804,53 @@ func TestBuild_WorkspaceMode(t *testing.T) {
 	}
 }
 
+// TestBuild_OperatorWorkspaceMode locks in the operator-mode wiring
+// (OSG-OPWS-02/03): operator mode emits the namespace selector
+// server.drivers.kubernetes.operatorNamespaceLabel as <key>=<namespace>, applies
+// the administrator-approved operator sandbox RuntimeClass to
+// server.defaultRuntimeClassName overriding any cluster-wide SandboxRuntimeClass,
+// and deliberately emits NO managed sandboxJwt.gatewayId block.
+func TestBuild_OperatorWorkspaceMode(t *testing.T) {
+	nested := func(m map[string]interface{}, path ...string) interface{} {
+		var cur interface{} = m
+		for _, k := range path {
+			mm, ok := cur.(map[string]interface{})
+			if !ok {
+				return nil
+			}
+			cur = mm[k]
+		}
+		return cur
+	}
+
+	builder := ValuesBuilder{
+		Gateway:   GatewayConfig{WorkspaceMode: "operator", Image: "quay.io/test/gateway:v1"},
+		Namespace: "openshell-deadbeefdeadbeef",
+		// A cluster-wide sandbox runtime class must NOT win for an operator gateway.
+		SandboxRuntimeClass:         "runc",
+		OperatorNamespaceLabelKey:   "oce.example.com/tenant",
+		OperatorSandboxRuntimeClass: "kata",
+	}
+	values, err := builder.Build()
+	if err != nil {
+		t.Fatalf("Build() returned error: %v", err)
+	}
+
+	if got := nested(values, "server", "drivers", "kubernetes", "workspaceMode"); got != "operator" {
+		t.Errorf("server.drivers.kubernetes.workspaceMode = %v, want %q", got, "operator")
+	}
+	wantSelector := "oce.example.com/tenant=openshell-deadbeefdeadbeef"
+	if got := nested(values, "server", "drivers", "kubernetes", "operatorNamespaceLabel"); got != wantSelector {
+		t.Errorf("server.drivers.kubernetes.operatorNamespaceLabel = %v, want %q", got, wantSelector)
+	}
+	if got := nested(values, "server", "defaultRuntimeClassName"); got != "kata" {
+		t.Errorf("server.defaultRuntimeClassName = %v, want operator class %q", got, "kata")
+	}
+	if got := nested(values, "server", "sandboxJwt", "gatewayId"); got != nil {
+		t.Errorf("operator gateway must not carry the managed sandboxJwt.gatewayId: %v", got)
+	}
+}
+
 // TestBuild_WorkspaceModeRendersInChart guards the value path end-to-end: the
 // control-plane-built values must reach the chart's rendered gateway.toml as
 // workspace_mode = "managed" and the derived gateway_id must land in both the

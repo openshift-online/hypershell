@@ -46,25 +46,31 @@ func TestGatewayPostDefaultsWorkspaceModeToManaged(t *testing.T) {
 	Expect(*retrieved.WorkspaceMode).To(Equal("managed"))
 }
 
-// TestGatewayPostRejectsWorkspaceMode proves workspace_mode is platform-managed
-// (PLAT-DATA-23): the strict create contract rejects a body that declares it,
-// naming the field, and nothing is persisted.
-func TestGatewayPostRejectsWorkspaceMode(t *testing.T) {
+// TestGatewayPostRejectsNonOperatorWorkspaceMode proves only "operator" is
+// caller-settable (OSG-OPWS-01.04): a user create declaring shared or managed is
+// rejected with a 403 naming the field by the service funnel, and nothing is
+// persisted. ("operator" itself is accepted for an entitled caller; see the
+// operator-workspace entitlement tests.)
+func TestGatewayPostRejectsNonOperatorWorkspaceMode(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 
 	account := h.NewRandAccount()
 	ctx := h.NewAuthenticatedContext(account)
 	registerTestCluster(t)
 	jwToken := ctx.Value(openapi.ContextAccessToken)
-	resp, err := resty.R().
-		SetHeader("Content-Type", "application/json").
-		SetHeader("Authorization", fmt.Sprintf("Bearer %s", jwToken)).
-		SetBody(`{"name":"ws-mode-create","placement":{"selector":["network/public","provider/aws"]},"workspace_mode":"shared"}`).
-		Post(h.RestURL("/gateways"))
-	Expect(err).NotTo(HaveOccurred())
-	Expect(resp.StatusCode()).To(Equal(http.StatusBadRequest))
-	Expect(string(resp.Body())).To(ContainSubstring("workspace_mode"))
-	expectNoGatewayNamed(ctx, client, "ws-mode-create")
+
+	for _, mode := range []string{"shared", "managed"} {
+		name := "ws-mode-create-" + mode
+		resp, err := resty.R().
+			SetHeader("Content-Type", "application/json").
+			SetHeader("Authorization", fmt.Sprintf("Bearer %s", jwToken)).
+			SetBody(fmt.Sprintf(`{"name":%q,"placement":{"selector":["network/public","provider/aws"]},"workspace_mode":%q}`, name, mode)).
+			Post(h.RestURL("/gateways"))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode()).To(Equal(http.StatusForbidden), "workspace_mode=%s must be rejected", mode)
+		Expect(string(resp.Body())).To(ContainSubstring("workspace_mode"))
+		expectNoGatewayNamed(ctx, client, name)
+	}
 }
 
 // TestGatewayPatchRejectsWorkspaceMode proves the PATCH contract (name only)

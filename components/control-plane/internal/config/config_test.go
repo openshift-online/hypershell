@@ -184,6 +184,41 @@ func TestLoadGatewayResources(t *testing.T) {
 	})
 }
 
+// TestLoadOperatorWorkspaceSettings covers the administrator-owned operator
+// settings (OSG-OPWS-02/03): both default to empty and are read from their env
+// vars. They are control-plane configuration, never caller input.
+func TestLoadOperatorWorkspaceSettings(t *testing.T) {
+	t.Run("default empty", func(t *testing.T) {
+		setRequiredEnv(t)
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() error: %v", err)
+		}
+		if cfg.OperatorNamespaceLabelKey != "" {
+			t.Errorf("OperatorNamespaceLabelKey = %q, want empty", cfg.OperatorNamespaceLabelKey)
+		}
+		if cfg.OperatorSandboxRuntimeClass != "" {
+			t.Errorf("OperatorSandboxRuntimeClass = %q, want empty", cfg.OperatorSandboxRuntimeClass)
+		}
+	})
+
+	t.Run("set from env", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY", "oce.example.com/tenant")
+		t.Setenv("GATEWAY_OPERATOR_SANDBOX_RUNTIME_CLASS", "kata")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() error: %v", err)
+		}
+		if cfg.OperatorNamespaceLabelKey != "oce.example.com/tenant" {
+			t.Errorf("OperatorNamespaceLabelKey = %q, want %q", cfg.OperatorNamespaceLabelKey, "oce.example.com/tenant")
+		}
+		if cfg.OperatorSandboxRuntimeClass != "kata" {
+			t.Errorf("OperatorSandboxRuntimeClass = %q, want %q", cfg.OperatorSandboxRuntimeClass, "kata")
+		}
+	})
+}
+
 // TestLoadCITokenExchangeMode covers PLAT-CITR-08: the token-exchange authorization
 // mode is config-driven. It defaults to fgap-v1 (the live fleet mode), accepts the
 // two valid modes, and rejects an unknown value rather than silently falling back.

@@ -83,6 +83,17 @@ func ReconcileGateway(
 		}
 	}
 
+	// Operator-mode gateways fail closed on a missing prerequisite rather than
+	// provisioning in another mode or substituting a runtime (OSG-OPWS-04, refining
+	// OSG-CORE-18.09). The administrator-owned operator settings must be configured
+	// and the approved sandbox RuntimeClass must exist on the cluster.
+	if nsConfig.Gateway.WorkspaceMode == "operator" {
+		if err := validateOperatorPrerequisites(ctx, clientset, opts); err != nil {
+			report(ConditionEnvironmentReady, StatusFailed, err.Error())
+			return fmt.Errorf("operator workspace prerequisites for %s: %w", nsConfig.Name, err)
+		}
+	}
+
 	report(ConditionEnvironmentReady, StatusComplete, "")
 
 	// Step 2: DatabaseReady
@@ -207,6 +218,30 @@ func ReconcileGateway(
 	report(ConditionGatewayDeployed, StatusComplete, "")
 
 	slog.InfoContext(ctx, "Gateway reconciled", "namespace", nsConfig.Name)
+	return nil
+}
+
+// validateOperatorPrerequisites fail-closes an operator-mode gateway when the
+// administrator-owned operator settings are missing or the approved sandbox
+// RuntimeClass is absent on the cluster. It returns an actionable error whose
+// message is also surfaced on the EnvironmentReady condition. The error is
+// retryable: a later reconcile provisions once the administrator fixes the
+// configuration or installs the RuntimeClass. It NEVER downgrades the mode or
+// substitutes a different runtime (OSG-OPWS-04). clientset is kubernetes.Interface
+// so tests can drive it with a fake.
+func validateOperatorPrerequisites(ctx context.Context, clientset kubernetes.Interface, opts ReconcileOpts) error {
+	if opts.OperatorNamespaceLabelKey == "" {
+		return fmt.Errorf("operator workspace mode requires the administrator-approved namespace label key; set GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY on the control plane")
+	}
+	if opts.OperatorSandboxRuntimeClass == "" {
+		return fmt.Errorf("operator workspace mode requires the approved sandbox RuntimeClass; set GATEWAY_OPERATOR_SANDBOX_RUNTIME_CLASS on the control plane")
+	}
+	if _, err := clientset.NodeV1().RuntimeClasses().Get(ctx, opts.OperatorSandboxRuntimeClass, metav1.GetOptions{}); err != nil {
+		if k8serrors.IsNotFound(err) {
+			return fmt.Errorf("approved operator sandbox RuntimeClass %q is not installed on the cluster; install it before provisioning operator gateways", opts.OperatorSandboxRuntimeClass)
+		}
+		return fmt.Errorf("verify operator sandbox RuntimeClass %q on the cluster: %w", opts.OperatorSandboxRuntimeClass, err)
+	}
 	return nil
 }
 

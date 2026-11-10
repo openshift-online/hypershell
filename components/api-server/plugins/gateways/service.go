@@ -147,10 +147,17 @@ func (s *sqlGatewayService) Create(ctx context.Context, gateway *Gateway) (*Gate
 	if svcErr := validateRouteCertificateShape(gateway.Route); svcErr != nil {
 		return nil, svcErr
 	}
-	// workspace_mode is platform-managed: the API server applies the managed
-	// default here, after the policy check, so every creator class (REST, gRPC,
-	// import, control plane) gets it and no caller-supplied value survives
-	// (OSG-CORE-18).
+	// workspace_mode operator opt-in: reject an import create that sets the field,
+	// and reject a user-supplied shared/managed (only operator is caller-settable).
+	// An entitled user-supplied operator is allowed here; the entitlement itself is
+	// checked at the create boundary (operatorWorkspaceAuthorizer). OSG-OPWS-01.
+	if svcErr := applyGatewayWorkspaceModeCreateRequest(kind, gateway); svcErr != nil {
+		return nil, svcErr
+	}
+	// workspace_mode default: the API server applies the managed default here, after
+	// the policy check, so every creator class that supplies no value (REST, gRPC,
+	// import, control plane) gets it; a valid caller/control-plane value is kept and
+	// vocabulary-validated (OSG-CORE-18).
 	if svcErr := applyGatewayWorkspaceCreateDefault(gateway); svcErr != nil {
 		return nil, svcErr
 	}
