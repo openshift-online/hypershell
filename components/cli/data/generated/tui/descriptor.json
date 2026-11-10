@@ -4604,6 +4604,12 @@
             "required": false
           },
           {
+            "name": "health",
+            "type": "object",
+            "required": false,
+            "description": "On-cluster self-check verdict reported by the control plane (managed-cluster-self-healthcheck.spec.md, PLAT-HLTH-03). Stored verbatim on the ManagedCluster."
+          },
+          {
             "name": "href",
             "type": "string",
             "required": false
@@ -9045,8 +9051,9 @@
           },
           {
             "name": "health",
+            "type": "object",
             "required": false,
-            "description": "Optional on-cluster self-check verdict (PLAT-CLUS-16). When present it is stored on the ManagedCluster in the same operation that updates last_seen_at. Omitting it (absent or null) preserves the stored verdict; a malformed verdict is rejected with 400 without changing the stored verdict or last_seen_at."
+            "description": "On-cluster self-check verdict reported by the control plane (managed-cluster-self-healthcheck.spec.md, PLAT-HLTH-03). Stored verbatim on the ManagedCluster."
           },
           {
             "name": "name",

@@ -4499,13 +4499,7 @@ components:
             type: array
             uniqueItems: true
           health:
-            allOf:
-            - $ref: "#/components/schemas/ManagedClusterHealth"
-            description: Spoke-reported on-cluster self-check verdict (PLAT-DATA-27).
-              Written only by the registering control plane through the registration/heartbeat
-              path; read-only to generic create/patch. Null until the first verdict
-              is reported.
-            readOnly: true
+            $ref: "#/components/schemas/ManagedClusterHealth"
         required:
         - kubeconfig_secret
         - name
@@ -4516,7 +4510,19 @@ components:
         - capabilities
         kind: kind
         created_at: 2000-01-23T04:56:07.000+00:00
-        health: ""
+        health:
+          duration_ms: 5
+          observed_at: 2000-01-23T04:56:07.000+00:00
+          overall: healthy
+          conditions:
+          - last_transition_at: 2000-01-23T04:56:07.000+00:00
+            name: name
+            message: message
+            status: pass
+          - last_transition_at: 2000-01-23T04:56:07.000+00:00
+            name: name
+            message: message
+            status: pass
         oidc_subject: oidc_subject
         updated_at: 2000-01-23T04:56:07.000+00:00
         name: name
@@ -4529,6 +4535,19 @@ components:
     ManagedClusterHealth:
       description: "On-cluster self-check verdict reported by the control plane (managed-cluster-self-healthcheck.spec.md,\
         \ PLAT-HLTH-03). Stored verbatim on the ManagedCluster."
+      example:
+        duration_ms: 5
+        observed_at: 2000-01-23T04:56:07.000+00:00
+        overall: healthy
+        conditions:
+        - last_transition_at: 2000-01-23T04:56:07.000+00:00
+          name: name
+          message: message
+          status: pass
+        - last_transition_at: 2000-01-23T04:56:07.000+00:00
+          name: name
+          message: message
+          status: pass
       properties:
         overall:
           description: Rollup of the per-check conditions.
@@ -4555,6 +4574,11 @@ components:
       - overall
       type: object
     ManagedClusterHealthCondition:
+      example:
+        last_transition_at: 2000-01-23T04:56:07.000+00:00
+        name: name
+        message: message
+        status: pass
       properties:
         name:
           description: Stable check name from the bounded check-name enumeration (PLAT-HLTH-02).
@@ -4602,7 +4626,19 @@ components:
           - capabilities
           kind: kind
           created_at: 2000-01-23T04:56:07.000+00:00
-          health: ""
+          health:
+            duration_ms: 5
+            observed_at: 2000-01-23T04:56:07.000+00:00
+            overall: healthy
+            conditions:
+            - last_transition_at: 2000-01-23T04:56:07.000+00:00
+              name: name
+              message: message
+              status: pass
+            - last_transition_at: 2000-01-23T04:56:07.000+00:00
+              name: name
+              message: message
+              status: pass
           oidc_subject: oidc_subject
           updated_at: 2000-01-23T04:56:07.000+00:00
           name: name
@@ -4617,7 +4653,19 @@ components:
           - capabilities
           kind: kind
           created_at: 2000-01-23T04:56:07.000+00:00
-          health: ""
+          health:
+            duration_ms: 5
+            observed_at: 2000-01-23T04:56:07.000+00:00
+            overall: healthy
+            conditions:
+            - last_transition_at: 2000-01-23T04:56:07.000+00:00
+              name: name
+              message: message
+              status: pass
+            - last_transition_at: 2000-01-23T04:56:07.000+00:00
+              name: name
+              message: message
+              status: pass
           oidc_subject: oidc_subject
           updated_at: 2000-01-23T04:56:07.000+00:00
           name: name
@@ -4649,7 +4697,19 @@ components:
         - capabilities
         - capabilities
         name: name
-        health: ""
+        health:
+          duration_ms: 5
+          observed_at: 2000-01-23T04:56:07.000+00:00
+          overall: healthy
+          conditions:
+          - last_transition_at: 2000-01-23T04:56:07.000+00:00
+            name: name
+            message: message
+            status: pass
+          - last_transition_at: 2000-01-23T04:56:07.000+00:00
+            name: name
+            message: message
+            status: pass
       properties:
         name:
           description: "Human-readable spoke name, unique per platform (e.g. hyp0-mc1).\
@@ -4664,13 +4724,7 @@ components:
           type: array
           uniqueItems: true
         health:
-          allOf:
-          - $ref: "#/components/schemas/ManagedClusterHealth"
-          description: Optional on-cluster self-check verdict (PLAT-CLUS-16). When
-            present it is stored on the ManagedCluster in the same operation that
-            updates last_seen_at. Omitting it (absent or null) preserves the stored
-            verdict; a malformed verdict is rejected with 400 without changing the
-            stored verdict or last_seen_at.
+          $ref: "#/components/schemas/ManagedClusterHealth"
       required:
       - capabilities
       - name

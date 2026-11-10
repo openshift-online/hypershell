@@ -6,7 +6,7 @@ Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **Name** | **string** | Human-readable spoke name, unique per platform (e.g. hyp0-mc1). Must match on every subsequent call. |
 **Capabilities** | **[]string** | Complete self-declared capability set, sent on every registration and heartbeat. An omitted, null, or empty set is rejected with 400. |
-**Health** | Pointer to [**ManagedClusterHealth**](ManagedClusterHealth.md) | Optional on-cluster self-check verdict (PLAT-CLUS-16). When present it is stored on the ManagedCluster in the same operation that updates last_seen_at. Omitting it (absent or null) preserves the stored verdict; a malformed verdict is rejected with 400 without changing the stored verdict or last_seen_at. | [optional]
+**Health** | Pointer to [**ManagedClusterHealth**](ManagedClusterHealth.md) |  | [optional]
 
 ## Methods
 
