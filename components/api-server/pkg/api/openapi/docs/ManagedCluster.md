@@ -16,7 +16,7 @@ Name | Type | Description | Notes
 **OidcSubject** | Pointer to **string** | OIDC sub claim of the service account that registered this cluster. Server-assigned; not writable. | [optional] [readonly]
 **LastSeenAt** | Pointer to **time.Time** | Timestamp of the most recent registration call. Updated on every POST /registration. | [optional] [readonly]
 **Capabilities** | Pointer to **[]string** | Registration-owned capability labels used by match-all placement selectors. | [optional] [readonly]
-**Health** | Pointer to [**ManagedClusterHealth**](ManagedClusterHealth.md) | Spoke-reported on-cluster self-check verdict (PLAT-DATA-27). Written only by the registering control plane through the registration/heartbeat path; read-only to generic create/patch. Null until the first verdict is reported. | [optional] [readonly]
+**Health** | Pointer to [**ManagedClusterHealth**](ManagedClusterHealth.md) |  | [optional]
 
 ## Methods
 

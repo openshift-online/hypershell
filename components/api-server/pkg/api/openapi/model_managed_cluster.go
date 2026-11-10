@@ -36,9 +36,8 @@ type ManagedCluster struct {
 	// Timestamp of the most recent registration call. Updated on every POST /registration.
 	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
 	// Registration-owned capability labels used by match-all placement selectors.
-	Capabilities []string `json:"capabilities,omitempty"`
-	// Spoke-reported on-cluster self-check verdict (PLAT-DATA-27). Written only by the registering control plane through the registration/heartbeat path; read-only to generic create/patch. Null until the first verdict is reported.
-	Health *ManagedClusterHealth `json:"health,omitempty"`
+	Capabilities []string              `json:"capabilities,omitempty"`
+	Health       *ManagedClusterHealth `json:"health,omitempty"`
 }
 
 type _ManagedCluster ManagedCluster

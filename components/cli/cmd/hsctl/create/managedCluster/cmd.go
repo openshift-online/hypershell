@@ -17,6 +17,7 @@ import (
 
 var args struct {
 	apiServerUrl     string
+	health           string
 	kubeconfigSecret string
 	name             string
 	status           string
@@ -28,7 +29,7 @@ var Cmd = &cobra.Command{
 	Short: "Create a managedCluster",
 	Long: "Create a new managedCluster.\n\n" +
 		"Examples:\n" +
-		"  hsctl create managedCluster --api-server-url <value> --kubeconfig-secret <value> --name <value> --status <value> \n" +
+		"  hsctl create managedCluster --api-server-url <value> --health <value> --kubeconfig-secret <value> --name <value> --status <value> \n" +
 		"  hsctl create managedCluster --body request.json",
 	Args: cobra.NoArgs,
 	RunE: run,
@@ -37,6 +38,7 @@ var Cmd = &cobra.Command{
 func init() {
 	fs := Cmd.Flags()
 	fs.StringVar(&args.apiServerUrl, "api-server-url", "", "api_server_url value.")
+	fs.StringVar(&args.health, "health", "", "health value.")
 	fs.StringVar(&args.kubeconfigSecret, "kubeconfig-secret", "", "kubeconfig_secret value.")
 	fs.StringVar(&args.name, "name", "", "name value.")
 	fs.StringVar(&args.status, "status", "", "status value.")
@@ -66,6 +68,9 @@ func run(cmd *cobra.Command, argv []string) error {
 		request := map[string]interface{}{}
 		if args.apiServerUrl != "" {
 			request["api_server_url"] = args.apiServerUrl
+		}
+		if args.health != "" {
+			request["health"] = args.health
 		}
 		if args.kubeconfigSecret != "" {
 			request["kubeconfig_secret"] = args.kubeconfigSecret
