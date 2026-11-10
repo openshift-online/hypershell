@@ -16,7 +16,7 @@ import (
 // select "operator" at create (the per-gateway operator-managed workspace opt-in,
 // OSG-OPWS-01). "operator" is the ONLY caller-settable value; "shared"/"managed"
 // from a caller are rejected naming the field, and an entitled "operator"
-// requires the platform-wide gateway:operator-workspace-creator role (SEC-RBAC-27).
+// requires the platform-wide gateway:operator-workspace-creator role (SEC-RBAC-28).
 // The stored value stays immutable after create for every writer class.
 const (
 	// operatorWorkspaceValue is the single workspace_mode a caller may select.

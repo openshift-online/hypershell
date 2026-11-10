@@ -263,7 +263,7 @@ func hasGatewayOperatorWorkspaceCreator(bindings []BindingSummary) bool {
 // it applies to does not exist yet. platform:admin passes as it does everywhere
 // else; every other caller -- including a plain gateway:creator -- does not,
 // because operator mode widens a gateway's access to external operator-owned
-// namespaces (SEC-RBAC-27 / OSG-OPWS-01).
+// namespaces (SEC-RBAC-28 / OSG-OPWS-01).
 func CanRequestGatewayOperatorWorkspace(bindings []BindingSummary) bool {
 	return hasPlatformAdmin(bindings) || hasGatewayOperatorWorkspaceCreator(bindings)
 }

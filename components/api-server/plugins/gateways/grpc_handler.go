@@ -172,7 +172,7 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 	// platform-wide gateway:operator-workspace-creator entitlement (or platform:admin).
 	// Body-dependent, so enforced here rather than in the gRPC authorization
 	// interceptor; a privileged control-plane create bypasses it, and an import create
-	// is rejected by the service funnel with its own message (OSG-OPWS-01 / SEC-RBAC-27).
+	// is rejected by the service funnel with its own message (OSG-OPWS-01 / SEC-RBAC-28).
 	if svcErr := h.operatorWorkspace.authorizeCreate(ctx, req.WorkspaceMode); svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}

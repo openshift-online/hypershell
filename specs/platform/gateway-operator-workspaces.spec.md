@@ -7,7 +7,7 @@
 **Related:**
 - [`openshell-gateway.spec.md`](./openshell-gateway.spec.md) - core gateway provisioning and the `workspace_mode` field (OSG-CORE-18)
 - [`data-model.spec.md`](./data-model.spec.md) - Gateway field ownership and write policy (PLAT-DATA-23)
-- [`../security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md) - the operator-workspace selector role (SEC-RBAC-27)
+- [`../security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md) - the operator-workspace selector role (SEC-RBAC-28)
 - [`gateway-deletion-finalization.spec.md`](./gateway-deletion-finalization.spec.md) - owned-resource enumeration on deletion (GTW-DEL-01)
 - [`openshell-gateway-namespace-gc.spec.md`](./openshell-gateway-namespace-gc.spec.md) - gateway namespace reclamation
 
@@ -72,7 +72,7 @@ path). Selecting `operator` SHALL require the platform-wide
 `gateway:operator-workspace-creator` entitlement (`platform:admin` also qualifies),
 enforced at the create boundaries per
 [`../security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md)
-(SEC-RBAC-27). The stored value SHALL remain immutable after create for every
+(SEC-RBAC-28). The stored value SHALL remain immutable after create for every
 writer class (OSG-CORE-18.04): changing a gateway's workspace mode requires delete
 and re-create.
 

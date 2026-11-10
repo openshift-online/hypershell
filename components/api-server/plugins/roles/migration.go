@@ -418,7 +418,7 @@ func migrationAddGatewayDedicatedRouteCreatorRole() *gormigrate.Migration {
 }
 
 // migrationAddGatewayOperatorWorkspaceCreatorRole seeds the
-// gateway:operator-workspace-creator built-in role idempotently (SEC-RBAC-27).
+// gateway:operator-workspace-creator built-in role idempotently (SEC-RBAC-28).
 // It is a platform-wide (global-scope) entitlement that gates selecting
 // operator workspace mode at gateway create (GatewayCreateRequest.workspace_mode
 // = operator, OSG-OPWS-01); operator mode widens a gateway's access to external,

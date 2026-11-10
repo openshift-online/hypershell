@@ -215,7 +215,7 @@ func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
 			// workspace_mode = operator is a create-only user-writable selection, but only
 			// for a caller holding the platform-wide gateway:operator-workspace-creator
 			// entitlement (or platform:admin). The check is body-dependent, so it lives
-			// here rather than in the path authorization middleware (OSG-OPWS-01 / SEC-RBAC-27).
+			// here rather than in the path authorization middleware (OSG-OPWS-01 / SEC-RBAC-28).
 			if svcErr := h.operatorWorkspace.authorizeCreate(ctx, gatewayModel.WorkspaceMode); svcErr != nil {
 				return nil, svcErr
 			}

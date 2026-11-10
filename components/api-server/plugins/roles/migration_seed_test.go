@@ -86,7 +86,7 @@ func TestDedicatedRouteCreatorRoleSeedIsIdempotent(t *testing.T) {
 // TestOperatorWorkspaceCreatorRoleSeedIsIdempotent proves the built-in role
 // migration creates gateway:operator-workspace-creator with the expected built-in
 // properties, that re-running it is a no-op, that the runtime seed list covers it,
-// and that it is JWT-synced (SEC-RBAC-27).
+// and that it is JWT-synced (SEC-RBAC-28).
 func TestOperatorWorkspaceCreatorRoleSeedIsIdempotent(t *testing.T) {
 	env := environments.Environment()
 	if env == nil || env.Database.SessionFactory == nil {

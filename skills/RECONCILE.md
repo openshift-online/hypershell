@@ -54,7 +54,7 @@ skills/
 Scoped reconciliation of `specs/platform/gateway-operator-workspaces.spec.md`
 (OSG-OPWS-01..07) and the companion edits to `openshell-gateway.spec.md`
 (OSG-CORE-18.02), `data-model.spec.md` (PLAT-DATA-23), `rbac-enforcement.spec.md`
-(SEC-RBAC-27), and `gateway-deletion-finalization.spec.md` (GTW-DEL-01). A
+(SEC-RBAC-28), and `gateway-deletion-finalization.spec.md` (GTW-DEL-01). A
 create-only per-gateway opt-in to `operator` workspace mode, reusing the existing
 stored `workspace_mode` field and mirroring the `dedicated_route` /
 `gateway:dedicated-route-creator` pattern end to end. No new persisted column or
@@ -63,7 +63,7 @@ administrator-owned control-plane configuration every reconcile.
 
 | ID | Requirement | Status | Evidence |
 |----|-------------|--------|----------|
-| SEC-RBAC-27 | `gateway:operator-workspace-creator` role (JWT-synced, global-scope-only, built-in seed), body-dependent fail-closed gate at the create boundaries | Present | `plugins/roles/model.go` (const + `JWTSyncedRoles`), `plugins/roles/migration.go` (`migrationAddGatewayOperatorWorkspaceCreatorRole` + `builtInRoleSeeds`), `plugins/roleBindings/service.go` (keycloak-owned reject + `validateScopeMatchesRole`), `pkg/rbac/authorization.go` (`CanRequestGatewayOperatorWorkspace`), `plugins/gateways/operator_workspace.go` (`operatorWorkspaceAuthorizer`); tests `test/authz/operator_workspace_test.go`, `plugins/gateways/operator_workspace_test.go`, `plugins/roles/migration_seed_test.go` |
+| SEC-RBAC-28 | `gateway:operator-workspace-creator` role (JWT-synced, global-scope-only, built-in seed), body-dependent fail-closed gate at the create boundaries | Present | `plugins/roles/model.go` (const + `JWTSyncedRoles`), `plugins/roles/migration.go` (`migrationAddGatewayOperatorWorkspaceCreatorRole` + `builtInRoleSeeds`), `plugins/roleBindings/service.go` (keycloak-owned reject + `validateScopeMatchesRole`), `pkg/rbac/authorization.go` (`CanRequestGatewayOperatorWorkspace`), `plugins/gateways/operator_workspace.go` (`operatorWorkspaceAuthorizer`); tests `test/authz/operator_workspace_test.go`, `plugins/gateways/operator_workspace_test.go`, `plugins/roles/migration_seed_test.go` |
 | OSG-OPWS-01 | Create-only `workspace_mode=operator` opt-in; only operator caller-settable; import rejected; immutable after create; default stays managed | Present | `plugins/gateways/field_policy.go` (reclassified `fieldUserWritable`), `operator_workspace.go` (`applyGatewayWorkspaceModeCreateRequest`), `service.go` Create funnel, `handler.go`/`grpc_handler.go` create boundaries, `openapi/openapi.gateways.yaml` create schema; tests `workspace_mode_test.go` |
 | OSG-OPWS-02/03 | Namespace selector = gateway's own namespace name; admin-owned label key + operator sandbox RuntimeClass, applied to operator gateways only, re-resolved per reconcile | Present | control-plane `internal/config/config.go` (`OperatorNamespaceLabelKey`, `OperatorSandboxRuntimeClass`), `internal/helm/values.go` operator branch (`operatorNamespaceLabel=<key>=<ns>`, `defaultRuntimeClassName`), `internal/gateway/helm_deploy.go`; test `internal/helm/values_test.go` |
 | OSG-OPWS-04 | Prerequisite validation, no silent downgrade | Present | `internal/gateway/reconciler.go` `validateOperatorPrerequisites` (missing label key / runtime class / RuntimeClass absent -> actionable Failed condition + retryable error); test `internal/gateway/operator_prereq_test.go` |
@@ -81,7 +81,7 @@ TUI descriptor; `make check`.
 
 **Last analyzed**: 2026-11-10 (scoped reconciliation of branch
 spec/gateway-operator-workspaces against HEAD b9c857cf; all OSG-OPWS-01..07 and
-SEC-RBAC-27 Present across API server, control plane, and CLI).
+SEC-RBAC-28 Present across API server, control plane, and CLI).
 
 ### HYPERSHELL-477 -- Kata ROKS CRI-O rolling restart (moved to hypershell-gitops; issue #934)
 

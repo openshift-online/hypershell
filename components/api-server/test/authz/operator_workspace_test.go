@@ -17,7 +17,7 @@ import (
 )
 
 // These tests enforce the body-dependent workspace_mode=operator entitlement
-// (SEC-RBAC-27 / OSG-OPWS-01). The create handlers enforce it because path
+// (SEC-RBAC-28 / OSG-OPWS-01). The create handlers enforce it because path
 // authorization middleware cannot see the body.
 
 // operatorGatewayCreateRequest builds a pinned create request, optionally

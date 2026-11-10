@@ -117,7 +117,7 @@ Role        ||--o{ RoleBinding : "granted_by"
 | `gateway:viewer` | per gateway | DB (app logic) | Read-only access to one gateway, including its sandbox Events |
 | `managed-cluster-registrar` | global | Keycloak JWT (direct, no DB binding) | Allows a control-plane service account (every control plane, the hub's co-located one included) to call `POST /managed_clusters/registration`; checked live from JWT claim, not via `JWTSyncedRoles` or DB RoleBinding |
 | `gateway:dedicated-route-creator` | global | Keycloak JWT | Entitlement to set `dedicated_route = true` on a gateway create (the dedicated per-gateway route and wildcard certificate, PLAT-DATA-26 / OSG-ROUT-12); grants nothing else by itself. See "Requirement: Gateway Dedicated Route Creator Role" (SEC-RBAC-20) |
-| `gateway:operator-workspace-creator` | global | Keycloak JWT | Entitlement to set `workspace_mode = operator` on a gateway create (per-gateway operator-managed workspaces, OSG-OPWS-01); grants nothing else by itself. See "Requirement: Gateway Operator Workspace Creator Role" (SEC-RBAC-27) |
+| `gateway:operator-workspace-creator` | global | Keycloak JWT | Entitlement to set `workspace_mode = operator` on a gateway create (per-gateway operator-managed workspaces, OSG-OPWS-01); grants nothing else by itself. See "Requirement: Gateway Operator Workspace Creator Role" (SEC-RBAC-28) |
 | `ci-federation:admin` | global | DB (RoleBinding API, granted by platform:admin or ci-federation:grantor) | Authorizes the `ci_providers` extension kind (register/read/update/delete a CI OIDC forge, PLAT-DATA-24) and nothing else. Granted through the RoleBinding API (not JWT-synced): HyperShell owns the authorization decision rather than delegating it to a Keycloak realm role. The gitops CI-federation seeder holds only this role instead of `platform:admin`. It confers no gateway, platform, or other ext-kind authority. See "Requirement: CI Federation Admin Role" (SEC-RBAC-21) |
 | `ci-federation:grantor` | global | Keycloak JWT | Narrow bootstrap role: authorizes creating/deleting a global `ci-federation:admin` RoleBinding and nothing else. Held by a gitops bootstrap identity so the seeder's `ci_providers` authorization can be granted declaratively without `platform:admin`. Confers no `ci_providers`, gateway, or platform authority and cannot grant any other role. See "Requirement: CI Federation Grantor Role" (SEC-RBAC-23) |
 
@@ -759,7 +759,7 @@ NOT set `dedicated_route` or `workspace_mode`: the service funnel rejects an imp
 create that sets either with its own entitlement-specific message (PLAT-DATA-26,
 OSG-OPWS-01). The create-boundary entitlement checks themselves are defined in
 "Requirement: Gateway Dedicated Route Creator Role" (SEC-RBAC-20) and "Requirement:
-Gateway Operator Workspace Creator Role" (SEC-RBAC-27).
+Gateway Operator Workspace Creator Role" (SEC-RBAC-28).
 
 Enforcing the policy in the service funnel - not per handler - closes the
 whole-row-replace gap whereby a gRPC `UpdateGateway` could set more than a REST
@@ -991,7 +991,7 @@ bindings.
 - WHEN the binding lookup itself fails
 - THEN the failure SHALL surface as a server error, not an authorization denial
 
-### Requirement: SEC-RBAC-27 -- Gateway Operator Workspace Creator Role
+### Requirement: SEC-RBAC-28 -- Gateway Operator Workspace Creator Role
 
 A platform-wide role `gateway:operator-workspace-creator` SHALL gate selecting
 `operator` workspace mode on a gateway create (the per-gateway operator-managed
@@ -1039,7 +1039,7 @@ control-plane write bypasses the check; a declarative-import create that sets th
 field is rejected by the service funnel with its own message (OSG-OPWS-01), because
 a control-plane identity holds no user bindings.
 
-#### Scenario: SEC-RBAC-27.01 -- Entitled caller selects operator mode
+#### Scenario: SEC-RBAC-28.01 -- Entitled caller selects operator mode
 
 - GIVEN a caller holding `gateway:creator` and `gateway:operator-workspace-creator`
   (both from Keycloak)
@@ -1047,7 +1047,7 @@ a control-plane identity holds no user bindings.
 - THEN the create SHALL be accepted and the gateway provisioned in operator mode
   (OSG-OPWS-01)
 
-#### Scenario: SEC-RBAC-27.02 -- Plain creator is rejected naming the role
+#### Scenario: SEC-RBAC-28.02 -- Plain creator is rejected naming the role
 
 - GIVEN a caller holding only `gateway:creator`
 - WHEN the caller creates a gateway with `workspace_mode = operator`
@@ -1056,13 +1056,13 @@ a control-plane identity holds no user bindings.
 - AND no gateway SHALL be persisted
 - AND a create from the same caller that does not select operator mode is unaffected
 
-#### Scenario: SEC-RBAC-27.03 -- platform:admin qualifies
+#### Scenario: SEC-RBAC-28.03 -- platform:admin qualifies
 
 - GIVEN a caller holding `platform:admin` (and `gateway:creator`)
 - WHEN the caller creates a gateway with `workspace_mode = operator`
 - THEN the create SHALL be accepted
 
-#### Scenario: SEC-RBAC-27.04 -- The role grants nothing else
+#### Scenario: SEC-RBAC-28.04 -- The role grants nothing else
 
 - GIVEN a caller holding only `gateway:operator-workspace-creator`
 - WHEN the caller attempts to create a gateway
@@ -1070,7 +1070,7 @@ a control-plane identity holds no user bindings.
   `gateway:creator`)
 - AND the caller SHALL hold no per-gateway access through the role
 
-#### Scenario: SEC-RBAC-27.05 -- Assignment is Keycloak-owned
+#### Scenario: SEC-RBAC-28.05 -- Assignment is Keycloak-owned
 
 - GIVEN an attempt to create a `gateway:operator-workspace-creator` RoleBinding
   through the RoleBinding API
@@ -1082,7 +1082,7 @@ a control-plane identity holds no user bindings.
 - AND a JWT carrying the realm role SHALL sync the global binding the create path
   checks
 
-#### Scenario: SEC-RBAC-27.06 -- The gate fails closed
+#### Scenario: SEC-RBAC-28.06 -- The gate fails closed
 
 - GIVEN a create selecting `operator` mode from a user caller
 - WHEN the caller identity is missing or the binding lookup is unwired

@@ -46,7 +46,7 @@ const (
 	// (GatewayCreateRequest.workspace_mode = operator). It is deliberately
 	// separate from gateway:creator because operator mode widens a gateway's
 	// access to external, operator-owned Kubernetes namespaces, identities,
-	// storage, and policies (SEC-RBAC-27 / OSG-OPWS-01). It grants nothing else.
+	// storage, and policies (SEC-RBAC-28 / OSG-OPWS-01). It grants nothing else.
 	RoleGatewayOperatorWorkspaceCreator = "gateway:operator-workspace-creator"
 	RoleGatewayOwner                    = "gateway:owner"
 	RoleGatewayAdmin                    = "gateway:admin"

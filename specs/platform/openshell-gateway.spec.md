@@ -685,7 +685,7 @@ operator-managed workspace opt-in, defined in
 [`gateway-operator-workspaces.spec.md`](./gateway-operator-workspaces.spec.md)
 (OSG-OPWS-01) and gated by
 [`../security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md)
-(SEC-RBAC-27). A caller-supplied `shared` or `managed`, an unentitled
+(SEC-RBAC-28). A caller-supplied `shared` or `managed`, an unentitled
 `operator`, a `.hypershell` import that declares the field, and any update that
 changes the field SHALL be rejected naming it. The service funnel SHALL also
 enforce the field's value semantics for every writer class, the control plane
