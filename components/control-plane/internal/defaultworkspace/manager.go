@@ -32,7 +32,10 @@ const (
 	subjectSecretKey         = "subject"
 )
 
-var errBootstrapAdminCredentialMissing = errors.New("gateway bootstrap admin exists but its Kubernetes credential is missing")
+var (
+	errBootstrapAdminCredentialMissing = errors.New("gateway bootstrap admin exists but its Kubernetes credential is missing")
+	ErrInvalidRequest                  = errors.New("invalid default-workspace bootstrap request")
+)
 
 type Provider interface {
 	Configured() bool
@@ -279,8 +282,9 @@ func validateMemberRequest(request MemberRequest) error {
 		return err
 	}
 	if strings.TrimSpace(request.Endpoint) == "" || strings.TrimSpace(request.Subject) == "" ||
-		request.SubjectType == "" || request.Role != "user" {
-		return errors.New("gateway endpoint, subject, subject type, and role user are required")
+		request.Role != "user" ||
+		(request.SubjectType != "user" && request.SubjectType != "service_account") {
+		return fmt.Errorf("%w: gateway endpoint, subject, subject type, and role user are required", ErrInvalidRequest)
 	}
 	return nil
 }

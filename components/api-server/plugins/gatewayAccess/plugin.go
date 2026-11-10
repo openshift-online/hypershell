@@ -18,16 +18,13 @@ type ServiceLocator func() Service
 
 func NewServiceLocator(env *environments.Env) ServiceLocator {
 	return func() Service {
-		if defaultWorkspaceBootstrapOverride != nil || gatewayLookupOverride != nil {
-			return NewService(
-				newDao(&env.Database.SessionFactory),
-				roleBindings.Service(&env.Services),
-				users.Service(&env.Services),
-				newDirectoryResolverFromEnvironment(),
-				db.NewAdvisoryLockFactory(env.Database.SessionFactory),
-				gatewayLookupOverride,
-				defaultWorkspaceBootstrapOverride,
-			)
+		gatewayLookup := gatewayLookupOverride
+		if gatewayLookup == nil {
+			gatewayLookup = gateways.Service(&env.Services)
+		}
+		bootstrap := defaultWorkspaceBootstrapOverride
+		if bootstrap == nil {
+			bootstrap = defaultWorkspaceBootstrap.ServiceFrom(&env.Services)
 		}
 		return NewService(
 			newDao(&env.Database.SessionFactory),
@@ -35,8 +32,8 @@ func NewServiceLocator(env *environments.Env) ServiceLocator {
 			users.Service(&env.Services),
 			newDirectoryResolverFromEnvironment(),
 			db.NewAdvisoryLockFactory(env.Database.SessionFactory),
-			gateways.Service(&env.Services),
-			defaultWorkspaceBootstrap.ServiceFrom(&env.Services),
+			gatewayLookup,
+			bootstrap,
 		)
 	}
 }
