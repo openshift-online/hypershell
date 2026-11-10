@@ -1,6 +1,9 @@
 package defaultWorkspaceBootstrap
 
 import (
+	"log/slog"
+	"sync"
+
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/registry"
@@ -9,12 +12,17 @@ import (
 type ServiceLocator func() Service
 
 func NewServiceLocator(env *environments.Env) ServiceLocator {
+	var once sync.Once
+	var service Service
 	return func() Service {
-		provisioner, err := newControlPlaneProvisionerFromEnvironment()
-		if err != nil || provisioner == nil {
-			return NewService(NewDao(&env.Database.SessionFactory), nil)
-		}
-		return NewService(NewDao(&env.Database.SessionFactory), provisioner)
+		once.Do(func() {
+			provisioner, err := newControlPlaneProvisionerFromEnvironment()
+			if err != nil {
+				slog.Warn("Default-workspace bootstrap provisioner is not configured", "error", err)
+			}
+			service = NewService(NewDao(&env.Database.SessionFactory), provisioner)
+		})
+		return service
 	}
 }
 

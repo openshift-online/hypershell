@@ -89,6 +89,17 @@ func TestManagerAddMemberTreatsOpenShellAlreadyExistsAsSuccess(t *testing.T) {
 	}
 }
 
+func TestManagerAddMemberRejectsUnknownSubjectType(t *testing.T) {
+	request := validMemberRequest("https://issuer.example/realms/hypershell")
+	request.SubjectType = "robot"
+	manager := NewManager(&fakeProvider{}, fake.NewSimpleClientset(), &fakeOpenShellClient{})
+
+	err := manager.AddMember(t.Context(), request)
+	if !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("AddMember() error = %v, want ErrInvalidRequest", err)
+	}
+}
+
 func TestManagerAddMemberReprovisionsAfterBootstrapAdminClientDisappears(t *testing.T) {
 	tokenServer := newTokenServer(t)
 	defer tokenServer.Close()

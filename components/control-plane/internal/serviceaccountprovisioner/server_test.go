@@ -61,6 +61,20 @@ func TestBootstrapDefaultWorkspaceForwardsRequestAndMapsErrorsSafely(t *testing.
 	}
 }
 
+func TestBootstrapDefaultWorkspaceMapsInvalidRequestsToInvalidArgument(t *testing.T) {
+	bootstrapper := &fakeBootstrapper{err: defaultworkspace.ErrInvalidRequest}
+	server := NewServerWithDefaultWorkspace(&fakeProvider{configured: true}, bootstrapper)
+
+	_, err := server.BootstrapDefaultWorkspace(t.Context(), &pb.BootstrapDefaultWorkspaceRequest{
+		GatewayId: "gateway-id", GatewayNamespace: "gateway-namespace",
+		GatewayEndpoint: "https://gateway.example:443", Issuer: "https://issuer.example/realms/hypershell",
+		GatewayClientId: "gateway-client", Subject: "subject-id", SubjectType: "robot", Role: "user",
+	})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("BootstrapDefaultWorkspace() code = %s, want InvalidArgument", status.Code(err))
+	}
+}
+
 func TestProvisionFailsClosedWithoutKeycloakConfiguration(t *testing.T) {
 	_, err := NewServer(&fakeProvider{}).Provision(t.Context(), &pb.ProvisionRequest{Spec: &pb.ServiceAccountSpec{}})
 	if status.Code(err) != codes.Unavailable {
