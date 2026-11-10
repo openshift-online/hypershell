@@ -25,10 +25,6 @@ MANAGED_FILES: list[tuple[Path, list[str]]] = [
         REPO_ROOT / "deploy" / "base" / "control-plane" / "deployment.yaml",
         ["GATEWAY_IMAGE", "GATEWAY_SUPERVISOR_IMAGE", "GATEWAY_SANDBOX_RUNTIME_IMAGE"],
     ),
-    (
-        REPO_ROOT / "deploy" / "ibm" / "kustomization.yaml",
-        ["GATEWAY_IMAGE", "GATEWAY_SUPERVISOR_IMAGE", "GATEWAY_SANDBOX_RUNTIME_IMAGE"],
-    ),
 ]
 
 # Manifest that sets the HYPERSHELL_CONSOLE_IMAGE env var on the controller,

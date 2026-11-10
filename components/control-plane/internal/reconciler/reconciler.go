@@ -122,8 +122,6 @@ type GatewayReconciler struct {
 	keycloakClient        *keycloak.Client
 	keycloakConfig        *gateway.KeycloakConfig
 	exposure              exposure.Port
-	externalCAIssuerName  string
-	externalCAIssuerKind  string
 	ingressBaseDomain     string
 	// database locates the mounted admin credentials every gateway database is
 	// provisioned with; validated once at controller startup.
@@ -194,8 +192,6 @@ func NewGatewayReconciler(
 	controlPlaneNamespace string,
 	keycloakConfig *gateway.KeycloakConfig,
 	exposurePort exposure.Port,
-	externalCAIssuerName string,
-	externalCAIssuerKind string,
 	database gateway.DatabaseConfig,
 	clusterID string,
 	gatewayResources *corev1.ResourceRequirements,
@@ -208,7 +204,7 @@ func NewGatewayReconciler(
 	isOpenShift := gateway.DetectOpenShift(clientset)
 	hasCertManager := gateway.DetectCertManager(clientset)
 	hasGatewayAPI := gateway.DetectGatewayAPI(clientset)
-	ingressMode := gateway.IngressMode(hasGatewayAPI, isOpenShift)
+	ingressMode := gateway.IngressMode(hasGatewayAPI)
 
 	var kcClient *keycloak.Client
 	if keycloakConfig != nil {
@@ -228,11 +224,6 @@ func NewGatewayReconciler(
 		slog.Warn("INGRESS_BASE_DOMAIN not set, using default", "ingress_base_domain", ingressBaseDomain)
 	}
 
-	// Validate external CA issuer for Route passthrough mode
-	if !hasGatewayAPI && externalCAIssuerName == "" {
-		slog.Warn("EXTERNAL_CA_ISSUER_NAME not set but Gateway API unavailable; Route passthrough mode will fail cert validation")
-	}
-
 	slog.Info("Gateway reconciler initialized",
 		"helm", helmClient.ChartPath,
 		"openshift", isOpenShift,
@@ -240,8 +231,7 @@ func NewGatewayReconciler(
 		"gatewayapi", hasGatewayAPI,
 		"ingress_mode", ingressMode,
 		"keycloak", kcClient != nil,
-		"ingress", ingressBaseDomain,
-		"ca_issuer", externalCAIssuerName)
+		"ingress", ingressBaseDomain)
 
 	return &GatewayReconciler{
 		active:                make(map[string]struct{}),
@@ -257,8 +247,6 @@ func NewGatewayReconciler(
 		keycloakClient:        kcClient,
 		keycloakConfig:        keycloakConfig,
 		exposure:              exposurePort,
-		externalCAIssuerName:  externalCAIssuerName,
-		externalCAIssuerKind:  externalCAIssuerKind,
 		ingressBaseDomain:     ingressBaseDomain,
 		database:              database,
 		clusterID:             clusterID,
@@ -715,8 +703,6 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		GatewayClientID:       gatewayClientID,
 		Exposure:              r.exposure,
 		RouteStillDesired:     r.makeRouteStillDesired(event.ResourceID),
-		ExternalCAIssuerName:  r.externalCAIssuerName,
-		ExternalCAIssuerKind:  r.externalCAIssuerKind,
 		IngressBaseDomain:     r.ingressBaseDomain,
 		GatewayResources:      r.gatewayResources,
 		SandboxRuntimeClass:   r.sandboxRuntimeClass,

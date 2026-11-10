@@ -3,7 +3,7 @@ name: deploy-cluster
 description: >
   Deploy HyperShell platform services (API server, controller, PostgreSQL) to an
   OpenShift cluster with full OIDC/JWT security, externally provisioned databases, and
-  per-tenant ingress via Routes. Covers Keycloak deployment, credential bootstrapping,
+  per-tenant ingress via the Gateway API. Covers Keycloak deployment, credential bootstrapping,
   image builds, kustomize deployment, and troubleshooting. Use when: "deploy to openshift",
   "deploy platform", "install hypershell", "bootstrap keycloak", or "openshift deploy".
 ---
@@ -13,16 +13,17 @@ description: >
 > **Scope:** this skill deploys the **complete platform** (Keycloak, API server,
 > controller, PostgreSQL connection configuration) with OIDC/JWT security, and is cloud-agnostic
 > across OpenShift distributions (ROSA, ROKS, OSD, self-managed). It does **not**
-> provision tenant-gateway ingress (Routes or Gateway API); that is handled by the
-> control plane at runtime once a gateway resource is created. This is the **canonical
-> OpenShift baseline**; cloud-specific overlays (`deploy/ibm`, `deploy/openshift`) layer
-> additional requirements on top (e.g. image mirroring for ROKS, where worker egress is
-> restricted).
+> provision the shared tenant-gateway Gateway; run
+> [`cloud-hub-ingress-bootstrap`](../cloud-hub-ingress-bootstrap/SKILL.md) for that. The
+> control plane creates each gateway's `GRPCRoute` and console `HTTPRoute` at runtime
+> once a gateway resource is created. This is the **canonical OpenShift baseline**
+> (`deploy/openshift`). Cloud-specific needs layer on top in a local overlay (e.g. image
+> mirroring for ROKS when worker egress is closed, see [`ibm-cluster`](../ibm-cluster/SKILL.md)).
 >
 > **Prerequisites:** cert-manager must be pre-installed on the cluster (required for
 > per-tenant gateway TLS). The control plane reconciliation fails closed without it.
-> On OSD/GCP, install via OperatorHub; on ROKS, mirror and apply manually (see
-> [`ibm-cluster`](../ibm-cluster/SKILL.md) §5.1).
+> On OSD/GCP, install via OperatorHub; on ROKS, see
+> [`ibm-cluster`](../ibm-cluster/SKILL.md) §5.1.
 
 ## Step 1: Create the HyperShell namespace
 
@@ -145,12 +146,11 @@ This creates:
 - Cert-manager Issuers and Certificates for per-tenant PKI
 
 **Important:** the checked-in `deploy/openshift/kustomization.yaml` contains a placeholder
-value for `GATEWAY_API_BASE_DOMAIN` (set to `openshell.stage.example.com`). This is
-**only used if Gateway API ingress mode is enabled** (via setting `GATEWAY_INGRESS_MODE=gateway-api`).
-For Route mode (the default in this overlay), the controller auto-generates per-tenant
-`Route`s without needing this parameter. If you later switch to Gateway API mode via
-configuration changes, update this placeholder to match your actual cluster domain (or
-override it via a kustomize patch / `oc set env`).
+value for `GATEWAY_API_BASE_DOMAIN` (set to `openshell.stage.example.com`). The controller
+derives every tenant hostname (`gw-<tenant>.<base-domain>`) from it. Set it to the
+wildcard domain of the shared Gateway from `cloud-hub-ingress-bootstrap` (via a kustomize
+patch or `oc set env`). `GATEWAY_API_GATEWAY_NAME` and `GATEWAY_API_GATEWAY_NAMESPACE`
+name that Gateway (`openshell-grpc-gateway` in `openshift-ingress`).
 
 ## Step 7: Wait for platform rollout
 
@@ -249,7 +249,7 @@ values in `deploy/base/platform-resources/controller.yaml` and reapply the deplo
 | PostgreSQL storage | `emptyDir` | PersistentVolume via cluster StorageClass |
 | OIDC | mock / disabled | Keycloak-backed, JWT required for all API access (except `/healthcheck` and OpenAPI) |
 | Auth | disabled (dev) | OIDC/JWT enabled by default; RBAC enforced on API server |
-| Controller ingress mode | hardcoded to `route` | Configurable via `GATEWAY_INGRESS_MODE` (default: `route`) |
+| Controller ingress mode | Gateway API (`deploy/kind/gateway.yaml`) | Gateway API on the shared Gateway; `GATEWAY_INGRESS_MODE` accepts `gateway-api` or `none` (unset: Gateway API when detected) |
 
 ## Troubleshooting
 
@@ -365,8 +365,8 @@ The steps above use generic OpenShift defaults. On specific cloud providers, ove
 |-----------|-----------|-----------|----------|
 | Cluster login | `oc login https://api.<cluster>.<id>.us-west-2.amaoznamazonaws.com:6443` | `ibmcloud oc cluster config -c <cluster>` | `oc login https://api.<cluster>.<id>.openshiftapps.com:6443` |
 | Base domain | `apps.<cluster>.<id>.us-west-2.amazonamazonaws.com` | `<ingress-subdomain>` (IBM-provided) | `apps.<cluster>.<id>.openshiftapps.com` |
-| Ingress mode | `gateway-api` (via `cloud-hub-ingress-bootstrap`) | `route` (via `deploy/ibm` overlay + **image mirroring**) | `route` (direct, no mirroring) |
-| Cert-manager | Install via OperatorHub | Mirror + apply manually (ROKS OperatorHub broken) | Install via OperatorHub |
-| Image sourcing | Build or use `:latest` | **Mirror all images** into internal registry (nodes isolated) | Use published `:latest` (full egress) |
+| Ingress mode | `gateway-api` (via `cloud-hub-ingress-bootstrap`) | `gateway-api` (via `cloud-hub-ingress-bootstrap`, ROKS >= 4.22) | `gateway-api` (via `cloud-hub-ingress-bootstrap`) |
+| Cert-manager | Install via OperatorHub | Release manifest; mirror + apply manually when worker egress is closed | Install via OperatorHub |
+| Image sourcing | Build or use `:latest` | Published images once worker egress is open; otherwise **mirror all images** into the internal registry | Use published `:latest` (full egress) |
 | Tenant database | Externally provisioned server; admin credentials + CA in the `hypershell-gateway-database-admin` Secret mounted into the controller | Same (IBM Cloud Databases) | Same (cloud-managed PostgreSQL) |
 | Namespace | `hypershell-system` (same) | `hypershell-system` (same) | `hypershell-system` (same) |

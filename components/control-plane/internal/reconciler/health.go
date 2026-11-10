@@ -154,7 +154,7 @@ func NewGatewayHealthReconciler(clientset *kubernetes.Clientset, dynamicClient d
 	// reconciler. This keeps console repair and cleanup on the selected ingress.
 	isOpenShift := gateway.DetectOpenShift(clientset)
 	hasGatewayAPI := gateway.DetectGatewayAPI(clientset)
-	ingressMode := gateway.IngressMode(hasGatewayAPI, isOpenShift)
+	ingressMode := gateway.IngressMode(hasGatewayAPI)
 	return &GatewayHealthReconciler{
 		clientset:               clientset,
 		dynamicClient:           dynamicClient,
@@ -707,8 +707,6 @@ func (h *GatewayHealthReconciler) teardownRoute(ctx context.Context, client pb.G
 	switch h.ingressMode {
 	case gateway.IngressModeGatewayAPI:
 		teardownErr = gateway.DeleteGatewayAPIResources(ctx, h.dynamicClient, h.concreteClientset(), namespace, opts)
-	case gateway.IngressModeRoute:
-		teardownErr = gateway.DeleteRouteResources(ctx, h.dynamicClient, h.concreteClientset(), namespace, opts)
 	case gateway.IngressModeNone:
 		teardownErr = gateway.DeleteConsole(ctx, h.dynamicClient, h.concreteClientset(), namespace, opts)
 		if opts.UpdateRouteAddress != nil {

@@ -252,7 +252,6 @@ grep -rn  "<OLD_VERSION>" . | grep -v '\.git/'      # must return only intention
 | `skills/deploy/ibm-cluster/SKILL.md` | mirror + `openshell gateway add` commands + `v1beta1` API-version note | ROKS mirror docs |
 | `skills/deploy/gcp-cluster/SKILL.md` | gateway image in the example REST calls | Pin, not a fixture |
 | `skills/deploy/deploy-cluster/SKILL.md` | gateway and supervisor image examples | Pin |
-| `deploy/ibm/kustomization.yaml` | ROKS mirror image lines (`openshell-gateway`, `openshell-supervisor`, `openshell-sandbox-runtime`) | Pin; grep after the bump |
 | `tests/e2e/cli_test.go` | `odh-openshell-cli:<TAG>` image pin used by the CLI e2e | Pin, not a fixture |
 | `components/control-plane/internal/helm/values_test.go` | none | Assertions copy the chart's rendered TOML text; update them when a chart upgrade changes spacing (see Learnings log) |
 

@@ -2,8 +2,9 @@
 name: ibm-cluster
 description: >
   Provision (and later retire) an IBM Cloud ROKS OpenShift cluster on VPC Gen2 to
-  serve as a HyperShell Cloud Hub. Ensures a version with the built-in, CIO-managed
-  Gateway API (OCP 4.19 or later) so tenant-gateway manifests match the AWS reference.
+  serve as a HyperShell Cloud Hub. Ensures a version with a working built-in,
+  CIO-managed Gateway API (ROKS 4.22 or later) so tenant-gateway manifests match the
+  AWS reference.
   Use when: "create IBM cluster", "new ROKS cluster", "provision cloud hub on IBM",
   "upgrade IBM OpenShift", "hysh-ibm".
 ---
@@ -14,21 +15,20 @@ Stands up a VPC Gen2 OpenShift cluster on IBM Cloud as a Cloud Hub. After it is
 `normal`, deploy platform services with [`deploy-cluster`](../deploy-cluster/SKILL.md)
 and tenant ingress with [`cloud-hub-ingress-bootstrap`](../cloud-hub-ingress-bootstrap/SKILL.md).
 
-> **Validated end to end (2026-08-19, `hysh-ibm-01`, openshell 0.0.109):**
-> the ROKS e2e script (since removed, #767) passed **22/22** - full path from the
-> HyperShell API through the control plane, per-tenant Route, OIDC (admin +
-> standard developer), and sandbox create + exec for **both** an admin and a
-> standard user. The developer flow requires the workspace-membership grant in
-> §5.9; the sandbox↔gateway internal TLS and the Deployment-only workload in §5.5.
+> **Validated on ROKS 4.22 (`hypc-ibm-00`, `hypc-ibm-03`):** tenant gateways are
+> published through the Gateway API on the shared `openshift-ingress/openshell-grpc-gateway`.
+> The developer flow requires the workspace-membership grant in §5.9; the
+> sandbox↔gateway internal TLS and the Deployment-only workload in §5.5.
 
 ## Why the OpenShift version matters (critical)
 
 The tenant-gateway ingress uses the Kubernetes Gateway API. The **built-in,
 Cluster-Ingress-Operator-managed** Gateway API (`openshift-default` GatewayClass,
-matching the AWS reference) is **GA only on OpenShift >= 4.19**. On older ROKS
-(e.g. 4.17) you would have to hand-install OSSM 3 / Sail and accept a divergent
-`istio` GatewayClass. **Always provision >= 4.19** (IBM default at time of writing:
-`4.21.27_openshift`). ROKS control-plane feature sets can be `CustomNoUpgrade`,
+matching the AWS reference) is **GA only on OpenShift >= 4.19**, and on ROKS it
+works only from **4.22**: on 4.21 the Ingress Operator's `istiod` image cannot be
+pulled (see Step 4). On older ROKS (e.g. 4.17) you would have to hand-install
+OSSM 3 / Sail and accept a divergent `istio` GatewayClass. **Always provision ROKS
+>= 4.22** (`4.22_openshift`, the latest 4.22 patch at create time). ROKS control-plane feature sets can be `CustomNoUpgrade`,
 which blocks in-place upgrades - so getting a newer version means a new cluster,
 not an upgrade.
 
@@ -44,7 +44,7 @@ not an upgrade.
 
 ```bash
 ibmcloud target -g Default
-ibmcloud ks versions --show-version OpenShift              # pick >= 4.19 (default is fine)
+ibmcloud ks versions --show-version OpenShift              # pick >= 4.22
 
 # Mirror the reference cluster's shape:
 ibmcloud ks cluster get     --cluster <reference> | grep -iE "resource group|vpc|zone"
@@ -58,11 +58,12 @@ A COS instance is a required `--cos-instance` flag value, but the registry does 
 actually end up COS-backed on this account - see "Internal registry storage" below
 before assuming you need COS or an IAM authorization for it.
 
-Reference values captured for `hysh-ibm-01` (mirrors `hypershell-cluster`, 2026-08-15):
+Reference values captured for `hysh-ibm-01` (mirrors `hypershell-cluster`,
+2026-08-15), with the version raised to 4.22:
 
 | Parameter | Value |
 |-----------|-------|
-| Version | `4.21.27_openshift` |
+| Version | `4.22_openshift` |
 | Resource group | `Default` |
 | Zone | `us-east-1` |
 | VPC | `r014-be56e5de-5cd9-493f-8ac2-149791cdc58b` |
@@ -76,7 +77,7 @@ Reference values captured for `hysh-ibm-01` (mirrors `hypershell-cluster`, 2026-
 ```bash
 ibmcloud ks cluster create vpc-gen2 \
   --name hysh-ibm-01 \
-  --version 4.21.27_openshift \
+  --version 4.22_openshift \
   --zone us-east-1 \
   --vpc-id r014-be56e5de-5cd9-493f-8ac2-149791cdc58b \
   --subnet-id 0757-cacfbdee-1d22-444c-8ce5-5eff35c43faf \
@@ -107,7 +108,7 @@ Wait for cluster `State: normal`, all workers `Normal`, and `Ingress Status: hea
 
 ```bash
 ibmcloud ks cluster config --cluster hysh-ibm-01 --admin   # --admin = cert-based; a plain token context 401s
-oc get clusterversion version -o jsonpath='{.status.desired.version}{"\n"}'   # expect 4.21.x
+oc get clusterversion version -o jsonpath='{.status.desired.version}{"\n"}'   # expect 4.22.x
 oc get featuregate cluster -o jsonpath='{.spec.customNoUpgrade.enabled}{"\n"}' | tr ',' '\n' | grep -i gateway
                                                                              # expect GatewayAPI + GatewayAPIController enabled
 oc get crd | grep gateway.networking.k8s.io                                  # gateways/grpcroutes CRDs present
@@ -135,103 +136,35 @@ oc get gatewayclass openshift-default -o jsonpath='{.status.conditions[?(@.type=
 oc -n openshift-ingress get pods -l app=istiod                                # istiod should reach Running
 ```
 
-### BLOCKER on ROKS 4.21 (confirmed 2026-08-15, hysh-ibm-01): OSSM istiod image unpullable
+### ROKS 4.21 cannot run the built-in Gateway API
 
-Creating the GatewayClass made the CIO spin up `istiod-openshift-gateway` in
-`openshift-ingress`, but it lands in **`ImagePullBackOff`** and the GatewayClass
-stays `Accepted=Unknown / reason=Pending (Waiting for controller)`. Root cause is an
-IBM Cloud image-availability gap, verified two ways:
+Use ROKS 4.22 or later. On 4.22 the Ingress Operator installs its own `istiod`
+(the `GatewayAPIWithoutOLM` path, no OSSM subscription). Verified on ROKS 4.22.13
+(2026-09-30, `hypc-ibm-00`): the GatewayClass is `Accepted`, `istiod` runs, and a
+Gateway gets a public IBM VPC load balancer in seconds.
 
-- The istiod image `registry.redhat.io/openshift-service-mesh/istio-pilot-rhel9@sha256:2a25…`
-  is redirected by the **node-level crio mirror** (IBM sets this in the workers'
-  `registries.conf`, *not* an `ImageDigestMirrorSet` - the cluster IDMS only mirrors
-  OCP release images) to `us.icr.io/armada-extensions/registry-redhat-io/...`, which
-  returns **`manifest unknown`** - IBM's mirror does not stock the OSSM images.
-- The direct fallback to `registry.redhat.io` **times out**: worker egress to
-  `registry.redhat.io` is blocked (`curl https://registry.redhat.io/v2/` → rc=124),
-  while `us.icr.io/v2/` answers `HTTP 401` in ~7ms. The global `pull-secret` *does*
-  contain `registry.redhat.io` creds - the problem is reachability + mirror stock,
-  not auth.
+On ROKS 4.21 the `istiod-openshift-gateway` pod stays in `ImagePullBackOff`:
 
-So the native `openshift-default` path cannot pull `istiod` on ROKS out of the box.
-Remediation options (pick with the user - do not silently mirror/patch):
-1. **Mirror the OSSM image set into a worker-reachable registry** (IBM Container
-   Registry `icr.io`, or the cluster internal registry via its route) from a host
-   that *can* reach `registry.redhat.io`, then add an `ImageDigestMirrorSet`
-   redirecting `registry.redhat.io/openshift-service-mesh` → that mirror. Keeps the
-   native `openshift-default` GatewayClass. Note: an IDMS change rolls worker nodes,
-   and the CIO pins more OSSM images (proxy/gateway) as Gateways are created - mirror
-   the whole `openshift-service-mesh` repo, not just `istio-pilot-rhel9`.
-2. **Open an IBM ticket** to sync OSSM images into `armada-extensions` or allowlist
-   worker egress to `registry.redhat.io`. Correct long-term, not same-day.
+- IBM's node-level crio mirror redirects the OSSM images to
+  `us.icr.io/armada-extensions/...`, which does not stock them (`manifest unknown`).
+- The direct pull from `registry.redhat.io` times out when worker egress is closed
+  (see the next section).
+- You cannot add an `ImageDigestMirrorSet` on ROKS, because IBM owns the
+  HostedCluster.
 
-Only once `istiod` is Running and `openshift-default` is `Accepted=True` proceed to
-`cloud-hub-ingress-bootstrap`.
+If `oc get clusterversion` shows 4.21, provision a new 4.22 cluster instead.
 
-#### Tracked: OSSM images that must be mirrored (built-in Gateway API, OCP 4.21.27)
+### Worker egress: the ROKS Security Group
 
-The complete image set the CIO references for the `openshift-default` Gateway API
-(discovered from the `istiod` deployment + the `istio-sidecar-injector-openshift-gateway`
-configmap on hysh-ibm-01, 2026-08-15):
-
-| Purpose | Source image (pin by digest) |
-|---------|------------------------------|
-| istiod (control plane) | `registry.redhat.io/openshift-service-mesh/istio-pilot-rhel9@sha256:2a25d47b4bb3bf346563a0ccea986c0ab0466709ca4cb9d2666ba6a02a8a5f31` |
-| istio-proxy (gateway data plane) | `registry.redhat.io/openshift-service-mesh/istio-proxyv2-rhel9@sha256:2b5f5aa5ee9974269d8e3666b1bfc58da10c172bf3f1d6defd555fbd1ac9a6ec` |
-
-(`busybox:1.28` appears only in an inert sample template in the injector configmap,
-not the live injection - no need to mirror it.) Digests are OCP-version-specific;
-re-discover them after any cluster upgrade.
-
-#### Mirror target: node egress is restricted to IBM registries only
-
-Workers can reach `us.icr.io` (HTTP 401 in ~7ms) but **not** `registry.redhat.io`
-(egress timeout) - and public registries like `quay.io` are equally out of reach.
-So the mirror must live on a **node-reachable** registry: IBM Container Registry
-(`icr.io`) or the cluster's own internal registry route.
-
-- **IBM Container Registry (`icr.io`) - preferred, but needs IAM.** Nodes already
-  carry the `all-icr-io` pull secret, so no node cred changes are needed. BUT on this
-  account the CLI identity **could not create a namespace** (`ibmcloud cr namespace-add`
-  → "not authorized" - same IAM-permission class as the COS s2s failure). Have an
-  account admin grant **Container Registry Manager** (or pre-create a namespace and
-  grant Writer), then:
-  ```bash
-  ibmcloud plugin install container-registry -f
-  ibmcloud cr region-set us-south            # -> us.icr.io (workers reach this)
-  ibmcloud cr namespace-add hypershell
-  ibmcloud cr login                          # configures podman/docker
-  # source creds: extract registry.redhat.io auth from the cluster pull-secret
-  oc get secret pull-secret -n openshift-config -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d > /tmp/rh-auth.json
-  for D in \
-    istio-pilot-rhel9@sha256:2a25d47b4bb3bf346563a0ccea986c0ab0466709ca4cb9d2666ba6a02a8a5f31 \
-    istio-proxyv2-rhel9@sha256:2b5f5aa5ee9974269d8e3666b1bfc58da10c172bf3f1d6defd555fbd1ac9a6ec; do
-    skopeo copy --authfile /tmp/rh-auth.json \
-      docker://registry.redhat.io/openshift-service-mesh/$D \
-      docker://us.icr.io/hypershell/${D%@*}@${D#*@}
-  done
-  ```
-  Then the IDMS below with mirror `us.icr.io/hypershell`.
-
-- **Internal registry route - self-service fallback (no IAM), more moving parts.**
-  Enable `defaultRoute`, push the two images to `<route>/openshift-ingress/...`, add the
-  route host's puller creds to the **global** `openshift-config/pull-secret` (so node
-  crio can authenticate - the internal `.svc` address is NOT resolvable by node crio,
-  the public route host is), then IDMS mirror to `<route-host>/openshift-ingress`.
-  Editing the global pull secret + adding an IDMS both **roll the worker nodes**.
-
-#### Root cause: the worker Security Group (and how to open general egress)
-
-The registry timeouts above are **not** registry-specific. The ROKS worker
-**Security Group** `kube-<clusterID>` (e.g. `kube-da0a9c9w0br7f5gf3dd0`) is
-**default-deny outbound**, allowing only IBM Cloud infrastructure (service
+The ROKS worker **Security Group** `kube-<clusterID>` (e.g. `kube-da0a9c9w0br7f5gf3dd0`)
+is **default-deny outbound**. It allows only IBM Cloud infrastructure (service
 endpoints `161.26.0.0/16` / `166.8.0.0/14`, VPE gateways, the in-cluster
-registry, metadata `169.254.169.254`). DNS resolves but no packets reach the
-public internet, so `registry.redhat.io`, `quay.io`, and any **app-level** egress
+registry, metadata `169.254.169.254`). DNS resolves, but no packets reach the
+public internet. So `registry.redhat.io`, `quay.io`, and any **app-level** egress
 (e.g. `oauth2.googleapis.com` when a gateway mints a Vertex AI token - see §5.7)
-all time out. The Public Gateway is attached and the subnet ACL is wide open -
-the SG is the gate. Diagnose from any pod with a shell (gateway pods are
-distroless; use the gateway's Postgres pod):
+all time out. The Public Gateway is attached and the subnet ACL is wide open; the
+SG is the gate. Diagnose from any pod with a shell (gateway pods are distroless;
+use a debug pod):
 `timeout 8 bash -c 'cat </dev/null >/dev/tcp/1.1.1.1/443' && echo OPEN || echo BLOCKED`.
 
 Adding a rule to this ROKS-managed SG only *grants* egress (it never removes
@@ -243,84 +176,27 @@ SG=$(ibmcloud is security-groups --vpc <vpc-id> --output json \
 ibmcloud is security-group-rule-add "$SG" outbound tcp --remote 0.0.0.0/0 --port-min 443 --port-max 443
 ```
 
-This enables all outbound HTTPS from workers (egress-only, port 443) - required
-for cloud-model providers (§5.7). As a side effect it should also let nodes pull
-directly from `registry.redhat.io` / `quay.io` on 443, since crio shares the
-node's SG - **verify before relying on it to skip the mirroring dance**. This is
-IBM Cloud VPC state, **not** reproducible from GitOps; re-apply on any rebuild.
+This enables all outbound HTTPS from workers (egress-only, port 443). Cloud-model
+providers need it (§5.7). It also lets nodes pull directly from
+`registry.redhat.io`, `quay.io` and `ghcr.io`, because crio shares the node's SG.
+With it in place you can skip the image mirroring in §5.2. This is IBM Cloud VPC
+state, **not** reproducible from GitOps; re-apply it on any rebuild.
 
-#### ImageDigestMirrorSet (redirect the OSSM repo to the mirror)
+## Step 5: Deploy HyperShell + a tenant gateway (Gateway API)
 
-```yaml
-apiVersion: config.openshift.io/v1
-kind: ImageDigestMirrorSet
-metadata:
-  name: ossm-gateway-mirror
-spec:
-  imageDigestMirrors:
-    - source: registry.redhat.io/openshift-service-mesh
-      mirrors:
-        - us.icr.io/hypershell            # or <internal-registry-route>/openshift-ingress
-```
+ROKS uses the same Gateway API ingress as the AWS reference. Every tenant gateway
+gets a `GRPCRoute`, and its console gets an `HTTPRoute`, both attached to the
+shared `openshift-ingress/openshell-grpc-gateway`.
 
-#### BLOCKER: you cannot create an IDMS on ROKS (HyperShift-hosted)
+1. Make the worker nodes able to pull images: open egress (above) or mirror the
+   images (§5.0-§5.2).
+2. Install cert-manager (§5.1).
+3. Run [`cloud-hub-ingress-bootstrap`](../cloud-hub-ingress-bootstrap/SKILL.md).
+   It creates the shared Gateway, the wildcard certificate and the wildcard DNS
+   record for the IBM VPC load balancer.
+4. Deploy the platform with the `deploy/openshift` overlay (§5.3).
 
-ROKS runs a **HyperShift-hosted** control plane (`oc get nodes` shows only workers;
-the control plane lives in IBM's management cluster). A `ValidatingAdmissionPolicy`
-named `mirror` **denies** creating `imagedigestmirrorsets`/`imagetagmirrorsets` in the
-guest:
-
-```
-ValidatingAdmissionPolicy 'mirror' ... denied request: This resource cannot be
-created, updated, or deleted. Please ask your administrator to modify the resource
-in the HostedCluster object.
-```
-
-So node-level image mirroring (`registries.conf`) is IBM-owned and can only be changed
-on the HostedCluster (that is also why IBM's own `registry.redhat.io → armada` mirror
-exists but you can't add one). **The internal-registry + IDMS plan dead-ends here** on
-ROKS. Confirmed 2026-08-15 on hysh-ibm-01. The mirrored images (above) are still valid
-and reusable for whichever path wins.
-
-#### Revised options once IDMS is off the table (ROKS)
-
-1. **IBM ticket (only *supported* fix).** Ask IBM to either sync the OSSM images into
-   `armada-extensions`, or add an `imageContentSource`/IDMS to the **HostedCluster**
-   pointing `registry.redhat.io/openshift-service-mesh` at a reachable mirror, or
-   allowlist worker egress to `registry.redhat.io`. Then the native `openshift-default`
-   path "just works." Not same-day.
-2. **Guest-side Sail/OSSM 3 with image overrides (works today, diverges from CIO).**
-   Install the Sail (`sailoperator`) or OSSM 3 (`servicemeshoperator3`) operator from
-   OperatorHub, then in the `Istio` CR set `spec.values.pilot.image` and
-   `spec.values.global.proxy.image` to the **mirrored** pullspecs on the internal
-   registry route (that host is already in the global pull-secret and is node-resolvable - no IDMS needed). Create a GatewayClass named `openshift-default` whose
-   `controllerName` matches the Sail controller so the shared-Gateway manifests stay
-   byte-identical to AWS. Trade-off: Sail-managed istiod instead of CIO-managed.
-3. **Route-based tenant ingress on IBM (IMPLEMENTED - the chosen path).** Skip
-   Gateway API on ROKS; the control plane emits passthrough `Route`s on IBM's free
-   `*.containers.appdomain.cloud` wildcard. This is now a first-class,
-   config-selected ingress mode (`GATEWAY_INGRESS_MODE=route`), delivered by the
-   `deploy/ibm` kustomize overlay - no shared Gateway, wildcard cert, cert-manager
-   ClusterIssuer, or Route53 required. **Use this for ROKS.** See "Step 5" and
-   [`global-architecture.spec.md`](../../../specs/platform/global-architecture.spec.md)
-   (§ "IBM Cloud Cloud Hub - Route ingress mode").
-
-## Step 5: Deploy HyperShell + a tenant gateway (Route ingress mode)
-
-ROKS uses the **Route ingress mode**, not Gateway API. Do **not** run
-`cloud-hub-ingress-bootstrap` (that bootstraps the shared Gateway for
-`gateway-api` mode on AWS/functional clusters).
-
-The governing constraint on ROKS is that **worker nodes can pull only from IBM
-registries and the cluster-internal registry** - `quay.io`, `registry.redhat.io`,
-`registry.access.redhat.com`, `ghcr.io`, and `docker.io` are all unreachable from
-nodes. So **every** image the platform *and every tenant gateway* uses must be
-mirrored into the internal registry and referenced by its in-cluster service
-address (`image-registry.openshift-image-registry.svc:5000/...`). This includes
-images most deploys take for granted: cert-manager, and the per-tenant gateway,
-supervisor, and database images. Verified end-to-end on `hysh-ibm-01` (2026-08-15).
-
-### 5.0: Registry push identity (cert-admin has no bearer token)
+### 5.0: Registry push identity (only when mirroring images)
 
 `ibmcloud ks cluster config --admin` gives a **certificate-based** kubeconfig with
 no bearer token, so `oc whoami -t` fails and you cannot `podman login` the registry
@@ -335,22 +211,24 @@ podman login --tls-verify=false -u pusher -p "$(oc -n hypershell create token pu
 
 Tokens are short-lived; re-mint (and re-`podman login`) if a later push 401s.
 
-### 5.1: Install cert-manager (hard prerequisite, all ingress modes)
+### 5.1: Install cert-manager (hard prerequisite)
 
-cert-manager is **not** optional in route mode. It mints each tenant's per-tenant
+cert-manager is **not** optional. It issues the shared Gateway's wildcard
+certificate (`cloud-hub-ingress-bootstrap`). It also mints each tenant's per-tenant
 CA (`openshell-ca` Issuer + `openshell-ca`/`openshell-server` Certificates) for the
 gateway pod's own server TLS, **plus an `openshell-client` Certificate
 (`openshell-client-tls`)**. That client cert is NOT external-client mTLS (external
-clients authenticate via OIDC over the Route); it exists so sandbox runners can
-verify the gateway's server cert. openshell 0.0.109 mounts `openshell-client-tls`
-into every sandbox and sets `OPENSHELL_TLS_CA` from its `ca.crt` whenever
-`gateway.toml` sets `client_tls_secret_name` - without it every sandbox crashloops
-on `OPENSHELL_TLS_CA is required` and never reaches Ready (see §5.9). Route mode
-only drops the *ingress-layer* PKI (wildcard cert / ClusterIssuer / Route53), not
-this. The
-control plane fails closed (`cert-manager is required but not available`) without
-it. OperatorHub is broken on ROKS (catalog pods `ImagePullBackOff`), so install by
-mirroring the images:
+clients authenticate via OIDC through the shared Gateway). It exists so sandbox
+runners can verify the gateway's server cert. openshell 0.0.109 mounts
+`openshell-client-tls` into every sandbox and sets `OPENSHELL_TLS_CA` from its
+`ca.crt` whenever `gateway.toml` sets `client_tls_secret_name`. Without it every
+sandbox crashloops on `OPENSHELL_TLS_CA is required` and never reaches Ready (see
+§5.5). The control plane fails closed (`cert-manager is required but not
+available`) without cert-manager.
+
+When worker egress is open, install cert-manager from its release manifest as
+usual. When it is closed, the OperatorHub catalog pods cannot pull either
+(`ImagePullBackOff`), so install by mirroring the images:
 
 ```bash
 V=v1.16.3
@@ -367,17 +245,16 @@ oc -n cert-manager rollout status deploy/cert-manager
 ```
 
 The controller caches cert-manager detection at startup, so **restart it** after
-cert-manager is up: `oc -n hypershell rollout restart deploy/hypershell-controller`.
+cert-manager is up: `oc -n hypershell-system rollout restart deploy/hypershell-controller`.
 
-### 5.2: Mirror the platform + tenant workload images
+### 5.2: Mirror the platform + tenant workload images (only when egress is closed)
 
-Mirror the platform images (api-server, controller, PostgreSQL) per
-[`deploy-cluster`](../deploy-cluster/SKILL.md) Step 3, but into the `deploy/ibm`
-overlay's target repos (it repoints images to
-`.svc:5000/hypershell/{hypershell-api-server,hypershell-controller,postgresql}`).
-Then mirror the **tenant gateway** images into the `openshift` namespace, which is
-cluster-wide pullable by every namespace's default SA (so per-tenant image-pull
-secrets are unnecessary):
+Skip this when worker egress is open. Otherwise mirror the platform images
+(api-server, controller, PostgreSQL) per [`deploy-cluster`](../deploy-cluster/SKILL.md)
+Step 3 into `.svc:5000/hypershell/{hypershell-api-server,hypershell-controller,postgresql}`.
+Then mirror the **tenant gateway** images into the `openshift` namespace. Every
+namespace's default SA can pull from it, so per-tenant image-pull secrets are
+unnecessary:
 
 ```bash
 # postgres/RHEL images carry signatures the internal registry rejects -> --remove-signatures
@@ -398,62 +275,68 @@ skopeo copy --dest-tls-verify=false --dest-creds "pusher:$(oc -n hypershell crea
 oc -n openshift get is    # expect openshell-gateway, openshell-supervisor, openshell-sandbox-runtime, postgres
 ```
 
-### 5.3: Deploy with the `deploy/ibm` overlay
+Point the platform at the mirror in a local kustomize overlay on top of
+`deploy/openshift`: an `images:` block for api-server, controller and PostgreSQL,
+and a controller env patch that sets `GATEWAY_IMAGE`, `GATEWAY_SUPERVISOR_IMAGE`
+and `GATEWAY_SANDBOX_RUNTIME_IMAGE` to the
+`image-registry.openshift-image-registry.svc:5000/openshift/...` pullspecs.
+
+### 5.3: Deploy with the `deploy/openshift` overlay
 
 ```bash
-oc kustomize deploy/ibm | oc apply -f -
+oc kustomize deploy/openshift | oc apply -f -    # or your local overlay from §5.2
 oc -n hypershell-system rollout status deploy/hypershell-controller
 ```
 
-The overlay (on top of `deploy/openshift`, namespace `hypershell-system`) sets, and you
-must keep aligned with this cluster:
+Keep these controller settings aligned with this cluster (patch them in a local
+overlay):
 
-- `GATEWAY_INGRESS_MODE=route` and `GATEWAY_API_BASE_DOMAIN=<ingress subdomain>`
-  (`oc get ingresscontroller default -n openshift-ingress-operator -o jsonpath='{.status.domain}'`).
-  The gateway Route is always `passthrough`: the gateway Helm chart owns it and the
-  router forwards the raw TLS stream to the gateway pod. `GATEWAY_ROUTE_TLS_ISSUER` applies
-  only to the console Route: set it to a cert-manager `ClusterIssuer` when the console
-  host is under a domain the router default certificate does not cover.
-- Image transformers repointing api-server/controller/postgresql at `.svc:5000/hypershell/*`.
-- **`deploy/base/controller-rbac.yaml`** - a cluster-wide `ClusterRole` for the
-  controller. The self-contained `deploy/openshift` tree ships only a narrow Role;
-  reconciling whole tenants needs cluster-wide namespaces/secrets/services/
-  deployments/networkpolicies plus, specifically for route mode + sandboxes:
-  `route.openshift.io/routes` **and `routes/custom-host`** (OpenShift gates setting
-  a Route's `spec.host` behind this subresource - without it the Route is rejected
-  with "you do not have permission to set the host field of the route"), and
-  `security.openshift.io/securitycontextconstraints` **`use`** on `privileged` (so
-  the controller can bind the sandbox SA to the privileged SCC without an RBAC
-  escalation error).
+- `GATEWAY_API_GATEWAY_NAME=openshell-grpc-gateway` and
+  `GATEWAY_API_GATEWAY_NAMESPACE=openshift-ingress`: the shared Gateway from
+  `cloud-hub-ingress-bootstrap`.
+- `GATEWAY_API_BASE_DOMAIN=<wildcard base domain>`: the domain the shared
+  Gateway's wildcard listener and DNS record cover.
+- `GATEWAY_API_HTTP_LISTENER_NAME`: the listener name of the shared Gateway, so
+  console `HTTPRoute`s attach to it.
+- `HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES=provider/ibm,network/public`.
+- Leave `GATEWAY_INGRESS_MODE` unset (or set it to `gateway-api`). The controller
+  then publishes every gateway through the Gateway API.
+- **`deploy/base/platform-resources/controller-rbac.yaml`** - a cluster-wide `ClusterRole` for the
+  controller. Reconciling whole tenants needs cluster-wide
+  namespaces/secrets/services/deployments/networkpolicies, the Gateway API route
+  kinds (`gateways`, `grpcroutes`, `httproutes`, `backendtlspolicies`), and
+  `bind` on the `system:openshift:scc:privileged` ClusterRole (so the controller
+  can bind the sandbox SA to the privileged SCC without an RBAC escalation error).
 
-### 5.4: Provision a tenant gateway (images must point at the mirror)
+### 5.4: Provision a tenant gateway
 
 The control plane reads the gateway's own `image` and `supervisor_image` fields
 and requires them to be set explicitly. Required environment variables `GATEWAY_IMAGE` and
 `GATEWAY_SUPERVISOR_IMAGE` (set in `deploy/base/platform-resources/controller.yaml`) define the authoritative
-image sources and have no fallback defaults; set both to the mirrored internal refs, and pass
+image sources and have no fallback defaults. When you mirror images, set both to the
+mirrored internal refs. Pass
 `namespace` explicitly (the deployed API image still validates it as required despite the
 OpenAPI `readOnly` marking):
 
 ```bash
-API="https://$(oc -n hypershell get route hypershell-api -o jsonpath='{.spec.host}')/api/hypershell/v1"
+API="https://$(oc -n hypershell-system get route hypershell-api -o jsonpath='{.spec.host}')/api/hypershell/v1"
 # Create takes a required placement intent, not a cluster_id. The selector
-# matches HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES in deploy/ibm. The gateway
+# matches HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES from §5.3. The gateway
 # database server is configured through the hypershell-gateway-database-admin
 # Secret, not the API.
 curl -sk -X POST "$API/gateways" -H 'Content-Type: application/json' -d '{
   "name":"ibm-test-gw","placement":{"selector":["network/public","provider/ibm"]},
   "namespace":"openshell-ibmtest",
   "image":"image-registry.openshift-image-registry.svc:5000/openshift/openshell-gateway:0.0.109",
-  "supervisor_image":"image-registry.openshift-image-registry.svc:5000/openshift/openshell-supervisor:0.0.109",
-  "route":"{\"enabled\": true}"
+  "supervisor_image":"image-registry.openshift-image-registry.svc:5000/openshift/openshell-supervisor:0.0.109"
 }'
 ```
 
 The control plane then: mints the per-tenant CA via cert-manager, **auto-injects
 `gw-<tenant>.<base-domain>` into the server certificate SANs** (you do not set
 `external_dns` by hand), waits for the gateway DB, deploys the gateway, creates a
-`passthrough` `Route openshell-gateway` (host `gw-<tenant>.<base-domain>`), and
+`GRPCRoute openshell-gateway` (host `gw-<tenant>.<base-domain>`) and a console
+`HTTPRoute` on the shared `openshift-ingress/openshell-grpc-gateway`, and
 publishes `grpcs://<host>:443`.
 
 ### 5.5: Verify end to end
@@ -461,21 +344,19 @@ publishes `grpcs://<host>:443`.
 ```bash
 NS=openshell-ibmtest
 oc -n "$NS" get pods            # openshell-gateway + -db Running, -certgen Completed
-oc -n "$NS" get route openshell-gateway \
-  -o jsonpath='{.status.ingress[0].conditions[?(@.type=="Admitted")].status}{"\n"}'   # True
-HOST=$(oc -n "$NS" get route openshell-gateway -o jsonpath='{.spec.host}')
+oc -n "$NS" get grpcroute openshell-gateway \
+  -o jsonpath='{range .status.parents[*].conditions[*]}{.type}={.status}{"\n"}{end}'   # Accepted=True, ResolvedRefs=True
+HOST=$(oc -n "$NS" get grpcroute openshell-gateway -o jsonpath='{.spec.hostnames[0]}')
 
-# Passthrough serves the per-tenant cert; SANs include the external host (auto-injected):
-oc -n "$NS" get secret openshell-server-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/tenant-ca.crt
-openssl s_client -connect "$HOST:443" -servername "$HOST" -CAfile /tmp/tenant-ca.crt \
+# The shared Gateway terminates TLS with the publicly trusted wildcard certificate:
+openssl s_client -connect "$HOST:443" -servername "$HOST" \
   -verify_hostname "$HOST" </dev/null 2>/dev/null | grep 'Verify return code'   # 0 (ok)
 
-# gRPC transport through the Route (edge/OIDC auth aside, this proves the path):
-openshell status --gateway-endpoint "https://$HOST:443" --gateway-insecure   # Status: Connected
+# gRPC transport through the shared Gateway (OIDC auth aside, this proves the path):
+openshell status --gateway-endpoint "https://$HOST:443"   # Status: Connected
 ```
 
-`openshell status --gateway-endpoint … --gateway-insecure` proves the transport
-path without auth. For an authenticated registration a **bare** `openshell gateway
+`openshell status --gateway-endpoint …` proves the transport path without auth. For an authenticated registration a **bare** `openshell gateway
 add https://<host>` is wrong - it selects edge/"cloud" mode and 404s on these
 gRPC-only gateways; use OIDC mode (`--oidc-issuer …`, §5.7).
 
@@ -491,7 +372,7 @@ re-verify them):
   copies its `ca.crt` into each runner as `OPENSHELL_TLS_CA`. Without it the sandbox
   agent crash-loops on `OPENSHELL_TLS_CA is required`. This is **internal**
   sandbox↔gateway TLS, distinct from external-client mTLS (which we do NOT use -
-  external clients authenticate via OIDC over the Route, so there is no
+  external clients authenticate via OIDC through the shared Gateway, so there is no
   `client_ca_path` under `[openshell.gateway.tls]`). Verify:
   `oc -n "$NS" get certificate openshell-client` (READY=True) and
   `oc -n "$NS" get secret openshell-client-tls`.
@@ -516,11 +397,12 @@ CRD/controller - that is a cluster prerequisite, like cert-manager. Verified on
 `hysh-ibm-01` (2026-08-15) with `agent-sandbox` **v0.5.5** (first line to serve
 `v1beta1`, which gateway 0.0.109 prefers).
 
-Same ROKS constraint as everything else: the controller image
+When worker egress is closed, the controller image
 (`registry.k8s.io/agent-sandbox/agent-sandbox-controller:v0.5.5`) and the tenant
 sandbox base image (`ghcr.io/nvidia/openshell-community/sandboxes/base:latest`)
-are **not node-reachable**, so mirror both into the internal `openshift`
-namespace (cluster-wide pullable) and repoint.
+are **not node-reachable**. Mirror both into the internal `openshift` namespace
+(cluster-wide pullable) and repoint. With open egress, apply the release manifest
+unchanged.
 
 ```bash
 # a) mirror the controller image + the sandbox base image (openshift ns = globally pullable)
@@ -563,8 +445,8 @@ uses the vendored chart's `sandbox.image` default, which the worker nodes may
 not be able to pull. Mirroring an image alone does not change that default.
 
 Verify (headless, no CLI auth needed - the sandbox RPC requires an authenticated
-caller since `allow_unauthenticated_users=false`, so `openshell sandbox list` over
-`--gateway-insecure` returns `Unauthenticated` rather than `Unimplemented` once the
+caller since `allow_unauthenticated_users=false`, so an unauthenticated
+`openshell sandbox list` returns `Unauthenticated` rather than `Unimplemented` once the
 CRD is in; to prove the controller + mirrored-image path directly, apply a Sandbox CR):
 
 ```bash
@@ -588,10 +470,6 @@ oc -n "$NS" delete sandbox mirror-test
 
 Full authenticated `openshell sandbox create` additionally needs
 `openshell gateway add` (interactive edge/OIDC) so the CLI carries a bearer token.
-
-To later switch to Gateway API (if IBM fixes HostedCluster mirroring), unset
-`GATEWAY_INGRESS_MODE` and run `cloud-hub-ingress-bootstrap`; the control plane
-then emits `GRPCRoute`s and removes the Routes.
 
 ### 5.7: OIDC default-secure gateways + cloud-model providers
 
@@ -663,50 +541,39 @@ downloadable 0.0.109 CLI release - only the gateway container image is 0.0.109; 
 
 **CLI connect - OIDC mode, not edge/cloud mode.** A bare `openshell gateway add
 https://<host>` treats the endpoint as edge-authenticated ("cloud") and 404s on
-these gRPC-only passthrough gateways. Use OIDC mode with `--gateway-insecure`
-(passthrough serves the self-signed pod cert; the flag is required on `add` **and**
-every later command, and its env form is `OPENSHELL_GATEWAY_INSECURE=true`, not `1`):
+these gRPC-only gateways. Use OIDC mode. The shared Gateway serves a publicly
+trusted wildcard certificate, so the CLI verifies TLS with no extra flags:
 
 ```bash
-openshell gateway add --gateway-insecure \
+openshell gateway add \
   --oidc-issuer   "https://keycloak.<appdomain>/realms/hypershell" \
   --oidc-client-id "<name>-<id>" --oidc-audience "<name>-<id>" \
-  "https://<gateway-route-host>:443"
+  "https://gw-<tenant>.<base-domain>:443"
 ```
 
 **Cloud-model providers need worker internet egress.** `openshell provider create
 --type google-vertex-ai --from-gcloud-adc …` makes the gateway pod call
 `oauth2.googleapis.com` (token mint) and later `*.googleapis.com` (inference).
 On ROKS that fails with `transport error … token endpoint request failed` until
-the worker SG is opened for outbound 443 (see *Root cause: the worker Security
-Group* in Step 4). Remember `--gateway-insecure` here too:
+the worker SG is opened for outbound 443 (see *Worker egress: the ROKS Security
+Group* in Step 4):
 
 ```bash
-openshell provider create --gateway-insecure \
+openshell provider create \
   --name vertex-claude --type google-vertex-ai --from-gcloud-adc \
   --config VERTEX_AI_PROJECT_ID="$(gcloud config get-value project)" \
   --config VERTEX_AI_REGION=global
 # ✓ Created provider ... / Configured GCP credentials from gcloud ADC and minted the initial access token
 ```
 
-**`openshell sandbox connect` needs the env var, not the flag.** Unlike the other
-commands, `connect` does not open the sandbox channel in-process: it execs the
-system `ssh`, whose `ProxyCommand` re-execs `openshell ssh-proxy --gateway https://gw-…:443
---sandbox-id <uuid> --token <uuid> --gateway-name <name>`. The CLI builds that
-ProxyCommand string **without** `--gateway-insecure`, so the child `ssh-proxy`
-verifies the self-signed passthrough cert and dies with `invalid peer certificate:
-UnknownIssuer` - passing `--gateway-insecure` to `connect` does not help (it never
-reaches the child). The child inherits the environment, so export the var:
+**`openshell sandbox connect`** execs the system `ssh`, whose `ProxyCommand`
+re-execs `openshell ssh-proxy`. The child verifies the same publicly trusted
+gateway certificate, so no extra TLS setting is needed:
 
 ```bash
-export OPENSHELL_GATEWAY_INSECURE=true   # true/false, not 1
-openshell sandbox connect <name>         # no --gateway-insecure flag
+openshell sandbox connect <name>
 # remote shell runs as uid=1000790000(sandbox) on the sandbox pod
 ```
-
-(`sandbox list --gateway-insecure` is a pure in-process gRPC call and works with
-the flag; only `connect`'s ssh-proxy subprocess needs the env var. The upstream
-fix is to thread `--gateway-insecure` into the ProxyCommand.)
 
 ### 5.8: Run an agent (Claude Code) in a sandbox - credential-free via `inference.local`
 
@@ -722,9 +589,9 @@ do its own Google ADC (none in the sandbox) and hang.
 ```bash
 # a) Point inference.local at the Vertex provider from 5.7 (workspace-level, persists).
 #    --no-verify because the provider region is `global` (no region endpoint to probe).
-openshell inference set -g <name> --gateway-insecure \
+openshell inference set -g <name> \
   --provider vertex-claude --model 'claude-sonnet-4-5@20250929' --no-verify
-openshell inference get -g <name> --gateway-insecure   # confirm the user route
+openshell inference get -g <name>   # confirm the user route
 ```
 
 **CRITICAL - pin a non-effort model with `--model claude-sonnet-4-5`.** Claude Code
@@ -741,7 +608,6 @@ suppresses both → HTTP 200. The router forces the served model via the URL any
 so `--model` here only controls the request *shape*, not which model answers.
 
 ```bash
-export OPENSHELL_GATEWAY_INSECURE=true
 openshell sandbox connect <sandbox>          # from 5.6 / the connect note above
 
 # inside the sandbox - the API key value is discarded by the router:

@@ -316,18 +316,17 @@ Traffic destined for the actual managed gRPC gateways bypasses the default OpenS
 
 This architecture allows the control plane to dynamically route traffic for new OpenShell Gateways without needing to provision individual load balancers or DNS records per tenant.
 
-### Tenant gateway ingress is environment-adaptive (two modes)
+### Tenant gateway ingress mode
 
-Not every cluster can run the Gateway API. HyperShell is composable per
-environment (see the deploy overlays), so the tenant-gateway ingress path is a
-**selectable mode**, chosen by configuration, not by forking behavior:
+Tenant gateways are exposed through the Kubernetes Gateway API. The control
+plane can also run with no managed ingress:
 
-| Mode | Routing object | When to use | Externally provisioned by |
-|------|----------------|-------------|---------------------------|
-| **`gateway-api`** (reference) | `GRPCRoute` → shared `Gateway` | Gateway API GA and functional (AWS/ROSA, OCP ≥ 4.19 with working CIO Istio) | Shared `Gateway` + wildcard cert + Route53 CNAME |
-| **`route`** | OpenShift `Route` (`passthrough`) | Fallback for OpenShift without a working Gateway API (for example OCP < 4.19). No live controller uses it | Cluster's default router (HAProxy) on the platform wildcard |
+| Mode | Routing object | When it applies | Externally provisioned by |
+|------|----------------|-----------------|---------------------------|
+| **`gateway-api`** | `GRPCRoute` → shared `Gateway` | Gateway API detected, or `GATEWAY_INGRESS_MODE=gateway-api` | Shared `Gateway` + wildcard cert + Route53 CNAME |
+| **`none`** | none | `GATEWAY_INGRESS_MODE=none`, or no Gateway API detected | - |
 
-Both modes converge on the **same** tenant workload, which presents two server
+The tenant workload presents two server
 certificates by SNI (the dual-certificate model from
 [NVIDIA/OpenShell#2468](https://github.com/NVIDIA/OpenShell/pull/2468)):
 
@@ -339,35 +338,19 @@ certificates by SNI (the dual-certificate model from
 2. **External cert** - a certificate signed by a **trusted CA**, minted by an
    **operator-configured** cert-manager `Issuer`/`ClusterIssuer` (for example
    ACME / Let's Encrypt), covering the **public SANs**
-   (`gw-<tenant>.<base-domain>`) used by the `openshell` CLI and the OpenShift
-   `Route`. Because it chains to a publicly trusted root, the CLI needs no custom
+   (`gw-<tenant>.<base-domain>`) used by the `openshell` CLI. Because it chains to a publicly trusted root, the CLI needs no custom
    CA bundle.
 
 Client **identity** is established by OIDC (Keycloak bearer tokens), never client
 certificates - HyperShell does not require or support client mTLS. TLS is
 server-side transport encryption only; callers are authenticated by OIDC.
 
-In `route` mode the `Route` is `passthrough`: the router forwards the encrypted
-connection SNI-routed end-to-end and the gateway pod serves the **external
-trusted cert** on the public SAN. No shared `Gateway`, wildcard certificate, or
-GRPCRoute machinery is required - only the operator-configured `Issuer` for the
-external cert. In `gateway-api` mode the shared `Gateway` terminates the client's
-TLS and re-encrypts to the backend, validated by a `BackendTLSPolicy`.
-
-> **Current limitation (tracked).** The external trusted cert requires an
-> ACME-solvable domain the operator controls. On a Cloud Hub that only exposes
-> the provider's shared ingress wildcard it does not own (for example IBM ROKS'
-> `*.containers.appdomain.cloud`), a publicly trusted cert is not yet issuable,
-> so `route` mode there still serves the internal `openshell-ca` and the CLI must
-> pin that CA. Wiring the operator-configured external `Issuer`
-> (`serverIssuerRef` / `external_server_names`, per OpenShell#2468) end-to-end is
-> tracked follow-up work.
+The shared `Gateway` terminates the client's TLS and re-encrypts to the
+backend, validated by a `BackendTLSPolicy`.
 
 The mode is set by the control-plane env var `GATEWAY_INGRESS_MODE`
-(`gateway-api` | `route` | `none`). When unset it is auto-detected from cluster
-capabilities (`gateway-api` if the Gateway API is present, else `route` on
-OpenShift). A platform that ships the Gateway API CRDs but cannot run it sets
-`GATEWAY_INGRESS_MODE=route` explicitly through its kustomize overlay. See
+(`gateway-api` | `none`). When unset, the control plane uses `gateway-api` if
+the Gateway API is detected, and no managed ingress otherwise. See
 "Requirement: Control Plane Ingress Mode".
 
 ### Tenant Gateway Ingress - Reference Implementation (verified on AWS)
@@ -547,13 +530,8 @@ IBM Cloud ROKS 4.22 and later runs a working Gateway API controller, so the
 IBM Cloud Hubs use the reference `gateway-api` mode, the same as AWS. Live
 check on 2026-10-26: the controllers on `hypc-ibm-00` (`hyp0`, `hyp0-spoke1`)
 and `hypc-ibm-03` (`hyp2-spoke1`) leave `GATEWAY_INGRESS_MODE` unset, auto-detect
-`gateway-api`, and publish one `GRPCRoute` per gateway. No OpenShift `Route` is
-created for gateway traffic.
-
-Older ROKS releases (4.21 and earlier) could not run the Gateway API: the
-CIO-managed Istio could not pull its images on the HyperShift-hosted cluster.
-On such a cluster the `route` mode is the fallback. Cluster provisioning steps
-live in [`ibm-cluster`](../../skills/deploy/ibm-cluster/SKILL.md).
+`gateway-api`, and publish one `GRPCRoute` per gateway. Cluster provisioning
+steps live in [`ibm-cluster`](../../skills/deploy/ibm-cluster/SKILL.md).
 
 ### Requirement: PLAT-ARCH-05 -- Tenant Gateway Ingress via Gateway API (`gateway-api` mode)
 
@@ -570,30 +548,11 @@ OpenShift `Route` objects for data-plane gRPC traffic.
 - AND the route hostname SHALL be `gw-<tenant>.<base-domain>` under the shared listener's wildcard
 - AND it SHALL NOT create an OpenShift `Route` for gRPC data-plane traffic
 
-### Requirement: PLAT-ARCH-06 -- Tenant Gateway Ingress via OpenShift Route (`route` mode)
+#### Scenario: PLAT-ARCH-05.02 -- Disabling ingress removes the routing objects
 
-In `route` mode, tenant gateway traffic SHALL be exposed through an OpenShift
-`Route` with `tls.termination: passthrough`. The gateway Helm chart owns this
-`Route` (`openshiftRoute.enabled=true`); the control plane derives its host and
-publishes the route address. The router forwards the raw TLS stream, so the
-gateway pod's own server TLS is preserved end to end. In this mode the control
-plane SHALL NOT require a shared `Gateway`, a wildcard certificate, or external
-DNS integration.
-
-#### Scenario: PLAT-ARCH-06.01 -- Gateway provisioning creates a passthrough Route
-
-- GIVEN a cluster in `route` mode (`GATEWAY_INGRESS_MODE=route`)
-- WHEN the control plane provisions a new tenant gateway with ingress enabled
-- THEN the gateway Helm release SHALL create a passthrough `Route` `openshell-gateway` in the tenant namespace, backed by `Service openshell-gateway`
-- AND the route hostname SHALL be `gw-<tenant>.<base-domain>` (or the gateway's explicit `route.host`)
-- AND the control plane SHALL publish `grpcs://<host>:443` as the gateway's route address
-- AND it SHALL NOT create a `GRPCRoute`, shared `Gateway`, or `BackendTLSPolicy`
-
-#### Scenario: PLAT-ARCH-06.04 -- Disabling ingress removes the mode's routing objects
-
-- GIVEN a provisioned tenant gateway with a routing object for the active mode
+- GIVEN a provisioned tenant gateway with a `GRPCRoute` and `BackendTLSPolicy`
 - WHEN ingress is disabled (`route.enabled=false`) or the gateway is deleted
-- THEN the control plane SHALL delete the tenant's `Route` (route mode) or `GRPCRoute`/`BackendTLSPolicy` (gateway-api mode)
+- THEN the control plane SHALL delete the tenant's `GRPCRoute` and `BackendTLSPolicy`
 - AND it SHALL clear the gateway's route address
 
 ### Requirement: PLAT-ARCH-07 -- Cloud-Agnostic Gateway Manifests
@@ -619,33 +578,30 @@ cert-manager using the ACME DNS-01 challenge against the central Route53
 
 ### Requirement: PLAT-ARCH-09 -- Control Plane Ingress Mode
 
-The control plane's ingress mode (`gateway-api` vs `route`) SHALL be
-configuration-driven, not cloud-hardcoded, so the same binary produces `GRPCRoute`s
-or OpenShift `Route`s depending only on the selected mode. The mode SHALL be
-selectable via the `GATEWAY_INGRESS_MODE` env var (`gateway-api` | `route` |
-`none`), overridable per environment through a kustomize overlay
-(`deploy/openshift` defaults to `gateway-api`).
+The control plane's ingress mode SHALL be configuration-driven, not
+cloud-hardcoded. The mode SHALL be selectable via the `GATEWAY_INGRESS_MODE` env
+var (`gateway-api` | `none`), overridable per environment through a kustomize
+overlay. When the variable is unset, the control plane SHALL auto-detect the
+Gateway API.
 
 #### Scenario: PLAT-ARCH-09.01 -- Explicit mode overrides auto-detection
 
-- GIVEN a cluster where the Gateway API CRDs are present but non-functional
-- WHEN `GATEWAY_INGRESS_MODE=route` is set
-- THEN the control plane SHALL provision OpenShift `Route`s and SHALL NOT attempt Gateway API resources
+- GIVEN a cluster where the Gateway API is detected
+- WHEN `GATEWAY_INGRESS_MODE=none` is set
+- THEN the control plane SHALL NOT create Gateway API resources for tenant gateways
 
 #### Scenario: PLAT-ARCH-09.02 -- Auto-detection when no mode is set
 
 - GIVEN `GATEWAY_INGRESS_MODE` is unset
 - WHEN the control plane reconciles a gateway
-- THEN it SHALL select `gateway-api` if the Gateway API is detected, otherwise `route` on OpenShift, otherwise skip managed ingress
+- THEN it SHALL select `gateway-api` if the Gateway API is detected, otherwise skip managed ingress
 
 ### Requirement: PLAT-ARCH-12 -- cert-manager Is a Mode-Independent Prerequisite
 
 Every tenant gateway SHALL depend on cert-manager for its per-tenant PKI: a
 namespaced `Issuer` (`openshell-ca`) and `Certificate`s minting the gateway's own
-server TLS and CA. This is independent of the ingress mode - `route`
-mode removes only the ingress-layer wildcard certificate/`ClusterIssuer`/Route53,
-not the pod-TLS layer. The control plane SHALL fail closed when cert-manager is
-absent.
+server TLS and CA. This is independent of the ingress mode. The control plane
+SHALL fail closed when cert-manager is absent.
 
 #### Scenario: PLAT-ARCH-12.01 -- Reconcile blocks without cert-manager
 
@@ -665,9 +621,8 @@ gateway pod SHALL present this external cert (via `external_cert_path` /
 CLI connects with **no custom CA bundle**. This is independent of the per-tenant
 self-signed `openshell-ca`, which is retained for the supervisor↔gateway path
 (supervisors trust only the chart CA, blocking MITM from a malicious sandbox
-image). Where the operator does not control the ingress zone (for example IBM
-ROKS' shared `*.containers.appdomain.cloud` wildcard), no publicly trusted cert is
-issuable; the gateway SHALL fall back to serving the internal `openshell-ca` and
+image). Where the operator does not control the ingress zone, no publicly
+trusted cert is issuable; the gateway SHALL fall back to serving the internal `openshell-ca` and
 the CLI SHALL pin it. Wiring the external `Issuer` (`serverIssuerRef` /
 `external_server_names`) end-to-end is tracked follow-up work.
 
@@ -681,8 +636,8 @@ the CLI SHALL pin it. Wiring the external `Issuer` (`serverIssuerRef` /
 
 ### Requirement: PLAT-ARCH-14 -- Gateway Server Certificate Covers the Ingress Hostname
 
-Because both ingress modes carry the gateway pod's TLS through unmodified (Route
-passthrough / Gateway API `BackendTLSPolicy`), the gateway server certificate
+Because the shared `Gateway` re-encrypts to the gateway pod and validates it
+with a `BackendTLSPolicy`, the gateway server certificate
 SHALL list the external ingress hostname (`gw-<tenant>.<base-domain>`, or an
 explicit `route.host`) as a SAN. The control plane derives that hostname, so it
 SHALL inject it into the certificate SANs itself, before cert-manager mints the
@@ -743,16 +698,13 @@ the gateway's default workload image through `sandbox.image`.
 
 ### Open Questions (for implementer review)
 
-1. **[RESOLVED] ROKS Gateway API availability.** ROKS 4.22 and later runs a working Gateway API controller. The IBM Cloud Hubs use `gateway-api` mode (verified live on 2026-10-26, see "IBM Cloud Cloud Hub - Gateway API ingress"). The earlier blocker on ROKS 4.21 (`hysh-ibm-01`, 2026-08-15) no longer applies.
+1. **[RESOLVED] ROKS Gateway API availability.** ROKS 4.22 and later runs a working Gateway API controller. The IBM Cloud Hubs use `gateway-api` mode (verified live on 2026-10-26, see "IBM Cloud Cloud Hub - Gateway API ingress").
 2. **IBM base domain.** What exact subdomain - e.g. `openshell.ibm-stage.example.com`?
    Confirm it is delegated within the Route53 `example.com` zone.
 3. **DNS record creation.** Reproduce the AWS pattern (static Route53 wildcard
    CNAME, no external-dns), or introduce `external-dns` to automate it on IBM?
 4. **Route53 credentials on IBM.** Provision the `certmgr-<cluster>-example-com-sa`
    secret (IAM user scoped to the `example.com` zone) on the IBM cluster.
-5. **Legacy Route-based gateways.** The AWS cluster still has older tenants on
-   `Route`/`passthrough` under `*.apps.rosa...`. Is a migration of existing tenants
-   in scope, or parity for new tenants only?
 
 ## Tooling Stack
 
@@ -950,7 +902,7 @@ Managed clusters are not restricted to OpenShift. Standard Kubernetes distributi
 
 | Capability | Detection | Behavior when absent |
 |------------|-----------|---------------------|
-| OpenShift Routes | `route.openshift.io` API group | Use Gateway API or NodePort |
+| OpenShift | `route.openshift.io` API group | Skip the SCC binding and OpenShift security-context overrides |
 | cert-manager | `cert-manager.io` API group | Block deployment (required) |
 | Gateway API | `gateway.networking.k8s.io/v1` GRPCRoute | Skip GRPCRoute/BackendTLSPolicy |
 | Agent Sandbox CRD | `agents.x-k8s.io` | Sandbox creation blocked |

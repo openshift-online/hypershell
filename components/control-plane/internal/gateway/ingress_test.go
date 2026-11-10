@@ -14,42 +14,43 @@ func TestGatewayIngressMode(t *testing.T) {
 		want     string
 	}{
 		{
-			name:   "explicit route override wins over capabilities",
-			setEnv: true, envValue: "route",
-			opts: ReconcileOpts{HasGatewayAPI: true, IsOpenShift: true},
-			want: IngressModeRoute,
-		},
-		{
-			name:   "explicit gateway-api override",
+			name:   "explicit gateway-api override wins without Gateway API detected",
 			setEnv: true, envValue: "gateway-api",
-			opts: ReconcileOpts{HasGatewayAPI: false, IsOpenShift: true},
+			opts: ReconcileOpts{HasGatewayAPI: false},
 			want: IngressModeGatewayAPI,
 		},
 		{
-			name:   "routes alias maps to route",
-			setEnv: true, envValue: "Routes",
-			opts: ReconcileOpts{IsOpenShift: true},
-			want: IngressModeRoute,
+			name:   "gatewayapi alias maps to gateway-api",
+			setEnv: true, envValue: "GatewayAPI",
+			opts: ReconcileOpts{HasGatewayAPI: false},
+			want: IngressModeGatewayAPI,
 		},
 		{
-			name:   "none disables managed ingress",
+			name:   "explicit none override wins over detected Gateway API",
 			setEnv: true, envValue: "none",
-			opts: ReconcileOpts{HasGatewayAPI: true, IsOpenShift: true},
+			opts: ReconcileOpts{HasGatewayAPI: true},
 			want: IngressModeNone,
 		},
 		{
-			name: "auto-detect prefers Gateway API when present",
-			opts: ReconcileOpts{HasGatewayAPI: true, IsOpenShift: true},
+			name:   "off alias disables managed ingress",
+			setEnv: true, envValue: "off",
+			opts: ReconcileOpts{HasGatewayAPI: true},
+			want: IngressModeNone,
+		},
+		{
+			name:   "disabled alias disables managed ingress",
+			setEnv: true, envValue: " Disabled ",
+			opts: ReconcileOpts{HasGatewayAPI: true},
+			want: IngressModeNone,
+		},
+		{
+			name: "auto-detect selects Gateway API when present",
+			opts: ReconcileOpts{HasGatewayAPI: true},
 			want: IngressModeGatewayAPI,
 		},
 		{
-			name: "auto-detect falls back to Route on OpenShift without Gateway API",
-			opts: ReconcileOpts{HasGatewayAPI: false, IsOpenShift: true},
-			want: IngressModeRoute,
-		},
-		{
-			name: "auto-detect yields none on a plain cluster",
-			opts: ReconcileOpts{HasGatewayAPI: false, IsOpenShift: false},
+			name: "auto-detect yields none without Gateway API",
+			opts: ReconcileOpts{HasGatewayAPI: false},
 			want: IngressModeNone,
 		},
 	}

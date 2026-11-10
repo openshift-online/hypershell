@@ -163,7 +163,6 @@ grep -rn  "<OLD_VERSION>" . | grep -v '\.git/'      # must return only intention
 | `skills/deploy/ibm-cluster/SKILL.md` | mirror + `openshell gateway add` commands + `v1beta1` API-version note | ROKS mirror docs |
 | `skills/deploy/gcp-cluster/SKILL.md` | gateway image in the example REST calls | Pin, not a fixture |
 | `skills/deploy/deploy-cluster/SKILL.md` | gateway and supervisor image examples | Pin |
-| `deploy/ibm/kustomization.yaml` | ROKS mirror image lines (`GATEWAY_IMAGE`, `GATEWAY_SUPERVISOR_IMAGE`, `GATEWAY_SANDBOX_RUNTIME_IMAGE`) | Stamped by `make sync-openshell-version` since 2026-10; still grep after the bump |
 | `specs/platform/openshell-image-auto-update.spec.md` | example gateway tag | Pin citation |
 | Digests in specs and `ibm-cluster/SKILL.md` | `sha256:` of gateway, supervisor, sandbox | Replace the old digest strings too, not only the tag; read new ones from the Quay tag API. If the Quay API is unreachable, fall back to a tag-only reference (never pair a new tag with the old digest) and record the gap - see the 2026-10-23 Learnings entry |
 | `tests/e2e/cli_test.go` | `odh-openshell-cli:<TAG>` image pin used by the CLI e2e | Pin, not a fixture |

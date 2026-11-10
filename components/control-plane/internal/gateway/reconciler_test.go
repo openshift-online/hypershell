@@ -28,7 +28,6 @@ func routeResourceListKinds() map[schema.GroupVersionResource]string {
 		{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "httproutes"}:         "HTTPRouteList",
 		{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"}:           "GatewayList",
 		{Group: "cert-manager.io", Version: "v1", Resource: "certificates"}:                 "CertificateList",
-		{Group: "route.openshift.io", Version: "v1", Resource: "routes"}:                    "RouteList",
 		{Group: "apps", Version: "v1", Resource: "deployments"}:                             "DeploymentList",
 	}
 }
@@ -52,18 +51,6 @@ func TestRouteResourcesAbsent(t *testing.T) {
 		}
 	})
 
-	t.Run("all absent in route mode returns true", func(t *testing.T) {
-		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
-		cs := k8sfake.NewSimpleClientset()
-		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, IngressModeRoute, nil, "")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !absent {
-			t.Fatal("want absent=true when no Route-mode resources exist")
-		}
-	})
-
 	t.Run("a resurrected dynamic resource returns false", func(t *testing.T) {
 		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds(),
 			labeledResource("gateway.networking.k8s.io/v1", "GRPCRoute", ns, "openshell-gateway", true),
@@ -78,42 +65,16 @@ func TestRouteResourcesAbsent(t *testing.T) {
 		}
 	})
 
-	t.Run("route mode probes the gateway Route", func(t *testing.T) {
-		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds(),
-			labeledResource("route.openshift.io/v1", "Route", ns, "openshell-gateway", true),
-		)
-		cs := k8sfake.NewSimpleClientset()
-		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, IngressModeRoute, nil, "")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if absent {
-			t.Fatal("want absent=false when the gateway Route reappeared")
-		}
-	})
-
 	for _, tc := range []struct {
-		name       string
-		mode       string
-		apiVersion string
-		kind       string
+		name string
+		mode string
 	}{
-		{
-			name:       "gateway api mode probes an inactive console Route",
-			mode:       IngressModeGatewayAPI,
-			apiVersion: "route.openshift.io/v1",
-			kind:       "Route",
-		},
-		{
-			name:       "route mode probes an inactive console HTTPRoute",
-			mode:       IngressModeRoute,
-			apiVersion: "gateway.networking.k8s.io/v1",
-			kind:       "HTTPRoute",
-		},
+		{name: "gateway api mode probes a leftover console HTTPRoute", mode: IngressModeGatewayAPI},
+		{name: "none mode still probes a leftover console HTTPRoute", mode: IngressModeNone},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds(),
-				labeledResource(tc.apiVersion, tc.kind, ns, consoleName, true),
+				labeledResource("gateway.networking.k8s.io/v1", "HTTPRoute", ns, consoleName, true),
 			)
 			cs := k8sfake.NewSimpleClientset()
 			absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, tc.mode, nil, "")
@@ -121,7 +82,7 @@ func TestRouteResourcesAbsent(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 			if absent {
-				t.Fatalf("want absent=false when the inactive console %s reappeared", tc.kind)
+				t.Fatal("want absent=false when the console HTTPRoute reappeared")
 			}
 		})
 	}
@@ -360,29 +321,6 @@ func TestDeleteLabeledNamespaceResources(t *testing.T) {
 			names = append(names, remaining.Items[i].GetName())
 		}
 		t.Errorf("deployments after cleanup = %v, want [tenant-deploy]", names)
-	}
-}
-
-// TestReconcileRouteResourcesDoesNotCreateRoute verifies that
-// reconcileRouteResources does NOT create a Route (the Helm chart owns the
-// Route via openshiftRoute.enabled).
-func TestReconcileRouteResourcesDoesNotCreateRoute(t *testing.T) {
-	routesGVR := schema.GroupVersionResource{Group: "route.openshift.io", Version: "v1", Resource: "routes"}
-	nsConfig := NamespaceConfig{
-		Name: "openshell-test",
-		Gateway: GatewayConfig{
-			Route: RouteConfig{Enabled: true, Host: "gw-openshell-test.apps.example.com"},
-		},
-	}
-
-	dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
-
-	if err := reconcileRouteResources(context.Background(), dc, nsConfig, ReconcileOpts{}); err != nil {
-		t.Fatalf("reconcileRouteResources: %v", err)
-	}
-
-	if _, err := dc.Resource(routesGVR).Namespace(nsConfig.Name).Get(context.Background(), "openshell-gateway", metav1.GetOptions{}); !k8serrors.IsNotFound(err) {
-		t.Errorf("reconciler must not create Route (chart owns it), get err = %v", err)
 	}
 }
 
@@ -824,6 +762,7 @@ func TestReconcileGatewayAPIResourcesSharedGatewayUnchanged(t *testing.T) {
 // sandbox HTTPRoute (idempotently - a second pass on an empty namespace is a
 // no-op), so a removed gateway leaves no live listener serving its hostname or
 // wildcard.
+// Verifies: PLAT-ARCH-05.02
 func TestDeleteGatewayAPIRouteResourcesRemovesDedicatedCertificateResources(t *testing.T) {
 	const ns = "openshell-abc"
 

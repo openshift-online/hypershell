@@ -1,6 +1,6 @@
 # Gateway ingress
 
-External gRPC exposure is configuration-driven. AWS uses the shared Gateway API path; environments without a functional Gateway API use OpenShift Route passthrough.
+External gRPC exposure uses the Kubernetes Gateway API on every cloud. Each tenant gateway gets a GRPCRoute, and its console gets an HTTPRoute, on the shared `openshift-ingress/openshell-grpc-gateway`. Without a Gateway API, the control plane manages no ingress and the gateway stays cluster-internal.
 
 Authoritative source: specs/platform/global-architecture.spec.md; specs/platform/openshell-gateway-routing.spec.md
 
@@ -49,23 +49,21 @@ graph LR
   style HTTP fill:#d4edda
 ```
 
-### Environment-adaptive routing: both modes converge on the same tenant workload and route address contract.
+### Ingress mode selection: the Gateway API publishes the tenant address; `none` keeps the gateway cluster-internal.
 
 ```mermaid
 graph TB
   CP[Control Plane]
   MODE{GATEWAY_INGRESS_MODE}
   CP --> MODE
-  MODE -->|gateway-api| GA[GRPCRoute + BackendTLSPolicy<br/>shared Gateway prerequisite]
-  MODE -->|route| OR[OpenShift Route<br/>TLS passthrough]
-  MODE -->|none| INTERNAL[Cluster-internal Service only]
+  MODE -->|gateway-api, or unset with Gateway API detected| GA[GRPCRoute + console HTTPRoute<br/>+ BackendTLSPolicy<br/>shared Gateway prerequisite]
+  MODE -->|none, or unset without Gateway API| INTERNAL[Cluster-internal Service only]
   GA --> HOST[grpcs://gw-<tenant>.<base-domain>:443]
-  OR --> HOST
   INTERNAL --> LOCAL[Service DNS / port-forward]
-  HOST --> GW[Same OpenShell Gateway pod]
+  HOST --> GW[OpenShell Gateway pod]
   style CP fill:#f8d7da
   style MODE fill:#fff3cd
   style GA fill:#cce5ff
-  style OR fill:#d4edda
+  style INTERNAL fill:#d4edda
   style GW fill:#cce5ff
 ```

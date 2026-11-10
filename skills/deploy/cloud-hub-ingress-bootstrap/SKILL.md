@@ -27,7 +27,7 @@ A wildcard DNS record resolves to exactly **one** LB. A shared `Gateway` gives o
 LB + one wildcard cert + one wildcard DNS record, with hostname-based routing per
 tenant `GRPCRoute`. A per-tenant Gateway would need one LB and one DNS record each - incompatible with wildcard subdomains. Authoritative spec + verified manifests:
 [`specs/platform/global-architecture.spec.md`](../../../specs/platform/global-architecture.spec.md)
-(§ "Tenant Gateway Ingress - Reference Implementation" and "IBM Cloud Parity Plan").
+(§ "Tenant Gateway Ingress - Reference Implementation" and "IBM Cloud Cloud Hub - Gateway API ingress").
 
 ## The only cloud-specific difference
 
@@ -37,7 +37,7 @@ No per-cloud LB manifest is written.
 
 | Concern | AWS (ROSA, verified) | IBM Cloud (ROKS, VPC Gen2) |
 |---------|----------------------|-----------------------------|
-| GatewayClass | `openshift-default` (CIO-managed Istio) | `openshift-default` (verify GA on the ROKS OCP version) |
+| GatewayClass | `openshift-default` (CIO-managed Istio) | `openshift-default` (CIO-managed Istio, ROKS >= 4.22) |
 | Shared Gateway | `openshell-grpc-gateway` / `openshift-ingress` | identical |
 | LB provisioned by CCM | AWS Classic ELB (`*.elb.amazonaws.com`) | VPC Load Balancer (`*.lb.appdomain.cloud`) |
 | Base domain (example) | `*.openshell.stage.devshift.net` | `*.openshell.<ibm-env>.devshift.net` |
@@ -74,9 +74,10 @@ If `gatewayclass openshift-default` is missing, stop. The built-in, CIO-managed
 Gateway API is **GA only on OCP >= 4.19** - check `oc get clusterversion version
 -o jsonpath='{.status.desired.version}'`. On OCP < 4.19 (e.g. the original IBM
 `hypershell-cluster` on 4.17, confirmed 2026-08-15) this GatewayClass does not
-exist and cannot be safely enabled on a managed control plane; provision a
->= 4.19 cluster with the [`ibm-cluster`](../ibm-cluster/SKILL.md) skill instead
-(new Cloud Hub `hysh-ibm-01` on 4.21.27 was created for exactly this reason).
+exist and cannot be safely enabled on a managed control plane. On ROKS the
+GatewayClass works only from 4.22 (on 4.21 its `istiod` image cannot be pulled).
+Provision a ROKS >= 4.22 cluster with the [`ibm-cluster`](../ibm-cluster/SKILL.md)
+skill instead.
 
 ## Step 1: Seed the Route53 credential secret
 
@@ -169,21 +170,14 @@ openshell login "gw-${NS}.${BASE_DOMAIN}:443"   # CLI connects over the wildcard
 - Verified working; this skill is derived from it. LB is an AWS Classic ELB.
 - Nothing to change beyond the parameters above.
 
-### IBM Cloud / ROKS - do NOT run this skill (use Route ingress mode instead)
-
-ROKS **cannot run** the CIO-managed Gateway API (HyperShift-hosted; OSSM images
-unpullable; IDMS denied on the HostedCluster - verified on `hysh-ibm-01`, OCP
-4.21.27, 2026-08-15). This bootstrap (shared Gateway) does not apply there.
-Instead, the IBM Cloud Hub uses the **Route ingress mode**: the control plane
-emits passthrough `Route`s on IBM's free `*.containers.appdomain.cloud` wildcard,
-selected by `GATEWAY_INGRESS_MODE=route` via the `deploy/ibm` overlay - no shared
-Gateway, wildcard cert, ClusterIssuer, or Route53. See the
-[`ibm-cluster`](../ibm-cluster/SKILL.md) skill (Step 5) and
-[`global-architecture.spec.md`](../../../specs/platform/global-architecture.spec.md)
-(§ "IBM Cloud Cloud Hub - Route ingress mode").
-
-Only run this skill on IBM if IBM later makes the Gateway API functional on the
-HostedCluster; then unset `GATEWAY_INGRESS_MODE` to return to `gateway-api` mode.
+### IBM Cloud / ROKS (verified on ROKS 4.22, `hypc-ibm-00` and `hypc-ibm-03`)
+- Run this skill as on AWS. ROKS 4.22 or later is required (see Step 0).
+- The CCM provisions an IBM VPC load balancer (`*.lb.appdomain.cloud`) for the
+  shared Gateway's Service. Point the wildcard DNS record at it (Step 5).
+- The Gateway terminates TLS with the wildcard certificate, so clients see a
+  publicly trusted certificate.
+- Cluster preparation (version, worker egress, image pulls) lives in the
+  [`ibm-cluster`](../ibm-cluster/SKILL.md) skill (Steps 4 and 5).
 
 ## Troubleshooting
 
@@ -195,7 +189,7 @@ The shared Gateway isn't wired up. Complete Steps 4 and 6.
 returns nothing. The built-in CIO-managed Gateway API is **GA only on OCP >= 4.19**.
 Check the version; if < 4.19 (verified on IBM `hypershell-cluster` @ 4.17.56,
 2026-08-15), do **not** try to enable a Tech-Preview feature gate on a managed
-control plane - provision a >= 4.19 cluster via the
+control plane - provision a >= 4.19 cluster (ROKS: >= 4.22) via the
 [`ibm-cluster`](../ibm-cluster/SKILL.md) skill. Treat as a prerequisite blocker,
 not a runtime error.
 

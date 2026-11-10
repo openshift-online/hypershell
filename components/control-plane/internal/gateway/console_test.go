@@ -188,24 +188,6 @@ func consoleHTTPRouteWithConditions(namespace string, conditions []interface{}) 
 	return route
 }
 
-// consoleOpenShiftRouteWithConditions builds a console Route with one router.
-func consoleOpenShiftRouteWithConditions(namespace string, conditions []interface{}) *unstructured.Unstructured {
-	route := &unstructured.Unstructured{}
-	route.SetGroupVersionKind(consoleOpenShiftRouteGVR.GroupVersion().WithKind("Route"))
-	route.SetNamespace(namespace)
-	route.SetName(consoleName)
-	_ = unstructured.SetNestedField(route.Object, consoleSharedTestHost(namespace), "spec", "host")
-	if conditions != nil {
-		_ = unstructured.SetNestedSlice(route.Object, []interface{}{
-			map[string]interface{}{
-				"host":       "console.example.com",
-				"conditions": conditions,
-			},
-		}, "status", "ingress")
-	}
-	return route
-}
-
 func routeCondition(condType, status, reason string) map[string]interface{} {
 	return map[string]interface{}{
 		"type":   condType,
@@ -217,8 +199,7 @@ func routeCondition(condType, status, reason string) map[string]interface{} {
 func newConsoleRouteDynamicClient(objs ...runtime.Object) *dynamicfake.FakeDynamicClient {
 	scheme := runtime.NewScheme()
 	gvrToListKind := map[schema.GroupVersionResource]string{
-		consoleHTTPRouteGVR:      "HTTPRouteList",
-		consoleOpenShiftRouteGVR: "RouteList",
+		consoleHTTPRouteGVR: "HTTPRouteList",
 	}
 	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind, objs...)
 }
@@ -325,122 +306,6 @@ func TestConsoleExposureReadyHTTPRoute(t *testing.T) {
 	})
 }
 
-func TestConsoleExposureReadyOpenShiftRoute(t *testing.T) {
-	ctx := context.Background()
-	const ns = "openshell-abc"
-	t.Setenv("GATEWAY_API_BASE_DOMAIN", consoleTestBaseDomain)
-
-	// Verifies: OSG-CON-05.02
-	t.Run("admitted route is ready", func(t *testing.T) {
-		client := newConsoleRouteDynamicClient(consoleOpenShiftRouteWithConditions(ns, []interface{}{
-			routeCondition("Admitted", "True", "RouteAdmitted"),
-		}))
-		ready, reason, err := ConsoleExposureReady(ctx, client, NamespaceConfig{Name: ns}, IngressModeRoute)
-		if err != nil {
-			t.Fatalf("ConsoleExposureReady: %v", err)
-		}
-		if !ready {
-			t.Errorf("expected ready; reason=%q", reason)
-		}
-	})
-
-	t.Run("rejected route reports the admission reason", func(t *testing.T) {
-		client := newConsoleRouteDynamicClient(consoleOpenShiftRouteWithConditions(ns, []interface{}{
-			routeCondition("Admitted", "False", "HostAlreadyClaimed"),
-		}))
-		ready, reason, err := ConsoleExposureReady(ctx, client, NamespaceConfig{Name: ns}, IngressModeRoute)
-		if err != nil {
-			t.Fatalf("ConsoleExposureReady: %v", err)
-		}
-		if ready {
-			t.Fatal("expected a rejected Route to be not ready")
-		}
-		if !strings.Contains(reason, "HostAlreadyClaimed") {
-			t.Errorf("reason = %q, want the admission reason", reason)
-		}
-	})
-
-	t.Run("one admitted router makes the route ready", func(t *testing.T) {
-		route := consoleOpenShiftRouteWithConditions(ns, []interface{}{
-			routeCondition("Admitted", "False", "HostAlreadyClaimed"),
-		})
-		_ = unstructured.SetNestedSlice(route.Object, []interface{}{
-			map[string]interface{}{
-				"host": "console.example.com",
-				"conditions": []interface{}{
-					routeCondition("Admitted", "False", "HostAlreadyClaimed"),
-				},
-			},
-			map[string]interface{}{
-				"host": "console.example.com",
-				"conditions": []interface{}{
-					routeCondition("Admitted", "True", "RouteAdmitted"),
-				},
-			},
-		}, "status", "ingress")
-
-		client := newConsoleRouteDynamicClient(route)
-		ready, reason, err := ConsoleExposureReady(ctx, client, NamespaceConfig{Name: ns}, IngressModeRoute)
-		if err != nil {
-			t.Fatalf("ConsoleExposureReady: %v", err)
-		}
-		if !ready {
-			t.Errorf("expected ready; reason=%q", reason)
-		}
-	})
-
-	t.Run("a generic rejection keeps an earlier specific reason", func(t *testing.T) {
-		route := consoleOpenShiftRouteWithConditions(ns, nil)
-		_ = unstructured.SetNestedSlice(route.Object, []interface{}{
-			map[string]interface{}{
-				"conditions": []interface{}{
-					routeCondition("Admitted", "False", "HostAlreadyClaimed"),
-				},
-			},
-			map[string]interface{}{
-				"conditions": []interface{}{
-					routeCondition("Admitted", "False", ""),
-				},
-			},
-		}, "status", "ingress")
-
-		client := newConsoleRouteDynamicClient(route)
-		ready, reason, err := ConsoleExposureReady(ctx, client, NamespaceConfig{Name: ns}, IngressModeRoute)
-		if err != nil {
-			t.Fatalf("ConsoleExposureReady: %v", err)
-		}
-		if ready {
-			t.Fatal("expected a rejected Route to be not ready")
-		}
-		if !strings.Contains(reason, "HostAlreadyClaimed") {
-			t.Errorf("reason = %q, want the specific admission reason", reason)
-		}
-	})
-
-	// Verifies: OSG-CON-05.03
-	t.Run("route without router status is not ready", func(t *testing.T) {
-		client := newConsoleRouteDynamicClient(consoleOpenShiftRouteWithConditions(ns, nil))
-		ready, reason, err := ConsoleExposureReady(ctx, client, NamespaceConfig{Name: ns}, IngressModeRoute)
-		if err != nil {
-			t.Fatalf("ConsoleExposureReady: %v", err)
-		}
-		if ready || reason == "" {
-			t.Errorf("ready = %v, reason = %q; want not ready with a reason", ready, reason)
-		}
-	})
-
-	t.Run("missing route is not ready", func(t *testing.T) {
-		client := newConsoleRouteDynamicClient()
-		ready, reason, err := ConsoleExposureReady(ctx, client, NamespaceConfig{Name: ns}, IngressModeRoute)
-		if err != nil {
-			t.Fatalf("ConsoleExposureReady: %v", err)
-		}
-		if ready || reason == "" {
-			t.Errorf("ready = %v, reason = %q; want not ready with a reason", ready, reason)
-		}
-	})
-}
-
 // A dedicated-route gateway (route.certificate) must only count as servable
 // when its console HTTPRoute serves the DEDICATED host
 // (console-<ns>.gw-<ns>.<base-domain>) on the per-tenant Gateway's "sandbox"
@@ -520,107 +385,6 @@ func TestConsoleExposureReadyDedicatedRouteHostAndParent(t *testing.T) {
 			t.Errorf("reason = %q, want it to name the per-tenant sandbox listener", reason)
 		}
 	})
-
-	t.Run("OpenShift Route serving the shared host of a dedicated gateway is not ready", func(t *testing.T) {
-		client := newConsoleRouteDynamicClient(consoleOpenShiftRouteWithConditions(ns, []interface{}{
-			routeCondition("Admitted", "True", "RouteAdmitted"),
-		}))
-		ready, reason, err := ConsoleExposureReady(ctx, client, dedicated, IngressModeRoute)
-		if err != nil {
-			t.Fatalf("ConsoleExposureReady: %v", err)
-		}
-		if ready {
-			t.Fatal("expected not ready when the Route serves the shared host of a dedicated-route gateway")
-		}
-		if !strings.Contains(reason, consoleDedicatedTestHost(ns)) {
-			t.Errorf("reason = %q, want it to name the expected dedicated host %q", reason, consoleDedicatedTestHost(ns))
-		}
-	})
-}
-
-func TestBuildConsoleOpenShiftRoute(t *testing.T) {
-	const (
-		namespace = "openshell-abc"
-		host      = "console-openshell-abc.apps.example.com"
-	)
-	route := buildConsoleOpenShiftRoute(namespace, host)
-
-	if route.GetAPIVersion() != "route.openshift.io/v1" || route.GetKind() != "Route" {
-		t.Errorf("route GVK = %s %s, want route.openshift.io/v1 Route", route.GetAPIVersion(), route.GetKind())
-	}
-	if route.GetName() != consoleName || route.GetNamespace() != namespace {
-		t.Errorf("route identity = %s/%s, want %s/%s", route.GetNamespace(), route.GetName(), namespace, consoleName)
-	}
-	if got := route.GetLabels()["app.kubernetes.io/component"]; got != "console" {
-		t.Errorf("component label = %q, want console", got)
-	}
-
-	checks := []struct {
-		name string
-		path []string
-		want string
-	}{
-		{name: "host", path: []string{"spec", "host"}, want: host},
-		{name: "service kind", path: []string{"spec", "to", "kind"}, want: "Service"},
-		{name: "service name", path: []string{"spec", "to", "name"}, want: consoleName},
-		{name: "target port", path: []string{"spec", "port", "targetPort"}, want: "http"},
-		{name: "TLS termination", path: []string{"spec", "tls", "termination"}, want: "edge"},
-		{name: "insecure policy", path: []string{"spec", "tls", "insecureEdgeTerminationPolicy"}, want: "Redirect"},
-	}
-	for _, check := range checks {
-		got, found, err := unstructured.NestedString(route.Object, check.path...)
-		if err != nil || !found || got != check.want {
-			t.Errorf("%s = %q, found=%v, err=%v; want %q", check.name, got, found, err, check.want)
-		}
-	}
-}
-
-func TestReconcileConsoleExposureSelectsOneMode(t *testing.T) {
-	const (
-		namespace = "openshell-abc"
-		host      = "console-openshell-abc.apps.example.com"
-	)
-
-	tests := []struct {
-		name        string
-		mode        string
-		desiredGVR  schema.GroupVersionResource
-		inactiveGVR schema.GroupVersionResource
-		inactive    runtime.Object
-	}{
-		{
-			name:        "Gateway API mode",
-			mode:        IngressModeGatewayAPI,
-			desiredGVR:  consoleHTTPRouteGVR,
-			inactiveGVR: consoleOpenShiftRouteGVR,
-			inactive:    buildConsoleOpenShiftRoute(namespace, host),
-		},
-		{
-			name:        "OpenShift Route mode",
-			mode:        IngressModeRoute,
-			desiredGVR:  consoleOpenShiftRouteGVR,
-			inactiveGVR: consoleHTTPRouteGVR,
-			inactive:    buildConsoleHTTPRoute(namespace, host, false),
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			client := newConsoleRouteDynamicClient(test.inactive)
-			for pass := 1; pass <= 2; pass++ {
-				if err := reconcileConsoleExposure(context.Background(), client, NamespaceConfig{Name: namespace}, host, test.mode); err != nil {
-					t.Fatalf("reconcileConsoleExposure pass %d: %v", pass, err)
-				}
-			}
-
-			if _, err := client.Resource(test.desiredGVR).Namespace(namespace).Get(context.Background(), consoleName, metav1.GetOptions{}); err != nil {
-				t.Errorf("selected exposure is absent: %v", err)
-			}
-			if _, err := client.Resource(test.inactiveGVR).Namespace(namespace).Get(context.Background(), consoleName, metav1.GetOptions{}); !k8serrors.IsNotFound(err) {
-				t.Errorf("inactive exposure still exists: %v", err)
-			}
-		})
-	}
 }
 
 func TestSharedGatewayListenerName(t *testing.T) {
@@ -638,20 +402,58 @@ func TestSharedGatewayListenerName(t *testing.T) {
 	})
 }
 
-func TestDeleteConsoleExposuresDeletesBothKinds(t *testing.T) {
+// TestReconcileConsoleExposureCreatesHTTPRoute checks that the console is
+// exposed through an HTTPRoute in Gateway API mode, and that a second pass
+// converges on the same object instead of failing.
+func TestReconcileConsoleExposureCreatesHTTPRoute(t *testing.T) {
+	const (
+		namespace = "openshell-abc"
+		host      = "console-openshell-abc.apps.example.com"
+	)
+
+	client := newConsoleRouteDynamicClient()
+	for pass := 1; pass <= 2; pass++ {
+		if err := reconcileConsoleExposure(context.Background(), client, NamespaceConfig{Name: namespace}, host, IngressModeGatewayAPI); err != nil {
+			t.Fatalf("reconcileConsoleExposure pass %d: %v", pass, err)
+		}
+	}
+
+	route, err := client.Resource(consoleHTTPRouteGVR).Namespace(namespace).Get(context.Background(), consoleName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("console HTTPRoute is absent: %v", err)
+	}
+	hostnames, _, _ := unstructured.NestedStringSlice(route.Object, "spec", "hostnames")
+	if len(hostnames) != 1 || hostnames[0] != host {
+		t.Errorf("console HTTPRoute hostnames = %v, want [%s]", hostnames, host)
+	}
+}
+
+// Without managed ingress there is no console exposure to build, so the
+// reconcile must fail loudly rather than report success.
+func TestReconcileConsoleExposureRequiresGatewayAPI(t *testing.T) {
+	client := newConsoleRouteDynamicClient()
+	err := reconcileConsoleExposure(context.Background(), client, NamespaceConfig{Name: "openshell-abc"}, "console.example.com", IngressModeNone)
+	if err == nil {
+		t.Fatal("expected an error when no ingress mode is selected")
+	}
+}
+
+func TestDeleteConsoleExposuresDeletesHTTPRoute(t *testing.T) {
 	const namespace = "openshell-abc"
 	client := newConsoleRouteDynamicClient(
 		buildConsoleHTTPRoute(namespace, "console.example.com", false),
-		buildConsoleOpenShiftRoute(namespace, "console.example.com"),
 	)
 
 	if err := deleteConsoleExposures(context.Background(), client, namespace); err != nil {
 		t.Fatalf("deleteConsoleExposures: %v", err)
 	}
-	for _, gvr := range []schema.GroupVersionResource{consoleHTTPRouteGVR, consoleOpenShiftRouteGVR} {
-		if _, err := client.Resource(gvr).Namespace(namespace).Get(context.Background(), consoleName, metav1.GetOptions{}); !k8serrors.IsNotFound(err) {
-			t.Errorf("%s exposure still exists: %v", gvr.Resource, err)
-		}
+	if _, err := client.Resource(consoleHTTPRouteGVR).Namespace(namespace).Get(context.Background(), consoleName, metav1.GetOptions{}); !k8serrors.IsNotFound(err) {
+		t.Errorf("console HTTPRoute still exists: %v", err)
+	}
+
+	// A second delete on an already-absent route is converged, not an error.
+	if err := deleteConsoleExposures(context.Background(), client, namespace); err != nil {
+		t.Errorf("deleteConsoleExposures on absent route: %v", err)
 	}
 }
 
@@ -977,82 +779,4 @@ func TestReconcileConsoleSecret_PreservesCookieOnUpdate(t *testing.T) {
 	if v := got.StringData["client-secret"]; v != "client-v2" {
 		t.Errorf("client-secret = %q, want refreshed %q", v, "client-v2")
 	}
-}
-
-// TestReconcileConsoleExposureTLSIssuer covers GATEWAY_ROUTE_TLS_ISSUER on the
-// console Route. Without a per-host certificate the console rides the router
-// default certificate, which only covers the cluster ingress domain -- so on a
-// custom gateway domain every browser rejects the console.
-//
-// Verifies: OSG-CON-05.04, OSG-CON-05.05, OSG-CON-05.06
-func TestReconcileConsoleExposureTLSIssuer(t *testing.T) {
-	const (
-		namespace = "openshell-abc"
-		host      = "console-openshell-abc.gwlb.hyp8.example.com"
-	)
-
-	t.Run("issuer annotates the console Route", func(t *testing.T) {
-		t.Setenv("GATEWAY_ROUTE_TLS_ISSUER", "letsencrypt-http01")
-		dc := newConsoleRouteDynamicClient()
-
-		if err := reconcileConsoleExposure(context.Background(), dc, NamespaceConfig{Name: namespace}, host, IngressModeRoute); err != nil {
-			t.Fatalf("reconcileConsoleExposure: %v", err)
-		}
-
-		route, err := dc.Resource(consoleOpenShiftRouteGVR).Namespace(namespace).Get(context.Background(), consoleName, metav1.GetOptions{})
-		if err != nil {
-			t.Fatalf("get console Route: %v", err)
-		}
-		ann, _, _ := unstructured.NestedStringMap(route.Object, "metadata", "annotations")
-		if ann["cert-manager.io/issuer-name"] != "letsencrypt-http01" {
-			t.Errorf("issuer-name annotation = %q, want letsencrypt-http01", ann["cert-manager.io/issuer-name"])
-		}
-		if ann["cert-manager.io/issuer-kind"] != "ClusterIssuer" {
-			t.Errorf("issuer-kind annotation = %q, want ClusterIssuer", ann["cert-manager.io/issuer-kind"])
-		}
-	})
-
-	t.Run("no issuer leaves the Route unannotated", func(t *testing.T) {
-		t.Setenv("GATEWAY_ROUTE_TLS_ISSUER", "")
-		dc := newConsoleRouteDynamicClient()
-
-		if err := reconcileConsoleExposure(context.Background(), dc, NamespaceConfig{Name: namespace}, host, IngressModeRoute); err != nil {
-			t.Fatalf("reconcileConsoleExposure: %v", err)
-		}
-
-		route, err := dc.Resource(consoleOpenShiftRouteGVR).Namespace(namespace).Get(context.Background(), consoleName, metav1.GetOptions{})
-		if err != nil {
-			t.Fatalf("get console Route: %v", err)
-		}
-		ann, _, _ := unstructured.NestedStringMap(route.Object, "metadata", "annotations")
-		if _, ok := ann["cert-manager.io/issuer-name"]; ok {
-			t.Errorf("unexpected issuer annotation: %v", ann)
-		}
-	})
-
-	// reconcileResource replaces the whole Route and the built spec omits
-	// certificate/key, which openshift-routes owns. Losing the injection on each
-	// reconcile would make the console flap between a valid and a default cert.
-	t.Run("carries forward an injected certificate", func(t *testing.T) {
-		t.Setenv("GATEWAY_ROUTE_TLS_ISSUER", "letsencrypt-http01")
-		existing := buildConsoleOpenShiftRoute(namespace, host)
-		_ = unstructured.SetNestedField(existing.Object, "CERT", "spec", "tls", "certificate")
-		_ = unstructured.SetNestedField(existing.Object, "KEY", "spec", "tls", "key")
-		existing.SetGroupVersionKind(consoleOpenShiftRouteGVR.GroupVersion().WithKind("Route"))
-		dc := newConsoleRouteDynamicClient(existing)
-
-		if err := reconcileConsoleExposure(context.Background(), dc, NamespaceConfig{Name: namespace}, host, IngressModeRoute); err != nil {
-			t.Fatalf("reconcileConsoleExposure: %v", err)
-		}
-
-		route, err := dc.Resource(consoleOpenShiftRouteGVR).Namespace(namespace).Get(context.Background(), consoleName, metav1.GetOptions{})
-		if err != nil {
-			t.Fatalf("get console Route: %v", err)
-		}
-		cert, _, _ := unstructured.NestedString(route.Object, "spec", "tls", "certificate")
-		key, _, _ := unstructured.NestedString(route.Object, "spec", "tls", "key")
-		if cert != "CERT" || key != "KEY" {
-			t.Errorf("injected cert not carried forward: cert=%q key=%q", cert, key)
-		}
-	})
 }

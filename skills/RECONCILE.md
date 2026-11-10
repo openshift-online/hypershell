@@ -27,8 +27,8 @@ skills/
 ├── deploy/
 │   ├── cloud-hub-ingress-bootstrap/  # Shared Gateway API ingress per cloud hub
 │   ├── deploy-cluster/       # OpenShift deployment (Keycloak, OIDC, kustomize)
-│   ├── gcp-cluster/          # GCP OSD cluster deployment (Route mode)
-│   └── ibm-cluster/          # IBM ROKS cluster provisioning and deployment (Route mode)
+│   ├── gcp-cluster/          # GCP OSD cluster deployment
+│   └── ibm-cluster/          # IBM ROKS cluster provisioning and deployment
 ├── plan/
 │   └── spec/                 # Spec authoring (desired state)
 ├── review/

@@ -85,8 +85,9 @@ acquire_gateway_token_with_role "${E2E_OIDC_USERNAME:-admin}" "${E2E_OIDC_PASSWO
 GW_CONFIG_DIR="${HOME}/.config/openshell/gateways/${GW_LOCAL_NAME}"
 mkdir -p "${GW_CONFIG_DIR}"
 show_cmd "openshell gateway register ${GW_LOCAL_NAME}  # write ${GW_CONFIG_DIR}"
-# Verify the gateway certificate unless the driver opted out (OpenShift
-# route-ingress mode); Kind trusts its local CA through SSL_CERT_FILE.
+# Verify the gateway certificate unless the caller set the local diagnostic
+# override OPENSHELL_GATEWAY_INSECURE=true; Kind trusts its local CA through
+# SSL_CERT_FILE.
 cat >"${GW_CONFIG_DIR}/metadata.json" <<JSON
 {"name":"${GW_LOCAL_NAME}","gateway_endpoint":"${_DISCOVER_GW_ENDPOINT}","is_remote":true,"gateway_port":0,"auth_mode":"oidc","oidc_issuer":"${E2E_OIDC_ISSUER}","oidc_client_id":"${GW_KC_CLIENT_ID}","gateway_insecure":${OPENSHELL_GATEWAY_INSECURE:-false}}
 JSON

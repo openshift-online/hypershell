@@ -527,8 +527,17 @@ does not exist. "Former file" is the spec the ID lived in, relative to
 | `PLAT-ARCH-10` | `platform/global-architecture.spec.md` | - | Required reencrypt Route prerequisites; the reencrypt gateway Route no longer exists (#767). |
 | `PLAT-ARCH-10.01` | `platform/global-architecture.spec.md` | - | Retired with PLAT-ARCH-10. |
 | `PLAT-ARCH-10.02` | `platform/global-architecture.spec.md` | - | Retired with PLAT-ARCH-10. |
-| `PLAT-ARCH-11` | `platform/global-architecture.spec.md` | - | Required a cert-manager certificate on the reencrypt gateway Route; the console Route issuer moved to OSG-CON-05 (#767). |
+| `PLAT-ARCH-11` | `platform/global-architecture.spec.md` | - | Required a cert-manager certificate on the reencrypt gateway Route; the console Route issuer went with Route ingress mode (#767). |
 | `PLAT-ARCH-11.01` | `platform/global-architecture.spec.md` | - | Retired with PLAT-ARCH-11. |
 | `PLAT-ARCH-11.02` | `platform/global-architecture.spec.md` | - | Retired with PLAT-ARCH-11. |
 | `PLAT-ARCH-11.03` | `platform/global-architecture.spec.md` | - | Retired with PLAT-ARCH-11. |
 | `PLAT-ARCH-11.04` | `platform/global-architecture.spec.md` | - | Retired with PLAT-ARCH-11. |
+| `PLAT-ARCH-06` | `platform/global-architecture.spec.md` | - | Required OpenShift Route ingress mode, removed in issue #767. |
+| `PLAT-ARCH-06.01` | `platform/global-architecture.spec.md` | - | Retired with PLAT-ARCH-06. |
+| `PLAT-ARCH-06.04` | `platform/global-architecture.spec.md` | `PLAT-ARCH-05.02` | The Gateway API half of the ingress-teardown scenario moved under PLAT-ARCH-05. |
+| `OSG-CON-01.02` | `platform/openshell-gateway-console.spec.md` | - | Required a console OpenShift Route in Route ingress mode, removed in issue #767. |
+| `OSG-CON-05.02` | `platform/openshell-gateway-console.spec.md` | - | Required console OpenShift Route behaviour in Route ingress mode, removed in issue #767. |
+| `OSG-CON-05.03` | `platform/openshell-gateway-console.spec.md` | - | Required console OpenShift Route behaviour in Route ingress mode, removed in issue #767. |
+| `OSG-CON-05.04` | `platform/openshell-gateway-console.spec.md` | - | Required console OpenShift Route behaviour in Route ingress mode, removed in issue #767. |
+| `OSG-CON-05.05` | `platform/openshell-gateway-console.spec.md` | - | Required console OpenShift Route behaviour in Route ingress mode, removed in issue #767. |
+| `OSG-CON-05.06` | `platform/openshell-gateway-console.spec.md` | - | Required console OpenShift Route behaviour in Route ingress mode, removed in issue #767. |

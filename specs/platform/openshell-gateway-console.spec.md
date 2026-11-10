@@ -3,7 +3,7 @@
 **Date:** 2026-08-27
 **Status:** Draft
 **Parent:** `openshell-gateway.spec.md`
-**Related:** `openshell-gateway-keycloak.spec.md` (per-gateway client, OIDC Role Bridge); `openshell-gateway-routing.spec.md` (Gateway API and OpenShift Route ingress, hostnames)
+**Related:** `openshell-gateway-keycloak.spec.md` (per-gateway client, OIDC Role Bridge); `openshell-gateway-routing.spec.md` (Gateway API ingress, hostnames)
 **Upstream:** [OpenShell Dashboard](https://github.com/Gkrumbach07/openshell-dashboard); [oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/)
 
 ---
@@ -35,7 +35,7 @@ This spec covers Option 1: one oauth2-proxy for each gateway, real tokens with t
 
 The console client is a second Keycloak client. It is not the CLI client (`{client-id}`). Its mappers target the gateway client. The gateway accepts console tokens like CLI tokens. The CLI client stays unchanged.
 
-A console needs external ingress. Browser traffic reaches the console through an HTTPRoute in `gateway-api` mode or through an OpenShift Route in `route` mode. A routed gateway has `client_ca_path` removed on its external data path because the ingress proxy cannot present a client certificate (see `openshell-gateway-routing.spec.md`). The console dashboard does not use external ingress to reach the gateway. It connects to the in-cluster `openshell-gateway.<ns>.svc.cluster.local:8080` admin API through gRPC with mutual TLS. It presents the `openshell-client` certificate and verifies the gateway server certificate against the OpenShell CA.
+A console needs external ingress. Browser traffic reaches the console through an HTTPRoute in `gateway-api` mode. A routed gateway has `client_ca_path` removed on its external data path because the ingress proxy cannot present a client certificate (see `openshell-gateway-routing.spec.md`). The console dashboard does not use external ingress to reach the gateway. It connects to the in-cluster `openshell-gateway.<ns>.svc.cluster.local:8080` admin API through gRPC with mutual TLS. It presents the `openshell-client` certificate and verifies the gateway server certificate against the OpenShell CA.
 
 ---
 
@@ -46,7 +46,7 @@ A console needs external ingress. Browser traffic reaches the console through an
 The reconciler SHALL deploy the console when all of these conditions are true:
 
 - The gateway has an enabled route. A present route object defaults to enabled when it omits `enabled`; an explicit `route.enabled = false` disables it.
-- The selected ingress mode is `gateway-api` or `route`.
+- The selected ingress mode is `gateway-api`.
 - Keycloak is configured.
 
 The console has no separate configuration field. The console SHALL use the same effective `GATEWAY_INGRESS_MODE` as the gateway. The console SHALL follow the route lifecycle.
@@ -58,16 +58,6 @@ The console has no separate configuration field. The console SHALL use the same 
 - AND Keycloak is configured
 - WHEN the reconciler reconciles the gateway
 - THEN it must create all console resources: the console client, the console Secret, the Deployment, the Service, and the HTTPRoute
-- AND the console must answer at `https://console-<ns>.<base-domain>`
-
-#### Scenario: OSG-CON-01.02 -- OpenShift Route mode creates a console
-
-- GIVEN a gateway with an enabled route
-- AND the selected ingress mode is `route`
-- AND Keycloak is configured
-- WHEN the reconciler reconciles the gateway
-- THEN it must create all console resources: the console client, the console Secret, the Deployment, the Service, and the OpenShift Route
-- AND it must not create a console HTTPRoute
 - AND the console must answer at `https://console-<ns>.<base-domain>`
 
 #### Scenario: OSG-CON-01.03 -- Non-routed gateway gets no console
@@ -218,11 +208,9 @@ oauth2-proxy must expose readiness and liveness probes on `/ready` and `/ping` (
 
 ---
 
-### Requirement: OSG-CON-05 -- Console Service and Mode-Selected HTTP Exposure
+### Requirement: OSG-CON-05 -- Console Service and HTTPRoute Exposure
 
-The reconciler SHALL create a `ClusterIP` Service named `openshell-console` on port `4180`. It SHALL create only the console exposure resource for the selected ingress mode. It SHALL remove an exposure resource from the inactive mode when one exists.
-
-In `gateway-api` mode, the reconciler SHALL create this HTTPRoute. The HTTPRoute attaches to the shared Gateway.
+The reconciler SHALL create a `ClusterIP` Service named `openshell-console` on port `4180`. In `gateway-api` mode, the reconciler SHALL create this HTTPRoute. The HTTPRoute attaches to the shared Gateway.
 
 ```yaml
 apiVersion: gateway.networking.k8s.io/v1
@@ -245,30 +233,6 @@ spec:
 
 The hostname `console-<ns>.<base-domain>` is a subdomain of `<base-domain>`. The shared Gateway wildcard certificate covers it, so the console needs no separate certificate. This hostname differs from the gateway gRPC hostname (`gw-<ns>.<base-domain>`), so the two attach to different listeners.
 
-In `route` mode, the reconciler SHALL create this OpenShift Route.
-
-```yaml
-apiVersion: route.openshift.io/v1
-kind: Route
-metadata:
-  name: openshell-console
-  namespace: <ns>
-spec:
-  host: console-<ns>.<base-domain>
-  to:
-    kind: Service
-    name: openshell-console
-  port:
-    targetPort: http
-  tls:
-    termination: edge
-    insecureEdgeTerminationPolicy: Redirect
-```
-
-The OpenShift router SHALL terminate TLS. It SHALL send HTTP to oauth2-proxy on Service port `http`. The Route SHALL use the OpenShift router certificate when no Route certificate is set.
-
-When the control-plane env var `GATEWAY_ROUTE_TLS_ISSUER` names a cert-manager `ClusterIssuer`, the reconciler SHALL annotate the console Route with `cert-manager.io/issuer-name: <issuer>`, `cert-manager.io/issuer-kind: ClusterIssuer` and `cert-manager.io/issuer-group: cert-manager.io`. The cert-manager openshift-routes controller then issues a certificate for the console host and injects it into `spec.tls.certificate` and `spec.tls.key`. This matters when the console host is under a custom domain that the router default certificate does not cover. The reconciler replaces the whole Route on each pass, so it SHALL carry an injected certificate and key forward. When `GATEWAY_ROUTE_TLS_ISSUER` is unset, the Route SHALL carry no `cert-manager.io/*` annotation.
-
 #### Scenario: OSG-CON-05.01 -- HTTP listener absent on the shared Gateway
 
 - GIVEN a shared Gateway with no listener that matches `GATEWAY_API_HTTP_LISTENER_NAME`
@@ -277,42 +241,7 @@ When the control-plane env var `GATEWAY_ROUTE_TLS_ISSUER` names a cert-manager `
 - AND the reconciler must write a warning that names the missing listener
 - AND it must not fail the gateway reconciliation
 
-#### Scenario: OSG-CON-05.02 -- OpenShift Route is admitted
 
-- GIVEN the selected ingress mode is `route`
-- AND the console Deployment is Ready
-- WHEN an OpenShift router reports `Admitted=True` for the console Route
-- THEN the console exposure must be Ready
-
-#### Scenario: OSG-CON-05.03 -- OpenShift Route is not admitted
-
-- GIVEN the selected ingress mode is `route`
-- WHEN no OpenShift router reports `Admitted=True` for the console Route
-- THEN the reconciler must not publish `consoleAddress`
-- AND it must write the Route admission reason when one exists
-- AND it must not fail the gateway reconciliation
-
-
-#### Scenario: OSG-CON-05.04 -- Route issuer annotates the console Route
-
-- GIVEN the selected ingress mode is `route`
-- AND `GATEWAY_ROUTE_TLS_ISSUER=letsencrypt-http01`
-- WHEN the reconciler reconciles the console
-- THEN the console Route must carry `cert-manager.io/issuer-name: letsencrypt-http01` and `cert-manager.io/issuer-kind: ClusterIssuer`
-
-#### Scenario: OSG-CON-05.05 -- No Route issuer leaves the console Route unannotated
-
-- GIVEN the selected ingress mode is `route`
-- AND `GATEWAY_ROUTE_TLS_ISSUER` is unset
-- WHEN the reconciler reconciles the console
-- THEN the console Route must carry no `cert-manager.io/*` annotation
-
-#### Scenario: OSG-CON-05.06 -- Reconcile keeps an injected console certificate
-
-- GIVEN the selected ingress mode is `route` with `GATEWAY_ROUTE_TLS_ISSUER` set
-- AND the openshift-routes controller injected `spec.tls.certificate` and `spec.tls.key` into the console Route
-- WHEN the reconciler reconciles the console again
-- THEN the console Route must keep the injected certificate and key
 ---
 
 ### Requirement: OSG-CON-07 -- Console Lifecycle and Cleanup
@@ -323,7 +252,7 @@ The reconciler must reconcile and remove the console together with the route and
 
 - GIVEN a gateway that had a route and a console
 - WHEN the route field is removed
-- THEN the reconciler must delete all console resources: the Deployment, the Service, the HTTPRoute or OpenShift Route, and the `openshell-console-oauth2` Secret
+- THEN the reconciler must delete all console resources: the Deployment, the Service, the HTTPRoute, and the `openshell-console-oauth2` Secret
 - AND it must delete the console client `{client-id}-console`
 - AND it must clear the `consoleAddress` field on the gateway
 
@@ -399,8 +328,8 @@ The gateway has no user field for the console. The console follows the route.
 
 | Variable | Default | Description |
 |---|---|---|
-| `GATEWAY_INGRESS_MODE` | auto-detect | Selects `gateway-api`, `route`, or no managed ingress for both the gateway and its console |
-| `GATEWAY_API_HTTP_LISTENER_NAME` | `https` | The `sectionName` of the shared Gateway HTTP listener for console HTTPRoutes; it has no effect in `route` mode |
+| `GATEWAY_INGRESS_MODE` | auto-detect | Selects `gateway-api` or no managed ingress for both the gateway and its console |
+| `GATEWAY_API_HTTP_LISTENER_NAME` | `https` | The `sectionName` of the shared Gateway HTTP listener for console HTTPRoutes |
 | `HYPERSHELL_CONSOLE_IMAGE` | *(none, required)* | The OpenShell dashboard image, pinned by digest. The control plane refuses to start when it is unset. Set in `deploy/base/platform-resources/controller.yaml`, stamped from `OPENSHELL_VERSION` by `make sync-openshell-version` |
 | `HYPERSHELL_OAUTH2_PROXY_IMAGE` | *(ImageDefaults default)* | The oauth2-proxy image |
 
@@ -434,17 +363,6 @@ The control-plane ServiceAccount already has create, update, patch, and delete a
   verbs: ["get", "list", "create", "update", "patch", "delete"]
 ```
 
-OpenShift Route mode needs these rules. The `routes/custom-host` access permits the controller to set the explicit `spec.host` value.
-
-```yaml
-- apiGroups: ["route.openshift.io"]
-  resources: ["routes"]
-  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-- apiGroups: ["route.openshift.io"]
-  resources: ["routes/custom-host"]
-  verbs: ["create", "update"]
-```
-
 The console needs no new Keycloak permission. The `hypershell-keycloak-admin` account already manages clients, roles, and mappers.
 
 ---
@@ -471,7 +389,6 @@ The console needs no new Keycloak permission. The `hypershell-keycloak-admin` ac
 - [oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/) -- OIDC provider, PKCE, `pass-access-token`, `reverse-proxy`
 - [oauth2-proxy #1714](https://github.com/oauth2-proxy/oauth2-proxy/issues/1714) -- a client secret is required with PKCE
 - [Gateway API HTTPRoute](https://gateway-api.sigs.k8s.io/api-types/httproute/)
-- [OpenShift Route](https://docs.redhat.com/en/documentation/openshift_container_platform/latest/html/ingress_and_load_balancing/configuring-routes)
 - [Keycloak Admin REST API](https://www.keycloak.org/docs-api/latest/rest-api/)
 - `openshell-gateway-keycloak.spec.md` -- the per-gateway client and the OIDC Role Bridge
 - `openshell-gateway-routing.spec.md` -- the shared Gateway and hostnames

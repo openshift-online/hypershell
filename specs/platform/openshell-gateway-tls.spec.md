@@ -158,17 +158,17 @@ The OpenShell Helm chart value `server.tls.enableMtls` controls whether the gate
 #### Scenario: OSG-TLS-05.01 -- Gateway API routing mode
 
 - GIVEN a Gateway with `route.enabled = true`
-- AND the control plane uses Gateway API routing (not OpenShift Route passthrough)
+- AND the control plane uses Gateway API routing
 - WHEN the GatewayReconciler builds the Helm values
 - THEN it SHALL set `server.tls.enableMtls` to `false`
 - BECAUSE the Gateway API ingress proxy (Envoy) terminates external TLS and re-connects to the backend via BackendTLSPolicy, which only handles server certificate validation -- the proxy cannot present a client certificate, so requiring one causes "peer sent no certificates" connection resets
 
-#### Scenario: OSG-TLS-05.02 -- Direct access or Route passthrough mode
+#### Scenario: OSG-TLS-05.02 -- Direct access without a route
 
-- GIVEN a Gateway with no `route` configuration or `route.enabled = false`, or a Gateway exposed through an OpenShift Route in passthrough mode
+- GIVEN a Gateway with no `route` configuration or `route.enabled = false`
 - WHEN the GatewayReconciler builds the Helm values
 - THEN it SHALL NOT set `server.tls.enableMtls`, so the chart default (mTLS on) applies
-- AND the gateway SHALL require client certificates for incoming connections (passthrough keeps TLS end to end, so the client presents its certificate to the gateway)
+- AND the gateway SHALL require client certificates for incoming connections
 
 ---
 
