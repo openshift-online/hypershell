@@ -3,8 +3,11 @@ package gatewayAccess
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/gorilla/mux"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/defaultWorkspaceBootstrap"
@@ -57,6 +60,47 @@ func TestGrantDoesNotWriteBindingWhenDefaultWorkspaceBootstrapFails(t *testing.T
 	}
 	if deps.bindings.currentRole("target", "gateway-id") != "" {
 		t.Fatal("binding was written after bootstrap failure")
+	}
+}
+
+func TestGrantCanSkipDefaultWorkspaceBootstrap(t *testing.T) {
+	deps := newBootstrapTestDeps()
+	deps.dao.roleName = roles.RoleGatewayViewer
+	deps.bootstrap.problem = &defaultWorkspaceBootstrap.APIError{
+		Status: http.StatusServiceUnavailable, Code: "default_workspace_bootstrap_failed", Message: "failed",
+	}
+	item, problem := deps.service.Grant(context.Background(), "gateway-id", "owner", GrantInput{
+		Username: "target", Role: TierUser, SkipDefaultWorkspaceBootstrap: true,
+	})
+	if problem != nil {
+		t.Fatalf("Grant() problem = %#v", problem)
+	}
+	if deps.bootstrap.input != (defaultWorkspaceBootstrap.Input{}) {
+		t.Fatalf("bootstrap input = %#v, want no call", deps.bootstrap.input)
+	}
+	if deps.bindings.currentRole("target", "gateway-id") != roles.RoleGatewayViewer {
+		t.Fatal("binding was not written when bootstrap was skipped")
+	}
+	if item.Role != TierUser {
+		t.Fatalf("grant role = %q, want %q", item.Role, TierUser)
+	}
+}
+
+func TestGrantHandlerAcceptsDefaultWorkspaceBootstrapOptOut(t *testing.T) {
+	service := &recordingGrantService{}
+	request := httptest.NewRequest(http.MethodPost, "/gateways/gateway-id/access", strings.NewReader(`{
+		"username": "target", "role": "user", "skip_default_workspace_bootstrap": true
+	}`))
+	request = mux.SetURLVars(request, map[string]string{"gateway_id": "gateway-id"})
+	response := httptest.NewRecorder()
+
+	NewHandler(service).Grant(response, request)
+
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusCreated)
+	}
+	if !service.input.SkipDefaultWorkspaceBootstrap {
+		t.Fatal("handler did not pass the default-workspace bootstrap opt-out to the service")
 	}
 }
 
@@ -185,6 +229,16 @@ func (f *fakeUserDirectory) UpsertByUsername(_ context.Context, username string,
 type fakeBootstrapService struct {
 	input   defaultWorkspaceBootstrap.Input
 	problem *defaultWorkspaceBootstrap.APIError
+}
+
+type recordingGrantService struct {
+	Service
+	input GrantInput
+}
+
+func (f *recordingGrantService) Grant(_ context.Context, _ string, _ string, input GrantInput) (GrantItem, *APIError) {
+	f.input = input
+	return GrantItem{Role: input.Role}, nil
 }
 
 func (f *fakeBootstrapService) Bootstrap(_ context.Context, input defaultWorkspaceBootstrap.Input) *defaultWorkspaceBootstrap.APIError {

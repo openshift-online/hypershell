@@ -30,7 +30,7 @@ This specification supersedes the desired-state and control-plane reconciliation
 | --- | --- |
 | Is workspace membership desired state? | No. HyperShell makes one `AddMember` call and does not reconcile membership afterward. |
 | Which workspace receives the bootstrap? | Only the gateway's reserved OpenShell `default` workspace. |
-| Which identities are eligible? | Human users granted the gateway `user` tier and OpenShellGatewayServiceAccounts created with `openshell-user`. |
+| Which identities are eligible? | Human users granted the gateway `user` tier and OpenShellGatewayServiceAccounts created with `openshell-user`, unless the gateway-access request explicitly opts out. |
 | Which identities are excluded? | Gateway owners, gateway admins, and `openshell-admin` service accounts. |
 | Which credentials call OpenShell? | The gateway's persistent HyperShell-owned bootstrap admin identity. |
 | What happens if the identity is already a member? | HyperShell treats the OpenShell response as success. |
@@ -95,11 +95,13 @@ Audit records and error messages SHALL NOT contain the gateway bootstrap admin c
 
 When a caller grants a user the HyperShell gateway `user` tier, HyperShell SHALL resolve the user's stable OIDC subject claim and call OpenShell `v1 AddMember` for the gateway's `default` workspace with role `user`.
 
+The gateway-access grant API MAY set `skip_default_workspace_bootstrap` to `true`. When set, HyperShell SHALL NOT call `AddMember` for that grant.
+
 HyperShell SHALL NOT use the user's mutable username as the OpenShell membership subject.
 
 HyperShell SHALL NOT call `AddMember` when the granted tier maps to `openshell-admin`.
 
-The originating request SHALL NOT return success unless `AddMember` succeeds or OpenShell reports that the subject is already a member of the `default` workspace.
+For a grant that has not opted out, the originating request SHALL NOT return success unless `AddMember` succeeds or OpenShell reports that the subject is already a member of the `default` workspace.
 
 #### Scenario: GTW-BOOT-03.01 -- Viewer grant bootstraps default workspace membership
 
@@ -129,6 +131,13 @@ The originating request SHALL NOT return success unless `AddMember` succeeds or 
 - AND OpenShell rejects the `AddMember` call
 - THEN the originating request SHALL return an error
 - AND the response SHALL NOT present user B's gateway access as ready
+
+#### Scenario: GTW-BOOT-03.05 -- Grant opts out of default-workspace bootstrap
+
+- GIVEN a gateway has a gateway bootstrap admin
+- WHEN an authorized caller grants user D the gateway `user` tier with `skip_default_workspace_bootstrap` set to `true`
+- THEN HyperShell SHALL NOT call `AddMember` for user D
+- AND the gateway access grant SHALL succeed
 
 ### Requirement: GTW-BOOT-04 -- Service Account Creation Bootstrap
 

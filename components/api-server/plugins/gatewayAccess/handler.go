@@ -17,9 +17,10 @@ type handler struct{ service Service }
 func NewHandler(service Service) *handler { return &handler{service: service} }
 
 type grantRequest struct {
-	Username string `json:"username"`
-	Subject  string `json:"subject"`
-	Role     string `json:"role"`
+	Username                      string `json:"username"`
+	Subject                       string `json:"subject"`
+	Role                          string `json:"role"`
+	SkipDefaultWorkspaceBootstrap bool   `json:"skip_default_workspace_bootstrap"`
 }
 
 type changeRoleRequest struct {
