@@ -76,6 +76,21 @@ func (f fakeGateways) NamespaceClusterID(_ context.Context, ns string) (string, 
 	return "", false, nil
 }
 
+// CITrustGatewayClusterID maps a CITrust to its gateway's cluster: ct-own's
+// gateway is on the spoke's cluster, ct-foreign's is on another.
+func (f fakeGateways) CITrustGatewayClusterID(_ context.Context, id string) (string, bool, error) {
+	if f.err != nil {
+		return "", false, f.err
+	}
+	switch id {
+	case "ct-own":
+		return "cluster-spoke3", true, nil
+	case "ct-foreign":
+		return "cluster-other", true, nil
+	}
+	return "", false, nil
+}
+
 // grpcCallerContext is an authenticated gRPC caller: the framework auth
 // interceptor has set the username, and the bearer token carries sub.
 func grpcCallerContext(t *testing.T, username, sub string) context.Context {

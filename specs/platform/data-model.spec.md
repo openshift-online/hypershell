@@ -211,6 +211,7 @@ erDiagram
         string issuer
         string jwks_url
         string audience
+        string idp_alias
         string status
         time created_at
         time updated_at
@@ -1638,10 +1639,11 @@ gateway-side provisioning failure.
 | `issuer` | string | The OIDC issuer URL whose tokens this provider validates (e.g. `https://token.actions.githubusercontent.com`, `https://gitlab.cee.redhat.com`) |
 | `jwks_url` | string | The issuer's JWKS endpoint used for signature validation. For a standards-compliant issuer the control plane MAY derive it from OIDC discovery instead |
 | `audience` | string | The platform-pinned audience every federated CI token MUST carry (`aud`). Set once per fleet; tenants cannot override it |
+| `idp_alias` | string | Optional. The explicit Keycloak IdP alias this provider adopts, the single declarative source of truth shared with the platform federation (the terraform `ci_forges` map key, e.g. `github-actions`). When set, the control plane adopts the IdP of that alias; when unset, the control plane derives the alias from `forge` and `issuer`. See [`ci-trust-ext-api.spec.md`](./ci-trust-ext-api.spec.md) (PLAT-CITR-01) |
 
 The control plane realizes a `CIProvider` as a validation-only OIDC identity provider on the cluster Keycloak (signature + issuer + audience validation only, no authorization-code flow and no stored client secret). The realization contract is specified in [`ci-trust-ext-api.spec.md`](./ci-trust-ext-api.spec.md) and the platform federation design in the gitops `specs/ci-oidc-federation.spec.md`.
 
-`CIProvider.status.idp_alias` SHALL surface the Keycloak IdP alias the control plane created or adopted (e.g. `github-actions`, `gitlab-ci`).
+`CIProvider.idp_alias` is the desired (spec) alias to adopt; `CIProvider.status.idp_alias` SHALL surface the Keycloak IdP alias the control plane actually created or adopted (e.g. `github-actions`, `gitlab-ci`). When `idp_alias` is set, `status.idp_alias` SHALL equal it once the IdP is realized; when `idp_alias` is unset, `status.idp_alias` SHALL carry the derived alias.
 
 #### Scenario: PLAT-DATA-24.01 -- CIProvider Referenced by Multiple CITrusts
 
@@ -1656,6 +1658,14 @@ The control plane realizes a `CIProvider` as a validation-only OIDC identity pro
 - GIVEN a `CIProvider` with one or more `CITrust` records referencing it
 - WHEN a PATCH request attempts to change `issuer` or `audience`
 - THEN the API server SHALL reject the request with 422
+
+#### Scenario: PLAT-DATA-24.03 -- Explicit idp_alias Selects the Adopted IdP
+
+- GIVEN a `CIProvider` whose `forge` is `github` and whose `idp_alias` is set to `github-actions`
+- WHEN the control plane reconciles it against a Keycloak that already holds the `github-actions` IdP
+- THEN the control plane SHALL adopt the `github-actions` IdP named by `idp_alias`
+- AND `status.idp_alias` SHALL be `github-actions`
+- AND a `CIProvider` with `idp_alias` unset SHALL instead adopt the alias derived from `forge` and `issuer`
 
 ---
 

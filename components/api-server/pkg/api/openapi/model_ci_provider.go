@@ -36,7 +36,9 @@ type CIProvider struct {
 	// The JWKS endpoint used for signature validation
 	JwksUrl string `json:"jwks_url"`
 	// The platform-pinned audience every federated CI token must carry
-	Audience string                 `json:"audience"`
+	Audience string `json:"audience"`
+	// Optional explicit (spec) Keycloak IdP alias this provider adopts, the single declarative source of truth shared with the platform federation (the terraform ci_forges map key, e.g. github-actions). When set, the control plane adopts the IdP of that alias; when unset, it derives the alias from forge and issuer (PLAT-DATA-24, PLAT-CITR-01).
+	IdpAlias *string                `json:"idp_alias,omitempty"`
 	Status   *CIProviderAllOfStatus `json:"status,omitempty"`
 }
 
@@ -351,6 +353,38 @@ func (o *CIProvider) SetAudience(v string) {
 	o.Audience = v
 }
 
+// GetIdpAlias returns the IdpAlias field value if set, zero value otherwise.
+func (o *CIProvider) GetIdpAlias() string {
+	if o == nil || IsNil(o.IdpAlias) {
+		var ret string
+		return ret
+	}
+	return *o.IdpAlias
+}
+
+// GetIdpAliasOk returns a tuple with the IdpAlias field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *CIProvider) GetIdpAliasOk() (*string, bool) {
+	if o == nil || IsNil(o.IdpAlias) {
+		return nil, false
+	}
+	return o.IdpAlias, true
+}
+
+// HasIdpAlias returns a boolean if a field has been set.
+func (o *CIProvider) HasIdpAlias() bool {
+	if o != nil && !IsNil(o.IdpAlias) {
+		return true
+	}
+
+	return false
+}
+
+// SetIdpAlias gets a reference to the given string and assigns it to the IdpAlias field.
+func (o *CIProvider) SetIdpAlias(v string) {
+	o.IdpAlias = &v
+}
+
 // GetStatus returns the Status field value if set, zero value otherwise.
 func (o *CIProvider) GetStatus() CIProviderAllOfStatus {
 	if o == nil || IsNil(o.Status) {
@@ -415,6 +449,9 @@ func (o CIProvider) ToMap() (map[string]interface{}, error) {
 	toSerialize["issuer"] = o.Issuer
 	toSerialize["jwks_url"] = o.JwksUrl
 	toSerialize["audience"] = o.Audience
+	if !IsNil(o.IdpAlias) {
+		toSerialize["idp_alias"] = o.IdpAlias
+	}
 	if !IsNil(o.Status) {
 		toSerialize["status"] = o.Status
 	}

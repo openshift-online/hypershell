@@ -263,6 +263,12 @@
           "type": "string"
         },
         {
+          "property": "idp_alias",
+          "label": "IDP ALIAS",
+          "priority": 0,
+          "type": "string"
+        },
+        {
           "property": "issuer",
           "label": "ISSUER",
           "priority": 0,
@@ -2334,6 +2340,12 @@
           "type": "string"
         },
         {
+          "property": "idp_alias",
+          "label": "IDP ALIAS",
+          "priority": 0,
+          "type": "string"
+        },
+        {
           "property": "issuer",
           "label": "ISSUER",
           "priority": 0,
@@ -4144,6 +4156,12 @@
             "name": "id",
             "type": "string",
             "required": false
+          },
+          {
+            "name": "idp_alias",
+            "type": "string",
+            "required": false,
+            "description": "Optional explicit (spec) Keycloak IdP alias this provider adopts, the single declarative source of truth shared with the platform federation (the terraform ci_forges map key, e.g. github-actions). When set, the control plane adopts the IdP of that alias; when unset, it derives the alias from forge and issuer (PLAT-DATA-24, PLAT-CITR-01)."
           },
           {
             "name": "issuer",
@@ -9488,6 +9506,12 @@
               "gitlab",
               "forgejo"
             ]
+          },
+          {
+            "name": "idp_alias",
+            "type": "string",
+            "required": false,
+            "description": "The explicit (spec) Keycloak IdP alias to adopt (PLAT-DATA-24)."
           },
           {
             "name": "issuer",

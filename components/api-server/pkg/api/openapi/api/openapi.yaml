@@ -6916,7 +6916,8 @@ components:
         id: id
         href: href
         items:
-        - audience: audience
+        - idp_alias: idp_alias
+          audience: audience
           updated_at: 2000-01-23T04:56:07.000+00:00
           kind: kind
           forge: github
@@ -6928,7 +6929,8 @@ components:
           jwks_url: jwks_url
           status:
             idp_alias: idp_alias
-        - audience: audience
+        - idp_alias: idp_alias
+          audience: audience
           updated_at: 2000-01-23T04:56:07.000+00:00
           kind: kind
           forge: github
@@ -6966,6 +6968,13 @@ components:
             description: The platform-pinned audience every federated CI token must
               carry
             type: string
+          idp_alias:
+            description: "Optional explicit (spec) Keycloak IdP alias this provider\
+              \ adopts, the single declarative source of truth shared with the platform\
+              \ federation (the terraform ci_forges map key, e.g. github-actions).\
+              \ When set, the control plane adopts the IdP of that alias; when unset,\
+              \ it derives the alias from forge and issuer (PLAT-DATA-24, PLAT-CITR-01)."
+            type: string
           status:
             $ref: "#/components/schemas/CIProvider_allOf_status"
         required:
@@ -6975,6 +6984,7 @@ components:
         - jwks_url
         type: object
       example:
+        idp_alias: idp_alias
         audience: audience
         updated_at: 2000-01-23T04:56:07.000+00:00
         kind: kind
@@ -6989,6 +6999,7 @@ components:
           idp_alias: idp_alias
     CIProviderPatchRequest:
       example:
+        idp_alias: idp_alias
         audience: audience
         forge: github
         issuer: issuer
@@ -7005,6 +7016,9 @@ components:
         jwks_url:
           type: string
         audience:
+          type: string
+        idp_alias:
+          description: The explicit (spec) Keycloak IdP alias to adopt (PLAT-DATA-24).
           type: string
       type: object
     CITrustList:

@@ -544,19 +544,28 @@ For a caller that is not a control-plane identity, the rules mirror HTTP:
 - `CIProviderService`: authored over HTTP (`hsctl` and the SDKs), like
   `AgentWorkspaceService`. A registered control-plane identity MAY READ it
   (list/watch/get) to drive `CIProvider` reconciliation; `platform:admin` MAY also
-  list, watch, and get it. All writes (create/update/delete) over gRPC SHALL be denied
-  for every caller: `CIProvider` is authored by a `ci-federation:admin` over HTTP
-  (SEC-RBAC-21) and is NOT on the declarative-import write path.
+  list, watch, and get it. `CIProvider` create and delete over gRPC SHALL be denied
+  for every caller: `CIProvider` spec is authored by a `ci-federation:admin` over HTTP
+  (SEC-RBAC-21) and is NOT on the declarative-import write path. `UpdateCIProvider`
+  SHALL be denied for every user caller and for any write that changes a spec field;
+  the single exception is the registered control-plane identity's status-only
+  write-back, which is authorized under "Control-Plane Status Write-Back on
+  Platform-Authored CI Kinds" (SEC-RBAC-27).
 - `CITrustService`: authored over HTTP by a gateway owner/admin (SEC-RBAC-22) AND, as
   of the declarative `.hypershell` import of `CITrust` (PLAT-DATA-25,
   [`../platform/ci-trust-ext-api.spec.md`](../platform/ci-trust-ext-api.spec.md)
   PLAT-CITR-10), authored on the declarative-import write path. A registered
   control-plane identity MAY READ it (list/watch/get) to drive `CITrust`
   reconciliation; `platform:admin` MAY also list, watch, and get it. Its gRPC
-  create/update/delete SHALL be DENIED for every user caller, and SHALL be authorized
-  ONLY for the control-plane identity on the `Repository`-scoped import terms below,
-  with the additional per-gateway tenancy gate specified in SEC-RBAC-26 (the referenced
-  `Gateway` must be owned by the same reconciled `Repository`).
+  create/update/delete SHALL be DENIED for every user caller, and its spec-authoring
+  create/update/delete SHALL be authorized ONLY for the control-plane identity on the
+  `Repository`-scoped import terms below, with the additional per-gateway tenancy gate
+  specified in SEC-RBAC-26 (the referenced `Gateway` must be owned by the same
+  reconciled `Repository`). Separately from that import path, `UpdateCITrust` as a
+  status-only reconcile write-back by the registered control-plane identity is
+  authorized under "Control-Plane Status Write-Back on Platform-Authored CI Kinds"
+  (SEC-RBAC-27), scoped to a `CITrust` whose referenced `Gateway` belongs to the
+  writing control plane's cluster.
 - With authentication on -- every deployment, because enforcement follows
   authentication (SEC-RBAC-14) -- an unauthenticated call reaches no `hypershell.v1`
   method.
@@ -696,13 +705,13 @@ so these rules are the only boundary between tenants, and between clusters, on t
 - WHEN the import reconciler for `Repository` R1 attempts to update or delete it
 - THEN the write SHALL be refused
 
-#### Scenario: SEC-RBAC-09.08 -- Control plane reads CI kinds; CIProvider writes and user CITrust writes are denied over gRPC
+#### Scenario: SEC-RBAC-09.08 -- Control plane reads CI kinds; CIProvider create/delete and user CITrust writes are denied over gRPC
 
 - GIVEN a registered control-plane identity reconciling CI federation
 - WHEN it calls `WatchCITrusts`, `ListCIProviders`, or `GetCIProvider`
 - THEN the read SHALL be authorized
-- WHEN any caller (user or control plane) calls `CreateCIProvider` over gRPC
-- THEN the request SHALL return PermissionDenied (`CIProvider` is authored over HTTP and is not importable)
+- WHEN any caller (user or control plane) calls `CreateCIProvider` or `DeleteCIProvider` over gRPC
+- THEN the request SHALL return PermissionDenied (`CIProvider` spec is authored over HTTP and is not importable; only a status-only write-back is allowed, SEC-RBAC-27)
 - WHEN a user caller (without a control-plane identity) calls `CreateCITrust`, `UpdateCITrust`, or `DeleteCITrust` over gRPC
 - THEN the request SHALL return PermissionDenied (a user authors `CITrust` over HTTP)
 
@@ -1729,6 +1738,79 @@ caller; it only defines the non-human import counterpart.
 - WHEN the caller creates a `CITrust` referencing gw-1 over HTTP
 - THEN the request SHALL be rejected with 403 under SEC-RBAC-22, unaffected by the import path
 
+### Requirement: SEC-RBAC-27 -- Control-Plane Status Write-Back on Platform-Authored CI Kinds
+
+A registered control-plane identity realizes `CIProvider` and `CITrust` into Keycloak
+and records the observed result back onto their `status`: the adopted or created IdP
+alias on `CIProvider.status.idp_alias` (PLAT-DATA-24,
+[`../platform/ci-trust-ext-api.spec.md`](../platform/ci-trust-ext-api.spec.md)
+PLAT-CITR-01), and the exchange endpoint, derived workspace, and workflow hint on
+`CITrust.status` (PLAT-CITR-06). Neither kind's spec is authored by the control plane -
+`CIProvider` spec is authored by a `ci-federation:admin` over HTTP (SEC-RBAC-21) and
+`CITrust` spec by a gateway owner/admin over HTTP (SEC-RBAC-22) or on the declarative
+import path (SEC-RBAC-26) - but the control plane MUST be able to persist their reconcile
+status, or CI federation never realizes (a `CITrust` that adopts a provider fails when
+`CIProvider.status.idp_alias` can never be written).
+
+The system SHALL therefore authorize a **status-only** gRPC `UpdateCIProvider` and
+`UpdateCITrust` for the registered control-plane identity, parallel to the control
+plane's non-import status write-backs on `Gateway` and `AgentRuntime` (SEC-RBAC-09,
+"A `Gateway` or `AgentRuntime` write that carries NO import metadata stays on its existing
+non-import path"). This authority is field-scoped, like the Gateway Field Write Policy
+(SEC-RBAC-18): the write SHALL be authorized ONLY when it changes observed `status`
+fields and leaves every spec field unchanged. A control-plane write that would change a
+`CIProvider` spec field (`forge`, `issuer`, `jwks_url`, `audience`, `idp_alias`) or a
+`CITrust` spec field (`ci_provider_id`, `gateway_id`, `subject`, `role`) SHALL be denied,
+because the control plane never authors CI spec.
+
+Scoping follows the control-plane identity model (SEC-RBAC-09, fleet-wide reads,
+own-cluster writes, status write-backs):
+
+- `CIProvider` is platform-wide and carries no gateway or cluster, so any registered
+  control-plane identity MAY write back its status. This write-back is NOT create and NOT
+  delete; `CreateCIProvider` and `DeleteCIProvider` remain denied for every caller
+  (SEC-RBAC-09).
+- `CITrust` is gateway-scoped. Its status write-back SHALL be authorized ONLY when the
+  referenced `Gateway` belongs to the writing control plane's cluster, mirroring the
+  own-cluster bound on `Gateway` and `AgentRuntime` writes and the per-trust foreign-cluster
+  skip of CTRL-CORE-20. A status write-back for a `CITrust` whose referenced `Gateway` is on
+  another cluster SHALL be denied.
+
+The status-only write-back does NOT require import metadata or `Repository` ownership: it
+is a distinct path from the SEC-RBAC-26 import write, which authors `CITrust` spec. A user
+caller SHALL NEVER reach this path; a user `UpdateCIProvider` or `UpdateCITrust` remains
+denied by SEC-RBAC-09 regardless of which fields it changes.
+
+#### Scenario: SEC-RBAC-27.01 -- Control plane writes back CIProvider status
+
+- GIVEN a registered control-plane identity that has adopted the `github-actions` IdP for a `CIProvider`
+- WHEN it calls `UpdateCIProvider` changing only `status.idp_alias` and leaving every spec field unchanged
+- THEN the write SHALL be authorized and the status SHALL persist
+
+#### Scenario: SEC-RBAC-27.02 -- Control plane status write-back cannot change CIProvider spec
+
+- GIVEN a registered control-plane identity
+- WHEN it calls `UpdateCIProvider` that changes a spec field such as `issuer`, `audience`, or `idp_alias`
+- THEN the request SHALL return PermissionDenied
+
+#### Scenario: SEC-RBAC-27.03 -- Control plane writes back CITrust status on an own-cluster gateway
+
+- GIVEN a registered control-plane identity whose cluster owns the `Gateway` a `CITrust` references
+- WHEN it calls `UpdateCITrust` changing only `status.exchange_endpoint`, `status.workspace`, and `status.workflow_hint`
+- THEN the write SHALL be authorized and the status SHALL persist
+
+#### Scenario: SEC-RBAC-27.04 -- CITrust status write-back is denied for a foreign-cluster gateway
+
+- GIVEN a registered control-plane identity whose cluster does NOT own the `Gateway` a `CITrust` references
+- WHEN it calls `UpdateCITrust` for that `CITrust`
+- THEN the request SHALL return PermissionDenied
+
+#### Scenario: SEC-RBAC-27.05 -- User caller cannot use the status write-back path
+
+- GIVEN a caller that is not a control-plane identity
+- WHEN it calls `UpdateCIProvider` or `UpdateCITrust` over gRPC, even changing only status fields
+- THEN the request SHALL return PermissionDenied (SEC-RBAC-09)
+
 ## API Reference
 
 | Method | Path | Operation |
@@ -1746,6 +1828,7 @@ caller; it only defines the non-human import counterpart.
 
 | Decision | Rationale |
 |----------|-----------|
+| Control plane writes back CI status status-only, not by import or role binding (SEC-RBAC-27) | The control plane never authors `CIProvider` or `CITrust` spec, but must persist what it realized (the adopted IdP alias, the exchange endpoint). Denying every CI write stranded federation: no `status.idp_alias` meant every adopting `CITrust` failed. A field-scoped status-only write-back mirrors the existing `Gateway`/`AgentRuntime` non-import status path and the Gateway Field Write Policy, so the control plane records observed state without gaining authority to author CI spec. |
 | Keycloak as authority for platform roles | Centralizes role management. Eliminates need for admin-seeding CLI or DB migration. Role changes take effect on next JWT. |
 | Four roles model | Minimal model that covers the use cases: platform administration (view/delete all), create gateways, own gateways, view gateways. No fleet-scoped RBAC needed. |
 | gRPC decides each method explicitly, default-deny | The previous rule granted `gateway:creator` or `gateway:owner` every gRPC method, so any signed-in user could rewrite or delete any gateway once the hub's gRPC API became public. A per-method table matches the HTTP rules and fails closed for methods added later. |

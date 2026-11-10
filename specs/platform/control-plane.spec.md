@@ -1192,6 +1192,54 @@ mechanism for revoking the subject mapper a deleted `CITrust` no longer backs
 - THEN it SHALL skip that trust rather than realize artifacts for a gateway it does not own
 - AND the unfiltered platform-scoped list SHALL still be issued, since `CITrust` carries no cluster filter
 
+### Requirement: CTRL-CORE-21 -- CI Provider Resync
+
+The realization of a `CIProvider` SHALL NOT depend solely on a single long-lived
+`WatchCIProviders` stream. The CIProvider stream is almost always idle (it sends an
+event only when a provider changes), so a `CIProvider` created once via gitops that
+already exists when the reconciler starts, or that predates the reconciler being
+enabled, would otherwise never have its Keycloak IdP adopted or realized and never
+have its `status.idp_alias` written back (PLAT-CITR-01, PLAT-DATA-24). Every `CITrust`
+that adopts that provider would then fail realization because the provider's IdP alias
+was never resolved. This mirrors the gap that CTRL-CORE-20 closes for `CITrust` and
+CTRL-CORE-08 closes for RoleBindings, and satisfies the seed-on-(re)connect contract
+STD-RCON-05.
+
+The control plane SHALL seed the CIProvider reconciler from a `ListCIProviders` call
+on every `WatchCIProviders` (re)connect, and SHALL additionally re-list on a regular
+configurable interval while the stream is connected. Each listed `CIProvider` SHALL be
+reconciled through the same idempotent realization path as a live event (PLAT-CITR-01),
+so its IdP is adopted or created and its `status.idp_alias` converges. The resync SHALL
+be idempotent: a `CIProvider` whose IdP is already realized and whose status already
+records the alias SHALL produce no change.
+
+`CIProvider` is a platform-scoped resource that carries no gateway or cluster, so like
+the `CITrust` watch (CTRL-CORE-20) the `WatchCIProviders` stream and the
+`ListCIProviders` seed take no cluster filter. The list SHALL remain unfiltered by
+design; any registered control plane MAY adopt the provider's IdP and write back its
+status (`security/rbac-enforcement.spec.md`, SEC-RBAC-27).
+
+Because a plain `ListCIProviders` reports only surviving providers, the resync SHALL
+close the list-watch gap the same way the `CITrust` and gateway watches do: it SHALL
+wait for the watch subscription to be live before listing (so an event that fires
+during the list is not lost), and it SHALL rely on the stream, not the list, to
+deliver deletions.
+
+#### Scenario: CTRL-CORE-21.01 -- Pre-existing provider realized on reconnect or resync
+
+- GIVEN a `CIProvider` created via gitops already exists in the API server
+- AND the `WatchCIProviders` stream never delivered its create event (it predated the reconciler or the event was missed)
+- WHEN the control plane reconnects the stream, or the periodic resync interval elapses
+- THEN the control plane SHALL list the CIProviders and reconcile this provider through the same realization as a live event
+- AND SHALL adopt or create its Keycloak IdP and write back `status.idp_alias` (PLAT-CITR-01)
+- AND a `CITrust` that adopts this provider SHALL then resolve its IdP alias
+
+#### Scenario: CTRL-CORE-21.02 -- Resync is idempotent
+
+- GIVEN every `CIProvider` is already realized in Keycloak with its `status.idp_alias` recorded
+- WHEN the periodic resync lists and reconciles them again
+- THEN the control plane SHALL make no change to any IdP or to any provider status
+
 ### Requirement: CTRL-CORE-09 -- gRPC Transport Security
 
 The control plane SHALL select gRPC transport credentials from `HYPERSHELL_GRPC_SERVER_ADDR`

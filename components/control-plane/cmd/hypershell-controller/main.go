@@ -537,7 +537,7 @@ func main() {
 		}
 		ciProviderReconciler := reconciler.NewCIProviderReconciler(kcClient, conn)
 		supervise("CIProvider watch", func(ctx context.Context) error {
-			return watcher.WatchCIProviders(ctx, conn, ciProviderReconciler, cfg.WatchIdleTimeout)
+			return watcher.WatchCIProviders(ctx, conn, ciProviderReconciler, cfg.WatchIdleTimeout, cfg.CIProviderResyncInterval)
 		})
 		ciTrustReconciler := reconciler.NewCITrustReconciler(kcClient, conn, clusterID, keycloak.TokenExchangeMode(cfg.CITokenExchangeMode))
 		supervise("CITrust watch", func(ctx context.Context) error {
