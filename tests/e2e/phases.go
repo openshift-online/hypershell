@@ -800,14 +800,15 @@ func (s *E2ESuite) p2_3DeletionAndGC(t *testing.T) {
 // control-plane identity rules via the REST API: the seeded cluster is registered,
 // /registration is idempotent for the registrar and rejects non-registrars (403)
 // and name collisions (409). It then exercises the gateway-create placement contract
-// (PLAT-DATA-02, PLAT-CLUS-09): an invalid placement (400), an unregistered
-// cluster_id (400), an empty cluster_id with no placement (400), and a late-bound
+// (PLAT-DATA-02, PLAT-CLUS-09): an invalid placement (400), an unknown
+// cluster_id (400), a cluster_id naming a manually created placeholder cluster
+// with no registered control plane (400), an empty cluster_id with no placement (400), and a late-bound
 // placement selector with no cluster_id (accepted). These contract-negative and
 // late-binding probes carry their own request shapes and are never pinned to a
 // matrix target, so a late-bound create need not resolve to the suite's cluster.
 // It also checks that the gRPC WatchGateways stream rejects unauthorized and
 // revoked identities.
-// Verifies: E2E-CORE-18.01, E2E-CORE-18.02, E2E-CORE-18.03, E2E-CORE-18.04
+// Verifies: E2E-CORE-18.01, E2E-CORE-18.02, E2E-CORE-18.03, E2E-CORE-18.04, E2E-CORE-18.05
 func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
 	ctx := t.Context()
 	defClusterName := s.seedDefaults()
@@ -898,6 +899,42 @@ func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
 	s.Assert().Containsf(strings.ToLower(string(body)), "cluster_id", "400 reason should name cluster_id (body: %s)", string(body))
 	s.deleteUnexpectedlyCreatedGateway(ctx, st, body)
 
+	// 12f (placeholder): a ManagedCluster created by hand through POST
+	// /managed_clusters has no oidc_subject, so no control plane owns it. A gateway
+	// pinned to it is rejected like an unknown id (E2E-CORE-18.05). The record has
+	// no capabilities, so no placement selector can match it while it exists, and
+	// the suite deletes it afterwards.
+	placeholder, err := s.admin.ManagedClusters().Create(ctx, &sdktypes.ManagedCluster{
+		Name:             "e2e-placeholder-" + s.runID,
+		KubeconfigSecret: "e2e-placeholder-" + s.runID,
+	})
+	s.Require().NoError(err, "create placeholder managed cluster")
+	s.Require().Empty(placeholder.OidcSubject, "manually created cluster has no oidc_subject")
+	placeholderDeleted := false
+	deletePlaceholder := func() {
+		if placeholderDeleted {
+			return
+		}
+		placeholderDeleted = true
+		s.Assert().NoError(s.admin.ManagedClusters().Delete(context.WithoutCancel(ctx), placeholder.ID),
+			"delete placeholder managed cluster")
+	}
+	// Runs only if a Require below stops the step before the inline delete.
+	defer deletePlaceholder()
+	pinnedToPlaceholder := map[string]any{
+		"name":       "e2e-placeholder-gw-" + s.runID,
+		"cluster_id": placeholder.ID,
+	}
+	st, body, err = s.admin.RawJSON(ctx, http.MethodPost, "/gateways", pinnedToPlaceholder)
+	s.Require().NoError(err, "gateway create pinned to placeholder cluster")
+	s.Assert().Equalf(http.StatusBadRequest, st, "placeholder cluster_id must be 400 (body: %s)", string(body))
+	s.Assert().Containsf(strings.ToLower(string(body)), "cluster_id", "400 reason should name cluster_id (body: %s)", string(body))
+	s.Assert().Containsf(strings.ToLower(string(body)), "registered control plane", "400 reason should say the cluster has no registered control plane (body: %s)", string(body))
+	s.deleteUnexpectedlyCreatedGateway(ctx, st, body)
+	deletePlaceholder()
+	_, err = s.admin.ManagedClusters().Get(ctx, placeholder.ID)
+	s.Assert().Errorf(err, "placeholder managed cluster %s is gone after delete", placeholder.ID)
+
 	// 12g: a request with an empty cluster_id and no placement supplies neither side
 	// of the exactly-one-of contract and is rejected (PLAT-DATA-02). The explicit
 	// empty-string cluster_id is sent as-is rather than being injected with the
@@ -909,6 +946,7 @@ func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
 	st, body, err = s.admin.RawJSON(ctx, http.MethodPost, "/gateways", unbound)
 	s.Require().NoError(err, "gateway create with empty cluster_id and no placement")
 	s.Assert().Equalf(http.StatusBadRequest, st, "empty cluster_id with no placement must be 400 (body: %s)", string(body))
+	s.Assert().Containsf(strings.ToLower(string(body)), "cluster_id", "400 reason should name cluster_id (body: %s)", string(body))
 	s.deleteUnexpectedlyCreatedGateway(ctx, st, body)
 
 	// 12h: a placement selector with no cluster_id is the late-binding shape; the
