@@ -49,7 +49,7 @@ Gateway creation SHALL provision the gateway bootstrap admin. If an existing gat
 
 HyperShell SHALL reuse the same gateway bootstrap admin for later default-workspace bootstrap calls on that gateway. HyperShell SHALL NOT create a new ephemeral admin identity for each membership add.
 
-The gateway bootstrap admin SHALL hold only the OpenShell privileges required for trusted HyperShell gateway automation. Version 1 requires only the privilege needed to call `AddMember` for the gateway's `default` workspace.
+The gateway bootstrap admin SHALL be scoped to exactly one gateway. Version 1 uses the gateway-scoped OpenShell admin role required to call `AddMember` for the gateway's `default` workspace. Narrowing that role to a dedicated workspace-admin privilege is a follow-up OpenShell contract change; until then, HyperShell SHALL document and review this scoped-admin trade-off.
 
 #### Scenario: GTW-BOOT-01.01 -- New gateway receives a bootstrap admin
 
@@ -215,7 +215,7 @@ HyperShell SHALL audit each default-workspace bootstrap attempt with:
 - Outcome
 - Correlation ID
 
-HyperShell SHALL audit bootstrap-admin creation and gateway-deletion cleanup failures. Audit records SHALL NOT contain the gateway bootstrap admin credential.
+HyperShell SHALL audit bootstrap-admin creation and gateway-deletion cleanup failures. Bootstrap-admin creation SHALL be recorded as a Kubernetes Event in the gateway namespace. Gateway-deletion cleanup failures SHALL continue to be recorded through the existing Keycloak-client cleanup orphan Event. Audit records SHALL NOT contain the gateway bootstrap admin credential.
 
 Tests SHALL cover:
 
