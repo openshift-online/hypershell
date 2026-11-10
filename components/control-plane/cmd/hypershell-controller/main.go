@@ -405,6 +405,8 @@ func main() {
 			clusterID,
 			cfg.GatewayResources,
 			cfg.SandboxRuntimeClass,
+			cfg.OperatorNamespaceLabelKey,
+			cfg.OperatorSandboxRuntimeClass,
 		)
 		if grErr != nil {
 			slog.WarnContext(ctx, "Gateway reconciler disabled", "error", grErr)

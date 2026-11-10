@@ -25,18 +25,19 @@ import (
 
 type gatewayGRPCHandler struct {
 	pb.UnimplementedGatewayServiceServer
-	service         GatewayService
-	generic         services.GenericService
-	brokerFunc      func() *pkgserver.EventBroker
-	clusters        RegisteredClusterLookup
-	clusterSubjects pkgrbac.RegisteredClusterResolver
-	dedicatedRoute  dedicatedRouteAuthorizer
-	placement       PlacementResolver
-	sandboxEvents   sandboxEvents.SandboxEventStore
+	service           GatewayService
+	generic           services.GenericService
+	brokerFunc        func() *pkgserver.EventBroker
+	clusters          RegisteredClusterLookup
+	clusterSubjects   pkgrbac.RegisteredClusterResolver
+	dedicatedRoute    dedicatedRouteAuthorizer
+	operatorWorkspace operatorWorkspaceAuthorizer
+	placement         PlacementResolver
+	sandboxEvents     sandboxEvents.SandboxEventStore
 }
 
-func NewGatewayGRPCHandler(svc GatewayService, generic services.GenericService, brokerFunc func() *pkgserver.EventBroker, clusters RegisteredClusterLookup, clusterSubjects pkgrbac.RegisteredClusterResolver, dedicatedRoute dedicatedRouteAuthorizer, placement ...PlacementResolver) pb.GatewayServiceServer {
-	h := &gatewayGRPCHandler{service: svc, generic: generic, brokerFunc: brokerFunc, clusters: clusters, clusterSubjects: clusterSubjects, dedicatedRoute: dedicatedRoute}
+func NewGatewayGRPCHandler(svc GatewayService, generic services.GenericService, brokerFunc func() *pkgserver.EventBroker, clusters RegisteredClusterLookup, clusterSubjects pkgrbac.RegisteredClusterResolver, dedicatedRoute dedicatedRouteAuthorizer, operatorWorkspace operatorWorkspaceAuthorizer, placement ...PlacementResolver) pb.GatewayServiceServer {
+	h := &gatewayGRPCHandler{service: svc, generic: generic, brokerFunc: brokerFunc, clusters: clusters, clusterSubjects: clusterSubjects, dedicatedRoute: dedicatedRoute, operatorWorkspace: operatorWorkspace}
 	if len(placement) > 0 {
 		h.placement = placement[0]
 	}
@@ -124,7 +125,11 @@ func gatewayCreateRequestForbiddenField(req *pb.CreateGatewayRequest) string {
 		return "route"
 	case req.CredentialDriver != nil:
 		return "credential_driver"
-	case req.WorkspaceMode != nil:
+	case req.WorkspaceMode != nil && strings.TrimSpace(req.GetWorkspaceMode()) != operatorWorkspaceValue:
+		// workspace_mode is create-only user-writable, but "operator" is the only
+		// caller-settable value; shared/managed from a caller are rejected here
+		// (OSG-OPWS-01.04). An entitled "operator" passes this boundary and is
+		// authorized by operatorWorkspace.authorizeCreate below.
 		return "workspace_mode"
 	}
 	return ""
@@ -161,6 +166,14 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 	// control-plane create (explicit route or not) bypasses it; an import create is
 	// rejected by the service funnel with its own message.
 	if svcErr := h.dedicatedRoute.authorizeCreate(ctx, req.DedicatedRoute); svcErr != nil {
+		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+	}
+	// workspace_mode = operator is a create-only user-writable selection gated by the
+	// platform-wide gateway:operator-workspace-creator entitlement (or platform:admin).
+	// Body-dependent, so enforced here rather than in the gRPC authorization
+	// interceptor; a privileged control-plane create bypasses it, and an import create
+	// is rejected by the service funnel with its own message (OSG-OPWS-01 / SEC-RBAC-27).
+	if svcErr := h.operatorWorkspace.authorizeCreate(ctx, req.WorkspaceMode); svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
 	// cluster_id is optional: a gateway is either pinned to a cluster (cluster_id)

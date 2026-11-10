@@ -4359,6 +4359,12 @@
             "type": "object",
             "required": false,
             "description": "Late-bound placement by ManagedCluster capability-label selector. A non-empty selector list must be supplied."
+          },
+          {
+            "name": "workspace_mode",
+            "type": "string",
+            "required": false,
+            "description": "Create-only per-gateway operator-managed workspace opt-in. The only accepted value is \"operator\", which requires the gateway:operator-workspace-creator role (platform:admin also qualifies) and provisions the gateway with operator-owned workspace namespaces (OSG-OPWS-01). Omit for the default managed mode; shared and managed are platform-managed and not caller-settable. Immutable after creation."
           }
         ]
       },

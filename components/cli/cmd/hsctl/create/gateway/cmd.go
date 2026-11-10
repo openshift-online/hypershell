@@ -29,12 +29,14 @@ const longHelp = "Create a new gateway.\n\n" +
 	"  hsctl create gateway --name my-gw --placement-selector network/public --placement-selector provider/ibm\n" +
 	"  hsctl create gateway --name my-gw --placement-selector region/us-east-1 --placement-exclude-selector runtime/kata\n" +
 	"  hsctl create gateway --name my-gw --placement-selector provider/kind --dedicated-route\n" +
+	"  hsctl create gateway --name my-gw --placement-selector provider/oce --operator-workspaces\n" +
 	"  hsctl create gateway --name my-gw --dry-run --placement-selector network/public\n" +
 	"  hsctl create gateway --body request.json"
 
 type createGatewayArgs struct {
 	clusterId                string
 	dedicatedRoute           bool
+	operatorWorkspaces       bool
 	name                     string
 	bodyFile                 string
 	placementSelector        []string
@@ -60,6 +62,7 @@ func newCreateGatewayCommand() *cobra.Command {
 	fs := cmd.Flags()
 	fs.StringVar(&args.clusterId, "cluster-id", "", "Pin the gateway to this managed cluster (discover it via 'hsctl list managedClusters'). Mutually exclusive with the placement flags.")
 	fs.BoolVar(&args.dedicatedRoute, "dedicated-route", false, "Request the dedicated per-gateway route and wildcard certificate at creation. Requires the gateway:dedicated-route-creator role.")
+	fs.BoolVar(&args.operatorWorkspaces, "operator-workspaces", false, "Create the gateway in operator workspace mode (workspace_mode=operator): a trusted external operator owns the gateway's workspace namespaces. Requires the gateway:operator-workspace-creator role.")
 	fs.StringVar(&args.name, "name", "", "Gateway name.")
 	fs.StringVar(&args.bodyFile, "body", "", "File containing the request body as JSON.")
 	fs.StringArrayVar(&args.placementSelector, "placement-selector", nil, "Capability label the gateway's cluster must advertise (e.g. network/public, provider/ibm, provider/kind, region/us-east-1). Repeat the flag to require multiple labels. Mutually exclusive with --cluster-id.")
@@ -121,6 +124,9 @@ func run(args *createGatewayArgs, cmd *cobra.Command, argv []string) error {
 		}
 		if args.dedicatedRoute {
 			request["dedicated_route"] = args.dedicatedRoute
+		}
+		if args.operatorWorkspaces {
+			request["workspace_mode"] = "operator"
 		}
 		if args.name != "" {
 			request["name"] = args.name

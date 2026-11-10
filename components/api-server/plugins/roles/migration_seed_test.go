@@ -82,3 +82,62 @@ func TestDedicatedRouteCreatorRoleSeedIsIdempotent(t *testing.T) {
 		t.Errorf("%s must be JWT-synced", RoleGatewayDedicatedRouteCreator)
 	}
 }
+
+// TestOperatorWorkspaceCreatorRoleSeedIsIdempotent proves the built-in role
+// migration creates gateway:operator-workspace-creator with the expected built-in
+// properties, that re-running it is a no-op, that the runtime seed list covers it,
+// and that it is JWT-synced (SEC-RBAC-27).
+func TestOperatorWorkspaceCreatorRoleSeedIsIdempotent(t *testing.T) {
+	env := environments.Environment()
+	if env == nil || env.Database.SessionFactory == nil {
+		t.Fatal("test environment is not initialized")
+	}
+	session := env.Database.SessionFactory.New(context.Background())
+
+	if err := session.Unscoped().Where("name = ?", RoleGatewayOperatorWorkspaceCreator).Delete(&Role{}).Error; err != nil {
+		t.Fatalf("clear the seeded role: %s", err)
+	}
+
+	migration := migrationAddGatewayOperatorWorkspaceCreatorRole()
+	if err := migration.Migrate(session); err != nil {
+		t.Fatalf("first migration run: %s", err)
+	}
+	if err := migration.Migrate(session); err != nil {
+		t.Fatalf("second migration run must be a no-op: %s", err)
+	}
+
+	var seeded []Role
+	if err := session.Where("name = ?", RoleGatewayOperatorWorkspaceCreator).Find(&seeded).Error; err != nil {
+		t.Fatalf("read the seeded role: %s", err)
+	}
+	if len(seeded) != 1 {
+		t.Fatalf("seeded role rows = %d, want exactly 1", len(seeded))
+	}
+	role := seeded[0]
+	if !role.BuiltIn {
+		t.Error("seeded role must be built-in")
+	}
+	if role.DisplayName == nil || *role.DisplayName == "" {
+		t.Error("seeded role must have a display name")
+	}
+	if role.Description == nil || !strings.Contains(*role.Description, "operator") {
+		t.Errorf("seeded role description must explain the entitlement, got %v", role.Description)
+	}
+	if role.Permissions == nil || !strings.Contains(*role.Permissions, "request_operator_workspace") {
+		t.Errorf("seeded role permissions must carry the marker permission, got %v", role.Permissions)
+	}
+
+	found := false
+	for _, seed := range builtInRoleSeeds {
+		if seed.Name == RoleGatewayOperatorWorkspaceCreator {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("builtInRoleSeeds must include %s", RoleGatewayOperatorWorkspaceCreator)
+	}
+
+	if !JWTSyncedRoles[RoleGatewayOperatorWorkspaceCreator] {
+		t.Errorf("%s must be JWT-synced", RoleGatewayOperatorWorkspaceCreator)
+	}
+}

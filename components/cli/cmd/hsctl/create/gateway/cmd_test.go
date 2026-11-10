@@ -10,6 +10,7 @@ func TestPlacementFlagsExist(t *testing.T) {
 	for name, expectedType := range map[string]string{
 		"cluster-id":                 "string",
 		"dedicated-route":            "bool",
+		"operator-workspaces":        "bool",
 		"name":                       "string",
 		"body":                       "string",
 		"placement-selector":         "stringArray",
@@ -34,6 +35,7 @@ func TestHelpDocumentsBothShapesAndDryRun(t *testing.T) {
 		"--placement-selector network/public --placement-selector provider/ibm",
 		"--placement-selector region/us-east-1",
 		"--placement-selector provider/kind",
+		"--operator-workspaces",
 		"--dry-run",
 		"empty cluster_id",
 	} {

@@ -7,6 +7,7 @@ Name | Type | Description | Notes
 **Name** | **string** |  |
 **ClusterId** | Pointer to **string** | Pin the gateway to this managed cluster. Mutually exclusive with placement. | [optional]
 **DedicatedRoute** | Pointer to **bool** | Create-only. Requires the gateway:dedicated-route-creator role and opts the gateway in to a dedicated route and per-gateway wildcard certificate. The platform manages how the dedicated route and certificate are provided. | [optional]
+**WorkspaceMode** | Pointer to **string** | Create-only per-gateway operator-managed workspace opt-in. The only accepted value is \&quot;operator\&quot;, which requires the gateway:operator-workspace-creator role (platform:admin also qualifies) and provisions the gateway with operator-owned workspace namespaces (OSG-OPWS-01). Omit for the default managed mode; shared and managed are platform-managed and not caller-settable. Immutable after creation. | [optional]
 **Placement** | Pointer to [**GatewayPlacementIntent**](GatewayPlacementIntent.md) |  | [optional]
 
 ## Methods
@@ -97,6 +98,31 @@ SetDedicatedRoute sets DedicatedRoute field to given value.
 `func (o *GatewayCreateRequest) HasDedicatedRoute() bool`
 
 HasDedicatedRoute returns a boolean if a field has been set.
+
+### GetWorkspaceMode
+
+`func (o *GatewayCreateRequest) GetWorkspaceMode() string`
+
+GetWorkspaceMode returns the WorkspaceMode field if non-nil, zero value otherwise.
+
+### GetWorkspaceModeOk
+
+`func (o *GatewayCreateRequest) GetWorkspaceModeOk() (*string, bool)`
+
+GetWorkspaceModeOk returns a tuple with the WorkspaceMode field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetWorkspaceMode
+
+`func (o *GatewayCreateRequest) SetWorkspaceMode(v string)`
+
+SetWorkspaceMode sets WorkspaceMode field to given value.
+
+### HasWorkspaceMode
+
+`func (o *GatewayCreateRequest) HasWorkspaceMode() bool`
+
+HasWorkspaceMode returns a boolean if a field has been set.
 
 ### GetPlacement
 
