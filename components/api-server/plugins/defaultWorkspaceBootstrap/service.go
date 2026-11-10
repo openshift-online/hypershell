@@ -45,6 +45,8 @@ type service struct {
 	now         func() time.Time
 }
 
+const auditPersistenceTimeout = 5 * time.Second
+
 func NewService(dao Dao, provisioner Provisioner) Service {
 	return &service{dao: dao, provisioner: provisioner, now: time.Now}
 }
@@ -71,7 +73,9 @@ func (s *service) Bootstrap(ctx context.Context, input Input) *APIError {
 	} else {
 		attempt.Outcome = OutcomeSucceeded
 	}
-	if auditErr := s.dao.Create(context.Background(), attempt); auditErr != nil {
+	auditCtx, cancelAudit := context.WithTimeout(context.Background(), auditPersistenceTimeout)
+	defer cancelAudit()
+	if auditErr := s.dao.Create(auditCtx, attempt); auditErr != nil {
 		if bootstrapErr == nil {
 			slog.WarnContext(ctx, "Default-workspace bootstrap succeeded but its audit record could not be persisted",
 				"gateway_id", input.GatewayID,

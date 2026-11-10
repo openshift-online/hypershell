@@ -205,6 +205,8 @@ func providerError(err error) error {
 
 func defaultWorkspaceError(err error) error {
 	switch {
+	case errors.Is(err, defaultworkspace.ErrInvalidRequest):
+		return status.Error(codes.InvalidArgument, "default-workspace bootstrap request is invalid")
 	case errors.Is(err, context.Canceled):
 		return status.Error(codes.Canceled, "default-workspace bootstrap canceled")
 	case errors.Is(err, context.DeadlineExceeded):
