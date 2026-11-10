@@ -535,6 +535,8 @@ does not exist. "Former file" is the spec the ID lived in, relative to
 | `PLAT-ARCH-06` | `platform/global-architecture.spec.md` | - | Required OpenShift Route ingress mode, removed in issue #767. |
 | `PLAT-ARCH-06.01` | `platform/global-architecture.spec.md` | - | Retired with PLAT-ARCH-06. |
 | `PLAT-ARCH-06.04` | `platform/global-architecture.spec.md` | `PLAT-ARCH-05.02` | The Gateway API half of the ingress-teardown scenario moved under PLAT-ARCH-05. |
+| `PLAT-ARCH-09.01` | `platform/global-architecture.spec.md` | `PLAT-ARCH-09.03` | The `GATEWAY_INGRESS_MODE` override is gone; the Gateway API is required. |
+| `PLAT-ARCH-09.02` | `platform/global-architecture.spec.md` | `PLAT-ARCH-09.03` | Gateway API auto-detection is replaced by a required-Gateway-API check per reconcile. |
 | `OSG-CON-01.02` | `platform/openshell-gateway-console.spec.md` | - | Required a console OpenShift Route in Route ingress mode, removed in issue #767. |
 | `OSG-CON-05.02` | `platform/openshell-gateway-console.spec.md` | - | Required console OpenShift Route behaviour in Route ingress mode, removed in issue #767. |
 | `OSG-CON-05.03` | `platform/openshell-gateway-console.spec.md` | - | Required console OpenShift Route behaviour in Route ingress mode, removed in issue #767. |

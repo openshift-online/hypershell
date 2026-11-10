@@ -131,8 +131,7 @@ var consoleHTTPRouteGVR = schema.GroupVersionResource{
 	Resource: "httproutes",
 }
 
-// ConsoleExposureReady reports the readiness of the console exposure for the
-// selected ingress mode, AND that the exposure serves the console host derived
+// ConsoleExposureReady reports the readiness of the console HTTPRoute, AND that the exposure serves the console host derived
 // from the gateway's route config. A Gateway API HTTPRoute needs Accepted=True
 // and ResolvedRefs=True on one parent, its hostname must be the derived console
 // host, and its parentRef must target the Gateway that host is served by (the
@@ -149,19 +148,12 @@ var consoleHTTPRouteGVR = schema.GroupVersionResource{
 // wildcard DNS) to a Gateway with no listener for it -- would otherwise
 // advertise a URL that presents a mismatched certificate and is refused by
 // every browser.
-func ConsoleExposureReady(ctx context.Context, dynamicClient dynamic.Interface, nsConfig NamespaceConfig, ingressMode string) (ready bool, reason string, err error) {
+func ConsoleExposureReady(ctx context.Context, dynamicClient dynamic.Interface, nsConfig NamespaceConfig) (ready bool, reason string, err error) {
 	host, ok := deriveConsoleHost(nsConfig)
 	if !ok {
 		return false, "console host cannot be derived (GATEWAY_API_BASE_DOMAIN unset)", nil
 	}
-	switch ingressMode {
-	case IngressModeGatewayAPI:
-		return consoleHTTPRouteReady(ctx, dynamicClient, nsConfig, host)
-	case IngressModeNone:
-		return false, "no console ingress mode selected", nil
-	default:
-		return false, "", fmt.Errorf("unsupported console ingress mode %q", ingressMode)
-	}
+	return consoleHTTPRouteReady(ctx, dynamicClient, nsConfig, host)
 }
 
 // consoleHTTPRouteReady reports the readiness of the console HTTPRoute for
@@ -358,8 +350,7 @@ func DeleteConsole(ctx context.Context, dynamicClient dynamic.Interface, clients
 }
 
 // reconcileConsole deploys the per-gateway OpenShell dashboard and its
-// oauth2-proxy sidecar. It uses the selected gateway ingress mode for the
-// console exposure. Missing prerequisites are logged and skipped without a
+// oauth2-proxy sidecar, exposed through a Gateway API HTTPRoute. Missing prerequisites are logged and skipped without a
 // gateway reconciliation failure.
 //
 // The Keycloak work (client, mappers, secret) is treated as one atomic step:
@@ -369,11 +360,6 @@ func DeleteConsole(ctx context.Context, dynamicClient dynamic.Interface, clients
 func reconcileConsole(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, nsConfig NamespaceConfig, opts ReconcileOpts, images ImageDefaults) error {
 	namespace := nsConfig.Name
 
-	ingressMode := gatewayIngressMode(opts)
-	if ingressMode == IngressModeNone {
-		slog.WarnContext(ctx, "Console: no ingress mode selected; skipping console", "namespace", namespace)
-		return nil
-	}
 	if opts.Keycloak == nil {
 		slog.WarnContext(ctx, "Console: Keycloak not configured; skipping console", "namespace", namespace)
 		return nil
@@ -476,7 +462,7 @@ func reconcileConsole(ctx context.Context, dynamicClient dynamic.Interface, clie
 		return fmt.Errorf("reconcile console Service in %s: %w", namespace, err)
 	}
 
-	if err := reconcileConsoleExposure(ctx, dynamicClient, nsConfig, host, ingressMode); err != nil {
+	if err := reconcileConsoleExposure(ctx, dynamicClient, nsConfig, host); err != nil {
 		return fmt.Errorf("reconcile console exposure in %s: %w", namespace, err)
 	}
 
@@ -487,21 +473,18 @@ func reconcileConsole(ctx context.Context, dynamicClient dynamic.Interface, clie
 	// observed Ready (and retracts it if the pod later goes unready), gating the
 	// button on a servable console. See openshell-gateway-console.spec.md.
 
-	// The log names where the console parents in Gateway API mode: the
-	// per-tenant Gateway's sandbox listener for the per-gateway certificate
-	// opt-in, the shared Gateway's HTTP listener otherwise.
-	switch {
-	case ingressMode == IngressModeGatewayAPI && nsConfig.Gateway.Route.Certificate != nil:
+	// The log names where the console parents: the per-tenant Gateway's
+	// sandbox listener for the per-gateway certificate opt-in, the shared
+	// Gateway's HTTP listener otherwise.
+	if nsConfig.Gateway.Route.Certificate != nil {
 		slog.InfoContext(ctx, "Console reconciled",
 			"namespace", namespace,
 			"host", host,
 			"gateway", "gw-"+namespace,
 			"listener", "sandbox",
 		)
-	case ingressMode == IngressModeGatewayAPI:
+	} else {
 		slog.InfoContext(ctx, "Console reconciled", "namespace", namespace, "host", host, "listener", sharedGatewayListenerName())
-	default:
-		slog.InfoContext(ctx, "Console reconciled", "namespace", namespace, "host", host)
 	}
 	return nil
 }
@@ -883,15 +866,11 @@ func buildConsoleHTTPRoute(namespace, host string, perGatewayCertificate bool) *
 	}
 }
 
-// reconcileConsoleExposure creates the console HTTPRoute. The console is only
-// exposed through the Gateway API.
-func reconcileConsoleExposure(ctx context.Context, dynamicClient dynamic.Interface, nsConfig NamespaceConfig, host, ingressMode string) error {
-	if ingressMode != IngressModeGatewayAPI {
-		return fmt.Errorf("unsupported console ingress mode %q", ingressMode)
-	}
+// reconcileConsoleExposure creates the console HTTPRoute.
+func reconcileConsoleExposure(ctx context.Context, dynamicClient dynamic.Interface, nsConfig NamespaceConfig, host string) error {
 	desired := buildConsoleHTTPRoute(nsConfig.Name, host, nsConfig.Gateway.Route.Certificate != nil)
 	if err := reconcileResource(ctx, dynamicClient, desired); err != nil {
-		return fmt.Errorf("reconcile selected %s exposure: %w", ingressMode, err)
+		return fmt.Errorf("reconcile console HTTPRoute: %w", err)
 	}
 	return nil
 }

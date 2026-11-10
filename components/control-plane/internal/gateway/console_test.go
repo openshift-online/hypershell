@@ -237,7 +237,7 @@ func TestConsoleExposureReadyHTTPRoute(t *testing.T) {
 			routeCondition("Accepted", "True", "Accepted"),
 			routeCondition("ResolvedRefs", "True", "ResolvedRefs"),
 		}))
-		ready, reason, err := ConsoleExposureReady(ctx, client, NamespaceConfig{Name: ns}, IngressModeGatewayAPI)
+		ready, reason, err := ConsoleExposureReady(ctx, client, NamespaceConfig{Name: ns})
 		if err != nil {
 			t.Fatalf("ConsoleExposureReady: %v", err)
 		}
@@ -251,7 +251,7 @@ func TestConsoleExposureReadyHTTPRoute(t *testing.T) {
 			routeCondition("Accepted", "False", "NoMatchingListenerHostname"),
 			routeCondition("ResolvedRefs", "True", "ResolvedRefs"),
 		}))
-		ready, reason, err := ConsoleExposureReady(ctx, client, NamespaceConfig{Name: ns}, IngressModeGatewayAPI)
+		ready, reason, err := ConsoleExposureReady(ctx, client, NamespaceConfig{Name: ns})
 		if err != nil {
 			t.Fatalf("ConsoleExposureReady: %v", err)
 		}
@@ -268,7 +268,7 @@ func TestConsoleExposureReadyHTTPRoute(t *testing.T) {
 			routeCondition("Accepted", "True", "Accepted"),
 			routeCondition("ResolvedRefs", "False", "BackendNotFound"),
 		}))
-		ready, reason, err := ConsoleExposureReady(ctx, client, NamespaceConfig{Name: ns}, IngressModeGatewayAPI)
+		ready, reason, err := ConsoleExposureReady(ctx, client, NamespaceConfig{Name: ns})
 		if err != nil {
 			t.Fatalf("ConsoleExposureReady: %v", err)
 		}
@@ -282,7 +282,7 @@ func TestConsoleExposureReadyHTTPRoute(t *testing.T) {
 
 	t.Run("no parent status yet is not ready", func(t *testing.T) {
 		client := newConsoleRouteDynamicClient(consoleHTTPRouteWithConditions(ns, nil))
-		ready, _, err := ConsoleExposureReady(ctx, client, NamespaceConfig{Name: ns}, IngressModeGatewayAPI)
+		ready, _, err := ConsoleExposureReady(ctx, client, NamespaceConfig{Name: ns})
 		if err != nil {
 			t.Fatalf("ConsoleExposureReady: %v", err)
 		}
@@ -293,7 +293,7 @@ func TestConsoleExposureReadyHTTPRoute(t *testing.T) {
 
 	t.Run("missing route is not ready without error", func(t *testing.T) {
 		client := newConsoleRouteDynamicClient()
-		ready, reason, err := ConsoleExposureReady(ctx, client, NamespaceConfig{Name: ns}, IngressModeGatewayAPI)
+		ready, reason, err := ConsoleExposureReady(ctx, client, NamespaceConfig{Name: ns})
 		if err != nil {
 			t.Fatalf("ConsoleExposureReady on missing route should not error: %v", err)
 		}
@@ -344,7 +344,7 @@ func TestConsoleExposureReadyDedicatedRouteHostAndParent(t *testing.T) {
 			},
 		}, "spec", "parentRefs")
 		client := newConsoleRouteDynamicClient(route)
-		ready, reason, err := ConsoleExposureReady(ctx, client, dedicated, IngressModeGatewayAPI)
+		ready, reason, err := ConsoleExposureReady(ctx, client, dedicated)
 		if err != nil {
 			t.Fatalf("ConsoleExposureReady: %v", err)
 		}
@@ -358,7 +358,7 @@ func TestConsoleExposureReadyDedicatedRouteHostAndParent(t *testing.T) {
 		// healthy by every pre-existing readiness signal, but it does not serve
 		// the dedicated console host the gateway's route opt-in derives.
 		client := newConsoleRouteDynamicClient(consoleHTTPRouteWithConditions(ns, accepted))
-		ready, reason, err := ConsoleExposureReady(ctx, client, dedicated, IngressModeGatewayAPI)
+		ready, reason, err := ConsoleExposureReady(ctx, client, dedicated)
 		if err != nil {
 			t.Fatalf("ConsoleExposureReady: %v", err)
 		}
@@ -374,7 +374,7 @@ func TestConsoleExposureReadyDedicatedRouteHostAndParent(t *testing.T) {
 		route := consoleHTTPRouteWithConditions(ns, accepted)
 		_ = unstructured.SetNestedStringSlice(route.Object, []string{consoleDedicatedTestHost(ns)}, "spec", "hostnames")
 		client := newConsoleRouteDynamicClient(route)
-		ready, reason, err := ConsoleExposureReady(ctx, client, dedicated, IngressModeGatewayAPI)
+		ready, reason, err := ConsoleExposureReady(ctx, client, dedicated)
 		if err != nil {
 			t.Fatalf("ConsoleExposureReady: %v", err)
 		}
@@ -413,7 +413,7 @@ func TestReconcileConsoleExposureCreatesHTTPRoute(t *testing.T) {
 
 	client := newConsoleRouteDynamicClient()
 	for pass := 1; pass <= 2; pass++ {
-		if err := reconcileConsoleExposure(context.Background(), client, NamespaceConfig{Name: namespace}, host, IngressModeGatewayAPI); err != nil {
+		if err := reconcileConsoleExposure(context.Background(), client, NamespaceConfig{Name: namespace}, host); err != nil {
 			t.Fatalf("reconcileConsoleExposure pass %d: %v", pass, err)
 		}
 	}
@@ -425,16 +425,6 @@ func TestReconcileConsoleExposureCreatesHTTPRoute(t *testing.T) {
 	hostnames, _, _ := unstructured.NestedStringSlice(route.Object, "spec", "hostnames")
 	if len(hostnames) != 1 || hostnames[0] != host {
 		t.Errorf("console HTTPRoute hostnames = %v, want [%s]", hostnames, host)
-	}
-}
-
-// Without managed ingress there is no console exposure to build, so the
-// reconcile must fail loudly rather than report success.
-func TestReconcileConsoleExposureRequiresGatewayAPI(t *testing.T) {
-	client := newConsoleRouteDynamicClient()
-	err := reconcileConsoleExposure(context.Background(), client, NamespaceConfig{Name: "openshell-abc"}, "console.example.com", IngressModeNone)
-	if err == nil {
-		t.Fatal("expected an error when no ingress mode is selected")
 	}
 }
 
@@ -677,7 +667,7 @@ func TestReconcileConsoleExposurePerGatewayCertificate(t *testing.T) {
 	}
 	host := "console-openshell-abc.gw-openshell-abc.spoke.example.com"
 	client := newConsoleRouteDynamicClient()
-	if err := reconcileConsoleExposure(context.Background(), client, nsConfig, host, IngressModeGatewayAPI); err != nil {
+	if err := reconcileConsoleExposure(context.Background(), client, nsConfig, host); err != nil {
 		t.Fatalf("reconcileConsoleExposure: %v", err)
 	}
 

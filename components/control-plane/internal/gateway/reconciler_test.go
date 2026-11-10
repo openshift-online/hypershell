@@ -42,7 +42,7 @@ func TestRouteResourcesAbsent(t *testing.T) {
 	t.Run("all absent returns true", func(t *testing.T) {
 		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
 		cs := k8sfake.NewSimpleClientset()
-		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, IngressModeGatewayAPI, nil, "")
+		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, nil, "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -56,7 +56,7 @@ func TestRouteResourcesAbsent(t *testing.T) {
 			labeledResource("gateway.networking.k8s.io/v1", "GRPCRoute", ns, "openshell-gateway", true),
 		)
 		cs := k8sfake.NewSimpleClientset()
-		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, IngressModeGatewayAPI, nil, "")
+		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, nil, "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -65,31 +65,22 @@ func TestRouteResourcesAbsent(t *testing.T) {
 		}
 	})
 
-	for _, tc := range []struct {
-		name string
-		mode string
-	}{
-		{name: "gateway api mode probes a leftover console HTTPRoute", mode: IngressModeGatewayAPI},
-		{name: "none mode still probes a leftover console HTTPRoute", mode: IngressModeNone},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds(),
-				labeledResource("gateway.networking.k8s.io/v1", "HTTPRoute", ns, consoleName, true),
-			)
-			cs := k8sfake.NewSimpleClientset()
-			absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, tc.mode, nil, "")
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if absent {
-				t.Fatal("want absent=false when the console HTTPRoute reappeared")
-			}
-		})
-	}
+	t.Run("a leftover console HTTPRoute returns false", func(t *testing.T) {
+		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds(),
+			labeledResource("gateway.networking.k8s.io/v1", "HTTPRoute", ns, consoleName, true),
+		)
+		cs := k8sfake.NewSimpleClientset()
+		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, nil, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if absent {
+			t.Fatal("want absent=false when the console HTTPRoute reappeared")
+		}
+	})
 
-	// Dedicated-certificate resources are probed unconditionally in Gateway API
-	// mode: they exist only for opted-in gateways, so a residual one after
-	// teardown means cleanup has not converged and must block the settled state.
+	// Dedicated-certificate resources are probed unconditionally: they exist
+	// only for opted-in gateways, so a residual one after teardown means cleanup has not converged and must block the settled state.
 	// The objects are seeded through the exact GVRs the probes use because the
 	// fake client's constructor pluralizes "Gateway" naively ("gatewaies").
 	for _, tc := range []struct {
@@ -121,7 +112,7 @@ func TestRouteResourcesAbsent(t *testing.T) {
 			dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
 			seedDynamicResource(t, dc, tc.gvr, tc.kind, ns, tc.objName)
 			cs := k8sfake.NewSimpleClientset()
-			absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, IngressModeGatewayAPI, nil, "")
+			absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, nil, "")
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -136,7 +127,7 @@ func TestRouteResourcesAbsent(t *testing.T) {
 		cs := k8sfake.NewSimpleClientset(&corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "openshell-gateway-backend-ca"},
 		})
-		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, IngressModeGatewayAPI, nil, "")
+		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, nil, "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -151,7 +142,7 @@ func TestRouteResourcesAbsent(t *testing.T) {
 		cs.PrependReactor("get", "configmaps", func(k8stesting.Action) (bool, runtime.Object, error) {
 			return true, nil, fmt.Errorf("apiserver unavailable")
 		})
-		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, IngressModeGatewayAPI, nil, "")
+		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, nil, "")
 		if err == nil {
 			t.Fatal("want an error when a probe cannot observe the resource")
 		}
@@ -167,7 +158,7 @@ func TestRouteResourcesAbsent(t *testing.T) {
 		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
 		cs := k8sfake.NewSimpleClientset()
 		checker := &fakeConsoleClientChecker{exists: true}
-		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, IngressModeGatewayAPI, checker, "gw-1-console")
+		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, checker, "gw-1-console")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -182,7 +173,7 @@ func TestRouteResourcesAbsent(t *testing.T) {
 		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
 		cs := k8sfake.NewSimpleClientset()
 		checker := &fakeConsoleClientChecker{err: fmt.Errorf("keycloak unreachable")}
-		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, IngressModeGatewayAPI, checker, "gw-1-console")
+		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, checker, "gw-1-console")
 		if err == nil {
 			t.Fatal("want an error when the Keycloak client cannot be observed")
 		}
@@ -197,7 +188,7 @@ func TestRouteResourcesAbsent(t *testing.T) {
 		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
 		cs := k8sfake.NewSimpleClientset()
 		checker := &fakeConsoleClientChecker{exists: false}
-		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, IngressModeGatewayAPI, checker, "gw-1-console")
+		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, checker, "gw-1-console")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -271,12 +262,15 @@ func TestDeleteLabeledNamespaceResources(t *testing.T) {
 		svcGVR:                                  "ServiceList",
 		secretGVR:                               "SecretList",
 		{Version: "v1", Resource: "configmaps"}: "ConfigMapList",
-		{Version: "v1", Resource: "serviceaccounts"}:                                  "ServiceAccountList",
-		{Version: "v1", Resource: "persistentvolumeclaims"}:                           "PersistentVolumeClaimList",
-		{Group: "batch", Version: "v1", Resource: "jobs"}:                             "JobList",
-		{Group: "networking.k8s.io", Version: "v1", Resource: "networkpolicies"}:      "NetworkPolicyList",
-		{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "roles"}:        "RoleList",
-		{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "rolebindings"}: "RoleBindingList",
+		{Version: "v1", Resource: "serviceaccounts"}:                                        "ServiceAccountList",
+		{Version: "v1", Resource: "persistentvolumeclaims"}:                                 "PersistentVolumeClaimList",
+		{Group: "batch", Version: "v1", Resource: "jobs"}:                                   "JobList",
+		{Group: "networking.k8s.io", Version: "v1", Resource: "networkpolicies"}:            "NetworkPolicyList",
+		{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "roles"}:              "RoleList",
+		{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "rolebindings"}:       "RoleBindingList",
+		{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"}:           "GatewayList",
+		{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "grpcroutes"}:         "GRPCRouteList",
+		{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "backendtlspolicies"}: "BackendTLSPolicyList",
 	}
 
 	dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), gvrToListKind,
@@ -469,7 +463,7 @@ func TestReconcileGatewayAPIResourcesDedicatedCertificate(t *testing.T) {
 				Certificate: &RouteCertificateConfig{},
 			}},
 		}
-		if err := reconcileGatewayAPIRouteResources(context.Background(), dc, cs, nsConfig, ReconcileOpts{HasGatewayAPI: true}); err != nil {
+		if err := reconcileGatewayAPIRouteResources(context.Background(), dc, cs, nsConfig, ReconcileOpts{}); err != nil {
 			t.Fatalf("reconcileGatewayAPIRouteResources: %v", err)
 		}
 		return dc, cs
@@ -693,7 +687,7 @@ func TestReconcileGatewayAPIResourcesDedicatedCertificateRequiresIssuer(t *testi
 		Gateway: GatewayConfig{Route: RouteConfig{Enabled: true, Certificate: &RouteCertificateConfig{}}},
 	}
 
-	err := reconcileGatewayAPIRouteResources(context.Background(), dc, cs, nsConfig, ReconcileOpts{HasGatewayAPI: true})
+	err := reconcileGatewayAPIRouteResources(context.Background(), dc, cs, nsConfig, ReconcileOpts{})
 	if err == nil {
 		t.Fatal("expected an error when GATEWAY_EXTERNAL_ISSUER is unset")
 	}
@@ -733,7 +727,7 @@ func TestReconcileGatewayAPIResourcesSharedGatewayUnchanged(t *testing.T) {
 		}},
 	}
 
-	if err := reconcileGatewayAPIRouteResources(context.Background(), dc, cs, nsConfig, ReconcileOpts{HasGatewayAPI: true}); err != nil {
+	if err := reconcileGatewayAPIRouteResources(context.Background(), dc, cs, nsConfig, ReconcileOpts{}); err != nil {
 		t.Fatalf("reconcileGatewayAPIRouteResources: %v", err)
 	}
 

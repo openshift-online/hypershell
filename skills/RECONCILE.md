@@ -535,12 +535,12 @@ The first gap analysis found a race between the event-driven reconciler and the 
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| GC-1 | Console enablement follows the selected ingress mode | Present | - | `control-plane/internal/gateway/{reconciler.go,console.go}`, `reconciler/health.go` | GC-W1 |
+| GC-1 | Console enablement follows the gateway route | Present | - | `control-plane/internal/gateway/{reconciler.go,console.go}`, `reconciler/health.go` | GC-W1 |
 | GC-2 | Confidential console Keycloak client | Present | - | `control-plane/internal/keycloak/client.go`, `gateway/console.go` | - |
 | GC-3 | Stable console credential Secret | Present | - | `control-plane/internal/gateway/console.go` | - |
 | GC-4 | Console Deployment | Present | - | `control-plane/internal/gateway/console.go` | - |
-| GC-5 | Service and mode-selected HTTP exposure | Present | - | `control-plane/internal/gateway/console.go`, `deploy/base/controller-rbac.yaml` | GC-W1 |
-| GC-6 | Console NetworkPolicies | Present | The policy source uses the configured ingress namespace and supports both ingress controllers. | `control-plane/internal/gateway/console.go` | - |
+| GC-5 | Service and HTTPRoute exposure | Present | - | `control-plane/internal/gateway/console.go`, `deploy/base/controller-rbac.yaml` | GC-W1 |
+| GC-6 | Console NetworkPolicies | Present | The policy source uses the configured ingress namespace. | `control-plane/internal/gateway/console.go` | - |
 | GC-7 | Console lifecycle and cleanup | Present | - | `control-plane/internal/gateway/{console.go,reconciler.go}`, `reconciler/health.go` | GC-W1 |
 | GC-8 | Provisioning atomicity and idempotency | Present | - | `control-plane/internal/gateway/console.go`, `internal/keycloak/client.go` | - |
 | GC-9 | Console address discovery | Present | - | `control-plane/internal/reconciler/reconciler.go`, `gateway/console.go` | GC-W1 |
@@ -548,8 +548,6 @@ The first gap analysis found a race between the event-driven reconciler and the 
 **Scoped analysis notes:**
 
 - The API, data model, SDKs, CLI, Keycloak client, Secret, Deployment, Service, and NetworkPolicy contracts need no change.
-- GC-W1 added the OpenShift Route adapter and made provisioning, readiness, cleanup, and health repair use the selected ingress mode.
-- The base controller role permits Route CRUD and create and update access to `routes/custom-host` because the console Route sets `spec.host`.
 
 ### openshift-development.spec.md (local-dev lifecycle)
 
@@ -716,9 +714,9 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
 | R1 | Router NetworkPolicy | Partial | Uses namespaceSelector not podSelector; created unconditionally | `reconcileRouterNetworkPolicy()` | W7 |
-| R2 | Gateway API detection at startup | Present | - | `DetectGatewayAPI()` | W4 ✅ |
+| R2 | Gateway API check on every gateway reconcile | Present | - | `requireGatewayAPI()` | W4 ✅ |
 | R3 | `GATEWAY_API_GATEWAY_NAME` env var (required) | Present | Controller requires this env var to reference the pre-existing shared Gateway | `reconciler.go` | W8 ✅ |
-| R4 | Gateway API not available: disable + log | Present | - | `reconciler.go:76-80` | W4 ✅ |
+| R4 | Gateway API not available: gateway reconcile fails with a clear condition and retries | Present | - | `ReconcileGateway()` | W4 ✅ |
 | R5 | `route` config field (host, enabled) | Present | - | `config.go:17-20` | W4 ✅ |
 | R6 | Auto-derived hostname convention | Partial | Extra `.hsgw.` subdomain vs spec | `reconciler.go:727-731` | W8 |
 | R7 | DNS label validation (63-char limit) | Not needed | Shortened namespace (26 chars) + `gw-` prefix keeps all derived names under 63 chars | - | - |
@@ -1395,7 +1393,7 @@ lint, alignment, and review checks pass.
 **Dependency:** Existing Gateway Console and Route ingress implementations
 **Status:** Complete
 
-1. Select console exposure from the effective gateway ingress mode.
+1. Select console exposure from the gateway's exposure kind.
 2. Create an edge-terminated OpenShift Route for `openshell-console` in Route mode.
 3. Observe HTTPRoute acceptance or OpenShift Route admission for address publication.
 4. Reconcile initial provisioning, health repair, inactive exposure removal, and teardown for both modes.
@@ -1403,7 +1401,7 @@ lint, alignment, and review checks pass.
 6. Add unit tests for resource shape, readiness, mode selection, and cleanup.
 7. Run control-plane build, vet, test, alignment, and review checks.
 
-**GC-W1 summary:** Added an edge-terminated OpenShift Route for the console, selected readiness by ingress mode, removed inactive console exposures, aligned route-enable semantics, and added custom-host RBAC. The complete control-plane test suite, affected-package race tests, vet, lint, build, Kustomize renders, alignment scan, and independent review passed.
+**GC-W1 summary:** Added an edge-terminated OpenShift Route for the console, selected readiness by exposure kind, removed inactive console exposures, aligned route-enable semantics, and added custom-host RBAC. The complete control-plane test suite, affected-package race tests, vet, lint, build, Kustomize renders, alignment scan, and independent review passed.
 
 ### HYPERSHELL-49 OpenShellGatewayServiceAccount waves
 

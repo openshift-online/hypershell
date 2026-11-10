@@ -70,23 +70,18 @@ func TestSelfHealConsole_NoOpWhenUnconfigured(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("no keycloak config", func(t *testing.T) {
-		h := &GatewayHealthReconciler{ingressMode: gateway.IngressModeGatewayAPI} // keycloakConfig nil
-		h.selfHealConsole(ctx, "gw-1", routedGateway("gw-1", "openshell-abc"))
-	})
-
-	t.Run("no selected ingress", func(t *testing.T) {
-		h := &GatewayHealthReconciler{keycloakConfig: &gateway.KeycloakConfig{}}
+		h := &GatewayHealthReconciler{} // keycloakConfig nil
 		h.selfHealConsole(ctx, "gw-1", routedGateway("gw-1", "openshell-abc"))
 	})
 
 	t.Run("not a routed gateway", func(t *testing.T) {
-		h := &GatewayHealthReconciler{ingressMode: gateway.IngressModeGatewayAPI, keycloakConfig: &gateway.KeycloakConfig{}}
+		h := &GatewayHealthReconciler{keycloakConfig: &gateway.KeycloakConfig{}}
 		h.selfHealConsole(ctx, "gw-1", &pb.Gateway{Metadata: &pb.ObjectReference{Id: "gw-1"}, Namespace: "openshell-abc"})
 	})
 
 	t.Run("route explicitly disabled", func(t *testing.T) {
 		route := `{"enabled":false}`
-		h := &GatewayHealthReconciler{ingressMode: gateway.IngressModeGatewayAPI, keycloakConfig: &gateway.KeycloakConfig{}}
+		h := &GatewayHealthReconciler{keycloakConfig: &gateway.KeycloakConfig{}}
 		h.selfHealConsole(ctx, "gw-1", &pb.Gateway{
 			Metadata:  &pb.ObjectReference{Id: "gw-1"},
 			Namespace: "openshell-abc",
@@ -185,7 +180,7 @@ func TestSyncConsoleAddressUsesSelectedHTTPRouteExposure(t *testing.T) {
 			gw := routedGateway("gw-1", namespace)
 			gw.ConsoleAddress = &tc.current
 
-			ready := syncConsoleAddress(context.Background(), clientset, dynamicClient, client, "gw-1", gw, gateway.IngressModeGatewayAPI)
+			ready := syncConsoleAddress(context.Background(), clientset, dynamicClient, client, "gw-1", gw)
 			if ready != tc.wantReady {
 				t.Fatalf("ready = %v, want %v", ready, tc.wantReady)
 			}
@@ -221,7 +216,6 @@ func TestSyncConsoleAddressClearsAddressWithoutBaseDomain(t *testing.T) {
 		client,
 		"gw-1",
 		gw,
-		gateway.IngressModeGatewayAPI,
 	)
 	if ready {
 		t.Fatal("ready = true, want false without a base domain")
@@ -345,7 +339,7 @@ func TestSyncConsoleAddressDedicatedRouteMismatchRetractsAddress(t *testing.T) {
 		ConsoleAddress: strPtr("https://console-" + namespace + ".gw-" + namespace + ".apps.example.com"),
 	}
 
-	ready := syncConsoleAddress(context.Background(), clientset, dynamicClient, client, "gw-1", gw, gateway.IngressModeGatewayAPI)
+	ready := syncConsoleAddress(context.Background(), clientset, dynamicClient, client, "gw-1", gw)
 	if ready {
 		t.Fatal("ready = true, want false when the exposure serves the shared host of a dedicated-route gateway")
 	}
@@ -741,7 +735,6 @@ func newSettledHealthRec(clientset kubernetes.Interface, gatewayID string) *Gate
 	now := fixedClock(time.Unix(2000, 0))
 	h := &GatewayHealthReconciler{
 		clientset:               clientset,
-		ingressMode:             gateway.IngressModeNone,
 		now:                     now,
 		deploymentReadyTimeout:  defaultDeploymentReadyTimeout,
 		routeNotReadySince:      make(map[string]time.Time),
@@ -759,15 +752,17 @@ func newSettledHealthRec(clientset kubernetes.Interface, gatewayID string) *Gate
 	return h
 }
 
-// nonRoutedGateway builds a Gateway with no route configured, so the health loop
+// nonRoutedGateway builds a Gateway with routing disabled, so the health loop
 // takes the non-routed path (no exposure/console work) and its phase is decided by
 // the Deployment rollout alone.
 func nonRoutedGateway(id, namespace, phase, status string) *pb.Gateway {
+	route := `{"enabled":false}`
 	return &pb.Gateway{
 		Metadata:  &pb.ObjectReference{Id: id},
 		Namespace: namespace,
 		Phase:     &phase,
 		Status:    &status,
+		Route:     &route,
 	}
 }
 

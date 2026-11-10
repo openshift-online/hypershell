@@ -220,9 +220,6 @@ The `deploy/openshift` overlay (base for all cloud deployments) sets:
   `HTTPRoute`s attach to
 - `deploy/base/platform-resources/controller-rbac.yaml` - cluster-wide RBAC for tenant reconciliation
 
-`GATEWAY_INGRESS_MODE` stays unset, so the controller uses the Gateway API it
-detects.
-
 **Upgrade to `:latest` images** (the pinned digest images lack OIDC support):
 
 ```bash

@@ -249,7 +249,7 @@ values in `deploy/base/platform-resources/controller.yaml` and reapply the deplo
 | PostgreSQL storage | `emptyDir` | PersistentVolume via cluster StorageClass |
 | OIDC | mock / disabled | Keycloak-backed, JWT required for all API access (except `/healthcheck` and OpenAPI) |
 | Auth | disabled (dev) | OIDC/JWT enabled by default; RBAC enforced on API server |
-| Controller ingress mode | Gateway API (`deploy/kind/gateway.yaml`) | Gateway API on the shared Gateway; `GATEWAY_INGRESS_MODE` accepts `gateway-api` or `none` (unset: Gateway API when detected) |
+| Tenant gateway ingress | Gateway API (`deploy/kind/gateway.yaml`) | Gateway API on the shared Gateway (required; without it gateway reconciles fail) |
 
 ## Troubleshooting
 
@@ -365,7 +365,7 @@ The steps above use generic OpenShift defaults. On specific cloud providers, ove
 |-----------|-----------|-----------|----------|
 | Cluster login | `oc login https://api.<cluster>.<id>.us-west-2.amaoznamazonaws.com:6443` | `ibmcloud oc cluster config -c <cluster>` | `oc login https://api.<cluster>.<id>.openshiftapps.com:6443` |
 | Base domain | `apps.<cluster>.<id>.us-west-2.amazonamazonaws.com` | `<ingress-subdomain>` (IBM-provided) | `apps.<cluster>.<id>.openshiftapps.com` |
-| Ingress mode | `gateway-api` (via `cloud-hub-ingress-bootstrap`) | `gateway-api` (via `cloud-hub-ingress-bootstrap`, ROKS >= 4.22) | `gateway-api` (via `cloud-hub-ingress-bootstrap`) |
+| Tenant ingress | Gateway API (via `cloud-hub-ingress-bootstrap`) | Gateway API (via `cloud-hub-ingress-bootstrap`, ROKS >= 4.22) | Gateway API (via `cloud-hub-ingress-bootstrap`) |
 | Cert-manager | Install via OperatorHub | Release manifest; mirror + apply manually when worker egress is closed | Install via OperatorHub |
 | Image sourcing | Build or use `:latest` | Published images once worker egress is open; otherwise **mirror all images** into the internal registry | Use published `:latest` (full egress) |
 | Tenant database | Externally provisioned server; admin credentials + CA in the `hypershell-gateway-database-admin` Secret mounted into the controller | Same (IBM Cloud Databases) | Same (cloud-managed PostgreSQL) |

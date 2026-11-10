@@ -316,15 +316,13 @@ Traffic destined for the actual managed gRPC gateways bypasses the default OpenS
 
 This architecture allows the control plane to dynamically route traffic for new OpenShell Gateways without needing to provision individual load balancers or DNS records per tenant.
 
-### Tenant gateway ingress mode
+### Tenant gateway ingress
 
-Tenant gateways are exposed through the Kubernetes Gateway API. The control
-plane can also run with no managed ingress:
+Tenant gateways are exposed only through the Kubernetes Gateway API:
 
-| Mode | Routing object | When it applies | Externally provisioned by |
-|------|----------------|-----------------|---------------------------|
-| **`gateway-api`** | `GRPCRoute` → shared `Gateway` | Gateway API detected, or `GATEWAY_INGRESS_MODE=gateway-api` | Shared `Gateway` + wildcard cert + Route53 CNAME |
-| **`none`** | none | `GATEWAY_INGRESS_MODE=none`, or no Gateway API detected | - |
+| Routing object | Externally provisioned by |
+|----------------|---------------------------|
+| `GRPCRoute` → shared `Gateway` | Shared `Gateway` + wildcard cert + Route53 CNAME |
 
 The tenant workload presents two server
 certificates by SNI (the dual-certificate model from
@@ -348,10 +346,8 @@ server-side transport encryption only; callers are authenticated by OIDC.
 The shared `Gateway` terminates the client's TLS and re-encrypts to the
 backend, validated by a `BackendTLSPolicy`.
 
-The mode is set by the control-plane env var `GATEWAY_INGRESS_MODE`
-(`gateway-api` | `none`). When unset, the control plane uses `gateway-api` if
-the Gateway API is detected, and no managed ingress otherwise. See
-"Requirement: Control Plane Ingress Mode".
+The Gateway API is a hard prerequisite of every cluster that runs gateways.
+See "Requirement: PLAT-ARCH-09 -- Gateway API Is Required".
 
 ### Tenant Gateway Ingress - Reference Implementation (verified on AWS)
 
@@ -527,31 +523,30 @@ after the LB hostname is known.
 ### IBM Cloud Cloud Hub - Gateway API ingress (verified 2026-10-26)
 
 IBM Cloud ROKS 4.22 and later runs a working Gateway API controller, so the
-IBM Cloud Hubs use the reference `gateway-api` mode, the same as AWS. Live
+IBM Cloud Hubs use the reference Gateway API ingress, the same as AWS. Live
 check on 2026-10-26: the controllers on `hypc-ibm-00` (`hyp0`, `hyp0-spoke1`)
-and `hypc-ibm-03` (`hyp2-spoke1`) leave `GATEWAY_INGRESS_MODE` unset, auto-detect
-`gateway-api`, and publish one `GRPCRoute` per gateway. Cluster provisioning
+and `hypc-ibm-03` (`hyp2-spoke1`) publish one `GRPCRoute` per gateway. Cluster provisioning
 steps live in [`ibm-cluster`](../../skills/deploy/ibm-cluster/SKILL.md).
 
-### Requirement: PLAT-ARCH-05 -- Tenant Gateway Ingress via Gateway API (`gateway-api` mode)
+### Requirement: PLAT-ARCH-05 -- Tenant Gateway Ingress via Gateway API
 
-In `gateway-api` mode, tenant gateway traffic SHALL be routed through the
-Kubernetes Gateway API using a single shared `Gateway` (`openshell-grpc-gateway`)
-in the `openshift-ingress` namespace. In this mode tenant gateways SHALL NOT use
-OpenShift `Route` objects for data-plane gRPC traffic.
+Tenant gateway traffic SHALL be routed through the Kubernetes Gateway API using
+a single shared `Gateway` (`openshell-grpc-gateway`) in the `openshift-ingress`
+namespace. Tenant gateways SHALL NOT use OpenShift `Route` objects for
+data-plane gRPC traffic.
 
 #### Scenario: PLAT-ARCH-05.01 -- Gateway provisioning creates a GRPCRoute
 
-- GIVEN a cluster in `gateway-api` mode with the `openshift-default` GatewayClass and the shared `openshell-grpc-gateway`
+- GIVEN a cluster with the `openshift-default` GatewayClass and the shared `openshell-grpc-gateway`
 - WHEN the control plane provisions a new tenant gateway
 - THEN it SHALL create a `GRPCRoute` in the tenant namespace with a `parentRef` to `openshell-grpc-gateway` (`sectionName: grpc`)
 - AND the route hostname SHALL be `gw-<tenant>.<base-domain>` under the shared listener's wildcard
 - AND it SHALL NOT create an OpenShift `Route` for gRPC data-plane traffic
 
-#### Scenario: PLAT-ARCH-05.02 -- Disabling ingress removes the routing objects
+#### Scenario: PLAT-ARCH-05.02 -- Disabling the route or deleting the gateway removes the routing objects
 
 - GIVEN a provisioned tenant gateway with a `GRPCRoute` and `BackendTLSPolicy`
-- WHEN ingress is disabled (`route.enabled=false`) or the gateway is deleted
+- WHEN the gateway's route is disabled (`route.enabled=false`) or the gateway is deleted
 - THEN the control plane SHALL delete the tenant's `GRPCRoute` and `BackendTLSPolicy`
 - AND it SHALL clear the gateway's route address
 
@@ -576,36 +571,33 @@ Wildcard certificates for the `example.com` base domain SHALL be issued by
 cert-manager using the ACME DNS-01 challenge against the central Route53
 `example.com` hosted zone, independent of the cluster's cloud provider.
 
-### Requirement: PLAT-ARCH-09 -- Control Plane Ingress Mode
+### Requirement: PLAT-ARCH-09 -- Gateway API Is Required
 
-The control plane's ingress mode SHALL be configuration-driven, not
-cloud-hardcoded. The mode SHALL be selectable via the `GATEWAY_INGRESS_MODE` env
-var (`gateway-api` | `none`), overridable per environment through a kustomize
-overlay. When the variable is unset, the control plane SHALL auto-detect the
-Gateway API.
+The Gateway API is the only way the control plane exposes a tenant gateway, so
+every cluster that runs gateways SHALL serve `GRPCRoute` in
+`gateway.networking.k8s.io/v1`. The control plane SHALL start whether or not the
+Gateway API is installed. It SHALL check for the Gateway API on every gateway
+reconcile, before it provisions anything, so a gateway recovers on a retry once
+the Gateway API is installed. A gateway SHALL never run unreachable.
 
-#### Scenario: PLAT-ARCH-09.01 -- Explicit mode overrides auto-detection
+#### Scenario: PLAT-ARCH-09.03 -- A missing Gateway API fails the gateway reconcile
 
-- GIVEN a cluster where the Gateway API is detected
-- WHEN `GATEWAY_INGRESS_MODE=none` is set
-- THEN the control plane SHALL NOT create Gateway API resources for tenant gateways
+- GIVEN a cluster that does not serve `GRPCRoute` in `gateway.networking.k8s.io/v1`
+- WHEN the control plane reconciles a tenant gateway
+- THEN it SHALL report the `EnvironmentReady` condition as `Failed` with the message "Gateway API is not installed on this cluster; the gateway cannot be exposed"
+- AND it SHALL return an error so the reconcile retries
+- AND it SHALL NOT deploy the gateway workload or mark the gateway Ready
 
-#### Scenario: PLAT-ARCH-09.02 -- Auto-detection when no mode is set
-
-- GIVEN `GATEWAY_INGRESS_MODE` is unset
-- WHEN the control plane reconciles a gateway
-- THEN it SHALL select `gateway-api` if the Gateway API is detected, otherwise skip managed ingress
-
-### Requirement: PLAT-ARCH-12 -- cert-manager Is a Mode-Independent Prerequisite
+### Requirement: PLAT-ARCH-12 -- cert-manager Is a Gateway Prerequisite
 
 Every tenant gateway SHALL depend on cert-manager for its per-tenant PKI: a
 namespaced `Issuer` (`openshell-ca`) and `Certificate`s minting the gateway's own
-server TLS and CA. This is independent of the ingress mode. The control plane
+server TLS and CA. The control plane
 SHALL fail closed when cert-manager is absent.
 
 #### Scenario: PLAT-ARCH-12.01 -- Reconcile blocks without cert-manager
 
-- GIVEN a cluster without cert-manager installed (any ingress mode)
+- GIVEN a cluster without cert-manager installed
 - WHEN the control plane reconciles a tenant gateway
 - THEN it SHALL return an error and SHALL NOT deploy the gateway workload
 
@@ -698,7 +690,7 @@ the gateway's default workload image through `sandbox.image`.
 
 ### Open Questions (for implementer review)
 
-1. **[RESOLVED] ROKS Gateway API availability.** ROKS 4.22 and later runs a working Gateway API controller. The IBM Cloud Hubs use `gateway-api` mode (verified live on 2026-10-26, see "IBM Cloud Cloud Hub - Gateway API ingress").
+1. **[RESOLVED] ROKS Gateway API availability.** ROKS 4.22 and later runs a working Gateway API controller. The IBM Cloud Hubs use Gateway API ingress (verified live on 2026-10-26, see "IBM Cloud Cloud Hub - Gateway API ingress").
 2. **IBM base domain.** What exact subdomain - e.g. `openshell.ibm-stage.example.com`?
    Confirm it is delegated within the Route53 `example.com` zone.
 3. **DNS record creation.** Reproduce the AWS pattern (static Route53 wildcard

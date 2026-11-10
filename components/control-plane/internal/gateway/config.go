@@ -265,7 +265,6 @@ type KeycloakConfig struct {
 type ReconcileOpts struct {
 	IsOpenShift    bool
 	HasCertManager bool
-	HasGatewayAPI  bool
 	// Database locates the mounted PostgreSQL admin credentials every gateway
 	// database is provisioned with (see database.go).
 	Database DatabaseConfig

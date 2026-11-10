@@ -219,9 +219,9 @@ Set based on the Gateway's credential driver configuration.
 
 Set only when the Gateway has route configuration enabled.
 
-The control plane supports two mutually exclusive ingress modes depending on cluster capabilities. The TLS architecture differs fundamentally between them.
+The control plane exposes every routed gateway through the Gateway API.
 
-##### GRPCRoute + BackendTLSPolicy Mode (Gateway API -- OpenShift 4.22+)
+##### GRPCRoute + BackendTLSPolicy (Gateway API -- OpenShift 4.22+)
 
 ```
 Client ──TLS──▶ Shared Gateway (terminates with wildcard cert)

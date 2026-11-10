@@ -58,6 +58,6 @@ Then open <http://localhost:9876/>. The `Architecture site` GitHub Actions
 workflow publishes the generated `dist/architecture` directory to the
 repository's GitHub Pages site after changes land on `main`.
 
-The pages intentionally describe the current repository architecture, including
-configuration-selected options such as `GATEWAY_INGRESS_MODE`. They are documentation artifacts, not a replacement for
+The pages intentionally describe the current repository architecture,
+including configuration-selected options. They are documentation artifacts, not a replacement for
 the authoritative specifications cited within them.

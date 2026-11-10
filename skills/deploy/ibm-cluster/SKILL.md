@@ -299,8 +299,6 @@ overlay):
 - `GATEWAY_API_HTTP_LISTENER_NAME`: the listener name of the shared Gateway, so
   console `HTTPRoute`s attach to it.
 - `HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES=provider/ibm,network/public`.
-- Leave `GATEWAY_INGRESS_MODE` unset (or set it to `gateway-api`). The controller
-  then publishes every gateway through the Gateway API.
 - **`deploy/base/platform-resources/controller-rbac.yaml`** - a cluster-wide `ClusterRole` for the
   controller. Reconciling whole tenants needs cluster-wide
   namespaces/secrets/services/deployments/networkpolicies, the Gateway API route

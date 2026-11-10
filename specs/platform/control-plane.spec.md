@@ -1014,7 +1014,6 @@ dependency status and recover dependent work during the same process lifetime.
 - GIVEN a gateway uses Gateway API ingress and the Gateway API group is unreachable
 - WHEN the control plane reconciles the gateway
 - THEN it SHALL mark route provisioning as waiting/retryable and retry with bounded backoff
-- AND it SHALL retain the gateway's configured ingress mode
 - AND it SHALL keep independent reconciliation work running
 
 #### Scenario: CTRL-CORE-19.03 -- Installing a prerequisite resumes reconciliation

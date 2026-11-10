@@ -49,21 +49,20 @@ graph LR
   style HTTP fill:#d4edda
 ```
 
-### Ingress mode selection: the Gateway API publishes the tenant address; `none` keeps the gateway cluster-internal.
+### Tenant exposure: the Gateway API publishes every gateway; without it the gateway reconcile fails.
 
 ```mermaid
 graph TB
   CP[Control Plane]
-  MODE{GATEWAY_INGRESS_MODE}
-  CP --> MODE
-  MODE -->|gateway-api, or unset with Gateway API detected| GA[GRPCRoute + console HTTPRoute<br/>+ BackendTLSPolicy<br/>shared Gateway prerequisite]
-  MODE -->|none, or unset without Gateway API| INTERNAL[Cluster-internal Service only]
+  CHECK{Gateway API installed?}
+  CP --> CHECK
+  CHECK -->|yes| GA[GRPCRoute + console HTTPRoute<br/>+ BackendTLSPolicy<br/>shared Gateway prerequisite]
+  CHECK -->|no| FAIL[EnvironmentReady Failed<br/>reconcile retries]
   GA --> HOST[grpcs://gw-<tenant>.<base-domain>:443]
-  INTERNAL --> LOCAL[Service DNS / port-forward]
   HOST --> GW[OpenShell Gateway pod]
   style CP fill:#f8d7da
-  style MODE fill:#fff3cd
+  style CHECK fill:#fff3cd
   style GA fill:#cce5ff
-  style INTERNAL fill:#d4edda
+  style FAIL fill:#f8d7da
   style GW fill:#cce5ff
 ```

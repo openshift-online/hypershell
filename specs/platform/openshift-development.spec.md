@@ -1204,4 +1204,4 @@ The `keycloak/` overlay (separate from `base/keycloak/`) is used in production t
 
 ### Placeholder Gateway Base Domain in `deploy/openshift/`
 
-The `deploy/openshift/` overlay sets `GATEWAY_API_BASE_DOMAIN=openshell.stage.example.com` as a placeholder. `make openshift-up` replaces it with the base domain derived from the shared Gateway listener hostname. Any other deployer must set it before the control plane runs in Gateway API ingress mode.
+The `deploy/openshift/` overlay sets `GATEWAY_API_BASE_DOMAIN=openshell.stage.example.com` as a placeholder. `make openshift-up` replaces it with the base domain derived from the shared Gateway listener hostname. Any other deployer must set it before the control plane runs.
