@@ -56,6 +56,16 @@ class JiraAuthTests(unittest.TestCase):
         with self.assertRaisesRegex(jira_auth.JiraAuthError, 'differs'):
             jira_auth.selected_auth('acli')
 
+    def test_acli_api_token_profile_explains_fullsend_setup(self):
+        profile = dict(self.profile, auth_type='api_token')
+        (self.root/'jira_config.yaml').write_text(json.dumps(dict(
+            current_profile='test-cloud:test-account', profiles=[profile])))
+        with self.assertRaises(jira_auth.JiraAuthError) as error:
+            jira_auth.selected_auth('auto')
+        for setting in ('JIRA_AUTH_MODE=api-token', 'JIRA_USER_EMAIL=', 'JIRA_TOKEN=',
+                        '.hypershell/fullsend.env', 'not acli flags'):
+            self.assertIn(setting, str(error.exception))
+
     def test_acli_uses_selected_profile_not_first_account(self):
         other = dict(self.profile, cloud_id='other-cloud', account_id='other-account', site='other.atlassian.net')
         (self.root/'jira_config.yaml').write_text(json.dumps(dict(current_profile='test-cloud:test-account', profiles=[other,self.profile])))
