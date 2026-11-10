@@ -36,6 +36,11 @@ const (
 	CITokenExchangeModeV2Attribute = "v2-attribute"
 )
 
+// DefaultSelfCheckInterval is the documented fallback cadence of the on-cluster
+// managed-cluster self-healthcheck loop when HYPERSHELL_SELF_CHECK_INTERVAL is
+// unset, zero, or invalid (PLAT-HLTH-04).
+const DefaultSelfCheckInterval = 2 * time.Minute
+
 type Config struct {
 	GRPCServerAddr string
 	APIServerURL   string
@@ -51,6 +56,14 @@ type Config struct {
 	// See specs/platform/control-plane.spec.md ("Mandatory Cluster Identity").
 	ManagedClusterName         string
 	ManagedClusterCapabilities []string
+
+	// SelfCheckInterval is the cadence of the on-cluster managed-cluster
+	// self-healthcheck loop (specs/platform/managed-cluster-self-healthcheck.spec.md,
+	// PLAT-HLTH-04). It is deployment configuration, not a hard-coded constant:
+	// changing the cadence is a configuration change, not a code change. Sourced
+	// from HYPERSHELL_SELF_CHECK_INTERVAL; a zero, unset, or invalid value falls
+	// back to DefaultSelfCheckInterval.
+	SelfCheckInterval time.Duration
 
 	// OIDC client credentials used both for registration and as per-RPC bearer
 	// credentials on every gRPC call (including the watch streams). All three
@@ -228,6 +241,7 @@ func Load() (*Config, error) {
 		Namespace:                        getEnv("HYPERSHELL_NAMESPACE", "hypershell"),
 		ManagedClusterName:               getEnv("HYPERSHELL_MANAGED_CLUSTER_NAME", ""),
 		ManagedClusterCapabilities:       parseCapabilities(getEnv("HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES", "")),
+		SelfCheckInterval:                getEnvDuration("HYPERSHELL_SELF_CHECK_INTERVAL", DefaultSelfCheckInterval),
 		OIDCIssuer:                       getEnv("OIDC_ISSUER", ""),
 		OIDCClientID:                     getEnv("OIDC_CLIENT_ID", ""),
 		OIDCClientSecret:                 getEnv("OIDC_CLIENT_SECRET", ""),
@@ -285,6 +299,13 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("%s is required: every control plane registers with the hub as a managed cluster (specs/platform/control-plane.spec.md, Mandatory Cluster Identity)", r.name)
 		}
 	}
+	// A zero or negative self-check cadence falls back to the documented default
+	// (PLAT-HLTH-04). getEnvDuration already handles unset and unparseable values;
+	// this additionally rejects an explicit non-positive duration.
+	if cfg.SelfCheckInterval <= 0 {
+		cfg.SelfCheckInterval = DefaultSelfCheckInterval
+	}
+
 	// An invalid GATEWAY_RESOURCES fails startup rather than falling back to the
 	// defaults like the other tunables: silently ignoring an operator's sizing
 	// could leave gateways under-provisioned and OOMKilled with no signal.

@@ -117,6 +117,10 @@ function managedCluster(
     api_server_url: "https://api.east.example.com",
     capabilities: [],
     created_at: null,
+    health: {
+      overall: "healthy",
+      conditions: [],
+    },
     href: "/api/hypershell/v1/managed_clusters/cluster-east",
     id: "cluster-east",
     kind: "ManagedCluster",

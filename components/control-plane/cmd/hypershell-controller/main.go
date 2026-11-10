@@ -36,6 +36,7 @@ import (
 	cpotel "github.com/openshift-online/hypershell/components/control-plane/internal/otel"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/reconciler"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/registration"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/selfcheck"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/serviceaccountkeycloak"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/serviceaccountprovisioner"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/supervisor"
@@ -427,6 +428,39 @@ func main() {
 	if kcClient != nil {
 		watchCount++ // role bindings
 	}
+
+	// On-cluster self-healthcheck: a continuous reconciler runs the bounded check
+	// catalog with the control plane's in-cluster credentials, computes a rich
+	// per-check verdict, publishes it for the heartbeat to carry to the hub
+	// (PLAT-HLTH-05), and exports the low-cardinality health gauges (OBS-CPL-12).
+	// It runs independently of the primary reconcilers and never aborts the run on
+	// a single failing check (PLAT-HLTH-01). The holder is wired as the
+	// registration client's health provider before the heartbeat loop starts, so
+	// every heartbeat carries the latest verdict; a health-less heartbeat (before
+	// the first verdict) preserves the stored verdict on the hub (PLAT-CLUS-16.02).
+	var selfCheckKube kubernetes.Interface
+	if clientset != nil {
+		selfCheckKube = clientset
+	}
+	selfCheckHolder := selfcheck.NewHolder()
+	selfCheckImages := gateway.StaticImageDefaults{}
+	selfCheckReconciler := selfcheck.NewReconciler(
+		selfcheck.BuildCatalog(selfcheck.Deps{
+			Clientset:        selfCheckKube,
+			Namespace:        cfg.Namespace,
+			OIDCIssuer:       cfg.OIDCIssuer,
+			DatabaseAdminDir: cfg.GatewayDatabaseAdminDir,
+			GatewayImage:     selfCheckImages.DefaultGatewayImage(),
+			SupervisorImage:  selfCheckImages.DefaultSupervisorImage(),
+			SandboxImage:     selfCheckImages.DefaultSandboxRuntimeImage(),
+		}),
+		cfg.SelfCheckInterval,
+		cfg.ManagedClusterName,
+		selfCheckHolder,
+	)
+	regClient.WithHealthProvider(selfCheckHolder)
+	supervise("managed-cluster self-check reconciler", selfCheckReconciler.Run)
+	slog.InfoContext(ctx, "Managed-cluster self-check reconciler launched", "interval", cfg.SelfCheckInterval.String())
 
 	// Heartbeat: re-register every 60s to update last_seen_at on the hub.
 	go func() {

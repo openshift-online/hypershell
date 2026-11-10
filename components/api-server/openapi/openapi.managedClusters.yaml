@@ -320,6 +320,68 @@ components:
               items:
                 type: string
               description: Registration-owned capability labels used by match-all placement selectors.
+            # Spoke-reported on-cluster self-check verdict (PLAT-DATA-27). Written
+            # only by the registering control plane through the registration/heartbeat
+            # path; read-only to generic create/patch (not present on the patch request
+            # schema). Null until the first verdict is reported. A bare $ref (no allOf
+            # wrapper or sibling keywords) is required so the SDK generator resolves the
+            # field to the ManagedClusterHealth object type rather than flattening it.
+            health:
+              $ref: '#/components/schemas/ManagedClusterHealth'
+    ManagedClusterHealth:
+      type: object
+      description: >-
+        On-cluster self-check verdict reported by the control plane
+        (managed-cluster-self-healthcheck.spec.md, PLAT-HLTH-03). Stored verbatim
+        on the ManagedCluster.
+      required:
+        - overall
+        - conditions
+      properties:
+        overall:
+          type: string
+          enum:
+            - healthy
+            - degraded
+            - failing
+          description: Rollup of the per-check conditions.
+        observed_at:
+          type: string
+          format: date-time
+          description: When the last self-check run completed.
+        duration_ms:
+          type: integer
+          format: int64
+          description: Duration of the last self-check run in milliseconds.
+        conditions:
+          type: array
+          description: One condition per check in the bounded check catalog.
+          items:
+            $ref: '#/components/schemas/ManagedClusterHealthCondition'
+    ManagedClusterHealthCondition:
+      type: object
+      required:
+        - name
+        - status
+      properties:
+        name:
+          type: string
+          description: Stable check name from the bounded check-name enumeration (PLAT-HLTH-02).
+        status:
+          type: string
+          enum:
+            - pass
+            - warn
+            - fail
+            - unknown
+          description: Status of this check on the last run.
+        last_transition_at:
+          type: string
+          format: date-time
+          description: When this condition's status last changed.
+        message:
+          type: string
+          description: Human-readable detail for this check.
     ManagedClusterRegistrationRequest:
       type: object
       required:
@@ -338,6 +400,15 @@ components:
           description: >-
             Complete self-declared capability set, sent on every registration
             and heartbeat. An omitted, null, or empty set is rejected with 400.
+        # Optional on-cluster self-check verdict (PLAT-CLUS-16). When present it is
+        # stored on the ManagedCluster in the same operation that updates
+        # last_seen_at. Omitting it (absent or null) preserves the stored verdict;
+        # a malformed verdict is rejected with 400 without changing the stored
+        # verdict or last_seen_at. A bare $ref (no allOf wrapper or sibling keywords)
+        # is required so the SDK generator resolves the field to the
+        # ManagedClusterHealth object type rather than flattening it to a string.
+        health:
+          $ref: '#/components/schemas/ManagedClusterHealth'
     ManagedClusterRegistrationResponse:
       type: object
       required:

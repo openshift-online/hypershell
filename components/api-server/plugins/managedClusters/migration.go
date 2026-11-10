@@ -91,6 +91,21 @@ func migrationAddCapabilities() *gormigrate.Migration {
 	}
 }
 
+// migrationAddHealth adds the nullable, spoke-reported self-check verdict column
+// (managed-cluster-self-healthcheck.spec.md, PLAT-DATA-27). It is written only
+// through the registration/heartbeat path and null until the first verdict.
+func migrationAddHealth() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026110900000001",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.Exec(`ALTER TABLE managed_clusters ADD COLUMN IF NOT EXISTS health JSONB`).Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Exec(`ALTER TABLE managed_clusters DROP COLUMN IF EXISTS health`).Error
+		},
+	}
+}
+
 // migrationUniqueName makes managed_clusters.name unique across all live
 // records, registered or not, so discovery by name (seed scripts, e2e,
 // operators) is unambiguous and a registration can never create a second

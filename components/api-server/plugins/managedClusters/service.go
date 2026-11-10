@@ -33,7 +33,13 @@ type ManagedClusterService interface {
 	// held by a record with a different or empty oidc_subject, or a subject
 	// already registered under another name, is a 409 Conflict: registration
 	// never creates a duplicate name and never adopts an existing record.
-	Register(ctx context.Context, name string, capabilities []string, oidcSubject string) (*ManagedCluster, bool, *errors.ServiceError)
+	// health is the OPTIONAL spoke-reported self-check verdict (PLAT-CLUS-16). When
+	// non-nil it is stored on the record in the same operation that updates
+	// last_seen_at; when nil the stored verdict is preserved (a health-less
+	// heartbeat is a no-op for the verdict, the same backward-compatible rule
+	// capabilities follow). The caller validates it before calling, so a malformed
+	// verdict is rejected atomically before any write.
+	Register(ctx context.Context, name string, capabilities []string, oidcSubject string, health *HealthVerdict) (*ManagedCluster, bool, *errors.ServiceError)
 	// FindRegisteredBySubject returns the ManagedCluster a control plane
 	// registered under the given OIDC subject, or (nil, nil) when the subject
 	// has not registered. An empty subject never matches.
@@ -249,7 +255,7 @@ func equalSortedStrings(a, b []string) bool {
 	return true
 }
 
-func (s *sqlManagedClusterService) Register(ctx context.Context, name string, capabilities []string, oidcSubject string) (*ManagedCluster, bool, *errors.ServiceError) {
+func (s *sqlManagedClusterService) Register(ctx context.Context, name string, capabilities []string, oidcSubject string, health *HealthVerdict) (*ManagedCluster, bool, *errors.ServiceError) {
 	capabilities, validationErr := NormalizeCapabilities(capabilities)
 	if validationErr != nil {
 		return nil, false, validationErr
@@ -275,6 +281,13 @@ func (s *sqlManagedClusterService) Register(ctx context.Context, name string, ca
 		// plain ordered comparison detects a genuine capability change.
 		capabilitiesChanged := !equalSortedStrings(existing.Capabilities, capabilities)
 		existing.Capabilities = append([]string(nil), capabilities...)
+		// A health-less heartbeat is a no-op for the stored verdict: preserve it
+		// rather than clearing it, so a mixed-version rolling upgrade never drops a
+		// cluster's verdict (PLAT-CLUS-16.02). A present verdict is stored in the
+		// same Replace that updates last_seen_at (PLAT-CLUS-16.01).
+		if health != nil {
+			existing.Health = health
+		}
 		updated, replaceErr := s.managedClusterDao.Replace(ctx, existing)
 		if replaceErr != nil {
 			return nil, false, services.HandleUpdateError("ManagedCluster", replaceErr)
@@ -331,6 +344,16 @@ func (s *sqlManagedClusterService) Register(ctx context.Context, name string, ca
 			}
 			return nil, false, services.HandleUpdateError("ManagedCluster", restoreErr)
 		}
+		// A present verdict is stored on the restored record; a health-less restore
+		// preserves whatever verdict the soft-deleted record still held
+		// (PLAT-CLUS-16.02).
+		if health != nil {
+			restored.Health = health
+			restored, restoreErr = s.managedClusterDao.Replace(ctx, restored)
+			if restoreErr != nil {
+				return nil, false, services.HandleUpdateError("ManagedCluster", restoreErr)
+			}
+		}
 		if _, evErr := s.events.Create(ctx, &api.Event{
 			Source:    "ManagedClusters",
 			SourceID:  restored.ID,
@@ -346,6 +369,7 @@ func (s *sqlManagedClusterService) Register(ctx context.Context, name string, ca
 		OIDCSubject:  oidcSubject,
 		LastSeenAt:   &now,
 		Capabilities: append([]string(nil), capabilities...),
+		Health:       health,
 	}
 	cluster.CaptureTraceContext(ctx)
 	created, createErr := s.managedClusterDao.Create(ctx, cluster)

@@ -969,3 +969,75 @@ func TestOIDCHealthFreshnessUsesProducerTimes(t *testing.T) {
 	// Re-exporting without another observation cannot renew freshness.
 	assertTimes(1060, 1000)
 }
+
+func TestRecordManagedClusterHealth(t *testing.T) {
+	// OBS-CPL-12.01: the overall rollup and per-check conditions export as bounded
+	// gauges labeled only by managed_cluster (and, per check, the bounded check
+	// name); no raw identifier or message is a label.
+	reader := testMetricsReader(t)
+	RecordManagedClusterHealth(t.Context(), "mc1", 0, map[string]int64{
+		"oidc-issuer-reachable": 0,
+		"images-pullable":       1,
+	})
+
+	var collected metricdata.ResourceMetrics
+	if err := reader.Collect(t.Context(), &collected); err != nil {
+		t.Fatal(err)
+	}
+
+	var sawOverall bool
+	checkStates := map[string]int64{}
+	for _, scope := range collected.ScopeMetrics {
+		for _, item := range scope.Metrics {
+			switch item.Name {
+			case "hypershell.managed_cluster.health":
+				gauge := item.Data.(metricdata.Gauge[int64])
+				if len(gauge.DataPoints) != 1 {
+					t.Fatalf("overall gauge points = %d, want 1", len(gauge.DataPoints))
+				}
+				dp := gauge.DataPoints[0]
+				if dp.Value != 0 {
+					t.Fatalf("overall = %d, want 0 (failing)", dp.Value)
+				}
+				if dp.Attributes.Len() != 1 {
+					t.Fatalf("overall attributes = %v, want only managed_cluster", dp.Attributes)
+				}
+				assertAttribute(t, dp.Attributes, "managed_cluster", "mc1")
+				sawOverall = true
+			case "hypershell.managed_cluster.health.check":
+				gauge := item.Data.(metricdata.Gauge[int64])
+				for _, dp := range gauge.DataPoints {
+					if dp.Attributes.Len() != 2 {
+						t.Fatalf("per-check attributes = %v, want managed_cluster and check", dp.Attributes)
+					}
+					assertAttribute(t, dp.Attributes, "managed_cluster", "mc1")
+					checkStates[attributeString(t, dp.Attributes, "check")] = dp.Value
+				}
+			}
+		}
+	}
+	if !sawOverall {
+		t.Fatalf("overall health gauge not exported")
+	}
+	if checkStates["oidc-issuer-reachable"] != 0 || checkStates["images-pullable"] != 1 {
+		t.Fatalf("per-check states = %v", checkStates)
+	}
+}
+
+func TestRecordManagedClusterHealthSkipsEmptyClusterName(t *testing.T) {
+	// OBS-CPL-12.02: no gauges when the managed-cluster name is empty.
+	reader := testMetricsReader(t)
+	RecordManagedClusterHealth(t.Context(), "", 2, map[string]int64{"images-pullable": 1})
+
+	var collected metricdata.ResourceMetrics
+	if err := reader.Collect(t.Context(), &collected); err != nil {
+		t.Fatal(err)
+	}
+	for _, scope := range collected.ScopeMetrics {
+		for _, item := range scope.Metrics {
+			if item.Name == "hypershell.managed_cluster.health" || item.Name == "hypershell.managed_cluster.health.check" {
+				t.Fatalf("health gauge %q exported for an empty cluster name", item.Name)
+			}
+		}
+	}
+}

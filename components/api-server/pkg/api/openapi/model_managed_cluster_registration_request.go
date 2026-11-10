@@ -24,7 +24,8 @@ type ManagedClusterRegistrationRequest struct {
 	// Human-readable spoke name, unique per platform (e.g. hyp0-mc1). Must match on every subsequent call.
 	Name string `json:"name"`
 	// Complete self-declared capability set, sent on every registration and heartbeat. An omitted, null, or empty set is rejected with 400.
-	Capabilities []string `json:"capabilities"`
+	Capabilities []string              `json:"capabilities"`
+	Health       *ManagedClusterHealth `json:"health,omitempty"`
 }
 
 type _ManagedClusterRegistrationRequest ManagedClusterRegistrationRequest
@@ -96,6 +97,38 @@ func (o *ManagedClusterRegistrationRequest) SetCapabilities(v []string) {
 	o.Capabilities = v
 }
 
+// GetHealth returns the Health field value if set, zero value otherwise.
+func (o *ManagedClusterRegistrationRequest) GetHealth() ManagedClusterHealth {
+	if o == nil || IsNil(o.Health) {
+		var ret ManagedClusterHealth
+		return ret
+	}
+	return *o.Health
+}
+
+// GetHealthOk returns a tuple with the Health field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *ManagedClusterRegistrationRequest) GetHealthOk() (*ManagedClusterHealth, bool) {
+	if o == nil || IsNil(o.Health) {
+		return nil, false
+	}
+	return o.Health, true
+}
+
+// HasHealth returns a boolean if a field has been set.
+func (o *ManagedClusterRegistrationRequest) HasHealth() bool {
+	if o != nil && !IsNil(o.Health) {
+		return true
+	}
+
+	return false
+}
+
+// SetHealth gets a reference to the given ManagedClusterHealth and assigns it to the Health field.
+func (o *ManagedClusterRegistrationRequest) SetHealth(v ManagedClusterHealth) {
+	o.Health = &v
+}
+
 func (o ManagedClusterRegistrationRequest) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -108,6 +141,9 @@ func (o ManagedClusterRegistrationRequest) ToMap() (map[string]interface{}, erro
 	toSerialize := map[string]interface{}{}
 	toSerialize["name"] = o.Name
 	toSerialize["capabilities"] = o.Capabilities
+	if !IsNil(o.Health) {
+		toSerialize["health"] = o.Health
+	}
 	return toSerialize, nil
 }
 

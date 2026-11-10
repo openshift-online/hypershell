@@ -4498,25 +4498,110 @@ components:
             readOnly: true
             type: array
             uniqueItems: true
+          health:
+            $ref: "#/components/schemas/ManagedClusterHealth"
         required:
         - kubeconfig_secret
         - name
         type: object
       example:
-        oidc_subject: oidc_subject
         capabilities:
         - capabilities
         - capabilities
-        updated_at: 2000-01-23T04:56:07.000+00:00
         kind: kind
-        name: name
         created_at: 2000-01-23T04:56:07.000+00:00
+        health:
+          duration_ms: 5
+          observed_at: 2000-01-23T04:56:07.000+00:00
+          overall: healthy
+          conditions:
+          - last_transition_at: 2000-01-23T04:56:07.000+00:00
+            name: name
+            message: message
+            status: pass
+          - last_transition_at: 2000-01-23T04:56:07.000+00:00
+            name: name
+            message: message
+            status: pass
+        oidc_subject: oidc_subject
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        name: name
         kubeconfig_secret: kubeconfig_secret
         id: id
         href: href
         last_seen_at: 2000-01-23T04:56:07.000+00:00
         status: status
         api_server_url: api_server_url
+    ManagedClusterHealth:
+      description: "On-cluster self-check verdict reported by the control plane (managed-cluster-self-healthcheck.spec.md,\
+        \ PLAT-HLTH-03). Stored verbatim on the ManagedCluster."
+      example:
+        duration_ms: 5
+        observed_at: 2000-01-23T04:56:07.000+00:00
+        overall: healthy
+        conditions:
+        - last_transition_at: 2000-01-23T04:56:07.000+00:00
+          name: name
+          message: message
+          status: pass
+        - last_transition_at: 2000-01-23T04:56:07.000+00:00
+          name: name
+          message: message
+          status: pass
+      properties:
+        overall:
+          description: Rollup of the per-check conditions.
+          enum:
+          - healthy
+          - degraded
+          - failing
+          type: string
+        observed_at:
+          description: When the last self-check run completed.
+          format: date-time
+          type: string
+        duration_ms:
+          description: Duration of the last self-check run in milliseconds.
+          format: int64
+          type: integer
+        conditions:
+          description: One condition per check in the bounded check catalog.
+          items:
+            $ref: "#/components/schemas/ManagedClusterHealthCondition"
+          type: array
+      required:
+      - conditions
+      - overall
+      type: object
+    ManagedClusterHealthCondition:
+      example:
+        last_transition_at: 2000-01-23T04:56:07.000+00:00
+        name: name
+        message: message
+        status: pass
+      properties:
+        name:
+          description: Stable check name from the bounded check-name enumeration (PLAT-HLTH-02).
+          type: string
+        status:
+          description: Status of this check on the last run.
+          enum:
+          - pass
+          - warn
+          - fail
+          - unknown
+          type: string
+        last_transition_at:
+          description: When this condition's status last changed.
+          format: date-time
+          type: string
+        message:
+          description: Human-readable detail for this check.
+          type: string
+      required:
+      - name
+      - status
+      type: object
     ManagedClusterList:
       allOf:
       - $ref: "#/components/schemas/List"
@@ -4536,28 +4621,54 @@ components:
         id: id
         href: href
         items:
-        - oidc_subject: oidc_subject
-          capabilities:
+        - capabilities:
           - capabilities
           - capabilities
-          updated_at: 2000-01-23T04:56:07.000+00:00
           kind: kind
-          name: name
           created_at: 2000-01-23T04:56:07.000+00:00
+          health:
+            duration_ms: 5
+            observed_at: 2000-01-23T04:56:07.000+00:00
+            overall: healthy
+            conditions:
+            - last_transition_at: 2000-01-23T04:56:07.000+00:00
+              name: name
+              message: message
+              status: pass
+            - last_transition_at: 2000-01-23T04:56:07.000+00:00
+              name: name
+              message: message
+              status: pass
+          oidc_subject: oidc_subject
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          name: name
           kubeconfig_secret: kubeconfig_secret
           id: id
           href: href
           last_seen_at: 2000-01-23T04:56:07.000+00:00
           status: status
           api_server_url: api_server_url
-        - oidc_subject: oidc_subject
-          capabilities:
+        - capabilities:
           - capabilities
           - capabilities
-          updated_at: 2000-01-23T04:56:07.000+00:00
           kind: kind
-          name: name
           created_at: 2000-01-23T04:56:07.000+00:00
+          health:
+            duration_ms: 5
+            observed_at: 2000-01-23T04:56:07.000+00:00
+            overall: healthy
+            conditions:
+            - last_transition_at: 2000-01-23T04:56:07.000+00:00
+              name: name
+              message: message
+              status: pass
+            - last_transition_at: 2000-01-23T04:56:07.000+00:00
+              name: name
+              message: message
+              status: pass
+          oidc_subject: oidc_subject
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          name: name
           kubeconfig_secret: kubeconfig_secret
           id: id
           href: href
@@ -4586,6 +4697,19 @@ components:
         - capabilities
         - capabilities
         name: name
+        health:
+          duration_ms: 5
+          observed_at: 2000-01-23T04:56:07.000+00:00
+          overall: healthy
+          conditions:
+          - last_transition_at: 2000-01-23T04:56:07.000+00:00
+            name: name
+            message: message
+            status: pass
+          - last_transition_at: 2000-01-23T04:56:07.000+00:00
+            name: name
+            message: message
+            status: pass
       properties:
         name:
           description: "Human-readable spoke name, unique per platform (e.g. hyp0-mc1).\
@@ -4599,6 +4723,8 @@ components:
           minItems: 1
           type: array
           uniqueItems: true
+        health:
+          $ref: "#/components/schemas/ManagedClusterHealth"
       required:
       - capabilities
       - name

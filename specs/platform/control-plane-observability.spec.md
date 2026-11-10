@@ -493,6 +493,49 @@ Log records SHALL follow the privacy rules of `OBS-CPL-06`: no secrets, tokens, 
 - THEN it SHALL log at `info`
 - AND it SHALL write a warning naming the ignored value
 
+### Requirement: OBS-CPL-12 -- Managed Cluster Self-Check Health Gauges
+
+When OTLP metrics are enabled (OBS-CPL-01), the control plane SHALL export the
+on-cluster self-check verdict (`managed-cluster-self-healthcheck.spec.md`,
+PLAT-HLTH-07) as OpenTelemetry gauges so operators can alert on degraded or
+failing clusters:
+
+| Metric | Attributes | Description |
+|--------|------------|-------------|
+| `hypershell.managed_cluster.health` | `managed_cluster` | The overall rollup encoded as a bounded numeric state (for example `2` healthy, `1` degraded, `0` failing) |
+| `hypershell.managed_cluster.health.check` | `managed_cluster`, `check` | Per-check condition status encoded as a bounded numeric state (for example `1` pass, `0` fail), one series per check name |
+
+`managed_cluster` SHALL be `HYPERSHELL_MANAGED_CLUSTER_NAME` and `check` SHALL be
+a value from the bounded check-name enumeration (PLAT-HLTH-02). The gauges SHALL
+carry only these low-cardinality attributes and SHALL respect the telemetry
+privacy and cardinality rules of OBS-CPL-06: no raw resource identifier, secret,
+endpoint, or free-text message SHALL appear as a label or metric value. A consumer
+SHALL deduplicate control-plane replicas with `max by` or `group by`, not `sum`.
+When the managed-cluster name is empty, the control plane SHALL NOT export either
+gauge. When OTLP metrics are disabled, the gauges SHALL NOT be exported while the
+self-check loop and its hub reporting still run (PLAT-HLTH-07).
+
+**Verification:** Start the control plane with a collector endpoint and drive the
+self-check loop through a healthy and a failing verdict; confirm the overall gauge
+and one per-check series track the verdict, labeled only by cluster name and the
+bounded check name, with no identifier or message label.
+
+#### Scenario: OBS-CPL-12.01 -- Verdict exported as bounded gauges
+
+- GIVEN the OTel SDK is initialized with metrics export enabled
+- AND the control plane computed a failing verdict with a failed OIDC check
+- WHEN the self-check run completes
+- THEN `hypershell.managed_cluster.health` SHALL report the failing rollup state labeled by `managed_cluster`
+- AND `hypershell.managed_cluster.health.check` SHALL report the OIDC check state labeled by `managed_cluster` and `check`
+- AND no raw resource identifier, secret, or message SHALL appear as a label
+
+#### Scenario: OBS-CPL-12.02 -- No health gauges without metrics or a cluster name
+
+- GIVEN the self-check loop runs
+- WHEN OTLP metrics are disabled, or `HYPERSHELL_MANAGED_CLUSTER_NAME` is empty
+- THEN neither health gauge SHALL be exported
+- AND the self-check loop and its hub reporting SHALL still run
+
 ## Design Decisions
 
 | Decision | Rationale |
