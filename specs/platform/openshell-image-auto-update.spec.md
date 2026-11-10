@@ -31,7 +31,7 @@ validation detect an unexpected controller and gateway release combination.
 
 **Out of scope:**
 
-- Internal registry mirrors (e.g. `deploy/ibm/kustomization.yaml`) - these are
+- Internal registry mirrors - these are
   cluster-local copies updated by the mirror process, not by Renovate.
 - Go source constants for non-OpenShell images (`defaultOAuth2ProxyImage`,
   etc.) - separate concern. (The console image has no Go constant: the

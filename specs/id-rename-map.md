@@ -468,10 +468,10 @@ does not exist. "Former file" is the spec the ID lived in, relative to
 | `E2E-COV-01` | `platform/e2e-feature-coverage.spec.md` | - | Recorded a dropped per-gateway credential-driver phase and had no scenarios. The Vault fault path is covered by the P2.7 `vault-fail-closed` phase. |
 | `CICD-PREN-12.01` | `platform/ephemeral-pr-environments.spec.md` | - | Recorded the removal of `components/pr-test/e2e-openshell.sh` (HYPERSHELL-250). |
 | `CICD-PREN-12.03` | `platform/ephemeral-pr-environments.spec.md` | - | Required documentation to stop citing the removed script; done. |
-| `CICD-PREN-12.04` | `platform/ephemeral-pr-environments.spec.md` | `CICD-PREN-12` | Forbade recreating the removed script; the `pr_test` scope rule replaces it. |
-| `DEV-OCP-09` | `platform/openshift-development.spec.md` | `CICD-PREN-12` | Recorded the removal of `components/pr-test/e2e-openshell.sh`. |
-| `DEV-OCP-09.01` | `platform/openshift-development.spec.md` | `CICD-PREN-12` | Recorded the removal of `components/pr-test/e2e-openshell.sh`. |
-| `DEV-OCP-09.02` | `platform/openshift-development.spec.md` | `CICD-PREN-12` | Covered a future ROKS retirement; the `pr_test` scope rule replaces it. |
+| `CICD-PREN-12.04` | `platform/ephemeral-pr-environments.spec.md` | - | Forbade recreating the removed script; the `pr_test` scope rule replaces it. |
+| `DEV-OCP-09` | `platform/openshift-development.spec.md` | - | Recorded the removal of `components/pr-test/e2e-openshell.sh`. |
+| `DEV-OCP-09.01` | `platform/openshift-development.spec.md` | - | Recorded the removal of `components/pr-test/e2e-openshell.sh`. |
+| `DEV-OCP-09.02` | `platform/openshift-development.spec.md` | - | Covered a future ROKS retirement; the `pr_test` scope rule replaces it. |
 | `WEB-PLC-11` | `web-console/gateway-provision-placement.spec.md` | `WEB-PLC-04` | Replaced by the preview-card rule. |
 | `WEB-VER-03` | `web-console/gateway-version-visibility.spec.md` | - | Newer-version indicator removed with the gateway-version capability (#823). |
 | `WEB-OPS-17.02` | `web-console/operational-dashboard.spec.md` | `WEB-OPS-17.03` | The pods widget no longer renders a trend sparkline; it appears only on the Provisioning dashboard, which shows current pod state. |
@@ -520,3 +520,26 @@ does not exist. "Former file" is the spec the ID lived in, relative to
 | `SDLC-AGT-10` | `platform/sdlc-agent-runtime-telemetry.spec.md` | - | Only required the removed `agentHealth()` verdict to stay unrendered; SDLC-AGT-16 and SDLC-AGT-17 define the activity signal. |
 | `SDLC-AGT-10.01` | `platform/sdlc-agent-runtime-telemetry.spec.md` | - | Retired with SDLC-AGT-10. |
 | `SDLC-AGT-10.02` | `platform/sdlc-agent-runtime-telemetry.spec.md` | - | Retired with SDLC-AGT-10. |
+| `CICD-PREN-12` | `platform/ephemeral-pr-environments.spec.md` | - | Scoped the `pr_test` CI component to the IBM ROKS e2e script; the script and the component were removed (issue #767). |
+| `CICD-PREN-12.02` | `platform/ephemeral-pr-environments.spec.md` | - | Retired with CICD-PREN-12. |
+| `PLAT-ARCH-06.02` | `platform/global-architecture.spec.md` | - | Required a reencrypt gateway Route; `GATEWAY_ROUTE_TERMINATION` was removed when the gateway Route moved into the Helm chart (#194, #767). |
+| `PLAT-ARCH-06.03` | `platform/global-architecture.spec.md` | - | Retired with PLAT-ARCH-06.02. |
+| `PLAT-ARCH-10` | `platform/global-architecture.spec.md` | - | Required reencrypt Route prerequisites; the reencrypt gateway Route no longer exists (#767). |
+| `PLAT-ARCH-10.01` | `platform/global-architecture.spec.md` | - | Retired with PLAT-ARCH-10. |
+| `PLAT-ARCH-10.02` | `platform/global-architecture.spec.md` | - | Retired with PLAT-ARCH-10. |
+| `PLAT-ARCH-11` | `platform/global-architecture.spec.md` | - | Required a cert-manager certificate on the reencrypt gateway Route; the console Route issuer went with Route ingress mode (#767). |
+| `PLAT-ARCH-11.01` | `platform/global-architecture.spec.md` | - | Retired with PLAT-ARCH-11. |
+| `PLAT-ARCH-11.02` | `platform/global-architecture.spec.md` | - | Retired with PLAT-ARCH-11. |
+| `PLAT-ARCH-11.03` | `platform/global-architecture.spec.md` | - | Retired with PLAT-ARCH-11. |
+| `PLAT-ARCH-11.04` | `platform/global-architecture.spec.md` | - | Retired with PLAT-ARCH-11. |
+| `PLAT-ARCH-06` | `platform/global-architecture.spec.md` | - | Required OpenShift Route ingress mode, removed in issue #767. |
+| `PLAT-ARCH-06.01` | `platform/global-architecture.spec.md` | - | Retired with PLAT-ARCH-06. |
+| `PLAT-ARCH-06.04` | `platform/global-architecture.spec.md` | `PLAT-ARCH-05.02` | The Gateway API half of the ingress-teardown scenario moved under PLAT-ARCH-05. |
+| `PLAT-ARCH-09.01` | `platform/global-architecture.spec.md` | `PLAT-ARCH-09.03` | The `GATEWAY_INGRESS_MODE` override is gone; the Gateway API is required. |
+| `PLAT-ARCH-09.02` | `platform/global-architecture.spec.md` | `PLAT-ARCH-09.03` | Gateway API auto-detection is replaced by a required-Gateway-API check per reconcile. |
+| `OSG-CON-01.02` | `platform/openshell-gateway-console.spec.md` | - | Required a console OpenShift Route in Route ingress mode, removed in issue #767. |
+| `OSG-CON-05.02` | `platform/openshell-gateway-console.spec.md` | - | Required console OpenShift Route behaviour in Route ingress mode, removed in issue #767. |
+| `OSG-CON-05.03` | `platform/openshell-gateway-console.spec.md` | - | Required console OpenShift Route behaviour in Route ingress mode, removed in issue #767. |
+| `OSG-CON-05.04` | `platform/openshell-gateway-console.spec.md` | - | Required console OpenShift Route behaviour in Route ingress mode, removed in issue #767. |
+| `OSG-CON-05.05` | `platform/openshell-gateway-console.spec.md` | - | Required console OpenShift Route behaviour in Route ingress mode, removed in issue #767. |
+| `OSG-CON-05.06` | `platform/openshell-gateway-console.spec.md` | - | Required console OpenShift Route behaviour in Route ingress mode, removed in issue #767. |

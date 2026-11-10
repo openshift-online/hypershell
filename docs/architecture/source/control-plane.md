@@ -42,7 +42,7 @@ graph TB
   POOL --> C2[ManagedCluster B]
   POOL --> HUB[Hub cluster]
   GR --> EXP[Gateway Exposure port]
-  EXP --> API[Gateway API / Route adapter]
+  EXP --> API[Gateway API adapter]
   GR --> KC[Keycloak + service-account provisioner]
   ADM[Mounted Secret<br/>hypershell-gateway-database-admin] -.-> GR
   GR --> PG[(Gateway PostgreSQL server<br/>sslmode=verify-full)]

@@ -265,7 +265,6 @@ type KeycloakConfig struct {
 type ReconcileOpts struct {
 	IsOpenShift    bool
 	HasCertManager bool
-	HasGatewayAPI  bool
 	// Database locates the mounted PostgreSQL admin credentials every gateway
 	// database is provisioned with (see database.go).
 	Database DatabaseConfig
@@ -318,11 +317,6 @@ type ReconcileOpts struct {
 	// only logged, matching legacy behavior). Implementations must not include
 	// secrets in any argument.
 	RecordOrphan OrphanRecorder
-	// ExternalCAIssuerName is the name of the cert-manager issuer for externally trusted certificates.
-	// Required for Route passthrough mode (TLS termination at pod, client sees cert directly).
-	ExternalCAIssuerName string
-	// ExternalCAIssuerKind is the kind of the external CA issuer (ClusterIssuer or Issuer).
-	ExternalCAIssuerKind string
 	// IngressBaseDomain is the base domain for auto-derived ingress hostnames (e.g. apps.example.com).
 	IngressBaseDomain string
 	// GatewayResources overrides the gateway container requests and limits

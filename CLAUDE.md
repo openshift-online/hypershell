@@ -86,7 +86,7 @@ Origin pull-request OpenShift e2e is the ephemeral PR environment workflow
 OpenShift, destroy unless `/pr-extend`. Manual OpenShift e2e runs use
 `E2E_INFRA_DRIVER=openshift make e2e` (the Go E2ESuite, `tests/e2e/`); the legacy
 `components/pr-test/e2e-openshell.sh` script and the Bash suite it replaced have
-been removed (HYPERSHELL-250). The ROKS variant `e2e-openshell-roks.sh` is unchanged.
+been removed (HYPERSHELL-250).
 
 `/reconcile` is the top-level entrypoint. It reads `skills/RECONCILE.md` for checkpoint
 state (coverage summary, gap table, wave plan), then executes waves to close gaps.

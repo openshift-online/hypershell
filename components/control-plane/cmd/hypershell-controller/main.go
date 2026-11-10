@@ -274,34 +274,18 @@ func main() {
 		}
 	}
 
-	// The Gateway Exposure port decouples route-address resolution and readiness
-	// observation from the concrete ingress backend. Select the adapter by the
-	// SAME effective ingress mode the reconciler uses to emit ingress resources
-	// (gateway.IngressMode), not by raw CRD presence: IBM Cloud ROKS ships the
-	// Gateway API CRDs but runs Route mode, so keying off CRD presence would wire
-	// the Gateway API readiness observer for a gateway that is actually exposed
-	// through an OpenShift Route -- leaving it stuck in Provisioning forever
-	// ("per-tenant Gateway not found"). In "none" mode the port stays nil and
-	// routed gateways are gated on Deployment readiness alone.
+	// The Gateway Exposure port resolves route addresses and observes route
+	// readiness through the Gateway API, the only way a gateway is exposed.
+	// Creating the client needs no Gateway API on the cluster: a gateway
+	// reconcile on a cluster without it fails with a clear condition instead.
 	// See specs/platform/openshell-gateway-routing.spec.md.
 	var exposurePort exposure.Port
-	if clientset != nil && k8sConfig != nil {
-		hasGatewayAPI := gateway.DetectGatewayAPI(clientset)
-		isOpenShift := gateway.DetectOpenShift(clientset)
-		switch gateway.IngressMode(hasGatewayAPI, isOpenShift) {
-		case gateway.IngressModeGatewayAPI:
-			gwClient, gwErr := gatewayclient.NewForConfig(k8sConfig)
-			if gwErr != nil {
-				fatal("Failed to create gateway-api client", "error", gwErr)
-			}
-			exposurePort = exposure.NewGatewayAPIExposure(gwClient)
-			slog.InfoContext(ctx, "Gateway exposure port enabled", "adapter", "gateway-api")
-		case gateway.IngressModeRoute:
-			exposurePort = exposure.NewRouteExposure(dynamicClient)
-			slog.InfoContext(ctx, "Gateway exposure port enabled", "adapter", "route")
-		default:
-			slog.InfoContext(ctx, "Gateway exposure port disabled, routed gateways gated on Deployment readiness only", "ingress_mode", "none")
+	if k8sConfig != nil {
+		gwClient, gwErr := gatewayclient.NewForConfig(k8sConfig)
+		if gwErr != nil {
+			fatal("Failed to create gateway-api client", "error", gwErr)
 		}
+		exposurePort = exposure.NewGatewayAPIExposure(gwClient)
 	}
 
 	clusterReconciler := reconciler.NewManagedClusterReconciler()
@@ -417,8 +401,6 @@ func main() {
 			cfg.Namespace,
 			keycloakConfig,
 			exposurePort,
-			cfg.ExternalCAIssuerName,
-			cfg.ExternalCAIssuerKind,
 			databaseConfig,
 			clusterID,
 			cfg.GatewayResources,

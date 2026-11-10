@@ -70,23 +70,18 @@ func TestSelfHealConsole_NoOpWhenUnconfigured(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("no keycloak config", func(t *testing.T) {
-		h := &GatewayHealthReconciler{ingressMode: gateway.IngressModeRoute} // keycloakConfig nil
-		h.selfHealConsole(ctx, "gw-1", routedGateway("gw-1", "openshell-abc"))
-	})
-
-	t.Run("no selected ingress", func(t *testing.T) {
-		h := &GatewayHealthReconciler{keycloakConfig: &gateway.KeycloakConfig{}}
+		h := &GatewayHealthReconciler{} // keycloakConfig nil
 		h.selfHealConsole(ctx, "gw-1", routedGateway("gw-1", "openshell-abc"))
 	})
 
 	t.Run("not a routed gateway", func(t *testing.T) {
-		h := &GatewayHealthReconciler{ingressMode: gateway.IngressModeRoute, keycloakConfig: &gateway.KeycloakConfig{}}
+		h := &GatewayHealthReconciler{keycloakConfig: &gateway.KeycloakConfig{}}
 		h.selfHealConsole(ctx, "gw-1", &pb.Gateway{Metadata: &pb.ObjectReference{Id: "gw-1"}, Namespace: "openshell-abc"})
 	})
 
 	t.Run("route explicitly disabled", func(t *testing.T) {
 		route := `{"enabled":false}`
-		h := &GatewayHealthReconciler{ingressMode: gateway.IngressModeRoute, keycloakConfig: &gateway.KeycloakConfig{}}
+		h := &GatewayHealthReconciler{keycloakConfig: &gateway.KeycloakConfig{}}
 		h.selfHealConsole(ctx, "gw-1", &pb.Gateway{
 			Metadata:  &pb.ObjectReference{Id: "gw-1"},
 			Namespace: "openshell-abc",
@@ -96,25 +91,26 @@ func TestSelfHealConsole_NoOpWhenUnconfigured(t *testing.T) {
 }
 
 // Verifies: OSG-CON-09.01
-func TestSyncConsoleAddressUsesSelectedRouteExposure(t *testing.T) {
+func TestSyncConsoleAddressUsesSelectedHTTPRouteExposure(t *testing.T) {
 	t.Setenv("GATEWAY_API_BASE_DOMAIN", "apps.example.com")
+	t.Setenv("GATEWAY_API_GATEWAY_NAME", "openshell-grpc-gateway")
 	const namespace = "openshell-abc"
 
 	for _, tc := range []struct {
 		name        string
-		admitted    bool
+		accepted    bool
 		current     string
 		wantReady   bool
 		wantAddress string
 	}{
 		{
-			name:        "admitted Route publishes the address",
-			admitted:    true,
+			name:        "accepted HTTPRoute publishes the address",
+			accepted:    true,
 			wantReady:   true,
 			wantAddress: "https://console-openshell-abc.apps.example.com",
 		},
 		{
-			name:        "rejected Route clears the address",
+			name:        "rejected HTTPRoute clears the address",
 			current:     "https://console-openshell-abc.apps.example.com",
 			wantAddress: "",
 		},
@@ -128,37 +124,46 @@ func TestSyncConsoleAddressUsesSelectedRouteExposure(t *testing.T) {
 			})
 
 			status := "False"
-			reason := "HostAlreadyClaimed"
-			if tc.admitted {
+			reason := "NoMatchingListenerHostname"
+			if tc.accepted {
 				status = "True"
-				reason = ""
+				reason = "Accepted"
 			}
 			route := &unstructured.Unstructured{Object: map[string]interface{}{
-				"apiVersion": "route.openshift.io/v1",
-				"kind":       "Route",
+				"apiVersion": "gateway.networking.k8s.io/v1",
+				"kind":       "HTTPRoute",
 				"metadata": map[string]interface{}{
 					"name":      gateway.ConsoleDeploymentName,
 					"namespace": namespace,
 				},
 				"spec": map[string]interface{}{
 					// The exposure must serve the derived console host for the address
-					// to be published (see TestSyncConsoleAddressDedicatedRoute below).
-					"host": "console-" + namespace + ".apps.example.com",
+					// to be published (see TestSyncConsoleAddressDedicatedRouteMismatchRetractsAddress below).
+					"hostnames": []interface{}{"console-" + namespace + ".apps.example.com"},
+					"parentRefs": []interface{}{
+						map[string]interface{}{
+							"name":        "openshell-grpc-gateway",
+							"namespace":   "openshift-ingress",
+							"sectionName": "https",
+						},
+					},
 				},
 				"status": map[string]interface{}{
-					"ingress": []interface{}{
+					"parents": []interface{}{
 						map[string]interface{}{
+							"controllerName": "gateway.example/controller",
 							"conditions": []interface{}{
-								map[string]interface{}{"type": "Admitted", "status": status, "reason": reason},
+								map[string]interface{}{"type": "Accepted", "status": status, "reason": reason},
+								map[string]interface{}{"type": "ResolvedRefs", "status": "True", "reason": "ResolvedRefs"},
 							},
 						},
 					},
 				},
 			}}
-			routeGVR := schema.GroupVersionResource{Group: "route.openshift.io", Version: "v1", Resource: "routes"}
+			httpRouteGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "httproutes"}
 			dynamicClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
 				runtime.NewScheme(),
-				map[schema.GroupVersionResource]string{routeGVR: "RouteList"},
+				map[schema.GroupVersionResource]string{httpRouteGVR: "HTTPRouteList"},
 				route,
 			)
 
@@ -175,7 +180,7 @@ func TestSyncConsoleAddressUsesSelectedRouteExposure(t *testing.T) {
 			gw := routedGateway("gw-1", namespace)
 			gw.ConsoleAddress = &tc.current
 
-			ready := syncConsoleAddress(context.Background(), clientset, dynamicClient, client, "gw-1", gw, gateway.IngressModeRoute)
+			ready := syncConsoleAddress(context.Background(), clientset, dynamicClient, client, "gw-1", gw)
 			if ready != tc.wantReady {
 				t.Fatalf("ready = %v, want %v", ready, tc.wantReady)
 			}
@@ -211,7 +216,6 @@ func TestSyncConsoleAddressClearsAddressWithoutBaseDomain(t *testing.T) {
 		client,
 		"gw-1",
 		gw,
-		gateway.IngressModeRoute,
 	)
 	if ready {
 		t.Fatal("ready = true, want false without a base domain")
@@ -335,7 +339,7 @@ func TestSyncConsoleAddressDedicatedRouteMismatchRetractsAddress(t *testing.T) {
 		ConsoleAddress: strPtr("https://console-" + namespace + ".gw-" + namespace + ".apps.example.com"),
 	}
 
-	ready := syncConsoleAddress(context.Background(), clientset, dynamicClient, client, "gw-1", gw, gateway.IngressModeGatewayAPI)
+	ready := syncConsoleAddress(context.Background(), clientset, dynamicClient, client, "gw-1", gw)
 	if ready {
 		t.Fatal("ready = true, want false when the exposure serves the shared host of a dedicated-route gateway")
 	}
@@ -731,7 +735,6 @@ func newSettledHealthRec(clientset kubernetes.Interface, gatewayID string) *Gate
 	now := fixedClock(time.Unix(2000, 0))
 	h := &GatewayHealthReconciler{
 		clientset:               clientset,
-		ingressMode:             gateway.IngressModeNone,
 		now:                     now,
 		deploymentReadyTimeout:  defaultDeploymentReadyTimeout,
 		routeNotReadySince:      make(map[string]time.Time),
@@ -749,15 +752,17 @@ func newSettledHealthRec(clientset kubernetes.Interface, gatewayID string) *Gate
 	return h
 }
 
-// nonRoutedGateway builds a Gateway with no route configured, so the health loop
+// nonRoutedGateway builds a Gateway with routing disabled, so the health loop
 // takes the non-routed path (no exposure/console work) and its phase is decided by
 // the Deployment rollout alone.
 func nonRoutedGateway(id, namespace, phase, status string) *pb.Gateway {
+	route := `{"enabled":false}`
 	return &pb.Gateway{
 		Metadata:  &pb.ObjectReference{Id: id},
 		Namespace: namespace,
 		Phase:     &phase,
 		Status:    &status,
+		Route:     &route,
 	}
 }
 

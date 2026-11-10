@@ -97,12 +97,10 @@ This spec covers:
   credentials),
 - the per-pull-request deploy serialization rule,
 - the inactivity timebox and the out-of-band reaper for retained environments,
-- the per-commit pull-request comment and secure credential handoff,
+- the per-commit pull-request comment and secure credential handoff, and
 - the GitHub-brokered Keycloak authentication model for these environments,
   including the GitHub OAuth App, the stable callback, admin authorization, and
-  developer-tier testing by impersonation, and
-- the scope of the `pr_test` component, which holds only the IBM ROKS e2e
-  script.
+  developer-tier testing by impersonation.
 
 This spec does not redefine `make openshift-up`, the `deploy/openshift/` overlay,
 the ephemeral-namespace isolation rules, the cluster-scoped RBAC handling, or
@@ -1444,24 +1442,6 @@ appear in logs, the pull-request comment, or public artifacts.
 - WHEN a reader inspects the job logs, the pull-request comment, and public artifacts
 - THEN that secret does not appear in any of them
 
-### Requirement: CICD-PREN-12 -- ROKS pr-test Component
-
-This spec's workflow, running the Go suite in `tests/e2e/`, is the canonical
-pull-request OpenShift e2e path. The `pr_test` component holds only the IBM ROKS
-script `components/pr-test/e2e-openshell-roks.sh`. ROKS is outside this
-workflow. The component's CI wiring (the `.github/component-paths.json`
-`pr_test` entry, the `lint-pr-test` job, and component detection) SHALL stay
-scoped to that script. The `lint-pr-test` job SHALL syntax-check
-`e2e-openshell-roks.sh`.
-
-#### Scenario: CICD-PREN-12.02 -- ROKS script keeps its own component
-
-- GIVEN `components/pr-test/e2e-openshell-roks.sh` targets IBM ROKS
-- WHEN this spec is in effect
-- THEN this spec SHALL NOT change the ROKS script or its usage guidance
-- AND the `pr_test` component and `lint-pr-test` CI job SHALL remain, scoped to
-  that script
-
 ## Design Decisions
 
 | Decision | Rationale |
@@ -1492,4 +1472,3 @@ scoped to that script. The `lint-pr-test` job SHALL syntax-check
 | The developer gets `openshell-user` through a `gateway:viewer` RoleBinding | The owner discovers the developer's user id through `/users` and binds `gateway:viewer` through the `role_bindings` API, so the reconciler grants the client role. Every driver uses this product path, so a brokered PR env tests the same grant a real user gets. That grant is not a Keycloak realm-role seed |
 | Dedicated `hypershell-e2e` client, imported only when enabled | Brokered GitHub users have no password grant. A per-PR realm cannot share a standing AWS or Actions provisioner secret, and `hypershell-provisioner` is too privileged (`manage-clients` / `manage-users`). Token exchange onto the HyperShell API client and onto the per-gateway client covers the developer-tier checks without a password grant. Omitting the client from Kind/local/hub imports (and gating control-plane grants on `enabled==true`) keeps the impersonation identity out of production reconcile paths. `E2E_OIDC_GRANT` keeps Kind and local OpenShift on the password grant against the static seeds |
 | Standing CI secrets in AWS Secrets Manager, not GitHub Actions | Cluster login and the GitHub OAuth App must rotate with the fleet and, for OAuth, must also land in Keycloak. `ephemeral-ci-secrets.spec.md` owns that inventory, the origin-only job-level OIDC gate, GitHub OIDC fetch of cluster login, and ESO alignment of OAuth so this spec can treat them as cluster infrastructure |
-| `pr_test` holds only the ROKS script | This workflow is the canonical pull-request OpenShift e2e path, and new coverage lands only in `tests/e2e/`. ROKS is outside this workflow, so the `pr_test` component and `lint-pr-test` job stay, scoped to `e2e-openshell-roks.sh`, until that script is retired or rehomed |

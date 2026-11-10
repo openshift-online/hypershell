@@ -157,14 +157,12 @@ grep -rn  "<OLD_VERSION>" . | grep -v '\.git/'      # must return only intention
 | `specs/platform/openshell-gateway.spec.md` | gateway + supervisor defaults | Spec citation (multiple) |
 | `specs/platform/openshell-gateway-credentials.spec.md` | none since a prior rewrite; no image/version pins remain | Keep in the discovery grep in case a future edit reintroduces one |
 | `specs/platform/global-architecture.spec.md` | version in the API-compat note | Writes the tag **without the leading `v`** (`0.1.6-rhaiv.2`, not `v0.1.6-rhaiv.2`) - the main discovery grep (which searches for the `v`-prefixed form) misses it; always also run the bare-digits grep below. Also re-check the `v1beta1` claim (see below) |
-| `components/pr-test/e2e-openshell-roks.sh` | `GW_IMAGE`, `GW_SUPERVISOR_IMAGE` defaults | ROKS e2e; uses the mirrored name without the `odh-` prefix, so the two main discovery greps above miss it - use the third grep |
 | `specs/platform/openshell-gateway-database.spec.md` | none since the 2026-09-16 rewrite (no gateway image refs remain) | Keep in the discovery grep; historically **was pinned to a git SHA, not a semver tag** |
 | `scripts/kind/lib.sh`, `scripts/kind/up.sh` | Defaults sourced from `OPENSHELL_VERSION` | Kind preload must use the same workload image as e2e |
 | `tests/e2e/{suite.go,phases.go,access_phases.go,smoke.sh}` | Shared workload pin passed explicitly with `sandbox create --from` | No independent image literal; Go suite reads the file, smoke sources it through `lib.sh` |
 | `skills/deploy/ibm-cluster/SKILL.md` | mirror + `openshell gateway add` commands + `v1beta1` API-version note | ROKS mirror docs |
 | `skills/deploy/gcp-cluster/SKILL.md` | gateway image in the example REST calls | Pin, not a fixture |
 | `skills/deploy/deploy-cluster/SKILL.md` | gateway and supervisor image examples | Pin |
-| `deploy/ibm/kustomization.yaml` | ROKS mirror image lines (`GATEWAY_IMAGE`, `GATEWAY_SUPERVISOR_IMAGE`, `GATEWAY_SANDBOX_RUNTIME_IMAGE`) | Stamped by `make sync-openshell-version` since 2026-10; still grep after the bump |
 | `specs/platform/openshell-image-auto-update.spec.md` | example gateway tag | Pin citation |
 | Digests in specs and `ibm-cluster/SKILL.md` | `sha256:` of gateway, supervisor, sandbox | Replace the old digest strings too, not only the tag; read new ones from the Quay tag API. If the Quay API is unreachable, fall back to a tag-only reference (never pair a new tag with the old digest) and record the gap - see the 2026-10-23 Learnings entry |
 | `tests/e2e/cli_test.go` | `odh-openshell-cli:<TAG>` image pin used by the CLI e2e | Pin, not a fixture |

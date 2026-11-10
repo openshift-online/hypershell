@@ -42,21 +42,12 @@ func deployGatewayViaHelm(
 			CredentialDriver: convertCredentialDriver(nsConfig.Gateway.CredentialDriver, nsConfig.Name),
 			WorkspaceMode:    nsConfig.Gateway.WorkspaceMode,
 		},
-		Namespace:      nsConfig.Name,
-		HasCertManager: opts.HasCertManager,
-		IsOpenShift:    opts.IsOpenShift,
-		// Exposure follows the resolved ingress mode (the single source of truth
-		// shared with the reconciler and health checker), NOT raw Gateway API
-		// capability -- otherwise ROKS, which has the Gateway API CRDs but no
-		// controller, would emit a dead GRPCRoute while the operator asked for a
-		// Route. Route is opt-in (GATEWAY_INGRESS_MODE=route); every other mode
-		// defaults to the Gateway API path.
-		UseOpenShiftRoute:          gatewayIngressMode(opts) == IngressModeRoute,
+		Namespace:                  nsConfig.Name,
+		HasCertManager:             opts.HasCertManager,
+		IsOpenShift:                opts.IsOpenShift,
 		GatewayAPIGatewayName:      getGatewayAPIGatewayName(),
 		GatewayAPIGatewayNamespace: getGatewayAPIGatewayNamespace(),
 		IngressBaseDomain:          opts.IngressBaseDomain,
-		ExternalCAIssuerName:       opts.ExternalCAIssuerName,
-		ExternalCAIssuerKind:       opts.ExternalCAIssuerKind,
 		HasTrustedCA:               hasTrustedCA,
 		AdditionalCAConfigMapName:  additionalCA,
 		HasVaultCA:                 hasVaultCA,

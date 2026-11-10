@@ -56,9 +56,6 @@ on:
       e2e:
         type: string
         default: 'false'
-      pr_test:
-        type: string
-        default: 'false'
 
 # No workflow-level permissions key: a block here would apply the same grant
 # to every job, including Kind. Tests / E2E still grants id-token: write on
@@ -174,7 +171,6 @@ jobs:
           DETECT_API_SERVER: ${{ inputs.api_server }}
           DETECT_CONTROL_PLANE: ${{ inputs.control_plane }}
           DETECT_E2E: ${{ inputs.e2e }}
-          DETECT_PR_TEST: ${{ inputs.pr_test }}
           KONFLUX_API_SERVER: ${{ steps.detect-konflux.outputs.api_server }}
           KONFLUX_CONTROL_PLANE: ${{ steps.detect-konflux.outputs.control_plane }}
           KONFLUX_WEB_CONSOLE: ${{ steps.detect-konflux.outputs.web_console }}
@@ -275,7 +271,7 @@ jobs:
           echo "konflux_ref=${konflux_ref}" >> "${GITHUB_OUTPUT}"
 
           # Shared e2e-relevant gate for pull_request and merge_group. detect-
-          # components tracks api_server, control_plane, e2e, and pr_test
+          # components tracks api_server, control_plane, and e2e
           # (broad: Makefile, deploy, tests, workflow files). The Konflux
           # flags add image-input-only changes, such as a component pipeline
           # definition. merge_group uses the batch diff against
@@ -285,7 +281,6 @@ jobs:
           if [[ "${DETECT_API_SERVER:-false}" == "true" || \
                 "${DETECT_CONTROL_PLANE:-false}" == "true" || \
                 "${DETECT_E2E:-false}" == "true" || \
-                "${DETECT_PR_TEST:-false}" == "true" || \
                 "${KONFLUX_API_SERVER:-false}" == "true" || \
                 "${KONFLUX_CONTROL_PLANE:-false}" == "true" || \
                 "${KONFLUX_WEB_CONSOLE:-false}" == "true" ]]; then

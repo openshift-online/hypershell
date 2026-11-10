@@ -157,10 +157,6 @@ type Config struct {
 	HelmChartRegistry string
 	HelmChartVersion  string
 
-	// External CA issuer configuration for Route passthrough mode
-	ExternalCAIssuerName string
-	ExternalCAIssuerKind string
-
 	// GatewayDatabaseAdminDir is the directory holding the mounted PostgreSQL
 	// admin credentials for gateway database provisioning. Sourced from
 	// GATEWAY_DATABASE_ADMIN_DIR; the controller refuses to start unless it holds
@@ -257,9 +253,6 @@ func Load() (*Config, error) {
 		HelmChartPath:     getEnv("HELM_CHART_PATH", "/charts/openshell.tgz"),
 		HelmChartRegistry: getEnv("HELM_CHART_REGISTRY", ""),
 		HelmChartVersion:  getEnv("HELM_CHART_VERSION", ""),
-
-		ExternalCAIssuerName: getEnv("EXTERNAL_CA_ISSUER_NAME", ""),
-		ExternalCAIssuerKind: getEnv("EXTERNAL_CA_ISSUER_KIND", "ClusterIssuer"),
 
 		GatewayDatabaseAdminDir: getEnv("GATEWAY_DATABASE_ADMIN_DIR", DefaultGatewayDatabaseAdminDir),
 		SandboxRuntimeClass:     getEnv("GATEWAY_SANDBOX_RUNTIME_CLASS", ""),

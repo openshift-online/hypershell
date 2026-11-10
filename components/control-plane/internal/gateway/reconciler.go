@@ -18,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 
@@ -38,10 +39,15 @@ func ReconcileGateway(
 		report = func(string, string, string) {}
 	}
 
-	ingressMode := gatewayIngressMode(opts)
-
 	// Step 1: EnvironmentReady
 	report(ConditionEnvironmentReady, StatusInProgress, "")
+
+	// The Gateway API is the only way a gateway is exposed. Without it the
+	// gateway would run unreachable, so the reconcile fails and retries.
+	if err := requireGatewayAPI(clientset.Discovery()); err != nil {
+		report(ConditionEnvironmentReady, StatusFailed, gatewayAPIConditionMessage(err))
+		return fmt.Errorf("gateway %s: %w", nsConfig.Name, err)
+	}
 
 	if err := EnsureManagedNamespace(ctx, clientset, nsConfig.Name, opts.ControlPlaneNamespace); err != nil {
 		report(ConditionEnvironmentReady, StatusFailed, "Environment preparation failed - unable to set up the gateway namespace")
@@ -53,15 +59,15 @@ func ReconcileGateway(
 		return fmt.Errorf("invalid gateway configuration: %w", err)
 	}
 
-	// When an ingress mode is active the gateway is reachable at an external
+	// A routed gateway is reachable at an external
 	// hostname (gw-<namespace>.<base-domain>, or an explicit Route.Host). The
-	// gateway pod terminates TLS with its own per-tenant CA, and both ingress
-	// modes carry that TLS through unmodified (Route passthrough / Gateway API
-	// BackendTLSPolicy), so the server certificate must list the external
+	// gateway pod terminates TLS with its own per-tenant CA, and the shared
+	// Gateway re-encrypts to it and validates it with a BackendTLSPolicy, so the
+	// server certificate must list the external
 	// hostname as a SAN or clients fail verification. The controller derives
 	// that hostname, so it -- not the operator -- injects it into the cert SANs
 	// here, before cert-manager mints the certificate below.
-	if ingressMode != IngressModeNone && nsConfig.Gateway.Route.Enabled {
+	if nsConfig.Gateway.Route.Enabled {
 		injectIngressHostnames(ctx, &nsConfig)
 	}
 
@@ -166,8 +172,8 @@ func ReconcileGateway(
 	}
 
 	// Deploy gateway via Helm
-	// The chart handles: Deployment, Services, RBAC, cert-manager, GRPCRoute,
-	// BackendTLSPolicy, Route, credential KEK
+	// The chart handles: Deployment, Services, RBAC, cert-manager and the
+	// credential KEK
 	if err := deployGatewayViaHelm(ctx, helmClient, nsConfig, opts, hasTrustedCA, hasVaultCA, additionalCA); err != nil {
 		report(ConditionGatewayDeployed, StatusFailed, "Gateway deployment failed - unable to deploy the gateway workload")
 		return fmt.Errorf("deploy gateway via helm in %s: %w", nsConfig.Name, err)
@@ -187,33 +193,15 @@ func ReconcileGateway(
 	// Console reconciliation and route-address publishing are not managed by
 	// the Helm chart. Reconcile them after the Helm release so the gateway
 	// workload is already deployed.
-	switch ingressMode {
-	case IngressModeGatewayAPI:
-		if nsConfig.Gateway.Route.Enabled {
-			if err := reconcileGatewayAPIResources(ctx, dynamicClient, clientset, nsConfig, opts); err != nil {
-				report(ConditionGatewayDeployed, StatusFailed, gatewayDeployedConditionMessage(nsConfig, err))
-				return fmt.Errorf("reconcile Gateway API resources in %s: %w", nsConfig.Name, err)
-			}
-		} else {
-			if err := DeleteGatewayAPIResources(ctx, dynamicClient, clientset, nsConfig.Name, opts); err != nil {
-				slog.WarnContext(ctx, "Failed to remove Gateway API resources", "namespace", nsConfig.Name, "error", err)
-			}
+	if nsConfig.Gateway.Route.Enabled {
+		if err := reconcileGatewayAPIResources(ctx, dynamicClient, clientset, nsConfig, opts); err != nil {
+			report(ConditionGatewayDeployed, StatusFailed, gatewayDeployedConditionMessage(nsConfig, err))
+			return fmt.Errorf("reconcile Gateway API resources in %s: %w", nsConfig.Name, err)
 		}
-	case IngressModeRoute:
-		if nsConfig.Gateway.Route.Enabled {
-			if err := reconcileRouteResources(ctx, dynamicClient, nsConfig, opts); err != nil {
-				slog.WarnContext(ctx, "Failed to reconcile Route resources", "namespace", nsConfig.Name, "error", err)
-			}
-			if err := ReconcileConsole(ctx, dynamicClient, clientset, nsConfig, opts); err != nil {
-				slog.WarnContext(ctx, "Failed to reconcile console", "namespace", nsConfig.Name, "error", err)
-			}
-		} else {
-			if err := DeleteRouteResources(ctx, dynamicClient, clientset, nsConfig.Name, opts); err != nil {
-				slog.WarnContext(ctx, "Failed to remove Route resources", "namespace", nsConfig.Name, "error", err)
-			}
+	} else {
+		if err := DeleteGatewayAPIResources(ctx, dynamicClient, clientset, nsConfig.Name, opts); err != nil {
+			slog.WarnContext(ctx, "Failed to remove Gateway API resources", "namespace", nsConfig.Name, "error", err)
 		}
-	default:
-		slog.InfoContext(ctx, "No ingress mode selected (not OpenShift and no Gateway API); skipping tenant ingress", "namespace", nsConfig.Name)
 	}
 
 	report(ConditionGatewayDeployed, StatusComplete, "")
@@ -380,24 +368,17 @@ func DeleteLabeledNamespaceResources(
 		{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "roles"},
 		{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "rolebindings"},
 	}
-	if opts.IsOpenShift {
-		namespacedResources = append(namespacedResources,
-			schema.GroupVersionResource{Group: "route.openshift.io", Version: "v1", Resource: "routes"},
-		)
-	}
 	if opts.HasCertManager {
 		namespacedResources = append(namespacedResources,
 			schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "issuers"},
 			schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "certificates"},
 		)
 	}
-	if opts.HasGatewayAPI {
-		namespacedResources = append(namespacedResources,
-			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"},
-			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "grpcroutes"},
-			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "backendtlspolicies"},
-		)
-	}
+	namespacedResources = append(namespacedResources,
+		schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"},
+		schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "grpcroutes"},
+		schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "backendtlspolicies"},
+	)
 
 	var errs []error
 	for _, gvr := range namespacedResources {
@@ -576,10 +557,9 @@ type ConsoleClientChecker interface {
 	ConsoleClientExists(ctx context.Context, consoleClientID string) (bool, error)
 }
 
-// RouteResourcesAbsent reports whether the resources for the selected gateway
-// ingress mode and all console resources are absent. It checks both console
-// exposure kinds because cleanup removes an inactive exposure after a mode
-// change. It also checks the external Keycloak console client. Unknown state
+// RouteResourcesAbsent reports whether the gateway's Gateway API resources and
+// all console resources are absent. It also checks the external Keycloak
+// console client. Unknown state
 // must never be read as absence.
 //
 // It returns (true, nil) only when every probed resource is confirmed absent.
@@ -588,45 +568,29 @@ type ConsoleClientChecker interface {
 // so the caller treats absence as unconfirmed (and re-runs teardown) rather than
 // trusting an unknown state. The Keycloak client probe is skipped when
 // consoleClient is nil or consoleClientID is empty (no Keycloak configured).
-func RouteResourcesAbsent(ctx context.Context, dynamicClient dynamic.Interface, clientset kubernetes.Interface, namespace, ingressMode string, consoleClient ConsoleClientChecker, consoleClientID string) (bool, error) {
+func RouteResourcesAbsent(ctx context.Context, dynamicClient dynamic.Interface, clientset kubernetes.Interface, namespace string, consoleClient ConsoleClientChecker, consoleClientID string) (bool, error) {
 	grpcRouteGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "grpcroutes"}
 	btlsGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "backendtlspolicies"}
 	httpRouteGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "httproutes"}
 	gatewayGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"}
 	certGVR := schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "certificates"}
-	openShiftRouteGVR := schema.GroupVersionResource{Group: "route.openshift.io", Version: "v1", Resource: "routes"}
 
 	type dynamicProbe struct {
 		gvr  schema.GroupVersionResource
 		name string
 	}
-	var dynamicProbes []dynamicProbe
-	switch ingressMode {
-	case IngressModeGatewayAPI:
-		// The dedicated-certificate resources are only present for opted-in
-		// gateways; probing them unconditionally is correct (absence for
-		// non-opted-in gateways is the expected state).
-		dynamicProbes = append(dynamicProbes,
-			dynamicProbe{grpcRouteGVR, "openshell-gateway"},
-			dynamicProbe{btlsGVR, "openshell-gateway"},
-			dynamicProbe{certGVR, externalCertificateName},
-			dynamicProbe{gatewayGVR, perTenantGatewayName(namespace)},
-			dynamicProbe{httpRouteGVR, sandboxHTTPRouteName},
-		)
-	case IngressModeRoute:
-		dynamicProbes = append(dynamicProbes,
-			dynamicProbe{openShiftRouteGVR, "openshell-gateway"},
-		)
-	case IngressModeNone:
-		// There is no selected gateway exposure to probe.
-	default:
-		return false, fmt.Errorf("unsupported ingress mode %q for resource absence probe", ingressMode)
+	// The dedicated-certificate resources are only present for opted-in
+	// gateways; probing them unconditionally is correct (absence for
+	// non-opted-in gateways is the expected state).
+	dynamicProbes := []dynamicProbe{
+		{grpcRouteGVR, "openshell-gateway"},
+		{btlsGVR, "openshell-gateway"},
+		{certGVR, externalCertificateName},
+		{gatewayGVR, perTenantGatewayName(namespace)},
+		{httpRouteGVR, sandboxHTTPRouteName},
+		{httpRouteGVR, consoleName},
+		{schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}, consoleName},
 	}
-	dynamicProbes = append(dynamicProbes,
-		dynamicProbe{httpRouteGVR, consoleName},
-		dynamicProbe{openShiftRouteGVR, consoleName},
-		dynamicProbe{schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}, consoleName},
-	)
 	for _, p := range dynamicProbes {
 		if _, err := dynamicClient.Resource(p.gvr).Namespace(namespace).Get(ctx, p.name, metav1.GetOptions{}); err == nil {
 			return false, nil
@@ -635,12 +599,10 @@ func RouteResourcesAbsent(ctx context.Context, dynamicClient dynamic.Interface, 
 		}
 	}
 
-	if ingressMode == IngressModeGatewayAPI {
-		if _, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, backendCAConfigMapName, metav1.GetOptions{}); err == nil {
-			return false, nil
-		} else if !k8serrors.IsNotFound(err) {
-			return false, fmt.Errorf("probe configmap %s in %s: %w", backendCAConfigMapName, namespace, err)
-		}
+	if _, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, backendCAConfigMapName, metav1.GetOptions{}); err == nil {
+		return false, nil
+	} else if !k8serrors.IsNotFound(err) {
+		return false, fmt.Errorf("probe configmap %s in %s: %w", backendCAConfigMapName, namespace, err)
 	}
 	if _, err := clientset.CoreV1().Services(namespace).Get(ctx, consoleName, metav1.GetOptions{}); err == nil {
 		return false, nil
@@ -797,59 +759,6 @@ func reconcileBackendTLS(ctx context.Context, dynamicClient dynamic.Interface, c
 		return fmt.Errorf("reconcile BackendTLSPolicy in %s: %w", namespace, err)
 	}
 	return nil
-}
-
-// reconcileRouteResources handles the non-Route resources needed when the
-// gateway is exposed through an OpenShift Route. The Route itself is owned by
-// the Helm chart (openshiftRoute.enabled=true in the chart values); this
-// function publishes the route address back to the API server.
-func reconcileRouteResources(ctx context.Context, dynamicClient dynamic.Interface, nsConfig NamespaceConfig, opts ReconcileOpts) error {
-	namespace := nsConfig.Name
-
-	hostname, err := deriveGatewayHostname(nsConfig)
-	if err != nil {
-		slog.WarnContext(ctx, "Cannot derive gateway hostname; skipping Route resources", "error", err)
-		return nil
-	}
-
-	publishRouteAddress(ctx, opts, namespace, hostname)
-
-	slog.InfoContext(ctx, "Route resources reconciled", "namespace", namespace, "hostname", hostname)
-	return nil
-}
-
-// DeleteRouteResources removes the OpenShift gateway Route and all console
-// resources. It also clears the stored route address. It attempts all
-// operations and returns all errors so the health loop can retry incomplete
-// cleanup.
-func DeleteRouteResources(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, namespace string, opts ReconcileOpts) error {
-	var errs []error
-
-	routeGVR := schema.GroupVersionResource{
-		Group:    "route.openshift.io",
-		Version:  "v1",
-		Resource: "routes",
-	}
-	if err := dynamicClient.Resource(routeGVR).Namespace(namespace).Delete(ctx, "openshell-gateway", metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		errs = append(errs, fmt.Errorf("delete gateway Route in %s: %w", namespace, err))
-	}
-
-	if err := DeleteConsole(ctx, dynamicClient, clientset, namespace, opts); err != nil {
-		errs = append(errs, err)
-	}
-
-	if opts.UpdateRouteAddress != nil {
-		if err := opts.UpdateRouteAddress(ctx, ""); err != nil {
-			errs = append(errs, fmt.Errorf("clear routeAddress in %s: %w", namespace, err))
-		} else {
-			slog.InfoContext(ctx, "Cleared routeAddress for gateway", "namespace", namespace)
-		}
-	}
-
-	if len(errs) == 0 {
-		slog.InfoContext(ctx, "Route resources removed", "namespace", namespace)
-	}
-	return errors.Join(errs...)
 }
 
 func waitForSecret(ctx context.Context, clientset kubernetes.Interface, namespace, name string, timeout time.Duration) error {
@@ -1612,22 +1521,39 @@ func DetectCertManager(clientset *kubernetes.Clientset) bool {
 	return false
 }
 
-func DetectGatewayAPI(clientset *kubernetes.Clientset) bool {
-	_, resources, err := clientset.Discovery().ServerGroupsAndResources()
+// errGatewayAPIMissing reports a cluster without the Gateway API. Gateways are
+// exposed only through the Gateway API, so a gateway cannot be provisioned there.
+var errGatewayAPIMissing = errors.New("the Gateway API is not installed on this cluster")
+
+// gatewayAPIMissingMessage is the condition message for errGatewayAPIMissing.
+const gatewayAPIMissingMessage = "Gateway API is not installed on this cluster; the gateway cannot be exposed"
+
+// requireGatewayAPI checks that the cluster serves GRPCRoute in
+// gateway.networking.k8s.io/v1. It makes one discovery call per reconcile, so
+// a gateway recovers on its next retry once the Gateway API is installed.
+func requireGatewayAPI(d discovery.DiscoveryInterface) error {
+	resources, err := d.ServerResourcesForGroupVersion("gateway.networking.k8s.io/v1")
 	if err != nil {
-		slog.Warn("Failed to discover API groups for Gateway API detection", "error", err)
-		return false
+		if k8serrors.IsNotFound(err) {
+			return errGatewayAPIMissing
+		}
+		return fmt.Errorf("check for the Gateway API: %w", err)
 	}
-	for _, list := range resources {
-		if list.GroupVersion == "gateway.networking.k8s.io/v1" {
-			for _, r := range list.APIResources {
-				if r.Kind == "GRPCRoute" {
-					return true
-				}
-			}
+	for _, r := range resources.APIResources {
+		if r.Kind == "GRPCRoute" {
+			return nil
 		}
 	}
-	return false
+	return errGatewayAPIMissing
+}
+
+// gatewayAPIConditionMessage is the EnvironmentReady message for a failed
+// Gateway API check.
+func gatewayAPIConditionMessage(err error) string {
+	if errors.Is(err, errGatewayAPIMissing) {
+		return gatewayAPIMissingMessage
+	}
+	return "Environment preparation failed - unable to check for the Gateway API"
 }
 
 func gatewayIngressNamespace() string {
@@ -1671,87 +1597,8 @@ func gatewayAPIGatewayClass() string {
 	return "openshift-default"
 }
 
-// Ingress modes select how a tenant gateway is exposed for external traffic.
-// Exported so the controller entrypoint can select the matching Gateway Exposure
-// adapter (Gateway API vs Route) by the same rule the reconciler uses to emit
-// ingress resources.
-const (
-	IngressModeGatewayAPI = "gateway-api"
-	IngressModeRoute      = "route"
-	IngressModeNone       = ""
-)
-
-// routeTLSIssuer resolves the cert-manager ClusterIssuer that mints a per-host
-// public certificate for a Route, from GATEWAY_ROUTE_TLS_ISSUER.
-func routeTLSIssuer() string {
-	return strings.TrimSpace(os.Getenv("GATEWAY_ROUTE_TLS_ISSUER"))
-}
-
-// readInjectedRouteCert returns the certificate and key that the cert-manager
-// openshift-routes controller has injected into the named Route's spec.tls, or
-// empty strings when the Route or those fields are absent.
-func readInjectedRouteCert(ctx context.Context, dynamicClient dynamic.Interface, namespace, routeName string) (string, string) {
-	gvr := schema.GroupVersionResource{Group: "route.openshift.io", Version: "v1", Resource: "routes"}
-	existing, err := dynamicClient.Resource(gvr).Namespace(namespace).Get(ctx, routeName, metav1.GetOptions{})
-	if err != nil {
-		return "", ""
-	}
-	cert, _, _ := unstructured.NestedString(existing.Object, "spec", "tls", "certificate")
-	key, _, _ := unstructured.NestedString(existing.Object, "spec", "tls", "key")
-	return cert, key
-}
-
-// IngressMode resolves how tenant-gateway ingress is provisioned from
-// GATEWAY_INGRESS_MODE, falling back to a capability-based default.
-//
-// HyperShell is environment-adaptive: it emits Kubernetes Gateway API resources
-// (a GRPCRoute onto a shared Gateway) where the Gateway API is available and
-// functional, and OpenShift Routes (HAProxy passthrough) where it is not (e.g.
-// IBM Cloud ROKS, which ships the Gateway API CRDs but cannot run the
-// CIO-managed Istio). The mode is chosen per environment via the kustomize-set
-// env var GATEWAY_INGRESS_MODE, with a sensible capability-based default when it
-// is unset.
-//
-// GATEWAY_INGRESS_MODE values: "gateway-api", "route", or "none"/"off" to
-// disable managed ingress. When unset, auto-detect: prefer the Gateway API when
-// present, otherwise fall back to Routes on OpenShift. Note that on some
-// platforms the Gateway API CRDs exist but do not function (ROKS); those
-// operators must set GATEWAY_INGRESS_MODE=route explicitly.
-//
-// This is the single source of truth for ingress-mode selection: both the
-// reconciler (which ingress resources to emit) and the controller entrypoint
-// (which exposure adapter to observe readiness through) resolve the mode here,
-// so the emitted resource and the observed resource cannot diverge -- the ROKS
-// bug where a Route-exposed gateway was observed through the Gateway API adapter
-// (because the Gateway API CRDs happened to be present) is thereby impossible.
-func IngressMode(hasGatewayAPI, isOpenShift bool) string {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("GATEWAY_INGRESS_MODE"))) {
-	case IngressModeGatewayAPI, "gatewayapi":
-		return IngressModeGatewayAPI
-	case IngressModeRoute, "routes":
-		return IngressModeRoute
-	case "none", "off", "disabled":
-		return IngressModeNone
-	}
-
-	// Auto-detect from cluster capabilities when no explicit override is set.
-	if hasGatewayAPI {
-		return IngressModeGatewayAPI
-	}
-	if isOpenShift {
-		return IngressModeRoute
-	}
-	return IngressModeNone
-}
-
-// gatewayIngressMode resolves the ingress mode for a reconcile pass from the
-// detected cluster capabilities carried on opts.
-func gatewayIngressMode(opts ReconcileOpts) string {
-	return IngressMode(opts.HasGatewayAPI, opts.IsOpenShift)
-}
-
-// deriveGatewayHostname resolves the external hostname for a tenant gateway,
-// shared by both ingress modes. An explicit Route.Host wins; otherwise it is
+// deriveGatewayHostname resolves the external hostname for a tenant gateway.
+// An explicit Route.Host wins; otherwise it is
 // derived as gw-<namespace>.<GATEWAY_API_BASE_DOMAIN>. The gateway's server
 // certificate SANs (ServerDnsNames/ExternalDns) must cover this hostname.
 func deriveGatewayHostname(nsConfig NamespaceConfig) (string, error) {
@@ -1760,8 +1607,7 @@ func deriveGatewayHostname(nsConfig NamespaceConfig) (string, error) {
 		// An explicit host that falls under the operator's shared base domain
 		// MUST be this tenant's own slot (gw-<namespace>.<base-domain>).
 		// Otherwise a tenant could set Route.Host to another tenant's derived
-		// host and hijack its route under the shared wildcard, since OpenShift
-		// Route host claiming is first-come. Hosts outside the base domain
+		// host and hijack its route under the shared wildcard. Hosts outside the base domain
 		// (genuine external/vanity names) are the operator's responsibility and
 		// pass through; empty base domain means no shared wildcard to protect.
 		if baseDomain != "" && strings.HasSuffix(h, "."+baseDomain) {
@@ -1780,8 +1626,8 @@ func deriveGatewayHostname(nsConfig NamespaceConfig) (string, error) {
 
 // injectIngressHostnames adds the external ingress hostname to the gateway's
 // server certificate SANs and fills an empty Route.Host with it. The gateway
-// pod terminates TLS with its own per-tenant CA and both ingress modes carry
-// that TLS through unmodified, so the server certificate must list the
+// pod terminates TLS with its own per-tenant CA and the shared Gateway
+// re-encrypts to it, so the server certificate must list the
 // external hostname as a SAN or clients fail verification. The controller
 // derives the hostname, so it -- not the operator -- injects it into the cert
 // SANs here, before cert-manager mints the certificate.
@@ -1819,20 +1665,6 @@ func appendDNSNameIfMissing(names []string, hostname string) []string {
 		}
 	}
 	return append(names, hostname)
-}
-
-// publishRouteAddress writes the externally reachable gRPC address back to the
-// API-server Gateway resource. Shared by both ingress modes.
-func publishRouteAddress(ctx context.Context, opts ReconcileOpts, namespace, hostname string) {
-	if opts.UpdateRouteAddress == nil {
-		return
-	}
-	routeAddress := fmt.Sprintf("grpcs://%s:443", hostname)
-	if err := opts.UpdateRouteAddress(ctx, routeAddress); err != nil {
-		slog.WarnContext(ctx, "Failed to publish routeAddress for gateway", "route_address", routeAddress, "namespace", namespace, "error", err)
-	} else {
-		slog.InfoContext(ctx, "Published routeAddress for gateway", "route_address", routeAddress, "namespace", namespace)
-	}
 }
 
 // buildExternalCertificate returns the cert-manager Certificate covering a

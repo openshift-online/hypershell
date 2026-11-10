@@ -1,8 +1,7 @@
 // Package exposure defines the application-owned port through which the control
 // plane resolves a gateway's external route address and observes the readiness
-// of its external exposure. The Gateway API is one adapter behind this port;
-// additional adapters (e.g. OpenShift Route, passthrough Route) can be added
-// without changing the reconciler or health-reconciliation logic.
+// of its external exposure. The Gateway API adapter implements this port, so
+// the reconciler and health-reconciliation logic do not depend on it directly.
 //
 // See specs/platform/openshell-gateway-routing.spec.md § Gateway Exposure Port.
 package exposure

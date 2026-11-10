@@ -93,7 +93,6 @@ jobs:
       e2e: ${{ steps.detect.outputs.e2e }}
       gateway_management_ui: ${{ steps.detect.outputs.gateway_management_ui }}
       operational_dashboard_ui: ${{ steps.detect.outputs.operational_dashboard_ui }}
-      pr_test: ${{ steps.detect.outputs.pr_test }}
       sdk_go: ${{ steps.detect.outputs.sdk_go }}
       sdk_typescript: ${{ steps.detect.outputs.sdk_typescript }}
       spec_viewer: ${{ steps.detect.outputs.spec_viewer }}
@@ -166,7 +165,6 @@ jobs:
       api_server: ${{ needs.detect-changes.outputs.api_server }}
       control_plane: ${{ needs.detect-changes.outputs.control_plane }}
       e2e: ${{ needs.detect-changes.outputs.e2e }}
-      pr_test: ${{ needs.detect-changes.outputs.pr_test }}
 
   # Stable rollup check for branch protection. Always runs, so a
   # path-filtered stage that skips its internal jobs never leaves a required
