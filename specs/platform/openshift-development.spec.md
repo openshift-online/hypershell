@@ -933,9 +933,8 @@ NOT use the internal image registry (`oc registry`, `oc start-build`).
 Automated OpenShift pull-request CI is specified in
 `ephemeral-pr-environments.spec.md` (HYPERSHELL-240). That spec owns namespace
 naming, deploy triggers, origin-only trust boundary, timebox and reaping, the
-access comment, GitHub-brokered Keycloak, e2e grant selection, and the scope
-of the ROKS `pr_test` component. This spec SHALL NOT restate those
-requirements.
+access comment, GitHub-brokered Keycloak, and e2e grant selection. This spec
+SHALL NOT restate those requirements.
 
 The pull-request workflow SHALL deploy and release with the same lifecycle this
 spec defines: `make openshift-up` and `make openshift-down`, the

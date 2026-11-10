@@ -15,7 +15,7 @@ Stands up a VPC Gen2 OpenShift cluster on IBM Cloud as a Cloud Hub. After it is
 and tenant ingress with [`cloud-hub-ingress-bootstrap`](../cloud-hub-ingress-bootstrap/SKILL.md).
 
 > **Validated end to end (2026-08-19, `hysh-ibm-01`, openshell 0.0.109):**
-> `components/pr-test/e2e-openshell-roks.sh` passes **22/22** - full path from the
+> the ROKS e2e script (since removed, #767) passed **22/22** - full path from the
 > HyperShell API through the control plane, per-tenant Route, OIDC (admin +
 > standard developer), and sandbox create + exec for **both** an admin and a
 > standard user. The developer flow requires the workspace-membership grant in
@@ -410,26 +410,10 @@ must keep aligned with this cluster:
 
 - `GATEWAY_INGRESS_MODE=route` and `GATEWAY_API_BASE_DOMAIN=<ingress subdomain>`
   (`oc get ingresscontroller default -n openshift-ingress-operator -o jsonpath='{.status.domain}'`).
-  Route TLS termination defaults to `passthrough` (this cluster); ROKS keeps it
-  because IBM's shared `*.containers.appdomain.cloud` wildcard is not operator-owned,
-  so no publicly trusted edge cert is issuable. On a cluster whose router already
-  serves a trusted `*.apps` wildcard (for example ROSA), set
-  `GATEWAY_ROUTE_TERMINATION=reencrypt` instead so clients connect with no custom CA
-  bundle; the control plane then emits a `reencrypt` Route whose
-  `destinationCACertificate` is the tenant's `openshell-server-tls` `ca.crt`.
-  Reencrypt requires the default `IngressController` to have HTTP/2 enabled (the
-  gateway speaks gRPC): `oc annotate ingresscontroller/default -n openshift-ingress-operator ingress.operator.openshift.io/default-enable-http2=true`.
-  HTTP/2 on the IngressController is necessary but **not sufficient**: OpenShift
-  advertises client-facing ALPN `h2` (which gRPC over TLS needs) only on Routes
-  that carry their **own** `spec.tls.certificate` - Routes riding the shared
-  default `*.apps` wildcard are denied `h2` by the router's connection-coalescing
-  protection. To give the gateway Route its own trusted cert, set
-  `GATEWAY_ROUTE_TLS_ISSUER=<cert-manager ClusterIssuer>` (for example
-  `letsencrypt-http01`); the control plane then annotates the reencrypt Route with
-  `cert-manager.io/issuer-name`/`issuer-kind: ClusterIssuer` and preserves the cert
-  the `openshift-routes` controller injects into `spec.tls`. Both the ClusterIssuer
-  and the `openshift-routes` injector must exist on the cluster (see the gitops
-  `cert-manager` bases).
+  The gateway Route is always `passthrough`: the gateway Helm chart owns it and the
+  router forwards the raw TLS stream to the gateway pod. `GATEWAY_ROUTE_TLS_ISSUER` applies
+  only to the console Route: set it to a cert-manager `ClusterIssuer` when the console
+  host is under a domain the router default certificate does not cover.
 - Image transformers repointing api-server/controller/postgresql at `.svc:5000/hypershell/*`.
 - **`deploy/base/controller-rbac.yaml`** - a cluster-wide `ClusterRole` for the
   controller. The self-contained `deploy/openshift` tree ships only a narrow Role;
@@ -675,9 +659,7 @@ openshell -g <admin-gateway> workspace member add \
 (the system `/bin/openshell` on the dev host is **0.0.55** and errors with
 `unrecognized subcommand 'workspace'`). Use a CLI **>= 0.0.98** (there is no
 downloadable 0.0.109 CLI release - only the gateway container image is 0.0.109; the
-0.0.98 CLI reads the same config format and talks to a 0.0.109 gateway fine). This
-is exactly what the ROKS e2e (`components/pr-test/e2e-openshell-roks.sh`) does in
-its developer-RBAC step, and why it defaults `OPENSHELL` to `~/.local/bin/openshell`.
+0.0.98 CLI reads the same config format and talks to a 0.0.109 gateway fine).
 
 **CLI connect - OIDC mode, not edge/cloud mode.** A bare `openshell gateway add
 https://<host>` treats the endpoint as edge-authenticated ("cloud") and 404s on

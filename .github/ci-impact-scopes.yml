@@ -296,7 +296,6 @@ scopes:
       test-infrastructure:
         include:
           - tests/**
-          - components/pr-test/**
           - scripts/ci/**
           - .github/actions/deploy-pr-environment/**
           - .github/actions/openshift-cluster-login/**

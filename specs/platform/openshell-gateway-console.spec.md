@@ -267,6 +267,8 @@ spec:
 
 The OpenShift router SHALL terminate TLS. It SHALL send HTTP to oauth2-proxy on Service port `http`. The Route SHALL use the OpenShift router certificate when no Route certificate is set.
 
+When the control-plane env var `GATEWAY_ROUTE_TLS_ISSUER` names a cert-manager `ClusterIssuer`, the reconciler SHALL annotate the console Route with `cert-manager.io/issuer-name: <issuer>`, `cert-manager.io/issuer-kind: ClusterIssuer` and `cert-manager.io/issuer-group: cert-manager.io`. The cert-manager openshift-routes controller then issues a certificate for the console host and injects it into `spec.tls.certificate` and `spec.tls.key`. This matters when the console host is under a custom domain that the router default certificate does not cover. The reconciler replaces the whole Route on each pass, so it SHALL carry an injected certificate and key forward. When `GATEWAY_ROUTE_TLS_ISSUER` is unset, the Route SHALL carry no `cert-manager.io/*` annotation.
+
 #### Scenario: OSG-CON-05.01 -- HTTP listener absent on the shared Gateway
 
 - GIVEN a shared Gateway with no listener that matches `GATEWAY_API_HTTP_LISTENER_NAME`
@@ -290,6 +292,27 @@ The OpenShift router SHALL terminate TLS. It SHALL send HTTP to oauth2-proxy on 
 - AND it must write the Route admission reason when one exists
 - AND it must not fail the gateway reconciliation
 
+
+#### Scenario: OSG-CON-05.04 -- Route issuer annotates the console Route
+
+- GIVEN the selected ingress mode is `route`
+- AND `GATEWAY_ROUTE_TLS_ISSUER=letsencrypt-http01`
+- WHEN the reconciler reconciles the console
+- THEN the console Route must carry `cert-manager.io/issuer-name: letsencrypt-http01` and `cert-manager.io/issuer-kind: ClusterIssuer`
+
+#### Scenario: OSG-CON-05.05 -- No Route issuer leaves the console Route unannotated
+
+- GIVEN the selected ingress mode is `route`
+- AND `GATEWAY_ROUTE_TLS_ISSUER` is unset
+- WHEN the reconciler reconciles the console
+- THEN the console Route must carry no `cert-manager.io/*` annotation
+
+#### Scenario: OSG-CON-05.06 -- Reconcile keeps an injected console certificate
+
+- GIVEN the selected ingress mode is `route` with `GATEWAY_ROUTE_TLS_ISSUER` set
+- AND the openshift-routes controller injected `spec.tls.certificate` and `spec.tls.key` into the console Route
+- WHEN the reconciler reconciles the console again
+- THEN the console Route must keep the injected certificate and key
 ---
 
 ### Requirement: OSG-CON-07 -- Console Lifecycle and Cleanup

@@ -983,6 +983,8 @@ func TestReconcileConsoleSecret_PreservesCookieOnUpdate(t *testing.T) {
 // console Route. Without a per-host certificate the console rides the router
 // default certificate, which only covers the cluster ingress domain -- so on a
 // custom gateway domain every browser rejects the console.
+//
+// Verifies: OSG-CON-05.04, OSG-CON-05.05, OSG-CON-05.06
 func TestReconcileConsoleExposureTLSIssuer(t *testing.T) {
 	const (
 		namespace = "openshell-abc"

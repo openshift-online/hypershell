@@ -1023,7 +1023,7 @@ mistaken for full finalization. Long-only.
 The e2e suite SHALL connect to gateways over trusted TLS, with certificate verification on. It SHALL NOT turn on the `OPENSHELL_GATEWAY_INSECURE` bypass itself, and CI SHALL NOT set it. How the CLI trusts the gateway depends on the driver:
 
 - **Kind:** the gateway certificate is signed by the cluster's self-signed cert-manager CA (the same CA that signs the `*.gw.localhost` wildcard listener certificate). The Go suite reads that CA from the `hypershell-ca-secret` Secret and points the openshell CLI at it with `SSL_CERT_FILE`. The Bash Kind driver (`tests/e2e/drivers/kind.sh`) exports `SSL_CERT_FILE` as a bundle of the system root certificates plus that CA, so public endpoints still verify, and fails fast when it cannot read the CA. When the CLI runs through `scripts/kind/openshell-container.sh`, the wrapper SHALL mount the caller's `SSL_CERT_FILE` into the container, set `SSL_CERT_FILE` there, and keep verification on. Without a caller-supplied CA, the wrapper falls back to skipping verification; that fallback serves interactive developer use, and no e2e path relies on it.
-- **OpenShift:** the Gateway API endpoint is publicly trusted, so the CLI uses the system trust store. For an environment with a private CA, the Bash OpenShift driver (`tests/e2e/drivers/openshift.sh`) reads `ca.crt` from the Secret named by `E2E_OPENSHIFT_CA_SECRET` (in `E2E_OPENSHIFT_CA_NAMESPACE`, default `OPENSHIFT_NAMESPACE`) and exports it as `SSL_CERT_FILE`. One known exception: in route ingress mode (`GATEWAY_INGRESS_MODE=route`, for example IBM Cloud ROKS) the passthrough Route exposes the gateway's own CA, which no public trust store knows, and the Bash OpenShift driver (`tests/e2e/drivers/openshift.sh`) turns the bypass on for that case. Trusting that CA instead is open work.
+- **OpenShift:** the Gateway API endpoint is publicly trusted, so the CLI uses the system trust store. For an environment with a private CA, the Bash OpenShift driver (`tests/e2e/drivers/openshift.sh`) reads `ca.crt` from the Secret named by `E2E_OPENSHIFT_CA_SECRET` (in `E2E_OPENSHIFT_CA_NAMESPACE`, default `OPENSHIFT_NAMESPACE`) and exports it as `SSL_CERT_FILE`. One known exception: in route ingress mode (`GATEWAY_INGRESS_MODE=route`) the passthrough Route exposes the gateway's own CA, which no public trust store knows, and the Bash OpenShift driver (`tests/e2e/drivers/openshift.sh`) turns the bypass on for that case. Trusting that CA instead is open work.
 
 This keeps the e2e path on the same TLS trust chain a real client uses. The same rules apply to the Bash smoke script (`tests/e2e/smoke.sh`).
 
@@ -1667,8 +1667,7 @@ Bash is limited to these scripts:
 - the user-interaction smoke script `smoke.sh` (see [Bash Smoke Script](#requirement-bash-smoke-script));
 - `tests/e2e/lib.sh`, which holds the shared smoke and route-discovery helpers;
 - the shell drivers `tests/e2e/drivers/kind.sh` and `tests/e2e/drivers/openshift.sh`, which give those two scripts route discovery, OIDC tokens, and TLS trust;
-- the gateway service-account helper `tests/e2e/gateway_service_account.sh`;
-- the ROKS variant `components/pr-test/e2e-openshell-roks.sh`.
+- the gateway service-account helper `tests/e2e/gateway_service_account.sh`.
 
 Browser interactions and assertions live in the TypeScript Playwright suite. The shell helpers and drivers SHALL serve only the smoke and browser launchers. They SHALL NOT grow into a second functional suite.
 
@@ -1800,7 +1799,7 @@ deploy/
   pr-environment-destroy.yml -- ephemeral PR env teardown (closed: merge or close)
 ```
 
-The functional, performance, and matrix suites are Go only (see [Single Functional E2E Implementation](#requirement-single-functional-e2e-implementation)). The Bash in `tests/e2e/` is the smoke script (`smoke.sh`), the thin Playwright launcher (`e2e-console.sh`), the shared `lib.sh`, and the shell drivers those two source (`drivers/kind.sh`, `drivers/openshift.sh`). The ROKS variant lives in `components/pr-test/`.
+The functional, performance, and matrix suites are Go only (see [Single Functional E2E Implementation](#requirement-single-functional-e2e-implementation)). The Bash in `tests/e2e/` is the smoke script (`smoke.sh`), the thin Playwright launcher (`e2e-console.sh`), the shared `lib.sh`, and the shell drivers those two source (`drivers/kind.sh`, `drivers/openshift.sh`).
 
 ## Environment Variables
 
