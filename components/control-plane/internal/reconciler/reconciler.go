@@ -15,6 +15,7 @@ import (
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/gatewayhealth"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/defaultworkspace"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/helm"
@@ -35,6 +36,11 @@ import (
 type ManagedClusterReconciler struct {
 	mu     sync.Mutex
 	active map[string]struct{}
+}
+
+type BootstrapAdminProvisioner interface {
+	Configured() bool
+	EnsureAdmin(context.Context, defaultworkspace.AdminSpec) error
 }
 
 func NewManagedClusterReconciler() *ManagedClusterReconciler {
@@ -143,6 +149,7 @@ type GatewayReconciler struct {
 	// by the nil-payload delete re-read (CTRL-WDEL-04). Production leaves it nil
 	// and dials grpcConn; tests inject a fake without standing up a gRPC server.
 	gatewayClientOverride pb.GatewayServiceClient
+	bootstrapAdmin        BootstrapAdminProvisioner
 }
 
 // gatewayServiceClient returns the GatewayServiceClient used for direct gRPC
@@ -223,6 +230,7 @@ func NewGatewayReconciler(
 	sandboxRuntimeClass string,
 	operatorNamespaceLabelKey string,
 	operatorSandboxRuntimeClass string,
+	bootstrapAdmin BootstrapAdminProvisioner,
 ) (*GatewayReconciler, error) {
 	if database.AdminCredentialsDir == "" {
 		return nil, fmt.Errorf("gateway database admin credentials directory is required")
@@ -279,6 +287,7 @@ func NewGatewayReconciler(
 		sandboxRuntimeClass:         sandboxRuntimeClass,
 		operatorNamespaceLabelKey:   operatorNamespaceLabelKey,
 		operatorSandboxRuntimeClass: operatorSandboxRuntimeClass,
+		bootstrapAdmin:              bootstrapAdmin,
 	}, nil
 }
 
@@ -576,7 +585,13 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			reconcileErr = fmt.Errorf("reconcile Keycloak client for gateway %q: %w", gw.Name, err)
 			return watcher.WithRetryableReason(watcher.PreservePayloadForRetry(reconcileErr), reason)
 		}
-		if isGatewayKeycloakClientStatus(gw.GetStatus()) {
+		if err := r.ensureBootstrapAdmin(ctx, event.ResourceID, gw, gw.GetNamespace()); err != nil {
+			outcome = cpotel.OutcomeRetryable
+			reason = cpotel.ReasonKeycloakTransient
+			reconcileErr = fmt.Errorf("ensure gateway bootstrap admin for %q: %w", gw.Name, err)
+			return watcher.WithRetryableReason(watcher.PreservePayloadForRetry(reconcileErr), reason)
+		}
+		if r.keycloakClient != nil && isGatewayKeycloakClientStatus(gw.GetStatus()) {
 			if err := r.updateGatewayStatus(ctx, event.ResourceID, ""); err != nil {
 				outcome = cpotel.OutcomeRetryable
 				reason = cpotel.ReasonGRPCUnavailable
@@ -750,6 +765,12 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		}
 		reconcileErr = fmt.Errorf("reconcile gateway %s: %w", gw.Name, err)
 		return reconcileErr
+	}
+	if err := r.ensureBootstrapAdmin(ctx, event.ResourceID, gw, namespace); err != nil {
+		outcome = cpotel.OutcomeRetryable
+		reason = cpotel.ReasonKeycloakTransient
+		reconcileErr = fmt.Errorf("ensure gateway bootstrap admin for %q: %w", gw.Name, err)
+		return watcher.WithRetryableReason(watcher.PreservePayloadForRetry(reconcileErr), reason)
 	}
 
 	// Step 5: GatewayHealthy
@@ -1545,6 +1566,26 @@ func (r *GatewayReconciler) persistGeneratedOIDC(ctx context.Context, gatewayID 
 		"apply_generation", snapshot.GetGeneration(),
 	)
 	return snapshot, nil
+}
+
+func (r *GatewayReconciler) ensureBootstrapAdmin(ctx context.Context, gatewayID string, gw *pb.Gateway, namespace string) error {
+	if r.bootstrapAdmin == nil || !r.bootstrapAdmin.Configured() {
+		return nil
+	}
+	clientID, err := gatewayKeycloakClientID(gatewayID, gw)
+	if err != nil {
+		return err
+	}
+	var oidcConfig gateway.OIDCConfig
+	if gw.GetOidc() != "" {
+		if err := json.Unmarshal([]byte(gw.GetOidc()), &oidcConfig); err != nil {
+			return fmt.Errorf("parse persisted OIDC config: %w", err)
+		}
+	}
+	return r.bootstrapAdmin.EnsureAdmin(ctx, defaultworkspace.AdminSpec{
+		GatewayID: gatewayID, GatewayNamespace: namespace,
+		Issuer: oidcConfig.Issuer, GatewayClientID: clientID,
+	})
 }
 
 type StubGatewayReconciler struct{}

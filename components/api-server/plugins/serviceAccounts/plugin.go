@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/routes"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/defaultWorkspaceBootstrap"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
@@ -34,6 +35,7 @@ func NewServiceLocator(env *environments.Env) ServiceLocator {
 				gateways.Service(&env.Services),
 				roleBindings.Service(&env.Services),
 				provisioner,
+				defaultWorkspaceBootstrap.ServiceFrom(&env.Services),
 				db.NewAdvisoryLockFactory(env.Database.SessionFactory),
 			)
 			if provisioner != nil && provisioner.Configured() {
