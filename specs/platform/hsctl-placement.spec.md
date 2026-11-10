@@ -41,7 +41,8 @@ selector without a selector. A flag value that is empty or contains a comma
 SHALL be rejected before any request is sent, with an error that names the
 repeat syntax. A flag value SHALL be rejected before any request is sent when
 it is not `namespace/value` with a namespace among `provider`, `network`,
-`region`, `runtime`, `environment` and both segments matching a lowercase
+`region`, `runtime`, `environment`, or the admin identity namespace
+`managed-cluster` (CLI-PLC-05), and both segments matching a lowercase
 DNS-label; the server's validation remains authoritative and its message is
 surfaced verbatim when the client check passes but the server rejects.
 
@@ -158,19 +159,77 @@ excluded labels are enforced at create time.
 
 ### Requirement: CLI-PLC-04 -- Help and Discovery
 
-The `hsctl create gateway` help SHALL document both creation shapes (pinned
-and late-bound), the repeat syntax for the selector flags, a region example
+The `hsctl create gateway` help SHALL document the late-bound placement
+surface: the repeat syntax for the selector flags, a region example
 (`--placement-selector region/<region>`), the `--dry-run` pre-check, and the
-awaiting-placement meaning of an empty `cluster_id`. The API-to-CLI mapping
-table in [`platform/data-model.spec.md`](../platform/data-model.spec.md)
-SHALL describe these flags as the CLI surface of the gateway create request.
+awaiting-placement meaning of an empty `cluster_id`. The pinned shape still
+exists and works, but its `--cluster-id` flag is hidden (CLI-PLC-05), so the
+help SHALL NOT advertise a `--cluster-id` pinned example. The awaiting-placement
+note describes the empty `cluster_id` FIELD on the created Gateway, not the flag,
+so it stays in the help. The API-to-CLI mapping table in
+[`platform/data-model.spec.md`](../platform/data-model.spec.md) SHALL describe
+these flags as the CLI surface of the gateway create request.
 
-#### Scenario: CLI-PLC-04.01 -- Help shows both shapes and the repeat syntax
+#### Scenario: CLI-PLC-04.01 -- Help shows the late-bound surface and the repeat syntax
 
 - WHEN the user runs `hsctl create gateway --help`
-- THEN the output SHALL show a pinned example using `--cluster-id`
-- AND a late-bound example repeating `--placement-selector`
+- THEN the output SHALL show a late-bound example repeating `--placement-selector`
 - AND a `--dry-run` example
+- AND the output SHALL NOT surface the hidden `--cluster-id` flag
+
+### Requirement: CLI-PLC-05 -- Admin Identity Selector Namespace
+
+`hsctl` SHALL accept the platform-admin `managed-cluster/<name>` identity selector
+(the deterministic single-cluster targeting token defined by
+[`platform/data-model.spec.md`](../platform/data-model.spec.md) PLAT-DATA-27)
+through the existing repeatable `--placement-selector` and
+`--placement-exclude-selector` flags. `hsctl` SHALL NOT add a `--cluster-name`
+flag: the one placement-selector surface carries the token.
+
+The CLI pre-validates the selector vocabulary before sending a request. Because it
+currently pre-validates only the capability namespaces, it SHALL additionally
+recognize the `managed-cluster/` namespace as a syntactically valid selector so a
+`managed-cluster/<name>` value is NOT rejected fail-fast as an unknown namespace.
+The CLI SHALL NOT enforce the platform-admin entitlement or resolve the cluster
+name itself: the server's platform-admin gate (SEC-RBAC-28) and name resolution
+(PLAT-DATA-27) remain authoritative, and their 403 or 400 message SHALL be
+surfaced verbatim.
+
+`hsctl` SHALL hide the `--cluster-id` flag from `hsctl create gateway --help`
+(marked hidden, cobra `Hidden: true` semantics) while STILL accepting it and
+honoring the pinned `cluster_id` contract (PLAT-DATA-02) when a caller supplies it
+explicitly. Hiding the flag steers callers toward the `--placement-selector`
+surface, and makes single-cluster targeting by name the platform-admin
+`managed-cluster/<name>` selector rather than a pinned id. Hiding is a
+discoverability nudge, NOT an authorization change: `cluster_id` pinning stays open
+to any caller, through the API and through the hidden flag, exactly as before. The
+flag's behavior when supplied is unchanged, including its mutual exclusivity with
+the placement flags (CLI-PLC-01) and its `--dry-run` pre-check (CLI-PLC-03).
+
+> **Design decision (reviewer: squizzi).** `--cluster-id` is hidden-but-functional
+> in `hsctl`; `cluster_id` authorization is deliberately UNCHANGED and remains open
+> to all callers. This is a CLI help-visibility change only, not an enforcement
+> boundary.
+
+#### Scenario: CLI-PLC-05.01 -- Identity selector maps into the placement intent
+
+- GIVEN the user runs `hsctl create gateway --name gw --placement-selector managed-cluster/hyp0-mc1`
+- THEN the CLI SHALL NOT reject the value as an unknown namespace
+- AND the request body SHALL contain `placement: {selector: ["managed-cluster/hyp0-mc1"]}`
+- AND the request body SHALL NOT contain `cluster_id`
+
+#### Scenario: CLI-PLC-05.02 -- Identity token rides the excluded selector too
+
+- GIVEN the user runs `hsctl create gateway --name gw --placement-selector provider/ibm --placement-exclude-selector managed-cluster/hyp0-mc1`
+- THEN the CLI SHALL NOT reject the `managed-cluster/` value client-side
+- AND the request body SHALL contain `excludedSelector: ["managed-cluster/hyp0-mc1"]`
+
+#### Scenario: CLI-PLC-05.03 -- Server authority surfaces for a non-admin caller
+
+- GIVEN a caller without `platform:admin` runs `hsctl create gateway --name gw --placement-selector managed-cluster/hyp0-mc1`
+- WHEN the client-side vocabulary check passes and the server applies its gate (SEC-RBAC-28)
+- THEN the command SHALL surface the server's 403 message verbatim
+- AND the CLI SHALL NOT pre-judge the caller's role
 
 ## Non-Goals
 
@@ -178,8 +237,12 @@ SHALL describe these flags as the CLI surface of the gateway create request.
   platform's match-all literal semantics are unchanged (WEB-PLC-07).
 - Placement preferences, weights, or capacity-aware selection; rejected by
   the placement spec's Non-Goals.
-- Selecting a concrete managed cluster by name on the user path; placement
-  does not support it.
+- Selecting a concrete managed cluster by name on the ordinary user path; the
+  requirement-capability selector does not target a specific cluster. A platform
+  admin MAY target a cluster by name through the `managed-cluster/<name>` identity
+  selector (CLI-PLC-05, PLAT-DATA-27); a non-admin caller SHALL NOT.
+- A dedicated `--cluster-name` flag; the identity selector rides the existing
+  `--placement-selector` surface.
 - Any API server, control-plane, schema, proto, or SDK change.
 - Exposing the persisted `placement` document on the Gateway read model.
 - Changes to `hsctl apply` or the declarative `.hypershell` manifest path,

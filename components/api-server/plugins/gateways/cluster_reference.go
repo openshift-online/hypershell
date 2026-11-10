@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
-	"github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 )
 
@@ -23,13 +22,13 @@ func validatePlacementIntent(intent *openapi.GatewayPlacementIntent) *errors.Ser
 	if intent.Selector == nil {
 		return errors.Validation("placement must include a non-empty selector list")
 	}
-	normalized, svcErr := managedClusters.NormalizeSelector(intent.Selector)
+	normalized, svcErr := normalizePlacementSelector(intent.Selector)
 	if svcErr != nil {
 		return svcErr
 	}
 	intent.Selector = normalized
 	if intent.ExcludedSelector != nil {
-		normalized, svcErr = managedClusters.NormalizeSelector(intent.ExcludedSelector)
+		normalized, svcErr = normalizePlacementSelector(intent.ExcludedSelector)
 		if svcErr != nil {
 			return svcErr
 		}

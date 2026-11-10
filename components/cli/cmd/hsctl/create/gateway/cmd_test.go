@@ -27,10 +27,13 @@ func TestPlacementFlagsExist(t *testing.T) {
 	}
 }
 
-func TestHelpDocumentsBothShapesAndDryRun(t *testing.T) {
+// TestHelpDocumentsLateBoundSurface pins CLI-PLC-04.01: the help documents the
+// late-bound selector surface and the --dry-run pre-check, keeps the
+// awaiting-placement meaning of an empty cluster_id FIELD, and does NOT advertise the
+// hidden --cluster-id flag or a pinned --cluster-id example.
+func TestHelpDocumentsLateBoundSurface(t *testing.T) {
 	help := Cmd.Long
 	for _, want := range []string{
-		"--cluster-id",
 		"--placement-selector network/public --placement-selector provider/ibm",
 		"--placement-selector region/us-east-1",
 		"--placement-selector provider/kind",
@@ -40,6 +43,21 @@ func TestHelpDocumentsBothShapesAndDryRun(t *testing.T) {
 		if !strings.Contains(help, want) {
 			t.Errorf("command help is missing %q", want)
 		}
+	}
+	if strings.Contains(help, "--cluster-id") {
+		t.Errorf("command help must not advertise the hidden --cluster-id flag")
+	}
+}
+
+// TestClusterIDFlagHiddenButFunctional pins CLI-PLC-05: --cluster-id stays registered
+// and accepted (so the pinned contract still works) but is hidden from --help.
+func TestClusterIDFlagHiddenButFunctional(t *testing.T) {
+	flag := newCreateGatewayCommand().Flags().Lookup("cluster-id")
+	if flag == nil {
+		t.Fatal("--cluster-id must remain registered and accepted")
+	}
+	if !flag.Hidden {
+		t.Error("--cluster-id must be hidden from help (cobra Hidden: true)")
 	}
 }
 

@@ -18,14 +18,15 @@ import (
 )
 
 const longHelp = "Create a new gateway.\n\n" +
-	"The gateway is created with exactly one placement shape: pinned to a managed\n" +
-	"cluster (--cluster-id), or late-bound by capability-label selectors\n" +
-	"(repeatable --placement-selector, optionally with\n" +
-	"--placement-exclude-selector). When a selector matches no connected cluster, the gateway is\n" +
-	"created Pending with an empty cluster_id and binds when a matching cluster\n" +
-	"connects; an empty cluster_id in the output means late binding, not failure.\n\n" +
+	"The gateway is late-bound by capability-label selectors: repeatable\n" +
+	"--placement-selector, optionally with --placement-exclude-selector. When a\n" +
+	"selector matches no connected cluster, the gateway is created Pending with an\n" +
+	"empty cluster_id and binds when a matching cluster connects; an empty\n" +
+	"cluster_id in the output means late binding, not failure.\n\n" +
+	"A platform admin may target one specific cluster by name through the same flag,\n" +
+	"--placement-selector managed-cluster/<name>; the server resolves and authorizes\n" +
+	"it.\n\n" +
 	"Examples:\n" +
-	"  hsctl create gateway --name my-gw --cluster-id <id>\n" +
 	"  hsctl create gateway --name my-gw --placement-selector network/public --placement-selector provider/ibm\n" +
 	"  hsctl create gateway --name my-gw --placement-selector region/us-east-1 --placement-exclude-selector runtime/kata\n" +
 	"  hsctl create gateway --name my-gw --placement-selector provider/kind --dedicated-route\n" +
@@ -65,6 +66,14 @@ func newCreateGatewayCommand() *cobra.Command {
 	fs.StringArrayVar(&args.placementSelector, "placement-selector", nil, "Capability label the gateway's cluster must advertise (e.g. network/public, provider/ibm, provider/kind, region/us-east-1). Repeat the flag to require multiple labels. Mutually exclusive with --cluster-id.")
 	fs.StringArrayVar(&args.placementExcludeSelector, "placement-exclude-selector", nil, "Capability label the gateway's cluster must not advertise. Requires at least one --placement-selector.")
 	fs.BoolVar(&args.dryRun, "dry-run", false, "Check placement availability without creating the gateway.")
+
+	// --cluster-id stays fully functional and accepted, but is hidden from --help to
+	// nudge callers toward the --placement-selector surface; single-cluster targeting
+	// by name is the platform-admin managed-cluster/<name> selector rather than a
+	// pinned id (CLI-PLC-05). This is a help-visibility change only: cluster_id
+	// pinning and its authorization are unchanged. MarkHidden only fails on an unknown
+	// flag, which cannot happen for the flag just registered above.
+	_ = fs.MarkHidden("cluster-id")
 
 	// The server accepts exactly one placement shape (data-model.spec.md
 	// PLAT-DATA-02); mirror that here so conflicting flags fail before any

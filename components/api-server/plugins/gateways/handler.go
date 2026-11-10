@@ -36,18 +36,19 @@ type GatewayOwnerLookup interface {
 }
 
 type gatewayHandler struct {
-	gateway          GatewayService
-	generic          services.GenericService
-	ownerBinding     OwnerBindingCreator
-	visibilityFilter GatewayVisibilityFilter
-	ownerLookup      GatewayOwnerLookup
-	ownership        GatewayOwnershipLookup
-	bindingLookup    rbac.RoleBindingLookup
-	clusters         RegisteredClusterLookup
-	enforceRBAC      bool
-	dedicatedRoute   dedicatedRouteAuthorizer
-	placement        PlacementResolver
-	availability     PlacementAvailabilityResolver
+	gateway                GatewayService
+	generic                services.GenericService
+	ownerBinding           OwnerBindingCreator
+	visibilityFilter       GatewayVisibilityFilter
+	ownerLookup            GatewayOwnerLookup
+	ownership              GatewayOwnershipLookup
+	bindingLookup          rbac.RoleBindingLookup
+	clusters               RegisteredClusterLookup
+	enforceRBAC            bool
+	dedicatedRoute         dedicatedRouteAuthorizer
+	managedClusterSelector managedClusterSelectorAuthorizer
+	placement              PlacementResolver
+	availability           PlacementAvailabilityResolver
 }
 
 // callerBindings loads the current caller's role bindings once, or nil when RBAC
@@ -104,6 +105,11 @@ func (h gatewayHandler) GetPlacementAvailability(w http.ResponseWriter, r *http.
 	handlers.Handle(w, r, &handlers.HandlerConfig{Body: &request, Action: func() (interface{}, *errors.ServiceError) {
 		if len(request.Selectors) == 0 || len(request.Selectors) > 32 {
 			return nil, errors.Validation("selectors must contain between 1 and 32 selectors")
+		}
+		// A probed managed-cluster/<name> selector is gated to platform:admin like the
+		// create boundaries, before any name is resolved (SEC-RBAC-27.03).
+		if svcErr := h.managedClusterSelector.authorizeAvailability(r.Context(), request.Selectors); svcErr != nil {
+			return nil, svcErr
 		}
 		availability, svcErr := h.availability(r.Context(), request.Selectors)
 		if svcErr != nil {
@@ -179,18 +185,19 @@ func applyAwaitingPlacement(model *Gateway) {
 
 func NewGatewayHandler(gateway GatewayService, generic services.GenericService, ownerBinding OwnerBindingCreator, visibilityFilter GatewayVisibilityFilter, ownerLookup GatewayOwnerLookup, ownership GatewayOwnershipLookup, bindingLookup rbac.RoleBindingLookup, clusters RegisteredClusterLookup, enforceRBAC bool, placement PlacementResolver, availability PlacementAvailabilityResolver) *gatewayHandler {
 	h := &gatewayHandler{
-		gateway:          gateway,
-		generic:          generic,
-		ownerBinding:     ownerBinding,
-		visibilityFilter: visibilityFilter,
-		ownerLookup:      ownerLookup,
-		ownership:        ownership,
-		bindingLookup:    bindingLookup,
-		clusters:         clusters,
-		enforceRBAC:      enforceRBAC,
-		dedicatedRoute:   newDedicatedRouteAuthorizer(bindingLookup, enforceRBAC),
-		placement:        placement,
-		availability:     availability,
+		gateway:                gateway,
+		generic:                generic,
+		ownerBinding:           ownerBinding,
+		visibilityFilter:       visibilityFilter,
+		ownerLookup:            ownerLookup,
+		ownership:              ownership,
+		bindingLookup:          bindingLookup,
+		clusters:               clusters,
+		enforceRBAC:            enforceRBAC,
+		dedicatedRoute:         newDedicatedRouteAuthorizer(bindingLookup, enforceRBAC),
+		managedClusterSelector: newManagedClusterSelectorAuthorizer(bindingLookup, enforceRBAC),
+		placement:              placement,
+		availability:           availability,
 	}
 	return h
 }
@@ -228,7 +235,15 @@ func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
 				}
 				gatewayModel.ClusterId = pinnedCluster
 			} else {
-				if clusterErr := h.resolveGatewayPlacement(ctx, gateway.GetPlacement(), gatewayModel); clusterErr != nil {
+				placementIntent := gateway.GetPlacement()
+				// The managed-cluster/<name> identity selector targets a specific
+				// cluster and is gated to platform:admin. The gate is body-dependent, so
+				// it runs here, before the name is validated or resolved, and rejects a
+				// non-admin caller with 403 (SEC-RBAC-27).
+				if svcErr := h.managedClusterSelector.authorizeCreate(ctx, placementIntent); svcErr != nil {
+					return nil, svcErr
+				}
+				if clusterErr := h.resolveGatewayPlacement(ctx, placementIntent, gatewayModel); clusterErr != nil {
 					return nil, clusterErr
 				}
 			}
