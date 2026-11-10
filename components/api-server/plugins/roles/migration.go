@@ -437,7 +437,7 @@ func migrationAddGatewayOperatorWorkspaceCreatorRole() *gormigrate.Migration {
 	}
 
 	return &gormigrate.Migration{
-		ID: "2026111000000001",
+		ID: "2026111000000002",
 		Migrate: func(tx *gorm.DB) error {
 			var existing Role
 			lookupErr := tx.Where("name = ?", RoleGatewayOperatorWorkspaceCreator).First(&existing).Error
