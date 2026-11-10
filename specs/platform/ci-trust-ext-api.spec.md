@@ -120,6 +120,16 @@ and it SHALL NOT delete a platform-provisioned IdP on `CIProvider` delete. The
 recorded alias SHALL be the alias Keycloak actually holds, so later reconcile
 passes and the token exchange resolve the same IdP.
 
+The alias the control plane adopts SHALL be selected from `CIProvider.idp_alias`
+(PLAT-DATA-24) when that field is set, and SHALL otherwise be derived from the
+`forge` and `issuer`. `idp_alias` is the single declarative source of truth shared
+with the platform federation: the terraform `ci_forges` map key that names the IdP
+(for example `github-actions`) is set as `CIProvider.idp_alias`, so the control
+plane adopts exactly the IdP terraform provisioned instead of a derived alias that
+may not match. The derived alias is the fallback used only when `idp_alias` is
+unset; a set `idp_alias` that names no existing IdP is realized by creating that IdP
+under the given alias, not by falling back to the derived alias.
+
 #### Scenario: PLAT-CITR-01.01 -- JWKS Unreachable Holds Not-Ready
 
 - GIVEN a `CIProvider` whose `jwks_url` the cluster Keycloak cannot reach
@@ -134,6 +144,14 @@ passes and the token exchange resolve the same IdP.
 - THEN it SHALL record `status.idp_alias = github-actions`
 - AND it SHALL NOT create a second IdP for the same issuer
 - AND deleting the `CIProvider` SHALL NOT delete the platform-provisioned IdP
+
+#### Scenario: PLAT-CITR-01.03 -- Explicit idp_alias Is Preferred Over the Derived Alias
+
+- GIVEN a `github` `CIProvider` whose `idp_alias` is set to `github-actions`
+- AND the alias derived from `forge` and `issuer` would be a different value
+- WHEN the control plane reconciles the `CIProvider`
+- THEN it SHALL adopt the IdP named by `idp_alias` (`github-actions`), not the derived alias
+- AND a `CIProvider` with `idp_alias` unset SHALL adopt the IdP named by the derived alias
 
 ---
 

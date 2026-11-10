@@ -55,7 +55,7 @@ listed in `specs/id-rename-map.md`, not here.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `CTRL-CORE` | `platform/control-plane.spec.md` | 20 |
+| `CTRL-CORE` | `platform/control-plane.spec.md` | 21 |
 | `CTRL-TLS` | `platform/hub-grpc-tls.spec.md` | 5 |
 | `CTRL-TRC` | `platform/reconcile-trace-correlation.spec.md` | 5 |
 | `CTRL-WDEL` | `platform/watch-delete-events.spec.md` | 4 |
@@ -172,7 +172,7 @@ listed in `specs/id-rename-map.md`, not here.
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `SEC-OIDC` | `platform/oidc-integration.spec.md` | 11 |
-| `SEC-RBAC` | `security/rbac-enforcement.spec.md` | 26 |
+| `SEC-RBAC` | `security/rbac-enforcement.spec.md` | 27 |
 | `SEC-STD` | `standards/security/security.spec.md` | 4 |
 
 ### STD
