@@ -24,9 +24,16 @@ type CIProvider struct {
 	// index covering soft-deleted rows, so re-applying a deleted provider that
 	// reuses the same issuer would 409 on the lingering row and break reconcile
 	// convergence (SDLC-CONF-13, FINDING 1, same root cause as the name index).
-	Issuer         string  `json:"issuer"`
-	JwksUrl        string  `json:"jwks_url"`
-	Audience       string  `json:"audience"`
+	Issuer   string `json:"issuer"`
+	JwksUrl  string `json:"jwks_url"`
+	Audience string `json:"audience"`
+	// IdpAlias is the explicit (spec) Keycloak IdP alias this provider adopts, the
+	// single declarative source of truth shared with the platform federation (the
+	// terraform ci_forges map key, e.g. "github-actions"). When set, the control
+	// plane adopts the IdP of that alias; when unset, it derives the alias from
+	// forge and issuer (PLAT-DATA-24, PLAT-CITR-01). Distinct from StatusIdpAlias,
+	// which records the alias actually realized.
+	IdpAlias       string  `json:"idp_alias"`
 	StatusIdpAlias *string `json:"status_idp_alias"`
 }
 
@@ -39,7 +46,8 @@ func (CIProvider) TableName() string { return "ci_providers" }
 type CIProviderList []*CIProvider
 
 type CIProviderPatchRequest struct {
-	JwksUrl *string `json:"jwks_url"`
+	JwksUrl  *string `json:"jwks_url"`
+	IdpAlias *string `json:"idp_alias"`
 }
 
 func (d *CIProvider) BeforeCreate(tx *gorm.DB) error {

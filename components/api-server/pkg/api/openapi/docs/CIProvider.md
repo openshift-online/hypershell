@@ -14,6 +14,7 @@ Name | Type | Description | Notes
 **Issuer** | **string** | The OIDC issuer URL whose tokens this provider validates |
 **JwksUrl** | **string** | The JWKS endpoint used for signature validation |
 **Audience** | **string** | The platform-pinned audience every federated CI token must carry |
+**IdpAlias** | Pointer to **string** | Optional explicit (spec) Keycloak IdP alias this provider adopts, the single declarative source of truth shared with the platform federation (the terraform ci_forges map key, e.g. github-actions). When set, the control plane adopts the IdP of that alias; when unset, it derives the alias from forge and issuer (PLAT-DATA-24, PLAT-CITR-01). | [optional]
 **Status** | Pointer to [**CIProviderAllOfStatus**](CIProviderAllOfStatus.md) |  | [optional]
 
 ## Methods
@@ -264,6 +265,31 @@ and a boolean to check if the value has been set.
 
 SetAudience sets Audience field to given value.
 
+
+### GetIdpAlias
+
+`func (o *CIProvider) GetIdpAlias() string`
+
+GetIdpAlias returns the IdpAlias field if non-nil, zero value otherwise.
+
+### GetIdpAliasOk
+
+`func (o *CIProvider) GetIdpAliasOk() (*string, bool)`
+
+GetIdpAliasOk returns a tuple with the IdpAlias field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetIdpAlias
+
+`func (o *CIProvider) SetIdpAlias(v string)`
+
+SetIdpAlias sets IdpAlias field to given value.
+
+### HasIdpAlias
+
+`func (o *CIProvider) HasIdpAlias() bool`
+
+HasIdpAlias returns a boolean if a field has been set.
 
 ### GetStatus
 

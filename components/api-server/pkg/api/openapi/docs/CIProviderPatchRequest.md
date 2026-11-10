@@ -8,6 +8,7 @@ Name | Type | Description | Notes
 **Issuer** | Pointer to **string** |  | [optional]
 **JwksUrl** | Pointer to **string** |  | [optional]
 **Audience** | Pointer to **string** |  | [optional]
+**IdpAlias** | Pointer to **string** | The explicit (spec) Keycloak IdP alias to adopt (PLAT-DATA-24). | [optional]
 
 ## Methods
 
@@ -127,6 +128,31 @@ SetAudience sets Audience field to given value.
 `func (o *CIProviderPatchRequest) HasAudience() bool`
 
 HasAudience returns a boolean if a field has been set.
+
+### GetIdpAlias
+
+`func (o *CIProviderPatchRequest) GetIdpAlias() string`
+
+GetIdpAlias returns the IdpAlias field if non-nil, zero value otherwise.
+
+### GetIdpAliasOk
+
+`func (o *CIProviderPatchRequest) GetIdpAliasOk() (*string, bool)`
+
+GetIdpAliasOk returns a tuple with the IdpAlias field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetIdpAlias
+
+`func (o *CIProviderPatchRequest) SetIdpAlias(v string)`
+
+SetIdpAlias sets IdpAlias field to given value.
+
+### HasIdpAlias
+
+`func (o *CIProviderPatchRequest) HasIdpAlias() bool`
+
+HasIdpAlias returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)

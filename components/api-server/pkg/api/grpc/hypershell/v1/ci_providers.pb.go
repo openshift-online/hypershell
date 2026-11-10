@@ -35,7 +35,14 @@ type CIProvider struct {
 	StatusIdpAlias *string                `protobuf:"bytes,7,opt,name=status_idp_alias,json=statusIdpAlias,proto3,oneof" json:"status_idp_alias,omitempty"`
 	// name is the queryable find-by-name key (SDLC-CONF-13); defaults to forge
 	// when not supplied on create.
-	Name          string `protobuf:"bytes,8,opt,name=name,proto3" json:"name,omitempty"`
+	Name string `protobuf:"bytes,8,opt,name=name,proto3" json:"name,omitempty"`
+	// idp_alias is the explicit (spec) Keycloak IdP alias this provider adopts, the
+	// single declarative source of truth shared with the platform federation (the
+	// terraform ci_forges map key, e.g. "github-actions"). When set, the control
+	// plane adopts the IdP of that alias; when unset, it derives the alias from
+	// forge and issuer (PLAT-DATA-24, PLAT-CITR-01). Distinct from status_idp_alias,
+	// which records the alias actually realized.
+	IdpAlias      string `protobuf:"bytes,9,opt,name=idp_alias,json=idpAlias,proto3" json:"idp_alias,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -122,6 +129,13 @@ func (x *CIProvider) GetStatusIdpAlias() string {
 func (x *CIProvider) GetName() string {
 	if x != nil {
 		return x.Name
+	}
+	return ""
+}
+
+func (x *CIProvider) GetIdpAlias() string {
+	if x != nil {
+		return x.IdpAlias
 	}
 	return ""
 }
@@ -215,11 +229,14 @@ func (x *GetCIProviderResponse) GetCiProvider() *CIProvider {
 }
 
 type CreateCIProviderRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Forge         string                 `protobuf:"bytes,1,opt,name=forge,proto3" json:"forge,omitempty"`
-	Issuer        string                 `protobuf:"bytes,2,opt,name=issuer,proto3" json:"issuer,omitempty"`
-	JwksUrl       string                 `protobuf:"bytes,3,opt,name=jwks_url,json=jwksUrl,proto3" json:"jwks_url,omitempty"`
-	Audience      string                 `protobuf:"bytes,4,opt,name=audience,proto3" json:"audience,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Forge    string                 `protobuf:"bytes,1,opt,name=forge,proto3" json:"forge,omitempty"`
+	Issuer   string                 `protobuf:"bytes,2,opt,name=issuer,proto3" json:"issuer,omitempty"`
+	JwksUrl  string                 `protobuf:"bytes,3,opt,name=jwks_url,json=jwksUrl,proto3" json:"jwks_url,omitempty"`
+	Audience string                 `protobuf:"bytes,4,opt,name=audience,proto3" json:"audience,omitempty"`
+	// idp_alias is the optional explicit IdP alias to adopt (PLAT-DATA-24); when
+	// empty the control plane derives the alias from forge and issuer.
+	IdpAlias      *string `protobuf:"bytes,5,opt,name=idp_alias,json=idpAlias,proto3,oneof" json:"idp_alias,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -278,6 +295,13 @@ func (x *CreateCIProviderRequest) GetJwksUrl() string {
 func (x *CreateCIProviderRequest) GetAudience() string {
 	if x != nil {
 		return x.Audience
+	}
+	return ""
+}
+
+func (x *CreateCIProviderRequest) GetIdpAlias() string {
+	if x != nil && x.IdpAlias != nil {
+		return *x.IdpAlias
 	}
 	return ""
 }
@@ -722,7 +746,7 @@ var File_hypershell_v1_ci_providers_proto protoreflect.FileDescriptor
 
 const file_hypershell_v1_ci_providers_proto_rawDesc = "" +
 	"\n" +
-	" hypershell/v1/ci_providers.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\xad\x02\n" +
+	" hypershell/v1/ci_providers.proto\x12\rhypershell.v1\x1a\x1ahypershell/v1/common.proto\"\xca\x02\n" +
 	"\n" +
 	"CIProvider\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12\x14\n" +
@@ -732,19 +756,23 @@ const file_hypershell_v1_ci_providers_proto_rawDesc = "" +
 	"\baudience\x18\x05 \x01(\tR\baudience\x12\x1b\n" +
 	"\x06status\x18\x06 \x01(\tH\x00R\x06status\x88\x01\x01\x12-\n" +
 	"\x10status_idp_alias\x18\a \x01(\tH\x01R\x0estatusIdpAlias\x88\x01\x01\x12\x12\n" +
-	"\x04name\x18\b \x01(\tR\x04nameB\t\n" +
+	"\x04name\x18\b \x01(\tR\x04name\x12\x1b\n" +
+	"\tidp_alias\x18\t \x01(\tR\bidpAliasB\t\n" +
 	"\a_statusB\x13\n" +
 	"\x11_status_idp_alias\"&\n" +
 	"\x14GetCIProviderRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"S\n" +
 	"\x15GetCIProviderResponse\x12:\n" +
 	"\vci_provider\x18\x01 \x01(\v2\x19.hypershell.v1.CIProviderR\n" +
-	"ciProvider\"~\n" +
+	"ciProvider\"\xae\x01\n" +
 	"\x17CreateCIProviderRequest\x12\x14\n" +
 	"\x05forge\x18\x01 \x01(\tR\x05forge\x12\x16\n" +
 	"\x06issuer\x18\x02 \x01(\tR\x06issuer\x12\x19\n" +
 	"\bjwks_url\x18\x03 \x01(\tR\ajwksUrl\x12\x1a\n" +
-	"\baudience\x18\x04 \x01(\tR\baudience\"V\n" +
+	"\baudience\x18\x04 \x01(\tR\baudience\x12 \n" +
+	"\tidp_alias\x18\x05 \x01(\tH\x00R\bidpAlias\x88\x01\x01B\f\n" +
+	"\n" +
+	"_idp_alias\"V\n" +
 	"\x18CreateCIProviderResponse\x12:\n" +
 	"\vci_provider\x18\x01 \x01(\v2\x19.hypershell.v1.CIProviderR\n" +
 	"ciProvider\"\xc2\x01\n" +
@@ -849,6 +877,7 @@ func file_hypershell_v1_ci_providers_proto_init() {
 	}
 	file_hypershell_v1_common_proto_init()
 	file_hypershell_v1_ci_providers_proto_msgTypes[0].OneofWrappers = []any{}
+	file_hypershell_v1_ci_providers_proto_msgTypes[3].OneofWrappers = []any{}
 	file_hypershell_v1_ci_providers_proto_msgTypes[5].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{

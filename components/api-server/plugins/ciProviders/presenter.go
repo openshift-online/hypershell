@@ -17,6 +17,7 @@ func ConvertCIProvider(r openapi.CIProvider) *CIProvider {
 		Issuer:   r.Issuer,
 		JwksUrl:  r.JwksUrl,
 		Audience: r.Audience,
+		IdpAlias: util.NilToEmptyString(r.IdpAlias),
 	}
 	if r.CreatedAt != nil {
 		c.CreatedAt = *r.CreatedAt
@@ -41,6 +42,9 @@ func PresentCIProvider(p *CIProvider) openapi.CIProvider {
 		Issuer:    p.Issuer,
 		JwksUrl:   p.JwksUrl,
 		Audience:  p.Audience,
+	}
+	if p.IdpAlias != "" {
+		result.IdpAlias = openapi.PtrString(p.IdpAlias)
 	}
 	if p.StatusIdpAlias != nil {
 		result.Status = &openapi.CIProviderAllOfStatus{
