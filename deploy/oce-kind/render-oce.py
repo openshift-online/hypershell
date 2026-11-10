@@ -3,12 +3,13 @@
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tomllib
 
 state = Path(os.environ["OCE_KIND_STATE"]).resolve()
 oce = Path(os.environ["OCE_REPO"]).resolve()
-gateway_namespace = os.environ["GATEWAY_NAMESPACE"]
+gateway_namespace = os.environ.get("GATEWAY_NAMESPACE")
 kube = ["kubectl", "--kubeconfig", str(state / "kubeconfig"), "--context", "kind-hypershell-oce"]
 
 
@@ -39,10 +40,32 @@ def gateway_scope(value):
     return gateway_namespace if value == "oce-system" else value
 
 
+if not gateway_namespace:
+    gateways = get("get", "deployments", "-A", "--field-selector", "metadata.name=openshell-gateway")["items"]
+    if len(gateways) != 1:
+        raise SystemExit(f"Expected exactly one OpenShell gateway, found {len(gateways)}; complete gateway setup or set GATEWAY_NAMESPACE explicitly.")
+    gateway_namespace = gateways[0]["metadata"]["namespace"]
+if not re.fullmatch(r"openshell-[a-f0-9]{16}", gateway_namespace):
+    raise SystemExit("GATEWAY_NAMESPACE must be a HyperShell-created openshell-<16 hex digits> namespace")
+
 images = json.loads((state / "images.json").read_text())
 service = get("-n", gateway_namespace, "get", "service", "openshell-gateway")
 gateway_config = tomllib.loads(get("-n", gateway_namespace, "get", "configmap", "openshell-gateway-config")["data"]["gateway.toml"])
-sandbox_account = gateway_config["openshell"]["drivers"]["kubernetes"]["service_account_name"]
+driver_config = gateway_config["openshell"]["drivers"]["kubernetes"]
+sandbox_account = driver_config["service_account_name"]
+# Admission must allow the same image references the gateway uses, including tags or digests.
+runtime_policy = Path(__file__).with_name("runtime-admission.yaml").read_text()
+runtime_policy = runtime_policy.replace("__GATEWAY_NAMESPACE__", gateway_namespace)
+for placeholder, image in {
+    "__RUNTIME_IMAGE__": images["runtime"],
+    "__SUPERVISOR_IMAGE__": driver_config["supervisor_image"],
+    "__SANDBOX_IMAGE__": driver_config["sandbox_runtime_image"],
+}.items():
+    # Image references are embedded in CEL string literals; reject empty or unsafe values.
+    if not isinstance(image, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/@-]*", image):
+        raise ValueError(f"invalid admission image reference for {placeholder}")
+    runtime_policy = runtime_policy.replace(placeholder, image)
+(state / "runtime-admission.yaml").write_text(runtime_policy)
 database = get("-n", "external-cloud-db", "get", "service", "postgres")
 database_pods = get("-n", "external-cloud-db", "get", "pods", "-l", "app=postgres")
 api = get("-n", "default", "get", "service", "kubernetes")
@@ -102,3 +125,4 @@ write("gateway-ingress.json", {
                  "ports": [{"protocol": "TCP", "port": 8080}],
              }]},
 })
+(state / "gateway-namespace").write_text(gateway_namespace + "\n")

@@ -1,451 +1,212 @@
-# Run HyperShell and OpenClaw Enterprise in one kind cluster
+# Run HyperShell and OCE with one command
 
-This development installation runs HyperShell, OpenClaw Enterprise (OCE), and a
-HyperShell-provisioned OpenShell gateway in `kind-hypershell-oce`. HyperShell owns
-the gateway and its database. OCE owns its tenant namespaces, Agent lifecycle,
-and per-Agent OpenClaw gateways. OCE uses OpenShell to run Agent harnesses.
+`make kind-up-with-oce` creates a local development environment containing
+HyperShell, OpenClaw Enterprise (OCE), and a HyperShell-managed OpenShell gateway.
+It also creates a working `codex-test` Agent in OCE, configured to use
+`gpt-6-luna` through EnMaaS, and checks it with a real model request.
 
-Use a fresh, disposable cluster. This is not a production installation. The
-OpenShell integration is experimental, and the single node provides no high
-availability. HyperShell's development Keycloak and PostgreSQL retain their
-documented development credentials. The kind load-balancer helper publishes
-Docker ports on all host interfaces.
-Use a firewall or an isolated development network to restrict them to this
-machine; the OCE Console forward binds only to loopback.
+You supply two paths: an OCE source checkout and a file containing your EnMaaS
+API key. The command handles the cluster, builds, credentials, integration,
+and browser access. It manages its own state directory and leaves your default
+kubeconfig and Kubernetes context unchanged.
 
-## Prerequisites and source
+This is a disposable, single-node development environment. HyperShell uses its
+standard development credentials, and Docker publishes the kind load-balancer
+ports on host interfaces. Use a firewall or an isolated development network.
+The OCE browser forward listens only on loopback.
 
-Use Linux with Docker, kind, kubectl, Helm 3, kustomize, Go, Node.js, jq, OpenSSL,
-Python 3.11 or newer with PyYAML, and registry/GitHub access. This run uses Kubernetes 1.35.0,
-Calico 3.31.0, Envoy Gateway 1.6.7, and the HyperShell versions in
-[`OPENSHELL_VERSION`](../../OPENSHELL_VERSION) and [`Makefile`](../../Makefile).
-Allow about 16 GiB of RAM for the running stack and additional RAM and disk for
-parallel image builds. Use OCE branch `fix/hypershell-runtime-networking` from
-[`bsquizz/openclaw-enterprise`](https://github.com/bsquizz/openclaw-enterprise/tree/fix/hypershell-runtime-networking),
-pinned to commit [`080810ac2`](https://github.com/bsquizz/openclaw-enterprise/commit/080810ac2a05b98f065655a9b29cdc9ec28ab14e),
-for the namespace-aware network helper. The change is published in companion
-draft [OCE PR #4954](https://github.com/openclaw/openclaw-enterprise/pull/4954) and is
-based on tested runtime source `2096c8cbde286c50ab7aafa08fd0f3bb3f4623c2` and
-changes only operator helpers and instructions. Build both OCE images from
-that checkout. The public
-`latest` alias inspected during setup targets an older OpenShell integration.
+## Quick start
 
-Run from this HyperShell branch. These commands keep the default kubeconfig and
-context unchanged. The private state directory contains credentials: do not
-commit it, print its Secret files, or share it as troubleshooting evidence.
+From the HyperShell repository root, run:
 
-```bash
-set -euo pipefail
-umask 077
-export HYPERSHELL_REPO=/absolute/path/to/hypershell
-export OCE_REPO=/absolute/path/to/openclaw-enterprise
-export OCE_KIND_STATE="$HOME/.local/state/oce-hypershell-kind"
-mkdir -p "$OCE_KIND_STATE"
-chmod 700 "$OCE_KIND_STATE"
-export KUBECONFIG="$OCE_KIND_STATE/kubeconfig"
-export CONTAINER_ENGINE=docker KIND_EXPERIMENTAL_PROVIDER=docker
-export KIND_CLUSTER_NAME=hypershell-oce KIND_NO_SUDO=true
-export KIND_HOT_RELOAD=false LOCAL_IMAGES=true
-export CPK_LOG="$OCE_KIND_STATE/cpk.log"
-# This Docker host exposes the development gateway on IPv4.
-export CURL_HOME="$OCE_KIND_STATE/curl"
-mkdir -p "$CURL_HOME"
-printf 'ipv4\n' > "$CURL_HOME/.curlrc"
+```shell
+make kind-up-with-oce \
+  OCE_REPO=/absolute/path/to/openclaw-enterprise \
+  ENMAAS_API_KEY_FILE="$HOME/enmaas-key.txt"
 ```
 
-## Create the cluster and enforce network policy
+| Input | What to provide |
+| --- | --- |
+| `OCE_REPO` | Path to the compatible OCE checkout described below. Local, uncommitted source changes are included in the initial build. |
+| `ENMAAS_API_KEY_FILE` | Path to a readable file containing one EnMaaS API key. A trailing newline is fine. Supply the path, not the key itself. |
 
-Precreate kind so the CNI is ready before `make kind-up` waits for infrastructure.
-The Pod Security configuration exempts only the named OpenShell RuntimeClass;
-OCE still applies restricted Pod Security to its tenant namespaces. Treat
-Kubernetes administrator access and OpenShell operator credentials as privileged.
+These are the only required configuration inputs. **You do not need to set
+`OCE_KIND_STATE`**, choose image tags, install Helm on the host, or run the manual
+setup steps. The command uses Docker and does not prompt for sudo. Each
+successful run includes a small inference request charged to your EnMaaS key.
 
-```bash
-cp deploy/oce-kind/pod-security.yaml "$OCE_KIND_STATE/pod-security.yaml"
-python3 - <<'PY'
-import os
-from pathlib import Path
-root = Path(os.environ['HYPERSHELL_REPO'])
-state = Path(os.environ['OCE_KIND_STATE'])
-text = (root/'deploy/oce-kind/kind.yaml').read_text()
-(state/'kind.yaml').write_text(text.replace('__HYPERSHELL_REPO__', str(root)).replace('__STATE__', str(state)))
-PY
-kind create cluster --name "$KIND_CLUSTER_NAME" --config "$OCE_KIND_STATE/kind.yaml"
-curl -fsSL https://raw.githubusercontent.com/projectcalico/calico/v3.31.0/manifests/calico.yaml \
-  -o "$OCE_KIND_STATE/calico.yaml"
-printf '%s  %s\n' 1990b1cec14002790718bb960b1b8445eb7b896cd16c32e952309f35a9026981 \
-  "$OCE_KIND_STATE/calico.yaml" | sha256sum --check
-kubectl apply -f "$OCE_KIND_STATE/calico.yaml"
-kubectl -n kube-system set env daemonset/calico-node \
-  CALICO_IPV4POOL_CIDR=10.244.0.0/16 CALICO_IPV4POOL_IPIP=Never CALICO_IPV4POOL_VXLAN=Always
-kubectl -n kube-system rollout status daemonset/calico-node --timeout=5m
-kubectl wait node --all --for=condition=Ready --timeout=3m
-KIND_SKIP_SEED=true make kind-up
+### Prerequisites
+
+Use a Linux host with Docker running and the following tools on `PATH`:
+
+- kind 0.31.0, kubectl, and kustomize.
+- Go and Node.js for the OCE CLI and build helpers.
+- jq, curl with HTTP/2 support, OpenSSL, and `flock` from util-linux.
+- Python 3.11 or newer with PyYAML, plus GNU Make.
+
+Allow about 16 GiB of RAM for the running stack, with additional memory and disk
+space for image builds. Builds need access to GitHub, container registries, and
+package registries; the model check needs access to EnMaaS. The setup uses
+Kubernetes 1.35.0 and HyperShell's normal release defaults from
+[`OPENSHELL_VERSION`](../../OPENSHELL_VERSION) and the [Makefile](../../Makefile).
+Helm 3 is extracted from the HyperShell controller image automatically.
+
+The OCE checkout must include the namespace-aware OpenShell network helper from
+companion [OCE PR #4954](https://github.com/openclaw/openclaw-enterprise/pull/4954).
+The tested checkout is
+[`bsquizz/openclaw-enterprise:fix/hypershell-runtime-networking`](https://github.com/bsquizz/openclaw-enterprise/tree/fix/hypershell-runtime-networking)
+at commit [`080810ac2`](https://github.com/bsquizz/openclaw-enterprise/commit/080810ac2a05b98f065655a9b29cdc9ec28ab14e).
+Use that revision until the companion change is merged. An arbitrary OCE checkout
+or published `latest` image may use a different OpenShell integration.
+
+## What gets created
+
+All components run in the Docker kind cluster **`hypershell-oce`**:
+
+| Component | Responsibility |
+| --- | --- |
+| HyperShell | Provides its API and web console, backed by development Keycloak and PostgreSQL. Provisions the shared `dev-gateway` OpenShell gateway and its database. |
+| OpenShell gateway | Runs Agent harnesses for OCE in operator workspace mode. HyperShell continues to own and reconcile it. |
+| OCE | Runs its API, workers, and browser listener in `oce-system`. Manages tenant namespaces, Agent configuration, deployments, and per-Agent OpenClaw gateways. |
+| `codex-test` Agent | Runs Codex in dedicated execution mode with `gpt-6-luna`, scoped EnMaaS credentials, and the native Agent UI enabled. |
+
+The cluster uses kind's built-in networking and NetworkPolicy enforcement.
+Runtime admission rules constrain the workloads OCE can launch. Network grants
+allow the required Agent and gateway connections; the shared gateway's external
+access is limited to the kind ingress proxy's current IP addresses.
+
+## How the command works
+
+The Makefile invokes [`up.sh`](up.sh), which runs these stages in order:
+
+1. **Check inputs and select state.** Validate the tools, key file, and OCE
+   checkout. Take a setup lock and select the private directory belonging to the
+   running cluster, or allocate a fresh directory for a new cluster.
+2. **Start HyperShell.** Create kind using [`kind.yaml`](kind.yaml), then run
+   the existing `make kind-up` workflow with local builds and seeding deferred.
+   Apply the operator workspace settings before seeding `dev-gateway`, then wait
+   for the gateway to become ready.
+3. **Build OCE.** [`build-oce.sh`](build-oce.sh) builds the `occ` CLI, controller
+   image, and Agent runtime image from your OCE checkout. It loads the images
+   into kind and records immutable image digests for the installation.
+4. **Install and connect OCE.** [`prepare-oce.sh`](prepare-oce.sh) and
+   [`install-oce.sh`](install-oce.sh) prepare configuration, credentials, the
+   database, and the Helm installation. [`activate-oce.sh`](activate-oce.sh)
+   connects OCE to the HyperShell-owned gateway and configures tenant access.
+   [`browser-access.sh`](browser-access.sh) sets up the OCE HTTPS listener.
+5. **Create and test Codex.** [`seed-agent.sh`](seed-agent.sh) configures the
+   EnMaaS Responses endpoint and registers the key. It uses OCE's provisioning
+   API to create `codex-test`, its configuration, permissions, and first
+   deployment. It applies the Agent's network grants, waits for the active
+   revision, and requires a reply containing `OCE_READY`.
+6. **Verify and print access details.** [`access.sh`](access.sh) starts or
+   reuses the loopback OCE forward, verifies OCE HTTPS, HyperShell login, and
+   external OpenShell gRPC health, then prints the final summary.
+
+A failed stage stops the command and identifies the state directory. Resolve
+the reported error, then rerun the same command with the same two inputs.
+
+## Open the consoles and test the Agent
+
+The final summary groups the live URLs and login details into **HyperShell**,
+**OpenShell gateway**, **OCE and Codex**, and **Local access** sections. Like
+`make kind-up`, it uses color in a terminal and honors `NO_COLOR`. Redirected
+output and the saved `access.txt` remain plain text.
+
+- **HyperShell:** open the printed web console URL and log in with
+  `admin / admin` or `developer / developer`. The assigned host port can change
+  when you recreate the cluster, so use the URL from the latest run.
+- **OpenShell gateway:** use the printed API endpoint with the OpenShell CLI.
+  Set `SSL_CERT_FILE` to the printed HyperShell CA file.
+- **OCE:** open `https://console.hypershell-oce.oce.localhost:18443/console/` and
+  log in as `admin@oce.localhost`. Read the password from the printed
+  `initial-admin-password` file; the command does not print it.
+- **Codex:** follow the test Agent link, then choose **Open Agent UI** to chat.
+
+Trust the two printed local CA certificates in your browser for HyperShell and
+OCE HTTPS. If the cluster runs on a remote host, SSH-forward the printed
+HyperShell port and port `18443` to your laptop and use the same hostnames.
+
+To retrieve the summary later:
+
+```shell
+cat "${XDG_STATE_HOME:-$HOME/.local/state}/oce-hypershell-kind-current/access.txt"
 ```
 
-Expect healthy HyperShell API, controller, Console, Keycloak, PostgreSQL and
-Vault workloads. Seeding is deferred because a gateway's workspace mode is
-immutable. Do not create the first gateway until the next section is complete.
+## Reruns, state, and source changes
 
-## Configure the HyperShell-owned gateway
+Setup stores credentials, its private kubeconfig, image references, and install
+receipts under `${XDG_STATE_HOME:-$HOME/.local/state}`. The symlink
+`oce-hypershell-kind-current` points to the selected installation. These files
+contain secrets: keep them private and outside version control.
 
-The API [create default](../../components/api-server/plugins/gateways/field_policy.go)
-saves the workspace mode. The controller [loads operator settings](../../components/control-plane/internal/config/config.go)
-and carries them through the reconciler into the [Helm values builder](../../components/control-plane/internal/helm/values.go).
-These are deployment settings, not user-writable API fields:
+On a rerun, setup matches saved state to the live cluster's Kubernetes identity.
+It resumes incomplete work, reuses completed builds, and restores the OCE
+forward if needed. It does not create another test Agent for that installation.
+After cluster deletion, the next run allocates a fresh directory and fresh
+credentials while preserving the old files. A stale `OCE_KIND_STATE` export or
+make argument does not prevent this automatic recovery.
 
-| Setting                          | Owner      | Effect                                                                                                                             |
-| -------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `GATEWAY_DEFAULT_WORKSPACE_MODE` | API server | Selects the mode saved for newly created gateways; unset retains `managed`. Existing gateways retain their mode.                   |
-| `GATEWAY_OPERATOR_WORKSPACE`     | Controller | JSON with `namespaceLabelKey` and `allowedPodLabels`. Required for operator-mode gateways; invalid input fails controller startup. |
+**Rerunning is not an image upgrade or a key rotation.** Completed HyperShell
+baseline deployment and OCE builds are reused. To test changed source with a
+clean installation, delete the disposable cluster as described below and rerun.
+For an existing installation, use the individual build and install operations
+in the [manual runbook](manual-setup.md). Changing the key file does not replace
+the deployed model credential; use OCE's credential rotation flow.
 
-The controller combines the configured label key with each gateway's own
-namespace as the value. For this installation, OCE labels each tenant namespace
-`hypershell.io/gateway=<gateway namespace>`. Other gateways cannot discover it
-through their operator selector. The controller enables external driver
-configuration, disables resource-approval labels for this trusted operator, and
-preserves mTLS authentication alongside OIDC. Give this gateway only trusted
-operator accounts: it can attach resources in the selected namespaces.
-Operator-mode certificates also cover `*.openshell.localhost`, the internal
-domain OpenShell advertises for sandbox services. This keeps Codex WebSocket
-connections subject to hostname verification.
+## Troubleshooting
 
-Apply the supplied deployment patches with strategic merge, then seed through
-HyperShell's normal authenticated API:
+| Symptom | Next step |
+| --- | --- |
+| Setup stops partway through | Read the stage and error above the final failure message. Resolve it and rerun the same make command. State is preserved. |
+| Port `18443` is occupied | Inspect the listener. Setup reuses a forward only if its HTTPS response validates against this installation's CA; it does not replace an unrelated process. |
+| No saved installation matches the running cluster | Recover the cluster's original state. Setup refuses to adopt an unrecorded cluster or guess between multiple matching copies. |
+| Codex deployment fails | Inspect the deployment in OCE and the saved `codex-provision-status.json`. Fix its reported error before retrying in OCE; the command does not create repeated revisions to mask a failure. |
+| A credential write is reported as unconfirmed | Read back the OCE resource before retrying, as explained below. Do not delete a pending record blindly. |
 
-```bash
-python3 - <<'PY'
-import subprocess, yaml
-from pathlib import Path
-for resource in yaml.safe_load_all(Path('deploy/oce-kind/hypershell-operator.yaml').read_text()):
-    subprocess.run(['kubectl','-n','hypershell-system','patch','deployment',
-                    resource['metadata']['name'],'--type=strategic','--patch',yaml.safe_dump(resource)], check=True)
-PY
-set -a
-source deploy/oce-kind/openshell-images.env
-set +a
-kubectl -n hypershell-system set env deployment/hypershell-controller \
-  GATEWAY_IMAGE="$GATEWAY_IMAGE" GATEWAY_SUPERVISOR_IMAGE="$GATEWAY_SUPERVISOR_IMAGE" \
-  GATEWAY_SANDBOX_RUNTIME_IMAGE="$GATEWAY_SANDBOX_RUNTIME_IMAGE"
-kubectl -n hypershell-system rollout status deployment/hypershell-api-server
-kubectl -n hypershell-system rollout status deployment/hypershell-controller
-keycloak_host=$(kubectl -n keycloak get deployment keycloak -o json |
-  jq -er '.spec.template.spec.containers[].env[]|select(.name=="KC_HOSTNAME")|.value|ltrimstr("https://")')
-KIND_SEED_STRICT=true make kind-seed KEYCLOAK_HOSTNAME="$keycloak_host"
-# Provisioning is asynchronous; do not continue until exactly one gateway exists.
-for attempt in {1..90}; do
-  GATEWAY_NAMESPACE=$(kubectl get deployment -A --field-selector metadata.name=openshell-gateway -o json |
-    jq -r '.items|if length==1 then first.metadata.namespace else empty end')
-  [[ -z $GATEWAY_NAMESPACE ]] || break
-  [[ $attempt != 90 ]] || { echo 'Gateway not provisioned; inspect controller logs'; exit 1; }
-  sleep 2
-done
-export GATEWAY_NAMESPACE
-kubectl -n "$GATEWAY_NAMESPACE" rollout status deployment/openshell-gateway --timeout=5m
-```
+If you moved state outside the managed directory or have multiple copies, pass
+`OCE_KIND_STATE=/absolute/path/to/original-state` once to select it. Setup verifies
+its cluster identity and remembers the choice. This is a recovery override;
+normal setup and recreation do not require it.
 
-Use `make kind-api-server-up` or `make kind-control-plane-up` for later code
-changes, with the same exported cluster settings. `make kind-up` restores
-ordinary Kind manifests and can recreate gateway ingress addresses; if rerun,
-reapply these patches and reverify OIDC URLs and network peers. Do not manually
-upgrade the gateway's Helm release:
-HyperShell reconciles it with `--reset-values` and would overwrite those edits.
+The Secret and credential-source APIs do not provide idempotency keys. If a
+response is lost, setup retains `codex-secret.json.pending` or
+`codex-source.json.pending` and stops. Read back the corresponding resource and
+save its confirmed response as the matching `.json` file. Remove a pending
+record only after confirming that the resource was not created. Agent
+provisioning uses a saved request ID and can resume after a lost response.
 
-## Build and load OCE
+For individual commands, database checks, networking diagnosis, and installation
+receipts, see the [manual setup and recovery runbook](manual-setup.md).
 
-In the OCE checkout, build the CLI and images using its source manifest:
+## Remove or recreate the environment
 
-```bash
-cd "$OCE_REPO"
-GOTOOLCHAIN=auto go build -trimpath -o "$OCE_KIND_STATE/occ" ./cmd/occ
-docker build --target runtime \
-  --build-arg NODE_BASE_IMAGE=docker.io/library/node:24.22.1-bookworm@sha256:6449e19d8184d84062525b6a7524def03146c2cb04a7f08b076680d0e8e4240a \
-  --build-arg OCC_BUILD_REVISION="$(git rev-parse HEAD)" \
-  -t localhost/oce-hypershell/controller:local .
-source_args=$(node scripts/lib/openclaw-source.mjs build-args)
-openclaw_build_args=()
-while IFS= read -r argument; do openclaw_build_args+=(--build-arg "$argument"); done <<< "$source_args"
-docker build -f deploy/runtime/Dockerfile "${openclaw_build_args[@]}" \
-  -t localhost/oce-hypershell/runtime:local .
-for role in controller runtime; do
-  tag="localhost/oce-hypershell/$role:local"
-  docker save "$tag" | docker exec -i hypershell-oce-control-plane ctr -n k8s.io images import -
-  digest=$(docker exec hypershell-oce-control-plane ctr -n k8s.io images ls |
-    awk -v image="$tag" '$1==image {print $3}')
-  [[ $digest =~ ^sha256:[a-f0-9]{64}$ ]]
-  reference="localhost/oce-hypershell/$role@$digest"
-  docker exec hypershell-oce-control-plane ctr -n k8s.io images tag "$tag" "$reference"
-  printf '%s\n' "$reference" > "$OCE_KIND_STATE/$role-image"
-done
-jq -n --rawfile controller "$OCE_KIND_STATE/controller-image" --rawfile runtime "$OCE_KIND_STATE/runtime-image" \
-  '{controller:($controller|rtrimstr("\n")),runtime:($runtime|rtrimstr("\n"))}' > "$OCE_KIND_STATE/images.json"
-cd "$HYPERSHELL_REPO"
-```
+The following command deletes the `hypershell-oce` cluster, including its
+in-cluster databases and volumes:
 
-Use the imported manifest digests, not Docker image configuration IDs. Both
-controller and Agent runtime references remain immutable.
-
-## Install OCE and connect it to OpenShell
-
-OCE's installation CLI requires Helm 3. If the host has Helm 4, extract the
-pinned Helm 3.14 binary from the HyperShell controller image built above. Isolate
-plugins so host Helm 4 plugins cannot interfere:
-
-```bash
-mkdir -p "$OCE_KIND_STATE/bin" "$OCE_KIND_STATE/helm-plugins"
-container=$(docker create localhost/hypershell-controller:dev)
-docker cp "$container:/usr/local/bin/helm" "$OCE_KIND_STATE/bin/helm"
-docker rm "$container"
-export PATH="$OCE_KIND_STATE/bin:$PATH"
-export HELM_PLUGINS="$OCE_KIND_STATE/helm-plugins"
-helm version --short
-```
-
-Run the supplied helpers in order:
-
-```bash
-bash deploy/oce-kind/prepare-oce.sh
-bash deploy/oce-kind/install-oce.sh
-bash deploy/oce-kind/activate-oce.sh
-bash deploy/oce-kind/browser-access.sh
-```
-
-`prepare-oce.sh` verifies and installs Envoy Gateway 1.6.7 while preserving
-HyperShell's Gateway API CRDs. It creates GatewayClass `eg`, namespace
-`oce-system`, and RuntimeClass `openshell-sandbox`, and labels the control node.
-
-`install-oce.sh` creates the separate
-`openclaw_oce_kind` database on HyperShell's development PostgreSQL server, with
-distinct limited application and migrator roles and verified TLS. It issues a
-dedicated OpenShell client certificate with `CN=oce-controller` and
-`OU=openshell-admin`, mounts only the leaf credentials in OCC,
-renders OCE's existing OpenShell templates, prepares protected bootstrap storage,
-and runs `occ installation install` with a durable receipt. It refuses to rerun
-an attempted installation; inspect the receipt before resuming a failed attempt.
-The renderer reads the gateway's configured sandbox ServiceAccount name and
-uses it for the tenant ServiceAccount.
-
-The generated `installation.json` points at
-`https://openshell-gateway.<gateway namespace>.svc:8080`. No second OpenShell
-gateway is installed by OCE. Keep `installation.json`, `values.json`,
-`images.json`, and `install-receipt` with the private state directory.
-
-`activate-oce.sh` pins the Envoy proxy, records its ready Pod addresses as
-trusted peers, enables the OCE worker through the existing Installation update
-flow, and grants OCE its tenant-local roles. It waits for the default Namespace
-to become `ready`. This requires OCE to register its operator Workspace through
-the HyperShell-created gateway with mTLS.
-
-The RuntimeClass admission policy permits the Agent Sandbox controller to create
-workloads and the owning OpenShell gateway to update them to release scheduling
-gates. Workloads must use this gateway's labeled namespaces and the pinned OCE
-runtime and OpenShell supervisor images. The bootstrap init container must use
-the pinned OpenShell sandbox image. The policy rejects privileged containers,
-host namespaces and hostPath volumes. Kubernetes administrator credentials
-remain privileged.
-
-## Access and verification
-
-Run the loopback port-forward printed by `browser-access.sh` in a separate
-terminal. Open `https://console.hypershell-oce.oce.localhost:18443/console/`.
-Use `admin@oce.localhost` and the password in
-`$OCE_KIND_STATE/initial-admin-password`. Trust only the generated browser CA
-`$OCE_KIND_STATE/owner-tls/ca.crt`; keep its private key on this machine.
-The service key in `initial-admin-service-key.json` is for operator API calls.
-
-On this devbox, the forward runs as the user service `oce-hypershell-console`.
-Use `systemctl --user status oce-hypershell-console` to inspect it. For another
-systemd host, prefix the printed forward command with
-`systemd-run --user --unit=oce-hypershell-console --property=Restart=on-failure --collect`.
-Otherwise, leave the printed command running in its terminal.
-
-HyperShell is at `https://console.hypershell.localhost:<assigned port>`.
-Use the port in `$keycloak_host`, printed by the startup banner. HyperShell's
-local Keycloak uses its documented development users. On a remote devbox,
-forward these ports through SSH to laptop loopback; the `.localhost` hosts must
-resolve there. Never expose these development listeners publicly.
-
-```bash
-kubectl -n hypershell-system get deployments
-kubectl -n "$GATEWAY_NAMESPACE" get deployments
-kubectl -n oce-system get deployments
-jq -e '.data.status=="ready"' "$OCE_KIND_STATE/namespace-proof.json"
-curl --fail --silent --show-error --noproxy '*' \
-  --cacert "$OCE_KIND_STATE/owner-tls/ca.crt" \
-  --resolve console.hypershell-oce.oce.localhost:18443:127.0.0.1 \
-  https://console.hypershell-oce.oce.localhost:18443/api/auth/session |
-  jq -e '.data==null'
-```
-
-## Deploy a Codex Agent
-
-### Configure EnMaaS
-
-Complete the OCE installation and activation above, then use these steps to run
-Codex with an EnMaaS API key and `gpt-6-luna`. Continue in the same operator shell.
-
-#### 1. Set the proxy endpoint
-
-Set the Installation's
-[shared model provider](https://github.com/openclaw/openclaw-enterprise/blob/2096c8cbde286c50ab7aafa08fd0f3bb3f4623c2/docs/reference/drivers/kubernetes-compute/model-provider.md).
-This setting applies to new API-key deployments across the Installation and
-currently has no Console editor.
-The Agent's JSON `models.providers.codex.baseUrl` does not select this endpoint.
-Keep that field at `http://127.0.0.1:9`; the OpenClaw gateway reaches Codex over
-authenticated WebSocket transport.
-
-```bash
-MODEL_BASE_URL='https://api.enmaas.devshift.net/v1'
-RUN_DIR="$OCE_KIND_STATE"
-export CONTEXT=kind-hypershell-oce
-PLATFORM_NS=oce-system RELEASE=oce
-OCE_CHART="$OCE_REPO/deploy/helm/openclaw-enterprise"
-INSTALLATION_FILE="$RUN_DIR/installation.json" VALUES_FILE="$RUN_DIR/values.json"
-OCC_SERVICE_KEY_FILE="$RUN_DIR/initial-admin-service-key.json"
-cp "$INSTALLATION_FILE" "$RUN_DIR/installation-before-model-provider.json"
-jq --arg url "$MODEL_BASE_URL" \
-  '.drivers.compute.configuration.runtime.modelProvider={protocol:"openai-responses",baseUrl:$url}' \
-  "$INSTALLATION_FILE" > "$RUN_DIR/installation-next.json"
-mv "$RUN_DIR/installation-next.json" "$INSTALLATION_FILE"
-source "$OCE_REPO/docs/snippets/openshell-quickstart/operator-session.sh"
-upgrade_installation
-```
-
-Wait for the OCE API and worker rollouts to complete.
-
-#### 2. Register the EnMaaS API key
-
-Save the key in an owner-only file outside the checkout. Set `credential_file`
-below to its absolute path. The commands read the key from that file; do not
-paste it into the command or commit the file. Use names that are not already
-registered in the selected Namespace.
-
-```bash
-set +x
-namespace=$(cat "$OCE_KIND_STATE/namespace-id")
-base="/namespaces/$namespace"
-credential_file=/secure/path/to/enmaas-api-key
-jq -n --rawfile key "$credential_file" \
-  '{name:"enmaas-api-key",value:($key|rtrimstr("\n"))}' |
-  request POST "$base/secrets" --data-binary @- > "$RUN_DIR/enmaas-secret.json"
-jq --arg url "$MODEL_BASE_URL" \
-  '{name:"enmaas",type:"openai",config:{authorized_base_url:$url},secrets:{api_key:.data.ref}}' \
-  "$RUN_DIR/enmaas-secret.json" |
-  request POST "$base/credential-sources" --data-binary @- > "$RUN_DIR/enmaas-source.json"
-modelSource=$(jq -er '.data|select(.state=="ready")|.id' "$RUN_DIR/enmaas-source.json")
-```
-
-The source must authorize `https://api.enmaas.devshift.net/v1` explicitly.
-Omitting `authorized_base_url` authorizes OpenAI's default endpoint and can
-cause HTTP 401/403. Existing sources cannot change destination authorization;
-register a replacement using their existing Secret reference instead of
-creating another Secret.
-
-#### 3. Select the model and bind the credential
-
-Use `gpt-6-luna` as the Codex model ID. OCE's existing configuration template
-adds the `codex/` prefix and retains the disabled HTTP fallback:
-
-```bash
-MODEL=gpt-6-luna
-jq -n --arg model "$MODEL" \
-  -f "$OCE_REPO/docs/snippets/openshell-quickstart/codex-configuration.jq" \
-  > "$RUN_DIR/enmaas-configuration.json"
-```
-
-For an existing Agent, update its Configuration so `agents.defaults.model` is
-`codex/gpt-6-luna`, the matching `agents.defaults.models` entry selects the
-`codex` runtime, and `models.providers.codex.models` contains ID `gpt-6-luna`.
-Preserve its other settings; do not replace the whole Configuration with the
-new-Agent template.
-
-Follow the matching OCE
-[Agent deployment guide](https://github.com/openclaw/openclaw-enterprise/blob/2096c8cbde286c50ab7aafa08fd0f3bb3f4623c2/docs/guides/deploy/deploy-first-agent.md)
-to create or update a dedicated Agent using the registered `modelSource` and
-selected `MODEL`; skip its credential-registration step. Set
-`harnessAuth.method` to `credential_source`, set `harnessAuth.sourceId` to
-`$modelSource`, and include that source ID in `credentialSources`. Grant the Agent's principal
-`operate` on that exact source, then deploy a new version.
-
-### Apply the Agent network grants
-
-After its gateway Service exists, apply the per-Agent network grants below.
-The OCE helper's `--openshell-namespace` option selects the HyperShell gateway.
-No OCE image rebuild is needed when applying this helper fix to an existing
-installation.
-
-```bash
-export CONTEXT=kind-hypershell-oce
-namespace=$(cat "$OCE_KIND_STATE/namespace-id")
-agent='<Agent ID from the Console URL>'
-tenant=$(kubectl get namespace -l "openclaw.dev/namespace=$namespace" -o json |
-  jq -er '.items|select(length==1)|first.metadata.name')
-python3 "$OCE_REPO/docs/snippets/openshell-quickstart/kubernetes/service-policies.py" \
-  --tenant "$tenant" --namespace-id "$namespace" --agent-id "$agent" \
-  --openshell-namespace "$GATEWAY_NAMESPACE" > "$OCE_KIND_STATE/agent-service-peers.json"
-kubectl apply -f "$OCE_KIND_STATE/agent-service-peers.json"
-kubectl -n "$tenant" get pods
-```
-
-If the renderer reports that the gateway Service is absent, wait for the first
-deployment to create it and rerun the command. These grants cover the Agent
-gateway, OpenShell management, supervisor, DNS, and private Envoy route. They
-retain OCE's default-deny policy. Repeat for each Agent; do not substitute a
-namespace-wide allow rule. Rerun after a redeployment replaces its gateway
-Service, because the policies include that Service's IP. For another logical Namespace, use its ID instead
-of the saved default. If a deployment already failed, inspect its error before
-deploying another version.
-
-During verification on 2026-11-06, the OpenClaw gateway, Codex sandbox and
-supervisor all reached Kubernetes Ready. The sandbox enforced Landlock, Codex
-passed its model probe, and OCE activated the Agent revision. A request through
-the private OpenClaw WebSocket returned `OCE_READY` using the configured HTTPS
-Responses proxy. Live admission checks accepted the pinned controller workload
-and rejected both an unapproved image and Pod creation by the gateway identity.
-
-An earlier deployment failed with `RUNTIME_AUTHENTICATION_FAILED` because a
-proxy key was sent to OpenAI's default endpoint. Correct both the Installation
-provider and the source's destination authorization before deploying a new
-version. The held authentication failure does not retry automatically.
-
-The deployment verified on 2026-11-06 uses OCE Namespace `hypershell`; the
-initial empty `default` Namespace was deleted after diagnosing a certificate
-role error. The README includes that correction; the complete sequence has not
-been replayed on a second fresh cluster.
-To rerun tenant permission checks for an existing named Namespace, set
-`OCE_NAMESPACE_NAME=hypershell` when running `activate-oce.sh`.
-
-## Recovery and removal
-
-Read readiness and events before retrying:
-
-```bash
-kubectl get pods -A
-kubectl -n hypershell-system logs deployment/hypershell-controller --tail=60
-kubectl -n "$GATEWAY_NAMESPACE" get events --sort-by=.lastTimestamp
-kubectl -n oce-system get jobs,pods
-"$OCE_KIND_STATE/occ" installation doctor --kubeconfig "$KUBECONFIG" \
-  --context kind-hypershell-oce --kube-namespace oce-system --release oce \
-  --receipt "$OCE_KIND_STATE/install-receipt"
-```
-
-The OpenShell client certificate copied into `oce-system` is not synchronized
-automatically. Before its 30-day expiry, wait for cert-manager renewal, copy the
-renewed leaf Secret using the command in `install-oce.sh`, and restart OCE API
-and worker. Preserve the gateway CA, database and signing keys across restarts.
-
-To delete this installation and all its databases and volumes, first confirm
-the selected cluster name, then run:
-
-```bash
-kind get clusters
+```shell
 kind delete cluster --name hypershell-oce
-docker stop hypershell-oce-dns
-docker rm hypershell-oce-dns
-# If you used the user service:
-systemctl --user stop oce-hypershell-console
 ```
 
-Stop this installation's port forwards separately. Retain the private state
-directory for diagnosis or delete it deliberately after confirming no credentials
-or evidence need to be retained. Do not use a different cluster's kubeconfig.
+Stop any remaining forwards for this installation and remove the
+`hypershell-oce-dns` Docker container if present. See the
+[manual removal instructions](manual-setup.md#remove-the-installation) for the
+individual cleanup commands. Keep the state directory for diagnosis or remove
+it deliberately when its credentials and records are no longer needed.
+
+Run `make kind-up-with-oce` again with the same two inputs to create a fresh
+installation. There is no state directory to rename or reset first.
+
+## Validation and current limits
+
+On 2026-11-09, the automated command completed on a fresh cluster with the
+built-in kind networking and the default OCE Namespace. The `gpt-6-luna` Agent
+returned `OCE_READY`, and external OpenShell gRPC health passed. That run retained
+an old `OCE_KIND_STATE` argument and correctly selected fresh state.
+
+This integration is experimental and provides no high availability. The copied
+OpenShell client certificate needs renewal synchronization before its 30-day
+expiry; the local OCE browser CA also expires after 30 days. For a long-lived
+environment, follow the [certificate guidance](manual-setup.md#inspect-an-installation)
+and renew browser certificates. The live checks verify HTTP, gRPC, and a model
+reply; they do not exercise interactive browser login or chat.

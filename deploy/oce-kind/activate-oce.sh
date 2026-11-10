@@ -10,6 +10,7 @@ OCE_CHART="$OCE_REPO/deploy/helm/openclaw-enterprise"
 INSTALLATION_FILE="$RUN_DIR/installation.json" VALUES_FILE="$RUN_DIR/values.json"
 OCC_SERVICE_KEY_FILE="$RUN_DIR/initial-admin-service-key.json"
 assets="$OCE_REPO/docs/snippets/openshell-quickstart/kubernetes"
+read -r GATEWAY_NAMESPACE < "$RUN_DIR/gateway-namespace"
 cp "$OCE_REPO/docs/snippets/openshell-quickstart/request.mjs" "$RUN_DIR/request.mjs"
 source "$OCE_REPO/docs/snippets/openshell-quickstart/operator-session.sh"
 export ENVOY_IMAGE=docker.io/envoyproxy/envoy:distroless-v1.36.6@sha256:947974108bb93df64469fedaa0ab7191cdf86c608217d6ff9b497c4e96ff1069
@@ -27,9 +28,10 @@ jq --slurpfile peers "$RUN_DIR/trusted-peers.json" \
   '.drivers.compute.configuration.network.gatewayTrustedProxyCidrs=$peers[0]' "$INSTALLATION_FILE" > "$RUN_DIR/installation-next.json"
 jq '.worker.replicaCount=1' "$VALUES_FILE" > "$RUN_DIR/values-next.json"
 if ! cmp -s "$RUN_DIR/installation-next.json" "$INSTALLATION_FILE" || ! cmp -s "$RUN_DIR/values-next.json" "$VALUES_FILE"; then
+  # Commit local configuration only after the upgrade succeeds, so failures remain retryable.
+  INSTALLATION_FILE="$RUN_DIR/installation-next.json" VALUES_FILE="$RUN_DIR/values-next.json" upgrade_installation
   mv "$RUN_DIR/installation-next.json" "$INSTALLATION_FILE"
   mv "$RUN_DIR/values-next.json" "$VALUES_FILE"
-  upgrade_installation
 else
   rm "$RUN_DIR/installation-next.json" "$RUN_DIR/values-next.json"
 fi
@@ -55,6 +57,10 @@ done
 for attempt in {1..60}; do
   request GET "/namespaces/$namespace" > "$RUN_DIR/namespace-proof.json"
   if jq -e '.data.status=="ready"' "$RUN_DIR/namespace-proof.json" >/dev/null; then
+    # Supervisors fetch startup policy before any per-Agent Service grants exist.
+    python3 "$assets/service-policies.py" --tenant "$tenant" --namespace-id "$namespace" \
+      --openshell-namespace "$GATEWAY_NAMESPACE" > "$RUN_DIR/namespace-service-peers.json"
+    kube apply -f "$RUN_DIR/namespace-service-peers.json"
     printf 'OCE Namespace ready: %s (%s)\n' "$namespace" "$tenant"
     exit 0
   fi

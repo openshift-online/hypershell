@@ -124,6 +124,7 @@ help:
 	@echo "                             LOCAL_IMAGES=true KIND_SKIP_BUILD=true: reuse existing local images"
 	@echo "                             KIND_SKIP_SEED=true: defer seeding (run kind-seed later)"
 	@echo "                             KIND_COVERAGE=true: coverage-instrumented images (implies LOCAL_IMAGES=true)"
+	@echo "    kind-up-with-oce         HyperShell + OCE + gpt-6-luna Codex agent (OCE_REPO, ENMAAS_API_KEY_FILE)"
 	@echo "    kind-seed                Seed platform resources into a running cluster"
 	@echo "    kind-reconcile-keycloak-users  Assign platform:admin to admin on stale Keycloak imports"
 	@echo "                             SKIP_SEED=true: defer seeding during kind-up / openshift-up"
@@ -571,6 +572,13 @@ kind-env:
 .PHONY: kind-up
 kind-up:
 	@CLUSTER_DRIVER=kind scripts/cluster/up.sh
+
+.PHONY: kind-up-with-oce
+kind-up-with-oce: export OCE_REPO := $(OCE_REPO)
+kind-up-with-oce: export ENMAAS_API_KEY_FILE := $(ENMAAS_API_KEY_FILE)
+kind-up-with-oce: export OCE_KIND_STATE := $(OCE_KIND_STATE)
+kind-up-with-oce:
+	@bash deploy/oce-kind/up.sh
 
 .PHONY: kind-seed
 kind-seed:
