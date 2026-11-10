@@ -43,17 +43,15 @@ A console needs external ingress. Browser traffic reaches the console through an
 
 ### Requirement: OSG-CON-01 -- Console Enablement Tied to Routing
 
-The reconciler SHALL deploy the console when all of these conditions are true:
+The reconciler SHALL deploy the console when this condition is true:
 
 - The gateway has an enabled route. A present route object defaults to enabled when it omits `enabled`; an explicit `route.enabled = false` disables it.
-- Keycloak is configured.
 
-The console has no separate configuration field. The console SHALL be exposed through the Gateway API, like the gateway. The console SHALL follow the route lifecycle.
+Keycloak integration is mandatory for the control plane (`openshell-gateway-keycloak.spec.md`, OSG-KCLK-01), so it is not a console condition. The console has no separate configuration field. The console SHALL be exposed through the Gateway API, like the gateway. The console SHALL follow the route lifecycle.
 
 #### Scenario: OSG-CON-01.01 -- A routed gateway gets a console
 
 - GIVEN a gateway with an enabled route
-- AND Keycloak is configured
 - WHEN the reconciler reconciles the gateway
 - THEN it must create all console resources: the console client, the console Secret, the Deployment, the Service, and the HTTPRoute
 - AND the console must answer at `https://console-<ns>.<base-domain>`
@@ -64,14 +62,6 @@ The console has no separate configuration field. The console SHALL be exposed th
 - WHEN the reconciler reconciles the gateway
 - THEN it must not create console resources
 - AND it must not create a console client
-
-#### Scenario: OSG-CON-01.04 -- Prerequisite is absent
-
-- GIVEN a routed gateway with no Keycloak configuration
-- WHEN the reconciler reconciles the gateway
-- THEN it must write a warning
-- AND it must skip the console
-- AND it must not fail the gateway reconciliation
 
 ---
 

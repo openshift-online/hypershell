@@ -63,16 +63,11 @@ func routedGateway(id, namespace string) *pb.Gateway {
 }
 
 // selfHealConsole must be bounded: it re-reconciles the console only for routed
-// gateways when Keycloak is configured. Outside those conditions it must be a
+// gateways. Outside that condition it must be a
 // pure no-op that never touches the (here nil) Kubernetes clients -- if it did,
 // it would panic. The nil-client no-panic is the assertion.
 func TestSelfHealConsole_NoOpWhenUnconfigured(t *testing.T) {
 	ctx := context.Background()
-
-	t.Run("no keycloak config", func(t *testing.T) {
-		h := &GatewayHealthReconciler{} // keycloakConfig nil
-		h.selfHealConsole(ctx, "gw-1", routedGateway("gw-1", "openshell-abc"))
-	})
 
 	t.Run("not a routed gateway", func(t *testing.T) {
 		h := &GatewayHealthReconciler{keycloakConfig: &gateway.KeycloakConfig{}}
@@ -486,7 +481,6 @@ func TestObservedGatewayHealthUpdate_PreservesKeycloakMarkersWhenHealthy(t *test
 					marker,
 					"Running",
 					"Healthy",
-					true,
 				)
 				if update != nil {
 					t.Fatalf("observedGatewayHealthUpdate() = %#v, want nil so status remains visible", update)
@@ -501,7 +495,6 @@ func TestObservedGatewayHealthUpdate_PreservesKeycloakMarkersWhenHealthy(t *test
 					marker,
 					"Running",
 					"Healthy",
-					true,
 				)
 				if update == nil {
 					t.Fatal("observedGatewayHealthUpdate() = nil, want phase-only promotion")
@@ -517,19 +510,6 @@ func TestObservedGatewayHealthUpdate_PreservesKeycloakMarkersWhenHealthy(t *test
 		})
 	}
 
-	t.Run("unconfigured integration does not reserve marker", func(t *testing.T) {
-		update := observedGatewayHealthUpdate(
-			"gw-1",
-			"Running",
-			gatewayKeycloakClientInvalidStatus,
-			"Running",
-			"Healthy",
-			false,
-		)
-		if update == nil || update.Status == nil || update.GetStatus() != "Healthy" {
-			t.Fatalf("observedGatewayHealthUpdate() = %#v, want normal Healthy status update", update)
-		}
-	})
 }
 
 func cond(status pb.ProvisioningConditionStatus) *pb.ProvisioningCondition {

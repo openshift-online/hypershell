@@ -543,3 +543,9 @@ does not exist. "Former file" is the spec the ID lived in, relative to
 | `OSG-CON-05.04` | `platform/openshell-gateway-console.spec.md` | - | Required console OpenShift Route behaviour in Route ingress mode, removed in issue #767. |
 | `OSG-CON-05.05` | `platform/openshell-gateway-console.spec.md` | - | Required console OpenShift Route behaviour in Route ingress mode, removed in issue #767. |
 | `OSG-CON-05.06` | `platform/openshell-gateway-console.spec.md` | - | Required console OpenShift Route behaviour in Route ingress mode, removed in issue #767. |
+| `GTW-PROG-01.02` | `platform/gateway-provisioning-progress.spec.md` | - | Reported progress for a control plane without Keycloak; Keycloak became mandatory in issue #809. |
+| `GTW-PROG-02.04` | `platform/gateway-provisioning-progress.spec.md` | - | Reported progress for a control plane without Keycloak; Keycloak became mandatory in issue #809. |
+| `GTW-CFG-01.02` | `platform/generated-gateway-config-validation.spec.md` | - | Required parsing the rendered gateway TOML; the controller validates the generated configuration instead (issue #809). |
+| `GTW-CFG-01.03` | `platform/generated-gateway-config-validation.spec.md` | - | Rejected rendered TOML that allowed unauthenticated users; the controller never sets that flag (issue #809). |
+| `OSG-CON-01.04` | `platform/openshell-gateway-console.spec.md` | - | Skipped the console when Keycloak was not configured; Keycloak became mandatory in issue #809. |
+| `OSG-KCLK-11.02` | `platform/openshell-gateway-keycloak.spec.md` | - | Covered gateway deletion on a control plane without Keycloak; Keycloak became mandatory in issue #809. |

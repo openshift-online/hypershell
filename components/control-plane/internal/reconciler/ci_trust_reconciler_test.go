@@ -311,18 +311,6 @@ func TestCITrustDelete_MissingProviderIsNoOp(t *testing.T) {
 	}
 }
 
-func TestCITrustHandle_NilKeycloakSkips(t *testing.T) {
-	r := NewCITrustReconciler(nil, nil, testClusterID, keycloak.TokenExchangeModeFGAPv1)
-	err := r.Handle(t.Context(), watcher.Event[*pb.CITrust]{
-		Type:       watcher.EventCreated,
-		ResourceID: "trust-1",
-		Resource:   githubTrust(),
-	})
-	if err != nil {
-		t.Fatalf("Handle with nil keycloak should be a no-op, got %v", err)
-	}
-}
-
 // TestCITrustUpsert_CrossGatewayAndCrossRepoIsolation proves the end-to-end
 // wiring preserves per-trust isolation (finding 1): two CITrusts under the same
 // owner - one for a different repo, one on a different gateway - each resolve to a

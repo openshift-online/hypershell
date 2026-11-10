@@ -137,16 +137,14 @@ type vaultProbeResult struct {
 
 func NewGatewayHealthReconciler(clientset *kubernetes.Clientset, dynamicClient dynamic.Interface, grpcConn *grpc.ClientConn, exposurePort exposure.Port, keycloakConfig *gateway.KeycloakConfig, clusterID, controlPlaneNamespace string) *GatewayHealthReconciler {
 	// Build one long-lived Keycloak client for residual-absence checks so its
-	// token cache survives across ticks (see consoleClientChecker).
-	var consoleClientChecker gateway.ConsoleClientChecker
-	if keycloakConfig != nil {
-		consoleClientChecker = keycloak.NewClient(
-			keycloakConfig.ServerURL,
-			keycloakConfig.Realm,
-			keycloakConfig.ClientID,
-			keycloakConfig.ClientSecret,
-		)
-	}
+	// token cache survives across ticks (see consoleClientChecker). Keycloak is
+	// mandatory, so keycloakConfig is always set.
+	consoleClientChecker := keycloak.NewClient(
+		keycloakConfig.ServerURL,
+		keycloakConfig.Realm,
+		keycloakConfig.ClientID,
+		keycloakConfig.ClientSecret,
+	)
 	isOpenShift := gateway.DetectOpenShift(clientset)
 	return &GatewayHealthReconciler{
 		clientset:               clientset,
@@ -459,7 +457,7 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 	// sandbox-count reconciler (see openshell-gateway-sandbox-count.spec.md); the
 	// health reconciler only owns phase and status except while the lightweight
 	// Keycloak reconciler has published one of its fixed external-state markers.
-	update := observedGatewayHealthUpdate(gatewayID, phase, gw.GetStatus(), desiredPhase, desiredStatus, h.keycloakConfig != nil)
+	update := observedGatewayHealthUpdate(gatewayID, phase, gw.GetStatus(), desiredPhase, desiredStatus)
 
 	// The health reconciler owns finalizing the user-facing provisioning
 	// conditions after convergence. The provisioning body acknowledges
@@ -502,16 +500,15 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 // observedGatewayHealthUpdate builds the narrow update required for an observed
 // health transition. A healthy workload does not prove that its external
 // Keycloak client exists or that its persisted identity is valid, so
-// Running/Healthy observations preserve either fixed Keycloak status when the
-// integration is configured. The health reconciler may still promote the
+// Running/Healthy observations preserve either fixed Keycloak status. The health reconciler may still promote the
 // workload phase to Running, but does so with a phase-only update. Unhealthy
 // observations retain normal ownership of phase and status so operational
 // failures remain visible.
-func observedGatewayHealthUpdate(gatewayID, currentPhase, currentStatus, desiredPhase, desiredStatus string, keycloakConfigured bool) *pb.UpdateGatewayRequest {
+func observedGatewayHealthUpdate(gatewayID, currentPhase, currentStatus, desiredPhase, desiredStatus string) *pb.UpdateGatewayRequest {
 	if gatewayID == "" || desiredPhase == "" {
 		return nil
 	}
-	if keycloakConfigured && isGatewayKeycloakClientStatus(currentStatus) && desiredPhase == string(gatewayhealth.PhaseRunning) && desiredStatus == gatewayhealth.StatusHealthy {
+	if isGatewayKeycloakClientStatus(currentStatus) && desiredPhase == string(gatewayhealth.PhaseRunning) && desiredStatus == gatewayhealth.StatusHealthy {
 		if currentPhase == desiredPhase {
 			return nil
 		}
@@ -546,8 +543,7 @@ func allConditionsComplete(conds []*pb.ProvisioningCondition) bool {
 
 // completedConditions returns a copy of conds with every condition set to
 // Complete and its message cleared. The existing condition set and order are
-// preserved so the console stepper keeps the same steps it has been showing
-// (e.g. IdentityProviderReady stays absent when Keycloak is not configured).
+// preserved so the console stepper keeps the same steps it has been showing.
 func completedConditions(conds []*pb.ProvisioningCondition) []*pb.ProvisioningCondition {
 	out := make([]*pb.ProvisioningCondition, len(conds))
 	for i, c := range conds {
@@ -562,11 +558,11 @@ func completedConditions(conds []*pb.ProvisioningCondition) []*pb.ProvisioningCo
 // selfHealConsole re-reconciles the per-gateway console when it is observed not
 // servable, so a console that failed to provision or has since drifted is
 // recreated without a gateway spec change. It is a no-op unless the gateway is
-// routed and Keycloak is configured.
+// routed.
 // The reconcile is idempotent and its failures are logged, never propagated:
 // they must not perturb the gateway's own health phase.
 func (h *GatewayHealthReconciler) selfHealConsole(ctx context.Context, gatewayID string, gw *pb.Gateway) {
-	if !isRoutedGateway(gw) || h.keycloakConfig == nil {
+	if !isRoutedGateway(gw) {
 		return
 	}
 	namespace, err := gatewayNamespace(gw)
@@ -664,12 +660,10 @@ func (h *GatewayHealthReconciler) teardownRoute(ctx context.Context, client pb.G
 		GatewayID:   gatewayID,
 		GatewayName: gw.GetName(),
 	}
-	if h.keycloakConfig != nil {
-		if clientID, err := gatewayKeycloakClientID(gatewayID, gw); err != nil {
-			slog.WarnContext(ctx, "Gateway stored identity cannot be resolved; console Keycloak client is left for operator recovery", "gateway_id", gatewayID, "error", err)
-		} else {
-			opts.GatewayClientID = clientID
-		}
+	if clientID, err := gatewayKeycloakClientID(gatewayID, gw); err != nil {
+		slog.WarnContext(ctx, "Gateway stored identity cannot be resolved; console Keycloak client is left for operator recovery", "gateway_id", gatewayID, "error", err)
+	} else {
+		opts.GatewayClientID = clientID
 	}
 	// Wire an address-clearing callback only when an address is actually stored,
 	// so a gateway that never published one adds no gateway-update traffic.

@@ -195,20 +195,24 @@ The control plane SHALL obtain an access token from Keycloak using the client cr
 
 - **Control plane** uses the Secret for every read-write operation: provisioning Keycloak clients, roles, and mappers; managing OpenShellGatewayServiceAccounts; and assigning or removing client roles during the OIDC Role Bridge.
 
+Keycloak integration is mandatory. The control plane SHALL NOT run with Keycloak disabled. When it runs in-cluster, it SHALL read the Secret at startup and SHALL require all four keys to be present and non-empty. If the Secret is missing, unreadable, or incomplete, the control plane SHALL log an error that names the problem and SHALL retry with backoff. It SHALL NOT start gateway reconciliation until the Secret is valid, so no gateway is deployed in the meantime. The reason is that every gateway needs an OIDC configuration: since OpenShell `v0.1.5-rhaiv.4` the gateway refuses to start without an auth mechanism (openshift-online/hypershell#809).
+
 #### Scenario: OSG-KCLK-01.01 -- Service account credentials available
 
 - GIVEN the `hypershell-keycloak-admin` Secret exists in the HyperShell namespace
 - WHEN the control plane starts
 - THEN it SHALL read the Secret and validate that all required keys are present
-- AND it SHALL verify connectivity to the Keycloak Admin REST API at startup
+- AND it SHALL NOT require the Keycloak Admin REST API to be reachable at startup
+- AND it SHALL check reachability on each Keycloak call, failing that step with a retryable error while Keycloak is unreachable
 
-#### Scenario: OSG-KCLK-01.02 -- Service account credentials missing at control plane
+#### Scenario: OSG-KCLK-01.02 -- Service account credentials missing or incomplete at startup
 
-- GIVEN the `hypershell-keycloak-admin` Secret does not exist
-- WHEN the GatewayReconciler receives a Gateway event
-- THEN it SHALL log an error indicating Keycloak integration is not configured
-- AND it SHALL NOT deploy the gateway
-- AND it SHALL retry on the next reconciliation cycle
+- GIVEN the `hypershell-keycloak-admin` Secret is missing, unreadable, or lacks a non-empty value for one of `server-url`, `realm`, `client-id`, or `client-secret`
+- WHEN the control plane starts in-cluster
+- THEN it SHALL log an error that names the missing Secret, the read failure, or the empty keys
+- AND it SHALL NOT start gateway reconciliation, so no gateway is deployed
+- AND it SHALL retry reading the Secret with backoff until the Secret is valid
+- AND it SHALL NOT continue with Keycloak integration disabled
 
 ---
 
@@ -758,11 +762,8 @@ reconciliation. A gateway rename SHALL NOT change the client selected for
 removal. Records without either stored identity field SHALL use the
 initial client ID, the gateway ID. Invalid or conflicting stored identities SHALL
 NOT request Keycloak cleanup: deletion SHALL log the resolution failure for
-operator recovery and SHALL continue namespace and database cleanup. A missing
-Keycloak provisioner SHALL NOT block gateway finalization: deletion SHALL log
-the recorded client identity for operator recovery and SHALL continue namespace
-and database cleanup. Re-enabling the provisioner does not replay a completed
-delete; leftover realm clients are removed from that log.
+operator recovery and SHALL continue namespace and database cleanup. Leftover realm clients are removed
+by an operator from that log.
 
 #### Scenario: OSG-KCLK-11.01 -- Delete a renamed gateway
 
@@ -771,15 +772,6 @@ delete; leftover realm clients are removed from that log.
 - WHEN the gateway is deleted
 - THEN cleanup selects the stored gateway client and its console client
 - AND cleanup does not select clients from the new display name
-
-#### Scenario: OSG-KCLK-11.02 -- Delete after Keycloak is deconfigured
-
-- GIVEN a gateway has a stored OIDC identity
-- AND the control plane Keycloak client is not configured
-- WHEN the gateway is deleted
-- THEN cleanup SHALL NOT request Keycloak
-- AND cleanup SHALL log the recorded client identity for operator recovery
-- AND cleanup SHALL continue remaining gateway resource deletion
 
 #### Scenario: OSG-KCLK-11.03 -- Delete with an invalid stored identity
 

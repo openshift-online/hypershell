@@ -99,11 +99,6 @@ func (r *CITrustReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	}
 	id := event.ResourceID
 
-	if r.keycloakClient == nil {
-		slog.DebugContext(ctx, "CITrust keycloak not configured, skipping", "ci_trust_id", id)
-		return nil
-	}
-
 	switch event.Type {
 	case watcher.EventDeleted:
 		return r.handleDelete(ctx, id, trust)

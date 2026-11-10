@@ -256,7 +256,9 @@ oc -n hypershell patch deploy hypershell-api-server --type=json -p "[
 oc -n hypershell set image deploy/hypershell-controller \
   controller=$REGISTRY/hypershell-control-plane-main:latest
 
-# Create Keycloak admin secret for the controller
+# Create Keycloak admin secret for the controller. It is required: until it
+# exists with all four keys non-empty, the controller logs an error, retries,
+# and deploys no gateway.
 oc -n hypershell create secret generic hypershell-keycloak-admin \
   --from-literal=client-id=hypershell-control-plane \
   --from-literal=client-secret=control-plane-secret \

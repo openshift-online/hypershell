@@ -215,16 +215,17 @@ func NewGatewayReconciler(
 	isOpenShift := gateway.DetectOpenShift(clientset)
 	hasCertManager := gateway.DetectCertManager(clientset)
 
-	var kcClient *keycloak.Client
-	if keycloakConfig != nil {
-		kcClient = keycloak.NewClient(
-			keycloakConfig.ServerURL,
-			keycloakConfig.Realm,
-			keycloakConfig.ClientID,
-			keycloakConfig.ClientSecret,
-		)
-		slog.Info("Keycloak integration enabled", "url", keycloakConfig.ServerURL, "realm", keycloakConfig.Realm)
+	// Keycloak is mandatory: every gateway gets a generated OIDC configuration
+	// (the gateway refuses to start without an auth mechanism, issue #809).
+	if keycloakConfig == nil {
+		return nil, fmt.Errorf("keycloak configuration is required")
 	}
+	kcClient := keycloak.NewClient(
+		keycloakConfig.ServerURL,
+		keycloakConfig.Realm,
+		keycloakConfig.ClientID,
+		keycloakConfig.ClientSecret,
+	)
 
 	// Derive ingress base domain from environment
 	ingressBaseDomain := os.Getenv("INGRESS_BASE_DOMAIN")
@@ -237,7 +238,7 @@ func NewGatewayReconciler(
 		"helm", helmClient.ChartPath,
 		"openshift", isOpenShift,
 		"certmanager", hasCertManager,
-		"keycloak", kcClient != nil,
+		"keycloak", keycloakConfig.ServerURL,
 		"ingress", ingressBaseDomain)
 
 	return &GatewayReconciler{
@@ -385,41 +386,19 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 						"error", err)
 				}
 			}
-			if r.keycloakClient != nil {
-				clientID, err := gatewayKeycloakClientID(event.ResourceID, gw)
-				if err != nil {
-					// Invalid stored identity never becomes valid on retry, so failing
-					// here would pin the delete tombstone after namespace and database
-					// cleanup. Keycloak is not contacted. Record the leak durably (not
-					// just a log line) so the orphaned Keycloak clients are visible to
-					// operators for recovery.
-					slog.ErrorContext(ctx, "Gateway stored identity cannot be resolved; skipping Keycloak cleanup; Keycloak clients may remain for operator recovery", "gateway_id", event.ResourceID, "error", err)
-					opts.RecordOrphan(ctx, "KeycloakClient", fmt.Sprintf("gateway %s (%s)", gw.Name, event.ResourceID),
-						fmt.Sprintf("stored identity cannot be resolved (%v); Keycloak clients could not be deleted", err))
-				} else {
-					opts.KeycloakClient = r.keycloakClient
-					opts.GatewayClientID = clientID
-				}
-			}
-			if gw.GetOidc() != "" && r.keycloakClient == nil {
-				// A deconfigured provisioner never comes back, so failing here would
-				// pin the delete tombstone after namespace and database cleanup.
-				// Log the recorded identity for operator recovery instead.
-				clientID, idErr := gatewayKeycloakClientID(event.ResourceID, gw)
-				if idErr != nil {
-					slog.ErrorContext(ctx, "Gateway identity cleanup requires the Keycloak client; stored identity cannot be resolved; Keycloak clients may remain for operator recovery", "gateway_id", event.ResourceID, "error", idErr)
-					opts.RecordOrphan(ctx, "KeycloakClient", fmt.Sprintf("gateway %s (%s)", gw.Name, event.ResourceID),
-						fmt.Sprintf("Keycloak provisioner is deconfigured and stored identity cannot be resolved (%v); Keycloak clients could not be deleted", idErr))
-				} else {
-					slog.ErrorContext(ctx, "Gateway identity cleanup requires the Keycloak client; leaving Keycloak clients for operator recovery",
-						"gateway_id", event.ResourceID,
-						"client_id", clientID,
-						"console_client_id", clientID+"-console")
-					opts.RecordOrphan(ctx, "KeycloakClient", clientID,
-						"Keycloak provisioner is deconfigured; the gateway Keycloak client could not be deleted")
-					opts.RecordOrphan(ctx, "KeycloakClient", clientID+"-console",
-						"Keycloak provisioner is deconfigured; the console Keycloak client could not be deleted")
-				}
+			clientID, err := gatewayKeycloakClientID(event.ResourceID, gw)
+			if err != nil {
+				// Invalid stored identity never becomes valid on retry, so failing
+				// here would pin the delete tombstone after namespace and database
+				// cleanup. Keycloak is not contacted. Record the leak durably (not
+				// just a log line) so the orphaned Keycloak clients are visible to
+				// operators for recovery.
+				slog.ErrorContext(ctx, "Gateway stored identity cannot be resolved; skipping Keycloak cleanup; Keycloak clients may remain for operator recovery", "gateway_id", event.ResourceID, "error", err)
+				opts.RecordOrphan(ctx, "KeycloakClient", fmt.Sprintf("gateway %s (%s)", gw.Name, event.ResourceID),
+					fmt.Sprintf("stored identity cannot be resolved (%v); Keycloak clients could not be deleted", err))
+			} else {
+				opts.KeycloakClient = r.keycloakClient
+				opts.GatewayClientID = clientID
 			}
 			var credentialNamespaces []string
 			if gw.CredentialDriver != nil && *gw.CredentialDriver != "" {
@@ -460,7 +439,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			case vaultBacked:
 				if err := gateway.DeleteVaultTenantMount(ctx, r.clientset, opts, namespace); err != nil {
 					// Orphan-only, like the other permanent-failure cleanups in this function
-					// (a deconfigured Keycloak provisioner above): a failed mount delete (Vault
+					// (an unresolvable stored identity above): a failed mount delete (Vault
 					// unreachable or decommissioned, provisioner login denied) must NOT pin the
 					// delete tombstone forever. Record a durable orphan for operator reclaim and
 					// complete the deletion; the gateway database is already dropped, so a
@@ -578,7 +557,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			reconcileErr = fmt.Errorf("reconcile Keycloak client for gateway %q: %w", gw.Name, err)
 			return watcher.WithRetryableReason(watcher.PreservePayloadForRetry(reconcileErr), reason)
 		}
-		if r.keycloakClient != nil && isGatewayKeycloakClientStatus(gw.GetStatus()) {
+		if isGatewayKeycloakClientStatus(gw.GetStatus()) {
 			if err := r.updateGatewayStatus(ctx, event.ResourceID, ""); err != nil {
 				outcome = cpotel.OutcomeRetryable
 				reason = cpotel.ReasonGRPCUnavailable
@@ -600,31 +579,27 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		}
 	}
 
-	var gatewayClientID string
-	if r.keycloakConfig != nil {
-		clientID, err := gatewayKeycloakClientID(event.ResourceID, gw)
-		if err != nil {
-			outcome = cpotel.OutcomeFailed
-			reason = cpotel.ReasonIdentityInvalid
-			reconcileErr = fmt.Errorf("resolve Keycloak client for gateway %q: %w", gw.Name, err)
-			return reconcileErr
-		}
-		gatewayClientID = clientID
-
-		// Controller-generated configuration is part of desired state, so writing
-		// it advances generation. Persist it before capturing the snapshot this
-		// pass applies, then build everything from that snapshot: the generation
-		// acknowledged below is then exactly the one whose configuration was
-		// deployed. See data-model.spec.md § Gateway Generation Tracking.
-		snapshot, err := r.persistGeneratedOIDC(ctx, event.ResourceID, gw, gatewayClientID)
-		if err != nil {
-			outcome = cpotel.OutcomeRetryable
-			reason = cpotel.ReasonGRPCUnavailable
-			reconcileErr = fmt.Errorf("reconcile gateway %s: %w", gw.Name, err)
-			return reconcileErr
-		}
-		gw = snapshot
+	gatewayClientID, err := gatewayKeycloakClientID(event.ResourceID, gw)
+	if err != nil {
+		outcome = cpotel.OutcomeFailed
+		reason = cpotel.ReasonIdentityInvalid
+		reconcileErr = fmt.Errorf("resolve Keycloak client for gateway %q: %w", gw.Name, err)
+		return reconcileErr
 	}
+
+	// Controller-generated configuration is part of desired state, so writing
+	// it advances generation. Persist it before capturing the snapshot this
+	// pass applies, then build everything from that snapshot: the generation
+	// acknowledged below is then exactly the one whose configuration was
+	// deployed. See data-model.spec.md § Gateway Generation Tracking.
+	snapshot, err := r.persistGeneratedOIDC(ctx, event.ResourceID, gw, gatewayClientID)
+	if err != nil {
+		outcome = cpotel.OutcomeRetryable
+		reason = cpotel.ReasonGRPCUnavailable
+		reconcileErr = fmt.Errorf("reconcile gateway %s: %w", gw.Name, err)
+		return reconcileErr
+	}
+	gw = snapshot
 
 	namespace, err := gatewayNamespace(gw)
 	if err != nil {
@@ -729,7 +704,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		OperatorSandboxRuntimeClass: r.operatorSandboxRuntimeClass,
 	}
 
-	conditions := gateway.InitConditions(r.keycloakConfig != nil)
+	conditions := gateway.InitConditions()
 	r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
 
 	opts.ReportProgress = func(step, status, message string) {
@@ -740,7 +715,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	r.updateGatewayPhase(ctx, event.ResourceID, string(gatewayhealth.PhaseProvisioning))
 
 	if err := gateway.ReconcileGateway(ctx, r.dynamicClient, r.clientset, r.helmClient, nsConfig, opts); err != nil {
-		var renderErr *gateway.RenderedConfigValidationError
+		var renderErr *gateway.ConfigValidationError
 		if errors.As(err, &renderErr) {
 			failReason := fmt.Sprintf("generated configuration validation failed: %v", renderErr.Err)
 			if failedGateway := r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseFailed), failReason); failedGateway != nil {
@@ -889,9 +864,6 @@ func isGatewayKeycloakClientStatus(status string) bool {
 // client is reported as non-converged rather than silently skipped or partially
 // recreated without restoring its user role assignments.
 func (r *GatewayReconciler) reconcileExistingGatewayKeycloakClient(ctx context.Context, gatewayID string, gw *pb.Gateway) error {
-	if r.keycloakClient == nil {
-		return nil
-	}
 	clientID, err := gatewayKeycloakClientID(gatewayID, gw)
 	if err != nil {
 		return err

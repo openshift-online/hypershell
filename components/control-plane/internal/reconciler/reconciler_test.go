@@ -885,42 +885,6 @@ func TestGatewayReconciler_Handle_GatedPhase_IdempotentWhenAlreadyEnabled(t *tes
 	}
 }
 
-func TestGatewayReconciler_Handle_GatedPhase_KeycloakUnconfigured(t *testing.T) {
-	ctx := context.Background()
-	fakeDynamic := fakedynamic.NewSimpleDynamicClient(runtime.NewScheme())
-
-	r := &GatewayReconciler{
-		active:                make(map[string]struct{}),
-		dynamicClient:         fakeDynamic,
-		clientset:             nil,
-		controlPlaneNamespace: "hypershell-system",
-		keycloakClient:        nil, // unconfigured Keycloak
-	}
-
-	phase := "Running"
-	obsGen := int64(1)
-	event := watcher.Event[*pb.Gateway]{
-		Type:       watcher.EventUpdated,
-		ResourceID: "gw-no-keycloak",
-		Resource: &pb.Gateway{
-			Metadata:           &pb.ObjectReference{Id: "gw-no-keycloak"},
-			Name:               "my-gateway",
-			Namespace:          "openshell-0011223344556677",
-			Phase:              &phase,
-			Generation:         1,
-			ObservedGeneration: &obsGen,
-		},
-	}
-
-	if err := r.Handle(ctx, event); err != nil {
-		t.Fatalf("Handle() should succeed when Keycloak is unconfigured, got: %v", err)
-	}
-
-	if len(fakeDynamic.Actions()) > 0 {
-		t.Errorf("expected 0 Kubernetes actions when Keycloak is unconfigured on gated gateway")
-	}
-}
-
 // Verifies: OSG-KCLK-02.03
 func TestGatewayReconciler_Handle_GatedPhase_ReportsMissingClientWithoutKubernetes(t *testing.T) {
 	ctx := context.Background()
