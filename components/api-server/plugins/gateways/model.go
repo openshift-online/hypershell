@@ -53,7 +53,13 @@ type Gateway struct {
 	// The column is NOT NULL; gateways that predate it were backfilled to the
 	// "shared" mode they already ran in (openshell-gateway.spec.md, "OSG-CORE-18
 	// -- Gateway Workspace Mode").
-	WorkspaceMode          *string `json:"workspace_mode"`
+	WorkspaceMode *string `json:"workspace_mode"`
+	// AdditionalCABundle is the user-supplied PEM bundle of additional destination
+	// CA certificates for sandbox egress to private-PKI destinations. Empty means
+	// default trust roots only. USER-WRITABLE (create and update) per the
+	// PLAT-DATA-23 allowlist: it is user-authored trust material, not platform
+	// provisioning config. See openshell-gateway-additional-ca.spec.md.
+	AdditionalCABundle     *string `json:"additional_ca_bundle"`
 	ActiveSandboxCount     *int    `json:"active_sandbox_count"`
 	ProvisioningConditions *string `json:"provisioning_conditions" gorm:"type:jsonb"`
 	Generation             int64   `json:"generation" gorm:"not null;default:1"`

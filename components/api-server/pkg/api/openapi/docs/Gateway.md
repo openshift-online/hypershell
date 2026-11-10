@@ -19,6 +19,7 @@ Name | Type | Description | Notes
 **Phase** | Pointer to **string** | Control-plane-observed lifecycle phase (PLAT-DATA-23) | [optional] [readonly]
 **Image** | Pointer to **string** | Container image for the gateway deployment; platform-managed, control-plane-only (PLAT-DATA-23) | [optional] [readonly]
 **SupervisorImage** | Pointer to **string** | Container image for the supervisor sidecar; platform-managed, control-plane-only (PLAT-DATA-23) | [optional] [readonly]
+**AdditionalCaBundle** | Pointer to **NullableString** | User-supplied PEM bundle of additional destination CA certificates for sandbox egress to private-PKI destinations; empty means default trust roots. User-writable on create and update (PLAT-DATA-23 allowlist exception) | [optional]
 **ServerDnsNames** | Pointer to **[]string** | DNS names for TLS certificate SANs; platform-managed, control-plane-only (PLAT-DATA-23) | [optional] [readonly]
 **RouteAddress** | Pointer to **string** | External route address populated by the control plane | [optional] [readonly]
 **ConsoleAddress** | Pointer to **string** | Web console address populated by the control plane | [optional] [readonly]
@@ -416,6 +417,41 @@ SetSupervisorImage sets SupervisorImage field to given value.
 
 HasSupervisorImage returns a boolean if a field has been set.
 
+### GetAdditionalCaBundle
+
+`func (o *Gateway) GetAdditionalCaBundle() string`
+
+GetAdditionalCaBundle returns the AdditionalCaBundle field if non-nil, zero value otherwise.
+
+### GetAdditionalCaBundleOk
+
+`func (o *Gateway) GetAdditionalCaBundleOk() (*string, bool)`
+
+GetAdditionalCaBundleOk returns a tuple with the AdditionalCaBundle field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetAdditionalCaBundle
+
+`func (o *Gateway) SetAdditionalCaBundle(v string)`
+
+SetAdditionalCaBundle sets AdditionalCaBundle field to given value.
+
+### HasAdditionalCaBundle
+
+`func (o *Gateway) HasAdditionalCaBundle() bool`
+
+HasAdditionalCaBundle returns a boolean if a field has been set.
+
+### SetAdditionalCaBundleNil
+
+`func (o *Gateway) SetAdditionalCaBundleNil(b bool)`
+
+ SetAdditionalCaBundleNil sets the value for AdditionalCaBundle to be an explicit nil
+
+### UnsetAdditionalCaBundle
+`func (o *Gateway) UnsetAdditionalCaBundle()`
+
+UnsetAdditionalCaBundle ensures that no value is present for AdditionalCaBundle, not even an explicit nil
 ### GetServerDnsNames
 
 `func (o *Gateway) GetServerDnsNames() []string`

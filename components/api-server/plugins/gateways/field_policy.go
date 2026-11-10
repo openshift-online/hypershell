@@ -46,6 +46,11 @@ var gatewayFieldOwnership = map[string]gatewayFieldClass{
 	"cluster_id":      fieldUserWritable, // create-only (placement); control-plane-assigned on late-bind, not user-writable on update
 	"placement":       fieldUserWritable, // create-only
 	"dedicated_route": fieldUserWritable, // create-only
+	// additional_ca_bundle is user-writable (create + update): it is user-authored
+	// trust material (which private CAs a gateway's sandboxes trust for egress),
+	// not platform provisioning config. See openshell-gateway-additional-ca.spec.md
+	// and the PLAT-DATA-23 allowlist amendment.
+	"additional_ca_bundle": fieldUserWritable,
 
 	// Platform-managed (control-plane-only desired workload spec).
 	"external_dns":      fieldPlatformManaged,
@@ -136,9 +141,10 @@ func enforceGatewayFieldPolicyUpdate(kind rbac.GatewayWriterKind, current, incom
 }
 
 // gatewayUpdateViolation returns the name of the first non-allowlisted field whose
-// incoming value differs from the stored one, or "" when only name (and nothing else)
-// changed. name is the sole update-allowlisted field; cluster_id is control-plane
-// assigned by late binding and is NOT user-writable on update.
+// incoming value differs from the stored one, or "" when only allowlisted fields
+// (name, additional_ca_bundle) changed. additional_ca_bundle is user-writable
+// (PLAT-DATA-23 allowlist amendment: user-authored trust material); cluster_id is
+// control-plane assigned by late binding and is NOT user-writable on update.
 func gatewayUpdateViolation(current, incoming *Gateway) string {
 	switch {
 	case current.ClusterId != incoming.ClusterId:

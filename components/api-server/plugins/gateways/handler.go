@@ -35,6 +35,54 @@ type GatewayOwnerLookup interface {
 	FindOwnerUsernamesByGatewayIDs(ctx context.Context, gatewayIDs []string) (map[string]string, error)
 }
 
+// gatewayPatchRequest is the strict decode target for the Gateway PATCH body. name
+// and additional_ca_bundle are the only user-writable fields on update (PLAT-DATA-23
+// allowlist; the bundle is user-authored trust material, see
+// openshell-gateway-additional-ca.spec.md); every other gateway field is
+// platform-managed / control-plane-only. The generated
+// openapi.GatewayPatchRequest has no required property, so the OpenAPI generator does
+// not emit a DisallowUnknownFields decoder for it; without the strict decode below a
+// user PATCH that sets a control-plane-only field (for example phase) would be
+// silently dropped and return 200 instead of being rejected. This mirrors the strict
+// create contract and is the REST-boundary counterpart to the service field policy
+// (SEC-RBAC-18); the service Replace funnel remains the authoritative backstop for the
+// gRPC and import paths.
+type gatewayPatchRequest struct {
+	Name               *string `json:"name,omitempty"`
+	AdditionalCABundle *string `json:"additional_ca_bundle,omitempty"`
+	// additionalCABundleSet preserves whether additional_ca_bundle was explicitly
+	// supplied: a *string alone cannot distinguish an omitted field from a JSON
+	// null. Both null and an empty string clear the stored bundle (follow-source
+	// removal); an omitted field leaves it untouched.
+	additionalCABundleSet bool
+}
+
+// UnmarshalJSON decodes the PATCH body and rejects any field outside the update
+// allowlist (name, additional_ca_bundle). An unknown field produces a json decode
+// error, which the handler framework surfaces as a 400 naming the offending field.
+func (p *gatewayPatchRequest) UnmarshalJSON(data []byte) error {
+	type alias gatewayPatchRequest
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var decoded alias
+	if err := decoder.Decode(&decoded); err != nil {
+		return err
+	}
+	*p = gatewayPatchRequest(decoded)
+
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	raw, found := fields["additional_ca_bundle"]
+	p.additionalCABundleSet = found
+	if found && string(raw) == "null" {
+		empty := ""
+		p.AdditionalCABundle = &empty
+	}
+	return nil
+}
+
 type gatewayHandler struct {
 	gateway          GatewayService
 	generic          services.GenericService
@@ -232,6 +280,11 @@ func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
 					return nil, clusterErr
 				}
 			}
+			// additional_ca_bundle is user-writable at create (PLAT-DATA-23 allowlist);
+			// validate the PEM framing before persisting.
+			if bundleErr := validateAdditionalCABundle(gatewayModel.AdditionalCABundle); bundleErr != nil {
+				return nil, bundleErr
+			}
 			gatewayModel, err := h.gateway.Create(ctx, gatewayModel)
 			if err != nil {
 				return nil, err
@@ -252,35 +305,6 @@ func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	handlers.Handle(w, r, cfg, http.StatusCreated)
-}
-
-// gatewayPatchRequest is the strict decode target for the Gateway PATCH body. name
-// is the only user-writable field on update (PLAT-DATA-23); every other gateway
-// field is platform-managed / control-plane-only. The generated
-// openapi.GatewayPatchRequest has no required property, so the OpenAPI generator does
-// not emit a DisallowUnknownFields decoder for it; without the strict decode below a
-// user PATCH that sets a control-plane-only field (for example phase) would be
-// silently dropped and return 200 instead of being rejected. This mirrors the strict
-// create contract and is the REST-boundary counterpart to the service field policy
-// (SEC-RBAC-18); the service Replace funnel remains the authoritative backstop for the
-// gRPC and import paths.
-type gatewayPatchRequest struct {
-	Name *string `json:"name,omitempty"`
-}
-
-// UnmarshalJSON decodes the PATCH body and rejects any field outside the update
-// allowlist (name). An unknown field produces a json decode error, which the handler
-// framework surfaces as a 400 naming the offending field.
-func (p *gatewayPatchRequest) UnmarshalJSON(data []byte) error {
-	type alias gatewayPatchRequest
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	var decoded alias
-	if err := decoder.Decode(&decoded); err != nil {
-		return err
-	}
-	*p = gatewayPatchRequest(decoded)
-	return nil
 }
 
 func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
@@ -304,6 +328,15 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			// backstop (SEC-RBAC-18).
 			if patch.Name != nil {
 				found.Name = *patch.Name
+			}
+			// additional_ca_bundle is user-writable on update (PLAT-DATA-23 allowlist).
+			// An omitted field leaves the stored bundle untouched; an explicit null or
+			// empty string clears it (follow-source removal).
+			if patch.additionalCABundleSet {
+				if bundleErr := validateAdditionalCABundle(patch.AdditionalCABundle); bundleErr != nil {
+					return nil, bundleErr
+				}
+				found.AdditionalCABundle = patch.AdditionalCABundle
 			}
 
 			gatewayModel, err := h.gateway.Replace(ctx, found)

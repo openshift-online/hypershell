@@ -8,6 +8,7 @@ Name | Type | Description | Notes
 **ClusterId** | Pointer to **string** | Pin the gateway to this managed cluster. Mutually exclusive with placement. | [optional]
 **DedicatedRoute** | Pointer to **bool** | Create-only. Requires the gateway:dedicated-route-creator role and opts the gateway in to a dedicated route and per-gateway wildcard certificate. The platform manages how the dedicated route and certificate are provided. | [optional]
 **Placement** | Pointer to [**GatewayPlacementIntent**](GatewayPlacementIntent.md) |  | [optional]
+**AdditionalCaBundle** | Pointer to **NullableString** | User-supplied PEM bundle of additional destination CA certificates for sandbox egress to private-PKI destinations; empty means default trust roots. User-writable on create (PLAT-DATA-23 allowlist exception) | [optional]
 
 ## Methods
 
@@ -123,5 +124,40 @@ SetPlacement sets Placement field to given value.
 
 HasPlacement returns a boolean if a field has been set.
 
+### GetAdditionalCaBundle
+
+`func (o *GatewayCreateRequest) GetAdditionalCaBundle() string`
+
+GetAdditionalCaBundle returns the AdditionalCaBundle field if non-nil, zero value otherwise.
+
+### GetAdditionalCaBundleOk
+
+`func (o *GatewayCreateRequest) GetAdditionalCaBundleOk() (*string, bool)`
+
+GetAdditionalCaBundleOk returns a tuple with the AdditionalCaBundle field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetAdditionalCaBundle
+
+`func (o *GatewayCreateRequest) SetAdditionalCaBundle(v string)`
+
+SetAdditionalCaBundle sets AdditionalCaBundle field to given value.
+
+### HasAdditionalCaBundle
+
+`func (o *GatewayCreateRequest) HasAdditionalCaBundle() bool`
+
+HasAdditionalCaBundle returns a boolean if a field has been set.
+
+### SetAdditionalCaBundleNil
+
+`func (o *GatewayCreateRequest) SetAdditionalCaBundleNil(b bool)`
+
+ SetAdditionalCaBundleNil sets the value for AdditionalCaBundle to be an explicit nil
+
+### UnsetAdditionalCaBundle
+`func (o *GatewayCreateRequest) UnsetAdditionalCaBundle()`
+
+UnsetAdditionalCaBundle ensures that no value is present for AdditionalCaBundle, not even an explicit nil
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)

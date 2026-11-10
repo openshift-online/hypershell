@@ -292,8 +292,12 @@ type Gateway struct {
 	// dedicated_route records that the gateway requested the dedicated route and
 	// per-gateway wildcard certificate path at creation. Read-only after creation.
 	DedicatedRoute *bool `protobuf:"varint,32,opt,name=dedicated_route,json=dedicatedRoute,proto3,oneof" json:"dedicated_route,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// User-supplied PEM bundle of additional destination CA certificates for
+	// sandbox egress to private-PKI destinations; empty means default trust roots.
+	// User-writable (create and update) per PLAT-DATA-23's allowlist.
+	AdditionalCaBundle *string `protobuf:"bytes,33,opt,name=additional_ca_bundle,json=additionalCaBundle,proto3,oneof" json:"additional_ca_bundle,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *Gateway) Reset() {
@@ -501,6 +505,13 @@ func (x *Gateway) GetDedicatedRoute() bool {
 	return false
 }
 
+func (x *Gateway) GetAdditionalCaBundle() string {
+	if x != nil && x.AdditionalCaBundle != nil {
+		return *x.AdditionalCaBundle
+	}
+	return ""
+}
+
 type CreateGatewayRequest struct {
 	state            protoimpl.MessageState  `protogen:"open.v1"`
 	Name             string                  `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -521,8 +532,12 @@ type CreateGatewayRequest struct {
 	WorkspaceMode *string `protobuf:"bytes,19,opt,name=workspace_mode,json=workspaceMode,proto3,oneof" json:"workspace_mode,omitempty"`
 	// dedicated_route requests the dedicated route and per-gateway wildcard certificate path.
 	DedicatedRoute *bool `protobuf:"varint,20,opt,name=dedicated_route,json=dedicatedRoute,proto3,oneof" json:"dedicated_route,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// User-supplied PEM bundle of additional destination CA certificates for
+	// sandbox egress to private-PKI destinations; empty means default trust roots.
+	// User-writable (create and update) per PLAT-DATA-23's allowlist.
+	AdditionalCaBundle *string `protobuf:"bytes,21,opt,name=additional_ca_bundle,json=additionalCaBundle,proto3,oneof" json:"additional_ca_bundle,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *CreateGatewayRequest) Reset() {
@@ -665,6 +680,13 @@ func (x *CreateGatewayRequest) GetDedicatedRoute() bool {
 		return *x.DedicatedRoute
 	}
 	return false
+}
+
+func (x *CreateGatewayRequest) GetAdditionalCaBundle() string {
+	if x != nil && x.AdditionalCaBundle != nil {
+		return *x.AdditionalCaBundle
+	}
+	return ""
 }
 
 type CreateGatewayResponse struct {
@@ -839,8 +861,12 @@ type UpdateGatewayRequest struct {
 	// workspace_mode may only re-send the stored value; changing it is rejected
 	// and omitting it keeps the stored value.
 	WorkspaceMode *string `protobuf:"bytes,24,opt,name=workspace_mode,json=workspaceMode,proto3,oneof" json:"workspace_mode,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// User-supplied PEM bundle of additional destination CA certificates for
+	// sandbox egress to private-PKI destinations; empty means default trust roots.
+	// User-writable (create and update) per PLAT-DATA-23's allowlist.
+	AdditionalCaBundle *string `protobuf:"bytes,25,opt,name=additional_ca_bundle,json=additionalCaBundle,proto3,oneof" json:"additional_ca_bundle,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *UpdateGatewayRequest) Reset() {
@@ -1002,6 +1028,13 @@ func (x *UpdateGatewayRequest) GetObservedGeneration() int64 {
 func (x *UpdateGatewayRequest) GetWorkspaceMode() string {
 	if x != nil && x.WorkspaceMode != nil {
 		return *x.WorkspaceMode
+	}
+	return ""
+}
+
+func (x *UpdateGatewayRequest) GetAdditionalCaBundle() string {
+	if x != nil && x.AdditionalCaBundle != nil {
+		return *x.AdditionalCaBundle
 	}
 	return ""
 }
@@ -1882,8 +1915,7 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\tplacement\"f\n" +
 	"\x1bCapabilitySelectorPlacement\x12\x1a\n" +
 	"\bselector\x18\x01 \x03(\tR\bselector\x12+\n" +
-	"\x11excluded_selector\x18\x02 \x03(\tR\x10excludedSelector\"\xbf\n" +
-	"\n" +
+	"\x11excluded_selector\x18\x02 \x03(\tR\x10excludedSelector\"\x8f\v\n" +
 	"\aGateway\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1d\n" +
@@ -1914,7 +1946,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x13observed_generation\x18\x1b \x01(\x03H\x0eR\x12observedGeneration\x88\x01\x01\x12(\n" +
 	"\rrepository_id\x18\x1e \x01(\tH\x0fR\frepositoryId\x88\x01\x01\x12*\n" +
 	"\x0eworkspace_mode\x18\x1f \x01(\tH\x10R\rworkspaceMode\x88\x01\x01\x12,\n" +
-	"\x0fdedicated_route\x18  \x01(\bH\x11R\x0ededicatedRoute\x88\x01\x01B\x0f\n" +
+	"\x0fdedicated_route\x18  \x01(\bH\x11R\x0ededicatedRoute\x88\x01\x01\x125\n" +
+	"\x14additional_ca_bundle\x18! \x01(\tH\x12R\x12additionalCaBundle\x88\x01\x01B\x0f\n" +
 	"\r_external_dnsB\v\n" +
 	"\t_tls_modeB\x0f\n" +
 	"\r_service_typeB\t\n" +
@@ -1932,7 +1965,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x14_observed_generationB\x10\n" +
 	"\x0e_repository_idB\x11\n" +
 	"\x0f_workspace_modeB\x12\n" +
-	"\x10_dedicated_route\"\x9e\x06\n" +
+	"\x10_dedicated_routeB\x17\n" +
+	"\x15_additional_ca_bundle\"\xee\x06\n" +
 	"\x14CreateGatewayRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +
@@ -1952,7 +1986,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\tplacement\x18\x12 \x01(\v2%.hypershell.v1.GatewayPlacementIntentR\tplacement\x12*\n" +
 	"\x0eworkspace_mode\x18\x13 \x01(\tH\n" +
 	"R\rworkspaceMode\x88\x01\x01\x12,\n" +
-	"\x0fdedicated_route\x18\x14 \x01(\bH\vR\x0ededicatedRoute\x88\x01\x01B\x0f\n" +
+	"\x0fdedicated_route\x18\x14 \x01(\bH\vR\x0ededicatedRoute\x88\x01\x01\x125\n" +
+	"\x14additional_ca_bundle\x18\x15 \x01(\tH\fR\x12additionalCaBundle\x88\x01\x01B\x0f\n" +
 	"\r_external_dnsB\v\n" +
 	"\t_tls_modeB\x0f\n" +
 	"\r_service_typeB\t\n" +
@@ -1964,14 +1999,15 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x06_routeB\x14\n" +
 	"\x12_credential_driverB\x11\n" +
 	"\x0f_workspace_modeB\x12\n" +
-	"\x10_dedicated_route\"I\n" +
+	"\x10_dedicated_routeB\x17\n" +
+	"\x15_additional_ca_bundle\"I\n" +
 	"\x15CreateGatewayResponse\x120\n" +
 	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"L\n" +
 	"\x11GetGatewayRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
 	"\x0finclude_deleted\x18\x02 \x01(\bR\x0eincludeDeleted\"F\n" +
 	"\x12GetGatewayResponse\x120\n" +
-	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"\xf4\a\n" +
+	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"\xc4\b\n" +
 	"\x14UpdateGatewayRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12\"\n" +
@@ -1994,7 +2030,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x0fconsole_address\x18\x14 \x01(\tH\rR\x0econsoleAddress\x88\x01\x01\x12]\n" +
 	"\x17provisioning_conditions\x18\x15 \x03(\v2$.hypershell.v1.ProvisioningConditionR\x16provisioningConditions\x124\n" +
 	"\x13observed_generation\x18\x17 \x01(\x03H\x0eR\x12observedGeneration\x88\x01\x01\x12*\n" +
-	"\x0eworkspace_mode\x18\x18 \x01(\tH\x0fR\rworkspaceMode\x88\x01\x01B\a\n" +
+	"\x0eworkspace_mode\x18\x18 \x01(\tH\x0fR\rworkspaceMode\x88\x01\x01\x125\n" +
+	"\x14additional_ca_bundle\x18\x19 \x01(\tH\x10R\x12additionalCaBundle\x88\x01\x01B\a\n" +
 	"\x05_nameB\r\n" +
 	"\v_cluster_idB\x0f\n" +
 	"\r_external_dnsB\v\n" +
@@ -2010,7 +2047,8 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x12_credential_driverB\x12\n" +
 	"\x10_console_addressB\x16\n" +
 	"\x14_observed_generationB\x11\n" +
-	"\x0f_workspace_mode\"I\n" +
+	"\x0f_workspace_modeB\x17\n" +
+	"\x15_additional_ca_bundle\"I\n" +
 	"\x15UpdateGatewayResponse\x120\n" +
 	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"U\n" +
 	"\x1fAdjustActiveSandboxCountRequest\x12\x1c\n" +

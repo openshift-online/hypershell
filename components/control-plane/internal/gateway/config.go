@@ -87,8 +87,11 @@ type NamespaceConfig struct {
 }
 
 type GatewayConfig struct {
-	Image               string                  `yaml:"image"`
-	SupervisorImage     string                  `yaml:"supervisorImage"`
+	Image           string `yaml:"image"`
+	SupervisorImage string `yaml:"supervisorImage"`
+	// AdditionalCABundle is the per-gateway destination CA PEM bundle. See
+	// specs/platform/openshell-gateway-additional-ca.spec.md.
+	AdditionalCABundle  string                  `yaml:"additionalCABundle"`
 	SandboxRuntimeImage string                  `yaml:"sandboxRuntimeImage"`
 	ServerDnsNames      []string                `yaml:"serverDnsNames"`
 	ExternalDns         string                  `yaml:"externalDns"`

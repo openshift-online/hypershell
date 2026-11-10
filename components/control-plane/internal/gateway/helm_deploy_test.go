@@ -1,6 +1,64 @@
 package gateway
 
-import "testing"
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/openshift-online/hypershell/components/control-plane/internal/helm"
+)
+
+// TestDeployGatewayViaHelm_AdditionalCASignatureThreading verifies the
+// materialization-presence signal reaches the values passed to Helm. The
+// annotation checksum drives the workload roll when the bundle changes.
+func TestDeployGatewayViaHelm_AdditionalCASignatureThreading(t *testing.T) {
+	capture := filepath.Join(t.TempDir(), "values.yaml")
+	helmScript := filepath.Join(t.TempDir(), "helm")
+	if err := os.WriteFile(helmScript, []byte(`#!/bin/sh
+case "$1" in
+status)
+  echo "release not found" >&2
+  exit 1
+  ;;
+install)
+  shift
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = "--values" ]; then
+      cp "$2" "$VALUES_CAPTURE"
+      exit 0
+    fi
+    shift
+  done
+  exit 1
+  ;;
+esac
+`), 0o700); err != nil {
+		t.Fatalf("write fake helm: %v", err)
+	}
+	t.Setenv("VALUES_CAPTURE", capture)
+
+	if err := deployGatewayViaHelm(
+		context.Background(),
+		&helm.ShellClient{HelmBinary: helmScript},
+		NamespaceConfig{Name: "openshell-0123456789abcdef", Gateway: GatewayConfig{WorkspaceMode: "managed"}},
+		ReconcileOpts{},
+		false,
+		false,
+		"openshell-destination-ca-test",
+	); err != nil {
+		t.Fatalf("deployGatewayViaHelm() error = %v", err)
+	}
+
+	values, err := os.ReadFile(capture)
+	if err != nil {
+		t.Fatalf("read captured values: %v", err)
+	}
+	if !strings.Contains(string(values), "additionalCaConfigMapName: openshell-destination-ca-test") {
+		t.Errorf("captured Helm values do not name the additional CA ConfigMap:\n%s", values)
+	}
+}
 
 // TestEffectiveCredentialDriver locks in the HYPERSHELL-369 flat default: an omitted
 // (or empty-type) credential_driver resolves to vault; an explicit driver is never changed.

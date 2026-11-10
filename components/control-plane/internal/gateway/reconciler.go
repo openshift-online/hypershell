@@ -118,7 +118,7 @@ func ReconcileGateway(
 	// Step 4: GatewayDeployed
 	report(ConditionGatewayDeployed, StatusInProgress, "")
 
-	additionalCA, err := reconcileDestinationCABundle(ctx, clientset, opts.ControlPlaneNamespace, nsConfig.Name)
+	additionalCA, err := reconcileDestinationCABundle(ctx, clientset, opts.ControlPlaneNamespace, nsConfig.Name, nsConfig.Gateway.AdditionalCABundle)
 	if err != nil {
 		report(ConditionGatewayDeployed, StatusFailed, "Destination TLS trust bundle is unavailable or invalid")
 		return err

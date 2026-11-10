@@ -33,10 +33,8 @@ func routeResourceListKinds() map[schema.GroupVersionResource]string {
 	}
 }
 
-// TestRouteResourcesAbsent is the health loop's convergence backstop: teardown
-// trusts its completion marker only while these probes confirm every route- and
-// console-owned resource is actually gone, so a stale provisioning pass that
-// recreates one after teardown cannot hide behind cleared address fields.
+// TestReconcileAdditionalCABundle covers create, rotation, removal, and the
+// non-fatal API error posture required for the tenant ConfigMap mirror.
 func TestRouteResourcesAbsent(t *testing.T) {
 	const ns = "openshell-abc"
 

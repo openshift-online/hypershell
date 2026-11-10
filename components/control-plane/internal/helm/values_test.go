@@ -174,6 +174,44 @@ func TestBuild_TrustedCAConfigMapName(t *testing.T) {
 	}
 }
 
+func TestBuild_AdditionalCAConfigMapName(t *testing.T) {
+	nested := func(m map[string]interface{}, path ...string) interface{} {
+		var cur interface{} = m
+		for _, key := range path {
+			mm, ok := cur.(map[string]interface{})
+			if !ok {
+				return nil
+			}
+			cur = mm[key]
+		}
+		return cur
+	}
+
+	builder := ValuesBuilder{
+		Gateway:                   GatewayConfig{Image: "quay.io/test/gateway:latest", WorkspaceMode: "managed"},
+		Namespace:                 "openshell-0123456789abcdef",
+		AdditionalCAConfigMapName: "openshell-destination-ca-abcd1234",
+	}
+	values, err := builder.Build()
+	if err != nil {
+		t.Fatalf("Build() returned error: %v", err)
+	}
+	if got := nested(values, "supervisor", "network", "additionalCaConfigMapName"); got != "openshell-destination-ca-abcd1234" {
+		t.Errorf("additionalCaConfigMapName = %v, want openshell-destination-ca-abcd1234", got)
+	}
+
+	// An empty name must omit the value entirely so the chart keeps its default
+	// (additional destination trust disabled).
+	builder.AdditionalCAConfigMapName = ""
+	values, err = builder.Build()
+	if err != nil {
+		t.Fatalf("Build() returned error: %v", err)
+	}
+	if got := nested(values, "supervisor", "network", "additionalCaConfigMapName"); got != nil {
+		t.Errorf("additionalCaConfigMapName = %v, want nil", got)
+	}
+}
+
 // TestBuild_GatewayResources guards that the gateway container always gets
 // explicit requests and limits (the upstream chart defaults to `resources: {}`,
 // which leaves the gateway BestEffort), and that a GATEWAY_RESOURCES override
@@ -1032,5 +1070,10 @@ func TestBuild_AdditionalCARendersInChart(t *testing.T) {
 	want := `additional_ca_bundle = "/etc/openshell-tls/additional-ca-source/ca.crt"`
 	if !strings.Contains(string(out), want) {
 		t.Errorf("rendered chart does not contain %q", want)
+	}
+	// The workload must mount the named ConfigMap on that path; a value the
+	// chart ignores would leave the TOML pointing at a missing volume.
+	if !strings.Contains(string(out), `name: "destination-ca"`) {
+		t.Errorf("rendered workload does not mount the destination CA ConfigMap:\n%s", out)
 	}
 }
