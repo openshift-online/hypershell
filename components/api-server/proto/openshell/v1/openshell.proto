@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package openshell.v1;
+
+option go_package = "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/openshell/v1;openshell_v1";
+
+service OpenShell {
+  rpc AddWorkspaceMember(AddWorkspaceMemberRequest) returns (AddWorkspaceMemberResponse);
+}
+
+message WorkspaceSelector {
+  string workspace = 1;
+}
+
+enum WorkspaceRole {
+  WORKSPACE_ROLE_UNSPECIFIED = 0;
+  WORKSPACE_ROLE_USER = 1;
+  WORKSPACE_ROLE_ADMIN = 2;
+}
+
+message ObjectMeta {
+  string id = 1;
+  string name = 2;
+}
+
+message WorkspaceMember {
+  ObjectMeta metadata = 1;
+  string principal_subject = 2;
+  WorkspaceRole role = 3;
+}
+
+message AddWorkspaceMemberRequest {
+  WorkspaceSelector workspace_scope = 1;
+  string principal_subject = 2;
+  WorkspaceRole role = 3;
+  string request_id = 4;
+}
+
+message AddWorkspaceMemberResponse {
+  WorkspaceMember member = 1;
+}
