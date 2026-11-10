@@ -589,8 +589,7 @@ KUBECONFIG context. The canonical pull-request OpenShift e2e path runs it with
 pull-request environment workflow (see
 [Ephemeral OpenShift PR environments](#ephemeral-openshift-pr-environments)). The
 legacy `components/pr-test/e2e-openshell.sh` script and the Bash functional suite
-it superseded have been removed (HYPERSHELL-250); the IBM ROKS variant
-(`e2e-openshell-roks.sh`) is unaffected. The Bash `tests/e2e/drivers/*.sh` remain
+it superseded have been removed (HYPERSHELL-250). The Bash `tests/e2e/drivers/*.sh` remain
 only for the retained browser (`e2e-console.sh`) and smoke (`smoke.sh`) suites.
 
 ### OpenShift (automatic)

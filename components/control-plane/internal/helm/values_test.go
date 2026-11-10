@@ -12,12 +12,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-// TestBuild_IngressExposure locks in that the gateway exposure resource follows
-// the resolved ingress mode (UseOpenShiftRoute), not raw Gateway API capability.
-// The regression it guards: on IBM ROKS the Gateway API CRDs are present but no
-// controller runs, so keying the decision off capability emitted a dead
-// GRPCRoute and never enabled the chart's openshiftRoute -- the gateway got no
-// Route and hung on "Verifying gateway health".
+// TestBuild_IngressExposure checks the Helm values set when the gateway is
+// exposed through the Kubernetes Gateway API. The reconciler owns the GRPCRoute
+// and BackendTLSPolicy, so the chart's own templates stay disabled. The Gateway
+// proxy cannot present client certificates, so server mTLS is turned off.
 func TestBuild_IngressExposure(t *testing.T) {
 	nested := func(m map[string]interface{}, path ...string) interface{} {
 		var cur interface{} = m
@@ -32,32 +30,19 @@ func TestBuild_IngressExposure(t *testing.T) {
 	}
 
 	tests := []struct {
-		name              string
-		useOpenShiftRoute bool
-		externalCAIssuer  string
-		wantRouteEnabled  bool
-		wantIssuerSet     bool
-		wantMtlsDisabled  bool
+		name             string
+		routeEnabled     bool
+		wantMtlsDisabled bool
 	}{
 		{
-			name:              "default (Gateway API) does not enable openshiftRoute",
-			useOpenShiftRoute: false,
-			wantRouteEnabled:  false,
-			wantMtlsDisabled:  true,
+			name:             "ingress enabled disables server mTLS",
+			routeEnabled:     true,
+			wantMtlsDisabled: true,
 		},
 		{
-			name:              "route mode without issuer enables self-signed passthrough Route",
-			useOpenShiftRoute: true,
-			externalCAIssuer:  "",
-			wantRouteEnabled:  true,
-			wantIssuerSet:     false,
-		},
-		{
-			name:              "route mode with issuer wires cert-manager",
-			useOpenShiftRoute: true,
-			externalCAIssuer:  "gateway-ca",
-			wantRouteEnabled:  true,
-			wantIssuerSet:     true,
+			name:             "ingress disabled keeps the chart mTLS default",
+			routeEnabled:     false,
+			wantMtlsDisabled: false,
 		},
 	}
 
@@ -67,15 +52,11 @@ func TestBuild_IngressExposure(t *testing.T) {
 				Gateway: GatewayConfig{
 					WorkspaceMode: "shared",
 					Image:         "quay.io/test/gateway:latest",
-					Route:         RouteConfig{Host: "gw-test.apps.example.com", Enabled: true},
+					Route:         RouteConfig{Host: "gw-test.apps.example.com", Enabled: tc.routeEnabled},
 				},
-				Namespace:            "test-ns",
-				IsOpenShift:          true,
-				HasCertManager:       true,
-				IngressBaseDomain:    "apps.example.com",
-				UseOpenShiftRoute:    tc.useOpenShiftRoute,
-				ExternalCAIssuerName: tc.externalCAIssuer,
-				ExternalCAIssuerKind: "ClusterIssuer",
+				Namespace:         "test-ns",
+				HasCertManager:    true,
+				IngressBaseDomain: "apps.example.com",
 			}
 
 			values, err := builder.Build()
@@ -83,21 +64,14 @@ func TestBuild_IngressExposure(t *testing.T) {
 				t.Fatalf("Build() returned error: %v", err)
 			}
 
-			routeEnabled := nested(values, "openshiftRoute", "enabled") == true
-			if routeEnabled != tc.wantRouteEnabled {
-				t.Errorf("openshiftRoute.enabled = %v, want %v", routeEnabled, tc.wantRouteEnabled)
+			mtlsDisabled := nested(values, "server", "tls", "enableMtls") == false
+			if mtlsDisabled != tc.wantMtlsDisabled {
+				t.Errorf("server.tls.enableMtls=false is %v, want %v (got value %v)",
+					mtlsDisabled, tc.wantMtlsDisabled, nested(values, "server", "tls", "enableMtls"))
 			}
 
-			issuerSet := nested(values, "certManager", "serverIssuerRef", "name") != nil
-			if issuerSet != tc.wantIssuerSet {
-				t.Errorf("certManager.serverIssuerRef.name set = %v, want %v", issuerSet, tc.wantIssuerSet)
-			}
-
-			if tc.wantMtlsDisabled {
-				if nested(values, "server", "tls", "enableMtls") != false {
-					t.Errorf("expected server.tls.enableMtls=false in Gateway API mode, got %v",
-						nested(values, "server", "tls", "enableMtls"))
-				}
+			if got := nested(values, "grpcRoute", "enabled"); got != false {
+				t.Errorf("grpcRoute.enabled = %v, want false (the reconciler owns the GRPCRoute)", got)
 			}
 		})
 	}
@@ -908,14 +882,11 @@ func TestBuild_ServerDnsNames(t *testing.T) {
 	dnsNames := []string{"gw-test-ns.apps.example.com", "internal.example.com"}
 
 	tests := []struct {
-		name                    string
-		hasCertManager          bool
-		routeEnabled            bool
-		useOpenShiftRoute       bool
-		externalCAIssuer        string
-		wantPkiInitNames        bool
-		wantCertMgrNames        bool
-		wantCertMgrHostnameOnly bool
+		name             string
+		hasCertManager   bool
+		routeEnabled     bool
+		wantPkiInitNames bool
+		wantCertMgrNames bool
 	}{
 		{
 			name:             "cert-manager enabled writes both pkiInitJob and certManager serverDnsNames",
@@ -930,13 +901,11 @@ func TestBuild_ServerDnsNames(t *testing.T) {
 			wantCertMgrNames: false,
 		},
 		{
-			name:                    "route mode with external issuer keeps certManager serverDnsNames as hostname only",
-			hasCertManager:          true,
-			routeEnabled:            true,
-			useOpenShiftRoute:       true,
-			externalCAIssuer:        "gateway-ca",
-			wantPkiInitNames:        true,
-			wantCertMgrHostnameOnly: true,
+			name:             "ingress enabled keeps every serverDnsName in certManager",
+			hasCertManager:   true,
+			routeEnabled:     true,
+			wantPkiInitNames: true,
+			wantCertMgrNames: true,
 		},
 	}
 
@@ -950,12 +919,9 @@ func TestBuild_ServerDnsNames(t *testing.T) {
 					ServerDnsNames: dnsNames,
 					Route:          RouteConfig{Host: routeHost, Enabled: tc.routeEnabled},
 				},
-				Namespace:            "test-ns",
-				HasCertManager:       tc.hasCertManager,
-				IngressBaseDomain:    "apps.example.com",
-				UseOpenShiftRoute:    tc.useOpenShiftRoute,
-				ExternalCAIssuerName: tc.externalCAIssuer,
-				ExternalCAIssuerKind: "ClusterIssuer",
+				Namespace:         "test-ns",
+				HasCertManager:    tc.hasCertManager,
+				IngressBaseDomain: "apps.example.com",
 			}
 
 			values, err := builder.Build()
@@ -973,20 +939,12 @@ func TestBuild_ServerDnsNames(t *testing.T) {
 			}
 
 			certMgrNames := nested(values, "certManager", "serverDnsNames")
-			switch {
-			case tc.wantCertMgrHostnameOnly:
-				want := []string{routeHost}
-				if !reflect.DeepEqual(certMgrNames, want) {
-					t.Errorf("certManager.serverDnsNames = %v, want %v (ingress override must win)", certMgrNames, want)
-				}
-			case tc.wantCertMgrNames:
+			if tc.wantCertMgrNames {
 				if !reflect.DeepEqual(certMgrNames, dnsNames) {
 					t.Errorf("certManager.serverDnsNames = %v, want %v", certMgrNames, dnsNames)
 				}
-			default:
-				if certMgrNames != nil {
-					t.Errorf("certManager.serverDnsNames should be absent, got %v", certMgrNames)
-				}
+			} else if certMgrNames != nil {
+				t.Errorf("certManager.serverDnsNames should be absent, got %v", certMgrNames)
 			}
 		})
 	}

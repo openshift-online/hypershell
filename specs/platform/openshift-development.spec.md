@@ -806,8 +806,7 @@ The environment SHALL provide, and the Go OpenShift driver SHALL rely on:
   namespace (`OPENSHIFT_NAMESPACE`); the driver reads its host via the route client
   and forms the HTTPS URL.
 - **Gateway endpoint** (`DiscoverGatewayEndpoint`) -- per-tenant gateway traffic uses
-  Gateway API, not a per-gateway OpenShift Route (`openshell-gateway-routing.spec.md`);
-  the driver reads the tenant GRPCRoute hostname and confirms the parent Gateway is
+  Gateway API (`openshell-gateway-routing.spec.md`); the driver reads the tenant GRPCRoute hostname and confirms the parent Gateway is
   `Programmed=True`.
 - **Cluster domain** (`ClusterDomain`) -- the configured gateway base domain (the same
   `GATEWAY_API_BASE_DOMAIN` the control plane uses), so gateway hostnames match the
@@ -820,8 +819,7 @@ The environment SHALL provide, and the Go OpenShift driver SHALL rely on:
 - **Gateway readiness** (`WaitForGatewayRoute`) -- the driver waits, up to
   `E2E_PROVISION_TIMEOUT`, until the parent Gateway is `Programmed=True` and the tenant
   GRPCRoute parent is `Accepted=True`, the same two conditions the Kind driver waits
-  for. It SHALL NOT wait for an OpenShift Route `Admitted` condition, because no
-  per-gateway Route exists.
+  for.
 - **OIDC issuer** -- the Keycloak Route in the `-keycloak` namespace (the Keycloak
   Namespace requirement), not the Kind default `keycloak.hypershell.localhost`.
 - **Per-gateway client token** -- per-gateway audience is production behavior, not a
@@ -862,7 +860,6 @@ the same phases (P0--P3) the Kind suite exercises, so one suite validates both t
 - WHEN the Go suite's `WaitForGatewayRoute` runs for the gateway
 - THEN the driver waits until the parent Gateway reports `Programmed=True`
 - AND the driver waits until the tenant GRPCRoute parent reports `Accepted=True`
-- AND the driver does not wait for an OpenShift Route `Admitted` condition
 - AND the driver returns success only when both conditions are true, or fails after
   `E2E_PROVISION_TIMEOUT`
 
@@ -933,9 +930,8 @@ NOT use the internal image registry (`oc registry`, `oc start-build`).
 Automated OpenShift pull-request CI is specified in
 `ephemeral-pr-environments.spec.md` (HYPERSHELL-240). That spec owns namespace
 naming, deploy triggers, origin-only trust boundary, timebox and reaping, the
-access comment, GitHub-brokered Keycloak, e2e grant selection, and the scope
-of the ROKS `pr_test` component. This spec SHALL NOT restate those
-requirements.
+access comment, GitHub-brokered Keycloak, and e2e grant selection. This spec
+SHALL NOT restate those requirements.
 
 The pull-request workflow SHALL deploy and release with the same lifecycle this
 spec defines: `make openshift-up` and `make openshift-down`, the
@@ -1208,4 +1204,4 @@ The `keycloak/` overlay (separate from `base/keycloak/`) is used in production t
 
 ### Placeholder Gateway Base Domain in `deploy/openshift/`
 
-The `deploy/openshift/` overlay sets `GATEWAY_API_BASE_DOMAIN=openshell.stage.example.com` as a placeholder. `make openshift-up` replaces it with the base domain derived from the shared Gateway listener hostname. Any other deployer must set it before the control plane runs in Gateway API ingress mode; Route mode does not use it.
+The `deploy/openshift/` overlay sets `GATEWAY_API_BASE_DOMAIN=openshell.stage.example.com` as a placeholder. `make openshift-up` replaces it with the base domain derived from the shared Gateway listener hostname. Any other deployer must set it before the control plane runs.

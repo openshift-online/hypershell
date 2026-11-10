@@ -116,14 +116,10 @@ type GatewayReconciler struct {
 	helmClient            *helm.ShellClient
 	isOpenShift           bool
 	hasCertManager        bool
-	hasGatewayAPI         bool
-	ingressMode           string
 	controlPlaneNamespace string
 	keycloakClient        *keycloak.Client
 	keycloakConfig        *gateway.KeycloakConfig
 	exposure              exposure.Port
-	externalCAIssuerName  string
-	externalCAIssuerKind  string
 	ingressBaseDomain     string
 	// database locates the mounted admin credentials every gateway database is
 	// provisioned with; validated once at controller startup.
@@ -194,8 +190,6 @@ func NewGatewayReconciler(
 	controlPlaneNamespace string,
 	keycloakConfig *gateway.KeycloakConfig,
 	exposurePort exposure.Port,
-	externalCAIssuerName string,
-	externalCAIssuerKind string,
 	database gateway.DatabaseConfig,
 	clusterID string,
 	gatewayResources *corev1.ResourceRequirements,
@@ -204,11 +198,12 @@ func NewGatewayReconciler(
 	if database.AdminCredentialsDir == "" {
 		return nil, fmt.Errorf("gateway database admin credentials directory is required")
 	}
+	if exposurePort == nil {
+		return nil, fmt.Errorf("gateway exposure port is required")
+	}
 
 	isOpenShift := gateway.DetectOpenShift(clientset)
 	hasCertManager := gateway.DetectCertManager(clientset)
-	hasGatewayAPI := gateway.DetectGatewayAPI(clientset)
-	ingressMode := gateway.IngressMode(hasGatewayAPI, isOpenShift)
 
 	var kcClient *keycloak.Client
 	if keycloakConfig != nil {
@@ -228,20 +223,12 @@ func NewGatewayReconciler(
 		slog.Warn("INGRESS_BASE_DOMAIN not set, using default", "ingress_base_domain", ingressBaseDomain)
 	}
 
-	// Validate external CA issuer for Route passthrough mode
-	if !hasGatewayAPI && externalCAIssuerName == "" {
-		slog.Warn("EXTERNAL_CA_ISSUER_NAME not set but Gateway API unavailable; Route passthrough mode will fail cert validation")
-	}
-
 	slog.Info("Gateway reconciler initialized",
 		"helm", helmClient.ChartPath,
 		"openshift", isOpenShift,
 		"certmanager", hasCertManager,
-		"gatewayapi", hasGatewayAPI,
-		"ingress_mode", ingressMode,
 		"keycloak", kcClient != nil,
-		"ingress", ingressBaseDomain,
-		"ca_issuer", externalCAIssuerName)
+		"ingress", ingressBaseDomain)
 
 	return &GatewayReconciler{
 		active:                make(map[string]struct{}),
@@ -251,14 +238,10 @@ func NewGatewayReconciler(
 		helmClient:            helmClient,
 		isOpenShift:           isOpenShift,
 		hasCertManager:        hasCertManager,
-		hasGatewayAPI:         hasGatewayAPI,
-		ingressMode:           ingressMode,
 		controlPlaneNamespace: controlPlaneNamespace,
 		keycloakClient:        kcClient,
 		keycloakConfig:        keycloakConfig,
 		exposure:              exposurePort,
-		externalCAIssuerName:  externalCAIssuerName,
-		externalCAIssuerKind:  externalCAIssuerKind,
 		ingressBaseDomain:     ingressBaseDomain,
 		database:              database,
 		clusterID:             clusterID,
@@ -369,7 +352,6 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			opts := gateway.ReconcileOpts{
 				IsOpenShift:           r.isOpenShift,
 				HasCertManager:        r.hasCertManager,
-				HasGatewayAPI:         r.hasGatewayAPI,
 				Database:              r.database,
 				ControlPlaneNamespace: r.controlPlaneNamespace,
 				GatewayID:             event.ResourceID,
@@ -674,7 +656,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 
 	// Routing is platform-managed and enabled by default (PLAT-DATA-23). A user
 	// or GitOps import never sets route, so gw.Route is nil for every such
-	// gateway; the control plane routes it (gated by the cluster ingress mode)
+	// gateway; the control plane routes it through the Gateway API
 	// and derives its ingress hostname. An explicit route the control plane
 	// itself authored still wins.
 	routeConfig, err := effectiveRouteConfig(gw)
@@ -703,7 +685,6 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	opts := gateway.ReconcileOpts{
 		IsOpenShift:           r.isOpenShift,
 		HasCertManager:        r.hasCertManager,
-		HasGatewayAPI:         r.hasGatewayAPI,
 		Database:              r.database,
 		ControlPlaneNamespace: r.controlPlaneNamespace,
 		GatewayID:             event.ResourceID,
@@ -715,8 +696,6 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		GatewayClientID:       gatewayClientID,
 		Exposure:              r.exposure,
 		RouteStillDesired:     r.makeRouteStillDesired(event.ResourceID),
-		ExternalCAIssuerName:  r.externalCAIssuerName,
-		ExternalCAIssuerKind:  r.externalCAIssuerKind,
 		IngressBaseDomain:     r.ingressBaseDomain,
 		GatewayResources:      r.gatewayResources,
 		SandboxRuntimeClass:   r.sandboxRuntimeClass,
@@ -755,7 +734,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	gateway.SetCondition(conditions, gateway.ConditionGatewayHealthy, gateway.StatusInProgress, "")
 	r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
 
-	if r.exposure != nil && isRoutedGateway(gw) {
+	if isRoutedGateway(gw) {
 		routeHost := ""
 		if gw.Route != nil {
 			var rc struct{ Host string }
@@ -809,11 +788,10 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	// after the pods are ready. If the window elapses, park at Provisioning and
 	// let the continuous health reconciler keep enforcing the full route-readiness
 	// grace window (promoting to Running, or Degraded once it expires). A
-	// non-routed gateway - or any gateway on a cluster without the exposure port -
-	// is Running on Deployment readiness alone. See
+	// non-routed gateway is Running on Deployment readiness alone. See
 	// openshell-gateway-health.spec.md § Phase Reflects Workload and Route Readiness.
 	routed := isRoutedGateway(gw)
-	if r.exposure != nil && routed {
+	if routed {
 		if r.waitForRouteReady(ctx, namespace) {
 			gateway.SetCondition(conditions, gateway.ConditionGatewayHealthy, gateway.StatusComplete, "")
 			r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
@@ -841,7 +819,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	// The console can start after the gateway is ready. Poll the console in the
 	// background so the address appears without waiting for the next health tick.
 	// The health reconciler continues to publish and retract the address.
-	if routed && r.ingressMode != gateway.IngressModeNone {
+	if routed {
 		go r.publishConsoleAddressWhenReady(ctx, event.ResourceID, gw)
 	}
 	return nil
@@ -1057,7 +1035,7 @@ func (r *GatewayReconciler) publishConsoleAddressWhenReady(ctx context.Context, 
 			// End the poll rather than publishing against the stale snapshot.
 			return true
 		}
-		return syncConsoleAddress(ctx, r.clientset, r.dynamicClient, client, gatewayID, current, r.ingressMode)
+		return syncConsoleAddress(ctx, r.clientset, r.dynamicClient, client, gatewayID, current)
 	})
 }
 
@@ -1130,8 +1108,7 @@ func parseGatewayRouteConfig(raw string) (gateway.RouteConfig, error) {
 // effectiveRouteConfig resolves the route config the control plane provisions
 // for a gateway. Routing is platform-managed (PLAT-DATA-23) and enabled by
 // default: a user or GitOps import never sets route, so an absent or empty
-// route resolves to enabled (the actual creation of route resources is still
-// gated by the cluster's ingress mode) and the control plane derives the
+// route resolves to enabled and the control plane derives the
 // ingress hostname. An explicit route the control plane authored still wins.
 func effectiveRouteConfig(gw *pb.Gateway) (gateway.RouteConfig, error) {
 	if gw.Route == nil {
@@ -1304,11 +1281,10 @@ func consoleAddressFor(ready bool, url string) string {
 // syncConsoleAddress publishes the gateway's console_address once its console is
 // observed servable and clears it otherwise, so the web UI only offers the
 // console button when the console can serve. The console Deployment and the
-// selected exposure resource must both be Ready. It does not publish an address
-// without a selected ingress mode. It leaves the address unchanged after a
+// console HTTPRoute must both be Ready. It leaves the address unchanged after a
 // temporary observation error. It returns whether the console can serve.
-func syncConsoleAddress(ctx context.Context, clientset kubernetes.Interface, dynamicClient dynamic.Interface, client pb.GatewayServiceClient, gatewayID string, gw *pb.Gateway, ingressMode string) bool {
-	if gatewayID == "" || ingressMode == gateway.IngressModeNone || !isRoutedGateway(gw) {
+func syncConsoleAddress(ctx context.Context, clientset kubernetes.Interface, dynamicClient dynamic.Interface, client pb.GatewayServiceClient, gatewayID string, gw *pb.Gateway) bool {
+	if gatewayID == "" || !isRoutedGateway(gw) {
 		return false
 	}
 	namespace, err := gatewayNamespace(gw)
@@ -1343,7 +1319,7 @@ func syncConsoleAddress(ctx context.Context, clientset kubernetes.Interface, dyn
 		// gateway, its per-tenant parent), so a console provisioned onto the
 		// shared ingress is reported not servable instead of advertising a URL
 		// that presents a mismatched certificate.
-		exposureReady, reason, exposureErr := gateway.ConsoleExposureReady(ctx, dynamicClient, nsConfig, ingressMode)
+		exposureReady, reason, exposureErr := gateway.ConsoleExposureReady(ctx, dynamicClient, nsConfig)
 		if exposureErr != nil {
 			slog.WarnContext(ctx, "Console exposure readiness check failed", "namespace", namespace, "error", exposureErr)
 			return false

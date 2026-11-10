@@ -50,8 +50,7 @@ For unknown/unavailable dependencies, the controller SHALL report route
 provisioning as waiting/retryable and retry with bounded backoff. For a
 confirmed-absent prerequisite, it SHALL report the required resources to install.
 It SHALL refresh dependency state and resume route provisioning when the required
-resources become available (CTRL-CORE-19). The configured ingress mode SHALL remain
-stable throughout these state changes.
+resources become available (CTRL-CORE-19).
 
 #### Scenario: OSG-ROUT-02.01 -- Gateway API present
 
@@ -72,7 +71,6 @@ stable throughout these state changes.
 - GIVEN discovery of a required Gateway API resource fails with a transport, authorization, or stale-group error
 - WHEN the control plane reconciles a gateway using Gateway API ingress
 - THEN it SHALL mark route provisioning as waiting/retryable and retry with bounded backoff
-- AND it SHALL retain the configured ingress mode
 - AND gateway provisioning SHALL complete after its required ingress resources are reconciled
 
 ---

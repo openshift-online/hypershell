@@ -71,7 +71,7 @@ class GitOpsManifestTests(unittest.TestCase):
         self.assertEqual(self.hub, {**self.platform, **self.applications})
 
     def test_existing_entry_points_still_build(self):
-        for path in ("base", "openshift", "ibm", "kind", "keycloak", "base/prometheus"):
+        for path in ("base", "openshift", "kind", "keycloak", "base/prometheus"):
             with self.subTest(path=path):
                 self.assertTrue(render(path, legacy=True))
 

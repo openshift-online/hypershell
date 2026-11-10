@@ -187,17 +187,6 @@
       ".github/actions/openshift-cluster-login/**"
     ]
   },
-  "pr_test": {
-    "directory": "components/pr-test",
-    "lint_job": "lint-pr-test",
-    "paths": [
-      "components/pr-test/**",
-      ".github/component-paths.json",
-      ".github/scripts/detect-components.sh",
-      ".github/workflows/checks.yml",
-      ".github/workflows/tests.yml"
-    ]
-  },
   "cli": {
     "directory": "components/cli",
     "lint_job": "lint-cli",

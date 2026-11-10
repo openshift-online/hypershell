@@ -64,7 +64,7 @@ class DetectComponentsTest(unittest.TestCase):
         self.commit('components/api-server/openapi/openapi.yaml', 'contract\n')
         head = self.commit('components/fleet-dashboard/src/app.ts', 'fleet\n')
         self.git('checkout', 'main')
-        main = self.commit('components/pr-test/unrelated.sh', 'base drift\n')
+        main = self.commit('tests/e2e/unrelated.sh', 'base drift\n')
         self.git('checkout', 'mergify/merge-queue/main/pr-2')
         selected = self.detect(payload={'pull_request': {'base': {'sha': main}, 'head': {'sha': head}}})
         self.assertEqual({'api_server', 'cli', 'control_plane', 'sdk_go',

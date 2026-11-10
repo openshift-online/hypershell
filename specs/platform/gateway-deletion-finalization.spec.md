@@ -95,8 +95,8 @@ resource classes is:
 1. The gateway's managed namespace and, by cascade, all in-namespace resources
    (Deployment, Service, Secrets including the KEK and database-credentials
    Secrets, ConfigMaps, PVCs, ServiceAccount, Roles/RoleBindings,
-   NetworkPolicies, cert-manager Certificates, Gateway API objects, the
-   OpenShift Route, console workloads, and the gateway's agent sandbox pods and
+   NetworkPolicies, cert-manager Certificates, Gateway API objects, console
+   workloads, and the gateway's agent sandbox pods and
    their Sandbox resources).
 2. The cluster-scoped ClusterRoleBinding created for the gateway.
 3. The gateway's Keycloak clients: the gateway client, the console client, and

@@ -1,8 +1,8 @@
 ---
 name: gcp-cluster
 description: >
-  Deploy HyperShell to an OpenShift Dedicated cluster on GCP using the Route
-  ingress mode. Unlike ROKS, GCP OSD workers have full egress to public
+  Deploy HyperShell to an OpenShift Dedicated cluster on GCP with Gateway API
+  tenant ingress. Unlike ROKS, GCP OSD workers have full egress to public
   registries so no image mirroring is needed. Use when: "deploy to GCP",
   "new GCP cluster", "provision cloud hub on GCP", "hysh-gcp".
 ---
@@ -15,9 +15,7 @@ per-gateway console provisioning.
 
 > **Validated end to end (2026-08-21, `hypershell-gcp`, openshell 0.0.109):**
 > Full stack deployed with OIDC: Keycloak realm, JWT-authenticated API,
-> registered PostgreSQL server, tenant gateway with per-gateway OIDC console, TLS
-> verified via passthrough Route at
-> `gw-<tenant>.apps.hypershell-gcp.u0zc.p2.openshiftapps.com`.
+> registered PostgreSQL server, and a tenant gateway with a per-gateway OIDC console.
 
 ## Why GCP OSD is simpler than ROKS
 
@@ -26,15 +24,15 @@ per-gateway console provisioning.
 | Worker egress | Blocked by default (SG) | **Open** - all public registries reachable |
 | Image mirroring | Required for every image | **Not needed** |
 | OperatorHub | Broken (catalog pods ImagePullBackOff) | **Works** |
-| Gateway API (native) | Blocked (OSSM images unpullable, IDMS denied) | **Works** (istiod runs, GatewayClass Accepted) |
+| Gateway API (native) | Works on ROKS >= 4.22 | **Works** (istiod runs, GatewayClass Accepted) |
 | Control plane access | HyperShift-hosted (limited) | Standard (full cluster-admin available) |
 
-**Ingress mode: Route.** Although Gateway API works natively on OSD/GCP, Route
-mode is chosen to avoid the DNS/TLS/wildcard-cert setup that Gateway API
-requires. The OSD-managed `*.apps.<cluster>.<id>.openshiftapps.com` wildcard
-provides immediate connectivity. Switch to Gateway API later by configuring a
-custom domain, running `cloud-hub-ingress-bootstrap`, and unsetting
-`GATEWAY_INGRESS_MODE`.
+**Ingress: Gateway API.** Tenant gateways are published through a shared
+`Gateway` (`openshift-ingress/openshell-grpc-gateway`). Each gateway gets a
+`GRPCRoute`, and its console gets an `HTTPRoute`. The shared Gateway needs a
+wildcard domain, a wildcard certificate and a wildcard DNS record. Set them up
+with [`cloud-hub-ingress-bootstrap`](../cloud-hub-ingress-bootstrap/SKILL.md)
+(Step 3b).
 
 ## Prerequisites
 
@@ -69,11 +67,10 @@ Reference values for `hypershell-gcp` (2026-08-21):
 | Storage class | `standard-csi` (default) |
 | GCP project | `hcm-hyperfleet` |
 
-## Step 2: Create the `openshift-default` GatewayClass (optional but recommended)
+## Step 2: Create the `openshift-default` GatewayClass
 
-Even though we use Route mode for ingress, creating the GatewayClass validates
-that Gateway API works and prepares for a future switch. On OSD/GCP, unlike
-ROKS, istiod pulls and runs without issues.
+Creating the GatewayClass makes the Ingress Operator install `istiod` in
+`openshift-ingress`. The shared Gateway uses this class.
 
 ```bash
 cat <<'EOF' | oc apply -f -
@@ -126,6 +123,13 @@ EOF
 # Wait for pods
 oc -n cert-manager get pods -w   # cert-manager, cainjector, webhook all Running
 ```
+
+## Step 3b: Bootstrap the shared Gateway
+
+Run [`cloud-hub-ingress-bootstrap`](../cloud-hub-ingress-bootstrap/SKILL.md) once
+on this cluster. It creates the wildcard certificate, the shared
+`openshift-ingress/openshell-grpc-gateway` and the wildcard DNS record for the
+GCP load balancer. Note the base domain; the controller needs it in Step 6.
 
 ## Step 4: Install the Agent Sandbox CRD + controller
 
@@ -208,9 +212,13 @@ oc kustomize deploy/openshift | oc apply -f -
 
 The `deploy/openshift` overlay (base for all cloud deployments) sets:
 
-- `GATEWAY_INGRESS_MODE=route` - use OpenShift Routes, not Gateway API
-- `GATEWAY_API_BASE_DOMAIN=apps.<cluster>.<id>.openshiftapps.com`
-- `deploy/base/controller-rbac.yaml` - cluster-wide RBAC for tenant reconciliation
+- `GATEWAY_API_GATEWAY_NAME=openshell-grpc-gateway` and
+  `GATEWAY_API_GATEWAY_NAMESPACE=openshift-ingress` - the shared Gateway
+- `GATEWAY_API_BASE_DOMAIN` - a placeholder; set it to the wildcard domain from
+  Step 3b (`oc -n hypershell set env deploy/hypershell-controller GATEWAY_API_BASE_DOMAIN=<domain>`)
+- `GATEWAY_API_HTTP_LISTENER_NAME` - the shared Gateway listener that console
+  `HTTPRoute`s attach to
+- `deploy/base/platform-resources/controller-rbac.yaml` - cluster-wide RBAC for tenant reconciliation
 
 **Upgrade to `:latest` images** (the pinned digest images lack OIDC support):
 
@@ -411,8 +419,7 @@ GATEWAY=$(curl -sk -X POST "$API/gateways" -H 'Content-Type: application/json' \
   \"name\": \"gcp-test-gw\",
   \"placement\": {\"selector\": [\"network/public\", \"provider/aws\"]},
   \"namespace\": \"openshell-gcptest\",
-  \"image\": \"quay.io/opendatahub/odh-openshell-gateway:v0.1.6-rhaiv.4\",
-  \"route\": \"{\\\"enabled\\\": true}\"
+  \"image\": \"quay.io/opendatahub/odh-openshell-gateway:v0.1.6-rhaiv.4\"
 }")
 echo "$GATEWAY" | python3 -m json.tool
 ```
@@ -420,8 +427,8 @@ echo "$GATEWAY" | python3 -m json.tool
 The `:latest` controller fully reconciles the gateway with no manual patches
 needed: the per-gateway database on the registered server, the Keycloak OIDC
 client, correct DB
-credentials secret (`uri` key), init containers, volumes, and Route hostname
-are all handled automatically.
+credentials secret (`uri` key), init containers, volumes, and the `GRPCRoute`
+and console `HTTPRoute` on the shared Gateway are all handled automatically.
 
 ## Step 9: Verify end to end
 
@@ -434,19 +441,18 @@ oc -n "$NS" get pods
 # openshell-gateway 1/1 Running
 # openshell-console 2/2 Running (per-gateway OIDC console)
 
-HOST=$(oc -n "$NS" get route openshell-gateway-grpc -o jsonpath='{.spec.host}')
+HOST=$(oc -n "$NS" get grpcroute openshell-gateway -o jsonpath='{.spec.hostnames[0]}')
 
-# TLS verification (passthrough serves the per-tenant cert)
-oc -n "$NS" get secret openshell-server-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/tenant-ca.crt
-echo | openssl s_client -connect "$HOST:443" -servername "$HOST" -CAfile /tmp/tenant-ca.crt 2>&1 \
+# The shared Gateway serves the publicly trusted wildcard certificate
+echo | openssl s_client -connect "$HOST:443" -servername "$HOST" 2>&1 \
   | grep 'Verify return code'   # 0 (ok)
 
-# gRPC transport through the Route
-openshell status --gateway-endpoint "https://$HOST:443" --gateway-insecure
-# Status: Connected, Version: 0.0.109
+# gRPC transport through the shared Gateway
+openshell status --gateway-endpoint "https://$HOST:443"
+# Status: Connected
 
 # Verify per-gateway OIDC console
-CONSOLE_URL="https://$(oc -n "$NS" get route openshell-console -o jsonpath='{.spec.host}')"
+CONSOLE_URL="https://$(oc -n "$NS" get httproute openshell-console -o jsonpath='{.spec.hostnames[0]}')"
 curl -sk -o /dev/null -w '%{http_code}' "$CONSOLE_URL/auth/login"   # 302 -> keycloak
 
 # Verify the gateway database credentials were written into the tenant namespace
@@ -456,83 +462,13 @@ oc -n "$NS" get secret openshell-gateway-db-credentials \
 
 ## Step 10: Run the e2e test suite
 
-```bash
-GATEWAY_NAME=angel SKIP_CLEANUP=1 bash components/pr-test/e2e-openshell-gcp.sh
-```
-
-To create a fresh gateway instead of reusing an existing one:
+Run the Go e2e suite with the OpenShift driver. It discovers the API, console and
+Keycloak Routes in the platform namespace, and each gateway endpoint from its
+`GRPCRoute`:
 
 ```bash
-bash components/pr-test/e2e-openshell-gcp.sh
+OPENSHIFT_NAMESPACE=hypershell E2E_INFRA_DRIVER=openshift make e2e
 ```
-
-### Reference run (2026-08-21, `angel` gateway, openshell 0.0.109)
-
-```
-HyperShell OpenShell Gateway End-to-End Test (GCP OSD)
-────────────────────────────────────────────────
-
-  0. JWT authentication verification
-  1. Gateway provisioning via HyperShell API (OIDC)
-  1b. OIDC Role Bridge (per-gateway client roles)
-  2. Gateway infrastructure verification
-  3. OIDC token acquisition (per-gateway client)
-  3a. CA certificate setup
-  4. Route discovery + openshell CLI registration
-  5. Gateway connectivity
-  6. Sandbox lifecycle (create → ready)
-  7. Sandbox interaction
-  8. Developer user RBAC verification
-
-  HyperShell API:    https://hypershell-api-hypershell.apps.hypershell-gcp.u0zc.p2.openshiftapps.com
-  Keycloak:          https://keycloak-keycloak.apps.hypershell-gcp.u0zc.p2.openshiftapps.com
-  OIDC issuer:       https://keycloak-keycloak.apps.hypershell-gcp.u0zc.p2.openshiftapps.com/realms/hypershell
-  Gateway name:      angel
-  Cluster:           3IEMEyUoM01Vq5dccnD01TsxzNf
-  Release:           3IEMG6W8UhcfH3sruR2Zosc9LJL
-  Database:          3IEMG7C1TcAnrbzZHjiJii0UPZ8
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Results: 23 passed, 0 failed
-
-  ✓ Unauthenticated request rejected (HTTP 401)
-  ✓ Authenticated request accepted (HTTP 200)
-  ✓ Gateway already exists: angel (3IEWSLgFpF3DHsaGxl5IexOrrME, phase=Running)
-  ✓ Keycloak admin service account ready (realm: hypershell)
-  ✓ Assigned openshell-admin to admin on angel-3IEWSLgFpF3DHsaGxl5IexOrrME
-  ✓ Assigned openshell-user to developer on angel-3IEWSLgFpF3DHsaGxl5IexOrrME
-  ✓ Gateway pod ready (quay.io/opendatahub/odh-openshell-gateway:v0.0.109-rhaiv.0)
-  ✓ Gateway service: 172.30.26.165:8080
-  ✓ TLS certificates provisioned
-  ✓ Gateway database and role provisioned on the registered server (gw_944b372e89b1cb7e)
-  ✓ OIDC token acquired (user: admin, aud=angel-3IEWSLgFpF3DHsaGxl5IexOrrME, roles=openshell-user,openshell-admin)
-  ✓ CA certificate extracted and SSL_CERT_FILE set
-  ✓ Passthrough route: gw-openshell-944b372e89b1cb7e.apps.hypershell-gcp.u0zc.p2.openshiftapps.com
-  ✓ openshell CLI registered (OIDC mode)
-  ✓ Gateway connected (version: 0.0.109)
-  ✓ Sandbox pod created: default--e2e-1645 (Running)
-  ✓ Sandbox exec: command executed inside sandbox
-  ✓ Developer OIDC token acquired (user: developer, roles=openshell-user)
-  ✓ Developer gateway registered (OIDC mode)
-  ✓ Developer user: gateway connected
-  ✓ Developer granted 'user' membership on 'default' workspace
-  ✓ Developer user: sandbox created
-  ✓ Developer user: sandbox exec succeeded
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-```
-
-## Switching to Gateway API mode later
-
-If a custom domain with wildcard DNS is configured later:
-
-1. Create a ClusterIssuer + wildcard Certificate (see `cloud-hub-ingress-bootstrap`)
-2. Create a shared Gateway in `openshift-ingress` (the `openshift-default`
-   GatewayClass is already Accepted)
-3. Set `GATEWAY_API_GATEWAY_NAME`, `GATEWAY_API_GATEWAY_NAMESPACE`,
-   `GATEWAY_API_BASE_DOMAIN` on the controller
-4. Unset `GATEWAY_INGRESS_MODE` (removes it, defaults to `gateway-api`)
-5. Re-reconcile existing gateways - the controller will emit `GRPCRoute`s and
-   remove the Routes
 
 ## Troubleshooting
 
@@ -549,7 +485,7 @@ If a custom domain with wildcard DNS is configured later:
 | Gateway pod `CreateContainerConfigError` on `uri` key | DB credentials secret has `url` key but gateway expects `uri` | `:latest` controller creates the correct `uri` key; if migrating from old controller, patch the secret |
 | Controller `403 Forbidden` managing Keycloak clients | `hypershell-control-plane` SA missing `realm-management` roles | Assign roles via Keycloak admin API (Step 5.1) |
 | Web console crashes with `SESSION_SECRET is required` | `SESSION_SECRET` env var not set when `OIDC_ISSUER` is present | Set `SESSION_SECRET` to a random hex string |
-| `openshell` CLI gets `BadSignature` TLS error | CLI has cached a stale CA cert from a previous cert-manager issuance | Re-fetch the CA from `openshell-server-tls` secret, or use `--insecure` |
+| GRPCRoute `Accepted=False` or the Gateway is not `Programmed` | Shared Gateway missing, wrong `GATEWAY_API_*` values, or listener hostname does not cover `GATEWAY_API_BASE_DOMAIN` | See the troubleshooting section of `cloud-hub-ingress-bootstrap` |
 
 ## Architecture notes
 

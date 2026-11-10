@@ -52,9 +52,8 @@ gateway binary itself is not vendored here, so behavior is cited, not read):
    shared wildcard, with a routing proxy that resolves the hash to a gateway.
    That is the "one cluster wildcard forever" alternative (compared in §4).
 
-Related local tracking: openshift-online/hypershell issues #234 ("Neither route
-nor gateway-api ingress mode provisions routing for OpenShell's per-sandbox
-ExposeService HTTP virtual-hosting") and #700 (shared sandbox-ingress proxy).
+Related local tracking: openshift-online/hypershell issues #234 (no
+routing for OpenShell's per-sandbox ExposeService HTTP virtual-hosting) and #700 (shared sandbox-ingress proxy).
 
 ## 2. Why it is broken today (three independent gaps)
 

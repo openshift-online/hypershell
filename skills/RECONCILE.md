@@ -27,8 +27,8 @@ skills/
 ├── deploy/
 │   ├── cloud-hub-ingress-bootstrap/  # Shared Gateway API ingress per cloud hub
 │   ├── deploy-cluster/       # OpenShift deployment (Keycloak, OIDC, kustomize)
-│   ├── gcp-cluster/          # GCP OSD cluster deployment (Route mode)
-│   └── ibm-cluster/          # IBM ROKS cluster provisioning and deployment (Route mode)
+│   ├── gcp-cluster/          # GCP OSD cluster deployment
+│   └── ibm-cluster/          # IBM ROKS cluster provisioning and deployment
 ├── plan/
 │   └── spec/                 # Spec authoring (desired state)
 ├── review/
@@ -535,12 +535,12 @@ The first gap analysis found a race between the event-driven reconciler and the 
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| GC-1 | Console enablement follows the selected ingress mode | Present | - | `control-plane/internal/gateway/{reconciler.go,console.go}`, `reconciler/health.go` | GC-W1 |
+| GC-1 | Console enablement follows the gateway route | Present | - | `control-plane/internal/gateway/{reconciler.go,console.go}`, `reconciler/health.go` | GC-W1 |
 | GC-2 | Confidential console Keycloak client | Present | - | `control-plane/internal/keycloak/client.go`, `gateway/console.go` | - |
 | GC-3 | Stable console credential Secret | Present | - | `control-plane/internal/gateway/console.go` | - |
 | GC-4 | Console Deployment | Present | - | `control-plane/internal/gateway/console.go` | - |
-| GC-5 | Service and mode-selected HTTP exposure | Present | - | `control-plane/internal/gateway/console.go`, `deploy/base/controller-rbac.yaml` | GC-W1 |
-| GC-6 | Console NetworkPolicies | Present | The policy source uses the configured ingress namespace and supports both ingress controllers. | `control-plane/internal/gateway/console.go` | - |
+| GC-5 | Service and HTTPRoute exposure | Present | - | `control-plane/internal/gateway/console.go`, `deploy/base/controller-rbac.yaml` | GC-W1 |
+| GC-6 | Console NetworkPolicies | Present | The policy source uses the configured ingress namespace. | `control-plane/internal/gateway/console.go` | - |
 | GC-7 | Console lifecycle and cleanup | Present | - | `control-plane/internal/gateway/{console.go,reconciler.go}`, `reconciler/health.go` | GC-W1 |
 | GC-8 | Provisioning atomicity and idempotency | Present | - | `control-plane/internal/gateway/console.go`, `internal/keycloak/client.go` | - |
 | GC-9 | Console address discovery | Present | - | `control-plane/internal/reconciler/reconciler.go`, `gateway/console.go` | GC-W1 |
@@ -548,8 +548,6 @@ The first gap analysis found a race between the event-driven reconciler and the 
 **Scoped analysis notes:**
 
 - The API, data model, SDKs, CLI, Keycloak client, Secret, Deployment, Service, and NetworkPolicy contracts need no change.
-- GC-W1 added the OpenShift Route adapter and made provisioning, readiness, cleanup, and health repair use the selected ingress mode.
-- The base controller role permits Route CRUD and create and update access to `routes/custom-host` because the console Route sets `spec.host`.
 
 ### openshift-development.spec.md (local-dev lifecycle)
 
@@ -561,7 +559,7 @@ The first gap analysis found a race between the event-driven reconciler and the 
 | OS-4 | Keycloak Namespace | Present | `${OPENSHIFT_NAMESPACE}-keycloak` via `oc new-project`; apply while that project is selected, then switch back; OIDC issuer from Keycloak Route; `KC_HOSTNAME` is host-only; `keycloak-allow-platform` NetworkPolicy lets platform pods reach JWKS/Admin API; console redirect URIs and API seeding use host `curl` against Routes (API server image has no curl) | `rewrite-namespaces.py`, `drivers/openshift.sh`, `deploy/openshift/keycloak-networkpolicy.yaml` | OS-W2 |
 | OS-5 | Component Swap on OpenShift | Present | Build, push immutable commit+namespace identity, per-namespace `.openshift-swaps/`, reconcile preserves swaps | `drivers/openshift.sh`, `Makefile` | OS-W2 |
 | OS-E2E-1 | OpenShift E2E Driver | Partial | Manual `make e2e` / `make e2e-performance` against a pre-deployed cluster. Out of scope for OS-W2. | `tests/e2e/drivers/openshift.sh` | OS-W1 |
-| OS-7 | E2E Script Consolidation | Present | `components/pr-test/e2e-openshell.sh` removed (HYPERSHELL-250); only the out-of-scope ROKS script remains under `components/pr-test/`, rescoped `pr_test`/`lint-pr-test` CI wiring | `components/pr-test/`, `tests/e2e/drivers/openshift.sh` | W5 (HYPERSHELL-250) |
+| OS-7 | E2E Script Consolidation | Present | `components/pr-test/e2e-openshell.sh` removed (HYPERSHELL-250); the ROKS script and the `pr_test` CI component were removed later (#767) | `tests/e2e/drivers/openshift.sh` | W5 (HYPERSHELL-250) |
 | OS-8 | Ephemeral CI Environment Provisioning | Missing | Intentionally deferred: not local-dev lifecycle | - | Future |
 | OS-9 | Environment Access Handoff | Missing | Intentionally deferred: CI-only | - | Future |
 | OS-10 | Blessed OpenShift Overlay | Partial | Namespace parameterization, Routes, SCC RoleBindings; `API_ENV=development_oidc` in the overlay (not `oc set env`); gateway base domain discovered from the shared Gateway listener (not `GATEWAY_API_BASE_DOMAIN`). Drift-check CI job deferred. | `deploy/openshift/`, `rewrite-namespaces.py` | OS-W2 |
@@ -716,9 +714,9 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
 | R1 | Router NetworkPolicy | Partial | Uses namespaceSelector not podSelector; created unconditionally | `reconcileRouterNetworkPolicy()` | W7 |
-| R2 | Gateway API detection at startup | Present | - | `DetectGatewayAPI()` | W4 ✅ |
+| R2 | Gateway API check on every gateway reconcile | Present | - | `requireGatewayAPI()` | W4 ✅ |
 | R3 | `GATEWAY_API_GATEWAY_NAME` env var (required) | Present | Controller requires this env var to reference the pre-existing shared Gateway | `reconciler.go` | W8 ✅ |
-| R4 | Gateway API not available: disable + log | Present | - | `reconciler.go:76-80` | W4 ✅ |
+| R4 | Gateway API not available: gateway reconcile fails with a clear condition and retries | Present | - | `ReconcileGateway()` | W4 ✅ |
 | R5 | `route` config field (host, enabled) | Present | - | `config.go:17-20` | W4 ✅ |
 | R6 | Auto-derived hostname convention | Partial | Extra `.hsgw.` subdomain vs spec | `reconciler.go:727-731` | W8 |
 | R7 | DNS label validation (63-char limit) | Not needed | Shortened namespace (26 chars) + `gw-` prefix keeps all derived names under 63 chars | - | - |
@@ -1122,7 +1120,7 @@ Ephemeral-by-default pull-request environments on a shared OpenShift cluster. Bu
 | PR-ENV-8 | GitHub-brokered Keycloak (GitHub IdP, org gate + allowlist, stable callback, password form hidden) | Present | **Declarative IdP:** GitHub IdP enables when ESO Secret `hypershell-github-oauth` has `client_id`. Org/allowlist and per-PR `hypershell-e2e` secret live in CI-owned `hypershell-e2e-client`. Kind/local have no OAuth Secret, so the IdP stays off. **Org-gate enforcement:** BFF checks org membership / allowlist after OIDC callback. **Login page:** `theme/login.css` hides the username/password form when the GitHub IdP is present so human contributors cannot fall back to a test-tier password (#342). Unit-tested. | `deploy/base/keycloak/keycloak.yaml`, `deploy/base/keycloak/theme/login.css`, `components/web-console/bff/src/github-org-gate.ts`, `scripts/cluster/drivers/openshift.sh`, `.github/actions/deploy-pr-environment/action.yml` | W2 ✅ |
 | PR-ENV-9 | Admin roles + developer-tier impersonation (seeded dev principal, interactive + token-exchange) | Present | Base realm grants `platform:admin`+`gateway:creator` on GitHub broker login; human test-tier users are not in the realm import. Lifecycle seed creates them (ESO passwords on CI-owned, static on developer-owned). `hypershell-e2e` has impersonation + token exchange. Seeded users last until the environment is destroyed; e2e does not de-seed. **Interactive (#342):** on first GitHub broker login the realm also grants `view-users`, `query-users`, and `impersonation` realm-management client roles, so a GitHub user can open `/admin/hypershell/console/` and impersonate `developer` or `platform-admin` without a password; master-realm `/admin/` is not the path. The `impersonation` role is realm-wide (no target-scoped form without FGAP). Token-exchange does not extend to other GitHub-brokered users. Inert on Kind (IdP disabled). | `deploy/base/keycloak/keycloak.yaml`, `deploy/base/keycloak/render-realm-config.py`, `scripts/cluster/reconcile-test-users.sh`, `tests/e2e/drivers/openshift.sh` | W2 ✅ |
 | PR-ENV-10 | Automated E2E auth: grant-agnostic driver (`E2E_OIDC_GRANT`), `hypershell-e2e` client-credentials + token-exchange (= D-E2E-OIDC) | Present | `_driver_acquire_oidc_token` dispatches password/client_credentials (admin CC + developer token-exchange impersonation); CI reads the client secret from the Keycloak namespace after `openshift-up`. Unit-tested (`openshift_driver_test.sh`). | `tests/e2e/drivers/kind.sh`, `tests/e2e/lib.sh`, `deploy/base/keycloak/keycloak.yaml`, `scripts/ci/read-e2e-client-secret.sh`, `tests/e2e/openshift_driver_test.sh` | W1 ✅ |
-| PR-ENV-11 | Legacy `pr-test` removal + docs | Present | `components/pr-test/e2e-openshell.sh` deleted (HYPERSHELL-250); `lint-pr-test` now syntax-checks `e2e-openshell-roks.sh`; DEVELOPMENT.md, CLAUDE.md, `ephemeral-pr-environments.spec.md`, `openshift-development.spec.md`, `e2e-testing.spec.md`, and full-stack-pipeline skill point at `tests/e2e/e2e-openshell.sh` + this workflow; ROKS/GCP variants + rescoped `pr_test` CI wiring untouched | `.github/workflows/checks.yml`, `DEVELOPMENT.md`, `CLAUDE.md`, `skills/build/full-stack-pipeline/SKILL.md` | W5 ✅ |
+| PR-ENV-11 | Legacy `pr-test` removal + docs | Present | `components/pr-test/e2e-openshell.sh` deleted (HYPERSHELL-250); the ROKS variant and its `pr_test` CI component were later removed (#767); DEVELOPMENT.md, CLAUDE.md, `ephemeral-pr-environments.spec.md`, `openshift-development.spec.md`, `e2e-testing.spec.md`, and full-stack-pipeline skill point at `tests/e2e/e2e-openshell.sh` + this workflow | `.github/workflows/checks.yml`, `DEVELOPMENT.md`, `CLAUDE.md`, `skills/build/full-stack-pipeline/SKILL.md` | W5 ✅ |
 
 **Human-provisioned prerequisites (not code):** GitHub OAuth App (client id/secret) + one stable callback URL, CI cluster kubeconfig/token in AWS Secrets Manager, the `openshift-online` org gate + allowlist values, and deploying/syncing the reaper onto the target cluster via hypershell-gitops.
 
@@ -1395,7 +1393,7 @@ lint, alignment, and review checks pass.
 **Dependency:** Existing Gateway Console and Route ingress implementations
 **Status:** Complete
 
-1. Select console exposure from the effective gateway ingress mode.
+1. Select console exposure from the gateway's exposure kind.
 2. Create an edge-terminated OpenShift Route for `openshell-console` in Route mode.
 3. Observe HTTPRoute acceptance or OpenShift Route admission for address publication.
 4. Reconcile initial provisioning, health repair, inactive exposure removal, and teardown for both modes.
@@ -1403,7 +1401,7 @@ lint, alignment, and review checks pass.
 6. Add unit tests for resource shape, readiness, mode selection, and cleanup.
 7. Run control-plane build, vet, test, alignment, and review checks.
 
-**GC-W1 summary:** Added an edge-terminated OpenShift Route for the console, selected readiness by ingress mode, removed inactive console exposures, aligned route-enable semantics, and added custom-host RBAC. The complete control-plane test suite, affected-package race tests, vet, lint, build, Kustomize renders, alignment scan, and independent review passed.
+**GC-W1 summary:** Added an edge-terminated OpenShift Route for the console, selected readiness by exposure kind, removed inactive console exposures, aligned route-enable semantics, and added custom-host RBAC. The complete control-plane test suite, affected-package race tests, vet, lint, build, Kustomize renders, alignment scan, and independent review passed.
 
 ### HYPERSHELL-49 OpenShellGatewayServiceAccount waves
 
