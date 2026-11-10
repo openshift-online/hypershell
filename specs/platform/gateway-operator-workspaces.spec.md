@@ -48,8 +48,9 @@ selection.
 - **Tenant workspace namespace** - a Kubernetes namespace that holds one operator
   gateway's workspaces. In operator mode the external operator creates and labels
   these namespaces; each carries the administrator-approved namespace label key set
-  to a value derived from the owning gateway's own namespace, so the gateway
-  discovers only its own tenant namespaces.
+  to the owning gateway's own API-assigned namespace name (`openshell-<id-hex-8>`,
+  PLAT-DATA-03). Because every gateway's namespace name is unique and collision-safe,
+  the gateway discovers only its own tenant namespaces.
 
 ## Requirements
 
@@ -128,8 +129,12 @@ to the field.
 
 ### Requirement: OSG-OPWS-02 -- Administrator-Owned Operator Settings Preserve the Authorization Boundary
 
-Operator mode changes a gateway's access to external Kubernetes resources and
-disables the resource-approval label requirement that ordinary gateways carry.
+Operator mode widens a gateway's access to external Kubernetes resources: an
+external operator creates and owns the gateway's tenant workspace namespaces,
+identities, storage, and policies, governed by the administrator-installed operator
+admission policy and approved pod-label patterns (OSG-OPWS-07.02) rather than the
+self-contained per-workspace provisioning an ordinary (`managed`/`shared`) gateway
+performs within its own namespace scope (OSG-CORE-18).
 Selecting operator mode SHALL therefore grant a gateway owner nothing beyond the
 mode selection itself. The namespace label key used to scope tenant namespaces, the
 allowed custom pod-label patterns, the external driver configuration, and the
@@ -139,9 +144,11 @@ unrestricted namespace selectors, arbitrary driver configuration, or arbitrary
 `RuntimeClass` selection through the opt-in.
 
 The namespace selector value an operator gateway uses to discover its tenant
-namespaces SHALL be derived from the gateway's own identity (its API-assigned
-namespace), not supplied by the caller, so no caller can direct a gateway at
-another tenant's namespaces.
+namespaces SHALL be the gateway's own API-assigned namespace name
+(`openshell-<id-hex-8>`, PLAT-DATA-03), not supplied by the caller. Because that
+namespace name is unique and collision-safe per gateway (PLAT-DATA-03), two
+gateways never resolve to the same selector value, so no caller can direct a
+gateway at another tenant's namespaces.
 
 #### Scenario: OSG-OPWS-02.01 -- Operator selection confers only the mode
 
@@ -151,12 +158,13 @@ another tenant's namespaces.
 - THEN those fields SHALL be rejected as platform-managed (PLAT-DATA-23), and the
   gateway SHALL use the administrator-approved operator settings only
 
-#### Scenario: OSG-OPWS-02.02 -- Namespace selector is derived from gateway identity
+#### Scenario: OSG-OPWS-02.02 -- Namespace selector is the gateway's own namespace name
 
-- GIVEN an operator gateway with API-assigned namespace `openshell-<hex>`
+- GIVEN an operator gateway with API-assigned namespace `openshell-<id-hex-8>` (PLAT-DATA-03)
 - WHEN the control plane resolves the gateway's tenant-namespace selector
-- THEN the selector value SHALL be derived from `openshell-<hex>`, not from caller
-  input
+- THEN the selector value SHALL be that namespace name `openshell-<id-hex-8>`, not
+  caller input
+- AND two operator gateways SHALL NOT resolve to the same selector value
 
 ### Requirement: OSG-OPWS-03 -- Per-Gateway Effective Settings and Coexistence
 
@@ -327,7 +335,7 @@ work over the same supported API.
 |----------|-----------|
 | Reuse the stored `workspace_mode` field instead of a new request flag | The target is a single, already-validated enum value (`operator`), not a complex document. Setting `workspace_mode = operator` at create reuses the existing field, its vocabulary, its immutability, and its reconciler path end to end (OSG-CORE-18), so the only change is who may set it at create. The `dedicated_route` flag exists because its target is a multi-field route/certificate document a user should not author; that justification does not apply here. |
 | Unlock only `operator` at create, keep `managed` the default | The feature is an opt-in to operator-managed workspaces. `shared` has different trust implications and `managed` is already the default, so unlocking them as a side effect would widen the surface for no benefit. The entitlement unlocks exactly one value. |
-| Gate selection behind a dedicated entitlement, mirror `dedicated-route-creator` | Operator mode widens a gateway's access to external Kubernetes resources and disables approval-label requirements, so it must not be available to every creator. A separate, body-dependent, fail-closed entitlement checked at the create boundaries matches the established SEC-RBAC-20 pattern. |
+| Gate selection behind a dedicated entitlement, mirror `dedicated-route-creator` | Operator mode widens a gateway's access to external Kubernetes resources (operator-owned tenant namespaces governed by an administrator-installed admission policy, OSG-OPWS-02 / OSG-OPWS-07.02), so it must not be available to every creator. A separate, body-dependent, fail-closed entitlement checked at the create boundaries matches the established SEC-RBAC-20 pattern. |
 | Administrator owns namespace trust, pod labels, driver config, and RuntimeClass | Operator mode's security properties depend on these settings; letting a gateway owner choose them would let the opt-in escalate access. The caller chooses the mode; the administrator owns everything the mode trusts. |
 | Resolve operator effective settings per reconcile, not a persisted snapshot | Re-resolving from administrator configuration each reconcile keeps behavior predictable across config changes and restarts without a new persisted column or migration, consistent with how `GATEWAY_SANDBOX_RUNTIME_CLASS` is already applied at reconcile time. |
 | Validate prerequisites and never silently downgrade | Operator mode that silently fell back to `managed`/`shared` or a different runtime would hand a caller a weaker configuration than requested without telling them. Failing with an actionable condition refines the existing OSG-CORE-18.09 no-fallback rule. |

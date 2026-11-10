@@ -1000,8 +1000,12 @@ workspace opt-in,
 OSG-OPWS-01, and
 [`platform/openshell-gateway.spec.md`](../platform/openshell-gateway.spec.md)
 OSG-CORE-18). The role exists because operator mode widens a gateway's access to
-external Kubernetes resources and disables the resource-approval label requirement
-ordinary gateways carry, so the entitlement is deliberately separate from
+external Kubernetes resources - an external operator owns the gateway's tenant
+workspace namespaces, identities, storage, and policies under an
+administrator-installed operator admission policy, beyond the self-contained
+per-workspace provisioning an ordinary gateway performs
+([`platform/gateway-operator-workspaces.spec.md`](../platform/gateway-operator-workspaces.spec.md)
+OSG-OPWS-02, OSG-OPWS-07.02) - so the entitlement is deliberately separate from
 `gateway:creator` and is not granted to every creator.
 
 **Assignment (Keycloak-owned, JWT-synced).** The role SHALL be JWT-synced, like
