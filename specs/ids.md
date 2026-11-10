@@ -132,6 +132,7 @@ listed in `specs/id-rename-map.md`, not here.
 | `OSG-KCLT` | `platform/openshell-gateway-keycloak.transitional.spec.md` | 1 |
 | `OSG-NSGC` | `platform/openshell-gateway-namespace-gc.spec.md` | 8 |
 | `OSG-OIDC` | `platform/openshell-gateway-oidc.spec.md` | 5 |
+| `OSG-OPWS` | `platform/gateway-operator-workspaces.spec.md` | 7 |
 | `OSG-ROT` | `platform/openshell-gateway-secret-rotation.spec.md` | 2 |
 | `OSG-ROUT` | `platform/openshell-gateway-routing.spec.md` | 15 |
 | `OSG-SACC` | `platform/openshell-gateway-service-accounts.spec.md` | 18 |

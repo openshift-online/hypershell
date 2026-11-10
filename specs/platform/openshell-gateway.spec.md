@@ -674,16 +674,26 @@ See the "OSG-CORE-18 -- Gateway Workspace Mode" requirement below.
 A Gateway SHALL carry a `workspace_mode` field selecting how the OpenShell
 Kubernetes driver maps workspaces to namespaces (`shared`, `managed`, or
 `operator`, the vocabulary the vendored chart and the upstream gateway
-accept). The field is platform-managed (PLAT-DATA-23): the API server SHALL
-default `workspace_mode` to `managed` in the gateway service create funnel,
-after the field-policy check, so every creator class (REST, gRPC, `hsctl
-apply`, `.hypershell` import, control plane) receives the default and no
-caller-supplied value survives. A user or import caller that declares
-`workspace_mode` on create or update SHALL be rejected naming the field. The
-service funnel SHALL also enforce the field's value semantics for every
-writer class, the control plane included: the vocabulary above, and
-immutability of the stored value (re-sending the stored value is a no-op, and
-an update that omits the field keeps the stored value).
+accept). The field is platform-managed (PLAT-DATA-23) with one narrow
+create-time exception. The API server SHALL default `workspace_mode` to
+`managed` in the gateway service create funnel, after the field-policy check,
+so every creator class that supplies no value (REST, gRPC, `hsctl apply`,
+`.hypershell` import, control plane) receives the default. The sole
+caller-settable value at create is `operator`, and only for a caller holding
+the `gateway:operator-workspace-creator` entitlement: the per-gateway
+operator-managed workspace opt-in, defined in
+[`gateway-operator-workspaces.spec.md`](./gateway-operator-workspaces.spec.md)
+(OSG-OPWS-01) and gated by
+[`../security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md)
+(SEC-RBAC-27). A caller-supplied `shared` or `managed`, an unentitled
+`operator`, a `.hypershell` import that declares the field, and any update that
+changes the field SHALL be rejected naming it. The service funnel SHALL also
+enforce the field's value semantics for every writer class, the control plane
+included: the vocabulary above, and immutability of the stored value
+(re-sending the stored value is a no-op, and an update that omits the field
+keeps the stored value). Operator-mode tenant workspace namespaces are
+reclaimed on gateway deletion by OSG-OPWS-06, the operator-mode counterpart to
+the managed-mode cleanup in OSG-CORE-18.07.
 
 Every stored Gateway SHALL carry a `workspace_mode`: the column is required
 (`NOT NULL`), so no Gateway is provisioned on the chart's default mode.
@@ -722,13 +732,17 @@ it.
 - AND sandbox pods SHALL be created in per-workspace namespaces named
   `openshell-{gateway_id}-{workspace}`
 
-#### Scenario: OSG-CORE-18.02 -- Caller-supplied mode is rejected
+#### Scenario: OSG-CORE-18.02 -- Caller-supplied mode is rejected except the entitled operator opt-in
 
 - GIVEN a user or import caller
-- WHEN the caller creates or updates a Gateway declaring `workspace_mode`
-- THEN the write SHALL be rejected naming `workspace_mode` (a strict-decode
-  400 on REST create/PATCH, `PermissionDenied` on gRPC, and the field-policy
-  rejection in the service funnel as the authoritative backstop)
+- WHEN the caller declares `workspace_mode` on update, or on create with any value
+  other than an entitled `operator` selection (OSG-OPWS-01)
+- THEN the write SHALL be rejected naming `workspace_mode` (a strict-decode 400 on
+  REST update/PATCH, `PermissionDenied` on gRPC, and the field-policy rejection in
+  the service funnel as the authoritative backstop)
+- AND an entitled create selecting `operator` SHALL be accepted (OSG-OPWS-01.01),
+  because `workspace_mode` is an accepted create input whose value and entitlement
+  are validated in the create handler and service funnel
 
 #### Scenario: OSG-CORE-18.03 -- Invalid mode is rejected
 
@@ -893,6 +907,7 @@ Gateway provisioning SHALL be independent of agent definitions. Agent-specific c
 | `route.host` | No | auto-derived | Hostname for the GRPCRoute |
 | `route.certificate` | No | - | Opt-in to a dedicated per-gateway route and external certificate (`route: { certificate: {} }`): a per-tenant Gateway, a per-gateway wildcard Certificate, and a sandbox HTTPRoute. Provision-time only - the API rejects changes to this key after creation (changing certificate mode requires delete and re-provision). Not combinable with `route.host`. See [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) |
 | `dedicated_route` | No | `false` | Create-only user request for the dedicated per-gateway route and wildcard certificate: the API server translates it into the `route.certificate` opt-in at create ([`data-model.spec.md`](./data-model.spec.md), "Requirement: Gateway Dedicated Route Request Field", PLAT-DATA-26). Requires the `gateway:dedicated-route-creator` role (or `platform:admin`); readOnly after creation |
+| `workspace_mode` | No | `managed` | OpenShell Kubernetes-driver workspace mapping (`shared`, `managed`, `operator`). Platform-managed with one create-time exception: the only caller-settable value is `operator`, requiring the `gateway:operator-workspace-creator` role (or `platform:admin`), per the per-gateway operator-managed workspace opt-in ([`gateway-operator-workspaces.spec.md`](./gateway-operator-workspaces.spec.md), OSG-OPWS-01). Immutable after creation (OSG-CORE-18) |
 | `routeAddress` | - | - | Read-only. External address populated by the control plane |
 | `dev_build` | No | `false` | Marks this as a dev/branch build. Control plane passes `hypershell.redhat.io/openshell-dev-build` via Helm `podLabels` onto the gateway workload |
 | `dev_build_metadata` | No | - | Dev build provenance (JSONB): `{ref, sha, repo}`. Control plane passes the SHA/ref/repo via Helm `podAnnotations` |

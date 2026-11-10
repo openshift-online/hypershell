@@ -65,7 +65,8 @@ weaken it.
     namespace and are not reached by the namespace cascade: the cluster-scoped
     ClusterRoleBinding, the gateway/console/service-account Keycloak clients, the
     per-gateway database and login role on the platform's gateway database
-    server, and any credential-namespace RBAC.
+    server, any credential-namespace RBAC, and, for an operator-mode gateway, its
+    tenant workspace namespaces (OSG-OPWS-06).
 - **Finalization** - the point at which a Gateway's teardown is complete: every
   owned resource has been reclaimed or confirmed already absent, or its residue
   has been handed to an explicit, documented recovery path. The soft-deleted row
@@ -108,6 +109,12 @@ resource classes is:
    separate credential namespace.
 6. For a Vault-backed gateway, the gateway's per-tenant provider-secret KV mount
    (`openshell-gw/<namespace>`) on the per-cluster provider Vault.
+7. For an operator-mode gateway (`workspace_mode = operator`), the gateway's tenant
+   workspace namespaces. The external operator creates these outside the gateway's
+   own namespace, so the cascade cannot reach them; they are identified by the
+   administrator-approved namespace label key set to the value derived from the
+   gateway's namespace and reclaimed best-effort, the operator-mode counterpart to
+   the managed-mode per-workspace namespace cleanup (OSG-OPWS-06, OSG-CORE-18.07).
 
 The enumeration SHALL be authoritative and SHALL NOT depend on the namespace
 delete cascade reaching a resource. Every out-of-namespace resource class SHALL
