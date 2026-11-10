@@ -19,13 +19,14 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	OpenShellGatewayServiceAccountProvisionerService_Provision_FullMethodName     = "/hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService/Provision"
-	OpenShellGatewayServiceAccountProvisionerService_Reconcile_FullMethodName     = "/hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService/Reconcile"
-	OpenShellGatewayServiceAccountProvisionerService_Disable_FullMethodName       = "/hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService/Disable"
-	OpenShellGatewayServiceAccountProvisionerService_Delete_FullMethodName        = "/hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService/Delete"
-	OpenShellGatewayServiceAccountProvisionerService_DeleteManaged_FullMethodName = "/hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService/DeleteManaged"
-	OpenShellGatewayServiceAccountProvisionerService_DeleteGateway_FullMethodName = "/hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService/DeleteGateway"
-	OpenShellGatewayServiceAccountProvisionerService_ListManaged_FullMethodName   = "/hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService/ListManaged"
+	OpenShellGatewayServiceAccountProvisionerService_Provision_FullMethodName                 = "/hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService/Provision"
+	OpenShellGatewayServiceAccountProvisionerService_Reconcile_FullMethodName                 = "/hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService/Reconcile"
+	OpenShellGatewayServiceAccountProvisionerService_Disable_FullMethodName                   = "/hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService/Disable"
+	OpenShellGatewayServiceAccountProvisionerService_Delete_FullMethodName                    = "/hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService/Delete"
+	OpenShellGatewayServiceAccountProvisionerService_DeleteManaged_FullMethodName             = "/hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService/DeleteManaged"
+	OpenShellGatewayServiceAccountProvisionerService_DeleteGateway_FullMethodName             = "/hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService/DeleteGateway"
+	OpenShellGatewayServiceAccountProvisionerService_ListManaged_FullMethodName               = "/hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService/ListManaged"
+	OpenShellGatewayServiceAccountProvisionerService_BootstrapDefaultWorkspace_FullMethodName = "/hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService/BootstrapDefaultWorkspace"
 )
 
 // OpenShellGatewayServiceAccountProvisionerServiceClient is the client API for OpenShellGatewayServiceAccountProvisionerService service.
@@ -43,6 +44,7 @@ type OpenShellGatewayServiceAccountProvisionerServiceClient interface {
 	DeleteManaged(ctx context.Context, in *DeleteManagedRequest, opts ...grpc.CallOption) (*DeleteManagedResponse, error)
 	DeleteGateway(ctx context.Context, in *DeleteGatewayRequest, opts ...grpc.CallOption) (*DeleteGatewayResponse, error)
 	ListManaged(ctx context.Context, in *ListManagedRequest, opts ...grpc.CallOption) (*ListManagedResponse, error)
+	BootstrapDefaultWorkspace(ctx context.Context, in *BootstrapDefaultWorkspaceRequest, opts ...grpc.CallOption) (*BootstrapDefaultWorkspaceResponse, error)
 }
 
 type openShellGatewayServiceAccountProvisionerServiceClient struct {
@@ -123,6 +125,16 @@ func (c *openShellGatewayServiceAccountProvisionerServiceClient) ListManaged(ctx
 	return out, nil
 }
 
+func (c *openShellGatewayServiceAccountProvisionerServiceClient) BootstrapDefaultWorkspace(ctx context.Context, in *BootstrapDefaultWorkspaceRequest, opts ...grpc.CallOption) (*BootstrapDefaultWorkspaceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BootstrapDefaultWorkspaceResponse)
+	err := c.cc.Invoke(ctx, OpenShellGatewayServiceAccountProvisionerService_BootstrapDefaultWorkspace_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // OpenShellGatewayServiceAccountProvisionerServiceServer is the server API for OpenShellGatewayServiceAccountProvisionerService service.
 // All implementations must embed UnimplementedOpenShellGatewayServiceAccountProvisionerServiceServer
 // for forward compatibility.
@@ -138,6 +150,7 @@ type OpenShellGatewayServiceAccountProvisionerServiceServer interface {
 	DeleteManaged(context.Context, *DeleteManagedRequest) (*DeleteManagedResponse, error)
 	DeleteGateway(context.Context, *DeleteGatewayRequest) (*DeleteGatewayResponse, error)
 	ListManaged(context.Context, *ListManagedRequest) (*ListManagedResponse, error)
+	BootstrapDefaultWorkspace(context.Context, *BootstrapDefaultWorkspaceRequest) (*BootstrapDefaultWorkspaceResponse, error)
 	mustEmbedUnimplementedOpenShellGatewayServiceAccountProvisionerServiceServer()
 }
 
@@ -168,6 +181,9 @@ func (UnimplementedOpenShellGatewayServiceAccountProvisionerServiceServer) Delet
 }
 func (UnimplementedOpenShellGatewayServiceAccountProvisionerServiceServer) ListManaged(context.Context, *ListManagedRequest) (*ListManagedResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListManaged not implemented")
+}
+func (UnimplementedOpenShellGatewayServiceAccountProvisionerServiceServer) BootstrapDefaultWorkspace(context.Context, *BootstrapDefaultWorkspaceRequest) (*BootstrapDefaultWorkspaceResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method BootstrapDefaultWorkspace not implemented")
 }
 func (UnimplementedOpenShellGatewayServiceAccountProvisionerServiceServer) mustEmbedUnimplementedOpenShellGatewayServiceAccountProvisionerServiceServer() {
 }
@@ -317,6 +333,24 @@ func _OpenShellGatewayServiceAccountProvisionerService_ListManaged_Handler(srv i
 	return interceptor(ctx, in, info, handler)
 }
 
+func _OpenShellGatewayServiceAccountProvisionerService_BootstrapDefaultWorkspace_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BootstrapDefaultWorkspaceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OpenShellGatewayServiceAccountProvisionerServiceServer).BootstrapDefaultWorkspace(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OpenShellGatewayServiceAccountProvisionerService_BootstrapDefaultWorkspace_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OpenShellGatewayServiceAccountProvisionerServiceServer).BootstrapDefaultWorkspace(ctx, req.(*BootstrapDefaultWorkspaceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // OpenShellGatewayServiceAccountProvisionerService_ServiceDesc is the grpc.ServiceDesc for OpenShellGatewayServiceAccountProvisionerService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -351,6 +385,10 @@ var OpenShellGatewayServiceAccountProvisionerService_ServiceDesc = grpc.ServiceD
 		{
 			MethodName: "ListManaged",
 			Handler:    _OpenShellGatewayServiceAccountProvisionerService_ListManaged_Handler,
+		},
+		{
+			MethodName: "BootstrapDefaultWorkspace",
+			Handler:    _OpenShellGatewayServiceAccountProvisionerService_BootstrapDefaultWorkspace_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
