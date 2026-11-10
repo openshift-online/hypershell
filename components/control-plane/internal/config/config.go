@@ -141,6 +141,17 @@ type Config struct {
 	// specs/platform/control-plane.spec.md ("CI Trust Resync").
 	CITrustResyncInterval time.Duration
 
+	// CIProviderResyncInterval is how often, while the CIProvider watch stream is
+	// connected, the control plane re-lists every CIProvider and reconciles each, so a
+	// provider that predates the reconciler (or whose create event was missed on the
+	// almost-always-idle stream) has its Keycloak IdP adopted and its status.idp_alias
+	// written back even when no live event ever arrives. The reconciler also seeds on
+	// every (re)connect. CIProvider is a platform-scoped resource, so the list is
+	// unfiltered. Sourced from HYPERSHELL_CI_PROVIDER_RESYNC_INTERVAL; a non-positive
+	// value disables the periodic resync (the per-connect seed still runs). See
+	// specs/platform/control-plane.spec.md ("CI Provider Resync", CTRL-CORE-21).
+	CIProviderResyncInterval time.Duration
+
 	// Helm chart configuration
 	HelmChartPath     string
 	HelmChartRegistry string
@@ -241,6 +252,7 @@ func Load() (*Config, error) {
 		WatchIdleTimeout:          getEnvDuration("HYPERSHELL_WATCH_IDLE_TIMEOUT", 10*time.Minute),
 		RoleBindingResyncInterval: getEnvDuration("HYPERSHELL_ROLE_BINDING_RESYNC_INTERVAL", 5*time.Minute),
 		CITrustResyncInterval:     getEnvDuration("HYPERSHELL_CI_TRUST_RESYNC_INTERVAL", 5*time.Minute),
+		CIProviderResyncInterval:  getEnvDuration("HYPERSHELL_CI_PROVIDER_RESYNC_INTERVAL", 5*time.Minute),
 
 		HelmChartPath:     getEnv("HELM_CHART_PATH", "/charts/openshell.tgz"),
 		HelmChartRegistry: getEnv("HELM_CHART_REGISTRY", ""),
