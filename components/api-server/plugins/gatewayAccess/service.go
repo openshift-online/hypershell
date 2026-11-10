@@ -73,9 +73,10 @@ type ListOptions struct {
 
 // GrantInput identifies the target of a grant by directory identity (GTW-ACC-04).
 type GrantInput struct {
-	Username string
-	Subject  string
-	Role     string
+	Username                      string
+	Subject                       string
+	Role                          string
+	SkipDefaultWorkspaceBootstrap bool
 }
 
 // GrantItem is the enriched access grant returned to callers (GTW-ACC-03 shape).
@@ -291,7 +292,7 @@ func (s *service) Grant(ctx context.Context, gatewayID, callerUserID string, inp
 	if aerr := s.guardLastOwner(ctx, gatewayID, targetUserID, input.Role); aerr != nil {
 		return GrantItem{}, aerr
 	}
-	if input.Role == TierUser && current != TierUser {
+	if input.Role == TierUser && current != TierUser && !input.SkipDefaultWorkspaceBootstrap {
 		if aerr := s.bootstrapDefaultWorkspace(ctx, gatewayID, dirUser.Subject); aerr != nil {
 			return GrantItem{}, aerr
 		}
