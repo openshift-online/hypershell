@@ -24,9 +24,8 @@ type ManagedClusterRegistrationRequest struct {
 	// Human-readable spoke name, unique per platform (e.g. hyp0-mc1). Must match on every subsequent call.
 	Name string `json:"name"`
 	// Complete self-declared capability set, sent on every registration and heartbeat. An omitted, null, or empty set is rejected with 400.
-	Capabilities []string `json:"capabilities"`
-	// Optional on-cluster self-check verdict (PLAT-CLUS-16). When present it is stored on the ManagedCluster in the same operation that updates last_seen_at. Omitting it (absent or null) preserves the stored verdict; a malformed verdict is rejected with 400 without changing the stored verdict or last_seen_at.
-	Health *ManagedClusterHealth `json:"health,omitempty"`
+	Capabilities []string              `json:"capabilities"`
+	Health       *ManagedClusterHealth `json:"health,omitempty"`
 }
 
 type _ManagedClusterRegistrationRequest ManagedClusterRegistrationRequest
