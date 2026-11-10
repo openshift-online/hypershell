@@ -1279,6 +1279,72 @@ The API server is write-only to the store; the control plane is read-only from i
 
 ---
 
+### Requirement: PLAT-DATA-27 -- SecretSource Material Upload Operation
+
+The API server SHALL expose a write-only material-upload operation on an EXISTING
+`SecretSource`, so the durable material for a reference-only `SecretSource` (one created
+with no value by a `.hypershell` import, `hsctl apply`, or a value-less create) can be
+supplied after the fact, not only at create time. The operation SHALL be a POST to a
+material sub-resource of the `SecretSource`
+(`POST /api/hypershell/ext/secret_sources/{id}/material`) whose request body carries
+ONLY the material. The body SHALL NOT carry a `path` or other reference fields; the
+operation SHALL write to the `SecretSource`'s server-derived convention path
+`hypershell/secret-sources/<agent_runtime_id>/<name>` (the same deterministic location
+a value-bearing create writes to, "Secret Submission and Storage" above) and SHALL NOT
+change the stored reference's `path`.
+
+The API server SHALL write the material through its write-only `pkg/secretstore` client
+FIRST and record only the reference, the same write-then-record discipline a
+value-bearing create follows; it SHALL NOT persist the raw material in the database and
+SHALL NOT resolve it in-process. The response SHALL confirm the upload and identify the
+`SecretSource`, SHALL NOT echo the material, and SHALL be marked no-store so no cache
+or proxy retains the material.
+
+The upload SHALL be idempotent: re-uploading overwrites the entry at the same
+convention path rather than forking the stored material. Authorization follows the
+gateway-scoped `SecretSource` tenancy rule in
+[`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md)
+(SEC-RBAC-19): the caller SHALL hold `gateway:owner` or `gateway:admin` on the
+`SecretSource`'s `AgentRuntime` gateway, or `platform:admin`, and the tenancy check
+SHALL pass BEFORE any store write. An upload naming a `SecretSource` id that does not
+exist SHALL be rejected with `404` and SHALL write nothing; when the secret store
+backend is unwired the API server SHALL reject the upload with a clear configuration
+error and SHALL write nothing (no silent degradation). This operation is the hub-side
+write-then-record path (path 1) of
+[`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md) (AGT-SEC-14);
+distributed `AgentRuntime` material that must not transit the hub uses path 2
+(AGT-SEC-08), not this operation.
+
+#### Scenario: PLAT-DATA-27.01 -- Upload material to an existing SecretSource
+
+- GIVEN an already-created reference-only `SecretSource` and a caller authorized on its `AgentRuntime` gateway
+- WHEN the caller POSTs material to the `SecretSource` material sub-resource
+- THEN the API server SHALL write the material to the secret store at `hypershell/secret-sources/<agent_runtime_id>/<name>`
+- AND the response SHALL identify the `SecretSource` and SHALL NOT echo the material
+
+#### Scenario: PLAT-DATA-27.02 -- Uploaded material is never stored raw or echoed
+
+- GIVEN a material upload against a `SecretSource`
+- WHEN the API server processes it
+- THEN the database record SHALL contain only the reference and SHALL NOT contain the raw material
+- AND no read of the `SecretSource` SHALL return the material
+
+#### Scenario: PLAT-DATA-27.03 -- Unknown SecretSource id is rejected without a write
+
+- GIVEN a material upload naming a `SecretSource` id that does not exist
+- WHEN the API server evaluates it
+- THEN it SHALL respond `404`
+- AND it SHALL NOT write anything to the secret store
+
+#### Scenario: PLAT-DATA-27.04 -- Unwired store rejects the upload and writes nothing
+
+- GIVEN `HYPERSHELL_SECRET_STORE_BACKEND` is unset
+- WHEN a caller uploads material for an existing `SecretSource`
+- THEN the API server SHALL reject the upload with a clear configuration error
+- AND it SHALL NOT persist or store any material
+
+---
+
 ### Requirement: PLAT-DATA-13 -- AgentRuntime Cluster Resource Provisioning
 
 The controller SHALL apply the agent's scheduling resources directly to the target cluster's Kubernetes API using the same in-cluster credentials it uses for gateway infrastructure. The controller SHALL create or update the following resources on the target cluster:
