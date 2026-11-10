@@ -150,6 +150,10 @@ For the default OAuth path, sign in to Jira using ACLI:
 acli jira auth login --web
 ```
 
+If your Jira site requires an administrator to authorize the ACLI OAuth app,
+use the API-token configuration below instead. `api-token` selects a Fullsend
+authentication mode; it is not an `acli jira auth login` flag.
+
 With neither Jira token nor email configured, the dispatcher automatically uses
 the selected ACLI account and site. You do not need to supply an email, token,
 or Jira URL. To select OAuth mode explicitly, set:
@@ -412,6 +416,7 @@ attention**, separate from this automatic waiting state.
 | Project or region missing | Set `ANTHROPIC_VERTEX_PROJECT_ID` and `CLOUD_ML_REGION` in the selected env file; shell-only assignments must be exported |
 | Vertex permission/model/quota error | Check account, project, approved model, region, and quota; a local credential check cannot validate these |
 | Jira asks for email/token although ACLI works | Set `JIRA_AUTH_MODE=acli`; check for a leftover email/token pair selecting API-token mode |
+| ACLI OAuth needs site-admin approval or the active ACLI profile uses an API token | Set `JIRA_AUTH_MODE=api-token`, `JIRA_USER_EMAIL`, and `JIRA_TOKEN` in `.hypershell/fullsend.env`; rerun `make fullsend-doctor` |
 | ACLI profile/keyring error | Run `acli jira auth login --web`; check PyYAML, keyring tools, and your desktop session |
 | Gateway token expired or redirect URI rejected | Press `s` and reconnect through `hsctl`; inspect diagnostics with `d` |
 | Nothing is running | Check `make fullsend-status`, scope/allowed labels, completed runs (`c`), backoff, and gateway status |
