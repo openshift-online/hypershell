@@ -220,8 +220,12 @@ conditions are `Complete`.
 
 The gateway detail view in `gateway-management-ui` SHALL render provisioning
 conditions as a vertical `ProgressStepper` (`@patternfly/react-core`) on the
-gateway detail page. The stepper SHALL be visible in all gateway phases so the
-user can always see which provisioning steps the gateway went through.
+gateway detail page. Stepper visibility SHALL follow the gateway-detail entry
+and session rules in [`gateway-list-detail.spec.md`](../web-console/gateway-list-detail.spec.md)
+requirement `WEB-GLIS-08`: show it for fresh creation, in-progress
+provisioning, or an errored installation; hide it on a later entry to a
+successfully installed gateway running without an error; and retain it for the
+remainder of the current visit once shown.
 
 #### PatternFly Component Mapping
 
@@ -281,7 +285,8 @@ title.
 #### Scenario: GTW-PROG-03.04 -- Stepper visible on a Running gateway
 
 - GIVEN a gateway that completed provisioning and has `phase` `Running`
-- WHEN the user views the gateway detail
+- WHEN the user views the gateway detail during a visit in which the stepper
+  was already shown
 - THEN the stepper SHALL remain visible with all steps showing `variant="success"`
 - AND the user SHALL be able to see which provisioning steps were performed
 
@@ -296,6 +301,14 @@ title.
 - AND all prior provisioning steps SHALL remain `variant="success"`
 - AND the UI SHALL continue polling (per the phase vocabulary spec, `Degraded` is
   a recoverable phase that keeps polling)
+
+#### Scenario: GTW-PROG-03.06 -- Stepper hidden on a later entry to a healthy Running gateway
+
+- GIVEN a gateway that completed provisioning, has `phase` `Running`, and is
+  running without an error
+- WHEN the user enters the gateway detail page after previously leaving that
+  gateway
+- THEN the stepper SHALL NOT be visible
 
 ---
 
