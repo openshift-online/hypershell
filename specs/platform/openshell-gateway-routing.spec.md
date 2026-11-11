@@ -297,6 +297,26 @@ reports readiness.
 - `hsctl get gateways` displays the routeAddress
 - If the address cannot be resolved (for example `GATEWAY_API_BASE_DOMAIN` is unset), the `routeAddress` SHALL remain empty
 
+Readiness evaluation (§ Gateway Exposure Port, `OSG-ROUT-08`) and the bounded
+provisioning-pass poll for route readiness (see
+[`openshell-gateway-health.spec.md`](./openshell-gateway-health.spec.md) §
+Phase Reflects Workload and Route Readiness) SHALL treat `routeAddress` as
+published whenever the Gateway's currently persisted field is non-empty, not
+only when the current reconciliation pass itself resolved and saved it. When a
+pass's own attempt to resolve or persist the address does not succeed - the
+resolution errors or returns empty, or the PATCH that saves it fails - a
+`routeAddress` already published by an earlier pass SHALL continue to count as
+published. A gateway SHALL NOT be reported as having no route address merely
+because the current pass did not re-resolve or re-save a value that was
+already published.
+
+#### Scenario: OSG-ROUT-07.01 -- Already-published address survives a pass that cannot re-resolve it
+
+- GIVEN a Gateway whose `routeAddress` was published by an earlier reconciliation pass
+- WHEN a later pass's own attempt to resolve the address returns an error or empty, or fails to persist a newly resolved address
+- THEN readiness evaluation and the provisioning-pass route-readiness poll SHALL still use the previously published `routeAddress`
+- AND SHALL NOT report the route address as unpublished
+
 ### Requirement: OSG-ROUT-08 -- Gateway Exposure Port
 
 External exposure of a gateway - both **resolving the route address/URL** and
@@ -320,11 +340,26 @@ The port SHALL expose at least:
     Gateway - reports condition `Programmed=True` with a non-empty
     `.status.addresses`;
   - this gateway's own `GRPCRoute` `openshell-gateway` (§ GRPCRoute Resource
-    Specification, `OSG-ROUT-05`) is accepted by that parent: its
-    `status.parents` entry for the matching `parentRef` reports both
-    `Accepted=True` and `ResolvedRefs=True`;
+    Specification, `OSG-ROUT-05`) is accepted by that parent. A GRPCRoute MAY
+    carry several `status.parents` entries for the same parent name and
+    namespace (for example, reported by distinct controllers or listeners);
+    the adapter SHALL report the route as accepted when **any** entry whose
+    `parentRef` matches the parent's name, namespace, and `sectionName`
+    (`grpc`, per `OSG-ROUT-05`) reports both `Accepted=True` and
+    `ResolvedRefs=True`. A non-matching entry, or a matching entry that
+    happens to be evaluated first and reports `False`, SHALL NOT suppress a
+    later matching entry that reports `True`;
+  - each `Accepted`/`ResolvedRefs` condition consulted above is trusted only
+    when its `observedGeneration` equals the GRPCRoute's own
+    `metadata.generation`. A condition whose `observedGeneration` is behind
+    the route's current generation - for example an `Accepted=True` left over
+    from before a Helm retry re-applied the route - SHALL be treated as not
+    yet accepted, never as a stale `True` carried over from the prior
+    generation;
   - the Gateway resource's `routeAddress` field (§ Route Address Discovery,
-    `OSG-ROUT-07`) has already been published (non-empty).
+    `OSG-ROUT-07`) has already been published (non-empty), reflecting the
+    currently persisted value rather than only a value resolved during the
+    current evaluation (see `OSG-ROUT-07`).
 
   A parent Gateway reporting `Programmed=True` does not by itself mean this
   tenant's route is Ready: the shared Gateway reports `Programmed=True` for
@@ -389,6 +424,23 @@ API adapter SHALL read the relevant `Gateway` object's and this gateway's own
 - WHEN the reconciler queries readiness through the Gateway Exposure port
 - THEN the port SHALL report the exposure as not Ready
 - AND SHALL provide a reason (e.g. "route address not yet published")
+
+#### Scenario: OSG-ROUT-08.06 -- Route accepted on a later matching parent entry, not the first
+
+- GIVEN a routed Gateway whose own `GRPCRoute` carries two `status.parents` entries whose `parentRef` matches the parent's name, namespace, and `sectionName`
+- AND the first matching entry reports `Accepted=False`
+- AND the second matching entry reports `Accepted=True` and `ResolvedRefs=True`, both at the GRPCRoute's current `metadata.generation`
+- AND the parent Gateway reports `Programmed=True` with a non-empty `.status.addresses`, and `routeAddress` has been published
+- WHEN the reconciler queries readiness through the Gateway Exposure port
+- THEN the port SHALL report the exposure as Ready
+
+#### Scenario: OSG-ROUT-08.07 -- Stale Accepted condition after a Helm retry re-applies the route
+
+- GIVEN a routed Gateway whose `GRPCRoute` was re-applied by a Helm retry, advancing its `metadata.generation`
+- AND the matching `status.parents` entry still reports `Accepted=True` and `ResolvedRefs=True` with an `observedGeneration` from before the re-apply
+- WHEN the reconciler queries readiness through the Gateway Exposure port
+- THEN the port SHALL report the exposure as not Ready
+- AND SHALL provide a reason (e.g. "GRPCRoute condition is stale for the current generation")
 
 ---
 
@@ -581,6 +633,7 @@ the reconcile pass retries, rather than being logged and discarded.
 | `hsctl apply` creates gateway but no external access | No `route` field on Gateway resource | Add `route: {}` to the Gateway resource |
 | Gateway pods Ready but phase stuck `Provisioning`, then `Degraded` after the grace window | The shared Gateway API `Gateway` reports `Programmed=False` / no ADDRESS (cloud LB not provisioned, DNS/quota failure) | `oc get gateway -n $GATEWAY_API_GATEWAY_NAMESPACE $GATEWAY_API_GATEWAY_NAME -o wide`; inspect `.status.conditions` and events on the Gateway / its ELB |
 | Gateway pods Ready and the shared Gateway already `Programmed=True`, but phase stays `Provisioning` (not `Running`) | This gateway's own `GRPCRoute` has not yet been accepted by the shared Gateway (e.g. a Helm apply retry is still in flight), or `routeAddress` has not yet been published | `oc get grpcroute -n <tenant-ns> openshell-gateway -o yaml`; inspect `status.parents` for `Accepted`/`ResolvedRefs`, and check the Gateway resource's `routeAddress` field |
+| `status.parents` already shows `Accepted: "True"` right after a Helm retry re-applies the route, but phase stays `Provisioning` | The condition's `observedGeneration` is behind the GRPCRoute's current `metadata.generation`; the controller has not yet re-stamped it for the new generation | `oc get grpcroute -n <tenant-ns> openshell-gateway -o jsonpath='{.metadata.generation}'` and compare against `status.parents[*].conditions[*].observedGeneration`; wait for them to match rather than trusting the pre-reapply `True` (see OSG-ROUT-08) |
 | `GATEWAY_API_GATEWAY_NAME is required` error | Env var not set on controller | Set `GATEWAY_API_GATEWAY_NAME` to the pre-existing Gateway name |
 | `peer sent no certificates` in gateway logs, client gets `upstream connect error or disconnect/reset before headers` | Gateway requires client certs (mTLS) but ingress proxy cannot present them | Verify `route.enabled` is true -- in Gateway API routing mode the reconciler sets `server.tls.enableMtls=false`; other modes keep the chart default (see TLS spec) |
 | WebSocket upgrade over a dedicated route returns `503` `upstream connect error or disconnect/reset before headers. reset reason: remote reset` while plain HTTP returns `200` | The sandbox HTTPRoute points at an `appProtocol: grpc` (HTTP/2) backend port; HTTP/2 cannot carry a WebSocket upgrade | Point the sandbox HTTPRoute at the Service's `http` port (`appProtocol: http`); see OSG-ROUT-13 |
