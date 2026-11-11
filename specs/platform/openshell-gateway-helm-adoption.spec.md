@@ -145,7 +145,7 @@ The reconciler provisions a gateway only while its desired spec is not converged
 
 ### Requirement: OSG-HELM-02 -- Chart Sourcing
 
-The control plane SHALL load the upstream OpenShell Helm chart from a `.tgz` archive embedded in the container image. An OCI registry override is available for development.
+The control plane SHALL load the upstream OpenShell Helm chart from a `.tgz` archive embedded in the container image.
 
 #### Scenario: OSG-HELM-02.01 -- Embedded chart (default)
 
@@ -156,15 +156,6 @@ The control plane SHALL load the upstream OpenShell Helm chart from a `.tgz` arc
 - AND the chart source SHALL be committed to the repository under `charts/openshell/` and vendored via `make vendor-openshell-chart` (which clones the upstream tag, replaces the directory, and strips forbidden characters); the Dockerfile COPYs this committed tree and runs `helm package` with no network access, satisfying Konflux hermetic build requirements
 - AND upgrading the chart version SHALL require updating `OPENSHELL_VERSION`, running `make vendor-openshell-chart` to re-vendor the chart source, and rebuilding the control plane image
 - AND this ensures the chart version is always coupled to the control plane release -- a given control plane image always deploys the same chart version
-
-#### Scenario: OSG-HELM-02.02 -- OCI registry override (development only)
-
-- GIVEN the environment variable `HELM_CHART_REGISTRY` is set (e.g. `oci://ghcr.io/nvidia/openshell/helm-chart`)
-- WHEN the reconciler starts up
-- THEN it SHALL pull from the OCI registry instead of the embedded path
-- AND the chart version SHALL be read from `HELM_CHART_VERSION` (required when registry is set)
-- AND the chart SHALL be loaded once at startup and cached for the lifetime of the process
-- AND this mode SHALL NOT be used in production -- it introduces a runtime dependency on registry availability
 
 ---
 
@@ -437,7 +428,7 @@ The control plane SHALL provide a dedicated package for Helm operations with the
 |---|---|
 | Release management | Install, upgrade, uninstall, and query release status via the Helm CLI |
 | Values translation | Map Gateway resource fields to Helm chart values (`map[string]interface{}`) |
-| Chart verification | Verify chart archive exists at the embedded path; pull from OCI registry in dev mode |
+| Chart verification | Verify chart archive exists at the embedded path |
 
 ---
 
@@ -448,15 +439,6 @@ The control plane SHALL provide a dedicated package for Helm operations with the
 | Variable | Default | Description |
 |---|---|---|
 | `HELM_CHART_PATH` | `/charts/openshell.tgz` | Path to embedded chart archive in the container |
-| `HELM_CHART_REGISTRY` | *(empty)* | OCI registry URL (dev only); when set, overrides `HELM_CHART_PATH` |
-| `HELM_CHART_VERSION` | *(empty)* | Chart version to pull from OCI registry; required when `HELM_CHART_REGISTRY` is set |
-
-### Validation at Startup
-
-The control plane SHALL validate configuration at startup and fail fast with clear error messages:
-
-- When `HELM_CHART_REGISTRY` is set, `HELM_CHART_VERSION` SHALL be required (fail if missing)
-- Chart version compatibility SHALL be verified if pulling from OCI registry (log warning if chart version is not tested)
 
 ---
 

@@ -543,3 +543,4 @@ does not exist. "Former file" is the spec the ID lived in, relative to
 | `OSG-CON-05.04` | `platform/openshell-gateway-console.spec.md` | - | Required console OpenShift Route behaviour in Route ingress mode, removed in issue #767. |
 | `OSG-CON-05.05` | `platform/openshell-gateway-console.spec.md` | - | Required console OpenShift Route behaviour in Route ingress mode, removed in issue #767. |
 | `OSG-CON-05.06` | `platform/openshell-gateway-console.spec.md` | - | Required console OpenShift Route behaviour in Route ingress mode, removed in issue #767. |
+| `OSG-HELM-02.02` | `platform/openshell-gateway-helm-adoption.spec.md` | - | OCI registry chart override (`HELM_CHART_REGISTRY`/`HELM_CHART_VERSION`) was never wired to a chart-loading code path; `PullChart` had no caller. Removed as dead code (#1014). |
