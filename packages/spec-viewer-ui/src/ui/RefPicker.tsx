@@ -12,6 +12,7 @@ import { useState } from "react";
 import { useIntl, type IntlShape } from "react-intl";
 
 import type { RefList, RefName } from "../application/ports";
+import { orderRefs } from "../domain/ref-order";
 import { messages } from "../messages";
 
 /** The working tree's ref in local development (see the dev server). */
@@ -57,10 +58,10 @@ export function RefPicker({
   const [input, setInput] = useState("");
   const current = value === "" ? refs?.default : value;
   const needle = input.toLowerCase();
-  // The default branch leads; the others keep the server's order.
+  // The default branch leads, then main; the others keep the server's order.
   const all = refs
-    ? [refs.default, ...refs.refs.filter((ref) => ref !== refs.default)].filter(
-        (ref) => refLabel(intl, ref).toLowerCase().includes(needle),
+    ? orderRefs(refs.default, refs.refs).filter((ref) =>
+        refLabel(intl, ref).toLowerCase().includes(needle),
       )
     : [];
   const shown = all.slice(0, MAX_OPTIONS);
