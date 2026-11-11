@@ -31,6 +31,16 @@ type SecretSourcePatchRequest struct {
 	KeyMappings *string `json:"key_mappings"`
 }
 
+// SecretSourceMaterialUploadRequest is the body of the write-only material-upload
+// operation (PLAT-DATA-27, AGT-SEC-14). It carries ONLY the durable material: it
+// has no path or other reference field, so an upload can never re-point a
+// SecretSource at another store location. The value is write-only - it is written
+// through the write-only secret store and is never persisted raw in the database
+// nor echoed in the response.
+type SecretSourceMaterialUploadRequest struct {
+	Value *string `json:"value"`
+}
+
 func (d *SecretSource) BeforeCreate(tx *gorm.DB) error {
 	if d.ID == "" {
 		d.ID = api.NewID()

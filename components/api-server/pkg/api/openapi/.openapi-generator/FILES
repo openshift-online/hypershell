@@ -84,6 +84,7 @@ docs/SandboxTemplateList.md
 docs/SandboxTemplatePatchRequest.md
 docs/SecretSource.md
 docs/SecretSourceList.md
+docs/SecretSourceMaterialUploadRequest.md
 docs/SecretSourcePatchRequest.md
 docs/User.md
 docs/UserList.md
@@ -170,6 +171,7 @@ model_sandbox_template_list.go
 model_sandbox_template_patch_request.go
 model_secret_source.go
 model_secret_source_list.go
+model_secret_source_material_upload_request.go
 model_secret_source_patch_request.go
 model_user.go
 model_user_list.go

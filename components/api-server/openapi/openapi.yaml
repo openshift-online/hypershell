@@ -90,6 +90,8 @@ paths:
     $ref: 'openapi.secretSources.yaml#/paths/~1api~1hypershell~1ext~1secret_sources'
   /api/hypershell/ext/secret_sources/{id}:
     $ref: 'openapi.secretSources.yaml#/paths/~1api~1hypershell~1ext~1secret_sources~1{id}'
+  /api/hypershell/ext/secret_sources/{id}/material:
+    $ref: 'openapi.secretSources.yaml#/paths/~1api~1hypershell~1ext~1secret_sources~1{id}~1material'
   /api/hypershell/ext/repositories:
     $ref: 'openapi.repositories.yaml#/paths/~1api~1hypershell~1ext~1repositories'
   /api/hypershell/ext/repositories/{id}:
@@ -264,6 +266,8 @@ components:
       $ref: 'openapi.secretSources.yaml#/components/schemas/SecretSourceList'
     SecretSourcePatchRequest:
       $ref: 'openapi.secretSources.yaml#/components/schemas/SecretSourcePatchRequest'
+    SecretSourceMaterialUploadRequest:
+      $ref: 'openapi.secretSources.yaml#/components/schemas/SecretSourceMaterialUploadRequest'
     AgentWorkspace:
       $ref: 'openapi.agentWorkspaces.yaml#/components/schemas/AgentWorkspace'
     AgentWorkspaceList:
