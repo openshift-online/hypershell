@@ -1181,6 +1181,11 @@ func serviceAccountSpec(account *OpenShellGatewayServiceAccount, gateway *gatewa
 }
 
 func (s *service) bootstrapDefaultWorkspace(ctx context.Context, gateway *gateways.Gateway, oidc GatewayOIDC, subject string) *APIError {
+	if !gateways.IsProvisioningConditionComplete(
+		gateway.ProvisioningConditions, gateways.ConditionDefaultWorkspaceBootstrapReady,
+	) {
+		return nil
+	}
 	if s.bootstrap == nil {
 		return &APIError{Status: http.StatusServiceUnavailable, Code: "default_workspace_bootstrap_unavailable", Message: "Default-workspace bootstrap is unavailable"}
 	}
