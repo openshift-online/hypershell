@@ -184,12 +184,6 @@ func NewGatewayReconcileQueue(ctx context.Context, handler Handler[*pb.Gateway],
 	}
 }
 
-// EnqueueForced requests reconciliation of the given gateway, marking it so the
-// next handler attempt bypasses the reconciler phase gate (as recovery seeds do).
-// This is what lets a release image change re-reconcile a gateway that is already
-// Running, which the phase gate would otherwise skip.
-func (g *GatewayReconcileQueue) EnqueueForced(ev Event[*pb.Gateway]) { g.q.enqueueForced(ev) }
-
 // Stop drains and shuts the queue down.
 func (g *GatewayReconcileQueue) Stop() { g.q.stop() }
 
