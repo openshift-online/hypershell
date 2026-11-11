@@ -298,9 +298,8 @@ reports readiness.
 - If the address cannot be resolved (for example `GATEWAY_API_BASE_DOMAIN` is unset), the `routeAddress` SHALL remain empty
 
 Readiness evaluation (§ Gateway Exposure Port, `OSG-ROUT-08`) and the bounded
-provisioning-pass poll for route readiness (see
-[`openshell-gateway-health.spec.md`](./openshell-gateway-health.spec.md) §
-Phase Reflects Workload and Route Readiness) SHALL treat `routeAddress` as
+provisioning-pass poll for route readiness (§ Provisioning-Pass Route
+Readiness Poll, `OSG-ROUT-17`) SHALL treat `routeAddress` as
 published whenever the Gateway's currently persisted field is non-empty, not
 only when the current reconciliation pass itself resolved and saved it. When a
 pass's own attempt to resolve or persist the address does not succeed - the
@@ -465,6 +464,50 @@ The grace window governs only the `Provisioning → Degraded` transition for
 exposure that never becomes Ready; it is not a hard deadline that stops
 observation. The control plane SHALL keep observing the exposure after the window
 elapses, so a gateway that eventually becomes programmed returns to `Running`.
+
+---
+
+### Requirement: OSG-ROUT-17 -- Provisioning-Pass Route Readiness Poll
+
+Once a routed gateway's Deployment is observed Ready, the provisioning
+reconciliation pass SHALL poll the Gateway Exposure port (§ Gateway Exposure
+Port, `OSG-ROUT-08`) for a bounded window before the pass returns, so a route
+that is accepted promptly promotes the gateway to `Running` within the same
+pass rather than waiting for the next continuous-health-reconciler tick. This
+poll is synchronous within a single provisioning pass. It is distinct from,
+and much shorter than, the `GATEWAY_ROUTE_READY_TIMEOUT` grace window (§
+Gateway Exposure Configuration, `OSG-ROUT-10`), which governs the
+continuous health reconciler's separate, longer-running observation across
+many reconcile cycles.
+
+- The poll SHALL run for up to 90 seconds, checking exposure readiness every 2
+  seconds.
+- WHEN the exposure becomes Ready within the poll window, the provisioning
+  pass SHALL set the Gateway `phase` to `Running` before returning.
+- WHEN the poll window elapses without the exposure becoming Ready, the
+  provisioning pass SHALL leave the `phase` at `Provisioning` and return; it
+  SHALL NOT set `phase` to `Degraded` on this account alone. The continuous
+  health reconciler continues observing the exposure and enforces the longer
+  `GATEWAY_ROUTE_READY_TIMEOUT` grace window (`OSG-ROUT-10`), promoting the
+  gateway to `Running` once the exposure becomes Ready, or to `Degraded` once
+  that grace window elapses without it.
+- A gateway with no route configuration is not subject to this poll: its
+  `phase` is set to `Running` on Deployment readiness alone (§ Gateway Route
+  Configuration, `OSG-ROUT-03`).
+
+#### Scenario: OSG-ROUT-17.01 -- Route becomes Ready within the in-pass poll window
+
+- GIVEN a routed Gateway whose Deployment has just become Ready during a provisioning pass
+- WHEN the Gateway Exposure port reports the exposure Ready within 90 seconds of that pass polling it
+- THEN the provisioning pass SHALL set the Gateway `phase` to `Running` before returning
+
+#### Scenario: OSG-ROUT-17.02 -- Route still not Ready when the in-pass poll window elapses
+
+- GIVEN a routed Gateway whose Deployment has just become Ready during a provisioning pass
+- WHEN the Gateway Exposure port does not report the exposure Ready within 90 seconds of that pass polling it
+- THEN the provisioning pass SHALL leave the Gateway `phase` at `Provisioning` and return
+- AND SHALL NOT set the `phase` to `Degraded`
+- AND the continuous health reconciler SHALL continue to enforce the `GATEWAY_ROUTE_READY_TIMEOUT` grace window (`OSG-ROUT-10`)
 
 ---
 
