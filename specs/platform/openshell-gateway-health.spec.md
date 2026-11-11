@@ -92,17 +92,13 @@ not only to its dependencies (such as the gateway database).
 External-exposure readiness SHALL be observed through the Gateway Exposure port
 (see [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md)
 § Gateway Exposure Port, `OSG-ROUT-08`), so that the health decision is
-independent of the concrete exposure backend. For the Gateway API adapter,
-"Ready" requires all of:
-
-- the parent Gateway API `Gateway` - the per-gateway dedicated `Gateway` for a
-  gateway opted in to a dedicated route, otherwise the shared Gateway -
-  reports condition `Programmed=True` with a non-empty `.status.addresses`;
-- this gateway's own `GRPCRoute` is accepted by that parent: its
-  `status.parents` entry for the matching `parentRef` reports both
-  `Accepted=True` and `ResolvedRefs=True`;
-- the Gateway resource's `routeAddress` field has already been published
-  (non-empty).
+independent of the concrete exposure backend. This spec defers to `OSG-ROUT-08`
+for the full definition of "Ready" for the Gateway API adapter - the parent
+Gateway's `Programmed` condition and address, GRPCRoute acceptance checked
+across every matching `status.parents` entry with its `sectionName`, the
+`observedGeneration` freshness check on each condition, and `routeAddress`
+publication - rather than restating that definition here, so the two specs
+cannot drift apart.
 
 A parent Gateway reporting `Programmed=True` is not by itself sufficient: the
 shared Gateway reports `Programmed=True` for every tenant as soon as any one
@@ -123,11 +119,8 @@ Ready on parent-Gateway readiness alone.
 
 - GIVEN a routed Gateway whose Deployment is Ready and whose phase is
   `Provisioning`
-- WHEN its external exposure becomes Ready (for the Gateway API adapter: the
-  parent `Gateway` reports `Programmed=True` with a non-empty
-  `.status.addresses`, this gateway's own `GRPCRoute` reports `Accepted=True`
-  and `ResolvedRefs=True` for that parent, and `routeAddress` has been
-  published)
+- WHEN its external exposure becomes Ready (for the Gateway API adapter, "Ready"
+  per `OSG-ROUT-08`)
 - THEN the control plane SHALL set the Gateway `phase` to `Running`
 
 #### Scenario: OSG-HLTH-01.03 -- Non-routed gateway becomes ready

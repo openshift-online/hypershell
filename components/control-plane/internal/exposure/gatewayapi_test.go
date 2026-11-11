@@ -71,6 +71,48 @@ func conditionStatus(b bool) metav1.ConditionStatus {
 	return metav1.ConditionFalse
 }
 
+// grpcRouteObjGen is grpcRouteObj with an explicit metadata.generation, for
+// exercising the observedGeneration freshness check (OSG-ROUT-08.07).
+func grpcRouteObjGen(routeNamespace string, generation int64, parents ...gatewayv1.RouteParentStatus) *gatewayv1.GRPCRoute {
+	route := grpcRouteObj(routeNamespace, parents...)
+	route.Generation = generation
+	return route
+}
+
+// parentStatusAt is parentStatus with an explicit observedGeneration stamped
+// on both conditions, for exercising the observedGeneration freshness check
+// (OSG-ROUT-08.07).
+func parentStatusAt(parentName, parentNamespace string, accepted, resolvedRefs bool, observedGeneration int64) gatewayv1.RouteParentStatus {
+	p := parentStatus(parentName, parentNamespace, accepted, resolvedRefs)
+	for i := range p.Conditions {
+		p.Conditions[i].ObservedGeneration = observedGeneration
+	}
+	return p
+}
+
+// parentStatusSection is parentStatus with an explicit parentRef.sectionName,
+// for exercising the sectionName match (OSG-ROUT-08.06).
+func parentStatusSection(parentName, parentNamespace, sectionName string, accepted, resolvedRefs bool) gatewayv1.RouteParentStatus {
+	p := parentStatus(parentName, parentNamespace, accepted, resolvedRefs)
+	section := gatewayv1.SectionName(sectionName)
+	p.ParentRef.SectionName = &section
+	return p
+}
+
+// grpcRouteObjWithParentSection builds a GRPCRoute whose spec.parentRefs
+// declares sectionName for the (parentName, parentNamespace) parent, so
+// routeAcceptedByParent's sectionName match (derived from the route's own
+// spec rather than hardcoded) has something to match against.
+func grpcRouteObjWithParentSection(routeNamespace, parentName, parentNamespace, sectionName string, parents ...gatewayv1.RouteParentStatus) *gatewayv1.GRPCRoute {
+	route := grpcRouteObj(routeNamespace, parents...)
+	ns := gatewayv1.Namespace(parentNamespace)
+	section := gatewayv1.SectionName(sectionName)
+	route.Spec.ParentRefs = []gatewayv1.ParentReference{
+		{Name: gatewayv1.ObjectName(parentName), Namespace: &ns, SectionName: &section},
+	}
+	return route
+}
+
 const publishedAddress = "grpcs://gw-tenant-a.apps.example.com:443"
 
 // Verifies: OSG-ROUT-08.01, OSG-ROUT-08.02, OSG-ROUT-08.04, OSG-ROUT-08.05
@@ -156,6 +198,77 @@ func TestObserveReadiness(t *testing.T) {
 			wantReady: false,
 			// routeAddress left empty.
 			wantReason: "route address not yet published",
+		},
+		{
+			// A GRPCRoute MAY carry several status.parents entries for the same
+			// parent (e.g. reported by distinct controllers). The first matching
+			// entry reporting False must not suppress a later matching entry
+			// reporting True.
+			//
+			// Verifies: OSG-ROUT-08.06
+			name:      "own route accepted on a later matching parent entry, not the first, is ready",
+			dedicated: gatewayObj("tenant-a", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionTrue, "Programmed")}, []string{"1.2.3.4"}),
+			route: grpcRouteObj("tenant-a",
+				parentStatus("gw-tenant-a", "tenant-a", false, false),
+				parentStatus("gw-tenant-a", "tenant-a", true, true),
+			),
+			routeAddress: publishedAddress,
+			wantReady:    true,
+		},
+		{
+			// An Accepted/ResolvedRefs condition is trusted only when its
+			// observedGeneration matches the GRPCRoute's current generation. A
+			// Helm retry re-applying the route advances its generation; the old
+			// True left over from before the re-apply must not count.
+			//
+			// Verifies: OSG-ROUT-08.07
+			name:      "own route Accepted condition is stale for the current generation is not ready",
+			dedicated: gatewayObj("tenant-a", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionTrue, "Programmed")}, []string{"1.2.3.4"}),
+			route: grpcRouteObjGen("tenant-a", 2,
+				parentStatusAt("gw-tenant-a", "tenant-a", true, true, 1),
+			),
+			routeAddress: publishedAddress,
+			wantReady:    false,
+			wantReason:   "GRPCRoute not accepted",
+		},
+		{
+			// A freshly re-stamped condition (observedGeneration caught up to the
+			// route's current generation) is trusted again.
+			//
+			// Verifies: OSG-ROUT-08.07
+			name:      "own route Accepted condition matches the current generation is ready",
+			dedicated: gatewayObj("tenant-a", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionTrue, "Programmed")}, []string{"1.2.3.4"}),
+			route: grpcRouteObjGen("tenant-a", 2,
+				parentStatusAt("gw-tenant-a", "tenant-a", true, true, 2),
+			),
+			routeAddress: publishedAddress,
+			wantReady:    true,
+		},
+		{
+			// The adapter matches sectionName as well as name/namespace: a
+			// status.parents entry for a different listener on the same parent
+			// Gateway must not count as this route's own acceptance.
+			name:      "own route status.parents entry for a different sectionName is not ready",
+			dedicated: gatewayObj("tenant-a", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionTrue, "Programmed")}, []string{"1.2.3.4"}),
+			route: func() *gatewayv1.GRPCRoute {
+				route := grpcRouteObjWithParentSection("tenant-a", "gw-tenant-a", "tenant-a", "grpc",
+					parentStatusSection("gw-tenant-a", "tenant-a", "sandbox", true, true),
+				)
+				return route
+			}(),
+			routeAddress: publishedAddress,
+			wantReady:    false,
+			wantReason:   "GRPCRoute not accepted",
+		},
+		{
+			// The matching sectionName is still accepted.
+			name:      "own route status.parents entry for the matching sectionName is ready",
+			dedicated: gatewayObj("tenant-a", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionTrue, "Programmed")}, []string{"1.2.3.4"}),
+			route: grpcRouteObjWithParentSection("tenant-a", "gw-tenant-a", "tenant-a", "grpc",
+				parentStatusSection("gw-tenant-a", "tenant-a", "grpc", true, true),
+			),
+			routeAddress: publishedAddress,
+			wantReady:    true,
 		},
 
 		// Without a dedicated Gateway, the shared Gateway is observed
