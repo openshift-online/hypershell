@@ -172,6 +172,25 @@ func (r *GatewayReconciler) rereadDeletingGateway(ctx context.Context, id string
 	return gw, nil
 }
 
+// currentRouteAddress returns the gateway's currently persisted routeAddress,
+// re-read live rather than trusted from snapshot (the watch-event payload
+// captured when a provisioning pass started), so a routeAddress-publication
+// fallback reflects state as of now, not as of several minutes ago
+// (OSG-ROUT-07.01: "currently persisted"). A transient re-read error falls
+// back to snapshot's own field rather than aborting the pass: that is no
+// worse than this re-read not existing at all.
+func (r *GatewayReconciler) currentRouteAddress(ctx context.Context, gatewayID string, snapshot *pb.Gateway) string {
+	resp, err := r.gatewayServiceClient().GetGateway(ctx, &pb.GetGatewayRequest{Id: gatewayID})
+	if err != nil {
+		slog.WarnContext(ctx, "Gateway: re-read for routeAddress fallback failed; using this pass's own snapshot", "gateway_id", gatewayID, "error", err)
+		return snapshot.GetRouteAddress()
+	}
+	if current := resp.GetGateway(); current != nil {
+		return current.GetRouteAddress()
+	}
+	return snapshot.GetRouteAddress()
+}
+
 // recordDeleteOrphans records the no-silent-orphan signal for each named
 // owned-resource class that a delete could not reconcile, as a durable,
 // operator-visible Event in addition to the retryable error the caller returns
@@ -737,12 +756,9 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	gateway.SetCondition(conditions, gateway.ConditionGatewayHealthy, gateway.StatusInProgress, "")
 	r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
 
-	// routeAddress carries the address down to the route-ready poll below only
-	// once it is actually persisted: the exposure port treats an unpublished
-	// routeAddress as not-Ready, so a resolved-but-not-yet-persisted address must
-	// not count here. If updateRouteAddress fails, routeAddress stays empty and
-	// the poll (correctly) keeps reporting not-Ready rather than promoting the
-	// gateway to Running on a value the stored Gateway record does not yet carry.
+	// routeAddress carries the address down to the route-ready poll below. See
+	// routeAddressForPoll for how a resolve/save failure this pass falls back
+	// to the Gateway's currently-persisted routeAddress (OSG-ROUT-07.01).
 	var routeAddress string
 	if isRoutedGateway(gw) {
 		routeHost := ""
@@ -751,6 +767,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			_ = json.Unmarshal([]byte(*gw.Route), &rc)
 			routeHost = rc.Host
 		}
+		var resolvedAndSaved string
 		addr, err := r.exposure.ResolveAddress(ctx, exposure.Request{
 			Namespace: namespace,
 			Host:      routeHost,
@@ -761,10 +778,22 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			if err := r.updateRouteAddress(ctx, event.ResourceID, addr); err != nil {
 				slog.WarnContext(ctx, "Gateway failed to publish route address", "gateway_name", gw.Name, "error", err)
 			} else {
-				routeAddress = addr
+				resolvedAndSaved = addr
 				slog.InfoContext(ctx, "Gateway published route address", "gateway_name", gw.Name, "addr", addr)
 			}
 		}
+		// Fall back to a fresh read of the persisted routeAddress, not gw's own
+		// field: gw is the watch-event snapshot captured when this pass started,
+		// and the Helm apply above (gateway.ReconcileGateway) can itself run long
+		// enough for the continuous health reconciler to concurrently clear or
+		// republish the persisted address (for example, tearing down the route if
+		// it was disabled mid-pass). Using the stale snapshot here could resurrect
+		// an address the health reconciler already retracted. This re-read is
+		// taken once, before the Deployment-readiness wait and route-readiness
+		// poll below, which can together add minutes more; it narrows the
+		// staleness window around the Helm apply but does not eliminate
+		// staleness introduced during those later waits.
+		routeAddress = routeAddressForPoll(r.currentRouteAddress(ctx, event.ResourceID, gw), resolvedAndSaved)
 	}
 
 	// Manifests applied successfully: acknowledge the generation we converged on.
@@ -988,12 +1017,31 @@ const provisioningConsoleReadyInterval = 2 * time.Second
 
 // waitForRouteReady polls the gateway's external exposure until it reports Ready
 // or the bounded provisioning window elapses, returning whether it became Ready.
-// routeAddress is the routeAddress this provisioning pass resolved (and, if
-// non-empty, published) for the gateway; the exposure port treats an empty
-// value as not-Ready, so a gateway whose address could not be resolved never
-// reports Ready here even if its Gateway API resources are otherwise healthy.
+// routeAddress is the Gateway's routeAddress: the address this provisioning
+// pass itself resolved and published when it could, falling back to the
+// already-persisted value (gw.GetRouteAddress()) when this pass's own resolve
+// or save attempt did not succeed (OSG-ROUT-07.01). The exposure port treats
+// an empty value as not-Ready, so a gateway with no published address at all
+// never reports Ready here even if its Gateway API resources are otherwise
+// healthy.
 func (r *GatewayReconciler) waitForRouteReady(ctx context.Context, namespace, routeAddress string) bool {
 	return r.pollRouteReady(ctx, namespace, routeAddress, provisioningRouteReadyInterval, provisioningRouteReadyWait)
+}
+
+// routeAddressForPoll returns the routeAddress this provisioning pass should
+// forward to the route-ready poll. It prefers resolvedAndSaved, the address
+// this pass itself resolved and successfully persisted this pass; when the
+// pass's own resolve attempt errored or returned empty, or its save failed,
+// resolvedAndSaved is empty, and the gateway's already-persisted routeAddress
+// (persisted, i.e. gw.GetRouteAddress()) is used instead. Without this
+// fallback, a pass that cannot re-resolve the address would make an
+// already-published, reachable gateway look unpublished for this pass's poll
+// (OSG-ROUT-07.01).
+func routeAddressForPoll(persisted, resolvedAndSaved string) string {
+	if resolvedAndSaved != "" {
+		return resolvedAndSaved
+	}
+	return persisted
 }
 
 // pollRouteReady observes the exposure immediately and then every interval until

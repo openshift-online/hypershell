@@ -53,8 +53,10 @@ const gatewayRouteName = "openshell-gateway"
 //  1. the relevant parent Gateway API `Gateway` reports condition
 //     Programmed=True with a non-empty .status.addresses;
 //  2. this gateway's own GRPCRoute (gatewayRouteName, in the tenant namespace)
-//     is accepted by that parent: its status.parents entry for the matching
-//     parentRef reports both Accepted=True and ResolvedRefs=True;
+//     is accepted by that parent: any of its status.parents entries matching
+//     the parentRef's name, namespace, and sectionName reports both
+//     Accepted=True and ResolvedRefs=True, with an observedGeneration equal to
+//     the GRPCRoute's own metadata.generation (OSG-ROUT-08.06, OSG-ROUT-08.07);
 //  3. req.RouteAddress (the Gateway resource's already-published routeAddress)
 //     is non-empty.
 //
@@ -135,30 +137,86 @@ func (g *GatewayAPIExposure) readinessForParent(ctx context.Context, req Request
 	return Readiness{Ready: true}, nil
 }
 
-// routeAcceptedByParent reports whether route's status.parents carries an
-// entry for the (parentName, parentNamespace) parentRef reporting both
-// Accepted=True and ResolvedRefs=True. A parentRef with no explicit namespace
-// defaults to the route's own namespace, per the Gateway API spec.
+// routeAcceptedByParent reports whether route's status.parents carries any
+// entry for the (parentName, parentNamespace, sectionName) parentRef reporting
+// both Accepted=True and ResolvedRefs=True at the route's current
+// metadata.generation (OSG-ROUT-08). A GRPCRoute MAY carry several
+// status.parents entries for the same parent name and namespace, for example
+// reported by distinct controllers or listeners; every matching entry is
+// checked, and a non-matching or False entry evaluated first SHALL NOT
+// suppress a later matching entry that reports True (OSG-ROUT-08.06). A
+// parentRef with no explicit namespace defaults to the route's own namespace,
+// per the Gateway API spec.
+//
+// sectionName is read from the route's own spec.parentRefs for this parent
+// rather than hardcoded, so the match is correct whether the parent is the
+// dedicated per-tenant Gateway (sectionName "grpc") or the shared Gateway
+// (sectionName from GATEWAY_API_HTTP_LISTENER_NAME); a parentRef with no
+// sectionName imposes no constraint.
 func routeAcceptedByParent(route *gatewayv1.GRPCRoute, parentName, parentNamespace, routeNamespace string) bool {
+	wantSection := expectedSectionName(route, parentName, parentNamespace, routeNamespace)
 	for _, p := range route.Status.Parents {
-		ns := routeNamespace
-		if p.ParentRef.Namespace != nil && *p.ParentRef.Namespace != "" {
-			ns = string(*p.ParentRef.Namespace)
-		}
-		if string(p.ParentRef.Name) != parentName || ns != parentNamespace {
+		if !parentRefMatches(p.ParentRef, parentName, parentNamespace, routeNamespace) {
 			continue
 		}
-		return conditionTrue(p.Conditions, string(gatewayv1.RouteConditionAccepted)) &&
-			conditionTrue(p.Conditions, string(gatewayv1.RouteConditionResolvedRefs))
+		if wantSection != "" && parentRefSectionName(p.ParentRef) != wantSection {
+			continue
+		}
+		if conditionTrue(p.Conditions, string(gatewayv1.RouteConditionAccepted), route.Generation) &&
+			conditionTrue(p.Conditions, string(gatewayv1.RouteConditionResolvedRefs), route.Generation) {
+			return true
+		}
 	}
 	return false
 }
 
-// conditionTrue reports whether conds contains condType with status True.
-func conditionTrue(conds []metav1.Condition, condType string) bool {
+// expectedSectionName returns the sectionName the route's own spec.parentRefs
+// declares for the (parentName, parentNamespace) parent, or "" when that
+// parentRef has no sectionName set (imposing no constraint on the match).
+func expectedSectionName(route *gatewayv1.GRPCRoute, parentName, parentNamespace, routeNamespace string) string {
+	for _, ref := range route.Spec.ParentRefs {
+		if parentRefMatches(ref, parentName, parentNamespace, routeNamespace) {
+			if section := parentRefSectionName(ref); section != "" {
+				return section
+			}
+		}
+	}
+	return ""
+}
+
+// parentRefMatches reports whether ref identifies the (parentName,
+// parentNamespace) parent. A parentRef with no explicit namespace defaults to
+// routeNamespace, per the Gateway API spec. Shared by routeAcceptedByParent
+// (matching a GRPCRoute's status.parents entries) and expectedSectionName
+// (matching its own spec.parentRefs) so the one namespace-defaulting rule
+// cannot drift between the two.
+func parentRefMatches(ref gatewayv1.ParentReference, parentName, parentNamespace, routeNamespace string) bool {
+	ns := routeNamespace
+	if ref.Namespace != nil && *ref.Namespace != "" {
+		ns = string(*ref.Namespace)
+	}
+	return string(ref.Name) == parentName && ns == parentNamespace
+}
+
+// parentRefSectionName returns ref's sectionName, or "" when unset.
+func parentRefSectionName(ref gatewayv1.ParentReference) string {
+	if ref.SectionName != nil {
+		return string(*ref.SectionName)
+	}
+	return ""
+}
+
+// conditionTrue reports whether conds contains condType with status True and
+// an observedGeneration equal to wantGeneration. A condition's True status is
+// trusted only at the generation it was observed at: a stale True left over
+// from before a Helm retry re-applied the route (advancing the route's
+// generation without yet re-stamping the condition) is treated as not yet
+// accepted, not as a carried-over True from the prior generation
+// (OSG-ROUT-08.07).
+func conditionTrue(conds []metav1.Condition, condType string, wantGeneration int64) bool {
 	for _, c := range conds {
 		if c.Type == condType {
-			return c.Status == metav1.ConditionTrue
+			return c.Status == metav1.ConditionTrue && c.ObservedGeneration == wantGeneration
 		}
 	}
 	return false
