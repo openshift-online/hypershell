@@ -12,16 +12,18 @@ import (
 // scriptedExposure returns a readiness/err drawn from a per-call script,
 // clamping to the last entry so a "ready" or "error" state persists.
 type scriptedExposure struct {
-	steps []exposure.Readiness
-	err   error
-	calls int32
+	steps   []exposure.Readiness
+	err     error
+	calls   int32
+	lastReq exposure.Request
 }
 
 func (s *scriptedExposure) ResolveAddress(context.Context, exposure.Request) (string, error) {
 	return "", nil
 }
 
-func (s *scriptedExposure) ObserveReadiness(context.Context, exposure.Request) (exposure.Readiness, error) {
+func (s *scriptedExposure) ObserveReadiness(_ context.Context, req exposure.Request) (exposure.Readiness, error) {
+	s.lastReq = req
 	i := int(atomic.AddInt32(&s.calls, 1)) - 1
 	if s.err != nil && i == 0 {
 		// First observation errors; subsequent ones fall through to the script.
@@ -40,7 +42,7 @@ func TestPollRouteReady(t *testing.T) {
 	t.Run("ready on first observation returns true", func(t *testing.T) {
 		exp := &scriptedExposure{steps: []exposure.Readiness{ready}}
 		r := &GatewayReconciler{exposure: exp}
-		if !r.pollRouteReady(t.Context(), "ns", time.Millisecond, time.Second) {
+		if !r.pollRouteReady(t.Context(), "ns", "grpcs://ns.example.com:443", time.Millisecond, time.Second) {
 			t.Fatal("expected route to be observed ready")
 		}
 		if got := atomic.LoadInt32(&exp.calls); got != 1 {
@@ -51,7 +53,7 @@ func TestPollRouteReady(t *testing.T) {
 	t.Run("becomes ready after polling returns true", func(t *testing.T) {
 		exp := &scriptedExposure{steps: []exposure.Readiness{notReady, notReady, ready}}
 		r := &GatewayReconciler{exposure: exp}
-		if !r.pollRouteReady(t.Context(), "ns", time.Millisecond, time.Second) {
+		if !r.pollRouteReady(t.Context(), "ns", "grpcs://ns.example.com:443", time.Millisecond, time.Second) {
 			t.Fatal("expected route to become ready after polling")
 		}
 		if got := atomic.LoadInt32(&exp.calls); got < 3 {
@@ -62,7 +64,7 @@ func TestPollRouteReady(t *testing.T) {
 	t.Run("retries past a transient error", func(t *testing.T) {
 		exp := &scriptedExposure{steps: []exposure.Readiness{ready}, err: context.DeadlineExceeded}
 		r := &GatewayReconciler{exposure: exp}
-		if !r.pollRouteReady(t.Context(), "ns", time.Millisecond, time.Second) {
+		if !r.pollRouteReady(t.Context(), "ns", "grpcs://ns.example.com:443", time.Millisecond, time.Second) {
 			t.Fatal("expected route to become ready after a transient error")
 		}
 	})
@@ -70,7 +72,7 @@ func TestPollRouteReady(t *testing.T) {
 	t.Run("window elapses without readiness returns false", func(t *testing.T) {
 		exp := &scriptedExposure{steps: []exposure.Readiness{notReady}}
 		r := &GatewayReconciler{exposure: exp}
-		if r.pollRouteReady(t.Context(), "ns", time.Millisecond, 20*time.Millisecond) {
+		if r.pollRouteReady(t.Context(), "ns", "grpcs://ns.example.com:443", time.Millisecond, 20*time.Millisecond) {
 			t.Fatal("expected timeout to report not ready")
 		}
 	})
@@ -80,8 +82,22 @@ func TestPollRouteReady(t *testing.T) {
 		r := &GatewayReconciler{exposure: exp}
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
-		if r.pollRouteReady(ctx, "ns", time.Millisecond, time.Minute) {
+		if r.pollRouteReady(ctx, "ns", "grpcs://ns.example.com:443", time.Millisecond, time.Minute) {
 			t.Fatal("expected cancelled context to report not ready")
+		}
+	})
+
+	// The provisioning path forwards the routeAddress it just resolved to the
+	// exposure port, so the port can gate readiness on publication rather than
+	// on Gateway API resource status alone.
+	//
+	// Verifies: OSG-ROUT-08.05
+	t.Run("forwards routeAddress to the exposure port", func(t *testing.T) {
+		exp := &scriptedExposure{steps: []exposure.Readiness{ready}}
+		r := &GatewayReconciler{exposure: exp}
+		r.pollRouteReady(t.Context(), "ns", "grpcs://gw-ns.example.com:443", time.Millisecond, time.Second)
+		if got, want := exp.lastReq.RouteAddress, "grpcs://gw-ns.example.com:443"; got != want {
+			t.Errorf("RouteAddress = %q, want %q", got, want)
 		}
 	})
 }
