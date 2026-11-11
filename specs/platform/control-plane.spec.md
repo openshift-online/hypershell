@@ -1316,6 +1316,8 @@ The control plane SHALL reconcile Gateway resources assigned to its own `cluster
 
 A late-bound Gateway that is not yet placed (empty `cluster_id`, see [`data-model.spec.md`](./data-model.spec.md), "Requirement: Gateway Placement and Late Binding") is not assigned to any cluster and SHALL NOT be reconciled by any control plane: it is not delivered on any `cluster_id`-filtered watch stream until the API server assigns it a `cluster_id`. Once the API server resolves placement and assigns a `cluster_id`, the gateway appears on the owning cluster's watch stream and is reconciled exactly like a pinned gateway.
 
+Because placement can assign a selector-matched Gateway to any matching cluster and `cluster_id` is then immutable, a Gateway that carries gateway-scoped federation (a `CITrust`) realizes that federation only on its assigned cluster's control plane; the fleet SHALL therefore enable CI federation on every cluster a CITrust-backed Gateway's selector can match (see [`ci-trust-ext-api.spec.md`](./ci-trust-ext-api.spec.md) PLAT-CITR-13/PLAT-CITR-14).
+
 #### Scenario: CTRL-CORE-10.01 -- Late-bound Gateway reconciled after placement is assigned
 - GIVEN a `Pending` Gateway with an empty `cluster_id` whose placement selector matched no cluster
 - WHEN the API server later assigns this control plane's `cluster_id` to it after a matching cluster registers
