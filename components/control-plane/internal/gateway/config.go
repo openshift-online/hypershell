@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/helm"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -331,6 +332,7 @@ type ReconcileOpts struct {
 	// scope an operator-mode gateway to its own tenant namespaces, via the selector
 	// <key>=<gateway-namespace> (GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY, OSG-OPWS-02).
 	// Empty fails an operator gateway closed at reconcile (OSG-OPWS-04).
+	OperatorWorkspace         *helm.OperatorWorkspaceConfig
 	OperatorNamespaceLabelKey string
 	// OperatorSandboxRuntimeClass is the administrator-approved sandbox RuntimeClass
 	// applied to operator-mode gateways ONLY (GATEWAY_OPERATOR_SANDBOX_RUNTIME_CLASS,

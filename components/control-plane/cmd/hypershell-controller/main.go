@@ -403,6 +403,7 @@ func main() {
 			clusterID,
 			cfg.GatewayResources,
 			cfg.SandboxRuntimeClass,
+			cfg.OperatorWorkspace,
 			cfg.OperatorNamespaceLabelKey,
 			cfg.OperatorSandboxRuntimeClass,
 		)

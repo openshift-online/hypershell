@@ -2,6 +2,7 @@ package helm
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -828,6 +829,7 @@ func TestBuild_OperatorWorkspaceMode(t *testing.T) {
 		Namespace: "openshell-deadbeefdeadbeef",
 		// A cluster-wide sandbox runtime class must NOT win for an operator gateway.
 		SandboxRuntimeClass:         "runc",
+		OperatorWorkspace:           &OperatorWorkspaceConfig{NamespaceLabelKey: "oce.example.com/tenant", AllowedPodLabels: []string{"openclaw.dev/*"}},
 		OperatorNamespaceLabelKey:   "oce.example.com/tenant",
 		OperatorSandboxRuntimeClass: "kata",
 	}
@@ -855,6 +857,7 @@ func TestBuild_OperatorWorkspaceMode(t *testing.T) {
 // control-plane-built values must reach the chart's rendered gateway.toml as
 // workspace_mode = "managed" and the derived gateway_id must land in both the
 // gateway JWT identity and the Kubernetes driver section. Skipped without helm.
+// Verifies: OSG-OPWS-08.01, OSG-OPWS-08.03
 func TestBuild_WorkspaceModeRendersInChart(t *testing.T) {
 	helmBin, err := exec.LookPath("helm")
 	if err != nil {
@@ -862,43 +865,78 @@ func TestBuild_WorkspaceModeRendersInChart(t *testing.T) {
 	}
 	chart, err := filepath.Abs(filepath.Join("..", "..", "..", "..", "charts", "openshell"))
 	if err != nil {
-		t.Fatalf("resolve chart path: %v", err)
+		t.Fatal(err)
 	}
-
-	builder := ValuesBuilder{
-		Gateway: GatewayConfig{
-			Image:           "quay.io/test/gateway:v1",
-			SupervisorImage: "quay.io/test/supervisor:v1",
-			WorkspaceMode:   "managed",
-		},
-		Namespace: "openshell-deadbeefdeadbeef",
-	}
-	values, err := builder.Build()
-	if err != nil {
-		t.Fatalf("Build() returned error: %v", err)
-	}
-	raw, err := json.Marshal(values)
-	if err != nil {
-		t.Fatalf("marshal values: %v", err)
-	}
-	valuesFile := filepath.Join(t.TempDir(), "values.json")
-	if err := os.WriteFile(valuesFile, raw, 0o600); err != nil {
-		t.Fatalf("write values: %v", err)
-	}
-
-	out, err := exec.Command(helmBin, "template", "t", chart, "-f", valuesFile,
-		"--set", "agentSandbox.preflight.enabled=false").CombinedOutput()
-	if err != nil {
-		t.Fatalf("helm template: %v\n%s", err, out)
-	}
-	rendered := string(out)
-	for _, want := range []string{
-		`workspace_mode = "managed"`,
-		`gateway_id = "deadbeefdeadbeef"`,
+	for _, tc := range []struct {
+		name  string
+		mode  string
+		optIn bool
+	}{
+		{name: "managed", mode: "managed"},
+		{name: "operator defaults", mode: "operator"},
+		{name: "operator opt-in", mode: "operator", optIn: true},
 	} {
-		if !strings.Contains(rendered, want) {
-			t.Errorf("rendered chart does not contain %q", want)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			mode := tc.mode
+			digest := "sha256:" + strings.Repeat("a", 64)
+			builder := ValuesBuilder{
+				Gateway: GatewayConfig{
+					Image:               "quay.io/test/gateway@" + digest,
+					SupervisorImage:     "quay.io/test/supervisor:v1@" + digest,
+					SandboxRuntimeImage: "quay.io/test/runtime@" + digest,
+					WorkspaceMode:       mode,
+					ServerDnsNames:      []string{"gateway.example.com"},
+				},
+				Namespace:                   "openshell-deadbeefdeadbeef",
+				HasCertManager:              true,
+				OperatorNamespaceLabelKey:   "hypershell.io/gateway",
+				OperatorSandboxRuntimeClass: "openshell-sandbox",
+				OperatorWorkspace: &OperatorWorkspaceConfig{
+					NamespaceLabelKey:        "hypershell.io/gateway",
+					AllowDriverConfig:        tc.optIn,
+					DisableResourceAdmission: tc.optIn,
+					MTLSAuth:                 tc.optIn,
+					AllowedPodLabels:         []string{"openclaw.dev/*"},
+				},
+			}
+			values, err := builder.Build()
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := json.Marshal(values)
+			if err != nil {
+				t.Fatal(err)
+			}
+			valuesFile := filepath.Join(t.TempDir(), "values.json")
+			if err := os.WriteFile(valuesFile, raw, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			out, err := exec.Command(helmBin, "template", "t", chart, "-f", valuesFile,
+				"--set", "agentSandbox.preflight.enabled=false").CombinedOutput()
+			if err != nil {
+				t.Fatalf("helm template: %v\n%s", err, out)
+			}
+			want := []string{
+				`workspace_mode = "` + mode + `"`,
+				"quay.io/test/gateway@" + digest,
+				"quay.io/test/supervisor@" + digest,
+				"quay.io/test/runtime@" + digest,
+			}
+			if mode == "managed" {
+				want = append(want, `gateway_id = "deadbeefdeadbeef"`)
+			}
+			if mode == "operator" {
+				want = append(want, `operator_namespace_label = "hypershell.io/gateway=openshell-deadbeefdeadbeef"`, fmt.Sprintf("allow_driver_config = %t", tc.optIn))
+				want = append(want, fmt.Sprintf("[openshell.drivers.kubernetes.resource_admission]\n    enabled = %t", !tc.optIn), fmt.Sprintf("[openshell.gateway.mtls_auth]\n    enabled = %t", tc.optIn))
+				// The advertised service domain must also be covered by the server certificate.
+				want = append(want, `server_sans = ["gateway.example.com", "*.openshell.localhost"]`, `- "*.openshell.localhost"`)
+			}
+			for _, expected := range want {
+				if !strings.Contains(string(out), expected) {
+					t.Errorf("rendered chart missing %q", expected)
+				}
+			}
+		})
 	}
 }
 

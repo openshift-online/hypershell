@@ -25,7 +25,10 @@
 #                       KIND_SEED_STRICT remains an alias.
 #   SEED_CLUSTER_WAIT_SECONDS  how long to wait for the control plane to register
 #                       the local-kind ManagedCluster (default 240).
+#   SEED_OPERATOR_WORKSPACES  when "true", create dev-gateway with hsctl's
+#                       operator workspace opt-in (requires Go and jq).
 set -euo pipefail
+set +x
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
@@ -36,7 +39,8 @@ require_cluster
 
 # --- Seed Gateway via REST API ---
 header "Gateway Provisioning"
-PF_LOG="$(mktemp -t hypershell-kind-seed-pf.XXXXXX)"
+SEED_TMP_DIR="$(mktemp -d -t hypershell-kind-seed.XXXXXX)"
+PF_LOG="${SEED_TMP_DIR}/port-forward.log"
 PF_PID=""
 LOCAL_PORT=""
 
@@ -59,7 +63,7 @@ start_api_port_forward() {
 cleanup_pf() {
   kill "${PF_PID}" 2>/dev/null || true
   wait "${PF_PID}" 2>/dev/null || true
-  rm -f "${PF_LOG}"
+  rm -rf "${SEED_TMP_DIR}"
 }
 trap cleanup_pf EXIT
 
@@ -167,14 +171,13 @@ api_get() {
 }
 
 extract_id() {
-  local resp="$1"
-  if echo "$resp" | grep -q '"kind":"Error"'; then
-    echo ""
-    return
-  fi
-  local id
-  id=$(echo "$resp" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4 || true)
-  echo "${id}"
+  python3 -c 'import json,sys
+try:
+    body = json.load(sys.stdin)
+    print(body.get("id") or "" if body.get("kind") != "Error" else "")
+except (ValueError, AttributeError):
+    pass
+' <<< "$1"
 }
 
 seed_failed=""
@@ -228,9 +231,22 @@ if [[ -z "${seed_failed}" ]]; then
   EXISTING_GW_HTTP=$(echo "${EXISTING_GW_RAW}" | tail -1)
   EXISTING_GW_RESP=$(echo "${EXISTING_GW_RAW}" | sed '$d')
 
+  if [[ "${SEED_OPERATOR_WORKSPACES:-false}" == true ]]; then
+    if [[ "${EXISTING_GW_HTTP}" != 200 ]] ||
+      ! jq -e '.items | type == "array"' <<< "${EXISTING_GW_RESP}" >/dev/null; then
+      error "Could not list gateways (HTTP ${EXISTING_GW_HTTP}); refusing to create a duplicate."
+      exit 1
+    fi
+  fi
+
   if [[ "${EXISTING_GW_HTTP}" == "200" ]]; then
     EXISTING_GW_ID=$(printf '%s' "${EXISTING_GW_RESP}" | json_named_id dev-gateway)
     if [[ -n "${EXISTING_GW_ID}" ]]; then
+      if [[ "${SEED_OPERATOR_WORKSPACES:-false}" == true &&
+        $(jq -r --arg id "${EXISTING_GW_ID}" '.items[] | select(.id == $id) | .workspace_mode' <<< "${EXISTING_GW_RESP}") != operator ]]; then
+        error "Existing dev-gateway is not in operator workspace mode, which is immutable; use a fresh OCE cluster."
+        exit 1
+      fi
       success "dev-gateway already exists: ${EXISTING_GW_ID}"
       GATEWAY_ID="${EXISTING_GW_ID}"
     fi
@@ -238,23 +254,35 @@ if [[ -z "${seed_failed}" ]]; then
 
   if [[ -z "${GATEWAY_ID}" ]]; then
     info "Creating Gateway..."
-    # A user create carries only the user-writable fields: name + placement
-    # (PLAT-DATA-23 default-deny field policy). Every other gateway field is
-    # platform-managed and rejected for a user caller by the strict create
-    # endpoint. The control plane supplies them during reconcile: route defaults
+    # Creation sends name + placement and, for OCE, the entitled operator opt-in.
+    # The control plane supplies the remaining fields during reconcile: route defaults
     # to enabled, the per-gateway Keycloak OIDC client is set by
     # reconcileKeycloakClient, and namespace is server-derived (BeforeCreate sets
     # openshell-<hex> from the ksuid). cluster_id is server-resolved from the
     # placement intent, and the provider/kind capability selector selects the
     # ManagedCluster awaited above.
-    GW_BODY="{\"name\":\"dev-gateway\",\"placement\":{\"selector\":[\"provider/kind\"]}}"
-    GW_RAW=$(api_post "${API_URL}/api/hypershell/v1/gateways" "${GW_BODY}")
-    GW_HTTP=$(echo "${GW_RAW}" | tail -1)
-    GW_RESP=$(echo "${GW_RAW}" | sed '$d')
+    if [[ "${SEED_OPERATOR_WORKSPACES:-false}" == true ]]; then
+      HSCTL="${SEED_TMP_DIR}/hsctl"
+      export HYPERSHELL_CONFIG="${SEED_TMP_DIR}/hsctl.json"
+      (cd "${REPO_ROOT}/components/cli" && go build -o "${HSCTL}" ./cmd/hsctl)
+      printf '%s' "${API_TOKEN}" | "${HSCTL}" login --url "${API_URL}" --token-file /dev/stdin
+      GW_RC=0
+      GW_RESP=$("${HSCTL}" create gateway --name dev-gateway --placement-selector provider/kind --operator-workspaces) || GW_RC=$?
+      GW_STATUS="hsctl exit ${GW_RC}"
+      if [[ "${GW_RC}" != 0 ]]; then
+        seed_failed=true
+      fi
+    else
+      GW_BODY="{\"name\":\"dev-gateway\",\"placement\":{\"selector\":[\"provider/kind\"]}}"
+      GW_RAW=$(api_post "${API_URL}/api/hypershell/v1/gateways" "${GW_BODY}")
+      GW_STATUS="HTTP $(echo "${GW_RAW}" | tail -1)"
+      GW_RESP=$(echo "${GW_RAW}" | sed '$d')
+    fi
     GATEWAY_ID=$(extract_id "${GW_RESP}")
 
-    if [[ -z "${GATEWAY_ID}" ]]; then
-      warn "Gateway creation failed (HTTP ${GW_HTTP}): ${GW_RESP:-no response}"
+    if [[ -z "${GATEWAY_ID}" || -n "${seed_failed}" ]]; then
+      warn "Gateway creation failed (${GW_STATUS}): ${GW_RESP:-no response}"
+      seed_failed=true
     else
       success "Gateway created: ${GATEWAY_ID}"
     fi

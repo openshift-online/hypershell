@@ -137,9 +137,12 @@ self-contained per-workspace provisioning an ordinary (`managed`/`shared`) gatew
 performs within its own namespace scope (OSG-CORE-18).
 Selecting operator mode SHALL therefore grant a gateway owner nothing beyond the
 mode selection itself. The namespace label key used to scope tenant namespaces, the
-allowed custom pod-label patterns, the external driver configuration, and the
+allowed custom pod-label patterns, the external driver permissions, and the
 approved sandbox `RuntimeClass` SHALL be administrator-owned control-plane
-configuration, never caller input. An operator gateway's owner SHALL NOT gain
+configuration, never caller input to the HyperShell Gateway create API.
+An administrator MAY explicitly permit OpenShell driver requests under the
+cluster admission controls specified in OSG-OPWS-08; the mode selection alone
+SHALL NOT grant that permission. An operator gateway's owner SHALL NOT gain
 unrestricted namespace selectors, arbitrary driver configuration, or arbitrary
 `RuntimeClass` selection through the opt-in.
 
@@ -328,6 +331,60 @@ work over the same supported API.
 - WHEN an entitled caller creates operator gateways afterward
 - THEN each gateway SHALL be created through the supported create flow alone
 - AND the one-time administrator cluster preparation SHALL NOT be repeated per gateway
+
+### Requirement: OSG-OPWS-08 -- Explicit Operator Trust Configuration
+
+Operator provisioning SHALL require deployment-owned `GATEWAY_OPERATOR_WORKSPACE`
+JSON containing a valid Kubernetes `namespaceLabelKey` and nonempty, valid
+`allowedPodLabels` patterns. The controller SHALL reject invalid configuration at
+startup and SHALL refuse operator provisioning when the configuration is absent.
+
+The optional booleans `allowDriverConfig`, `disableResourceAdmission`, and
+`mtlsAuth` SHALL default to `false`. Thus selecting operator mode alone SHALL NOT
+allow caller-supplied OpenShell driver JSON, bypass resource-approval labels, or
+enable client-certificate authentication to the gateway API. An administrator MAY
+explicitly enable these permissions for a trusted operator only after installing
+cluster admission policies that constrain the operator's external resources and
+workloads (OSG-OPWS-02, OSG-OPWS-07.02). The OCE kind installation SHALL opt in
+explicitly in its controller overlay, alongside its admission policies.
+
+`mtlsAuth` controls gateway API client-certificate authentication; it SHALL NOT
+disable gateway-to-supervisor mTLS or hostname verification (OSG-OPWS-05). The
+controller SHALL retain the client CA when Gateway API ingress is enabled.
+
+When the JSON is present, its validated `namespaceLabelKey` SHALL also supply the
+label key used for namespace discovery and deletion. A separately configured
+`GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY` SHALL either match it or cause startup to
+fail; the controller SHALL NOT use different label keys for provisioning and
+cleanup. The selector value remains the gateway's own API-assigned namespace.
+
+#### Scenario: OSG-OPWS-08.01 -- Operator trust defaults retain approval
+
+- GIVEN valid operator workspace JSON that omits the optional booleans
+- WHEN the controller builds an operator gateway's Helm values
+- THEN caller driver JSON and gateway API client-certificate authentication SHALL be disabled
+- AND resource-approval labels SHALL remain required
+
+#### Scenario: OSG-OPWS-08.02 -- Invalid or missing trust configuration fails closed
+
+- GIVEN invalid operator workspace JSON or no operator workspace configuration
+- WHEN the controller starts with invalid JSON or reconciles an operator gateway without configuration
+- THEN it SHALL reject startup or refuse provisioning, respectively, with an actionable error
+
+#### Scenario: OSG-OPWS-08.03 -- Explicit administrator permissions reach the chart
+
+- GIVEN an administrator has installed operator admission policies and explicitly enabled the three permissions
+- WHEN the controller renders the operator gateway chart
+- THEN driver JSON and gateway API client-certificate authentication SHALL be enabled
+- AND resource-approval labels SHALL be disabled
+- AND gateway-to-supervisor mTLS and the configured client CA SHALL remain enabled with Gateway API ingress
+
+#### Scenario: OSG-OPWS-08.04 -- Namespace label configuration cannot drift
+
+- GIVEN valid operator workspace JSON with a namespace label key
+- WHEN the separate namespace-label environment setting is absent or matches
+- THEN discovery and deletion SHALL use the validated JSON label key
+- AND a conflicting environment setting SHALL instead fail startup naming the conflict
 
 ## Design Decisions
 

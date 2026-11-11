@@ -724,6 +724,11 @@ mode for a Gateway whose namespace does not match the generated
 `openshell-{16-hex}` shape, because no unique `gateway_id` can be derived for
 it.
 
+Operator trust configuration, safe defaults, and explicit administrator opt-in
+are defined in [gateway-operator-workspaces.spec.md](./gateway-operator-workspaces.spec.md)
+(OSG-OPWS-08). See [the shared OCE development installation](../../deploy/oce-kind/README.md)
+for an administrator-configured integration.
+
 #### Scenario: OSG-CORE-18.01 -- New gateway defaults to managed
 
 - GIVEN the API server creates a Gateway with no `workspace_mode`

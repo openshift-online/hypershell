@@ -172,6 +172,7 @@ type Config struct {
 	// GATEWAY_SANDBOX_RUNTIME_CLASS; empty string uses the cluster default (runc).
 	// Set to "kata" or "kata-remote" for hardware-enforced VM isolation.
 	SandboxRuntimeClass string
+	OperatorWorkspace   *helm.OperatorWorkspaceConfig
 
 	// OperatorNamespaceLabelKey is the administrator-approved label KEY the
 	// external operator sets on an operator-mode gateway's tenant namespaces. The
@@ -309,6 +310,18 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("invalid GATEWAY_RESOURCES: %w", err)
 		}
 		cfg.GatewayResources = &rr
+	}
+
+	if v := os.Getenv("GATEWAY_OPERATOR_WORKSPACE"); v != "" {
+		workspace, err := helm.ParseOperatorWorkspace(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid GATEWAY_OPERATOR_WORKSPACE: %w", err)
+		}
+		if cfg.OperatorNamespaceLabelKey != "" && cfg.OperatorNamespaceLabelKey != workspace.NamespaceLabelKey {
+			return nil, fmt.Errorf("GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY must match GATEWAY_OPERATOR_WORKSPACE.namespaceLabelKey")
+		}
+		cfg.OperatorNamespaceLabelKey = workspace.NamespaceLabelKey
+		cfg.OperatorWorkspace = workspace
 	}
 
 	// The CI token-exchange authorization mode is config-driven (PLAT-CITR-08); an
