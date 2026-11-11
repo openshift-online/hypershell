@@ -5634,6 +5634,7 @@ components:
       additionalProperties: false
       example:
         role: owner
+        skip_default_workspace_bootstrap: false
         subject: subject
         username: username
       properties:
@@ -5646,6 +5647,11 @@ components:
           type: string
         role:
           $ref: "#/components/schemas/GatewayAccessRole"
+        skip_default_workspace_bootstrap:
+          default: false
+          description: Skip adding an eligible user to the gateway's OpenShell default
+            workspace
+          type: boolean
       required:
       - role
       - username

@@ -31,8 +31,9 @@ const (
 	GatewayActiveQuota         = 100
 	AccessTokenLifetimeSeconds = 300
 
-	serviceAccountsLockType                        db.LockType = "gateway-service-accounts"
-	defaultWorkspaceBootstrapAdminServiceAccountID             = "bootstrap-admin"
+	serviceAccountsLockType db.LockType = "gateway-service-accounts"
+
+	defaultWorkspaceBootstrapAdminServiceAccountID = "bootstrap-admin"
 
 	// provisioningReclaimAfter is how long a row may remain in Provisioning before
 	// reconciliation reclaims it as abandoned. The per-gateway lock already prevents

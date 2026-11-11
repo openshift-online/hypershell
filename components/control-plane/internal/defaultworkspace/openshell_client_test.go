@@ -27,8 +27,12 @@ func TestGRPCOpenShellClientTLSUsesGatewaySecret(t *testing.T) {
 	if len(certificate.Certificate) == 0 {
 		t.Fatal("clientTLS() returned no client certificate")
 	}
-	if len(rootCAs.Subjects()) != 1 {
-		t.Fatalf("clientTLS() trusted subjects = %v, want one", rootCAs.Subjects())
+	expectedRootCAs := x509.NewCertPool()
+	if !expectedRootCAs.AppendCertsFromPEM(secret.Data[corev1.ServiceAccountRootCAKey]) {
+		t.Fatal("failed to parse expected gateway CA")
+	}
+	if !rootCAs.Equal(expectedRootCAs) {
+		t.Fatal("clientTLS() did not trust the gateway CA")
 	}
 }
 
