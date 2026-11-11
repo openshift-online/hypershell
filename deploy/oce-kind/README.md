@@ -184,6 +184,10 @@ receipts, see the [manual setup and recovery runbook](manual-setup.md).
 
 ## Remove or recreate the environment
 
+`make kind-teardown` removes both `hypershell-dev` and `hypershell-oce` when
+present, including their in-cluster databases and volumes, and cleans up their
+DNS containers and port forwarding. Saved OCE state remains on disk.
+
 The following command deletes the `hypershell-oce` cluster, including its
 in-cluster databases and volumes:
 
