@@ -302,3 +302,28 @@ describe("length limits (FLT-NAV-02)", () => {
     expect(loc.search).toBe("");
   });
 });
+
+describe("Delivery tab state (FLT-DLV-14)", () => {
+  const SHA = "a15cc919d2b0f1e2a3b4c5d6e7f8091a2b3c4d5e";
+
+  // Verifies: FLT-DLV-14.01
+  it("addresses the selected change by full commit SHA under /delivery", () => {
+    const route = parseHref(`/delivery?change=${SHA}`);
+    expect(route.tab).toBe("delivery");
+    expect(route.delivery.change).toBe(SHA);
+    expect(routeToHref(route)).toBe(`/delivery?change=${SHA}`);
+  });
+
+  it("lowercases the SHA and drops values that are not a full SHA", () => {
+    expect(
+      parseHref(`/delivery?change=${SHA.toUpperCase()}`).delivery.change,
+    ).toBe(SHA);
+    expect(parseHref("/delivery?change=a15cc91").delivery.change).toBeNull();
+    expect(parseHref("/delivery?change=not-a-sha").delivery.change).toBeNull();
+    expect(canonical("/delivery?change=a15cc91")).toBe("/delivery");
+  });
+
+  it("accepts a base-path prefix on the delivery segment (FLT-NAV-19)", () => {
+    expect(parseHref("/glass/delivery").tab).toBe("delivery");
+  });
+});

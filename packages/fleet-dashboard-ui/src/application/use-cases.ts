@@ -3,6 +3,7 @@
 // live - keeping that logic out of both adapters and components.
 
 import type { AgentSdlcData } from "../domain/agent-sdlc";
+import type { DeliveryData } from "../domain/delivery";
 import type {
   E2eDiagnosticsData,
   E2eRunDetail,
@@ -68,6 +69,13 @@ export async function getSdlc(
     );
     throw error;
   }
+}
+
+export function getDelivery(
+  api: FleetApi,
+  signal?: AbortSignal,
+): Promise<Plane<DeliveryData>> {
+  return api.getDelivery(signal);
 }
 
 export function getSdlcAgents(

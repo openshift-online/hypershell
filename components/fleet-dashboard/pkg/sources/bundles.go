@@ -98,6 +98,12 @@ const gitopsLockHistoryDepth = 100
 type LockCommit struct {
 	SHA    string
 	Digest string
+	// Date is the lock commit's committer date (RFC3339) and Message its full
+	// commit message. The delivery plane reads both from the remembered timeline to
+	// date the GitOps update stage and name its pull request (FLT-DLV-07) without
+	// another GitHub call. Either may be empty.
+	Date    string
+	Message string
 }
 
 // LockHistoryProvider yields the gitops lock-commit timeline (newest-first). The
@@ -233,38 +239,68 @@ func (g *GitHubBundles) Enrich(ctx context.Context, releases map[string]*Release
 	// application PRs (FLT-BPR-10.01).
 	g.enrichGitOps(ctx, releases)
 
-	// Keep only releases we could place on the timeline (dated) AND diff (an
-	// upstream manifests revision). The map is keyed by release identity (bundle
-	// digest when resolved, else SHA); we order by build date and diff on each
-	// release's own upstream revision (r.ManifestsRev), not the key.
-	type dated struct {
-		rev  string // upstream product-source revision (bundle.manifests.git.revision)
-		date string
-		rel  *Release
+	for _, w := range g.BundleWindows(ctx, releasesOf(releases)) {
+		w.Release.PRs = w.PRs
 	}
-	var ordered []dated
+}
+
+// releasesOf flattens a release map into a slice (order irrelevant: BundleWindows
+// orders by build date).
+func releasesOf(m map[string]*Release) []*Release {
+	out := make([]*Release, 0, len(m))
+	for _, r := range m {
+		out = append(out, r)
+	}
+	return out
+}
+
+// BundleWindow is one release bundle's compare window: the application pull
+// requests merged after the previous bundle's manifests revision, up to and
+// including this bundle's. OK is false when the compare failed.
+type BundleWindow struct {
+	Release *Release
+	PRs     []PR
+	OK      bool
+}
+
+// BundleWindows is THE bundle-membership rule shared by the Fleet Map, the Agent
+// SDLC Shipped matrix (SDLC-VIS-03/22), and the Delivery tab (FLT-DLV-06): order
+// the bundles that carry an upstream manifests revision by build date, oldest
+// first, and give each bundle the pull requests in the compare range from its
+// predecessor's revision to its own. The oldest bundle has no predecessor and no
+// window. Compare results come from the shared immutable cache, so two callers
+// asking about the same consecutive pair cost one GitHub call in total.
+func (g *GitHubBundles) BundleWindows(ctx context.Context, releases []*Release) []BundleWindow {
+	ordered := orderBundles(releases)
+	if len(ordered) < 2 {
+		return nil
+	}
+	out := make([]BundleWindow, 0, len(ordered)-1)
+	for i := 1; i < len(ordered); i++ {
+		prs, ok := g.comparePRsStatus(ctx, g.upstreamRepo, g.upstreamTokenFile, ordered[i-1].ManifestsRev, ordered[i].ManifestsRev)
+		out = append(out, BundleWindow{Release: ordered[i], PRs: prs, OK: ok})
+	}
+	return out
+}
+
+// orderBundles keeps the releases that can be placed on the timeline (dated) and
+// diffed (an upstream manifests revision), ordered oldest first by build date with
+// the revision as a stable tie-break.
+func orderBundles(releases []*Release) []*Release {
+	var ordered []*Release
 	for _, r := range releases {
 		if r == nil || r.Date == "" || r.ManifestsRev == "" {
 			continue
 		}
-		ordered = append(ordered, dated{rev: r.ManifestsRev, date: r.Date, rel: r})
+		ordered = append(ordered, r)
 	}
-	if len(ordered) < 2 {
-		return
-	}
-
-	// Oldest first; tie-break on the revision for a stable order.
 	sort.Slice(ordered, func(i, j int) bool {
-		if ordered[i].date != ordered[j].date {
-			return ordered[i].date < ordered[j].date
+		if ordered[i].Date != ordered[j].Date {
+			return ordered[i].Date < ordered[j].Date
 		}
-		return ordered[i].rev < ordered[j].rev
+		return ordered[i].ManifestsRev < ordered[j].ManifestsRev
 	})
-
-	for i := 1; i < len(ordered); i++ {
-		prev, cur := ordered[i-1].rev, ordered[i].rev
-		ordered[i].rel.PRs = g.comparePRs(ctx, g.upstreamRepo, g.upstreamTokenFile, prev, cur)
-	}
+	return ordered
 }
 
 // enrichGitOps attaches the GitOps (deployment) pull-request group to each release

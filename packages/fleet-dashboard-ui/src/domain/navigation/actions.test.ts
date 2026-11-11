@@ -258,3 +258,37 @@ describe("isReplaceAction (FLT-NAV-06)", () => {
     ).toBe(false);
   });
 });
+
+describe("Delivery actions (FLT-DLV-11, FLT-DLV-14)", () => {
+  const SHA = "a15cc919d2b0f1e2a3b4c5d6e7f8091a2b3c4d5e";
+  const onDelivery: RouteState = { ...DEFAULT_ROUTE, tab: "delivery" };
+
+  it("selects a change and closes the drawer when it is selected again", () => {
+    const open = apply(onDelivery, { type: "deliverySelectChange", sha: SHA });
+    expect(open.delivery.change).toBe(SHA);
+    expect(isReplaceAction({ type: "deliverySelectChange", sha: SHA })).toBe(
+      false,
+    );
+    const closed = apply(open, { type: "deliverySelectChange", sha: SHA });
+    expect(closed.delivery.change).toBeNull();
+  });
+
+  it("opens a locked bundle's Shipped row in Agent SDLC", () => {
+    const next = apply(onDelivery, {
+      type: "openBundleInSdlc",
+      seed: "glassy-larch",
+    });
+    expect(next.tab).toBe("sdlc");
+    expect(next.sdlc.shippedRow).toBe("glassy-larch");
+  });
+
+  it("opens an environment's node on the Fleet Map", () => {
+    const next = apply(
+      { ...onDelivery, bundle: "glassy-larch" },
+      { type: "openNodeOnMap", id: "env-a" },
+    );
+    expect(next.tab).toBe("map");
+    expect(next.map.node).toBe("env-a");
+    expect(next.bundle).toBeNull();
+  });
+});

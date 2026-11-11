@@ -45,6 +45,13 @@ type GitHubLockResolver struct {
 
 	mu       sync.Mutex
 	resolved map[string]*Release // sha -> release (immutable)
+
+	// lastTimeline is the most recent lock-commit timeline LockHistory read, and
+	// lastTimelineAt when it was read. The delivery plane consumes it through
+	// LastLockTimeline so locked-bundle data costs no extra GitHub call
+	// (FLT-DLV-06/12). nil until the first successful LockHistory read.
+	lastTimeline   []LockCommit
+	lastTimelineAt time.Time
 }
 
 // NewGitHubLockResolver builds a resolver from config, or returns nil when
@@ -189,7 +196,13 @@ func (g *GitHubLockResolver) resolveUncached(ctx context.Context, sha string) *R
 // commitRef is the subset of GET /repos/{repo}/commits we read: just the SHA of
 // each commit that touched the lock file.
 type commitRef struct {
-	SHA string `json:"sha"`
+	SHA    string `json:"sha"`
+	Commit struct {
+		Message   string `json:"message"`
+		Committer struct {
+			Date string `json:"date"`
+		} `json:"committer"`
+	} `json:"commit"`
 }
 
 // Recent implements ReleaseHistory. It walks the default branch's commit history
@@ -267,9 +280,39 @@ func (g *GitHubLockResolver) LockHistory(ctx context.Context, limit int) []LockC
 		if r == nil || r.Digest == "" {
 			continue
 		}
-		out = append(out, LockCommit{SHA: c.SHA, Digest: r.Digest})
+		out = append(out, LockCommit{SHA: c.SHA, Digest: r.Digest, Date: c.Commit.Committer.Date, Message: c.Commit.Message})
 	}
+	g.mu.Lock()
+	g.lastTimeline = out
+	g.lastTimelineAt = time.Now()
+	g.mu.Unlock()
 	return out
+}
+
+// LastLockTimeline returns the lock-commit timeline the most recent LockHistory
+// call read (newest first) and when it was read, without calling GitHub. The
+// promotion plane refreshes it on every promotion refresh. ok is false until the
+// first successful read. The returned slice is a copy.
+func (g *GitHubLockResolver) LastLockTimeline() (timeline []LockCommit, at time.Time, ok bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.lastTimeline == nil {
+		return nil, time.Time{}, false
+	}
+	return append([]LockCommit(nil), g.lastTimeline...), g.lastTimelineAt, true
+}
+
+// ResolveCached returns the release a lock commit resolved to, from the immutable
+// per-SHA cache only. It never calls GitHub, so the delivery plane can read
+// locked-bundle identity at no cost (FLT-DLV-12). ok is false on a cache miss.
+func (g *GitHubLockResolver) ResolveCached(sha string) (*Release, bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	r, ok := g.resolved[sha]
+	if !ok {
+		return nil, false
+	}
+	return copyRelease(r), true
 }
 
 // versionFromTag derives a human release version ("v20260930") from a bundle tag
