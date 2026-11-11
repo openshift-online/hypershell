@@ -411,3 +411,49 @@ func TestCITrustUpsert_RenamedGatewayUsesStoredClientID(t *testing.T) {
 		t.Errorf("GatewayClientID = %q, want the stored client old-name-gw-1", got)
 	}
 }
+
+// A trust whose stored status already matches the computed status must not be
+// written again: each write emits a watch event, so an unchanged write loops.
+// Keycloak federation still runs on every pass so drift is repaired.
+// Verifies: STD-RCON-02.01
+func TestCITrustUpsert_WritesStatusOnlyWhenChanged(t *testing.T) {
+	kc := &fakeCIKeycloak{}
+	first := &fakeCITrustSvc{}
+	r := newCITrustTestReconciler(kc, githubProvider(), localGateway(), first)
+	if err := r.Handle(t.Context(), watcher.Event[*pb.CITrust]{Type: watcher.EventCreated, ResourceID: "trust-1", Resource: githubTrust()}); err != nil {
+		t.Fatalf("first Handle: %v", err)
+	}
+	if first.updated == nil {
+		t.Fatal("first reconcile must write status")
+	}
+
+	converged := githubTrust()
+	converged.StatusExchangeEndpoint = strptr(first.updated.GetStatusExchangeEndpoint())
+	converged.StatusWorkspace = strptr(first.updated.GetStatusWorkspace())
+	converged.StatusWorkflowHint = strptr(first.updated.GetStatusWorkflowHint())
+
+	second := &fakeCITrustSvc{}
+	r.ciTrustSvc = second
+	if err := r.Handle(t.Context(), watcher.Event[*pb.CITrust]{Type: watcher.EventUpdated, ResourceID: "trust-1", Resource: converged}); err != nil {
+		t.Fatalf("second Handle: %v", err)
+	}
+	if second.updated != nil {
+		t.Errorf("unchanged status was written again: %+v", second.updated)
+	}
+	if len(kc.ensured) != 2 {
+		t.Errorf("EnsureCIFederation calls = %d, want 2 (federation runs every pass)", len(kc.ensured))
+	}
+
+	stale := githubTrust()
+	stale.StatusExchangeEndpoint = converged.StatusExchangeEndpoint
+	stale.StatusWorkspace = strptr("gh-old")
+	stale.StatusWorkflowHint = converged.StatusWorkflowHint
+	third := &fakeCITrustSvc{}
+	r.ciTrustSvc = third
+	if err := r.Handle(t.Context(), watcher.Event[*pb.CITrust]{Type: watcher.EventUpdated, ResourceID: "trust-1", Resource: stale}); err != nil {
+		t.Fatalf("third Handle: %v", err)
+	}
+	if third.updated.GetStatusWorkspace() != "gh-acme" {
+		t.Errorf("stale status not repaired: workspace = %q", third.updated.GetStatusWorkspace())
+	}
+}
