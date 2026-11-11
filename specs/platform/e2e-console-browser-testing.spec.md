@@ -50,7 +50,7 @@ The suite must:
 5. Wait for the published console address and verify the accessible console link.
 6. Log into the per-gateway console and verify its workspaces view is usable.
 7. Verify the local placement choice and external CLI documentation link.
-8. As the gateway owner, open the **Manage access** tab, use **Add users** to
+8. As the gateway owner, open the **User access** tab, use **Add users** to
    find the second realm user (`E2E_DEV_USERNAME`, default `developer`), grant
    the `user` role, and verify the user appears in the access list with that
    role (GTW-ACC-03, GTW-ACC-04.01, GTW-ACC-04.02, GTW-ACC-09.01).

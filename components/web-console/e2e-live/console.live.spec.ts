@@ -62,7 +62,7 @@ async function logIn(page: Page) {
 
 async function openAccessTab(page: Page, id: string) {
   await page.goto(`/gateways/${id}`);
-  await page.getByRole("tab", { name: "Manage access" }).click();
+  await page.getByRole("tab", { name: "User access" }).click();
   await expect(page.getByRole("button", { name: "Add users" })).toBeVisible({
     timeout: pageTimeout,
   });
@@ -71,7 +71,7 @@ async function openAccessTab(page: Page, id: string) {
 function accessRow(page: Page, user: string) {
   return page
     .getByRole("row")
-    .filter({ has: page.getByRole("cell", { name: user, exact: true }) });
+    .filter({ has: page.getByRole("gridcell", { name: user, exact: true }) });
 }
 
 // The picker reads a control-plane snapshot of the realm that refreshes on a
@@ -182,7 +182,7 @@ test.describe("live console user journey", () => {
   test("validates required provisioning fields", async ({ page }) => {
     test.skip(mode !== "long", "extended form validation runs in long mode");
     await logIn(page);
-    await page.getByRole("link", { name: "Provision gateway" }).click();
+    await page.getByRole("link", { name: "Create a gateway" }).click();
     await page.getByRole("button", { name: "Provision gateway" }).click();
     await expect(
       page.getByText("This field is required.").first(),
@@ -466,6 +466,8 @@ test.describe("live console user journey", () => {
     await expect(
       dialog.getByRole("button", { name: "Grant access" }),
     ).toBeDisabled();
+    // Close the open results list (it overlaps the footer) before cancelling.
+    await dialog.getByRole("heading", { name: "Add users" }).click();
     await dialog.getByRole("button", { name: "Cancel" }).click();
     await expect(dialog).toBeHidden();
   });
