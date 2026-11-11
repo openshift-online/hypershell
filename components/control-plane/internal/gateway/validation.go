@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/distribution/reference"
-	toml "github.com/pelletier/go-toml/v2"
 )
 
 var (
@@ -128,71 +127,37 @@ func ValidateGatewayConfig(config GatewayConfig) error {
 	return nil
 }
 
-// RenderedConfigValidationError marks a failure to validate the fully rendered
-// gateway configuration artifact (the generated gateway.toml), as opposed to a
-// failure validating the declared input. The reconciler uses it to surface a
-// specific human-readable status reason and to distinguish this failure from
-// other reconcile errors. See
+// ConfigValidationError marks a generated gateway configuration that must not be
+// rolled out (for example one with no auth mechanism). The reconciler uses it to
+// settle the gateway to Failed with a human-readable status reason, distinct
+// from other reconcile errors. See
 // specs/platform/generated-gateway-config-validation.spec.md.
-type RenderedConfigValidationError struct {
+type ConfigValidationError struct {
 	Err error
 }
 
-func (e *RenderedConfigValidationError) Error() string { return e.Err.Error() }
+func (e *ConfigValidationError) Error() string { return e.Err.Error() }
 
-func (e *RenderedConfigValidationError) Unwrap() error { return e.Err }
+func (e *ConfigValidationError) Unwrap() error { return e.Err }
 
-// ValidateRenderedGatewayConfig validates the fully rendered gateway
-// configuration artifact the control plane produced, as distinct from the
-// declared input ValidateGatewayConfig checks. Input validation checks the
-// configuration the control plane was given; this checks the artifact the
-// control plane assembled from it and is about to write to the cluster.
-//
-// It confirms the artifact is well-formed (parses as TOML, the format the
-// gateway consumes) and that its control-plane-managed sections are structurally
-// coherent with the declared intent: when OIDC is enabled the rendered artifact
-// must carry the OIDC section with an issuer and must not permit unauthenticated
-// users. See specs/platform/generated-gateway-config-validation.spec.md.
-func ValidateRenderedGatewayConfig(renderedTOML string, config GatewayConfig) error {
-	var tree map[string]any
-	if err := toml.Unmarshal([]byte(renderedTOML), &tree); err != nil {
-		return fmt.Errorf("rendered gateway configuration is not well-formed TOML: %w", err)
+// ValidateGatewayAuth checks the generated OIDC configuration before rollout.
+// The chart renders the [openshell.gateway.oidc] section from these values, so
+// an empty issuer or audience would ship a gateway with no auth mechanism, and
+// the gateway refuses to start without one (issue #809). The error is a
+// ConfigValidationError so the gateway settles to Failed with a reason
+// instead of crash-looping (GTW-CFG-01.04).
+func ValidateGatewayAuth(config GatewayConfig) error {
+	var missing []string
+	if strings.TrimSpace(config.OIDC.Issuer) == "" {
+		missing = append(missing, "issuer")
 	}
-
-	// When OIDC is enabled the control plane appends an [openshell.gateway.oidc]
-	// section and flips allow_unauthenticated_users to false. Confirm the produced
-	// artifact actually reflects that intent, so a generation defect cannot ship a
-	// gateway that silently permits unauthenticated access.
-	if config.OIDC.Issuer != "" {
-		oidc, ok := nestedTable(tree, "openshell", "gateway", "oidc")
-		if !ok {
-			return fmt.Errorf("OIDC is enabled but the rendered configuration has no [openshell.gateway.oidc] section")
-		}
-		if issuer, _ := oidc["issuer"].(string); issuer == "" {
-			return fmt.Errorf("OIDC is enabled but the rendered [openshell.gateway.oidc] section has no issuer")
-		}
-		if auth, ok := nestedTable(tree, "openshell", "gateway", "auth"); ok {
-			if allow, ok := auth["allow_unauthenticated_users"].(bool); ok && allow {
-				return fmt.Errorf("OIDC is enabled but the rendered configuration still allows unauthenticated users")
-			}
-		}
+	if strings.TrimSpace(config.OIDC.Audience) == "" {
+		missing = append(missing, "audience")
 	}
-
+	if len(missing) > 0 {
+		return &ConfigValidationError{Err: fmt.Errorf("gateway has no OIDC configuration (missing %s); every gateway requires OIDC", strings.Join(missing, ", "))}
+	}
 	return nil
-}
-
-// nestedTable walks a decoded TOML tree along the given table path, returning the
-// table at that path and whether every segment resolved to a table.
-func nestedTable(tree map[string]any, path ...string) (map[string]any, bool) {
-	current := tree
-	for _, key := range path {
-		next, ok := current[key].(map[string]any)
-		if !ok {
-			return nil, false
-		}
-		current = next
-	}
-	return current, true
 }
 
 func ValidateCredentialDriverConfig(config *CredentialDriverConfig) error {

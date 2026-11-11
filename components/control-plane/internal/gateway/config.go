@@ -283,8 +283,8 @@ type ReconcileOpts struct {
 	// UpdateConsoleAddress is an optional callback that PATCHes the console_address
 	// field on the API-server Gateway. Nil means no update will be attempted.
 	UpdateConsoleAddress ConsoleAddressUpdater
-	// Keycloak holds the Keycloak Admin REST API configuration. Nil means
-	// Keycloak integration is not configured.
+	// Keycloak holds the Keycloak Admin REST API configuration. It is required
+	// to provision a gateway; it is nil only on delete paths that do not need it.
 	Keycloak *KeycloakConfig
 	// GatewayName is the user-visible name of the gateway being reconciled.
 	GatewayName string

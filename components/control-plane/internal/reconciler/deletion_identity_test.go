@@ -22,13 +22,12 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-// Verifies: OSG-KCLK-11.01, OSG-KCLK-11.02, OSG-KCLK-11.03, GTW-DEL-07.04, OSG-KCLT-01.01
+// Verifies: OSG-KCLK-11.01, OSG-KCLK-11.03, GTW-DEL-07.04, OSG-KCLT-01.01
 func TestGatewayDeletionUsesValidatedStoredIdentity(t *testing.T) {
 	const cpNamespace = "hypershell-control-plane"
 	eventsPath := "/api/v1/namespaces/" + cpNamespace + "/events"
 	for _, tc := range []struct {
 		name, oidc, wantClient string
-		noKeycloak             bool
 		invalid                bool
 	}{
 		{name: "renamed", oidc: `{"client_id":"original-gateway-id","audience":"original-gateway-id"}`, wantClient: "original-gateway-id"},
@@ -37,9 +36,6 @@ func TestGatewayDeletionUsesValidatedStoredIdentity(t *testing.T) {
 		{name: "another gateway", oidc: `{"client_id":"other-gateway","audience":"other-gateway"}`, invalid: true},
 		{name: "conflicting identity", oidc: `{"client_id":"original-gateway-id","audience":"another-gateway-id"}`, invalid: true},
 		{name: "invalid JSON", oidc: `{`, invalid: true},
-		{name: "no identity configured", noKeycloak: true},
-		{name: "missing provisioner", oidc: `{"client_id":"original-gateway-id","audience":"original-gateway-id"}`, noKeycloak: true},
-		{name: "missing provisioner with invalid identity", oidc: `{`, noKeycloak: true, invalid: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var logs bytes.Buffer
@@ -106,9 +102,6 @@ func TestGatewayDeletionUsesValidatedStoredIdentity(t *testing.T) {
 				keycloakClient:        keycloak.NewClient(identity.URL, "test", "provisioner", t.Name()),
 				controlPlaneNamespace: cpNamespace,
 			}
-			if tc.noKeycloak {
-				r.keycloakClient = nil
-			}
 			err = r.Handle(t.Context(), watcher.Event[*pb.Gateway]{Type: watcher.EventDeleted, ResourceID: "gateway-id", Resource: &pb.Gateway{Name: "renamed", Namespace: "gateway-ns", Oidc: &tc.oidc}})
 			if err == nil {
 				t.Fatal("namespace failure was lost")
@@ -143,31 +136,7 @@ func TestGatewayDeletionUsesValidatedStoredIdentity(t *testing.T) {
 					}
 				}
 			}
-			if tc.noKeycloak {
-				if requests != 0 {
-					t.Fatal("unconfigured Keycloak received a request")
-				}
-				reported := strings.Contains(logs.String(), "identity cleanup requires the Keycloak client")
-				if reported != (tc.oidc != "") {
-					t.Fatalf("unexpected missing provisioner report: logs=%q err=%v", logs.String(), err)
-				}
-				if strings.Contains(err.Error(), "identity cleanup requires the Keycloak client") {
-					t.Fatalf("missing provisioner blocked finalization: %v", err)
-				}
-				switch {
-				case tc.oidc == "":
-					assertOrphanEvents(0)
-				case tc.invalid:
-					// No client identifier is known, so one Event names the gateway.
-					assertOrphanEvents(1)
-				default:
-					if !strings.Contains(logs.String(), "original-gateway-id") {
-						t.Fatalf("missing provisioner log omitted client identity: %q", logs.String())
-					}
-					// One Event each for the gateway and console clients.
-					assertOrphanEvents(2)
-				}
-			} else if tc.invalid {
+			if tc.invalid {
 				var identityErr *gatewayKeycloakClientIdentityError
 				if errors.As(err, &identityErr) {
 					t.Fatalf("invalid identity blocked finalization: %v", err)

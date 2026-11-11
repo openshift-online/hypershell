@@ -25,23 +25,15 @@ type ProvisioningCondition struct {
 type ProgressReporter func(step, status, message string)
 
 // InitConditions returns the initial ordered conditions list for a gateway.
-// When hasKeycloak is false, the IdentityProviderReady condition is omitted.
-func InitConditions(hasKeycloak bool) []ProvisioningCondition {
-	conditions := []ProvisioningCondition{
+// Keycloak is mandatory, so IdentityProviderReady is always one of them.
+func InitConditions() []ProvisioningCondition {
+	return []ProvisioningCondition{
 		{Type: ConditionEnvironmentReady, ConditionStatus: StatusPending},
 		{Type: ConditionDatabaseReady, ConditionStatus: StatusPending},
+		{Type: ConditionIdentityProviderReady, ConditionStatus: StatusPending},
+		{Type: ConditionGatewayDeployed, ConditionStatus: StatusPending},
+		{Type: ConditionGatewayHealthy, ConditionStatus: StatusPending},
 	}
-	if hasKeycloak {
-		conditions = append(conditions, ProvisioningCondition{
-			Type:            ConditionIdentityProviderReady,
-			ConditionStatus: StatusPending,
-		})
-	}
-	conditions = append(conditions,
-		ProvisioningCondition{Type: ConditionGatewayDeployed, ConditionStatus: StatusPending},
-		ProvisioningCondition{Type: ConditionGatewayHealthy, ConditionStatus: StatusPending},
-	)
-	return conditions
 }
 
 // SetCondition updates the status and message for the named condition in place.
