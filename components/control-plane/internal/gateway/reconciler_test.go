@@ -253,15 +253,19 @@ func TestDeleteLabeledNamespaceResources(t *testing.T) {
 	svcGVR := schema.GroupVersionResource{Version: "v1", Resource: "services"}
 	secretGVR := schema.GroupVersionResource{Version: "v1", Resource: "secrets"}
 
-	// The helper lists every GVR in its default set, so register a list kind for
-	// each even though only a few are populated; an unregistered GVR would make
-	// the fake client's List return an error.
+	// The helper lists every GVR in its default set (including the cert-manager
+	// and Gateway API resources, which are always swept and skipped per-GVR when
+	// absent), so register a list kind for each even though only a few are
+	// populated; an unregistered GVR would make the fake client's List return an
+	// error.
 	gvrToListKind := map[schema.GroupVersionResource]string{
-		depGVR:                                  "DeploymentList",
-		stsGVR:                                  "StatefulSetList",
-		svcGVR:                                  "ServiceList",
-		secretGVR:                               "SecretList",
-		{Version: "v1", Resource: "configmaps"}: "ConfigMapList",
+		depGVR: "DeploymentList",
+		stsGVR: "StatefulSetList",
+		svcGVR: "ServiceList",
+		{Group: "cert-manager.io", Version: "v1", Resource: "issuers"}:      "IssuerList",
+		{Group: "cert-manager.io", Version: "v1", Resource: "certificates"}: "CertificateList",
+		secretGVR:                                                                           "SecretList",
+		{Version: "v1", Resource: "configmaps"}:                                             "ConfigMapList",
 		{Version: "v1", Resource: "serviceaccounts"}:                                        "ServiceAccountList",
 		{Version: "v1", Resource: "persistentvolumeclaims"}:                                 "PersistentVolumeClaimList",
 		{Group: "batch", Version: "v1", Resource: "jobs"}:                                   "JobList",
@@ -281,8 +285,8 @@ func TestDeleteLabeledNamespaceResources(t *testing.T) {
 		labeledResource("v1", "Secret", ns, "gw-secret", true),
 	)
 
-	// Default opts: the optional cert-manager / Gateway API GVRs are not swept, so
-	// they need not be registered above.
+	// The cert-manager and Gateway API GVRs are always swept (and skipped per-GVR
+	// when the CRD is absent), so they are registered above but left unpopulated.
 	if err := DeleteLabeledNamespaceResources(context.Background(), dc, ns, ReconcileOpts{}); err != nil {
 		t.Fatalf("DeleteLabeledNamespaceResources: %v", err)
 	}

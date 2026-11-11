@@ -16,6 +16,73 @@ func setRequiredEnv(t *testing.T) {
 	t.Setenv("OIDC_ISSUER", "http://keycloak.example/realms/hypershell")
 	t.Setenv("OIDC_CLIENT_ID", "hypershell-control-plane")
 	t.Setenv("OIDC_CLIENT_SECRET", "secret")
+	t.Setenv("HYPERSHELL_CLUSTER_PLATFORM", ClusterPlatformKubernetes)
+}
+
+// TestLoadClusterPlatform covers the explicit host-platform contract
+// (CTRL-CORE-16): accepted values load, an invalid value and an omitted setting
+// both fail startup with an error naming the setting and its accepted values.
+// Verifies: CTRL-CORE-16.01, CTRL-CORE-16.02, CTRL-CORE-16.03, CTRL-CORE-16.04
+func TestLoadClusterPlatform(t *testing.T) {
+	t.Run("accepted values load", func(t *testing.T) {
+		for _, platform := range []string{ClusterPlatformOpenShift, ClusterPlatformKubernetes} {
+			setRequiredEnv(t)
+			t.Setenv("HYPERSHELL_CLUSTER_PLATFORM", platform)
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() with platform %q: %v", platform, err)
+			}
+			if cfg.ClusterPlatform != platform {
+				t.Fatalf("ClusterPlatform = %q, want %q", cfg.ClusterPlatform, platform)
+			}
+		}
+	})
+
+	t.Run("case and whitespace are normalized", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("HYPERSHELL_CLUSTER_PLATFORM", "  OpenShift  ")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load(): %v", err)
+		}
+		if cfg.ClusterPlatform != ClusterPlatformOpenShift {
+			t.Fatalf("ClusterPlatform = %q, want %q", cfg.ClusterPlatform, ClusterPlatformOpenShift)
+		}
+	})
+
+	t.Run("invalid value fails naming accepted values", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("HYPERSHELL_CLUSTER_PLATFORM", "openstack")
+		_, err := Load()
+		if err == nil {
+			t.Fatal("Load() with invalid platform: want error, got nil")
+		}
+		for _, want := range []string{"HYPERSHELL_CLUSTER_PLATFORM", ClusterPlatformOpenShift, ClusterPlatformKubernetes} {
+			if !strings.Contains(err.Error(), want) {
+				t.Fatalf("Load() error %q does not contain %q", err, want)
+			}
+		}
+	})
+
+	t.Run("omitted setting fails naming the setting", func(t *testing.T) {
+		for _, mode := range []string{"unset", "blank"} {
+			setRequiredEnv(t)
+			if mode == "unset" {
+				if err := os.Unsetenv("HYPERSHELL_CLUSTER_PLATFORM"); err != nil {
+					t.Fatalf("unset: %v", err)
+				}
+			} else {
+				t.Setenv("HYPERSHELL_CLUSTER_PLATFORM", "   ")
+			}
+			_, err := Load()
+			if err == nil {
+				t.Fatalf("Load() with %s platform: want error, got nil", mode)
+			}
+			if !strings.Contains(err.Error(), "HYPERSHELL_CLUSTER_PLATFORM") {
+				t.Fatalf("Load() error %q does not name HYPERSHELL_CLUSTER_PLATFORM", err)
+			}
+		}
+	})
 }
 
 // TestLoadRequiresClusterIdentity covers "Missing cluster name refuses to start"

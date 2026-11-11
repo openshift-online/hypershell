@@ -33,6 +33,12 @@ patches:
             containers:
               - name: controller
                 env:
+                  # Host platform is explicit deployment configuration
+                  # (CTRL-CORE-16); it is never inferred from API discovery. Kind
+                  # is vanilla Kubernetes, so gateway pods use the chart's
+                  # configured Kubernetes pod security context (OSG-CORE-14.03).
+                  - name: HYPERSHELL_CLUSTER_PLATFORM
+                    value: kubernetes
                   - name: GATEWAY_API_GATEWAY_NAMESPACE
                     value: hypershell-system
                   - name: GATEWAY_API_BASE_DOMAIN

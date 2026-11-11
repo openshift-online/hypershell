@@ -18,7 +18,6 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/watch"
-	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 
@@ -42,11 +41,39 @@ func ReconcileGateway(
 	// Step 1: EnvironmentReady
 	report(ConditionEnvironmentReady, StatusInProgress, "")
 
-	// The Gateway API is the only way a gateway is exposed. Without it the
-	// gateway would run unreachable, so the reconcile fails and retries.
-	if err := requireGatewayAPI(clientset.Discovery()); err != nil {
-		report(ConditionEnvironmentReady, StatusFailed, gatewayAPIConditionMessage(err))
-		return fmt.Errorf("gateway %s: %w", nsConfig.Name, err)
+	// Feature prerequisites are evaluated through the shared, refreshable
+	// dependency discovery (CTRL-CORE-18). Each is checked for its own
+	// group/version/resource, so a stale or unreachable unrelated API (for example
+	// projectcalico.org/v3) never makes these look absent, and an unknown/
+	// unavailable result is retryable rather than terminal (CTRL-CORE-19).
+	deps := opts.Dependencies
+	if deps == nil {
+		deps = NewDependencyDiscovery(clientset.Discovery())
+	}
+
+	// The Gateway API is the only way a gateway is exposed (OSG-ROUT-02). Without
+	// it the gateway would run unreachable, so the reconcile fails and retries. A
+	// confirmed-absent result reports the resource to install; an unknown/
+	// unavailable result is waiting/retryable with bounded backoff.
+	if gwAPI := deps.Evaluate(DependencyGatewayAPI); gwAPI.State != DependencyPresent {
+		report(ConditionEnvironmentReady, StatusFailed, gatewayAPIConditionMessage(gwAPI))
+		return fmt.Errorf("gateway %s: %w", nsConfig.Name, gatewayAPIDependencyError(gwAPI))
+	}
+
+	// cert-manager is the sole TLS certificate strategy (OSG-TLS-01). Evaluate it
+	// as a feature prerequisite: present enables the chart's cert-manager
+	// resources; confirmed-absent reports the prerequisite to install; unknown/
+	// unavailable is waiting/retryable. The controller and its other reconciliation
+	// work keep running regardless (CTRL-CORE-17, CTRL-CORE-19).
+	switch certManager := deps.Evaluate(DependencyCertManager); certManager.State {
+	case DependencyPresent:
+		opts.HasCertManager = true
+	case DependencyAbsent:
+		report(ConditionEnvironmentReady, StatusFailed, certManagerAbsentMessage)
+		return fmt.Errorf("gateway %s: %w", nsConfig.Name, errCertManagerAbsent)
+	default: // DependencyUnknown
+		report(ConditionEnvironmentReady, StatusFailed, certManagerUnavailableMessage)
+		return fmt.Errorf("gateway %s: cert-manager dependency unavailable: %w", nsConfig.Name, certManager.Err)
 	}
 
 	if err := EnsureManagedNamespace(ctx, clientset, nsConfig.Name, opts.ControlPlaneNamespace); err != nil {
@@ -368,12 +395,14 @@ func DeleteLabeledNamespaceResources(
 		{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "roles"},
 		{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "rolebindings"},
 	}
-	if opts.HasCertManager {
-		namespacedResources = append(namespacedResources,
-			schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "issuers"},
-			schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "certificates"},
-		)
-	}
+	// Always enumerate cert-manager resources for cleanup: a missing CRD or API
+	// group is skipped per-GVR below (IsNotFound), so this stays correct on
+	// clusters without cert-manager and no longer depends on a frozen startup
+	// capability flag (CTRL-CORE-17, CTRL-CORE-18).
+	namespacedResources = append(namespacedResources,
+		schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "issuers"},
+		schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "certificates"},
+	)
 	namespacedResources = append(namespacedResources,
 		schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"},
 		schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "grpcroutes"},
@@ -1493,67 +1522,58 @@ func reconcileCredentialSecretsRBAC(
 	return nil
 }
 
-func DetectOpenShift(clientset *kubernetes.Clientset) bool {
-	_, resources, err := clientset.Discovery().ServerGroupsAndResources()
-	if err != nil {
-		slog.Warn("Failed to discover API groups, assuming non-OpenShift", "error", err)
-		return false
-	}
-	for _, list := range resources {
-		if strings.HasPrefix(list.GroupVersion, "route.openshift.io/") {
-			return true
-		}
-	}
-	return false
-}
-
-func DetectCertManager(clientset *kubernetes.Clientset) bool {
-	_, resources, err := clientset.Discovery().ServerGroupsAndResources()
-	if err != nil {
-		slog.Warn("Failed to discover API groups for cert-manager detection", "error", err)
-		return false
-	}
-	for _, list := range resources {
-		if strings.HasPrefix(list.GroupVersion, "cert-manager.io/") {
-			return true
-		}
-	}
-	return false
-}
-
-// errGatewayAPIMissing reports a cluster without the Gateway API. Gateways are
-// exposed only through the Gateway API, so a gateway cannot be provisioned there.
+// errGatewayAPIMissing reports a cluster where discovery confirms the Gateway API
+// is absent. Gateways are exposed only through the Gateway API, so a gateway
+// cannot be provisioned there until the operator installs it (OSG-ROUT-02.02).
 var errGatewayAPIMissing = errors.New("the Gateway API is not installed on this cluster")
 
-// gatewayAPIMissingMessage is the condition message for errGatewayAPIMissing.
+// errGatewayAPIUnavailable reports that Gateway API discovery could not be
+// completed (transport, authorization, or stale-group error). The state is
+// unknown/unavailable, so the affected work is waiting/retryable rather than
+// treated as absent (OSG-ROUT-02.03).
+var errGatewayAPIUnavailable = errors.New("the Gateway API could not be discovered")
+
+// gatewayAPIMissingMessage is the condition message for a confirmed-absent
+// Gateway API: a prerequisite to install.
 const gatewayAPIMissingMessage = "Gateway API is not installed on this cluster; the gateway cannot be exposed"
 
-// requireGatewayAPI checks that the cluster serves GRPCRoute in
-// gateway.networking.k8s.io/v1. It makes one discovery call per reconcile, so
-// a gateway recovers on its next retry once the Gateway API is installed.
-func requireGatewayAPI(d discovery.DiscoveryInterface) error {
-	resources, err := d.ServerResourcesForGroupVersion("gateway.networking.k8s.io/v1")
-	if err != nil {
-		if k8serrors.IsNotFound(err) {
-			return errGatewayAPIMissing
-		}
-		return fmt.Errorf("check for the Gateway API: %w", err)
+// gatewayAPIUnavailableMessage is the condition message for an unknown/
+// unavailable Gateway API: waiting and retryable.
+const gatewayAPIUnavailableMessage = "Gateway API is temporarily unavailable - waiting to reconcile the gateway's ingress"
+
+// cert-manager prerequisite sentinels and condition messages (OSG-TLS-01).
+var errCertManagerAbsent = errors.New("cert-manager is not installed on this cluster")
+
+const (
+	// certManagerAbsentMessage is the condition message for a confirmed-absent
+	// cert-manager: a prerequisite to install (OSG-TLS-01.02).
+	certManagerAbsentMessage = "cert-manager is not installed on this cluster; install cert-manager (cert-manager.io/v1 Certificate) before the gateway can be provisioned"
+	// certManagerUnavailableMessage is the condition message for an unknown/
+	// unavailable cert-manager: waiting and retryable (OSG-TLS-01.03).
+	certManagerUnavailableMessage = "cert-manager is temporarily unavailable - waiting to provision the gateway's certificates"
+)
+
+// gatewayAPIDependencyError maps a Gateway API dependency result to the sentinel
+// error carried out of ReconcileGateway, so callers can distinguish a
+// confirmed-absent prerequisite from an unknown/unavailable (retryable) state.
+func gatewayAPIDependencyError(res DependencyResult) error {
+	if res.State == DependencyAbsent {
+		return errGatewayAPIMissing
 	}
-	for _, r := range resources.APIResources {
-		if r.Kind == "GRPCRoute" {
-			return nil
-		}
+	if res.Err != nil {
+		return fmt.Errorf("%w: %w", errGatewayAPIUnavailable, res.Err)
 	}
-	return errGatewayAPIMissing
+	return errGatewayAPIUnavailable
 }
 
-// gatewayAPIConditionMessage is the EnvironmentReady message for a failed
-// Gateway API check.
-func gatewayAPIConditionMessage(err error) string {
-	if errors.Is(err, errGatewayAPIMissing) {
+// gatewayAPIConditionMessage is the EnvironmentReady message for a non-present
+// Gateway API dependency, distinguishing confirmed-absent (a prerequisite to
+// install) from unknown/unavailable (waiting/retryable), per OSG-HLTH-07.
+func gatewayAPIConditionMessage(res DependencyResult) string {
+	if res.State == DependencyAbsent {
 		return gatewayAPIMissingMessage
 	}
-	return "Environment preparation failed - unable to check for the Gateway API"
+	return gatewayAPIUnavailableMessage
 }
 
 func gatewayIngressNamespace() string {
