@@ -150,6 +150,30 @@ func TestCreateCleansUpWhenDefaultWorkspaceBootstrapFails(t *testing.T) {
 	}
 }
 
+func TestCreateSkipsDefaultWorkspaceBootstrapForLegacyGateway(t *testing.T) {
+	dao := newMemoryDAO()
+	kc := &fakeKeycloak{configured: true}
+	bindings := testBindings("creator", "gateway:owner")
+	bootstrap := &fakeDefaultWorkspaceBootstrap{problem: &defaultWorkspaceBootstrap.APIError{
+		Status: http.StatusServiceUnavailable, Code: "default_workspace_bootstrap_failed", Message: "failed",
+	}}
+	gateway := testGateway()
+	gateway.ProvisioningConditions = nil
+	svc := NewService(dao, fakeGateway{gateway: gateway}, bindings, kc, bootstrap, db.NewNoOpLockFactory())
+	svc.(*service).now = func() time.Time { return time.Now().UTC() }
+
+	result, problem := svc.Create(t.Context(), "gateway-id", "creator", CreateInput{Name: "bot", Role: RoleUser})
+	if problem != nil {
+		t.Fatalf("Create() problem = %#v", problem)
+	}
+	if bootstrap.input != (defaultWorkspaceBootstrap.Input{}) {
+		t.Fatalf("bootstrap input = %#v, want no call", bootstrap.input)
+	}
+	if result.Account.Status != StatusReady {
+		t.Fatalf("account status = %q, want %q", result.Account.Status, StatusReady)
+	}
+}
+
 // Verifies: OSG-SACC-06.01, OSG-SACC-06.02, OSG-SACC-06.03
 func TestCreateEnforcesRoleCapAndKeepsCredentialOutOfPersistence(t *testing.T) {
 	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
@@ -1264,7 +1288,8 @@ func (f *fakeDefaultWorkspaceBootstrap) Bootstrap(_ context.Context, input defau
 func testGateway() *gateways.Gateway {
 	oidc, _ := json.Marshal(GatewayOIDC{Issuer: "https://issuer.example/realms/hypershell", ClientID: "gateway-client", Audience: "gateway-client"})
 	phase, status, route := "Running", "Healthy", "grpcs://gateway.example:443"
-	gateway := &gateways.Gateway{Name: "gateway", Phase: &phase, Status: &status, RouteAddress: &route, Oidc: stringPointer(string(oidc))}
+	conditions := `[{"type":"DefaultWorkspaceBootstrapReady","condition_status":"Complete"}]`
+	gateway := &gateways.Gateway{Name: "gateway", Phase: &phase, Status: &status, RouteAddress: &route, Oidc: stringPointer(string(oidc)), ProvisioningConditions: &conditions}
 	gateway.ID = "gateway-id"
 	return gateway
 }

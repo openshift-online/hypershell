@@ -412,6 +412,11 @@ func (s *service) bootstrapDefaultWorkspace(ctx context.Context, gatewayID, subj
 	if svcErr != nil {
 		return fromGatewayServiceError(svcErr)
 	}
+	if !gateways.IsProvisioningConditionComplete(
+		gateway.ProvisioningConditions, gateways.ConditionDefaultWorkspaceBootstrapReady,
+	) {
+		return nil
+	}
 	var oidc struct {
 		Issuer   string `json:"issuer"`
 		ClientID string `json:"client_id"`

@@ -36,7 +36,8 @@ This specification supersedes the desired-state and control-plane reconciliation
 | What happens if the identity is already a member? | HyperShell treats the OpenShell response as success. |
 | What happens if OpenShell rejects the add? | The originating request fails and does not report the access grant or service account as ready. |
 | Does HyperShell remove membership later? | No. Revoke, role change, expiration, service-account deletion, and manual OpenShell changes do not trigger HyperShell membership removal. |
-| How are existing gateways handled? | The first eligible originating request ensures a missing gateway bootstrap admin before calling `AddMember`. |
+| How are existing gateways handled? | The control plane may lazily provision a missing gateway bootstrap admin and publish readiness; unmarked gateways retain pre-bootstrap request behavior. |
+| How are mixed-version rollouts handled? | Only a gateway whose `DefaultWorkspaceBootstrapReady` provisioning condition is complete participates in bootstrap; unmarked gateways skip the one-shot add without failing the originating request. |
 | Is gateway deletion cleanup blocking? | No. Gateway deletion attempts cleanup and records a failure if OpenShell or the identity provider is unavailable. |
 
 ## Requirements
@@ -45,7 +46,9 @@ This specification supersedes the desired-state and control-plane reconciliation
 
 HyperShell SHALL provision one persistent gateway bootstrap admin for each gateway. The gateway bootstrap admin SHALL be scoped to exactly one gateway and SHALL NOT be usable as a human login.
 
-Gateway creation SHALL provision the gateway bootstrap admin. If an existing gateway has no gateway bootstrap admin, the first eligible originating request SHALL provision the missing identity before calling OpenShell `AddMember`.
+Gateway creation SHALL provision the gateway bootstrap admin and mark the gateway's `DefaultWorkspaceBootstrapReady` provisioning condition complete. If an existing gateway has no gateway bootstrap admin, the control plane MAY provision the missing identity and publish the same condition.
+
+The API server SHALL NOT call OpenShell `AddMember` unless the gateway's `DefaultWorkspaceBootstrapReady` condition is complete. A gateway without that completed condition SHALL skip default-workspace bootstrap while still allowing eligible gateway-access grants and OpenShellGatewayServiceAccount creation to succeed. This compatibility rule prevents an API server rollout from failing requests for gateways that have not yet been marked ready by a control plane that supports the bootstrap contract.
 
 HyperShell SHALL reuse the same gateway bootstrap admin for later default-workspace bootstrap calls on that gateway. HyperShell SHALL NOT create a new ephemeral admin identity for each membership add.
 
@@ -62,8 +65,16 @@ The gateway bootstrap admin SHALL be scoped to exactly one gateway. Version 1 us
 
 - GIVEN a gateway existed before this specification
 - AND the gateway has no gateway bootstrap admin
-- WHEN an eligible originating request is made for that gateway
-- THEN HyperShell SHALL provision the missing gateway bootstrap admin before calling `AddMember`
+- WHEN the control plane reconciles that gateway
+- THEN HyperShell MAY provision the missing gateway bootstrap admin
+- AND HyperShell SHALL publish `DefaultWorkspaceBootstrapReady` only after that identity is available
+
+#### Scenario: GTW-BOOT-01.04 -- Unmarked gateway remains compatible
+
+- GIVEN a gateway does not have a completed `DefaultWorkspaceBootstrapReady` condition
+- WHEN an eligible gateway-access grant or OpenShellGatewayServiceAccount creation is made for that gateway
+- THEN HyperShell SHALL NOT call OpenShell `AddMember`
+- AND the originating request SHALL retain its pre-bootstrap success behavior
 
 #### Scenario: GTW-BOOT-01.03 -- Later grants reuse the bootstrap admin
 
@@ -102,6 +113,8 @@ HyperShell SHALL NOT use the user's mutable username as the OpenShell membership
 HyperShell SHALL NOT call `AddMember` when the granted tier maps to `openshell-admin`.
 
 For a grant that has not opted out, the originating request SHALL NOT return success unless `AddMember` succeeds or OpenShell reports that the subject is already a member of the `default` workspace.
+
+This requirement applies only when the gateway has a completed `DefaultWorkspaceBootstrapReady` provisioning condition. The grant SHALL succeed without an `AddMember` call when that condition is absent or incomplete.
 
 #### Scenario: GTW-BOOT-03.01 -- Viewer grant bootstraps default workspace membership
 
@@ -172,6 +185,8 @@ The originating creation request SHALL NOT return success unless `AddMember` suc
 ### Requirement: GTW-BOOT-05 -- One-Shot Semantics
 
 HyperShell SHALL perform the default-workspace bootstrap as part of the originating request. HyperShell SHALL NOT create a `DefaultWorkspaceMembership` desired-state resource.
+
+The API server SHALL use the gateway's completed `DefaultWorkspaceBootstrapReady` provisioning condition as the deployment compatibility boundary. A missing or incomplete condition means the gateway is not yet enrolled in default-workspace bootstrap; the originating request SHALL skip bootstrap rather than fail.
 
 HyperShell SHALL NOT run a background reconciler for default-workspace membership. HyperShell SHALL NOT repair a manually removed member, and HyperShell SHALL NOT remove membership when gateway access is revoked, a role changes, a service account expires or is deleted, or a gateway bootstrap admin is deleted.
 

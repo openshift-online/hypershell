@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/config"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/defaultworkspace"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
@@ -300,11 +301,12 @@ func TestReconcileExistingGatewayKeycloakClient_RejectsUntrustedIdentityBeforeKe
 }
 
 type recordedGatewayUpdate struct {
-	id        string
-	phase     string
-	status    string
-	hasPhase  bool
-	hasStatus bool
+	id         string
+	phase      string
+	status     string
+	hasPhase   bool
+	hasStatus  bool
+	conditions []*pb.ProvisioningCondition
 }
 
 type recordingGatewayServer struct {
@@ -361,6 +363,7 @@ func (s *recordingGatewayServer) UpdateGateway(_ context.Context, req *pb.Update
 		update.status = req.GetStatus()
 		update.hasStatus = true
 	}
+	update.conditions = req.GetProvisioningConditions()
 	s.mu.Lock()
 	s.updates = append(s.updates, update)
 	updateErr := s.updateErr
@@ -381,6 +384,30 @@ func (s *recordingGatewayServer) snapshot() []recordedGatewayUpdate {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]recordedGatewayUpdate(nil), s.updates...)
+}
+
+func TestMarkBootstrapAdminReadyPublishesCompatibilityCondition(t *testing.T) {
+	conn, server := newRecordingGatewayConn(t)
+	reconciler := &GatewayReconciler{grpcConn: conn, bootstrapAdmin: configuredBootstrapAdmin{}}
+
+	reconciler.markBootstrapAdminReady(t.Context(), "gateway-id")
+
+	updates := server.snapshot()
+	if len(updates) != 1 {
+		t.Fatalf("updates = %d, want 1", len(updates))
+	}
+	conditions := updates[0].conditions
+	if len(conditions) != 1 || conditions[0].GetType() != gateway.ConditionDefaultWorkspaceBootstrapReady ||
+		conditions[0].GetConditionStatus() != pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_COMPLETE {
+		t.Fatalf("conditions = %#v, want completed default-workspace bootstrap condition", conditions)
+	}
+}
+
+type configuredBootstrapAdmin struct{}
+
+func (configuredBootstrapAdmin) Configured() bool { return true }
+func (configuredBootstrapAdmin) EnsureAdmin(context.Context, defaultworkspace.AdminSpec) error {
+	return nil
 }
 
 func newRecordingGatewayConn(t *testing.T) (*grpc.ClientConn, *recordingGatewayServer) {

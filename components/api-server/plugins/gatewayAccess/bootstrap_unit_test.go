@@ -116,6 +116,29 @@ func TestChangeRoleToUserBootstrapsDefaultWorkspace(t *testing.T) {
 	}
 }
 
+func TestGrantSkipsDefaultWorkspaceBootstrapForLegacyGateway(t *testing.T) {
+	deps := newBootstrapTestDeps()
+	deps.dao.roleName = roles.RoleGatewayViewer
+	deps.bootstrap.problem = &defaultWorkspaceBootstrap.APIError{
+		Status: http.StatusServiceUnavailable, Code: "default_workspace_bootstrap_failed", Message: "failed",
+	}
+	service := deps.service.(*service)
+	service.gateways = unmarkedGatewayLookup{}
+
+	item, problem := service.Grant(context.Background(), "gateway-id", "owner", GrantInput{
+		Username: "target", Role: TierUser,
+	})
+	if problem != nil {
+		t.Fatalf("Grant() problem = %#v", problem)
+	}
+	if deps.bootstrap.input != (defaultWorkspaceBootstrap.Input{}) {
+		t.Fatalf("bootstrap input = %#v, want no call", deps.bootstrap.input)
+	}
+	if deps.bindings.currentRole("target", "gateway-id") != roles.RoleGatewayViewer || item.Role != TierUser {
+		t.Fatalf("grant did not succeed for legacy gateway: item = %#v", item)
+	}
+}
+
 func TestGrantMapsMissingGatewayToNotFound(t *testing.T) {
 	deps := newBootstrapTestDeps()
 	service := deps.service.(*service)
@@ -264,9 +287,19 @@ type fakeGatewayLookup struct{}
 func (f fakeGatewayLookup) Get(context.Context, string) (*gateways.Gateway, *trexerrors.ServiceError) {
 	oidc := `{"issuer":"https://issuer.example/realms/hypershell","client_id":"gateway-client","audience":"gateway-client"}`
 	route := "grpcs://gateway.example:443"
+	conditions := `[{"type":"DefaultWorkspaceBootstrapReady","condition_status":"Complete"}]`
 	return &gateways.Gateway{
 		Namespace: "gateway-namespace", Oidc: &oidc, RouteAddress: &route,
+		ProvisioningConditions: &conditions,
 	}, nil
+}
+
+type unmarkedGatewayLookup struct{}
+
+func (f unmarkedGatewayLookup) Get(context.Context, string) (*gateways.Gateway, *trexerrors.ServiceError) {
+	oidc := `{"issuer":"https://issuer.example/realms/hypershell","client_id":"gateway-client","audience":"gateway-client"}`
+	route := "grpcs://gateway.example:443"
+	return &gateways.Gateway{Namespace: "gateway-namespace", Oidc: &oidc, RouteAddress: &route}, nil
 }
 
 type missingGatewayLookup struct{}
