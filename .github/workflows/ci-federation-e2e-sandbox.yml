@@ -56,6 +56,10 @@ on:
         description: Forge IdP alias
         required: false
         default: "github-actions"
+      workspace:
+        description: Workspace the CITrust grants the role in (gh-<owner>)
+        required: false
+        default: "gh-openshift-online"
 
 permissions:
   contents: read
@@ -74,6 +78,7 @@ jobs:
       GATEWAY_ENDPOINT: ${{ inputs.gateway_endpoint }}
       CLI_IMAGE: ${{ inputs.cli_image }}
       GATEWAY_NAME: agents-gateway
+      WORKSPACE: ${{ inputs.workspace }}
       SANDBOX_NAME: ci-${{ github.run_id }}
     steps:
       - name: Mint GitHub Actions OIDC token
@@ -170,6 +175,7 @@ jobs:
         run: |
           set -euo pipefail
           osh() { docker run --rm --user 0 -e HOME=/root -e OPENSHELL_GATEWAY_INSECURE=true \
+            -e OPENSHELL_WORKSPACE="${WORKSPACE}" \
             -v "${CFG}:/root/.config/openshell" "${CLI_IMAGE}" "$@"; }
           echo "::group::openshell whoami"
           osh -g "${GATEWAY_NAME}" whoami || true
@@ -183,6 +189,7 @@ jobs:
         run: |
           set -euo pipefail
           osh() { docker run --rm --user 0 -e HOME=/root -e OPENSHELL_GATEWAY_INSECURE=true \
+            -e OPENSHELL_WORKSPACE="${WORKSPACE}" \
             -v "${CFG}:/root/.config/openshell" "${CLI_IMAGE}" "$@"; }
           echo "Creating sandbox ${SANDBOX_NAME} ..."
           osh -g "${GATEWAY_NAME}" sandbox create --name "${SANDBOX_NAME}" --detach -- sleep 600
@@ -206,6 +213,7 @@ jobs:
           set +e
           [ -n "${CFG:-}" ] || exit 0
           docker run --rm --user 0 -e HOME=/root -e OPENSHELL_GATEWAY_INSECURE=true \
+            -e OPENSHELL_WORKSPACE="${WORKSPACE}" \
             -v "${CFG}:/root/.config/openshell" "${CLI_IMAGE}" \
             -g "${GATEWAY_NAME}" sandbox delete "${SANDBOX_NAME}"
           echo "Cleanup requested for ${SANDBOX_NAME} (exit $?)."
@@ -223,6 +231,7 @@ jobs:
             echo "- **Gateway:** \`${GATEWAY_NAME}\` (client \`${GATEWAY_AUDIENCE}\`)"
             echo "  - endpoint: \`${GATEWAY_ENDPOINT}\`"
             echo "  - console: https://console-openshell-58f66bfcd73e8f46.hyp0-spoke2.infra.hypershell.app"
+            echo "  - workspace: \`${WORKSPACE}\`"
             echo "- **Exchanged-token proof:** aud=\`${AUD_CLAIM:-?}\`, hypershell.roles=\`${ROLES_CLAIM:-?}\`"
             echo ""
             echo "## Sandbox exec output"
