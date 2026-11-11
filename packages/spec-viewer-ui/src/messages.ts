@@ -18,6 +18,11 @@ export const messages = defineMessages({
     description:
       "Collapsed label group text; {remaining} is filled in by PatternFly.",
   },
+  columnChange: {
+    id: "specViewer.diff.column.change",
+    defaultMessage: "Change",
+    description: "Column header for the change label in diff mode.",
+  },
   columnConformance: {
     id: "specViewer.conformance.column.conformance",
     defaultMessage: "Conformance",
@@ -119,6 +124,95 @@ export const messages = defineMessages({
     id: "specViewer.count.specs",
     defaultMessage: "{count, plural, one {# spec} other {# specs}}",
     description: "Number of specs (requirements).",
+  },
+  diffAddedPrefix: {
+    id: "specViewer.diff.addedPrefix",
+    defaultMessage: "Added:",
+    description:
+      "Hidden prefix, for screen readers, of a line only in the current branch.",
+  },
+  diffChanged: {
+    id: "specViewer.diff.changed",
+    defaultMessage: "Changed",
+    description: "Label of a spec item whose text differs between branches.",
+  },
+  diffEmptyBody: {
+    id: "specViewer.diff.empty.body",
+    defaultMessage: "The specs on {current} and {compare} are the same.",
+    description:
+      "Body shown in diff mode when the two branches have equal specs.",
+  },
+  diffEmptyTitle: {
+    id: "specViewer.diff.empty.title",
+    defaultMessage: "No differences",
+    description:
+      "Title shown in diff mode when the two branches have equal specs.",
+  },
+  diffErrorTitle: {
+    id: "specViewer.diff.error",
+    defaultMessage: "Could not load the branch to compare",
+    description:
+      "Title of the error shown when the compared branch fails to load.",
+  },
+  diffExit: {
+    id: "specViewer.diff.exit",
+    defaultMessage: "Exit diff mode",
+    description:
+      "Accessible name of the button that closes the branch comparison.",
+  },
+  diffLabel: {
+    id: "specViewer.diff.label",
+    defaultMessage: "Differences",
+    description: "Accessible label of the split view of a changed item.",
+  },
+  diffMode: {
+    id: "specViewer.diff.mode",
+    defaultMessage: "Comparing with {branch}",
+    description: "Label in the header while the viewer compares two branches.",
+  },
+  diffNew: {
+    id: "specViewer.diff.new",
+    defaultMessage: "New",
+    description: "Label of a spec item that exists only in the current branch.",
+  },
+  diffRemoved: {
+    id: "specViewer.diff.removed",
+    defaultMessage: "Removed",
+    description:
+      "Label of a spec item that exists only in the branch being compared against.",
+  },
+  diffRemovedPrefix: {
+    id: "specViewer.diff.removedPrefix",
+    defaultMessage: "Removed:",
+    description:
+      "Hidden prefix, for screen readers, of a line only in the compared branch.",
+  },
+  diffSummary: {
+    id: "specViewer.diff.summary",
+    defaultMessage: "{added} new, {removed} removed, {changed} changed",
+    description: "Counts of the spec items that differ between two branches.",
+  },
+  diffTableLabel: {
+    id: "specViewer.diff.tableLabel",
+    defaultMessage: "Spec differences between branches",
+    description: "Accessible label of the tree of changed specs.",
+  },
+  diffViewMode: {
+    id: "specViewer.diff.viewMode",
+    defaultMessage: "Diff view",
+    description:
+      "Accessible label of the switch between raw and rendered diffs.",
+  },
+  diffViewRaw: {
+    id: "specViewer.diff.viewRaw",
+    defaultMessage: "Raw",
+    description: "Option that shows a diff as markdown source, line by line.",
+  },
+  diffViewRendered: {
+    id: "specViewer.diff.viewRendered",
+    defaultMessage: "Rendered",
+    description:
+      "Option that shows a diff as rendered markdown, block by block.",
   },
   documentEmptyBody: {
     id: "specViewer.document.empty.body",
@@ -257,6 +351,12 @@ export const messages = defineMessages({
     id: "specViewer.productName",
     defaultMessage: "HyperShell specs",
     description: "Product name shown in the masthead.",
+  },
+  refCompare: {
+    id: "specViewer.ref.compare",
+    defaultMessage: "Compare with {branch}",
+    description:
+      "Button on a branch in the branch picker that opens diff mode against it.",
   },
   refDefault: {
     id: "specViewer.ref.default",
