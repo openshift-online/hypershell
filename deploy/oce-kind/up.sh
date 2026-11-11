@@ -92,6 +92,8 @@ if [[ ! -e $OCE_KIND_STATE/hypershell-ready && ! -e $OCE_KIND_STATE/install-rece
     CONTAINER_ENGINE=docker KIND_HOT_RELOAD=false LOCAL_IMAGES=true KIND_KEYCLOAK_URL= 8>&-
   touch "$OCE_KIND_STATE/hypershell-ready"
 fi
+stage='gateway prerequisites'
+bash "$here/prepare-oce.sh"
 python3 - <<'PY'
 import subprocess, yaml
 from pathlib import Path
@@ -104,7 +106,7 @@ for deployment in hypershell-api-server hypershell-controller hypershell-web-con
 done
 keycloak_host=$(kubectl -n keycloak get deployment keycloak -o json |
   jq -er '.spec.template.spec.containers[].env[]|select(.name=="KC_HOSTNAME")|.value|ltrimstr("https://")')
-make kind-seed SEED_STRICT=true KIND_CLUSTER_NAME=hypershell-oce KIND_NAMESPACE=hypershell-system \
+make kind-seed SEED_OPERATOR_WORKSPACES=true SEED_STRICT=true KIND_CLUSTER_NAME=hypershell-oce KIND_NAMESPACE=hypershell-system \
   CONTAINER_ENGINE=docker KEYCLOAK_HOSTNAME="$keycloak_host" 8>&-
 for attempt in {1..90}; do
   gateways=$(kubectl get deployment -A --field-selector metadata.name=openshell-gateway -o json)
@@ -136,7 +138,7 @@ if [[ ! -x $OCE_KIND_STATE/bin/helm ]]; then
   docker rm "$container"
 fi
 export PATH="$OCE_KIND_STATE/bin:$PATH" HELM_PLUGINS="$OCE_KIND_STATE/helm-plugins"
-for stage in prepare-oce install-oce activate-oce browser-access seed-agent; do
+for stage in install-oce activate-oce browser-access seed-agent; do
   printf '\n==> %s\n' "$stage"
   bash "$here/$stage.sh"
 done

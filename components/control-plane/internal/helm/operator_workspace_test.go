@@ -26,8 +26,9 @@ func TestOperatorWorkspaceConfiguration(t *testing.T) {
 			OIDC:          OIDCConfig{Issuer: "https://identity.example.org"},
 			Route:         RouteConfig{Enabled: true},
 		},
-		Namespace:         "openshell-deadbeefdeadbeef",
-		OperatorWorkspace: config,
+		Namespace:                 "openshell-deadbeefdeadbeef",
+		OperatorWorkspace:         config,
+		OperatorNamespaceLabelKey: config.NamespaceLabelKey,
 	}
 	values, err := builder.Build()
 	if err != nil {

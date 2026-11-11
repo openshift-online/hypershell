@@ -126,6 +126,7 @@ help:
 	@echo "                             KIND_COVERAGE=true: coverage-instrumented images (implies LOCAL_IMAGES=true)"
 	@echo "    kind-up-with-oce         HyperShell + OCE + gpt-6-luna Codex agent (OCE_REPO, ENMAAS_API_KEY_FILE)"
 	@echo "    kind-seed                Seed platform resources into a running cluster"
+	@echo "                             SEED_OPERATOR_WORKSPACES=true: create dev-gateway with hsctl in operator mode"
 	@echo "    kind-reconcile-keycloak-users  Assign platform:admin to admin on stale Keycloak imports"
 	@echo "                             SKIP_SEED=true: defer seeding during kind-up / openshift-up"
 	@echo "                             SEED_STRICT=true: fail the command if seeding is incomplete"

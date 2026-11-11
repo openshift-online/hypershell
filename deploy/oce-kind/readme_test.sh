@@ -227,7 +227,7 @@ printf '%s\\n' keycloak.localhost:8443 > "$OCE_KIND_STATE/keycloak-host"'''
     def test_installation_stops_at_each_failed_helper_without_exiting_parent(self):
         section = readme.split('Run the supplied helpers in order:', 1)[1]
         script = re.search(r'```bash\n(.*?)\n```', section, re.S).group(1)
-        stages = ('prepare-oce', 'install-oce', 'activate-oce', 'browser-access')
+        stages = ('install-oce', 'activate-oce', 'browser-access')
         for failure in (*stages, ''):
             with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)

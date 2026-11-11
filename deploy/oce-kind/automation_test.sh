@@ -19,7 +19,7 @@ import unittest
 helpers = Path(sys.argv.pop()).resolve()
 
 TOOLS = r'''#!/usr/bin/env python3
-import json, os, sys
+import json, os, sys, yaml
 from pathlib import Path
 name, args = Path(sys.argv[0]).name, sys.argv[1:]
 infra = Path(os.environ['OCE_TEST_INFRA'])
@@ -65,9 +65,14 @@ elif name == 'make':
     if args[0] == 'kind-up':
         assert 'SKIP_SEED=true' in args and 'LOCAL_IMAGES=true' in args
     elif args[0] == 'kind-seed':
-        assert 'SEED_STRICT=true' in args
+        assert 'SEED_STRICT=true' in args and 'SEED_OPERATOR_WORKSPACES=true' in args
         calls = [json.loads(line) for line in (infra / 'calls').read_text().splitlines()]
-        assert sum('patch' in call for call in calls) >= 2
+        patches = [yaml.safe_load(call[-1]) for call in calls if 'patch' in call]
+        assert patches and all(p['metadata']['name'] == 'hypershell-controller' for p in patches)
+        settings = {e['name']: e['value'] for e in patches[-1]['spec']['template']['spec']['containers'][0]['env']}
+        assert settings['GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY'] == 'hypershell.io/gateway'
+        assert settings['GATEWAY_OPERATOR_SANDBOX_RUNTIME_CLASS'] == 'openshell-sandbox'
+        assert calls.index(['prepare-oce']) < len(calls) - 1
     else: raise AssertionError(args)
     if os.environ.get('TEST_FAIL') == args[0]: sys.exit(42)
 elif name == 'curl':
@@ -219,7 +224,7 @@ turn() {
         self.assertEqual(sum(c[:3] == ['kind', 'create', 'cluster'] for c in calls), 1)
         stages = [c[0] for c in calls if len(c) == 1]
         expected = ['prepare-oce', 'install-oce', 'activate-oce', 'browser-access', 'seed-agent', 'access']
-        self.assertEqual(stages, ['build-oce', *expected, *expected])
+        self.assertEqual(stages, ['prepare-oce', 'build-oce', *expected[1:], *expected])
         self.assertEqual(self.state.stat().st_mode & 0o777, 0o700)
         self.assertIn(str(self.repo), (self.state / 'kind.yaml').read_text())
 
@@ -247,6 +252,13 @@ turn() {
         self.assertNotIn(['activate-oce'], self.calls())
         self.assertNotIn(['access'], self.calls())
         self.assertIn('State preserved', result.stderr)
+
+    def test_up_requires_gateway_prerequisites_before_seeding(self):
+        script = self.prepare_up()
+        result = self.run_script(script, TEST_FAIL='prepare-oce')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(any(c[:2] == ['make', 'kind-seed'] for c in self.calls()))
+        self.assertNotIn(['install-oce'], self.calls())
 
     def test_existing_installation_preserves_baseline(self):
         script = self.prepare_up()

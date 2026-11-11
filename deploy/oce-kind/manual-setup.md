@@ -111,15 +111,18 @@ immutable. Do not create the first gateway until the next section is complete.
 
 ## Configure the HyperShell-owned gateway
 
-The API [create default](../../components/api-server/plugins/gateways/field_policy.go)
-saves the workspace mode. The controller [loads operator settings](../../components/control-plane/internal/config/config.go)
+`hsctl create gateway --operator-workspaces` selects operator mode at creation
+using [PR #1016](https://github.com/openshift-online/hypershell/pull/1016).
+The caller must hold `gateway:operator-workspace-creator` or `platform:admin`;
+the local `admin` account qualifies. The controller [loads operator settings](../../components/control-plane/internal/config/config.go)
 and carries them through the reconciler into the [Helm values builder](../../components/control-plane/internal/helm/values.go).
-These are deployment settings, not user-writable API fields:
+The remaining controller settings are administrator-owned:
 
 | Setting                          | Owner      | Effect                                                                                                                             |
 | -------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `GATEWAY_DEFAULT_WORKSPACE_MODE` | API server | Selects the mode saved for newly created gateways; unset retains `managed`. Existing gateways retain their mode.                   |
-| `GATEWAY_OPERATOR_WORKSPACE`     | Controller | JSON with `namespaceLabelKey` and `allowedPodLabels`. Required for operator-mode gateways; invalid input fails controller startup. |
+| `GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY` | Controller | Scopes tenant namespace discovery to this gateway. |
+| `GATEWAY_OPERATOR_SANDBOX_RUNTIME_CLASS` | Controller | Selects the operator sandbox RuntimeClass, which must exist before provisioning. |
+| `GATEWAY_OPERATOR_WORKSPACE` | Controller | OCE trust settings, including allowed Pod labels. |
 
 The controller combines the configured label key with each gateway's own
 namespace as the value. For this installation, OCE labels each tenant namespace
@@ -132,51 +135,29 @@ Operator-mode certificates also cover `*.openshell.localhost`, the internal
 domain OpenShell advertises for sandbox services. This keeps Codex WebSocket
 connections subject to hostname verification.
 
-> **Planned change:** [Issue #1003](https://github.com/openshift-online/hypershell/issues/1003)
-> tracks per-gateway opt-in to operator-managed workspaces. When it is resolved,
-> the code block below will change to use the supported gateway creation flow
-> instead of manually patching the API and controller Deployments. Until then,
-> use the current steps below.
-
-Apply the supplied deployment patches with strategic merge, then seed through
-HyperShell's normal authenticated API:
+Prepare the RuntimeClass and OCE infrastructure, apply the controller trust
+settings, then create `dev-gateway` through the authenticated `hsctl` flow.
+Ordinary gateways keep the API's `managed` default.
 
 ```bash
 if bash -euo pipefail <<'CONFIGURE_GATEWAY'
-# The YAML below contains two Deployment patches, both applied before seeding:
-#
-# hypershell-api-server:
-#   GATEWAY_DEFAULT_WORKSPACE_MODE=operator makes new gateways use tenant
-#   namespaces provisioned by OCE. The workspace mode is saved at creation
-#   and cannot be changed for an existing gateway.
-#
-# hypershell-controller:
-#   GATEWAY_OPERATOR_WORKSPACE configures namespace discovery and pod labels:
-#   - namespaceLabelKey=hypershell.io/gateway selects tenant namespaces labeled
-#     hypershell.io/gateway=<this gateway's namespace>, keeping each gateway's
-#     workspace discovery scoped to its own namespaces.
-#   - allowedPodLabels permits OCE to set openclaw.dev/*,
-#     app.kubernetes.io/name, and app.kubernetes.io/managed-by on sandbox pods.
-#   Operator mode also accepts OCE's driver configuration and external resource
-#   attachments without approval labels, while keeping mTLS enabled.
-#
-#   GATEWAY_SANDBOX_RUNTIME_CLASS=openshell-sandbox sets the default RuntimeClass
-#   for sandbox pods, matching the Pod Security exemption configured above.
-#   prepare-oce.sh creates that RuntimeClass with the runc handler later.
+# The controller checks the operator RuntimeClass before provisioning the gateway.
+bash deploy/oce-kind/prepare-oce.sh
+
+# Configure namespace discovery, OCE's allowed Pod labels, and the operator-only
+# openshell-sandbox RuntimeClass. Keep mTLS and external resource attachments enabled.
 python3 - <<'PY'
 import subprocess, yaml
 from pathlib import Path
 
-# Read both Deployment patches and merge them into the running Deployments,
-# preserving other container settings. Stop if either kubectl patch fails.
+# Merge the controller patch, preserving other container settings.
 for resource in yaml.safe_load_all(Path('deploy/oce-kind/hypershell-operator.yaml').read_text()):
     subprocess.run(['kubectl','-n','hypershell-system','patch','deployment',
                     resource['metadata']['name'],'--type=strategic','--patch',yaml.safe_dump(resource)], check=True)
 PY
 
-# Wait for the API and controller to run with the new settings before seeding.
+# Wait for the controller to run with the new settings before seeding.
 # OpenShell images retain HyperShell's normal release defaults.
-kubectl -n hypershell-system rollout status deployment/hypershell-api-server
 kubectl -n hypershell-system rollout status deployment/hypershell-controller
 
 # Read this cluster's configured Keycloak hostname for authenticated seeding.
@@ -184,9 +165,10 @@ kubectl -n hypershell-system rollout status deployment/hypershell-controller
 keycloak_host=$(kubectl -n keycloak get deployment keycloak -o json |
   jq -er '.spec.template.spec.containers[].env[]|select(.name=="KC_HOSTNAME")|.value|ltrimstr("https://")')
 
-# Seed dev-gateway through the API after the controller registers the cluster.
-# Enable strict mode so reported seeding failures stop the setup.
-KIND_SEED_STRICT=true make kind-seed KEYCLOAK_HOSTNAME="$keycloak_host"
+# Reuse authenticated seeding to build hsctl and create dev-gateway with:
+#   hsctl create gateway --name dev-gateway --placement-selector provider/kind --operator-workspaces
+# An existing operator gateway is reused; another mode is immutable and rejected.
+make kind-seed SEED_OPERATOR_WORKSPACES=true SEED_STRICT=true KEYCLOAK_HOSTNAME="$keycloak_host"
 
 # The controller provisions the gateway asynchronously and assigns its namespace.
 # Poll every two seconds for exactly one gateway Deployment; never guess its namespace.
@@ -286,7 +268,6 @@ Run the supplied helpers in order:
 if bash -euo pipefail <<'INSTALL_OCE'
 # Report which helper failed, and stop before running any later helper.
 trap 'printf "Failed command: %s\n" "$BASH_COMMAND" >&2' ERR
-bash deploy/oce-kind/prepare-oce.sh
 bash deploy/oce-kind/install-oce.sh
 bash deploy/oce-kind/activate-oce.sh
 bash deploy/oce-kind/browser-access.sh

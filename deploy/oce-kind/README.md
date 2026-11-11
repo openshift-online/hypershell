@@ -84,13 +84,16 @@ The Makefile invokes [`up.sh`](up.sh), which runs these stages in order:
    running cluster, or allocate a fresh directory for a new cluster.
 2. **Start HyperShell.** Create kind using [`kind.yaml`](kind.yaml), then run
    the existing `make kind-up` workflow with local builds and seeding deferred.
-   Apply the operator workspace settings before seeding `dev-gateway`, then wait
-   for the gateway to become ready.
+   Prepare the operator RuntimeClass and controller trust settings, then create
+   `dev-gateway` with `hsctl create gateway --operator-workspaces` through
+   `make kind-seed SEED_OPERATOR_WORKSPACES=true SEED_STRICT=true`. Wait for the
+   gateway to become ready. Reruns reuse an existing operator gateway and reject
+   an existing gateway in another mode; the API default stays `managed`.
 3. **Build OCE.** [`build-oce.sh`](build-oce.sh) builds the `occ` CLI, controller
    image, and Agent runtime image from your OCE checkout. It loads the images
    into kind and records immutable image digests for the installation.
-4. **Install and connect OCE.** [`prepare-oce.sh`](prepare-oce.sh) and
-   [`install-oce.sh`](install-oce.sh) prepare configuration, credentials, the
+4. **Install and connect OCE.** [`install-oce.sh`](install-oce.sh) prepares
+   configuration, credentials, the
    database, and the Helm installation. [`activate-oce.sh`](activate-oce.sh)
    connects OCE to the HyperShell-owned gateway and configures tenant access.
    [`browser-access.sh`](browser-access.sh) sets up the OCE HTTPS listener.
