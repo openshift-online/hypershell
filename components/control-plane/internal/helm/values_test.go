@@ -2,6 +2,7 @@ package helm
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -856,6 +857,7 @@ func TestBuild_OperatorWorkspaceMode(t *testing.T) {
 // control-plane-built values must reach the chart's rendered gateway.toml as
 // workspace_mode = "managed" and the derived gateway_id must land in both the
 // gateway JWT identity and the Kubernetes driver section. Skipped without helm.
+// Verifies: OSG-OPWS-08.01, OSG-OPWS-08.03
 func TestBuild_WorkspaceModeRendersInChart(t *testing.T) {
 	helmBin, err := exec.LookPath("helm")
 	if err != nil {
@@ -865,8 +867,17 @@ func TestBuild_WorkspaceModeRendersInChart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, mode := range []string{"managed", "operator"} {
-		t.Run(mode, func(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		mode  string
+		optIn bool
+	}{
+		{name: "managed", mode: "managed"},
+		{name: "operator defaults", mode: "operator"},
+		{name: "operator opt-in", mode: "operator", optIn: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mode := tc.mode
 			digest := "sha256:" + strings.Repeat("a", 64)
 			builder := ValuesBuilder{
 				Gateway: GatewayConfig{
@@ -881,8 +892,11 @@ func TestBuild_WorkspaceModeRendersInChart(t *testing.T) {
 				OperatorNamespaceLabelKey:   "hypershell.io/gateway",
 				OperatorSandboxRuntimeClass: "openshell-sandbox",
 				OperatorWorkspace: &OperatorWorkspaceConfig{
-					NamespaceLabelKey: "hypershell.io/gateway",
-					AllowedPodLabels:  []string{"openclaw.dev/*"},
+					NamespaceLabelKey:        "hypershell.io/gateway",
+					AllowDriverConfig:        tc.optIn,
+					DisableResourceAdmission: tc.optIn,
+					MTLSAuth:                 tc.optIn,
+					AllowedPodLabels:         []string{"openclaw.dev/*"},
 				},
 			}
 			values, err := builder.Build()
@@ -912,7 +926,8 @@ func TestBuild_WorkspaceModeRendersInChart(t *testing.T) {
 				want = append(want, `gateway_id = "deadbeefdeadbeef"`)
 			}
 			if mode == "operator" {
-				want = append(want, `operator_namespace_label = "hypershell.io/gateway=openshell-deadbeefdeadbeef"`, `allow_driver_config = true`)
+				want = append(want, `operator_namespace_label = "hypershell.io/gateway=openshell-deadbeefdeadbeef"`, fmt.Sprintf("allow_driver_config = %t", tc.optIn))
+				want = append(want, fmt.Sprintf("[openshell.drivers.kubernetes.resource_admission]\n    enabled = %t", !tc.optIn), fmt.Sprintf("[openshell.gateway.mtls_auth]\n    enabled = %t", tc.optIn))
 				// The advertised service domain must also be covered by the server certificate.
 				want = append(want, `server_sans = ["gateway.example.com", "*.openshell.localhost"]`, `- "*.openshell.localhost"`)
 			}

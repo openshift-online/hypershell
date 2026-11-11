@@ -12,8 +12,11 @@ import (
 // OperatorWorkspaceConfig is deployment-owned: gateway users cannot grant access
 // to external Kubernetes resources or choose trusted workload labels.
 type OperatorWorkspaceConfig struct {
-	NamespaceLabelKey string   `json:"namespaceLabelKey"`
-	AllowedPodLabels  []string `json:"allowedPodLabels"`
+	NamespaceLabelKey        string   `json:"namespaceLabelKey"`
+	AllowedPodLabels         []string `json:"allowedPodLabels"`
+	AllowDriverConfig        bool     `json:"allowDriverConfig"`
+	DisableResourceAdmission bool     `json:"disableResourceAdmission"`
+	MTLSAuth                 bool     `json:"mtlsAuth"`
 }
 
 func ParseOperatorWorkspace(raw string) (*OperatorWorkspaceConfig, error) {

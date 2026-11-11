@@ -110,6 +110,10 @@ elif name == 'curl':
             with self.subTest(failure=failure):
                 result, calls = self.run_seed(failure=failure)
                 self.assertNotEqual(result.returncode, 0)
+                if failure != 'login':
+                    self.assertIn('Gateway creation failed (hsctl exit ' + ('42' if failure == 'create' else '0') + ')', result.stdout)
+                    self.assertIn('Automatic seeding incomplete', result.stdout)
+                    self.assertNotIn('HTTP 201', result.stdout + result.stderr)
 
     def test_ordinary_seed_keeps_managed_default_and_rest_flow(self):
         result, calls = self.run_seed(operator=False)

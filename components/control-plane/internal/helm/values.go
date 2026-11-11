@@ -273,11 +273,11 @@ func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
 			return fmt.Errorf("operator workspace mode requires GATEWAY_OPERATOR_WORKSPACE")
 		}
 		setNestedValue(values, false, "workspaceResources", "enabled")
-		// The trusted workspace operator supplies its own PVCs, identities and policy.
-		setNestedValue(values, true, "server", "drivers", "kubernetes", "allowDriverConfig")
-		setNestedValue(values, false, "server", "drivers", "kubernetes", "resourceAdmission", "enabled")
+		// Wider operator access requires explicit administrator opt-in.
+		setNestedValue(values, b.OperatorWorkspace.AllowDriverConfig, "server", "drivers", "kubernetes", "allowDriverConfig")
+		setNestedValue(values, !b.OperatorWorkspace.DisableResourceAdmission, "server", "drivers", "kubernetes", "resourceAdmission", "enabled")
 		setNestedValue(values, b.OperatorWorkspace.AllowedPodLabels, "gatewayConfig", "openshell.drivers.kubernetes", "allowed_pod_labels")
-		setNestedValue(values, true, "gatewayConfig", "openshell.gateway.mtls_auth", "enabled")
+		setNestedValue(values, b.OperatorWorkspace.MTLSAuth, "gatewayConfig", "openshell.gateway.mtls_auth", "enabled")
 	}
 
 	// Server DNS names for TLS certificate SANs

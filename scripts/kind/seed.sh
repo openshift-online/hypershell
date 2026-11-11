@@ -266,18 +266,22 @@ if [[ -z "${seed_failed}" ]]; then
       export HYPERSHELL_CONFIG="${SEED_TMP_DIR}/hsctl.json"
       (cd "${REPO_ROOT}/components/cli" && go build -o "${HSCTL}" ./cmd/hsctl)
       printf '%s' "${API_TOKEN}" | "${HSCTL}" login --url "${API_URL}" --token-file /dev/stdin
-      GW_RESP=$("${HSCTL}" create gateway --name dev-gateway --placement-selector provider/kind --operator-workspaces)
-      GW_HTTP=201
+      GW_RC=0
+      GW_RESP=$("${HSCTL}" create gateway --name dev-gateway --placement-selector provider/kind --operator-workspaces) || GW_RC=$?
+      GW_STATUS="hsctl exit ${GW_RC}"
+      if [[ "${GW_RC}" != 0 ]]; then
+        seed_failed=true
+      fi
     else
       GW_BODY="{\"name\":\"dev-gateway\",\"placement\":{\"selector\":[\"provider/kind\"]}}"
       GW_RAW=$(api_post "${API_URL}/api/hypershell/v1/gateways" "${GW_BODY}")
-      GW_HTTP=$(echo "${GW_RAW}" | tail -1)
+      GW_STATUS="HTTP $(echo "${GW_RAW}" | tail -1)"
       GW_RESP=$(echo "${GW_RAW}" | sed '$d')
     fi
     GATEWAY_ID=$(extract_id "${GW_RESP}")
 
-    if [[ -z "${GATEWAY_ID}" ]]; then
-      warn "Gateway creation failed (HTTP ${GW_HTTP}): ${GW_RESP:-no response}"
+    if [[ -z "${GATEWAY_ID}" || -n "${seed_failed}" ]]; then
+      warn "Gateway creation failed (${GW_STATUS}): ${GW_RESP:-no response}"
       seed_failed=true
     else
       success "Gateway created: ${GATEWAY_ID}"

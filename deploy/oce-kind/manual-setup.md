@@ -122,12 +122,12 @@ The remaining controller settings are administrator-owned:
 | -------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY` | Controller | Scopes tenant namespace discovery to this gateway. |
 | `GATEWAY_OPERATOR_SANDBOX_RUNTIME_CLASS` | Controller | Selects the operator sandbox RuntimeClass, which must exist before provisioning. |
-| `GATEWAY_OPERATOR_WORKSPACE` | Controller | OCE trust settings, including allowed Pod labels. |
+| `GATEWAY_OPERATOR_WORKSPACE` | Controller | OCE trust settings: namespace label, allowed Pod labels, and explicit driver, resource-admission, and mTLS-auth permissions. |
 
 The controller combines the configured label key with each gateway's own
 namespace as the value. For this installation, OCE labels each tenant namespace
 `hypershell.io/gateway=<gateway namespace>`. Other gateways cannot discover it
-through their operator selector. The controller enables external driver
+through their operator selector. The OCE overlay explicitly enables external driver
 configuration, disables resource-approval labels for this trusted operator, and
 preserves mTLS authentication alongside OIDC. Give this gateway only trusted
 operator accounts: it can attach resources in the selected namespaces.

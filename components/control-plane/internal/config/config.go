@@ -317,6 +317,10 @@ func Load() (*Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("invalid GATEWAY_OPERATOR_WORKSPACE: %w", err)
 		}
+		if cfg.OperatorNamespaceLabelKey != "" && cfg.OperatorNamespaceLabelKey != workspace.NamespaceLabelKey {
+			return nil, fmt.Errorf("GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY must match GATEWAY_OPERATOR_WORKSPACE.namespaceLabelKey")
+		}
+		cfg.OperatorNamespaceLabelKey = workspace.NamespaceLabelKey
 		cfg.OperatorWorkspace = workspace
 	}
 
