@@ -78,7 +78,7 @@ export function createMemoryHistory(
 
 // The application route segments the codec serializes. Used only to derive a
 // reverse-proxy base path from the initial location so it round-trips (FLT-NAV-19).
-const TAB_SEGMENTS = new Set(["map", "sdlc", "e2e"]);
+const TAB_SEGMENTS = new Set(["map", "sdlc", "e2e", "delivery"]);
 
 /**
  * Derive the deployment base path: the initial pathname with a trailing application

@@ -1,0 +1,12 @@
+/* The app's tab content stretches every Card to full height so the Fleet Map can
+   fill the viewport (app.module.css .mapItem). The Delivery page stacks several
+   cards and scrolls instead, so its cards keep their natural height. The doubled
+   class outranks the app rule regardless of stylesheet order. */
+.root.root :global(.pf-v6-c-card) {
+  display: block;
+  height: auto;
+}
+
+.root.root :global(.pf-v6-c-card__body) {
+  display: block;
+}

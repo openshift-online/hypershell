@@ -46,6 +46,10 @@ type Handlers struct {
 	// (E2E-LOG-01/02).
 	E2ERuns *cache.Source
 	E2E     E2ERunPlane
+	// Delivery is the delivery pipeline plane (fleet-dashboard-delivery-pipeline
+	// .spec). nil when FD_DELIVERY_BUNDLE_REPOSITORY is unset; the route is still
+	// mounted and reports enabled=false (FLT-DLV-01.02).
+	Delivery *cache.Source
 }
 
 // Register mounts the /api/* routes on the mux.
@@ -72,6 +76,19 @@ func (h *Handlers) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/e2e/logs", h.serveE2ERunLogs())
 	mux.HandleFunc("GET /api/e2e/diagnostics", h.serveE2ERunDiagnostics())
 	mux.HandleFunc("GET /api/e2e/stream", h.serveE2EStream())
+	mux.HandleFunc("GET /api/delivery", h.serveDelivery())
+}
+
+// serveDelivery serves the delivery plane, or a healthy enabled=false body when
+// the plane is not configured (FLT-DLV-01.02, FLT-DLV-12).
+func (h *Handlers) serveDelivery() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if h.Delivery == nil {
+			writeJSON(w, r, http.StatusOK, cache.Snapshot{Data: sources.DisabledDeliveryPayload(), GeneratedAt: time.Now()})
+			return
+		}
+		h.serve(h.Delivery)(w, r)
+	}
 }
 
 // e2eFeatureOffSnapshot is the body returned by the e2e endpoints when the
