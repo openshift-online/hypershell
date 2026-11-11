@@ -56,6 +56,7 @@ Fullsend" section for how a repo pairs the two projects.
 │       ├── kustomization.yaml
 │       ├── repository.yaml     # Repository (this repo) + credential reference
 │       ├── gateway.yaml        # Gateway (agents-gateway) placed by capability selector
+│       ├── ci-trust.yaml       # CITrust: keyless GitHub Actions -> gateway federation
 │       ├── sandbox-template.yaml # agent-runtime-slim + basic network policy
 │       └── provider-specs.yaml # claude-inference, github-source-control
 └── agents/<name>/              # agent instances (overlays on base/platform)
@@ -78,6 +79,29 @@ Fullsend" section for how a repo pairs the two projects.
 
 `SKILL.md` holds each agent's workflow prompt and is still authored by hand; it
 has no declarative equivalent and is loaded by the coordinator at run time.
+
+## CI federation (keyless CI)
+
+`base/platform/ci-trust.yaml` declares a `CITrust`: it lets GitHub Actions in this
+repository federate into `agents-gateway` with **no stored secret**. A CI job mints
+its native OIDC token, exchanges it at the cluster Keycloak, and receives a
+short-lived gateway-scoped OpenShell token carrying the `openshell-user` role. The
+full contract is in [`specs/platform/ci-trust-ext-api.spec.md`](../specs/platform/ci-trust-ext-api.spec.md)
+(PLAT-CITR); the end-to-end how-to (declare -> mint -> exchange -> sandbox) is in
+[`docs/how-to/ci-federation-from-github-actions.md`](../docs/how-to/ci-federation-from-github-actions.md).
+
+Two consequences of late-bound placement matter here:
+
+- **The owning cluster must have CI federation enabled.** The gateway is placed by
+  capability selector (`gateway.yaml`), so the control plane may assign it to any
+  matching `ManagedCluster`; the `CITrust` is realized only by that cluster's control
+  plane. Every cluster the selector can match must be CI-federation-enabled, or the
+  trust silently does not realize (PLAT-CITR-13/14).
+- **The exchange audience is the gateway's resource id.** A gateway's Keycloak client
+  id (and token audience) is its immutable API-server id. Deleting and recreating the
+  gateway under the same name yields a new id, so the `CITrust` must be recreated
+  against it (its `gateway_id` is immutable) and any CI workflow's audience input
+  updated to the new id.
 
 ## Defined Agents
 
