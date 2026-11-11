@@ -197,7 +197,7 @@ type notFoundError struct{ loc string }
 func (e *notFoundError) Error() string { return "no secret at " + e.loc }
 
 func TestCredentialResolver_DefaultPlatformToken(t *testing.T) {
-	r := NewSecretStoreCredentialResolver(nil, nil, "platform-token")
+	r := NewSecretStoreCredentialResolverWithGitHubApp(nil, nil, "platform-token", nil, "")
 	// No secret_source_id -> default platform token.
 	got, err := r.Resolve(context.Background(), &pb.Repository{Metadata: &pb.ObjectReference{Id: "r1"}})
 	if err != nil {
@@ -212,7 +212,7 @@ func TestCredentialResolver_DefaultPlatformToken(t *testing.T) {
 func TestCredentialResolver_PerRepositoryPrecedence(t *testing.T) {
 	sources := &fakeSecretSourceClient{source: &pb.SecretSource{Path: "secret/data/git", Metadata: &pb.ObjectReference{Id: "ss1"}}}
 	reader := &fakeSecretReader{values: map[string]string{"secret/data/git": "repo-specific-token"}}
-	r := NewSecretStoreCredentialResolver(reader, sources, "platform-token")
+	r := NewSecretStoreCredentialResolverWithGitHubApp(reader, sources, "platform-token", nil, "")
 
 	repo := &pb.Repository{Metadata: &pb.ObjectReference{Id: "r1"}, SecretSourceId: "ss1"}
 	got, err := r.Resolve(context.Background(), repo)

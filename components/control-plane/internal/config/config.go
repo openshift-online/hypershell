@@ -153,9 +153,7 @@ type Config struct {
 	CIProviderResyncInterval time.Duration
 
 	// Helm chart configuration
-	HelmChartPath     string
-	HelmChartRegistry string
-	HelmChartVersion  string
+	HelmChartPath string
 
 	// GatewayDatabaseAdminDir is the directory holding the mounted PostgreSQL
 	// admin credentials for gateway database provisioning. Sourced from
@@ -266,9 +264,7 @@ func Load() (*Config, error) {
 		CITrustResyncInterval:     getEnvDuration("HYPERSHELL_CI_TRUST_RESYNC_INTERVAL", 5*time.Minute),
 		CIProviderResyncInterval:  getEnvDuration("HYPERSHELL_CI_PROVIDER_RESYNC_INTERVAL", 5*time.Minute),
 
-		HelmChartPath:     getEnv("HELM_CHART_PATH", "/charts/openshell.tgz"),
-		HelmChartRegistry: getEnv("HELM_CHART_REGISTRY", ""),
-		HelmChartVersion:  getEnv("HELM_CHART_VERSION", ""),
+		HelmChartPath: getEnv("HELM_CHART_PATH", "/charts/openshell.tgz"),
 
 		GatewayDatabaseAdminDir: getEnv("GATEWAY_DATABASE_ADMIN_DIR", DefaultGatewayDatabaseAdminDir),
 		SandboxRuntimeClass:     getEnv("GATEWAY_SANDBOX_RUNTIME_CLASS", ""),
@@ -313,11 +309,6 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("invalid GATEWAY_RESOURCES: %w", err)
 		}
 		cfg.GatewayResources = &rr
-	}
-
-	// Validate Helm configuration
-	if cfg.HelmChartRegistry != "" && cfg.HelmChartVersion == "" {
-		return nil, fmt.Errorf("HELM_CHART_VERSION is required when HELM_CHART_REGISTRY is set")
 	}
 
 	// The CI token-exchange authorization mode is config-driven (PLAT-CITR-08); an
