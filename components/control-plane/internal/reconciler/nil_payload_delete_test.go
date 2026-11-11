@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -158,6 +159,8 @@ func TestNilPayloadDeleteReconcilesFromReReadRecord(t *testing.T) {
 		dynamicClient:         dynamicfake.NewSimpleDynamicClient(runtime.NewScheme()),
 		controlPlaneNamespace: cpNamespace,
 		gatewayClientOverride: fake,
+		// Keycloak is mandatory; point it at the failing stub so cleanup errors.
+		keycloakClient: keycloak.NewClient(srv.URL, "test", "provisioner", "secret"),
 	}
 
 	// Teardown will fail against the stub server, so an error is expected; the

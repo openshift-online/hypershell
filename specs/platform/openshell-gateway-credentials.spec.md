@@ -607,7 +607,8 @@ A failed mount deletion (for example Vault is permanently unreachable or decommi
 teardown, or the provisioner login is denied) SHALL **not** pin the delete tombstone: the
 control plane SHALL record a durable `VaultTenantMount` orphan for operator reclaim and
 **complete** the gateway deletion, exactly as it does for other permanent cleanup failures in
-the same path (for example a deconfigured Keycloak provisioner). A left-behind mount holds only
+the same path (for example a stored gateway identity that cannot be resolved, so its
+Keycloak clients cannot be located). A left-behind mount holds only
 entries that are already unreferenced (the gateway database is gone) and un-listable from any
 tenant identity, so retrying the delete forever would pin the tombstone for no isolation
 benefit. The stored `credential_driver` is parsed before reclaim; a **malformed** stored driver

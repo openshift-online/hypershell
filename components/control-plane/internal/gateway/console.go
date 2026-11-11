@@ -350,8 +350,7 @@ func reconcileConsole(ctx context.Context, dynamicClient dynamic.Interface, clie
 	namespace := nsConfig.Name
 
 	if opts.Keycloak == nil {
-		slog.WarnContext(ctx, "Console: Keycloak not configured; skipping console", "namespace", namespace)
-		return nil
+		return fmt.Errorf("console in %s: keycloak configuration is required", namespace)
 	}
 	if opts.GatewayClientID == "" || opts.GatewayID == "" {
 		slog.WarnContext(ctx, "Console: gateway client ID and gateway ID are required; skipping console", "namespace", namespace)

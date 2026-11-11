@@ -14,11 +14,15 @@ import {
   DrawerContent,
   DrawerContentBody,
   DrawerPanelContent,
+  EmptyState,
+  EmptyStateBody,
+  Label,
   Page,
   SearchInput,
   Spinner,
 } from "@patternfly/react-core";
 import {
+  CheckCircleIcon,
   CompressIcon,
   ExpandIcon,
   EyeIcon,
@@ -44,12 +48,16 @@ import {
   highlightTerms,
   searchSpecs,
 } from "../domain/search";
+import { diffCatalogs, isEmptyDiff } from "../domain/spec-diff";
 import type { SpecCatalog } from "../domain/spec-document";
 import { messages } from "../messages";
 import { ConformancePanel } from "./ConformancePanel";
+import { DiffPanel } from "./DiffPanel";
+import { DiffView } from "./DiffView";
+import { nodeTitle } from "./NodeText";
 import type { RefName } from "../application/ports";
 import { usePorts } from "./ports-context";
-import { RefPicker } from "./RefPicker";
+import { refLabel, RefPicker } from "./RefPicker";
 import { RefProvider } from "./ref-context";
 import { ReferencesPanel, type SourceLocation } from "./ReferencesPanel";
 import { SourceView } from "./SourceView";
@@ -57,7 +65,7 @@ import { SpecDocument } from "./SpecDocument";
 import { usePins } from "./use-pins";
 import { useSelection } from "./use-selection";
 import { usePanelWidth } from "./use-panel-width";
-import { useSpecCatalog } from "./use-spec-catalog";
+import { useCatalogOf, useSpecCatalog } from "./use-spec-catalog";
 import { useTheme, type Theme } from "./use-theme";
 
 /**
@@ -77,6 +85,7 @@ function readLayout(): Layout {
 }
 
 const REF_PARAM = "ref";
+const COMPARE_PARAM = "compare";
 const REFS_KEY = ["refs"] as const;
 
 /** The branch in the page URL (`?ref=`); "" is the server's default. */
@@ -84,13 +93,22 @@ function readRefFromUrl(): RefName {
   return new URLSearchParams(window.location.search).get(REF_PARAM) ?? "";
 }
 
-/** Keeps the branch in the URL, so a link opens the same branch. */
-function writeRefToUrl(ref: RefName): void {
+/** The branch compared against (`?compare=`); null outside diff mode. */
+function readCompareFromUrl(): RefName | null {
+  const value = new URLSearchParams(window.location.search).get(COMPARE_PARAM);
+  return value === null || value === "" ? null : value;
+}
+
+/** Keeps a branch in the URL, so a link opens the same branch or diff. */
+function writeParamToUrl(name: string, value: RefName | null): void {
   const url = new URL(window.location.href);
-  if (ref === "") url.searchParams.delete(REF_PARAM);
-  else url.searchParams.set(REF_PARAM, ref);
+  if (value === null || value === "") url.searchParams.delete(name);
+  else url.searchParams.set(name, value);
   window.history.replaceState(window.history.state, "", url);
 }
+
+/** Search terms to mark; none in diff mode, where search is off. */
+const NO_TERMS: string[] = [];
 
 const EMPTY_INDEX = buildSearchIndex({
   files: [],
@@ -138,11 +156,17 @@ function useSpecSearch(catalog: SpecCatalog | undefined, query: string) {
 
 export function App() {
   const [ref, setRef] = useState<RefName>(readRefFromUrl);
+  const [compare, setCompare] = useState<RefName | null>(readCompareFromUrl);
   return (
     <RefProvider value={ref}>
       <SpecViewer
+        compareRef={compare}
+        onCompareChange={(next) => {
+          writeParamToUrl(COMPARE_PARAM, next);
+          setCompare(next);
+        }}
         onRefChange={(next) => {
-          writeRefToUrl(next);
+          writeParamToUrl(REF_PARAM, next);
           setRef(next);
         }}
         specRef={ref}
@@ -154,9 +178,17 @@ export function App() {
 interface SpecViewerProps {
   specRef: RefName;
   onRefChange: (ref: RefName) => void;
+  /** The branch compared against; null when diff mode is off. */
+  compareRef: RefName | null;
+  onCompareChange: (ref: RefName | null) => void;
 }
 
-function SpecViewer({ specRef, onRefChange }: SpecViewerProps) {
+function SpecViewer({
+  specRef,
+  onRefChange,
+  compareRef,
+  onCompareChange,
+}: SpecViewerProps) {
   const intl = useIntl();
   const { repository } = usePorts();
   const refs = useQuery({
@@ -165,9 +197,27 @@ function SpecViewer({ specRef, onRefChange }: SpecViewerProps) {
     staleTime: 60_000,
   });
   const catalogQuery = useSpecCatalog();
+  const diffMode = compareRef !== null;
+  const compareQuery = useCatalogOf(compareRef ?? "", diffMode);
   const pins = usePins();
   const [selection, select] = useSelection();
   const catalog = catalogQuery.data;
+  const compareCatalog = diffMode ? compareQuery.data : undefined;
+  const diff = useMemo(
+    () =>
+      catalog && compareCatalog
+        ? diffCatalogs(compareCatalog, catalog)
+        : undefined,
+    [catalog, compareCatalog],
+  );
+  // The open entry of the diff tree; null shows the normal selection.
+  const [diffSelection, setDiffSelection] = useState<{
+    key: string;
+    revision: number;
+  } | null>(null);
+  const diffEntry = diffSelection
+    ? diff?.byKey.get(diffSelection.key)
+    : undefined;
   const [query, setQuery] = useState("");
   // The conformance table is wide, so its width is stored on its own.
   const [listWidth, setListWidth] = usePanelWidth("conformance");
@@ -204,8 +254,23 @@ function SpecViewer({ specRef, onRefChange }: SpecViewerProps) {
   }, []);
   const selectNode = (nodeId: string) => {
     setSource(null);
+    setDiffSelection(null);
     select(nodeId);
     showDocument();
+  };
+  const selectDiffEntry = (key: string) => {
+    setSource(null);
+    setDiffSelection((current) => ({
+      key,
+      revision: (current?.revision ?? 0) + 1,
+    }));
+    showDocument();
+  };
+  const changeCompare = (next: RefName | null) => {
+    setDiffSelection(null);
+    setSource(null);
+    setReferencesOf(null);
+    onCompareChange(next);
   };
   // Stable, so the conformance table does not rebuild its rows each render.
   const openSource = useCallback(
@@ -227,13 +292,31 @@ function SpecViewer({ specRef, onRefChange }: SpecViewerProps) {
     setLayoutState((current) => (current === "document" ? "split" : current));
   }, []);
   const referencesNode =
-    referencesOf === null ? undefined : catalog?.nodesById.get(referencesOf);
+    referencesOf === null
+      ? undefined
+      : (catalog?.nodesById.get(referencesOf) ??
+        compareCatalog?.nodesById.get(referencesOf));
 
   const node = selection ? catalog?.nodesById.get(selection.nodeId) : undefined;
   const file = node ? catalog?.filesByPath.get(node.path) : undefined;
 
+  const currentName = specRef === "" ? refs.data?.default : specRef;
+  const currentLabel =
+    currentName === undefined
+      ? intl.formatMessage(messages.refDefault)
+      : refLabel(intl, currentName);
+  const compareLabel = compareRef === null ? "" : refLabel(intl, compareRef);
+
   let summary = "";
-  if (catalog && search.hitsById) {
+  if (diff) {
+    summary = intl.formatMessage(messages.diffSummary, {
+      added: diff.counts.added,
+      removed: diff.counts.removed,
+      changed: diff.counts.changed,
+    });
+  } else if (diffMode) {
+    summary = "";
+  } else if (catalog && search.hitsById) {
     summary = intl.formatMessage(messages.resultCount, {
       matches: intl.formatMessage(messages.countMatches, {
         count: search.hits.length,
@@ -276,15 +359,31 @@ function SpecViewer({ specRef, onRefChange }: SpecViewerProps) {
           gap={{ default: "gapLg" }}
         >
           <RefPicker
+            comparing={compareRef}
             onChange={(next) => {
               // An opened file belongs to the old branch.
               setSource(null);
+              setDiffSelection(null);
               onRefChange(next);
             }}
+            onCompare={changeCompare}
             refs={refs.data}
             value={specRef}
             {...(refs.isError ? { error: refs.error.message } : {})}
           />
+          {compareRef === null ? null : (
+            <Label
+              closeBtnAriaLabel={intl.formatMessage(messages.diffExit)}
+              color="blue"
+              onClose={() => {
+                changeCompare(null);
+              }}
+            >
+              {intl.formatMessage(messages.diffMode, {
+                branch: compareLabel,
+              })}
+            </Label>
+          )}
           <Flex
             alignItems={{ default: "alignItemsCenter" }}
             className="sv-masthead__search"
@@ -294,6 +393,7 @@ function SpecViewer({ specRef, onRefChange }: SpecViewerProps) {
             <SearchInput
               aria-label={intl.formatMessage(messages.searchLabel)}
               className="sv-search"
+              isDisabled={diffMode}
               onChange={(_event, value) => {
                 setQuery(value);
                 // A search lands on the table it filters.
@@ -312,6 +412,7 @@ function SpecViewer({ specRef, onRefChange }: SpecViewerProps) {
                 aria-pressed={starredOnly}
                 className={starredOnly ? "sv-star sv-star--on" : "sv-star"}
                 icon={starredOnly ? <StarIcon /> : <OutlinedStarIcon />}
+                isDisabled={diffMode}
                 onClick={() => {
                   setStarredOnly(!starredOnly);
                   setReferencesOf(null);
@@ -349,6 +450,22 @@ function SpecViewer({ specRef, onRefChange }: SpecViewerProps) {
         {catalogQuery.error.message}
       </Alert>
     );
+  } else if (diffMode && compareQuery.isPending) {
+    content = (
+      <Bullseye>
+        <Spinner aria-label={intl.formatMessage(messages.loading)} />
+      </Bullseye>
+    );
+  } else if (diffMode && compareQuery.isError) {
+    content = (
+      <Alert
+        isInline
+        title={intl.formatMessage(messages.diffErrorTitle)}
+        variant="danger"
+      >
+        {compareQuery.error.message}
+      </Alert>
+    );
   } else {
     // The table stays mounted under the references list, so Back returns
     // to it as it was: same filter, expanded rows, and scroll position.
@@ -366,7 +483,37 @@ function SpecViewer({ specRef, onRefChange }: SpecViewerProps) {
             selected={source?.location}
           />
         ) : null}
-        <div className="sv-list-view" hidden={referencesNode !== undefined}>
+        {diff ? (
+          <div
+            className="sv-list-view"
+            hidden={referencesNode !== undefined || !diffMode}
+          >
+            {isEmptyDiff(diff) ? (
+              <EmptyState
+                headingLevel="h2"
+                icon={CheckCircleIcon}
+                titleText={intl.formatMessage(messages.diffEmptyTitle)}
+              >
+                <EmptyStateBody>
+                  {intl.formatMessage(messages.diffEmptyBody, {
+                    current: currentLabel,
+                    compare: compareLabel,
+                  })}
+                </EmptyStateBody>
+              </EmptyState>
+            ) : (
+              <DiffPanel
+                diff={diff}
+                onSelect={selectDiffEntry}
+                selectedKey={diffEntry?.key}
+              />
+            )}
+          </div>
+        ) : null}
+        <div
+          className="sv-list-view"
+          hidden={referencesNode !== undefined || diffMode}
+        >
           <ConformancePanel
             catalog={catalogQuery.data}
             hits={search.hitsById}
@@ -421,11 +568,41 @@ function SpecViewer({ specRef, onRefChange }: SpecViewerProps) {
                 location={source.location}
                 revision={source.revision}
               />
+            ) : diffEntry && diffSelection ? (
+              diffEntry.kind === "item" &&
+              diffEntry.status === "changed" &&
+              diffEntry.node &&
+              diffEntry.before !== undefined &&
+              diffEntry.after !== undefined ? (
+                <DiffView
+                  after={diffEntry.after}
+                  afterLabel={currentLabel}
+                  before={diffEntry.before}
+                  beforeLabel={compareLabel}
+                  path={diffEntry.path}
+                  title={nodeTitle(intl, diffEntry.node)}
+                />
+              ) : (
+                // New and removed items are shown as they are, from the
+                // branch that has them; nothing is compared.
+                <SpecDocument
+                  catalog={
+                    diffEntry.side === "compare"
+                      ? (compareCatalog ?? catalogQuery.data)
+                      : catalogQuery.data
+                  }
+                  file={diffEntry.file}
+                  highlightTerms={NO_TERMS}
+                  node={diffEntry.node ?? diffEntry.file?.nodes[0]}
+                  onFindReferences={findReferences}
+                  revision={diffSelection.revision}
+                />
+              )
             ) : (
               <SpecDocument
                 catalog={catalogQuery.data}
                 file={file}
-                highlightTerms={search.terms}
+                highlightTerms={diffMode ? NO_TERMS : search.terms}
                 onFindReferences={findReferences}
                 node={node}
                 revision={selection?.revision ?? 0}

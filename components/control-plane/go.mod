@@ -11,7 +11,6 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/openshift-online/hypershell/components/api-server v0.0.0-00010101000000-000000000000
 	github.com/openshift-online/hypershell/components/cli v0.0.0-00010101000000-000000000000
-	github.com/pelletier/go-toml/v2 v2.4.3
 	go.opentelemetry.io/contrib/bridges/otelslog v0.19.0
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.70.0
 	go.opentelemetry.io/otel v1.45.0

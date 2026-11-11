@@ -315,8 +315,7 @@ The platform SHALL NOT leave credentials, databases, routes, or namespaces (or
 any other owned resource) behind without either a recovery path that will reclaim
 them or a durable, operator-visible signal that records the residue. When
 deletion deliberately downgrades a failure to non-fatal (for example an invalid
-or unresolvable stored Keycloak identity, or a deconfigured Keycloak provisioner)
-and no recovery path will reclaim the affected resource, the control plane SHALL
+or unresolvable stored Keycloak identity) and no recovery path will reclaim the affected resource, the control plane SHALL
 record a durable, operator-visible signal that names the owned resource kind, its
 identifier, and the reason it was not reclaimed. A controller log line alone is
 not a sufficient signal for a resource with no recovery path. The durable signal
@@ -326,11 +325,13 @@ collector's `GarbageCollected` Event) and SHALL NOT contain secrets.
 
 #### Scenario: GTW-DEL-07.01 -- Leaked Keycloak client with no recovery is recorded durably
 
-- GIVEN a Gateway delete where the Keycloak provisioner is deconfigured, so the
-  gateway's Keycloak client cannot be deleted inline
+- GIVEN a Gateway delete where the stored gateway identity cannot be resolved,
+  so the gateway's Keycloak clients cannot be located and deleted inline
 - WHEN the delete otherwise completes
-- THEN the control plane SHALL record a durable, operator-visible signal naming
-  the Keycloak client identifier and the reason it was not reclaimed
+- THEN the control plane SHALL record an `IncompleteFinalization` Warning Event
+  with resource kind `KeycloakClient` that identifies the affected Keycloak
+  client and the reason it was not reclaimed
+- AND the control plane SHALL finalize the gateway deletion
 - AND that signal SHALL survive the deletion of the gateway's namespace
 - AND it SHALL NOT contain any secret
 

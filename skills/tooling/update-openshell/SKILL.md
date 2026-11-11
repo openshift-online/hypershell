@@ -526,7 +526,7 @@ version bump.
    - **Gateway config (`gateway.toml`)**: diff the keys the control plane renders
      (`charts/openshell/templates/_toml.tpl` and the other `gateway-config`
      templates, `components/control-plane/internal/gateway/config.go` and
-     `validation.go`'s `ValidateRenderedGatewayConfig`) against the new
+     `validation.go`'s `ValidateGatewayAuth`) against the new
      gateway's expected config. A renamed/removed/added key is a code change, not
      a tag bump.
    - **Service ports**: diff `charts/openshell/templates/service.yaml` and
@@ -575,7 +575,7 @@ does, the item is `needs-decision`:
 
 | Surface | Why it matters | Where HyperShell depends on it |
 |---------|----------------|--------------------------------|
-| Gateway/supervisor config schema (TOML) | Control plane renders `gateway.toml` from the vendored chart | `charts/openshell/templates/_toml.tpl` + `gateway-config*.yaml`, `internal/gateway/config.go`, `validation.go`'s `ValidateRenderedGatewayConfig` |
+| Gateway/supervisor config schema (TOML) | Control plane renders `gateway.toml` from the vendored chart | `charts/openshell/templates/_toml.tpl` + `gateway-config*.yaml`, `internal/gateway/config.go`, `validation.go`'s `ValidateGatewayAuth` |
 | Service ports (gRPC vs. HTTP/1.1 backend) | The reconciler's Gateway API routes forward to these ports **by hardcoded number**; a chart change that renames/removes a port breaks routing with no test failure | `charts/openshell/templates/service.yaml`, `values.yaml` `service.*` (carries a HyperShell-local patch, see [Local patches](#local-patches-to-the-vendored-chart)), `internal/gateway/reconciler.go`'s `gatewayServiceGRPCPort`/`gatewayServiceHTTPPort` |
 | Sandbox CR / `agents.x-k8s.io` API version | Gateway manages sandboxes; RBAC grants on it | `charts/openshell/templates/clusterrole.yaml`, `role.yaml`, `deploy/base/platform-resources/controller-rbac.yaml` |
 | Credential storage drivers | HyperShell selects/validates drivers | `ValidateCredentialDriverConfig`, `openshell-gateway-credentials.spec.md` |

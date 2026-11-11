@@ -471,8 +471,11 @@ Full authenticated `openshell sandbox create` additionally needs
 
 ### 5.7: OIDC default-secure gateways + cloud-model providers
 
-**Default-secure every gateway via Keycloak (no per-gateway `oidc` field).** When
-the controller finds a `hypershell-keycloak-admin` Secret in its namespace it runs
+**Default-secure every gateway via Keycloak (no per-gateway `oidc` field).** The
+`hypershell-keycloak-admin` Secret in the controller namespace is required. The
+controller reads it at startup and needs all four keys non-empty. If the Secret is
+missing or incomplete, the controller logs an error, retries with backoff, and
+deploys no gateway until the Secret is valid. Once it has the Secret, it runs
 `reconcileKeycloakClient` on every gateway provision: it uses a `client_credentials`
 grant to auto-create a per-gateway public PKCE Keycloak client `<name>-<id>`
 (loopback redirects `http://127.0.0.1:*`,`http://localhost:*`), its
@@ -494,7 +497,8 @@ oc create secret generic hypershell-keycloak-admin -n hypershell \
 oc set env deploy/hypershell-controller -n hypershell \
   GATEWAY_OIDC_ISSUER_URL="https://keycloak.<appdomain>/realms/hypershell"
 oc rollout restart deploy/hypershell-controller -n hypershell
-# log confirms: "keycloak integration enabled ... gateway reconciler ... keycloak=true"
+# no repeating "Keycloak integration is not configured ... retrying" error
+# in the controller log means the Secret was accepted
 ```
 
 The `hypershell-control-plane` service account needs realm-management roles
