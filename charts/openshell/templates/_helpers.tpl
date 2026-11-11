@@ -269,6 +269,11 @@ shared workspace mode.
 {{- $kubernetesConfig := include "openshell.effectiveKubernetesConfig" . | fromYaml -}}
 {{- $workspaceMode := get $kubernetesConfig "workspace_mode" | default "shared" -}}
 {{- $names := list -}}
+{{- $app := include "openshell.appListenerConfig" . | fromYaml -}}
+{{- $appDeployment := include "openshell.appListenerDeployment" . | fromYaml -}}
+{{- if and (get $app "enabled") (get $appDeployment "tls_secret_name") (not (include "openshell.supervisorEnabled" .)) -}}
+{{- $names = append $names (get $appDeployment "tls_secret_name") -}}
+{{- end -}}
 {{- if and (ne $workspaceMode "shared") (not .Values.server.disableTls) -}}
 {{- $names = append $names .Values.server.tls.clientTlsSecretName -}}
 {{- end -}}
@@ -576,6 +581,22 @@ Booleans are rejected because they would otherwise convert to 1 or 0.
 {{- end }}
 
 {{/*
+Whether the dedicated metrics listener is enabled. Missing legacy values
+default to enabled; an explicit false must not be replaced by that default.
+*/}}
+{{- define "openshell.metricsEnabled" -}}
+{{- $metrics := .Values.metrics | default dict -}}
+{{- $enabled := true -}}
+{{- if hasKey $metrics "enabled" -}}
+{{- if not (kindIs "bool" $metrics.enabled) -}}
+{{- fail "metrics.enabled must be a boolean" -}}
+{{- end -}}
+{{- $enabled = $metrics.enabled -}}
+{{- end -}}
+{{- if $enabled -}}true{{- end -}}
+{{- end }}
+
+{{/*
 Validate a non-empty, user-provided Kubernetes Secret name. Secret data never
 passes through Helm values into gateway.toml; only this reference is rendered.
 */}}
@@ -631,6 +652,13 @@ absent fields so every chart consumer observes the same configuration.
 {{- end -}}
 {{- $legacyRuntime := .Values.supervisor.sandboxRuntime | default dict -}}
 {{- $runtimeConfig := get $kubernetes "sandbox_runtime" | default dict -}}
+{{- if hasKey $gatewayConfig "openshell.drivers.kubernetes.sandbox_runtime" -}}
+{{- $runtimeConfig = deepCopy (get $gatewayConfig "openshell.drivers.kubernetes.sandbox_runtime") -}}
+{{- end -}}
+{{- $appDeployment := include "openshell.appListenerDeployment" . | fromYaml -}}
+{{- if $appDeployment -}}
+{{- $_ := set $runtimeConfig "app_listener" $appDeployment -}}
+{{- end -}}
 {{- if and (ne (int (get $legacyRuntime "boundaryPort" | default 5500)) 5500) (not (hasKey $runtimeConfig "boundary_port")) -}}
 {{- $_ := set $runtimeConfig "boundary_port" (int (get $legacyRuntime "boundaryPort")) -}}
 {{- end -}}
@@ -711,6 +739,7 @@ like user-supplied schema-v2 fields during compatibility resolution. */}}
 Validate chart values that Helm would otherwise accept silently.
 */}}
 {{- define "openshell.validateValues" -}}
+{{- $metricsEnabled := include "openshell.metricsEnabled" . -}}
 {{- $kubernetes := include "openshell.effectiveKubernetesConfig" . | fromYaml -}}
 {{- if hasKey $kubernetes "supervisor_topology" -}}
 {{- $topology := get $kubernetes "supervisor_topology" -}}
@@ -769,6 +798,33 @@ Validate chart values that Helm would otherwise accept silently.
 {{- if and (eq $workloadKind "statefulset") (gt $maxReplicas 1) (not (get $workload "allowMultiReplicaStatefulSet" | default false)) -}}
 {{- fail (printf "%s > 1 with workload.kind=statefulset requires workload.allowMultiReplicaStatefulSet=true; use workload.kind=deployment for external database-backed multi-replica gateways." $maxReplicasSource) -}}
 {{- end -}}
+{{- $servicePortValue := toString .Values.service.port -}}
+{{- $healthPortValue := toString .Values.service.healthPort -}}
+{{- $metricsPortValue := toString .Values.service.metricsPort -}}
+{{- if not (regexMatch `^-?[0-9]+$` $servicePortValue) -}}
+{{- fail "service.port must be an integer." -}}
+{{- end -}}
+{{- if not (regexMatch `^-?[0-9]+$` $healthPortValue) -}}
+{{- fail "service.healthPort must be an integer." -}}
+{{- end -}}
+{{- $servicePort := int $servicePortValue -}}
+{{- $healthPort := int $healthPortValue -}}
+{{- $metricsPort := int $metricsPortValue -}}
+{{- if or (lt $servicePort 1) (gt $servicePort 65535) -}}
+{{- fail "service.port must be between 1 and 65535." -}}
+{{- end -}}
+{{- if or (lt $healthPort 1) (gt $healthPort 65535) -}}
+{{- fail "service.healthPort must be between 1 and 65535 because gateway probes require it." -}}
+{{- end -}}
+{{- if eq $servicePort $healthPort -}}
+{{- fail "service.port and service.healthPort must be different." -}}
+{{- end -}}
+{{- if or (not (regexMatch `^[0-9]+$` $metricsPortValue)) (lt $metricsPort 1) (gt $metricsPort 65535) -}}
+{{- fail "service.metricsPort must be an integer between 1 and 65535; to disable metrics, set metrics.enabled=false and keep a valid service.metricsPort (default 9090)" -}}
+{{- end -}}
+{{- if and $metricsEnabled (or (eq $metricsPort $servicePort) (eq $metricsPort $healthPort)) -}}
+{{- fail "service.metricsPort must differ from service.port and service.healthPort when metrics.enabled=true" -}}
+{{- end -}}
 {{- if and .Values.grpcRoute.enabled (dig "replicaRouting" "enabled" false .Values.grpcRoute) -}}
 {{- if ne $workloadKind "statefulset" -}}
 {{- fail "grpcRoute.replicaRouting.enabled requires workload.kind=statefulset so each replica has a stable name." -}}
@@ -807,3 +863,28 @@ Validate chart values that Helm would otherwise accept silently.
 {{- fail "server.dataStorageSize must be a Kubernetes quantity with a unit, such as 20Gi" -}}
 {{- end -}}
 {{- end }}
+
+{{/* Common app settings are separate from driver-owned TLS/Service details. */}}
+{{- define "openshell.appListenerConfig" -}}
+{{- $config := .Values.gatewayConfig | default dict -}}
+{{- $supervisor := get $config "openshell.supervisor" | default dict -}}
+{{- $app := get $supervisor "app_listener" | default dict -}}
+{{- if hasKey $config "openshell.supervisor.app_listener" -}}
+{{- $app = get $config "openshell.supervisor.app_listener" -}}
+{{- end -}}
+{{- toYaml $app -}}
+{{- end -}}
+
+{{- define "openshell.appListenerDeployment" -}}
+{{- $config := .Values.gatewayConfig | default dict -}}
+{{- $kube := get $config "openshell.drivers.kubernetes" | default dict -}}
+{{- $runtime := get $kube "sandbox_runtime" | default dict -}}
+{{- if hasKey $config "openshell.drivers.kubernetes.sandbox_runtime" -}}
+{{- $runtime = get $config "openshell.drivers.kubernetes.sandbox_runtime" -}}
+{{- end -}}
+{{- $app := get $runtime "app_listener" | default dict -}}
+{{- if hasKey $config "openshell.drivers.kubernetes.sandbox_runtime.app_listener" -}}
+{{- $app = get $config "openshell.drivers.kubernetes.sandbox_runtime.app_listener" -}}
+{{- end -}}
+{{- toYaml $app -}}
+{{- end -}}
