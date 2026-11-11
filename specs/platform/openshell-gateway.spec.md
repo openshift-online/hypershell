@@ -314,7 +314,7 @@ The GatewayReconciler SHALL use cert-manager for TLS certificate lifecycle manag
 
 ### Requirement: OSG-CORE-06 -- Trusted CA Bundle Injection
 
-Gateways with OIDC enabled need to reach the identity provider's OIDC discovery endpoint over HTTPS. In environments where the IdP is exposed through an ingress controller with a non-public CA certificate (e.g., OpenShift CRC, private PKI), the gateway pod's default trust store will not include the required CA and OIDC initialization will fail.
+Every gateway uses OIDC, so it needs to reach the identity provider's OIDC discovery endpoint over HTTPS. In environments where the IdP is exposed through an ingress controller with a non-public CA certificate (e.g., OpenShift CRC, private PKI), the gateway pod's default trust store will not include the required CA and OIDC initialization will fail.
 
 The control plane SHALL support an optional `gateway-trusted-ca` ConfigMap in the HyperShell namespace. When present, it is copied to each tenant namespace and mounted into the gateway Deployment so that the gateway process trusts the additional CA certificates.
 
@@ -612,7 +612,7 @@ rendered ConfigMap.
 | `server.drivers.kubernetes.workspaceMode` | Gateway `workspace_mode` (see OSG-CORE-18) | Kubernetes driver `workspace_mode` |
 | `server.sandboxJwt.gatewayId` | Derived from the namespace, `managed` mode only (see OSG-CORE-18) | Gateway JWT `gateway_id` |
 | `server.oidc.*` | Gateway `oidc` fields (see [`openshell-gateway-oidc.spec.md`](./openshell-gateway-oidc.spec.md)) | `[openshell.gateway.oidc]` section |
-| `server.oidc.caConfigMapName` | `gateway-trusted-ca`, only when OIDC is set and the ConfigMap was copied (see OSG-CORE-06) | OIDC CA trust |
+| `server.oidc.caConfigMapName` | `gateway-trusted-ca`, only when the ConfigMap was copied (see OSG-CORE-06) | OIDC CA trust |
 | `server.credentialDrivers.*` | Gateway credential driver (see [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md)) | Credential driver sections, or the KEK credential store for `kek-db` |
 | `server.externalDbSecret` | `openshell-gateway-db-credentials` | `OPENSHELL_DB_URL` from that Secret |
 
@@ -654,14 +654,17 @@ When `GATEWAY_SANDBOX_RUNTIME_CLASS` is unset or empty (the default), the contro
 
 The chart renders this value into `[openshell.gateway].default_runtime_class_name` in the `openshell-gateway-config` ConfigMap. The chart accepts any valid `RuntimeClass` name; HyperShell does not validate that the named `RuntimeClass` exists on the cluster at reconcile time.
 
-#### OIDC Section (conditional)
+#### OIDC Section
 
-When `oidc.issuer` is set on the Gateway resource, the reconciler sets the `server.oidc.*` values and the chart renders the OIDC section. See [`openshell-gateway-oidc.spec.md`](./openshell-gateway-oidc.spec.md).
+Every gateway has an OIDC configuration, because Keycloak integration is mandatory (see [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md), OSG-KCLK-01). The reconciler always sets the `server.oidc.*` values from the Gateway's `oidc` fields. The chart always renders the `[openshell.gateway.oidc]` section. See [`openshell-gateway-oidc.spec.md`](./openshell-gateway-oidc.spec.md).
+
+The section is required, not optional. Since OpenShell `v0.1.5-rhaiv.4` the gateway refuses to start without an auth mechanism, so a gateway rendered without OIDC crash-loops (openshift-online/hypershell#809). Generated-configuration validation rejects a gateway without OIDC before rollout (see [`generated-gateway-config-validation.spec.md`](./generated-gateway-config-validation.spec.md), GTW-CFG-01).
 
 #### Auth Section
 
 - The chart renders `allow_unauthenticated_users = false` by default
-- When OIDC is enabled, the chart also renders the `[openshell.gateway.oidc]` section from the `server.oidc.*` values
+- The control plane never sets `allow_unauthenticated_users = true`
+- The chart also renders the `[openshell.gateway.oidc]` section from the `server.oidc.*` values
 
 #### Workspace Mode Section
 
@@ -674,16 +677,26 @@ See the "OSG-CORE-18 -- Gateway Workspace Mode" requirement below.
 A Gateway SHALL carry a `workspace_mode` field selecting how the OpenShell
 Kubernetes driver maps workspaces to namespaces (`shared`, `managed`, or
 `operator`, the vocabulary the vendored chart and the upstream gateway
-accept). The field is platform-managed (PLAT-DATA-23): the API server SHALL
-default `workspace_mode` to `managed` in the gateway service create funnel,
-after the field-policy check, so every creator class (REST, gRPC, `hsctl
-apply`, `.hypershell` import, control plane) receives the default and no
-caller-supplied value survives. A user or import caller that declares
-`workspace_mode` on create or update SHALL be rejected naming the field. The
-service funnel SHALL also enforce the field's value semantics for every
-writer class, the control plane included: the vocabulary above, and
-immutability of the stored value (re-sending the stored value is a no-op, and
-an update that omits the field keeps the stored value).
+accept). The field is platform-managed (PLAT-DATA-23) with one narrow
+create-time exception. The API server SHALL default `workspace_mode` to
+`managed` in the gateway service create funnel, after the field-policy check,
+so every creator class that supplies no value (REST, gRPC, `hsctl apply`,
+`.hypershell` import, control plane) receives the default. The sole
+caller-settable value at create is `operator`, and only for a caller holding
+the `gateway:operator-workspace-creator` entitlement: the per-gateway
+operator-managed workspace opt-in, defined in
+[`gateway-operator-workspaces.spec.md`](./gateway-operator-workspaces.spec.md)
+(OSG-OPWS-01) and gated by
+[`../security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md)
+(SEC-RBAC-28). A caller-supplied `shared` or `managed`, an unentitled
+`operator`, a `.hypershell` import that declares the field, and any update that
+changes the field SHALL be rejected naming it. The service funnel SHALL also
+enforce the field's value semantics for every writer class, the control plane
+included: the vocabulary above, and immutability of the stored value
+(re-sending the stored value is a no-op, and an update that omits the field
+keeps the stored value). Operator-mode tenant workspace namespaces are
+reclaimed on gateway deletion by OSG-OPWS-06, the operator-mode counterpart to
+the managed-mode cleanup in OSG-CORE-18.07.
 
 Every stored Gateway SHALL carry a `workspace_mode`: the column is required
 (`NOT NULL`), so no Gateway is provisioned on the chart's default mode.
@@ -722,13 +735,17 @@ it.
 - AND sandbox pods SHALL be created in per-workspace namespaces named
   `openshell-{gateway_id}-{workspace}`
 
-#### Scenario: OSG-CORE-18.02 -- Caller-supplied mode is rejected
+#### Scenario: OSG-CORE-18.02 -- Caller-supplied mode is rejected except the entitled operator opt-in
 
 - GIVEN a user or import caller
-- WHEN the caller creates or updates a Gateway declaring `workspace_mode`
-- THEN the write SHALL be rejected naming `workspace_mode` (a strict-decode
-  400 on REST create/PATCH, `PermissionDenied` on gRPC, and the field-policy
-  rejection in the service funnel as the authoritative backstop)
+- WHEN the caller declares `workspace_mode` on update, or on create with any value
+  other than an entitled `operator` selection (OSG-OPWS-01)
+- THEN the write SHALL be rejected naming `workspace_mode` (a strict-decode 400 on
+  REST update/PATCH, `PermissionDenied` on gRPC, and the field-policy rejection in
+  the service funnel as the authoritative backstop)
+- AND an entitled create selecting `operator` SHALL be accepted (OSG-OPWS-01.01),
+  because `workspace_mode` is an accepted create input whose value and entitlement
+  are validated in the create handler and service funnel
 
 #### Scenario: OSG-CORE-18.03 -- Invalid mode is rejected
 
@@ -881,8 +898,8 @@ Gateway provisioning SHALL be independent of agent definitions. Agent-specific c
 | `image` | No | Supplied by `GATEWAY_IMAGE` env var on the control-plane deployment | Gateway container image reference |
 | `supervisor_image` | No | Supplied by `GATEWAY_SUPERVISOR_IMAGE` env var on the control-plane deployment | Supervisor sidecar container image |
 | `serverDnsNames` | Yes | - | DNS names for TLS certificate generation |
-| `oidc` | No | - | OIDC authentication configuration (see OIDC spec) |
-| `oidc.issuer` | Yes (to enable OIDC) | `""` | OIDC issuer URL; empty disables OIDC |
+| `oidc` | No (system-managed) | Generated by the control plane | OIDC authentication configuration; every gateway gets one (see OIDC spec) |
+| `oidc.issuer` | System-managed | Generated by the control plane | OIDC issuer URL; always non-empty, and a rendered config without it fails validation (GTW-CFG-01) |
 | `oidc.audience` | No | `"openshell-cli"` | Expected `aud` claim value in JWT |
 | `oidc.jwks_ttl` | No | `3600` | JWKS key cache retention in seconds |
 | `oidc.roles_claim` | No | `""` | Dot-delimited path to roles array in JWT claims |
@@ -893,6 +910,7 @@ Gateway provisioning SHALL be independent of agent definitions. Agent-specific c
 | `route.host` | No | auto-derived | Hostname for the GRPCRoute |
 | `route.certificate` | No | - | Opt-in to a dedicated per-gateway route and external certificate (`route: { certificate: {} }`): a per-tenant Gateway, a per-gateway wildcard Certificate, and a sandbox HTTPRoute. Provision-time only - the API rejects changes to this key after creation (changing certificate mode requires delete and re-provision). Not combinable with `route.host`. See [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) |
 | `dedicated_route` | No | `false` | Create-only user request for the dedicated per-gateway route and wildcard certificate: the API server translates it into the `route.certificate` opt-in at create ([`data-model.spec.md`](./data-model.spec.md), "Requirement: Gateway Dedicated Route Request Field", PLAT-DATA-26). Requires the `gateway:dedicated-route-creator` role (or `platform:admin`); readOnly after creation |
+| `workspace_mode` | No | `managed` | OpenShell Kubernetes-driver workspace mapping (`shared`, `managed`, `operator`). Platform-managed with one create-time exception: the only caller-settable value is `operator`, requiring the `gateway:operator-workspace-creator` role (or `platform:admin`), per the per-gateway operator-managed workspace opt-in ([`gateway-operator-workspaces.spec.md`](./gateway-operator-workspaces.spec.md), OSG-OPWS-01). Immutable after creation (OSG-CORE-18) |
 | `routeAddress` | - | - | Read-only. External address populated by the control plane |
 | `dev_build` | No | `false` | Marks this as a dev/branch build. Control plane passes `hypershell.redhat.io/openshell-dev-build` via Helm `podLabels` onto the gateway workload |
 | `dev_build_metadata` | No | - | Dev build provenance (JSONB): `{ref, sha, repo}`. Control plane passes the SHA/ref/repo via Helm `podAnnotations` |

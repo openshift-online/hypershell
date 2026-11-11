@@ -37,10 +37,12 @@ A Gateway carries three independently observable fields:
   - `Running` - the gateway is fully serving. For a gateway **with route
     configuration**, this requires **both** that the gateway Deployment is
     observed Ready (ready replicas ≥ desired replicas) **and** that its external
-    exposure is observed Ready (for the Gateway API adapter: the per-tenant
-    Gateway API `Gateway` reports `Programmed=True` with a non-empty
-    `.status.addresses`). For a gateway **without route configuration**,
-    Deployment readiness alone is sufficient.
+    exposure is observed Ready (for the Gateway API adapter: the parent Gateway
+    API `Gateway` reports `Programmed=True` with a non-empty
+    `.status.addresses`, this gateway's own `GRPCRoute` is `Accepted=True` /
+    `ResolvedRefs=True` for that parent, and `routeAddress` has been published -
+    see § Phase Reflects Workload and Route Readiness). For a gateway **without
+    route configuration**, Deployment readiness alone is sufficient.
   - `Degraded` - the gateway was provisioned but its workload or its external
     exposure is currently unhealthy (ready replicas below desired, e.g.
     CrashLoopBackOff; or the external exposure failed to become Ready within the
@@ -89,27 +91,36 @@ not only to its dependencies (such as the gateway database).
 
 External-exposure readiness SHALL be observed through the Gateway Exposure port
 (see [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md)
-§ Gateway Exposure Port), so that the health decision is independent of the
-concrete exposure backend. For the Gateway API adapter, "Ready" means the
-per-tenant Gateway API `Gateway` reports condition `Programmed=True` and has a
-non-empty `.status.addresses`.
+§ Gateway Exposure Port, `OSG-ROUT-08`), so that the health decision is
+independent of the concrete exposure backend. This spec defers to `OSG-ROUT-08`
+for the full definition of "Ready" for the Gateway API adapter - the parent
+Gateway's `Programmed` condition and address, GRPCRoute acceptance checked
+across every matching `status.parents` entry with its `sectionName`, the
+`observedGeneration` freshness check on each condition, and `routeAddress`
+publication - rather than restating that definition here, so the two specs
+cannot drift apart.
+
+A parent Gateway reporting `Programmed=True` is not by itself sufficient: the
+shared Gateway reports `Programmed=True` for every tenant as soon as any one
+tenant's `GRPCRoute` attaches to it, independent of this gateway's own route.
+The control plane SHALL NOT report a routed gateway's external exposure as
+Ready on parent-Gateway readiness alone.
 
 #### Scenario: OSG-HLTH-01.01 -- Deployment ready but route not yet programmed
 
 - GIVEN a routed Gateway whose `openshell-gateway` Deployment has reached ready
   replicas ≥ desired
 - AND its external exposure is not yet Ready (for the Gateway API adapter, the
-  per-tenant `Gateway` reports `Programmed=False` or has no assigned address)
+  parent `Gateway` reports `Programmed=False` or has no assigned address)
 - THEN the control plane SHALL keep the Gateway `phase` at `Provisioning`
 - AND it SHALL NOT set the `phase` to `Running`
 
-#### Scenario: OSG-HLTH-01.02 -- Deployment ready and route becomes programmed
+#### Scenario: OSG-HLTH-01.02 -- Deployment ready and route becomes fully accepted
 
 - GIVEN a routed Gateway whose Deployment is Ready and whose phase is
   `Provisioning`
-- WHEN its external exposure becomes Ready (for the Gateway API adapter, the
-  per-tenant `Gateway` reports `Programmed=True` with a non-empty
-  `.status.addresses`)
+- WHEN its external exposure becomes Ready (for the Gateway API adapter, "Ready"
+  per `OSG-ROUT-08`)
 - THEN the control plane SHALL set the Gateway `phase` to `Running`
 
 #### Scenario: OSG-HLTH-01.03 -- Non-routed gateway becomes ready
@@ -169,6 +180,29 @@ Deployment loses readiness is moved to `Degraded` without a grace window.
 - WHEN manifest templating or applying a resource returns an error
 - THEN the control plane SHALL set the `phase` to `Failed`
 
+#### Scenario: OSG-HLTH-01.08 -- Shared Gateway already programmed but this gateway's own route is not yet accepted
+
+- GIVEN a routed Gateway, not opted in to a dedicated route, whose
+  `openshell-gateway` Deployment has reached ready replicas ≥ desired
+- AND the shared Gateway API `Gateway` already reports `Programmed=True` with a
+  non-empty `.status.addresses` (established for a different tenant's
+  `GRPCRoute`, or left over from before a Helm retry re-applied this gateway's
+  own resources)
+- AND this gateway's own `GRPCRoute` does not yet exist, or exists but its
+  `status.parents` entry for the shared Gateway does not yet report both
+  `Accepted=True` and `ResolvedRefs=True`
+- THEN the control plane SHALL keep the Gateway `phase` at `Provisioning`
+- AND it SHALL NOT set the `phase` to `Running`
+
+#### Scenario: OSG-HLTH-01.09 -- Route accepted but address not yet published
+
+- GIVEN a routed Gateway whose Deployment is Ready, whose parent `Gateway`
+  reports `Programmed=True` with a non-empty `.status.addresses`, and whose own
+  `GRPCRoute` reports `Accepted=True` and `ResolvedRefs=True` for that parent
+- AND the Gateway resource's `routeAddress` field is still empty
+- THEN the control plane SHALL keep the Gateway `phase` at `Provisioning`
+- AND it SHALL NOT set the `phase` to `Running`
+
 ### Requirement: OSG-HLTH-02 -- Continuous Gateway Health Reconciliation
 
 After a Gateway reaches `Running`, the control plane SHALL continue to observe
@@ -176,11 +210,12 @@ both the health of its Deployment and, for routed gateways, the readiness of its
 external exposure, and keep the `phase` synchronized with actual state. If ready
 replicas fall below desired replicas (crash, OOM, eviction, image pull failure),
 or a routed gateway's external exposure loses readiness (for the Gateway API
-adapter, the `Gateway` drops `Programmed` or its address is withdrawn), the
-control plane SHALL set the `phase` to `Degraded` within one
-health-reconciliation interval. When both the workload and (for routed gateways)
-the external exposure return to Ready, the control plane SHALL set the `phase`
-back to `Running`.
+adapter: the parent `Gateway` drops `Programmed` or its address is withdrawn, or
+this gateway's own `GRPCRoute` is no longer `Accepted=True`/`ResolvedRefs=True`
+for that parent), the control plane SHALL set the `phase` to `Degraded` within
+one health-reconciliation interval. When both the workload and (for routed
+gateways) the external exposure return to Ready, the control plane SHALL set
+the `phase` back to `Running`.
 
 #### Scenario: OSG-HLTH-02.01 -- Running gateway begins crash-looping
 
@@ -194,8 +229,9 @@ back to `Running`.
 
 - GIVEN a routed Gateway with `phase` `Running`
 - WHEN its external exposure loses readiness (for the Gateway API adapter, the
-  per-tenant `Gateway` drops `Programmed=True` or its assigned address is
-  withdrawn)
+  parent `Gateway` drops `Programmed=True` or its assigned address is
+  withdrawn, or this gateway's own `GRPCRoute` is no longer
+  `Accepted=True`/`ResolvedRefs=True` for that parent)
 - THEN the control plane SHALL set the `phase` to `Degraded` within one
   health-reconciliation interval
 - AND record the reason in `status`

@@ -729,20 +729,6 @@ func (w *grpcImportWriter) upsertAgentRuntime(ctx context.Context, repoID string
 
 // ---- CITrust ----
 
-func (w *grpcImportWriter) ownedCITrusts(ctx context.Context, repoID string) ([]*pb.CITrust, error) {
-	all, err := w.listAllCITrusts(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var out []*pb.CITrust
-	for _, it := range all {
-		if it.GetRepositoryId() == repoID {
-			out = append(out, it)
-		}
-	}
-	return out, nil
-}
-
 // listAllCITrusts pages through EVERY CITrust (all Repositories plus human/REST-created
 // trusts). CITrust names are globally unique, so the import needs the whole set to
 // decide whether a desired name is free, owned by this Repository, or already taken by

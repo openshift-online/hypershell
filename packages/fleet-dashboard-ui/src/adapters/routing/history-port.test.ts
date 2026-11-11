@@ -33,6 +33,17 @@ describe("createBrowserHistory base-path handling (FLT-NAV-19)", () => {
     hist.push({ path: "/sdlc", search: "" });
     expect(window.location.pathname).toBe("/sdlc");
   });
+
+  // Verifies: FLT-DLV-14.01
+  it("treats the delivery tab segment as a route, not a base path", () => {
+    window.history.replaceState(null, "", "/delivery?change=abc");
+    expect(createBrowserHistory().read()).toEqual({
+      path: "/delivery",
+      search: "?change=abc",
+    });
+    window.history.replaceState(null, "", "/glass/delivery");
+    expect(createBrowserHistory().read().path).toBe("/delivery");
+  });
 });
 
 describe("createMemoryHistory Back/Forward stack", () => {

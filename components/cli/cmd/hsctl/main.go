@@ -61,10 +61,44 @@ func init() {
 	root.AddCommand(revoke.Cmd)
 	root.AddCommand(secretsource.Cmd)
 	root.AddCommand(tuicmd.Cmd)
+
+	// Resource-dispatcher commands (get, list, create, delete, update) have no
+	// Run of their own, so a mistyped resource name (e.g. "get gatway ID") is
+	// left unconsumed instead of being rejected: cobra's built-in
+	// unknown-command check only fires at the root command. Left alone, the
+	// dispatcher either prints its own help with exit 0, or - if a flag meant
+	// for the mistyped subcommand was also passed - fails with a confusing
+	// "unknown flag" error instead of naming the real problem.
+	rejectUnknownSubcommands(root)
+}
+
+// rejectUnknownSubcommands makes every non-leaf command without its own Run
+// reject a mistyped child command name, instead of silently falling through
+// to the parent.
+func rejectUnknownSubcommands(cmd *cobra.Command) {
+	for _, c := range cmd.Commands() {
+		rejectUnknownSubcommands(c)
+	}
+	if !cmd.HasSubCommands() || cmd.Runnable() || cmd.Args != nil {
+		return
+	}
+	cmd.Args = func(c *cobra.Command, args []string) error {
+		fmt.Fprintf(os.Stderr, "DEBUG NoArgs called for %s with args=%v\n", c.CommandPath(), args)
+		return cobra.NoArgs(c, args)
+	}
+	cmd.SetFlagErrorFunc(func(c *cobra.Command, err error) error {
+		if args := c.Flags().Args(); len(args) > 0 {
+			return fmt.Errorf("unknown command %q for %q", args[0], c.CommandPath())
+		}
+		return err
+	})
 }
 
 func main() {
 	root.SetArgs(os.Args[1:])
+	if foundCmd, remaining, ferr := root.Find(os.Args[1:]); true {
+		fmt.Fprintf(os.Stderr, "DEBUG Find -> cmd=%s remaining=%v err=%v argsField=%v\n", foundCmd.CommandPath(), remaining, ferr, foundCmd.Args != nil)
+	}
 	err := root.Execute()
 	if err == nil {
 		os.Exit(0)

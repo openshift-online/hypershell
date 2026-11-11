@@ -99,11 +99,6 @@ func (r *CITrustReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	}
 	id := event.ResourceID
 
-	if r.keycloakClient == nil {
-		slog.DebugContext(ctx, "CITrust keycloak not configured, skipping", "ci_trust_id", id)
-		return nil
-	}
-
 	switch event.Type {
 	case watcher.EventDeleted:
 		return r.handleDelete(ctx, id, trust)
@@ -153,6 +148,15 @@ func (r *CITrustReconciler) handleUpsert(ctx context.Context, id string, trust *
 
 	exchangeEndpoint := r.keycloakClient.Issuer() + "/protocol/openid-connect/token"
 	workflowHint := workflowHint(provider.GetForge(), exchangeEndpoint, provider.GetAudience(), r.federationClientID, spec.IdpAlias, gatewayClientID, spec.Workspace)
+	// Write status only when it changed. Every write emits a watch event that
+	// reconciles this trust again (STD-RCON-02.01). The federation step above
+	// still runs on every pass, so Keycloak drift is still repaired.
+	if trust.GetStatusExchangeEndpoint() == exchangeEndpoint &&
+		trust.GetStatusWorkspace() == spec.Workspace &&
+		trust.GetStatusWorkflowHint() == workflowHint {
+		slog.DebugContext(ctx, "CITrust status already current", "ci_trust_id", id)
+		return nil
+	}
 	if _, err := r.ciTrustSvc.UpdateCITrust(ctx, &pb.UpdateCITrustRequest{
 		Id:                     id,
 		StatusExchangeEndpoint: &exchangeEndpoint,

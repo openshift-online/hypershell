@@ -41,7 +41,6 @@ import (
 	"github.com/openshift-online/hypershell/components/control-plane/internal/supervisor"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	gatewayclient "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned"
 )
 
@@ -296,25 +295,24 @@ func main() {
 		HelmBinary: helmBin,
 	}
 
+	// Keycloak is mandatory wherever this process deploys gateways: wait for a
+	// complete admin Secret before anything Keycloak-backed starts. Without a
+	// kubernetes client (out-of-cluster) the gateway reconciler is a stub that
+	// deploys nothing, so there is no Secret to read and no Keycloak work to do.
 	var keycloakConfig *gateway.KeycloakConfig
 	if clientset != nil {
-		kcSecret, kcErr := clientset.CoreV1().Secrets(cfg.Namespace).Get(ctx, "hypershell-keycloak-admin", metav1.GetOptions{})
-		if kcErr == nil {
-			keycloakConfig = &gateway.KeycloakConfig{
-				ServerURL:    string(kcSecret.Data["server-url"]),
-				Realm:        string(kcSecret.Data["realm"]),
-				ClientID:     string(kcSecret.Data["client-id"]),
-				ClientSecret: string(kcSecret.Data["client-secret"]),
-			}
-			slog.InfoContext(ctx, "Keycloak admin secret found", "url", keycloakConfig.ServerURL, "realm", keycloakConfig.Realm)
-		} else {
-			slog.InfoContext(ctx, "Keycloak admin secret not found, keycloak integration disabled", "error", kcErr)
+		kcCfg, kcErr := loadKeycloakConfig(ctx, clientset.CoreV1().Secrets(cfg.Namespace), cfg.Namespace, time.Second)
+		if kcErr != nil {
+			slog.InfoContext(ctx, "Shutdown signal received before Keycloak was configured, stopping", "error", kcErr)
+			return
 		}
+		keycloakConfig = kcCfg
+		slog.InfoContext(ctx, "Keycloak admin secret loaded", "url", keycloakConfig.ServerURL, "realm", keycloakConfig.Realm)
 	}
 
 	// The RoleBinding reconciler needs the registered cluster id, which is only
 	// known after registration below; the Keycloak client is built here and the
-	// reconciler once the id is in hand.
+	// reconciler once the id is in hand. kcClient is nil only out-of-cluster.
 	var kcClient *keycloak.Client
 	var roleBindingReconciler watcher.Handler[*pb.RoleBinding]
 	var serviceAccountProvider *serviceaccountkeycloak.Client
@@ -405,6 +403,8 @@ func main() {
 			clusterID,
 			cfg.GatewayResources,
 			cfg.SandboxRuntimeClass,
+			cfg.OperatorNamespaceLabelKey,
+			cfg.OperatorSandboxRuntimeClass,
 		)
 		if grErr != nil {
 			slog.WarnContext(ctx, "Gateway reconciler disabled", "error", grErr)
@@ -531,10 +531,9 @@ func main() {
 		return watcher.WatchAgentRuntimes(ctx, conn, agentRuntimeReconciler, clusterID, cfg.WatchIdleTimeout)
 	})
 
-	if cfg.CITrustEnabled {
-		if kcClient == nil {
-			slog.WarnContext(ctx, "CI trust reconciler enabled but no Keycloak client available, CI trust reconciliation will not function until Keycloak is configured")
-		}
+	if cfg.CITrustEnabled && kcClient == nil {
+		slog.WarnContext(ctx, "CI trust reconciler enabled but not started: running out-of-cluster, without Keycloak")
+	} else if cfg.CITrustEnabled {
 		ciProviderReconciler := reconciler.NewCIProviderReconciler(kcClient, conn)
 		supervise("CIProvider watch", func(ctx context.Context) error {
 			return watcher.WatchCIProviders(ctx, conn, ciProviderReconciler, cfg.WatchIdleTimeout, cfg.CIProviderResyncInterval)

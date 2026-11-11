@@ -303,14 +303,6 @@ type SecretStoreCredentialResolver struct {
 	minter        *githubAppInstallationTokenMinter
 }
 
-// NewSecretStoreCredentialResolver builds a resolver with a default GitHub App
-// token minter against the public GitHub API. platformToken is the default GitHub
-// App credential (may be empty, e.g. for public repositories); secrets and sources
-// resolve a per-Repository secret_source_id credential when one is set.
-func NewSecretStoreCredentialResolver(secrets secretstore.Reader, sources pb.SecretSourceServiceClient, platformToken string) *SecretStoreCredentialResolver {
-	return NewSecretStoreCredentialResolverWithGitHubApp(secrets, sources, platformToken, nil, "")
-}
-
 // NewSecretStoreCredentialResolverWithGitHubApp builds a resolver whose GitHub App
 // token minter uses the given HTTP client and API base (both default when zero: a
 // bounded-timeout client and https://api.github.com). The client and apiBase seam

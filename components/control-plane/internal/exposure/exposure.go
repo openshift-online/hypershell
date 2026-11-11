@@ -15,6 +15,15 @@ type Request struct {
 	// Host is an explicit route host, if configured on the Gateway. Empty means
 	// the adapter derives the host from the namespace and its own configuration.
 	Host string
+	// RouteAddress is the gateway's already-persisted routeAddress (the Gateway
+	// resource's `routeAddress` field), as known by the caller. It is only
+	// consulted by ObserveReadiness, never by ResolveAddress (which computes the
+	// address itself). A gateway is not Ready until its own routeAddress has been
+	// published, so an empty value here reports not-Ready even when the
+	// underlying Gateway API resources are otherwise healthy. See
+	// specs/platform/openshell-gateway-routing.spec.md § Gateway Exposure Port
+	// (OSG-ROUT-08).
+	RouteAddress string
 }
 
 // Readiness describes whether a gateway's external exposure is currently Ready

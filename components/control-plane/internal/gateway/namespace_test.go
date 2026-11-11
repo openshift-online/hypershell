@@ -410,3 +410,63 @@ func TestDeleteManagedWorkspaceNamespaces(t *testing.T) {
 		}
 	})
 }
+
+// TestDeleteOperatorWorkspaceNamespaces covers the operator-mode cleanup sweep
+// (OSG-OPWS-06): tenant namespaces carrying the administrator-approved label key
+// set to the gateway's own namespace name are deleted, another operator gateway's
+// tenant namespaces and unlabeled namespaces are untouched, the gateway's own
+// namespace is skipped, and an empty label key selects nothing (no-op).
+func TestDeleteOperatorWorkspaceNamespaces(t *testing.T) {
+	ctx := context.Background()
+	const labelKey = "oce.example.com/tenant"
+	const gwNS = "openshell-deadbeefdeadbeef"
+
+	tenantNS := func(name, value string) *corev1.Namespace {
+		return &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+			Name:   name,
+			Labels: map[string]string{labelKey: value},
+		}}
+	}
+
+	t.Run("selects by labelKey=gatewayNamespace and spares others", func(t *testing.T) {
+		client := fake.NewSimpleClientset(
+			tenantNS("oce-tenant-a", gwNS),
+			tenantNS("oce-tenant-b", gwNS),
+			tenantNS("oce-other", "openshell-feedfacefeedface"),
+			&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "unlabeled"}},
+			// Defensive: the gateway's own namespace must never be deleted here even
+			// if it somehow carries the selector value.
+			tenantNS(gwNS, gwNS),
+		)
+		if err := DeleteOperatorWorkspaceNamespaces(ctx, client, labelKey, gwNS); err != nil {
+			t.Fatalf("DeleteOperatorWorkspaceNamespaces() error = %v", err)
+		}
+		for _, name := range []string{"oce-tenant-a", "oce-tenant-b"} {
+			if _, err := client.CoreV1().Namespaces().Get(ctx, name, metav1.GetOptions{}); !k8serrors.IsNotFound(err) {
+				t.Errorf("tenant namespace %s still exists after sweep, err = %v", name, err)
+			}
+		}
+		for _, name := range []string{"oce-other", "unlabeled", gwNS} {
+			if _, err := client.CoreV1().Namespaces().Get(ctx, name, metav1.GetOptions{}); err != nil {
+				t.Errorf("namespace %s must be preserved, err = %v", name, err)
+			}
+		}
+	})
+
+	t.Run("empty label key is a no-op success", func(t *testing.T) {
+		client := fake.NewSimpleClientset(tenantNS("oce-tenant-a", gwNS))
+		if err := DeleteOperatorWorkspaceNamespaces(ctx, client, "", gwNS); err != nil {
+			t.Fatalf("DeleteOperatorWorkspaceNamespaces() error = %v", err)
+		}
+		if _, err := client.CoreV1().Namespaces().Get(ctx, "oce-tenant-a", metav1.GetOptions{}); err != nil {
+			t.Errorf("namespace must be preserved when no label key is configured, err = %v", err)
+		}
+	})
+
+	t.Run("no matching namespaces is a no-op success", func(t *testing.T) {
+		client := fake.NewSimpleClientset()
+		if err := DeleteOperatorWorkspaceNamespaces(ctx, client, labelKey, gwNS); err != nil {
+			t.Fatalf("DeleteOperatorWorkspaceNamespaces() error = %v", err)
+		}
+	})
+}

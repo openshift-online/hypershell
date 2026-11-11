@@ -27,6 +27,8 @@ export type NavAction =
   // Cross-tab links (one Back-addressable step each, FLT-NAV-08).
   | { readonly type: "openHistory"; readonly run: string }
   | { readonly type: "openBundleOnMap"; readonly seed: string }
+  | { readonly type: "openBundleInSdlc"; readonly seed: string }
+  | { readonly type: "openNodeOnMap"; readonly id: string }
   // Fleet Map.
   | { readonly type: "mapSelectNode"; readonly id: string }
   | { readonly type: "mapSelectGate"; readonly id: string }
@@ -62,7 +64,9 @@ export type NavAction =
   | { readonly type: "e2eStep"; readonly step: string | null }
   | { readonly type: "e2eStepSort"; readonly sort: SortState | null }
   | { readonly type: "e2eLogExpanded"; readonly value: boolean }
-  | { readonly type: "e2eLogQuery"; readonly value: string };
+  | { readonly type: "e2eLogQuery"; readonly value: string }
+  // Delivery.
+  | { readonly type: "deliverySelectChange"; readonly sha: string | null };
 
 /**
  * Text-input and coalesced changes replace the current history entry; everything
@@ -119,6 +123,36 @@ export function reduceRoute(state: RouteState, action: NavAction): RouteState {
     case "openBundleOnMap":
       // SDLC shipped bundle -> Fleet Map bundle, as one history step.
       return normalizeRoute({ ...state, tab: "map", bundle: action.seed });
+
+    case "openBundleInSdlc":
+      // Delivery change -> its bundle's Shipped row in Agent SDLC, as one history
+      // step (FLT-DLV-11).
+      return normalizeRoute({
+        ...state,
+        tab: "sdlc",
+        sdlc: { ...state.sdlc, shippedRow: action.seed },
+      });
+
+    case "openNodeOnMap":
+      // Delivery environment -> its Fleet Map node, as one history step.
+      return normalizeRoute({
+        ...state,
+        tab: "map",
+        bundle: null,
+        map: { ...state.map, node: action.id, gate: null, nodeTab: "details" },
+      });
+
+    case "deliverySelectChange":
+      // Selecting the open change again closes the drawer.
+      return normalizeRoute({
+        ...state,
+        delivery: {
+          change:
+            action.sha !== null && action.sha === state.delivery.change
+              ? null
+              : action.sha,
+        },
+      });
 
     case "mapSelectNode": {
       const next = state.map.node === action.id ? null : action.id;

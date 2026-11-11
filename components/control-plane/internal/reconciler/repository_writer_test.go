@@ -629,9 +629,9 @@ func TestUpsertCITrust_RejectsNameOwnedByAnotherOwner(t *testing.T) {
 	}
 }
 
-// ownedCITrusts filters by repository_id, so prune is scoped per-Repository: a CITrust
-// owned by another Repository or created directly over REST (no ownership mark) is not
-// enumerated and therefore never pruned.
+// The per-pass CITrust cache filters by repository_id, so prune is scoped
+// per-Repository: a CITrust owned by another Repository or created directly
+// over REST (no ownership mark) is not enumerated and therefore never pruned.
 // Verifies: CTRL-CORE-06.01
 func TestOwnedCITrusts_FilterByRepository(t *testing.T) {
 	ctc := &fakeCITrustClient{owned: []*pb.CITrust{
@@ -639,14 +639,16 @@ func TestOwnedCITrusts_FilterByRepository(t *testing.T) {
 		importCITrust("other", "ct-other", "repo-2"),
 		{Metadata: &pb.ObjectReference{Id: "rest"}, Name: "ct-rest"}, // REST-created, no ownership
 	}}
-	// Exercise the owned-list reader directly, mirroring the gateway/agent-runtime
-	// focused test: ListOwned additionally touches the other kinds' clients this test
-	// does not wire.
-	w := &grpcImportWriter{ciTrusts: ctc, pageSize: 100}
-	got, err := w.ownedCITrusts(context.Background(), "repo-1")
-	if err != nil {
-		t.Fatalf("ownedCITrusts error = %v", err)
+	// Exercise the owned-set builder directly. ensureCITrustPassCache also loads the
+	// owned-gateway and CI-provider sets, so wire a full writer (empty gateway/
+	// CI-provider clients; this test only asserts on the CITrust subset).
+	w := fullOwnedWriter(&importFakeGatewayClient{}, &fakeCIProviderClient{}, ctc)
+	cache := &citrustPassCache{}
+	w.ensureCITrustPassCache(context.Background(), "repo-1", cache)
+	if cache.err != nil {
+		t.Fatalf("ensureCITrustPassCache error = %v", cache.err)
 	}
+	got := cache.ownedCITrusts
 	if len(got) != 1 || got[0].GetName() != "ct-mine" {
 		t.Fatalf("owned CITrusts = %+v, want only ct-mine (repo-2's and the REST-created trust must be excluded)", got)
 	}

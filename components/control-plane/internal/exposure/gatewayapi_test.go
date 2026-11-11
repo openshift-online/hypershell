@@ -35,19 +35,104 @@ func programmed(status metav1.ConditionStatus, reason string) metav1.Condition {
 	}
 }
 
-// Verifies: OSG-ROUT-08.01, OSG-ROUT-08.02
+// grpcRouteObj builds the tenant's GRPCRoute (gatewayRouteName, in routeNamespace)
+// with the given parent statuses.
+func grpcRouteObj(routeNamespace string, parents ...gatewayv1.RouteParentStatus) *gatewayv1.GRPCRoute {
+	return &gatewayv1.GRPCRoute{
+		ObjectMeta: metav1.ObjectMeta{Name: gatewayRouteName, Namespace: routeNamespace},
+		Status: gatewayv1.GRPCRouteStatus{
+			RouteStatus: gatewayv1.RouteStatus{Parents: parents},
+		},
+	}
+}
+
+// parentStatus builds a status.parents entry for parentName/parentNamespace
+// with the given Accepted/ResolvedRefs condition values.
+func parentStatus(parentName, parentNamespace string, accepted, resolvedRefs bool) gatewayv1.RouteParentStatus {
+	ns := gatewayv1.Namespace(parentNamespace)
+	conds := []metav1.Condition{
+		{Type: string(gatewayv1.RouteConditionAccepted), Status: conditionStatus(accepted)},
+		{Type: string(gatewayv1.RouteConditionResolvedRefs), Status: conditionStatus(resolvedRefs)},
+	}
+	return gatewayv1.RouteParentStatus{
+		ParentRef: gatewayv1.ParentReference{
+			Name:      gatewayv1.ObjectName(parentName),
+			Namespace: &ns,
+		},
+		ControllerName: "example.net/gateway-controller",
+		Conditions:     conds,
+	}
+}
+
+func conditionStatus(b bool) metav1.ConditionStatus {
+	if b {
+		return metav1.ConditionTrue
+	}
+	return metav1.ConditionFalse
+}
+
+// grpcRouteObjGen is grpcRouteObj with an explicit metadata.generation, for
+// exercising the observedGeneration freshness check (OSG-ROUT-08.07).
+func grpcRouteObjGen(routeNamespace string, generation int64, parents ...gatewayv1.RouteParentStatus) *gatewayv1.GRPCRoute {
+	route := grpcRouteObj(routeNamespace, parents...)
+	route.Generation = generation
+	return route
+}
+
+// parentStatusAt is parentStatus with an explicit observedGeneration stamped
+// on both conditions, for exercising the observedGeneration freshness check
+// (OSG-ROUT-08.07).
+func parentStatusAt(parentName, parentNamespace string, accepted, resolvedRefs bool, observedGeneration int64) gatewayv1.RouteParentStatus {
+	p := parentStatus(parentName, parentNamespace, accepted, resolvedRefs)
+	for i := range p.Conditions {
+		p.Conditions[i].ObservedGeneration = observedGeneration
+	}
+	return p
+}
+
+// parentStatusSection is parentStatus with an explicit parentRef.sectionName,
+// for exercising the sectionName match (OSG-ROUT-08.06).
+func parentStatusSection(parentName, parentNamespace, sectionName string, accepted, resolvedRefs bool) gatewayv1.RouteParentStatus {
+	p := parentStatus(parentName, parentNamespace, accepted, resolvedRefs)
+	section := gatewayv1.SectionName(sectionName)
+	p.ParentRef.SectionName = &section
+	return p
+}
+
+// grpcRouteObjWithParentSection builds a GRPCRoute whose spec.parentRefs
+// declares sectionName for the (parentName, parentNamespace) parent, so
+// routeAcceptedByParent's sectionName match (derived from the route's own
+// spec rather than hardcoded) has something to match against.
+func grpcRouteObjWithParentSection(routeNamespace, parentName, parentNamespace, sectionName string, parents ...gatewayv1.RouteParentStatus) *gatewayv1.GRPCRoute {
+	route := grpcRouteObj(routeNamespace, parents...)
+	ns := gatewayv1.Namespace(parentNamespace)
+	section := gatewayv1.SectionName(sectionName)
+	route.Spec.ParentRefs = []gatewayv1.ParentReference{
+		{Name: gatewayv1.ObjectName(parentName), Namespace: &ns, SectionName: &section},
+	}
+	return route
+}
+
+const publishedAddress = "grpcs://gw-tenant-a.apps.example.com:443"
+
+// Verifies: OSG-ROUT-08.01, OSG-ROUT-08.02, OSG-ROUT-08.04, OSG-ROUT-08.05
 func TestObserveReadiness(t *testing.T) {
 	tests := []struct {
-		name      string
-		dedicated *gatewayv1.Gateway // Gateway gw-<ns> in the tenant namespace; nil means it does not exist
-		shared    *gatewayv1.Gateway // Gateway in the ingress namespace; nil means it does not exist
-		wantReady bool
+		name         string
+		dedicated    *gatewayv1.Gateway // Gateway gw-<ns> in the tenant namespace; nil means it does not exist
+		shared       *gatewayv1.Gateway // Gateway in the ingress namespace; nil means it does not exist
+		route        *gatewayv1.GRPCRoute
+		routeAddress string
+		wantReady    bool
+		wantReason   string // substring; checked only when non-empty
 	}{
 		// A dedicated per-tenant Gateway is authoritative when it exists.
 		{
-			name:      "dedicated gateway programmed with address is ready",
-			dedicated: gatewayObj("tenant-a", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionTrue, "Programmed")}, []string{"1.2.3.4"}),
-			wantReady: true,
+			name:         "dedicated gateway programmed, own route accepted, address published is ready",
+			dedicated:    gatewayObj("tenant-a", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionTrue, "Programmed")}, []string{"1.2.3.4"}),
+			route:        grpcRouteObj("tenant-a", parentStatus("gw-tenant-a", "tenant-a", true, true)),
+			routeAddress: publishedAddress,
+			wantReady:    true,
 		},
 		{
 			name:      "dedicated gateway not programmed while shared is programmed is not ready",
@@ -70,13 +155,130 @@ func TestObserveReadiness(t *testing.T) {
 			dedicated: gatewayObj("tenant-a", "gw-tenant-a", []metav1.Condition{{Type: "Accepted", Status: metav1.ConditionTrue}}, []string{"1.2.3.4"}),
 			wantReady: false,
 		},
+		{
+			// HYPERSHELL-504: a Programmed parent alone must not report Ready when
+			// this gateway's own GRPCRoute has not yet been created or accepted -
+			// the exact race from the incident (a Helm retry re-applying this
+			// gateway's resources while the shared Gateway was already programmed
+			// for another tenant).
+			name:         "dedicated gateway programmed but own GRPCRoute missing is not ready",
+			dedicated:    gatewayObj("tenant-a", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionTrue, "Programmed")}, []string{"1.2.3.4"}),
+			routeAddress: publishedAddress,
+			wantReady:    false,
+			wantReason:   "GRPCRoute not accepted",
+		},
+		{
+			name:         "dedicated gateway programmed but own GRPCRoute not yet accepted is not ready",
+			dedicated:    gatewayObj("tenant-a", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionTrue, "Programmed")}, []string{"1.2.3.4"}),
+			route:        grpcRouteObj("tenant-a", parentStatus("gw-tenant-a", "tenant-a", false, true)),
+			routeAddress: publishedAddress,
+			wantReady:    false,
+			wantReason:   "GRPCRoute not accepted",
+		},
+		{
+			name:         "dedicated gateway programmed but own GRPCRoute ResolvedRefs false is not ready",
+			dedicated:    gatewayObj("tenant-a", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionTrue, "Programmed")}, []string{"1.2.3.4"}),
+			route:        grpcRouteObj("tenant-a", parentStatus("gw-tenant-a", "tenant-a", true, false)),
+			routeAddress: publishedAddress,
+			wantReady:    false,
+			wantReason:   "GRPCRoute not accepted",
+		},
+		{
+			name:         "dedicated gateway programmed, route accepted for a different parent is not ready",
+			dedicated:    gatewayObj("tenant-a", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionTrue, "Programmed")}, []string{"1.2.3.4"}),
+			route:        grpcRouteObj("tenant-a", parentStatus("some-other-gateway", "tenant-a", true, true)),
+			routeAddress: publishedAddress,
+			wantReady:    false,
+			wantReason:   "GRPCRoute not accepted",
+		},
+		{
+			name:      "dedicated gateway programmed, own route accepted, but routeAddress not yet published is not ready",
+			dedicated: gatewayObj("tenant-a", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionTrue, "Programmed")}, []string{"1.2.3.4"}),
+			route:     grpcRouteObj("tenant-a", parentStatus("gw-tenant-a", "tenant-a", true, true)),
+			wantReady: false,
+			// routeAddress left empty.
+			wantReason: "route address not yet published",
+		},
+		{
+			// A GRPCRoute MAY carry several status.parents entries for the same
+			// parent (e.g. reported by distinct controllers). The first matching
+			// entry reporting False must not suppress a later matching entry
+			// reporting True.
+			//
+			// Verifies: OSG-ROUT-08.06
+			name:      "own route accepted on a later matching parent entry, not the first, is ready",
+			dedicated: gatewayObj("tenant-a", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionTrue, "Programmed")}, []string{"1.2.3.4"}),
+			route: grpcRouteObj("tenant-a",
+				parentStatus("gw-tenant-a", "tenant-a", false, false),
+				parentStatus("gw-tenant-a", "tenant-a", true, true),
+			),
+			routeAddress: publishedAddress,
+			wantReady:    true,
+		},
+		{
+			// An Accepted/ResolvedRefs condition is trusted only when its
+			// observedGeneration matches the GRPCRoute's current generation. A
+			// Helm retry re-applying the route advances its generation; the old
+			// True left over from before the re-apply must not count.
+			//
+			// Verifies: OSG-ROUT-08.07
+			name:      "own route Accepted condition is stale for the current generation is not ready",
+			dedicated: gatewayObj("tenant-a", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionTrue, "Programmed")}, []string{"1.2.3.4"}),
+			route: grpcRouteObjGen("tenant-a", 2,
+				parentStatusAt("gw-tenant-a", "tenant-a", true, true, 1),
+			),
+			routeAddress: publishedAddress,
+			wantReady:    false,
+			wantReason:   "GRPCRoute not accepted",
+		},
+		{
+			// A freshly re-stamped condition (observedGeneration caught up to the
+			// route's current generation) is trusted again.
+			//
+			// Verifies: OSG-ROUT-08.07
+			name:      "own route Accepted condition matches the current generation is ready",
+			dedicated: gatewayObj("tenant-a", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionTrue, "Programmed")}, []string{"1.2.3.4"}),
+			route: grpcRouteObjGen("tenant-a", 2,
+				parentStatusAt("gw-tenant-a", "tenant-a", true, true, 2),
+			),
+			routeAddress: publishedAddress,
+			wantReady:    true,
+		},
+		{
+			// The adapter matches sectionName as well as name/namespace: a
+			// status.parents entry for a different listener on the same parent
+			// Gateway must not count as this route's own acceptance.
+			name:      "own route status.parents entry for a different sectionName is not ready",
+			dedicated: gatewayObj("tenant-a", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionTrue, "Programmed")}, []string{"1.2.3.4"}),
+			route: func() *gatewayv1.GRPCRoute {
+				route := grpcRouteObjWithParentSection("tenant-a", "gw-tenant-a", "tenant-a", "grpc",
+					parentStatusSection("gw-tenant-a", "tenant-a", "sandbox", true, true),
+				)
+				return route
+			}(),
+			routeAddress: publishedAddress,
+			wantReady:    false,
+			wantReason:   "GRPCRoute not accepted",
+		},
+		{
+			// The matching sectionName is still accepted.
+			name:      "own route status.parents entry for the matching sectionName is ready",
+			dedicated: gatewayObj("tenant-a", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionTrue, "Programmed")}, []string{"1.2.3.4"}),
+			route: grpcRouteObjWithParentSection("tenant-a", "gw-tenant-a", "tenant-a", "grpc",
+				parentStatusSection("gw-tenant-a", "tenant-a", "grpc", true, true),
+			),
+			routeAddress: publishedAddress,
+			wantReady:    true,
+		},
 
 		// Without a dedicated Gateway, the shared Gateway is observed
 		// (today's fallback behavior, unchanged).
 		{
-			name:      "no dedicated gateway falls back to shared programmed gateway",
-			shared:    gatewayObj("openshift-ingress", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionTrue, "Programmed")}, []string{"1.2.3.4"}),
-			wantReady: true,
+			name:         "no dedicated gateway, shared programmed, own route accepted, address published is ready",
+			shared:       gatewayObj("openshift-ingress", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionTrue, "Programmed")}, []string{"1.2.3.4"}),
+			route:        grpcRouteObj("tenant-a", parentStatus("gw-tenant-a", "openshift-ingress", true, true)),
+			routeAddress: publishedAddress,
+			wantReady:    true,
 		},
 		{
 			name:      "no dedicated gateway and shared not programmed is not ready",
@@ -96,6 +298,26 @@ func TestObserveReadiness(t *testing.T) {
 		{
 			name:      "no dedicated gateway and missing shared gateway is not ready",
 			wantReady: false,
+		},
+		{
+			// This is the exact incident race: the shared Gateway is
+			// Programmed=True because another tenant's GRPCRoute already
+			// attached to it, but this gateway's own GRPCRoute has not yet been
+			// accepted.
+			name:         "no dedicated gateway, shared already programmed for another tenant, this gateway's own route not yet accepted is not ready",
+			shared:       gatewayObj("openshift-ingress", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionTrue, "Programmed")}, []string{"1.2.3.4"}),
+			route:        grpcRouteObj("tenant-a", parentStatus("gw-tenant-a", "openshift-ingress", false, false)),
+			routeAddress: publishedAddress,
+			wantReady:    false,
+			wantReason:   "GRPCRoute not accepted",
+		},
+		{
+			name:      "no dedicated gateway, shared programmed, own route accepted, but routeAddress not yet published is not ready",
+			shared:    gatewayObj("openshift-ingress", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionTrue, "Programmed")}, []string{"1.2.3.4"}),
+			route:     grpcRouteObj("tenant-a", parentStatus("gw-tenant-a", "openshift-ingress", true, true)),
+			wantReady: false,
+			// routeAddress left empty.
+			wantReason: "route address not yet published",
 		},
 	}
 
@@ -118,9 +340,14 @@ func TestObserveReadiness(t *testing.T) {
 					t.Fatalf("seeding gateway: %v", err)
 				}
 			}
+			if tt.route != nil {
+				if _, err := cs.GatewayV1().GRPCRoutes(tt.route.Namespace).Create(context.Background(), tt.route, metav1.CreateOptions{}); err != nil {
+					t.Fatalf("seeding GRPCRoute: %v", err)
+				}
+			}
 
 			adapter := NewGatewayAPIExposure(cs)
-			got, err := adapter.ObserveReadiness(context.Background(), Request{Namespace: "tenant-a"})
+			got, err := adapter.ObserveReadiness(context.Background(), Request{Namespace: "tenant-a", RouteAddress: tt.routeAddress})
 			if err != nil {
 				t.Fatalf("ObserveReadiness returned error: %v", err)
 			}
@@ -129,6 +356,9 @@ func TestObserveReadiness(t *testing.T) {
 			}
 			if !got.Ready && got.Reason == "" {
 				t.Fatalf("expected a reason when not ready")
+			}
+			if tt.wantReason != "" && !strings.Contains(got.Reason, tt.wantReason) {
+				t.Fatalf("reason = %q, want it to contain %q", got.Reason, tt.wantReason)
 			}
 		})
 	}
@@ -163,6 +393,33 @@ func TestObserveReadinessDedicatedGatewayError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "tenant-a/gw-tenant-a") {
 		t.Fatalf("error = %v, want it to name the dedicated gateway tenant-a/gw-tenant-a", err)
+	}
+}
+
+// A transient error reading this gateway's own GRPCRoute must propagate, never
+// be read as "not accepted" and silently report not-Ready.
+//
+// Verifies: OSG-ROUT-08
+func TestObserveReadinessGRPCRouteError(t *testing.T) {
+	t.Setenv("GATEWAY_API_GATEWAY_NAMESPACE", "openshift-ingress")
+	t.Setenv("GATEWAY_API_GATEWAY_NAME", "")
+
+	dedicated := gatewayObj("tenant-a", "gw-tenant-a", []metav1.Condition{programmed(metav1.ConditionTrue, "Programmed")}, []string{"1.2.3.4"})
+	cs := fakegwclient.NewSimpleClientset()
+	if _, err := cs.GatewayV1().Gateways(dedicated.Namespace).Create(context.Background(), dedicated, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("seeding dedicated gateway: %v", err)
+	}
+	cs.PrependReactor("get", "grpcroutes", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, errors.New("transient apiserver error")
+	})
+
+	adapter := NewGatewayAPIExposure(cs)
+	got, err := adapter.ObserveReadiness(context.Background(), Request{Namespace: "tenant-a", RouteAddress: publishedAddress})
+	if err == nil {
+		t.Fatalf("ObserveReadiness expected error, got readiness %+v", got)
+	}
+	if !strings.Contains(err.Error(), "transient apiserver error") {
+		t.Fatalf("error = %v, want it to contain the cause %q", err, "transient apiserver error")
 	}
 }
 

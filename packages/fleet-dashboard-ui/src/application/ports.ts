@@ -3,6 +3,7 @@
 // domain stays framework- and transport-free.
 
 import type { AgentSdlcData } from "../domain/agent-sdlc";
+import type { DeliveryData } from "../domain/delivery";
 import type { SdlcAgentsData } from "../domain/sdlc-agents";
 import type {
   E2eDiagnosticsData,
@@ -66,6 +67,8 @@ export interface FleetApi {
   getSdlc(signal?: AbortSignal): Promise<Plane<AgentSdlcData>>;
   getSdlcAgents(signal?: AbortSignal): Promise<Plane<SdlcAgentsData>>;
   getE2eRuns(signal?: AbortSignal): Promise<Plane<E2eRunsData>>;
+  /** The delivery pipeline plane (fleet-dashboard-delivery-pipeline.spec). */
+  getDelivery(signal?: AbortSignal): Promise<Plane<DeliveryData>>;
   getE2eRun(id: string, signal?: AbortSignal): Promise<Plane<E2eRunDetail>>;
   /**
    * Lazily fetch the failure-diagnostics sections for a run (DIAGNOSTICS_CONTRACT).

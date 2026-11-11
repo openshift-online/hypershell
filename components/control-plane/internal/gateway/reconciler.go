@@ -58,6 +58,10 @@ func ReconcileGateway(
 		report(ConditionEnvironmentReady, StatusFailed, "Environment preparation failed - the gateway configuration is invalid")
 		return fmt.Errorf("invalid gateway configuration: %w", err)
 	}
+	if err := ValidateGatewayAuth(nsConfig.Gateway); err != nil {
+		report(ConditionEnvironmentReady, StatusFailed, "Environment preparation failed - the gateway has no authentication configuration")
+		return fmt.Errorf("invalid gateway configuration: %w", err)
+	}
 
 	// A routed gateway is reachable at an external
 	// hostname (gw-<namespace>.<base-domain>, or an explicit Route.Host). The
@@ -80,6 +84,17 @@ func ReconcileGateway(
 		if err := probeVaultReachable(ctx, clientset); err != nil {
 			report(ConditionEnvironmentReady, StatusFailed, "Vault credential backend is unreachable")
 			return fmt.Errorf("vault reachability probe failed for %s: %w", nsConfig.Name, err)
+		}
+	}
+
+	// Operator-mode gateways fail closed on a missing prerequisite rather than
+	// provisioning in another mode or substituting a runtime (OSG-OPWS-04, refining
+	// OSG-CORE-18.09). The administrator-owned operator settings must be configured
+	// and the approved sandbox RuntimeClass must exist on the cluster.
+	if nsConfig.Gateway.WorkspaceMode == "operator" {
+		if err := validateOperatorPrerequisites(ctx, clientset, opts); err != nil {
+			report(ConditionEnvironmentReady, StatusFailed, err.Error())
+			return fmt.Errorf("operator workspace prerequisites for %s: %w", nsConfig.Name, err)
 		}
 	}
 
@@ -111,15 +126,18 @@ func ReconcileGateway(
 
 	report(ConditionDatabaseReady, StatusComplete, "")
 
-	// Step 3: IdentityProviderReady (only when Keycloak is configured)
-	if opts.Keycloak != nil {
-		report(ConditionIdentityProviderReady, StatusInProgress, "")
-		if err := reconcileKeycloakClient(ctx, opts, &nsConfig); err != nil {
-			report(ConditionIdentityProviderReady, StatusFailed, "Identity provider configuration failed - the authentication service is currently unavailable")
-			return fmt.Errorf("reconcile keycloak client in %s: %w", nsConfig.Name, err)
-		}
-		report(ConditionIdentityProviderReady, StatusComplete, "")
+	// Step 3: IdentityProviderReady. Keycloak is mandatory: the gateway refuses
+	// to start without an auth mechanism (issue #809).
+	report(ConditionIdentityProviderReady, StatusInProgress, "")
+	if opts.Keycloak == nil {
+		report(ConditionIdentityProviderReady, StatusFailed, "Identity provider is not configured")
+		return fmt.Errorf("reconcile keycloak client in %s: keycloak configuration is required", nsConfig.Name)
 	}
+	if err := reconcileKeycloakClient(ctx, opts, &nsConfig); err != nil {
+		report(ConditionIdentityProviderReady, StatusFailed, "Identity provider configuration failed - the authentication service is currently unavailable")
+		return fmt.Errorf("reconcile keycloak client in %s: %w", nsConfig.Name, err)
+	}
+	report(ConditionIdentityProviderReady, StatusComplete, "")
 
 	// Step 4: GatewayDeployed
 	report(ConditionGatewayDeployed, StatusInProgress, "")
@@ -207,6 +225,30 @@ func ReconcileGateway(
 	report(ConditionGatewayDeployed, StatusComplete, "")
 
 	slog.InfoContext(ctx, "Gateway reconciled", "namespace", nsConfig.Name)
+	return nil
+}
+
+// validateOperatorPrerequisites fail-closes an operator-mode gateway when the
+// administrator-owned operator settings are missing or the approved sandbox
+// RuntimeClass is absent on the cluster. It returns an actionable error whose
+// message is also surfaced on the EnvironmentReady condition. The error is
+// retryable: a later reconcile provisions once the administrator fixes the
+// configuration or installs the RuntimeClass. It NEVER downgrades the mode or
+// substitutes a different runtime (OSG-OPWS-04). clientset is kubernetes.Interface
+// so tests can drive it with a fake.
+func validateOperatorPrerequisites(ctx context.Context, clientset kubernetes.Interface, opts ReconcileOpts) error {
+	if opts.OperatorNamespaceLabelKey == "" {
+		return fmt.Errorf("operator workspace mode requires the administrator-approved namespace label key; set GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY on the control plane")
+	}
+	if opts.OperatorSandboxRuntimeClass == "" {
+		return fmt.Errorf("operator workspace mode requires the approved sandbox RuntimeClass; set GATEWAY_OPERATOR_SANDBOX_RUNTIME_CLASS on the control plane")
+	}
+	if _, err := clientset.NodeV1().RuntimeClasses().Get(ctx, opts.OperatorSandboxRuntimeClass, metav1.GetOptions{}); err != nil {
+		if k8serrors.IsNotFound(err) {
+			return fmt.Errorf("approved operator sandbox RuntimeClass %q is not installed on the cluster; install it before provisioning operator gateways", opts.OperatorSandboxRuntimeClass)
+		}
+		return fmt.Errorf("verify operator sandbox RuntimeClass %q on the cluster: %w", opts.OperatorSandboxRuntimeClass, err)
+	}
 	return nil
 }
 

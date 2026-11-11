@@ -62,8 +62,20 @@ const e2eApi = {
   },
   getSdlcAgents: () =>
     Promise.resolve(plane<SdlcAgentsData>({ envs: [], agents: [] })),
+  getDelivery: () =>
+    Promise.resolve(
+      plane({
+        enabled: false,
+        stages: [],
+        changes: [],
+        typicalSeconds: {},
+        omitted: 0,
+        sources: {},
+      }),
+    ),
 } satisfies Pick<
   FleetApi,
+  | "getDelivery"
   | "getE2eRuns"
   | "getE2eRun"
   | "getE2eDiagnostics"

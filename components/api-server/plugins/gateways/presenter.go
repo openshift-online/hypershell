@@ -10,10 +10,13 @@ import (
 
 // ConvertGateway maps a user create request to a Gateway model. The create contract is
 // restricted to the user-writable allowlist -- name, plus placement/cluster_id resolved
-// by the handler before persistence (PLAT-DATA-23). Every other gateway field is
-// platform-managed and set only by the control plane, so none is copied here.
+// by the handler before persistence, the create-only dedicated_route request, and the
+// create-only workspace_mode operator opt-in (PLAT-DATA-23 / OSG-OPWS-01). Every other
+// gateway field is platform-managed and set only by the control plane, so none is copied
+// here. The workspace_mode value is validated and entitlement-gated downstream (the
+// operator authorizer and the service funnel).
 func ConvertGateway(gateway openapi.GatewayCreateRequest) *Gateway {
-	return &Gateway{Name: gateway.Name, DedicatedRoute: gateway.DedicatedRoute}
+	return &Gateway{Name: gateway.Name, DedicatedRoute: gateway.DedicatedRoute, WorkspaceMode: gateway.WorkspaceMode}
 }
 
 // PresentGateway converts a Gateway model to its REST representation.

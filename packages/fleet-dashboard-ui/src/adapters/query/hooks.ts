@@ -5,6 +5,7 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
 import type { AgentSdlcData } from "../../domain/agent-sdlc";
+import type { DeliveryData } from "../../domain/delivery";
 import type { SdlcAgentsData } from "../../domain/sdlc-agents";
 import type {
   E2eDiagnosticsData,
@@ -16,6 +17,7 @@ import type { Plane } from "../../domain/plane";
 import type { PromotionData } from "../../domain/promotion";
 import type { InstancesData, TopologyData } from "../../application/ports";
 import {
+  getDelivery,
   getE2eDiagnostics,
   getE2eRun,
   getE2eRuns,
@@ -56,6 +58,9 @@ const REFETCH_MS = {
   // A single run's snapshot detail is the stream's backfill baseline; a relaxed
   // poll reconciles any drift without competing with the live stream.
   e2eRun: FAST_POLL_MS ?? 30_000,
+  // The BFF refreshes the delivery plane on its own interval (FD_REFRESH_DELIVERY,
+  // 60s by default); the UI polls the cached plane a little faster.
+  delivery: FAST_POLL_MS ?? 30_000,
 };
 
 export function useFleet(): UseQueryResult<Plane<FleetData>> {
@@ -111,6 +116,15 @@ export function useE2eRuns(): UseQueryResult<Plane<E2eRunsData>> {
     queryKey: queryKeys.e2eRuns,
     queryFn: ({ signal }) => getE2eRuns(api, signal, observability),
     refetchInterval: REFETCH_MS.e2eRuns,
+  });
+}
+
+export function useDelivery(): UseQueryResult<Plane<DeliveryData>> {
+  const api = useFleetApi();
+  return useQuery({
+    queryKey: queryKeys.delivery,
+    queryFn: ({ signal }) => getDelivery(api, signal),
+    refetchInterval: REFETCH_MS.delivery,
   });
 }
 

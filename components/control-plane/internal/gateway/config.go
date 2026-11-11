@@ -283,8 +283,8 @@ type ReconcileOpts struct {
 	// UpdateConsoleAddress is an optional callback that PATCHes the console_address
 	// field on the API-server Gateway. Nil means no update will be attempted.
 	UpdateConsoleAddress ConsoleAddressUpdater
-	// Keycloak holds the Keycloak Admin REST API configuration. Nil means
-	// Keycloak integration is not configured.
+	// Keycloak holds the Keycloak Admin REST API configuration. It is required
+	// to provision a gateway; it is nil only on delete paths that do not need it.
 	Keycloak *KeycloakConfig
 	// GatewayName is the user-visible name of the gateway being reconciled.
 	GatewayName string
@@ -327,6 +327,16 @@ type ReconcileOpts struct {
 	// Empty string uses the cluster default (runc). Set to "kata" or "kata-remote"
 	// to run sandboxes inside lightweight VMs for hardware-enforced isolation.
 	SandboxRuntimeClass string
+	// OperatorNamespaceLabelKey is the administrator-approved label KEY used to
+	// scope an operator-mode gateway to its own tenant namespaces, via the selector
+	// <key>=<gateway-namespace> (GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY, OSG-OPWS-02).
+	// Empty fails an operator gateway closed at reconcile (OSG-OPWS-04).
+	OperatorNamespaceLabelKey string
+	// OperatorSandboxRuntimeClass is the administrator-approved sandbox RuntimeClass
+	// applied to operator-mode gateways ONLY (GATEWAY_OPERATOR_SANDBOX_RUNTIME_CLASS,
+	// OSG-OPWS-03). Empty fails an operator gateway closed at reconcile, and a named
+	// class absent on the cluster also fails closed (OSG-OPWS-04).
+	OperatorSandboxRuntimeClass string
 }
 
 // OrphanRecorder records a durable, operator-visible signal that a gateway-owned

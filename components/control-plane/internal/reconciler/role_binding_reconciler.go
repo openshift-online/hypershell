@@ -76,11 +76,6 @@ func (r *RoleBindingReconciler) Handle(ctx context.Context, event watcher.Event[
 		return nil
 	}
 
-	if r.keycloakClient == nil {
-		slog.DebugContext(ctx, "Role binding keycloak not configured, skipping", "role_binding_id", event.ResourceID)
-		return nil
-	}
-
 	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "RoleBinding", event.Type.String(), rb.GetMetadata().GetTraceparent())
 	var reconcileErr error
 	defer func() {

@@ -10,7 +10,7 @@
 
 ## Purpose
 
-This specification defines per-gateway OIDC authentication for OpenShell gateways. OIDC enables CLI users and external clients to authenticate via Bearer tokens from an identity provider (e.g., Keycloak). OIDC is the sole authentication mechanism for HyperShell gateways in production.
+This specification defines per-gateway OIDC authentication for OpenShell gateways. OIDC enables CLI users and external clients to authenticate via Bearer tokens from an identity provider (e.g., Keycloak). OIDC is the sole authentication mechanism for HyperShell gateways. Every gateway has an OIDC configuration, because Keycloak integration is mandatory for the control plane (`openshell-gateway-keycloak.spec.md`, OSG-KCLK-01). A gateway without one cannot run: since OpenShell `v0.1.5-rhaiv.4` the gateway refuses to start without an auth mechanism (openshift-online/hypershell#809).
 
 OIDC configuration is auto-provisioned by the control plane when a gateway is reconciled. The GatewayReconciler provisions a dedicated Keycloak OIDC client per gateway and populates the Gateway resource's `oidc` field automatically. See [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md) for provisioning details. This specification covers how the control plane passes the OIDC configuration to the gateway as `server.oidc.*` Helm chart values and validates it.
 
@@ -58,7 +58,7 @@ Roles:       openshell-admin, openshell-user (client-scoped)
 
 ### Requirement: OSG-OIDC-01 -- Gateway OIDC API Fields
 
-The Gateway API resource SHALL have an `oidc` object containing OIDC configuration fields. These fields are auto-populated by the API server during Keycloak provisioning (see [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md)) and are read-only in the REST and gRPC contracts. The fields map directly to the upstream OpenShell `server.oidc.*` helm values.
+The Gateway API resource SHALL have an `oidc` object containing OIDC configuration fields. These fields are auto-populated by the control plane during Keycloak provisioning, and the control plane persists them to the Gateway record through the API server (see [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md)) and are read-only in the REST and gRPC contracts. The fields map directly to the upstream OpenShell `server.oidc.*` helm values.
 
 | Field | Type | Auto-Populated Value | Description |
 |---|---|---|---|
@@ -102,11 +102,11 @@ The auto-provisioned OIDC configuration always sets both `admin_role` and `user_
 
 ### Requirement: OSG-OIDC-03 -- OIDC Configuration as Helm Values
 
-When a Gateway has OIDC enabled (non-empty `oidc.issuer`), the GatewayReconciler SHALL pass the OIDC configuration to the OpenShell Helm chart as `server.oidc.*` values. The chart renders these values into the gateway's runtime configuration.
+Every Gateway has an OIDC configuration with a non-empty `oidc.issuer`. The GatewayReconciler SHALL pass the OIDC configuration to the OpenShell Helm chart as `server.oidc.*` values. The chart renders these values into the gateway's runtime configuration.
 
-#### Scenario: OSG-OIDC-03.01 -- OIDC Helm values set for an OIDC-enabled gateway
+#### Scenario: OSG-OIDC-03.01 -- OIDC Helm values set for a gateway
 
-- GIVEN a Gateway with OIDC enabled
+- GIVEN a Gateway with a generated OIDC configuration
 - WHEN the GatewayReconciler builds the Helm chart values
 - THEN the values SHALL contain:
   ```yaml

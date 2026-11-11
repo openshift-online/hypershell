@@ -65,7 +65,8 @@ weaken it.
     namespace and are not reached by the namespace cascade: the cluster-scoped
     ClusterRoleBinding, the gateway/console/service-account Keycloak clients, the
     per-gateway database and login role on the platform's gateway database
-    server, and any credential-namespace RBAC.
+    server, any credential-namespace RBAC, and, for an operator-mode gateway, its
+    tenant workspace namespaces (OSG-OPWS-06).
 - **Finalization** - the point at which a Gateway's teardown is complete: every
   owned resource has been reclaimed or confirmed already absent, or its residue
   has been handed to an explicit, documented recovery path. The soft-deleted row
@@ -108,6 +109,12 @@ resource classes is:
    separate credential namespace.
 6. For a Vault-backed gateway, the gateway's per-tenant provider-secret KV mount
    (`openshell-gw/<namespace>`) on the per-cluster provider Vault.
+7. For an operator-mode gateway (`workspace_mode = operator`), the gateway's tenant
+   workspace namespaces. The external operator creates these outside the gateway's
+   own namespace, so the cascade cannot reach them; they are identified by the
+   administrator-approved namespace label key set to the value derived from the
+   gateway's namespace and reclaimed best-effort, the operator-mode counterpart to
+   the managed-mode per-workspace namespace cleanup (OSG-OPWS-06, OSG-CORE-18.07).
 
 The enumeration SHALL be authoritative and SHALL NOT depend on the namespace
 delete cascade reaching a resource. Every out-of-namespace resource class SHALL
@@ -308,8 +315,7 @@ The platform SHALL NOT leave credentials, databases, routes, or namespaces (or
 any other owned resource) behind without either a recovery path that will reclaim
 them or a durable, operator-visible signal that records the residue. When
 deletion deliberately downgrades a failure to non-fatal (for example an invalid
-or unresolvable stored Keycloak identity, or a deconfigured Keycloak provisioner)
-and no recovery path will reclaim the affected resource, the control plane SHALL
+or unresolvable stored Keycloak identity) and no recovery path will reclaim the affected resource, the control plane SHALL
 record a durable, operator-visible signal that names the owned resource kind, its
 identifier, and the reason it was not reclaimed. A controller log line alone is
 not a sufficient signal for a resource with no recovery path. The durable signal
@@ -319,11 +325,13 @@ collector's `GarbageCollected` Event) and SHALL NOT contain secrets.
 
 #### Scenario: GTW-DEL-07.01 -- Leaked Keycloak client with no recovery is recorded durably
 
-- GIVEN a Gateway delete where the Keycloak provisioner is deconfigured, so the
-  gateway's Keycloak client cannot be deleted inline
+- GIVEN a Gateway delete where the stored gateway identity cannot be resolved,
+  so the gateway's Keycloak clients cannot be located and deleted inline
 - WHEN the delete otherwise completes
-- THEN the control plane SHALL record a durable, operator-visible signal naming
-  the Keycloak client identifier and the reason it was not reclaimed
+- THEN the control plane SHALL record an `IncompleteFinalization` Warning Event
+  with resource kind `KeycloakClient` that identifies the affected Keycloak
+  client and the reason it was not reclaimed
+- AND the control plane SHALL finalize the gateway deletion
 - AND that signal SHALL survive the deletion of the gateway's namespace
 - AND it SHALL NOT contain any secret
 

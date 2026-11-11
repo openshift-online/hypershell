@@ -88,6 +88,7 @@ function fakeApi(overrides: Partial<FleetApi> = {}): FleetApi {
     getSdlc: vi.fn().mockResolvedValue(plane(sdlc)),
     getSdlcAgents: vi.fn().mockResolvedValue(plane(sdlcAgents)),
     getE2eRuns: vi.fn().mockResolvedValue(plane(e2eRuns)),
+    getDelivery: vi.fn(),
     getE2eRun: vi.fn().mockResolvedValue(plane(e2eRun)),
     getE2eDiagnostics: vi.fn().mockResolvedValue(plane({ diagnostics: [] })),
     getE2eRunLogs: vi

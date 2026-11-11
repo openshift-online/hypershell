@@ -46,6 +46,7 @@ var gatewayFieldOwnership = map[string]gatewayFieldClass{
 	"cluster_id":      fieldUserWritable, // create-only (placement); control-plane-assigned on late-bind, not user-writable on update
 	"placement":       fieldUserWritable, // create-only
 	"dedicated_route": fieldUserWritable, // create-only
+	"workspace_mode":  fieldUserWritable, // create-only, operator value only, gated by gateway:operator-workspace-creator (OSG-OPWS-01); otherwise server-defaulted to managed and immutable
 
 	// Platform-managed (control-plane-only desired workload spec).
 	"external_dns":      fieldPlatformManaged,
@@ -57,7 +58,6 @@ var gatewayFieldOwnership = map[string]gatewayFieldClass{
 	"oidc":              fieldPlatformManaged,
 	"route":             fieldPlatformManaged,
 	"credential_driver": fieldPlatformManaged,
-	"workspace_mode":    fieldPlatformManaged, // server-defaulted to managed at create (OSG-CORE-18); no caller may set or change it
 
 	// Control-plane-observed.
 	"status":                  fieldObserved,
@@ -101,8 +101,6 @@ func gatewayCreateWorkloadViolation(g *Gateway) string {
 		return "route"
 	case g.CredentialDriver != nil:
 		return "credential_driver"
-	case g.WorkspaceMode != nil:
-		return "workspace_mode"
 	}
 	return ""
 }
@@ -229,10 +227,11 @@ func validateGatewayWorkspaceValue(mode string) *errors.ServiceError {
 }
 
 // applyGatewayWorkspaceCreateDefault defaults a created gateway's workspace_mode
-// to managed. The field is platform-managed (PLAT-DATA-23): the field policy
-// above has already rejected a user/import-supplied value, so a non-nil value
-// reaching here can only come from a control-plane internal write -- its
-// vocabulary is validated regardless, as defense in depth.
+// to managed (OSG-CORE-18.01). By the time this runs,
+// applyGatewayWorkspaceModeCreateRequest has already rejected a forbidden
+// caller-supplied value, so a non-nil value reaching here is either an entitled
+// user's "operator" selection or a control-plane internal write; its vocabulary
+// is validated regardless, as defense in depth.
 func applyGatewayWorkspaceCreateDefault(gateway *Gateway) *errors.ServiceError {
 	if gateway.WorkspaceMode == nil || strings.TrimSpace(*gateway.WorkspaceMode) == "" {
 		mode := defaultGatewayWorkspaceMode

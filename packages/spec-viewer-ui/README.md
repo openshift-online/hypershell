@@ -39,6 +39,35 @@ the table, documents, test markers, and file references.
   branch. Stars stay across branches; a starred item that does not exist on
   the selected branch is hidden until you switch back.
 
+## Comparing branches
+
+Each branch in the branch picker, except the selected one, has a compare
+button. Pressing it switches the viewer to **diff mode**: the table is replaced
+by a tree of only the files, requirements, and scenarios that differ between
+the selected branch and the branch you pressed.
+
+- A **New** item exists only in the selected branch. A **Removed** item
+  exists only in the compared branch. A **Changed** item exists in both, with
+  different text. Opening a new or removed item shows it as a normal
+  document; nothing is compared.
+- Opening a changed item shows a split view, like a GitHub pull request: the
+  compared branch on the left, the selected branch on the right. Removed text
+  is red, added text is green, and the words that differ are marked more
+  strongly. A **Rendered / Raw** switch above it shows the same change as
+  formatted text (the default) or as markdown source. Both mark the changed
+  words; rendered mode also colors the whole changed block.
+- Items are matched by ID, so a retitled requirement shows as changed, not as
+  a removed and a new one. Items without an ID are matched by file and
+  heading. Differences in line endings, trailing spaces, and blank lines are
+  ignored.
+- Search and the starred filter are off in diff mode. Leave it with the
+  close button on the "Comparing with ..." label in the header.
+- The compared branch is kept in the URL (`?compare=feature/y`).
+
+Both branches are read through the same data API as any other branch, and
+compared in the browser, so this works locally and in the fleet dashboard
+with no extra endpoint.
+
 ## What it does
 
 The main view is the conformance table (see [Conformance view](#conformance-view)):

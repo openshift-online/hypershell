@@ -153,9 +153,7 @@ type Config struct {
 	CIProviderResyncInterval time.Duration
 
 	// Helm chart configuration
-	HelmChartPath     string
-	HelmChartRegistry string
-	HelmChartVersion  string
+	HelmChartPath string
 
 	// GatewayDatabaseAdminDir is the directory holding the mounted PostgreSQL
 	// admin credentials for gateway database provisioning. Sourced from
@@ -174,6 +172,22 @@ type Config struct {
 	// GATEWAY_SANDBOX_RUNTIME_CLASS; empty string uses the cluster default (runc).
 	// Set to "kata" or "kata-remote" for hardware-enforced VM isolation.
 	SandboxRuntimeClass string
+
+	// OperatorNamespaceLabelKey is the administrator-approved label KEY the
+	// external operator sets on an operator-mode gateway's tenant namespaces. The
+	// control plane scopes each operator gateway to its own tenant namespaces with
+	// the selector <key>=<gateway-namespace> (OSG-OPWS-02); it is control-plane
+	// configuration, never caller input. Sourced from
+	// GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY; empty disables operator provisioning
+	// (an operator gateway then fails closed, OSG-OPWS-04).
+	OperatorNamespaceLabelKey string
+
+	// OperatorSandboxRuntimeClass is the administrator-approved sandbox
+	// RuntimeClass applied ONLY to operator-mode gateways (OSG-OPWS-03); ordinary
+	// gateways keep SandboxRuntimeClass. Sourced from
+	// GATEWAY_OPERATOR_SANDBOX_RUNTIME_CLASS; empty disables operator provisioning
+	// (an operator gateway then fails closed, OSG-OPWS-04).
+	OperatorSandboxRuntimeClass string
 
 	// CITrustEnabled toggles the CI trust reconciler that realizes CIProvider
 	// and CITrust resources as Keycloak IdPs, claim mappers, and token-exchange
@@ -250,12 +264,13 @@ func Load() (*Config, error) {
 		CITrustResyncInterval:     getEnvDuration("HYPERSHELL_CI_TRUST_RESYNC_INTERVAL", 5*time.Minute),
 		CIProviderResyncInterval:  getEnvDuration("HYPERSHELL_CI_PROVIDER_RESYNC_INTERVAL", 5*time.Minute),
 
-		HelmChartPath:     getEnv("HELM_CHART_PATH", "/charts/openshell.tgz"),
-		HelmChartRegistry: getEnv("HELM_CHART_REGISTRY", ""),
-		HelmChartVersion:  getEnv("HELM_CHART_VERSION", ""),
+		HelmChartPath: getEnv("HELM_CHART_PATH", "/charts/openshell.tgz"),
 
 		GatewayDatabaseAdminDir: getEnv("GATEWAY_DATABASE_ADMIN_DIR", DefaultGatewayDatabaseAdminDir),
 		SandboxRuntimeClass:     getEnv("GATEWAY_SANDBOX_RUNTIME_CLASS", ""),
+
+		OperatorNamespaceLabelKey:   getEnv("GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY", ""),
+		OperatorSandboxRuntimeClass: getEnv("GATEWAY_OPERATOR_SANDBOX_RUNTIME_CLASS", ""),
 
 		CITrustEnabled:           getEnvBool("HYPERSHELL_CI_TRUST_ENABLED", false),
 		CITokenExchangeMode:      getEnv("HYPERSHELL_CI_TOKEN_EXCHANGE_MODE", CITokenExchangeModeFGAPv1),
@@ -294,11 +309,6 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("invalid GATEWAY_RESOURCES: %w", err)
 		}
 		cfg.GatewayResources = &rr
-	}
-
-	// Validate Helm configuration
-	if cfg.HelmChartRegistry != "" && cfg.HelmChartVersion == "" {
-		return nil, fmt.Errorf("HELM_CHART_VERSION is required when HELM_CHART_REGISTRY is set")
 	}
 
 	// The CI token-exchange authorization mode is config-driven (PLAT-CITR-08); an

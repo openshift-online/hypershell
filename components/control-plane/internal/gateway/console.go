@@ -113,17 +113,6 @@ func ConsoleURLFor(nsConfig NamespaceConfig) (string, bool) {
 	return "https://" + host, true
 }
 
-// ConsoleURL returns the external URL of the per-gateway console for a gateway
-// on the shared ingress (console-<ns>.<base-domain>), or ok=false when
-// GATEWAY_API_BASE_DOMAIN is unset (console disabled). The reconciler publishes
-// this address only once the console Deployment is Ready. Callers reconciling a
-// gateway opted in to the dedicated per-gateway certificate must use
-// ConsoleURLFor with the parsed route config instead: those consoles serve
-// from the per-tenant Gateway's domain, not the shared base domain.
-func ConsoleURL(namespace string) (string, bool) {
-	return ConsoleURLFor(NamespaceConfig{Name: namespace})
-}
-
 // consoleHTTPRouteGVR is the GroupVersionResource for the console HTTPRoute.
 var consoleHTTPRouteGVR = schema.GroupVersionResource{
 	Group:    "gateway.networking.k8s.io",
@@ -361,8 +350,7 @@ func reconcileConsole(ctx context.Context, dynamicClient dynamic.Interface, clie
 	namespace := nsConfig.Name
 
 	if opts.Keycloak == nil {
-		slog.WarnContext(ctx, "Console: Keycloak not configured; skipping console", "namespace", namespace)
-		return nil
+		return fmt.Errorf("console in %s: keycloak configuration is required", namespace)
 	}
 	if opts.GatewayClientID == "" || opts.GatewayID == "" {
 		slog.WarnContext(ctx, "Console: gateway client ID and gateway ID are required; skipping console", "namespace", namespace)

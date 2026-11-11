@@ -82,6 +82,7 @@ listed in `specs/id-rename-map.md`, not here.
 |--------|------|--------------|
 | `FLT-BPR` | `platform/fleet-dashboard-bundle-pr-repository-split.spec.md` | 12 |
 | `FLT-CAP` | `platform/fleet-dashboard-capability-chips.spec.md` | 7 |
+| `FLT-DLV` | `platform/fleet-dashboard-delivery-pipeline.spec.md` | 18 |
 | `FLT-MAP` | `platform/fleet-dashboard-map-hub-spine-layout.spec.md` | 7 |
 | `FLT-NAV` | `platform/glass-url-addressable-navigation.spec.md` | 21 |
 | `FLT-SYNC` | `platform/fleet-dashboard-sync-retry-visibility.spec.md` | 4 |
@@ -132,8 +133,9 @@ listed in `specs/id-rename-map.md`, not here.
 | `OSG-KCLT` | `platform/openshell-gateway-keycloak.transitional.spec.md` | 1 |
 | `OSG-NSGC` | `platform/openshell-gateway-namespace-gc.spec.md` | 8 |
 | `OSG-OIDC` | `platform/openshell-gateway-oidc.spec.md` | 5 |
+| `OSG-OPWS` | `platform/gateway-operator-workspaces.spec.md` | 7 |
 | `OSG-ROT` | `platform/openshell-gateway-secret-rotation.spec.md` | 2 |
-| `OSG-ROUT` | `platform/openshell-gateway-routing.spec.md` | 15 |
+| `OSG-ROUT` | `platform/openshell-gateway-routing.spec.md` | 16 |
 | `OSG-SACC` | `platform/openshell-gateway-service-accounts.spec.md` | 18 |
 | `OSG-SBX` | `platform/openshell-gateway-sandbox-count.spec.md` | 7 |
 | `OSG-SEVT` | `platform/gateway-sandbox-events.spec.md` | 6 |
@@ -165,7 +167,7 @@ listed in `specs/id-rename-map.md`, not here.
 | `SDLC-HOOK` | `standards/sdlc/fullsend-lifecycle-label-hooks.spec.md` | 14 |
 | `SDLC-JIRA` | `standards/sdlc/jira-github-sync.spec.md` | 15 |
 | `SDLC-LOC` | `platform/local-sdlc-dispatch.spec.md` | 13 |
-| `SDLC-VIS` | `platform/agent-sdlc-visibility-dashboard.spec.md` | 25 |
+| `SDLC-VIS` | `platform/agent-sdlc-visibility-dashboard.spec.md` | 26 |
 
 ### SEC
 

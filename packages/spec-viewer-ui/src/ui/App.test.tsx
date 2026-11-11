@@ -80,6 +80,16 @@ const BRANCH_SPEC = `# Branch only
 The feature SHALL exist.
 `;
 
+// An older version of SPEC, plus a file the default branch no longer has.
+const OLDER_SPEC = SPEC.replace("before expiry", "after expiry");
+
+const LEGACY_SPEC = `# Legacy
+
+### Requirement: LEG-01 -- Old behaviour
+
+The platform SHALL keep the old behaviour.
+`;
+
 function renderApp(saved: string[] = []) {
   const stored = { ids: saved };
   const pins: PinStorePort = {
@@ -94,11 +104,16 @@ function renderApp(saved: string[] = []) {
         Promise.resolve(
           ref === "feature/x"
             ? [{ path: "platform/branch.spec.md", content: BRANCH_SPEC }]
-            : [
-                { path: "platform/tls.spec.md", content: SPEC },
-                { path: "platform/console.spec.md", content: LINKING_SPEC },
-                { path: "platform/traced.spec.md", content: TRACED_SPEC },
-              ],
+            : ref === "feature/y"
+              ? [
+                  { path: "platform/tls.spec.md", content: OLDER_SPEC },
+                  { path: "platform/legacy.spec.md", content: LEGACY_SPEC },
+                ]
+              : [
+                  { path: "platform/tls.spec.md", content: SPEC },
+                  { path: "platform/console.spec.md", content: LINKING_SPEC },
+                  { path: "platform/traced.spec.md", content: TRACED_SPEC },
+                ],
         ),
       subscribe: () => () => undefined,
     },
@@ -106,7 +121,10 @@ function renderApp(saved: string[] = []) {
     pins,
     repository: {
       listRefs: () =>
-        Promise.resolve({ default: "main", refs: ["feature/x", "main"] }),
+        Promise.resolve({
+          default: "main",
+          refs: ["feature/x", "feature/y", "main"],
+        }),
       findReferences: (_ref, id) =>
         Promise.resolve(
           id === "TLS-01"
@@ -508,6 +526,7 @@ describe("App", () => {
     expect(options.map((option) => option.textContent)).toEqual([
       "mainDefault branch",
       "feature/x",
+      "feature/y",
     ]);
     await user.click(screen.getByRole("option", { name: "feature/x" }));
 
@@ -518,6 +537,134 @@ describe("App", () => {
     await user.click(await screen.findByRole("option", { name: /^main/u }));
     expect(await screen.findByText(/^3 files/u)).toBeTruthy();
     expect(window.location.search).toBe("");
+  });
+
+  /** Starts diff mode against `branch` with the picker's compare button. */
+  async function compareWith(
+    user: ReturnType<typeof userEvent.setup>,
+    branch: string,
+  ) {
+    await user.click(screen.getByRole("button", { name: "Branch" }));
+    await user.click(
+      await screen.findByRole("menuitem", { name: `Compare with ${branch}` }),
+    );
+  }
+
+  const diffTree = () =>
+    screen.getByRole("treegrid", { name: "Spec differences between branches" });
+
+  // Verifies: DEV-SPV-18.01
+  it("compares with another branch and shows only the differences", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await ready();
+    await compareWith(user, "feature/y");
+
+    expect(await screen.findByText("Comparing with feature/y")).toBeTruthy();
+    expect(window.location.search).toBe("?compare=feature%2Fy");
+    const tree = diffTree();
+    // New in main, removed from main, and changed between the two.
+    expect(within(tree).getByText("Gateway TLS")).toBeTruthy();
+    expect(within(tree).getByText("Legacy")).toBeTruthy();
+    expect(within(tree).getByText("Traced")).toBeTruthy();
+    const labelOf = (title: string) => {
+      const row = within(tree).getByText(title).closest("tr");
+      return row ? within(row).queryByText(/^(New|Removed|Changed)$/u) : null;
+    };
+    expect(labelOf("Traced")?.textContent).toBe("New");
+    expect(labelOf("Legacy")?.textContent).toBe("Removed");
+    expect(labelOf("Old behaviour")?.textContent).toBe("Removed");
+    expect(labelOf("Certificates rotate")?.textContent).toBe("Changed");
+    // The unchanged scenario is left out, and the summary counts items.
+    expect(within(tree).queryByText("Expiring certificate")).toBeNull();
+    expect(screen.getByText("8 new, 2 removed, 1 changed")).toBeTruthy();
+
+    // A removed item opens as it was on the other branch, uncompared.
+    await user.click(within(tree).getByText("Old behaviour"));
+    expect(
+      await screen.findByText("The platform SHALL keep the old behaviour."),
+    ).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Differences" })).toBeNull();
+  });
+
+  // Verifies: DEV-SPV-18.02
+  it("shows a changed item as a split view with the changed words marked", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await ready();
+    await compareWith(user, "feature/y");
+    await user.click(
+      await within(diffTree()).findByText("Certificates rotate"),
+    );
+
+    const view = await screen.findByRole("region", { name: "Differences" });
+    expect(
+      within(view).getByRole("columnheader", { name: "feature/y" }),
+    ).toBeTruthy();
+    expect(
+      within(view).getByRole("columnheader", { name: "main" }),
+    ).toBeTruthy();
+    const marked = (side: string) =>
+      [...view.querySelectorAll(`.sv-diff__cell--${side} .sv-diff__word`)].map(
+        (word) => word.textContent,
+      );
+    expect(marked("removed")).toEqual(["after"]);
+    expect(marked("added")).toEqual(["before"]);
+  });
+
+  // Verifies: DEV-SPV-18.02
+  it("switches a split view between rendered and raw markdown", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await ready();
+    await compareWith(user, "feature/y");
+    await user.click(
+      await within(diffTree()).findByText("Certificates rotate"),
+    );
+    const view = await screen.findByRole("region", { name: "Differences" });
+    // Rendered is the default: headings are headings, changed blocks colored.
+    expect(
+      within(view).getAllByRole("heading", { name: /Certificates rotate/u }),
+    ).toHaveLength(2);
+    expect(view.querySelector(".sv-diff__cell--removed")).not.toBeNull();
+    expect(view.querySelector(".sv-diff__cell--added")).not.toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Raw" }));
+    expect(within(view).queryAllByRole("heading")).toHaveLength(0);
+    expect(within(view).getAllByText(/^###/u).length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: "Rendered" }));
+    expect(within(view).getAllByRole("heading")).toHaveLength(2);
+  });
+
+  // Verifies: DEV-SPV-18.03
+  it("opens the comparison named in the URL and leaves diff mode", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState(null, "", "/?compare=feature%2Fy");
+    renderApp();
+    expect(await screen.findByText("Comparing with feature/y")).toBeTruthy();
+    expect(await screen.findByText("Legacy")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Exit diff mode" }));
+    await ready();
+    expect(window.location.search).toBe("");
+    expect(screen.queryByText("Comparing with feature/y")).toBeNull();
+  });
+
+  it("says when the branches have the same specs", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState(null, "", "/?ref=feature%2Fx");
+    renderApp();
+    await screen.findByText(/^1 file/u);
+    await user.click(screen.getByRole("button", { name: "Branch" }));
+    // The selected branch has no compare button.
+    expect(
+      screen.queryByRole("menuitem", { name: "Compare with feature/x" }),
+    ).toBeNull();
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Compare with feature/y" }),
+    );
+    expect(await screen.findByText("Comparing with feature/y")).toBeTruthy();
   });
 
   // Verifies: DEV-SPV-06.01
