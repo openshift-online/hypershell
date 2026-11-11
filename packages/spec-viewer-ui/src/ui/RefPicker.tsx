@@ -1,4 +1,5 @@
 import {
+  MenuItemAction,
   MenuToggle,
   Select,
   SelectList,
@@ -6,7 +7,7 @@ import {
   TextInputGroup,
   TextInputGroupMain,
 } from "@patternfly/react-core";
-import { CodeBranchIcon } from "@patternfly/react-icons";
+import { CodeBranchIcon, ExchangeAltIcon } from "@patternfly/react-icons";
 import { useState } from "react";
 import { useIntl, type IntlShape } from "react-intl";
 
@@ -32,10 +33,25 @@ interface RefPickerProps {
   onChange: (ref: RefName) => void;
   /** Why the branch list is missing, when it failed to load. */
   error?: string;
+  /** The branch compared against, in diff mode; null outside it. */
+  comparing?: RefName | null;
+  /** Starts diff mode against a branch (its real name, never ""). */
+  onCompare?: (ref: RefName) => void;
 }
 
-/** Typeahead branch picker, like the fleet dashboard's scope filter. */
-export function RefPicker({ refs, value, onChange, error }: RefPickerProps) {
+/**
+ * Typeahead branch picker, like the fleet dashboard's scope filter. Each
+ * branch other than the selected one has a button that compares the
+ * selected branch against it.
+ */
+export function RefPicker({
+  refs,
+  value,
+  onChange,
+  error,
+  comparing = null,
+  onCompare,
+}: RefPickerProps) {
   const intl = useIntl();
   const [isOpen, setOpen] = useState(false);
   const [input, setInput] = useState("");
@@ -122,6 +138,26 @@ export function RefPicker({ refs, value, onChange, error }: RefPickerProps) {
         ) : (
           shown.map((ref) => (
             <SelectOption
+              {...(onCompare && ref !== current
+                ? {
+                    actions: (
+                      <MenuItemAction
+                        actionId="compare"
+                        aria-label={intl.formatMessage(messages.refCompare, {
+                          branch: refLabel(intl, ref),
+                        })}
+                        className={
+                          ref === comparing ? "sv-ref-compare--on" : undefined
+                        }
+                        icon={<ExchangeAltIcon />}
+                        onClick={() => {
+                          onCompare(ref);
+                          close();
+                        }}
+                      />
+                    ),
+                  }
+                : {})}
               description={
                 ref === refs?.default
                   ? intl.formatMessage(messages.refDefault)

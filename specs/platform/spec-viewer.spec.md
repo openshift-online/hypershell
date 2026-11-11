@@ -477,3 +477,68 @@ review confirms no other dashboard code imports the viewer.
 - WHEN the fleet dashboard is built and its tests run
 - THEN the build and tests SHALL pass
 - AND every other dashboard page SHALL work as before
+
+### Requirement: DEV-SPV-18 -- Branch Comparison
+
+The branch picker SHALL show a compare button on every branch except the
+selected one. Pressing it SHALL switch the viewer to diff mode, comparing the
+selected branch (the current branch) with that branch. The viewer SHALL read
+both branches through the same data API and compare them in the browser.
+
+In diff mode:
+
+1. The table SHALL be replaced by a tree of folders, files, requirements,
+   and scenarios that differ between the two branches. A folder or file with
+   no difference SHALL NOT show. A requirement with no difference SHALL show
+   only when one of its scenarios differs.
+2. Items SHALL be matched by ID. An item without an ID SHALL be matched by
+   its file and heading. An item whose text differs only in line endings,
+   trailing spaces, or blank lines SHALL count as equal.
+3. An item that exists only in the current branch SHALL carry a "New" label.
+   An item that exists only in the compared branch SHALL carry a "Removed"
+   label. An item in both branches with different text SHALL carry a
+   "Changed" label.
+4. Opening a new or removed item SHALL show it as a normal document, from the
+   branch that has it, without comparing.
+5. Opening a changed item SHALL show a split view: the compared branch on the
+   left, the current branch on the right. Changed lines SHALL sit side by
+   side. Removed text SHALL have a red background and added text a green
+   background, and the words that differ inside a changed line SHALL be
+   marked more strongly.
+   The split view SHALL have a switch between raw markdown and rendered
+   markdown. Rendered SHALL be the default. Rendered SHALL show each
+   markdown block as it reads, with a changed block in red on the left and
+   green on the right, and the words that differ marked more strongly. Raw
+   SHALL show the markdown source line by line.
+6. The header SHALL name the compared branch and SHALL have a control that
+   leaves diff mode. The search box and the starred filter SHALL be disabled.
+7. The compared branch SHALL be kept in the URL (`?compare=BRANCH`), so a
+   shared link opens the same comparison.
+
+#### Scenario: DEV-SPV-18.01 -- New and removed items are labeled
+
+- GIVEN the current branch has a requirement the compared branch lacks, and
+  the compared branch has a file the current branch lacks
+- WHEN the user presses the compare button on the compared branch
+- THEN the tree SHALL show the requirement with a "New" label
+- AND the tree SHALL show the file and its requirements with a "Removed" label
+- AND opening a removed requirement SHALL show it without a split view
+
+#### Scenario: DEV-SPV-18.02 -- A changed item shows a split view
+
+- GIVEN a requirement reads "before expiry" on the current branch and
+  "after expiry" on the compared branch
+- WHEN the user opens the requirement in diff mode
+- THEN the split view SHALL show the old line on the left and the new line on
+  the right
+- AND only the word that differs SHALL be marked inside each line
+- AND the split view SHALL show formatted blocks by default, with the
+  changed blocks in red and green
+- AND switching to raw markdown SHALL show the source lines
+
+#### Scenario: DEV-SPV-18.03 -- A link keeps the comparison
+
+- GIVEN a user is comparing with the branch `feature/y`
+- WHEN they open the URL in a new tab
+- THEN the viewer SHALL be in diff mode against `feature/y`
+- AND leaving diff mode SHALL remove `compare` from the URL
