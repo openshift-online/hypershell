@@ -140,6 +140,58 @@ func (h *secretSourceHandler) Create(w http.ResponseWriter, r *http.Request) {
 	handlers.Handle(w, r, cfg, http.StatusCreated)
 }
 
+// UploadMaterial writes the durable material for an EXISTING, reference-only
+// SecretSource through the write-only secret store at the SecretSource's
+// server-derived convention path, recording only the reference (PLAT-DATA-27,
+// AGT-SEC-14). The material is write-only: it is never persisted raw in the
+// database and never echoed in the response. The operation is idempotent - the
+// deterministic location means a re-upload overwrites the same entry rather than
+// forking the stored material.
+func (h *secretSourceHandler) UploadMaterial(w http.ResponseWriter, r *http.Request) {
+	var upload SecretSourceMaterialUploadRequest
+	// Defense in depth: the request carries secret material. The response never
+	// echoes it, but mark the whole exchange no-store so no cache or proxy retains
+	// the request/response pair.
+	w.Header().Set("Cache-Control", "no-store")
+	cfg := &handlers.HandlerConfig{
+		Body: &upload,
+		Action: func() (interface{}, *errors.ServiceError) {
+			id := mux.Vars(r)["id"]
+			ctx := r.Context()
+			if upload.Value == nil || *upload.Value == "" {
+				return nil, errors.Validation("material value is required")
+			}
+			// Resolve the target SecretSource first: an upload naming a source that
+			// does not exist is a 404 and writes nothing. Get also yields the owning
+			// AgentRuntime and the name needed to derive the convention path.
+			found, err := h.service.Get(ctx, id)
+			if err != nil {
+				return nil, err
+			}
+			// Authorize BEFORE any store write: the caller must be able to manage
+			// secret sources on the gateway the owning AgentRuntime runs on
+			// (gateway:owner/admin, or platform:admin). A rejected upload must write
+			// nothing, so the Put below is unreachable for an unauthorized caller.
+			if svcErr := h.authorizer.authorizeManageRuntime(ctx, found.AgentRuntimeId); svcErr != nil {
+				return nil, svcErr
+			}
+			// Write the material through the write-only store at the server-derived
+			// convention location. The location is deterministic, so a re-upload
+			// overwrites the same entry (idempotent) and never forks the material.
+			// An unwired or misconfigured store fails this write loudly (AGT-SEC-12),
+			// leaving nothing behind. The stored reference's path is never changed.
+			location := deterministicSecretLocation(found.AgentRuntimeId, found.Name)
+			if err := h.store.Put(ctx, location, *upload.Value); err != nil {
+				return nil, errors.GeneralError("Unable to store uploaded secret material: %s", err)
+			}
+			// The response identifies the SecretSource and never echoes the material:
+			// the presenter has no value field, so the material cannot leak here.
+			return PresentSecretSource(found), nil
+		},
+	}
+	handlers.Handle(w, r, cfg, http.StatusOK)
+}
+
 func (h *secretSourceHandler) Patch(w http.ResponseWriter, r *http.Request) {
 	var patch SecretSourcePatchRequest
 	cfg := &handlers.HandlerConfig{

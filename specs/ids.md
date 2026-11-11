@@ -20,7 +20,7 @@ listed in `specs/id-rename-map.md`, not here.
 |--------|------|--------------|
 | `AGT-EXT` | `platform/extension-api-openshell-api-mapping.spec.md` | 5 |
 | `AGT-INF` | `platform/openshell-inference-routing.spec.md` | 3 |
-| `AGT-SEC` | `platform/agent-secret-late-binding.spec.md` | 13 |
+| `AGT-SEC` | `platform/agent-secret-late-binding.spec.md` | 14 |
 | `AGT-WSP` | `platform/agent-workspace-gateway-api.spec.md` | 10 |
 
 ### API
@@ -45,7 +45,7 @@ listed in `specs/id-rename-map.md`, not here.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `CLI-EXT` | `platform/hsctl-extension-commands.spec.md` | 4 |
+| `CLI-EXT` | `platform/hsctl-extension-commands.spec.md` | 5 |
 | `CLI-GWC` | `platform/hsctl-gateway-connection.spec.md` | 2 |
 | `CLI-PLC` | `platform/hsctl-placement.spec.md` | 4 |
 | `CLI-REL` | `platform/hsctl-release.spec.md` | 6 |
@@ -148,7 +148,7 @@ listed in `specs/id-rename-map.md`, not here.
 | `PLAT-ARCH` | `platform/global-architecture.spec.md` | 19 |
 | `PLAT-CITR` | `platform/ci-trust-ext-api.spec.md` | 12 |
 | `PLAT-CLUS` | `platform/managed-cluster-registration.spec.md` | 15 |
-| `PLAT-DATA` | `platform/data-model.spec.md` | 25 |
+| `PLAT-DATA` | `platform/data-model.spec.md` | 27 |
 | `PLAT-INV` | `platform/platform-inventory.spec.md` | 10 |
 | `PLAT-USR` | `platform/registered-users.spec.md` | 15 |
 

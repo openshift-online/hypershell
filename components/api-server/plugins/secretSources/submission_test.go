@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gorilla/mux"
+
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/secretstore"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/agentRuntimes"
@@ -228,6 +230,169 @@ func TestSecretSubmission_MissingRuntimeIsRejected(t *testing.T) {
 	}
 	if len(store.puts) != 0 {
 		t.Fatalf("a submission for a nonexistent runtime must not write the store; wrote %v", store.puts)
+	}
+}
+
+// muxSetVar injects a gorilla/mux route variable onto a request so a handler that
+// reads mux.Vars(r) can be driven directly without a full router.
+func muxSetVar(r *http.Request, key, value string) *http.Request {
+	return mux.SetURLVars(r, map[string]string{key: value})
+}
+
+// postMaterialUpload drives the real UploadMaterial HTTP handler against an
+// existing SecretSource id.
+func postMaterialUpload(t *testing.T, h *secretSourceHandler, id, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/hypershell/ext/secret_sources/"+id+"/material", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = muxSetVar(req, "id", id)
+	rec := httptest.NewRecorder()
+	h.UploadMaterial(rec, req)
+	return rec
+}
+
+// Verifies: PLAT-DATA-27.01, PLAT-DATA-27.02, AGT-SEC-14.01, AGT-SEC-14.02
+func TestMaterialUpload_WritesConventionPath_NeverReturnsValue(t *testing.T) {
+	store := secretstore.NewMemoryStore()
+	svc := &stubSecretSourceService{ret: createdSample()}
+	h := NewSecretSourceHandler(svc, nil, store, nil)
+
+	rec := postMaterialUpload(t, h, "ss-1", `{"value":"topsecret"}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	loc := deterministicSecretLocation("ar-1", "gateway-oidc")
+	if got, ok := store.Get(loc); !ok || got != "topsecret" {
+		t.Fatalf("store[%s] = (%q,%v), want (topsecret,true)", loc, got, ok)
+	}
+	// The upload never created or replaced the DB record; it only wrote the store.
+	if svc.got != nil {
+		t.Fatalf("material upload must not persist the model; got %+v", svc.got)
+	}
+	// The response never echoes the material.
+	if strings.Contains(rec.Body.String(), "topsecret") || strings.Contains(rec.Body.String(), "\"value\"") {
+		t.Fatalf("response leaked the material: %s", rec.Body.String())
+	}
+	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store", got)
+	}
+}
+
+// Verifies: PLAT-DATA-27.04, AGT-SEC-14.05
+func TestMaterialUpload_UnwiredStoreFailsLoudlyWritingNothing(t *testing.T) {
+	// A disabled store (HYPERSHELL_SECRET_STORE_BACKEND unset) must reject the
+	// upload loudly rather than silently dropping the material.
+	store := secretstore.NewErrorStore(context.DeadlineExceeded)
+	svc := &stubSecretSourceService{ret: createdSample()}
+	h := NewSecretSourceHandler(svc, nil, store, nil)
+
+	rec := postMaterialUpload(t, h, "ss-1", `{"value":"topsecret"}`)
+
+	if rec.Code < 400 {
+		t.Fatalf("status = %d, want an error", rec.Code)
+	}
+}
+
+func TestMaterialUpload_MissingValueRejected(t *testing.T) {
+	store := &recordingStore{}
+	svc := &stubSecretSourceService{ret: createdSample()}
+	h := NewSecretSourceHandler(svc, nil, store, nil)
+
+	rec := postMaterialUpload(t, h, "ss-1", `{}`)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if len(store.puts) != 0 {
+		t.Fatalf("a bodyless upload must not write the store; wrote %v", store.puts)
+	}
+}
+
+// Verifies: PLAT-DATA-27.03, AGT-SEC-14.05
+func TestMaterialUpload_UnknownSecretSourceIs404WritingNothing(t *testing.T) {
+	store := &recordingStore{}
+	svc := &stubSecretSourceService{err: errors.NotFound("secret source not found")}
+	h := NewSecretSourceHandler(svc, nil, store, nil)
+
+	rec := postMaterialUpload(t, h, "ss-missing", `{"value":"topsecret"}`)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body.String())
+	}
+	if len(store.puts) != 0 {
+		t.Fatalf("an upload for a nonexistent source must not write the store; wrote %v", store.puts)
+	}
+}
+
+// Verifies: PLAT-DATA-27.01, AGT-SEC-14.04
+func TestMaterialUpload_ReUploadOverwritesSamePathIdempotently(t *testing.T) {
+	store := secretstore.NewMemoryStore()
+	svc := &stubSecretSourceService{ret: createdSample()}
+	h := NewSecretSourceHandler(svc, nil, store, nil)
+
+	if rec := postMaterialUpload(t, h, "ss-1", `{"value":"first"}`); rec.Code != http.StatusOK {
+		t.Fatalf("first upload status = %d; body=%s", rec.Code, rec.Body.String())
+	}
+	if rec := postMaterialUpload(t, h, "ss-1", `{"value":"second"}`); rec.Code != http.StatusOK {
+		t.Fatalf("re-upload status = %d; body=%s", rec.Code, rec.Body.String())
+	}
+	loc := deterministicSecretLocation("ar-1", "gateway-oidc")
+	if got, ok := store.Get(loc); !ok || got != "second" {
+		t.Fatalf("store[%s] = (%q,%v) after re-upload, want (second,true)", loc, got, ok)
+	}
+}
+
+// Authorization runs before any store write, so a rejected upload writes nothing.
+// Verifies: AGT-SEC-14.03
+func TestMaterialUpload_UnauthorizedCallerDeniedWritesNothing(t *testing.T) {
+	store := &recordingStore{}
+	svc := &stubSecretSourceService{ret: createdSample()}
+	authorizer := &manageAuthorizer{
+		bindings: stubBindingLookup{summaries: []rbac.BindingSummary{{RoleName: "gateway:creator", Scope: "global"}}},
+		runtimes: stubRuntimeLookup{runtime: &agentRuntimes.AgentRuntime{GatewayId: "gw-victim"}},
+	}
+	h := NewSecretSourceHandler(svc, nil, store, authorizer)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/hypershell/ext/secret_sources/ss-1/material", strings.NewReader(`{"value":"topsecret"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req = muxSetVar(req, "id", "ss-1")
+	req = req.WithContext(context.WithValue(req.Context(), rbac.ContextUserIDKey, "user-attacker"))
+	rec := httptest.NewRecorder()
+	h.UploadMaterial(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403; body=%s", rec.Code, rec.Body.String())
+	}
+	if len(store.puts) != 0 {
+		t.Fatalf("rejected upload must not write the store; wrote %v", store.puts)
+	}
+}
+
+func TestMaterialUpload_AuthorizedOwnerWrites(t *testing.T) {
+	store := secretstore.NewMemoryStore()
+	svc := &stubSecretSourceService{ret: createdSample()}
+	authorizer := &manageAuthorizer{
+		bindings: stubBindingLookup{summaries: []rbac.BindingSummary{
+			{RoleName: "gateway:owner", Scope: "gateway", GatewayID: strPtr("gw-victim")},
+		}},
+		runtimes: stubRuntimeLookup{runtime: &agentRuntimes.AgentRuntime{GatewayId: "gw-victim"}},
+	}
+	h := NewSecretSourceHandler(svc, nil, store, authorizer)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/hypershell/ext/secret_sources/ss-1/material", strings.NewReader(`{"value":"topsecret"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req = muxSetVar(req, "id", "ss-1")
+	req = req.WithContext(context.WithValue(req.Context(), rbac.ContextUserIDKey, "user-owner"))
+	rec := httptest.NewRecorder()
+	h.UploadMaterial(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	loc := deterministicSecretLocation("ar-1", "gateway-oidc")
+	if got, ok := store.Get(loc); !ok || got != "topsecret" {
+		t.Fatalf("store[%s] = (%q,%v), want (topsecret,true)", loc, got, ok)
 	}
 }
 

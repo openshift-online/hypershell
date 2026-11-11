@@ -199,6 +199,12 @@ submitted at the hub - the `Repository` import credential or the co-located
 single-cluster deployment - which is why "material never touches the hub" holds for
 distributed `AgentRuntime` credentials.
 
+Material MAY be supplied through the write-then-record path either at create time (the
+submission flow above) or POST-HOC against an already-created reference-only
+`SecretSource` through the api-server material-upload operation; the post-hoc upload
+follows the identical write-then-record discipline and is confined to path 1 (see
+"End-User Material Upload Through the Api-Server", AGT-SEC-14).
+
 #### Scenario: AGT-SEC-04.01 -- Create a value-less SecretSource reference
 
 - GIVEN a `SecretSource` create request with `name`, `agent_runtime_id`, `purpose`, and `backend` and NO material
@@ -506,6 +512,105 @@ read clients.)
 - AND it SHALL authenticate through the Vault Kubernetes auth mount with its ServiceAccount
 - AND it SHALL read only under the `secret/data/hypershell/secret-sources/*`-scoped policy
 
+### Requirement: AGT-SEC-14 -- End-User Material Upload Through the Api-Server
+
+HyperShell SHALL let an end user upload the durable material for an already-created,
+reference-only `SecretSource` through the api-server, extending the hub-side
+write-then-record path (AGT-SEC-04, AGT-SEC-04.02) from a create-time submission to a
+POST-HOC upload against an existing reference. Before this operation, material could be
+supplied only at `SecretSource` create time; a reference-only `SecretSource` created
+first (for example by a `.hypershell` import or `hsctl apply`) had no first-class
+end-user upload path. The api-server SHALL expose a write-only material-upload
+operation on an existing `SecretSource` (see
+[`data-model.spec.md`](./data-model.spec.md), "SecretSource Material Upload
+Operation") that carries ONLY the material, passes it through to the api-server's
+configured secret store using the EXISTING write-only `pkg/secretstore` write client,
+writes it at the `SecretSource`'s server-derived convention path
+`hypershell/secret-sources/<agent_runtime_id>/<name>`, and records only the reference.
+
+**Authentication.** The caller SHALL authenticate to the api-server with the same
+SSO/OIDC identity model as every other `hsctl`/API call. The operation SHALL NOT
+require a platform-administrator identity, a Keycloak administrator identity, or a
+direct secret-store (Vault) credential. This is the non-admin end-user upload path.
+
+**Authorization.** A caller MAY upload material for a `SecretSource` only when the
+caller is authorized to manage that `SecretSource`'s owner, namely its `AgentRuntime`
+and that runtime's gateway tenant: the caller SHALL hold `gateway:owner` or
+`gateway:admin` on the `AgentRuntime`'s gateway, or `platform:admin`
+(owner-equivalent, GTW-ACC-08), through the same `CanManageGatewayResources` tenancy
+check the other gateway-scoped `SecretSource` operations use (SEC-RBAC-19). A caller
+lacking that binding SHALL be denied and the store SHALL be left unchanged. The
+authorization check SHALL run BEFORE any store write, so a rejected upload writes
+nothing.
+
+**Write-only material.** The material SHALL be write-only: it SHALL NOT be returned on
+any read of the `SecretSource`, SHALL NOT be persisted raw in the database, and SHALL
+NOT be echoed in the upload response, consistent with AGT-SEC-04.02.
+
+**Idempotency and errors.** Re-uploading SHALL overwrite the same convention path (the
+deterministic location makes the write idempotent); a retried or repeated upload SHALL
+NOT fork the stored material. An upload naming a `SecretSource` that does not exist
+SHALL be rejected with `404` and SHALL write nothing. When the secret store backend is
+unwired the api-server SHALL reject the upload loudly with a configuration error and
+SHALL write nothing (no silent degradation, AGT-SEC-12).
+
+**Path-1 scope and path-2 preservation.** This api-server passthrough upload is the
+PATH-1 mechanism of "Two Material Resolution Paths" (AGT-SEC-03): it is valid ONLY
+when the api-server's configured write store can reach the target Vault - the
+co-located / hub-reachable case (for example `hyp0`, where the api-server, the control
+plane, and one Vault share a single cluster). It SHALL NOT be used to upload
+distributed `AgentRuntime` material in a multi-cluster fleet where the material must
+not transit the hub. For that case the direct-to-cluster-Vault writer (AGT-SEC-08) and
+the never-transits-the-hub rule (AGT-SEC-04.03) remain in force; AGT-SEC-14 does NOT
+repeal them. When the co-located api-server write store and the control plane's read
+store are the same cluster's store (AGT-SEC-12), an upload clears a pending
+`SecretSource` on the next reconcile (AGT-SEC-06), and the `SecretPending` status names
+the same upload target the operator would otherwise write to directly (AGT-SEC-07).
+
+#### Scenario: AGT-SEC-14.01 -- Authorized upload passes material through to the convention path
+
+- GIVEN a caller with `gateway:owner` on the `AgentRuntime`'s gateway and an already-created reference-only `SecretSource` for that runtime
+- AND the api-server secret store is wired and hub-reachable (path 1)
+- WHEN the caller uploads material through the api-server material-upload operation
+- THEN the api-server SHALL write the material through its write-only `pkg/secretstore` client to `hypershell/secret-sources/<agent_runtime_id>/<name>`
+- AND it SHALL NOT change the stored `SecretSource` reference's `path`
+
+#### Scenario: AGT-SEC-14.02 -- Uploaded material is write-only
+
+- GIVEN a successful material upload
+- WHEN the `SecretSource` is subsequently read
+- THEN the material SHALL NOT appear in any read response and SHALL NOT be echoed in the upload response
+- AND the material SHALL NOT be persisted raw in the database
+
+#### Scenario: AGT-SEC-14.03 -- Unauthorized caller is denied and nothing is written
+
+- GIVEN a caller holding `gateway:creator` but no `gateway:owner`/`gateway:admin` on the `AgentRuntime`'s gateway and no `platform:admin`
+- WHEN the caller attempts to upload material for that `SecretSource`
+- THEN the api-server SHALL deny the upload with `403 Forbidden`
+- AND the secret store entry at the `SecretSource`'s convention path SHALL be unchanged
+
+#### Scenario: AGT-SEC-14.04 -- Re-upload overwrites the same path idempotently
+
+- GIVEN a `SecretSource` whose material was already uploaded
+- WHEN the caller uploads replacement material for the same `SecretSource`
+- THEN the api-server SHALL overwrite the entry at the same convention path
+- AND it SHALL NOT create a second, forked store entry
+
+#### Scenario: AGT-SEC-14.05 -- Unknown SecretSource and unwired store fail loudly, writing nothing
+
+- GIVEN an upload naming a `SecretSource` id that does not exist
+- WHEN the api-server evaluates it
+- THEN it SHALL respond `404` and SHALL write nothing to the store
+- WHEN instead the `HYPERSHELL_SECRET_STORE_BACKEND` is unset for an existing `SecretSource`
+- THEN the api-server SHALL reject the upload with a clear configuration error and SHALL write nothing
+
+#### Scenario: AGT-SEC-14.06 -- Path-1 scope does not repeal the distributed path
+
+- GIVEN a multi-cluster fleet where an `AgentRuntime` is placed on a spoke cluster whose Vault the hub api-server store cannot reach
+- WHEN that runtime's `SecretSource` material must be provided
+- THEN it SHALL be uploaded directly into the spoke cluster's local Vault by the per-cluster writer (AGT-SEC-08) and SHALL NOT transit the hub (AGT-SEC-04.03)
+- AND the api-server passthrough upload (AGT-SEC-14) SHALL NOT be used for it
+
 ## Design Decisions
 
 | Decision | Rationale |
@@ -520,3 +625,4 @@ read clients.)
 | `SecretPending` is a benign waiting condition that gates provider creation, not `Degraded` | A reference whose material is not yet uploaded is an expected state during rollout, not a fault. Distinguishing reachable-but-missing (Pending) from unreachable/error (Degraded) gives operators an actionable next step without false alarms, and lets the agent realize its providers automatically once the material appears. |
 | Actionable upload target on status | Surfacing the resolved cluster and exact Vault mount and path turns a chicken-and-egg ordering problem into a guided user experience. |
 | Agent-secret Vault plane separate from gateway-provider and application planes | Conflating planes would widen each identity's blast radius and couple unrelated rotation and policy lifecycles. A dedicated `secret/data/hypershell/secret-sources/*` path with its own least-privilege writer keeps the three planes isolated. |
+| End-user material upload is a path-1 api-server passthrough, not a path-2 replacement | A reference-only `SecretSource` created ahead of its material (import or `hsctl apply`) needed a first-class, non-admin upload path so the end user who owns the tenant - not a platform or Vault administrator - can fill it. Reusing the api-server's existing write-only `pkg/secretstore` client, the server-derived convention path, and the SEC-RBAC-19 tenancy check keeps the upload inside the established write-then-record discipline with no new trust surface. It is deliberately scoped to the co-located / hub-reachable case (path 1); the direct-to-cluster-Vault writer (AGT-SEC-08) and the never-transits-the-hub rule (AGT-SEC-04.03) remain the mechanism for distributed spoke material, so the two paths stay distinct rather than collapsing onto one hub store. |

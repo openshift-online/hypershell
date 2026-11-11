@@ -35,6 +35,11 @@ func InferenceRoutePath(id string) string { return InferenceRoutesPath + "/" + i
 
 func SecretSourcePath(id string) string { return SecretSourcesPath + "/" + id }
 
+// SecretSourceMaterialPath is the write-only material-upload sub-resource of a
+// SecretSource (PLAT-DATA-27): POST writes the durable material through the
+// api-server to the source's server-derived convention path.
+func SecretSourceMaterialPath(id string) string { return SecretSourcesPath + "/" + id + "/material" }
+
 func RepositoryPath(id string) string { return RepositoriesPath + "/" + id }
 
 func CIProviderPath(id string) string { return CIProvidersPath + "/" + id }
