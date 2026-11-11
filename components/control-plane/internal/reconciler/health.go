@@ -422,7 +422,7 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 		// Deployment is Ready; a routed gateway additionally requires its external
 		// exposure to be observed Ready before it can be Running.
 		h.clearDeploymentTimer(gatewayID)
-		desiredPhase, desiredStatus = h.evaluateRouteReadiness(ctx, gatewayID, namespace, phase)
+		desiredPhase, desiredStatus = h.evaluateRouteReadiness(ctx, gatewayID, namespace, gw.GetRouteAddress(), phase)
 		if desiredPhase == "" {
 			// Transient error observing the exposure; leave the phase untouched
 			// rather than flap the gateway.
@@ -776,16 +776,21 @@ func (h *GatewayHealthReconciler) dueForVerify(gatewayID string) bool {
 }
 
 // evaluateRouteReadiness decides the phase for a routed gateway whose Deployment
-// is Ready, based on its external-exposure readiness. It returns an empty phase
-// to signal "leave untouched" when the exposure cannot be observed.
+// is Ready, based on its external-exposure readiness. routeAddress is the
+// Gateway resource's already-persisted routeAddress (gw.GetRouteAddress()):
+// the exposure port treats an empty value as not-Ready even when the
+// underlying Gateway API resources are otherwise healthy, since a gateway is
+// not reachable until its own address has been published (HYPERSHELL-504). It
+// returns an empty phase to signal "leave untouched" when the exposure cannot
+// be observed.
 //
 // The route-readiness grace window applies only while the gateway is still
 // provisioning (never yet Running): within the window it stays Provisioning,
 // beyond it becomes Degraded. A gateway that had reached Running and then loses
 // readiness is moved to Degraded immediately, and a Degraded gateway stays
 // Degraded until its exposure recovers.
-func (h *GatewayHealthReconciler) evaluateRouteReadiness(ctx context.Context, gatewayID, namespace, currentPhase string) (string, string) {
-	rr, err := h.exposure.ObserveReadiness(ctx, exposure.Request{Namespace: namespace})
+func (h *GatewayHealthReconciler) evaluateRouteReadiness(ctx context.Context, gatewayID, namespace, routeAddress, currentPhase string) (string, string) {
+	rr, err := h.exposure.ObserveReadiness(ctx, exposure.Request{Namespace: namespace, RouteAddress: routeAddress})
 	if err != nil {
 		slog.WarnContext(ctx, "Gateway health: observe exposure failed", "gateway_id", gatewayID, "error", err)
 		return "", ""

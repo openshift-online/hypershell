@@ -762,6 +762,13 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	gateway.SetCondition(conditions, gateway.ConditionGatewayHealthy, gateway.StatusInProgress, "")
 	r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
 
+	// routeAddress carries the address down to the route-ready poll below only
+	// once it is actually persisted: the exposure port treats an unpublished
+	// routeAddress as not-Ready, so a resolved-but-not-yet-persisted address must
+	// not count here. If updateRouteAddress fails, routeAddress stays empty and
+	// the poll (correctly) keeps reporting not-Ready rather than promoting the
+	// gateway to Running on a value the stored Gateway record does not yet carry.
+	var routeAddress string
 	if isRoutedGateway(gw) {
 		routeHost := ""
 		if gw.Route != nil {
@@ -779,6 +786,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			if err := r.updateRouteAddress(ctx, event.ResourceID, addr); err != nil {
 				slog.WarnContext(ctx, "Gateway failed to publish route address", "gateway_name", gw.Name, "error", err)
 			} else {
+				routeAddress = addr
 				slog.InfoContext(ctx, "Gateway published route address", "gateway_name", gw.Name, "addr", addr)
 			}
 		}
@@ -820,7 +828,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	// openshell-gateway-health.spec.md § Phase Reflects Workload and Route Readiness.
 	routed := isRoutedGateway(gw)
 	if routed {
-		if r.waitForRouteReady(ctx, namespace) {
+		if r.waitForRouteReady(ctx, namespace, routeAddress) {
 			gateway.SetCondition(conditions, gateway.ConditionGatewayHealthy, gateway.StatusComplete, "")
 			r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
 			// The observation guard rejects work that started in Running or Degraded.
@@ -1008,8 +1016,12 @@ const provisioningConsoleReadyInterval = 2 * time.Second
 
 // waitForRouteReady polls the gateway's external exposure until it reports Ready
 // or the bounded provisioning window elapses, returning whether it became Ready.
-func (r *GatewayReconciler) waitForRouteReady(ctx context.Context, namespace string) bool {
-	return r.pollRouteReady(ctx, namespace, provisioningRouteReadyInterval, provisioningRouteReadyWait)
+// routeAddress is the routeAddress this provisioning pass resolved (and, if
+// non-empty, published) for the gateway; the exposure port treats an empty
+// value as not-Ready, so a gateway whose address could not be resolved never
+// reports Ready here even if its Gateway API resources are otherwise healthy.
+func (r *GatewayReconciler) waitForRouteReady(ctx context.Context, namespace, routeAddress string) bool {
+	return r.pollRouteReady(ctx, namespace, routeAddress, provisioningRouteReadyInterval, provisioningRouteReadyWait)
 }
 
 // pollRouteReady observes the exposure immediately and then every interval until
@@ -1018,9 +1030,9 @@ func (r *GatewayReconciler) waitForRouteReady(ctx context.Context, namespace str
 // interval. A transient observation error is logged and retried, never treated
 // as not-ready-forever. Interval and window are parameters so tests can drive it
 // without real-time waits.
-func (r *GatewayReconciler) pollRouteReady(ctx context.Context, namespace string, interval, window time.Duration) bool {
+func (r *GatewayReconciler) pollRouteReady(ctx context.Context, namespace, routeAddress string, interval, window time.Duration) bool {
 	return poll(ctx, interval, window, func() bool {
-		rr, err := r.exposure.ObserveReadiness(ctx, exposure.Request{Namespace: namespace})
+		rr, err := r.exposure.ObserveReadiness(ctx, exposure.Request{Namespace: namespace, RouteAddress: routeAddress})
 		if err != nil {
 			slog.WarnContext(ctx, "Gateway route readiness check failed", "namespace", namespace, "error", err)
 			return false

@@ -38,12 +38,32 @@ func (g *GatewayAPIExposure) ResolveAddress(ctx context.Context, req Request) (s
 	return fmt.Sprintf("grpcs://%s:443", host), nil
 }
 
-// ObserveReadiness reports whether the gateway's traffic is being served: the
-// observed Gateway API `Gateway` must report condition Programmed=True and
-// carry a non-empty .status.addresses. Any other state is reported as not
-// Ready with a reason.
+// gatewayRouteName is the name of a tenant's single GRPCRoute, matching the
+// reconciler's resource creation
+// (specs/platform/openshell-gateway-routing.spec.md § GRPCRoute Resource
+// Specification, OSG-ROUT-05). It is duplicated here rather than imported from
+// the gateway package to avoid an import cycle between the exposure port and
+// its provisioning-side resource-creation code; the two cannot drift apart
+// because both are exercised by the OSG-ROUT-05/OSG-ROUT-08 scenario tests.
+const gatewayRouteName = "openshell-gateway"
+
+// ObserveReadiness reports whether the gateway's traffic is being served. Ready
+// requires all of:
 //
-// The lookup is two-step, and deliberately discovery-based:
+//  1. the relevant parent Gateway API `Gateway` reports condition
+//     Programmed=True with a non-empty .status.addresses;
+//  2. this gateway's own GRPCRoute (gatewayRouteName, in the tenant namespace)
+//     is accepted by that parent: its status.parents entry for the matching
+//     parentRef reports both Accepted=True and ResolvedRefs=True;
+//  3. req.RouteAddress (the Gateway resource's already-published routeAddress)
+//     is non-empty.
+//
+// A Programmed parent alone is not sufficient: the shared Gateway reports
+// Programmed=True for every tenant as soon as any one tenant's GRPCRoute
+// attaches to it, independent of this gateway's own route (HYPERSHELL-504).
+// Any state short of all three is reported as not Ready with a reason.
+//
+// The parent-Gateway lookup is two-step, and deliberately discovery-based:
 //
 //  1. Try the dedicated per-gateway `Gateway` `gw-<namespace>` in the tenant
 //     namespace. Gateways that opt in to a per-gateway certificate get their
@@ -65,7 +85,7 @@ func (g *GatewayAPIExposure) ObserveReadiness(ctx context.Context, req Request) 
 	dedicatedName := dedicatedGatewayName(req.Namespace)
 	dedicated, err := g.client.GatewayV1().Gateways(req.Namespace).Get(ctx, dedicatedName, metav1.GetOptions{})
 	if err == nil {
-		return gatewayReadiness(dedicated), nil
+		return g.readinessForParent(ctx, req, dedicated, req.Namespace, dedicatedName)
 	}
 	if !k8serrors.IsNotFound(err) {
 		return Readiness{}, fmt.Errorf("get dedicated gateway %s/%s: %w", req.Namespace, dedicatedName, err)
@@ -83,7 +103,65 @@ func (g *GatewayAPIExposure) ObserveReadiness(ctx context.Context, req Request) 
 		return Readiness{}, fmt.Errorf("get gateway %s/%s: %w", ns, name, err)
 	}
 
-	return gatewayReadiness(gw), nil
+	return g.readinessForParent(ctx, req, gw, ns, name)
+}
+
+// readinessForParent evaluates the parent Gateway's own readiness and, only
+// once it is Programmed with an address, this gateway's own GRPCRoute
+// acceptance by that parent and the published routeAddress. parentNamespace
+// and parentName identify the parent Gateway (dedicated or shared) that
+// gatewayReadiness(parent) already judged, so the GRPCRoute's status.parents
+// entry is matched against that exact parentRef.
+func (g *GatewayAPIExposure) readinessForParent(ctx context.Context, req Request, parent *gatewayv1.Gateway, parentNamespace, parentName string) (Readiness, error) {
+	if r := gatewayReadiness(parent); !r.Ready {
+		return r, nil
+	}
+
+	route, err := g.client.GatewayV1().GRPCRoutes(req.Namespace).Get(ctx, gatewayRouteName, metav1.GetOptions{})
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			return Readiness{Ready: false, Reason: "GRPCRoute not accepted"}, nil
+		}
+		return Readiness{}, fmt.Errorf("get GRPCRoute %s/%s: %w", req.Namespace, gatewayRouteName, err)
+	}
+	if !routeAcceptedByParent(route, parentName, parentNamespace, req.Namespace) {
+		return Readiness{Ready: false, Reason: "GRPCRoute not accepted"}, nil
+	}
+
+	if req.RouteAddress == "" {
+		return Readiness{Ready: false, Reason: "route address not yet published"}, nil
+	}
+
+	return Readiness{Ready: true}, nil
+}
+
+// routeAcceptedByParent reports whether route's status.parents carries an
+// entry for the (parentName, parentNamespace) parentRef reporting both
+// Accepted=True and ResolvedRefs=True. A parentRef with no explicit namespace
+// defaults to the route's own namespace, per the Gateway API spec.
+func routeAcceptedByParent(route *gatewayv1.GRPCRoute, parentName, parentNamespace, routeNamespace string) bool {
+	for _, p := range route.Status.Parents {
+		ns := routeNamespace
+		if p.ParentRef.Namespace != nil && *p.ParentRef.Namespace != "" {
+			ns = string(*p.ParentRef.Namespace)
+		}
+		if string(p.ParentRef.Name) != parentName || ns != parentNamespace {
+			continue
+		}
+		return conditionTrue(p.Conditions, string(gatewayv1.RouteConditionAccepted)) &&
+			conditionTrue(p.Conditions, string(gatewayv1.RouteConditionResolvedRefs))
+	}
+	return false
+}
+
+// conditionTrue reports whether conds contains condType with status True.
+func conditionTrue(conds []metav1.Condition, condType string) bool {
+	for _, c := range conds {
+		if c.Type == condType {
+			return c.Status == metav1.ConditionTrue
+		}
+	}
+	return false
 }
 
 // gatewayReadiness evaluates a Gateway's Programmed condition and assigned

@@ -587,7 +587,7 @@ func TestCompletedConditions_PreservesSetAndMarksComplete(t *testing.T) {
 func TestEvaluateRouteReadiness_ReadyBecomesRunning(t *testing.T) {
 	h := newHealthRec(fakeExposure{readiness: exposure.Readiness{Ready: true}}, fixedClock(time.Unix(0, 0)), 10*time.Minute)
 	for _, phase := range []string{"Provisioning", "Degraded"} {
-		gotPhase, gotStatus := h.evaluateRouteReadiness(context.Background(), "id", "ns", phase)
+		gotPhase, gotStatus := h.evaluateRouteReadiness(context.Background(), "id", "ns", "grpcs://ns.example.com:443", phase)
 		if gotPhase != "Running" || gotStatus != "Healthy" {
 			t.Fatalf("from %s: got (%q,%q), want (Running,Healthy)", phase, gotPhase, gotStatus)
 		}
@@ -601,7 +601,7 @@ func TestEvaluateRouteReadiness_ProvisioningWithinGraceStaysProvisioning(t *test
 		fixedClock(time.Unix(1000, 0)),
 		10*time.Minute,
 	)
-	gotPhase, gotStatus := h.evaluateRouteReadiness(context.Background(), "id", "ns", "Provisioning")
+	gotPhase, gotStatus := h.evaluateRouteReadiness(context.Background(), "id", "ns", "grpcs://ns.example.com:443", "Provisioning")
 	if gotPhase != "Provisioning" {
 		t.Fatalf("got phase %q, want Provisioning", gotPhase)
 	}
@@ -621,13 +621,13 @@ func TestEvaluateRouteReadiness_ProvisioningBeyondGraceBecomesDegraded(t *testin
 	)
 
 	// First observation starts the grace window.
-	if gotPhase, _ := h.evaluateRouteReadiness(context.Background(), "id", "ns", "Provisioning"); gotPhase != "Provisioning" {
+	if gotPhase, _ := h.evaluateRouteReadiness(context.Background(), "id", "ns", "grpcs://ns.example.com:443", "Provisioning"); gotPhase != "Provisioning" {
 		t.Fatalf("first tick: got %q, want Provisioning", gotPhase)
 	}
 
 	// Advance past the grace window; the gateway must move to Degraded.
 	cur = base.Add(11 * time.Minute)
-	gotPhase, gotStatus := h.evaluateRouteReadiness(context.Background(), "id", "ns", "Provisioning")
+	gotPhase, gotStatus := h.evaluateRouteReadiness(context.Background(), "id", "ns", "grpcs://ns.example.com:443", "Provisioning")
 	if gotPhase != "Degraded" {
 		t.Fatalf("after grace: got %q, want Degraded", gotPhase)
 	}
@@ -645,7 +645,7 @@ func TestEvaluateRouteReadiness_RunningLosesReadinessBecomesDegraded(t *testing.
 	)
 	// A Running gateway that loses readiness is Degraded immediately, with no
 	// grace window.
-	gotPhase, gotStatus := h.evaluateRouteReadiness(context.Background(), "id", "ns", "Running")
+	gotPhase, gotStatus := h.evaluateRouteReadiness(context.Background(), "id", "ns", "grpcs://ns.example.com:443", "Running")
 	if gotPhase != "Degraded" {
 		t.Fatalf("got %q, want Degraded", gotPhase)
 	}
@@ -660,7 +660,7 @@ func TestEvaluateRouteReadiness_DegradedStaysDegraded(t *testing.T) {
 		fixedClock(time.Unix(0, 0)),
 		10*time.Minute,
 	)
-	if gotPhase, _ := h.evaluateRouteReadiness(context.Background(), "id", "ns", "Degraded"); gotPhase != "Degraded" {
+	if gotPhase, _ := h.evaluateRouteReadiness(context.Background(), "id", "ns", "grpcs://ns.example.com:443", "Degraded"); gotPhase != "Degraded" {
 		t.Fatalf("got %q, want Degraded", gotPhase)
 	}
 }
@@ -671,9 +671,48 @@ func TestEvaluateRouteReadiness_ObserveErrorLeavesPhaseUntouched(t *testing.T) {
 		fixedClock(time.Unix(0, 0)),
 		10*time.Minute,
 	)
-	gotPhase, gotStatus := h.evaluateRouteReadiness(context.Background(), "id", "ns", "Provisioning")
+	gotPhase, gotStatus := h.evaluateRouteReadiness(context.Background(), "id", "ns", "grpcs://ns.example.com:443", "Provisioning")
 	if gotPhase != "" || gotStatus != "" {
 		t.Fatalf("on observe error got (%q,%q), want empty (leave untouched)", gotPhase, gotStatus)
+	}
+}
+
+// capturingExposure records the last Request it observed readiness for, so a
+// test can assert what the health reconciler forwarded to the port.
+type capturingExposure struct {
+	readiness exposure.Readiness
+	lastReq   exposure.Request
+}
+
+func (c *capturingExposure) ResolveAddress(context.Context, exposure.Request) (string, error) {
+	return "", nil
+}
+
+func (c *capturingExposure) ObserveReadiness(_ context.Context, req exposure.Request) (exposure.Readiness, error) {
+	c.lastReq = req
+	return c.readiness, nil
+}
+
+// The health reconciler forwards the Gateway's already-persisted routeAddress
+// to the exposure port on every observation, so the port can gate readiness on
+// it having been published.
+//
+// Verifies: OSG-HLTH-01.09
+func TestEvaluateRouteReadiness_ForwardsRouteAddress(t *testing.T) {
+	exp := &capturingExposure{readiness: exposure.Readiness{Ready: false, Reason: "route address not yet published"}}
+	h := newHealthRec(exp, fixedClock(time.Unix(0, 0)), 10*time.Minute)
+
+	h.evaluateRouteReadiness(context.Background(), "id", "ns", "", "Provisioning")
+	if exp.lastReq.RouteAddress != "" {
+		t.Fatalf("RouteAddress = %q, want empty", exp.lastReq.RouteAddress)
+	}
+
+	h.evaluateRouteReadiness(context.Background(), "id", "ns", "grpcs://ns.example.com:443", "Provisioning")
+	if want := "grpcs://ns.example.com:443"; exp.lastReq.RouteAddress != want {
+		t.Fatalf("RouteAddress = %q, want %q", exp.lastReq.RouteAddress, want)
+	}
+	if exp.lastReq.Namespace != "ns" {
+		t.Fatalf("Namespace = %q, want %q", exp.lastReq.Namespace, "ns")
 	}
 }
 
