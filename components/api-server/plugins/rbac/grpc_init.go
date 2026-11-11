@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	pkgrbac "github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/ciTrusts"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/repositories"
@@ -82,6 +83,36 @@ func (r gatewayClusterResolver) NamespaceClusterID(ctx context.Context, namespac
 		return "", false, svcErr
 	}
 	return clusterID, found, nil
+}
+
+// CITrustGatewayClusterID resolves the CITrust's referenced gateway and returns
+// that gateway's cluster, backing the own-cluster gate on the control plane's
+// CITrust status write-back (SEC-RBAC-27). A missing trust or gateway reports
+// found=false (the write is then denied, not errored).
+func (r gatewayClusterResolver) CITrustGatewayClusterID(ctx context.Context, ciTrustID string) (string, bool, error) {
+	ctSvc := ciTrusts.Service(r.envServices)
+	if ctSvc == nil {
+		return "", false, fmt.Errorf("ci trust service is not available")
+	}
+	trust, svcErr := ctSvc.Get(ctx, ciTrustID)
+	if svcErr != nil {
+		if svcErr.Is404() {
+			return "", false, nil
+		}
+		return "", false, svcErr
+	}
+	gwSvc := gateways.Service(r.envServices)
+	if gwSvc == nil {
+		return "", false, fmt.Errorf("gateway service is not available")
+	}
+	gateway, svcErr := gwSvc.GetUnscoped(ctx, trust.GatewayID)
+	if svcErr != nil {
+		if svcErr.Is404() {
+			return "", false, nil
+		}
+		return "", false, svcErr
+	}
+	return gateway.ClusterId, true, nil
 }
 
 // repositoryImportResolver adapts the repositories service to the import write

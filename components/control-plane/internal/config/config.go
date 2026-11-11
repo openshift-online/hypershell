@@ -166,6 +166,17 @@ type Config struct {
 	// specs/platform/control-plane.spec.md ("CI Trust Resync").
 	CITrustResyncInterval time.Duration
 
+	// CIProviderResyncInterval is how often, while the CIProvider watch stream is
+	// connected, the control plane re-lists every CIProvider and reconciles each, so a
+	// provider that predates the reconciler (or whose create event was missed on the
+	// almost-always-idle stream) has its Keycloak IdP adopted and its status.idp_alias
+	// written back even when no live event ever arrives. The reconciler also seeds on
+	// every (re)connect. CIProvider is a platform-scoped resource, so the list is
+	// unfiltered. Sourced from HYPERSHELL_CI_PROVIDER_RESYNC_INTERVAL; a non-positive
+	// value disables the periodic resync (the per-connect seed still runs). See
+	// specs/platform/control-plane.spec.md ("CI Provider Resync", CTRL-CORE-21).
+	CIProviderResyncInterval time.Duration
+
 	// Helm chart configuration
 	HelmChartPath     string
 	HelmChartRegistry string
@@ -188,6 +199,22 @@ type Config struct {
 	// GATEWAY_SANDBOX_RUNTIME_CLASS; empty string uses the cluster default (runc).
 	// Set to "kata" or "kata-remote" for hardware-enforced VM isolation.
 	SandboxRuntimeClass string
+
+	// OperatorNamespaceLabelKey is the administrator-approved label KEY the
+	// external operator sets on an operator-mode gateway's tenant namespaces. The
+	// control plane scopes each operator gateway to its own tenant namespaces with
+	// the selector <key>=<gateway-namespace> (OSG-OPWS-02); it is control-plane
+	// configuration, never caller input. Sourced from
+	// GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY; empty disables operator provisioning
+	// (an operator gateway then fails closed, OSG-OPWS-04).
+	OperatorNamespaceLabelKey string
+
+	// OperatorSandboxRuntimeClass is the administrator-approved sandbox
+	// RuntimeClass applied ONLY to operator-mode gateways (OSG-OPWS-03); ordinary
+	// gateways keep SandboxRuntimeClass. Sourced from
+	// GATEWAY_OPERATOR_SANDBOX_RUNTIME_CLASS; empty disables operator provisioning
+	// (an operator gateway then fails closed, OSG-OPWS-04).
+	OperatorSandboxRuntimeClass string
 
 	// CITrustEnabled toggles the CI trust reconciler that realizes CIProvider
 	// and CITrust resources as Keycloak IdPs, claim mappers, and token-exchange
@@ -263,6 +290,7 @@ func Load() (*Config, error) {
 		WatchIdleTimeout:          getEnvDuration("HYPERSHELL_WATCH_IDLE_TIMEOUT", 10*time.Minute),
 		RoleBindingResyncInterval: getEnvDuration("HYPERSHELL_ROLE_BINDING_RESYNC_INTERVAL", 5*time.Minute),
 		CITrustResyncInterval:     getEnvDuration("HYPERSHELL_CI_TRUST_RESYNC_INTERVAL", 5*time.Minute),
+		CIProviderResyncInterval:  getEnvDuration("HYPERSHELL_CI_PROVIDER_RESYNC_INTERVAL", 5*time.Minute),
 
 		HelmChartPath:     getEnv("HELM_CHART_PATH", "/charts/openshell.tgz"),
 		HelmChartRegistry: getEnv("HELM_CHART_REGISTRY", ""),
@@ -270,6 +298,9 @@ func Load() (*Config, error) {
 
 		GatewayDatabaseAdminDir: getEnv("GATEWAY_DATABASE_ADMIN_DIR", DefaultGatewayDatabaseAdminDir),
 		SandboxRuntimeClass:     getEnv("GATEWAY_SANDBOX_RUNTIME_CLASS", ""),
+
+		OperatorNamespaceLabelKey:   getEnv("GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY", ""),
+		OperatorSandboxRuntimeClass: getEnv("GATEWAY_OPERATOR_SANDBOX_RUNTIME_CLASS", ""),
 
 		CITrustEnabled:           getEnvBool("HYPERSHELL_CI_TRUST_ENABLED", false),
 		CITokenExchangeMode:      getEnv("HYPERSHELL_CI_TOKEN_EXCHANGE_MODE", CITokenExchangeModeFGAPv1),

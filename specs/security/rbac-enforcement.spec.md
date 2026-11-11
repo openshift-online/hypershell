@@ -117,6 +117,7 @@ Role        ||--o{ RoleBinding : "granted_by"
 | `gateway:viewer` | per gateway | DB (app logic) | Read-only access to one gateway, including its sandbox Events |
 | `managed-cluster-registrar` | global | Keycloak JWT (direct, no DB binding) | Allows a control-plane service account (every control plane, the hub's co-located one included) to call `POST /managed_clusters/registration`; checked live from JWT claim, not via `JWTSyncedRoles` or DB RoleBinding |
 | `gateway:dedicated-route-creator` | global | Keycloak JWT | Entitlement to set `dedicated_route = true` on a gateway create (the dedicated per-gateway route and wildcard certificate, PLAT-DATA-26 / OSG-ROUT-12); grants nothing else by itself. See "Requirement: Gateway Dedicated Route Creator Role" (SEC-RBAC-20) |
+| `gateway:operator-workspace-creator` | global | Keycloak JWT | Entitlement to set `workspace_mode = operator` on a gateway create (per-gateway operator-managed workspaces, OSG-OPWS-01); grants nothing else by itself. See "Requirement: Gateway Operator Workspace Creator Role" (SEC-RBAC-28) |
 | `ci-federation:admin` | global | DB (RoleBinding API, granted by platform:admin or ci-federation:grantor) | Authorizes the `ci_providers` extension kind (register/read/update/delete a CI OIDC forge, PLAT-DATA-24) and nothing else. Granted through the RoleBinding API (not JWT-synced): HyperShell owns the authorization decision rather than delegating it to a Keycloak realm role. The gitops CI-federation seeder holds only this role instead of `platform:admin`. It confers no gateway, platform, or other ext-kind authority. See "Requirement: CI Federation Admin Role" (SEC-RBAC-21) |
 | `ci-federation:grantor` | global | Keycloak JWT | Narrow bootstrap role: authorizes creating/deleting a global `ci-federation:admin` RoleBinding and nothing else. Held by a gitops bootstrap identity so the seeder's `ci_providers` authorization can be granted declaratively without `platform:admin`. Confers no `ci_providers`, gateway, or platform authority and cannot grant any other role. See "Requirement: CI Federation Grantor Role" (SEC-RBAC-23) |
 
@@ -131,6 +132,7 @@ Role        ||--o{ RoleBinding : "granted_by"
 | `gateway:viewer` | read (one gateway) | read only | -- | `openshell-user` on that gateway | Select only `openshell-user`. Manage only their own OpenShellGatewayServiceAccounts. | -- |
 | `managed-cluster-registrar` | none (unless also granted `gateway:creator` directly, or through the realm default role, in Keycloak) | none | none | none | none | `POST /registration` (register + heartbeat loop) -- enforced by JWT-direct check in `isAuthorized`, not a DB binding. Once registered, the caller may delete its own record (self-deregistration). |
 | `gateway:dedicated-route-creator` | none by itself (marker for `dedicated_route` on create) | none (does not create or own gateways without `gateway:creator`) | none | none | none | none |
+| `gateway:operator-workspace-creator` | none by itself (marker for `workspace_mode = operator` on create) | none (does not create or own gateways without `gateway:creator`) | none | none | none | none |
 | `ci-federation:admin` | none | none | none | none | none | none (authorizes only the `ci_providers` ext kind; see SEC-RBAC-21) |
 | `ci-federation:grantor` | none | none | create/delete a `ci-federation:admin` binding only | none | none | none (bootstrap grantor; see SEC-RBAC-23) |
 
@@ -164,7 +166,7 @@ granted `gateway:admin` or `gateway:viewer` on that gateway.
 
 ### Requirement: SEC-RBAC-01 -- Keycloak as Authority for Platform Roles
 
-Keycloak is the source of truth for the `gateway:creator`, `gateway:dedicated-route-creator`, `ci-federation:grantor`, and `platform:admin` roles. A
+Keycloak is the source of truth for the `gateway:creator`, `gateway:dedicated-route-creator`, `gateway:operator-workspace-creator`, `ci-federation:grantor`, and `platform:admin` roles. A
 Keycloak administrator assigns these roles to users and service accounts via Keycloak's
 admin console or API. (`ci-federation:admin` is the exception: it is granted
 through the RoleBinding API by a `platform:admin` or `ci-federation:grantor`, not
@@ -544,19 +546,28 @@ For a caller that is not a control-plane identity, the rules mirror HTTP:
 - `CIProviderService`: authored over HTTP (`hsctl` and the SDKs), like
   `AgentWorkspaceService`. A registered control-plane identity MAY READ it
   (list/watch/get) to drive `CIProvider` reconciliation; `platform:admin` MAY also
-  list, watch, and get it. All writes (create/update/delete) over gRPC SHALL be denied
-  for every caller: `CIProvider` is authored by a `ci-federation:admin` over HTTP
-  (SEC-RBAC-21) and is NOT on the declarative-import write path.
+  list, watch, and get it. `CIProvider` create and delete over gRPC SHALL be denied
+  for every caller: `CIProvider` spec is authored by a `ci-federation:admin` over HTTP
+  (SEC-RBAC-21) and is NOT on the declarative-import write path. `UpdateCIProvider`
+  SHALL be denied for every user caller and for any write that changes a spec field;
+  the single exception is the registered control-plane identity's status-only
+  write-back, which is authorized under "Control-Plane Status Write-Back on
+  Platform-Authored CI Kinds" (SEC-RBAC-27).
 - `CITrustService`: authored over HTTP by a gateway owner/admin (SEC-RBAC-22) AND, as
   of the declarative `.hypershell` import of `CITrust` (PLAT-DATA-25,
   [`../platform/ci-trust-ext-api.spec.md`](../platform/ci-trust-ext-api.spec.md)
   PLAT-CITR-10), authored on the declarative-import write path. A registered
   control-plane identity MAY READ it (list/watch/get) to drive `CITrust`
   reconciliation; `platform:admin` MAY also list, watch, and get it. Its gRPC
-  create/update/delete SHALL be DENIED for every user caller, and SHALL be authorized
-  ONLY for the control-plane identity on the `Repository`-scoped import terms below,
-  with the additional per-gateway tenancy gate specified in SEC-RBAC-26 (the referenced
-  `Gateway` must be owned by the same reconciled `Repository`).
+  create/update/delete SHALL be DENIED for every user caller, and its spec-authoring
+  create/update/delete SHALL be authorized ONLY for the control-plane identity on the
+  `Repository`-scoped import terms below, with the additional per-gateway tenancy gate
+  specified in SEC-RBAC-26 (the referenced `Gateway` must be owned by the same
+  reconciled `Repository`). Separately from that import path, `UpdateCITrust` as a
+  status-only reconcile write-back by the registered control-plane identity is
+  authorized under "Control-Plane Status Write-Back on Platform-Authored CI Kinds"
+  (SEC-RBAC-27), scoped to a `CITrust` whose referenced `Gateway` belongs to the
+  writing control plane's cluster.
 - With authentication on -- every deployment, because enforcement follows
   authentication (SEC-RBAC-14) -- an unauthenticated call reaches no `hypershell.v1`
   method.
@@ -696,13 +707,13 @@ so these rules are the only boundary between tenants, and between clusters, on t
 - WHEN the import reconciler for `Repository` R1 attempts to update or delete it
 - THEN the write SHALL be refused
 
-#### Scenario: SEC-RBAC-09.08 -- Control plane reads CI kinds; CIProvider writes and user CITrust writes are denied over gRPC
+#### Scenario: SEC-RBAC-09.08 -- Control plane reads CI kinds; CIProvider create/delete and user CITrust writes are denied over gRPC
 
 - GIVEN a registered control-plane identity reconciling CI federation
 - WHEN it calls `WatchCITrusts`, `ListCIProviders`, or `GetCIProvider`
 - THEN the read SHALL be authorized
-- WHEN any caller (user or control plane) calls `CreateCIProvider` over gRPC
-- THEN the request SHALL return PermissionDenied (`CIProvider` is authored over HTTP and is not importable)
+- WHEN any caller (user or control plane) calls `CreateCIProvider` or `DeleteCIProvider` over gRPC
+- THEN the request SHALL return PermissionDenied (`CIProvider` spec is authored over HTTP and is not importable; only a status-only write-back is allowed, SEC-RBAC-27)
 - WHEN a user caller (without a control-plane identity) calls `CreateCITrust`, `UpdateCITrust`, or `DeleteCITrust` over gRPC
 - THEN the request SHALL return PermissionDenied (a user authors `CITrust` over HTTP)
 
@@ -738,15 +749,17 @@ field policy from that marker:
 
 A `user` or `import` caller SHALL be allowed to write only the allowlist (`name` on
 update; `name` + exactly one of `placement`/`cluster_id` + the create-only
-`dedicated_route` request flag on create, PLAT-DATA-26). Any other field
-that differs from the stored value (update) or is set (create) SHALL be rejected,
-naming the field: `403 Forbidden` over REST, `PERMISSION_DENIED` over gRPC. Re-sending
-an unchanged value SHALL be a no-op. Only a `control-plane` (non-import) caller SHALL
-bypass the field policy and retain full write of platform-managed and observed fields.
-An `import` caller SHALL NOT set `dedicated_route`: the service funnel rejects an
-import create that requests it with its own entitlement-specific message (PLAT-DATA-26),
-and the create-boundary entitlement check itself is defined in "Requirement: Gateway
-Dedicated Route Creator Role" (SEC-RBAC-20).
+`dedicated_route` request flag + the create-only `workspace_mode` operator opt-in on
+create, PLAT-DATA-26 / OSG-OPWS-01). Any other field that differs from the stored
+value (update) or is set (create) SHALL be rejected, naming the field: `403 Forbidden`
+over REST, `PERMISSION_DENIED` over gRPC. Re-sending an unchanged value SHALL be a
+no-op. Only a `control-plane` (non-import) caller SHALL bypass the field policy and
+retain full write of platform-managed and observed fields. An `import` caller SHALL
+NOT set `dedicated_route` or `workspace_mode`: the service funnel rejects an import
+create that sets either with its own entitlement-specific message (PLAT-DATA-26,
+OSG-OPWS-01). The create-boundary entitlement checks themselves are defined in
+"Requirement: Gateway Dedicated Route Creator Role" (SEC-RBAC-20) and "Requirement:
+Gateway Operator Workspace Creator Role" (SEC-RBAC-28).
 
 Enforcing the policy in the service funnel - not per handler - closes the
 whole-row-replace gap whereby a gRPC `UpdateGateway` could set more than a REST
@@ -973,6 +986,105 @@ bindings.
 #### Scenario: SEC-RBAC-20.06 -- The gate fails closed
 
 - GIVEN a create requesting `dedicated_route` from a user caller
+- WHEN the caller identity is missing or the binding lookup is unwired
+- THEN the create SHALL be rejected with the 403 entitlement rejection
+- WHEN the binding lookup itself fails
+- THEN the failure SHALL surface as a server error, not an authorization denial
+
+### Requirement: SEC-RBAC-28 -- Gateway Operator Workspace Creator Role
+
+A platform-wide role `gateway:operator-workspace-creator` SHALL gate selecting
+`operator` workspace mode on a gateway create (the per-gateway operator-managed
+workspace opt-in,
+[`platform/gateway-operator-workspaces.spec.md`](../platform/gateway-operator-workspaces.spec.md)
+OSG-OPWS-01, and
+[`platform/openshell-gateway.spec.md`](../platform/openshell-gateway.spec.md)
+OSG-CORE-18). The role exists because operator mode widens a gateway's access to
+external Kubernetes resources - an external operator owns the gateway's tenant
+workspace namespaces, identities, storage, and policies under an
+administrator-installed operator admission policy, beyond the self-contained
+per-workspace provisioning an ordinary gateway performs
+([`platform/gateway-operator-workspaces.spec.md`](../platform/gateway-operator-workspaces.spec.md)
+OSG-OPWS-02, OSG-OPWS-07.02) - so the entitlement is deliberately separate from
+`gateway:creator` and is not granted to every creator.
+
+**Assignment (Keycloak-owned, JWT-synced).** The role SHALL be JWT-synced, like
+`gateway:creator`, `gateway:dedicated-route-creator`, and `platform:admin`:
+assignment is owned by Keycloak (a realm role synced to a global-scope RoleBinding
+on sign-in), the RoleBinding API SHALL reject a direct assignment with 403 and a
+gateway-scoped binding with 400 (the role requires scope=global), and a binding
+whose role the JWT no longer carries SHALL be removed on the caller's next sign-in.
+The role record SHALL be seeded by migration with `built_in: true` (SEC-RBAC-15).
+
+**Grants nothing else.** Holding `gateway:operator-workspace-creator` SHALL grant
+nothing beyond the right to set `workspace_mode = operator` on a gateway create. It
+does not create or own gateways (that still requires `gateway:creator`), confers no
+per-gateway access, no OpenShell mapping, and no ManagedCluster or ext-kind
+permissions: it is a marker/entitlement role checked only at the gateway create
+boundary. `platform:admin` SHALL also qualify to select operator mode.
+
+**Enforcement (body-dependent, at the create boundaries).** The entitlement SHALL
+be enforced in the REST gateway Create handler and the gRPC `CreateGateway` handler,
+NOT in the path authorization middleware: the request is carried in the body, which
+the middleware never sees. The handler SHALL resolve the caller's role bindings
+through the role-binding service lookup and fail closed: a missing caller identity,
+an unwired lookup, or bindings holding neither `gateway:operator-workspace-creator`
+nor `platform:admin` SHALL reject a create that sets `workspace_mode = operator` with
+403 (`PermissionDenied` over gRPC) naming the role. A binding-lookup failure SHALL
+surface as a server error rather than an authorization denial, so a transient
+database problem does not tell the caller to request a role it may already hold. The
+check SHALL be a no-op exactly when authentication is off (SEC-RBAC-14), because
+there is then no caller identity whose bindings could be looked up. A privileged
+control-plane write bypasses the check; a declarative-import create that sets the
+field is rejected by the service funnel with its own message (OSG-OPWS-01), because
+a control-plane identity holds no user bindings.
+
+#### Scenario: SEC-RBAC-28.01 -- Entitled caller selects operator mode
+
+- GIVEN a caller holding `gateway:creator` and `gateway:operator-workspace-creator`
+  (both from Keycloak)
+- WHEN the caller creates a gateway with `workspace_mode = operator` over REST or gRPC
+- THEN the create SHALL be accepted and the gateway provisioned in operator mode
+  (OSG-OPWS-01)
+
+#### Scenario: SEC-RBAC-28.02 -- Plain creator is rejected naming the role
+
+- GIVEN a caller holding only `gateway:creator`
+- WHEN the caller creates a gateway with `workspace_mode = operator`
+- THEN the response SHALL be 403 Forbidden over REST and PermissionDenied over gRPC
+- AND the reason SHALL name `gateway:operator-workspace-creator`
+- AND no gateway SHALL be persisted
+- AND a create from the same caller that does not select operator mode is unaffected
+
+#### Scenario: SEC-RBAC-28.03 -- platform:admin qualifies
+
+- GIVEN a caller holding `platform:admin` (and `gateway:creator`)
+- WHEN the caller creates a gateway with `workspace_mode = operator`
+- THEN the create SHALL be accepted
+
+#### Scenario: SEC-RBAC-28.04 -- The role grants nothing else
+
+- GIVEN a caller holding only `gateway:operator-workspace-creator`
+- WHEN the caller attempts to create a gateway
+- THEN the create SHALL be rejected with 403 (creating gateways still requires
+  `gateway:creator`)
+- AND the caller SHALL hold no per-gateway access through the role
+
+#### Scenario: SEC-RBAC-28.05 -- Assignment is Keycloak-owned
+
+- GIVEN an attempt to create a `gateway:operator-workspace-creator` RoleBinding
+  through the RoleBinding API
+- WHEN the binding is global-scoped
+- THEN the create SHALL be rejected with 403 (the role can only be assigned via
+  Keycloak)
+- AND a gateway-scoped binding SHALL be rejected with 400 (the role requires
+  scope=global)
+- AND a JWT carrying the realm role SHALL sync the global binding the create path
+  checks
+
+#### Scenario: SEC-RBAC-28.06 -- The gate fails closed
+
+- GIVEN a create selecting `operator` mode from a user caller
 - WHEN the caller identity is missing or the binding lookup is unwired
 - THEN the create SHALL be rejected with the 403 entitlement rejection
 - WHEN the binding lookup itself fails
@@ -1729,6 +1841,79 @@ caller; it only defines the non-human import counterpart.
 - WHEN the caller creates a `CITrust` referencing gw-1 over HTTP
 - THEN the request SHALL be rejected with 403 under SEC-RBAC-22, unaffected by the import path
 
+### Requirement: SEC-RBAC-27 -- Control-Plane Status Write-Back on Platform-Authored CI Kinds
+
+A registered control-plane identity realizes `CIProvider` and `CITrust` into Keycloak
+and records the observed result back onto their `status`: the adopted or created IdP
+alias on `CIProvider.status.idp_alias` (PLAT-DATA-24,
+[`../platform/ci-trust-ext-api.spec.md`](../platform/ci-trust-ext-api.spec.md)
+PLAT-CITR-01), and the exchange endpoint, derived workspace, and workflow hint on
+`CITrust.status` (PLAT-CITR-06). Neither kind's spec is authored by the control plane -
+`CIProvider` spec is authored by a `ci-federation:admin` over HTTP (SEC-RBAC-21) and
+`CITrust` spec by a gateway owner/admin over HTTP (SEC-RBAC-22) or on the declarative
+import path (SEC-RBAC-26) - but the control plane MUST be able to persist their reconcile
+status, or CI federation never realizes (a `CITrust` that adopts a provider fails when
+`CIProvider.status.idp_alias` can never be written).
+
+The system SHALL therefore authorize a **status-only** gRPC `UpdateCIProvider` and
+`UpdateCITrust` for the registered control-plane identity, parallel to the control
+plane's non-import status write-backs on `Gateway` and `AgentRuntime` (SEC-RBAC-09,
+"A `Gateway` or `AgentRuntime` write that carries NO import metadata stays on its existing
+non-import path"). This authority is field-scoped, like the Gateway Field Write Policy
+(SEC-RBAC-18): the write SHALL be authorized ONLY when it changes observed `status`
+fields and leaves every spec field unchanged. A control-plane write that would change a
+`CIProvider` spec field (`forge`, `issuer`, `jwks_url`, `audience`, `idp_alias`) or a
+`CITrust` spec field (`ci_provider_id`, `gateway_id`, `subject`, `role`) SHALL be denied,
+because the control plane never authors CI spec.
+
+Scoping follows the control-plane identity model (SEC-RBAC-09, fleet-wide reads,
+own-cluster writes, status write-backs):
+
+- `CIProvider` is platform-wide and carries no gateway or cluster, so any registered
+  control-plane identity MAY write back its status. This write-back is NOT create and NOT
+  delete; `CreateCIProvider` and `DeleteCIProvider` remain denied for every caller
+  (SEC-RBAC-09).
+- `CITrust` is gateway-scoped. Its status write-back SHALL be authorized ONLY when the
+  referenced `Gateway` belongs to the writing control plane's cluster, mirroring the
+  own-cluster bound on `Gateway` and `AgentRuntime` writes and the per-trust foreign-cluster
+  skip of CTRL-CORE-20. A status write-back for a `CITrust` whose referenced `Gateway` is on
+  another cluster SHALL be denied.
+
+The status-only write-back does NOT require import metadata or `Repository` ownership: it
+is a distinct path from the SEC-RBAC-26 import write, which authors `CITrust` spec. A user
+caller SHALL NEVER reach this path; a user `UpdateCIProvider` or `UpdateCITrust` remains
+denied by SEC-RBAC-09 regardless of which fields it changes.
+
+#### Scenario: SEC-RBAC-27.01 -- Control plane writes back CIProvider status
+
+- GIVEN a registered control-plane identity that has adopted the `github-actions` IdP for a `CIProvider`
+- WHEN it calls `UpdateCIProvider` changing only `status.idp_alias` and leaving every spec field unchanged
+- THEN the write SHALL be authorized and the status SHALL persist
+
+#### Scenario: SEC-RBAC-27.02 -- Control plane status write-back cannot change CIProvider spec
+
+- GIVEN a registered control-plane identity
+- WHEN it calls `UpdateCIProvider` that changes a spec field such as `issuer`, `audience`, or `idp_alias`
+- THEN the request SHALL return PermissionDenied
+
+#### Scenario: SEC-RBAC-27.03 -- Control plane writes back CITrust status on an own-cluster gateway
+
+- GIVEN a registered control-plane identity whose cluster owns the `Gateway` a `CITrust` references
+- WHEN it calls `UpdateCITrust` changing only `status.exchange_endpoint`, `status.workspace`, and `status.workflow_hint`
+- THEN the write SHALL be authorized and the status SHALL persist
+
+#### Scenario: SEC-RBAC-27.04 -- CITrust status write-back is denied for a foreign-cluster gateway
+
+- GIVEN a registered control-plane identity whose cluster does NOT own the `Gateway` a `CITrust` references
+- WHEN it calls `UpdateCITrust` for that `CITrust`
+- THEN the request SHALL return PermissionDenied
+
+#### Scenario: SEC-RBAC-27.05 -- User caller cannot use the status write-back path
+
+- GIVEN a caller that is not a control-plane identity
+- WHEN it calls `UpdateCIProvider` or `UpdateCITrust` over gRPC, even changing only status fields
+- THEN the request SHALL return PermissionDenied (SEC-RBAC-09)
+
 ## API Reference
 
 | Method | Path | Operation |
@@ -1746,6 +1931,7 @@ caller; it only defines the non-human import counterpart.
 
 | Decision | Rationale |
 |----------|-----------|
+| Control plane writes back CI status status-only, not by import or role binding (SEC-RBAC-27) | The control plane never authors `CIProvider` or `CITrust` spec, but must persist what it realized (the adopted IdP alias, the exchange endpoint). Denying every CI write stranded federation: no `status.idp_alias` meant every adopting `CITrust` failed. A field-scoped status-only write-back mirrors the existing `Gateway`/`AgentRuntime` non-import status path and the Gateway Field Write Policy, so the control plane records observed state without gaining authority to author CI spec. |
 | Keycloak as authority for platform roles | Centralizes role management. Eliminates need for admin-seeding CLI or DB migration. Role changes take effect on next JWT. |
 | Four roles model | Minimal model that covers the use cases: platform administration (view/delete all), create gateways, own gateways, view gateways. No fleet-scoped RBAC needed. |
 | gRPC decides each method explicitly, default-deny | The previous rule granted `gateway:creator` or `gateway:owner` every gRPC method, so any signed-in user could rewrite or delete any gateway once the hub's gRPC API became public. A per-method table matches the HTTP rules and fails closed for methods added later. |

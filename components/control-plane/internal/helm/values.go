@@ -127,7 +127,17 @@ type ValuesBuilder struct {
 	// applying the named Kubernetes RuntimeClass to all sandbox pods provisioned
 	// by this gateway. Empty string omits the field (cluster default, typically runc).
 	// Set to "kata" or "kata-remote" to run sandboxes inside lightweight VMs.
+	// For an operator-mode gateway it is overridden by OperatorSandboxRuntimeClass.
 	SandboxRuntimeClass string
+	// OperatorNamespaceLabelKey is the administrator-approved label KEY the external
+	// operator stamps on an operator-mode gateway's tenant namespaces. The driver's
+	// operatorNamespaceLabel selector is built as <key>=<namespace> so a gateway
+	// discovers only its own tenant namespaces (OSG-OPWS-02). Operator mode only.
+	OperatorNamespaceLabelKey string
+	// OperatorSandboxRuntimeClass is the administrator-approved sandbox RuntimeClass
+	// applied to server.defaultRuntimeClassName for operator-mode gateways ONLY
+	// (OSG-OPWS-03), overriding any cluster-wide SandboxRuntimeClass.
+	OperatorSandboxRuntimeClass string
 }
 
 // Build computes Helm chart values from the Gateway configuration.
@@ -235,12 +245,25 @@ func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
 		return fmt.Errorf("gateway workspace mode is required")
 	}
 	setNestedValue(values, b.Gateway.WorkspaceMode, "server", "drivers", "kubernetes", "workspaceMode")
-	if b.Gateway.WorkspaceMode == "managed" {
+	switch b.Gateway.WorkspaceMode {
+	case "managed":
 		gatewayID, err := ManagedGatewayID(b.Namespace)
 		if err != nil {
 			return err
 		}
 		setNestedValue(values, gatewayID, "server", "sandboxJwt", "gatewayId")
+	case "operator":
+		// Operator mode: the external operator labels each tenant namespace with the
+		// administrator-approved key set to this gateway's own (unique) namespace
+		// name, so the driver discovers only this gateway's namespaces and two
+		// gateways never resolve to the same selector (OSG-OPWS-02). Both the label
+		// key and the runtime class are administrator-owned, never caller input. The
+		// operator sandbox RuntimeClass applies to operator gateways ONLY, overriding
+		// any cluster-wide SandboxRuntimeClass set above (OSG-OPWS-03). An operator
+		// gateway deliberately gets NO managed sandboxJwt.gatewayId block.
+		setNestedValue(values, fmt.Sprintf("%s=%s", b.OperatorNamespaceLabelKey, b.Namespace),
+			"server", "drivers", "kubernetes", "operatorNamespaceLabel")
+		setNestedValue(values, b.OperatorSandboxRuntimeClass, "server", "defaultRuntimeClassName")
 	}
 
 	// Server DNS names for TLS certificate SANs

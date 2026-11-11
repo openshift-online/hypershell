@@ -61,8 +61,20 @@ func (r *CIProviderReconciler) Handle(ctx context.Context, event watcher.Event[*
 	}
 }
 
+// resolveIdpAlias selects the Keycloak IdP alias the control plane adopts for a
+// provider: the explicit spec idp_alias (PLAT-DATA-24, PLAT-CITR-01) when set - the
+// single declarative source of truth shared with the terraform federation so the
+// control plane adopts exactly the IdP terraform provisioned - and otherwise the
+// alias derived from forge and issuer.
+func resolveIdpAlias(provider *pb.CIProvider) string {
+	if alias := provider.GetIdpAlias(); alias != "" {
+		return alias
+	}
+	return deriveIdpAlias(provider.GetForge(), provider.GetIssuer())
+}
+
 func (r *CIProviderReconciler) handleUpsert(ctx context.Context, id string, provider *pb.CIProvider) error {
-	alias := deriveIdpAlias(provider.GetForge(), provider.GetIssuer())
+	alias := resolveIdpAlias(provider)
 
 	// TODO(PLAT-DATA-24): create or update the validation-only Keycloak IdP:
 	//   - IdP alias: alias
@@ -91,7 +103,7 @@ func (r *CIProviderReconciler) handleUpsert(ctx context.Context, id string, prov
 func (r *CIProviderReconciler) handleDelete(ctx context.Context, id string, provider *pb.CIProvider) error {
 	alias := provider.GetStatusIdpAlias()
 	if alias == "" {
-		alias = deriveIdpAlias(provider.GetForge(), provider.GetIssuer())
+		alias = resolveIdpAlias(provider)
 	}
 
 	// TODO(PLAT-DATA-24): delete the Keycloak IdP by alias

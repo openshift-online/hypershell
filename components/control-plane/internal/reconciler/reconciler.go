@@ -138,6 +138,14 @@ type GatewayReconciler struct {
 	// sandboxRuntimeClass is the Kubernetes RuntimeClass name applied to every
 	// sandbox pod (GATEWAY_SANDBOX_RUNTIME_CLASS); empty uses the cluster default.
 	sandboxRuntimeClass string
+	// operatorNamespaceLabelKey is the administrator-approved label KEY used to
+	// scope operator-mode gateways to their own tenant namespaces
+	// (GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY); empty fails operator gateways closed
+	// and skips the operator tenant-namespace sweep on delete (OSG-OPWS-02/04/06).
+	operatorNamespaceLabelKey string
+	// operatorSandboxRuntimeClass is the administrator-approved sandbox RuntimeClass
+	// applied to operator-mode gateways only (GATEWAY_OPERATOR_SANDBOX_RUNTIME_CLASS).
+	operatorSandboxRuntimeClass string
 	// gatewayClientOverride, when non-nil, supplies the GatewayServiceClient used
 	// by the nil-payload delete re-read (CTRL-WDEL-04). Production leaves it nil
 	// and dials grpcConn; tests inject a fake without standing up a gRPC server.
@@ -202,6 +210,8 @@ func NewGatewayReconciler(
 	gatewayResources *corev1.ResourceRequirements,
 	sandboxRuntimeClass string,
 	clusterPlatform string,
+	operatorNamespaceLabelKey string,
+	operatorSandboxRuntimeClass string,
 ) (*GatewayReconciler, error) {
 	if database.AdminCredentialsDir == "" {
 		return nil, fmt.Errorf("gateway database admin credentials directory is required")
@@ -245,22 +255,24 @@ func NewGatewayReconciler(
 		"ingress", ingressBaseDomain)
 
 	return &GatewayReconciler{
-		active:                make(map[string]struct{}),
-		dynamicClient:         dynamicClient,
-		clientset:             clientset,
-		grpcConn:              grpcConn,
-		helmClient:            helmClient,
-		isOpenShift:           isOpenShift,
-		deps:                  deps,
-		controlPlaneNamespace: controlPlaneNamespace,
-		keycloakClient:        kcClient,
-		keycloakConfig:        keycloakConfig,
-		exposure:              exposurePort,
-		ingressBaseDomain:     ingressBaseDomain,
-		database:              database,
-		clusterID:             clusterID,
-		gatewayResources:      gatewayResources,
-		sandboxRuntimeClass:   sandboxRuntimeClass,
+		active:                      make(map[string]struct{}),
+		dynamicClient:               dynamicClient,
+		clientset:                   clientset,
+		grpcConn:                    grpcConn,
+		helmClient:                  helmClient,
+		isOpenShift:                 isOpenShift,
+		deps:                        deps,
+		controlPlaneNamespace:       controlPlaneNamespace,
+		keycloakClient:              kcClient,
+		keycloakConfig:              keycloakConfig,
+		exposure:                    exposurePort,
+		ingressBaseDomain:           ingressBaseDomain,
+		database:                    database,
+		clusterID:                   clusterID,
+		gatewayResources:            gatewayResources,
+		sandboxRuntimeClass:         sandboxRuntimeClass,
+		operatorNamespaceLabelKey:   operatorNamespaceLabelKey,
+		operatorSandboxRuntimeClass: operatorSandboxRuntimeClass,
 	}, nil
 }
 
@@ -498,6 +510,20 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 					deleteErrs = append(deleteErrs, fmt.Errorf("delete managed workspace namespaces of %s: %w", namespace, err))
 				}
 			}
+			// An operator-mode gateway's tenant namespaces are created by the external
+			// operator OUTSIDE the gateway's own namespace, so neither the namespace
+			// cascade nor the namespace GC reaches them; sweep them here, selected by
+			// the configured label key set to this gateway's namespace (OSG-OPWS-06).
+			// Skip when no operator label is configured (nothing to select on). A
+			// failed sweep is retried AND recorded as a durable orphan, since these
+			// out-of-namespace namespaces have no other recovery path (GTW-DEL-07).
+			if gw.GetWorkspaceMode() == "operator" && r.operatorNamespaceLabelKey != "" {
+				if err := gateway.DeleteOperatorWorkspaceNamespaces(ctx, r.clientset, r.operatorNamespaceLabelKey, namespace); err != nil {
+					deleteErrs = append(deleteErrs, fmt.Errorf("delete operator workspace namespaces of %s: %w", namespace, err))
+					opts.RecordOrphan(ctx, "Namespace", fmt.Sprintf("%s=%s", r.operatorNamespaceLabelKey, namespace),
+						fmt.Sprintf("operator tenant workspace namespaces could not be deleted during gateway deletion and may remain: %v", err))
+				}
+			}
 		}
 
 		reconcileErr = errors.Join(deleteErrs...)
@@ -701,21 +727,23 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		// HasCertManager is determined per reconcile by ReconcileGateway from the
 		// shared dependency discovery (CTRL-CORE-18, OSG-TLS-01); it is not a frozen
 		// startup flag.
-		Dependencies:          r.deps,
-		Database:              r.database,
-		ControlPlaneNamespace: r.controlPlaneNamespace,
-		GatewayID:             event.ResourceID,
-		UpdateRouteAddress:    r.makeRouteAddressUpdater(event.ResourceID),
-		UpdateConsoleAddress:  r.makeConsoleAddressUpdater(event.ResourceID),
-		Keycloak:              r.keycloakConfig,
-		KeycloakClient:        r.keycloakClient,
-		GatewayName:           gw.Name,
-		GatewayClientID:       gatewayClientID,
-		Exposure:              r.exposure,
-		RouteStillDesired:     r.makeRouteStillDesired(event.ResourceID),
-		IngressBaseDomain:     r.ingressBaseDomain,
-		GatewayResources:      r.gatewayResources,
-		SandboxRuntimeClass:   r.sandboxRuntimeClass,
+		Dependencies:                r.deps,
+		Database:                    r.database,
+		ControlPlaneNamespace:       r.controlPlaneNamespace,
+		GatewayID:                   event.ResourceID,
+		UpdateRouteAddress:          r.makeRouteAddressUpdater(event.ResourceID),
+		UpdateConsoleAddress:        r.makeConsoleAddressUpdater(event.ResourceID),
+		Keycloak:                    r.keycloakConfig,
+		KeycloakClient:              r.keycloakClient,
+		GatewayName:                 gw.Name,
+		GatewayClientID:             gatewayClientID,
+		Exposure:                    r.exposure,
+		RouteStillDesired:           r.makeRouteStillDesired(event.ResourceID),
+		IngressBaseDomain:           r.ingressBaseDomain,
+		GatewayResources:            r.gatewayResources,
+		SandboxRuntimeClass:         r.sandboxRuntimeClass,
+		OperatorNamespaceLabelKey:   r.operatorNamespaceLabelKey,
+		OperatorSandboxRuntimeClass: r.operatorSandboxRuntimeClass,
 	}
 
 	conditions := gateway.InitConditions(r.keycloakConfig != nil)

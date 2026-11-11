@@ -35,6 +35,12 @@ type GatewayClusterResolver interface {
 	GatewayClusterID(ctx context.Context, gatewayID string) (clusterID string, found bool, err error)
 	// NamespaceClusterID returns the cluster of the live gateway in namespace.
 	NamespaceClusterID(ctx context.Context, namespace string) (clusterID string, found bool, err error)
+	// CITrustGatewayClusterID returns the cluster of the gateway the CITrust with
+	// this id references. It backs the own-cluster gate on the control plane's
+	// CITrust status write-back (SEC-RBAC-27): a status-only UpdateCITrust is
+	// authorized only when the referenced gateway belongs to the writing control
+	// plane's cluster. found is false when the trust or its gateway does not exist.
+	CITrustGatewayClusterID(ctx context.Context, ciTrustID string) (clusterID string, found bool, err error)
 }
 
 const hypershellGRPCPrefix = "/hypershell.v1."
@@ -226,18 +232,87 @@ func authorizeControlPlaneGRPC(ctx context.Context, clusterID, fullMethod string
 		if isReadMethodName(method) {
 			return nil
 		}
-		return authorizeImportWrite(ctx, imports)
+		// A declarative-import spec write carries the reconciled Repository id.
+		if ImportRepositoryIDFromContext(ctx) != "" {
+			return authorizeImportWrite(ctx, imports)
+		}
+		// Separately from the import path, a status-only reconcile write-back is
+		// authorized for the control-plane identity (SEC-RBAC-27), scoped to a CITrust
+		// whose referenced gateway belongs to this control plane's cluster (mirroring
+		// the own-cluster bound on Gateway/AgentRuntime writes and CTRL-CORE-20.03). It
+		// is field-scoped like the Gateway Field Write Policy: a write that changes any
+		// spec field is denied, because the control plane never authors CITrust spec.
+		if method == "UpdateCITrust" {
+			r, ok := req.(*pb.UpdateCITrustRequest)
+			if !ok {
+				return unexpectedRequest()
+			}
+			if ciTrustUpdateChangesSpec(r) {
+				return denied()
+			}
+			return requireCITrustGatewayOnCluster(ctx, gateways, r.GetId(), clusterID)
+		}
+		return denied()
 	case "CIProviderService":
-		// CIProvider is a platform-wide registration authored over HTTP by a
-		// ci-federation:admin; it is NOT importable. A registered control plane may READ
-		// it to drive CI federation reconciliation; writes over gRPC stay denied
-		// (SEC-RBAC-09.08).
+		// CIProvider is a platform-wide registration whose spec is authored over HTTP by
+		// a ci-federation:admin; it is NOT importable, so Create and Delete over gRPC stay
+		// denied for every caller (SEC-RBAC-09.08). A registered control plane may READ it
+		// to drive CI federation reconciliation, and may write back its reconcile status
+		// (SEC-RBAC-27): a status-only UpdateCIProvider is authorized platform-wide
+		// (CIProvider carries no cluster). It is field-scoped like the Gateway Field Write
+		// Policy: a write that changes a spec field (over gRPC the only settable spec field
+		// is jwks_url) is denied, because the control plane never authors CIProvider spec.
 		if isReadMethodName(method) {
+			return nil
+		}
+		if method == "UpdateCIProvider" {
+			r, ok := req.(*pb.UpdateCIProviderRequest)
+			if !ok {
+				return unexpectedRequest()
+			}
+			if r.JwksUrl != nil {
+				return denied()
+			}
 			return nil
 		}
 		return denied()
 	}
 	return denied()
+}
+
+// ciTrustUpdateChangesSpec reports whether an UpdateCITrust request changes any
+// CITrust spec field. The control plane's status write-back (SEC-RBAC-27) sets only
+// the observed status fields (status_exchange_endpoint, status_workspace,
+// status_workflow_hint, status); a request that also sets a spec field - the
+// mutable subject predicate or role - is not a status-only write and is denied.
+func ciTrustUpdateChangesSpec(r *pb.UpdateCITrustRequest) bool {
+	return r.SubjectRef != nil ||
+		r.SubjectEnvironment != nil ||
+		r.SubjectRefProtected != nil ||
+		r.Role != nil ||
+		r.SubjectRepository != nil ||
+		r.SubjectProjectPath != nil
+}
+
+// requireCITrustGatewayOnCluster authorizes a control-plane CITrust status
+// write-back only when the gateway the trust references belongs to clusterID
+// (SEC-RBAC-27, own-cluster gate). A missing trust or gateway, or a foreign
+// cluster, is denied; a resolver error is Unavailable (retryable), never a grant.
+func requireCITrustGatewayOnCluster(ctx context.Context, gateways GatewayClusterResolver, ciTrustID, clusterID string) error {
+	if gateways == nil {
+		return status.Error(codes.Unavailable, "gateway registry unavailable; cannot verify the trust's gateway cluster")
+	}
+	if ciTrustID == "" {
+		return status.Error(codes.InvalidArgument, "id is required")
+	}
+	owner, found, err := gateways.CITrustGatewayClusterID(ctx, ciTrustID)
+	if err != nil {
+		return status.Error(codes.Unavailable, "CI trust gateway lookup failed; cannot verify the trust's gateway cluster")
+	}
+	if !found || owner != clusterID {
+		return denied()
+	}
+	return nil
 }
 
 func requireGatewayOnCluster(ctx context.Context, gateways GatewayClusterResolver, gatewayID, clusterID string, deny func() error) error {

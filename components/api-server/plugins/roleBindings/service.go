@@ -582,7 +582,8 @@ func (s *sqlRoleBindingService) authorizeWrite(ctx context.Context, op string, r
 		// create and by the stored binding on delete.
 		return s.validateCallerCanGrantCIFederationAdmin(ctx)
 	case roles.RolePlatformAdmin, roles.RoleGatewayCreator,
-		roles.RoleGatewayDedicatedRouteCreator, roles.RoleCIFederationGrantor:
+		roles.RoleGatewayDedicatedRouteCreator, roles.RoleGatewayOperatorWorkspaceCreator,
+		roles.RoleCIFederationGrantor:
 		// Keycloak-owned platform entitlements: SyncJWTRoles reconciles these from
 		// the caller's JWT, so assignment and removal go through Keycloak, not this
 		// resource. A binding written here would not survive the next sign-in.
@@ -734,7 +735,7 @@ func (s *sqlRoleBindingService) validateCallerCanGrantCIFederationAdmin(ctx cont
 
 func (s *sqlRoleBindingService) validateScopeMatchesRole(roleName string, rb *RoleBinding) *errors.ServiceError {
 	switch roleName {
-	case roles.RoleGatewayCreator, roles.RoleGatewayDedicatedRouteCreator, roles.RoleCIFederationAdmin, roles.RoleCIFederationGrantor:
+	case roles.RoleGatewayCreator, roles.RoleGatewayDedicatedRouteCreator, roles.RoleGatewayOperatorWorkspaceCreator, roles.RoleCIFederationAdmin, roles.RoleCIFederationGrantor:
 		if rb.Scope != ScopeGlobal {
 			return errors.Validation("role %q requires scope=global", roleName)
 		}

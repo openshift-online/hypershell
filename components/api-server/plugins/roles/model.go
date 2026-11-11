@@ -41,10 +41,17 @@ const (
 	// gateway:creator because a dedicated route and per-gateway certificate is a
 	// rate-limited resource.
 	RoleGatewayDedicatedRouteCreator = "gateway:dedicated-route-creator"
-	RoleGatewayOwner                 = "gateway:owner"
-	RoleGatewayAdmin                 = "gateway:admin"
-	RoleGatewayViewer                = "gateway:viewer"
-	RoleManagedClusterRegistrar      = "managed-cluster-registrar"
+	// RoleGatewayOperatorWorkspaceCreator is the platform-wide entitlement to
+	// select operator workspace mode at gateway create
+	// (GatewayCreateRequest.workspace_mode = operator). It is deliberately
+	// separate from gateway:creator because operator mode widens a gateway's
+	// access to external, operator-owned Kubernetes namespaces, identities,
+	// storage, and policies (SEC-RBAC-28 / OSG-OPWS-01). It grants nothing else.
+	RoleGatewayOperatorWorkspaceCreator = "gateway:operator-workspace-creator"
+	RoleGatewayOwner                    = "gateway:owner"
+	RoleGatewayAdmin                    = "gateway:admin"
+	RoleGatewayViewer                   = "gateway:viewer"
+	RoleManagedClusterRegistrar         = "managed-cluster-registrar"
 	// RoleCIFederationAdmin is the narrow platform-wide role that authorizes the
 	// ci_providers ext kind (register/read/update/delete a CI OIDC forge,
 	// SEC-RBAC-21) and nothing else. It lets the gitops CI-federation seeder
@@ -75,9 +82,10 @@ const (
 // binding whose role the JWT no longer carries, so a directly created binding would
 // not survive the caller's next sign-in.
 var JWTSyncedRoles = map[string]bool{
-	RolePlatformAdmin:                true,
-	RoleGatewayCreator:               true,
-	RoleGatewayDedicatedRouteCreator: true,
+	RolePlatformAdmin:                   true,
+	RoleGatewayCreator:                  true,
+	RoleGatewayDedicatedRouteCreator:    true,
+	RoleGatewayOperatorWorkspaceCreator: true,
 	// RoleCIFederationGrantor is the bootstrap grantor (SEC-RBAC-23): it is held by
 	// a gitops bootstrap identity via a Keycloak realm role, so it IS Keycloak-owned
 	// and synced here.

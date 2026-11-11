@@ -23,6 +23,8 @@ type CIProviderPatchRequest struct {
 	Issuer   *string `json:"issuer,omitempty"`
 	JwksUrl  *string `json:"jwks_url,omitempty"`
 	Audience *string `json:"audience,omitempty"`
+	// The explicit (spec) Keycloak IdP alias to adopt (PLAT-DATA-24).
+	IdpAlias *string `json:"idp_alias,omitempty"`
 }
 
 // NewCIProviderPatchRequest instantiates a new CIProviderPatchRequest object
@@ -170,6 +172,38 @@ func (o *CIProviderPatchRequest) SetAudience(v string) {
 	o.Audience = &v
 }
 
+// GetIdpAlias returns the IdpAlias field value if set, zero value otherwise.
+func (o *CIProviderPatchRequest) GetIdpAlias() string {
+	if o == nil || IsNil(o.IdpAlias) {
+		var ret string
+		return ret
+	}
+	return *o.IdpAlias
+}
+
+// GetIdpAliasOk returns a tuple with the IdpAlias field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *CIProviderPatchRequest) GetIdpAliasOk() (*string, bool) {
+	if o == nil || IsNil(o.IdpAlias) {
+		return nil, false
+	}
+	return o.IdpAlias, true
+}
+
+// HasIdpAlias returns a boolean if a field has been set.
+func (o *CIProviderPatchRequest) HasIdpAlias() bool {
+	if o != nil && !IsNil(o.IdpAlias) {
+		return true
+	}
+
+	return false
+}
+
+// SetIdpAlias gets a reference to the given string and assigns it to the IdpAlias field.
+func (o *CIProviderPatchRequest) SetIdpAlias(v string) {
+	o.IdpAlias = &v
+}
+
 func (o CIProviderPatchRequest) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -191,6 +225,9 @@ func (o CIProviderPatchRequest) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Audience) {
 		toSerialize["audience"] = o.Audience
+	}
+	if !IsNil(o.IdpAlias) {
+		toSerialize["idp_alias"] = o.IdpAlias
 	}
 	return toSerialize, nil
 }

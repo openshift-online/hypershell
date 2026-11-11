@@ -211,6 +211,7 @@ erDiagram
         string issuer
         string jwks_url
         string audience
+        string idp_alias
         string status
         time created_at
         time updated_at
@@ -410,7 +411,7 @@ selected per sandbox through OpenShell; they are not Gateway resource fields.
 | `route_address` | text | Read-only external address populated by the control plane (e.g., `grpcs://hostname:443`) |
 | `gateway_version` | string | Read-only runtime version from the last successful gateway health response |
 | `credential_driver` | JSONB | Credential storage driver config: `{type, kubernetes_secrets, vault}`. `type` is one of `vault`, `kubernetes-secrets`, `kek-db`. When omitted/null it resolves to `vault` (the default; convention-addressed per-cluster Vault, no sub-fields required). See [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) |
-| `workspace_mode` | text | How the OpenShell Kubernetes driver maps workspaces to namespaces: `shared`, `managed`, or `operator`. Platform-managed: the API server defaults it to `managed` at create and no caller may set or change it (the service funnel also enforces the vocabulary and immutability for control-plane writes). Required: every stored Gateway carries a value. See [`openshell-gateway.spec.md`](./openshell-gateway.spec.md), "OSG-CORE-18 -- Gateway Workspace Mode" |
+| `workspace_mode` | text | How the OpenShell Kubernetes driver maps workspaces to namespaces: `shared`, `managed`, or `operator`. Platform-managed with a create-only exception: the API server defaults it to `managed` at create, and the only caller-settable value is `operator`, accepted only from a `gateway:operator-workspace-creator` caller (the per-gateway operator-managed workspace opt-in). Immutable after create; the service funnel enforces the vocabulary and immutability for every writer class. Required: every stored Gateway carries a value. See [`openshell-gateway.spec.md`](./openshell-gateway.spec.md), "OSG-CORE-18 -- Gateway Workspace Mode", and [`gateway-operator-workspaces.spec.md`](./gateway-operator-workspaces.spec.md), "OSG-OPWS-01" |
 | `dev_build` | boolean | Marks this Gateway as a dev/branch build (default: false). Control plane passes `hypershell.redhat.io/openshell-dev-build` via Helm `podLabels`. See [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md) |
 | `dev_build_metadata` | JSONB | Dev build provenance: `{ref, sha, repo}`. Control plane passes these via Helm `podAnnotations`. See [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md) |
 
@@ -619,10 +620,15 @@ control-plane gRPC write WITHOUT import metadata) retains full write access.
 
 - UPDATE (REST `PATCH`, gRPC `UpdateGateway`): `name`.
 - CREATE (REST create, gRPC `CreateGateway`): `name`, exactly one of `placement`
-  or `cluster_id` (per "Requirement: Gateway Placement and Late Binding"), and the
-  create-only `dedicated_route` request flag (PLAT-DATA-26). An Import caller
-  SHALL NOT set `dedicated_route`: the service funnel rejects an import create
-  that requests it with 403, per PLAT-DATA-26.
+  or `cluster_id` (per "Requirement: Gateway Placement and Late Binding"), the
+  create-only `dedicated_route` request flag (PLAT-DATA-26), and the create-only
+  `workspace_mode` operator opt-in (the only caller-settable value is `operator`,
+  and only for a caller holding `gateway:operator-workspace-creator`; see
+  [`openshell-gateway.spec.md`](./openshell-gateway.spec.md), OSG-CORE-18, and
+  [`gateway-operator-workspaces.spec.md`](./gateway-operator-workspaces.spec.md),
+  OSG-OPWS-01). An Import caller SHALL NOT set `dedicated_route` or `workspace_mode`:
+  the service funnel rejects an import create that sets either with 403, per
+  PLAT-DATA-26 and OSG-OPWS-01.
 
 For a User or Import caller, any field NOT in the allowlist SHALL be rejected when it
 **differs from the stored value** (update) or is **set at all** (create), with the
@@ -641,19 +647,24 @@ pattern.
   is NOT user-writable on update); `dedicated_route` (create only; persisted as a
   nullable boolean where NULL and false both mean not requested, and rejected with
   409 and delete-and-recreate guidance when an update adds, removes, or changes it -
-  see PLAT-DATA-26).
+  see PLAT-DATA-26); `workspace_mode` (create only, and only the `operator` value,
+  only for a `gateway:operator-workspace-creator` caller; otherwise server-defaulted
+  to `managed` and immutable after create - see OSG-CORE-18 and OSG-OPWS-01).
 - **Platform-managed (control-plane-only desired workload spec):** `image`,
   `supervisor_image`, `server_dns_names`, `oidc`, `route`, `tls_mode`,
-  `service_type`, `external_dns`, `credential_driver`, `workspace_mode`,
-  `dev_build`, `dev_build_metadata`. These are purely platform-managed; no
-  externally-authored input (direct user API or GitOps import) may declare them.
-  The control plane sets them from its configuration and provisioning logic (for
-  example the `GATEWAY_IMAGE` / `GATEWAY_SUPERVISOR_IMAGE` defaults, the per-gateway
-  Keycloak OIDC client, and the derived ingress hostname). `workspace_mode` is
-  additionally server-defaulted: the API server applies `managed` at create in the
-  service funnel (see [`openshell-gateway.spec.md`](./openshell-gateway.spec.md),
-  "OSG-CORE-18"), and its value semantics (vocabulary, immutability) are enforced
-  there for every writer class, the control plane included.
+  `service_type`, `external_dns`, `credential_driver`, `dev_build`,
+  `dev_build_metadata`. These are purely platform-managed; no externally-authored
+  input (direct user API or GitOps import) may declare them. The control plane sets
+  them from its configuration and provisioning logic (for example the `GATEWAY_IMAGE`
+  / `GATEWAY_SUPERVISOR_IMAGE` defaults, the per-gateway Keycloak OIDC client, and
+  the derived ingress hostname). `workspace_mode` is platform-managed except for the
+  create-only operator opt-in above: the API server applies `managed` at create when
+  no value is supplied, accepts `operator` only from a
+  `gateway:operator-workspace-creator` caller, and enforces the vocabulary and
+  immutability for every writer class in the service funnel (see
+  [`openshell-gateway.spec.md`](./openshell-gateway.spec.md), "OSG-CORE-18", and
+  [`gateway-operator-workspaces.spec.md`](./gateway-operator-workspaces.spec.md),
+  "OSG-OPWS-01").
 - **Control-plane-observed (control-plane-only):** `status`, `phase`, `route_address`,
   `console_address`, `provisioning_conditions`, `gateway_version`,
   `observed_generation`, `active_sandbox_count`.
@@ -699,10 +710,13 @@ ownership to the remaining workload fields.
 
 - GIVEN a create request from a user caller
 - WHEN the request sets `name` and exactly one of `placement` or `cluster_id`, and
-  nothing else (optionally plus `dedicated_route`, PLAT-DATA-26)
+  nothing else (optionally plus `dedicated_route` (PLAT-DATA-26), or
+  `workspace_mode = operator` for a caller holding `gateway:operator-workspace-creator`
+  (OSG-OPWS-01))
 - THEN the API server SHALL accept it
 - WHEN the request additionally sets any platform-managed field (for example `image`
-  or `oidc`)
+  or `oidc`), or sets `workspace_mode` to `shared`/`managed`, or sets
+  `workspace_mode = operator` without the entitlement
 - THEN the API server SHALL reject it with `400`/`403` naming the field
 
 #### Scenario: PLAT-DATA-23.05 -- GitOps import is held to the same allowlist
@@ -1638,10 +1652,11 @@ gateway-side provisioning failure.
 | `issuer` | string | The OIDC issuer URL whose tokens this provider validates (e.g. `https://token.actions.githubusercontent.com`, `https://gitlab.cee.redhat.com`) |
 | `jwks_url` | string | The issuer's JWKS endpoint used for signature validation. For a standards-compliant issuer the control plane MAY derive it from OIDC discovery instead |
 | `audience` | string | The platform-pinned audience every federated CI token MUST carry (`aud`). Set once per fleet; tenants cannot override it |
+| `idp_alias` | string | Optional. The explicit Keycloak IdP alias this provider adopts, the single declarative source of truth shared with the platform federation (the terraform `ci_forges` map key, e.g. `github-actions`). When set, the control plane adopts the IdP of that alias; when unset, the control plane derives the alias from `forge` and `issuer`. See [`ci-trust-ext-api.spec.md`](./ci-trust-ext-api.spec.md) (PLAT-CITR-01) |
 
 The control plane realizes a `CIProvider` as a validation-only OIDC identity provider on the cluster Keycloak (signature + issuer + audience validation only, no authorization-code flow and no stored client secret). The realization contract is specified in [`ci-trust-ext-api.spec.md`](./ci-trust-ext-api.spec.md) and the platform federation design in the gitops `specs/ci-oidc-federation.spec.md`.
 
-`CIProvider.status.idp_alias` SHALL surface the Keycloak IdP alias the control plane created or adopted (e.g. `github-actions`, `gitlab-ci`).
+`CIProvider.idp_alias` is the desired (spec) alias to adopt; `CIProvider.status.idp_alias` SHALL surface the Keycloak IdP alias the control plane actually created or adopted (e.g. `github-actions`, `gitlab-ci`). When `idp_alias` is set, `status.idp_alias` SHALL equal it once the IdP is realized; when `idp_alias` is unset, `status.idp_alias` SHALL carry the derived alias.
 
 #### Scenario: PLAT-DATA-24.01 -- CIProvider Referenced by Multiple CITrusts
 
@@ -1656,6 +1671,14 @@ The control plane realizes a `CIProvider` as a validation-only OIDC identity pro
 - GIVEN a `CIProvider` with one or more `CITrust` records referencing it
 - WHEN a PATCH request attempts to change `issuer` or `audience`
 - THEN the API server SHALL reject the request with 422
+
+#### Scenario: PLAT-DATA-24.03 -- Explicit idp_alias Selects the Adopted IdP
+
+- GIVEN a `CIProvider` whose `forge` is `github` and whose `idp_alias` is set to `github-actions`
+- WHEN the control plane reconciles it against a Keycloak that already holds the `github-actions` IdP
+- THEN the control plane SHALL adopt the `github-actions` IdP named by `idp_alias`
+- AND `status.idp_alias` SHALL be `github-actions`
+- AND a `CIProvider` with `idp_alias` unset SHALL instead adopt the alias derived from `forge` and `issuer`
 
 ---
 

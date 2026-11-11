@@ -20,6 +20,10 @@ class JiraAuthError(Exception):
     pass
 
 
+API_TOKEN_SETUP = ('set JIRA_AUTH_MODE=api-token, JIRA_USER_EMAIL=you@example.com, and '
+                   'JIRA_TOKEN=your_api_token in .hypershell/fullsend.env (Fullsend settings, not acli flags)')
+
+
 def private_command(argv):
     """Never put credential-command output into an error or log."""
     try:
@@ -27,7 +31,7 @@ def private_command(argv):
     except (OSError, subprocess.TimeoutExpired):
         raise JiraAuthError(f'{argv[0]} could not run; check your local Jira authentication setup') from None
     if result.returncode:
-        raise JiraAuthError(f'{argv[0]} failed; run acli jira auth login --web or choose --jira-auth api-token')
+        raise JiraAuthError(f'{argv[0]} failed; check your acli login or {API_TOKEN_SETUP}')
     return result.stdout
 
 
@@ -42,7 +46,7 @@ def acli_profile():
     try:
         import yaml
     except ImportError:
-        raise JiraAuthError('acli auth mode needs PyYAML on the host; install python3-yaml or use --jira-auth api-token') from None
+        raise JiraAuthError(f'acli auth mode needs PyYAML on the host; install python3-yaml or {API_TOKEN_SETUP}') from None
     config_dir = Path(os.environ.get('ACLI_CONFIG_DIR') or
                       str(Path(os.environ.get('XDG_CONFIG_HOME', str(Path.home()/'.config')))/'acli'))
     try:
@@ -53,7 +57,7 @@ def acli_profile():
             raise ValueError('ambiguous or missing active profile')
         profile = profiles[0]
         if profile['auth_type'] not in ('oauth', 'oauth_global'):
-            raise JiraAuthError('The active acli Jira profile is not OAuth; use acli jira auth login --web or --jira-auth api-token')
+            raise JiraAuthError(f'The active acli Jira profile is not OAuth; {API_TOKEN_SETUP}')
         profile = {key: profile[key] for key in ('site', 'cloud_id', 'account_id')}
         if not re.fullmatch(r'[A-Za-z0-9-]+', profile['cloud_id']):
             raise ValueError('invalid cloud id')
@@ -88,7 +92,7 @@ def read_keyring(profile):
     elif sys.platform.startswith('linux'):
         data = private_command(['secret-tool', 'lookup', 'service', 'acli', 'username', username])
     else:
-        raise JiraAuthError('acli credential snapshots support Linux and macOS; use --jira-auth api-token on this host')
+        raise JiraAuthError(f'acli credential snapshots support Linux and macOS; {API_TOKEN_SETUP} on this host')
     try:
         if data.startswith(b'go-keyring-base64:'):
             data = base64.b64decode(data.split(b':', 1)[1], validate=True)
@@ -106,7 +110,7 @@ def read_keyring(profile):
         # Deliberately do not return refresh_token or other keyring fields.
         return {'authorization': 'Bearer ' + access_token, 'expires_at': expiry.isoformat()}
     except (ValueError, KeyError, TypeError, AttributeError, OSError, EOFError):
-        raise JiraAuthError('Unsupported acli keyring format; reauthenticate or use --jira-auth api-token') from None
+        raise JiraAuthError(f'Unsupported acli keyring format; reauthenticate or {API_TOKEN_SETUP}') from None
 
 
 def snapshot(selection, scope, lock_path):
