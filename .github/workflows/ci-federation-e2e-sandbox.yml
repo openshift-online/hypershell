@@ -1,0 +1,232 @@
+# End-to-end test for keyless CI federation ALL THE WAY to a running sandbox.
+#
+# This extends ci-federation-test.yml (which proves only the OIDC mint + token
+# exchange) with the remaining legs: inject the exchanged gateway-scoped token
+# into the openshell CLI, create a sandbox on the gateway, exec a command inside
+# it, capture the output, and clean up. It runs in THIS repo so the minted OIDC
+# token carries repository=openshift-online/hypershell, matching the test
+# CITrust's subject predicate.
+#
+# Architecture (see docs/how-to/ci-federation-from-github-actions.md):
+#   GitHub runner (this job) is a CLIENT. It mints an OIDC token, exchanges it at
+#   the hyp0 Keycloak for a token scoped to the agents-gateway Keycloak client,
+#   injects that token into the openshell CLI config, then drives the gateway over
+#   gRPC. The sandbox itself runs on the gateway's cluster (hyp0-spoke2); the exec
+#   output is streamed back here.
+#
+# The openshell CLI is NOT in the agent-runtime images; the gateway-compatible
+# build is published as quay.io/opendatahub/odh-openshell-cli:<same-tag-as-gateway>.
+# We run it via `docker run` (the CLI image's entrypoint is `openshell`), mirroring
+# scripts/kind/openshell.sh. The CLI image has no jq/python3, so the JSON work
+# (mint, exchange, claim assertions) runs on the ubuntu-latest host, which has jq.
+name: CI OIDC Federation E2E (sandbox)
+
+on:
+  workflow_dispatch:
+    inputs:
+      gateway_audience:
+        description: Keycloak client id of the target gateway (also the token audience)
+        required: false
+        default: "3LyWC8i0llnDdrxOX4J4CQWDD5f"
+      gateway_endpoint:
+        description: Gateway endpoint (https URL form, port 443)
+        required: false
+        default: "https://gw-openshell-58f66bfcd73e8f46.hyp0-spoke2.infra.hypershell.app:443"
+      cli_image:
+        description: Version-matched openshell CLI image (same tag as the gateway)
+        required: false
+        default: "quay.io/opendatahub/odh-openshell-cli:v0.1.8-rhaiv.0"
+      keycloak_url:
+        description: Keycloak base URL
+        required: false
+        default: "https://keycloak.hyp0.infra.hypershell.app"
+      realm:
+        description: Keycloak realm
+        required: false
+        default: "hypershell"
+      fleet_audience:
+        description: Audience the OIDC token is minted for (CIProvider.audience)
+        required: false
+        default: "openshell-fleet"
+      requester_client:
+        description: Public keyless token-exchange requester client
+        required: false
+        default: "ci-federation"
+      idp_alias:
+        description: Forge IdP alias
+        required: false
+        default: "github-actions"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    env:
+      KEYCLOAK_URL: ${{ inputs.keycloak_url }}
+      REALM: ${{ inputs.realm }}
+      FLEET_AUD: ${{ inputs.fleet_audience }}
+      REQUESTER: ${{ inputs.requester_client }}
+      IDP_ALIAS: ${{ inputs.idp_alias }}
+      GATEWAY_AUDIENCE: ${{ inputs.gateway_audience }}
+      GATEWAY_ENDPOINT: ${{ inputs.gateway_endpoint }}
+      CLI_IMAGE: ${{ inputs.cli_image }}
+      GATEWAY_NAME: agents-gateway
+      SANDBOX_NAME: ci-${{ github.run_id }}
+    steps:
+      - name: Mint GitHub Actions OIDC token
+        id: oidc
+        run: |
+          set -euo pipefail
+          tok="$(curl -sS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${FLEET_AUD}" | jq -r '.value')"
+          if [[ -z "$tok" || "$tok" == "null" ]]; then
+            echo "Failed to mint OIDC token" >&2; exit 1
+          fi
+          echo "::add-mask::$tok"
+          echo "token=$tok" >> "$GITHUB_OUTPUT"
+          payload="$(echo "$tok" | cut -d. -f2 | tr '_-' '/+')"
+          case $(( ${#payload} % 4 )) in 2) payload="$payload==";; 3) payload="$payload=";; esac
+          echo "OIDC subject claims:"
+          echo "$payload" | base64 -d 2>/dev/null | jq '{repository, repository_owner, ref, actor, aud}' || true
+
+      - name: Exchange for a gateway-scoped token
+        id: exchange
+        env:
+          OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
+        run: |
+          set -euo pipefail
+          resp="$(curl -sS -X POST \
+            "${KEYCLOAK_URL}/realms/${REALM}/protocol/openid-connect/token" \
+            -d 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange' \
+            -d "client_id=${REQUESTER}" \
+            -d "subject_token=${OIDC_TOKEN}" \
+            -d "subject_issuer=${IDP_ALIAS}" \
+            -d 'subject_token_type=urn:ietf:params:oauth:token-type:jwt' \
+            -d "audience=${GATEWAY_AUDIENCE}")"
+          access="$(echo "$resp" | jq -r '.access_token // empty')"
+          if [[ -z "$access" ]]; then
+            echo "Token exchange FAILED:" >&2
+            echo "$resp" | jq '{error, error_description}' >&2 || echo "$resp" >&2
+            exit 1
+          fi
+          echo "::add-mask::$access"
+          echo "access=$access" >> "$GITHUB_OUTPUT"
+          payload="$(echo "$access" | cut -d. -f2 | tr '_-' '/+')"
+          case $(( ${#payload} % 4 )) in 2) payload="$payload==";; 3) payload="$payload=";; esac
+          claims="$(echo "$payload" | base64 -d 2>/dev/null)"
+          echo "Exchanged token claims:"
+          echo "$claims" | jq '{aud, azp, preferred_username, scope, hypershell_roles: .hypershell.roles}' || true
+          # Assert audience and role (the nested hypershell.roles proves the CITrust realized).
+          aud="$(echo "$claims" | jq -r 'if (.aud|type)=="array" then .aud|join(",") else (.aud // "") end')"
+          if ! printf ',%s,' "$aud" | grep -q ",${GATEWAY_AUDIENCE},"; then
+            echo "ASSERT FAILED: exchanged token aud ($aud) does not contain ${GATEWAY_AUDIENCE}." >&2; exit 1
+          fi
+          roles="$(echo "$claims" | jq -r '(.hypershell.roles // []) | join(",")')"
+          if ! printf ',%s,' "$roles" | grep -q ',openshell-user,'; then
+            echo "ASSERT FAILED: exchanged token missing openshell-user (hypershell.roles=[$roles])." >&2; exit 1
+          fi
+          echo "ASSERT OK: aud=${GATEWAY_AUDIENCE}, hypershell.roles contains openshell-user."
+          {
+            echo "aud=${aud}"
+            echo "roles=${roles}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Inject the exchanged token into the openshell CLI config
+        env:
+          ACCESS: ${{ steps.exchange.outputs.access }}
+        run: |
+          set -euo pipefail
+          CFG="${RUNNER_TEMP}/osh-config"
+          GW_DIR="${CFG}/gateways/${GATEWAY_NAME}"
+          mkdir -p "${GW_DIR}"
+          # metadata.json schema matches what `openshell gateway add` writes.
+          cat > "${GW_DIR}/metadata.json" <<JSON
+          {
+            "name": "${GATEWAY_NAME}",
+            "gateway_endpoint": "${GATEWAY_ENDPOINT}",
+            "is_remote": true,
+            "gateway_port": 0,
+            "auth_mode": "oidc",
+            "oidc_issuer": "${KEYCLOAK_URL}/realms/${REALM}",
+            "oidc_client_id": "${GATEWAY_AUDIENCE}",
+            "oidc_audience": "${GATEWAY_AUDIENCE}"
+          }
+          JSON
+          # oidc_token.json schema matches scripts/kind/openshell.sh token injection.
+          cat > "${GW_DIR}/oidc_token.json" <<JSON
+          {"access_token": "${ACCESS}", "issuer": "${KEYCLOAK_URL}/realms/${REALM}", "client_id": "${GATEWAY_AUDIENCE}"}
+          JSON
+          printf '%s' "${GATEWAY_NAME}" > "${CFG}/active_gateway"
+          chmod -R a+rX "${CFG}"
+          echo "CFG=${CFG}" >> "$GITHUB_ENV"
+          echo "Wrote openshell config (token redacted):"
+          sed 's/"access_token": "[^"]*"/"access_token": "<redacted>"/' "${GW_DIR}/oidc_token.json"
+          cat "${GW_DIR}/metadata.json"
+
+      - name: Verify gateway connectivity (whoami + status)
+        run: |
+          set -euo pipefail
+          osh() { docker run --rm --user 0 -e HOME=/root -e OPENSHELL_GATEWAY_INSECURE=true \
+            -v "${CFG}:/root/.config/openshell" "${CLI_IMAGE}" "$@"; }
+          echo "::group::openshell whoami"
+          osh -g "${GATEWAY_NAME}" whoami || true
+          echo "::endgroup::"
+          echo "::group::openshell status"
+          osh -g "${GATEWAY_NAME}" status || true
+          echo "::endgroup::"
+
+      - name: Create sandbox, exec a command, capture output
+        id: sandbox
+        run: |
+          set -euo pipefail
+          osh() { docker run --rm --user 0 -e HOME=/root -e OPENSHELL_GATEWAY_INSECURE=true \
+            -v "${CFG}:/root/.config/openshell" "${CLI_IMAGE}" "$@"; }
+          echo "Creating sandbox ${SANDBOX_NAME} ..."
+          osh -g "${GATEWAY_NAME}" sandbox create --name "${SANDBOX_NAME}" --detach -- sleep 600
+          echo "Listing sandboxes:"
+          osh -g "${GATEWAY_NAME}" sandbox list || true
+          echo "Executing command in sandbox ..."
+          out="$(osh -g "${GATEWAY_NAME}" sandbox exec "${SANDBOX_NAME}" -- sh -c 'echo "hello from CI sandbox"; uname -a; whoami; id')"
+          echo "---- exec output ----"
+          echo "$out"
+          echo "---------------------"
+          # Persist for the summary step.
+          printf '%s\n' "$out" > "${RUNNER_TEMP}/exec-output.txt"
+          if ! grep -q "hello from CI sandbox" "${RUNNER_TEMP}/exec-output.txt"; then
+            echo "ASSERT FAILED: expected marker not found in exec output." >&2; exit 1
+          fi
+          echo "ASSERT OK: exec ran in the sandbox and returned the expected marker."
+
+      - name: Delete the sandbox (always)
+        if: always()
+        run: |
+          set +e
+          [ -n "${CFG:-}" ] || exit 0
+          docker run --rm --user 0 -e HOME=/root -e OPENSHELL_GATEWAY_INSECURE=true \
+            -v "${CFG}:/root/.config/openshell" "${CLI_IMAGE}" \
+            -g "${GATEWAY_NAME}" sandbox delete "${SANDBOX_NAME}"
+          echo "Cleanup requested for ${SANDBOX_NAME} (exit $?)."
+
+      - name: Summary report
+        if: always()
+        env:
+          AUD_CLAIM: ${{ steps.exchange.outputs.aud }}
+          ROLES_CLAIM: ${{ steps.exchange.outputs.roles }}
+        run: |
+          {
+            echo "# Keyless GitHub Actions -> openshell sandbox (e2e)"
+            echo ""
+            echo "- **Run:** ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "- **Gateway:** \`${GATEWAY_NAME}\` (client \`${GATEWAY_AUDIENCE}\`)"
+            echo "  - endpoint: \`${GATEWAY_ENDPOINT}\`"
+            echo "  - console: https://console-openshell-58f66bfcd73e8f46.hyp0-spoke2.infra.hypershell.app"
+            echo "- **Exchanged-token proof:** aud=\`${AUD_CLAIM:-?}\`, hypershell.roles=\`${ROLES_CLAIM:-?}\`"
+            echo ""
+            echo "## Sandbox exec output"
+            echo '```'
+            cat "${RUNNER_TEMP}/exec-output.txt" 2>/dev/null || echo "(no exec output captured)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
