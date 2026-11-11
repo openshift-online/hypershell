@@ -166,6 +166,7 @@ grep -rn  "<OLD_VERSION>" . | grep -v '\.git/'      # must return only intention
 | `specs/platform/openshell-image-auto-update.spec.md` | example gateway tag | Pin citation |
 | Digests in specs and `ibm-cluster/SKILL.md` | `sha256:` of gateway, supervisor, sandbox | Replace the old digest strings too, not only the tag; read new ones from the Quay tag API. If the Quay API is unreachable, fall back to a tag-only reference (never pair a new tag with the old digest) and record the gap - see the 2026-10-23 Learnings entry |
 | `tests/e2e/cli_test.go` | `odh-openshell-cli:<TAG>` image pin used by the CLI e2e | Pin, not a fixture |
+| `DEVELOPMENT.md` | the `for example` tag in the "Controller image OpenShell release label" section | Prose doc example that is kept in sync with the real pin (it matched the current pin exactly before every prior bump); treat as a pin. Added on the v0.1.8-rhaiv.0 bump after the full-image grep missed it and the bare-digits grep caught it |
 | `components/control-plane/internal/helm/values_test.go` | none | Assertions copy the chart's rendered TOML text; update them when a chart upgrade changes spacing (see Learnings log) |
 
 **Do NOT change** version strings that are illustrative fixtures or historical
@@ -180,6 +181,12 @@ facts rather than the active pin:
   and the `packages/` and `components/web-console/` test fixtures - these are
   illustrative values, not pins.
 - the arbitrary tag strings in `scripts/test_sync_openshell_version.py`.
+- the sample `TAG` in `scripts/test_check_controller_image_label.py` and the
+  `e.g. v<...>` format example in the comment of
+  `scripts/check_controller_image_label.py` - both are arbitrary strings
+  illustrating the single-release-identifier format the label check enforces,
+  not the deployed pin. The bare-digits grep flags them. (Noted on the
+  v0.1.8-rhaiv.0 bump.)
 - the `v0.1.5-rhaiv.2` string passed to `RegisterClusterIdentityInfo` in
   `components/control-plane/internal/otel/metrics_test.go` and asserted in
   `specs/platform/control-plane-observability.spec.md` (OBS-CPL-09.01) - the
@@ -631,6 +638,86 @@ If a run produced no new lessons, that is itself worth a one-line log entry
 ## Learnings log
 
 Newest first. Each entry: version, date, what happened, what changed in the repo.
+
+- **v0.1.8-rhaiv.0 (2026-11-11, v0.1.6-rhaiv.4 -> v0.1.8-rhaiv.0, no-arg scheduled
+  run = latest stable midstream):** Clean mechanical bump across two NVIDIA base
+  versions (v0.1.6 -> v0.1.7 -> v0.1.8). `go build/vet/test` (control-plane, all
+  packages incl. `internal/helm` rendered-TOML assertions) and `make check`
+  (EXIT=0, all sub-checks) passed with no code changes.
+  - **Full toolchain and network this run.** Unlike every run since 2026-10-23,
+    this runtime had a working Go toolchain (go1.26.7), `make` could spawn
+    recipes, podman was present, AND `quay.io` was reachable. So the console
+    digest and the three ROKS mirror digests were resolved properly instead of
+    deferred. Gateway `sha256:7bd60c68...`, supervisor `sha256:26c50d37...`,
+    sandbox `sha256:36043b9e...` (from the Quay tag API). Lesson: the
+    sandbox-limits entry below is per-run, not permanent; always probe
+    reachability rather than assuming the gap.
+  - **httpPort local patch erased and re-applied (as the dedicated section
+    predicts).** `make vendor-openshell-chart` dropped the `service.httpPort`
+    block from `service.yaml`/`values.yaml`/`README.md` and deleted
+    `tests/service_test.yaml`. Re-applied all four. Note: upstream v0.1.8 *also*
+    changed `service.yaml` in the same region (the metrics Service port now gates
+    on `include "openshell.metricsEnabled" .` instead of
+    `.Values.service.metricsPort`, #3877), so the httpPort block was re-inserted
+    on top of the new upstream file rather than restoring the whole file from
+    `50b58030`. Final `git diff` of `service.yaml` vs HEAD shows only the upstream
+    `metricsEnabled` one-liner; `service_test.yaml` is byte-identical to pre-vendor.
+  - **Console v0.1.1 -> v0.1.3.** Newest dashboard release on line 0.1
+    (`sha256:873d4379...`), tested on gateway 0.1.6, adds suspend-resume client
+    support. Env contract unchanged: every variable `console.go` sets (PORT,
+    OPENSHELL_GATEWAY_URL, GATEWAY_CA_CERT, GATEWAY_CLIENT_CERT/KEY, AUTH_DISABLED,
+    AUTH_TOKEN_HEADER, AUTH_USER_HEADER) is still present in v0.1.3's
+    `docs/configuration.md` with no newly required var. This resolves the
+    long-open console-digest gap tracked by #760/#752 (v0.1.3 supersedes the
+    v0.1.2 those issues named); closed/commented at Step 8.
+  - **Triage (mechanical).** All proto changes additive (no removed non-comment
+    lines across `compute_driver`/`openshell`/`sandbox`/`supervisor_host.proto`).
+    No RBAC template diff (`clusterrole`/`role`/`peer-role`/`clusterrolebinding`
+    byte-identical). Every new upstream feature is opt-in and inert in HyperShell
+    (confirmed by grep returning nothing for `app_listener`,
+    `service_hostname_format`, `supervisor_pool`, `supervisor_topology`,
+    `metrics_tls`, `priorityClassName`, `topologySpreadConstraints`): metrics
+    TLS/mTLS listener (#3877, default plaintext), `priorityClassName` +
+    `topologySpreadConstraints` (#2832, default empty), OTLP http/protobuf +
+    headers + mTLS (#5082/#5083/#5084, default gRPC), in-place sandbox update
+    (#4873), `supervisor_runtime_class_name` (#5349), hashed
+    `service_hostname_format` (#4842, not applicable to per-tenant routing).
+    OCSF 1.8.0 breaking change (#5036) is inert: zero `ocsf`/`schema_version`
+    refs in `components/`. NVIDIA Go SDK deprecation (#5245) is inert: HyperShell
+    imports neither `NVIDIA/OpenShell/sdk/go` nor `ai-openshell/sdk-go`. The
+    `_toml.tpl` `sandbox_runtime`/`app_listener` unset and the `metrics_tls`
+    rendering did not shift HyperShell's rendered TOML (helm `values_test.go`
+    passed unmodified).
+  - **needs-decision surfaced (not newly blocking the bump):**
+    - **Issue #234 (per-sandbox ExposeService HTTP virtual-hosting gap) now has
+      upstream support to evaluate.** v0.1.7 #4936 added an opt-in supervisor TLS
+      listener that lets declared HTTP/WebSocket sandbox services take
+      application traffic directly, and v0.1.8 #4940 has supervisors advertise
+      installed application routes so gateways can discover them (both dedicated
+      and shared supervisors); the chart gained `app_listener` plumbing and a
+      `tests/app_listener_test.yaml`. This directly overlaps HyperShell's open
+      #234 (neither route nor gateway-api mode provisions routing for
+      ExposeService). Not adopted in this bump (HyperShell sets no app_listener
+      values, so it renders inert); flagged on #234 for a routing-design decision.
+    - **Issue #809 (gateway refuses to start without an auth mechanism) still
+      applies verbatim** at v0.1.8-rhaiv.0; this run did not touch
+      `ValidateRenderedGatewayConfig`. Commented on #809 noting the new tag,
+      matching prior bumps.
+    - **v0.1.8 #4886 (static provider credential placement) and #5336 (REST 403
+      on HTTP upgrade; websocket policy config)** are gateway/supervisor
+      policy-and-credential-layer changes (per-sandbox policy and imported
+      credential profiles), not chart-rendered surfaces HyperShell controls, so
+      mechanical for the bump. #4886 does note an upgrade ordering (gateway before
+      supervisor); HyperShell deploys both from one tag together, so no action,
+      but worth a live check on the next ROKS/Kind e2e. Recorded, not blocking.
+  - **Footprint gap found and fixed:** `DEVELOPMENT.md`'s "Controller image
+    OpenShell release label" section carried the current pin as a `for example`
+    value and was never in the footprint table, yet it had tracked the pin
+    exactly through prior bumps (someone kept it synced by hand). The full-image
+    grep misses it (no `odh-openshell-...:` prefix on the line); the bare-digits
+    grep caught it. Added a table row and bumped it. Also added the
+    `scripts/{check,test_check}_controller_image_label.py` sample strings to the
+    do-not-change list (arbitrary format fixtures the bare-digits grep flags).
 
 - **Skill confirmation (2026-11-05, already-open-PR check worked as designed):**
   This scheduled run resolved the same target as the prior run,
