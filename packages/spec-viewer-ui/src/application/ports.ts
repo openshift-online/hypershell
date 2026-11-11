@@ -2,6 +2,7 @@
 // receives them through the composition root in src/main.tsx.
 
 import type { FileReferences, SourceLanguage } from "../domain/references";
+import type { SourceHighlight } from "../domain/source-highlight";
 import type { MarkdownBlock, SpecFileSource } from "../domain/spec-document";
 import type { MarkerLine } from "../domain/traceability";
 
@@ -26,11 +27,8 @@ export interface SpecSourcePort {
 export interface MarkdownPort {
   /** Splits markdown into its top-level blocks. */
   lex(source: string): MarkdownBlock[];
-  /**
-   * Renders markdown to HTML. The n-th top-level heading (matching `lex`)
-   * receives the element id `headingId(n)`.
-   */
-  render(source: string, headingId: (index: number) => string): string;
+  /** Visible text of the rendered markdown, without markup. */
+  text(source: string): string;
 }
 
 export interface PinStorePort {
@@ -50,11 +48,8 @@ export interface RepositoryPort {
 }
 
 export interface SyntaxHighlighterPort {
-  /**
-   * Renders source code as HTML with one `<span class="line">` per line,
-   * colored for the given language.
-   */
-  highlight(code: string, language: SourceLanguage): Promise<string>;
+  /** Tokenized source code, one line at a time, for both color themes. */
+  highlight(code: string, language: SourceLanguage): Promise<SourceHighlight>;
 }
 
 export interface SpecViewerPorts {

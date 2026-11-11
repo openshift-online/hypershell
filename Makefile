@@ -248,6 +248,14 @@ test-forbidden-terms-policy:
 check-forbidden-terms: test-forbidden-terms-policy
 	python3 scripts/check_forbidden_terms.py
 
+.PHONY: test-forbidden-dom-injection-policy
+test-forbidden-dom-injection-policy:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_check_forbidden_dom_injection.py
+
+.PHONY: check-forbidden-dom-injection
+check-forbidden-dom-injection: test-forbidden-dom-injection-policy
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_forbidden_dom_injection.py
+
 .PHONY: test-kind-conformance-policy
 test-kind-conformance-policy:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_check_kind_conformance.py
@@ -353,7 +361,7 @@ check-ci-impact-scopes: test-ci-impact-scopes-policy
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_ci_impact_scopes.py
 
 .PHONY: check
-check: check-forbidden-terms check-kind-conformance check-dependency-pins check-ci-components check-deploy-orphans check-dependency-age check-openshell-version check-cli-drift check-spec-ids check-ci-impact-scopes test-release-bundle test-coverage-report
+check: check-forbidden-terms check-forbidden-dom-injection check-kind-conformance check-dependency-pins check-ci-components check-deploy-orphans check-dependency-age check-openshell-version check-cli-drift check-spec-ids check-ci-impact-scopes test-release-bundle test-coverage-report
 
 # ============================================================================
 # Git hooks
