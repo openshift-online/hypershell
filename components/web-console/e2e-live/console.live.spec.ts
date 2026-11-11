@@ -11,6 +11,9 @@ import {
 
 const username = process.env.E2E_OIDC_USERNAME ?? "admin";
 const password = process.env.E2E_OIDC_PASSWORD ?? "admin";
+const devUsername = process.env.E2E_DEV_USERNAME ?? "developer";
+const directoryTimeout =
+  Number(process.env.E2E_DIRECTORY_TIMEOUT ?? "420") * 1_000;
 const mode = process.env.E2E_MODE ?? "long";
 const provisionTimeout =
   Number(process.env.E2E_PROVISION_TIMEOUT ?? "300") * 1_000;
@@ -55,6 +58,44 @@ async function logIn(page: Page) {
     await page.getByRole("button", { name: /sign in|log in/iu }).click();
   }
   await expect(homepageHeading).toBeVisible({ timeout: pageTimeout });
+}
+
+async function openAccessTab(page: Page, id: string) {
+  await page.goto(`/gateways/${id}`);
+  await page.getByRole("tab", { name: "Manage access" }).click();
+  await expect(page.getByRole("button", { name: "Add users" })).toBeVisible({
+    timeout: pageTimeout,
+  });
+}
+
+function accessRow(page: Page, user: string) {
+  return page
+    .getByRole("row")
+    .filter({ has: page.getByRole("cell", { name: user, exact: true }) });
+}
+
+// The picker reads a control-plane snapshot of the realm that refreshes on a
+// timer (GTW-ACC-09), so wait until the seeded user is searchable.
+async function waitForDirectoryUser(
+  api: APIRequestContext,
+  id: string,
+  user: string,
+) {
+  await expect
+    .poll(
+      async () => {
+        const response = await api.get(
+          `/api/hypershell/v1/gateways/${id}/access/directory?search=${encodeURIComponent(user)}`,
+        );
+        if (!response.ok()) return [];
+        const body = (await response.json()) as {
+          items?: { username: string }[];
+        };
+        return (body.items ?? []).map((item) => item.username);
+      },
+      { timeout: directoryTimeout, intervals: [2_000, 5_000, 10_000] },
+    )
+    .toContain(user);
 }
 
 async function readGateway(api: APIRequestContext, id: string) {
@@ -329,6 +370,104 @@ test.describe("live console user journey", () => {
       expectedInstallerVersion,
     );
     expect(renderedInstall).toBe(expectedCommand);
+  });
+
+  test("grants a realm user access through Add users", async ({ page }) => {
+    // GTW-ACC-03, GTW-ACC-04.01, GTW-ACC-04.02, GTW-ACC-09.01
+    test.setTimeout(directoryTimeout + pageTimeout + 60_000);
+    expect(
+      gatewayId,
+      "the provisioning test must create a gateway",
+    ).toBeDefined();
+    if (gatewayId === undefined) return;
+    const createdGatewayId = gatewayId;
+    await logIn(page);
+    await waitForDirectoryUser(page.request, createdGatewayId, devUsername);
+    await openAccessTab(page, createdGatewayId);
+
+    await page.getByRole("button", { name: "Add users" }).click();
+    const dialog = page.getByRole("dialog", { name: "Add users" });
+    await dialog
+      .getByRole("combobox", { name: "Search the identity directory" })
+      .fill(devUsername);
+    await page
+      .getByRole("option", { name: new RegExp(devUsername, "iu") })
+      .click();
+    await dialog.getByRole("radio", { name: /^User/u }).check();
+    const grantResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        response.url().endsWith(`/gateways/${createdGatewayId}/access`),
+    );
+    await dialog.getByRole("button", { name: "Grant access" }).click();
+    expect((await grantResponse).ok()).toBe(true);
+
+    // A "user" grant keeps the dialog open on the workspace-access step.
+    const workspaceStep = page.getByRole("dialog", {
+      name: "Grant workspace access",
+    });
+    await expect(workspaceStep).toBeVisible();
+    await workspaceStep.getByRole("button", { name: "Close" }).first().click();
+    await expect(workspaceStep).toBeHidden();
+
+    const row = accessRow(page, devUsername);
+    await expect(row).toBeVisible({ timeout: pageTimeout });
+    await expect(
+      row.getByRole("button", { name: /^Change role:/u }),
+    ).toHaveText("User");
+  });
+
+  test("changes and revokes a granted user", async ({ page }) => {
+    // GTW-ACC-05.01, GTW-ACC-06.01
+    test.skip(mode !== "long", "role change and revoke run in long mode");
+    expect(
+      gatewayId,
+      "the provisioning test must create a gateway",
+    ).toBeDefined();
+    if (gatewayId === undefined) return;
+    await logIn(page);
+    await openAccessTab(page, gatewayId);
+
+    const row = accessRow(page, devUsername);
+    await expect(row).toBeVisible({ timeout: pageTimeout });
+    const roleControl = row.getByRole("button", { name: /^Change role:/u });
+    await roleControl.click();
+    await page.getByRole("option", { name: "Admin" }).click();
+    await expect(roleControl).toHaveText("Admin", { timeout: pageTimeout });
+
+    await row.getByRole("button", { name: /^Remove access:/u }).click();
+    const confirm = page.getByRole("dialog", { name: /^Remove access for/u });
+    await confirm.getByRole("button", { name: "Remove access" }).click();
+    await expect(confirm).toBeHidden();
+    await expect(accessRow(page, devUsername)).toHaveCount(0, {
+      timeout: pageTimeout,
+    });
+  });
+
+  test("shows no results for an unknown directory user", async ({ page }) => {
+    // GTW-ACC-04.06, GTW-ACC-09.01: the picker cannot select a missing user.
+    test.skip(mode !== "long", "negative picker case runs in long mode");
+    expect(
+      gatewayId,
+      "the provisioning test must create a gateway",
+    ).toBeDefined();
+    if (gatewayId === undefined) return;
+    await logIn(page);
+    await openAccessTab(page, gatewayId);
+
+    await page.getByRole("button", { name: "Add users" }).click();
+    const dialog = page.getByRole("dialog", { name: "Add users" });
+    await dialog
+      .getByRole("combobox", { name: "Search the identity directory" })
+      .fill(`ghost-${runId}`);
+    await expect(page.getByText("No matching users")).toBeVisible({
+      timeout: pageTimeout,
+    });
+    await expect(
+      dialog.getByRole("button", { name: "Grant access" }),
+    ).toBeDisabled();
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(dialog).toBeHidden();
   });
 
   test("deletes the gateway from its actions menu", async ({ page }) => {
