@@ -639,6 +639,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			reconcileErr = fmt.Errorf("ensure gateway bootstrap admin for %q: %w", gw.Name, err)
 			return watcher.WithRetryableReason(watcher.PreservePayloadForRetry(reconcileErr), reason)
 		}
+		r.markBootstrapAdminReady(ctx, event.ResourceID)
 		if r.keycloakClient != nil && isGatewayKeycloakClientStatus(gw.GetStatus()) {
 			if err := r.updateGatewayStatus(ctx, event.ResourceID, ""); err != nil {
 				outcome = cpotel.OutcomeRetryable
@@ -849,6 +850,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		reconcileErr = fmt.Errorf("ensure gateway bootstrap admin for %q: %w", gw.Name, err)
 		return watcher.WithRetryableReason(watcher.PreservePayloadForRetry(reconcileErr), reason)
 	}
+	r.markBootstrapAdminReady(ctx, event.ResourceID)
 
 	// Step 5: GatewayHealthy
 	gateway.SetCondition(conditions, gateway.ConditionGatewayHealthy, gateway.StatusInProgress, "")
@@ -1590,6 +1592,16 @@ func (r *GatewayReconciler) ensureBootstrapAdmin(ctx context.Context, gatewayID 
 		GatewayID: gatewayID, GatewayNamespace: namespace,
 		Issuer: oidcConfig.Issuer, GatewayClientID: clientID,
 	})
+}
+
+func (r *GatewayReconciler) markBootstrapAdminReady(ctx context.Context, gatewayID string) {
+	if r.bootstrapAdmin == nil || !r.bootstrapAdmin.Configured() {
+		return
+	}
+	r.updateProvisioningConditions(ctx, gatewayID, []gateway.ProvisioningCondition{{
+		Type:            gateway.ConditionDefaultWorkspaceBootstrapReady,
+		ConditionStatus: gateway.StatusComplete,
+	}})
 }
 
 type StubGatewayReconciler struct{}
