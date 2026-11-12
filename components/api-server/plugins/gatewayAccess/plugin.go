@@ -4,6 +4,8 @@ import (
 	"net/http"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/routes"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/defaultWorkspaceBootstrap"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/users"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
@@ -16,12 +18,22 @@ type ServiceLocator func() Service
 
 func NewServiceLocator(env *environments.Env) ServiceLocator {
 	return func() Service {
+		gatewayLookup := gatewayLookupOverride
+		if gatewayLookup == nil {
+			gatewayLookup = gateways.Service(&env.Services)
+		}
+		bootstrap := defaultWorkspaceBootstrapOverride
+		if bootstrap == nil {
+			bootstrap = defaultWorkspaceBootstrap.ServiceFrom(&env.Services)
+		}
 		return NewService(
 			newDao(&env.Database.SessionFactory),
 			roleBindings.Service(&env.Services),
 			users.Service(&env.Services),
 			newDirectoryResolverFromEnvironment(),
 			db.NewAdvisoryLockFactory(env.Database.SessionFactory),
+			gatewayLookup,
+			bootstrap,
 		)
 	}
 }

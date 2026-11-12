@@ -7356,6 +7356,13 @@
             ]
           },
           {
+            "name": "skip_default_workspace_bootstrap",
+            "type": "boolean",
+            "required": false,
+            "description": "Skip adding an eligible user to the gateway's OpenShell default workspace",
+            "default": false
+          },
+          {
             "name": "subject",
             "type": "string",
             "required": false,

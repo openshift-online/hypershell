@@ -7,6 +7,7 @@ Name | Type | Description | Notes
 **Username** | **string** |  |
 **Subject** | Pointer to **string** | Optional Keycloak subject reference returned by the directory search | [optional]
 **Role** | [**GatewayAccessRole**](GatewayAccessRole.md) |  |
+**SkipDefaultWorkspaceBootstrap** | Pointer to **bool** | Skip adding an eligible user to the gateway&#39;s OpenShell default workspace | [optional] [default to false]
 
 ## Methods
 
@@ -91,6 +92,31 @@ and a boolean to check if the value has been set.
 
 SetRole sets Role field to given value.
 
+
+### GetSkipDefaultWorkspaceBootstrap
+
+`func (o *GatewayAccessGrantRequest) GetSkipDefaultWorkspaceBootstrap() bool`
+
+GetSkipDefaultWorkspaceBootstrap returns the SkipDefaultWorkspaceBootstrap field if non-nil, zero value otherwise.
+
+### GetSkipDefaultWorkspaceBootstrapOk
+
+`func (o *GatewayAccessGrantRequest) GetSkipDefaultWorkspaceBootstrapOk() (*bool, bool)`
+
+GetSkipDefaultWorkspaceBootstrapOk returns a tuple with the SkipDefaultWorkspaceBootstrap field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetSkipDefaultWorkspaceBootstrap
+
+`func (o *GatewayAccessGrantRequest) SetSkipDefaultWorkspaceBootstrap(v bool)`
+
+SetSkipDefaultWorkspaceBootstrap sets SkipDefaultWorkspaceBootstrap field to given value.
+
+### HasSkipDefaultWorkspaceBootstrap
+
+`func (o *GatewayAccessGrantRequest) HasSkipDefaultWorkspaceBootstrap() bool`
+
+HasSkipDefaultWorkspaceBootstrap returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)

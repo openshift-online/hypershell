@@ -8,13 +8,16 @@ import (
 
 	. "github.com/onsi/gomega"
 
+	"github.com/openshift-online/hypershell/components/api-server/plugins/defaultWorkspaceBootstrap"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/gatewayAccess"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roles"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/users"
 	"github.com/openshift-online/hypershell/components/api-server/test"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
+	trexerrors "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 )
 
 // fakeDirectory is an in-memory Keycloak realm directory keyed by lowercased
@@ -45,6 +48,29 @@ func realm(users ...gatewayAccess.DirectoryUser) fakeDirectory {
 		m[strings.ToLower(u.Username)] = u
 	}
 	return fakeDirectory{users: m}
+}
+
+type fakeGatewayLookup struct{}
+
+func (f fakeGatewayLookup) Get(context.Context, string) (*gateways.Gateway, *trexerrors.ServiceError) {
+	oidc := `{"issuer":"https://issuer.example/realms/hypershell","client_id":"gateway-client","audience":"gateway-client"}`
+	route := "grpcs://gateway.example:443"
+	return &gateways.Gateway{Namespace: "gateway-namespace", Oidc: &oidc, RouteAddress: &route}, nil
+}
+
+type fakeDefaultWorkspaceBootstrap struct{}
+
+func (f fakeDefaultWorkspaceBootstrap) Bootstrap(context.Context, defaultWorkspaceBootstrap.Input) *defaultWorkspaceBootstrap.APIError {
+	return nil
+}
+
+func withDefaultWorkspaceBootstrap() func() {
+	gatewayAccess.SetGatewayLookupForTest(fakeGatewayLookup{})
+	gatewayAccess.SetDefaultWorkspaceBootstrapForTest(fakeDefaultWorkspaceBootstrap{})
+	return func() {
+		gatewayAccess.SetGatewayLookupForTest(nil)
+		gatewayAccess.SetDefaultWorkspaceBootstrapForTest(nil)
+	}
 }
 
 func rbService() roleBindings.RoleBindingService {
@@ -126,6 +152,7 @@ func TestAccessList_FilterByRoleAndSearch(t *testing.T) {
 func TestGrant_NeverSignedInUserPreProvisions(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
+	defer withDefaultWorkspaceBootstrap()()
 	gw := "gw-grant-newuser"
 	owner := seed(t, gw, "owner-np", roles.RoleGatewayOwner)
 
@@ -180,6 +207,7 @@ func TestGrant_AdminCannotAssignOwner(t *testing.T) {
 func TestGrant_AdminCanGrantUser(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
+	defer withDefaultWorkspaceBootstrap()()
 	gw := "gw-admin-grants"
 	seed(t, gw, "owner-ag", roles.RoleGatewayOwner)
 	admin := seed(t, gw, "admin-ag", roles.RoleGatewayAdmin)
@@ -335,6 +363,7 @@ func TestViewerCannotManage(t *testing.T) {
 func TestIdempotentRegrant(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
+	defer withDefaultWorkspaceBootstrap()()
 	gw := "gw-idempotent"
 	owner := seed(t, gw, "owner-id", roles.RoleGatewayOwner)
 	dir := realm(gatewayAccess.DirectoryUser{Username: "repeat"})
@@ -536,6 +565,7 @@ func grantInOwnRequestTransaction(svc gatewayAccess.Service, callerUsername, cal
 func TestGrant_ConcurrentMutualGrantsWithChangedProfilesDoNotDeadlock(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
+	defer withDefaultWorkspaceBootstrap()()
 
 	gwAlice := "gw-mutual-alice"
 	gwBob := "gw-mutual-bob"

@@ -80,3 +80,7 @@ func (f *fakeProvisionerClient) DeleteGateway(context.Context, *pb.DeleteGateway
 func (f *fakeProvisionerClient) ListManaged(context.Context, *pb.ListManagedRequest, ...grpc.CallOption) (*pb.ListManagedResponse, error) {
 	return &pb.ListManagedResponse{}, nil
 }
+
+func (f *fakeProvisionerClient) BootstrapDefaultWorkspace(context.Context, *pb.BootstrapDefaultWorkspaceRequest, ...grpc.CallOption) (*pb.BootstrapDefaultWorkspaceResponse, error) {
+	return &pb.BootstrapDefaultWorkspaceResponse{}, nil
+}

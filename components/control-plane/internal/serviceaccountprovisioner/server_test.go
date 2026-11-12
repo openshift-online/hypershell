@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/provisioner/v1"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/defaultworkspace"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/serviceaccountkeycloak"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -30,6 +31,47 @@ func TestProvisionReturnsOneTimeCredentialAndMapsDesiredState(t *testing.T) {
 	if provider.lastSpec.ClientID != "client-id" || provider.lastSpec.GatewayID != "gateway-id" ||
 		provider.lastSpec.Role != "openshell-user" || provider.lastSpec.AccessTokenLifetimeSeconds != 300 {
 		t.Fatalf("provider spec = %#v", provider.lastSpec)
+	}
+}
+
+func TestBootstrapDefaultWorkspaceForwardsRequestAndMapsErrorsSafely(t *testing.T) {
+	bootstrapper := &fakeBootstrapper{err: errors.New("token response contained super-secret")}
+	server := NewServerWithDefaultWorkspace(&fakeProvider{configured: true}, bootstrapper)
+	_, err := server.BootstrapDefaultWorkspace(t.Context(), &pb.BootstrapDefaultWorkspaceRequest{
+		GatewayId: "gateway-id", GatewayNamespace: "gateway-namespace",
+		GatewayEndpoint: "https://gateway.example:443", Issuer: "https://issuer.example/realms/hypershell",
+		GatewayClientId: "gateway-client", Subject: "subject-id", SubjectType: "user", Role: "user",
+	})
+	if status.Code(err) != codes.Internal {
+		t.Fatalf("BootstrapDefaultWorkspace() code = %s, want Internal", status.Code(err))
+	}
+	if strings.Contains(err.Error(), "super-secret") {
+		t.Fatalf("BootstrapDefaultWorkspace() exposed details: %v", err)
+	}
+	want := defaultworkspace.MemberRequest{
+		AdminSpec: defaultworkspace.AdminSpec{
+			GatewayID: "gateway-id", GatewayNamespace: "gateway-namespace",
+			Issuer: "https://issuer.example/realms/hypershell", GatewayClientID: "gateway-client",
+		},
+		Endpoint: "https://gateway.example:443", Subject: "subject-id",
+		SubjectType: "user", Role: "user",
+	}
+	if bootstrapper.request != want {
+		t.Fatalf("bootstrapper request = %#v, want %#v", bootstrapper.request, want)
+	}
+}
+
+func TestBootstrapDefaultWorkspaceMapsInvalidRequestsToInvalidArgument(t *testing.T) {
+	bootstrapper := &fakeBootstrapper{err: defaultworkspace.ErrInvalidRequest}
+	server := NewServerWithDefaultWorkspace(&fakeProvider{configured: true}, bootstrapper)
+
+	_, err := server.BootstrapDefaultWorkspace(t.Context(), &pb.BootstrapDefaultWorkspaceRequest{
+		GatewayId: "gateway-id", GatewayNamespace: "gateway-namespace",
+		GatewayEndpoint: "https://gateway.example:443", Issuer: "https://issuer.example/realms/hypershell",
+		GatewayClientId: "gateway-client", Subject: "subject-id", SubjectType: "robot", Role: "user",
+	})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("BootstrapDefaultWorkspace() code = %s, want InvalidArgument", status.Code(err))
 	}
 }
 
@@ -93,6 +135,18 @@ type fakeProvider struct {
 	lastUUID             string
 	lastGatewayID        string
 	lastServiceAccountID string
+}
+
+type fakeBootstrapper struct {
+	request defaultworkspace.MemberRequest
+	err     error
+}
+
+func (f *fakeBootstrapper) Configured() bool { return true }
+
+func (f *fakeBootstrapper) AddMember(_ context.Context, request defaultworkspace.MemberRequest) error {
+	f.request = request
+	return f.err
 }
 
 func (f *fakeProvider) Configured() bool { return f.configured }

@@ -17,7 +17,7 @@ A user selects a gateway, an OpenShell role, and an expiration time. HyperShell 
 
 HyperShell derives the gateway audience. It also limits the selected role to the creator's current gateway role. Callers cannot set audiences, claims, or access-token lifetimes.
 
-Version 1 does not support WIF, signed client assertions, opaque access tokens, personal access tokens, or multi-gateway client credentials. It also excludes configurable OpenShell scopes and automatic workspace-membership management.
+Version 1 does not support WIF, signed client assertions, opaque access tokens, personal access tokens, or multi-gateway client credentials. It also excludes configurable OpenShell scopes. HyperShell performs only the one-time reserved `default` workspace bootstrap defined in `default-workspace-membership-bootstrap.spec.md`.
 
 ## Product Decisions
 
@@ -31,7 +31,7 @@ Version 1 does not support WIF, signed client assertions, opaque access tokens, 
 | Can the access token call the HyperShell management API?   | No. This slice of HYPERSHELL-49 authorizes the selected OpenShell gateway only.                                                                                      |
 | What role can a user select?                               | `openshell-user` or `openshell-admin`. An owner may select either role. A viewer may select only `openshell-user`.                                                   |
 | Can one set of client credentials cover multiple gateways? | No. Automation needs one OpenShellGatewayServiceAccount and one audience-specific access token for each gateway.                                                     |
-| Does `openshell-user` inherit workspace access?            | No. An OpenShell gateway administrator must grant the service-account subject membership in each workspace.                                                          |
+| Does `openshell-user` inherit workspace access?            | No. HyperShell adds the service-account subject only to the reserved `default` workspace during creation. Other workspaces require an explicit OpenShell grant.       |
 | How are client credentials replaced?                       | Create and verify a replacement OpenShellGatewayServiceAccount. Then, revoke the old OpenShellGatewayServiceAccount. Delete it when you no longer need its metadata. |
 | Can the OpenShell role change after creation?              | Yes. An authorized caller changes the role, and optionally the description, through the role action endpoint. The requested role is capped at the creator's current gateway role. |
 | Are revoke and delete the same action?                     | No. Revoke permanently stops access-token issuance and retains metadata. Delete removes the Keycloak identity and the visible resource.                              |
@@ -1031,25 +1031,27 @@ The grant does not return a refresh token. The integration SHALL NOT depend on `
 - AND the client secret SHALL not appear in command output
 - AND the gateway SHALL receive only the short-lived access token
 
-### Requirement: OSG-SACC-13 -- Workspace Membership Is a Separate Grant
+### Requirement: OSG-SACC-13 -- Default Workspace Bootstrap
 
 Each service-account client has its own service-account user and stable JWT `sub`. It does not inherit the creator's OpenShell workspace memberships.
 
 An `openshell-admin` OpenShellGatewayServiceAccount can perform OpenShell administrative operations. OpenShell permits this role to bypass workspace membership.
 
-An `openshell-user` OpenShellGatewayServiceAccount can authenticate and call identity or status operations. Workspace operations require a gateway administrator to add the OpenShellGatewayServiceAccount subject to each workspace.
+An `openshell-user` OpenShellGatewayServiceAccount can authenticate and call identity or status operations. During creation, HyperShell SHALL add the service-account subject to the gateway's reserved `default` workspace with role `user` as defined by `default-workspace-membership-bootstrap.spec.md`.
 
 HyperShell SHALL return the non-secret subject. UI and CLI output SHALL label it as the service-account subject and explain the separate workspace grant. The UI SHALL keep the subject available with a copy action after the one-time client-secret view closes.
 
-Version 1 excludes automatic workspace discovery, selection, membership creation, and membership cleanup. HyperShell SHALL NOT report that `openshell-user` grants access to the creator's workspaces.
+Version 1 excludes automatic workspace discovery, selection, membership cleanup, and membership management outside the reserved `default` workspace bootstrap. HyperShell SHALL NOT report that `openshell-user` grants access to the creator's workspaces.
 
-#### Scenario: OSG-SACC-13.01 -- openshell-user OpenShellGatewayServiceAccount has no workspace membership
+#### Scenario: OSG-SACC-13.01 -- openshell-user OpenShellGatewayServiceAccount receives default-workspace membership
 
 - GIVEN a viewer creates an `openshell-user` OpenShellGatewayServiceAccount
-- AND no OpenShell workspace contains the returned service-account subject
-- WHEN its access token calls `whoami`
+- WHEN creation succeeds
+- THEN HyperShell SHALL add the returned service-account subject to the gateway's `default` workspace with role `user`
+- WHEN its access token calls a workspace-scoped operation in `default`
 - THEN the gateway SHALL authenticate it as `openshell-user`
-- BUT workspace-scoped operations SHALL remain denied until an authorized gateway administrator adds that subject as a workspace member
+- AND the workspace-scoped operation SHALL be authorized
+- BUT workspace-scoped operations in other workspaces SHALL remain denied unless an OpenShell administrator grants the subject membership
 
 ### Requirement: OSG-SACC-14 -- Scopes Are Not Configurable in Version 1
 

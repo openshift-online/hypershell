@@ -26,6 +26,7 @@ import (
 	"github.com/openshift-online/hypershell/components/api-server/pkg/secretstore"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/auth"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/config"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/defaultworkspace"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/directory"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
@@ -346,8 +347,14 @@ func main() {
 		})
 	}
 
+	var defaultWorkspaceBootstrapper *defaultworkspace.Manager
 	if cfg.ServiceAccountProvisionerAddress != "" {
-		provisionerServer := serviceaccountprovisioner.NewServer(serviceAccountProvider)
+		if serviceAccountProvider != nil && clientset != nil {
+			defaultWorkspaceBootstrapper = defaultworkspace.NewManager(
+				serviceAccountProvider, clientset, defaultworkspace.NewGRPCOpenShellClient(clientset),
+			)
+		}
+		provisionerServer := serviceaccountprovisioner.NewServerWithDefaultWorkspace(serviceAccountProvider, defaultWorkspaceBootstrapper)
 		transportConfig := serviceaccountprovisioner.TransportConfig{
 			Address: cfg.ServiceAccountProvisionerAddress,
 		}
@@ -406,6 +413,7 @@ func main() {
 			cfg.OperatorWorkspace,
 			cfg.OperatorNamespaceLabelKey,
 			cfg.OperatorSandboxRuntimeClass,
+			defaultWorkspaceBootstrapper,
 		)
 		if grErr != nil {
 			slog.WarnContext(ctx, "Gateway reconciler disabled", "error", grErr)

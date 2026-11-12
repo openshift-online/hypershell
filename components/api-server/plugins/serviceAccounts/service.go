@@ -13,6 +13,7 @@ import (
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/gatewayhealth"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/defaultWorkspaceBootstrap"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
@@ -31,6 +32,8 @@ const (
 	AccessTokenLifetimeSeconds = 300
 
 	serviceAccountsLockType db.LockType = "gateway-service-accounts"
+
+	defaultWorkspaceBootstrapAdminServiceAccountID = "bootstrap-admin"
 
 	// provisioningReclaimAfter is how long a row may remain in Provisioning before
 	// reconciliation reclaims it as abandoned. The per-gateway lock already prevents
@@ -185,6 +188,7 @@ type service struct {
 	gateways    GatewayLookup
 	bindings    BindingLookup
 	provisioner ServiceAccountProvisioner
+	bootstrap   defaultWorkspaceBootstrap.Service
 	lockFactory db.LockFactory
 	now         func() time.Time
 	// scanLimit is the reconciliation scan page size. It defaults to
@@ -192,8 +196,8 @@ type service struct {
 	scanLimit int
 }
 
-func NewService(dao ServiceAccountDao, gatewayService GatewayLookup, bindings BindingLookup, provisioner ServiceAccountProvisioner, lockFactory db.LockFactory) Service {
-	return &service{dao: dao, gateways: gatewayService, bindings: bindings, provisioner: provisioner, lockFactory: lockFactory, now: time.Now, scanLimit: reconcileScanLimit}
+func NewService(dao ServiceAccountDao, gatewayService GatewayLookup, bindings BindingLookup, provisioner ServiceAccountProvisioner, bootstrap defaultWorkspaceBootstrap.Service, lockFactory db.LockFactory) Service {
+	return &service{dao: dao, gateways: gatewayService, bindings: bindings, provisioner: provisioner, bootstrap: bootstrap, lockFactory: lockFactory, now: time.Now, scanLimit: reconcileScanLimit}
 }
 
 // acquireGatewayLock takes the shared per-gateway advisory lock that serializes
@@ -325,6 +329,13 @@ func (s *service) Create(ctx context.Context, gatewayID, userID string, input Cr
 
 	account.KeycloakClientUUID = provisioned.ClientUUID
 	account.Subject = provisioned.Subject
+	if input.Role == RoleUser {
+		if problem := s.bootstrapDefaultWorkspace(ctx, gateway, oidc, provisioned.Subject); problem != nil {
+			const safe = "default_workspace_bootstrap_failed"
+			_ = s.cleanupUndeliveredAccount(ctx, account, userID, safe)
+			return nil, problem
+		}
+	}
 	account.Status = StatusReady
 	account.LastError = nil
 	if err := s.audit(ctx, account, userID, "create", "succeeded"); err != nil {
@@ -778,6 +789,9 @@ func (s *service) cleanupOrphanedClients(ctx context.Context) error {
 	}
 	var cleanupErrors []error
 	for _, client := range clients {
+		if client.ServiceAccountID == defaultWorkspaceBootstrapAdminServiceAccountID {
+			continue
+		}
 		account, getErr := s.dao.Get(ctx, client.GatewayID, client.ServiceAccountID)
 		orphaned := errors.Is(getErr, gorm.ErrRecordNotFound)
 		if getErr != nil && !orphaned {
@@ -1165,6 +1179,30 @@ func serviceAccountSpec(account *OpenShellGatewayServiceAccount, gateway *gatewa
 		Role: account.Role, ExpectedIssuer: oidc.Issuer,
 		AccessTokenLifetimeSeconds: AccessTokenLifetimeSeconds,
 	}
+}
+
+func (s *service) bootstrapDefaultWorkspace(ctx context.Context, gateway *gateways.Gateway, oidc GatewayOIDC, subject string) *APIError {
+	if !gateways.IsProvisioningConditionComplete(
+		gateway.ProvisioningConditions, gateways.ConditionDefaultWorkspaceBootstrapReady,
+	) {
+		return nil
+	}
+	if s.bootstrap == nil {
+		return &APIError{Status: http.StatusServiceUnavailable, Code: "default_workspace_bootstrap_unavailable", Message: "Default-workspace bootstrap is unavailable"}
+	}
+	endpoint := ""
+	if gateway.RouteAddress != nil {
+		endpoint = gatewayEndpoint(*gateway.RouteAddress)
+	}
+	problem := s.bootstrap.Bootstrap(ctx, defaultWorkspaceBootstrap.Input{
+		GatewayID: gateway.ID, GatewayNamespace: gateway.Namespace, GatewayEndpoint: endpoint,
+		Issuer: oidc.Issuer, GatewayClientID: oidc.ClientID, Subject: subject,
+		SubjectType: defaultWorkspaceBootstrap.SubjectTypeServiceAccount, Role: "user",
+	})
+	if problem == nil {
+		return nil
+	}
+	return &APIError{Status: problem.Status, Code: problem.Code, Message: problem.Message}
 }
 
 func connectionFor(account *OpenShellGatewayServiceAccount, gateway *gateways.Gateway, oidc GatewayOIDC) Connection {

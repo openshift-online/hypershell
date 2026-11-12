@@ -230,6 +230,10 @@ components:
           description: Optional Keycloak subject reference returned by the directory search
         role:
           $ref: '#/components/schemas/GatewayAccessRole'
+        skip_default_workspace_bootstrap:
+          type: boolean
+          default: false
+          description: Skip adding an eligible user to the gateway's OpenShell default workspace
     GatewayAccessChangeRoleRequest:
       type: object
       additionalProperties: false

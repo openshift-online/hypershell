@@ -107,6 +107,8 @@ func (c *Client) Configured() bool {
 
 func (c *Client) issuer() string { return fmt.Sprintf("%s/realms/%s", c.serverURL, c.realm) }
 
+func (c *Client) Issuer() string { return c.issuer() }
+
 type kcClient struct {
 	ID                           string            `json:"id,omitempty"`
 	ClientID                     string            `json:"clientId"`

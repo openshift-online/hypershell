@@ -115,6 +115,7 @@ func (s *E2ESuite) p2_5GatewayAccessManagement(t *testing.T) {
 	s.Require().NoError(s.driver.AssignRealmRole(ctx, s.platformAdminCreds().Username, "platform:admin"), "grant platform:admin")
 	platformAPI := s.apiClientForCreds(t, s.platformAdminCreds())
 	crossGateway := s.createGateway(t, "e2e-access-"+s.runID)
+	crossGateway = s.waitGatewayRunning(t, crossGateway.ID)
 	s.trackGateway(crossGateway.ID)
 	crossGrant, err := platformAPI.GatewayAccesses().Create(ctx, crossGateway.ID, &sdktypes.GatewayAccessGrantRequest{
 		Username: devUsername,
@@ -131,16 +132,12 @@ func (s *E2ESuite) p2_5GatewayAccessManagement(t *testing.T) {
 	s.Assert().False(accessListContains(finalList.Items, devUsername), "revoked developer absent from access list")
 }
 
-// Verifies: E2E-CORE-15.01, OSG-KCLK-05.03
+// Verifies: E2E-CORE-15.01, GTW-BOOT-03.01, OSG-KCLK-05.03
 func (s *E2ESuite) exerciseDeveloperSandbox(t *testing.T) {
 	ctx := t.Context()
 	clientID := s.primary.ClientID
 	tok, err := s.driver.AcquireGatewayTokenWithRole(ctx, s.devCreds(), clientID, "openshell-user")
 	s.Require().NoError(err, "developer gateway token carries openshell-user")
-	claims, err := decodeJWTClaims(tok.AccessToken)
-	s.Require().NoError(err, "decode developer gateway token")
-	subject, _ := claims["sub"].(string)
-	s.Require().NotEmpty(subject, "developer token subject")
 
 	endpoint, err := s.driver.DiscoverGatewayEndpoint(ctx, s.primary)
 	s.Require().NoError(err, "discover primary endpoint for developer")
@@ -154,12 +151,9 @@ func (s *E2ESuite) exerciseDeveloperSandbox(t *testing.T) {
 		OIDCClientID:    clientID,
 		GatewayInsecure: gatewayTLSInsecure(s.driver.Name()),
 	}, tok.AccessToken)
-	out, err := s.cli(t, s.primaryLocalName, "workspace", "member", "add", "--workspace", "default", "--subject", subject, "--role", "user")
-	if err != nil && !strings.Contains(strings.ToLower(out), "already") && !strings.Contains(strings.ToLower(out), "exists") {
-		s.Require().NoError(err, "admin grants developer default workspace membership: %s", out)
-	}
 
 	name := fmt.Sprintf("dev-%06d", time.Now().UnixNano()%1000000)
+	var out string
 	if out, err = s.cli(t, developerLocal, "sandbox", "create", "--from", s.sandboxImage, "--name", name); err != nil {
 		s.Logf("developer sandbox create returned an error (continuing to poll): %v\n%s", err, out)
 	}
@@ -168,7 +162,7 @@ func (s *E2ESuite) exerciseDeveloperSandbox(t *testing.T) {
 	s.deleteSandboxAndWaitForCount(t, developerLocal, name, s.primary.ID, 0)
 }
 
-// Verifies: OSG-SACC-04.01, OSG-SACC-18.01, OSG-SACC-18.02, OSG-SACC-18.03
+// Verifies: GTW-BOOT-04.01, OSG-SACC-04.01, OSG-SACC-18.01, OSG-SACC-18.02, OSG-SACC-18.03
 func (s *E2ESuite) p2_6GatewayServiceAccounts(t *testing.T) {
 	s.ensurePrimaryGateway(t)
 	ctx := t.Context()
@@ -202,6 +196,10 @@ func (s *E2ESuite) p2_6GatewayServiceAccounts(t *testing.T) {
 	s.Require().Equal(created.ClientID, created.Credential.ClientID)
 	s.Require().Equal(strings.TrimSuffix(envOrDefault("E2E_OIDC_ISSUER", "https://keycloak.hypershell.localhost/realms/hypershell"), "/"), created.Credential.Issuer)
 	s.Require().Equal(created.Credential.Issuer+"/protocol/openid-connect/token", created.Credential.TokenEndpoint)
+
+	s.Run("default-workspace-bootstrap", func() {
+		s.exerciseDefaultWorkspaceServiceAccount(s.T())
+	})
 
 	for attempt := range 2 {
 		token, status, tokenErr := requestClientCredentialsToken(ctx, created.Credential)
@@ -331,6 +329,55 @@ func (s *E2ESuite) p2_6GatewayServiceAccounts(t *testing.T) {
 			fmt.Sprintf("/gateways/%s/service_accounts/%s", s.primary.ID, created.ID), nil)
 		return err == nil && status == http.StatusNotFound, nil
 	}), "gateway service account was not deleted")
+}
+
+func (s *E2ESuite) exerciseDefaultWorkspaceServiceAccount(t *testing.T) {
+	ctx := t.Context()
+	expires := time.Now().UTC().Add(2 * time.Hour)
+	created, err := s.admin.OpenShellGatewayServiceAccounts().Create(ctx, s.primary.ID,
+		&sdktypes.OpenShellGatewayServiceAccountCreateRequest{
+			Name:           "e2e-default-workspace-" + s.runID,
+			Role:           sdktypes.OpenShellGatewayServiceAccountRoleOpenshellUser,
+			CredentialType: "client_secret",
+			ExpiresAt:      &expires,
+		})
+	s.Require().NoError(err, "create an openshell-user gateway service account")
+	s.Require().Equal(sdktypes.OpenShellGatewayServiceAccountRoleOpenshellUser, created.Role)
+	s.Require().Equal(sdktypes.OpenShellGatewayServiceAccountStatusReady, created.Status)
+	s.Require().NotEmpty(created.Subject)
+	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_, _ = s.admin.OpenShellGatewayServiceAccounts().Delete(cleanupCtx, s.primary.ID, created.ID)
+	}()
+
+	token, status, tokenErr := requestClientCredentialsToken(ctx, created.Credential)
+	s.Require().NoError(tokenErr, "mint default-workspace service-account token")
+	s.Require().Equal(http.StatusOK, status)
+
+	endpoint, err := s.driver.DiscoverGatewayEndpoint(ctx, s.primary)
+	s.Require().NoError(err, "discover primary endpoint for service account")
+	local := cliLocalName(s.primary.Namespace) + "-default-workspace-sa"
+	s.registerGatewayCLI(t, cliGatewayMetadata{
+		Name:            local,
+		GatewayEndpoint: endpoint,
+		IsRemote:        true,
+		AuthMode:        "oidc",
+		OIDCIssuer:      envOrDefault("E2E_OIDC_ISSUER", "https://keycloak.hypershell.localhost/realms/hypershell"),
+		OIDCClientID:    s.primary.ClientID,
+		GatewayInsecure: gatewayTLSInsecure(s.driver.Name()),
+	}, token)
+
+	name := fmt.Sprintf("sa-workspace-%06d", time.Now().UnixNano()%1000000)
+	if out, cliErr := s.cli(t, local, "sandbox", "create", "--from", s.sandboxImage, "--name", name); cliErr != nil {
+		s.Logf("service-account sandbox create returned an error (continuing to poll): %v\n%s", cliErr, out)
+	}
+	s.Require().NoError(s.waitPodRunning(ctx,
+		sandboxPodNamespace(s.primaryWorkspaceMode, s.primary.Namespace, "default"),
+		sandboxPodName(s.primaryWorkspaceMode, "default", name),
+		durationSecondsEnv("E2E_SANDBOX_TIMEOUT", 120*time.Second)),
+		"openshell-user service account may create a sandbox in the default workspace")
+	s.deleteSandboxAndWaitForCount(t, local, name, s.primary.ID, 0)
 }
 
 func directoryContains(items []sdktypes.GatewayDirectoryUser, username string) bool {
