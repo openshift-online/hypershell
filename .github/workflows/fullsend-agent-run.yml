@@ -77,17 +77,28 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install fullsend + openshell + hsctl
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p "$HOME/.local/bin"
-          asset="fullsend_$(uname -s)_$(uname -m).tar.gz"
-          curl -fsSL "https://github.com/fullsend-ai/fullsend/releases/download/${FULLSEND_VERSION}/${asset}" -o /tmp/fullsend.tgz
+          os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+          arch="$(uname -m)"; case "$arch" in x86_64) arch=amd64;; aarch64|arm64) arch=arm64;; esac
+          # fullsend: release asset is fullsend_<version-without-v>_<os>_<arch>.tar.gz
+          ver="${FULLSEND_VERSION#v}"
+          curl -fsSL "https://github.com/fullsend-ai/fullsend/releases/download/${FULLSEND_VERSION}/fullsend_${ver}_${os}_${arch}.tar.gz" -o /tmp/fullsend.tgz
           tar -xzf /tmp/fullsend.tgz -C "$HOME/.local/bin" fullsend || tar -xzf /tmp/fullsend.tgz -C "$HOME/.local/bin"
           chmod +x "$HOME/.local/bin/fullsend"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          # hsctl: bare binary on the latest openshift-online/hypershell release.
+          gh release download --repo "${GITHUB_REPOSITORY}" --pattern "hsctl-${os}-${arch}" --dir /tmp/hsctl --clobber
+          install -m 0755 "/tmp/hsctl/hsctl-${os}-${arch}" "$HOME/.local/bin/hsctl"
+          # openshell: fullsend/our flows shell out to it for the gateway.
           OPENSHELL_VERSION="${OPENSHELL_VERSION}" sh scripts/install-openshell.sh
-          # hsctl: offered by openshell setup / released alongside; install if absent.
-          command -v hsctl >/dev/null || sh scripts/install-openshell.sh || true
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.local/bin:$PATH"
+          fullsend --version || true
+          hsctl version 2>/dev/null || hsctl --version 2>/dev/null || true
+          openshell version 2>/dev/null || openshell --version 2>/dev/null || true
 
       - name: Stage the Vertex ADC from the GitHub secret
         env:
