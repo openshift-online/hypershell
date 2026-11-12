@@ -336,6 +336,7 @@ func sortedIDPair(t *testing.T, g2 *gorm.DB) (string, string) {
 	var ids []string
 	Expect(g2.Raw(`SELECT id FROM (VALUES (?::text), (?::text)) AS ids(id) ORDER BY id`,
 		api.NewID(), api.NewID()).Scan(&ids).Error).To(Succeed())
+	Expect(ids).To(HaveLen(2))
 	return ids[0], ids[1]
 }
 
