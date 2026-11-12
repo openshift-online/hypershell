@@ -27,19 +27,25 @@ if name == 'docker':
         if 'Labels' in args[3]: print('invalid' if failure == 'label' else 'a' * 40)
         else:
             role = 'controller' if 'controller' in args[-1] else 'runtime'
-            print('quay.io/aipcc/base-images/agentic/oce-' + role + '@sha256:' + ('b' if role == 'controller' else 'c') * 64)
+            digit = ('d' if role == 'controller' else 'e') if os.environ.get('LATEST_MOVED') else ('b' if role == 'controller' else 'c')
+            reference = args[-1] if '@sha256:' in args[-1] else 'quay.io/aipcc/base-images/agentic/oce-' + role + '@sha256:' + digit * 64
+            print(os.environ.get('TEST_DIGESTS', json.dumps([reference])))
 elif name == 'git':
     if args[0] == 'init': Path(args[1]).mkdir(parents=True, exist_ok=True)
     elif 'fetch' in args:
         assert args[-1] == 'a' * 40 and '--depth=1' in args
         if failure == 'fetch': sys.exit(42)
     elif 'checkout' in args:
+        assert '--force' in args
         helper = Path(os.environ['OCE_REPO']) / 'docs/snippets/openshell-quickstart/kubernetes/service-policies.py'
         helper.parent.mkdir(parents=True, exist_ok=True)
         helper.write_text('print(' + repr('--openshell-namespace' if os.environ.get('ALREADY_FIXED') else 'upstream') + ')')
     elif 'apply' in args:
         assert Path(args[-1]).is_file()
         if failure == 'patch': sys.exit(42)
+    elif 'rev-parse' in args:
+        if failure == 'rev-parse': sys.exit(42)
+        print(os.environ.get('SOURCE_REVISION', 'a' * 40))
 elif name == 'go':
     if failure == 'build': sys.exit(42)
     assert args[0] == '-C' and args[-1] == './cmd/occ'
@@ -62,7 +68,9 @@ class PullTest(unittest.TestCase):
             stub.chmod(0o700)
         self.env = dict(os.environ, OCE_KIND_STATE=str(self.state),
                         OCE_REPO=str(self.state / 'oce-source'),
-                        PATH=str(bins) + os.pathsep + os.environ['PATH'], TEST_FAIL='', ALREADY_FIXED='')
+                        PATH=str(bins) + os.pathsep + os.environ['PATH'], TEST_FAIL='', ALREADY_FIXED='',
+                        LATEST_MOVED='', SOURCE_REVISION=revision)
+        self.env.pop('TEST_DIGESTS', None)
 
     def run_pull(self, **env):
         return subprocess.run(['bash', str(helpers / 'pull-oce.sh')],
@@ -99,12 +107,55 @@ class PullTest(unittest.TestCase):
         self.assertEqual((self.state / 'images.json').read_bytes(), images)
         self.assertFalse(any(':latest' in arg for c in self.calls() for arg in c))
 
-    def test_failures_do_not_checkpoint_incomplete_preparation(self):
-        for failure in ('pull', 'import', 'label', 'fetch', 'patch', 'build'):
+    def test_pull_failure_does_not_checkpoint_images(self):
+        result = self.run_pull(TEST_FAIL='pull')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((self.state / 'images.json').exists())
+
+    def test_preparation_failures_keep_same_images_when_latest_moves(self):
+        for failure in ('import', 'label', 'fetch', 'patch', 'build'):
             with self.subTest(failure=failure):
                 result = self.run_pull(TEST_FAIL=failure)
                 self.assertNotEqual(result.returncode, 0)
+                images = (self.state / 'images.json').read_bytes()
+                (self.state / 'calls').unlink()
+                result = self.run_pull(LATEST_MOVED='1')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual((self.state / 'images.json').read_bytes(), images)
+                self.assertFalse(any(':latest' in arg for c in self.calls() for arg in c))
+                (self.state / 'images.json').unlink()
+                (self.state / 'occ').unlink()
+
+    def test_digest_selection_uses_matching_repository(self):
+        images = {role: registry + role + '@sha256:' + digit * 64
+                  for role, digit in (('controller', 'b'), ('runtime', 'c'))}
+        result = self.run_pull(TEST_DIGESTS=json.dumps([
+            'mirror.example/oce@sha256:' + 'a' * 64, registry + 'controller@sha256:invalid',
+            *images.values()]))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads((self.state / 'images.json').read_text()), images)
+
+    def test_missing_or_invalid_digest_explains_failure(self):
+        for digests in ([], ['mirror.example/oce@sha256:' + 'a' * 64],
+                        [registry + 'controller@sha256:invalid']):
+            with self.subTest(digests=digests):
+                result = self.run_pull(TEST_DIGESTS=json.dumps(digests))
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('No ' + registry + 'controller digest found', result.stderr)
                 self.assertFalse((self.state / 'images.json').exists())
+
+    def test_custom_checkout_warns_on_mismatch_without_modifying_source(self):
+        for head in (revision, 'f' * 40, 'unknown'):
+            with self.subTest(head=head):
+                (self.state / 'calls').unlink(missing_ok=True)
+                result = self.run_pull(OCE_REPO=str(self.state / 'custom source'), SOURCE_REVISION=head,
+                                       TEST_FAIL='rev-parse' if head == 'unknown' else '')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual('warning: OCE_REPO' in result.stderr, head != revision)
+                if head != revision:
+                    self.assertIn(head, result.stderr)
+                    self.assertIn(revision, result.stderr)
+                self.assertFalse(any(c[0] == 'git' and 'rev-parse' not in c for c in self.calls()))
 
 
 unittest.main()

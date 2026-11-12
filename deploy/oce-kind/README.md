@@ -79,7 +79,8 @@ is skipped when the source already supports `--openshell-namespace`. Patch
 conflicts stop setup rather than continuing with incorrect network grants.
 An explicit `OCE_REPO` remains available for engineers supplying compatible
 local CLI, chart, and helpers; OCE images still come from Quay. The manual
-runbook retains the separate source-image build workflow.
+runbook retains the separate source-image build workflow. Setup warns if a
+custom checkout's HEAD differs from the controller image's source revision.
 
 ## What gets created
 
@@ -114,8 +115,9 @@ The Makefile invokes [`up.sh`](up.sh), which runs these stages in order:
    an existing gateway in another mode; the API default stays `managed`.
 3. **Prepare OCE.** [`pull-oce.sh`](pull-oce.sh) pulls the latest controller and
    runtime images from Quay into Docker and kind, fetches the matching source,
-   applies the namespace helper fix, and builds the `occ` CLI. It records
-   immutable image digests for the installation.
+   applies the namespace helper fix, and builds the `occ` CLI. It saves immutable
+   image digests before importing into kind or preparing source, so retries use
+   the same images even if `latest` moves.
 4. **Install and connect OCE.** [`install-oce.sh`](install-oce.sh) prepares
    configuration, credentials, the
    database, and the Helm installation. [`activate-oce.sh`](activate-oce.sh)
