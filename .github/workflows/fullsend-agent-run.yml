@@ -173,9 +173,19 @@ jobs:
           [ -n "$GW_ID" ] || { echo "could not resolve gateway id for $GW_NAME" >&2; exit 1; }
           echo "name=$GW_NAME" >> "$GITHUB_OUTPUT"; echo "id=$GW_ID" >> "$GITHUB_OUTPUT"
           echo "Gateway $GW_NAME ($GW_ID) created; minting admin SA on the same token..."
-          hsctl create serviceAccount --gateway-id "$GW_ID" \
-            --role openshell-admin --name "ci-admin-${GITHUB_RUN_ID}" \
-            --output-file "${RUNNER_TEMP}/gw-admin.json"
+          # SA provisioning 409s until the gateway is ready (~2 min). Retry on the
+          # same (still-valid, ~5 min TTL) token, capped ~3.5 min so we stay inside it.
+          sa_ok=false
+          for i in $(seq 1 14); do
+            if hsctl create serviceAccount --gateway-id "$GW_ID" \
+                 --role openshell-admin --name "ci-admin-${GITHUB_RUN_ID}" \
+                 --output-file "${RUNNER_TEMP}/gw-admin.json" 2>/tmp/sa.err; then
+              sa_ok=true; echo "admin SA minted at t=$((i*15))s"; break
+            fi
+            grep -q "gateway_not_ready" /tmp/sa.err && echo "  t=$((i*15))s gateway not ready yet..." || { echo "SA create error:"; cat /tmp/sa.err; break; }
+            sleep 15
+          done
+          [ "$sa_ok" = true ] || { echo "admin SA not minted (last error below)" >&2; cat /tmp/sa.err >&2; exit 1; }
           echo "admin SA bundle written. keys (redacted values):"
           # ITERATE: confirm bundle shape (drives the openshell login below).
           jq -r 'if type=="object" then (del(.client_secret,.secret,.password) | keys) else "(non-object bundle)" end' "${RUNNER_TEMP}/gw-admin.json" 2>/dev/null || cat "${RUNNER_TEMP}/gw-admin.json" | head -c 200
