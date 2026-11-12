@@ -1,0 +1,231 @@
+# Keyless CI -> self-owned disposable gateway -> fullsend agent run.
+#
+# The disposable-gateway pattern (the "first end user" interim, while the
+# SecretSource->Vault write path does not yet exist): the runner carries the
+# model credential as a GitHub secret and provisions everything itself.
+#
+#   1. GitHub OIDC -> Keycloak token-exchange for a HyperShell-API-audience token.
+#      The brokered CI identity already carries the gateway:creator realm role
+#      (default-roles-hypershell composite), so the token can create a gateway --
+#      no stored creator credential. (Requires the ci-federation client to carry
+#      the hypershell-api audience; gitops keycloak-ci-federation adds that mapper.)
+#   2. hsctl apply a Gateway (placement-based) -> the control plane places + creates
+#      it; the creator auto-owns it (admin). hsctl create serviceAccount mints an
+#      openshell-admin identity on it.
+#   3. openshell logs in with that admin SA; `fullsend run <agent>` creates a sandbox
+#      on the gateway and runs the agent. Model inference is Vertex AI: fullsend's
+#      vertex-ai harness provider copies the GH-secret ADC into the sandbox and sets
+#      CLAUDE_CODE_USE_VERTEX=1 (the validated direct-Vertex path), so no openshell
+#      provider/inference.local wiring is needed on this path.
+#   4. Always tear the gateway down.
+#
+# STATUS: first iteration. Several legs are unverified against a live run and are
+# marked ITERATE: the exchange audience, gateway placement/readiness, the admin-SA
+# openshell login, and fullsend run against a freshly minted gateway. Ships
+# manual-only with DRY_RUN defaulting true.
+#
+# Prereqs (owner): repo secret VERTEX_SA_KEY (the robert-vertex SA JSON, from
+# `oc -n hypa-sdlc get secret sdlc-gcp-adc -o jsonpath='{.data.application_default_credentials\.json}' | base64 -d`).
+name: Fullsend agent run (disposable gateway)
+
+on:
+  workflow_dispatch:
+    inputs:
+      agent:
+        description: fullsend agent to run (harness name under .fullsend/harness)
+        required: true
+        default: "triage"
+      issue_number:
+        description: Work item (issue) number for the agent to act on
+        required: true
+      dry_run:
+        description: Decide and log but do not mutate issues/PRs
+        required: false
+        default: "true"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: fullsend-agent-run-${{ github.event.inputs.issue_number }}
+  cancel-in-progress: false
+
+env:
+  FULLSEND_VERSION: v0.55.0
+  OPENSHELL_VERSION: ${{ vars.FULLSEND_OPENSHELL_VERSION || 'v0.1.8-rhaiv.0' }}
+  HYPERSHELL_API_URL: ${{ vars.FULLSEND_API_URL || 'https://api.hyp0.infra.hypershell.app' }}
+  KEYCLOAK_URL: ${{ vars.FULLSEND_KEYCLOAK_URL || 'https://keycloak.hyp0.infra.hypershell.app' }}
+  REALM: ${{ vars.FULLSEND_REALM || 'hypershell' }}
+  FLEET_AUD: ${{ vars.FULLSEND_FLEET_AUDIENCE || 'openshell-fleet' }}
+  REQUESTER: ${{ vars.FULLSEND_REQUESTER_CLIENT || 'ci-federation' }}
+  IDP_ALIAS: ${{ vars.FULLSEND_IDP_ALIAS || 'github-actions' }}
+  # Audience the exchanged token must carry so the HyperShell API accepts it.
+  API_AUDIENCE: ${{ vars.FULLSEND_API_AUDIENCE || 'hypershell-api' }}
+  # Placement selectors for the disposable gateway (match the hub).
+  GATEWAY_PLACEMENT: ${{ vars.FULLSEND_GATEWAY_PLACEMENT || 'network/public,provider/ibm' }}
+  # Vertex inference (fullsend vertex-ai harness reads these).
+  ANTHROPIC_VERTEX_PROJECT_ID: ${{ vars.FULLSEND_VERTEX_PROJECT_ID || 'hypershell-976970' }}
+  CLOUD_ML_REGION: ${{ vars.FULLSEND_VERTEX_REGION || 'global' }}
+  LABEL_SCOPE: ${{ vars.FULLSEND_SCOPE || 'agent/scope/hyp0' }}
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install fullsend + openshell + hsctl
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.local/bin"
+          asset="fullsend_$(uname -s)_$(uname -m).tar.gz"
+          curl -fsSL "https://github.com/fullsend-ai/fullsend/releases/download/${FULLSEND_VERSION}/${asset}" -o /tmp/fullsend.tgz
+          tar -xzf /tmp/fullsend.tgz -C "$HOME/.local/bin" fullsend || tar -xzf /tmp/fullsend.tgz -C "$HOME/.local/bin"
+          chmod +x "$HOME/.local/bin/fullsend"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          OPENSHELL_VERSION="${OPENSHELL_VERSION}" sh scripts/install-openshell.sh
+          # hsctl: offered by openshell setup / released alongside; install if absent.
+          command -v hsctl >/dev/null || sh scripts/install-openshell.sh || true
+
+      - name: Stage the Vertex ADC from the GitHub secret
+        env:
+          VERTEX_SA_KEY: ${{ secrets.VERTEX_SA_KEY }}
+        run: |
+          set -euo pipefail
+          [ -n "${VERTEX_SA_KEY}" ] || { echo "VERTEX_SA_KEY secret is empty" >&2; exit 1; }
+          umask 077
+          printf '%s' "${VERTEX_SA_KEY}" > "${RUNNER_TEMP}/vertex-adc.json"
+          python3 -c "import json,sys;d=json.load(open('${RUNNER_TEMP}/vertex-adc.json'));print('ADC ok:',d.get('type'),d.get('project_id'),d.get('client_email'))"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=${RUNNER_TEMP}/vertex-adc.json" >> "$GITHUB_ENV"
+
+      - name: Mint GitHub Actions OIDC token
+        id: oidc
+        run: |
+          set -euo pipefail
+          tok="$(curl -sS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${FLEET_AUD}" | jq -r '.value')"
+          [ -n "$tok" ] && [ "$tok" != "null" ] || { echo "OIDC mint failed" >&2; exit 1; }
+          echo "::add-mask::$tok"; echo "token=$tok" >> "$GITHUB_OUTPUT"
+
+      - name: Exchange for a HyperShell-API token (keyless, carries gateway:creator)
+        id: exchange
+        env:
+          OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
+        run: |
+          set -euo pipefail
+          # ITERATE: the exchange target. The ci-federation client carries a
+          # hypershell-api audience mapper (gitops), so the exchanged token is
+          # accepted by the API; the brokered identity's default gateway:creator
+          # realm role authorizes `create gateway`.
+          resp="$(curl -sS -X POST \
+            "${KEYCLOAK_URL}/realms/${REALM}/protocol/openid-connect/token" \
+            -d 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange' \
+            -d "client_id=${REQUESTER}" \
+            -d "subject_token=${OIDC_TOKEN}" \
+            -d "subject_issuer=${IDP_ALIAS}" \
+            -d 'subject_token_type=urn:ietf:params:oauth:token-type:jwt' \
+            -d "audience=${API_AUDIENCE}")"
+          access="$(echo "$resp" | jq -r '.access_token // empty')"
+          if [ -z "$access" ]; then
+            echo "Exchange FAILED:" >&2; echo "$resp" | jq '{error,error_description}' >&2 || echo "$resp" >&2; exit 1
+          fi
+          echo "::add-mask::$access"; echo "access=$access" >> "$GITHUB_OUTPUT"
+          payload="$(echo "$access" | cut -d. -f2 | tr '_-' '/+')"
+          case $(( ${#payload} % 4 )) in 2) payload="$payload==";; 3) payload="$payload=";; esac
+          echo "Exchanged token claims:"
+          echo "$payload" | base64 -d 2>/dev/null | jq '{aud, azp, preferred_username, realm_roles: .realm_access.roles, hypershell_roles: .hypershell.roles}' || true
+
+      - name: hsctl login (keyless API token)
+        env:
+          ACCESS: ${{ steps.exchange.outputs.access }}
+        run: |
+          set -euo pipefail
+          printf '%s' "${ACCESS}" | hsctl login --token-file /dev/stdin --url "${HYPERSHELL_API_URL}"
+          hsctl whoami 2>&1 | head -5 || true
+
+      - name: Create + own a disposable gateway
+        id: gw
+        run: |
+          set -euo pipefail
+          GW_NAME="ci-${GITHUB_RUN_ID}"
+          # ITERATE: declarative placement-based create (control plane resolves
+          # cluster + platform-managed TLS). Matches .hypershell/base/platform/gateway.yaml.
+          sel="$(printf '%s' "${GATEWAY_PLACEMENT}" | jq -R 'split(",")')"
+          manifest="$(jq -nc --arg n "$GW_NAME" --argjson sel "$sel" \
+            '{apiVersion:"hypershell.redhat.io/v1", kind:"Gateway",
+              metadata:{name:$n, description:"Disposable CI agent gateway"},
+              spec:{placement:{selector:$sel}}}')"
+          echo "$manifest" | hsctl apply -f - -o json || { echo "gateway apply failed" >&2; exit 1; }
+          # Resolve the gateway id by name.
+          GW_ID="$(hsctl list gateways -o json 2>/dev/null | jq -r --arg n "$GW_NAME" '(.items//.)[] | select(.name==$n) | .id' | head -1)"
+          [ -n "$GW_ID" ] || { echo "could not resolve gateway id for $GW_NAME" >&2; exit 1; }
+          echo "name=$GW_NAME" >> "$GITHUB_OUTPUT"; echo "id=$GW_ID" >> "$GITHUB_OUTPUT"
+          echo "Gateway $GW_NAME ($GW_ID) requested."
+          # ITERATE: poll readiness.
+          for i in $(seq 1 60); do
+            st="$(hsctl get gateway "$GW_ID" -o json 2>/dev/null | jq -r '.status // .phase // ""')"
+            echo "  gateway status: ${st:-?}"
+            case "$st" in Ready|Healthy|Running|ready|healthy) break;; esac
+            sleep 15
+          done
+
+      - name: Mint an openshell-admin service account on the gateway
+        id: sa
+        run: |
+          set -euo pipefail
+          hsctl create serviceAccount --gateway-id "${{ steps.gw.outputs.id }}" \
+            --role openshell-admin --name "ci-admin-${GITHUB_RUN_ID}" \
+            --output-file "${RUNNER_TEMP}/gw-admin.json"
+          echo "admin SA bundle written (secret redacted)."
+          # ITERATE: confirm the bundle shape and how openshell consumes it below.
+          jq -r 'del(.client_secret, .secret) | keys' "${RUNNER_TEMP}/gw-admin.json" 2>/dev/null || true
+
+      - name: openshell login to the gateway (admin SA)
+        run: |
+          set -euo pipefail
+          # ITERATE: exact openshell login-with-service-account command. The SA bundle
+          # holds the gateway's OIDC client id + secret + endpoint; openshell uses
+          # client-credentials. Adjust to the installed CLI's import/login verb.
+          export OPENSHELL_GATEWAY_INSECURE=true
+          openshell gateway add --from-service-account "${RUNNER_TEMP}/gw-admin.json" 2>/dev/null \
+            || echo "ITERATE: adjust openshell SA login for this CLI version"
+          openshell whoami 2>&1 | head -5 || true
+
+      - name: Run the agent (fullsend run)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FULLSEND_FORGE: github
+          FULLSEND_LIFECYCLE: github-only
+          FULLSEND_GATEWAY_NAME: ${{ steps.gw.outputs.name }}
+          OPENSHELL_GATEWAY: ${{ steps.gw.outputs.name }}
+          OPENSHELL_GATEWAY_INSECURE: "true"
+          REPOSITORY: ${{ github.repository }}
+          REPO_FULL_NAME: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.inputs.issue_number }}
+          FULLSEND_WORK_ITEM_URL: ${{ github.server_url }}/${{ github.repository }}/issues/${{ github.event.inputs.issue_number }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          echo "::group::fullsend run ${{ github.event.inputs.agent }} (DRY_RUN=${DRY_RUN})"
+          fullsend run "${{ github.event.inputs.agent }}" --fullsend-dir .fullsend --target-repo .
+          echo "::endgroup::"
+
+      - name: Tear down the disposable gateway (always)
+        if: always() && steps.gw.outputs.id != ''
+        run: |
+          set +e
+          hsctl delete gateway "${{ steps.gw.outputs.id }}"
+          echo "Teardown requested for gateway ${{ steps.gw.outputs.id }} (exit $?)."
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "# Fullsend agent run (disposable gateway)"
+            echo "- **Agent:** \`${{ github.event.inputs.agent }}\` on #${{ github.event.inputs.issue_number }}"
+            echo "- **Gateway:** \`${{ steps.gw.outputs.name }}\` (\`${{ steps.gw.outputs.id }}\`) -- torn down"
+            echo "- **Model:** Vertex AI (project \`${ANTHROPIC_VERTEX_PROJECT_ID}\`, region \`${CLOUD_ML_REGION}\`) via GH-secret ADC"
+            echo "- **DRY_RUN:** \`${{ github.event.inputs.dry_run }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
