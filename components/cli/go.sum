@@ -102,8 +102,6 @@ github.com/muesli/termenv v0.16.0 h1:S5AlUN9dENB57rsbnkPyfdGuWIlkmzJjbFf0Tf5FWUc
 github.com/muesli/termenv v0.16.0/go.mod h1:ZRfOIKPFDYQoDFF4Olj7/QJbW60Ol/kL1pU3VfY/Cnk=
 github.com/nwidger/jsoncolor v0.3.2 h1:rVJJlwAWDJShnbTYOQ5RM7yTA20INyKXlJ/fg4JMhHQ=
 github.com/nwidger/jsoncolor v0.3.2/go.mod h1:Cs34umxLbJvgBMnVNVqhji9BhoT/N/KinHqZptQ7cf4=
-github.com/openshift-online/rh-trex-ai/components/api-server v0.0.0-20261029165438-8f11b55b73f2 h1:1faN59aFiMC1+JY6W9AMTgPbyEKrblwDUTfgt9vV/vo=
-github.com/openshift-online/rh-trex-ai/components/api-server v0.0.0-20261029165438-8f11b55b73f2/go.mod h1:la63b8NbNTkvewAQwqkjK83M38Y/utGrxOOax7sCXnc=
 github.com/openshift-online/rh-trex-ai/components/api-server v0.0.0-20261104131823-af39aef36b4e h1:fRslUghM4Gwkqw4wEbwg1edJa5XHDm80Rk22wl6QpFo=
 github.com/openshift-online/rh-trex-ai/components/api-server v0.0.0-20261104131823-af39aef36b4e/go.mod h1:la63b8NbNTkvewAQwqkjK83M38Y/utGrxOOax7sCXnc=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
