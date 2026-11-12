@@ -126,18 +126,18 @@ jobs:
           OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
         run: |
           set -euo pipefail
-          # ITERATE: the exchange target. The ci-federation client carries a
-          # hypershell-api audience mapper (gitops), so the exchanged token is
-          # accepted by the API; the brokered identity's default gateway:creator
-          # realm role authorizes `create gateway`.
+          # No `audience` param: that selects a target CLIENT, and hypershell-api is
+          # an audience string, not a client ("Audience not found"). The ci-federation
+          # client carries a static hypershell-api audience mapper (gitops #2596) that
+          # injects it into aud, so the token is accepted by the API; the brokered
+          # identity's default gateway:creator realm role authorizes `create gateway`.
           resp="$(curl -sS -X POST \
             "${KEYCLOAK_URL}/realms/${REALM}/protocol/openid-connect/token" \
             -d 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange' \
             -d "client_id=${REQUESTER}" \
             -d "subject_token=${OIDC_TOKEN}" \
             -d "subject_issuer=${IDP_ALIAS}" \
-            -d 'subject_token_type=urn:ietf:params:oauth:token-type:jwt' \
-            -d "audience=${API_AUDIENCE}")"
+            -d 'subject_token_type=urn:ietf:params:oauth:token-type:jwt')"
           access="$(echo "$resp" | jq -r '.access_token // empty')"
           if [ -z "$access" ]; then
             echo "Exchange FAILED:" >&2; echo "$resp" | jq '{error,error_description}' >&2 || echo "$resp" >&2; exit 1
