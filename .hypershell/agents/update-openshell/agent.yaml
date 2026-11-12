@@ -36,9 +36,9 @@ metadata:
   name: update-openshell-inference-key
 spec:
   agent_runtime_id: update-openshell
-  purpose: api-key
+  purpose: service-account-key
   backend: vault
-  path: hypershell/update-openshell/anthropic-api-key
+  path: hypershell/update-openshell/vertex-service-account
 ---
 apiVersion: hypershell.redhat.io/v1
 kind: SecretSource
@@ -59,7 +59,7 @@ spec:
   provider_spec_id: claude-inference
   secret_source_id: update-openshell-inference-key
   refresh_strategy: |
-    {"type": "static-token", "secret_material": [{"key": "api_key", "secret_source_id": "update-openshell-inference-key"}]}
+    {"type": "google-service-account-jwt", "secret_material": [{"key": "service-account-key", "secret_source_id": "update-openshell-inference-key"}]}
 ---
 apiVersion: hypershell.redhat.io/v1
 kind: ProviderBinding
