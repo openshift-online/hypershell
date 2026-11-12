@@ -3,7 +3,9 @@
 For normal use, run [`make kind-up-with-oce`](README.md). It automates these
 steps and manages the state directory for you. This runbook is for engineers
 who need to run an individual stage, diagnose a failure, or maintain the
-integration. Its shell exports and manual state management are not prerequisites
+integration. Unlike the Makefile command, this runbook builds OCE images from
+a local source checkout instead of pulling the latest Quay images.
+Its shell exports and manual state management are not prerequisites
 for the Makefile command.
 
 ## Prerequisites and source
