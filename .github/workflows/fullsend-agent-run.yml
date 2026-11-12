@@ -245,6 +245,8 @@ jobs:
           REPO_FULL_NAME: ${{ github.repository }}
           ISSUE_NUMBER: ${{ github.event.inputs.issue_number }}
           FULLSEND_WORK_ITEM_URL: ${{ github.server_url }}/${{ github.repository }}/issues/${{ github.event.inputs.issue_number }}
+          GITHUB_ISSUE_URL: ${{ github.server_url }}/${{ github.repository }}/issues/${{ github.event.inputs.issue_number }}
+          LABEL_SCOPE: ${{ env.LABEL_SCOPE }}
           DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
           set -euo pipefail
