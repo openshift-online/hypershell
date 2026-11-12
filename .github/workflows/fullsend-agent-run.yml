@@ -191,22 +191,47 @@ jobs:
           jq -r 'if type=="object" then (del(.client_secret,.secret,.password) | keys) else "(non-object bundle)" end' "${RUNNER_TEMP}/gw-admin.json" 2>/dev/null || cat "${RUNNER_TEMP}/gw-admin.json" | head -c 200
 
       - name: openshell login (admin SA) + wait for gateway ready
+        env:
+          GW_NAME: ${{ steps.gw.outputs.name }}
         run: |
           set -euo pipefail
-          # ITERATE: exact openshell login-with-service-account verb + bundle fields.
-          # SA creds are client-credentials (re-mintable), so this leg is not subject
-          # to the keyless-token expiry that gates the create step.
+          # The SA bundle's .credential is a full client-credentials config
+          # {gateway_endpoint, issuer, token_endpoint, client_id, client_secret,
+          # audience}. openshell has no SA-login verb (gateway add is browser/OIDC),
+          # so mint an access token from the client-creds and write the openshell
+          # config directly (same layout as scripts/kind/openshell.sh).
+          cred="$(jq -c '.credential // empty' "${RUNNER_TEMP}/gw-admin.json")"
+          [ -n "$cred" ] || { echo "no .credential in SA bundle:"; head -c 400 "${RUNNER_TEMP}/gw-admin.json"; exit 1; }
+          EP=$(printf '%s' "$cred" | jq -r '.gateway_endpoint'); ISS=$(printf '%s' "$cred" | jq -r '.issuer')
+          TE=$(printf '%s' "$cred" | jq -r '.token_endpoint'); CIDG=$(printf '%s' "$cred" | jq -r '.client_id')
+          CSG=$(printf '%s' "$cred" | jq -r '.client_secret'); AUDG=$(printf '%s' "$cred" | jq -r '.audience // empty')
+          echo "SA cred: endpoint=$EP issuer=$ISS client=$CIDG audience=${AUDG:-<none>}"
+          at=""
+          for i in $(seq 1 24); do
+            at="$(curl -sS -X POST "$TE" -d grant_type=client_credentials -d client_id="$CIDG" \
+                   --data-urlencode "client_secret=$CSG" ${AUDG:+--data-urlencode "audience=$AUDG"} \
+                   | jq -r '.access_token // empty')"
+            [ -n "$at" ] && break
+            echo "  t=$((i*10))s waiting for SA token endpoint..."; sleep 10
+          done
+          [ -n "$at" ] || { echo "could not mint SA access token" >&2; exit 1; }
+          echo "::add-mask::$at"
+          CFG="${HOME}/.config/openshell"; GW_DIR="${CFG}/gateways/${GW_NAME}"; mkdir -p "$GW_DIR"
+          cat > "${GW_DIR}/metadata.json" <<JSON
+          {"name":"${GW_NAME}","gateway_endpoint":"${EP}","is_remote":true,"gateway_port":0,"auth_mode":"oidc","oidc_issuer":"${ISS}","oidc_client_id":"${CIDG}","oidc_audience":"${AUDG:-$CIDG}"}
+          JSON
+          cat > "${GW_DIR}/oidc_token.json" <<JSON
+          {"access_token":"${at}","issuer":"${ISS}","client_id":"${CIDG}"}
+          JSON
+          printf '%s' "${GW_NAME}" > "${CFG}/active_gateway"; chmod -R a+rX "${CFG}"
           export OPENSHELL_GATEWAY_INSECURE=true
-          openshell gateway add --from-service-account "${RUNNER_TEMP}/gw-admin.json" 2>&1 | head -20 \
-            || echo "ITERATE: adjust openshell SA login for this CLI version"
-          # Wait for the gateway to answer (pods come up in ~2 min), capped ~6 min.
           ready=false
           for i in $(seq 1 24); do
-            if openshell -g "${{ steps.gw.outputs.name }}" status >/dev/null 2>&1; then ready=true; echo "gateway answering at t=$((i*15))s"; break; fi
+            if openshell -g "${GW_NAME}" status >/dev/null 2>&1; then ready=true; echo "gateway answering at t=$((i*15))s"; break; fi
             sleep 15
           done
-          openshell -g "${{ steps.gw.outputs.name }}" whoami 2>&1 | head -5 || true
-          [ "$ready" = true ] || echo "ITERATE: gateway did not answer openshell status within cap; proceeding"
+          openshell -g "${GW_NAME}" whoami 2>&1 | head -5 || true
+          [ "$ready" = true ] || echo "ITERATE: gateway did not answer within cap; proceeding"
 
       - name: Run the agent (fullsend run)
         env:
