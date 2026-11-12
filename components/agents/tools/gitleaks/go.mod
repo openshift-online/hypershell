@@ -10,7 +10,7 @@ module github.com/openshift-online/hypershell/components/agents/tools/gitleaks
 
 go 1.24.11
 
-toolchain go1.26.7
+toolchain go1.26.11
 
 tool github.com/zricethezav/gitleaks/v8
 

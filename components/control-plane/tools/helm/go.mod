@@ -9,7 +9,7 @@ module github.com/openshift-online/hypershell/components/control-plane/tools/hel
 
 go 1.26.4
 
-toolchain go1.26.7
+toolchain go1.26.11
 
 tool helm.sh/helm/v3/cmd/helm
 

@@ -15,7 +15,7 @@ module github.com/openshift-online/hypershell/components/agents/tools/gh
 
 go 1.26.0
 
-toolchain go1.26.7
+toolchain go1.26.11
 
 tool github.com/cli/cli/v2/cmd/gh
 
