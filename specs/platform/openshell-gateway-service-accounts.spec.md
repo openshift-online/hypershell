@@ -31,7 +31,7 @@ Version 1 does not support WIF, signed client assertions, opaque access tokens, 
 | Can the access token call the HyperShell management API?   | No. This slice of HYPERSHELL-49 authorizes the selected OpenShell gateway only.                                                                                      |
 | What role can a user select?                               | `openshell-user` or `openshell-admin`. An owner may select either role. A viewer may select only `openshell-user`.                                                   |
 | Can one set of client credentials cover multiple gateways? | No. Automation needs one OpenShellGatewayServiceAccount and one audience-specific access token for each gateway.                                                     |
-| Does `openshell-user` inherit workspace access?            | No. HyperShell adds the service-account subject only to the reserved `default` workspace during creation. Other workspaces require an explicit OpenShell grant.       |
+| Does `openshell-user` inherit workspace access?            | HyperShell adds the service-account subject to the reserved `default` workspace during creation unless the caller opts out. Other workspaces require an explicit OpenShell grant. |
 | How are client credentials replaced?                       | Create and verify a replacement OpenShellGatewayServiceAccount. Then, revoke the old OpenShellGatewayServiceAccount. Delete it when you no longer need its metadata. |
 | Can the OpenShell role change after creation?              | Yes. An authorized caller changes the role, and optionally the description, through the role action endpoint. The requested role is capped at the creator's current gateway role. |
 | Are revoke and delete the same action?                     | No. Revoke permanently stops access-token issuance and retains metadata. Delete removes the Keycloak identity and the visible resource.                              |
@@ -126,7 +126,7 @@ An access token issued before disablement remains valid until its `exp`. Thus, t
 | Management web console | Create and manage OpenShellGatewayServiceAccounts through the API. Show the credential bundle once without caching it.                                                |
 | HyperShell CLI         | Support create, list, get, revoke, and delete operations. Pass the credential bundle to CI without logging it.                                                        |
 | Keycloak               | Store the service-account identity and client secret. Issue short-lived access tokens.                                                                                |
-| OpenShell gateway      | Validate access tokens locally. Require separate workspace membership for an `openshell-user` subject.                                                                |
+| OpenShell gateway      | Validate access tokens locally and authorize workspace-scoped operations through OpenShell workspace membership.                                                   |
 
 The create operation SHALL provision the service-account client synchronously. The API server SHALL send the desired state to the control plane through the internal provisioner and wait for its result. This path lets HyperShell return the client secret once.
 
@@ -202,6 +202,8 @@ Credential replacement uses four operations: create a new OpenShellGatewayServic
 
 The list operation SHALL accept `page` and `size` query parameters. The default page size SHALL be 20. The maximum page size SHALL be 100. The response SHALL include the total number of visible items.
 
+Each list item SHALL include a gateway-scoped `workspaces` array. For an `openshell-user` item, the array SHALL contain every workspace in the shown gateway to which the service-account subject is attached, regardless of the subject's OpenShell workspace-level role. For an `openshell-admin` item, the array SHALL be empty and the console SHALL display **Admin**. The API SHALL assemble this field server-side through the gateway bootstrap admin (`default-workspace-membership-bootstrap.spec.md`, GTW-BOOT-08).
+
 The operation SHALL support `status` and `search` filters. Search SHALL match name, client ID, and subject without regard to letter case. It SHALL treat SQL wildcard and escape characters as literal text.
 
 The operation SHALL accept `sort` and `order`. The supported sort fields SHALL be `name`, `role`, `status`, `expires_at`, and `created_at`. The supported orders SHALL be `asc` and `desc`. The API SHALL add `id` in the same order as a deterministic tie-breaker. It SHALL return `400 Bad Request` for an unsupported value.
@@ -242,7 +244,8 @@ The object SHALL contain no raw RoleBinding or unrelated platform permission. Th
   "description": "Build and test the main branch",
   "credential_type": "client_secret",
   "role": "openshell-user",
-  "expires_at": "2027-08-21T12:00:00Z"
+  "expires_at": "2027-08-21T12:00:00Z",
+  "skip_default_workspace_bootstrap": false
 }
 ```
 
@@ -251,6 +254,8 @@ The caller MAY omit `credential_type`. Its default is `client_secret`. The API S
 The caller MAY omit `role`. Its default is `openshell-user`. The API SHALL accept only `openshell-user` and `openshell-admin`.
 
 The caller MAY omit `expires_at`. Its default is 90 days after creation. The value MUST be between one hour and 365 days after creation. Operators MAY configure a shorter default or maximum. The configured maximum SHALL NOT exceed 365 days.
+
+The caller MAY omit `skip_default_workspace_bootstrap`. Its default SHALL be `false`. For an `openshell-user` account, setting the value to `true` SHALL suppress the reserved `default` workspace bootstrap. The field SHALL have no effect for `openshell-admin`.
 
 ### Role Update Request
 
@@ -864,7 +869,7 @@ When `can_manage_all` is `false`, the UI SHALL explain that the collection conta
 
 The create form SHALL collect a name, optional description, OpenShell role, and expiration. It SHALL use persistent labels and state which fields are optional.
 
-The form SHALL default to `openshell-user`. It SHALL offer both roles to an owner. It SHALL offer only `openshell-user` to a viewer. The role control SHALL use a PatternFly Select. Each option SHALL show the role and its access description in the menu, including the separate workspace grant required by `openshell-user`.
+The form SHALL default to `openshell-user`. It SHALL offer both roles to an owner. It SHALL offer only `openshell-user` to a viewer. The role control SHALL use a PatternFly Select. Each option SHALL show the role and its access description in the menu, including automatic membership in the reserved `default` workspace for `openshell-user`.
 
 The expiration control SHALL be labeled `Expiration` and SHALL use a PatternFly Select. It SHALL show only policy-permitted values from 30, 60, and 90 days. It SHALL use the server-provided default when that default is one of those values; otherwise, it SHALL select the longest permitted value. It SHALL show the resulting absolute expiration in the user's locale before submission. The form SHALL explain that OpenShellGatewayServiceAccount expiration is different from access-token expiration.
 
@@ -882,9 +887,9 @@ The setup fields SHALL use visibly read-only PatternFly controls. The client-sec
 
 The setup view SHALL NOT show issuer, token endpoint, gateway audience, or gateway endpoint as standalone fields. It MAY include these values in generated commands. The setup view SHALL NOT provide a credential-bundle download.
 
-The setup view SHALL explain that the service-account subject is the stable JWT `sub`. It SHALL explain that a gateway administrator uses this non-secret value to grant workspace access.
+The setup view SHALL explain that the service-account subject is the stable JWT `sub`. It SHALL explain that a gateway administrator uses this non-secret value to add the subject to another workspace.
 
-For an `openshell-user` account, the setup view SHALL provide a copyable gateway-administrator command that uses `openshell workspace member add --workspace <workspace> --subject <subject> --role user`. The command SHALL contain the exact service-account subject and a replaceable workspace name. It SHALL explain that the gateway administrator must select the target gateway before running the command. The UI SHALL NOT show this workspace-grant command for an `openshell-admin` account.
+For an `openshell-user` account, the setup view SHALL keep the copyable gateway-administrator command that uses `openshell workspace member add --workspace <workspace> --subject <subject> --role user` in a collapsed advanced section. The command SHALL contain the exact service-account subject and a replaceable workspace name. It SHALL explain that the command is needed only when automatic `default` workspace membership was skipped or when adding the subject to another workspace. The UI SHALL NOT show this workspace-grant command for an `openshell-admin` account.
 
 The setup view SHALL provide these copyable command groups:
 
@@ -946,7 +951,7 @@ After a confirmed create, revoke, or delete operation, the UI SHALL refetch the 
 - GIVEN a viewer opens OpenShellGatewayServiceAccounts for a gateway
 - WHEN the create form renders
 - THEN `openshell-user` SHALL be the only permitted role value
-- AND the UI SHALL explain that an OpenShell workspace membership may still be required for the service-account subject
+- AND the UI SHALL explain that the service account is added to the reserved `default` workspace unless creation opts out
 
 #### Scenario: OSG-SACC-11.06 -- Owner edits a service-account role in place
 
@@ -1039,9 +1044,11 @@ An `openshell-admin` OpenShellGatewayServiceAccount can perform OpenShell admini
 
 An `openshell-user` OpenShellGatewayServiceAccount can authenticate and call identity or status operations. During creation, HyperShell SHALL add the service-account subject to the gateway's reserved `default` workspace with role `user` as defined by `default-workspace-membership-bootstrap.spec.md`.
 
-HyperShell SHALL return the non-secret subject. UI and CLI output SHALL label it as the service-account subject and explain the separate workspace grant. The UI SHALL keep the subject available with a copy action after the one-time client-secret view closes.
+The service-account create request MAY set `skip_default_workspace_bootstrap` to `true`; when set, HyperShell SHALL NOT add the service-account subject to the `default` workspace.
 
-Version 1 excludes automatic workspace discovery, selection, membership cleanup, and membership management outside the reserved `default` workspace bootstrap. HyperShell SHALL NOT report that `openshell-user` grants access to the creator's workspaces.
+HyperShell SHALL return the non-secret subject. UI and CLI output SHALL label it as the service-account subject and state whether automatic `default` workspace membership was added. The UI SHALL keep the subject available with a copy action after the one-time client-secret view closes.
+
+Version 1 excludes automatic workspace selection, membership cleanup, and membership management outside the reserved `default` workspace bootstrap. The list API MAY expose existing gateway-scoped workspace memberships for visibility. HyperShell SHALL NOT report that `openshell-user` grants access to the creator's workspaces.
 
 #### Scenario: OSG-SACC-13.01 -- openshell-user OpenShellGatewayServiceAccount receives default-workspace membership
 
@@ -1134,6 +1141,8 @@ Automated verification SHALL cover:
 - Expiration, explicit revocation, final deletion, gateway cascade cleanup, retries, and orphan reconciliation.
 - CI access-token renewal through another Client Credentials grant.
 - The distinct workspace-membership requirement for `openshell-user` OpenShellGatewayServiceAccounts.
+- The `skip_default_workspace_bootstrap` request field, including its `openshell-admin` no-op behavior.
+- The gateway-scoped `workspaces` list field, including all attached workspaces for `openshell-user` and the empty array for `openshell-admin`.
 
 No test fixture, golden response, failure message, or CI artifact SHALL retain a real client secret or access token.
 
@@ -1146,7 +1155,6 @@ No test fixture, golden response, failure message, or CI artifact SHALL retain a
 | User-configurable access-token lifetime                                 | It increases the revocation delay. Jobs can request new access tokens when needed.                                                                        |
 | Arbitrary Keycloak/OpenShell roles                                      | The selected role is restricted to `openshell-user` or `openshell-admin` and capped by the creator's binding.                                             |
 | OpenShell scope selection                                               | Gateways currently disable scope enforcement with `scopes_claim = ""`.                                                                                    |
-| Automatic workspace memberships                                         | Requires a separate gateway administration and lifecycle contract.                                                                                        |
 | In-place secret rotation                                                | Keycloak 26.2 dual-secret rotation is a disabled preview feature. Replacement OpenShellGatewayServiceAccounts provide a stable workflow without downtime. |
 | Audit-retention period                                                  | A platform-wide audit policy must define the period. This specification requires an audit event but does not set its retention period.                    |
 | Public secret recovery                                                  | Conflicts with one-time delivery and expands the consequence of a management-session compromise.                                                          |

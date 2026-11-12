@@ -4,7 +4,7 @@
 **Status:** Draft
 **Applies to:** `packages/gateway-management-ui` (gateway list, detail pages, connection guidance, application shell), `components/web-console` (host routes, BFF, composition root)
 **Parent:** `web-console/architecture.spec.md` -- console stack and trust boundaries
-**Related:** `web-console/gateway-access-management.spec.md` -- user access tab; `web-console/homepage.spec.md` -- attention continuity from homepage; `platform/openshell-gateway.spec.md` -- gateway provisioning states; `platform/openshell-gateway-service-accounts.spec.md` -- service account lifecycle; `standards/ui/hexagonal-architecture.spec.md`, `standards/ui/patternfly.spec.md`, `standards/ui/domain-observability.spec.md`, `standards/ui/interaction.spec.md`, `standards/ui/content-localization.spec.md`, `standards/ui/accessibility.spec.md`
+**Related:** [Issue #976](https://github.com/openshift-online/hypershell/issues/976) - default-workspace UI feedback and opt-out; `web-console/gateway-access-management.spec.md` -- user access tab; `web-console/homepage.spec.md` -- attention continuity from homepage; `platform/openshell-gateway.spec.md` -- gateway provisioning states; `platform/openshell-gateway-service-accounts.spec.md` -- service account lifecycle; `platform/default-workspace-membership-bootstrap.spec.md` -- default-workspace membership and visibility; `standards/ui/hexagonal-architecture.spec.md`, `standards/ui/patternfly.spec.md`, `standards/ui/domain-observability.spec.md`, `standards/ui/interaction.spec.md`, `standards/ui/content-localization.spec.md`, `standards/ui/accessibility.spec.md`
 **Source mockups:** `specs/web-console/mockups/gateways/gateway-list.parity.stories.tsx`, `specs/web-console/mockups/gateways/gateway-detail.parity.stories.tsx`
 **Source design:** `specs/web-console/gateway-list-detail-visual-changes.md`, `specs/web-console/gateway-list-detail-behavior-data-changes.md`
 
@@ -564,7 +564,7 @@ The console SHALL add a **Need automation access?** card after the table. The ca
 
 The table SHALL add sorting to **Name**, **User ID**, **Role**, and **Granted**. It SHALL add a **Granted** column showing the timestamp when access was granted. The table SHALL add bottom pagination.
 
-The console SHALL use the same code icon as Service accounts for the **User workspace command**. The icon SHALL open a **Grant workspace access** modal with one copyable command.
+The console SHALL use the same code icon as Service accounts for the **User workspace command**. The icon SHALL open an **Add workspace access** modal with one copyable command.
 
 #### Scenario: WEB-GLIS-16.01 -- Tab is named User access
 
@@ -609,8 +609,9 @@ The console SHALL use the same code icon as Service accounts for the **User work
 
 - GIVEN a user row with the User role
 - WHEN the code icon is activated
-- THEN a **Grant workspace access** modal SHALL open
+- THEN an **Add workspace access** modal SHALL open
 - AND it SHALL show one copyable workspace membership command
+- AND the modal SHALL explain that the command is for adding the user to another workspace or replacing manually removed default-workspace access
 
 ---
 
@@ -650,7 +651,7 @@ The Service accounts table SHALL keep **Name** as the default sort. It SHALL kee
 
 The console SHALL rename **Service account subject** to **Principal subject** to match the OpenShell console. It SHALL label the role column **OpenShell role** to distinguish it from HyperShell gateway roles used on User access.
 
-The console SHALL show the account's workspaces in the expanded row. This is future-state data because the current service-account API does not return workspace usage. To show workspace usage in production, the BFF SHALL add a joined service-account API field or an OpenShell integration that returns workspace memberships.
+The console SHALL add a **Workspaces** column after **OpenShell role**. For an `openshell-user` row, the column SHALL show every gateway-scoped workspace name returned by the service-account list API, regardless of the service account's OpenShell workspace-level role. For an `openshell-admin` row, the column SHALL show **Admin** and SHALL NOT list workspace memberships.
 
 The console SHALL add a **Setup** column between **Service account name** and **OpenShell role**. Each row SHALL use a code icon that opens that account's setup instructions. The icon SHALL have a tooltip and screen-reader label such as **Open setup instructions for ci-pipeline**.
 
@@ -659,7 +660,7 @@ The console SHALL add a **Setup** column between **Service account name** and **
 - GIVEN a service account row is collapsed
 - WHEN the user expands it
 - THEN a details row SHALL span the table columns
-- AND it SHALL show the principal subject and workspace usage
+- AND it SHALL show the principal subject and creation time
 
 #### Scenario: WEB-GLIS-18.02 -- Principal subject replaces Service account subject
 
@@ -672,6 +673,13 @@ The console SHALL add a **Setup** column between **Service account name** and **
 - GIVEN the Service accounts table renders
 - WHEN the column headers are inspected
 - THEN the role column SHALL be labeled **OpenShell role**
+
+#### Scenario: WEB-GLIS-18.06 -- Workspaces column reflects gateway scope
+
+- GIVEN the service-account list contains an `openshell-user` attached to gateway workspaces `default` and `billing`
+- WHEN the Service accounts table renders
+- THEN the **Workspaces** column SHALL show `default` and `billing`
+- AND an `openshell-admin` row SHALL show **Admin**
 
 #### Scenario: WEB-GLIS-18.04 -- Setup column opens setup instructions
 
@@ -690,15 +698,19 @@ The console SHALL add a **Setup** column between **Service account name** and **
 
 ### Requirement: WEB-GLIS-19 -- Service Account Setup Modal
 
-The Service accounts setup modal SHALL use one concise warning for the one-time client secret. It SHALL remove the duplicate workspace info alert. It SHALL present setup in a clear order:
+The service-account create form SHALL show a checkbox labeled **Automatically add this service account to the default workspace** only when the selected role is `openshell-user`. The checkbox SHALL default to checked and helper copy SHALL explain that the default workspace is shared with other gateway users. When unchecked, the create request SHALL set `skip_default_workspace_bootstrap` to `true`. The checkbox SHALL be hidden for `openshell-admin`.
+
+The Service accounts setup modal SHALL use one concise warning for the one-time client secret. It SHALL present setup in a clear order:
 
 1. **Save the client ID, client secret, and principal subject**
-2. **Grant workspace access** (when the account uses the `openshell-user` role)
+2. **Default workspace result** (when the account uses the `openshell-user` role)
 3. **Request an access token**
 
 The console SHALL use the same code icon and command-modal pattern as User access. It SHALL use the approved multiline `CommandBlock` treatment for workspace-access and access-token commands.
 
-For `openshell-user`, the console SHALL explain that the service account cannot use the gateway until its principal subject is added to a workspace. It SHALL offer the gateway console or terminal command, and SHALL default `WORKSPACE_NAME` to `default`.
+For a successful `openshell-user` creation with automatic membership, the setup modal SHALL state **Service account created. It can now use the default workspace.** and include the shared-workspace note. For an opted-out creation, the setup modal SHALL state **Service account created without default-workspace access.** The setup modal SHALL keep the OpenShell workspace-member command in a secondary, collapsed advanced section and explain that the command is needed only when automatic membership was skipped or when adding the service account to another workspace.
+
+A failed creation SHALL show the existing localized operation error and SHALL NOT present the service account as created or ready. The setup modal SHALL NOT add pending, ready, or failed membership status badges.
 
 The console SHALL collapse **Request an access token** by default because it is an optional automation step. It SHALL explain that the JWT is a short-lived credential used by automation while the client secret remains protected in the caller's secret manager.
 
@@ -708,8 +720,8 @@ For an existing service account, the console SHALL show setup instructions witho
 
 - GIVEN a user creates a service account with the `openshell-user` role
 - WHEN the setup modal opens
-- THEN it SHALL show sections for saving credentials, granting workspace access, and requesting an access token
-- AND the workspace section SHALL be visible because the role is `openshell-user`
+- THEN it SHALL show sections for saving credentials, the default-workspace result, and requesting an access token
+- AND the default-workspace result SHALL be visible because the role is `openshell-user`
 
 #### Scenario: WEB-GLIS-19.02 -- Admin role skips workspace section
 
@@ -751,6 +763,13 @@ For an existing service account, the console SHALL show setup instructions witho
 - GIVEN the setup modal shows a workspace membership command
 - WHEN the command is rendered
 - THEN it SHALL use `WORKSPACE_NAME=default` as the default
+
+#### Scenario: WEB-GLIS-19.08 -- Service-account creation can opt out of the default workspace
+
+- GIVEN a user creates a service account with the `openshell-user` role
+- WHEN the user unchecks **Automatically add this service account to the default workspace**
+- THEN the create request SHALL include `skip_default_workspace_bootstrap: true`
+- AND a successful setup modal SHALL state **Service account created without default-workspace access.**
 
 ---
 
@@ -949,6 +968,7 @@ The gateway management UI package SHALL include unit/component tests (running th
 - User access tab availability during provisioning, filter and action separation, and workspace command modal
 - Service accounts tab availability during provisioning, expandable rows, and setup modal
 - Attention alerts and role-aware sandbox links
+- Service-account **Workspaces** column rendering and the default-workspace opt-out checkbox
 - Dialog treatments (danger vs. primary styling)
 - Tab loading, refresh scoping, and stale cache behavior
 - Probe emission (one started + one terminal per operation)
@@ -977,7 +997,8 @@ The repository UI completion gate SHALL be executed per `skills/build/ui-build-g
 - WHEN the UI test suite runs
 - THEN it SHALL assert that fresh creation shows the client secret
 - AND existing account setup hides the client secret
-- AND `openshell-user` shows workspace commands while `openshell-admin` does not
+- AND `openshell-user` shows the default-workspace result and collapsed advanced workspace command while `openshell-admin` does not
+- AND unchecking the default-workspace checkbox sends `skip_default_workspace_bootstrap: true`
 
 #### Scenario: WEB-GLIS-25.04 -- CI exercises dialog treatments
 
@@ -998,7 +1019,6 @@ The repository UI completion gate SHALL be executed per `skills/build/ui-build-g
 ## Non-Goals
 
 - This specification does not add a Cluster type dropdown filter to the gateway list; that requires server-side filtering support.
-- This specification does not add workspace membership columns to the User access or Service accounts tables; that requires joined API responses.
 - This specification does not add row-level sandbox details to HyperShell; gateway-scoped aggregate counts are sufficient.
 - This specification does not surface orphaned sandboxes in gateway detail; they remain on the operational dashboard.
 - This specification does not add connection providers beyond Claude; Claude is the single example for this iteration.
