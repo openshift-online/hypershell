@@ -164,10 +164,13 @@ jobs:
           # keyless-API operations back-to-back here, before the readiness wait.
           GW_NAME="ci-${GITHUB_RUN_ID}"
           sel="$(printf '%s' "${GATEWAY_PLACEMENT}" | jq -R 'split(",")')"
+          # operator workspace mode: fullsend provider-profile v2 + agent-workspace
+          # realization require it (AGT-WSP; seed.sh --operator-workspaces). The
+          # gateway image is the controller default (currently v0.1.8-rhaiv.0).
           manifest="$(jq -nc --arg n "$GW_NAME" --argjson sel "$sel" \
             '{apiVersion:"hypershell.redhat.io/v1", kind:"Gateway",
               metadata:{name:$n},
-              spec:{placement:{selector:$sel}}}')"
+              spec:{workspace_mode:"operator", placement:{selector:$sel}}}')"
           echo "$manifest" | hsctl apply -f - -o json || { echo "gateway apply failed" >&2; exit 1; }
           GW_ID="$(hsctl list gateways -o json 2>/dev/null | jq -r --arg n "$GW_NAME" '(.items//.)[] | select(.name==$n) | .id' | head -1)"
           [ -n "$GW_ID" ] || { echo "could not resolve gateway id for $GW_NAME" >&2; exit 1; }
