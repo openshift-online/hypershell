@@ -157,18 +157,11 @@ The OpenShell Helm chart value `server.tls.enableMtls` controls whether the gate
 
 #### Scenario: OSG-TLS-05.01 -- Gateway API routing mode
 
-- GIVEN a Gateway with `route.enabled = true`
+- GIVEN a Gateway (every gateway is routed)
 - AND the control plane uses Gateway API routing
 - WHEN the GatewayReconciler builds the Helm values
 - THEN it SHALL set `server.tls.enableMtls` to `false`
 - BECAUSE the Gateway API ingress proxy (Envoy) terminates external TLS and re-connects to the backend via BackendTLSPolicy, which only handles server certificate validation -- the proxy cannot present a client certificate, so requiring one causes "peer sent no certificates" connection resets
-
-#### Scenario: OSG-TLS-05.02 -- Direct access without a route
-
-- GIVEN a Gateway with no `route` configuration or `route.enabled = false`
-- WHEN the GatewayReconciler builds the Helm values
-- THEN it SHALL NOT set `server.tls.enableMtls`, so the chart default (mTLS on) applies
-- AND the gateway SHALL require client certificates for incoming connections
 
 ---
 
@@ -240,7 +233,7 @@ the vendored chart to verify the supervisor trust path.
 | `DecryptError` in gateway logs | Stale client cert from sandbox after cert rotation | Recreate affected sandboxes |
 | `invalid peer certificate: UnknownIssuer` | Self-signed CA - CLI doesn't trust gateway CA | Use `OPENSHELL_GATEWAY_INSECURE=true` or trust CA |
 | OIDC discovery fails with TLS error | Gateway can't reach IdP (private CA) | Create `gateway-trusted-ca` ConfigMap |
-| `peer sent no certificates` + `upstream connect error or disconnect/reset before headers` | Gateway requires client certs (mTLS) but ingress proxy cannot present one | Ensure `route.enabled` is true so the control plane sets `server.tls.enableMtls=false` in Gateway API routing mode |
+| `peer sent no certificates` + `upstream connect error or disconnect/reset before headers` | Gateway requires client certs (mTLS) but ingress proxy cannot present one | Check the control plane sets `server.tls.enableMtls=false` in Gateway API routing mode |
 
 ---
 

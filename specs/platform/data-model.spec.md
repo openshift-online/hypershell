@@ -760,14 +760,14 @@ contract; it records that the request was made, for display and audit.
 **Translation at create.** When a create request sets `dedicated_route = true` and
 supplies no `route`, the API server SHALL apply, in the service write funnel, the
 platform-managed route opt-in the control plane already keys on:
-`route = {"enabled": true, "certificate": {}}`. This is a server-applied create
+`route = {"certificate": {}}`. This is a server-applied create
 default on the precedent of `workspace_mode`
 ([`openshell-gateway.spec.md`](./openshell-gateway.spec.md), OSG-CORE-18), applied
 after the field policy (so the applied route is never mistaken for a caller-supplied
 one) and validated by the same `route.certificate` shape check an authored route
 must satisfy. An explicit control-plane-authored `route` SHALL win: the request flag
 SHALL NOT overwrite or amend a supplied route document. A request that does not set
-the flag (absent or explicit `false`) SHALL leave the Gateway unrouted by this path.
+the flag (absent or explicit `false`) SHALL NOT have the route document written by this path.
 
 **Entitlement.** Requesting `dedicated_route` SHALL require the platform-wide
 `gateway:dedicated-route-creator` role (`platform:admin` also qualifies), enforced
@@ -801,10 +801,10 @@ the field at the boundary naming it.
 - GIVEN a user create request carrying `name`, placement, and `dedicated_route = true`,
   and no `route`
 - WHEN the API server processes the create
-- THEN it SHALL persist the Gateway with `route = {"enabled": true, "certificate": {}}`
+- THEN it SHALL persist the Gateway with `route = {"certificate": {}}`
 - AND `dedicated_route` SHALL read back as true on the response, over REST and gRPC
 - AND a create that does not set the flag (absent or explicit `false`) SHALL be
-  persisted unrouted, with `dedicated_route` false
+  persisted with no route document, with `dedicated_route` false
 
 #### Scenario: PLAT-DATA-26.02 -- An explicit control-plane route wins
 

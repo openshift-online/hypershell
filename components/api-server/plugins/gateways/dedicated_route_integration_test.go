@@ -24,7 +24,7 @@ import (
 // serverAppliedDedicatedRoute is the route document the API server applies for a
 // create that requests dedicated_route and authors no route: the platform-managed
 // certificate opt-in the control plane keys on.
-const serverAppliedDedicatedRoute = `{"enabled":true,"certificate":{}}`
+const serverAppliedDedicatedRoute = `{"certificate":{}}`
 
 // routeHasCertificate reports whether a route JSON document carries a non-null
 // "certificate" sub-key, which is how the control plane selects the dedicated
@@ -137,7 +137,7 @@ func TestGRPCGatewayDedicatedRoute(t *testing.T) {
 	// An explicit control-plane-authored route wins: a request flag never rewrites
 	// the platform-managed route document.
 	cp, clusterID := controlPlaneGatewayClient(t, h)
-	explicit := `{"enabled":true}`
+	explicit := `{"host":"a.example.com"}`
 	cpCreated, err := cp.CreateGateway(ctx, &pb.CreateGatewayRequest{
 		Name:           "grpc-dedicated-route-explicit",
 		ClusterId:      clusterID,
@@ -194,7 +194,7 @@ func TestGatewayDedicatedRouteServiceSemantics(t *testing.T) {
 	Expect(svcErr.Reason).To(ContainSubstring("cannot be requested by an import caller"))
 
 	// An explicit route wins for a privileged create.
-	explicit := `{"enabled":true}`
+	explicit := `{"host":"a.example.com"}`
 	explicitCreated, svcErr := gatewayService.Create(controlPlaneWriteContext(), &gateways.Gateway{
 		Name:           "dr-semantics-explicit",
 		ClusterId:      "test-cluster_id",

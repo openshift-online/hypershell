@@ -753,7 +753,7 @@ body = {
         'admin_role': 'hypershell-admins',
         'user_role': 'hypershell-users'
     }),
-    'route': json.dumps({'enabled': True})
+    'route': json.dumps({})
 }
 print(json.dumps(body))
 "

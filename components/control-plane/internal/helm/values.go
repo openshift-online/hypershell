@@ -61,8 +61,7 @@ type OIDCConfig struct {
 
 // RouteConfig represents routing configuration.
 type RouteConfig struct {
-	Host    string
-	Enabled bool
+	Host string
 }
 
 // CredentialDriverConfig represents credential driver configuration. Type is the
@@ -161,10 +160,8 @@ func (b *ValuesBuilder) Build() (map[string]interface{}, error) {
 	b.buildCredentialDriverValues(values)
 
 	// Ingress values (conditional)
-	if b.Gateway.Route.Enabled {
-		if err := b.buildIngressValues(values); err != nil {
-			return nil, fmt.Errorf("build ingress values: %w", err)
-		}
+	if err := b.buildIngressValues(values); err != nil {
+		return nil, fmt.Errorf("build ingress values: %w", err)
 	}
 
 	// OpenShift values (conditional)

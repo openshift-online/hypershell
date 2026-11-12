@@ -543,10 +543,10 @@ data-plane gRPC traffic.
 - AND the route hostname SHALL be `gw-<tenant>.<base-domain>` under the shared listener's wildcard
 - AND it SHALL NOT create an OpenShift `Route` for gRPC data-plane traffic
 
-#### Scenario: PLAT-ARCH-05.02 -- Disabling the route or deleting the gateway removes the routing objects
+#### Scenario: PLAT-ARCH-05.02 -- Deleting the gateway removes the routing objects
 
 - GIVEN a provisioned tenant gateway with a `GRPCRoute` and `BackendTLSPolicy`
-- WHEN the gateway's route is disabled (`route.enabled=false`) or the gateway is deleted
+- WHEN the gateway is deleted
 - THEN the control plane SHALL delete the tenant's `GRPCRoute` and `BackendTLSPolicy`
 - AND it SHALL clear the gateway's route address
 

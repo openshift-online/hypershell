@@ -13,201 +13,10 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	k8stesting "k8s.io/client-go/testing"
 
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 )
-
-// routeResourceListKinds registers a list kind for every GVR RouteResourcesAbsent
-// probes through the dynamic client, so the fake can resolve each Get.
-func routeResourceListKinds() map[schema.GroupVersionResource]string {
-	return map[schema.GroupVersionResource]string{
-		{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "grpcroutes"}:         "GRPCRouteList",
-		{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "backendtlspolicies"}: "BackendTLSPolicyList",
-		{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "httproutes"}:         "HTTPRouteList",
-		{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"}:           "GatewayList",
-		{Group: "cert-manager.io", Version: "v1", Resource: "certificates"}:                 "CertificateList",
-		{Group: "apps", Version: "v1", Resource: "deployments"}:                             "DeploymentList",
-	}
-}
-
-// TestRouteResourcesAbsent is the health loop's convergence backstop: teardown
-// trusts its completion marker only while these probes confirm every route- and
-// console-owned resource is actually gone, so a stale provisioning pass that
-// recreates one after teardown cannot hide behind cleared address fields.
-func TestRouteResourcesAbsent(t *testing.T) {
-	const ns = "openshell-abc"
-
-	t.Run("all absent returns true", func(t *testing.T) {
-		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
-		cs := k8sfake.NewSimpleClientset()
-		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, nil, "")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !absent {
-			t.Fatal("want absent=true when no owned resources exist")
-		}
-	})
-
-	t.Run("a resurrected dynamic resource returns false", func(t *testing.T) {
-		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds(),
-			labeledResource("gateway.networking.k8s.io/v1", "GRPCRoute", ns, "openshell-gateway", true),
-		)
-		cs := k8sfake.NewSimpleClientset()
-		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, nil, "")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if absent {
-			t.Fatal("want absent=false when the GRPCRoute reappeared")
-		}
-	})
-
-	t.Run("a leftover console HTTPRoute returns false", func(t *testing.T) {
-		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds(),
-			labeledResource("gateway.networking.k8s.io/v1", "HTTPRoute", ns, consoleName, true),
-		)
-		cs := k8sfake.NewSimpleClientset()
-		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, nil, "")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if absent {
-			t.Fatal("want absent=false when the console HTTPRoute reappeared")
-		}
-	})
-
-	// Dedicated-certificate resources are probed unconditionally: they exist
-	// only for opted-in gateways, so a residual one after teardown means cleanup has not converged and must block the settled state.
-	// The objects are seeded through the exact GVRs the probes use because the
-	// fake client's constructor pluralizes "Gateway" naively ("gatewaies").
-	for _, tc := range []struct {
-		name    string
-		gvr     schema.GroupVersionResource
-		kind    string
-		objName string
-	}{
-		{
-			name:    "a residual external Certificate returns false",
-			gvr:     dedicatedCertGVR,
-			kind:    "Certificate",
-			objName: "openshell-gateway-external",
-		},
-		{
-			name:    "a residual per-tenant Gateway returns false",
-			gvr:     dedicatedGatewayGVR,
-			kind:    "Gateway",
-			objName: "gw-openshell-abc",
-		},
-		{
-			name:    "a residual sandbox HTTPRoute returns false",
-			gvr:     dedicatedHTTPRouteGVR,
-			kind:    "HTTPRoute",
-			objName: "openshell-gateway-sandbox",
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
-			seedDynamicResource(t, dc, tc.gvr, tc.kind, ns, tc.objName)
-			cs := k8sfake.NewSimpleClientset()
-			absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, nil, "")
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if absent {
-				t.Fatalf("want absent=false when the %s %s reappeared", tc.kind, tc.objName)
-			}
-		})
-	}
-
-	t.Run("a resurrected typed resource returns false", func(t *testing.T) {
-		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
-		cs := k8sfake.NewSimpleClientset(&corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "openshell-gateway-backend-ca"},
-		})
-		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, nil, "")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if absent {
-			t.Fatal("want absent=false when the backend-CA ConfigMap reappeared")
-		}
-	})
-
-	t.Run("an unobservable probe returns an error, never false-absent", func(t *testing.T) {
-		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
-		cs := k8sfake.NewSimpleClientset()
-		cs.PrependReactor("get", "configmaps", func(k8stesting.Action) (bool, runtime.Object, error) {
-			return true, nil, fmt.Errorf("apiserver unavailable")
-		})
-		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, nil, "")
-		if err == nil {
-			t.Fatal("want an error when a probe cannot observe the resource")
-		}
-		if absent {
-			t.Fatal("unknown state must never be reported as absent")
-		}
-	})
-
-	// The Keycloak console client is a realm object, not a namespaced one: a stale
-	// provisioning pass that recreated only the client would slip past every
-	// Kubernetes probe above, so its residual existence must still block absence.
-	t.Run("a residual keycloak console client returns false", func(t *testing.T) {
-		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
-		cs := k8sfake.NewSimpleClientset()
-		checker := &fakeConsoleClientChecker{exists: true}
-		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, checker, "gw-1-console")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if absent {
-			t.Fatal("want absent=false when the Keycloak console client still exists")
-		}
-	})
-
-	// An unreachable Keycloak realm must surface as an error, never as absence:
-	// teardown must re-run, not settle on an unknown external state.
-	t.Run("an unobservable keycloak probe returns an error, never false-absent", func(t *testing.T) {
-		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
-		cs := k8sfake.NewSimpleClientset()
-		checker := &fakeConsoleClientChecker{err: fmt.Errorf("keycloak unreachable")}
-		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, checker, "gw-1-console")
-		if err == nil {
-			t.Fatal("want an error when the Keycloak client cannot be observed")
-		}
-		if absent {
-			t.Fatal("unknown external state must never be reported as absent")
-		}
-	})
-
-	// With every Kubernetes resource gone and the console client also deleted,
-	// teardown is genuinely settled -- including the external realm.
-	t.Run("all absent including keycloak returns true", func(t *testing.T) {
-		dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), routeResourceListKinds())
-		cs := k8sfake.NewSimpleClientset()
-		checker := &fakeConsoleClientChecker{exists: false}
-		absent, err := RouteResourcesAbsent(context.Background(), dc, cs, ns, checker, "gw-1-console")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !absent {
-			t.Fatal("want absent=true when no Kubernetes resources and no console client remain")
-		}
-	})
-}
-
-// fakeConsoleClientChecker is a stub ConsoleClientChecker for driving the
-// Keycloak console-client probe in RouteResourcesAbsent.
-type fakeConsoleClientChecker struct {
-	exists bool
-	err    error
-}
-
-func (f *fakeConsoleClientChecker) ConsoleClientExists(context.Context, string) (bool, error) {
-	return f.exists, f.err
-}
 
 // labeledResource builds an unstructured namespaced object, optionally carrying
 // the hypershell.redhat.io/managed label the gateway stamps on everything it
@@ -379,7 +188,7 @@ func TestInjectIngressHostnames(t *testing.T) {
 			Name: ns,
 			Gateway: GatewayConfig{
 				ServerDnsNames: []string{"openshell-gateway." + ns + ".svc.cluster.local"},
-				Route:          RouteConfig{Enabled: true, Certificate: &RouteCertificateConfig{}},
+				Route:          RouteConfig{Certificate: &RouteCertificateConfig{}},
 			},
 		}
 		injectIngressHostnames(context.Background(), nsConfig)
@@ -400,7 +209,7 @@ func TestInjectIngressHostnames(t *testing.T) {
 		t.Setenv("GATEWAY_API_BASE_DOMAIN", baseDomain)
 		nsConfig := &NamespaceConfig{
 			Name:    ns,
-			Gateway: GatewayConfig{Route: RouteConfig{Enabled: true}},
+			Gateway: GatewayConfig{Route: RouteConfig{}},
 		}
 		injectIngressHostnames(context.Background(), nsConfig)
 		want := []string{hostname}
@@ -413,7 +222,7 @@ func TestInjectIngressHostnames(t *testing.T) {
 		t.Setenv("GATEWAY_API_BASE_DOMAIN", "")
 		nsConfig := &NamespaceConfig{
 			Name:    ns,
-			Gateway: GatewayConfig{ServerDnsNames: []string{"existing.example.com"}, Route: RouteConfig{Enabled: true}},
+			Gateway: GatewayConfig{ServerDnsNames: []string{"existing.example.com"}, Route: RouteConfig{}},
 		}
 		injectIngressHostnames(context.Background(), nsConfig)
 		want := []string{"existing.example.com"}
@@ -458,7 +267,6 @@ func TestReconcileGatewayAPIResourcesDedicatedCertificate(t *testing.T) {
 		nsConfig := NamespaceConfig{
 			Name: ns,
 			Gateway: GatewayConfig{Route: RouteConfig{
-				Enabled:     true,
 				Host:        hostname, // as injectIngressHostnames fills in before Helm
 				Certificate: &RouteCertificateConfig{},
 			}},
@@ -684,7 +492,7 @@ func TestReconcileGatewayAPIResourcesDedicatedCertificateRequiresIssuer(t *testi
 	cs := k8sfake.NewSimpleClientset()
 	nsConfig := NamespaceConfig{
 		Name:    ns,
-		Gateway: GatewayConfig{Route: RouteConfig{Enabled: true, Certificate: &RouteCertificateConfig{}}},
+		Gateway: GatewayConfig{Route: RouteConfig{Certificate: &RouteCertificateConfig{}}},
 	}
 
 	err := reconcileGatewayAPIRouteResources(context.Background(), dc, cs, nsConfig, ReconcileOpts{})
@@ -722,8 +530,7 @@ func TestReconcileGatewayAPIResourcesSharedGatewayUnchanged(t *testing.T) {
 	nsConfig := NamespaceConfig{
 		Name: ns,
 		Gateway: GatewayConfig{Route: RouteConfig{
-			Enabled: true,
-			Host:    "gw-" + ns + ".hyp0-spoke0.infra.hypershell.app",
+			Host: "gw-" + ns + ".hyp0-spoke0.infra.hypershell.app",
 		}},
 	}
 

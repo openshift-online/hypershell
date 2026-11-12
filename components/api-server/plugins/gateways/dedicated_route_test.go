@@ -29,19 +29,19 @@ func TestApplyGatewayDedicatedRouteCreateRequest(t *testing.T) {
 			name:      "user request applies the certificate opt-in",
 			kind:      rbac.GatewayWriterUser,
 			gateway:   &Gateway{Name: "gw", DedicatedRoute: boolPtr(true)},
-			wantRoute: `{"certificate":{},"enabled":true}`,
+			wantRoute: `{"certificate":{}}`,
 		},
 		{
 			name:      "control-plane request with no route applies the certificate opt-in",
 			kind:      rbac.GatewayWriterControlPlane,
 			gateway:   &Gateway{Name: "gw", DedicatedRoute: boolPtr(true)},
-			wantRoute: `{"certificate":{},"enabled":true}`,
+			wantRoute: `{"certificate":{}}`,
 		},
 		{
 			name:      "explicit control-plane route wins",
 			kind:      rbac.GatewayWriterControlPlane,
-			gateway:   &Gateway{Name: "gw", DedicatedRoute: boolPtr(true), Route: strPtr(`{"enabled":true}`)},
-			wantRoute: `{"enabled":true}`,
+			gateway:   &Gateway{Name: "gw", DedicatedRoute: boolPtr(true), Route: strPtr(`{"host":"a.example.com"}`)},
+			wantRoute: `{"host":"a.example.com"}`,
 		},
 		{
 			name:      "explicit control-plane route with the opt-in is kept verbatim",

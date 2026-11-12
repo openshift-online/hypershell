@@ -325,7 +325,7 @@ func TestConsoleExposureReadyDedicatedRouteHostAndParent(t *testing.T) {
 
 	dedicated := NamespaceConfig{
 		Name:    ns,
-		Gateway: GatewayConfig{Route: RouteConfig{Enabled: true, Certificate: &RouteCertificateConfig{}}},
+		Gateway: GatewayConfig{Route: RouteConfig{Certificate: &RouteCertificateConfig{}}},
 	}
 
 	accepted := []interface{}{

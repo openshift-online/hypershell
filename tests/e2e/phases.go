@@ -1094,7 +1094,7 @@ type gatewayCreateRequest struct {
 // used by functional and performance e2e tests. Kind resolves the local development
 // control plane; OpenShift resolves an available public AWS control plane. It
 // carries only name + placement, like any user create: the control plane supplies
-// route (enabled by default), the per-gateway Keycloak OIDC client, and the
+// route (always routed), the per-gateway Keycloak OIDC client, and the
 // credential driver (the flat vault default) during reconcile.
 func gatewayCreateRequestForDriver(name, driverName string) gatewayCreateRequest {
 	placement := &gatewayPlacementIntent{Selector: []string{"network/public", "provider/aws"}}
@@ -1248,7 +1248,7 @@ func validateProvisioningConditions(conditions []map[string]any) error {
 
 // createGateway provisions a gateway via the create endpoint with only the
 // user-writable fields (name + placement). The control plane supplies the
-// platform-managed workload fields during reconcile: route (enabled by default)
+// platform-managed workload fields during reconcile: route (always routed)
 // makes it create the gateway's GRPCRoute, and the per-gateway Keycloak OIDC
 // client lets the gateway validate the CLI's bearer token. namespace is
 // server-derived and must not be sent. It uses the raw helper rather than the

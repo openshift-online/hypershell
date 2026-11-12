@@ -63,7 +63,7 @@ func ReconcileGateway(
 		return fmt.Errorf("invalid gateway configuration: %w", err)
 	}
 
-	// A routed gateway is reachable at an external
+	// Every gateway is reachable at an external
 	// hostname (gw-<namespace>.<base-domain>, or an explicit Route.Host). The
 	// gateway pod terminates TLS with its own per-tenant CA, and the shared
 	// Gateway re-encrypts to it and validates it with a BackendTLSPolicy, so the
@@ -71,9 +71,7 @@ func ReconcileGateway(
 	// hostname as a SAN or clients fail verification. The controller derives
 	// that hostname, so it -- not the operator -- injects it into the cert SANs
 	// here, before cert-manager mints the certificate below.
-	if nsConfig.Gateway.Route.Enabled {
-		injectIngressHostnames(ctx, &nsConfig)
-	}
+	injectIngressHostnames(ctx, &nsConfig)
 
 	// Vault-backed gateways fail closed: verify the per-cluster Vault is reachable
 	// (unauthenticated sys/health over TLS trusted by the serving CA) before we
@@ -211,15 +209,9 @@ func ReconcileGateway(
 	// Console reconciliation and route-address publishing are not managed by
 	// the Helm chart. Reconcile them after the Helm release so the gateway
 	// workload is already deployed.
-	if nsConfig.Gateway.Route.Enabled {
-		if err := reconcileGatewayAPIResources(ctx, dynamicClient, clientset, nsConfig, opts); err != nil {
-			report(ConditionGatewayDeployed, StatusFailed, gatewayDeployedConditionMessage(nsConfig, err))
-			return fmt.Errorf("reconcile Gateway API resources in %s: %w", nsConfig.Name, err)
-		}
-	} else {
-		if err := DeleteGatewayAPIResources(ctx, dynamicClient, clientset, nsConfig.Name, opts); err != nil {
-			slog.WarnContext(ctx, "Failed to remove Gateway API resources", "namespace", nsConfig.Name, "error", err)
-		}
+	if err := reconcileGatewayAPIResources(ctx, dynamicClient, clientset, nsConfig, opts); err != nil {
+		report(ConditionGatewayDeployed, StatusFailed, gatewayDeployedConditionMessage(nsConfig, err))
+		return fmt.Errorf("reconcile Gateway API resources in %s: %w", nsConfig.Name, err)
 	}
 
 	report(ConditionGatewayDeployed, StatusComplete, "")
@@ -586,94 +578,6 @@ func deleteGatewayAPIRouteResources(ctx context.Context, dynamicClient dynamic.I
 	}
 
 	return errors.Join(errs...)
-}
-
-// ConsoleClientChecker reports whether the gateway's external Keycloak console
-// client still exists. RouteResourcesAbsent uses it so teardown's settled-state
-// check converges across BOTH Kubernetes and the external realm: the console
-// client is a realm object, not a namespaced one, so a stale provisioning pass
-// that recreated only the client -- e.g. failing before its namespaced Secret
-// and Deployment writes -- would otherwise be invisible to a Kubernetes-only
-// probe and let teardown settle while the client leaks.
-type ConsoleClientChecker interface {
-	ConsoleClientExists(ctx context.Context, consoleClientID string) (bool, error)
-}
-
-// RouteResourcesAbsent reports whether the gateway's Gateway API resources and
-// all console resources are absent. It also checks the external Keycloak
-// console client. Unknown state
-// must never be read as absence.
-//
-// It returns (true, nil) only when every probed resource is confirmed absent.
-// The first resource found present short-circuits to (false, nil). Any probe
-// that fails for a reason other than Kubernetes NotFound is returned as an error
-// so the caller treats absence as unconfirmed (and re-runs teardown) rather than
-// trusting an unknown state. The Keycloak client probe is skipped when
-// consoleClient is nil or consoleClientID is empty (no Keycloak configured).
-func RouteResourcesAbsent(ctx context.Context, dynamicClient dynamic.Interface, clientset kubernetes.Interface, namespace string, consoleClient ConsoleClientChecker, consoleClientID string) (bool, error) {
-	grpcRouteGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "grpcroutes"}
-	btlsGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "backendtlspolicies"}
-	httpRouteGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "httproutes"}
-	gatewayGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"}
-	certGVR := schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "certificates"}
-
-	type dynamicProbe struct {
-		gvr  schema.GroupVersionResource
-		name string
-	}
-	// The dedicated-certificate resources are only present for opted-in
-	// gateways; probing them unconditionally is correct (absence for
-	// non-opted-in gateways is the expected state).
-	dynamicProbes := []dynamicProbe{
-		{grpcRouteGVR, "openshell-gateway"},
-		{btlsGVR, "openshell-gateway"},
-		{certGVR, externalCertificateName},
-		{gatewayGVR, perTenantGatewayName(namespace)},
-		{httpRouteGVR, sandboxHTTPRouteName},
-		{httpRouteGVR, consoleName},
-		{schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}, consoleName},
-	}
-	for _, p := range dynamicProbes {
-		if _, err := dynamicClient.Resource(p.gvr).Namespace(namespace).Get(ctx, p.name, metav1.GetOptions{}); err == nil {
-			return false, nil
-		} else if !k8serrors.IsNotFound(err) {
-			return false, fmt.Errorf("probe %s/%s in %s: %w", p.gvr.Resource, p.name, namespace, err)
-		}
-	}
-
-	if _, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, backendCAConfigMapName, metav1.GetOptions{}); err == nil {
-		return false, nil
-	} else if !k8serrors.IsNotFound(err) {
-		return false, fmt.Errorf("probe configmap %s in %s: %w", backendCAConfigMapName, namespace, err)
-	}
-	if _, err := clientset.CoreV1().Services(namespace).Get(ctx, consoleName, metav1.GetOptions{}); err == nil {
-		return false, nil
-	} else if !k8serrors.IsNotFound(err) {
-		return false, fmt.Errorf("probe service %s in %s: %w", consoleName, namespace, err)
-	}
-	if _, err := clientset.CoreV1().Secrets(namespace).Get(ctx, consoleSecretName, metav1.GetOptions{}); err == nil {
-		return false, nil
-	} else if !k8serrors.IsNotFound(err) {
-		return false, fmt.Errorf("probe secret %s in %s: %w", consoleSecretName, namespace, err)
-	}
-
-	// Probe the external Keycloak console client last: it is a realm object, not a
-	// namespaced one, and a stale provisioning pass that recreated only the client
-	// -- e.g. failing before its namespaced Secret and Deployment writes -- would
-	// otherwise be invisible above and let teardown settle while the client leaks.
-	// Skipped when unconfigured (nil checker / empty ID). A probe error is returned
-	// so absence stays unconfirmed rather than being read as gone.
-	if consoleClient != nil && consoleClientID != "" {
-		exists, err := consoleClient.ConsoleClientExists(ctx, consoleClientID)
-		if err != nil {
-			return false, fmt.Errorf("probe keycloak console client %s: %w", consoleClientID, err)
-		}
-		if exists {
-			return false, nil
-		}
-	}
-
-	return true, nil
 }
 
 // readServerTLSCA returns the PEM-encoded ca.crt from the per-namespace
@@ -2063,14 +1967,11 @@ func reconcileGatewayAPIRouteResources(ctx context.Context, dynamicClient dynami
 	// The wait above can run for up to a minute. A route removal (or gateway
 	// deletion) during it is observed only by the independent health loop -- the
 	// watcher phase gate blocks a re-provision -- which tears down this gateway's
-	// route and console. Re-check live route intent before creating the remaining
-	// route- and console-owned resources so this in-flight pass does not race that
-	// teardown. Fail closed: unknown intent must not authorize new resources, so a
-	// check error aborts the pass (the gateway parks at Failed and is retried on
-	// the next watch resync) rather than risk creating resources behind a
-	// concurrent teardown. The health loop's route teardown verifies actual
-	// resource absence (RouteResourcesAbsent), so it still removes anything a
-	// narrow check-then-act window lets slip through.
+	// route and console. Re-check that the gateway still exists before creating the
+	// remaining route- and console-owned resources so this in-flight pass does not
+	// race a deletion. Fail closed: unknown state must not authorize new
+	// resources, so a check error aborts the pass (the gateway parks at Failed and
+	// is retried on the next watch resync).
 	if opts.RouteStillDesired != nil {
 		desired, err := opts.RouteStillDesired(ctx)
 		if err != nil {

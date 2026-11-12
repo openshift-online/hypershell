@@ -212,8 +212,7 @@ type KubernetesSecretsConfig struct {
 }
 
 type RouteConfig struct {
-	Host    string `yaml:"host" json:"host,omitempty"`
-	Enabled bool   `yaml:"enabled" json:"enabled,omitempty"`
+	Host string `yaml:"host" json:"host,omitempty"`
 	// Certificate opts the gateway in to the dedicated per-gateway certificate
 	// provisioning path (route.certificate: {} in the route JSONB): the gateway
 	// gets its own wildcard certificate and Gateway API route instead of riding
