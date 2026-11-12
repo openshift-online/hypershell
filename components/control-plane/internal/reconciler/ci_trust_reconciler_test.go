@@ -17,10 +17,15 @@ const testClusterID = "cluster-local"
 // fakeCIKeycloak records the federation specs it is asked to realize/revoke and
 // can be told to fail, so reconciler behavior is tested without a live Keycloak.
 type fakeCIKeycloak struct {
-	ensured   []keycloak.CIFederationSpec
-	deleted   []keycloak.CIFederationSpec
-	ensureErr error
-	deleteErr error
+	ensured      []keycloak.CIFederationSpec
+	deleted      []keycloak.CIFederationSpec
+	ensureErr    error
+	deleteErr    error
+	adminToken   string
+	adminErr     error
+	groupMembers map[string][]string
+	membersErr   error
+	mintedFor    []string
 }
 
 func (f *fakeCIKeycloak) EnsureCIFederation(_ context.Context, spec keycloak.CIFederationSpec) error {
@@ -34,6 +39,24 @@ func (f *fakeCIKeycloak) DeleteCIFederation(_ context.Context, spec keycloak.CIF
 }
 
 func (f *fakeCIKeycloak) Issuer() string { return "https://keycloak.example.com/realms/hypershell" }
+
+func (f *fakeCIKeycloak) MintGatewayAdminToken(_ context.Context, gatewayClientID string) (string, error) {
+	f.mintedFor = append(f.mintedFor, gatewayClientID)
+	if f.adminErr != nil {
+		return "", f.adminErr
+	}
+	if f.adminToken == "" {
+		return "admin-token", nil
+	}
+	return f.adminToken, nil
+}
+
+func (f *fakeCIKeycloak) ListGroupMemberSubjects(_ context.Context, groupName string) ([]string, error) {
+	if f.membersErr != nil {
+		return nil, f.membersErr
+	}
+	return f.groupMembers[groupName], nil
+}
 
 // Minimal gRPC service fakes: embed the generated client interface (nil method
 // set) and override only the calls the reconciler makes.

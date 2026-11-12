@@ -39,6 +39,14 @@ func (f *syncCIKeycloak) Issuer() string {
 	return "https://keycloak.example.com/realms/hypershell"
 }
 
+func (f *syncCIKeycloak) MintGatewayAdminToken(_ context.Context, _ string) (string, error) {
+	return "admin-token", nil
+}
+
+func (f *syncCIKeycloak) ListGroupMemberSubjects(_ context.Context, _ string) ([]string, error) {
+	return nil, nil
+}
+
 func (f *syncCIKeycloak) ensuredSpecs() []keycloak.CIFederationSpec {
 	f.mu.Lock()
 	defer f.mu.Unlock()
