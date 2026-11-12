@@ -165,19 +165,26 @@ class AutomationTest(unittest.TestCase):
         target = self.repo / 'deploy/oce-kind'; target.mkdir(parents=True)
         for file in ('up.sh', 'select-state.py', 'kind.yaml', 'pod-security.yaml', 'hypershell-operator.yaml'):
             shutil.copyfile(helpers / file, target / file)
-        for file in ('cmd/occ/main.go', 'scripts/build-controller.mjs', 'scripts/lib/openclaw-source.mjs',
-                     'scripts/ci/test-suites/images-packaging.json', 'docs/assets/openshell-quickstart/chat.mjs',
+        for file in ('cmd/occ/main.go', 'deploy/helm/openclaw-enterprise/Chart.yaml', 'docs/assets/openshell-quickstart/chat.mjs',
                      'apps/controller/src/gateway/native-admin-host.mjs',
                      'docs/snippets/openshell-quickstart/operator-session.sh',
                      'docs/snippets/openshell-quickstart/platform-kubernetes.sh',
                      'docs/snippets/openshell-quickstart/codex-configuration.jq'):
             path = self.oce / file; path.parent.mkdir(parents=True, exist_ok=True); path.touch()
         (self.assets / 'kubernetes/service-policies.py').write_text('print("--openshell-namespace")')
-        for stage in ('build-oce', 'prepare-oce', 'install-oce', 'activate-oce', 'browser-access', 'seed-agent', 'access'):
+        self.env['OCE_TEST_SOURCE'] = str(self.oce)
+        for stage in ('pull-oce', 'prepare-oce', 'install-oce', 'activate-oce', 'browser-access', 'seed-agent', 'access'):
             (target / (stage + '.sh')).write_text('set -eu\n'
                 f'echo \'["{stage}"]\' >> "$OCE_TEST_INFRA/calls"\n'
                 f'[[ $TEST_FAIL != {stage} ]]\n'
-                + ('echo \'{}\' > "$OCE_KIND_STATE/images.json"\n' if stage == 'build-oce' else ''))
+                + ('''echo '{}' > "$OCE_KIND_STATE/images.json"
+touch "$OCE_KIND_STATE/occ"
+chmod 700 "$OCE_KIND_STATE/occ"
+if [[ $OCE_REPO != "$OCE_TEST_SOURCE" ]]; then
+  mkdir -p "$OCE_REPO"
+  cp -a "$OCE_TEST_SOURCE/." "$OCE_REPO/"
+fi
+''' if stage == 'pull-oce' else ''))
         return target / 'up.sh'
 
     def prepare_seed(self):
@@ -220,13 +227,26 @@ turn() {
             self.assertEqual(result.returncode, 0, result.stderr)
         calls = self.calls()
         self.assertEqual(sum(c[:2] == ['make', 'kind-up'] for c in calls), 1)
-        self.assertEqual(sum(c == ['build-oce'] for c in calls), 1)
+        self.assertEqual(sum(c == ['pull-oce'] for c in calls), 1)
         self.assertEqual(sum(c[:3] == ['kind', 'create', 'cluster'] for c in calls), 1)
         stages = [c[0] for c in calls if len(c) == 1]
         expected = ['prepare-oce', 'install-oce', 'activate-oce', 'browser-access', 'seed-agent', 'access']
-        self.assertEqual(stages, ['prepare-oce', 'build-oce', *expected[1:], *expected])
+        self.assertEqual(stages, ['prepare-oce', 'pull-oce', *expected[1:], *expected])
         self.assertEqual(self.state.stat().st_mode & 0o777, 0o700)
         self.assertIn(str(self.repo), (self.state / 'kind.yaml').read_text())
+
+    def test_make_without_oce_checkout_fetches_assets_and_resumes(self):
+        self.prepare_up()
+        for file in ('Makefile', 'OPENSHELL_VERSION'):
+            shutil.copyfile(helpers.parents[1] / file, self.repo / file)
+        env = dict(self.env)
+        env.pop('OCE_REPO')
+        for _ in range(2):
+            result = subprocess.run([shutil.which('make'), '--no-print-directory', 'kind-up-with-oce'],
+                                    cwd=self.repo, env=env, capture_output=True, text=True, timeout=20)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.state / 'oce-source/deploy/helm/openclaw-enterprise/Chart.yaml').exists())
+        self.assertEqual(self.calls().count(['pull-oce']), 1)
 
     def test_up_rejects_unrecorded_or_replaced_cluster_and_missing_inputs(self):
         script = self.prepare_up()

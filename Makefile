@@ -124,7 +124,7 @@ help:
 	@echo "                             LOCAL_IMAGES=true KIND_SKIP_BUILD=true: reuse existing local images"
 	@echo "                             KIND_SKIP_SEED=true: defer seeding (run kind-seed later)"
 	@echo "                             KIND_COVERAGE=true: coverage-instrumented images (implies LOCAL_IMAGES=true)"
-	@echo "    kind-up-with-oce         HyperShell + OCE + gpt-6-luna Codex agent (OCE_REPO, ENMAAS_API_KEY_FILE)"
+	@echo "    kind-up-with-oce         HyperShell + OCE from Quay + gpt-6-luna Codex agent (ENMAAS_API_KEY_FILE)"
 	@echo "    kind-teardown            Destroy hypershell-dev and hypershell-oce when present"
 	@echo "                             KIND_CLUSTER_NAME=<name>: target a non-default cluster only"
 	@echo "    kind-seed                Seed platform resources into a running cluster"
