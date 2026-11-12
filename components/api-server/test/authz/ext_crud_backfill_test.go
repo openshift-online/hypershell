@@ -279,7 +279,7 @@ func TestExtKindsNameBackfillDeduplicatesCollisions(t *testing.T) {
 
 	// Assign a sorted id pair to each kind, then seed both colliding rows.
 	for i := range pairs {
-		pairs[i].idLow, pairs[i].idHigh = sortedIDPair()
+		pairs[i].idLow, pairs[i].idHigh = sortedIDPair(t, g2)
 		seedCollisionPair(t, g2, pairs[i])
 	}
 
@@ -329,15 +329,24 @@ func seedCollisionPair(t *testing.T, g2 *gorm.DB, p collisionPair) {
 	exec(t, g2, p.insertSQL, p.argsForRow(p.idHigh)...)
 }
 
-// sortedIDPair returns two distinct ids, the lexicographically smaller first, so a
-// test can predict which row the de-duplication keeps (smallest id) and which it
-// suffixes.
-func sortedIDPair() (string, string) {
+// sortedIDPair returns two distinct ids, the smaller first, so a test can predict
+// which row the de-duplication keeps (smallest id) and which it suffixes.
+//
+// "Smaller" is decided by the database, not by Go: the migration compares ids with
+// SQL `<`, which follows the database collation. Go compares bytes, and the two
+// orders can disagree for mixed-case ids (for example `Z` vs `a` under en_US), so
+// sorting in Go made the test flaky.
+func sortedIDPair(t *testing.T, g2 *gorm.DB) (string, string) {
+	t.Helper()
 	a, b := api.NewID(), api.NewID()
-	if a > b {
-		return b, a
+	var aFirst bool
+	if err := g2.Raw(`SELECT ?::varchar < ?::varchar`, a, b).Scan(&aFirst).Error; err != nil {
+		t.Fatalf("compare ids in the database: %v", err)
 	}
-	return a, b
+	if aFirst {
+		return a, b
+	}
+	return b, a
 }
 
 // hasIndex reports whether an index with the given name exists in the current
@@ -374,7 +383,7 @@ func TestExtKindsNameBackfillDedupIgnoresSoftDeleted(t *testing.T) {
 
 	// deletedID < liveID so the old id-only de-duplication would keep the
 	// soft-deleted (smaller-id) row's name and suffix the live (larger-id) row.
-	deletedID, liveID := sortedIDPair()
+	deletedID, liveID := sortedIDPair(t, g2)
 
 	// Rewrite ci_trusts into its pre-name shape, then seed both rows directly.
 	exec(t, g2, `DELETE FROM migrations WHERE id = ?`, nameMigID)
