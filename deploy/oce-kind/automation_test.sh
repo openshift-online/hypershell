@@ -42,6 +42,9 @@ elif name == 'kubectl':
     elif 'keycloak' in args and 'get' in args:
         print(json.dumps({'spec': {'template': {'spec': {'containers': [{'env': [
             {'name': 'KC_HOSTNAME', 'value': 'https://keycloak.hypershell.localhost:32443'}]}]}}}}))
+    elif 'deployment/hypershell-controller' in args and 'get' in args:
+        if os.environ.get('TEST_FAIL') == 'controller-image': sys.exit(42)
+        print(os.environ.get('TEST_CONTROLLER_IMAGE', 'registry.example.com/controller:latest'))
     elif 'openshell-gateway' in args and 'grpcroute' in args:
         print('{"spec":{"hostnames":["gw-openshell-0123456789abcdef.hypershell.localhost"]}}')
     elif 'hypershell-gw' in args:
@@ -63,7 +66,11 @@ elif name == 'make':
     assert os.environ['KUBECONFIG'] == str(state / 'kubeconfig')
     assert os.environ['KIND_NO_SUDO'] == 'true'
     if args[0] == 'kind-up':
-        assert 'SKIP_SEED=true' in args and 'LOCAL_IMAGES=true' in args
+        assert 'SKIP_SEED=true' in args
+        settings = dict(os.environ)
+        settings.update(arg.split('=', 1) for arg in args[1:] if '=' in arg)
+        for key in ('LOCAL_IMAGES', 'BUILD_SOURCE', 'KIND_SKIP_BUILD', 'KIND_COVERAGE'):
+            assert settings.get(key, '') == os.environ.get('TEST_EXPECT_' + key, ''), key
     elif args[0] == 'kind-seed':
         assert 'SEED_STRICT=true' in args and 'SEED_OPERATOR_WORKSPACES=true' in args
         calls = [json.loads(line) for line in (infra / 'calls').read_text().splitlines()]
@@ -146,7 +153,8 @@ class AutomationTest(unittest.TestCase):
                         OCE_KIND_STATE=str(self.state), OCE_REPO=str(self.oce),
                         XDG_STATE_HOME=str(self.state_home), OCE_TEST_INFRA=str(self.infra),
                         ENMAAS_API_KEY_FILE=str(self.key), TEST_FAIL='')
-        for name in ('GATEWAY_NAMESPACE', 'MAKEFLAGS', 'MFLAGS', 'MAKEOVERRIDES'):
+        for name in ('GATEWAY_NAMESPACE', 'MAKEFLAGS', 'MFLAGS', 'MAKEOVERRIDES',
+                     'LOCAL_IMAGES', 'BUILD_SOURCE', 'KIND_SKIP_BUILD', 'KIND_COVERAGE', 'CONTROL_PLANE_IMAGE'):
             self.env.pop(name, None)
         for tool in ('kind', 'kubectl', 'docker', 'make', 'sleep', 'curl'):
             stub = self.bin / tool; stub.write_text(TOOLS); stub.chmod(0o700)
@@ -247,6 +255,45 @@ turn() {
             self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue((self.state / 'oce-source/deploy/helm/openclaw-enterprise/Chart.yaml').exists())
         self.assertEqual(self.calls().count(['pull-oce']), 1)
+
+    def test_make_preserves_image_build_settings_and_extracts_helm_from_deployed_image(self):
+        self.prepare_up()
+        for file in ('Makefile', 'OPENSHELL_VERSION'):
+            shutil.copyfile(helpers.parents[1] / file, self.repo / file)
+        for settings, controller_image in (
+            ({}, 'registry.example.com/controller:latest'),
+            ({'LOCAL_IMAGES': 'false'}, 'registry.example.com/controller:latest'),
+            ({'LOCAL_IMAGES': 'true', 'BUILD_SOURCE': 'baseline', 'KIND_SKIP_BUILD': 'true'},
+             'localhost/hypershell-controller:dev'),
+            ({'KIND_COVERAGE': 'true'}, 'localhost/hypershell-controller:dev'),
+            ({'CONTROL_PLANE_IMAGE': 'registry.example.com/controller:custom'},
+             'registry.example.com/controller:custom'),
+        ):
+            for source in ('environment', 'arguments'):
+                with self.subTest(settings=settings, source=source):
+                    (self.state / 'hypershell-ready').unlink(missing_ok=True)
+                    (self.state / 'bin/helm').unlink(missing_ok=True)
+                    env = dict(self.env, TEST_CONTROLLER_IMAGE=controller_image,
+                               **{'TEST_EXPECT_' + key: value for key, value in settings.items()})
+                    arguments = []
+                    if source == 'environment':
+                        env.update(settings)
+                    else:
+                        arguments = [key + '=' + value for key, value in settings.items()]
+                    result = subprocess.run([shutil.which('make'), '--no-print-directory',
+                                             'kind-up-with-oce', *arguments], cwd=self.repo,
+                                            env=env, capture_output=True, text=True, timeout=20)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    creates = [c for c in self.calls() if c[:2] == ['docker', 'create']]
+                    self.assertEqual(creates[-1], ['docker', 'create', controller_image])
+
+    def test_up_stops_if_controller_image_cannot_be_read(self):
+        script = self.prepare_up()
+        result = self.run_script(script, TEST_FAIL='controller-image')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Helm preparation', result.stderr)
+        self.assertFalse(any(c[:2] == ['docker', 'create'] for c in self.calls()))
+        self.assertNotIn(['install-oce'], self.calls())
 
     def test_up_rejects_unrecorded_or_replaced_cluster_and_missing_inputs(self):
         script = self.prepare_up()

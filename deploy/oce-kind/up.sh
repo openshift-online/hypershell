@@ -39,7 +39,7 @@ OCE_KIND_STATE=$(cd "$OCE_KIND_STATE" && pwd)
 export OCE_REPO="${OCE_REPO:-$OCE_KIND_STATE/oce-source}"
 export KUBECONFIG="$OCE_KIND_STATE/kubeconfig" CONTEXT=kind-hypershell-oce
 export KIND_CLUSTER_NAME=hypershell-oce KIND_NAMESPACE=hypershell-system KIND_NO_SUDO=true
-export KIND_HOT_RELOAD=false LOCAL_IMAGES=true
+export KIND_HOT_RELOAD=false
 export CPK_LOG="$OCE_KIND_STATE/cpk.log" CURL_HOME="$OCE_KIND_STATE/curl"
 mkdir -p "$CURL_HOME"
 printf 'ipv4\n' > "$CURL_HOME/.curlrc"
@@ -79,7 +79,7 @@ stage=HyperShell
 if [[ ! -e $OCE_KIND_STATE/hypershell-ready && ! -e $OCE_KIND_STATE/install-receipt ]]; then
   # Only the first bring-up reapplies baseline manifests; later runs preserve operator settings and ingress.
   make kind-up SKIP_SEED=true KIND_CLUSTER_NAME=hypershell-oce KIND_NAMESPACE=hypershell-system \
-    CONTAINER_ENGINE=docker KIND_HOT_RELOAD=false LOCAL_IMAGES=true KIND_KEYCLOAK_URL= 8>&-
+    CONTAINER_ENGINE=docker KIND_HOT_RELOAD=false KIND_KEYCLOAK_URL= 8>&-
   touch "$OCE_KIND_STATE/hypershell-ready"
 fi
 stage='gateway prerequisites'
@@ -129,7 +129,9 @@ stage='Helm preparation'
 mkdir -p "$OCE_KIND_STATE/bin" "$OCE_KIND_STATE/helm-plugins"
 if [[ ! -x $OCE_KIND_STATE/bin/helm ]]; then
   # The HyperShell controller ships the Helm 3 required by OCC, even on Helm 4 hosts.
-  container=$(docker create localhost/hypershell-controller:dev)
+  controller_image=$(kubectl -n "$KIND_NAMESPACE" get deployment/hypershell-controller \
+    -o 'jsonpath={.spec.template.spec.containers[?(@.name=="controller")].image}')
+  container=$(docker create "$controller_image")
   if ! docker cp "$container:/usr/local/bin/helm" "$OCE_KIND_STATE/bin/helm"; then
     docker rm "$container"
     fail 'Could not extract Helm 3 from the HyperShell controller image.'

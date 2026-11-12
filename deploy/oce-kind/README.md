@@ -10,6 +10,20 @@ OCE controller and runtime images from Quay and handles the cluster, credentials
 integration, and browser access. It manages its own state directory and leaves your default
 kubeconfig and Kubernetes context unchanged.
 
+HyperShell uses registry images by default, just like `make kind-up`. Set
+`LOCAL_IMAGES=true` to build HyperShell images from your working tree:
+
+```shell
+make kind-up-with-oce LOCAL_IMAGES=true \
+  ENMAAS_API_KEY_FILE="$HOME/enmaas-key.txt"
+```
+
+With local images enabled, `BUILD_SOURCE=baseline` builds from `origin/main`, and
+`KIND_SKIP_BUILD=true` reuses existing local images. `KIND_COVERAGE=true` implies
+local builds. These settings apply to the initial HyperShell bring-up; reruns
+preserve an already initialized HyperShell installation. OCE images come from Quay
+in either mode.
+
 This is a disposable, single-node development environment. HyperShell uses its
 standard development credentials, and Docker publishes the kind load-balancer
 ports on host interfaces. Use a firewall or an isolated development network.
@@ -47,7 +61,8 @@ space for image builds. Builds need access to GitHub, container registries, and
 package registries; the model check needs access to EnMaaS. The setup uses
 Kubernetes 1.35.0 and HyperShell's normal release defaults from
 [`OPENSHELL_VERSION`](../../OPENSHELL_VERSION) and the [Makefile](../../Makefile).
-Helm 3 is extracted from the HyperShell controller image automatically.
+Helm 3 is extracted automatically from the deployed HyperShell controller's image,
+which Docker pulls if it is not already available locally.
 
 OCE images come from `quay.io/aipcc/base-images/agentic/oce-controller:latest`
 and `quay.io/aipcc/base-images/agentic/oce-runtime:latest`. A new installation
@@ -90,7 +105,8 @@ The Makefile invokes [`up.sh`](up.sh), which runs these stages in order:
    Take a setup lock and select the private directory belonging to the
    running cluster, or allocate a fresh directory for a new cluster.
 2. **Start HyperShell.** Create kind using [`kind.yaml`](kind.yaml), then run
-   the existing `make kind-up` workflow with local builds and seeding deferred.
+   the existing `make kind-up` workflow with seeding deferred. It uses registry
+   images by default and honors the same local-build settings as `make kind-up`.
    Prepare the operator RuntimeClass and controller trust settings, then create
    `dev-gateway` with `hsctl create gateway --operator-workspaces` through
    `make kind-seed SEED_OPERATOR_WORKSPACES=true SEED_STRICT=true`. Wait for the
