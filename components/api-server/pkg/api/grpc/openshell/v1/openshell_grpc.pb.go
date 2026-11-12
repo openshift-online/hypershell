@@ -19,7 +19,9 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	OpenShell_AddWorkspaceMember_FullMethodName = "/openshell.v1.OpenShell/AddWorkspaceMember"
+	OpenShell_AddWorkspaceMember_FullMethodName   = "/openshell.v1.OpenShell/AddWorkspaceMember"
+	OpenShell_ListWorkspaces_FullMethodName       = "/openshell.v1.OpenShell/ListWorkspaces"
+	OpenShell_ListWorkspaceMembers_FullMethodName = "/openshell.v1.OpenShell/ListWorkspaceMembers"
 )
 
 // OpenShellClient is the client API for OpenShell service.
@@ -27,6 +29,8 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type OpenShellClient interface {
 	AddWorkspaceMember(ctx context.Context, in *AddWorkspaceMemberRequest, opts ...grpc.CallOption) (*AddWorkspaceMemberResponse, error)
+	ListWorkspaces(ctx context.Context, in *ListWorkspacesRequest, opts ...grpc.CallOption) (*ListWorkspacesResponse, error)
+	ListWorkspaceMembers(ctx context.Context, in *ListWorkspaceMembersRequest, opts ...grpc.CallOption) (*ListWorkspaceMembersResponse, error)
 }
 
 type openShellClient struct {
@@ -47,11 +51,33 @@ func (c *openShellClient) AddWorkspaceMember(ctx context.Context, in *AddWorkspa
 	return out, nil
 }
 
+func (c *openShellClient) ListWorkspaces(ctx context.Context, in *ListWorkspacesRequest, opts ...grpc.CallOption) (*ListWorkspacesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListWorkspacesResponse)
+	err := c.cc.Invoke(ctx, OpenShell_ListWorkspaces_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *openShellClient) ListWorkspaceMembers(ctx context.Context, in *ListWorkspaceMembersRequest, opts ...grpc.CallOption) (*ListWorkspaceMembersResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListWorkspaceMembersResponse)
+	err := c.cc.Invoke(ctx, OpenShell_ListWorkspaceMembers_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // OpenShellServer is the server API for OpenShell service.
 // All implementations must embed UnimplementedOpenShellServer
 // for forward compatibility.
 type OpenShellServer interface {
 	AddWorkspaceMember(context.Context, *AddWorkspaceMemberRequest) (*AddWorkspaceMemberResponse, error)
+	ListWorkspaces(context.Context, *ListWorkspacesRequest) (*ListWorkspacesResponse, error)
+	ListWorkspaceMembers(context.Context, *ListWorkspaceMembersRequest) (*ListWorkspaceMembersResponse, error)
 	mustEmbedUnimplementedOpenShellServer()
 }
 
@@ -64,6 +90,12 @@ type UnimplementedOpenShellServer struct{}
 
 func (UnimplementedOpenShellServer) AddWorkspaceMember(context.Context, *AddWorkspaceMemberRequest) (*AddWorkspaceMemberResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method AddWorkspaceMember not implemented")
+}
+func (UnimplementedOpenShellServer) ListWorkspaces(context.Context, *ListWorkspacesRequest) (*ListWorkspacesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListWorkspaces not implemented")
+}
+func (UnimplementedOpenShellServer) ListWorkspaceMembers(context.Context, *ListWorkspaceMembersRequest) (*ListWorkspaceMembersResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListWorkspaceMembers not implemented")
 }
 func (UnimplementedOpenShellServer) mustEmbedUnimplementedOpenShellServer() {}
 func (UnimplementedOpenShellServer) testEmbeddedByValue()                   {}
@@ -104,6 +136,42 @@ func _OpenShell_AddWorkspaceMember_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _OpenShell_ListWorkspaces_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListWorkspacesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OpenShellServer).ListWorkspaces(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OpenShell_ListWorkspaces_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OpenShellServer).ListWorkspaces(ctx, req.(*ListWorkspacesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OpenShell_ListWorkspaceMembers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListWorkspaceMembersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OpenShellServer).ListWorkspaceMembers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OpenShell_ListWorkspaceMembers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OpenShellServer).ListWorkspaceMembers(ctx, req.(*ListWorkspaceMembersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // OpenShell_ServiceDesc is the grpc.ServiceDesc for OpenShell service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -114,6 +182,14 @@ var OpenShell_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AddWorkspaceMember",
 			Handler:    _OpenShell_AddWorkspaceMember_Handler,
+		},
+		{
+			MethodName: "ListWorkspaces",
+			Handler:    _OpenShell_ListWorkspaces_Handler,
+		},
+		{
+			MethodName: "ListWorkspaceMembers",
+			Handler:    _OpenShell_ListWorkspaceMembers_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

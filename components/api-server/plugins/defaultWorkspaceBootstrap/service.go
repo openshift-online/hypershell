@@ -22,13 +22,20 @@ type Input struct {
 	Role             string
 }
 
+type WorkspaceMembership struct {
+	Workspace string
+	Subject   string
+}
+
 type Provisioner interface {
 	Configured() bool
 	BootstrapDefaultWorkspace(context.Context, Input) error
+	ListWorkspaceMemberships(context.Context, Input) ([]WorkspaceMembership, error)
 }
 
 type Service interface {
 	Bootstrap(context.Context, Input) *APIError
+	ListWorkspaceMemberships(context.Context, Input) ([]WorkspaceMembership, *APIError)
 }
 
 type APIError struct {
@@ -92,6 +99,20 @@ func (s *service) Bootstrap(ctx context.Context, input Input) *APIError {
 	return nil
 }
 
+func (s *service) ListWorkspaceMemberships(ctx context.Context, input Input) ([]WorkspaceMembership, *APIError) {
+	if err := validateWorkspaceVisibilityInput(input); err != nil {
+		return nil, &APIError{Status: http.StatusBadRequest, Code: "default_workspace_bootstrap_invalid", Message: err.Error()}
+	}
+	if s.provisioner == nil || !s.provisioner.Configured() {
+		return nil, &APIError{Status: http.StatusServiceUnavailable, Code: "default_workspace_bootstrap_unavailable", Message: "Workspace visibility is unavailable"}
+	}
+	memberships, err := s.provisioner.ListWorkspaceMemberships(ctx, input)
+	if err != nil {
+		return nil, &APIError{Status: http.StatusServiceUnavailable, Code: "workspace_visibility_unavailable", Message: "OpenShell workspace memberships are unavailable"}
+	}
+	return memberships, nil
+}
+
 func validate(input Input) error {
 	if strings.TrimSpace(input.GatewayID) == "" || strings.TrimSpace(input.GatewayNamespace) == "" ||
 		strings.TrimSpace(input.GatewayEndpoint) == "" || strings.TrimSpace(input.Issuer) == "" ||
@@ -102,6 +123,15 @@ func validate(input Input) error {
 		return errInvalidInput()
 	}
 	if input.Role != "user" {
+		return errInvalidInput()
+	}
+	return nil
+}
+
+func validateWorkspaceVisibilityInput(input Input) error {
+	if strings.TrimSpace(input.GatewayID) == "" || strings.TrimSpace(input.GatewayNamespace) == "" ||
+		strings.TrimSpace(input.GatewayEndpoint) == "" || strings.TrimSpace(input.Issuer) == "" ||
+		strings.TrimSpace(input.GatewayClientID) == "" {
 		return errInvalidInput()
 	}
 	return nil

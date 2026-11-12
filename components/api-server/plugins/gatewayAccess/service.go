@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -88,6 +89,7 @@ type GrantItem struct {
 	Email         *string
 	Role          string
 	GrantedAt     time.Time
+	Workspaces    []string
 }
 
 // Capabilities tells the console what the caller may do, so it can gate controls
@@ -224,7 +226,14 @@ func (s *service) List(ctx context.Context, gatewayID, callerUserID string, opts
 	}
 	items := make([]GrantItem, 0, len(rows))
 	for _, r := range rows {
-		items = append(items, grantItemFromRow(r))
+		item := grantItemFromRow(r)
+		item.Workspaces = []string{}
+		items = append(items, item)
+	}
+	if len(items) > 0 {
+		if aerr := s.enrichWorkspaceVisibility(ctx, gatewayID, items); aerr != nil {
+			return nil, 0, Capabilities{}, aerr
+		}
 	}
 	tier, aerr := s.callerTier(ctx, callerUserID, gatewayID)
 	if aerr != nil {
@@ -438,6 +447,80 @@ func (s *service) bootstrapDefaultWorkspace(ctx context.Context, gatewayID, subj
 	return fromBootstrapProblem(problem)
 }
 
+func (s *service) enrichWorkspaceVisibility(ctx context.Context, gatewayID string, items []GrantItem) *APIError {
+	if s.bootstrap == nil || s.gateways == nil {
+		return serviceUnavailable("workspace visibility is unavailable")
+	}
+	gateway, svcErr := s.gateways.Get(ctx, gatewayID)
+	if svcErr != nil {
+		return fromGatewayServiceError(svcErr)
+	}
+	if !gateways.IsProvisioningConditionComplete(
+		gateway.ProvisioningConditions, gateways.ConditionDefaultWorkspaceBootstrapReady,
+	) {
+		return serviceUnavailable("workspace visibility is unavailable")
+	}
+	var oidc struct {
+		Issuer   string `json:"issuer"`
+		ClientID string `json:"client_id"`
+		Audience string `json:"audience"`
+	}
+	if gateway.Oidc == nil || json.Unmarshal([]byte(*gateway.Oidc), &oidc) != nil ||
+		oidc.Issuer == "" || oidc.ClientID == "" || oidc.Audience == "" {
+		return conflictErr("gateway OIDC client is not ready")
+	}
+	endpoint := ""
+	if gateway.RouteAddress != nil {
+		endpoint = gatewayEndpoint(*gateway.RouteAddress)
+	}
+
+	usernames := make([]string, 0)
+	for index := range items {
+		if items[index].Role == TierUser {
+			usernames = append(usernames, items[index].Username)
+		}
+	}
+	subjectsByUsername := make(map[string]string, len(usernames))
+	if len(usernames) > 0 {
+		users, err := s.directory.ResolveMany(ctx, usernames)
+		if err != nil {
+			return serviceUnavailable("unable to resolve workspace memberships")
+		}
+		for _, user := range users {
+			if user.Subject != "" {
+				subjectsByUsername[strings.ToLower(user.Username)] = user.Subject
+			}
+		}
+		for _, username := range usernames {
+			if _, found := subjectsByUsername[strings.ToLower(username)]; !found {
+				return serviceUnavailable("unable to resolve workspace memberships")
+			}
+		}
+	}
+
+	memberships, problem := s.bootstrap.ListWorkspaceMemberships(ctx, defaultWorkspaceBootstrap.Input{
+		GatewayID: gatewayID, GatewayNamespace: gateway.Namespace, GatewayEndpoint: endpoint,
+		Issuer: oidc.Issuer, GatewayClientID: oidc.ClientID,
+	})
+	if problem != nil {
+		return fromBootstrapProblem(problem)
+	}
+	workspacesBySubject := make(map[string][]string)
+	for _, membership := range memberships {
+		workspacesBySubject[membership.Subject] = append(workspacesBySubject[membership.Subject], membership.Workspace)
+	}
+	for index := range items {
+		if items[index].Role != TierUser {
+			continue
+		}
+		subject := subjectsByUsername[strings.ToLower(items[index].Username)]
+		workspaces := append([]string(nil), workspacesBySubject[subject]...)
+		sort.Strings(workspaces)
+		items[index].Workspaces = workspaces
+	}
+	return nil
+}
+
 func fromBootstrapProblem(problem *defaultWorkspaceBootstrap.APIError) *APIError {
 	if problem == nil {
 		return nil
@@ -520,6 +603,7 @@ func grantItemFromRow(r accessRow) GrantItem {
 		Email:         r.Email,
 		Role:          roleNameToTier(r.RoleName),
 		GrantedAt:     r.GrantedAt,
+		Workspaces:    []string{},
 	}
 }
 

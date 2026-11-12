@@ -159,6 +159,7 @@ export interface OpenShellGatewayServiceAccountRecord {
   status: OpenShellGatewayServiceAccountStatus;
   subject: string;
   updatedAt: string;
+  workspaces: readonly string[];
 }
 
 export interface OpenShellGatewayServiceAccountConnection {
@@ -211,6 +212,7 @@ export interface OpenShellGatewayServiceAccountCreateInput {
   expiresAt: string;
   name: string;
   role: OpenShellGatewayServiceAccountRole;
+  skipDefaultWorkspaceBootstrap?: boolean;
 }
 
 export interface OpenShellGatewayServiceAccountRoleUpdateInput {
@@ -253,6 +255,7 @@ export interface GatewayAccessGrantRecord {
   roleBindingId: string;
   userId: string;
   username: string;
+  workspaces: readonly string[];
 }
 
 export interface GatewayAccessCapabilities {
@@ -277,6 +280,7 @@ export interface GatewayDirectoryUser {
 }
 
 export interface GatewayAccessGrantInput {
+  skipDefaultWorkspaceBootstrap?: boolean;
   role: GatewayAccessRole;
   subject?: string;
   username: string;

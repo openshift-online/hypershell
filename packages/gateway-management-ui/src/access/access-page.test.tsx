@@ -20,6 +20,7 @@ const creator: GatewayAccessGrantRecord = {
   roleBindingId: "rb-owner",
   userId: "u-owner",
   username: "owner1",
+  workspaces: [],
 };
 const secondOwner: GatewayAccessGrantRecord = {
   grantedAt: "2026-08-21T12:00:00Z",
@@ -28,6 +29,7 @@ const secondOwner: GatewayAccessGrantRecord = {
   roleBindingId: "rb-owner-2",
   userId: "u-owner-2",
   username: "owner2",
+  workspaces: [],
 };
 const admin: GatewayAccessGrantRecord = {
   grantedAt: "2026-08-21T12:00:00Z",
@@ -36,6 +38,7 @@ const admin: GatewayAccessGrantRecord = {
   roleBindingId: "rb-admin",
   userId: "u-admin",
   username: "admin1",
+  workspaces: [],
 };
 const user: GatewayAccessGrantRecord = {
   grantedAt: "2026-08-21T12:00:00Z",
@@ -44,6 +47,7 @@ const user: GatewayAccessGrantRecord = {
   roleBindingId: "rb-user",
   userId: "u-user",
   username: "user1",
+  workspaces: ["default", "research"],
 };
 
 const ownerCapabilities: GatewayAccessCapabilities = {
@@ -145,6 +149,8 @@ describe("AccessPage", () => {
     expect(screen.getByText("owner1")).toBeTruthy();
     expect(screen.getByText("Amy Admin")).toBeTruthy();
     expect(screen.getByText("Uma User")).toBeTruthy();
+    expect(screen.getAllByText("Admin").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("default, research")).toBeTruthy();
   });
 
   // Verifies: WEB-ACC-08.01
@@ -329,6 +335,7 @@ describe("AccessPage", () => {
     await waitFor(() => {
       expect(mocks.grant).toHaveBeenCalledWith("gateway-1", {
         role: "owner",
+        skipDefaultWorkspaceBootstrap: false,
         username: "dana",
       });
     });
@@ -358,16 +365,72 @@ describe("AccessPage", () => {
     await waitFor(() => {
       expect(mocks.grant).toHaveBeenCalledWith("gateway-1", {
         role: "user",
+        skipDefaultWorkspaceBootstrap: false,
         subject: "sub-dana",
         username: "dana",
       });
     });
-    // The dialog stays open and shows the copyable workspace membership command.
+    // The dialog stays open with the default-workspace result and a collapsed
+    // advanced command for adding the user to another workspace.
+    const resultDialog = screen.getByRole("dialog", { name: "Access granted" });
+    expect(resultDialog.textContent).toContain(
+      "This user can now use the default workspace.",
+    );
+    const collapsedCommand = within(resultDialog).getByText(
+      /openshell workspace member add/u,
+    );
+    expect(collapsedCommand.closest("[hidden]")).toBeTruthy();
+    await user1.click(
+      within(resultDialog).getByRole("button", {
+        name: "Advanced: add to another workspace",
+      }),
+    );
     expect(
-      await screen.findByText(/openshell workspace member add/u),
+      within(resultDialog).getByText(/openshell workspace member add/u),
     ).toBeTruthy();
-    expect(screen.getByText(/--subject sub-dana/u)).toBeTruthy();
-    expect(screen.getByText(/WORKSPACE_NAME='default'/u)).toBeTruthy();
+    expect(within(resultDialog).getByText(/--subject sub-dana/u)).toBeTruthy();
+    expect(
+      within(resultDialog).getByText(/WORKSPACE_NAME='default'/u),
+    ).toBeTruthy();
+  });
+
+  it("allows a user grant to opt out of default-workspace membership", async () => {
+    const user1 = userEvent.setup();
+    mocks.search.mockResolvedValue([
+      { name: "Dana Scully", subject: "sub-dana", username: "dana" },
+    ]);
+    renderPage();
+    await screen.findByText("Olivia Owner");
+
+    await user1.click(screen.getByRole("button", { name: "Add users" }));
+    const dialog = screen.getByRole("dialog", { name: "Add users" });
+    await user1.click(
+      within(dialog).getByRole("combobox", {
+        name: "Search the identity directory",
+      }),
+    );
+    await user1.click(await screen.findByText(/Dana Scully/u));
+    await user1.click(within(dialog).getByRole("radio", { name: /User/u }));
+    const defaultWorkspace = within(dialog).getByRole("checkbox", {
+      name: "Automatically add this user to the default workspace",
+    });
+    expect((defaultWorkspace as HTMLInputElement).checked).toBe(true);
+    await user1.click(defaultWorkspace);
+    await user1.click(
+      within(dialog).getByRole("button", { name: "Grant access" }),
+    );
+
+    await waitFor(() => {
+      expect(mocks.grant).toHaveBeenCalledWith("gateway-1", {
+        role: "user",
+        skipDefaultWorkspaceBootstrap: true,
+        subject: "sub-dana",
+        username: "dana",
+      });
+    });
+    expect(
+      screen.getByText("Access granted without default-workspace access."),
+    ).toBeTruthy();
   });
 
   it("re-opens the workspace-access command from a row icon", async () => {
@@ -392,8 +455,14 @@ describe("AccessPage", () => {
     await user1.click(
       screen.getByRole("button", { name: "Copy workspace access command" }),
     );
+    const commandDialog = screen.getByRole("dialog", {
+      name: "Add workspace access",
+    });
+    expect(commandDialog.textContent).toContain(
+      "add this user to another workspace",
+    );
     expect(
-      await screen.findByText(/openshell workspace member add/u),
+      within(commandDialog).getByText(/openshell workspace member add/u),
     ).toBeTruthy();
     expect(screen.getByText(/--subject sub-uma/u)).toBeTruthy();
     expect(mocks.search).toHaveBeenCalledWith(

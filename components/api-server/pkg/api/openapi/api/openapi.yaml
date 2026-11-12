@@ -5636,6 +5636,7 @@ components:
         credential_type: client_secret
         role: openshell-user
         expires_at: 2000-01-23T04:56:07.000+00:00
+        skip_default_workspace_bootstrap: false
         name: name
         description: description
       properties:
@@ -5657,6 +5658,11 @@ components:
         expires_at:
           format: date-time
           type: string
+        skip_default_workspace_bootstrap:
+          default: false
+          description: Skip adding an openshell-user service account to the gateway's
+            OpenShell default workspace
+          type: boolean
       required:
       - name
       type: object
@@ -5675,6 +5681,9 @@ components:
         updated_at: 2000-01-23T04:56:07.000+00:00
         name: name
         id: id
+        workspaces:
+        - workspaces
+        - workspaces
         last_error: last_error
         status: provisioning
       properties:
@@ -5701,6 +5710,12 @@ components:
           type: string
         subject:
           type: string
+        workspaces:
+          description: Gateway-scoped workspace names for openshell-user rows; empty
+            for openshell-admin rows
+          items:
+            type: string
+          type: array
         expires_at:
           format: date-time
           type: string
@@ -5730,6 +5745,7 @@ components:
       - status
       - subject
       - updated_at
+      - workspaces
       type: object
     OpenShellGatewayServiceAccountConnection:
       example:
@@ -5856,6 +5872,9 @@ components:
           gateway_name: gateway_name
           token_endpoint: https://openapi-generator.tech
         id: id
+        workspaces:
+        - workspaces
+        - workspaces
         last_error: last_error
         status: provisioning
     OpenShellGatewayServiceAccountCreateResponse:
@@ -5891,6 +5910,9 @@ components:
           token_endpoint: https://openapi-generator.tech
         name: name
         id: id
+        workspaces:
+        - workspaces
+        - workspaces
         last_error: last_error
         status: provisioning
     OpenShellGatewayServiceAccountExpirationPolicy:
@@ -5971,6 +5993,9 @@ components:
           updated_at: 2000-01-23T04:56:07.000+00:00
           name: name
           id: id
+          workspaces:
+          - workspaces
+          - workspaces
           last_error: last_error
           status: provisioning
         - role: null
@@ -5986,6 +6011,9 @@ components:
           updated_at: 2000-01-23T04:56:07.000+00:00
           name: name
           id: id
+          workspaces:
+          - workspaces
+          - workspaces
           last_error: last_error
           status: provisioning
       properties:
@@ -6247,6 +6275,9 @@ components:
         user_id: user_id
         name: name
         role_binding_id: role_binding_id
+        workspaces:
+        - workspaces
+        - workspaces
         email: email
         username: username
       properties:
@@ -6267,12 +6298,19 @@ components:
         granted_at:
           format: date-time
           type: string
+        workspaces:
+          description: Gateway-scoped workspace names for user rows; empty for admin
+            rows
+          items:
+            type: string
+          type: array
       required:
       - granted_at
       - role
       - role_binding_id
       - user_id
       - username
+      - workspaces
       type: object
     GatewayAccessGrantResponse:
       allOf:
@@ -6283,6 +6321,9 @@ components:
         user_id: user_id
         name: name
         role_binding_id: role_binding_id
+        workspaces:
+        - workspaces
+        - workspaces
         email: email
         username: username
     GatewayAccessCapabilities:
@@ -6316,6 +6357,9 @@ components:
           user_id: user_id
           name: name
           role_binding_id: role_binding_id
+          workspaces:
+          - workspaces
+          - workspaces
           email: email
           username: username
         - granted_at: 2000-01-23T04:56:07.000+00:00
@@ -6323,6 +6367,9 @@ components:
           user_id: user_id
           name: name
           role_binding_id: role_binding_id
+          workspaces:
+          - workspaces
+          - workspaces
           email: email
           username: username
       properties:

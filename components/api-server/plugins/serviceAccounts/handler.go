@@ -17,11 +17,12 @@ type handler struct{ service Service }
 func NewHandler(service Service) *handler { return &handler{service: service} }
 
 type createRequest struct {
-	Name           string     `json:"name"`
-	Description    *string    `json:"description"`
-	CredentialType string     `json:"credential_type"`
-	Role           string     `json:"role"`
-	ExpiresAt      *time.Time `json:"expires_at"`
+	Name                          string     `json:"name"`
+	Description                   *string    `json:"description"`
+	CredentialType                string     `json:"credential_type"`
+	Role                          string     `json:"role"`
+	ExpiresAt                     *time.Time `json:"expires_at"`
+	SkipDefaultWorkspaceBootstrap bool       `json:"skip_default_workspace_bootstrap"`
 }
 
 type updateRoleRequest struct {

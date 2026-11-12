@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -151,11 +152,12 @@ type Credential struct {
 }
 
 type CreateInput struct {
-	Name           string
-	Description    *string
-	CredentialType string
-	Role           string
-	ExpiresAt      *time.Time
+	Name                          string
+	Description                   *string
+	CredentialType                string
+	Role                          string
+	ExpiresAt                     *time.Time
+	SkipDefaultWorkspaceBootstrap bool
 }
 
 // RoleUpdateInput is the mutable subset of an OpenShellGatewayServiceAccount:
@@ -329,7 +331,7 @@ func (s *service) Create(ctx context.Context, gatewayID, userID string, input Cr
 
 	account.KeycloakClientUUID = provisioned.ClientUUID
 	account.Subject = provisioned.Subject
-	if input.Role == RoleUser {
+	if input.Role == RoleUser && !input.SkipDefaultWorkspaceBootstrap {
 		if problem := s.bootstrapDefaultWorkspace(ctx, gateway, oidc, provisioned.Subject); problem != nil {
 			const safe = "default_workspace_bootstrap_failed"
 			_ = s.cleanupUndeliveredAccount(ctx, account, userID, safe)
@@ -367,7 +369,8 @@ func (s *service) Get(ctx context.Context, gatewayID, id, userID string) (*OpenS
 }
 
 func (s *service) List(ctx context.Context, gatewayID, userID string, options ListOptions) ([]OpenShellGatewayServiceAccount, int64, Access, *APIError) {
-	if _, _, problem := s.gateway(ctx, gatewayID, false); problem != nil {
+	gateway, oidc, problem := s.gateway(ctx, gatewayID, false)
+	if problem != nil {
 		return nil, 0, Access{}, problem
 	}
 	access, err := s.access(ctx, gatewayID, userID)
@@ -383,6 +386,14 @@ func (s *service) List(ctx context.Context, gatewayID, userID string, options Li
 	accounts, total, err := s.dao.List(ctx, gatewayID, options)
 	if err != nil {
 		return nil, 0, Access{}, internalProblem()
+	}
+	for index := range accounts {
+		accounts[index].Workspaces = []string{}
+	}
+	if len(accounts) > 0 {
+		if problem := s.enrichWorkspaceVisibility(ctx, gateway, oidc, accounts); problem != nil {
+			return nil, 0, Access{}, problem
+		}
 	}
 	return accounts, total, access, nil
 }
@@ -1203,6 +1214,44 @@ func (s *service) bootstrapDefaultWorkspace(ctx context.Context, gateway *gatewa
 		return nil
 	}
 	return &APIError{Status: problem.Status, Code: problem.Code, Message: problem.Message}
+}
+
+func (s *service) enrichWorkspaceVisibility(ctx context.Context, gateway *gateways.Gateway, oidc GatewayOIDC, accounts []OpenShellGatewayServiceAccount) *APIError {
+	if s.bootstrap == nil {
+		return &APIError{Status: http.StatusServiceUnavailable, Code: "workspace_visibility_unavailable", Message: "Workspace visibility is unavailable"}
+	}
+	if !gateways.IsProvisioningConditionComplete(
+		gateway.ProvisioningConditions, gateways.ConditionDefaultWorkspaceBootstrapReady,
+	) {
+		return &APIError{Status: http.StatusServiceUnavailable, Code: "workspace_visibility_unavailable", Message: "Workspace visibility is unavailable"}
+	}
+	if oidc.Issuer == "" || oidc.ClientID == "" || oidc.Audience == "" {
+		return &APIError{Status: http.StatusConflict, Code: "gateway_not_ready", Message: "The gateway OIDC client is not ready"}
+	}
+	endpoint := ""
+	if gateway.RouteAddress != nil {
+		endpoint = gatewayEndpoint(*gateway.RouteAddress)
+	}
+	memberships, problem := s.bootstrap.ListWorkspaceMemberships(ctx, defaultWorkspaceBootstrap.Input{
+		GatewayID: gateway.ID, GatewayNamespace: gateway.Namespace, GatewayEndpoint: endpoint,
+		Issuer: oidc.Issuer, GatewayClientID: oidc.ClientID,
+	})
+	if problem != nil {
+		return &APIError{Status: problem.Status, Code: problem.Code, Message: problem.Message}
+	}
+	workspacesBySubject := make(map[string][]string)
+	for _, membership := range memberships {
+		workspacesBySubject[membership.Subject] = append(workspacesBySubject[membership.Subject], membership.Workspace)
+	}
+	for index := range accounts {
+		if accounts[index].Role != RoleUser {
+			continue
+		}
+		workspaces := append([]string(nil), workspacesBySubject[accounts[index].Subject]...)
+		sort.Strings(workspaces)
+		accounts[index].Workspaces = workspaces
+	}
+	return nil
 }
 
 func connectionFor(account *OpenShellGatewayServiceAccount, gateway *gateways.Gateway, oidc GatewayOIDC) Connection {

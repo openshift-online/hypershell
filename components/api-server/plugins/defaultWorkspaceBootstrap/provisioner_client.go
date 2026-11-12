@@ -53,6 +53,29 @@ func (p *controlPlaneProvisioner) BootstrapDefaultWorkspace(ctx context.Context,
 	return err
 }
 
+func (p *controlPlaneProvisioner) ListWorkspaceMemberships(ctx context.Context, input Input) ([]WorkspaceMembership, error) {
+	callCtx, cancel := provisionerCallContext(ctx)
+	defer cancel()
+	response, err := p.client.ListWorkspaceMemberships(callCtx, &pb.ListWorkspaceMembershipsRequest{
+		GatewayId: input.GatewayID, GatewayNamespace: input.GatewayNamespace,
+		GatewayEndpoint: input.GatewayEndpoint, Issuer: input.Issuer,
+		GatewayClientId: input.GatewayClientID,
+	})
+	if status.Code(err) == codes.Unimplemented {
+		return nil, errUnsupportedControlPlane
+	}
+	if err != nil {
+		return nil, err
+	}
+	memberships := make([]WorkspaceMembership, 0, len(response.GetMemberships()))
+	for _, membership := range response.GetMemberships() {
+		memberships = append(memberships, WorkspaceMembership{
+			Workspace: membership.GetWorkspace(), Subject: membership.GetSubject(),
+		})
+	}
+	return memberships, nil
+}
+
 func provisionerCallContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	if _, hasDeadline := ctx.Deadline(); hasDeadline {
 		return context.WithCancel(ctx)

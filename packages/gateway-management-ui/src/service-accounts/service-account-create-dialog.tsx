@@ -2,6 +2,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import {
   Alert,
   Button,
+  Checkbox,
   Content,
   Form,
   FormGroup,
@@ -64,6 +65,7 @@ export interface ServiceAccountLeaveGuard {
 }
 
 interface ServiceAccountFormValues {
+  addToDefaultWorkspace: boolean;
   description: string;
   expirationSeconds: string;
   name: string;
@@ -71,6 +73,7 @@ interface ServiceAccountFormValues {
 }
 
 interface ServiceAccountFormOutput {
+  addToDefaultWorkspace: boolean;
   description: string;
   expirationSeconds: number;
   name: string;
@@ -125,6 +128,7 @@ export function ServiceAccountCreateDialog({
   const [isConfirmingLoss, setIsConfirmingLoss] = useState(false);
   const [isExpirationOpen, setIsExpirationOpen] = useState(false);
   const [isRoleOpen, setIsRoleOpen] = useState(false);
+  const [skippedDefaultWorkspace, setSkippedDefaultWorkspace] = useState(false);
   const titleId = useId();
   const options = useMemo(
     () => expirationOptions(capabilities),
@@ -138,6 +142,7 @@ export function ServiceAccountCreateDialog({
   const schema = useMemo(
     () =>
       z.object({
+        addToDefaultWorkspace: z.boolean(),
         description: z.string(),
         expirationSeconds: z
           .string()
@@ -165,6 +170,7 @@ export function ServiceAccountCreateDialog({
     ServiceAccountFormOutput
   >({
     defaultValues: {
+      addToDefaultWorkspace: true,
       description: "",
       expirationSeconds: defaultExpirationSeconds
         ? String(defaultExpirationSeconds)
@@ -179,6 +185,7 @@ export function ServiceAccountCreateDialog({
   const selectedExpiration = Number(
     useWatch({ control, name: "expirationSeconds" }),
   );
+  const selectedRole = useWatch({ control, name: "role" });
   const selectedExpirationDays = options.find(
     ({ seconds }) => seconds === selectedExpiration,
   )?.days;
@@ -208,8 +215,10 @@ export function ServiceAccountCreateDialog({
           ).toISOString(),
           name: values.name,
           role: values.role,
+          skipDefaultWorkspaceBootstrap: !values.addToDefaultWorkspace,
         },
       );
+      setSkippedDefaultWorkspace(!values.addToDefaultWorkspace);
       // The mutation resolves with void. The one-time secret therefore never
       // becomes TanStack mutation data; it exists only in this mounted view.
       setHandoff(result);
@@ -282,6 +291,7 @@ export function ServiceAccountCreateDialog({
     setIsExpirationOpen(false);
     setIsRoleOpen(false);
     creation.reset();
+    setSkippedDefaultWorkspace(false);
     onClose();
   };
   const requestClose = () => {
@@ -334,6 +344,7 @@ export function ServiceAccountCreateDialog({
             connection={handoff.credential}
             isAcknowledged={isAcknowledged}
             onAcknowledgedChange={setIsAcknowledged}
+            skippedDefaultWorkspace={skippedDefaultWorkspace}
           />
         ) : (
           <Form
@@ -398,6 +409,37 @@ export function ServiceAccountCreateDialog({
                   )}
                 />
               </StackItem>
+              {selectedRole === "openshell-user" ? (
+                <StackItem>
+                  <Controller
+                    control={control}
+                    name="addToDefaultWorkspace"
+                    render={({ field }) => (
+                      <>
+                        <Checkbox
+                          id="service-account-default-workspace"
+                          isChecked={field.value}
+                          label={intl.formatMessage(
+                            messages.serviceAccountDefaultWorkspaceLabel,
+                          )}
+                          onChange={(_event, checked) => {
+                            field.onChange(checked);
+                          }}
+                        />
+                        <FormHelperText>
+                          <HelperText>
+                            <HelperTextItem>
+                              {intl.formatMessage(
+                                messages.defaultWorkspaceHelp,
+                              )}
+                            </HelperTextItem>
+                          </HelperText>
+                        </FormHelperText>
+                      </>
+                    )}
+                  />
+                </StackItem>
+              ) : null}
               <StackItem>
                 <Controller
                   control={control}

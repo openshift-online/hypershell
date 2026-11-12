@@ -22,22 +22,24 @@ var _ MappedNullable = &OpenShellGatewayServiceAccountCreateResponse{}
 
 // OpenShellGatewayServiceAccountCreateResponse struct for OpenShellGatewayServiceAccountCreateResponse
 type OpenShellGatewayServiceAccountCreateResponse struct {
-	Id              string                                   `json:"id"`
-	GatewayId       string                                   `json:"gateway_id"`
-	Name            string                                   `json:"name"`
-	Description     NullableString                           `json:"description,omitempty"`
-	CredentialType  string                                   `json:"credential_type"`
-	Role            OpenShellGatewayServiceAccountRole       `json:"role"`
-	Status          OpenShellGatewayServiceAccountStatus     `json:"status"`
-	CreatedByUserId string                                   `json:"created_by_user_id"`
-	ClientId        string                                   `json:"client_id"`
-	Subject         string                                   `json:"subject"`
-	ExpiresAt       time.Time                                `json:"expires_at"`
-	RevokedAt       NullableTime                             `json:"revoked_at,omitempty"`
-	LastError       NullableString                           `json:"last_error,omitempty"`
-	CreatedAt       time.Time                                `json:"created_at"`
-	UpdatedAt       time.Time                                `json:"updated_at"`
-	Credential      OpenShellGatewayServiceAccountCredential `json:"credential"`
+	Id              string                               `json:"id"`
+	GatewayId       string                               `json:"gateway_id"`
+	Name            string                               `json:"name"`
+	Description     NullableString                       `json:"description,omitempty"`
+	CredentialType  string                               `json:"credential_type"`
+	Role            OpenShellGatewayServiceAccountRole   `json:"role"`
+	Status          OpenShellGatewayServiceAccountStatus `json:"status"`
+	CreatedByUserId string                               `json:"created_by_user_id"`
+	ClientId        string                               `json:"client_id"`
+	Subject         string                               `json:"subject"`
+	// Gateway-scoped workspace names for openshell-user rows; empty for openshell-admin rows
+	Workspaces []string                                 `json:"workspaces"`
+	ExpiresAt  time.Time                                `json:"expires_at"`
+	RevokedAt  NullableTime                             `json:"revoked_at,omitempty"`
+	LastError  NullableString                           `json:"last_error,omitempty"`
+	CreatedAt  time.Time                                `json:"created_at"`
+	UpdatedAt  time.Time                                `json:"updated_at"`
+	Credential OpenShellGatewayServiceAccountCredential `json:"credential"`
 }
 
 type _OpenShellGatewayServiceAccountCreateResponse OpenShellGatewayServiceAccountCreateResponse
@@ -46,7 +48,7 @@ type _OpenShellGatewayServiceAccountCreateResponse OpenShellGatewayServiceAccoun
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewOpenShellGatewayServiceAccountCreateResponse(id string, gatewayId string, name string, credentialType string, role OpenShellGatewayServiceAccountRole, status OpenShellGatewayServiceAccountStatus, createdByUserId string, clientId string, subject string, expiresAt time.Time, createdAt time.Time, updatedAt time.Time, credential OpenShellGatewayServiceAccountCredential) *OpenShellGatewayServiceAccountCreateResponse {
+func NewOpenShellGatewayServiceAccountCreateResponse(id string, gatewayId string, name string, credentialType string, role OpenShellGatewayServiceAccountRole, status OpenShellGatewayServiceAccountStatus, createdByUserId string, clientId string, subject string, workspaces []string, expiresAt time.Time, createdAt time.Time, updatedAt time.Time, credential OpenShellGatewayServiceAccountCredential) *OpenShellGatewayServiceAccountCreateResponse {
 	this := OpenShellGatewayServiceAccountCreateResponse{}
 	this.Id = id
 	this.GatewayId = gatewayId
@@ -57,6 +59,7 @@ func NewOpenShellGatewayServiceAccountCreateResponse(id string, gatewayId string
 	this.CreatedByUserId = createdByUserId
 	this.ClientId = clientId
 	this.Subject = subject
+	this.Workspaces = workspaces
 	this.ExpiresAt = expiresAt
 	this.CreatedAt = createdAt
 	this.UpdatedAt = updatedAt
@@ -331,6 +334,30 @@ func (o *OpenShellGatewayServiceAccountCreateResponse) SetSubject(v string) {
 	o.Subject = v
 }
 
+// GetWorkspaces returns the Workspaces field value
+func (o *OpenShellGatewayServiceAccountCreateResponse) GetWorkspaces() []string {
+	if o == nil {
+		var ret []string
+		return ret
+	}
+
+	return o.Workspaces
+}
+
+// GetWorkspacesOk returns a tuple with the Workspaces field value
+// and a boolean to check if the value has been set.
+func (o *OpenShellGatewayServiceAccountCreateResponse) GetWorkspacesOk() ([]string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.Workspaces, true
+}
+
+// SetWorkspaces sets field value
+func (o *OpenShellGatewayServiceAccountCreateResponse) SetWorkspaces(v []string) {
+	o.Workspaces = v
+}
+
 // GetExpiresAt returns the ExpiresAt field value
 func (o *OpenShellGatewayServiceAccountCreateResponse) GetExpiresAt() time.Time {
 	if o == nil {
@@ -535,6 +562,7 @@ func (o OpenShellGatewayServiceAccountCreateResponse) ToMap() (map[string]interf
 	toSerialize["created_by_user_id"] = o.CreatedByUserId
 	toSerialize["client_id"] = o.ClientId
 	toSerialize["subject"] = o.Subject
+	toSerialize["workspaces"] = o.Workspaces
 	toSerialize["expires_at"] = o.ExpiresAt
 	if o.RevokedAt.IsSet() {
 		toSerialize["revoked_at"] = o.RevokedAt.Get()
@@ -562,6 +590,7 @@ func (o *OpenShellGatewayServiceAccountCreateResponse) UnmarshalJSON(data []byte
 		"created_by_user_id",
 		"client_id",
 		"subject",
+		"workspaces",
 		"expires_at",
 		"created_at",
 		"updated_at",

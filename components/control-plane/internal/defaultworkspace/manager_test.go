@@ -254,3 +254,7 @@ func (f *fakeOpenShellClient) AddMember(_ context.Context, endpoint, _, accessTo
 	}
 	return f.err
 }
+
+func (f *fakeOpenShellClient) ListWorkspaceMemberships(_ context.Context, _, _, _ string) ([]WorkspaceMembership, error) {
+	return nil, f.err
+}

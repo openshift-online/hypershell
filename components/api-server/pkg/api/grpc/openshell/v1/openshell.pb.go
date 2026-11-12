@@ -338,6 +338,266 @@ func (x *AddWorkspaceMemberResponse) GetMember() *WorkspaceMember {
 	return nil
 }
 
+type Workspace struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Metadata      *ObjectMeta            `protobuf:"bytes,1,opt,name=metadata,proto3" json:"metadata,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Workspace) Reset() {
+	*x = Workspace{}
+	mi := &file_openshell_v1_openshell_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Workspace) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Workspace) ProtoMessage() {}
+
+func (x *Workspace) ProtoReflect() protoreflect.Message {
+	mi := &file_openshell_v1_openshell_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Workspace.ProtoReflect.Descriptor instead.
+func (*Workspace) Descriptor() ([]byte, []int) {
+	return file_openshell_v1_openshell_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *Workspace) GetMetadata() *ObjectMeta {
+	if x != nil {
+		return x.Metadata
+	}
+	return nil
+}
+
+type ListWorkspacesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PageSize      int32                  `protobuf:"varint,1,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	PageToken     string                 `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListWorkspacesRequest) Reset() {
+	*x = ListWorkspacesRequest{}
+	mi := &file_openshell_v1_openshell_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListWorkspacesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListWorkspacesRequest) ProtoMessage() {}
+
+func (x *ListWorkspacesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_openshell_v1_openshell_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListWorkspacesRequest.ProtoReflect.Descriptor instead.
+func (*ListWorkspacesRequest) Descriptor() ([]byte, []int) {
+	return file_openshell_v1_openshell_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *ListWorkspacesRequest) GetPageSize() int32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *ListWorkspacesRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+type ListWorkspacesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Workspaces    []*Workspace           `protobuf:"bytes,1,rep,name=workspaces,proto3" json:"workspaces,omitempty"`
+	NextPageToken string                 `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListWorkspacesResponse) Reset() {
+	*x = ListWorkspacesResponse{}
+	mi := &file_openshell_v1_openshell_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListWorkspacesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListWorkspacesResponse) ProtoMessage() {}
+
+func (x *ListWorkspacesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_openshell_v1_openshell_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListWorkspacesResponse.ProtoReflect.Descriptor instead.
+func (*ListWorkspacesResponse) Descriptor() ([]byte, []int) {
+	return file_openshell_v1_openshell_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *ListWorkspacesResponse) GetWorkspaces() []*Workspace {
+	if x != nil {
+		return x.Workspaces
+	}
+	return nil
+}
+
+func (x *ListWorkspacesResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
+type ListWorkspaceMembersRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	WorkspaceScope *WorkspaceSelector     `protobuf:"bytes,1,opt,name=workspace_scope,json=workspaceScope,proto3" json:"workspace_scope,omitempty"`
+	PageSize       int32                  `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	PageToken      string                 `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ListWorkspaceMembersRequest) Reset() {
+	*x = ListWorkspaceMembersRequest{}
+	mi := &file_openshell_v1_openshell_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListWorkspaceMembersRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListWorkspaceMembersRequest) ProtoMessage() {}
+
+func (x *ListWorkspaceMembersRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_openshell_v1_openshell_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListWorkspaceMembersRequest.ProtoReflect.Descriptor instead.
+func (*ListWorkspaceMembersRequest) Descriptor() ([]byte, []int) {
+	return file_openshell_v1_openshell_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *ListWorkspaceMembersRequest) GetWorkspaceScope() *WorkspaceSelector {
+	if x != nil {
+		return x.WorkspaceScope
+	}
+	return nil
+}
+
+func (x *ListWorkspaceMembersRequest) GetPageSize() int32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *ListWorkspaceMembersRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+type ListWorkspaceMembersResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Members       []*WorkspaceMember     `protobuf:"bytes,1,rep,name=members,proto3" json:"members,omitempty"`
+	NextPageToken string                 `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListWorkspaceMembersResponse) Reset() {
+	*x = ListWorkspaceMembersResponse{}
+	mi := &file_openshell_v1_openshell_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListWorkspaceMembersResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListWorkspaceMembersResponse) ProtoMessage() {}
+
+func (x *ListWorkspaceMembersResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_openshell_v1_openshell_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListWorkspaceMembersResponse.ProtoReflect.Descriptor instead.
+func (*ListWorkspaceMembersResponse) Descriptor() ([]byte, []int) {
+	return file_openshell_v1_openshell_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *ListWorkspaceMembersResponse) GetMembers() []*WorkspaceMember {
+	if x != nil {
+		return x.Members
+	}
+	return nil
+}
+
+func (x *ListWorkspaceMembersResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
 var File_openshell_v1_openshell_proto protoreflect.FileDescriptor
 
 const file_openshell_v1_openshell_proto_rawDesc = "" +
@@ -360,13 +620,34 @@ const file_openshell_v1_openshell_proto_rawDesc = "" +
 	"\n" +
 	"request_id\x18\x04 \x01(\tR\trequestId\"S\n" +
 	"\x1aAddWorkspaceMemberResponse\x125\n" +
-	"\x06member\x18\x01 \x01(\v2\x1d.openshell.v1.WorkspaceMemberR\x06member*b\n" +
+	"\x06member\x18\x01 \x01(\v2\x1d.openshell.v1.WorkspaceMemberR\x06member\"A\n" +
+	"\tWorkspace\x124\n" +
+	"\bmetadata\x18\x01 \x01(\v2\x18.openshell.v1.ObjectMetaR\bmetadata\"S\n" +
+	"\x15ListWorkspacesRequest\x12\x1b\n" +
+	"\tpage_size\x18\x01 \x01(\x05R\bpageSize\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x02 \x01(\tR\tpageToken\"y\n" +
+	"\x16ListWorkspacesResponse\x127\n" +
+	"\n" +
+	"workspaces\x18\x01 \x03(\v2\x17.openshell.v1.WorkspaceR\n" +
+	"workspaces\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\xa3\x01\n" +
+	"\x1bListWorkspaceMembersRequest\x12H\n" +
+	"\x0fworkspace_scope\x18\x01 \x01(\v2\x1f.openshell.v1.WorkspaceSelectorR\x0eworkspaceScope\x12\x1b\n" +
+	"\tpage_size\x18\x02 \x01(\x05R\bpageSize\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x03 \x01(\tR\tpageToken\"\x7f\n" +
+	"\x1cListWorkspaceMembersResponse\x127\n" +
+	"\amembers\x18\x01 \x03(\v2\x1d.openshell.v1.WorkspaceMemberR\amembers\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken*b\n" +
 	"\rWorkspaceRole\x12\x1e\n" +
 	"\x1aWORKSPACE_ROLE_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13WORKSPACE_ROLE_USER\x10\x01\x12\x18\n" +
-	"\x14WORKSPACE_ROLE_ADMIN\x10\x022t\n" +
+	"\x14WORKSPACE_ROLE_ADMIN\x10\x022\xc0\x02\n" +
 	"\tOpenShell\x12g\n" +
-	"\x12AddWorkspaceMember\x12'.openshell.v1.AddWorkspaceMemberRequest\x1a(.openshell.v1.AddWorkspaceMemberResponseBeZcgithub.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/openshell/v1;openshell_v1b\x06proto3"
+	"\x12AddWorkspaceMember\x12'.openshell.v1.AddWorkspaceMemberRequest\x1a(.openshell.v1.AddWorkspaceMemberResponse\x12[\n" +
+	"\x0eListWorkspaces\x12#.openshell.v1.ListWorkspacesRequest\x1a$.openshell.v1.ListWorkspacesResponse\x12m\n" +
+	"\x14ListWorkspaceMembers\x12).openshell.v1.ListWorkspaceMembersRequest\x1a*.openshell.v1.ListWorkspaceMembersResponseBeZcgithub.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/openshell/v1;openshell_v1b\x06proto3"
 
 var (
 	file_openshell_v1_openshell_proto_rawDescOnce sync.Once
@@ -381,28 +662,41 @@ func file_openshell_v1_openshell_proto_rawDescGZIP() []byte {
 }
 
 var file_openshell_v1_openshell_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_openshell_v1_openshell_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_openshell_v1_openshell_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_openshell_v1_openshell_proto_goTypes = []any{
-	(WorkspaceRole)(0),                 // 0: openshell.v1.WorkspaceRole
-	(*WorkspaceSelector)(nil),          // 1: openshell.v1.WorkspaceSelector
-	(*ObjectMeta)(nil),                 // 2: openshell.v1.ObjectMeta
-	(*WorkspaceMember)(nil),            // 3: openshell.v1.WorkspaceMember
-	(*AddWorkspaceMemberRequest)(nil),  // 4: openshell.v1.AddWorkspaceMemberRequest
-	(*AddWorkspaceMemberResponse)(nil), // 5: openshell.v1.AddWorkspaceMemberResponse
+	(WorkspaceRole)(0),                   // 0: openshell.v1.WorkspaceRole
+	(*WorkspaceSelector)(nil),            // 1: openshell.v1.WorkspaceSelector
+	(*ObjectMeta)(nil),                   // 2: openshell.v1.ObjectMeta
+	(*WorkspaceMember)(nil),              // 3: openshell.v1.WorkspaceMember
+	(*AddWorkspaceMemberRequest)(nil),    // 4: openshell.v1.AddWorkspaceMemberRequest
+	(*AddWorkspaceMemberResponse)(nil),   // 5: openshell.v1.AddWorkspaceMemberResponse
+	(*Workspace)(nil),                    // 6: openshell.v1.Workspace
+	(*ListWorkspacesRequest)(nil),        // 7: openshell.v1.ListWorkspacesRequest
+	(*ListWorkspacesResponse)(nil),       // 8: openshell.v1.ListWorkspacesResponse
+	(*ListWorkspaceMembersRequest)(nil),  // 9: openshell.v1.ListWorkspaceMembersRequest
+	(*ListWorkspaceMembersResponse)(nil), // 10: openshell.v1.ListWorkspaceMembersResponse
 }
 var file_openshell_v1_openshell_proto_depIdxs = []int32{
-	2, // 0: openshell.v1.WorkspaceMember.metadata:type_name -> openshell.v1.ObjectMeta
-	0, // 1: openshell.v1.WorkspaceMember.role:type_name -> openshell.v1.WorkspaceRole
-	1, // 2: openshell.v1.AddWorkspaceMemberRequest.workspace_scope:type_name -> openshell.v1.WorkspaceSelector
-	0, // 3: openshell.v1.AddWorkspaceMemberRequest.role:type_name -> openshell.v1.WorkspaceRole
-	3, // 4: openshell.v1.AddWorkspaceMemberResponse.member:type_name -> openshell.v1.WorkspaceMember
-	4, // 5: openshell.v1.OpenShell.AddWorkspaceMember:input_type -> openshell.v1.AddWorkspaceMemberRequest
-	5, // 6: openshell.v1.OpenShell.AddWorkspaceMember:output_type -> openshell.v1.AddWorkspaceMemberResponse
-	6, // [6:7] is the sub-list for method output_type
-	5, // [5:6] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	2,  // 0: openshell.v1.WorkspaceMember.metadata:type_name -> openshell.v1.ObjectMeta
+	0,  // 1: openshell.v1.WorkspaceMember.role:type_name -> openshell.v1.WorkspaceRole
+	1,  // 2: openshell.v1.AddWorkspaceMemberRequest.workspace_scope:type_name -> openshell.v1.WorkspaceSelector
+	0,  // 3: openshell.v1.AddWorkspaceMemberRequest.role:type_name -> openshell.v1.WorkspaceRole
+	3,  // 4: openshell.v1.AddWorkspaceMemberResponse.member:type_name -> openshell.v1.WorkspaceMember
+	2,  // 5: openshell.v1.Workspace.metadata:type_name -> openshell.v1.ObjectMeta
+	6,  // 6: openshell.v1.ListWorkspacesResponse.workspaces:type_name -> openshell.v1.Workspace
+	1,  // 7: openshell.v1.ListWorkspaceMembersRequest.workspace_scope:type_name -> openshell.v1.WorkspaceSelector
+	3,  // 8: openshell.v1.ListWorkspaceMembersResponse.members:type_name -> openshell.v1.WorkspaceMember
+	4,  // 9: openshell.v1.OpenShell.AddWorkspaceMember:input_type -> openshell.v1.AddWorkspaceMemberRequest
+	7,  // 10: openshell.v1.OpenShell.ListWorkspaces:input_type -> openshell.v1.ListWorkspacesRequest
+	9,  // 11: openshell.v1.OpenShell.ListWorkspaceMembers:input_type -> openshell.v1.ListWorkspaceMembersRequest
+	5,  // 12: openshell.v1.OpenShell.AddWorkspaceMember:output_type -> openshell.v1.AddWorkspaceMemberResponse
+	8,  // 13: openshell.v1.OpenShell.ListWorkspaces:output_type -> openshell.v1.ListWorkspacesResponse
+	10, // 14: openshell.v1.OpenShell.ListWorkspaceMembers:output_type -> openshell.v1.ListWorkspaceMembersResponse
+	12, // [12:15] is the sub-list for method output_type
+	9,  // [9:12] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_openshell_v1_openshell_proto_init() }
@@ -416,7 +710,7 @@ func file_openshell_v1_openshell_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_openshell_v1_openshell_proto_rawDesc), len(file_openshell_v1_openshell_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   5,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

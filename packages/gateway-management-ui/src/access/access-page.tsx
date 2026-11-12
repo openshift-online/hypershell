@@ -239,6 +239,18 @@ export function AccessPage({
       sortable: false,
       width: 30,
     },
+    {
+      id: "workspaces",
+      label: intl.formatMessage(messages.accessWorkspacesColumn),
+      render: (grant) =>
+        grant.role === "user"
+          ? grant.workspaces.length > 0
+            ? grant.workspaces.join(", ")
+            : intl.formatMessage(messages.noWorkspaces)
+          : intl.formatMessage(messages.adminWorkspaceAccess),
+      sortable: false,
+      width: 30,
+    },
   ];
 
   const hasActiveFilters =

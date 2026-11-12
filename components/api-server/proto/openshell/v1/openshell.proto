@@ -6,6 +6,8 @@ option go_package = "github.com/openshift-online/hypershell/components/api-serve
 
 service OpenShell {
   rpc AddWorkspaceMember(AddWorkspaceMemberRequest) returns (AddWorkspaceMemberResponse);
+  rpc ListWorkspaces(ListWorkspacesRequest) returns (ListWorkspacesResponse);
+  rpc ListWorkspaceMembers(ListWorkspaceMembersRequest) returns (ListWorkspaceMembersResponse);
 }
 
 message WorkspaceSelector {
@@ -38,4 +40,29 @@ message AddWorkspaceMemberRequest {
 
 message AddWorkspaceMemberResponse {
   WorkspaceMember member = 1;
+}
+
+message Workspace {
+  ObjectMeta metadata = 1;
+}
+
+message ListWorkspacesRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+}
+
+message ListWorkspacesResponse {
+  repeated Workspace workspaces = 1;
+  string next_page_token = 2;
+}
+
+message ListWorkspaceMembersRequest {
+  WorkspaceSelector workspace_scope = 1;
+  int32 page_size = 2;
+  string page_token = 3;
+}
+
+message ListWorkspaceMembersResponse {
+  repeated WorkspaceMember members = 1;
+  string next_page_token = 2;
 }

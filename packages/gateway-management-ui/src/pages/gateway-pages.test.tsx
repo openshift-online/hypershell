@@ -128,6 +128,7 @@ const serviceAccountCreateResult = {
     status: "ready" as const,
     subject: "service-subject",
     updatedAt: "2026-08-21T12:00:00Z",
+    workspaces: [],
   },
 };
 
@@ -615,6 +616,7 @@ describe("gateway shell pages", () => {
           status: "ready",
           subject: "service-subject",
           updatedAt: "2026-08-21T12:00:00Z",
+          workspaces: [],
         },
       ],
       page: 1,

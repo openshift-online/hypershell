@@ -249,6 +249,7 @@ components:
         - username
         - role
         - granted_at
+        - workspaces
       properties:
         role_binding_id:
           type: string
@@ -267,6 +268,11 @@ components:
         granted_at:
           type: string
           format: date-time
+        workspaces:
+          type: array
+          items:
+            type: string
+          description: Gateway-scoped workspace names for user rows; empty for admin rows
     GatewayAccessGrantResponse:
       allOf:
         - $ref: '#/components/schemas/GatewayAccessListItem'

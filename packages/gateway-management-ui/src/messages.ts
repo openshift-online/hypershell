@@ -1082,6 +1082,13 @@ export const messages = defineMessages({
     defaultMessage: "OpenShell role",
     description: "Service-account role field and table heading.",
   },
+  serviceAccountDefaultWorkspaceLabel: {
+    id: "app.gateway.serviceAccounts.defaultWorkspace.label",
+    defaultMessage:
+      "Automatically add this service account to the default workspace",
+    description:
+      "Checkbox that controls default-workspace membership for an openshell-user service account.",
+  },
   serviceAccountStatusProvisioning: {
     id: "app.gateway.serviceAccounts.status.provisioning",
     defaultMessage: "Provisioning",
@@ -1317,7 +1324,7 @@ export const messages = defineMessages({
   openshellUserRoleDescription: {
     id: "app.gateway.serviceAccounts.role.user.description",
     defaultMessage:
-      "Can authenticate as openshell-user. A gateway administrator must separately add its subject to each workspace it needs.",
+      "Can authenticate as openshell-user. Choose whether to add it to the default workspace.",
     description: "Explanation of the openshell-user service-account role.",
   },
   openshellAdminRoleDescription: {
@@ -1445,9 +1452,28 @@ export const messages = defineMessages({
       "This service account does not inherit your workspace access. Give the service account subject above to a gateway administrator. The administrator must add it to each required workspace.",
     description: "Explains the separate OpenShell workspace grant.",
   },
+  serviceAccountDefaultWorkspaceTitle: {
+    id: "app.gateway.serviceAccounts.defaultWorkspace.title",
+    defaultMessage: "Default workspace access",
+    description: "Heading for service-account default-workspace setup.",
+  },
+  serviceAccountDefaultWorkspaceResult: {
+    id: "app.gateway.serviceAccounts.defaultWorkspace.result",
+    defaultMessage:
+      "Service account created. It can now use the default workspace. The default workspace is shared with other gateway users.",
+    description:
+      "Result shown after creating an openshell-user service account with default-workspace membership.",
+  },
+  serviceAccountWithoutDefaultWorkspaceResult: {
+    id: "app.gateway.serviceAccounts.defaultWorkspace.skipped",
+    defaultMessage:
+      "Service account created without default-workspace access. Run the advanced command only when you want to add it to a workspace.",
+    description:
+      "Result shown after opting out of default-workspace membership.",
+  },
   grantWorkspaceAccess: {
     id: "app.gateway.serviceAccounts.workspaceGrant.title",
-    defaultMessage: "Grant workspace access",
+    defaultMessage: "Add workspace access",
     description: "Heading for the manual gateway-administrator command.",
   },
   workspaceGrantInstructions: {
@@ -1683,6 +1709,21 @@ export const messages = defineMessages({
     defaultMessage: "Role",
     description: "Access table column for the role.",
   },
+  accessWorkspacesColumn: {
+    id: "app.gateway.access.column.workspaces",
+    defaultMessage: "Workspaces",
+    description: "Access table column for OpenShell workspace memberships.",
+  },
+  adminWorkspaceAccess: {
+    id: "app.gateway.workspace.admin",
+    defaultMessage: "Admin",
+    description: "Workspace display for an identity with admin access.",
+  },
+  noWorkspaces: {
+    id: "app.gateway.workspace.none",
+    defaultMessage: "None",
+    description: "Placeholder when a user-scope identity has no workspaces.",
+  },
   accessRoleOwner: {
     id: "app.gateway.access.role.owner",
     defaultMessage: "Owner",
@@ -1713,6 +1754,16 @@ export const messages = defineMessages({
     id: "app.gateway.access.role.user.description",
     defaultMessage: "Read-only access to the gateway.",
     description: "User role description in the role picker.",
+  },
+  accessDefaultWorkspaceLabel: {
+    id: "app.gateway.access.defaultWorkspace.label",
+    defaultMessage: "Automatically add this user to the default workspace",
+    description: "Checkbox that controls default-workspace membership.",
+  },
+  defaultWorkspaceHelp: {
+    id: "app.gateway.access.defaultWorkspace.help",
+    defaultMessage: "The default workspace is shared with other gateway users.",
+    description: "Explains the shared default workspace.",
   },
   accessFindPeople: {
     id: "app.gateway.access.findPeople",
@@ -1899,9 +1950,33 @@ export const messages = defineMessages({
   accessWorkspaceGrantIntro: {
     id: "app.gateway.access.workspaceGrant.intro",
     defaultMessage:
-      "This user cannot use the gateway until they are added to a workspace. A user with admin access on this gateway must run the below commands (change the workspace name if needed):",
+      "Run this command to add this user to another workspace or to replace manually removed default-workspace access:",
     description:
       "Instructions for adding a newly granted user to an OpenShell workspace.",
+  },
+  accessGrantSuccessTitle: {
+    id: "app.gateway.access.grant.success",
+    defaultMessage: "Access granted",
+    description: "Title shown after a gateway access grant succeeds.",
+  },
+  accessGrantDefaultWorkspaceResult: {
+    id: "app.gateway.access.grant.defaultWorkspace",
+    defaultMessage:
+      "Access granted. This user can now use the default workspace. The default workspace is shared with other gateway users.",
+    description:
+      "Result shown after granting user access with default-workspace membership.",
+  },
+  accessGrantWithoutDefaultWorkspaceResult: {
+    id: "app.gateway.access.grant.withoutDefaultWorkspace",
+    defaultMessage: "Access granted without default-workspace access.",
+    description:
+      "Result shown after opting out of default-workspace membership.",
+  },
+  advancedWorkspaceCommand: {
+    id: "app.gateway.workspace.advancedCommand",
+    defaultMessage: "Advanced: add to another workspace",
+    description:
+      "Collapsed section containing the manual workspace-membership command.",
   },
   accessWorkspaceLookupPending: {
     id: "app.gateway.access.workspaceGrant.lookupPending",

@@ -24,6 +24,7 @@ type Server struct {
 type DefaultWorkspaceBootstrapper interface {
 	Configured() bool
 	AddMember(context.Context, defaultworkspace.MemberRequest) error
+	ListWorkspaceMemberships(context.Context, defaultworkspace.VisibilityRequest) ([]defaultworkspace.WorkspaceMembership, error)
 }
 
 type Provider interface {
@@ -167,6 +168,30 @@ func (s *Server) BootstrapDefaultWorkspace(ctx context.Context, request *pb.Boot
 		return nil, defaultWorkspaceError(err)
 	}
 	return &pb.BootstrapDefaultWorkspaceResponse{}, nil
+}
+
+func (s *Server) ListWorkspaceMemberships(ctx context.Context, request *pb.ListWorkspaceMembershipsRequest) (*pb.ListWorkspaceMembershipsResponse, error) {
+	if s == nil || s.bootstrapper == nil || !s.bootstrapper.Configured() {
+		return nil, status.Error(codes.Unavailable, "workspace visibility is unavailable")
+	}
+	visibility := defaultworkspace.VisibilityRequest{
+		AdminSpec: defaultworkspace.AdminSpec{
+			GatewayID: request.GetGatewayId(), GatewayNamespace: request.GetGatewayNamespace(),
+			Issuer: request.GetIssuer(), GatewayClientID: request.GetGatewayClientId(),
+		},
+		Endpoint: request.GetGatewayEndpoint(),
+	}
+	memberships, err := s.bootstrapper.ListWorkspaceMemberships(ctx, visibility)
+	if err != nil {
+		return nil, defaultWorkspaceError(err)
+	}
+	response := &pb.ListWorkspaceMembershipsResponse{Memberships: make([]*pb.WorkspaceMembership, 0, len(memberships))}
+	for _, membership := range memberships {
+		response.Memberships = append(response.Memberships, &pb.WorkspaceMembership{
+			Workspace: membership.Workspace, Subject: membership.Subject,
+		})
+	}
+	return response, nil
 }
 
 func (s *Server) available() error {

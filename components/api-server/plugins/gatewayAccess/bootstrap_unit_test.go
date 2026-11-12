@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -104,6 +105,41 @@ func TestGrantHandlerAcceptsDefaultWorkspaceBootstrapOptOut(t *testing.T) {
 	}
 }
 
+func TestListEnrichesWorkspaceVisibilityForUserTiersOnly(t *testing.T) {
+	deps := newBootstrapTestDeps()
+	deps.dao.rows = []accessRow{
+		{UserID: "target", Username: "target", RoleName: roles.RoleGatewayViewer},
+		{UserID: "other", Username: "other", RoleName: roles.RoleGatewayViewer},
+		{UserID: "admin", Username: "admin", RoleName: roles.RoleGatewayAdmin},
+	}
+	deps.bootstrap.memberships = []defaultWorkspaceBootstrap.WorkspaceMembership{
+		{Workspace: "default", Subject: "target-subject"},
+		{Workspace: "billing", Subject: "target-subject"},
+	}
+	deps.directory.users = []DirectoryUser{
+		{Username: "target", Subject: "target-subject"},
+		{Username: "other", Subject: "other-subject"},
+	}
+
+	items, _, _, problem := deps.service.List(context.Background(), "gateway-id", "owner", ListOptions{})
+	if problem != nil {
+		t.Fatalf("List() problem = %#v", problem)
+	}
+	workspacesByUsername := make(map[string][]string, len(items))
+	for _, item := range items {
+		workspacesByUsername[item.Username] = item.Workspaces
+	}
+	if got := workspacesByUsername["target"]; !slices.Equal(got, []string{"billing", "default"}) {
+		t.Fatalf("target workspaces = %#v, want billing and default", got)
+	}
+	if got := workspacesByUsername["other"]; len(got) != 0 {
+		t.Fatalf("other workspaces = %#v, want none", got)
+	}
+	if got := workspacesByUsername["admin"]; len(got) != 0 {
+		t.Fatalf("admin workspaces = %#v, want none", got)
+	}
+}
+
 func TestChangeRoleToUserBootstrapsDefaultWorkspace(t *testing.T) {
 	deps := newBootstrapTestDeps()
 	deps.dao.roleName = roles.RoleGatewayViewer
@@ -157,6 +193,7 @@ type bootstrapTestDeps struct {
 	dao       *fakeAccessDao
 	bindings  *fakeBindingService
 	bootstrap *fakeBootstrapService
+	directory *fakeDirectoryResolver
 }
 
 func newBootstrapTestDeps() *bootstrapTestDeps {
@@ -165,11 +202,12 @@ func newBootstrapTestDeps() *bootstrapTestDeps {
 		"owner:gateway-id": roles.RoleGatewayOwner,
 	}}
 	bootstrap := &fakeBootstrapService{}
+	directory := fakeDirectoryResolver{}
 	service := NewService(
-		dao, bindings, &fakeUserDirectory{}, fakeDirectoryResolver{},
+		dao, bindings, &fakeUserDirectory{}, &directory,
 		db.NewNoOpLockFactory(), fakeGatewayLookup{}, bootstrap,
 	)
-	return &bootstrapTestDeps{service: service, dao: dao, bindings: bindings, bootstrap: bootstrap}
+	return &bootstrapTestDeps{service: service, dao: dao, bindings: bindings, bootstrap: bootstrap, directory: &directory}
 }
 
 func expectedBootstrapInput(gatewayID string) defaultWorkspaceBootstrap.Input {
@@ -183,10 +221,11 @@ func expectedBootstrapInput(gatewayID string) defaultWorkspaceBootstrap.Input {
 
 type fakeAccessDao struct {
 	roleName string
+	rows     []accessRow
 }
 
 func (f *fakeAccessDao) list(_ context.Context, _ string, _ ListOptions) ([]accessRow, int64, error) {
-	return nil, 0, nil
+	return f.rows, int64(len(f.rows)), nil
 }
 
 func (f *fakeAccessDao) getForUser(_ context.Context, _, _ string) (accessRow, bool, error) {
@@ -250,8 +289,10 @@ func (f *fakeUserDirectory) UpsertByUsername(_ context.Context, username string,
 }
 
 type fakeBootstrapService struct {
-	input   defaultWorkspaceBootstrap.Input
-	problem *defaultWorkspaceBootstrap.APIError
+	input       defaultWorkspaceBootstrap.Input
+	problem     *defaultWorkspaceBootstrap.APIError
+	memberships []defaultWorkspaceBootstrap.WorkspaceMembership
+	listProblem *defaultWorkspaceBootstrap.APIError
 }
 
 type recordingGrantService struct {
@@ -269,7 +310,13 @@ func (f *fakeBootstrapService) Bootstrap(_ context.Context, input defaultWorkspa
 	return f.problem
 }
 
-type fakeDirectoryResolver struct{}
+func (f *fakeBootstrapService) ListWorkspaceMemberships(_ context.Context, _ defaultWorkspaceBootstrap.Input) ([]defaultWorkspaceBootstrap.WorkspaceMembership, *defaultWorkspaceBootstrap.APIError) {
+	return f.memberships, f.listProblem
+}
+
+type fakeDirectoryResolver struct {
+	users []DirectoryUser
+}
 
 func (f fakeDirectoryResolver) Resolve(_ context.Context, _ string) (DirectoryUser, bool, error) {
 	return DirectoryUser{
@@ -280,6 +327,13 @@ func (f fakeDirectoryResolver) Resolve(_ context.Context, _ string) (DirectoryUs
 
 func (f fakeDirectoryResolver) Search(_ context.Context, _ string, _ int) ([]DirectoryUser, error) {
 	return nil, nil
+}
+
+func (f fakeDirectoryResolver) ResolveMany(_ context.Context, _ []string) ([]DirectoryUser, error) {
+	if len(f.users) > 0 {
+		return f.users, nil
+	}
+	return []DirectoryUser{{Username: "target", Subject: "target-subject"}}, nil
 }
 
 type fakeGatewayLookup struct{}
