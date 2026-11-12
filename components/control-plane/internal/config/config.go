@@ -206,6 +206,19 @@ type Config struct {
 	// HYPERSHELL_CI_TOKEN_EXCHANGE_MODE; defaults to fgap-v1, the live fleet mode.
 	CITokenExchangeMode string
 
+	// CIWorkspaceProvisioningEnabled toggles gateway-side realization of a CITrust
+	// (PLAT-CITR-15): ensuring the derived workspace exists on the gateway and
+	// admitting the trust's matched identities as members over the gateway's
+	// OpenShell provisioning API. OFF by default so it rolls out by configuration;
+	// requires CITrustEnabled. Sourced from HYPERSHELL_CI_WORKSPACE_PROVISIONING_ENABLED.
+	CIWorkspaceProvisioningEnabled bool
+
+	// GatewayInsecureTLS skips TLS verification when the control plane dials a
+	// gateway's OpenShell gRPC endpoint, which is served under the self-signed
+	// openshell CA. Defaults to true (the gateway endpoint is not publicly trusted).
+	// Sourced from HYPERSHELL_GATEWAY_INSECURE.
+	GatewayInsecureTLS bool
+
 	// RepositoryImportEnabled toggles the declarative `.hypershell` import
 	// reconciler (the RepositoryReconciler). It is OFF by default: the reconciler
 	// reads repository subtrees over the GitHub API with the platform GitHub App
@@ -273,12 +286,14 @@ func Load() (*Config, error) {
 		OperatorNamespaceLabelKey:   getEnv("GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY", ""),
 		OperatorSandboxRuntimeClass: getEnv("GATEWAY_OPERATOR_SANDBOX_RUNTIME_CLASS", ""),
 
-		CITrustEnabled:           getEnvBool("HYPERSHELL_CI_TRUST_ENABLED", false),
-		CITokenExchangeMode:      getEnv("HYPERSHELL_CI_TOKEN_EXCHANGE_MODE", CITokenExchangeModeFGAPv1),
-		RepositoryImportEnabled:  getEnvBool("HYPERSHELL_REPOSITORY_IMPORT_ENABLED", false),
-		RepositoryImportInterval: getEnvDuration("HYPERSHELL_REPOSITORY_IMPORT_INTERVAL", time.Hour),
-		GitHubAPIBase:            getEnv("HYPERSHELL_GITHUB_API_BASE", ""),
-		GitHubTokenFile:          getEnv("HYPERSHELL_GITHUB_TOKEN_FILE", ""),
+		CITrustEnabled:                 getEnvBool("HYPERSHELL_CI_TRUST_ENABLED", false),
+		CITokenExchangeMode:            getEnv("HYPERSHELL_CI_TOKEN_EXCHANGE_MODE", CITokenExchangeModeFGAPv1),
+		CIWorkspaceProvisioningEnabled: getEnvBool("HYPERSHELL_CI_WORKSPACE_PROVISIONING_ENABLED", false),
+		GatewayInsecureTLS:             getEnvBool("HYPERSHELL_GATEWAY_INSECURE", true),
+		RepositoryImportEnabled:        getEnvBool("HYPERSHELL_REPOSITORY_IMPORT_ENABLED", false),
+		RepositoryImportInterval:       getEnvDuration("HYPERSHELL_REPOSITORY_IMPORT_INTERVAL", time.Hour),
+		GitHubAPIBase:                  getEnv("HYPERSHELL_GITHUB_API_BASE", ""),
+		GitHubTokenFile:                getEnv("HYPERSHELL_GITHUB_TOKEN_FILE", ""),
 	}
 
 	if cfg.GRPCServerAddr == "" {
