@@ -166,7 +166,7 @@ jobs:
           sel="$(printf '%s' "${GATEWAY_PLACEMENT}" | jq -R 'split(",")')"
           manifest="$(jq -nc --arg n "$GW_NAME" --argjson sel "$sel" \
             '{apiVersion:"hypershell.redhat.io/v1", kind:"Gateway",
-              metadata:{name:$n, description:"Disposable CI agent gateway"},
+              metadata:{name:$n},
               spec:{placement:{selector:$sel}}}')"
           echo "$manifest" | hsctl apply -f - -o json || { echo "gateway apply failed" >&2; exit 1; }
           # Resolve the gateway id by name.
