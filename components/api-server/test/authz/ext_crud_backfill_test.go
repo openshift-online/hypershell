@@ -279,7 +279,7 @@ func TestExtKindsNameBackfillDeduplicatesCollisions(t *testing.T) {
 
 	// Assign a sorted id pair to each kind, then seed both colliding rows.
 	for i := range pairs {
-		pairs[i].idLow, pairs[i].idHigh = sortedIDPair()
+		pairs[i].idLow, pairs[i].idHigh = sortedIDPair(t, g2)
 		seedCollisionPair(t, g2, pairs[i])
 	}
 
@@ -329,15 +329,14 @@ func seedCollisionPair(t *testing.T, g2 *gorm.DB, p collisionPair) {
 	exec(t, g2, p.insertSQL, p.argsForRow(p.idHigh)...)
 }
 
-// sortedIDPair returns two distinct ids, the lexicographically smaller first, so a
-// test can predict which row the de-duplication keeps (smallest id) and which it
-// suffixes.
-func sortedIDPair() (string, string) {
-	a, b := api.NewID(), api.NewID()
-	if a > b {
-		return b, a
-	}
-	return a, b
+// sortedIDPair uses the database collation, which can order mixed-case IDs
+// differently from Go, to predict which row the migration keeps or suffixes.
+func sortedIDPair(t *testing.T, g2 *gorm.DB) (string, string) {
+	t.Helper()
+	var ids []string
+	Expect(g2.Raw(`SELECT id FROM (VALUES (?::text), (?::text)) AS ids(id) ORDER BY id`,
+		api.NewID(), api.NewID()).Scan(&ids).Error).To(Succeed())
+	return ids[0], ids[1]
 }
 
 // hasIndex reports whether an index with the given name exists in the current
@@ -374,7 +373,7 @@ func TestExtKindsNameBackfillDedupIgnoresSoftDeleted(t *testing.T) {
 
 	// deletedID < liveID so the old id-only de-duplication would keep the
 	// soft-deleted (smaller-id) row's name and suffix the live (larger-id) row.
-	deletedID, liveID := sortedIDPair()
+	deletedID, liveID := sortedIDPair(t, g2)
 
 	// Rewrite ci_trusts into its pre-name shape, then seed both rows directly.
 	exec(t, g2, `DELETE FROM migrations WHERE id = ?`, nameMigID)
