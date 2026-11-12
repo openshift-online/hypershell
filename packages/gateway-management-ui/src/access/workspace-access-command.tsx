@@ -5,6 +5,7 @@ import {
   CodeBlock,
   CodeBlockCode,
   Content,
+  ExpandableSection,
   Modal,
   ModalBody,
   ModalFooter,
@@ -70,9 +71,11 @@ function CommandBlock({ command }: { command: string }) {
 // undefined while a lookup is pending/failed; the caller passes isPending so this
 // can show a spinner rather than the "unavailable" error during the lookup.
 export function WorkspaceAccessCommand({
+  isDefaultWorkspaceMembershipSkipped,
   isPending = false,
   subject,
 }: {
+  isDefaultWorkspaceMembershipSkipped?: boolean;
   isPending?: boolean;
   subject: string | undefined;
 }) {
@@ -102,11 +105,21 @@ export function WorkspaceAccessCommand({
     <Stack hasGutter>
       <StackItem>
         <Content component="p">
-          {intl.formatMessage(messages.accessWorkspaceGrantIntro)}
+          {isDefaultWorkspaceMembershipSkipped === undefined
+            ? intl.formatMessage(messages.accessWorkspaceGrantIntro)
+            : intl.formatMessage(
+                isDefaultWorkspaceMembershipSkipped
+                  ? messages.accessGrantWithoutDefaultWorkspaceResult
+                  : messages.accessGrantDefaultWorkspaceResult,
+              )}
         </Content>
       </StackItem>
       <StackItem>
-        <CommandBlock command={command} />
+        <ExpandableSection
+          toggleText={intl.formatMessage(messages.advancedWorkspaceCommand)}
+        >
+          <CommandBlock command={command} />
+        </ExpandableSection>
       </StackItem>
     </Stack>
   );

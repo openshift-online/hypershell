@@ -104,3 +104,7 @@ func (f *fakeProvisioner) Configured() bool { return true }
 func (f *fakeProvisioner) BootstrapDefaultWorkspace(context.Context, Input) error {
 	return f.err
 }
+
+func (f *fakeProvisioner) ListWorkspaceMemberships(context.Context, Input) ([]WorkspaceMembership, error) {
+	return nil, f.err
+}

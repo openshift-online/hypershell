@@ -269,6 +269,17 @@ export function ServiceAccountsPage({
         width: 20,
       },
       {
+        id: "workspaces",
+        label: intl.formatMessage(messages.accessWorkspacesColumn),
+        render: ({ role, workspaces }) =>
+          role === "openshell-admin"
+            ? intl.formatMessage(messages.adminWorkspaceAccess)
+            : workspaces.length > 0
+              ? workspaces.join(", ")
+              : intl.formatMessage(messages.noWorkspaces),
+        width: 25,
+      },
+      {
         id: "status",
         label: intl.formatMessage(messages.status),
         render: ({ status }) => (

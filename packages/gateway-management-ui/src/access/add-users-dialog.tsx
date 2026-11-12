@@ -2,8 +2,12 @@ import {
   Alert,
   AlertActionLink,
   Button,
+  Checkbox,
   Form,
   FormGroup,
+  FormHelperText,
+  HelperText,
+  HelperTextItem,
   MenuToggle,
   Modal,
   ModalBody,
@@ -229,6 +233,7 @@ export function AddUsersDialog({
   const roles = assignableRoles(capabilities);
   const [selected, setSelected] = useState<GatewayDirectoryUser | null>(null);
   const [role, setRole] = useState<GatewayAccessRole>(roles[0] ?? "user");
+  const [addToDefaultWorkspace, setAddToDefaultWorkspace] = useState(true);
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -236,6 +241,7 @@ export function AddUsersDialog({
         return;
       }
       await gateways.grantGatewayAccess(gatewayId, {
+        skipDefaultWorkspaceBootstrap: !addToDefaultWorkspace,
         role,
         ...(selected.subject ? { subject: selected.subject } : {}),
         username: selected.username,
@@ -275,13 +281,16 @@ export function AddUsersDialog({
         labelId={titleId}
         title={intl.formatMessage(
           showWorkspaceStep
-            ? messages.grantWorkspaceAccess
+            ? messages.accessGrantSuccessTitle
             : messages.accessAddUsers,
         )}
       />
       <ModalBody>
         {showWorkspaceStep ? (
-          <WorkspaceAccessCommand subject={selected?.subject} />
+          <WorkspaceAccessCommand
+            isDefaultWorkspaceMembershipSkipped={!addToDefaultWorkspace}
+            subject={selected?.subject}
+          />
         ) : (
           <Form>
             <FormGroup
@@ -319,6 +328,27 @@ export function AddUsersDialog({
                   ))}
                 </Stack>
               </FormGroup>
+            ) : null}
+            {role === "user" ? (
+              <StackItem>
+                <Checkbox
+                  id="gateway-access-default-workspace"
+                  isChecked={addToDefaultWorkspace}
+                  label={intl.formatMessage(
+                    messages.accessDefaultWorkspaceLabel,
+                  )}
+                  onChange={(_event, checked) => {
+                    setAddToDefaultWorkspace(checked);
+                  }}
+                />
+                <FormHelperText>
+                  <HelperText>
+                    <HelperTextItem>
+                      {intl.formatMessage(messages.defaultWorkspaceHelp)}
+                    </HelperTextItem>
+                  </HelperText>
+                </FormHelperText>
+              </StackItem>
             ) : null}
             {mutation.isError ? (
               <Alert

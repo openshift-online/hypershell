@@ -32,11 +32,13 @@ type OpenShellGatewayServiceAccountListItem struct {
 	CreatedByUserId string                               `json:"created_by_user_id"`
 	ClientId        string                               `json:"client_id"`
 	Subject         string                               `json:"subject"`
-	ExpiresAt       time.Time                            `json:"expires_at"`
-	RevokedAt       NullableTime                         `json:"revoked_at,omitempty"`
-	LastError       NullableString                       `json:"last_error,omitempty"`
-	CreatedAt       time.Time                            `json:"created_at"`
-	UpdatedAt       time.Time                            `json:"updated_at"`
+	// Gateway-scoped workspace names for openshell-user rows; empty for openshell-admin rows
+	Workspaces []string       `json:"workspaces"`
+	ExpiresAt  time.Time      `json:"expires_at"`
+	RevokedAt  NullableTime   `json:"revoked_at,omitempty"`
+	LastError  NullableString `json:"last_error,omitempty"`
+	CreatedAt  time.Time      `json:"created_at"`
+	UpdatedAt  time.Time      `json:"updated_at"`
 }
 
 type _OpenShellGatewayServiceAccountListItem OpenShellGatewayServiceAccountListItem
@@ -45,7 +47,7 @@ type _OpenShellGatewayServiceAccountListItem OpenShellGatewayServiceAccountListI
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewOpenShellGatewayServiceAccountListItem(id string, gatewayId string, name string, credentialType string, role OpenShellGatewayServiceAccountRole, status OpenShellGatewayServiceAccountStatus, createdByUserId string, clientId string, subject string, expiresAt time.Time, createdAt time.Time, updatedAt time.Time) *OpenShellGatewayServiceAccountListItem {
+func NewOpenShellGatewayServiceAccountListItem(id string, gatewayId string, name string, credentialType string, role OpenShellGatewayServiceAccountRole, status OpenShellGatewayServiceAccountStatus, createdByUserId string, clientId string, subject string, workspaces []string, expiresAt time.Time, createdAt time.Time, updatedAt time.Time) *OpenShellGatewayServiceAccountListItem {
 	this := OpenShellGatewayServiceAccountListItem{}
 	this.Id = id
 	this.GatewayId = gatewayId
@@ -56,6 +58,7 @@ func NewOpenShellGatewayServiceAccountListItem(id string, gatewayId string, name
 	this.CreatedByUserId = createdByUserId
 	this.ClientId = clientId
 	this.Subject = subject
+	this.Workspaces = workspaces
 	this.ExpiresAt = expiresAt
 	this.CreatedAt = createdAt
 	this.UpdatedAt = updatedAt
@@ -329,6 +332,30 @@ func (o *OpenShellGatewayServiceAccountListItem) SetSubject(v string) {
 	o.Subject = v
 }
 
+// GetWorkspaces returns the Workspaces field value
+func (o *OpenShellGatewayServiceAccountListItem) GetWorkspaces() []string {
+	if o == nil {
+		var ret []string
+		return ret
+	}
+
+	return o.Workspaces
+}
+
+// GetWorkspacesOk returns a tuple with the Workspaces field value
+// and a boolean to check if the value has been set.
+func (o *OpenShellGatewayServiceAccountListItem) GetWorkspacesOk() ([]string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.Workspaces, true
+}
+
+// SetWorkspaces sets field value
+func (o *OpenShellGatewayServiceAccountListItem) SetWorkspaces(v []string) {
+	o.Workspaces = v
+}
+
 // GetExpiresAt returns the ExpiresAt field value
 func (o *OpenShellGatewayServiceAccountListItem) GetExpiresAt() time.Time {
 	if o == nil {
@@ -509,6 +536,7 @@ func (o OpenShellGatewayServiceAccountListItem) ToMap() (map[string]interface{},
 	toSerialize["created_by_user_id"] = o.CreatedByUserId
 	toSerialize["client_id"] = o.ClientId
 	toSerialize["subject"] = o.Subject
+	toSerialize["workspaces"] = o.Workspaces
 	toSerialize["expires_at"] = o.ExpiresAt
 	if o.RevokedAt.IsSet() {
 		toSerialize["revoked_at"] = o.RevokedAt.Get()
@@ -535,6 +563,7 @@ func (o *OpenShellGatewayServiceAccountListItem) UnmarshalJSON(data []byte) (err
 		"created_by_user_id",
 		"client_id",
 		"subject",
+		"workspaces",
 		"expires_at",
 		"created_at",
 		"updated_at",

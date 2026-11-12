@@ -56,6 +56,62 @@ func (c *GRPCOpenShellClient) AddMember(ctx context.Context, endpoint, namespace
 	return err
 }
 
+func (c *GRPCOpenShellClient) ListWorkspaceMemberships(ctx context.Context, endpoint, namespace, accessToken string) ([]WorkspaceMembership, error) {
+	target, transportCredentials, err := c.grpcTarget(ctx, endpoint, namespace)
+	if err != nil {
+		return nil, err
+	}
+	connection, err := grpc.NewClient(target, grpc.WithTransportCredentials(transportCredentials))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = connection.Close() }()
+	client := openshellv1.NewOpenShellClient(connection)
+	callCtx := metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+accessToken)
+
+	workspaces := make([]string, 0)
+	for pageToken := ""; ; {
+		response, err := client.ListWorkspaces(callCtx, &openshellv1.ListWorkspacesRequest{
+			PageSize: 1000, PageToken: pageToken,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list workspaces: %w", err)
+		}
+		for _, workspace := range response.GetWorkspaces() {
+			if name := workspace.GetMetadata().GetName(); name != "" {
+				workspaces = append(workspaces, name)
+			}
+		}
+		pageToken = response.GetNextPageToken()
+		if pageToken == "" {
+			break
+		}
+	}
+
+	memberships := make([]WorkspaceMembership, 0)
+	for _, workspace := range workspaces {
+		for pageToken := ""; ; {
+			response, err := client.ListWorkspaceMembers(callCtx, &openshellv1.ListWorkspaceMembersRequest{
+				WorkspaceScope: &openshellv1.WorkspaceSelector{Workspace: workspace},
+				PageSize:       1000, PageToken: pageToken,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("list members of workspace %q: %w", workspace, err)
+			}
+			for _, member := range response.GetMembers() {
+				if subject := member.GetPrincipalSubject(); subject != "" {
+					memberships = append(memberships, WorkspaceMembership{Workspace: workspace, Subject: subject})
+				}
+			}
+			pageToken = response.GetNextPageToken()
+			if pageToken == "" {
+				break
+			}
+		}
+	}
+	return memberships, nil
+}
+
 func bootstrapRequestID(namespace, subject, role string) string {
 	return uuid.NewSHA1(uuid.NameSpaceURL, []byte("hypershell:default-workspace:"+namespace+":"+subject+":"+role)).String()
 }

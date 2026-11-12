@@ -47,6 +47,12 @@ type Provider interface {
 
 type OpenShellClient interface {
 	AddMember(ctx context.Context, endpoint, namespace, accessToken, subject, role string) error
+	ListWorkspaceMemberships(ctx context.Context, endpoint, namespace, accessToken string) ([]WorkspaceMembership, error)
+}
+
+type WorkspaceMembership struct {
+	Workspace string
+	Subject   string
 }
 
 type AdminSpec struct {
@@ -62,6 +68,11 @@ type MemberRequest struct {
 	Subject     string
 	SubjectType string
 	Role        string
+}
+
+type VisibilityRequest struct {
+	AdminSpec
+	Endpoint string
 }
 
 type bootstrapAdmin struct {
@@ -112,6 +123,30 @@ func (m *Manager) AddMember(ctx context.Context, request MemberRequest) error {
 		return fmt.Errorf("add default-workspace member: %w", err)
 	}
 	return nil
+}
+
+func (m *Manager) ListWorkspaceMemberships(ctx context.Context, request VisibilityRequest) ([]WorkspaceMembership, error) {
+	if !m.Configured() {
+		return nil, errors.New("default-workspace bootstrap manager is not configured")
+	}
+	if err := validateVisibilityRequest(request); err != nil {
+		return nil, err
+	}
+	admin, err := m.ensureAdmin(ctx, request.AdminSpec)
+	if err != nil {
+		return nil, err
+	}
+	accessToken, err := m.accessToken(ctx, m.provider.Issuer(), admin)
+	if err != nil {
+		return nil, fmt.Errorf("authenticate gateway bootstrap admin: %w", err)
+	}
+	memberships, err := m.openShell.ListWorkspaceMemberships(
+		ctx, clusterLocalGatewayEndpoint(request.GatewayNamespace), request.GatewayNamespace, accessToken,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list gateway workspace memberships: %w", err)
+	}
+	return memberships, nil
 }
 
 func clusterLocalGatewayEndpoint(namespace string) string {
@@ -285,6 +320,16 @@ func validateMemberRequest(request MemberRequest) error {
 		request.Role != "user" ||
 		(request.SubjectType != "user" && request.SubjectType != "service_account") {
 		return fmt.Errorf("%w: gateway endpoint, subject, subject type, and role user are required", ErrInvalidRequest)
+	}
+	return nil
+}
+
+func validateVisibilityRequest(request VisibilityRequest) error {
+	if err := validateAdminSpec(request.AdminSpec); err != nil {
+		return err
+	}
+	if strings.TrimSpace(request.Endpoint) == "" {
+		return fmt.Errorf("%w: gateway endpoint is required", ErrInvalidRequest)
 	}
 	return nil
 }

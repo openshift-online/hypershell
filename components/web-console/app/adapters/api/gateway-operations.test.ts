@@ -162,6 +162,7 @@ function serviceAccount(
     status: "ready",
     subject: "service-subject",
     updated_at: "2026-08-21T12:00:00Z",
+    workspaces: ["default"],
     ...overrides,
   };
 }
@@ -891,6 +892,7 @@ describe("gateway API operations adapter", () => {
           role_binding_id: "rb-1",
           user_id: "u-1",
           username: "ann",
+          workspaces: [],
         },
       ],
       page: 1,
@@ -920,6 +922,7 @@ describe("gateway API operations adapter", () => {
       roleBindingId: "rb-1",
       userId: "u-1",
       username: "ann",
+      workspaces: [],
     });
     expect(page.items[0]).not.toHaveProperty("email");
   });
@@ -933,23 +936,33 @@ describe("gateway API operations adapter", () => {
       role_binding_id: "rb-2",
       user_id: "u-2",
       username: "dana",
+      workspaces: ["default"],
     });
 
     const record = await controlPlane.grantGatewayAccess(
       "gateway-1",
-      { role: "user", username: "dana" },
+      {
+        role: "user",
+        skipDefaultWorkspaceBootstrap: true,
+        username: "dana",
+      },
       context,
     );
 
     expect(gatewayAccessApi.create).toHaveBeenCalledWith(
       "gateway-1",
-      { role: "user", username: "dana" },
+      {
+        role: "user",
+        skip_default_workspace_bootstrap: true,
+        username: "dana",
+      },
       { signal: undefined },
     );
     expect(record).toMatchObject({
       email: "dana@example.com",
       role: "user",
       userId: "u-2",
+      workspaces: ["default"],
     });
   });
 

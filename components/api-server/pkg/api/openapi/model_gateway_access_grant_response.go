@@ -29,6 +29,8 @@ type GatewayAccessGrantResponse struct {
 	Email         NullableString    `json:"email,omitempty"`
 	Role          GatewayAccessRole `json:"role"`
 	GrantedAt     time.Time         `json:"granted_at"`
+	// Gateway-scoped workspace names for user rows; empty for admin rows
+	Workspaces []string `json:"workspaces"`
 }
 
 type _GatewayAccessGrantResponse GatewayAccessGrantResponse
@@ -37,13 +39,14 @@ type _GatewayAccessGrantResponse GatewayAccessGrantResponse
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewGatewayAccessGrantResponse(roleBindingId string, userId string, username string, role GatewayAccessRole, grantedAt time.Time) *GatewayAccessGrantResponse {
+func NewGatewayAccessGrantResponse(roleBindingId string, userId string, username string, role GatewayAccessRole, grantedAt time.Time, workspaces []string) *GatewayAccessGrantResponse {
 	this := GatewayAccessGrantResponse{}
 	this.RoleBindingId = roleBindingId
 	this.UserId = userId
 	this.Username = username
 	this.Role = role
 	this.GrantedAt = grantedAt
+	this.Workspaces = workspaces
 	return &this
 }
 
@@ -261,6 +264,30 @@ func (o *GatewayAccessGrantResponse) SetGrantedAt(v time.Time) {
 	o.GrantedAt = v
 }
 
+// GetWorkspaces returns the Workspaces field value
+func (o *GatewayAccessGrantResponse) GetWorkspaces() []string {
+	if o == nil {
+		var ret []string
+		return ret
+	}
+
+	return o.Workspaces
+}
+
+// GetWorkspacesOk returns a tuple with the Workspaces field value
+// and a boolean to check if the value has been set.
+func (o *GatewayAccessGrantResponse) GetWorkspacesOk() ([]string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.Workspaces, true
+}
+
+// SetWorkspaces sets field value
+func (o *GatewayAccessGrantResponse) SetWorkspaces(v []string) {
+	o.Workspaces = v
+}
+
 func (o GatewayAccessGrantResponse) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -282,6 +309,7 @@ func (o GatewayAccessGrantResponse) ToMap() (map[string]interface{}, error) {
 	}
 	toSerialize["role"] = o.Role
 	toSerialize["granted_at"] = o.GrantedAt
+	toSerialize["workspaces"] = o.Workspaces
 	return toSerialize, nil
 }
 
@@ -295,6 +323,7 @@ func (o *GatewayAccessGrantResponse) UnmarshalJSON(data []byte) (err error) {
 		"username",
 		"role",
 		"granted_at",
+		"workspaces",
 	}
 
 	allProperties := make(map[string]interface{})

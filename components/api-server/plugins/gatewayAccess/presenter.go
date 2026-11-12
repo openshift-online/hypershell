@@ -10,6 +10,7 @@ type grantItemResponse struct {
 	Email         *string   `json:"email,omitempty"`
 	Role          string    `json:"role"`
 	GrantedAt     time.Time `json:"granted_at"`
+	Workspaces    []string  `json:"workspaces"`
 }
 
 type capabilitiesResponse struct {

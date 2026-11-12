@@ -61,3 +61,17 @@ func (r *grpcDirectoryResolver) Resolve(ctx context.Context, username string) (D
 	u := resp.GetUser()
 	return DirectoryUser{Username: u.GetUsername(), Name: u.GetName(), Email: u.GetEmail(), Subject: u.GetSubject()}, true, nil
 }
+
+func (r *grpcDirectoryResolver) ResolveMany(ctx context.Context, usernames []string) ([]DirectoryUser, error) {
+	callCtx, cancel := context.WithTimeout(ctx, directoryCallTimeout)
+	defer cancel()
+	response, err := r.client.ResolveUsers(callCtx, &provisionerpb.ResolveUsersRequest{Usernames: usernames})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]DirectoryUser, 0, len(response.GetUsers()))
+	for _, u := range response.GetUsers() {
+		out = append(out, DirectoryUser{Username: u.GetUsername(), Name: u.GetName(), Email: u.GetEmail(), Subject: u.GetSubject()})
+	}
+	return out, nil
+}

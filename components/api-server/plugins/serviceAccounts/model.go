@@ -41,6 +41,7 @@ type OpenShellGatewayServiceAccount struct {
 	KeycloakClientID   string     `json:"client_id" gorm:"not null;uniqueIndex"`
 	KeycloakClientUUID string     `json:"-" gorm:"column:keycloak_client_uuid"`
 	Subject            string     `json:"subject"`
+	Workspaces         []string   `json:"workspaces" gorm:"-"`
 	ExpiresAt          time.Time  `json:"expires_at" gorm:"not null;index"`
 	RevokedAt          *time.Time `json:"revoked_at,omitempty"`
 	LastError          *string    `json:"last_error,omitempty"`

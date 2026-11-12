@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -147,6 +148,65 @@ func TestCreateCleansUpWhenDefaultWorkspaceBootstrapFails(t *testing.T) {
 	}
 	if kc.lastSpec.ClientID == "" {
 		t.Fatal("Keycloak was not provisioned before bootstrap")
+	}
+}
+
+func TestCreateCanSkipDefaultWorkspaceBootstrap(t *testing.T) {
+	dao := newMemoryDAO()
+	kc := &fakeKeycloak{configured: true}
+	bindings := testBindings("creator", "gateway:owner")
+	bootstrap := &fakeDefaultWorkspaceBootstrap{problem: &defaultWorkspaceBootstrap.APIError{
+		Status: http.StatusServiceUnavailable, Code: "default_workspace_bootstrap_failed", Message: "failed",
+	}}
+	svc := NewService(dao, fakeGateway{gateway: testGateway()}, bindings, kc, bootstrap, db.NewNoOpLockFactory())
+	svc.(*service).now = func() time.Time { return time.Now().UTC() }
+
+	result, problem := svc.Create(t.Context(), "gateway-id", "creator", CreateInput{
+		Name: "bot", Role: RoleUser, SkipDefaultWorkspaceBootstrap: true,
+	})
+	if problem != nil {
+		t.Fatalf("Create() problem = %#v", problem)
+	}
+	if bootstrap.input != (defaultWorkspaceBootstrap.Input{}) {
+		t.Fatalf("bootstrap input = %#v, want no call", bootstrap.input)
+	}
+	if result.Account.Status != StatusReady {
+		t.Fatalf("account status = %q, want %q", result.Account.Status, StatusReady)
+	}
+}
+
+func TestListEnrichesWorkspaceVisibilityForUserAccountsOnly(t *testing.T) {
+	dao := newMemoryDAO()
+	now := time.Now().UTC()
+	dao.seed(
+		&OpenShellGatewayServiceAccount{GatewayID: "gateway-id", Name: "admin", CreatedByUserID: "creator", Status: StatusReady, Role: RoleAdmin, CredentialType: CredentialTypeClientSecret, Subject: "sub-admin", ExpiresAt: now.Add(time.Hour)},
+		&OpenShellGatewayServiceAccount{GatewayID: "gateway-id", Name: "mine", CreatedByUserID: "creator", Status: StatusReady, Role: RoleUser, CredentialType: CredentialTypeClientSecret, Subject: "sub-a", ExpiresAt: now.Add(time.Hour)},
+		&OpenShellGatewayServiceAccount{GatewayID: "gateway-id", Name: "unassigned", CreatedByUserID: "creator", Status: StatusReady, Role: RoleUser, CredentialType: CredentialTypeClientSecret, Subject: "sub-b", ExpiresAt: now.Add(time.Hour)},
+	)
+	bootstrap := &fakeDefaultWorkspaceBootstrap{memberships: []defaultWorkspaceBootstrap.WorkspaceMembership{
+		{Workspace: "default", Subject: "sub-a"},
+		{Workspace: "billing", Subject: "sub-a"},
+		{Workspace: "other-gateway", Subject: "sub-admin"},
+	}}
+	bindings := testBindings("owner", "gateway:owner")
+	svc := NewService(dao, fakeGateway{gateway: testGateway()}, bindings, &fakeKeycloak{configured: true}, bootstrap, db.NewNoOpLockFactory())
+
+	items, _, _, problem := svc.List(t.Context(), "gateway-id", "owner", ListOptions{Page: 1, Size: 20, Sort: "created_at", Order: "asc"})
+	if problem != nil {
+		t.Fatalf("List() problem = %#v", problem)
+	}
+	workspacesByName := make(map[string][]string, len(items))
+	for _, item := range items {
+		workspacesByName[item.Name] = item.Workspaces
+	}
+	if got := workspacesByName["admin"]; len(got) != 0 {
+		t.Fatalf("admin workspaces = %#v, want none", got)
+	}
+	if got := workspacesByName["mine"]; !slices.Equal(got, []string{"billing", "default"}) {
+		t.Fatalf("user workspaces = %#v, want billing and default", got)
+	}
+	if got := workspacesByName["unassigned"]; len(got) != 0 {
+		t.Fatalf("unassigned user workspaces = %#v, want none", got)
 	}
 }
 
@@ -1276,13 +1336,21 @@ func newTestServiceWith(dao *memoryDAO, kc ServiceAccountProvisioner, bindings f
 }
 
 type fakeDefaultWorkspaceBootstrap struct {
-	problem *defaultWorkspaceBootstrap.APIError
-	input   defaultWorkspaceBootstrap.Input
+	problem     *defaultWorkspaceBootstrap.APIError
+	input       defaultWorkspaceBootstrap.Input
+	memberships []defaultWorkspaceBootstrap.WorkspaceMembership
+	listInput   defaultWorkspaceBootstrap.Input
+	listProblem *defaultWorkspaceBootstrap.APIError
 }
 
 func (f *fakeDefaultWorkspaceBootstrap) Bootstrap(_ context.Context, input defaultWorkspaceBootstrap.Input) *defaultWorkspaceBootstrap.APIError {
 	f.input = input
 	return f.problem
+}
+
+func (f *fakeDefaultWorkspaceBootstrap) ListWorkspaceMemberships(_ context.Context, input defaultWorkspaceBootstrap.Input) ([]defaultWorkspaceBootstrap.WorkspaceMembership, *defaultWorkspaceBootstrap.APIError) {
+	f.listInput = input
+	return f.memberships, f.listProblem
 }
 
 func testGateway() *gateways.Gateway {

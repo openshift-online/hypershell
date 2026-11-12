@@ -31,6 +31,16 @@ func (f fakeDirectory) Resolve(_ context.Context, username string) (gatewayAcces
 	return u, ok, nil
 }
 
+func (f fakeDirectory) ResolveMany(_ context.Context, usernames []string) ([]gatewayAccess.DirectoryUser, error) {
+	out := make([]gatewayAccess.DirectoryUser, 0, len(usernames))
+	for _, username := range usernames {
+		if user, ok := f.users[strings.ToLower(username)]; ok {
+			out = append(out, user)
+		}
+	}
+	return out, nil
+}
+
 func (f fakeDirectory) Search(_ context.Context, query string, _ int) ([]gatewayAccess.DirectoryUser, error) {
 	q := strings.ToLower(query)
 	out := []gatewayAccess.DirectoryUser{}
@@ -55,13 +65,18 @@ type fakeGatewayLookup struct{}
 func (f fakeGatewayLookup) Get(context.Context, string) (*gateways.Gateway, *trexerrors.ServiceError) {
 	oidc := `{"issuer":"https://issuer.example/realms/hypershell","client_id":"gateway-client","audience":"gateway-client"}`
 	route := "grpcs://gateway.example:443"
-	return &gateways.Gateway{Namespace: "gateway-namespace", Oidc: &oidc, RouteAddress: &route}, nil
+	conditions := `[{"type":"DefaultWorkspaceBootstrapReady","condition_status":"Complete"}]`
+	return &gateways.Gateway{Namespace: "gateway-namespace", Oidc: &oidc, RouteAddress: &route, ProvisioningConditions: &conditions}, nil
 }
 
 type fakeDefaultWorkspaceBootstrap struct{}
 
 func (f fakeDefaultWorkspaceBootstrap) Bootstrap(context.Context, defaultWorkspaceBootstrap.Input) *defaultWorkspaceBootstrap.APIError {
 	return nil
+}
+
+func (f fakeDefaultWorkspaceBootstrap) ListWorkspaceMemberships(context.Context, defaultWorkspaceBootstrap.Input) ([]defaultWorkspaceBootstrap.WorkspaceMembership, *defaultWorkspaceBootstrap.APIError) {
+	return nil, nil
 }
 
 func withDefaultWorkspaceBootstrap() func() {

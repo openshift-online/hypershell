@@ -1407,6 +1407,18 @@
     "defaultMessage": "Name",
     "description": "Access table column for the user's display name."
   },
+  "app.gateway.access.column.workspaces": {
+    "defaultMessage": "Workspaces",
+    "description": "Access table column for OpenShell workspace memberships."
+  },
+  "app.gateway.access.defaultWorkspace.help": {
+    "defaultMessage": "The default workspace is shared with other gateway users.",
+    "description": "Explains the shared default workspace."
+  },
+  "app.gateway.access.defaultWorkspace.label": {
+    "defaultMessage": "Automatically add this user to the default workspace",
+    "description": "Checkbox that controls default-workspace membership."
+  },
   "app.gateway.access.description": {
     "defaultMessage": "Manage who can access this gateway and at what role.",
     "description": "Description under the Manage access heading."
@@ -1446,6 +1458,18 @@
   "app.gateway.access.grant": {
     "defaultMessage": "Grant access",
     "description": "Confirm button for granting access."
+  },
+  "app.gateway.access.grant.defaultWorkspace": {
+    "defaultMessage": "Access granted. This user can now use the default workspace. The default workspace is shared with other gateway users.",
+    "description": "Result shown after granting user access with default-workspace membership."
+  },
+  "app.gateway.access.grant.success": {
+    "defaultMessage": "Access granted",
+    "description": "Title shown after a gateway access grant succeeds."
+  },
+  "app.gateway.access.grant.withoutDefaultWorkspace": {
+    "defaultMessage": "Access granted without default-workspace access.",
+    "description": "Result shown after opting out of default-workspace membership."
   },
   "app.gateway.access.grantError.notFound": {
     "defaultMessage": "That user was not found in the identity directory.",
@@ -1564,7 +1588,7 @@
     "description": "Notice shown to viewers who cannot manage access."
   },
   "app.gateway.access.workspaceGrant.intro": {
-    "defaultMessage": "This user cannot use the gateway until they are added to a workspace. A user with admin access on this gateway must run the below commands (change the workspace name if needed):",
+    "defaultMessage": "Run this command to add this user to another workspace or to replace manually removed default-workspace access:",
     "description": "Instructions for adding a newly granted user to an OpenShell workspace."
   },
   "app.gateway.access.workspaceGrant.lookupPending": {
@@ -2255,6 +2279,22 @@
     "defaultMessage": "Creating service account",
     "description": "Progress text while a service account is created."
   },
+  "app.gateway.serviceAccounts.defaultWorkspace.label": {
+    "defaultMessage": "Automatically add this service account to the default workspace",
+    "description": "Checkbox that controls default-workspace membership for an openshell-user service account."
+  },
+  "app.gateway.serviceAccounts.defaultWorkspace.result": {
+    "defaultMessage": "Service account created. It can now use the default workspace. The default workspace is shared with other gateway users.",
+    "description": "Result shown after creating an openshell-user service account with default-workspace membership."
+  },
+  "app.gateway.serviceAccounts.defaultWorkspace.skipped": {
+    "defaultMessage": "Service account created without default-workspace access. Run the advanced command only when you want to add it to a workspace.",
+    "description": "Result shown after opting out of default-workspace membership."
+  },
+  "app.gateway.serviceAccounts.defaultWorkspace.title": {
+    "defaultMessage": "Default workspace access",
+    "description": "Heading for service-account default-workspace setup."
+  },
   "app.gateway.serviceAccounts.delete": {
     "defaultMessage": "Delete service account",
     "description": "Action that deletes a service account and Keycloak identity."
@@ -2408,7 +2448,7 @@
     "description": "Explanation of the openshell-admin service-account role."
   },
   "app.gateway.serviceAccounts.role.user.description": {
-    "defaultMessage": "Can authenticate as openshell-user. A gateway administrator must separately add its subject to each workspace it needs.",
+    "defaultMessage": "Can authenticate as openshell-user. Choose whether to add it to the default workspace.",
     "description": "Explanation of the openshell-user service-account role."
   },
   "app.gateway.serviceAccounts.rowActions": {
@@ -2548,7 +2588,7 @@
     "description": "Instructions for granting service-account workspace access."
   },
   "app.gateway.serviceAccounts.workspaceGrant.title": {
-    "defaultMessage": "Grant workspace access",
+    "defaultMessage": "Add workspace access",
     "description": "Heading for the manual gateway-administrator command."
   },
   "app.gateway.serviceAccounts.workspaceMembership": {
@@ -2578,6 +2618,18 @@
   "app.gateway.version.placeholder": {
     "defaultMessage": "-",
     "description": "Placeholder shown for a gateway that has no observed running version yet."
+  },
+  "app.gateway.workspace.admin": {
+    "defaultMessage": "Admin",
+    "description": "Workspace display for an identity with admin access."
+  },
+  "app.gateway.workspace.advancedCommand": {
+    "defaultMessage": "Advanced: add to another workspace",
+    "description": "Collapsed section containing the manual workspace-membership command."
+  },
+  "app.gateway.workspace.none": {
+    "defaultMessage": "None",
+    "description": "Placeholder when a user-scope identity has no workspaces."
   },
   "app.gateways.refresh": {
     "defaultMessage": "Refresh gateways",
