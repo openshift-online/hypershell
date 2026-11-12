@@ -2,7 +2,7 @@ module github.com/openshift-online/hypershell/components/control-plane
 
 go 1.26.4
 
-toolchain go1.26.7
+toolchain go1.26.11
 
 require (
 	github.com/distribution/reference v0.6.0

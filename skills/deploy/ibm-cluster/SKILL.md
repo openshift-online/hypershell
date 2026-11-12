@@ -58,8 +58,8 @@ A COS instance is a required `--cos-instance` flag value, but the registry does 
 actually end up COS-backed on this account - see "Internal registry storage" below
 before assuming you need COS or an IAM authorization for it.
 
-Reference values captured for `hysh-ibm-01` (mirrors `hypershell-cluster`,
-2026-08-15), with the version raised to 4.22:
+Reference values (mirror `hypershell-cluster`, 2026-08-15), with the version
+raised to 4.22:
 
 | Parameter | Value |
 |-----------|-------|
@@ -76,7 +76,7 @@ Reference values captured for `hysh-ibm-01` (mirrors `hypershell-cluster`,
 
 ```bash
 ibmcloud ks cluster create vpc-gen2 \
-  --name hysh-ibm-01 \
+  --name <cluster-name> \
   --version 4.22_openshift \
   --zone us-east-1 \
   --vpc-id r014-be56e5de-5cd9-493f-8ac2-149791cdc58b \
@@ -97,8 +97,8 @@ See "Internal registry storage" below to choose a persistent backend instead.
 ## Step 3: Watch until `normal`
 
 ```bash
-ibmcloud ks cluster get --cluster hysh-ibm-01 | grep -iE "state|status|ingress"
-ibmcloud ks workers    --cluster hysh-ibm-01
+ibmcloud ks cluster get --cluster <cluster-name> | grep -iE "state|status|ingress"
+ibmcloud ks workers    --cluster <cluster-name>
 ```
 
 Wait for cluster `State: normal`, all workers `Normal`, and `Ingress Status: healthy`
@@ -107,7 +107,7 @@ Wait for cluster `State: normal`, all workers `Normal`, and `Ingress Status: hea
 ## Step 4: Get kubeconfig and verify Gateway API is built in
 
 ```bash
-ibmcloud ks cluster config --cluster hysh-ibm-01 --admin   # --admin = cert-based; a plain token context 401s
+ibmcloud ks cluster config --cluster <cluster-name> --admin   # --admin = cert-based; a plain token context 401s
 oc get clusterversion version -o jsonpath='{.status.desired.version}{"\n"}'   # expect 4.22.x
 oc get featuregate cluster -o jsonpath='{.spec.customNoUpgrade.enabled}{"\n"}' | tr ',' '\n' | grep -i gateway
                                                                              # expect GatewayAPI + GatewayAPIController enabled
@@ -156,7 +156,7 @@ If `oc get clusterversion` shows 4.21, provision a new 4.22 cluster instead.
 
 ### Worker egress: the ROKS Security Group
 
-The ROKS worker **Security Group** `kube-<clusterID>` (e.g. `kube-da0a9c9w0br7f5gf3dd0`)
+The ROKS worker **Security Group** `kube-<clusterID>`
 is **default-deny outbound**. It allows only IBM Cloud infrastructure (service
 endpoints `161.26.0.0/16` / `166.8.0.0/14`, VPE gateways, the in-cluster
 registry, metadata `169.254.169.254`). DNS resolves, but no packets reach the
@@ -389,8 +389,8 @@ watches this CRD; without it the driver loops on `no supported Agent Sandbox API
 version is available; tried v1beta1, v1alpha1` (404s). The HyperShell control
 plane grants the tenant SA RBAC *against* `agents.x-k8s.io` and mints the
 per-tenant sandbox SA + privileged-SCC binding, but it does **not** install the
-CRD/controller - that is a cluster prerequisite, like cert-manager. Verified on
-`hysh-ibm-01` (2026-08-15) with `agent-sandbox` **v0.5.5** (first line to serve
+CRD/controller - that is a cluster prerequisite, like cert-manager. Verified
+(2026-08-15) with `agent-sandbox` **v0.5.5** (first line to serve
 `v1beta1`, which gateway 0.0.109 prefers).
 
 When worker egress is closed, the controller image
@@ -654,7 +654,7 @@ registry storage backend deliberately:
 | **PVC (`ibmc-vpc-block-*`)** | persistent | patch registry `spec.storage.pvc` (RWO, single replica) | **recommended** for a persistent Cloud Hub; no COS/IAM dependency |
 | COS-backed | persistent | needs a Kubernetes Service → COS IAM authorization | only if you want object-store backing |
 
-PVC backend (recommended, self-contained) - **chosen for `hysh-ibm-01`**:
+PVC backend (recommended, self-contained):
 
 ```bash
 oc patch configs.imageregistry.operator.openshift.io cluster --type merge -p \
@@ -681,7 +681,7 @@ the PVC backend above and skip COS entirely.
 
 ## Retiring the old reference cluster
 
-Only after `hysh-ibm-01` is validated end to end (a tenant gateway reachable over
+Only after the new cluster is validated end to end (a tenant gateway reachable over
 its subdomain). Then:
 
 ```bash

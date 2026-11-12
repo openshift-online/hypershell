@@ -917,7 +917,7 @@ section is the authoritative tree. Cluster directories come in two shapes:
   `1-terraform/`, `2-configuration/`, `2-db-and-secrets/`, `3-bootstrap-apps/`
   and `delivery/`. Clusters that host HyperShell units add a `topology.json`
   that records their hub and spoke units.
-- **App-of-apps** (`hysh-ibm-01`, `hysh-aws-01`): `gitops/` is
+- **App-of-apps** (`hysh-aws-01`): `gitops/` is
   the entrypoint that `bin/bootstrap <cluster>` applies; `apps/` holds the
   overlays its Applications point at; `operators/` holds the cluster's OLM
   Subscriptions.
@@ -925,7 +925,7 @@ section is the authoritative tree. Cluster directories come in two shapes:
 **How a cluster self-reconciles:**
 
 1. Install the OpenShift GitOps operator on the cluster. `bin/bootstrap <cluster>`
-   does this via OLM; on ROKS (`hysh-ibm-01`) OperatorHub is unusable, so it is
+   does this via OLM; on ROKS clusters where OperatorHub is unusable, it is
    installed from raw manifests out-of-band first.
 2. `oc apply -k clusters/<cluster>/gitops`, the self-contained app-of-apps. That
    cluster's in-cluster ArgoCD then reconciles everything by sync-wave: operators →
