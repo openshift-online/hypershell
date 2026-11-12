@@ -33,7 +33,7 @@ func TestOperatorWorkspaceConfiguration(t *testing.T) {
 		Gateway: GatewayConfig{
 			WorkspaceMode: "operator",
 			OIDC:          OIDCConfig{Issuer: "https://identity.example.org"},
-			Route:         RouteConfig{Enabled: true},
+			Route:         RouteConfig{},
 		},
 		Namespace:                 "openshell-deadbeefdeadbeef",
 		OperatorWorkspace:         config,
