@@ -45,3 +45,6 @@ dangerouslyAllowAllBuilds: false
 allowBuilds:
   esbuild@0.28.2: true
   msw@2.15.0: false
+minimumReleaseAgeExclude:
+  # Renovate security update: vitest@4.1.11
+  - vitest@4.1.11
