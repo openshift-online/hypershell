@@ -302,6 +302,7 @@ scopes:
           - .github/workflows/pr-environment-*.yml
           - .github/workflows/ci-federation-test.yml
           - .github/workflows/ci-federation-e2e-sandbox.yml
+          - .github/workflows/fullsend-dispatch.yml
         exclude:
           - '**/README.md'
           - '**/AGENTS.md'
