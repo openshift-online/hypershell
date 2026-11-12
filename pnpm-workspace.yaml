@@ -45,3 +45,6 @@ dangerouslyAllowAllBuilds: false
 allowBuilds:
   esbuild@0.28.2: true
   msw@2.15.0: false
+minimumReleaseAgeExclude:
+  # Renovate security update: fastify@5.12.5
+  - fastify@5.12.5
