@@ -142,6 +142,7 @@ type GatewayReconciler struct {
 	// scope operator-mode gateways to their own tenant namespaces
 	// (GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY); empty fails operator gateways closed
 	// and skips the operator tenant-namespace sweep on delete (OSG-OPWS-02/04/06).
+	operatorWorkspace         *helm.OperatorWorkspaceConfig
 	operatorNamespaceLabelKey string
 	// operatorSandboxRuntimeClass is the administrator-approved sandbox RuntimeClass
 	// applied to operator-mode gateways only (GATEWAY_OPERATOR_SANDBOX_RUNTIME_CLASS).
@@ -179,6 +180,25 @@ func (r *GatewayReconciler) rereadDeletingGateway(ctx context.Context, id string
 	return gw, nil
 }
 
+// currentRouteAddress returns the gateway's currently persisted routeAddress,
+// re-read live rather than trusted from snapshot (the watch-event payload
+// captured when a provisioning pass started), so a routeAddress-publication
+// fallback reflects state as of now, not as of several minutes ago
+// (OSG-ROUT-07.01: "currently persisted"). A transient re-read error falls
+// back to snapshot's own field rather than aborting the pass: that is no
+// worse than this re-read not existing at all.
+func (r *GatewayReconciler) currentRouteAddress(ctx context.Context, gatewayID string, snapshot *pb.Gateway) string {
+	resp, err := r.gatewayServiceClient().GetGateway(ctx, &pb.GetGatewayRequest{Id: gatewayID})
+	if err != nil {
+		slog.WarnContext(ctx, "Gateway: re-read for routeAddress fallback failed; using this pass's own snapshot", "gateway_id", gatewayID, "error", err)
+		return snapshot.GetRouteAddress()
+	}
+	if current := resp.GetGateway(); current != nil {
+		return current.GetRouteAddress()
+	}
+	return snapshot.GetRouteAddress()
+}
+
 // recordDeleteOrphans records the no-silent-orphan signal for each named
 // owned-resource class that a delete could not reconcile, as a durable,
 // operator-visible Event in addition to the retryable error the caller returns
@@ -210,6 +230,7 @@ func NewGatewayReconciler(
 	gatewayResources *corev1.ResourceRequirements,
 	sandboxRuntimeClass string,
 	clusterPlatform string,
+	operatorWorkspace *helm.OperatorWorkspaceConfig,
 	operatorNamespaceLabelKey string,
 	operatorSandboxRuntimeClass string,
 ) (*GatewayReconciler, error) {
@@ -229,16 +250,17 @@ func NewGatewayReconciler(
 	isOpenShift := clusterPlatform == config.ClusterPlatformOpenShift
 	deps := gateway.NewDependencyDiscovery(clientset.Discovery())
 
-	var kcClient *keycloak.Client
-	if keycloakConfig != nil {
-		kcClient = keycloak.NewClient(
-			keycloakConfig.ServerURL,
-			keycloakConfig.Realm,
-			keycloakConfig.ClientID,
-			keycloakConfig.ClientSecret,
-		)
-		slog.Info("Keycloak integration enabled", "url", keycloakConfig.ServerURL, "realm", keycloakConfig.Realm)
+	// Keycloak is mandatory: every gateway gets a generated OIDC configuration
+	// (the gateway refuses to start without an auth mechanism, issue #809).
+	if keycloakConfig == nil {
+		return nil, fmt.Errorf("keycloak configuration is required")
 	}
+	kcClient := keycloak.NewClient(
+		keycloakConfig.ServerURL,
+		keycloakConfig.Realm,
+		keycloakConfig.ClientID,
+		keycloakConfig.ClientSecret,
+	)
 
 	// Derive ingress base domain from environment
 	ingressBaseDomain := os.Getenv("INGRESS_BASE_DOMAIN")
@@ -251,7 +273,7 @@ func NewGatewayReconciler(
 		"helm", helmClient.ChartPath,
 		"platform", clusterPlatform,
 		"openshift", isOpenShift,
-		"keycloak", kcClient != nil,
+		"keycloak", keycloakConfig.ServerURL,
 		"ingress", ingressBaseDomain)
 
 	return &GatewayReconciler{
@@ -271,6 +293,7 @@ func NewGatewayReconciler(
 		clusterID:                   clusterID,
 		gatewayResources:            gatewayResources,
 		sandboxRuntimeClass:         sandboxRuntimeClass,
+		operatorWorkspace:           operatorWorkspace,
 		operatorNamespaceLabelKey:   operatorNamespaceLabelKey,
 		operatorSandboxRuntimeClass: operatorSandboxRuntimeClass,
 	}, nil
@@ -399,41 +422,19 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 						"error", err)
 				}
 			}
-			if r.keycloakClient != nil {
-				clientID, err := gatewayKeycloakClientID(event.ResourceID, gw)
-				if err != nil {
-					// Invalid stored identity never becomes valid on retry, so failing
-					// here would pin the delete tombstone after namespace and database
-					// cleanup. Keycloak is not contacted. Record the leak durably (not
-					// just a log line) so the orphaned Keycloak clients are visible to
-					// operators for recovery.
-					slog.ErrorContext(ctx, "Gateway stored identity cannot be resolved; skipping Keycloak cleanup; Keycloak clients may remain for operator recovery", "gateway_id", event.ResourceID, "error", err)
-					opts.RecordOrphan(ctx, "KeycloakClient", fmt.Sprintf("gateway %s (%s)", gw.Name, event.ResourceID),
-						fmt.Sprintf("stored identity cannot be resolved (%v); Keycloak clients could not be deleted", err))
-				} else {
-					opts.KeycloakClient = r.keycloakClient
-					opts.GatewayClientID = clientID
-				}
-			}
-			if gw.GetOidc() != "" && r.keycloakClient == nil {
-				// A deconfigured provisioner never comes back, so failing here would
-				// pin the delete tombstone after namespace and database cleanup.
-				// Log the recorded identity for operator recovery instead.
-				clientID, idErr := gatewayKeycloakClientID(event.ResourceID, gw)
-				if idErr != nil {
-					slog.ErrorContext(ctx, "Gateway identity cleanup requires the Keycloak client; stored identity cannot be resolved; Keycloak clients may remain for operator recovery", "gateway_id", event.ResourceID, "error", idErr)
-					opts.RecordOrphan(ctx, "KeycloakClient", fmt.Sprintf("gateway %s (%s)", gw.Name, event.ResourceID),
-						fmt.Sprintf("Keycloak provisioner is deconfigured and stored identity cannot be resolved (%v); Keycloak clients could not be deleted", idErr))
-				} else {
-					slog.ErrorContext(ctx, "Gateway identity cleanup requires the Keycloak client; leaving Keycloak clients for operator recovery",
-						"gateway_id", event.ResourceID,
-						"client_id", clientID,
-						"console_client_id", clientID+"-console")
-					opts.RecordOrphan(ctx, "KeycloakClient", clientID,
-						"Keycloak provisioner is deconfigured; the gateway Keycloak client could not be deleted")
-					opts.RecordOrphan(ctx, "KeycloakClient", clientID+"-console",
-						"Keycloak provisioner is deconfigured; the console Keycloak client could not be deleted")
-				}
+			clientID, err := gatewayKeycloakClientID(event.ResourceID, gw)
+			if err != nil {
+				// Invalid stored identity never becomes valid on retry, so failing
+				// here would pin the delete tombstone after namespace and database
+				// cleanup. Keycloak is not contacted. Record the leak durably (not
+				// just a log line) so the orphaned Keycloak clients are visible to
+				// operators for recovery.
+				slog.ErrorContext(ctx, "Gateway stored identity cannot be resolved; skipping Keycloak cleanup; Keycloak clients may remain for operator recovery", "gateway_id", event.ResourceID, "error", err)
+				opts.RecordOrphan(ctx, "KeycloakClient", fmt.Sprintf("gateway %s (%s)", gw.Name, event.ResourceID),
+					fmt.Sprintf("stored identity cannot be resolved (%v); Keycloak clients could not be deleted", err))
+			} else {
+				opts.KeycloakClient = r.keycloakClient
+				opts.GatewayClientID = clientID
 			}
 			var credentialNamespaces []string
 			if gw.CredentialDriver != nil && *gw.CredentialDriver != "" {
@@ -474,7 +475,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			case vaultBacked:
 				if err := gateway.DeleteVaultTenantMount(ctx, r.clientset, opts, namespace); err != nil {
 					// Orphan-only, like the other permanent-failure cleanups in this function
-					// (a deconfigured Keycloak provisioner above): a failed mount delete (Vault
+					// (an unresolvable stored identity above): a failed mount delete (Vault
 					// unreachable or decommissioned, provisioner login denied) must NOT pin the
 					// delete tombstone forever. Record a durable orphan for operator reclaim and
 					// complete the deletion; the gateway database is already dropped, so a
@@ -592,7 +593,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			reconcileErr = fmt.Errorf("reconcile Keycloak client for gateway %q: %w", gw.Name, err)
 			return watcher.WithRetryableReason(watcher.PreservePayloadForRetry(reconcileErr), reason)
 		}
-		if r.keycloakClient != nil && isGatewayKeycloakClientStatus(gw.GetStatus()) {
+		if isGatewayKeycloakClientStatus(gw.GetStatus()) {
 			if err := r.updateGatewayStatus(ctx, event.ResourceID, ""); err != nil {
 				outcome = cpotel.OutcomeRetryable
 				reason = cpotel.ReasonGRPCUnavailable
@@ -614,31 +615,27 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		}
 	}
 
-	var gatewayClientID string
-	if r.keycloakConfig != nil {
-		clientID, err := gatewayKeycloakClientID(event.ResourceID, gw)
-		if err != nil {
-			outcome = cpotel.OutcomeFailed
-			reason = cpotel.ReasonIdentityInvalid
-			reconcileErr = fmt.Errorf("resolve Keycloak client for gateway %q: %w", gw.Name, err)
-			return reconcileErr
-		}
-		gatewayClientID = clientID
-
-		// Controller-generated configuration is part of desired state, so writing
-		// it advances generation. Persist it before capturing the snapshot this
-		// pass applies, then build everything from that snapshot: the generation
-		// acknowledged below is then exactly the one whose configuration was
-		// deployed. See data-model.spec.md § Gateway Generation Tracking.
-		snapshot, err := r.persistGeneratedOIDC(ctx, event.ResourceID, gw, gatewayClientID)
-		if err != nil {
-			outcome = cpotel.OutcomeRetryable
-			reason = cpotel.ReasonGRPCUnavailable
-			reconcileErr = fmt.Errorf("reconcile gateway %s: %w", gw.Name, err)
-			return reconcileErr
-		}
-		gw = snapshot
+	gatewayClientID, err := gatewayKeycloakClientID(event.ResourceID, gw)
+	if err != nil {
+		outcome = cpotel.OutcomeFailed
+		reason = cpotel.ReasonIdentityInvalid
+		reconcileErr = fmt.Errorf("resolve Keycloak client for gateway %q: %w", gw.Name, err)
+		return reconcileErr
 	}
+
+	// Controller-generated configuration is part of desired state, so writing
+	// it advances generation. Persist it before capturing the snapshot this
+	// pass applies, then build everything from that snapshot: the generation
+	// acknowledged below is then exactly the one whose configuration was
+	// deployed. See data-model.spec.md § Gateway Generation Tracking.
+	snapshot, err := r.persistGeneratedOIDC(ctx, event.ResourceID, gw, gatewayClientID)
+	if err != nil {
+		outcome = cpotel.OutcomeRetryable
+		reason = cpotel.ReasonGRPCUnavailable
+		reconcileErr = fmt.Errorf("reconcile gateway %s: %w", gw.Name, err)
+		return reconcileErr
+	}
+	gw = snapshot
 
 	namespace, err := gatewayNamespace(gw)
 	if err != nil {
@@ -742,11 +739,12 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		IngressBaseDomain:           r.ingressBaseDomain,
 		GatewayResources:            r.gatewayResources,
 		SandboxRuntimeClass:         r.sandboxRuntimeClass,
+		OperatorWorkspace:           r.operatorWorkspace,
 		OperatorNamespaceLabelKey:   r.operatorNamespaceLabelKey,
 		OperatorSandboxRuntimeClass: r.operatorSandboxRuntimeClass,
 	}
 
-	conditions := gateway.InitConditions(r.keycloakConfig != nil)
+	conditions := gateway.InitConditions()
 	r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
 
 	opts.ReportProgress = func(step, status, message string) {
@@ -757,7 +755,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	r.updateGatewayPhase(ctx, event.ResourceID, string(gatewayhealth.PhaseProvisioning))
 
 	if err := gateway.ReconcileGateway(ctx, r.dynamicClient, r.clientset, r.helmClient, nsConfig, opts); err != nil {
-		var renderErr *gateway.RenderedConfigValidationError
+		var renderErr *gateway.ConfigValidationError
 		if errors.As(err, &renderErr) {
 			failReason := fmt.Sprintf("generated configuration validation failed: %v", renderErr.Err)
 			if failedGateway := r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseFailed), failReason); failedGateway != nil {
@@ -779,6 +777,10 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	gateway.SetCondition(conditions, gateway.ConditionGatewayHealthy, gateway.StatusInProgress, "")
 	r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
 
+	// routeAddress carries the address down to the route-ready poll below. See
+	// routeAddressForPoll for how a resolve/save failure this pass falls back
+	// to the Gateway's currently-persisted routeAddress (OSG-ROUT-07.01).
+	var routeAddress string
 	if isRoutedGateway(gw) {
 		routeHost := ""
 		if gw.Route != nil {
@@ -786,6 +788,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			_ = json.Unmarshal([]byte(*gw.Route), &rc)
 			routeHost = rc.Host
 		}
+		var resolvedAndSaved string
 		addr, err := r.exposure.ResolveAddress(ctx, exposure.Request{
 			Namespace: namespace,
 			Host:      routeHost,
@@ -796,9 +799,22 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			if err := r.updateRouteAddress(ctx, event.ResourceID, addr); err != nil {
 				slog.WarnContext(ctx, "Gateway failed to publish route address", "gateway_name", gw.Name, "error", err)
 			} else {
+				resolvedAndSaved = addr
 				slog.InfoContext(ctx, "Gateway published route address", "gateway_name", gw.Name, "addr", addr)
 			}
 		}
+		// Fall back to a fresh read of the persisted routeAddress, not gw's own
+		// field: gw is the watch-event snapshot captured when this pass started,
+		// and the Helm apply above (gateway.ReconcileGateway) can itself run long
+		// enough for the continuous health reconciler to concurrently clear or
+		// republish the persisted address (for example, tearing down the route if
+		// it was disabled mid-pass). Using the stale snapshot here could resurrect
+		// an address the health reconciler already retracted. This re-read is
+		// taken once, before the Deployment-readiness wait and route-readiness
+		// poll below, which can together add minutes more; it narrows the
+		// staleness window around the Helm apply but does not eliminate
+		// staleness introduced during those later waits.
+		routeAddress = routeAddressForPoll(r.currentRouteAddress(ctx, event.ResourceID, gw), resolvedAndSaved)
 	}
 
 	// Manifests applied successfully: acknowledge the generation we converged on.
@@ -837,7 +853,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	// openshell-gateway-health.spec.md § Phase Reflects Workload and Route Readiness.
 	routed := isRoutedGateway(gw)
 	if routed {
-		if r.waitForRouteReady(ctx, namespace) {
+		if r.waitForRouteReady(ctx, namespace, routeAddress) {
 			gateway.SetCondition(conditions, gateway.ConditionGatewayHealthy, gateway.StatusComplete, "")
 			r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
 			// The observation guard rejects work that started in Running or Degraded.
@@ -898,9 +914,6 @@ func isGatewayKeycloakClientStatus(status string) bool {
 // client is reported as non-converged rather than silently skipped or partially
 // recreated without restoring its user role assignments.
 func (r *GatewayReconciler) reconcileExistingGatewayKeycloakClient(ctx context.Context, gatewayID string, gw *pb.Gateway) error {
-	if r.keycloakClient == nil {
-		return nil
-	}
 	clientID, err := gatewayKeycloakClientID(gatewayID, gw)
 	if err != nil {
 		return err
@@ -1025,8 +1038,31 @@ const provisioningConsoleReadyInterval = 2 * time.Second
 
 // waitForRouteReady polls the gateway's external exposure until it reports Ready
 // or the bounded provisioning window elapses, returning whether it became Ready.
-func (r *GatewayReconciler) waitForRouteReady(ctx context.Context, namespace string) bool {
-	return r.pollRouteReady(ctx, namespace, provisioningRouteReadyInterval, provisioningRouteReadyWait)
+// routeAddress is the Gateway's routeAddress: the address this provisioning
+// pass itself resolved and published when it could, falling back to the
+// already-persisted value (gw.GetRouteAddress()) when this pass's own resolve
+// or save attempt did not succeed (OSG-ROUT-07.01). The exposure port treats
+// an empty value as not-Ready, so a gateway with no published address at all
+// never reports Ready here even if its Gateway API resources are otherwise
+// healthy.
+func (r *GatewayReconciler) waitForRouteReady(ctx context.Context, namespace, routeAddress string) bool {
+	return r.pollRouteReady(ctx, namespace, routeAddress, provisioningRouteReadyInterval, provisioningRouteReadyWait)
+}
+
+// routeAddressForPoll returns the routeAddress this provisioning pass should
+// forward to the route-ready poll. It prefers resolvedAndSaved, the address
+// this pass itself resolved and successfully persisted this pass; when the
+// pass's own resolve attempt errored or returned empty, or its save failed,
+// resolvedAndSaved is empty, and the gateway's already-persisted routeAddress
+// (persisted, i.e. gw.GetRouteAddress()) is used instead. Without this
+// fallback, a pass that cannot re-resolve the address would make an
+// already-published, reachable gateway look unpublished for this pass's poll
+// (OSG-ROUT-07.01).
+func routeAddressForPoll(persisted, resolvedAndSaved string) string {
+	if resolvedAndSaved != "" {
+		return resolvedAndSaved
+	}
+	return persisted
 }
 
 // pollRouteReady observes the exposure immediately and then every interval until
@@ -1035,9 +1071,9 @@ func (r *GatewayReconciler) waitForRouteReady(ctx context.Context, namespace str
 // interval. A transient observation error is logged and retried, never treated
 // as not-ready-forever. Interval and window are parameters so tests can drive it
 // without real-time waits.
-func (r *GatewayReconciler) pollRouteReady(ctx context.Context, namespace string, interval, window time.Duration) bool {
+func (r *GatewayReconciler) pollRouteReady(ctx context.Context, namespace, routeAddress string, interval, window time.Duration) bool {
 	return poll(ctx, interval, window, func() bool {
-		rr, err := r.exposure.ObserveReadiness(ctx, exposure.Request{Namespace: namespace})
+		rr, err := r.exposure.ObserveReadiness(ctx, exposure.Request{Namespace: namespace, RouteAddress: routeAddress})
 		if err != nil {
 			slog.WarnContext(ctx, "Gateway route readiness check failed", "namespace", namespace, "error", err)
 			return false

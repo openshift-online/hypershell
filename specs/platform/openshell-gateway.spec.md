@@ -314,7 +314,7 @@ The GatewayReconciler SHALL use cert-manager for TLS certificate lifecycle manag
 
 ### Requirement: OSG-CORE-06 -- Trusted CA Bundle Injection
 
-Gateways with OIDC enabled need to reach the identity provider's OIDC discovery endpoint over HTTPS. In environments where the IdP is exposed through an ingress controller with a non-public CA certificate (e.g., OpenShift CRC, private PKI), the gateway pod's default trust store will not include the required CA and OIDC initialization will fail.
+Every gateway uses OIDC, so it needs to reach the identity provider's OIDC discovery endpoint over HTTPS. In environments where the IdP is exposed through an ingress controller with a non-public CA certificate (e.g., OpenShift CRC, private PKI), the gateway pod's default trust store will not include the required CA and OIDC initialization will fail.
 
 The control plane SHALL support an optional `gateway-trusted-ca` ConfigMap in the HyperShell namespace. When present, it is copied to each tenant namespace and mounted into the gateway Deployment so that the gateway process trusts the additional CA certificates.
 
@@ -365,7 +365,7 @@ The GatewayReconciler SHALL validate Gateway resource fields before applying K8s
 - THEN validation SHALL fail with a descriptive error
 - AND the Gateway SHALL not be reconciled until the configuration is corrected
 
-> **Image tag convention:** OpenShell gateway and supervisor images are published on `quay.io/opendatahub/` with semver tags (e.g., `v0.1.6-rhaiv.4`) and pinned by digest for reproducibility. The GatewayReconciler continuously reconciles the image field, so the gitops overlay must be the source of truth for the image tag - manual image changes on the Deployment will be reverted.
+> **Image tag convention:** OpenShell gateway and supervisor images are published on `quay.io/opendatahub/` with semver tags (e.g., `v0.1.8-rhaiv.0`) and pinned by digest for reproducibility. The GatewayReconciler continuously reconciles the image field, so the gitops overlay must be the source of truth for the image tag - manual image changes on the Deployment will be reverted.
 
 #### Scenario: OSG-CORE-07.03 -- Invalid DNS name
 
@@ -612,7 +612,7 @@ rendered ConfigMap.
 | `server.drivers.kubernetes.workspaceMode` | Gateway `workspace_mode` (see OSG-CORE-18) | Kubernetes driver `workspace_mode` |
 | `server.sandboxJwt.gatewayId` | Derived from the namespace, `managed` mode only (see OSG-CORE-18) | Gateway JWT `gateway_id` |
 | `server.oidc.*` | Gateway `oidc` fields (see [`openshell-gateway-oidc.spec.md`](./openshell-gateway-oidc.spec.md)) | `[openshell.gateway.oidc]` section |
-| `server.oidc.caConfigMapName` | `gateway-trusted-ca`, only when OIDC is set and the ConfigMap was copied (see OSG-CORE-06) | OIDC CA trust |
+| `server.oidc.caConfigMapName` | `gateway-trusted-ca`, only when the ConfigMap was copied (see OSG-CORE-06) | OIDC CA trust |
 | `server.credentialDrivers.*` | Gateway credential driver (see [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md)) | Credential driver sections, or the KEK credential store for `kek-db` |
 | `server.externalDbSecret` | `openshell-gateway-db-credentials` | `OPENSHELL_DB_URL` from that Secret |
 
@@ -654,14 +654,17 @@ When `GATEWAY_SANDBOX_RUNTIME_CLASS` is unset or empty (the default), the contro
 
 The chart renders this value into `[openshell.gateway].default_runtime_class_name` in the `openshell-gateway-config` ConfigMap. The chart accepts any valid `RuntimeClass` name; HyperShell does not validate that the named `RuntimeClass` exists on the cluster at reconcile time.
 
-#### OIDC Section (conditional)
+#### OIDC Section
 
-When `oidc.issuer` is set on the Gateway resource, the reconciler sets the `server.oidc.*` values and the chart renders the OIDC section. See [`openshell-gateway-oidc.spec.md`](./openshell-gateway-oidc.spec.md).
+Every gateway has an OIDC configuration, because Keycloak integration is mandatory (see [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md), OSG-KCLK-01). The reconciler always sets the `server.oidc.*` values from the Gateway's `oidc` fields. The chart always renders the `[openshell.gateway.oidc]` section. See [`openshell-gateway-oidc.spec.md`](./openshell-gateway-oidc.spec.md).
+
+The section is required, not optional. Since OpenShell `v0.1.5-rhaiv.4` the gateway refuses to start without an auth mechanism, so a gateway rendered without OIDC crash-loops (openshift-online/hypershell#809). Generated-configuration validation rejects a gateway without OIDC before rollout (see [`generated-gateway-config-validation.spec.md`](./generated-gateway-config-validation.spec.md), GTW-CFG-01).
 
 #### Auth Section
 
 - The chart renders `allow_unauthenticated_users = false` by default
-- When OIDC is enabled, the chart also renders the `[openshell.gateway.oidc]` section from the `server.oidc.*` values
+- The control plane never sets `allow_unauthenticated_users = true`
+- The chart also renders the `[openshell.gateway.oidc]` section from the `server.oidc.*` values
 
 #### Workspace Mode Section
 
@@ -720,6 +723,11 @@ managed-namespace prefix consistent. The reconciler SHALL reject `managed`
 mode for a Gateway whose namespace does not match the generated
 `openshell-{16-hex}` shape, because no unique `gateway_id` can be derived for
 it.
+
+Operator trust configuration, safe defaults, and explicit administrator opt-in
+are defined in [gateway-operator-workspaces.spec.md](./gateway-operator-workspaces.spec.md)
+(OSG-OPWS-08). See [the shared OCE development installation](../../deploy/oce-kind/README.md)
+for an administrator-configured integration.
 
 #### Scenario: OSG-CORE-18.01 -- New gateway defaults to managed
 
@@ -895,8 +903,8 @@ Gateway provisioning SHALL be independent of agent definitions. Agent-specific c
 | `image` | No | Supplied by `GATEWAY_IMAGE` env var on the control-plane deployment | Gateway container image reference |
 | `supervisor_image` | No | Supplied by `GATEWAY_SUPERVISOR_IMAGE` env var on the control-plane deployment | Supervisor sidecar container image |
 | `serverDnsNames` | Yes | - | DNS names for TLS certificate generation |
-| `oidc` | No | - | OIDC authentication configuration (see OIDC spec) |
-| `oidc.issuer` | Yes (to enable OIDC) | `""` | OIDC issuer URL; empty disables OIDC |
+| `oidc` | No (system-managed) | Generated by the control plane | OIDC authentication configuration; every gateway gets one (see OIDC spec) |
+| `oidc.issuer` | System-managed | Generated by the control plane | OIDC issuer URL; always non-empty, and a rendered config without it fails validation (GTW-CFG-01) |
 | `oidc.audience` | No | `"openshell-cli"` | Expected `aud` claim value in JWT |
 | `oidc.jwks_ttl` | No | `3600` | JWKS key cache retention in seconds |
 | `oidc.roles_claim` | No | `""` | Dot-delimited path to roles array in JWT claims |
@@ -919,8 +927,8 @@ Gateway provisioning SHALL be independent of agent definitions. Agent-specific c
 | Variable | Default | Description |
 |---|---|---|
 | `HYPERSHELL_CLUSTER_PLATFORM` | *(required; no default)* | Host platform: `openshift` or `kubernetes`. Selects platform-specific pod security and SCC integration (OSG-CORE-14). Validated at startup (CTRL-CORE-16). |
-| `GATEWAY_IMAGE` | *(required)* | Gateway container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.1.6-rhaiv.4@sha256:...`). Sets the default when a Gateway resource does not specify `image`. |
-| `GATEWAY_SUPERVISOR_IMAGE` | *(required)* | Supervisor sidecar container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-supervisor:v0.1.6-rhaiv.4@sha256:...`). Sets the default when a Gateway resource does not specify `supervisor_image`. |
+| `GATEWAY_IMAGE` | *(required)* | Gateway container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.1.8-rhaiv.0@sha256:...`). Sets the default when a Gateway resource does not specify `image`. |
+| `GATEWAY_SUPERVISOR_IMAGE` | *(required)* | Supervisor sidecar container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-supervisor:v0.1.8-rhaiv.0@sha256:...`). Sets the default when a Gateway resource does not specify `supervisor_image`. |
 | `GATEWAY_SANDBOX_RUNTIME_CLASS` | *(unset - cluster default RuntimeClass)* | Kubernetes `RuntimeClass` name applied to every sandbox pod on the cluster (e.g. `kata`, `kata-remote`). Passed to the chart as `server.defaultRuntimeClassName`. Omitted from chart values when unset, so sandbox pods carry no `runtimeClassName` field and the cluster default (runc) is used. Requires the named `RuntimeClass` to exist on the cluster. |
 | `GATEWAY_RESOURCES` | *(unset - requests `cpu: 100m`, `memory: 512Mi`; limits `cpu: 500m`, `memory: 1Gi`)* | Gateway container requests and limits as a JSON Kubernetes `ResourceRequirements` object, e.g. `{"requests":{"cpu":"100m","memory":"512Mi"},"limits":{"cpu":"500m","memory":"1Gi"}}`. Replaces the defaults entirely (not merged). MUST set `limits.memory`; no request may exceed its limit; `claims` is not supported. An invalid value fails controller startup. Applied to every gateway on the cluster on its next reconcile (Helm upgrade, which restarts the gateway pod). The Kind overlay (`deploy/kind`) sets lower requests (`cpu: 50m`, `memory: 128Mi`) with the default limits, so more gateways fit on the single Kind node. |
 | `GATEWAY_ADDITIONAL_CA_CONFIGMAP_NAME` | *(unset)* | Operator-owned public destination CA ConfigMap in the controller namespace, with `ca.crt` or `ca-bundle.crt`. Passed to sandbox supervisor trust independently of gateway mTLS, OIDC, and Vault (OSG-TLS-07). |

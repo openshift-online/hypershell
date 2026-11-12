@@ -20,7 +20,7 @@ listed in `specs/id-rename-map.md`, not here.
 |--------|------|--------------|
 | `AGT-EXT` | `platform/extension-api-openshell-api-mapping.spec.md` | 5 |
 | `AGT-INF` | `platform/openshell-inference-routing.spec.md` | 3 |
-| `AGT-SEC` | `platform/agent-secret-late-binding.spec.md` | 13 |
+| `AGT-SEC` | `platform/agent-secret-late-binding.spec.md` | 14 |
 | `AGT-WSP` | `platform/agent-workspace-gateway-api.spec.md` | 10 |
 
 ### API
@@ -45,7 +45,7 @@ listed in `specs/id-rename-map.md`, not here.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `CLI-EXT` | `platform/hsctl-extension-commands.spec.md` | 4 |
+| `CLI-EXT` | `platform/hsctl-extension-commands.spec.md` | 5 |
 | `CLI-GWC` | `platform/hsctl-gateway-connection.spec.md` | 2 |
 | `CLI-PLC` | `platform/hsctl-placement.spec.md` | 4 |
 | `CLI-REL` | `platform/hsctl-release.spec.md` | 6 |
@@ -82,6 +82,7 @@ listed in `specs/id-rename-map.md`, not here.
 |--------|------|--------------|
 | `FLT-BPR` | `platform/fleet-dashboard-bundle-pr-repository-split.spec.md` | 12 |
 | `FLT-CAP` | `platform/fleet-dashboard-capability-chips.spec.md` | 7 |
+| `FLT-DLV` | `platform/fleet-dashboard-delivery-pipeline.spec.md` | 18 |
 | `FLT-MAP` | `platform/fleet-dashboard-map-hub-spine-layout.spec.md` | 7 |
 | `FLT-NAV` | `platform/glass-url-addressable-navigation.spec.md` | 21 |
 | `FLT-SYNC` | `platform/fleet-dashboard-sync-retry-visibility.spec.md` | 4 |
@@ -134,7 +135,7 @@ listed in `specs/id-rename-map.md`, not here.
 | `OSG-OIDC` | `platform/openshell-gateway-oidc.spec.md` | 5 |
 | `OSG-OPWS` | `platform/gateway-operator-workspaces.spec.md` | 7 |
 | `OSG-ROT` | `platform/openshell-gateway-secret-rotation.spec.md` | 2 |
-| `OSG-ROUT` | `platform/openshell-gateway-routing.spec.md` | 15 |
+| `OSG-ROUT` | `platform/openshell-gateway-routing.spec.md` | 16 |
 | `OSG-SACC` | `platform/openshell-gateway-service-accounts.spec.md` | 18 |
 | `OSG-SBX` | `platform/openshell-gateway-sandbox-count.spec.md` | 7 |
 | `OSG-SEVT` | `platform/gateway-sandbox-events.spec.md` | 6 |
@@ -145,9 +146,9 @@ listed in `specs/id-rename-map.md`, not here.
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `PLAT-ARCH` | `platform/global-architecture.spec.md` | 19 |
-| `PLAT-CITR` | `platform/ci-trust-ext-api.spec.md` | 12 |
+| `PLAT-CITR` | `platform/ci-trust-ext-api.spec.md` | 16 |
 | `PLAT-CLUS` | `platform/managed-cluster-registration.spec.md` | 15 |
-| `PLAT-DATA` | `platform/data-model.spec.md` | 25 |
+| `PLAT-DATA` | `platform/data-model.spec.md` | 27 |
 | `PLAT-INV` | `platform/platform-inventory.spec.md` | 10 |
 | `PLAT-USR` | `platform/registered-users.spec.md` | 15 |
 
@@ -166,7 +167,7 @@ listed in `specs/id-rename-map.md`, not here.
 | `SDLC-HOOK` | `standards/sdlc/fullsend-lifecycle-label-hooks.spec.md` | 14 |
 | `SDLC-JIRA` | `standards/sdlc/jira-github-sync.spec.md` | 15 |
 | `SDLC-LOC` | `platform/local-sdlc-dispatch.spec.md` | 13 |
-| `SDLC-VIS` | `platform/agent-sdlc-visibility-dashboard.spec.md` | 25 |
+| `SDLC-VIS` | `platform/agent-sdlc-visibility-dashboard.spec.md` | 26 |
 
 ### SEC
 

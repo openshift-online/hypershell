@@ -2,7 +2,7 @@
 
 **Date:** 2026-11-04
 **Status:** Draft
-**Related:** [`data-model.spec.md`](./data-model.spec.md) (CIProvider / CITrust kinds, PLAT-DATA-24/25), [`../security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md) (CIProvider `ci-federation:admin` authorization SEC-RBAC-21, CITrust per-gateway tenancy SEC-RBAC-22), gitops `specs/ci-oidc-federation.spec.md` (platform Keycloak federation design), [`control-plane.spec.md`](./control-plane.spec.md) (reconciler), `gateway-access-management.spec.md` (GTW-ACC Keycloak role bridge), [`agent-workspace-gateway-api.spec.md`](./agent-workspace-gateway-api.spec.md) (workspace scoping)
+**Related:** [`data-model.spec.md`](./data-model.spec.md) (CIProvider / CITrust kinds, PLAT-DATA-24/25), [`../security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md) (CIProvider `ci-federation:admin` authorization SEC-RBAC-21, CITrust per-gateway tenancy SEC-RBAC-22), gitops `specs/ci-oidc-federation.spec.md` (platform Keycloak federation design), [`control-plane.spec.md`](./control-plane.spec.md) (reconciler, late-bound placement CTRL-CORE-10), [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md) (gateway Keycloak client id = immutable gateway resource id, used as the exchange audience), [`agent-workspace-gateway-api.spec.md`](./agent-workspace-gateway-api.spec.md) (AGT-WSP OpenShell admin workspace realization reused for the derived CI workspace), [`openshell-gateway.spec.md`](./openshell-gateway.spec.md) (OSG-CORE-18 workspace mode), `gateway-access-management.spec.md` (GTW-ACC Keycloak role bridge)
 
 ## Overview
 
@@ -528,6 +528,168 @@ creates the IdP (no gitops-provisioned IdP exists to adopt), it SHALL set
 - WHEN the control plane reconciles a `CIProvider` that adopts it
 - THEN the control plane SHALL NOT strip or override `disableTypeClaimCheck`
 - AND the attribute SHALL remain set after reconciliation
+
+---
+
+### Requirement: PLAT-CITR-13 -- CI Federation Must Be Enabled on Every Placement-Eligible Owning Cluster
+
+A `CITrust` is realized only by the control-plane instance that owns its referenced
+`Gateway` -- the instance whose `cluster_id` the `Gateway` is assigned to
+(`control-plane.spec.md` CTRL-CORE-10, and the per-cluster CITrust reconcile and
+resync CTRL-CORE-20). A `Gateway`'s placement is late-bound and its `cluster_id` is
+immutable after creation (`data-model.spec.md`, "Requirement: Gateway Placement and
+Late Binding"): a `Gateway` declared with a capability selector MAY be assigned to
+ANY registered `ManagedCluster` whose capabilities match that selector, and once
+assigned it stays there. Therefore the fleet SHALL be configured so that every
+cluster that can win placement for a CITrust-backed `Gateway` has CI federation
+enabled (PLAT-CITR-14): the set of clusters matching such a `Gateway`'s selector
+SHALL be a subset of the CI-federation-enabled instances. Operators SHALL satisfy
+this either by enabling CI federation on every placement-eligible cluster or by
+constraining the `Gateway`'s placement to clusters that already have it. A
+CITrust-backed `Gateway` assigned to a cluster whose control plane has CI federation
+disabled SHALL hold its `CITrust` unrealized until that cluster is brought to parity;
+enabling CI federation there SHALL let the next reconcile realize the unchanged
+`CITrust`, with no edit to the `CITrust` itself.
+
+The token-exchange audience for a CITrust-backed `Gateway` SHALL be that `Gateway`'s
+Keycloak client id, which is the `Gateway`'s immutable API-server resource id
+(`openshell-gateway-keycloak.spec.md`: `client_id` and `audience` are equal and
+gateway-owned). A `Gateway` deleted and recreated under the same name receives a new
+resource id, and therefore a new client id and audience; because a `CITrust`'s
+`gateway_id` is immutable (`data-model.spec.md` PLAT-DATA-25), the stale `CITrust`
+SHALL be recreated against the new `Gateway` rather than repointed.
+
+#### Scenario: PLAT-CITR-13.01 -- Placement onto a non-CI cluster holds the trust unrealized
+
+- GIVEN a CITrust-backed `Gateway` whose selector matches cluster A (CI federation enabled) and cluster B (CI federation disabled)
+- WHEN the API server assigns the `Gateway` to cluster B
+- THEN the `CITrust` SHALL NOT realize on cluster B (no IdP subject mapper, per-trust group, or gateway RBAC binding)
+- AND enabling CI federation on cluster B (PLAT-CITR-14) SHALL let the next reconcile realize the unchanged `CITrust`
+
+#### Scenario: PLAT-CITR-13.02 -- Recreated gateway requires a recreated trust
+
+- GIVEN a CITrust-backed `Gateway` deleted and recreated under the same name, receiving a new resource id and therefore a new client id and audience
+- WHEN the import reconciles the existing `CITrust` whose stored `gateway_id` still resolves to the old `Gateway`
+- THEN the write SHALL be refused because `gateway_id` is immutable
+- AND recreating the `CITrust` SHALL bind it to the new `Gateway`'s client id and audience
+
+---
+
+### Requirement: PLAT-CITR-14 -- Per-Instance CI Federation Configuration Contract
+
+CI federation on a control-plane instance SHALL be enabled by configuration, not by
+code (PLAT-CITR-08). Each instance that realizes `CITrust` and `CIProvider`
+resources SHALL be configured with all of the following, so that bringing a new
+instance to CI-federation parity requires configuration changes only:
+
+- **Controller settings.** `HYPERSHELL_CI_TRUST_ENABLED` (optional boolean, default
+  `false`) SHALL be `true`; when `false` the instance SHALL NOT launch the
+  `CITrust` and `CIProvider` reconcilers and SHALL realize no CI artifacts.
+  `HYPERSHELL_CI_TOKEN_EXCHANGE_MODE` (optional, default `fgap-v1`) SHALL select the
+  authorization mode of PLAT-CITR-08 (`fgap-v1` on the current fleet).
+- **Keycloak admin authority in the shared realm.** The instance's Keycloak admin
+  service-account client SHALL hold authority sufficient to realize the artifacts of
+  PLAT-CITR-02 and PLAT-CITR-11 (the IdP subject mapper and the token-exchange
+  grants). An instance whose admin client is scoped per-instance rather than holding
+  full realm admin -- a spoke, as distinct from a full-admin hub -- SHALL
+  additionally hold the `realm-management` client roles `view-identity-providers`,
+  `manage-identity-providers`, `view-authorization`, and `manage-authorization`;
+  without them the reconcile fails at the IdP read or at the token-exchange
+  authorization write. A full-realm-admin hub needs no additional grant.
+- **Shared, platform-wide prerequisites (not per-instance).** The forge `CIProvider`
+  (for example `github-actions`) SHALL be registered once with its `idp_alias`
+  (PLAT-CITR-01), and the shared realm's token-exchange features SHALL be enabled (in
+  `fgap-v1` mode: legacy `TOKEN_EXCHANGE` with `ADMIN_FINE_GRAINED_AUTHZ`). These are
+  realm-level and apply to every instance using that realm.
+
+The controller settings SHALL be declared in the instance's deployment configuration
+and the spoke admin-client role grant in its Keycloak admin-client provisioning (the
+terraform spoke-registration for spoke instances), so no code change is required to
+enable or disable CI federation on an instance.
+
+#### Scenario: PLAT-CITR-14.01 -- A disabled instance realizes nothing
+
+- GIVEN a control-plane instance with `HYPERSHELL_CI_TRUST_ENABLED` unset or `false`
+- WHEN a CITrust-backed `Gateway` it owns appears on its watch stream
+- THEN it SHALL NOT launch the `CITrust` reconciler and the `CITrust` SHALL remain unrealized
+- AND setting `HYPERSHELL_CI_TRUST_ENABLED=true` with `HYPERSHELL_CI_TOKEN_EXCHANGE_MODE=fgap-v1` SHALL enable realization with no code change
+
+#### Scenario: PLAT-CITR-14.02 -- A spoke requires the extra realm-management roles
+
+- GIVEN a spoke instance whose Keycloak admin client lacks `manage-identity-providers` and `manage-authorization`
+- WHEN it reconciles a `CITrust` in `fgap-v1` mode
+- THEN the realize SHALL fail at the IdP read or the token-exchange authorization write
+- AND granting `view-identity-providers`, `manage-identity-providers`, `view-authorization`, and `manage-authorization` SHALL let the reconcile complete
+
+---
+
+### Requirement: PLAT-CITR-15 -- Derived Workspace Exists and Is Usable by a Matched CI Identity
+
+A `CITrust`'s role binding (PLAT-CITR-02 artifact 3) grants the trust's `role`, but a
+Keycloak role alone does not let a CI identity operate on the gateway: the OpenShell
+gateway admits a non-admin principal to a workspace only when that workspace exists and the
+principal has access to it (see `openshell-gateway.spec.md` OSG-CORE-18 workspace mode and
+`agent-workspace-gateway-api.spec.md` AGT-WSP-03). CITrust realization SHALL therefore make
+the derived forge-namespaced workspace (`gh-<owner>` / `gl-<namespace>`, PLAT-CITR-02) exist
+on the referenced `Gateway` as a real OpenShell workspace, realized idempotently through the
+same OpenShell admin provisioning path the control plane uses for AgentRuntime workspaces
+(`agent-workspace-gateway-api.spec.md` AGT-WSP-01 admin session, AGT-WSP-03 "Ensure
+workspace").
+
+A CI identity whose token matches a `CITrust` (PLAT-CITR-04) SHALL be able to create and
+operate sandboxes in that derived workspace with the trust's `role`, with NO manual,
+per-identity workspace-membership step: realization SHALL NOT require a platform admin to run
+an equivalent of `workspace member add` for each federated identity before that identity can
+use the workspace. Because a federated CI identity's gateway subject is created lazily at
+first federation -- it is not known when the `CITrust` is reconciled and cannot be enumerated
+in desired state -- the matched identity SHALL gain workspace access by virtue of matching the
+`CITrust` (its role claim and the trust's derived workspace), not by a pre-declared per-subject
+membership record. This is the distinction from AgentRuntime memberships (AGT-WSP-03), which
+converge a known, declared member set; a `CITrust` admits an open, lazily-realized set of
+subjects that all match one predicate.
+
+#### Scenario: PLAT-CITR-15.01 -- Derived workspace exists after realization
+
+- GIVEN a Ready `CITrust` for `openshift-online/hypershell` on a gateway, granting `openshell-user`
+- WHEN the control plane realizes the `CITrust`
+- THEN the derived workspace `gh-openshift-online` SHALL exist on that gateway
+- AND a repeat realization of the unchanged `CITrust` SHALL be an idempotent no-op
+
+#### Scenario: PLAT-CITR-15.02 -- Matched CI identity operates without a manual membership step
+
+- GIVEN a CI token matching the `CITrust` (correct `repository`, a protected ref, carrying the trust's role)
+- WHEN that identity creates a sandbox in the derived workspace
+- THEN the gateway SHALL admit it with the granted `role`
+- AND no platform-admin per-identity workspace-membership step SHALL be required first
+
+---
+
+### Requirement: PLAT-CITR-16 -- Repeatable Keyless Federation Without Manual Identity-Provider Surgery
+
+Keyless CI federation SHALL be repeatable without manual identity-provider surgery: a CI
+identity that federates more than once, and additional identities or protected refs that match
+a `CITrust`, SHALL each obtain the trust's role and workspace access with no manual deletion of
+brokered identity-provider users and no manual re-binding. The per-forge identity provider
+(owned by the platform federation, PLAT-CITR-01 and the gitops `ci-oidc-federation.spec.md`)
+SHALL re-apply its claim-to-group mapping on every federated login rather than only at first
+broker login, and SHALL link a returning federated identity to its existing brokered account
+rather than failing the exchange when that account already exists. A matched identity SHALL
+NOT lose the trust's role because an earlier non-matching login (for example from a
+non-protected ref) created its brokered account without the group.
+
+#### Scenario: PLAT-CITR-16.01 -- Re-federation keeps the role
+
+- GIVEN a CI identity that previously federated under a `CITrust` and held its role
+- WHEN the same identity federates again on a matching protected ref
+- THEN its exchanged token SHALL again carry the trust's role
+- AND no manual deletion of its brokered identity-provider user SHALL be required
+
+#### Scenario: PLAT-CITR-16.02 -- A second matching protected ref federates cleanly
+
+- GIVEN a `CITrust` matching a repository on protected refs
+- WHEN a second distinct protected ref of that repository federates
+- THEN the exchange SHALL succeed and carry the trust's role
+- AND it SHALL NOT fail with an "already exists" brokering error
 
 ## Security analysis
 

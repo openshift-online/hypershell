@@ -2,6 +2,9 @@
 
 HyperShell provisions and manages [OpenShell](https://github.com/NVIDIA/OpenShell) gateways at scale and across clouds.
 
+For a shared local cluster with OpenClaw Enterprise, see the
+[OCE and HyperShell kind setup](deploy/oce-kind/README.md).
+
 ## Local agent development
 
 Run the Fullsend dispatcher with `make fullsend`. See the
@@ -60,7 +63,9 @@ kubectl -n hypershell-system create configmap gateway-trusted-ca --from-file=ca-
 
 ### Keycloak OIDC client provisioning (`hypershell-keycloak-admin`)
 
-The control plane provisions an OIDC client in Keycloak for each gateway it reconciles. It authenticates to Keycloak using a confidential client whose credentials are read from a Secret named `hypershell-keycloak-admin` in the control plane namespace (default: `hypershell-system`). If this Secret is absent at startup, Keycloak integration is silently disabled for the lifetime of that pod.
+The control plane provisions an OIDC client in Keycloak for each gateway it reconciles. It authenticates to Keycloak using a confidential client whose credentials are read from a Secret named `hypershell-keycloak-admin` in the control plane namespace (default: `hypershell-system`).
+
+This Secret is required. Every gateway needs a Keycloak OIDC client, because the OpenShell gateway refuses to start without an auth mechanism (openshift-online/hypershell#809). The control plane reads the Secret at startup and needs all four keys non-empty: `server-url`, `realm`, `client-id`, and `client-secret`. If the Secret is missing, unreadable, or incomplete, the control plane logs an error and retries with backoff. It deploys no gateway until the Secret is valid. It never runs with Keycloak disabled.
 
 #### 1. Create a realm
 
@@ -150,7 +155,8 @@ Confirm the control plane picked up the configuration:
 
 ```shell
 kubectl -n hypershell-system logs deployment/hypershell-controller | grep -i keycloak
-# Expected: INFO keycloak integration enabled: server=... realm=hypershell
+# A repeating "Keycloak integration is not configured ... retrying" error means
+# the Secret is still missing or incomplete, and no gateway is being deployed.
 ```
 
 ### Base domain (`GATEWAY_API_BASE_DOMAIN`)

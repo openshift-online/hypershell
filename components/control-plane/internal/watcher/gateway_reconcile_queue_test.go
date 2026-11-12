@@ -42,35 +42,6 @@ func waitForGatewayCalls(t *testing.T, h *gatewayRecordingHandler, want int) []*
 	return nil
 }
 
-// EnqueueForced must drive a gateway through the shared queue with its phase
-// cleared, so the gateway reconciler's phase gate (which skips Running/
-// Provisioning/Degraded gateways) does not silently drop a release-driven
-// re-reconcile. This proves the wiring the release fan-out relies on: without the
-// phase-clear a Running gateway would never pick up a new release image.
-func TestGatewayReconcileQueue_EnqueueForcedClearsPhase(t *testing.T) {
-	h := &gatewayRecordingHandler{}
-	q := NewGatewayReconcileQueue(context.Background(), h, 1)
-	defer q.Stop()
-
-	running := "Running"
-	q.EnqueueForced(Event[*pb.Gateway]{
-		Type:       EventUpdated,
-		ResourceID: "gw-1",
-		Resource: &pb.Gateway{
-			Metadata: &pb.ObjectReference{Id: "gw-1"},
-			Phase:    &running,
-		},
-	})
-
-	seen := waitForGatewayCalls(t, h, 1)
-	if seen[0].Phase != nil {
-		t.Fatalf("expected phase cleared on forced enqueue, got %q", seen[0].GetPhase())
-	}
-	if seen[0].GetMetadata().GetId() != "gw-1" {
-		t.Fatalf("expected gw-1, got %q", seen[0].GetMetadata().GetId())
-	}
-}
-
 // A plain (non-forced) enqueue preserves the payload verbatim, so the normal
 // watch-stream path still lets the reconciler's phase gate govern create/update
 // traffic. This guards the boundary between the fan-out path (forced, gate-

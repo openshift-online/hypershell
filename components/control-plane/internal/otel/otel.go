@@ -47,9 +47,6 @@ var enabled bool
 // it to avoid ready-time tracking and callbacks when metrics are disabled.
 var metricsEnabled bool
 
-// Enabled reports whether the OTel SDK was successfully initialized.
-func Enabled() bool { return enabled }
-
 // MetricsEnabled reports whether the control plane can export OTel metrics.
 func MetricsEnabled() bool { return metricsEnabled }
 
@@ -59,7 +56,7 @@ func MetricsEnabled() bool { return metricsEnabled }
 // series the same way as provision-time metrics.
 // It returns a shutdown function that flushes providers, bounded by a timeout.
 // When telemetry is disabled or initialization fails, the returned function
-// is a no-op and Enabled() returns false.
+// is a no-op and internal instrumentation stays off.
 func Init(ctx context.Context, namespace string) (shutdown func(context.Context) error, err error) {
 	if os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") == "" {
 		return func(context.Context) error { return nil }, nil

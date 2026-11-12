@@ -187,6 +187,11 @@ The bundle-to-hub-cluster facts (which bundle runs on hyp0/hyp1/hyp2, and drift 
 them) SHALL be the promotion plane's existing release-plus-deployment facts, not a
 re-resolution.
 
+The Delivery tab is another consumer of this shared bundle source. It reads
+locked-bundle membership from it and applies the same compare-window rule only to
+bundles that are published but not yet in the release lock (FLT-DLV-06), so a change
+appears under the same bundle in both tabs.
+
 #### Scenario: SDLC-VIS-03.01 -- Matrix reuses promotion bundle and cluster facts
 
 - GIVEN the promotion plane has resolved each hub cluster's current bundle
@@ -715,6 +720,28 @@ Map with that bundle opened (consistent with the shared freight bar, SDLC-VIS-07
 - GIVEN a shipped issue in the matrix
 - WHEN the operator activates it
 - THEN the Fleet Map SHALL open with that issue's bundle selected
+
+### Requirement: SDLC-VIS-26 -- Unreleased Row Links to Delivery
+
+The Unreleased row SHALL offer a "Follow on Delivery" link that opens the Delivery
+tab (FLT-DLV-01). Each Unreleased issue whose delivering pull request is a change
+listed by the Delivery tab SHALL link to that change (`/delivery?change=<sha>`,
+FLT-DLV-14), where its build, release, and promotion stages are shown. The matrix
+itself SHALL keep showing no in-progress stage state (SDLC-VIS-11). When the
+Delivery plane is not configured (FLT-DLV-01.02), the links SHALL be omitted.
+
+#### Scenario: SDLC-VIS-26.01 -- Unreleased issue opens its change
+
+- GIVEN an Unreleased issue delivered by pull request #997
+- AND the Delivery tab lists the change for #997
+- WHEN the operator follows the issue's Delivery link
+- THEN the Delivery tab SHALL open with that change's details drawer
+
+#### Scenario: SDLC-VIS-26.02 -- Delivery plane not configured
+
+- GIVEN the Delivery plane is not configured
+- WHEN the Unreleased row renders
+- THEN it SHALL show no Delivery links
 
 ### Requirement: SDLC-VIS-20 -- Card Phase-Transition Flights
 

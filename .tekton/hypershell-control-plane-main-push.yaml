@@ -42,7 +42,7 @@ spec:
   # (specs/platform/openshell-image-auto-update.spec.md, CICD-IMG-02).
   - name: build-args
     value:
-    - OPENSHELL_TAG=v0.1.6-rhaiv.4
+    - OPENSHELL_TAG=v0.1.8-rhaiv.0
   pipelineSpec:
     description: |
       Build native Linux AMD64 and ARM64 control-plane images and publish their combined image index.

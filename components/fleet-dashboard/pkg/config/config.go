@@ -154,6 +154,20 @@ type Config struct {
 	// cadence. The source queries Prometheus for per-agent replica and
 	// operational metrics (SDLC-AGT spec).
 	RefreshSdlcAgents time.Duration
+	// Delivery pipeline plane (fleet-dashboard-delivery-pipeline.spec, FLT-DLV-12).
+	// DeliveryBundleRepository is the registry repository that holds the
+	// release-bundle-* tags (host/namespace/repo). EMPTY DISABLES THE PLANE: the
+	// endpoint reports enabled=false. It is fleet-adjacent (a registry path), so it
+	// has no default (firewall). DeliveryReleasePRBranch is the head branch of the
+	// automated bundle update pull request in GitHubRepo; empty means the GitOps
+	// update stage has no Running state. DeliveryCheckApp is the GitHub App slug
+	// whose check runs are component builds and policy checks. DeliveryWindow caps
+	// the changes in the payload. RefreshDelivery is the plane's refresh cadence.
+	DeliveryBundleRepository string
+	DeliveryReleasePRBranch  string
+	DeliveryCheckApp         string
+	DeliveryWindow           int
+	RefreshDelivery          time.Duration
 	// RefreshE2E is the e2e-run history source's refresh cadence (the bounded Loki
 	// query_range sweep of recent runs). Live updates do not use this interval;
 	// they ride the Loki tail (e2e-run-log-visibility.spec E2E-LOG-04/05).
@@ -274,6 +288,12 @@ func Load() (*Config, error) {
 		E2ELogPageSize:    envInt("FD_E2E_LOG_PAGE_SIZE", 150),
 		E2ELogTimeMargin:  envDuration("FD_E2E_LOG_TIME_MARGIN", 5*time.Minute),
 		RefreshE2E:        envDuration("FD_REFRESH_E2E", 30*time.Second),
+
+		DeliveryBundleRepository: strings.Trim(env("FD_DELIVERY_BUNDLE_REPOSITORY", ""), "/"),
+		DeliveryReleasePRBranch:  env("FD_DELIVERY_RELEASE_PR_BRANCH", ""),
+		DeliveryCheckApp:         env("FD_DELIVERY_CHECK_APP", "red-hat-konflux"),
+		DeliveryWindow:           envInt("FD_DELIVERY_WINDOW", 30),
+		RefreshDelivery:          envDuration("FD_REFRESH_DELIVERY", 60*time.Second),
 	}
 
 	if c.PromURL == "" {

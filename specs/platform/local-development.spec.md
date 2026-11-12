@@ -443,6 +443,13 @@ place; when no HyperShell namespaces remain it SHALL point the developer at `mak
 kind-teardown` to destroy the cluster. `make kind-teardown` SHALL be safe to run when
 no cluster exists.
 
+With the default `KIND_CLUSTER_NAME=hypershell-dev`, teardown SHALL check both
+`hypershell-dev` and `hypershell-oce`, delete either or both when present, and
+clean up each cluster's DNS container, port forwarding, and cloud-provider-kind
+marker. OCE cleanup SHALL use Docker, matching its setup workflow. A non-default
+`KIND_CLUSTER_NAME` SHALL target only that named cluster. Saved OCE installation
+state SHALL remain on disk.
+
 #### Scenario: DEV-LOC-03.01 -- Platform Removal Keeps The Cluster
 - GIVEN a Kind cluster is running with the HyperShell platform deployed
 - WHEN a developer runs `make kind-down`
@@ -453,6 +460,18 @@ no cluster exists.
 - GIVEN no Kind cluster exists
 - WHEN a developer runs `make kind-teardown`
 - THEN the command SHALL exit without error
+
+#### Scenario: DEV-LOC-03.03 -- Teardown Both Standard Local Clusters
+- GIVEN either or both of `hypershell-dev` and `hypershell-oce` exist
+- WHEN a developer runs `make kind-teardown` with the default cluster name
+- THEN both standard cluster names SHALL be checked and any existing clusters deleted
+- AND each cluster's host DNS and port forwarding resources SHALL be cleaned up
+- AND unrelated Kind clusters and saved OCE state SHALL remain untouched
+
+#### Scenario: DEV-LOC-03.04 -- Teardown A Non-default Cluster
+- GIVEN a developer selects a non-default `KIND_CLUSTER_NAME`
+- WHEN the developer runs `make kind-teardown`
+- THEN only the named Kind cluster SHALL be deleted
 
 ### Requirement: DEV-LOC-04 -- Cluster Status
 
@@ -896,7 +915,7 @@ All Kind targets operate on `KIND_NAMESPACE` (default: `hypershell-system`). Ope
 |--------|----------|
 | `make kind-up` | Create cluster (if needed) + deploy into `KIND_NAMESPACE` + start CoreDNS + configure resolver + set up port forwarding + wait for readiness |
 | `make kind-down` | Remove `KIND_NAMESPACE` and its resources; prompt for `kind-teardown` when last namespace is removed |
-| `make kind-teardown` | Destroy the Kind cluster + stop cloud-provider-kind + stop CoreDNS + flush port forwarding rules + revert resolver |
+| `make kind-teardown` | Destroy `hypershell-dev` and `hypershell-oce` by default (a non-default `KIND_CLUSTER_NAME` targets only that cluster) + stop cloud-provider-kind + stop CoreDNS + flush port forwarding rules + revert resolver |
 | `make kind-status` | Show cluster info, pods, services, hostnames, DNS status, port forwarding status, and active component swaps |
 | `make kind-fix-ports` | Re-establish host port forwarding (443 + 8080) after a cloud-provider-kind restart; re-discovers ephemeral ports and re-runs the stop-then-start flush |
 | `make kind-openshell-up` | Build OpenShell (gateway + supervisor; the sandbox base is the published community image, not built from source) from `OPENSHELL_BRANCH`/`OPENSHELL_PR` + load into cluster (creating it if needed) + seed a dev-labeled gateway running those images. See [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md) |

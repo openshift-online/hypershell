@@ -95,6 +95,11 @@ func init() {
 		router.HandleFunc("", h.Create).Methods(http.MethodPost)
 		router.HandleFunc("/{id}", h.Patch).Methods(http.MethodPatch)
 		router.HandleFunc("/{id}", h.Delete).Methods(http.MethodDelete)
+		// Write-only material upload on an existing SecretSource (PLAT-DATA-27,
+		// AGT-SEC-14): supplies the durable material for a reference-only source
+		// after create, passing it through the write-only store to the convention
+		// path and recording only the reference.
+		router.HandleFunc("/{id}/material", h.UploadMaterial).Methods(http.MethodPost)
 	})
 
 	pkgserver.RegisterGRPCService("secretSources", func(grpcServer *grpc.Server, services pkgserver.ServicesInterface) {

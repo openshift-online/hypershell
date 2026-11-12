@@ -19,7 +19,9 @@ against the API and the generated terminal UI descriptor.
 
 In scope: the `hsctl get`, `hsctl list`, `hsctl create`, `hsctl update`, and
 `hsctl delete` commands for the Extension API kinds, how they are registered, the
-extension URL paths they call, and the read-only fields a `get` renders.
+extension URL paths they call, the read-only fields a `get` renders, and the
+`SecretSource` material-upload verb (`hsctl secret-source upload`), a hand-maintained
+extension command that drives the write-only material-upload operation.
 
 Not in scope: the behavior and generation of `hsctl tui` (see
 [`hsctl-terminal-ui.spec.md`](hsctl-terminal-ui.spec.md)), the semantics of the
@@ -118,3 +120,54 @@ can create are also the Extension kinds a user can read back.
 - GIVEN the OpenAPI description changed and the descriptor was not regenerated
 - WHEN `make check` runs
 - THEN it SHALL fail and name `make generate-tui`
+
+### Requirement: CLI-EXT-05 -- SecretSource Material Upload Command
+
+`hsctl` SHALL provide a `SecretSource` material-upload command,
+`hsctl secret-source upload <name> [--agent-runtime <id>] (--value-file <path> | --value-stdin)`,
+that uploads the durable material for an already-created, reference-only `SecretSource`
+through the api-server write-only material-upload operation
+([`data-model.spec.md`](data-model.spec.md), PLAT-DATA-27, and
+[`agent-secret-late-binding.spec.md`](agent-secret-late-binding.spec.md), AGT-SEC-14).
+The command SHALL resolve the `SecretSource` named by `<name>` - disambiguated by
+`--agent-runtime <id>` when a name is owned by more than one `AgentRuntime` - to its id
+and SHALL `POST` the material to that `SecretSource`'s material sub-resource.
+
+The material SHALL be read ONLY from a file (`--value-file <path>`) or from standard
+input (`--value-stdin`), NEVER from an argv flag, so the secret never appears in shell
+history or the process table. The command SHALL require exactly one of `--value-file`
+or `--value-stdin` and SHALL reject an invocation that supplies neither or both. The
+command SHALL NOT print the uploaded material.
+
+The command SHALL be idempotent: re-running it overwrites the same material at the
+server-derived convention path. After a successful upload the user can watch the
+owning `AgentRuntime`'s `SecretPending` condition clear through the existing read
+commands (AGT-SEC-06, AGT-SEC-07). The command SHALL be a hand-maintained extension
+command registered through the shared extension registrar, consistent with CLI-EXT-01;
+no generated parent command file SHALL be hand-edited to add it.
+
+#### Scenario: CLI-EXT-05.01 -- Upload material from a file
+
+- GIVEN a reference-only `SecretSource` named `my-secret` on a reachable api-server
+- WHEN the user runs `hsctl secret-source upload my-secret --value-file ./key.pem`
+- THEN the command SHALL read the material from the file, resolve the `SecretSource` to its id, and `POST` the material to that `SecretSource`'s material sub-resource
+- AND it SHALL NOT print the material
+
+#### Scenario: CLI-EXT-05.02 -- Upload material from stdin
+
+- GIVEN a reference-only `SecretSource` named `my-secret`
+- WHEN the user pipes material into `hsctl secret-source upload my-secret --value-stdin`
+- THEN the command SHALL read the material from standard input and `POST` it to the `SecretSource`'s material sub-resource
+
+#### Scenario: CLI-EXT-05.03 -- Material never comes from an argv flag
+
+- GIVEN a `hsctl secret-source upload` invocation that supplies neither `--value-file` nor `--value-stdin`, or supplies both
+- WHEN the command parses its flags
+- THEN it SHALL reject the invocation with an error
+- AND the command SHALL expose no flag that accepts the material value directly on the command line
+
+#### Scenario: CLI-EXT-05.04 -- Re-upload is idempotent
+
+- GIVEN a `SecretSource` whose material was already uploaded through the command
+- WHEN the user runs `hsctl secret-source upload` again for the same `SecretSource` with new material
+- THEN the command SHALL overwrite the material at the same convention path through a single material-upload request

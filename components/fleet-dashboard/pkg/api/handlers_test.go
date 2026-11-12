@@ -503,3 +503,26 @@ func TestServeHealthy(t *testing.T) {
 		t.Errorf("snapshot data missing")
 	}
 }
+
+func TestDeliveryNotConfigured(t *testing.T) {
+	// Verifies: FLT-DLV-01.02
+	mux := http.NewServeMux()
+	(&Handlers{}).Register(mux)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/delivery", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var body struct {
+		Data struct {
+			Enabled bool `json:"enabled"`
+		} `json:"data"`
+		Stale bool `json:"stale"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Data.Enabled || body.Stale {
+		t.Errorf("not-configured delivery = %+v, want enabled=false and not stale", body)
+	}
+}

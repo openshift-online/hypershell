@@ -79,6 +79,17 @@ function renderApp(): void {
           matrix: { hubClusters: [], rows: [] },
         }),
       ),
+    getDelivery: () =>
+      Promise.resolve(
+        plane({
+          enabled: false,
+          stages: [],
+          changes: [],
+          typicalSeconds: {},
+          omitted: 0,
+          sources: {},
+        }),
+      ),
     getE2eRuns: () =>
       Promise.resolve(
         plane({

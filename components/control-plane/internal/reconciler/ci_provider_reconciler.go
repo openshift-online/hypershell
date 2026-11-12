@@ -87,6 +87,14 @@ func (r *CIProviderReconciler) handleUpsert(ctx context.Context, id string, prov
 		"idp_alias", alias,
 		"issuer", provider.GetIssuer())
 
+	// Write status only when it changed. Every write emits a watch event that
+	// reconciles this provider again, so an unconditional write loops forever
+	// (STD-RCON-02.01). The Keycloak IdP step above still runs on every pass.
+	if provider.GetStatusIdpAlias() == alias {
+		slog.DebugContext(ctx, "CIProvider status already current", "ci_provider_id", id, "idp_alias", alias)
+		return nil
+	}
+
 	statusIdpAlias := alias
 	_, err := r.ciProviderSvc.UpdateCIProvider(ctx, &pb.UpdateCIProviderRequest{
 		Id:             id,

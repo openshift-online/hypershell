@@ -1,0 +1,303 @@
+# Keyless GitHub Actions -> fullsend agent dispatch.
+#
+# This is the bridge that makes the .fullsend agents run from GitHub, replacing
+# the human-driven local funnel (.hypershell/execute-sdlc). It mirrors exactly
+# what the local dispatcher does per work item (funnel_dispatch.py):
+#
+#   1. Build a label_changed event and ask `fullsend dispatch` which agents match
+#      the harness `trigger:` expressions (fullsend owns the matching -- we do NOT
+#      reimplement the CEL).
+#   2. Authenticate to the gateway with the keyless CI-federation transport
+#      (GitHub OIDC -> Keycloak token-exchange -> openshell config), the same legs
+#      proven in ci-federation-e2e-sandbox.yml.
+#   3. For each matched agent, run `fullsend run <agent>` -- fullsend creates the
+#      sandbox on the gateway (via openshell), runs the agent, validates the
+#      result schema, and runs the pre/post lifecycle hooks that apply the next
+#      label.
+#
+# Model inference: Vertex AI via GitHub -> GCP Workload Identity Federation (WIF),
+# the same `vertex-ai` provider the harnesses already use locally. WIF is keyless
+# (no static service-account JSON to store); google-github-actions/auth exchanges
+# the Actions OIDC token for short-lived GCP credentials and writes an ADC file,
+# which the harness host_files entry copies into the sandbox. EnMaaS is NOT used
+# here: it is individual-developer-only and does not support service-account /
+# CI / headless keys (EnMaaS FAQ I-7).
+#
+# Rollout safety: this ships manual-only (workflow_dispatch) with DRY_RUN
+# defaulting to the repo variable FULLSEND_DRY_RUN (default "true"). A dry run
+# decides and logs but applies no issue/PR mutation. Flip the repo variable to
+# "false" and uncomment the `issues`/`pull_request_target` triggers below only
+# after a clean manual dry run validates the full fullsend run + gateway handoff.
+#
+# Prerequisites (owner-provided repo VARIABLES -- no secrets needed, WIF is keyless):
+#   - FULLSEND_GCP_WIF_PROVIDER   full WIF provider resource name
+#                                 (projects/N/locations/global/workloadIdentityPools/POOL/providers/PROV)
+#   - FULLSEND_GCP_SERVICE_ACCOUNT  the GCP SA email with Vertex access, bound to this repo
+#   - FULLSEND_VERTEX_PROJECT_ID    ANTHROPIC_VERTEX_PROJECT_ID
+#   - FULLSEND_VERTEX_REGION        CLOUD_ML_REGION
+#   - FULLSEND_DRY_RUN              "true" until validated, then "false"
+#   - the test CITrust realized on the target gateway (openshell-user for gh-<owner>)
+name: Fullsend agent dispatch
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Issue (work item) number to dispatch agents for
+        required: true
+      added_label:
+        description: The agent/* label whose addition should drive dispatch (e.g. agent/allowed)
+        required: true
+        default: "agent/allowed"
+      dry_run:
+        description: Decide and log but do not mutate issues/PRs
+        required: false
+        default: "true"
+  # --- Enable only after a clean manual dry run (see rollout safety above) ---
+  # issues:
+  #   types: [labeled]
+  # pull_request_target:
+  #   types: [labeled]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  id-token: write   # GitHub OIDC: used for BOTH Keycloak token-exchange and GCP WIF
+
+concurrency:
+  # Serialize per work item: the funnel is sequential per issue.
+  group: fullsend-${{ github.event.inputs.issue_number || github.event.issue.number }}
+  cancel-in-progress: false
+
+env:
+  FULLSEND_VERSION: v0.55.0
+  # Keyless CI-federation transport (defaults match ci-federation-e2e-sandbox.yml;
+  # the live hyp0-spoke2 agents-gateway). Override via repo variables if the
+  # gateway moves.
+  KEYCLOAK_URL: ${{ vars.FULLSEND_KEYCLOAK_URL || 'https://keycloak.hyp0.infra.hypershell.app' }}
+  REALM: ${{ vars.FULLSEND_REALM || 'hypershell' }}
+  FLEET_AUD: ${{ vars.FULLSEND_FLEET_AUDIENCE || 'openshell-fleet' }}
+  REQUESTER: ${{ vars.FULLSEND_REQUESTER_CLIENT || 'ci-federation' }}
+  IDP_ALIAS: ${{ vars.FULLSEND_IDP_ALIAS || 'github-actions' }}
+  GATEWAY_AUDIENCE: ${{ vars.FULLSEND_GATEWAY_AUDIENCE || '3LyWC8i0llnDdrxOX4J4CQWDD5f' }}
+  GATEWAY_ENDPOINT: ${{ vars.FULLSEND_GATEWAY_ENDPOINT || 'https://gw-openshell-58f66bfcd73e8f46.hyp0-spoke2.infra.hypershell.app:443' }}
+  OPENSHELL_VERSION: ${{ vars.FULLSEND_OPENSHELL_VERSION || 'v0.1.8-rhaiv.0' }}
+  GATEWAY_NAME: agents-gateway
+  WORKSPACE: ${{ vars.FULLSEND_WORKSPACE || 'gh-openshift-online' }}
+  # fullsend's label-scope for this repo (one scope per dispatcher queue).
+  LABEL_SCOPE: ${{ vars.FULLSEND_SCOPE || 'agent/scope/hyp0' }}
+  # Vertex (model inference) -- project + region the harnesses interpolate.
+  ANTHROPIC_VERTEX_PROJECT_ID: ${{ vars.FULLSEND_VERTEX_PROJECT_ID }}
+  CLOUD_ML_REGION: ${{ vars.FULLSEND_VERTEX_REGION }}
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Resolve work item + added label from the trigger
+        id: item
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            num="${{ github.event.inputs.issue_number }}"
+            added="${{ github.event.inputs.added_label }}"
+            dry="${{ github.event.inputs.dry_run }}"
+          else
+            # issues / pull_request_target labeled event
+            num="${{ github.event.issue.number || github.event.pull_request.number }}"
+            added="${{ github.event.label.name }}"
+            dry="${{ vars.FULLSEND_DRY_RUN || 'true' }}"
+          fi
+          [[ -n "$num" && -n "$added" ]] || { echo "missing issue number or label" >&2; exit 1; }
+          # Only agent/* labels can drive dispatch.
+          case "$added" in agent/*) : ;; *) echo "label '$added' is not an agent/* label; nothing to dispatch."; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0;; esac
+          item_json="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${num}")"
+          url="$(echo "$item_json" | jq -r '.html_url')"
+          state="$(echo "$item_json" | jq -r '.state')"
+          labels_csv="$(echo "$item_json" | jq -r '[.labels[].name] | join(",")')"
+          if [[ "$state" != "open" ]]; then
+            echo "issue #$num is $state; skipping."; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # Scope gate: only process items in this dispatcher's scope.
+          if ! printf ',%s,' "$labels_csv" | grep -q ",${LABEL_SCOPE},"; then
+            echo "issue #$num is not in scope ${LABEL_SCOPE}; skipping."; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          {
+            echo "number=$num"
+            echo "url=$url"
+            echo "added=$added"
+            echo "labels=$labels_csv"
+            echo "dry=$dry"
+            echo "skip=false"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate to Google Cloud (WIF, keyless)
+        if: steps.item.outputs.skip != 'true'
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ vars.FULLSEND_GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.FULLSEND_GCP_SERVICE_ACCOUNT }}
+          # Writes a short-lived ADC file and exports GOOGLE_APPLICATION_CREDENTIALS
+          # for later steps; the harness host_files entry copies it into the sandbox.
+
+      - name: Install fullsend + openshell
+        if: steps.item.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          # fullsend: public release binary (linux amd64). Pinned to a recent version.
+          mkdir -p "$HOME/.local/bin"
+          asset="fullsend_$(uname -s)_$(uname -m).tar.gz"
+          url="https://github.com/fullsend-ai/fullsend/releases/download/${FULLSEND_VERSION}/${asset}"
+          echo "Downloading $url"
+          curl -fsSL "$url" -o /tmp/fullsend.tgz
+          tar -xzf /tmp/fullsend.tgz -C "$HOME/.local/bin" fullsend || tar -xzf /tmp/fullsend.tgz -C "$HOME/.local/bin"
+          chmod +x "$HOME/.local/bin/fullsend"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          # openshell: fullsend shells out to it to create the sandbox on the gateway.
+          OPENSHELL_VERSION="${OPENSHELL_VERSION}" sh scripts/install-openshell.sh
+          export PATH="$HOME/.local/bin:$PATH"
+          fullsend --version || true
+          openshell version || openshell --version || true
+
+      - name: Mint GitHub Actions OIDC token (gateway audience)
+        if: steps.item.outputs.skip != 'true'
+        id: oidc
+        run: |
+          set -euo pipefail
+          tok="$(curl -sS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${FLEET_AUD}" | jq -r '.value')"
+          [[ -n "$tok" && "$tok" != "null" ]] || { echo "Failed to mint OIDC token" >&2; exit 1; }
+          echo "::add-mask::$tok"
+          echo "token=$tok" >> "$GITHUB_OUTPUT"
+
+      - name: Exchange for a gateway-scoped token
+        if: steps.item.outputs.skip != 'true'
+        id: exchange
+        env:
+          OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
+        run: |
+          set -euo pipefail
+          resp="$(curl -sS -X POST \
+            "${KEYCLOAK_URL}/realms/${REALM}/protocol/openid-connect/token" \
+            -d 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange' \
+            -d "client_id=${REQUESTER}" \
+            -d "subject_token=${OIDC_TOKEN}" \
+            -d "subject_issuer=${IDP_ALIAS}" \
+            -d 'subject_token_type=urn:ietf:params:oauth:token-type:jwt' \
+            -d "audience=${GATEWAY_AUDIENCE}")"
+          access="$(echo "$resp" | jq -r '.access_token // empty')"
+          if [[ -z "$access" ]]; then
+            echo "Token exchange FAILED:" >&2
+            echo "$resp" | jq '{error, error_description}' >&2 || echo "$resp" >&2
+            exit 1
+          fi
+          echo "::add-mask::$access"
+          echo "access=$access" >> "$GITHUB_OUTPUT"
+
+      - name: Inject the exchanged token into the openshell CLI config
+        if: steps.item.outputs.skip != 'true'
+        env:
+          ACCESS: ${{ steps.exchange.outputs.access }}
+        run: |
+          set -euo pipefail
+          # Default openshell config location so fullsend's `openshell` calls find it.
+          CFG="${HOME}/.config/openshell"
+          GW_DIR="${CFG}/gateways/${GATEWAY_NAME}"
+          mkdir -p "${GW_DIR}"
+          cat > "${GW_DIR}/metadata.json" <<JSON
+          {
+            "name": "${GATEWAY_NAME}",
+            "gateway_endpoint": "${GATEWAY_ENDPOINT}",
+            "is_remote": true,
+            "gateway_port": 0,
+            "auth_mode": "oidc",
+            "oidc_issuer": "${KEYCLOAK_URL}/realms/${REALM}",
+            "oidc_client_id": "${GATEWAY_AUDIENCE}",
+            "oidc_audience": "${GATEWAY_AUDIENCE}"
+          }
+          JSON
+          cat > "${GW_DIR}/oidc_token.json" <<JSON
+          {"access_token": "${ACCESS}", "issuer": "${KEYCLOAK_URL}/realms/${REALM}", "client_id": "${GATEWAY_AUDIENCE}"}
+          JSON
+          printf '%s' "${GATEWAY_NAME}" > "${CFG}/active_gateway"
+          chmod -R a+rX "${CFG}"
+
+      - name: Select agents (fullsend dispatch)
+        if: steps.item.outputs.skip != 'true'
+        id: select
+        run: |
+          set -euo pipefail
+          # Build the label_changed event exactly as funnel_dispatch.py does, then
+          # let fullsend evaluate the harness triggers.
+          labels_json="$(printf '%s' "${{ steps.item.outputs.labels }}" | jq -R 'split(",")')"
+          event="$(jq -nc \
+            --arg repo "${GITHUB_REPOSITORY}" \
+            --argjson num "${{ steps.item.outputs.number }}" \
+            --arg url "${{ steps.item.outputs.url }}" \
+            --arg added "${{ steps.item.outputs.added }}" \
+            --argjson labels "$labels_json" \
+            '{repo:$repo,
+              entity:{kind:"work_item", id:$num, url:$url},
+              source:{system:"github", raw_type:"issues", raw_action:"labeled"},
+              transition:{kind:"label_changed", label:{name:$added, action:"added"}},
+              actor:{id:"gha-dispatch", kind:"human", role:"write", is_entity_author:false},
+              state:{labels:$labels}}')"
+          echo "Dispatch event: $event"
+          agents="$(printf '%s' "$event" | fullsend dispatch --config-dir .fullsend \
+            --input-driver json --output-driver json | jq -r '[.[].agent] | unique | join(" ")')"
+          echo "Matched agents: ${agents:-<none>}"
+          echo "agents=${agents}" >> "$GITHUB_OUTPUT"
+
+      - name: Run matched agents (fullsend run)
+        if: steps.item.outputs.skip != 'true' && steps.select.outputs.agents != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FULLSEND_FORGE: github
+          FULLSEND_LIFECYCLE: github-only
+          OPENSHELL_GATEWAY: ${{ env.GATEWAY_NAME }}
+          OPENSHELL_WORKSPACE: ${{ env.WORKSPACE }}
+          OPENSHELL_GATEWAY_INSECURE: "true"
+          # Trusted lifecycle inputs consumed by pre/post-lifecycle.sh + the agent
+          # (mirrors adapter.go env). GOOGLE_APPLICATION_CREDENTIALS is exported by
+          # the WIF auth step; ANTHROPIC_VERTEX_PROJECT_ID / CLOUD_ML_REGION come
+          # from job env; the harness copies the ADC file into the sandbox.
+          FULLSEND_WORK_ITEM_URL: ${{ steps.item.outputs.url }}
+          ISSUE_NUMBER: ${{ steps.item.outputs.number }}
+          REPOSITORY: ${{ github.repository }}
+          REPO_FULL_NAME: ${{ github.repository }}
+          DRY_RUN: ${{ steps.item.outputs.dry }}
+        run: |
+          set -euo pipefail
+          rc=0
+          for agent in ${{ steps.select.outputs.agents }}; do
+            echo "::group::fullsend run ${agent} (DRY_RUN=${DRY_RUN})"
+            if fullsend run "${agent}" --fullsend-dir .fullsend --target-repo .; then
+              echo "agent ${agent}: OK"
+            else
+              echo "agent ${agent}: FAILED" >&2
+              rc=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $rc
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "# Fullsend agent dispatch"
+            echo ""
+            echo "- **Work item:** #${{ steps.item.outputs.number }} (${{ steps.item.outputs.url }})"
+            echo "- **Trigger label:** \`${{ steps.item.outputs.added }}\`"
+            echo "- **Scope:** \`${LABEL_SCOPE}\`"
+            echo "- **Matched agents:** \`${{ steps.select.outputs.agents || '(none / skipped)' }}\`"
+            echo "- **DRY_RUN:** \`${{ steps.item.outputs.dry }}\`"
+            echo "- **Model:** Vertex AI via WIF (project \`${ANTHROPIC_VERTEX_PROJECT_ID:-?}\`, region \`${CLOUD_ML_REGION:-?}\`)"
+            echo "- **Gateway:** \`${GATEWAY_NAME}\` (client \`${GATEWAY_AUDIENCE}\`), workspace \`${WORKSPACE}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

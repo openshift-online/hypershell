@@ -47,7 +47,7 @@ validation detect an unexpected controller and gateway release combination.
 All OpenShell image references are pinned using the `tag@digest` format:
 
 ```
-quay.io/opendatahub/odh-openshell-gateway:v0.1.6-rhaiv.4@sha256:<digest>
+quay.io/opendatahub/odh-openshell-gateway:v0.1.8-rhaiv.0@sha256:<digest>
 ```
 
 - **Tag** provides human readability and version ordering.
@@ -179,7 +179,7 @@ scheduler.
 
 The final HyperShell controller image SHALL carry one image label,
 `app.hypershell.openshell.version`, whose value is a single non-empty OpenShell
-release identifier (for example `v0.1.6-rhaiv.4`) that names the one gateway and
+release identifier (for example `v0.1.8-rhaiv.0`) that names the one gateway and
 supervisor release the build supports. The value SHALL NOT be a list, a
 comma-separated set, a version range, or a wildcard.
 

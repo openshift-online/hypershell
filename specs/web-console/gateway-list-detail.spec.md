@@ -228,7 +228,7 @@ The **Details** tab SHALL be the first and default tab. Tab navigation SHALL use
 
 Each tab SHALL have a consistent heading, description, and plain refresh button. The refresh button SHALL represent the active tab's data; it SHALL NOT refresh every tab at once.
 
-The provisioning timeline SHALL be shown only while the gateway is provisioning. It SHALL be hidden after the gateway is successfully provisioned and running without an error. The timeline visibility SHALL follow the rules in WEB-GLIS-08.
+At gateway-detail entry, provisioning timeline visibility SHALL follow the rules in WEB-GLIS-08. In particular, the timeline SHALL be hidden on a later entry to a gateway that is successfully provisioned and running without an error.
 
 #### Scenario: WEB-GLIS-07.01 -- Details is the default tab
 
@@ -620,7 +620,7 @@ The **Service accounts** tab SHALL remain visible while a gateway is provisionin
 
 Service-account creation requires the Gateway phase to be `Running`, status to be `Healthy`, and its OIDC issuer, client ID, and audience to be present. The create API returns `409 gateway_not_ready` while the Gateway is provisioning. The list and capabilities query do not themselves require a ready Gateway.
 
-After the Gateway becomes ready, the console SHALL allow creation and role assignment in the create dialog. The console SHALL hide the completed provisioning timeline when the Gateway is running without an error.
+After the Gateway becomes ready, the console SHALL allow creation and role assignment in the create dialog. The completed provisioning timeline SHALL follow WEB-GLIS-08: it SHALL remain visible during the current visit, and SHALL be hidden after the user leaves that gateway and returns while it is running without an error.
 
 #### Scenario: WEB-GLIS-17.01 -- Service accounts tab visible during provisioning
 
@@ -969,6 +969,8 @@ The repository UI completion gate SHALL be executed per `skills/build/ui-build-g
 - WHEN the UI test suite runs
 - THEN it SHALL assert that fresh creation lands on Connection with timeline
 - AND later entry to a running gateway lands on Details without timeline
+- AND a timeline shown during a visit remains visible after provisioning
+  succeeds during that same visit
 
 #### Scenario: WEB-GLIS-25.03 -- CI exercises service account setup modal
 

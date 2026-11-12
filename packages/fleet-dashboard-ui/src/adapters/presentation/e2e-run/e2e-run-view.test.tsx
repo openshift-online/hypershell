@@ -111,6 +111,7 @@ function makeApi(
     getSdlc: vi.fn(),
     getSdlcAgents: vi.fn(),
     getE2eRuns: vi.fn(),
+    getDelivery: vi.fn(),
     getE2eRun: vi.fn().mockResolvedValue(plane(runDetail)),
     getE2eDiagnostics: vi
       .fn()

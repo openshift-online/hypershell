@@ -85,6 +85,10 @@ func ReconcileGateway(
 		report(ConditionEnvironmentReady, StatusFailed, "Environment preparation failed - the gateway configuration is invalid")
 		return fmt.Errorf("invalid gateway configuration: %w", err)
 	}
+	if err := ValidateGatewayAuth(nsConfig.Gateway); err != nil {
+		report(ConditionEnvironmentReady, StatusFailed, "Environment preparation failed - the gateway has no authentication configuration")
+		return fmt.Errorf("invalid gateway configuration: %w", err)
+	}
 
 	// A routed gateway is reachable at an external
 	// hostname (gw-<namespace>.<base-domain>, or an explicit Route.Host). The
@@ -149,15 +153,18 @@ func ReconcileGateway(
 
 	report(ConditionDatabaseReady, StatusComplete, "")
 
-	// Step 3: IdentityProviderReady (only when Keycloak is configured)
-	if opts.Keycloak != nil {
-		report(ConditionIdentityProviderReady, StatusInProgress, "")
-		if err := reconcileKeycloakClient(ctx, opts, &nsConfig); err != nil {
-			report(ConditionIdentityProviderReady, StatusFailed, "Identity provider configuration failed - the authentication service is currently unavailable")
-			return fmt.Errorf("reconcile keycloak client in %s: %w", nsConfig.Name, err)
-		}
-		report(ConditionIdentityProviderReady, StatusComplete, "")
+	// Step 3: IdentityProviderReady. Keycloak is mandatory: the gateway refuses
+	// to start without an auth mechanism (issue #809).
+	report(ConditionIdentityProviderReady, StatusInProgress, "")
+	if opts.Keycloak == nil {
+		report(ConditionIdentityProviderReady, StatusFailed, "Identity provider is not configured")
+		return fmt.Errorf("reconcile keycloak client in %s: keycloak configuration is required", nsConfig.Name)
 	}
+	if err := reconcileKeycloakClient(ctx, opts, &nsConfig); err != nil {
+		report(ConditionIdentityProviderReady, StatusFailed, "Identity provider configuration failed - the authentication service is currently unavailable")
+		return fmt.Errorf("reconcile keycloak client in %s: %w", nsConfig.Name, err)
+	}
+	report(ConditionIdentityProviderReady, StatusComplete, "")
 
 	// Step 4: GatewayDeployed
 	report(ConditionGatewayDeployed, StatusInProgress, "")

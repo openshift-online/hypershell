@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/helm"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -299,8 +300,8 @@ type ReconcileOpts struct {
 	// UpdateConsoleAddress is an optional callback that PATCHes the console_address
 	// field on the API-server Gateway. Nil means no update will be attempted.
 	UpdateConsoleAddress ConsoleAddressUpdater
-	// Keycloak holds the Keycloak Admin REST API configuration. Nil means
-	// Keycloak integration is not configured.
+	// Keycloak holds the Keycloak Admin REST API configuration. It is required
+	// to provision a gateway; it is nil only on delete paths that do not need it.
 	Keycloak *KeycloakConfig
 	// GatewayName is the user-visible name of the gateway being reconciled.
 	GatewayName string
@@ -347,6 +348,7 @@ type ReconcileOpts struct {
 	// scope an operator-mode gateway to its own tenant namespaces, via the selector
 	// <key>=<gateway-namespace> (GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY, OSG-OPWS-02).
 	// Empty fails an operator gateway closed at reconcile (OSG-OPWS-04).
+	OperatorWorkspace         *helm.OperatorWorkspaceConfig
 	OperatorNamespaceLabelKey string
 	// OperatorSandboxRuntimeClass is the administrator-approved sandbox RuntimeClass
 	// applied to operator-mode gateways ONLY (GATEWAY_OPERATOR_SANDBOX_RUNTIME_CLASS,

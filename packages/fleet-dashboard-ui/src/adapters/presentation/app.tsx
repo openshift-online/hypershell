@@ -1,5 +1,6 @@
-// Composition of the dashboard shell. Two peer tabs - the interactive
-// promotion-topology Fleet Map and the Agent SDLC funnel view - share the masthead
+// Composition of the dashboard shell. Peer tabs - the interactive
+// promotion-topology Fleet Map, the Agent SDLC funnel view, E2E Runs, and
+// Delivery - share the masthead
 // and a single release "freight" bar (SDLC-VIS-07). The freight bar's selected
 // bundle is lifted here so it drives both tabs in lockstep and survives a tab
 // switch. The promotion-path table is still rendered for assistive tech (visually
@@ -41,6 +42,8 @@ import type { PromotionData } from "../../domain/promotion";
 import type { TopologyData } from "../../domain/topology";
 import { messages } from "../../messages";
 import { AgentSdlcView } from "./agent-sdlc/agent-sdlc-view";
+import { deliveryMessages } from "./delivery/delivery-messages";
+import { DeliveryTab } from "./delivery/delivery-view";
 import { E2eRunView } from "./e2e-run/e2e-run-view";
 import { FreightBar } from "./map/freight-bar";
 import { TopologyMap } from "./map/topology-map";
@@ -234,6 +237,18 @@ export function App(): React.ReactElement {
                     <E2eRunView data={data} promotion={promotionData} />
                   )}
                 </PlaneSection>
+              </Tab>
+              <Tab
+                eventKey="delivery"
+                title={
+                  <TabTitleText>
+                    <FormattedMessage {...deliveryMessages.tabTitle} />
+                  </TabTitleText>
+                }
+              >
+                {/* Mounted only while selected, so the delivery plane is polled
+                    only when someone is looking at it. */}
+                {activeTab === "delivery" ? <DeliveryTab /> : null}
               </Tab>
             </Tabs>
           </StackItem>

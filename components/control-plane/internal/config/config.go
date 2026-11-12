@@ -178,9 +178,7 @@ type Config struct {
 	CIProviderResyncInterval time.Duration
 
 	// Helm chart configuration
-	HelmChartPath     string
-	HelmChartRegistry string
-	HelmChartVersion  string
+	HelmChartPath string
 
 	// GatewayDatabaseAdminDir is the directory holding the mounted PostgreSQL
 	// admin credentials for gateway database provisioning. Sourced from
@@ -199,6 +197,7 @@ type Config struct {
 	// GATEWAY_SANDBOX_RUNTIME_CLASS; empty string uses the cluster default (runc).
 	// Set to "kata" or "kata-remote" for hardware-enforced VM isolation.
 	SandboxRuntimeClass string
+	OperatorWorkspace   *helm.OperatorWorkspaceConfig
 
 	// OperatorNamespaceLabelKey is the administrator-approved label KEY the
 	// external operator sets on an operator-mode gateway's tenant namespaces. The
@@ -231,6 +230,19 @@ type Config struct {
 	// code, so moving the fleet between modes needs no code change. Sourced from
 	// HYPERSHELL_CI_TOKEN_EXCHANGE_MODE; defaults to fgap-v1, the live fleet mode.
 	CITokenExchangeMode string
+
+	// CIWorkspaceProvisioningEnabled toggles gateway-side realization of a CITrust
+	// (PLAT-CITR-15): ensuring the derived workspace exists on the gateway and
+	// admitting the trust's matched identities as members over the gateway's
+	// OpenShell provisioning API. OFF by default so it rolls out by configuration;
+	// requires CITrustEnabled. Sourced from HYPERSHELL_CI_WORKSPACE_PROVISIONING_ENABLED.
+	CIWorkspaceProvisioningEnabled bool
+
+	// GatewayInsecureTLS skips TLS verification when the control plane dials a
+	// gateway's OpenShell gRPC endpoint, which is served under the self-signed
+	// openshell CA. Defaults to true (the gateway endpoint is not publicly trusted).
+	// Sourced from HYPERSHELL_GATEWAY_INSECURE.
+	GatewayInsecureTLS bool
 
 	// RepositoryImportEnabled toggles the declarative `.hypershell` import
 	// reconciler (the RepositoryReconciler). It is OFF by default: the reconciler
@@ -292,9 +304,7 @@ func Load() (*Config, error) {
 		CITrustResyncInterval:     getEnvDuration("HYPERSHELL_CI_TRUST_RESYNC_INTERVAL", 5*time.Minute),
 		CIProviderResyncInterval:  getEnvDuration("HYPERSHELL_CI_PROVIDER_RESYNC_INTERVAL", 5*time.Minute),
 
-		HelmChartPath:     getEnv("HELM_CHART_PATH", "/charts/openshell.tgz"),
-		HelmChartRegistry: getEnv("HELM_CHART_REGISTRY", ""),
-		HelmChartVersion:  getEnv("HELM_CHART_VERSION", ""),
+		HelmChartPath: getEnv("HELM_CHART_PATH", "/charts/openshell.tgz"),
 
 		GatewayDatabaseAdminDir: getEnv("GATEWAY_DATABASE_ADMIN_DIR", DefaultGatewayDatabaseAdminDir),
 		SandboxRuntimeClass:     getEnv("GATEWAY_SANDBOX_RUNTIME_CLASS", ""),
@@ -302,12 +312,14 @@ func Load() (*Config, error) {
 		OperatorNamespaceLabelKey:   getEnv("GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY", ""),
 		OperatorSandboxRuntimeClass: getEnv("GATEWAY_OPERATOR_SANDBOX_RUNTIME_CLASS", ""),
 
-		CITrustEnabled:           getEnvBool("HYPERSHELL_CI_TRUST_ENABLED", false),
-		CITokenExchangeMode:      getEnv("HYPERSHELL_CI_TOKEN_EXCHANGE_MODE", CITokenExchangeModeFGAPv1),
-		RepositoryImportEnabled:  getEnvBool("HYPERSHELL_REPOSITORY_IMPORT_ENABLED", false),
-		RepositoryImportInterval: getEnvDuration("HYPERSHELL_REPOSITORY_IMPORT_INTERVAL", time.Hour),
-		GitHubAPIBase:            getEnv("HYPERSHELL_GITHUB_API_BASE", ""),
-		GitHubTokenFile:          getEnv("HYPERSHELL_GITHUB_TOKEN_FILE", ""),
+		CITrustEnabled:                 getEnvBool("HYPERSHELL_CI_TRUST_ENABLED", false),
+		CITokenExchangeMode:            getEnv("HYPERSHELL_CI_TOKEN_EXCHANGE_MODE", CITokenExchangeModeFGAPv1),
+		CIWorkspaceProvisioningEnabled: getEnvBool("HYPERSHELL_CI_WORKSPACE_PROVISIONING_ENABLED", false),
+		GatewayInsecureTLS:             getEnvBool("HYPERSHELL_GATEWAY_INSECURE", true),
+		RepositoryImportEnabled:        getEnvBool("HYPERSHELL_REPOSITORY_IMPORT_ENABLED", false),
+		RepositoryImportInterval:       getEnvDuration("HYPERSHELL_REPOSITORY_IMPORT_INTERVAL", time.Hour),
+		GitHubAPIBase:                  getEnv("HYPERSHELL_GITHUB_API_BASE", ""),
+		GitHubTokenFile:                getEnv("HYPERSHELL_GITHUB_TOKEN_FILE", ""),
 	}
 
 	if cfg.GRPCServerAddr == "" {
@@ -341,9 +353,16 @@ func Load() (*Config, error) {
 		cfg.GatewayResources = &rr
 	}
 
-	// Validate Helm configuration
-	if cfg.HelmChartRegistry != "" && cfg.HelmChartVersion == "" {
-		return nil, fmt.Errorf("HELM_CHART_VERSION is required when HELM_CHART_REGISTRY is set")
+	if v := os.Getenv("GATEWAY_OPERATOR_WORKSPACE"); v != "" {
+		workspace, err := helm.ParseOperatorWorkspace(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid GATEWAY_OPERATOR_WORKSPACE: %w", err)
+		}
+		if cfg.OperatorNamespaceLabelKey != "" && cfg.OperatorNamespaceLabelKey != workspace.NamespaceLabelKey {
+			return nil, fmt.Errorf("GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY must match GATEWAY_OPERATOR_WORKSPACE.namespaceLabelKey")
+		}
+		cfg.OperatorNamespaceLabelKey = workspace.NamespaceLabelKey
+		cfg.OperatorWorkspace = workspace
 	}
 
 	// The CI token-exchange authorization mode is config-driven (PLAT-CITR-08); an

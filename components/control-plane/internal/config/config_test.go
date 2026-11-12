@@ -323,3 +323,42 @@ func TestLoadCITokenExchangeMode(t *testing.T) {
 		}
 	})
 }
+
+// Verifies: OSG-OPWS-08.02, OSG-OPWS-08.04
+func TestLoadOperatorWorkspaceTrust(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		raw       string
+		label     string
+		wantError bool
+	}{
+		{name: "invalid JSON", raw: `{`, wantError: true},
+		{name: "invalid label", raw: `{"namespaceLabelKey":"*","allowedPodLabels":["openclaw.dev/*"]}`, wantError: true},
+		{name: "JSON supplies label"},
+		{name: "matching labels", label: "hypershell.io/gateway"},
+		{name: "conflicting labels", label: "other.example/gateway", wantError: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			setRequiredEnv(t)
+			raw := tc.raw
+			if raw == "" {
+				raw = `{"namespaceLabelKey":"hypershell.io/gateway","allowedPodLabels":["openclaw.dev/*"]}`
+			}
+			t.Setenv("GATEWAY_OPERATOR_WORKSPACE", raw)
+			t.Setenv("GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY", tc.label)
+			cfg, err := Load()
+			if tc.wantError {
+				if err == nil || !strings.Contains(err.Error(), "GATEWAY_OPERATOR_WORKSPACE") {
+					t.Fatalf("Load() error = %v, want operator workspace configuration error", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.OperatorWorkspace == nil || cfg.OperatorNamespaceLabelKey != cfg.OperatorWorkspace.NamespaceLabelKey {
+				t.Fatal("namespace discovery and deletion must use the validated workspace label")
+			}
+		})
+	}
+}

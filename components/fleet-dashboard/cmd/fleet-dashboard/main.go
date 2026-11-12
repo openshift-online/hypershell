@@ -78,10 +78,12 @@ func run(logger *slog.Logger) error {
 	// The lock resolver doubles as the release-history source: it already caches
 	// per-commit bundle resolutions, so walking the lock's commit history for the
 	// previously-deployed freight cards reuses that cache.
+	var lockResolver *sources.GitHubLockResolver
 	var versioner sources.VersionResolver
 	var hydratedVersioner sources.HydratedVersionResolver
 	var history sources.ReleaseHistory
 	if lr := sources.NewGitHubLockResolver(cfg); lr != nil {
+		lockResolver = lr
 		versioner = lr
 		hydratedVersioner = lr
 		history = lr
@@ -134,6 +136,25 @@ func run(logger *slog.Logger) error {
 		logger.Info("e2e run visibility enabled", "tenants", cfg.E2ELokiTenants, "window", cfg.E2EHistoryWindow, "limit", cfg.E2ERecentRunLimit)
 	}
 
+	// Delivery pipeline visibility (fleet-dashboard-delivery-pipeline.spec). Opt-in
+	// on FD_DELIVERY_BUNDLE_REPOSITORY. It reuses the shared lock timeline and
+	// bundle-window rule (FLT-DLV-06) and the cached promotion plane; the shared
+	// pieces stay nil when the GitOps repository is not configured, and the
+	// GitOps-fed stages then read Unknown.
+	var deliverySrc *cache.Source
+	var lockTimeline sources.LockTimeline
+	if lockResolver != nil {
+		lockTimeline = lockResolver
+	}
+	var windower sources.BundleWindower
+	if githubBundles != nil {
+		windower = githubBundles
+	}
+	if dl := sources.NewDelivery(cfg, lockTimeline, windower, promotionSrc); dl != nil {
+		deliverySrc = cache.NewSource("delivery", cfg.RefreshDelivery, dl.Delivery, metrics.Observe)
+		logger.Info("delivery pipeline visibility enabled", "refresh", cfg.RefreshDelivery, "window", cfg.DeliveryWindow)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -143,6 +164,9 @@ func run(logger *slog.Logger) error {
 	}
 	if e2eSrc != nil {
 		srcs = append(srcs, e2eSrc)
+	}
+	if deliverySrc != nil {
+		srcs = append(srcs, deliverySrc)
 	}
 	for _, s := range srcs {
 		go s.Run(ctx)
@@ -157,6 +181,7 @@ func run(logger *slog.Logger) error {
 		SDLC:       sdlcSrc,
 		E2ERuns:    e2eSrc,
 		E2E:        e2ePlane,
+		Delivery:   deliverySrc,
 	}
 	authn := auth.New(cfg, kube.Clientset)
 
