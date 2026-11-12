@@ -174,11 +174,12 @@ jobs:
           [ -n "$GW_ID" ] || { echo "could not resolve gateway id for $GW_NAME" >&2; exit 1; }
           echo "name=$GW_NAME" >> "$GITHUB_OUTPUT"; echo "id=$GW_ID" >> "$GITHUB_OUTPUT"
           echo "Gateway $GW_NAME ($GW_ID) requested."
-          # ITERATE: poll readiness.
+          # Poll readiness. Resilient: a transient get/jq failure must not abort
+          # the job under set -e, so default to "" and keep polling.
           for i in $(seq 1 60); do
-            st="$(hsctl get gateway "$GW_ID" -o json 2>/dev/null | jq -r '.status // .phase // ""')"
-            echo "  gateway status: ${st:-?}"
-            case "$st" in Ready|Healthy|Running|ready|healthy) break;; esac
+            st="$(hsctl get gateway "$GW_ID" -o json 2>/dev/null | jq -r '.status // .phase // ""' 2>/dev/null || echo "")"
+            echo "  t=$((i*15))s gateway status: ${st:-?}"
+            case "$st" in Ready|Healthy|Running|ready|healthy|active|Active|Provisioned|provisioned) echo "gateway ready"; break;; esac
             sleep 15
           done
 
