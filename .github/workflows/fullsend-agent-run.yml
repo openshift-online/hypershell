@@ -156,12 +156,26 @@ jobs:
           printf '%s' "${ACCESS}" | hsctl login --token-file /dev/stdin --url "${HYPERSHELL_API_URL}"
           hsctl whoami 2>&1 | head -5 || true
 
-      - name: Create gateway + admin SA (both on the fresh keyless token)
+      - name: Create gateway + admin SA (keyless, re-auth as needed)
         id: gw
         run: |
           set -euo pipefail
-          # The keyless exchanged token is short-lived (~5 min), so do BOTH
-          # keyless-API operations back-to-back here, before the readiness wait.
+          # Keyless hsctl login via OIDC->exchange. Re-callable: the exchanged token
+          # is ~5 min, and an operator gateway can take longer than that to become
+          # ready for SA provisioning, so we refresh mid-retry.
+          relogin() {
+            local tok access
+            tok="$(curl -sS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${FLEET_AUD}" | jq -r '.value')"
+            access="$(curl -sS -X POST "${KEYCLOAK_URL}/realms/${REALM}/protocol/openid-connect/token" \
+              -d 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange' \
+              -d "client_id=${REQUESTER}" -d "subject_token=${tok}" -d "subject_issuer=${IDP_ALIAS}" \
+              -d 'subject_token_type=urn:ietf:params:oauth:token-type:jwt' | jq -r '.access_token // empty')"
+            [ -n "$access" ] || { echo "re-exchange failed" >&2; return 1; }
+            echo "::add-mask::$access"
+            printf '%s' "$access" | hsctl login --token-file /dev/stdin --url "${HYPERSHELL_API_URL}" >/dev/null
+          }
+          relogin
           GW_NAME="ci-${GITHUB_RUN_ID}"
           sel="$(printf '%s' "${GATEWAY_PLACEMENT}" | jq -R 'split(",")')"
           # operator workspace mode: fullsend provider-profile v2 + agent-workspace
@@ -175,22 +189,22 @@ jobs:
           GW_ID="$(hsctl list gateways -o json 2>/dev/null | jq -r --arg n "$GW_NAME" '(.items//.)[] | select(.name==$n) | .id' | head -1)"
           [ -n "$GW_ID" ] || { echo "could not resolve gateway id for $GW_NAME" >&2; exit 1; }
           echo "name=$GW_NAME" >> "$GITHUB_OUTPUT"; echo "id=$GW_ID" >> "$GITHUB_OUTPUT"
-          echo "Gateway $GW_NAME ($GW_ID) created; minting admin SA on the same token..."
-          # SA provisioning 409s until the gateway is ready (~2 min). Retry on the
-          # same (still-valid, ~5 min TTL) token, capped ~3.5 min so we stay inside it.
+          echo "Gateway $GW_NAME ($GW_ID) created; minting admin SA (operator gw can take minutes)..."
+          # Retry SA create until the operator gateway is ready, capped ~10 min,
+          # re-logging in every ~2 min so the keyless token never expires mid-wait.
           sa_ok=false
-          for i in $(seq 1 14); do
+          for i in $(seq 1 40); do
             if hsctl create serviceAccount --gateway-id "$GW_ID" \
                  --role openshell-admin --name "ci-admin-${GITHUB_RUN_ID}" \
                  --output-file "${RUNNER_TEMP}/gw-admin.json" 2>/tmp/sa.err; then
               sa_ok=true; echo "admin SA minted at t=$((i*15))s"; break
             fi
             grep -q "gateway_not_ready" /tmp/sa.err && echo "  t=$((i*15))s gateway not ready yet..." || { echo "SA create error:"; cat /tmp/sa.err; break; }
+            [ $((i % 8)) -eq 0 ] && { echo "  refreshing keyless token..."; relogin || true; }
             sleep 15
           done
           [ "$sa_ok" = true ] || { echo "admin SA not minted (last error below)" >&2; cat /tmp/sa.err >&2; exit 1; }
           echo "admin SA bundle written. keys (redacted values):"
-          # ITERATE: confirm bundle shape (drives the openshell login below).
           jq -r 'if type=="object" then (del(.client_secret,.secret,.password) | keys) else "(non-object bundle)" end' "${RUNNER_TEMP}/gw-admin.json" 2>/dev/null || cat "${RUNNER_TEMP}/gw-admin.json" | head -c 200
 
       - name: openshell login (admin SA) + wait for gateway ready
