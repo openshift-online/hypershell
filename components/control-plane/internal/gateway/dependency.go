@@ -97,9 +97,12 @@ type DependencyDiscovery struct {
 }
 
 // NewDependencyDiscovery builds a dependency discovery backed by the given
-// discovery client. The controller shares one instance across its reconcilers so
-// exposure setup, gateway provisioning, health checks, and managed-cluster
-// reconciliation observe a consistent dependency state.
+// discovery client. The gateway reconciler holds one instance for the controller
+// lifetime so every gateway provisioning pass refreshes feature prerequisites
+// through the same last-known-good cache (CTRL-CORE-18). The type is deliberately
+// reconciler-agnostic: a single instance can be threaded through the exposure,
+// health, and managed-cluster reconcilers as they adopt the discovery contract so
+// they observe a consistent dependency state.
 func NewDependencyDiscovery(disc discovery.DiscoveryInterface) *DependencyDiscovery {
 	return &DependencyDiscovery{
 		disc:     disc,

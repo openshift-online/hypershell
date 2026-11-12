@@ -271,10 +271,12 @@ type ReconcileOpts struct {
 	// integration (OSG-CORE-14).
 	IsOpenShift bool
 	// HasCertManager reports whether cert-manager is present, as determined by the
-	// shared dependency discovery during reconcile (OSG-TLS-01, CTRL-CORE-18). On
-	// the provisioning path ReconcileGateway sets it from a fresh discovery
-	// evaluation; on the delete path it reflects the controller's last known state
-	// and only selects which cleanup resource kinds to enumerate.
+	// shared dependency discovery during reconcile (OSG-TLS-01, CTRL-CORE-18).
+	// ReconcileGateway sets it from a fresh discovery evaluation on the
+	// provisioning path, where it selects the Helm certManager.enabled value. The
+	// delete path does not set or consume it: DeleteLabeledNamespaceResources always
+	// enumerates cert-manager GVRs and skips any whose CRD is absent (IsNotFound),
+	// so cleanup no longer depends on a captured capability flag (CTRL-CORE-17).
 	HasCertManager bool
 	// Dependencies is the shared, refreshable dependency-discovery contract
 	// (CTRL-CORE-18) used to evaluate feature prerequisites (cert-manager, Gateway
