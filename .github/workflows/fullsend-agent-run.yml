@@ -156,56 +156,47 @@ jobs:
           printf '%s' "${ACCESS}" | hsctl login --token-file /dev/stdin --url "${HYPERSHELL_API_URL}"
           hsctl whoami 2>&1 | head -5 || true
 
-      - name: Create + own a disposable gateway
+      - name: Create gateway + admin SA (both on the fresh keyless token)
         id: gw
         run: |
           set -euo pipefail
+          # The keyless exchanged token is short-lived (~5 min), so do BOTH
+          # keyless-API operations back-to-back here, before the readiness wait.
           GW_NAME="ci-${GITHUB_RUN_ID}"
-          # ITERATE: declarative placement-based create (control plane resolves
-          # cluster + platform-managed TLS). Matches .hypershell/base/platform/gateway.yaml.
           sel="$(printf '%s' "${GATEWAY_PLACEMENT}" | jq -R 'split(",")')"
           manifest="$(jq -nc --arg n "$GW_NAME" --argjson sel "$sel" \
             '{apiVersion:"hypershell.redhat.io/v1", kind:"Gateway",
               metadata:{name:$n},
               spec:{placement:{selector:$sel}}}')"
           echo "$manifest" | hsctl apply -f - -o json || { echo "gateway apply failed" >&2; exit 1; }
-          # Resolve the gateway id by name.
           GW_ID="$(hsctl list gateways -o json 2>/dev/null | jq -r --arg n "$GW_NAME" '(.items//.)[] | select(.name==$n) | .id' | head -1)"
           [ -n "$GW_ID" ] || { echo "could not resolve gateway id for $GW_NAME" >&2; exit 1; }
           echo "name=$GW_NAME" >> "$GITHUB_OUTPUT"; echo "id=$GW_ID" >> "$GITHUB_OUTPUT"
-          echo "Gateway $GW_NAME ($GW_ID) requested."
-          # Poll readiness, capped at ~5 min, then PROCEED regardless (the SA /
-          # openshell steps are the real gate). Resilient under set -e. Logs the raw
-          # status each tick so we can see the value the owner's view reports.
-          for i in $(seq 1 20); do
-            st="$(hsctl get gateway "$GW_ID" -o json 2>/dev/null | jq -r '.status // .phase // ""' 2>/dev/null || echo "")"
-            echo "  t=$((i*15))s gateway status: ${st:-?}"
-            case "$st" in Ready|Healthy|Running|ready|healthy|active|Active|Provisioned|provisioned) echo "gateway ready"; break;; esac
-            sleep 15
-          done
-          echo "proceeding (gateway create done; readiness is best-effort)."
-
-      - name: Mint an openshell-admin service account on the gateway
-        id: sa
-        run: |
-          set -euo pipefail
-          hsctl create serviceAccount --gateway-id "${{ steps.gw.outputs.id }}" \
+          echo "Gateway $GW_NAME ($GW_ID) created; minting admin SA on the same token..."
+          hsctl create serviceAccount --gateway-id "$GW_ID" \
             --role openshell-admin --name "ci-admin-${GITHUB_RUN_ID}" \
             --output-file "${RUNNER_TEMP}/gw-admin.json"
-          echo "admin SA bundle written (secret redacted)."
-          # ITERATE: confirm the bundle shape and how openshell consumes it below.
-          jq -r 'del(.client_secret, .secret) | keys' "${RUNNER_TEMP}/gw-admin.json" 2>/dev/null || true
+          echo "admin SA bundle written. keys (redacted values):"
+          # ITERATE: confirm bundle shape (drives the openshell login below).
+          jq -r 'if type=="object" then (del(.client_secret,.secret,.password) | keys) else "(non-object bundle)" end' "${RUNNER_TEMP}/gw-admin.json" 2>/dev/null || cat "${RUNNER_TEMP}/gw-admin.json" | head -c 200
 
-      - name: openshell login to the gateway (admin SA)
+      - name: openshell login (admin SA) + wait for gateway ready
         run: |
           set -euo pipefail
-          # ITERATE: exact openshell login-with-service-account command. The SA bundle
-          # holds the gateway's OIDC client id + secret + endpoint; openshell uses
-          # client-credentials. Adjust to the installed CLI's import/login verb.
+          # ITERATE: exact openshell login-with-service-account verb + bundle fields.
+          # SA creds are client-credentials (re-mintable), so this leg is not subject
+          # to the keyless-token expiry that gates the create step.
           export OPENSHELL_GATEWAY_INSECURE=true
-          openshell gateway add --from-service-account "${RUNNER_TEMP}/gw-admin.json" 2>/dev/null \
+          openshell gateway add --from-service-account "${RUNNER_TEMP}/gw-admin.json" 2>&1 | head -20 \
             || echo "ITERATE: adjust openshell SA login for this CLI version"
-          openshell whoami 2>&1 | head -5 || true
+          # Wait for the gateway to answer (pods come up in ~2 min), capped ~6 min.
+          ready=false
+          for i in $(seq 1 24); do
+            if openshell -g "${{ steps.gw.outputs.name }}" status >/dev/null 2>&1; then ready=true; echo "gateway answering at t=$((i*15))s"; break; fi
+            sleep 15
+          done
+          openshell -g "${{ steps.gw.outputs.name }}" whoami 2>&1 | head -5 || true
+          [ "$ready" = true ] || echo "ITERATE: gateway did not answer openshell status within cap; proceeding"
 
       - name: Run the agent (fullsend run)
         env:
@@ -230,6 +221,18 @@ jobs:
         if: always() && steps.gw.outputs.id != ''
         run: |
           set +e
+          # The keyless token from earlier is expired by now (~5 min TTL), so
+          # re-mint OIDC -> re-exchange -> hsctl login before deleting.
+          tok="$(curl -sS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${FLEET_AUD}" | jq -r '.value')"
+          access="$(curl -sS -X POST "${KEYCLOAK_URL}/realms/${REALM}/protocol/openid-connect/token" \
+            -d 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange' \
+            -d "client_id=${REQUESTER}" -d "subject_token=${tok}" -d "subject_issuer=${IDP_ALIAS}" \
+            -d 'subject_token_type=urn:ietf:params:oauth:token-type:jwt' | jq -r '.access_token // empty')"
+          if [ -n "$access" ]; then
+            echo "::add-mask::$access"
+            printf '%s' "$access" | hsctl login --token-file /dev/stdin --url "${HYPERSHELL_API_URL}"
+          fi
           hsctl delete gateway "${{ steps.gw.outputs.id }}"
           echo "Teardown requested for gateway ${{ steps.gw.outputs.id }} (exit $?)."
 
