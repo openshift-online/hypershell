@@ -4,7 +4,7 @@
 **Status:** Draft
 **Tracks:** [Issue #1000](https://github.com/openshift-online/hypershell/issues/1000) - One-shot automatic default-workspace membership bootstrap
 **Parent:** `gateway-access-management.spec.md` and `openshell-gateway-service-accounts.spec.md`
-**Related:** `openshell-gateway-keycloak.spec.md`, `openshell-gateway-oidc.spec.md`, `security/rbac-enforcement.spec.md`, and `registered-users.spec.md`
+**Related:** [Issue #976](https://github.com/openshift-online/hypershell/issues/976) - default-workspace UI feedback and opt-out; `openshell-gateway-keycloak.spec.md`, `openshell-gateway-oidc.spec.md`, `security/rbac-enforcement.spec.md`, and `registered-users.spec.md`
 
 ---
 
@@ -30,9 +30,10 @@ This specification supersedes the desired-state and control-plane reconciliation
 | --- | --- |
 | Is workspace membership desired state? | No. HyperShell makes one `AddMember` call and does not reconcile membership afterward. |
 | Which workspace receives the bootstrap? | Only the gateway's reserved OpenShell `default` workspace. |
-| Which identities are eligible? | Human users granted the gateway `user` tier and OpenShellGatewayServiceAccounts created with `openshell-user`, unless the gateway-access request explicitly opts out. |
+| Which identities are eligible? | Human users granted the gateway `user` tier and OpenShellGatewayServiceAccounts created with `openshell-user`, unless the originating request explicitly opts out. |
 | Which identities are excluded? | Gateway owners, gateway admins, and `openshell-admin` service accounts. |
 | Which credentials call OpenShell? | The gateway's persistent HyperShell-owned bootstrap admin identity. |
+| Can a caller opt out of provisioning the gateway bootstrap admin? | No. Every gateway receives a persistent bootstrap admin. The opt-out applies only to default-workspace membership for an eligible user or `openshell-user` service account. |
 | What happens if the identity is already a member? | HyperShell treats the OpenShell response as success. |
 | What happens if OpenShell rejects the add? | The originating request fails and does not report the access grant or service account as ready. |
 | Does HyperShell remove membership later? | No. Revoke, role change, expiration, service-account deletion, and manual OpenShell changes do not trigger HyperShell membership removal. |
@@ -156,6 +157,8 @@ This requirement applies only when the gateway has a completed `DefaultWorkspace
 
 When a caller creates an OpenShellGatewayServiceAccount with role `openshell-user`, HyperShell SHALL call OpenShell `v1 AddMember` for the gateway's `default` workspace with role `user` and the service account's stable subject.
 
+The service-account create API MAY set `skip_default_workspace_bootstrap` to `true`. When set, HyperShell SHALL NOT call `AddMember` for that service account.
+
 HyperShell SHALL NOT call `AddMember` for an OpenShellGatewayServiceAccount created with role `openshell-admin`.
 
 The originating creation request SHALL NOT return success unless `AddMember` succeeds or OpenShell reports that the service-account subject is already a member of the `default` workspace.
@@ -181,6 +184,13 @@ The originating creation request SHALL NOT return success unless `AddMember` suc
 - AND OpenShell rejects the `AddMember` call
 - THEN the creation request SHALL return an error
 - AND the response SHALL NOT present the service account as ready
+
+#### Scenario: GTW-BOOT-04.04 -- Service-account creation opts out of default-workspace bootstrap
+
+- GIVEN a gateway has a gateway bootstrap admin
+- WHEN a caller creates an OpenShellGatewayServiceAccount with role `openshell-user` and `skip_default_workspace_bootstrap` set to `true`
+- THEN HyperShell SHALL NOT call `AddMember` for that service account
+- AND the creation request SHALL succeed
 
 ### Requirement: GTW-BOOT-05 -- One-Shot Semantics
 
@@ -235,7 +245,7 @@ HyperShell SHALL audit each default-workspace bootstrap attempt with:
 - Gateway ID
 - Subject
 - Subject type, either human user or OpenShellGatewayServiceAccount
-- OpenShell role, either `user` or `admin`
+- OpenShell role `user`
 - Outcome
 - Correlation ID
 
@@ -244,6 +254,7 @@ HyperShell SHALL audit bootstrap-admin creation and gateway-deletion cleanup fai
 Tests SHALL cover:
 
 - Human `user` grant bootstrap
+- Grant and service-account opt-out
 - `openshell-user` service-account creation bootstrap
 - `openshell-admin` exclusion
 - Existing-member success
@@ -252,6 +263,7 @@ Tests SHALL cover:
 - Credential redaction
 - Existing-gateway lazy bootstrap-admin provisioning
 - Gateway-deletion cleanup and cleanup failure
+- Gateway-scoped workspace visibility enrichment for the access and service-account list APIs
 
 #### Scenario: GTW-BOOT-07.01 -- Successful bootstrap is audited
 
@@ -264,3 +276,34 @@ Tests SHALL cover:
 - GIVEN a gateway has a gateway bootstrap admin
 - WHEN OpenShell rejects an `AddMember` call
 - THEN HyperShell SHALL record an audit event with the gateway ID, subject, subject type, role `user`, failure outcome, correlation ID, and a redacted error
+
+### Requirement: GTW-BOOT-08 -- Gateway Workspace Visibility
+
+The API server SHALL enrich the gateway access list and OpenShellGatewayServiceAccount list responses with a gateway-scoped `workspaces` array. For each user-scope item, the array SHALL contain the name of every workspace in the currently shown gateway to which that identity is attached. The array SHALL NOT filter memberships by the identity's OpenShell workspace-level role.
+
+For owner, gateway-admin, and `openshell-admin` items, the API SHALL return an empty `workspaces` array; the console SHALL display **Admin** for those rows. Admin-scope presentation SHALL take precedence over any user-scope membership.
+
+The API server SHALL use the gateway bootstrap admin to retrieve workspace memberships from OpenShell. The API server SHALL assemble the list response server-side and SHALL NOT require the web console to call OpenShell directly or issue one lookup per row. The bootstrap-admin credential SHALL NOT appear in a list response, event, log, or error.
+
+If OpenShell cannot return the gateway-scoped membership data, the affected list request SHALL return a retryable error rather than an empty or incomplete `workspaces` array.
+
+#### Scenario: GTW-BOOT-08.01 -- User-scope item lists all attached workspaces
+
+- GIVEN user B has gateway role `user` on gw-1
+- AND user B belongs to gw-1 workspaces `default` and `billing`
+- WHEN an authorized caller lists gw-1 access
+- THEN user B's item SHALL contain `workspaces` with `default` and `billing`
+
+#### Scenario: GTW-BOOT-08.02 -- Admin-scope item returns no workspace list
+
+- GIVEN user C has gateway role `admin` on gw-1 and belongs to gw-1 workspace `default`
+- WHEN an authorized caller lists gw-1 access
+- THEN user C's item SHALL contain an empty `workspaces` array
+- AND the console SHALL display **Admin**
+
+#### Scenario: GTW-BOOT-08.03 -- Workspace visibility failure is explicit
+
+- GIVEN OpenShell is unavailable while the API server assembles the gw-1 access list
+- WHEN an authorized caller requests that list
+- THEN the API SHALL return a retryable error
+- AND the response SHALL NOT present an empty `workspaces` array as successful data

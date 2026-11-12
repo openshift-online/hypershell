@@ -8,6 +8,7 @@ import {
   Alert,
   Button,
   Card,
+  Checkbox,
   CardBody,
   CardHeader,
   CardTitle,
@@ -122,6 +123,7 @@ const accessGrants = [
     role: "Owner",
     subject: "00000000-1111-2222-3333-444444444444",
     username: "kim-developer",
+    workspaces: [],
   },
   {
     grantedAt: "Oct 18, 2026, 11:05 AM",
@@ -129,6 +131,7 @@ const accessGrants = [
     role: "Admin",
     subject: "11111111-2222-3333-4444-555555555555",
     username: "alex-operator",
+    workspaces: [],
   },
   {
     grantedAt: "Oct 28, 2026, 4:40 PM",
@@ -136,6 +139,7 @@ const accessGrants = [
     role: "User",
     subject: "22222222-3333-4444-5555-666666666666",
     username: "jordan-automation",
+    workspaces: ["default", "billing"],
   },
 ];
 
@@ -150,7 +154,7 @@ const serviceAccounts = [
     expiresSoon: false,
     subject: "11111111-2222-3333-4444-555555555555",
     status: "Ready",
-    workspaces: ["payments-platform"],
+    workspaces: [],
   },
   {
     clientId: "hs-sa-2222-MMMM",
@@ -786,7 +790,8 @@ function AccessTab({
               <Th sort={getSortParams(2)} width={20}>
                 Role
               </Th>
-              <Th sort={getSortParams(3)} width={20}>
+              <Th width={20}>Workspaces</Th>
+              <Th sort={getSortParams(3)} width={15}>
                 Granted
               </Th>
               <Th screenReaderText="Actions" />
@@ -821,9 +826,9 @@ function AccessTab({
                     </FlexItem>
                     {grant.role === "User" ? (
                       <FlexItem>
-                        <Tooltip content="View workspace access command">
+                        <Tooltip content="View add workspace access command">
                           <Button
-                            aria-label={`View workspace access command for ${grant.name}`}
+                            aria-label={`View add workspace access command for ${grant.name}`}
                             icon={<CodeIcon />}
                             onClick={() =>
                               onOpenWorkspaceAccess(grant.username)
@@ -834,6 +839,11 @@ function AccessTab({
                       </FlexItem>
                     ) : null}
                   </Flex>
+                </Td>
+                <Td dataLabel="Workspaces">
+                  {grant.role === "User"
+                    ? grant.workspaces.join(", ")
+                    : "Admin"}
                 </Td>
                 <Td dataLabel="Granted">{grant.grantedAt}</Td>
                 <Td isActionCell modifier="fitContent">
@@ -1005,10 +1015,11 @@ function ServiceAccountsTab({
               <Th sort={getSortParams(1)} width={15}>
                 OpenShell role
               </Th>
-              <Th sort={getSortParams(2)} width={15}>
+              <Th width={20}>Workspaces</Th>
+              <Th sort={getSortParams(2)} width={10}>
                 Status
               </Th>
-              <Th sort={getSortParams(3)} width={30}>
+              <Th sort={getSortParams(3)} width={20}>
                 Expiration
               </Th>
               <Th screenReaderText="Actions" />
@@ -1045,6 +1056,11 @@ function ServiceAccountsTab({
                     </Tooltip>
                   </Td>
                   <Td dataLabel="OpenShell role">{account.role}</Td>
+                  <Td dataLabel="Workspaces">
+                    {account.role === "openshell-admin"
+                      ? "Admin"
+                      : account.workspaces.join(", ")}
+                  </Td>
                   <Td dataLabel="Status">
                     <HealthStatus
                       appearance={
@@ -1124,16 +1140,10 @@ function ServiceAccountsTab({
                               <StackItem>
                                 <Content component="p">
                                   This stable ID is the JWT subject (sub). Use
-                                  it to grant OpenShell workspace access.
+                                  it to add the account to another workspace.
                                 </Content>
                               </StackItem>
                             </Stack>
-                          </DescriptionListDescription>
-                        </DescriptionListGroup>
-                        <DescriptionListGroup>
-                          <DescriptionListTerm>Workspaces</DescriptionListTerm>
-                          <DescriptionListDescription>
-                            {account.workspaces.join(", ")}
                           </DescriptionListDescription>
                         </DescriptionListGroup>
                         <DescriptionListGroup>
@@ -1512,6 +1522,10 @@ function DetailDialog({
     useState("");
   const [isServiceAccountJwtExpanded, setIsServiceAccountJwtExpanded] =
     useState(false);
+  const [
+    isServiceAccountWorkspaceExpanded,
+    setIsServiceAccountWorkspaceExpanded,
+  ] = useState(false);
 
   if (modal === "rename-gateway") {
     return (
@@ -1598,6 +1612,49 @@ function DetailDialog({
                   </TextInputGroup>
                 </MenuToggle>
               </StackItem>
+              <StackItem>
+                <FormGroup fieldId="add-user-role" label="Role">
+                  <Stack hasGutter>
+                    <StackItem>
+                      <Radio
+                        id="add-user-role-user"
+                        isChecked
+                        label="User"
+                        name="add-user-role"
+                        value="user"
+                      />
+                    </StackItem>
+                    <StackItem>
+                      <Radio
+                        id="add-user-role-admin"
+                        label="Admin"
+                        name="add-user-role"
+                        value="admin"
+                      />
+                    </StackItem>
+                    <StackItem>
+                      <Radio
+                        id="add-user-role-owner"
+                        label="Owner"
+                        name="add-user-role"
+                        value="owner"
+                      />
+                    </StackItem>
+                  </Stack>
+                </FormGroup>
+              </StackItem>
+              <StackItem>
+                <Checkbox
+                  id="add-user-default-workspace"
+                  isChecked
+                  label="Automatically add this user to the default workspace"
+                />
+                <HelperText>
+                  <HelperTextItem>
+                    The default workspace is shared with other gateway users.
+                  </HelperTextItem>
+                </HelperText>
+              </StackItem>
             </Stack>
           </Form>
         </ModalBody>
@@ -1622,14 +1679,13 @@ function DetailDialog({
       : "";
     return (
       <Modal isOpen onClose={onClose} variant={ModalVariant.medium}>
-        <ModalHeader title="Grant workspace access" />
+        <ModalHeader title="Add workspace access" />
         <ModalBody>
           <Stack hasGutter>
             <StackItem>
               <Content component="p">
-                {grant?.name} has been added to payments-gateway, but they
-                cannot use it yet. Add them to a workspace inside the gateway
-                before they can sign in and run sandboxes.
+                Run this command only when automatic default-workspace
+                membership was skipped or {grant?.name} needs another workspace.
               </Content>
             </StackItem>
             <StackItem>
@@ -1744,6 +1800,18 @@ function DetailDialog({
                 </FormGroup>
               </StackItem>
               <StackItem>
+                <Checkbox
+                  id="service-account-default-workspace"
+                  isChecked
+                  label="Automatically add this service account to the default workspace"
+                />
+                <HelperText>
+                  <HelperTextItem>
+                    The default workspace is shared with other gateway users.
+                  </HelperTextItem>
+                </HelperText>
+              </StackItem>
+              <StackItem>
                 <FormGroup
                   fieldId="service-account-expiration"
                   isRequired
@@ -1846,28 +1914,36 @@ function DetailDialog({
             {account.role === "openshell-user" ? (
               <StackItem>
                 <Title headingLevel="h3" size="md">
-                  Grant workspace access
+                  Default workspace access
                 </Title>
                 <Content component="p">
-                  {account.name} has been added to payments-gateway, but it
-                  cannot use the gateway yet. Add its principal subject to a
-                  workspace inside the gateway before it can run sandboxes.
+                  Service account created. It can now use the default
+                  workspace. The default workspace is shared with other gateway
+                  users.
                 </Content>
-                <Content component="p">
-                  You can add it in the gateway console or run this command in a
-                  terminal. The command uses the default workspace; change{" "}
-                  <code>WORKSPACE_NAME</code> if it should use a different
-                  workspace.
-                </Content>
-                <div className={styles.steps}>
-                  <CommandBlock
-                    copyAriaLabel={`Copy workspace access command for ${account.name}`}
-                    copyText={workspaceMembershipCommand(
-                      account.subject,
-                      "default",
-                    )}
-                  />
-                </div>
+                <ExpandableSection
+                  isExpanded={isServiceAccountWorkspaceExpanded}
+                  onToggle={(_event, expanded) => {
+                    setIsServiceAccountWorkspaceExpanded(expanded);
+                  }}
+                  toggleText="Advanced: add to another workspace"
+                  toggleWrapper="h3"
+                >
+                  <Content component="p">
+                    Run this command only if automatic default-workspace
+                    membership was skipped or the account needs another
+                    workspace.
+                  </Content>
+                  <div className={styles.steps}>
+                    <CommandBlock
+                      copyAriaLabel={`Copy workspace access command for ${account.name}`}
+                      copyText={workspaceMembershipCommand(
+                        account.subject,
+                        "default",
+                      )}
+                    />
+                  </div>
+                </ExpandableSection>
               </StackItem>
             ) : null}
             <StackItem>
@@ -1957,7 +2033,7 @@ function DetailDialog({
                     openshell-admin
                   </SelectOption>
                   <SelectOption
-                    description="Can authenticate as openshell-user. A gateway administrator must separately add its subject to each workspace it needs."
+                    description="Can authenticate as openshell-user and is added to the default workspace unless creation opts out."
                     isSelected={editServiceAccountRole === "openshell-user"}
                     value="openshell-user"
                   >
