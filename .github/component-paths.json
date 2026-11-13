@@ -266,6 +266,6 @@
       "scripts/rh-trex-ai.ref",
       "scripts/lib/**"
     ],
-    "unit_tested": false
+    "unit_tested": true
   }
 }

@@ -125,6 +125,12 @@
       ],
       "groupName": "workspace UI peer providers",
       "automerge": true
+    },
+    {
+      "description": "Agent image inputs are compiled only by the Unit / Go - agent tools build job and the Konflux image builds. Never merge these updates without a human, even security updates, because the Konflux builds are not required checks and may be cancelled (CICD-MRG-13)",
+      "matchFileNames": ["components/agents/**"],
+      "automerge": false,
+      "platformAutomerge": false
     }
   ]
 }

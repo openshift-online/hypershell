@@ -372,6 +372,34 @@ ineligible. No paid priorities, scheduling, batching, or two-step CI are needed.
 - THEN Mergify SHALL automatically enqueue it without a manual command
 - AND a missing, pending, failed or cancelled gate SHALL prevent automatic entry
 
+### Requirement: CICD-MRG-13 -- Agent Image Inputs Are Built Before Merge
+
+The Konflux image builds cannot be required gates (CICD-MRG-10): their path
+filters mean a required check might never report, and a cancelled run does not
+block a merge. A dependency bump that breaks a tool built into the
+fullsend-sandbox image once reached `main` that way. Two controls close the gap.
+
+1. The `Unit / Go - agent tools build` job SHALL compile the `gh` and
+   `gitleaks` tool modules with `components/agents/build-tools.sh`, using the Go
+   release pinned in `Containerfile.fullsend-sandbox`. It SHALL run whenever the
+   `agents` component is selected, so it is part of the Tests CI Gate.
+2. Renovate and MintMaker SHALL NOT automerge changes under `components/agents/**`,
+   security updates included.
+
+#### Scenario: CICD-MRG-13.01 -- Broken tool dependency fails the Tests CI Gate
+
+- GIVEN a PR changes `components/agents/tools/gitleaks/go.mod`
+- WHEN the gitleaks module no longer compiles
+- THEN `Unit / Go - agent tools build` SHALL fail
+- AND the Tests CI Gate SHALL fail
+
+#### Scenario: CICD-MRG-13.02 -- Dependency bot cannot self-merge agent inputs
+
+- GIVEN a Renovate security PR changes a file under `components/agents/`
+- WHEN all required checks pass
+- THEN the bot SHALL NOT merge it
+- AND a maintainer SHALL review and merge it
+
 ## Operations
 
 Approved, green PRs become eligible automatically.

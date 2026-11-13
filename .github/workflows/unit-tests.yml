@@ -15,6 +15,9 @@ name: Unit
 on:
   workflow_call:
     inputs:
+      agents:
+        type: string
+        default: 'false'
       api_server:
         type: string
         default: 'false'
@@ -174,6 +177,33 @@ jobs:
         # Coverage reporting must never block a merge on a Codecov outage.
         continue-on-error: true
         run: bash scripts/codecov-upload.sh sdk-generator scripts/sdk-generator/coverage.out
+
+  build-agent-tools:
+    name: Go - agent tools build
+    if: inputs.agents == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Use the Go release the fullsend-sandbox image builds with, so this job
+      # fails for the same reason the image build would.
+      - name: Read Go version from the sandbox Containerfile
+        id: go-version
+        run: |
+          version="$(sed -n 's|^FROM registry.access.redhat.com/hi/go:\([0-9][0-9.]*\)@.* AS go-tools-amd64$|\1|p' components/agents/Containerfile.fullsend-sandbox)"
+          if [[ -z "${version}" ]]; then
+            echo "Could not find the go-tools-amd64 Go version in Containerfile.fullsend-sandbox" >&2
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: ${{ steps.go-version.outputs.version }}
+          cache: false
+      - name: Build gh and gitleaks like the sandbox image
+        run: bash components/agents/build-tools.sh
 
   test-bash:
     name: Shell

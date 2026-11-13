@@ -86,6 +86,7 @@ jobs:
     name: Detect changed components
     runs-on: ubuntu-24.04
     outputs:
+      agents: ${{ steps.detect.outputs.agents }}
       api_server: ${{ steps.detect.outputs.api_server }}
       bash_tests: ${{ steps.detect.outputs.bash_tests }}
       cli: ${{ steps.detect.outputs.cli }}
@@ -113,6 +114,7 @@ jobs:
     permissions:
       contents: read
     with:
+      agents: ${{ needs.detect-changes.outputs.agents }}
       api_server: ${{ needs.detect-changes.outputs.api_server }}
       bash_tests: ${{ needs.detect-changes.outputs.bash_tests }}
       cli: ${{ needs.detect-changes.outputs.cli }}
