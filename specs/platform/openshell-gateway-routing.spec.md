@@ -9,7 +9,7 @@
 
 ## Purpose
 
-This specification defines how OpenShell gateways are exposed to external clients via the **Gateway API** (GRPCRoute + BackendTLSPolicy). The control plane auto-detects Gateway API availability at startup and provisions per-tenant GRPCRoutes that attach to a pre-existing shared Gateway. An administrator provisions the Gateway as cluster infrastructure (similar to a GatewayClass).
+This specification defines how OpenShell gateways are exposed to external clients via the **Gateway API** (GRPCRoute + BackendTLSPolicy). The control plane evaluates Gateway API availability through the shared, refreshable dependency discovery ([`control-plane.spec.md`](./control-plane.spec.md), CTRL-CORE-18) and, when the prerequisite resources are present (OSG-ROUT-02), provisions per-tenant GRPCRoutes that attach to a pre-existing shared Gateway. An administrator provisions the Gateway as cluster infrastructure (similar to a GatewayClass).
 
 ---
 
@@ -117,7 +117,7 @@ through the create-only `dedicated_route` request field
 ([`data-model.spec.md`](./data-model.spec.md), "Requirement: Gateway Dedicated Route
 Request Field", PLAT-DATA-26): when a create sets `dedicated_route = true` and
 authors no `route`, the API server translates the request into exactly this opt-in
-(`route = {"enabled": true, "certificate": {}}`) as a server-applied create
+(`route = {"certificate": {}}`) as a server-applied create
 default. The translation is provision-time only (the flag is create-only and
 immutable afterwards), gated on the `gateway:dedicated-route-creator` entitlement
 or `platform:admin`
@@ -208,7 +208,7 @@ Readiness for an opted-in Gateway SHALL be observed from the per-tenant Gateway 
   a caller holding the `gateway:dedicated-route-creator` entitlement (or
   `platform:admin`)
 - WHEN the API server processes the create
-- THEN the persisted Gateway SHALL carry `route = {"enabled": true, "certificate": {}}`
+- THEN the persisted Gateway SHALL carry `route = {"certificate": {}}`
 - AND the control plane SHALL reconcile it exactly as a Gateway authored with
   `route: { certificate: {} }`, creating the same per-gateway resources
 
@@ -678,7 +678,7 @@ the reconcile pass retries, rather than being logged and discarded.
 | Gateway pods Ready and the shared Gateway already `Programmed=True`, but phase stays `Provisioning` (not `Running`) | This gateway's own `GRPCRoute` has not yet been accepted by the shared Gateway (e.g. a Helm apply retry is still in flight), or `routeAddress` has not yet been published | `oc get grpcroute -n <tenant-ns> openshell-gateway -o yaml`; inspect `status.parents` for `Accepted`/`ResolvedRefs`, and check the Gateway resource's `routeAddress` field |
 | `status.parents` already shows `Accepted: "True"` right after a Helm retry re-applies the route, but phase stays `Provisioning` | The condition's `observedGeneration` is behind the GRPCRoute's current `metadata.generation`; the controller has not yet re-stamped it for the new generation | `oc get grpcroute -n <tenant-ns> openshell-gateway -o jsonpath='{.metadata.generation}'` and compare against `status.parents[*].conditions[*].observedGeneration`; wait for them to match rather than trusting the pre-reapply `True` (see OSG-ROUT-08) |
 | `GATEWAY_API_GATEWAY_NAME is required` error | Env var not set on controller | Set `GATEWAY_API_GATEWAY_NAME` to the pre-existing Gateway name |
-| `peer sent no certificates` in gateway logs, client gets `upstream connect error or disconnect/reset before headers` | Gateway requires client certs (mTLS) but ingress proxy cannot present them | Verify `route.enabled` is true -- in Gateway API routing mode the reconciler sets `server.tls.enableMtls=false`; other modes keep the chart default (see TLS spec) |
+| `peer sent no certificates` in gateway logs, client gets `upstream connect error or disconnect/reset before headers` | Gateway requires client certs (mTLS) but ingress proxy cannot present them | Verify the gateway is reconciled in Gateway API routing mode the reconciler sets `server.tls.enableMtls=false`; other modes keep the chart default (see TLS spec) |
 | WebSocket upgrade over a dedicated route returns `503` `upstream connect error or disconnect/reset before headers. reset reason: remote reset` while plain HTTP returns `200` | The sandbox HTTPRoute points at an `appProtocol: grpc` (HTTP/2) backend port; HTTP/2 cannot carry a WebSocket upgrade | Point the sandbox HTTPRoute at the Service's `http` port (`appProtocol: http`); see OSG-ROUT-13 |
 
 ---

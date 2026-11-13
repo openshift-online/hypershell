@@ -543,10 +543,10 @@ data-plane gRPC traffic.
 - AND the route hostname SHALL be `gw-<tenant>.<base-domain>` under the shared listener's wildcard
 - AND it SHALL NOT create an OpenShift `Route` for gRPC data-plane traffic
 
-#### Scenario: PLAT-ARCH-05.02 -- Disabling the route or deleting the gateway removes the routing objects
+#### Scenario: PLAT-ARCH-05.02 -- Deleting the gateway removes the routing objects
 
 - GIVEN a provisioned tenant gateway with a `GRPCRoute` and `BackendTLSPolicy`
-- WHEN the gateway's route is disabled (`route.enabled=false`) or the gateway is deleted
+- WHEN the gateway is deleted
 - THEN the control plane SHALL delete the tenant's `GRPCRoute` and `BackendTLSPolicy`
 - AND it SHALL clear the gateway's route address
 
@@ -890,14 +890,15 @@ The hub cluster SHALL run Grafana with dashboards for fleet-wide gateway health,
 
 ## Managed Cluster Flexibility
 
-Managed clusters are not restricted to OpenShift. Standard Kubernetes distributions (EKS, GKE, vanilla K8s) are valid targets. The controller auto-detects cluster capabilities:
+Managed clusters are not restricted to OpenShift. Standard Kubernetes distributions (EKS, GKE, vanilla K8s) are valid targets. The host platform is a deployment setting, not a guess: the controller reads it from the required `HYPERSHELL_CLUSTER_PLATFORM` setting (`openshift` or `kubernetes`, see [`control-plane.spec.md`](./control-plane.spec.md), CTRL-CORE-16), and that setting alone selects platform-specific pod security and SCC integration (OSG-CORE-14). A discovery failure in an unrelated API SHALL NOT change the platform type.
 
-| Capability | Detection | Behavior when absent |
+Feature dependencies are distinct from the platform and are resolved at runtime through the shared, refreshable dependency discovery (CTRL-CORE-18), which reports each required group/version/resource as present, confirmed absent, or unknown/unavailable. The controller starts its health reporting and reconciliation machinery independently of dependency availability (CTRL-CORE-17), and each feature reconciles according to its own prerequisites with bounded retries (CTRL-CORE-19), so an absent or temporarily unavailable API gates only the work that needs it:
+
+| Feature dependency | Required API | Behavior when the dependency is not available |
 |------------|-----------|---------------------|
-| OpenShift | `route.openshift.io` API group | Skip the SCC binding and OpenShift security-context overrides |
-| cert-manager | `cert-manager.io` API group | Block deployment (required) |
-| Gateway API | `gateway.networking.k8s.io/v1` GRPCRoute | Skip GRPCRoute/BackendTLSPolicy |
-| Agent Sandbox CRD | `agents.x-k8s.io` | Sandbox creation blocked |
+| cert-manager | `cert-manager.io` API group | TLS-dependent gateway work reports a prerequisite condition (confirmed absent) or waits with bounded retry (unknown/unavailable); independent work continues (OSG-TLS-01) |
+| Gateway API | `gateway.networking.k8s.io/v1` GRPCRoute | Configured ingress work reports a prerequisite condition or waits with bounded retry, and resumes when the resources appear (OSG-ROUT-02) |
+| Agent Sandbox CRD | `agents.x-k8s.io` | Sandbox-dependent work waits on its prerequisite while the controller keeps running |
 
 ## GitOps Repository Structure
 

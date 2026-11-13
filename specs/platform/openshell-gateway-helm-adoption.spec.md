@@ -179,7 +179,7 @@ The GatewayReconciler SHALL translate Gateway resource fields and cluster-derive
 | `true` | `serviceAccount.create` | Chart creates gateway SA |
 | `true` | `sandboxServiceAccount.create` | Chart creates sandbox SA |
 | `false` | `networkPolicy.enabled` | Disabled -- see NetworkPolicy Decision below |
-| cert-manager detected | `certManager.enabled` | Auto-detect at startup |
+| cert-manager present | `certManager.enabled` | Resolved through the shared, refreshable dependency discovery (CTRL-CORE-18); TLS-dependent work is gated per OSG-TLS-01 |
 | DB credentials Secret name | `server.externalDbSecret` | `openshell-gateway-db-credentials` |
 | Trusted CA ConfigMap name | `server.oidc.caConfigMapName` | `gateway-trusted-ca` (when present) |
 
@@ -208,7 +208,7 @@ Set based on the Gateway's credential driver configuration.
 
 #### Ingress Values (conditional)
 
-Set only when the Gateway has route configuration enabled.
+Set for every gateway; every gateway is routed.
 
 The control plane exposes every routed gateway through the Gateway API.
 
@@ -232,12 +232,12 @@ The shared Gateway terminates external TLS with its admin-provisioned wildcard c
 
 #### OpenShift Values (conditional)
 
-Set only when the target cluster is detected as OpenShift.
+Set only when the configured platform is OpenShift (`HYPERSHELL_CLUSTER_PLATFORM=openshift`, see [`control-plane.spec.md`](./control-plane.spec.md), CTRL-CORE-16 and OSG-CORE-14). This is driven by the configured platform, not by API discovery.
 
-| Platform Detection | Helm Value | Notes |
+| Configured Platform | Helm Value | Notes |
 |---|---|---|
-| OpenShift detected | `podSecurityContext.fsGroup=null` | Let SCC assign |
-| OpenShift detected | `securityContext.runAsUser=null` | Let SCC assign |
+| `HYPERSHELL_CLUSTER_PLATFORM=openshift` | `podSecurityContext.fsGroup=null` | Let SCC assign |
+| `HYPERSHELL_CLUSTER_PLATFORM=openshift` | `securityContext.runAsUser=null` | Let SCC assign |
 
 #### Scenario: OSG-HELM-03.01 -- Values computation
 

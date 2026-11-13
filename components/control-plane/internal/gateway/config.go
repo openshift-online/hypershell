@@ -212,8 +212,7 @@ type KubernetesSecretsConfig struct {
 }
 
 type RouteConfig struct {
-	Host    string `yaml:"host" json:"host,omitempty"`
-	Enabled bool   `yaml:"enabled" json:"enabled,omitempty"`
+	Host string `yaml:"host" json:"host,omitempty"`
 	// Certificate opts the gateway in to the dedicated per-gateway certificate
 	// provisioning path (route.certificate: {} in the route JSONB): the gateway
 	// gets its own wildcard certificate and Gateway API route instead of riding
@@ -249,11 +248,6 @@ type OIDCConfig struct {
 // is provided by the top-level reconciler which owns the gRPC connection.
 type RouteAddressUpdater func(ctx context.Context, routeAddress string) error
 
-// ConsoleAddressUpdater is called by the gateway reconciler to update the
-// console_address field on the API-server Gateway resource. The implementation
-// is provided by the top-level reconciler which owns the gRPC connection.
-type ConsoleAddressUpdater func(ctx context.Context, consoleAddress string) error
-
 // KeycloakConfig holds Keycloak Admin REST API connection parameters read
 // from the hypershell-keycloak-admin Secret in the control-plane namespace.
 type KeycloakConfig struct {
@@ -264,8 +258,26 @@ type KeycloakConfig struct {
 }
 
 type ReconcileOpts struct {
-	IsOpenShift    bool
+	// IsOpenShift reports whether the configured host platform is OpenShift
+	// (HYPERSHELL_CLUSTER_PLATFORM=openshift, CTRL-CORE-16). It comes from
+	// deployment configuration, NOT from API discovery, so it stays stable through
+	// discovery failures and selects platform-specific pod security and SCC
+	// integration (OSG-CORE-14).
+	IsOpenShift bool
+	// HasCertManager reports whether cert-manager is present, as determined by the
+	// shared dependency discovery during reconcile (OSG-TLS-01, CTRL-CORE-18).
+	// ReconcileGateway sets it from a fresh discovery evaluation on the
+	// provisioning path, where it selects the Helm certManager.enabled value. The
+	// delete path does not set or consume it: DeleteLabeledNamespaceResources always
+	// enumerates cert-manager GVRs and skips any whose CRD is absent (IsNotFound),
+	// so cleanup no longer depends on a captured capability flag (CTRL-CORE-17).
 	HasCertManager bool
+	// Dependencies is the shared, refreshable dependency-discovery contract
+	// (CTRL-CORE-18) used to evaluate feature prerequisites (cert-manager, Gateway
+	// API) per reconcile. When nil, ReconcileGateway builds a per-call instance
+	// from the clientset's discovery client, so tests and legacy callers keep
+	// working.
+	Dependencies *DependencyDiscovery
 	// Database locates the mounted PostgreSQL admin credentials every gateway
 	// database is provisioned with (see database.go).
 	Database DatabaseConfig
@@ -281,9 +293,6 @@ type ReconcileOpts struct {
 	// UpdateRouteAddress is an optional callback that PATCHes the route_address
 	// field on the API-server Gateway.  Nil means no update will be attempted.
 	UpdateRouteAddress RouteAddressUpdater
-	// UpdateConsoleAddress is an optional callback that PATCHes the console_address
-	// field on the API-server Gateway. Nil means no update will be attempted.
-	UpdateConsoleAddress ConsoleAddressUpdater
 	// Keycloak holds the Keycloak Admin REST API configuration. It is required
 	// to provision a gateway; it is nil only on delete paths that do not need it.
 	Keycloak *KeycloakConfig
@@ -299,12 +308,12 @@ type ReconcileOpts struct {
 	// address. Nil when no exposure backend is configured (e.g. clusters without
 	// the Gateway API), in which case no route address is published.
 	Exposure exposure.Port
-	// RouteStillDesired, when set, reports whether the Gateway is still routed
-	// according to its current API-server record (false if it has since been
-	// un-routed or deleted). The provisioning path calls it after the potentially
-	// long TLS-secret wait, before creating the remaining route- and console-owned
-	// resources, so an in-flight pass does not recreate them behind a concurrent
-	// health-loop teardown. Nil disables the re-check (the pass proceeds).
+	// RouteStillDesired, when set, reports whether the Gateway still exists
+	// according to its current API-server record (false once it has been deleted).
+	// The provisioning path calls it after the potentially long TLS-secret wait,
+	// before creating the remaining route- and console-owned resources, so an
+	// in-flight pass does not recreate them behind a concurrent deletion. Nil
+	// disables the re-check (the pass proceeds).
 	RouteStillDesired func(ctx context.Context) (bool, error)
 	// ReportProgress is called at provisioning step boundaries to report
 	// condition transitions. Nil means no reporting (progress is silently

@@ -25,6 +25,21 @@ const DefaultGatewayDatabaseAdminDir = "/etc/hypershell/gateway-database"
 // specs/platform/gateway-reconcile-concurrency.spec.md.
 const DefaultGatewayReconcileWorkers = 4
 
+// Cluster platform values (CTRL-CORE-16). The host platform is explicit
+// deployment configuration, not something inferred from Kubernetes API
+// discovery: a discovery failure in an unrelated API must never change how the
+// control plane treats its host cluster. The configured platform selects
+// platform-specific pod security and SCC integration (OSG-CORE-14); feature
+// dependency availability (cert-manager, Gateway API) is handled separately by
+// the shared, refreshable dependency discovery (CTRL-CORE-18, CTRL-CORE-19).
+const (
+	// ClusterPlatformOpenShift selects OpenShift pod security and SCC integration.
+	ClusterPlatformOpenShift = "openshift"
+	// ClusterPlatformKubernetes selects the gateway chart's configured Kubernetes
+	// pod security context (Kind/local and other vanilla Kubernetes clusters).
+	ClusterPlatformKubernetes = "kubernetes"
+)
+
 // CI token-exchange authorization modes (PLAT-CITR-08). These string values match
 // keycloak.TokenExchangeMode; the string is converted at the reconciler boundary so
 // the config package stays free of a keycloak dependency.
@@ -51,6 +66,16 @@ type Config struct {
 	// See specs/platform/control-plane.spec.md ("Mandatory Cluster Identity").
 	ManagedClusterName         string
 	ManagedClusterCapabilities []string
+
+	// ClusterPlatform is the host platform type this control plane runs on,
+	// sourced from the REQUIRED HYPERSHELL_CLUSTER_PLATFORM deployment setting.
+	// Accepted values are ClusterPlatformOpenShift and ClusterPlatformKubernetes;
+	// there is no default and no auto-detection fallback. The platform selects
+	// platform-specific gateway pod security and SCC integration (OSG-CORE-14);
+	// feature dependency availability is determined separately by discovery
+	// (CTRL-CORE-18, CTRL-CORE-19). An unset or invalid value fails startup.
+	// See specs/platform/control-plane.spec.md (CTRL-CORE-16).
+	ClusterPlatform string
 
 	// OIDC client credentials used both for registration and as per-RPC bearer
 	// credentials on every gRPC call (including the watch streams). All three
@@ -256,6 +281,7 @@ func Load() (*Config, error) {
 		Namespace:                        getEnv("HYPERSHELL_NAMESPACE", "hypershell"),
 		ManagedClusterName:               getEnv("HYPERSHELL_MANAGED_CLUSTER_NAME", ""),
 		ManagedClusterCapabilities:       parseCapabilities(getEnv("HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES", "")),
+		ClusterPlatform:                  strings.ToLower(strings.TrimSpace(getEnv("HYPERSHELL_CLUSTER_PLATFORM", ""))),
 		OIDCIssuer:                       getEnv("OIDC_ISSUER", ""),
 		OIDCClientID:                     getEnv("OIDC_CLIENT_ID", ""),
 		OIDCClientSecret:                 getEnv("OIDC_CLIENT_SECRET", ""),
@@ -348,6 +374,22 @@ func Load() (*Config, error) {
 	default:
 		return nil, fmt.Errorf("invalid HYPERSHELL_CI_TOKEN_EXCHANGE_MODE %q: want %q or %q",
 			cfg.CITokenExchangeMode, CITokenExchangeModeFGAPv1, CITokenExchangeModeV2Attribute)
+	}
+
+	// The host platform is REQUIRED deployment configuration with no default and
+	// no auto-detection fallback (CTRL-CORE-16). It is validated here, separately
+	// from API dependency availability, so a cluster is never guessed from
+	// discovery and a discovery failure cannot change the platform type. An unset
+	// or invalid value fails startup non-zero, naming the setting and its accepted
+	// values (CTRL-CORE-16.03, CTRL-CORE-16.04).
+	switch cfg.ClusterPlatform {
+	case ClusterPlatformOpenShift, ClusterPlatformKubernetes:
+	case "":
+		return nil, fmt.Errorf("HYPERSHELL_CLUSTER_PLATFORM is required: set it to %q or %q (specs/platform/control-plane.spec.md, CTRL-CORE-16)",
+			ClusterPlatformOpenShift, ClusterPlatformKubernetes)
+	default:
+		return nil, fmt.Errorf("invalid HYPERSHELL_CLUSTER_PLATFORM %q: accepted values are %q and %q (specs/platform/control-plane.spec.md, CTRL-CORE-16)",
+			cfg.ClusterPlatform, ClusterPlatformOpenShift, ClusterPlatformKubernetes)
 	}
 
 	return cfg, nil

@@ -36,8 +36,7 @@ func deployGatewayViaHelm(
 				ScopesClaim: nsConfig.Gateway.OIDC.ScopesClaim,
 			},
 			Route: helm.RouteConfig{
-				Host:    nsConfig.Gateway.Route.Host,
-				Enabled: nsConfig.Gateway.Route.Enabled,
+				Host: nsConfig.Gateway.Route.Host,
 			},
 			CredentialDriver: convertCredentialDriver(nsConfig.Gateway.CredentialDriver, nsConfig.Name),
 			WorkspaceMode:    nsConfig.Gateway.WorkspaceMode,
