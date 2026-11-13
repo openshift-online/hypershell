@@ -609,7 +609,7 @@ class GitHubAppTests(unittest.TestCase):
             sent = request.call_args.args[0]
             self.assertEqual(sent.full_url, "https://api.github.com/app/installations/456/access_tokens")
             self.assertEqual(json.loads(sent.data), {
-                "repositories": ["hypershell"], "permissions": {"contents": "write"}})
+                "repositories": ["hypershell"], "permissions": {"contents": "write", "workflows": "write"}})
             jwt = sent.get_header("Authorization").removeprefix("Bearer ")
             header, claims, signature = jwt.split(".")
             decode = lambda value: base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))

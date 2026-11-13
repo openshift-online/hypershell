@@ -72,10 +72,12 @@ def installation_token():
     signature = subprocess.check_output(
         ["openssl", "dgst", "-sha256", "-sign", key_path], input=unsigned)
     jwt = (unsigned + b"." + encode(signature)).decode()
+    # Tagging a fixed Snapshot commit can require workflows:write when a newer
+    # workflow revision has landed on main while the release was building.
     request = urllib.request.Request(
         "https://api.github.com/app/installations/" + installation_id + "/access_tokens",
         data=json.dumps({"repositories": [GITHUB_REPOSITORY.split("/")[1]],
-                         "permissions": {"contents": "write"}}).encode(),
+                         "permissions": {"contents": "write", "workflows": "write"}}).encode(),
         method="POST", headers={
             "Authorization": "Bearer " + jwt,
             "Accept": "application/vnd.github+json",
