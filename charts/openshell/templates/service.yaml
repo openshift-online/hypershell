@@ -18,7 +18,18 @@ spec:
       {{- if and (eq .Values.service.type "NodePort") .Values.service.nodePort }}
       nodePort: {{ .Values.service.nodePort }}
       {{- end }}
-    {{- if .Values.service.metricsPort }}
+    {{- if .Values.service.httpPort }}
+    # HTTP/1.1 backend path for sandbox-service / WebSocket traffic. Targets the
+    # same pod listener as the grpc port (targetPort: grpc); the pod selects the
+    # protocol per connection. appProtocol http makes the ingress proxy dial
+    # HTTP/1.1 so a WebSocket upgrade completes (OSG-ROUT-13).
+    - port: {{ .Values.service.httpPort }}
+      targetPort: grpc
+      protocol: TCP
+      name: http
+      appProtocol: http
+    {{- end }}
+    {{- if include "openshell.metricsEnabled" . }}
     - port: {{ .Values.service.metricsPort }}
       targetPort: metrics
       protocol: TCP

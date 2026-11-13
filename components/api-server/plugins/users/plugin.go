@@ -3,11 +3,9 @@ package users
 import (
 	"net/http"
 
-	"github.com/gorilla/mux"
-
 	"github.com/openshift-online/hypershell/components/api-server/pkg/extsearch"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/routes"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
-	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/registry"
@@ -66,15 +64,13 @@ func init() {
 		return NewActivityRecorderLocator(env.(*environments.Env))
 	})
 
-	pkgserver.RegisterRoutes("users", func(apiV1Router *mux.Router, services pkgserver.ServicesInterface, authMiddleware environments.JWTMiddleware, authzMiddleware auth.AuthorizationMiddleware) {
+	pkgserver.RegisterRoutes("users", func(apiRouter *pkgserver.APIRouter, services pkgserver.ServicesInterface) {
 		envServices := services.(*environments.Services)
 		userHandler := NewUserHandler(Service(envServices), extsearch.Service(envServices))
 
-		usersRouter := apiV1Router.PathPrefix("/users").Subrouter()
+		usersRouter := routes.Resource(apiRouter, "users").PathPrefix("/users").Subrouter()
 		usersRouter.HandleFunc("", userHandler.List).Methods(http.MethodGet)
 		usersRouter.HandleFunc("/{id}", userHandler.Get).Methods(http.MethodGet)
-		usersRouter.Use(authMiddleware.AuthenticateAccountJWT)
-		usersRouter.Use(authzMiddleware.AuthorizeApi)
 	})
 
 	presenters.RegisterPath(User{}, "users")

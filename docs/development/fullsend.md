@@ -30,7 +30,7 @@ Have these commands on your PATH:
 
 | Tool | Purpose |
 | --- | --- |
-| Go 1.25+ | Build the local dispatcher; cached binaries are reused |
+| Go 1.26.7+ | Build the local dispatcher with its patched module toolchain; cached binaries are reused |
 | Python 3, Bash, Git, Make | Launch, credential adapters, isolated worktree snapshots |
 | `gh` | GitHub discovery and agent access |
 | `fullsend` | Run the repository's harnesses; this workflow was exercised with 0.50.0 |
@@ -150,6 +150,10 @@ For the default OAuth path, sign in to Jira using ACLI:
 acli jira auth login --web
 ```
 
+If your Jira site requires an administrator to authorize the ACLI OAuth app,
+use the API-token configuration below instead. `api-token` selects a Fullsend
+authentication mode; it is not an `acli jira auth login` flag.
+
 With neither Jira token nor email configured, the dispatcher automatically uses
 the selected ACLI account and site. You do not need to supply an email, token,
 or Jira URL. To select OAuth mode explicitly, set:
@@ -229,8 +233,8 @@ The doctor does not contact Vertex, validate API permissions, or verify gateway
 connectivity. Status reads saved local state; it does not run a live connection
 check. Use the dashboard to inspect logs and completed-job history.
 
-Configuration precedence is: explicit Make overrides, the selected env file,
-then exported shell variables. `ENV_FILE=/path/to/file` selects a different file
+Configuration precedence is: explicit Make/CLI overrides, saved home preferences,
+the selected env file, then exported shell variables. `ENV_FILE=/path/to/file` selects a different file
 instead of `.hypershell/fullsend.env`. Missing explicitly selected files fail.
 If no local file exists, exported variables work alone. The env file is sourced
 as trusted shell code; assignments are automatically exported. Never pass
@@ -247,6 +251,77 @@ To deliberately skip Jira, put `FULLSEND_LIFECYCLE=github-only` in the local env
 file. Leave it unset for the complete lifecycle. Model overrides apply to all
 agents; without one, each harness uses its own configured model.
 
+## Configuration in the dashboard
+
+Press Tab to reach **Configuration**, or press `,` from a work view. The page shows
+the absolute settings path and states that **saving writes the file on disk**.
+The default file is `~/.config/hypershell/fullsend.json`, or
+`$XDG_CONFIG_HOME/hypershell/fullsend.json` when XDG configuration is set.
+`FULLSEND_CONFIG_FILE=/path/to/settings.json` selects another location.
+The file is created on the first save with private permissions. It contains
+validated JSON preferences, not shell code or credentials. The existing trusted
+env file remains available for authentication and launch defaults.
+
+Use arrows or `j`/`k` to select a setting, then Enter to inspect/edit. Choice fields
+use an arrow-selectable menu. Text fields support cursor movement, Home/End,
+Ctrl-U to clear before the cursor, Enter to save, and Escape to discard. Credential
+values stay hidden; read-only rows explain how to manage them. Errors remain in
+the editor and preserve the previous file and active value.
+
+| Setting | When it applies |
+| --- | --- |
+| Worker limit, discovery intervals, gateway check/retry intervals | Immediately; running workers finish even if the limit is lowered |
+| Model, Vertex project/region/credentials path, failure backoff | Next sandbox; current workers and existing retry deadlines keep their settings |
+| Gateway sign-in timeouts | Next sign-in |
+| Scope, repository, lifecycle/auth mode, gateway and storage paths | Restart required; saved and active values are shown separately |
+
+The dispatcher pins current identity settings for its helpers until restart.
+Explicit Make/CLI arguments override saved preferences at the next launch; saved
+preferences override worktree env defaults and inherited environment settings.
+A saved scope is reused by `make fullsend` unless `SCOPE=...` is supplied, and its
+registration is still checked. Edits made directly to the JSON file load on
+restart. Restart by detaching and running `make fullsend` again; existing workers
+continue and are adopted.
+
+## Intake discovery
+
+The dispatcher checks scoped, authorized Jira and GitHub work with a read-only
+script every **three minutes**. It paginates both backlogs and compares canonical
+links. Healthy linked records, including closed records, do not start an intake
+agent. New, unlinked, ambiguous, or meaningfully changed intake work can start one;
+its input fingerprint remains stable between checks. Authentication, pagination,
+and network failures are reported and retried without clearing the last successful
+observation or launching a model to diagnose connectivity.
+
+Configure the interval in seconds:
+
+```sh
+make fullsend INTAKE_INTERVAL=300
+```
+
+Or put `FULLSEND_INTAKE_INTERVAL=300` in `.hypershell/fullsend.env` or your exported
+environment. The direct CLI option is `--intake-interval 300`; the existing
+`--lifecycle-interval` spelling remains an alias. Explicit Make/CLI options win
+over the env file, which wins over inherited environment settings. Failed intake
+attempts retain the normal retry backoff; the discovery timer does not reset it.
+
+## Reconciliation and drift checks
+
+After a successful sync, unchanged issues stay quiet, including closed issues.
+The dispatcher compares GitHub issue/PR inputs on discovery and checks Jira with a
+read-only script every six hours. Relevant Jira fields and remote links are
+fingerprinted; an unchanged observation does not create a sandbox or run an LLM.
+`--reconcile-interval SECONDS` changes the script's check interval. Reopening an
+issue, changing its linked PR, or completing another phase still triggers sync.
+
+The probe uses the configured ACLI or API-token authentication. It stores hashes
+and timing metadata alongside dispatcher state, and refreshes the baseline after
+successful reconciliation. Authentication or network failures are reported and
+retried after 60 seconds without starting an agent. On upgrade, prior successful
+jobs retain their identity; Jira edits newer than their last successful sync are
+reconciled. The first observation establishes the baseline for older unchanged
+records, including their existing remote links.
+
 ## Detach, resume, and inspect failures
 
 `q` or Ctrl-C detaches and prints complete log paths. Existing workers continue.
@@ -256,8 +331,82 @@ its periodic gateway authentication checks. State is shared across worktrees of
 the same repository; do not change state directories just to bypass a lock.
 
 Use Enter for a run's logs, `d` for details, `H` for history, and `r` to retry a
-failed run. Unknown outcomes require confirming that the prior sandbox stopped.
+failed or canceled run. Unknown outcomes require confirming that the prior sandbox stopped.
+
+To stop a running agent, select it and press `C` (capital C). The **Cancel run**
+confirmation names the issue and agent. Use arrows or `j`/`k` to select **Cancel
+run**, then Enter. **Keep running** is selected by default; Esc closes the prompt.
+This differs from `q` or Ctrl-C, which only detach the dashboard.
+
+Cancellation sends SIGTERM to the Fullsend process and lets Fullsend interrupt
+execution and finish cleanup. The dispatcher retains ownership and shows
+**Canceling** until that process exits and its outcome is saved. Other workers
+continue. The request survives dashboard detachment and restart. There is no
+forced-kill timeout. If cleanup stalls, inspect its log rather than starting a
+second run.
+
+Canceled work stays paused until an explicit `r` retry. Inspect its logs and
+verify that the remote sandbox stopped before retrying, especially if cleanup
+reported errors. Completed GitHub/Jira writes are retained. Fullsend's existing
+validation gates decide whether a post script can run; interruption does not
+invent a failure verdict, undo writes, or guarantee that a post script executes.
+Pre/post-script idempotence supports recovery but does not make separate writes
+transactional.
+
+Workers launched by an older dispatcher do not support cancellation requests.
+The UI reports that limitation without signaling an unverified process. Newly
+launched workers support cancellation; restarting the dashboard does not upgrade
+workers that are already running.
 `?` lists all navigation, filtering, sorting, and gateway shortcuts.
+
+## Read and filter agent logs
+
+Press Enter on a run to open its full log. The bordered pane shows source text
+with wrapping off by default. Long lines can be panned rather than cut off, and
+output older than 64 KiB remains available. The header keeps the issue and agent
+visible. The top border shows rendering options and whether the pane is following;
+the bottom border shows line/column ranges and active-filter match counts. There
+is no separate source-line count row. Filter input uses a row only while typing.
+
+| Key | Log action |
+| --- | --- |
+| `j` / `k`, arrows, PgUp/PgDn | Scroll vertically |
+| Left/Right or `H` / `L` | Pan horizontally with wrapping off |
+| Shift-Left/Right | Pan half a viewport |
+| `0` / `$` | Reach the left/right end of long lines |
+| `m` | Toggle Markdown for Fullsend `💬` agent prose; default off |
+| `w` | Toggle line wrapping; default off |
+| `a` | Toggle source and semantic colors; default on, subject to `NO_COLOR` |
+| `/` | Filter source lines by a case-insensitive substring |
+| Enter / Esc while typing | Keep / cancel the filter edit |
+| Esc with an applied filter | Clear the filter before navigating back |
+| `f` / `G` | Resume following the end of the log |
+| `d` / `h` | Open details / return to the work list |
+| `?` | Show all shortcuts, including retry and cancellation |
+
+Scrolling up pauses following: new output will not pull you away from what you
+are reading. Scrolling back to the bottom resumes following automatically.
+Filters update as output grows and are separate from work-list/history filters.
+The source-match count and column/line ranges show what is currently visible.
+Rendering toggles do not modify the log file and remain selected while switching
+between logs during the same dashboard session.
+
+Markdown applies only to marked Fullsend agent prose. CLI progress, commands,
+tool output, warnings and errors retain their source formatting and colors in
+both modes. Unmarked output remains literal. Filters classify message context
+before matching, so matching agent continuation lines still render correctly.
+
+The viewer preserves source colors and highlights familiar Fullsend success,
+warning, and error lines. Source terminal controls are removed so log content
+cannot move the cursor, erase the interface, or alter your clipboard.
+
+Newly labeled issues appear as **N issues waiting for triage** while intake
+creates or links their Jira records. This is normal queue status: adding
+`agent/allowed` and your registered `agent/scope/*` label is sufficient. Do not
+add the execution-record marker yourself. Intake checks every three minutes by
+default; the dashboard's intake interval setting controls that timing. Actual
+Jira/GitHub authentication or synchronization failures remain under **Needs
+attention**, separate from this automatic waiting state.
 
 ## Troubleshooting
 
@@ -267,6 +416,7 @@ failed run. Unknown outcomes require confirming that the prior sandbox stopped.
 | Project or region missing | Set `ANTHROPIC_VERTEX_PROJECT_ID` and `CLOUD_ML_REGION` in the selected env file; shell-only assignments must be exported |
 | Vertex permission/model/quota error | Check account, project, approved model, region, and quota; a local credential check cannot validate these |
 | Jira asks for email/token although ACLI works | Set `JIRA_AUTH_MODE=acli`; check for a leftover email/token pair selecting API-token mode |
+| ACLI OAuth needs site-admin approval or the active ACLI profile uses an API token | Set `JIRA_AUTH_MODE=api-token`, `JIRA_USER_EMAIL`, and `JIRA_TOKEN` in `.hypershell/fullsend.env`; rerun `make fullsend-doctor` |
 | ACLI profile/keyring error | Run `acli jira auth login --web`; check PyYAML, keyring tools, and your desktop session |
 | Gateway token expired or redirect URI rejected | Press `s` and reconnect through `hsctl`; inspect diagnostics with `d` |
 | Nothing is running | Check `make fullsend-status`, scope/allowed labels, completed runs (`c`), backoff, and gateway status |
@@ -274,3 +424,61 @@ failed run. Unknown outcomes require confirming that the prior sandbox stopped.
 
 For scheduling semantics, durable state, sandbox toolchains, and contributor
 checks, see the [dispatcher reference](../../.hypershell/execute-sdlc/README.md).
+
+### Review finished, but approval is waiting
+
+`Awaiting new review` means the live PR revision has not been reviewed. An older
+review attempt does not lend its status or duration to the new revision. Details
+separates Jira synchronization/authentication failures that prevent review from
+starting from pending CI that prevents approval.
+
+`Waiting for CI` means a review of the current revision finished but approval has not been
+applied: required checks are pending or unknown. The row stays visible with
+completed runs hidden. Open details (`d`) for the linked PR and next step.
+`Waiting: PR is draft` and `Waiting for PR readiness` identify other approval
+blockers. Discovery revisits these states automatically.
+
+A completed failed required check returns the issue to `code-implementation`
+through `agent/review-code-rejected`, including when a previous review deferred
+approval or the PR was already approved. Implementation investigates the check
+logs and fixes the cause or reruns transient CI. Pending checks do not consume
+the rejection budget; repeated unchanged failures do not create new rejections.
+
+### Hold reviewed PRs for manual merge approval
+
+Automatic merge approval is enabled by default. To hold a reviewed PR before it
+enters the repository merge queue, use any of these options:
+
+- Make: `make fullsend AUTO_MERGE=disabled`
+- Environment or your env file: `FULLSEND_AUTO_MERGE=disabled`
+- Dispatcher CLI: `--no-auto-merge` (or `--auto-merge disabled`)
+- Home preferences: `{"version":1,"values":{"auto_merge":"disabled"}}`
+- Configuration tab: **Automatic merge approval**, then choose **disabled**.
+
+The Configuration tab shows the absolute preferences path and saves the value on
+disk. This setting applies to the next sandbox, including workers launched without
+restarting the dispatcher. Running sandboxes retain their original policy. It does
+not revoke labels on PRs already queued. Changing it back to enabled affects new
+reviews; held PRs still require an explicit approval or a new review.
+
+With approval disabled, the trusted review post-script still marks the issue
+`agent/review-code-approved`, but withholds or removes that label on its linked PR.
+The agent's responsibilities and review requirements are unchanged. This controls
+the Fullsend PR queue label; it does not disable other repository merge mechanisms.
+
+Ready, approved issues whose linked PR lacks the queue label appear at the top of
+both work views under **Awaiting approval**. Select one and press **A** or **Enter**.
+The confirmation shows the issue, PR and commit, explains merge eligibility, and
+starts on **Keep waiting**. Choose **Approve PR for merge** to add the label for
+that PR only. Live authorization, the unique link, unchanged head/base, required
+checks, draft state and mergeability are rechecked. Changed or ineligible PRs
+cannot be approved from an old screen. Active or unresolved workers prevent the
+action. Failures appear as dismissible notifications; normal discovery revisits
+eligibility. This action does not rerun an agent or change the configured policy.
+
+`Review needed` means the current review request has no applied verdict, even if
+an older review process completed successfully. The dispatcher identifies each
+return to review by its GitHub label event, so identical labels, commits and CI do
+not suppress a new request. `Review needed · Jira sync` means synchronization must
+finish first. This is separate from **Awaiting approval**, which asks the operator
+to let an already approved PR enter the merge queue.

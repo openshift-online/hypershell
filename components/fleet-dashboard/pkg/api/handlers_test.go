@@ -28,6 +28,10 @@ type fakeE2E struct {
 	gotBefore string
 	gotStep   string
 	gotLimit  int
+
+	diagnostics    *sources.E2EDiagnosticsPayload
+	diagnosticsErr error
+	gotDiagRun     string
 }
 
 func (f *fakeE2E) RunDetail(context.Context, string) (*sources.E2ERunDetail, error) {
@@ -39,6 +43,11 @@ func (f *fakeE2E) RunLogs(_ context.Context, _, stepID, before string, limit int
 	f.gotStep = stepID
 	f.gotLimit = limit
 	return f.logs, f.logsErr
+}
+
+func (f *fakeE2E) RunDiagnostics(_ context.Context, id string) (*sources.E2EDiagnosticsPayload, error) {
+	f.gotDiagRun = id
+	return f.diagnostics, f.diagnosticsErr
 }
 
 func (f *fakeE2E) Stream(w http.ResponseWriter, _ *http.Request) {
@@ -299,6 +308,88 @@ func TestE2ERunLogsFeatureOff(t *testing.T) {
 	}
 }
 
+// TestE2ERunDiagnosticsHealthy confirms the lazy diagnostics route serves the
+// diagnostics payload wrapped in the cache snapshot envelope and forwards the
+// single run query value to the source (E2E-LOG-27).
+func TestE2ERunDiagnosticsHealthy(t *testing.T) {
+	fake := &fakeE2E{diagnostics: &sources.E2EDiagnosticsPayload{
+		Diagnostics: []sources.E2EDiagnosticSection{
+			{Title: "pods.txt", Body: "api-0 Running", Severity: "error"},
+		},
+	}}
+	h := &Handlers{E2E: fake}
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/e2e/diagnostics?run=hub-00/ns/run-1", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	if fake.gotDiagRun != "hub-00/ns/run-1" {
+		t.Errorf("run = %q, want hub-00/ns/run-1", fake.gotDiagRun)
+	}
+	var snap cache.Snapshot
+	if err := json.Unmarshal(rr.Body.Bytes(), &snap); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	data, _ := snap.Data.(map[string]any)
+	diags, _ := data["diagnostics"].([]any)
+	if len(diags) != 1 {
+		t.Fatalf("diagnostics len = %d, want 1", len(diags))
+	}
+}
+
+// TestE2ERunDiagnosticsNotFound confirms the diagnostics route honors the tenant
+// allowlist and single-run-parameter validation: an unaddressable or missing run 404s.
+func TestE2ERunDiagnosticsNotFound(t *testing.T) {
+	h := &Handlers{E2E: &fakeE2E{diagnosticsErr: sources.ErrRunNotFound}}
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/e2e/diagnostics?run=other/ns/run-1", nil))
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rr.Code)
+	}
+}
+
+// TestE2ERunDiagnosticsDegradedDoesNotLeakError confirms a Loki failure on the
+// diagnostics route degrades to a stale 200 without echoing the raw error (E2E-LOG-08).
+func TestE2ERunDiagnosticsDegradedDoesNotLeakError(t *testing.T) {
+	leaky := errors.New(`Get "http://e2e-loki.hypershell-observability.svc:3100/loki/api/v1/query_range": refused`)
+	h := &Handlers{E2E: &fakeE2E{diagnosticsErr: leaky}}
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/e2e/diagnostics?run=hub-00/ns/run-1", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (degraded, not blanked)", rr.Code)
+	}
+	if strings.Contains(rr.Body.String(), "e2e-loki") || strings.Contains(rr.Body.String(), "query_range") {
+		t.Errorf("response leaked internal Loki identity: %s", rr.Body.String())
+	}
+}
+
+// TestE2ERunDiagnosticsFeatureOff confirms the diagnostics route reports the feature
+// off when the plane is unconfigured, rather than 404ing (E2E-LOG-01/02).
+func TestE2ERunDiagnosticsFeatureOff(t *testing.T) {
+	h := &Handlers{} // E2E nil
+	mux := http.NewServeMux()
+	h.Register(mux)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/e2e/diagnostics?run=hub-00/ns/run-1", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (feature off)", rr.Code)
+	}
+	var snap cache.Snapshot
+	if err := json.Unmarshal(rr.Body.Bytes(), &snap); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	data, _ := snap.Data.(map[string]any)
+	if enabled, _ := data["enabled"].(bool); enabled {
+		t.Error("disabled feature should report enabled=false")
+	}
+}
+
 // TestE2EStreamContentType confirms the stream route produces an SSE response.
 func TestE2EStreamContentType(t *testing.T) {
 	h := &Handlers{E2E: &fakeE2E{}}
@@ -410,5 +501,28 @@ func TestServeHealthy(t *testing.T) {
 	}
 	if snap.Data == nil {
 		t.Errorf("snapshot data missing")
+	}
+}
+
+func TestDeliveryNotConfigured(t *testing.T) {
+	// Verifies: FLT-DLV-01.02
+	mux := http.NewServeMux()
+	(&Handlers{}).Register(mux)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/delivery", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var body struct {
+		Data struct {
+			Enabled bool `json:"enabled"`
+		} `json:"data"`
+		Stale bool `json:"stale"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Data.Enabled || body.Stale {
+		t.Errorf("not-configured delivery = %+v, want enabled=false and not stale", body)
 	}
 }

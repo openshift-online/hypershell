@@ -30,45 +30,46 @@ type DailyActivityRecorder interface {
 	RecordDailyActivity(ctx context.Context, userID string, at time.Time)
 }
 
+// UserProvisioningMiddleware provisions the caller's local user on a REST
+// request. The Authorizer does the same in Enrich; this wrapper serves tests
+// and callers outside the TRex router.
 func UserProvisioningMiddleware(provisioner UserProvisioner, syncer JWTRoleSyncer) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			payload, err := auth.GetAuthPayload(r)
-			if err != nil {
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			if payload.Username == "" {
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			userID, upsertErr := provisioner.UpsertFromJWT(r.Context(), payload)
-			if upsertErr != nil {
-				slog.WarnContext(r.Context(), "user provisioning failed", "username", payload.Username, "error", upsertErr)
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			ctx := context.WithValue(r.Context(), ContextUserIDKey, userID)
-
-			jwtRoles := extractJWTRoles(r)
-			if len(jwtRoles) > 0 {
-				ctx = context.WithValue(ctx, ContextJWTRolesKey, jwtRoles)
-			}
-			// Always sync even when jwtRoles is empty, so that a role removed
-			// from the caller's Keycloak realm roles is also removed from its
-			// RoleBindings on the next request.
-			if syncer != nil {
-				if syncErr := syncer.SyncJWTRoles(ctx, userID, jwtRoles); syncErr != nil {
-					slog.WarnContext(ctx, "JWT role sync failed", "username", payload.Username, "error", syncErr)
-				}
-			}
-
-			next.ServeHTTP(w, r.WithContext(ctx))
+			next.ServeHTTP(w, r.WithContext(provisionUserForHTTP(r.Context(), provisioner, syncer)))
 		})
 	}
+}
+
+// provisionUserForHTTP maps the verified JWT to a local user id and syncs the
+// caller's JWT roles. Without a token, or on failure, ctx is returned unchanged.
+func provisionUserForHTTP(ctx context.Context, provisioner UserProvisioner, syncer JWTRoleSyncer) context.Context {
+	payload, err := auth.GetAuthPayloadFromContext(ctx)
+	if err != nil || payload.Username == "" {
+		return ctx
+	}
+
+	userID, upsertErr := provisioner.UpsertFromJWT(ctx, payload)
+	if upsertErr != nil {
+		slog.WarnContext(ctx, "user provisioning failed", "username", payload.Username, "error", upsertErr)
+		return ctx
+	}
+
+	ctx = context.WithValue(ctx, ContextUserIDKey, userID)
+
+	jwtRoles := extractJWTRolesFromContext(ctx)
+	if len(jwtRoles) > 0 {
+		ctx = context.WithValue(ctx, ContextJWTRolesKey, jwtRoles)
+	}
+	// Always sync even when jwtRoles is empty, so that a role removed
+	// from the caller's Keycloak realm roles is also removed from its
+	// RoleBindings on the next request.
+	if syncer != nil {
+		if syncErr := syncer.SyncJWTRoles(ctx, userID, jwtRoles); syncErr != nil {
+			slog.WarnContext(ctx, "JWT role sync failed", "username", payload.Username, "error", syncErr)
+		}
+	}
+	return ctx
 }
 
 func GetUserIDFromContext(ctx context.Context) string {

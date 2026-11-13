@@ -240,7 +240,7 @@ func (s *E2ESuite) registerGateway(t *testing.T, ref driver.GatewayRef, endpoint
 		GatewayPort:     0,
 		AuthMode:        "oidc",
 		OIDCIssuer:      envOrDefault("E2E_OIDC_ISSUER", "https://keycloak.hypershell.localhost/realms/hypershell"),
-		OIDCClientID:    fmt.Sprintf("%s-%s", ref.Name, ref.ID),
+		OIDCClientID:    ref.ClientID,
 		GatewayInsecure: gatewayTLSInsecure(s.driver.Name()),
 	}
 	if s.usesGatewayServiceAccount() {

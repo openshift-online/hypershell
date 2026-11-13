@@ -85,6 +85,8 @@ If flow and persona conflict, surface the conflict.
 - Both story surfaces must expose the same state names and deterministic
   fixtures. Test the primary interaction when practical.
 - Keep mockup code independent of production page implementations.
+- Never render mockup content through React's raw-HTML prop or a DOM HTML
+  injection sink. Mockups use React elements and deterministic props.
 - Run the mockup PatternFly checker on every created or changed page-mockup
   TSX/CSS file:
 

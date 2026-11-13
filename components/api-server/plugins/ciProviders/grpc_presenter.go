@@ -19,6 +19,7 @@ func ciProviderToProto(p *CIProvider) *pb.CIProvider {
 		Issuer:         p.Issuer,
 		JwksUrl:        p.JwksUrl,
 		Audience:       p.Audience,
+		IdpAlias:       p.IdpAlias,
 		StatusIdpAlias: p.StatusIdpAlias,
 	}
 }

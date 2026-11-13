@@ -1,0 +1,17 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hypershell-controller
+  namespace: hypershell-system
+spec:
+  template:
+    spec:
+      containers:
+        - name: controller
+          env:
+            - name: GATEWAY_OPERATOR_WORKSPACE
+              value: '{"namespaceLabelKey":"hypershell.io/gateway","allowDriverConfig":true,"disableResourceAdmission":true,"mtlsAuth":true,"allowedPodLabels":["openclaw.dev/*","app.kubernetes.io/name","app.kubernetes.io/managed-by"]}'
+            - name: GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY
+              value: hypershell.io/gateway
+            - name: GATEWAY_OPERATOR_SANDBOX_RUNTIME_CLASS
+              value: openshell-sandbox

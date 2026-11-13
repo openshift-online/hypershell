@@ -56,9 +56,6 @@ on:
       e2e:
         type: string
         default: 'false'
-      pr_test:
-        type: string
-        default: 'false'
 
 # No workflow-level permissions key: a block here would apply the same grant
 # to every job, including Kind. Tests / E2E still grants id-token: write on
@@ -174,7 +171,6 @@ jobs:
           DETECT_API_SERVER: ${{ inputs.api_server }}
           DETECT_CONTROL_PLANE: ${{ inputs.control_plane }}
           DETECT_E2E: ${{ inputs.e2e }}
-          DETECT_PR_TEST: ${{ inputs.pr_test }}
           KONFLUX_API_SERVER: ${{ steps.detect-konflux.outputs.api_server }}
           KONFLUX_CONTROL_PLANE: ${{ steps.detect-konflux.outputs.control_plane }}
           KONFLUX_WEB_CONSOLE: ${{ steps.detect-konflux.outputs.web_console }}
@@ -275,7 +271,7 @@ jobs:
           echo "konflux_ref=${konflux_ref}" >> "${GITHUB_OUTPUT}"
 
           # Shared e2e-relevant gate for pull_request and merge_group. detect-
-          # components tracks api_server, control_plane, e2e, and pr_test
+          # components tracks api_server, control_plane, and e2e
           # (broad: Makefile, deploy, tests, workflow files). The Konflux
           # flags add image-input-only changes, such as a component pipeline
           # definition. merge_group uses the batch diff against
@@ -285,7 +281,6 @@ jobs:
           if [[ "${DETECT_API_SERVER:-false}" == "true" || \
                 "${DETECT_CONTROL_PLANE:-false}" == "true" || \
                 "${DETECT_E2E:-false}" == "true" || \
-                "${DETECT_PR_TEST:-false}" == "true" || \
                 "${KONFLUX_API_SERVER:-false}" == "true" || \
                 "${KONFLUX_CONTROL_PLANE:-false}" == "true" || \
                 "${KONFLUX_WEB_CONSOLE:-false}" == "true" ]]; then
@@ -651,6 +646,21 @@ jobs:
           fi
           echo "All required Konflux builds succeeded."
 
+      # Inspect the actually-published multi-arch controller image index (not the
+      # Dockerfile, not a local single-arch build) and confirm every architecture
+      # variant carries one identical, non-empty app.hypershell.openshell.version
+      # label equal to OPENSHELL_TAG and distinct from the controller's own
+      # version (specs/platform/openshell-image-auto-update.spec.md,
+      # CICD-IMG-04/CICD-IMG-05). Only runs when this PR built a fresh
+      # control-plane image; a reused main baseline is covered by its own build.
+      - name: Verify controller image OpenShell release label
+        if: needs.plan-images.outputs.wait_control_plane == 'true'
+        env:
+          CONTROL_PLANE_IMAGE: ${{ needs.plan-images.outputs.control_plane_image }}
+        run: |
+          PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_controller_image_label.py \
+            "${CONTROL_PLANE_IMAGE}"
+
       - name: Swap component images
         env:
           API_SERVER_IMAGE: ${{ needs.plan-images.outputs.api_server_image }}
@@ -888,6 +898,8 @@ jobs:
       - name: Resolve OpenShift namespace
         run: bash scripts/ci/resolve-openshift-namespace.sh
 
+      # Keep these inputs in sync with the "Redeploy environment torn down by
+      # a prior attempt" step in e2e-openshift below.
       - name: Deploy OpenShift Environment
         uses: ./.github/actions/deploy-pr-environment
         with:
@@ -985,6 +997,40 @@ jobs:
         uses: ./.github/actions/openshift-cluster-login
         with:
           role-arn: ${{ env.PR_ENV_AWS_ROLE_ARN }}
+
+      - name: Check whether the environment is still up
+        id: env-check
+        run: |
+          if bash scripts/ci/pr-env-is-up.sh; then
+            echo "is_up=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "is_up=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      # "Re-run failed jobs" does not re-run `deploy` once it has succeeded,
+      # but a prior e2e-openshift attempt's own "Destroy unretained
+      # environment" step below may have already torn the environment down
+      # on its way out. Redeploy it here so the retry has something to test
+      # against instead of failing closed on a missing namespace
+      # (ephemeral-pr-environments.spec.md). Keep these inputs in sync with
+      # the `deploy` job's "Deploy OpenShift Environment" step above.
+      - name: Redeploy environment torn down by a prior attempt
+        if: steps.env-check.outputs.is_up == 'false'
+        uses: ./.github/actions/deploy-pr-environment
+        with:
+          pr_number: ${{ github.event.pull_request.number }}
+          head_sha: ${{ needs.plan-images.outputs.konflux_ref }}
+          updated: ${{ github.event.action == 'synchronize' && 'true' || 'false' }}
+          retained: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'pr-environment/pr-extended') && 'true' || 'false' }}
+          wait_api_server: ${{ needs.plan-images.outputs.wait_api_server }}
+          wait_control_plane: ${{ needs.plan-images.outputs.wait_control_plane }}
+          wait_web_console: ${{ needs.plan-images.outputs.wait_web_console }}
+          api_server_image: ${{ needs.plan-images.outputs.api_server_image }}
+          control_plane_image: ${{ needs.plan-images.outputs.control_plane_image }}
+          web_console_image: ${{ needs.plan-images.outputs.web_console_image }}
+          api_server_check_regexp: ${{ github.event_name == 'push' && 'hypershell-api-server-main-on-push$' || github.event_name == 'merge_group' && 'hypershell-api-server-main-on-merge-queue$' || 'hypershell-api-server-main-on-pull-request$' }}
+          control_plane_check_regexp: ${{ github.event_name == 'push' && 'hypershell-control-plane-main-on-push$' || github.event_name == 'merge_group' && 'hypershell-control-plane-main-on-merge-queue$' || 'hypershell-control-plane-main-on-pull-request$' }}
+          web_console_check_regexp: ${{ github.event_name == 'push' && 'hypershell-web-console-main-on-push$' || github.event_name == 'merge_group' && 'hypershell-web-console-main-on-merge-queue$' || 'hypershell-web-console-main-on-pull-request$' }}
 
       - name: Run OpenShift e2e suite
         id: e2e-suite

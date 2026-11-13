@@ -20,3 +20,13 @@
   inline-size: var(--pf-t--global--spacer--xl);
   object-fit: contain;
 }
+
+.navLink.navLink,
+.navLink.navLink[aria-current="page"] {
+  color: var(--pf-t--color--gray--95);
+}
+
+:global(.pf-v6-theme-dark) .navLink.navLink,
+:global(.pf-v6-theme-dark) .navLink.navLink[aria-current="page"] {
+  color: var(--pf-t--color--white);
+}

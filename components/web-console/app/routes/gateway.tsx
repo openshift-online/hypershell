@@ -5,10 +5,17 @@ import {
   type OpenShellGatewayServiceAccountSortField,
   type OpenShellGatewayServiceAccountStatus,
   type ServiceAccountLeaveGuard,
+  toGatewayDetailAttention,
   toGatewayDetailTab,
+  type GatewayDetailAttention,
 } from "@openshift-online/hypershell-gateway-management-ui";
 import { useCallback, useEffect, useRef } from "react";
-import { useBlocker, useParams, useSearchParams } from "react-router";
+import {
+  useBlocker,
+  useLocation,
+  useParams,
+  useSearchParams,
+} from "react-router";
 import { createPageMeta } from "../lib/page-meta";
 
 export const meta = createPageMeta(
@@ -83,8 +90,14 @@ function setOrDelete(
 
 export default function GatewayRoute() {
   const { gatewayId = "" } = useParams();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = toGatewayDetailTab(searchParams.get("tab"));
+  const attention = toGatewayDetailAttention(searchParams.get("attention"));
+  const isProvisioningSession = Boolean(
+    (location.state as { gatewayProvisioned?: boolean } | null)
+      ?.gatewayProvisioned,
+  );
   const collectionState = serviceAccountCollectionState(searchParams);
 
   // The one-time service-account client secret exists only in the mounted
@@ -117,7 +130,22 @@ export default function GatewayRoute() {
   return (
     <GatewayPage
       activeTab={activeTab}
+      attention={attention}
       gatewayId={gatewayId}
+      isProvisioningSession={isProvisioningSession}
+      onAttentionDismiss={(dismissedAttention: GatewayDetailAttention) => {
+        if (attention !== dismissedAttention) {
+          return;
+        }
+        setSearchParams(
+          (previous) => {
+            const next = new URLSearchParams(previous);
+            next.delete("attention");
+            return next;
+          },
+          { replace: true },
+        );
+      }}
       onLeaveGuardChange={(guard) => {
         leaveGuardRef.current = guard;
       }}
@@ -151,11 +179,12 @@ export default function GatewayRoute() {
       onTabChange={(tab) => {
         setSearchParams((previous) => {
           const next = new URLSearchParams(previous);
-          if (tab === "connection") {
+          if (tab === "details") {
             next.delete("tab");
           } else {
             next.set("tab", tab);
           }
+          next.delete("attention");
           return next;
         });
       }}

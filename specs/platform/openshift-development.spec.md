@@ -65,7 +65,7 @@ Go `E2EInfraDriver` interface and its Kind and OpenShift implementations. This
 spec only guarantees the OpenShift environment those implementations run against.
 
 This spec is a behavior contract. It does not contain the driver code or the CI
-YAML. Those are follow-up implementation work.
+YAML.
 
 ### Reserved Terms
 
@@ -231,8 +231,7 @@ gateway database server: the bundled PostgreSQL SHALL serve TLS with a self-sign
 CA the scripts generate, and `make openshift-up` SHALL create the
 `hypershell-gateway-database-admin` Secret in the platform project with the server's
 admin connection, `sslmode: verify-full` and that CA as `sslrootcert`, before the
-controller starts. No credentials project is created and no database resource is
-seeded through the API.
+controller starts.
 
 The OpenShift overlay SHALL derive `GATEWAY_API_HTTP_LISTENER_NAME` from the
 shared Gateway's actual listener (preferring one literally named `grpc` for
@@ -305,7 +304,9 @@ those from the developer machine.
 - WHEN the developer runs `make openshift-up`
 - THEN the scripts render and apply the API server, the control plane, the web
   console, PostgreSQL, and Keycloak from `kustomize build deploy/openshift/`
-- AND the scripts seed a ManagedCluster and a Gateway
+- AND the scripts wait for the control plane to register the `local-openshift`
+  ManagedCluster and do not create a ManagedCluster
+- AND the scripts seed a Gateway named `dev-gateway`
 - AND the scripts report the API Route, the web-console Route, and the Keycloak
   Route when the deployment is ready
 
@@ -678,7 +679,7 @@ the driver SHALL use that repository name instead of the component default.
 hostname with no org path, the swap SHALL stop with a clear error. The driver
 SHALL NOT default `SWAP_REGISTRY` to `IMAGE_REGISTRY`; `IMAGE_REGISTRY` is the
 baseline image prefix and SHALL NOT be the swap push destination.
-`OPENSHIFT_IMAGE_REGISTRY` SHALL NOT be used. The driver SHALL NOT push to the
+The driver SHALL NOT push to the
 OpenShift internal registry (`image-registry.openshift-image-registry.svc`)
 from the laptop: that hostname does not resolve outside the cluster, and many
 shared clusters (ROSA/OSD) expose no public registry hostname. The swap SHALL
@@ -805,8 +806,7 @@ The environment SHALL provide, and the Go OpenShift driver SHALL rely on:
   namespace (`OPENSHIFT_NAMESPACE`); the driver reads its host via the route client
   and forms the HTTPS URL.
 - **Gateway endpoint** (`DiscoverGatewayEndpoint`) -- per-tenant gateway traffic uses
-  Gateway API, not a per-gateway OpenShift Route (`openshell-gateway-routing.spec.md`);
-  the driver reads the tenant GRPCRoute hostname and confirms the parent Gateway is
+  Gateway API (`openshell-gateway-routing.spec.md`); the driver reads the tenant GRPCRoute hostname and confirms the parent Gateway is
   `Programmed=True`.
 - **Cluster domain** (`ClusterDomain`) -- the configured gateway base domain (the same
   `GATEWAY_API_BASE_DOMAIN` the control plane uses), so gateway hostnames match the
@@ -819,8 +819,7 @@ The environment SHALL provide, and the Go OpenShift driver SHALL rely on:
 - **Gateway readiness** (`WaitForGatewayRoute`) -- the driver waits, up to
   `E2E_PROVISION_TIMEOUT`, until the parent Gateway is `Programmed=True` and the tenant
   GRPCRoute parent is `Accepted=True`, the same two conditions the Kind driver waits
-  for. It SHALL NOT wait for an OpenShift Route `Admitted` condition, because no
-  per-gateway Route exists.
+  for.
 - **OIDC issuer** -- the Keycloak Route in the `-keycloak` namespace (the Keycloak
   Namespace requirement), not the Kind default `keycloak.hypershell.localhost`.
 - **Per-gateway client token** -- per-gateway audience is production behavior, not a
@@ -861,7 +860,6 @@ the same phases (P0--P3) the Kind suite exercises, so one suite validates both t
 - WHEN the Go suite's `WaitForGatewayRoute` runs for the gateway
 - THEN the driver waits until the parent Gateway reports `Programmed=True`
 - AND the driver waits until the tenant GRPCRoute parent reports `Accepted=True`
-- AND the driver does not wait for an OpenShift Route `Admitted` condition
 - AND the driver returns success only when both conditions are true, or fails after
   `E2E_PROVISION_TIMEOUT`
 
@@ -932,9 +930,8 @@ NOT use the internal image registry (`oc registry`, `oc start-build`).
 Automated OpenShift pull-request CI is specified in
 `ephemeral-pr-environments.spec.md` (HYPERSHELL-240). That spec owns namespace
 naming, deploy triggers, origin-only trust boundary, timebox and reaping, the
-access comment, GitHub-brokered Keycloak, e2e grant selection, and the scope
-of the ROKS `pr_test` component. This spec SHALL NOT restate those
-requirements.
+access comment, GitHub-brokered Keycloak, and e2e grant selection. This spec
+SHALL NOT restate those requirements.
 
 The pull-request workflow SHALL deploy and release with the same lifecycle this
 spec defines: `make openshift-up` and `make openshift-down`, the
@@ -1194,29 +1191,7 @@ cannot silently diverge on any resource that neither allowlist covers.
 
 ## Deploy Directory Structure
 
-The repo root `deploy/` directory contains all kustomize overlays for the platform. It is the **single source of truth** for desired state across all deployment modes (development, testing, and production). The directory structure reflects the layering relationship:
-
-```
-deploy/
-├── base/                           # Foundation: all platform resources (namespace, API, controller, DB, web console, Keycloak)
-│   ├── kustomization.yaml
-│   ├── namespace.yaml              # hypershell-system
-│   ├── api-server.yaml             # Deployment + Service
-│   ├── controller.yaml             # Deployment + Service (includes GATEWAY_IMAGE/GATEWAY_SUPERVISOR_IMAGE env vars)
-│   ├── controller-rbac.yaml        # ClusterRole + ClusterRoleBinding for tenant reconciliation
-│   ├── web-console.yaml            # Deployment + Service
-│   ├── postgres.yaml               # Bundled PostgreSQL Deployment + Service (development stand-in for an external server)
-│   ├── keycloak/                   # Shared Keycloak (base config, realm import)
-│   │   └── ...
-│   └── ...
-├── kind/                           # Kind-specific: bundles Keycloak + shared Gateway; disables OIDC by default
-├── openshift/                      # OpenShift development: bundles Keycloak; adds Routes, TLS, RBAC, NetworkPolicies
-├── ibm/                            # IBM ROKS: Route mode; image mirroring and cluster-wide RBAC
-├── hub/                            # Production (multi-cluster); shared Keycloak per cluster; managed external DB
-├── cloud-hub-ingress-bootstrap/    # Cloud Hub bootstrap: shared Gateway API + wildcard DNS/TLS (AWS/functional clusters)
-├── keycloak/                       # OpenShift Keycloak overlay: adds Route + domain patching
-└── components/                     # (Future) per-component overlays for flexibility
-```
+The repo root `deploy/` directory contains all kustomize overlays for the platform. It is the **single source of truth** for desired state across all deployment modes (development, testing, and production). See [`deploy/`](../../deploy/) for the current layout.
 
 Each overlay builds on `base/` and adds only its specific differences:
 
@@ -1227,12 +1202,6 @@ Each overlay builds on `base/` and adds only its specific differences:
 
 The `keycloak/` overlay (separate from `base/keycloak/`) is used in production to customize the shared Keycloak instance (Route, domain patching).
 
-### Known Limitations in `deploy/openshift/`
+### Placeholder Gateway Base Domain in `deploy/openshift/`
 
-The current `deploy/openshift/` overlay has **unresolved runtime dependencies** documented below. These are not integration gaps but known limitations that the bootstrap workflow (e.g. `skills/deploy/deploy-cluster/SKILL.md`) addresses manually:
-
-1. **Missing `hypershell-api-config` Secret**: The API server and controller Deployments reference a Secret (`hypershell-api-config`) with keys `api-service.{issuerUrl,clientId,clientSecret,jwkCertUrl}`. This Secret is **not defined in the repo**; it must be created manually from the Keycloak realm's client credentials and the Keycloak Route host. Without it, pods fail with `CreateContainerConfigError`. The bootstrap workflow creates this Secret in Step 3 after Keycloak is deployed.
-
-2. **Keycloak bundled but without external Route**: The overlay bundles Keycloak with `KC_HOSTNAME=https://keycloak.hypershell.localhost` (a Kind-only hostname). On real OpenShift clusters, this hostname is unreachable, so tokens minted by the bundled Keycloak carry a bogus, externally-unreachable issuer. The bootstrap workflow deploys Keycloak via the `deploy/keycloak/` overlay (which adds a Route and patches `KC_HOSTNAME`) and creates the `hypershell-api-config` Secret from the actual Route host.
-
-3. **Hardcoded `GATEWAY_API_BASE_DOMAIN` placeholder**: The overlay hardcodes `GATEWAY_API_BASE_DOMAIN=openshell.stage.example.com`, which is a placeholder. This value is only used if Gateway API ingress mode is enabled (via setting `GATEWAY_INGRESS_MODE=gateway-api`); Route mode (the default) does not require it. The bootstrap workflow or operator automation must parameterize this value when switching to Gateway API mode.
+The `deploy/openshift/` overlay sets `GATEWAY_API_BASE_DOMAIN=openshell.stage.example.com` as a placeholder. `make openshift-up` replaces it with the base domain derived from the shared Gateway listener hostname. Any other deployer must set it before the control plane runs.

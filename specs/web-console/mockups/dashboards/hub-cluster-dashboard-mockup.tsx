@@ -3,7 +3,7 @@ import { HubClusterDashboardPageSurface } from "./hub-cluster-dashboard";
 
 export function HubClusterDashboardMockup() {
   return (
-    <MockupShell>
+    <MockupShell activeSection="dashboard">
       <HubClusterDashboardPageSurface />
     </MockupShell>
   );

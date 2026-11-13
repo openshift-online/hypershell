@@ -20,7 +20,7 @@ listed in `specs/id-rename-map.md`, not here.
 |--------|------|--------------|
 | `AGT-EXT` | `platform/extension-api-openshell-api-mapping.spec.md` | 5 |
 | `AGT-INF` | `platform/openshell-inference-routing.spec.md` | 3 |
-| `AGT-SEC` | `platform/agent-secret-late-binding.spec.md` | 13 |
+| `AGT-SEC` | `platform/agent-secret-late-binding.spec.md` | 14 |
 | `AGT-WSP` | `platform/agent-workspace-gateway-api.spec.md` | 10 |
 
 ### API
@@ -36,6 +36,7 @@ listed in `specs/id-rename-map.md`, not here.
 | `CICD-BLD` | `platform/openshell-branch-build.spec.md` | 8 |
 | `CICD-CRED` | `platform/ephemeral-test-credentials.spec.md` | 13 |
 | `CICD-ECC` | `platform/konflux-enterprise-contract-conformance.spec.md` | 7 |
+| `CICD-IMG` | `platform/openshell-image-auto-update.spec.md` | 6 |
 | `CICD-MRG` | `platform/mergify-parallel-merge-queue.spec.md` | 12 |
 | `CICD-PREN` | `platform/ephemeral-pr-environments.spec.md` | 12 |
 | `CICD-SEC` | `platform/ephemeral-ci-secrets.spec.md` | 5 |
@@ -44,7 +45,7 @@ listed in `specs/id-rename-map.md`, not here.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `CLI-EXT` | `platform/hsctl-extension-commands.spec.md` | 4 |
+| `CLI-EXT` | `platform/hsctl-extension-commands.spec.md` | 5 |
 | `CLI-GWC` | `platform/hsctl-gateway-connection.spec.md` | 2 |
 | `CLI-PLC` | `platform/hsctl-placement.spec.md` | 4 |
 | `CLI-REL` | `platform/hsctl-release.spec.md` | 6 |
@@ -54,10 +55,10 @@ listed in `specs/id-rename-map.md`, not here.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `CTRL-CORE` | `platform/control-plane.spec.md` | 15 |
+| `CTRL-CORE` | `platform/control-plane.spec.md` | 21 |
 | `CTRL-TLS` | `platform/hub-grpc-tls.spec.md` | 5 |
 | `CTRL-TRC` | `platform/reconcile-trace-correlation.spec.md` | 5 |
-| `CTRL-WDEL` | `platform/watch-delete-events.spec.md` | 3 |
+| `CTRL-WDEL` | `platform/watch-delete-events.spec.md` | 4 |
 
 ### DEV
 
@@ -81,6 +82,7 @@ listed in `specs/id-rename-map.md`, not here.
 |--------|------|--------------|
 | `FLT-BPR` | `platform/fleet-dashboard-bundle-pr-repository-split.spec.md` | 12 |
 | `FLT-CAP` | `platform/fleet-dashboard-capability-chips.spec.md` | 7 |
+| `FLT-DLV` | `platform/fleet-dashboard-delivery-pipeline.spec.md` | 18 |
 | `FLT-MAP` | `platform/fleet-dashboard-map-hub-spine-layout.spec.md` | 7 |
 | `FLT-NAV` | `platform/glass-url-addressable-navigation.spec.md` | 21 |
 | `FLT-SYNC` | `platform/fleet-dashboard-sync-retry-visibility.spec.md` | 4 |
@@ -89,7 +91,7 @@ listed in `specs/id-rename-map.md`, not here.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `GTW-ACC` | `platform/gateway-access-management.spec.md` | 14 |
+| `GTW-ACC` | `platform/gateway-access-management.spec.md` | 15 |
 | `GTW-ATTR` | `platform/gateway-managed-cluster-attribution.spec.md` | 6 |
 | `GTW-CFG` | `platform/generated-gateway-config-validation.spec.md` | 4 |
 | `GTW-CONC` | `platform/gateway-reconcile-concurrency.spec.md` | 3 |
@@ -101,7 +103,7 @@ listed in `specs/id-rename-map.md`, not here.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `OBS-CPL` | `platform/control-plane-observability.spec.md` | 10 |
+| `OBS-CPL` | `platform/control-plane-observability.spec.md` | 11 |
 | `OBS-CPU` | `platform/cluster-cpu.spec.md` | 8 |
 | `OBS-CRM` | `platform/control-plane-reconciliation-metrics.spec.md` | 13 |
 | `OBS-GFT` | `platform/gateway-fleet-total-trend.spec.md` | 9 |
@@ -125,13 +127,15 @@ listed in `specs/id-rename-map.md`, not here.
 | `OSG-CORE` | `platform/openshell-gateway.spec.md` | 17 |
 | `OSG-CRED` | `platform/openshell-gateway-credentials.spec.md` | 12 |
 | `OSG-DBS` | `platform/openshell-gateway-database.spec.md` | 12 |
-| `OSG-HELM` | `platform/openshell-gateway-helm-adoption.spec.md` | 3 |
-| `OSG-HLTH` | `platform/openshell-gateway-health.spec.md` | 6 |
+| `OSG-HELM` | `platform/openshell-gateway-helm-adoption.spec.md` | 4 |
+| `OSG-HLTH` | `platform/openshell-gateway-health.spec.md` | 7 |
 | `OSG-KCLK` | `platform/openshell-gateway-keycloak.spec.md` | 11 |
+| `OSG-KCLT` | `platform/openshell-gateway-keycloak.transitional.spec.md` | 1 |
 | `OSG-NSGC` | `platform/openshell-gateway-namespace-gc.spec.md` | 8 |
-| `OSG-OIDC` | `platform/openshell-gateway-oidc.spec.md` | 4 |
+| `OSG-OIDC` | `platform/openshell-gateway-oidc.spec.md` | 5 |
+| `OSG-OPWS` | `platform/gateway-operator-workspaces.spec.md` | 7 |
 | `OSG-ROT` | `platform/openshell-gateway-secret-rotation.spec.md` | 2 |
-| `OSG-ROUT` | `platform/openshell-gateway-routing.spec.md` | 11 |
+| `OSG-ROUT` | `platform/openshell-gateway-routing.spec.md` | 16 |
 | `OSG-SACC` | `platform/openshell-gateway-service-accounts.spec.md` | 18 |
 | `OSG-SBX` | `platform/openshell-gateway-sandbox-count.spec.md` | 7 |
 | `OSG-SEVT` | `platform/gateway-sandbox-events.spec.md` | 6 |
@@ -142,9 +146,9 @@ listed in `specs/id-rename-map.md`, not here.
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `PLAT-ARCH` | `platform/global-architecture.spec.md` | 19 |
-| `PLAT-CITR` | `platform/ci-trust-ext-api.spec.md` | 9 |
-| `PLAT-CLUS` | `platform/managed-cluster-registration.spec.md` | 13 |
-| `PLAT-DATA` | `platform/data-model.spec.md` | 25 |
+| `PLAT-CITR` | `platform/ci-trust-ext-api.spec.md` | 16 |
+| `PLAT-CLUS` | `platform/managed-cluster-registration.spec.md` | 15 |
+| `PLAT-DATA` | `platform/data-model.spec.md` | 27 |
 | `PLAT-INV` | `platform/platform-inventory.spec.md` | 10 |
 | `PLAT-USR` | `platform/registered-users.spec.md` | 15 |
 
@@ -160,23 +164,24 @@ listed in `specs/id-rename-map.md`, not here.
 |--------|------|--------------|
 | `SDLC-AGT` | `platform/sdlc-agent-runtime-telemetry.spec.md` | 17 |
 | `SDLC-CONF` | `standards/sdlc/kind-conformance.spec.md` | 13 |
+| `SDLC-HOOK` | `standards/sdlc/fullsend-lifecycle-label-hooks.spec.md` | 14 |
 | `SDLC-JIRA` | `standards/sdlc/jira-github-sync.spec.md` | 15 |
-| `SDLC-LOC` | `platform/local-sdlc-dispatch.spec.md` | 10 |
-| `SDLC-VIS` | `platform/agent-sdlc-visibility-dashboard.spec.md` | 25 |
+| `SDLC-LOC` | `platform/local-sdlc-dispatch.spec.md` | 13 |
+| `SDLC-VIS` | `platform/agent-sdlc-visibility-dashboard.spec.md` | 26 |
 
 ### SEC
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
 | `SEC-OIDC` | `platform/oidc-integration.spec.md` | 11 |
-| `SEC-RBAC` | `security/rbac-enforcement.spec.md` | 23 |
+| `SEC-RBAC` | `security/rbac-enforcement.spec.md` | 27 |
 | `SEC-STD` | `standards/security/security.spec.md` | 4 |
 
 ### STD
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `STD-IDS` | `standards/platform/spec-identifiers.spec.md` | 8 |
+| `STD-IDS` | `standards/platform/spec-identifiers.spec.md` | 9 |
 | `STD-RCON` | `standards/control-plane/reconciliation-contract.spec.md` | 13 |
 
 ### UIS
@@ -212,17 +217,18 @@ the rest of `WEB` here for lookup convenience.
 | `WEB-DATA` | `web-console/architecture.spec.md` | 4 |
 | `WEB-DOCS` | `platform/openshell-install-docs-link.spec.md` | 2 |
 | `WEB-DPLY` | `web-console/architecture.spec.md` | 2 |
+| `WEB-GLIS` | `web-console/gateway-list-detail.spec.md` | 25 |
 | `WEB-HOME` | `web-console/homepage.spec.md` | 16 |
 | `WEB-I18N` | `web-console/architecture.spec.md` | 1 |
 | `WEB-OBS` | `web-console/architecture.spec.md` | 2 |
 | `WEB-OPS` | `web-console/operational-dashboard.spec.md` | 29 |
 | `WEB-PKG` | `web-console/architecture.spec.md` | 4 |
-| `WEB-PLC` | `web-console/gateway-provision-placement.spec.md` | 10 |
+| `WEB-PLC` | `web-console/gateway-provision-placement.spec.md` | 9 |
 | `WEB-QUAL` | `web-console/architecture.spec.md` | 3 |
 | `WEB-SDK` | `web-console/architecture.spec.md` | 1 |
 | `WEB-SEC` | `web-console/architecture.spec.md` | 1 |
 | `WEB-TRC` | `web-console/tracing.spec.md` | 11 |
-| `WEB-UIEX` | `web-console/architecture.spec.md` | 7 |
+| `WEB-UIEX` | `web-console/architecture.spec.md` | 8 |
 | `WEB-USE` | `web-console/usage-dashboard.spec.md` | 11 |
 | `WEB-VER` | `web-console/gateway-version-visibility.spec.md` | 4 |
 
@@ -251,7 +257,6 @@ from a registered, collision-free code instead of inventing one ad hoc.
 | (none) | `index.spec.md` | The spec tree's own index; hosts this registry pointer, not requirements |
 | `AGT-IMG` | `platform/agent-runtime-images.spec.md` | Image/pipeline description, no Given/When/Then contracts yet |
 | `E2E-CON` | `platform/e2e-console-browser-testing.spec.md` | Driver/config description, no Given/When/Then contracts yet |
-| `CICD-IMG` | `platform/openshell-image-auto-update.spec.md` | Renovate pipeline description, no Given/When/Then contracts yet |
 | `STD-CTRL` | `standards/control-plane/conventions.spec.md` | Coding conventions reference, not behavior contracts |
 | `STD-XCUT` | `standards/platform/cross-cutting.spec.md` | Cross-cutting constraints reference, not behavior contracts |
 | `STD-NAME` | `standards/platform/naming-multitenancy.spec.md` | Naming-convention reference, not behavior contracts |

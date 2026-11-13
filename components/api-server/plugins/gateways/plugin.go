@@ -5,23 +5,22 @@ import (
 	stderrors "errors"
 	"log/slog"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
-	"github.com/gorilla/mux"
 	"google.golang.org/grpc"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/extsearch"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/routes"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/sandboxEvents"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
-	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/authz"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/controllers"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
@@ -187,7 +186,6 @@ func (r gatewaySubjectResolver) RegisteredClusterIDForSubject(ctx context.Contex
 
 type placementSnapshot struct {
 	candidates []PlacementCandidate
-	localID    string
 }
 
 type registeredPlacementService struct {
@@ -213,13 +211,6 @@ func (p *registeredPlacementService) snapshot(ctx context.Context) (placementSna
 		if cluster == nil || cluster.OIDCSubject == "" || !PlacementControlPlaneConnected(cluster.LastSeenAt, p.now()) {
 			continue
 		}
-		isLocal := cluster.Name == "local-kind"
-		if isLocal {
-			if os.Getenv("HYPERSHELL_PLATFORM_KIND") == "true" {
-				result.localID = cluster.ID
-			}
-			continue
-		}
 		if len(cluster.Capabilities) == 0 {
 			continue
 		}
@@ -242,8 +233,7 @@ func managedPlacementAvailable(snapshot placementSnapshot, intent PlacementInten
 	return false
 }
 
-// Resolve implements PlacementResolver. A local-kind intent that cannot be
-// satisfied is a hard error (WEB-PLC-08), while a capability-label selector that
+// Resolve implements PlacementResolver. A capability-label selector that
 // matches no eligible cluster yields resolved=false with a nil error so the
 // gateway is late-bound (created Pending, awaiting placement) rather than rejected
 // (WEB-PLC-07).
@@ -251,15 +241,6 @@ func (p *registeredPlacementService) Resolve(ctx context.Context, intent openapi
 	snapshot, svcErr := p.snapshot(ctx)
 	if svcErr != nil {
 		return "", false, svcErr
-	}
-	if intent.Mode != nil && *intent.Mode == "local-kind" {
-		if os.Getenv("HYPERSHELL_PLATFORM_KIND") != "true" {
-			return "", false, errors.Validation("local-kind placement is only available in the Kind development environment")
-		}
-		if snapshot.localID == "" {
-			return "", false, errors.Validation("local-kind placement is unavailable")
-		}
-		return snapshot.localID, true, nil
 	}
 	selector, validationErr := managedClusters.NormalizeSelector(intent.Selector)
 	if validationErr != nil {
@@ -322,7 +303,6 @@ func (p *registeredPlacementService) Availability(ctx context.Context, selectors
 		}
 		availability.Placements = append(availability.Placements, item)
 	}
-	availability.LocalKind = os.Getenv("HYPERSHELL_PLATFORM_KIND") == "true" && snapshot.localID != ""
 	return availability, nil
 }
 
@@ -331,7 +311,7 @@ func init() {
 		return NewServiceLocator(env.(*environments.Env))
 	})
 
-	pkgserver.RegisterRoutes("gateways", func(apiV1Router *mux.Router, services pkgserver.ServicesInterface, authMiddleware environments.JWTMiddleware, authzMiddleware auth.AuthorizationMiddleware) {
+	pkgserver.RegisterRoutes("gateways", func(apiRouter *pkgserver.APIRouter, services pkgserver.ServicesInterface) {
 		envServices := services.(*environments.Services)
 		var ownerBinding OwnerBindingCreator
 		var visibilityFilter GatewayVisibilityFilter
@@ -362,25 +342,19 @@ func init() {
 			}
 			return gateway.Namespace, true
 		})
-		sandboxEventsRouter := apiV1Router.PathPrefix("/gateways/{gateway_id}/sandbox_events").Subrouter()
+		sandboxEventsRouter := routes.Resource(apiRouter, "sandbox_events").PathPrefix("/gateways/{gateway_id}/sandbox_events").Subrouter()
 		sandboxEventsRouter.HandleFunc("", sandboxEventsHandler.List).Methods(http.MethodGet)
-		sandboxEventsRouter.Use(authMiddleware.AuthenticateAccountJWT)
-		sandboxEventsRouter.Use(authzMiddleware.AuthorizeApi)
 
-		gatewaysRouter := apiV1Router.PathPrefix("/gateways").Subrouter()
+		gatewaysRouter := routes.Resource(apiRouter, "gateways").PathPrefix("/gateways").Subrouter()
 		gatewaysRouter.HandleFunc("", gatewayHandler.List).Methods(http.MethodGet)
 		gatewaysRouter.HandleFunc("/placement-availability", gatewayHandler.GetPlacementAvailability).Methods(http.MethodPost)
 		gatewaysRouter.HandleFunc("/{id}", gatewayHandler.Get).Methods(http.MethodGet)
 		gatewaysRouter.HandleFunc("", gatewayHandler.Create).Methods(http.MethodPost)
 		gatewaysRouter.HandleFunc("/{id}", gatewayHandler.Patch).Methods(http.MethodPatch)
 		gatewaysRouter.HandleFunc("/{id}", gatewayHandler.Delete).Methods(http.MethodDelete)
-		gatewaysRouter.Use(authMiddleware.AuthenticateAccountJWT)
-		gatewaysRouter.Use(authzMiddleware.AuthorizeApi)
 
-		metricsRouter := apiV1Router.PathPrefix("/metrics").Subrouter()
+		metricsRouter := routes.Resource(apiRouter, "metrics").PathPrefix("/metrics").Subrouter()
 		metricsRouter.HandleFunc("/gateways", gatewayHandler.MetricsGateways).Methods(http.MethodGet)
-		metricsRouter.Use(authMiddleware.AuthenticateAccountJWT)
-		metricsRouter.Use(authzMiddleware.AuthorizeApi)
 	})
 
 	pkgserver.RegisterController("Gateways", func(manager *controllers.KindControllerManager, services pkgserver.ServicesInterface) {
@@ -431,10 +405,10 @@ func init() {
 			return nil
 		}
 		placement := newRegisteredPlacementService(envServices)
-		grpcHandler := NewGatewayGRPCHandler(gatewayService, genericService, brokerFunc, registeredClusterLookup(envServices), gatewaySubjectResolver{services: envServices}, newDedicatedRouteAuthorizer(gatewayBindingLookup(envServices), rbac.Enforced()), placement.Resolve)
+		grpcHandler := NewGatewayGRPCHandler(gatewayService, genericService, brokerFunc, registeredClusterLookup(envServices), gatewaySubjectResolver{services: envServices}, newDedicatedRouteAuthorizer(gatewayBindingLookup(envServices), rbac.Enforced()), newOperatorWorkspaceAuthorizer(gatewayBindingLookup(envServices), rbac.Enforced()), placement.Resolve)
 		SetSandboxEventStore(grpcHandler, sandboxEvents.Store(envServices))
 		pb.RegisterGatewayServiceServer(grpcServer, grpcHandler)
-	})
+	}, gatewayGRPCResources())
 
 	presenters.RegisterPath(Gateway{}, "gateways")
 	presenters.RegisterPath(&Gateway{}, "gateways")
@@ -465,4 +439,17 @@ func init() {
 	db.RegisterMigration(migrationAddGatewayWorkspaceMode())
 	db.RegisterMigration(migrationAddGatewayDedicatedRoute())
 	db.RegisterMigration(migrationBackfillGatewayWorkspaceModeShared())
+}
+
+// gatewayGRPCResources declares every GatewayService method for authorization.
+// The control-plane-owned writes are updates of the gateway; sandbox events are
+// created under it.
+func gatewayGRPCResources() authz.GRPCResources {
+	resources := authz.CRUDResources(pb.GatewayService_ServiceDesc.ServiceName, "gateways", "Gateway", "Gateways")
+	method := func(name string) string { return "/" + pb.GatewayService_ServiceDesc.ServiceName + "/" + name }
+	resources[method("AdjustActiveSandboxCount")] = authz.GRPCResource{Kind: "gateways", Action: authz.ActionUpdate}
+	resources[method("SetActiveSandboxCount")] = authz.GRPCResource{Kind: "gateways", Action: authz.ActionUpdate}
+	resources[method("SetGatewayVersion")] = authz.GRPCResource{Kind: "gateways", Action: authz.ActionUpdate}
+	resources[method("ReportSandboxEvents")] = authz.GRPCResource{Kind: "sandbox_events", Action: authz.ActionCreate}
+	return resources
 }

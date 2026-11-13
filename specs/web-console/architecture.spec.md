@@ -236,15 +236,15 @@ The browser SHALL configure the SDK for same-origin `/api` requests with cookie 
 
 **Verification:** Build and import the SDK from both browser and BFF TypeScript configurations. Inspect the browser bundle for `process.env`, embedded API origins, tokens, and CommonJS-only shims. Cancel an in-flight route request and verify upstream cancellation where supported.
 
-### Requirement: WEB-AUTH-04 -- Initial No-Auth Development Mode
+### Requirement: WEB-AUTH-04 -- No-Auth Development Mode
 
-The initial UI MAY operate against an API server started with JWT authentication and authorization disabled. This mode SHALL be restricted to an explicit local/development environment, and the API SHALL remain bound to a loopback or otherwise isolated development interface. Shared, review, staging, and production deployments SHALL fail startup or readiness when authentication is disabled.
+The UI MAY operate against an API server started with JWT authentication and authorization disabled. This mode SHALL be restricted to an explicit local/development environment, and the API SHALL remain bound to a loopback or otherwise isolated development interface. Shared, review, staging, and production deployments SHALL fail startup or readiness when authentication is disabled.
 
 The browser SHALL retain the production-shaped relative `/api` contract. A Vite development proxy or a development-mode BFF SHALL forward requests to the configured local API origin and SHALL omit the bearer header. Authentication mode SHALL be selected and validated by trusted server or development-tool configuration; a browser-visible `VITE_*` flag SHALL NOT enable or disable authentication.
 
-When routes need identity or capability data before OIDC is implemented, the development server MAY return an unmistakably synthetic development session with full development capabilities. Product code SHALL consume the same session interface used by authenticated deployments and SHALL NOT scatter no-auth conditionals through routes, components, or SDK calls.
+When routes need identity or capability data in no-auth mode, the development server MAY return an unmistakably synthetic development session with full development capabilities. Product code SHALL consume the same session interface used by authenticated deployments and SHALL NOT scatter no-auth conditionals through routes, components, or SDK calls.
 
-No-auth execution SHALL NOT count as evidence for login, logout, session rotation or expiry, CSRF protection, role/capability enforcement, 401/403 recovery, or cross-resource authorization. Those behaviors SHALL use contract-faithful mocks during initial development and SHALL pass against an authenticated environment before production availability.
+No-auth execution SHALL NOT count as evidence for login, logout, session rotation or expiry, CSRF protection, role/capability enforcement, 401/403 recovery, or cross-resource authorization. Those behaviors SHALL use contract-faithful mocks in no-auth development and SHALL pass against an authenticated environment.
 
 **Verification:** Start the documented local no-auth workflow and complete a representative gateway route without an authorization header. Attempt to start each non-development environment with authentication disabled and confirm that it fails closed. Search browser code and bundles for an authentication-bypass flag, and inspect test evidence so no-auth journeys are not labeled as authentication coverage.
 
@@ -432,6 +432,8 @@ Platform administrators (and gateway owners, for gateways they own) SHALL be abl
 - Invalidate the gateway collection query to refresh the list
 - Handle failures with clear error messaging and recovery guidance
 
+The list SHALL additionally support selecting several gateways and deleting them together through the bulk selection and bulk-delete action defined in WEB-UIEX-08. The per-row delete action defined here and the bulk-delete action SHALL share the same per-gateway deletion workflow, confirmation discipline, and API authorization.
+
 **Verification:** Authenticate as a platform:admin user with 100+ gateways in the system. Verify the list displays 20 items by default, search filters results with 300ms debounce, pagination controls work correctly, total count is accurate, and delete actions are enabled and functional. Verify rapid search input cancels previous requests. Authenticate as a non-admin user and verify the list shows only owned/viewable gateways, the delete action is enabled on gateways they own, and the delete action is disabled with an accessible explanation on gateways they can only view.
 
 #### Scenario: WEB-UIEX-06.01 -- Platform admin sees all gateways with pagination
@@ -479,7 +481,9 @@ Platform administrators (and gateway owners, for gateways they own) SHALL be abl
 
 The gateway list SHALL offer a "Show only my gateways" ownership filter so a user who can see gateways owned by other people can focus on the gateways they own without losing access to the full authorized list. "My gateways" means gateway ownership (the signed-in user holds `gateway:owner` on the gateway, per `platform/gateway-access-management.spec.md`); it does not mean ownership of the cluster hosting the gateway.
 
-**Presentation.** The filter SHALL be a PatternFly `Switch` (an on/off control), not a single-item toggle-button group, placed near the list's existing filters in the collection toolbar. The switch SHALL carry the localized visible label "Show only my gateways" as its accessible name, SHALL expose its boolean on/off state to assistive technology, and SHALL support accessible keyboard and screen-reader behavior per `standards/ui/accessibility.spec.md`. It SHALL default to off (showing every gateway the user is authorized to see). The control SHALL read as a persistent setting that stays enabled, not as an action the user performs. The implementation-intent mockup and its off and on design-review states are the `Loaded` and `OwnershipFilterOn` stories in `specs/web-console/mockups/gateways/gateway-list.stories.tsx` (mockup `specs/web-console/mockups/gateways/gateway-list.tsx`).
+**Presentation.** The filter SHALL be a PatternFly `Switch` (an on/off control), not a single-item toggle-button group, placed in the collection toolbar on its own row below the list's filtering controls (see **Toolbar placement**). The switch SHALL carry the localized visible label "Show only my gateways" as its accessible name, SHALL expose its boolean on/off state to assistive technology, and SHALL support accessible keyboard and screen-reader behavior per `standards/ui/accessibility.spec.md`. It SHALL default to off (showing every gateway the user is authorized to see). The control SHALL read as a persistent setting that stays enabled, not as an action the user performs. The implementation-intent mockup and its off and on design-review states are the `Loaded` and `OwnershipFilterOn` stories in `specs/web-console/mockups/gateways/gateway-list.stories.tsx` (mockup `specs/web-console/mockups/gateways/gateway-list.tsx`).
+
+**Toolbar placement.** The collection toolbar SHALL use PatternFly toolbar layout arranged as two rows that follow the Red Hat Hybrid Cloud Console (console.redhat.com) Clusters list layout. The first row SHALL lead with the bulk selection control (WEB-UIEX-08) at its leading edge, followed by the search input, any other list filters, the bulk-delete action (WEB-UIEX-08), the primary Provision gateway action, and pagination, with PatternFly toolbar spacing. The "Show only my gateways" switch SHALL occupy a second row directly below the first row, horizontally aligned with the toolbar's filtering controls and the surrounding list content. The layout SHALL use PatternFly layout components and semantic spacing tokens and SHALL NOT use manual position offsets. The switch track and its label SHALL be centered relative to each other as provided by the PatternFly `Switch`. The two rows SHALL stay usable at narrow viewport widths and at increased browser zoom without content overlap and without unintended extra wrapping. When the switch is hidden under the conditional-visibility rules below, the toolbar SHALL NOT render an empty second row. The toolbar SHALL remain one coherent surface so that the row selection and bulk actions compose with these rows instead of adding a competing toolbar.
 
 **Filter behavior.** When enabled, the list SHALL show only gateways the signed-in user owns, matched by the user's stable identity against the gateway's authoritative owner (`gateway:owner`) bindings, never by display name. The console SHALL request this ownership filter from the API so the server applies it before pagination and returns matching results and an accurate total and page count (WEB-API-01); the console SHALL NOT filter an already-paginated page on the client (consistent with WEB-ARCH-02). Changing the switch SHALL reset the collection to its first page. The filter SHALL combine with the active search, other filters, and the current sort, and its state SHALL be encoded in URL collection state per WEB-DATA-02 so the view is shareable and restored on reload.
 
@@ -489,7 +493,7 @@ The gateway list SHALL offer a "Show only my gateways" ownership filter so a use
 
 **Owned is a subset of accessible.** The set of gateways the user owns SHALL exclude soft-deleted gateways, so it is always a subset of the user's accessible (non-deleted) authorized gateways (WEB-API-01). A gateway whose `gateway:owner` binding is still live but whose gateway row is soft-deleted SHALL NOT count as owned. The switch's conditional visibility (whether the accessible list contains at least one gateway the user does not own) SHALL be derived from this invariant, so a soft-deleted gateway never corrupts the switch: a user who still has other visible gateways SHALL still see the switch.
 
-**Verification:** With gateways spanning several pages, verify the switch is visible when another user's gateway exists only on a later page and hidden when all accessible gateways belong to the signed-in user. Verify the control renders as a PatternFly `Switch` with the visible "Show only my gateways" label and a boolean on/off state, not as a pressed-state button. Verify enabling the switch returns only the user's gateways across all pages with correct totals, resets pagination, and combines with search and sort. Verify the switch state is encoded in the URL and restored on reload. Verify a user who can see only other people's gateways sees the switch and a clear empty state when it is enabled, and can turn it off. Verify unauthorized gateways never affect switch visibility or appear in results.
+**Verification:** With gateways spanning several pages, verify the switch is visible when another user's gateway exists only on a later page and hidden when all accessible gateways belong to the signed-in user. Verify the control renders as a PatternFly `Switch` with the visible "Show only my gateways" label and a boolean on/off state, not as a pressed-state button. Verify enabling the switch returns only the user's gateways across all pages with correct totals, resets pagination, and combines with search and sort. Verify the switch state is encoded in the URL and restored on reload. Verify a user who can see only other people's gateways sees the switch and a clear empty state when it is enabled, and can turn it off. Verify unauthorized gateways never affect switch visibility or appear in results. Verify the switch renders on its own toolbar row below the search input, other filters, and the Provision gateway action, horizontally aligned with the filtering controls and with its track and label centered relative to each other using PatternFly layout rather than manual offsets. Verify no empty toolbar row appears when the switch is hidden, and that both toolbar rows stay usable at narrow viewport widths and at increased browser zoom without overlap or unintended extra wrapping.
 
 #### Scenario: WEB-UIEX-07.01 -- Switch visible when another owner's gateway exists on a later page
 
@@ -539,18 +543,131 @@ The gateway list SHALL offer a "Show only my gateways" ownership filter so a use
 - AND the owned set SHALL remain a subset of the user's accessible (non-deleted) gateways
 - AND the "Show only my gateways" switch SHALL stay visible because the accessible set still contains a gateway the user does not own
 
+#### Scenario: WEB-UIEX-07.07 -- Ownership switch sits on its own row below the filters
+
+- GIVEN the "Show only my gateways" switch is visible
+- WHEN the user views the gateway list toolbar
+- THEN the search input, any other filters, and the Provision gateway action SHALL appear on the first toolbar row
+- AND the switch SHALL appear on a second toolbar row directly below the first row
+- AND the switch SHALL be horizontally aligned with the toolbar's filtering controls, with its track and label centered relative to each other using PatternFly layout and not manual offsets
+
+#### Scenario: WEB-UIEX-07.08 -- Hidden switch leaves no empty row and narrow layouts stay usable
+
+- GIVEN every gateway the signed-in user is authorized to see is owned by that user, so the switch is hidden
+- WHEN the user views the gateway list toolbar at a narrow viewport width or at increased browser zoom
+- THEN the toolbar SHALL NOT render an empty second row
+- AND the first-row controls SHALL remain usable without content overlap and without unintended extra wrapping
+
+### Requirement: WEB-UIEX-08 -- Bulk Gateway Deletion From the List
+
+The gateway list SHALL let a user select several gateways and delete them together. Delete SHALL be the only bulk action. The bulk-delete action and the per-row delete action (WEB-UIEX-06) SHALL share the same per-gateway deletion workflow, API authorization, and confirmation discipline. The implementation-intent mockup and its design-review states are the `SelectionActive`, `BulkDeleteConfirm`, and `BulkDeletePartialFailure` stories in `specs/web-console/mockups/gateways/gateway-list.stories.tsx` (mockup `specs/web-console/mockups/gateways/gateway-list.tsx`), alongside the existing `Loaded` and `OwnershipFilterOn` states.
+
+**Row selection.** Every gateway row SHALL present a selection checkbox whose accessible name identifies that gateway (for example "Select gateway kim-gateway"). The list SHALL present a header bulk-selection control, aligned with the selection column, that reflects three states correctly: unchecked when no eligible row is selected, checked when every eligible row on the current page is selected, and indeterminate when only some eligible rows are selected. The checkboxes and the bulk-selection control SHALL be PatternFly selection components, not custom controls.
+
+**Selection scope.** Selection scope SHALL be the current page only. The header bulk-selection control SHALL select the eligible rows on the current page and SHALL NOT silently select gateways on other pages or fetch the entire collection. The current-page scope SHALL be labeled so the user understands what the bulk-selection control affects. The list SHALL clear the selection when the page, page size, search query, any filter (including the "Show only my gateways" filter, WEB-UIEX-07), or the sort changes, so a hidden row can never be deleted unexpectedly.
+
+**Eligibility and authorization.** A row the user cannot delete SHALL keep a visible selection checkbox, but that checkbox SHALL be disabled with an accessible explanation of why selection is unavailable. Eligibility SHALL be derived from the gateway's authoritative `can_delete` capability (WEB-UIEX-03, WEB-UIEX-06), never inferred from ownership alone or from the "Show only my gateways" ownership filter. Selection SHALL NOT bypass server authorization: the API remains the authorization boundary and SHALL reject an unauthorized delete with `403` regardless of any client affordance (`security/rbac-enforcement.spec.md`, SEC-RBAC-10).
+
+**Bulk-actions control.** The list SHALL present a PatternFly bulk-actions control aligned with the table's selection controls and the existing toolbar. The control SHALL show the count of selected gateways and SHALL offer a clear way to deselect all. Delete SHALL be its only action, rendered with the destructive styling supported by the chosen PatternFly component, and SHALL be disabled whenever no eligible gateway is selected.
+
+**Toolbar layout.** The bulk selection control at the leading edge, the search input, filters, the bulk-delete action, the primary provisioning action, and pagination SHALL share one intentionally aligned primary toolbar row. The "Show only my gateways" ownership switch SHALL remain on its own separate row below that row, per WEB-UIEX-07.
+
+**Confirmation.** Before any deletion, the list SHALL open a confirmation dialog that states how many gateways will be deleted, identifies the selected gateways, and explains the existing deletion consequences (`platform/gateway-deletion-finalization.spec.md`). The dialog SHALL provide explicit Delete and Cancel actions. Cancel SHALL leave every gateway unchanged and perform no deletion.
+
+**Execution and concurrency.** On confirmation, the console SHALL delete each selected gateway through the existing per-gateway deletion workflow and API authorization used by WEB-UIEX-06 (`DELETE /api/hypershell/v1/gateways/{id}`). The console SHALL prevent duplicate submissions while deletion requests are in flight. When deletion issues one request per gateway, the console SHALL bound request concurrency and SHALL NOT send an unbounded burst (`standards/ui/trust-performance.spec.md`).
+
+**Results and partial failure.** The console SHALL report success and failure per gateway. On partial failure it SHALL show which deletions were accepted and which failed, SHALL retain the failed selections where appropriate, and SHALL allow retry of the failures without resubmitting the already-accepted deletions. The console SHALL distinguish an accepted asynchronous deletion (the API accepted the request and teardown proceeds asynchronously per `platform/gateway-deletion-finalization.spec.md`) from completed resource cleanup, and SHALL NOT present the former as the latter.
+
+**Refresh and reconciliation.** After the requests complete, the console SHALL refetch the authoritative gateway list and totals (WEB-API-01, invalidating the collection query per WEB-DATA-01), SHALL keep pagination valid, and SHALL reconcile the selection against the refreshed rows. The console SHALL NOT present a failed deletion as success and SHALL NOT remove a gateway's row solely because a delete request was attempted.
+
+**Accessibility.** The selection checkboxes, the header bulk-selection control, the bulk-actions control, and the confirmation dialog SHALL support keyboard and screen-reader operation, visible focus, responsive layouts, and browser zoom per `standards/ui/accessibility.spec.md`.
+
+**Verification:** Exercise a page containing deletable and view-only gateways. Verify every row has a selection checkbox with a gateway-specific accessible name, the view-only row's checkbox is disabled with an accessible explanation, and the header bulk-selection control shows unchecked, checked, and indeterminate states. Verify the header control selects only eligible rows on the current page, the scope is labeled, and selection clears on page, page-size, search, filter, and sort changes. Verify the bulk-actions control shows the selected count, offers deselect-all, and enables Delete only when an eligible gateway is selected. Verify confirmation states the count and names the gateways, Cancel performs no deletion, and Delete reuses the per-gateway deletion workflow. Verify all-success, all-failure, and partial-failure results report per-gateway outcomes, retain and retry failures without resubmitting successes, and distinguish an accepted asynchronous deletion from completed teardown. Verify the list and totals refetch, pagination stays valid, the selection reconciles against refreshed rows, a failed deletion is never shown as success, and a server `403` is returned for an unauthorized delete regardless of the affordance. Run the repository UI build gate against the updated mockup and verify keyboard, screen-reader, focus, responsive, and zoom behavior.
+
+#### Scenario: WEB-UIEX-08.01 -- Selecting eligible rows shows the count and enables Delete
+
+- GIVEN the gateway list page shows gateways the user can delete
+- WHEN the user selects one or more eligible rows
+- THEN the bulk-actions control SHALL show the number of selected gateways
+- AND the Delete bulk action SHALL become enabled
+- AND the user SHALL have a clear way to deselect all
+
+#### Scenario: WEB-UIEX-08.02 -- Header control reflects the indeterminate state
+
+- GIVEN the current page has several eligible gateways
+- WHEN the user selects some but not all of the eligible rows
+- THEN the header bulk-selection control SHALL show the indeterminate state
+- WHEN the user selects every eligible row on the page
+- THEN the header bulk-selection control SHALL show the checked state
+
+#### Scenario: WEB-UIEX-08.03 -- Current-page scope and selection clearing
+
+- GIVEN the user has selected eligible gateways on the current page
+- WHEN the user changes the page, page size, search query, a filter, or the sort
+- THEN the selection SHALL be cleared
+- AND the header bulk-selection control SHALL act only on eligible rows of the current page, never selecting gateways on other pages or fetching the entire collection
+
+#### Scenario: WEB-UIEX-08.04 -- Ineligible row is disabled and the server enforces authorization
+
+- GIVEN the user can view gateway gw-view but its `can_delete` capability is false
+- WHEN the user views the gateway list
+- THEN gw-view SHALL show a disabled selection checkbox with an accessible explanation
+- AND gw-view SHALL NOT be included when the header control selects the current page
+- AND a delete request for gw-view SHALL be rejected by the API with `403` regardless of any client affordance
+
+#### Scenario: WEB-UIEX-08.05 -- Confirmation identifies scope and Cancel performs no deletion
+
+- GIVEN the user has selected two eligible gateways and triggers the bulk Delete action
+- WHEN the confirmation dialog opens
+- THEN it SHALL state that two gateways will be deleted and identify them
+- AND it SHALL explain the existing deletion consequences
+- WHEN the user chooses Cancel
+- THEN no gateway SHALL be deleted and the gateways SHALL remain unchanged
+
+#### Scenario: WEB-UIEX-08.06 -- All-success bulk delete refreshes the list and totals
+
+- GIVEN the user confirms deletion of two eligible gateways
+- AND the API accepts both deletions
+- WHEN the requests complete
+- THEN each deletion SHALL reuse the per-gateway deletion workflow (`DELETE /api/hypershell/v1/gateways/{id}`)
+- AND the console SHALL refetch the authoritative list and totals and keep pagination valid
+- AND the console SHALL reconcile the selection against the refreshed rows
+
+#### Scenario: WEB-UIEX-08.07 -- Partial failure retains failures and allows retry
+
+- GIVEN the user confirms deletion of gateways gw-a and gw-b
+- WHEN gw-a is accepted and gw-b fails
+- THEN the console SHALL report the per-gateway outcomes for gw-a and gw-b
+- AND gw-b SHALL remain selected so the user can retry it
+- AND retrying SHALL resubmit only gw-b and SHALL NOT resubmit gw-a
+- AND gw-b's row SHALL NOT be removed or shown as deleted solely because a request was attempted
+
+#### Scenario: WEB-UIEX-08.08 -- Bounded concurrency and no duplicate submissions
+
+- GIVEN the user confirms deletion of many eligible gateways with one request per gateway
+- WHEN the console issues the deletion requests
+- THEN it SHALL bound request concurrency rather than sending an unbounded burst
+- AND it SHALL prevent duplicate submissions while the requests are in flight
+
+#### Scenario: WEB-UIEX-08.09 -- Accepted asynchronous deletion is distinguished from completed cleanup
+
+- GIVEN the API accepts a gateway deletion and teardown proceeds asynchronously (`platform/gateway-deletion-finalization.spec.md`)
+- WHEN the console reports the result
+- THEN it SHALL present the deletion as accepted with teardown in progress
+- AND it SHALL NOT present the accepted deletion as completed resource cleanup
+
 ### Requirement: WEB-UIEX-04 -- Gateway Placement Selection
 
-The gateway provisioning form SHALL collect a gateway name and a network-visibility placement intent rather than a cluster selection. The provision form's placement-intent request contract, its network-visibility choices, and the related provider, version, availability, and local-kind behavior are defined in [`gateway-provision-placement.spec.md`](./gateway-provision-placement.spec.md) (WEB-PLC-01 Placement Intent Contract and WEB-PLC-02 Network Visibility Selection). The form SHALL NOT present a cluster selector and SHALL NOT submit a user-selected `cluster_id`; the backend resolves and assigns the concrete cluster identifier, or late-binds the gateway (created `Pending` with an empty `cluster_id`) when no cluster matches the selector yet, per [`gateway-provision-placement.spec.md`](./gateway-provision-placement.spec.md) WEB-PLC-07. The form SHALL NOT collect a Kubernetes namespace; the host adapter SHALL omit namespace because the API server assigns it.
+The gateway provisioning form SHALL collect a gateway name and a placement intent rather than a cluster selection. The placement intent is a capability-label selector. The form's placement choices, how they map to selectors, and placement availability are defined in [`gateway-provision-placement.spec.md`](./gateway-provision-placement.spec.md), starting with WEB-PLC-01 Placement Intent Contract. The form SHALL NOT present a cluster selector and SHALL NOT submit a user-selected `cluster_id`; the backend resolves and assigns the concrete cluster identifier, or late-binds the gateway (created `Pending` with an empty `cluster_id`) when no cluster matches the selector yet, per [`gateway-provision-placement.spec.md`](./gateway-provision-placement.spec.md) WEB-PLC-07. The form SHALL NOT collect a Kubernetes namespace; the host adapter SHALL omit namespace because the API server assigns it.
 
 The gateway collection and gateway details SHALL display the resolved managed-cluster name for every gateway whose backend-assigned `cluster_id` is present. Gateway details SHALL resolve one stable cluster identifier through the managed-cluster API and provide a direct retry action when name resolution fails. The gateway collection SHALL normalize and deduplicate the visible page's non-empty cluster identifiers through one application-owned normalizer, use that same normalized sequence for the batch cache key and API request, resolve it through one bounded managed-cluster list request, and cache that batch for 60 seconds. Both experiences SHALL render explicit loading and unavailable states without exposing the raw identifier as a display fallback.
 
-**Verification:** Inspect the composed provisioning form, its placement-intent request payload, the SDK adapter, and the managed-cluster name resolution on the gateway collection and gateway details. Confirm the form presents no cluster selector, omits namespace, and submits a placement intent rather than a user-selected `cluster_id`, consistent with `gateway-provision-placement.spec.md` WEB-PLC-01 and WEB-PLC-02, and that the created Gateway response contains the server-assigned namespace and backend-resolved cluster. Cold-render the gateway collection with distinct managed-cluster identifiers and confirm placement resolution issues one managed-cluster list request and no per-cluster get requests; repeat with duplicate identifiers and confirm they are deduplicated. A missing cluster or failed placement batch SHALL preserve the gateway rows and render their placement values as unavailable.
+**Verification:** Inspect the composed provisioning form, its placement-intent request payload, the SDK adapter, and the managed-cluster name resolution on the gateway collection and gateway details. Confirm the form presents no cluster selector, omits namespace, and submits a placement intent rather than a user-selected `cluster_id`, consistent with `gateway-provision-placement.spec.md` WEB-PLC-01, and that the created Gateway response contains the server-assigned namespace and backend-resolved cluster. Cold-render the gateway collection with distinct managed-cluster identifiers and confirm placement resolution issues one managed-cluster list request and no per-cluster get requests; repeat with duplicate identifiers and confirm they are deduplicated. A missing cluster or failed placement batch SHALL preserve the gateway rows and render their placement values as unavailable.
 
 #### Scenario: WEB-UIEX-04.01 -- Provisioning Submits Placement Intent
 
 - GIVEN the provisioning form has loaded
-- WHEN the user selects a network visibility and provisions a gateway
+- WHEN the user makes the placement choices and provisions a gateway
 - THEN the request SHALL contain the placement intent defined by `gateway-provision-placement.spec.md` WEB-PLC-01
 - AND the request SHALL NOT contain a user-selected `cluster_id`
 - AND the request SHALL omit namespace
@@ -789,7 +906,7 @@ The gateway table SHALL display each gateway's backend-resolved managed-cluster 
 | Adaptive polling for initial lifecycle refresh                   | The current REST API has no authenticated browser event contract; bounded polling meets the immediate need                                                                                                                                |
 | One gateway management experience                                | A single gateway list makes connection and provisioning workflows easy to find without introducing premature audience or navigation boundaries                                                                                            |
 | Private reusable gateway management UI workspace package         | Establishes one canonical gateway experience that the standalone console hosts today and another product can embed later without coupling feature code to a shell, router, authentication implementation, or mutable global configuration |
-| Placement intent over cluster selection                          | The provisioning form submits a network-visibility placement intent rather than a user-selected cluster; the backend resolves and assigns the concrete cluster (see `gateway-provision-placement.spec.md`)                                  |
+| Placement intent over cluster selection                          | The provisioning form submits a capability-label selector rather than a user-selected cluster; the backend resolves and assigns the concrete cluster (see `gateway-provision-placement.spec.md`)                                            |
 | No general client-state store initially                          | URL state, local React state, Context, and TanStack Query have clear non-overlapping ownership                                                                                                                                            |
 | No SSR, RSC, service worker, or offline mutation queue initially | The authenticated console has no current SEO/offline requirement that justifies their operational and security complexity                                                                                                                 |
 | TypeScript 6 before TypeScript 7                                 | Uses the stable tool API supported across lint, build, test, and generated-code tooling; upgrade follows ecosystem readiness                                                                                                              |

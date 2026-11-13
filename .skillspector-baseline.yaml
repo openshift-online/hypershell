@@ -169,6 +169,16 @@ rules:
   path: "*linux-capabilities/SKILL.md"
   reason: "Reference documentation describing Linux capability behavior - not an agent instruction override"
 
+# TM1: Prose warning that documents what `make vendor-openshell-chart` does
+# (`rm -rf charts/openshell && cp -r ...` from the upstream tag) so the operator
+# re-checks a HyperShell-authored vendored-chart patch after a bump. It is
+# descriptive text, not an agent-executed destructive command, and takes no
+# user-controlled parameters; the only command the block instructs is a
+# read-only `git diff`.
+- id: "TM1"
+  path: "*tooling/update-openshell/SKILL.md"
+  reason: "Prose documenting make vendor-openshell-chart's rm -rf/cp -r replace-from-upstream behavior to warn about an erased vendored-chart patch - not an agent-executed destructive command with user-controlled parameters (the block only runs a read-only git diff)"
+
 
 # Reviewed local dispatcher host-integration findings (PR #870).
 # Rule/file pairs only; execute-sdlc/SKILL.md and other findings remain scanned.
@@ -256,5 +266,20 @@ rules:
 - id: "RA2"
   path: ".hypershell/execute-sdlc/fullsend.env.example"
   reason: "Template documents the operator running gcloud ADC login; no autonomous agent session persistence is requested."
+
+
+# Native hook/recovery integration: reviewed argv-only execution (PR #869).
+- id: "AST4"
+  path: ".fullsend/scripts/refresh-code-state.py"
+  reason: "Shared maintenance calls fixed gh/bash executables with argv lists and shell disabled; bash fragments are fixed library invocations with data passed as positional arguments, never model-supplied code."
+- id: "AST4"
+  path: ".fullsend/scripts/tests/test_code_state_refresh.py"
+  reason: "Test fixture invokes a fixed bash revocation check with positional library path and a local failing gh stub; it does not execute model output or contact GitHub."
+- id: "AST4"
+  path: ".fullsend/scripts/tests/test_run_state.py"
+  reason: "Test fixture invokes the current Python interpreter and the checked-in private-state helper with temporary paths and fixed argv; no shell or model-generated code is executed."
+- id: "PE3"
+  path: ".hypershell/execute-sdlc/dispatcher/cancel_test.go"
+  reason: "Cancellation test re-executes the test binary with the inherited environment plus a fixed FUNNEL_TEST_CANCEL_WORKER flag to drive a detached worker; it does not read or expose credentials, matching the existing dispatcher test fixtures."
 
 fingerprints: []

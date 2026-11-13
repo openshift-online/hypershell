@@ -165,6 +165,7 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**UpdateSandboxTemplate**](docs/DefaultAPI.md#updatesandboxtemplate) | **Patch** /api/hypershell/ext/sandbox_templates/{id} | Update a sandbox template
 *DefaultAPI* | [**UpdateSecretSource**](docs/DefaultAPI.md#updatesecretsource) | **Patch** /api/hypershell/ext/secret_sources/{id} | Update a secret source
 *DefaultAPI* | [**UpdateWorkspaceMembership**](docs/DefaultAPI.md#updateworkspacemembership) | **Patch** /api/hypershell/ext/workspace_memberships/{id} | Update a workspace membership
+*DefaultAPI* | [**UploadSecretSourceMaterial**](docs/DefaultAPI.md#uploadsecretsourcematerial) | **Post** /api/hypershell/ext/secret_sources/{id}/material | Upload the durable material for an existing secret source
 
 
 ## Documentation For Models
@@ -246,6 +247,7 @@ Class | Method | HTTP request | Description
  - [SandboxTemplatePatchRequest](docs/SandboxTemplatePatchRequest.md)
  - [SecretSource](docs/SecretSource.md)
  - [SecretSourceList](docs/SecretSourceList.md)
+ - [SecretSourceMaterialUploadRequest](docs/SecretSourceMaterialUploadRequest.md)
  - [SecretSourcePatchRequest](docs/SecretSourcePatchRequest.md)
  - [User](docs/User.md)
  - [UserList](docs/UserList.md)

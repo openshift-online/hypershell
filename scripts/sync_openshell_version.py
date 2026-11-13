@@ -25,10 +25,6 @@ MANAGED_FILES: list[tuple[Path, list[str]]] = [
         REPO_ROOT / "deploy" / "base" / "control-plane" / "deployment.yaml",
         ["GATEWAY_IMAGE", "GATEWAY_SUPERVISOR_IMAGE", "GATEWAY_SANDBOX_RUNTIME_IMAGE"],
     ),
-    (
-        REPO_ROOT / "deploy" / "ibm" / "kustomization.yaml",
-        ["GATEWAY_IMAGE", "GATEWAY_SUPERVISOR_IMAGE", "GATEWAY_SANDBOX_RUNTIME_IMAGE"],
-    ),
 ]
 
 # Manifest that sets the HYPERSHELL_CONSOLE_IMAGE env var on the controller,
@@ -41,6 +37,22 @@ CONSOLE_IMAGE_FILE = (
 CONSOLE_IMAGE_ENV = "HYPERSHELL_CONSOLE_IMAGE"
 
 _CONSOLE_VALUE_RE = re.compile(r"(value:\s*)(\S+)")
+
+# Konflux pipelines that build the controller image. Each carries an
+# OPENSHELL_TAG build arg that sets the app.hypershell.openshell.version label
+# (specs/platform/openshell-image-auto-update.spec.md, CICD-IMG-02). The value is
+# generated from OPENSHELL_TAG here so OPENSHELL_VERSION stays the single source
+# of truth and no second release string is maintained by hand.
+TEKTON_CONTROLLER_PIPELINES: list[Path] = [
+    REPO_ROOT / ".tekton" / f"hypershell-control-plane-main-{event}.yaml"
+    for event in ("push", "pull-request", "merge-queue")
+]
+TEKTON_BUILD_ARG = "OPENSHELL_TAG"
+
+# Matches the build-arg list entry "- OPENSHELL_TAG=<value>" and captures value.
+_TEKTON_BUILD_ARG_RE = re.compile(
+    r"(?m)^(\s*-\s*" + re.escape(TEKTON_BUILD_ARG) + r"=)(\S+)[ \t]*$"
+)
 
 
 def parse_openshell_version() -> dict[str, str]:
@@ -237,6 +249,46 @@ def stamp_console_image(
     return mismatches
 
 
+def stamp_tekton_build_arg(
+    path: Path, tag: str, *, check_only: bool
+) -> list[str]:
+    """Stamp or verify the OPENSHELL_TAG build arg in a controller pipeline.
+
+    The build arg feeds the app.hypershell.openshell.version image label, so it
+    must equal OPENSHELL_TAG. A missing arg is a hard error: without it the
+    controller image would publish an empty label.
+    """
+    if not path.exists():
+        return []
+
+    try:
+        rel = path.relative_to(REPO_ROOT)
+    except ValueError:
+        rel = path
+
+    text = path.read_text()
+    matches = _TEKTON_BUILD_ARG_RE.findall(text)
+    if not matches:
+        raise RuntimeError(
+            f"{rel}: {TEKTON_BUILD_ARG} build arg not found - the controller "
+            "image would publish an empty app.hypershell.openshell.version label"
+        )
+
+    mismatches: list[str] = []
+    for _prefix, current in matches:
+        if current != tag:
+            mismatches.append(
+                f"  {rel}: {TEKTON_BUILD_ARG} build arg is {current}, "
+                f"expected {tag}"
+            )
+
+    if mismatches and not check_only:
+        text = _TEKTON_BUILD_ARG_RE.sub(lambda m: m.group(1) + tag, text)
+        path.write_text(text)
+
+    return mismatches
+
+
 def main() -> int:
     check_only = "--stamp" not in sys.argv
 
@@ -260,6 +312,15 @@ def main() -> int:
         all_mismatches.extend(
             stamp_file(path, env_names, tag, check_only=check_only)
         )
+
+    try:
+        for path in TEKTON_CONTROLLER_PIPELINES:
+            all_mismatches.extend(
+                stamp_tekton_build_arg(path, tag, check_only=check_only)
+            )
+    except RuntimeError as exc:
+        print(f"ERROR: {exc}")
+        return 1
 
     console_image = env.get("OPENSHELL_CONSOLE_IMAGE", "")
     console_digest = env.get("OPENSHELL_CONSOLE_DIGEST", "")

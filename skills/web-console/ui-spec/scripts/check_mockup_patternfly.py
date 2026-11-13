@@ -30,6 +30,15 @@ LITERAL_COLOR = re.compile(
     r"(?:#[0-9a-fA-F]{3,8}\b|\b(?:rgb|rgba|hsl|hsla)\s*\()"
 )
 LEGACY_PATTERNFLY = re.compile(r"\bpf-v[1-5]-")
+FORBIDDEN_DOM_INJECTION = re.compile(
+    r"\b(?:"
+    r"dangerouslySetInnerHTML|innerHTML|outerHTML|insertAdjacentHTML|"
+    r"createContextualFragment"
+    r")\b"
+)
+FORBIDDEN_DOM_INJECTION_CALL = re.compile(
+    r"(?:\bdocument\s*\.\s*write|\.\s*html)\s*\("
+)
 UTILITY_CLASS = re.compile(r"\b(pf-v6-u-[A-Za-z0-9_-]+)\b")
 CSS_GAP = re.compile(
     r"/\*\s*patternfly-gap:\s*specs/[^*\n]+\.md\s+-\s+[^*\n]+\*/"
@@ -58,6 +67,12 @@ def check_tsx(path: Path, text: str) -> list[str]:
             )
         if LEGACY_PATTERNFLY.search(line):
             findings.append(f"{path}:{line_number}: legacy PatternFly class")
+        if FORBIDDEN_DOM_INJECTION.search(line) or FORBIDDEN_DOM_INJECTION_CALL.search(
+            line
+        ):
+            findings.append(
+                f"{path}:{line_number}: raw DOM HTML injection is forbidden"
+            )
     utility_classes = sorted(set(UTILITY_CLASS.findall(text)))
     if utility_classes:
         utility_indexes = sorted(

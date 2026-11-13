@@ -47,13 +47,13 @@ whose password equals its username (`admin`/`admin`, `developer`/`developer`,
 convenience: anyone who can hit the Route can authenticate as a test-tier principal
 and drive that environment.
 
-Today `deploy/base/keycloak/keycloak.yaml` bakes those three human realm users into
-the shared realm import, each with a password equal to its username. That one base
-is consumed by the local Kind cluster, developer-owned OpenShift environments, the
-ephemeral per-PR OpenShift environments, and a persistent Keycloak shared by
-integration, staging, and production. Developer-owned environments need those seeds
-so a human can run the e2e suite locally. A CI-owned PR environment that inherits
-the base publishes them on the public internet.
+The shared realm import `deploy/base/keycloak/keycloak.yaml` carries no human
+realm users. That one base is consumed by the local Kind cluster, developer-owned
+OpenShift environments, the ephemeral per-PR OpenShift environments, and a
+persistent Keycloak shared by integration, staging, and production. Developer-owned
+environments reconcile the static seeds themselves so a human can run the e2e suite
+locally. CI-owned PR environments read non-guessable passwords from the durable
+cloud store instead.
 
 These seeded realm users - the test-tier principals - exist so the e2e suite can
 authenticate, so a human can password-login as a test-tier principal, and so a
@@ -203,8 +203,7 @@ are Keycloak client service accounts with no password and are not human logins.
 
 ### Requirement: CICD-CRED-02 -- Master Bootstrap Admin Unchanged
 
-The Keycloak master-realm bootstrap admin SHALL be out of scope for this spec and
-SHALL remain as it is today. This spec SHALL NOT rotate, remove, or regenerate the
+The Keycloak master-realm bootstrap admin SHALL be out of scope for this spec. This spec SHALL NOT rotate, remove, or regenerate the
 bootstrap admin credential, and the Keycloak-console access it provides SHALL be
 unchanged. Where a bring-up banner reports the Keycloak console login, that line
 SHALL continue to describe the master bootstrap admin, not a seeded realm test user.
@@ -215,7 +214,7 @@ SHALL continue to describe the master bootstrap admin, not a seeded realm test u
   console
 - WHEN this spec is in effect
 - THEN the bootstrap admin credential SHALL be unchanged
-- AND the Keycloak-console login SHALL still work as before
+- AND the Keycloak-console login SHALL work
 
 ### Requirement: CICD-CRED-03 -- Cloud Secret Store Is the Durable Source of Truth
 
@@ -562,14 +561,13 @@ Every locally run test SHALL keep the static test credentials - `admin`/`admin`,
 and a developer running e2e against OpenShift after local `make openshift-up`. Those
 seeds are how a human drives the suite from a laptop; they are not limited to Kind.
 
-Because the shared realm base no longer supplies these users, developer-owned
+The shared realm base does not supply these users, so developer-owned
 bring-up SHALL reconcile them itself. After Keycloak is confirmed ready and before
 the summary banner, `make kind-up` and local `make openshift-up` SHALL each
 idempotently create each user with its password fixed to its username, or reset it
-to that value if the user already exists. This SHALL be a straight reconcile with no
-change to local developer experience: the bring-up banner SHALL still print the
-static test credentials, and existing local flows that authenticate as
-`admin`/`admin` SHALL continue to work. Developer-owned environments SHALL NOT
+to that value if the user already exists. The bring-up banner SHALL print the
+static test credentials, and local flows that authenticate as
+`admin`/`admin` SHALL work. Developer-owned environments SHALL NOT
 require ESO, AWS Secrets Manager, or Secret `hypershell-e2e-test-users`.
 
 A developer-owned OpenShift namespace on a shared cluster MAY still be reachable on
@@ -582,7 +580,7 @@ passwords.
 
 #### Scenario: CICD-CRED-09.01 -- Kind reconciles its static users on bring-up
 
-- GIVEN the shared realm base no longer ships human users
+- GIVEN the shared realm base ships no human users
 - WHEN a developer runs `make kind-up`
 - THEN the cluster SHALL end with `admin`, `developer`, and `platform-admin` present,
   each with its password equal to its username
@@ -590,7 +588,7 @@ passwords.
 
 #### Scenario: CICD-CRED-09.02 -- Local OpenShift reconciles the same static users on bring-up
 
-- GIVEN the shared realm base no longer ships human users
+- GIVEN the shared realm base ships no human users
 - WHEN a developer runs `make openshift-up` into a developer-owned environment
 - THEN that environment SHALL end with `admin`, `developer`, and `platform-admin`
   present, each with its password equal to its username
@@ -598,13 +596,13 @@ passwords.
   runs
 - AND bring-up SHALL NOT wait on Secret `hypershell-e2e-test-users`
 
-#### Scenario: CICD-CRED-09.03 -- Local developer experience is unchanged
+#### Scenario: CICD-CRED-09.03 -- Local bring-up shows the static credentials
 
 - GIVEN a developer runs `make kind-up` or local `make openshift-up`
 - WHEN bring-up finishes
-- THEN the banner SHALL still show the static `admin/admin`, `developer/developer`,
+- THEN the banner SHALL show the static `admin/admin`, `developer/developer`,
   and `platform-admin/platform-admin` credentials
-- AND local flows that authenticate as `admin`/`admin` SHALL continue to succeed
+- AND local flows that authenticate as `admin`/`admin` SHALL succeed
 
 #### Scenario: CICD-CRED-09.04 -- Local OpenShift e2e still password-grants
 
@@ -770,7 +768,7 @@ Requirement: SEC-RBAC-13).
 
 | Decision | Rationale |
 |----------|-----------|
-| Remove the three human users from the shared realm base entirely | Per-PR environments on `hysh-aws-01` are on the public internet. A realm login whose password equals its username is a live credential for anyone who can hit the Route. Removing the users from the shared base means no internet-facing environment ships them by default. Int/stage/prod get no replacement human password login; those environments keep whatever access they already have, and GitHub brokering is a PR-environment concern |
+| The shared realm base carries no human users | Per-PR environments on `hysh-aws-01` are on the public internet. A realm login whose password equals its username is a live credential for anyone who can hit the Route. Keeping the users out of the shared base means no internet-facing environment ships them by default. Int/stage/prod get no replacement human password login; those environments keep whatever access they already have, and GitHub brokering is a PR-environment concern |
 | AWS Secrets Manager is the durable store on `hysh-aws-01` | The cluster already uses the cloud operator's secret store and ESO IRSA for application secrets. Putting e2e passwords in the same class of store avoids standing up a second secret backend and keeps rotation, IAM, and audit in AWS |
 | ESO is the generic in-cluster seam | Seed and e2e should not know AWS vs IBM vs Vault. They read one Kubernetes Secret. GitOps binds that Secret to the cluster's cloud store through a `SecretStore` / `ExternalSecret`. A later cloud swap changes only GitOps |
 | In-cluster Secret `hypershell-e2e-test-users` with keys `admin`, `developer`, `platform-admin` | One name and one key set is the HyperShell contract. Matching the AWS JSON properties keeps ESO mapping one-to-one |

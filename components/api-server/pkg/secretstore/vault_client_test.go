@@ -146,6 +146,7 @@ func writeServerCAPEM(t *testing.T, srv *httptest.Server) string {
 	cert := srv.Certificate()
 	if cert == nil {
 		t.Fatal("test server has no certificate")
+		return ""
 	}
 	block := &pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw}
 	path := filepath.Join(t.TempDir(), "server-ca.pem")

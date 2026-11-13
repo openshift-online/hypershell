@@ -3,7 +3,7 @@ package watcher
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -300,7 +300,7 @@ func newReconcileQueue[T any](baseCtx context.Context, kind string, handler Hand
 			return q.readyDepth()
 		})
 		if err != nil {
-			log.Printf("WARN register %s reconcile queue depth metric: %v", q.kind, err)
+			slog.WarnContext(q.baseCtx, "Failed to register reconcile queue depth metric", "kind", q.kind, "error", err)
 		} else {
 			q.unregisterQueueDepth = unregister
 		}
@@ -597,7 +597,7 @@ func (q *reconcileQueue[T]) processNext() bool {
 		if !retryAllowed {
 			q.queue.Forget(id)
 			q.clearBackoff(id)
-			log.Printf("ERROR %s %s reconcile failed: %v", q.kind, id, err)
+			slog.ErrorContext(q.baseCtx, "Reconcile failed", "kind", q.kind, "name", id, "error", err)
 			return true
 		}
 		// When bumps the limiter and returns this attempt's capped-exponential
@@ -624,7 +624,7 @@ func (q *reconcileQueue[T]) processNext() bool {
 		q.mu.Unlock()
 		q.queue.AddAfter(id, delay)
 		cpotel.RecordReconciliationRetry(q.baseCtx, q.kind, retryableReasonFromErr(err))
-		log.Printf("WARN %s %s reconcile failed; retrying in %s: %v", q.kind, id, delay, err)
+		slog.WarnContext(q.baseCtx, "Reconcile failed, retrying", "kind", q.kind, "name", id, "backoff", delay, "error", err)
 		return true
 	}
 
@@ -694,7 +694,7 @@ func (q *reconcileQueue[T]) stop() {
 	q.unregisterOnce.Do(func() {
 		if q.unregisterQueueDepth != nil {
 			if err := q.unregisterQueueDepth(); err != nil {
-				log.Printf("WARN unregister %s reconcile queue depth metric: %v", q.kind, err)
+				slog.WarnContext(q.baseCtx, "Failed to unregister reconcile queue depth metric", "kind", q.kind, "error", err)
 			}
 		}
 	})

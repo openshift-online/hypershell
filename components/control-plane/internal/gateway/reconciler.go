@@ -2,10 +2,9 @@ package gateway
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -39,10 +38,43 @@ func ReconcileGateway(
 		report = func(string, string, string) {}
 	}
 
-	ingressMode := gatewayIngressMode(opts)
-
 	// Step 1: EnvironmentReady
 	report(ConditionEnvironmentReady, StatusInProgress, "")
+
+	// Feature prerequisites are evaluated through the shared, refreshable
+	// dependency discovery (CTRL-CORE-18). Each is checked for its own
+	// group/version/resource, so a stale or unreachable unrelated API (for example
+	// projectcalico.org/v3) never makes these look absent, and an unknown/
+	// unavailable result is retryable rather than terminal (CTRL-CORE-19).
+	deps := opts.Dependencies
+	if deps == nil {
+		deps = NewDependencyDiscovery(clientset.Discovery())
+	}
+
+	// The Gateway API is the only way a gateway is exposed (OSG-ROUT-02). Without
+	// it the gateway would run unreachable, so the reconcile fails and retries. A
+	// confirmed-absent result reports the resource to install; an unknown/
+	// unavailable result is waiting/retryable with bounded backoff.
+	if gwAPI := deps.Evaluate(DependencyGatewayAPI); gwAPI.State != DependencyPresent {
+		report(ConditionEnvironmentReady, StatusFailed, gatewayAPIConditionMessage(gwAPI))
+		return fmt.Errorf("gateway %s: %w", nsConfig.Name, gatewayAPIDependencyError(gwAPI))
+	}
+
+	// cert-manager is the sole TLS certificate strategy (OSG-TLS-01). Evaluate it
+	// as a feature prerequisite: present enables the chart's cert-manager
+	// resources; confirmed-absent reports the prerequisite to install; unknown/
+	// unavailable is waiting/retryable. The controller and its other reconciliation
+	// work keep running regardless (CTRL-CORE-17, CTRL-CORE-19).
+	switch certManager := deps.Evaluate(DependencyCertManager); certManager.State {
+	case DependencyPresent:
+		opts.HasCertManager = true
+	case DependencyAbsent:
+		report(ConditionEnvironmentReady, StatusFailed, certManagerAbsentMessage)
+		return fmt.Errorf("gateway %s: %w", nsConfig.Name, errCertManagerAbsent)
+	default: // DependencyUnknown
+		report(ConditionEnvironmentReady, StatusFailed, certManagerUnavailableMessage)
+		return fmt.Errorf("gateway %s: cert-manager dependency unavailable: %w", nsConfig.Name, certManager.Err)
+	}
 
 	if err := EnsureManagedNamespace(ctx, clientset, nsConfig.Name, opts.ControlPlaneNamespace); err != nil {
 		report(ConditionEnvironmentReady, StatusFailed, "Environment preparation failed - unable to set up the gateway namespace")
@@ -53,18 +85,20 @@ func ReconcileGateway(
 		report(ConditionEnvironmentReady, StatusFailed, "Environment preparation failed - the gateway configuration is invalid")
 		return fmt.Errorf("invalid gateway configuration: %w", err)
 	}
+	if err := ValidateGatewayAuth(nsConfig.Gateway); err != nil {
+		report(ConditionEnvironmentReady, StatusFailed, "Environment preparation failed - the gateway has no authentication configuration")
+		return fmt.Errorf("invalid gateway configuration: %w", err)
+	}
 
-	// When an ingress mode is active the gateway is reachable at an external
+	// Every gateway is reachable at an external
 	// hostname (gw-<namespace>.<base-domain>, or an explicit Route.Host). The
-	// gateway pod terminates TLS with its own per-tenant CA, and both ingress
-	// modes carry that TLS through unmodified (Route passthrough / Gateway API
-	// BackendTLSPolicy), so the server certificate must list the external
+	// gateway pod terminates TLS with its own per-tenant CA, and the shared
+	// Gateway re-encrypts to it and validates it with a BackendTLSPolicy, so the
+	// server certificate must list the external
 	// hostname as a SAN or clients fail verification. The controller derives
 	// that hostname, so it -- not the operator -- injects it into the cert SANs
 	// here, before cert-manager mints the certificate below.
-	if ingressMode != IngressModeNone && nsConfig.Gateway.Route.Enabled {
-		injectIngressHostnames(&nsConfig)
-	}
+	injectIngressHostnames(ctx, &nsConfig)
 
 	// Vault-backed gateways fail closed: verify the per-cluster Vault is reachable
 	// (unauthenticated sys/health over TLS trusted by the serving CA) before we
@@ -75,6 +109,17 @@ func ReconcileGateway(
 		if err := probeVaultReachable(ctx, clientset); err != nil {
 			report(ConditionEnvironmentReady, StatusFailed, "Vault credential backend is unreachable")
 			return fmt.Errorf("vault reachability probe failed for %s: %w", nsConfig.Name, err)
+		}
+	}
+
+	// Operator-mode gateways fail closed on a missing prerequisite rather than
+	// provisioning in another mode or substituting a runtime (OSG-OPWS-04, refining
+	// OSG-CORE-18.09). The administrator-owned operator settings must be configured
+	// and the approved sandbox RuntimeClass must exist on the cluster.
+	if nsConfig.Gateway.WorkspaceMode == "operator" {
+		if err := validateOperatorPrerequisites(ctx, clientset, opts); err != nil {
+			report(ConditionEnvironmentReady, StatusFailed, err.Error())
+			return fmt.Errorf("operator workspace prerequisites for %s: %w", nsConfig.Name, err)
 		}
 	}
 
@@ -89,7 +134,7 @@ func ReconcileGateway(
 		return fmt.Errorf("database reconciler for gateway in namespace %s: %w", nsConfig.Name, err)
 	}
 	if err := dbReconciler.Reconcile(ctx, dynamicClient, clientset, nsConfig.Name, opts.GatewayID); err != nil {
-		log.Printf("ERROR gateway database provisioning in %s: %v", nsConfig.Name, err)
+		slog.ErrorContext(ctx, "Gateway database provisioning failed", "namespace", nsConfig.Name, "error", err)
 		report(ConditionDatabaseReady, StatusFailed, "Database provisioning failed - unable to provision the gateway database")
 		return err
 	}
@@ -106,18 +151,27 @@ func ReconcileGateway(
 
 	report(ConditionDatabaseReady, StatusComplete, "")
 
-	// Step 3: IdentityProviderReady (only when Keycloak is configured)
-	if opts.Keycloak != nil {
-		report(ConditionIdentityProviderReady, StatusInProgress, "")
-		if err := reconcileKeycloakClient(ctx, opts, &nsConfig); err != nil {
-			report(ConditionIdentityProviderReady, StatusFailed, "Identity provider configuration failed - the authentication service is currently unavailable")
-			return fmt.Errorf("reconcile keycloak client in %s: %w", nsConfig.Name, err)
-		}
-		report(ConditionIdentityProviderReady, StatusComplete, "")
+	// Step 3: IdentityProviderReady. Keycloak is mandatory: the gateway refuses
+	// to start without an auth mechanism (issue #809).
+	report(ConditionIdentityProviderReady, StatusInProgress, "")
+	if opts.Keycloak == nil {
+		report(ConditionIdentityProviderReady, StatusFailed, "Identity provider is not configured")
+		return fmt.Errorf("reconcile keycloak client in %s: keycloak configuration is required", nsConfig.Name)
 	}
+	if err := reconcileKeycloakClient(ctx, opts, &nsConfig); err != nil {
+		report(ConditionIdentityProviderReady, StatusFailed, "Identity provider configuration failed - the authentication service is currently unavailable")
+		return fmt.Errorf("reconcile keycloak client in %s: %w", nsConfig.Name, err)
+	}
+	report(ConditionIdentityProviderReady, StatusComplete, "")
 
 	// Step 4: GatewayDeployed
 	report(ConditionGatewayDeployed, StatusInProgress, "")
+
+	additionalCA, err := reconcileDestinationCABundle(ctx, clientset, opts.ControlPlaneNamespace, nsConfig.Name)
+	if err != nil {
+		report(ConditionGatewayDeployed, StatusFailed, "Destination TLS trust bundle is unavailable or invalid")
+		return err
+	}
 
 	// Copy trusted CA bundle (for OIDC issuer verification)
 	hasTrustedCA := reconcileTrustedCABundle(ctx, clientset, opts.ControlPlaneNamespace, nsConfig.Name)
@@ -156,14 +210,14 @@ func ReconcileGateway(
 	// (sandbox pods need privileged SCC to schedule)
 	if opts.IsOpenShift {
 		if err := reconcileOpenShiftSCC(ctx, dynamicClient, nsConfig.Name); err != nil {
-			log.Printf("WARN failed to reconcile OpenShift SCC binding in %s: %v", nsConfig.Name, err)
+			slog.WarnContext(ctx, "Failed to reconcile OpenShift SCC binding", "namespace", nsConfig.Name, "error", err)
 		}
 	}
 
 	// Deploy gateway via Helm
-	// The chart handles: Deployment, Services, RBAC, cert-manager, GRPCRoute,
-	// BackendTLSPolicy, Route, credential KEK
-	if err := deployGatewayViaHelm(ctx, helmClient, nsConfig, opts, hasTrustedCA, hasVaultCA); err != nil {
+	// The chart handles: Deployment, Services, RBAC, cert-manager and the
+	// credential KEK
+	if err := deployGatewayViaHelm(ctx, helmClient, nsConfig, opts, hasTrustedCA, hasVaultCA, additionalCA); err != nil {
 		report(ConditionGatewayDeployed, StatusFailed, "Gateway deployment failed - unable to deploy the gateway workload")
 		return fmt.Errorf("deploy gateway via helm in %s: %w", nsConfig.Name, err)
 	}
@@ -182,38 +236,38 @@ func ReconcileGateway(
 	// Console reconciliation and route-address publishing are not managed by
 	// the Helm chart. Reconcile them after the Helm release so the gateway
 	// workload is already deployed.
-	switch ingressMode {
-	case IngressModeGatewayAPI:
-		if nsConfig.Gateway.Route.Enabled {
-			if err := reconcileGatewayAPIResources(ctx, dynamicClient, clientset, nsConfig, opts); err != nil {
-				report(ConditionGatewayDeployed, StatusFailed, gatewayDeployedConditionMessage(nsConfig, err))
-				return fmt.Errorf("reconcile Gateway API resources in %s: %w", nsConfig.Name, err)
-			}
-		} else {
-			if err := DeleteGatewayAPIResources(ctx, dynamicClient, clientset, nsConfig.Name, opts); err != nil {
-				log.Printf("WARN failed to remove Gateway API resources in %s: %v", nsConfig.Name, err)
-			}
-		}
-	case IngressModeRoute:
-		if nsConfig.Gateway.Route.Enabled {
-			if err := reconcileRouteResources(ctx, dynamicClient, nsConfig, opts); err != nil {
-				log.Printf("WARN failed to reconcile Route resources in %s: %v", nsConfig.Name, err)
-			}
-			if err := ReconcileConsole(ctx, dynamicClient, clientset, nsConfig, opts); err != nil {
-				log.Printf("WARN failed to reconcile console in %s: %v", nsConfig.Name, err)
-			}
-		} else {
-			if err := DeleteRouteResources(ctx, dynamicClient, clientset, nsConfig.Name, opts); err != nil {
-				log.Printf("WARN failed to remove Route resources in %s: %v", nsConfig.Name, err)
-			}
-		}
-	default:
-		log.Printf("INFO no ingress mode selected for %s (not OpenShift and no Gateway API); skipping tenant ingress", nsConfig.Name)
+	if err := reconcileGatewayAPIResources(ctx, dynamicClient, clientset, nsConfig, opts); err != nil {
+		report(ConditionGatewayDeployed, StatusFailed, gatewayDeployedConditionMessage(nsConfig, err))
+		return fmt.Errorf("reconcile Gateway API resources in %s: %w", nsConfig.Name, err)
 	}
 
 	report(ConditionGatewayDeployed, StatusComplete, "")
 
-	log.Printf("INFO gateway reconciled in namespace %s", nsConfig.Name)
+	slog.InfoContext(ctx, "Gateway reconciled", "namespace", nsConfig.Name)
+	return nil
+}
+
+// validateOperatorPrerequisites fail-closes an operator-mode gateway when the
+// administrator-owned operator settings are missing or the approved sandbox
+// RuntimeClass is absent on the cluster. It returns an actionable error whose
+// message is also surfaced on the EnvironmentReady condition. The error is
+// retryable: a later reconcile provisions once the administrator fixes the
+// configuration or installs the RuntimeClass. It NEVER downgrades the mode or
+// substitutes a different runtime (OSG-OPWS-04). clientset is kubernetes.Interface
+// so tests can drive it with a fake.
+func validateOperatorPrerequisites(ctx context.Context, clientset kubernetes.Interface, opts ReconcileOpts) error {
+	if opts.OperatorNamespaceLabelKey == "" {
+		return fmt.Errorf("operator workspace mode requires the administrator-approved namespace label key; set GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY on the control plane")
+	}
+	if opts.OperatorSandboxRuntimeClass == "" {
+		return fmt.Errorf("operator workspace mode requires the approved sandbox RuntimeClass; set GATEWAY_OPERATOR_SANDBOX_RUNTIME_CLASS on the control plane")
+	}
+	if _, err := clientset.NodeV1().RuntimeClasses().Get(ctx, opts.OperatorSandboxRuntimeClass, metav1.GetOptions{}); err != nil {
+		if k8serrors.IsNotFound(err) {
+			return fmt.Errorf("approved operator sandbox RuntimeClass %q is not installed on the cluster; install it before provisioning operator gateways", opts.OperatorSandboxRuntimeClass)
+		}
+		return fmt.Errorf("verify operator sandbox RuntimeClass %q on the cluster: %w", opts.OperatorSandboxRuntimeClass, err)
+	}
 	return nil
 }
 
@@ -239,7 +293,7 @@ func DeleteGatewayResources(
 	// Uninstall Helm release (removes all chart-managed resources in the namespace)
 	if helmClient != nil {
 		if err := helmClient.Uninstall(ctx, namespace); err != nil {
-			log.Printf("WARN failed to uninstall helm release in namespace %s: %v", namespace, err)
+			slog.WarnContext(ctx, "Failed to uninstall helm release", "namespace", namespace, "error", err)
 		}
 	}
 
@@ -251,7 +305,7 @@ func DeleteGatewayResources(
 	crbName := fmt.Sprintf("openshell-gateway-node-reader-%s", namespace)
 	if err := dynamicClient.Resource(crbGVR).Delete(ctx, crbName, metav1.DeleteOptions{}); err != nil {
 		if !k8serrors.IsNotFound(err) {
-			log.Printf("WARN failed to delete ClusterRoleBinding %s: %v", crbName, err)
+			slog.WarnContext(ctx, "Failed to delete ClusterRoleBinding", "name", crbName, "error", err)
 			// This cluster-scoped binding has no owning namespace to cascade-reap
 			// it and no reconciler that reclaims leaked bindings, so a failure here
 			// is a silent orphan unless it is recorded durably.
@@ -259,15 +313,11 @@ func DeleteGatewayResources(
 				fmt.Sprintf("delete failed during gateway deletion: %v", err))
 		}
 	} else {
-		log.Printf("INFO deleted ClusterRoleBinding %s", crbName)
+		slog.InfoContext(ctx, "Deleted ClusterRoleBinding", "name", crbName)
 	}
 
 	if opts.KeycloakClient != nil && opts.GatewayID != "" {
 		kcClientID := opts.GatewayClientID
-		// Defensive for other callers; GatewayReconciler already passes the validated stored identity, including name-id fallback.
-		if kcClientID == "" && opts.GatewayName != "" {
-			kcClientID = fmt.Sprintf("%s-%s", opts.GatewayName, opts.GatewayID)
-		}
 		if kcClientID == "" {
 			return fmt.Errorf("gateway identity is required for cleanup")
 		}
@@ -276,26 +326,26 @@ func DeleteGatewayResources(
 			// account may still be enabled. Returning an error makes teardown retry.
 			return fmt.Errorf("delete gateway service-account clients: %w", err)
 		}
-		log.Printf("INFO deleted keycloak service-account clients for gateway %s", opts.GatewayID)
+		slog.InfoContext(ctx, "Deleted keycloak service-account clients", "gateway_id", opts.GatewayID)
 
 		// The console namespaced resources are swept by label above, but the
 		// console Keycloak client must be deleted explicitly (it lives in the
 		// realm, not the namespace). Best-effort: log the orphan on failure.
 		consoleClientID := kcClientID + "-console"
 		if err := opts.KeycloakClient.DeleteConsoleClient(ctx, consoleClientID); err != nil {
-			log.Printf("WARN failed to delete console client %s (orphaned): %v", consoleClientID, err)
+			slog.WarnContext(ctx, "Failed to delete console client (orphaned)", "client_id", consoleClientID, "error", err)
 			recordOrphan(ctx, opts, "KeycloakClient", consoleClientID,
 				fmt.Sprintf("delete failed during gateway deletion: %v", err))
 		} else {
-			log.Printf("INFO deleted console client %s", consoleClientID)
+			slog.InfoContext(ctx, "Deleted console client", "client_id", consoleClientID)
 		}
 
 		if err := opts.KeycloakClient.DeleteGatewayClient(ctx, kcClientID); err != nil {
-			log.Printf("WARN failed to delete keycloak client %s (orphaned): %v", kcClientID, err)
+			slog.WarnContext(ctx, "Failed to delete keycloak client (orphaned)", "client_id", kcClientID, "error", err)
 			recordOrphan(ctx, opts, "KeycloakClient", kcClientID,
 				fmt.Sprintf("delete failed during gateway deletion: %v", err))
 		} else {
-			log.Printf("INFO deleted keycloak client %s", kcClientID)
+			slog.InfoContext(ctx, "Deleted keycloak client", "client_id", kcClientID)
 		}
 	}
 
@@ -318,11 +368,11 @@ func DeleteGatewayResources(
 	for _, credNS := range credentialNamespaces {
 		if credNS != "" && credNS != namespace {
 			deleteCredentialSecretsRBAC(ctx, dynamicClient, credNS)
-			log.Printf("INFO cleaned up credential RBAC from namespace %s", credNS)
+			slog.InfoContext(ctx, "Cleaned up credential RBAC", "namespace", credNS)
 		}
 	}
 
-	log.Printf("INFO gateway out-of-namespace resources cleaned up for namespace %s", namespace)
+	slog.InfoContext(ctx, "Gateway out-of-namespace resources cleaned up", "namespace", namespace)
 	return nil
 }
 
@@ -350,15 +400,20 @@ func recordOrphan(ctx context.Context, opts ReconcileOpts, resourceKind, resourc
 // gateway stamps on everything it creates) are deleted, so co-tenant workloads
 // sharing the namespace are never touched: the same no-collateral guarantee that
 // keeps GC from reaping a shared namespace. The namespace itself is never
-// deleted here. It is best-effort - per-resource failures are logged and do not
-// abort the sweep, matching DeleteGatewayResources - and the caller invokes it
-// only when the namespace was left in place.
+// deleted here. The caller invokes it only when the namespace was left in place.
+//
+// The sweep attempts every resource type regardless of an individual failure and
+// aggregates the failures into the returned error rather than swallowing them, so
+// a partial sweep is retried and never silently leaks an owned resource
+// (GTW-DEL-03). A resource type whose CRD is not installed (list returns
+// NotFound) is skipped without failing the sweep (GTW-DEL-02.01), and a target
+// already absent at delete time is treated as success.
 func DeleteLabeledNamespaceResources(
 	ctx context.Context,
 	dynamicClient dynamic.Interface,
 	namespace string,
 	opts ReconcileOpts,
-) {
+) error {
 	labelSelector := fmt.Sprintf("%s=%s", ManagedLabel, ManagedLabelValue)
 
 	namespacedResources := []schema.GroupVersionResource{
@@ -374,25 +429,21 @@ func DeleteLabeledNamespaceResources(
 		{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "roles"},
 		{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "rolebindings"},
 	}
-	if opts.IsOpenShift {
-		namespacedResources = append(namespacedResources,
-			schema.GroupVersionResource{Group: "route.openshift.io", Version: "v1", Resource: "routes"},
-		)
-	}
-	if opts.HasCertManager {
-		namespacedResources = append(namespacedResources,
-			schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "issuers"},
-			schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "certificates"},
-		)
-	}
-	if opts.HasGatewayAPI {
-		namespacedResources = append(namespacedResources,
-			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"},
-			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "grpcroutes"},
-			schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "backendtlspolicies"},
-		)
-	}
+	// Always enumerate cert-manager resources for cleanup: a missing CRD or API
+	// group is skipped per-GVR below (IsNotFound), so this stays correct on
+	// clusters without cert-manager and no longer depends on a frozen startup
+	// capability flag (CTRL-CORE-17, CTRL-CORE-18).
+	namespacedResources = append(namespacedResources,
+		schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "issuers"},
+		schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "certificates"},
+	)
+	namespacedResources = append(namespacedResources,
+		schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"},
+		schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "grpcroutes"},
+		schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "backendtlspolicies"},
+	)
 
+	var errs []error
 	for _, gvr := range namespacedResources {
 		list, err := dynamicClient.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{
 			LabelSelector: labelSelector,
@@ -403,20 +454,28 @@ func DeleteLabeledNamespaceResources(
 			if k8serrors.IsNotFound(err) {
 				continue
 			}
-			log.Printf("WARN failed to list %s in namespace %s for cleanup: %v", gvr.Resource, namespace, err)
+			slog.WarnContext(ctx, "Failed to list resources for cleanup", "kind", gvr.Resource, "namespace", namespace, "error", err)
+			errs = append(errs, fmt.Errorf("list %s in %s: %w", gvr.Resource, namespace, err))
 			continue
 		}
 		for i := range list.Items {
 			name := list.Items[i].GetName()
 			if err := dynamicClient.Resource(gvr).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
 				if !k8serrors.IsNotFound(err) {
-					log.Printf("WARN failed to delete %s %s in namespace %s: %v", gvr.Resource, name, namespace, err)
+					slog.WarnContext(ctx, "Failed to delete resource",
+						"kind", gvr.Resource,
+						"name", name,
+						"namespace", namespace,
+						"error", err,
+					)
+					errs = append(errs, fmt.Errorf("delete %s %s in %s: %w", gvr.Resource, name, namespace, err))
 				}
 				continue
 			}
-			log.Printf("INFO deleted %s %s from namespace %s", gvr.Resource, name, namespace)
+			slog.InfoContext(ctx, "Deleted resource", "kind", gvr.Resource, "name", name, "namespace", namespace)
 		}
 	}
+	return errors.Join(errs...)
 }
 
 // Sentinel errors for the dedicated-certificate provisioning path. They let
@@ -448,282 +507,131 @@ func gatewayDeployedConditionMessage(nsConfig NamespaceConfig, err error) string
 	}
 }
 
-// DeleteGatewayAPIResources reconciles the desired *absence* of a gateway's
-// route: it removes the GRPCRoute, BackendTLSPolicy, backend-CA ConfigMap, the
-// dedicated-certificate resources (external Certificate, per-tenant Gateway,
-// sandbox HTTPRoute) when present, tears down the console (which follows the
-// route), and clears the stored route_address. It attempts every deletion
-// regardless of individual failures and returns their joined errors (nil once
-// everything is absent), so a caller can retry until the route and its console
-// are fully gone rather than stopping on partial cleanup. Idempotent: absent
-// resources are ignored.
-func DeleteGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, namespace string, opts ReconcileOpts) error {
-	var errs []error
-
-	if err := deleteGatewayAPIRouteResources(ctx, dynamicClient, clientset, namespace); err != nil {
-		errs = append(errs, err)
-	}
-
-	// The console follows the route, so removing the route removes the console.
-	if err := deleteConsole(ctx, dynamicClient, clientset, namespace, opts); err != nil {
-		errs = append(errs, err)
-	}
-
-	if opts.UpdateRouteAddress != nil {
-		if err := opts.UpdateRouteAddress(ctx, ""); err != nil {
-			errs = append(errs, fmt.Errorf("clear routeAddress in %s: %w", namespace, err))
-		} else {
-			log.Printf("INFO cleared routeAddress for gateway in %s", namespace)
-		}
-	}
-
-	if len(errs) == 0 {
-		log.Printf("INFO Gateway API resources removed from namespace %s", namespace)
-	}
-	return errors.Join(errs...)
-}
-
-// deleteGatewayAPIRouteResources removes the route-owned Kubernetes resources:
-// the GRPCRoute, BackendTLSPolicy, backend-CA ConfigMap, and the
-// dedicated-certificate resources (external Certificate, per-tenant Gateway,
-// sandbox HTTPRoute). It takes a kubernetes.Interface rather than the concrete
-// client type so tests can drive it with a fake clientset (the console teardown
-// in DeleteGatewayAPIResources requires the concrete type and stays in the
-// wrapper). Idempotent: absent resources are ignored, and all errors are joined.
-func deleteGatewayAPIRouteResources(ctx context.Context, dynamicClient dynamic.Interface, clientset kubernetes.Interface, namespace string) error {
-	var errs []error
-
-	grpcRouteGVR := schema.GroupVersionResource{
-		Group:    "gateway.networking.k8s.io",
-		Version:  "v1",
-		Resource: "grpcroutes",
-	}
-	if err := dynamicClient.Resource(grpcRouteGVR).Namespace(namespace).Delete(ctx, "openshell-gateway", metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		errs = append(errs, fmt.Errorf("delete GRPCRoute in %s: %w", namespace, err))
-	}
-
-	btlsGVR := schema.GroupVersionResource{
-		Group:    "gateway.networking.k8s.io",
-		Version:  "v1",
-		Resource: "backendtlspolicies",
-	}
-	if err := dynamicClient.Resource(btlsGVR).Namespace(namespace).Delete(ctx, "openshell-gateway", metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		errs = append(errs, fmt.Errorf("delete BackendTLSPolicy in %s: %w", namespace, err))
-	}
-
-	// Dedicated-certificate resources (only present on opted-in gateways; their
-	// absence for non-opted-in gateways is the expected state, so the deletes are
-	// unconditionally attempted and NotFound is ignored). A removed gateway must
-	// not leave a live listener serving its hostname or wildcard, nor a
-	// certificate renewing for it.
-	certGVR := schema.GroupVersionResource{
-		Group:    "cert-manager.io",
-		Version:  "v1",
-		Resource: "certificates",
-	}
-	if err := dynamicClient.Resource(certGVR).Namespace(namespace).Delete(ctx, externalCertificateName, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		errs = append(errs, fmt.Errorf("delete external Certificate in %s: %w", namespace, err))
-	}
-
-	gatewayGVR := schema.GroupVersionResource{
-		Group:    "gateway.networking.k8s.io",
-		Version:  "v1",
-		Resource: "gateways",
-	}
-	if err := dynamicClient.Resource(gatewayGVR).Namespace(namespace).Delete(ctx, perTenantGatewayName(namespace), metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		errs = append(errs, fmt.Errorf("delete per-tenant Gateway in %s: %w", namespace, err))
-	}
-
-	httpRouteGVR := schema.GroupVersionResource{
-		Group:    "gateway.networking.k8s.io",
-		Version:  "v1",
-		Resource: "httproutes",
-	}
-	if err := dynamicClient.Resource(httpRouteGVR).Namespace(namespace).Delete(ctx, sandboxHTTPRouteName, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		errs = append(errs, fmt.Errorf("delete sandbox HTTPRoute in %s: %w", namespace, err))
-	}
-
-	if err := clientset.CoreV1().ConfigMaps(namespace).Delete(ctx, backendCAConfigMapName, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		errs = append(errs, fmt.Errorf("delete backend CA ConfigMap in %s: %w", namespace, err))
-	}
-
-	return errors.Join(errs...)
-}
-
-// ConsoleClientChecker reports whether the gateway's external Keycloak console
-// client still exists. RouteResourcesAbsent uses it so teardown's settled-state
-// check converges across BOTH Kubernetes and the external realm: the console
-// client is a realm object, not a namespaced one, so a stale provisioning pass
-// that recreated only the client -- e.g. failing before its namespaced Secret
-// and Deployment writes -- would otherwise be invisible to a Kubernetes-only
-// probe and let teardown settle while the client leaks.
-type ConsoleClientChecker interface {
-	ConsoleClientExists(ctx context.Context, consoleClientID string) (bool, error)
-}
-
-// RouteResourcesAbsent reports whether the resources for the selected gateway
-// ingress mode and all console resources are absent. It checks both console
-// exposure kinds because cleanup removes an inactive exposure after a mode
-// change. It also checks the external Keycloak console client. Unknown state
-// must never be read as absence.
-//
-// It returns (true, nil) only when every probed resource is confirmed absent.
-// The first resource found present short-circuits to (false, nil). Any probe
-// that fails for a reason other than Kubernetes NotFound is returned as an error
-// so the caller treats absence as unconfirmed (and re-runs teardown) rather than
-// trusting an unknown state. The Keycloak client probe is skipped when
-// consoleClient is nil or consoleClientID is empty (no Keycloak configured).
-func RouteResourcesAbsent(ctx context.Context, dynamicClient dynamic.Interface, clientset kubernetes.Interface, namespace, ingressMode string, consoleClient ConsoleClientChecker, consoleClientID string) (bool, error) {
-	grpcRouteGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "grpcroutes"}
-	btlsGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "backendtlspolicies"}
-	httpRouteGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "httproutes"}
-	gatewayGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"}
-	certGVR := schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "certificates"}
-	openShiftRouteGVR := schema.GroupVersionResource{Group: "route.openshift.io", Version: "v1", Resource: "routes"}
-
-	type dynamicProbe struct {
-		gvr  schema.GroupVersionResource
-		name string
-	}
-	var dynamicProbes []dynamicProbe
-	switch ingressMode {
-	case IngressModeGatewayAPI:
-		// The dedicated-certificate resources are only present for opted-in
-		// gateways; probing them unconditionally is correct (absence for
-		// non-opted-in gateways is the expected state).
-		dynamicProbes = append(dynamicProbes,
-			dynamicProbe{grpcRouteGVR, "openshell-gateway"},
-			dynamicProbe{btlsGVR, "openshell-gateway"},
-			dynamicProbe{certGVR, externalCertificateName},
-			dynamicProbe{gatewayGVR, perTenantGatewayName(namespace)},
-			dynamicProbe{httpRouteGVR, sandboxHTTPRouteName},
-		)
-	case IngressModeRoute:
-		dynamicProbes = append(dynamicProbes,
-			dynamicProbe{openShiftRouteGVR, "openshell-gateway"},
-		)
-	case IngressModeNone:
-		// There is no selected gateway exposure to probe.
-	default:
-		return false, fmt.Errorf("unsupported ingress mode %q for resource absence probe", ingressMode)
-	}
-	dynamicProbes = append(dynamicProbes,
-		dynamicProbe{httpRouteGVR, consoleName},
-		dynamicProbe{openShiftRouteGVR, consoleName},
-		dynamicProbe{schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}, consoleName},
-	)
-	for _, p := range dynamicProbes {
-		if _, err := dynamicClient.Resource(p.gvr).Namespace(namespace).Get(ctx, p.name, metav1.GetOptions{}); err == nil {
-			return false, nil
-		} else if !k8serrors.IsNotFound(err) {
-			return false, fmt.Errorf("probe %s/%s in %s: %w", p.gvr.Resource, p.name, namespace, err)
-		}
-	}
-
-	if ingressMode == IngressModeGatewayAPI {
-		if _, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, backendCAConfigMapName, metav1.GetOptions{}); err == nil {
-			return false, nil
-		} else if !k8serrors.IsNotFound(err) {
-			return false, fmt.Errorf("probe configmap %s in %s: %w", backendCAConfigMapName, namespace, err)
-		}
-	}
-	if _, err := clientset.CoreV1().Services(namespace).Get(ctx, consoleName, metav1.GetOptions{}); err == nil {
-		return false, nil
-	} else if !k8serrors.IsNotFound(err) {
-		return false, fmt.Errorf("probe service %s in %s: %w", consoleName, namespace, err)
-	}
-	if _, err := clientset.CoreV1().Secrets(namespace).Get(ctx, consoleSecretName, metav1.GetOptions{}); err == nil {
-		return false, nil
-	} else if !k8serrors.IsNotFound(err) {
-		return false, fmt.Errorf("probe secret %s in %s: %w", consoleSecretName, namespace, err)
-	}
-
-	// Probe the external Keycloak console client last: it is a realm object, not a
-	// namespaced one, and a stale provisioning pass that recreated only the client
-	// -- e.g. failing before its namespaced Secret and Deployment writes -- would
-	// otherwise be invisible above and let teardown settle while the client leaks.
-	// Skipped when unconfigured (nil checker / empty ID). A probe error is returned
-	// so absence stays unconfirmed rather than being read as gone.
-	if consoleClient != nil && consoleClientID != "" {
-		exists, err := consoleClient.ConsoleClientExists(ctx, consoleClientID)
-		if err != nil {
-			return false, fmt.Errorf("probe keycloak console client %s: %w", consoleClientID, err)
-		}
-		if exists {
-			return false, nil
-		}
-	}
-
-	return true, nil
-}
-
 // readServerTLSCA returns the PEM-encoded ca.crt from the per-namespace
 // openshell-server-tls secret (issued by the openshell-ca-issuer alongside the
-// gateway server certificate). It returns an empty string when the secret or the
-// ca.crt key is absent; callers that require the CA (Gateway API BackendTLSPolicy,
-// reencrypt Route) treat empty as "not yet available" and retry.
-func readServerTLSCA(ctx context.Context, clientset kubernetes.Interface, namespace string) string {
+// gateway server certificate). It distinguishes a genuinely absent CA from a
+// failed read (OSG-ROUT-14): a NotFound Secret, or a Secret present without a
+// ca.crt key, is a genuine "no CA" state and returns ("", nil) so callers may
+// proceed without the backend-CA material. Any other read error (for example a
+// transient API failure) is returned so the caller retries instead of reading an
+// unconfirmed read as "no CA" and disabling backend TLS verification.
+func readServerTLSCA(ctx context.Context, clientset kubernetes.Interface, namespace string) (string, error) {
 	tlsSecret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, "openshell-server-tls", metav1.GetOptions{})
 	if err != nil {
-		return ""
+		if k8serrors.IsNotFound(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("read openshell-server-tls secret in %s: %w", namespace, err)
 	}
 	if ca, ok := tlsSecret.Data["ca.crt"]; ok {
-		return string(ca)
+		return string(ca), nil
 	}
-	return ""
+	return "", nil
 }
 
-// reconcileRouteResources handles the non-Route resources needed when the
-// gateway is exposed through an OpenShift Route. The Route itself is owned by
-// the Helm chart (openshiftRoute.enabled=true in the chart values); this
-// function publishes the route address back to the API server.
-func reconcileRouteResources(ctx context.Context, dynamicClient dynamic.Interface, nsConfig NamespaceConfig, opts ReconcileOpts) error {
-	namespace := nsConfig.Name
-
-	hostname, err := deriveGatewayHostname(nsConfig)
+// reconcileBackendTLS reconciles the backend-CA ConfigMap and the dependent
+// BackendTLSPolicy as an ordered, fail-closed pair (OSG-ROUT-14, OSG-ROUT-15,
+// OSG-ROUT-16).
+//
+//   - The CA read distinguishes a genuinely absent CA from a failed read: a read
+//     failure is surfaced so the pass retries, and a genuinely absent CA returns
+//     without creating backend-TLS material.
+//   - The backend-CA ConfigMap write must succeed before the dependent
+//     BackendTLSPolicy is created; a ConfigMap write failure is surfaced and stops
+//     before the policy, so the policy never references a missing or stale CA.
+//   - A BackendTLSPolicy error is tolerated only when the CRD is not installed
+//     (the Gateway API transport policy is unavailable, which surfaces as a
+//     NotFound from the dynamic client); every other error (RBAC, conflict, API
+//     outage) is surfaced so the pass retries.
+func reconcileBackendTLS(ctx context.Context, dynamicClient dynamic.Interface, clientset kubernetes.Interface, namespace string) error {
+	caData, err := readServerTLSCA(ctx, clientset, namespace)
 	if err != nil {
-		log.Printf("WARN %v", err)
+		return err
+	}
+	if caData == "" {
 		return nil
 	}
 
-	publishRouteAddress(ctx, opts, namespace, hostname)
-
-	log.Printf("INFO Route resources reconciled in namespace %s (hostname=%s)", namespace, hostname)
-	return nil
-}
-
-// DeleteRouteResources removes the OpenShift gateway Route and all console
-// resources. It also clears the stored route address. It attempts all
-// operations and returns all errors so the health loop can retry incomplete
-// cleanup.
-func DeleteRouteResources(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, namespace string, opts ReconcileOpts) error {
-	var errs []error
-
-	routeGVR := schema.GroupVersionResource{
-		Group:    "route.openshift.io",
-		Version:  "v1",
-		Resource: "routes",
-	}
-	if err := dynamicClient.Resource(routeGVR).Namespace(namespace).Delete(ctx, "openshell-gateway", metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		errs = append(errs, fmt.Errorf("delete gateway Route in %s: %w", namespace, err))
+	backendCA := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      backendCAConfigMapName,
+			Namespace: namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/name":       "openshell",
+				"app.kubernetes.io/component":  "gateway",
+				"app.kubernetes.io/managed-by": "hypershell-control-plane",
+				"hypershell.redhat.io/managed": "true",
+			},
+		},
+		Data: map[string]string{
+			"ca.crt": caData,
+		},
 	}
 
-	if err := DeleteConsole(ctx, dynamicClient, clientset, namespace, opts); err != nil {
-		errs = append(errs, err)
-	}
-
-	if opts.UpdateRouteAddress != nil {
-		if err := opts.UpdateRouteAddress(ctx, ""); err != nil {
-			errs = append(errs, fmt.Errorf("clear routeAddress in %s: %w", namespace, err))
-		} else {
-			log.Printf("INFO cleared routeAddress for gateway in %s", namespace)
+	existing, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, backendCAConfigMapName, metav1.GetOptions{})
+	switch {
+	case err == nil:
+		backendCA.ResourceVersion = existing.ResourceVersion
+		if _, err := clientset.CoreV1().ConfigMaps(namespace).Update(ctx, backendCA, metav1.UpdateOptions{}); err != nil {
+			return fmt.Errorf("update backend CA ConfigMap in %s: %w", namespace, err)
 		}
+	case k8serrors.IsNotFound(err):
+		if _, err := clientset.CoreV1().ConfigMaps(namespace).Create(ctx, backendCA, metav1.CreateOptions{}); err != nil {
+			return fmt.Errorf("create backend CA ConfigMap in %s: %w", namespace, err)
+		}
+	default:
+		return fmt.Errorf("read backend CA ConfigMap in %s: %w", namespace, err)
 	}
 
-	if len(errs) == 0 {
-		log.Printf("INFO Route resources removed from namespace %s", namespace)
+	btlsPolicy := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "gateway.networking.k8s.io/v1",
+			"kind":       "BackendTLSPolicy",
+			"metadata": map[string]interface{}{
+				"name":      "openshell-gateway",
+				"namespace": namespace,
+				"labels": map[string]interface{}{
+					"app.kubernetes.io/name":       "openshell",
+					"app.kubernetes.io/component":  "gateway",
+					"app.kubernetes.io/managed-by": "hypershell-control-plane",
+					"hypershell.redhat.io/managed": "true",
+				},
+			},
+			"spec": map[string]interface{}{
+				"targetRefs": []interface{}{
+					map[string]interface{}{
+						"group": "",
+						"kind":  "Service",
+						"name":  "openshell-gateway",
+					},
+				},
+				"validation": map[string]interface{}{
+					"caCertificateRefs": []interface{}{
+						map[string]interface{}{
+							"group": "",
+							"kind":  "ConfigMap",
+							"name":  backendCAConfigMapName,
+						},
+					},
+					"hostname": fmt.Sprintf("openshell-gateway.%s.svc.cluster.local", namespace),
+				},
+			},
+		},
 	}
-	return errors.Join(errs...)
+	if err := reconcileResource(ctx, dynamicClient, btlsPolicy); err != nil {
+		// Tolerate ONLY the "CRD not installed" case. reconcileResource creates the
+		// policy when it is absent, so it only returns a NotFound when the
+		// BackendTLSPolicy resource type itself is unknown to the API server (the
+		// Gateway API transport policy is unavailable, e.g. before OpenShift 4.22).
+		// Every other error (RBAC denial, conflict, API outage) must surface so the
+		// pass retries rather than disabling backend TLS verification silently.
+		if k8serrors.IsNotFound(err) {
+			slog.WarnContext(ctx, "BackendTLSPolicy CRD not installed; skipping backend TLS policy (requires Gateway API transport policy support, e.g. OpenShift 4.22+)", "namespace", namespace)
+			return nil
+		}
+		return fmt.Errorf("reconcile BackendTLSPolicy in %s: %w", namespace, err)
+	}
+	return nil
 }
 
 func waitForSecret(ctx context.Context, clientset kubernetes.Interface, namespace, name string, timeout time.Duration) error {
@@ -767,14 +675,14 @@ func waitForSecret(ctx context.Context, clientset kubernetes.Interface, namespac
 		watcher.Stop()
 
 		if appeared {
-			log.Printf("INFO secret %s/%s is available", namespace, name)
+			slog.InfoContext(ctx, "Secret is available", "namespace", namespace, "name", name)
 			return nil
 		}
 
 		if watchCtx.Err() != nil {
 			return fmt.Errorf("timed out waiting for secret %s/%s: %w", namespace, name, watchCtx.Err())
 		}
-		log.Printf("INFO watch for secret %s/%s closed early; re-establishing", namespace, name)
+		slog.InfoContext(ctx, "Watch for secret closed early; re-establishing", "namespace", namespace, "name", name)
 	}
 }
 
@@ -804,6 +712,22 @@ const (
 	// sandboxHTTPRouteName is the wildcard-hostname HTTPRoute routing sandbox
 	// service traffic to the gateway's own listener.
 	sandboxHTTPRouteName = "openshell-gateway-sandbox"
+)
+
+// gateway Service backend ports the tenant routes forward to. These MUST agree
+// with the openshell Helm chart's Service ports (charts/openshell/values.yaml
+// service.port / service.httpPort and templates/service.yaml); the route and
+// the Service are reconciled by different surfaces and are coupled only by these
+// numbers. Both Service ports target the same gateway pod container port; see
+// openshell-gateway-routing.spec.md OSG-ROUT-13 (Dual-Protocol Backend).
+const (
+	// gatewayServiceGRPCPort is the Service port declaring appProtocol: grpc.
+	// The GRPCRoute forwards here; the ingress proxy dials it over HTTP/2.
+	gatewayServiceGRPCPort = int64(8080)
+	// gatewayServiceHTTPPort is the Service port declaring appProtocol: http.
+	// The sandbox HTTPRoute forwards here so the ingress proxy dials the backend
+	// over HTTP/1.1, which a WebSocket upgrade requires (HTTP/2 cannot carry it).
+	gatewayServiceHTTPPort = int64(8090)
 )
 
 // perTenantGatewayName returns the name of the per-tenant Gateway API Gateway
@@ -979,19 +903,19 @@ func reconcileResource(ctx context.Context, dynamicClient dynamic.Interface, obj
 			if err != nil {
 				return fmt.Errorf("create %s %s: %w", gvk.Kind, name, err)
 			}
-			log.Printf("INFO created %s %s in %s", gvk.Kind, name, namespace)
+			slog.InfoContext(ctx, "Created resource", "kind", gvk.Kind, "name", name, "namespace", namespace)
 			return nil
 		}
 		return fmt.Errorf("get %s %s: %w", gvk.Kind, name, err)
 	}
 
 	if gvk.Kind == "Job" {
-		log.Printf("DEBUG job %s already exists, skipping update", name)
+		slog.DebugContext(ctx, "Job already exists, skipping update", "name", name)
 		return nil
 	}
 
 	if gvk.Kind == "PersistentVolumeClaim" {
-		log.Printf("DEBUG PVC %s already exists, skipping update", name)
+		slog.DebugContext(ctx, "PVC already exists, skipping update", "name", name)
 		return nil
 	}
 
@@ -1037,7 +961,7 @@ func kindToResource(kind string) string {
 		return resource
 	}
 
-	log.Printf("DEBUG unknown kind %s, using naive plural", kind)
+	slog.Debug("Unknown kind, using naive plural", "kind", kind)
 	return strings.ToLower(kind) + "s"
 }
 
@@ -1134,7 +1058,7 @@ func reconcileOpenShiftSCC(ctx context.Context, dynamicClient dynamic.Interface,
 		if _, createErr := dynamicClient.Resource(roleBindingGVR).Namespace(namespace).Create(ctx, binding, metav1.CreateOptions{}); createErr != nil {
 			return fmt.Errorf("create SCC RoleBinding: %w", createErr)
 		}
-		log.Printf("INFO created privileged SCC binding for openshell-gateway-sandbox in %s", namespace)
+		slog.InfoContext(ctx, "Created privileged SCC binding for openshell-gateway-sandbox", "namespace", namespace)
 		return nil
 	}
 
@@ -1184,19 +1108,19 @@ func reconcileTrustedCABundle(ctx context.Context, clientset *kubernetes.Clients
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			if _, err := clientset.CoreV1().ConfigMaps(targetNamespace).Create(ctx, targetCM, metav1.CreateOptions{}); err != nil {
-				log.Printf("WARN failed to create trusted CA ConfigMap in %s: %v", targetNamespace, err)
+				slog.WarnContext(ctx, "Failed to create trusted CA ConfigMap", "namespace", targetNamespace, "error", err)
 				return false
 			}
-			log.Printf("INFO copied trusted CA ConfigMap to %s", targetNamespace)
+			slog.InfoContext(ctx, "Copied trusted CA ConfigMap", "namespace", targetNamespace)
 			return true
 		}
-		log.Printf("WARN failed to get trusted CA ConfigMap in %s: %v", targetNamespace, err)
+		slog.WarnContext(ctx, "Failed to get trusted CA ConfigMap", "namespace", targetNamespace, "error", err)
 		return false
 	}
 
 	targetCM.ResourceVersion = existing.ResourceVersion
 	if _, err := clientset.CoreV1().ConfigMaps(targetNamespace).Update(ctx, targetCM, metav1.UpdateOptions{}); err != nil {
-		log.Printf("WARN failed to update trusted CA ConfigMap in %s: %v", targetNamespace, err)
+		slog.WarnContext(ctx, "Failed to update trusted CA ConfigMap", "namespace", targetNamespace, "error", err)
 		return false
 	}
 	return true
@@ -1216,12 +1140,12 @@ func reconcileVaultCABundle(ctx context.Context, clientset *kubernetes.Clientset
 
 	secret, err := clientset.CoreV1().Secrets(srcNamespace).Get(ctx, srcName, metav1.GetOptions{})
 	if err != nil {
-		log.Printf("WARN vault serving CA source Secret %s/%s not readable; gateway falls back to platform trust roots: %v", srcNamespace, srcName, err)
+		slog.WarnContext(ctx, "Vault serving CA source Secret not readable; gateway falls back to platform trust roots", "namespace", srcNamespace, "secret", srcName, "error", err)
 		return false
 	}
 	caPEM, ok := secret.Data[VaultCAKey]
 	if !ok || len(caPEM) == 0 {
-		log.Printf("WARN vault serving CA source Secret %s/%s has no %q key", srcNamespace, srcName, VaultCAKey)
+		slog.WarnContext(ctx, "Vault serving CA source Secret has no CA key", "namespace", srcNamespace, "secret", srcName, "key", VaultCAKey)
 		return false
 	}
 
@@ -1243,19 +1167,19 @@ func reconcileVaultCABundle(ctx context.Context, clientset *kubernetes.Clientset
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			if _, err := clientset.CoreV1().ConfigMaps(targetNamespace).Create(ctx, targetCM, metav1.CreateOptions{}); err != nil {
-				log.Printf("WARN failed to create vault CA ConfigMap in %s: %v", targetNamespace, err)
+				slog.WarnContext(ctx, "Failed to create vault CA ConfigMap", "namespace", targetNamespace, "error", err)
 				return false
 			}
-			log.Printf("INFO copied vault serving CA ConfigMap to %s", targetNamespace)
+			slog.InfoContext(ctx, "Copied vault serving CA ConfigMap", "namespace", targetNamespace)
 			return true
 		}
-		log.Printf("WARN failed to get vault CA ConfigMap in %s: %v", targetNamespace, err)
+		slog.WarnContext(ctx, "Failed to get vault CA ConfigMap", "namespace", targetNamespace, "error", err)
 		return false
 	}
 
 	targetCM.ResourceVersion = existing.ResourceVersion
 	if _, err := clientset.CoreV1().ConfigMaps(targetNamespace).Update(ctx, targetCM, metav1.UpdateOptions{}); err != nil {
-		log.Printf("WARN failed to update vault CA ConfigMap in %s: %v", targetNamespace, err)
+		slog.WarnContext(ctx, "Failed to update vault CA ConfigMap", "namespace", targetNamespace, "error", err)
 		return false
 	}
 	return true
@@ -1269,13 +1193,13 @@ func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig *
 		opts.Keycloak.ClientSecret,
 	)
 
-	if opts.GatewayName == "" {
-		return fmt.Errorf("gateway name is required for keycloak provisioning")
-	}
 	if opts.GatewayID == "" {
 		return fmt.Errorf("gateway ID is required for keycloak provisioning")
 	}
-	kcClientID := fmt.Sprintf("%s-%s", opts.GatewayName, opts.GatewayID)
+	kcClientID := opts.GatewayClientID
+	if kcClientID == "" {
+		return fmt.Errorf("gateway client ID is required for keycloak provisioning")
+	}
 
 	existingUUID, err := kc.GetClientUUID(ctx, kcClientID)
 	if err != nil {
@@ -1289,23 +1213,39 @@ func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig *
 		if err := kc.EnsureE2ETokenExchange(ctx, existingUUID); err != nil {
 			return fmt.Errorf("reconcile e2e token-exchange on keycloak client %s: %w", kcClientID, err)
 		}
-		log.Printf("INFO reconciled keycloak client %s (uuid=%s)", kcClientID, existingUUID)
+		slog.InfoContext(ctx, "Reconciled keycloak client", "client_id", kcClientID, "uuid", existingUUID)
 	} else {
 		clientUUID, err := kc.ProvisionGatewayClient(ctx, kcClientID)
 		if err != nil {
 			return fmt.Errorf("provision keycloak client %s: %w", kcClientID, err)
 		}
-		log.Printf("INFO provisioned keycloak client %s (uuid=%s)", kcClientID, clientUUID)
+		slog.InfoContext(ctx, "Provisioned keycloak client", "client_id", kcClientID, "uuid", clientUUID)
 	}
 
+	// The controller persists this configuration before the pass captures its
+	// desired snapshot (see DesiredOIDCConfig), so the gateway deploys the same
+	// value the API server stores for the generation being applied.
+	nsConfig.Gateway.OIDC = DesiredOIDCConfig(opts.Keycloak, kcClientID)
+
+	return nil
+}
+
+// DesiredOIDCConfig returns the OIDC configuration the control plane generates
+// for a gateway whose Keycloak client ID is clientID. It depends only on the
+// Keycloak configuration and the client ID, not on the Keycloak client existing,
+// so the controller can resolve and persist it before it applies any workload
+// configuration.
+func DesiredOIDCConfig(kcConfig *KeycloakConfig, clientID string) OIDCConfig {
 	oidcConfig := OIDCConfig{
-		Issuer:     kc.Issuer(),
-		ClientID:   kcClientID,
-		Audience:   kcClientID,
+		ClientID:   clientID,
+		Audience:   clientID,
 		JwksTTL:    3600,
 		RolesClaim: "hypershell.roles",
 		AdminRole:  "openshell-admin",
 		UserRole:   "openshell-user",
+	}
+	if kcConfig != nil {
+		oidcConfig.Issuer = keycloak.NewClient(kcConfig.ServerURL, kcConfig.Realm, "", "").Issuer()
 	}
 	// The Keycloak Admin API server URL must be reachable in-cluster, but the
 	// gateway's client-facing issuer (consumed by the gateway pod, console, and
@@ -1315,19 +1255,7 @@ func reconcileKeycloakClient(ctx context.Context, opts ReconcileOpts, nsConfig *
 	if issuerURL := os.Getenv("GATEWAY_OIDC_ISSUER_URL"); issuerURL != "" {
 		oidcConfig.Issuer = issuerURL
 	}
-	nsConfig.Gateway.OIDC = oidcConfig
-
-	if opts.UpdateOIDC != nil {
-		oidcJSON, err := json.Marshal(oidcConfig)
-		if err != nil {
-			return fmt.Errorf("marshal oidc config: %w", err)
-		}
-		if err := opts.UpdateOIDC(ctx, string(oidcJSON)); err != nil {
-			log.Printf("WARN failed to persist oidc config for %s: %v", kcClientID, err)
-		}
-	}
-
-	return nil
+	return oidcConfig
 }
 
 func reconcileCredentialDriverResources(
@@ -1365,10 +1293,10 @@ func deleteCredentialSecretsRBAC(ctx context.Context, dynamicClient dynamic.Inte
 
 	name := "openshell-gateway-credential-secrets"
 	if err := dynamicClient.Resource(roleBindingGVR).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		log.Printf("WARN failed to delete credential secrets RoleBinding in %s: %v", namespace, err)
+		slog.WarnContext(ctx, "Failed to delete credential secrets RoleBinding", "namespace", namespace, "error", err)
 	}
 	if err := dynamicClient.Resource(roleGVR).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		log.Printf("WARN failed to delete credential secrets Role in %s: %v", namespace, err)
+		slog.WarnContext(ctx, "Failed to delete credential secrets Role", "namespace", namespace, "error", err)
 	}
 }
 
@@ -1434,54 +1362,62 @@ func reconcileCredentialSecretsRBAC(
 		return fmt.Errorf("reconcile credential secrets RoleBinding: %w", err)
 	}
 
-	log.Printf("INFO reconciled credential secrets RBAC in %s for gateway in %s", credentialNamespace, gatewayNamespace)
+	slog.InfoContext(ctx, "Reconciled credential secrets RBAC", "credential_namespace", credentialNamespace, "namespace", gatewayNamespace)
 	return nil
 }
 
-func DetectOpenShift(clientset *kubernetes.Clientset) bool {
-	_, resources, err := clientset.Discovery().ServerGroupsAndResources()
-	if err != nil {
-		log.Printf("WARN failed to discover API groups, assuming non-OpenShift: %v", err)
-		return false
+// errGatewayAPIMissing reports a cluster where discovery confirms the Gateway API
+// is absent. Gateways are exposed only through the Gateway API, so a gateway
+// cannot be provisioned there until the operator installs it (OSG-ROUT-02.02).
+var errGatewayAPIMissing = errors.New("the Gateway API is not installed on this cluster")
+
+// errGatewayAPIUnavailable reports that Gateway API discovery could not be
+// completed (transport, authorization, or stale-group error). The state is
+// unknown/unavailable, so the affected work is waiting/retryable rather than
+// treated as absent (OSG-ROUT-02.03).
+var errGatewayAPIUnavailable = errors.New("the Gateway API could not be discovered")
+
+// gatewayAPIMissingMessage is the condition message for a confirmed-absent
+// Gateway API: a prerequisite to install.
+const gatewayAPIMissingMessage = "Gateway API is not installed on this cluster; the gateway cannot be exposed"
+
+// gatewayAPIUnavailableMessage is the condition message for an unknown/
+// unavailable Gateway API: waiting and retryable.
+const gatewayAPIUnavailableMessage = "Gateway API is temporarily unavailable - waiting to reconcile the gateway's ingress"
+
+// cert-manager prerequisite sentinels and condition messages (OSG-TLS-01).
+var errCertManagerAbsent = errors.New("cert-manager is not installed on this cluster")
+
+const (
+	// certManagerAbsentMessage is the condition message for a confirmed-absent
+	// cert-manager: a prerequisite to install (OSG-TLS-01.02).
+	certManagerAbsentMessage = "cert-manager is not installed on this cluster; install cert-manager (cert-manager.io/v1 Certificate) before the gateway can be provisioned"
+	// certManagerUnavailableMessage is the condition message for an unknown/
+	// unavailable cert-manager: waiting and retryable (OSG-TLS-01.03).
+	certManagerUnavailableMessage = "cert-manager is temporarily unavailable - waiting to provision the gateway's certificates"
+)
+
+// gatewayAPIDependencyError maps a Gateway API dependency result to the sentinel
+// error carried out of ReconcileGateway, so callers can distinguish a
+// confirmed-absent prerequisite from an unknown/unavailable (retryable) state.
+func gatewayAPIDependencyError(res DependencyResult) error {
+	if res.State == DependencyAbsent {
+		return errGatewayAPIMissing
 	}
-	for _, list := range resources {
-		if strings.HasPrefix(list.GroupVersion, "route.openshift.io/") {
-			return true
-		}
+	if res.Err != nil {
+		return fmt.Errorf("%w: %w", errGatewayAPIUnavailable, res.Err)
 	}
-	return false
+	return errGatewayAPIUnavailable
 }
 
-func DetectCertManager(clientset *kubernetes.Clientset) bool {
-	_, resources, err := clientset.Discovery().ServerGroupsAndResources()
-	if err != nil {
-		log.Printf("WARN failed to discover API groups for cert-manager detection: %v", err)
-		return false
+// gatewayAPIConditionMessage is the EnvironmentReady message for a non-present
+// Gateway API dependency, distinguishing confirmed-absent (a prerequisite to
+// install) from unknown/unavailable (waiting/retryable), per OSG-HLTH-07.
+func gatewayAPIConditionMessage(res DependencyResult) string {
+	if res.State == DependencyAbsent {
+		return gatewayAPIMissingMessage
 	}
-	for _, list := range resources {
-		if strings.HasPrefix(list.GroupVersion, "cert-manager.io/") {
-			return true
-		}
-	}
-	return false
-}
-
-func DetectGatewayAPI(clientset *kubernetes.Clientset) bool {
-	_, resources, err := clientset.Discovery().ServerGroupsAndResources()
-	if err != nil {
-		log.Printf("WARN failed to discover API groups for Gateway API detection: %v", err)
-		return false
-	}
-	for _, list := range resources {
-		if list.GroupVersion == "gateway.networking.k8s.io/v1" {
-			for _, r := range list.APIResources {
-				if r.Kind == "GRPCRoute" {
-					return true
-				}
-			}
-		}
-	}
-	return false
+	return gatewayAPIUnavailableMessage
 }
 
 func gatewayIngressNamespace() string {
@@ -1525,87 +1461,8 @@ func gatewayAPIGatewayClass() string {
 	return "openshift-default"
 }
 
-// Ingress modes select how a tenant gateway is exposed for external traffic.
-// Exported so the controller entrypoint can select the matching Gateway Exposure
-// adapter (Gateway API vs Route) by the same rule the reconciler uses to emit
-// ingress resources.
-const (
-	IngressModeGatewayAPI = "gateway-api"
-	IngressModeRoute      = "route"
-	IngressModeNone       = ""
-)
-
-// routeTLSIssuer resolves the cert-manager ClusterIssuer that mints a per-host
-// public certificate for a Route, from GATEWAY_ROUTE_TLS_ISSUER.
-func routeTLSIssuer() string {
-	return strings.TrimSpace(os.Getenv("GATEWAY_ROUTE_TLS_ISSUER"))
-}
-
-// readInjectedRouteCert returns the certificate and key that the cert-manager
-// openshift-routes controller has injected into the named Route's spec.tls, or
-// empty strings when the Route or those fields are absent.
-func readInjectedRouteCert(ctx context.Context, dynamicClient dynamic.Interface, namespace, routeName string) (string, string) {
-	gvr := schema.GroupVersionResource{Group: "route.openshift.io", Version: "v1", Resource: "routes"}
-	existing, err := dynamicClient.Resource(gvr).Namespace(namespace).Get(ctx, routeName, metav1.GetOptions{})
-	if err != nil {
-		return "", ""
-	}
-	cert, _, _ := unstructured.NestedString(existing.Object, "spec", "tls", "certificate")
-	key, _, _ := unstructured.NestedString(existing.Object, "spec", "tls", "key")
-	return cert, key
-}
-
-// IngressMode resolves how tenant-gateway ingress is provisioned from
-// GATEWAY_INGRESS_MODE, falling back to a capability-based default.
-//
-// HyperShell is environment-adaptive: it emits Kubernetes Gateway API resources
-// (a GRPCRoute onto a shared Gateway) where the Gateway API is available and
-// functional, and OpenShift Routes (HAProxy passthrough) where it is not (e.g.
-// IBM Cloud ROKS, which ships the Gateway API CRDs but cannot run the
-// CIO-managed Istio). The mode is chosen per environment via the kustomize-set
-// env var GATEWAY_INGRESS_MODE, with a sensible capability-based default when it
-// is unset.
-//
-// GATEWAY_INGRESS_MODE values: "gateway-api", "route", or "none"/"off" to
-// disable managed ingress. When unset, auto-detect: prefer the Gateway API when
-// present, otherwise fall back to Routes on OpenShift. Note that on some
-// platforms the Gateway API CRDs exist but do not function (ROKS); those
-// operators must set GATEWAY_INGRESS_MODE=route explicitly.
-//
-// This is the single source of truth for ingress-mode selection: both the
-// reconciler (which ingress resources to emit) and the controller entrypoint
-// (which exposure adapter to observe readiness through) resolve the mode here,
-// so the emitted resource and the observed resource cannot diverge -- the ROKS
-// bug where a Route-exposed gateway was observed through the Gateway API adapter
-// (because the Gateway API CRDs happened to be present) is thereby impossible.
-func IngressMode(hasGatewayAPI, isOpenShift bool) string {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("GATEWAY_INGRESS_MODE"))) {
-	case IngressModeGatewayAPI, "gatewayapi":
-		return IngressModeGatewayAPI
-	case IngressModeRoute, "routes":
-		return IngressModeRoute
-	case "none", "off", "disabled":
-		return IngressModeNone
-	}
-
-	// Auto-detect from cluster capabilities when no explicit override is set.
-	if hasGatewayAPI {
-		return IngressModeGatewayAPI
-	}
-	if isOpenShift {
-		return IngressModeRoute
-	}
-	return IngressModeNone
-}
-
-// gatewayIngressMode resolves the ingress mode for a reconcile pass from the
-// detected cluster capabilities carried on opts.
-func gatewayIngressMode(opts ReconcileOpts) string {
-	return IngressMode(opts.HasGatewayAPI, opts.IsOpenShift)
-}
-
-// deriveGatewayHostname resolves the external hostname for a tenant gateway,
-// shared by both ingress modes. An explicit Route.Host wins; otherwise it is
+// deriveGatewayHostname resolves the external hostname for a tenant gateway.
+// An explicit Route.Host wins; otherwise it is
 // derived as gw-<namespace>.<GATEWAY_API_BASE_DOMAIN>. The gateway's server
 // certificate SANs (ServerDnsNames/ExternalDns) must cover this hostname.
 func deriveGatewayHostname(nsConfig NamespaceConfig) (string, error) {
@@ -1614,8 +1471,7 @@ func deriveGatewayHostname(nsConfig NamespaceConfig) (string, error) {
 		// An explicit host that falls under the operator's shared base domain
 		// MUST be this tenant's own slot (gw-<namespace>.<base-domain>).
 		// Otherwise a tenant could set Route.Host to another tenant's derived
-		// host and hijack its route under the shared wildcard, since OpenShift
-		// Route host claiming is first-come. Hosts outside the base domain
+		// host and hijack its route under the shared wildcard. Hosts outside the base domain
 		// (genuine external/vanity names) are the operator's responsibility and
 		// pass through; empty base domain means no shared wildcard to protect.
 		if baseDomain != "" && strings.HasSuffix(h, "."+baseDomain) {
@@ -1634,8 +1490,8 @@ func deriveGatewayHostname(nsConfig NamespaceConfig) (string, error) {
 
 // injectIngressHostnames adds the external ingress hostname to the gateway's
 // server certificate SANs and fills an empty Route.Host with it. The gateway
-// pod terminates TLS with its own per-tenant CA and both ingress modes carry
-// that TLS through unmodified, so the server certificate must list the
+// pod terminates TLS with its own per-tenant CA and the shared Gateway
+// re-encrypts to it, so the server certificate must list the
 // external hostname as a SAN or clients fail verification. The controller
 // derives the hostname, so it -- not the operator -- injects it into the cert
 // SANs here, before cert-manager mints the certificate.
@@ -1645,10 +1501,10 @@ func deriveGatewayHostname(nsConfig NamespaceConfig) (string, error) {
 // prefix and derives its exposed-service base domain from it, so without the
 // wildcard entry it cannot generate valid sandbox service URLs. See
 // docs/investigations/per-gateway-certificates.md (Gap C).
-func injectIngressHostnames(nsConfig *NamespaceConfig) {
+func injectIngressHostnames(ctx context.Context, nsConfig *NamespaceConfig) {
 	hostname, err := deriveGatewayHostname(*nsConfig)
 	if err != nil {
-		log.Printf("WARN cannot add ingress hostname to gateway certificate SANs in %s: %v", nsConfig.Name, err)
+		slog.WarnContext(ctx, "Cannot add ingress hostname to gateway certificate SANs", "namespace", nsConfig.Name, "error", err)
 		return
 	}
 	nsConfig.Gateway.ServerDnsNames = appendDNSNameIfMissing(nsConfig.Gateway.ServerDnsNames, hostname)
@@ -1673,20 +1529,6 @@ func appendDNSNameIfMissing(names []string, hostname string) []string {
 		}
 	}
 	return append(names, hostname)
-}
-
-// publishRouteAddress writes the externally reachable gRPC address back to the
-// API-server Gateway resource. Shared by both ingress modes.
-func publishRouteAddress(ctx context.Context, opts ReconcileOpts, namespace, hostname string) {
-	if opts.UpdateRouteAddress == nil {
-		return
-	}
-	routeAddress := fmt.Sprintf("grpcs://%s:443", hostname)
-	if err := opts.UpdateRouteAddress(ctx, routeAddress); err != nil {
-		log.Printf("WARN failed to publish routeAddress %s for gateway in %s: %v", routeAddress, namespace, err)
-	} else {
-		log.Printf("INFO published routeAddress %s for gateway in %s", routeAddress, namespace)
-	}
 }
 
 // buildExternalCertificate returns the cert-manager Certificate covering a
@@ -1826,7 +1668,12 @@ func buildSandboxHTTPRoute(namespace, hostname string) *unstructured.Unstructure
 					"backendRefs": []interface{}{
 						map[string]interface{}{
 							"name": "openshell-gateway",
-							"port": int64(8080),
+							// Sandbox-service traffic (plain HTTP and WebSocket)
+							// forwards to the Service's HTTP/1.1 port so the
+							// ingress proxy dials the backend over HTTP/1.1; the
+							// appProtocol: grpc (HTTP/2) port cannot carry a
+							// WebSocket upgrade. See OSG-ROUT-13.
+							"port": gatewayServiceHTTPPort,
 						},
 					},
 				},
@@ -1851,7 +1698,7 @@ func reconcileGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Int
 		images = StaticImageDefaults{}
 	}
 	if err := reconcileConsole(ctx, dynamicClient, clientset, nsConfig, opts, images); err != nil {
-		log.Printf("WARN failed to reconcile console in %s: %v", nsConfig.Name, err)
+		slog.WarnContext(ctx, "Failed to reconcile console", "namespace", nsConfig.Name, "error", err)
 	}
 
 	return nil
@@ -1878,13 +1725,13 @@ func reconcileGatewayAPIRouteResources(ctx context.Context, dynamicClient dynami
 	var gwName, gwNS string
 	if dedicatedCert {
 		if gatewayExternalIssuerName() == "" {
-			log.Printf("WARN route.certificate requires GATEWAY_EXTERNAL_ISSUER to be set on the controller")
+			slog.WarnContext(ctx, "route.certificate requires GATEWAY_EXTERNAL_ISSUER to be set on the controller")
 			return fmt.Errorf("route.certificate requires GATEWAY_EXTERNAL_ISSUER to be set on the controller: %w", errExternalIssuerUnset)
 		}
 	} else {
 		gwName = gatewayIngressName()
 		if gwName == "" {
-			log.Printf("WARN GATEWAY_API_GATEWAY_NAME is required -- set it to the name of a pre-existing Gateway resource")
+			slog.WarnContext(ctx, "GATEWAY_API_GATEWAY_NAME is required -- set it to the name of a pre-existing Gateway resource")
 			return fmt.Errorf("GATEWAY_API_GATEWAY_NAME is required")
 		}
 		gwNS = gatewayIngressNamespace()
@@ -1895,7 +1742,7 @@ func reconcileGatewayAPIRouteResources(ctx context.Context, dynamicClient dynami
 	// address published through the port.
 	hostname, ok := exposure.DeriveGatewayAPIHost(namespace, routeConfig.Host)
 	if !ok {
-		log.Printf("WARN cannot derive GRPCRoute hostname: GATEWAY_API_BASE_DOMAIN not set")
+		slog.WarnContext(ctx, "Cannot derive GRPCRoute hostname: GATEWAY_API_BASE_DOMAIN not set")
 		return nil
 	}
 
@@ -1907,12 +1754,12 @@ func reconcileGatewayAPIRouteResources(ctx context.Context, dynamicClient dynami
 	if opts.Exposure != nil && opts.UpdateRouteAddress != nil {
 		routeAddress, err := opts.Exposure.ResolveAddress(ctx, exposure.Request{Namespace: namespace, Host: routeConfig.Host})
 		if err != nil {
-			log.Printf("WARN failed to resolve routeAddress for gateway in %s: %v", namespace, err)
+			slog.WarnContext(ctx, "Failed to resolve routeAddress for gateway", "namespace", namespace, "error", err)
 		} else if routeAddress != "" {
 			if err := opts.UpdateRouteAddress(ctx, routeAddress); err != nil {
-				log.Printf("WARN failed to publish routeAddress %s for gateway in %s: %v", routeAddress, namespace, err)
+				slog.WarnContext(ctx, "Failed to publish routeAddress for gateway", "route_address", routeAddress, "namespace", namespace, "error", err)
 			} else {
-				log.Printf("INFO published routeAddress %s for gateway in %s", routeAddress, namespace)
+				slog.InfoContext(ctx, "Published routeAddress for gateway", "route_address", routeAddress, "namespace", namespace)
 			}
 		}
 	}
@@ -1938,10 +1785,10 @@ func reconcileGatewayAPIRouteResources(ctx context.Context, dynamicClient dynami
 		if opts.RouteStillDesired != nil {
 			desired, err := opts.RouteStillDesired(ctx)
 			if err != nil {
-				return fmt.Errorf("re-check route intent in %s: %w", namespace, err)
+				return fmt.Errorf("re-check gateway exists in %s: %w", namespace, err)
 			}
 			if !desired {
-				log.Printf("INFO gateway in %s no longer routed after external TLS wait; skipping per-tenant Gateway creation (health loop owns teardown)", namespace)
+				slog.InfoContext(ctx, "Gateway deleted during external TLS wait; skipping per-tenant Gateway creation (delete handler owns cleanup)", "namespace", namespace)
 				return nil
 			}
 		}
@@ -1962,9 +1809,19 @@ func reconcileGatewayAPIRouteResources(ctx context.Context, dynamicClient dynami
 	} else {
 		listenerName := sharedGatewayListenerName()
 		if os.Getenv("GATEWAY_API_HTTP_LISTENER_NAME") == "" {
-			log.Printf("INFO using Gateway %s/%s listener %s for tenant %s (GATEWAY_API_HTTP_LISTENER_NAME unset; a NoMatchingParent GRPCRoute will not self-heal)", gwNS, gwName, listenerName, namespace)
+			slog.InfoContext(ctx, "Using Gateway listener for tenant (GATEWAY_API_HTTP_LISTENER_NAME unset; a NoMatchingParent GRPCRoute will not self-heal)",
+				"gateway_namespace", gwNS,
+				"gateway_name", gwName,
+				"listener", listenerName,
+				"namespace", namespace,
+			)
 		} else {
-			log.Printf("INFO using Gateway %s/%s listener %s for tenant %s", gwNS, gwName, listenerName, namespace)
+			slog.InfoContext(ctx, "Using Gateway listener for tenant",
+				"gateway_namespace", gwNS,
+				"gateway_name", gwName,
+				"listener", listenerName,
+				"namespace", namespace,
+			)
 		}
 
 		parentRef = map[string]interface{}{
@@ -1996,7 +1853,9 @@ func reconcileGatewayAPIRouteResources(ctx context.Context, dynamicClient dynami
 						"backendRefs": []interface{}{
 							map[string]interface{}{
 								"name": "openshell-gateway",
-								"port": int64(8080),
+								// gRPC traffic keeps the appProtocol: grpc
+								// (HTTP/2) port, unchanged by OSG-ROUT-13.
+								"port": gatewayServiceGRPCPort,
 							},
 						},
 					},
@@ -2023,104 +1882,31 @@ func reconcileGatewayAPIRouteResources(ctx context.Context, dynamicClient dynami
 		return fmt.Errorf("wait for server TLS secret in %s: %w", namespace, err)
 	}
 
-	// The wait above can run for up to a minute. A route removal (or gateway
-	// deletion) during it is observed only by the independent health loop -- the
-	// watcher phase gate blocks a re-provision -- which tears down this gateway's
-	// route and console. Re-check live route intent before creating the remaining
-	// route- and console-owned resources so this in-flight pass does not race that
-	// teardown. Fail closed: unknown intent must not authorize new resources, so a
-	// check error aborts the pass (the gateway parks at Failed and is retried on
-	// the next watch resync) rather than risk creating resources behind a
-	// concurrent teardown. The health loop's route teardown verifies actual
-	// resource absence (RouteResourcesAbsent), so it still removes anything a
-	// narrow check-then-act window lets slip through.
+	// The wait above can run for up to a minute. A gateway deletion during it is
+	// handled by the delete path, which removes the gateway's namespace. Re-check
+	// that the gateway still exists before creating the remaining route- and
+	// console-owned resources so this in-flight pass does not race a deletion.
+	// Fail closed: unknown state must not authorize new resources, so a check
+	// error aborts the pass (the gateway parks at Failed and is retried on the
+	// next watch resync).
 	if opts.RouteStillDesired != nil {
 		desired, err := opts.RouteStillDesired(ctx)
 		if err != nil {
-			return fmt.Errorf("re-check route intent in %s: %w", namespace, err)
+			return fmt.Errorf("re-check gateway exists in %s: %w", namespace, err)
 		}
 		if !desired {
-			log.Printf("INFO gateway in %s no longer routed after TLS wait; skipping route/console resource creation (health loop owns teardown)", namespace)
+			slog.InfoContext(ctx, "Gateway deleted during TLS wait; skipping route/console resource creation (delete handler owns cleanup)", "namespace", namespace)
 			return nil
 		}
 	}
 
-	caData := readServerTLSCA(ctx, clientset, namespace)
-
-	if caData != "" {
-		backendCA := &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      backendCAConfigMapName,
-				Namespace: namespace,
-				Labels: map[string]string{
-					"app.kubernetes.io/name":       "openshell",
-					"app.kubernetes.io/component":  "gateway",
-					"app.kubernetes.io/managed-by": "hypershell-control-plane",
-					"hypershell.redhat.io/managed": "true",
-				},
-			},
-			Data: map[string]string{
-				"ca.crt": caData,
-			},
-		}
-
-		existing, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, backendCAConfigMapName, metav1.GetOptions{})
-		if err != nil {
-			if k8serrors.IsNotFound(err) {
-				if _, err := clientset.CoreV1().ConfigMaps(namespace).Create(ctx, backendCA, metav1.CreateOptions{}); err != nil {
-					log.Printf("WARN failed to create backend CA ConfigMap: %v", err)
-				}
-			}
-		} else {
-			backendCA.ResourceVersion = existing.ResourceVersion
-			if _, err := clientset.CoreV1().ConfigMaps(namespace).Update(ctx, backendCA, metav1.UpdateOptions{}); err != nil {
-				log.Printf("WARN failed to update backend CA ConfigMap: %v", err)
-			}
-		}
-
-		btlsPolicy := &unstructured.Unstructured{
-			Object: map[string]interface{}{
-				"apiVersion": "gateway.networking.k8s.io/v1",
-				"kind":       "BackendTLSPolicy",
-				"metadata": map[string]interface{}{
-					"name":      "openshell-gateway",
-					"namespace": namespace,
-					"labels": map[string]interface{}{
-						"app.kubernetes.io/name":       "openshell",
-						"app.kubernetes.io/component":  "gateway",
-						"app.kubernetes.io/managed-by": "hypershell-control-plane",
-						"hypershell.redhat.io/managed": "true",
-					},
-				},
-				"spec": map[string]interface{}{
-					"targetRefs": []interface{}{
-						map[string]interface{}{
-							"group": "",
-							"kind":  "Service",
-							"name":  "openshell-gateway",
-						},
-					},
-					"validation": map[string]interface{}{
-						"caCertificateRefs": []interface{}{
-							map[string]interface{}{
-								"group": "",
-								"kind":  "ConfigMap",
-								"name":  backendCAConfigMapName,
-							},
-						},
-						"hostname": fmt.Sprintf("openshell-gateway.%s.svc.cluster.local", namespace),
-					},
-				},
-			},
-		}
-		if err := reconcileResource(ctx, dynamicClient, btlsPolicy); err != nil {
-			log.Printf("WARN failed to reconcile BackendTLSPolicy (may require OpenShift 4.22+): %v", err)
-		}
+	if err := reconcileBackendTLS(ctx, dynamicClient, clientset, namespace); err != nil {
+		return err
 	}
 
 	// The route address is published deterministically at the top of this
 	// function, so no readiness-gated discovery is required here.
 
-	log.Printf("INFO Gateway API resources reconciled in namespace %s (hostname=%s)", namespace, hostname)
+	slog.InfoContext(ctx, "Gateway API resources reconciled", "namespace", namespace, "hostname", hostname)
 	return nil
 }

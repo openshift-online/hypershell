@@ -91,6 +91,7 @@ Method | HTTP request | Description
 [**UpdateSandboxTemplate**](DefaultAPI.md#UpdateSandboxTemplate) | **Patch** /api/hypershell/ext/sandbox_templates/{id} | Update a sandbox template
 [**UpdateSecretSource**](DefaultAPI.md#UpdateSecretSource) | **Patch** /api/hypershell/ext/secret_sources/{id} | Update a secret source
 [**UpdateWorkspaceMembership**](DefaultAPI.md#UpdateWorkspaceMembership) | **Patch** /api/hypershell/ext/workspace_memberships/{id} | Update a workspace membership
+[**UploadSecretSourceMaterial**](DefaultAPI.md#UploadSecretSourceMaterial) | **Post** /api/hypershell/ext/secret_sources/{id}/material | Upload the durable material for an existing secret source
 
 
 
@@ -6038,6 +6039,78 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**WorkspaceMembership**](WorkspaceMembership.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## UploadSecretSourceMaterial
+
+> SecretSource UploadSecretSourceMaterial(ctx, id).SecretSourceMaterialUploadRequest(secretSourceMaterialUploadRequest).Execute()
+
+Upload the durable material for an existing secret source
+
+
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	id := "id_example" // string | The id of record
+	secretSourceMaterialUploadRequest := *openapiclient.NewSecretSourceMaterialUploadRequest("Value_example") // SecretSourceMaterialUploadRequest | The durable material to store for the secret source
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.UploadSecretSourceMaterial(context.Background(), id).SecretSourceMaterialUploadRequest(secretSourceMaterialUploadRequest).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.UploadSecretSourceMaterial``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `UploadSecretSourceMaterial`: SecretSource
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.UploadSecretSourceMaterial`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**id** | **string** | The id of record |
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiUploadSecretSourceMaterialRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+ **secretSourceMaterialUploadRequest** | [**SecretSourceMaterialUploadRequest**](SecretSourceMaterialUploadRequest.md) | The durable material to store for the secret source |
+
+### Return type
+
+[**SecretSource**](SecretSource.md)
 
 ### Authorization
 

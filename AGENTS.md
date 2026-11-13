@@ -40,3 +40,10 @@ When the condition above applies, the deliverable requires both artifacts:
 
 Read `CLAUDE.md` before implementation and follow its repository commands and
 critical conventions.
+
+## Forbidden browser DOM injection
+
+Never use React's raw-HTML prop, DOM HTML properties or methods, or equivalent
+HTML-injection helpers in browser source, Storybook stories, or mockups. Render
+React elements or use an approved parser that returns React elements. Run
+`make check-forbidden-dom-injection` before handing off browser UI changes.

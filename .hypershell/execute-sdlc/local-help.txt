@@ -11,14 +11,30 @@ First run
   2. Save your scope and settings in .hypershell/fullsend.env (gitignored).
   3. Run make fullsend-doctor, fix any reported problems, then make fullsend.
 
+Jira API token (if the site admin has not approved ACLI OAuth)
+  Add these Fullsend settings to .hypershell/fullsend.env:
+    JIRA_AUTH_MODE=api-token
+    JIRA_USER_EMAIL=you@example.com
+    JIRA_TOKEN=your_api_token
+  These are not acli login flags. Run make fullsend-doctor to check the setup.
+
 Overrides
+  make fullsend AUTO_MERGE=disabled   Hold reviewed PRs for manual approval.
   make fullsend CONCURRENCY=4
   make fullsend MODEL=YOUR_APPROVED_MODEL_ID
   make fullsend SCOPE=agent/scope/YOUR_NAME/fullsend ENV_FILE=/path/to/file
 
 In the dashboard
-  Enter logs   d details   H history   s sign in   ? shortcuts   q detach
+  A approve held PR (confirmation)   Enter logs   d details   H history   s sign in   ? shortcuts   q detach
   Detaching keeps workers running. Run make fullsend again to resume monitoring.
 
 Advanced dispatcher flags
   .hypershell/execute-sdlc/funnel-dispatch.sh --help
+
+Intake checks run every 3 minutes without an LLM for unchanged linked work.
+Use INTAKE_INTERVAL=300 or set FULLSEND_INTAKE_INTERVAL=300 in your env file.
+
+Configuration
+  Tab to Configuration or press , in the dashboard.
+  Settings file: ~/.config/hypershell/fullsend.json (updated on save).
+  Each setting says Immediate, Next sandbox, Next sign-in, or Restart required.

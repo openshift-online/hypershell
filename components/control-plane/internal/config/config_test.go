@@ -16,6 +16,73 @@ func setRequiredEnv(t *testing.T) {
 	t.Setenv("OIDC_ISSUER", "http://keycloak.example/realms/hypershell")
 	t.Setenv("OIDC_CLIENT_ID", "hypershell-control-plane")
 	t.Setenv("OIDC_CLIENT_SECRET", "secret")
+	t.Setenv("HYPERSHELL_CLUSTER_PLATFORM", ClusterPlatformKubernetes)
+}
+
+// TestLoadClusterPlatform covers the explicit host-platform contract
+// (CTRL-CORE-16): accepted values load, an invalid value and an omitted setting
+// both fail startup with an error naming the setting and its accepted values.
+// Verifies: CTRL-CORE-16.01, CTRL-CORE-16.02, CTRL-CORE-16.03, CTRL-CORE-16.04
+func TestLoadClusterPlatform(t *testing.T) {
+	t.Run("accepted values load", func(t *testing.T) {
+		for _, platform := range []string{ClusterPlatformOpenShift, ClusterPlatformKubernetes} {
+			setRequiredEnv(t)
+			t.Setenv("HYPERSHELL_CLUSTER_PLATFORM", platform)
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() with platform %q: %v", platform, err)
+			}
+			if cfg.ClusterPlatform != platform {
+				t.Fatalf("ClusterPlatform = %q, want %q", cfg.ClusterPlatform, platform)
+			}
+		}
+	})
+
+	t.Run("case and whitespace are normalized", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("HYPERSHELL_CLUSTER_PLATFORM", "  OpenShift  ")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load(): %v", err)
+		}
+		if cfg.ClusterPlatform != ClusterPlatformOpenShift {
+			t.Fatalf("ClusterPlatform = %q, want %q", cfg.ClusterPlatform, ClusterPlatformOpenShift)
+		}
+	})
+
+	t.Run("invalid value fails naming accepted values", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("HYPERSHELL_CLUSTER_PLATFORM", "openstack")
+		_, err := Load()
+		if err == nil {
+			t.Fatal("Load() with invalid platform: want error, got nil")
+		}
+		for _, want := range []string{"HYPERSHELL_CLUSTER_PLATFORM", ClusterPlatformOpenShift, ClusterPlatformKubernetes} {
+			if !strings.Contains(err.Error(), want) {
+				t.Fatalf("Load() error %q does not contain %q", err, want)
+			}
+		}
+	})
+
+	t.Run("omitted setting fails naming the setting", func(t *testing.T) {
+		for _, mode := range []string{"unset", "blank"} {
+			setRequiredEnv(t)
+			if mode == "unset" {
+				if err := os.Unsetenv("HYPERSHELL_CLUSTER_PLATFORM"); err != nil {
+					t.Fatalf("unset: %v", err)
+				}
+			} else {
+				t.Setenv("HYPERSHELL_CLUSTER_PLATFORM", "   ")
+			}
+			_, err := Load()
+			if err == nil {
+				t.Fatalf("Load() with %s platform: want error, got nil", mode)
+			}
+			if !strings.Contains(err.Error(), "HYPERSHELL_CLUSTER_PLATFORM") {
+				t.Fatalf("Load() error %q does not name HYPERSHELL_CLUSTER_PLATFORM", err)
+			}
+		}
+	})
 }
 
 // TestLoadRequiresClusterIdentity covers "Missing cluster name refuses to start"
@@ -63,20 +130,6 @@ func TestLoadManagedClusterCapabilities(t *testing.T) {
 	want := []string{"provider/aws", "network/vpn", "region/us-east-1"}
 	if got := strings.Join(cfg.ManagedClusterCapabilities, ","); got != strings.Join(want, ",") {
 		t.Fatalf("ManagedClusterCapabilities = %v, want %v", cfg.ManagedClusterCapabilities, want)
-	}
-}
-
-// TestLoadIgnoresClusterIDEnv: the cluster id is resolved by registration only;
-// a stale HYPERSHELL_CLUSTER_ID in the environment is never consulted.
-func TestLoadIgnoresClusterIDEnv(t *testing.T) {
-	setRequiredEnv(t)
-	t.Setenv("HYPERSHELL_CLUSTER_ID", "2stalecluster")
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load(): %v", err)
-	}
-	if cfg.ManagedClusterName != "local-kind" || cfg.OIDCClientID != "hypershell-control-plane" {
-		t.Fatalf("unexpected identity config: %+v", cfg)
 	}
 }
 
@@ -196,4 +249,116 @@ func TestLoadGatewayResources(t *testing.T) {
 			t.Fatalf("Load() error = %v, want GATEWAY_RESOURCES error", err)
 		}
 	})
+}
+
+// TestLoadOperatorWorkspaceSettings covers the administrator-owned operator
+// settings (OSG-OPWS-02/03): both default to empty and are read from their env
+// vars. They are control-plane configuration, never caller input.
+func TestLoadOperatorWorkspaceSettings(t *testing.T) {
+	t.Run("default empty", func(t *testing.T) {
+		setRequiredEnv(t)
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() error: %v", err)
+		}
+		if cfg.OperatorNamespaceLabelKey != "" {
+			t.Errorf("OperatorNamespaceLabelKey = %q, want empty", cfg.OperatorNamespaceLabelKey)
+		}
+		if cfg.OperatorSandboxRuntimeClass != "" {
+			t.Errorf("OperatorSandboxRuntimeClass = %q, want empty", cfg.OperatorSandboxRuntimeClass)
+		}
+	})
+
+	t.Run("set from env", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY", "oce.example.com/tenant")
+		t.Setenv("GATEWAY_OPERATOR_SANDBOX_RUNTIME_CLASS", "kata")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() error: %v", err)
+		}
+		if cfg.OperatorNamespaceLabelKey != "oce.example.com/tenant" {
+			t.Errorf("OperatorNamespaceLabelKey = %q, want %q", cfg.OperatorNamespaceLabelKey, "oce.example.com/tenant")
+		}
+		if cfg.OperatorSandboxRuntimeClass != "kata" {
+			t.Errorf("OperatorSandboxRuntimeClass = %q, want %q", cfg.OperatorSandboxRuntimeClass, "kata")
+		}
+	})
+}
+
+// TestLoadCITokenExchangeMode covers PLAT-CITR-08: the token-exchange authorization
+// mode is config-driven. It defaults to fgap-v1 (the live fleet mode), accepts the
+// two valid modes, and rejects an unknown value rather than silently falling back.
+func TestLoadCITokenExchangeMode(t *testing.T) {
+	t.Run("defaults to fgap-v1", func(t *testing.T) {
+		setRequiredEnv(t)
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() error: %v", err)
+		}
+		if cfg.CITokenExchangeMode != CITokenExchangeModeFGAPv1 {
+			t.Errorf("CITokenExchangeMode = %q, want the default %q", cfg.CITokenExchangeMode, CITokenExchangeModeFGAPv1)
+		}
+	})
+
+	for _, mode := range []string{CITokenExchangeModeFGAPv1, CITokenExchangeModeV2Attribute} {
+		t.Run("accepts "+mode, func(t *testing.T) {
+			setRequiredEnv(t)
+			t.Setenv("HYPERSHELL_CI_TOKEN_EXCHANGE_MODE", mode)
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() error: %v", err)
+			}
+			if cfg.CITokenExchangeMode != mode {
+				t.Errorf("CITokenExchangeMode = %q, want %q", cfg.CITokenExchangeMode, mode)
+			}
+		})
+	}
+
+	t.Run("rejects unknown", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("HYPERSHELL_CI_TOKEN_EXCHANGE_MODE", "v3-magic")
+		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "HYPERSHELL_CI_TOKEN_EXCHANGE_MODE") {
+			t.Fatalf("Load() error = %v, want HYPERSHELL_CI_TOKEN_EXCHANGE_MODE error", err)
+		}
+	})
+}
+
+// Verifies: OSG-OPWS-08.02, OSG-OPWS-08.04
+func TestLoadOperatorWorkspaceTrust(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		raw       string
+		label     string
+		wantError bool
+	}{
+		{name: "invalid JSON", raw: `{`, wantError: true},
+		{name: "invalid label", raw: `{"namespaceLabelKey":"*","allowedPodLabels":["openclaw.dev/*"]}`, wantError: true},
+		{name: "JSON supplies label"},
+		{name: "matching labels", label: "hypershell.io/gateway"},
+		{name: "conflicting labels", label: "other.example/gateway", wantError: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			setRequiredEnv(t)
+			raw := tc.raw
+			if raw == "" {
+				raw = `{"namespaceLabelKey":"hypershell.io/gateway","allowedPodLabels":["openclaw.dev/*"]}`
+			}
+			t.Setenv("GATEWAY_OPERATOR_WORKSPACE", raw)
+			t.Setenv("GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY", tc.label)
+			cfg, err := Load()
+			if tc.wantError {
+				if err == nil || !strings.Contains(err.Error(), "GATEWAY_OPERATOR_WORKSPACE") {
+					t.Fatalf("Load() error = %v, want operator workspace configuration error", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.OperatorWorkspace == nil || cfg.OperatorNamespaceLabelKey != cfg.OperatorWorkspace.NamespaceLabelKey {
+				t.Fatal("namespace discovery and deletion must use the validated workspace label")
+			}
+		})
+	}
 }

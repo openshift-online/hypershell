@@ -3,7 +3,7 @@ package gateway
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"strings"
 
@@ -18,6 +18,7 @@ func deployGatewayViaHelm(
 	opts ReconcileOpts,
 	hasTrustedCA bool,
 	hasVaultCA bool,
+	additionalCA string,
 ) error {
 	// Build Helm values from gateway configuration
 	valuesBuilder := &helm.ValuesBuilder{
@@ -35,31 +36,25 @@ func deployGatewayViaHelm(
 				ScopesClaim: nsConfig.Gateway.OIDC.ScopesClaim,
 			},
 			Route: helm.RouteConfig{
-				Host:    nsConfig.Gateway.Route.Host,
-				Enabled: nsConfig.Gateway.Route.Enabled,
+				Host: nsConfig.Gateway.Route.Host,
 			},
 			CredentialDriver: convertCredentialDriver(nsConfig.Gateway.CredentialDriver, nsConfig.Name),
 			WorkspaceMode:    nsConfig.Gateway.WorkspaceMode,
 		},
-		Namespace:      nsConfig.Name,
-		HasCertManager: opts.HasCertManager,
-		IsOpenShift:    opts.IsOpenShift,
-		// Exposure follows the resolved ingress mode (the single source of truth
-		// shared with the reconciler and health checker), NOT raw Gateway API
-		// capability -- otherwise ROKS, which has the Gateway API CRDs but no
-		// controller, would emit a dead GRPCRoute while the operator asked for a
-		// Route. Route is opt-in (GATEWAY_INGRESS_MODE=route); every other mode
-		// defaults to the Gateway API path.
-		UseOpenShiftRoute:          gatewayIngressMode(opts) == IngressModeRoute,
-		GatewayAPIGatewayName:      getGatewayAPIGatewayName(),
-		GatewayAPIGatewayNamespace: getGatewayAPIGatewayNamespace(),
-		IngressBaseDomain:          opts.IngressBaseDomain,
-		ExternalCAIssuerName:       opts.ExternalCAIssuerName,
-		ExternalCAIssuerKind:       opts.ExternalCAIssuerKind,
-		HasTrustedCA:               hasTrustedCA,
-		HasVaultCA:                 hasVaultCA,
-		Resources:                  opts.GatewayResources,
-		SandboxRuntimeClass:        opts.SandboxRuntimeClass,
+		Namespace:                   nsConfig.Name,
+		HasCertManager:              opts.HasCertManager,
+		IsOpenShift:                 opts.IsOpenShift,
+		GatewayAPIGatewayName:       getGatewayAPIGatewayName(),
+		GatewayAPIGatewayNamespace:  getGatewayAPIGatewayNamespace(),
+		IngressBaseDomain:           opts.IngressBaseDomain,
+		HasTrustedCA:                hasTrustedCA,
+		AdditionalCAConfigMapName:   additionalCA,
+		HasVaultCA:                  hasVaultCA,
+		Resources:                   opts.GatewayResources,
+		SandboxRuntimeClass:         opts.SandboxRuntimeClass,
+		OperatorWorkspace:           opts.OperatorWorkspace,
+		OperatorNamespaceLabelKey:   opts.OperatorNamespaceLabelKey,
+		OperatorSandboxRuntimeClass: opts.OperatorSandboxRuntimeClass,
 	}
 
 	values, err := valuesBuilder.Build()
@@ -76,14 +71,14 @@ func deployGatewayViaHelm(
 	// Install or upgrade the release
 	if status == nil {
 		// No release exists, install it
-		log.Printf("INFO installing helm release in namespace %s", nsConfig.Name)
+		slog.InfoContext(ctx, "Installing helm release", "namespace", nsConfig.Name)
 		if err := helmClient.Install(ctx, nsConfig.Name, values); err != nil {
 			return fmt.Errorf("helm install: %w", err)
 		}
 	} else if status.Status == "failed" {
 		// A previous install/upgrade ran to completion but with an error. Helm
 		// allows retrying this via a normal upgrade.
-		log.Printf("INFO retrying failed helm release in namespace %s (status: %s)", nsConfig.Name, status.Status)
+		slog.InfoContext(ctx, "Retrying failed helm release", "namespace", nsConfig.Name, "status", status.Status)
 		if err := helmClient.Upgrade(ctx, nsConfig.Name, values); err != nil {
 			return fmt.Errorf("helm upgrade: %w", err)
 		}
@@ -96,7 +91,7 @@ func deployGatewayViaHelm(
 		// retry forever. The only clean recovery is to discard the stuck release
 		// and reinstall; nothing the chart renders can have been left in a
 		// working state while the release was still pending.
-		log.Printf("INFO helm release in namespace %s is stuck (status: %s); reinstalling", nsConfig.Name, status.Status)
+		slog.InfoContext(ctx, "Helm release is stuck; reinstalling", "namespace", nsConfig.Name, "status", status.Status)
 		if err := helmClient.Uninstall(ctx, nsConfig.Name); err != nil {
 			return fmt.Errorf("uninstall stuck helm release: %w", err)
 		}
@@ -104,30 +99,28 @@ func deployGatewayViaHelm(
 			return fmt.Errorf("reinstall helm release: %w", err)
 		}
 	} else if status.Status == "deployed" {
-		log.Printf("INFO upgrading deployed helm release in namespace %s", nsConfig.Name)
+		slog.InfoContext(ctx, "Upgrading deployed helm release", "namespace", nsConfig.Name)
 		if err := helmClient.Upgrade(ctx, nsConfig.Name, values); err != nil {
 			return fmt.Errorf("helm upgrade: %w", err)
 		}
 	} else {
-		log.Printf("INFO upgrading helm release in namespace %s (current status: %s)", nsConfig.Name, status.Status)
+		slog.InfoContext(ctx, "Upgrading helm release", "namespace", nsConfig.Name, "status", status.Status)
 		if err := helmClient.Upgrade(ctx, nsConfig.Name, values); err != nil {
 			return fmt.Errorf("helm upgrade: %w", err)
 		}
 	}
 
-	log.Printf("INFO helm release deployed in namespace %s", nsConfig.Name)
+	slog.InfoContext(ctx, "Helm release deployed", "namespace", nsConfig.Name)
 	return nil
 }
 
 // effectiveCredentialDriver resolves an unspecified credential_driver to the flat
-// default, vault (HYPERSHELL-369). An explicit driver (non-empty Type) is returned
+// default, vault. An explicit driver (non-empty Type) is returned
 // unchanged, so a user who asks for a specific backend (kek-db / kubernetes-secrets)
 // always gets it. Both a nil driver and an empty-type object (`credential_driver:
 // {}`) count as unspecified and resolve to vault, preserving any supplied overrides.
-//
-// Prerequisite (see openshell-gateway-credentials.spec.md): every gateway-hosting
-// cluster must run its per-cluster Vault before this default takes effect; a cluster
-// without its Vault should pin new gateways to kek-db explicitly.
+// A cluster without a per-cluster Vault pins new gateways to kek-db explicitly
+// (see openshell-gateway-credentials.spec.md).
 func effectiveCredentialDriver(driver *CredentialDriverConfig) *CredentialDriverConfig {
 	if driver != nil && driver.Type != "" {
 		return driver

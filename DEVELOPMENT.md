@@ -352,6 +352,41 @@ This builds api-server, control-plane, and web-console images locally and loads
 them into Kind. The Dockerfiles drop the local `rh-trex-ai` replace directive at
 build time, so no external dependency checkout is needed.
 
+### Controller image OpenShell release label
+
+Every built controller (control-plane) image carries one label,
+`app.hypershell.openshell.version`, naming the single OpenShell gateway and
+supervisor release that build supports (for example `v0.1.8-rhaiv.0`). The value
+always holds exactly one release identifier - never a list, range, or wildcard.
+It is distinct from `org.opencontainers.image.version`, which is the controller's
+own version.
+
+The value is sourced from `OPENSHELL_TAG` in `OPENSHELL_VERSION` (the same source
+the deployment manifests use). `make build-controller` reads it straight from the
+file, and `make sync-openshell-version` stamps it into the Konflux pipeline build
+args, so `OPENSHELL_VERSION` stays the single source of truth.
+`make check-openshell-version` fails if the label value drifts or is missing.
+
+Read the value from a built image configuration (not the Dockerfile) with any
+container tool, for example:
+
+```bash
+# Locally built image
+podman inspect --format '{{ index .Config.Labels "app.hypershell.openshell.version" }}' \
+  localhost/hypershell-controller:dev
+
+# Published multi-arch image
+skopeo inspect --config docker://<controller-image-ref> \
+  | jq -r '.config.Labels["app.hypershell.openshell.version"]'
+```
+
+To validate a published image's label across every architecture variant against
+`OPENSHELL_TAG`, run:
+
+```bash
+make check-controller-image-label IMAGE=<controller-image-ref>
+```
+
 ### Kind environment variables
 
 | Variable | Default | Description |
@@ -554,14 +589,13 @@ KUBECONFIG context. The canonical pull-request OpenShift e2e path runs it with
 pull-request environment workflow (see
 [Ephemeral OpenShift PR environments](#ephemeral-openshift-pr-environments)). The
 legacy `components/pr-test/e2e-openshell.sh` script and the Bash functional suite
-it superseded have been removed (HYPERSHELL-250); the IBM ROKS variant
-(`e2e-openshell-roks.sh`) is unaffected. The Bash `tests/e2e/drivers/*.sh` remain
+it superseded have been removed (HYPERSHELL-250). The Bash `tests/e2e/drivers/*.sh` remain
 only for the retained browser (`e2e-console.sh`) and smoke (`smoke.sh`) suites.
 
 ### OpenShift (automatic)
 
 On OpenShift, the control plane automatically creates networking resources when
-a gateway has `Route.Enabled` set:
+a gateway is provisioned (every gateway is routed):
 
 1. A per-namespace **Gateway** with `openshift-default` gateway class
 2. A **GRPCRoute** routing to `openshell-gateway:8080`
@@ -591,7 +625,8 @@ so per-tenant gateways work without port-forward workarounds.
 gateway database server needs no API resource: the control plane reads the
 `hypershell-gateway-database-admin` Secret that `kind-up` creates. Create a
 Gateway via the API; `cluster_id` is not a request field, create takes a
-required placement intent and `local-kind` selects the seeded ManagedCluster:
+required placement intent and the `provider/kind` capability selector selects
+the seeded ManagedCluster:
 
 ```bash
 # Create a gateway with OIDC
@@ -599,7 +634,7 @@ curl -s -X POST http://localhost:8000/api/hypershell/v1/gateways \
   -H "Content-Type: application/json" \
   -d "{
     \"name\": \"dev-gateway\",
-    \"placement\": {\"mode\": \"local-kind\"},
+    \"placement\": {\"selector\": [\"provider/kind\"]},
     \"oidc\": \"{\\\"issuer\\\":\\\"https://keycloak.hypershell.localhost/realms/hypershell\\\",\\\"audience\\\":\\\"hypershell-frontend\\\",\\\"roles_claim\\\":\\\"groups\\\",\\\"admin_role\\\":\\\"hypershell-admins\\\",\\\"user_role\\\":\\\"hypershell-users\\\"}\"
   }"
 ```

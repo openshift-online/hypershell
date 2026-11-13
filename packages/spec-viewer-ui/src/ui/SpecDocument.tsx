@@ -1,5 +1,4 @@
 import {
-  Content,
   EmptyState,
   EmptyStateBody,
   Title,
@@ -12,10 +11,8 @@ import { useIntl } from "react-intl";
 import type { SpecCatalog, SpecFile, SpecNode } from "../domain/spec-document";
 import { resolveSpecLink, resolveSpecReference } from "../domain/spec-links";
 import { messages } from "../messages";
-import { highlightHtml } from "./highlight-html";
-import { ID_LABEL_ATTRIBUTE, labelIds } from "./id-labels-html";
-import { rewriteLinks } from "./link-html";
-import { usePorts } from "./ports-context";
+import { MarkdownView } from "./MarkdownView";
+import { ID_LABEL_ATTRIBUTE } from "./rehype-spec-viewer";
 
 export const FLASH_CLASS = "sv-flash";
 
@@ -54,7 +51,6 @@ export function SpecDocument({
   onFindReferences,
 }: SpecDocumentProps) {
   const intl = useIntl();
-  const { markdown } = usePorts();
   const scroller = useRef<HTMLDivElement>(null);
   // The ID label under the pointer or focus; one tooltip serves them all.
   const [hoveredLabel, setHoveredLabel] = useState<HTMLElement | null>(null);
@@ -66,34 +62,26 @@ export function SpecDocument({
     }
     return byId;
   }, [catalog]);
-  const html = useMemo(() => {
-    if (!file) return "";
-    const linked = rewriteLinks(
-      markdown.render(file.content, headingElementId),
-      {
-        href: (href) => resolveSpecLink(catalog, file.path, href),
-        code: (text) => resolveSpecReference(catalog, file.path, text),
-        unresolvedTitle: (path) =>
-          intl.formatMessage(messages.unresolvedLink, { path }),
-      },
-    );
-    return labelIds(linked, (id) => nodesBySpecId.get(id));
-  }, [catalog, file, markdown, intl, nodesBySpecId]);
-  const highlightedHtml = useMemo(
-    () => highlightHtml(html, highlightTerms),
-    [html, highlightTerms],
-  );
-
   // The same element across renders, so showing the ID tooltip never makes
-  // React rewrite the document HTML under the pointer.
+  // React rewrite the document under the pointer.
   const markdownContent = useMemo(
-    () => (
-      <Content
-        className="sv-markdown"
-        dangerouslySetInnerHTML={{ __html: highlightedHtml }}
-      />
-    ),
-    [highlightedHtml],
+    () =>
+      file ? (
+        <MarkdownView
+          options={{
+            headingId: headingElementId,
+            highlightTerms,
+            resolveId: (id) => nodesBySpecId.get(id),
+            resolveLink: (href) => resolveSpecLink(catalog, file.path, href),
+            resolveCode: (text) =>
+              resolveSpecReference(catalog, file.path, text),
+            unresolvedTitle: (path) =>
+              intl.formatMessage(messages.unresolvedLink, { path }),
+          }}
+          source={file.content}
+        />
+      ) : null,
+    [catalog, file, highlightTerms, intl, nodesBySpecId],
   );
 
   useEffect(() => {
@@ -120,7 +108,7 @@ export function SpecDocument({
     return () => {
       heading.removeEventListener("animationend", clear);
     };
-  }, [html, node, revision]);
+  }, [file, node, revision]);
 
   if (!file) {
     return (

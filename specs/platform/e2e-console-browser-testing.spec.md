@@ -45,14 +45,22 @@ The suite must:
 
 1. Log in through Keycloak and verify the BFF session identity.
 2. In long mode, submit the empty provisioning form and observe its validation.
-3. Provision a uniquely named gateway and select `local-kind` when offered.
+3. Provision a uniquely named gateway and select the Kind option under Local development when offered.
 4. Wait for the API-reported `Running` phase and verify the rendered status.
 5. Wait for the published console address and verify the accessible console link.
 6. Log into the per-gateway console and verify its workspaces view is usable.
 7. Verify the local placement choice and external CLI documentation link.
-8. Delete the gateway through the visible actions menu.
-9. Best-effort delete through the authenticated BFF if a prior assertion fails,
-   unless `E2E_SKIP_CLEANUP=1`.
+8. As the gateway owner, open the **User access** tab, use **Add users** to
+   find the second realm user (`E2E_DEV_USERNAME`, default `developer`), grant
+   the `user` role, and verify the user appears in the access list with that
+   role (GTW-ACC-03, GTW-ACC-04.01, GTW-ACC-04.02, GTW-ACC-09.01).
+9. In long mode, change that user's role to admin and then remove the user,
+   verifying the list after each step (GTW-ACC-05.01, GTW-ACC-06.01).
+10. In long mode, search the **Add users** picker for an unknown name and verify
+    it shows no matching users and cannot submit (GTW-ACC-04.06).
+11. Delete the gateway through the visible actions menu.
+12. Best-effort delete through the authenticated BFF if a prior assertion fails,
+    unless `E2E_SKIP_CLEANUP=1`.
 
 The existing distributed tracing test remains in the same Playwright live suite.
 
@@ -62,6 +70,9 @@ The existing distributed tracing test remains in the same Playwright live suite.
 - `E2E_MODE=long` is the default and includes extended checks.
 - `E2E_CONSOLE_URL` overrides route discovery.
 - `E2E_OIDC_USERNAME` and `E2E_OIDC_PASSWORD` select the login identity.
+- `E2E_DEV_USERNAME` is the second realm user granted access (default `developer`).
+- `E2E_DIRECTORY_TIMEOUT` is the seconds to wait for that user to appear in the
+  directory search (default 420, longer than the 5 minute refresh interval).
 - `E2E_GATEWAY_NAME` overrides the generated gateway name.
 - `E2E_PROVISION_TIMEOUT` and `E2E_CONSOLE_READY_TIMEOUT` are seconds.
 - `E2E_GATEWAY_VERSION_TIMEOUT` is the seconds allowed for the reconciled

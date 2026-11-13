@@ -11,9 +11,12 @@ import subprocess
 import sys
 import time
 
-from funnel_dispatch import Coordinator, Store, parse_args, prepare_inference
+from funnel_dispatch import Coordinator, GitHub, Store, parse_args, prepare_inference
 from gateway_setup import GatewayManager, GatewaySetupError
 from jira_auth import selected_auth, snapshot
+from reconcile_probe import ReconcileProbe, JiraReader
+from intake_probe import IntakeProbe
+import runtime_settings
 
 
 class RecoveryDiagnostics:
@@ -38,12 +41,47 @@ class RecoveryDiagnostics:
 def main():
     action = sys.argv[1]
     sys.argv[0] = 'funnel-dispatch.sh'
+    if action == 'sync-baseline':
+        request = json.load(sys.stdin)
+        store = Store(request['db'])
+        try:
+            row = store.get(request['key'])
+            if not row or row['run_id'] != request['run_id'] or row['status'] != 'running':
+                raise ValueError('Reconciliation run ownership changed before baseline capture')
+            job = json.loads(row['payload'])
+            probe = ReconcileProbe(store.db, JiraReader(job['jira_auth'], job['scope'], Path(request['db']).parent))
+            body = GitHub(job['repo'], job['scope'], '').current(job['item']).get('body')
+            probe.generation(job['key'], body, row, 0, baseline=True)
+            print('{}')
+        finally:
+            store.db.close()
+        return
     if action == 'snapshot':
         request = json.load(sys.stdin)
         lock = Path(os.environ.get('XDG_STATE_HOME', str(Path.home()/'.local/state')))/'hypershell/funnel/acli-auth.lock'
         print(json.dumps(snapshot(request['selection'], request['scope'], lock)))
         return
     args = parse_args(sys.argv[2:])
+    if action == 'settings-save':
+        request = json.load(sys.stdin)
+        value = runtime_settings.save(request['key'], request['value'])
+        print(json.dumps({'value':value, 'settings':runtime_settings.view(args), 'settings_file':str(runtime_settings.config_path())}))
+        return
+    if action == 'approve-merge':
+        from merge_approval import approve
+        if args.dry_run or args.status:
+            raise ValueError('Merge approval is unavailable in dry-run or status mode')
+        request = json.load(sys.stdin)
+        approval_store = Store(args.state_dir/'state.sqlite3')
+        try:
+            active = approval_store.db.execute("SELECT 1 FROM jobs WHERE item=? AND status IN ('running','uncertain')", (str(request.get('item','')),)).fetchone()
+            if active:
+                raise ValueError('A worker still owns this issue; wait for it to finish before approving')
+            approve(GitHub(args.repo, args.scope, args.fullsend_dir), request)
+        finally:
+            approval_store.db.close()
+        print('{}')
+        return
     if args.gateway:
         os.environ['OPENSHELL_GATEWAY'] = args.gateway
         os.environ.pop('OPENSHELL_GATEWAY_ENDPOINT', None)
@@ -55,10 +93,16 @@ def main():
                 os.environ['JIRA_BASE_URL'] = args.jira_selection['site_url']
             manager = GatewayManager(args)
             args.gateway_name = (manager.state or {}).get('name') or manager.name or 'Selected gateway'
+            args.gateway_effective_api = manager.api_url
         env_keys = ('GOOGLE_APPLICATION_CREDENTIALS', 'CLOUD_ML_REGION', 'JIRA_BASE_URL',
                     'OPENSHELL_GATEWAY', 'OPENSHELL_GATEWAY_ENDPOINT')
         result = vars(args)
-        result['environment'] = {key: os.environ.get(key) for key in env_keys}
+        result['environment'] = {'FULLSEND_AUTO_MERGE':args.auto_merge, **{key: os.environ.get(key) for key in env_keys}}
+        for key in runtime_settings.ENV_KEYS: result['environment'][key]=os.environ.get(key)
+        for key in runtime_settings.ENV_KEYS: args.settings_inputs[key]=os.environ.get(key,'')
+        result['settings_file'] = str(runtime_settings.config_path())
+        result['settings'] = runtime_settings.view(args)
+        result['runtime_settings'] = json.dumps(args.settings_inputs)
         print(json.dumps(result, default=str))
         return
     if action == 'gateway':
@@ -87,12 +131,19 @@ def main():
         return
     store = Store(args.state_dir/'state.sqlite3')
     # Reuse domain rules without the Python coordinator loop or gateway side effects.
+    args.refresh_code_state = not args.dry_run
     args.dry_run = True
     coordinator = Coordinator(args, store, -1)
+    if args.lifecycle == 'jira' and args.refresh_code_state:
+        reader = JiraReader(selected_auth(args.jira_auth), args.scope, args.state_dir)
+        coordinator.reconcile_probe = ReconcileProbe(store.db, reader)
+        coordinator.intake_probe = IntakeProbe(store.db, args.scope, reader.intake_items)
     try:
         if action == 'discover':
             coordinator.discover()
-            print(json.dumps({'jobs': coordinator.candidates, 'errors': coordinator.errors}))
+            print(json.dumps({'jobs': coordinator.candidates, 'errors': coordinator.errors,
+                              'waiting_for_triage': coordinator.waiting_for_triage,
+                              'awaiting_approval': getattr(coordinator, 'awaiting_approval', [])}))
         elif action == 'authorize':
             print(json.dumps({'allowed': coordinator.authorized(json.load(sys.stdin))}))
         else:

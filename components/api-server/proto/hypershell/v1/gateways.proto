@@ -24,7 +24,6 @@ message ProvisioningCondition {
 message GatewayPlacementIntent {
   oneof placement {
     CapabilitySelectorPlacement capability_selector = 1;
-    LocalKindPlacement local_kind = 2;
   }
 }
 
@@ -32,8 +31,6 @@ message CapabilitySelectorPlacement {
   repeated string selector = 1;
   repeated string excluded_selector = 2;
 }
-
-message LocalKindPlacement {}
 
 message Gateway {
   ObjectReference metadata = 1;
@@ -100,6 +97,12 @@ message CreateGatewayResponse {
 
 message GetGatewayRequest {
   string id = 1;
+  // include_deleted returns the record even when it is soft-deleted
+  // (deleted_at set), using the unscoped query. The control plane uses this to
+  // re-read a deleting gateway for a nil-payload delete event so teardown can be
+  // reconciled from the record instead of being silently skipped
+  // (watch-delete-events.spec.md CTRL-WDEL-04).
+  bool include_deleted = 2;
 }
 
 message GetGatewayResponse {

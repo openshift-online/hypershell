@@ -27,7 +27,6 @@ Scope registration SHALL NOT grant item authorization; writes still require
 `agent/allowed`. `fullsend-help`, `fullsend-status`, and `fullsend-doctor` SHALL
 provide readable command help, saved job state, and setup diagnostics respectively.
 Status SHALL identify its data as persisted state, not live gateway verification.
-A `fullsend-plan` Make target SHALL NOT be exposed.
 
 #### Scenario: SDLC-LOC-01.01 -- Unknown scope
 
@@ -104,6 +103,14 @@ it SHALL NOT duplicate running work or bypass current authorization checks.
 Successful work SHALL be deduplicated by relevant inputs. Implementation identity
 SHALL include the linked PR head and the rejection occurrence so that returning
 to an earlier label set after a new review rejection permits another attempt.
+Review identity SHALL include the latest added event for its reviewable phase
+label. Returning an approved item to review SHALL permit a new run even when
+labels, PR commits and CI return to identical values. Unrelated events, comments,
+polling and restarts SHALL NOT create another review request. Failed event reads
+SHALL block authorization visibly rather than silently reuse stale identity.
+The UI SHALL distinguish a new review request from the historical successful
+process and from manual merge approval; ready work needing a verdict SHALL say
+`Review needed`, with synchronization blockers stated separately.
 
 #### Scenario: SDLC-LOC-05.01 -- Repeated rejection
 
@@ -116,8 +123,28 @@ to an earlier label set after a new review rejection permits another attempt.
 
 Jira mode SHALL run intake for the scope, reconcile authorized execution records
 of either origin (including closed records), and then dispatch eligible phases.
-Phase outcomes, changed inputs, and periodic drift checks SHALL trigger
-reconciliation. Intake SHALL be repeated periodically for newly selected work.
+Phase outcomes and changed inputs SHALL trigger reconciliation. Periodic Jira
+checks SHALL be read-only scripts comparing persisted fingerprints of relevant
+fields and remote links, using existing ACLI or API-token authentication. Passage
+of time alone SHALL NOT launch an agent for an unchanged open or closed record.
+Successful synchronization SHALL refresh the observed baseline. Probe failures
+SHALL be visible, retry with bounded delay, and SHALL NOT count as an unchanged
+observation or start a model to diagnose authentication/network failure. Persisted
+observations SHALL contain hashes and scheduling metadata, never credentials or
+Jira content. On upgrade, established successful records SHALL reuse their saved
+identity; Jira edits newer than their last successful sync SHALL still trigger
+reconciliation. Intake discovery SHALL run as a mechanical script every 180 seconds by default.
+Its interval SHALL be configurable through Make, the exported environment/local
+env file, and a CLI flag. Explicit invocation options SHALL override the env file,
+which overrides inherited values. Both Jira and GitHub discovery SHALL paginate
+all scoped, authorized records, including closed records. Healthy canonical pairs
+SHALL NOT launch intake models when their ordinary content or lifecycle labels
+change; reconciliation owns those updates. New, unlinked, or ambiguous pairs
+SHALL produce stable work identities based on meaningful inputs. Merely reaching
+the next interval SHALL NOT launch an intake model. Observations SHALL persist
+across restarts. Failed/incomplete discovery SHALL be visible and retried with
+backoff, without overwriting a successful observation or treating an API failure
+as an empty backlog. Failed intake work SHALL retain normal execution backoff.
 Unchanged successful reconciliation SHALL NOT run on every discovery poll.
 `github-only` mode SHALL explicitly omit Jira lifecycle work. Lifecycle agent
 results SHALL contain `status`, `errors`, and `records`; missing output, reported
@@ -132,6 +159,25 @@ again before dispatch and before agent writes.
 - WHEN the result is validated
 - THEN the attempt SHALL be failed and subject to retry backoff
 - AND dependent phase work SHALL remain gated on successful reconciliation
+
+#### Scenario: SDLC-LOC-06.02 -- Mechanical checks of converged records
+
+- GIVEN a successfully reconciled closed execution record and unchanged Jira data
+- WHEN the drift interval elapses or the dispatcher restarts
+- THEN the script SHALL refresh its observation without launching an LLM
+- WHEN relevant Jira content, the GitHub record, or its linked PR changes
+- THEN reconciliation SHALL become eligible subject to ownership and authorization
+- AND an unchanged observation after that successful run SHALL remain deduplicated
+
+#### Scenario: SDLC-LOC-06.03 -- Configurable mechanical intake discovery
+
+- GIVEN healthy canonical pairs and a three-minute default discovery interval
+- WHEN discovery runs repeatedly or the dispatcher restarts
+- THEN no intake agent SHALL launch for unchanged pairs
+- WHEN new, unlinked, or ambiguously linked work appears
+- THEN its stable input identity SHALL make intake eligible
+- AND an API error or incomplete page SHALL remain an error rather than erase work
+- AND configuring a different interval SHALL change the script cadence
 
 ### Requirement: SDLC-LOC-07 -- Gateway recovery
 
@@ -180,6 +226,22 @@ agent names, issue numbers, and titles with middle truncation when necessary.
 Status, duration, and relative completion time SHALL provide temporal context.
 Notifications SHALL use a consistent dismissible card; success notices SHALL
 expire. Interactive sign-in choices SHALL support arrow-key selection.
+A successful review process SHALL NOT imply that approval was applied. Reviews
+awaiting required CI, draft resolution, or known mergeability SHALL remain visible
+in the main lists with explicit waiting text and a non-success semantic color,
+even when completed runs are hidden. Logs and details SHALL share that status;
+details SHALL explain the blocker, linked PR, and the automatic next step.
+Waiting reviews SHALL NOT count as completed runs. History SHALL continue to
+report the completed attempt, independently of current readiness.
+
+A review of an older PR head SHALL be shown as `Awaiting new review`, not as a
+current review waiting to apply approval. New attempts SHALL save the PR head
+used at launch. Discovery SHALL compare that identity to the live head and detect
+implementation work started since the previous review. The old attempt duration
+SHALL NOT appear as current work duration; it SHALL remain available in history.
+Details SHALL distinguish Jira synchronization failures blocking review launch
+from required CI blocking approval, and identify an expired Jira authentication
+snapshot explicitly when that is the recorded synchronization failure.
 
 #### Scenario: SDLC-LOC-09.01 -- Inspect a run
 
@@ -187,6 +249,25 @@ expire. Interactive sign-in choices SHALL support arrow-key selection.
 - WHEN the developer opens logs or history
 - THEN the issue and agent identity SHALL remain visible
 - AND scrolling SHALL retain the frame height and expose the current position
+
+#### Scenario: SDLC-LOC-09.02 -- A new revision has not inherited an old review
+
+- GIVEN implementation has pushed a new PR head since the last completed review
+- AND Jira synchronization is retrying because ACLI authentication expired
+- WHEN the developer inspects the work list or details
+- THEN the review SHALL say `Awaiting new review` with no current duration
+- AND details SHALL identify Jira authentication and pending CI separately
+- AND pending CI SHALL be described as an approval gate, not a review-launch gate
+
+#### Scenario: SDLC-LOC-09.03 -- Newly labeled issues wait normally for intake
+
+- GIVEN an open issue with `agent/allowed` and the registered scope label
+- AND intake has not yet created or linked its canonical execution record
+- WHEN the dashboard shows the issue waiting for intake
+- THEN it SHALL count it neutrally as an issue waiting for triage
+- AND details SHALL explain that intake links Jira automatically without extra labels
+- AND the normal wait SHALL NOT appear in `Needs attention` or discovery errors
+- AND actual authentication, synchronization, or discovery failures SHALL remain visible separately
 
 ### Requirement: SDLC-LOC-10 -- Navigation, filtering, and sorting
 
@@ -203,8 +284,161 @@ Complete log paths SHALL remain available even when the screen truncates them.
 - WHEN the developer invokes reverse sort
 - THEN ordering and the column's directional arrow SHALL reverse together
 
+### Requirement: SDLC-LOC-11 -- Confirmed graceful cancellation
+
+The overview, logs, and details SHALL offer **Cancel run** for a selected running
+job in the current scope. Confirmation SHALL identify the issue and actual agent,
+explain partial changes and cleanup, support arrow/Vim selection, and default to
+**Keep running**. Cancellation SHALL target an immutable attempt identity and
+reject stale confirmations, other scopes, completed runs, and unsupported legacy
+workers without signaling unverified PIDs.
+
+A durable request SHALL survive dispatcher detachment and restart. The detached
+supervisor SHALL send SIGTERM to Fullsend, retain its ownership lock until
+Fullsend exits and the outcome is persisted, and expose **Canceling** during
+cleanup. Cancellation SHALL NOT force-kill Fullsend, terminate unrelated workers,
+or release capacity while cleanup is active. Completed cancellation SHALL be
+recorded distinctly in the overview and attempt history. The issue SHALL remain
+paused until manual retry; retry SHALL still respect ownership and authorization.
+
+Cancellation SHALL NOT fabricate agent results or lifecycle verdicts. Fullsend's
+validation gates remain authoritative for post-script execution, which is not
+guaranteed on interruption. Documentation SHALL explain retained partial writes,
+remote cleanup verification, and the difference between cancellation and detach.
+
+#### Scenario: SDLC-LOC-11.01 -- Cancel while cleanup takes time
+
+- GIVEN a running worker and an explicitly confirmed cancellation
+- WHEN Fullsend handles SIGTERM but has not finished cleanup
+- THEN the run SHALL remain owned and ineligible for retry
+- AND a restarted dashboard SHALL show the persisted cancellation request
+- WHEN Fullsend exits and the outcome is saved
+- THEN the attempt SHALL appear as canceled, with its logs preserved
+- AND automatic discovery SHALL NOT restart work on the canceled issue
+
+### Requirement: SDLC-LOC-12 -- Visible, persistent configuration
+
+The terminal SHALL provide a Configuration tab using the shared frame, visual
+hierarchy, keyboard navigation, and scroll indicators. It SHALL show effective
+dispatcher settings, their application timing, and masked credential presence.
+The absolute home settings file path SHALL be prominent in both browsing and
+editing, with an explicit disclosure that saving writes the file on disk.
+Read-only values SHALL remain inspectable in full and explain how they are managed.
+
+Edits SHALL validate before saving and use atomic, private JSON storage under
+`$XDG_CONFIG_HOME/hypershell/fullsend.json` (default `~/.config/hypershell/fullsend.json`),
+with `FULLSEND_CONFIG_FILE` available as an explicit location override. Concurrent
+writers SHALL preserve unrelated keys. Malformed files, invalid values, symlinks,
+or failed saves SHALL remain visible errors and SHALL NOT discard existing data.
+Shell env files SHALL NOT be rewritten or evaluated as preference files.
+Credentials SHALL NOT be displayed or written into these preferences.
+
+Worker concurrency and discovery/authentication intervals SHALL update the active
+dispatcher. Lowering concurrency SHALL let running workers finish. Model, inference,
+and failure-backoff changes SHALL apply to new workers, preserving existing worker
+inputs and retry deadlines. Sign-in timeout changes SHALL apply to the next sign-in.
+Scope, repository, storage paths, and authentication-mode changes SHALL be saved
+with a persistent restart-required marker while the current session and helpers
+retain their original identities. The UI SHALL distinguish saved and active values.
+
+Explicit launch options SHALL override saved preferences on restart. Saved
+preferences SHALL override worktree env defaults, which override inherited
+settings. The launcher SHALL reuse a saved scope when no explicit Make scope is
+supplied, while retaining registered-scope validation. Manual preference-file edits
+SHALL load on restart; this limitation and launch-override precedence SHALL be clear.
+
+Automatic merge approval SHALL default to enabled and be configurable through
+`FULLSEND_AUTO_MERGE`, CLI `--auto-merge enabled|disabled` / `--no-auto-merge`,
+home preference `auto_merge`, Make `AUTO_MERGE`, and the Configuration tab.
+It SHALL use the existing precedence and private persistence rules. Changes SHALL
+apply to new sandboxes without restarting; the UI SHALL disclose that running
+sandboxes and already queued PRs retain their existing policy/labels.
+
+Eligible approved issues whose unique linked PR lacks the queue approval label
+SHALL appear above ordinary work in an **Awaiting approval** section in both
+Agents and Issues views. These items SHALL remain visible when completed runs
+are hidden, support filtering, and retain normal sorting within that section.
+Approval section headings and rows SHALL use a distinct amber/orange semantic
+accent in both themes. Selected approval rows SHALL retain this treatment and
+show a focus rail; plain output SHALL retain explicit status and selection text.
+`A` or Enter SHALL open a shared-frame confirmation, defaulting to keeping the
+PR waiting, with grouped PR/issue details, a commit identifier, explicit merge-queue
+consequences, and spaced choices with descriptions.
+Confirmation SHALL re-read authorization, issue verdict, unique link, head/base,
+required checks, draft state and mergeability before applying/verifying the PR
+label. Changed commits, active/unresolved workers, dry-run or monitor-only mode
+SHALL prevent the write. This action SHALL NOT rerun an agent or change policy.
+A failed final eligibility check SHALL revoke the just-applied queue label.
+Failures SHALL be visible; subsequent discovery SHALL refresh the section.
+
+#### Scenario: SDLC-LOC-12.01 -- Save a live limit and a restart-only identity
+
+- GIVEN two running workers and the Configuration tab
+- WHEN the operator saves a worker limit of one
+- THEN the file SHALL contain the new value and the live limit SHALL change
+- AND existing workers SHALL continue with their original inputs
+- WHEN the operator saves a different repository
+- THEN the saved value SHALL be shown as requiring restart
+- AND discovery, authorization, and running work SHALL retain the current repository
+
 ## Verification and operational documentation
 
 The dispatcher tests cover persistent ownership, detachment, discovery, retries,
 lifecycle ordering, canonical harness propagation, gateway recovery, and terminal
 interaction. The developer procedure is [Local Fullsend](../../docs/development/fullsend.md).
+
+### Requirement: SDLC-LOC-13 -- Readable, complete, controllable logs
+
+The log pane SHALL have a light grey bounding border and a terminal-sized,
+fixed-height viewport. Raw log text, unwrapped lines, and colors SHALL be the
+default. The developer SHALL be able to toggle Markdown (`m`), wrapping (`w`),
+and color (`a`) independently. Markdown SHALL render through the same terminal
+palette without fetching remote resources or consulting environment-selected
+stylesheets. Markdown SHALL apply only to recognizable Fullsend `💬` agent prose
+blocks, not CLI progress, commands, tool output, warnings or errors. CLI ANSI colors
+SHALL remain intact when Markdown is enabled. Unmarked output SHALL remain
+literal. Source-line filtering SHALL retain agent-message context even when the
+marker line does not match the filter. `NO_COLOR` SHALL prevent ANSI colors even when the color toggle is on.
+
+The complete source file SHALL remain accessible, including content older than
+64 KiB and the ends of long lines. With wrapping off, Left/Right and H/L SHALL
+pan horizontally; 0/$ SHALL reach the left/right edge. A visible column range
+SHALL indicate hidden horizontal content. Wrapping SHALL reflow to the available
+width, including long unbroken tokens and wide Unicode text. Vertical scroll
+indicators SHALL remain present; resizing or reaching an edge SHALL NOT collapse
+the pane. Source colors and semantic success/warning/error colors MAY be shown;
+terminal cursor, erase, title, hyperlink, clipboard, blink and conceal controls
+from source logs SHALL NOT be executed.
+
+`/` SHALL filter source lines by a case-insensitive substring independently of
+work-list/history filters. Filtering SHALL remain live as output grows. Enter
+SHALL retain the filter; Esc SHALL restore an in-progress edit or clear an
+applied filter before navigating back. Filtering text entry SHALL take precedence
+over action shortcuts. A no-match state and source match count SHALL be visible.
+
+New output SHALL be followed while at the bottom. Scrolling up SHALL pause
+following and preserve the inspected position when output is appended. Scrolling
+back to the bottom or pressing f/G SHALL resume following. Following/paused state
+and each rendering mode SHALL be visible in the top pane border. Line/column
+ranges and active-filter match counts SHALL appear in the bottom border, without
+a redundant source-line count row. Filter editing MAY use one temporary input row. Reads SHALL detect truncation or file
+replacement, preserve errors as visible diagnostics, and avoid rereading an
+unchanged file or rerendering unchanged content on every poll. Toggles SHALL NOT
+change the original log file.
+
+#### Scenario: SDLC-LOC-13.01 -- Read earlier output while the worker continues
+
+- GIVEN a growing log larger than 64 KiB with long Unicode lines
+- WHEN the developer scrolls to the top and the worker appends output
+- THEN the same earlier content SHALL remain visible without jumping
+- AND the entire line SHALL remain reachable by horizontal panning
+- WHEN the developer returns to the bottom
+- THEN following SHALL resume automatically
+
+#### Scenario: SDLC-LOC-13.02 -- Filter and render without altering the source
+
+- GIVEN ANSI-colored log output containing Markdown and terminal-control sequences
+- WHEN the developer filters lines and toggles Markdown, wrapping, or color
+- THEN the selected lines SHALL remain readable within the pane
+- AND source terminal controls SHALL NOT affect the surrounding interface
+- AND original file bytes and work-list filters SHALL remain unchanged

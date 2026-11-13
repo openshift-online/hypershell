@@ -34,6 +34,24 @@ type GitHubSDLC struct {
 	// maxPages bounds pagination per listing so one runaway response can never make
 	// an unbounded number of GitHub calls (SDLC-VIS-04).
 	maxPages int
+
+	// etags makes the issue-list pages conditional requests, so an unchanged
+	// listing answers 304 and does not count against the rate limit.
+	etags *githubETagCache
+
+	// histories caches each issue's reconstructed label history keyed by the
+	// issue's updated_at. Any label change bumps updated_at, so an issue whose
+	// updated_at is unchanged reuses its history and makes no timeline call. Without
+	// this, every refresh would cost one timeline call per agent/allowed issue,
+	// open or closed, and the cost would grow with every closed issue.
+	mu        sync.Mutex
+	histories map[int]historyEntry
+}
+
+// historyEntry is one cached label history and the issue updated_at it was read at.
+type historyEntry struct {
+	updatedAt string
+	events    []SdlcLabelEvent
 }
 
 // NewGitHubSDLC builds the GitHub-label adapter, or returns nil when no source
@@ -52,18 +70,23 @@ func NewGitHubSDLC(c *config.Config) *GitHubSDLC {
 		client:    &http.Client{Timeout: 20 * time.Second},
 		logger:    slog.Default(),
 		maxPages:  50,
+		etags:     newGitHubETagCache(64),
+		histories: map[int]historyEntry{},
 	}
 }
 
 // ghIssue is the subset of a GitHub issue we read. The issues endpoint also returns
 // pull requests; a non-nil PullRequest marks those so we can skip them.
 type ghIssue struct {
-	Number   int     `json:"number"`
-	Title    string  `json:"title"`
-	HTMLURL  string  `json:"html_url"`
-	State    string  `json:"state"`
-	ClosedAt *string `json:"closed_at"`
-	ClosedBy *struct {
+	Number  int    `json:"number"`
+	Title   string `json:"title"`
+	HTMLURL string `json:"html_url"`
+	State   string `json:"state"`
+	// UpdatedAt changes on any issue edit, including every label change, so it is
+	// the cache key for the label history.
+	UpdatedAt string  `json:"updated_at"`
+	ClosedAt  *string `json:"closed_at"`
+	ClosedBy  *struct {
 		Login string `json:"login"`
 	} `json:"closed_by"`
 	PullRequest *struct {
@@ -104,12 +127,23 @@ func (g *GitHubSDLC) Records(ctx context.Context) ([]SdlcRecord, error) {
 		return nil, fmt.Errorf("github sdlc: list allowed work items from %q failed", g.repo)
 	}
 	out := make([]SdlcRecord, 0, len(issues))
+	seen := make(map[int]bool, len(issues))
 	for _, iss := range issues {
 		if iss.PullRequest != nil {
 			continue // the issues endpoint also returns PRs; work items are issues
 		}
+		seen[iss.Number] = true
 		out = append(out, g.record(ctx, iss))
 	}
+	// Drop cached histories for issues that left the in-scope set, so the cache
+	// stays bounded by the current listing.
+	g.mu.Lock()
+	for n := range g.histories {
+		if !seen[n] {
+			delete(g.histories, n)
+		}
+	}
+	g.mu.Unlock()
 	return out, nil
 }
 
@@ -121,7 +155,7 @@ func (g *GitHubSDLC) record(ctx context.Context, iss ghIssue) SdlcRecord {
 		labels[l.Name] = true
 	}
 	closed := iss.State == "closed"
-	history := g.history(ctx, iss.Number)
+	history := g.cachedHistory(ctx, iss)
 
 	rec := SdlcRecord{
 		Number:  iss.Number,
@@ -175,7 +209,7 @@ func (g *GitHubSDLC) listIssues(ctx context.Context) ([]ghIssue, bool) {
 		u := fmt.Sprintf("%s/repos/%s/issues?labels=%s&state=all&per_page=100&page=%d",
 			g.base, g.repo, labelAllowed, page)
 		var batch []ghIssue
-		if !getGitHubJSON(ctx, g.client, g.tokenFile, g.logger, u, &batch) {
+		if !getGitHubJSONConditional(ctx, g.client, g.tokenFile, g.logger, g.etags, u, &batch) {
 			if page == 1 {
 				return nil, false
 			}
@@ -189,16 +223,37 @@ func (g *GitHubSDLC) listIssues(ctx context.Context) ([]ghIssue, bool) {
 	return all, true
 }
 
+// cachedHistory returns the issue's label history, reusing the cached copy when
+// the issue's updated_at is unchanged since it was read. Only a complete read is
+// cached, so a failed or partial read is retried on the next refresh.
+func (g *GitHubSDLC) cachedHistory(ctx context.Context, iss ghIssue) []SdlcLabelEvent {
+	if iss.UpdatedAt != "" {
+		g.mu.Lock()
+		e, ok := g.histories[iss.Number]
+		g.mu.Unlock()
+		if ok && e.updatedAt == iss.UpdatedAt {
+			return e.events
+		}
+	}
+	events, complete := g.history(ctx, iss.Number)
+	if complete && iss.UpdatedAt != "" {
+		g.mu.Lock()
+		g.histories[iss.Number] = historyEntry{updatedAt: iss.UpdatedAt, events: events}
+		g.mu.Unlock()
+	}
+	return events
+}
+
 // history reconstructs an issue's label-event history from the timeline, following
-// pages. Best-effort: a failure yields whatever was collected (possibly empty).
-func (g *GitHubSDLC) history(ctx context.Context, number int) []SdlcLabelEvent {
-	var events []SdlcLabelEvent
+// pages. Best-effort: a failure yields whatever was collected (possibly empty) and
+// complete=false.
+func (g *GitHubSDLC) history(ctx context.Context, number int) (events []SdlcLabelEvent, complete bool) {
 	for page := 1; page <= g.maxPages; page++ {
 		u := fmt.Sprintf("%s/repos/%s/issues/%d/timeline?per_page=100&page=%d",
 			g.base, g.repo, number, page)
 		var batch []ghTimelineEvent
 		if !getGitHubJSON(ctx, g.client, g.tokenFile, g.logger, u, &batch) {
-			break
+			return events, false
 		}
 		for _, e := range batch {
 			if e.Event != "labeled" && e.Event != "unlabeled" {
@@ -210,10 +265,10 @@ func (g *GitHubSDLC) history(ctx context.Context, number int) []SdlcLabelEvent {
 			events = append(events, SdlcLabelEvent{Label: e.Label.Name, Action: e.Event, At: e.CreatedAt})
 		}
 		if len(batch) < 100 {
-			break
+			return events, true
 		}
 	}
-	return events
+	return events, false // hit maxPages; do not cache a truncated history
 }
 
 // derivePhase maps the current label set to a funnel phase. A closed, non-duplicate
@@ -358,7 +413,9 @@ const workItemPRMaxPages = 10
 //     token is present but the GraphQL call yields nothing).
 //
 // Results are cached per work item only when non-empty, so an as-yet-unlinked record
-// is retried on the next refresh rather than pinned to Unreleased forever.
+// is retried on the next refresh rather than pinned to Unreleased forever. That retry
+// sends the timeline pages as conditional requests (ETag), so an unchanged timeline
+// answers 304 and does not count against the REST rate limit.
 type GitHubWorkItemPRs struct {
 	base       string // REST base, e.g. https://api.github.com
 	graphqlURL string // GraphQL endpoint, used only when tokenFile is set
@@ -366,6 +423,8 @@ type GitHubWorkItemPRs struct {
 	tokenFile  string
 	client     *http.Client
 	logger     *slog.Logger
+
+	etags *githubETagCache // conditional timeline requests for the retry path
 
 	mu    sync.Mutex
 	cache map[int][]int // work-item number -> associated PR numbers (cached when non-empty)
@@ -385,6 +444,7 @@ func NewGitHubWorkItemPRs(c *config.Config) *GitHubWorkItemPRs {
 		tokenFile:  c.UpstreamTokenFile,
 		client:     &http.Client{Timeout: 15 * time.Second},
 		logger:     slog.Default(),
+		etags:      newGitHubETagCache(1024),
 		cache:      map[int][]int{},
 	}
 }
@@ -459,7 +519,7 @@ func (g *GitHubWorkItemPRs) timelineLinkedPRs(ctx context.Context, number int) [
 	for page := 1; page <= workItemPRMaxPages; page++ {
 		u := fmt.Sprintf("%s/repos/%s/issues/%d/timeline?per_page=100&page=%d", g.base, g.repo, number, page)
 		var batch []ghTimelineEvent
-		if !getGitHubJSON(ctx, g.client, g.tokenFile, g.logger, u, &batch) {
+		if !getGitHubJSONConditional(ctx, g.client, g.tokenFile, g.logger, g.etags, u, &batch) {
 			break
 		}
 		for _, e := range batch {

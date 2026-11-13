@@ -2,6 +2,7 @@ package helm
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,12 +13,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-// TestBuild_IngressExposure locks in that the gateway exposure resource follows
-// the resolved ingress mode (UseOpenShiftRoute), not raw Gateway API capability.
-// The regression it guards: on IBM ROKS the Gateway API CRDs are present but no
-// controller runs, so keying the decision off capability emitted a dead
-// GRPCRoute and never enabled the chart's openshiftRoute -- the gateway got no
-// Route and hung on "Verifying gateway health".
+// TestBuild_IngressExposure checks the Helm values set when the gateway is
+// exposed through the Kubernetes Gateway API. The reconciler owns the GRPCRoute
+// and BackendTLSPolicy, so the chart's own templates stay disabled. The Gateway
+// proxy cannot present client certificates, so server mTLS is turned off.
 func TestBuild_IngressExposure(t *testing.T) {
 	nested := func(m map[string]interface{}, path ...string) interface{} {
 		var cur interface{} = m
@@ -32,32 +31,12 @@ func TestBuild_IngressExposure(t *testing.T) {
 	}
 
 	tests := []struct {
-		name              string
-		useOpenShiftRoute bool
-		externalCAIssuer  string
-		wantRouteEnabled  bool
-		wantIssuerSet     bool
-		wantMtlsDisabled  bool
+		name             string
+		wantMtlsDisabled bool
 	}{
 		{
-			name:              "default (Gateway API) does not enable openshiftRoute",
-			useOpenShiftRoute: false,
-			wantRouteEnabled:  false,
-			wantMtlsDisabled:  true,
-		},
-		{
-			name:              "route mode without issuer enables self-signed passthrough Route",
-			useOpenShiftRoute: true,
-			externalCAIssuer:  "",
-			wantRouteEnabled:  true,
-			wantIssuerSet:     false,
-		},
-		{
-			name:              "route mode with issuer wires cert-manager",
-			useOpenShiftRoute: true,
-			externalCAIssuer:  "gateway-ca",
-			wantRouteEnabled:  true,
-			wantIssuerSet:     true,
+			name:             "ingress disables server mTLS",
+			wantMtlsDisabled: true,
 		},
 	}
 
@@ -67,15 +46,11 @@ func TestBuild_IngressExposure(t *testing.T) {
 				Gateway: GatewayConfig{
 					WorkspaceMode: "shared",
 					Image:         "quay.io/test/gateway:latest",
-					Route:         RouteConfig{Host: "gw-test.apps.example.com", Enabled: true},
+					Route:         RouteConfig{Host: "gw-test.apps.example.com"},
 				},
-				Namespace:            "test-ns",
-				IsOpenShift:          true,
-				HasCertManager:       true,
-				IngressBaseDomain:    "apps.example.com",
-				UseOpenShiftRoute:    tc.useOpenShiftRoute,
-				ExternalCAIssuerName: tc.externalCAIssuer,
-				ExternalCAIssuerKind: "ClusterIssuer",
+				Namespace:         "test-ns",
+				HasCertManager:    true,
+				IngressBaseDomain: "apps.example.com",
 			}
 
 			values, err := builder.Build()
@@ -83,21 +58,14 @@ func TestBuild_IngressExposure(t *testing.T) {
 				t.Fatalf("Build() returned error: %v", err)
 			}
 
-			routeEnabled := nested(values, "openshiftRoute", "enabled") == true
-			if routeEnabled != tc.wantRouteEnabled {
-				t.Errorf("openshiftRoute.enabled = %v, want %v", routeEnabled, tc.wantRouteEnabled)
+			mtlsDisabled := nested(values, "server", "tls", "enableMtls") == false
+			if mtlsDisabled != tc.wantMtlsDisabled {
+				t.Errorf("server.tls.enableMtls=false is %v, want %v (got value %v)",
+					mtlsDisabled, tc.wantMtlsDisabled, nested(values, "server", "tls", "enableMtls"))
 			}
 
-			issuerSet := nested(values, "certManager", "serverIssuerRef", "name") != nil
-			if issuerSet != tc.wantIssuerSet {
-				t.Errorf("certManager.serverIssuerRef.name set = %v, want %v", issuerSet, tc.wantIssuerSet)
-			}
-
-			if tc.wantMtlsDisabled {
-				if nested(values, "server", "tls", "enableMtls") != false {
-					t.Errorf("expected server.tls.enableMtls=false in Gateway API mode, got %v",
-						nested(values, "server", "tls", "enableMtls"))
-				}
+			if got := nested(values, "grpcRoute", "enabled"); got != false {
+				t.Errorf("grpcRoute.enabled = %v, want false (the reconciler owns the GRPCRoute)", got)
 			}
 		})
 	}
@@ -257,6 +225,209 @@ func TestParseGatewayResources(t *testing.T) {
 				t.Fatalf("error = %v, want containing %q", err, tc.wantErr)
 			}
 		})
+	}
+}
+
+// TestBuild_ImageDigestPreservation locks in OSG-HELM-05: the values builder
+// parses each image reference into registry/repository/tag/digest, preserves an
+// explicitly configured digest, never falls back to a tag or "latest" for a
+// digest-only reference, handles a registry port, and reports a malformed
+// reference as a validation error.
+// Verifies: OSG-HELM-05.01, OSG-HELM-05.02, OSG-HELM-05.03, OSG-HELM-05.04, OSG-HELM-05.05, OSG-HELM-05.06
+func TestBuild_ImageDigestPreservation(t *testing.T) {
+	const digest = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+
+	nested := func(m map[string]interface{}, path ...string) interface{} {
+		var cur interface{} = m
+		for _, k := range path {
+			mm, ok := cur.(map[string]interface{})
+			if !ok {
+				return nil
+			}
+			cur = mm[k]
+		}
+		return cur
+	}
+
+	t.Run("tag-only keeps working and sets no digest (05.01)", func(t *testing.T) {
+		builder := ValuesBuilder{
+			Gateway:   GatewayConfig{WorkspaceMode: "shared", Image: "quay.io/opendatahub/odh-openshell-gateway:v0.1.5"},
+			Namespace: "test-ns",
+		}
+		values, err := builder.Build()
+		if err != nil {
+			t.Fatalf("Build() returned error: %v", err)
+		}
+		if got := nested(values, "gateway", "image", "registry"); got != "quay.io" {
+			t.Errorf("gateway.image.registry = %v, want quay.io", got)
+		}
+		if got := nested(values, "gateway", "image", "repository"); got != "opendatahub/odh-openshell-gateway" {
+			t.Errorf("gateway.image.repository = %v, want opendatahub/odh-openshell-gateway", got)
+		}
+		if got := nested(values, "gateway", "image", "tag"); got != "v0.1.5" {
+			t.Errorf("gateway.image.tag = %v, want v0.1.5", got)
+		}
+		if got := nested(values, "gateway", "image", "digest"); got != nil {
+			t.Errorf("gateway.image.digest should be absent, got %v", got)
+		}
+	})
+
+	t.Run("tag-plus-digest carries the digest (05.02)", func(t *testing.T) {
+		builder := ValuesBuilder{
+			Gateway:   GatewayConfig{WorkspaceMode: "shared", Image: "quay.io/opendatahub/odh-openshell-gateway:v0.1.5@" + digest},
+			Namespace: "test-ns",
+		}
+		values, err := builder.Build()
+		if err != nil {
+			t.Fatalf("Build() returned error: %v", err)
+		}
+		if got := nested(values, "gateway", "image", "digest"); got != digest {
+			t.Errorf("gateway.image.digest = %v, want %v", got, digest)
+		}
+	})
+
+	t.Run("digest-only never falls back to a tag (05.03)", func(t *testing.T) {
+		builder := ValuesBuilder{
+			Gateway:   GatewayConfig{WorkspaceMode: "shared", Image: "quay.io/opendatahub/odh-openshell-gateway@" + digest},
+			Namespace: "test-ns",
+		}
+		values, err := builder.Build()
+		if err != nil {
+			t.Fatalf("Build() returned error: %v", err)
+		}
+		if got := nested(values, "gateway", "image", "digest"); got != digest {
+			t.Errorf("gateway.image.digest = %v, want %v", got, digest)
+		}
+		if got := nested(values, "gateway", "image", "tag"); got != nil {
+			t.Errorf("gateway.image.tag should be absent for a digest-only reference, got %v", got)
+		}
+	})
+
+	t.Run("registry port is parsed correctly (05.04)", func(t *testing.T) {
+		builder := ValuesBuilder{
+			Gateway:   GatewayConfig{WorkspaceMode: "shared", Image: "registry.example:5000/openshell/gateway:v1@" + digest},
+			Namespace: "test-ns",
+		}
+		values, err := builder.Build()
+		if err != nil {
+			t.Fatalf("Build() returned error: %v", err)
+		}
+		if got := nested(values, "gateway", "image", "registry"); got != "registry.example:5000" {
+			t.Errorf("gateway.image.registry = %v, want registry.example:5000", got)
+		}
+		if got := nested(values, "gateway", "image", "repository"); got != "openshell/gateway" {
+			t.Errorf("gateway.image.repository = %v, want openshell/gateway", got)
+		}
+		if got := nested(values, "gateway", "image", "digest"); got != digest {
+			t.Errorf("gateway.image.digest = %v, want %v", got, digest)
+		}
+	})
+
+	t.Run("digest preserved for supervisor and sandbox-runtime (05.05)", func(t *testing.T) {
+		builder := ValuesBuilder{
+			Gateway: GatewayConfig{
+				WorkspaceMode:       "shared",
+				Image:               "quay.io/test/gateway:v1",
+				SupervisorImage:     "quay.io/test/supervisor@" + digest,
+				SandboxRuntimeImage: "quay.io/test/sandbox@" + digest,
+			},
+			Namespace: "test-ns",
+		}
+		values, err := builder.Build()
+		if err != nil {
+			t.Fatalf("Build() returned error: %v", err)
+		}
+		if got := nested(values, "supervisor", "image", "digest"); got != digest {
+			t.Errorf("supervisor.image.digest = %v, want %v", got, digest)
+		}
+		if got := nested(values, "sandboxRuntime", "image", "digest"); got != digest {
+			t.Errorf("sandboxRuntime.image.digest = %v, want %v", got, digest)
+		}
+	})
+
+	t.Run("malformed reference is a validation error (05.06)", func(t *testing.T) {
+		builder := ValuesBuilder{
+			Gateway:   GatewayConfig{WorkspaceMode: "shared", Image: "quay.io/Invalid Image:tag"},
+			Namespace: "test-ns",
+		}
+		_, err := builder.Build()
+		if err == nil {
+			t.Fatalf("Build() succeeded for a malformed image reference, want error")
+		}
+		if !strings.Contains(err.Error(), "quay.io/Invalid Image:tag") {
+			t.Errorf("error %q does not name the invalid reference", err)
+		}
+	})
+}
+
+// TestBuild_ImageDigestRendersInChart guards the value path end-to-end: a
+// configured digest on the gateway, supervisor and sandbox-runtime images must
+// survive through the vendored chart to the rendered image references, including
+// gateway-image consumers such as the certificate-generation job. A key the
+// chart does not read silently no-ops, dropping back to a tag or the chart app
+// version. Skipped without a helm binary.
+// Verifies: OSG-HELM-05.02, OSG-HELM-05.05
+func TestBuild_ImageDigestRendersInChart(t *testing.T) {
+	helmBin, err := exec.LookPath("helm")
+	if err != nil {
+		t.Skip("helm binary not found on PATH")
+	}
+	chart, err := filepath.Abs(filepath.Join("..", "..", "..", "..", "charts", "openshell"))
+	if err != nil {
+		t.Fatalf("resolve chart path: %v", err)
+	}
+
+	const (
+		gwDigest   = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+		supDigest  = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+		sandDigest = "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+	)
+
+	builder := ValuesBuilder{
+		Gateway: GatewayConfig{
+			WorkspaceMode:       "shared",
+			Image:               "quay.io/test/gateway:v1@" + gwDigest,
+			SupervisorImage:     "quay.io/test/supervisor:v1@" + supDigest,
+			SandboxRuntimeImage: "quay.io/test/sandbox:v1@" + sandDigest,
+		},
+		Namespace: "test-ns",
+	}
+	values, err := builder.Build()
+	if err != nil {
+		t.Fatalf("Build() returned error: %v", err)
+	}
+	raw, err := json.Marshal(values)
+	if err != nil {
+		t.Fatalf("marshal values: %v", err)
+	}
+	valuesFile := filepath.Join(t.TempDir(), "values.json")
+	if err := os.WriteFile(valuesFile, raw, 0o600); err != nil {
+		t.Fatalf("write values: %v", err)
+	}
+
+	out, err := exec.Command(helmBin, "template", "t", chart, "-f", valuesFile,
+		"--set", "agentSandbox.preflight.enabled=false").CombinedOutput()
+	if err != nil {
+		t.Fatalf("helm template: %v\n%s", err, out)
+	}
+	rendered := string(out)
+
+	// The gateway image (used by the workload and the certgen job) must render
+	// with the digest and must not fall back to the tag.
+	gatewayRef := "quay.io/test/gateway@" + gwDigest
+	if !strings.Contains(rendered, gatewayRef) {
+		t.Errorf("rendered chart does not carry the gateway digest %q", gatewayRef)
+	}
+	if strings.Contains(rendered, "quay.io/test/gateway:v1") {
+		t.Errorf("rendered chart uses the gateway tag instead of the digest")
+	}
+	// The supervisor and sandbox-runtime references reach the gateway config with
+	// their digests.
+	if want := `supervisor_image = "quay.io/test/supervisor@` + supDigest + `"`; !strings.Contains(rendered, want) {
+		t.Errorf("rendered chart does not carry the supervisor digest %q", want)
+	}
+	if want := `sandbox_runtime_image = "quay.io/test/sandbox@` + sandDigest + `"`; !strings.Contains(rendered, want) {
+		t.Errorf("rendered chart does not carry the sandbox runtime digest %q", want)
 	}
 }
 
@@ -627,10 +798,59 @@ func TestBuild_WorkspaceMode(t *testing.T) {
 	}
 }
 
+// TestBuild_OperatorWorkspaceMode locks in the operator-mode wiring
+// (OSG-OPWS-02/03): operator mode emits the namespace selector
+// server.drivers.kubernetes.operatorNamespaceLabel as <key>=<namespace>, applies
+// the administrator-approved operator sandbox RuntimeClass to
+// server.defaultRuntimeClassName overriding any cluster-wide SandboxRuntimeClass,
+// and deliberately emits NO managed sandboxJwt.gatewayId block.
+func TestBuild_OperatorWorkspaceMode(t *testing.T) {
+	nested := func(m map[string]interface{}, path ...string) interface{} {
+		var cur interface{} = m
+		for _, k := range path {
+			mm, ok := cur.(map[string]interface{})
+			if !ok {
+				return nil
+			}
+			cur = mm[k]
+		}
+		return cur
+	}
+
+	builder := ValuesBuilder{
+		Gateway:   GatewayConfig{WorkspaceMode: "operator", Image: "quay.io/test/gateway:v1"},
+		Namespace: "openshell-deadbeefdeadbeef",
+		// A cluster-wide sandbox runtime class must NOT win for an operator gateway.
+		SandboxRuntimeClass:         "runc",
+		OperatorWorkspace:           &OperatorWorkspaceConfig{NamespaceLabelKey: "oce.example.com/tenant", AllowedPodLabels: []string{"openclaw.dev/*"}},
+		OperatorNamespaceLabelKey:   "oce.example.com/tenant",
+		OperatorSandboxRuntimeClass: "kata",
+	}
+	values, err := builder.Build()
+	if err != nil {
+		t.Fatalf("Build() returned error: %v", err)
+	}
+
+	if got := nested(values, "server", "drivers", "kubernetes", "workspaceMode"); got != "operator" {
+		t.Errorf("server.drivers.kubernetes.workspaceMode = %v, want %q", got, "operator")
+	}
+	wantSelector := "oce.example.com/tenant=openshell-deadbeefdeadbeef"
+	if got := nested(values, "server", "drivers", "kubernetes", "operatorNamespaceLabel"); got != wantSelector {
+		t.Errorf("server.drivers.kubernetes.operatorNamespaceLabel = %v, want %q", got, wantSelector)
+	}
+	if got := nested(values, "server", "defaultRuntimeClassName"); got != "kata" {
+		t.Errorf("server.defaultRuntimeClassName = %v, want operator class %q", got, "kata")
+	}
+	if got := nested(values, "server", "sandboxJwt", "gatewayId"); got != nil {
+		t.Errorf("operator gateway must not carry the managed sandboxJwt.gatewayId: %v", got)
+	}
+}
+
 // TestBuild_WorkspaceModeRendersInChart guards the value path end-to-end: the
 // control-plane-built values must reach the chart's rendered gateway.toml as
 // workspace_mode = "managed" and the derived gateway_id must land in both the
 // gateway JWT identity and the Kubernetes driver section. Skipped without helm.
+// Verifies: OSG-OPWS-08.01, OSG-OPWS-08.03
 func TestBuild_WorkspaceModeRendersInChart(t *testing.T) {
 	helmBin, err := exec.LookPath("helm")
 	if err != nil {
@@ -638,43 +858,78 @@ func TestBuild_WorkspaceModeRendersInChart(t *testing.T) {
 	}
 	chart, err := filepath.Abs(filepath.Join("..", "..", "..", "..", "charts", "openshell"))
 	if err != nil {
-		t.Fatalf("resolve chart path: %v", err)
+		t.Fatal(err)
 	}
-
-	builder := ValuesBuilder{
-		Gateway: GatewayConfig{
-			Image:           "quay.io/test/gateway:v1",
-			SupervisorImage: "quay.io/test/supervisor:v1",
-			WorkspaceMode:   "managed",
-		},
-		Namespace: "openshell-deadbeefdeadbeef",
-	}
-	values, err := builder.Build()
-	if err != nil {
-		t.Fatalf("Build() returned error: %v", err)
-	}
-	raw, err := json.Marshal(values)
-	if err != nil {
-		t.Fatalf("marshal values: %v", err)
-	}
-	valuesFile := filepath.Join(t.TempDir(), "values.json")
-	if err := os.WriteFile(valuesFile, raw, 0o600); err != nil {
-		t.Fatalf("write values: %v", err)
-	}
-
-	out, err := exec.Command(helmBin, "template", "t", chart, "-f", valuesFile,
-		"--set", "agentSandbox.preflight.enabled=false").CombinedOutput()
-	if err != nil {
-		t.Fatalf("helm template: %v\n%s", err, out)
-	}
-	rendered := string(out)
-	for _, want := range []string{
-		`workspace_mode = "managed"`,
-		`gateway_id = "deadbeefdeadbeef"`,
+	for _, tc := range []struct {
+		name  string
+		mode  string
+		optIn bool
+	}{
+		{name: "managed", mode: "managed"},
+		{name: "operator defaults", mode: "operator"},
+		{name: "operator opt-in", mode: "operator", optIn: true},
 	} {
-		if !strings.Contains(rendered, want) {
-			t.Errorf("rendered chart does not contain %q", want)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			mode := tc.mode
+			digest := "sha256:" + strings.Repeat("a", 64)
+			builder := ValuesBuilder{
+				Gateway: GatewayConfig{
+					Image:               "quay.io/test/gateway@" + digest,
+					SupervisorImage:     "quay.io/test/supervisor:v1@" + digest,
+					SandboxRuntimeImage: "quay.io/test/runtime@" + digest,
+					WorkspaceMode:       mode,
+					ServerDnsNames:      []string{"gateway.example.com"},
+				},
+				Namespace:                   "openshell-deadbeefdeadbeef",
+				HasCertManager:              true,
+				OperatorNamespaceLabelKey:   "hypershell.io/gateway",
+				OperatorSandboxRuntimeClass: "openshell-sandbox",
+				OperatorWorkspace: &OperatorWorkspaceConfig{
+					NamespaceLabelKey:        "hypershell.io/gateway",
+					AllowDriverConfig:        tc.optIn,
+					DisableResourceAdmission: tc.optIn,
+					MTLSAuth:                 tc.optIn,
+					AllowedPodLabels:         []string{"openclaw.dev/*"},
+				},
+			}
+			values, err := builder.Build()
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := json.Marshal(values)
+			if err != nil {
+				t.Fatal(err)
+			}
+			valuesFile := filepath.Join(t.TempDir(), "values.json")
+			if err := os.WriteFile(valuesFile, raw, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			out, err := exec.Command(helmBin, "template", "t", chart, "-f", valuesFile,
+				"--set", "agentSandbox.preflight.enabled=false").CombinedOutput()
+			if err != nil {
+				t.Fatalf("helm template: %v\n%s", err, out)
+			}
+			want := []string{
+				`workspace_mode = "` + mode + `"`,
+				"quay.io/test/gateway@" + digest,
+				"quay.io/test/supervisor@" + digest,
+				"quay.io/test/runtime@" + digest,
+			}
+			if mode == "managed" {
+				want = append(want, `gateway_id = "deadbeefdeadbeef"`)
+			}
+			if mode == "operator" {
+				want = append(want, `operator_namespace_label = "hypershell.io/gateway=openshell-deadbeefdeadbeef"`, fmt.Sprintf("allow_driver_config = %t", tc.optIn))
+				want = append(want, fmt.Sprintf("[openshell.drivers.kubernetes.resource_admission]\n    enabled = %t", !tc.optIn), fmt.Sprintf("[openshell.gateway.mtls_auth]\n    enabled = %t", tc.optIn))
+				// The advertised service domain must also be covered by the server certificate.
+				want = append(want, `server_sans = ["gateway.example.com", "*.openshell.localhost"]`, `- "*.openshell.localhost"`)
+			}
+			for _, expected := range want {
+				if !strings.Contains(string(out), expected) {
+					t.Errorf("rendered chart missing %q", expected)
+				}
+			}
+		})
 	}
 }
 
@@ -705,14 +960,10 @@ func TestBuild_ServerDnsNames(t *testing.T) {
 	dnsNames := []string{"gw-test-ns.apps.example.com", "internal.example.com"}
 
 	tests := []struct {
-		name                    string
-		hasCertManager          bool
-		routeEnabled            bool
-		useOpenShiftRoute       bool
-		externalCAIssuer        string
-		wantPkiInitNames        bool
-		wantCertMgrNames        bool
-		wantCertMgrHostnameOnly bool
+		name             string
+		hasCertManager   bool
+		wantPkiInitNames bool
+		wantCertMgrNames bool
 	}{
 		{
 			name:             "cert-manager enabled writes both pkiInitJob and certManager serverDnsNames",
@@ -726,15 +977,6 @@ func TestBuild_ServerDnsNames(t *testing.T) {
 			wantPkiInitNames: true,
 			wantCertMgrNames: false,
 		},
-		{
-			name:                    "route mode with external issuer keeps certManager serverDnsNames as hostname only",
-			hasCertManager:          true,
-			routeEnabled:            true,
-			useOpenShiftRoute:       true,
-			externalCAIssuer:        "gateway-ca",
-			wantPkiInitNames:        true,
-			wantCertMgrHostnameOnly: true,
-		},
 	}
 
 	for _, tc := range tests {
@@ -745,14 +987,11 @@ func TestBuild_ServerDnsNames(t *testing.T) {
 					WorkspaceMode:  "shared",
 					Image:          "quay.io/test/gateway:latest",
 					ServerDnsNames: dnsNames,
-					Route:          RouteConfig{Host: routeHost, Enabled: tc.routeEnabled},
+					Route:          RouteConfig{Host: routeHost},
 				},
-				Namespace:            "test-ns",
-				HasCertManager:       tc.hasCertManager,
-				IngressBaseDomain:    "apps.example.com",
-				UseOpenShiftRoute:    tc.useOpenShiftRoute,
-				ExternalCAIssuerName: tc.externalCAIssuer,
-				ExternalCAIssuerKind: "ClusterIssuer",
+				Namespace:         "test-ns",
+				HasCertManager:    tc.hasCertManager,
+				IngressBaseDomain: "apps.example.com",
 			}
 
 			values, err := builder.Build()
@@ -770,21 +1009,56 @@ func TestBuild_ServerDnsNames(t *testing.T) {
 			}
 
 			certMgrNames := nested(values, "certManager", "serverDnsNames")
-			switch {
-			case tc.wantCertMgrHostnameOnly:
-				want := []string{routeHost}
-				if !reflect.DeepEqual(certMgrNames, want) {
-					t.Errorf("certManager.serverDnsNames = %v, want %v (ingress override must win)", certMgrNames, want)
-				}
-			case tc.wantCertMgrNames:
+			if tc.wantCertMgrNames {
 				if !reflect.DeepEqual(certMgrNames, dnsNames) {
 					t.Errorf("certManager.serverDnsNames = %v, want %v", certMgrNames, dnsNames)
 				}
-			default:
-				if certMgrNames != nil {
-					t.Errorf("certManager.serverDnsNames should be absent, got %v", certMgrNames)
-				}
+			} else if certMgrNames != nil {
+				t.Errorf("certManager.serverDnsNames should be absent, got %v", certMgrNames)
 			}
 		})
+	}
+}
+
+func TestBuild_AdditionalCARendersInChart(t *testing.T) {
+	helmBin, err := exec.LookPath("helm")
+	if err != nil {
+		t.Skip("helm binary not found on PATH")
+	}
+	chart, err := filepath.Abs(filepath.Join("..", "..", "..", "..", "charts", "openshell"))
+	if err != nil {
+		t.Fatalf("resolve chart path: %v", err)
+	}
+
+	builder := ValuesBuilder{
+		Gateway: GatewayConfig{
+			WorkspaceMode:   "shared",
+			Image:           "quay.io/test/gateway:v1",
+			SupervisorImage: "quay.io/test/supervisor:v1",
+		},
+		Namespace:                 "test-ns",
+		AdditionalCAConfigMapName: "destination-ca",
+	}
+	values, err := builder.Build()
+	if err != nil {
+		t.Fatalf("Build() returned error: %v", err)
+	}
+	raw, err := json.Marshal(values)
+	if err != nil {
+		t.Fatalf("marshal values: %v", err)
+	}
+	valuesFile := filepath.Join(t.TempDir(), "values.json")
+	if err := os.WriteFile(valuesFile, raw, 0o600); err != nil {
+		t.Fatalf("write values: %v", err)
+	}
+
+	out, err := exec.Command(helmBin, "template", "t", chart, "-f", valuesFile,
+		"--set", "agentSandbox.preflight.enabled=false").CombinedOutput()
+	if err != nil {
+		t.Fatalf("helm template: %v\n%s", err, out)
+	}
+	want := `additional_ca_bundle = "/etc/openshell-tls/additional-ca-source/ca.crt"`
+	if !strings.Contains(string(out), want) {
+		t.Errorf("rendered chart does not contain %q", want)
 	}
 }

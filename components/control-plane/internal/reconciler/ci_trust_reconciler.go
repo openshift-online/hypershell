@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/openshellclient"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
 	"google.golang.org/grpc"
 )
@@ -25,14 +26,24 @@ type ciFederationKeycloak interface {
 	EnsureCIFederation(ctx context.Context, spec keycloak.CIFederationSpec) error
 	DeleteCIFederation(ctx context.Context, spec keycloak.CIFederationSpec) error
 	Issuer() string
+	// MintGatewayAdminToken returns a short-lived gateway-scoped admin token the
+	// control plane uses to call the gateway's OpenShell provisioning API
+	// (PLAT-CITR-15). Only used when workspace provisioning is enabled.
+	MintGatewayAdminToken(ctx context.Context, gatewayClientID string) (string, error)
+	// ListGroupMemberSubjects returns the OIDC subjects of the members of the
+	// per-trust group, which are the brokered CI identities to admit into the
+	// derived workspace.
+	ListGroupMemberSubjects(ctx context.Context, groupName string) ([]string, error)
 }
 
-// CITrustReconciler reconciles CITrust resources into Keycloak 26.x
-// external-to-internal token-exchange v2 artifacts: a per-trust scoped
-// claim-to-workspace IdP mapper (the subject trust boundary), a token-exchange
-// authorization onto the gateway client, and a gateway RBAC binding on the
-// derived workspace. Each CITrust declares that CI workloads matching a subject
-// predicate may federate into a specific gateway with a given role, keyless.
+// CITrustReconciler reconciles CITrust resources into Keycloak token-exchange
+// artifacts: a per-trust scoped claim-to-workspace IdP mapper (the subject trust
+// boundary), a token-exchange authorization onto the gateway client, and a gateway
+// RBAC binding on the derived workspace. The token-exchange authorization mechanism
+// is config-driven (PLAT-CITR-08): tokenExchangeMode selects fgap-v1 fine-grained
+// grants (PLAT-CITR-11) or the external-to-internal v2 client attribute. Each
+// CITrust declares that CI workloads matching a subject predicate may federate into
+// a specific gateway with a given role, keyless.
 //
 // On upsert: resolve the CIProvider (forge + adopted IdP alias) and the gateway
 // (Keycloak client + owning cluster), derive the forge-namespaced workspace,
@@ -46,10 +57,32 @@ type CITrustReconciler struct {
 	ciProviderSvc      pb.CIProviderServiceClient
 	gatewaySvc         pb.GatewayServiceClient
 	federationClientID string
+	tokenExchangeMode  keycloak.TokenExchangeMode
 	clusterID          string
+
+	// workspaceProvisioning, when true, makes the reconciler realize the gateway
+	// side of a CITrust (PLAT-CITR-15): ensure the derived workspace exists on the
+	// gateway and admit the trust's matched identities as members, via the gateway's
+	// OpenShell provisioning API. Off by default so it rolls out by configuration.
+	workspaceProvisioning bool
+	// gatewayInsecure skips TLS verification when dialing the gateway's OpenShell
+	// endpoint (the gateway serves its gRPC API under the self-signed openshell CA).
+	gatewayInsecure   bool
+	gatewayBaseDomain string
+	// dialGateway opens a session to a gateway's OpenShell provisioning API. It is a
+	// field so tests can inject a fake; production uses openshellclient.Dial.
+	dialGateway func(endpoint, adminToken string, insecure bool) (gatewayWorkspaceSession, error)
 }
 
-func NewCITrustReconciler(kc *keycloak.Client, conn *grpc.ClientConn, clusterID string) *CITrustReconciler {
+// gatewayWorkspaceSession is the gateway-side provisioning surface the CITrust
+// reconciler needs (PLAT-CITR-15); *openshellclient.Session implements it.
+type gatewayWorkspaceSession interface {
+	EnsureWorkspace(ctx context.Context, name string) error
+	EnsureMembers(ctx context.Context, workspace string, want map[string]openshellclient.Role) error
+	Close() error
+}
+
+func NewCITrustReconciler(kc *keycloak.Client, conn *grpc.ClientConn, clusterID string, tokenExchangeMode keycloak.TokenExchangeMode, workspaceProvisioning, gatewayInsecure bool, gatewayBaseDomain string) *CITrustReconciler {
 	var client ciFederationKeycloak
 	// A typed-nil *keycloak.Client stored in an interface is non-nil, which would
 	// defeat the nil guard in Handle; only wrap a real client.
@@ -57,12 +90,19 @@ func NewCITrustReconciler(kc *keycloak.Client, conn *grpc.ClientConn, clusterID 
 		client = kc
 	}
 	return &CITrustReconciler{
-		keycloakClient:     client,
-		ciTrustSvc:         pb.NewCITrustServiceClient(conn),
-		ciProviderSvc:      pb.NewCIProviderServiceClient(conn),
-		gatewaySvc:         pb.NewGatewayServiceClient(conn),
-		federationClientID: defaultCIFederationClientID,
-		clusterID:          clusterID,
+		keycloakClient:        client,
+		ciTrustSvc:            pb.NewCITrustServiceClient(conn),
+		ciProviderSvc:         pb.NewCIProviderServiceClient(conn),
+		gatewaySvc:            pb.NewGatewayServiceClient(conn),
+		federationClientID:    defaultCIFederationClientID,
+		tokenExchangeMode:     tokenExchangeMode,
+		clusterID:             clusterID,
+		workspaceProvisioning: workspaceProvisioning,
+		gatewayInsecure:       gatewayInsecure,
+		gatewayBaseDomain:     gatewayBaseDomain,
+		dialGateway: func(endpoint, adminToken string, insecure bool) (gatewayWorkspaceSession, error) {
+			return openshellclient.Dial(endpoint, adminToken, insecure)
+		},
 	}
 }
 
@@ -95,11 +135,6 @@ func (r *CITrustReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	}
 	id := event.ResourceID
 
-	if r.keycloakClient == nil {
-		log.Printf("DEBUG CITrust %s: keycloak not configured, skipping", id)
-		return nil
-	}
-
 	switch event.Type {
 	case watcher.EventDeleted:
 		return r.handleDelete(ctx, id, trust)
@@ -126,7 +161,11 @@ func (r *CITrustReconciler) handleUpsert(ctx context.Context, id string, trust *
 		return fmt.Errorf("CITrust %s: resolve gateway %s: %w", id, trust.GetGatewayId(), err)
 	}
 	if gatewayCluster != r.clusterID {
-		log.Printf("DEBUG CITrust %s: gateway %s belongs to cluster %s, not this cluster (%s); skipping", id, trust.GetGatewayId(), gatewayCluster, r.clusterID)
+		slog.DebugContext(ctx, "CITrust gateway belongs to another cluster, skipping",
+			"ci_trust_id", id,
+			"gateway_id", trust.GetGatewayId(),
+			"gateway_cluster", gatewayCluster,
+			"cluster", r.clusterID)
 		return nil
 	}
 
@@ -143,8 +182,25 @@ func (r *CITrustReconciler) handleUpsert(ctx context.Context, id string, trust *
 		return fmt.Errorf("CITrust %s: reconcile keycloak federation: %w", id, err)
 	}
 
+	// Gateway-side realization (PLAT-CITR-15): ensure the derived workspace exists
+	// on the gateway and admit the trust's matched identities, so an openshell-user
+	// CI token can operate without a manual per-identity membership step. Gated by
+	// configuration; a failure is retryable (the whole upsert re-runs idempotently).
+	if err := r.provisionGatewayWorkspace(ctx, trust.GetGatewayId(), gatewayClientID, spec); err != nil {
+		return fmt.Errorf("CITrust %s: provision gateway workspace: %w", id, err)
+	}
+
 	exchangeEndpoint := r.keycloakClient.Issuer() + "/protocol/openid-connect/token"
 	workflowHint := workflowHint(provider.GetForge(), exchangeEndpoint, provider.GetAudience(), r.federationClientID, spec.IdpAlias, gatewayClientID, spec.Workspace)
+	// Write status only when it changed. Every write emits a watch event that
+	// reconciles this trust again (STD-RCON-02.01). The federation step above
+	// still runs on every pass, so Keycloak drift is still repaired.
+	if trust.GetStatusExchangeEndpoint() == exchangeEndpoint &&
+		trust.GetStatusWorkspace() == spec.Workspace &&
+		trust.GetStatusWorkflowHint() == workflowHint {
+		slog.DebugContext(ctx, "CITrust status already current", "ci_trust_id", id)
+		return nil
+	}
 	if _, err := r.ciTrustSvc.UpdateCITrust(ctx, &pb.UpdateCITrustRequest{
 		Id:                     id,
 		StatusExchangeEndpoint: &exchangeEndpoint,
@@ -154,7 +210,12 @@ func (r *CITrustReconciler) handleUpsert(ctx context.Context, id string, trust *
 		return fmt.Errorf("CITrust %s: update status: %w", id, err)
 	}
 
-	log.Printf("INFO CITrust %s reconciled: workspace=%s gateway_client=%s idp=%s role=%s", id, spec.Workspace, gatewayClientID, spec.IdpAlias, trust.GetRole())
+	slog.InfoContext(ctx, "CITrust reconciled",
+		"ci_trust_id", id,
+		"workspace", spec.Workspace,
+		"gateway_client", gatewayClientID,
+		"idp", spec.IdpAlias,
+		"role", trust.GetRole())
 	return nil
 }
 
@@ -167,7 +228,7 @@ func (r *CITrustReconciler) handleDelete(ctx context.Context, id string, trust *
 			// provider (and its adopted IdP context) is already torn down. The IdP
 			// alias that targets the per-trust mapper is then unknowable, so there is
 			// nothing left for this reconciler to revoke.
-			log.Printf("WARN CITrust %s: CI provider %s not found on delete; cannot resolve IdP alias to revoke", id, trust.GetCiProviderId())
+			slog.WarnContext(ctx, "CITrust CI provider not found on delete; cannot resolve IdP alias to revoke", "ci_trust_id", id, "ci_provider_id", trust.GetCiProviderId())
 			return nil
 		}
 		return err
@@ -182,10 +243,14 @@ func (r *CITrustReconciler) handleDelete(ctx context.Context, id string, trust *
 		if !isNotFoundRPC(resolveErr) {
 			return fmt.Errorf("CITrust %s: resolve gateway %s: %w", id, trust.GetGatewayId(), resolveErr)
 		}
-		log.Printf("DEBUG CITrust %s: gateway %s no longer exists; revoking shared IdP mapper", id, trust.GetGatewayId())
+		slog.DebugContext(ctx, "CITrust gateway no longer exists; revoking shared IdP mapper", "ci_trust_id", id, "gateway_id", trust.GetGatewayId())
 	} else {
 		if gatewayCluster != r.clusterID {
-			log.Printf("DEBUG CITrust %s: gateway %s belongs to cluster %s, not this cluster (%s); skipping", id, trust.GetGatewayId(), gatewayCluster, r.clusterID)
+			slog.DebugContext(ctx, "CITrust gateway belongs to another cluster, skipping",
+				"ci_trust_id", id,
+				"gateway_id", trust.GetGatewayId(),
+				"gateway_cluster", gatewayCluster,
+				"cluster", r.clusterID)
 			return nil
 		}
 		gatewayClientID = clientID
@@ -196,7 +261,65 @@ func (r *CITrustReconciler) handleDelete(ctx context.Context, id string, trust *
 		return fmt.Errorf("CITrust %s: revoke keycloak federation: %w", id, err)
 	}
 
-	log.Printf("INFO CITrust %s revoked: workspace=%s idp=%s", id, spec.Workspace, spec.IdpAlias)
+	slog.InfoContext(ctx, "CITrust revoked", "ci_trust_id", id, "workspace", spec.Workspace, "idp", spec.IdpAlias)
+	return nil
+}
+
+// provisionGatewayWorkspace realizes the gateway side of a CITrust (PLAT-CITR-15):
+// it ensures the derived forge-namespaced workspace exists on the gateway and admits
+// the trust's matched identities (the members of the per-trust Keycloak group) into
+// it with the trust's role, via the gateway's OpenShell provisioning API as an admin.
+// It is a no-op unless workspace provisioning is enabled. Membership is additive:
+// the group's members are the brokered CI identities that matched the trust, and an
+// openshell-user needs workspace membership (admins bypass it) to operate. New
+// identities that federate later are picked up on the next CITrust resync.
+func (r *CITrustReconciler) provisionGatewayWorkspace(ctx context.Context, gatewayID, gatewayClientID string, spec keycloak.CIFederationSpec) error {
+	if !r.workspaceProvisioning {
+		return nil
+	}
+	if r.gatewayBaseDomain == "" {
+		return fmt.Errorf("gateway base domain not configured (GATEWAY_API_BASE_DOMAIN); cannot resolve gateway endpoint")
+	}
+	resp, err := r.gatewaySvc.GetGateway(ctx, &pb.GetGatewayRequest{Id: gatewayID})
+	if err != nil {
+		return fmt.Errorf("get gateway %s: %w", gatewayID, err)
+	}
+	namespace := resp.GetGateway().GetNamespace()
+	if namespace == "" {
+		return fmt.Errorf("gateway %s has no namespace yet", gatewayID)
+	}
+	// The gateway serves its OpenShell gRPC API at gw-<namespace>.<base-domain>:443
+	// (openshell-gateway routing); the owning cluster's base domain applies here.
+	endpoint := fmt.Sprintf("gw-%s.%s:443", namespace, r.gatewayBaseDomain)
+
+	adminToken, err := r.keycloakClient.MintGatewayAdminToken(ctx, gatewayClientID)
+	if err != nil {
+		return fmt.Errorf("mint gateway admin token: %w", err)
+	}
+	subjects, err := r.keycloakClient.ListGroupMemberSubjects(ctx, spec.GroupName())
+	if err != nil {
+		return fmt.Errorf("list trust group members: %w", err)
+	}
+
+	session, err := r.dialGateway(endpoint, adminToken, r.gatewayInsecure)
+	if err != nil {
+		return fmt.Errorf("dial gateway %s: %w", endpoint, err)
+	}
+	defer func() { _ = session.Close() }()
+
+	if err := session.EnsureWorkspace(ctx, spec.Workspace); err != nil {
+		return fmt.Errorf("ensure workspace %q: %w", spec.Workspace, err)
+	}
+	role := openshellclient.RoleFromGatewayRole(spec.Role)
+	want := make(map[string]openshellclient.Role, len(subjects))
+	for _, subject := range subjects {
+		want[subject] = role
+	}
+	if err := session.EnsureMembers(ctx, spec.Workspace, want); err != nil {
+		return fmt.Errorf("reconcile workspace %q members: %w", spec.Workspace, err)
+	}
+	slog.InfoContext(ctx, "CITrust gateway workspace provisioned",
+		"workspace", spec.Workspace, "members", len(want), "gateway_endpoint", endpoint)
 	return nil
 }
 
@@ -230,6 +353,7 @@ func (r *CITrustReconciler) federationSpec(id string, provider *pb.CIProvider, t
 		GatewayClientID:    gatewayClientID,
 		Workspace:          workspace,
 		Role:               trust.GetRole(),
+		Mode:               r.tokenExchangeMode,
 		Subject: keycloak.CISubjectPredicate{
 			Repository:      trust.GetSubjectRepository(),
 			RepositoryOwner: keycloak.OwnerFromRepository(trust.GetSubjectRepository()),
@@ -241,9 +365,8 @@ func (r *CITrustReconciler) federationSpec(id string, provider *pb.CIProvider, t
 	}
 }
 
-// resolveGatewayClientID looks up the gateway by id and returns the Keycloak
-// client id in the {name}-{id} format the Keycloak provisioning spec specifies,
-// plus the cluster the gateway is assigned to so the caller can tell whether this
+// resolveGatewayClientID looks up the gateway by id and returns its stored
+// Keycloak client id (see gatewayKeycloakClientID), plus the cluster the gateway is assigned to so the caller can tell whether this
 // control plane owns it. It mirrors the RoleBinding reconciler's resolution.
 func (r *CITrustReconciler) resolveGatewayClientID(ctx context.Context, gatewayID string) (string, string, error) {
 	resp, err := r.gatewaySvc.GetGateway(ctx, &pb.GetGatewayRequest{Id: gatewayID})
@@ -251,7 +374,11 @@ func (r *CITrustReconciler) resolveGatewayClientID(ctx context.Context, gatewayI
 		return "", "", fmt.Errorf("get gateway %s: %w", gatewayID, err)
 	}
 	gw := resp.GetGateway()
-	return fmt.Sprintf("%s-%s", gw.GetName(), gatewayID), gw.GetClusterId(), nil
+	clientID, err := gatewayKeycloakClientID(gatewayID, gw)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve Keycloak client for gateway %s: %w", gatewayID, err)
+	}
+	return clientID, gw.GetClusterId(), nil
 }
 
 // workflowHint renders a runnable, secret-free CI snippet hint for the provider's

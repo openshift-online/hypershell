@@ -6,19 +6,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
 )
 
 // CI federation realizes keyless CI (GitHub Actions / GitLab CI) against a
-// gateway through the Keycloak 26.x external-to-internal token-exchange v2
-// mechanism (TOKEN_EXCHANGE_EXTERNAL_INTERNAL_V2). The v1 token-exchange
-// permission API (.../management/permissions) is DISABLED on the production
-// fleet Keycloak and returns 501, so none of the code here calls it; it drives
-// the v2 admin-REST surface instead (ci-trust-ext-api.spec.md, Keycloak 26.x
-// external-to-internal token-exchange v2 requirement).
+// gateway. The token-exchange authorization is config-driven (PLAT-CITR-08): the
+// control plane selects by configuration, not code, between fgap-v1 mode (two
+// fine-grained authorization v1 grants, PLAT-CITR-11) and v2-attribute mode (the
+// external-to-internal token-exchange v2 client attribute). Each mode realizes
+// ONLY its own artifacts and never calls the other mode's API, so neither fails
+// because the other's API is unavailable on the running Keycloak (a v1 permission
+// API returning 501 under v2-attribute mode, or absent v2 external-internal
+// support under fgap-v1 mode). The production fleet runs fgap-v1 today.
 //
 // A CITrust is realized as three artifacts:
 //
@@ -35,7 +37,10 @@ import (
 //
 //  (b) a token-exchange authorization enabling the public (keyless) federation
 //      client to exchange a brokered token from the IdP onto the gateway client
-//      (the exchange audience) via external-to-internal v2.
+//      (the exchange audience). Its mechanism is config-driven (PLAT-CITR-08): the
+//      two fine-grained v1 grants scoped to the federation requester (PLAT-CITR-11)
+//      in fgap-v1 mode, or the external-to-internal v2 attribute on the gateway
+//      client in v2-attribute mode.
 //
 //  (c) a gateway RBAC binding mapping the gateway client role onto the trust's
 //      OWN per-trust group, so a matched identity holds exactly the role its own
@@ -46,12 +51,12 @@ import (
 //      granted for one gateway never leaks onto another gateway's client
 //      (cross-repo / cross-gateway privilege-escalation boundary).
 //
-// LIVE-VERIFY: the exact v2 admin-REST shape for (a) the per-repo subject
-// constraint and (b) the per-requester external-to-internal authorization is
-// flagged in the issue (#819) as needing empirical confirmation against a live
-// Keycloak 26.6. The calls below follow the documented admin REST API (IdP
-// advanced-claim group mapper; client standard-token-exchange attribute; group
-// client-role mapping) and are each idempotent and individually verifiable.
+// The per-requester exchange scoping (b) is realized in fgap-v1 mode by a client
+// policy that names exactly the federation requester client and is attached to both
+// the IdP and the gateway-client token-exchange scope permissions (PLAT-CITR-11), so
+// only that requester may exchange. The subject constraint (a) is an IdP
+// advanced-claim group mapper, and the role grant (c) a group client-role mapping;
+// every call below is idempotent and individually verifiable.
 
 const (
 	// ciTrustMapperPrefix names the per-trust IdP mapper deterministically from
@@ -67,6 +72,37 @@ const (
 	// attribute that opts a client in as a token-exchange audience under token
 	// exchange v2. LIVE-VERIFY against 26.6.
 	standardTokenExchangeEnabledAttribute = "standard.token.exchange.enabled"
+)
+
+// TokenExchangeMode selects how the control plane authorizes the CI
+// token-exchange grant (PLAT-CITR-08). The choice is a deployment configuration,
+// not a code path a caller edits: different fleet Keycloaks run different
+// token-exchange generations, so the mode is carried on the CIFederationSpec from
+// the control-plane configuration (HYPERSHELL_CI_TOKEN_EXCHANGE_MODE) rather than
+// hardcoded. Each mode realizes ONLY the artifacts its own mechanism needs and
+// never calls the other mode's API, so neither mode fails because the other
+// mode's API is unavailable (a v1 permission API returning 501 under v2-attribute
+// mode, or absent v2 external-internal support under fgap-v1 mode).
+type TokenExchangeMode string
+
+const (
+	// TokenExchangeModeFGAPv1 authorizes the exchange through fine-grained admin
+	// authorization v1 (PLAT-CITR-11): two token-exchange grants, each scoped to
+	// the shared federation requester client, one on the CIProvider IdP and one on
+	// the target gateway client. This is the hyp0 fleet mode today.
+	TokenExchangeModeFGAPv1 TokenExchangeMode = "fgap-v1"
+
+	// TokenExchangeModeV2Attribute authorizes the exchange through external-to-internal
+	// token-exchange v2 by setting the standard.token.exchange.enabled attribute on
+	// the target gateway client. Usable once a Keycloak release (RHBK >= 26.7)
+	// wires IdP token-exchange permissions into v2.
+	TokenExchangeModeV2Attribute TokenExchangeMode = "v2-attribute"
+
+	// defaultTokenExchangeMode is applied when a spec carries no explicit mode. It
+	// matches the production fleet Keycloak today (fine-grained authorization v1)
+	// and the control-plane configuration default, so an unconfigured reconcile
+	// still realizes the grants the live fleet requires.
+	defaultTokenExchangeMode = TokenExchangeModeFGAPv1
 )
 
 // CISubjectPredicate is the compiled claim predicate a brokered CI token must
@@ -94,7 +130,7 @@ type CIFederationSpec struct {
 	// FederationClientID is the shared public (keyless) exchange requester, e.g.
 	// "ci-federation".
 	FederationClientID string
-	// GatewayClientID is the gateway's Keycloak client ({name}-{id}); the
+	// GatewayClientID is the gateway's stored Keycloak client ID; the
 	// exchange audience.
 	GatewayClientID string
 	// Workspace is the derived forge-namespaced workspace label, e.g. "gh-acme".
@@ -107,6 +143,10 @@ type CIFederationSpec struct {
 	Role string
 	// Subject is the compiled claim predicate.
 	Subject CISubjectPredicate
+	// Mode selects how the token-exchange authorization is realized (PLAT-CITR-08).
+	// It is populated from the control-plane configuration, not hardcoded. An empty
+	// Mode defaults to defaultTokenExchangeMode (fgap-v1), the live fleet mode.
+	Mode TokenExchangeMode
 }
 
 // GroupName is the Keycloak group a matched identity lands in and the group the
@@ -174,9 +214,30 @@ func (c *Client) EnsureCIFederation(ctx context.Context, spec CIFederationSpec) 
 		return fmt.Errorf("ensure workspace role binding: %w", err)
 	}
 
-	// (b) token-exchange authorization onto the gateway client.
-	if err := c.ensureGatewayExchangeAuthorization(ctx, spec, gatewayUUID); err != nil {
-		return fmt.Errorf("ensure gateway token-exchange authorization: %w", err)
+	// (b) token-exchange authorization. The mechanism is config-driven
+	// (PLAT-CITR-08): each mode realizes only its own artifacts and never calls the
+	// other mode's API, so neither fails because the other's API is unavailable.
+	mode := spec.Mode
+	if mode == "" {
+		mode = defaultTokenExchangeMode
+	}
+	switch mode {
+	case TokenExchangeModeFGAPv1:
+		// fgap-v1 mode: two fine-grained v1 grants scoped to the federation
+		// requester client, one on the IdP and one on the gateway client
+		// (PLAT-CITR-11). The v2 attribute is NOT set here.
+		if err := c.ensureFGAPv1Grants(ctx, spec, gatewayUUID); err != nil {
+			return fmt.Errorf("ensure fgap-v1 token-exchange grants: %w", err)
+		}
+	case TokenExchangeModeV2Attribute:
+		// v2-attribute mode: opt the gateway client in as an external-to-internal
+		// v2 audience. The v1 permission API is NOT called, so a 501 from it cannot
+		// fail this path.
+		if err := c.ensureGatewayExchangeAuthorization(ctx, spec, gatewayUUID); err != nil {
+			return fmt.Errorf("ensure gateway token-exchange authorization: %w", err)
+		}
+	default:
+		return fmt.Errorf("unknown token-exchange mode %q; want %q or %q", mode, TokenExchangeModeFGAPv1, TokenExchangeModeV2Attribute)
 	}
 
 	return nil
@@ -197,7 +258,7 @@ func (c *Client) EnsureCIFederation(ctx context.Context, spec CIFederationSpec) 
 // the delete forever, so these are treated as already-revoked rather than failed.
 func (c *Client) DeleteCIFederation(ctx context.Context, spec CIFederationSpec) error {
 	if spec.IdpAlias == "" || spec.TrustID == "" {
-		log.Printf("INFO keycloak: CI federation delete for trust %q has no idp_alias to resolve; nothing to revoke", spec.TrustID)
+		slog.InfoContext(ctx, "Keycloak CI federation delete has no idp_alias to resolve, nothing to revoke", "trust_id", spec.TrustID)
 		return nil
 	}
 	if err := c.deleteCITrustIdpMapper(ctx, spec.IdpAlias, spec.TrustID); err != nil {
@@ -325,7 +386,7 @@ func (c *Client) deleteCITrustIdpMapper(ctx context.Context, idpAlias, trustID s
 		return err
 	}
 	if existing == nil {
-		log.Printf("INFO keycloak: CI trust mapper %q not found on IdP %q, nothing to delete", name, idpAlias)
+		slog.InfoContext(ctx, "Keycloak CI trust mapper not found on IdP, nothing to delete", "name", name, "idp_alias", idpAlias)
 		return nil
 	}
 	path := fmt.Sprintf("/admin/realms/%s/identity-provider/instances/%s/mappers/%s",
@@ -499,16 +560,15 @@ func (c *Client) findGroup(ctx context.Context, name string) (string, error) {
 	return "", nil
 }
 
-// ensureGatewayExchangeAuthorization realizes artifact (b): it opts the gateway
-// client in as a token-exchange audience so the public federation client may
-// exchange a brokered IdP token onto it (external-to-internal v2). It GET-merges
-// the attribute onto the existing client representation so unrelated settings are
-// preserved, and is a no-op when already enabled.
-//
-// LIVE-VERIFY: the precise 26.6 enablement for external-to-internal v2 with a
-// public requester is flagged in #819. This sets the documented
-// standard.token.exchange.enabled client attribute; the per-requester scoping of
-// the exchange needs confirmation against a live Keycloak.
+// ensureGatewayExchangeAuthorization realizes artifact (b) in v2-attribute mode: it
+// opts the gateway client in as a token-exchange audience so the public federation
+// client may exchange a brokered IdP token onto it (external-to-internal v2) by
+// setting the standard.token.exchange.enabled client attribute. It GET-merges the
+// attribute onto the existing client representation so unrelated settings are
+// preserved, and is a no-op when already enabled. It never calls the v1 permission
+// API, so a Keycloak whose v1 API returns 501 does not fail this path
+// (PLAT-CITR-08.02). The per-requester scoping that v2-attribute mode cannot express
+// is provided instead by fgap-v1 mode (ensureFGAPv1Grants, PLAT-CITR-11).
 func (c *Client) ensureGatewayExchangeAuthorization(ctx context.Context, spec CIFederationSpec, gatewayUUID string) error {
 	path := fmt.Sprintf("/admin/realms/%s/clients/%s", c.realm, url.PathEscape(gatewayUUID))
 	respBody, err := c.doRequest(ctx, http.MethodGet, path, nil)
@@ -543,6 +603,83 @@ func (c *Client) ensureGatewayExchangeAuthorization(ctx context.Context, spec CI
 	}
 	if _, err := c.doRequest(ctx, http.MethodPut, path, body); err != nil {
 		return fmt.Errorf("enable token exchange on gateway client %q: %w", spec.GatewayClientID, err)
+	}
+	return nil
+}
+
+// ensureFGAPv1Grants realizes artifact (b) in fgap-v1 mode (PLAT-CITR-11): the two
+// fine-grained admin authorization v1 token-exchange grants that gate an
+// external-to-internal exchange, each scoped to the shared public federation
+// requester client. Both grants reuse the same generalized building blocks the e2e
+// impersonation helper uses (enable management permissions -> ensure a client
+// policy naming the requester -> attach the policy to the token-exchange scope
+// permission on realm-management), generalized from the fixed hypershell-e2e
+// requester to the CI federation requester client:
+//
+//  1. IdP token-exchange grant: enable fine-grained authorization on the
+//     CIProvider IdP and attach the requester's client policy to the IdP's
+//     token-exchange scope permission. Without it the IdP-level exchange check
+//     denies the exchange.
+//  2. Target-client token-exchange grant: enable fine-grained authorization on the
+//     target gateway client and attach the SAME requester client policy to that
+//     client's token-exchange scope permission. Without it the target-client-level
+//     exchange check denies the exchange.
+//
+// The grant is scoped to the requester client: only the named federation client,
+// not any client, is authorized to exchange onto the IdP and onto the gateway
+// client. This resolves the per-requester exchange-scoping the reconciler left
+// open. Every step is idempotent (find-or-create a single policy, a management
+// permission, and a scope permission association), so a repeated reconcile makes
+// no duplicate policy or permission (PLAT-CITR-09). gatewayUUID is the
+// already-resolved Keycloak UUID of the gateway client.
+func (c *Client) ensureFGAPv1Grants(ctx context.Context, spec CIFederationSpec, gatewayUUID string) error {
+	// The federation requester must exist and be enabled; it is the shared public
+	// (keyless) client the gitops realm configuration provisions, and the policy
+	// names it so only it may exchange. A missing or disabled requester is a
+	// configuration error, surfaced so it is logged and retried on the next watch
+	// reseed rather than silently granting nothing.
+	requester, err := c.getClient(ctx, spec.FederationClientID)
+	if err != nil {
+		return fmt.Errorf("look up federation requester client %q: %w", spec.FederationClientID, err)
+	}
+	if requester == nil || requester.ID == "" {
+		return fmt.Errorf("federation requester client %q not found; the gitops realm configuration must provision it before a CITrust can grant token-exchange", spec.FederationClientID)
+	}
+	if !requester.Enabled {
+		return fmt.Errorf("federation requester client %q is disabled; cannot grant token-exchange", spec.FederationClientID)
+	}
+
+	rmUUID, err := c.getClientUUID(ctx, realmManagementClientID)
+	if err != nil {
+		return fmt.Errorf("look up %s client: %w", realmManagementClientID, err)
+	}
+	if rmUUID == "" {
+		return fmt.Errorf("keycloak client %s not found", realmManagementClientID)
+	}
+
+	// A single client policy names the requester and is reused for both grants, so a
+	// re-run finds it rather than creating a duplicate.
+	policyID, err := c.ensureTokenExchangeClientPolicy(ctx, rmUUID, requester.ID, tokenExchangePolicyName(spec.FederationClientID))
+	if err != nil {
+		return err
+	}
+
+	// (b.1) IdP token-exchange grant.
+	idpPermID, err := c.enableIdpTokenExchangePermissions(ctx, spec.IdpAlias)
+	if err != nil {
+		return fmt.Errorf("enable fine-grained authorization on IdP %q: %w", spec.IdpAlias, err)
+	}
+	if err := c.attachPolicyToPermission(ctx, rmUUID, idpPermID, policyID); err != nil {
+		return fmt.Errorf("grant token-exchange on IdP %q: %w", spec.IdpAlias, err)
+	}
+
+	// (b.2) target gateway client token-exchange grant.
+	gatewayPermID, err := c.enableTokenExchangePermissions(ctx, gatewayUUID)
+	if err != nil {
+		return fmt.Errorf("enable fine-grained authorization on gateway client %q: %w", spec.GatewayClientID, err)
+	}
+	if err := c.attachPolicyToPermission(ctx, rmUUID, gatewayPermID, policyID); err != nil {
+		return fmt.Errorf("grant token-exchange on gateway client %q: %w", spec.GatewayClientID, err)
 	}
 	return nil
 }

@@ -18,34 +18,52 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// CodeReadiness is display metadata from the shared live PR observation hook.
+// It does not replace worker exit status or authorize transitions in the TUI.
+type CodeReadiness struct {
+	ReviewCurrent  *bool  `json:"review_current,omitempty"`
+	Checks         string `json:"checks"`
+	State          string `json:"state"`
+	Draft          bool   `json:"draft"`
+	Mergeable      *bool  `json:"mergeable"`
+	MergeableState string `json:"mergeable_state"`
+}
+
 type Job struct {
-	Key               string          `json:"key"`
-	Scope             string          `json:"scope"`
-	Agent             string          `json:"agent"`
-	Item              string          `json:"item"`
-	Title             string          `json:"title,omitempty"`
-	URL               string          `json:"url"`
-	Fingerprint       string          `json:"fingerprint"`
-	SourceFingerprint string          `json:"source_fingerprint,omitempty"`
-	Labels            []string        `json:"labels,omitempty"`
-	PRNumber          string          `json:"pr_number"`
-	PRURL             string          `json:"pr_url"`
-	PreviousPhase     string          `json:"previous_phase,omitempty"`
-	Repo              string          `json:"repo,omitempty"`
-	Command           []string        `json:"command,omitempty"`
-	Jira              json.RawMessage `json:"jira_auth,omitempty"`
+	ReviewRequestEvent string          `json:"review_request_event,omitempty"`
+	PRBaseSHA          string          `json:"pr_base_sha,omitempty"`
+	PRHeadSHA          string          `json:"pr_head_sha,omitempty"`
+	CodeReadiness      *CodeReadiness  `json:"code_readiness,omitempty"`
+	Key                string          `json:"key"`
+	Scope              string          `json:"scope"`
+	Agent              string          `json:"agent"`
+	Item               string          `json:"item"`
+	Title              string          `json:"title,omitempty"`
+	URL                string          `json:"url"`
+	Fingerprint        string          `json:"fingerprint"`
+	SourceFingerprint  string          `json:"source_fingerprint,omitempty"`
+	Labels             []string        `json:"labels,omitempty"`
+	PRNumber           string          `json:"pr_number"`
+	PRURL              string          `json:"pr_url"`
+	PreviousPhase      string          `json:"previous_phase,omitempty"`
+	Repo               string          `json:"repo,omitempty"`
+	Command            []string        `json:"command,omitempty"`
+	Jira               json.RawMessage `json:"jira_auth,omitempty"`
 }
 type Row struct {
 	Job
-	Status   string  `json:"status"`
-	Failures int     `json:"failures"`
-	Next     float64 `json:"next_at"`
-	Started  float64 `json:"started"`
-	Finished float64 `json:"finished"`
-	RunID    string  `json:"run_id"`
-	Log      string  `json:"log"`
-	Error    string  `json:"error"`
-	Activity string  `json:"activity,omitempty"`
+	ReviewBlockers  []string `json:"review_blockers,omitempty"`
+	SyncLog         string   `json:"sync_log,omitempty"`
+	Status          string   `json:"status"`
+	Failures        int      `json:"failures"`
+	Next            float64  `json:"next_at"`
+	Started         float64  `json:"started"`
+	Finished        float64  `json:"finished"`
+	RunID           string   `json:"run_id"`
+	Log             string   `json:"log"`
+	Error           string   `json:"error"`
+	Activity        string   `json:"activity,omitempty"`
+	CancelRequested bool     `json:"cancel_requested,omitempty"`
 }
 type Store struct {
 	db   *sql.DB
@@ -88,7 +106,8 @@ func openStore(path string) (*Store, error) {
 	}
 	db.SetMaxOpenConns(1)
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS jobs (key TEXT PRIMARY KEY,scope TEXT NOT NULL,agent TEXT NOT NULL,item TEXT NOT NULL,fingerprint TEXT NOT NULL,payload TEXT NOT NULL,status TEXT NOT NULL,failures INTEGER NOT NULL DEFAULT 0,next_at REAL NOT NULL DEFAULT 0,started REAL NOT NULL DEFAULT 0,finished REAL,run_id TEXT,log TEXT,error TEXT);
- CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY,job_key TEXT NOT NULL,started REAL NOT NULL,finished REAL,exit_code INTEGER,log TEXT NOT NULL);`)
+ CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY,job_key TEXT NOT NULL,started REAL NOT NULL,finished REAL,exit_code INTEGER,log TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS worker_control (run_id TEXT PRIMARY KEY,requested INTEGER NOT NULL DEFAULT 0,acknowledged INTEGER NOT NULL DEFAULT 0);`)
 	if err != nil {
 		db.Close()
 		return nil, err
@@ -96,7 +115,7 @@ func openStore(path string) (*Store, error) {
 	return &Store{db, path}, nil
 }
 func (s *Store) rows() ([]Row, error) {
-	rs, err := s.db.Query(`SELECT payload,status,failures,next_at,started,coalesce(finished,0),coalesce(run_id,''),coalesce(log,''),coalesce(error,'') FROM jobs ORDER BY started DESC`)
+	rs, err := s.db.Query(`SELECT payload,status,failures,next_at,started,coalesce(finished,0),coalesce(run_id,''),coalesce(log,''),coalesce(error,''),coalesce((SELECT requested FROM worker_control WHERE worker_control.run_id=jobs.run_id),0) FROM jobs ORDER BY started DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +124,7 @@ func (s *Store) rows() ([]Row, error) {
 	for rs.Next() {
 		var r Row
 		var payload string
-		if err = rs.Scan(&payload, &r.Status, &r.Failures, &r.Next, &r.Started, &r.Finished, &r.RunID, &r.Log, &r.Error); err != nil {
+		if err = rs.Scan(&payload, &r.Status, &r.Failures, &r.Next, &r.Started, &r.Finished, &r.RunID, &r.Log, &r.Error, &r.CancelRequested); err != nil {
 			return nil, err
 		}
 		if err = json.Unmarshal([]byte(payload), &r.Job); err != nil {
@@ -118,7 +137,7 @@ func (s *Store) rows() ([]Row, error) {
 }
 func eligible(j Job, rows []Row, now float64) bool {
 	for _, r := range rows {
-		if r.Item == j.Item && (r.Status == "running" || r.Status == "uncertain") {
+		if r.Item == j.Item && (r.Status == "running" || r.Status == "uncertain" || r.Status == "canceled") {
 			return false
 		}
 		if r.Key == j.Key && (r.Next > now || r.Status == "succeeded" && r.Fingerprint == j.Fingerprint) {
@@ -164,6 +183,7 @@ func (s *Store) finish(key, id string, rc, base, cap int) error {
 	if err = tx.QueryRow(`SELECT failures,log FROM jobs WHERE key=? AND run_id=?`, key, id).Scan(&failures, &log); err != nil {
 		return fmt.Errorf("run ownership changed for %s: %w", key, err)
 	}
+	previousFailures := failures
 	status := "succeeded"
 	delay := 0.
 	var message any
@@ -174,6 +194,14 @@ func (s *Store) finish(key, id string, rc, base, cap int) error {
 		message = fmt.Sprintf("exit %d; see %s", rc, log)
 	} else {
 		failures = 0
+	}
+	var canceled bool
+	if err = tx.QueryRow(`SELECT coalesce((SELECT acknowledged FROM worker_control WHERE run_id=?),0)`, id).Scan(&canceled); err != nil {
+		return err
+	}
+	if canceled {
+		status, delay, failures = "canceled", 0, previousFailures
+		message = "Canceled by user. Verify remote cleanup and inspect partial changes before retrying."
 	}
 	now := seconds()
 	_, err = tx.Exec(`UPDATE jobs SET status=?,failures=?,next_at=?,finished=?,error=? WHERE key=? AND run_id=?`, status, failures, now+delay, now, message, key, id)
@@ -291,7 +319,7 @@ func (s *Store) exitLogs(scope string) error {
 
 // Manual retry bypasses only the delay, never ownership, scope, or authorization.
 func (s *Store) retryFailed(key, scope string) error {
-	result, err := s.db.Exec(`UPDATE jobs SET next_at=0 WHERE key=? AND scope=? AND status='failed'`, key, scope)
+	result, err := s.db.Exec(`UPDATE jobs SET status='failed',next_at=0 WHERE key=? AND scope=? AND status IN ('failed','canceled')`, key, scope)
 	if err != nil {
 		return err
 	}
@@ -300,7 +328,7 @@ func (s *Store) retryFailed(key, scope string) error {
 		return err
 	}
 	if n != 1 {
-		return fmt.Errorf("%s is not a failed job in this scope; running, completed, and unknown outcomes cannot be retried here", key)
+		return fmt.Errorf("%s is not a failed or canceled job in this scope; running, completed, and unknown outcomes cannot be retried here", key)
 	}
 	return nil
 }
@@ -308,7 +336,7 @@ func (s *Store) retryFailed(key, scope string) error {
 // history returns individual attempts, including retries, rather than just the
 // latest state of each agent. Scope and repository prevent cross-issue mixing.
 func (s *Store) history(issue Row) ([]Row, error) {
-	rs, err := s.db.Query(`SELECT j.payload,r.id,r.started,r.finished,r.exit_code,r.log,j.status,coalesce(j.run_id,'') FROM runs r JOIN jobs j ON j.key=r.job_key WHERE j.scope=? AND j.item=? ORDER BY r.started DESC,r.id DESC LIMIT 200`, issue.Scope, issue.Item)
+	rs, err := s.db.Query(`SELECT j.payload,r.id,r.started,r.finished,r.exit_code,r.log,j.status,coalesce(j.run_id,''),coalesce((SELECT acknowledged FROM worker_control WHERE run_id=r.id),0) FROM runs r JOIN jobs j ON j.key=r.job_key WHERE j.scope=? AND j.item=? ORDER BY r.started DESC,r.id DESC LIMIT 200`, issue.Scope, issue.Item)
 	if err != nil {
 		return nil, err
 	}
@@ -319,7 +347,8 @@ func (s *Store) history(issue Row) ([]Row, error) {
 		var payload, currentStatus, currentID string
 		var finished sql.NullFloat64
 		var code sql.NullInt64
-		if err := rs.Scan(&payload, &row.RunID, &row.Started, &finished, &code, &row.Log, &currentStatus, &currentID); err != nil {
+		var canceled bool
+		if err := rs.Scan(&payload, &row.RunID, &row.Started, &finished, &code, &row.Log, &currentStatus, &currentID, &canceled); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal([]byte(payload), &row.Job); err != nil {
@@ -340,6 +369,10 @@ func (s *Store) history(issue Row) ([]Row, error) {
 			}
 		} else if row.RunID == currentID {
 			row.Status = currentStatus
+			row.CancelRequested = canceled
+		}
+		if canceled && finished.Valid {
+			row.Status = "canceled"
 		}
 		if finished.Valid {
 			row.Finished = finished.Float64

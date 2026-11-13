@@ -14,33 +14,37 @@ import (
 )
 
 type Config struct {
-	RetryFailed string             `json:"retry"`
-	Scope       string             `json:"scope"`
-	Watch       bool               `json:"watch"`
-	DryRun      bool               `json:"dry_run"`
-	Plain       bool               `json:"plain"`
-	Status      bool               `json:"status"`
-	Retry       string             `json:"retry_uncertain"`
-	Concurrency int                `json:"concurrency"`
-	Poll        int                `json:"poll_interval"`
-	AuthRetry   int                `json:"auth_retry"`
-	AuthCheck   int                `json:"auth_check_interval"`
-	Backoff     int                `json:"backoff"`
-	BackoffMax  int                `json:"backoff_max"`
-	Lifecycle   string             `json:"lifecycle"`
-	Repo        string             `json:"repo"`
-	FullsendDir string             `json:"fullsend_dir"`
-	TargetRepo  string             `json:"target_repo"`
-	StateDir    string             `json:"state_dir"`
-	LogDir      string             `json:"log_dir"`
-	Model       string             `json:"model"`
-	GatewayName string             `json:"gateway_name"`
-	Jira        json.RawMessage    `json:"jira_selection"`
-	Environment map[string]*string `json:"environment"`
+	SettingsFile string             `json:"settings_file"`
+	Settings     []Setting          `json:"settings"`
+	Runtime      string             `json:"runtime_settings"`
+	RetryFailed  string             `json:"retry"`
+	Scope        string             `json:"scope"`
+	Watch        bool               `json:"watch"`
+	DryRun       bool               `json:"dry_run"`
+	Plain        bool               `json:"plain"`
+	Status       bool               `json:"status"`
+	Retry        string             `json:"retry_uncertain"`
+	Concurrency  int                `json:"concurrency"`
+	Poll         int                `json:"poll_interval"`
+	AuthRetry    int                `json:"auth_retry"`
+	AuthCheck    int                `json:"auth_check_interval"`
+	Backoff      int                `json:"backoff"`
+	BackoffMax   int                `json:"backoff_max"`
+	Lifecycle    string             `json:"lifecycle"`
+	Repo         string             `json:"repo"`
+	FullsendDir  string             `json:"fullsend_dir"`
+	TargetRepo   string             `json:"target_repo"`
+	StateDir     string             `json:"state_dir"`
+	LogDir       string             `json:"log_dir"`
+	Model        string             `json:"model"`
+	GatewayName  string             `json:"gateway_name"`
+	Jira         json.RawMessage    `json:"jira_selection"`
+	Environment  map[string]*string `json:"environment"`
 }
 type Adapter struct {
-	Path string
-	Args []string
+	Runtime string
+	Path    string
+	Args    []string
 }
 
 // Cancel the entire helper process group, including gh/acli child commands.
@@ -63,7 +67,7 @@ func contextCommand(ctx context.Context, name string, args ...string) *exec.Cmd 
 }
 func (a Adapter) command(ctx context.Context, action string) *exec.Cmd {
 	args := []string{a.Path, action}
-	if action != "snapshot" {
+	if action != "snapshot" && action != "sync-baseline" {
 		args = append(args, a.Args...)
 	}
 	if action == "gateway" {
@@ -71,9 +75,16 @@ func (a Adapter) command(ctx context.Context, action string) *exec.Cmd {
 		// in our foreground process group: Setpgid would stop input with SIGTTIN.
 		cmd := exec.CommandContext(ctx, "python3", args...)
 		cmd.WaitDelay = 2 * time.Second
+		if a.Runtime != "" {
+			cmd.Env = mergeEnv(os.Environ(), map[string]string{"FULLSEND_RUNTIME_SETTINGS": a.Runtime})
+		}
 		return cmd
 	}
-	return contextCommand(ctx, "python3", args...)
+	cmd := contextCommand(ctx, "python3", args...)
+	if a.Runtime != "" {
+		cmd.Env = mergeEnv(os.Environ(), map[string]string{"FULLSEND_RUNTIME_SETTINGS": a.Runtime})
+	}
+	return cmd
 }
 func (a Adapter) call(ctx context.Context, action string, input any, result any) error {
 	cmd := a.command(ctx, action)
@@ -159,7 +170,26 @@ func workerMain(args []string) int {
 	}
 	lock := os.NewFile(3, "run-lock")
 	defer lock.Close()
-	rc := runWorker(job, Adapter{Path: args[5]}, args[6], lock)
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	if _, err = s.db.Exec(`INSERT INTO worker_control(run_id) VALUES(?)`, args[2]); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 127
+	}
+	done := make(chan struct{})
+	go func() { defer close(done); s.watchCancellation(ctx, job.Key, args[2], stop) }()
+	rc := runWorkerContext(ctx, job, Adapter{Path: args[5]}, args[6], lock)
+	if rc == 0 && ctx.Err() == nil && canonicalAgent(job.Agent) == "reconcile" {
+		baselineCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		var result json.RawMessage
+		err = (Adapter{Path: args[5]}).call(baselineCtx, "sync-baseline", map[string]string{"db": args[0], "key": job.Key, "run_id": args[2]}, &result)
+		cancel()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Warning: cannot save reconciliation baseline; mechanical observation will retry:", err)
+		}
+	}
+	stop()
+	<-done
 	if err = s.finishReliably(job.Key, args[2], rc, base, cap); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 127
@@ -167,10 +197,13 @@ func workerMain(args []string) int {
 	return rc
 }
 func runWorker(job Job, a Adapter, root string, lock *os.File) int {
+	return runWorkerContext(context.Background(), job, a, root, lock)
+}
+func runWorkerContext(ctx context.Context, job Job, a Adapter, root string, lock *os.File) int {
 	job.Agent = canonicalAgent(job.Agent)
 	env := map[string]string{"FULLSEND_WORK_ITEM_URL": job.URL, "ISSUE_NUMBER": job.Item, "REPOSITORY": job.Repo, "REPO_FULL_NAME": job.Repo, "LABEL_SCOPE": job.Scope, "DRY_RUN": envDefault("AGENT_DRY_RUN", "false"), "PR_NUMBER": job.PRNumber, "PR_URL": job.PRURL, "PREVIOUS_PHASE": job.PreviousPhase}
 	if job.Agent == "ingest" || job.Agent == "reconcile" {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
 		var credentials json.RawMessage
 		if err := a.call(ctx, "snapshot", map[string]any{"selection": job.Jira, "scope": job.Scope}, &credentials); err != nil {
@@ -204,7 +237,7 @@ func runWorker(job Job, a Adapter, root string, lock *os.File) int {
 			if command[i] != "--fullsend-dir" {
 				continue
 			}
-			helper := exec.Command("python3", filepath.Join(filepath.Dir(a.Path), "local_harness.py"), command[i+1], job.Agent)
+			helper := exec.CommandContext(ctx, "python3", filepath.Join(filepath.Dir(a.Path), "local_harness.py"), command[i+1], job.Agent)
 			helper.Stderr = os.Stderr
 			output, err := helper.Output()
 			if err != nil {
@@ -232,12 +265,15 @@ func runWorker(job Job, a Adapter, root string, lock *os.File) int {
 		command[i+1] = checkout
 		break
 	}
-	cmd := exec.Command(command[0], command[1:]...)
+	cmd := gracefulCommand(ctx, command[0], command[1:]...)
 	cmd.Env = mergeEnv(os.Environ(), env)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.ExtraFiles = []*os.File{lock}
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return 130
+		}
 		if code := cmd.ProcessState; code != nil && code.ExitCode() > 0 {
 			return code.ExitCode()
 		}
@@ -302,6 +338,22 @@ func (s *Store) launch(c Config, a Adapter, j Job) error {
 	root := filepath.Dir(filepath.Dir(filepath.Dir(a.Path)))
 	cmd := exec.Command(executable, "--worker", s.path, j.Key, id, fmt.Sprint(c.Backoff), fmt.Sprint(c.BackoffMax), a.Path, root)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	values := map[string]string{}
+	baseEnv := os.Environ()
+	for key, value := range c.Environment {
+		if value != nil {
+			values[key] = *value
+		} else {
+			filtered := []string{}
+			for _, entry := range baseEnv {
+				if !strings.HasPrefix(entry, key+"=") {
+					filtered = append(filtered, entry)
+				}
+			}
+			baseEnv = filtered
+		}
+	}
+	cmd.Env = mergeEnv(baseEnv, values)
 	cmd.ExtraFiles = []*os.File{lock}
 	cmd.Stdout = out
 	cmd.Stderr = out

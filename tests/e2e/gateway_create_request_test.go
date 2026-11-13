@@ -17,7 +17,7 @@ func TestGatewayCreateRequestForDriver(t *testing.T) {
 		{
 			name:       "Kind uses its local placement",
 			driverName: "kind",
-			placement:  map[string]any{"mode": "local-kind"},
+			placement:  map[string]any{"selector": []any{"provider/kind"}},
 		},
 		{
 			name:       "OpenShift uses managed AWS public placement",

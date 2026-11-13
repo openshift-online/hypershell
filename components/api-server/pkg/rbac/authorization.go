@@ -2,6 +2,7 @@ package rbac
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"sort"
@@ -11,6 +12,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/authz"
 )
 
 type RoleBindingLookup interface {
@@ -44,127 +46,96 @@ func ServiceAccountsFromEnv() []string {
 	return serviceAccounts
 }
 
-type rbacAuthzMiddleware struct {
-	lookup           RoleBindingLookup
-	config           AuthzConfig
-	activityRecorder DailyActivityRecorder
-	clusters         RegisteredClusterResolver
+// NewRBACAuthzMiddleware builds the authorizer with only the REST
+// dependencies set. clusters resolves the caller's JWT subject to a registered
+// ManagedCluster so that a control plane is treated like an
+// RBAC_SERVICE_ACCOUNTS entry: it is never recorded as a daily-active user. As
+// for allowlisted accounts, it gets no REST role-binding bypass
+// (control_plane_identity.go). clusters may be nil.
+func NewRBACAuthzMiddleware(lookup RoleBindingLookup, config AuthzConfig, activityRecorder DailyActivityRecorder, clusters RegisteredClusterResolver) *Authorizer {
+	return NewAuthorizer(Dependencies{
+		Lookup:           lookup,
+		ActivityRecorder: activityRecorder,
+		ControlPlanes:    clusters,
+	}, config)
 }
 
-var _ auth.AuthorizationMiddleware = &rbacAuthzMiddleware{}
-
-// NewRBACAuthzMiddleware builds the REST authorization middleware. clusters
-// resolves the caller's JWT subject to a registered ManagedCluster so that a
-// control plane is treated like an RBAC_SERVICE_ACCOUNTS entry: it is never
-// recorded as a daily-active user. As for allowlisted accounts, it gets no REST
-// role-binding bypass (control_plane_identity.go). clusters may be nil.
-func NewRBACAuthzMiddleware(lookup RoleBindingLookup, config AuthzConfig, activityRecorder DailyActivityRecorder, clusters RegisteredClusterResolver) auth.AuthorizationMiddleware {
-	return &rbacAuthzMiddleware{
-		lookup:           lookup,
-		config:           config,
-		activityRecorder: activityRecorder,
-		clusters:         clusters,
+// authorizeHTTP decides one REST request. r carries the route, method and the
+// verified token; ctx is the enriched context (local user id, JWT roles).
+func (a *Authorizer) authorizeHTTP(ctx context.Context, r *http.Request) (authz.Decision, error) {
+	if !a.enforced() {
+		recordAuthorizedDailyActivity(ctx, r, a.config.ServiceAccounts, a.deps.ControlPlanes, a.deps.ActivityRecorder)
+		return authz.Allow(), nil
 	}
-}
 
-func (m *rbacAuthzMiddleware) AuthorizeApi(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !m.config.EnforceRBAC {
-			recordAuthorizedDailyActivity(r.Context(), r, m.config.ServiceAccounts, m.clusters, m.activityRecorder)
-			next.ServeHTTP(w, r)
-			return
+	payload, err := auth.GetAuthPayload(r)
+	if err != nil || payload == nil || payload.Username == "" {
+		return authz.Deny("missing identity"), nil
+	}
+
+	if isExemptEndpoint(r) {
+		return authz.Allow(), nil
+	}
+
+	// Registration is JWT-direct: managed-cluster-registrar is checked from the
+	// JWT claim, never from DB role bindings. This runs before the userID gate so
+	// a transient user-provisioning DB failure never produces a fatal non-retryable
+	// 403 that causes the spoke to exit instead of retrying.
+	if strings.HasSuffix(r.URL.Path, "/managed_clusters/registration") && r.Method == http.MethodPost {
+		if hasManagedClusterRegistrar(extractJWTRoles(r)) {
+			return authz.Allow(), nil
 		}
+		return authz.Deny("forbidden"), nil
+	}
 
-		// Derive identity from the JWT payload directly (like
-		// UserProvisioningMiddleware), NOT from GetUsernameFromContext. Both this
-		// middleware and UserProvisioningMiddleware are attached on the parent
-		// apiV1Router, which runs BEFORE the child-subrouter AuthenticateAccountJWT
-		// that populates the username context. On HTTP the framework's global
-		// jwtHandler has already validated the token and placed it in the request
-		// context, so GetAuthPayload works at this level while GetUsernameFromContext
-		// is still empty. (The gRPC path is unaffected: its post-auth interceptor
-		// runs after AuthUnaryInterceptor, which sets the username.)
-		payload, err := auth.GetAuthPayload(r)
-		if err != nil || payload == nil || payload.Username == "" {
-			http.Error(w, "Unauthorized: missing identity", http.StatusUnauthorized)
-			return
-		}
+	userID := GetUserIDFromContext(ctx)
+	if userID == "" {
+		return authz.Deny("forbidden"), nil
+	}
 
-		if isExemptEndpoint(r) {
-			next.ServeHTTP(w, r)
-			return
-		}
+	bindings, err := a.deps.Lookup.FindBindingsByUserID(ctx, userID)
+	if err != nil {
+		return authz.Deny("forbidden"), nil
+	}
 
-		// Registration is JWT-direct: managed-cluster-registrar is checked from the
-		// JWT claim, never from DB role bindings. This runs before the userID gate so
-		// a transient user-provisioning DB failure never produces a fatal non-retryable
-		// 403 that causes the spoke to exit instead of retrying.
-		if strings.HasSuffix(r.URL.Path, "/managed_clusters/registration") && r.Method == http.MethodPost {
-			if hasManagedClusterRegistrar(extractJWTRoles(r)) {
-				next.ServeHTTP(w, r)
-				return
-			}
-			http.Error(w, "Forbidden", http.StatusForbidden)
-			return
-		}
+	resource, resourceID := extractResourceInfo(r)
+	gatewayID := extractGatewayID(r, resource)
+	jwtRoles := GetJWTRolesFromContext(ctx)
 
-		userID := GetUserIDFromContext(r.Context())
-		if userID == "" {
-			http.Error(w, "Forbidden", http.StatusForbidden)
-			return
-		}
-
-		bindings, err := m.lookup.FindBindingsByUserID(r.Context(), userID)
+	// Self-deregistration: a control plane may delete the ManagedCluster
+	// record registered under its own JWT subject (bin/teardown-cluster in
+	// hypershell-gitops deregisters a spoke this way). Any other record
+	// needs platform:admin (isAuthorized).
+	if resource == "managed_clusters" && r.Method == http.MethodDelete && resourceID != "" {
+		own, err := a.isOwnManagedCluster(ctx, resourceID)
 		if err != nil {
-			http.Error(w, "Forbidden", http.StatusForbidden)
-			return
+			return authz.Decision{}, fmt.Errorf("managed cluster lookup failed: %w", err)
 		}
-
-		resource, resourceID := extractResourceInfo(r)
-		gatewayID := extractGatewayID(r, resource)
-		jwtRoles := GetJWTRolesFromContext(r.Context())
-
-		// Self-deregistration: a control plane may delete the ManagedCluster
-		// record registered under its own JWT subject (bin/teardown-cluster in
-		// hypershell-gitops deregisters a spoke this way). Any other record
-		// needs platform:admin (isAuthorized).
-		if resource == "managed_clusters" && r.Method == http.MethodDelete && resourceID != "" {
-			own, err := m.isOwnManagedCluster(r.Context(), resourceID)
-			if err != nil {
-				http.Error(w, "Service Unavailable: managed cluster lookup failed", http.StatusServiceUnavailable)
-				return
-			}
-			if own {
-				next.ServeHTTP(w, r)
-				return
-			}
+		if own {
+			return authz.Allow(), nil
 		}
+	}
 
-		if !isAuthorized(r.Method, resource, resourceID, gatewayID, bindings, jwtRoles, extRequestSurface(r.URL.Path)) {
-			if resource == "service_accounts" || resource == "access" || resource == "sandbox_events" || (r.Method == http.MethodGet && resourceID != "") {
-				http.Error(w, "Not Found", http.StatusNotFound)
-			} else {
-				http.Error(w, "Forbidden", http.StatusForbidden)
-			}
-			return
-		}
+	if !isAuthorized(r.Method, resource, resourceID, gatewayID, bindings, jwtRoles, extRequestSurface(r.URL.Path)) {
+		hide := resource == "service_accounts" || resource == "access" || resource == "sandbox_events" || (r.Method == http.MethodGet && resourceID != "")
+		return authz.Decision{Reason: "forbidden", HideExistence: hide}, nil
+	}
 
-		recordAuthorizedDailyActivity(r.Context(), r, m.config.ServiceAccounts, m.clusters, m.activityRecorder)
-		next.ServeHTTP(w, r)
-	})
+	recordAuthorizedDailyActivity(ctx, r, a.config.ServiceAccounts, a.deps.ControlPlanes, a.deps.ActivityRecorder)
+	return authz.Allow(), nil
 }
 
 // isOwnManagedCluster reports whether clusterID is the ManagedCluster the
 // caller registered under its verified JWT subject.
-func (m *rbacAuthzMiddleware) isOwnManagedCluster(ctx context.Context, clusterID string) (bool, error) {
-	if m.clusters == nil {
+func (a *Authorizer) isOwnManagedCluster(ctx context.Context, clusterID string) (bool, error) {
+	if a.deps.ControlPlanes == nil {
 		return false, nil
 	}
 	subject := subjectFromVerifiedToken(ctx)
 	if subject == "" {
 		return false, nil
 	}
-	registeredID, found, err := m.clusters.RegisteredClusterIDForSubject(ctx, subject)
+	registeredID, found, err := a.deps.ControlPlanes.RegisteredClusterIDForSubject(ctx, subject)
 	if err != nil {
 		return false, err
 	}
@@ -267,6 +238,34 @@ func hasGatewayDedicatedRouteCreator(bindings []BindingSummary) bool {
 // per-gateway route and certificate is a rate-limited resource.
 func CanRequestGatewayDedicatedRoute(bindings []BindingSummary) bool {
 	return hasPlatformAdmin(bindings) || hasGatewayDedicatedRouteCreator(bindings)
+}
+
+// roleGatewayOperatorWorkspaceCreator mirrors
+// roles.RoleGatewayOperatorWorkspaceCreator; kept local to avoid an import cycle
+// with the roles plugin package.
+const roleGatewayOperatorWorkspaceCreator = "gateway:operator-workspace-creator"
+
+// hasGatewayOperatorWorkspaceCreator reports whether the caller holds the
+// platform-wide role that entitles it to select operator workspace mode at
+// gateway create.
+func hasGatewayOperatorWorkspaceCreator(bindings []BindingSummary) bool {
+	for _, b := range bindings {
+		if b.RoleName == roleGatewayOperatorWorkspaceCreator {
+			return true
+		}
+	}
+	return false
+}
+
+// CanRequestGatewayOperatorWorkspace reports whether a caller holding bindings
+// may set GatewayCreateRequest.workspace_mode = operator. The entitlement is
+// platform-wide (a global binding) rather than per-gateway, because the gateway
+// it applies to does not exist yet. platform:admin passes as it does everywhere
+// else; every other caller -- including a plain gateway:creator -- does not,
+// because operator mode widens a gateway's access to external operator-owned
+// namespaces (SEC-RBAC-28 / OSG-OPWS-01).
+func CanRequestGatewayOperatorWorkspace(bindings []BindingSummary) bool {
+	return hasPlatformAdmin(bindings) || hasGatewayOperatorWorkspaceCreator(bindings)
 }
 
 func hasPlatformAdmin(bindings []BindingSummary) bool {

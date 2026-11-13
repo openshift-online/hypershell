@@ -33,6 +33,19 @@ func Enforced() bool {
 	return env.Config.Auth.EnableJWT
 }
 
+// EnforcedFor is Enforced for one environment: the Authorizer of env follows
+// env's own authentication configuration, so a server built from a copied
+// environment with JWT off is not enforced. The test-only pin still wins.
+func EnforcedFor(env *environments.Env) bool {
+	if enforcementOverride != nil {
+		return *enforcementOverride
+	}
+	if env == nil || env.Config == nil || env.Config.Auth == nil {
+		return false
+	}
+	return env.Config.Auth.EnableJWT
+}
+
 // SetEnforcementForTest pins the process-wide enforcement decision returned by
 // Enforced, bypassing the derivation from the resolved authentication config.
 // It exists only for test mains: the test environments run with mocked JWT

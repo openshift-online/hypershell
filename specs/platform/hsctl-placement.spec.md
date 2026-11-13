@@ -12,8 +12,8 @@
 ## Purpose
 
 `hsctl create gateway` SHALL expose the late-bound placement shape the API
-already accepts: a gateway is created with capability-label selectors (or the
-local-kind mode) instead of a pinned `cluster_id`. The server-side placement
+already accepts: a gateway is created with capability-label selectors
+instead of a pinned `cluster_id`. The server-side placement
 system (selector validation, random resolution among eligible clusters, late
 binding, and the batched placement-availability endpoint) is defined by
 [`gateway-provision-placement.spec.md`](../web-console/gateway-provision-placement.spec.md)
@@ -30,13 +30,11 @@ creating.
 - `--placement-selector <label>`, repeatable, each use carrying exactly one
   ManagedCluster capability label (a required, match-all label);
 - `--placement-exclude-selector <label>`, repeatable, each use carrying
-  exactly one capability label the candidate cluster SHALL NOT advertise;
-- `--local-kind`, a boolean that submits the local-kind placement mode.
+  exactly one capability label the candidate cluster SHALL NOT advertise.
 
 The placement flags SHALL be mutually exclusive with `--cluster-id` (the
 pinned shape), mirroring the server's exactly-one-of contract
-(PLAT-DATA-02). `--local-kind` SHALL be mutually exclusive with both
-selector flags, mirroring the `oneOf` wire contract. A non-empty
+(PLAT-DATA-02). A non-empty
 `--placement-exclude-selector` set SHALL require at least one
 `--placement-selector` use, mirroring the server's rejection of an excluded
 selector without a selector. A flag value that is empty or contains a comma
@@ -57,11 +55,6 @@ surfaced verbatim when the client check passes but the server rejects.
 
 - GIVEN the user runs `hsctl create gateway --name gw --placement-selector provider/ibm --placement-exclude-selector runtime/kata`
 - THEN the request body SHALL contain `placement: {selector: ["provider/ibm"], excludedSelector: ["runtime/kata"]}`
-
-#### Scenario: CLI-PLC-01.03 -- Local-kind flag maps to the mode shape
-
-- GIVEN the user runs `hsctl create gateway --name gw --local-kind`
-- THEN the request body SHALL contain `placement: {mode: "local-kind"}`
 
 #### Scenario: CLI-PLC-01.04 -- Placement flags and cluster pin are mutually exclusive
 
@@ -89,13 +82,19 @@ surfaced verbatim when the client check passes but the server rejects.
 
 #### Scenario: CLI-PLC-01.08 -- Placement composes with the dedicated-route flag
 
-- GIVEN the user runs `hsctl create gateway --name gw --local-kind --dedicated-route`
-- THEN the request body SHALL contain both `placement: {mode: "local-kind"}` and `dedicated_route: true`
+- GIVEN the user runs `hsctl create gateway --name gw --placement-selector provider/kind --dedicated-route`
+- THEN the request body SHALL contain both `placement: {selector: ["provider/kind"]}` and `dedicated_route: true`
 
 #### Scenario: CLI-PLC-01.09 -- Body file bypasses flag building
 
 - GIVEN the user runs `hsctl create gateway --body request.json` with any placement flags also present on the command line
 - THEN the request body SHALL be the file's contents, unchanged, as before this spec
+
+#### Scenario: CLI-PLC-01.10 -- Kind local development uses the capability selector
+
+- GIVEN the user runs `hsctl create gateway --name gw --placement-selector provider/kind` against a Kind development environment
+- THEN the request body SHALL contain `placement: {selector: ["provider/kind"]}`
+- AND the create SHALL follow the ordinary selector contract, including late binding when no connected cluster advertises `provider/kind` yet
 
 ### Requirement: CLI-PLC-02 -- Create Output and Late Binding
 
@@ -123,11 +122,7 @@ same rules as a real create, then query `POST
 /api/hypershell/v1/gateways/placement-availability` with the combined
 required-label list as a single selector entry, and SHALL NOT create a
 gateway. `--dry-run` SHALL be mutually exclusive with `--body`. For the
-`--local-kind` shape the pre-check SHALL make no availability request (the
-endpoint's contract is capability-selector based and the local-kind intent
-declares none) and SHALL report that local-kind placement is resolved only
-in the Kind development environment and validated server-side at create
-time. For the `--cluster-id` shape the pre-check SHALL print that the
+`--cluster-id` shape the pre-check SHALL print that the
 gateway would be pinned to the given cluster and that the server validates
 the reference at create time, and SHALL make no availability request. The
 pre-check SHALL exit 0 when no eligible cluster matches, printing that the
@@ -156,13 +151,6 @@ excluded labels are enforced at create time.
 - GIVEN the user runs `hsctl create gateway --name gw --dry-run --placement-selector provider/ibm --placement-exclude-selector runtime/kata`
 - THEN the output SHALL note that the availability check evaluates required labels only
 
-#### Scenario: CLI-PLC-03.04 -- Local-kind pre-check
-
-- GIVEN the user runs `hsctl create gateway --name gw --dry-run --local-kind`
-- THEN the output SHALL state that local-kind placement resolves only in the Kind development environment and is validated at create time
-- AND no availability request SHALL be sent
-- AND no gateway SHALL be created
-
 #### Scenario: CLI-PLC-03.05 -- Dry-run with a body file is rejected
 
 - GIVEN the user runs `hsctl create gateway --dry-run --body request.json`
@@ -190,9 +178,8 @@ SHALL describe these flags as the CLI surface of the gateway create request.
   platform's match-all literal semantics are unchanged (WEB-PLC-07).
 - Placement preferences, weights, or capacity-aware selection; rejected by
   the placement spec's Non-Goals.
-- Selecting a concrete managed cluster by name or identity capability on the
-  user path; deferred to the `managed-cluster/<name>` identity capability
-  work and the `cluster_id` authorization change.
+- Selecting a concrete managed cluster by name on the user path; placement
+  does not support it.
 - Any API server, control-plane, schema, proto, or SDK change.
 - Exposing the persisted `placement` document on the Gateway read model.
 - Changes to `hsctl apply` or the declarative `.hypershell` manifest path,

@@ -1,0 +1,28 @@
+/* patternfly-gap: specs/web-console/architecture.spec.md - the approved gateway connection commands use an overlaid copy action, while PatternFly CodeBlock renders actions in a separate header row */
+
+.steps {
+  margin: 0;
+}
+
+.steps :global(.pf-v6-c-code-block) {
+  position: relative;
+  background-color: var(--pf-t--global--background--color--primary--default);
+  border: var(--pf-t--global--border--width--box--default) solid
+    var(--pf-t--global--border--color--default);
+  border-radius: var(--pf-v6-c-code-block--BorderRadius);
+  overflow: hidden;
+}
+
+.steps :global(.pf-v6-c-code-block__header) {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  border-block-end: 0;
+  background-color: transparent;
+  padding: var(--pf-t--global--spacer--xs);
+  z-index: 1;
+}
+
+.steps :global(.pf-v6-c-code-block__content) {
+  padding-inline-end: 3rem;
+}

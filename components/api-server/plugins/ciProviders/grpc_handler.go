@@ -53,6 +53,9 @@ func (h *ciProviderGRPCHandler) CreateCIProvider(ctx context.Context, req *pb.Cr
 		JwksUrl:  req.JwksUrl,
 		Audience: req.Audience,
 	}
+	if req.IdpAlias != nil {
+		item.IdpAlias = *req.IdpAlias
+	}
 	created, svcErr := h.service.Create(ctx, item)
 	if svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)

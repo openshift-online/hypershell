@@ -814,24 +814,6 @@ or GitHub write and SHALL report the record as skipped (not failed). This makes
 the gate load-bearing even when `reconcile` is invoked directly on a single
 record, not only through a scope run (see Authorization Gate Is Load-Bearing).
 
-### Self-heal note
-
-After this standard ships, a scope run SHALL converge `#537`, the GitHub-origin
-execution record whose pull request `#538` is already merged but which was left
-Open by the earlier Jira-source-driven intake. The run SHALL create its Jira
-counterpart, link it canonically, project its status, and - because its pull
-request is merged - close `#537`. This is a self-healing consequence of the
-bidirectional intake and both-origins scope reconciliation defined above; no
-manual closure is required.
-
-After the Closed Execution Record Projects Done requirement ships, a scope run
-SHALL also converge `#524`, the Closed execution record whose Wave B work merged
-under pull request `#528` (which references `#521`, not `#524`), so no merged
-pull request is detectable for `#524`. Because `#524` is Closed, the reconciler
-SHALL project its linked epic `HYPERSHELL-392` to the `Done` category without
-requiring a detectable merged pull request. This is a self-healing consequence of
-the Closed-record Done path; no manual Jira edit is required.
-
 ---
 
 ## Acceptance Criteria
@@ -858,10 +840,10 @@ the Closed-record Done path; no manual Jira edit is required.
 - `reconcile` never resolves a Jira item from a descriptive key mention; it
   resolves a counterpart only via the `agent/execution-record` marker plus the
   exact key.
-- A scope run converges `#537`: it creates the Jira counterpart, links it
-  canonically, projects status, and closes `#537` because pull request `#538` is
-  merged. Re-running changes nothing, creating no duplicate epics, records, or
-  links.
+- A scope run converges a GitHub-origin execution record that is still Open, has
+  no Jira counterpart, and whose pull request is merged: it creates the Jira
+  counterpart, links it canonically, projects status, and closes the record.
+  Re-running changes nothing, creating no duplicate epics, records, or links.
 - An item carrying `agent/scope/<user>` but not `agent/allowed` is inert across
   the whole funnel: intake creates no epic, record, or link for it; `reconcile`
   skips it without writing; and work selection never selects it. Adding
@@ -870,9 +852,8 @@ the Closed-record Done path; no manual Jira edit is required.
   with only `agent/execution-record` and the funnel scope label and stays inert
   until a human authorizes it.
 - A scope run projects the Jira item of a Closed execution record to the `Done`
-  category even when no merged pull request is detectable; `HYPERSHELL-392` (the
-  epic for the Closed record `#524`) reaches `Done`. An open record with no merged
-  pull request stays `In Progress`. Re-running changes nothing.
+  category even when no merged pull request is detectable. An open record with no
+  merged pull request stays `In Progress`. Re-running changes nothing.
 
 #### Example: GitHub-first item converges on merge
 
@@ -883,14 +864,14 @@ the Closed-record Done path; no manual Jira edit is required.
 - AND on merge the execution record is closed and the Jira item is projected to
   the `Done` category
 
-#### Example: Scope run self-heals the stranded GitHub-origin record
+#### Example: Scope run converges a stranded GitHub-origin record
 
-- GIVEN `#537`, a GitHub-origin execution record whose pull request `#538` is
-  merged but which is still Open and has no Jira counterpart
+- GIVEN a GitHub-origin execution record whose pull request is merged but which
+  is still Open and has no Jira counterpart
 - WHEN a scope run of `execute-sdlc` reconciles the scope
-- THEN a Jira epic is created for `#537` and canonically linked
-- AND `#537`'s status is projected to the `Done` category
-- AND `#537` is closed
+- THEN a Jira epic is created for the record and canonically linked
+- AND the record's status is projected to the `Done` category
+- AND the record is closed
 - AND re-running makes no further change
 
 #### Example: Jira epic drives a full run

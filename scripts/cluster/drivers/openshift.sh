@@ -702,7 +702,7 @@ apply_rendered_overlay() {
 # runAsUser/fsGroup stripped so the restricted-v2 SCC can assign identities from
 # the project range. The overlay render below omits Deployment/Service
 # hypershell-postgres for that reason (see apply_overlay): the manifest stays in
-# deploy/openshift/kustomization.yaml so `kustomize build` consumers (deploy/ibm)
+# deploy/openshift/kustomization.yaml so plain `kustomize build` consumers
 # remain self-contained, but this driver applies it exactly once, from here.
 apply_postgres_fallback() {
   info "Deploying the bundled PostgreSQL Deployment (dev stand-in for an externally provisioned server)"

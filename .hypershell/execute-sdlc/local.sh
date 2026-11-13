@@ -21,7 +21,8 @@ if [[ -f "$config" ]]; then
   source "$config"
   set +a
 fi
-scope="${FULLSEND_LAUNCH_SCOPE:-${FULLSEND_SCOPE:-}}"
+saved_scope="$(python3 "$local_dir/runtime_settings.py")"
+scope="${FULLSEND_LAUNCH_SCOPE:-${saved_scope:-${FULLSEND_SCOPE:-}}}"
 if [[ -z "$scope" ]]; then
   echo 'error: set FULLSEND_SCOPE in .hypershell/fullsend.env or run make fullsend SCOPE=agent/scope/YOUR_NAME/fullsend' >&2
   exit 2
@@ -31,6 +32,8 @@ if [[ "$scope" != agent/scope/* || "$scope" == agent/scope/ ]]; then
   exit 2
 fi
 args=("$scope")
+[[ -z "${FULLSEND_LAUNCH_AUTO_MERGE:-}" ]] || args+=(--auto-merge "$FULLSEND_LAUNCH_AUTO_MERGE")
+[[ -z "${FULLSEND_LAUNCH_INTAKE_INTERVAL:-}" ]] || args+=(--intake-interval "$FULLSEND_LAUNCH_INTAKE_INTERVAL")
 [[ -z "${FULLSEND_LAUNCH_MODEL:-}" ]] || args+=(--model "$FULLSEND_LAUNCH_MODEL")
 [[ -z "${FULLSEND_LAUNCH_CONCURRENCY:-}" ]] || args+=(--concurrency "$FULLSEND_LAUNCH_CONCURRENCY")
 [[ -z "${FULLSEND_LIFECYCLE:-}" ]] || args+=(--lifecycle "$FULLSEND_LIFECYCLE")

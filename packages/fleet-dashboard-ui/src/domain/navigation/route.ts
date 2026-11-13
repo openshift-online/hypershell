@@ -19,10 +19,10 @@
 //  - Every identifier is treated as opaque runtime data and round-trips
 //    byte-for-byte through standard URL percent-encoding (FLT-NAV-03).
 
-/** The three top-level tabs. The URL path carries this; all else is query state. */
-export type TabKey = "map" | "sdlc" | "e2e";
+/** The top-level tabs. The URL path carries this; all else is query state. */
+export type TabKey = "map" | "sdlc" | "e2e" | "delivery";
 
-const TAB_KEYS: readonly TabKey[] = ["map", "sdlc", "e2e"];
+const TAB_KEYS: readonly TabKey[] = ["map", "sdlc", "e2e", "delivery"];
 
 /** A table sort: a column index and a direction. */
 export interface SortState {
@@ -110,6 +110,12 @@ export interface E2eState {
   readonly exec: ExecState;
 }
 
+/** Delivery tab state (FLT-DLV-14). */
+export interface DeliveryState {
+  /** Selected change as a full commit SHA; opens its details drawer. */
+  readonly change: string | null;
+}
+
 /** The whole addressable navigation state of Glass. */
 export interface RouteState {
   readonly tab: TabKey;
@@ -118,6 +124,7 @@ export interface RouteState {
   readonly map: MapState;
   readonly sdlc: SdlcState;
   readonly e2e: E2eState;
+  readonly delivery: DeliveryState;
 }
 
 /** A framework-free location: the path and the raw query string (with or without `?`). */
@@ -184,6 +191,7 @@ export const DEFAULT_ROUTE: RouteState = {
     drawer: false,
     exec: DEFAULT_EXEC,
   },
+  delivery: { change: null },
 };
 
 // --- Primitive codecs ------------------------------------------------------
@@ -391,7 +399,21 @@ export function parseRoute(location: RouteLocation): RouteState {
     exec: parseExec(params, "r"),
   };
 
-  return normalizeRoute({ tab, bundle, map, sdlc, e2e });
+  // Delivery: the selected change is a full commit SHA (FLT-DLV-14); anything
+  // else is dropped.
+  const delivery: DeliveryState = {
+    change: parseCommitSha(params.get("change")),
+  };
+
+  return normalizeRoute({ tab, bundle, map, sdlc, e2e, delivery });
+}
+
+/** A full 40-character hex commit SHA, lower-cased; anything else is null. */
+function parseCommitSha(raw: string | null): string | null {
+  if (raw === null || !/^[0-9a-fA-F]{40}$/.test(raw)) {
+    return null;
+  }
+  return raw.toLowerCase();
 }
 
 /** Deduplicate and order scopes deterministically, applying the count cap. */
@@ -450,7 +472,14 @@ export function normalizeRoute(state: RouteState): RouteState {
     exec: runOpen ? state.e2e.exec : DEFAULT_EXEC,
   };
 
-  return { tab: state.tab, bundle: state.bundle, map, sdlc, e2e };
+  return {
+    tab: state.tab,
+    bundle: state.bundle,
+    map,
+    sdlc,
+    e2e,
+    delivery: { change: parseCommitSha(state.delivery.change) },
+  };
 }
 
 // --- Serialize -------------------------------------------------------------
@@ -522,6 +551,11 @@ export function serializeRoute(state: RouteState): RouteLocation {
     } else {
       serializeExec(params, "r", norm.e2e.exec);
     }
+  }
+
+  // Delivery.
+  if (norm.delivery.change !== null) {
+    params.set("change", norm.delivery.change);
   }
 
   const query = params.toString();

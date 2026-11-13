@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -122,7 +122,7 @@ func EnsureControlPlaneNamespaceLabel(ctx context.Context, client kubernetes.Int
 	if _, err := client.CoreV1().Namespaces().Patch(ctx, namespace, types.StrategicMergePatchType, patch, metav1.PatchOptions{}); err != nil {
 		return fmt.Errorf("label control-plane namespace %s with %s: %w", namespace, ControlPlaneLabel, err)
 	}
-	log.Printf("INFO labeled control-plane namespace %s with %s=%s", namespace, ControlPlaneLabel, ControlPlaneLabelValue)
+	slog.InfoContext(ctx, "Labeled control-plane namespace", "namespace", namespace, "label", ControlPlaneLabel, "value", ControlPlaneLabelValue)
 	return nil
 }
 
@@ -161,11 +161,11 @@ func DeleteManagedNamespace(ctx context.Context, client kubernetes.Interface, na
 		return false, fmt.Errorf("get namespace %s: %w", namespace, err)
 	}
 	if !isGatewayWorkloadName(ns.Name) || !hasManagementLabels(ns) {
-		log.Printf("INFO namespace %s is not a gateway workload namespace, skipping deletion", namespace)
+		slog.InfoContext(ctx, "Namespace is not a gateway workload namespace, skipping deletion", "namespace", namespace)
 		return false, nil
 	}
 	if labeled := ns.Labels[InstanceLabel]; instance == "" || labeled != instance {
-		log.Printf("INFO namespace %s is managed by instance %q, not %q; skipping deletion", namespace, labeled, instance)
+		slog.InfoContext(ctx, "Namespace is managed by another instance; skipping deletion", "namespace", namespace, "labeled_instance", labeled, "instance", instance)
 		return false, nil
 	}
 	if ns.DeletionTimestamp != nil {
@@ -178,7 +178,7 @@ func DeleteManagedNamespace(ctx context.Context, client kubernetes.Interface, na
 		}
 		return false, fmt.Errorf("delete namespace %s: %w", namespace, err)
 	}
-	log.Printf("INFO deleted namespace %s", namespace)
+	slog.InfoContext(ctx, "Deleted namespace", "namespace", namespace)
 	return true, nil
 }
 
@@ -217,7 +217,55 @@ func DeleteManagedWorkspaceNamespaces(ctx context.Context, client kubernetes.Int
 			}
 			errs = append(errs, fmt.Errorf("delete managed workspace namespace %s: %w", name, err))
 		} else {
-			log.Printf("INFO deleted managed workspace namespace %s of gateway namespace %s", name, namespace)
+			slog.InfoContext(ctx, "Deleted managed workspace namespace", "name", name, "namespace", namespace)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// DeleteOperatorWorkspaceNamespaces deletes the tenant workspace namespaces an
+// operator-mode gateway's external operator created for it, best-effort and
+// idempotent. In operator mode the external operator (not the control plane)
+// creates and labels these namespaces with the administrator-approved label key
+// set to the owning gateway's own namespace name, so they are selected by
+// labelKey=gatewayNamespace (OSG-OPWS-02). Because that value is unique per
+// gateway (PLAT-DATA-03), the sweep only ever matches this gateway's namespaces.
+// They live outside the gateway's own namespace, so neither the Helm uninstall
+// nor the managed-namespace GC reaps them; without this sweep every deleted
+// operator gateway would leak its tenant namespaces (OSG-OPWS-06). An empty
+// labelKey or gatewayNamespace selects nothing (no-op), so a control plane with
+// no operator label configured never errors on delete. An already-absent or
+// already-terminating namespace is success, and the gateway's own namespace is
+// skipped defensively. Per-namespace failures are aggregated so the caller can
+// record orphans and retry the delete reconcile.
+func DeleteOperatorWorkspaceNamespaces(ctx context.Context, client kubernetes.Interface, labelKey, gatewayNamespace string) error {
+	if labelKey == "" || gatewayNamespace == "" {
+		return nil
+	}
+	selector := fmt.Sprintf("%s=%s", labelKey, gatewayNamespace)
+	list, err := client.CoreV1().Namespaces().List(ctx, metav1.ListOptions{LabelSelector: selector})
+	if err != nil {
+		return fmt.Errorf("list operator workspace namespaces of %s: %w", gatewayNamespace, err)
+	}
+	var errs []error
+	for i := range list.Items {
+		name := list.Items[i].Name
+		if name == gatewayNamespace {
+			// Defensive: never delete the gateway's own namespace here; it is
+			// reclaimed by the managed-namespace delete path.
+			continue
+		}
+		if list.Items[i].DeletionTimestamp != nil {
+			// Already terminating; treat as success.
+			continue
+		}
+		if err := client.CoreV1().Namespaces().Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
+			if k8serrors.IsNotFound(err) {
+				continue
+			}
+			errs = append(errs, fmt.Errorf("delete operator workspace namespace %s: %w", name, err))
+		} else {
+			slog.InfoContext(ctx, "Deleted operator workspace namespace", "name", name, "gateway_namespace", gatewayNamespace)
 		}
 	}
 	return errors.Join(errs...)
@@ -241,7 +289,7 @@ func EnsureManagedNamespace(ctx context.Context, client kubernetes.Interface, na
 		}
 		_, err = client.CoreV1().Namespaces().Create(ctx, created, metav1.CreateOptions{})
 		if err == nil {
-			log.Printf("INFO created namespace %s (instance=%s)", namespace, instance)
+			slog.InfoContext(ctx, "Created namespace", "namespace", namespace, "instance", instance)
 			return nil
 		}
 		if !k8serrors.IsAlreadyExists(err) {
@@ -288,7 +336,7 @@ func MarkGCEligible(ctx context.Context, client kubernetes.Interface, ns *corev1
 		if t, err := time.Parse(time.RFC3339, existing); err == nil {
 			return t, nil
 		}
-		log.Printf("WARN namespace %s has unparseable %s=%q; overwriting", ns.Name, GCEligibleSinceAnnotation, existing)
+		slog.WarnContext(ctx, "Namespace has unparseable GC-eligible annotation; overwriting", "namespace", ns.Name, "annotation", GCEligibleSinceAnnotation, "value", existing)
 	}
 
 	stamp := now.UTC().Format(time.RFC3339)

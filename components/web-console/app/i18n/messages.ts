@@ -178,11 +178,11 @@ export const messages = defineMessages({
       "The gateway could not be created. Retry to generate another unique name.",
     description: "Error shown when quick create cannot create a gateway.",
   },
-  homepageQuickCreateLocalKindBody: {
-    id: "app.homepage.quickCreate.localKindBody",
+  homepageQuickCreateKindBody: {
+    id: "app.homepage.quickCreate.kindBody",
     defaultMessage:
-      "Quick create makes a gateway on local-kind with a generated name. You can rename it after it starts.",
-    description: "Explanation shown in the local-kind quick-create dialog.",
+      "Quick create makes a gateway on the local Kind cluster with a generated name. You can rename it after it starts.",
+    description: "Explanation shown in the Kind quick-create dialog.",
   },
   homepageGatewayHealthTitle: {
     id: "app.homepage.gatewayHealth.title",
@@ -382,5 +382,25 @@ export const messages = defineMessages({
     defaultMessage:
       "Gateway phase metrics dashboard showing running, provisioning, degraded, and failed gateway counts.",
     description: "Browser metadata description for the gateway metrics page.",
+  },
+  primaryNavigation: {
+    id: "app.nav.primary.ariaLabel",
+    defaultMessage: "Primary navigation",
+    description: "Accessible label for the application primary navigation.",
+  },
+  toggleNavigation: {
+    id: "app.nav.toggle.ariaLabel",
+    defaultMessage: "Toggle navigation",
+    description: "Accessible label for the navigation toggle button.",
+  },
+  overview: {
+    id: "app.nav.overview",
+    defaultMessage: "Overview",
+    description: "Navigation label for the application homepage overview.",
+  },
+  dashboard: {
+    id: "app.nav.dashboard.short",
+    defaultMessage: "Dashboard",
+    description: "Short navigation label for the operational dashboard.",
   },
 });

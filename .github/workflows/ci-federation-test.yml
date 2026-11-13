@@ -91,4 +91,15 @@ jobs:
           echo "Token exchange SUCCEEDED. Gateway-scoped token claims:"
           payload="$(echo "$access" | cut -d. -f2 | tr '_-' '/+')"
           case $(( ${#payload} % 4 )) in 2) payload="$payload==";; 3) payload="$payload=";; esac
-          echo "$payload" | base64 -d 2>/dev/null | jq '{aud, azp, preferred_username, scope}' || true
+          claims="$(echo "$payload" | base64 -d 2>/dev/null)"
+          # hypershell.roles is a NESTED claim ({"hypershell":{"roles":[...]}}), not a flat
+          # "hypershell.roles" key - the CITrust group -> client-role binding is what puts
+          # openshell-user here, so this is the definitive proof the CITrust realized (not
+          # just that the token-exchange grant exists).
+          echo "$claims" | jq '{aud, azp, preferred_username, scope, hypershell_roles: .hypershell.roles}' || true
+          roles="$(echo "$claims" | jq -r '(.hypershell.roles // []) | join(",")')"
+          if ! printf ',%s,' "$roles" | grep -q ',openshell-user,'; then
+            echo "ASSERT FAILED: exchanged token is missing the openshell-user role (hypershell.roles=[$roles]). The CITrust group/role binding did not apply." >&2
+            exit 1
+          fi
+          echo "ASSERT OK: hypershell.roles contains openshell-user (CITrust realized end to end)."

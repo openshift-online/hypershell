@@ -200,7 +200,7 @@ The usage summary card SHALL include a **Users** row sourced from the same metri
 
 All user-visible strings SHALL use `defineMessages` in `operational-dashboard-ui` and SHALL be extracted into the web-console `locales/en.json` catalog.
 
-The default layout template SHALL place `registered-users` spanning columns 1–2 on the platform adoption first row (WEB-OPS-10) with height `REGISTERED_USERS_WIDGET_HEIGHT` (taller than `METRIC_WIDGET_HEIGHT` to fit the stat grid and sparkline). `usage-summary` SHALL share `REGISTERED_USERS_WIDGET_HEIGHT` in column 0 on the same row. `gateway-status` SHALL render in column 3 on the platform adoption second row at height `ADOPTION_GATEWAY_STATUS_WIDGET_HEIGHT`.
+The default layout template SHALL place `registered-users` spanning columns 1–2 on the platform adoption first row (WEB-OPS-10) with height `REGISTERED_USERS_WIDGET_HEIGHT` (taller than the standard summary card height `RESOURCE_SUMMARY_WIDGET_HEIGHT` to fit the stat grid and sparkline). `usage-summary` SHALL share `REGISTERED_USERS_WIDGET_HEIGHT` in column 0 on the same row. `gateway-status` SHALL render in column 3 on the platform adoption second row at height `ADOPTION_GATEWAY_STATUS_WIDGET_HEIGHT`.
 
 #### Scenario: PLAT-USR-06.01 -- Users widget shows adoption layout
 

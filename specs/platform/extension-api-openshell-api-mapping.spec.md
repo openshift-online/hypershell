@@ -34,7 +34,8 @@ OpenShell is an upstream dependency; only the pinned OpenShell ref
 `openshell` CLI are reachable from this repository, not OpenShell's server source. This
 mapping is therefore grounded in two reachable sources of truth:
 
-1. The **installed `openshell` CLI** (version `0.1.2-rhaiv.0`) and its command and flag
+1. The **installed `openshell` CLI** (the `OPENSHELL_TAG` pinned in
+   [`OPENSHELL_VERSION`](../../OPENSHELL_VERSION)) and its command and flag
    surface (`openshell workspace`, `workspace member`, `provider`, `provider refresh`,
    `sandbox`, `gateway`), which the CLI drives against OpenShell's existing gateway API.
 2. The **production provisioning sequence** the `sdlc-coordinator` runs today

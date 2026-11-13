@@ -45,6 +45,7 @@ const emptyE2eRun: E2eRunDetail = {
   stepCount: 0,
   plannedSteps: [],
   steps: [],
+  failure: null,
   logs: [],
   logsTruncated: false,
 };
@@ -53,6 +54,7 @@ const emptyE2eRun: E2eRunDetail = {
 const e2eApi = {
   getE2eRuns: () => Promise.resolve(plane<E2eRunsData>(emptyE2eRuns)),
   getE2eRun: () => Promise.resolve(plane<E2eRunDetail>(emptyE2eRun)),
+  getE2eDiagnostics: () => Promise.resolve(plane({ diagnostics: [] })),
   getE2eRunLogs: () =>
     Promise.resolve(plane({ entries: [], nextCursor: null, hasMore: false })),
   streamE2eRun: () => () => {
@@ -60,10 +62,23 @@ const e2eApi = {
   },
   getSdlcAgents: () =>
     Promise.resolve(plane<SdlcAgentsData>({ envs: [], agents: [] })),
+  getDelivery: () =>
+    Promise.resolve(
+      plane({
+        enabled: false,
+        stages: [],
+        changes: [],
+        typicalSeconds: {},
+        omitted: 0,
+        sources: {},
+      }),
+    ),
 } satisfies Pick<
   FleetApi,
+  | "getDelivery"
   | "getE2eRuns"
   | "getE2eRun"
+  | "getE2eDiagnostics"
   | "getE2eRunLogs"
   | "streamE2eRun"
   | "getSdlcAgents"

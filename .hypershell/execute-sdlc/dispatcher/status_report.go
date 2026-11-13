@@ -21,6 +21,9 @@ func writeStatusReport(out io.Writer, c Config, rows []Row) {
 	}
 	fmt.Fprintf(out, "FULLSEND / Status\n%s · %s\n\n", clean(c.Scope), clean(c.Repo))
 	fmt.Fprintf(out, "%d running · %d failed · %d unknown outcomes · %d completed jobs\n", counts["running"], counts["failed"], counts["uncertain"], counts["succeeded"])
+	if counts["canceled"] > 0 {
+		fmt.Fprintf(out, "%d canceled · manual retry required\n", counts["canceled"])
+	}
 	fmt.Fprintln(out, "Saved local state; gateway connectivity is not checked.")
 	sort.SliceStable(visible, func(i, j int) bool { return rank(visible[i].Status) < rank(visible[j].Status) })
 	if len(visible) > 0 {
@@ -30,8 +33,13 @@ func writeStatusReport(out io.Writer, c Config, rows []Row) {
 			switch r.Status {
 			case "running":
 				label = "Running"
+				if r.CancelRequested {
+					label = "Canceling · cleanup"
+				}
 			case "failed":
 				label = "Failed · " + rowStatus(r)
+			case "canceled":
+				label = "Canceled · manual retry"
 			case "uncertain":
 				label = "Outcome unknown"
 			}
@@ -43,7 +51,7 @@ func writeStatusReport(out io.Writer, c Config, rows []Row) {
 		fmt.Fprintln(out, "\nNo running or failed jobs to inspect.")
 	}
 	for _, r := range visible {
-		if r.Status != "failed" && r.Status != "uncertain" {
+		if r.Status != "failed" && r.Status != "uncertain" && r.Status != "canceled" {
 			continue
 		}
 		fmt.Fprintf(out, "\n%s · %s\n", clean(title(r)), clean(r.Agent))

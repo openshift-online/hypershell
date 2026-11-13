@@ -4,7 +4,6 @@ import {
   Modal,
   ModalBody,
   ModalFooter,
-  ModalHeader,
   ModalVariant,
   Stack,
   StackItem,
@@ -15,7 +14,8 @@ import { FormattedMessage, useIntl } from "react-intl";
 
 import { useGatewayUi } from "../gateway-ui-provider";
 import { messages } from "../messages";
-import { gatewayListQueryRoot, gatewayQueryKey } from "./gateway-data";
+import { reconcileGatewayCachesAfterDelete } from "./gateway-data";
+import { AlertModalHeader } from "../shared/alert-modal-header";
 
 interface GatewayDeleteDialogProps {
   activeSandboxCount?: number;
@@ -42,14 +42,8 @@ export function GatewayDeleteDialog({
   const deletion = useMutation({
     mutationFn: () => gateways.removeGateway(gatewayId),
     onSuccess: async () => {
-      queryClient.removeQueries({
-        exact: true,
-        queryKey: gatewayQueryKey(gatewayId),
-      });
       onDeleted();
-      await queryClient.invalidateQueries({
-        queryKey: gatewayListQueryRoot,
-      });
+      await reconcileGatewayCachesAfterDelete(queryClient, [gatewayId]);
     },
   });
 
@@ -66,7 +60,7 @@ export function GatewayDeleteDialog({
       onClose={deletion.isPending ? undefined : close}
       variant={ModalVariant.small}
     >
-      <ModalHeader
+      <AlertModalHeader
         labelId={titleId}
         title={intl.formatMessage(messages.deleteGatewayTitle, {
           gatewayName,

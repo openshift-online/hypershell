@@ -27,6 +27,12 @@ patches:
             containers:
               - name: controller
                 env:
+                  # Host platform is explicit deployment configuration
+                  # (CTRL-CORE-16), never inferred from API discovery. Fleet
+                  # GitOps hub and spoke controllers run on OpenShift, so gateway
+                  # pods use the namespace's SCC-assigned identity (OSG-CORE-14).
+                  - name: HYPERSHELL_CLUSTER_PLATFORM
+                    value: openshift
                   - name: HYPERSHELL_MANAGED_CLUSTER_NAME
                     value: "hub"
                   - name: HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES

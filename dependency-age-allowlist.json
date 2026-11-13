@@ -2,9 +2,9 @@
   {
     "kind": "go",
     "name": "github.com/openshift-online/rh-trex-ai/components/api-server",
-    "version": "v0.0.0-20261029165438-8f11b55b73f2",
-    "reason": "Adopt openshift-online/rh-trex-ai#72: public API login configuration and generated CLI issuer discovery, so hsctl login needs only the API URL (SEC-OIDC-12). The API framework, CLI runtime, and generators are pinned to upstream main merge 8f11b55b73f2dcf569730afcb9d087050106000c. This also retains the existing transaction and slog fixes. The module has no release tags. Remove this age exception after 2026-11-12 or when a newer pin replaces it.",
-    "compensatingVerification": "Full-SHA generator pin, checksum-locked Go modules, generator drift checks, CLI unit tests, cross-compilation of all release targets, API build and tests including unauthenticated discovery through the real HyperShell RBAC middleware. Upstream tests cover browser/device login and discovery failures; the candidate completed a real hyp2 device login and an authenticated read-only API request before merge."
+    "version": "v0.0.0-20261104131823-af39aef36b4e",
+    "reason": "Adopt openshift-online/rh-trex-ai#75: framework-owned authorization, so HyperShell's RBAC is one authz.Authorizer that TRex applies to every declared REST route and gRPC method (SEC-RBAC-24). The API framework, CLI runtime, and generators are pinned to upstream main merge af39aef36b4e12512591a5ccefb2232e04ff0eb7. This also includes #72 (login issuer discovery), #73 and #76 (removed API client and its flags). The module has no release tags. Remove this age exception after 2026-11-20 or when a newer pin replaces it.",
+    "compensatingVerification": "Full-SHA generator pin, checksum-locked Go modules, generator drift checks, CLI unit tests, API build, vet, golangci-lint, and the full API test suite, including the test/authz and plugins/rbac integration suites that drive the real HyperShell Authorizer over REST and gRPC. Upstream tests cover the framework's REST and gRPC authorization chain."
   },
   {
     "kind": "go",
@@ -12,5 +12,33 @@
     "version": "v1.11.0",
     "reason": "The current telemetry dependency graph resolves this transitive version within the cooldown window.",
     "compensatingVerification": "The module is checksum-locked; API server and control plane vet and golangci-lint checks cover the resolved graph."
+  },
+  {
+    "kind": "go",
+    "name": "golang.org/x/crypto",
+    "version": "v0.59.0",
+    "reason": "Security update (consolidated Konflux/MintMaker PR for golang.org/x/crypto v0.59.0). The fixed release is inside the 14-day cooldown window. Remove this age exception after 2026-11-26.",
+    "compensatingVerification": "The module is checksum-locked in go.sum; build, vet and unit tests pass for every Go module, and the api-server integration suite was run against PostgreSQL."
+  },
+  {
+    "kind": "go",
+    "name": "golang.org/x/sys",
+    "version": "v0.50.0",
+    "reason": "Required transitively by golang.org/x/crypto v0.59.0, the security fix, which cannot be taken without it. Remove this age exception after 2026-11-26.",
+    "compensatingVerification": "The module is checksum-locked in go.sum; build, vet and unit tests pass for every Go module, and the api-server integration suite was run against PostgreSQL."
+  },
+  {
+    "kind": "go",
+    "name": "golang.org/x/term",
+    "version": "v0.48.0",
+    "reason": "Required transitively by golang.org/x/crypto v0.59.0, the security fix, which cannot be taken without it. Remove this age exception after 2026-11-26.",
+    "compensatingVerification": "The module is checksum-locked in go.sum; build, vet and unit tests pass for every Go module, and the api-server integration suite was run against PostgreSQL."
+  },
+  {
+    "kind": "go",
+    "name": "golang.org/x/text",
+    "version": "v0.44.0",
+    "reason": "Required transitively by golang.org/x/crypto v0.59.0, the security fix, which cannot be taken without it. Remove this age exception after 2026-11-26.",
+    "compensatingVerification": "The module is checksum-locked in go.sum; build, vet and unit tests pass for every Go module, and the api-server integration suite was run against PostgreSQL."
   }
 ]

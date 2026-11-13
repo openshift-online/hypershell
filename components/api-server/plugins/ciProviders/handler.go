@@ -104,6 +104,9 @@ func (h *ciProviderHandler) Patch(w http.ResponseWriter, r *http.Request) {
 			if patch.JwksUrl != nil {
 				found.JwksUrl = *patch.JwksUrl
 			}
+			if patch.IdpAlias != nil {
+				found.IdpAlias = *patch.IdpAlias
+			}
 			updated, err := h.service.Replace(ctx, found)
 			if err != nil {
 				return nil, err

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -122,6 +123,10 @@ func (e *E2E) Stream(w http.ResponseWriter, r *http.Request) {
 		if ev.RunID != runID || (ev.Namespace != "" && ev.Namespace != namespace) {
 			return
 		}
+		if ev.Event == e2eEventDiagnostic || (ev.Event == e2eEventLog &&
+			(ev.StepID == diagnosticsStepID || ev.StepID == "failure-diagnostics" || strings.HasPrefix(ev.Message, "DIAG "))) {
+			return
+		}
 		if seen[ev.Sequence] {
 			return
 		}
@@ -151,7 +156,7 @@ func (e *E2E) Stream(w http.ResponseWriter, r *http.Request) {
 	// the bridge has no gap between the snapshot and the tail.
 	end := time.Now()
 	start := end.Add(-e.window)
-	if entries, truncated, err := e.runEntries(ctx, tenant, runID, start, end); err == nil {
+	if entries, truncated, err := e.runEntries(ctx, tenant, namespace, runID, start, end); err == nil {
 		if truncated {
 			initialState = streamStateGap
 		}

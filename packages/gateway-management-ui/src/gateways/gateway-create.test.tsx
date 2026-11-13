@@ -12,10 +12,7 @@ const { provisionGateway, navigate } = vi.hoisted(() => ({
   navigate: vi.fn(),
 }));
 
-function placementAvailability(
-  available: readonly boolean[],
-  localKind = false,
-) {
+function placementAvailability(available: readonly boolean[], kind = false) {
   const selectors = [
     ["network/public", "provider/aws"],
     ["network/vpn", "provider/aws"],
@@ -27,12 +24,20 @@ function placementAvailability(
     ["network/vpn", "provider/ibm", "runtime/kata"],
   ] as const;
   return {
-    localKind,
-    placements: selectors.map((selector, index) => ({
-      available: available[index] ?? false,
-      ...(!available[index] ? { reason: "no-eligible-cluster" as const } : {}),
-      selector,
-    })),
+    placements: [
+      {
+        available: kind,
+        ...(!kind ? { reason: "no-eligible-cluster" as const } : {}),
+        selector: ["provider/kind"] as const,
+      },
+      ...selectors.map((selector, index) => ({
+        available: available[index] ?? false,
+        ...(!available[index]
+          ? { reason: "no-eligible-cluster" as const }
+          : {}),
+        selector,
+      })),
+    ],
   };
 }
 
@@ -148,6 +153,22 @@ describe("GatewayCreatePage", () => {
     });
   });
 
+  it("navigates to the connection tab after provisioning", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await enterNameAndSelectPublic(user);
+    await user.click(screen.getByRole("button", { name: "Provision gateway" }));
+
+    await waitFor(() => {
+      expect(navigate).toHaveBeenCalledWith(
+        "/gateways/gateway-1?tab=connection",
+        {
+          state: { gatewayProvisioned: true },
+        },
+      );
+    });
+  });
+
   it("submits an explicit Kata request when Kata is selected", async () => {
     const user = userEvent.setup();
     renderPage();
@@ -239,6 +260,7 @@ describe("GatewayCreatePage", () => {
     });
     expect(operations.getGatewayPlacementAvailability).toHaveBeenCalledWith(
       [
+        ["provider/kind"],
         ["network/public", "provider/aws"],
         ["network/vpn", "provider/aws"],
         ["network/public", "provider/ibm"],
@@ -325,12 +347,15 @@ describe("GatewayCreatePage", () => {
     expect(submit.classList.contains("pf-m-progress")).toBe(true);
     resolveProvision?.({ id: "gateway-1", name: "team-gateway" });
     await waitFor(() => {
-      expect(navigate).toHaveBeenCalledWith("/gateways/gateway-1");
+      expect(navigate).toHaveBeenCalledWith(
+        "/gateways/gateway-1?tab=connection",
+        { state: { gatewayProvisioned: true } },
+      );
     });
   });
 
   // Verifies: WEB-PLC-05.01
-  it("offers and defaults local-kind when it is the only available placement", async () => {
+  it("offers and defaults Kind when it is the only available placement", async () => {
     operations.getGatewayPlacementAvailability.mockResolvedValue(
       placementAvailability([false, false, false, false], true),
     );
@@ -340,7 +365,7 @@ describe("GatewayCreatePage", () => {
     expect(
       (
         await screen.findByRole<HTMLInputElement>("radio", {
-          name: "Use local-kind",
+          name: "Use Kind",
         })
       ).checked,
     ).toBe(true);
@@ -357,19 +382,21 @@ describe("GatewayCreatePage", () => {
     await waitFor(() => {
       expect(provisionGateway).toHaveBeenCalledWith({
         name: "team-gateway",
-        placement: { mode: "local-kind" },
+        placement: { selector: ["provider/kind"] },
       });
     });
   });
 
   // Verifies: WEB-PLC-05.02
-  it("hides local-kind when managed placement is also available", async () => {
+  it("keeps Kind visible when managed placement is also available", async () => {
     operations.getGatewayPlacementAvailability.mockResolvedValue(
       placementAvailability([true, true, true, false], true),
     );
     renderPage();
 
-    expect(screen.queryByRole("radio", { name: "Use local-kind" })).toBeNull();
+    await waitFor(() => {
+      expect(screen.getByRole("radio", { name: "Use Kind" })).toBeTruthy();
+    });
     await waitFor(() => {
       expect(radio("No").checked).toBe(true);
     });
@@ -392,10 +419,10 @@ describe("GatewayCreatePage", () => {
     resolveAvailability?.(
       placementAvailability([false, false, false, false], true),
     );
-    const localKind = await screen.findByRole<HTMLInputElement>("radio", {
-      name: "Use local-kind",
+    const kind = await screen.findByRole<HTMLInputElement>("radio", {
+      name: "Use Kind",
     });
-    expect(localKind.checked).toBe(true);
+    expect(kind.checked).toBe(true);
     expect(screen.queryByText("Public IBM Cloud")).toBeNull();
   });
 

@@ -237,6 +237,14 @@ infrastructure and don't apply to standalone audits.
 
 ## Step 6 - Run secure code audit (if scope includes it)
 
+Before the harness audit, run the repository DOM-injection guard:
+
+```bash
+make check-forbidden-dom-injection
+```
+
+Treat every finding as a critical vulnerability. Do not approve an exception.
+
 Read the secure-code-audit skill instructions:
 
 ```

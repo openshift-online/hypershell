@@ -79,6 +79,17 @@ function renderApp(): void {
           matrix: { hubClusters: [], rows: [] },
         }),
       ),
+    getDelivery: () =>
+      Promise.resolve(
+        plane({
+          enabled: false,
+          stages: [],
+          changes: [],
+          typicalSeconds: {},
+          omitted: 0,
+          sources: {},
+        }),
+      ),
     getE2eRuns: () =>
       Promise.resolve(
         plane({
@@ -109,10 +120,12 @@ function renderApp(): void {
           stepCount: 0,
           plannedSteps: [],
           steps: [],
+          failure: null,
           logs: [],
           logsTruncated: false,
         }),
       ),
+    getE2eDiagnostics: () => Promise.resolve(plane({ diagnostics: [] })),
     getE2eRunLogs: () =>
       Promise.resolve(plane({ entries: [], nextCursor: null, hasMore: false })),
     getSdlcAgents: () =>

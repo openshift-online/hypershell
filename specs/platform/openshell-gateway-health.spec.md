@@ -37,10 +37,12 @@ A Gateway carries three independently observable fields:
   - `Running` - the gateway is fully serving. For a gateway **with route
     configuration**, this requires **both** that the gateway Deployment is
     observed Ready (ready replicas ≥ desired replicas) **and** that its external
-    exposure is observed Ready (for the Gateway API adapter: the per-tenant
-    Gateway API `Gateway` reports `Programmed=True` with a non-empty
-    `.status.addresses`). For a gateway **without route configuration**,
-    Deployment readiness alone is sufficient.
+    exposure is observed Ready (for the Gateway API adapter: the parent Gateway
+    API `Gateway` reports `Programmed=True` with a non-empty
+    `.status.addresses`, this gateway's own `GRPCRoute` is `Accepted=True` /
+    `ResolvedRefs=True` for that parent, and `routeAddress` has been published -
+    see § Phase Reflects Workload and Route Readiness). For a gateway **without
+    route configuration**, Deployment readiness alone is sufficient.
   - `Degraded` - the gateway was provisioned but its workload or its external
     exposure is currently unhealthy (ready replicas below desired, e.g.
     CrashLoopBackOff; or the external exposure failed to become Ready within the
@@ -89,35 +91,37 @@ not only to its dependencies (such as the gateway database).
 
 External-exposure readiness SHALL be observed through the Gateway Exposure port
 (see [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md)
-§ Gateway Exposure Port), so that the health decision is independent of the
-concrete exposure backend. For the Gateway API adapter, "Ready" means the
-per-tenant Gateway API `Gateway` reports condition `Programmed=True` and has a
-non-empty `.status.addresses`.
+§ Gateway Exposure Port, `OSG-ROUT-08`), so that the health decision is
+independent of the concrete exposure backend. This spec defers to `OSG-ROUT-08`
+for the full definition of "Ready" for the Gateway API adapter - the parent
+Gateway's `Programmed` condition and address, GRPCRoute acceptance checked
+across every matching `status.parents` entry with its `sectionName`, the
+`observedGeneration` freshness check on each condition, and `routeAddress`
+publication - rather than restating that definition here, so the two specs
+cannot drift apart.
+
+A parent Gateway reporting `Programmed=True` is not by itself sufficient: the
+shared Gateway reports `Programmed=True` for every tenant as soon as any one
+tenant's `GRPCRoute` attaches to it, independent of this gateway's own route.
+The control plane SHALL NOT report a routed gateway's external exposure as
+Ready on parent-Gateway readiness alone.
 
 #### Scenario: OSG-HLTH-01.01 -- Deployment ready but route not yet programmed
 
 - GIVEN a routed Gateway whose `openshell-gateway` Deployment has reached ready
   replicas ≥ desired
 - AND its external exposure is not yet Ready (for the Gateway API adapter, the
-  per-tenant `Gateway` reports `Programmed=False` or has no assigned address)
+  parent `Gateway` reports `Programmed=False` or has no assigned address)
 - THEN the control plane SHALL keep the Gateway `phase` at `Provisioning`
 - AND it SHALL NOT set the `phase` to `Running`
 
-#### Scenario: OSG-HLTH-01.02 -- Deployment ready and route becomes programmed
+#### Scenario: OSG-HLTH-01.02 -- Deployment ready and route becomes fully accepted
 
 - GIVEN a routed Gateway whose Deployment is Ready and whose phase is
   `Provisioning`
-- WHEN its external exposure becomes Ready (for the Gateway API adapter, the
-  per-tenant `Gateway` reports `Programmed=True` with a non-empty
-  `.status.addresses`)
+- WHEN its external exposure becomes Ready (for the Gateway API adapter, "Ready"
+  per `OSG-ROUT-08`)
 - THEN the control plane SHALL set the Gateway `phase` to `Running`
-
-#### Scenario: OSG-HLTH-01.03 -- Non-routed gateway becomes ready
-
-- GIVEN a Gateway with no `route` configuration whose manifests have been applied
-- WHEN the `openshell-gateway` Deployment reaches ready replicas ≥ desired
-- THEN the control plane SHALL set the Gateway `phase` to `Running`
-  without requiring any external-exposure readiness
 
 #### Scenario: OSG-HLTH-01.04 -- Route never becomes ready within the grace window
 
@@ -169,6 +173,29 @@ Deployment loses readiness is moved to `Degraded` without a grace window.
 - WHEN manifest templating or applying a resource returns an error
 - THEN the control plane SHALL set the `phase` to `Failed`
 
+#### Scenario: OSG-HLTH-01.08 -- Shared Gateway already programmed but this gateway's own route is not yet accepted
+
+- GIVEN a routed Gateway, not opted in to a dedicated route, whose
+  `openshell-gateway` Deployment has reached ready replicas ≥ desired
+- AND the shared Gateway API `Gateway` already reports `Programmed=True` with a
+  non-empty `.status.addresses` (established for a different tenant's
+  `GRPCRoute`, or left over from before a Helm retry re-applied this gateway's
+  own resources)
+- AND this gateway's own `GRPCRoute` does not yet exist, or exists but its
+  `status.parents` entry for the shared Gateway does not yet report both
+  `Accepted=True` and `ResolvedRefs=True`
+- THEN the control plane SHALL keep the Gateway `phase` at `Provisioning`
+- AND it SHALL NOT set the `phase` to `Running`
+
+#### Scenario: OSG-HLTH-01.09 -- Route accepted but address not yet published
+
+- GIVEN a routed Gateway whose Deployment is Ready, whose parent `Gateway`
+  reports `Programmed=True` with a non-empty `.status.addresses`, and whose own
+  `GRPCRoute` reports `Accepted=True` and `ResolvedRefs=True` for that parent
+- AND the Gateway resource's `routeAddress` field is still empty
+- THEN the control plane SHALL keep the Gateway `phase` at `Provisioning`
+- AND it SHALL NOT set the `phase` to `Running`
+
 ### Requirement: OSG-HLTH-02 -- Continuous Gateway Health Reconciliation
 
 After a Gateway reaches `Running`, the control plane SHALL continue to observe
@@ -176,11 +203,12 @@ both the health of its Deployment and, for routed gateways, the readiness of its
 external exposure, and keep the `phase` synchronized with actual state. If ready
 replicas fall below desired replicas (crash, OOM, eviction, image pull failure),
 or a routed gateway's external exposure loses readiness (for the Gateway API
-adapter, the `Gateway` drops `Programmed` or its address is withdrawn), the
-control plane SHALL set the `phase` to `Degraded` within one
-health-reconciliation interval. When both the workload and (for routed gateways)
-the external exposure return to Ready, the control plane SHALL set the `phase`
-back to `Running`.
+adapter: the parent `Gateway` drops `Programmed` or its address is withdrawn, or
+this gateway's own `GRPCRoute` is no longer `Accepted=True`/`ResolvedRefs=True`
+for that parent), the control plane SHALL set the `phase` to `Degraded` within
+one health-reconciliation interval. When both the workload and (for routed
+gateways) the external exposure return to Ready, the control plane SHALL set
+the `phase` back to `Running`.
 
 #### Scenario: OSG-HLTH-02.01 -- Running gateway begins crash-looping
 
@@ -194,8 +222,9 @@ back to `Running`.
 
 - GIVEN a routed Gateway with `phase` `Running`
 - WHEN its external exposure loses readiness (for the Gateway API adapter, the
-  per-tenant `Gateway` drops `Programmed=True` or its assigned address is
-  withdrawn)
+  parent `Gateway` drops `Programmed=True` or its assigned address is
+  withdrawn, or this gateway's own `GRPCRoute` is no longer
+  `Accepted=True`/`ResolvedRefs=True` for that parent)
 - THEN the control plane SHALL set the `phase` to `Degraded` within one
   health-reconciliation interval
 - AND record the reason in `status`
@@ -230,6 +259,34 @@ of the current `phase`, and SHALL set `observed_generation` to the applied
 `generation` upon success. If re-application fails, `observed_generation` SHALL
 remain unchanged so the change is retried, and the `phase` SHALL be set per the
 existing provisioning failure semantics.
+
+A reconcile pass SHALL apply one snapshot of the Gateway's desired state and
+SHALL acknowledge only the `generation` of that snapshot (PLAT-DATA-06). The
+control plane resolves and persists its own generated configuration - for
+example the gateway's OIDC configuration (OSG-OIDC-05) - before it captures that
+snapshot and the `generation` it applies, so a newly created Gateway converges in
+a single provisioning pass rather than leaving a newer `generation` behind that
+triggers a second full apply and resets `phase` to `Provisioning` just after the
+Gateway first reaches `Running`. When a newer desired `generation` arrives while
+a pass is applying, the control plane SHALL acknowledge only the `generation` it
+applied and SHALL leave the newer `generation` pending for its own
+reconciliation; reading the latest `generation` at the end of a pass is not proof
+that its configuration was applied.
+
+The convergence gate SHALL be evaluated against the authoritative stored
+`generation` and `observed_generation`, not against a watch event's payload, so a
+duplicate or stale queued event for a converged Gateway SHALL NOT cause another
+full manifest re-apply (Helm upgrade). While the full re-apply is gated, the
+control plane SHALL still run, against authoritative state, its lightweight drift
+reconciliations - existing Keycloak client attributes
+([`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md))
+and the gateway's destination-CA trust bundle - together with its continuous
+health and runtime-version observation, so external desired state and recoverable
+drift converge without a full Helm upgrade. A destination-CA trust change SHALL
+still take effect for a converged Gateway without a `generation` advance. A
+Gateway whose provisioning did not complete is not converged
+(`observed_generation < generation`) and SHALL still re-apply through the normal
+gate to finish.
 
 Because the convergence gate suppresses the provisioning body once a Gateway is
 converged, the continuous health reconciler - not the provisioning body - owns
@@ -272,6 +329,43 @@ to `Degraded`, and a `Degraded` Gateway SHALL still be able to return to
 - WHEN the control plane processes the change
 - THEN it SHALL re-apply the gateway manifests rather than skip on phase
 - AND SHALL set `observed_generation` to the applied `generation` upon success
+
+#### Scenario: OSG-HLTH-03.04 -- New gateway with generated OIDC config converges in one pass
+
+- GIVEN a newly created Gateway whose OIDC configuration the control plane
+  generates during provisioning
+- WHEN the first provisioning pass resolves and persists that OIDC configuration
+  before it captures the snapshot and the `generation` it applies
+- THEN the pass SHALL acknowledge the exact `generation` whose complete desired
+  configuration it applied
+- AND the control plane SHALL NOT run a second full apply that resets the `phase`
+  to `Provisioning` after the Gateway first reaches `Running`
+
+#### Scenario: OSG-HLTH-03.05 -- Stale queued event after convergence takes the lightweight path
+
+- GIVEN a converged Gateway (`observed_generation == generation`)
+- WHEN a duplicate or stale queued watch event is processed
+- THEN the control plane SHALL evaluate the gate against the stored `generation`
+  and `observed_generation`, not against the event payload
+- AND it SHALL skip the full manifest re-apply
+- AND it SHALL still run the lightweight Keycloak client, destination-CA trust,
+  health, and runtime-version reconciliations
+
+#### Scenario: OSG-HLTH-03.06 -- Destination-CA trust change applies to a converged gateway
+
+- GIVEN a converged Gateway with `phase` `Running`
+- WHEN its destination-CA trust bundle drifts from the desired bundle
+- THEN the control plane SHALL update the destination-CA trust for the Gateway
+  even though a full manifest re-apply is gated
+- AND it SHALL NOT advance `generation` or require a spec change to do so
+
+#### Scenario: OSG-HLTH-03.07 -- Newer generation arrives during a provisioning pass
+
+- GIVEN a provisioning pass applying the snapshot at `generation` N
+- WHEN a desired-spec change advances `generation` to N+1 before the pass
+  completes
+- THEN the pass SHALL set `observed_generation` to N only
+- AND `generation` N+1 SHALL remain pending for its own reconciliation pass
 
 ### Requirement: OSG-HLTH-04 -- Gateway Runtime Version Is Reconciled
 
@@ -408,3 +502,32 @@ that targets an endpoint that is not yet programmed and routable.
 - GIVEN a routed Gateway that transitions to `phase` `Running`
 - WHEN the console next renders the Gateway detail
 - THEN it SHALL present the connection command as ready to use
+
+### Requirement: OSG-HLTH-07 -- Dependency Prerequisite State Is Visible And Recoverable
+
+A Gateway waiting for a required API/resource SHALL expose a dependency condition
+through its phase, status, and provisioning conditions. The condition SHALL name
+the required group/version/resource and distinguish unknown/unavailable
+(retryable) from confirmed absent (a prerequisite to install), following
+CTRL-CORE-19.
+
+The controller SHALL report process health separately from Gateway dependency
+status. Its reconciliation machinery SHALL remain active through dependency
+outages and converge the Gateway after the prerequisite becomes available, in
+line with OSG-HLTH-02 and OSG-HLTH-03. Gateway provisioning SHALL complete after
+its required resources are reconciled and its workload and configured route meet
+the readiness criteria in this specification.
+
+#### Scenario: OSG-HLTH-07.01 -- Unavailable API produces a retryable condition
+
+- GIVEN a Gateway's required ingress API is unknown/unavailable
+- WHEN the control plane reconciles the Gateway
+- THEN it SHALL expose a waiting/retryable condition naming the API and retry with bounded backoff
+- AND the controller SHALL continue reporting process health and running independent reconciliation work
+
+#### Scenario: OSG-HLTH-07.02 -- Installing a prerequisite restores readiness
+
+- GIVEN successful discovery confirms a Gateway prerequisite is absent
+- WHEN the control plane reconciles the Gateway
+- THEN it SHALL set a Degraded/prerequisite condition identifying the required resource
+- AND after the prerequisite is installed, the running controller SHALL reconcile the Gateway to Running once its workload and configured route meet readiness criteria

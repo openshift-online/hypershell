@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strings"
@@ -53,7 +53,7 @@ func (c *ShellClient) Install(ctx context.Context, namespace string, values map[
 		return fmt.Errorf("helm install %s in namespace %s: %w\nStderr: %s", ReleaseName, namespace, err, stderr.String())
 	}
 
-	log.Printf("INFO helm release %s installed in namespace %s", ReleaseName, namespace)
+	slog.InfoContext(ctx, "Helm release installed", "release", ReleaseName, "namespace", namespace)
 	return nil
 }
 
@@ -75,13 +75,13 @@ func (c *ShellClient) Uninstall(ctx context.Context, namespace string) error {
 	if err := cmd.Run(); err != nil {
 		// Ignore "release not found" errors (idempotent)
 		if strings.Contains(stderr.String(), "not found") {
-			log.Printf("INFO helm release %s not found in namespace %s (already uninstalled)", ReleaseName, namespace)
+			slog.InfoContext(ctx, "Helm release not found, already uninstalled", "release", ReleaseName, "namespace", namespace)
 			return nil
 		}
 		return fmt.Errorf("helm uninstall %s in namespace %s: %w\nStderr: %s", ReleaseName, namespace, err, stderr.String())
 	}
 
-	log.Printf("INFO helm release %s uninstalled from namespace %s", ReleaseName, namespace)
+	slog.InfoContext(ctx, "Helm release uninstalled", "release", ReleaseName, "namespace", namespace)
 	return nil
 }
 
@@ -164,7 +164,7 @@ func (c *ShellClient) Upgrade(ctx context.Context, namespace string, values map[
 		return fmt.Errorf("helm upgrade %s in namespace %s: %w\nStderr: %s", ReleaseName, namespace, err, stderr.String())
 	}
 
-	log.Printf("INFO helm release %s upgraded in namespace %s", ReleaseName, namespace)
+	slog.InfoContext(ctx, "Helm release upgraded", "release", ReleaseName, "namespace", namespace)
 	return nil
 }
 
@@ -211,11 +211,11 @@ func VerifyHelmAvailable(ctx context.Context, helmBinary string) error {
 	}
 
 	version := strings.TrimSpace(stdout.String())
-	log.Printf("INFO helm version: %s", version)
+	slog.InfoContext(ctx, "Helm version detected", "version", version)
 
 	// Basic check: version should contain "v3"
 	if !strings.Contains(version, "v3") {
-		log.Printf("WARN helm version may be incompatible (expected v3.x): %s", version)
+		slog.WarnContext(ctx, "Helm version may be incompatible, expected v3.x", "version", version)
 	}
 
 	return nil
@@ -237,7 +237,7 @@ func (c *ShellClient) WaitForHelmReady(ctx context.Context, namespace string, ti
 		case <-ticker.C:
 			status, err := c.GetReleaseStatus(ctx, namespace)
 			if err != nil {
-				log.Printf("WARN failed to check helm release status: %v", err)
+				slog.WarnContext(ctx, "Failed to check helm release status", "error", err)
 				continue
 			}
 			if status == nil {

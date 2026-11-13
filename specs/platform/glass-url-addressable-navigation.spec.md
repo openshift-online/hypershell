@@ -20,8 +20,9 @@ This specification defines a single typed route/query contract for Glass and the
 browser-history behavior around it. A copied link SHALL reopen the same
 investigation in a fresh authenticated browser session; navigating within Glass
 SHALL cooperate with Back/Forward without full-page reloads or duplicate live
-streams. This covers the whole Glass dashboard across all three top-level tabs
-(Fleet Map, Agent SDLC, E2E Runs), not only the E2E history view.
+streams. This covers the whole Glass dashboard across all top-level tabs
+(Fleet Map, Agent SDLC, E2E Runs, and Delivery, whose own addressable state is
+FLT-DLV-14), not only the E2E history view.
 
 This spec is a follow-up to the Agent SDLC tab
 ([`agent-sdlc-visibility-dashboard.spec.md`](agent-sdlc-visibility-dashboard.spec.md),
@@ -76,7 +77,7 @@ except where FLT-NAV-09 defines an explicit shareable viewport.
 
 - GIVEN the URL-addressable navigation work begins
 - WHEN the route/state matrix is produced
-- THEN it SHALL list every user-addressable state across all three tabs with identity, default, URL representation, history behavior, missing-data behavior, and navigation/transient classification
+- THEN it SHALL list every user-addressable state across all top-level tabs with identity, default, URL representation, history behavior, missing-data behavior, and navigation/transient classification
 - AND ambiguous state SHALL be classified explicitly rather than omitted
 
 ### Requirement: FLT-NAV-02 -- One Typed Route Contract

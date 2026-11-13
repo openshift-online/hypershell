@@ -62,59 +62,27 @@ func routedGateway(id, namespace string) *pb.Gateway {
 	}
 }
 
-// selfHealConsole must be bounded: it re-reconciles the console only for routed
-// gateways when Keycloak is configured. Outside those conditions it must be a
-// pure no-op that never touches the (here nil) Kubernetes clients -- if it did,
-// it would panic. The nil-client no-panic is the assertion.
-func TestSelfHealConsole_NoOpWhenUnconfigured(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("no keycloak config", func(t *testing.T) {
-		h := &GatewayHealthReconciler{ingressMode: gateway.IngressModeRoute} // keycloakConfig nil
-		h.selfHealConsole(ctx, "gw-1", routedGateway("gw-1", "openshell-abc"))
-	})
-
-	t.Run("no selected ingress", func(t *testing.T) {
-		h := &GatewayHealthReconciler{keycloakConfig: &gateway.KeycloakConfig{}}
-		h.selfHealConsole(ctx, "gw-1", routedGateway("gw-1", "openshell-abc"))
-	})
-
-	t.Run("not a routed gateway", func(t *testing.T) {
-		h := &GatewayHealthReconciler{ingressMode: gateway.IngressModeRoute, keycloakConfig: &gateway.KeycloakConfig{}}
-		h.selfHealConsole(ctx, "gw-1", &pb.Gateway{Metadata: &pb.ObjectReference{Id: "gw-1"}, Namespace: "openshell-abc"})
-	})
-
-	t.Run("route explicitly disabled", func(t *testing.T) {
-		route := `{"enabled":false}`
-		h := &GatewayHealthReconciler{ingressMode: gateway.IngressModeRoute, keycloakConfig: &gateway.KeycloakConfig{}}
-		h.selfHealConsole(ctx, "gw-1", &pb.Gateway{
-			Metadata:  &pb.ObjectReference{Id: "gw-1"},
-			Namespace: "openshell-abc",
-			Route:     &route,
-		})
-	})
-}
-
 // Verifies: OSG-CON-09.01
-func TestSyncConsoleAddressUsesSelectedRouteExposure(t *testing.T) {
+func TestSyncConsoleAddressUsesSelectedHTTPRouteExposure(t *testing.T) {
 	t.Setenv("GATEWAY_API_BASE_DOMAIN", "apps.example.com")
+	t.Setenv("GATEWAY_API_GATEWAY_NAME", "openshell-grpc-gateway")
 	const namespace = "openshell-abc"
 
 	for _, tc := range []struct {
 		name        string
-		admitted    bool
+		accepted    bool
 		current     string
 		wantReady   bool
 		wantAddress string
 	}{
 		{
-			name:        "admitted Route publishes the address",
-			admitted:    true,
+			name:        "accepted HTTPRoute publishes the address",
+			accepted:    true,
 			wantReady:   true,
 			wantAddress: "https://console-openshell-abc.apps.example.com",
 		},
 		{
-			name:        "rejected Route clears the address",
+			name:        "rejected HTTPRoute clears the address",
 			current:     "https://console-openshell-abc.apps.example.com",
 			wantAddress: "",
 		},
@@ -128,37 +96,46 @@ func TestSyncConsoleAddressUsesSelectedRouteExposure(t *testing.T) {
 			})
 
 			status := "False"
-			reason := "HostAlreadyClaimed"
-			if tc.admitted {
+			reason := "NoMatchingListenerHostname"
+			if tc.accepted {
 				status = "True"
-				reason = ""
+				reason = "Accepted"
 			}
 			route := &unstructured.Unstructured{Object: map[string]interface{}{
-				"apiVersion": "route.openshift.io/v1",
-				"kind":       "Route",
+				"apiVersion": "gateway.networking.k8s.io/v1",
+				"kind":       "HTTPRoute",
 				"metadata": map[string]interface{}{
 					"name":      gateway.ConsoleDeploymentName,
 					"namespace": namespace,
 				},
 				"spec": map[string]interface{}{
 					// The exposure must serve the derived console host for the address
-					// to be published (see TestSyncConsoleAddressDedicatedRoute below).
-					"host": "console-" + namespace + ".apps.example.com",
+					// to be published (see TestSyncConsoleAddressDedicatedRouteMismatchRetractsAddress below).
+					"hostnames": []interface{}{"console-" + namespace + ".apps.example.com"},
+					"parentRefs": []interface{}{
+						map[string]interface{}{
+							"name":        "openshell-grpc-gateway",
+							"namespace":   "openshift-ingress",
+							"sectionName": "https",
+						},
+					},
 				},
 				"status": map[string]interface{}{
-					"ingress": []interface{}{
+					"parents": []interface{}{
 						map[string]interface{}{
+							"controllerName": "gateway.example/controller",
 							"conditions": []interface{}{
-								map[string]interface{}{"type": "Admitted", "status": status, "reason": reason},
+								map[string]interface{}{"type": "Accepted", "status": status, "reason": reason},
+								map[string]interface{}{"type": "ResolvedRefs", "status": "True", "reason": "ResolvedRefs"},
 							},
 						},
 					},
 				},
 			}}
-			routeGVR := schema.GroupVersionResource{Group: "route.openshift.io", Version: "v1", Resource: "routes"}
+			httpRouteGVR := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "httproutes"}
 			dynamicClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
 				runtime.NewScheme(),
-				map[schema.GroupVersionResource]string{routeGVR: "RouteList"},
+				map[schema.GroupVersionResource]string{httpRouteGVR: "HTTPRouteList"},
 				route,
 			)
 
@@ -175,7 +152,7 @@ func TestSyncConsoleAddressUsesSelectedRouteExposure(t *testing.T) {
 			gw := routedGateway("gw-1", namespace)
 			gw.ConsoleAddress = &tc.current
 
-			ready := syncConsoleAddress(context.Background(), clientset, dynamicClient, client, "gw-1", gw, gateway.IngressModeRoute)
+			ready := syncConsoleAddress(context.Background(), clientset, dynamicClient, client, "gw-1", gw)
 			if ready != tc.wantReady {
 				t.Fatalf("ready = %v, want %v", ready, tc.wantReady)
 			}
@@ -211,7 +188,6 @@ func TestSyncConsoleAddressClearsAddressWithoutBaseDomain(t *testing.T) {
 		client,
 		"gw-1",
 		gw,
-		gateway.IngressModeRoute,
 	)
 	if ready {
 		t.Fatal("ready = true, want false without a base domain")
@@ -227,30 +203,24 @@ func TestSyncConsoleAddressClearsAddressWithoutBaseDomain(t *testing.T) {
 // published address keeps pointing at the dedicated host.
 func TestConsoleRouteConfig(t *testing.T) {
 	t.Run("dedicated-route opt-in is preserved", func(t *testing.T) {
-		route := `{"enabled":true,"certificate":{}}`
+		route := `{"certificate":{}}`
 		gw := &pb.Gateway{Metadata: &pb.ObjectReference{Id: "gw-1"}, Namespace: "openshell-abc", Route: &route}
 		cfg := consoleRouteConfig(gw)
 		if cfg.Certificate == nil {
 			t.Fatal("expected the dedicated-certificate opt-in to be preserved")
 		}
-		if !cfg.Enabled {
-			t.Error("expected the route to be enabled")
-		}
 	})
 
-	t.Run("absent route is enabled without the opt-in", func(t *testing.T) {
+	t.Run("absent route resolves without the opt-in", func(t *testing.T) {
 		gw := &pb.Gateway{Metadata: &pb.ObjectReference{Id: "gw-1"}, Namespace: "openshell-abc"}
 		cfg := consoleRouteConfig(gw)
 		if cfg.Certificate != nil {
 			t.Error("expected no dedicated-certificate opt-in")
 		}
-		if !cfg.Enabled {
-			t.Error("expected an absent route to resolve to enabled")
-		}
 	})
 
 	t.Run("invalid route is treated as not opted in", func(t *testing.T) {
-		route := `{"enabled":`
+		route := `{"host":`
 		gw := &pb.Gateway{Metadata: &pb.ObjectReference{Id: "gw-1"}, Namespace: "openshell-abc", Route: &route}
 		cfg := consoleRouteConfig(gw)
 		if cfg.Certificate != nil {
@@ -327,7 +297,7 @@ func TestSyncConsoleAddressDedicatedRouteMismatchRetractsAddress(t *testing.T) {
 		return &pb.UpdateGatewayResponse{}, nil
 	}}
 
-	route := `{"enabled":true,"certificate":{}}`
+	route := `{"certificate":{}}`
 	gw := &pb.Gateway{
 		Metadata:       &pb.ObjectReference{Id: "gw-1"},
 		Namespace:      namespace,
@@ -335,135 +305,12 @@ func TestSyncConsoleAddressDedicatedRouteMismatchRetractsAddress(t *testing.T) {
 		ConsoleAddress: strPtr("https://console-" + namespace + ".gw-" + namespace + ".apps.example.com"),
 	}
 
-	ready := syncConsoleAddress(context.Background(), clientset, dynamicClient, client, "gw-1", gw, gateway.IngressModeGatewayAPI)
+	ready := syncConsoleAddress(context.Background(), clientset, dynamicClient, client, "gw-1", gw)
 	if ready {
 		t.Fatal("ready = true, want false when the exposure serves the shared host of a dedicated-route gateway")
 	}
 	if gotAddress != "" {
 		t.Fatalf("console address = %q, want it retracted", gotAddress)
-	}
-}
-
-// teardownRoute reconciles the desired absence of the route and console for a
-// non-routed gateway. It must return before touching the (here nil) Kubernetes
-// clients when the gateway carries no namespace, so a malformed gateway can never
-// panic the health loop. The nil-client no-panic is the assertion.
-func TestTeardownRoute_NoOpWithoutNamespace(t *testing.T) {
-	h := &GatewayHealthReconciler{
-		keycloakConfig: &gateway.KeycloakConfig{},
-		routeTornDown:  make(map[string]bool),
-	}
-	// No Namespace set: gatewayNamespace errors, so teardownRoute must return
-	// before dereferencing the nil clientset/dynamicClient.
-	h.teardownRoute(context.Background(), &fakeGatewayClient{}, "gw-1",
-		&pb.Gateway{Metadata: &pb.ObjectReference{Id: "gw-1"}})
-}
-
-// Observing a routed gateway must clear any recorded teardown so a later
-// un-routing triggers a fresh teardown rather than being skipped forever.
-func TestClearRouteTornDown_AllowsFreshTeardown(t *testing.T) {
-	h := &GatewayHealthReconciler{routeTornDown: map[string]bool{"gw-1": true}}
-	if !h.routeTornDownAlready("gw-1") {
-		t.Fatal("precondition: gw-1 should start marked as torn down")
-	}
-	h.clearRouteTornDown("gw-1")
-	if h.routeTornDownAlready("gw-1") {
-		t.Fatal("clearRouteTornDown must forget the gateway so teardown can re-run")
-	}
-}
-
-// teardownSettled must trust the completion marker only while the Gateway record
-// carries no route or console address. A console-address publisher started during
-// provisioning runs on the uncancelled watch context and can write console_address
-// after teardown marked itself complete; if that happens the marker must be
-// ignored so the next tick re-runs teardown and clears the stale address.
-func TestTeardownSettled(t *testing.T) {
-	addr := func(s string) *string { return &s }
-	cases := []struct {
-		name        string
-		marked      bool
-		routeAddr   *string
-		consoleAddr *string
-		wantSettled bool
-	}{
-		{"not marked", false, nil, nil, false},
-		{"marked, no addresses", true, nil, nil, true},
-		{"marked, empty addresses", true, addr(""), addr(""), true},
-		{"marked, stale console address", true, nil, addr("https://console.example"), false},
-		{"marked, stale route address", true, addr("gw.example"), nil, false},
-		{"not marked, stale console address", false, nil, addr("https://console.example"), false},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			h := &GatewayHealthReconciler{routeTornDown: map[string]bool{}}
-			if c.marked {
-				h.routeTornDown["gw-1"] = true
-			}
-			gw := &pb.Gateway{
-				Metadata:       &pb.ObjectReference{Id: "gw-1"},
-				RouteAddress:   c.routeAddr,
-				ConsoleAddress: c.consoleAddr,
-			}
-			if got := h.teardownSettled("gw-1", gw); got != c.wantSettled {
-				t.Fatalf("teardownSettled = %v, want %v", got, c.wantSettled)
-			}
-		})
-	}
-}
-
-// The residual-absence probe must be indefinite but low-frequency: a settled
-// gateway is re-verified at most once per routeVerifyInterval, and -- unlike a
-// wall-clock window -- it never stops being verified, because elapsed time is not
-// proof a stale provision cannot still resurrect resources.
-func TestDueForVerify(t *testing.T) {
-	base := time.Unix(1000, 0)
-	cur := base
-	h := &GatewayHealthReconciler{
-		now:             func() time.Time { return cur },
-		routeTornDown:   make(map[string]bool),
-		routeVerifiedAt: make(map[string]time.Time),
-	}
-
-	// No recorded verification: verify defensively rather than trust an unstamped
-	// marker.
-	if !h.dueForVerify("gw-1") {
-		t.Fatal("want due=true when no verification time is recorded")
-	}
-
-	// markRouteTornDown stamps the baseline; immediately after, we are within the
-	// interval, so no re-probe is due yet.
-	h.markRouteTornDown("gw-1")
-	if h.dueForVerify("gw-1") {
-		t.Fatal("want due=false immediately after teardown")
-	}
-
-	// Just inside the interval: still not due.
-	cur = base.Add(routeVerifyInterval - time.Second)
-	if h.dueForVerify("gw-1") {
-		t.Fatal("want due=false just inside the interval")
-	}
-
-	// At/after the interval: due again -- verification is indefinite, not a cutoff.
-	cur = base.Add(routeVerifyInterval)
-	if !h.dueForVerify("gw-1") {
-		t.Fatal("want due=true once the interval has elapsed")
-	}
-
-	// A successful verification re-stamps the timestamp, deferring the next probe by
-	// another interval (proves it keeps probing forever, just not every tick).
-	h.markVerified("gw-1")
-	if h.dueForVerify("gw-1") {
-		t.Fatal("want due=false immediately after a verification")
-	}
-	cur = base.Add(routeVerifyInterval + routeVerifyInterval)
-	if !h.dueForVerify("gw-1") {
-		t.Fatal("want due=true an interval after the last verification")
-	}
-
-	// Clearing the marker (gateway routed again) forgets the recorded time.
-	h.clearRouteTornDown("gw-1")
-	if _, ok := h.routeVerifiedAt["gw-1"]; ok {
-		t.Fatal("clearRouteTornDown must forget the recorded verification time")
 	}
 }
 
@@ -482,7 +329,6 @@ func TestObservedGatewayHealthUpdate_PreservesKeycloakMarkersWhenHealthy(t *test
 					marker,
 					"Running",
 					"Healthy",
-					true,
 				)
 				if update != nil {
 					t.Fatalf("observedGatewayHealthUpdate() = %#v, want nil so status remains visible", update)
@@ -497,7 +343,6 @@ func TestObservedGatewayHealthUpdate_PreservesKeycloakMarkersWhenHealthy(t *test
 					marker,
 					"Running",
 					"Healthy",
-					true,
 				)
 				if update == nil {
 					t.Fatal("observedGatewayHealthUpdate() = nil, want phase-only promotion")
@@ -513,19 +358,6 @@ func TestObservedGatewayHealthUpdate_PreservesKeycloakMarkersWhenHealthy(t *test
 		})
 	}
 
-	t.Run("unconfigured integration does not reserve marker", func(t *testing.T) {
-		update := observedGatewayHealthUpdate(
-			"gw-1",
-			"Running",
-			gatewayKeycloakClientInvalidStatus,
-			"Running",
-			"Healthy",
-			false,
-		)
-		if update == nil || update.Status == nil || update.GetStatus() != "Healthy" {
-			t.Fatalf("observedGatewayHealthUpdate() = %#v, want normal Healthy status update", update)
-		}
-	})
 }
 
 func cond(status pb.ProvisioningConditionStatus) *pb.ProvisioningCondition {
@@ -583,7 +415,7 @@ func TestCompletedConditions_PreservesSetAndMarksComplete(t *testing.T) {
 func TestEvaluateRouteReadiness_ReadyBecomesRunning(t *testing.T) {
 	h := newHealthRec(fakeExposure{readiness: exposure.Readiness{Ready: true}}, fixedClock(time.Unix(0, 0)), 10*time.Minute)
 	for _, phase := range []string{"Provisioning", "Degraded"} {
-		gotPhase, gotStatus := h.evaluateRouteReadiness(context.Background(), "id", "ns", phase)
+		gotPhase, gotStatus := h.evaluateRouteReadiness(context.Background(), "id", "ns", "grpcs://ns.example.com:443", phase)
 		if gotPhase != "Running" || gotStatus != "Healthy" {
 			t.Fatalf("from %s: got (%q,%q), want (Running,Healthy)", phase, gotPhase, gotStatus)
 		}
@@ -597,7 +429,7 @@ func TestEvaluateRouteReadiness_ProvisioningWithinGraceStaysProvisioning(t *test
 		fixedClock(time.Unix(1000, 0)),
 		10*time.Minute,
 	)
-	gotPhase, gotStatus := h.evaluateRouteReadiness(context.Background(), "id", "ns", "Provisioning")
+	gotPhase, gotStatus := h.evaluateRouteReadiness(context.Background(), "id", "ns", "grpcs://ns.example.com:443", "Provisioning")
 	if gotPhase != "Provisioning" {
 		t.Fatalf("got phase %q, want Provisioning", gotPhase)
 	}
@@ -617,13 +449,13 @@ func TestEvaluateRouteReadiness_ProvisioningBeyondGraceBecomesDegraded(t *testin
 	)
 
 	// First observation starts the grace window.
-	if gotPhase, _ := h.evaluateRouteReadiness(context.Background(), "id", "ns", "Provisioning"); gotPhase != "Provisioning" {
+	if gotPhase, _ := h.evaluateRouteReadiness(context.Background(), "id", "ns", "grpcs://ns.example.com:443", "Provisioning"); gotPhase != "Provisioning" {
 		t.Fatalf("first tick: got %q, want Provisioning", gotPhase)
 	}
 
 	// Advance past the grace window; the gateway must move to Degraded.
 	cur = base.Add(11 * time.Minute)
-	gotPhase, gotStatus := h.evaluateRouteReadiness(context.Background(), "id", "ns", "Provisioning")
+	gotPhase, gotStatus := h.evaluateRouteReadiness(context.Background(), "id", "ns", "grpcs://ns.example.com:443", "Provisioning")
 	if gotPhase != "Degraded" {
 		t.Fatalf("after grace: got %q, want Degraded", gotPhase)
 	}
@@ -641,7 +473,7 @@ func TestEvaluateRouteReadiness_RunningLosesReadinessBecomesDegraded(t *testing.
 	)
 	// A Running gateway that loses readiness is Degraded immediately, with no
 	// grace window.
-	gotPhase, gotStatus := h.evaluateRouteReadiness(context.Background(), "id", "ns", "Running")
+	gotPhase, gotStatus := h.evaluateRouteReadiness(context.Background(), "id", "ns", "grpcs://ns.example.com:443", "Running")
 	if gotPhase != "Degraded" {
 		t.Fatalf("got %q, want Degraded", gotPhase)
 	}
@@ -656,7 +488,7 @@ func TestEvaluateRouteReadiness_DegradedStaysDegraded(t *testing.T) {
 		fixedClock(time.Unix(0, 0)),
 		10*time.Minute,
 	)
-	if gotPhase, _ := h.evaluateRouteReadiness(context.Background(), "id", "ns", "Degraded"); gotPhase != "Degraded" {
+	if gotPhase, _ := h.evaluateRouteReadiness(context.Background(), "id", "ns", "grpcs://ns.example.com:443", "Degraded"); gotPhase != "Degraded" {
 		t.Fatalf("got %q, want Degraded", gotPhase)
 	}
 }
@@ -667,37 +499,48 @@ func TestEvaluateRouteReadiness_ObserveErrorLeavesPhaseUntouched(t *testing.T) {
 		fixedClock(time.Unix(0, 0)),
 		10*time.Minute,
 	)
-	gotPhase, gotStatus := h.evaluateRouteReadiness(context.Background(), "id", "ns", "Provisioning")
+	gotPhase, gotStatus := h.evaluateRouteReadiness(context.Background(), "id", "ns", "grpcs://ns.example.com:443", "Provisioning")
 	if gotPhase != "" || gotStatus != "" {
 		t.Fatalf("on observe error got (%q,%q), want empty (leave untouched)", gotPhase, gotStatus)
 	}
 }
 
-func TestIsRoutedGateway(t *testing.T) {
-	str := func(s string) *string { return &s }
-	cases := []struct {
-		name  string
-		route *string
-		want  bool
-	}{
-		// Routing is platform-managed and enabled by default (PLAT-DATA-23): a
-		// user or GitOps import never sets route, so an absent/empty route is the
-		// common case for every user-created gateway and resolves to routed.
-		{"nil route", nil, true},
-		{"empty route", str(""), true},
-		{"whitespace route", str("  "), true},
-		{"null route", str("null"), true},
-		{"empty object", str("{}"), true},
-		{"enabled route", str(`{"enabled":true}`), true},
-		{"disabled route", str(`{"enabled":false}`), false},
-		{"host-only route", str(`{"host":"gateway.example.com"}`), true},
+// capturingExposure records the last Request it observed readiness for, so a
+// test can assert what the health reconciler forwarded to the port.
+type capturingExposure struct {
+	readiness exposure.Readiness
+	lastReq   exposure.Request
+}
+
+func (c *capturingExposure) ResolveAddress(context.Context, exposure.Request) (string, error) {
+	return "", nil
+}
+
+func (c *capturingExposure) ObserveReadiness(_ context.Context, req exposure.Request) (exposure.Readiness, error) {
+	c.lastReq = req
+	return c.readiness, nil
+}
+
+// The health reconciler forwards the Gateway's already-persisted routeAddress
+// to the exposure port on every observation, so the port can gate readiness on
+// it having been published.
+//
+// Verifies: OSG-HLTH-01.09
+func TestEvaluateRouteReadiness_ForwardsRouteAddress(t *testing.T) {
+	exp := &capturingExposure{readiness: exposure.Readiness{Ready: false, Reason: "route address not yet published"}}
+	h := newHealthRec(exp, fixedClock(time.Unix(0, 0)), 10*time.Minute)
+
+	h.evaluateRouteReadiness(context.Background(), "id", "ns", "", "Provisioning")
+	if exp.lastReq.RouteAddress != "" {
+		t.Fatalf("RouteAddress = %q, want empty", exp.lastReq.RouteAddress)
 	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := isRoutedGateway(&pb.Gateway{Route: c.route}); got != c.want {
-				t.Fatalf("isRoutedGateway(%v) = %v, want %v", c.route, got, c.want)
-			}
-		})
+
+	h.evaluateRouteReadiness(context.Background(), "id", "ns", "grpcs://ns.example.com:443", "Provisioning")
+	if want := "grpcs://ns.example.com:443"; exp.lastReq.RouteAddress != want {
+		t.Fatalf("RouteAddress = %q, want %q", exp.lastReq.RouteAddress, want)
+	}
+	if exp.lastReq.Namespace != "ns" {
+		t.Fatalf("Namespace = %q, want %q", exp.lastReq.Namespace, "ns")
 	}
 }
 
@@ -723,36 +566,29 @@ func healthGatewayDeployment(namespace string, replicas, generation, observedGen
 	return deploy
 }
 
-// newSettledHealthRec builds a health reconciler wired for the non-routed
-// reconcileGatewayHealth path: the given clientset backs ObserveGatewayRollout,
-// and the route-teardown bookkeeping is pre-settled (with a fresh verification
-// stamp) so teardownRoute returns before touching any nil route/console clients.
+// newSettledHealthRec builds a health reconciler for the reconcileGatewayHealth
+// path: the given clientset backs ObserveGatewayRollout and the exposure port
+// reports the route Ready, so the phase is decided by the Deployment rollout.
 func newSettledHealthRec(clientset kubernetes.Interface, gatewayID string) *GatewayHealthReconciler {
 	now := fixedClock(time.Unix(2000, 0))
 	h := &GatewayHealthReconciler{
 		clientset:               clientset,
-		ingressMode:             gateway.IngressModeNone,
 		now:                     now,
 		deploymentReadyTimeout:  defaultDeploymentReadyTimeout,
 		routeNotReadySince:      make(map[string]time.Time),
 		deploymentNotReadySince: make(map[string]time.Time),
-		routeTornDown:           make(map[string]bool),
-		routeVerifiedAt:         make(map[string]time.Time),
+		exposure:                fakeExposure{readiness: exposure.Readiness{Ready: true}},
 		// Default gateways now resolve to the vault driver; treat Vault as reachable
 		// here so settled-health tests exercise readiness/release logic, not Vault.
 		// Vault-degradation behavior is covered by TestReconcileGatewayHealth_VaultUnreachable.
 		vaultReachable: func(context.Context, kubernetes.Interface) error { return nil },
 	}
-	// Pre-settle teardown so it short-circuits (marker set, addresses empty, and
-	// the verification stamped now so no residual-absence probe is due this tick).
-	h.markRouteTornDown(gatewayID)
 	return h
 }
 
-// nonRoutedGateway builds a Gateway with no route configured, so the health loop
-// takes the non-routed path (no exposure/console work) and its phase is decided by
-// the Deployment rollout alone.
-func nonRoutedGateway(id, namespace, phase, status string) *pb.Gateway {
+// settledGateway builds a Gateway with no route document, which every gateway
+// resolves as routed.
+func settledGateway(id, namespace, phase, status string) *pb.Gateway {
 	return &pb.Gateway{
 		Metadata:  &pb.ObjectReference{Id: id},
 		Namespace: namespace,
@@ -779,7 +615,7 @@ func TestReconcileGatewayHealth_RollingOutDefers(t *testing.T) {
 		return &pb.UpdateGatewayResponse{}, nil
 	}}
 
-	gw := nonRoutedGateway("gw-1", namespace, "Provisioning", "")
+	gw := settledGateway("gw-1", namespace, "Provisioning", "")
 	ns, ready := h.reconcileGatewayHealth(context.Background(), client, gw)
 	if ns != namespace {
 		t.Errorf("namespace = %q, want %q", ns, namespace)
@@ -1092,7 +928,7 @@ func TestReconcileGatewayHealth_ProvisioningPodNotYetAvailableStaysProvisioning(
 		return &pb.UpdateGatewayResponse{}, nil
 	}}
 
-	gw := nonRoutedGateway("gw-1", namespace, "Provisioning", "")
+	gw := settledGateway("gw-1", namespace, "Provisioning", "")
 	if _, ready := h.reconcileGatewayHealth(context.Background(), client, gw); ready {
 		t.Error("ready = true, want false while the pod is not available")
 	}
@@ -1121,7 +957,7 @@ func TestReconcileGatewayHealth_RunningPodUnavailableBecomesDegraded(t *testing.
 		return &pb.UpdateGatewayResponse{}, nil
 	}}
 
-	gw := nonRoutedGateway("gw-1", namespace, "Running", "Healthy")
+	gw := settledGateway("gw-1", namespace, "Running", "Healthy")
 	h.reconcileGatewayHealth(context.Background(), client, gw)
 	if gotPhase != "Degraded" {
 		t.Fatalf("got phase %q, want Degraded", gotPhase)
@@ -1212,7 +1048,7 @@ func TestReconcileGatewayHealth_VaultUnreachable(t *testing.T) {
 	}}
 
 	// Default credential_driver => vault-backed; workload is ready so it would be Running.
-	gw := nonRoutedGateway("gw-1", namespace, "Running", "Healthy")
+	gw := settledGateway("gw-1", namespace, "Running", "Healthy")
 	h.reconcileGatewayHealth(context.Background(), client, gw)
 
 	if update == nil {
@@ -1243,7 +1079,7 @@ func TestReconcileGatewayHealth_VaultReachableStaysRunning(t *testing.T) {
 		return &pb.UpdateGatewayResponse{}, nil
 	}}
 
-	gw := nonRoutedGateway("gw-1", namespace, "Running", "Healthy")
+	gw := settledGateway("gw-1", namespace, "Running", "Healthy")
 	if _, ready := h.reconcileGatewayHealth(context.Background(), client, gw); !ready {
 		t.Fatal("ready = false, want true when Vault is reachable")
 	}

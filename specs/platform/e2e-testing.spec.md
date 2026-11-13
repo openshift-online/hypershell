@@ -487,7 +487,15 @@ log.
 
 ### Requirement: E2E-CORE-07 -- Structured Reporting Event Lifecycle and Terminal Integrity
 
-When structured reporting is enabled, the event stream SHALL describe the full run lifecycle with these event types: `run_started` (including the planned set of steps), `step_started`, `step_finished` (carrying the outcome `passed`/`failed`/`skipped` and a duration), `log` (carrying a message and, where attributable, the owning `stepId`), and `run_finished` (carrying the overall `passed`/`failed` verdict and a duration). Step records SHALL carry the canonical step id (`P1.1`, `P2.3`, ...) and slug. Events SHALL account for setup and cleanup work (not only the numbered phase steps), for fail-fast steps that are never reached, for mode-skipped steps, for assertion failures, for `panic`/`recover`, for `runtime.Goexit`/`t.Fatal`/`t.Skip`, for suite timeout, and for context cancellation.
+When structured reporting is enabled, the event stream SHALL describe the full run lifecycle with these event types: `run_started` (including the planned set of steps), `step_started`, `step_finished` (carrying the outcome `passed`/`failed`/`skipped` and a duration), `log` (carrying a message and, where attributable, the owning `stepId`), and `run_finished` (carrying the overall `passed`/`failed` verdict and a duration). When an assertion failure is captured, a failed `run_finished` SHALL also carry the first failed step's `stepId` and a concise, redacted failure `message`, so a consumer can present the cause independently of the raw diagnostic stream. Failure diagnostics SHALL use their own conditional `diagnostics` step and log scope rather than the `cleanup` step. Step records SHALL carry the canonical step id (`P1.1`, `P2.3`, ...) and slug. Events SHALL account for setup and cleanup work (not only the numbered phase steps), for fail-fast steps that are never reached, for mode-skipped steps, for assertion failures, for `panic`/`recover`, for `runtime.Goexit`/`t.Fatal`/`t.Skip`, for suite timeout, and for context cancellation.
+
+Failure diagnostic sections SHALL additionally emit `diagnostic` records with
+`stepId`, `title`, `severity` (`info` / `warn` / `error`), a one-based `chunk` index,
+and a `message` body. Bodies SHALL be redacted before splitting on UTF-8 boundaries.
+The chunk budget SHALL account for JSON escaping so each NDJSON record, including
+its trailing newline, remains within 4096 bytes without dropping bytes between
+chunks. Each section SHALL emit at most 16 chunks and SHALL include an explicit
+truncation marker when that limit is reached.
 
 Terminal integrity SHALL be preserved. The suite SHALL register cleanup with `t.Cleanup` so that terminal records observe cleanup errors, and SHALL NOT emit a `run_finished: passed` before cleanup has completed. A run that is killed without emitting its terminal `run_finished` record (for example SIGKILL) SHALL be interpretable by a consumer as incomplete/unknown -- never as passed and never as still-connected. Because the suite's existing short numeric internal run id is not globally unique, the structured stream SHALL identify the run by the supplied `E2E_REPORT_RUN_ID`; when that variable is absent (a non-Kubernetes invocation with `E2E_REPORT_JSON=1`), the suite SHALL generate a UUID rather than reuse the short internal id. Within a run, `sequence` SHALL be deterministic and strictly increasing so a consumer can order and deduplicate records across reconnects.
 
@@ -518,6 +526,22 @@ Terminal integrity SHALL be preserved. The suite SHALL register cleanup with `t.
 - WHEN a consumer reads the truncated stream
 - THEN the absence of a terminal record SHALL be interpretable as incomplete/unknown
 - AND it SHALL NOT be interpretable as passed or as still-connected
+
+#### Scenario: E2E-CORE-07.05 -- Terminal failure retains the actionable cause
+
+- GIVEN a step fails and teardown emits a large diagnostic dump
+- WHEN the terminal `run_finished` record is emitted
+- THEN it SHALL carry the first failed step's `stepId` and a concise redacted `message`
+- AND a consumer SHALL NOT need to recover the cause by searching raw logs
+
+#### Scenario: E2E-CORE-07.06 -- Diagnostics have an independent log scope
+
+- GIVEN a failed suite collects evidence during teardown
+- WHEN structured reporting is enabled
+- THEN it SHALL emit a `diagnostics` step around that collection
+- AND every diagnostic log event SHALL use `stepId: diagnostics`, not `cleanup`
+- AND the `cleanup` step SHALL start after pre-cleanup diagnostics finish, so it
+  contains only suite teardown work and excludes diagnostic collection time
 
 ### Requirement: E2E-CORE-08 -- Structured Reporting Redaction and Bounds
 
@@ -760,8 +784,10 @@ Mode gating (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-mode
 
 - GIVEN the HyperShell API is reachable (via `DiscoverAPIHost`)
 - WHEN a gateway is created via `POST /api/hypershell/v1/gateways`
-- THEN the test SHALL poll the API until the gateway phase is `Running` or `E2E_PROVISION_TIMEOUT` seconds have elapsed
-- AND a timeout SHALL be reported as a test failure
+- THEN the test SHALL poll the API in one bounded wait until a single response meets all four readiness conditions: phase is `Running`; `generation` is greater than 0 and `observed_generation` equals `generation`; the provisioning conditions are present and `Complete`; and `route_address` is set
+- AND the test SHALL NOT combine checks from different responses; the gateway it records as ready, and the provisioning duration it reports, SHALL come from that one response
+- AND the wait SHALL be bounded by `E2E_PROVISION_TIMEOUT` plus `E2E_CONDITIONS_SETTLE_TIMEOUT` seconds
+- AND a timeout SHALL be reported as a test failure that names the last observed phase, `generation`, `observed_generation`, route state, and the readiness check that failed
 
 #### Scenario: E2E-CORE-13.03 -- Seeded Cluster Discovery
 
@@ -997,7 +1023,7 @@ mistaken for full finalization. Long-only.
 The e2e suite SHALL connect to gateways over trusted TLS, with certificate verification on. It SHALL NOT turn on the `OPENSHELL_GATEWAY_INSECURE` bypass itself, and CI SHALL NOT set it. How the CLI trusts the gateway depends on the driver:
 
 - **Kind:** the gateway certificate is signed by the cluster's self-signed cert-manager CA (the same CA that signs the `*.gw.localhost` wildcard listener certificate). The Go suite reads that CA from the `hypershell-ca-secret` Secret and points the openshell CLI at it with `SSL_CERT_FILE`. The Bash Kind driver (`tests/e2e/drivers/kind.sh`) exports `SSL_CERT_FILE` as a bundle of the system root certificates plus that CA, so public endpoints still verify, and fails fast when it cannot read the CA. When the CLI runs through `scripts/kind/openshell-container.sh`, the wrapper SHALL mount the caller's `SSL_CERT_FILE` into the container, set `SSL_CERT_FILE` there, and keep verification on. Without a caller-supplied CA, the wrapper falls back to skipping verification; that fallback serves interactive developer use, and no e2e path relies on it.
-- **OpenShift:** the Gateway API endpoint is publicly trusted, so the CLI uses the system trust store. For an environment with a private CA, the Bash OpenShift driver (`tests/e2e/drivers/openshift.sh`) reads `ca.crt` from the Secret named by `E2E_OPENSHIFT_CA_SECRET` (in `E2E_OPENSHIFT_CA_NAMESPACE`, default `OPENSHIFT_NAMESPACE`) and exports it as `SSL_CERT_FILE`. One known exception: in route ingress mode (`GATEWAY_INGRESS_MODE=route`, for example IBM Cloud ROKS) the passthrough Route exposes the gateway's own CA, which no public trust store knows, and the Bash OpenShift driver (`tests/e2e/drivers/openshift.sh`) turns the bypass on for that case. Trusting that CA instead is open work.
+- **OpenShift:** the Gateway API endpoint is publicly trusted, so the CLI uses the system trust store. For an environment with a private CA, the Bash OpenShift driver (`tests/e2e/drivers/openshift.sh`) reads `ca.crt` from the Secret named by `E2E_OPENSHIFT_CA_SECRET` (in `E2E_OPENSHIFT_CA_NAMESPACE`, default `OPENSHIFT_NAMESPACE`) and exports it as `SSL_CERT_FILE`.
 
 This keeps the e2e path on the same TLS trust chain a real client uses. The same rules apply to the Bash smoke script (`tests/e2e/smoke.sh`).
 
@@ -1584,8 +1610,8 @@ sets it to `4`). At `E2E_CONCURRENCY=1` they SHALL run sequentially in a
 deterministic capability order; higher values fan them out within that bound.
 
 **Targeting a specific cluster.** Narrowing a test to named clusters is out of
-scope here: targeting a specific cluster lands with the `managed-cluster/<name>`
-placement selector (#857), not an env-var allowlist on this runner.
+scope here: the runner has no env-var allowlist, and placement does not
+support selecting a cluster by name.
 
 ```text
 clusters = GET /managed_clusters                         # authenticated, short mode (no kube context)
@@ -1641,8 +1667,7 @@ Bash is limited to these scripts:
 - the user-interaction smoke script `smoke.sh` (see [Bash Smoke Script](#requirement-bash-smoke-script));
 - `tests/e2e/lib.sh`, which holds the shared smoke and route-discovery helpers;
 - the shell drivers `tests/e2e/drivers/kind.sh` and `tests/e2e/drivers/openshift.sh`, which give those two scripts route discovery, OIDC tokens, and TLS trust;
-- the gateway service-account helper `tests/e2e/gateway_service_account.sh`;
-- the ROKS variant `components/pr-test/e2e-openshell-roks.sh`.
+- the gateway service-account helper `tests/e2e/gateway_service_account.sh`.
 
 Browser interactions and assertions live in the TypeScript Playwright suite. The shell helpers and drivers SHALL serve only the smoke and browser launchers. They SHALL NOT grow into a second functional suite.
 
@@ -1774,7 +1799,7 @@ deploy/
   pr-environment-destroy.yml -- ephemeral PR env teardown (closed: merge or close)
 ```
 
-The functional, performance, and matrix suites are Go only (see [Single Functional E2E Implementation](#requirement-single-functional-e2e-implementation)). The Bash in `tests/e2e/` is the smoke script (`smoke.sh`), the thin Playwright launcher (`e2e-console.sh`), the shared `lib.sh`, and the shell drivers those two source (`drivers/kind.sh`, `drivers/openshift.sh`). The ROKS variant lives in `components/pr-test/`.
+The functional, performance, and matrix suites are Go only (see [Single Functional E2E Implementation](#requirement-single-functional-e2e-implementation)). The Bash in `tests/e2e/` is the smoke script (`smoke.sh`), the thin Playwright launcher (`e2e-console.sh`), the shared `lib.sh`, and the shell drivers those two source (`drivers/kind.sh`, `drivers/openshift.sh`).
 
 ## Environment Variables
 
@@ -1788,6 +1813,7 @@ The functional, performance, and matrix suites are Go only (see [Single Function
 | `E2E_SANDBOX_TIMEOUT` | `120` | Seconds to wait for sandbox pod readiness and for each `active_sandbox_count` assertion |
 | `E2E_SANDBOX_DELETE_TIMEOUT` | `120` | Seconds to wait for a deleted sandbox to be fully removed from the gateway store (`openshell sandbox list`) |
 | `E2E_PROVISION_TIMEOUT` | `180` | Seconds to wait for gateway provisioning |
+| `E2E_CONDITIONS_SETTLE_TIMEOUT` | `60` | Extra seconds added to `E2E_PROVISION_TIMEOUT` for the primary gateway readiness wait, so provisioning conditions and the route have time to settle (E2E-CORE-13.02) |
 | `E2E_GC_TIMEOUT` | `180` | Seconds to wait for the managed namespace to be garbage collected after a gateway delete |
 | `E2E_ORPHAN_GC_TIMEOUT` | `90` | Seconds from orphan namespace seed time for the periodic reaper to delete the synthetic orphan (validated in P2.3) |
 | `E2E_SKIP_CLEANUP` | `0` | Set to `1` to keep test resources after run |
@@ -1836,8 +1862,8 @@ suite reuses the full single-cluster variable set above.
 The matrix enumerates every registered cluster's capabilities with no allowlist,
 no health window, and no per-cluster kube context, so it adds no `E2E_MANAGED_CLUSTERS`,
 `E2E_MANAGED_SKIP_UNHEALTHY`, `E2E_MANAGED_HEALTHY_WINDOW`, or `E2E_MANAGED_KUBECONTEXT_<name>`
-variable. Targeting a specific cluster for a test lands with the `managed-cluster/<name>`
-placement selector (#857), not an env-var allowlist here; continuous per-cluster
+variable. Placement does not support targeting a cluster by name, and the matrix adds no
+env-var allowlist for it; continuous per-cluster
 operational health and in-cluster kube validation are #858.
 
 The console browser suite (`tests/e2e/e2e-console.sh`) adds the following; see
@@ -2568,6 +2594,12 @@ and SHALL be bounded by `E2E_DIAGNOSTICS_TIMEOUT` (45 seconds by default). A
 diagnostic-source or artifact-write failure SHALL be reported but SHALL NOT hide
 or replace the original test verdict.
 
+Under GitHub Actions, the suite SHALL wrap the complete diagnostic dump in one
+native `::group::E2E failure diagnostics` section so it is collapsed by default.
+The original Go failure SHALL remain visible above the collapsed group; the suite
+SHALL NOT repeat it as an additional human-readable terminal summary. Outside
+GitHub Actions, group markers SHALL be omitted.
+
 GitHub Actions SHALL set `E2E_DIAGNOSTICS_DIR` and upload the resulting directory
 on failure. For a later browser or tracing failure after `TestE2E` has passed, or
 for an early failure before `E2ESuite` exists, Actions MAY invoke the opt-in
@@ -2594,6 +2626,13 @@ failures and allow the two paths to drift.
   cluster diagnostic script
 - AND if a later browser or tracing test fails after the suite passes, the
   workflow MAY invoke `TestFailureDiagnostics` to produce the same sections
+
+#### Scenario: E2E-CORE-47.03 -- Diagnostics do not bury the failure
+
+- GIVEN a failed suite emits thousands of diagnostic lines under GitHub Actions
+- WHEN teardown completes
+- THEN the diagnostic dump SHALL be enclosed by a native collapsible group
+- AND the original Go failure above the group SHALL remain the single human-readable cause
 
 ### Performance Environment Variables
 
@@ -2640,7 +2679,6 @@ failures and allow the two paths to drift.
 | 20-minute CI timeout                                                                       | Kind cluster creation takes ~2 min, image pulls ~1-2 min, e2e tests ~5-8 min. A 20-minute ceiling provides margin for slow GitHub runners while preventing runaway jobs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | e2e workflow skips for irrelevant changes                                                  | SDK-only or docs-only changes do not affect the e2e path. Skipping avoids CI time, Konflux work, and a shared-cluster PR namespace that would only run base images. The `detect-components.sh` infrastructure tracks `api_server`, `control_plane`, and `e2e` component paths for "should we re-run e2e" decisions; `Deploy OpenShift Environment` uses that same `should_run` gate. `Tests CI Gate` depends only on detection and unit (CICD-MRG-05), so a skipped e2e does not leave the queue pending. On `merge_group` events and Mergify temporary queue pull requests, the entire e2e stage is suppressed (CICD-MRG-06); E2E validation of merged code happens on push to `main`. |
 | `make kind-up` accepts image overrides                                                     | Passing `IMAGE_TAG=<digest>` or per-component image variables to `make kind-up` allows CI to deploy Konflux-built images directly without a separate load step. Developers can also use this to test specific image versions locally                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| Backward-compatible migration                                                              | The refactoring does not change `make kind-up`. `scripts/kind/up.sh` can be migrated to use `kustomize build deploy/kind/` incrementally. The spec defines the target state; the migration path is incremental                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | OpenShift e2e runs use `make openshift-up` as the environment                              | This spec owns the driver the suite calls. `openshift-development.spec.md` owns bring-up: `make openshift-up`, the `deploy/openshift/` overlay (Routes, Keycloak NetworkPolicy, SCC), namespace rewrite, `${OPENSHIFT_NAMESPACE}-dev-*` cluster RBAC, and cluster bootstrap. Automated OpenShift pull-request CI lives in `ephemeral-pr-environments.spec.md` (HYPERSHELL-240) and is not duplicated here                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | Env vars renamed with `E2E_` prefix                                                        | Suite settings use the `E2E_` prefix (`E2E_SANDBOX_TIMEOUT`, `E2E_PROVISION_TIMEOUT`, `E2E_SKIP_CLEANUP`, `E2E_NAMESPACE`). The prefix avoids collisions with non-e2e configuration and makes the e2e origin of each variable explicit                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | CI uses `make kind-up`, not raw `kind create cluster`                                      | Reuses the same cluster setup path developers use locally. Ensures the CI environment is identical to local development. Avoids a second "create a Kind cluster" implementation that could drift                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |

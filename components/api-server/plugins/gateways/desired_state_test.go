@@ -9,11 +9,11 @@ func strPtr(s string) *string { return &s }
 func TestDesiredStateChangedIgnoresJSONNormalization(t *testing.T) {
 	stored := &Gateway{
 		Oidc:  strPtr(`{"issuer": "https://kc/realms/x", "audience": "a", "jwks_ttl": 3600}`),
-		Route: strPtr(`{"enabled": true}`),
+		Route: strPtr(`{"host": "a.example.com"}`),
 	}
 	written := &Gateway{
 		Oidc:  strPtr(`{"audience":"a","issuer":"https://kc/realms/x","jwks_ttl":3600}`),
-		Route: strPtr(`{"enabled":true}`),
+		Route: strPtr(`{"host":"a.example.com"}`),
 	}
 	if desiredStateChanged(stored, written) {
 		t.Fatal("semantically equal oidc/route reported as a desired-state change")

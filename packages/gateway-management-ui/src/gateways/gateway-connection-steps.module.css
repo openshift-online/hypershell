@@ -7,6 +7,40 @@
   padding: 0;
 }
 
+.connectionGuide {
+  max-width: 60rem;
+}
+
+.connectionStepTitle {
+  display: flex;
+  align-items: center;
+  column-gap: var(--pf-t--global--spacer--sm);
+}
+
+.connectionStepNumber {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 1.75rem;
+  block-size: 1.75rem;
+  flex: none;
+  border-radius: 50%;
+  background-color: var(--pf-t--global--background--color--primary--default);
+  border: var(--pf-t--global--border--width--box--default) solid
+    var(--pf-t--global--border--color--default);
+  color: var(--pf-t--global--text--color--default);
+  font-size: var(--pf-t--global--FontSize--md);
+  font-weight: var(--pf-t--global--FontWeight--body--bold);
+}
+
+.commandSettings {
+  margin-block-end: var(--pf-t--global--spacer--sm);
+}
+
+.commandSettings :global(.pf-v6-c-form-control) {
+  width: 100%;
+}
+
 .step {
   display: flex;
   flex-direction: column;

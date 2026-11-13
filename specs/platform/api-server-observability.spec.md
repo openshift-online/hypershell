@@ -325,14 +325,8 @@ in this repository:
 Both are framework-owned code paths that this repository consumes through the
 pinned rh-trex-ai dependency, not code this repository can edit. API-OBS-11 is
 therefore delivered by an upstream rh-trex-ai change plus a pin bump in this
-repository, tracked by GitHub issue #895. It is NOT implemented by the #871 pull
-request (#873); #873 ships only the in-repo data-model fix of SDLC-CONF-13 (a
-queryable `name` on the affected `ext` Kinds plus the shared search-path hardening
-and conformance tests that live in this repository). A code reviewer SHALL NOT
-expect in-repo code for API-OBS-11 on #873, and #871 SHALL NOT be blocked on the
-upstream work: the in-repo data-model fix closes the find-by-name 500 for the
-affected Kinds, while API-OBS-11 removes the diagnostic blind spot that hid the
-root cause and is delivered separately when the rh-trex-ai pin advances.
+repository, tracked by GitHub issue #895. A code reviewer SHALL NOT expect
+in-repo code for API-OBS-11.
 
 #### Scenario: API-OBS-11.01 -- Non-serializable field does not drop the record
 
@@ -367,7 +361,7 @@ root cause and is delivered separately when the rh-trex-ai pin advances.
 | Database instrumentation registered through a framework plugin registry | The base connection is owned by the rh-trex-ai `SessionFactory`; a registry (mirroring the framework's pre-auth middleware and interceptor registries) lets the API server opt into query tracing without coupling every framework consumer to the tracing dependency |
 | Operation-and-table span names, parameterized statement as an attribute | Keeps span-name cardinality bounded like the HTTP route templates while still allowing per-trace query detail; bound values and secrets are excluded per API-OBS-06 |
 | Placeholder-and-continue when a log field is non-serializable, not drop the record | A single non-serializable field value (for example a `func(int64)`) must never blank the whole request/response record; the logger that masks the data needed to debug a failure is worse than the failure. A bounded placeholder keeps the rest of the record, so the root error (such as the failing SQL behind a `25P02`) stays visible |
-| API-OBS-11 delivered upstream (rh-trex-ai) plus a pin bump, not in-repo on #873 | Both defects (the swallowed `Count()` error and the `func(int64)` logger drop) are rh-trex-ai framework code this repository only consumes through its pinned dependency, so they cannot be fixed here; tracked by GitHub issue #895. Decoupling the diagnostic fix from the in-repo data-model fix (SDLC-CONF-13) keeps #871 unblocked: #873 closes the find-by-name 500 for the affected Kinds, and API-OBS-11 removes the blind spot separately when the pin advances |
+| API-OBS-11 delivered upstream (rh-trex-ai) plus a pin bump, not in-repo | Both defects (the swallowed `Count()` error and the `func(int64)` logger drop) are rh-trex-ai framework code this repository only consumes through its pinned dependency, so they cannot be fixed here; tracked by GitHub issue #895 |
 
 ## Primary Basis
 

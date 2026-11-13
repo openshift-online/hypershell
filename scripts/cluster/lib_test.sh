@@ -479,7 +479,7 @@ else
 fi
 # Gateway create takes a required placement intent and rejects cluster_id as an
 # unknown field, so both seeds must send placement.
-if grep -q '"name\\":\\"dev-gateway\\",\\"placement\\":{\\"mode\\":\\"local-kind\\"}' "${REPO_ROOT}/scripts/kind/seed.sh" \
+if grep -q '"name\\":\\"dev-gateway\\",\\"placement\\":{\\"selector\\":\[\\"provider/kind\\"\]}' "${REPO_ROOT}/scripts/kind/seed.sh" \
   && grep -q '"name\\":\\"dev-gateway\\",\\"placement\\":{\\"selector\\":' "${SCRIPT_DIR}/drivers/openshift.sh" \
   && ! grep -q 'dev-gateway\\",\\"cluster_id' "${REPO_ROOT}/scripts/kind/seed.sh" "${SCRIPT_DIR}/drivers/openshift.sh"; then
   PASS=$((PASS + 1))
@@ -516,6 +516,17 @@ if grep -q 'name: HYPERSHELL_MANAGED_CLUSTER_NAME' "${REPO_ROOT}/deploy/kind/kus
 else
   FAIL=$((FAIL + 1))
   echo 'FAIL: dev overlays must name the control plane local-kind / local-openshift, matching the seed scripts'
+fi
+# CTRL-CORE-16: every HyperShell-owned deployment path supplies the host platform
+# explicitly. The Kind overlay is vanilla Kubernetes; the OpenShift overlay is
+# OpenShift. The controller requires HYPERSHELL_CLUSTER_PLATFORM and exits non-zero
+# without it, so a missing or wrong value here would crash-loop the control plane.
+if grep -A1 'name: HYPERSHELL_CLUSTER_PLATFORM' "${REPO_ROOT}/deploy/kind/kustomization.yaml" | grep -q 'value: kubernetes' \
+  && grep -A1 'name: HYPERSHELL_CLUSTER_PLATFORM' "${REPO_ROOT}/deploy/openshift/kustomization.yaml" | grep -q 'value: openshift'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: dev overlays must set HYPERSHELL_CLUSTER_PLATFORM (kind=kubernetes, openshift=openshift) per CTRL-CORE-16'
 fi
 if grep -rq 'WatchGateways\|WatchManagedClusters\|WatchRoleBindings\|WatchAgentRuntimes' --include='*.yaml' "${REPO_ROOT}/deploy" \
   && grep -rn 'auth-bypass-methods' "${REPO_ROOT}/deploy" | grep -q 'Watch'; then
@@ -1247,12 +1258,6 @@ if grep -q 'build-${BUILDARCH}' "${REPO_ROOT}/components/web-console/Dockerfile"
 else
   FAIL=$((FAIL + 1))
   echo 'FAIL: web-console Dockerfile does not compile on BUILDARCH and bundle native addons on TARGETARCH'
-fi
-if grep -q 'OPENSHIFT_IMAGE_REGISTRY' "${SCRIPT_DIR}/drivers/openshift.sh" "${SCRIPT_DIR}/lib.sh" "${REPO_ROOT}/Makefile"; then
-  FAIL=$((FAIL + 1))
-  echo 'FAIL: OPENSHIFT_IMAGE_REGISTRY is still present; swaps use SWAP_REGISTRY'
-else
-  PASS=$((PASS + 1))
 fi
 if grep -q 'SWAP_REGISTRY:-${IMAGE_REGISTRY}' "${SCRIPT_DIR}/drivers/openshift.sh" "${SCRIPT_DIR}/lib.sh"; then
   FAIL=$((FAIL + 1))

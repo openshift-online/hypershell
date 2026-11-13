@@ -41,7 +41,10 @@ import { Tooltip } from "@patternfly/react-core";
 import { z } from "zod";
 
 import { useGatewayUi } from "../gateway-ui-provider";
-import { kataRuntimeSelector } from "../application/gateway-types";
+import {
+  kataRuntimeSelector,
+  kindPlacementSelector,
+} from "../application/gateway-types";
 import type {
   GatewayPlacementAvailability,
   GatewayPlacementAvailabilityItem,
@@ -69,7 +72,12 @@ const kataPlacementSelectors = {
   ibmPublic: [...placementSelectors.ibmPublic, kataRuntimeSelector],
   ibmVpn: [...placementSelectors.ibmVpn, kataRuntimeSelector],
 } as const;
+// WEB-PLC-05: the Kind option is a plain capability-label placement choice,
+// offered exactly when placement availability reports the provider/kind
+// selector as available.
+const kindSelector = [kindPlacementSelector] as const;
 const requestedPlacementSelectors = [
+  kindSelector,
   ...Object.values(placementSelectors),
   ...Object.values(kataPlacementSelectors),
 ];
@@ -100,7 +108,7 @@ interface GatewayFormValues {
   name: string;
   network: "public" | "vpn" | null;
   provider: "aws" | "ibm" | null;
-  localKind: boolean;
+  kind: boolean;
   kata: boolean;
 }
 
@@ -492,11 +500,11 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
         name: requiredString,
         network: z.enum(["public", "vpn"]).nullable(),
         provider: z.enum(["aws", "ibm"]).nullable(),
-        localKind: z.boolean(),
+        kind: z.boolean(),
         kata: z.boolean(),
       })
       .superRefine((values, context) => {
-        if (!values.localKind && values.network === null) {
+        if (!values.kind && values.network === null) {
           context.addIssue({
             code: "custom",
             path: ["network"],
@@ -504,7 +512,7 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
           });
         }
         if (
-          !values.localKind &&
+          !values.kind &&
           values.network !== null &&
           values.provider === null
         ) {
@@ -522,7 +530,7 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
         name: "",
         network: null,
         provider: null,
-        localKind: false,
+        kind: false,
         kata: false,
       },
       resolver: zodResolver(schema) as never,
@@ -540,7 +548,10 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
       if (onCreated) {
         await onCreated(gateway.id);
       } else {
-        await navigation.navigate(navigation.detailHref(gateway.id));
+        const detailHref = navigation.detailHref(gateway.id);
+        await navigation.navigate(`${detailHref}?tab=connection`, {
+          state: { gatewayProvisioned: true },
+        });
       }
     },
     onError: () => {
@@ -591,11 +602,25 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
     availability.data,
     kataPlacementSelectors.ibmVpn,
   );
+  // Managed placement pairs exclude the single-label Kind selector: Kind
+  // availability must not make the form look like a managed pair is available
+  // (WEB-PLC-05).
   const hasManagedPlacement =
-    availability.data?.placements.some(({ available }) => available) === true;
-  const canUseLocalKind =
-    availability.data?.localKind === true && !hasManagedPlacement;
-  const defaultToLocalKind = canUseLocalKind && !hasManagedPlacement;
+    availability.data?.placements.some(
+      ({ available, selector }) =>
+        available &&
+        !(selector.length === 1 && selector[0] === kindPlacementSelector),
+    ) === true;
+  // WEB-PLC-05: the Kind option is offered exactly when a connected cluster
+  // advertises provider/kind, through the same batched availability check as
+  // any other selector. It composes with managed placement.
+  const canUseKind =
+    placementResult(availability.data, kindSelector)?.available === true;
+  // Kind is the only available placement when it is available and no managed
+  // placement pair is: the managed network and provider groups are not
+  // rendered in that state.
+  const kindOnlyPlacement = canUseKind && !hasManagedPlacement;
+  const defaultToKind = kindOnlyPlacement;
   const publicPlacementAvailable =
     awsPublic?.available === true || ibmPublic?.available === true;
   const vpnPlacementAvailable =
@@ -603,7 +628,7 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
 
   const network = useWatch({ control, name: "network" });
   const provider = useWatch({ control, name: "provider" });
-  const localKind = useWatch({ control, name: "localKind" });
+  const kind = useWatch({ control, name: "kind" });
   const kata = useWatch({ control, name: "kata" });
   const kataAvailability =
     network === "public"
@@ -627,7 +652,7 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
   const selectedPlacementAvailable = selectedPlacement?.available === true;
   const showRecommendation =
     availability.data !== undefined &&
-    !localKind &&
+    !kind &&
     selectedPlacementAvailable &&
     (!kata || kataAvailable);
   const recommendationFeatures: RecommendationFeature[] = [
@@ -687,10 +712,10 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
     : null;
 
   const submit = handleSubmit((values) => {
-    if (values.localKind) {
+    if (values.kind) {
       createGateway.mutate({
         name: values.name.trim(),
-        placement: { mode: "local-kind" },
+        placement: { selector: [kindPlacementSelector] },
       });
       return;
     }
@@ -713,7 +738,7 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
     }
   }, [kata, kataAvailable, setValue]);
   useEffect(() => {
-    if (!availability.data || localKind) return;
+    if (!availability.data || kind) return;
 
     const availableNetworks = [
       awsPublic?.available || ibmPublic?.available ? "public" : null,
@@ -736,12 +761,12 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
     awsVpn?.available,
     ibmPublic?.available,
     ibmVpn?.available,
-    localKind,
+    kind,
     network,
     setValue,
   ]);
   useEffect(() => {
-    if (!availability.data || localKind) return;
+    if (!availability.data || kind) return;
     if (network === "vpn") {
       const availableProvider = ibmVpn?.available
         ? "ibm"
@@ -770,21 +795,23 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
     awsVpn?.available,
     ibmPublic?.available,
     ibmVpn?.available,
-    localKind,
+    kind,
     network,
     provider,
     setValue,
   ]);
   useEffect(() => {
-    if (defaultToLocalKind && !localKind) {
-      setValue("localKind", true, { shouldValidate: true });
+    // Kind is selected by default only when no managed placement is available
+    // (WEB-PLC-05); it is deselected when its selector stops being available.
+    if (defaultToKind && !kind) {
+      setValue("kind", true, { shouldValidate: true });
       setValue("network", null);
       setValue("provider", null);
       clearErrors(["network", "provider"]);
-    } else if (!canUseLocalKind && localKind) {
-      setValue("localKind", false, { shouldValidate: true });
+    } else if (!canUseKind && kind) {
+      setValue("kind", false, { shouldValidate: true });
     }
-  }, [canUseLocalKind, clearErrors, defaultToLocalKind, localKind, setValue]);
+  }, [canUseKind, clearErrors, defaultToKind, kind, setValue]);
 
   return (
     <>
@@ -830,10 +857,10 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
                 label={intl.formatMessage(messages.gatewayName)}
                 name="name"
               />
-              {canUseLocalKind ? (
+              {canUseKind ? (
                 <Controller
                   control={control}
-                  name="localKind"
+                  name="kind"
                   render={({ field }) => (
                     <ChoiceGroup
                       id="local-development"
@@ -841,11 +868,11 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
                     >
                       <Choice
                         name="placement"
-                        value="local-kind"
-                        selected={localKind}
-                        title={intl.formatMessage(messages.localKindPlacement)}
+                        value={kindPlacementSelector}
+                        selected={kind}
+                        title={intl.formatMessage(messages.kindPlacement)}
                         description={intl.formatMessage(
-                          messages.localKindPlacementDescription,
+                          messages.kindPlacementDescription,
                         )}
                         onChoose={() => {
                           field.onChange(true);
@@ -858,7 +885,7 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
                   )}
                 />
               ) : null}
-              {!canUseLocalKind ? (
+              {!kindOnlyPlacement ? (
                 <Controller
                   control={control}
                   name="network"
@@ -912,7 +939,7 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
                         messages.internalServicesQuestion,
                       )}
                       onChange={(value) => {
-                        setValue("localKind", false);
+                        setValue("kind", false);
                         const selectedNetwork =
                           value === "yes" ? "vpn" : "public";
                         field.onChange(selectedNetwork);
@@ -1049,7 +1076,7 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
                   )}
                 />
               ) : null}
-              {!localKind && network !== null && provider !== null ? (
+              {!kind && network !== null && provider !== null ? (
                 <ExpandableSection
                   toggleText={intl.formatMessage(messages.advancedOptions)}
                 >
@@ -1074,7 +1101,7 @@ export function GatewayCreatePage({ onCreated }: GatewayCreatePageProps = {}) {
                   </FormSection>
                 </ExpandableSection>
               ) : null}
-              {availability.data && !hasManagedPlacement && !canUseLocalKind ? (
+              {availability.data && !hasManagedPlacement && !canUseKind ? (
                 <Alert
                   isInline
                   title={intl.formatMessage(messages.noManagedPlacement)}

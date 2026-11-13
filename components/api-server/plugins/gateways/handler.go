@@ -11,6 +11,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/extsearch"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/gatewayhealth"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
@@ -35,18 +36,19 @@ type GatewayOwnerLookup interface {
 }
 
 type gatewayHandler struct {
-	gateway          GatewayService
-	generic          services.GenericService
-	ownerBinding     OwnerBindingCreator
-	visibilityFilter GatewayVisibilityFilter
-	ownerLookup      GatewayOwnerLookup
-	ownership        GatewayOwnershipLookup
-	bindingLookup    rbac.RoleBindingLookup
-	clusters         RegisteredClusterLookup
-	enforceRBAC      bool
-	dedicatedRoute   dedicatedRouteAuthorizer
-	placement        PlacementResolver
-	availability     PlacementAvailabilityResolver
+	gateway           GatewayService
+	generic           services.GenericService
+	ownerBinding      OwnerBindingCreator
+	visibilityFilter  GatewayVisibilityFilter
+	ownerLookup       GatewayOwnerLookup
+	ownership         GatewayOwnershipLookup
+	bindingLookup     rbac.RoleBindingLookup
+	clusters          RegisteredClusterLookup
+	enforceRBAC       bool
+	dedicatedRoute    dedicatedRouteAuthorizer
+	operatorWorkspace operatorWorkspaceAuthorizer
+	placement         PlacementResolver
+	availability      PlacementAvailabilityResolver
 }
 
 // callerBindings loads the current caller's role bindings once, or nil when RBAC
@@ -178,18 +180,19 @@ func applyAwaitingPlacement(model *Gateway) {
 
 func NewGatewayHandler(gateway GatewayService, generic services.GenericService, ownerBinding OwnerBindingCreator, visibilityFilter GatewayVisibilityFilter, ownerLookup GatewayOwnerLookup, ownership GatewayOwnershipLookup, bindingLookup rbac.RoleBindingLookup, clusters RegisteredClusterLookup, enforceRBAC bool, placement PlacementResolver, availability PlacementAvailabilityResolver) *gatewayHandler {
 	h := &gatewayHandler{
-		gateway:          gateway,
-		generic:          generic,
-		ownerBinding:     ownerBinding,
-		visibilityFilter: visibilityFilter,
-		ownerLookup:      ownerLookup,
-		ownership:        ownership,
-		bindingLookup:    bindingLookup,
-		clusters:         clusters,
-		enforceRBAC:      enforceRBAC,
-		dedicatedRoute:   newDedicatedRouteAuthorizer(bindingLookup, enforceRBAC),
-		placement:        placement,
-		availability:     availability,
+		gateway:           gateway,
+		generic:           generic,
+		ownerBinding:      ownerBinding,
+		visibilityFilter:  visibilityFilter,
+		ownerLookup:       ownerLookup,
+		ownership:         ownership,
+		bindingLookup:     bindingLookup,
+		clusters:          clusters,
+		enforceRBAC:       enforceRBAC,
+		dedicatedRoute:    newDedicatedRouteAuthorizer(bindingLookup, enforceRBAC),
+		operatorWorkspace: newOperatorWorkspaceAuthorizer(bindingLookup, enforceRBAC),
+		placement:         placement,
+		availability:      availability,
 	}
 	return h
 }
@@ -207,6 +210,13 @@ func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
 			// entitlement (or platform:admin). The check is body-dependent, so it lives
 			// here rather than in the path authorization middleware.
 			if svcErr := h.dedicatedRoute.authorizeCreate(ctx, gatewayModel.DedicatedRoute); svcErr != nil {
+				return nil, svcErr
+			}
+			// workspace_mode = operator is a create-only user-writable selection, but only
+			// for a caller holding the platform-wide gateway:operator-workspace-creator
+			// entitlement (or platform:admin). The check is body-dependent, so it lives
+			// here rather than in the path authorization middleware (OSG-OPWS-01 / SEC-RBAC-28).
+			if svcErr := h.operatorWorkspace.authorizeCreate(ctx, gatewayModel.WorkspaceMode); svcErr != nil {
 				return nil, svcErr
 			}
 			// cluster_id is optional: a gateway is either pinned to a cluster
@@ -370,6 +380,17 @@ func (h gatewayHandler) List(w http.ResponseWriter, r *http.Request) {
 			userID := rbac.GetUserIDFromContext(ctx)
 			hasPlatformAdmin := rbac.HasPlatformAdminRole(ctx, userID)
 			scoped := userID != "" && h.visibilityFilter != nil && !hasPlatformAdmin
+
+			// Check the caller's search on its own before any restriction is
+			// appended. Only a complete, valid expression can be wrapped in
+			// parentheses without closing them early; without this check a value
+			// such as `name = 'x') or (name = 'y'` escapes the visibility filter
+			// and lists gateways the caller cannot see (SEC-RBAC-10.05).
+			if strings.TrimSpace(listArgs.Search) != "" {
+				if searchErr := extsearch.ValidateSearchColumns(listArgs.Search, &Gateway{}); searchErr != nil {
+					return nil, searchErr
+				}
+			}
 
 			appendSearch := func(filter string) {
 				if listArgs.Search != "" {

@@ -1,68 +1,118 @@
 package gateway
 
 import (
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 )
 
-// Verifies: PLAT-ARCH-09.01, PLAT-ARCH-09.02
-func TestGatewayIngressMode(t *testing.T) {
+// gatewayAPIClientset returns a clientset whose API server answers the
+// gateway.networking.k8s.io/v1 discovery call with the given status and body.
+// Every other request fails the test, so the reconcile must stop at the
+// Gateway API check.
+func gatewayAPIClientset(t *testing.T, status int, body string) *kubernetes.Clientset {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/apis/gateway.networking.k8s.io/v1" {
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+			http.Error(w, "unexpected", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+	cs, err := kubernetes.NewForConfig(&rest.Config{Host: srv.URL})
+	if err != nil {
+		t.Fatalf("new clientset: %v", err)
+	}
+	return cs
+}
+
+const notFoundStatus = `{"kind":"Status","apiVersion":"v1","status":"Failure","reason":"NotFound","code":404}`
+
+// Verifies: PLAT-ARCH-09.03
+func TestReconcileGatewayFailsWithoutGatewayAPI(t *testing.T) {
+	cs := gatewayAPIClientset(t, http.StatusNotFound, notFoundStatus)
+
+	type report struct{ condition, status, message string }
+	var reports []report
+	opts := ReconcileOpts{ReportProgress: func(condition, status, message string) {
+		reports = append(reports, report{condition, status, message})
+	}}
+	nsConfig := NamespaceConfig{Name: "openshell-abc", Gateway: GatewayConfig{Route: RouteConfig{}}}
+
+	err := ReconcileGateway(context.Background(), nil, cs, nil, nsConfig, opts)
+	if !errors.Is(err, errGatewayAPIMissing) {
+		t.Fatalf("err = %v, want errGatewayAPIMissing", err)
+	}
+	if len(reports) == 0 {
+		t.Fatal("no condition reported")
+	}
+	last := reports[len(reports)-1]
+	want := report{ConditionEnvironmentReady, StatusFailed, "Gateway API is not installed on this cluster; the gateway cannot be exposed"}
+	if last != want {
+		t.Fatalf("last report = %+v, want %+v", last, want)
+	}
+	for _, r := range reports {
+		if r.status == StatusComplete {
+			t.Fatalf("condition %s reported Complete without the Gateway API", r.condition)
+		}
+	}
+}
+
+// TestEvaluateGatewayAPIDependency drives evaluateDependency through a real
+// client-go discovery client so the three-state classification is verified
+// against actual API-server responses: a served GRPCRoute is present, a 404 or a
+// group without GRPCRoute is confirmed absent, and a 500 is unknown/unavailable
+// (retryable), not absent.
+// Verifies: CTRL-CORE-18.01, CTRL-CORE-18.02, OSG-ROUT-02.01, OSG-ROUT-02.03
+func TestEvaluateGatewayAPIDependency(t *testing.T) {
 	tests := []struct {
-		name     string
-		envValue string
-		setEnv   bool
-		opts     ReconcileOpts
-		want     string
+		name   string
+		status int
+		body   string
+		want   DependencyState
 	}{
 		{
-			name:   "explicit route override wins over capabilities",
-			setEnv: true, envValue: "route",
-			opts: ReconcileOpts{HasGatewayAPI: true, IsOpenShift: true},
-			want: IngressModeRoute,
+			name:   "GRPCRoute served is present",
+			status: http.StatusOK,
+			body:   `{"kind":"APIResourceList","groupVersion":"gateway.networking.k8s.io/v1","resources":[{"name":"grpcroutes","namespaced":true,"kind":"GRPCRoute","verbs":["get"]}]}`,
+			want:   DependencyPresent,
 		},
 		{
-			name:   "explicit gateway-api override",
-			setEnv: true, envValue: "gateway-api",
-			opts: ReconcileOpts{HasGatewayAPI: false, IsOpenShift: true},
-			want: IngressModeGatewayAPI,
+			name:   "group served without GRPCRoute is confirmed absent",
+			status: http.StatusOK,
+			body:   `{"kind":"APIResourceList","groupVersion":"gateway.networking.k8s.io/v1","resources":[{"name":"httproutes","namespaced":true,"kind":"HTTPRoute","verbs":["get"]}]}`,
+			want:   DependencyAbsent,
 		},
 		{
-			name:   "routes alias maps to route",
-			setEnv: true, envValue: "Routes",
-			opts: ReconcileOpts{IsOpenShift: true},
-			want: IngressModeRoute,
+			name:   "group not served is confirmed absent",
+			status: http.StatusNotFound,
+			body:   notFoundStatus,
+			want:   DependencyAbsent,
 		},
 		{
-			name:   "none disables managed ingress",
-			setEnv: true, envValue: "none",
-			opts: ReconcileOpts{HasGatewayAPI: true, IsOpenShift: true},
-			want: IngressModeNone,
-		},
-		{
-			name: "auto-detect prefers Gateway API when present",
-			opts: ReconcileOpts{HasGatewayAPI: true, IsOpenShift: true},
-			want: IngressModeGatewayAPI,
-		},
-		{
-			name: "auto-detect falls back to Route on OpenShift without Gateway API",
-			opts: ReconcileOpts{HasGatewayAPI: false, IsOpenShift: true},
-			want: IngressModeRoute,
-		},
-		{
-			name: "auto-detect yields none on a plain cluster",
-			opts: ReconcileOpts{HasGatewayAPI: false, IsOpenShift: false},
-			want: IngressModeNone,
+			name:   "API server error is unknown, not absent",
+			status: http.StatusInternalServerError,
+			body:   `{"kind":"Status","apiVersion":"v1","status":"Failure","reason":"InternalError","code":500}`,
+			want:   DependencyUnknown,
 		},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.setEnv {
-				t.Setenv("GATEWAY_INGRESS_MODE", tt.envValue)
-			} else {
-				t.Setenv("GATEWAY_INGRESS_MODE", "")
+			res := evaluateDependency(gatewayAPIClientset(t, tt.status, tt.body).Discovery(), DependencyGatewayAPI)
+			if res.State != tt.want {
+				t.Fatalf("state = %v, want %v (err %v)", res.State, tt.want, res.Err)
 			}
-			if got := gatewayIngressMode(tt.opts); got != tt.want {
-				t.Errorf("gatewayIngressMode() = %q, want %q", got, tt.want)
+			if tt.want == DependencyUnknown && res.Err == nil {
+				t.Fatal("unknown result must carry the discovery error")
 			}
 		})
 	}

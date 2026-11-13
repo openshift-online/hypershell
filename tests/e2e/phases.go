@@ -194,8 +194,8 @@ func (s *E2ESuite) ensurePrimaryGateway(t *testing.T) {
 	s.primaryRouteAddress = st.routeAddress
 }
 
-// provision creates (or adopts) the primary gateway, waits for it to reach Running
-// with settled provisioning conditions, acquires its per-gateway token, discovers
+// provision creates (or adopts) the primary gateway, waits for one API response
+// that shows it fully ready (see primaryGatewayReadiness), acquires its per-gateway token, discovers
 // its endpoint, and registers it with the CLI, recording each artifact on st. It
 // runs under primaryState.once, so a provisioning failure (a testify FailNow)
 // stops the calling step.
@@ -222,29 +222,28 @@ func (st *primaryGatewayState) provision(s *E2ESuite, t *testing.T) {
 	}
 	st.ref = driver.GatewayRef{Name: created.Name, Namespace: created.Namespace, ID: created.ID}
 
-	running := s.waitGatewayRunning(t, created.ID)
-	st.ref.Namespace = running.Namespace
-	st.workspaceMode = running.WorkspaceMode
-	s.Require().Equal("Running", running.Phase, "primary gateway must reach Running")
-	s.Require().NotEmpty(running.RouteAddress, "running primary gateway publishes route_address")
-
-	var conditionsErr error
-	conditionsWaitErr := harness.Poll(t.Context(), 5*time.Second, durationSecondsEnv("E2E_CONDITIONS_SETTLE_TIMEOUT", 60*time.Second), func(ctx context.Context) (bool, error) {
-		current, err := s.admin.Gateways().Get(ctx, created.ID)
-		if err != nil {
-			return false, nil
-		}
-		if conditionsErr = validateProvisioningConditions(current.ProvisioningConditions); conditionsErr == nil {
-			running = current
-			return true, nil
-		}
-		return false, nil
+	// One bounded poll accepts a single API response that is Running, has
+	// observed its current generation, has complete provisioning conditions, and
+	// publishes a route address. Checking all four on the same response keeps a
+	// phase flip (a second reconcile pass, a pod restart) from slipping between
+	// two separate waits (HYPERSHELL-492).
+	readyTimeout := durationSecondsEnv("E2E_PROVISION_TIMEOUT", 180*time.Second) +
+		durationSecondsEnv("E2E_CONDITIONS_SETTLE_TIMEOUT", 60*time.Second)
+	running, last, err := waitPrimaryGatewayReady(t.Context(), 5*time.Second, readyTimeout, func(ctx context.Context) (*sdktypes.Gateway, error) {
+		return s.admin.Gateways().Get(ctx, created.ID)
 	})
-	s.Require().NoError(conditionsWaitErr, "primary gateway provisioning conditions did not settle: %v", conditionsErr)
+	if err != nil {
+		s.dumpGatewayDiagnostics(t, created.ID, last)
+		s.Require().NoError(err, "primary gateway %s never became ready", created.ID)
+	}
+	st.ref.Namespace = running.Namespace
+	st.ref.ClientID = s.requireGatewayClientID(running)
+	st.workspaceMode = running.WorkspaceMode
 	st.ready = running
 	st.provisionDuration = time.Since(start)
 	st.routeAddress = running.RouteAddress
-	s.Logf("primary gateway %s (%s) Running in namespace %s route=%s after %s", running.Name, running.ID, running.Namespace, running.RouteAddress, st.provisionDuration)
+	s.Logf("primary gateway %s (%s) ready: phase=%s generation=%d observed_generation=%d namespace=%s route=%s after %s",
+		running.Name, running.ID, running.Phase, running.Generation, running.ObservedGeneration, running.Namespace, running.RouteAddress, st.provisionDuration)
 
 	// Per-gateway token (the P1.3 artifact): a token exchange in identity mode, a
 	// client_credentials token in service_account mode.
@@ -262,20 +261,26 @@ func (st *primaryGatewayState) provision(s *E2ESuite, t *testing.T) {
 }
 
 // p1_1Provisioning asserts the shared primary gateway (created in setup via
-// ensurePrimaryGateway) reconciled to Running with valid provisioning conditions
-// and workspace mode, and logs the recorded provisioning duration (TTR). The
+// ensurePrimaryGateway) reached Running with its current generation observed,
+// complete provisioning conditions, and a route address, all in one API
+// response, plus a valid workspace mode, and logs the recorded provisioning duration (TTR). The
 // gateway itself is created in setup, not here, so this step runs in isolation.
 // Verifies: E2E-CORE-13.02
 func (s *E2ESuite) p1_1Provisioning(t *testing.T) {
 	s.ensurePrimaryGateway(t)
 	s.Require().NotNil(s.primaryReadyGateway, "primary gateway provisioned in setup")
-	s.Require().Equal("Running", s.primaryReadyGateway.Phase, "primary gateway reached Running")
-	s.Require().NotEmpty(s.primaryReadyGateway.RouteAddress, "running primary gateway publishes route_address")
-	s.Require().NoError(validateProvisioningConditions(s.primaryReadyGateway.ProvisioningConditions), "primary gateway provisioning conditions complete")
+	// primaryReadyGateway is the one response that met every readiness check, so
+	// phase, generation, conditions, and route all describe the same moment.
+	s.Require().NoError(primaryGatewayReadiness(s.primaryReadyGateway), "primary gateway ready in one API response")
 	s.Assert().Containsf(gatewayWorkspaceModes, s.primaryWorkspaceMode, "primary gateway workspace mode %q is valid", s.primaryWorkspaceMode)
 	s.Logf("primary gateway %s (%s) provisioned to Running in %s (TTR)", s.primary.Name, s.primary.ID, s.primaryProvisionDuration)
 }
 
+// p1_2InfraVerification inspects the primary gateway's Kubernetes resources:
+// Deployment, Service, server TLS secret, cert-manager Certificates, database
+// credentials, and NetworkPolicy posture. The step is registered long-only, so
+// every check here runs only in long mode.
+// Verifies: E2E-CORE-13.04
 func (s *E2ESuite) p1_2InfraVerification(t *testing.T) {
 	s.ensurePrimaryGateway(t)
 	s.logger.Additionalf("verify gateway deployment, service, TLS, and database configuration")
@@ -307,9 +312,7 @@ func (s *E2ESuite) p1_2InfraVerification(t *testing.T) {
 	s.Assert().GreaterOrEqual(int(readyReplicas), 1, "gateway deployment ready replicas")
 	s.Assert().NotEmpty(clusterIP, "gateway service ClusterIP")
 
-	s.longOnly("tls-database-config", func(t *testing.T) {
-		s.assertGatewayInfraDetails(t, ns)
-	})
+	s.assertGatewayInfraDetails(t, ns)
 }
 
 // assertGatewayInfraDetails checks the gateway's TLS, database credentials,
@@ -428,8 +431,7 @@ func certificateReady(certificate *unstructured.Unstructured) bool {
 // so it runs in isolation.
 func (s *E2ESuite) p1_3TokenAndCATrust(t *testing.T) {
 	s.ensurePrimaryGateway(t)
-	// The per-gateway Keycloak client is "<gw-name>-<gw-id>".
-	clientID := fmt.Sprintf("%s-%s", s.primary.Name, s.primary.ID)
+	clientID := s.primary.ClientID
 	s.Require().NotEmpty(s.primaryGatewayToken.AccessToken, "primary gateway token acquired in setup")
 	s.longOnly("device-authorization", func(t *testing.T) {
 		if s.driver.Name() != "kind" {
@@ -478,7 +480,7 @@ func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
 	gw := s.createGateway(t, "e2e-sbx-"+s.runID)
 	s.trackGateway(gw.ID)
 	running := s.waitGatewayRunning(t, gw.ID)
-	ref := driver.GatewayRef{Name: running.Name, Namespace: running.Namespace, ID: running.ID}
+	ref := driver.GatewayRef{Name: running.Name, Namespace: running.Namespace, ID: running.ID, ClientID: s.requireGatewayClientID(running)}
 	endpoint, err := gatewayEndpointFromRouteAddress(running.RouteAddress)
 	s.Require().NoError(err, "derive sandbox gateway endpoint from API route_address")
 
@@ -798,14 +800,15 @@ func (s *E2ESuite) p2_3DeletionAndGC(t *testing.T) {
 // control-plane identity rules via the REST API: the seeded cluster is registered,
 // /registration is idempotent for the registrar and rejects non-registrars (403)
 // and name collisions (409). It then exercises the gateway-create placement contract
-// (PLAT-DATA-02, PLAT-CLUS-09): an invalid placement (400), an unregistered
-// cluster_id (400), an empty cluster_id with no placement (400), and a late-bound
+// (PLAT-DATA-02, PLAT-CLUS-09): an invalid placement (400), an unknown
+// cluster_id (400), a cluster_id naming a manually created placeholder cluster
+// with no registered control plane (400), an empty cluster_id with no placement (400), and a late-bound
 // placement selector with no cluster_id (accepted). These contract-negative and
 // late-binding probes carry their own request shapes and are never pinned to a
 // matrix target, so a late-bound create need not resolve to the suite's cluster.
 // It also checks that the gRPC WatchGateways stream rejects unauthorized and
 // revoked identities.
-// Verifies: E2E-CORE-18.01, E2E-CORE-18.02, E2E-CORE-18.03, E2E-CORE-18.04
+// Verifies: E2E-CORE-18.01, E2E-CORE-18.02, E2E-CORE-18.03, E2E-CORE-18.04, E2E-CORE-18.05
 func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
 	ctx := t.Context()
 	defClusterName := s.seedDefaults()
@@ -869,15 +872,17 @@ func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
 		s.Assert().NotEqual(collisionName, cluster.Name, "rejected registration creates no cluster record")
 	}
 
-	// 12e: an unsupported placement intent is rejected. This probe keeps its own
-	// placement shape and is never pinned to the matrix target, so it exercises the
-	// placement-validation path regardless of which cluster the suite targets.
+	// 12e: an unsupported placement intent is rejected. The selector list is
+	// schema-valid (present and non-empty) but carries an invalid capability label,
+	// so the request passes OpenAPI request validation and reaches the
+	// placement-validation path regardless of which cluster the suite targets; the
+	// probe is never pinned to the matrix target.
 	invalidPlacement := gatewayCreateRequestForDriver("e2e-invalid-placement-"+s.runID, s.driver.Name())
-	invalidPlacement.Placement = &gatewayPlacementIntent{Mode: "invalid"}
+	invalidPlacement.Placement = &gatewayPlacementIntent{Selector: []string{"not-a-capability-label"}}
 	st, body, err = s.admin.RawJSON(ctx, http.MethodPost, "/gateways", invalidPlacement)
 	s.Require().NoError(err, "gateway create with invalid placement")
 	s.Assert().Equalf(http.StatusBadRequest, st, "invalid placement must be 400 (body: %s)", string(body))
-	s.Assert().Containsf(strings.ToLower(string(body)), "placement", "400 reason should name placement (body: %s)", string(body))
+	s.Assert().Containsf(strings.ToLower(string(body)), "capability label", "400 reason should name the selector validation (body: %s)", string(body))
 
 	// 12f: a cluster_id that references no registered ManagedCluster is rejected
 	// (PLAT-CLUS-09). The user-facing cluster_id create path still exists on the API;
@@ -894,6 +899,42 @@ func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
 	s.Assert().Containsf(strings.ToLower(string(body)), "cluster_id", "400 reason should name cluster_id (body: %s)", string(body))
 	s.deleteUnexpectedlyCreatedGateway(ctx, st, body)
 
+	// 12f (placeholder): a ManagedCluster created by hand through POST
+	// /managed_clusters has no oidc_subject, so no control plane owns it. A gateway
+	// pinned to it is rejected like an unknown id (E2E-CORE-18.05). The record has
+	// no capabilities, so no placement selector can match it while it exists, and
+	// the suite deletes it afterwards.
+	placeholder, err := s.admin.ManagedClusters().Create(ctx, &sdktypes.ManagedCluster{
+		Name:             "e2e-placeholder-" + s.runID,
+		KubeconfigSecret: "e2e-placeholder-" + s.runID,
+	})
+	s.Require().NoError(err, "create placeholder managed cluster")
+	s.Require().Empty(placeholder.OidcSubject, "manually created cluster has no oidc_subject")
+	placeholderDeleted := false
+	deletePlaceholder := func() {
+		if placeholderDeleted {
+			return
+		}
+		placeholderDeleted = true
+		s.Assert().NoError(s.admin.ManagedClusters().Delete(context.WithoutCancel(ctx), placeholder.ID),
+			"delete placeholder managed cluster")
+	}
+	// Runs only if a Require below stops the step before the inline delete.
+	defer deletePlaceholder()
+	pinnedToPlaceholder := map[string]any{
+		"name":       "e2e-placeholder-gw-" + s.runID,
+		"cluster_id": placeholder.ID,
+	}
+	st, body, err = s.admin.RawJSON(ctx, http.MethodPost, "/gateways", pinnedToPlaceholder)
+	s.Require().NoError(err, "gateway create pinned to placeholder cluster")
+	s.Assert().Equalf(http.StatusBadRequest, st, "placeholder cluster_id must be 400 (body: %s)", string(body))
+	s.Assert().Containsf(strings.ToLower(string(body)), "cluster_id", "400 reason should name cluster_id (body: %s)", string(body))
+	s.Assert().Containsf(strings.ToLower(string(body)), "registered control plane", "400 reason should say the cluster has no registered control plane (body: %s)", string(body))
+	s.deleteUnexpectedlyCreatedGateway(ctx, st, body)
+	deletePlaceholder()
+	_, err = s.admin.ManagedClusters().Get(ctx, placeholder.ID)
+	s.Assert().Errorf(err, "placeholder managed cluster %s is gone after delete", placeholder.ID)
+
 	// 12g: a request with an empty cluster_id and no placement supplies neither side
 	// of the exactly-one-of contract and is rejected (PLAT-DATA-02). The explicit
 	// empty-string cluster_id is sent as-is rather than being injected with the
@@ -905,6 +946,7 @@ func (s *E2ESuite) p2_4ManagedClusterLifecycle(t *testing.T) {
 	st, body, err = s.admin.RawJSON(ctx, http.MethodPost, "/gateways", unbound)
 	s.Require().NoError(err, "gateway create with empty cluster_id and no placement")
 	s.Assert().Equalf(http.StatusBadRequest, st, "empty cluster_id with no placement must be 400 (body: %s)", string(body))
+	s.Assert().Containsf(strings.ToLower(string(body)), "cluster_id", "400 reason should name cluster_id (body: %s)", string(body))
 	s.deleteUnexpectedlyCreatedGateway(ctx, st, body)
 
 	// 12h: a placement selector with no cluster_id is the late-binding shape; the
@@ -1028,10 +1070,10 @@ func (s *E2ESuite) p3_1AdminInventory(t *testing.T) {
 // --- low-level helpers ---
 
 // gatewayPlacementIntent is the client-selected placement intent. The API server
-// resolves it to a registered managed-cluster id during gateway creation. Exactly
-// one of Mode or Selector must be set (GatewayPlacementIntent, openapi.gateways.yaml).
+// resolves it to a registered managed-cluster id during gateway creation. The
+// intent is a capability-label selector list (GatewayPlacementIntent,
+// openapi.gateways.yaml).
 type gatewayPlacementIntent struct {
-	Mode     string   `json:"mode,omitempty"`
 	Selector []string `json:"selector,omitempty"`
 }
 
@@ -1052,12 +1094,12 @@ type gatewayCreateRequest struct {
 // used by functional and performance e2e tests. Kind resolves the local development
 // control plane; OpenShift resolves an available public AWS control plane. It
 // carries only name + placement, like any user create: the control plane supplies
-// route (enabled by default), the per-gateway Keycloak OIDC client, and the
+// route (always routed), the per-gateway Keycloak OIDC client, and the
 // credential driver (the flat vault default) during reconcile.
 func gatewayCreateRequestForDriver(name, driverName string) gatewayCreateRequest {
 	placement := &gatewayPlacementIntent{Selector: []string{"network/public", "provider/aws"}}
 	if driverName == "kind" {
-		placement = &gatewayPlacementIntent{Mode: "local-kind"}
+		placement = &gatewayPlacementIntent{Selector: []string{"provider/kind"}}
 	}
 	return gatewayCreateRequest{
 		Name:      name,
@@ -1108,6 +1150,74 @@ func (s *E2ESuite) assertLandedOnEligibleCluster(resolvedClusterID string) error
 	return nil
 }
 
+// primaryGatewayReadiness reports why one gateway API response is not yet a
+// ready primary gateway, or nil when it is. Every check reads the same response:
+// phase is Running, the controller has observed the current generation, the
+// provisioning conditions are complete, and the route address is published.
+func primaryGatewayReadiness(gw *sdktypes.Gateway) error {
+	if gw == nil {
+		return fmt.Errorf("no gateway response")
+	}
+	if gw.Phase != "Running" {
+		return fmt.Errorf("phase is %q, want Running", gw.Phase)
+	}
+	if gw.Generation <= 0 {
+		return fmt.Errorf("generation is %d, want > 0", gw.Generation)
+	}
+	if gw.ObservedGeneration != gw.Generation {
+		return fmt.Errorf("observed_generation %d does not match generation %d", gw.ObservedGeneration, gw.Generation)
+	}
+	if err := validateProvisioningConditions(gw.ProvisioningConditions); err != nil {
+		return fmt.Errorf("provisioning conditions not complete: %w", err)
+	}
+	if strings.TrimSpace(gw.RouteAddress) == "" {
+		return fmt.Errorf("route_address is empty")
+	}
+	return nil
+}
+
+// waitPrimaryGatewayReady polls get until one response passes
+// primaryGatewayReadiness and returns that exact response. On timeout it
+// returns the last response it saw and an error naming its phase, generation,
+// observed_generation, route state, and the reason it was not ready. A failed
+// get is treated as transient and polled again.
+func waitPrimaryGatewayReady(ctx context.Context, interval, timeout time.Duration, get func(context.Context) (*sdktypes.Gateway, error)) (*sdktypes.Gateway, *sdktypes.Gateway, error) {
+	var last *sdktypes.Gateway
+	var reason error
+	var ready *sdktypes.Gateway
+	err := harness.Poll(ctx, interval, timeout, func(ctx context.Context) (bool, error) {
+		gw, err := get(ctx)
+		if err != nil {
+			reason = fmt.Errorf("get gateway: %w", err)
+			return false, nil
+		}
+		last = gw
+		if reason = primaryGatewayReadiness(gw); reason != nil {
+			return false, nil
+		}
+		ready = gw
+		return true, nil
+	})
+	if err != nil {
+		return nil, last, fmt.Errorf("%w; %s", err, describeGatewayReadiness(last, reason))
+	}
+	return ready, ready, nil
+}
+
+// describeGatewayReadiness summarizes the last observed gateway state for a
+// readiness timeout message.
+func describeGatewayReadiness(gw *sdktypes.Gateway, reason error) string {
+	if gw == nil {
+		return fmt.Sprintf("no gateway response observed (last error: %v)", reason)
+	}
+	route := "set"
+	if strings.TrimSpace(gw.RouteAddress) == "" {
+		route = "empty"
+	}
+	return fmt.Sprintf("last phase=%q generation=%d observed_generation=%d route_address=%s; not ready: %v",
+		gw.Phase, gw.Generation, gw.ObservedGeneration, route, reason)
+}
+
 func validateProvisioningConditions(conditions []map[string]any) error {
 	if len(conditions) == 0 {
 		return fmt.Errorf("provisioning_conditions is empty")
@@ -1138,7 +1248,7 @@ func validateProvisioningConditions(conditions []map[string]any) error {
 
 // createGateway provisions a gateway via the create endpoint with only the
 // user-writable fields (name + placement). The control plane supplies the
-// platform-managed workload fields during reconcile: route (enabled by default)
+// platform-managed workload fields during reconcile: route (always routed)
 // makes it create the gateway's GRPCRoute, and the per-gateway Keycloak OIDC
 // client lets the gateway validate the CLI's bearer token. namespace is
 // server-derived and must not be sent. It uses the raw helper rather than the

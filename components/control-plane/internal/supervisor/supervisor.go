@@ -2,7 +2,7 @@ package supervisor
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"time"
 )
 
@@ -27,9 +27,9 @@ func RunWithBackoff(ctx context.Context, name string, initialBackoff time.Durati
 			return
 		}
 		if err == nil {
-			log.Printf("WARN %s exited unexpectedly with no error, restarting in %s", name, backoff)
+			slog.WarnContext(ctx, "Component exited unexpectedly with no error, restarting", "name", name, "backoff", backoff)
 		} else {
-			log.Printf("WARN %s exited with error, restarting in %s: %v", name, backoff, err)
+			slog.WarnContext(ctx, "Component exited with error, restarting", "name", name, "backoff", backoff, "error", err)
 		}
 		select {
 		case <-ctx.Done():

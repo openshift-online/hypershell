@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
@@ -72,12 +72,7 @@ func (r *RoleBindingReconciler) Handle(ctx context.Context, event watcher.Event[
 
 	rb := event.Resource
 	if rb == nil {
-		log.Printf("WARN role binding event %s has nil resource, skipping", event.ResourceID)
-		return nil
-	}
-
-	if r.keycloakClient == nil {
-		log.Printf("DEBUG role binding %s: keycloak not configured, skipping", event.ResourceID)
+		slog.WarnContext(ctx, "Role binding event has nil resource, skipping", "role_binding_id", event.ResourceID)
 		return nil
 	}
 
@@ -89,7 +84,7 @@ func (r *RoleBindingReconciler) Handle(ctx context.Context, event watcher.Event[
 	}()
 
 	if rb.GatewayId == nil || *rb.GatewayId == "" {
-		log.Printf("DEBUG role binding %s: no gateway_id (global scope), skipping keycloak sync", event.ResourceID)
+		slog.DebugContext(ctx, "Role binding has no gateway_id (global scope), skipping keycloak sync", "role_binding_id", event.ResourceID)
 		return nil
 	}
 
@@ -99,7 +94,7 @@ func (r *RoleBindingReconciler) Handle(ctx context.Context, event watcher.Event[
 			reconcileErr = fmt.Errorf("role binding %s: role name not yet resolved", event.ResourceID)
 			return reconcileErr
 		}
-		log.Printf("DEBUG role binding %s: role %q has no keycloak mapping, skipping", event.ResourceID, rb.RoleName)
+		slog.DebugContext(ctx, "Role binding role has no keycloak mapping, skipping", "role_binding_id", event.ResourceID, "role", rb.RoleName)
 		return nil
 	}
 
@@ -120,14 +115,18 @@ func (r *RoleBindingReconciler) Handle(ctx context.Context, event watcher.Event[
 			// and every resync interval, forever, for every such binding, drowning
 			// real errors and tripping alerts. Deletion of roles a gone binding no
 			// longer backs stays the stream's job (the resync never prunes).
-			log.Printf("DEBUG role binding %s: gateway %s no longer exists; nothing to reconcile", event.ResourceID, *rb.GatewayId)
+			slog.DebugContext(ctx, "Role binding gateway no longer exists; nothing to reconcile", "role_binding_id", event.ResourceID, "gateway_id", *rb.GatewayId)
 			return nil
 		}
 		reconcileErr = fmt.Errorf("resolve keycloak client id for role binding %s: %w", event.ResourceID, err)
 		return reconcileErr
 	}
 	if gatewayClusterID != r.clusterID {
-		log.Printf("DEBUG role binding %s: gateway %s belongs to cluster %s, not this cluster (%s); skipping keycloak sync", event.ResourceID, *rb.GatewayId, gatewayClusterID, r.clusterID)
+		slog.DebugContext(ctx, "Role binding gateway belongs to another cluster, skipping keycloak sync",
+			"role_binding_id", event.ResourceID,
+			"gateway_id", *rb.GatewayId,
+			"gateway_cluster", gatewayClusterID,
+			"cluster", r.clusterID)
 		return nil
 	}
 
@@ -155,18 +154,43 @@ func (r *RoleBindingReconciler) Handle(ctx context.Context, event watcher.Event[
 		for _, kcRole := range kcRoles {
 			desired[kcRole] = true
 		}
+	} else if len(desired) == 0 {
+		// GTW-ACC-15: the reconcile is about to remove the user's LAST client
+		// role(s) on this gateway on the strength of a single successful-but-empty
+		// ListRoleBindings carried with a delete event. A transient or partial
+		// read during a cross-gateway delete burst would otherwise be amplified
+		// into a full wipe of the user's console access. Treat the empty result as
+		// unproven: re-confirm absence with a second authoritative read (mirroring
+		// the gateway seed's point-read confirmation in watcher.go) before
+		// revoking, and requeue rather than revoke on an unconfirmed or
+		// inconsistent read. The removal path thus fails OPEN on both an RPC error
+		// (handled above) and a successful-but-empty list. The confirming read uses
+		// the same (user_id, gateway_id), cluster filter, and deleted-binding
+		// exclusion.
+		confirmed, err := r.effectiveKcRoles(ctx, rb, excludeID)
+		if err != nil {
+			reconcileErr = fmt.Errorf("confirm absence of surviving role bindings for role binding %s before revoke: %w", event.ResourceID, err)
+			return reconcileErr
+		}
+		if len(confirmed) != 0 {
+			// The confirming read disagrees with the first empty result: a role is
+			// still backed by a surviving binding. Do not revoke anything; requeue
+			// so a later consistent read drives the correct desired state.
+			reconcileErr = fmt.Errorf("role binding %s: first ListRoleBindings returned empty but the confirming read found %d surviving client role(s); requeuing rather than revoking the user's last gateway roles", event.ResourceID, len(confirmed))
+			return reconcileErr
+		}
 	}
 
 	for _, kcRole := range allGatewayKcRoles {
 		if desired[kcRole] {
-			log.Printf("INFO assigning keycloak role %s to user %s on client %s", kcRole, username, kcClientID)
+			slog.InfoContext(ctx, "Assigning keycloak role to user", "role", kcRole, "username", username, "client_id", kcClientID)
 			if err := r.keycloakClient.AssignClientRole(ctx, kcClientID, username, kcRole); err != nil {
 				reconcileErr = fmt.Errorf("assign keycloak role %s to user %s on client %s: %w", kcRole, username, kcClientID, err)
 				return reconcileErr
 			}
 			continue
 		}
-		log.Printf("INFO removing keycloak role %s from user %s on client %s", kcRole, username, kcClientID)
+		slog.InfoContext(ctx, "Removing keycloak role from user", "role", kcRole, "username", username, "client_id", kcClientID)
 		if err := r.keycloakClient.RemoveClientRole(ctx, kcClientID, username, kcRole); err != nil {
 			reconcileErr = fmt.Errorf("remove keycloak role %s from user %s on client %s: %w", kcRole, username, kcClientID, err)
 			return reconcileErr
@@ -233,15 +257,19 @@ func isNotFoundRPC(err error) bool {
 	return false
 }
 
-// resolveKeycloakClientID looks up the gateway by ID and returns the Keycloak
-// client ID in the {name}-{id} format specified by the Keycloak provisioning
-// spec, plus the cluster the gateway is assigned to so the caller can tell
-// whether this control plane owns it.
+// resolveKeycloakClientID looks up the gateway by ID and returns its stored
+// Keycloak client ID (see gatewayKeycloakClientID), plus the cluster the
+// gateway is assigned to so the caller can tell whether this control plane
+// owns it.
 func (r *RoleBindingReconciler) resolveKeycloakClientID(ctx context.Context, gatewayID string) (string, string, error) {
 	client := pb.NewGatewayServiceClient(r.grpcConn)
 	resp, err := client.GetGateway(ctx, &pb.GetGatewayRequest{Id: gatewayID})
 	if err != nil {
 		return "", "", fmt.Errorf("get gateway %s: %w", gatewayID, err)
 	}
-	return fmt.Sprintf("%s-%s", resp.GetGateway().GetName(), gatewayID), resp.GetGateway().GetClusterId(), nil
+	clientID, err := gatewayKeycloakClientID(gatewayID, resp.GetGateway())
+	if err != nil {
+		return "", "", fmt.Errorf("resolve Keycloak client for gateway %s: %w", gatewayID, err)
+	}
+	return clientID, resp.GetGateway().GetClusterId(), nil
 }

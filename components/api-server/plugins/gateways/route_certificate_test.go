@@ -43,8 +43,8 @@ func TestRouteCertificateChanged(t *testing.T) {
 		},
 		{
 			name:    "opt-in kept, jsonb normalization",
-			current: strPtr(`{"certificate": { }, "host": "a.example.com", "enabled": true}`),
-			next:    strPtr(`{"enabled":true,"host":"a.example.com","certificate":{}}`),
+			current: strPtr(`{"certificate": { }, "host": "a.example.com"}`),
+			next:    strPtr(`{"host":"a.example.com","certificate":{}}`),
 			want:    false,
 		},
 		{
@@ -129,7 +129,7 @@ func TestValidateRouteCertificateShape(t *testing.T) {
 		{name: "nil route", route: nil, wantErr: false},
 		{name: "no certificate key", route: strPtr(`{"host":"a.example.com"}`), wantErr: false},
 		{name: "certificate null counts as absent", route: strPtr(`{"certificate":null}`), wantErr: false},
-		{name: "empty certificate object accepted", route: strPtr(`{"certificate":{},"enabled":true}`), wantErr: false},
+		{name: "empty certificate object accepted", route: strPtr(`{"certificate":{}}`), wantErr: false},
 		{name: "non-empty certificate object rejected", route: strPtr(`{"certificate":{"issuer":"custom"}}`),
 			wantErr: true, wantSubstr: "accepts no fields"},
 		{name: "non-object certificate value rejected", route: strPtr(`{"certificate":true}`),

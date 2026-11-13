@@ -37,7 +37,7 @@ source, rebuild the site, and preserve the source citation.
 | [`source/gateway-workload.md`](./source/gateway-workload.md) | Gateway namespace, Supervisor, Sandboxes, and policy |
 | [`source/client-surfaces.md`](./source/client-surfaces.md) | CLI, Go SDK, TypeScript SDK, and web API surfaces |
 | [`source/data-plane.md`](./source/data-plane.md) | Per-gateway databases on registered PostgreSQL servers |
-| [`source/ingress.md`](./source/ingress.md) | Gateway API and OpenShift Route exposure modes |
+| [`source/ingress.md`](./source/ingress.md) | Gateway API tenant gateway exposure |
 | [`source/identity.md`](./source/identity.md) | Keycloak federation, OIDC, and service accounts |
 | [`source/web-console.md`](./source/web-console.md) | React host, reusable UI package, BFF, and trust boundary |
 | [`source/observability.md`](./source/observability.md) | Traces, metrics, probes, and dashboard aggregation |
@@ -58,6 +58,6 @@ Then open <http://localhost:9876/>. The `Architecture site` GitHub Actions
 workflow publishes the generated `dist/architecture` directory to the
 repository's GitHub Pages site after changes land on `main`.
 
-The pages intentionally describe the current repository architecture, including
-configuration-selected alternatives such as `GATEWAY_INGRESS_MODE`. They are documentation artifacts, not a replacement for
+The pages intentionally describe the current repository architecture,
+including configuration-selected options. They are documentation artifacts, not a replacement for
 the authoritative specifications cited within them.

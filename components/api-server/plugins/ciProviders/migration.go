@@ -111,3 +111,32 @@ func migrationPartialIssuerIndex() *gormigrate.Migration {
 		Rollback: func(tx *gorm.DB) error { return nil },
 	}
 }
+
+// migrationAddIdpAlias adds the explicit (spec) idp_alias column (PLAT-DATA-24,
+// Bug B of #1012). ci_providers already shipped its table under an earlier ID, so
+// the column MUST be added under a NEW migration ID that runs on every environment
+// regardless of prior state - editing an already-shipped body is skipped on upgraded
+// hubs (the #862 lesson), and AutoMigrate is forbidden (SDLC-CONF-02): its
+// add-column path is unreliable under the test session's lib/pq driver with
+// PreferSimpleProtocol. The column is nullable TEXT with no default, so a
+// pre-existing provider keeps idp_alias="" (unset) and the reconciler falls back to
+// the derived alias, matching the model's zero value. A fresh CreateTable builds the
+// same column from the model's string field, so a fresh and an upgraded schema
+// converge. Raw, idempotent (IF NOT EXISTS), safe to re-run.
+func migrationAddIdpAlias() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026111000000001",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.Exec(`
+				ALTER TABLE ci_providers
+					ADD COLUMN IF NOT EXISTS idp_alias TEXT
+			`).Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Exec(`
+				ALTER TABLE ci_providers
+					DROP COLUMN IF EXISTS idp_alias
+			`).Error
+		},
+	}
+}

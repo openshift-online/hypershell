@@ -33,6 +33,12 @@ patches:
             containers:
               - name: controller
                 env:
+                  # Host platform is explicit deployment configuration
+                  # (CTRL-CORE-16); it is never inferred from API discovery. Kind
+                  # is vanilla Kubernetes, so gateway pods use the chart's
+                  # configured Kubernetes pod security context (OSG-CORE-14.03).
+                  - name: HYPERSHELL_CLUSTER_PLATFORM
+                    value: kubernetes
                   - name: GATEWAY_API_GATEWAY_NAMESPACE
                     value: hypershell-system
                   - name: GATEWAY_API_BASE_DOMAIN
@@ -102,6 +108,11 @@ patches:
                     value: "http://hypershell-api-server.hypershell-system.svc.cluster.local:8000"
                   - name: OTEL_EXPORTER_OTLP_ENDPOINT
                     value: "http://otel-collector.hypershell-system.svc.cluster.local:4317"
+                  # The Kind collector has a metrics pipeline only. Without
+                  # this, the controller's log exporter (OBS-CPL-11) would
+                  # log a periodic "Unimplemented" upload error.
+                  - name: OTEL_LOGS_EXPORTER
+                    value: "none"
             dnsConfig:
               options:
                 - name: use-vc
@@ -217,8 +228,6 @@ patches:
                     value: "development_oidc"
                   - name: RBAC_SERVICE_ACCOUNTS
                     value: "service-account-hypershell-control-plane"
-                  - name: HYPERSHELL_PLATFORM_KIND
-                    value: "true"
   # --- Keycloak: fixed HTTPS issuer reachable in-cluster and from host ---
   # The token `iss` is derived from KC_HOSTNAME. Gateways validate tokens by
   # requiring config.issuer == discovery.issuer == token.iss, so the issuer

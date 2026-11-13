@@ -25,13 +25,16 @@ Esc               Cancel editing; clear an applied filter
 n / N             Next / previous filtered result
 o                 Cycle sort column left to right: issue, status, duration
 O                 Reverse sort direction (arrow in column heading)
-Tab               Switch Agents / Issues
+Tab / Shift-Tab   Switch Agents / Issues / Configuration
+,                 Open Configuration
 c                 Show / hide completed runs
 H                 Open or refresh history
 
 RUN ACTIONS
 d                 Details (diagnostics during sign-in)
+A                 Approve selected PR for merge (confirmation required)
 r                 Retry selected run
+C                 Cancel running job (confirmation required)
 s                 Gateway sign-in
 x                 Dismiss notification (Ctrl-x in text fields)
 ?                 Show / close this help
@@ -40,7 +43,20 @@ q / Ctrl-c       Detach; workers keep running
 Text fields accept normal typing. Esc cancels editing.
 Agent groups stay together; sorting applies within each group.
 Filtering does not reveal hidden completed runs: press c to include them.
-Logs and details scroll with the navigation keys; / filters work lists only.`
+LOG VIEWER
+/                 Filter source log lines (case-insensitive substring)
+Enter / Esc       Keep / cancel filter; Esc clears an applied log filter
+m                 Toggle Markdown rendering (default off)
+w                 Toggle line wrapping (default off)
+a                 Toggle ANSI colors (default on; NO_COLOR always wins)
+Left / Right      Pan horizontally when wrapping is off (also H / L)
+Shift-Left/Right  Pan half a viewport; 0 / $ jump to line start / end
+f / G             Follow the end of the log
+
+Scrolling up pauses following. Reaching the bottom resumes following.
+Log filters are separate from work-list and history filters.
+The entire log remains available; no trailing-byte truncation is applied.
+Logs and details use the same vertical navigation keys as other scroll panes.`
 
 func (m Model) currentFilter() string {
 	if m.historyIssue != nil {
@@ -144,6 +160,9 @@ func runDurationAt(r Row, now float64) float64 {
 	return max(0, r.Finished-r.Started)
 }
 func durationLabel(r Row) string {
+	if r.Agent == "code-review" && r.Activity != "history" && r.CodeReadiness != nil && r.CodeReadiness.ReviewCurrent != nil && !*r.CodeReadiness.ReviewCurrent {
+		return "-"
+	}
 	if runDuration(r) < 0 {
 		return "-"
 	}
@@ -151,6 +170,9 @@ func durationLabel(r Row) string {
 }
 func tableStatus(r Row) string {
 	if r.Status == "running" {
+		if r.CancelRequested {
+			return "Canceling · cleanup"
+		}
 		if r.Activity != "" && r.Activity != "history" {
 			return r.Activity
 		}
@@ -202,6 +224,11 @@ func (m *Model) navigation(v tea.KeyMsg) (bool, tea.Cmd) {
 	textInput := m.screen == "signin" && m.signInActive && m.signInPrompt != nil && len(m.signInPrompt.Choices) == 0
 	if textInput {
 		return false, nil
+	}
+	if m.screen == "logs" && !m.helpOpen && m.pendingRetry == nil && m.pendingCancel == nil {
+		if handled, cmd := m.logNavigation(v); handled {
+			return true, cmd
+		}
 	}
 	if key == "?" {
 		m.helpOpen = !m.helpOpen
@@ -354,5 +381,5 @@ func (m Model) tableRow(r Row, prefix string, width int, withAgent bool) string 
 		issueWidth -= 25
 		agent = cell(r.Agent, 24) + " "
 	}
-	return prefix + cell(m.listTitle(r), issueWidth) + " " + agent + m.style(cell(tableStatus(r), 24), statusColor(r.Status), false) + " " + m.style(cell(durationLabel(r), 10), "8", false)
+	return prefix + cell(m.listTitle(r), issueWidth) + " " + agent + m.style(cell(tableStatus(r), 24), rowColor(r), false) + " " + m.style(cell(durationLabel(r), 10), "8", false)
 }

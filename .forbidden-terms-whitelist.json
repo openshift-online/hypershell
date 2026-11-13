@@ -1,27 +1,17 @@
 [
   {
-    "filename": "components/control-plane/tools/helm/go.sum",
-    "line": 200,
-    "rationale": "Immutable upstream Go module checksum hash contains an incidental byte sequence; changing it would invalidate the go.sum."
-  },
-  {
-    "filename": "components/control-plane/tools/helm/go.sum",
-    "line": 457,
-    "rationale": "Immutable upstream Go module checksum hash contains an incidental byte sequence; changing it would invalidate the go.sum."
-  },
-  {
     "filename": "components/agents/tools/gh/go.sum",
     "line": 507,
     "rationale": "Immutable upstream Go module checksum hash contains an incidental byte sequence; changing it would invalidate the go.sum."
   },
   {
     "filename": "scripts/openapi-ir/go.sum",
-    "line": 32,
+    "line": 29,
     "rationale": "Immutable upstream Go module checksum hash contains an incidental byte sequence; changing it would invalidate the go.sum."
   },
   {
     "filename": "scripts/sdk-generator/go.sum",
-    "line": 32,
+    "line": 27,
     "rationale": "Immutable upstream Go module checksum hash contains an incidental byte sequence; changing it would invalidate the go.sum."
   },
   {
@@ -38,10 +28,5 @@
     "filename": "specs/platform/global-architecture.spec.md",
     "line": 104,
     "rationale": "Mermaid diagram node id 'ACP' abbreviates 'Control Plane' in the reconciliation flow; it is a diagram identifier, not the discouraged term."
-  },
-  {
-    "filename": "specs/platform/global-architecture.spec.md",
-    "line": 1177,
-    "rationale": "Example directory names 'vteam-stage'/'vteam-uat' in a GitOps directory-tree illustration reference real external cluster environments; they are example paths, not the discouraged term."
   }
 ]

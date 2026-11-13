@@ -180,6 +180,14 @@ var builtInRoleSeeds = []roleSeed{
 		},
 	},
 	{
+		Name:        RoleGatewayOperatorWorkspaceCreator,
+		DisplayName: "Gateway Operator Workspace Creator",
+		Description: "Allows selecting operator workspace mode at gateway create; operator mode gives a trusted external operator ownership of the gateway's workspace namespaces, so it is not granted to every gateway:creator.",
+		Permissions: map[string]interface{}{
+			"gateways": []string{"request_operator_workspace"},
+		},
+	},
+	{
 		Name:        RoleCIFederationAdmin,
 		DisplayName: "CI Federation Administrator",
 		Description: "Authorizes registering CI OIDC forges (ci_providers) and nothing else; a least-privilege alternative to platform:admin for the CI-federation seeder.",
@@ -193,6 +201,21 @@ var builtInRoleSeeds = []roleSeed{
 		Description: "Narrow bootstrap role: authorizes creating and deleting a global ci-federation:admin RoleBinding and nothing else (SEC-RBAC-23). Lets gitops grant the CI-federation seeder its ci_providers authorization declaratively without platform:admin.",
 		Permissions: map[string]interface{}{
 			"role_bindings": []string{"create", "delete"},
+		},
+	},
+	{
+		// Kept in lockstep with migrationSeedManagedClusterRegistrarRole
+		// (2026091000000002): every built-in role is created by a migration for
+		// existing databases AND listed here so a fresh database seeded through
+		// SeedRoles, and a test environment re-seeded after ResetDB, ends in the
+		// same state. Registration authority is JWT-direct (SEC-RBAC-16); this
+		// role has no DB-binding lifecycle and is rejected by the role_bindings
+		// write policy (SEC-RBAC-25).
+		Name:        RoleManagedClusterRegistrar,
+		DisplayName: "Managed Cluster Registrar",
+		Description: "Allows a spoke control-plane to self-register via POST /managed_clusters/registration. JWT-direct: no DB binding lifecycle.",
+		Permissions: map[string]interface{}{
+			"managed_clusters": []string{"register"},
 		},
 	},
 }
@@ -390,6 +413,64 @@ func migrationAddGatewayDedicatedRouteCreatorRole() *gormigrate.Migration {
 		},
 		Rollback: func(tx *gorm.DB) error {
 			return tx.Where("name = ?", RoleGatewayDedicatedRouteCreator).Delete(&Role{}).Error
+		},
+	}
+}
+
+// migrationAddGatewayOperatorWorkspaceCreatorRole seeds the
+// gateway:operator-workspace-creator built-in role idempotently (SEC-RBAC-28).
+// It is a platform-wide (global-scope) entitlement that gates selecting
+// operator workspace mode at gateway create (GatewayCreateRequest.workspace_mode
+// = operator, OSG-OPWS-01); operator mode widens a gateway's access to external,
+// operator-owned namespaces, so it is separate from gateway:creator. Like
+// platform:admin and gateway:dedicated-route-creator it is JWT-synced (assigned
+// through the identity provider), and no existing binding is touched. Re-running
+// is safe: an existing row short-circuits.
+func migrationAddGatewayOperatorWorkspaceCreatorRole() *gormigrate.Migration {
+	type Role struct {
+		db.Model
+		Name        string `gorm:"uniqueIndex"`
+		DisplayName *string
+		Description *string
+		Permissions *string `gorm:"type:jsonb"`
+		BuiltIn     bool
+	}
+
+	return &gormigrate.Migration{
+		ID: "2026111000000002",
+		Migrate: func(tx *gorm.DB) error {
+			var existing Role
+			lookupErr := tx.Where("name = ?", RoleGatewayOperatorWorkspaceCreator).First(&existing).Error
+			if lookupErr == nil {
+				return nil
+			}
+			// Only a missing row means "seed it"; a real lookup failure must not be
+			// swallowed into a duplicate-key create error.
+			if !stderrors.Is(lookupErr, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("look up role %s: %w", RoleGatewayOperatorWorkspaceCreator, lookupErr)
+			}
+			permissions := map[string]interface{}{
+				"gateways": []string{"request_operator_workspace"},
+			}
+			permJSON, err := json.Marshal(permissions)
+			if err != nil {
+				return fmt.Errorf("marshal permissions for %s: %w", RoleGatewayOperatorWorkspaceCreator, err)
+			}
+			permStr := string(permJSON)
+			displayName := "Gateway Operator Workspace Creator"
+			description := "Allows selecting operator workspace mode at gateway create; operator mode gives a trusted external operator ownership of the gateway's workspace namespaces, so it is not granted to every gateway:creator."
+			role := Role{
+				Model:       db.Model{ID: api.NewID()},
+				Name:        RoleGatewayOperatorWorkspaceCreator,
+				DisplayName: &displayName,
+				Description: &description,
+				Permissions: &permStr,
+				BuiltIn:     true,
+			}
+			return tx.Create(&role).Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Where("name = ?", RoleGatewayOperatorWorkspaceCreator).Delete(&Role{}).Error
 		},
 	}
 }

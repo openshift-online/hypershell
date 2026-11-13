@@ -142,7 +142,6 @@ type GatewayPlacementIntent struct {
 	// Types that are valid to be assigned to Placement:
 	//
 	//	*GatewayPlacementIntent_CapabilitySelector
-	//	*GatewayPlacementIntent_LocalKind
 	Placement     isGatewayPlacementIntent_Placement `protobuf_oneof:"placement"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -194,15 +193,6 @@ func (x *GatewayPlacementIntent) GetCapabilitySelector() *CapabilitySelectorPlac
 	return nil
 }
 
-func (x *GatewayPlacementIntent) GetLocalKind() *LocalKindPlacement {
-	if x != nil {
-		if x, ok := x.Placement.(*GatewayPlacementIntent_LocalKind); ok {
-			return x.LocalKind
-		}
-	}
-	return nil
-}
-
 type isGatewayPlacementIntent_Placement interface {
 	isGatewayPlacementIntent_Placement()
 }
@@ -211,13 +201,7 @@ type GatewayPlacementIntent_CapabilitySelector struct {
 	CapabilitySelector *CapabilitySelectorPlacement `protobuf:"bytes,1,opt,name=capability_selector,json=capabilitySelector,proto3,oneof"`
 }
 
-type GatewayPlacementIntent_LocalKind struct {
-	LocalKind *LocalKindPlacement `protobuf:"bytes,2,opt,name=local_kind,json=localKind,proto3,oneof"`
-}
-
 func (*GatewayPlacementIntent_CapabilitySelector) isGatewayPlacementIntent_Placement() {}
-
-func (*GatewayPlacementIntent_LocalKind) isGatewayPlacementIntent_Placement() {}
 
 type CapabilitySelectorPlacement struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
@@ -271,42 +255,6 @@ func (x *CapabilitySelectorPlacement) GetExcludedSelector() []string {
 	return nil
 }
 
-type LocalKindPlacement struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *LocalKindPlacement) Reset() {
-	*x = LocalKindPlacement{}
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[3]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *LocalKindPlacement) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*LocalKindPlacement) ProtoMessage() {}
-
-func (x *LocalKindPlacement) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[3]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use LocalKindPlacement.ProtoReflect.Descriptor instead.
-func (*LocalKindPlacement) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{3}
-}
-
 type Gateway struct {
 	state                  protoimpl.MessageState   `protogen:"open.v1"`
 	Metadata               *ObjectReference         `protobuf:"bytes,1,opt,name=metadata,proto3" json:"metadata,omitempty"`
@@ -350,7 +298,7 @@ type Gateway struct {
 
 func (x *Gateway) Reset() {
 	*x = Gateway{}
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[4]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -362,7 +310,7 @@ func (x *Gateway) String() string {
 func (*Gateway) ProtoMessage() {}
 
 func (x *Gateway) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[4]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -375,7 +323,7 @@ func (x *Gateway) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Gateway.ProtoReflect.Descriptor instead.
 func (*Gateway) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{4}
+	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *Gateway) GetMetadata() *ObjectReference {
@@ -579,7 +527,7 @@ type CreateGatewayRequest struct {
 
 func (x *CreateGatewayRequest) Reset() {
 	*x = CreateGatewayRequest{}
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[5]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -591,7 +539,7 @@ func (x *CreateGatewayRequest) String() string {
 func (*CreateGatewayRequest) ProtoMessage() {}
 
 func (x *CreateGatewayRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[5]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -604,7 +552,7 @@ func (x *CreateGatewayRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateGatewayRequest.ProtoReflect.Descriptor instead.
 func (*CreateGatewayRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{5}
+	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *CreateGatewayRequest) GetName() string {
@@ -728,7 +676,7 @@ type CreateGatewayResponse struct {
 
 func (x *CreateGatewayResponse) Reset() {
 	*x = CreateGatewayResponse{}
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[6]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -740,7 +688,7 @@ func (x *CreateGatewayResponse) String() string {
 func (*CreateGatewayResponse) ProtoMessage() {}
 
 func (x *CreateGatewayResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[6]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -753,7 +701,7 @@ func (x *CreateGatewayResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateGatewayResponse.ProtoReflect.Descriptor instead.
 func (*CreateGatewayResponse) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{6}
+	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *CreateGatewayResponse) GetGateway() *Gateway {
@@ -764,15 +712,21 @@ func (x *CreateGatewayResponse) GetGateway() *Gateway {
 }
 
 type GetGatewayRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// include_deleted returns the record even when it is soft-deleted
+	// (deleted_at set), using the unscoped query. The control plane uses this to
+	// re-read a deleting gateway for a nil-payload delete event so teardown can be
+	// reconciled from the record instead of being silently skipped
+	// (watch-delete-events.spec.md CTRL-WDEL-04).
+	IncludeDeleted bool `protobuf:"varint,2,opt,name=include_deleted,json=includeDeleted,proto3" json:"include_deleted,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *GetGatewayRequest) Reset() {
 	*x = GetGatewayRequest{}
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[7]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -784,7 +738,7 @@ func (x *GetGatewayRequest) String() string {
 func (*GetGatewayRequest) ProtoMessage() {}
 
 func (x *GetGatewayRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[7]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -797,7 +751,7 @@ func (x *GetGatewayRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetGatewayRequest.ProtoReflect.Descriptor instead.
 func (*GetGatewayRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{7}
+	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *GetGatewayRequest) GetId() string {
@@ -805,6 +759,13 @@ func (x *GetGatewayRequest) GetId() string {
 		return x.Id
 	}
 	return ""
+}
+
+func (x *GetGatewayRequest) GetIncludeDeleted() bool {
+	if x != nil {
+		return x.IncludeDeleted
+	}
+	return false
 }
 
 type GetGatewayResponse struct {
@@ -816,7 +777,7 @@ type GetGatewayResponse struct {
 
 func (x *GetGatewayResponse) Reset() {
 	*x = GetGatewayResponse{}
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[8]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -828,7 +789,7 @@ func (x *GetGatewayResponse) String() string {
 func (*GetGatewayResponse) ProtoMessage() {}
 
 func (x *GetGatewayResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[8]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -841,7 +802,7 @@ func (x *GetGatewayResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetGatewayResponse.ProtoReflect.Descriptor instead.
 func (*GetGatewayResponse) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{8}
+	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *GetGatewayResponse) GetGateway() *Gateway {
@@ -884,7 +845,7 @@ type UpdateGatewayRequest struct {
 
 func (x *UpdateGatewayRequest) Reset() {
 	*x = UpdateGatewayRequest{}
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[9]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -896,7 +857,7 @@ func (x *UpdateGatewayRequest) String() string {
 func (*UpdateGatewayRequest) ProtoMessage() {}
 
 func (x *UpdateGatewayRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[9]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -909,7 +870,7 @@ func (x *UpdateGatewayRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateGatewayRequest.ProtoReflect.Descriptor instead.
 func (*UpdateGatewayRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{9}
+	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *UpdateGatewayRequest) GetId() string {
@@ -1054,7 +1015,7 @@ type UpdateGatewayResponse struct {
 
 func (x *UpdateGatewayResponse) Reset() {
 	*x = UpdateGatewayResponse{}
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[10]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1066,7 +1027,7 @@ func (x *UpdateGatewayResponse) String() string {
 func (*UpdateGatewayResponse) ProtoMessage() {}
 
 func (x *UpdateGatewayResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[10]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1079,7 +1040,7 @@ func (x *UpdateGatewayResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateGatewayResponse.ProtoReflect.Descriptor instead.
 func (*UpdateGatewayResponse) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{10}
+	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *UpdateGatewayResponse) GetGateway() *Gateway {
@@ -1102,7 +1063,7 @@ type AdjustActiveSandboxCountRequest struct {
 
 func (x *AdjustActiveSandboxCountRequest) Reset() {
 	*x = AdjustActiveSandboxCountRequest{}
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[11]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1114,7 +1075,7 @@ func (x *AdjustActiveSandboxCountRequest) String() string {
 func (*AdjustActiveSandboxCountRequest) ProtoMessage() {}
 
 func (x *AdjustActiveSandboxCountRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[11]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1127,7 +1088,7 @@ func (x *AdjustActiveSandboxCountRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdjustActiveSandboxCountRequest.ProtoReflect.Descriptor instead.
 func (*AdjustActiveSandboxCountRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{11}
+	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *AdjustActiveSandboxCountRequest) GetNamespace() string {
@@ -1155,7 +1116,7 @@ type AdjustActiveSandboxCountResponse struct {
 
 func (x *AdjustActiveSandboxCountResponse) Reset() {
 	*x = AdjustActiveSandboxCountResponse{}
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[12]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1167,7 +1128,7 @@ func (x *AdjustActiveSandboxCountResponse) String() string {
 func (*AdjustActiveSandboxCountResponse) ProtoMessage() {}
 
 func (x *AdjustActiveSandboxCountResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[12]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1180,7 +1141,7 @@ func (x *AdjustActiveSandboxCountResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdjustActiveSandboxCountResponse.ProtoReflect.Descriptor instead.
 func (*AdjustActiveSandboxCountResponse) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{12}
+	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *AdjustActiveSandboxCountResponse) GetActiveSandboxCount() int32 {
@@ -1203,7 +1164,7 @@ type SetActiveSandboxCountRequest struct {
 
 func (x *SetActiveSandboxCountRequest) Reset() {
 	*x = SetActiveSandboxCountRequest{}
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[13]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1215,7 +1176,7 @@ func (x *SetActiveSandboxCountRequest) String() string {
 func (*SetActiveSandboxCountRequest) ProtoMessage() {}
 
 func (x *SetActiveSandboxCountRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[13]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1228,7 +1189,7 @@ func (x *SetActiveSandboxCountRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetActiveSandboxCountRequest.ProtoReflect.Descriptor instead.
 func (*SetActiveSandboxCountRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{13}
+	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *SetActiveSandboxCountRequest) GetNamespace() string {
@@ -1254,7 +1215,7 @@ type SetActiveSandboxCountResponse struct {
 
 func (x *SetActiveSandboxCountResponse) Reset() {
 	*x = SetActiveSandboxCountResponse{}
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[14]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1266,7 +1227,7 @@ func (x *SetActiveSandboxCountResponse) String() string {
 func (*SetActiveSandboxCountResponse) ProtoMessage() {}
 
 func (x *SetActiveSandboxCountResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[14]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1279,7 +1240,7 @@ func (x *SetActiveSandboxCountResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetActiveSandboxCountResponse.ProtoReflect.Descriptor instead.
 func (*SetActiveSandboxCountResponse) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{14}
+	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *SetActiveSandboxCountResponse) GetActiveSandboxCount() int32 {
@@ -1308,7 +1269,7 @@ type SandboxEvent struct {
 
 func (x *SandboxEvent) Reset() {
 	*x = SandboxEvent{}
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[15]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1320,7 +1281,7 @@ func (x *SandboxEvent) String() string {
 func (*SandboxEvent) ProtoMessage() {}
 
 func (x *SandboxEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[15]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1333,7 +1294,7 @@ func (x *SandboxEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SandboxEvent.ProtoReflect.Descriptor instead.
 func (*SandboxEvent) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{15}
+	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *SandboxEvent) GetType() string {
@@ -1405,7 +1366,7 @@ type ReportSandboxEventsRequest struct {
 
 func (x *ReportSandboxEventsRequest) Reset() {
 	*x = ReportSandboxEventsRequest{}
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[16]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1417,7 +1378,7 @@ func (x *ReportSandboxEventsRequest) String() string {
 func (*ReportSandboxEventsRequest) ProtoMessage() {}
 
 func (x *ReportSandboxEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[16]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1430,7 +1391,7 @@ func (x *ReportSandboxEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReportSandboxEventsRequest.ProtoReflect.Descriptor instead.
 func (*ReportSandboxEventsRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{16}
+	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ReportSandboxEventsRequest) GetNamespace() string {
@@ -1462,7 +1423,7 @@ type ReportSandboxEventsResponse struct {
 
 func (x *ReportSandboxEventsResponse) Reset() {
 	*x = ReportSandboxEventsResponse{}
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[17]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1474,7 +1435,7 @@ func (x *ReportSandboxEventsResponse) String() string {
 func (*ReportSandboxEventsResponse) ProtoMessage() {}
 
 func (x *ReportSandboxEventsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[17]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1487,7 +1448,7 @@ func (x *ReportSandboxEventsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReportSandboxEventsResponse.ProtoReflect.Descriptor instead.
 func (*ReportSandboxEventsResponse) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{17}
+	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{16}
 }
 
 // SetGatewayVersionRequest sets the last observed runtime version. The health
@@ -1502,7 +1463,7 @@ type SetGatewayVersionRequest struct {
 
 func (x *SetGatewayVersionRequest) Reset() {
 	*x = SetGatewayVersionRequest{}
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[18]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1514,7 +1475,7 @@ func (x *SetGatewayVersionRequest) String() string {
 func (*SetGatewayVersionRequest) ProtoMessage() {}
 
 func (x *SetGatewayVersionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[18]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1527,7 +1488,7 @@ func (x *SetGatewayVersionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetGatewayVersionRequest.ProtoReflect.Descriptor instead.
 func (*SetGatewayVersionRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{18}
+	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *SetGatewayVersionRequest) GetId() string {
@@ -1553,7 +1514,7 @@ type SetGatewayVersionResponse struct {
 
 func (x *SetGatewayVersionResponse) Reset() {
 	*x = SetGatewayVersionResponse{}
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[19]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1565,7 +1526,7 @@ func (x *SetGatewayVersionResponse) String() string {
 func (*SetGatewayVersionResponse) ProtoMessage() {}
 
 func (x *SetGatewayVersionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[19]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1578,7 +1539,7 @@ func (x *SetGatewayVersionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetGatewayVersionResponse.ProtoReflect.Descriptor instead.
 func (*SetGatewayVersionResponse) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{19}
+	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *SetGatewayVersionResponse) GetGatewayVersion() string {
@@ -1597,7 +1558,7 @@ type DeleteGatewayRequest struct {
 
 func (x *DeleteGatewayRequest) Reset() {
 	*x = DeleteGatewayRequest{}
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[20]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1609,7 +1570,7 @@ func (x *DeleteGatewayRequest) String() string {
 func (*DeleteGatewayRequest) ProtoMessage() {}
 
 func (x *DeleteGatewayRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[20]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1622,7 +1583,7 @@ func (x *DeleteGatewayRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteGatewayRequest.ProtoReflect.Descriptor instead.
 func (*DeleteGatewayRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{20}
+	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *DeleteGatewayRequest) GetId() string {
@@ -1655,7 +1616,7 @@ type ListGatewaysRequest struct {
 
 func (x *ListGatewaysRequest) Reset() {
 	*x = ListGatewaysRequest{}
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[21]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1667,7 +1628,7 @@ func (x *ListGatewaysRequest) String() string {
 func (*ListGatewaysRequest) ProtoMessage() {}
 
 func (x *ListGatewaysRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[21]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1680,7 +1641,7 @@ func (x *ListGatewaysRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListGatewaysRequest.ProtoReflect.Descriptor instead.
 func (*ListGatewaysRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{21}
+	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ListGatewaysRequest) GetPage() int32 {
@@ -1721,7 +1682,7 @@ type ListGatewaysResponse struct {
 
 func (x *ListGatewaysResponse) Reset() {
 	*x = ListGatewaysResponse{}
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[22]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1733,7 +1694,7 @@ func (x *ListGatewaysResponse) String() string {
 func (*ListGatewaysResponse) ProtoMessage() {}
 
 func (x *ListGatewaysResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[22]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1746,7 +1707,7 @@ func (x *ListGatewaysResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListGatewaysResponse.ProtoReflect.Descriptor instead.
 func (*ListGatewaysResponse) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{22}
+	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ListGatewaysResponse) GetItems() []*Gateway {
@@ -1771,7 +1732,7 @@ type DeleteGatewayResponse struct {
 
 func (x *DeleteGatewayResponse) Reset() {
 	*x = DeleteGatewayResponse{}
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[23]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1783,7 +1744,7 @@ func (x *DeleteGatewayResponse) String() string {
 func (*DeleteGatewayResponse) ProtoMessage() {}
 
 func (x *DeleteGatewayResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[23]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1796,7 +1757,7 @@ func (x *DeleteGatewayResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteGatewayResponse.ProtoReflect.Descriptor instead.
 func (*DeleteGatewayResponse) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{23}
+	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{22}
 }
 
 type WatchGatewaysRequest struct {
@@ -1812,7 +1773,7 @@ type WatchGatewaysRequest struct {
 
 func (x *WatchGatewaysRequest) Reset() {
 	*x = WatchGatewaysRequest{}
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[24]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1824,7 +1785,7 @@ func (x *WatchGatewaysRequest) String() string {
 func (*WatchGatewaysRequest) ProtoMessage() {}
 
 func (x *WatchGatewaysRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[24]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1837,7 +1798,7 @@ func (x *WatchGatewaysRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchGatewaysRequest.ProtoReflect.Descriptor instead.
 func (*WatchGatewaysRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{24}
+	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *WatchGatewaysRequest) GetClusterId() string {
@@ -1858,7 +1819,7 @@ type WatchGatewaysResponse struct {
 
 func (x *WatchGatewaysResponse) Reset() {
 	*x = WatchGatewaysResponse{}
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[25]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1870,7 +1831,7 @@ func (x *WatchGatewaysResponse) String() string {
 func (*WatchGatewaysResponse) ProtoMessage() {}
 
 func (x *WatchGatewaysResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_gateways_proto_msgTypes[25]
+	mi := &file_hypershell_v1_gateways_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1883,7 +1844,7 @@ func (x *WatchGatewaysResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchGatewaysResponse.ProtoReflect.Descriptor instead.
 func (*WatchGatewaysResponse) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{25}
+	return file_hypershell_v1_gateways_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *WatchGatewaysResponse) GetType() EventType {
@@ -1915,16 +1876,13 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x15ProvisioningCondition\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12U\n" +
 	"\x10condition_status\x18\x02 \x01(\x0e2*.hypershell.v1.ProvisioningConditionStatusR\x0fconditionStatus\x12\x18\n" +
-	"\amessage\x18\x03 \x01(\tR\amessage\"\xc8\x01\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\"\x84\x01\n" +
 	"\x16GatewayPlacementIntent\x12]\n" +
-	"\x13capability_selector\x18\x01 \x01(\v2*.hypershell.v1.CapabilitySelectorPlacementH\x00R\x12capabilitySelector\x12B\n" +
-	"\n" +
-	"local_kind\x18\x02 \x01(\v2!.hypershell.v1.LocalKindPlacementH\x00R\tlocalKindB\v\n" +
+	"\x13capability_selector\x18\x01 \x01(\v2*.hypershell.v1.CapabilitySelectorPlacementH\x00R\x12capabilitySelectorB\v\n" +
 	"\tplacement\"f\n" +
 	"\x1bCapabilitySelectorPlacement\x12\x1a\n" +
 	"\bselector\x18\x01 \x03(\tR\bselector\x12+\n" +
-	"\x11excluded_selector\x18\x02 \x03(\tR\x10excludedSelector\"\x14\n" +
-	"\x12LocalKindPlacement\"\xbf\n" +
+	"\x11excluded_selector\x18\x02 \x03(\tR\x10excludedSelector\"\xbf\n" +
 	"\n" +
 	"\aGateway\x12:\n" +
 	"\bmetadata\x18\x01 \x01(\v2\x1e.hypershell.v1.ObjectReferenceR\bmetadata\x12\x12\n" +
@@ -2008,9 +1966,10 @@ const file_hypershell_v1_gateways_proto_rawDesc = "" +
 	"\x0f_workspace_modeB\x12\n" +
 	"\x10_dedicated_route\"I\n" +
 	"\x15CreateGatewayResponse\x120\n" +
-	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"#\n" +
+	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"L\n" +
 	"\x11GetGatewayRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"F\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
+	"\x0finclude_deleted\x18\x02 \x01(\bR\x0eincludeDeleted\"F\n" +
 	"\x12GetGatewayResponse\x120\n" +
 	"\agateway\x18\x01 \x01(\v2\x16.hypershell.v1.GatewayR\agateway\"\xf4\a\n" +
 	"\x14UpdateGatewayRequest\x12\x0e\n" +
@@ -2138,83 +2097,81 @@ func file_hypershell_v1_gateways_proto_rawDescGZIP() []byte {
 }
 
 var file_hypershell_v1_gateways_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_hypershell_v1_gateways_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
+var file_hypershell_v1_gateways_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
 var file_hypershell_v1_gateways_proto_goTypes = []any{
 	(ProvisioningConditionStatus)(0),         // 0: hypershell.v1.ProvisioningConditionStatus
 	(*ProvisioningCondition)(nil),            // 1: hypershell.v1.ProvisioningCondition
 	(*GatewayPlacementIntent)(nil),           // 2: hypershell.v1.GatewayPlacementIntent
 	(*CapabilitySelectorPlacement)(nil),      // 3: hypershell.v1.CapabilitySelectorPlacement
-	(*LocalKindPlacement)(nil),               // 4: hypershell.v1.LocalKindPlacement
-	(*Gateway)(nil),                          // 5: hypershell.v1.Gateway
-	(*CreateGatewayRequest)(nil),             // 6: hypershell.v1.CreateGatewayRequest
-	(*CreateGatewayResponse)(nil),            // 7: hypershell.v1.CreateGatewayResponse
-	(*GetGatewayRequest)(nil),                // 8: hypershell.v1.GetGatewayRequest
-	(*GetGatewayResponse)(nil),               // 9: hypershell.v1.GetGatewayResponse
-	(*UpdateGatewayRequest)(nil),             // 10: hypershell.v1.UpdateGatewayRequest
-	(*UpdateGatewayResponse)(nil),            // 11: hypershell.v1.UpdateGatewayResponse
-	(*AdjustActiveSandboxCountRequest)(nil),  // 12: hypershell.v1.AdjustActiveSandboxCountRequest
-	(*AdjustActiveSandboxCountResponse)(nil), // 13: hypershell.v1.AdjustActiveSandboxCountResponse
-	(*SetActiveSandboxCountRequest)(nil),     // 14: hypershell.v1.SetActiveSandboxCountRequest
-	(*SetActiveSandboxCountResponse)(nil),    // 15: hypershell.v1.SetActiveSandboxCountResponse
-	(*SandboxEvent)(nil),                     // 16: hypershell.v1.SandboxEvent
-	(*ReportSandboxEventsRequest)(nil),       // 17: hypershell.v1.ReportSandboxEventsRequest
-	(*ReportSandboxEventsResponse)(nil),      // 18: hypershell.v1.ReportSandboxEventsResponse
-	(*SetGatewayVersionRequest)(nil),         // 19: hypershell.v1.SetGatewayVersionRequest
-	(*SetGatewayVersionResponse)(nil),        // 20: hypershell.v1.SetGatewayVersionResponse
-	(*DeleteGatewayRequest)(nil),             // 21: hypershell.v1.DeleteGatewayRequest
-	(*ListGatewaysRequest)(nil),              // 22: hypershell.v1.ListGatewaysRequest
-	(*ListGatewaysResponse)(nil),             // 23: hypershell.v1.ListGatewaysResponse
-	(*DeleteGatewayResponse)(nil),            // 24: hypershell.v1.DeleteGatewayResponse
-	(*WatchGatewaysRequest)(nil),             // 25: hypershell.v1.WatchGatewaysRequest
-	(*WatchGatewaysResponse)(nil),            // 26: hypershell.v1.WatchGatewaysResponse
-	(*ObjectReference)(nil),                  // 27: hypershell.v1.ObjectReference
-	(*timestamppb.Timestamp)(nil),            // 28: google.protobuf.Timestamp
-	(*ListMeta)(nil),                         // 29: hypershell.v1.ListMeta
-	(EventType)(0),                           // 30: hypershell.v1.EventType
+	(*Gateway)(nil),                          // 4: hypershell.v1.Gateway
+	(*CreateGatewayRequest)(nil),             // 5: hypershell.v1.CreateGatewayRequest
+	(*CreateGatewayResponse)(nil),            // 6: hypershell.v1.CreateGatewayResponse
+	(*GetGatewayRequest)(nil),                // 7: hypershell.v1.GetGatewayRequest
+	(*GetGatewayResponse)(nil),               // 8: hypershell.v1.GetGatewayResponse
+	(*UpdateGatewayRequest)(nil),             // 9: hypershell.v1.UpdateGatewayRequest
+	(*UpdateGatewayResponse)(nil),            // 10: hypershell.v1.UpdateGatewayResponse
+	(*AdjustActiveSandboxCountRequest)(nil),  // 11: hypershell.v1.AdjustActiveSandboxCountRequest
+	(*AdjustActiveSandboxCountResponse)(nil), // 12: hypershell.v1.AdjustActiveSandboxCountResponse
+	(*SetActiveSandboxCountRequest)(nil),     // 13: hypershell.v1.SetActiveSandboxCountRequest
+	(*SetActiveSandboxCountResponse)(nil),    // 14: hypershell.v1.SetActiveSandboxCountResponse
+	(*SandboxEvent)(nil),                     // 15: hypershell.v1.SandboxEvent
+	(*ReportSandboxEventsRequest)(nil),       // 16: hypershell.v1.ReportSandboxEventsRequest
+	(*ReportSandboxEventsResponse)(nil),      // 17: hypershell.v1.ReportSandboxEventsResponse
+	(*SetGatewayVersionRequest)(nil),         // 18: hypershell.v1.SetGatewayVersionRequest
+	(*SetGatewayVersionResponse)(nil),        // 19: hypershell.v1.SetGatewayVersionResponse
+	(*DeleteGatewayRequest)(nil),             // 20: hypershell.v1.DeleteGatewayRequest
+	(*ListGatewaysRequest)(nil),              // 21: hypershell.v1.ListGatewaysRequest
+	(*ListGatewaysResponse)(nil),             // 22: hypershell.v1.ListGatewaysResponse
+	(*DeleteGatewayResponse)(nil),            // 23: hypershell.v1.DeleteGatewayResponse
+	(*WatchGatewaysRequest)(nil),             // 24: hypershell.v1.WatchGatewaysRequest
+	(*WatchGatewaysResponse)(nil),            // 25: hypershell.v1.WatchGatewaysResponse
+	(*ObjectReference)(nil),                  // 26: hypershell.v1.ObjectReference
+	(*timestamppb.Timestamp)(nil),            // 27: google.protobuf.Timestamp
+	(*ListMeta)(nil),                         // 28: hypershell.v1.ListMeta
+	(EventType)(0),                           // 29: hypershell.v1.EventType
 }
 var file_hypershell_v1_gateways_proto_depIdxs = []int32{
 	0,  // 0: hypershell.v1.ProvisioningCondition.condition_status:type_name -> hypershell.v1.ProvisioningConditionStatus
 	3,  // 1: hypershell.v1.GatewayPlacementIntent.capability_selector:type_name -> hypershell.v1.CapabilitySelectorPlacement
-	4,  // 2: hypershell.v1.GatewayPlacementIntent.local_kind:type_name -> hypershell.v1.LocalKindPlacement
-	27, // 3: hypershell.v1.Gateway.metadata:type_name -> hypershell.v1.ObjectReference
-	1,  // 4: hypershell.v1.Gateway.provisioning_conditions:type_name -> hypershell.v1.ProvisioningCondition
-	2,  // 5: hypershell.v1.CreateGatewayRequest.placement:type_name -> hypershell.v1.GatewayPlacementIntent
-	5,  // 6: hypershell.v1.CreateGatewayResponse.gateway:type_name -> hypershell.v1.Gateway
-	5,  // 7: hypershell.v1.GetGatewayResponse.gateway:type_name -> hypershell.v1.Gateway
-	1,  // 8: hypershell.v1.UpdateGatewayRequest.provisioning_conditions:type_name -> hypershell.v1.ProvisioningCondition
-	5,  // 9: hypershell.v1.UpdateGatewayResponse.gateway:type_name -> hypershell.v1.Gateway
-	28, // 10: hypershell.v1.SandboxEvent.first_observed_at:type_name -> google.protobuf.Timestamp
-	28, // 11: hypershell.v1.SandboxEvent.last_observed_at:type_name -> google.protobuf.Timestamp
-	16, // 12: hypershell.v1.ReportSandboxEventsRequest.events:type_name -> hypershell.v1.SandboxEvent
-	5,  // 13: hypershell.v1.ListGatewaysResponse.items:type_name -> hypershell.v1.Gateway
-	29, // 14: hypershell.v1.ListGatewaysResponse.metadata:type_name -> hypershell.v1.ListMeta
-	30, // 15: hypershell.v1.WatchGatewaysResponse.type:type_name -> hypershell.v1.EventType
-	5,  // 16: hypershell.v1.WatchGatewaysResponse.gateway:type_name -> hypershell.v1.Gateway
-	8,  // 17: hypershell.v1.GatewayService.GetGateway:input_type -> hypershell.v1.GetGatewayRequest
-	6,  // 18: hypershell.v1.GatewayService.CreateGateway:input_type -> hypershell.v1.CreateGatewayRequest
-	10, // 19: hypershell.v1.GatewayService.UpdateGateway:input_type -> hypershell.v1.UpdateGatewayRequest
-	21, // 20: hypershell.v1.GatewayService.DeleteGateway:input_type -> hypershell.v1.DeleteGatewayRequest
-	22, // 21: hypershell.v1.GatewayService.ListGateways:input_type -> hypershell.v1.ListGatewaysRequest
-	25, // 22: hypershell.v1.GatewayService.WatchGateways:input_type -> hypershell.v1.WatchGatewaysRequest
-	12, // 23: hypershell.v1.GatewayService.AdjustActiveSandboxCount:input_type -> hypershell.v1.AdjustActiveSandboxCountRequest
-	14, // 24: hypershell.v1.GatewayService.SetActiveSandboxCount:input_type -> hypershell.v1.SetActiveSandboxCountRequest
-	17, // 25: hypershell.v1.GatewayService.ReportSandboxEvents:input_type -> hypershell.v1.ReportSandboxEventsRequest
-	19, // 26: hypershell.v1.GatewayService.SetGatewayVersion:input_type -> hypershell.v1.SetGatewayVersionRequest
-	9,  // 27: hypershell.v1.GatewayService.GetGateway:output_type -> hypershell.v1.GetGatewayResponse
-	7,  // 28: hypershell.v1.GatewayService.CreateGateway:output_type -> hypershell.v1.CreateGatewayResponse
-	11, // 29: hypershell.v1.GatewayService.UpdateGateway:output_type -> hypershell.v1.UpdateGatewayResponse
-	24, // 30: hypershell.v1.GatewayService.DeleteGateway:output_type -> hypershell.v1.DeleteGatewayResponse
-	23, // 31: hypershell.v1.GatewayService.ListGateways:output_type -> hypershell.v1.ListGatewaysResponse
-	26, // 32: hypershell.v1.GatewayService.WatchGateways:output_type -> hypershell.v1.WatchGatewaysResponse
-	13, // 33: hypershell.v1.GatewayService.AdjustActiveSandboxCount:output_type -> hypershell.v1.AdjustActiveSandboxCountResponse
-	15, // 34: hypershell.v1.GatewayService.SetActiveSandboxCount:output_type -> hypershell.v1.SetActiveSandboxCountResponse
-	18, // 35: hypershell.v1.GatewayService.ReportSandboxEvents:output_type -> hypershell.v1.ReportSandboxEventsResponse
-	20, // 36: hypershell.v1.GatewayService.SetGatewayVersion:output_type -> hypershell.v1.SetGatewayVersionResponse
-	27, // [27:37] is the sub-list for method output_type
-	17, // [17:27] is the sub-list for method input_type
-	17, // [17:17] is the sub-list for extension type_name
-	17, // [17:17] is the sub-list for extension extendee
-	0,  // [0:17] is the sub-list for field type_name
+	26, // 2: hypershell.v1.Gateway.metadata:type_name -> hypershell.v1.ObjectReference
+	1,  // 3: hypershell.v1.Gateway.provisioning_conditions:type_name -> hypershell.v1.ProvisioningCondition
+	2,  // 4: hypershell.v1.CreateGatewayRequest.placement:type_name -> hypershell.v1.GatewayPlacementIntent
+	4,  // 5: hypershell.v1.CreateGatewayResponse.gateway:type_name -> hypershell.v1.Gateway
+	4,  // 6: hypershell.v1.GetGatewayResponse.gateway:type_name -> hypershell.v1.Gateway
+	1,  // 7: hypershell.v1.UpdateGatewayRequest.provisioning_conditions:type_name -> hypershell.v1.ProvisioningCondition
+	4,  // 8: hypershell.v1.UpdateGatewayResponse.gateway:type_name -> hypershell.v1.Gateway
+	27, // 9: hypershell.v1.SandboxEvent.first_observed_at:type_name -> google.protobuf.Timestamp
+	27, // 10: hypershell.v1.SandboxEvent.last_observed_at:type_name -> google.protobuf.Timestamp
+	15, // 11: hypershell.v1.ReportSandboxEventsRequest.events:type_name -> hypershell.v1.SandboxEvent
+	4,  // 12: hypershell.v1.ListGatewaysResponse.items:type_name -> hypershell.v1.Gateway
+	28, // 13: hypershell.v1.ListGatewaysResponse.metadata:type_name -> hypershell.v1.ListMeta
+	29, // 14: hypershell.v1.WatchGatewaysResponse.type:type_name -> hypershell.v1.EventType
+	4,  // 15: hypershell.v1.WatchGatewaysResponse.gateway:type_name -> hypershell.v1.Gateway
+	7,  // 16: hypershell.v1.GatewayService.GetGateway:input_type -> hypershell.v1.GetGatewayRequest
+	5,  // 17: hypershell.v1.GatewayService.CreateGateway:input_type -> hypershell.v1.CreateGatewayRequest
+	9,  // 18: hypershell.v1.GatewayService.UpdateGateway:input_type -> hypershell.v1.UpdateGatewayRequest
+	20, // 19: hypershell.v1.GatewayService.DeleteGateway:input_type -> hypershell.v1.DeleteGatewayRequest
+	21, // 20: hypershell.v1.GatewayService.ListGateways:input_type -> hypershell.v1.ListGatewaysRequest
+	24, // 21: hypershell.v1.GatewayService.WatchGateways:input_type -> hypershell.v1.WatchGatewaysRequest
+	11, // 22: hypershell.v1.GatewayService.AdjustActiveSandboxCount:input_type -> hypershell.v1.AdjustActiveSandboxCountRequest
+	13, // 23: hypershell.v1.GatewayService.SetActiveSandboxCount:input_type -> hypershell.v1.SetActiveSandboxCountRequest
+	16, // 24: hypershell.v1.GatewayService.ReportSandboxEvents:input_type -> hypershell.v1.ReportSandboxEventsRequest
+	18, // 25: hypershell.v1.GatewayService.SetGatewayVersion:input_type -> hypershell.v1.SetGatewayVersionRequest
+	8,  // 26: hypershell.v1.GatewayService.GetGateway:output_type -> hypershell.v1.GetGatewayResponse
+	6,  // 27: hypershell.v1.GatewayService.CreateGateway:output_type -> hypershell.v1.CreateGatewayResponse
+	10, // 28: hypershell.v1.GatewayService.UpdateGateway:output_type -> hypershell.v1.UpdateGatewayResponse
+	23, // 29: hypershell.v1.GatewayService.DeleteGateway:output_type -> hypershell.v1.DeleteGatewayResponse
+	22, // 30: hypershell.v1.GatewayService.ListGateways:output_type -> hypershell.v1.ListGatewaysResponse
+	25, // 31: hypershell.v1.GatewayService.WatchGateways:output_type -> hypershell.v1.WatchGatewaysResponse
+	12, // 32: hypershell.v1.GatewayService.AdjustActiveSandboxCount:output_type -> hypershell.v1.AdjustActiveSandboxCountResponse
+	14, // 33: hypershell.v1.GatewayService.SetActiveSandboxCount:output_type -> hypershell.v1.SetActiveSandboxCountResponse
+	17, // 34: hypershell.v1.GatewayService.ReportSandboxEvents:output_type -> hypershell.v1.ReportSandboxEventsResponse
+	19, // 35: hypershell.v1.GatewayService.SetGatewayVersion:output_type -> hypershell.v1.SetGatewayVersionResponse
+	26, // [26:36] is the sub-list for method output_type
+	16, // [16:26] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_hypershell_v1_gateways_proto_init() }
@@ -2225,20 +2182,19 @@ func file_hypershell_v1_gateways_proto_init() {
 	file_hypershell_v1_common_proto_init()
 	file_hypershell_v1_gateways_proto_msgTypes[1].OneofWrappers = []any{
 		(*GatewayPlacementIntent_CapabilitySelector)(nil),
-		(*GatewayPlacementIntent_LocalKind)(nil),
 	}
+	file_hypershell_v1_gateways_proto_msgTypes[3].OneofWrappers = []any{}
 	file_hypershell_v1_gateways_proto_msgTypes[4].OneofWrappers = []any{}
-	file_hypershell_v1_gateways_proto_msgTypes[5].OneofWrappers = []any{}
-	file_hypershell_v1_gateways_proto_msgTypes[9].OneofWrappers = []any{}
-	file_hypershell_v1_gateways_proto_msgTypes[21].OneofWrappers = []any{}
-	file_hypershell_v1_gateways_proto_msgTypes[24].OneofWrappers = []any{}
+	file_hypershell_v1_gateways_proto_msgTypes[8].OneofWrappers = []any{}
+	file_hypershell_v1_gateways_proto_msgTypes[20].OneofWrappers = []any{}
+	file_hypershell_v1_gateways_proto_msgTypes[23].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_hypershell_v1_gateways_proto_rawDesc), len(file_hypershell_v1_gateways_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   26,
+			NumMessages:   25,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

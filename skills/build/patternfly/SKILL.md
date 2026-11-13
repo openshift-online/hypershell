@@ -44,6 +44,13 @@ Use PatternFly design tokens and utility classes instead of custom CSS when they
 
 No Tailwind, Bootstrap, MUI, Sass, or CSS-in-JS.
 
+## Safe rendering
+
+Never use React's raw-HTML prop, DOM HTML properties or methods, or equivalent
+HTML-injection helpers in production code, stories, or mockups. Render React
+elements. If content is Markdown or another markup format, use an approved
+renderer that returns React elements and preserves text escaping.
+
 ## Accessibility
 
 PatternFly defaults are a starting point, not sufficient for WCAG compliance (`UIS-PFLY-09`).

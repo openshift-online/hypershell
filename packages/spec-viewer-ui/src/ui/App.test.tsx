@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { IntlProvider } from "react-intl";
 
@@ -7,7 +13,7 @@ import { markedMarkdown } from "../adapters/marked-markdown";
 import type { PinStorePort, SpecViewerPorts } from "../application/ports";
 import { App } from "./App";
 import { PortsProvider } from "./ports-context";
-import { MATCH_CLASS } from "./highlight-html";
+import { MATCH_CLASS } from "./highlight-hast";
 import { FLASH_CLASS, headingElementId } from "./SpecDocument";
 
 const TRACED_SPEC = `# Traced
@@ -74,6 +80,16 @@ const BRANCH_SPEC = `# Branch only
 The feature SHALL exist.
 `;
 
+// An older version of SPEC, plus a file the default branch no longer has.
+const OLDER_SPEC = SPEC.replace("before expiry", "after expiry");
+
+const LEGACY_SPEC = `# Legacy
+
+### Requirement: LEG-01 -- Old behaviour
+
+The platform SHALL keep the old behaviour.
+`;
+
 function renderApp(saved: string[] = []) {
   const stored = { ids: saved };
   const pins: PinStorePort = {
@@ -88,11 +104,16 @@ function renderApp(saved: string[] = []) {
         Promise.resolve(
           ref === "feature/x"
             ? [{ path: "platform/branch.spec.md", content: BRANCH_SPEC }]
-            : [
-                { path: "platform/tls.spec.md", content: SPEC },
-                { path: "platform/console.spec.md", content: LINKING_SPEC },
-                { path: "platform/traced.spec.md", content: TRACED_SPEC },
-              ],
+            : ref === "feature/y"
+              ? [
+                  { path: "platform/tls.spec.md", content: OLDER_SPEC },
+                  { path: "platform/legacy.spec.md", content: LEGACY_SPEC },
+                ]
+              : [
+                  { path: "platform/tls.spec.md", content: SPEC },
+                  { path: "platform/console.spec.md", content: LINKING_SPEC },
+                  { path: "platform/traced.spec.md", content: TRACED_SPEC },
+                ],
         ),
       subscribe: () => () => undefined,
     },
@@ -100,7 +121,10 @@ function renderApp(saved: string[] = []) {
     pins,
     repository: {
       listRefs: () =>
-        Promise.resolve({ default: "main", refs: ["feature/x", "main"] }),
+        Promise.resolve({
+          default: "main",
+          refs: ["feature/x", "feature/y", "main"],
+        }),
       findReferences: (_ref, id) =>
         Promise.resolve(
           id === "TLS-01"
@@ -129,12 +153,11 @@ function renderApp(saved: string[] = []) {
     },
     highlighter: {
       highlight: (code) =>
-        Promise.resolve(
-          `<pre class="shiki"><code>${code
-            .split("\n")
-            .map((line) => `<span class="line">${line}</span>`)
-            .join("\n")}</code></pre>`,
-        ),
+        Promise.resolve({
+          lines: code.split("\n").map((line) => ({
+            tokens: [{ text: line }],
+          })),
+        }),
     },
   };
   render(
@@ -169,10 +192,12 @@ async function ready() {
   await screen.findByRole("treegrid", { name: "Spec conformance" });
 }
 
-async function search(user: ReturnType<typeof userEvent.setup>, text: string) {
-  await user.type(
+async function search(text: string) {
+  fireEvent.change(
     await screen.findByRole("textbox", { name: "Search specs" }),
-    text,
+    {
+      target: { value: text },
+    },
   );
 }
 
@@ -193,7 +218,7 @@ describe("App", () => {
     expect(document.activeElement).toBe(input);
     expect(within(table()).getByText("Traced")).toBeTruthy();
 
-    await search(user, "expirng");
+    await search("expirng");
     // The matching scenario shows, with the rows above it expanded.
     expect(
       await within(table()).findByText("Expiring certificate"),
@@ -215,7 +240,7 @@ describe("App", () => {
     const user = userEvent.setup();
     renderApp();
     await ready();
-    await search(user, "certifcate");
+    await search("certifcate");
     await user.click(await within(table()).findByText("Expiring certificate"));
     const document = screen.getByRole("region", { name: "Spec document" });
     const marks = [...document.querySelectorAll(`mark.${MATCH_CLASS}`)].map(
@@ -234,7 +259,7 @@ describe("App", () => {
     const user = userEvent.setup();
     renderApp();
     await ready();
-    await search(user, "renewed");
+    await search("renewed");
     await user.hover(await within(table()).findByText("Expiring certificate"));
     const tooltip = await screen.findByRole("tooltip");
     expect(within(tooltip).getByText("renewed").tagName).toBe("MARK");
@@ -244,7 +269,7 @@ describe("App", () => {
     const user = userEvent.setup();
     renderApp();
     await ready();
-    await search(user, "history");
+    await search("history");
     await user.hover(await within(table()).findByText("Gateway TLS"));
     const tooltip = await screen.findByRole("tooltip");
     expect(within(tooltip).getByText("platform/tls.spec.md")).toBeTruthy();
@@ -375,7 +400,7 @@ describe("App", () => {
     renderApp();
     await ready();
     // The search expands Gateway TLS; the requirement is expanded by hand.
-    await search(user, "rotate");
+    await search("rotate");
     await expand(user, "Certificates rotate");
     expect(
       await within(table()).findByText("Expiring certificate"),
@@ -500,6 +525,7 @@ describe("App", () => {
     expect(options.map((option) => option.textContent)).toEqual([
       "mainDefault branch",
       "feature/x",
+      "feature/y",
     ]);
     await user.click(screen.getByRole("option", { name: "feature/x" }));
 
@@ -510,6 +536,134 @@ describe("App", () => {
     await user.click(await screen.findByRole("option", { name: /^main/u }));
     expect(await screen.findByText(/^3 files/u)).toBeTruthy();
     expect(window.location.search).toBe("");
+  });
+
+  /** Starts diff mode against `branch` with the picker's compare button. */
+  async function compareWith(
+    user: ReturnType<typeof userEvent.setup>,
+    branch: string,
+  ) {
+    await user.click(screen.getByRole("button", { name: "Branch" }));
+    await user.click(
+      await screen.findByRole("menuitem", { name: `Compare with ${branch}` }),
+    );
+  }
+
+  const diffTree = () =>
+    screen.getByRole("treegrid", { name: "Spec differences between branches" });
+
+  // Verifies: DEV-SPV-18.01
+  it("compares with another branch and shows only the differences", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await ready();
+    await compareWith(user, "feature/y");
+
+    expect(await screen.findByText("Comparing with feature/y")).toBeTruthy();
+    expect(window.location.search).toBe("?compare=feature%2Fy");
+    const tree = diffTree();
+    // New in main, removed from main, and changed between the two.
+    expect(within(tree).getByText("Gateway TLS")).toBeTruthy();
+    expect(within(tree).getByText("Legacy")).toBeTruthy();
+    expect(within(tree).getByText("Traced")).toBeTruthy();
+    const labelOf = (title: string) => {
+      const row = within(tree).getByText(title).closest("tr");
+      return row ? within(row).queryByText(/^(New|Removed|Changed)$/u) : null;
+    };
+    expect(labelOf("Traced")?.textContent).toBe("New");
+    expect(labelOf("Legacy")?.textContent).toBe("Removed");
+    expect(labelOf("Old behaviour")?.textContent).toBe("Removed");
+    expect(labelOf("Certificates rotate")?.textContent).toBe("Changed");
+    // The unchanged scenario is left out, and the summary counts items.
+    expect(within(tree).queryByText("Expiring certificate")).toBeNull();
+    expect(screen.getByText("8 new, 2 removed, 1 changed")).toBeTruthy();
+
+    // A removed item opens as it was on the other branch, uncompared.
+    await user.click(within(tree).getByText("Old behaviour"));
+    expect(
+      await screen.findByText("The platform SHALL keep the old behaviour."),
+    ).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Differences" })).toBeNull();
+  });
+
+  // Verifies: DEV-SPV-18.02
+  it("shows a changed item as a split view with the changed words marked", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await ready();
+    await compareWith(user, "feature/y");
+    await user.click(
+      await within(diffTree()).findByText("Certificates rotate"),
+    );
+
+    const view = await screen.findByRole("region", { name: "Differences" });
+    expect(
+      within(view).getByRole("columnheader", { name: "feature/y" }),
+    ).toBeTruthy();
+    expect(
+      within(view).getByRole("columnheader", { name: "main" }),
+    ).toBeTruthy();
+    const marked = (side: string) =>
+      [...view.querySelectorAll(`.sv-diff__cell--${side} .sv-diff__word`)].map(
+        (word) => word.textContent,
+      );
+    expect(marked("removed")).toEqual(["after"]);
+    expect(marked("added")).toEqual(["before"]);
+  });
+
+  // Verifies: DEV-SPV-18.02
+  it("switches a split view between rendered and raw markdown", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await ready();
+    await compareWith(user, "feature/y");
+    await user.click(
+      await within(diffTree()).findByText("Certificates rotate"),
+    );
+    const view = await screen.findByRole("region", { name: "Differences" });
+    // Rendered is the default: headings are headings, changed blocks colored.
+    expect(
+      within(view).getAllByRole("heading", { name: /Certificates rotate/u }),
+    ).toHaveLength(2);
+    expect(view.querySelector(".sv-diff__cell--removed")).not.toBeNull();
+    expect(view.querySelector(".sv-diff__cell--added")).not.toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Raw" }));
+    expect(within(view).queryAllByRole("heading")).toHaveLength(0);
+    expect(within(view).getAllByText(/^###/u).length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: "Rendered" }));
+    expect(within(view).getAllByRole("heading")).toHaveLength(2);
+  });
+
+  // Verifies: DEV-SPV-18.03
+  it("opens the comparison named in the URL and leaves diff mode", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState(null, "", "/?compare=feature%2Fy");
+    renderApp();
+    expect(await screen.findByText("Comparing with feature/y")).toBeTruthy();
+    expect(await screen.findByText("Legacy")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Exit diff mode" }));
+    await ready();
+    expect(window.location.search).toBe("");
+    expect(screen.queryByText("Comparing with feature/y")).toBeNull();
+  });
+
+  it("says when the branches have the same specs", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState(null, "", "/?ref=feature%2Fx");
+    renderApp();
+    await screen.findByText(/^1 file/u);
+    await user.click(screen.getByRole("button", { name: "Branch" }));
+    // The selected branch has no compare button.
+    expect(
+      screen.queryByRole("menuitem", { name: "Compare with feature/x" }),
+    ).toBeNull();
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Compare with feature/y" }),
+    );
+    expect(await screen.findByText("Comparing with feature/y")).toBeTruthy();
   });
 
   // Verifies: DEV-SPV-06.01
@@ -554,7 +708,7 @@ describe("App", () => {
     ).toBeTruthy();
 
     // Opening an item while the document is hidden shows it again.
-    await search(user, "expirng");
+    await search("expirng");
     await user.click(await within(table()).findByText("Expiring certificate"));
     expect(
       await screen.findByRole("button", { name: "Hide document" }),

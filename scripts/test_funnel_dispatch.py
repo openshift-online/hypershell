@@ -8,6 +8,7 @@ import pty
 import select
 import struct
 import termios
+import threading
 from pathlib import Path
 import subprocess
 import sys
@@ -22,6 +23,7 @@ sys.path.insert(0, str(ENTRY.parent))
 spec = importlib.util.spec_from_file_location('funnel', ENTRY.with_name('funnel_dispatch.py'))
 funnel = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(funnel)
+from reconcile_probe import ReconcileProbe, ProbeError
 
 
 def issue(number=1, **kwargs):
@@ -184,6 +186,9 @@ class StoreTests(unittest.TestCase):
 
 class DiscoveryTests(unittest.TestCase):
     def setUp(self):
+        observation = patch.object(funnel.GitHub, 'code_state', return_value=None)
+        observation.start()
+        self.addCleanup(observation.stop)
         self.github = funnel.GitHub('test/repo', 'agent/scope/test', '.fullsend')
 
     @patch.object(funnel, 'json_command')
@@ -229,6 +234,9 @@ class DiscoveryTests(unittest.TestCase):
 
 class ImplementationCycleTests(unittest.TestCase):
     def setUp(self):
+        observation = patch.object(funnel.GitHub, 'code_state', return_value=None)
+        observation.start()
+        self.addCleanup(observation.stop)
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.store = funnel.Store(Path(self.tmp.name)/'state.db')
@@ -290,6 +298,145 @@ class ImplementationCycleTests(unittest.TestCase):
             self.github.phase_job('scope', 'spec-implementation', item, [pr(), pr(11)])
 
 
+class PendingTriageTests(unittest.TestCase):
+    def test_unlinked_authorized_issues_are_normal_queue_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args=funnel.parse_args(['agent/scope/test','--dry-run','--lifecycle','jira'])
+            store=funnel.Store(Path(tmp)/'state.db');self.addCleanup(store.db.close)
+            coordinator=funnel.Coordinator(args,store,-1)
+            record=issue(708)
+            blocked=issue(709);blocked['labels'].append('agent/blocked')
+            closed=issue(710);closed['state']='closed'
+            with patch.object(coordinator.github,'discover',return_value=[record,blocked,closed]):
+                # First intake launch must already expose the normal queue count.
+                coordinator.discover()
+                self.assertEqual([i['number'] for i in coordinator.waiting_for_triage],[708])
+                self.assertEqual(coordinator.errors,[])
+                ingest=coordinator.candidates[0]
+                self.assertIn(ingest['agent'],('ingest','funnel-ingest'))
+                run=store.start(ingest,'intake.log',time.time())
+                store.finish(ingest['key'],run,0,60,3600)
+                # The cached/no-new-launch path is also informational, not an error.
+                coordinator.discover()
+                self.assertEqual(coordinator.errors,[])
+                self.assertEqual(len(coordinator.waiting_for_triage),1)
+                self.assertFalse(any(j['agent']=='issue-triage' for j in coordinator.candidates))
+            record['labels'].append('agent/execution-record')
+            reconcile=funnel.make_job(args.scope,'reconcile',record)
+            with patch.object(coordinator.github,'discover',return_value=[record]), patch.object(coordinator.github,'pages',return_value=[]), patch.object(coordinator,'reconcile_job',return_value=reconcile):
+                coordinator.discover()
+                self.assertEqual(coordinator.waiting_for_triage,[])
+                self.assertEqual(coordinator.errors,[])
+                self.assertTrue(any(j['agent']=='reconcile' for j in coordinator.candidates))
+class ReviewRequestCycleTests(unittest.TestCase):
+    # Verifies: SDLC-LOC-05
+    def test_return_to_identical_review_state_is_a_new_request(self):
+        for phase in ('code','spec'):
+            with self.subTest(phase=phase), tempfile.TemporaryDirectory() as tmp:
+                args=funnel.parse_args(['agent/scope/test','--dry-run','--lifecycle','github-only'])
+                store=funnel.Store(Path(tmp)/'state.db');self.addCleanup(store.db.close)
+                coordinator=funnel.Coordinator(args,store,-1)
+                github=coordinator.github
+                agent=phase+'-review';label='agent/reviewable-'+phase
+                item=issue();item['labels'].append(label)
+                pull=pr()
+                state=dict(head_sha='abc',base_sha='base',state='open',checks='green',draft=False,mergeable=True,mergeable_state='clean',changed=False)
+                events=[dict(id=10,event='labeled',label=dict(name=label),created_at='1970-01-01T00:00:01Z')]
+                def pages(resource,**fields):return [pull] if resource=='pulls' else list(events)
+                with patch.object(github,'pages',side_effect=pages), patch.object(github,'discover',return_value=[item]), patch.object(github,'classify',return_value=[agent]), patch.object(github,'current',return_value=item), patch.object(github,'code_state',return_value=state):
+                    first=github.phase_job(args.scope,agent,item,[pull])
+                    run=store.start(first,'old.log',100);store.finish(first['key'],run,0,60,200,now=110)
+                    events.append(dict(id=11,event='labeled',label=dict(name='unrelated')))
+                    self.assertEqual(first['fingerprint'],github.phase_job(args.scope,agent,item,[pull])['fingerprint'])
+                    # Approval was revoked and the identical phase label was restored.
+                    events.append(dict(id=12,event='labeled',label=dict(name=label),created_at='1970-01-01T00:03:00Z'))
+                    self.assertFalse(coordinator.authorized(first))
+                    coordinator.discover()
+                    second=coordinator.candidates[0]
+                    if phase=='code':
+                        saved=json.loads(store.get(first['key'])['payload'])
+                        self.assertFalse(saved['code_readiness']['review_current'])
+                        self.assertEqual(saved['review_request_event'],'10')
+                    self.assertNotEqual(first['fingerprint'],second['fingerprint'])
+                    self.assertEqual(second['review_request_event'],'12')
+                    self.assertTrue(store.eligible(second,200))
+                    run=store.start(second,'new.log',200);store.finish(second['key'],run,0,60,400,now=210)
+                    coordinator.discover()
+                    self.assertFalse(store.eligible(coordinator.candidates[0],400))
+                    # A new dispatcher observes the same identity after restart.
+                    other=funnel.GitHub(args.repo,args.scope,args.fullsend_dir)
+                    with patch.object(other,'pages',side_effect=pages), patch.object(other,'code_state',return_value=state):
+                        self.assertEqual(second['fingerprint'],other.phase_job(args.scope,agent,item,[pull])['fingerprint'])
+
+    def test_unreadable_or_missing_review_event_fails_closed(self):
+        github=funnel.GitHub('test/repo','agent/scope/test','.fullsend')
+        item=issue();item['labels'].append('agent/reviewable-code')
+        for result in ([],[dict(id=1,event='labeled',label=dict(name='other'))]):
+            with patch.object(github,'pages',return_value=result):
+                with self.assertRaises(funnel.DispatchError):github.phase_job(github.scope,'code-review',item,[pr()])
+        with patch.object(github,'pages',side_effect=funnel.DispatchError('API unavailable')):
+            with self.assertRaises(funnel.DispatchError):github.phase_job(github.scope,'code-review',item,[pr()])
+
+class CodeReadinessTests(unittest.TestCase):
+    def setUp(self):
+        # Older completed-run fixtures predate review-request identity.
+        request = patch.object(funnel.GitHub, 'review_request', return_value=None)
+        request.start();self.addCleanup(request.stop)
+
+    def test_watch_observes_approved_issues_and_respects_worker_ownership(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = funnel.parse_args(['agent/scope/test', '--dry-run', '--lifecycle', 'github-only'])
+            args.refresh_code_state = True
+            store = funnel.Store(Path(tmp)/'state.db')
+            self.addCleanup(store.db.close)
+            coordinator = funnel.Coordinator(args,store,-1)
+            item = issue()
+            approved = ['agent/scope/test','agent/allowed','agent/review-code-approved']
+            item['labels'] = approved.copy()
+            inspections = []
+            def observe(record, pull, inspect=True):
+                inspections.append(inspect)
+                if not inspect:
+                    item['labels'] = ['agent/scope/test','agent/allowed','agent/code-conflicts']
+                return dict(changed=not inspect, mergeable=False, checks='green')
+            with patch.object(coordinator.github,'discover',return_value=[item]), patch.object(coordinator.github,'pages',return_value=[pr()]), patch.object(coordinator.github,'current',side_effect=lambda n:item), patch.object(coordinator.github,'code_state',side_effect=observe), patch.object(coordinator.github,'classify',side_effect=lambda row:['code-implementation'] if 'agent/code-conflicts' in row['labels'] else []):
+                coordinator.discover()
+                self.assertFalse(inspections[0])
+                self.assertEqual([job['agent'] for job in coordinator.candidates],['code-implementation'])
+                item['labels'] = approved.copy()
+                inspections.clear()
+                active = funnel.make_job(args.scope,'code-review',item)
+                store.start(active,'active.log',100)
+                coordinator.discover()
+                self.assertEqual(inspections,[True])
+                self.assertEqual(item['labels'],approved)
+                self.assertEqual(coordinator.candidates,[])
+
+    # Verifies: SDLC-HOOK-14.01
+    def test_pending_to_green_and_mergeability_changes_release_deduplication(self):
+        github = funnel.GitHub('test/repo','agent/scope/test','.fullsend')
+        item = issue()
+        item['labels'].append('agent/reviewable-code')
+        state = dict(checks='pending', state='open', head_sha='abc', base_sha='base',
+                     mergeable=True, mergeable_state='clean', draft=False, changed=False)
+        with tempfile.TemporaryDirectory() as tmp, patch.object(github,'code_state',side_effect=lambda *args:dict(state)):
+            store = funnel.Store(Path(tmp)/'state.db')
+            try:
+                pending = github.phase_job(github.scope,'code-review',item,[pr()])
+                run = store.start(pending,'run.log',100)
+                store.finish(pending['key'],run,0,60,200,now=101)
+                self.assertFalse(store.eligible(github.phase_job(github.scope,'code-review',item,[pr()]),200))
+                state['checks']='green'
+                green = github.phase_job(github.scope,'code-review',item,[pr()])
+                self.assertTrue(store.eligible(green,200))
+                state['base_sha']='new-base'
+                state.update(mergeable=False,mergeable_state='dirty')
+                conflict = github.phase_job(github.scope,'code-review',item,[pr()])
+                self.assertNotEqual(green['fingerprint'],conflict['fingerprint'])
+            finally:
+                store.db.close()
+
+
 class LocalLaunchTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -298,9 +445,9 @@ class LocalLaunchTests(unittest.TestCase):
         (self.root/'.hypershell').mkdir()
         (self.root/'.hypershell/execute-sdlc').symlink_to(ENTRY.parent, target_is_directory=True)
         self.fake = self.root/'capture'
-        self.fake.write_text('#!/usr/bin/env python3\nimport json,os,sys\nprint(json.dumps(dict(args=sys.argv[1:],model=os.environ.get("FULLSEND_MODEL"),concurrency=os.environ.get("CONCURRENCY"),project=os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID"))))\n')
+        self.fake.write_text('#!/usr/bin/env python3\nimport json,os,sys\nprint(json.dumps(dict(args=sys.argv[1:],model=os.environ.get("FULLSEND_MODEL"),concurrency=os.environ.get("CONCURRENCY"),project=os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID"),intake=os.environ.get("FULLSEND_INTAKE_INTERVAL"))))\n')
         self.fake.chmod(0o755)
-        self.env = dict(os.environ, FUNNEL_DISPATCH_BINARY=str(self.fake))
+        self.env = dict(os.environ, FUNNEL_DISPATCH_BINARY=str(self.fake), FULLSEND_CONFIG_FILE=str(self.root/'settings.json'))
         tools = self.root/'bin'
         tools.mkdir()
         gh = tools/'gh'
@@ -328,6 +475,26 @@ class LocalLaunchTests(unittest.TestCase):
         result=self.invoke('fullsend','SCOPE=agent/scope/override','MODEL=chosen-model','CONCURRENCY=10')
         self.assertEqual(result.returncode,0,result.stderr)
         self.assertEqual(json.loads(result.stdout)['args'],['agent/scope/override','--model','chosen-model','--concurrency','10','--watch'])
+
+    # Verifies: SDLC-LOC-06.03
+    def test_make_intake_interval_overrides_file_and_inherited_environment(self):
+        self.env['FULLSEND_INTAKE_INTERVAL']='600'
+        (self.root/'.hypershell/fullsend.env').write_text('FULLSEND_SCOPE=agent/scope/local\nFULLSEND_INTAKE_INTERVAL=300\n')
+        result=self.invoke('fullsend','INTAKE_INTERVAL=60')
+        self.assertEqual(result.returncode,0,result.stderr)
+        value=json.loads(result.stdout)
+        self.assertEqual(value['intake'],'300')
+        self.assertEqual(value['args'],['agent/scope/local','--intake-interval','60','--watch'])
+
+    # Verifies: SDLC-LOC-12
+    def test_saved_scope_is_reused_and_explicit_make_scope_wins(self):
+        (self.root/'settings.json').write_text(json.dumps({'version':1,'values':{'scope':'agent/scope/saved'}}))
+        result=self.invoke()
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(json.loads(result.stdout)['args'][0],'agent/scope/saved')
+        result=self.invoke('fullsend','SCOPE=agent/scope/explicit')
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(json.loads(result.stdout)['args'][0],'agent/scope/explicit')
 
     def test_external_file_with_spaces_and_literal_arguments(self):
         path=self.root/'existing inference.env'
@@ -357,7 +524,6 @@ class LocalLaunchTests(unittest.TestCase):
         self.assertEqual(result.returncode,0,result.stderr)
         self.assertIn('make fullsend-status',result.stdout)
         self.assertNotIn('usage:',result.stdout)
-        self.assertNotIn('make fullsend-plan',result.stdout)
 
     # Verifies: SDLC-LOC-01.01
     def test_unregistered_or_unverifiable_scope_blocks_start_but_not_status(self):
@@ -449,15 +615,13 @@ class ReconcileScheduleTests(unittest.TestCase):
         for now in (1801,3601,10000):
             self.assertEqual(self.job(now)['fingerprint'],first['fingerprint'])
 
-    def test_periodic_drift_is_measured_from_success_not_start(self):
-        first=self.job(1000)
-        self.complete(first,finished=5000)
-        self.assertEqual(self.job(5000+21600-1)['fingerprint'],first['fingerprint'])
-        due=self.job(5000+21600)
-        self.assertNotEqual(due['fingerprint'],first['fingerprint'])
-        self.assertEqual(self.job(5000+21601)['fingerprint'],due['fingerprint'])
-        self.complete(due,started=26601,finished=27000)
-        self.assertEqual(self.job(27001)['fingerprint'],due['fingerprint'])
+    def test_unchanged_closed_sync_does_not_repeat_after_six_hours(self):
+        closed=issue()
+        closed['state']='closed'
+        first=self.job(1000,closed)
+        self.complete(first)
+        for now in (21601,86400,1000000):
+            self.assertEqual(self.job(now,closed)['fingerprint'],first['fingerprint'])
 
     def test_issue_and_pr_changes_sync_immediately(self):
         first=self.job(1000,prs=[pr()])
@@ -486,7 +650,60 @@ class ReconcileScheduleTests(unittest.TestCase):
         self.assertEqual(self.job(4000)['fingerprint'],legacy['fingerprint'])
 
 
+    # Verifies: SDLC-LOC-06.02
+    def test_jira_probes_only_launch_on_content_changes_and_survive_restart(self):
+        read=Mock(return_value=('original','1970-01-01T00:00:00Z'))
+        self.coordinator.reconcile_probe=ReconcileProbe(self.store.db,read)
+        item=issue();item['state']='closed';item['body']='HYPERSHELL-123'
+        first=self.job(1000,item);self.complete(first)
+        for now in (1101,10000,22600,45000):
+            self.assertEqual(self.job(now,item)['fingerprint'],first['fingerprint'])
+        self.assertEqual(read.call_count,3)
+        read.return_value=('edited','1970-01-02T00:00:00Z')
+        changed=self.job(70000,item)
+        self.assertNotEqual(changed['fingerprint'],first['fingerprint'])
+        self.assertEqual(self.job(70001,item)['fingerprint'],changed['fingerprint'])
+        self.complete(changed,started=70001,finished=70100)
+        self.coordinator.reconcile_probe=ReconcileProbe(self.store.db,read)
+        self.assertEqual(self.job(70200,item)['fingerprint'],changed['fingerprint'])
+        # A successful agent's own Jira writes become the new baseline.
+        read.return_value=('agent-writes','1970-01-01T00:00:00Z')
+        self.coordinator.reconcile_probe.generation(changed['key'],item['body'],None,0,now=70300,baseline=True)
+        self.assertEqual(self.job(100000,item)['fingerprint'],changed['fingerprint'])
+
+    # Verifies: SDLC-LOC-06.02
+    def test_jira_failure_is_not_no_drift_and_retries_without_agent(self):
+        read=Mock(side_effect=ProbeError('unavailable'))
+        self.coordinator.reconcile_probe=ReconcileProbe(self.store.db,read)
+        item=issue();item['body']='HYPERSHELL-123'
+        with self.assertRaises(ProbeError):self.job(1000,item)
+        with self.assertRaises(ProbeError):self.job(1001,item)
+        self.assertEqual(read.call_count,1)
+        self.assertEqual(self.store.db.execute('SELECT count(*) FROM runs').fetchone()[0],0)
+        read.side_effect=None;read.return_value=('restored','1970-01-01T00:00:00Z')
+        self.job(1061,item)
+        self.assertEqual(read.call_count,2)
+
+    def test_upgrade_uses_jira_edit_timestamp_without_blanket_replay(self):
+        item=issue();item['state']='closed';item['body']='HYPERSHELL-123'
+        old=self.job(1000,item);self.complete(old)
+        read=Mock(return_value=('baseline','1970-01-01T00:00:00Z'))
+        self.coordinator.reconcile_probe=ReconcileProbe(self.store.db,read)
+        self.assertEqual(self.job(80000,item)['fingerprint'],old['fingerprint'])
+        self.store.db.execute('DELETE FROM reconcile_observations');self.store.db.commit()
+        read.return_value=('changed','1970-01-02T00:00:00Z')
+        self.assertNotEqual(self.job(80001,item)['fingerprint'],old['fingerprint'])
+
+
 class AuthorizationTests(unittest.TestCase):
+    def setUp(self):
+        # Older completed-run fixtures predate review-request identity.
+        request = patch.object(funnel.GitHub, 'review_request', return_value=None)
+        request.start();self.addCleanup(request.stop)
+        observation = patch.object(funnel.GitHub, 'code_state', return_value=None)
+        observation.start()
+        self.addCleanup(observation.stop)
+
     def test_removed_authorization_and_stale_labels_cannot_launch(self):
         args=funnel.parse_args(['agent/scope/test','--lifecycle','github-only','--dry-run'])
         store=Mock()
@@ -499,6 +716,55 @@ class AuthorizationTests(unittest.TestCase):
             changed['labels']=labels
             with patch.object(coordinator.github, 'current', return_value=changed):
                 self.assertFalse(coordinator.authorized(job))
+
+    def test_discovery_persists_live_readiness_without_changing_completed_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args=funnel.parse_args(['agent/scope/test','--dry-run','--lifecycle','github-only','--target-repo',tmp])
+            store=funnel.Store(Path(tmp)/'state.db')
+            self.addCleanup(store.db.close)
+            coordinator=funnel.Coordinator(args,store,-1)
+            item=issue();item['labels'].append('agent/reviewable-code')
+            job=funnel.make_job(args.scope,'code-review',item,pr())
+            job['repo']='test/repo'
+            run_id=store.start(job,'review.log',time.time()-60)
+            store.finish(job['key'],run_id,0,60,3600)
+            state=dict(head_sha='abc',checks='pending',state='open',draft=False,mergeable=True,changed=False)
+            with patch.object(coordinator.github,'discover',return_value=[item]), patch.object(coordinator.github,'pages',return_value=[pr()]), patch.object(coordinator.github,'classify',return_value=['code-review']), patch.object(coordinator.github,'code_state',return_value=state):
+                coordinator.discover()
+            row=store.get(job['key'])
+            self.assertEqual(row['status'],'succeeded')
+            self.assertEqual(row['fingerprint'],job['fingerprint'])
+            payload=json.loads(row['payload'])
+            self.assertEqual(payload['code_readiness']['checks'],'pending')
+            self.assertTrue(payload['code_readiness']['review_current'])
+            self.assertNotIn('review_current',state)
+            self.assertEqual(payload['pr_head_sha'],'abc')
+            # New PR commits must never inherit the old review's waiting status.
+            state['head_sha']='new-head'
+            with patch.object(coordinator.github,'discover',return_value=[item]), patch.object(coordinator.github,'pages',return_value=[pr()]), patch.object(coordinator.github,'classify',return_value=['code-review']), patch.object(coordinator.github,'code_state',return_value=state):
+                coordinator.discover()
+            payload=json.loads(store.get(job['key'])['payload'])
+            self.assertFalse(payload['code_readiness']['review_current'])
+            self.assertEqual(payload['pr_head_sha'],'abc')
+            self.assertIn('agent/reviewable-code',payload['labels'])
+
+    def test_matching_legacy_review_remembers_head_when_ci_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args=funnel.parse_args(['agent/scope/test','--dry-run','--lifecycle','github-only','--target-repo',tmp])
+            store=funnel.Store(Path(tmp)/'state.db');self.addCleanup(store.db.close)
+            coordinator=funnel.Coordinator(args,store,-1)
+            item=issue();item['labels'].append('agent/reviewable-code')
+            state=dict(head_sha='abc',checks='pending',state='open',draft=False,mergeable=True,changed=False)
+            job=funnel.make_job(args.scope,'code-review',item,pr());job.pop('pr_head_sha');job['repo']='test/repo'
+            job['fingerprint']=funnel.fingerprint([job['fingerprint'],{k:v for k,v in state.items() if k!='changed'}])
+            run=store.start(job,'review.log',time.time()-60);store.finish(job['key'],run,0,60,3600)
+            for checks in ('pending','green'):
+                state['checks']=checks
+                with patch.object(coordinator.github,'discover',return_value=[item]), patch.object(coordinator.github,'pages',return_value=[pr()]), patch.object(coordinator.github,'classify',return_value=['code-review']), patch.object(coordinator.github,'code_state',return_value=state):
+                    coordinator.discover()
+                payload=json.loads(store.get(job['key'])['payload'])
+                self.assertEqual(payload['pr_head_sha'],'abc')
+                self.assertTrue(payload['code_readiness']['review_current'])
 
     def test_changed_review_head_requires_rediscovery(self):
         args=funnel.parse_args(['agent/scope/test','--lifecycle','github-only','--dry-run'])
@@ -611,6 +877,9 @@ elif name=='openshell':
 
 class ProcessTests(unittest.TestCase):
     def setUp(self):
+        observation = patch.object(funnel.GitHub, 'code_state', return_value=None)
+        observation.start()
+        self.addCleanup(observation.stop)
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
@@ -629,7 +898,17 @@ class ProcessTests(unittest.TestCase):
             path = bindir/name
             path.write_text(MOCK_CLI)
             path.chmod(0o755)
-        self.env = dict(os.environ, PATH=str(bindir)+':/usr/bin:/bin', GH_TOKEN='test', MOCK_STATE=str(self.root))
+        # Stub HTTP within child Python interpreters; fake Jira credentials must
+        # never leave this integration fixture for a real tenant.
+        (bindir/'sitecustomize.py').write_text("""import io, json, urllib.request
+class JiraFixture:
+ def open(self, request, timeout=30):
+  if '/rest/api/3/search/jql' not in request.full_url:
+   raise RuntimeError('Unexpected HTTP in fixture')
+  return io.BytesIO(json.dumps({'issues': [], 'isLast': True}).encode())
+urllib.request.build_opener = lambda *args: JiraFixture()
+""")
+        self.env = dict(os.environ, PATH=str(bindir)+':/usr/bin:/bin', GH_TOKEN='test', MOCK_STATE=str(self.root), PYTHONPATH=str(bindir), FULLSEND_CONFIG_FILE=str(self.root/'settings.json'))
         self.cmd = ['bash', str(ENTRY), 'agent/scope/test', '--repo', 'test/repo', '--state-dir', str(self.root/'state'),
                     '--concurrency', '2', '--poll-interval', '1', '--lifecycle', 'github-only']
         self.processes = []
@@ -818,6 +1097,38 @@ class ProcessTests(unittest.TestCase):
         self.assertFalse(self.runs())
         proc.terminate()
         proc.wait(timeout=5)
+
+    # Verifies: SDLC-LOC-12
+    def test_tui_configuration_save_updates_disk_and_live_limit(self):
+        master,slave=pty.openpty()
+        self.addCleanup(os.close,master)
+        fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack('HHHH',32,140,0,0))
+        proc=subprocess.Popen(self.cmd+['--watch'],env=dict(self.env,TERM='xterm-256color',NO_COLOR='1',MOCK_DELAYS='{"1":6,"2":6}'),
+                              cwd=self.root,stdin=slave,stdout=slave,stderr=slave)
+        os.close(slave);self.processes.append(proc)
+        output=[];stop=threading.Event()
+        def drain():
+            while not stop.is_set():
+                if select.select([master],[],[],.05)[0]:
+                    try:
+                        chunk=os.read(master,65536)
+                        if not chunk:break
+                        output.append(chunk)
+                    except OSError:break
+        reader=threading.Thread(target=drain,daemon=True);reader.start()
+        self.addCleanup(lambda:(stop.set(),reader.join(timeout=2)))
+        self.wait_for(lambda:b'2/2 running' in b''.join(output))
+        os.write(master,b'\t\t')
+        self.wait_for(lambda:b'SETTINGS FILE' in b''.join(output))
+        os.write(master,b'\r')
+        self.wait_for(lambda:b'enter save to disk' in b''.join(output))
+        os.write(master,b'\x151\r')
+        prefs=self.root/'settings.json'
+        self.wait_for(lambda:prefs.exists() and json.loads(prefs.read_text())['values'].get('concurrency')==1)
+        self.wait_for(lambda:b'2/1 running' in b''.join(output))
+        self.assertTrue(all(row['status']=='running' for row in self.rows()))
+        os.write(master,b'q')
+        self.assertEqual(proc.wait(timeout=5),130)
 
     def test_tui_navigation_and_detach_keep_workers_alive(self):
         master, slave = pty.openpty()

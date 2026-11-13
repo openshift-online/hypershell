@@ -3,8 +3,10 @@ package helm
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
+	"github.com/distribution/reference"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -59,8 +61,7 @@ type OIDCConfig struct {
 
 // RouteConfig represents routing configuration.
 type RouteConfig struct {
-	Host    string
-	Enabled bool
+	Host string
 }
 
 // CredentialDriverConfig represents credential driver configuration. Type is the
@@ -105,25 +106,16 @@ type ValuesBuilder struct {
 	HasCertManager bool
 	// IsOpenShift indicates whether the cluster is OpenShift
 	IsOpenShift bool
-	// UseOpenShiftRoute selects the OpenShift Route (HAProxy passthrough)
-	// exposure path instead of the default Kubernetes Gateway API path. It is
-	// derived from the resolved ingress mode (GATEWAY_INGRESS_MODE), NOT from raw
-	// Gateway API capability: IBM Cloud ROKS ships the Gateway API CRDs but runs
-	// no functional controller, so the emitted exposure resource must follow the
-	// operator-selected mode, not whichever CRDs happen to be installed.
-	UseOpenShiftRoute bool
 	// GatewayAPIGatewayName is the name of the shared Gateway resource
 	GatewayAPIGatewayName string
 	// GatewayAPIGatewayNamespace is the namespace of the shared Gateway resource
 	GatewayAPIGatewayNamespace string
 	// IngressBaseDomain is the base domain for ingress routes
 	IngressBaseDomain string
-	// ExternalCAIssuerName is the name of the external CA issuer for Route passthrough mode
-	ExternalCAIssuerName string
-	// ExternalCAIssuerKind is the kind of the external CA issuer (ClusterIssuer or Issuer)
-	ExternalCAIssuerKind string
 	// HasTrustedCA indicates whether the gateway-trusted-ca ConfigMap exists
 	HasTrustedCA bool
+	// AdditionalCAConfigMapName supplies destination TLS roots to sandbox supervisors.
+	AdditionalCAConfigMapName string
 	// HasVaultCA indicates whether the per-tenant openshell-gateway-vault-ca
 	// ConfigMap (the mirrored Vault serving CA) exists, so the vault driver's
 	// caConfigMapName is set only when the gateway can actually mount it.
@@ -135,7 +127,18 @@ type ValuesBuilder struct {
 	// applying the named Kubernetes RuntimeClass to all sandbox pods provisioned
 	// by this gateway. Empty string omits the field (cluster default, typically runc).
 	// Set to "kata" or "kata-remote" to run sandboxes inside lightweight VMs.
+	// For an operator-mode gateway it is overridden by OperatorSandboxRuntimeClass.
 	SandboxRuntimeClass string
+	// OperatorNamespaceLabelKey is the administrator-approved label KEY the external
+	// operator stamps on an operator-mode gateway's tenant namespaces. The driver's
+	// operatorNamespaceLabel selector is built as <key>=<namespace> so a gateway
+	// discovers only its own tenant namespaces (OSG-OPWS-02). Operator mode only.
+	OperatorWorkspace         *OperatorWorkspaceConfig
+	OperatorNamespaceLabelKey string
+	// OperatorSandboxRuntimeClass is the administrator-approved sandbox RuntimeClass
+	// applied to server.defaultRuntimeClassName for operator-mode gateways ONLY
+	// (OSG-OPWS-03), overriding any cluster-wide SandboxRuntimeClass.
+	OperatorSandboxRuntimeClass string
 }
 
 // Build computes Helm chart values from the Gateway configuration.
@@ -156,11 +159,9 @@ func (b *ValuesBuilder) Build() (map[string]interface{}, error) {
 	// Credential driver values (conditional)
 	b.buildCredentialDriverValues(values)
 
-	// Ingress values (conditional)
-	if b.Gateway.Route.Enabled {
-		if err := b.buildIngressValues(values); err != nil {
-			return nil, fmt.Errorf("build ingress values: %w", err)
-		}
+	// Ingress values
+	if err := b.buildIngressValues(values); err != nil {
+		return nil, fmt.Errorf("build ingress values: %w", err)
 	}
 
 	// OpenShift values (conditional)
@@ -178,33 +179,37 @@ func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
 	// Pin fullnameOverride so every chart resource uses the expected name.
 	setNestedValue(values, ReleaseName, "fullnameOverride")
 
-	// Image values. The v0.1.2 chart uses gateway.image.{registry,repository,tag}
+	if b.AdditionalCAConfigMapName != "" {
+		setNestedValue(values, b.AdditionalCAConfigMapName, "supervisor", "network", "additionalCaConfigMapName")
+	}
+
+	// Image values. The chart uses <image>.image.{registry,repository,tag,digest}
 	// and prepends global.image.registry (ghcr.io/nvidia) when the per-image
 	// registry is unset. We always pass fully-qualified image references from the
 	// gateway's resolved image, so we split registry out and set it explicitly
-	// per-image to prevent the global prefix from being applied.
+	// per-image to prevent the global prefix from being applied. A configured
+	// digest is preserved so the chart renders the exact pinned content
+	// (OSG-HELM-05); a malformed reference is a validation error rather than a
+	// silently dropped or replaced reference.
 	if b.Gateway.Image != "" {
-		reg, repo, tag := splitImageRefFull(b.Gateway.Image)
-		setNestedValue(values, reg, "gateway", "image", "registry")
-		setNestedValue(values, repo, "gateway", "image", "repository")
-		setNestedValue(values, tag, "gateway", "image", "tag")
+		if err := setImageValues(values, b.Gateway.Image, "gateway", "image"); err != nil {
+			return fmt.Errorf("gateway image: %w", err)
+		}
 	}
 
 	if b.Gateway.SupervisorImage != "" {
-		reg, repo, tag := splitImageRefFull(b.Gateway.SupervisorImage)
-		setNestedValue(values, reg, "supervisor", "image", "registry")
-		setNestedValue(values, repo, "supervisor", "image", "repository")
-		setNestedValue(values, tag, "supervisor", "image", "tag")
+		if err := setImageValues(values, b.Gateway.SupervisorImage, "supervisor", "image"); err != nil {
+			return fmt.Errorf("supervisor image: %w", err)
+		}
 	}
 
 	// The sandbox runtime and supervisor speak a versioned boundary protocol, so
 	// the runtime must be pinned to the same OpenShell build as the supervisor.
 	// Left unset, the chart defaults to a moving upstream tag.
 	if b.Gateway.SandboxRuntimeImage != "" {
-		reg, repo, tag := splitImageRefFull(b.Gateway.SandboxRuntimeImage)
-		setNestedValue(values, reg, "sandboxRuntime", "image", "registry")
-		setNestedValue(values, repo, "sandboxRuntime", "image", "repository")
-		setNestedValue(values, tag, "sandboxRuntime", "image", "tag")
+		if err := setImageValues(values, b.Gateway.SandboxRuntimeImage, "sandboxRuntime", "image"); err != nil {
+			return fmt.Errorf("sandbox runtime image: %w", err)
+		}
 	}
 
 	// Workload configuration
@@ -239,25 +244,53 @@ func (b *ValuesBuilder) buildCoreValues(values map[string]interface{}) error {
 		return fmt.Errorf("gateway workspace mode is required")
 	}
 	setNestedValue(values, b.Gateway.WorkspaceMode, "server", "drivers", "kubernetes", "workspaceMode")
-	if b.Gateway.WorkspaceMode == "managed" {
+	switch b.Gateway.WorkspaceMode {
+	case "managed":
 		gatewayID, err := ManagedGatewayID(b.Namespace)
 		if err != nil {
 			return err
 		}
 		setNestedValue(values, gatewayID, "server", "sandboxJwt", "gatewayId")
+	case "operator":
+		// Operator mode: the external operator labels each tenant namespace with the
+		// administrator-approved key set to this gateway's own (unique) namespace
+		// name, so the driver discovers only this gateway's namespaces and two
+		// gateways never resolve to the same selector (OSG-OPWS-02). Both the label
+		// key and the runtime class are administrator-owned, never caller input. The
+		// operator sandbox RuntimeClass applies to operator gateways ONLY, overriding
+		// any cluster-wide SandboxRuntimeClass set above (OSG-OPWS-03). An operator
+		// gateway deliberately gets NO managed sandboxJwt.gatewayId block.
+		setNestedValue(values, fmt.Sprintf("%s=%s", b.OperatorNamespaceLabelKey, b.Namespace),
+			"server", "drivers", "kubernetes", "operatorNamespaceLabel")
+		setNestedValue(values, b.OperatorSandboxRuntimeClass, "server", "defaultRuntimeClassName")
+	}
+
+	if b.Gateway.WorkspaceMode == "operator" {
+		if b.OperatorWorkspace == nil {
+			return fmt.Errorf("operator workspace mode requires GATEWAY_OPERATOR_WORKSPACE")
+		}
+		setNestedValue(values, false, "workspaceResources", "enabled")
+		// Wider operator access requires explicit administrator opt-in.
+		setNestedValue(values, b.OperatorWorkspace.AllowDriverConfig, "server", "drivers", "kubernetes", "allowDriverConfig")
+		setNestedValue(values, !b.OperatorWorkspace.DisableResourceAdmission, "server", "drivers", "kubernetes", "resourceAdmission", "enabled")
+		setNestedValue(values, b.OperatorWorkspace.AllowedPodLabels, "gatewayConfig", "openshell.drivers.kubernetes", "allowed_pod_labels")
+		setNestedValue(values, b.OperatorWorkspace.MTLSAuth, "gatewayConfig", "openshell.gateway.mtls_auth", "enabled")
 	}
 
 	// Server DNS names for TLS certificate SANs
-	if len(b.Gateway.ServerDnsNames) > 0 {
-		setNestedValue(values, b.Gateway.ServerDnsNames, "pkiInitJob", "serverDnsNames")
+	dnsNames := b.Gateway.ServerDnsNames
+	// Operator clients reach sandbox services through OpenShell's internal routing domain.
+	if b.Gateway.WorkspaceMode == "operator" && !slices.Contains(dnsNames, "*.openshell.localhost") {
+		dnsNames = append(slices.Clone(dnsNames), "*.openshell.localhost")
+	}
+	if len(dnsNames) > 0 {
+		setNestedValue(values, dnsNames, "pkiInitJob", "serverDnsNames")
 		if b.HasCertManager {
 			// When cert-manager is enabled the chart ignores pkiInitJob.serverDnsNames:
 			// server_sans in gateway.toml and the internal server Certificate both
 			// come from certManager.serverDnsNames instead. Set both keys from the
-			// same source. buildIngressValues runs after this and deliberately
-			// overwrites certManager.serverDnsNames with just the Route host in
-			// external-issuer passthrough mode, so that later write still wins.
-			setNestedValue(values, b.Gateway.ServerDnsNames, "certManager", "serverDnsNames")
+			// same source.
+			setNestedValue(values, dnsNames, "certManager", "serverDnsNames")
 		}
 	}
 
@@ -318,7 +351,9 @@ func (b *ValuesBuilder) buildOIDCValues(values map[string]interface{}) {
 func (b *ValuesBuilder) buildCredentialDriverValues(values map[string]interface{}) {
 	driver := b.Gateway.CredentialDriver
 	if driver == nil {
-		// Default (KEK). Wave 2 of HYPERSHELL-369 flips the omitted default to vault.
+		// No driver: the chart provisions the KEK store. The gateway package resolves an
+		// omitted credential_driver to vault before it builds values, so only direct
+		// callers reach this branch.
 		setNestedValue(values, false, "server", "credentialDrivers", "kubernetesSecrets", "enabled")
 		setNestedValue(values, false, "server", "credentialDrivers", "vault", "enabled")
 		return
@@ -412,51 +447,12 @@ func appendNestedSlice(m map[string]interface{}, items []interface{}, path ...st
 
 // buildIngressValues builds ingress-related Helm chart values.
 func (b *ValuesBuilder) buildIngressValues(values map[string]interface{}) error {
-	route := b.Gateway.Route
-
-	// Derive hostname
-	hostname := fmt.Sprintf("gw-%s.%s", b.Namespace, b.IngressBaseDomain)
-	if route.Host != "" {
-		hostname = route.Host
-	}
-
-	if !b.UseOpenShiftRoute {
-		// Default: Kubernetes Gateway API mode. The reconciler creates the
-		// GRPCRoute, BackendTLSPolicy, and backend-ca ConfigMap after the helm
-		// release is installed, so the chart's own grpcRoute and backendTLSPolicy
-		// templates stay disabled (defaults from buildCoreValues). Only mTLS must
-		// be disabled because the Gateway proxy cannot present client certificates.
-		setNestedValue(values, false, "server", "tls", "enableMtls")
-		return nil
-	}
-
-	// Route passthrough mode: opt-in via GATEWAY_INGRESS_MODE=route (e.g. IBM
-	// Cloud ROKS, whose Ingress Operator owns the Gateway API CRDs but runs no
-	// functional controller). The chart owns the Route resource via
-	// openshiftRoute.enabled; the reconciler still handles publishRouteAddress
-	// and the router NetworkPolicy.
-	setNestedValue(values, true, "openshiftRoute", "enabled")
-	setNestedValue(values, hostname, "openshiftRoute", "host")
-
-	annotations := map[string]string{
-		"haproxy.router.openshift.io/timeout": "3600s",
-	}
-	setNestedValue(values, annotations, "openshiftRoute", "annotations")
-
-	// The external CA issuer is optional. When set, cert-manager issues the
-	// gateway server certificate from it, covering the Route host (the chart's
-	// route template validates that coverage). When unset, the gateway keeps its
-	// self-signed per-tenant CA (pkiInitJob), whose SANs already include the
-	// Route host (the reconciler injects it into ServerDnsNames before install);
-	// passthrough forwards the encrypted stream by SNI, so no router-trusted
-	// certificate is required. Only wire cert-manager when an issuer was actually
-	// provided, so the self-signed passthrough path is not forced to fail.
-	if b.ExternalCAIssuerName != "" {
-		setNestedValue(values, b.ExternalCAIssuerName, "certManager", "serverIssuerRef", "name")
-		setNestedValue(values, b.ExternalCAIssuerKind, "certManager", "serverIssuerRef", "kind")
-		setNestedValue(values, []string{hostname}, "certManager", "serverDnsNames")
-	}
-
+	// Kubernetes Gateway API mode. The reconciler creates the GRPCRoute,
+	// BackendTLSPolicy, and backend-ca ConfigMap after the helm release is
+	// installed, so the chart's own grpcRoute and backendTLSPolicy templates stay
+	// disabled (defaults from buildCoreValues). Operator clients use mTLS directly;
+	// OpenShell also accepts bearer-only OIDC through ingress.
+	setNestedValue(values, b.Gateway.WorkspaceMode == "operator", "server", "tls", "enableMtls")
 	return nil
 }
 
@@ -467,55 +463,81 @@ func (b *ValuesBuilder) buildOpenShiftValues(values map[string]interface{}) {
 	setNestedValue(values, nil, "securityContext", "runAsUser")
 }
 
-// splitImageRef splits an image reference into repository and tag.
-// The chart template joins repo:tag with a colon, so @sha256:... digest
-// suffixes are stripped. When both tag and digest are present
-// (image:tag@sha256:...), the tag is retained. Handles registry ports
-// (registry:5000/image) by comparing colon position to last slash.
-func splitImageRef(image string) (repo, tag string) {
-	if at := strings.LastIndex(image, "@"); at != -1 {
-		image = image[:at]
-	}
-	lastSlash := strings.LastIndex(image, "/")
-	lastColon := strings.LastIndex(image, ":")
-	if lastColon <= lastSlash {
-		return image, "latest"
-	}
-	return image[:lastColon], image[lastColon+1:]
+// parsedImage holds a container image reference split into the parts the chart
+// consumes under <image>.image.{registry,repository,tag,digest}.
+type parsedImage struct {
+	registry   string
+	repository string
+	tag        string
+	digest     string
 }
 
-// splitImageRefFull splits an image reference into registry, repository, and tag.
-// The registry is the first path component if it contains a dot or colon, or is
-// "localhost" -- the same heuristic used by the Docker distribution library.
-// This is needed for the v0.1.2 chart, which applies global.image.registry as a
-// prefix when the per-image registry is unset. By extracting the registry here
-// and setting it explicitly, the chart's global prefix is suppressed.
-func splitImageRefFull(image string) (registry, repo, tag string) {
-	_, tag = splitImageRef(image)
-
-	// Strip digest and tag to work with path only
-	withoutTag := image
-	if at := strings.LastIndex(image, "@"); at != -1 {
-		withoutTag = image[:at]
+// parseImageRef parses a container image reference into its registry,
+// repository, optional tag and optional digest, preserving a configured digest
+// (OSG-HELM-05). It uses the canonical distribution/reference parser so registry
+// ports (registry.example:5000/repo) and tag-plus-digest references are handled
+// correctly. The registry is the reference domain; when the reference carries no
+// domain the registry is empty and the chart applies global.image.registry. A
+// malformed reference is returned as an error so the caller reports a validation
+// error instead of silently dropping or replacing parts of the reference.
+func parseImageRef(image string) (parsedImage, error) {
+	ref, err := reference.Parse(strings.TrimSpace(image))
+	if err != nil {
+		return parsedImage{}, fmt.Errorf("invalid image reference %q: %w", image, err)
 	}
-	lastSlash := strings.LastIndex(withoutTag, "/")
-	lastColon := strings.LastIndex(withoutTag, ":")
-	if lastColon > lastSlash {
-		withoutTag = withoutTag[:lastColon]
+	named, ok := ref.(reference.Named)
+	if !ok {
+		return parsedImage{}, fmt.Errorf("invalid image reference %q: missing repository name", image)
 	}
 
-	// Split on the first slash to isolate the potential registry component
-	slashIdx := strings.Index(withoutTag, "/")
-	if slashIdx == -1 {
-		return "", withoutTag, tag
+	parsed := parsedImage{
+		registry:   reference.Domain(named),
+		repository: reference.Path(named),
 	}
-	first := withoutTag[:slashIdx]
-	rest := withoutTag[slashIdx+1:]
+	if tagged, ok := ref.(reference.Tagged); ok {
+		parsed.tag = tagged.Tag()
+	}
+	if digested, ok := ref.(reference.Digested); ok {
+		parsed.digest = digested.Digest().String()
+	}
+	return parsed, nil
+}
 
-	if strings.Contains(first, ".") || strings.Contains(first, ":") || first == "localhost" {
-		return first, rest, tag
+// setImageValues parses an image reference and writes its parts under the given
+// value path prefix (for example "gateway", "image"). A configured digest is
+// preserved so the chart renders the exact pinned content; the chart image
+// helpers give image.digest priority over image.tag (see the openshell.image
+// helper in charts/openshell/templates/_helpers.tpl), so the rendered reference
+// uses the digest when both a tag and a digest are present. A digest-only
+// reference sets only the digest and never falls back to a tag or "latest"; a
+// reference with neither a tag nor a digest defaults to the "latest" tag.
+// A malformed reference is returned as an error (OSG-HELM-05).
+func setImageValues(values map[string]interface{}, image string, prefix ...string) error {
+	parsed, err := parseImageRef(image)
+	if err != nil {
+		return err
 	}
-	return "", withoutTag, tag
+
+	path := func(leaf string) []string {
+		p := make([]string, 0, len(prefix)+1)
+		p = append(p, prefix...)
+		return append(p, leaf)
+	}
+
+	setNestedValue(values, parsed.registry, path("registry")...)
+	setNestedValue(values, parsed.repository, path("repository")...)
+	if parsed.digest != "" {
+		setNestedValue(values, parsed.digest, path("digest")...)
+	}
+	switch {
+	case parsed.tag != "":
+		setNestedValue(values, parsed.tag, path("tag")...)
+	case parsed.digest == "":
+		// Neither tag nor digest: default to "latest" (Docker semantics) rather
+		// than letting the chart fall back to its app version.
+		setNestedValue(values, "latest", path("tag")...)
+	}
+	return nil
 }
 
 // setNestedValue sets a value in a nested map structure.

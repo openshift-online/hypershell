@@ -75,8 +75,7 @@ control plane on a remote cluster.
 OIDC client credentials (`OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`) are
 required configuration. When either is missing the control plane SHALL log a fatal
 error naming the missing variable and exit non-zero before opening any Kubernetes or
-gRPC connection. The control plane SHALL NOT read a cluster id from configuration:
-`HYPERSHELL_CLUSTER_ID` SHALL NOT be consulted and SHALL NOT appear in gitops.
+gRPC connection. The control plane SHALL NOT read a cluster id from configuration.
 
 Each control plane SHALL use its own OIDC client, so that its JWT `sub` claim is
 unique across the fleet; the registration upsert key and the watch-stream caller
@@ -306,8 +305,7 @@ existing provisioning API.
 
 The realization seam SHALL be **live**: the `ProviderRealizer` is constructed as a
 client of OpenShell's existing provisioning API
-([`agent-workspace-gateway-api.spec.md`](./agent-workspace-gateway-api.spec.md)) - NOT a
-bespoke `AgentWorkspaceProvisioning` gRPC contract - and the reconciler SHALL drive it on
+([`agent-workspace-gateway-api.spec.md`](./agent-workspace-gateway-api.spec.md)), and the reconciler SHALL drive it on
 every reconcile rather than hold a transitional behavior. The reconcile SHALL run the
 realization sequence in this order, reading its inputs from the embedded reconcile payload
 ([`data-model.spec.md`](./data-model.spec.md), "AgentRuntime Reconcile Payload
@@ -604,11 +602,19 @@ ownership-scoped reconciler.
 
 **gRPC write authorization for the import.** The import-write Kinds
 (`SandboxTemplate`, `ProviderSpec`, `ProviderBinding`,
-`InferenceRoute`, `SecretSource`) had their gRPC Create / Update / Delete methods
+`InferenceRoute`, `SecretSource`, `CITrust`) had their gRPC Create / Update / Delete methods
 held at default-deny when their gRPC surface was introduced. They SHALL now be
 authorized for the control-plane identity, bounded to the `RepositoryReconciler`'s
 `Repository` scope, and remain denied for every other caller (users, spokes acting
-outside the import). The remaining importable Kinds, `Gateway` and `AgentRuntime`
+outside the import). `CITrust` carries an ADDITIONAL per-gateway tenancy gate
+(SEC-RBAC-22): an import-marked `CITrust` write SHALL be authorized only when the
+referenced `Gateway` is owned by the SAME reconciled `Repository` (resolved by name
+within the import), which is how the non-human importer satisfies that tenancy "as the
+repository owner" without a human identity; the writer SHALL NOT import a `CITrust`
+onto a `Gateway` the `Repository` does not own. This tenancy-via-ownership rule is
+specified canonically in [`security/rbac-enforcement.spec.md`](../../security/rbac-enforcement.spec.md)
+(SEC-RBAC-26) and [`ci-trust-ext-api.spec.md`](./ci-trust-ext-api.spec.md) (PLAT-CITR-10).
+The remaining importable Kinds, `Gateway` and `AgentRuntime`
 (see the canonical importable-Kinds list in
 [`data-model.spec.md`](./data-model.spec.md)), are cluster-assigned: their gRPC
 `Create` / `Update` / `Delete` are authorized for the control-plane identity on the
@@ -620,8 +626,13 @@ reconciler must enumerate and prune a `Repository`'s gateways and agent runtimes
 across clusters, a `ListGateways` / `ListAgentRuntimes` read that carries the
 reconciled-`Repository` binding AND sets a matching `repository_id` filter for an
 existing `Repository` is exempted from the own-cluster watch-stream caller binding and
-served (and filtered) across clusters; every other read keeps the own-cluster binding.
-The `RepositoryReconciler` upserts and prunes all seven importable Kinds under the same
+served (and filtered) across clusters; every other `Gateway` or `AgentRuntime` list or
+watch read keeps the own-cluster binding. The control-plane identity's `GetGateway`
+point read is fleet-wide (it resolves any gateway by id across clusters, canonically in
+[`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md)
+SEC-RBAC-09 and [`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md)
+PLAT-CLUS-11); gateway writes stay own-cluster.
+The `RepositoryReconciler` upserts and prunes all eight importable Kinds under the same
 `Repository`-scoped ownership mark.
 `Repository` is NOT on the import-write path. The `RepositoryReconciler` reconciles
 the `Repository` Kind but SHALL NEVER upsert `Repository` resources discovered in an
@@ -726,6 +737,14 @@ The authorization contract is specified in
 - THEN the conditional fetch SHALL report a change (new ETag or new branch head commit SHA)
 - AND the reconciler SHALL read, render, and reconcile the changed subtree into the API
 
+#### Scenario: CTRL-CORE-06.12 -- Import reconciles a CITrust on a Repository-owned gateway
+
+- GIVEN a `Repository` whose `.hypershell` root declares a `Gateway` named `agents-gateway` and a `CITrust` whose `ci_provider_id` names a registered `CIProvider` and whose `gateway_id` names `agents-gateway`
+- WHEN the control-plane import reconciler runs
+- THEN it SHALL resolve `ci_provider_id` and `gateway_id` by name and upsert the `CITrust` owned by the `Repository`
+- AND the import-marked `CITrust` write SHALL be authorized because the referenced `Gateway` is owned by the same reconciled `Repository`
+- AND a re-run against unchanged repository state SHALL make no write, and removing the `CITrust` from `.hypershell` SHALL prune only the imported `CITrust`
+
 ### Requirement: CTRL-CORE-14 -- Import Writer Maps Gateway Placement
 
 When the `RepositoryReconciler` imports a `Gateway`, the import writer SHALL map the
@@ -743,9 +762,7 @@ The import writer SHALL:
 - Read the rendered Gateway spec's `placement`. When `placement` declares a
   `selector` (a list of ManagedCluster capability labels), the writer SHALL build a
   `GatewayPlacementIntent` whose `capability_selector` (`CapabilitySelectorPlacement`)
-  carries that selector list. When `placement` declares `mode: local-kind`, the
-  writer SHALL build a `GatewayPlacementIntent` whose `local_kind`
-  (`LocalKindPlacement`) is set. The proto contract is `GatewayPlacementIntent`
+  carries that selector list. The proto contract is `GatewayPlacementIntent`
   (`placement` field `18` on `CreateGatewayRequest`) in
   `components/api-server/proto/hypershell/v1/gateways.proto`.
 - On CREATE, supply EXACTLY ONE of `cluster_id` (pinned) or `placement` (late-bound):
@@ -766,7 +783,7 @@ The import writer SHALL:
   binding re-resolves the already-persisted placement whenever the eligible-cluster
   set changes.
 - Report a malformed placement. When a rendered Gateway declares a `placement` block
-  that is neither a non-empty `selector` list nor `mode: local-kind`, the writer SHALL
+  that is not a non-empty `selector` list, the writer SHALL
   fail the import of that Gateway with an error that names the problem, rather than
   send a create with neither `cluster_id` nor `placement`, so the cause is clear
   instead of surfacing only as the api-server's generic exactly-one-of rejection. The
@@ -775,7 +792,7 @@ The import writer SHALL:
 
 #### Scenario: CTRL-CORE-14.01 -- Import of a malformed placement fails with a clear cause
 
-- GIVEN a `.hypershell` Gateway manifest whose `placement` declares neither a non-empty `selector` nor `mode: local-kind`
+- GIVEN a `.hypershell` Gateway manifest whose `placement` declares no non-empty `selector` list
 - WHEN the import writer reconciles that Gateway
 - THEN it SHALL report an error that names the malformed placement and SHALL NOT send a create or update for that Gateway
 - AND the error SHALL be collected so the rest of the import still runs
@@ -786,12 +803,6 @@ The import writer SHALL:
 - WHEN the import writer creates the Gateway over the gRPC write path
 - THEN the `CreateGatewayRequest` SHALL carry a `placement` with `capability_selector.selector = ["network/public", "provider/ibm"]` and no `cluster_id`
 - AND the API server SHALL late-bind the Gateway to a matching `ManagedCluster`, or create it `Pending` with an awaiting-placement status when none matches
-
-#### Scenario: CTRL-CORE-14.03 -- Import of a local-kind Gateway maps the local-kind mode
-
-- GIVEN a `.hypershell` Gateway manifest with `placement: { mode: local-kind }` and no `cluster_id`
-- WHEN the import writer creates the Gateway
-- THEN the `CreateGatewayRequest` SHALL carry a `placement` with `local_kind` set
 
 #### Scenario: CTRL-CORE-14.04 -- Import of a pinned Gateway is unchanged
 
@@ -846,6 +857,172 @@ When the `RepositoryReconciler` imports a `Gateway`, the import writer SHALL:
 - GIVEN a `.hypershell` Gateway manifest that declares only `name` and a `placement` selector
 - WHEN the import writer creates the Gateway
 - THEN the `CreateGatewayRequest` SHALL carry only `name` and the mapped `placement`, and no platform-managed field
+
+### Requirement: CTRL-CORE-16 -- Explicit Cluster Platform Configuration
+
+The control plane SHALL read its host platform from the required
+`HYPERSHELL_CLUSTER_PLATFORM` deployment setting. The accepted values are
+`openshift` and `kubernetes`. The setting has no default.
+
+The configured platform SHALL determine platform-specific pod security and SCC
+integration (OSG-CORE-14). Discovery SHALL determine feature dependency availability
+(CTRL-CORE-18, CTRL-CORE-19).
+
+The control plane SHALL validate required deployment configuration before starting
+its reconciliation machinery. Configuration errors SHALL identify the setting and
+accepted values, and startup SHALL exit non-zero on invalid configuration. API
+dependency availability is handled during reconciliation (CTRL-CORE-17).
+
+Every HyperShell-owned deployment path SHALL supply the setting explicitly:
+
+| Deployment | `HYPERSHELL_CLUSTER_PLATFORM` |
+|---|---|
+| Fleet GitOps hub and spoke controllers | `openshift` |
+| OpenShift application and ephemeral PR/E2E manifests | `openshift` |
+| Kind/local Kubernetes manifests | `kubernetes` |
+
+#### Scenario: CTRL-CORE-16.01 -- OpenShift platform configuration
+
+- GIVEN `HYPERSHELL_CLUSTER_PLATFORM=openshift`
+- WHEN the control plane reconciles a gateway
+- THEN it SHALL apply OpenShift pod security and SCC integration (OSG-CORE-14)
+- AND it SHALL use dependency discovery to check the APIs required by each feature
+
+#### Scenario: CTRL-CORE-16.02 -- Kubernetes platform configuration
+
+- GIVEN `HYPERSHELL_CLUSTER_PLATFORM=kubernetes`
+- WHEN the control plane reconciles a gateway
+- THEN it SHALL render the gateway chart's configured Kubernetes pod security context (OSG-CORE-14.03)
+
+#### Scenario: CTRL-CORE-16.03 -- Invalid platform value
+
+- GIVEN `HYPERSHELL_CLUSTER_PLATFORM=openstack`
+- WHEN the control plane validates deployment configuration
+- THEN it SHALL report a configuration error naming the setting and its accepted values
+- AND startup SHALL exit non-zero
+
+#### Scenario: CTRL-CORE-16.04 -- Required platform configuration validation
+
+- GIVEN deployment configuration omits the required `HYPERSHELL_CLUSTER_PLATFORM` setting
+- WHEN the control plane validates deployment configuration
+- THEN it SHALL report a configuration error naming the required setting
+- AND startup SHALL exit non-zero
+
+### Requirement: CTRL-CORE-17 -- Controller Startup Independent of API Discovery
+
+With valid deployment configuration, the control plane SHALL start its health
+reporting, watch streams, and reconciliation/retry machinery independently of API
+dependency availability. Reconciliation SHALL handle dependency errors through the
+per-feature states and retries defined in CTRL-CORE-18 and CTRL-CORE-19.
+
+For partial discovery results, the control plane SHALL retain successful results
+for unaffected groups and continue work whose prerequisites are available.
+Dependency refresh SHALL allow the running controller to resume affected work
+when an API becomes available.
+
+#### Scenario: CTRL-CORE-17.01 -- Startup with partial discovery
+
+- GIVEN valid deployment configuration
+- AND discovery returns a stale-group error for `projectcalico.org/v3`
+- AND cert-manager and Gateway API discovery succeed
+- WHEN the control plane starts
+- THEN it SHALL open its watch streams and report process health
+- AND it SHALL reconcile gateway features using their available dependencies
+
+#### Scenario: CTRL-CORE-17.02 -- Startup with an unavailable feature dependency
+
+- GIVEN valid deployment configuration
+- AND the Gateway API group is unreachable
+- WHEN the control plane starts
+- THEN it SHALL run its reconciliation machinery and report process health
+- AND it SHALL report Gateway API availability as unknown/unavailable
+- AND it SHALL retry dependent work as defined in CTRL-CORE-19
+
+### Requirement: CTRL-CORE-18 -- Shared, Refreshable Dependency Discovery
+
+Exposure setup, gateway provisioning, health checks, and managed-cluster
+reconciliation SHALL use a consistent shared dependency-discovery contract.
+It SHALL report a state for each required group/version/resource:
+
+- **present**: successful discovery confirms the resource exists.
+- **confirmed absent**: successful discovery confirms the resource is absent.
+- **unknown/unavailable**: transport, authorization, or stale-discovery errors
+  prevent a current determination.
+
+The discovery component SHALL refresh state with bounded retries and retain the
+last successful result for each dependency. A partial discovery result SHALL
+preserve successfully resolved groups while recording errors for failed groups.
+Actual API operation failures SHALL be reported and retried by the affected
+reconciliation work (CTRL-CORE-19).
+
+#### Scenario: CTRL-CORE-18.01 -- Stale discovery produces unknown state
+
+- GIVEN a discovery call returns a stale-group error for the queried group
+- WHEN the control plane evaluates that dependency
+- THEN it SHALL report the dependency as unknown/unavailable
+- AND it SHALL refresh discovery with bounded retries
+
+#### Scenario: CTRL-CORE-18.02 -- Successful discovery confirms absence
+
+- GIVEN discovery succeeds and reports the `cert-manager.io` group absent
+- WHEN the control plane evaluates the cert-manager dependency
+- THEN it SHALL report cert-manager as confirmed absent
+
+#### Scenario: CTRL-CORE-18.03 -- Dependency discovery recovers
+
+- GIVEN the Gateway API dependency is unknown/unavailable
+- WHEN a later discovery refresh confirms the required resources are present
+- THEN the control plane SHALL report Gateway API as present
+- AND the running controller SHALL resume dependent reconciliation work
+
+#### Scenario: CTRL-CORE-18.04 -- Partial discovery preserves successful results
+
+- GIVEN prior discovery confirmed Gateway API resources present
+- WHEN a later discovery pass fails for an unrelated group
+- THEN the control plane SHALL retain Gateway API's last successful result
+- AND it SHALL record the unrelated group's discovery error separately
+
+### Requirement: CTRL-CORE-19 -- Reconcile Features According to Their Dependencies
+
+Each reconciliation operation SHALL check the specific APIs and resources it
+requires, including `GRPCRoute` for Gateway API ingress.
+
+- An unknown/unavailable dependency SHALL put affected work in a waiting/retryable
+  state with bounded backoff.
+- A confirmed-absent prerequisite SHALL produce a prerequisite condition identifying
+  the resource to install, with periodic rechecks for its availability.
+- Independent reconciliation work SHALL continue while a feature waits.
+- Configured platform and ingress choices SHALL remain stable through dependency
+  failures.
+- Gateway provisioning SHALL succeed after the required security, certificate,
+  workload, and configured ingress resources have been reconciled successfully.
+
+Logs and existing status/provisioning conditions SHALL identify the affected
+feature, required group/version/resource, error, and retry or prerequisite state
+(OSG-HLTH-07). The controller SHALL report process health separately from feature
+dependency status and recover dependent work during the same process lifetime.
+
+#### Scenario: CTRL-CORE-19.01 -- Available dependencies permit gateway provisioning
+
+- GIVEN discovery reports Calico stale while cert-manager and Gateway API resolve successfully
+- WHEN the control plane reconciles a gateway
+- THEN it SHALL provision its required security, certificate, workload, and ingress resources
+- AND it SHALL record Calico's discovery error separately
+
+#### Scenario: CTRL-CORE-19.02 -- Unavailable dependency produces a retryable condition
+
+- GIVEN a gateway uses Gateway API ingress and the Gateway API group is unreachable
+- WHEN the control plane reconciles the gateway
+- THEN it SHALL mark route provisioning as waiting/retryable and retry with bounded backoff
+- AND it SHALL keep independent reconciliation work running
+
+#### Scenario: CTRL-CORE-19.03 -- Installing a prerequisite resumes reconciliation
+
+- GIVEN successful discovery confirms cert-manager is absent
+- WHEN the control plane reconciles a gateway requiring cert-manager
+- THEN it SHALL report a prerequisite condition identifying cert-manager
+- AND it SHALL continue independent reconciliation work
+- AND after cert-manager is installed, the running controller SHALL reconcile the gateway's required resources and converge it to Running
 
 ### Requirement: CTRL-CORE-07 -- Watch Stream Liveness
 
@@ -957,6 +1134,112 @@ sole mechanism for revoking roles a deleted binding no longer backs.
 - WHEN the RoleBinding seed or resync attempts to list
 - THEN it SHALL be refused rather than issue an unfiltered list (`managed-cluster-registration.spec.md`)
 
+### Requirement: CTRL-CORE-20 -- CI Trust Resync
+
+The realization of a `CITrust` SHALL NOT depend solely on a single long-lived
+`WatchCITrusts` stream. The CITrust stream is almost always idle (it sends an
+event only when a trust changes), so a `CITrust` that already exists when the
+reconciler starts, or that predates the reconciler being enabled, would otherwise
+never have its Keycloak artifacts realized: no per-trust group, no gateway
+client-role binding, and no IdP advanced-group mapper (`ci-trust-ext-api.spec.md`,
+PLAT-CITR-02). The CI identity would then authenticate but carry no gateway role,
+and the gateway would reject it. This mirrors the gap that CTRL-CORE-08 closes for
+RoleBindings.
+
+The control plane SHALL seed the CITrust reconciler from a `ListCITrusts` call on
+every `WatchCITrusts` (re)connect, and SHALL additionally re-list on a regular
+configurable interval while the stream is connected. Each listed `CITrust` SHALL
+be reconciled through the same idempotent realization path as a live event
+(`ci-trust-ext-api.spec.md`, PLAT-CITR-02 and PLAT-CITR-09), so its per-trust
+group, gateway client-role binding, and IdP advanced-group mapper converge. The
+resync SHALL be idempotent: a `CITrust` whose artifacts are already realized SHALL
+produce no change.
+
+`CITrust` is a platform-scoped resource, so unlike the RoleBinding watch
+(CTRL-CORE-08) the `WatchCITrusts` stream and the `ListCITrusts` seed take no
+cluster filter. The list SHALL remain unfiltered by design. The per-trust reconcile
+SHALL still skip a trust whose referenced `Gateway` belongs to another cluster, so
+an unfiltered list does not cause a control plane to realize artifacts for a
+gateway it does not own.
+
+Because a plain `ListCITrusts` reports only surviving trusts, the resync SHALL
+close the list-watch gap the same way the gateway watch does: it SHALL wait for the
+watch subscription to be live before listing (so an event that fires during the
+list is not lost), and it SHALL rely on the stream, not the list, to deliver
+deletions. The resync restores missing realization; it SHALL NOT be the sole
+mechanism for revoking the subject mapper a deleted `CITrust` no longer backs
+(`ci-trust-ext-api.spec.md`, PLAT-CITR-05).
+
+#### Scenario: CTRL-CORE-20.01 -- Pre-existing trust realized on reconnect or resync
+
+- GIVEN a `CITrust` whose referenced `Gateway` is in scope for this control plane already exists in the API server
+- AND the `WatchCITrusts` stream never delivered its create event (it predated the reconciler or the event was missed)
+- WHEN the control plane reconnects the stream, or the periodic resync interval elapses
+- THEN the control plane SHALL list the CITrusts and reconcile this trust through the same realization as a live event
+- AND SHALL realize its per-trust group, its gateway client-role binding, and its IdP advanced-group mapper (`ci-trust-ext-api.spec.md`, PLAT-CITR-02)
+- AND an exchanged token for the trust's subject SHALL carry the granted gateway role
+
+#### Scenario: CTRL-CORE-20.02 -- Resync is idempotent
+
+- GIVEN every in-scope `CITrust` is already realized in Keycloak
+- WHEN the periodic resync lists and reconciles them again
+- THEN the control plane SHALL make no change to any group, client-role binding, or IdP mapper
+
+#### Scenario: CTRL-CORE-20.03 -- Unfiltered list skips a trust for another cluster's gateway
+
+- GIVEN the `ListCITrusts` seed returns a `CITrust` whose referenced `Gateway` is owned by a different cluster
+- WHEN the control plane reconciles the listed trust
+- THEN it SHALL skip that trust rather than realize artifacts for a gateway it does not own
+- AND the unfiltered platform-scoped list SHALL still be issued, since `CITrust` carries no cluster filter
+
+### Requirement: CTRL-CORE-21 -- CI Provider Resync
+
+The realization of a `CIProvider` SHALL NOT depend solely on a single long-lived
+`WatchCIProviders` stream. The CIProvider stream is almost always idle (it sends an
+event only when a provider changes), so a `CIProvider` created once via gitops that
+already exists when the reconciler starts, or that predates the reconciler being
+enabled, would otherwise never have its Keycloak IdP adopted or realized and never
+have its `status.idp_alias` written back (PLAT-CITR-01, PLAT-DATA-24). Every `CITrust`
+that adopts that provider would then fail realization because the provider's IdP alias
+was never resolved. This mirrors the gap that CTRL-CORE-20 closes for `CITrust` and
+CTRL-CORE-08 closes for RoleBindings, and satisfies the seed-on-(re)connect contract
+STD-RCON-05.
+
+The control plane SHALL seed the CIProvider reconciler from a `ListCIProviders` call
+on every `WatchCIProviders` (re)connect, and SHALL additionally re-list on a regular
+configurable interval while the stream is connected. Each listed `CIProvider` SHALL be
+reconciled through the same idempotent realization path as a live event (PLAT-CITR-01),
+so its IdP is adopted or created and its `status.idp_alias` converges. The resync SHALL
+be idempotent: a `CIProvider` whose IdP is already realized and whose status already
+records the alias SHALL produce no change.
+
+`CIProvider` is a platform-scoped resource that carries no gateway or cluster, so like
+the `CITrust` watch (CTRL-CORE-20) the `WatchCIProviders` stream and the
+`ListCIProviders` seed take no cluster filter. The list SHALL remain unfiltered by
+design; any registered control plane MAY adopt the provider's IdP and write back its
+status (`security/rbac-enforcement.spec.md`, SEC-RBAC-27).
+
+Because a plain `ListCIProviders` reports only surviving providers, the resync SHALL
+close the list-watch gap the same way the `CITrust` and gateway watches do: it SHALL
+wait for the watch subscription to be live before listing (so an event that fires
+during the list is not lost), and it SHALL rely on the stream, not the list, to
+deliver deletions.
+
+#### Scenario: CTRL-CORE-21.01 -- Pre-existing provider realized on reconnect or resync
+
+- GIVEN a `CIProvider` created via gitops already exists in the API server
+- AND the `WatchCIProviders` stream never delivered its create event (it predated the reconciler or the event was missed)
+- WHEN the control plane reconnects the stream, or the periodic resync interval elapses
+- THEN the control plane SHALL list the CIProviders and reconcile this provider through the same realization as a live event
+- AND SHALL adopt or create its Keycloak IdP and write back `status.idp_alias` (PLAT-CITR-01)
+- AND a `CITrust` that adopts this provider SHALL then resolve its IdP alias
+
+#### Scenario: CTRL-CORE-21.02 -- Resync is idempotent
+
+- GIVEN every `CIProvider` is already realized in Keycloak with its `status.idp_alias` recorded
+- WHEN the periodic resync lists and reconciles them again
+- THEN the control plane SHALL make no change to any IdP or to any provider status
+
 ### Requirement: CTRL-CORE-09 -- gRPC Transport Security
 
 The control plane SHALL select gRPC transport credentials from `HYPERSHELL_GRPC_SERVER_ADDR`
@@ -1033,6 +1316,8 @@ The control plane SHALL reconcile Gateway resources assigned to its own `cluster
 
 A late-bound Gateway that is not yet placed (empty `cluster_id`, see [`data-model.spec.md`](./data-model.spec.md), "Requirement: Gateway Placement and Late Binding") is not assigned to any cluster and SHALL NOT be reconciled by any control plane: it is not delivered on any `cluster_id`-filtered watch stream until the API server assigns it a `cluster_id`. Once the API server resolves placement and assigns a `cluster_id`, the gateway appears on the owning cluster's watch stream and is reconciled exactly like a pinned gateway.
 
+Because placement can assign a selector-matched Gateway to any matching cluster and `cluster_id` is then immutable, a Gateway that carries gateway-scoped federation (a `CITrust`) realizes that federation only on its assigned cluster's control plane; the fleet SHALL therefore enable CI federation on every cluster a CITrust-backed Gateway's selector can match (see [`ci-trust-ext-api.spec.md`](./ci-trust-ext-api.spec.md) PLAT-CITR-13/PLAT-CITR-14).
+
 #### Scenario: CTRL-CORE-10.01 -- Late-bound Gateway reconciled after placement is assigned
 - GIVEN a `Pending` Gateway with an empty `cluster_id` whose placement selector matched no cluster
 - WHEN the API server later assigns this control plane's `cluster_id` to it after a matching cluster registers
@@ -1107,7 +1392,7 @@ The control plane SHALL continuously reconcile the `phase` and `status` fields o
 | Separate module from API server | Independent lifecycle, separate deployment |
 | No controller-runtime dependency | Lightweight, custom reconciliation without CRD overhead |
 | Every control plane is a registered spoke; no single-cluster mode | One code path and one deployment shape. The hub's co-located control plane exercises registration, cluster filtering, authenticated watches, and TLS on every hub and in every development environment, so those paths are tested continuously instead of only at the first remote spoke. An unfiltered mode would also make server-side enforcement of cluster scoping impossible, because the server could not tell an unidentified hub controller from a misbehaving spoke. |
-| Cluster identity is resolved by registration, never configured | A configured `HYPERSHELL_CLUSTER_ID` can drift from the record the hub holds, and a copy-pasted value silently makes two control planes fight over one cluster. Registration ties the id to the OIDC subject, which the hub can verify. |
+| Cluster identity is resolved by registration, never configured | A configured cluster id can drift from the record the hub holds, and a copy-pasted value silently makes two control planes fight over one cluster. Registration ties the id to the OIDC subject, which the hub can verify. |
 | One OIDC client per control plane | The JWT `sub` is the registration key and the identity the watch-stream binding checks. Sharing a client across control planes would collapse them into one subject and break both. |
 | One control plane per cluster, in-cluster credentials only | No hub holds a spoke kubeconfig, so a compromised hub cannot reach into spokes and a spoke keeps reconciling its own gateways while the hub is unreachable. Matches the platform GitOps pull model in `global-architecture.spec.md`. |
 | Transport security inferred from the dial address, not a separate `HYPERSHELL_GRPC_TLS` flag | The address already tells you whether the hop leaves the cluster. A second flag could drift from the address (TLS off against an external host, or on against an in-cluster one) with no compile-time or admission check to catch it. |
@@ -1115,4 +1400,6 @@ The control plane SHALL continuously reconcile the `phase` and `status` fields o
 | AgentRuntime effective cluster resolved server-side, not client-side | An `AgentRuntime` may omit `cluster_id` and derive placement from its Gateway. If each control plane resolved placement and filtered client-side, every control plane would receive every AgentRuntime and the cluster scoping could not be enforced at the hub. Resolving the derived cluster server-side keeps the watch-stream caller binding authoritative, exactly as for Gateways and RoleBindings. The control plane re-resolves only as defense in depth. |
 | AgentRuntime AND the declarative `.hypershell` import both reconciled by the control plane | The control plane holds the in-cluster credentials needed to apply AgentRuntime scheduling resources and already dials each gateway's gRPC API, so cluster-side and gateway-side provisioning belong there. The declarative `.hypershell` import also belongs there: it must read each `Repository`'s credential from the secret store and read the `import_path` subtree over the GitHub API, and the control plane has read-only secret-store access (`pkg/secretstore`) and the platform GitHub App credential while the api-server has neither store read access nor repository read access. The import is the single, bounded path by which the control plane writes API desired state, scoped to create/update/prune of `Repository`-owned ext resources; everywhere else the control plane stays a reader of desired state (see "Declarative `.hypershell` Import Reconciliation" and [`data-model.spec.md`](./data-model.spec.md), "Declarative `.hypershell` Import"). The import is driven event-first off the `WatchRepositories` stream with a slow hourly drift re-check and a conditional upstream fetch, so a `Repository` change imports in real time while an unchanged subtree costs no heavy GitHub reads, rather than a short fixed-interval full re-fetch that exhausted the anonymous GitHub rate limit. |
 | Import reads the `import_path` subtree over the GitHub API, not a git clone | The control-plane distroless runtime image ships no `git` binary and mounts no writable working directory or PVC. Reading only the `import_path` subtree over the GitHub API with the platform GitHub App credential keeps the import in-process and in-memory, avoids a full repository checkout, and needs no on-disk working copy. It also narrows the blast radius: the reconciler fetches only the declarative root, not the whole repository. |
+| Explicit platform configuration (`HYPERSHELL_CLUSTER_PLATFORM`) | Deployment configuration supplies the host platform deterministically. Platform-specific security and API feature availability have separate contracts. |
+| Shared, refreshable API dependency state | Present, confirmed-absent, and unknown/unavailable states let reconciliation report the appropriate prerequisite or retry condition. A shared contract keeps provisioning, exposure, and health consistent while independent work continues. |
 | Kustomize rendered in-process by a shared Go LIBRARY, reversing the earlier "no kustomize in control plane" | This deliberately reverses the prior decision that kept Kustomize out of the control plane. The reversal admits the kustomize Go LIBRARY (not a binary, not a `Job`) into the control plane so rendering happens in-process in-memory. The single shared implementation SHALL be `pkg/kustomize` (exported `Build`) in `components/cli`, to be built and then consumed by exactly two callers: `hsctl` and the control plane's `RepositoryReconciler`; `hsctl apply -k` is refactored off its external-`kustomize`-binary shell-out onto this package, and the control-plane module imports the cli module. One implementation renders for `hsctl` and the `RepositoryReconciler`, so CLI and server render identically and there is no second, divergent renderer to drift. The `GatewayReconciler` is NOT a consumer of this library: it renders the gateway workload through Helm. The accepted trade-off is a kustomize library dependency in the control-plane module. |

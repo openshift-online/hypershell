@@ -987,6 +987,15 @@ if [[ -n "${PORT_SUFFIX}" ]]; then
     kube wait --for=condition=available deployment/keycloak -n keycloak --timeout=120s
   fi
 
+  # The API must validate the same issuer that Keycloak puts in its tokens.
+  issuer_patch=$(kube get deployment/hypershell-api-server -n "${KIND_NAMESPACE}" -o json |
+    jq -ce --arg issuer "https://${KEYCLOAK_HOSTNAME}${PORT_SUFFIX}/realms/hypershell" '
+      [.spec.template.spec.containers | to_entries[] | select(.value.name == "api-server") |
+       .key as $container | .value.command | to_entries[] | select(.value | startswith("--jwt-issuer=")) |
+       {op:"replace",path:("/spec/template/spec/containers/"+($container|tostring)+"/command/"+(.key|tostring)),value:("--jwt-issuer="+$issuer)}] |
+      select(length==1)')
+  kube patch deployment/hypershell-api-server -n "${KIND_NAMESPACE}" --type=json -p "${issuer_patch}"
+
   if ! is_swapped control-plane; then
     kube set env deployment/hypershell-controller -n "${KIND_NAMESPACE}" \
       GATEWAY_OIDC_ISSUER_URL="https://${KEYCLOAK_HOSTNAME}${PORT_SUFFIX}/realms/hypershell"

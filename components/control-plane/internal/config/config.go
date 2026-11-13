@@ -2,7 +2,7 @@ package config
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -25,11 +25,36 @@ const DefaultGatewayDatabaseAdminDir = "/etc/hypershell/gateway-database"
 // specs/platform/gateway-reconcile-concurrency.spec.md.
 const DefaultGatewayReconcileWorkers = 4
 
+// Cluster platform values (CTRL-CORE-16). The host platform is explicit
+// deployment configuration, not something inferred from Kubernetes API
+// discovery: a discovery failure in an unrelated API must never change how the
+// control plane treats its host cluster. The configured platform selects
+// platform-specific pod security and SCC integration (OSG-CORE-14); feature
+// dependency availability (cert-manager, Gateway API) is handled separately by
+// the shared, refreshable dependency discovery (CTRL-CORE-18, CTRL-CORE-19).
+const (
+	// ClusterPlatformOpenShift selects OpenShift pod security and SCC integration.
+	ClusterPlatformOpenShift = "openshift"
+	// ClusterPlatformKubernetes selects the gateway chart's configured Kubernetes
+	// pod security context (Kind/local and other vanilla Kubernetes clusters).
+	ClusterPlatformKubernetes = "kubernetes"
+)
+
+// CI token-exchange authorization modes (PLAT-CITR-08). These string values match
+// keycloak.TokenExchangeMode; the string is converted at the reconciler boundary so
+// the config package stays free of a keycloak dependency.
+const (
+	// CITokenExchangeModeFGAPv1 is fine-grained authorization v1 (the live fleet
+	// mode and the default).
+	CITokenExchangeModeFGAPv1 = "fgap-v1"
+	// CITokenExchangeModeV2Attribute is external-to-internal token-exchange v2.
+	CITokenExchangeModeV2Attribute = "v2-attribute"
+)
+
 type Config struct {
 	GRPCServerAddr string
 	APIServerURL   string
 	Namespace      string
-	LogLevel       string
 
 	// ManagedClusterName is the human-readable name this control plane
 	// registers under (e.g. hyp0-mc1, or local-kind in the Kind overlay), unique
@@ -41,6 +66,16 @@ type Config struct {
 	// See specs/platform/control-plane.spec.md ("Mandatory Cluster Identity").
 	ManagedClusterName         string
 	ManagedClusterCapabilities []string
+
+	// ClusterPlatform is the host platform type this control plane runs on,
+	// sourced from the REQUIRED HYPERSHELL_CLUSTER_PLATFORM deployment setting.
+	// Accepted values are ClusterPlatformOpenShift and ClusterPlatformKubernetes;
+	// there is no default and no auto-detection fallback. The platform selects
+	// platform-specific gateway pod security and SCC integration (OSG-CORE-14);
+	// feature dependency availability is determined separately by discovery
+	// (CTRL-CORE-18, CTRL-CORE-19). An unset or invalid value fails startup.
+	// See specs/platform/control-plane.spec.md (CTRL-CORE-16).
+	ClusterPlatform string
 
 	// OIDC client credentials used both for registration and as per-RPC bearer
 	// credentials on every gRPC call (including the watch streams). All three
@@ -119,14 +154,31 @@ type Config struct {
 	// runs). See specs/platform/control-plane.spec.md ("Role Binding Resync").
 	RoleBindingResyncInterval time.Duration
 
-	// Helm chart configuration
-	HelmChartPath     string
-	HelmChartRegistry string
-	HelmChartVersion  string
+	// CITrustResyncInterval is how often, while the CITrust watch stream is
+	// connected, the control plane re-lists every CITrust and reconciles each, so a
+	// trust that predates the reconciler (or whose create event was missed) has its
+	// Keycloak artifacts realized even when no live event ever arrives. The
+	// reconciler also seeds on every (re)connect. CITrust is a platform-scoped
+	// resource, so the list is unfiltered; the per-trust reconcile still skips a
+	// trust whose gateway belongs to another cluster. Sourced from
+	// HYPERSHELL_CI_TRUST_RESYNC_INTERVAL; a non-positive value disables the
+	// periodic resync (the per-connect seed still runs). See
+	// specs/platform/control-plane.spec.md ("CI Trust Resync").
+	CITrustResyncInterval time.Duration
 
-	// External CA issuer configuration for Route passthrough mode
-	ExternalCAIssuerName string
-	ExternalCAIssuerKind string
+	// CIProviderResyncInterval is how often, while the CIProvider watch stream is
+	// connected, the control plane re-lists every CIProvider and reconciles each, so a
+	// provider that predates the reconciler (or whose create event was missed on the
+	// almost-always-idle stream) has its Keycloak IdP adopted and its status.idp_alias
+	// written back even when no live event ever arrives. The reconciler also seeds on
+	// every (re)connect. CIProvider is a platform-scoped resource, so the list is
+	// unfiltered. Sourced from HYPERSHELL_CI_PROVIDER_RESYNC_INTERVAL; a non-positive
+	// value disables the periodic resync (the per-connect seed still runs). See
+	// specs/platform/control-plane.spec.md ("CI Provider Resync", CTRL-CORE-21).
+	CIProviderResyncInterval time.Duration
+
+	// Helm chart configuration
+	HelmChartPath string
 
 	// GatewayDatabaseAdminDir is the directory holding the mounted PostgreSQL
 	// admin credentials for gateway database provisioning. Sourced from
@@ -145,6 +197,23 @@ type Config struct {
 	// GATEWAY_SANDBOX_RUNTIME_CLASS; empty string uses the cluster default (runc).
 	// Set to "kata" or "kata-remote" for hardware-enforced VM isolation.
 	SandboxRuntimeClass string
+	OperatorWorkspace   *helm.OperatorWorkspaceConfig
+
+	// OperatorNamespaceLabelKey is the administrator-approved label KEY the
+	// external operator sets on an operator-mode gateway's tenant namespaces. The
+	// control plane scopes each operator gateway to its own tenant namespaces with
+	// the selector <key>=<gateway-namespace> (OSG-OPWS-02); it is control-plane
+	// configuration, never caller input. Sourced from
+	// GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY; empty disables operator provisioning
+	// (an operator gateway then fails closed, OSG-OPWS-04).
+	OperatorNamespaceLabelKey string
+
+	// OperatorSandboxRuntimeClass is the administrator-approved sandbox
+	// RuntimeClass applied ONLY to operator-mode gateways (OSG-OPWS-03); ordinary
+	// gateways keep SandboxRuntimeClass. Sourced from
+	// GATEWAY_OPERATOR_SANDBOX_RUNTIME_CLASS; empty disables operator provisioning
+	// (an operator gateway then fails closed, OSG-OPWS-04).
+	OperatorSandboxRuntimeClass string
 
 	// CITrustEnabled toggles the CI trust reconciler that realizes CIProvider
 	// and CITrust resources as Keycloak IdPs, claim mappers, and token-exchange
@@ -152,6 +221,28 @@ type Config struct {
 	// client provisioned and accessible. Sourced from
 	// HYPERSHELL_CI_TRUST_ENABLED.
 	CITrustEnabled bool
+
+	// CITokenExchangeMode selects how the CI trust reconciler authorizes the
+	// token-exchange grant (PLAT-CITR-08): "fgap-v1" attaches two fine-grained
+	// authorization v1 grants scoped to the federation requester client
+	// (PLAT-CITR-11), while "v2-attribute" sets the external-to-internal v2
+	// attribute on the gateway client. The choice is deployment configuration, not
+	// code, so moving the fleet between modes needs no code change. Sourced from
+	// HYPERSHELL_CI_TOKEN_EXCHANGE_MODE; defaults to fgap-v1, the live fleet mode.
+	CITokenExchangeMode string
+
+	// CIWorkspaceProvisioningEnabled toggles gateway-side realization of a CITrust
+	// (PLAT-CITR-15): ensuring the derived workspace exists on the gateway and
+	// admitting the trust's matched identities as members over the gateway's
+	// OpenShell provisioning API. OFF by default so it rolls out by configuration;
+	// requires CITrustEnabled. Sourced from HYPERSHELL_CI_WORKSPACE_PROVISIONING_ENABLED.
+	CIWorkspaceProvisioningEnabled bool
+
+	// GatewayInsecureTLS skips TLS verification when the control plane dials a
+	// gateway's OpenShell gRPC endpoint, which is served under the self-signed
+	// openshell CA. Defaults to true (the gateway endpoint is not publicly trusted).
+	// Sourced from HYPERSHELL_GATEWAY_INSECURE.
+	GatewayInsecureTLS bool
 
 	// RepositoryImportEnabled toggles the declarative `.hypershell` import
 	// reconciler (the RepositoryReconciler). It is OFF by default: the reconciler
@@ -188,9 +279,9 @@ func Load() (*Config, error) {
 		GRPCServerAddr:                   getEnv("HYPERSHELL_GRPC_SERVER_ADDR", "localhost:9000"),
 		APIServerURL:                     getEnv("HYPERSHELL_API_SERVER_URL", "http://localhost:8000"),
 		Namespace:                        getEnv("HYPERSHELL_NAMESPACE", "hypershell"),
-		LogLevel:                         strings.ToLower(getEnv("HYPERSHELL_LOG_LEVEL", "info")),
 		ManagedClusterName:               getEnv("HYPERSHELL_MANAGED_CLUSTER_NAME", ""),
 		ManagedClusterCapabilities:       parseCapabilities(getEnv("HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES", "")),
+		ClusterPlatform:                  strings.ToLower(strings.TrimSpace(getEnv("HYPERSHELL_CLUSTER_PLATFORM", ""))),
 		OIDCIssuer:                       getEnv("OIDC_ISSUER", ""),
 		OIDCClientID:                     getEnv("OIDC_CLIENT_ID", ""),
 		OIDCClientSecret:                 getEnv("OIDC_CLIENT_SECRET", ""),
@@ -210,22 +301,25 @@ func Load() (*Config, error) {
 
 		WatchIdleTimeout:          getEnvDuration("HYPERSHELL_WATCH_IDLE_TIMEOUT", 10*time.Minute),
 		RoleBindingResyncInterval: getEnvDuration("HYPERSHELL_ROLE_BINDING_RESYNC_INTERVAL", 5*time.Minute),
+		CITrustResyncInterval:     getEnvDuration("HYPERSHELL_CI_TRUST_RESYNC_INTERVAL", 5*time.Minute),
+		CIProviderResyncInterval:  getEnvDuration("HYPERSHELL_CI_PROVIDER_RESYNC_INTERVAL", 5*time.Minute),
 
-		HelmChartPath:     getEnv("HELM_CHART_PATH", "/charts/openshell.tgz"),
-		HelmChartRegistry: getEnv("HELM_CHART_REGISTRY", ""),
-		HelmChartVersion:  getEnv("HELM_CHART_VERSION", ""),
-
-		ExternalCAIssuerName: getEnv("EXTERNAL_CA_ISSUER_NAME", ""),
-		ExternalCAIssuerKind: getEnv("EXTERNAL_CA_ISSUER_KIND", "ClusterIssuer"),
+		HelmChartPath: getEnv("HELM_CHART_PATH", "/charts/openshell.tgz"),
 
 		GatewayDatabaseAdminDir: getEnv("GATEWAY_DATABASE_ADMIN_DIR", DefaultGatewayDatabaseAdminDir),
 		SandboxRuntimeClass:     getEnv("GATEWAY_SANDBOX_RUNTIME_CLASS", ""),
 
-		CITrustEnabled:           getEnvBool("HYPERSHELL_CI_TRUST_ENABLED", false),
-		RepositoryImportEnabled:  getEnvBool("HYPERSHELL_REPOSITORY_IMPORT_ENABLED", false),
-		RepositoryImportInterval: getEnvDuration("HYPERSHELL_REPOSITORY_IMPORT_INTERVAL", time.Hour),
-		GitHubAPIBase:            getEnv("HYPERSHELL_GITHUB_API_BASE", ""),
-		GitHubTokenFile:          getEnv("HYPERSHELL_GITHUB_TOKEN_FILE", ""),
+		OperatorNamespaceLabelKey:   getEnv("GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY", ""),
+		OperatorSandboxRuntimeClass: getEnv("GATEWAY_OPERATOR_SANDBOX_RUNTIME_CLASS", ""),
+
+		CITrustEnabled:                 getEnvBool("HYPERSHELL_CI_TRUST_ENABLED", false),
+		CITokenExchangeMode:            getEnv("HYPERSHELL_CI_TOKEN_EXCHANGE_MODE", CITokenExchangeModeFGAPv1),
+		CIWorkspaceProvisioningEnabled: getEnvBool("HYPERSHELL_CI_WORKSPACE_PROVISIONING_ENABLED", false),
+		GatewayInsecureTLS:             getEnvBool("HYPERSHELL_GATEWAY_INSECURE", true),
+		RepositoryImportEnabled:        getEnvBool("HYPERSHELL_REPOSITORY_IMPORT_ENABLED", false),
+		RepositoryImportInterval:       getEnvDuration("HYPERSHELL_REPOSITORY_IMPORT_INTERVAL", time.Hour),
+		GitHubAPIBase:                  getEnv("HYPERSHELL_GITHUB_API_BASE", ""),
+		GitHubTokenFile:                getEnv("HYPERSHELL_GITHUB_TOKEN_FILE", ""),
 	}
 
 	if cfg.GRPCServerAddr == "" {
@@ -259,9 +353,43 @@ func Load() (*Config, error) {
 		cfg.GatewayResources = &rr
 	}
 
-	// Validate Helm configuration
-	if cfg.HelmChartRegistry != "" && cfg.HelmChartVersion == "" {
-		return nil, fmt.Errorf("HELM_CHART_VERSION is required when HELM_CHART_REGISTRY is set")
+	if v := os.Getenv("GATEWAY_OPERATOR_WORKSPACE"); v != "" {
+		workspace, err := helm.ParseOperatorWorkspace(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid GATEWAY_OPERATOR_WORKSPACE: %w", err)
+		}
+		if cfg.OperatorNamespaceLabelKey != "" && cfg.OperatorNamespaceLabelKey != workspace.NamespaceLabelKey {
+			return nil, fmt.Errorf("GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY must match GATEWAY_OPERATOR_WORKSPACE.namespaceLabelKey")
+		}
+		cfg.OperatorNamespaceLabelKey = workspace.NamespaceLabelKey
+		cfg.OperatorWorkspace = workspace
+	}
+
+	// The CI token-exchange authorization mode is config-driven (PLAT-CITR-08); an
+	// unknown value is a deployment error, not something to silently fall back on,
+	// because it decides which Keycloak authorization artifacts the reconciler
+	// realizes.
+	switch cfg.CITokenExchangeMode {
+	case CITokenExchangeModeFGAPv1, CITokenExchangeModeV2Attribute:
+	default:
+		return nil, fmt.Errorf("invalid HYPERSHELL_CI_TOKEN_EXCHANGE_MODE %q: want %q or %q",
+			cfg.CITokenExchangeMode, CITokenExchangeModeFGAPv1, CITokenExchangeModeV2Attribute)
+	}
+
+	// The host platform is REQUIRED deployment configuration with no default and
+	// no auto-detection fallback (CTRL-CORE-16). It is validated here, separately
+	// from API dependency availability, so a cluster is never guessed from
+	// discovery and a discovery failure cannot change the platform type. An unset
+	// or invalid value fails startup non-zero, naming the setting and its accepted
+	// values (CTRL-CORE-16.03, CTRL-CORE-16.04).
+	switch cfg.ClusterPlatform {
+	case ClusterPlatformOpenShift, ClusterPlatformKubernetes:
+	case "":
+		return nil, fmt.Errorf("HYPERSHELL_CLUSTER_PLATFORM is required: set it to %q or %q (specs/platform/control-plane.spec.md, CTRL-CORE-16)",
+			ClusterPlatformOpenShift, ClusterPlatformKubernetes)
+	default:
+		return nil, fmt.Errorf("invalid HYPERSHELL_CLUSTER_PLATFORM %q: accepted values are %q and %q (specs/platform/control-plane.spec.md, CTRL-CORE-16)",
+			cfg.ClusterPlatform, ClusterPlatformOpenShift, ClusterPlatformKubernetes)
 	}
 
 	return cfg, nil
@@ -302,7 +430,7 @@ func getEnvBool(key string, fallback bool) bool {
 	}
 	parsed, err := strconv.ParseBool(v)
 	if err != nil {
-		log.Printf("WARN invalid bool for %s=%q, using default %v: %v", key, v, fallback, err)
+		slog.Warn("Invalid bool environment variable, using default", "name", key, "value", v, "default", fallback, "error", err)
 		return fallback
 	}
 	return parsed
@@ -321,11 +449,11 @@ func getEnvInt(key string, fallback, min int) int {
 	}
 	parsed, err := strconv.Atoi(v)
 	if err != nil {
-		log.Printf("WARN invalid int for %s=%q, using default %d: %v", key, v, fallback, err)
+		slog.Warn("Invalid int environment variable, using default", "name", key, "value", v, "default", fallback, "error", err)
 		return fallback
 	}
 	if parsed < min {
-		log.Printf("WARN %s=%d is below the minimum %d, using default %d", key, parsed, min, fallback)
+		slog.Warn("Environment variable is below the minimum, using default", "name", key, "value", parsed, "minimum", min, "default", fallback)
 		return fallback
 	}
 	return parsed
@@ -338,7 +466,7 @@ func getEnvDuration(key string, fallback time.Duration) time.Duration {
 	}
 	parsed, err := time.ParseDuration(v)
 	if err != nil {
-		log.Printf("WARN invalid duration for %s=%q, using default %s: %v", key, v, fallback, err)
+		slog.Warn("Invalid duration environment variable, using default", "name", key, "value", v, "default", fallback, "error", err)
 		return fallback
 	}
 	return parsed

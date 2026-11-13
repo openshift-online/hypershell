@@ -62,7 +62,6 @@ jobs:
       fleet_dashboard_ui: ${{ steps.detect.outputs.fleet_dashboard_ui }}
       gateway_management_ui: ${{ steps.detect.outputs.gateway_management_ui }}
       operational_dashboard_ui: ${{ steps.detect.outputs.operational_dashboard_ui }}
-      pr_test: ${{ steps.detect.outputs.pr_test }}
       sdk_go: ${{ steps.detect.outputs.sdk_go }}
       sdk_typescript: ${{ steps.detect.outputs.sdk_typescript }}
       spec_viewer: ${{ steps.detect.outputs.spec_viewer }}
@@ -356,17 +355,6 @@ jobs:
           pnpm --filter @openshift-online/hypershell-spec-viewer-ui run typecheck
           pnpm --filter @openshift-online/hypershell-spec-viewer-ui run build
 
-  lint-pr-test:
-    name: PR test script validation
-    needs: detect-changes
-    if: needs.detect-changes.outputs.pr_test == 'true'
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Check shell syntax
-        run: bash -n components/pr-test/e2e-openshell-roks.sh
-
   lint-web-console:
     name: Web console quality gates
     needs: detect-changes
@@ -511,7 +499,6 @@ jobs:
       - lint-sdk-typescript
       - lint-gateway-management-ui
       - lint-operational-dashboard-ui
-      - lint-pr-test
       - lint-spec-viewer
       - lint-web-console
     if: always()

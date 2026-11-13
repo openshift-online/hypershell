@@ -31,6 +31,14 @@ func (l *Logger) WithStep(step string, human Logf) *Logger {
 	return &Logger{human: human, step: step, sinks: l.sinks}
 }
 
+// StepID returns the immutable step attribution carried by this logger.
+func (l *Logger) StepID() string {
+	if l == nil {
+		return ""
+	}
+	return l.step
+}
+
 func (l *Logger) Logf(format string, args ...any) {
 	l.Humanf(format, args...)
 	l.Additionalf(format, args...)

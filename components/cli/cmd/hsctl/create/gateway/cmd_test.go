@@ -10,11 +10,11 @@ func TestPlacementFlagsExist(t *testing.T) {
 	for name, expectedType := range map[string]string{
 		"cluster-id":                 "string",
 		"dedicated-route":            "bool",
+		"operator-workspaces":        "bool",
 		"name":                       "string",
 		"body":                       "string",
 		"placement-selector":         "stringArray",
 		"placement-exclude-selector": "stringArray",
-		"local-kind":                 "bool",
 		"dry-run":                    "bool",
 	} {
 		flag := flags.Lookup(name)
@@ -34,7 +34,8 @@ func TestHelpDocumentsBothShapesAndDryRun(t *testing.T) {
 		"--cluster-id",
 		"--placement-selector network/public --placement-selector provider/ibm",
 		"--placement-selector region/us-east-1",
-		"--local-kind",
+		"--placement-selector provider/kind",
+		"--operator-workspaces",
 		"--dry-run",
 		"empty cluster_id",
 	} {
@@ -51,9 +52,6 @@ func TestPlacementFlagsMutuallyExclusive(t *testing.T) {
 	cases := [][]string{
 		{"--cluster-id", "abc", "--placement-selector", "network/public"},
 		{"--cluster-id", "abc", "--placement-exclude-selector", "runtime/kata"},
-		{"--cluster-id", "abc", "--local-kind"},
-		{"--local-kind", "--placement-selector", "network/public"},
-		{"--local-kind", "--placement-exclude-selector", "runtime/kata"},
 		{"--dry-run", "--body", "request.json"},
 	}
 	for _, argv := range cases {

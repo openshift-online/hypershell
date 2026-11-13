@@ -417,7 +417,8 @@ components:
       description: >-
         A gateway is created with only its user-writable fields: a name, exactly
         one of cluster_id (pinned) or placement (late-bound), and the optional
-        create-only dedicated_route request. Every other gateway field is
+        create-only dedicated_route request, and the create-only workspace_mode
+        operator opt-in. Every other gateway field is
         platform-managed and control-plane-only; it is not part of the create
         contract and is rejected if supplied (data-model.spec.md "Requirement:
         Gateway Field Ownership and Write Policy", PLAT-DATA-23). The web-console
@@ -440,6 +441,15 @@ components:
             Create-only. Requires the gateway:dedicated-route-creator role and opts
             the gateway in to a dedicated route and per-gateway wildcard certificate.
             The platform manages how the dedicated route and certificate are provided.
+        workspace_mode:
+          type: string
+          description: >-
+            Create-only per-gateway operator-managed workspace opt-in. The only
+            accepted value is "operator", which requires the
+            gateway:operator-workspace-creator role (platform:admin also qualifies)
+            and provisions the gateway with operator-owned workspace namespaces
+            (OSG-OPWS-01). Omit for the default managed mode; shared and managed are
+            platform-managed and not caller-settable. Immutable after creation.
         placement:
           description: >-
             Late-bind the gateway by capability-label selector. Mutually exclusive
@@ -448,26 +458,15 @@ components:
 
     GatewayPlacementIntent:
       type: object
-      description: Exactly one of selector or mode must be supplied.
-      oneOf:
-        - title: Capability selector placement
-          required: [selector]
-          not:
-            required: [mode]
-        - title: Local Kind placement
-          required: [mode]
-          not:
-            anyOf:
-              - required: [selector]
-              - required: [excludedSelector]
+      description: >-
+        Late-bound placement by ManagedCluster capability-label selector. A
+        non-empty selector list must be supplied.
+      required: [selector]
       properties:
         selector:
           $ref: '#/components/schemas/GatewayPlacementSelector'
         excludedSelector:
           $ref: '#/components/schemas/GatewayPlacementSelector'
-        mode:
-          type: string
-          enum: [local-kind]
     GatewayPlacementSelector:
       type: array
       minItems: 1
@@ -496,14 +495,12 @@ components:
           enum: [no-eligible-cluster]
     GatewayPlacementAvailability:
       type: object
-      required: [placements, local_kind]
+      required: [placements]
       properties:
         placements:
           type: array
           items:
             $ref: '#/components/schemas/GatewayPlacementAvailabilityItem'
-        local_kind:
-          type: boolean
     # NEW SCHEMA START
     GatewayList:
     # NEW SCHEMA END

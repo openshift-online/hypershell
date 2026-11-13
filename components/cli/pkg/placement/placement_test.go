@@ -49,17 +49,17 @@ func TestValidateLabelRejectsMalformedValues(t *testing.T) {
 }
 
 func TestBuildIntentReturnsNilWhenNoPlacementFlags(t *testing.T) {
-	intent, err := BuildIntent(nil, nil, false)
+	intent, err := BuildIntent(nil, nil)
 	if err != nil {
-		t.Fatalf("BuildIntent(nil, nil, false) error = %v", err)
+		t.Fatalf("BuildIntent(nil, nil) error = %v", err)
 	}
 	if intent != nil {
-		t.Fatalf("BuildIntent(nil, nil, false) = %v, want nil (pinned shape)", intent)
+		t.Fatalf("BuildIntent(nil, nil) = %v, want nil (pinned shape)", intent)
 	}
 }
 
 func TestBuildIntentSelectorShape(t *testing.T) {
-	intent, err := BuildIntent([]string{"network/public", "provider/ibm"}, nil, false)
+	intent, err := BuildIntent([]string{"network/public", "provider/ibm"}, nil)
 	if err != nil {
 		t.Fatalf("BuildIntent error = %v", err)
 	}
@@ -70,7 +70,7 @@ func TestBuildIntentSelectorShape(t *testing.T) {
 }
 
 func TestBuildIntentExcludedSelectorShape(t *testing.T) {
-	intent, err := BuildIntent([]string{"provider/ibm"}, []string{"runtime/kata"}, false)
+	intent, err := BuildIntent([]string{"provider/ibm"}, []string{"runtime/kata"})
 	if err != nil {
 		t.Fatalf("BuildIntent error = %v", err)
 	}
@@ -83,38 +83,23 @@ func TestBuildIntentExcludedSelectorShape(t *testing.T) {
 	}
 }
 
-func TestBuildIntentLocalKindShape(t *testing.T) {
-	intent, err := BuildIntent(nil, nil, true)
+func TestBuildIntentKindSelectorShape(t *testing.T) {
+	// CLI-PLC-01.10: Kind local development uses the ordinary capability
+	// selector, not a dedicated mode.
+	intent, err := BuildIntent([]string{"provider/kind"}, nil)
 	if err != nil {
 		t.Fatalf("BuildIntent error = %v", err)
 	}
-	want := map[string]interface{}{"mode": "local-kind"}
+	want := map[string]interface{}{"selector": []string{"provider/kind"}}
 	if !reflect.DeepEqual(intent, want) {
 		t.Fatalf("intent = %v, want %v", intent, want)
 	}
 }
 
-func TestBuildIntentRejectsLocalKindWithSelectors(t *testing.T) {
-	for _, tc := range []struct {
-		selectors, excludes []string
-	}{
-		{[]string{"network/public"}, nil},
-		{nil, []string{"runtime/kata"}},
-	} {
-		_, err := BuildIntent(tc.selectors, tc.excludes, true)
-		if err == nil {
-			t.Fatalf("BuildIntent(%v, %v, true) = nil error, want local-kind exclusivity error", tc.selectors, tc.excludes)
-		}
-		if !strings.Contains(err.Error(), "--local-kind") {
-			t.Fatalf("error %q should mention --local-kind", err.Error())
-		}
-	}
-}
-
 func TestBuildIntentRejectsExclusionWithoutSelector(t *testing.T) {
-	_, err := BuildIntent(nil, []string{"runtime/kata"}, false)
+	_, err := BuildIntent(nil, []string{"runtime/kata"})
 	if err == nil {
-		t.Fatal("BuildIntent(nil, [runtime/kata], false) = nil error, want exclusion-requires-selector error")
+		t.Fatal("BuildIntent(nil, [runtime/kata]) = nil error, want exclusion-requires-selector error")
 	}
 	if !strings.Contains(err.Error(), "--placement-exclude-selector requires") {
 		t.Fatalf("error %q should name the required flag", err.Error())
@@ -122,16 +107,16 @@ func TestBuildIntentRejectsExclusionWithoutSelector(t *testing.T) {
 }
 
 func TestBuildIntentRejectsInvalidLabelsBeforeBuilding(t *testing.T) {
-	if _, err := BuildIntent([]string{"network/public,provider/ibm"}, nil, false); err == nil {
+	if _, err := BuildIntent([]string{"network/public,provider/ibm"}, nil); err == nil {
 		t.Fatal("comma-separated selector value should be rejected")
 	}
-	if _, err := BuildIntent([]string{"provider/ibm"}, []string{"cloud/aws"}, false); err == nil {
+	if _, err := BuildIntent([]string{"provider/ibm"}, []string{"cloud/aws"}); err == nil {
 		t.Fatal("invalid excluded label should be rejected")
 	}
 }
 
 func TestBuildIntentPassesDuplicatesThrough(t *testing.T) {
-	intent, err := BuildIntent([]string{"network/public", "network/public"}, nil, false)
+	intent, err := BuildIntent([]string{"network/public", "network/public"}, nil)
 	if err != nil {
 		t.Fatalf("BuildIntent error = %v", err)
 	}

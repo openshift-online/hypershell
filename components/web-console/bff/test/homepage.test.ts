@@ -38,13 +38,24 @@ describe("homepage aggregation", () => {
           {
             id: "gateway-1",
             name: "research-gateway",
-            phase: "Degraded",
+            phase: "Running",
+            status: "Degraded",
+          },
+          {
+            id: "gateway-3",
+            name: "running-unhealthy-gateway",
+            phase: "Running",
             status: "Connection health is degraded",
           },
-          { id: "gateway-2", name: "stable-gateway", phase: "Running" },
+          {
+            id: "gateway-2",
+            name: "stable-gateway",
+            phase: "Running",
+            status: "Healthy",
+          },
         ],
         page: 1,
-        total: 2,
+        total: 3,
       }),
     );
     vi.stubGlobal("fetch", fetchMock);
@@ -57,13 +68,19 @@ describe("homepage aggregation", () => {
           {
             gatewayId: "gateway-1",
             name: "research-gateway",
+            reason: "Degraded",
+            status: "Degraded",
+          },
+          {
+            gatewayId: "gateway-3",
+            name: "running-unhealthy-gateway",
             reason: "Connection health is degraded",
             status: "Connection health is degraded",
           },
         ],
-        attentionCount: 1,
+        attentionCount: 2,
         healthy: 1,
-        total: 2,
+        total: 3,
       },
     });
 
@@ -79,7 +96,7 @@ describe("homepage aggregation", () => {
     );
   });
 
-  it("uses local-kind placement for a connected local Kind cluster", async () => {
+  it("uses the Kind capability selector for a connected cluster advertising provider/kind", async () => {
     const now = new Date().toISOString();
     const fetchMock = vi
       .fn()
@@ -116,7 +133,7 @@ describe("homepage aggregation", () => {
         healthy: 1,
         total: 1,
       },
-      quickCreate: { placement: { mode: "local-kind" } },
+      quickCreate: { placement: { selector: ["provider/kind"] } },
     });
   });
 

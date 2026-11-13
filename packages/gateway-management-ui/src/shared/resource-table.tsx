@@ -7,6 +7,7 @@ import {
   SearchInput,
   Toolbar,
   ToolbarContent,
+  ToolbarGroup,
   ToolbarItem,
 } from "@patternfly/react-core";
 import {
@@ -18,6 +19,8 @@ import {
   Tr,
   type ThProps,
 } from "@patternfly/react-table";
+
+import styles from "./resource-table.module.css";
 
 export interface ResourceTableColumn<Row> {
   id: string;
@@ -52,7 +55,20 @@ interface ResourceTableLabels {
 
 interface ResourceTableProps<Row> {
   ariaLabel: string;
+  // Content rendered between the toolbar and the table, e.g. a bulk-action
+  // results banner. Rendered in every row state so it survives a refetch.
+  banner?: React.ReactNode;
+  // Bulk-action controls (e.g. Delete, Clear selection) placed in the primary
+  // toolbar row after the filters.
+  bulkActions?: React.ReactNode;
+  // Header bulk-selection control placed at the start of the primary toolbar
+  // row, before the search input.
+  bulkSelect?: React.ReactNode;
   columns: readonly ResourceTableColumn<Row>[];
+  /**
+   * Controls rendered inline on the first toolbar row, alongside the search
+   * input and the primary action (for example an additional list filter).
+   */
   filterControls?: React.ReactNode;
   getRowKey: (row: Row) => React.Key;
   hasActiveFilters?: boolean;
@@ -67,12 +83,33 @@ interface ResourceTableProps<Row> {
   pageSizeOptions: readonly number[];
   primaryAction?: React.ReactNode;
   renderRowAction?: (row: Row) => React.ReactNode;
+  // When provided, a leading selection column is rendered and this returns the
+  // per-row selection control. The caller owns selection state.
+  renderRowSelection?: (row: Row) => React.ReactNode;
   rows: readonly Row[];
+  /**
+   * Controls rendered on a second toolbar row directly below the first row,
+   * for a persistent list filter that reads as its own row (for example the
+   * gateway ownership switch, per WEB-UIEX-07). The whole row is omitted when
+   * this is not provided, so no empty toolbar row remains.
+   */
+  secondaryFilterControls?: React.ReactNode;
+  // Screen-reader heading for the leading selection column.
+  selectionColumnLabel?: string;
+  /**
+   * Whether to show pagination controls below the table. Defaults to true for
+   * long lists (WEB-GLIS-02.03). Set to false for tables in space-constrained
+   * layouts where only top pagination is desired.
+   */
+  showBottomPagination?: boolean;
   state: ResourceTableState;
 }
 
 export function ResourceTable<Row>({
   ariaLabel,
+  banner,
+  bulkActions,
+  bulkSelect,
   columns,
   filterControls,
   getRowKey,
@@ -85,7 +122,11 @@ export function ResourceTable<Row>({
   pageSizeOptions,
   primaryAction,
   renderRowAction,
+  renderRowSelection,
   rows,
+  secondaryFilterControls,
+  selectionColumnLabel,
+  showBottomPagination = true,
   state,
 }: ResourceTableProps<Row>) {
   const activeSortIndex = Math.max(
@@ -124,10 +165,42 @@ export function ResourceTable<Row>({
     }
   };
 
+  const topPagination = (
+    <ToolbarItem
+      align={{ default: "alignStart", md: "alignEnd" }}
+      variant="pagination"
+    >
+      <Pagination
+        isCompact
+        itemCount={itemCount}
+        onSetPage={(_event, nextPage) => {
+          onStateChange({ ...state, page: nextPage }, "page");
+        }}
+        onPerPageSelect={(_event, nextPageSize) => {
+          onStateChange(
+            { ...state, page: 1, pageSize: nextPageSize },
+            "page-size",
+          );
+        }}
+        page={state.page}
+        perPage={state.pageSize}
+        perPageOptions={pageSizeOptions.map((value) => ({
+          title: String(value),
+          value,
+        }))}
+        titles={{
+          paginationAriaLabel: `${ariaLabel} top pagination`,
+        }}
+        widgetId={`${id}-pagination`}
+      />
+    </ToolbarItem>
+  );
+
   return (
     <>
       <Toolbar id={`${id}-toolbar`}>
         <ToolbarContent rowWrap={{ default: "wrap", md: "nowrap" }}>
+          {bulkSelect ? <ToolbarItem>{bulkSelect}</ToolbarItem> : null}
           <ToolbarItem>
             <SearchInput
               aria-label={labels.searchAriaLabel}
@@ -142,74 +215,104 @@ export function ResourceTable<Row>({
             />
           </ToolbarItem>
           {filterControls ? <ToolbarItem>{filterControls}</ToolbarItem> : null}
+          {bulkActions ? <ToolbarGroup>{bulkActions}</ToolbarGroup> : null}
           {primaryAction ? <ToolbarItem>{primaryAction}</ToolbarItem> : null}
-          <ToolbarItem
-            align={{ default: "alignStart", md: "alignEnd" }}
-            variant="pagination"
-          >
-            <Pagination
-              isCompact
-              itemCount={itemCount}
-              onSetPage={(_event, nextPage) => {
-                onStateChange({ ...state, page: nextPage }, "page");
-              }}
-              onPerPageSelect={(_event, nextPageSize) => {
-                onStateChange(
-                  { ...state, page: 1, pageSize: nextPageSize },
-                  "page-size",
-                );
-              }}
-              page={state.page}
-              perPage={state.pageSize}
-              perPageOptions={pageSizeOptions.map((value) => ({
-                title: String(value),
-                value,
-              }))}
-              widgetId={`${id}-pagination`}
-            />
-          </ToolbarItem>
+          {secondaryFilterControls ? null : topPagination}
         </ToolbarContent>
+        {/* Secondary toolbar row rendered directly below the filtering
+            controls. It uses PatternFly toolbar layout (a second
+            ToolbarContent) so the row aligns with the first-row controls and
+            the surrounding list content without manual offsets. The whole row
+            is omitted when no secondary controls are provided, so no empty
+            toolbar row remains (WEB-UIEX-07). */}
+        {secondaryFilterControls ? (
+          <ToolbarContent>
+            <ToolbarItem>{secondaryFilterControls}</ToolbarItem>
+            {topPagination}
+          </ToolbarContent>
+        ) : null}
       </Toolbar>
 
+      {banner}
+
       {rows.length > 0 ? (
-        <Table aria-label={ariaLabel} variant="compact">
-          <Thead>
-            <Tr>
-              {columns.map((column, columnIndex) => (
-                <Th
-                  key={column.id}
-                  sort={
-                    column.sortable === false
-                      ? undefined
-                      : getSortParams(columnIndex)
-                  }
-                  width={column.width}
-                >
-                  {column.label}
-                </Th>
-              ))}
-              {renderRowAction ? (
-                <Th screenReaderText={labels.actions} />
-              ) : null}
-            </Tr>
-          </Thead>
-          <Tbody>
-            {rows.map((row) => (
-              <Tr key={getRowKey(row)}>
-                {columns.map((column) => (
-                  <Td dataLabel={column.label} key={column.id}>
-                    {column.render(row)}
-                  </Td>
+        <>
+          <Table aria-label={ariaLabel} variant="compact">
+            <Thead>
+              <Tr>
+                {renderRowSelection ? (
+                  <Th screenReaderText={selectionColumnLabel} />
+                ) : null}
+                {columns.map((column, columnIndex) => (
+                  <Th
+                    key={column.id}
+                    sort={
+                      column.sortable === false
+                        ? undefined
+                        : getSortParams(columnIndex)
+                    }
+                    width={column.width}
+                  >
+                    {column.label}
+                  </Th>
                 ))}
                 {renderRowAction ? (
-                  <Td isActionCell modifier="fitContent">
-                    {renderRowAction(row)}
-                  </Td>
+                  <Th screenReaderText={labels.actions} />
                 ) : null}
               </Tr>
-            ))}
-          </Tbody>
-        </Table>
+            </Thead>
+            <Tbody>
+              {rows.map((row) => (
+                <Tr key={getRowKey(row)}>
+                  {renderRowSelection ? (
+                    <Td dataLabel={selectionColumnLabel}>
+                      {renderRowSelection(row)}
+                    </Td>
+                  ) : null}
+                  {columns.map((column) => (
+                    <Td dataLabel={column.label} key={column.id}>
+                      {column.render(row)}
+                    </Td>
+                  ))}
+                  {renderRowAction ? (
+                    <Td isActionCell modifier="fitContent">
+                      {renderRowAction(row)}
+                    </Td>
+                  ) : null}
+                </Tr>
+              ))}
+            </Tbody>
+          </Table>
+          {/* Bottom pagination for long lists (WEB-GLIS-02.03) */}
+          {showBottomPagination ? (
+            <div className={styles.bottomPagination}>
+              <Pagination
+                isCompact
+                itemCount={itemCount}
+                onSetPage={(_event, nextPage) => {
+                  onStateChange({ ...state, page: nextPage }, "page");
+                }}
+                onPerPageSelect={(_event, nextPageSize) => {
+                  onStateChange(
+                    { ...state, page: 1, pageSize: nextPageSize },
+                    "page-size",
+                  );
+                }}
+                page={state.page}
+                perPage={state.pageSize}
+                perPageOptions={pageSizeOptions.map((value) => ({
+                  title: String(value),
+                  value,
+                }))}
+                titles={{
+                  paginationAriaLabel: `${ariaLabel} bottom pagination`,
+                }}
+                variant="bottom"
+                widgetId={`${id}-bottom-pagination`}
+              />
+            </div>
+          ) : null}
+        </>
       ) : (
         <EmptyState
           headingLevel="h2"

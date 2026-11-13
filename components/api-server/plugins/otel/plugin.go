@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/logging"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/routes"
 	pkgserver "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/server"
 	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/otel"
@@ -70,7 +71,9 @@ func init() {
 	// trace context; the in-router middleware renames the span to a templated
 	// route and records the operation id (see http.go).
 	pkgserver.RegisterPreAuthMiddleware(otelHTTPHandler)
-	pkgserver.RegisterRoutes("otel", registerHTTPRouteMiddleware)
+	// Route tagging runs on every declared route (pkg/routes), inside the
+	// router where mux.CurrentRoute holds the templated path.
+	routes.RegisterMiddleware(routeTagMiddleware)
 
 	// gRPC: pre-auth interceptors so a propagated trace joins regardless of the
 	// auth outcome (see grpc.go).

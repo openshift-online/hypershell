@@ -1,11 +1,19 @@
 import { Alert, Bullseye, Label, Spinner, Title } from "@patternfly/react-core";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef } from "react";
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useRef,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { useIntl } from "react-intl";
 
 import { sourceLanguage } from "../domain/references";
+import type { SourceToken } from "../domain/source-highlight";
 import { messages } from "../messages";
-import { highlightHtml } from "./highlight-html";
+import { MATCH_CLASS } from "./highlight-hast";
 import { usePorts } from "./ports-context";
 import { useSpecRef } from "./ref-context";
 import type { SourceLocation } from "./ReferencesPanel";
@@ -17,6 +25,59 @@ interface SourceViewProps {
   revision: number;
   /** ID to mark wherever it appears in the file. */
   id: string | undefined;
+}
+
+function tokenStyle(token: SourceToken): CSSProperties {
+  return {
+    color: token.lightColor,
+    fontWeight: token.bold ? 700 : undefined,
+    fontStyle: token.italic ? "italic" : undefined,
+    textDecoration:
+      token.underline || token.strikethrough
+        ? [
+            token.underline ? "underline" : null,
+            token.strikethrough ? "line-through" : null,
+          ]
+            .filter(Boolean)
+            .join(" ")
+        : undefined,
+    "--shiki-dark": token.darkColor,
+  } as CSSProperties;
+}
+
+function rootStyle(highlight: {
+  foreground?: string;
+  darkForeground?: string;
+  background?: string;
+  darkBackground?: string;
+}): CSSProperties {
+  return {
+    color: highlight.foreground,
+    backgroundColor: highlight.background,
+    "--shiki-dark": highlight.darkForeground,
+    "--shiki-dark-bg": highlight.darkBackground,
+  } as CSSProperties;
+}
+
+function tokenChildren(
+  token: SourceToken,
+  pattern: RegExp | undefined,
+): ReactNode {
+  if (!pattern) return token.text;
+  const parts: ReactNode[] = [];
+  let last = 0;
+  for (const match of token.text.matchAll(pattern)) {
+    parts.push(token.text.slice(last, match.index));
+    parts.push(
+      <mark className={MATCH_CLASS} key={parts.length}>
+        {match[0]}
+      </mark>,
+    );
+    last = match.index + match[0].length;
+  }
+  if (parts.length === 0) return token.text;
+  parts.push(token.text.slice(last));
+  return parts;
 }
 
 /** A repository file with syntax coloring, scrolled to the selected line. */
@@ -35,14 +96,17 @@ export function SourceView({ location, revision, id }: SourceViewProps) {
         language,
       ),
   });
-  const html = useMemo(
-    () => (source.data ? highlightHtml(source.data, id ? [id] : []) : ""),
-    [source.data, id],
+  const pattern = useMemo(
+    () =>
+      id
+        ? new RegExp(id.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "giu")
+        : undefined,
+    [id],
   );
 
   useEffect(() => {
     const container = scroller.current;
-    if (!container || html === "") return;
+    if (!container || source.isPending) return;
     const line =
       container.querySelectorAll<HTMLElement>(".line")[location.line - 1];
     if (!line) return;
@@ -57,7 +121,7 @@ export function SourceView({ location, revision, id }: SourceViewProps) {
     return () => {
       line.removeEventListener("animationend", clear);
     };
-  }, [html, location.line, revision]);
+  }, [source.isPending, location.line, revision]);
 
   let body: React.ReactNode;
   if (source.isPending) {
@@ -78,7 +142,24 @@ export function SourceView({ location, revision, id }: SourceViewProps) {
     );
   } else {
     body = (
-      <div className="sv-source" dangerouslySetInnerHTML={{ __html: html }} />
+      <div className="sv-source">
+        <pre className="shiki" style={rootStyle(source.data)}>
+          <code>
+            {source.data.lines.map((line, index) => (
+              <Fragment key={index}>
+                <span className="line">
+                  {line.tokens.map((item, tokenIndex) => (
+                    <span key={tokenIndex} style={tokenStyle(item)}>
+                      {tokenChildren(item, pattern)}
+                    </span>
+                  ))}
+                </span>
+                <br />
+              </Fragment>
+            ))}
+          </code>
+        </pre>
+      </div>
     );
   }
 

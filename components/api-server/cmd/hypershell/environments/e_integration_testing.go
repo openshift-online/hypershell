@@ -3,6 +3,8 @@ package environments
 import (
 	"os"
 
+	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/authz"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/config"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db/db_session"
 	pkgenv "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
@@ -47,11 +49,13 @@ func (e *IntegrationTestingEnvImpl) Flags() map[string]string {
 	return map[string]string{
 		"log-level":            "info",
 		"logtostderr":          "true",
-		"api-base-url":         "https://api.integration.openshift.com",
 		"enable-https":         "false",
 		"enable-metrics-https": "false",
 		"enable-authz":         "true",
-		"debug":                "false",
-		"enable-mock":          "true",
 	}
+}
+
+// OverrideAuthorizer returns HyperShell's RBAC policy (pkg/rbac).
+func (e *IntegrationTestingEnvImpl) OverrideAuthorizer(env *pkgenv.Env) (authz.Authorizer, error) {
+	return rbac.ForEnvironment(env)
 }

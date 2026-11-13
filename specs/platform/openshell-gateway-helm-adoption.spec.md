@@ -145,7 +145,7 @@ The reconciler provisions a gateway only while its desired spec is not converged
 
 ### Requirement: OSG-HELM-02 -- Chart Sourcing
 
-The control plane SHALL load the upstream OpenShell Helm chart from a `.tgz` archive embedded in the container image. An OCI registry override is available for development.
+The control plane SHALL load the upstream OpenShell Helm chart from a `.tgz` archive embedded in the container image.
 
 #### Scenario: OSG-HELM-02.01 -- Embedded chart (default)
 
@@ -156,15 +156,6 @@ The control plane SHALL load the upstream OpenShell Helm chart from a `.tgz` arc
 - AND the chart source SHALL be committed to the repository under `charts/openshell/` and vendored via `make vendor-openshell-chart` (which clones the upstream tag, replaces the directory, and strips forbidden characters); the Dockerfile COPYs this committed tree and runs `helm package` with no network access, satisfying Konflux hermetic build requirements
 - AND upgrading the chart version SHALL require updating `OPENSHELL_VERSION`, running `make vendor-openshell-chart` to re-vendor the chart source, and rebuilding the control plane image
 - AND this ensures the chart version is always coupled to the control plane release -- a given control plane image always deploys the same chart version
-
-#### Scenario: OSG-HELM-02.02 -- OCI registry override (development only)
-
-- GIVEN the environment variable `HELM_CHART_REGISTRY` is set (e.g. `oci://ghcr.io/nvidia/openshell/helm-chart`)
-- WHEN the reconciler starts up
-- THEN it SHALL pull from the OCI registry instead of the embedded path
-- AND the chart version SHALL be read from `HELM_CHART_VERSION` (required when registry is set)
-- AND the chart SHALL be loaded once at startup and cached for the lifetime of the process
-- AND this mode SHALL NOT be used in production -- it introduces a runtime dependency on registry availability
 
 ---
 
@@ -177,8 +168,9 @@ The GatewayReconciler SHALL translate Gateway resource fields and cluster-derive
 | Gateway / CP Config | Helm Value | Notes |
 |---|---|---|
 | `ReleaseName` constant (`openshell-gateway`) | `fullnameOverride` | Upstream chart name is `helm-chart`; override pins all resource names to `openshell-gateway` |
-| Gateway `image` field | `image.repository`, `image.tag` | Split at last `:` |
-| Gateway `supervisor_image` field | `supervisorImage.repository`, `supervisorImage.tag` | Split at last `:` |
+| Gateway `image` field | `gateway.image.{registry,repository,tag,digest}` | Parsed into parts; a configured digest is preserved. See OSG-HELM-05 |
+| Gateway `supervisor_image` field | `supervisor.image.{registry,repository,tag,digest}` | Parsed into parts; a configured digest is preserved. See OSG-HELM-05 |
+| Gateway `sandbox_runtime_image` (from `GATEWAY_SANDBOX_RUNTIME_IMAGE`) | `sandboxRuntime.image.{registry,repository,tag,digest}` | Parsed into parts; a configured digest is preserved. See OSG-HELM-05 |
 | Always `deployment` | `workload.kind` | PostgreSQL backend, never StatefulSet |
 | `1` | `replicaCount` | Single replica per gateway |
 | `GATEWAY_RESOURCES` (else defaults) | `resources` | Default requests `cpu: 100m`, `memory: 512Mi`; limits `cpu: 500m`, `memory: 1Gi`. Always set: chart default is `{}` (no limits) |
@@ -187,7 +179,7 @@ The GatewayReconciler SHALL translate Gateway resource fields and cluster-derive
 | `true` | `serviceAccount.create` | Chart creates gateway SA |
 | `true` | `sandboxServiceAccount.create` | Chart creates sandbox SA |
 | `false` | `networkPolicy.enabled` | Disabled -- see NetworkPolicy Decision below |
-| cert-manager detected | `certManager.enabled` | Auto-detect at startup |
+| cert-manager present | `certManager.enabled` | Resolved through the shared, refreshable dependency discovery (CTRL-CORE-18); TLS-dependent work is gated per OSG-TLS-01 |
 | DB credentials Secret name | `server.externalDbSecret` | `openshell-gateway-db-credentials` |
 | Trusted CA ConfigMap name | `server.oidc.caConfigMapName` | `gateway-trusted-ca` (when present) |
 
@@ -216,11 +208,11 @@ Set based on the Gateway's credential driver configuration.
 
 #### Ingress Values (conditional)
 
-Set only when the Gateway has route configuration enabled.
+Set for every gateway; every gateway is routed.
 
-The control plane supports two mutually exclusive ingress modes depending on cluster capabilities. The TLS architecture differs fundamentally between them.
+The control plane exposes every routed gateway through the Gateway API.
 
-##### GRPCRoute + BackendTLSPolicy Mode (Gateway API -- OpenShift 4.22+)
+##### GRPCRoute + BackendTLSPolicy (Gateway API -- OpenShift 4.22+)
 
 ```
 Client ──TLS──▶ Shared Gateway (terminates with wildcard cert)
@@ -238,45 +230,14 @@ The shared Gateway terminates external TLS with its admin-provisioned wildcard c
 | BackendTLSPolicy support (PR #2728) | `grpcRoute.backendTLSPolicy.enabled=true` | Requires PR #2728 |
 | mTLS toggle (PR #2728) | `server.tls.enableMtls=false` | Required when BackendTLSPolicy is used |
 
-##### Route Passthrough Mode (OpenShift < 4.22)
-
-```
-Client ──TLS──▶ HAProxy Route (SNI passthrough, no termination)
-                   ──encrypted──▶ Gateway Pod (client sees this cert directly)
-```
-
-HAProxy does NOT terminate TLS -- it forwards the encrypted connection end-to-end based on SNI. The client sees the gateway pod's certificate directly. This means the pod's certificate must:
-
-1. **Include the external hostname as a SAN** (e.g. `gw-openshell-abc123.apps.example.com`)
-2. **Be signed by an externally trusted CA** (e.g. Let's Encrypt via an ACME ClusterIssuer) -- a self-signed internal CA will cause TLS verification failures for CLI clients
-
-The upstream Helm chart supports this via `certManager.serverIssuerRef`: when set, the chart creates a **second** Certificate resource (`openshell-gateway-server-external`) signed by the operator-provided issuer, with only externally-resolvable SANs from `certManager.serverDnsNames`. The internal cert (signed by the chart's self-signed CA) still exists for supervisor/sandbox traffic. The gateway uses SNI to present the correct certificate based on the incoming hostname.
-
-**Cluster prerequisite for Route mode:** An administrator must pre-provision a ClusterIssuer (or namespaced Issuer) for externally trusted certificates (e.g. ACME/Let's Encrypt, Vault PKI, or an organization CA). The control plane references this issuer by name -- it does not create it.
-
-| Gateway / CP Config | Helm Value | Notes |
-|---|---|---|
-| HyperShell Gateway has `route` config + no Kubernetes Gateway API | `openshiftRoute.enabled=true` | Fallback to `route.openshift.io/v1` Route |
-| Route hostname | `openshiftRoute.host` | `gw-<ns>.<base-domain>` |
-| HAProxy timeout | `openshiftRoute.annotations` | `{"haproxy.router.openshift.io/timeout": "3600s"}` |
-| External CA issuer name | `certManager.serverIssuerRef.name` | Pre-provisioned ClusterIssuer (e.g. `letsencrypt-prod`) |
-| External CA issuer kind | `certManager.serverIssuerRef.kind` | `ClusterIssuer` (or `Issuer` for namespace-scoped) |
-| Route hostname (as cert SAN) | `certManager.serverDnsNames` | `[gw-<ns>.<base-domain>]` -- must be externally resolvable |
-
-The chart validates this configuration at install time:
-- Fails if `openshiftRoute.enabled=true` and `server.disableTls=true` (passthrough requires the pod to terminate TLS)
-- Fails if `serverIssuerRef.name` is set but `serverDnsNames` is empty
-- Fails if `serverDnsNames` contains internal-only names (e.g. `localhost`, `*.svc.cluster.local`) when using an external issuer -- ACME CAs reject these per CA/Browser Forum baseline requirements
-- Fails if `openshiftRoute.host` is set with `serverIssuerRef` but the host is not covered by `serverDnsNames`
-
 #### OpenShift Values (conditional)
 
-Set only when the target cluster is detected as OpenShift.
+Set only when the configured platform is OpenShift (`HYPERSHELL_CLUSTER_PLATFORM=openshift`, see [`control-plane.spec.md`](./control-plane.spec.md), CTRL-CORE-16 and OSG-CORE-14). This is driven by the configured platform, not by API discovery.
 
-| Platform Detection | Helm Value | Notes |
+| Configured Platform | Helm Value | Notes |
 |---|---|---|
-| OpenShift detected | `podSecurityContext.fsGroup=null` | Let SCC assign |
-| OpenShift detected | `securityContext.runAsUser=null` | Let SCC assign |
+| `HYPERSHELL_CLUSTER_PLATFORM=openshift` | `podSecurityContext.fsGroup=null` | Let SCC assign |
+| `HYPERSHELL_CLUSTER_PLATFORM=openshift` | `securityContext.runAsUser=null` | Let SCC assign |
 
 #### Scenario: OSG-HELM-03.01 -- Values computation
 
@@ -285,6 +246,81 @@ Set only when the target cluster is detected as OpenShift.
 - THEN it SHALL produce a `map[string]interface{}` that maps all Gateway fields to chart values
 - AND unset optional fields (e.g. no OIDC) SHALL be omitted from the values map
 - AND the computed values SHALL be deterministic for the same Gateway state
+
+---
+
+### Requirement: OSG-HELM-05 -- Image Digest Preservation
+
+The GatewayReconciler SHALL preserve an explicitly configured container image
+digest when it builds Helm values for the gateway, supervisor and sandbox-runtime
+images. A configured image digest identifies the exact content that was tested and
+approved; the values builder SHALL NOT drop it, replace a digest reference with a
+tag, or fall back to `latest` when a digest is present.
+
+The values builder SHALL parse each image reference into its registry, repository,
+optional tag and optional digest parts, handling a registry port (for example
+`registry.example:5000/repo`) correctly, and SHALL set `gateway.image.digest`,
+`supervisor.image.digest` and `sandboxRuntime.image.digest` whenever the
+corresponding reference carries a digest. When a reference carries both a tag and a
+digest, the rendered image SHALL use the digest. The chart gives
+`image.digest` priority over `image.tag` (see the `openshell.image` helper in
+`charts/openshell/templates/_helpers.tpl`); the values builder SHALL supply the
+digest so this priority takes effect.
+
+An image reference that is malformed, or that cannot be parsed into valid parts,
+SHALL be reported as a validation error. The values builder SHALL NOT silently
+drop or replace parts of an unparseable reference.
+
+This requirement constrains only how an operator-selected image reference is carried
+through to the rendered deployment. Fleet upgrade scheduling and release promotion
+policy are out of scope.
+
+#### Scenario: OSG-HELM-05.01 -- Tag-only reference keeps working
+
+- GIVEN a configured image `quay.io/opendatahub/odh-openshell-gateway:v0.1.5` with no digest
+- WHEN the GatewayReconciler builds Helm values
+- THEN it SHALL set `gateway.image.registry` to `quay.io`, `gateway.image.repository` to `opendatahub/odh-openshell-gateway` and `gateway.image.tag` to `v0.1.5`
+- AND it SHALL NOT set `gateway.image.digest`
+- AND the rendered gateway image SHALL be `quay.io/opendatahub/odh-openshell-gateway:v0.1.5`
+
+#### Scenario: OSG-HELM-05.02 -- Tag-plus-digest reference renders with the digest
+
+- GIVEN a configured image `quay.io/opendatahub/odh-openshell-gateway:v0.1.5@sha256:abc...` with both a tag and a digest
+- WHEN the GatewayReconciler builds Helm values
+- THEN it SHALL set `gateway.image.digest` to `sha256:abc...`
+- AND the rendered gateway image SHALL be `quay.io/opendatahub/odh-openshell-gateway@sha256:abc...`
+- AND the rendered reference SHALL NOT use the tag `v0.1.5`
+
+#### Scenario: OSG-HELM-05.03 -- Digest-only reference never falls back to a tag
+
+- GIVEN a configured image `quay.io/opendatahub/odh-openshell-gateway@sha256:abc...` with a digest and no tag
+- WHEN the GatewayReconciler builds Helm values
+- THEN it SHALL set `gateway.image.digest` to `sha256:abc...`
+- AND it SHALL NOT set `gateway.image.tag`
+- AND the rendered gateway image SHALL be `quay.io/opendatahub/odh-openshell-gateway@sha256:abc...`
+- AND the rendered reference SHALL NOT use `latest`, the global image tag, or the chart app version
+
+#### Scenario: OSG-HELM-05.04 -- Registry port is parsed correctly
+
+- GIVEN a configured image `registry.example:5000/openshell/gateway:v1@sha256:abc...`
+- WHEN the GatewayReconciler builds Helm values
+- THEN it SHALL set `gateway.image.registry` to `registry.example:5000`, `gateway.image.repository` to `openshell/gateway` and `gateway.image.digest` to `sha256:abc...`
+- AND the rendered gateway image SHALL be `registry.example:5000/openshell/gateway@sha256:abc...`
+
+#### Scenario: OSG-HELM-05.05 -- Digest preserved for supervisor and sandbox-runtime images
+
+- GIVEN a configured supervisor image and sandbox-runtime image that each carry a digest
+- WHEN the GatewayReconciler builds Helm values
+- THEN it SHALL set `supervisor.image.digest` and `sandboxRuntime.image.digest` to the respective digests
+- AND the rendered supervisor and sandbox-runtime image references SHALL use those digests
+- AND any gateway-image consumer rendered by the chart (for example the certificate-generation job) SHALL use the gateway digest
+
+#### Scenario: OSG-HELM-05.06 -- Malformed reference is a validation error
+
+- GIVEN a configured image reference that cannot be parsed into valid registry, repository, tag and digest parts
+- WHEN the GatewayReconciler builds Helm values
+- THEN it SHALL return a validation error that names the invalid reference
+- AND it SHALL NOT silently drop or replace any part of the reference
 
 ---
 
@@ -314,7 +350,6 @@ Set only when the target cluster is detected as OpenShift.
 | GRPCRoute `openshell-gateway` | `grpcroute.yaml` | `grpcRoute.enabled` |
 | BackendTLSPolicy `openshell-gateway` | `backend-tls-policy.yaml` (PR #2728) | `grpcRoute.backendTLSPolicy.enabled` |
 | BackendCA ConfigMap | Created by certgen hook (PR #2728) | `grpcRoute.backendTLSPolicy.enabled` |
-| Route (OpenShift) | `route.yaml` | `openshiftRoute.enabled` |
 | Trusted CA volume/mount/env | `_gateway-workload.tpl` | `server.oidc.caConfigMapName` |
 
 ### Gap Table: Control-Plane-Managed Resources
@@ -348,15 +383,6 @@ Closing this gap requires an upstream chart mechanism for a database CA volume (
 The control plane SHALL NOT install any NetworkPolicies for gateway namespaces, and the Helm chart SHALL be configured with `networkPolicy.enabled=false`.
 
 **Rationale:** On OVN-Kubernetes (the network plugin used on OpenShift), the default posture is allow-all. Pods within the same namespace -- and across namespaces -- can communicate freely. NetworkPolicies are additive deny: creating any NetworkPolicy that selects a pod with `policyTypes: [Ingress]` switches that pod to deny-by-default, requiring explicit allow rules for all legitimate traffic.
-
-In practice, the existing gateway NetworkPolicies created a self-defeating cycle:
-
-1. `allow-router` selected the gateway pod and permitted cross-namespace ingress from `openshift-ingress` -- but this isolated the gateway pod for all other ingress
-2. `allow-sandbox-v2` was then required to restore sandbox→gateway gRPC connectivity (same namespace, already open without policies)
-3. `sandbox-ssh-v2` was required to restore gateway→sandbox SSH connectivity
-4. `allow-console` was required to restore console→gateway connectivity
-
-**Verified empirically:** On namespace `openshell-3eaf1474f52f561c`, removing all 7 NetworkPolicies had no impact on end-to-end connectivity (local machine → OpenShift ingress → gateway → sandbox exec). Conversely, installing only `allow-router` broke sandbox connectivity by isolating the gateway pod.
 
 **Future consideration:** If a restrictive network policy posture becomes a platform requirement, we will revisit this decision and implement a comprehensive policy set that covers all legitimate traffic directions.
 
@@ -402,7 +428,7 @@ The control plane SHALL provide a dedicated package for Helm operations with the
 |---|---|
 | Release management | Install, upgrade, uninstall, and query release status via the Helm CLI |
 | Values translation | Map Gateway resource fields to Helm chart values (`map[string]interface{}`) |
-| Chart verification | Verify chart archive exists at the embedded path; pull from OCI registry in dev mode |
+| Chart verification | Verify chart archive exists at the embedded path |
 
 ---
 
@@ -413,19 +439,6 @@ The control plane SHALL provide a dedicated package for Helm operations with the
 | Variable | Default | Description |
 |---|---|---|
 | `HELM_CHART_PATH` | `/charts/openshell.tgz` | Path to embedded chart archive in the container |
-| `HELM_CHART_REGISTRY` | *(empty)* | OCI registry URL (dev only); when set, overrides `HELM_CHART_PATH` |
-| `HELM_CHART_VERSION` | *(empty)* | Chart version to pull from OCI registry; required when `HELM_CHART_REGISTRY` is set |
-| `EXTERNAL_CA_ISSUER_NAME` | *(empty)* | cert-manager issuer name for externally trusted certificates (e.g. `letsencrypt-prod`); required for Route passthrough mode |
-| `EXTERNAL_CA_ISSUER_KIND` | `ClusterIssuer` | Kind of the external CA issuer (`ClusterIssuer` or `Issuer`) |
-
-### Validation at Startup
-
-The control plane SHALL validate configuration at startup and fail fast with clear error messages:
-
-- Control plane SHALL validate `EXTERNAL_CA_ISSUER_NAME` is set when any managed cluster lacks Gateway API support (Route passthrough mode will be used)
-- Control plane SHALL fail fast with error message: `"EXTERNAL_CA_ISSUER_NAME required for Route passthrough mode on cluster <name>"` if validation fails
-- When `HELM_CHART_REGISTRY` is set, `HELM_CHART_VERSION` SHALL be required (fail if missing)
-- Chart version compatibility SHALL be verified if pulling from OCI registry (log warning if chart version is not tested)
 
 ---
 

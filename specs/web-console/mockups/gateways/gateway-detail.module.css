@@ -1,0 +1,147 @@
+/* patternfly-gap: specs/web-console/architecture.spec.md - the approved gateway connection commands use an overlaid copy action, while PatternFly CodeBlock renders actions in a separate header row */
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pf-t--global--spacer--lg);
+  margin: 0;
+  max-width: 60rem;
+  padding: 0;
+}
+
+.step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pf-t--global--spacer--sm);
+}
+
+.steps :global(.pf-v6-c-code-block) {
+  position: relative;
+  background-color: var(--pf-t--global--background--color--primary--default);
+  border: var(--pf-t--global--border--width--box--default) solid
+    var(--pf-t--global--border--color--default);
+  border-radius: var(--pf-v6-c-code-block--BorderRadius);
+  overflow: hidden;
+}
+
+.steps :global(.pf-v6-c-code-block__header) {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  border-block-end: 0;
+  background-color: transparent;
+  padding: var(--pf-t--global--spacer--xs);
+  z-index: 1;
+}
+
+.steps :global(.pf-v6-c-code-block__content) {
+  padding-inline-end: 3rem;
+}
+
+.provisioningStepper {
+  max-width: 60rem;
+}
+
+.provisioningStepper :global(.pf-v6-c-progress-stepper__step-title) {
+  font-size: var(--pf-v6-global--FontSize--sm);
+  min-height: 2lh;
+}
+
+.prereqAlert {
+  margin-block: var(--pf-t--global--spacer--sm);
+}
+
+.endpointCopy {
+  min-width: 100%;
+  width: 100%;
+}
+
+@media (min-width: 75rem) {
+  .endpointCopy {
+    min-width: 32rem;
+  }
+}
+
+.prereqContent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pf-t--global--spacer--sm);
+}
+
+.field {
+  cursor: text;
+  text-decoration: underline dashed;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+  padding-inline: 0.15em;
+  margin-inline: -0.15em;
+  border-radius: var(--pf-t--global--border--radius--small);
+  outline: none;
+  white-space: pre;
+}
+
+.field:empty {
+  min-width: 1ch;
+}
+
+.field:hover {
+  background-color: var(--pf-t--global--background--color--secondary--default);
+}
+
+.field:focus-visible {
+  background-color: var(--pf-t--global--background--color--secondary--default);
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.expandedRow {
+  padding: var(--pf-t--global--spacer--md);
+}
+
+.accessFilter {
+  max-width: 100%;
+  width: 20rem;
+}
+
+.editAccountAlert {
+  margin-block-start: var(--pf-t--global--spacer--lg);
+}
+
+.connectionGuide {
+  max-width: 60rem;
+}
+
+.connectionStepTitle {
+  display: flex;
+  align-items: center;
+  column-gap: var(--pf-t--global--spacer--sm);
+  gap: var(--pf-t--global--spacer--sm);
+}
+
+.connectionStepNumber {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 1.75rem;
+  block-size: 1.75rem;
+  flex: none;
+  border-radius: 50%;
+  background-color: var(--pf-t--global--background--color--primary--default);
+  border: var(--pf-t--global--border--width--box--default) solid
+    var(--pf-t--global--border--color--default);
+  color: var(--pf-t--global--text--color--default);
+  font-size: var(--pf-t--global--FontSize--md);
+  font-weight: var(--pf-t--global--FontWeight--body--bold);
+}
+
+.commandSettings {
+  margin-block-end: var(--pf-t--global--spacer--sm);
+}
+
+.commandSettings :global(.pf-v6-c-form-control) {
+  width: 100%;
+}
+
+.automationCard {
+  max-width: 60rem;
+}

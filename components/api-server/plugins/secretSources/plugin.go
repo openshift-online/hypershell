@@ -5,15 +5,15 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/gorilla/mux"
 	"google.golang.org/grpc"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/extsearch"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/routes"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/secretstore"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/agentRuntimes"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
-	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/authz"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
@@ -76,7 +76,7 @@ func init() {
 		return NewServiceLocator(env.(*environments.Env))
 	})
 
-	pkgserver.RegisterPrefixedRoutes("secretSources", "ext", func(extRouter *mux.Router, services pkgserver.ServicesInterface, authMiddleware environments.JWTMiddleware, authzMiddleware auth.AuthorizationMiddleware) {
+	pkgserver.RegisterPrefixedRoutes("secretSources", "ext", func(apiRouter *pkgserver.APIRouter, services pkgserver.ServicesInterface) {
 		envServices := services.(*environments.Services)
 		// The secret-submission endpoint writes a submitted value to the configured
 		// secret manager before persisting the reference. A misconfigured store does
@@ -89,14 +89,17 @@ func init() {
 		}
 		h := NewSecretSourceHandler(Service(envServices), extsearch.Service(envServices), store, newManageAuthorizer(envServices))
 
-		router := extRouter.PathPrefix("/secret_sources").Subrouter()
+		router := routes.Resource(apiRouter, "secret_sources").PathPrefix("/secret_sources").Subrouter()
 		router.HandleFunc("", h.List).Methods(http.MethodGet)
 		router.HandleFunc("/{id}", h.Get).Methods(http.MethodGet)
 		router.HandleFunc("", h.Create).Methods(http.MethodPost)
 		router.HandleFunc("/{id}", h.Patch).Methods(http.MethodPatch)
 		router.HandleFunc("/{id}", h.Delete).Methods(http.MethodDelete)
-		router.Use(authMiddleware.AuthenticateAccountJWT)
-		router.Use(authzMiddleware.AuthorizeApi)
+		// Write-only material upload on an existing SecretSource (PLAT-DATA-27,
+		// AGT-SEC-14): supplies the durable material for a reference-only source
+		// after create, passing it through the write-only store to the convention
+		// path and recording only the reference.
+		router.HandleFunc("/{id}/material", h.UploadMaterial).Methods(http.MethodPost)
 	})
 
 	pkgserver.RegisterGRPCService("secretSources", func(grpcServer *grpc.Server, services pkgserver.ServicesInterface) {
@@ -108,7 +111,7 @@ func init() {
 			return nil
 		}
 		pb.RegisterSecretSourceServiceServer(grpcServer, NewSecretSourceGRPCHandler(Service(envServices), extsearch.Service(envServices), brokerFunc))
-	})
+	}, authz.CRUDResources(pb.SecretSourceService_ServiceDesc.ServiceName, "secret_sources", "SecretSource", "SecretSources"))
 
 	presenters.RegisterPath(SecretSource{}, "secret_sources")
 	presenters.RegisterPath(&SecretSource{}, "secret_sources")

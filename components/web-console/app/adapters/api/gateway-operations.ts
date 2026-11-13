@@ -544,7 +544,6 @@ export function createGatewayControlPlaneAdapter(
           { signal: context.signal },
         );
         return {
-          localKind: availability.local_kind,
           placements: availability.placements.map((placement) => ({
             available: placement.available,
             reason: placement.reason,

@@ -69,6 +69,9 @@ KIND_DNS_PORT?=5553
 GATEWAY_API_GATEWAY_NAME?=openshell-grpc-gateway
 GATEWAY_API_GATEWAY_NAMESPACE?=openshift-ingress
 GATEWAY_IMAGE?=$(shell . ./OPENSHELL_VERSION && echo "$${OPENSHELL_GATEWAY_IMAGE}:$${OPENSHELL_TAG}")
+# Single supported OpenShell release, stamped onto the controller image as the
+# app.hypershell.openshell.version label (specs/platform/openshell-image-auto-update.spec.md).
+OPENSHELL_TAG?=$(shell . ./OPENSHELL_VERSION && echo "$${OPENSHELL_TAG}")
 
 # Service hostnames (routed through the networking Gateway)
 API_HOSTNAME=api.hypershell.localhost
@@ -121,7 +124,11 @@ help:
 	@echo "                             LOCAL_IMAGES=true KIND_SKIP_BUILD=true: reuse existing local images"
 	@echo "                             KIND_SKIP_SEED=true: defer seeding (run kind-seed later)"
 	@echo "                             KIND_COVERAGE=true: coverage-instrumented images (implies LOCAL_IMAGES=true)"
+	@echo "    kind-up-with-oce         HyperShell + OCE from Quay + gpt-6-luna Codex agent (ENMAAS_API_KEY_FILE)"
+	@echo "    kind-teardown            Destroy hypershell-dev and hypershell-oce when present"
+	@echo "                             KIND_CLUSTER_NAME=<name>: target a non-default cluster only"
 	@echo "    kind-seed                Seed platform resources into a running cluster"
+	@echo "                             SEED_OPERATOR_WORKSPACES=true: create dev-gateway with hsctl in operator mode"
 	@echo "    kind-reconcile-keycloak-users  Assign platform:admin to admin on stale Keycloak imports"
 	@echo "                             SKIP_SEED=true: defer seeding during kind-up / openshift-up"
 	@echo "                             SEED_STRICT=true: fail the command if seeding is incomplete"
@@ -218,6 +225,7 @@ build-api-server:
 .PHONY: build-controller
 build-controller:
 	$(CONTAINER_ENGINE) build -t $(control_plane_local) \
+		--build-arg OPENSHELL_TAG=$(OPENSHELL_TAG) \
 		-f components/control-plane/Dockerfile .
 
 .PHONY: build-cli
@@ -243,6 +251,14 @@ test-forbidden-terms-policy:
 .PHONY: check-forbidden-terms
 check-forbidden-terms: test-forbidden-terms-policy
 	python3 scripts/check_forbidden_terms.py
+
+.PHONY: test-forbidden-dom-injection-policy
+test-forbidden-dom-injection-policy:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_check_forbidden_dom_injection.py
+
+.PHONY: check-forbidden-dom-injection
+check-forbidden-dom-injection: test-forbidden-dom-injection-policy
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_forbidden_dom_injection.py
 
 .PHONY: test-kind-conformance-policy
 test-kind-conformance-policy:
@@ -303,11 +319,22 @@ vendor-openshell-chart:
 
 .PHONY: test-openshell-version-policy
 test-openshell-version-policy:
-	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_sync_openshell_version.py
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
+		scripts/test_sync_openshell_version.py \
+		scripts/test_check_controller_image_label.py
 
 .PHONY: check-openshell-version
 check-openshell-version: test-openshell-version-policy
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/sync_openshell_version.py
+
+.PHONY: check-controller-image-label
+# Inspect a built controller image's configuration and verify the single
+# supported OpenShell release label across every architecture variant
+# (specs/platform/openshell-image-auto-update.spec.md, CICD-IMG-04/05). Pass the
+# image reference in IMAGE, e.g. `make check-controller-image-label IMAGE=...`.
+check-controller-image-label:
+	@test -n "$(IMAGE)" || { echo "Set IMAGE=<controller image reference>"; exit 2; }
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_controller_image_label.py "$(IMAGE)"
 
 .PHONY: test-spec-ids-policy
 test-spec-ids-policy:
@@ -338,7 +365,7 @@ check-ci-impact-scopes: test-ci-impact-scopes-policy
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_ci_impact_scopes.py
 
 .PHONY: check
-check: check-forbidden-terms check-kind-conformance check-dependency-pins check-ci-components check-deploy-orphans check-dependency-age check-openshell-version check-cli-drift check-spec-ids check-ci-impact-scopes test-release-bundle test-coverage-report
+check: check-forbidden-terms check-forbidden-dom-injection check-kind-conformance check-dependency-pins check-ci-components check-deploy-orphans check-dependency-age check-openshell-version check-cli-drift check-spec-ids check-ci-impact-scopes test-release-bundle test-coverage-report
 
 # ============================================================================
 # Git hooks
@@ -556,6 +583,13 @@ kind-env:
 .PHONY: kind-up
 kind-up:
 	@CLUSTER_DRIVER=kind scripts/cluster/up.sh
+
+.PHONY: kind-up-with-oce
+kind-up-with-oce: export OCE_REPO := $(OCE_REPO)
+kind-up-with-oce: export ENMAAS_API_KEY_FILE := $(ENMAAS_API_KEY_FILE)
+kind-up-with-oce: export OCE_KIND_STATE := $(OCE_KIND_STATE)
+kind-up-with-oce:
+	@bash deploy/oce-kind/up.sh
 
 .PHONY: kind-seed
 kind-seed:
@@ -812,6 +846,8 @@ fullsend fullsend-status fullsend-doctor fullsend-help: export FULLSEND_LAUNCH_S
 fullsend fullsend-status fullsend-doctor fullsend-help: export FULLSEND_LAUNCH_ENV_FILE = $(ENV_FILE)
 fullsend fullsend-status fullsend-doctor fullsend-help: export FULLSEND_LAUNCH_MODEL = $(MODEL)
 fullsend fullsend-status fullsend-doctor fullsend-help: export FULLSEND_LAUNCH_CONCURRENCY = $(if $(filter command line,$(origin CONCURRENCY)),$(CONCURRENCY))
+fullsend fullsend-status fullsend-doctor fullsend-help: export FULLSEND_LAUNCH_INTAKE_INTERVAL = $(INTAKE_INTERVAL)
+fullsend fullsend-status fullsend-doctor fullsend-help: export FULLSEND_LAUNCH_AUTO_MERGE = $(AUTO_MERGE)
 fullsend:
 	@bash .hypershell/execute-sdlc/local.sh watch
 fullsend-status:

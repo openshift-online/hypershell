@@ -5,6 +5,7 @@
 import type { Plane } from "../../domain/plane";
 import type { E2eStreamHandlers, FleetApi } from "../../application/ports";
 import {
+  mapE2eDiagnostics,
   mapE2eRunDetail,
   mapE2eRunLogPage,
   mapE2eRuns,
@@ -18,6 +19,7 @@ import {
   mapSdlcAgents,
   mapTopology,
 } from "./wire";
+import { mapDelivery } from "./delivery-wire";
 
 export interface HttpFleetApiOptions {
   /** BFF base path, e.g. "/api". No trailing slash. */
@@ -148,8 +150,17 @@ export function createHttpFleetApi(options: HttpFleetApiOptions): FleetApi {
     getSdlc: (signal) => getPlane("/sdlc", mapSdlc, signal),
     getSdlcAgents: (signal) => getPlane("/sdlc-agents", mapSdlcAgents, signal),
     getE2eRuns: (signal) => getPlane("/e2e/runs", mapE2eRuns, signal),
+    getDelivery: (signal) => getPlane("/delivery", mapDelivery, signal),
     getE2eRun: (id, signal) =>
       getPlane(`/e2e/runs/${encodeRunId(id)}`, mapE2eRunDetail, signal),
+    getE2eDiagnostics: (id, signal) => {
+      const params = new URLSearchParams({ run: id });
+      return getPlane(
+        `/e2e/diagnostics?${params.toString()}`,
+        mapE2eDiagnostics,
+        signal,
+      );
+    },
     getE2eRunLogs: (id, before, stepId, signal) => {
       // The run id is a collision-free multi-segment address; it rides a single
       // "run" query value (encoded whole), exactly as the live stream does, because

@@ -82,8 +82,8 @@ func TestGatewayCreateRequestForSuiteRequirement(t *testing.T) {
 	s := &E2ESuite{driver: nameDriver{name: "kind"}}
 
 	req := s.gatewayCreateRequestForSuite("e2e-gw")
-	if req.Placement == nil || req.Placement.Mode != "local-kind" {
-		t.Fatalf("non-matrix request should carry the kind placement, got %+v", req.Placement)
+	if req.Placement == nil || len(req.Placement.Selector) != 1 || req.Placement.Selector[0] != "provider/kind" {
+		t.Fatalf("non-matrix request should carry the Kind capability selector, got %+v", req.Placement)
 	}
 
 	got := decodeRequest(t, req)

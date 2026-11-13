@@ -187,6 +187,11 @@ The bundle-to-hub-cluster facts (which bundle runs on hyp0/hyp1/hyp2, and drift 
 them) SHALL be the promotion plane's existing release-plus-deployment facts, not a
 re-resolution.
 
+The Delivery tab is another consumer of this shared bundle source. It reads
+locked-bundle membership from it and applies the same compare-window rule only to
+bundles that are published but not yet in the release lock (FLT-DLV-06), so a change
+appears under the same bundle in both tabs.
+
 #### Scenario: SDLC-VIS-03.01 -- Matrix reuses promotion bundle and cluster facts
 
 - GIVEN the promotion plane has resolved each hub cluster's current bundle
@@ -261,6 +266,24 @@ GitHub rate limits regardless of the number of concurrent viewers.
 - GIVEN any number of concurrent dashboard viewers
 - WHEN the dashboard runs
 - THEN the GitHub request rate SHALL be bounded by the refresh loop alone
+
+#### Scenario: SDLC-VIS-04.03 -- Unchanged issues cost only the listing
+
+The GitHub App installation's REST budget is shared by every dashboard GitHub
+reader, so the per-refresh cost SHALL NOT grow with the number of `agent/allowed`
+issues, open or closed.
+
+- GIVEN a refresh has already read every in-scope issue's timeline
+- WHEN the next refresh runs and no issue's `updated_at` has changed
+- THEN the plane SHALL reuse each issue's cached label history and SHALL NOT re-read
+  its timeline
+- AND the issue listing SHALL be sent as a conditional request (`If-None-Match`), so
+  an unchanged listing answers 304, which GitHub does not count against the rate limit
+- AND an issue whose `updated_at` changed SHALL have only its own timeline re-read
+- AND a timeline read that failed or was truncated SHALL NOT be cached, so it is
+  retried on the next refresh
+- AND the work-item -> PRs timeline retry for a record with no linked PRs SHALL also
+  be a conditional request
 
 ### Requirement: SDLC-VIS-05 -- Fleet-Identity Firewall Preserved
 
@@ -698,6 +721,28 @@ Map with that bundle opened (consistent with the shared freight bar, SDLC-VIS-07
 - WHEN the operator activates it
 - THEN the Fleet Map SHALL open with that issue's bundle selected
 
+### Requirement: SDLC-VIS-26 -- Unreleased Row Links to Delivery
+
+The Unreleased row SHALL offer a "Follow on Delivery" link that opens the Delivery
+tab (FLT-DLV-01). Each Unreleased issue whose delivering pull request is a change
+listed by the Delivery tab SHALL link to that change (`/delivery?change=<sha>`,
+FLT-DLV-14), where its build, release, and promotion stages are shown. The matrix
+itself SHALL keep showing no in-progress stage state (SDLC-VIS-11). When the
+Delivery plane is not configured (FLT-DLV-01.02), the links SHALL be omitted.
+
+#### Scenario: SDLC-VIS-26.01 -- Unreleased issue opens its change
+
+- GIVEN an Unreleased issue delivered by pull request #997
+- AND the Delivery tab lists the change for #997
+- WHEN the operator follows the issue's Delivery link
+- THEN the Delivery tab SHALL open with that change's details drawer
+
+#### Scenario: SDLC-VIS-26.02 -- Delivery plane not configured
+
+- GIVEN the Delivery plane is not configured
+- WHEN the Unreleased row renders
+- THEN it SHALL show no Delivery links
+
 ### Requirement: SDLC-VIS-20 -- Card Phase-Transition Flights
 
 When an execution-record card changes phase between two SDLC snapshots, the whole
@@ -1033,42 +1078,39 @@ loading, stale, empty-lane, and mid-flight states using a mock SDLC port.
 ### Requirement: SDLC-VIS-23 -- Ingestion Filter Uses the Authorization Gate
 
 The GitHub-label adapter SHALL use `agent/allowed` as the ingestion filter for the
-SDLC board listing query, replacing the `agent/execution-record` marker. The listing
-SHALL request `GET /repos/{repo}/issues?labels=agent/allowed&state=all&...` so that
-every authorized issue (any state) is ingested regardless of whether an execution
-record marker exists. The Intake phase entry marker SHALL be `agent/allowed`, so an
-issue carrying only `agent/allowed` and no further funnel label resolves to Intake
+SDLC board listing query. The listing SHALL request
+`GET /repos/{repo}/issues?labels=agent/allowed&state=all&...` so that every
+authorized issue (any state) is ingested whether or not it carries
+`agent/execution-record`. The Intake phase entry marker SHALL be `agent/allowed`, so
+an issue carrying only `agent/allowed` and no further funnel label resolves to Intake
 with its time-in-phase measured from when the `agent/allowed` label was applied.
 
 `agent/allowed` is the human authorization gate that admits an issue to autonomous
 development (`specs/standards/sdlc/jira-github-sync.spec.md`, SDLC-JIRA-01). It is
-the true entrance to the funnel: the moment a human authorizes a work item is the
+the entrance to the funnel: the moment a human authorizes a work item is the
 moment it enters the funnel, not the later bookkeeping step that applies
 `agent/execution-record`.
 
-The two labels have overlapping but distinct scopes. Switching the filter is NOT a
-strict superset:
+The board SHALL show:
 
-| State                                                             | Old filter (`agent/execution-record`) | New filter (`agent/allowed`)      |
-| ----------------------------------------------------------------- | ------------------------------------- | --------------------------------- |
-| Pre-ingest GitHub-origin item (authorized, not yet ingested)      | Not shown                             | Shown (the intended fix)          |
-| Inert Jira-origin execution record (ingested, not yet authorized) | Shown                                 | Not shown (deliberately excluded) |
-| Authorized execution record (both labels present)                 | Shown                                 | Shown                             |
+| State                                                             | Shown on the board |
+| ----------------------------------------------------------------- | ------------------ |
+| Pre-ingest GitHub-origin item (authorized, not yet ingested)      | Yes                |
+| Inert Jira-origin execution record (ingested, not yet authorized) | No                 |
+| Authorized execution record (both labels present)                 | Yes                |
 
-The exclusion of inert Jira-origin records is deliberate: an inert record is
+Inert Jira-origin records are excluded on purpose: an inert record is
 un-authorized and cannot be acted upon by the funnel (SDLC-JIRA-01). Showing it on
 the board would place inert, un-actionable work in the funnel view alongside
-authorized work, which misrepresents the funnel's actual scope. The board answers
+authorized work, which misrepresents the funnel's scope. The board answers
 "what is in the authorized funnel?", and an inert record is not in the authorized
 funnel.
 
-Every issue that carries `agent/execution-record` AND `agent/allowed` continues to
-appear and resolve to its current phase, so no currently authorized and actionable
-issue is dropped.
+Every issue that carries `agent/execution-record` AND `agent/allowed` SHALL appear
+and resolve to its current phase.
 
-This change adds no new GitHub API calls and requires no change to the refresh
-cadence: it is a one-label swap in the existing listing query plus the Intake
-entry marker (SDLC-VIS-04).
+The listing SHALL be a single issues-by-label query per product repository and
+SHALL use the refresh cadence defined by SDLC-VIS-04.
 
 #### Scenario: SDLC-VIS-23.01 -- Allowed-only issue appears in Intake
 
@@ -1083,20 +1125,20 @@ entry marker (SDLC-VIS-04).
 - WHEN the adapter computes its PhaseSince
 - THEN PhaseSince SHALL equal the timestamp of the `agent/allowed` labeled event
 
-#### Scenario: SDLC-VIS-23.03 -- Authorized execution records continue to resolve
+#### Scenario: SDLC-VIS-23.03 -- Authorized execution records resolve to their phase
 
 - GIVEN an issue carrying both `agent/allowed` and `agent/execution-record` along
   with a funnel phase label (for example `agent/reviewable-spec`)
 - WHEN the SDLC board renders
 - THEN the issue SHALL resolve to its current phase (Spec in this example)
-- AND its time-in-phase and rework count SHALL be unchanged
+- AND its time-in-phase and rework count SHALL be computed from its funnel phase labels
 
-#### Scenario: SDLC-VIS-23.04 -- No increase in GitHub API calls
+#### Scenario: SDLC-VIS-23.04 -- One listing query per refresh
 
 - GIVEN the SDLC plane refreshes
 - WHEN it lists in-scope issues
-- THEN the number of GitHub API calls SHALL be the same as before the filter change
-- AND the refresh cadence SHALL be unchanged
+- THEN it SHALL issue one `agent/allowed` issues-by-label query per product repository
+- AND the refresh cadence SHALL be the one defined by SDLC-VIS-04
 
 #### Scenario: SDLC-VIS-23.05 -- Inert Jira-origin record excluded from the board
 

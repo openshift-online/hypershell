@@ -145,7 +145,7 @@ describe("HomepagePageSurface", () => {
       screen
         .getByRole("link", { name: "research-gateway" })
         .getAttribute("href"),
-    ).toBe("/gateways/gateway-17");
+    ).toBe("/gateways/gateway-17?attention=gateway-health");
     expect(
       screen.getByText("Talk to the team in #forum-hypershell"),
     ).toBeTruthy();
@@ -168,15 +168,15 @@ describe("HomepagePageSurface", () => {
     expect(screen.getByText("Create a gateway")).toBeTruthy();
   });
 
-  it("describes local-kind Quick Create placement", () => {
+  it("describes the Kind Quick Create placement", () => {
     renderSurface({
       quickCreateOpen: true,
-      quickCreatePlacement: { placement: { mode: "local-kind" } },
+      quickCreatePlacement: { placement: { selector: ["provider/kind"] } },
     });
 
     expect(
       screen.getByText(
-        "Quick create makes a gateway on local-kind with a generated name. You can rename it after it starts.",
+        "Quick create makes a gateway on the local Kind cluster with a generated name. You can rename it after it starts.",
       ),
     ).toBeTruthy();
   });
@@ -240,6 +240,16 @@ describe("HomepagePageSurface", () => {
         .querySelector(".pf-v6-c-icon__content")
         ?.getAttribute("class"),
     ).toContain("pf-m-warning");
+  });
+
+  it("links gateway needs attention to the gateway context", () => {
+    renderSurface();
+
+    expect(
+      screen
+        .getByRole("link", { name: "research-gateway" })
+        .getAttribute("href"),
+    ).toBe("/gateways/gateway-17?attention=gateway-health");
   });
 
   it("shows the support link when summary data is unavailable", () => {

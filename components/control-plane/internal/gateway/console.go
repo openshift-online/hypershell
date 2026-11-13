@@ -4,9 +4,8 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
-	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
@@ -113,17 +112,6 @@ func ConsoleURLFor(nsConfig NamespaceConfig) (string, bool) {
 	return "https://" + host, true
 }
 
-// ConsoleURL returns the external URL of the per-gateway console for a gateway
-// on the shared ingress (console-<ns>.<base-domain>), or ok=false when
-// GATEWAY_API_BASE_DOMAIN is unset (console disabled). The reconciler publishes
-// this address only once the console Deployment is Ready. Callers reconciling a
-// gateway opted in to the dedicated per-gateway certificate must use
-// ConsoleURLFor with the parsed route config instead: those consoles serve
-// from the per-tenant Gateway's domain, not the shared base domain.
-func ConsoleURL(namespace string) (string, bool) {
-	return ConsoleURLFor(NamespaceConfig{Name: namespace})
-}
-
 // consoleHTTPRouteGVR is the GroupVersionResource for the console HTTPRoute.
 var consoleHTTPRouteGVR = schema.GroupVersionResource{
 	Group:    "gateway.networking.k8s.io",
@@ -131,22 +119,13 @@ var consoleHTTPRouteGVR = schema.GroupVersionResource{
 	Resource: "httproutes",
 }
 
-// consoleOpenShiftRouteGVR is the GroupVersionResource for the console Route.
-var consoleOpenShiftRouteGVR = schema.GroupVersionResource{
-	Group:    "route.openshift.io",
-	Version:  "v1",
-	Resource: "routes",
-}
-
-// ConsoleExposureReady reports the readiness of the console exposure for the
-// selected ingress mode, AND that the exposure serves the console host derived
+// ConsoleExposureReady reports the readiness of the console HTTPRoute, AND that the exposure serves the console host derived
 // from the gateway's route config. A Gateway API HTTPRoute needs Accepted=True
 // and ResolvedRefs=True on one parent, its hostname must be the derived console
 // host, and its parentRef must target the Gateway that host is served by (the
 // per-tenant Gateway's "sandbox" listener for the dedicated per-gateway
-// certificate opt-in, the shared Gateway's HTTP listener otherwise). An
-// OpenShift Route needs Admitted=True from one router and its spec.host must be
-// the derived console host. The reason describes a known rejection, an
+// certificate opt-in, the shared Gateway's HTTP listener otherwise). The
+// reason describes a known rejection, an
 // incomplete status, or a host/parent mismatch (the console self-heal converges
 // the exposure when one is reported).
 //
@@ -157,21 +136,12 @@ var consoleOpenShiftRouteGVR = schema.GroupVersionResource{
 // wildcard DNS) to a Gateway with no listener for it -- would otherwise
 // advertise a URL that presents a mismatched certificate and is refused by
 // every browser.
-func ConsoleExposureReady(ctx context.Context, dynamicClient dynamic.Interface, nsConfig NamespaceConfig, ingressMode string) (ready bool, reason string, err error) {
+func ConsoleExposureReady(ctx context.Context, dynamicClient dynamic.Interface, nsConfig NamespaceConfig) (ready bool, reason string, err error) {
 	host, ok := deriveConsoleHost(nsConfig)
 	if !ok {
 		return false, "console host cannot be derived (GATEWAY_API_BASE_DOMAIN unset)", nil
 	}
-	switch ingressMode {
-	case IngressModeGatewayAPI:
-		return consoleHTTPRouteReady(ctx, dynamicClient, nsConfig, host)
-	case IngressModeRoute:
-		return consoleOpenShiftRouteReady(ctx, dynamicClient, nsConfig.Name, host)
-	case IngressModeNone:
-		return false, "no console ingress mode selected", nil
-	default:
-		return false, "", fmt.Errorf("unsupported console ingress mode %q", ingressMode)
-	}
+	return consoleHTTPRouteReady(ctx, dynamicClient, nsConfig, host)
 }
 
 // consoleHTTPRouteReady reports the readiness of the console HTTPRoute for
@@ -221,70 +191,6 @@ func consoleHTTPRouteReady(ctx context.Context, dynamicClient dynamic.Interface,
 			reason = fmt.Sprintf("console HTTPRoute backend refs unresolved: %s", resolvedReason)
 		}
 	}
-	return false, reason, nil
-}
-
-// consoleOpenShiftRouteReady reports the admission state of the console Route
-// for the derived console host: spec.host must be the derived host, and one
-// router must have Admitted the Route.
-func consoleOpenShiftRouteReady(ctx context.Context, dynamicClient dynamic.Interface, namespace, host string) (ready bool, reason string, err error) {
-	route, err := dynamicClient.Resource(consoleOpenShiftRouteGVR).Namespace(namespace).Get(ctx, consoleName, metav1.GetOptions{})
-	if err != nil {
-		if k8serrors.IsNotFound(err) {
-			return false, "console OpenShift Route not found", nil
-		}
-		return false, "", fmt.Errorf("get console OpenShift Route %s/%s: %w", namespace, consoleName, err)
-	}
-
-	serves, _, err := unstructured.NestedString(route.Object, "spec", "host")
-	if err != nil {
-		return false, "", fmt.Errorf("read console OpenShift Route %s/%s spec.host: %w", namespace, consoleName, err)
-	}
-	if serves != host {
-		return false, fmt.Sprintf("console Route serves %q, expected host %q (console self-heal re-parents it)", serves, host), nil
-	}
-
-	ingress, found, err := unstructured.NestedSlice(route.Object, "status", "ingress")
-	if err != nil {
-		return false, "", fmt.Errorf("read console OpenShift Route %s/%s status: %w", namespace, consoleName, err)
-	}
-	if !found || len(ingress) == 0 {
-		return false, "console OpenShift Route has no router status yet", nil
-	}
-
-	const noAdmissionReason = "console OpenShift Route has no Admitted condition"
-	reason = noAdmissionReason
-	for _, item := range ingress {
-		router, ok := item.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		conditions, _, nestedErr := unstructured.NestedSlice(router, "conditions")
-		if nestedErr != nil {
-			return false, "", fmt.Errorf("read console OpenShift Route %s/%s ingress conditions: %w", namespace, consoleName, nestedErr)
-		}
-		for _, item := range conditions {
-			condition, ok := item.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			conditionType, _, _ := unstructured.NestedString(condition, "type")
-			if conditionType != "Admitted" {
-				continue
-			}
-			status, _, _ := unstructured.NestedString(condition, "status")
-			if status == "True" {
-				return true, "", nil
-			}
-			rejectionReason, _, _ := unstructured.NestedString(condition, "reason")
-			if rejectionReason != "" {
-				reason = fmt.Sprintf("console OpenShift Route not admitted: %s", rejectionReason)
-			} else if reason == noAdmissionReason {
-				reason = "console OpenShift Route not admitted: router rejected the route"
-			}
-		}
-	}
-
 	return false, reason, nil
 }
 
@@ -419,21 +325,8 @@ func ReconcileConsole(ctx context.Context, dynamicClient dynamic.Interface, clie
 	return reconcileConsole(ctx, dynamicClient, clientset, nsConfig, opts, images)
 }
 
-// DeleteConsole removes the per-gateway console (Keycloak client, credential
-// Secret, Deployment, Service, and both exposure kinds). It
-// clears the stored console_address through opts.UpdateConsoleAddress. It is the
-// exported counterpart to ReconcileConsole. The continuous health reconciler
-// can remove the console independently of the provisioning phase gate. This
-// prevents a console and its Keycloak client from remaining after route removal.
-// The function ignores absent resources, so each health check can call it. It
-// returns all deletion errors so callers can retry partial cleanup.
-func DeleteConsole(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, namespace string, opts ReconcileOpts) error {
-	return deleteConsole(ctx, dynamicClient, clientset, namespace, opts)
-}
-
 // reconcileConsole deploys the per-gateway OpenShell dashboard and its
-// oauth2-proxy sidecar. It uses the selected gateway ingress mode for the
-// console exposure. Missing prerequisites are logged and skipped without a
+// oauth2-proxy sidecar, exposed through a Gateway API HTTPRoute. Missing prerequisites are logged and skipped without a
 // gateway reconciliation failure.
 //
 // The Keycloak work (client, mappers, secret) is treated as one atomic step:
@@ -443,17 +336,11 @@ func DeleteConsole(ctx context.Context, dynamicClient dynamic.Interface, clients
 func reconcileConsole(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, nsConfig NamespaceConfig, opts ReconcileOpts, images ImageDefaults) error {
 	namespace := nsConfig.Name
 
-	ingressMode := gatewayIngressMode(opts)
-	if ingressMode == IngressModeNone {
-		log.Printf("WARN console: no ingress mode selected; skipping console for namespace %s", namespace)
-		return nil
-	}
 	if opts.Keycloak == nil {
-		log.Printf("WARN console: Keycloak not configured; skipping console for namespace %s", namespace)
-		return nil
+		return fmt.Errorf("console in %s: keycloak configuration is required", namespace)
 	}
-	if opts.GatewayName == "" || opts.GatewayID == "" {
-		log.Printf("WARN console: gateway name and ID are required; skipping console for namespace %s", namespace)
+	if opts.GatewayClientID == "" || opts.GatewayID == "" {
+		slog.WarnContext(ctx, "Console: gateway client ID and gateway ID are required; skipping console", "namespace", namespace)
 		return nil
 	}
 	// Check the image before any Keycloak or cluster writes, so a missing
@@ -465,11 +352,11 @@ func reconcileConsole(ctx context.Context, dynamicClient dynamic.Interface, clie
 
 	host, ok := deriveConsoleHost(nsConfig)
 	if !ok {
-		log.Printf("WARN console: GATEWAY_API_BASE_DOMAIN not set; skipping console for namespace %s", namespace)
+		slog.WarnContext(ctx, "Console: GATEWAY_API_BASE_DOMAIN not set; skipping console", "namespace", namespace)
 		return nil
 	}
 	consoleURL := "https://" + host
-	gwClientID := fmt.Sprintf("%s-%s", opts.GatewayName, opts.GatewayID)
+	gwClientID := opts.GatewayClientID
 	consoleClientID := gwClientID + "-console"
 	redirectURI := consoleURL + "/oauth2/callback"
 
@@ -490,7 +377,7 @@ func reconcileConsole(ctx context.Context, dynamicClient dynamic.Interface, clie
 		if err != nil {
 			return fmt.Errorf("provision console client %s: %w", consoleClientID, err)
 		}
-		log.Printf("INFO provisioned console client %s", consoleClientID)
+		slog.InfoContext(ctx, "Provisioned console client", "client_id", consoleClientID)
 	} else {
 		clientSecret, err = kc.GetConsoleClientSecret(ctx, consoleClientID)
 		if err != nil {
@@ -506,7 +393,7 @@ func reconcileConsole(ctx context.Context, dynamicClient dynamic.Interface, clie
 		if err = kc.EnsureConsoleClientConfig(ctx, consoleClientID, gwClientID, redirectURI, consoleURL); err != nil {
 			return fmt.Errorf("ensure console client config for %s: %w", consoleClientID, err)
 		}
-		log.Printf("INFO console client %s already exists (uuid=%s), config reconciled", consoleClientID, existingUUID)
+		slog.InfoContext(ctx, "Console client already exists, config reconciled", "client_id", consoleClientID, "uuid", existingUUID)
 	}
 
 	// The oauth2-proxy issuer must match the issuer the gateway validates, so the
@@ -550,7 +437,7 @@ func reconcileConsole(ctx context.Context, dynamicClient dynamic.Interface, clie
 		return fmt.Errorf("reconcile console Service in %s: %w", namespace, err)
 	}
 
-	if err := reconcileConsoleExposure(ctx, dynamicClient, nsConfig, host, ingressMode); err != nil {
+	if err := reconcileConsoleExposure(ctx, dynamicClient, nsConfig, host); err != nil {
 		return fmt.Errorf("reconcile console exposure in %s: %w", namespace, err)
 	}
 
@@ -561,16 +448,18 @@ func reconcileConsole(ctx context.Context, dynamicClient dynamic.Interface, clie
 	// observed Ready (and retracts it if the pod later goes unready), gating the
 	// button on a servable console. See openshell-gateway-console.spec.md.
 
-	// The log names where the console parents in Gateway API mode: the
-	// per-tenant Gateway's sandbox listener for the per-gateway certificate
-	// opt-in, the shared Gateway's HTTP listener otherwise.
-	switch {
-	case ingressMode == IngressModeGatewayAPI && nsConfig.Gateway.Route.Certificate != nil:
-		log.Printf("INFO console reconciled in namespace %s (host=%s gateway=gw-%s listener=sandbox)", namespace, host, namespace)
-	case ingressMode == IngressModeGatewayAPI:
-		log.Printf("INFO console reconciled in namespace %s (host=%s listener=%s)", namespace, host, sharedGatewayListenerName())
-	default:
-		log.Printf("INFO console reconciled in namespace %s (host=%s)", namespace, host)
+	// The log names where the console parents: the per-tenant Gateway's
+	// sandbox listener for the per-gateway certificate opt-in, the shared
+	// Gateway's HTTP listener otherwise.
+	if nsConfig.Gateway.Route.Certificate != nil {
+		slog.InfoContext(ctx, "Console reconciled",
+			"namespace", namespace,
+			"host", host,
+			"gateway", "gw-"+namespace,
+			"listener", "sandbox",
+		)
+	} else {
+		slog.InfoContext(ctx, "Console reconciled", "namespace", namespace, "host", host, "listener", sharedGatewayListenerName())
 	}
 	return nil
 }
@@ -633,7 +522,7 @@ func reconcileConsoleSecret(ctx context.Context, clientset kubernetes.Interface,
 		if _, err := clientset.CoreV1().Secrets(namespace).Create(ctx, secret, metav1.CreateOptions{}); err != nil {
 			return fmt.Errorf("create console secret: %w", err)
 		}
-		log.Printf("INFO created console secret %s in %s", consoleSecretName, namespace)
+		slog.InfoContext(ctx, "Created console secret", "secret", consoleSecretName, "namespace", namespace)
 		return nil
 	}
 
@@ -641,7 +530,7 @@ func reconcileConsoleSecret(ctx context.Context, clientset kubernetes.Interface,
 	if _, err := clientset.CoreV1().Secrets(namespace).Update(ctx, secret, metav1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("update console secret: %w", err)
 	}
-	log.Printf("INFO updated console secret %s in %s", consoleSecretName, namespace)
+	slog.InfoContext(ctx, "Updated console secret", "secret", consoleSecretName, "namespace", namespace)
 	return nil
 }
 
@@ -952,176 +841,11 @@ func buildConsoleHTTPRoute(namespace, host string, perGatewayCertificate bool) *
 	}
 }
 
-// buildConsoleOpenShiftRoute builds the edge-terminated Route for the console.
-// The OpenShift router sends HTTP traffic to the named Service port.
-func buildConsoleOpenShiftRoute(namespace, host string) *unstructured.Unstructured {
-	return &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "route.openshift.io/v1",
-			"kind":       "Route",
-			"metadata": map[string]interface{}{
-				"name":      consoleName,
-				"namespace": namespace,
-				"labels":    consoleLabelsAny(),
-			},
-			"spec": map[string]interface{}{
-				"host": host,
-				"to": map[string]interface{}{
-					"kind": "Service",
-					"name": consoleName,
-				},
-				"port": map[string]interface{}{
-					"targetPort": "http",
-				},
-				"tls": map[string]interface{}{
-					"termination":                   "edge",
-					"insecureEdgeTerminationPolicy": "Redirect",
-				},
-			},
-		},
-	}
-}
-
-// reconcileConsoleExposure creates only the exposure for the selected mode.
-// It first removes the inactive exposure to prevent two controllers from
-// claiming the same host during a mode change.
-func reconcileConsoleExposure(ctx context.Context, dynamicClient dynamic.Interface, nsConfig NamespaceConfig, host, ingressMode string) error {
-	namespace := nsConfig.Name
-	var desired *unstructured.Unstructured
-	var inactiveGVR schema.GroupVersionResource
-	var inactiveKind string
-
-	switch ingressMode {
-	case IngressModeGatewayAPI:
-		desired = buildConsoleHTTPRoute(namespace, host, nsConfig.Gateway.Route.Certificate != nil)
-		inactiveGVR = consoleOpenShiftRouteGVR
-		inactiveKind = "OpenShift Route"
-	case IngressModeRoute:
-		desired = buildConsoleOpenShiftRoute(namespace, host)
-		// Give the console Route its own publicly-trusted certificate when
-		// GATEWAY_ROUTE_TLS_ISSUER names a cert-manager ClusterIssuer.
-		//
-		// Without this the Route rides the router default certificate, which is
-		// only valid for the cluster ingress domain. Clusters whose gateway hosts
-		// live under a CUSTOM domain (e.g. *.gwlb.<instance>.<zone> on IBM ROKS)
-		// therefore serve a name-mismatched certificate and every browser refuses
-		// the console. Gateway-API clusters do not hit this because a wildcard
-		// certificate on the shared Gateway listener already covers the host, and
-		// HTTP-01 cannot issue wildcards -- so a per-host certificate is the only
-		// option where DNS-01 is unavailable.
-		if issuer := routeTLSIssuer(); issuer != "" {
-			annotateRouteForIssuer(desired, issuer)
-			// reconcileResource replaces the whole Route, and the spec built above
-			// intentionally omits certificate/key: openshift-routes co-owns this
-			// Route and injects them. Carry any injection forward, otherwise every
-			// reconcile strips the certificate and the console flaps.
-			if cert, key := readInjectedRouteCert(ctx, dynamicClient, namespace, consoleName); cert != "" {
-				tls, _, _ := unstructured.NestedMap(desired.Object, "spec", "tls")
-				if tls == nil {
-					tls = map[string]interface{}{}
-				}
-				tls["certificate"] = cert
-				if key != "" {
-					tls["key"] = key
-				}
-				_ = unstructured.SetNestedMap(desired.Object, tls, "spec", "tls")
-			}
-		}
-		inactiveGVR = consoleHTTPRouteGVR
-		inactiveKind = "HTTPRoute"
-	default:
-		return fmt.Errorf("unsupported console ingress mode %q", ingressMode)
-	}
-
-	if err := deleteConsoleExposureResource(ctx, dynamicClient, namespace, inactiveGVR, inactiveKind); err != nil {
-		return fmt.Errorf("remove inactive exposure: %w", err)
-	}
+// reconcileConsoleExposure creates the console HTTPRoute.
+func reconcileConsoleExposure(ctx context.Context, dynamicClient dynamic.Interface, nsConfig NamespaceConfig, host string) error {
+	desired := buildConsoleHTTPRoute(nsConfig.Name, host, nsConfig.Gateway.Route.Certificate != nil)
 	if err := reconcileResource(ctx, dynamicClient, desired); err != nil {
-		return fmt.Errorf("reconcile selected %s exposure: %w", ingressMode, err)
+		return fmt.Errorf("reconcile console HTTPRoute: %w", err)
 	}
 	return nil
-}
-
-// deleteConsoleExposureResource deletes one console exposure. An absent
-// resource is already converged and does not cause an error.
-func deleteConsoleExposureResource(ctx context.Context, dynamicClient dynamic.Interface, namespace string, gvr schema.GroupVersionResource, kind string) error {
-	err := dynamicClient.Resource(gvr).Namespace(namespace).Delete(ctx, consoleName, metav1.DeleteOptions{})
-	if err != nil && !k8serrors.IsNotFound(err) {
-		return fmt.Errorf("delete console %s in %s: %w", kind, namespace, err)
-	}
-	return nil
-}
-
-// deleteConsoleExposures removes both exposure kinds. It attempts both deletes
-// so cleanup can converge after an ingress mode change.
-func deleteConsoleExposures(ctx context.Context, dynamicClient dynamic.Interface, namespace string) error {
-	return errors.Join(
-		deleteConsoleExposureResource(ctx, dynamicClient, namespace, consoleHTTPRouteGVR, "HTTPRoute"),
-		deleteConsoleExposureResource(ctx, dynamicClient, namespace, consoleOpenShiftRouteGVR, "OpenShift Route"),
-	)
-}
-
-// deleteConsole removes all console resources and the console Keycloak client.
-// It attempts every deletion regardless of individual failures and returns their
-// joined errors (nil when the console is already absent), so a caller can retry
-// until nothing remains instead of stopping on partial cleanup. A NotFound is not
-// an error: the resource is already gone.
-func deleteConsole(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, namespace string, opts ReconcileOpts) error {
-	var errs []error
-
-	deployGVR := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
-	if err := dynamicClient.Resource(deployGVR).Namespace(namespace).Delete(ctx, consoleName, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		errs = append(errs, fmt.Errorf("delete console Deployment in %s: %w", namespace, err))
-	}
-
-	if err := clientset.CoreV1().Services(namespace).Delete(ctx, consoleName, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		errs = append(errs, fmt.Errorf("delete console Service in %s: %w", namespace, err))
-	}
-
-	if err := deleteConsoleExposures(ctx, dynamicClient, namespace); err != nil {
-		errs = append(errs, err)
-	}
-
-	if err := clientset.CoreV1().Secrets(namespace).Delete(ctx, consoleSecretName, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		errs = append(errs, fmt.Errorf("delete console Secret in %s: %w", namespace, err))
-	}
-
-	if opts.Keycloak != nil && opts.GatewayName != "" && opts.GatewayID != "" {
-		consoleClientID := fmt.Sprintf("%s-%s-console", opts.GatewayName, opts.GatewayID)
-		kc := keycloak.NewClient(
-			opts.Keycloak.ServerURL,
-			opts.Keycloak.Realm,
-			opts.Keycloak.ClientID,
-			opts.Keycloak.ClientSecret,
-		)
-		if err := kc.DeleteConsoleClient(ctx, consoleClientID); err != nil {
-			errs = append(errs, fmt.Errorf("delete console client %s (orphaned): %w", consoleClientID, err))
-		} else {
-			log.Printf("INFO deleted console client %s", consoleClientID)
-		}
-	}
-
-	if opts.UpdateConsoleAddress != nil {
-		if err := opts.UpdateConsoleAddress(ctx, ""); err != nil {
-			errs = append(errs, fmt.Errorf("clear consoleAddress in %s: %w", namespace, err))
-		} else {
-			log.Printf("INFO cleared consoleAddress for gateway in %s", namespace)
-		}
-	}
-
-	return errors.Join(errs...)
-}
-
-// annotateRouteForIssuer marks a Route for the cert-manager openshift-routes
-// controller, which mints a certificate from the named ClusterIssuer and
-// injects it into spec.tls.{certificate,key}.
-func annotateRouteForIssuer(route *unstructured.Unstructured, issuer string) {
-	annotations, _, _ := unstructured.NestedStringMap(route.Object, "metadata", "annotations")
-	if annotations == nil {
-		annotations = map[string]string{}
-	}
-	annotations["cert-manager.io/issuer-name"] = issuer
-	annotations["cert-manager.io/issuer-kind"] = "ClusterIssuer"
-	annotations["cert-manager.io/issuer-group"] = "cert-manager.io"
-	_ = unstructured.SetNestedStringMap(route.Object, annotations, "metadata", "annotations")
 }

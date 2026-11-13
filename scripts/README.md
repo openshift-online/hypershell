@@ -20,6 +20,12 @@ Images built and pushed by the OpenShift deployment workflow may use the `:dev`
 tag only under `image-registry.openshift-image-registry.svc:5000/`; this narrow
 exception does not apply to other tags or registries.
 
+Browser source and mockup files must never use a raw HTML injection sink. The
+repository policy rejects React's raw-HTML prop, DOM HTML properties and
+methods, and equivalent HTML-returning helpers in tracked and new unignored
+source files. Render React elements, or route markup through an approved
+parser that returns React elements.
+
 The dependency-age check covers every resolved Go module, every package and
 workspace importer in the root pnpm lockfile, legacy npm lockfiles during
 migration, and every tool listed in `dependency-age-tools.json`. Metadata lookup

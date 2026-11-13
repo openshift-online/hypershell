@@ -2,6 +2,10 @@
   overflow-wrap: anywhere;
 }
 
+.tableSection {
+  row-gap: 0;
+}
+
 .provisioningStepper {
   max-width: 60rem;
 }

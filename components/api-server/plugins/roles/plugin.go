@@ -3,11 +3,9 @@ package roles
 import (
 	"net/http"
 
-	"github.com/gorilla/mux"
-
 	"github.com/openshift-online/hypershell/components/api-server/pkg/extsearch"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/routes"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
-	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/registry"
@@ -40,15 +38,13 @@ func init() {
 		return NewServiceLocator(env.(*environments.Env))
 	})
 
-	pkgserver.RegisterRoutes("roles", func(apiV1Router *mux.Router, services pkgserver.ServicesInterface, authMiddleware environments.JWTMiddleware, authzMiddleware auth.AuthorizationMiddleware) {
+	pkgserver.RegisterRoutes("roles", func(apiRouter *pkgserver.APIRouter, services pkgserver.ServicesInterface) {
 		envServices := services.(*environments.Services)
 		roleHandler := NewRoleHandler(Service(envServices), extsearch.Service(envServices))
 
-		rolesRouter := apiV1Router.PathPrefix("/roles").Subrouter()
+		rolesRouter := routes.Resource(apiRouter, "roles").PathPrefix("/roles").Subrouter()
 		rolesRouter.HandleFunc("", roleHandler.List).Methods(http.MethodGet)
 		rolesRouter.HandleFunc("/{id}", roleHandler.Get).Methods(http.MethodGet)
-		rolesRouter.Use(authMiddleware.AuthenticateAccountJWT)
-		rolesRouter.Use(authzMiddleware.AuthorizeApi)
 	})
 
 	presenters.RegisterPath(Role{}, "roles")
@@ -62,6 +58,7 @@ func init() {
 	db.RegisterMigration(migrationSeedManagedClusterRegistrarRole())
 	db.RegisterMigration(migrationAddGatewayAdminRole())
 	db.RegisterMigration(migrationAddGatewayDedicatedRouteCreatorRole())
+	db.RegisterMigration(migrationAddGatewayOperatorWorkspaceCreatorRole())
 	db.RegisterMigration(migrationAddCIFederationAdminRole())
 	db.RegisterMigration(migrationAddCIFederationGrantorRole())
 }

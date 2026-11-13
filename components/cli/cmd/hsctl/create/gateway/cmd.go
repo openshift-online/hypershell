@@ -21,26 +21,26 @@ const longHelp = "Create a new gateway.\n\n" +
 	"The gateway is created with exactly one placement shape: pinned to a managed\n" +
 	"cluster (--cluster-id), or late-bound by capability-label selectors\n" +
 	"(repeatable --placement-selector, optionally with\n" +
-	"--placement-exclude-selector), or the local-kind development mode\n" +
-	"(--local-kind). When a selector matches no connected cluster, the gateway is\n" +
+	"--placement-exclude-selector). When a selector matches no connected cluster, the gateway is\n" +
 	"created Pending with an empty cluster_id and binds when a matching cluster\n" +
 	"connects; an empty cluster_id in the output means late binding, not failure.\n\n" +
 	"Examples:\n" +
 	"  hsctl create gateway --name my-gw --cluster-id <id>\n" +
 	"  hsctl create gateway --name my-gw --placement-selector network/public --placement-selector provider/ibm\n" +
 	"  hsctl create gateway --name my-gw --placement-selector region/us-east-1 --placement-exclude-selector runtime/kata\n" +
-	"  hsctl create gateway --name my-gw --local-kind --dedicated-route\n" +
+	"  hsctl create gateway --name my-gw --placement-selector provider/kind --dedicated-route\n" +
+	"  hsctl create gateway --name my-gw --placement-selector provider/oce --operator-workspaces\n" +
 	"  hsctl create gateway --name my-gw --dry-run --placement-selector network/public\n" +
 	"  hsctl create gateway --body request.json"
 
 type createGatewayArgs struct {
 	clusterId                string
 	dedicatedRoute           bool
+	operatorWorkspaces       bool
 	name                     string
 	bodyFile                 string
 	placementSelector        []string
 	placementExcludeSelector []string
-	localKind                bool
 	dryRun                   bool
 }
 
@@ -62,11 +62,11 @@ func newCreateGatewayCommand() *cobra.Command {
 	fs := cmd.Flags()
 	fs.StringVar(&args.clusterId, "cluster-id", "", "Pin the gateway to this managed cluster (discover it via 'hsctl list managedClusters'). Mutually exclusive with the placement flags.")
 	fs.BoolVar(&args.dedicatedRoute, "dedicated-route", false, "Request the dedicated per-gateway route and wildcard certificate at creation. Requires the gateway:dedicated-route-creator role.")
+	fs.BoolVar(&args.operatorWorkspaces, "operator-workspaces", false, "Create the gateway in operator workspace mode (workspace_mode=operator): a trusted external operator owns the gateway's workspace namespaces. Requires the gateway:operator-workspace-creator role.")
 	fs.StringVar(&args.name, "name", "", "Gateway name.")
 	fs.StringVar(&args.bodyFile, "body", "", "File containing the request body as JSON.")
-	fs.StringArrayVar(&args.placementSelector, "placement-selector", nil, "Capability label the gateway's cluster must advertise (e.g. network/public, provider/ibm, region/us-east-1). Repeat the flag to require multiple labels. Mutually exclusive with --cluster-id and --local-kind.")
+	fs.StringArrayVar(&args.placementSelector, "placement-selector", nil, "Capability label the gateway's cluster must advertise (e.g. network/public, provider/ibm, provider/kind, region/us-east-1). Repeat the flag to require multiple labels. Mutually exclusive with --cluster-id.")
 	fs.StringArrayVar(&args.placementExcludeSelector, "placement-exclude-selector", nil, "Capability label the gateway's cluster must not advertise. Requires at least one --placement-selector.")
-	fs.BoolVar(&args.localKind, "local-kind", false, "Place the gateway on the local Kind development cluster. Mutually exclusive with the selector flags and --cluster-id.")
 	fs.BoolVar(&args.dryRun, "dry-run", false, "Check placement availability without creating the gateway.")
 
 	// The server accepts exactly one placement shape (data-model.spec.md
@@ -75,9 +75,6 @@ func newCreateGatewayCommand() *cobra.Command {
 	// placement.BuildIntent, not by cobra.
 	cmd.MarkFlagsMutuallyExclusive("cluster-id", "placement-selector")
 	cmd.MarkFlagsMutuallyExclusive("cluster-id", "placement-exclude-selector")
-	cmd.MarkFlagsMutuallyExclusive("cluster-id", "local-kind")
-	cmd.MarkFlagsMutuallyExclusive("local-kind", "placement-selector")
-	cmd.MarkFlagsMutuallyExclusive("local-kind", "placement-exclude-selector")
 	cmd.MarkFlagsMutuallyExclusive("dry-run", "body")
 
 	return cmd
@@ -92,7 +89,7 @@ func run(args *createGatewayArgs, cmd *cobra.Command, argv []string) error {
 	var intent map[string]interface{}
 	if args.bodyFile == "" {
 		var err error
-		intent, err = placement.BuildIntent(args.placementSelector, args.placementExcludeSelector, args.localKind)
+		intent, err = placement.BuildIntent(args.placementSelector, args.placementExcludeSelector)
 		if err != nil {
 			return err
 		}
@@ -128,6 +125,9 @@ func run(args *createGatewayArgs, cmd *cobra.Command, argv []string) error {
 		if args.dedicatedRoute {
 			request["dedicated_route"] = args.dedicatedRoute
 		}
+		if args.operatorWorkspaces {
+			request["workspace_mode"] = "operator"
+		}
 		if args.name != "" {
 			request["name"] = args.name
 		}
@@ -159,15 +159,11 @@ func run(args *createGatewayArgs, cmd *cobra.Command, argv []string) error {
 }
 
 // runDryRun checks placement availability without creating a gateway
-// (CLI-PLC-03). The local-kind and pinned shapes make no availability
-// request: the availability endpoint's contract is capability-selector
-// based, and those shapes are validated server-side at create time.
+// (CLI-PLC-03). The pinned shape makes no availability request: the
+// availability endpoint's contract is capability-selector based, and the
+// cluster reference is validated server-side at create time.
 func runDryRun(args *createGatewayArgs, conn *connection.Connection) error {
 	switch {
-	case args.localKind:
-		fmt.Println("local-kind placement resolves only in the Kind development environment; the server validates it at create time.")
-		fmt.Println("No gateway created (dry run).")
-		return nil
 	case args.clusterId != "":
 		fmt.Printf("Would create the gateway pinned to cluster %s; the server validates the cluster reference at create time.\n", args.clusterId)
 		fmt.Println("No gateway created (dry run).")

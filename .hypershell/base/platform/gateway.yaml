@@ -9,7 +9,7 @@
 # because the API server assigns it at creation.
 #
 # This gateway targets a public IBM cluster (the hypc-ibm-00 dev target). For a
-# local kind cluster, replace `placement.selector` with `placement: {mode: local-kind}`.
+# local kind cluster, use `selector: [provider/kind]`.
 apiVersion: hypershell.redhat.io/v1
 kind: Gateway
 metadata:
@@ -20,5 +20,8 @@ spec:
     selector:
       - network/public
       - provider/ibm
-  # TLS stays enabled (edge). The gateway is never declared insecure here.
-  tls_mode: edge
+  # TLS mode (edge) is platform-managed: the control plane authors it, and a
+  # .hypershell Gateway manifest may declare only name + placement. Declaring
+  # tls_mode here is a forbidden platform-managed field and fails the whole
+  # repository import (data-model.spec.md PLAT-DATA-23, CTRL-CORE-15), so it is
+  # intentionally omitted.

@@ -269,6 +269,11 @@ shared workspace mode.
 {{- $kubernetesConfig := include "openshell.effectiveKubernetesConfig" . | fromYaml -}}
 {{- $workspaceMode := get $kubernetesConfig "workspace_mode" | default "shared" -}}
 {{- $names := list -}}
+{{- $app := include "openshell.appListenerConfig" . | fromYaml -}}
+{{- $appDeployment := include "openshell.appListenerDeployment" . | fromYaml -}}
+{{- if and (get $app "enabled") (get $appDeployment "tls_secret_name") (not (include "openshell.supervisorEnabled" .)) -}}
+{{- $names = append $names (get $appDeployment "tls_secret_name") -}}
+{{- end -}}
 {{- if and (ne $workspaceMode "shared") (not .Values.server.disableTls) -}}
 {{- $names = append $names .Values.server.tls.clientTlsSecretName -}}
 {{- end -}}
@@ -363,6 +368,16 @@ raw gateway configuration so openshell.effectiveKubernetesConfig can use it.
 {{- end }}
 
 {{/*
+Whether the shared supervisor PodDisruptionBudget renders. A missing
+podDisruptionBudget map or enabled value means enabled on older releases.
+*/}}
+{{- define "openshell.supervisorPodDisruptionBudgetEnabled" -}}
+{{- $pdb := get (.Values.supervisor | default dict) "podDisruptionBudget" | default dict -}}
+{{- $enabled := ternary (get $pdb "enabled") true (kindIs "map" $pdb) -}}
+{{- if not (and (kindIs "bool" $enabled) (not $enabled)) -}}true{{- end -}}
+{{- end }}
+
+{{/*
 Name of the shared supervisor Deployment and Service (and, with `-token`, its token Secret):
 the fullname with a fixed suffix, within the 63-character Service name limit.
 A fullname without room for the suffix keeps a prefix and a hash of the whole
@@ -385,6 +400,79 @@ Pod labels of the shared supervisor; its Service selects exactly these.
 app.kubernetes.io/name: openshell-supervisor
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/component: supervisor
+{{- end }}
+
+{{/*
+A chart value as a whole number, or nothing when it is not one. Helm parses
+YAML numbers as float64, so whole floats count; booleans, strings, and
+fractions do not.
+*/}}
+{{- define "openshell.wholeNumber" -}}
+{{- if has (kindOf .) (list "int" "int8" "int16" "int32" "int64" "uint" "uint8" "uint16" "uint32" "uint64" "float32" "float64") -}}
+{{- $whole := int64 . -}}
+{{- if eq (float64 .) (float64 $whole) -}}{{- $whole -}}{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Shared supervisor replica count. A missing value (for example after `helm
+upgrade --reuse-values` from a release that predates it) means 1.
+*/}}
+{{- define "openshell.supervisorReplicas" -}}
+{{- $supervisor := .Values.supervisor | default dict -}}
+{{- $value := get $supervisor "replicas" -}}
+{{- if or (not (hasKey $supervisor "replicas")) (kindIs "invalid" $value) -}}
+1
+{{- else -}}
+{{- $replicas := include "openshell.wholeNumber" $value -}}
+{{- if or (eq $replicas "") (lt (int64 $replicas) 1) -}}
+{{- fail "supervisor.replicas must be an integer of at least 1" -}}
+{{- end -}}
+{{- $replicas -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Seconds a sandbox runtime keeps its workload frozen after losing a pool
+member's supervision, or nothing when unset so the gateway applies its pool
+default.
+*/}}
+{{- define "openshell.supervisorRecoveryTimeoutSeconds" -}}
+{{- $supervisor := .Values.supervisor | default dict -}}
+{{- $value := get $supervisor "recoveryTimeoutSeconds" -}}
+{{- if and (hasKey $supervisor "recoveryTimeoutSeconds") (not (kindIs "invalid" $value)) (ne (toString $value) "") -}}
+{{- $timeout := include "openshell.wholeNumber" $value -}}
+{{- if or (eq $timeout "") (lt (int64 $timeout) 30) (gt (int64 $timeout) 300) -}}
+{{- fail "supervisor.recoveryTimeoutSeconds must be an integer between 30 and 300, or null for the default" -}}
+{{- end -}}
+{{- $timeout -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+The gateway's [openshell.gateway.supervisor_pool] tuning table as YAML, or
+nothing. The shared supervisor always runs as a high-availability pool that
+the gateway coordinates; the chart owns the table only to set the recovery
+deadline (supervisor.recoveryTimeoutSeconds; none leaves the gateway default).
+It never depends on supervisor.replicas, so scaling never changes the gateway
+configuration. Renders nothing without the gateway topology. Validates the
+supervisor values whenever the topology is selected, and refuses a
+hand-written table in either TOML form.
+*/}}
+{{- define "openshell.supervisorPoolConfig" -}}
+{{- $gatewayConfig := .Values.gatewayConfig | default dict -}}
+{{- if or (hasKey $gatewayConfig "openshell.gateway.supervisor_pool") (hasKey (get $gatewayConfig "openshell.gateway" | default dict) "supervisor_pool") -}}
+{{- fail "supervisor_pool is rendered by the chart; set supervisor.replicas and supervisor.recoveryTimeoutSeconds" -}}
+{{- end -}}
+{{- if include "openshell.supervisorEnabled" . -}}
+{{- if ne (include "openshell.supervisorAutoscalingEnabled" .) "true" -}}
+{{- $_ := include "openshell.supervisorReplicas" . -}}
+{{- end -}}
+{{- $recoveryTimeout := include "openshell.supervisorRecoveryTimeoutSeconds" . -}}
+{{- if $recoveryTimeout -}}
+{{- toYaml (dict "recovery_timeout_secs" (int64 $recoveryTimeout)) -}}
+{{- end -}}
+{{- end -}}
 {{- end }}
 
 {{/*
@@ -493,6 +581,22 @@ Booleans are rejected because they would otherwise convert to 1 or 0.
 {{- end }}
 
 {{/*
+Whether the dedicated metrics listener is enabled. Missing legacy values
+default to enabled; an explicit false must not be replaced by that default.
+*/}}
+{{- define "openshell.metricsEnabled" -}}
+{{- $metrics := .Values.metrics | default dict -}}
+{{- $enabled := true -}}
+{{- if hasKey $metrics "enabled" -}}
+{{- if not (kindIs "bool" $metrics.enabled) -}}
+{{- fail "metrics.enabled must be a boolean" -}}
+{{- end -}}
+{{- $enabled = $metrics.enabled -}}
+{{- end -}}
+{{- if $enabled -}}true{{- end -}}
+{{- end }}
+
+{{/*
 Validate a non-empty, user-provided Kubernetes Secret name. Secret data never
 passes through Helm values into gateway.toml; only this reference is rendered.
 */}}
@@ -548,6 +652,13 @@ absent fields so every chart consumer observes the same configuration.
 {{- end -}}
 {{- $legacyRuntime := .Values.supervisor.sandboxRuntime | default dict -}}
 {{- $runtimeConfig := get $kubernetes "sandbox_runtime" | default dict -}}
+{{- if hasKey $gatewayConfig "openshell.drivers.kubernetes.sandbox_runtime" -}}
+{{- $runtimeConfig = deepCopy (get $gatewayConfig "openshell.drivers.kubernetes.sandbox_runtime") -}}
+{{- end -}}
+{{- $appDeployment := include "openshell.appListenerDeployment" . | fromYaml -}}
+{{- if $appDeployment -}}
+{{- $_ := set $runtimeConfig "app_listener" $appDeployment -}}
+{{- end -}}
 {{- if and (ne (int (get $legacyRuntime "boundaryPort" | default 5500)) 5500) (not (hasKey $runtimeConfig "boundary_port")) -}}
 {{- $_ := set $runtimeConfig "boundary_port" (int (get $legacyRuntime "boundaryPort")) -}}
 {{- end -}}
@@ -628,6 +739,7 @@ like user-supplied schema-v2 fields during compatibility resolution. */}}
 Validate chart values that Helm would otherwise accept silently.
 */}}
 {{- define "openshell.validateValues" -}}
+{{- $metricsEnabled := include "openshell.metricsEnabled" . -}}
 {{- $kubernetes := include "openshell.effectiveKubernetesConfig" . | fromYaml -}}
 {{- if hasKey $kubernetes "supervisor_topology" -}}
 {{- $topology := get $kubernetes "supervisor_topology" -}}
@@ -654,6 +766,15 @@ Validate chart values that Helm would otherwise accept silently.
 {{- if hasKey (get (.Values.gatewayConfig | default dict) "openshell.drivers.kubernetes" | default dict) "shared_supervisor" -}}
 {{- fail "shared_supervisor is rendered by the chart; set only supervisor_topology" -}}
 {{- end -}}
+{{- include "openshell.validateSupervisorAutoscaling" . -}}
+{{- $pdb := get (.Values.supervisor | default dict) "podDisruptionBudget" | default dict -}}
+{{- if not (kindIs "map" $pdb) -}}
+{{- fail "supervisor.podDisruptionBudget must be a map" -}}
+{{- end -}}
+{{- if and (hasKey $pdb "enabled") (not (kindIs "invalid" (get $pdb "enabled"))) (not (kindIs "bool" (get $pdb "enabled"))) -}}
+{{- fail "supervisor.podDisruptionBudget.enabled must be a boolean" -}}
+{{- end -}}
+{{- $_ := include "openshell.supervisorPoolConfig" . -}}
 {{- $workloadKind := include "openshell.workloadKind" . -}}
 {{- $workload := .Values.workload | default dict -}}
 {{- $maxReplicas := int (include "openshell.maxReplicas" .) -}}
@@ -676,6 +797,33 @@ Validate chart values that Helm would otherwise accept silently.
 {{- end -}}
 {{- if and (eq $workloadKind "statefulset") (gt $maxReplicas 1) (not (get $workload "allowMultiReplicaStatefulSet" | default false)) -}}
 {{- fail (printf "%s > 1 with workload.kind=statefulset requires workload.allowMultiReplicaStatefulSet=true; use workload.kind=deployment for external database-backed multi-replica gateways." $maxReplicasSource) -}}
+{{- end -}}
+{{- $servicePortValue := toString .Values.service.port -}}
+{{- $healthPortValue := toString .Values.service.healthPort -}}
+{{- $metricsPortValue := toString .Values.service.metricsPort -}}
+{{- if not (regexMatch `^-?[0-9]+$` $servicePortValue) -}}
+{{- fail "service.port must be an integer." -}}
+{{- end -}}
+{{- if not (regexMatch `^-?[0-9]+$` $healthPortValue) -}}
+{{- fail "service.healthPort must be an integer." -}}
+{{- end -}}
+{{- $servicePort := int $servicePortValue -}}
+{{- $healthPort := int $healthPortValue -}}
+{{- $metricsPort := int $metricsPortValue -}}
+{{- if or (lt $servicePort 1) (gt $servicePort 65535) -}}
+{{- fail "service.port must be between 1 and 65535." -}}
+{{- end -}}
+{{- if or (lt $healthPort 1) (gt $healthPort 65535) -}}
+{{- fail "service.healthPort must be between 1 and 65535 because gateway probes require it." -}}
+{{- end -}}
+{{- if eq $servicePort $healthPort -}}
+{{- fail "service.port and service.healthPort must be different." -}}
+{{- end -}}
+{{- if or (not (regexMatch `^[0-9]+$` $metricsPortValue)) (lt $metricsPort 1) (gt $metricsPort 65535) -}}
+{{- fail "service.metricsPort must be an integer between 1 and 65535; to disable metrics, set metrics.enabled=false and keep a valid service.metricsPort (default 9090)" -}}
+{{- end -}}
+{{- if and $metricsEnabled (or (eq $metricsPort $servicePort) (eq $metricsPort $healthPort)) -}}
+{{- fail "service.metricsPort must differ from service.port and service.healthPort when metrics.enabled=true" -}}
 {{- end -}}
 {{- if and .Values.grpcRoute.enabled (dig "replicaRouting" "enabled" false .Values.grpcRoute) -}}
 {{- if ne $workloadKind "statefulset" -}}
@@ -715,3 +863,28 @@ Validate chart values that Helm would otherwise accept silently.
 {{- fail "server.dataStorageSize must be a Kubernetes quantity with a unit, such as 20Gi" -}}
 {{- end -}}
 {{- end }}
+
+{{/* Common app settings are separate from driver-owned TLS/Service details. */}}
+{{- define "openshell.appListenerConfig" -}}
+{{- $config := .Values.gatewayConfig | default dict -}}
+{{- $supervisor := get $config "openshell.supervisor" | default dict -}}
+{{- $app := get $supervisor "app_listener" | default dict -}}
+{{- if hasKey $config "openshell.supervisor.app_listener" -}}
+{{- $app = get $config "openshell.supervisor.app_listener" -}}
+{{- end -}}
+{{- toYaml $app -}}
+{{- end -}}
+
+{{- define "openshell.appListenerDeployment" -}}
+{{- $config := .Values.gatewayConfig | default dict -}}
+{{- $kube := get $config "openshell.drivers.kubernetes" | default dict -}}
+{{- $runtime := get $kube "sandbox_runtime" | default dict -}}
+{{- if hasKey $config "openshell.drivers.kubernetes.sandbox_runtime" -}}
+{{- $runtime = get $config "openshell.drivers.kubernetes.sandbox_runtime" -}}
+{{- end -}}
+{{- $app := get $runtime "app_listener" | default dict -}}
+{{- if hasKey $config "openshell.drivers.kubernetes.sandbox_runtime.app_listener" -}}
+{{- $app = get $config "openshell.drivers.kubernetes.sandbox_runtime.app_listener" -}}
+{{- end -}}
+{{- toYaml $app -}}
+{{- end -}}

@@ -14,6 +14,7 @@ Name | Type | Description | Notes
 **GatewayId** | **string** | Reference to the Gateway this CI may operate |
 **Subject** | [**CITrustAllOfSubject**](CITrustAllOfSubject.md) |  |
 **Role** | **string** | The gateway role granted to the federated CI session |
+**RepositoryId** | Pointer to **string** | Repository that owns this CITrust through the control-plane .hypershell import. Null for trusts created directly through the REST API or hsctl apply. Set server-side; read-only in the client contract. | [optional] [readonly]
 **Status** | Pointer to [**CITrustAllOfStatus**](CITrustAllOfStatus.md) |  | [optional]
 
 ## Methods
@@ -264,6 +265,31 @@ and a boolean to check if the value has been set.
 
 SetRole sets Role field to given value.
 
+
+### GetRepositoryId
+
+`func (o *CITrust) GetRepositoryId() string`
+
+GetRepositoryId returns the RepositoryId field if non-nil, zero value otherwise.
+
+### GetRepositoryIdOk
+
+`func (o *CITrust) GetRepositoryIdOk() (*string, bool)`
+
+GetRepositoryIdOk returns a tuple with the RepositoryId field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetRepositoryId
+
+`func (o *CITrust) SetRepositoryId(v string)`
+
+SetRepositoryId sets RepositoryId field to given value.
+
+### HasRepositoryId
+
+`func (o *CITrust) HasRepositoryId() bool`
+
+HasRepositoryId returns a boolean if a field has been set.
 
 ### GetStatus
 

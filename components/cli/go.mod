@@ -2,12 +2,12 @@ module github.com/openshift-online/hypershell/components/cli
 
 go 1.26.4
 
-toolchain go1.26.7
+toolchain go1.26.11
 
 require (
 	github.com/golang-jwt/jwt/v4 v4.5.2
 	github.com/nwidger/jsoncolor v0.3.2
-	github.com/openshift-online/rh-trex-ai/components/api-server v0.0.0-20261029165438-8f11b55b73f2
+	github.com/openshift-online/rh-trex-ai/components/api-server v0.0.0-20261104131823-af39aef36b4e
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	gitlab.com/c0b/go-ordered-json v0.0.0-20201030195603-febf46534d5a
@@ -64,7 +64,7 @@ require (
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/sys v0.48.0 // indirect
-	golang.org/x/text v0.29.0 // indirect
+	golang.org/x/text v0.41.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20260721132016-d427ff9ee9ad // indirect

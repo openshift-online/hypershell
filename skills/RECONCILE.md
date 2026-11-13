@@ -27,8 +27,8 @@ skills/
 ├── deploy/
 │   ├── cloud-hub-ingress-bootstrap/  # Shared Gateway API ingress per cloud hub
 │   ├── deploy-cluster/       # OpenShift deployment (Keycloak, OIDC, kustomize)
-│   ├── gcp-cluster/          # GCP OSD cluster deployment (Route mode)
-│   └── ibm-cluster/          # IBM ROKS cluster provisioning and deployment (Route mode)
+│   ├── gcp-cluster/          # GCP OSD cluster deployment
+│   └── ibm-cluster/          # IBM ROKS cluster provisioning and deployment
 ├── plan/
 │   └── spec/                 # Spec authoring (desired state)
 ├── review/
@@ -48,6 +48,48 @@ skills/
 ---
 
 ## Reconciliation State
+
+### Gateway operator-managed workspaces (done, branch spec/gateway-operator-workspaces)
+
+Scoped reconciliation of `specs/platform/gateway-operator-workspaces.spec.md`
+(OSG-OPWS-01..07) and the companion edits to `openshell-gateway.spec.md`
+(OSG-CORE-18.02), `data-model.spec.md` (PLAT-DATA-23), `rbac-enforcement.spec.md`
+(SEC-RBAC-28), and `gateway-deletion-finalization.spec.md` (GTW-DEL-01). A
+create-only per-gateway opt-in to `operator` workspace mode, reusing the existing
+stored `workspace_mode` field and mirroring the `dedicated_route` /
+`gateway:dedicated-route-creator` pattern end to end. No new persisted column or
+migration beyond the role seed; operator effective settings are re-resolved from
+administrator-owned control-plane configuration every reconcile.
+
+| ID | Requirement | Status | Evidence |
+|----|-------------|--------|----------|
+| SEC-RBAC-28 | `gateway:operator-workspace-creator` role (JWT-synced, global-scope-only, built-in seed), body-dependent fail-closed gate at the create boundaries | Present | `plugins/roles/model.go` (const + `JWTSyncedRoles`), `plugins/roles/migration.go` (`migrationAddGatewayOperatorWorkspaceCreatorRole` + `builtInRoleSeeds`), `plugins/roleBindings/service.go` (keycloak-owned reject + `validateScopeMatchesRole`), `pkg/rbac/authorization.go` (`CanRequestGatewayOperatorWorkspace`), `plugins/gateways/operator_workspace.go` (`operatorWorkspaceAuthorizer`); tests `test/authz/operator_workspace_test.go`, `plugins/gateways/operator_workspace_test.go`, `plugins/roles/migration_seed_test.go` |
+| OSG-OPWS-01 | Create-only `workspace_mode=operator` opt-in; only operator caller-settable; import rejected; immutable after create; default stays managed | Present | `plugins/gateways/field_policy.go` (reclassified `fieldUserWritable`), `operator_workspace.go` (`applyGatewayWorkspaceModeCreateRequest`), `service.go` Create funnel, `handler.go`/`grpc_handler.go` create boundaries, `openapi/openapi.gateways.yaml` create schema; tests `workspace_mode_test.go` |
+| OSG-OPWS-02/03 | Namespace selector = gateway's own namespace name; admin-owned label key + operator sandbox RuntimeClass, applied to operator gateways only, re-resolved per reconcile | Present | control-plane `internal/config/config.go` (`OperatorNamespaceLabelKey`, `OperatorSandboxRuntimeClass`), `internal/helm/values.go` operator branch (`operatorNamespaceLabel=<key>=<ns>`, `defaultRuntimeClassName`), `internal/gateway/helm_deploy.go`; test `internal/helm/values_test.go` |
+| OSG-OPWS-04 | Prerequisite validation, no silent downgrade | Present | `internal/gateway/reconciler.go` `validateOperatorPrerequisites` (missing label key / runtime class / RuntimeClass absent -> actionable Failed condition + retryable error); test `internal/gateway/operator_prereq_test.go` |
+| OSG-OPWS-05 | Tenant namespace isolation (selector is unique per gateway); mTLS unchanged | Present | selector derivation in `values.go`/`namespace.go`; transport security untouched |
+| OSG-OPWS-06 / GTW-DEL-01 | Best-effort tenant-namespace reclamation on delete, orphan signal on failure, non-blocking | Present | `internal/gateway/namespace.go` `DeleteOperatorWorkspaceNamespaces`, `internal/reconciler/reconciler.go` delete branch (`== "operator"`, `opts.RecordOrphan`); test `internal/gateway/namespace_test.go` |
+| OSG-OPWS-07 | Supported entry points (REST, gRPC, `hsctl create gateway --operator-workspaces`) | Present | `components/cli/cmd/hsctl/create/gateway/cmd.go` (`--operator-workspaces`); test `cmd_test.go` |
+
+No web-console change: console exposure is explicitly separate work (OSG-OPWS-07),
+and no mockup exists for this feature, so the UI build gate does not apply.
+
+Gates green: api-server/cli/control-plane `gofmt`, `go vet`, `golangci-lint` (0
+issues), affected `go test` packages (roles, gateways, roleBindings, authz, helm,
+config, gateway); `make generate generate-sdk` idempotent (no drift); regenerated
+TUI descriptor; `make check`.
+
+**Last analyzed**: 2026-11-10 (scoped reconciliation of branch
+spec/gateway-operator-workspaces against HEAD b9c857cf; all OSG-OPWS-01..07 and
+SEC-RBAC-28 Present across API server, control plane, and CLI).
+
+### HYPERSHELL-477 -- Kata ROKS CRI-O rolling restart (moved to hypershell-gitops; issue #934)
+
+PR #946 added `specs/platform/kata-roks-crio-restart.spec.md`. A scoped gap
+analysis found no code gap here: every requirement describes automation for
+`bases/operators/sandboxed-containers`, which lives in the `hypershell-gitops`
+repository. The spec then moved there, with the same IDs, as
+`specs/kata-roks-crio-restart.spec.md`. Nothing to reconcile here.
 
 ### HYPERSHELL-455 -- SLI dashboard gaps (done, issue #807 / PR #817)
 
@@ -88,9 +130,9 @@ keeps treating it as opaque, ordered data. `provider`/`env`/`role`/`cluster` del
 clean, `go vet ./...`, `golangci-lint` 0 issues, `go test -count=1 ./...`, fleet
 identity firewall, `make check`.
 
-**Last analyzed**: 2026-10-21 (scoped reconciliation of HYPERSHELL-358 / issue #662 / PR #682: `specs/web-console/homepage.spec.md` WEB-HOME-01..16 all Present. Routes and shared route registry, BFF summary/platform-overview aggregation with admin authorization, API-backed homepage view, Quick Create, external-link and route checkers, placement exclusion contract, generated SDKs, focused browser/BFF/backend tests, and package gates are implemented. Amber review corrections require the exact reported list-page item count, reject future cluster heartbeats, and normalize this history to one current entry. UI gate returned Complete without visual review because the user disabled snapshots for this conversation; production/story data-boundary and PatternFly mockup checks passed.)
+**Last analyzed**: 2026-11-04 (scoped gap analysis of HYPERSHELL-477 / issue #934 / PR #946: zero code gap in this repo. The Kata ROKS CRI-O restart spec describes only `hypershell-gitops` automation and moved to that repository.)
 
-**Prior scoped analysis**: 2026-10-20
+**Prior scoped analysis**: 2026-10-21 (scoped reconciliation of HYPERSHELL-358 / issue #662 / PR #682: `specs/web-console/homepage.spec.md` WEB-HOME-01..16 all Present. Routes and shared route registry, BFF summary/platform-overview aggregation with admin authorization, API-backed homepage view, Quick Create, external-link and route checkers, placement exclusion contract, generated SDKs, focused browser/BFF/backend tests, and package gates are implemented. Amber review corrections require the exact reported list-page item count, reject future cluster heartbeats, and normalize this history to one current entry. UI gate returned Complete without visual review because the user disabled snapshots for this conversation; production/story data-boundary and PatternFly mockup checks passed.)
 
 ### HYPERSHELL-404 -- Glass URL-addressable navigation (done, PR #584 branch)
 
@@ -527,12 +569,12 @@ The first gap analysis found a race between the event-driven reconciler and the 
 
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
-| GC-1 | Console enablement follows the selected ingress mode | Present | - | `control-plane/internal/gateway/{reconciler.go,console.go}`, `reconciler/health.go` | GC-W1 |
+| GC-1 | Console enablement follows the gateway route | Present | - | `control-plane/internal/gateway/{reconciler.go,console.go}`, `reconciler/health.go` | GC-W1 |
 | GC-2 | Confidential console Keycloak client | Present | - | `control-plane/internal/keycloak/client.go`, `gateway/console.go` | - |
 | GC-3 | Stable console credential Secret | Present | - | `control-plane/internal/gateway/console.go` | - |
 | GC-4 | Console Deployment | Present | - | `control-plane/internal/gateway/console.go` | - |
-| GC-5 | Service and mode-selected HTTP exposure | Present | - | `control-plane/internal/gateway/console.go`, `deploy/base/controller-rbac.yaml` | GC-W1 |
-| GC-6 | Console NetworkPolicies | Present | The policy source uses the configured ingress namespace and supports both ingress controllers. | `control-plane/internal/gateway/console.go` | - |
+| GC-5 | Service and HTTPRoute exposure | Present | - | `control-plane/internal/gateway/console.go`, `deploy/base/controller-rbac.yaml` | GC-W1 |
+| GC-6 | Console NetworkPolicies | Present | The policy source uses the configured ingress namespace. | `control-plane/internal/gateway/console.go` | - |
 | GC-7 | Console lifecycle and cleanup | Present | - | `control-plane/internal/gateway/{console.go,reconciler.go}`, `reconciler/health.go` | GC-W1 |
 | GC-8 | Provisioning atomicity and idempotency | Present | - | `control-plane/internal/gateway/console.go`, `internal/keycloak/client.go` | - |
 | GC-9 | Console address discovery | Present | - | `control-plane/internal/reconciler/reconciler.go`, `gateway/console.go` | GC-W1 |
@@ -540,8 +582,6 @@ The first gap analysis found a race between the event-driven reconciler and the 
 **Scoped analysis notes:**
 
 - The API, data model, SDKs, CLI, Keycloak client, Secret, Deployment, Service, and NetworkPolicy contracts need no change.
-- GC-W1 added the OpenShift Route adapter and made provisioning, readiness, cleanup, and health repair use the selected ingress mode.
-- The base controller role permits Route CRUD and create and update access to `routes/custom-host` because the console Route sets `spec.host`.
 
 ### openshift-development.spec.md (local-dev lifecycle)
 
@@ -553,7 +593,7 @@ The first gap analysis found a race between the event-driven reconciler and the 
 | OS-4 | Keycloak Namespace | Present | `${OPENSHIFT_NAMESPACE}-keycloak` via `oc new-project`; apply while that project is selected, then switch back; OIDC issuer from Keycloak Route; `KC_HOSTNAME` is host-only; `keycloak-allow-platform` NetworkPolicy lets platform pods reach JWKS/Admin API; console redirect URIs and API seeding use host `curl` against Routes (API server image has no curl) | `rewrite-namespaces.py`, `drivers/openshift.sh`, `deploy/openshift/keycloak-networkpolicy.yaml` | OS-W2 |
 | OS-5 | Component Swap on OpenShift | Present | Build, push immutable commit+namespace identity, per-namespace `.openshift-swaps/`, reconcile preserves swaps | `drivers/openshift.sh`, `Makefile` | OS-W2 |
 | OS-E2E-1 | OpenShift E2E Driver | Partial | Manual `make e2e` / `make e2e-performance` against a pre-deployed cluster. Out of scope for OS-W2. | `tests/e2e/drivers/openshift.sh` | OS-W1 |
-| OS-7 | E2E Script Consolidation | Present | `components/pr-test/e2e-openshell.sh` removed (HYPERSHELL-250); only the out-of-scope ROKS script remains under `components/pr-test/`, rescoped `pr_test`/`lint-pr-test` CI wiring | `components/pr-test/`, `tests/e2e/drivers/openshift.sh` | W5 (HYPERSHELL-250) |
+| OS-7 | E2E Script Consolidation | Present | `components/pr-test/e2e-openshell.sh` removed (HYPERSHELL-250); the ROKS script and the `pr_test` CI component were removed later (#767) | `tests/e2e/drivers/openshift.sh` | W5 (HYPERSHELL-250) |
 | OS-8 | Ephemeral CI Environment Provisioning | Missing | Intentionally deferred: not local-dev lifecycle | - | Future |
 | OS-9 | Environment Access Handoff | Missing | Intentionally deferred: CI-only | - | Future |
 | OS-10 | Blessed OpenShift Overlay | Partial | Namespace parameterization, Routes, SCC RoleBindings; `API_ENV=development_oidc` in the overlay (not `oc set env`); gateway base domain discovered from the shared Gateway listener (not `GATEWAY_API_BASE_DOMAIN`). Drift-check CI job deferred. | `deploy/openshift/`, `rewrite-namespaces.py` | OS-W2 |
@@ -708,9 +748,9 @@ Local-dev lifecycle (`make openshift-up` / `down` / component swaps) is implemen
 | # | Requirement | Status | Gap | Code Location | Wave |
 |---|-------------|--------|-----|---------------|------|
 | R1 | Router NetworkPolicy | Partial | Uses namespaceSelector not podSelector; created unconditionally | `reconcileRouterNetworkPolicy()` | W7 |
-| R2 | Gateway API detection at startup | Present | - | `DetectGatewayAPI()` | W4 ✅ |
+| R2 | Gateway API check on every gateway reconcile | Present | - | `requireGatewayAPI()` | W4 ✅ |
 | R3 | `GATEWAY_API_GATEWAY_NAME` env var (required) | Present | Controller requires this env var to reference the pre-existing shared Gateway | `reconciler.go` | W8 ✅ |
-| R4 | Gateway API not available: disable + log | Present | - | `reconciler.go:76-80` | W4 ✅ |
+| R4 | Gateway API not available: gateway reconcile fails with a clear condition and retries | Present | - | `ReconcileGateway()` | W4 ✅ |
 | R5 | `route` config field (host, enabled) | Present | - | `config.go:17-20` | W4 ✅ |
 | R6 | Auto-derived hostname convention | Partial | Extra `.hsgw.` subdomain vs spec | `reconciler.go:727-731` | W8 |
 | R7 | DNS label validation (63-char limit) | Not needed | Shortened namespace (26 chars) + `gw-` prefix keeps all derived names under 63 chars | - | - |
@@ -1114,7 +1154,7 @@ Ephemeral-by-default pull-request environments on a shared OpenShift cluster. Bu
 | PR-ENV-8 | GitHub-brokered Keycloak (GitHub IdP, org gate + allowlist, stable callback, password form hidden) | Present | **Declarative IdP:** GitHub IdP enables when ESO Secret `hypershell-github-oauth` has `client_id`. Org/allowlist and per-PR `hypershell-e2e` secret live in CI-owned `hypershell-e2e-client`. Kind/local have no OAuth Secret, so the IdP stays off. **Org-gate enforcement:** BFF checks org membership / allowlist after OIDC callback. **Login page:** `theme/login.css` hides the username/password form when the GitHub IdP is present so human contributors cannot fall back to a test-tier password (#342). Unit-tested. | `deploy/base/keycloak/keycloak.yaml`, `deploy/base/keycloak/theme/login.css`, `components/web-console/bff/src/github-org-gate.ts`, `scripts/cluster/drivers/openshift.sh`, `.github/actions/deploy-pr-environment/action.yml` | W2 ✅ |
 | PR-ENV-9 | Admin roles + developer-tier impersonation (seeded dev principal, interactive + token-exchange) | Present | Base realm grants `platform:admin`+`gateway:creator` on GitHub broker login; human test-tier users are not in the realm import. Lifecycle seed creates them (ESO passwords on CI-owned, static on developer-owned). `hypershell-e2e` has impersonation + token exchange. Seeded users last until the environment is destroyed; e2e does not de-seed. **Interactive (#342):** on first GitHub broker login the realm also grants `view-users`, `query-users`, and `impersonation` realm-management client roles, so a GitHub user can open `/admin/hypershell/console/` and impersonate `developer` or `platform-admin` without a password; master-realm `/admin/` is not the path. The `impersonation` role is realm-wide (no target-scoped form without FGAP). Token-exchange does not extend to other GitHub-brokered users. Inert on Kind (IdP disabled). | `deploy/base/keycloak/keycloak.yaml`, `deploy/base/keycloak/render-realm-config.py`, `scripts/cluster/reconcile-test-users.sh`, `tests/e2e/drivers/openshift.sh` | W2 ✅ |
 | PR-ENV-10 | Automated E2E auth: grant-agnostic driver (`E2E_OIDC_GRANT`), `hypershell-e2e` client-credentials + token-exchange (= D-E2E-OIDC) | Present | `_driver_acquire_oidc_token` dispatches password/client_credentials (admin CC + developer token-exchange impersonation); CI reads the client secret from the Keycloak namespace after `openshift-up`. Unit-tested (`openshift_driver_test.sh`). | `tests/e2e/drivers/kind.sh`, `tests/e2e/lib.sh`, `deploy/base/keycloak/keycloak.yaml`, `scripts/ci/read-e2e-client-secret.sh`, `tests/e2e/openshift_driver_test.sh` | W1 ✅ |
-| PR-ENV-11 | Legacy `pr-test` removal + docs | Present | `components/pr-test/e2e-openshell.sh` deleted (HYPERSHELL-250); `lint-pr-test` now syntax-checks `e2e-openshell-roks.sh`; DEVELOPMENT.md, CLAUDE.md, `ephemeral-pr-environments.spec.md`, `openshift-development.spec.md`, `e2e-testing.spec.md`, and full-stack-pipeline skill point at `tests/e2e/e2e-openshell.sh` + this workflow; ROKS/GCP variants + rescoped `pr_test` CI wiring untouched | `.github/workflows/checks.yml`, `DEVELOPMENT.md`, `CLAUDE.md`, `skills/build/full-stack-pipeline/SKILL.md` | W5 ✅ |
+| PR-ENV-11 | Legacy `pr-test` removal + docs | Present | `components/pr-test/e2e-openshell.sh` deleted (HYPERSHELL-250); the ROKS variant and its `pr_test` CI component were later removed (#767); DEVELOPMENT.md, CLAUDE.md, `ephemeral-pr-environments.spec.md`, `openshift-development.spec.md`, `e2e-testing.spec.md`, and full-stack-pipeline skill point at `tests/e2e/e2e-openshell.sh` + this workflow | `.github/workflows/checks.yml`, `DEVELOPMENT.md`, `CLAUDE.md`, `skills/build/full-stack-pipeline/SKILL.md` | W5 ✅ |
 
 **Human-provisioned prerequisites (not code):** GitHub OAuth App (client id/secret) + one stable callback URL, CI cluster kubeconfig/token in AWS Secrets Manager, the `openshift-online` org gate + allowlist values, and deploying/syncing the reaper onto the target cluster via hypershell-gitops.
 
@@ -1387,7 +1427,7 @@ lint, alignment, and review checks pass.
 **Dependency:** Existing Gateway Console and Route ingress implementations
 **Status:** Complete
 
-1. Select console exposure from the effective gateway ingress mode.
+1. Select console exposure from the gateway's exposure kind.
 2. Create an edge-terminated OpenShift Route for `openshell-console` in Route mode.
 3. Observe HTTPRoute acceptance or OpenShift Route admission for address publication.
 4. Reconcile initial provisioning, health repair, inactive exposure removal, and teardown for both modes.
@@ -1395,7 +1435,7 @@ lint, alignment, and review checks pass.
 6. Add unit tests for resource shape, readiness, mode selection, and cleanup.
 7. Run control-plane build, vet, test, alignment, and review checks.
 
-**GC-W1 summary:** Added an edge-terminated OpenShift Route for the console, selected readiness by ingress mode, removed inactive console exposures, aligned route-enable semantics, and added custom-host RBAC. The complete control-plane test suite, affected-package race tests, vet, lint, build, Kustomize renders, alignment scan, and independent review passed.
+**GC-W1 summary:** Added an edge-terminated OpenShift Route for the console, selected readiness by exposure kind, removed inactive console exposures, aligned route-enable semantics, and added custom-host RBAC. The complete control-plane test suite, affected-package race tests, vet, lint, build, Kustomize renders, alignment scan, and independent review passed.
 
 ### HYPERSHELL-49 OpenShellGatewayServiceAccount waves
 
@@ -1837,7 +1877,7 @@ label-selected pod informer.
 | REPO-C-CLI | `hsctl` + Kustomize (`apply -k`) coverage for every ext kind | Data Model | **DONE 2026-10-16 (verified; no code change needed).** All ext kinds are already wired in `hsctl apply` with Kustomize support in `components/cli/cmd/hsctl/apply/cmd.go` - `isSupportedKind` and the `applyResource` kind->path switch both cover Gateway, ManagedCluster, Role, RoleBinding, AgentRuntime, SandboxTemplate, ProviderSpec, ProviderBinding, InferenceRoute, SecretSource, Repository (landed with #497). ManagedDatabase is correctly absent (the resource was removed; its table is dropped by a migration). The generated TUI descriptor covers all kinds via `make generate-tui`. |
 | REPO-C-IMPORT | Control-plane declarative-import reconciler | Control Plane | **DONE 2026-10-16 (PR #590) - ALL 7 importable kinds import; no `ErrKindNotWritable` path remains.** The #590 re-spec unblocked the prior deferral by replacing git-clone + `hsctl`-binary render (impossible in the distroless image) with a GitHub-API subtree read + an in-process kustomize library. Built: `pkg/kustomize` shared library in `components/cli` (`Build`/`BuildYAML`, dep `sigs.k8s.io/kustomize/api`+`kyaml` v0.21.2, age-compliant; `kube-openapi` pinned to the smd-v6 line via `replace`); `hsctl apply -k` refactored off the external `kustomize` binary onto it; `components/control-plane` requires+`replace`s the cli module; and the `RepositoryReconciler` (`internal/reconciler/repository_{reconciler,github,writer}.go`) runs an idempotent loop that resolves the credential (per-Repository `secret_source_id` via `pkg/secretstore` takes precedence over the default platform GitHub App token), reads ONLY the `import_path` subtree over the GitHub git-trees/blobs API into an in-memory `filesys` (no clone, no disk, no child process), renders via `pkg/kustomize.Build`, filters to the 7 canonical importable Kinds (excluding `Repository` + admin kinds), UPSERTS over the gRPC write path with server-side ownership via the `x-hypershell-import-repository-id` binding (#585), and PRUNES Repository-owned resources no longer present, scoped per Repository. Wired into `main.go` behind `HYPERSHELL_REPOSITORY_IMPORT_ENABLED` (default off) + `HYPERSHELL_GITHUB_TOKEN_FILE`. Fake-backed tests cover render/7-kind filter/Repository+admin exclusion, upsert, prune, per-Repository prune scoping, credential precedence, the GitHub fetcher (httptest), and ownership metadata. **COMPLETED (follow-up on #590, 2026-10-16): all 7 importable kinds now import.** The prior flag is closed. Added the missing write surfaces: `AgentRuntime` gained gRPC `Create`/`Update`/`Delete` (proto + handlers with server-set ownership on create, `EnforceImportOwnership` + nil-found guard on update/delete) and `Gateway` gained a nullable read-only `repository_id` ownership mark (model + raw idempotent `ALTER TABLE` migration `2026101600000001` + OpenAPI `readOnly` + regenerated Go/TS SDK + TUI + REST & gRPC presenter) with the same import-ownership wiring on its existing Create/Update/Delete. Both kinds are authorized on the same `Repository`-scoped import terms via `pkg/rbac` (`ImportOwnershipMark`/`EnforceImportOwnership`/`authorizeImportWrite`); a write carrying no import binding stays on the existing cluster-scoped non-import path. Because `Gateway`/`AgentRuntime` are cluster-assigned, their list reads are normally held to the caller's own cluster; a **B-narrowed** exemption lets the import reconciler's cross-cluster, `Repository`-scoped read through ONLY when it carries the import binding AND a matching `repository_id` filter for an existing Repository (added a `repository_id` filter to `ListGateways`/`ListAgentRuntimes`; exemption decided in `pkg/rbac/cluster_binding.go`). `ErrKindNotWritable` and its special-casing are removed; the writer upserts/prunes all 7 kinds. Spec: `data-model.spec.md` ownership requirement now enumerates the mark on all 7 including Gateway; `rbac-enforcement.spec.md` + `control-plane.spec.md` document the import-write authz for Gateway/AgentRuntime and the B-narrowed import-read exemption. Tests: AgentRuntime handler tests (ownership-mark on create, cross-Repository refusal, nil-found guard, repository_id list filter), the cluster-binding exemption matrix, and control-plane writer tests (gateway/agent-runtime upsert/update/skip, Repository-scoped owned-list, delete). The "platform GitHub App credential" is consumed as a mounted installation-token file (ESO-refreshed, like fleet-dashboard); full App-JWT->installation-token minting is not implemented. Builds on the PR #585 server-side pieces below. Gate green: `make check` (incl. dependency-age), `make lint-cli`, `make lint-control-plane` (0 issues), cli + control-plane build/test, no generated drift. **PR #585 server-side foundation (2026-10-16):** (1) **CP read-only secret-store client** - `pkg/secretstore/reader.go` (`Reader.Get`, `MemoryReader`, `VaultReader` KV v2, disabled default, `NewReaderFromEnv`, `NewErrorReader`), mirror of the write-only `Store`; api-server stays write-only, control plane read-only. (2) **ESO removed** - the AgentRuntime reconciler (`agent_runtime_reconciler.go`/`_resources.go`) no longer builds an `ExternalSecret`; it reads each `SecretSource` value via the read-only client and places a Kubernetes `Secret` directly, one-shot (no resync); the dynamic-client ESO path, GVR, and sync-status polling are deleted; prune now targets placed Secrets. (3) **gRPC write enablement + Repository binding** - `pkg/rbac/import_binding.go`: writes to the 5 owned ext kinds (SandboxTemplate, ProviderSpec, ProviderBinding, InferenceRoute, SecretSource) are authorized only for a registered control-plane identity that carries the reconciled Repository id in trusted gRPC metadata (`x-hypershell-import-repository-id`) AND the server validates that Repository exists (`ImportRepositoryResolver`); handlers set `repository_id` server-side from that metadata and IGNORE any client-supplied value, and refuse update/delete of resources owned by a different Repository (ownership-forgery protection). The bootstrap-SA allowlist is explicitly kept off import writes. RepositoryService writes stay denied (a Repository is the admin-registered owner, no ownership mark). (4) **security.spec.md** ESO sentence scoped to the SecretSource/secret-store path (finding 2). **FLAGGED / still deferred:** the end-to-end import reconciler itself (enumerate Repositories -> git-clone at `default_branch` -> `hsctl` Kustomize render -> create/update/**PRUNE** over the gRPC write path) is NOT built, because the control-plane runtime image (`hi/static` distroless; `components/control-plane/Dockerfile`) ships only the controller + helm - it has **no `git` and no `hsctl` binary** - so git-clone + the spec-mandated hsctl render cannot run there, and adding both (go-git dep + hsctl in the image) could not be made green and verified in this pass. The gRPC write path + binding it would use are fully enabled and tested server-side. Depends on REPO-C-GRPC + REPO-C-OWN (both done). #526 stays out of scope. |
 | REPO-C2 | Coordinator selector scanning | Data Model | Runtime behavior in the coordinator image: query the Repository for items carrying any `selector` label (match-any) and launch one sandbox per match. Separate from the API surface delivered in B. |
-| REPO-C3 | Deprecate/remove `discover.sh`/`run.sh` | Data Model | Spec marks the script coordinator contract deprecated/slated-for-removal; `.hypershell/README.md` update + script removal is an explicit out-of-scope follow-up. |
+| REPO-C3 | Remove the script coordinator | Data Model | **DONE.** The `discover.sh`/`run.sh` script coordinator is gone from `.hypershell/`; the Fullsend engine runs the agents (`.hypershell/README.md`). |
 
 ### Cross-Cutting Findings
 

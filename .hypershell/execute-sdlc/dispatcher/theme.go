@@ -15,10 +15,20 @@ import (
 // Font family and font size remain under the terminal user's control.
 func themeColor(role string) lipgloss.TerminalColor {
 	switch role {
+	case "approval-surface":
+		return lipgloss.AdaptiveColor{Light: "#ffe8cc", Dark: "#4d1f00"}
+	case "approval-selected":
+		return lipgloss.AdaptiveColor{Light: "#fccb8f", Dark: "#732e00"}
+	case "approval-text":
+		return lipgloss.AdaptiveColor{Light: "#732e00", Dark: "#fccb8f"}
+	case "approval-accent":
+		return lipgloss.AdaptiveColor{Light: "#732e00", Dark: "#ffe8cc"}
 	case "selection":
 		return lipgloss.AdaptiveColor{Light: "#f0f0f0", Dark: "#303030"}
 	case "canvas":
 		return lipgloss.AdaptiveColor{Light: "#ffffff", Dark: "#151515"}
+	case "log-border":
+		return lipgloss.AdaptiveColor{Light: "#8a8d90", Dark: "#b8bbbe"}
 	case "scroll-track":
 		return lipgloss.AdaptiveColor{Light: "#8a8d90", Dark: "#62666a"}
 	case "brand":
@@ -62,9 +72,41 @@ func (m Model) selection(line string, width int) string {
 	return marker + base.Render(body)
 }
 
+// Approval rows keep their semantic tint even when the cursor moves away.
+// Focus adds an amber rail and a stronger surface; labels remain useful without color.
+func (m Model) workRow(line string, width int, row Row, selected bool) string {
+	if row.Status != "awaiting_approval" {
+		if selected {
+			return m.selection(line, width)
+		}
+		return line
+	}
+	if m.plainColor {
+		return line
+	}
+	text := ansi.Truncate(ansi.Strip(line), width, "")
+	text += strings.Repeat(" ", max(0, width-ansi.StringWidth(text)))
+	surface := "approval-surface"
+	if selected {
+		surface = "approval-selected"
+	}
+	base := lipgloss.NewStyle().Background(themeColor(surface)).Foreground(themeColor("7"))
+	if selected && strings.HasPrefix(text, "> ") {
+		body := text[2:]
+		marker := base.Foreground(themeColor("approval-accent")).Render("▎ ")
+		issue := selectedIssue.FindString(body)
+		if issue != "" {
+			return marker + base.Bold(true).Render(issue) + base.Render(body[len(issue):])
+		}
+		return marker + base.Render(body)
+	}
+	return base.Render(text)
+}
+
 var selectedIssue = regexp.MustCompile(`^#[0-9]+\b`)
 
 func (m Model) groupHeading(agent, summary string, width int) string {
+	approval := agent == "Awaiting approval"
 	summary = middle(clean(summary), max(1, width/3))
 	agent = middle(clean(agent), max(1, width-lipgloss.Width(summary)-4))
 	gap := max(0, width-lipgloss.Width(agent)-lipgloss.Width(summary))
@@ -78,19 +120,39 @@ func (m Model) groupHeading(agent, summary string, width int) string {
 	render := func(text, role string, bold bool) string {
 		return lipgloss.NewStyle().Foreground(themeColor(role)).Background(themeColor("canvas")).Bold(bold).Render(text)
 	}
-	return render(agent, "7", true) + render(divider, "border", false) + render(summary, "8", false)
+	role := "7"
+	if approval {
+		role = "approval-text"
+	}
+	return render(agent, role, true) + render(divider, "border", false) + render(summary, "8", false)
 }
 
 func (m Model) viewTabs(issues bool, width int) []string {
-	agentsColor, issuesColor := "6", "8"
-	underline := "━━━━━━"
+	active := 0
 	if issues {
-		agentsColor, issuesColor = "8", "6"
-		underline = "          ━━━━━━"
+		active = 1
 	}
-	left := m.style("Agents", agentsColor, !issues) + "    " + m.style("Issues", issuesColor, issues)
+	return m.viewTabsFor(active, width)
+}
+func (m Model) viewTabsFor(active, width int) []string {
+	labels := []string{"Agents", "Issues", "Configuration"}
+	left := ""
+	underline := ""
+	offset := 0
+	for i, label := range labels {
+		color := "8"
+		if i == active {
+			color = "6"
+			underline = strings.Repeat(" ", offset) + strings.Repeat("━", len(label))
+		}
+		if i > 0 {
+			left += "    "
+		}
+		left += m.style(label, color, i == active)
+		offset += len(label) + 4
+	}
 	hint := "tab switch view"
-	if width > 55 {
+	if width > 65 {
 		left += strings.Repeat(" ", max(2, width-lipgloss.Width(left)-len(hint))) + m.footerHints(hint)
 	}
 	return []string{left, m.style(underline, "6", true)}

@@ -17,7 +17,8 @@ export interface SdlcWorkflowProbe {
 }
 
 /** The e2e-run workflows that publish a lifecycle outcome (E2E-LOG-13). */
-export type E2eWorkflowName = "e2e.runs.load" | "e2e.run.load";
+export type E2eWorkflowName =
+  "e2e.runs.load" | "e2e.run.load" | "e2e.diagnostics.load";
 
 /** Lifecycle outcomes an e2e workflow reports (same set as the SDLC workflow). */
 export type E2eWorkflowOutcome = SdlcWorkflowOutcome;

@@ -82,8 +82,10 @@ steps. The ordering reflects the actual dependency chain in the reconciler.
 - TLS certificate issuance and external routing are grouped into step 4
   ("Deploying gateway") because they are tightly coupled to the deploy sequence
   and not independently meaningful to an end user.
-- Step 3 is omitted (condition not emitted) when the gateway has no OIDC
-  configuration, since there is no IdP work to perform.
+- Step 3 is always emitted. Every gateway gets a generated Keycloak OIDC
+  configuration, because Keycloak integration is mandatory
+  ([`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md),
+  OSG-KCLK-01).
 
 ### Client-Derived Presentation Steps
 
@@ -127,10 +129,9 @@ Client-Derived Presentation Steps) that follow their own completion logic.
 The control plane SHALL own initialization of provisioning conditions. When the
 GatewayReconciler first processes a newly created Gateway whose
 `provisioning_conditions` field is null, it SHALL initialize the conditions list
-based on the gateway's configuration (e.g., omitting `IdentityProviderReady`
-when OIDC is not configured). The API server persists and exposes conditions but
-does not populate them - this avoids duplicating reconciler domain logic (such as
-which steps apply for a given configuration) in the API server.
+with all five server-side conditions, including `IdentityProviderReady`. The API
+server persists and exposes conditions but does not populate them - this keeps
+reconciler domain logic out of the API server.
 
 #### Scenario: GTW-PROG-01.01 -- Control plane initializes conditions on first reconciliation
 
@@ -138,18 +139,10 @@ which steps apply for a given configuration) in the API server.
 - AND the API server persists it with `provisioning_conditions` set to null
 - WHEN the GatewayReconciler first processes the Gateway
 - THEN it SHALL initialize the `provisioning_conditions` field with the ordered
-  list of condition types applicable to this gateway's configuration
+  list of all five server-side condition types, including `IdentityProviderReady`
 - AND each condition SHALL have `condition_status` set to `Pending`
 - AND the control plane SHALL persist the initialized conditions via the API
   server
-
-#### Scenario: GTW-PROG-01.02 -- Conditions reflect gateway configuration
-
-- GIVEN a Gateway with no OIDC configuration (`oidc` is null or `oidc.issuer` is
-  empty)
-- WHEN the control plane initializes provisioning conditions
-- THEN the `IdentityProviderReady` condition SHALL be omitted from the list
-- AND the remaining conditions SHALL retain their relative order
 
 #### Scenario: GTW-PROG-01.03 -- Conditions visible via REST API
 
@@ -175,7 +168,7 @@ conditions are `Complete`.
   namespace
 - AND it SHALL set `EnvironmentReady` to `Complete` after the namespace and RBAC
   are confirmed
-- AND it SHALL proceed to the next applicable condition in order
+- AND it SHALL proceed to the next condition in order
 
 #### Scenario: GTW-PROG-02.02 -- Step failure sets condition to Failed
 
@@ -199,13 +192,6 @@ conditions are `Complete`.
 - AND it SHALL NOT advance the gateway to `Running`
 - AND the message SHALL NOT contain the ServiceAccount token (see
   [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md))
-
-#### Scenario: GTW-PROG-02.04 -- IdP step skipped for non-OIDC gateways
-
-- GIVEN a Gateway with no OIDC configuration
-- WHEN the GatewayReconciler completes the `DatabaseReady` step
-- THEN it SHALL proceed directly to `GatewayDeployed`
-- AND the `IdentityProviderReady` condition SHALL not be present
 
 #### Scenario: GTW-PROG-02.05 -- Conditions reset on re-provisioning
 
@@ -234,8 +220,12 @@ conditions are `Complete`.
 
 The gateway detail view in `gateway-management-ui` SHALL render provisioning
 conditions as a vertical `ProgressStepper` (`@patternfly/react-core`) on the
-gateway detail page. The stepper SHALL be visible in all gateway phases so the
-user can always see which provisioning steps the gateway went through.
+gateway detail page. Stepper visibility SHALL follow the gateway-detail entry
+and session rules in [`gateway-list-detail.spec.md`](../web-console/gateway-list-detail.spec.md)
+requirement `WEB-GLIS-08`: show it for fresh creation, in-progress
+provisioning, or an errored installation; hide it on a later entry to a
+successfully installed gateway running without an error; and retain it for the
+remainder of the current visit once shown.
 
 #### PatternFly Component Mapping
 
@@ -295,7 +285,8 @@ title.
 #### Scenario: GTW-PROG-03.04 -- Stepper visible on a Running gateway
 
 - GIVEN a gateway that completed provisioning and has `phase` `Running`
-- WHEN the user views the gateway detail
+- WHEN the user views the gateway detail during a visit in which the stepper
+  was already shown
 - THEN the stepper SHALL remain visible with all steps showing `variant="success"`
 - AND the user SHALL be able to see which provisioning steps were performed
 
@@ -310,6 +301,14 @@ title.
 - AND all prior provisioning steps SHALL remain `variant="success"`
 - AND the UI SHALL continue polling (per the phase vocabulary spec, `Degraded` is
   a recoverable phase that keeps polling)
+
+#### Scenario: GTW-PROG-03.06 -- Stepper hidden on a later entry to a healthy Running gateway
+
+- GIVEN a gateway that completed provisioning, has `phase` `Running`, and is
+  running without an error
+- WHEN the user enters the gateway detail page after previously leaving that
+  gateway
+- THEN the stepper SHALL NOT be visible
 
 ---
 

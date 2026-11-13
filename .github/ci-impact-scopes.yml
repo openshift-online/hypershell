@@ -296,12 +296,14 @@ scopes:
       test-infrastructure:
         include:
           - tests/**
-          - components/pr-test/**
           - scripts/ci/**
           - .github/actions/deploy-pr-environment/**
           - .github/actions/openshift-cluster-login/**
           - .github/workflows/pr-environment-*.yml
           - .github/workflows/ci-federation-test.yml
+          - .github/workflows/ci-federation-e2e-sandbox.yml
+          - .github/workflows/fullsend-dispatch.yml
+          - .github/workflows/fullsend-agent-run.yml
         exclude:
           - '**/README.md'
           - '**/AGENTS.md'

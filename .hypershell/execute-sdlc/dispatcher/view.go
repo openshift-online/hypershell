@@ -133,7 +133,116 @@ func relativeAge(age float64) string {
 		return fmt.Sprintf("%dd", n/86400)
 	}
 }
+
+// A successful process can leave approval waiting for live CI/PR readiness.
+func reviewWaiting(r Row) string {
+	if r.Agent != "code-review" || r.Status != "succeeded" || r.Activity == "history" || r.CodeReadiness == nil {
+		return ""
+	}
+	reviewable := false
+	for _, label := range r.Labels {
+		if label == "agent/reviewable-code" {
+			reviewable = true
+		}
+	}
+	if !reviewable || r.CodeReadiness.State != "open" {
+		return ""
+	}
+	state := r.CodeReadiness
+	if state.ReviewCurrent == nil || !*state.ReviewCurrent {
+		return "Awaiting new review"
+	}
+	switch {
+	case state.Checks == "failing":
+		return "CI failed · needs repair"
+	case state.Checks != "green":
+		return "Waiting for CI"
+	case state.Draft:
+		return "Waiting: PR is draft"
+	case state.MergeableState == "dirty":
+		return "Conflicts · needs repair"
+	case state.Mergeable == nil || !*state.Mergeable:
+		return "Waiting for PR readiness"
+	default:
+		return "Review needed"
+	}
+}
+func awaitingNewReview(r Row) bool {
+	return reviewWaiting(r) == "Awaiting new review" || reviewWaiting(r) == "Review needed"
+}
+
+func reviewSentForRepair(r Row) bool {
+	if r.Agent != "code-review" || r.Status != "succeeded" || r.Activity == "history" || r.CodeReadiness == nil || r.CodeReadiness.Checks != "failing" {
+		return false
+	}
+	for _, label := range r.Labels {
+		if label == "agent/review-code-rejected" {
+			return true
+		}
+	}
+	return false
+}
+func reviewWaitingDetail(r Row) string {
+	if reviewSentForRepair(r) {
+		return "Required CI failed and code review is rejected. The issue has been returned to code implementation to investigate the check logs, fix the cause or rerun transient CI, then request another review."
+	}
+	switch reviewWaiting(r) {
+	case "Awaiting new review":
+		return "The current review request has not been completed. The previous run belongs to an earlier request or PR revision; its duration is available in history. Jira synchronization must succeed before a new review can start. Pending CI prevents approval, but does not by itself prevent starting a review."
+	case "Waiting for CI":
+		return "The review process finished, but required checks are pending or unknown. Approval has not been applied. Discovery will revisit the review when CI changes; failed required checks return the issue to code implementation."
+	case "CI failed · needs repair":
+		return "Required CI failed. Approval has not been applied. Readiness maintenance will mark code review rejected and request code implementation once worker ownership permits recovery."
+	case "Review needed":
+		return "This issue needs a code-review verdict for its current review request. The previous run does not satisfy that request. A new review starts when synchronization succeeds and a worker slot is available; approval to merge is a separate step."
+	case "":
+		return ""
+	default:
+		return "The review process finished, but the PR is not ready for approval. Resolve draft status, mergeability or conflicts on the linked PR. Readiness maintenance will revisit it automatically."
+	}
+}
+func rowColor(r Row) string {
+	if r.Status == "awaiting_approval" {
+		return "approval-text"
+	}
+	if reviewSentForRepair(r) {
+		return "1"
+	}
+	switch reviewWaiting(r) {
+	case "CI failed · needs repair", "Conflicts · needs repair":
+		return "1"
+	case "":
+	default:
+		return "3"
+	}
+	return statusColor(r.Status)
+}
 func rowStatus(r Row) string {
+	if r.Status == "awaiting_approval" {
+		if r.Activity != "" {
+			return r.Activity
+		}
+		return "Awaiting approval"
+	}
+	if reviewSentForRepair(r) {
+		return "CI failed · rejected"
+	}
+	if waiting := reviewWaiting(r); waiting != "" {
+		if (waiting == "Review needed" || waiting == "Awaiting new review") && r.SyncLog != "" {
+			return "Review needed · Jira sync"
+		}
+		return waiting
+	}
+	if r.Status == "running" && r.CancelRequested {
+		return "Canceling · waiting for cleanup"
+	}
+	if r.Status == "canceled" {
+		if r.Activity == "history" {
+			return "Canceled"
+		}
+		return "Canceled · r to retry"
+	}
+
 	if r.Activity == "history" {
 		switch r.Status {
 		case "failed":
@@ -168,6 +277,8 @@ func rowStatus(r Row) string {
 }
 
 type tickMsg time.Time
+type cancelDone struct{ err error }
+
 type retryDone struct {
 	key string
 	err error
@@ -178,37 +289,48 @@ type historyDone struct {
 	err   error
 }
 type Model struct {
-	sortDescending                      bool
-	filter, historyFilter, filterBefore string
-	filtering, helpOpen                 bool
-	helpScroll, sortMode                int
-	gPending                            time.Time
-	confirmScroll                       int
-	signIn                              *signInSession
-	signInActive                        bool
-	signInCancel                        context.CancelFunc
-	signInText, signInInput             string
-	signInScroll                        int
-	signInPending                       string
-	signInPrompt                        *gatewayPrompt
-	signInChoice                        int
-	signInResult                        string
-	signInDiagnostics                   bool
-	pendingRetry                        *Row
-	issueGrouping                       bool
-	showCompleted                       bool
-	historyIssue                        *Row
-	historyRows                         []Row
-	historyLoading                      bool
-	engine                              *Engine
-	ctx                                 context.Context
-	cancel                              context.CancelFunc
-	state                               Snapshot
-	width, height, index, scroll        int
-	selected, screen, notice, logText   string
-	noticeUntil                         time.Time
-	plainColor                          bool
-	exit                                int
+	logs                                    logViewState
+	configReturn                            string
+	configIndex, configChoice, configCursor int
+	configEditing, configSaving             bool
+	configInput, configError                string
+	sortDescending                          bool
+	filter, historyFilter, filterBefore     string
+	filtering, helpOpen                     bool
+	helpScroll, sortMode                    int
+	gPending                                time.Time
+	confirmScroll                           int
+	signIn                                  *signInSession
+	signInActive                            bool
+	signInCancel                            context.CancelFunc
+	signInText, signInInput                 string
+	signInScroll                            int
+	signInPending                           string
+	signInPrompt                            *gatewayPrompt
+	signInChoice                            int
+	signInResult                            string
+	signInDiagnostics                       bool
+	pendingApproval                         *Row
+	approvalChoice                          int
+	approvalBusy                            bool
+	approvalKey                             string
+	pendingCancel                           *Row
+	cancelChoice                            int
+	pendingRetry                            *Row
+	issueGrouping                           bool
+	showCompleted                           bool
+	historyIssue                            *Row
+	historyRows                             []Row
+	historyLoading                          bool
+	engine                                  *Engine
+	ctx                                     context.Context
+	cancel                                  context.CancelFunc
+	state                                   Snapshot
+	width, height, index, scroll            int
+	selected, screen, notice, logText       string
+	noticeUntil                             time.Time
+	plainColor                              bool
+	exit                                    int
 }
 
 func (m Model) Init() tea.Cmd { return tick() }
@@ -217,8 +339,13 @@ func tick() tea.Cmd {
 }
 func (m Model) scopedRows() []Row {
 	rows := []Row{}
+	for _, r := range m.state.AwaitingApproval {
+		if r.Scope == m.engine.config().Scope {
+			rows = append(rows, r)
+		}
+	}
 	for _, r := range m.state.Rows {
-		if r.Scope == m.engine.c.Scope || r.Status == "running" {
+		if r.Scope == m.engine.config().Scope || r.Status == "running" {
 			rows = append(rows, r)
 		}
 	}
@@ -231,7 +358,7 @@ func (m Model) visibleRows() []Row {
 	rows := []Row{}
 	seen := map[string]bool{}
 	for _, r := range m.filterRows(m.scopedRows()) {
-		if r.Status == "succeeded" && !m.showCompleted && !(m.screen != "" && r.Key == m.selected) {
+		if r.Status == "succeeded" && reviewWaiting(r) == "" && !m.showCompleted && !(m.screen != "" && r.Key == m.selected) {
 			continue
 		}
 		group := r.Scope + "\x00" + r.Repo + "\x00" + r.Item
@@ -262,6 +389,14 @@ func (m Model) visibleRows() []Row {
 	if m.issueGrouping {
 		rows = m.orderRows(rows)
 	}
+	for i := range rows {
+		if m.approvalBusy && rows[i].Key == m.approvalKey {
+			rows[i].Activity = "Checking approval…"
+		}
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		return rows[i].Status == "awaiting_approval" && rows[j].Status != "awaiting_approval"
+	})
 	return rows
 }
 func (m *Model) restoreSelection(key string, issue *Row) {
@@ -313,12 +448,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		rows := m.visibleRows()
 		m.restoreSelection(m.selected, previous)
 		if m.screen == "logs" && len(rows) > 0 {
-			value, err := tail(rows[m.index].Log, 65536)
-			if err != nil {
-				m.logText = "Log is not available yet: " + err.Error()
-			} else {
-				m.logText = value
-			}
+			m.refreshLog(rows[m.index].Log)
 		}
 		if m.state.Done {
 			m.exit = m.state.Exit
@@ -374,6 +504,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.index = 0
 			m.selected = ""
 		}
+	case approvalDone:
+		m.approvalBusy = false
+		if v.err != nil {
+			m.setNotice("Approval failed: " + v.err.Error())
+		} else {
+			m.setNotice("PR #" + v.pr + " approved for the merge queue.")
+			m.engine.update(func(s *Snapshot) {
+				kept := []Row{}
+				for _, r := range s.AwaitingApproval {
+					if r.Key != v.key {
+						kept = append(kept, r)
+					}
+				}
+				s.AwaitingApproval = kept
+			})
+			m.state = m.engine.snapshot()
+			m.screen = ""
+			m.restoreSelection("", nil)
+		}
+	case cancelDone:
+		if v.err != nil {
+			m.setNotice(v.err.Error())
+		} else {
+			m.setNotice("Cancel requested. Waiting for Fullsend to stop and finish cleanup.")
+		}
+	case settingsDone:
+		m.configSaving = false
+		if v.err != nil {
+			m.configError = v.err.Error()
+		} else {
+			m.configEditing = false
+			m.configError = ""
+			m.setNotice(v.message)
+		}
 	case retryDone:
 		if v.err != nil {
 			m.setNotice(v.err.Error())
@@ -381,6 +545,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setNotice("Retry requested for " + v.key + ". Starts when eligible and a worker slot is free.")
 		}
 	case tea.KeyMsg:
+		if m.screen == "configuration" && !m.helpOpen {
+			return m.updateConfiguration(v)
+		}
+		if m.pendingApproval != nil {
+			return m.updateApproval(v)
+		}
+		if m.pendingCancel != nil {
+			switch v.String() {
+			case "esc", "h":
+				m.pendingCancel = nil
+			case "tab", "up", "down", "left", "right", "j", "k":
+				m.cancelChoice = 1 - m.cancelChoice
+				m.confirmScroll = 1000000
+			case "pgup":
+				m.confirmScroll = max(0, m.confirmScroll-1)
+			case "pgdown":
+				m.confirmScroll++
+			case "enter":
+				row := *m.pendingCancel
+				m.pendingCancel = nil
+				if m.cancelChoice == 1 {
+					return m, func() tea.Msg {
+						return cancelDone{m.engine.store.requestCancel(row.Key, m.engine.config().Scope, row.RunID)}
+					}
+				}
+			case "q", "ctrl+c":
+				m.cancel()
+				m.exit = 130
+				return m, tea.Quit
+			}
+			return m, nil
+		}
 		if handled, cmd := m.navigation(v); handled {
 			return m, cmd
 		}
@@ -497,14 +693,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cancel()
 			m.exit = 130
 			return m, tea.Quit
-		case "tab", "c":
+		case ",":
+			m.configReturn = m.screen
+			m.screen = "configuration"
+		case "tab", "shift+tab", "c":
 			if m.screen == "" && m.historyIssue == nil {
 				var prior *Row
 				if len(rows) > 0 {
 					r := rows[m.index]
 					prior = &r
 				}
-				if v.String() == "tab" {
+				if v.String() == "," || (v.String() == "tab" && m.issueGrouping) || (v.String() == "shift+tab" && !m.issueGrouping) {
+					m.configReturn = m.screen
+					m.screen = "configuration"
+				} else if v.String() == "tab" || v.String() == "shift+tab" {
 					m.issueGrouping = !m.issueGrouping
 				} else {
 					m.showCompleted = !m.showCompleted
@@ -526,16 +728,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.screen = ""
 			m.scroll = 0
+		case "A":
+			if len(rows) > 0 {
+				return m.beginApproval(rows[m.index])
+			}
 		case "enter", "l":
 			if len(rows) > 0 {
-				m.screen = "logs"
-				m.scroll = 0
-				value, err := tail(rows[m.index].Log, 65536)
-				if err != nil {
-					m.logText = err.Error()
-				} else {
-					m.logText = value
+				if rows[m.index].Status == "awaiting_approval" {
+					return m.beginApproval(rows[m.index])
 				}
+				m.openLog(rows[m.index].Log)
 			}
 		case "H":
 			if len(rows) > 0 || m.historyIssue != nil {
@@ -555,6 +757,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.setNotice("")
 				return m, func() tea.Msg { rows, err := m.engine.store.history(issue); return historyDone{issue, rows, err} }
 			}
+		case "C":
+			if m.historyIssue != nil {
+				m.setNotice("Return to the overview to cancel its current running job.")
+			} else if len(rows) > 0 {
+				row := rows[m.index]
+				if row.Status != "running" || row.Scope != m.engine.config().Scope {
+					m.setNotice("Only a running job in this scope can be canceled.")
+				} else if row.CancelRequested {
+					m.setNotice("Cancellation is already requested. Waiting for cleanup; inspect logs for progress.")
+				} else {
+					m.pendingCancel = &row
+					m.cancelChoice, m.confirmScroll = 0, 0
+					m.setNotice("")
+				}
+			}
 		case "r":
 			if m.historyIssue != nil {
 				m.setNotice("Return to the issue overview to retry its current failed job.")
@@ -572,8 +789,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.confirmScroll = 0
 						m.setNotice("")
 					}
-				} else if row.Status != "failed" {
-					m.setNotice("Only failed jobs can be retried here.")
+				} else if row.Status != "failed" && row.Status != "canceled" {
+					m.setNotice("Only failed or canceled jobs can be retried here.")
 				} else {
 					return m, func() tea.Msg { return retryDone{row.Key, m.engine.requestRetry(m.ctx, row.Key)} }
 				}
@@ -622,7 +839,7 @@ func statusColor(status string) string {
 	switch status {
 	case "failed":
 		return "1"
-	case "uncertain":
+	case "uncertain", "canceled":
 		return "3"
 	case "succeeded":
 		return "2"
@@ -640,14 +857,14 @@ func (m Model) workHeader(row Row, width int, section string) []string {
 		m.style("Runs  /  "+section, "8", false),
 		m.style(middle(title(row), width), "7", true),
 		m.style("Agent  ", "8", false) + m.style(middle(row.Agent, max(1, width-7)), "7", false),
-		m.style(middle(status, width), statusColor(row.Status), true),
+		m.style(middle(status, width), rowColor(row), true),
 		"",
 	}
 }
 
 func (m Model) wrapped(text string, width int, color string) []string {
 	// Sanitize external text before styling; never strip ANSI from styled lines.
-	wrapped := ansi.Hardwrap(clean(text), width, true)
+	wrapped := ansi.Wrap(clean(text), width, "")
 	lines := strings.Split(wrapped, "\n")
 	for i := range lines {
 		lines[i] = m.style(lines[i], color, false)
@@ -669,10 +886,20 @@ func (m Model) firstColumn() string {
 	return "ISSUE"
 }
 
+func waitingForTriageLabel(count int) string {
+	if count == 1 {
+		return "1 issue waiting for triage"
+	}
+	return fmt.Sprintf("%d issues waiting for triage", count)
+}
+
 func (m Model) agentGroups(rows []Row, w, budget int) []string {
 	if len(rows) == 0 {
 		if m.currentFilter() != "" {
 			return []string{"No matching runs. Press / to edit the filter; Esc clears it."}
+		}
+		if len(m.state.WaitingForTriage) > 0 {
+			return []string{"New issues will be linked to Jira automatically."}
 		}
 		for _, r := range m.scopedRows() {
 			if r.Status == "succeeded" {
@@ -694,20 +921,30 @@ func (m Model) agentGroups(rows []Row, w, budget int) []string {
 	for i := start; i < len(rows); i++ {
 		r := rows[i]
 		entry := []string{}
-		if r.Agent != last {
+		group := r.Agent
+		if r.Status == "awaiting_approval" {
+			group = "Awaiting approval"
+		}
+		if group != last {
 			if last != "" {
 				entry = append(entry, "")
 			}
-			running, failed, done := 0, 0, 0
+			running, failed, waiting, done, needsReview := 0, 0, 0, 0, 0
 			for _, item := range rows {
 				if item.Agent == r.Agent {
 					switch item.Status {
 					case "running":
 						running++
-					case "failed", "uncertain":
+					case "failed", "uncertain", "canceled":
 						failed++
 					case "succeeded":
-						done++
+						if awaitingNewReview(item) && item.SyncLog == "" {
+							needsReview++
+						} else if reviewWaiting(item) != "" {
+							waiting++
+						} else {
+							done++
+						}
 					}
 				}
 			}
@@ -718,10 +955,21 @@ func (m Model) agentGroups(rows []Row, w, budget int) []string {
 			if failed > 0 {
 				counts = append(counts, fmt.Sprintf("%d need attention", failed))
 			}
+			if needsReview > 0 {
+				counts = append(counts, fmt.Sprintf("%d need review", needsReview))
+			}
+			if waiting > 0 {
+				counts = append(counts, fmt.Sprintf("%d waiting", waiting))
+			}
 			if done > 0 {
 				counts = append(counts, fmt.Sprintf("%d completed", done))
 			}
-			entry = append(entry, m.groupHeading(r.Agent, strings.Join(counts, " · "), w))
+			heading := r.Agent
+			if r.Status == "awaiting_approval" {
+				heading = "Awaiting approval"
+				counts = []string{"A approve"}
+			}
+			entry = append(entry, m.groupHeading(heading, strings.Join(counts, " · "), w))
 		}
 		prefix := "  "
 		if i == m.index {
@@ -730,23 +978,21 @@ func (m Model) agentGroups(rows []Row, w, budget int) []string {
 		if w >= 70 {
 			entry = append(entry, m.tableRow(r, prefix, w, false))
 		} else {
-			entry = append(entry, prefix+middle(title(r), w-2), "  "+m.style(middle(tableStatus(r)+" · "+durationLabel(r), w-2), statusColor(r.Status), false))
+			entry = append(entry, prefix+middle(title(r), w-2), "  "+m.style(middle(tableStatus(r)+" · "+durationLabel(r), w-2), rowColor(r), false))
 		}
 
-		if i == m.index {
-			first := len(entry) - 1
-			if w < 70 {
-				first--
-			}
-			for n := first; n < len(entry); n++ {
-				entry[n] = m.selection(entry[n], w)
-			}
+		first := len(entry) - 1
+		if w < 70 {
+			first--
+		}
+		for n := first; n < len(entry); n++ {
+			entry[n] = m.workRow(entry[n], w, r, i == m.index)
 		}
 		if len(lines)+len(entry) > budget && len(lines) > 0 {
 			break
 		}
 		lines = append(lines, entry...)
-		last = r.Agent
+		last = group
 		end = i + 1
 	}
 	lines = m.withScrollbar(lines, start, end, len(rows), budget, outerWidth)
@@ -768,6 +1014,31 @@ func (m Model) detailContent(rows []Row, w int) ([]string, []string) {
 			body = append(body, m.wrapped("Press r to confirm and retry here, or restart with --retry-uncertain "+r.Item+":"+r.Agent, w, "6")...)
 			body = append(body, "")
 		}
+		if message := reviewWaitingDetail(r); message != "" {
+			heading := "Approval status"
+			completed := completionStatus(r.Finished)
+			if awaitingNewReview(r) {
+				heading = "Review scheduling"
+				completed = "Previous review: " + completed
+			}
+			body = append(body, m.style(completed, "8", false), "", m.style(heading, "3", true))
+			body = append(body, m.wrapped(message, w, "7")...)
+			if r.PRURL != "" {
+				body = append(body, m.wrapped(r.PRURL, w, "6")...)
+			}
+			body = append(body, "")
+		}
+		if len(r.ReviewBlockers) > 0 {
+			body = append(body, m.style("Current blockers", "3", true))
+			for _, blocker := range r.ReviewBlockers {
+				body = append(body, m.wrapped("- "+blocker, w, "7")...)
+			}
+			if r.SyncLog != "" {
+				body = append(body, m.style("Synchronization log", "6", false))
+				body = append(body, m.wrapped(r.SyncLog, w, "7")...)
+			}
+			body = append(body, "")
+		}
 		if r.Error != "" {
 			body = append(body, m.style("Last attempt", "8", true))
 			message := strings.TrimSuffix(r.Error, "; see "+r.Log)
@@ -781,7 +1052,7 @@ func (m Model) detailContent(rows []Row, w int) ([]string, []string) {
 		header = append(header, m.style("Work / Details", "8", false), "")
 	}
 	body = append(body, "", m.style("Dispatcher log", "6", false))
-	body = append(body, m.wrapped(filepath.Join(m.engine.c.LogDir, "dispatcher.log"), w, "7")...)
+	body = append(body, m.wrapped(filepath.Join(m.engine.config().LogDir, "dispatcher.log"), w, "7")...)
 	if m.state.RecoveryError != "" {
 		body = append(body, "", m.style("Last sign-in", "3", true))
 		body = append(body, m.wrapped(m.state.RecoveryError, w, "1")...)
@@ -798,10 +1069,14 @@ func (m Model) detailContent(rows []Row, w int) ([]string, []string) {
 			body = append(body, m.wrapped(problem, w, "3")...)
 		}
 	}
+	if len(m.state.WaitingForTriage) > 0 {
+		body = append(body, "", m.style("Waiting for triage", "6", true))
+		body = append(body, m.wrapped(waitingForTriageLabel(len(m.state.WaitingForTriage))+". New issues are linked to Jira automatically before triage starts. No additional labels are needed.", w, "7")...)
+		for _, issue := range m.state.WaitingForTriage {
+			body = append(body, m.wrapped(fmt.Sprintf("#%d  %s", issue.Number, issue.Title), w, "8")...)
+		}
+	}
 	return header, body
-}
-func (m Model) logPageSize() int {
-	return max(1, m.height-2-11-3)
 }
 func (m *Model) clampScroll() {
 	if m.screen == "signin" {
@@ -814,10 +1089,10 @@ func (m *Model) clampScroll() {
 		m.confirmScroll = min(m.confirmScroll, max(0, total-max(1, m.height-11)))
 	}
 	if m.screen == "logs" {
-		m.scroll = min(m.scroll, max(0, len(strings.Split(m.logText, "\n"))-m.logPageSize()))
+		m.clampLogScroll()
 	}
 	if m.screen == "details" {
-		header, body := m.detailContent(m.visibleRows(), max(12, m.width-4))
+		header, body := m.detailContent(m.visibleRows(), max(10, m.width-6))
 		count := max(1, m.height-2-4-len(header)-3)
 		m.scroll = min(m.scroll, max(0, len(body)-count))
 	}
@@ -877,8 +1152,8 @@ func (m Model) retryPrompt(width int) []string {
 func (m Model) View() string {
 	w := max(12, m.width-4)
 	h := max(3, m.height-2)
-	header := m.style("▌ ", "brand", true) + m.style("FULLSEND", "7", true) + "  " + middle(strings.TrimPrefix(m.engine.c.Scope, "agent/scope/"), max(4, w-30))
-	counter := fmt.Sprintf("%d/%d running", m.state.Active, m.engine.c.Concurrency)
+	header := m.style("▌ ", "brand", true) + m.style("FULLSEND", "7", true) + "  " + middle(strings.TrimPrefix(m.engine.config().Scope, "agent/scope/"), max(4, w-30))
+	counter := fmt.Sprintf("%d/%d running", m.state.Active, m.engine.config().Concurrency)
 	gap := max(1, w-lipgloss.Width(header)-len(counter))
 	header += strings.Repeat(" ", gap) + counter
 	connection := m.state.Connection
@@ -903,6 +1178,9 @@ func (m Model) View() string {
 		lines = append(lines, m.scrollPane(content, start, count, w)...)
 		lines = append(lines, m.scrollIndicator(start, min(len(content), start+count), len(content)), "", m.style("j/k scroll   h / esc / ? close   q detach", "8", false))
 		return m.frame(lines, w, h)
+	}
+	if m.screen == "configuration" {
+		return m.configurationView(lines, w, h)
 	}
 	if m.screen == "signin" {
 		lines = append(lines, m.style("Gateway  /  Sign in", "7", true), "")
@@ -937,6 +1215,31 @@ func (m Model) View() string {
 		lines = append(lines, m.style(footer, "8", false))
 		return m.frame(lines, w, h)
 	}
+	if m.pendingApproval != nil {
+		return m.approvalView(lines, w, h)
+	}
+	if m.pendingCancel != nil {
+		lines = append(lines, m.style("Cancel run?", "3", true), "")
+		row := *m.pendingCancel
+		body := m.wrapped(title(row), w-2, "7")
+		body = append(body, m.style("Agent  "+row.Agent, "6", true), "")
+		body = append(body, m.wrapped("Fullsend will be interrupted and allowed to finish cleanup. Completed changes are kept. Post scripts only run when Fullsend has a valid result; cancellation does not create a review verdict.", w-2, "7")...)
+		body = append(body, "")
+		body = append(body, m.wrapped("The run stays tracked until it stops. It will not retry automatically. Other runs keep working.", w-2, "8")...)
+		body = append(body, "")
+		for i, label := range []string{"Keep running", "Cancel run"} {
+			line := "  " + label
+			if m.cancelChoice == i {
+				line = m.selection("> "+label, w-2)
+			}
+			body = append(body, line)
+		}
+		count := max(1, h-len(lines)-3)
+		start := min(m.confirmScroll, max(0, len(body)-count))
+		lines = append(lines, m.scrollPane(body, start, count, w)...)
+		lines = append(lines, m.scrollIndicator(start, min(len(body), start+count), len(body)), "", m.style("j/k choose   enter confirm   PgUp/PgDn scroll   esc keep running", "8", false))
+		return m.frame(lines, w, h)
+	}
 	if m.pendingRetry != nil {
 		lines = append(lines, m.style("Retry an unknown outcome?", "3", true), "")
 		body := m.retryPrompt(w)
@@ -949,24 +1252,25 @@ func (m Model) View() string {
 
 	rows := m.visibleRows()
 	if m.screen == "logs" && len(rows) > 0 {
-		row := rows[m.index]
-		lines = append(lines, m.workHeader(row, w, "Logs")...)
-		lines = append(lines, m.style(middle(row.Log, w), "8", false), "")
-		content := strings.Split(m.logText, "\n")
-		count := max(1, h-len(lines)-3)
-		end := max(min(len(content), count), len(content)-m.scroll)
-		start := max(0, end-count)
-		lines = append(lines, m.scrollPane(content, start, count, w)...)
-		lines = append(lines, m.scrollIndicator(start, end, len(content)))
-		lines = append(lines, "", m.style("j/k scroll   d details   r retry   h back   ? help   q detach", "8", false))
+		lines = m.logsView(lines, rows[m.index], w, h)
 	} else if m.screen == "details" {
-		header, body := m.detailContent(rows, w)
+		header, body := m.detailContent(rows, max(10, w-2))
+		if len(rows) > 0 && rows[m.index].Status == "awaiting_approval" {
+			r := rows[m.index]
+			header = []string{m.style("Awaiting your approval", "approval-text", true), ""}
+			body = m.approvalSummary(r, w-2)
+			body = append(body, m.wrapped("Code review approved. The PR does not have merge-queue approval. Press A to review and approve this PR for merging.", w-2, "7")...)
+		}
 		lines = append(lines, header...)
 		count := max(1, h-len(lines)-3)
 		start := min(m.scroll, max(0, len(body)-count))
 		lines = append(lines, m.scrollPane(body, start, count, w)...)
 		lines = append(lines, m.scrollIndicator(start, min(len(body), start+count), len(body)))
-		lines = append(lines, "", m.style("j/k scroll   enter logs   r retry   h back   ? help   q detach", "8", false))
+		footer := "j/k scroll   enter logs   r retry  C cancel   h back   ? help   q detach"
+		if len(rows) > 0 && rows[m.index].Status == "awaiting_approval" {
+			footer = "j/k scroll   A approve   h back   ? help   q detach"
+		}
+		lines = append(lines, "", m.style(footer, "8", false))
 	} else {
 		if m.state.Monitoring {
 			lines = append(lines, "Existing workers are finishing. Scheduling resumes automatically.", "")
@@ -977,7 +1281,7 @@ func (m Model) View() string {
 			lines = append(lines, m.style(middle(title(*m.historyIssue), w), "7", true), m.style("Run history · up to 200 attempts · H refresh · esc back", "8", false), "")
 		}
 		if m.historyIssue == nil && !m.issueGrouping {
-			lines = append(lines, m.viewTabs(false, w)...)
+			lines = append(lines, m.viewTabs(m.issueGrouping, w)...)
 			if controls := m.listControls(); controls != "" {
 				lines = append(lines, m.style(controls, "8", false))
 			}
@@ -999,6 +1303,9 @@ func (m Model) View() string {
 			lines = append(lines, m.tableHeading(w-2, true))
 			paneHeight := max(1, h-len(lines)-6)
 			count := paneHeight
+			if m.historyIssue == nil && len(m.state.AwaitingApproval) > 0 {
+				count = max(1, count-2)
+			}
 			if w < 100 {
 				count = max(1, count/2)
 			}
@@ -1007,23 +1314,27 @@ func (m Model) View() string {
 			listStart := len(lines)
 			for i := start; i < end; i++ {
 				r := rows[i]
+				if m.historyIssue == nil && len(m.state.AwaitingApproval) > 0 {
+					if r.Status == "awaiting_approval" && (i == start || rows[i-1].Status != "awaiting_approval") {
+						lines = append(lines, m.groupHeading("Awaiting approval", "A approve", w-2))
+					}
+					if r.Status != "awaiting_approval" && (i == start || rows[i-1].Status == "awaiting_approval") {
+						lines = append(lines, m.groupHeading("Work", "", w-2))
+					}
+				}
 				prefix := "  "
 				if i == m.index {
 					prefix = "> "
 				}
-				color := statusColor(r.Status)
+				color := rowColor(r)
 				if w >= 100 {
 					line := m.tableRow(r, prefix, w-2, true)
-					if i == m.index {
-						line = m.selection(line, w)
-					}
+					line = m.workRow(line, w, r, i == m.index)
 					lines = append(lines, line)
 				} else {
 					lines = append(lines, prefix+middle(m.listTitle(r), w-2), "  "+m.style(middle(agentName(r.Agent)+" · "+tableStatus(r)+" · "+durationLabel(r), w-2), color, false))
-					if i == m.index {
-						lines[len(lines)-2] = m.selection(lines[len(lines)-2], w-2)
-						lines[len(lines)-1] = m.selection(lines[len(lines)-1], w-2)
-					}
+					lines[len(lines)-2] = m.workRow(lines[len(lines)-2], w-2, r, i == m.index)
+					lines[len(lines)-1] = m.workRow(lines[len(lines)-1], w-2, r, i == m.index)
 				}
 			}
 			if len(rows) > 0 {
@@ -1046,6 +1357,9 @@ func (m Model) View() string {
 				if m.currentFilter() != "" {
 					message = "No matching runs. Press / to edit the filter; Esc clears it."
 				}
+				if m.historyIssue == nil && m.currentFilter() == "" && len(m.state.WaitingForTriage) > 0 {
+					message = "New issues will be linked to Jira automatically."
+				}
 				lines = append(lines, message)
 			}
 			if len(rows) > count {
@@ -1056,7 +1370,7 @@ func (m Model) View() string {
 		if m.historyIssue == nil {
 			completed := 0
 			for _, r := range m.scopedRows() {
-				if r.Status == "succeeded" {
+				if r.Status == "succeeded" && reviewWaiting(r) == "" {
 					completed++
 				}
 			}
@@ -1064,7 +1378,11 @@ func (m Model) View() string {
 			if m.showCompleted {
 				action = "hide"
 			}
-			summary = m.style(fmt.Sprintf("%d completed runs · c to %s", completed, action), "8", false)
+			summaryText := fmt.Sprintf("%d completed runs · c to %s", completed, action)
+			if len(m.state.WaitingForTriage) > 0 {
+				summaryText = waitingForTriageLabel(len(m.state.WaitingForTriage)) + " · " + summaryText
+			}
+			summary = m.style(summaryText, "8", false)
 		}
 		if len(m.state.Errors) > 0 {
 			lines = append(lines, m.style(fmt.Sprintf("%d problem(s) need attention. Press d for details.", len(m.state.Errors)), "3", false))
@@ -1081,7 +1399,17 @@ func (m Model) View() string {
 			}
 			lines = append(lines, summary)
 		}
-		footer := "j/k select  enter logs  / filter  o sort  O reverse  H history  ? help  q detach"
+		action := "r retry"
+		if len(rows) > 0 && rows[m.index].Status == "awaiting_approval" {
+			action = "d details"
+		}
+		if len(rows) > 0 && rows[m.index].Status == "running" {
+			action = "C cancel"
+		}
+		footer := "j/k select  enter logs  " + action + "  / filter  o sort  O reverse  H history  ? help  q detach"
+		if len(rows) > 0 && rows[m.index].Status == "awaiting_approval" {
+			footer = strings.Replace(footer, "enter logs", "enter approve", 1)
+		}
 		if m.historyIssue != nil {
 			footer = "j/k select  enter logs  / filter  o sort  O reverse  H refresh  h back  ? help"
 		}

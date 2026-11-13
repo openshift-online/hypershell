@@ -12396,3 +12396,151 @@ func (a *DefaultAPIService) UpdateWorkspaceMembershipExecute(r ApiUpdateWorkspac
 
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
+
+type ApiUploadSecretSourceMaterialRequest struct {
+	ctx                               context.Context
+	ApiService                        *DefaultAPIService
+	id                                string
+	secretSourceMaterialUploadRequest *SecretSourceMaterialUploadRequest
+}
+
+// The durable material to store for the secret source
+func (r ApiUploadSecretSourceMaterialRequest) SecretSourceMaterialUploadRequest(secretSourceMaterialUploadRequest SecretSourceMaterialUploadRequest) ApiUploadSecretSourceMaterialRequest {
+	r.secretSourceMaterialUploadRequest = &secretSourceMaterialUploadRequest
+	return r
+}
+
+func (r ApiUploadSecretSourceMaterialRequest) Execute() (*SecretSource, *http.Response, error) {
+	return r.ApiService.UploadSecretSourceMaterialExecute(r)
+}
+
+/*
+UploadSecretSourceMaterial Upload the durable material for an existing secret source
+
+Write-only material-upload operation on an existing SecretSource. The request body carries ONLY the material. The API server writes it through its write-only secret store to the SecretSource's server-derived convention path (hypershell/secret-sources/{agent_runtime_id}/{name}) and records only the reference; it does not change the stored path. The upload is idempotent (a re-upload overwrites the same entry). The material is never persisted raw in the database and never echoed in the response; the response is marked no-store.
+
+	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+	@param id The id of record
+	@return ApiUploadSecretSourceMaterialRequest
+*/
+func (a *DefaultAPIService) UploadSecretSourceMaterial(ctx context.Context, id string) ApiUploadSecretSourceMaterialRequest {
+	return ApiUploadSecretSourceMaterialRequest{
+		ApiService: a,
+		ctx:        ctx,
+		id:         id,
+	}
+}
+
+// Execute executes the request
+//
+//	@return SecretSource
+func (a *DefaultAPIService) UploadSecretSourceMaterialExecute(r ApiUploadSecretSourceMaterialRequest) (*SecretSource, *http.Response, error) {
+	var (
+		localVarHTTPMethod  = http.MethodPost
+		localVarPostBody    interface{}
+		formFiles           []formFile
+		localVarReturnValue *SecretSource
+	)
+
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "DefaultAPIService.UploadSecretSourceMaterial")
+	if err != nil {
+		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
+	}
+
+	localVarPath := localBasePath + "/api/hypershell/ext/secret_sources/{id}/material"
+	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
+
+	localVarHeaderParams := make(map[string]string)
+	localVarQueryParams := url.Values{}
+	localVarFormParams := url.Values{}
+	if r.secretSourceMaterialUploadRequest == nil {
+		return localVarReturnValue, nil, reportError("secretSourceMaterialUploadRequest is required and must be specified")
+	}
+
+	// to determine the Content-Type header
+	localVarHTTPContentTypes := []string{"application/json"}
+
+	// set Content-Type header
+	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
+	if localVarHTTPContentType != "" {
+		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
+	}
+
+	// to determine the Accept header
+	localVarHTTPHeaderAccepts := []string{"application/json"}
+
+	// set Accept header
+	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
+	if localVarHTTPHeaderAccept != "" {
+		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
+	}
+	// body params
+	localVarPostBody = r.secretSourceMaterialUploadRequest
+	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
+	if err != nil {
+		return localVarReturnValue, nil, err
+	}
+
+	localVarHTTPResponse, err := a.client.callAPI(req)
+	if err != nil || localVarHTTPResponse == nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
+	localVarHTTPResponse.Body.Close()
+	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
+	if err != nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	if localVarHTTPResponse.StatusCode >= 300 {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: localVarHTTPResponse.Status,
+		}
+		if localVarHTTPResponse.StatusCode == 400 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 404 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 500 {
+			var v Error
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+	if err != nil {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: err.Error(),
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	return localVarReturnValue, localVarHTTPResponse, nil
+}

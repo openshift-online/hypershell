@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/helm"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -211,8 +212,7 @@ type KubernetesSecretsConfig struct {
 }
 
 type RouteConfig struct {
-	Host    string `yaml:"host" json:"host,omitempty"`
-	Enabled bool   `yaml:"enabled" json:"enabled,omitempty"`
+	Host string `yaml:"host" json:"host,omitempty"`
 	// Certificate opts the gateway in to the dedicated per-gateway certificate
 	// provisioning path (route.certificate: {} in the route JSONB): the gateway
 	// gets its own wildcard certificate and Gateway API route instead of riding
@@ -230,9 +230,9 @@ type RouteCertificateConfig struct{}
 
 type OIDCConfig struct {
 	Issuer string `yaml:"issuer" json:"issuer,omitempty"`
-	// ClientID is client-facing metadata (the per-gateway Keycloak clientId,
-	// formatted as {name}-{id}) that the console and CLI need for `openshell gateway
-	// add`. It is surfaced on the Gateway resource but not written to gateway.toml,
+	// ClientID is client-facing metadata (the per-gateway Keycloak clientId: the
+	// gateway ID, or {name}-{id} on gateways provisioned before that) that the
+	// console and CLI need for `openshell gateway add`. It is surfaced on the Gateway resource but not written to gateway.toml,
 	// since the gateway server validates issuer and audience, not client id.
 	ClientID    string `yaml:"client_id" json:"client_id,omitempty"`
 	Audience    string `yaml:"audience" json:"audience,omitempty"`
@@ -248,11 +248,6 @@ type OIDCConfig struct {
 // is provided by the top-level reconciler which owns the gRPC connection.
 type RouteAddressUpdater func(ctx context.Context, routeAddress string) error
 
-// ConsoleAddressUpdater is called by the gateway reconciler to update the
-// console_address field on the API-server Gateway resource. The implementation
-// is provided by the top-level reconciler which owns the gRPC connection.
-type ConsoleAddressUpdater func(ctx context.Context, consoleAddress string) error
-
 // KeycloakConfig holds Keycloak Admin REST API connection parameters read
 // from the hypershell-keycloak-admin Secret in the control-plane namespace.
 type KeycloakConfig struct {
@@ -263,9 +258,26 @@ type KeycloakConfig struct {
 }
 
 type ReconcileOpts struct {
-	IsOpenShift    bool
+	// IsOpenShift reports whether the configured host platform is OpenShift
+	// (HYPERSHELL_CLUSTER_PLATFORM=openshift, CTRL-CORE-16). It comes from
+	// deployment configuration, NOT from API discovery, so it stays stable through
+	// discovery failures and selects platform-specific pod security and SCC
+	// integration (OSG-CORE-14).
+	IsOpenShift bool
+	// HasCertManager reports whether cert-manager is present, as determined by the
+	// shared dependency discovery during reconcile (OSG-TLS-01, CTRL-CORE-18).
+	// ReconcileGateway sets it from a fresh discovery evaluation on the
+	// provisioning path, where it selects the Helm certManager.enabled value. The
+	// delete path does not set or consume it: DeleteLabeledNamespaceResources always
+	// enumerates cert-manager GVRs and skips any whose CRD is absent (IsNotFound),
+	// so cleanup no longer depends on a captured capability flag (CTRL-CORE-17).
 	HasCertManager bool
-	HasGatewayAPI  bool
+	// Dependencies is the shared, refreshable dependency-discovery contract
+	// (CTRL-CORE-18) used to evaluate feature prerequisites (cert-manager, Gateway
+	// API) per reconcile. When nil, ReconcileGateway builds a per-call instance
+	// from the clientset's discovery client, so tests and legacy callers keep
+	// working.
+	Dependencies *DependencyDiscovery
 	// Database locates the mounted PostgreSQL admin credentials every gateway
 	// database is provisioned with (see database.go).
 	Database DatabaseConfig
@@ -281,18 +293,13 @@ type ReconcileOpts struct {
 	// UpdateRouteAddress is an optional callback that PATCHes the route_address
 	// field on the API-server Gateway.  Nil means no update will be attempted.
 	UpdateRouteAddress RouteAddressUpdater
-	// UpdateConsoleAddress is an optional callback that PATCHes the console_address
-	// field on the API-server Gateway. Nil means no update will be attempted.
-	UpdateConsoleAddress ConsoleAddressUpdater
-	// Keycloak holds the Keycloak Admin REST API configuration. Nil means
-	// Keycloak integration is not configured.
+	// Keycloak holds the Keycloak Admin REST API configuration. It is required
+	// to provision a gateway; it is nil only on delete paths that do not need it.
 	Keycloak *KeycloakConfig
-	// UpdateOIDC is an optional callback that PATCHes the oidc field on the
-	// API-server Gateway via gRPC.
-	UpdateOIDC func(ctx context.Context, oidcJSON string) error
 	// GatewayName is the user-visible name of the gateway being reconciled.
 	GatewayName string
-	// GatewayClientID is the validated identity recorded during provisioning.
+	// GatewayClientID is the gateway's validated Keycloak client ID: the stored
+	// identity, or the gateway ID for a gateway whose client is not provisioned yet.
 	GatewayClientID string
 	// KeycloakClient is a Keycloak Admin REST API client for cleanup operations.
 	// Used during gateway deletion to remove the Keycloak OIDC client.
@@ -301,12 +308,12 @@ type ReconcileOpts struct {
 	// address. Nil when no exposure backend is configured (e.g. clusters without
 	// the Gateway API), in which case no route address is published.
 	Exposure exposure.Port
-	// RouteStillDesired, when set, reports whether the Gateway is still routed
-	// according to its current API-server record (false if it has since been
-	// un-routed or deleted). The provisioning path calls it after the potentially
-	// long TLS-secret wait, before creating the remaining route- and console-owned
-	// resources, so an in-flight pass does not recreate them behind a concurrent
-	// health-loop teardown. Nil disables the re-check (the pass proceeds).
+	// RouteStillDesired, when set, reports whether the Gateway still exists
+	// according to its current API-server record (false once it has been deleted).
+	// The provisioning path calls it after the potentially long TLS-secret wait,
+	// before creating the remaining route- and console-owned resources, so an
+	// in-flight pass does not recreate them behind a concurrent deletion. Nil
+	// disables the re-check (the pass proceeds).
 	RouteStillDesired func(ctx context.Context) (bool, error)
 	// ReportProgress is called at provisioning step boundaries to report
 	// condition transitions. Nil means no reporting (progress is silently
@@ -320,11 +327,6 @@ type ReconcileOpts struct {
 	// only logged, matching legacy behavior). Implementations must not include
 	// secrets in any argument.
 	RecordOrphan OrphanRecorder
-	// ExternalCAIssuerName is the name of the cert-manager issuer for externally trusted certificates.
-	// Required for Route passthrough mode (TLS termination at pod, client sees cert directly).
-	ExternalCAIssuerName string
-	// ExternalCAIssuerKind is the kind of the external CA issuer (ClusterIssuer or Issuer).
-	ExternalCAIssuerKind string
 	// IngressBaseDomain is the base domain for auto-derived ingress hostnames (e.g. apps.example.com).
 	IngressBaseDomain string
 	// GatewayResources overrides the gateway container requests and limits
@@ -335,6 +337,17 @@ type ReconcileOpts struct {
 	// Empty string uses the cluster default (runc). Set to "kata" or "kata-remote"
 	// to run sandboxes inside lightweight VMs for hardware-enforced isolation.
 	SandboxRuntimeClass string
+	// OperatorNamespaceLabelKey is the administrator-approved label KEY used to
+	// scope an operator-mode gateway to its own tenant namespaces, via the selector
+	// <key>=<gateway-namespace> (GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY, OSG-OPWS-02).
+	// Empty fails an operator gateway closed at reconcile (OSG-OPWS-04).
+	OperatorWorkspace         *helm.OperatorWorkspaceConfig
+	OperatorNamespaceLabelKey string
+	// OperatorSandboxRuntimeClass is the administrator-approved sandbox RuntimeClass
+	// applied to operator-mode gateways ONLY (GATEWAY_OPERATOR_SANDBOX_RUNTIME_CLASS,
+	// OSG-OPWS-03). Empty fails an operator gateway closed at reconcile, and a named
+	// class absent on the cluster also fails closed (OSG-OPWS-04).
+	OperatorSandboxRuntimeClass string
 }
 
 // OrphanRecorder records a durable, operator-visible signal that a gateway-owned

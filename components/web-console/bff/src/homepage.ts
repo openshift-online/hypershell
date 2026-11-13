@@ -21,9 +21,7 @@ export interface HomepageGatewayHealth {
 export interface HomepageSummary {
   gatewayHealth: HomepageGatewayHealth | { available: false };
   quickCreate?: {
-    placement:
-      | { mode: "local-kind" }
-      | { excludedSelector: string[]; selector: string[] };
+    placement: { excludedSelector?: string[]; selector: string[] };
   };
 }
 
@@ -53,6 +51,15 @@ interface GatewayListItem {
   phase?: string;
   status?: string;
 }
+
+const healthyGatewayStatuses = new Set([
+  "active",
+  "available",
+  "healthy",
+  "ready",
+  "running",
+  "succeeded",
+]);
 
 interface ManagedClusterItem {
   capabilities?: string[];
@@ -149,7 +156,10 @@ async function queryGatewayHealth(
   for (const gateway of gateways) {
     const phase = gateway.phase?.trim() ?? "Unknown";
     const status = gateway.status?.trim() ?? phase;
-    if (phase === "Running") {
+    if (
+      phase.toLocaleLowerCase() === "running" &&
+      healthyGatewayStatuses.has(status.toLocaleLowerCase())
+    ) {
       healthy += 1;
       continue;
     }
@@ -224,9 +234,7 @@ async function queryQuickCreatePlacement(
   apiOrigin: string,
   accessToken: string | undefined,
   timeoutMs: number,
-): Promise<
-  { mode: "local-kind" } | { excludedSelector: string[]; selector: string[] }
-> {
+): Promise<{ excludedSelector?: string[]; selector: string[] }> {
   const clusters = await listAll<ManagedClusterItem>(
     apiOrigin,
     "/api/hypershell/v1/managed_clusters",
@@ -238,8 +246,13 @@ async function queryQuickCreatePlacement(
     clusterIsConnected(cluster, now),
   );
 
-  if (connected.some((cluster) => cluster.name === "local-kind")) {
-    return { mode: "local-kind" };
+  // WEB-HOME-12: a connected cluster advertising provider/kind takes
+  // precedence; Quick Create submits the ordinary Kind capability selector.
+  const kindCluster = connected.some((cluster) =>
+    (cluster.capabilities ?? []).includes("provider/kind"),
+  );
+  if (kindCluster) {
+    return { selector: ["provider/kind"] };
   }
 
   const publicIbmWithoutKata = connected.some((cluster) => {

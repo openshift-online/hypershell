@@ -12,7 +12,7 @@ This specification covers core provisioning. Domain-specific concerns are define
 
 | Sub-Spec | Scope |
 |---|---|
-| [`openshell-gateway-tls.spec.md`](./openshell-gateway-tls.spec.md) | TLS certificate management via cert-manager, SAN management, cert rotation |
+| [`openshell-gateway-tls.spec.md`](./openshell-gateway-tls.spec.md) | TLS certificate management via cert-manager, SAN management, cert rotation, capability-selected sandbox destination CA trust |
 | [`openshell-gateway-oidc.spec.md`](./openshell-gateway-oidc.spec.md) | OIDC authentication, role validation, gateway.toml injection |
 | [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) | External connectivity: Gateway API (GRPCRoute + BackendTLSPolicy), route discovery |
 | [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) | Per-gateway PostgreSQL provisioning from the mounted admin credential Secret, admin TLS `verify-full` and tenant TLS `require`, credential security, cleanup |
@@ -197,7 +197,8 @@ Gateway SHALL be a first-class HyperShell resource kind, persisted in PostgreSQL
   kind: Gateway
   name: openshell-gateway
   placement:
-    mode: local-kind
+    selector:
+      - provider/kind
   ```
 - WHEN a user runs `hsctl apply -k overlays/tenant-a/`
 - THEN the CLI SHALL render the kustomization and POST the Gateway resource to the API server
@@ -313,7 +314,7 @@ The GatewayReconciler SHALL use cert-manager for TLS certificate lifecycle manag
 
 ### Requirement: OSG-CORE-06 -- Trusted CA Bundle Injection
 
-Gateways with OIDC enabled need to reach the identity provider's OIDC discovery endpoint over HTTPS. In environments where the IdP is exposed through an ingress controller with a non-public CA certificate (e.g., OpenShift CRC, private PKI), the gateway pod's default trust store will not include the required CA and OIDC initialization will fail.
+Every gateway uses OIDC, so it needs to reach the identity provider's OIDC discovery endpoint over HTTPS. In environments where the IdP is exposed through an ingress controller with a non-public CA certificate (e.g., OpenShift CRC, private PKI), the gateway pod's default trust store will not include the required CA and OIDC initialization will fail.
 
 The control plane SHALL support an optional `gateway-trusted-ca` ConfigMap in the HyperShell namespace. When present, it is copied to each tenant namespace and mounted into the gateway Deployment so that the gateway process trusts the additional CA certificates.
 
@@ -364,7 +365,7 @@ The GatewayReconciler SHALL validate Gateway resource fields before applying K8s
 - THEN validation SHALL fail with a descriptive error
 - AND the Gateway SHALL not be reconciled until the configuration is corrected
 
-> **Image tag convention:** OpenShell gateway and supervisor images are published on `quay.io/opendatahub/` with semver tags (e.g., `v0.1.5-rhaiv.3`) and pinned by digest for reproducibility. The GatewayReconciler continuously reconciles the image field, so the gitops overlay must be the source of truth for the image tag - manual image changes on the Deployment will be reverted.
+> **Image tag convention:** OpenShell gateway and supervisor images are published on `quay.io/opendatahub/` with semver tags (e.g., `v0.1.8-rhaiv.0`) and pinned by digest for reproducibility. The GatewayReconciler continuously reconciles the image field, so the gitops overlay must be the source of truth for the image tag - manual image changes on the Deployment will be reverted.
 
 #### Scenario: OSG-CORE-07.03 -- Invalid DNS name
 
@@ -428,10 +429,10 @@ For each Gateway resource, the GatewayReconciler SHALL deploy the following Kube
 
 All gateway resources SHALL use fixed names (one gateway per namespace):
 - Deployment: `openshell-gateway`
-- Service: `openshell-gateway` (ClusterIP, ports: `grpc:8080` with `appProtocol: grpc`, `metrics:9090`)
+- Service: `openshell-gateway` (ClusterIP, ports: `grpc:8080` with `appProtocol: grpc`, `http` with `appProtocol: http` targeting the same backend pod port as `grpc` to carry sandbox-service/WebSocket traffic over HTTP/1.1, `metrics:9090` -- see [routing spec](./openshell-gateway-routing.spec.md) OSG-ROUT-13)
 - Internal health Service: `openshell-gateway-health` (ClusterIP, port: `health:8081`)
 - ServiceAccounts: `openshell-gateway`, `openshell-gateway-sandbox`, `openshell-gateway-certgen`
-- ConfigMap: `openshell-gateway-config` (contains `gateway.toml`)
+- ConfigMap: `openshell-gateway-config` (the chart renders `gateway.toml` into it from Helm values; see OSG-CORE-13)
 - Roles, RoleBindings, ClusterRole, ClusterRoleBinding (see RBAC section below)
 - NetworkPolicies are NOT created (see [helm-adoption decision](./openshell-gateway-helm-adoption.spec.md))
 
@@ -591,79 +592,53 @@ Gateway databases are provisioned on the externally provisioned PostgreSQL serve
 
 ### Requirement: OSG-CORE-13 -- Gateway Configuration (gateway.toml)
 
-The GatewayReconciler SHALL create a ConfigMap (`openshell-gateway-config`) containing a `gateway.toml` file that configures the OpenShell gateway process. The TOML is assembled from the Gateway resource fields and cluster-derived values.
+The GatewayReconciler SHALL configure the OpenShell gateway process through
+Helm values on the vendored OpenShell chart (`charts/openshell`). The control
+plane computes the values from the Gateway resource fields and cluster-derived
+values (`components/control-plane/internal/helm/values.go`). The chart renders
+the `gateway.toml` file into the `openshell-gateway-config` ConfigMap from those
+values and its own defaults. The control plane SHALL NOT write or patch the
+rendered ConfigMap.
 
-#### Base Configuration
+#### Values Set by the Control Plane
 
-The gateway.toml SHALL always contain:
+| Helm value | Source | Rendered effect |
+|------------|--------|-----------------|
+| `server.sandboxNamespace` | The API-assigned gateway namespace | `[openshell.gateway].sandbox_namespace` |
+| `supervisor.image.{registry,repository,tag,digest}` | Gateway `supervisor_image`, defaulting to `GATEWAY_SUPERVISOR_IMAGE` | Supervisor image for sandbox pods; a configured digest is preserved (see OSG-HELM-05) |
+| `sandboxRuntime.image.{registry,repository,tag,digest}` | `GATEWAY_SANDBOX_RUNTIME_IMAGE` | Trusted sandbox runtime image; a configured digest is preserved (see OSG-HELM-05) |
+| `certManager.serverDnsNames`, `pkiInitJob.serverDnsNames` | Gateway `serverDnsNames` | `[openshell.gateway].server_sans` and the server certificate SANs |
+| `server.defaultRuntimeClassName` | `GATEWAY_SANDBOX_RUNTIME_CLASS`; omitted when unset | `[openshell.gateway].default_runtime_class_name` |
+| `server.drivers.kubernetes.workspaceMode` | Gateway `workspace_mode` (see OSG-CORE-18) | Kubernetes driver `workspace_mode` |
+| `server.sandboxJwt.gatewayId` | Derived from the namespace, `managed` mode only (see OSG-CORE-18) | Gateway JWT `gateway_id` |
+| `server.oidc.*` | Gateway `oidc` fields (see [`openshell-gateway-oidc.spec.md`](./openshell-gateway-oidc.spec.md)) | `[openshell.gateway.oidc]` section |
+| `server.oidc.caConfigMapName` | `gateway-trusted-ca`, only when the ConfigMap was copied (see OSG-CORE-06) | OIDC CA trust |
+| `server.credentialDrivers.*` | Gateway credential driver (see [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md)) | Credential driver sections, or the KEK credential store for `kek-db` |
+| `server.externalDbSecret` | `openshell-gateway-db-credentials` | `OPENSHELL_DB_URL` from that Secret |
 
-```toml
-[openshell]
-version = 1
+The listener addresses, TLS file paths, gateway JWT key paths, sandbox
+ServiceAccount name, and other process settings come from the chart defaults.
+The control plane does not set them.
 
-[openshell.gateway]
-bind_address             = "0.0.0.0:8080"
-health_bind_address      = "0.0.0.0:8081"
-metrics_bind_address     = "0.0.0.0:9090"
-log_level                = "info"
-sandbox_namespace        = "<tenant-namespace>"
-supervisor_image         = "<Gateway.supervisor_image or default ghcr.io/nvidia/openshell/supervisor:0.0.101>"
-client_tls_secret_name   = "openshell-client-tls"
-enable_loopback_service_http = true
-policy_validation_failure_mode = "fail_closed"
-server_sans              = [<serverDnsNames from Gateway resource>]
+The `supervisor_image` field is configurable on the Gateway resource. If not
+set, it defaults to the value of the `GATEWAY_SUPERVISOR_IMAGE` environment
+variable on the control-plane deployment (see
+`deploy/base/platform-resources/controller.yaml`).
 
-[openshell.gateway.tls]
-cert_path      = "/etc/openshell-tls/server/tls.crt"
-key_path       = "/etc/openshell-tls/server/tls.key"
-client_ca_path = "/etc/openshell-tls/client-ca/ca.crt"
-
-# Credential storage is driver-dependent (see openshell-gateway-credentials.spec.md).
-# New gateways default to the Vault driver, which emits credential_drivers = ["vault"]
-# plus an [openshell.credential_drivers.vault] section instead of the KEK block below.
-# The KEK block is emitted only for the explicit `kek-db` driver:
-[openshell.gateway.credential_storage]
-key_encryption_key_env = "OPENSHELL_GATEWAY_CREDENTIAL_KEY_ENCRYPTION_KEY"
-
-[openshell.gateway.auth]
-allow_unauthenticated_users = false
-
-[openshell.gateway.gateway_jwt]
-signing_key_path = "/etc/openshell-jwt/signing.pem"
-public_key_path  = "/etc/openshell-jwt/public.pem"
-kid_path         = "/etc/openshell-jwt/kid"
-gateway_id       = "openshell-gateway"
-ttl_secs         = 3600
-
-[openshell.drivers.kubernetes]
-default_image              = "<vendored chart sandbox.image reference>"
-grpc_endpoint              = "https://openshell-gateway.<namespace>.svc.cluster.local:8080"
-service_account_name       = "openshell-gateway-sandbox"
-supervisor_sideload_method = "image-volume"
-sa_token_ttl_secs          = 3600
-topology                   = "single-cluster"
-
-[openshell.drivers.kubernetes.sidecar]
-image = "<supervisor-image>"
-```
-
-The `supervisor_image` field is configurable on the Gateway resource. If not set, it defaults to the value of the `GATEWAY_SUPERVISOR_IMAGE` environment variable on the control-plane deployment (see `deploy/base/platform-resources/controller.yaml`). The same image is used in both `[openshell.gateway].supervisor_image` and `[openshell.drivers.kubernetes.sidecar].image`.
-
-The control plane SHALL also pass `GATEWAY_SANDBOX_RUNTIME_IMAGE` into the OpenShell Helm chart as `sandboxRuntime.image.{registry,repository,tag}` on every install and upgrade, pinned to the same OpenShell build (`OPENSHELL_TAG`) as the supervisor. The sandbox runtime and the supervisor speak a versioned boundary protocol; when the runtime is left to the chart default, which resolves to a moving upstream `dev` tag, it skews from the pinned supervisor and every sandbox stays in `Provisioning` with `attachment denied: ... control request payload digest mismatch`.
+The control plane SHALL also pass `GATEWAY_SANDBOX_RUNTIME_IMAGE` into the OpenShell Helm chart as `sandboxRuntime.image.{registry,repository,tag,digest}` on every install and upgrade, pinned to the same OpenShell build (`OPENSHELL_TAG`) as the supervisor. When the configured reference carries a digest, the control plane SHALL preserve it so the rendered runtime image uses that digest (see OSG-HELM-05). The sandbox runtime and the supervisor speak a versioned boundary protocol; when the runtime is left to the chart default, which resolves to a moving upstream `dev` tag, it skews from the pinned supervisor and every sandbox stays in `Provisioning` with `attachment denied: ... control request payload digest mismatch`.
 
 The chart SHALL render its `sandbox.image.repository`, `tag`, and `digest` values
 into `[openshell.drivers.kubernetes].default_image`, with digest taking precedence.
 This is the gateway's default workload image, separate from the trusted sandbox
 runtime image. Callers SHALL select a different workload image per sandbox with
 OpenShell's `sandbox create --from <image>`, including an internal-registry mirror
-on restricted-egress clusters. The control plane SHALL NOT patch the rendered
-ConfigMap to select a workload image.
+on restricted-egress clusters. The control plane SHALL NOT set a workload image.
 
 #### server_sans and Exposed-Service Base Domains
 
-`server_sans` carries the `serverDnsNames` from the Gateway resource. The gateway derives its exposed-service base domains from wildcard SANs in this list: it strips the `*.` prefix and uses the remainder as the base domain for ExposeService URLs (`<sandbox>--<service>.<base-domain>`). Without a wildcard SAN naming its external domain, the gateway cannot generate correct external service URLs and falls back to internal base domains.
+The chart renders `server_sans` from the `serverDnsNames` on the Gateway resource. The gateway derives its exposed-service base domains from wildcard SANs in this list: it strips the `*.` prefix and uses the remainder as the base domain for ExposeService URLs (`<sandbox>--<service>.<base-domain>`). Without a wildcard SAN naming its external domain, the gateway cannot generate correct external service URLs and falls back to internal base domains.
 
-For a Gateway that opts in via `route.certificate`, the reconciler SHALL inject both `gw-<ns>.<base-domain>` and `*.gw-<ns>.<base-domain>` into `server_sans`, so exposed-service URLs are served under the Gateway's own domain subtree and covered by the per-gateway wildcard certificate (see [`openshell-gateway-tls.spec.md`](./openshell-gateway-tls.spec.md) § Per-Gateway External Certificate).
+For a Gateway that opts in via `route.certificate`, the reconciler SHALL add both `gw-<ns>.<base-domain>` and `*.gw-<ns>.<base-domain>` to the server DNS name values, so the chart renders them into `server_sans`, so exposed-service URLs are served under the Gateway's own domain subtree and covered by the per-gateway wildcard certificate (see [`openshell-gateway-tls.spec.md`](./openshell-gateway-tls.spec.md) § Per-Gateway External Certificate).
 
 #### Sandbox Runtime Class (optional)
 
@@ -679,14 +654,17 @@ When `GATEWAY_SANDBOX_RUNTIME_CLASS` is unset or empty (the default), the contro
 
 The chart renders this value into `[openshell.gateway].default_runtime_class_name` in the `openshell-gateway-config` ConfigMap. The chart accepts any valid `RuntimeClass` name; HyperShell does not validate that the named `RuntimeClass` exists on the cluster at reconcile time.
 
-#### OIDC Section (conditional)
+#### OIDC Section
 
-When `oidc.issuer` is set on the Gateway resource, the reconciler injects the OIDC section. See [`openshell-gateway-oidc.spec.md`](./openshell-gateway-oidc.spec.md).
+Every gateway has an OIDC configuration, because Keycloak integration is mandatory (see [`openshell-gateway-keycloak.spec.md`](./openshell-gateway-keycloak.spec.md), OSG-KCLK-01). The reconciler always sets the `server.oidc.*` values from the Gateway's `oidc` fields. The chart always renders the `[openshell.gateway.oidc]` section. See [`openshell-gateway-oidc.spec.md`](./openshell-gateway-oidc.spec.md).
+
+The section is required, not optional. Since OpenShell `v0.1.5-rhaiv.4` the gateway refuses to start without an auth mechanism, so a gateway rendered without OIDC crash-loops (openshift-online/hypershell#809). Generated-configuration validation rejects a gateway without OIDC before rollout (see [`generated-gateway-config-validation.spec.md`](./generated-gateway-config-validation.spec.md), GTW-CFG-01).
 
 #### Auth Section
 
-- Default: `allow_unauthenticated_users = false`
-- When OIDC is enabled, the reconciler also injects the `[openshell.gateway.oidc]` section
+- The chart renders `allow_unauthenticated_users = false` by default
+- The control plane never sets `allow_unauthenticated_users = true`
+- The chart also renders the `[openshell.gateway.oidc]` section from the `server.oidc.*` values
 
 #### Workspace Mode Section
 
@@ -699,16 +677,26 @@ See the "OSG-CORE-18 -- Gateway Workspace Mode" requirement below.
 A Gateway SHALL carry a `workspace_mode` field selecting how the OpenShell
 Kubernetes driver maps workspaces to namespaces (`shared`, `managed`, or
 `operator`, the vocabulary the vendored chart and the upstream gateway
-accept). The field is platform-managed (PLAT-DATA-23): the API server SHALL
-default `workspace_mode` to `managed` in the gateway service create funnel,
-after the field-policy check, so every creator class (REST, gRPC, `hsctl
-apply`, `.hypershell` import, control plane) receives the default and no
-caller-supplied value survives. A user or import caller that declares
-`workspace_mode` on create or update SHALL be rejected naming the field. The
-service funnel SHALL also enforce the field's value semantics for every
-writer class, the control plane included: the vocabulary above, and
-immutability of the stored value (re-sending the stored value is a no-op, and
-an update that omits the field keeps the stored value).
+accept). The field is platform-managed (PLAT-DATA-23) with one narrow
+create-time exception. The API server SHALL default `workspace_mode` to
+`managed` in the gateway service create funnel, after the field-policy check,
+so every creator class that supplies no value (REST, gRPC, `hsctl apply`,
+`.hypershell` import, control plane) receives the default. The sole
+caller-settable value at create is `operator`, and only for a caller holding
+the `gateway:operator-workspace-creator` entitlement: the per-gateway
+operator-managed workspace opt-in, defined in
+[`gateway-operator-workspaces.spec.md`](./gateway-operator-workspaces.spec.md)
+(OSG-OPWS-01) and gated by
+[`../security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md)
+(SEC-RBAC-28). A caller-supplied `shared` or `managed`, an unentitled
+`operator`, a `.hypershell` import that declares the field, and any update that
+changes the field SHALL be rejected naming it. The service funnel SHALL also
+enforce the field's value semantics for every writer class, the control plane
+included: the vocabulary above, and immutability of the stored value
+(re-sending the stored value is a no-op, and an update that omits the field
+keeps the stored value). Operator-mode tenant workspace namespaces are
+reclaimed on gateway deletion by OSG-OPWS-06, the operator-mode counterpart to
+the managed-mode cleanup in OSG-CORE-18.07.
 
 Every stored Gateway SHALL carry a `workspace_mode`: the column is required
 (`NOT NULL`), so no Gateway is provisioned on the chart's default mode.
@@ -736,6 +724,11 @@ mode for a Gateway whose namespace does not match the generated
 `openshell-{16-hex}` shape, because no unique `gateway_id` can be derived for
 it.
 
+Operator trust configuration, safe defaults, and explicit administrator opt-in
+are defined in [gateway-operator-workspaces.spec.md](./gateway-operator-workspaces.spec.md)
+(OSG-OPWS-08). See [the shared OCE development installation](../../deploy/oce-kind/README.md)
+for an administrator-configured integration.
+
 #### Scenario: OSG-CORE-18.01 -- New gateway defaults to managed
 
 - GIVEN the API server creates a Gateway with no `workspace_mode`
@@ -747,13 +740,17 @@ it.
 - AND sandbox pods SHALL be created in per-workspace namespaces named
   `openshell-{gateway_id}-{workspace}`
 
-#### Scenario: OSG-CORE-18.02 -- Caller-supplied mode is rejected
+#### Scenario: OSG-CORE-18.02 -- Caller-supplied mode is rejected except the entitled operator opt-in
 
 - GIVEN a user or import caller
-- WHEN the caller creates or updates a Gateway declaring `workspace_mode`
-- THEN the write SHALL be rejected naming `workspace_mode` (a strict-decode
-  400 on REST create/PATCH, `PermissionDenied` on gRPC, and the field-policy
-  rejection in the service funnel as the authoritative backstop)
+- WHEN the caller declares `workspace_mode` on update, or on create with any value
+  other than an entitled `operator` selection (OSG-OPWS-01)
+- THEN the write SHALL be rejected naming `workspace_mode` (a strict-decode 400 on
+  REST update/PATCH, `PermissionDenied` on gRPC, and the field-policy rejection in
+  the service funnel as the authoritative backstop)
+- AND an entitled create selecting `operator` SHALL be accepted (OSG-OPWS-01.01),
+  because `workspace_mode` is an accepted create input whose value and entitlement
+  are validated in the create handler and service funnel
 
 #### Scenario: OSG-CORE-18.03 -- Invalid mode is rejected
 
@@ -815,7 +812,11 @@ it.
 
 ### Requirement: OSG-CORE-14 -- OpenShift-Specific Gateway Provisioning
 
-When the control plane detects that it is running on an OpenShift cluster (the `route.openshift.io` API group is available), its reconcilers SHALL adjust gateway Deployments to conform to OpenShift's SecurityContextConstraints (SCC) and PodSecurity admission requirements. The gateway adjustments follow the [NVIDIA OpenShell OpenShift deployment guide](https://docs.nvidia.com/openshell/kubernetes/openshift).
+When the configured platform is OpenShift (`HYPERSHELL_CLUSTER_PLATFORM=openshift`, see [`control-plane.spec.md`](./control-plane.spec.md), CTRL-CORE-16), its reconcilers SHALL adjust gateway Deployments to conform to OpenShift's SecurityContextConstraints (SCC) and PodSecurity admission requirements. The gateway adjustments follow the [NVIDIA OpenShell OpenShift deployment guide](https://docs.nvidia.com/openshell/kubernetes/openshift).
+
+The configured platform SHALL select pod security and SCC integration
+(CTRL-CORE-16). The shared dependency-discovery contract SHALL determine availability
+of feature prerequisites such as Gateway API resources (CTRL-CORE-18, CTRL-CORE-19).
 
 **Key difference from vanilla Kubernetes:** OpenShift enforces the `restricted` PodSecurity standard by default. Hardcoded `fsGroup`, `runAsUser`, and `runAsGroup` values conflict with OpenShift's SCC admission controller, which assigns UIDs and GIDs from each namespace's allocated ranges. Additionally, sandbox pods require the `privileged` SCC to function correctly.
 
@@ -839,22 +840,28 @@ When the control plane detects that it is running on an OpenShift cluster (the `
 - AND it SHALL clear the `securityContext.runAsUser` field (set to null/omit) so that OpenShift's SCC admission controller assigns the UID from the namespace's allocated range
 - AND all gateway containers SHALL set `securityContext.seccompProfile.type` to `RuntimeDefault` to satisfy the `restricted:latest` PodSecurity standard
 
-#### Scenario: OSG-CORE-14.03 -- Gateway deployment on vanilla Kubernetes (unchanged)
+#### Scenario: OSG-CORE-14.03 -- Kubernetes gateway pod security context
 
-- GIVEN the GatewayReconciler is deploying a gateway to a non-OpenShift cluster (e.g., Kind, EKS, GKE)
+- GIVEN `HYPERSHELL_CLUSTER_PLATFORM=kubernetes` (e.g., Kind, EKS, GKE)
 - WHEN the reconciler applies gateway manifests
-- THEN it SHALL NOT modify `podSecurityContext.fsGroup` or `securityContext.runAsUser` (the chart defaults are correct for non-OpenShift)
-- AND it SHALL NOT create SCC bindings (SCC is an OpenShift-only concept)
-- AND the `seccompProfile.type: RuntimeDefault` SHALL still be set (it is valid on all Kubernetes clusters)
+- THEN it SHALL render the gateway chart's configured `podSecurityContext.fsGroup` and `securityContext.runAsUser` values
+- AND gateway containers SHALL use `seccompProfile.type: RuntimeDefault`
 
-#### Scenario: OSG-CORE-14.04 -- Platform detection reuse
+#### Scenario: OSG-CORE-14.04 -- Platform from configuration, prerequisites from discovery
 
-- GIVEN the GatewayReconciler already detects OpenShift for SCC/security adjustments
-- AND the GatewayReconciler detects Gateway API availability for GRPCRoute provisioning
-- WHEN the reconciler initializes
-- THEN it SHALL reuse the same `isOpenShift` detection result for SCC/security adjustments
-- AND it SHALL reuse the same `hasGatewayAPI` detection result for GRPCRoute provisioning
-- AND both detections SHALL occur once at startup, not per-reconciliation
+- GIVEN `HYPERSHELL_CLUSTER_PLATFORM=openshift`
+- WHEN the reconciler reconciles a gateway
+- THEN it SHALL apply the OpenShift SCC/security integration defined in OSG-CORE-14.01 and OSG-CORE-14.02
+- AND it SHALL determine Gateway API ingress availability from the shared, refreshable dependency discovery (OSG-ROUT-02, CTRL-CORE-18), distinguishing present, confirmed-absent, and unknown/unavailable
+- AND it SHALL keep the configured OpenShift security behavior through dependency discovery failures
+
+#### Scenario: OSG-CORE-14.05 -- OpenShift security retained when an unrelated group is stale
+
+- GIVEN `HYPERSHELL_CLUSTER_PLATFORM=openshift`
+- AND an unrelated API group (for example `projectcalico.org/v3`) fails discovery as stale
+- WHEN the reconciler reconciles a gateway
+- THEN it SHALL still clear `podSecurityContext.fsGroup` and `securityContext.runAsUser` and bind the `privileged` SCC
+- AND OpenShift admission SHALL assign the gateway pod identity from the namespace's allocated range
 
 ---
 
@@ -896,8 +903,8 @@ Gateway provisioning SHALL be independent of agent definitions. Agent-specific c
 | `image` | No | Supplied by `GATEWAY_IMAGE` env var on the control-plane deployment | Gateway container image reference |
 | `supervisor_image` | No | Supplied by `GATEWAY_SUPERVISOR_IMAGE` env var on the control-plane deployment | Supervisor sidecar container image |
 | `serverDnsNames` | Yes | - | DNS names for TLS certificate generation |
-| `oidc` | No | - | OIDC authentication configuration (see OIDC spec) |
-| `oidc.issuer` | Yes (to enable OIDC) | `""` | OIDC issuer URL; empty disables OIDC |
+| `oidc` | No (system-managed) | Generated by the control plane | OIDC authentication configuration; every gateway gets one (see OIDC spec) |
+| `oidc.issuer` | System-managed | Generated by the control plane | OIDC issuer URL; always non-empty, and a rendered config without it fails validation (GTW-CFG-01) |
 | `oidc.audience` | No | `"openshell-cli"` | Expected `aud` claim value in JWT |
 | `oidc.jwks_ttl` | No | `3600` | JWKS key cache retention in seconds |
 | `oidc.roles_claim` | No | `""` | Dot-delimited path to roles array in JWT claims |
@@ -908,6 +915,7 @@ Gateway provisioning SHALL be independent of agent definitions. Agent-specific c
 | `route.host` | No | auto-derived | Hostname for the GRPCRoute |
 | `route.certificate` | No | - | Opt-in to a dedicated per-gateway route and external certificate (`route: { certificate: {} }`): a per-tenant Gateway, a per-gateway wildcard Certificate, and a sandbox HTTPRoute. Provision-time only - the API rejects changes to this key after creation (changing certificate mode requires delete and re-provision). Not combinable with `route.host`. See [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) |
 | `dedicated_route` | No | `false` | Create-only user request for the dedicated per-gateway route and wildcard certificate: the API server translates it into the `route.certificate` opt-in at create ([`data-model.spec.md`](./data-model.spec.md), "Requirement: Gateway Dedicated Route Request Field", PLAT-DATA-26). Requires the `gateway:dedicated-route-creator` role (or `platform:admin`); readOnly after creation |
+| `workspace_mode` | No | `managed` | OpenShell Kubernetes-driver workspace mapping (`shared`, `managed`, `operator`). Platform-managed with one create-time exception: the only caller-settable value is `operator`, requiring the `gateway:operator-workspace-creator` role (or `platform:admin`), per the per-gateway operator-managed workspace opt-in ([`gateway-operator-workspaces.spec.md`](./gateway-operator-workspaces.spec.md), OSG-OPWS-01). Immutable after creation (OSG-CORE-18) |
 | `routeAddress` | - | - | Read-only. External address populated by the control plane |
 | `dev_build` | No | `false` | Marks this as a dev/branch build. Control plane passes `hypershell.redhat.io/openshell-dev-build` via Helm `podLabels` onto the gateway workload |
 | `dev_build_metadata` | No | - | Dev build provenance (JSONB): `{ref, sha, repo}`. Control plane passes the SHA/ref/repo via Helm `podAnnotations` |
@@ -918,10 +926,13 @@ Gateway provisioning SHALL be independent of agent definitions. Agent-specific c
 
 | Variable | Default | Description |
 |---|---|---|
-| `GATEWAY_IMAGE` | *(required)* | Gateway container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.1.5-rhaiv.3@sha256:...`). Sets the default when a Gateway resource does not specify `image`. |
-| `GATEWAY_SUPERVISOR_IMAGE` | *(required)* | Supervisor sidecar container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-supervisor:v0.1.5-rhaiv.3@sha256:...`). Sets the default when a Gateway resource does not specify `supervisor_image`. |
+| `HYPERSHELL_CLUSTER_PLATFORM` | *(required; no default)* | Host platform: `openshift` or `kubernetes`. Selects platform-specific pod security and SCC integration (OSG-CORE-14). Validated at startup (CTRL-CORE-16). |
+| `GATEWAY_IMAGE` | *(required)* | Gateway container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-gateway:v0.1.8-rhaiv.0@sha256:...`). Sets the default when a Gateway resource does not specify `image`. |
+| `GATEWAY_SUPERVISOR_IMAGE` | *(required)* | Supervisor sidecar container image reference with digest (e.g., `quay.io/opendatahub/odh-openshell-supervisor:v0.1.8-rhaiv.0@sha256:...`). Sets the default when a Gateway resource does not specify `supervisor_image`. |
 | `GATEWAY_SANDBOX_RUNTIME_CLASS` | *(unset - cluster default RuntimeClass)* | Kubernetes `RuntimeClass` name applied to every sandbox pod on the cluster (e.g. `kata`, `kata-remote`). Passed to the chart as `server.defaultRuntimeClassName`. Omitted from chart values when unset, so sandbox pods carry no `runtimeClassName` field and the cluster default (runc) is used. Requires the named `RuntimeClass` to exist on the cluster. |
 | `GATEWAY_RESOURCES` | *(unset - requests `cpu: 100m`, `memory: 512Mi`; limits `cpu: 500m`, `memory: 1Gi`)* | Gateway container requests and limits as a JSON Kubernetes `ResourceRequirements` object, e.g. `{"requests":{"cpu":"100m","memory":"512Mi"},"limits":{"cpu":"500m","memory":"1Gi"}}`. Replaces the defaults entirely (not merged). MUST set `limits.memory`; no request may exceed its limit; `claims` is not supported. An invalid value fails controller startup. Applied to every gateway on the cluster on its next reconcile (Helm upgrade, which restarts the gateway pod). The Kind overlay (`deploy/kind`) sets lower requests (`cpu: 50m`, `memory: 128Mi`) with the default limits, so more gateways fit on the single Kind node. |
+| `GATEWAY_ADDITIONAL_CA_CONFIGMAP_NAME` | *(unset)* | Operator-owned public destination CA ConfigMap in the controller namespace, with `ca.crt` or `ca-bundle.crt`. Passed to sandbox supervisor trust independently of gateway mTLS, OIDC, and Vault (OSG-TLS-07). |
+| `GATEWAY_ADDITIONAL_CA_REQUIRED_CAPABILITY` | *(unset)* | Optional exact capability required in `HYPERSHELL_MANAGED_CLUSTER_CAPABILITIES` before applying the destination CA bundle. Corporate VPN trust uses `network/vpn`; a mismatch disables propagation. |
 | `GATEWAY_API_GATEWAY_NAME` | *(required)* | Name of the pre-existing Gateway resource that tenant GRPCRoutes attach to |
 | `GATEWAY_API_GATEWAY_NAMESPACE` | `openshift-ingress` | Namespace where the pre-existing Gateway resource lives |
 | `GATEWAY_API_BASE_DOMAIN` | auto-detected | Base domain for tenant hostname generation (e.g., `openshell.example.com` → `gw-<ns>.openshell.example.com`) |
@@ -1017,9 +1028,9 @@ Each row names a chart value and the HyperShell input that sets it:
 | `podLabels["hypershell.redhat.io/openshell-dev-build"]` | `Gateway.dev_build`; set only when true | `internal/helm/values.go` |
 | `podAnnotations["hypershell.redhat.io/openshell-dev-build-*"]` | `Gateway.dev_build_metadata.{ref,sha,repo}` | `internal/helm/values.go` |
 | `pkiInitJob.serverDnsNames={...}` | `serverDnsNames` field on the Gateway API resource. When cert-manager is present, the same names also go to `certManager.serverDnsNames`, because the chart then ignores `pkiInitJob.serverDnsNames` | `internal/helm/values.go` |
-| `certManager.enabled=true` | Auto-detected: the control plane checks for the `cert-manager.io` API group once at startup through `gateway.DetectCertManager()`. The result sets `certManager.enabled` | `internal/gateway/reconciler.go`, `internal/reconciler/reconciler.go`, `internal/helm/values.go` |
-| `podSecurityContext.fsGroup=null` | On OpenShift only: set to null so the SCC assigns `fsGroup` | `internal/helm/values.go` (`buildOpenShiftValues`) |
-| `securityContext.runAsUser=null` | On OpenShift only: set to null so the SCC assigns `runAsUser` | `internal/helm/values.go` (`buildOpenShiftValues`) |
+| `certManager.enabled=true` | Prerequisite discovery: the control plane checks for the `cert-manager.io` API group through the shared, refreshable dependency discovery (OSG-TLS-01, CTRL-CORE-18), distinguishing present, confirmed-absent, and unknown/unavailable; a transient discovery failure is not treated as confirmed absent and is retried. The present result sets `certManager.enabled` | `internal/gateway/reconciler.go`, `internal/reconciler/reconciler.go`, `internal/helm/values.go` |
+| `podSecurityContext.fsGroup=null` | When `HYPERSHELL_CLUSTER_PLATFORM=openshift` (not from discovery): set to null so the SCC assigns `fsGroup` | `internal/helm/values.go` (`buildOpenShiftValues`) |
+| `securityContext.runAsUser=null` | When `HYPERSHELL_CLUSTER_PLATFORM=openshift` (not from discovery): set to null so the SCC assigns `runAsUser` | `internal/helm/values.go` (`buildOpenShiftValues`) |
 | `server.disableTls=true` | **NOT used.** BackendTLSPolicy re-encrypts traffic from the networking Gateway to the pod, requiring the gateway to serve TLS. TLS remains enabled on all clusters | N/A |
 | `server.externalDbSecret` | `openshell-gateway-db-credentials`, provisioned by the control plane; the chart injects the Secret's `uri` key as `OPENSHELL_DB_URL`. The chart reads no other key and cannot mount a database CA, so the `uri` uses `sslmode=require` | `internal/gateway/database.go`, `internal/helm/values.go` |
 | `workload.kind=deployment` | Always Deployment - PostgreSQL is the sole backend | `internal/helm/values.go` |

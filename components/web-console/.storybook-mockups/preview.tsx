@@ -1,11 +1,9 @@
 import "@patternfly/react-core/dist/styles/base.css";
 import "@patternfly/react-styles/css/utilities/_index.css";
+import "./color-scheme.css";
 
 import { useEffect, type ReactNode } from "react";
 import type { Preview } from "@storybook/react-vite";
-
-const awsLogoVisibilityStyles =
-  ".aws-logo-dark { display: none !important; } html.pf-v6-theme-dark .aws-logo-light { display: none !important; } html.pf-v6-theme-dark .aws-logo-dark { display: block !important; }";
 
 const ColorSchemeDecorator = ({
   children,
@@ -32,12 +30,7 @@ const ColorSchemeDecorator = ({
     };
   }, [scheme]);
 
-  return (
-    <>
-      <style dangerouslySetInnerHTML={{ __html: awsLogoVisibilityStyles }} />
-      {children}
-    </>
-  );
+  return <>{children}</>;
 };
 
 const preview: Preview = {

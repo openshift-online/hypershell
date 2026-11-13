@@ -1,0 +1,62 @@
+{
+  "$id": "https://fullsend.sh/schemas/spec-implementation-result.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "spec-implementation Agent Result",
+  "description": "Structured output from the spec-implementation agent (SDLC-HOOK-04). outcome 'completed' means the spec PR is pushed and ready for review; outcome 'blocked' means a hard prerequisite failed. The post-script verifies pr_number and head_sha against trusted harness input before applying any transition.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "phase",
+    "outcome",
+    "rationale"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "phase": {
+      "const": "spec-implementation"
+    },
+    "outcome": {
+      "enum": [
+        "completed",
+        "blocked"
+      ]
+    },
+    "rationale": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "pr_number": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "head_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{7,40}$"
+    },
+    "comment": {
+      "type": "string",
+      "maxLength": 16384
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "completed"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "pr_number",
+          "head_sha"
+        ]
+      }
+    }
+  ]
+}

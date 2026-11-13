@@ -3031,6 +3031,66 @@ paths:
       security:
       - Bearer: []
       summary: Update a secret source
+  /api/hypershell/ext/secret_sources/{id}/material:
+    post:
+      description: "Write-only material-upload operation on an existing SecretSource.\
+        \ The request body carries ONLY the material. The API server writes it through\
+        \ its write-only secret store to the SecretSource's server-derived convention\
+        \ path (hypershell/secret-sources/{agent_runtime_id}/{name}) and records only\
+        \ the reference; it does not change the stored path. The upload is idempotent\
+        \ (a re-upload overwrites the same entry). The material is never persisted\
+        \ raw in the database and never echoed in the response; the response is marked\
+        \ no-store."
+      operationId: uploadSecretSourceMaterial
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SecretSourceMaterialUploadRequest"
+        description: The durable material to store for the secret source
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretSource"
+          description: Material stored. The response identifies the secret source
+            and never echoes the material.
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error (missing material)
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No secret source with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Upload the durable material for an existing secret source
   /api/hypershell/ext/repositories:
     get:
       operationId: listRepositories
@@ -4936,17 +4996,15 @@ components:
           type: string
       type: object
     GatewayPlacementIntent:
-      description: Exactly one of selector or mode must be supplied.
+      description: Late-bound placement by ManagedCluster capability-label selector.
+        A non-empty selector list must be supplied.
       example:
-        mode: local-kind
         excludedSelector:
         - excludedSelector
         - excludedSelector
         selector:
         - selector
         - selector
-      nullable: true
-      oneOf: []
       properties:
         selector:
           items:
@@ -4958,14 +5016,11 @@ components:
             type: string
           minItems: 1
           type: array
-        mode:
-          enum:
-          - local-kind
-          type: string
+      required:
+      - selector
       type: object
     GatewayPlacementAvailability:
       example:
-        local_kind: true
         placements:
         - reason: no-eligible-cluster
           available: true
@@ -4982,10 +5037,7 @@ components:
           items:
             $ref: "#/components/schemas/GatewayPlacementAvailabilityItem"
           type: array
-        local_kind:
-          type: boolean
       required:
-      - local_kind
       - placements
       type: object
     OpenShellGatewayServiceAccountRole:
@@ -6539,6 +6591,23 @@ components:
         key_mappings:
           type: string
       type: object
+    SecretSourceMaterialUploadRequest:
+      description: "Body of the write-only material-upload operation. It carries ONLY\
+        \ the material; it has no path or other reference field, so an upload can\
+        \ never re-point a secret source at another store location."
+      example:
+        value: value
+      properties:
+        value:
+          description: "The durable secret material to store. Write-only (one-way)\
+            \ - it is written to the configured secret manager at the secret source's\
+            \ server-derived convention path and never persisted in the database,\
+            \ logged, or returned on any read or upload response."
+          type: string
+          writeOnly: true
+      required:
+      - value
+      type: object
     AgentWorkspace:
       allOf:
       - $ref: "#/components/schemas/ObjectReference"
@@ -6702,18 +6771,18 @@ components:
     GatewayCreateRequest:
       description: "A gateway is created with only its user-writable fields: a name,\
         \ exactly one of cluster_id (pinned) or placement (late-bound), and the optional\
-        \ create-only dedicated_route request. Every other gateway field is platform-managed\
-        \ and control-plane-only; it is not part of the create contract and is rejected\
-        \ if supplied (data-model.spec.md \"Requirement: Gateway Field Ownership and\
-        \ Write Policy\", PLAT-DATA-23). The web-console provision form submits the\
-        \ placement shape; the pinned shape is available to hsctl apply and the declarative\
-        \ .hypershell import. dedicated_route is rejected on update: it cannot be\
-        \ added, removed, or changed after creation."
+        \ create-only dedicated_route request, and the create-only workspace_mode\
+        \ operator opt-in. Every other gateway field is platform-managed and control-plane-only;\
+        \ it is not part of the create contract and is rejected if supplied (data-model.spec.md\
+        \ \"Requirement: Gateway Field Ownership and Write Policy\", PLAT-DATA-23).\
+        \ The web-console provision form submits the placement shape; the pinned shape\
+        \ is available to hsctl apply and the declarative .hypershell import. dedicated_route\
+        \ is rejected on update: it cannot be added, removed, or changed after creation."
       example:
         cluster_id: cluster_id
+        workspace_mode: workspace_mode
         name: name
         placement:
-          mode: local-kind
           excludedSelector:
           - excludedSelector
           - excludedSelector
@@ -6734,6 +6803,14 @@ components:
             certificate. The platform manages how the dedicated route and certificate
             are provided.
           type: boolean
+        workspace_mode:
+          description: "Create-only per-gateway operator-managed workspace opt-in.\
+            \ The only accepted value is \"operator\", which requires the gateway:operator-workspace-creator\
+            \ role (platform:admin also qualifies) and provisions the gateway with\
+            \ operator-owned workspace namespaces (OSG-OPWS-01). Omit for the default\
+            \ managed mode; shared and managed are platform-managed and not caller-settable.\
+            \ Immutable after creation."
+          type: string
         placement:
           $ref: "#/components/schemas/GatewayPlacementIntent"
       required:
@@ -6925,7 +7002,8 @@ components:
         id: id
         href: href
         items:
-        - audience: audience
+        - idp_alias: idp_alias
+          audience: audience
           updated_at: 2000-01-23T04:56:07.000+00:00
           kind: kind
           forge: github
@@ -6937,7 +7015,8 @@ components:
           jwks_url: jwks_url
           status:
             idp_alias: idp_alias
-        - audience: audience
+        - idp_alias: idp_alias
+          audience: audience
           updated_at: 2000-01-23T04:56:07.000+00:00
           kind: kind
           forge: github
@@ -6975,6 +7054,13 @@ components:
             description: The platform-pinned audience every federated CI token must
               carry
             type: string
+          idp_alias:
+            description: "Optional explicit (spec) Keycloak IdP alias this provider\
+              \ adopts, the single declarative source of truth shared with the platform\
+              \ federation (the terraform ci_forges map key, e.g. github-actions).\
+              \ When set, the control plane adopts the IdP of that alias; when unset,\
+              \ it derives the alias from forge and issuer (PLAT-DATA-24, PLAT-CITR-01)."
+            type: string
           status:
             $ref: "#/components/schemas/CIProvider_allOf_status"
         required:
@@ -6984,6 +7070,7 @@ components:
         - jwks_url
         type: object
       example:
+        idp_alias: idp_alias
         audience: audience
         updated_at: 2000-01-23T04:56:07.000+00:00
         kind: kind
@@ -6998,6 +7085,7 @@ components:
           idp_alias: idp_alias
     CIProviderPatchRequest:
       example:
+        idp_alias: idp_alias
         audience: audience
         forge: github
         issuer: issuer
@@ -7014,6 +7102,9 @@ components:
         jwks_url:
           type: string
         audience:
+          type: string
+        idp_alias:
+          description: The explicit (spec) Keycloak IdP alias to adopt (PLAT-DATA-24).
           type: string
       type: object
     CITrustList:
@@ -7046,6 +7137,7 @@ components:
             repository: repository
           name: name
           created_at: 2000-01-23T04:56:07.000+00:00
+          repository_id: repository_id
           id: id
           href: href
           gateway_id: gateway_id
@@ -7065,6 +7157,7 @@ components:
             repository: repository
           name: name
           created_at: 2000-01-23T04:56:07.000+00:00
+          repository_id: repository_id
           id: id
           href: href
           gateway_id: gateway_id
@@ -7093,6 +7186,12 @@ components:
           role:
             description: The gateway role granted to the federated CI session
             type: string
+          repository_id:
+            description: Repository that owns this CITrust through the control-plane
+              .hypershell import. Null for trusts created directly through the REST
+              API or hsctl apply. Set server-side; read-only in the client contract.
+            readOnly: true
+            type: string
           status:
             $ref: "#/components/schemas/CITrust_allOf_status"
         required:
@@ -7113,6 +7212,7 @@ components:
           repository: repository
         name: name
         created_at: 2000-01-23T04:56:07.000+00:00
+        repository_id: repository_id
         id: id
         href: href
         gateway_id: gateway_id

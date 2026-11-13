@@ -56,7 +56,6 @@ test.beforeEach(async ({ browserName, page }) => {
     ) {
       await route.fulfill({
         body: JSON.stringify({
-          local_kind: false,
           placements: [
             { selector: ["network/public", "provider/aws"], available: true },
             {
@@ -148,6 +147,9 @@ test("makes gateway management the primary HyperShell experience", async ({
 }) => {
   await page.goto("/gateways");
 
+  await expect(
+    page.getByRole("heading", { level: 1, name: "OpenShell Gateways" }),
+  ).toBeVisible();
   await expect(page).toHaveTitle("HyperShell - OpenShell Gateways");
   await expect(
     page.getByRole("link", { name: "HyperShell", exact: true }),
@@ -162,20 +164,25 @@ test("makes gateway management the primary HyperShell experience", async ({
   await expect(
     page.getByRole("link", { name: "Provision gateway" }),
   ).toBeVisible();
-  await expect(
-    page
-      .getByRole("grid", { name: "OpenShell Gateways" })
-      .getByText("Cluster East"),
-  ).toBeVisible();
   const gatewayGrid = page.getByRole("grid", { name: "OpenShell Gateways" });
+  await expect(gatewayGrid.getByText("Not available")).toBeVisible();
   await expect(
     gatewayGrid.getByRole("columnheader", { name: "Created", exact: true }),
   ).toBeVisible();
   await expect(gatewayGrid.getByText("Aug 10, 2026")).toBeVisible();
   await expect(gatewayGrid.locator(".pf-v6-c-label")).toHaveCount(0);
+  const primaryNavigation = page.getByRole("navigation", {
+    name: "Primary navigation",
+  });
   await expect(
-    page.getByRole("navigation", { name: "Primary navigation" }),
-  ).toHaveCount(0);
+    primaryNavigation.getByRole("link", { name: "Overview" }),
+  ).toBeVisible();
+  await expect(
+    primaryNavigation.getByRole("link", { name: "OpenShell Gateways" }),
+  ).toBeVisible();
+  await expect(
+    primaryNavigation.getByRole("link", { name: "Dashboard" }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Refresh gateways" }).click();
 
   const results = await new AxeBuilder({ page }).analyze();
@@ -212,6 +219,9 @@ test("keeps unknown gateway status readable in every theme", async ({
   });
 
   await page.goto("/gateways");
+  await expect(
+    page.getByRole("heading", { level: 1, name: "OpenShell Gateways" }),
+  ).toBeVisible();
   await expect(page.getByText("Future status", { exact: true })).toBeVisible();
   let results = await new AxeBuilder({ page }).analyze();
   expect(results.violations).toEqual([]);
@@ -232,6 +242,10 @@ test("keeps unknown gateway status readable in every theme", async ({
 
   await page.getByRole("button", { name: "Switch to dark mode" }).click();
   await expect(page.locator("html")).toHaveClass(/pf-v6-theme-dark/u);
+  await expect(page.locator("a.pf-v6-c-nav__link").first()).toHaveCSS(
+    "color",
+    "rgb(255, 255, 255)",
+  );
   results = await new AxeBuilder({ page })
     .exclude(".pf-v6-c-menu-toggle.pf-m-secondary")
     .exclude(".pf-m-link > .pf-v6-c-button__text")
@@ -254,27 +268,25 @@ test("operates gateway rows and opens provisioning", async ({ page }) => {
     page.getByRole("menuitem", { name: "Open gateway console" }),
   ).toHaveCount(0);
   await expect(
-    page.getByRole("menuitem", { name: "Copy CLI connection command" }),
+    page.getByRole("menuitem", { name: "Connection command" }),
   ).toBeVisible();
 
   await expect(
     page.getByRole("columnheader", { name: "Created", exact: true }),
   ).toHaveAttribute("aria-sort", "descending");
-  await page.getByRole("button", { name: "Cluster" }).click();
+  await page.getByRole("button", { name: "Gateway name" }).click();
   await expect(
-    page.getByRole("columnheader", { name: "Cluster" }),
+    page.getByRole("columnheader", { name: "Gateway name" }),
   ).toHaveAttribute("aria-sort", "ascending");
   await page
     .getByRole("textbox", {
-      name: "Filter by name, cluster, status, or endpoint",
+      name: "Filter by name, status, or endpoint",
     })
     .fill("Cluster East");
   await expect(
     page.getByRole("link", { name: "openshell-gateway-test", exact: true }),
   ).toBeVisible();
-  await expect(page).toHaveURL(
-    /\?q=Cluster\+East&sort=cluster&direction=asc$/u,
-  );
+  await expect(page).toHaveURL(/\?q=Cluster\+East&sort=name&direction=asc$/u);
   await page.goBack();
   await expect(page).toHaveURL(/\/gateways$/u);
   await expect(
@@ -317,39 +329,31 @@ test("keeps connection methods on gateway details", async ({
     page.getByRole("button", { name: "Actions", exact: true }),
   ).toBeVisible();
 
-  // Connection is the default tab and consolidates the preamble into a single
-  // "One-time setup" block plus a re-runnable sandbox command.
+  await expect(
+    page.getByRole("tab", { name: "Details", selected: true }),
+  ).toBeVisible();
+  await page.getByRole("tab", { name: "Connection" }).click();
   await expect(
     page.getByRole("tab", { name: "Connection", selected: true }),
   ).toBeVisible();
+  await expect(page.getByText("Before you begin")).toBeVisible();
   await expect(
-    page.getByRole("heading", { level: 2, name: "One-time setup" }),
+    page.getByRole("button", { name: "Copy all commands" }),
   ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Copy the one-time setup commands" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Copy the create-sandbox command" }),
-  ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Copy the one-time setup commands" })
-    .click();
+  await page.getByRole("button", { name: "Copy all commands" }).click();
   await expect
     .poll(() => page.evaluate(() => navigator.clipboard.readText()))
     .toContain("openshell provider create");
   const setupScript = await page.evaluate(() => navigator.clipboard.readText());
-  expect(setupScript).toContain(
-    `openshell gateway add \\
-  --name openshell-gateway-test \\
-  https://gateway.example.test:443`,
-  );
-  expect(setupScript).toContain("openshell inference set");
+  expect(setupScript).toContain("openshell gateway add");
+  expect(setupScript).toContain("--name openshell-gateway-test");
+  expect(setupScript).toContain("https://gateway.example.test:443");
+  expect(setupScript).toContain("openshell sandbox create");
 
   // Operational configuration and copyable values live under the Details tab.
   await page.getByRole("tab", { name: "Details" }).click();
   await expect(page.getByText("Cluster East", { exact: true })).toBeVisible();
   await expect(page.getByText("cluster-east", { exact: true })).toHaveCount(0);
-  await expect(page.getByText("Not available")).toHaveCount(0);
   await page
     .getByRole("button", {
       name: "Copy gateway endpoint for openshell-gateway-test",
@@ -498,7 +502,6 @@ test("provisions a gateway on an existing managed cluster", async ({
         contentType: "application/json",
         status: 200,
         body: JSON.stringify({
-          local_kind: false,
           placements: [
             { selector: ["network/public", "provider/aws"], available: true },
             {
@@ -570,7 +573,7 @@ test("provisions a gateway on an existing managed cluster", async ({
   await page.getByLabel("Gateway name").fill("team-gateway");
   await page.getByRole("button", { name: "Provision gateway" }).click();
 
-  await expect(page).toHaveURL(/\/gateways\/gateway-1$/);
+  await expect(page).toHaveURL(/\/gateways\/gateway-1\?tab=connection$/);
   await expect(
     page
       .getByRole("navigation", { name: "Breadcrumb" })
@@ -581,15 +584,19 @@ test("provisions a gateway on an existing managed cluster", async ({
   await expect(
     page.getByRole("tab", { name: "Connection", selected: true }),
   ).toBeVisible();
+  await page
+    .getByRole("button", { name: "2 Add this gateway One-time" })
+    .click();
   await expect(
     page.getByText("Waiting for gateway provisioning..."),
   ).toBeVisible();
-  // Operational values remain under the Details tab; the endpoint is unavailable.
+  // Operational values remain under the Details tab.
   await page.getByRole("tab", { name: "Details" }).click();
+  const gatewayEndpoint = page.getByText("Gateway endpoint", { exact: true });
+  await expect(gatewayEndpoint).toBeVisible();
   await expect(
-    page.getByText("Gateway endpoint", { exact: true }),
-  ).toBeVisible();
-  await expect(page.getByText("Not available")).toHaveCount(1);
+    gatewayEndpoint.locator("xpath=ancestor::dt[1]/following-sibling::dd[1]"),
+  ).toHaveText("Not available");
   expect(requestBody).toEqual({
     name: "team-gateway",
     placement: {

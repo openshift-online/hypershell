@@ -62,25 +62,18 @@ func ValidateLabel(label string) error {
 
 // BuildIntent validates the placement flags and returns the JSON-ready
 // placement value for the gateway create request body, or an error when the
-// flag combination is invalid (CLI-PLC-01). localKind and any selector flags
-// are mutually exclusive; an excluded selector requires a required selector.
-// Duplicate labels are passed through: the server collapses them
-// (NormalizeSelector). It returns nil when no placement flag was supplied,
+// flag combination is invalid (CLI-PLC-01). An excluded selector requires a
+// required selector. Duplicate labels are passed through: the server collapses
+// them (NormalizeSelector). It returns nil when no placement flag was supplied,
 // leaving the caller on the pinned (cluster_id) shape.
-func BuildIntent(selectors, excludes []string, localKind bool) (map[string]interface{}, error) {
+func BuildIntent(selectors, excludes []string) (map[string]interface{}, error) {
 	hasSelector := len(selectors) > 0
 	hasExclude := len(excludes) > 0
-	if !hasSelector && !hasExclude && !localKind {
+	if !hasSelector && !hasExclude {
 		return nil, nil
-	}
-	if localKind && (hasSelector || hasExclude) {
-		return nil, fmt.Errorf("--local-kind cannot be combined with --placement-selector or --placement-exclude-selector: the placement intent carries either a selector or the local-kind mode")
 	}
 	if hasExclude && !hasSelector {
 		return nil, fmt.Errorf("--placement-exclude-selector requires at least one --placement-selector")
-	}
-	if localKind {
-		return map[string]interface{}{"mode": "local-kind"}, nil
 	}
 	for _, label := range selectors {
 		if err := ValidateLabel(label); err != nil {
