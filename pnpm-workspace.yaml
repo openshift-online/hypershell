@@ -48,3 +48,5 @@ allowBuilds:
 minimumReleaseAgeExclude:
   # Renovate security update: vite@8.1.6
   - vite@8.1.6
+  # Renovate security update: fastify@5.12.6
+  - fastify@5.12.6
