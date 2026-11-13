@@ -4,6 +4,7 @@ import copy
 import base64
 import hashlib
 import io
+import urllib.error
 import tarfile
 import os
 import json
@@ -628,6 +629,15 @@ class GitHubAppTests(unittest.TestCase):
                 bundle.installation_token()
             signing.assert_not_called()
             request.assert_not_called()
+
+    def test_github_errors_name_the_call_and_keep_the_reason(self):
+        denied = urllib.error.HTTPError("https://api.github.com/repos/o/r/git/refs", 403, "Forbidden",
+                                        {}, io.BytesIO(b'{"message":"Resource not accessible by integration"}'))
+        with patch.object(bundle, "_github_token", "t"), \
+                patch.object(bundle.urllib.request, "urlopen", side_effect=denied):
+            with self.assertRaisesRegex(urllib.error.HTTPError,
+                                        "403: POST .*/git/refs: Forbidden: .*not accessible by integration"):
+                bundle.github("POST", "/git/refs", {})
 
 
 if __name__ == "__main__":
