@@ -13,6 +13,7 @@ export function GatewayDetailPageSurface({
   modal,
   policyDrawer,
   policyMode,
+  workspaceFilter,
 }: Pick<
   GatewayDetailContentProps,
   | "activeTab"
@@ -21,6 +22,7 @@ export function GatewayDetailPageSurface({
   | "modal"
   | "policyDrawer"
   | "policyMode"
+  | "workspaceFilter"
 >) {
   return (
     <IntlProvider locale="en">
@@ -31,6 +33,7 @@ export function GatewayDetailPageSurface({
         modal={modal}
         policyDrawer={policyDrawer}
         policyMode={policyMode}
+        workspaceFilter={workspaceFilter}
       />
     </IntlProvider>
   );
