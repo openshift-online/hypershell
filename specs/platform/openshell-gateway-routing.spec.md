@@ -9,7 +9,7 @@
 
 ## Purpose
 
-This specification defines how OpenShell gateways are exposed to external clients via the **Gateway API** (GRPCRoute + BackendTLSPolicy). The control plane auto-detects Gateway API availability at startup and provisions per-tenant GRPCRoutes that attach to a pre-existing shared Gateway. An administrator provisions the Gateway as cluster infrastructure (similar to a GatewayClass).
+This specification defines how OpenShell gateways are exposed to external clients via the **Gateway API** (GRPCRoute + BackendTLSPolicy). The control plane evaluates Gateway API availability through the shared, refreshable dependency discovery ([`control-plane.spec.md`](./control-plane.spec.md), CTRL-CORE-18) and, when the prerequisite resources are present (OSG-ROUT-02), provisions per-tenant GRPCRoutes that attach to a pre-existing shared Gateway. An administrator provisions the Gateway as cluster infrastructure (similar to a GatewayClass).
 
 ---
 

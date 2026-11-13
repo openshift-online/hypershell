@@ -10,6 +10,7 @@ import (
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/gatewayhealth"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/config"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
@@ -135,7 +136,7 @@ type vaultProbeResult struct {
 	err  error
 }
 
-func NewGatewayHealthReconciler(clientset *kubernetes.Clientset, dynamicClient dynamic.Interface, grpcConn *grpc.ClientConn, exposurePort exposure.Port, keycloakConfig *gateway.KeycloakConfig, clusterID, controlPlaneNamespace string) *GatewayHealthReconciler {
+func NewGatewayHealthReconciler(clientset *kubernetes.Clientset, dynamicClient dynamic.Interface, grpcConn *grpc.ClientConn, exposurePort exposure.Port, keycloakConfig *gateway.KeycloakConfig, clusterID, controlPlaneNamespace, clusterPlatform string) *GatewayHealthReconciler {
 	// Build one long-lived Keycloak client for residual-absence checks so its
 	// token cache survives across ticks (see consoleClientChecker). Keycloak is
 	// mandatory, so keycloakConfig is always set.
@@ -145,7 +146,10 @@ func NewGatewayHealthReconciler(clientset *kubernetes.Clientset, dynamicClient d
 		keycloakConfig.ClientID,
 		keycloakConfig.ClientSecret,
 	)
-	isOpenShift := gateway.DetectOpenShift(clientset)
+	// The host platform is explicit deployment configuration (CTRL-CORE-16), not
+	// inferred from API discovery, so health reporting is stable through discovery
+	// failures and never blocks on a stale or unavailable API (CTRL-CORE-17).
+	isOpenShift := clusterPlatform == config.ClusterPlatformOpenShift
 	return &GatewayHealthReconciler{
 		clientset:               clientset,
 		dynamicClient:           dynamicClient,

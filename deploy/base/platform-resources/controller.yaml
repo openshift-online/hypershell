@@ -47,6 +47,10 @@ spec:
           #   HYPERSHELL_MANAGED_CLUSTER_NAME  the name this control plane
           #     registers under (unique per control plane, e.g. local-kind,
           #     local-openshift, hub, hyp0-mc1);
+          #   HYPERSHELL_CLUSTER_PLATFORM  the host platform (openshift or
+          #     kubernetes); explicit deployment configuration, never inferred
+          #     from API discovery (CTRL-CORE-16). The controller exits non-zero
+          #     without it.
           #   OIDC_ISSUER, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET  its own OIDC
           #     client, holding the managed-cluster-registrar realm role.
           # Every control plane registers with the hub and scopes its watches to
