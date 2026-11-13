@@ -403,6 +403,7 @@ func main() {
 			clusterID,
 			cfg.GatewayResources,
 			cfg.SandboxRuntimeClass,
+			cfg.ClusterPlatform,
 			cfg.OperatorWorkspace,
 			cfg.OperatorNamespaceLabelKey,
 			cfg.OperatorSandboxRuntimeClass,
@@ -602,7 +603,7 @@ func main() {
 	// status synchronized with observed workload health (Running <-> Degraded).
 	// It requires an in-cluster Kubernetes client to observe Deployments.
 	if clientset != nil {
-		healthReconciler := reconciler.NewGatewayHealthReconciler(clientset, dynamicClient, conn, exposurePort, keycloakConfig, clusterID, cfg.Namespace)
+		healthReconciler := reconciler.NewGatewayHealthReconciler(clientset, dynamicClient, conn, exposurePort, keycloakConfig, clusterID, cfg.Namespace, cfg.ClusterPlatform)
 		supervise("gateway health reconciler", healthReconciler.Run)
 		slog.InfoContext(ctx, "Gateway health reconciler launched")
 	} else {

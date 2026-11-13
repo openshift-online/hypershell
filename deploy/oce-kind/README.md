@@ -5,10 +5,24 @@ HyperShell, OpenClaw Enterprise (OCE), and a HyperShell-managed OpenShell gatewa
 It also creates a working `codex-test` Agent in OCE, configured to use
 `gpt-6-luna` through EnMaaS, and checks it with a real model request.
 
-You supply two paths: an OCE source checkout and a file containing your EnMaaS
-API key. The command handles the cluster, builds, credentials, integration,
-and browser access. It manages its own state directory and leaves your default
+You supply a file containing your EnMaaS API key. The command pulls the latest
+OCE controller and runtime images from Quay and handles the cluster, credentials,
+integration, and browser access. It manages its own state directory and leaves your default
 kubeconfig and Kubernetes context unchanged.
+
+HyperShell uses registry images by default, just like `make kind-up`. Set
+`LOCAL_IMAGES=true` to build HyperShell images from your working tree:
+
+```shell
+make kind-up-with-oce LOCAL_IMAGES=true \
+  ENMAAS_API_KEY_FILE="$HOME/enmaas-key.txt"
+```
+
+With local images enabled, `BUILD_SOURCE=baseline` builds from `origin/main`, and
+`KIND_SKIP_BUILD=true` reuses existing local images. `KIND_COVERAGE=true` implies
+local builds. These settings apply to the initial HyperShell bring-up; reruns
+preserve an already initialized HyperShell installation. OCE images come from Quay
+in either mode.
 
 This is a disposable, single-node development environment. HyperShell uses its
 standard development credentials, and Docker publishes the kind load-balancer
@@ -21,16 +35,14 @@ From the HyperShell repository root, run:
 
 ```shell
 make kind-up-with-oce \
-  OCE_REPO=/absolute/path/to/openclaw-enterprise \
   ENMAAS_API_KEY_FILE="$HOME/enmaas-key.txt"
 ```
 
 | Input | What to provide |
 | --- | --- |
-| `OCE_REPO` | Path to the compatible OCE checkout described below. Local, uncommitted source changes are included in the initial build. |
 | `ENMAAS_API_KEY_FILE` | Path to a readable file containing one EnMaaS API key. A trailing newline is fine. Supply the path, not the key itself. |
 
-These are the only required configuration inputs. **You do not need to set
+This is the only required configuration input. **You do not need to set
 `OCE_KIND_STATE`**, choose image tags, install Helm on the host, or run the manual
 setup steps. The command uses Docker and does not prompt for sudo. Each
 successful run includes a small inference request charged to your EnMaaS key.
@@ -40,7 +52,7 @@ successful run includes a small inference request charged to your EnMaaS key.
 Use a Linux host with Docker running and the following tools on `PATH`:
 
 - kind 0.31.0, kubectl, and kustomize.
-- Go and Node.js for the OCE CLI and build helpers.
+- Git, Go, and Node.js for the OCE CLI and operator helpers.
 - jq, curl with HTTP/2 support, OpenSSL, and `flock` from util-linux.
 - Python 3.11 or newer with PyYAML, plus GNU Make.
 
@@ -49,15 +61,26 @@ space for image builds. Builds need access to GitHub, container registries, and
 package registries; the model check needs access to EnMaaS. The setup uses
 Kubernetes 1.35.0 and HyperShell's normal release defaults from
 [`OPENSHELL_VERSION`](../../OPENSHELL_VERSION) and the [Makefile](../../Makefile).
-Helm 3 is extracted from the HyperShell controller image automatically.
+Helm 3 is extracted automatically from the deployed HyperShell controller's image,
+which Docker pulls if it is not already available locally.
 
-The OCE checkout must include the namespace-aware OpenShell network helper from
-companion [OCE PR #4954](https://github.com/openclaw/openclaw-enterprise/pull/4954).
-The tested checkout is
-[`bsquizz/openclaw-enterprise:fix/hypershell-runtime-networking`](https://github.com/bsquizz/openclaw-enterprise/tree/fix/hypershell-runtime-networking)
-at commit [`080810ac2`](https://github.com/bsquizz/openclaw-enterprise/commit/080810ac2a05b98f065655a9b29cdc9ec28ab14e).
-Use that revision until the companion change is merged. An arbitrary OCE checkout
-or published `latest` image may use a different OpenShell integration.
+OCE images come from `quay.io/aipcc/base-images/agentic/oce-controller:latest`
+and `quay.io/aipcc/base-images/agentic/oce-runtime:latest`. A new installation
+resolves both tags to immutable digests. Reruns keep those digests rather than
+upgrading an existing installation.
+
+The command fetches the controller image's OCE source revision into
+`$OCE_KIND_STATE/oce-source` for the matching `occ` CLI, Helm chart, and operator
+helpers. No preexisting checkout is required. It applies the namespace helper
+fix from [OCE PR #4954](https://github.com/openclaw/openclaw-enterprise/pull/4954)
+using [`openshell-namespace.patch`](openshell-namespace.patch), pinned to the
+helper changes in commit `080810ac2a05b98f065655a9b29cdc9ec28ab14e`. The patch
+is skipped when the source already supports `--openshell-namespace`. Patch
+conflicts stop setup rather than continuing with incorrect network grants.
+An explicit `OCE_REPO` remains available for engineers supplying compatible
+local CLI, chart, and helpers; OCE images still come from Quay. The manual
+runbook retains the separate source-image build workflow. Setup warns if a
+custom checkout's HEAD differs from the controller image's source revision.
 
 ## What gets created
 
@@ -79,19 +102,22 @@ access is limited to the kind ingress proxy's current IP addresses.
 
 The Makefile invokes [`up.sh`](up.sh), which runs these stages in order:
 
-1. **Check inputs and select state.** Validate the tools, key file, and OCE
-   checkout. Take a setup lock and select the private directory belonging to the
+1. **Check inputs and select state.** Validate the tools and key file.
+   Take a setup lock and select the private directory belonging to the
    running cluster, or allocate a fresh directory for a new cluster.
 2. **Start HyperShell.** Create kind using [`kind.yaml`](kind.yaml), then run
-   the existing `make kind-up` workflow with local builds and seeding deferred.
+   the existing `make kind-up` workflow with seeding deferred. It uses registry
+   images by default and honors the same local-build settings as `make kind-up`.
    Prepare the operator RuntimeClass and controller trust settings, then create
    `dev-gateway` with `hsctl create gateway --operator-workspaces` through
    `make kind-seed SEED_OPERATOR_WORKSPACES=true SEED_STRICT=true`. Wait for the
    gateway to become ready. Reruns reuse an existing operator gateway and reject
    an existing gateway in another mode; the API default stays `managed`.
-3. **Build OCE.** [`build-oce.sh`](build-oce.sh) builds the `occ` CLI, controller
-   image, and Agent runtime image from your OCE checkout. It loads the images
-   into kind and records immutable image digests for the installation.
+3. **Prepare OCE.** [`pull-oce.sh`](pull-oce.sh) pulls the latest controller and
+   runtime images from Quay into Docker and kind, fetches the matching source,
+   applies the namespace helper fix, and builds the `occ` CLI. It saves immutable
+   image digests before importing into kind or preparing source, so retries use
+   the same images even if `latest` moves.
 4. **Install and connect OCE.** [`install-oce.sh`](install-oce.sh) prepares
    configuration, credentials, the
    database, and the Helm installation. [`activate-oce.sh`](activate-oce.sh)
@@ -107,7 +133,7 @@ The Makefile invokes [`up.sh`](up.sh), which runs these stages in order:
    external OpenShell gRPC health, then prints the final summary.
 
 A failed stage stops the command and identifies the state directory. Resolve
-the reported error, then rerun the same command with the same two inputs.
+the reported error, then rerun the same command with the same key file.
 
 ## Open the consoles and test the Agent
 
@@ -201,7 +227,7 @@ Stop any remaining forwards for this installation and remove the
 individual cleanup commands. Keep the state directory for diagnosis or remove
 it deliberately when its credentials and records are no longer needed.
 
-Run `make kind-up-with-oce` again with the same two inputs to create a fresh
+Run `make kind-up-with-oce` again with the same key file to create a fresh
 installation. There is no state directory to rename or reset first.
 
 ## Validation and current limits
@@ -210,6 +236,11 @@ On 2026-11-09, the automated command completed on a fresh cluster with the
 built-in kind networking and the default OCE Namespace. The `gpt-6-luna` Agent
 returned `OCE_READY`, and external OpenShell gRPC health passed. That run retained
 an old `OCE_KIND_STATE` argument and correctly selected fresh state.
+
+On 2026-11-12, the Quay image workflow passed the OCE shell tests, repository
+policy checks, and shell lint. The namespace patch applied to controller source
+`5f498c7ec416e3a1d3b012f8644204edb13b477e`, and its `occ` CLI built successfully.
+The Quay workflow has not yet been replayed on a fresh cluster with a live model request.
 
 This integration is experimental and provides no high availability. The copied
 OpenShell client certificate needs renewal synchronization before its 30-day

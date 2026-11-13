@@ -67,46 +67,52 @@ func TestReconcileGatewayFailsWithoutGatewayAPI(t *testing.T) {
 	}
 }
 
-func TestRequireGatewayAPI(t *testing.T) {
+// TestEvaluateGatewayAPIDependency drives evaluateDependency through a real
+// client-go discovery client so the three-state classification is verified
+// against actual API-server responses: a served GRPCRoute is present, a 404 or a
+// group without GRPCRoute is confirmed absent, and a 500 is unknown/unavailable
+// (retryable), not absent.
+// Verifies: CTRL-CORE-18.01, CTRL-CORE-18.02, OSG-ROUT-02.01, OSG-ROUT-02.03
+func TestEvaluateGatewayAPIDependency(t *testing.T) {
 	tests := []struct {
-		name        string
-		status      int
-		body        string
-		wantMissing bool
-		wantErr     bool
+		name   string
+		status int
+		body   string
+		want   DependencyState
 	}{
 		{
-			name:   "GRPCRoute served",
+			name:   "GRPCRoute served is present",
 			status: http.StatusOK,
 			body:   `{"kind":"APIResourceList","groupVersion":"gateway.networking.k8s.io/v1","resources":[{"name":"grpcroutes","namespaced":true,"kind":"GRPCRoute","verbs":["get"]}]}`,
+			want:   DependencyPresent,
 		},
 		{
-			name:        "group served without GRPCRoute",
-			status:      http.StatusOK,
-			body:        `{"kind":"APIResourceList","groupVersion":"gateway.networking.k8s.io/v1","resources":[{"name":"httproutes","namespaced":true,"kind":"HTTPRoute","verbs":["get"]}]}`,
-			wantMissing: true, wantErr: true,
+			name:   "group served without GRPCRoute is confirmed absent",
+			status: http.StatusOK,
+			body:   `{"kind":"APIResourceList","groupVersion":"gateway.networking.k8s.io/v1","resources":[{"name":"httproutes","namespaced":true,"kind":"HTTPRoute","verbs":["get"]}]}`,
+			want:   DependencyAbsent,
 		},
 		{
-			name:        "group not served",
-			status:      http.StatusNotFound,
-			body:        notFoundStatus,
-			wantMissing: true, wantErr: true,
+			name:   "group not served is confirmed absent",
+			status: http.StatusNotFound,
+			body:   notFoundStatus,
+			want:   DependencyAbsent,
 		},
 		{
-			name:    "API server error is not reported as missing",
-			status:  http.StatusInternalServerError,
-			body:    `{"kind":"Status","apiVersion":"v1","status":"Failure","reason":"InternalError","code":500}`,
-			wantErr: true,
+			name:   "API server error is unknown, not absent",
+			status: http.StatusInternalServerError,
+			body:   `{"kind":"Status","apiVersion":"v1","status":"Failure","reason":"InternalError","code":500}`,
+			want:   DependencyUnknown,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := requireGatewayAPI(gatewayAPIClientset(t, tt.status, tt.body).Discovery())
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
+			res := evaluateDependency(gatewayAPIClientset(t, tt.status, tt.body).Discovery(), DependencyGatewayAPI)
+			if res.State != tt.want {
+				t.Fatalf("state = %v, want %v (err %v)", res.State, tt.want, res.Err)
 			}
-			if errors.Is(err, errGatewayAPIMissing) != tt.wantMissing {
-				t.Fatalf("err = %v, wantMissing %v", err, tt.wantMissing)
+			if tt.want == DependencyUnknown && res.Err == nil {
+				t.Fatal("unknown result must carry the discovery error")
 			}
 		})
 	}

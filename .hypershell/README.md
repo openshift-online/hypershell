@@ -282,11 +282,16 @@ environment:
 |-------------|-------|------------|
 | `REPLACE_WITH_GITHUB_APP_ID` | github `ProviderBinding.refresh_strategy` | patch or pre-provision |
 
-Inference uses a URL + token provider: the `claude-inference` ProviderSpec points
-at `https://api.anthropic.com` and the token is supplied by each agent's
-`*-inference-key` SecretSource (`purpose: api-key`). The sandbox reaches
-`api.anthropic.com` directly; the supervisor egress proxy injects the token, so
-no credential enters the sandbox and there is no `inference.local` host.
+Inference uses Google Vertex AI: the `claude-inference` ProviderSpec declares the
+`google-service-account-jwt` refresh strategy with `config.projectId` /
+`config.region`, and each agent's `*-inference-key` SecretSource
+(`purpose: service-account-key`) supplies the durable Vertex service-account key.
+The control plane realizes it as an OpenShell `google-vertex-ai` provider and
+OpenShell mints/rotates the usable token. The sandbox calls the model through the
+workspace inference router at `https://inference.local`
+(openshell-inference-routing.spec.md, Path B): Claude Code uses a throwaway
+`ANTHROPIC_API_KEY`, the supervisor injects the real Vertex token server-side, so
+no credential enters the sandbox and `CLAUDE_CODE_USE_VERTEX` is not set.
 
 The GitHub App credential `SecretSource` named `github-app-credentials`
 (referenced by `base/platform/repository.yaml`) is a platform-provisioned secret
