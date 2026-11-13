@@ -22,11 +22,14 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-intl": "10.1.25",
+    "react-markdown": "10.1.0",
+    "remark-gfm": "4.0.1",
     "shiki": "4.4.1"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",
     "@tanstack/eslint-plugin-query": "5.101.4",
+    "@types/hast": "3.0.5",
     "@testing-library/react": "16.3.2",
     "@testing-library/user-event": "14.6.1",
     "@types/node": "24.13.3",

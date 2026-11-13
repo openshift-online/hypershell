@@ -402,6 +402,9 @@ In the open document:
    an ID SHALL stay plain text.
 3. The search terms SHALL be marked.
 4. Code SHALL have a light gray background, in both themes.
+5. Spec markdown SHALL be rendered through React elements, not by injecting
+   HTML into the document. Raw HTML in a spec SHALL remain inert text. Links
+   SHALL resolve only to viewer-managed spec links or safe external URLs.
 
 The document SHALL scroll on its own, with its own scrollbar.
 
@@ -417,6 +420,18 @@ The document SHALL scroll on its own, with its own scrollbar.
 - GIVEN the user has opened a scenario
 - WHEN they reload the page
 - THEN the same scenario SHALL be open and in view
+
+#### Scenario: DEV-SPV-14.03 -- Raw HTML stays inert
+
+- GIVEN a spec contains a `<script>` element
+- WHEN the user opens the document
+- THEN the HTML SHALL be shown as text and SHALL not execute
+
+#### Scenario: DEV-SPV-14.04 -- An unsafe link is disabled
+
+- GIVEN a spec links to `javascript:alert(1)`
+- WHEN the user opens the document
+- THEN the link SHALL not have an executable URL
 
 ### Requirement: DEV-SPV-15 -- Layout and Theme
 

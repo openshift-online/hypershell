@@ -1,5 +1,4 @@
 import {
-  Content,
   Flex,
   Title,
   ToggleGroup,
@@ -11,12 +10,14 @@ import { useIntl } from "react-intl";
 import {
   diffBlocks,
   diffLines,
+  diffWords,
   type BlockRow,
   type DiffLine,
   type DiffRow,
+  type DiffSegment,
 } from "../domain/text-diff";
 import { messages } from "../messages";
-import { markChangedWords } from "./diff-html";
+import { MarkdownDiffView } from "./MarkdownDiffView";
 import { usePorts } from "./ports-context";
 
 interface DiffViewProps {
@@ -100,25 +101,26 @@ function Row({ row }: { row: DiffRow }) {
  */
 type ViewMode = "raw" | "rendered";
 
+interface RenderedSegments {
+  before: DiffSegment[];
+  after: DiffSegment[];
+}
+
 /** One row of the rendered view: the markdown of a block on each side. */
-function RenderedRow({ row, index }: { row: BlockRow; index: number }) {
+function RenderedRow({ row }: { row: BlockRow }) {
   const { markdown } = usePorts();
-  // Both sides are rendered, then the words that differ are marked in the
-  // pair; a block that exists on one side only is marked as a whole.
-  const html = useMemo(() => {
-    const render = (source: string | null, side: string): string =>
-      source === null
-        ? ""
-        : markdown.render(
-            source,
-            (n) => `diff-${side}-${String(index)}-${String(n)}`,
-          );
-    const left = render(row.before, "before");
-    const right = render(row.after, "after");
-    const [before, after] =
-      row.kind === "changed" ? markChangedWords(left, right) : [left, right];
+  const segments = useMemo<RenderedSegments>(() => {
+    const beforeText = row.before === null ? "" : markdown.text(row.before);
+    const afterText = row.after === null ? "" : markdown.text(row.after);
+    if (row.kind !== "changed") {
+      return {
+        before: beforeText ? [{ text: beforeText, changed: false }] : [],
+        after: afterText ? [{ text: afterText, changed: false }] : [],
+      };
+    }
+    const [before, after] = diffWords(beforeText, afterText);
     return { before, after };
-  }, [markdown, row, index]);
+  }, [markdown, row]);
   const changed = row.kind !== "same";
   const side = (source: string | null, which: "before" | "after") => {
     const kind =
@@ -139,12 +141,7 @@ function RenderedRow({ row, index }: { row: BlockRow; index: number }) {
         </td>
         <td className={`sv-diff__rendered sv-diff__cell--${kind}`}>
           {source === null ? null : (
-            <Content
-              className="sv-markdown"
-              dangerouslySetInnerHTML={{
-                __html: html[which],
-              }}
-            />
+            <MarkdownDiffView segments={segments[which]} source={source} />
           )}
         </td>
       </>
@@ -239,7 +236,7 @@ export function DiffView({
             {mode === "raw"
               ? rows.map((row, index) => <Row key={index} row={row} />)
               : blocks.map((row, index) => (
-                  <RenderedRow index={index} key={index} row={row} />
+                  <RenderedRow key={index} row={row} />
                 ))}
           </tbody>
         </table>

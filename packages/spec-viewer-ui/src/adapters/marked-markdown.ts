@@ -1,10 +1,66 @@
-import { Lexer, Parser, type Token, type Tokens } from "marked";
+import { Lexer, type MarkedToken, type Token, type Tokens } from "marked";
 
 import type { MarkdownPort } from "../application/ports";
 import type { MarkdownBlock } from "../domain/spec-document";
 
-const escapeAttribute = (value: string): string =>
-  value.replace(/&/gu, "&amp;").replace(/"/gu, "&quot;");
+const MARKED_TOKEN_TYPES = new Set([
+  "blockquote",
+  "br",
+  "checkbox",
+  "code",
+  "codespan",
+  "def",
+  "del",
+  "em",
+  "escape",
+  "heading",
+  "hr",
+  "html",
+  "image",
+  "link",
+  "list",
+  "list_item",
+  "paragraph",
+  "space",
+  "strong",
+  "table",
+  "tag",
+  "text",
+]);
+
+function isMarkedToken(token: Token): token is MarkedToken {
+  return MARKED_TOKEN_TYPES.has(token.type);
+}
+
+function tokenText(token: MarkedToken): string {
+  if (token.type === "html") return "";
+  if (token.type === "code") return token.text;
+  if (token.type === "table") {
+    return [
+      ...token.header.map((cell: Tokens.TableCell) =>
+        cell.tokens
+          .map((nested) => (isMarkedToken(nested) ? tokenText(nested) : ""))
+          .join(""),
+      ),
+      ...token.rows.flatMap((row: Tokens.TableCell[]) =>
+        row.map((cell) =>
+          cell.tokens
+            .map((nested) => (isMarkedToken(nested) ? tokenText(nested) : ""))
+            .join(""),
+        ),
+      ),
+    ].join("");
+  }
+  if (token.type === "list") {
+    return token.items.map(tokenText).join("");
+  }
+  if ("tokens" in token && Array.isArray(token.tokens)) {
+    return token.tokens
+      .map((nested) => (isMarkedToken(nested) ? tokenText(nested) : ""))
+      .join("");
+  }
+  return "text" in token ? token.text : "";
+}
 
 export const markedMarkdown: MarkdownPort = {
   lex(source) {
@@ -19,22 +75,9 @@ export const markedMarkdown: MarkdownPort = {
         : { kind: "other", raw: token.raw },
     );
   },
-  render(source, headingId) {
-    let index = 0;
-    const tokens = Lexer.lex(source, { gfm: true }).map((token): Token => {
-      if (token.type !== "heading") return token;
-      const heading = token as Tokens.Heading;
-      const id = escapeAttribute(headingId(index));
-      index += 1;
-      const inner = Parser.parseInline(heading.tokens);
-      return {
-        type: "html",
-        raw: heading.raw,
-        pre: false,
-        block: true,
-        text: `<h${String(heading.depth)} id="${id}" tabindex="-1">${inner}</h${String(heading.depth)}>\n`,
-      };
-    });
-    return Parser.parse(tokens, { gfm: true });
+  text(source) {
+    return Lexer.lex(source, { gfm: true })
+      .map((token) => (isMarkedToken(token) ? tokenText(token) : ""))
+      .join("");
   },
 };

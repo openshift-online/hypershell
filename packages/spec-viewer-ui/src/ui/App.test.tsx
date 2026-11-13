@@ -13,7 +13,7 @@ import { markedMarkdown } from "../adapters/marked-markdown";
 import type { PinStorePort, SpecViewerPorts } from "../application/ports";
 import { App } from "./App";
 import { PortsProvider } from "./ports-context";
-import { MATCH_CLASS } from "./highlight-html";
+import { MATCH_CLASS } from "./highlight-hast";
 import { FLASH_CLASS, headingElementId } from "./SpecDocument";
 
 const TRACED_SPEC = `# Traced
@@ -153,12 +153,11 @@ function renderApp(saved: string[] = []) {
     },
     highlighter: {
       highlight: (code) =>
-        Promise.resolve(
-          `<pre class="shiki"><code>${code
-            .split("\n")
-            .map((line) => `<span class="line">${line}</span>`)
-            .join("\n")}</code></pre>`,
-        ),
+        Promise.resolve({
+          lines: code.split("\n").map((line) => ({
+            tokens: [{ text: line }],
+          })),
+        }),
     },
   };
   render(

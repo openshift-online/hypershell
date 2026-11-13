@@ -31,6 +31,12 @@ make hooks-install
 The pre-commit and pre-push hooks run the repository policy checks. Run the same
 checks manually with `make check`.
 
+## Browser Security Rule
+
+Never use React's raw-HTML prop, DOM HTML properties or methods, or equivalent
+HTML-injection helpers in browser source, Storybook stories, or mockups. Render
+React elements or use an approved parser that returns React elements.
+
 ## Structure
 
 - `components/api-server/` - Go REST + gRPC API microservice (rh-trex-ai framework), PostgreSQL-backed

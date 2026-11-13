@@ -2,6 +2,7 @@ import type { HighlighterCore } from "shiki/core";
 
 import type { SyntaxHighlighterPort } from "../application/ports";
 import type { SourceLanguage } from "../domain/references";
+import type { SourceHighlight, SourceToken } from "../domain/source-highlight";
 
 const LIGHT_THEME = "github-light-high-contrast";
 const DARK_THEME = "github-dark-high-contrast";
@@ -52,30 +53,63 @@ function getHighlighter(): Promise<HighlighterCore> {
   return highlighter;
 }
 
-const escapeHtml = (text: string): string =>
-  text.replace(/&/gu, "&amp;").replace(/</gu, "&lt;").replace(/>/gu, "&gt;");
+/** Uncolored tokens with the same line structure Shiki produces. */
+function plainHighlight(code: string): SourceHighlight {
+  return {
+    lines: code.split("\n").map((line) => ({ tokens: [{ text: line }] })),
+  };
+}
 
-/** Uncolored rendering with the same line structure Shiki produces. */
-function plainHtml(code: string): string {
-  const lines = code
-    .split("\n")
-    .map((line) => `<span class="line">${escapeHtml(line)}</span>`)
-    .join("\n");
-  return `<pre class="shiki"><code>${lines}</code></pre>`;
+function sourceToken(
+  content: string,
+  styles: Record<string, string> | undefined,
+): SourceToken {
+  const fontStyle = styles?.["font-style"];
+  const fontWeight = styles?.["font-weight"];
+  const textDecoration = styles?.["text-decoration"] ?? "";
+  return {
+    text: content,
+    lightColor: styles?.color,
+    italic: fontStyle === "italic",
+    bold: fontWeight === "bold",
+    underline: textDecoration.includes("underline"),
+    strikethrough: textDecoration.includes("line-through"),
+  };
+}
+
+function cssValue(
+  value: string | undefined,
+  property: string,
+): string | undefined {
+  if (!value) return undefined;
+  return new RegExp(`${property}:([^;]+)`, "u").exec(value)?.[1];
 }
 
 export const shikiHighlighter: SyntaxHighlighterPort = {
   async highlight(code, language) {
     if (language === "text" || code.length > MAX_HIGHLIGHT_BYTES) {
-      return plainHtml(code);
+      return plainHighlight(code);
     }
     const instance = await getHighlighter();
     if (!instance.getLoadedLanguages().includes(language)) {
       await instance.loadLanguage(await LANGUAGES[language]());
     }
-    return instance.codeToHtml(code, {
+    const result = instance.codeToTokens(code, {
       lang: language,
       themes: { light: LIGHT_THEME, dark: DARK_THEME },
     });
+    const tokens = result.tokens;
+    return {
+      foreground: /^([^;]+)/u.exec(result.fg ?? "")?.[1],
+      darkForeground: cssValue(result.fg, "--shiki-dark"),
+      background: /^([^;]+)/u.exec(result.bg ?? "")?.[1],
+      darkBackground: cssValue(result.bg, "--shiki-dark-bg"),
+      lines: tokens.map((line) => ({
+        tokens: line.map((item) => ({
+          ...sourceToken(item.content, item.htmlStyle),
+          darkColor: item.htmlStyle?.["--shiki-dark"],
+        })),
+      })),
+    };
   },
 };

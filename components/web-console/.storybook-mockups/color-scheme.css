@@ -1,0 +1,11 @@
+.aws-logo-dark {
+  display: none !important;
+}
+
+html.pf-v6-theme-dark .aws-logo-light {
+  display: none !important;
+}
+
+html.pf-v6-theme-dark .aws-logo-dark {
+  display: block !important;
+}

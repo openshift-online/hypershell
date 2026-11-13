@@ -207,8 +207,8 @@ The code follows the web console's hexagonal layout:
 
 - `src/domain/` - pure parsing, search, and tree building. No React, no I/O.
 - `src/application/` - ports the UI depends on, and the catalog use case.
-- `src/adapters/` - port implementations: HTTP spec source, `marked`
-  markdown lexer and renderer, `localStorage` store for stars.
+- `src/adapters/` - port implementations: HTTP spec source, `marked` markdown
+  lexer, Shiki syntax tokenizer, `localStorage` store for stars.
 - `src/ui/` - React and PatternFly 6 components.
 - `src/main.tsx` - composition root that binds ports to adapters.
 - `server/` - Vite plugin for the dev server. It serves the data API below

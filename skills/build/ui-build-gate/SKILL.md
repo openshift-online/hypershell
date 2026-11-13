@@ -96,6 +96,10 @@ route, production view, and production story. Pass every real hook/adapter from
 the visible-data source table as `--required-source`. Do not capture until it
 passes.
 
+Also run `make check-forbidden-dom-injection` before capture and before using
+the complete-without-visual-review path. Any raw HTML injection finding is
+implementation work and must be fixed before the gate can continue.
+
 ### 2. Build and capture
 
 Run from the repository root:
