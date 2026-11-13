@@ -168,6 +168,7 @@ grep -rn  "<OLD_VERSION>" . | grep -v '\.git/'      # must return only intention
 | `tests/e2e/cli_test.go` | `odh-openshell-cli:<TAG>` image pin used by the CLI e2e | Pin, not a fixture |
 | `DEVELOPMENT.md` | the `for example` tag in the "Controller image OpenShell release label" section | Prose doc example that is kept in sync with the real pin (it matched the current pin exactly before every prior bump); treat as a pin. Added on the v0.1.8-rhaiv.0 bump after the full-image grep missed it and the bare-digits grep caught it |
 | `components/control-plane/internal/helm/values_test.go` | none | Assertions copy the chart's rendered TOML text; update them when a chart upgrade changes spacing (see Learnings log) |
+| `.github/workflows/fullsend-dispatch.yml`, `.github/workflows/fullsend-agent-run.yml` | `OPENSHELL_VERSION` fallback (`vars.FULLSEND_OPENSHELL_VERSION \|\| '<tag>'`) | Installs the CLI used to drive the live disposable gateway via `scripts/install-openshell.sh`; a stale pin here installs a CLI that does not match the deployed gateway. Missed by the image-reference grep (no `odh-openshell-...:` prefix) but caught by the full-tag grep. Added on the v0.1.8-rhaiv.2 bump |
 
 **Do NOT change** version strings that are illustrative fixtures or historical
 facts rather than the active pin:
@@ -638,6 +639,71 @@ If a run produced no new lessons, that is itself worth a one-line log entry
 ## Learnings log
 
 Newest first. Each entry: version, date, what happened, what changed in the repo.
+
+- **v0.1.8-rhaiv.2 (2026-11-13, v0.1.8-rhaiv.0 -> v0.1.8-rhaiv.2, no-arg scheduled
+  run = latest stable midstream):** Clean mechanical bump, same NVIDIA base
+  (v0.1.8) across two Red Hat patch revisions. `go build/vet/test` for both
+  `components/control-plane` (all packages, including `internal/helm`'s
+  rendered-TOML assertions) and `tests/e2e`, plus every `make check` sub-check
+  run directly as its underlying `python3` command (`make` itself could not
+  spawn a shell in this runtime - see the 2026-10-23 sandbox-limits entry,
+  still applicable here), passed with no code changes.
+  - **Triage.** `gh api .../compare/v0.1.8-rhaiv.0...v0.1.8-rhaiv.2` shows only
+    CI/review-tooling, docs, dependency-advisory, and Rust-SDK-removal commits
+    upstream (`opendatahub-io/openshell`); none touch the gateway TOML schema,
+    `agents.x-k8s.io` API version, credential drivers, the sandbox/workspace
+    gRPC proto, CLI flags, PKI/TLS/ingress, or OIDC. The vendored chart content
+    is byte-identical to rhaiv.0 except for the `httpPort` patch below -
+    confirmed no RBAC template diff and no `values.yaml` schema change.
+  - **httpPort local patch erased and re-applied (exactly as the dedicated
+    section predicts, no new wrinkle this time).** `rm -rf charts/openshell &&
+    cp -r ... charts/openshell` from the fresh clone dropped `service.httpPort`
+    from `service.yaml`/`values.yaml`/`README.md` and deleted
+    `tests/service_test.yaml`. Unlike the rhaiv.0 bump, upstream made **no**
+    other change to `service.yaml` in this delta, so all four files were
+    restored with a plain `git checkout HEAD -- <files>` rather than a manual
+    re-merge; `git diff HEAD` on those four files came back empty, confirming a
+    byte-identical restore.
+  - **Console unchanged.** No proto file changed upstream in this delta, so
+    `OPENSHELL_CONSOLE_DIGEST` stays at the v0.1.3 pin set by the rhaiv.0 bump.
+  - **Quay unreachable this run** (same sandbox-limits gap as 2026-10-23: no
+    outbound route to `quay.io`, only `github.com` via `gh`/`git`). The
+    gateway/supervisor/sandbox pins in `deploy/base/platform-resources/controller.yaml`
+    and everywhere else in the footprint are tag-only (no digest), so this did
+    not block the bump. The one place that *did* carry real digests,
+    `skills/deploy/ibm-cluster/SKILL.md`'s ROKS mirror `skopeo copy` commands,
+    was changed to a tag-only reference with an inline comment recording the
+    gap, per the documented fallback - do not pair the new tag with the old
+    (rhaiv.0) digest there. Re-resolve those three digests with `skopeo
+    inspect` or the Quay tag API on a host that can reach `quay.io` before the
+    next ROKS mirror.
+  - **Footprint gap found, documented, but NOT bumped (GitHub App permission
+    wall):** `.github/workflows/fullsend-dispatch.yml`,
+    `.github/workflows/fullsend-agent-run.yml`, and
+    `.github/workflows/ci-federation-e2e-sandbox.yml` all pin `OPENSHELL_VERSION`
+    / `odh-openshell-cli:<TAG>` as fallback defaults (the first two feed
+    `scripts/install-openshell.sh` to install the CLI that drives fullsend's live
+    disposable gateway; the third is a workflow_dispatch default). None was in
+    the footprint table and all three still named `v0.1.8-rhaiv.0`; the full-tag
+    grep caught them (the image-reference grep does not, since none has an
+    `odh-openshell-...:` prefix). Added the table row above, edited all three
+    locally, built and ran `make check` with the edits in place - then the push
+    was **rejected**: `refusing to allow a GitHub App to create or update
+    workflow ".github/workflows/<name>" without 'workflows' permission`. This
+    bot's installation token can read and open PRs/issues but cannot write
+    `.github/workflows/*` content at all, in this or (per the error) any prior
+    run that changed a workflow file under this identity. Reverted all three
+    files before committing; they still read `v0.1.8-rhaiv.0`. A human (or an
+    agent with `workflows` write permission) must bump them by hand following
+    the table row added above. Filed as a tracked gap rather than silently
+    dropped: opened a `needs-decision` follow-up issue naming the three files,
+    the exact `v0.1.8-rhaiv.0` -> `v0.1.8-rhaiv.2` edits needed, and the
+    permission error, since opening issues is allowed even though writing
+    workflow files is not.
+  - **No action needed:** issue #809 (gateway refuses to start without an auth
+    mechanism) is already closed. Issues #760/#752 (console digest) are already
+    marked resolved by a human comment referencing the rhaiv.0 bump's PR #1031;
+    out of scope for this run (no console change here) and not touched.
 
 - **v0.1.8-rhaiv.0 (2026-11-11, v0.1.6-rhaiv.4 -> v0.1.8-rhaiv.0, no-arg scheduled
   run = latest stable midstream):** Clean mechanical bump across two NVIDIA base

@@ -356,7 +356,7 @@ build time, so no external dependency checkout is needed.
 
 Every built controller (control-plane) image carries one label,
 `app.hypershell.openshell.version`, naming the single OpenShell gateway and
-supervisor release that build supports (for example `v0.1.8-rhaiv.0`). The value
+supervisor release that build supports (for example `v0.1.8-rhaiv.2`). The value
 always holds exactly one release identifier - never a list, range, or wildcard.
 It is distinct from `org.opencontainers.image.version`, which is the controller's
 own version.
