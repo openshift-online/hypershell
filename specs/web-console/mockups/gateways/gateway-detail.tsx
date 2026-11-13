@@ -705,15 +705,28 @@ function AccessTab({
   isProvisioning = false,
   onOpenServiceAccounts,
   onOpenWorkspaceAccess,
+  workspaceFilter: initialWorkspaceFilter = "all",
 }: {
   isProvisioning?: boolean;
   onOpenServiceAccounts: () => void;
   onOpenWorkspaceAccess: (username: string) => void;
+  workspaceFilter?: string;
 }) {
   const [sortColumn, setSortColumn] = useState("grantedAt");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
+  const [workspaceFilter, setWorkspaceFilter] = useState(
+    initialWorkspaceFilter,
+  );
+  const [isWorkspaceFilterOpen, setIsWorkspaceFilterOpen] = useState(false);
   const columns = ["name", "username", "role", "grantedAt"];
   const activeSortIndex = Math.max(0, columns.indexOf(sortColumn));
+  const visibleAccessGrants =
+    workspaceFilter === "all"
+      ? accessGrants
+      : accessGrants.filter(
+          (grant) =>
+            grant.role !== "User" || grant.workspaces.includes(workspaceFilter),
+        );
   const getSortParams = (columnIndex: number) => ({
     columnIndex,
     onSort: (_event: unknown, _index: number, direction: "asc" | "desc") => {
@@ -783,11 +796,25 @@ function AccessTab({
               </ToolbarItem>
               <ToolbarItem>
                 <Select
-                  isOpen={false}
-                  onOpenChange={() => undefined}
-                  selected="All workspaces"
+                  isOpen={isWorkspaceFilterOpen}
+                  onOpenChange={setIsWorkspaceFilterOpen}
+                  onSelect={(_event, selected) => {
+                    setWorkspaceFilter(selected as string);
+                    setIsWorkspaceFilterOpen(false);
+                  }}
+                  selected={workspaceFilter}
                   toggle={(toggleRef) => (
-                    <MenuToggle ref={toggleRef}>All workspaces</MenuToggle>
+                    <MenuToggle
+                      isExpanded={isWorkspaceFilterOpen}
+                      onClick={() => {
+                        setIsWorkspaceFilterOpen((isOpen) => !isOpen);
+                      }}
+                      ref={toggleRef}
+                    >
+                      {workspaceFilter === "all"
+                        ? "All workspaces"
+                        : workspaceFilter}
+                    </MenuToggle>
                   )}
                 >
                   <SelectList>
@@ -810,7 +837,10 @@ function AccessTab({
               </ToolbarItem>
             </ToolbarGroup>
             <ToolbarItem variant="pagination">
-              <MockPagination itemCount={accessGrants.length} variant="top" />
+              <MockPagination
+                itemCount={visibleAccessGrants.length}
+                variant="top"
+              />
             </ToolbarItem>
           </ToolbarContent>
         </Toolbar>
@@ -833,7 +863,7 @@ function AccessTab({
             </Tr>
           </Thead>
           <Tbody>
-            {accessGrants.map((grant) => (
+            {visibleAccessGrants.map((grant) => (
               <Tr key={grant.username}>
                 <Td dataLabel="Name">{grant.name}</Td>
                 <Td dataLabel="User ID">{grant.username}</Td>
@@ -2156,11 +2186,13 @@ export function GatewayDetailContent({
   attention,
   isProvisioning = false,
   modal: initialModal,
+  workspaceFilter,
 }: {
   activeTab?: GatewayDetailTab;
   attention?: GatewayDetailAttention;
   isProvisioning?: boolean;
   modal?: GatewayDetailModal;
+  workspaceFilter?: string;
 }) {
   const [activeTab, setActiveTab] = useState(initialTab);
   const [modal, setModal] = useState(initialModal);
@@ -2300,6 +2332,7 @@ export function GatewayDetailContent({
                 setWorkspaceUsername(username);
                 setModal("workspace-access");
               }}
+              workspaceFilter={workspaceFilter}
             />
           </Tab>
           <Tab
@@ -2336,11 +2369,13 @@ export function GatewayDetailMockup({
   attention,
   isProvisioning,
   modal,
+  workspaceFilter,
 }: {
   activeTab?: GatewayDetailTab;
   attention?: GatewayDetailAttention;
   isProvisioning?: boolean;
   modal?: GatewayDetailModal;
+  workspaceFilter?: string;
 }) {
   return (
     <MockupShell activeSection="gateways">
@@ -2349,6 +2384,7 @@ export function GatewayDetailMockup({
         attention={attention}
         isProvisioning={isProvisioning}
         modal={modal}
+        workspaceFilter={workspaceFilter}
       />
     </MockupShell>
   );

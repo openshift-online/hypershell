@@ -29,6 +29,10 @@ export const ManageAccess: Story = {
   args: { activeTab: "manage-access" },
 };
 
+export const ManageAccessWorkspaceFilter: Story = {
+  args: { activeTab: "manage-access", workspaceFilter: "billing" },
+};
+
 export const ManageAccessAddUser: Story = {
   args: { activeTab: "manage-access", modal: "add-users" },
 };
