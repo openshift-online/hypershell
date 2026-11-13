@@ -83,8 +83,7 @@ def installation_token():
             "User-Agent": "hypershell-release-bundle",
             "X-GitHub-Api-Version": "2022-11-28",
         })
-    with urllib.request.urlopen(request, timeout=30) as response:
-        result = json.load(response)
+    result = json.loads(fetch(request, 30))
     require(isinstance(result.get("token"), str) and result["token"],
             "GitHub did not return an installation token")
     return result["token"]
@@ -140,8 +139,7 @@ def github(method, path, data=None, *, binary=False):
             "Content-Type": "application/octet-stream" if binary else "application/json",
             "X-GitHub-Api-Version": "2022-11-28",
         })
-    with urllib.request.urlopen(request, timeout=120) as response:
-        content = response.read()
+    content = fetch(request, 120)
     return json.loads(content) if content else None
 
 
@@ -223,6 +221,17 @@ def publish_github(tag, bundle, reference, assets):
                 "GitHub upload digest mismatch: " + path.name)
     if release["draft"]:
         github("PATCH", release_path, {"draft": False, "make_latest": "false"})
+
+
+def fetch(request, timeout):
+    """Name the failing call and keep GitHub's reason (permission, suspension, rate limit)."""
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.read()
+    except urllib.error.HTTPError as error:
+        reason = error.read(1000).decode(errors="replace")
+        error.msg = f"{request.get_method()} {request.full_url}: {error.msg}: {reason}"
+        raise
 
 
 def require(value, message):
