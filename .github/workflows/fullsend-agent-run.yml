@@ -215,9 +215,11 @@ jobs:
       - name: Tear down the disposable gateway (always)
         if: always() && steps.gw.outputs.id != ''
         run: |
-          set +e
-          hsctl delete gateway "${{ steps.gw.outputs.id }}"
-          echo "Teardown requested for gateway ${{ steps.gw.outputs.id }} (exit $?)."
+          set -euo pipefail
+          # --yes: hsctl asks for confirmation and there is no terminal in CI.
+          # Fail the step on error so a leaked gateway is visible in the run.
+          hsctl delete gateway "${{ steps.gw.outputs.id }}" --yes
+          echo "Teardown requested for gateway ${{ steps.gw.outputs.id }}."
 
       - name: Summary
         if: always()
