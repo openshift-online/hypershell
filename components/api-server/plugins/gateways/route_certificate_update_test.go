@@ -54,7 +54,7 @@ func TestGatewayRouteCertificateIsProvisionTimeOnly(t *testing.T) {
 
 	// Update re-sending the certificate unchanged (only unrelated keys differ)
 	// must succeed: the opt-in itself did not change.
-	keptRoute := `{"certificate":{},"enabled":true}`
+	keptRoute := `{"certificate":{}}`
 	_, err = cp.UpdateGateway(ctx, &pb.UpdateGatewayRequest{
 		Id:    gatewayID,
 		Route: routePtr(keptRoute),
@@ -65,7 +65,7 @@ func TestGatewayRouteCertificateIsProvisionTimeOnly(t *testing.T) {
 	// that explains the provision-time-only contract and the PATCH round-trip.
 	_, err = cp.UpdateGateway(ctx, &pb.UpdateGatewayRequest{
 		Id:    gatewayID,
-		Route: routePtr(`{"enabled":true}`),
+		Route: routePtr(`{"host":"a.example.com"}`),
 	})
 	Expect(err).To(HaveOccurred(), "removing route.certificate must be rejected")
 	Expect(status.Convert(err).Code()).To(Equal(codes.FailedPrecondition))
@@ -77,7 +77,7 @@ func TestGatewayRouteCertificateIsProvisionTimeOnly(t *testing.T) {
 	// check reports before the shape validation).
 	_, err = cp.UpdateGateway(ctx, &pb.UpdateGatewayRequest{
 		Id:    gatewayID,
-		Route: routePtr(`{"enabled":true,"certificate":{"issuer":"custom"}}`),
+		Route: routePtr(`{"certificate":{"issuer":"custom"}}`),
 	})
 	Expect(err).To(HaveOccurred(), "altering route.certificate must be rejected")
 	Expect(status.Convert(err).Code()).To(Equal(codes.FailedPrecondition))

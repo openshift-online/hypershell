@@ -729,7 +729,6 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		ControlPlaneNamespace:       r.controlPlaneNamespace,
 		GatewayID:                   event.ResourceID,
 		UpdateRouteAddress:          r.makeRouteAddressUpdater(event.ResourceID),
-		UpdateConsoleAddress:        r.makeConsoleAddressUpdater(event.ResourceID),
 		Keycloak:                    r.keycloakConfig,
 		KeycloakClient:              r.keycloakClient,
 		GatewayName:                 gw.Name,
@@ -781,41 +780,38 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	// routeAddressForPoll for how a resolve/save failure this pass falls back
 	// to the Gateway's currently-persisted routeAddress (OSG-ROUT-07.01).
 	var routeAddress string
-	if isRoutedGateway(gw) {
-		routeHost := ""
-		if gw.Route != nil {
-			var rc struct{ Host string }
-			_ = json.Unmarshal([]byte(*gw.Route), &rc)
-			routeHost = rc.Host
-		}
-		var resolvedAndSaved string
-		addr, err := r.exposure.ResolveAddress(ctx, exposure.Request{
-			Namespace: namespace,
-			Host:      routeHost,
-		})
-		if err != nil {
-			slog.WarnContext(ctx, "Gateway failed to resolve route address", "gateway_name", gw.Name, "error", err)
-		} else if addr != "" {
-			if err := r.updateRouteAddress(ctx, event.ResourceID, addr); err != nil {
-				slog.WarnContext(ctx, "Gateway failed to publish route address", "gateway_name", gw.Name, "error", err)
-			} else {
-				resolvedAndSaved = addr
-				slog.InfoContext(ctx, "Gateway published route address", "gateway_name", gw.Name, "addr", addr)
-			}
-		}
-		// Fall back to a fresh read of the persisted routeAddress, not gw's own
-		// field: gw is the watch-event snapshot captured when this pass started,
-		// and the Helm apply above (gateway.ReconcileGateway) can itself run long
-		// enough for the continuous health reconciler to concurrently clear or
-		// republish the persisted address (for example, tearing down the route if
-		// it was disabled mid-pass). Using the stale snapshot here could resurrect
-		// an address the health reconciler already retracted. This re-read is
-		// taken once, before the Deployment-readiness wait and route-readiness
-		// poll below, which can together add minutes more; it narrows the
-		// staleness window around the Helm apply but does not eliminate
-		// staleness introduced during those later waits.
-		routeAddress = routeAddressForPoll(r.currentRouteAddress(ctx, event.ResourceID, gw), resolvedAndSaved)
+	routeHost := ""
+	if gw.Route != nil {
+		var rc struct{ Host string }
+		_ = json.Unmarshal([]byte(*gw.Route), &rc)
+		routeHost = rc.Host
 	}
+	var resolvedAndSaved string
+	addr, err := r.exposure.ResolveAddress(ctx, exposure.Request{
+		Namespace: namespace,
+		Host:      routeHost,
+	})
+	if err != nil {
+		slog.WarnContext(ctx, "Gateway failed to resolve route address", "gateway_name", gw.Name, "error", err)
+	} else if addr != "" {
+		if err := r.updateRouteAddress(ctx, event.ResourceID, addr); err != nil {
+			slog.WarnContext(ctx, "Gateway failed to publish route address", "gateway_name", gw.Name, "error", err)
+		} else {
+			resolvedAndSaved = addr
+			slog.InfoContext(ctx, "Gateway published route address", "gateway_name", gw.Name, "addr", addr)
+		}
+	}
+	// Fall back to a fresh read of the persisted routeAddress, not gw's own
+	// field: gw is the watch-event snapshot captured when this pass started,
+	// and the Helm apply above (gateway.ReconcileGateway) can itself run long
+	// enough for the continuous health reconciler to concurrently republish the
+	// persisted address. Using the stale snapshot here could overwrite a newer
+	// address. This re-read is
+	// taken once, before the Deployment-readiness wait and route-readiness
+	// poll below, which can together add minutes more; it narrows the
+	// staleness window around the Helm apply but does not eliminate
+	// staleness introduced during those later waits.
+	routeAddress = routeAddressForPoll(r.currentRouteAddress(ctx, event.ResourceID, gw), resolvedAndSaved)
 
 	// Manifests applied successfully: acknowledge the generation we converged on.
 	// gw is the snapshot the manifests were built from (persistGeneratedOIDC), so
@@ -841,48 +837,34 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		return nil
 	}
 
-	// The Deployment is Ready. A routed gateway is not Running until its external
+	// The Deployment is Ready. The gateway is not Running until its external
 	// exposure is also observed Ready. Poll the exposure here within a bounded
 	// window so the gateway is promoted to Running promptly once its route is
 	// programmed - rather than waiting up to a full health-reconciler tick, which
 	// would leave the connection command and console button hidden for seconds
 	// after the pods are ready. If the window elapses, park at Provisioning and
 	// let the continuous health reconciler keep enforcing the full route-readiness
-	// grace window (promoting to Running, or Degraded once it expires). A
-	// non-routed gateway is Running on Deployment readiness alone. See
+	// grace window (promoting to Running, or Degraded once it expires). See
 	// openshell-gateway-health.spec.md § Phase Reflects Workload and Route Readiness.
-	routed := isRoutedGateway(gw)
-	if routed {
-		if r.waitForRouteReady(ctx, namespace, routeAddress) {
-			gateway.SetCondition(conditions, gateway.ConditionGatewayHealthy, gateway.StatusComplete, "")
-			r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
-			// The observation guard rejects work that started in Running or Degraded.
-			if runningGateway := r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseRunning), gatewayhealth.StatusHealthy); runningGateway != nil {
-				observeGatewayProvisionSuccess(ctx, runningGateway)
-			}
-			slog.InfoContext(ctx, "Gateway provisioned and route ready", "gateway_name", gw.Name, "namespace", namespace)
-		} else {
-			// Route gate not yet passed: hold at Provisioning. The continuous health
-			// reconciler promotes to Running once the route is ready.
-			r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseProvisioning), "Deployment ready; awaiting route readiness")
-			slog.InfoContext(ctx, "Gateway deployment ready; awaiting route readiness", "gateway_name", gw.Name, "namespace", namespace)
-		}
-	} else {
+	if r.waitForRouteReady(ctx, namespace, routeAddress) {
 		gateway.SetCondition(conditions, gateway.ConditionGatewayHealthy, gateway.StatusComplete, "")
 		r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
 		// The observation guard rejects work that started in Running or Degraded.
 		if runningGateway := r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseRunning), gatewayhealth.StatusHealthy); runningGateway != nil {
 			observeGatewayProvisionSuccess(ctx, runningGateway)
 		}
-		slog.InfoContext(ctx, "Gateway provisioned and ready", "gateway_name", gw.Name, "namespace", namespace)
+		slog.InfoContext(ctx, "Gateway provisioned and route ready", "gateway_name", gw.Name, "namespace", namespace)
+	} else {
+		// Route gate not yet passed: hold at Provisioning. The continuous health
+		// reconciler promotes to Running once the route is ready.
+		r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseProvisioning), "Deployment ready; awaiting route readiness")
+		slog.InfoContext(ctx, "Gateway deployment ready; awaiting route readiness", "gateway_name", gw.Name, "namespace", namespace)
 	}
 
 	// The console can start after the gateway is ready. Poll the console in the
 	// background so the address appears without waiting for the next health tick.
 	// The health reconciler continues to publish and retract the address.
-	if routed {
-		go r.publishConsoleAddressWhenReady(ctx, event.ResourceID, gw)
-	}
+	go r.publishConsoleAddressWhenReady(ctx, event.ResourceID, gw)
 	return nil
 }
 
@@ -1088,14 +1070,10 @@ func (r *GatewayReconciler) pollRouteReady(ctx context.Context, namespace, route
 // the next health-reconciler tick. It is meant to run in the background and
 // stops once the address is published or the bounded window elapses.
 //
-// It runs on the long-lived watch context, which route removal does not cancel,
-// so it must not trust the routed Gateway snapshot captured when provisioning
-// started. If the route is removed while the console image is still pulling, the
-// health reconciler's teardown owns clearing console_address; a publisher acting
-// on the stale snapshot would otherwise re-publish the console link after
-// teardown, stranding a trusted address for a gateway that is no longer routed.
-// Re-read the current Gateway each poll and stop the moment it is no longer
-// routed (or has been deleted), leaving the address to teardown.
+// It runs on the long-lived watch context, which a gateway deletion does not
+// cancel, so it must not trust the Gateway snapshot captured when provisioning
+// started. Re-read the current Gateway each poll and stop the moment it has been
+// deleted, so a deleted gateway never gets its console link re-published.
 func (r *GatewayReconciler) publishConsoleAddressWhenReady(ctx context.Context, gatewayID string, gw *pb.Gateway) {
 	client := pb.NewGatewayServiceClient(r.grpcConn)
 	poll(ctx, provisioningConsoleReadyInterval, provisioningConsoleReadyWait, func() bool {
@@ -1111,9 +1089,7 @@ func (r *GatewayReconciler) publishConsoleAddressWhenReady(ctx context.Context, 
 			return false
 		}
 		current := resp.GetGateway()
-		if current == nil || !isRoutedGateway(current) {
-			// No longer routed (or gone): teardown owns the console_address now.
-			// End the poll rather than publishing against the stale snapshot.
+		if current == nil {
 			return true
 		}
 		return syncConsoleAddress(ctx, r.clientset, r.dynamicClient, client, gatewayID, current)
@@ -1122,16 +1098,11 @@ func (r *GatewayReconciler) publishConsoleAddressWhenReady(ctx context.Context, 
 
 // makeRouteStillDesired returns a callback the provisioning path invokes after
 // the (up-to-60s) server-TLS wait, before it creates the remaining route- and
-// console-owned resources, to confirm the gateway is still routed according to
-// its live API-server record. A route removal (or gateway deletion) during that
-// wait is observed only by the independent health loop -- the watcher phase gate
-// blocks a re-provision -- which tears the gateway down and clears its stored
-// addresses; without this re-check the in-flight pass would recreate the
-// BackendTLSPolicy, backend-CA ConfigMap, console, and
-// Keycloak client behind that teardown, and the health loop's torn-down cache
-// (keyed on empty addresses) would then hide the orphans indefinitely. Returns
-// false on NotFound (the gateway is gone, so nothing is desired) and propagates
-// transient errors so the caller can decide (it proceeds conservatively).
+// console-owned resources, to confirm the gateway still exists in its live
+// API-server record. Without this re-check an in-flight pass could recreate
+// resources behind a concurrent deletion. Returns false on NotFound (the
+// gateway is gone, so nothing is desired) and propagates transient errors so
+// the caller can decide (it proceeds conservatively).
 func (r *GatewayReconciler) makeRouteStillDesired(gatewayID string) func(context.Context) (bool, error) {
 	return func(ctx context.Context) (bool, error) {
 		client := pb.NewGatewayServiceClient(r.grpcConn)
@@ -1142,7 +1113,7 @@ func (r *GatewayReconciler) makeRouteStillDesired(gatewayID string) func(context
 			}
 			return false, err
 		}
-		return isRoutedGateway(resp.GetGateway()), nil
+		return resp.GetGateway() != nil, nil
 	}
 }
 
@@ -1169,48 +1140,25 @@ func poll(ctx context.Context, interval, window time.Duration, attempt func() bo
 	}
 }
 
-// parseGatewayRouteConfig parses the route field. A route object is enabled by
-// default for compatibility with existing empty and host-only route objects.
-// An explicit enabled=false value disables it. An empty or null value has no
-// route.
-func parseGatewayRouteConfig(raw string) (gateway.RouteConfig, error) {
-	trimmed := strings.TrimSpace(raw)
+// effectiveRouteConfig resolves the route config the control plane provisions
+// for a gateway. Routing is platform-managed (PLAT-DATA-23) and every gateway is
+// routed: a user or GitOps import never sets route, so an absent, empty or null
+// route resolves to the zero config and the control plane derives the ingress
+// hostname. An explicit route the control plane authored (host, dedicated
+// certificate) still wins.
+func effectiveRouteConfig(gw *pb.Gateway) (gateway.RouteConfig, error) {
+	if gw.Route == nil {
+		return gateway.RouteConfig{}, nil
+	}
+	trimmed := strings.TrimSpace(*gw.Route)
 	if trimmed == "" || trimmed == "null" {
 		return gateway.RouteConfig{}, nil
 	}
-
-	config := gateway.RouteConfig{Enabled: true}
+	var config gateway.RouteConfig
 	if err := json.Unmarshal([]byte(trimmed), &config); err != nil {
 		return gateway.RouteConfig{}, err
 	}
 	return config, nil
-}
-
-// effectiveRouteConfig resolves the route config the control plane provisions
-// for a gateway. Routing is platform-managed (PLAT-DATA-23) and enabled by
-// default: a user or GitOps import never sets route, so an absent or empty
-// route resolves to enabled and the control plane derives the
-// ingress hostname. An explicit route the control plane authored still wins.
-func effectiveRouteConfig(gw *pb.Gateway) (gateway.RouteConfig, error) {
-	if gw.Route == nil {
-		return gateway.RouteConfig{Enabled: true}, nil
-	}
-	trimmed := strings.TrimSpace(*gw.Route)
-	if trimmed == "" || trimmed == "null" {
-		return gateway.RouteConfig{Enabled: true}, nil
-	}
-	return parseGatewayRouteConfig(trimmed)
-}
-
-// isRoutedGateway reports whether a Gateway enables external route exposure.
-func isRoutedGateway(gw *pb.Gateway) bool {
-	routeConfig, err := effectiveRouteConfig(gw)
-	if err != nil {
-		// The provisioning path reports invalid configuration. Preserve the
-		// exposure until that path can resolve the invalid value.
-		return true
-	}
-	return routeConfig.Enabled
 }
 
 // gatewayNamespace returns the Kubernetes namespace a Gateway is deployed into.
@@ -1365,7 +1313,7 @@ func consoleAddressFor(ready bool, url string) string {
 // console HTTPRoute must both be Ready. It leaves the address unchanged after a
 // temporary observation error. It returns whether the console can serve.
 func syncConsoleAddress(ctx context.Context, clientset kubernetes.Interface, dynamicClient dynamic.Interface, client pb.GatewayServiceClient, gatewayID string, gw *pb.Gateway) bool {
-	if gatewayID == "" || !isRoutedGateway(gw) {
+	if gatewayID == "" {
 		return false
 	}
 	namespace, err := gatewayNamespace(gw)
@@ -1432,7 +1380,7 @@ func syncConsoleAddress(ctx context.Context, clientset kubernetes.Interface, dyn
 // the console host and parent from this one helper, or the two drift apart and
 // the self-heal re-parents a dedicated-route console onto the shared ingress
 // while the published address keeps pointing at the dedicated host. An absent
-// route is enabled (matching effectiveRouteConfig); an unparseable route is
+// route resolves to the zero config (matching effectiveRouteConfig); an unparseable route is
 // reported by the provisioning path and treated here as not opted in, keeping
 // the published address and the self-heal consistent with the exposure the
 // shared path actually serves.
@@ -1478,26 +1426,6 @@ func (r *GatewayReconciler) updateRouteAddress(ctx context.Context, gatewayID st
 	})
 	if err != nil {
 		return fmt.Errorf("update gateway %s route_address to %s: %w", gatewayID, routeAddress, err)
-	}
-	return nil
-}
-
-// makeConsoleAddressUpdater returns a ConsoleAddressUpdater callback that
-// PATCHes the console_address field on the API-server Gateway via gRPC.
-func (r *GatewayReconciler) makeConsoleAddressUpdater(gatewayID string) gateway.ConsoleAddressUpdater {
-	return func(ctx context.Context, consoleAddress string) error {
-		return r.updateConsoleAddress(ctx, gatewayID, consoleAddress)
-	}
-}
-
-func (r *GatewayReconciler) updateConsoleAddress(ctx context.Context, gatewayID string, consoleAddress string) error {
-	client := pb.NewGatewayServiceClient(r.grpcConn)
-	_, err := client.UpdateGateway(ctx, &pb.UpdateGatewayRequest{
-		Id:             gatewayID,
-		ConsoleAddress: &consoleAddress,
-	})
-	if err != nil {
-		return fmt.Errorf("update gateway %s console_address to %s: %w", gatewayID, consoleAddress, err)
 	}
 	return nil
 }

@@ -32,18 +32,11 @@ func TestBuild_IngressExposure(t *testing.T) {
 
 	tests := []struct {
 		name             string
-		routeEnabled     bool
 		wantMtlsDisabled bool
 	}{
 		{
-			name:             "ingress enabled disables server mTLS",
-			routeEnabled:     true,
+			name:             "ingress disables server mTLS",
 			wantMtlsDisabled: true,
-		},
-		{
-			name:             "ingress disabled keeps the chart mTLS default",
-			routeEnabled:     false,
-			wantMtlsDisabled: false,
 		},
 	}
 
@@ -53,7 +46,7 @@ func TestBuild_IngressExposure(t *testing.T) {
 				Gateway: GatewayConfig{
 					WorkspaceMode: "shared",
 					Image:         "quay.io/test/gateway:latest",
-					Route:         RouteConfig{Host: "gw-test.apps.example.com", Enabled: tc.routeEnabled},
+					Route:         RouteConfig{Host: "gw-test.apps.example.com"},
 				},
 				Namespace:         "test-ns",
 				HasCertManager:    true,
@@ -969,7 +962,6 @@ func TestBuild_ServerDnsNames(t *testing.T) {
 	tests := []struct {
 		name             string
 		hasCertManager   bool
-		routeEnabled     bool
 		wantPkiInitNames bool
 		wantCertMgrNames bool
 	}{
@@ -985,13 +977,6 @@ func TestBuild_ServerDnsNames(t *testing.T) {
 			wantPkiInitNames: true,
 			wantCertMgrNames: false,
 		},
-		{
-			name:             "ingress enabled keeps every serverDnsName in certManager",
-			hasCertManager:   true,
-			routeEnabled:     true,
-			wantPkiInitNames: true,
-			wantCertMgrNames: true,
-		},
 	}
 
 	for _, tc := range tests {
@@ -1002,7 +987,7 @@ func TestBuild_ServerDnsNames(t *testing.T) {
 					WorkspaceMode:  "shared",
 					Image:          "quay.io/test/gateway:latest",
 					ServerDnsNames: dnsNames,
-					Route:          RouteConfig{Host: routeHost, Enabled: tc.routeEnabled},
+					Route:          RouteConfig{Host: routeHost},
 				},
 				Namespace:         "test-ns",
 				HasCertManager:    tc.hasCertManager,

@@ -32,7 +32,7 @@ func TestReconcileGatewayCertManagerConfirmedAbsent(t *testing.T) {
 		Dependencies:   NewDependencyDiscovery(disc),
 		ReportProgress: collectReports(&reports),
 	}
-	nsConfig := NamespaceConfig{Name: "openshell-abc", Gateway: GatewayConfig{Route: RouteConfig{Enabled: true}}}
+	nsConfig := NamespaceConfig{Name: "openshell-abc", Gateway: GatewayConfig{Route: RouteConfig{}}}
 
 	err := ReconcileGateway(context.Background(), nil, nil, nil, nsConfig, opts)
 	if !errors.Is(err, errCertManagerAbsent) {
@@ -59,7 +59,7 @@ func TestReconcileGatewayCertManagerUnavailable(t *testing.T) {
 		Dependencies:   NewDependencyDiscovery(disc),
 		ReportProgress: collectReports(&reports),
 	}
-	nsConfig := NamespaceConfig{Name: "openshell-abc", Gateway: GatewayConfig{Route: RouteConfig{Enabled: true}}}
+	nsConfig := NamespaceConfig{Name: "openshell-abc", Gateway: GatewayConfig{Route: RouteConfig{}}}
 
 	err := ReconcileGateway(context.Background(), nil, nil, nil, nsConfig, opts)
 	if err == nil {
@@ -83,7 +83,7 @@ func TestReconcileGatewayGatewayAPIUnavailable(t *testing.T) {
 		Dependencies:   NewDependencyDiscovery(disc),
 		ReportProgress: collectReports(&reports),
 	}
-	nsConfig := NamespaceConfig{Name: "openshell-abc", Gateway: GatewayConfig{Route: RouteConfig{Enabled: true}}}
+	nsConfig := NamespaceConfig{Name: "openshell-abc", Gateway: GatewayConfig{Route: RouteConfig{}}}
 
 	err := ReconcileGateway(context.Background(), nil, nil, nil, nsConfig, opts)
 	if err == nil {

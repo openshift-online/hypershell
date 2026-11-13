@@ -273,7 +273,6 @@ func TestValidateGatewayConfigRouteCertificate(t *testing.T) {
 
 	t.Run("certificate alone is valid", func(t *testing.T) {
 		cfg := GatewayConfig{WorkspaceMode: "shared", Route: RouteConfig{
-			Enabled:     true,
 			Certificate: &RouteCertificateConfig{},
 		}}
 		if err := ValidateGatewayConfig(cfg); err != nil {

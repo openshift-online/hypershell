@@ -24,7 +24,7 @@ const (
 	// route opt-in the control plane already keys on
 	// (docs/investigations/per-gateway-certificates.md): "certificate": {} selects
 	// dedicated per-gateway certificate provisioning.
-	dedicatedRouteCertificateJSON = `{"enabled":true,"certificate":{}}`
+	dedicatedRouteCertificateJSON = `{"certificate":{}}`
 
 	// dedicatedRouteImmutableReason is the user-facing reason for rejecting a
 	// dedicated_route change after creation. Provisioning the dedicated route and

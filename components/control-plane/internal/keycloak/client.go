@@ -1197,21 +1197,6 @@ func (c *Client) DeleteConsoleClient(ctx context.Context, consoleClientID string
 	return nil
 }
 
-// ConsoleClientExists reports whether a Keycloak console client with the given
-// clientId currently exists in the realm. It underpins the health loop's
-// converged teardown-settled check: the console client lives in the realm, not
-// the gateway namespace, so a Kubernetes-only absence probe cannot observe a
-// client a stale provisioning pass recreated. Returns an error when existence
-// cannot be observed so callers treat unknown state as "not absent" (re-run
-// teardown) rather than as settled.
-func (c *Client) ConsoleClientExists(ctx context.Context, consoleClientID string) (bool, error) {
-	clientUUID, err := c.getClientUUID(ctx, consoleClientID)
-	if err != nil {
-		return false, err
-	}
-	return clientUUID != "", nil
-}
-
 // GatewayClientSynced reports whether the desired gateway OIDC client is
 // present and still has the control plane's managed settings, roles, and
 // protocol mappers. Client representations and identifiers never enter metric

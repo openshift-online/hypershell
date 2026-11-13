@@ -123,13 +123,6 @@ Ready on parent-Gateway readiness alone.
   per `OSG-ROUT-08`)
 - THEN the control plane SHALL set the Gateway `phase` to `Running`
 
-#### Scenario: OSG-HLTH-01.03 -- Non-routed gateway becomes ready
-
-- GIVEN a Gateway with no `route` configuration whose manifests have been applied
-- WHEN the `openshell-gateway` Deployment reaches ready replicas ≥ desired
-- THEN the control plane SHALL set the Gateway `phase` to `Running`
-  without requiring any external-exposure readiness
-
 #### Scenario: OSG-HLTH-01.04 -- Route never becomes ready within the grace window
 
 - GIVEN a routed Gateway whose Deployment is Ready

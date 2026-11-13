@@ -46,7 +46,7 @@ func TestReconcileGatewayFailsWithoutGatewayAPI(t *testing.T) {
 	opts := ReconcileOpts{ReportProgress: func(condition, status, message string) {
 		reports = append(reports, report{condition, status, message})
 	}}
-	nsConfig := NamespaceConfig{Name: "openshell-abc", Gateway: GatewayConfig{Route: RouteConfig{Enabled: true}}}
+	nsConfig := NamespaceConfig{Name: "openshell-abc", Gateway: GatewayConfig{Route: RouteConfig{}}}
 
 	err := ReconcileGateway(context.Background(), nil, cs, nil, nsConfig, opts)
 	if !errors.Is(err, errGatewayAPIMissing) {
