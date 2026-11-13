@@ -161,8 +161,8 @@ jobs:
         run: |
           set -euo pipefail
           # Keyless hsctl login via OIDC->exchange. Re-callable: the exchanged token
-          # is ~5 min, and an operator gateway can take longer than that to become
-          # ready for SA provisioning, so we refresh mid-retry.
+          # is ~5 min, and a gateway can take longer than that to become ready
+          # for SA provisioning, so we refresh mid-retry.
           relogin() {
             local tok access
             tok="$(curl -sS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
@@ -178,19 +178,19 @@ jobs:
           relogin
           GW_NAME="ci-${GITHUB_RUN_ID}"
           sel="$(printf '%s' "${GATEWAY_PLACEMENT}" | jq -R 'split(",")')"
-          # operator workspace mode: fullsend provider-profile v2 + agent-workspace
-          # realization require it (AGT-WSP; seed.sh --operator-workspaces). The
-          # gateway image is the controller default (currently v0.1.8-rhaiv.0).
+          # Default (managed) workspace mode. Operator mode needs an external
+          # workspace operator (OCE) and controller settings that hyp0 lacks.
+          # The gateway image is the controller default (currently v0.1.8-rhaiv.0).
           manifest="$(jq -nc --arg n "$GW_NAME" --argjson sel "$sel" \
             '{apiVersion:"hypershell.redhat.io/v1", kind:"Gateway",
               metadata:{name:$n},
-              spec:{workspace_mode:"operator", placement:{selector:$sel}}}')"
+              spec:{placement:{selector:$sel}}}')"
           echo "$manifest" | hsctl apply -f - -o json || { echo "gateway apply failed" >&2; exit 1; }
           GW_ID="$(hsctl list gateways -o json 2>/dev/null | jq -r --arg n "$GW_NAME" '(.items//.)[] | select(.name==$n) | .id' | head -1)"
           [ -n "$GW_ID" ] || { echo "could not resolve gateway id for $GW_NAME" >&2; exit 1; }
           echo "name=$GW_NAME" >> "$GITHUB_OUTPUT"; echo "id=$GW_ID" >> "$GITHUB_OUTPUT"
-          echo "Gateway $GW_NAME ($GW_ID) created; minting admin SA (operator gw can take minutes)..."
-          # Retry SA create until the operator gateway is ready, capped ~10 min,
+          echo "Gateway $GW_NAME ($GW_ID) created; minting admin SA (gateway can take minutes)..."
+          # Retry SA create until the gateway is ready, capped ~10 min,
           # re-logging in every ~2 min so the keyless token never expires mid-wait.
           sa_ok=false
           for i in $(seq 1 40); do
@@ -241,7 +241,9 @@ jobs:
           {"access_token":"${at}","issuer":"${ISS}","client_id":"${CIDG}"}
           JSON
           printf '%s' "${GW_NAME}" > "${CFG}/active_gateway"; chmod -R a+rX "${CFG}"
-          export OPENSHELL_GATEWAY_INSECURE=true
+          # No OPENSHELL_GATEWAY_INSECURE: the gateway certificate verifies, and the
+          # insecure mode makes the CLI print a TLS warning that fullsend reads as
+          # part of `list-profiles -o json`, so it reports the imported profile missing.
           ready=false
           for i in $(seq 1 24); do
             if openshell -g "${GW_NAME}" status >/dev/null 2>&1; then ready=true; echo "gateway answering at t=$((i*15))s"; break; fi
@@ -257,7 +259,6 @@ jobs:
           FULLSEND_LIFECYCLE: github-only
           FULLSEND_GATEWAY_NAME: ${{ steps.gw.outputs.name }}
           OPENSHELL_GATEWAY: ${{ steps.gw.outputs.name }}
-          OPENSHELL_GATEWAY_INSECURE: "true"
           REPOSITORY: ${{ github.repository }}
           REPO_FULL_NAME: ${{ github.repository }}
           ISSUE_NUMBER: ${{ github.event.inputs.issue_number }}
@@ -274,21 +275,24 @@ jobs:
       - name: Tear down the disposable gateway (always)
         if: always() && steps.gw.outputs.id != ''
         run: |
-          set +e
+          set -euo pipefail
           # The keyless token from earlier is expired by now (~5 min TTL), so
           # re-mint OIDC -> re-exchange -> hsctl login before deleting.
           tok="$(curl -sS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${FLEET_AUD}" | jq -r '.value')"
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${FLEET_AUD}" | jq -r '.value')" || tok=""
           access="$(curl -sS -X POST "${KEYCLOAK_URL}/realms/${REALM}/protocol/openid-connect/token" \
             -d 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange' \
             -d "client_id=${REQUESTER}" -d "subject_token=${tok}" -d "subject_issuer=${IDP_ALIAS}" \
-            -d 'subject_token_type=urn:ietf:params:oauth:token-type:jwt' | jq -r '.access_token // empty')"
+            -d 'subject_token_type=urn:ietf:params:oauth:token-type:jwt' | jq -r '.access_token // empty')" || access=""
           if [ -n "$access" ]; then
             echo "::add-mask::$access"
-            printf '%s' "$access" | hsctl login --token-file /dev/stdin --url "${HYPERSHELL_API_URL}"
+            printf '%s' "$access" | hsctl login --token-file /dev/stdin --url "${HYPERSHELL_API_URL}" \
+              || echo "re-login failed; trying the delete with the existing session" >&2
           fi
-          hsctl delete gateway "${{ steps.gw.outputs.id }}"
-          echo "Teardown requested for gateway ${{ steps.gw.outputs.id }} (exit $?)."
+          # --yes: hsctl asks for confirmation and there is no terminal in CI.
+          # Fail the step on error so a leaked gateway is visible in the run.
+          hsctl delete gateway "${{ steps.gw.outputs.id }}" --yes
+          echo "Teardown requested for gateway ${{ steps.gw.outputs.id }}."
 
       - name: Summary
         if: always()
