@@ -208,7 +208,7 @@ Set based on the Gateway's credential driver configuration.
 
 #### Ingress Values (conditional)
 
-Set only when the Gateway has route configuration enabled.
+Set for every gateway; every gateway is routed.
 
 The control plane exposes every routed gateway through the Gateway API.
 

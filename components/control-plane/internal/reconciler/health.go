@@ -42,7 +42,7 @@ const defaultRouteReadyTimeout = 10 * time.Minute
 const defaultDeploymentReadyTimeout = 10 * time.Minute
 
 // GatewayHealthReconciler continuously observes the health of provisioned
-// gateway Deployments and, for routed gateways, the readiness of their external
+// gateway Deployments and the readiness of their external
 // exposure, and keeps each Gateway's `phase` and `status` synchronized with
 // actual state. It runs independently of the provisioning phase gate: a Running
 // gateway whose pod begins crash-looping (or whose route loses readiness) is
@@ -545,7 +545,7 @@ func (h *GatewayHealthReconciler) selfHealConsole(ctx context.Context, gatewayID
 	slog.InfoContext(ctx, "Console self-heal reconciled", "namespace", namespace)
 }
 
-// evaluateRouteReadiness decides the phase for a routed gateway whose Deployment
+// evaluateRouteReadiness decides the phase for a gateway whose Deployment
 // is Ready, based on its external-exposure readiness. routeAddress is the
 // Gateway resource's already-persisted routeAddress (gw.GetRouteAddress()):
 // the exposure port treats an empty value as not-Ready even when the

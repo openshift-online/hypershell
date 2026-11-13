@@ -562,60 +562,6 @@ func TestReconcileGatewayAPIResourcesSharedGatewayUnchanged(t *testing.T) {
 	mustNotExistDynamic(t, dc, dedicatedHTTPRouteGVR, ns, sandboxHTTPRouteName)
 }
 
-// TestDeleteGatewayAPIRouteResourcesRemovesDedicatedCertificateResources
-// verifies teardown reclaims the per-tenant Gateway, external Certificate, and
-// sandbox HTTPRoute (idempotently - a second pass on an empty namespace is a
-// no-op), so a removed gateway leaves no live listener serving its hostname or
-// wildcard.
-// Verifies: PLAT-ARCH-05.02
-func TestDeleteGatewayAPIRouteResourcesRemovesDedicatedCertificateResources(t *testing.T) {
-	const ns = "openshell-abc"
-
-	dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), dedicatedCertificateListKinds())
-	// Seed through the exact GVRs the deletes address (see seedDynamicResource).
-	for _, seeded := range []struct {
-		gvr  schema.GroupVersionResource
-		kind string
-		name string
-	}{
-		{tenantGRPCRouteGVR, "GRPCRoute", "openshell-gateway"},
-		{tenantBTLSPolicyGVR, "BackendTLSPolicy", "openshell-gateway"},
-		{dedicatedCertGVR, "Certificate", externalCertificateName},
-		{dedicatedGatewayGVR, "Gateway", perTenantGatewayName(ns)},
-		{dedicatedHTTPRouteGVR, "HTTPRoute", sandboxHTTPRouteName},
-	} {
-		seedDynamicResource(t, dc, seeded.gvr, seeded.kind, ns, seeded.name)
-	}
-	cs := k8sfake.NewSimpleClientset(&corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: backendCAConfigMapName},
-	})
-
-	if err := deleteGatewayAPIRouteResources(context.Background(), dc, cs, ns); err != nil {
-		t.Fatalf("deleteGatewayAPIRouteResources: %v", err)
-	}
-
-	for _, tc := range []struct {
-		gvr  schema.GroupVersionResource
-		name string
-	}{
-		{tenantGRPCRouteGVR, "openshell-gateway"},
-		{tenantBTLSPolicyGVR, "openshell-gateway"},
-		{dedicatedCertGVR, externalCertificateName},
-		{dedicatedGatewayGVR, perTenantGatewayName(ns)},
-		{dedicatedHTTPRouteGVR, sandboxHTTPRouteName},
-	} {
-		mustNotExistDynamic(t, dc, tc.gvr, ns, tc.name)
-	}
-	if _, err := cs.CoreV1().ConfigMaps(ns).Get(context.Background(), backendCAConfigMapName, metav1.GetOptions{}); !k8serrors.IsNotFound(err) {
-		t.Errorf("backend CA ConfigMap still present after cleanup, err = %v", err)
-	}
-
-	// Idempotent: a second pass over the now-empty namespace succeeds.
-	if err := deleteGatewayAPIRouteResources(context.Background(), dc, cs, ns); err != nil {
-		t.Fatalf("deleteGatewayAPIRouteResources (second pass): %v", err)
-	}
-}
-
 // TestGatewayDeployedConditionMessage guards the API UX contract that a
 // dedicated-certificate provisioning failure carries its actionable cause in
 // the user-visible ConditionGatewayDeployed message (openshell-gateway-routing

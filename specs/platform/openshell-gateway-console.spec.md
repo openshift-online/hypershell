@@ -51,7 +51,7 @@ Keycloak integration is mandatory for the control plane (`openshell-gateway-keyc
 
 #### Scenario: OSG-CON-01.01 -- A routed gateway gets a console
 
-- GIVEN a gateway with an enabled route
+- GIVEN a gateway
 - WHEN the reconciler reconciles the gateway
 - THEN it must create all console resources: the console client, the console Secret, the Deployment, the Service, and the HTTPRoute
 - AND the console must answer at `https://console-<ns>.<base-domain>`

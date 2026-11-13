@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -324,18 +323,6 @@ func ReconcileConsole(ctx context.Context, dynamicClient dynamic.Interface, clie
 		images = StaticImageDefaults{}
 	}
 	return reconcileConsole(ctx, dynamicClient, clientset, nsConfig, opts, images)
-}
-
-// DeleteConsole removes the per-gateway console (Keycloak client, credential
-// Secret, Deployment, Service, and both exposure kinds). It
-// clears the stored console_address through opts.UpdateConsoleAddress. It is the
-// exported counterpart to ReconcileConsole. The continuous health reconciler
-// can remove the console independently of the provisioning phase gate. This
-// prevents a console and its Keycloak client from remaining after route removal.
-// The function ignores absent resources, so each health check can call it. It
-// returns all deletion errors so callers can retry partial cleanup.
-func DeleteConsole(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, namespace string, opts ReconcileOpts) error {
-	return deleteConsole(ctx, dynamicClient, clientset, namespace, opts)
 }
 
 // reconcileConsole deploys the per-gateway OpenShell dashboard and its
@@ -861,70 +848,4 @@ func reconcileConsoleExposure(ctx context.Context, dynamicClient dynamic.Interfa
 		return fmt.Errorf("reconcile console HTTPRoute: %w", err)
 	}
 	return nil
-}
-
-// deleteConsoleExposureResource deletes one console exposure. An absent
-// resource is already converged and does not cause an error.
-func deleteConsoleExposureResource(ctx context.Context, dynamicClient dynamic.Interface, namespace string, gvr schema.GroupVersionResource, kind string) error {
-	err := dynamicClient.Resource(gvr).Namespace(namespace).Delete(ctx, consoleName, metav1.DeleteOptions{})
-	if err != nil && !k8serrors.IsNotFound(err) {
-		return fmt.Errorf("delete console %s in %s: %w", kind, namespace, err)
-	}
-	return nil
-}
-
-// deleteConsoleExposures removes the console HTTPRoute.
-func deleteConsoleExposures(ctx context.Context, dynamicClient dynamic.Interface, namespace string) error {
-	return deleteConsoleExposureResource(ctx, dynamicClient, namespace, consoleHTTPRouteGVR, "HTTPRoute")
-}
-
-// deleteConsole removes all console resources and the console Keycloak client.
-// It attempts every deletion regardless of individual failures and returns their
-// joined errors (nil when the console is already absent), so a caller can retry
-// until nothing remains instead of stopping on partial cleanup. A NotFound is not
-// an error: the resource is already gone.
-func deleteConsole(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, namespace string, opts ReconcileOpts) error {
-	var errs []error
-
-	deployGVR := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
-	if err := dynamicClient.Resource(deployGVR).Namespace(namespace).Delete(ctx, consoleName, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		errs = append(errs, fmt.Errorf("delete console Deployment in %s: %w", namespace, err))
-	}
-
-	if err := clientset.CoreV1().Services(namespace).Delete(ctx, consoleName, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		errs = append(errs, fmt.Errorf("delete console Service in %s: %w", namespace, err))
-	}
-
-	if err := deleteConsoleExposures(ctx, dynamicClient, namespace); err != nil {
-		errs = append(errs, err)
-	}
-
-	if err := clientset.CoreV1().Secrets(namespace).Delete(ctx, consoleSecretName, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		errs = append(errs, fmt.Errorf("delete console Secret in %s: %w", namespace, err))
-	}
-
-	if opts.Keycloak != nil && opts.GatewayClientID != "" && opts.GatewayID != "" {
-		consoleClientID := opts.GatewayClientID + "-console"
-		kc := keycloak.NewClient(
-			opts.Keycloak.ServerURL,
-			opts.Keycloak.Realm,
-			opts.Keycloak.ClientID,
-			opts.Keycloak.ClientSecret,
-		)
-		if err := kc.DeleteConsoleClient(ctx, consoleClientID); err != nil {
-			errs = append(errs, fmt.Errorf("delete console client %s (orphaned): %w", consoleClientID, err))
-		} else {
-			slog.InfoContext(ctx, "Deleted console client", "client_id", consoleClientID)
-		}
-	}
-
-	if opts.UpdateConsoleAddress != nil {
-		if err := opts.UpdateConsoleAddress(ctx, ""); err != nil {
-			errs = append(errs, fmt.Errorf("clear consoleAddress in %s: %w", namespace, err))
-		} else {
-			slog.InfoContext(ctx, "Cleared consoleAddress for gateway", "namespace", namespace)
-		}
-	}
-
-	return errors.Join(errs...)
 }

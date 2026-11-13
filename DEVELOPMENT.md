@@ -595,7 +595,7 @@ only for the retained browser (`e2e-console.sh`) and smoke (`smoke.sh`) suites.
 ### OpenShift (automatic)
 
 On OpenShift, the control plane automatically creates networking resources when
-a gateway has `Route.Enabled` set:
+a gateway is provisioned (every gateway is routed):
 
 1. A per-namespace **Gateway** with `openshift-default` gateway class
 2. A **GRPCRoute** routing to `openshell-gateway:8080`

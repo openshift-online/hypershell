@@ -159,7 +159,7 @@ func (b *ValuesBuilder) Build() (map[string]interface{}, error) {
 	// Credential driver values (conditional)
 	b.buildCredentialDriverValues(values)
 
-	// Ingress values (conditional)
+	// Ingress values
 	if err := b.buildIngressValues(values); err != nil {
 		return nil, fmt.Errorf("build ingress values: %w", err)
 	}

@@ -729,7 +729,6 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		ControlPlaneNamespace:       r.controlPlaneNamespace,
 		GatewayID:                   event.ResourceID,
 		UpdateRouteAddress:          r.makeRouteAddressUpdater(event.ResourceID),
-		UpdateConsoleAddress:        r.makeConsoleAddressUpdater(event.ResourceID),
 		Keycloak:                    r.keycloakConfig,
 		KeycloakClient:              r.keycloakClient,
 		GatewayName:                 gw.Name,
@@ -805,10 +804,9 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	// Fall back to a fresh read of the persisted routeAddress, not gw's own
 	// field: gw is the watch-event snapshot captured when this pass started,
 	// and the Helm apply above (gateway.ReconcileGateway) can itself run long
-	// enough for the continuous health reconciler to concurrently clear or
-	// republish the persisted address (for example, tearing down the route if
-	// it was disabled mid-pass). Using the stale snapshot here could resurrect
-	// an address the health reconciler already retracted. This re-read is
+	// enough for the continuous health reconciler to concurrently republish the
+	// persisted address. Using the stale snapshot here could overwrite a newer
+	// address. This re-read is
 	// taken once, before the Deployment-readiness wait and route-readiness
 	// poll below, which can together add minutes more; it narrows the
 	// staleness window around the Helm apply but does not eliminate
@@ -1072,14 +1070,10 @@ func (r *GatewayReconciler) pollRouteReady(ctx context.Context, namespace, route
 // the next health-reconciler tick. It is meant to run in the background and
 // stops once the address is published or the bounded window elapses.
 //
-// It runs on the long-lived watch context, which route removal does not cancel,
-// so it must not trust the routed Gateway snapshot captured when provisioning
-// started. If the route is removed while the console image is still pulling, the
-// health reconciler's teardown owns clearing console_address; a publisher acting
-// on the stale snapshot would otherwise re-publish the console link after
-// teardown, stranding a trusted address for a gateway that is no longer routed.
-// Re-read the current Gateway each poll and stop the moment it is no longer
-// routed (or has been deleted), leaving the address to teardown.
+// It runs on the long-lived watch context, which a gateway deletion does not
+// cancel, so it must not trust the Gateway snapshot captured when provisioning
+// started. Re-read the current Gateway each poll and stop the moment it has been
+// deleted, so a deleted gateway never gets its console link re-published.
 func (r *GatewayReconciler) publishConsoleAddressWhenReady(ctx context.Context, gatewayID string, gw *pb.Gateway) {
 	client := pb.NewGatewayServiceClient(r.grpcConn)
 	poll(ctx, provisioningConsoleReadyInterval, provisioningConsoleReadyWait, func() bool {
@@ -1104,16 +1098,11 @@ func (r *GatewayReconciler) publishConsoleAddressWhenReady(ctx context.Context, 
 
 // makeRouteStillDesired returns a callback the provisioning path invokes after
 // the (up-to-60s) server-TLS wait, before it creates the remaining route- and
-// console-owned resources, to confirm the gateway is still routed according to
-// its live API-server record. A route removal (or gateway deletion) during that
-// wait is observed only by the independent health loop -- the watcher phase gate
-// blocks a re-provision -- which tears the gateway down and clears its stored
-// addresses; without this re-check the in-flight pass would recreate the
-// BackendTLSPolicy, backend-CA ConfigMap, console, and
-// Keycloak client behind that teardown, and the health loop's torn-down cache
-// (keyed on empty addresses) would then hide the orphans indefinitely. Returns
-// false on NotFound (the gateway is gone, so nothing is desired) and propagates
-// transient errors so the caller can decide (it proceeds conservatively).
+// console-owned resources, to confirm the gateway still exists in its live
+// API-server record. Without this re-check an in-flight pass could recreate
+// resources behind a concurrent deletion. Returns false on NotFound (the
+// gateway is gone, so nothing is desired) and propagates transient errors so
+// the caller can decide (it proceeds conservatively).
 func (r *GatewayReconciler) makeRouteStillDesired(gatewayID string) func(context.Context) (bool, error) {
 	return func(ctx context.Context) (bool, error) {
 		client := pb.NewGatewayServiceClient(r.grpcConn)
@@ -1439,14 +1428,6 @@ func (r *GatewayReconciler) updateRouteAddress(ctx context.Context, gatewayID st
 		return fmt.Errorf("update gateway %s route_address to %s: %w", gatewayID, routeAddress, err)
 	}
 	return nil
-}
-
-// makeConsoleAddressUpdater returns a ConsoleAddressUpdater callback that
-// PATCHes the console_address field on the API-server Gateway via gRPC.
-func (r *GatewayReconciler) makeConsoleAddressUpdater(gatewayID string) gateway.ConsoleAddressUpdater {
-	return func(ctx context.Context, consoleAddress string) error {
-		return r.updateConsoleAddress(ctx, gatewayID, consoleAddress)
-	}
 }
 
 func (r *GatewayReconciler) updateConsoleAddress(ctx context.Context, gatewayID string, consoleAddress string) error {

@@ -507,108 +507,6 @@ func gatewayDeployedConditionMessage(nsConfig NamespaceConfig, err error) string
 	}
 }
 
-// DeleteGatewayAPIResources reconciles the desired *absence* of a gateway's
-// route: it removes the GRPCRoute, BackendTLSPolicy, backend-CA ConfigMap, the
-// dedicated-certificate resources (external Certificate, per-tenant Gateway,
-// sandbox HTTPRoute) when present, tears down the console (which follows the
-// route), and clears the stored route_address. It attempts every deletion
-// regardless of individual failures and returns their joined errors (nil once
-// everything is absent), so a caller can retry until the route and its console
-// are fully gone rather than stopping on partial cleanup. Idempotent: absent
-// resources are ignored.
-func DeleteGatewayAPIResources(ctx context.Context, dynamicClient dynamic.Interface, clientset *kubernetes.Clientset, namespace string, opts ReconcileOpts) error {
-	var errs []error
-
-	if err := deleteGatewayAPIRouteResources(ctx, dynamicClient, clientset, namespace); err != nil {
-		errs = append(errs, err)
-	}
-
-	// The console follows the route, so removing the route removes the console.
-	if err := deleteConsole(ctx, dynamicClient, clientset, namespace, opts); err != nil {
-		errs = append(errs, err)
-	}
-
-	if opts.UpdateRouteAddress != nil {
-		if err := opts.UpdateRouteAddress(ctx, ""); err != nil {
-			errs = append(errs, fmt.Errorf("clear routeAddress in %s: %w", namespace, err))
-		} else {
-			slog.InfoContext(ctx, "Cleared routeAddress for gateway", "namespace", namespace)
-		}
-	}
-
-	if len(errs) == 0 {
-		slog.InfoContext(ctx, "Gateway API resources removed", "namespace", namespace)
-	}
-	return errors.Join(errs...)
-}
-
-// deleteGatewayAPIRouteResources removes the route-owned Kubernetes resources:
-// the GRPCRoute, BackendTLSPolicy, backend-CA ConfigMap, and the
-// dedicated-certificate resources (external Certificate, per-tenant Gateway,
-// sandbox HTTPRoute). It takes a kubernetes.Interface rather than the concrete
-// client type so tests can drive it with a fake clientset (the console teardown
-// in DeleteGatewayAPIResources requires the concrete type and stays in the
-// wrapper). Idempotent: absent resources are ignored, and all errors are joined.
-func deleteGatewayAPIRouteResources(ctx context.Context, dynamicClient dynamic.Interface, clientset kubernetes.Interface, namespace string) error {
-	var errs []error
-
-	grpcRouteGVR := schema.GroupVersionResource{
-		Group:    "gateway.networking.k8s.io",
-		Version:  "v1",
-		Resource: "grpcroutes",
-	}
-	if err := dynamicClient.Resource(grpcRouteGVR).Namespace(namespace).Delete(ctx, "openshell-gateway", metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		errs = append(errs, fmt.Errorf("delete GRPCRoute in %s: %w", namespace, err))
-	}
-
-	btlsGVR := schema.GroupVersionResource{
-		Group:    "gateway.networking.k8s.io",
-		Version:  "v1",
-		Resource: "backendtlspolicies",
-	}
-	if err := dynamicClient.Resource(btlsGVR).Namespace(namespace).Delete(ctx, "openshell-gateway", metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		errs = append(errs, fmt.Errorf("delete BackendTLSPolicy in %s: %w", namespace, err))
-	}
-
-	// Dedicated-certificate resources (only present on opted-in gateways; their
-	// absence for non-opted-in gateways is the expected state, so the deletes are
-	// unconditionally attempted and NotFound is ignored). A removed gateway must
-	// not leave a live listener serving its hostname or wildcard, nor a
-	// certificate renewing for it.
-	certGVR := schema.GroupVersionResource{
-		Group:    "cert-manager.io",
-		Version:  "v1",
-		Resource: "certificates",
-	}
-	if err := dynamicClient.Resource(certGVR).Namespace(namespace).Delete(ctx, externalCertificateName, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		errs = append(errs, fmt.Errorf("delete external Certificate in %s: %w", namespace, err))
-	}
-
-	gatewayGVR := schema.GroupVersionResource{
-		Group:    "gateway.networking.k8s.io",
-		Version:  "v1",
-		Resource: "gateways",
-	}
-	if err := dynamicClient.Resource(gatewayGVR).Namespace(namespace).Delete(ctx, perTenantGatewayName(namespace), metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		errs = append(errs, fmt.Errorf("delete per-tenant Gateway in %s: %w", namespace, err))
-	}
-
-	httpRouteGVR := schema.GroupVersionResource{
-		Group:    "gateway.networking.k8s.io",
-		Version:  "v1",
-		Resource: "httproutes",
-	}
-	if err := dynamicClient.Resource(httpRouteGVR).Namespace(namespace).Delete(ctx, sandboxHTTPRouteName, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		errs = append(errs, fmt.Errorf("delete sandbox HTTPRoute in %s: %w", namespace, err))
-	}
-
-	if err := clientset.CoreV1().ConfigMaps(namespace).Delete(ctx, backendCAConfigMapName, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-		errs = append(errs, fmt.Errorf("delete backend CA ConfigMap in %s: %w", namespace, err))
-	}
-
-	return errors.Join(errs...)
-}
-
 // readServerTLSCA returns the PEM-encoded ca.crt from the per-namespace
 // openshell-server-tls secret (issued by the openshell-ca-issuer alongside the
 // gateway server certificate). It distinguishes a genuinely absent CA from a
@@ -1887,10 +1785,10 @@ func reconcileGatewayAPIRouteResources(ctx context.Context, dynamicClient dynami
 		if opts.RouteStillDesired != nil {
 			desired, err := opts.RouteStillDesired(ctx)
 			if err != nil {
-				return fmt.Errorf("re-check route intent in %s: %w", namespace, err)
+				return fmt.Errorf("re-check gateway exists in %s: %w", namespace, err)
 			}
 			if !desired {
-				slog.InfoContext(ctx, "Gateway no longer routed after external TLS wait; skipping per-tenant Gateway creation (health loop owns teardown)", "namespace", namespace)
+				slog.InfoContext(ctx, "Gateway deleted during external TLS wait; skipping per-tenant Gateway creation (delete handler owns cleanup)", "namespace", namespace)
 				return nil
 			}
 		}
@@ -1984,21 +1882,20 @@ func reconcileGatewayAPIRouteResources(ctx context.Context, dynamicClient dynami
 		return fmt.Errorf("wait for server TLS secret in %s: %w", namespace, err)
 	}
 
-	// The wait above can run for up to a minute. A route removal (or gateway
-	// deletion) during it is observed only by the independent health loop -- the
-	// watcher phase gate blocks a re-provision -- which tears down this gateway's
-	// route and console. Re-check that the gateway still exists before creating the
-	// remaining route- and console-owned resources so this in-flight pass does not
-	// race a deletion. Fail closed: unknown state must not authorize new
-	// resources, so a check error aborts the pass (the gateway parks at Failed and
-	// is retried on the next watch resync).
+	// The wait above can run for up to a minute. A gateway deletion during it is
+	// handled by the delete path, which removes the gateway's namespace. Re-check
+	// that the gateway still exists before creating the remaining route- and
+	// console-owned resources so this in-flight pass does not race a deletion.
+	// Fail closed: unknown state must not authorize new resources, so a check
+	// error aborts the pass (the gateway parks at Failed and is retried on the
+	// next watch resync).
 	if opts.RouteStillDesired != nil {
 		desired, err := opts.RouteStillDesired(ctx)
 		if err != nil {
-			return fmt.Errorf("re-check route intent in %s: %w", namespace, err)
+			return fmt.Errorf("re-check gateway exists in %s: %w", namespace, err)
 		}
 		if !desired {
-			slog.InfoContext(ctx, "Gateway no longer routed after TLS wait; skipping route/console resource creation (health loop owns teardown)", "namespace", namespace)
+			slog.InfoContext(ctx, "Gateway deleted during TLS wait; skipping route/console resource creation (delete handler owns cleanup)", "namespace", namespace)
 			return nil
 		}
 	}

@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -425,25 +424,6 @@ func TestReconcileConsoleExposureCreatesHTTPRoute(t *testing.T) {
 	hostnames, _, _ := unstructured.NestedStringSlice(route.Object, "spec", "hostnames")
 	if len(hostnames) != 1 || hostnames[0] != host {
 		t.Errorf("console HTTPRoute hostnames = %v, want [%s]", hostnames, host)
-	}
-}
-
-func TestDeleteConsoleExposuresDeletesHTTPRoute(t *testing.T) {
-	const namespace = "openshell-abc"
-	client := newConsoleRouteDynamicClient(
-		buildConsoleHTTPRoute(namespace, "console.example.com", false),
-	)
-
-	if err := deleteConsoleExposures(context.Background(), client, namespace); err != nil {
-		t.Fatalf("deleteConsoleExposures: %v", err)
-	}
-	if _, err := client.Resource(consoleHTTPRouteGVR).Namespace(namespace).Get(context.Background(), consoleName, metav1.GetOptions{}); !k8serrors.IsNotFound(err) {
-		t.Errorf("console HTTPRoute still exists: %v", err)
-	}
-
-	// A second delete on an already-absent route is converged, not an error.
-	if err := deleteConsoleExposures(context.Background(), client, namespace); err != nil {
-		t.Errorf("deleteConsoleExposures on absent route: %v", err)
 	}
 }
 

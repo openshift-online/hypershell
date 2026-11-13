@@ -248,11 +248,6 @@ type OIDCConfig struct {
 // is provided by the top-level reconciler which owns the gRPC connection.
 type RouteAddressUpdater func(ctx context.Context, routeAddress string) error
 
-// ConsoleAddressUpdater is called by the gateway reconciler to update the
-// console_address field on the API-server Gateway resource. The implementation
-// is provided by the top-level reconciler which owns the gRPC connection.
-type ConsoleAddressUpdater func(ctx context.Context, consoleAddress string) error
-
 // KeycloakConfig holds Keycloak Admin REST API connection parameters read
 // from the hypershell-keycloak-admin Secret in the control-plane namespace.
 type KeycloakConfig struct {
@@ -298,9 +293,6 @@ type ReconcileOpts struct {
 	// UpdateRouteAddress is an optional callback that PATCHes the route_address
 	// field on the API-server Gateway.  Nil means no update will be attempted.
 	UpdateRouteAddress RouteAddressUpdater
-	// UpdateConsoleAddress is an optional callback that PATCHes the console_address
-	// field on the API-server Gateway. Nil means no update will be attempted.
-	UpdateConsoleAddress ConsoleAddressUpdater
 	// Keycloak holds the Keycloak Admin REST API configuration. It is required
 	// to provision a gateway; it is nil only on delete paths that do not need it.
 	Keycloak *KeycloakConfig
@@ -316,12 +308,12 @@ type ReconcileOpts struct {
 	// address. Nil when no exposure backend is configured (e.g. clusters without
 	// the Gateway API), in which case no route address is published.
 	Exposure exposure.Port
-	// RouteStillDesired, when set, reports whether the Gateway is still routed
-	// according to its current API-server record (false if it has since been
-	// un-routed or deleted). The provisioning path calls it after the potentially
-	// long TLS-secret wait, before creating the remaining route- and console-owned
-	// resources, so an in-flight pass does not recreate them behind a concurrent
-	// health-loop teardown. Nil disables the re-check (the pass proceeds).
+	// RouteStillDesired, when set, reports whether the Gateway still exists
+	// according to its current API-server record (false once it has been deleted).
+	// The provisioning path calls it after the potentially long TLS-secret wait,
+	// before creating the remaining route- and console-owned resources, so an
+	// in-flight pass does not recreate them behind a concurrent deletion. Nil
+	// disables the re-check (the pass proceeds).
 	RouteStillDesired func(ctx context.Context) (bool, error)
 	// ReportProgress is called at provisioning step boundaries to report
 	// condition transitions. Nil means no reporting (progress is silently
