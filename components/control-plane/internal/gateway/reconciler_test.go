@@ -36,19 +36,6 @@ func labeledResource(apiVersion, kind, namespace, name string, managed bool) *un
 	}}
 }
 
-// seedDynamicResource creates a labeled namespaced object through the exact
-// GVR the production code addresses it by. The fake dynamic client's
-// constructor pluralizes kinds naively ("Gateway" lands under "gatewaies"),
-// so seeding through the constructor would make a Get through the real GVR
-// miss and let an absence assertion pass vacuously.
-func seedDynamicResource(t *testing.T, dc *dynamicfake.FakeDynamicClient, gvr schema.GroupVersionResource, kind, namespace, name string) {
-	t.Helper()
-	obj := labeledResource(gvr.Group+"/"+gvr.Version, kind, namespace, name, true)
-	if _, err := dc.Resource(gvr).Namespace(namespace).Create(context.Background(), obj, metav1.CreateOptions{}); err != nil {
-		t.Fatalf("seed %s %s/%s: %v", kind, namespace, name, err)
-	}
-}
-
 // TestDeleteLabeledNamespaceResources verifies the surviving-namespace fallback
 // reclaims only this gateway's labeled resources and leaves co-tenant workloads
 // (and the namespace itself) untouched - the same no-collateral guarantee that

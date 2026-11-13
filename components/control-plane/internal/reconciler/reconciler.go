@@ -1430,18 +1430,6 @@ func (r *GatewayReconciler) updateRouteAddress(ctx context.Context, gatewayID st
 	return nil
 }
 
-func (r *GatewayReconciler) updateConsoleAddress(ctx context.Context, gatewayID string, consoleAddress string) error {
-	client := pb.NewGatewayServiceClient(r.grpcConn)
-	_, err := client.UpdateGateway(ctx, &pb.UpdateGatewayRequest{
-		Id:             gatewayID,
-		ConsoleAddress: &consoleAddress,
-	})
-	if err != nil {
-		return fmt.Errorf("update gateway %s console_address to %s: %w", gatewayID, consoleAddress, err)
-	}
-	return nil
-}
-
 // selectSupervisorImage returns the gateway's explicit supervisor image or the
 // platform default from GATEWAY_SUPERVISOR_IMAGE. Returns empty when neither is
 // configured so the caller can fail fast instead of deploying a chart default.
