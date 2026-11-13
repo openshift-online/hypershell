@@ -10,6 +10,7 @@ paths:
         - $ref: '#/components/parameters/size'
         - $ref: '#/components/parameters/role'
         - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/workspace'
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/order'
       responses:
@@ -170,6 +171,14 @@ components:
       description: Case-insensitive literal substring over username and name
       schema:
         type: string
+    workspace:
+      name: workspace
+      in: query
+      required: false
+      description: Filter rows to identities with access to a gateway workspace
+      schema:
+        type: string
+        minLength: 1
     sort:
       name: sort
       in: query
@@ -288,7 +297,7 @@ components:
           type: boolean
     GatewayAccessList:
       type: object
-      required: [page, size, total, capabilities, items]
+      required: [page, size, total, workspaces, capabilities, items]
       properties:
         page:
           type: integer
@@ -296,6 +305,11 @@ components:
           type: integer
         total:
           type: integer
+        workspaces:
+          type: array
+          items:
+            type: string
+          description: All workspace names on the gateway, sorted alphabetically
         capabilities:
           $ref: '#/components/schemas/GatewayAccessCapabilities'
         items:

@@ -116,12 +116,13 @@ func TestListEnrichesWorkspaceVisibilityForUserTiersOnly(t *testing.T) {
 		{Workspace: "default", Subject: "target-subject"},
 		{Workspace: "billing", Subject: "target-subject"},
 	}
+	deps.bootstrap.workspaces = []string{"research", "billing", "default"}
 	deps.directory.users = []DirectoryUser{
 		{Username: "target", Subject: "target-subject"},
 		{Username: "other", Subject: "other-subject"},
 	}
 
-	items, _, _, problem := deps.service.List(context.Background(), "gateway-id", "owner", ListOptions{})
+	items, workspaces, _, _, problem := deps.service.List(context.Background(), "gateway-id", "owner", ListOptions{})
 	if problem != nil {
 		t.Fatalf("List() problem = %#v", problem)
 	}
@@ -137,6 +138,44 @@ func TestListEnrichesWorkspaceVisibilityForUserTiersOnly(t *testing.T) {
 	}
 	if got := workspacesByUsername["admin"]; len(got) != 0 {
 		t.Fatalf("admin workspaces = %#v, want none", got)
+	}
+	if !slices.Equal(workspaces, []string{"billing", "default", "research"}) {
+		t.Fatalf("workspaces = %#v, want billing, default, and research", workspaces)
+	}
+}
+
+func TestListFiltersByWorkspaceAndKeepsAdminScope(t *testing.T) {
+	deps := newBootstrapTestDeps()
+	deps.dao.rows = []accessRow{
+		{UserID: "target", Username: "target", RoleName: roles.RoleGatewayViewer},
+		{UserID: "other", Username: "other", RoleName: roles.RoleGatewayViewer},
+		{UserID: "admin", Username: "admin", RoleName: roles.RoleGatewayAdmin},
+	}
+	deps.bootstrap.memberships = []defaultWorkspaceBootstrap.WorkspaceMembership{
+		{Workspace: "billing", Subject: "target-subject"},
+		{Workspace: "default", Subject: "other-subject"},
+	}
+	deps.bootstrap.workspaces = []string{"default", "billing"}
+	deps.directory.users = []DirectoryUser{
+		{Username: "target", Subject: "target-subject"},
+		{Username: "other", Subject: "other-subject"},
+	}
+
+	items, _, total, _, problem := deps.service.List(context.Background(), "gateway-id", "owner", ListOptions{
+		Page: 1, Size: 20, Workspace: "billing",
+	})
+	if problem != nil {
+		t.Fatalf("List() problem = %#v", problem)
+	}
+	usernames := make([]string, 0, len(items))
+	for _, item := range items {
+		usernames = append(usernames, item.Username)
+	}
+	if !slices.Equal(usernames, []string{"target", "admin"}) {
+		t.Fatalf("filtered usernames = %#v, want target and admin", usernames)
+	}
+	if total != 2 {
+		t.Fatalf("total = %d, want 2", total)
 	}
 }
 
@@ -292,6 +331,7 @@ type fakeBootstrapService struct {
 	input       defaultWorkspaceBootstrap.Input
 	problem     *defaultWorkspaceBootstrap.APIError
 	memberships []defaultWorkspaceBootstrap.WorkspaceMembership
+	workspaces  []string
 	listProblem *defaultWorkspaceBootstrap.APIError
 }
 
@@ -312,6 +352,10 @@ func (f *fakeBootstrapService) Bootstrap(_ context.Context, input defaultWorkspa
 
 func (f *fakeBootstrapService) ListWorkspaceMemberships(_ context.Context, _ defaultWorkspaceBootstrap.Input) ([]defaultWorkspaceBootstrap.WorkspaceMembership, *defaultWorkspaceBootstrap.APIError) {
 	return f.memberships, f.listProblem
+}
+
+func (f *fakeBootstrapService) ListWorkspaceVisibility(_ context.Context, _ defaultWorkspaceBootstrap.Input) (defaultWorkspaceBootstrap.WorkspaceVisibility, *defaultWorkspaceBootstrap.APIError) {
+	return defaultWorkspaceBootstrap.WorkspaceVisibility{Workspaces: f.workspaces, Memberships: f.memberships}, f.listProblem
 }
 
 type fakeDirectoryResolver struct {

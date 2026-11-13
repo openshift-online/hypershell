@@ -108,3 +108,7 @@ func (f *fakeProvisioner) BootstrapDefaultWorkspace(context.Context, Input) erro
 func (f *fakeProvisioner) ListWorkspaceMemberships(context.Context, Input) ([]WorkspaceMembership, error) {
 	return nil, f.err
 }
+
+func (f *fakeProvisioner) ListWorkspaceVisibility(context.Context, Input) (WorkspaceVisibility, error) {
+	return WorkspaceVisibility{}, f.err
+}

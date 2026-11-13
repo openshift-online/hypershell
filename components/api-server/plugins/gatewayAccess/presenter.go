@@ -23,6 +23,7 @@ type listResponse struct {
 	Page         int                  `json:"page"`
 	Size         int                  `json:"size"`
 	Total        int64                `json:"total"`
+	Workspaces   []string             `json:"workspaces"`
 	Capabilities capabilitiesResponse `json:"capabilities"`
 	Items        []grantItemResponse  `json:"items"`
 }

@@ -1353,6 +1353,10 @@ func (f *fakeDefaultWorkspaceBootstrap) ListWorkspaceMemberships(_ context.Conte
 	return f.memberships, f.listProblem
 }
 
+func (f *fakeDefaultWorkspaceBootstrap) ListWorkspaceVisibility(_ context.Context, _ defaultWorkspaceBootstrap.Input) (defaultWorkspaceBootstrap.WorkspaceVisibility, *defaultWorkspaceBootstrap.APIError) {
+	return defaultWorkspaceBootstrap.WorkspaceVisibility{Workspaces: []string{"default"}, Memberships: f.memberships}, f.listProblem
+}
+
 func testGateway() *gateways.Gateway {
 	oidc, _ := json.Marshal(GatewayOIDC{Issuer: "https://issuer.example/realms/hypershell", ClientID: "gateway-client", Audience: "gateway-client"})
 	phase, status, route := "Running", "Healthy", "grpcs://gateway.example:443"

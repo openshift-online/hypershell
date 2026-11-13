@@ -47,12 +47,17 @@ type Provider interface {
 
 type OpenShellClient interface {
 	AddMember(ctx context.Context, endpoint, namespace, accessToken, subject, role string) error
-	ListWorkspaceMemberships(ctx context.Context, endpoint, namespace, accessToken string) ([]WorkspaceMembership, error)
+	ListWorkspaceVisibility(ctx context.Context, endpoint, namespace, accessToken string) (WorkspaceVisibility, error)
 }
 
 type WorkspaceMembership struct {
 	Workspace string
 	Subject   string
+}
+
+type WorkspaceVisibility struct {
+	Workspaces  []string
+	Memberships []WorkspaceMembership
 }
 
 type AdminSpec struct {
@@ -126,27 +131,35 @@ func (m *Manager) AddMember(ctx context.Context, request MemberRequest) error {
 }
 
 func (m *Manager) ListWorkspaceMemberships(ctx context.Context, request VisibilityRequest) ([]WorkspaceMembership, error) {
+	visibility, err := m.ListWorkspaceVisibility(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	return visibility.Memberships, nil
+}
+
+func (m *Manager) ListWorkspaceVisibility(ctx context.Context, request VisibilityRequest) (WorkspaceVisibility, error) {
 	if !m.Configured() {
-		return nil, errors.New("default-workspace bootstrap manager is not configured")
+		return WorkspaceVisibility{}, errors.New("default-workspace bootstrap manager is not configured")
 	}
 	if err := validateVisibilityRequest(request); err != nil {
-		return nil, err
+		return WorkspaceVisibility{}, err
 	}
 	admin, err := m.ensureAdmin(ctx, request.AdminSpec)
 	if err != nil {
-		return nil, err
+		return WorkspaceVisibility{}, err
 	}
 	accessToken, err := m.accessToken(ctx, m.provider.Issuer(), admin)
 	if err != nil {
-		return nil, fmt.Errorf("authenticate gateway bootstrap admin: %w", err)
+		return WorkspaceVisibility{}, fmt.Errorf("authenticate gateway bootstrap admin: %w", err)
 	}
-	memberships, err := m.openShell.ListWorkspaceMemberships(
+	visibility, err := m.openShell.ListWorkspaceVisibility(
 		ctx, clusterLocalGatewayEndpoint(request.GatewayNamespace), request.GatewayNamespace, accessToken,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("list gateway workspace memberships: %w", err)
+		return WorkspaceVisibility{}, fmt.Errorf("list gateway workspace memberships: %w", err)
 	}
-	return memberships, nil
+	return visibility, nil
 }
 
 func clusterLocalGatewayEndpoint(namespace string) string {

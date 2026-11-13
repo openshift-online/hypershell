@@ -38,6 +38,7 @@ import {
   type ResourceTableStateChangeReason,
 } from "../shared/resource-table";
 import { ResourceRefreshButton } from "../shared/resource-refresh-button";
+import { WorkspaceList } from "../shared/workspace-list";
 import { useDebouncedValue } from "../shared/use-debounced-value";
 import {
   ServiceAccountCreateDialog,
@@ -260,24 +261,13 @@ export function ServiceAccountsPage({
             </StackItem>
           </Stack>
         ),
-        width: 35,
+        width: 25,
       },
       {
         id: "role",
         label: intl.formatMessage(messages.serviceAccountRole),
         render: ({ role }) => role,
         width: 20,
-      },
-      {
-        id: "workspaces",
-        label: intl.formatMessage(messages.accessWorkspacesColumn),
-        render: ({ role, workspaces }) =>
-          role === "openshell-admin"
-            ? intl.formatMessage(messages.adminWorkspaceAccess)
-            : workspaces.length > 0
-              ? workspaces.join(", ")
-              : intl.formatMessage(messages.noWorkspaces),
-        width: 25,
       },
       {
         id: "status",
@@ -288,13 +278,27 @@ export function ServiceAccountsPage({
             status={status}
           />
         ),
-        width: 20,
+        width: 15,
       },
       {
         id: "expires_at",
         label: intl.formatMessage(messages.expiration),
         render: ({ expiresAt }) => <LocalDate value={expiresAt} />,
         width: 25,
+      },
+      {
+        id: "workspaces",
+        label: intl.formatMessage(messages.accessWorkspacesColumn),
+        render: ({ role, workspaces }) =>
+          role === "openshell-admin" ? (
+            intl.formatMessage(messages.adminWorkspaceAccess)
+          ) : (
+            <WorkspaceList
+              emptyLabel={intl.formatMessage(messages.noWorkspaces)}
+              workspaces={workspaces}
+            />
+          ),
+        width: 50,
       },
     ];
 

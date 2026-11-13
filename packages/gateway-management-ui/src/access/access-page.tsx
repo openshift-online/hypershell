@@ -35,6 +35,7 @@ import {
   type ResourceTableState,
   type ResourceTableStateChangeReason,
 } from "../shared/resource-table";
+import { WorkspaceList } from "../shared/workspace-list";
 import { useDebouncedValue } from "../shared/use-debounced-value";
 import {
   accessListQueryKey,
@@ -96,6 +97,56 @@ function RoleFilter({
         <SelectOption value="user">
           {intl.formatMessage(messages.accessRoleUser)}
         </SelectOption>
+      </SelectList>
+    </Select>
+  );
+}
+
+function WorkspaceFilter({
+  onChange,
+  value,
+  workspaces,
+}: {
+  onChange: (workspace: string | undefined) => void;
+  value: string | undefined;
+  workspaces: readonly string[];
+}) {
+  const intl = useIntl();
+  const [isOpen, setIsOpen] = useState(false);
+  const label = value ?? intl.formatMessage(messages.accessWorkspaceFilterAll);
+  const toggle = (toggleRef: React.Ref<MenuToggleElement>) => (
+    <MenuToggle
+      aria-label={intl.formatMessage(messages.accessWorkspaceFilterLabel)}
+      isExpanded={isOpen}
+      onClick={() => {
+        setIsOpen((open) => !open);
+      }}
+      ref={toggleRef}
+    >
+      {label}
+    </MenuToggle>
+  );
+  return (
+    <Select
+      id="gateway-access-workspace-filter"
+      isOpen={isOpen}
+      onOpenChange={setIsOpen}
+      onSelect={(_event, selected) => {
+        setIsOpen(false);
+        onChange(selected === "all" ? undefined : (selected as string));
+      }}
+      selected={value ?? "all"}
+      toggle={toggle}
+    >
+      <SelectList>
+        <SelectOption value="all">
+          {intl.formatMessage(messages.accessWorkspaceFilterAll)}
+        </SelectOption>
+        {workspaces.map((workspace) => (
+          <SelectOption key={workspace} value={workspace}>
+            {workspace}
+          </SelectOption>
+        ))}
       </SelectList>
     </Select>
   );
@@ -198,7 +249,7 @@ export function AccessPage({
       label: intl.formatMessage(messages.accessUserId),
       render: (grant) => grant.username,
       sortable: false,
-      width: 35,
+      width: 25,
     },
     {
       id: "role",
@@ -237,24 +288,29 @@ export function AccessPage({
           roleLabel(intl.formatMessage, grant.role)
         ),
       sortable: false,
-      width: 30,
+      width: 25,
     },
     {
       id: "workspaces",
       label: intl.formatMessage(messages.accessWorkspacesColumn),
       render: (grant) =>
-        grant.role === "user"
-          ? grant.workspaces.length > 0
-            ? grant.workspaces.join(", ")
-            : intl.formatMessage(messages.noWorkspaces)
-          : intl.formatMessage(messages.adminWorkspaceAccess),
+        grant.role === "user" ? (
+          <WorkspaceList
+            emptyLabel={intl.formatMessage(messages.noWorkspaces)}
+            workspaces={grant.workspaces}
+          />
+        ) : (
+          intl.formatMessage(messages.adminWorkspaceAccess)
+        ),
       sortable: false,
-      width: 30,
+      width: 50,
     },
   ];
 
   const hasActiveFilters =
-    currentState.search.trim().length > 0 || currentState.role !== undefined;
+    currentState.search.trim().length > 0 ||
+    currentState.role !== undefined ||
+    currentState.workspace !== undefined;
 
   return (
     <Stack hasGutter>
@@ -339,12 +395,26 @@ export function AccessPage({
             ariaLabel={intl.formatMessage(messages.accessHeading)}
             columns={columns}
             filterControls={
-              <RoleFilter
-                onChange={(role) => {
-                  changeState({ ...currentState, page: 1, role }, "filter");
-                }}
-                value={currentState.role}
-              />
+              <>
+                <RoleFilter
+                  onChange={(role) => {
+                    changeState({ ...currentState, page: 1, role }, "filter");
+                  }}
+                  value={currentState.role}
+                />
+                {page.workspaces.length > 1 ? (
+                  <WorkspaceFilter
+                    onChange={(workspace) => {
+                      changeState(
+                        { ...currentState, page: 1, workspace },
+                        "filter",
+                      );
+                    }}
+                    value={currentState.workspace}
+                    workspaces={page.workspaces}
+                  />
+                ) : null}
+              </>
             }
             getRowKey={(grant) => grant.userId}
             hasActiveFilters={hasActiveFilters}
@@ -363,7 +433,13 @@ export function AccessPage({
             }}
             onClearFilters={() => {
               changeState(
-                { ...currentState, page: 1, role: undefined, search: "" },
+                {
+                  ...currentState,
+                  page: 1,
+                  role: undefined,
+                  search: "",
+                  workspace: undefined,
+                },
                 "filter",
               );
             }}

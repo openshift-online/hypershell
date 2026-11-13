@@ -31,6 +31,8 @@ import {
   HelperText,
   HelperTextItem,
   Label,
+  List,
+  ListItem,
   MenuToggle,
   Modal,
   ModalBody,
@@ -169,6 +171,20 @@ const serviceAccounts = [
     workspaces: ["observability", "payments-platform"],
   },
 ];
+
+function MockWorkspaceList({ workspaces }: { workspaces: string[] }) {
+  return (
+    <List isPlain>
+      {[...workspaces]
+        .sort((workspace, nextWorkspace) =>
+          workspace.localeCompare(nextWorkspace),
+        )
+        .map((workspace) => (
+          <ListItem key={workspace}>{workspace}</ListItem>
+        ))}
+    </List>
+  );
+}
 
 const workspaceMembershipCommand = (subject: string, workspace: string) =>
   [
@@ -755,13 +771,35 @@ function AccessTab({
                 <Select
                   isOpen={false}
                   onOpenChange={() => undefined}
-                  selected="All roles"
+                  selected="All gateway roles"
                   toggle={(toggleRef) => (
-                    <MenuToggle ref={toggleRef}>All roles</MenuToggle>
+                    <MenuToggle ref={toggleRef}>All gateway roles</MenuToggle>
                   )}
                 >
                   <SelectList>
-                    <SelectOption value="all">All roles</SelectOption>
+                    <SelectOption value="all">All gateway roles</SelectOption>
+                  </SelectList>
+                </Select>
+              </ToolbarItem>
+              <ToolbarItem>
+                <Select
+                  isOpen={false}
+                  onOpenChange={() => undefined}
+                  selected="All workspaces"
+                  toggle={(toggleRef) => (
+                    <MenuToggle ref={toggleRef}>All workspaces</MenuToggle>
+                  )}
+                >
+                  <SelectList>
+                    <SelectOption value="all">All workspaces</SelectOption>
+                    <SelectOption value="billing">billing</SelectOption>
+                    <SelectOption value="default">default</SelectOption>
+                    <SelectOption value="observability">
+                      observability
+                    </SelectOption>
+                    <SelectOption value="payments-platform">
+                      payments-platform
+                    </SelectOption>
                   </SelectList>
                 </Select>
               </ToolbarItem>
@@ -781,19 +819,16 @@ function AccessTab({
         <Table aria-label="Gateway access" variant="compact">
           <Thead>
             <Tr>
-              <Th sort={getSortParams(0)} width={25}>
+              <Th sort={getSortParams(0)} width={35}>
                 Name
               </Th>
               <Th sort={getSortParams(1)} width={25}>
                 User ID
               </Th>
-              <Th sort={getSortParams(2)} width={20}>
-                Role
+              <Th sort={getSortParams(2)} width={25}>
+                Gateway role
               </Th>
-              <Th width={20}>Workspaces</Th>
-              <Th sort={getSortParams(3)} width={15}>
-                Granted
-              </Th>
+              <Th width={50}>Workspaces</Th>
               <Th screenReaderText="Actions" />
             </Tr>
           </Thead>
@@ -802,7 +837,7 @@ function AccessTab({
               <Tr key={grant.username}>
                 <Td dataLabel="Name">{grant.name}</Td>
                 <Td dataLabel="User ID">{grant.username}</Td>
-                <Td dataLabel="Role">
+                <Td dataLabel="Gateway role">
                   <Flex
                     alignItems={{ default: "alignItemsCenter" }}
                     spaceItems={{ default: "spaceItemsSm" }}
@@ -841,11 +876,12 @@ function AccessTab({
                   </Flex>
                 </Td>
                 <Td dataLabel="Workspaces">
-                  {grant.role === "User"
-                    ? grant.workspaces.join(", ")
-                    : "Admin"}
+                  {grant.role === "User" ? (
+                    <MockWorkspaceList workspaces={grant.workspaces} />
+                  ) : (
+                    "All workspaces"
+                  )}
                 </Td>
-                <Td dataLabel="Granted">{grant.grantedAt}</Td>
                 <Td isActionCell modifier="fitContent">
                   {grant.role === "Owner" ? (
                     <Tooltip content="A gateway must keep at least one owner.">
@@ -1008,20 +1044,19 @@ function ServiceAccountsTab({
           <Thead>
             <Tr>
               <Th screenReaderText="Row expansion" />
-              <Th sort={getSortParams(0)} width={30}>
+              <Th sort={getSortParams(0)} width={25}>
                 Service account name
               </Th>
-              <Th width={10}>Setup</Th>
-              <Th sort={getSortParams(1)} width={15}>
+              <Th sort={getSortParams(1)} width={20}>
                 OpenShell role
               </Th>
-              <Th width={20}>Workspaces</Th>
-              <Th sort={getSortParams(2)} width={10}>
+              <Th sort={getSortParams(2)} width={15}>
                 Status
               </Th>
-              <Th sort={getSortParams(3)} width={20}>
+              <Th sort={getSortParams(3)} width={25}>
                 Expiration
               </Th>
+              <Th width={50}>Workspaces</Th>
               <Th screenReaderText="Actions" />
             </Tr>
           </Thead>
@@ -1043,24 +1078,7 @@ function ServiceAccountsTab({
                     }}
                   />
                   <Td dataLabel="Service account name">{account.name}</Td>
-                  <Td dataLabel="Setup">
-                    <Tooltip
-                      content={`Open setup instructions for ${account.name}`}
-                    >
-                      <Button
-                        aria-label={`Open setup instructions for ${account.name}`}
-                        icon={<CodeIcon />}
-                        onClick={() => onOpenSetupInstructions(account.name)}
-                        variant="plain"
-                      />
-                    </Tooltip>
-                  </Td>
                   <Td dataLabel="OpenShell role">{account.role}</Td>
-                  <Td dataLabel="Workspaces">
-                    {account.role === "openshell-admin"
-                      ? "Admin"
-                      : account.workspaces.join(", ")}
-                  </Td>
                   <Td dataLabel="Status">
                     <HealthStatus
                       appearance={
@@ -1070,6 +1088,13 @@ function ServiceAccountsTab({
                     />
                   </Td>
                   <Td dataLabel="Expiration">{account.expiration}</Td>
+                  <Td dataLabel="Workspaces">
+                    {account.role === "openshell-admin" ? (
+                      "All workspaces"
+                    ) : (
+                      <MockWorkspaceList workspaces={account.workspaces} />
+                    )}
+                  </Td>
                   <Td isActionCell modifier="fitContent">
                     <Dropdown
                       isOpen={openMenu === account.name}
@@ -1917,9 +1942,8 @@ function DetailDialog({
                   Default workspace access
                 </Title>
                 <Content component="p">
-                  Service account created. It can now use the default
-                  workspace. The default workspace is shared with other gateway
-                  users.
+                  Service account created. It can now use the default workspace.
+                  The default workspace is shared with other gateway users.
                 </Content>
                 <ExpandableSection
                   isExpanded={isServiceAccountWorkspaceExpanded}

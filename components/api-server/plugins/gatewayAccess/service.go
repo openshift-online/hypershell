@@ -64,12 +64,13 @@ var tierRank = map[string]int{TierUser: 1, TierAdmin: 2, TierOwner: 3}
 // ListOptions follows the shared list contract. Role is a console tier filter
 // (owner/admin/user); Search is a literal substring over username and name.
 type ListOptions struct {
-	Page   int
-	Size   int
-	Search string
-	Role   string
-	Sort   string
-	Order  string
+	Page      int
+	Size      int
+	Search    string
+	Role      string
+	Workspace string
+	Sort      string
+	Order     string
 }
 
 // GrantInput identifies the target of a grant by directory identity (GTW-ACC-04).
@@ -130,7 +131,7 @@ type daoService interface {
 }
 
 type Service interface {
-	List(ctx context.Context, gatewayID, callerUserID string, opts ListOptions) ([]GrantItem, int64, Capabilities, *APIError)
+	List(ctx context.Context, gatewayID, callerUserID string, opts ListOptions) ([]GrantItem, []string, int64, Capabilities, *APIError)
 	Grant(ctx context.Context, gatewayID, callerUserID string, input GrantInput) (GrantItem, *APIError)
 	ChangeRole(ctx context.Context, gatewayID, callerUserID, targetUserID, tier string) (GrantItem, *APIError)
 	Revoke(ctx context.Context, gatewayID, callerUserID, targetUserID string) *APIError
@@ -219,10 +220,13 @@ func (s *service) callerTier(ctx context.Context, userID, gatewayID string) (str
 	return highestGatewayTier(summaries, gatewayID), nil
 }
 
-func (s *service) List(ctx context.Context, gatewayID, callerUserID string, opts ListOptions) ([]GrantItem, int64, Capabilities, *APIError) {
-	rows, total, err := s.dao.list(ctx, gatewayID, opts)
+func (s *service) List(ctx context.Context, gatewayID, callerUserID string, opts ListOptions) ([]GrantItem, []string, int64, Capabilities, *APIError) {
+	allRowsOptions := opts
+	allRowsOptions.Page = 1
+	allRowsOptions.Size = 0
+	rows, _, err := s.dao.list(ctx, gatewayID, allRowsOptions)
 	if err != nil {
-		return nil, 0, Capabilities{}, serverError("unable to list gateway access")
+		return nil, nil, 0, Capabilities{}, serverError("unable to list gateway access")
 	}
 	items := make([]GrantItem, 0, len(rows))
 	for _, r := range rows {
@@ -230,21 +234,43 @@ func (s *service) List(ctx context.Context, gatewayID, callerUserID string, opts
 		item.Workspaces = []string{}
 		items = append(items, item)
 	}
-	if len(items) > 0 {
-		if aerr := s.enrichWorkspaceVisibility(ctx, gatewayID, items); aerr != nil {
-			return nil, 0, Capabilities{}, aerr
+	workspaces := []string{}
+	if len(items) > 0 || opts.Workspace != "" {
+		visibility, aerr := s.enrichWorkspaceVisibility(ctx, gatewayID, items)
+		if aerr != nil {
+			return nil, nil, 0, Capabilities{}, aerr
+		}
+		workspaces = uniqueSortedWorkspaces(visibility.Workspaces)
+		if opts.Workspace != "" && !containsWorkspace(workspaces, opts.Workspace) {
+			return nil, nil, 0, Capabilities{}, validationProblem("workspace filter is not valid")
+		}
+		if opts.Workspace != "" {
+			items = filterItemsByWorkspace(items, opts.Workspace)
 		}
 	}
 	tier, aerr := s.callerTier(ctx, callerUserID, gatewayID)
 	if aerr != nil {
-		return nil, 0, Capabilities{}, aerr
+		return nil, nil, 0, Capabilities{}, aerr
 	}
 	caps := Capabilities{
 		CallerRole:      tier,
 		CanManageAccess: tier == TierOwner || tier == TierAdmin,
 		CanManageOwners: tier == TierOwner,
 	}
-	return items, total, caps, nil
+	total := int64(len(items))
+	if opts.Size > 0 {
+		start := (opts.Page - 1) * opts.Size
+		if start < 0 || start >= len(items) {
+			items = []GrantItem{}
+		} else {
+			end := start + opts.Size
+			if end > len(items) {
+				end = len(items)
+			}
+			items = items[start:end]
+		}
+	}
+	return items, workspaces, total, caps, nil
 }
 
 func (s *service) Grant(ctx context.Context, gatewayID, callerUserID string, input GrantInput) (GrantItem, *APIError) {
@@ -447,18 +473,18 @@ func (s *service) bootstrapDefaultWorkspace(ctx context.Context, gatewayID, subj
 	return fromBootstrapProblem(problem)
 }
 
-func (s *service) enrichWorkspaceVisibility(ctx context.Context, gatewayID string, items []GrantItem) *APIError {
+func (s *service) enrichWorkspaceVisibility(ctx context.Context, gatewayID string, items []GrantItem) (defaultWorkspaceBootstrap.WorkspaceVisibility, *APIError) {
 	if s.bootstrap == nil || s.gateways == nil {
-		return serviceUnavailable("workspace visibility is unavailable")
+		return defaultWorkspaceBootstrap.WorkspaceVisibility{}, serviceUnavailable("workspace visibility is unavailable")
 	}
 	gateway, svcErr := s.gateways.Get(ctx, gatewayID)
 	if svcErr != nil {
-		return fromGatewayServiceError(svcErr)
+		return defaultWorkspaceBootstrap.WorkspaceVisibility{}, fromGatewayServiceError(svcErr)
 	}
 	if !gateways.IsProvisioningConditionComplete(
 		gateway.ProvisioningConditions, gateways.ConditionDefaultWorkspaceBootstrapReady,
 	) {
-		return serviceUnavailable("workspace visibility is unavailable")
+		return defaultWorkspaceBootstrap.WorkspaceVisibility{}, serviceUnavailable("workspace visibility is unavailable")
 	}
 	var oidc struct {
 		Issuer   string `json:"issuer"`
@@ -467,7 +493,7 @@ func (s *service) enrichWorkspaceVisibility(ctx context.Context, gatewayID strin
 	}
 	if gateway.Oidc == nil || json.Unmarshal([]byte(*gateway.Oidc), &oidc) != nil ||
 		oidc.Issuer == "" || oidc.ClientID == "" || oidc.Audience == "" {
-		return conflictErr("gateway OIDC client is not ready")
+		return defaultWorkspaceBootstrap.WorkspaceVisibility{}, conflictErr("gateway OIDC client is not ready")
 	}
 	endpoint := ""
 	if gateway.RouteAddress != nil {
@@ -484,7 +510,7 @@ func (s *service) enrichWorkspaceVisibility(ctx context.Context, gatewayID strin
 	if len(usernames) > 0 {
 		users, err := s.directory.ResolveMany(ctx, usernames)
 		if err != nil {
-			return serviceUnavailable("unable to resolve workspace memberships")
+			return defaultWorkspaceBootstrap.WorkspaceVisibility{}, serviceUnavailable("unable to resolve workspace memberships")
 		}
 		for _, user := range users {
 			if user.Subject != "" {
@@ -493,20 +519,20 @@ func (s *service) enrichWorkspaceVisibility(ctx context.Context, gatewayID strin
 		}
 		for _, username := range usernames {
 			if _, found := subjectsByUsername[strings.ToLower(username)]; !found {
-				return serviceUnavailable("unable to resolve workspace memberships")
+				return defaultWorkspaceBootstrap.WorkspaceVisibility{}, serviceUnavailable("unable to resolve workspace memberships")
 			}
 		}
 	}
 
-	memberships, problem := s.bootstrap.ListWorkspaceMemberships(ctx, defaultWorkspaceBootstrap.Input{
+	visibility, problem := s.bootstrap.ListWorkspaceVisibility(ctx, defaultWorkspaceBootstrap.Input{
 		GatewayID: gatewayID, GatewayNamespace: gateway.Namespace, GatewayEndpoint: endpoint,
 		Issuer: oidc.Issuer, GatewayClientID: oidc.ClientID,
 	})
 	if problem != nil {
-		return fromBootstrapProblem(problem)
+		return defaultWorkspaceBootstrap.WorkspaceVisibility{}, fromBootstrapProblem(problem)
 	}
 	workspacesBySubject := make(map[string][]string)
-	for _, membership := range memberships {
+	for _, membership := range visibility.Memberships {
 		workspacesBySubject[membership.Subject] = append(workspacesBySubject[membership.Subject], membership.Workspace)
 	}
 	for index := range items {
@@ -518,7 +544,41 @@ func (s *service) enrichWorkspaceVisibility(ctx context.Context, gatewayID strin
 		sort.Strings(workspaces)
 		items[index].Workspaces = workspaces
 	}
-	return nil
+	return visibility, nil
+}
+
+func uniqueSortedWorkspaces(workspaces []string) []string {
+	unique := make(map[string]struct{}, len(workspaces))
+	for _, workspace := range workspaces {
+		if workspace != "" {
+			unique[workspace] = struct{}{}
+		}
+	}
+	result := make([]string, 0, len(unique))
+	for workspace := range unique {
+		result = append(result, workspace)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func containsWorkspace(workspaces []string, workspace string) bool {
+	for _, candidate := range workspaces {
+		if candidate == workspace {
+			return true
+		}
+	}
+	return false
+}
+
+func filterItemsByWorkspace(items []GrantItem, workspace string) []GrantItem {
+	filtered := make([]GrantItem, 0, len(items))
+	for _, item := range items {
+		if item.Role != TierUser || containsWorkspace(item.Workspaces, workspace) {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
 }
 
 func fromBootstrapProblem(problem *defaultWorkspaceBootstrap.APIError) *APIError {

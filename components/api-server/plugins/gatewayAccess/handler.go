@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gorilla/mux"
 
@@ -34,12 +35,12 @@ func (h *handler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	vars := mux.Vars(r)
-	items, total, caps, problem := h.service.List(r.Context(), vars["gateway_id"], rbac.GetUserIDFromContext(r.Context()), options)
+	items, workspaces, total, caps, problem := h.service.List(r.Context(), vars["gateway_id"], rbac.GetUserIDFromContext(r.Context()), options)
 	if problem != nil {
 		writeProblem(w, problem)
 		return
 	}
-	response := listResponse{Page: options.Page, Size: options.Size, Total: total, Capabilities: presentCapabilities(caps), Items: make([]grantItemResponse, 0, len(items))}
+	response := listResponse{Page: options.Page, Size: options.Size, Total: total, Workspaces: workspaces, Capabilities: presentCapabilities(caps), Items: make([]grantItemResponse, 0, len(items))}
 	for _, item := range items {
 		response.Items = append(response.Items, presentGrant(item))
 	}
@@ -102,7 +103,7 @@ func (h *handler) SearchDirectory(w http.ResponseWriter, r *http.Request) {
 
 func parseListOptions(r *http.Request) (ListOptions, *APIError) {
 	query := r.URL.Query()
-	options := ListOptions{Page: 1, Size: 20, Sort: "granted_at", Order: "desc", Search: query.Get("search"), Role: query.Get("role")}
+	options := ListOptions{Page: 1, Size: 20, Sort: "granted_at", Order: "desc", Search: query.Get("search"), Role: query.Get("role"), Workspace: strings.TrimSpace(query.Get("workspace"))}
 	var err error
 	if value := query.Get("page"); value != "" {
 		options.Page, err = strconv.Atoi(value)

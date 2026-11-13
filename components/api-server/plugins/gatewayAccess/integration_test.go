@@ -79,6 +79,10 @@ func (f fakeDefaultWorkspaceBootstrap) ListWorkspaceMemberships(context.Context,
 	return nil, nil
 }
 
+func (f fakeDefaultWorkspaceBootstrap) ListWorkspaceVisibility(context.Context, defaultWorkspaceBootstrap.Input) (defaultWorkspaceBootstrap.WorkspaceVisibility, *defaultWorkspaceBootstrap.APIError) {
+	return defaultWorkspaceBootstrap.WorkspaceVisibility{}, nil
+}
+
 func withDefaultWorkspaceBootstrap() func() {
 	gatewayAccess.SetGatewayLookupForTest(fakeGatewayLookup{})
 	gatewayAccess.SetDefaultWorkspaceBootstrapForTest(fakeDefaultWorkspaceBootstrap{})
@@ -125,7 +129,7 @@ func TestAccessList_EnrichedTiers(t *testing.T) {
 	seed(t, gw, "viewer-two", roles.RoleGatewayViewer)
 
 	svc := accessSvc(realm())
-	items, total, caps, aerr := svc.List(context.Background(), gw, owner, gatewayAccess.ListOptions{Page: 1, Size: 50})
+	items, _, total, caps, aerr := svc.List(context.Background(), gw, owner, gatewayAccess.ListOptions{Page: 1, Size: 50})
 	Expect(aerr).To(BeNil())
 	Expect(total).To(Equal(int64(5)))
 	Expect(items).To(HaveLen(5))
@@ -156,7 +160,7 @@ func TestAccessList_FilterByRoleAndSearch(t *testing.T) {
 	seed(t, gw, "alice-admin", roles.RoleGatewayAdmin)
 
 	svc := accessSvc(realm())
-	items, _, _, aerr := svc.List(context.Background(), gw, owner, gatewayAccess.ListOptions{Page: 1, Size: 50, Role: gatewayAccess.TierUser, Search: "ali"})
+	items, _, _, _, aerr := svc.List(context.Background(), gw, owner, gatewayAccess.ListOptions{Page: 1, Size: 50, Role: gatewayAccess.TierUser, Search: "ali"})
 	Expect(aerr).To(BeNil())
 	Expect(items).To(HaveLen(1))
 	Expect(items[0].Username).To(Equal("alice-user"))
@@ -261,7 +265,7 @@ func TestChangeRole_PromoteInPlaceKeepsBindingID(t *testing.T) {
 
 	svc := accessSvc(realm())
 	// Capture the original binding id.
-	before, _, _, _ := svc.List(context.Background(), gw, owner, gatewayAccess.ListOptions{Page: 1, Size: 50})
+	before, _, _, _, _ := svc.List(context.Background(), gw, owner, gatewayAccess.ListOptions{Page: 1, Size: 50})
 	var beforeID string
 	for _, it := range before {
 		if it.UserID == target {
@@ -277,7 +281,7 @@ func TestChangeRole_PromoteInPlaceKeepsBindingID(t *testing.T) {
 	Expect(item.RoleBindingID).To(Equal(beforeID))
 
 	// Exactly one binding remains for the target (GTW-ACC-10).
-	after, _, _, _ := svc.List(context.Background(), gw, owner, gatewayAccess.ListOptions{Page: 1, Size: 50})
+	after, _, _, _, _ := svc.List(context.Background(), gw, owner, gatewayAccess.ListOptions{Page: 1, Size: 50})
 	count := 0
 	for _, it := range after {
 		if it.UserID == target {
@@ -389,7 +393,7 @@ func TestIdempotentRegrant(t *testing.T) {
 	_, aerr = svc.Grant(context.Background(), gw, owner, gatewayAccess.GrantInput{Username: "repeat", Role: gatewayAccess.TierUser})
 	Expect(aerr).To(BeNil())
 
-	items, _, _, _ := svc.List(context.Background(), gw, owner, gatewayAccess.ListOptions{Page: 1, Size: 50})
+	items, _, _, _, _ := svc.List(context.Background(), gw, owner, gatewayAccess.ListOptions{Page: 1, Size: 50})
 	count := 0
 	for _, it := range items {
 		if it.Username == "repeat" {
@@ -427,7 +431,7 @@ func TestDirectorySearch_Authorization(t *testing.T) {
 // userTierOf lists access and returns the target's tier via capabilities-style
 // lookup (the caller is the subject here).
 func userTierOf(svc gatewayAccess.Service, gw, userID string) (string, error) {
-	items, _, _, aerr := svc.List(context.Background(), gw, userID, gatewayAccess.ListOptions{Page: 1, Size: 100})
+	items, _, _, _, aerr := svc.List(context.Background(), gw, userID, gatewayAccess.ListOptions{Page: 1, Size: 100})
 	if aerr != nil {
 		return "", aerr
 	}
@@ -479,7 +483,7 @@ func TestPlatformAdmin_ManagesAccessWithoutBindingOrLogin(t *testing.T) {
 	svc := accessSvc(dir)
 
 	// Capabilities are owner-equivalent even though padmin has no binding on gw.
-	_, _, caps, aerr := svc.List(context.Background(), gw, padmin, gatewayAccess.ListOptions{Page: 1, Size: 50})
+	_, _, _, caps, aerr := svc.List(context.Background(), gw, padmin, gatewayAccess.ListOptions{Page: 1, Size: 50})
 	Expect(aerr).To(BeNil())
 	Expect(caps.CallerRole).To(Equal(gatewayAccess.TierOwner))
 	Expect(caps.CanManageAccess).To(BeTrue())

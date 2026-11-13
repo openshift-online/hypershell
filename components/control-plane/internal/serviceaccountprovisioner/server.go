@@ -25,6 +25,7 @@ type DefaultWorkspaceBootstrapper interface {
 	Configured() bool
 	AddMember(context.Context, defaultworkspace.MemberRequest) error
 	ListWorkspaceMemberships(context.Context, defaultworkspace.VisibilityRequest) ([]defaultworkspace.WorkspaceMembership, error)
+	ListWorkspaceVisibility(context.Context, defaultworkspace.VisibilityRequest) (defaultworkspace.WorkspaceVisibility, error)
 }
 
 type Provider interface {
@@ -181,12 +182,15 @@ func (s *Server) ListWorkspaceMemberships(ctx context.Context, request *pb.ListW
 		},
 		Endpoint: request.GetGatewayEndpoint(),
 	}
-	memberships, err := s.bootstrapper.ListWorkspaceMemberships(ctx, visibility)
+	workspaceVisibility, err := s.bootstrapper.ListWorkspaceVisibility(ctx, visibility)
 	if err != nil {
 		return nil, defaultWorkspaceError(err)
 	}
-	response := &pb.ListWorkspaceMembershipsResponse{Memberships: make([]*pb.WorkspaceMembership, 0, len(memberships))}
-	for _, membership := range memberships {
+	response := &pb.ListWorkspaceMembershipsResponse{
+		Memberships: make([]*pb.WorkspaceMembership, 0, len(workspaceVisibility.Memberships)),
+		Workspaces:  append([]string(nil), workspaceVisibility.Workspaces...),
+	}
+	for _, membership := range workspaceVisibility.Memberships {
 		response.Memberships = append(response.Memberships, &pb.WorkspaceMembership{
 			Workspace: membership.Workspace, Subject: membership.Subject,
 		})

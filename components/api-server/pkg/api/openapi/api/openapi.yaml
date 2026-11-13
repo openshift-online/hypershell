@@ -1470,6 +1470,13 @@ paths:
         schema:
           type: string
         style: form
+      - description: Filter rows to identities with access to a gateway workspace
+        in: query
+        name: workspace
+        required: false
+        schema:
+          minLength: 1
+          type: string
       - in: query
         name: sort
         required: false
@@ -4872,6 +4879,14 @@ components:
       required: false
       schema:
         $ref: "#/components/schemas/GatewayAccessRole"
+    workspace:
+      description: Filter rows to identities with access to a gateway workspace
+      in: query
+      name: workspace
+      required: false
+      schema:
+        minLength: 1
+        type: string
     userId:
       description: HyperShell User ID
       in: path
@@ -6351,6 +6366,9 @@ components:
           can_manage_owners: true
         size: 6
         page: 0
+        workspaces:
+        - workspaces
+        - workspaces
         items:
         - granted_at: 2000-01-23T04:56:07.000+00:00
           role: null
@@ -6379,6 +6397,11 @@ components:
           type: integer
         total:
           type: integer
+        workspaces:
+          description: "All workspace names on the gateway, sorted alphabetically"
+          items:
+            type: string
+          type: array
         capabilities:
           $ref: "#/components/schemas/GatewayAccessCapabilities"
         items:
@@ -6391,6 +6414,7 @@ components:
       - page
       - size
       - total
+      - workspaces
       type: object
     GatewaySandboxEvent:
       example:
