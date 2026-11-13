@@ -292,7 +292,7 @@ func (normalizer *normalizer) ensureSchema(reference *openapi3.SchemaRef, fallba
 	schema.Nullable, schema.ReadOnly, schema.WriteOnly, schema.Deprecated = raw.Nullable, raw.ReadOnly, raw.WriteOnly, raw.Deprecated
 	schema.Enum = append([]any(nil), raw.Enum...)
 	schema.Default, schema.Example = raw.Default, raw.Example
-	schema.Minimum, schema.Maximum, schema.ExclusiveMinimum, schema.ExclusiveMaximum = raw.Min, raw.Max, raw.ExclusiveMin, raw.ExclusiveMax
+	schema.Minimum, schema.Maximum, schema.ExclusiveMinimum, schema.ExclusiveMaximum = raw.Min, raw.Max, raw.ExclusiveMin.IsTrue(), raw.ExclusiveMax.IsTrue()
 	schema.MultipleOf, schema.MinLength, schema.MaxLength, schema.Pattern = raw.MultipleOf, raw.MinLength, raw.MaxLength, raw.Pattern
 	schema.MinItems, schema.MaxItems, schema.UniqueItems = raw.MinItems, raw.MaxItems, raw.UniqueItems
 	schema.MinProperties, schema.MaxProperties = raw.MinProps, raw.MaxProps
