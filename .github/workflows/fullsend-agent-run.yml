@@ -45,7 +45,9 @@ on:
 
 permissions:
   contents: read
-  id-token: write
+  id-token: write      # GitHub OIDC for the keyless token-exchange
+  issues: write        # triage/lifecycle post-scripts apply labels to the work item
+  pull-requests: write # PR-phase post-scripts (code/spec review) update PRs
 
 concurrency:
   group: fullsend-agent-run-${{ github.event.inputs.issue_number }}
