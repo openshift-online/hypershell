@@ -517,6 +517,17 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: dev overlays must name the control plane local-kind / local-openshift, matching the seed scripts'
 fi
+# CTRL-CORE-16: every HyperShell-owned deployment path supplies the host platform
+# explicitly. The Kind overlay is vanilla Kubernetes; the OpenShift overlay is
+# OpenShift. The controller requires HYPERSHELL_CLUSTER_PLATFORM and exits non-zero
+# without it, so a missing or wrong value here would crash-loop the control plane.
+if grep -A1 'name: HYPERSHELL_CLUSTER_PLATFORM' "${REPO_ROOT}/deploy/kind/kustomization.yaml" | grep -q 'value: kubernetes' \
+  && grep -A1 'name: HYPERSHELL_CLUSTER_PLATFORM' "${REPO_ROOT}/deploy/openshift/kustomization.yaml" | grep -q 'value: openshift'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: dev overlays must set HYPERSHELL_CLUSTER_PLATFORM (kind=kubernetes, openshift=openshift) per CTRL-CORE-16'
+fi
 if grep -rq 'WatchGateways\|WatchManagedClusters\|WatchRoleBindings\|WatchAgentRuntimes' --include='*.yaml' "${REPO_ROOT}/deploy" \
   && grep -rn 'auth-bypass-methods' "${REPO_ROOT}/deploy" | grep -q 'Watch'; then
   FAIL=$((FAIL + 1))

@@ -263,8 +263,26 @@ type KeycloakConfig struct {
 }
 
 type ReconcileOpts struct {
-	IsOpenShift    bool
+	// IsOpenShift reports whether the configured host platform is OpenShift
+	// (HYPERSHELL_CLUSTER_PLATFORM=openshift, CTRL-CORE-16). It comes from
+	// deployment configuration, NOT from API discovery, so it stays stable through
+	// discovery failures and selects platform-specific pod security and SCC
+	// integration (OSG-CORE-14).
+	IsOpenShift bool
+	// HasCertManager reports whether cert-manager is present, as determined by the
+	// shared dependency discovery during reconcile (OSG-TLS-01, CTRL-CORE-18).
+	// ReconcileGateway sets it from a fresh discovery evaluation on the
+	// provisioning path, where it selects the Helm certManager.enabled value. The
+	// delete path does not set or consume it: DeleteLabeledNamespaceResources always
+	// enumerates cert-manager GVRs and skips any whose CRD is absent (IsNotFound),
+	// so cleanup no longer depends on a captured capability flag (CTRL-CORE-17).
 	HasCertManager bool
+	// Dependencies is the shared, refreshable dependency-discovery contract
+	// (CTRL-CORE-18) used to evaluate feature prerequisites (cert-manager, Gateway
+	// API) per reconcile. When nil, ReconcileGateway builds a per-call instance
+	// from the clientset's discovery client, so tests and legacy callers keep
+	// working.
+	Dependencies *DependencyDiscovery
 	// Database locates the mounted PostgreSQL admin credentials every gateway
 	// database is provisioned with (see database.go).
 	Database DatabaseConfig

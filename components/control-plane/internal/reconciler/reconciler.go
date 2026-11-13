@@ -15,6 +15,7 @@ import (
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/gatewayhealth"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/config"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/exposure"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/helm"
@@ -108,14 +109,20 @@ func recordIncompleteFinalizationEvent(ctx context.Context, client kubernetes.In
 }
 
 type GatewayReconciler struct {
-	mu                    sync.Mutex
-	active                map[string]struct{}
-	dynamicClient         dynamic.Interface
-	clientset             *kubernetes.Clientset
-	grpcConn              *grpc.ClientConn
-	helmClient            *helm.ShellClient
-	isOpenShift           bool
-	hasCertManager        bool
+	mu            sync.Mutex
+	active        map[string]struct{}
+	dynamicClient dynamic.Interface
+	clientset     *kubernetes.Clientset
+	grpcConn      *grpc.ClientConn
+	helmClient    *helm.ShellClient
+	// isOpenShift is derived from the configured host platform
+	// (HYPERSHELL_CLUSTER_PLATFORM, CTRL-CORE-16), NOT from API discovery, so it
+	// stays stable through discovery failures.
+	isOpenShift bool
+	// deps is the shared, refreshable dependency-discovery contract (CTRL-CORE-18)
+	// used to evaluate feature prerequisites (cert-manager, Gateway API) on each
+	// reconcile. It never blocks controller startup.
+	deps                  *gateway.DependencyDiscovery
 	controlPlaneNamespace string
 	keycloakClient        *keycloak.Client
 	keycloakConfig        *gateway.KeycloakConfig
@@ -222,6 +229,7 @@ func NewGatewayReconciler(
 	clusterID string,
 	gatewayResources *corev1.ResourceRequirements,
 	sandboxRuntimeClass string,
+	clusterPlatform string,
 	operatorWorkspace *helm.OperatorWorkspaceConfig,
 	operatorNamespaceLabelKey string,
 	operatorSandboxRuntimeClass string,
@@ -233,8 +241,14 @@ func NewGatewayReconciler(
 		return nil, fmt.Errorf("gateway exposure port is required")
 	}
 
-	isOpenShift := gateway.DetectOpenShift(clientset)
-	hasCertManager := gateway.DetectCertManager(clientset)
+	// The host platform is explicit deployment configuration, not something
+	// inferred from API discovery (CTRL-CORE-16). Construction performs no
+	// discovery call, so a stale or unavailable API never blocks controller
+	// startup or freezes a false capability flag (CTRL-CORE-17). Feature
+	// dependencies (cert-manager, Gateway API) are evaluated per reconcile through
+	// the shared dependency discovery (CTRL-CORE-18).
+	isOpenShift := clusterPlatform == config.ClusterPlatformOpenShift
+	deps := gateway.NewDependencyDiscovery(clientset.Discovery())
 
 	// Keycloak is mandatory: every gateway gets a generated OIDC configuration
 	// (the gateway refuses to start without an auth mechanism, issue #809).
@@ -257,8 +271,8 @@ func NewGatewayReconciler(
 
 	slog.Info("Gateway reconciler initialized",
 		"helm", helmClient.ChartPath,
+		"platform", clusterPlatform,
 		"openshift", isOpenShift,
-		"certmanager", hasCertManager,
 		"keycloak", keycloakConfig.ServerURL,
 		"ingress", ingressBaseDomain)
 
@@ -269,7 +283,7 @@ func NewGatewayReconciler(
 		grpcConn:                    grpcConn,
 		helmClient:                  helmClient,
 		isOpenShift:                 isOpenShift,
-		hasCertManager:              hasCertManager,
+		deps:                        deps,
 		controlPlaneNamespace:       controlPlaneNamespace,
 		keycloakClient:              kcClient,
 		keycloakConfig:              keycloakConfig,
@@ -386,7 +400,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			slog.InfoContext(ctx, "Gateway deleted, cleaning up resources", "gateway_id", event.ResourceID, "namespace", namespace)
 			opts := gateway.ReconcileOpts{
 				IsOpenShift:           r.isOpenShift,
-				HasCertManager:        r.hasCertManager,
+				Dependencies:          r.deps,
 				Database:              r.database,
 				ControlPlaneNamespace: r.controlPlaneNamespace,
 				GatewayID:             event.ResourceID,
@@ -706,8 +720,11 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	}
 
 	opts := gateway.ReconcileOpts{
-		IsOpenShift:                 r.isOpenShift,
-		HasCertManager:              r.hasCertManager,
+		IsOpenShift: r.isOpenShift,
+		// HasCertManager is determined per reconcile by ReconcileGateway from the
+		// shared dependency discovery (CTRL-CORE-18, OSG-TLS-01); it is not a frozen
+		// startup flag.
+		Dependencies:                r.deps,
 		Database:                    r.database,
 		ControlPlaneNamespace:       r.controlPlaneNamespace,
 		GatewayID:                   event.ResourceID,

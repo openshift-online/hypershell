@@ -8,15 +8,13 @@ HYPERSHELL_REPO=$(cd "$here/../.." && pwd)
 cd "$HYPERSHELL_REPO"
 
 fail() { printf '%s\n' "$*" >&2; exit 1; }
-: "${OCE_REPO:?Set OCE_REPO to the OCE source checkout (see deploy/oce-kind/README.md)}"
 : "${ENMAAS_API_KEY_FILE:?Set ENMAAS_API_KEY_FILE to a file containing the EnMaaS API key}"
 [[ $(uname -s) == Linux ]] || fail 'The OCE kind setup currently requires Linux and Docker.'
-for tool in docker kind kubectl kustomize go node jq openssl flock python3 curl make; do
+for tool in docker kind kubectl kustomize git go node jq openssl flock python3 curl make; do
   command -v "$tool" >/dev/null || fail "Required tool missing: $tool (see deploy/oce-kind/README.md)"
 done
 python3 -c 'import tomllib, yaml' || fail 'Python 3.11+ with PyYAML is required.'
-export OCE_REPO ENMAAS_API_KEY_FILE
-OCE_REPO=$(cd "$OCE_REPO" && pwd)
+export ENMAAS_API_KEY_FILE
 ENMAAS_API_KEY_FILE=$(realpath "$ENMAAS_API_KEY_FILE")
 python3 - <<'PY'
 import os
@@ -25,15 +23,6 @@ key = Path(os.environ['ENMAAS_API_KEY_FILE']).read_text().strip()
 if not key or any(c.isspace() or ord(c) < 33 for c in key):
     raise SystemExit('ENMAAS_API_KEY_FILE must contain one nonempty API key.')
 PY
-for file in cmd/occ/main.go scripts/build-controller.mjs scripts/lib/openclaw-source.mjs \
-  scripts/ci/test-suites/images-packaging.json docs/assets/openshell-quickstart/chat.mjs \
-  docs/snippets/openshell-quickstart/operator-session.sh \
-  docs/snippets/openshell-quickstart/platform-kubernetes.sh \
-  docs/snippets/openshell-quickstart/codex-configuration.jq; do
-  [[ -f $OCE_REPO/$file ]] || fail "OCE checkout is missing $file; use the checkout documented in deploy/oce-kind/README.md."
-done
-python3 "$OCE_REPO/docs/snippets/openshell-quickstart/kubernetes/service-policies.py" --help |
-  grep -q -- --openshell-namespace || fail 'OCE needs the namespace-aware OpenShell network helper; see the README.'
 docker info >/dev/null
 
 state_home=${XDG_STATE_HOME:-$HOME/.local/state}
@@ -47,9 +36,10 @@ OCE_KIND_STATE=$(python3 "$here/select-state.py" "$state_home")
 mkdir -p "$OCE_KIND_STATE"
 chmod 700 "$OCE_KIND_STATE"
 OCE_KIND_STATE=$(cd "$OCE_KIND_STATE" && pwd)
+export OCE_REPO="${OCE_REPO:-$OCE_KIND_STATE/oce-source}"
 export KUBECONFIG="$OCE_KIND_STATE/kubeconfig" CONTEXT=kind-hypershell-oce
 export KIND_CLUSTER_NAME=hypershell-oce KIND_NAMESPACE=hypershell-system KIND_NO_SUDO=true
-export KIND_HOT_RELOAD=false LOCAL_IMAGES=true
+export KIND_HOT_RELOAD=false
 export CPK_LOG="$OCE_KIND_STATE/cpk.log" CURL_HOME="$OCE_KIND_STATE/curl"
 mkdir -p "$CURL_HOME"
 printf 'ipv4\n' > "$CURL_HOME/.curlrc"
@@ -89,7 +79,7 @@ stage=HyperShell
 if [[ ! -e $OCE_KIND_STATE/hypershell-ready && ! -e $OCE_KIND_STATE/install-receipt ]]; then
   # Only the first bring-up reapplies baseline manifests; later runs preserve operator settings and ingress.
   make kind-up SKIP_SEED=true KIND_CLUSTER_NAME=hypershell-oce KIND_NAMESPACE=hypershell-system \
-    CONTAINER_ENGINE=docker KIND_HOT_RELOAD=false LOCAL_IMAGES=true KIND_KEYCLOAK_URL= 8>&-
+    CONTAINER_ENGINE=docker KIND_HOT_RELOAD=false KIND_KEYCLOAK_URL= 8>&-
   touch "$OCE_KIND_STATE/hypershell-ready"
 fi
 stage='gateway prerequisites'
@@ -124,13 +114,24 @@ kubectl -n "$GATEWAY_NAMESPACE" rollout status deployment/openshell-gateway --ti
 printf '%s\n' "$GATEWAY_NAMESPACE" > "$OCE_KIND_STATE/gateway-namespace"
 printf '%s\n' "$keycloak_host" > "$OCE_KIND_STATE/keycloak-host"
 
-stage='OCE image build'
-if [[ ! -s $OCE_KIND_STATE/images.json ]]; then bash "$here/build-oce.sh"; fi
+stage='OCE image preparation'
+if [[ ! -s $OCE_KIND_STATE/images.json || ! -x $OCE_KIND_STATE/occ || ! -d $OCE_REPO ]]; then
+  bash "$here/pull-oce.sh"
+fi
+for file in cmd/occ/main.go deploy/helm/openclaw-enterprise/Chart.yaml \
+  docs/assets/openshell-quickstart/chat.mjs docs/snippets/openshell-quickstart/operator-session.sh \
+  docs/snippets/openshell-quickstart/platform-kubernetes.sh docs/snippets/openshell-quickstart/codex-configuration.jq; do
+  [[ -f $OCE_REPO/$file ]] || fail "OCE checkout is missing $file; see deploy/oce-kind/README.md."
+done
+python3 "$OCE_REPO/docs/snippets/openshell-quickstart/kubernetes/service-policies.py" --help |
+  grep -q -- --openshell-namespace || fail 'OCE needs the namespace-aware OpenShell network helper; see the README.'
 stage='Helm preparation'
 mkdir -p "$OCE_KIND_STATE/bin" "$OCE_KIND_STATE/helm-plugins"
 if [[ ! -x $OCE_KIND_STATE/bin/helm ]]; then
   # The HyperShell controller ships the Helm 3 required by OCC, even on Helm 4 hosts.
-  container=$(docker create localhost/hypershell-controller:dev)
+  controller_image=$(kubectl -n "$KIND_NAMESPACE" get deployment/hypershell-controller \
+    -o 'jsonpath={.spec.template.spec.containers[?(@.name=="controller")].image}')
+  container=$(docker create "$controller_image")
   if ! docker cp "$container:/usr/local/bin/helm" "$OCE_KIND_STATE/bin/helm"; then
     docker rm "$container"
     fail 'Could not extract Helm 3 from the HyperShell controller image.'

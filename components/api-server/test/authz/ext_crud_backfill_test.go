@@ -329,24 +329,15 @@ func seedCollisionPair(t *testing.T, g2 *gorm.DB, p collisionPair) {
 	exec(t, g2, p.insertSQL, p.argsForRow(p.idHigh)...)
 }
 
-// sortedIDPair returns two distinct ids, the smaller first, so a test can predict
-// which row the de-duplication keeps (smallest id) and which it suffixes.
-//
-// "Smaller" is decided by the database, not by Go: the migration compares ids with
-// SQL `<`, which follows the database collation. Go compares bytes, and the two
-// orders can disagree for mixed-case ids (for example `Z` vs `a` under en_US), so
-// sorting in Go made the test flaky.
+// sortedIDPair uses the database collation, which can order mixed-case IDs
+// differently from Go, to predict which row the migration keeps or suffixes.
 func sortedIDPair(t *testing.T, g2 *gorm.DB) (string, string) {
 	t.Helper()
-	a, b := api.NewID(), api.NewID()
-	var aFirst bool
-	if err := g2.Raw(`SELECT ?::varchar < ?::varchar`, a, b).Scan(&aFirst).Error; err != nil {
-		t.Fatalf("compare ids in the database: %v", err)
-	}
-	if aFirst {
-		return a, b
-	}
-	return b, a
+	var ids []string
+	Expect(g2.Raw(`SELECT id FROM (VALUES (?::text), (?::text)) AS ids(id) ORDER BY id`,
+		api.NewID(), api.NewID()).Scan(&ids).Error).To(Succeed())
+	Expect(ids).To(HaveLen(2))
+	return ids[0], ids[1]
 }
 
 // hasIndex reports whether an index with the given name exists in the current

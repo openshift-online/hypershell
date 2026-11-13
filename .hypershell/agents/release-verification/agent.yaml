@@ -38,9 +38,9 @@ metadata:
   name: release-verification-inference-key
 spec:
   agent_runtime_id: release-verification
-  purpose: api-key
+  purpose: service-account-key
   backend: vault
-  path: hypershell/release-verification/anthropic-api-key
+  path: hypershell/release-verification/vertex-service-account
 ---
 apiVersion: hypershell.redhat.io/v1
 kind: SecretSource
@@ -61,7 +61,7 @@ spec:
   provider_spec_id: claude-inference
   secret_source_id: release-verification-inference-key
   refresh_strategy: |
-    {"type": "static-token", "secret_material": [{"key": "api_key", "secret_source_id": "release-verification-inference-key"}]}
+    {"type": "google-service-account-jwt", "secret_material": [{"key": "service-account-key", "secret_source_id": "release-verification-inference-key"}]}
 ---
 apiVersion: hypershell.redhat.io/v1
 kind: ProviderBinding
