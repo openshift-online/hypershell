@@ -1392,12 +1392,12 @@
     "description": "Button that opens the directory picker."
   },
   "app.gateway.access.changeRole.label": {
-    "defaultMessage": "Change role",
-    "description": "Accessible label for the inline role control."
+    "defaultMessage": "Change gateway role",
+    "description": "Accessible label for the inline gateway-role control."
   },
   "app.gateway.access.column.role": {
-    "defaultMessage": "Role",
-    "description": "Access table column for the role."
+    "defaultMessage": "Gateway role",
+    "description": "Access table column for the HyperShell gateway role."
   },
   "app.gateway.access.column.userId": {
     "defaultMessage": "User ID",
@@ -1420,7 +1420,7 @@
     "description": "Checkbox that controls default-workspace membership."
   },
   "app.gateway.access.description": {
-    "defaultMessage": "Manage who can access this gateway and at what role.",
+    "defaultMessage": "Manage who can access this gateway and at what gateway role.",
     "description": "Description under the Manage access heading."
   },
   "app.gateway.access.directory.clear": {
@@ -1556,27 +1556,27 @@
     "description": "User role description in the role picker."
   },
   "app.gateway.access.roleFilter.all": {
-    "defaultMessage": "All roles",
-    "description": "Role filter option that clears the role filter."
+    "defaultMessage": "All gateway roles",
+    "description": "Gateway-role filter option that clears the filter."
   },
   "app.gateway.access.roleFilter.label": {
-    "defaultMessage": "Filter by role",
-    "description": "Accessible label for the role filter."
+    "defaultMessage": "Filter by gateway role",
+    "description": "Accessible label for the gateway-role filter."
   },
   "app.gateway.access.selectRole": {
-    "defaultMessage": "Select a role",
-    "description": "Label for the role radio group in the grant modal."
+    "defaultMessage": "Select a gateway role",
+    "description": "Label for the gateway-role radio group in the grant modal."
   },
   "app.gateway.access.selfRoleChange.body": {
-    "defaultMessage": "You are about to change your own role on this gateway to {role}. This may reduce your own access. Do you want to continue?",
+    "defaultMessage": "You are about to change your own gateway role to {role}. This may reduce your own access. Do you want to continue?",
     "description": "Body of the confirmation modal shown when a user changes their own access role."
   },
   "app.gateway.access.selfRoleChange.confirm": {
-    "defaultMessage": "Change my role",
+    "defaultMessage": "Change my gateway role",
     "description": "Confirm button in the modal shown when a user changes their own access role."
   },
   "app.gateway.access.selfRoleChange.title": {
-    "defaultMessage": "Change your own role?",
+    "defaultMessage": "Change your own gateway role?",
     "description": "Title of the confirmation modal shown when a user changes their own access role."
   },
   "app.gateway.access.tab": {
@@ -1586,6 +1586,14 @@
   "app.gateway.access.viewerReadOnly": {
     "defaultMessage": "You have read-only access to this list.",
     "description": "Notice shown to viewers who cannot manage access."
+  },
+  "app.gateway.access.workspaceFilter.all": {
+    "defaultMessage": "All workspaces",
+    "description": "Workspace filter option that clears the filter."
+  },
+  "app.gateway.access.workspaceFilter.label": {
+    "defaultMessage": "Filter by workspace",
+    "description": "Accessible label for the workspace filter."
   },
   "app.gateway.access.workspaceGrant.intro": {
     "defaultMessage": "Run this command to add this user to another workspace or to replace manually removed default-workspace access:",
@@ -2620,8 +2628,8 @@
     "description": "Placeholder shown for a gateway that has no observed running version yet."
   },
   "app.gateway.workspace.admin": {
-    "defaultMessage": "Admin",
-    "description": "Workspace display for an identity with admin access."
+    "defaultMessage": "All workspaces",
+    "description": "Workspace display for an identity with gateway-wide access."
   },
   "app.gateway.workspace.advancedCommand": {
     "defaultMessage": "Advanced: add to another workspace",

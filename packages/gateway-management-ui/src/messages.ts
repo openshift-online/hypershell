@@ -1685,7 +1685,8 @@ export const messages = defineMessages({
   },
   accessDescription: {
     id: "app.gateway.access.description",
-    defaultMessage: "Manage who can access this gateway and at what role.",
+    defaultMessage:
+      "Manage who can access this gateway and at what gateway role.",
     description: "Description under the Manage access heading.",
   },
   accessUserName: {
@@ -1700,8 +1701,8 @@ export const messages = defineMessages({
   },
   accessRoleColumn: {
     id: "app.gateway.access.column.role",
-    defaultMessage: "Role",
-    description: "Access table column for the role.",
+    defaultMessage: "Gateway role",
+    description: "Access table column for the HyperShell gateway role.",
   },
   accessWorkspacesColumn: {
     id: "app.gateway.access.column.workspaces",
@@ -1710,8 +1711,8 @@ export const messages = defineMessages({
   },
   adminWorkspaceAccess: {
     id: "app.gateway.workspace.admin",
-    defaultMessage: "Admin",
-    description: "Workspace display for an identity with admin access.",
+    defaultMessage: "All workspaces",
+    description: "Workspace display for an identity with gateway-wide access.",
   },
   noWorkspaces: {
     id: "app.gateway.workspace.none",
@@ -1766,13 +1767,23 @@ export const messages = defineMessages({
   },
   accessRoleFilterLabel: {
     id: "app.gateway.access.roleFilter.label",
-    defaultMessage: "Filter by role",
-    description: "Accessible label for the role filter.",
+    defaultMessage: "Filter by gateway role",
+    description: "Accessible label for the gateway-role filter.",
   },
   accessRoleFilterAll: {
     id: "app.gateway.access.roleFilter.all",
-    defaultMessage: "All roles",
-    description: "Role filter option that clears the role filter.",
+    defaultMessage: "All gateway roles",
+    description: "Gateway-role filter option that clears the filter.",
+  },
+  accessWorkspaceFilterLabel: {
+    id: "app.gateway.access.workspaceFilter.label",
+    defaultMessage: "Filter by workspace",
+    description: "Accessible label for the workspace filter.",
+  },
+  accessWorkspaceFilterAll: {
+    id: "app.gateway.access.workspaceFilter.all",
+    defaultMessage: "All workspaces",
+    description: "Workspace filter option that clears the filter.",
   },
   accessAddUsers: {
     id: "app.gateway.access.addUsers",
@@ -1806,8 +1817,8 @@ export const messages = defineMessages({
   },
   accessSelectRole: {
     id: "app.gateway.access.selectRole",
-    defaultMessage: "Select a role",
-    description: "Label for the role radio group in the grant modal.",
+    defaultMessage: "Select a gateway role",
+    description: "Label for the gateway-role radio group in the grant modal.",
   },
   accessGrant: {
     id: "app.gateway.access.grant",
@@ -1821,25 +1832,25 @@ export const messages = defineMessages({
   },
   accessChangeRoleLabel: {
     id: "app.gateway.access.changeRole.label",
-    defaultMessage: "Change role",
-    description: "Accessible label for the inline role control.",
+    defaultMessage: "Change gateway role",
+    description: "Accessible label for the inline gateway-role control.",
   },
   accessSelfRoleChangeTitle: {
     id: "app.gateway.access.selfRoleChange.title",
-    defaultMessage: "Change your own role?",
+    defaultMessage: "Change your own gateway role?",
     description:
       "Title of the confirmation modal shown when a user changes their own access role.",
   },
   accessSelfRoleChangeBody: {
     id: "app.gateway.access.selfRoleChange.body",
     defaultMessage:
-      "You are about to change your own role on this gateway to {role}. This may reduce your own access. Do you want to continue?",
+      "You are about to change your own gateway role to {role}. This may reduce your own access. Do you want to continue?",
     description:
       "Body of the confirmation modal shown when a user changes their own access role.",
   },
   accessSelfRoleChangeConfirm: {
     id: "app.gateway.access.selfRoleChange.confirm",
-    defaultMessage: "Change my role",
+    defaultMessage: "Change my gateway role",
     description:
       "Confirm button in the modal shown when a user changes their own access role.",
   },

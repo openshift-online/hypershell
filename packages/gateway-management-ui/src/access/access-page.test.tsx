@@ -47,7 +47,7 @@ const user: GatewayAccessGrantRecord = {
   roleBindingId: "rb-user",
   userId: "u-user",
   username: "user1",
-  workspaces: ["default", "research"],
+  workspaces: ["research", "default"],
 };
 
 const ownerCapabilities: GatewayAccessCapabilities = {
@@ -69,8 +69,16 @@ const viewerCapabilities: GatewayAccessCapabilities = {
 function accessPage(
   items: readonly GatewayAccessGrantRecord[],
   capabilities: GatewayAccessCapabilities,
+  workspaces: readonly string[] = ["default", "research"],
 ): GatewayAccessPage {
-  return { capabilities, items, page: 1, size: 20, total: items.length };
+  return {
+    capabilities,
+    items,
+    page: 1,
+    size: 20,
+    total: items.length,
+    workspaces,
+  };
 }
 
 const mocks = vi.hoisted(() => ({
@@ -150,7 +158,49 @@ describe("AccessPage", () => {
     expect(screen.getByText("Amy Admin")).toBeTruthy();
     expect(screen.getByText("Uma User")).toBeTruthy();
     expect(screen.getAllByText("Admin").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("default, research")).toBeTruthy();
+    const expectedWidths: Record<string, string> = {
+      "User ID": "25",
+      "Gateway role": "25",
+      Workspaces: "50",
+    };
+    Object.entries(expectedWidths).forEach(([name, width]) => {
+      expect(screen.getByRole("columnheader", { name }).className).toContain(
+        `pf-m-width-${width}`,
+      );
+    });
+    expect(
+      screen.getAllByRole("listitem").map((item) => item.textContent),
+    ).toEqual(["default", "research"]);
+  });
+
+  it("filters by workspace server-side", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Uma User");
+
+    await user.click(
+      screen.getByRole("button", { name: "Filter by workspace" }),
+    );
+    await user.click(screen.getByRole("option", { name: "research" }));
+
+    await waitFor(() => {
+      expect(mocks.list).toHaveBeenLastCalledWith(
+        "gateway-1",
+        expect.objectContaining({ page: 1, workspace: "research" }),
+        expect.any(AbortSignal),
+      );
+    });
+  });
+
+  it("hides the workspace filter when the gateway has one workspace", async () => {
+    mocks.list.mockResolvedValue(
+      accessPage([user], ownerCapabilities, ["default"]),
+    );
+    renderPage();
+    await screen.findByText("Uma User");
+    expect(
+      screen.queryByRole("button", { name: "Filter by workspace" }),
+    ).toBeNull();
   });
 
   // Verifies: WEB-ACC-08.01
@@ -211,7 +261,9 @@ describe("AccessPage", () => {
       { timeout: 2_000 },
     );
 
-    await user1.click(screen.getByRole("button", { name: "Filter by role" }));
+    await user1.click(
+      screen.getByRole("button", { name: "Filter by gateway role" }),
+    );
     await user1.click(screen.getByRole("option", { name: "User" }));
     await waitFor(() => {
       expect(mocks.list).toHaveBeenLastCalledWith(
@@ -229,7 +281,7 @@ describe("AccessPage", () => {
     await screen.findByText("Uma User");
 
     await user1.click(
-      screen.getByRole("button", { name: "Change role: Uma User" }),
+      screen.getByRole("button", { name: "Change gateway role: Uma User" }),
     );
     await user1.click(screen.getByRole("option", { name: "Admin" }));
     await waitFor(() => {
@@ -249,18 +301,18 @@ describe("AccessPage", () => {
     await screen.findByText("Owen Two");
 
     await user1.click(
-      screen.getByRole("button", { name: "Change role: Owen Two" }),
+      screen.getByRole("button", { name: "Change gateway role: Owen Two" }),
     );
     await user1.click(screen.getByRole("option", { name: "Admin" }));
 
     // The change is held until the user confirms in the modal.
     const dialog = await screen.findByRole("dialog", {
-      name: "Change your own role?",
+      name: "Change your own gateway role?",
     });
     expect(mocks.change).not.toHaveBeenCalled();
 
     await user1.click(
-      within(dialog).getByRole("button", { name: "Change my role" }),
+      within(dialog).getByRole("button", { name: "Change my gateway role" }),
     );
     await waitFor(() => {
       expect(mocks.change).toHaveBeenCalledWith(
@@ -280,14 +332,14 @@ describe("AccessPage", () => {
     await screen.findByText("Uma User");
 
     await user1.click(
-      screen.getByRole("button", { name: "Change role: Uma User" }),
+      screen.getByRole("button", { name: "Change gateway role: Uma User" }),
     );
     await user1.click(screen.getByRole("option", { name: "Admin" }));
     await waitFor(() => {
       expect(mocks.change).toHaveBeenCalledWith("gateway-1", "u-user", "admin");
     });
     expect(
-      screen.queryByRole("dialog", { name: "Change your own role?" }),
+      screen.queryByRole("dialog", { name: "Change your own gateway role?" }),
     ).toBeNull();
   });
 
@@ -509,7 +561,7 @@ describe("AccessPage", () => {
       screen.queryByRole("button", { name: "Remove access: Uma User" }),
     ).toBeNull();
     expect(
-      screen.queryByRole("button", { name: "Change role: Uma User" }),
+      screen.queryByRole("button", { name: "Change gateway role: Uma User" }),
     ).toBeNull();
     // Role shows as plain text for viewers.
     expect(screen.getByText("User")).toBeTruthy();

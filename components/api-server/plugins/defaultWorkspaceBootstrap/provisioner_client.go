@@ -54,6 +54,14 @@ func (p *controlPlaneProvisioner) BootstrapDefaultWorkspace(ctx context.Context,
 }
 
 func (p *controlPlaneProvisioner) ListWorkspaceMemberships(ctx context.Context, input Input) ([]WorkspaceMembership, error) {
+	visibility, err := p.ListWorkspaceVisibility(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	return visibility.Memberships, nil
+}
+
+func (p *controlPlaneProvisioner) ListWorkspaceVisibility(ctx context.Context, input Input) (WorkspaceVisibility, error) {
 	callCtx, cancel := provisionerCallContext(ctx)
 	defer cancel()
 	response, err := p.client.ListWorkspaceMemberships(callCtx, &pb.ListWorkspaceMembershipsRequest{
@@ -62,18 +70,21 @@ func (p *controlPlaneProvisioner) ListWorkspaceMemberships(ctx context.Context, 
 		GatewayClientId: input.GatewayClientID,
 	})
 	if status.Code(err) == codes.Unimplemented {
-		return nil, errUnsupportedControlPlane
+		return WorkspaceVisibility{}, errUnsupportedControlPlane
 	}
 	if err != nil {
-		return nil, err
+		return WorkspaceVisibility{}, err
 	}
-	memberships := make([]WorkspaceMembership, 0, len(response.GetMemberships()))
+	visibility := WorkspaceVisibility{
+		Workspaces:  append([]string(nil), response.GetWorkspaces()...),
+		Memberships: make([]WorkspaceMembership, 0, len(response.GetMemberships())),
+	}
 	for _, membership := range response.GetMemberships() {
-		memberships = append(memberships, WorkspaceMembership{
+		visibility.Memberships = append(visibility.Memberships, WorkspaceMembership{
 			Workspace: membership.GetWorkspace(), Subject: membership.GetSubject(),
 		})
 	}
-	return memberships, nil
+	return visibility, nil
 }
 
 func provisionerCallContext(ctx context.Context) (context.Context, context.CancelFunc) {

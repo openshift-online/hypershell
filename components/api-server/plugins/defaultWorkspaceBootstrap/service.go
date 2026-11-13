@@ -27,15 +27,22 @@ type WorkspaceMembership struct {
 	Subject   string
 }
 
+type WorkspaceVisibility struct {
+	Workspaces  []string
+	Memberships []WorkspaceMembership
+}
+
 type Provisioner interface {
 	Configured() bool
 	BootstrapDefaultWorkspace(context.Context, Input) error
 	ListWorkspaceMemberships(context.Context, Input) ([]WorkspaceMembership, error)
+	ListWorkspaceVisibility(context.Context, Input) (WorkspaceVisibility, error)
 }
 
 type Service interface {
 	Bootstrap(context.Context, Input) *APIError
 	ListWorkspaceMemberships(context.Context, Input) ([]WorkspaceMembership, *APIError)
+	ListWorkspaceVisibility(context.Context, Input) (WorkspaceVisibility, *APIError)
 }
 
 type APIError struct {
@@ -100,17 +107,25 @@ func (s *service) Bootstrap(ctx context.Context, input Input) *APIError {
 }
 
 func (s *service) ListWorkspaceMemberships(ctx context.Context, input Input) ([]WorkspaceMembership, *APIError) {
+	visibility, problem := s.ListWorkspaceVisibility(ctx, input)
+	if problem != nil {
+		return nil, problem
+	}
+	return visibility.Memberships, nil
+}
+
+func (s *service) ListWorkspaceVisibility(ctx context.Context, input Input) (WorkspaceVisibility, *APIError) {
 	if err := validateWorkspaceVisibilityInput(input); err != nil {
-		return nil, &APIError{Status: http.StatusBadRequest, Code: "default_workspace_bootstrap_invalid", Message: err.Error()}
+		return WorkspaceVisibility{}, &APIError{Status: http.StatusBadRequest, Code: "default_workspace_bootstrap_invalid", Message: err.Error()}
 	}
 	if s.provisioner == nil || !s.provisioner.Configured() {
-		return nil, &APIError{Status: http.StatusServiceUnavailable, Code: "default_workspace_bootstrap_unavailable", Message: "Workspace visibility is unavailable"}
+		return WorkspaceVisibility{}, &APIError{Status: http.StatusServiceUnavailable, Code: "default_workspace_bootstrap_unavailable", Message: "Workspace visibility is unavailable"}
 	}
-	memberships, err := s.provisioner.ListWorkspaceMemberships(ctx, input)
+	visibility, err := s.provisioner.ListWorkspaceVisibility(ctx, input)
 	if err != nil {
-		return nil, &APIError{Status: http.StatusServiceUnavailable, Code: "workspace_visibility_unavailable", Message: "OpenShell workspace memberships are unavailable"}
+		return WorkspaceVisibility{}, &APIError{Status: http.StatusServiceUnavailable, Code: "workspace_visibility_unavailable", Message: "OpenShell workspace memberships are unavailable"}
 	}
-	return memberships, nil
+	return visibility, nil
 }
 
 func validate(input Input) error {

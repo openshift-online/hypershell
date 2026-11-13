@@ -441,6 +441,7 @@ export function createGatewayControlPlaneAdapter(
             ...(request.search ? { search: request.search } : {}),
             size: request.size,
             sort: request.sort,
+            ...(request.workspace ? { workspace: request.workspace } : {}),
           },
           { signal: context.signal },
         );
@@ -450,6 +451,7 @@ export function createGatewayControlPlaneAdapter(
           page: response.page,
           size: response.size,
           total: response.total,
+          workspaces: workspaceNames(response.workspaces),
         };
       });
     },

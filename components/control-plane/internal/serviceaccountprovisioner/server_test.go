@@ -153,6 +153,10 @@ func (f *fakeBootstrapper) ListWorkspaceMemberships(context.Context, defaultwork
 	return nil, f.err
 }
 
+func (f *fakeBootstrapper) ListWorkspaceVisibility(context.Context, defaultworkspace.VisibilityRequest) (defaultworkspace.WorkspaceVisibility, error) {
+	return defaultworkspace.WorkspaceVisibility{}, f.err
+}
+
 func (f *fakeProvider) Configured() bool { return f.configured }
 
 func (f *fakeProvider) ProvisionServiceAccount(_ context.Context, spec serviceaccountkeycloak.ServiceAccountSpec) (*serviceaccountkeycloak.ProvisionedServiceAccount, error) {

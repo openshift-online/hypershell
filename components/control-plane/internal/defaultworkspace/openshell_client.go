@@ -56,14 +56,14 @@ func (c *GRPCOpenShellClient) AddMember(ctx context.Context, endpoint, namespace
 	return err
 }
 
-func (c *GRPCOpenShellClient) ListWorkspaceMemberships(ctx context.Context, endpoint, namespace, accessToken string) ([]WorkspaceMembership, error) {
+func (c *GRPCOpenShellClient) ListWorkspaceVisibility(ctx context.Context, endpoint, namespace, accessToken string) (WorkspaceVisibility, error) {
 	target, transportCredentials, err := c.grpcTarget(ctx, endpoint, namespace)
 	if err != nil {
-		return nil, err
+		return WorkspaceVisibility{}, err
 	}
 	connection, err := grpc.NewClient(target, grpc.WithTransportCredentials(transportCredentials))
 	if err != nil {
-		return nil, err
+		return WorkspaceVisibility{}, err
 	}
 	defer func() { _ = connection.Close() }()
 	client := openshellv1.NewOpenShellClient(connection)
@@ -75,7 +75,7 @@ func (c *GRPCOpenShellClient) ListWorkspaceMemberships(ctx context.Context, endp
 			PageSize: 1000, PageToken: pageToken,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("list workspaces: %w", err)
+			return WorkspaceVisibility{}, fmt.Errorf("list workspaces: %w", err)
 		}
 		for _, workspace := range response.GetWorkspaces() {
 			if name := workspace.GetMetadata().GetName(); name != "" {
@@ -88,7 +88,7 @@ func (c *GRPCOpenShellClient) ListWorkspaceMemberships(ctx context.Context, endp
 		}
 	}
 
-	memberships := make([]WorkspaceMembership, 0)
+	visibility := WorkspaceVisibility{Workspaces: workspaces, Memberships: make([]WorkspaceMembership, 0)}
 	for _, workspace := range workspaces {
 		for pageToken := ""; ; {
 			response, err := client.ListWorkspaceMembers(callCtx, &openshellv1.ListWorkspaceMembersRequest{
@@ -96,11 +96,11 @@ func (c *GRPCOpenShellClient) ListWorkspaceMemberships(ctx context.Context, endp
 				PageSize:       1000, PageToken: pageToken,
 			})
 			if err != nil {
-				return nil, fmt.Errorf("list members of workspace %q: %w", workspace, err)
+				return WorkspaceVisibility{}, fmt.Errorf("list members of workspace %q: %w", workspace, err)
 			}
 			for _, member := range response.GetMembers() {
 				if subject := member.GetPrincipalSubject(); subject != "" {
-					memberships = append(memberships, WorkspaceMembership{Workspace: workspace, Subject: subject})
+					visibility.Memberships = append(visibility.Memberships, WorkspaceMembership{Workspace: workspace, Subject: subject})
 				}
 			}
 			pageToken = response.GetNextPageToken()
@@ -109,7 +109,7 @@ func (c *GRPCOpenShellClient) ListWorkspaceMemberships(ctx context.Context, endp
 			}
 		}
 	}
-	return memberships, nil
+	return visibility, nil
 }
 
 func bootstrapRequestID(namespace, subject, role string) string {

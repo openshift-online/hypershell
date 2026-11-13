@@ -898,17 +898,31 @@ describe("gateway API operations adapter", () => {
       page: 1,
       size: 20,
       total: 1,
+      workspaces: ["billing", "default"],
     });
 
     const page = await controlPlane.listGatewayAccess(
       "gateway-1",
-      { order: "desc", page: 1, search: "", size: 20, sort: "granted_at" },
+      {
+        order: "desc",
+        page: 1,
+        search: "",
+        size: 20,
+        sort: "granted_at",
+        workspace: "default",
+      },
       context,
     );
 
     expect(gatewayAccessApi.list).toHaveBeenCalledWith(
       "gateway-1",
-      { order: "desc", page: 1, size: 20, sort: "granted_at" },
+      {
+        order: "desc",
+        page: 1,
+        size: 20,
+        sort: "granted_at",
+        workspace: "default",
+      },
       { signal: undefined },
     );
     expect(page.capabilities).toEqual({
@@ -925,6 +939,7 @@ describe("gateway API operations adapter", () => {
       workspaces: [],
     });
     expect(page.items[0]).not.toHaveProperty("email");
+    expect(page.workspaces).toEqual(["billing", "default"]);
   });
 
   it("grants access and maps the resulting record", async () => {

@@ -142,7 +142,7 @@ describe("ServiceAccountsPage", () => {
     renderPage();
 
     expect(await screen.findByText("deploy-bot")).toBeTruthy();
-    expect(screen.getByText("Admin")).toBeTruthy();
+    expect(screen.getByText("All workspaces")).toBeTruthy();
     await user.click(
       screen.getByRole("button", { name: "View account details" }),
     );
@@ -182,7 +182,7 @@ describe("ServiceAccountsPage", () => {
           id: "account-2",
           name: "user-bot",
           role: "openshell-user",
-          workspaces: ["default", "billing"],
+          workspaces: ["billing", "default"],
         },
       ]),
     );
@@ -190,9 +190,31 @@ describe("ServiceAccountsPage", () => {
 
     expect(await screen.findByText("admin-bot")).toBeTruthy();
     expect(screen.getByText("user-bot")).toBeTruthy();
-    expect(screen.getByText("Admin")).toBeTruthy();
-    expect(screen.getByText("default, billing")).toBeTruthy();
+    expect(screen.getByText("All workspaces")).toBeTruthy();
+    expect(
+      screen.getAllByRole("listitem").map((item) => item.textContent),
+    ).toEqual(["billing", "default"]);
     expect(screen.queryByText("None")).toBeNull();
+    expect(
+      screen.getAllByRole("columnheader").map((header) => header.textContent),
+    ).toEqual([
+      "Service account name",
+      "OpenShell role",
+      "Status",
+      "Expiration",
+      "Workspaces",
+      "Actions",
+    ]);
+    const expectedWidths: Record<string, string> = {
+      "Service account name": "25",
+      Status: "15",
+      Workspaces: "50",
+    };
+    Object.entries(expectedWidths).forEach(([name, width]) => {
+      expect(screen.getByRole("columnheader", { name }).className).toContain(
+        `pf-m-width-${width}`,
+      );
+    });
   });
 
   it("allows a user service account to opt out of default-workspace membership", async () => {

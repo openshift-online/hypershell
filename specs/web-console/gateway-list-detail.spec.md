@@ -528,7 +528,9 @@ The **User access** tab SHALL remain available while a gateway is provisioning. 
 
 User access is a HyperShell management-plane operation backed by RoleBindings and the Keycloak directory. It does not require the OpenShell Gateway to be healthy. The creator's `gateway:owner` RoleBinding is created in the same transaction as the Gateway. Newly added users can be granted now, but they cannot sign in to OpenShell until Gateway provisioning completes.
 
-The **User access** tab SHALL keep search, role filtering, sorting, and pagination server-side. The console SHALL add bottom pagination to the table. Refreshing SHALL only refresh the active User access query, not other tabs.
+The **User access** tab SHALL keep search, role filtering, workspace filtering, sorting, and pagination server-side. The console SHALL add bottom pagination to the table. Refreshing SHALL only refresh the active User access query, not other tabs.
+
+The console SHALL show a workspace filter only when the gateway has more than one workspace. Filtering by a workspace SHALL include gateway roles with gateway-wide access, such as owners and gateway admins, as well as user rows attached to that workspace.
 
 #### Scenario: WEB-GLIS-15.01 -- User access available during provisioning
 
@@ -550,6 +552,13 @@ The **User access** tab SHALL keep search, role filtering, sorting, and paginati
 - WHEN the table renders
 - THEN pagination controls SHALL appear at the bottom
 
+#### Scenario: WEB-GLIS-15.04 -- Workspace filter is server-side
+
+- GIVEN a gateway has workspaces `default` and `billing`
+- WHEN a user filters the User access table by `billing`
+- THEN the access list request SHALL include the `workspace` filter
+- AND the response total SHALL count only rows that have access to `billing`
+
 ---
 
 ### Requirement: WEB-GLIS-16 -- User Access Tab Naming and Layout
@@ -563,6 +572,8 @@ The toolbar action and modal title SHALL be renamed to **Add user** because the 
 The console SHALL add a **Need automation access?** card after the table. The card SHALL explain that CI/CD pipelines and bots should use service accounts and link to the Service accounts tab.
 
 The table SHALL add sorting to **Name**, **User ID**, **Role**, and **Granted**. It SHALL add a **Granted** column showing the timestamp when access was granted. The table SHALL add bottom pagination.
+
+For owner and gateway-admin rows, the **Workspaces** column SHALL show **All workspaces** rather than listing workspace memberships. Gateway roles with gateway-wide access bypass OpenShell workspace membership.
 
 The console SHALL use the same code icon as Service accounts for the **User workspace command**. The icon SHALL open an **Add workspace access** modal with one copyable command.
 
@@ -597,7 +608,7 @@ The console SHALL use the same code icon as Service accounts for the **User work
 
 - GIVEN the User access table renders
 - WHEN the user inspects column headers
-- THEN Name, User ID, Role, and Granted SHALL be sortable
+- THEN Name, User ID, Gateway role, and Granted SHALL be sortable
 
 #### Scenario: WEB-GLIS-16.06 -- Granted column shows timestamp
 
@@ -651,7 +662,7 @@ The Service accounts table SHALL keep **Name** as the default sort. It SHALL kee
 
 The console SHALL rename **Service account subject** to **Principal subject** to match the OpenShell console. It SHALL label the role column **OpenShell role** to distinguish it from HyperShell gateway roles used on User access.
 
-The console SHALL add a **Workspaces** column after **OpenShell role**. For an `openshell-user` row, the column SHALL show every gateway-scoped workspace name returned by the service-account list API, regardless of the service account's OpenShell workspace-level role. For an `openshell-admin` row, the column SHALL show **Admin** and SHALL NOT list workspace memberships.
+The console SHALL add a **Workspaces** column after **OpenShell role**. For an `openshell-user` row, the column SHALL show every gateway-scoped workspace name returned by the service-account list API, regardless of the service account's OpenShell workspace-level role. For an `openshell-admin` row, the column SHALL show **All workspaces** and SHALL NOT list workspace memberships.
 
 The console SHALL add a **Setup** column between **Service account name** and **OpenShell role**. Each row SHALL use a code icon that opens that account's setup instructions. The icon SHALL have a tooltip and screen-reader label such as **Open setup instructions for ci-pipeline**.
 
@@ -679,7 +690,7 @@ The console SHALL add a **Setup** column between **Service account name** and **
 - GIVEN the service-account list contains an `openshell-user` attached to gateway workspaces `default` and `billing`
 - WHEN the Service accounts table renders
 - THEN the **Workspaces** column SHALL show `default` and `billing`
-- AND an `openshell-admin` row SHALL show **Admin**
+- AND an `openshell-admin` row SHALL show **All workspaces**
 
 #### Scenario: WEB-GLIS-18.04 -- Setup column opens setup instructions
 
@@ -786,7 +797,7 @@ The console SHALL use danger styling and warning icons for destructive, irrevers
 **Reversible actions** (primary button, no danger styling or warning icon):
 
 - **Remove access** (user access): primary button, no warning icon
-- **Change your own role**: primary button, no warning icon (consequential but reversible by another owner)
+- **Change your own gateway role**: primary button, no warning icon (consequential but reversible by another owner)
 
 The console SHALL block changing or removing the final owner before a confirmation modal is needed, with an explanatory disabled state. The **Edit service account** modal SHALL remove the distracting client-credential note, shorten the role-change alert, and add spacing between the alert and description field.
 
@@ -818,9 +829,9 @@ The console SHALL block changing or removing the final owner before a confirmati
 - THEN the confirm button SHALL use primary styling
 - AND no warning icon SHALL appear
 
-#### Scenario: WEB-GLIS-20.05 -- Change your own role uses primary styling
+#### Scenario: WEB-GLIS-20.05 -- Change your own gateway role uses primary styling
 
-- GIVEN an owner changes their own role and a confirmation modal appears
+- GIVEN an owner changes their own gateway role and a confirmation modal appears
 - WHEN the modal renders
 - THEN the confirm button SHALL use primary styling
 - AND no warning icon SHALL appear
@@ -1004,7 +1015,7 @@ The repository UI completion gate SHALL be executed per `skills/build/ui-build-g
 
 - WHEN the UI test suite runs
 - THEN it SHALL assert that Delete gateway, Revoke service account, and Delete service account use danger styling with warning icons
-- AND Remove access and Change your own role use primary styling without warning icons
+- AND Remove access and Change your own gateway role use primary styling without warning icons
 
 #### Scenario: WEB-GLIS-25.05 -- Visual comparison capability is recorded
 

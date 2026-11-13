@@ -267,6 +267,7 @@ export interface GatewayAccessPage {
   page: number;
   size: number;
   total: number;
+  workspaces: readonly string[];
 }
 
 export interface GatewayDirectoryUser {
@@ -293,6 +294,7 @@ export interface GatewayAccessListRequest {
   search: string;
   size: number;
   sort: GatewayAccessSortField;
+  workspace?: string;
 }
 
 export const gatewayAccessPageSizes = [10, 20, 50, 100] as const;

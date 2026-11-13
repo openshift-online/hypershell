@@ -1128,6 +1128,7 @@ func (x *WorkspaceMembership) GetSubject() string {
 type ListWorkspaceMembershipsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Memberships   []*WorkspaceMembership `protobuf:"bytes,1,rep,name=memberships,proto3" json:"memberships,omitempty"`
+	Workspaces    []string               `protobuf:"bytes,2,rep,name=workspaces,proto3" json:"workspaces,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1165,6 +1166,13 @@ func (*ListWorkspaceMembershipsResponse) Descriptor() ([]byte, []int) {
 func (x *ListWorkspaceMembershipsResponse) GetMemberships() []*WorkspaceMembership {
 	if x != nil {
 		return x.Memberships
+	}
+	return nil
+}
+
+func (x *ListWorkspaceMembershipsResponse) GetWorkspaces() []string {
+	if x != nil {
+		return x.Workspaces
 	}
 	return nil
 }
@@ -1602,9 +1610,12 @@ const file_hypershell_provisioner_v1_service_accounts_proto_rawDesc = "" +
 	"\x11gateway_client_id\x18\x05 \x01(\tR\x0fgatewayClientId\"M\n" +
 	"\x13WorkspaceMembership\x12\x1c\n" +
 	"\tworkspace\x18\x01 \x01(\tR\tworkspace\x12\x18\n" +
-	"\asubject\x18\x02 \x01(\tR\asubject\"t\n" +
+	"\asubject\x18\x02 \x01(\tR\asubject\"\x94\x01\n" +
 	" ListWorkspaceMembershipsResponse\x12P\n" +
-	"\vmemberships\x18\x01 \x03(\v2..hypershell.provisioner.v1.WorkspaceMembershipR\vmemberships\"o\n" +
+	"\vmemberships\x18\x01 \x03(\v2..hypershell.provisioner.v1.WorkspaceMembershipR\vmemberships\x12\x1e\n" +
+	"\n" +
+	"workspaces\x18\x02 \x03(\tR\n" +
+	"workspaces\"o\n" +
 	"\rDirectoryUser\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +

@@ -18,6 +18,7 @@ export function accessListQueryKey(
     request.role ?? "all",
     request.sort,
     request.order,
+    request.workspace ?? "all",
   ] as const;
 }
 

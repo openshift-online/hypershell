@@ -38,19 +38,19 @@ The Manage access tab SHALL render the gateway's access grants in the canonical 
 
 Each row SHALL show:
 
-| Column | Source (GTW-ACC-03) |
-| --- | --- |
-| Name | `name` (display name) |
-| User ID | `username` |
-| Role | `role` (`owner`, `admin`, or `user`), rendered as an inline control per WEB-ACC-05 |
-| Workspaces | `workspaces` for `user` rows; **Admin** for `owner` and `admin` rows |
-| (row action) | Remove access per WEB-ACC-06 |
+| Column       | Source (GTW-ACC-03)                                                                |
+| ------------ | ---------------------------------------------------------------------------------- |
+| Name         | `name` (display name)                                                              |
+| User ID      | `username`                                                                         |
+| Gateway role | `role` (`owner`, `admin`, or `user`), rendered as an inline control per WEB-ACC-05 |
+| Workspaces   | `workspaces` for `user` rows; **All workspaces** for `owner` and `admin` rows      |
+| (row action) | Remove access per WEB-ACC-06                                                       |
 
 A row's role control and remove action SHALL be disabled with an accessible explanation when the server would reject the action (WEB-ACC-08): the user is the last remaining owner, or the current caller is not an owner and the row is an owner.
 
 The table SHALL show localized empty, loading, no-results, and error states and SHALL expose a manual refresh consistent with other gateway resource tables.
 
-For a `user` row, the **Workspaces** column SHALL show every gateway-scoped workspace name returned by GTW-ACC-03, regardless of the user's OpenShell workspace-level role. For `owner` and `admin` rows, the console SHALL show **Admin** and SHALL NOT list workspace memberships; admin-scope presentation takes precedence over user-scope membership.
+For a `user` row, the **Workspaces** column SHALL show every gateway-scoped workspace name returned by GTW-ACC-03, regardless of the user's OpenShell workspace-level role. For `owner` and `admin` rows, the console SHALL show **All workspaces** and SHALL NOT list workspace memberships; admin-scope presentation takes precedence over user-scope membership.
 
 #### Scenario: WEB-ACC-02.01 -- Access rows render user name, user ID, and role
 
@@ -58,20 +58,20 @@ For a `user` row, the **Workspaces** column SHALL show every gateway-scoped work
 - WHEN the table renders
 - THEN each row SHALL show the display name, username, and role (Owner/Admin/User)
 - AND the user row SHALL show that user's workspace names
-- AND the owner and admin rows SHALL show **Admin** in the **Workspaces** column
+- AND the owner and admin rows SHALL show **All workspaces** in the **Workspaces** column
 
 ---
 
 ### Requirement: WEB-ACC-03 -- Search and Role Filter
 
-The table toolbar SHALL provide a **Find people...** search input and a **role** filter (All, Owner, Admin, User).
+The table toolbar SHALL provide a **Find people...** search input, a **gateway role** filter (All, Owner, Admin, User), and a workspace filter when the gateway has more than one workspace.
 
-Search SHALL be debounced, SHALL cancel superseded in-flight requests, SHALL treat the entered text as a literal, and SHALL issue a bounded number of requests. Search and the role filter SHALL be applied server-side via the access list query (GTW-ACC-03). A localized no-results state SHALL offer clearing the filters.
+Search SHALL be debounced, SHALL cancel superseded in-flight requests, SHALL treat the entered text as a literal, and SHALL issue a bounded number of requests. Search, the gateway-role filter, and the workspace filter SHALL be applied server-side via the access list query (GTW-ACC-03). Filtering by a workspace SHALL include owner and admin rows because those gateway roles have gateway-wide access. A localized no-results state SHALL offer clearing the filters.
 
 #### Scenario: WEB-ACC-03.01 -- Filtering narrows the list
 
 - GIVEN the gateway has several grants
-- WHEN the user types in **Find people...** and selects role **User**
+- WHEN the user types in **Find people...** and selects gateway role **User**
 - THEN the table SHALL show only user-tier grants matching the search text
 - AND clearing the filters SHALL restore the full list
 
