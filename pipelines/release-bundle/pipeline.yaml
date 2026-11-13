@@ -131,11 +131,12 @@ spec:
                   "hypershell-agent-runtime-slim-main",
               )
               # These application components are distributed independently of the six-image
-              # release bundle: the fleet dashboard and the Fullsend harness sandbox. Accept
-              # them in snapshots and managed artifacts without adding them to the bundle.
+              # release bundle: the fleet dashboard, Fullsend harness sandbox, and LDAP Sync.
+              # Accept them in snapshots and managed artifacts without adding them to the bundle.
               EXCLUDED_COMPONENTS = (
                   "hypershell-fleet-dashboard-main",
                   "hypershell-fullsend-sandbox-main",
+                  "ldap-sync-main",
               )
               BUNDLE_REPOSITORY = BUILD_PREFIX + COMPONENTS[0]
               MANIFEST_PATHS = (

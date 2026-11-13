@@ -65,11 +65,11 @@ class ReleaseBundleTests(unittest.TestCase):
         self.assertEqual(expected, bundle.make_bundle(release, snapshot))
 
     def test_excluded_components_are_ignored_not_rejected(self):
-        # Both independently distributed images can occur in a full application
+        # Independently distributed images can occur in a full application
         # Snapshot and its release artifacts without changing the six-image bundle.
         release, snapshot = fixtures()
         expected = bundle.make_bundle(release, snapshot)
-        for name in ("hypershell-fleet-dashboard-main", "hypershell-fullsend-sandbox-main"):
+        for name in ("hypershell-fleet-dashboard-main", "hypershell-fullsend-sandbox-main", "ldap-sync-main"):
             digest = "sha256:" + "f" * 64
             snapshot["spec"]["components"].append({
                 "name": name, "containerImage": bundle.BUILD_PREFIX + name + "@" + digest,
@@ -80,7 +80,7 @@ class ReleaseBundleTests(unittest.TestCase):
 
     # Verifies: CLI-REL-06.01
     def test_excluded_only_release_publishes_from_the_snapshot(self):
-        for name in ("hypershell-fleet-dashboard-main", "hypershell-fullsend-sandbox-main"):
+        for name in ("hypershell-fleet-dashboard-main", "hypershell-fullsend-sandbox-main", "ldap-sync-main"):
             with self.subTest(component=name):
                 release, snapshot = fixtures()
                 expected = bundle.make_bundle(release, snapshot)
