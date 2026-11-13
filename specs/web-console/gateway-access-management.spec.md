@@ -5,7 +5,7 @@
 **Applies to:** `packages/gateway-management-ui` (gateway detail pages, application ports, probes), `components/web-console` (host routes, API adapter, composition root, BFF)
 **Parent:** `web-console/architecture.spec.md` -- console stack and trust boundaries
 **Related:** [Issue #976](https://github.com/openshift-online/hypershell/issues/976) - default-workspace UI feedback and opt-out; `platform/gateway-access-management.spec.md` -- the access API, roles, directory search, and last-owner protection this surface consumes; `platform/default-workspace-membership-bootstrap.spec.md` -- default-workspace membership and visibility; `web-console/user_flows.md` -- "Sharing a team gateway"; `standards/ui/hexagonal-architecture.spec.md`, `standards/ui/patternfly.spec.md`, `standards/ui/domain-observability.spec.md`, `standards/ui/interaction.spec.md`, `standards/ui/content-localization.spec.md`, `standards/ui/accessibility.spec.md`
-**Source mockups:** `specs/web-console/mockups/gateways/gateway-detail.parity.stories.tsx` -- `ManageAccess` and `ManageAccessAddUser`
+**Source mockups:** `specs/web-console/mockups/gateways/gateway-detail.parity.stories.tsx` -- `ManageAccess`, `ManageAccessWorkspaceFilter`, and `ManageAccessAddUser`
 
 ---
 
