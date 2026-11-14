@@ -20,8 +20,11 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/openshift-online/hypershell/components/sandbox-resource-interceptor/internal/auth"
+	"github.com/openshift-online/hypershell/components/sandbox-resource-interceptor/internal/metrics"
+	"github.com/openshift-online/hypershell/components/sandbox-resource-interceptor/internal/policy"
 	"github.com/openshift-online/hypershell/components/sandbox-resource-interceptor/internal/server"
 	pb "github.com/openshift-online/hypershell/components/sandbox-resource-interceptor/pkg/api/grpc"
 )
@@ -46,7 +49,8 @@ func TestServeOverUnixSocket(t *testing.T) {
 	}
 
 	grpcServer := grpc.NewServer(grpc.ChainUnaryInterceptor(auth.UnaryInterceptor(verifier)))
-	pb.RegisterGatewayInterceptorServer(grpcServer, server.New("e2e-test"))
+	registry := metrics.New(policy.ModeEnforce)
+	pb.RegisterGatewayInterceptorServer(grpcServer, server.New("e2e-test", policy.MustNew(policy.ModeEnforce), registry))
 	stopped := make(chan struct{})
 	go func() {
 		if err := grpcServer.Serve(listener); err != nil {
@@ -92,21 +96,64 @@ func TestServeOverUnixSocket(t *testing.T) {
 		}
 	})
 
-	t.Run("Evaluate allows", func(t *testing.T) {
+	t.Run("Evaluate patches missing requests", func(t *testing.T) {
+		proposed, err := structpb.NewStruct(map[string]any{
+			"spec": map[string]any{"template": map[string]any{"image": "alpine"}},
+		})
+		if err != nil {
+			t.Fatalf("building proposed operation: %v", err)
+		}
 		result, err := client.Evaluate(ctx, &pb.InterceptorEvaluation{
 			InterceptorName: server.Name,
 			BindingId:       server.CreateSandboxBindingID,
 			Service:         "openshell.v1.OpenShell",
 			Method:          "CreateSandbox",
 			Phase: &pb.InterceptorEvaluation_ModifyOperation{
-				ModifyOperation: &pb.ModifyOperationEvaluation{},
+				ModifyOperation: &pb.ModifyOperationEvaluation{ProposedOperation: proposed},
 			},
 		})
 		if err != nil {
 			t.Fatalf("Evaluate: %v", err)
 		}
 		if !result.GetAllowed() {
-			t.Error("allowed = false, want true")
+			t.Fatalf("allowed = false, reason %q", result.GetReason())
+		}
+		if len(result.GetPatches()) != 1 || result.GetPatches()[0].GetPath() != "/spec/template/resources" {
+			t.Fatalf("patches = %v, want one add of /spec/template/resources", result.GetPatches())
+		}
+	})
+
+	t.Run("Evaluate denies below the floor", func(t *testing.T) {
+		proposed, err := structpb.NewStruct(map[string]any{
+			"spec": map[string]any{"template": map[string]any{"resources": map[string]any{
+				"requests": map[string]any{"cpu": "100m", "memory": "1Gi"},
+			}}},
+		})
+		if err != nil {
+			t.Fatalf("building proposed operation: %v", err)
+		}
+		result, err := client.Evaluate(ctx, &pb.InterceptorEvaluation{
+			InterceptorName: server.Name,
+			BindingId:       server.CreateSandboxBindingID,
+			Service:         "openshell.v1.OpenShell",
+			Method:          "CreateSandbox",
+			Phase: &pb.InterceptorEvaluation_ModifyOperation{
+				ModifyOperation: &pb.ModifyOperationEvaluation{ProposedOperation: proposed},
+			},
+		})
+		if err != nil {
+			t.Fatalf("Evaluate: %v", err)
+		}
+		// A denial is a valid interceptor result, not a transport error: the
+		// gateway maps it onto the caller-facing gRPC status.
+		if result.GetAllowed() {
+			t.Fatal("allowed = true, want denied")
+		}
+		if result.GetStatusCode() != "FAILED_PRECONDITION" {
+			t.Errorf("status_code = %q, want FAILED_PRECONDITION", result.GetStatusCode())
+		}
+		if result.GetReason() == "" {
+			t.Error("denial carries no reason")
 		}
 	})
 

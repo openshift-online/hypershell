@@ -1,10 +1,11 @@
 // Package server implements the openshell.gateway_interceptor.v1.
 // GatewayInterceptor service for the sandbox-resource-interceptor sidecar.
 //
-// This is the S2 skeleton: Describe negotiates the extension contract and
-// returns the manifest, and Evaluate allows every operation. The resource
-// policy (fill missing CPU/memory requests at 250m/1Gi and deny below the
-// floor) lands in the S3 slice.
+// Describe negotiates the extension contract and returns the manifest.
+// Evaluate applies the resource policy in the modify_operation phase: fill
+// missing CPU/memory requests at 250m/1Gi and deny requests below the floor
+// (the S3 policy engine), or allow everything unchanged when the mode is
+// off.
 package server
 
 import (
@@ -14,6 +15,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/openshift-online/hypershell/components/sandbox-resource-interceptor/internal/policy"
 	pb "github.com/openshift-online/hypershell/components/sandbox-resource-interceptor/pkg/api/grpc"
 )
 
@@ -54,16 +56,27 @@ const (
 	ImplementationName = "hypershell/sandbox-resource-interceptor"
 )
 
+// DecisionRecorder records evaluation outcomes for Prometheus metrics. A nil
+// recorder disables recording.
+type DecisionRecorder interface {
+	RecordEvaluation(outcome policy.Outcome, reason policy.DenialReason)
+}
+
 // Server implements pb.GatewayInterceptorServer.
 type Server struct {
 	pb.UnimplementedGatewayInterceptorServer
 
 	manifest *pb.InterceptorManifest
+	policy   policy.Policy
+	recorder DecisionRecorder
 }
 
-// New returns a Server reporting the given implementation version.
-func New(implementationVersion string) *Server {
+// New returns a Server reporting the given implementation version and
+// enforcing the given policy. A nil recorder disables metrics recording.
+func New(implementationVersion string, pol policy.Policy, recorder DecisionRecorder) *Server {
 	return &Server{
+		policy:   pol,
+		recorder: recorder,
 		manifest: &pb.InterceptorManifest{
 			Name:             Name,
 			FailurePolicy:    FailurePolicy,
@@ -98,13 +111,28 @@ func (s *Server) Describe(_ context.Context, req *pb.DescribeRequest) (*pb.Inter
 	return s.manifest, nil
 }
 
-// Evaluate decides one operation phase. The S2 skeleton allows everything;
-// the resource policy lands with the S3 slice.
+// Evaluate decides one operation phase. In off mode every operation is
+// allowed unchanged. In enforce mode the modify_operation payload is run
+// through the resource policy: missing CPU/memory requests are patched in at
+// 250m/1Gi and requests below the floor are denied with a reason and
+// FAILED_PRECONDITION.
 func (s *Server) Evaluate(_ context.Context, evaluation *pb.InterceptorEvaluation) (*pb.InterceptorResult, error) {
 	if evaluation.GetPhase() == nil {
 		return nil, status.Error(codes.InvalidArgument, "evaluation carries no phase payload")
 	}
-	return &pb.InterceptorResult{Allowed: true}, nil
+	if evaluation.GetModifyOperation() == nil {
+		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("binding %s only covers modify_operation", CreateSandboxBindingID))
+	}
+	decision := s.policy.Evaluate(evaluation.GetModifyOperation().GetProposedOperation())
+	if s.recorder != nil {
+		s.recorder.RecordEvaluation(decision.Outcome, decision.DenialReason)
+	}
+	return &pb.InterceptorResult{
+		Allowed:    decision.Allowed,
+		Reason:     decision.Reason,
+		StatusCode: decision.StatusCode,
+		Patches:    decision.Patches,
+	}, nil
 }
 
 // SnapshotProviderProfiles is not implemented: the manifest advertises

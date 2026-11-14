@@ -41,7 +41,7 @@ React elements or use an approved parser that returns React elements.
 
 - `components/api-server/` - Go REST + gRPC API microservice (rh-trex-ai framework), PostgreSQL-backed
 - `components/control-plane/` - Go service, watches API server via gRPC and reconciles gateway resources into K8s
-- `components/sandbox-resource-interceptor/` - Go gRPC sidecar for gateway pods implementing the OpenShell gateway-interceptor contract (skeleton; not deployed yet)
+- `components/sandbox-resource-interceptor/` - Go gRPC sidecar for gateway pods implementing the OpenShell gateway-interceptor contract with the sandbox resource request policy (fill missing CPU/memory requests at 250m/1Gi, deny below; not deployed yet)
 - `packages/gateway-management-ui/` - Private reusable React package containing canonical gateway management workflows
 - `packages/operational-dashboard-ui/` - Private reusable React package containing the operational metrics dashboard
 - `packages/spec-viewer-ui/` - Spec viewer: search and read `specs/` with test traceability; local via `make spec-ui`, deployed inside the fleet dashboard at `/specs/`
