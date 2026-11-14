@@ -14,7 +14,6 @@ import {
   gatewayStatusAppearance,
   isGatewayReadyToConnect,
   sandboxName,
-  sandboxResourceDefaults,
   vertexProviderName,
   vertexProviderProfileFile,
   vertexProviderProfileUrl,
@@ -249,22 +248,17 @@ describe("gateway connections", () => {
   });
 
   it("creates a sandbox that runs claude against the local inference endpoint", () => {
-    const driverConfig =
-      'DRIVER_CONFIG=\'{"kubernetes":{"containers":{"agent":{"resources":{"requests":{"cpu":"100m","memory":"512Mi"},"limits":{"cpu":"500m","memory":"512Mi"}}}}}}\'';
-
     expect(buildSandboxCreateCommand()).toBe(
-      `${driverConfig}\n\nopenshell sandbox create \\
+      `openshell sandbox create \\
   --name ${sandboxName} \\
-  --driver-config-json "$DRIVER_CONFIG" \\
   --env=ANTHROPIC_BASE_URL=https://inference.local \\
   --env=ANTHROPIC_API_KEY=unused \\
   --no-auto-providers \\
   -- claude --bare --model ${claudeModel}`,
     );
     expect(buildSandboxCreateCommand("demo")).toBe(
-      `${driverConfig}\n\nopenshell sandbox create \\
+      `openshell sandbox create \\
   --name demo \\
-  --driver-config-json "$DRIVER_CONFIG" \\
   --env=ANTHROPIC_BASE_URL=https://inference.local \\
   --env=ANTHROPIC_API_KEY=unused \\
   --no-auto-providers \\
@@ -283,16 +277,17 @@ describe("gateway connections", () => {
     expect(cmd).toContain("--name 'my sandbox'");
   });
 
-  it("embeds resource defaults from the shared sandboxResourceDefaults constant", () => {
+  it("sets no resource values in the sandbox command", () => {
+    // The gateway's sandbox resource policy assigns requests when the caller
+    // omits them (250m CPU / 1Gi memory) and denies requests below that
+    // floor, so the command must not hardcode resource values.
     const cmd = buildSandboxCreateCommand();
-    expect(cmd).toContain(`"cpu":"${sandboxResourceDefaults.requests.cpu}"`);
-    expect(cmd).toContain(
-      `"memory":"${sandboxResourceDefaults.requests.memory}"`,
-    );
-    expect(cmd).toContain(`"cpu":"${sandboxResourceDefaults.limits.cpu}"`);
-    expect(cmd).toContain(
-      `"memory":"${sandboxResourceDefaults.limits.memory}"`,
-    );
+    expect(cmd).not.toContain("DRIVER_CONFIG");
+    expect(cmd).not.toContain("--driver-config-json");
+    expect(cmd).not.toContain("--cpu");
+    expect(cmd).not.toContain("--memory");
+    expect(cmd).not.toContain("100m");
+    expect(cmd).not.toContain("512Mi");
   });
 
   it("builds a sandbox connect command with defaults", () => {

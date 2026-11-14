@@ -33,21 +33,23 @@ func TestPrintConnectionInstructions_InvalidJSON(t *testing.T) {
 	}
 }
 
-func TestBuildConnectionScript_IncludesDriverConfig(t *testing.T) {
+func TestBuildConnectionScript_SandboxCreateOmitsResources(t *testing.T) {
 	out := buildConnectionScript("gw", "https://gw.test:443", oidcConfig{
 		Issuer:   "https://issuer.test",
 		ClientID: "cli",
 		Audience: "aud",
 	})
-	if !strings.Contains(out, "DRIVER_CONFIG='"+sandboxDriverConfig+"'") {
-		t.Errorf("expected DRIVER_CONFIG variable with resource defaults, got:\n%s", out)
+	if !strings.Contains(out, "openshell sandbox create") {
+		t.Errorf("expected sandbox create command, got:\n%s", out)
 	}
-	if !strings.Contains(out, `--driver-config-json "$DRIVER_CONFIG"`) {
-		t.Errorf("expected --driver-config-json flag referencing $DRIVER_CONFIG, got:\n%s", out)
-	}
-	for _, want := range []string{`"cpu":"100m"`, `"cpu":"500m"`, `"memory":"512Mi"`} {
-		if !strings.Contains(out, want) {
-			t.Errorf("expected %q in driver config, got:\n%s", want, out)
+	// The gateway's sandbox resource policy fills requests at its floor
+	// (250m CPU / 1Gi memory) and denies anything below, so the guidance
+	// must not suggest resource values: a caller driver config is refused
+	// unless the gateway enables allow_driver_config, and values under the
+	// floor would be denied once enforcement is on.
+	for _, banned := range []string{"DRIVER_CONFIG", "--driver-config-json", "100m", "512Mi"} {
+		if strings.Contains(out, banned) {
+			t.Errorf("expected no %q in sandbox create guidance, got:\n%s", banned, out)
 		}
 	}
 }

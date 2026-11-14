@@ -123,14 +123,6 @@ export const sandboxName = "mysand";
 /** Claude model the sandbox runs, shared by the inference and sandbox commands. */
 export const claudeModel = "claude-haiku-4-5";
 
-// Sandbox resource defaults -- keep in sync with:
-//   components/cli/cmd/hypershell/get/gateway/cmd.go (sandboxDriverConfig)
-//   specs/web-console/architecture.spec.md § Create a sandbox
-export const sandboxResourceDefaults = {
-  requests: { cpu: "100m", memory: "512Mi" },
-  limits: { cpu: "500m", memory: "512Mi" },
-} as const;
-
 /**
  * Default provider profile file for the Vertex AI example used across the
  * connection steps. Keep the provider type in sync with
@@ -228,41 +220,27 @@ export function buildInferenceSetCommand(
 }
 
 /**
- * Builds a complete shell script for creating an OpenShell sandbox with resource limits.
- * Returns a multi-line string containing:
- * 1. DRIVER_CONFIG variable assignment with JSON resource specification
- * 2. openshell sandbox create command referencing $DRIVER_CONFIG
+ * Builds the copyable command for creating an OpenShell sandbox.
  *
- * The DRIVER_CONFIG variable is extracted into a shell variable for readability,
- * avoiding an unwieldy inline JSON argument in the command itself.
+ * Resource requests are deliberately not included: the gateway's sandbox
+ * resource policy assigns CPU and memory requests when the caller omits them
+ * (250m CPU / 1Gi memory) and denies requests below that floor, so hardcoded
+ * values would either duplicate the policy or be rejected once enforcement is
+ * on. Keep in sync with components/cli/pkg/gatewayconnect/gatewayconnect.go
+ * and specs/web-console/architecture.spec.md § Create a sandbox.
  */
 export function buildSandboxCreateCommand(
   name: string = sandboxName,
   model: string = claudeModel,
 ): string {
-  const driverConfig = JSON.stringify({
-    kubernetes: {
-      containers: {
-        agent: {
-          resources: sandboxResourceDefaults,
-        },
-      },
-    },
-  });
-
-  const variable = `DRIVER_CONFIG='${driverConfig}'`;
-
-  const command = [
+  return [
     "openshell sandbox create",
     `--name ${shellArgument(name)}`,
-    '--driver-config-json "$DRIVER_CONFIG"',
     `--env=ANTHROPIC_BASE_URL=${externalLinkUrls.localInferenceEndpoint}`,
     "--env=ANTHROPIC_API_KEY=unused",
     "--no-auto-providers",
     `-- claude --bare --model ${model}`,
   ].join(" \\\n  ");
-
-  return `${variable}\n\n${command}`;
 }
 
 export const validEditors = ["cursor", "vscode"] as const;
