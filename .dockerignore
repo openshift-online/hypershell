@@ -24,6 +24,8 @@ components/**
 !components/api-server/**
 !components/control-plane/
 !components/control-plane/**
+!components/sandbox-resource-interceptor/
+!components/sandbox-resource-interceptor/**
 !components/fleet-dashboard/
 !components/fleet-dashboard/**
 !components/sdk-typescript/

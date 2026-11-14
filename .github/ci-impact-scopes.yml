@@ -117,6 +117,21 @@ scopes:
           - '**/README.md'
           - '**/AGENTS.md'
           - '**/CLAUDE.md'
+      sandbox-resource-interceptor:
+        # Standalone module. Only the vendored OpenShell proto pin couples it
+        # to files outside its directory: OPENSHELL_VERSION selects it (the
+        # vendored protos are stamped from it) and the proto sync scripts are
+        # its generation inputs. Deployment wiring (plan slice S4) will add
+        # the chart/deploy shared patterns when the sidecar actually ships.
+        include:
+          - components/sandbox-resource-interceptor/**
+          - OPENSHELL_VERSION
+          - scripts/sync_openshell_protos.py
+          - scripts/test_sync_openshell_protos.py
+        exclude:
+          - '**/README.md'
+          - '**/AGENTS.md'
+          - '**/CLAUDE.md'
       sdk-typescript:
         include:
           - components/sdk-typescript/**
