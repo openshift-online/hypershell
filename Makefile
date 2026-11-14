@@ -164,6 +164,7 @@ help:
 	@echo "    lint-api-server          Lint API server (gofmt, go vet, golangci-lint)"
 	@echo "    lint-cli                 Lint CLI (gofmt, go vet, golangci-lint)"
 	@echo "    lint-control-plane       Lint control plane (gofmt, go vet, golangci-lint)"
+	@echo "    lint-sandbox-resource-interceptor  Lint sandbox resource interceptor (gofmt, go vet, golangci-lint)"
 	@echo "    lint-sdk-typescript      Lint TypeScript SDK"
 	@echo "    lint-gateway-management-ui  Lint gateway management UI package"
 	@echo "    lint-web-console         Lint web console (app + BFF)"
@@ -323,6 +324,39 @@ test-openshell-version-policy:
 		scripts/test_sync_openshell_version.py \
 		scripts/test_check_controller_image_label.py
 
+# The transitive import closure of gateway_interceptor.proto in the upstream
+# proto/ directory. vendor-openshell-protos copies exactly these files into
+# components/sandbox-resource-interceptor/proto/openshell/.
+OPENSHELL_INTERCEPTOR_PROTOS = gateway_interceptor.proto extension.proto openshell.proto datamodel.proto options.proto sandbox.proto
+
+.PHONY: vendor-openshell-protos
+vendor-openshell-protos:
+	@. ./OPENSHELL_VERSION && \
+	  echo "Vendoring OpenShell interceptor protos $$OPENSHELL_TAG from $$OPENSHELL_CHART_REPO..." && \
+	  git clone --depth 1 --branch "$$OPENSHELL_TAG" "$$OPENSHELL_CHART_REPO" /tmp/openshell-protos-vendor && \
+	  mkdir -p components/sandbox-resource-interceptor/proto/openshell && \
+	  for f in $(OPENSHELL_INTERCEPTOR_PROTOS); do \
+	    cp /tmp/openshell-protos-vendor/proto/$$f components/sandbox-resource-interceptor/proto/openshell/; \
+	  done && \
+	  rm -rf /tmp/openshell-protos-vendor && \
+	  grep -rl $$'\xe2\x80\x94' components/sandbox-resource-interceptor/proto/openshell/ | xargs -r perl -pi -e 's/\xe2\x80\x94/-/g' && \
+	  echo "Vendored interceptor protos at $$OPENSHELL_TAG"
+	$(MAKE) stamp-openshell-protos
+
+.PHONY: stamp-openshell-protos
+stamp-openshell-protos:
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/sync_openshell_protos.py --stamp
+
+.PHONY: test-openshell-protos-policy
+test-openshell-protos-policy:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_sync_openshell_protos.py
+
+.PHONY: check-openshell-protos
+# Vendored interceptor protos must match their PROTO_PIN checksums and
+# OPENSHELL_TAG (specs/platform, sandbox resource interceptor plan S2).
+check-openshell-protos: test-openshell-protos-policy
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/sync_openshell_protos.py
+
 .PHONY: check-openshell-version
 check-openshell-version: test-openshell-version-policy
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/sync_openshell_version.py
@@ -365,7 +399,7 @@ check-ci-impact-scopes: test-ci-impact-scopes-policy
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_ci_impact_scopes.py
 
 .PHONY: check
-check: check-forbidden-terms check-forbidden-dom-injection check-kind-conformance check-dependency-pins check-ci-components check-deploy-orphans check-dependency-age check-openshell-version check-cli-drift check-spec-ids check-ci-impact-scopes test-release-bundle test-coverage-report
+check: check-forbidden-terms check-forbidden-dom-injection check-kind-conformance check-dependency-pins check-ci-components check-deploy-orphans check-dependency-age check-openshell-version check-openshell-protos check-cli-drift check-spec-ids check-ci-impact-scopes test-release-bundle test-coverage-report
 
 # ============================================================================
 # Git hooks
@@ -431,6 +465,17 @@ lint-control-plane:
 	cd components/control-plane && go vet ./...
 	cd components/control-plane && go run $(GOLANGCI_LINT_PACKAGE) run --timeout=5m
 
+.PHONY: lint-sandbox-resource-interceptor
+lint-sandbox-resource-interceptor:
+	@unformatted="$$(gofmt -l components/sandbox-resource-interceptor)"; \
+	if [ -n "$$unformatted" ]; then \
+		echo "The following sandbox resource interceptor files are not formatted:"; \
+		echo "$$unformatted"; \
+		exit 1; \
+	fi
+	cd components/sandbox-resource-interceptor && go vet ./...
+	cd components/sandbox-resource-interceptor && go run $(GOLANGCI_LINT_PACKAGE) run --timeout=5m
+
 .PHONY: lint-e2e
 lint-e2e:
 	@unformatted="$$(gofmt -l tests/e2e)"; \
@@ -465,7 +510,7 @@ lint-web-console: install-js
 	$(PNPM) --filter @openshift-online/hypershell-web-console-bff check
 
 .PHONY: lint
-lint: check install-js lint-api-server lint-cli lint-control-plane lint-e2e lint-sdk-typescript lint-gateway-management-ui lint-spec-viewer lint-web-console
+lint: check install-js lint-api-server lint-cli lint-control-plane lint-sandbox-resource-interceptor lint-e2e lint-sdk-typescript lint-gateway-management-ui lint-spec-viewer lint-web-console
 
 # ============================================================================
 # Test targets
@@ -479,6 +524,7 @@ ci-test:
 unit-test-all: install-js ci-test
 	cd components/api-server && $(MAKE) test
 	cd components/control-plane && go test ./...
+	cd components/sandbox-resource-interceptor && go test ./...
 	cd components/cli && go test ./...
 	cd scripts/sdk-generator && go test ./...
 	$(PNPM) run test:web

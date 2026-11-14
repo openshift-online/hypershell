@@ -1,0 +1,10 @@
+# Checksum pin for the vendored OpenShell interceptor protos.
+# Written by 'make vendor-openshell-protos'; verified by
+# 'make check-openshell-protos'. Do not edit by hand.
+OPENSHELL_TAG=v0.1.8-rhaiv.0
+datamodel.proto=sha256:b23304d2262c3538df0fae07400e49654d39646257f3c4976784a2746220f573
+extension.proto=sha256:60f28ee9dc846d41152f4db7e82a439c78d024786efaceb464900d1d1ad129ad
+gateway_interceptor.proto=sha256:905df827e50abb54ca1d2745341f38ad769cb3453c8c7301182590525f1da86f
+openshell.proto=sha256:5eb506c456104c9fe4a32a5ad17223fb9879522e46a1c3628615450c539947d5
+options.proto=sha256:b0e03562c92777978f6f3e0f46260cdb82f1d88d1c1837eab0e53cdd0f195eb7
+sandbox.proto=sha256:62f0c6838dde04c208bcfc2904cccade3e0c9edbc553d0ee50ccff3977aa2181
