@@ -6,8 +6,10 @@ import (
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/structpb"
 
+	"github.com/openshift-online/hypershell/components/sandbox-resource-interceptor/internal/policy"
 	pb "github.com/openshift-online/hypershell/components/sandbox-resource-interceptor/pkg/api/grpc"
 )
 
@@ -21,8 +23,48 @@ func gatewayMetadata() *pb.PeerMetadata {
 	}
 }
 
+// fakeRecorder records evaluation outcomes without Prometheus.
+type fakeRecorder struct {
+	calls   int
+	outcome policy.Outcome
+	reason  policy.DenialReason
+}
+
+func (f *fakeRecorder) RecordEvaluation(outcome policy.Outcome, reason policy.DenialReason) {
+	f.calls++
+	f.outcome = outcome
+	f.reason = reason
+}
+
+// newServer builds an enforce-mode server with a recording fake.
+func newServer(mode policy.Mode) (*Server, *fakeRecorder) {
+	recorder := &fakeRecorder{}
+	return New("test-version", policy.MustNew(mode), recorder), recorder
+}
+
+// evaluation builds a modify_operation evaluation over a JSON proposed
+// operation.
+func evaluation(t *testing.T, proposedJSON string) *pb.InterceptorEvaluation {
+	t.Helper()
+	proposed := &structpb.Struct{}
+	if proposedJSON != "" {
+		if err := protojson.Unmarshal([]byte(proposedJSON), proposed); err != nil {
+			t.Fatalf("unmarshalling proposed operation %s: %v", proposedJSON, err)
+		}
+	}
+	return &pb.InterceptorEvaluation{
+		InterceptorName: Name,
+		BindingId:       CreateSandboxBindingID,
+		Service:         "openshell.v1.OpenShell",
+		Method:          "CreateSandbox",
+		Phase: &pb.InterceptorEvaluation_ModifyOperation{
+			ModifyOperation: &pb.ModifyOperationEvaluation{ProposedOperation: proposed},
+		},
+	}
+}
+
 func TestDescribeManifest(t *testing.T) {
-	srv := New("test-version")
+	srv, _ := newServer(policy.ModeEnforce)
 	manifest, err := srv.Describe(context.Background(), &pb.DescribeRequest{Gateway: gatewayMetadata()})
 	if err != nil {
 		t.Fatalf("Describe: %v", err)
@@ -74,7 +116,7 @@ func TestDescribeManifest(t *testing.T) {
 }
 
 func TestDescribeNegotiation(t *testing.T) {
-	srv := New("test-version")
+	srv, _ := newServer(policy.ModeEnforce)
 
 	cases := []struct {
 		name    string
@@ -128,48 +170,104 @@ func TestDescribeNegotiation(t *testing.T) {
 	})
 }
 
-// Evaluate allows everything in the S2 skeleton; the resource policy lands
-// with the S3 slice.
-func TestEvaluateAllowsEverything(t *testing.T) {
-	srv := New("test-version")
-	proposed, err := structpb.NewStruct(map[string]any{
-		"spec": map[string]any{
-			"template": map[string]any{
-				"resources": map[string]any{
-					"requests": map[string]any{"cpu": "100m", "memory": "512Mi"},
-				},
-			},
-		},
+func TestEvaluateEnforce(t *testing.T) {
+	t.Run("fills missing requests", func(t *testing.T) {
+		srv, recorder := newServer(policy.ModeEnforce)
+		result, err := srv.Evaluate(context.Background(), evaluation(t,
+			`{"spec": {"template": {"image": "alpine"}}}`))
+		if err != nil {
+			t.Fatalf("Evaluate: %v", err)
+		}
+		if !result.GetAllowed() {
+			t.Fatalf("allowed = false, reason %q", result.GetReason())
+		}
+		if len(result.GetPatches()) != 1 || result.GetPatches()[0].GetPath() != "/spec/template/resources" {
+			t.Fatalf("patches = %v, want one add of /spec/template/resources", result.GetPatches())
+		}
+		if recorder.calls != 1 || recorder.outcome != policy.OutcomePatched || recorder.reason != "" {
+			t.Errorf("recorder = %d/%q/%q, want one patched evaluation with empty reason",
+				recorder.calls, recorder.outcome, recorder.reason)
+		}
 	})
-	if err != nil {
-		t.Fatalf("building proposed operation: %v", err)
-	}
 
-	result, err := srv.Evaluate(context.Background(), &pb.InterceptorEvaluation{
-		InterceptorName: Name,
-		BindingId:       CreateSandboxBindingID,
-		Service:         "openshell.v1.OpenShell",
-		Method:          "CreateSandbox",
-		Phase: &pb.InterceptorEvaluation_ModifyOperation{
-			ModifyOperation: &pb.ModifyOperationEvaluation{ProposedOperation: proposed},
-		},
+	t.Run("denies below the floor", func(t *testing.T) {
+		srv, recorder := newServer(policy.ModeEnforce)
+		result, err := srv.Evaluate(context.Background(), evaluation(t,
+			`{"spec": {"template": {"resources": {"requests": {"cpu": "100m", "memory": "1Gi"}}}}}`))
+		if err != nil {
+			t.Fatalf("Evaluate: %v", err)
+		}
+		if result.GetAllowed() {
+			t.Fatal("allowed = true, want denied")
+		}
+		if result.GetStatusCode() != "FAILED_PRECONDITION" {
+			t.Errorf("status_code = %q, want FAILED_PRECONDITION", result.GetStatusCode())
+		}
+		if result.GetReason() == "" {
+			t.Error("denial carries no reason")
+		}
+		if len(result.GetPatches()) != 0 {
+			t.Errorf("denial carries patches %v, want none", result.GetPatches())
+		}
+		if recorder.calls != 1 || recorder.outcome != policy.OutcomeDenied || recorder.reason != policy.DenialCPUBelowFloor {
+			t.Errorf("recorder = %d/%q/%q, want one denied cpu_below_floor evaluation",
+				recorder.calls, recorder.outcome, recorder.reason)
+		}
 	})
+
+	t.Run("allows requests at the floor with no patches", func(t *testing.T) {
+		srv, recorder := newServer(policy.ModeEnforce)
+		result, err := srv.Evaluate(context.Background(), evaluation(t,
+			`{"spec": {"template": {"resources": {"requests": {"cpu": "250m", "memory": "1Gi"}}}}}`))
+		if err != nil {
+			t.Fatalf("Evaluate: %v", err)
+		}
+		if !result.GetAllowed() || len(result.GetPatches()) != 0 {
+			t.Fatalf("result = %v, want allowed with no patches", result)
+		}
+		if recorder.calls != 1 || recorder.outcome != policy.OutcomeAllowed || recorder.reason != "" {
+			t.Errorf("recorder = %d/%q/%q, want one allowed evaluation with empty reason",
+				recorder.calls, recorder.outcome, recorder.reason)
+		}
+	})
+}
+
+// TestEvaluateOffModeAllowsEverything checks that off mode leaves today's
+// behaviour unchanged even for below-floor requests.
+func TestEvaluateOffModeAllowsEverything(t *testing.T) {
+	srv, recorder := newServer(policy.ModeOff)
+	result, err := srv.Evaluate(context.Background(), evaluation(t,
+		`{"spec": {"template": {"resources": {"requests": {"cpu": "100m", "memory": "512Mi"}}}}}`))
 	if err != nil {
 		t.Fatalf("Evaluate: %v", err)
 	}
 	if !result.GetAllowed() {
-		t.Error("result.allowed = false, want true")
+		t.Fatalf("allowed = false, reason %q", result.GetReason())
 	}
 	if len(result.GetPatches()) != 0 {
-		t.Errorf("result.patches = %v, want none in the skeleton", result.GetPatches())
+		t.Errorf("patches = %v, want none in off mode", result.GetPatches())
 	}
-	if result.GetReason() != "" {
-		t.Errorf("result.reason = %q, want empty in the skeleton", result.GetReason())
+	if recorder.calls != 1 || recorder.outcome != policy.OutcomeAllowed || recorder.reason != "" {
+		t.Errorf("recorder = %d/%q/%q, want one allowed evaluation with empty reason",
+			recorder.calls, recorder.outcome, recorder.reason)
+	}
+}
+
+// A nil recorder must not break evaluation.
+func TestEvaluateWithoutRecorder(t *testing.T) {
+	srv := New("test-version", policy.MustNew(policy.ModeEnforce), nil)
+	result, err := srv.Evaluate(context.Background(), evaluation(t,
+		`{"spec": {"template": {"image": "alpine"}}}`))
+	if err != nil {
+		t.Fatalf("Evaluate: %v", err)
+	}
+	if !result.GetAllowed() || len(result.GetPatches()) != 1 {
+		t.Fatalf("result = %v, want allowed with one patch", result)
 	}
 }
 
 func TestEvaluateRejectsMissingPhase(t *testing.T) {
-	srv := New("test-version")
+	srv, _ := newServer(policy.ModeEnforce)
 	_, err := srv.Evaluate(context.Background(), &pb.InterceptorEvaluation{
 		InterceptorName: Name,
 		BindingId:       CreateSandboxBindingID,
@@ -179,8 +277,24 @@ func TestEvaluateRejectsMissingPhase(t *testing.T) {
 	}
 }
 
+// The manifest binds only modify_operation; another phase is a contract
+// violation and must not be silently allowed.
+func TestEvaluateRejectsOtherPhases(t *testing.T) {
+	srv, _ := newServer(policy.ModeEnforce)
+	_, err := srv.Evaluate(context.Background(), &pb.InterceptorEvaluation{
+		InterceptorName: Name,
+		BindingId:       CreateSandboxBindingID,
+		Phase: &pb.InterceptorEvaluation_Validate{
+			Validate: &pb.ValidateEvaluation{},
+		},
+	})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("Evaluate code = %v, want InvalidArgument (err: %v)", status.Code(err), err)
+	}
+}
+
 func TestSnapshotProviderProfilesUnimplemented(t *testing.T) {
-	srv := New("test-version")
+	srv, _ := newServer(policy.ModeEnforce)
 	_, err := srv.SnapshotProviderProfiles(context.Background(), &pb.ProviderProfileSnapshotRequest{})
 	if status.Code(err) != codes.Unimplemented {
 		t.Fatalf("SnapshotProviderProfiles code = %v, want Unimplemented (err: %v)", status.Code(err), err)
