@@ -8,7 +8,7 @@ export type DeliveryState =
   | "in-flight"
   | "change-selected"
   | "build-failed"
-  | "slower-than-usual"
+  | "release-overdue"
   | "all-delivered"
   | "promotion-retried"
   | "source-unavailable"
@@ -31,10 +31,47 @@ export type StageCell = {
   readonly primary?: string;
   /** Reason, components, or bundle. */
   readonly detail?: string;
-  /** Running or Waiting for more than twice the typical duration (FLT-DLV-04). */
-  readonly slow?: boolean;
+  /**
+   * Running or Waiting longer than the slowest of the last 5 runs plus 5
+   * minutes (FLT-DLV-04).
+   */
+  readonly overdue?: boolean;
+  /** Where to look, for an Overdue or Failed stage (FLT-DLV-20). */
+  readonly whereToLook?: WhereToLook;
   /** Failed promotion attempts in a Passed group (FLT-DLV-18). */
   readonly failedAttempts?: number;
+};
+
+/** One line of the Where to look popup (FLT-DLV-20). */
+export type WhereToLookItem = {
+  readonly term: string;
+  readonly text: string;
+  /** Link text; the mockup links to "#". */
+  readonly link?: string;
+  /** Flag the item, for example when two tags differ. */
+  readonly warning?: string;
+};
+
+export type WhereToLook = {
+  readonly phase: string;
+  readonly summary: string;
+  readonly items: readonly WhereToLookItem[];
+};
+
+/** One progress-bar cell and its label (FLT-DLV-19). */
+export type ProgressCell = {
+  readonly label: string;
+  readonly state: StageState;
+  /** Finish time, elapsed time, or arrival time or range. */
+  readonly time?: string;
+  readonly overdue?: boolean;
+  readonly whereToLook?: WhereToLook;
+};
+
+export type Progress = {
+  /** Omitted when an estimate is missing or a stage is Failed or Overdue. */
+  readonly percent?: number;
+  readonly cells: readonly ProgressCell[];
 };
 
 export type StageColumn = { readonly key: string; readonly label: string };
@@ -70,6 +107,7 @@ export type NowNextRow = {
   readonly now: string;
   readonly next: string;
   readonly severity: Severity;
+  readonly progress: Progress;
 };
 
 export type DeliveryFixture = {
@@ -152,6 +190,13 @@ const OLDER: readonly Change[] = [
   },
 ];
 
+// Stage and Prod finished for the two older in-flight changes by 16:20.
+const DELIVERED_TAIL: Record<string, StageCell> = {
+  int: passed("15:13"),
+  stage: passed("15:30"),
+  prod: passed("15:41"),
+};
+
 const INT_DONE_STAGE_ANALYSIS: Record<string, StageCell> = {
   int: passed("15:13"),
   // One of the two Stage environments already runs the change (FLT-DLV-08).
@@ -215,6 +260,31 @@ const C997 = (build: StageCell): Change => ({
   },
 });
 
+const PHASES = [
+  "Build",
+  "Policy check",
+  "Release",
+  "GitOps update",
+  "Int",
+  "Stage",
+  "Prod",
+] as const;
+
+// Builds the seven progress cells from per-phase state and time (FLT-DLV-19).
+const progress = (
+  cells: readonly (Omit<ProgressCell, "label"> | undefined)[],
+  percent?: number,
+): Progress => ({
+  percent,
+  cells: PHASES.map((label, i) => ({
+    label,
+    ...(cells[i] ?? { state: "not-started" as const }),
+  })),
+});
+
+// Estimates in this fixture: Build 10, Policy check 3, Release 25, GitOps
+// update 6, Int 18, Stage 15, Prod 12 minutes. Slowest of 5: 14, 5, 40, 10,
+// 25, 22, 18. Before publication each group shows a range (FLT-DLV-10).
 const ROW_997_BUILDING: NowNextRow = {
   shortSha: "a15cc91",
   pr: 997,
@@ -222,6 +292,69 @@ const ROW_997_BUILDING: NowNextRow = {
   now: "Building control-plane - 6 min, usually 10 min",
   next: "Policy check - usually about 15:24",
   severity: "info",
+  progress: progress(
+    [
+      { state: "running", time: "6 min" },
+      undefined,
+      undefined,
+      undefined,
+      { state: "not-started", time: "16:02 to 16:45" },
+      { state: "not-started", time: "16:14 to 17:07" },
+      { state: "not-started", time: "16:23 to 17:25" },
+    ],
+    8,
+  ),
+};
+
+const BUILD_FAILED_LOOK: WhereToLook = {
+  phase: "Build",
+  summary:
+    "Re-run the failed pipeline, or merge a change to the same component.",
+  items: [
+    {
+      term: "Why",
+      text: "A component builds only for changes under its own paths, so an unrelated change does not rebuild it.",
+    },
+    {
+      term: "control-plane",
+      text: "Failed at 15:19",
+      link: "View failed check run",
+    },
+  ],
+};
+
+// The bundle publisher has not produced a bundle for 56 minutes; the slowest
+// of the last 5 releases took 40 (FLT-DLV-04, FLT-DLV-20).
+export const RELEASE_OVERDUE_LOOK: WhereToLook = {
+  phase: "Release",
+  summary: "The release has run longer than any of the last 5 releases.",
+  items: [
+    { term: "Last good release", text: "amber pickle, published 14:51" },
+    {
+      term: "Konflux",
+      text: "Release pipeline runs for this application",
+      link: "Open the release log",
+    },
+    {
+      term: "Publisher changes",
+      text: "3f9a1c2 (#996) fix(release): read the snapshot from the release",
+      link: "View commit",
+    },
+    {
+      term: "Release app",
+      text: "Pending permission requests block publication",
+      link: "Check the app's permissions",
+    },
+    {
+      term: "Registry tag",
+      text: "release-bundle-20261109T144705000000Z",
+    },
+    {
+      term: "GitHub release",
+      text: "release-bundle-20261109T092114000000Z",
+      warning: "Differs from the registry",
+    },
+  ],
 };
 
 const stageAnalysisRow = (
@@ -235,6 +368,18 @@ const stageAnalysisRow = (
   now: "Stage: release analysis running - 4 min, usually 15 min",
   next: "Prod promotes after Stage passes - usually about 15:40",
   severity: "info",
+  progress: progress(
+    [
+      { state: "passed", time: "14:43" },
+      { state: "passed", time: "14:46" },
+      { state: "passed", time: "14:51" },
+      { state: "passed", time: "14:55" },
+      { state: "passed", time: "15:13" },
+      { state: "running", time: "4 min" },
+      { state: "waiting", time: "about 15:40" },
+    ],
+    shortSha === "c53fb9b" ? 67 : 71,
+  ),
 });
 
 const IN_FLIGHT: DeliveryFixture = {
@@ -264,8 +409,11 @@ const BUILD_FAILED: DeliveryFixture = {
     {
       ...ROW_997_BUILDING,
       now: "Build failed: control-plane at 15:19",
-      next: "A new change to main starts a new build",
+      next: "Re-run the failed pipeline, or merge a change to the same component",
       severity: "danger",
+      progress: progress([
+        { state: "failed", time: "15:19", whereToLook: BUILD_FAILED_LOOK },
+      ]),
     },
     stageAnalysisRow(
       "c53fb9b",
@@ -275,42 +423,67 @@ const BUILD_FAILED: DeliveryFixture = {
     stageAnalysisRow("9e1d2aa", 994, "docs(spec): clarify bundle containment"),
   ],
   changes: [
-    C997({ state: "failed", primary: "15:19", detail: "control-plane" }),
+    C997({
+      state: "failed",
+      primary: "15:19",
+      detail: "control-plane",
+      whereToLook: BUILD_FAILED_LOOK,
+    }),
     C995(),
     C994(),
     ...OLDER,
   ],
 };
 
-const WAITING_FOR_PR: Partial<Record<string, StageCell>> = {
-  gitops: {
-    state: "waiting",
-    primary: "14 min",
-    detail: "Waiting for the bundle update pull request",
-    slow: true,
+const RELEASE_OVERDUE_CHANGE: Change = {
+  ...C997(passed("15:21", "control-plane")),
+  stages: {
+    merged: passed("15:10"),
+    build: passed("15:21", "control-plane"),
+    policy: passed("15:24", "control-plane"),
+    release: {
+      state: "running",
+      primary: "56 min",
+      detail: "Releasing (inferred)",
+      overdue: true,
+      whereToLook: RELEASE_OVERDUE_LOOK,
+    },
+    gitops: notStarted,
+    int: notStarted,
+    stage: notStarted,
+    prod: notStarted,
   },
-  int: notStarted,
-  stage: notStarted,
-  prod: notStarted,
 };
 
-const slowRow = (shortSha: string, pr: number, title: string): NowNextRow => ({
-  shortSha,
-  pr,
-  title,
-  now: "GitOps update: waiting for the bundle update pull request - 14 min, usually 4 min",
-  next: "Int - usually about 15:23",
-  severity: "warning",
-});
-
-const SLOWER_THAN_USUAL: DeliveryFixture = {
-  asOf: "15:05",
+const RELEASE_OVERDUE: DeliveryFixture = {
+  asOf: "16:20",
   summarySeverity: "warning",
   summary: [
-    slowRow("c53fb9b", 995, "feat(web-console): page the add-users picker"),
-    slowRow("9e1d2aa", 994, "docs(spec): clarify bundle containment"),
+    {
+      shortSha: "a15cc91",
+      pr: 997,
+      title:
+        "fix(control-plane): converge a new gateway in one provisioning pass",
+      now: "Releasing (inferred) - 56 min, usually 25 min - Overdue",
+      next: "GitOps update - no arrival time while the release is overdue",
+      severity: "warning",
+      progress: progress([
+        { state: "passed", time: "15:21" },
+        { state: "passed", time: "15:24" },
+        {
+          state: "running",
+          time: "56 min",
+          overdue: true,
+          whereToLook: RELEASE_OVERDUE_LOOK,
+        },
+      ]),
+    },
   ],
-  changes: [C995(WAITING_FOR_PR), C994(WAITING_FOR_PR), ...OLDER],
+  changes: [RELEASE_OVERDUE_CHANGE, C995(), C994(), ...OLDER].map((c) =>
+    c.sha === RELEASE_OVERDUE_CHANGE.sha
+      ? c
+      : { ...c, stages: { ...c.stages, ...DELIVERED_TAIL } },
+  ),
 };
 
 const ALL_DELIVERED: DeliveryFixture = {
@@ -406,7 +579,7 @@ export const FIXTURES: Readonly<
   "in-flight": IN_FLIGHT,
   "change-selected": IN_FLIGHT,
   "build-failed": BUILD_FAILED,
-  "slower-than-usual": SLOWER_THAN_USUAL,
+  "release-overdue": RELEASE_OVERDUE,
   "all-delivered": ALL_DELIVERED,
   "promotion-retried": PROMOTION_RETRIED,
   "source-unavailable": SOURCE_UNAVAILABLE,
