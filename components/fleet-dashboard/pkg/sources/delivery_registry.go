@@ -36,10 +36,10 @@ type RegistryBundle struct {
 type BundleRegistry interface {
 	// ListBundles returns the recent release-bundle tags, newest first by tag.
 	ListBundles(ctx context.Context) ([]RegistryBundle, error)
-	// ManifestsRevision returns bundle.json's manifests.git.revision for the
-	// manifest digest. Implementations cache it forever: bundle content is
+	// BundleContent returns bundle.json's manifests.git.revision and component
+	// revisions for the manifest digest. Implementations cache it forever: bundle content is
 	// immutable (FLT-DLV-12).
-	ManifestsRevision(ctx context.Context, digest string) (string, error)
+	BundleContent(ctx context.Context, digest string) (BundleContent, error)
 }
 
 // QuayBundleRegistry reads a public Quay repository: the tag listing uses Quay's
@@ -53,9 +53,9 @@ type QuayBundleRegistry struct {
 	scheme string // https, or http in tests
 	client *http.Client
 
-	mu        sync.Mutex
-	revisions map[string]string // manifest digest -> manifests revision (immutable)
-	token     string            // anonymous pull token, refreshed on a 401
+	mu       sync.Mutex
+	contents map[string]BundleContent // manifest digest -> bundle.json content (immutable)
+	token    string                   // anonymous pull token, refreshed on a 401
 }
 
 // NewQuayBundleRegistry parses "host/namespace/repo". It returns nil when the
@@ -72,11 +72,11 @@ func NewQuayBundleRegistry(repository string) *QuayBundleRegistry {
 		return nil
 	}
 	return &QuayBundleRegistry{
-		host:      host,
-		repo:      repo,
-		scheme:    scheme,
-		client:    &http.Client{Timeout: 15 * time.Second},
-		revisions: map[string]string{},
+		host:     host,
+		repo:     repo,
+		scheme:   scheme,
+		client:   &http.Client{Timeout: 15 * time.Second},
+		contents: map[string]BundleContent{},
 	}
 }
 
@@ -106,7 +106,7 @@ func (q *QuayBundleRegistry) ListBundles(ctx context.Context) ([]RegistryBundle,
 			b.PublishedAt = time.Unix(t.StartTS, 0).UTC()
 		}
 		q.mu.Lock()
-		b.ManifestsRev = q.revisions[t.ManifestDigest]
+		b.ManifestsRev = q.contents[t.ManifestDigest].ManifestsRev
 		q.mu.Unlock()
 		out = append(out, b)
 	}
@@ -129,22 +129,31 @@ type bundleFile struct {
 			Revision string `json:"revision"`
 		} `json:"git"`
 	} `json:"manifests"`
+	Components []bundleComponent `json:"components"`
 }
 
-// ManifestsRevision implements BundleRegistry: one manifest read and one blob
+// BundleContent is what the delivery plane reads from a pending bundle's
+// bundle.json: the manifests revision and each component's source revision
+// (FLT-DLV-06). Bundle content is immutable, so it is cached by digest.
+type BundleContent struct {
+	ManifestsRev string
+	Components   map[string]string
+}
+
+// BundleContent implements BundleRegistry: one manifest read and one blob
 // read per new digest, cached forever.
-func (q *QuayBundleRegistry) ManifestsRevision(ctx context.Context, digest string) (string, error) {
+func (q *QuayBundleRegistry) BundleContent(ctx context.Context, digest string) (BundleContent, error) {
 	q.mu.Lock()
-	if rev, ok := q.revisions[digest]; ok {
+	if c, ok := q.contents[digest]; ok {
 		q.mu.Unlock()
-		return rev, nil
+		return c, nil
 	}
 	q.mu.Unlock()
 
 	var m ociManifest
 	mu := fmt.Sprintf("%s://%s/v2/%s/manifests/%s", q.scheme, q.host, q.repo, digest)
 	if err := q.getRegistryJSON(ctx, mu, "application/vnd.oci.image.manifest.v1+json", &m); err != nil {
-		return "", fmt.Errorf("read bundle manifest: %w", err)
+		return BundleContent{}, fmt.Errorf("read bundle manifest: %w", err)
 	}
 	layer := ""
 	for _, l := range m.Layers {
@@ -154,21 +163,22 @@ func (q *QuayBundleRegistry) ManifestsRevision(ctx context.Context, digest strin
 		}
 	}
 	if layer == "" {
-		return "", fmt.Errorf("bundle manifest %s has no bundle.json layer", digest)
+		return BundleContent{}, fmt.Errorf("bundle manifest %s has no bundle.json layer", digest)
 	}
 	var b bundleFile
 	bu := fmt.Sprintf("%s://%s/v2/%s/blobs/%s", q.scheme, q.host, q.repo, layer)
 	if err := q.getRegistryJSON(ctx, bu, "", &b); err != nil {
-		return "", fmt.Errorf("read bundle.json: %w", err)
+		return BundleContent{}, fmt.Errorf("read bundle.json: %w", err)
 	}
 	rev := strings.TrimSpace(b.Manifests.Git.Revision)
 	if rev == "" {
-		return "", fmt.Errorf("bundle %s has no manifests revision", digest)
+		return BundleContent{}, fmt.Errorf("bundle %s has no manifests revision", digest)
 	}
 	q.mu.Lock()
-	q.revisions[digest] = rev
+	c := BundleContent{ManifestsRev: rev, Components: componentRevisions(b.Components)}
+	q.contents[digest] = c
 	q.mu.Unlock()
-	return rev, nil
+	return c, nil
 }
 
 // wwwAuthenticate pulls realm, service, and scope out of a Bearer challenge.

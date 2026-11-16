@@ -71,7 +71,9 @@ type fakeDeliveryGitHub struct {
 	checks     map[string][]CheckRun
 	pr         *BundlePR
 	checkCalls map[string]int
-	calls      struct{ commits, prs, releases int }
+	calls      struct{ commits, prs, releases, touching, latest int }
+	touching   map[string][]UpstreamCommit // path -> commits
+	latestTag  string
 	// envPromos are each environment branch's promotions, newest first.
 	envPromos map[string][]EnvPromotion
 	gateRuns  map[string][]CheckRun
@@ -123,10 +125,21 @@ func (f *fakeDeliveryGitHub) ReleasePublished(context.Context, string) (bool, st
 	return false, "", nil
 }
 
+func (f *fakeDeliveryGitHub) CommitsTouching(_ context.Context, path string, _ time.Time) ([]UpstreamCommit, error) {
+	f.calls.touching++
+	return f.touching[path], nil
+}
+
+func (f *fakeDeliveryGitHub) LatestReleaseTag(context.Context) (string, error) {
+	f.calls.latest++
+	return f.latestTag, nil
+}
+
 type fakeRegistry struct {
 	tags     []RegistryBundle
 	err      error
 	revs     map[string]string
+	comps    map[string]map[string]string // digest -> component revisions
 	revCalls int
 	lists    int
 }
@@ -136,9 +149,9 @@ func (f *fakeRegistry) ListBundles(context.Context) ([]RegistryBundle, error) {
 	return f.tags, f.err
 }
 
-func (f *fakeRegistry) ManifestsRevision(_ context.Context, digest string) (string, error) {
+func (f *fakeRegistry) BundleContent(_ context.Context, digest string) (BundleContent, error) {
 	f.revCalls++
-	return f.revs[digest], nil
+	return BundleContent{ManifestsRev: f.revs[digest], Components: f.comps[digest]}, nil
 }
 
 // fakeLock is the shared lock timeline: lock commits newest first, each resolved
@@ -524,28 +537,6 @@ func TestDeliveryWindow(t *testing.T) {
 	}
 }
 
-func TestDeliveryTypicalDurations(t *testing.T) {
-	// Verifies: FLT-DLV-09.01
-	mk := func(start, end string) DeliveryChange {
-		return DeliveryChange{Stages: []DeliveryStage{
-			{Key: stageBuild, State: StagePassed, StartedAt: start, FinishedAt: end},
-			{Key: stagePolicy, State: StagePassed, StartedAt: end, FinishedAt: end[:15] + "9:00Z"},
-		}}
-	}
-	changes := []DeliveryChange{
-		mk("2026-11-01T10:00:00Z", "2026-11-01T10:10:00Z"),
-		mk("2026-11-01T11:00:00Z", "2026-11-01T11:20:00Z"),
-		mk("2026-11-01T12:00:00Z", "2026-11-01T12:12:00Z"),
-	}
-	got := typicalDurations(changes)
-	if got[stageBuild] != 12*60 {
-		t.Errorf("typical build = %d, want 720 (median of 10, 20, 12 min)", got[stageBuild])
-	}
-	if _, ok := typicalDurations(changes[:2])[stageBuild]; ok {
-		t.Errorf("two samples produced a typical duration")
-	}
-}
-
 func TestDeliveryCallBudget(t *testing.T) {
 	// Verifies: FLT-DLV-12.01
 	f := newFixture(t)
@@ -835,8 +826,10 @@ func TestPromotionHistoryFailedAttempt(t *testing.T) {
 		t.Errorf("reads after a second refresh: branch %d, m1 %d, m2 %d; want 1 each",
 			f.gh.envCalls["env/int-a"], f.gh.gateCalls["m1"], f.gh.gateCalls["m2"])
 	}
-	if f.gh.gateCalls["m3"] != 0 {
-		t.Errorf("the active promotion's gates were read from GitHub")
+	// The active promotion's outcome comes from the payload; its passed gates
+	// are read once for their finish time (FLT-DLV-08, FLT-DLV-12).
+	if f.gh.gateCalls["m3"] != 1 {
+		t.Errorf("active promotion gate reads = %d, want 1", f.gh.gateCalls["m3"])
 	}
 	if st := p.Sources[srcHistory]; st.Never || st.Stale {
 		t.Errorf("history status = %+v, want current", st)
