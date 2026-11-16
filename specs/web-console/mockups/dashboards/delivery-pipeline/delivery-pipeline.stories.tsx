@@ -24,8 +24,10 @@ export const ChangeSelected: Story = { args: { state: "change-selected" } };
 // pipeline (FLT-DLV-05.03, FLT-DLV-10.03).
 export const BuildFailed: Story = { args: { state: "build-failed" } };
 
-// The bundle update pull request is overdue (FLT-DLV-04.01, FLT-DLV-07).
-export const SlowerThanUsual: Story = { args: { state: "slower-than-usual" } };
+// The release has run past the slowest of its last 5 runs plus 5 minutes;
+// the arrival time is withdrawn and Where to look is open (FLT-DLV-04,
+// FLT-DLV-10.06, FLT-DLV-20).
+export const ReleaseOverdue: Story = { args: { state: "release-overdue" } };
 
 // Nothing in flight (FLT-DLV-10.02).
 export const AllDelivered: Story = { args: { state: "all-delivered" } };
