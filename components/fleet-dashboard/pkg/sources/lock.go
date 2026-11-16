@@ -94,7 +94,36 @@ type releaseLock struct {
 				Revision string `json:"revision"`
 			} `json:"git"`
 		} `json:"manifests"`
+		Components []bundleComponent `json:"components"`
 	} `json:"bundle"`
+}
+
+// bundleComponent is one bundle.components[] entry: a component's name and
+// the source revision its image was built from (FLT-DLV-06).
+type bundleComponent struct {
+	Name   string `json:"name"`
+	Source struct {
+		Git struct {
+			Revision string `json:"revision"`
+		} `json:"git"`
+	} `json:"source"`
+}
+
+// componentRevisions maps component name to source revision; nil when the
+// bundle lists none.
+func componentRevisions(cs []bundleComponent) map[string]string {
+	var out map[string]string
+	for _, c := range cs {
+		name, rev := strings.TrimSpace(c.Name), strings.TrimSpace(c.Source.Git.Revision)
+		if name == "" || rev == "" {
+			continue
+		}
+		if out == nil {
+			out = map[string]string{}
+		}
+		out[name] = rev
+	}
+	return out
 }
 
 // Resolve implements VersionResolver. It returns the release bundle sha deploys,
@@ -190,6 +219,7 @@ func (g *GitHubLockResolver) resolveUncached(ctx context.Context, sha string) *R
 		Date:         dateFromTag(tag),
 		SHA:          shortSHA(sha),
 		ManifestsRev: strings.TrimSpace(lock.Bundle.Manifests.Git.Revision),
+		Components:   componentRevisions(lock.Bundle.Components),
 	}
 }
 
