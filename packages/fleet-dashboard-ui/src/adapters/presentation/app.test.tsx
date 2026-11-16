@@ -68,7 +68,7 @@ const e2eApi = {
         enabled: false,
         stages: [],
         changes: [],
-        typicalSeconds: {},
+        releaseDiagnostics: null,
         omitted: 0,
         sources: {},
       }),

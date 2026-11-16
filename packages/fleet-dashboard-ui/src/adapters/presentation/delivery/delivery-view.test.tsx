@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { IntlProvider } from "react-intl";
 import { describe, expect, it } from "vitest";
 
@@ -107,5 +107,104 @@ describe("DeliveryView promotion history (FLT-DLV-18)", () => {
     expect(
       screen.queryByRole("list", { name: "Promotions in int-spoke" }),
     ).toBeNull();
+  });
+});
+
+const FAILED_SHA = "9a1b2c3".padEnd(40, "0");
+
+function renderFailedBuild() {
+  const data = mapDelivery({
+    enabled: true,
+    stages: [
+      { key: "merged", kind: "pipeline" },
+      { key: "build", kind: "pipeline" },
+      { key: "policy", kind: "pipeline" },
+      { key: "release", kind: "pipeline" },
+      { key: "gitops", kind: "pipeline" },
+      { key: "env:int", kind: "group", group: "int" },
+    ],
+    changes: [
+      {
+        sha: FAILED_SHA,
+        shortSha: "9a1b2c3",
+        mergedAt: "2026-11-01T23:00:00Z",
+        title: "Failed change",
+        stages: [
+          { key: "merged", state: "passed" },
+          {
+            key: "build",
+            state: "failed",
+            components: ["web"],
+            finishedAt: "2026-11-01T23:20:00Z",
+          },
+          { key: "policy", state: "not-started" },
+          { key: "release", state: "not-started" },
+          { key: "gitops", state: "not-started" },
+          { key: "env:int", state: "not-started" },
+        ],
+        builds: [
+          {
+            component: "web",
+            state: "failed",
+            completedAt: "2026-11-01T23:20:00Z",
+            url: "https://example.test/run/1",
+          },
+        ],
+      },
+    ],
+  });
+  render(
+    <IntlProvider locale="en" defaultLocale="en" timeZone="UTC">
+      <DeliveryView
+        state={{
+          status: "ready",
+          plane: {
+            data,
+            generatedAt: "2026-11-02T00:00:00Z",
+            stale: false,
+            error: null,
+          },
+        }}
+        selectedSha={null}
+        nowMs={Date.parse("2026-11-02T00:00:00Z")}
+        onNavigate={() => undefined}
+        onRefresh={() => undefined}
+      />
+    </IntlProvider>,
+  );
+}
+
+describe("DeliveryView progress bar and Where to look (FLT-DLV-19, FLT-DLV-20)", () => {
+  // Verifies: FLT-DLV-19.01
+  it("shows one numbered cell per phase with its own label", () => {
+    renderFailedBuild();
+    const bar = screen.getByRole("list", {
+      name: /Delivery progress of/,
+    });
+    const cells = within(bar).getAllByRole("listitem");
+    expect(cells).toHaveLength(5);
+    expect(cells[0]?.textContent).toMatch(/^1/);
+    expect(cells[0]?.textContent).toMatch(/Failed/);
+    expect(cells[4]?.textContent).toMatch(/^5/);
+  });
+
+  // Verifies: FLT-DLV-20.02
+  it("opens the failed-build popup on focus and keeps it open on the click that follows", async () => {
+    renderFailedBuild();
+    const bar = screen.getByRole("list", { name: /Delivery progress of/ });
+    const trigger = within(bar).getByRole("button", { name: "Where to look" });
+    act(() => {
+      trigger.focus();
+    });
+    fireEvent.click(trigger);
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent).toContain(
+      "Re-run the failed pipeline, or merge a change to the same component",
+    );
+    expect(
+      within(dialog)
+        .getByRole("link", { name: /View check run/ })
+        .getAttribute("href"),
+    ).toBe("https://example.test/run/1");
   });
 });

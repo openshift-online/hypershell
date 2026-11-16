@@ -6,6 +6,7 @@ import {
   DELIVERY_SOURCE_KEYS,
   type DeliveryBundle,
   type DeliveryChange,
+  type DeliveryCommitLink,
   type DeliveryCheck,
   type DeliveryData,
   type DeliveryEnvState,
@@ -16,6 +17,7 @@ import {
   type DeliveryStageDef,
   type DeliveryStageState,
   type PromotionOutcome,
+  type ReleaseDiagnostics,
 } from "../../domain/delivery";
 
 interface WireStageDef {
@@ -38,6 +40,8 @@ interface WireStage {
   readonly pr?: number;
   readonly checks?: string;
   readonly failedAttempts?: number;
+  readonly estimateSeconds?: number;
+  readonly slowestSeconds?: number;
 }
 
 interface WireCheck {
@@ -46,6 +50,7 @@ interface WireCheck {
   readonly startedAt?: string;
   readonly completedAt?: string;
   readonly url?: string;
+  readonly outsideBundle?: boolean;
 }
 
 interface WireBundle {
@@ -65,6 +70,7 @@ interface WirePromotion {
   readonly url?: string;
   readonly outcome?: string;
   readonly gate?: string;
+  readonly gatesPassedAt?: string;
 }
 
 interface WireEnv {
@@ -73,6 +79,8 @@ interface WireEnv {
   readonly state?: string;
   readonly contains?: boolean;
   readonly history?: readonly WirePromotion[] | null;
+  readonly analysisUrl?: string;
+  readonly argoUrl?: string;
 }
 
 interface WireChange {
@@ -104,11 +112,31 @@ interface WireSource {
   readonly lastSuccess?: string;
 }
 
+interface WireCommitLink {
+  readonly sha?: string;
+  readonly shortSha?: string;
+  readonly title?: string;
+  readonly pr?: number;
+  readonly url?: string;
+  readonly mergedAt?: string;
+}
+
+interface WireReleaseDiagnostics {
+  readonly lastGood?: WireBundle | null;
+  readonly logUrl?: string;
+  readonly appUrl?: string;
+  readonly commits?: readonly WireCommitLink[] | null;
+  readonly commitsError?: string;
+  readonly registryTag?: string;
+  readonly githubReleaseTag?: string;
+  readonly releaseError?: string;
+}
+
 interface WireDelivery {
   readonly enabled?: boolean;
   readonly stages?: readonly WireStageDef[] | null;
   readonly changes?: readonly WireChange[] | null;
-  readonly typicalSeconds?: Readonly<Record<string, number>> | null;
+  readonly releaseDiagnostics?: WireReleaseDiagnostics | null;
   readonly omitted?: number;
   readonly sources?: Readonly<Record<string, WireSource>> | null;
 }
@@ -138,6 +166,13 @@ function int(v: number | undefined): number {
   return typeof v === "number" && Number.isFinite(v) ? v : 0;
 }
 
+/** Seconds on the wire to milliseconds; absent means no estimate. */
+function secondsMs(v: number | undefined): number | null {
+  return typeof v === "number" && Number.isFinite(v) && v >= 0
+    ? v * 1000
+    : null;
+}
+
 function mapStage(raw: WireStage): DeliveryStage {
   return {
     key: raw.key ?? "",
@@ -153,6 +188,8 @@ function mapStage(raw: WireStage): DeliveryStage {
     pr: raw.pr && raw.pr > 0 ? raw.pr : null,
     checks: str(raw.checks),
     failedAttempts: int(raw.failedAttempts),
+    estimateMs: secondsMs(raw.estimateSeconds),
+    slowestMs: secondsMs(raw.slowestSeconds),
   };
 }
 
@@ -163,6 +200,7 @@ function mapCheck(raw: WireCheck): DeliveryCheck {
     startedAt: str(raw.startedAt),
     completedAt: str(raw.completedAt),
     url: str(raw.url),
+    outsideBundle: raw.outsideBundle === true,
   };
 }
 
@@ -200,6 +238,7 @@ function mapPromotion(raw: WirePromotion): DeliveryPromotion {
       ? (raw.outcome as PromotionOutcome)
       : "unknown",
     gate: str(raw.gate),
+    gatesPassedAt: str(raw.gatesPassedAt),
   };
 }
 
@@ -210,6 +249,8 @@ function mapEnv(raw: WireEnv): DeliveryEnvState {
     state: mapState(raw.state),
     contains: raw.contains === true,
     history: (raw.history ?? []).map(mapPromotion),
+    analysisUrl: str(raw.analysisUrl),
+    argoUrl: str(raw.argoUrl),
   };
 }
 
@@ -265,13 +306,42 @@ function mapSources(
   return out;
 }
 
+function mapCommitLink(raw: WireCommitLink): DeliveryCommitLink {
+  return {
+    sha: raw.sha ?? "",
+    shortSha: raw.shortSha ?? (raw.sha ?? "").slice(0, 7),
+    title: raw.title ?? "",
+    pr: raw.pr && raw.pr > 0 ? raw.pr : null,
+    url: raw.url ?? "",
+    mergedAt: str(raw.mergedAt),
+  };
+}
+
+function mapReleaseDiagnostics(
+  raw: WireReleaseDiagnostics | null | undefined,
+): ReleaseDiagnostics | null {
+  if (!raw) {
+    return null;
+  }
+  return {
+    lastGood: mapBundle(raw.lastGood),
+    logUrl: str(raw.logUrl),
+    appUrl: str(raw.appUrl),
+    commits: (raw.commits ?? []).map(mapCommitLink),
+    commitsError: str(raw.commitsError),
+    registryTag: str(raw.registryTag),
+    githubReleaseTag: str(raw.githubReleaseTag),
+    releaseError: str(raw.releaseError),
+  };
+}
+
 export function mapDelivery(raw: unknown): DeliveryData {
   const w = (raw ?? {}) as WireDelivery;
   return {
     enabled: w.enabled === true,
     stages: (w.stages ?? []).map(mapStageDef),
     changes: (w.changes ?? []).map(mapChange),
-    typicalSeconds: { ...(w.typicalSeconds ?? {}) },
+    releaseDiagnostics: mapReleaseDiagnostics(w.releaseDiagnostics),
     omitted: int(w.omitted),
     sources: mapSources(w.sources),
   };

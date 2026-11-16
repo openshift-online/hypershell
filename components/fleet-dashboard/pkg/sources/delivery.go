@@ -191,6 +191,10 @@ type DeliveryEnvState struct {
 	// History lists the promotions of bundles containing the change, oldest
 	// first (FLT-DLV-18).
 	History []DeliveryPromotion `json:"history,omitempty"`
+	// AnalysisURL and ArgoURL come from the promotion payload, for the group's
+	// Where to look popup (FLT-DLV-20).
+	AnalysisURL string `json:"analysisUrl,omitempty"`
+	ArgoURL     string `json:"argoUrl,omitempty"`
 }
 
 // LockTimeline is the shared lock resolver's view the delivery plane reads
@@ -1314,7 +1318,7 @@ func groupStage(in deliveryInput, pl placement, g envGroup, first int, gitopsSta
 	for _, key := range g.envs {
 		env := in.promo.Environments[key]
 		contains := env.Active != nil && containsIdx(pl, env.Active.Digest, first)
-		es := DeliveryEnvState{Env: key, Group: g.name, Contains: contains, History: envAttempts(in, pl, key, first)}
+		es := DeliveryEnvState{Env: key, Group: g.name, Contains: contains, History: envAttempts(in, pl, key, first), AnalysisURL: env.AnalysisURL, ArgoURL: env.ArgoURL}
 		if contains {
 			done++
 			es.State = StagePassed
