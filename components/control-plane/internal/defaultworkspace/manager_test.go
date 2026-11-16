@@ -54,10 +54,11 @@ func TestManagerAddMemberProvisionsAdminAndReusesStoredCredential(t *testing.T) 
 	if provider.provisionCalls != 1 {
 		t.Fatalf("provision calls = %d, want 1", provider.provisionCalls)
 	}
-	if openShell.calls != 2 || openShell.endpoint != "https://openshell-gateway.gateway-namespace.svc.cluster.local:8080" ||
+	if openShell.addCalls != 2 || openShell.hasCalls != 2 ||
+		openShell.endpoint != "https://openshell-gateway.gateway-namespace.svc.cluster.local:8080" ||
 		openShell.accessToken != "bootstrap-token" || openShell.subject != "subject-id" {
-		t.Fatalf("OpenShell calls = %d, endpoint = %q, token = %q, subject = %q",
-			openShell.calls, openShell.endpoint, openShell.accessToken, openShell.subject)
+		t.Fatalf("OpenShell add calls = %d, has calls = %d, endpoint = %q, token = %q, subject = %q",
+			openShell.addCalls, openShell.hasCalls, openShell.endpoint, openShell.accessToken, openShell.subject)
 	}
 }
 
@@ -86,6 +87,44 @@ func TestManagerAddMemberTreatsOpenShellAlreadyExistsAsSuccess(t *testing.T) {
 	request := validMemberRequest("https://public-issuer.example/realms/hypershell")
 	if err := manager.AddMember(t.Context(), request); err != nil {
 		t.Fatalf("AddMember() error = %v", err)
+	}
+}
+
+func TestManagerAddMemberSkipsAddWhenMembershipAlreadyExists(t *testing.T) {
+	tokenServer := newTokenServer(t)
+	defer tokenServer.Close()
+	openShell := &fakeOpenShellClient{existingMember: true}
+	manager := NewManager(
+		&fakeProvider{issuer: tokenServer.URL}, fake.NewSimpleClientset(), openShell,
+	)
+
+	if err := manager.AddMember(t.Context(), validMemberRequest(tokenServer.URL)); err != nil {
+		t.Fatalf("AddMember() error = %v", err)
+	}
+	if openShell.addCalls != 0 {
+		t.Fatalf("add calls = %d, want 0", openShell.addCalls)
+	}
+	if openShell.hasCalls != 1 {
+		t.Fatalf("has calls = %d, want 1", openShell.hasCalls)
+	}
+}
+
+func TestManagerAddMemberTreatsFailedPreconditionAsSuccessWhenMembershipExists(t *testing.T) {
+	tokenServer := newTokenServer(t)
+	defer tokenServer.Close()
+	openShell := &fakeOpenShellClient{
+		err:                         status.Error(codes.FailedPrecondition, "member exists"),
+		membershipAppearsAfterCheck: true,
+	}
+	manager := NewManager(
+		&fakeProvider{issuer: tokenServer.URL}, fake.NewSimpleClientset(), openShell,
+	)
+
+	if err := manager.AddMember(t.Context(), validMemberRequest(tokenServer.URL)); err != nil {
+		t.Fatalf("AddMember() error = %v", err)
+	}
+	if openShell.addCalls != 1 || openShell.hasCalls != 2 {
+		t.Fatalf("add calls = %d, has calls = %d; want 1, 2", openShell.addCalls, openShell.hasCalls)
 	}
 }
 
@@ -239,20 +278,31 @@ func (f *fakeProvider) ListManagedClients(context.Context, string) ([]serviceacc
 }
 
 type fakeOpenShellClient struct {
-	calls       int
-	endpoint    string
-	accessToken string
-	subject     string
-	err         error
+	addCalls                    int
+	hasCalls                    int
+	existingMember              bool
+	membershipAppearsAfterCheck bool
+	endpoint                    string
+	accessToken                 string
+	subject                     string
+	err                         error
 }
 
 func (f *fakeOpenShellClient) AddMember(_ context.Context, endpoint, _, accessToken, subject, _ string) error {
-	f.calls++
+	f.addCalls++
 	f.endpoint, f.accessToken, f.subject = endpoint, accessToken, subject
-	if status.Code(f.err) == codes.AlreadyExists {
-		return nil
-	}
 	return f.err
+}
+
+func (f *fakeOpenShellClient) HasWorkspaceMember(
+	_ context.Context, endpoint, _, accessToken, _, subject string,
+) (bool, error) {
+	f.hasCalls++
+	f.endpoint, f.accessToken, f.subject = endpoint, accessToken, subject
+	if f.membershipAppearsAfterCheck {
+		return f.hasCalls > 1, nil
+	}
+	return f.existingMember, nil
 }
 
 func (f *fakeOpenShellClient) ListWorkspaceVisibility(_ context.Context, _, _, _ string) (WorkspaceVisibility, error) {

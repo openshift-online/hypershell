@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/openshift-online/hypershell/components/control-plane/internal/serviceaccountkeycloak"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -47,6 +49,7 @@ type Provider interface {
 
 type OpenShellClient interface {
 	AddMember(ctx context.Context, endpoint, namespace, accessToken, subject, role string) error
+	HasWorkspaceMember(ctx context.Context, endpoint, namespace, accessToken, workspace, subject string) (bool, error)
 	ListWorkspaceVisibility(ctx context.Context, endpoint, namespace, accessToken string) (WorkspaceVisibility, error)
 }
 
@@ -121,10 +124,34 @@ func (m *Manager) AddMember(ctx context.Context, request MemberRequest) error {
 	if err != nil {
 		return fmt.Errorf("authenticate gateway bootstrap admin: %w", err)
 	}
+	endpoint := clusterLocalGatewayEndpoint(request.GatewayNamespace)
+	alreadyMember, err := m.openShell.HasWorkspaceMember(
+		ctx, endpoint, request.GatewayNamespace, accessToken, "default", request.Subject,
+	)
+	if err != nil {
+		return fmt.Errorf("check default-workspace member: %w", err)
+	}
+	if alreadyMember {
+		return nil
+	}
 	if err := m.openShell.AddMember(
-		ctx, clusterLocalGatewayEndpoint(request.GatewayNamespace), request.GatewayNamespace,
+		ctx, endpoint, request.GatewayNamespace,
 		accessToken, request.Subject, request.Role,
 	); err != nil {
+		if status.Code(err) == codes.AlreadyExists {
+			return nil
+		}
+		if status.Code(err) == codes.FailedPrecondition {
+			alreadyMember, checkErr := m.openShell.HasWorkspaceMember(
+				ctx, endpoint, request.GatewayNamespace, accessToken, "default", request.Subject,
+			)
+			if checkErr != nil {
+				return fmt.Errorf("recheck default-workspace member: %w", checkErr)
+			}
+			if alreadyMember {
+				return nil
+			}
+		}
 		return fmt.Errorf("add default-workspace member: %w", err)
 	}
 	return nil

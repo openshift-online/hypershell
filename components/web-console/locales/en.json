@@ -1595,8 +1595,12 @@
     "defaultMessage": "Filter by workspace",
     "description": "Accessible label for the workspace filter."
   },
+  "app.gateway.access.workspaceGrant.availableWorkspaces": {
+    "defaultMessage": "Available workspaces: {workspaces}",
+    "description": "Alphabetical workspace names available to a gateway user."
+  },
   "app.gateway.access.workspaceGrant.intro": {
-    "defaultMessage": "Run this command to add this user to another workspace or to replace manually removed default-workspace access:",
+    "defaultMessage": "Run this command to add this user to a workspace:",
     "description": "Instructions for adding a newly granted user to an OpenShell workspace."
   },
   "app.gateway.access.workspaceGrant.lookupPending": {

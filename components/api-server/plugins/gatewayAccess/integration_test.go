@@ -120,6 +120,7 @@ func accessSvc(dir gatewayAccess.DirectoryResolver) gatewayAccess.Service {
 func TestAccessList_EnrichedTiers(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
+	defer withDefaultWorkspaceBootstrap()()
 	gw := "gw-list-enriched"
 
 	owner := seed(t, gw, "first-owner", roles.RoleGatewayOwner)
@@ -128,7 +129,10 @@ func TestAccessList_EnrichedTiers(t *testing.T) {
 	seed(t, gw, "viewer-one", roles.RoleGatewayViewer)
 	seed(t, gw, "viewer-two", roles.RoleGatewayViewer)
 
-	svc := accessSvc(realm())
+	svc := accessSvc(realm(
+		gatewayAccess.DirectoryUser{Username: "viewer-one", Subject: "sub-viewer-one"},
+		gatewayAccess.DirectoryUser{Username: "viewer-two", Subject: "sub-viewer-two"},
+	))
 	items, _, total, caps, aerr := svc.List(context.Background(), gw, owner, gatewayAccess.ListOptions{Page: 1, Size: 50})
 	Expect(aerr).To(BeNil())
 	Expect(total).To(Equal(int64(5)))
@@ -152,6 +156,7 @@ func TestAccessList_EnrichedTiers(t *testing.T) {
 func TestAccessList_FilterByRoleAndSearch(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
+	defer withDefaultWorkspaceBootstrap()()
 	gw := "gw-list-filter"
 
 	owner := seed(t, gw, "owner-ff", roles.RoleGatewayOwner)
@@ -159,7 +164,9 @@ func TestAccessList_FilterByRoleAndSearch(t *testing.T) {
 	seed(t, gw, "bob-user", roles.RoleGatewayViewer)
 	seed(t, gw, "alice-admin", roles.RoleGatewayAdmin)
 
-	svc := accessSvc(realm())
+	svc := accessSvc(realm(
+		gatewayAccess.DirectoryUser{Username: "alice-user", Subject: "sub-alice-user"},
+	))
 	items, _, _, _, aerr := svc.List(context.Background(), gw, owner, gatewayAccess.ListOptions{Page: 1, Size: 50, Role: gatewayAccess.TierUser, Search: "ali"})
 	Expect(aerr).To(BeNil())
 	Expect(items).To(HaveLen(1))
@@ -259,11 +266,14 @@ func TestGrant_AdminCannotDemoteOwner(t *testing.T) {
 func TestChangeRole_PromoteInPlaceKeepsBindingID(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
+	defer withDefaultWorkspaceBootstrap()()
 	gw := "gw-change-inplace"
 	owner := seed(t, gw, "owner-ip", roles.RoleGatewayOwner)
 	target := seed(t, gw, "target-ip", roles.RoleGatewayViewer)
 
-	svc := accessSvc(realm())
+	svc := accessSvc(realm(
+		gatewayAccess.DirectoryUser{Username: "target-ip", Subject: "sub-target-ip"},
+	))
 	// Capture the original binding id.
 	before, _, _, _, _ := svc.List(context.Background(), gw, owner, gatewayAccess.ListOptions{Page: 1, Size: 50})
 	var beforeID string
@@ -385,7 +395,7 @@ func TestIdempotentRegrant(t *testing.T) {
 	defer withDefaultWorkspaceBootstrap()()
 	gw := "gw-idempotent"
 	owner := seed(t, gw, "owner-id", roles.RoleGatewayOwner)
-	dir := realm(gatewayAccess.DirectoryUser{Username: "repeat"})
+	dir := realm(gatewayAccess.DirectoryUser{Username: "repeat", Subject: "sub-repeat"})
 	svc := accessSvc(dir)
 
 	_, aerr := svc.Grant(context.Background(), gw, owner, gatewayAccess.GrantInput{Username: "repeat", Role: gatewayAccess.TierUser})
@@ -475,6 +485,7 @@ func hasGatewayBinding(t *testing.T, userID, gw string) bool {
 func TestPlatformAdmin_ManagesAccessWithoutBindingOrLogin(t *testing.T) {
 	test.RegisterIntegration(t)
 	defer gatewayAccess.SetDirectoryResolver(nil)
+	defer withDefaultWorkspaceBootstrap()()
 	gw := "gw-padmin-manage"
 	seed(t, gw, "owner-pa", roles.RoleGatewayOwner)
 	padmin := seedPlatformAdmin(t, "padmin-pa")

@@ -19,8 +19,8 @@ LIVE_STORY_IMPORT = re.compile(
 SCENARIO_ARGS = re.compile(r"args\s*:\s*{[^}]*\bstate\s*:", re.DOTALL)
 SCENARIO_VIEW = re.compile(
     r"(?:export\s+)?type\s+\w*State\s*=\s*[\"']|"
-    r"\{[^}]*\bstate\s*(?::|=)[^}]*\}",
-    re.DOTALL,
+    r"^\s*state\??\s*:\s*(?:\w*State\b|[\"'])",
+    re.MULTILINE,
 )
 MODULE_RECORDS = re.compile(r"^const\s+\w+\s*=\s*\[\s*{", re.MULTILINE)
 DEMO_LITERAL = re.compile(
