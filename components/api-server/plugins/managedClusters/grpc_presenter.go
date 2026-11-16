@@ -28,7 +28,7 @@ func managedClusterToProto(d *ManagedCluster) *pb.ManagedCluster {
 }
 
 // healthVerdictToProto surfaces the stored self-check verdict over gRPC reads
-// (PLAT-DATA-27). A nil verdict (never reported) stays nil.
+// (PLAT-DATA-32). A nil verdict (never reported) stays nil.
 func healthVerdictToProto(v *HealthVerdict) *pb.ManagedClusterHealth {
 	if v == nil {
 		return nil

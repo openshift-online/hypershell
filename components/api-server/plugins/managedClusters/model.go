@@ -21,7 +21,7 @@ type ManagedCluster struct {
 	Capabilities     []string   `json:"capabilities" gorm:"serializer:json;type:jsonb"`
 	// Health is the spoke-reported on-cluster self-check verdict, written only by
 	// the registering control plane through the registration/heartbeat path
-	// (PLAT-CLUS-16) and stored verbatim (PLAT-DATA-27). Nil until the first
+	// (PLAT-CLUS-16) and stored verbatim (PLAT-DATA-32). Nil until the first
 	// verdict is reported.
 	Health *HealthVerdict `json:"health" gorm:"serializer:json;type:jsonb"`
 }
