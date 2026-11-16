@@ -11,6 +11,7 @@ import (
 
 	sdktypes "github.com/openshift-online/hypershell/components/sdk-go/types"
 	"github.com/openshift-online/hypershell/tests/e2e/harness"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -41,6 +42,55 @@ const (
 // the suite reaching into Vault with a synthetic identity. See
 // specs/platform/openshell-gateway-credentials.spec.md (Requirement: End-to-End Vault
 // Coverage in CI).
+
+// assertVaultProviderSecretNotDisclosed asserts that a vault-backed gateway does not disclose
+// or persist OpenShell Provider secret material outside Vault (HYPERSHELL-369). The generated
+// gateway configuration selects the vault driver and carries only Vault *references* -- a
+// Kubernetes-auth ServiceAccount token plus a CA-bundle path -- never inline credential
+// material; and the in-tree / KEK credential-storage path that persisted provider secrets in
+// the gateway database is absent, both from the generated config and as a Kubernetes Secret in
+// the tenant namespace. Provider secret values therefore live only in Vault, resolved at runtime
+// under the gateway's per-tenant mount; the gateway database retains at most an opaque handle.
+// See specs/platform/openshell-gateway-credentials.spec.md (Scenario OSG-CRED-14.03).
+//
+// This covers non-disclosure at the generated-configuration and manifest layer. Database-record
+// and API-response non-disclosure follow by construction: with no KEK credential-storage path
+// there is no persisted provider secret to serialize, and the gateway API exposes only the
+// gateway resource, not Vault contents.
+func (s *E2ESuite) assertVaultProviderSecretNotDisclosed(t *testing.T, ns string) {
+	t.Helper()
+	ctx := t.Context()
+
+	cfg, err := s.clients.Kube.CoreV1().ConfigMaps(ns).Get(ctx, "openshell-gateway-config", metav1.GetOptions{})
+	s.Require().NoError(err, "get gateway config ConfigMap")
+	toml := cfg.Data["gateway.toml"]
+
+	// The generated config resolves provider credentials from Vault by reference only: a
+	// Kubernetes-auth SA token plus a CA-bundle *path*, never an embedded secret value.
+	s.Assert().Contains(toml, "[openshell.credential_drivers.vault]", "gateway.toml selects the vault credential driver")
+	s.Assert().Contains(toml, `auth_method = "kubernetes"`, "vault driver authenticates by Kubernetes SA token (a reference, not an embedded secret)")
+	s.Assert().Contains(toml, "ca_bundle =", "vault driver trusts Vault via a CA-bundle path reference")
+
+	// The in-tree / KEK credential-storage path -- the mechanism that persisted provider
+	// secrets in the gateway database -- must be absent from the generated configuration.
+	s.Assert().NotContains(toml, "[openshell.gateway.credential_storage]", "no KEK credential-storage stanza in generated config (provider secrets are not DB-persisted)")
+	s.Assert().NotContains(toml, "in_tree", "no in-tree credential transport in generated config (provider secrets are not DB-persisted)")
+
+	// No KEK Secret, and no provider-credential Secret, is persisted in the tenant namespace:
+	// provider secret values live only in Vault.
+	_, kekErr := s.clients.Kube.CoreV1().Secrets(ns).Get(ctx, "openshell-gateway-credential-kek", metav1.GetOptions{})
+	s.Assert().True(apierrors.IsNotFound(kekErr), "no KEK secret is provisioned for a vault-backed gateway")
+
+	secrets, err := s.clients.Kube.CoreV1().Secrets(ns).List(ctx, metav1.ListOptions{})
+	s.Require().NoError(err, "list tenant-namespace secrets")
+	for _, sec := range secrets.Items {
+		name := strings.ToLower(sec.Name)
+		if strings.Contains(name, "provider-cred") || strings.Contains(name, "provider-secret") || strings.Contains(name, "credential-kek") {
+			s.Failf("provider secret persisted as a Kubernetes Secret",
+				"tenant namespace %s carries Secret %q; vault-backed provider secrets must live only in Vault", ns, sec.Name)
+		}
+	}
+}
 
 // p2_7VaultFailClosed asserts the control plane fails a vault-backed gateway closed when the
 // per-cluster Vault is unreachable: EnvironmentReady reports a Vault reachability failure and

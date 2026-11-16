@@ -384,17 +384,14 @@ func (s *E2ESuite) assertGatewayInfraDetails(t *testing.T, ns string) {
 	// HYPERSHELL-369: no credential_driver -> the flat vault default, and both e2e
 	// environments stand up a stand-in Vault (scripts/cluster/vault.sh). Reaching this
 	// phase (provisioned + Running) already proves the two-stage fail-closed probes and
-	// serving-CA propagation succeeded; assert the wiring explicitly. Use a fresh context:
-	// the errgroup's ctx above is canceled once g.Wait() returns. See
+	// serving-CA propagation succeeded; assert the serving-CA wiring, then assert that no
+	// OpenShell Provider secret material is disclosed or persisted outside Vault. Use a
+	// fresh context: the errgroup's ctx above is canceled once g.Wait() returns. See
 	// specs/platform/openshell-gateway-credentials.spec.md (End-to-End Vault Coverage).
 	vaultCtx := t.Context()
-	cfg, err := s.clients.Kube.CoreV1().ConfigMaps(ns).Get(vaultCtx, "openshell-gateway-config", metav1.GetOptions{})
-	s.Require().NoError(err, "get gateway config ConfigMap")
-	s.Assert().Contains(cfg.Data["gateway.toml"], "[openshell.credential_drivers.vault]", "gateway.toml selects the vault credential driver")
 	_, caErr := s.clients.Kube.CoreV1().ConfigMaps(ns).Get(vaultCtx, "openshell-gateway-vault-ca", metav1.GetOptions{})
 	s.Assert().NoError(caErr, "vault serving CA mirrored into the tenant namespace")
-	_, kekErr := s.clients.Kube.CoreV1().Secrets(ns).Get(vaultCtx, "openshell-gateway-credential-kek", metav1.GetOptions{})
-	s.Assert().True(apierrors.IsNotFound(kekErr), "no KEK secret is provisioned for a vault-backed gateway")
+	s.assertVaultProviderSecretNotDisclosed(t, ns)
 }
 
 func validateGatewayDatabaseSecret(data map[string][]byte) error {

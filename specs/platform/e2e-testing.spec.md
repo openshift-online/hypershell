@@ -804,6 +804,7 @@ Mode gating (see [E2E Short and Long Modes](#requirement-e2e-short-and-long-mode
 - AND the suite runs in long mode (this kube-level internal-posture check is long-only; short mode proves the same functional outcome by reaching the gateway over its route in P1.5)
 - WHEN the test verifies infrastructure
 - THEN it SHALL confirm: deployment `openshell-gateway` exists and has at least 1 ready replica, service `openshell-gateway` exists with a ClusterIP, TLS secret `openshell-server-tls` exists and is populated, the gateway CA and server cert-manager Certificates are `Ready`
+- AND for a vault-backed gateway (the flat default) it SHALL confirm the vault serving CA is mirrored into the tenant namespace and that no OpenShell Provider secret material is disclosed or persisted outside Vault, per `OSG-CRED-14.03` in [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md)
 
 #### Scenario: E2E-CORE-13.05 -- Sandbox Lifecycle
 

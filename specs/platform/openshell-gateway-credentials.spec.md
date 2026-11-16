@@ -787,14 +787,31 @@ into Vault with a synthetic identity:
   with a Vault-named reason), and the gateway SHALL never report `Running`
 - AND the suite SHALL restore Vault reachability afterward
 
+#### Scenario: OSG-CRED-14.03 -- Provider secret value is not disclosed or persisted outside Vault
+
+- GIVEN a vault-backed gateway provisioned through the flat vault default (no per-gateway overrides)
+- WHEN the suite inspects the gateway's generated configuration and tenant-namespace manifests
+- THEN the generated `gateway.toml` SHALL select the vault credential driver and carry only Vault
+  *references* -- Kubernetes-auth (`auth_method = "kubernetes"`) and a CA-bundle path
+  (`ca_bundle = ...`) -- and SHALL NOT carry inline credential material
+- AND the generated config SHALL NOT contain the in-tree / KEK credential-storage path
+  (`[openshell.gateway.credential_storage]` or an `in_tree` transport) that persisted provider
+  secrets in the gateway database
+- AND no KEK Secret (`openshell-gateway-credential-kek`) and no provider-credential Secret SHALL be
+  persisted in the tenant namespace
+- AND database-record and API-response non-disclosure SHALL follow by construction: with no KEK
+  credential-storage path there is no persisted provider secret to serialize, and the gateway API
+  exposes only the gateway resource, not Vault contents
+
 **Coverage boundaries.** The sandbox lifecycle exercises the real gateway-process resolve at
 `provider-credentials/*`; the fixture self-test proves the capability policy (round-trip, no
 list, no out-of-prefix) against the GitOps Contract; the suite asserts fail-closed at
-provisioning via the API. The following are proven elsewhere and SHOULD NOT be assumed covered
-by this suite: sandbox-to-sandbox / cross-workspace resolve denial (OpenShell gateway workspace
-authorization, upstream unit tests), the authenticated-probe *rejection* path (Vault reachable
-but the identity denied), and the runtime `Degraded` transition when a healthy gateway's Vault
-later becomes unreachable.
+provisioning via the API; and the suite asserts provider-secret non-disclosure at the
+generated-configuration and manifest layer (OSG-CRED-14.03). The following are proven elsewhere
+and SHOULD NOT be assumed covered by this suite: sandbox-to-sandbox / cross-workspace resolve
+denial (OpenShell gateway workspace authorization, upstream unit tests), the authenticated-probe
+*rejection* path (Vault reachable but the identity denied), and the runtime `Degraded` transition
+when a healthy gateway's Vault later becomes unreachable.
 
 ---
 
