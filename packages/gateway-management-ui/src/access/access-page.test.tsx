@@ -488,7 +488,10 @@ describe("AccessPage", () => {
   it("re-opens the workspace-access command from a row icon", async () => {
     const user1 = userEvent.setup();
     mocks.list.mockResolvedValue(
-      accessPage([creator, admin, user], ownerCapabilities),
+      accessPage([creator, admin, user], ownerCapabilities, [
+        "research",
+        "default",
+      ]),
     );
     mocks.search.mockResolvedValue([
       { name: "Uma User", subject: "sub-uma", username: "user1" },
@@ -511,7 +514,10 @@ describe("AccessPage", () => {
       name: "Add workspace access",
     });
     expect(commandDialog.textContent).toContain(
-      "add this user to another workspace",
+      "Run this command to add this user to a workspace:",
+    );
+    expect(commandDialog.textContent).toContain(
+      "Available workspaces: default, research",
     );
     expect(
       within(commandDialog).getByText(/openshell workspace member add/u),

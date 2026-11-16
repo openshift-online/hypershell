@@ -1954,10 +1954,14 @@ export const messages = defineMessages({
   },
   accessWorkspaceGrantIntro: {
     id: "app.gateway.access.workspaceGrant.intro",
-    defaultMessage:
-      "Run this command to add this user to another workspace or to replace manually removed default-workspace access:",
+    defaultMessage: "Run this command to add this user to a workspace:",
     description:
       "Instructions for adding a newly granted user to an OpenShell workspace.",
+  },
+  accessAvailableWorkspaces: {
+    id: "app.gateway.access.workspaceGrant.availableWorkspaces",
+    defaultMessage: "Available workspaces: {workspaces}",
+    description: "Alphabetical workspace names available to a gateway user.",
   },
   accessGrantSuccessTitle: {
     id: "app.gateway.access.grant.success",

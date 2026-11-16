@@ -278,6 +278,7 @@ export function AccessPage({
             {grant.role === "user" ? (
               <FlexItem>
                 <GrantWorkspaceAccessAction
+                  availableWorkspaces={page.workspaces}
                   gatewayId={gatewayId}
                   grant={grant}
                 />
