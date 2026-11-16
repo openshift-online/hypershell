@@ -9,7 +9,8 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	openshellv1 "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/openshell/v1"
+	datamodelv1 "github.com/openshift-online/hypershell/components/control-plane/internal/openshellclient/gen/datamodelv1"
+	openshellv1 "github.com/openshift-online/hypershell/components/control-plane/internal/openshellclient/gen/openshellv1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -46,7 +47,7 @@ func (c *GRPCOpenShellClient) AddMember(ctx context.Context, endpoint, namespace
 	}
 	callCtx := metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+accessToken)
 	_, err = openshellv1.NewOpenShellClient(connection).AddWorkspaceMember(callCtx, &openshellv1.AddWorkspaceMemberRequest{
-		WorkspaceScope:   &openshellv1.WorkspaceSelector{Workspace: "default"},
+		WorkspaceScope:   &datamodelv1.WorkspaceSelector{Selection: &datamodelv1.WorkspaceSelector_Workspace{Workspace: "default"}},
 		PrincipalSubject: subject, Role: workspaceRole,
 		RequestId: bootstrapRequestID(namespace, subject, role),
 	})
