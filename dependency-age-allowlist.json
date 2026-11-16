@@ -3,8 +3,15 @@
     "kind": "go",
     "name": "github.com/openshift-online/rh-trex-ai/components/api-server",
     "version": "v0.1.1-0.20261116154928-b91af3ea8228",
-    "reason": "Adopt openshift-online/rh-trex-ai#80: framework-level audit capture (upstream spec SEC-004, HyperShell SEC-AUD), so the API server emits one audit event per mutating request, denied request, authorizer error, and failed login on REST and gRPC without per-plugin code. The API framework, CLI runtime, and generators are pinned to upstream main merge b91af3ea82286c19e66d0846538c50ee0b740c04. This supersedes the previous pin af39aef36b4e (#75 framework-owned authorization), which it still includes. The module has no release tags. Remove this age exception after 2026-11-30 or when a newer pin replaces it.",
+    "reason": "Adopt openshift-online/rh-trex-ai#80: framework-level audit capture (upstream spec SEC-004, HyperShell SEC-AUD), so the API server emits one audit event per mutating request, denied request, authorizer error, and failed login on REST and gRPC without per-plugin code. The API server (components/api-server) is pinned to upstream main merge b91af3ea82286c19e66d0846538c50ee0b740c04, which supersedes af39aef36b4e (#75 framework-owned authorization) and still includes it. The CLI runtime (components/cli) and the CLI and TUI generators (scripts/rh-trex-ai.ref) stay on af39aef36b4e, which is unaffected by the audit change and is allowlisted separately below. The module has no release tags. Remove this age exception after 2026-11-30 or when a newer pin replaces it.",
     "compensatingVerification": "Full-SHA generator pin, checksum-locked Go modules, generator drift checks, CLI unit tests, API build, vet, golangci-lint, and the full API test suite, including the new gRPC gateway-delete audit integration test and the test/authz and plugins/rbac integration suites that drive the real HyperShell Authorizer over REST and gRPC. Upstream tests cover the framework's REST and gRPC audit and authorization chain."
+  },
+  {
+    "kind": "go",
+    "name": "github.com/openshift-online/rh-trex-ai/components/api-server",
+    "version": "v0.0.0-20261104131823-af39aef36b4e",
+    "reason": "The CLI runtime (components/cli) and the CLI and TUI generators (pinned by scripts/rh-trex-ai.ref) stay on upstream main merge af39aef36b4e12512591a5ccefb2232e04ff0eb7 (#75 framework-owned authorization; also #72 login issuer discovery, #73 and #76 removed API client and its flags). They are unaffected by the #80 audit change, which only the API server (components/api-server, pinned to b91af3ea above) adopts. The module has no release tags. Remove this age exception after 2026-11-20 or when a newer pin replaces it.",
+    "compensatingVerification": "Full-SHA generator pin, checksum-locked Go modules, generator drift checks, CLI unit tests, API build, vet, golangci-lint, and the full API test suite, including the test/authz and plugins/rbac integration suites that drive the real HyperShell Authorizer over REST and gRPC. Upstream tests cover the framework's REST and gRPC authorization chain."
   },
   {
     "kind": "go",
