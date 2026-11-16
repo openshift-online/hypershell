@@ -398,7 +398,7 @@ function WhereToLookBody({ look }: { readonly look: WhereToLook }) {
                 <LookTerm key={c.component} term={c.component}>
                   {formatClock(intl, c.completedAt)}
                   {c.url !== null ? (
-                    <span className="pf-v6-u-ml-xs">
+                    <span className={styles.gap}>
                       <ExternalLink href={c.url}>
                         {intl.formatMessage(m.lookViewCheckRun)}
                       </ExternalLink>
@@ -420,7 +420,7 @@ function WhereToLookBody({ look }: { readonly look: WhereToLook }) {
                 <LookTerm key={c.component} term={c.component}>
                   {intl.formatMessage(STATE_LABEL[c.state])}
                   {c.url !== null ? (
-                    <span className="pf-v6-u-ml-xs">
+                    <span className={styles.gap}>
                       <ExternalLink href={c.url}>
                         {intl.formatMessage(m.lookViewCheckRun)}
                       </ExternalLink>
@@ -482,7 +482,7 @@ function WhereToLookBody({ look }: { readonly look: WhereToLook }) {
                               })
                             : c.shortSha}
                         </ExternalLink>
-                        <span className="pf-v6-u-ml-xs">{c.title}</span>
+                        <span className={styles.gap}>{c.title}</span>
                       </ListItem>
                     ))}
                   </List>
@@ -491,7 +491,7 @@ function WhereToLookBody({ look }: { readonly look: WhereToLook }) {
               {d.appUrl !== null ? (
                 <LookTerm term={intl.formatMessage(m.lookReleaseApp)}>
                   {intl.formatMessage(m.lookReleaseAppText)}
-                  <span className="pf-v6-u-ml-xs">
+                  <span className={styles.gap}>
                     <ExternalLink href={d.appUrl}>
                       {intl.formatMessage(m.lookCheckApp)}
                     </ExternalLink>
@@ -1036,7 +1036,7 @@ function NowAndNext({
                         ]}
                       />
                     </DataListItemRow>
-                    <div className="pf-v6-u-px-md pf-v6-u-pb-md">
+                    <div className={styles.progressRow}>
                       <ProgressBar
                         change={row.change}
                         data={data}
@@ -1126,7 +1126,7 @@ function ProgressBar({
                 <br />
                 <span className="pf-v6-u-text-nowrap">
                   <StageStateIcon state={cell.stage.state} />
-                  <span className="pf-v6-u-ml-xs">
+                  <span className={styles.gap}>
                     {cell.stage.reason === "inferred-release"
                       ? intl.formatMessage(m.stateReleasingInferred)
                       : intl.formatMessage(STATE_LABEL[cell.stage.state])}
