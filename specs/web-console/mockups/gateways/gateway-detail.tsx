@@ -145,6 +145,13 @@ const accessGrants = [
   },
 ];
 
+const availableWorkspaces = [
+  "billing",
+  "default",
+  "observability",
+  "payments-platform",
+];
+
 const serviceAccounts = [
   {
     clientId: "hs-sa-1111-LLLL",
@@ -819,14 +826,11 @@ function AccessTab({
                 >
                   <SelectList>
                     <SelectOption value="all">All workspaces</SelectOption>
-                    <SelectOption value="billing">billing</SelectOption>
-                    <SelectOption value="default">default</SelectOption>
-                    <SelectOption value="observability">
-                      observability
-                    </SelectOption>
-                    <SelectOption value="payments-platform">
-                      payments-platform
-                    </SelectOption>
+                    {availableWorkspaces.map((workspace) => (
+                      <SelectOption key={workspace} value={workspace}>
+                        {workspace}
+                      </SelectOption>
+                    ))}
                   </SelectList>
                 </Select>
               </ToolbarItem>
@@ -1739,16 +1743,12 @@ function DetailDialog({
           <Stack hasGutter>
             <StackItem>
               <Content component="p">
-                Run this command only when automatic default-workspace
-                membership was skipped or {grant?.name} needs another workspace.
+                Run this command to add this user to a workspace:
               </Content>
             </StackItem>
             <StackItem>
               <Content component="p">
-                You can add them in the gateway console or run this command in a
-                terminal. The command uses the default workspace; change{" "}
-                <code>WORKSPACE_NAME</code> if they should use a different
-                workspace.
+                Available workspaces: {availableWorkspaces.join(", ")}
               </Content>
             </StackItem>
             <StackItem>
