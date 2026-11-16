@@ -57,6 +57,43 @@ func (c *GRPCOpenShellClient) AddMember(ctx context.Context, endpoint, namespace
 	return err
 }
 
+func (c *GRPCOpenShellClient) HasWorkspaceMember(
+	ctx context.Context, endpoint, namespace, accessToken, workspace, subject string,
+) (bool, error) {
+	target, transportCredentials, err := c.grpcTarget(ctx, endpoint, namespace)
+	if err != nil {
+		return false, err
+	}
+	connection, err := grpc.NewClient(target, grpc.WithTransportCredentials(transportCredentials))
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = connection.Close() }()
+
+	client := openshellv1.NewOpenShellClient(connection)
+	callCtx := metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+accessToken)
+	workspaceScope := &datamodelv1.WorkspaceSelector{
+		Selection: &datamodelv1.WorkspaceSelector_Workspace{Workspace: workspace},
+	}
+	for pageToken := ""; ; {
+		response, err := client.ListWorkspaceMembers(callCtx, &openshellv1.ListWorkspaceMembersRequest{
+			WorkspaceScope: workspaceScope, PageSize: 1000, PageToken: pageToken,
+		})
+		if err != nil {
+			return false, fmt.Errorf("list members of workspace %q: %w", workspace, err)
+		}
+		for _, member := range response.GetMembers() {
+			if member.GetPrincipalSubject() == subject {
+				return true, nil
+			}
+		}
+		pageToken = response.GetNextPageToken()
+		if pageToken == "" {
+			return false, nil
+		}
+	}
+}
+
 func (c *GRPCOpenShellClient) ListWorkspaceVisibility(ctx context.Context, endpoint, namespace, accessToken string) (WorkspaceVisibility, error) {
 	target, transportCredentials, err := c.grpcTarget(ctx, endpoint, namespace)
 	if err != nil {
