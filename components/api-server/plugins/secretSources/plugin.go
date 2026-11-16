@@ -13,6 +13,7 @@ import (
 	"github.com/openshift-online/hypershell/components/api-server/pkg/secretstore"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/agentRuntimes"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/audit"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/authz"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
@@ -72,6 +73,9 @@ func Service(s *environments.Services) SecretSourceService {
 }
 
 func init() {
+	// Secret sources are sensitive, so record reads as well as writes (SEC-AUD-03).
+	audit.RecordReads("secret_sources")
+
 	registry.RegisterService("SecretSources", func(env interface{}) interface{} {
 		return NewServiceLocator(env.(*environments.Env))
 	})

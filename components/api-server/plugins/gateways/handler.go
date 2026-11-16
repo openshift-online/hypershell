@@ -15,7 +15,6 @@ import (
 	"github.com/openshift-online/hypershell/components/api-server/pkg/gatewayhealth"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
-	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/auth"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/handlers"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/services"
@@ -545,12 +544,8 @@ func (h gatewayHandler) Get(w http.ResponseWriter, r *http.Request) {
 				return nil, err
 			}
 
-			userID := rbac.GetUserIDFromContext(ctx)
-			if rbac.HasPlatformAdminRole(ctx, userID) {
-				username := auth.GetUsernameFromContext(ctx)
-				slog.InfoContext(ctx, "platform:admin action", "action", "view", "gateway_id", gateway.ID, "gateway_name", gateway.Name, "user", username, "user_id", userID)
-			}
-
+			// Platform-admin view is captured by the framework audit trail on
+			// both REST and gRPC (SEC-AUD-01); no hand-written log line here.
 			bindings := h.callerBindings(ctx)
 			return PresentGateway(gateway, "", h.callerCanDelete(bindings, gateway.ID), h.callerCanEdit(bindings, gateway.ID)), nil
 		},
@@ -565,25 +560,13 @@ func (h gatewayHandler) Delete(w http.ResponseWriter, r *http.Request) {
 			id := mux.Vars(r)["id"]
 			ctx := r.Context()
 
-			userID := rbac.GetUserIDFromContext(ctx)
-			isPlatformAdmin := rbac.HasPlatformAdminRole(ctx, userID)
-
-			var gatewayName string
-			if isPlatformAdmin {
-				gateway, getErr := h.gateway.Get(ctx, id)
-				if getErr == nil {
-					gatewayName = gateway.Name
-				}
-			}
-
+			// Platform-admin delete is captured by the framework audit trail on
+			// both REST and gRPC (SEC-AUD-01, SEC-AUD-08); the earlier
+			// hand-written REST-only log line left the gRPC delete path with no
+			// record, so it has been removed.
 			err := h.gateway.Delete(ctx, id)
 			if err != nil {
 				return nil, err
-			}
-
-			if isPlatformAdmin {
-				username := auth.GetUsernameFromContext(ctx)
-				slog.InfoContext(ctx, "platform:admin action", "action", "delete", "gateway_id", id, "gateway_name", gatewayName, "user", username, "user_id", userID)
 			}
 
 			return nil, nil

@@ -1160,6 +1160,16 @@ export async function buildApp(
         }
       }
       headers.set(correlationHeader, request.correlationId);
+      // Audit client IP (SEC-AUD-05): the BFF calls the API server with the
+      // user's token, so the actor is correct, but without X-Forwarded-For the
+      // API server records the BFF pod as the client. Forward the originating
+      // client address (request.ip, resolved by Fastify trustProxy) so the API
+      // server, trusting the BFF pod range (--audit-trusted-proxies), records
+      // the real client in source.ip. The inbound X-Forwarded-For is not copied
+      // (it is not in forwardedRequestHeaders), so this is the only, trusted hop.
+      if (request.ip) {
+        headers.set("x-forwarded-for", request.ip);
+      }
       const upstreamTrace = span.upstream();
       if (upstreamTrace) {
         headers.set("traceparent", upstreamTrace.traceparent);
