@@ -379,7 +379,7 @@ check-ci-impact-scopes: test-ci-impact-scopes-policy
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_ci_impact_scopes.py
 
 .PHONY: check
-check: check-forbidden-terms check-forbidden-dom-injection check-kind-conformance check-dependency-pins check-ci-components check-deploy-orphans check-dependency-age check-openshell-version check-inlined-skill check-cli-drift check-spec-ids check-ci-impact-scopes test-release-bundle test-coverage-report
+check: check-forbidden-terms check-forbidden-dom-injection check-kind-conformance check-dependency-pins check-ci-components check-deploy-orphans check-dependency-age check-openshell-version check-inlined-skill check-cli-drift check-spec-ids check-ci-impact-scopes test-release-bundle test-delivery-replay test-coverage-report
 
 # ============================================================================
 # Git hooks
@@ -852,6 +852,11 @@ e2e-tracing:
 .PHONY: test-release-bundle
 test-release-bundle:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_release_bundle.py
+
+.PHONY: test-delivery-replay
+# Pure-logic tests of the Delivery tab replay (FLT-DLV-21); no network.
+test-delivery-replay:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/test_delivery_replay.py
 
 # Local Fullsend: pass values as environment entries, never interpolate them
 # into shell commands. The trusted env file is sourced only by local.sh.
