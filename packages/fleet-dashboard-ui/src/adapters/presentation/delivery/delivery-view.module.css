@@ -82,3 +82,14 @@
   background: var(--pf-t--global--background--color--secondary--default);
   color: var(--pf-t--global--text--color--subtle);
 }
+
+/* Space between an icon or a link and the text after it; none when the state
+   has no icon. */
+.gap:not(:first-child) {
+  margin-inline-start: var(--pf-t--global--spacer--sm);
+}
+
+/* The progress bar under each Now and next row. */
+.progressRow {
+  padding: 0 var(--pf-t--global--spacer--md) var(--pf-t--global--spacer--md);
+}
