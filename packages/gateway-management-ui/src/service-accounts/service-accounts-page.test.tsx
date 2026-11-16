@@ -242,6 +242,13 @@ describe("ServiceAccountsPage", () => {
     const defaultWorkspace = within(createDialog).getByRole("checkbox", {
       name: "Automatically add this service account to the default workspace",
     });
+    const roleButton = within(createDialog).getByRole("button", {
+      name: "OpenShell role",
+    });
+    expect(
+      roleButton.compareDocumentPosition(defaultWorkspace) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect((defaultWorkspace as HTMLInputElement).checked).toBe(true);
     await user.click(defaultWorkspace);
     await user.click(
