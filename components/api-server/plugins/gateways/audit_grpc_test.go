@@ -60,15 +60,20 @@ func TestGRPCGatewayDeleteEmitsAuditEvent(t *testing.T) {
 	_, err = adminClient.DeleteGateway(context.Background(), &pb.DeleteGatewayRequest{Id: gatewayID})
 	Expect(err).NotTo(HaveOccurred())
 
+	// The gRPC authorization chain records the kind and action of a method from
+	// its declared resource (authz.CRUDResources), but not the per-call resource
+	// id: the id lives in the request message, not the method name, so gRPC audit
+	// events carry an empty Resource.ID (unlike REST, where it comes from the URL
+	// path). Match on action and kind, which the reset above makes unambiguous.
 	var deleteEvent *audit.Event
 	for _, e := range rec.Events() {
 		e := e
-		if e.Action == "delete" && e.Resource.Kind == "gateways" && e.Resource.ID == gatewayID {
+		if e.Action == "delete" && e.Resource.Kind == "gateways" {
 			deleteEvent = &e
 			break
 		}
 	}
-	Expect(deleteEvent).NotTo(BeNil(), "expected a delete audit event for the gateway; events: %+v", rec.Events())
+	Expect(deleteEvent).NotTo(BeNil(), "expected a delete audit event for kind gateways; events: %+v", rec.Events())
 	Expect(deleteEvent.Transport).To(Equal(audit.TransportGRPC))
 	Expect(deleteEvent.Outcome).To(Equal(audit.OutcomeSuccess))
 	Expect(deleteEvent.Actor.Type).To(Equal(audit.ActorUser))
