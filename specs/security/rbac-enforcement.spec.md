@@ -1483,15 +1483,27 @@ layer.
 
 ### Requirement: SEC-RBAC-12 -- Audit Logging
 
-Platform administrator actions SHALL be logged with:
+The request-level audit trail for platform administrator actions SHALL be produced by
+the framework audit capture defined in `security/audit-capture.spec.md` (SEC-AUD-01,
+adopting upstream TRex spec SEC-004), not by hand-written log lines. That mechanism
+records one audit event for every mutating request, every denied request, and every
+failed login on both the REST and the gRPC interfaces, so platform administrator view
+and delete actions are captured on both interfaces.
 
-- Action performed (view, delete)
-- Actor identity (platform:admin user)
-- Target resource (gateway ID and name)
-- Timestamp and correlation ID
+Each captured event identifies:
 
-High-privilege operations (gateway deletion by platform:admin) SHALL be logged at INFO
-level or higher to ensure visibility in operational monitoring and security audits.
+- the action performed;
+- the actor identity (for example a `platform:admin` user);
+- the target resource (kind and ID);
+- the outcome, the operation ID, and the trace ID.
+
+Because capture is a framework concern that covers gRPC as well as REST, the hand-written
+`platform:admin action` log lines in the gateways REST handler SHALL be removed
+(see SEC-AUD-08); they left the gRPC delete path with no record.
+
+The HyperShell-specific audit decisions (which sensitive read kinds are recorded, how the
+real client address is resolved behind the router and the web console BFF, and how audit
+lines are routed and retained) are defined in `security/audit-capture.spec.md`.
 
 ### Requirement: SEC-RBAC-13 -- Platform Role Bootstrap via Keycloak Realm Default Role
 

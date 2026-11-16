@@ -173,6 +173,7 @@ listed in `specs/id-rename-map.md`, not here.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
+| `SEC-AUD` | `security/audit-capture.spec.md` | 8 |
 | `SEC-OIDC` | `platform/oidc-integration.spec.md` | 11 |
 | `SEC-RBAC` | `security/rbac-enforcement.spec.md` | 27 |
 | `SEC-STD` | `standards/security/security.spec.md` | 4 |
