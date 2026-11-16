@@ -2,6 +2,7 @@ package defaultworkspace
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -335,13 +336,17 @@ func (m *Manager) writeAdmin(ctx context.Context, namespace string, admin *boots
 	if existing.Data == nil {
 		return errBootstrapAdminCredentialMissing
 	}
-	if string(existing.Data[clientIDSecretKey]) != admin.ClientID ||
-		string(existing.Data[clientUUIDSecretKey]) != admin.ClientUUID ||
-		string(existing.Data[clientSecretSecretKey]) != admin.ClientSecret ||
-		string(existing.Data[subjectSecretKey]) != admin.Subject {
+	if !secretValuesEqual(string(existing.Data[clientIDSecretKey]), admin.ClientID) ||
+		!secretValuesEqual(string(existing.Data[clientUUIDSecretKey]), admin.ClientUUID) ||
+		!secretValuesEqual(string(existing.Data[clientSecretSecretKey]), admin.ClientSecret) ||
+		!secretValuesEqual(string(existing.Data[subjectSecretKey]), admin.Subject) {
 		return errBootstrapAdminCredentialMissing
 	}
 	return nil
+}
+
+func secretValuesEqual(actual, expected string) bool {
+	return subtle.ConstantTimeCompare([]byte(actual), []byte(expected)) == 1
 }
 
 func validateAdminSpec(spec AdminSpec) error {
