@@ -89,7 +89,7 @@ function renderApp(
           enabled: false,
           stages: [],
           changes: [],
-          typicalSeconds: {},
+          releaseDiagnostics: null,
           omitted: 0,
           sources: {},
         }),

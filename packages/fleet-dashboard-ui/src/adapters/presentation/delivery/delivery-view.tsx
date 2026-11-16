@@ -38,6 +38,7 @@ import {
   List,
   ListItem,
   PageSection,
+  Popover,
   ProgressStep,
   ProgressStepper,
   Spinner,
@@ -67,7 +68,7 @@ import {
   Thead,
   Tr,
 } from "@patternfly/react-table";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { MessageDescriptor } from "react-intl";
 import { useIntl, type IntlShape } from "react-intl";
 
@@ -79,9 +80,11 @@ import {
   eventfulHistory,
   findChange,
   groupLabel,
-  isSlow,
+  isOverdue,
   nowAndNext,
-  typicalMs,
+  progress,
+  whereToLook,
+  type Arrival,
   type DeliveryChange,
   type DeliveryCheck,
   type DeliveryData,
@@ -95,6 +98,7 @@ import {
   type NowNextRow,
   type NowNextSummary,
   type PromotionOutcome,
+  type WhereToLook,
 } from "../../../domain/delivery";
 import { identiName } from "../../../domain/map/identiname";
 import type { NavAction } from "../../../domain/navigation/actions";
@@ -217,6 +221,8 @@ function stageDetail(intl: IntlShape, stage: DeliveryStage): string {
       return intl.formatMessage(m.reasonWaitingPolicy);
     case "next-bundle":
       return intl.formatMessage(m.reasonNextBundle);
+    case "outside-bundle":
+      return intl.formatMessage(m.reasonOutsideBundle);
     case "waiting-bundle-pr":
       return intl.formatMessage(m.reasonWaitingBundlePR);
     case "waiting-hydration":
@@ -314,7 +320,7 @@ function StageStateIcon({ state }: { readonly state: DeliveryStageState }) {
   }
 }
 
-function SlowerThanUsual() {
+function OverdueLabel() {
   const intl = useIntl();
   return (
     <Flex
@@ -326,20 +332,331 @@ function SlowerThanUsual() {
           <ExclamationTriangleIcon aria-hidden />
         </Icon>
       </FlexItem>
-      <FlexItem>{intl.formatMessage(m.slower)}</FlexItem>
+      <FlexItem>{intl.formatMessage(m.overdue)}</FlexItem>
     </Flex>
+  );
+}
+
+function arrivalText(intl: IntlShape, arrival: Arrival | null): string {
+  switch (arrival?.kind) {
+    case "range":
+      return intl.formatMessage(m.arrivalRange, {
+        early: formatClock(intl, arrival.earlyMs),
+        late: formatClock(intl, arrival.lateMs),
+      });
+    case "time":
+      return intl.formatMessage(m.arrivalTime, {
+        time: formatClock(intl, arrival.atMs),
+      });
+    default:
+      return "";
+  }
+}
+
+function LookTerm({
+  term,
+  children,
+}: {
+  readonly term: string;
+  readonly children: React.ReactNode;
+}) {
+  return (
+    <DescriptionListGroup>
+      <DescriptionListTerm>{term}</DescriptionListTerm>
+      <DescriptionListDescription>{children}</DescriptionListDescription>
+    </DescriptionListGroup>
+  );
+}
+
+function WarningText({ children }: { readonly children: React.ReactNode }) {
+  return (
+    <Flex spaceItems={{ default: "spaceItemsXs" }}>
+      <FlexItem>
+        <Icon isInline status="warning">
+          <ExclamationTriangleIcon aria-hidden />
+        </Icon>
+      </FlexItem>
+      <FlexItem>{children}</FlexItem>
+    </Flex>
+  );
+}
+
+// FLT-DLV-20: the content of the Where to look popup for one stage.
+function WhereToLookBody({ look }: { readonly look: WhereToLook }) {
+  const intl = useIntl();
+  switch (look.kind) {
+    case "build-failed":
+      return (
+        <Stack hasGutter>
+          <StackItem>{intl.formatMessage(m.lookBuildFailed)}</StackItem>
+          <StackItem className="pf-v6-u-text-color-subtle">
+            {intl.formatMessage(m.lookBuildWhy)}
+          </StackItem>
+          <StackItem>
+            <DescriptionList isCompact>
+              {look.checks.map((c) => (
+                <LookTerm key={c.component} term={c.component}>
+                  {formatClock(intl, c.completedAt)}
+                  {c.url !== null ? (
+                    <span className="pf-v6-u-ml-xs">
+                      <ExternalLink href={c.url}>
+                        {intl.formatMessage(m.lookViewCheckRun)}
+                      </ExternalLink>
+                    </span>
+                  ) : null}
+                </LookTerm>
+              ))}
+            </DescriptionList>
+          </StackItem>
+        </Stack>
+      );
+    case "checks-overdue":
+      return (
+        <Stack hasGutter>
+          <StackItem>{intl.formatMessage(m.lookChecksRunning)}</StackItem>
+          <StackItem>
+            <DescriptionList isCompact>
+              {look.checks.map((c) => (
+                <LookTerm key={c.component} term={c.component}>
+                  {intl.formatMessage(STATE_LABEL[c.state])}
+                  {c.url !== null ? (
+                    <span className="pf-v6-u-ml-xs">
+                      <ExternalLink href={c.url}>
+                        {intl.formatMessage(m.lookViewCheckRun)}
+                      </ExternalLink>
+                    </span>
+                  ) : null}
+                </LookTerm>
+              ))}
+            </DescriptionList>
+          </StackItem>
+        </Stack>
+      );
+    case "release-overdue": {
+      const d = look.diagnostics;
+      if (d === null) {
+        return (
+          <Content component="p">{intl.formatMessage(m.lookNotLoaded)}</Content>
+        );
+      }
+      const differ =
+        d.registryTag !== null &&
+        d.githubReleaseTag !== null &&
+        d.registryTag !== d.githubReleaseTag;
+      return (
+        <Stack hasGutter>
+          <StackItem>{intl.formatMessage(m.lookReleaseSummary)}</StackItem>
+          <StackItem>
+            <DescriptionList isCompact>
+              {d.lastGood !== null ? (
+                <LookTerm term={intl.formatMessage(m.lookLastGood)}>
+                  {intl.formatMessage(m.lookLastGoodValue, {
+                    bundle: identiName(d.lastGood.digest),
+                    time: formatClock(intl, d.lastGood.publishedAt),
+                  })}
+                </LookTerm>
+              ) : null}
+              {d.logUrl !== null ? (
+                <LookTerm term={intl.formatMessage(m.lookKonflux)}>
+                  <ExternalLink href={d.logUrl}>
+                    {intl.formatMessage(m.lookOpenLog)}
+                  </ExternalLink>
+                </LookTerm>
+              ) : null}
+              <LookTerm term={intl.formatMessage(m.lookPublisherChanges)}>
+                {d.commitsError !== null ? (
+                  <WarningText>
+                    {intl.formatMessage(m.lookReadFailed)}
+                  </WarningText>
+                ) : d.commits.length === 0 ? (
+                  intl.formatMessage(m.lookNoPublisherChanges)
+                ) : (
+                  <List isPlain>
+                    {d.commits.map((c) => (
+                      <ListItem key={c.sha}>
+                        <ExternalLink href={c.url}>
+                          {c.pr !== null
+                            ? intl.formatMessage(m.lookCommitWithPr, {
+                                sha: c.shortSha,
+                                pr: String(c.pr),
+                              })
+                            : c.shortSha}
+                        </ExternalLink>
+                        <span className="pf-v6-u-ml-xs">{c.title}</span>
+                      </ListItem>
+                    ))}
+                  </List>
+                )}
+              </LookTerm>
+              {d.appUrl !== null ? (
+                <LookTerm term={intl.formatMessage(m.lookReleaseApp)}>
+                  {intl.formatMessage(m.lookReleaseAppText)}
+                  <span className="pf-v6-u-ml-xs">
+                    <ExternalLink href={d.appUrl}>
+                      {intl.formatMessage(m.lookCheckApp)}
+                    </ExternalLink>
+                  </span>
+                </LookTerm>
+              ) : null}
+              {d.registryTag !== null ? (
+                <LookTerm term={intl.formatMessage(m.lookRegistryTag)}>
+                  <Truncate content={d.registryTag} position="middle" />
+                </LookTerm>
+              ) : null}
+              <LookTerm term={intl.formatMessage(m.lookGithubRelease)}>
+                {d.releaseError !== null ? (
+                  <WarningText>
+                    {intl.formatMessage(m.lookReadFailed)}
+                  </WarningText>
+                ) : (
+                  <>
+                    {d.githubReleaseTag !== null ? (
+                      <Truncate
+                        content={d.githubReleaseTag}
+                        position="middle"
+                      />
+                    ) : null}
+                    {differ ? (
+                      <WarningText>
+                        {intl.formatMessage(m.lookTagsDiffer)}
+                      </WarningText>
+                    ) : null}
+                  </>
+                )}
+              </LookTerm>
+            </DescriptionList>
+          </StackItem>
+        </Stack>
+      );
+    }
+    case "gitops":
+      return look.pr !== null ? (
+        <DescriptionList isCompact>
+          <LookTerm term={intl.formatMessage(m.lookBundlePR)}>
+            {look.pr.url !== null ? (
+              <ExternalLink href={look.pr.url}>
+                {intl.formatMessage(m.pullRequest, { number: look.pr.number })}
+              </ExternalLink>
+            ) : (
+              intl.formatMessage(m.pullRequest, { number: look.pr.number })
+            )}
+          </LookTerm>
+        </DescriptionList>
+      ) : (
+        <Content component="p">{intl.formatMessage(m.lookNoBundlePR)}</Content>
+      );
+    default:
+      return (
+        <DescriptionList isCompact>
+          {look.environments.map((e) => (
+            <LookTerm key={e.env} term={e.env}>
+              <Stack>
+                <StackItem>
+                  {intl.formatMessage(STATE_LABEL[e.state])}
+                </StackItem>
+                {e.analysisUrl !== null ? (
+                  <StackItem>
+                    <ExternalLink href={e.analysisUrl}>
+                      {intl.formatMessage(m.lookAnalysis)}
+                    </ExternalLink>
+                  </StackItem>
+                ) : null}
+                {e.argoUrl !== null ? (
+                  <StackItem>
+                    <ExternalLink href={e.argoUrl}>
+                      {intl.formatMessage(m.lookArgo)}
+                    </ExternalLink>
+                  </StackItem>
+                ) : null}
+              </Stack>
+            </LookTerm>
+          ))}
+        </DescriptionList>
+      );
+  }
+}
+
+// FLT-DLV-20: opens on hover, keyboard focus, and tap; Escape, a click
+// outside, or the close button closes it. Hover and focus open it softly: the
+// click that follows them keeps it open instead of closing it again.
+function WhereToLookPopover({
+  look,
+  stageName,
+}: {
+  readonly look: WhereToLook;
+  readonly stageName: string;
+}) {
+  const intl = useIntl();
+  const [open, setOpen] = useState(false);
+  const soft = useRef(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const title = intl.formatMessage(m.whereToLookTitle, { stage: stageName });
+  const openSoftly = () => {
+    if (!open) {
+      soft.current = true;
+      setOpen(true);
+    }
+  };
+  return (
+    <Popover
+      aria-label={title}
+      bodyContent={<WhereToLookBody look={look} />}
+      headerContent={title}
+      isVisible={open}
+      position="bottom"
+      shouldClose={(event) => {
+        const target = event.target;
+        if (
+          soft.current &&
+          target instanceof Node &&
+          trigger.current?.contains(target) === true
+        ) {
+          soft.current = false;
+          return;
+        }
+        soft.current = false;
+        setOpen(false);
+      }}
+      shouldOpen={() => {
+        soft.current = false;
+        setOpen(true);
+      }}
+      triggerRef={trigger}
+    >
+      <Button
+        className="pf-v6-u-font-size-sm"
+        isInline
+        onClick={(event) => {
+          event.stopPropagation();
+        }}
+        onFocus={openSoftly}
+        onPointerEnter={(event) => {
+          if (event.pointerType === "mouse") {
+            openSoftly();
+          }
+        }}
+        ref={trigger}
+        variant="link"
+      >
+        {intl.formatMessage(m.whereToLook)}
+      </Button>
+    </Popover>
   );
 }
 
 // FLT-DLV-04: every state is an icon paired with a text label.
 function StageStatus({
   stage,
-  slow,
+  overdue,
   nowMs,
+  look = null,
+  stageName = "",
 }: {
   readonly stage: DeliveryStage;
-  readonly slow: boolean;
+  readonly overdue: boolean;
   readonly nowMs: number;
+  readonly look?: WhereToLook | null;
+  readonly stageName?: string;
 }) {
   const intl = useIntl();
   const muted =
@@ -365,9 +682,14 @@ function StageStatus({
           {secondary}
         </StackItem>
       ) : null}
-      {slow ? (
+      {overdue ? (
         <StackItem className="pf-v6-u-font-size-sm">
-          <SlowerThanUsual />
+          <OverdueLabel />
+        </StackItem>
+      ) : null}
+      {look !== null ? (
+        <StackItem>
+          <WhereToLookPopover look={look} stageName={stageName} />
         </StackItem>
       ) : null}
       {stage.failedAttempts > 0 ? (
@@ -528,10 +850,11 @@ function nowText(intl: IntlShape, data: DeliveryData, row: NowNextRow): string {
       ? ` - ${formatDuration(intl, row.now.elapsedMs)}`
       : "";
   const typical =
-    row.now.typicalMs !== null &&
+    (row.now.estimateMs !== null &&
     (stage.state === "running" || stage.state === "waiting")
-      ? `, ${intl.formatMessage(m.usually, { duration: formatDuration(intl, row.now.typicalMs) })}`
-      : "";
+      ? `, ${intl.formatMessage(m.usually, { duration: formatDuration(intl, row.now.estimateMs) })}`
+      : "") +
+    (row.now.stageOverdue ? ` - ${intl.formatMessage(m.nowOverdue)}` : "");
   if (
     stage.key === "build" &&
     stage.state === "running" &&
@@ -589,6 +912,9 @@ function nextText(
         intl,
         def ?? { key: next.stage.key, group: null },
       );
+      if (row.now.overdue) {
+        return intl.formatMessage(m.nextOverdue, { stage });
+      }
       return next.expectedAtMs !== null
         ? intl.formatMessage(m.nextStageAt, {
             stage,
@@ -710,6 +1036,13 @@ function NowAndNext({
                         ]}
                       />
                     </DataListItemRow>
+                    <div className="pf-v6-u-px-md pf-v6-u-pb-md">
+                      <ProgressBar
+                        change={row.change}
+                        data={data}
+                        nowMs={nowMs}
+                      />
+                    </div>
                   </DataListItem>
                 ))}
               </DataList>
@@ -730,6 +1063,99 @@ function NowAndNext({
         )}
       </CardBody>
     </Card>
+  );
+}
+
+// FLT-DLV-19: one numbered, equal-width cell per phase, each joined to its own
+// label. State is carried by text as well as color.
+function ProgressBar({
+  data,
+  change,
+  nowMs,
+}: {
+  readonly data: DeliveryData;
+  readonly change: DeliveryChange;
+  readonly nowMs: number;
+}) {
+  const intl = useIntl();
+  const model = progress(data, change, nowMs);
+  const name = changeName(change);
+  return (
+    <div className={styles.progress}>
+      <Content className="pf-v6-u-font-size-sm" component="p">
+        {model.percent === null
+          ? intl.formatMessage(m.progressTitle)
+          : intl.formatMessage(m.progressPercent, { percent: model.percent })}
+      </Content>
+      <ol
+        aria-label={
+          model.percent === null
+            ? intl.formatMessage(m.progressLabel, { change: name })
+            : intl.formatMessage(m.progressLabelPercent, {
+                change: name,
+                percent: model.percent,
+              })
+        }
+        className={styles.cells}
+      >
+        {model.cells.map((cell) => {
+          const def = data.stages.find((d) => d.key === cell.stage.key);
+          const label = stageLabel(
+            intl,
+            def ?? { key: cell.stage.key, group: null },
+          );
+          const time =
+            cell.arrival !== null && cell.arrival.kind !== "reached"
+              ? arrivalText(intl, cell.arrival) ||
+                stagePrimary(intl, cell.stage, nowMs)
+              : stagePrimary(intl, cell.stage, nowMs);
+          const look = whereToLook(data, change, cell.stage, nowMs);
+          return (
+            <li className={styles.cell} key={cell.stage.key}>
+              <span
+                aria-hidden
+                className={styles.segment}
+                data-overdue={cell.overdue ? "true" : undefined}
+                data-state={cell.stage.state}
+              >
+                {cell.number}
+              </span>
+              <span aria-hidden className={styles.connector} />
+              <span className={styles.label}>
+                <strong>{label}</strong>
+                <br />
+                <span className="pf-v6-u-text-nowrap">
+                  <StageStateIcon state={cell.stage.state} />
+                  <span className="pf-v6-u-ml-xs">
+                    {cell.stage.reason === "inferred-release"
+                      ? intl.formatMessage(m.stateReleasingInferred)
+                      : intl.formatMessage(STATE_LABEL[cell.stage.state])}
+                  </span>
+                </span>
+                {time ? (
+                  <>
+                    <br />
+                    <span className="pf-v6-u-text-color-subtle">{time}</span>
+                  </>
+                ) : null}
+                {cell.overdue ? (
+                  <>
+                    <br />
+                    <OverdueLabel />
+                  </>
+                ) : null}
+                {look !== null ? (
+                  <>
+                    <br />
+                    <WhereToLookPopover look={look} stageName={label} />
+                  </>
+                ) : null}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
   );
 }
 
@@ -839,9 +1265,11 @@ function ChangeTable({
                           <Td dataLabel={stageLabel(intl, def)} key={def.key}>
                             {stage ? (
                               <StageStatus
-                                stage={stage}
-                                slow={isSlow(data, stage, nowMs)}
+                                look={whereToLook(data, change, stage, nowMs)}
                                 nowMs={nowMs}
+                                overdue={isOverdue(stage, nowMs)}
+                                stage={stage}
+                                stageName={stageLabel(intl, def)}
                               />
                             ) : null}
                           </Td>
@@ -927,7 +1355,7 @@ function stepDescription(
   const parts = [stagePrimary(intl, stage, nowMs), detail].filter(
     (s) => s !== "",
   );
-  const typical = typicalMs(data, stage.key);
+  const typical = stage.estimateMs;
   if (
     (stage.state === "running" || stage.state === "waiting") &&
     typical !== null
@@ -1064,6 +1492,11 @@ function ChangeDetails({
                               policy: checkStateText(intl, policy),
                             })}
                           </StackItem>
+                          {build?.outsideBundle === true ? (
+                            <StackItem className="pf-v6-u-text-color-subtle">
+                              {intl.formatMessage(m.outsideBundle)}
+                            </StackItem>
+                          ) : null}
                           {url !== null ? (
                             <StackItem>
                               <ExternalLink href={url}>
@@ -1225,7 +1658,7 @@ function ChangeDetails({
                                     total: 0,
                                     failedAttempts: 0,
                                   }}
-                                  slow={false}
+                                  overdue={false}
                                   nowMs={nowMs}
                                 />
                                 {eventfulHistory(env) ? (
@@ -1298,6 +1731,8 @@ function emptyStage(key: string): DeliveryStage {
     pr: null,
     checks: null,
     failedAttempts: 0,
+    estimateMs: null,
+    slowestMs: null,
   };
 }
 
@@ -1530,7 +1965,7 @@ export function DeliveryView(props: DeliveryViewProps): React.ReactElement {
   );
 }
 
-/** Ticks a reference instant so elapsed times and the slow warning stay current. */
+/** Ticks a reference instant so elapsed times and the Overdue warning stay current. */
 function useNow(intervalMs: number): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
