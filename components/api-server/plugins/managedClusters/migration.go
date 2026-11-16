@@ -92,7 +92,7 @@ func migrationAddCapabilities() *gormigrate.Migration {
 }
 
 // migrationAddHealth adds the nullable, spoke-reported self-check verdict column
-// (managed-cluster-self-healthcheck.spec.md, PLAT-DATA-27). It is written only
+// (managed-cluster-self-healthcheck.spec.md, PLAT-DATA-28). It is written only
 // through the registration/heartbeat path and null until the first verdict.
 func migrationAddHealth() *gormigrate.Migration {
 	return &gormigrate.Migration{

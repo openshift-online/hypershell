@@ -9,7 +9,7 @@
 //
 // The verdict shape (overall rollup + per-check conditions with name, status,
 // last-transition timestamp, and message, plus a run timestamp and duration) is
-// stored verbatim on the owning ManagedCluster (PLAT-DATA-27). The types here
+// stored verbatim on the owning ManagedCluster (PLAT-DATA-28). The types here
 // carry the JSON tags the hub stores and surfaces, so the registration client
 // can serialize a verdict straight onto the heartbeat body.
 package selfcheck
@@ -86,7 +86,7 @@ func CheckNames() []CheckName {
 }
 
 // Condition is a single per-check result in a verdict (PLAT-HLTH-03). Its JSON
-// shape matches what the hub stores verbatim and surfaces (PLAT-DATA-27).
+// shape matches what the hub stores verbatim and surfaces (PLAT-DATA-28).
 type Condition struct {
 	Name             CheckName `json:"name"`
 	Status           Status    `json:"status"`
@@ -95,7 +95,7 @@ type Condition struct {
 }
 
 // Verdict is the rich health verdict (PLAT-HLTH-03). Its JSON shape matches the
-// `health` object the hub stores and surfaces (PLAT-DATA-27) and the control
+// `health` object the hub stores and surfaces (PLAT-DATA-28) and the control
 // plane reports on the heartbeat (PLAT-CLUS-16).
 type Verdict struct {
 	Overall    Overall     `json:"overall"`

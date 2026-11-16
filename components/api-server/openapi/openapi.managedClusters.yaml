@@ -320,7 +320,7 @@ components:
               items:
                 type: string
               description: Registration-owned capability labels used by match-all placement selectors.
-            # Spoke-reported on-cluster self-check verdict (PLAT-DATA-27). Written
+            # Spoke-reported on-cluster self-check verdict (PLAT-DATA-28). Written
             # only by the registering control plane through the registration/heartbeat
             # path; read-only to generic create/patch (not present on the patch request
             # schema). Null until the first verdict is reported. A bare $ref (no allOf

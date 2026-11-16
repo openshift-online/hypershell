@@ -227,7 +227,7 @@ func healthVerdict(overall string) openapi.ManagedClusterHealth {
 
 // The heartbeat carries the self-check verdict: the hub stores it on the record,
 // surfaces it on GET, and updates last_seen_at in the same call.
-// Verifies: PLAT-CLUS-16.01, PLAT-DATA-27.02
+// Verifies: PLAT-CLUS-16.01, PLAT-DATA-28.02
 func TestManagedClusterRegistrationStoresAndSurfacesHealthVerdict(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	ctx := controlPlaneContext(h, uniqueName("cp"))
@@ -353,7 +353,7 @@ func TestManagedClusterMalformedHealthRejectedAtomically(t *testing.T) {
 
 // health is control-plane-reported and read-only to a generic PATCH: a PATCH never
 // assigns or modifies the stored verdict.
-// Verifies: PLAT-DATA-27.01
+// Verifies: PLAT-DATA-28.01
 func TestManagedClusterHealthReadOnlyToPatch(t *testing.T) {
 	h, client := test.RegisterIntegration(t)
 	ctx := controlPlaneContext(h, uniqueName("cp"))

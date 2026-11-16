@@ -77,7 +77,7 @@ func TestValidateHealthVerdict(t *testing.T) {
 }
 
 // The OpenAPI <-> domain health conversion is lossless, and a nil verdict maps to
-// nil in both directions (null `health`, PLAT-DATA-27.02 / PLAT-CLUS-16.02).
+// nil in both directions (null `health`, PLAT-DATA-28.02 / PLAT-CLUS-16.02).
 func TestHealthVerdictConversionRoundTrip(t *testing.T) {
 	if got := ConvertHealthVerdict(nil); got != nil {
 		t.Fatalf("ConvertHealthVerdict(nil) = %v, want nil", got)

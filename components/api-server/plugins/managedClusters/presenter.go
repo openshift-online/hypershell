@@ -80,7 +80,7 @@ func ConvertHealthVerdict(h *openapi.ManagedClusterHealth) *HealthVerdict {
 }
 
 // PresentHealthVerdict maps the stored domain verdict onto the OpenAPI read
-// model. A nil verdict (never reported) presents as null (PLAT-DATA-27.02).
+// model. A nil verdict (never reported) presents as null (PLAT-DATA-28.02).
 func PresentHealthVerdict(v *HealthVerdict) *openapi.ManagedClusterHealth {
 	if v == nil {
 		return nil

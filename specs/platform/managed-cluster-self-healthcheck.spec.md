@@ -2,7 +2,7 @@
 
 **Status:** Draft
 **Ticket:** HYPERSHELL-493
-**Related:** `platform/managed-cluster-registration.spec.md` (registration/heartbeat path that carries the verdict, PLAT-CLUS-16), `platform/data-model.spec.md` (ManagedCluster `health` field, PLAT-DATA-27), `platform/control-plane-observability.spec.md` (health gauges, OBS-CPL-12), `platform/control-plane.spec.md` (continuous reconcilers, in-cluster credentials), `platform/openshell-gateway-database.spec.md` (gateway database reachability check)
+**Related:** `platform/managed-cluster-registration.spec.md` (registration/heartbeat path that carries the verdict, PLAT-CLUS-16), `platform/data-model.spec.md` (ManagedCluster `health` field, PLAT-DATA-28), `platform/control-plane-observability.spec.md` (health gauges, OBS-CPL-12), `platform/control-plane.spec.md` (continuous reconcilers, in-cluster credentials), `platform/openshell-gateway-database.spec.md` (gateway database reachability check)
 
 ---
 
@@ -36,7 +36,7 @@ re-deriving it.
 ## Health Verdict Shape
 
 A verdict is a JSON object reported by the control plane and stored verbatim on
-the owning `ManagedCluster` (PLAT-DATA-27):
+the owning `ManagedCluster` (PLAT-DATA-28):
 
 ```json
 {
@@ -188,7 +188,7 @@ The control plane SHALL report its most recent verdict to the hub along the
 existing registration/heartbeat path, carried as an optional `health` object in
 the `POST /managed_clusters/registration` request body
 (`managed-cluster-registration.spec.md`, PLAT-CLUS-16). The hub SHALL store the
-reported verdict on the owning `ManagedCluster` record (PLAT-DATA-27) and SHALL
+reported verdict on the owning `ManagedCluster` record (PLAT-DATA-28) and SHALL
 surface it in `GET /managed_clusters` and `GET /managed_clusters/{id}`.
 
 Reporting SHALL NOT regress liveness: every heartbeat SHALL continue to update
@@ -287,7 +287,7 @@ run.
 ## Primary Basis
 
 - `platform/managed-cluster-registration.spec.md` (heartbeat path, PLAT-CLUS-05, PLAT-CLUS-07, PLAT-CLUS-11)
-- `platform/data-model.spec.md` (ManagedCluster `health` field, PLAT-DATA-27)
+- `platform/data-model.spec.md` (ManagedCluster `health` field, PLAT-DATA-28)
 - `platform/control-plane-observability.spec.md` (OBS-CPL-01, OBS-CPL-06, OBS-CPL-12)
 - `platform/control-plane.spec.md` (continuous reconcilers, in-cluster credentials)
 - `platform/openshell-gateway-database.spec.md` (gateway database reachability check)
