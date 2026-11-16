@@ -409,37 +409,6 @@ export function ServiceAccountCreateDialog({
                   )}
                 />
               </StackItem>
-              {selectedRole === "openshell-user" ? (
-                <StackItem>
-                  <Controller
-                    control={control}
-                    name="addToDefaultWorkspace"
-                    render={({ field }) => (
-                      <>
-                        <Checkbox
-                          id="service-account-default-workspace"
-                          isChecked={field.value}
-                          label={intl.formatMessage(
-                            messages.serviceAccountDefaultWorkspaceLabel,
-                          )}
-                          onChange={(_event, checked) => {
-                            field.onChange(checked);
-                          }}
-                        />
-                        <FormHelperText>
-                          <HelperText>
-                            <HelperTextItem>
-                              {intl.formatMessage(
-                                messages.defaultWorkspaceHelp,
-                              )}
-                            </HelperTextItem>
-                          </HelperText>
-                        </FormHelperText>
-                      </>
-                    )}
-                  />
-                </StackItem>
-              ) : null}
               <StackItem>
                 <Controller
                   control={control}
@@ -538,6 +507,37 @@ export function ServiceAccountCreateDialog({
                   )}
                 />
               </StackItem>
+              {selectedRole === "openshell-user" ? (
+                <StackItem>
+                  <Controller
+                    control={control}
+                    name="addToDefaultWorkspace"
+                    render={({ field }) => (
+                      <>
+                        <Checkbox
+                          id="service-account-default-workspace"
+                          isChecked={field.value}
+                          label={intl.formatMessage(
+                            messages.serviceAccountDefaultWorkspaceLabel,
+                          )}
+                          onChange={(_event, checked) => {
+                            field.onChange(checked);
+                          }}
+                        />
+                        <FormHelperText>
+                          <HelperText>
+                            <HelperTextItem>
+                              {intl.formatMessage(
+                                messages.defaultWorkspaceHelp,
+                              )}
+                            </HelperTextItem>
+                          </HelperText>
+                        </FormHelperText>
+                      </>
+                    )}
+                  />
+                </StackItem>
+              ) : null}
               <StackItem>
                 <Controller
                   control={control}
