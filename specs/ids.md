@@ -150,6 +150,7 @@ listed in `specs/id-rename-map.md`, not here.
 | `PLAT-CLUS` | `platform/managed-cluster-registration.spec.md` | 15 |
 | `PLAT-DATA` | `platform/data-model.spec.md` | 27 |
 | `PLAT-INV` | `platform/platform-inventory.spec.md` | 10 |
+| `PLAT-SSS` | `platform/central-secret-store.spec.md` | 8 |
 | `PLAT-USR` | `platform/registered-users.spec.md` | 15 |
 
 ### REL

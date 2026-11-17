@@ -12,7 +12,14 @@
 
 OpenShell gateways store **provider credentials** (the API keys, tokens and secrets a
 user registers so their sandboxes can reach external model/tool providers) on behalf of
-users. Upstream OpenShell ships pluggable credential storage drivers: an encrypted
+users. This per-gateway store is the DERIVED-copy plane (Store 2): when the control
+plane realizes a user's secret as an OpenShell provider, OpenShell persists the usable
+credential here, on the cluster running the gateway. Its upstream source of truth is the
+central user-secret store ([`central-secret-store.spec.md`](./central-secret-store.spec.md),
+PLAT-SSS, Store 1), into which users upload with their own OIDC identity; this spec owns
+only the per-gateway runtime store, not that source (PLAT-SSS-05/08).
+
+Upstream OpenShell ships pluggable credential storage drivers: an encrypted
 database store, a Kubernetes Secrets backend, and a HashiCorp **Vault** backend. This
 specification defines how the GatewayReconciler selects and configures a credential
 storage driver per gateway: the API field, validation, `gateway.toml` generation, RBAC,

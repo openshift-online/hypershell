@@ -251,7 +251,7 @@ update on the target cluster the `AgentRuntime`'s `Namespace`, `ServiceAccount`
 (with `automountServiceAccountToken: false`), default-deny-ingress `NetworkPolicy`,
 the coordinator `gateway-identity` wiring (the OIDC identity the coordinator uses to
 authenticate to its gateway, from the `gateway-identity` `SecretSource` material read
-cluster-local), and the coordinator `CronJob`. The control plane SHALL read each
+from the central store), and the coordinator `CronJob`. The control plane SHALL read each
 referenced `SecretSource`'s durable material from the configured secret store through
 its read-only `pkg/secretstore` client; for provider material it SHALL NOT render the
 credential as a raw Kubernetes `Secret`, SHALL NOT create an `ExternalSecret`, and
@@ -261,7 +261,7 @@ objects through OpenShell's existing provisioning API (the operations the `opens
 CLI drives), reusing the same idempotent admin-connection discipline it uses for
 gateway database provisioning, and SHALL realize each `ProviderBinding` as an OpenShell
 **provider** on the agent's gateway/workspace from the binding's `provider_spec_id`,
-its `refresh_strategy`, and the material read cluster-local. Rotation of the realized
+its `refresh_strategy`, and the material read from the central store. Rotation of the realized
 credential is owned by OpenShell for its native strategies (`google-service-account-jwt`,
 `oauth2-refresh-token`, `oauth2-client-credentials`, `aws-sts-assume-role`,
 `static-token`) and by a bounded control-plane GitHub rotator for the
@@ -319,7 +319,7 @@ drives (see [`extension-api-openshell-api-mapping.spec.md`](./extension-api-open
    realized.
 3. Ensure each provider (OpenShell `provider create` / `update` plus `provider refresh
    configure`) the runtime realizes, from its `refresh_strategy` and the durable material
-   read cluster-local, honoring the `SecretPending` gate when material is absent. The target
+   read from the central store, honoring the `SecretPending` gate when material is absent. The target
    end state is one provider per `ProviderBinding` keyed by the binding's `secret_source_id`;
    the current activation step realizes one provider per resolved provider `SecretSource`
    keyed by its `purpose`, because the embedded payload does not yet carry the `SecretSource`
@@ -347,7 +347,7 @@ present and the runtime holds under `SecretPending` (see below and
 Condition Gates Provider Creation"), the reconcile SHALL NOT prune the previously-placed
 raw `Secret` for that provider, so a partially-uploaded fleet keeps its working credential
 until its replacement provider is realized. The coordinator `gateway-identity` carve-out
-SHALL remain unchanged: the `gateway-identity` material is still read cluster-local and
+SHALL remain unchanged: the `gateway-identity` material is still read from the central store and
 wired as coordinator environment (it is NOT a provider and is NOT a rendered provider
 credential), and the prune SHALL NOT remove it
 ([`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md),
@@ -355,7 +355,7 @@ credential), and the prune SHALL NOT remove it
 
 #### Scenario: CTRL-CORE-04.01 -- Realizer drives the gateway sequence in order
 
-- GIVEN an `AgentRuntime` whose embedded payload carries a workspace name, memberships, one `ProviderBinding` with a non-empty `refresh_strategy`, and an `InferenceRoute`, with the referenced material present cluster-local
+- GIVEN an `AgentRuntime` whose embedded payload carries a workspace name, memberships, one `ProviderBinding` with a non-empty `refresh_strategy`, and an `InferenceRoute`, with the referenced material present in the central store
 - WHEN the control plane reconciles it
 - THEN it SHALL ensure the workspace, then reconcile memberships, then ensure each provider, then ensure the inference route, through the live `ProviderRealizer` calling OpenShell's existing API
 - AND it SHALL render no raw credential `Secret` for the provider material
@@ -386,7 +386,7 @@ credential), and the prune SHALL NOT remove it
 
 - GIVEN a new `AgentRuntime` with status `Pending` whose effective cluster is this control plane's `cluster_id`
 - WHEN the control plane reconciles it
-- THEN it SHALL read each `SecretSource`'s material cluster-local and create the `Namespace`, `ServiceAccount`, `NetworkPolicy`, the coordinator `gateway-identity` wiring, and `CronJob` on this cluster, rendering no raw credential `Secret`
+- THEN it SHALL read each `SecretSource`'s material from the central store and create the `Namespace`, `ServiceAccount`, `NetworkPolicy`, the coordinator `gateway-identity` wiring, and `CronJob` on this cluster, rendering no raw credential `Secret`
 - AND it SHALL transition the `AgentRuntime` status to `Provisioning`
 - AND after it has provisioned the gateway-side `AgentWorkspace` and realized its OpenShell providers from the material, it SHALL transition the status to `Running`
 
@@ -428,30 +428,25 @@ is `true`; when it is unset or `false` the control plane SHALL log that the impo
 reconciler is disabled and SHALL NOT run the loop.
 
 The control plane SHALL configure its read-only `pkg/secretstore` client from the
-`HYPERSHELL_SECRET_STORE_*` environment, following the two resolution paths defined in
-[`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md) ("Two
-Material Resolution Paths"), NOT a single shared global store:
+`HYPERSHELL_SECRET_STORE_*` environment to read the central store defined in
+[`central-secret-store.spec.md`](./central-secret-store.spec.md) (PLAT-SSS):
 
-- For an `AgentRuntime` `SecretSource` material (distributed path), each control plane's
-  read client SHALL point at its OWN cluster-local Vault, so the material it reads to
-  configure providers was uploaded directly into that cluster's Vault by the per-cluster
-  writer and never transited the hub.
-- For the `Repository` `secret_source_id` import credential (hub-side path), the hub
-  control plane SHALL read the hub-reachable store that the api-server write client
-  populates; for a GitHub `Repository` the stored material is the App PEM, from which
-  the `RepositoryReconciler` mints the short-lived installation token.
-- The api-server write client and a control plane's read client MAY share one
-  `HYPERSHELL_SECRET_STORE_BACKEND` and address ONLY when they are co-located (the same
-  cluster's store, for example `hyp0`). In the general multi-cluster fleet the
-  `AgentRuntime` `SecretSource` material SHALL NOT be resolvable through a single store
-  that the hub api-server writes and every spoke reads.
+- For an `AgentRuntime` `SecretSource` material, the control plane's read client SHALL
+  read the central store with a least-privilege, read-only identity scoped to the
+  reconciled paths (PLAT-SSS-03), including cross-cluster when a spoke control plane reads
+  the central hub store (the ExternalSecrets source-store pattern).
+- For the `Repository` `secret_source_id` import credential, the control plane SHALL read
+  the same central store; for a GitHub `Repository` the stored material is the App PEM,
+  from which the `RepositoryReconciler` mints the short-lived installation token.
+- The api-server write client (the passthrough upload, AGT-SEC-14) and the control-plane
+  read client address the SAME central store; there is no per-cluster store to diverge
+  onto.
 
-The secret-store Vault client SHALL reach the per-cluster Vault as that cluster serves
-it (private-CA trust and the cluster's auth method, Kubernetes auth where the cluster
-Vault uses it), under a policy scoped to the agent-secret path, as defined in
-[`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)
-("Agent-Secret Vault Client Capabilities"). When the secret store is unset the control
-plane SHALL fail provider realization loudly rather than configure a provider with empty
+The secret-store client SHALL reach the central store as it is served (private-CA trust
+and its auth method), under a read-only policy scoped to the reconciled paths, as defined
+in [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)
+("Central-Store Client Capabilities"). When the secret store is unset the control plane
+SHALL fail provider realization loudly rather than configure a provider with empty
 material.
 
 #### Scenario: CTRL-CORE-05.01 -- Import loop runs only when enabled
@@ -462,12 +457,12 @@ material.
 - WHEN instead `HYPERSHELL_REPOSITORY_IMPORT_ENABLED=true` and the secret store is wired
 - THEN it SHALL run the import reconcile loop and SHALL resolve the `Repository` `secret_source_id` import credential material through its read-only `pkg/secretstore` client, minting the installation token from the App PEM
 
-#### Scenario: CTRL-CORE-05.02 -- AgentRuntime material is read from the control plane's own cluster-local store
+#### Scenario: CTRL-CORE-05.02 -- AgentRuntime material is read from the central store
 
-- GIVEN a spoke control plane not co-located with the hub api-server
-- WHEN it realizes providers for an `AgentRuntime` from its `SecretSource` material
-- THEN its read client SHALL read the material from its own cluster-local Vault
-- AND the material SHALL NOT be resolved through a store the hub api-server writes
+- GIVEN a spoke control plane reconciling an `AgentRuntime` whose `SecretSource` material is in the central store
+- WHEN it realizes providers from that material
+- THEN its read client SHALL read the material from the central store with a least-privilege read-only identity scoped to the referenced path (cross-cluster when the store is on the hub)
+- AND it SHALL NOT hold write access to user material
 
 #### Scenario: CTRL-CORE-05.03 -- Client reaches a privately-signed cluster Vault with Kubernetes auth
 

@@ -64,25 +64,31 @@ hold with a `SecretPending` condition that gates PROVIDER CREATION, SHALL NOT co
 provider with empty material, and SHALL converge when the material first appears (see
 [`platform/agent-secret-late-binding.spec.md`](../../platform/agent-secret-late-binding.spec.md)).
 
-**Three separate secret planes, never conflated.** The agent-secret plane (the
-per-cluster store holding `secret/data/hypershell/secret-sources/*` that holds
-`SecretSource` material) SHALL be kept SEPARATE from the gateway-provider Vault plane
+**Three separate secret planes, never conflated.** The central user-secret store
+([`platform/central-secret-store.spec.md`](../../platform/central-secret-store.spec.md),
+PLAT-SSS, the OIDC-secured source of truth for `SecretSource` material) SHALL be kept
+SEPARATE from the per-gateway OpenShell runtime store that holds the derived provider copy
 ([`platform/openshell-gateway-credentials.spec.md`](../../platform/openshell-gateway-credentials.spec.md))
 and from the application-secret plane (Secrets Manager plus External Secrets Operator).
-The three planes SHALL NOT share paths, policies, or identities and SHALL NOT be
-conflated.
+The three planes SHALL NOT share paths, policies, or identities and SHALL NOT be conflated
+(PLAT-SSS-08).
 
-**Distributed per-cluster reads; no global runtime store.** `SecretSource` material SHALL
-be read cluster-locally: the control plane reads referenced material from the LOCAL store
-of the cluster the owning agent is assigned to and uses it to configure that agent's
-providers. There SHALL be no hub staging store, no material transfer through the hub, and
-no global runtime reader that every control plane consults.
+**Central store read with least privilege.** `SecretSource` material SHALL live in one
+central, OIDC-secured store (PLAT-SSS); the control plane reads referenced material from
+it with a least-privilege, read-only identity scoped to only the reconciled paths, and
+uses it to configure the agent's providers. The read MAY cross clusters (a spoke control
+plane MAY read the central hub store, the ExternalSecrets source-store pattern); there is
+no requirement that it be cluster-local. Blast radius is bounded by OIDC path-scoping,
+read-only consumers, per-path isolation, and an audit device (PLAT-SSS-03/06/07), not by
+forbidding a shared store.
 
-**Scoped per-cluster writer.** Uploading material into a cluster's agent-secret store
-SHALL use a per-cluster, least-privilege WRITER identity authorized only to write under
-`secret/data/hypershell/secret-sources/*` on that cluster. The writer SHALL NOT be
-granted read access to provider material and SHALL NOT be granted write access to the
-gateway-provider Vault plane.
+**Scoped, identity-bound upload.** Uploading material SHALL use a least-privilege,
+upload-only grant on the central store scoped to the uploader's own path. The primary
+uploader is the end user authenticating with their own Red Hat SSO/OIDC identity,
+authorized to write (not read or list) only under their identity- or team-scoped path
+(PLAT-SSS-02); the api-server passthrough is a secondary convenience. No uploader identity
+SHALL be granted read access to other material or any access to the per-gateway OpenShell
+runtime store.
 
 #### Scenario: SEC-STD-01.01 -- Store access respects component direction
 
@@ -92,12 +98,12 @@ gateway-provider Vault plane.
 - AND the API server SHALL NOT read the material back from the store
 - AND when the control plane provisions a resource that references the `SecretSource`, it SHALL read the material through its read-only store client and realize an OpenShell provider from it, rendering no raw credential `Secret` and using no `ExternalSecret`
 
-#### Scenario: SEC-STD-01.02 -- Agent material is read cluster-locally and the writer is confined
+#### Scenario: SEC-STD-01.02 -- Agent material is read from the central store and the uploader is confined
 
 - GIVEN an `AgentRuntime` placed on cluster `Y` with a `SecretSource` reference
-- WHEN its material is uploaded by the per-cluster writer identity and later consumed
-- THEN the material SHALL be written and read only within cluster `Y`'s local agent-secret store, never a hub or global store
-- AND the writer identity SHALL be permitted to write only under `secret/data/hypershell/secret-sources/*` and SHALL NOT read provider material or write the gateway-provider Vault plane
+- WHEN its material is uploaded to the central store (by the user's OIDC identity or the api-server passthrough) and later consumed
+- THEN the control plane SHALL read it from the central store with a least-privilege read-only identity scoped to the referenced path (cross-cluster if the store is on the hub)
+- AND the uploader identity SHALL be permitted to write only under its own scoped path and SHALL NOT read other material or write the per-gateway OpenShell runtime store
 
 #### Scenario: SEC-STD-01.03 -- OpenShell-native strategy rotation is owned by OpenShell
 
@@ -166,9 +172,9 @@ Gateways are scoped by per-gateway RBAC RoleBindings (`gateway:owner`, `gateway:
 - [ ] Secrets stored as K8s Secret references
 - [ ] Secret values absent from routine API responses
 - [ ] One-time credential responses use `no-store`, redact telemetry, and never persist plaintext
-- [ ] Secret store access is single-directional: API server write-only, control plane read-only; no `ExternalSecret`/ESO resolution; no raw credential `Secret` rendered for provider material
+- [ ] Secret store access is least-privilege: users upload-only to their OIDC path, control plane read-only scoped to reconciled paths; no raw credential `Secret` rendered for provider material and no ESO used for HyperShell provider realization
 - [ ] Agent credentials realized as OpenShell providers; rotation ownership split by strategy (OpenShell owns its native strategies and the control plane never mints/refreshes/rotates those; a bounded control-plane GitHub rotator owns the `app-installation-token` GitHub App credential); `SecretPending` gates provider creation
-- [ ] Agent-secret, gateway-provider, and application-secret planes kept separate; agent-secret reads are cluster-local (no hub/global store); writer scoped to `secret/data/hypershell/secret-sources/*`
+- [ ] Central user-secret, per-gateway OpenShell runtime, and application-secret planes kept separate; central store read with a least-privilege scoped identity (cross-cluster allowed); upload confined to the uploader's own OIDC path
 
 **Input:**
 - [ ] All user input validated

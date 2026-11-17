@@ -841,7 +841,11 @@ their own gateways:
   and SHALL write nothing to the secret store.
 - The `SecretSource` secret-store write SHALL happen only after the tenancy
   check passes; a rejected submission SHALL leave the store and the database
-  unchanged.
+  unchanged. This governs the api-server passthrough upload to the central store
+  (the secondary path, AGT-SEC-14); the primary upload is the user writing to the
+  central store directly with their own OIDC identity, authorized by the store's
+  path policy ([`../platform/central-secret-store.spec.md`](../platform/central-secret-store.spec.md),
+  PLAT-SSS-02), not by this api-server check.
 - `CITrust` create, update, and delete SHALL require `gateway:owner` or
   `gateway:admin` on the referenced gateway, or `platform:admin`, through the
   same `CanManageGatewayResources` check the other gateway-scoped kinds use.
