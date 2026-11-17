@@ -27,6 +27,9 @@ on:
       control_plane:
         type: string
         default: 'false'
+      sandbox_resource_interceptor:
+        type: string
+        default: 'false'
       gateway_management_ui:
         type: string
         default: 'false'
@@ -174,6 +177,28 @@ jobs:
         # Coverage reporting must never block a merge on a Codecov outage.
         continue-on-error: true
         run: bash scripts/codecov-upload.sh sdk-generator scripts/sdk-generator/coverage.out
+
+  test-sandbox-resource-interceptor:
+    name: Go - sandbox resource interceptor
+    if: inputs.sandbox_resource_interceptor == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: components/sandbox-resource-interceptor/go.mod
+          cache-dependency-path: components/sandbox-resource-interceptor/go.sum
+      - name: Run sandbox resource interceptor unit tests
+        working-directory: components/sandbox-resource-interceptor
+        run: go test -count=1 -coverprofile=coverage.out -covermode=atomic ./...
+      - name: Upload sandbox-resource-interceptor coverage
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        # Coverage reporting must never block a merge on a Codecov outage.
+        continue-on-error: true
+        run: bash scripts/codecov-upload.sh sandbox-resource-interceptor components/sandbox-resource-interceptor/coverage.out
 
   test-bash:
     name: Shell

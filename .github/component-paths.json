@@ -252,6 +252,23 @@
     ],
     "unit_tested": true
   },
+  "sandbox_resource_interceptor": {
+    "directory": "components/sandbox-resource-interceptor",
+    "lint_job": "lint-sandbox-resource-interceptor",
+    "paths": [
+      "components/sandbox-resource-interceptor/**",
+      "OPENSHELL_VERSION",
+      "scripts/sync_openshell_protos.py",
+      "scripts/test_sync_openshell_protos.py",
+      "Makefile",
+      ".github/component-paths.json",
+      ".github/scripts/detect-components.sh",
+      ".github/workflows/checks.yml",
+      ".github/workflows/unit-tests.yml",
+      ".github/workflows/tests.yml"
+    ],
+    "unit_tested": true
+  },
   "agents": {
     "directory": "components/agents",
     "paths": [

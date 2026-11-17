@@ -1,0 +1,11 @@
+version: v2
+modules:
+  - path: openshell
+    name: buf.build/openshift-online/hypershell-sandbox-resource-interceptor
+# The module is a verbatim, checksum-pinned copy of the upstream OpenShell
+# protos at OPENSHELL_TAG (see VENDOR_PIN and `make vendor-openshell-protos`),
+# so lint rules that assume this repository owns the file layout are disabled.
+lint:
+  use: []
+breaking:
+  use: []

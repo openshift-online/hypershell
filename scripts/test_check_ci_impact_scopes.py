@@ -48,9 +48,10 @@ class GlobSemanticsTest(unittest.TestCase):
 class ParseImpactScopesTest(unittest.TestCase):
     def test_parses_real_config(self):
         scopes, barriers = mod.parse_impact_scopes(mod.IMPACT_PATH.read_text(encoding="utf-8"))
-        # All 13 CICD-MRG-03 consumer scopes must be present.
+        # All CICD-MRG-03 consumer scopes must be present.
         expected = {
-            "api-server", "cli", "control-plane", "sdk-typescript", "sdk-go",
+            "api-server", "cli", "control-plane", "sandbox-resource-interceptor",
+            "sdk-typescript", "sdk-go",
             "web-console", "fleet-dashboard", "agents", "deployment",
             "test-infrastructure", "architecture-site", "documentation",
             "repository-tooling",

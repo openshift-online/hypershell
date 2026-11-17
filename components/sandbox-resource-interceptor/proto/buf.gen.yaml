@@ -1,0 +1,27 @@
+version: v2
+# Same pinned plugin versions as components/api-server/proto/buf.gen.yaml.
+# The upstream OpenShell protos carry no go_package option, so each vendored
+# file is mapped with an M flag onto this module's single generated package.
+plugins:
+  - remote: buf.build/protocolbuffers/go:v1.36.11
+    revision: 1
+    out: ../pkg/api/grpc
+    opt:
+      - paths=source_relative
+      - Mgateway_interceptor.proto=github.com/openshift-online/hypershell/components/sandbox-resource-interceptor/pkg/api/grpc
+      - Mextension.proto=github.com/openshift-online/hypershell/components/sandbox-resource-interceptor/pkg/api/grpc
+      - Mopenshell.proto=github.com/openshift-online/hypershell/components/sandbox-resource-interceptor/pkg/api/grpc
+      - Mdatamodel.proto=github.com/openshift-online/hypershell/components/sandbox-resource-interceptor/pkg/api/grpc
+      - Moptions.proto=github.com/openshift-online/hypershell/components/sandbox-resource-interceptor/pkg/api/grpc
+      - Msandbox.proto=github.com/openshift-online/hypershell/components/sandbox-resource-interceptor/pkg/api/grpc
+  - remote: buf.build/grpc/go:v1.6.2
+    revision: 1
+    out: ../pkg/api/grpc
+    opt:
+      - paths=source_relative
+      - Mgateway_interceptor.proto=github.com/openshift-online/hypershell/components/sandbox-resource-interceptor/pkg/api/grpc
+      - Mextension.proto=github.com/openshift-online/hypershell/components/sandbox-resource-interceptor/pkg/api/grpc
+      - Mopenshell.proto=github.com/openshift-online/hypershell/components/sandbox-resource-interceptor/pkg/api/grpc
+      - Mdatamodel.proto=github.com/openshift-online/hypershell/components/sandbox-resource-interceptor/pkg/api/grpc
+      - Moptions.proto=github.com/openshift-online/hypershell/components/sandbox-resource-interceptor/pkg/api/grpc
+      - Msandbox.proto=github.com/openshift-online/hypershell/components/sandbox-resource-interceptor/pkg/api/grpc
