@@ -12,6 +12,7 @@ import (
 	"github.com/openshift-online/hypershell/components/api-server/pkg/routes"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/audit"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/registry"
@@ -59,6 +60,9 @@ func ServiceFrom(s *environments.Services) Service {
 }
 
 func init() {
+	// Service accounts are sensitive, so record reads as well as writes (SEC-AUD-03).
+	audit.RecordReads("service_accounts")
+
 	registry.RegisterService("OpenShellGatewayServiceAccounts", func(env interface{}) interface{} {
 		return NewServiceLocator(env.(*environments.Env))
 	})

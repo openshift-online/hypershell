@@ -186,6 +186,16 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/command/-
         value: "--auth-bypass-methods=/grpc.health.v1.Health/,/grpc.reflection.v1alpha.ServerReflection/"
+      # Audit client IP (SEC-AUD-04): the api-server records the client of each
+      # request in its audit events. In Kind, requests arrive through the
+      # ingress/gateway and the web-console BFF, both pods on the cluster pod
+      # network, so trust X-Forwarded-For only from Kind's default pod CIDR
+      # (10.244.0.0/16). Without this flag source.ip is the proxy pod, not the
+      # client. Production clusters set their own pod CIDR through the GitOps
+      # overlay (hypershell-gitops), per cluster type (ROSA, ROKS).
+      - op: add
+        path: /spec/template/spec/containers/0/command/-
+        value: "--audit-trusted-proxies=10.244.0.0/16"
   # --- API server: select the development_oidc environment (JWT on) ---
   # The binary's default `development` environment force-disables JWT in its
   # OverrideConfig, which overrides the --enable-jwt=true flag above. The

@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/audit"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/authz"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/config"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db/db_session"
@@ -58,4 +59,10 @@ func (e *IntegrationTestingEnvImpl) Flags() map[string]string {
 // OverrideAuthorizer returns HyperShell's RBAC policy (pkg/rbac).
 func (e *IntegrationTestingEnvImpl) OverrideAuthorizer(env *pkgenv.Env) (authz.Authorizer, error) {
 	return rbac.ForEnvironment(env)
+}
+
+// OverrideAudit keeps audit events in memory so integration tests can assert on
+// them and test output stays clean (SEC-AUD-07).
+func (e *IntegrationTestingEnvImpl) OverrideAudit(*pkgenv.Env) (audit.Recorder, error) {
+	return audit.NewMemoryRecorder(), nil
 }

@@ -490,6 +490,22 @@ describe("web-console BFF", () => {
     });
   });
 
+  it("forwards the client address to the API server for audit (SEC-AUD-05)", async () => {
+    const response = await app.inject({
+      headers: { "x-forwarded-for": "203.0.113.9" },
+      method: "GET",
+      url: "/api/hypershell/v1/gateways",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(requests).toHaveLength(1);
+    // With trustProxy on, Fastify resolves request.ip to the client from the
+    // inbound chain; the BFF sends it as the single trusted X-Forwarded-For hop
+    // so the API server records the real client in source.ip. The inbound chain
+    // is not copied verbatim (x-forwarded-for is not a forwarded request header).
+    expect(requests[0]?.headers["x-forwarded-for"]).toBe("203.0.113.9");
+  });
+
   it("forwards one-time credential cache protections", async () => {
     const response = await app.inject({
       headers: { "content-type": "application/json" },
