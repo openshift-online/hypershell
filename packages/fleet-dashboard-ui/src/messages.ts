@@ -295,9 +295,9 @@ export const messages = defineMessages({
   },
   e2eAttemptCount: {
     id: "fleet.e2e.attemptCount",
-    defaultMessage: "{count, plural, one {# attempt} other {# attempts}}",
+    defaultMessage: "{count, plural, one {# run} other {# runs}}",
     description:
-      "Badge showing how many total attempts exist for a grouped revision row.",
+      "Badge showing how many total attempts exist for a grouped bundle row.",
   },
   e2eAttemptLatest: {
     id: "fleet.e2eAttemptLatest",
@@ -313,9 +313,9 @@ export const messages = defineMessages({
   },
   e2eAttemptNumber: {
     id: "fleet.e2e.attemptNumber",
-    defaultMessage: "Attempt {number}",
+    defaultMessage: "Run {number}",
     description:
-      "1-based chronological attempt label shown for older attempts in the recent-runs table.",
+      "1-based chronological run label shown inside an expanded bundle group.",
   },
   e2eAttemptOption: {
     id: "fleet.e2eAttemptOption",
@@ -335,7 +335,7 @@ export const messages = defineMessages({
   e2eAttemptsToggle: {
     id: "fleet.e2e.attemptsToggle",
     defaultMessage:
-      "{expanded, select, true {Hide earlier attempts} other {Show {count, plural, one {# earlier attempt} other {# earlier attempts}}}}",
+      "{expanded, select, true {Hide runs} other {Show {count, plural, one {# run} other {# runs}}}}",
     description:
       "Accessible label for the expand toggle on a grouped run row with multiple attempts.",
   },
