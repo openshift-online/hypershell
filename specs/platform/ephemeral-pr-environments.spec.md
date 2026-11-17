@@ -31,57 +31,28 @@
 
 ## Purpose
 
-HyperShell runs a standard ephemeral e2e cycle for every origin pull request
-whose e2e-relevant paths changed: it deploys the full stack, runs the OpenShift
-e2e suite against it, and destroys the environment in the same run, whether the
-suite passed or failed. This is the default, so a pull request cannot silently
-retain a shared-cluster environment -- most notably, a failed deploy or a failed
-e2e run does not leave an environment behind. An origin PR that changes only
-e2e-irrelevant paths SHALL NOT receive an environment: deploying would only
-recreate a baseline `main` stack, which is not a distinct target for the author
-or for Tests / E2E / OpenShift.
+This spec owns the automated OpenShift pull-request CI workflow for origin pull
+requests. For an e2e-relevant pull request it deploys the full stack into a
+per-PR ephemeral namespace group on a shared target cluster, waits for Konflux to
+build the pull request's images and swaps them in by digest, runs the OpenShift
+e2e suite against the live environment, and destroys the environment in the same
+run whether the suite passed or failed. A developer who needs a live debug target
+opts in with `/pr-extend`; `/pr-destroy` and closing or merging the pull request
+release a retained environment.
 
-A developer who needs the environment as a live debug or development target opts
-in with the `/pr-extend` slash command on the pull request. The deploy comment
-always advertises `/pr-extend` so the developer knows the environment is otherwise
-transient. Once a write-access collaborator issues `/pr-extend`, the pull request is
-marked retained for the rest of its life: `/pr-extend` (re)deploys the environment
-if none is up, every later commit redeploys and keeps it, and it lives up to the
-standard inactivity timebox so the out-of-band reaper reclaims it only after the
-pull request goes quiet. A write-access collaborator can free a retained
-environment earlier with `/pr-destroy`, which runs the same teardown as
-`make openshift-down`. Closing or merging the pull request also releases it.
-
-When an e2e-relevant pull request opens (or a later commit is pushed), CI deploys
-the full stack into a per-PR ephemeral namespace group on a shared target
-OpenShift cluster, waits for Konflux to build the pull request's component
-images, swaps those images into the environment, and posts a pull-request comment
-telling the developer how to log in and how to `/pr-extend`. Tests / E2E / OpenShift
-then runs the OpenShift e2e suite against the live namespace (the same
-`plan-images` / `should_run` gate Kind uses, which also gates Deploy PR
-environment, and concurrently with Unit, so the deploy does not wait on it).
-Unless the pull request is marked retained, CI then destroys the environment.
-The per-PR namespace is deterministic from the
-pull-request number, so a retained pull request reuses the same environment
-across commits rather than accumulating environments.
-
-This spec owns the automated OpenShift pull-request CI workflow. The
-per-namespace deployment, reconcile, image swap-by-digest, teardown, and
+The per-namespace deployment, reconcile, image swap-by-digest, teardown, and
 OpenShift e2e driver remain defined in `openshift-development.spec.md`; the
-infra-agnostic e2e suite, Kind CI, and Konflux
-image gating remain defined in `e2e-testing.spec.md`; E2E suppression on
-merge-queue events and Mergify queue pull requests is defined in
-`mergify-parallel-merge-queue.spec.md` (CICD-MRG-06). This spec adds the
-pull-request-scoped concerns those specs leave open: the deterministic per-PR
-namespace naming, the ephemeral-by-default deploy/test/destroy cycle, the
-`/pr-extend` and `/pr-destroy` slash-command controls and their authorization, the
-deploy-serialization rule, the origin-only trust boundary, the inactivity
-timebox and external reaping of retained environments, the per-commit
-pull-request comment, and a Keycloak authentication model that brokers to GitHub
-(restricted to the `openshift-online` organization plus an allowlist) instead of
-Red Hat SSO. GitHub brokering lets an allowlisted outside contributor log in to
-an already-deployed origin-repo environment; it does not deploy fork pull
-requests onto the shared cluster.
+infra-agnostic e2e suite, Kind CI, and Konflux image gating remain defined in
+`e2e-testing.spec.md`; E2E suppression on merge-queue events and Mergify queue
+pull requests is defined in `mergify-parallel-merge-queue.spec.md` (CICD-MRG-06).
+This spec adds the pull-request-scoped concerns those specs leave open: the
+deterministic per-PR namespace naming, the ephemeral-by-default
+deploy/test/destroy cycle, the `/pr-extend` and `/pr-destroy` slash-command
+controls and their authorization, the deploy-serialization rule, the origin-only
+trust boundary, the inactivity timebox and external reaping of retained
+environments, the per-commit pull-request comment, and a Keycloak authentication
+model that brokers to GitHub (restricted to the `openshift-online` organization
+plus an allowlist) instead of Red Hat SSO.
 
 ### Scope
 
@@ -133,8 +104,7 @@ environment without storing external state. The CI workflow SHALL set
 `hypershell-ci-pr-<pr-number>-keycloak`, following the namespace-group derivation
 in `openshift-development.spec.md`. The platform namespace name SHALL remain a
 valid RFC 1123 DNS label within the 54-character bound that keeps the derived
-`-keycloak` name under the 63-character limit; because pull-request numbers are
-short, the `hypershell-ci-pr-` prefix leaves ample room.
+`-keycloak` name under the 63-character limit.
 
 The workflow SHALL stamp both namespaces with the same ownership labels the
 OpenShift lifecycle driver uses, so the reaper and `make openshift-status` can
@@ -156,8 +126,7 @@ if labeling either namespace fails, the workflow SHALL fail the job and SHALL
 NOT continue. The local-dev "warn and continue" path in
 `openshift-development.spec.md` does not apply to this workflow. The workflow
 SHALL NOT derive the namespace from the branch name, the commit SHA, or the
-developer identity, because those are not stable across the life of one pull
-request.
+developer identity.
 
 #### Scenario: CICD-PREN-01.01 -- Namespace derives from the pull-request number
 

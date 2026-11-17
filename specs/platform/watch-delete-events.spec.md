@@ -2,8 +2,6 @@
 
 ## Purpose
 
-gRPC watch streams deliver resource events (create, update, delete) from the API server to the control plane. Today, delete events carry only the `resource_id` - the resource payload is nil. This forces the control plane to maintain in-memory caches (e.g., the gateway-to-namespace map) to perform cleanup. When the control plane restarts, these caches are lost and cleanup is silently skipped.
-
 This spec defines the behavior for including the full resource snapshot in delete watch events so that reconcilers always have the information they need to clean up, regardless of process restarts.
 
 This spec refines the durable-deletion guarantee of the control-plane reconciliation contract ([`../standards/control-plane/reconciliation-contract.spec.md`](../standards/control-plane/reconciliation-contract.spec.md), STD-RCON-07); it refines that contract and does not weaken it.
@@ -69,9 +67,7 @@ The GatewayReconciler SHALL read the namespace (and other fields) from `event.Re
 A Gateway delete event can arrive with no resource payload (`event.Resource` is
 nil). This is reachable in normal operation: the API server delivers
 nil-payload delete events to unscoped subscribers. The control plane SHALL NOT
-mark such a delete done by logging a warning and returning success, because the
-gateway's out-of-namespace resources (its database and Keycloak clients) would
-then be left behind with no recovery path and no operator-visible signal.
+mark such a delete done by logging a warning and returning success.
 
 On a nil-payload delete the control plane SHALL first re-read the deleting
 Gateway record with the unscoped query (CTRL-WDEL-02), which bypasses the

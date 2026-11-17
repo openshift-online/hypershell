@@ -14,11 +14,8 @@
              e2e, which do not use these standing cluster secrets;
              `../standards/security/security.spec.md` -- no secrets in logs
 
-Standing credentials the OpenShift pull-request workflow needs today would live as
-GitHub Actions repository or organization secrets. Those secrets do not rotate with
-the rest of the fleet, sit outside the cloud operator's store, and are a second
-long-lived copy of cluster and OAuth material. This spec moves that standing set into
-AWS Secrets Manager on `hysh-aws-01` and removes it from GitHub Actions.
+This spec moves the standing credentials the OpenShift pull-request workflow needs
+into AWS Secrets Manager on `hysh-aws-01` and removes them from GitHub Actions.
 
 ## Purpose
 

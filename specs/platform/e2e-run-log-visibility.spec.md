@@ -10,10 +10,7 @@ Make the release end-to-end test runs observable in the fleet dashboard (the
 "glass" dashboard, `glass.infra.hypershell.app`), both live while a run executes
 and as retained history after the run's Pod is gone. The release delivery path
 runs the current Go E2E suite (`tests/e2e`, `TestE2E`) as an Argo Rollouts
-AnalysisRun metric Job on each workload hub. Today the dashboard shows only the
-promotion gate's pass/fail outcome and deep links to Argo and the GitHub check; it
-cannot show which steps ran, where a run is now, why a run failed, or the streamed
-command output, and once the Job's Pod is reaped there is no retained detail at all.
+AnalysisRun metric Job on each workload hub.
 
 This specification adds an **E2E run view** reachable from the promotion gate /
 environment, backed by a new read-only BFF plane. Initial recent-run history is

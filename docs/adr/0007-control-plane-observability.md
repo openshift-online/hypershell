@@ -16,3 +16,8 @@ Rationale relocated from [`specs/platform/control-plane-observability.spec.md`](
 | Queue depth and wait use the shared reconcile queue | One bounded resource-kind label covers each shared reconcile queue without resource identifiers |
 | OTLP/gRPC on port 4317 for the control plane | Matches the API server's transport; the development Jaeger exposes 4317 for OTLP/gRPC |
 | Reconcile-trace to request-trace correlation via span links | Reconciliation is asynchronous; the correlation mechanism (span links, trace-context persistence) is defined in `platform/reconcile-trace-correlation.spec.md` |
+
+## Additional rationale
+
+- The API server already produces server spans for inbound HTTP and gRPC requests (HYPERSHELL-26); this specification makes the control plane produce spans for the asynchronous reconciliation work that follows, so an operator can observe reconcile latency and failures across the fleet.
+- `platform/reconcile-trace-correlation.spec.md` adds span links from the reconcile root span to the originating request trace, extending this specification and `platform/api-server-observability.spec.md`.

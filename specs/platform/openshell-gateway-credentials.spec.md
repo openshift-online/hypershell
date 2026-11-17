@@ -31,34 +31,14 @@ widen its own KV mount. The former default - a key-encryption-key (KEK) encrypte
 store - remains available as an explicit opt-in (`kek-db`), as does the Kubernetes Secrets
 driver (`kubernetes-secrets`).
 
-The control plane never holds a provider secret value and holds **no Vault admin**: it
-cannot write Vault policies, roles, auth config, or any mount outside the per-tenant
-`openshell-gw/*` prefix. Only the gateway's own process reads and writes KV secrets,
-authenticating to Vault with its ServiceAccount. The control plane acts **as the gateway's
-own identity** for the fail-closed reachability probe, and holds a **narrowly scoped**
-provisioner identity whose sole power is to create and delete a gateway's own per-tenant KV
-mount - never to read a secret or rewrite the isolation boundary (see the Provider
-Credential Isolation requirement).
-
-**Isolation is layered, and each layer is enforced where it can be.** Each gateway gets its
-**own** KV v2 mount at `openshell-gw/<namespace>`. The OpenShell gateway runtime stores every
-provider credential at the flat, hash-addressed suffix
-`data/openshell/provider-credentials/<hash>` under that mount, where `<hash>` is a SHA-256
-seeded by a random per-provider UUID (so it is unguessable), and it reaches a secret only by
-the opaque handle it already holds in its own database. A single **templated** policy scopes
-each gateway's token to its own namespace's mount, granting
-`create/read/update/delete` on that mount's `provider-credentials/` prefix with **no `list`**:
-a token for namespace A can resolve only `openshell-gw/A/...`, so a handle leaked from
-namespace B is unusable, and no gateway can enumerate or guess another's path. That per-tenant
-mount, on top of the per-cluster Vault boundary (each cluster runs its own Vault), is what
-isolates one gateway from another and one cluster from another. **Sandbox-to-sandbox**
-isolation within a single gateway is a
-different layer and is **not** a Vault-ACL concern: sandboxes never authenticate to Vault
-(only the gateway process does, as the single Vault client), so that boundary is enforced
-by the OpenShell gateway's own workspace authorization, which binds each credential's path
-to its owning workspace (the workspace is an input to the path hash) and rejects any
-resolve whose requesting workspace does not match the handle's path. See the Provider
-Credential Isolation requirement.
+The control plane never holds a provider secret value and holds **no Vault admin**: only
+the gateway's own process reads and writes KV secrets, authenticating to Vault with its
+ServiceAccount, and the control plane holds only a **narrowly scoped** provisioner identity
+whose sole power is to create and delete a gateway's own per-tenant KV mount. Isolation is
+layered - a per-tenant KV v2 mount at `openshell-gw/<namespace>` under a templated,
+no-`list` policy, on top of the per-cluster Vault boundary - and **sandbox-to-sandbox**
+isolation within a single gateway is enforced by the OpenShell gateway's own workspace
+authorization, not by Vault ACLs. See the Provider Credential Isolation requirement.
 
 HyperShell does not rotate the KEK or the database password. How each gateway secret
 is renewed today is recorded in [`openshell-gateway-secret-rotation.spec.md`](./openshell-gateway-secret-rotation.spec.md).

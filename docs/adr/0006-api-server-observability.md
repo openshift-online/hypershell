@@ -20,3 +20,7 @@ Rationale relocated from [`specs/platform/api-server-observability.spec.md`](../
 | Operation-and-table span names, parameterized statement as an attribute | Keeps span-name cardinality bounded like the HTTP route templates while still allowing per-trace query detail; bound values and secrets are excluded per API-OBS-06 |
 | Placeholder-and-continue when a log field is non-serializable, not drop the record | A single non-serializable field value (for example a `func(int64)`) must never blank the whole request/response record; the logger that masks the data needed to debug a failure is worse than the failure. A bounded placeholder keeps the rest of the record, so the root error (such as the failing SQL behind a `25P02`) stays visible |
 | API-OBS-11 delivered upstream (rh-trex-ai) plus a pin bump, not in-repo | Both defects (the swallowed `Count()` error and the `func(int64)` logger drop) are rh-trex-ai framework code this repository only consumes through its pinned dependency, so they cannot be fixed here; tracked by GitHub issue #895 |
+
+## Additional rationale
+
+- The logger strips request and response bodies (not only credential headers) because some API responses return one-time credentials in the body, and the framework only redacts credential headers.

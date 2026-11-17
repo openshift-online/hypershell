@@ -63,7 +63,7 @@ cert-manager SHALL be installed by applying the release manifest from `https://g
 
 The API server Deployment SHALL mount the `hypershell-db-app` Secret in the platform namespace and read connection parameters from its keys (`host`, `port`, `dbname`, `user`, `password`, `sslmode`). In Kind the Secret points at `postgres.external-cloud-db.svc.cluster.local` with `sslmode: disable` for the API server's own connection; the stand-in server also serves TLS with a throwaway CA, which only the gateway database path (below) verifies.
 
-The API server SHALL retry database connections on startup until the database becomes available, using exponential backoff. This eliminates hard ordering dependencies between the API server Deployment and the database server.
+The API server SHALL retry database connections on startup until the database becomes available, using exponential backoff.
 
 #### Gateway Database (Admin Credential Secret)
 
@@ -77,7 +77,7 @@ Keycloak SHALL be deployed into the Kind cluster by default. When the `KIND_KEYC
 
 `make kind-up` SHALL seed all resources needed for a functional local environment: a Gateway with OIDC configuration pointing at the local Keycloak instance. The ManagedCluster is NOT seeded: the Kind overlay runs the control plane with `HYPERSHELL_MANAGED_CLUSTER_NAME=local-kind`, and the control plane registers that record itself (`managed-cluster-registration.spec.md`). Seeding SHALL wait for the `local-kind` ManagedCluster to appear in `GET /managed_clusters` (the control plane registers within its startup backoff) and SHALL use its id for the Gateway; it SHALL NOT `POST /managed_clusters`, since a manually created record would make the control plane's registration a 409 conflict. The seeding step obtains a Bearer token from Keycloak using the admin user (not the control-plane service account), then creates each resource via the REST API. Seeding SHALL be reuse-or-create for the named seed resource (`dev-gateway`): when a resource with that name already exists, the command SHALL reuse its id and SHALL NOT create another. If any seed step fails, it SHALL warn and continue rather than abort, unless `SEED_STRICT=true`. This makes `kind-up` fully self-contained -- a developer gets a working gateway without any manual API calls after the initial setup.
 
-The local environment SHALL NOT deploy a PostgreSQL workload per gateway - the control plane reconciler provisions a dedicated database and role for each gateway on the stand-in server with in-process DDL, using the mounted `hypershell-gateway-database-admin` Secret (see `specs/platform/openshell-gateway-database.spec.md`). This ensures the local environment exercises the same database provisioning path used in production. The API server's database also lives on the stand-in server (see Stand-in PostgreSQL Server above).
+The local environment SHALL NOT deploy a PostgreSQL workload per gateway - the control plane reconciler provisions a dedicated database and role for each gateway on the stand-in server with in-process DDL, using the mounted `hypershell-gateway-database-admin` Secret (see `specs/platform/openshell-gateway-database.spec.md`). The API server's database also lives on the stand-in server (see Stand-in PostgreSQL Server above).
 
 TLS SHALL NOT be disabled. The gateway serves TLS using certificates issued by cert-manager (self-signed CA). The OIDC issuer uses HTTP because the local Keycloak instance runs in dev mode without TLS; the TLS requirement applies to the gateway's own serving certificate, not to the OIDC issuer endpoint. Authentication SHALL use OIDC only - mTLS client authentication is not supported.
 
@@ -170,11 +170,9 @@ cloud-provider-kind assigns ephemeral host ports for Gateway listeners. `make ki
 
 Both require `sudo`, which cloud-provider-kind already requires. When it sets up port forwarding, `make kind-up` SHALL flush any stale rules from a previous run before installing the current mapping (a stop-then-start sequence), so the forwarding always reflects the live proxy container's ephemeral port rather than a port pinned by an earlier run. If port forwarding setup fails, `kind-up` SHALL fall back to printing URLs with the ephemeral port suffix (e.g. `https://console.hypershell.localhost:51300`). `make kind-down` SHALL flush the forwarding rules. `make kind-status` SHALL report whether forwarding is active and show the target port.
 
-`make kind-up` acquires `sudo` once at the start and SHALL keep the `sudo` timestamp fresh for the whole run (refreshing it periodically in the background). Building images and waiting on rollouts can take several minutes before the pfctl/iptables and DNS resolver steps run; without a keepalive the default `sudo` timeout would expire first and those steps would fail silently. `KIND_NO_SUDO=true` skips all `sudo` operations and falls back to `kubectl port-forward`.
+`make kind-up` acquires `sudo` once at the start and SHALL keep the `sudo` timestamp fresh for the whole run (refreshing it periodically in the background). `KIND_NO_SUDO=true` skips all `sudo` operations and falls back to `kubectl port-forward`.
 
 The system SHALL also provide a standalone `make kind-fix-ports` target that re-establishes host port forwarding without a full `make kind-up`. This is the recovery path after cloud-provider-kind restarts (which republishes the gateway LoadBalancer on new ephemeral ports): `make kind-fix-ports` SHALL re-discover the current 443 and 8080 host ports from the proxy container (`kindccm-gw-*`) and re-run the same stop-then-start flush so the mappings track the live ports.
-
-This is a workaround until cloud-provider-kind supports publishing on specific host ports - once fixed upstream, the port forwarding functions can be removed.
 
 #### Component Service Routes (kind-up Managed)
 
@@ -364,7 +362,7 @@ The system SHALL provide a `make kind-up` target at the repository root that cre
 
 ### Requirement: DEV-LOC-02 -- Per-Component Local Swap
 
-The system SHALL provide per-component Make targets that build a single component from the current working tree, load it into the running cluster, and replace that component's deployment. Each invocation SHALL rebuild the image and replace the running state, even if the component is already swapped. This ensures developers can iterate by running the same target repeatedly after making changes.
+The system SHALL provide per-component Make targets that build a single component from the current working tree, load it into the running cluster, and replace that component's deployment. Each invocation SHALL rebuild the image and replace the running state, even if the component is already swapped.
 
 #### Scenario: DEV-LOC-02.01 -- Swap API Server
 - GIVEN a Kind cluster is running
@@ -665,9 +663,9 @@ The system SHALL pull baseline images from the container registry at `quay.io/re
 
 ### Requirement: DEV-LOC-14 -- Offline Development (LOCAL_IMAGES)
 
-The system SHALL support offline development by building all images from the local repository instead of pulling from the container registry. When `LOCAL_IMAGES=true` is set, `make kind-up` SHALL build every component image from the working tree (current branch), load them into the Kind cluster, and apply manifests with `localhost/` image refs so that pods start with local images on the first rollout. This ensures the deployed images match the scripts, manifests, and seed data on the current branch  -- and `kubectl describe pod` shows the actual local image name (e.g. `localhost/hypershell-controller:dev`) rather than a registry ref that could be mistaken for a remote pull. To build from `origin/main` instead (e.g. for baseline comparison), set `BUILD_SOURCE=baseline`.
+The system SHALL support offline development by building all images from the local repository instead of pulling from the container registry. When `LOCAL_IMAGES=true` is set, `make kind-up` SHALL build every component image from the working tree (current branch), load them into the Kind cluster, and apply manifests with `localhost/` image refs so that pods start with local images on the first rollout. To build from `origin/main` instead (e.g. for baseline comparison), set `BUILD_SOURCE=baseline`.
 
-Image ref substitution SHALL happen at manifest-apply time via a kustomize `images` transformer, not as a post-apply `kubectl set image` patch. This avoids a wasted rollout where pods first start with registry refs (potentially failing to pull) and then get killed and replaced with local refs. The kustomize transformer maps each registry image name to its `localhost/` equivalent before the manifests reach the API server.
+Image ref substitution SHALL happen at manifest-apply time via a kustomize `images` transformer, not as a post-apply `kubectl set image` patch. The kustomize transformer maps each registry image name to its `localhost/` equivalent before the manifests reach the API server.
 
 | Env Var | Default | Description |
 |---------|---------|-------------|

@@ -93,7 +93,7 @@ the api-server delivers only bindings whose gateway is assigned to that cluster,
 no global bindings (`managed-cluster-registration.spec.md`, "Watch Stream Caller
 Binding"). As defense in depth, the control plane SHALL additionally resolve each
 binding's gateway and verify it is assigned to its own `cluster_id` before touching
-Keycloak, since only that control plane owns the gateway's Keycloak client.
+Keycloak.
 
 After startup, the control plane SHALL call `/registration` on a regular interval
 (default: 60 seconds) to update `last_seen_at` on the hub. These subsequent calls are
@@ -518,8 +518,7 @@ be idempotent so repeated runs over unchanged repository state are side-effect f
   a SLOW periodic pass that enumerates every registered `Repository` and reconciles
   each one, to catch UPSTREAM changes that produce no `Repository` event (a commit to
   the watched branch does not emit a `Repository` event). This pass SHALL run at an
-  HOURLY cadence, NOT the former short fixed interval: the short interval re-fetched
-  the entire subtree every tick and exhausted the anonymous GitHub rate limit.
+  HOURLY cadence, NOT the former short fixed interval.
 
 The reconciler SHALL NOT clone the repository, SHALL NOT write any working
 directory or persistent disk (no PVC), SHALL NOT shell out to a `git`, `kustomize`,
@@ -535,10 +534,7 @@ commit SHA against the SHA recorded at the last successful import. When nothing
 changed, the reconciler SHALL skip the heavy git-tree and per-file reads and the
 re-render, and SHALL make no API write. Only when the conditional check reports a
 change (or no prior import state exists for that `Repository`) SHALL the reconciler
-perform the full read, render, and reconcile described below. This conditional fetch
-removes the rate-limit pressure even on the anonymous public read path, where the
-unauthenticated GitHub API allows only roughly 60 requests per hour, and it is what
-keeps the steady-state import from exhausting that limit.
+perform the full read, render, and reconcile described below.
 
 For each registered `Repository` the control plane SHALL:
 
@@ -1046,10 +1042,7 @@ The keepalive ping interval SHALL NOT be more aggressive than the API server's
 gRPC keepalive enforcement policy. A client that pings an idle connection more
 often than the server's minimum permitted interval is struck by the server and,
 after a few strikes, receives a GOAWAY (`ENHANCE_YOUR_CALM`, `too_many_pings`)
-that closes the shared connection and drops every watch stream. The connection
-layer is only the backstop for a dead or half-open connection; detecting a stream
-that stays open but goes silent is the idle watchdog's job, so the keepalive
-interval does not need to be short.
+that closes the shared connection and drops every watch stream.
 
 At the stream layer, each watch stream SHALL run under an idle watchdog. When a
 stream delivers neither an event nor an error for a configured maximum idle
@@ -1266,8 +1259,7 @@ convenience for environments whose api-server runs with gRPC TLS disabled (Kind,
 A TLS handshake failure (invalid or expired certificate, hostname mismatch) SHALL be treated
 like any other watch-stream connection failure: logged and retried with exponential backoff,
 not fatal. It is not fail-closed the way missing `managed-cluster-registrar` is (see
-`managed-cluster-registration.spec.md`), since a certificate renewal on the hub should not
-require an operator to restart the control plane.
+`managed-cluster-registration.spec.md`).
 
 #### Scenario: CTRL-CORE-09.01 -- In-cluster address dials plaintext
 

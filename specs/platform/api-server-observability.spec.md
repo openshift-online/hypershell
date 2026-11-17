@@ -6,7 +6,7 @@
 
 ## Purpose
 
-Give the HyperShell API server distributed tracing, request-level metrics, and trace-correlated logs through OpenTelemetry (OTel), so a single user workflow can be followed from the browser, through the web-console BFF, into the API server, and operators can observe request latency and error rates across the platform. This specification is the API-server counterpart to `web-console/tracing.spec.md` (HYPERSHELL-27): the browser and BFF already produce spans and propagate W3C Trace Context, and this specification makes the API server extract that context and join the same trace. Instrumentation is a cross-cutting concern applied once at the server layer, transparent to plugin authors: HTTP middleware and gRPC interceptors create spans and record metrics without per-handler changes.
+Give the HyperShell API server distributed tracing, request-level metrics, and trace-correlated logs through OpenTelemetry (OTel). This specification is the API-server counterpart to `web-console/tracing.spec.md` (HYPERSHELL-27): the browser and BFF already produce spans and propagate W3C Trace Context, and the API server extracts that context and joins the same trace. Instrumentation is applied once at the server layer (HTTP middleware and gRPC interceptors), transparent to plugin authors.
 
 This specification covers the API server component only. Control-plane observability and gateway-level telemetry are out of scope. Where `standards/security/security.spec.md` imposes a stricter rule on what may appear in telemetry, that rule governs.
 
@@ -67,7 +67,7 @@ Telemetry SHALL be opt-in by the presence of a collector endpoint. When `OTEL_EX
 
 The API server SHALL wrap its HTTP handler with OpenTelemetry middleware that creates one server span per inbound request and extracts inbound W3C Trace Context. The middleware SHALL be applied once at the server level so every route, including routes registered by plugins, is instrumented without per-plugin changes.
 
-The span name SHALL combine the request method and the templated route (for example `GET /api/hypershell/v1/gateways/{id}`) so Jaeger groups spans by endpoint. A single static span name SHALL NOT be used for every request, and a catch-all pattern SHALL NOT be the span name or the `http.route` value. The templated route SHALL collapse every resource identifier to a bounded placeholder and SHALL NOT carry a query string, so span-name cardinality stays fixed per `API-OBS-06`. Each span SHALL follow the OpenTelemetry semantic conventions for HTTP and SHALL record at least the request method, the matched route template, the request path, and the response status code.
+The span name SHALL combine the request method and the templated route (for example `GET /api/hypershell/v1/gateways/{id}`). A single static span name SHALL NOT be used for every request, and a catch-all pattern SHALL NOT be the span name or the `http.route` value. The templated route SHALL collapse every resource identifier to a bounded placeholder and SHALL NOT carry a query string, so span-name cardinality stays fixed per `API-OBS-06`. Each span SHALL follow the OpenTelemetry semantic conventions for HTTP and SHALL record at least the request method, the matched route template, the request path, and the response status code.
 
 **Verification:** Send representative requests to fixed and parameterized routes; confirm one server span each, named by method and templated route with resource identifiers collapsed to placeholders, carrying the HTTP semantic-convention attributes, and that plugin-registered routes are instrumented without plugin changes.
 
@@ -81,7 +81,7 @@ The span name SHALL combine the request method and the templated route (for exam
 
 ### Requirement: API-OBS-03 -- gRPC Server Spans
 
-The API server SHALL register OpenTelemetry gRPC server interceptors, both unary and streaming, that create a span for each inbound RPC and extract W3C Trace Context from inbound gRPC metadata. The interceptors SHALL be registered once at the server level so every gRPC service, including Watch streams registered by plugins, is instrumented without per-plugin changes. Trace-context extraction SHALL run before authentication so a propagated trace is joined regardless of the auth outcome.
+The API server SHALL register OpenTelemetry gRPC server interceptors, both unary and streaming, that create a span for each inbound RPC and extract W3C Trace Context from inbound gRPC metadata. The interceptors SHALL be registered once at the server level so every gRPC service, including Watch streams registered by plugins, is instrumented without per-plugin changes. Trace-context extraction SHALL run before authentication.
 
 Each span SHALL be named by the fully qualified RPC method and SHALL follow the OpenTelemetry semantic conventions for RPC, recording at least the RPC system, service, method, and gRPC status code. A streaming span SHALL cover the lifetime of the stream and SHALL record the final status when the stream closes.
 
@@ -192,7 +192,7 @@ When local development tracing is enabled (`KIND_JAEGER=true`), the API server D
 
 ### Requirement: API-OBS-08 -- Database Client Spans
 
-The API server SHALL instrument its database access layer so that every query issued while handling a request produces a client span nested under that request's server span, joining one trace from the HTTP or gRPC entry point down to the database. Like the HTTP and gRPC instrumentation, this SHALL be applied once as a cross-cutting concern, not per data-access object: the instrumentation SHALL be installed on the base database connection so every plugin's queries are traced without per-plugin changes. Because the request context already flows into each database session, a database span SHALL be a child of the active request span and SHALL inherit the parent-based sampling decision of `API-OBS-01`, so an unsampled request produces no database spans and a disabled SDK produces none.
+The API server SHALL instrument its database access layer so that every query issued while handling a request produces a client span nested under that request's server span, joining one trace from the HTTP or gRPC entry point down to the database. Like the HTTP and gRPC instrumentation, this SHALL be applied once as a cross-cutting concern, not per data-access object: the instrumentation SHALL be installed on the base database connection so every plugin's queries are traced without per-plugin changes. A database span SHALL be a child of the active request span and SHALL inherit the parent-based sampling decision of `API-OBS-01`.
 
 Database client spans SHALL follow the OpenTelemetry semantic conventions for database clients and SHALL record at least the database system and the target table. The span name SHALL be bounded by the operation, and SHALL NOT contain raw SQL text, a resource identifier, or any other high-cardinality value, per `API-OBS-06`. When a span records the statement, it SHALL record the parameterized statement only; bound parameter values SHALL NOT be captured, and no credential, secret, connection string, or personal data SHALL appear in any database span attribute, per `API-OBS-06` and `standards/security/security.spec.md`. Instrumentation SHALL be opt-in on the same collector-endpoint presence as the rest of the SDK, and one-off schema migrations MAY be left uninstrumented.
 
@@ -232,7 +232,7 @@ The `serve` command SHALL install one default logger before the framework initia
 1. Write every record at or above the configured level to standard error. A record logged with a context that carries a valid span SHALL include `trace_id` and `span_id` attributes, so a log line can be joined to its trace.
 2. When the OTel SDK is initialized and `OTEL_LOGS_EXPORTER` is not `none`, also export every record at or above the configured level over OTLP through the `LoggerProvider` of `API-OBS-01`. Exported records SHALL carry the trace and span identifiers of their context.
 3. Add the framework's request attributes (`opid`, `accountID`) to records on both outputs.
-4. Remove request headers, request bodies, response headers, and response bodies from the framework's HTTP request and response log records at every level, on both outputs, keeping the method, URL, status, and elapsed time. Some API responses return one-time credentials, and the framework only redacts credential headers.
+4. Remove request headers, request bodies, response headers, and response bodies from the framework's HTTP request and response log records at every level, on both outputs, keeping the method, URL, status, and elapsed time.
 
 Log records SHALL follow the same privacy rules as `API-OBS-06`. Exporter errors SHALL be written to standard error and SHALL NOT be fed back into the log exporter.
 

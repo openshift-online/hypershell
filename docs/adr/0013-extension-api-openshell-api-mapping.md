@@ -9,3 +9,7 @@ Rationale relocated from [`specs/platform/extension-api-openshell-api-mapping.sp
 | Mark unconfirmed OpenShell capability CONFIRM-AGAINST-UPSTREAM rather than invent it | Role-name equivalence and the wire protocol behind each CLI command cannot be confirmed from here; fabricating them would make the declarative assertion false. The GitHub `app-installation-token` gap is resolved to a control-plane rotator (a decision, not a fabricated OpenShell capability) rather than left open |
 | Resolve G-4 to a control-plane GitHub rotator; enumerate the residual G-5 | The GitHub minting that the installed OpenShell CLI cannot do is moved into a bounded control-plane rotator inside the declarative realization, not left as an open gap. The "fully declarative" claim stays credible because the one remaining imperative step (G-5) is named as a tracked follow-up |
 | `ProviderSpec` -> OpenShell provider profile; `ProviderBinding` -> OpenShell provider | Matches the reuse model: a shared profile/capability definition referenced by many per-workspace provider instances, mirroring `provider profile import` + per-workspace `provider create` |
+
+## Additional rationale
+
+- The control plane sends OpenShell only gateway-agnostic values plus durable material; it does not send HyperShell-internal identifiers or backend-specific field names because mapping those to the backend driver is OpenShell's own translation concern, not HyperShell's.

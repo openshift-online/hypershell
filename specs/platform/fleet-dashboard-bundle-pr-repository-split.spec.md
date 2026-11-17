@@ -13,13 +13,9 @@ deployed bundle: the application repository `openshift-online/hypershell` and th
 deployment (GitOps) repository `openshift-online/hypershell-gitops`.
 
 Today a bundle's "in this bundle" list is a single flat pull-request set derived
-from one compare window over the application repository. GitOps pull requests are
-absent even though they change configuration, deployment manifests, infrastructure,
-and operational behavior, and even when a GitOps change rolls out without changing
-the application bundle digest. Pull-request records carry no repository identity, so
-two pull requests that share a number in different repositories cannot be
-distinguished and the Fleet Map bundle-details list keys rows by pull-request number
-alone.
+from one compare window over the application repository: GitOps pull requests are
+absent, and pull-request records carry no repository identity, so two pull requests
+that share a number in different repositories cannot be distinguished.
 
 This spec defines the desired behavior: one card per application bundle digest, with
 two clearly named and repository-qualified pull-request groups inside the bundle

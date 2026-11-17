@@ -9,9 +9,8 @@ The `hsctl` CLI exposes the HyperShell API as scripting commands: `get`, `list`,
 these commands from the rh-trex-ai CLI generator. The Extension API kinds
 (`AgentRuntime`, `SandboxTemplate`, `ProviderSpec`, `ProviderBinding`,
 `InferenceRoute`, `SecretSource`, `Repository`), served under
-`/api/hypershell/ext/`, do not come from that generator: the generator targets a
-single API prefix and emits only the `v1` kinds, so the extension resource
-commands are hand-maintained. This specification defines which extension commands
+`/api/hypershell/ext/`, do not come from that generator and are hand-maintained
+instead. This specification defines which extension commands
 exist, how they are registered, and how the command set is kept free of drift
 against the API and the generated terminal UI descriptor.
 

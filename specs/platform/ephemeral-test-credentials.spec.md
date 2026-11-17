@@ -41,59 +41,29 @@ another cloud SHALL keep the same Kubernetes Secret contract and swap only the E
 ## Purpose
 
 The ephemeral per-PR OpenShift environments on `hysh-aws-01` are reachable on the
-public internet. Their Keycloak and API Routes are not behind a VPN. A realm login
-whose password equals its username (`admin`/`admin`, `developer`/`developer`,
-`platform-admin`/`platform-admin`) is therefore a live credential, not a local
-convenience: anyone who can hit the Route can authenticate as a test-tier principal
-and drive that environment.
+public internet, so a realm login whose password equals its username
+(`admin`/`admin`, `developer`/`developer`, `platform-admin`/`platform-admin`) is a
+live credential, not a local convenience.
 
-The shared realm import `deploy/base/keycloak/keycloak.yaml` carries no human
-realm users. That one base is consumed by the local Kind cluster, developer-owned
-OpenShift environments, the ephemeral per-PR OpenShift environments, and a
-persistent Keycloak shared by integration, staging, and production. Developer-owned
-environments reconcile the static seeds themselves so a human can run the e2e suite
-locally. CI-owned PR environments read non-guessable passwords from the durable
-cloud store instead.
+The shared realm import `deploy/base/keycloak/keycloak.yaml` carries no human realm
+users. It is consumed by the local Kind cluster, developer-owned OpenShift
+environments, the ephemeral per-PR OpenShift environments, and a persistent Keycloak
+shared by integration, staging, and production.
 
-These seeded realm users - the test-tier principals - exist so the e2e suite can
-authenticate, so a human can password-login as a test-tier principal, and so a
-GitHub-authenticated human on a CI-owned PR environment can self-service
-impersonate a lower-privilege tier. On those PR environments interactive access
-is GitHub-brokered or a username/password form against the seeded principals
-(see `ephemeral-pr-environments.spec.md`); impersonation remains available from
-an already-authenticated GitHub session without knowing a password. On a
-developer-owned environment a human MAY password-grant as `admin`/`admin` or
-`developer`/`developer` - that is how local e2e and manual OpenShift testing work.
-The password value has named consumers, split by who owns the environment. Seed on a
-CI-owned PR environment is the primary consumer of the durable cloud-store passwords:
-it reads Secret `hypershell-e2e-test-users` so the three Keycloak accounts exist with
-non-guessable passwords (needed for username-based impersonation and for a human
-password login). Password-grant e2e against a CI-owned PR environment is the
-secondary consumer of that same Secret. The canonical origin pull-request workflow
-is GitHub-brokered (`E2E_OIDC_GRANT=client_credentials` in
-`ephemeral-pr-environments.spec.md`) and SHALL NOT read these passwords. A developer
-running e2e locally - Kind or `make openshift-up` against OpenShift - authenticates
-with the well-known username-equals-password seeds.
+The three seeded realm users - the test-tier principals (`admin`, `developer`,
+`platform-admin`) - exist so the e2e suite can authenticate, so a human can
+password-login, and so a GitHub-authenticated human on a CI-owned PR environment can
+self-service impersonate a lower-privilege tier. Consumers split by who owns the
+environment: CI-owned PR environments read non-guessable passwords from the durable
+cloud store through ESO Secret `hypershell-e2e-test-users`, while developer-owned
+environments (Kind and local `make openshift-up`) reconcile static
+username-equals-password seeds. The canonical origin pull-request workflow is
+GitHub-brokered (`E2E_OIDC_GRANT=client_credentials` in
+`ephemeral-pr-environments.spec.md`) and SHALL NOT read these passwords.
 
-The desired state is that a CI-owned, internet-facing PR environment never presents a
-guessable human login, while any locally run test - Kind or OpenShift - keeps the
-same `admin`/`admin`, `developer`/`developer`, and `platform-admin`/`platform-admin`
-seeds a developer already uses. The shared realm base ships no static human passwords,
-so int/stage/prod and a freshly deployed CI PR environment are not born with them.
-Developer-owned bring-up (`make kind-up` and local `make openshift-up`) reconciles the
-static seeds itself. On CI-owned PR environments the cloud secret store holds and
-rotates high-entropy passwords for the three tiers; ESO keeps a stable Kubernetes
-Secret in each CI-owned Keycloak namespace (`hypershell-ci-pr-*-keycloak`), not in
-the PR app namespace that runs pull-request images; seed reconciles Keycloak to the
-Secret at bring-up; those Keycloak accounts remain until the environment is
-destroyed (in-run teardown, `/pr-destroy`, close, or reaper). E2e SHALL NOT
-de-seed them. `/pr-extend` and other automation against a live PR environment
-can keep using the same principals without waiting for another e2e run. Local
-e2e also does not de-seed. The password-login window on a public Route is
-therefore the environment's lifetime, not only while e2e is running.
-The Keycloak master-realm bootstrap admin
-(`KC_BOOTSTRAP_ADMIN_USERNAME` / `KC_BOOTSTRAP_ADMIN_PASSWORD`) is Keycloak's own
-console login and is explicitly out of scope.
+Seeded accounts persist for the environment's lifetime; e2e SHALL NOT de-seed them.
+The Keycloak master-realm bootstrap admin (`KC_BOOTSTRAP_ADMIN_USERNAME` /
+`KC_BOOTSTRAP_ADMIN_PASSWORD`) is Keycloak's own console login and is out of scope.
 
 ### Scope
 
@@ -379,7 +349,7 @@ created with the Secret's current password, and if the user already exists its
 password SHALL be reset to match. Seeding SHALL NOT use a password equal to the
 username on a CI-owned PR environment. Because the cloud store - not the seed step -
 controls when the value changes, two seeds run before the next rotation SHALL
-converge on the same password; this is expected, not a bug.
+converge on the same password.
 
 Developer-owned OpenShift bring-up SHALL NOT wait on this Secret and SHALL NOT read
 it; it SHALL seed the static username-equals-password values instead (see
@@ -571,8 +541,7 @@ static test credentials, and local flows that authenticate as
 require ESO, AWS Secrets Manager, or Secret `hypershell-e2e-test-users`.
 
 A developer-owned OpenShift namespace on a shared cluster MAY still be reachable on
-the public internet. That exposure is accepted for developer-owned environments so
-manual OpenShift e2e keeps the same seeds as Kind. Developer-owned environments
+the public internet. That exposure is accepted for developer-owned environments. Developer-owned environments
 SHALL NOT use environment identifier `pr-*` or namespace `hypershell-ci-pr-*`;
 those names are CI-owned only. The guessable-login acceptance therefore cannot
 apply to a CI-owned PR environment. CI-owned PR environments SHALL NOT use these
@@ -683,9 +652,7 @@ The three test-tier principals this spec seeds - `admin`, `developer`, and
 `ephemeral-pr-environments.spec.md` uses for testing a lower privilege tier from a
 GitHub-brokered session. Any GitHub-authenticated user in a per-PR or dev environment,
 not only a designated admin, SHALL be able to self-service impersonate `developer`
-and `platform-admin` through Keycloak token exchange, so they can exercise that
-tier's HyperShell API permission boundary without a second interactive account or a
-password. They SHALL NOT be able to impersonate another GitHub-brokered user
+and `platform-admin` through Keycloak token exchange. They SHALL NOT be able to impersonate another GitHub-brokered user
 through token exchange, and they SHALL NOT need to impersonate `admin` (their
 own session already carries that tier). Interactive admin-console
 impersonation, and the rest of the authorization model for who may impersonate

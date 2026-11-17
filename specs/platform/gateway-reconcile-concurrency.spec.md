@@ -7,21 +7,9 @@
 ## Purpose
 
 Give operators a supported way to tune how many *distinct* gateways the control
-plane provisions concurrently, without changing code. Today the gateway reconcile
-queue drains through a fixed pool of worker goroutines whose size is a hardcoded
-constant (`gatewayReconcileWorkers = 4` in
-`components/control-plane/internal/watcher/requeue.go`), overridable only by a
-test-only option. When more gateways than the worker count are created in a short
-window, the surplus waits in the queue until a worker frees, so provisioning wait
-time grows with burst size - the behavior users reported for a burst of six
-gateways.
-
-This specification makes the worker-pool size deployment configuration, separate
-from code, with a bounded default and validated input, so the concurrency cap can
-be raised (or lowered) per environment. It preserves the two invariants the pool
-exists to guarantee: work for a single gateway is never run by two workers at once
-(per-gateway serialization), and cross-gateway parallelism stays bounded by the
-configured cap (the pool is a throttle, never unbounded fan-out).
+plane provisions concurrently, without changing code: make the gateway reconcile
+worker-pool size deployment configuration, with a bounded default and validated
+input, so the concurrency cap can be raised or lowered per environment.
 
 This specification covers the control plane component only. It does not change the
 API server, the gRPC contract, the data model, or the per-gateway provisioning

@@ -11,28 +11,22 @@
 
 Every control plane is a registered spoke of exactly one hub (see
 `control-plane.spec.md`, "Requirement: Mandatory Cluster Identity"). Spokes run on
-remote clusters -- other clouds and other Kubernetes distributions than their hub --
-and must reach the hub API server's gRPC endpoint over the public internet to open
-`WatchGateways` and the other watch streams. Today that endpoint is reachable only
-in-cluster, through the `hypershell-api-server` Service on port `9000`, the listener
-is plaintext, and the watch RPCs are exempt from JWT validation.
-
-This spec defines what a hub SHALL expose so that any control plane, remote or
-co-located with the hub, dials one TLS endpoint at one public hostname, and what the
-hub SHALL enforce before that endpoint is exposed.
+remote clusters and must reach the hub API server's gRPC endpoint over the public
+internet to open `WatchGateways` and the other watch streams. This spec defines what
+a hub SHALL expose so that any control plane, remote or co-located with the hub, dials
+one TLS endpoint at one public hostname, and what the hub SHALL enforce before that
+endpoint is exposed.
 
 The rh-trex-ai framework terminates TLS on the gRPC listener when
 `--grpc-enable-tls`, `--grpc-tls-cert-file` and `--grpc-tls-key-file` are set, without
-the shared `--enable-tls` (openshift-online/rh-trex-ai#54). The shared flag stays off
-because it also serves the REST listener over HTTPS. HyperShell uses the framework's
-`serve` command unchanged.
-The framework runs **one** gRPC listener (`--grpc-server-bindaddress`); with TLS on,
-that listener is TLS-only. There is no plaintext gRPC port on a TLS-enabled hub, so
-the hub's own co-located control plane dials the same external hostname a remote
-spoke does. Environments that leave TLS off (`make openshift-up` development
-namespaces, and Kind by default) keep dialing the in-cluster Service in plaintext; the
-control plane selects the transport from the address it is given
-(`control-plane.spec.md`, "Requirement: gRPC Transport Security").
+the shared `--enable-tls` (openshift-online/rh-trex-ai#54). HyperShell uses the
+framework's `serve` command unchanged. The framework runs **one** gRPC listener
+(`--grpc-server-bindaddress`); with TLS on, that listener is TLS-only, so the hub's own
+co-located control plane dials the same external hostname a remote spoke does.
+Environments that leave TLS off (`make openshift-up` development namespaces, and Kind
+by default) keep dialing the in-cluster Service in plaintext; the control plane selects
+the transport from the address it is given (`control-plane.spec.md`, "Requirement:
+gRPC Transport Security").
 
 ---
 
@@ -99,9 +93,7 @@ Each hub SHALL expose an OpenShift `Route` on host `grpc.hyp{N}.infra.hypershell
 targeting the `hypershell-api-server` Service's `grpc` port (`targetPort: grpc`,
 container port `9000`), with `spec.tls.termination: passthrough`. Passthrough
 preserves end-to-end TLS: the router forwards the raw TLS bytestream to the
-api-server pod, which terminates TLS itself (per the requirement above). The router
-never sees plaintext gRPC traffic and does not need to speak HTTP/2 to a
-re-encrypted backend.
+api-server pod, which terminates TLS itself (per the requirement above).
 
 #### Scenario: CTRL-TLS-02.01 -- Route forwards without terminating TLS
 

@@ -11,11 +11,7 @@
 
 ## Purpose
 
-This specification defines OpenShellGatewayServiceAccounts for non-interactive access to an OpenShell gateway. Each OpenShellGatewayServiceAccount uses OAuth 2.0 Client Credentials.
-
-A user selects a gateway, an OpenShell role, and an expiration time. HyperShell returns a Keycloak client ID and a new client secret. It returns the client secret only once. Automation exchanges these client credentials for short-lived JWT access tokens.
-
-HyperShell derives the gateway audience. It also limits the selected role to the creator's current gateway role. Callers cannot set audiences, claims, or access-token lifetimes.
+This specification defines OpenShellGatewayServiceAccounts: non-interactive identities for one OpenShell gateway that authenticate via OAuth 2.0 Client Credentials. A user selects a gateway, an OpenShell role, and an expiration; HyperShell returns a Keycloak client ID and a one-time client secret that automation exchanges for short-lived JWT access tokens. HyperShell derives the gateway audience and caps the selected role at the creator's current gateway role; callers cannot set audiences, claims, or access-token lifetimes.
 
 Version 1 does not support WIF, signed client assertions, opaque access tokens, personal access tokens, or multi-gateway client credentials. It also excludes configurable OpenShell scopes and automatic workspace-membership management.
 

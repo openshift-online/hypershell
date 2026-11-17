@@ -24,3 +24,10 @@ Rationale relocated from [`specs/platform/managed-cluster-registration.spec.md`]
 | No active health probing from the hub | Control planes call in; the hub does not need to reach out. Avoids hub-to-spoke credential management and works across network topologies where the hub cannot initiate connections to spokes. |
 | Role assigned by admin in production, pre-assigned in dev realms | The `managed-cluster-registrar` role is a privilege gate. A Keycloak admin must explicitly grant it before a production control plane can self-register, providing a human control point for fleet membership. Development realms are code-owned, so the grant ships with them. |
 | JWT-direct enforcement, not DB-synced | `managed-cluster-registrar` is not in `JWTSyncedRoles` because it should never be auto-assigned (unlike `gateway:creator`) and does not need a DB binding lifecycle. A live JWT claim check in `isAuthorized` is sufficient and avoids polluting the sync table with a role that applies to a narrow class of service accounts. |
+
+## Additional rationale
+
+- A control plane must determine its own `cluster_id` at runtime without a human pre-registering it and distributing the resulting KSUID out-of-band; self-registration via the OIDC `client_credentials` identity removes that manual step.
+- The registration heartbeat gives the hub passive fleet-health and current placement data with no additional infrastructure.
+- Name-collision registration never silently takes over a record (PLAT-CLUS-02): gateways may already reference its id, and a takeover would move them to a different control plane without anyone deciding so.
+- Record writes are restricted (PLAT-CLUS-03) for concrete reasons: a placeholder created with a control plane's name makes its registration a permanent 409, a rename makes its next registration a 409 as well, and a delete detaches every gateway on the cluster until the control plane registers again.

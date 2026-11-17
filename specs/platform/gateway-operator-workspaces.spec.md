@@ -13,24 +13,15 @@
 
 ## Purpose
 
-A Gateway normally provisions its OpenShell workspaces in the mode HyperShell
-assigns (`managed` by default, see OSG-CORE-18). Some integrations - the first
-being OpenClaw Enterprise (OCE) - require a trusted external operator to own
-workspace namespaces, identities, storage, and policies. OpenShell models this as
-the Kubernetes driver's `operator` workspace mode.
-
-This spec defines a narrow, authorized, per-gateway opt-in to `operator` workspace
-mode, so that an OCE-compatible gateway and an ordinary gateway can be created
-through the same supported API/CLI and run side by side on one supported cluster,
-each with independent effective settings. It reuses the existing stored
-`workspace_mode` field, its validation, and its immutability (OSG-CORE-18); it does
-not add a general provisioning-profile service, an arbitrary Helm-values API, or a
-plugin framework.
-
-The opt-in replaces the prior workaround of patching the HyperShell API server and
-controller Deployments to set deployment-wide operator defaults before creating an
-OCE gateway. Deployment-wide defaults are no longer required for a gateway-specific
-selection.
+This spec defines a narrow, authorized, per-gateway opt-in to the OpenShell
+Kubernetes driver's `operator` workspace mode (OSG-CORE-18), in which a trusted
+external operator - the first being OpenClaw Enterprise (OCE) - owns the gateway's
+workspace namespaces, identities, storage, and policies. An operator gateway and an
+ordinary gateway can be created through the same supported API/CLI and run side by
+side on one supported cluster, each with independent effective settings. It reuses
+the existing stored `workspace_mode` field, its validation, and its immutability
+(OSG-CORE-18); it does not add a general provisioning-profile service, an arbitrary
+Helm-values API, or a plugin framework.
 
 ## Domain Vocabulary
 
@@ -65,10 +56,9 @@ request field and no second stored mode.
 `workspace_mode` remains platform-managed with one narrow exception
 ([`data-model.spec.md`](./data-model.spec.md), PLAT-DATA-23): at create, a caller
 MAY set it, and the ONLY caller-settable value SHALL be `operator`. Any other
-caller-supplied value (`shared` or `managed`) SHALL be rejected naming the field,
-because the opt-in surface is operator mode only; the default for a create that
-does not set the field SHALL remain `managed` (OSG-CORE-18 is unchanged for that
-path). Selecting `operator` SHALL require the platform-wide
+caller-supplied value (`shared` or `managed`) SHALL be rejected naming the field;
+the default for a create that does not set the field SHALL remain `managed`
+(OSG-CORE-18 is unchanged for that path). Selecting `operator` SHALL require the platform-wide
 `gateway:operator-workspace-creator` entitlement (`platform:admin` also qualifies),
 enforced at the create boundaries per
 [`../security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md)
@@ -78,9 +68,7 @@ and re-create.
 
 The declarative `.hypershell` GitOps import SHALL NOT select `operator` mode: an
 Import-kind create that sets `workspace_mode` SHALL be rejected by the service
-funnel, because the entitlement is granted per user and an import is authored by a
-Repository rather than a user who can hold it (consistent with PLAT-DATA-26 for
-`dedicated_route`). A privileged control-plane internal write retains full access
+funnel (consistent with PLAT-DATA-26 for `dedicated_route`). A privileged control-plane internal write retains full access
 to the field.
 
 #### Scenario: OSG-OPWS-01.01 -- Entitled caller selects operator mode at create
@@ -190,8 +178,7 @@ persisted beyond the stored `workspace_mode`).
 
 The supported deployment defaults SHALL remain for compatibility: a control plane
 configured with a deployment-wide default workspace mode or sandbox runtime
-continues to honor it for gateways that do not carry a per-gateway selection, so an
-existing deployment keeps working without change.
+continues to honor it for gateways that do not carry a per-gateway selection.
 
 #### Scenario: OSG-OPWS-03.01 -- Operator and ordinary gateways coexist with independent settings
 
@@ -271,8 +258,7 @@ transport security or certificate verification.
 ### Requirement: OSG-OPWS-06 -- Child Workspace Namespaces Are Reclaimed on Gateway Deletion
 
 When an operator gateway is deleted, the control plane SHALL best-effort delete the
-gateway's tenant workspace namespaces, so that removing the gateway from the
-platform does not leave its child namespaces behind. The namespaces are identified
+gateway's tenant workspace namespaces. The namespaces are identified
 by the administrator-approved namespace label key set to the value derived from the
 deleted gateway's namespace (OSG-OPWS-02), mirroring the managed-mode cleanup that
 reaps `openshell-{gateway_id}-{workspace}` namespaces by the

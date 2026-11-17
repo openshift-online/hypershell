@@ -6,18 +6,10 @@
 ## Purpose
 
 This spec defines how the HyperShell control plane derives, maintains, and
-surfaces the number of active agent sandboxes running against a Gateway. The
-count is published on the Gateway as the read-only `active_sandbox_count` field
-so operators can see how many running sessions a gateway is serving (for example,
-in the main gateways table and in the delete-confirmation dialog) before they act
-on it.
-
-The count is maintained **event-driven** from a control-plane watch on sandbox
-pods, rather than by repeatedly LISTing every pod in every gateway namespace. It
-increments as sandbox pods become active and decrements as they leave active or
-are deleted, and it self-heals by periodically reconciling the stored value to
-the truth held in the control plane's in-memory watch cache. This gives an
-accurate count without a costly, repeated full-namespace poll of Kubernetes.
+surfaces the number of active agent sandboxes running against a Gateway, published
+on the Gateway as the read-only `active_sandbox_count` field. The count is
+maintained event-driven from a control-plane watch on sandbox pods and self-heals
+by periodically reconciling to the control plane's in-memory watch cache.
 
 This spec is a sub-spec of [`control-plane.spec.md`](./control-plane.spec.md).
 It owns the `active_sandbox_count` mechanism. The
@@ -65,7 +57,7 @@ per-workspace namespaces (`openshell-{gateway_id}-{workspace}`, see
 Workspace Mode") rather than the Gateway's own namespace. A sandbox pod in such a
 namespace SHALL be attributed to the Gateway whose API-assigned namespace
 supplies the `gateway_id` (`openshell-{id-suffix}`), for both event-driven
-deltas and the periodic self-heal, so the count is mode-independent.
+deltas and the periodic self-heal.
 
 #### Scenario: OSG-SBX-01.01 -- Sandbox pod becomes active
 
@@ -126,8 +118,7 @@ The control plane SHALL periodically reconcile each Gateway's stored
 `active_sandbox_count` to the number of active sandbox pods observed for that
 gateway in its in-memory watch cache, correcting drift caused by missed events or
 a control-plane restart. This reconciliation SHALL read the watch cache rather
-than poll the Kubernetes API. Because it sets the count to an observed absolute
-value, it SHALL be the mechanism that recovers an accurate count after a restart,
+than poll the Kubernetes API. It SHALL recover an accurate count after a restart,
 without requiring any intervening sandbox create or delete.
 
 #### Scenario: OSG-SBX-03.01 -- Count converges after a control-plane restart
@@ -164,8 +155,7 @@ gRPC path. A client SHALL NOT be able to set or alter the count.
 ### Requirement: OSG-SBX-05 -- Console Surfaces the Count in the Gateways Table
 
 The web console SHALL display `active_sandbox_count` as a column in the main
-gateways table, adjacent to the gateway name, so an operator can see the active
-sandbox load of every gateway at a glance. The value SHALL be presented as an
+gateways table, adjacent to the gateway name. The value SHALL be presented as an
 advisory recent count. When the count is not available for a gateway (unset), the
 console SHALL render a localized not-available fallback rather than a misleading
 zero or a blank cell.
@@ -191,7 +181,6 @@ observation and MAY lag real time; consumers SHALL treat it as an advisory recen
 count, not a real-time guarantee. The count SHALL NOT gate any backend decision,
 including gateway deletion or namespace deletion (see
 [`openshell-gateway-namespace-gc.spec.md`](./openshell-gateway-namespace-gc.spec.md)).
-It surfaces load to operators; it never blocks an action.
 
 #### Scenario: OSG-SBX-06.01 -- Count never blocks deletion
 

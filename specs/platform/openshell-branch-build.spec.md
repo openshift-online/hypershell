@@ -2,18 +2,16 @@
 
 ## Purpose
 
-HyperShell deploys and manages OpenShell gateways, but its local development and
-test workflows always run against a pinned, published OpenShell release. This
-spec defines a workflow that lets a developer stand up a Kind environment with an
+This spec defines a workflow that lets a developer stand up a Kind environment with an
 additional gateway built from an arbitrary OpenShell branch or pull request, so new
-OpenShell changes can be validated end-to-end inside HyperShell before they are
-released. A single entry point, `make kind-openshell-up`, checks out the
+OpenShell changes can be validated end-to-end inside HyperShell before release.
+A single entry point, `make kind-openshell-up`, checks out the
 requested OpenShell source, builds gateway and supervisor images from it, loads
 them into the Kind cluster, and provisions a distinctly named gateway
 (`openshell-dev-gateway`) that runs those images. This gateway coexists with the
 standard `dev-gateway` created by `make kind-up`.
 
-This feature is a local-development and testing capability. It reuses the
+This feature reuses the
 existing Kind environment ([`local-development.spec.md`](./local-development.spec.md))
 and gateway provisioning flow ([`openshell-gateway.spec.md`](./openshell-gateway.spec.md)).
 It also adds two Gateway schema fields (`dev_build`, `dev_build_metadata`). Those
@@ -54,8 +52,7 @@ SHALL NOT require code changes to select a different branch, PR, or repository:
   use `OPENSHELL_BRANCH` with the PR's head branch name or fetch from the
   canonical upstream.
 - `OPENSHELL_REPO` - the OpenShell repository URL, defaulting to
-  `https://github.com/NVIDIA/OpenShell.git`, so that forks and alternate
-  sources can be targeted.
+  `https://github.com/NVIDIA/OpenShell.git`.
 
 The target SHALL require at least one source ref. When both `OPENSHELL_BRANCH`
 and `OPENSHELL_PR` are set, `OPENSHELL_BRANCH` SHALL take precedence and
@@ -138,8 +135,7 @@ use the published community image (`ghcr.io/nvidia/openshell-community/sandboxes
 since it is maintained in a separate repository (NVIDIA/OpenShell-Community) not
 covered by this checkout. Determinism-by-commit-SHA (see Deterministic Source
 Checkout) applies to the gateway and supervisor images, which this workflow
-builds; the sandbox base is intentionally exempt and floats on `:latest`
-because it is out of scope of this checkout and has its own release cadence.
+builds; the sandbox base is intentionally exempt and floats on `:latest`.
 
 Each branch-built image SHALL be tagged with a dev tag that encodes the full
 40-character resolved commit SHA (e.g.,

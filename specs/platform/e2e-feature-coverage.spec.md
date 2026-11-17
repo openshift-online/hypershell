@@ -13,13 +13,12 @@
 
 ## Purpose
 
-Four platform features are implemented and shipped but carry no (or only
-indirect) end-to-end coverage in the Go functional suite (`E2ESuite`,
-`tests/e2e/`) or the browser suite (`tests/e2e/e2e-console.sh`): sharing a
-gateway between users through the `role_bindings` API, Kata-runtime sandboxes,
-automated alerting / incident signal, and parity between the CLI commands the web
-console renders and the commands the e2e suite actually executes. This
-specification defines the e2e coverage that closes those gaps.
+This specification defines the end-to-end coverage for four shipped platform
+features that carry no (or only indirect) coverage in the Go functional suite
+(`E2ESuite`, `tests/e2e/`) or the browser suite (`tests/e2e/e2e-console.sh`):
+sharing a gateway between users through the `role_bindings` API, Kata-runtime
+sandboxes, automated alerting / incident signal, and parity between the CLI
+commands the web console renders and the commands the e2e suite executes.
 
 The e2e suite is a Go `testify/suite` (`E2ESuite`,
 `tests/e2e/suite.go`). Work is organized into **named phase steps** with dotted

@@ -6,11 +6,7 @@
 
 ## Purpose
 
-When an operator investigates a reconcile failure, they need to trace the causal chain: which user action triggered the change that the control plane is now reconciling? Today the control plane produces reconcile spans (OBS-CPL-02) and the API server produces request spans (API-OBS-02/03), but the two traces are disconnected because reconciliation is temporally decoupled from the user request. The API server writes desired state to PostgreSQL and returns; the control plane observes the change later via a gRPC watch stream, possibly after resync, batching, or retries.
-
-A synchronous parent-child span relationship is therefore incorrect: it would produce a child span that starts long after its parent ended, or one request span with many reconcile children from resyncs. The correct OpenTelemetry model is a **span link** ("caused by"): the reconcile span keeps its own root trace (independently sampled per OBS-CPL-02) and carries a link to the originating request trace, so a support engineer can navigate from the reconcile trace to the request trace in Jaeger.
-
-This specification defines how the originating trace context flows from the API server request, through the database, over the gRPC watch stream, into the control plane reconcile span as a link. It extends `platform/api-server-observability.spec.md` (HYPERSHELL-26) and `platform/control-plane-observability.spec.md` (HYPERSHELL-79).
+This specification defines how the originating W3C Trace Context flows from the API server request, through the database, over the gRPC watch stream, and into the control plane reconcile span as a **span link** ("caused by"), so a support engineer can navigate from a reconcile trace to the originating request trace in Jaeger. The reconcile span keeps its own root trace (independently sampled per OBS-CPL-02) and carries a link to the originating request trace rather than a synchronous parent-child relationship, because reconciliation is temporally decoupled from the user request (the API server writes desired state to PostgreSQL and returns; the control plane observes the change later via a gRPC watch stream). It extends `platform/api-server-observability.spec.md` (HYPERSHELL-26) and `platform/control-plane-observability.spec.md` (HYPERSHELL-79).
 
 ## Requirements
 

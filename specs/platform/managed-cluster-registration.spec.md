@@ -9,11 +9,9 @@
 
 ## Purpose
 
-Every control plane must determine its own `cluster_id` at runtime without requiring a human to pre-register it and distribute the resulting KSUID out-of-band. The `/registration` sub-resource within the `managedClusters` plugin enables a control plane to register itself using its OIDC `client_credentials` identity and receive a stable `cluster_id` in return. This applies to every control plane, including the one co-located with the hub API server: there is no unregistered mode (`control-plane.spec.md`, "Requirement: Mandatory Cluster Identity").
+The `/registration` sub-resource within the `managedClusters` plugin enables a control plane to register itself using its OIDC `client_credentials` identity and receive a stable `cluster_id` in return. This applies to every control plane, including the one co-located with the hub API server: there is no unregistered mode (`control-plane.spec.md`, "Requirement: Mandatory Cluster Identity").
 
-The same endpoint serves as a health ping and capability reconciliation point. The control plane calls it on a loop; registration calls after the first atomically replace the self-declared capability set and update `last_seen_at`, giving the hub passive fleet-health and current placement data with no additional infrastructure.
-
-Because every control plane is identified, the API server can enforce cluster scoping on the gRPC watch streams instead of trusting the `cluster_id` a caller asks for. That binding is specified here too.
+The same endpoint serves as a health ping and capability reconciliation point: the control plane calls it on a loop, and registration calls after the first atomically replace the self-declared capability set and update `last_seen_at`. Because every control plane is identified, the API server enforces cluster scoping on the gRPC watch streams instead of trusting the `cluster_id` a caller asks for; that binding is specified here too.
 
 ---
 
@@ -172,8 +170,6 @@ The upsert SHALL use database-level locking to handle concurrent first-time requ
 
 A registration whose `name` matches an existing `ManagedCluster` record with a different `oidc_subject`, or with an empty `oidc_subject` (a record created through `POST /managed_clusters`), SHALL return 409 Conflict and SHALL NOT create, adopt, or modify any record. The conflict message SHALL name the existing record's id and state that an operator must delete it (and re-point any gateways that reference it) before this control plane can register under that name.
 
-This is deliberate: registration never silently takes over a record, because gateways may already reference its id and a takeover would move them to a different control plane without anyone deciding so.
-
 #### Scenario: PLAT-CLUS-02.01 -- Name held by a manually created record
 
 - GIVEN a `ManagedCluster` named `local-openshift` created via `POST /managed_clusters` (empty `oidc_subject`)
@@ -198,8 +194,6 @@ This is deliberate: registration never silently takes over a record, because gat
 ### Requirement: PLAT-CLUS-03 -- Record Writes and Deregistration
 
 Creating, updating, and deleting `ManagedCluster` records (`POST`, `PATCH`, and `DELETE` on `/managed_clusters`, and `CreateManagedCluster`, `UpdateManagedCluster`, `DeleteManagedCluster` on gRPC) SHALL require `platform:admin`, with one exception: a registered control plane MAY delete the record whose `oidc_subject` is its own JWT `sub` (self-deregistration). `gateway:creator`, a gateway binding, and the `RBAC_SERVICE_ACCOUNTS` allowlist SHALL NOT authorize any record write. Reads (`GET` on the collection and by id, `List`/`Get`/`Watch` on gRPC) remain available to `gateway:creator` and `platform:admin`, which gateway placement and the dashboard inventory need.
-
-The reasons are concrete. A placeholder created with a control plane's name makes that control plane's registration a permanent 409. A rename makes its next registration a 409 as well. A delete detaches every gateway on the cluster until the control plane registers again.
 
 Deleting the record of a running control plane is undone by its next registration (at most one heartbeat interval later), which restores the same record. To decommission a control plane, stop it or revoke its OIDC client first, then delete the record. `bin/teardown-cluster` in hypershell-gitops follows that order and deregisters each spoke with the spoke's own client.
 

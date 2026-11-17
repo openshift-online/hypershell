@@ -8,17 +8,15 @@
 
 ## Purpose
 
-A declarative `.hypershell` agent fleet is imported on the hub before any Gateway
-exists, yet an agent's credentials are consumed on whichever `ManagedCluster` its
-Gateway is later placed on. The destination is therefore unknown at the moment a
-`SecretSource` is declared. This spec defines the late-binding reference model that
-removes that ordering constraint, and it fixes the materialization target of that
-model.
+This spec defines the late-binding reference model for agent credentials and fixes
+its materialization target. A declarative `.hypershell` agent fleet is imported on the
+hub before any Gateway exists, yet an agent's credentials are consumed on whichever
+`ManagedCluster` its Gateway is later placed on, so the destination is unknown when a
+`SecretSource` is declared.
 
 HyperShell SHALL realize an agent's credentials as OpenShell **Providers** carrying a
 **refresh strategy**. The control plane SHALL NOT render a raw Kubernetes `Secret` for
-the credential. A raw `Secret` is inert, so whoever renders it must rotate it; an
-OpenShell Provider is live. Given the durable **material** (the GitHub App PEM, the
+the credential. Given the durable **material** (the GitHub App PEM, the
 Vertex service-account key, the gateway identity), rotation ownership depends on the
 refresh strategy:
 
@@ -43,9 +41,8 @@ API (the operations the `openshell` CLI drives;
 Late binding is preserved: a `SecretSource` is declared by name as a value-less
 reference at import time, the durable material is supplied later directly into the
 assigned cluster's local Vault, and the agent realizes its providers the moment the
-material appears. The model is distributed and eventually correct: the material never
-touches the hub, no component reads a global runtime store, and every runtime read is
-cluster-local.
+material appears. The material never touches the hub, no component reads a global
+runtime store, and every runtime read is cluster-local.
 
 This spec also governs the agent-secret Vault plane (the convention-addressed,
 per-cluster store holding `secret/data/hypershell/secret-sources/*`), which is a
@@ -196,8 +193,7 @@ all: the reference is declared value-less, and the material is uploaded later di
 into the assigned cluster's local Vault by the per-cluster writer. The api-server
 write-then-record path (path 1) carries material only when it is legitimately
 submitted at the hub - the `Repository` import credential or the co-located
-single-cluster deployment - which is why "material never touches the hub" holds for
-distributed `AgentRuntime` credentials.
+single-cluster deployment.
 
 Material MAY be supplied through the write-then-record path either at create time (the
 submission flow above) or POST-HOC against an already-created reference-only

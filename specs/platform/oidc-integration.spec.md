@@ -10,8 +10,6 @@
 
 Define how OIDC authentication integrates across the HyperShell platform: API server JWT validation, web console BFF session management, and deployment-specific wiring. Gateway-level OIDC is fully specified in `openshell-gateway-oidc.spec.md`; this specification covers the remaining components.
 
-Today, the API server has no production-ready JWT configuration spec, the web console BFF has no OIDC implementation (WEB-AUTH-01 through WEB-AUTH-03 are defined but unbuilt), and local development cannot exercise end-to-end authentication. This specification closes those gaps.
-
 ---
 
 ## Architecture

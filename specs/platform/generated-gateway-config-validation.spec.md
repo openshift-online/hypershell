@@ -18,7 +18,7 @@ the gateway configuration it builds and turns into Helm values. The chart render
 each control-plane-managed section from those values, so a value that is wrong
 or missing before rollout is a section that is wrong or missing after it.
 
-A defect that reaches the workload is costly. The ConfigMap's content hash is
+The ConfigMap's content hash is
 stamped onto the Deployment pod template, so a bad configuration also rolls the
 workload. This spec defines a validation gate on the generated configuration,
 applied before the control plane installs or upgrades the gateway's Helm release.

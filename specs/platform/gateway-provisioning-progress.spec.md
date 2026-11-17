@@ -6,9 +6,7 @@
 
 ## Purpose
 
-When a user creates a gateway, the UI currently shows a generic loading state with
-no indication of what the platform is doing or how far along provisioning has
-progressed. This spec defines a **provisioning progress model** that decomposes
+This spec defines a **provisioning progress model** that decomposes
 gateway provisioning into a small set of user-meaningful steps, each with an
 observable completion or failure signal, so the UI can render a step-by-step
 progress view (stepper, flow chart, or equivalent) instead of an opaque spinner.

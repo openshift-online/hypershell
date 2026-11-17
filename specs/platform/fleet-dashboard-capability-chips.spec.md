@@ -14,11 +14,10 @@ The standalone Fleet dashboard
 (`@openshift-online/hypershell-fleet-dashboard-ui`, the separate operational
 dashboard, not the web-console built-in view) draws every cluster on its
 promotion-topology map as an SVG card and, when a node is selected, in a details
-drawer. Today a card shows only the cloud **provider** and the **hub/spoke role**
-as two pills, and the drawer never lists what else the cluster is. Clusters
-self-declare a richer set of **capability labels** at registration
-(`namespace/value` strings, see `PLAT-CLUS-06`), but none of them reach either
-surface.
+drawer. A card shows the cloud **provider** and the **hub/spoke role** as two
+pills. Clusters self-declare a richer set of **capability labels** at
+registration (`namespace/value` strings, see `PLAT-CLUS-06`), but none of them
+reach either surface.
 
 This specification makes the following behavior contracts:
 

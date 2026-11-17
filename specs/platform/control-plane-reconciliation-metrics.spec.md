@@ -194,7 +194,7 @@ to keep cardinality bounded. Duration with reason can be correlated through
 traces (OBS-CPL-02).
 
 A `noop` observation SHALL still record the time spent evaluating the no-op
-decision so operators can detect slow no-op paths.
+decision.
 
 ### Requirement: OBS-CRM-09 -- Reconciliation Outcome Counter
 

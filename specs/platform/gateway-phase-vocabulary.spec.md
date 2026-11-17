@@ -16,9 +16,7 @@ truth rather than duplicating string literals.
 The *behavioral* semantics of each phase (when a gateway becomes `Running`, when
 it degrades, how health is continuously reconciled) are defined in
 [`openshell-gateway-health.spec.md`](./openshell-gateway-health.spec.md). This
-spec is a companion that standardizes the **representation** of that vocabulary
-so the phase a client reads means the same thing in every component and cannot
-silently drift.
+spec is a companion that standardizes the **representation** of that vocabulary.
 
 ## Domain Vocabulary
 
@@ -101,8 +99,8 @@ caller that does not set it is unaffected.
 ### Requirement: GTW-PHS-03 -- Phase Metric Covers the Full Canonical Set
 
 The API server's per-phase gateway gauge and the BFF metrics proxy SHALL
-pre-seed and report every canonical phase on every scrape/response, so graphs
-never omit a phase. The set of phases the metric reports SHALL be derived from
+pre-seed and report every canonical phase on every scrape/response. The set of
+phases the metric reports SHALL be derived from
 the shared vocabulary rather than an independent hardcoded list, defaulting absent
 phases to zero.
 
@@ -131,8 +129,7 @@ the fully-healthy case, rather than duplicating string literals.
 
 The web console SHALL recognize the canonical phase set as its source of truth
 for classifying a gateway as recoverable (keep polling), healthy, or terminally
-failed, so its polling and ready-to-connect decisions stay consistent with the
-phases the control plane actually emits. The console SHALL derive gateway
+failed. The console SHALL derive gateway
 polling, metrics, and display-status classification from the same canonical
 phase set as the Go package, via `gatewayCanonicalPhases` /
 `gatewayCanonicalPhaseStrings` in `gateway-management-ui`. The console MAY

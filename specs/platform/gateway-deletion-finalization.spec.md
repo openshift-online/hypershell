@@ -9,9 +9,8 @@ This spec defines the authoritative, cross-cutting contract for **complete
 deletion and finalization of a Gateway**: how the platform reclaims every
 resource a Gateway owns, how deletion behaves safely across transient API and
 gRPC disconnections, and when a Gateway is considered fully finalized. It is an
-umbrella spec that unifies the deletion behavior already specified per resource
-class and closes the gaps between those specs so that no owned resource is
-orphaned silently.
+umbrella spec that unifies the per-resource-class deletion behavior and closes
+the gaps so no owned resource is orphaned silently.
 
 HyperShell does not model Gateway deletion with a Kubernetes finalizer or a
 `deletionTimestamp`. A Gateway is deleted by soft-deleting its Postgres row and
@@ -118,8 +117,7 @@ resource classes is:
 
 The enumeration SHALL be authoritative and SHALL NOT depend on the namespace
 delete cascade reaching a resource. Every out-of-namespace resource class SHALL
-be reconciled explicitly on the delete-event path, because the namespace cascade
-cannot reach it.
+be reconciled explicitly on the delete-event path.
 
 A Vault-backed gateway's provider secrets are reclaimed by deleting the gateway's
 **per-tenant KV mount**. Each gateway has its own KV v2 mount (`openshell-gw/<namespace>`)

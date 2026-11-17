@@ -11,3 +11,11 @@ Rationale relocated from [`specs/platform/gateway-operator-workspaces.spec.md`](
 | Resolve operator effective settings per reconcile, not a persisted snapshot | Re-resolving from administrator configuration each reconcile keeps behavior predictable across config changes and restarts without a new persisted column or migration, consistent with how `GATEWAY_SANDBOX_RUNTIME_CLASS` is already applied at reconcile time. |
 | Validate prerequisites and never silently downgrade | Operator mode that silently fell back to `managed`/`shared` or a different runtime would hand a caller a weaker configuration than requested without telling them. Failing with an actionable condition refines the existing OSG-CORE-18.09 no-fallback rule. |
 | Reap tenant workspace namespaces on delete by the gateway-derived label | The gateway's own namespace cascade cannot reach operator tenant namespaces, so they are an out-of-namespace owned class, reclaimed best-effort by the gateway-scoping label value the same way managed-mode per-workspace namespaces are reaped by `openshell.ai/gateway-id` (OSG-CORE-18.07). |
+
+## Additional rationale
+
+- Normally a Gateway provisions its OpenShell workspaces in the mode HyperShell assigns (`managed` by default, OSG-CORE-18); operator mode is the opt-in path for integrations that need a trusted external operator (first OCE) to own the workspaces.
+- The opt-in replaces the prior workaround of patching the HyperShell API server and controller Deployments to set deployment-wide operator defaults before creating an OCE gateway. Deployment-wide defaults are no longer required for a gateway-specific selection.
+- `shared` and `managed` are rejected as caller-supplied create values because the opt-in surface is operator mode only.
+- A `.hypershell` GitOps import may not select operator mode because the entitlement is granted per user and an import is authored by a Repository rather than a user who can hold it.
+- The supported deployment-wide default workspace mode / sandbox runtime is retained so an existing deployment keeps working without change.
