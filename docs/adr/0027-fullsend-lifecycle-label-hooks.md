@@ -14,3 +14,7 @@ Rationale relocated from [`specs/standards/sdlc/fullsend-lifecycle-label-hooks.s
 | Retry counts come from the issue timeline | The number of prior rejections is authoritative evidence on GitHub, not a value the agent can assert, so the block decision cannot be gamed by the result. |
 | Behavior lives under `.fullsend/`, not the local dispatcher | Keeping scripts, schemas, and configuration under `.fullsend/` lets the same harnesses run identically in local and cloud Fullsend execution, with no dependency on a workstation or a local database. |
 | One writer for phase labels | Routing intake and reconciliation label writes through the same contract, or removing that responsibility, prevents competing writers from leaving conflicting phase labels. |
+
+## Additional rationale
+
+- Transitions are moved out of prose instructions because a model applying labels from prose must remember every required step and its order: an agent can finish its task and leave a label update incomplete, a sequence of separate API calls can fail partway through a transition, and conflicting labels can prevent a trigger from matching or leave the next phase unclear.

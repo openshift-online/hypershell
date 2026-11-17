@@ -18,3 +18,8 @@ Rationale relocated from [`specs/standards/sdlc/jira-github-sync.spec.md`](../..
 | No agent applies `agent/allowed` | Authorization is a human decision. An agent that stamped the gate onto a record it created would authorize its own work and defeat the gate, so intake leaves created records un-authorized until a human grants it. |
 | Scope and authorization are separate labels | `agent/scope/*` answers "is this item in this run's set"; `agent/allowed` answers "may the funnel act on it". Conflating them would force authorizing everything in a scope or scoping only authorized work. Keeping them orthogonal lets a human stage work into scope and authorize it independently. |
 | A Closed execution record projects Done independently of merge detection | GitHub is authoritative for the record's open/closed state. Keying Done only on a detectable merged pull request stranded records that were closed by hand or whose merge referenced a different issue. Treating the Closed state as a second, independent terminal trigger removes that gap while leaving the merge-based close-and-project behavior unchanged. |
+
+## Additional rationale
+
+- Motivation (relocated from the spec Purpose): without this sync the two systems drift - a human must hand-copy GitHub progress into Jira for a manager to see status and give credit. The bidirectional reconciler exists so a manager sees progress and credits the human owner without ever editing Jira by hand.
+- A scope run reconciles every in-scope execution record, so a GitHub-origin record receives the same status projection, artifact remote links, attributed narrative, and terminal closure as a Jira-origin record.

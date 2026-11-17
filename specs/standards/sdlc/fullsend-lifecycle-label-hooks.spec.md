@@ -12,29 +12,21 @@
 ## Purpose
 
 The agent SDLC funnel moves a GitHub execution record through phases with a
-label state machine. When a model applies those labels from prose instructions,
-it must remember every required label step and its order. An agent can finish
-its task and leave a label update incomplete, a sequence of separate API calls
-can fail partway through a transition, and conflicting labels can prevent a
-trigger from matching or leave the next phase unclear.
+label state machine. Lifecycle label transitions SHALL live in shared,
+deterministic scripts that native Fullsend harness hooks invoke, not in model
+instructions. An agent SHALL perform its assigned work and return a structured
+result only. Fullsend SHALL validate that result. A trusted post-script SHALL then
+apply the permitted label changes and verify the final state. The behavior SHALL
+live under `.fullsend/` so the same harnesses run identically in local and cloud
+Fullsend execution.
 
-Lifecycle label transitions therefore live in shared, deterministic scripts that
-native Fullsend harness hooks invoke, not in model instructions.
-An agent SHALL perform its assigned work and return a structured result only.
-Fullsend SHALL validate that result. A trusted post-script SHALL then apply the
-permitted label changes and verify the final state. The behavior SHALL live under
-`.fullsend/` so the same harnesses run identically in local and cloud Fullsend
-execution.
-
-This is a cross-cutting process standard. It constrains the `.fullsend/`
-harnesses, agents, schemas, and scripts and defines the behavior they SHALL
-implement. It is a desired-state contract, independent of when any given harness
-or agent change lands. It complements SDLC-JIRA: SDLC-JIRA owns the Jira-and-
-GitHub synchronization, the `agent/allowed` authorization gate, the
-`agent/execution-record` canonical-link marker, and the phase-to-status mapping;
-this specification owns HOW the GitHub phase labels those depend on are applied -
-by shared scripts through harness hooks, from a validated result, never by free-
-hand agent action.
+This is a cross-cutting, desired-state process standard constraining the
+`.fullsend/` harnesses, agents, schemas, and scripts. It complements SDLC-JIRA:
+SDLC-JIRA owns the Jira-and-GitHub synchronization, the `agent/allowed`
+authorization gate, the `agent/execution-record` canonical-link marker, and the
+phase-to-status mapping; this specification owns HOW the GitHub phase labels those
+depend on are applied - by shared scripts through harness hooks, from a validated
+result, never by free-hand agent action.
 
 ---
 

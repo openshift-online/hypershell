@@ -13,9 +13,8 @@ did what, to which resource, when, and with what result" for every mutating requ
 every refused request, and every failed login, on both the REST and the gRPC
 interfaces.
 
-The trail is produced by the TRex framework audit capture (upstream spec SEC-004) so
-that every plugin is covered by one cross-cutting mechanism and no plugin has to write
-an audit line by hand. This specification defines the HyperShell-specific decisions
+The trail is produced by the TRex framework audit capture (upstream spec SEC-004).
+This specification defines the HyperShell-specific decisions
 that make the captured events useful: which sensitive read kinds opt in, how the real
 client address is resolved behind the router and the web console BFF, how audit lines
 are routed and retained, and how integration tests observe audit events.

@@ -10,3 +10,7 @@ Rationale relocated from [`specs/standards/control-plane/reconciliation-contract
 | `generation` / `observed_generation` latch, not a resource-version token | Convergence is a monotonic range check the API server enforces on write-back, which both detects drift and rejects stale or reordered updates without a separate optimistic-concurrency token (STD-RCON-06, PLAT-DATA-06). |
 | Single replica; leader election out of scope | The in-process queue already serializes per key within one process, and the deployment runs one replica. Cross-replica exclusion is a separate HA decision, kept an explicit non-goal so no reconciler is written to assume a leader lease (STD-RCON-11, GTW-CONC). |
 | Record known exceptions | Recording each deviation, such as the Repository-import exception, keeps a divergence a recorded decision rather than a surprise found later in review (STD-RCON-12). |
+
+## Additional rationale
+
+- Before this contract, the reconciliation guarantees were correct but scattered across six specs, so a new reconciler author had no single place to learn the required behavior; collecting them here gives one coherent bar to meet.

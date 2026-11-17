@@ -176,9 +176,6 @@ The API server middleware SHALL extract roles from the JWT `realm_access.roles` 
 (or an equivalent configurable claim path) and lazily create or update the corresponding
 RoleBinding records in the database on each authenticated request.
 
-This ensures that Keycloak role changes take effect on the next API request without
-requiring a separate sync process.
-
 #### Scenario: SEC-RBAC-01.01 -- Keycloak admin assigns gateway:creator
 
 - GIVEN a Keycloak admin assigns the `gateway:creator` realm role to user A
@@ -233,10 +230,6 @@ lock on it, on a request whose claims already match what is stored. A JWT that o
 profile claim (for example, a service-account token with no `email` or `name`) SHALL
 leave the corresponding stored field unchanged; auto-provisioning SHALL NEVER overwrite
 a stored non-empty profile field with an empty or absent claim.
-
-This conditional-write behavior keeps a caller's own row from being locked on every
-request the caller makes -- including the control plane's gRPC write-backs -- so a slow
-downstream call inside one request cannot stall that caller's other concurrent requests.
 
 When a request DOES need to write a changed profile field, it SHALL serialize that write
 through one shared advisory lock rather than relying on the row lock's acquisition order.
@@ -761,13 +754,10 @@ OSG-OPWS-01). The create-boundary entitlement checks themselves are defined in
 "Requirement: Gateway Dedicated Route Creator Role" (SEC-RBAC-20) and "Requirement:
 Gateway Operator Workspace Creator Role" (SEC-RBAC-28).
 
-Enforcing the policy in the service funnel - not per handler - closes the
-whole-row-replace gap whereby a gRPC `UpdateGateway` could set more than a REST
-`PATCH`, and closes the import loophole whereby a GitOps manifest could declare
-platform-managed fields the direct user API forbids. This field policy is an
-ownership boundary on who authored the value, not an access grant, so it does not
-depend on the request-level role-enforcement mode; a caller that
-needs to author platform-managed fields SHALL do so as the control-plane identity.
+This field policy is an ownership boundary on who authored the value, not an
+access grant, so it does not depend on the request-level role-enforcement mode; a
+caller that needs to author platform-managed fields SHALL do so as the
+control-plane identity.
 
 #### Scenario: SEC-RBAC-18.01 -- User gRPC UpdateGateway of a locked field is denied
 

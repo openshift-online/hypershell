@@ -11,28 +11,22 @@
 
 The agent-based SDLC funnel runs on GitHub: branches, specification files, pull
 requests, and a label-driven state machine carry a work item from intent to
-merged code. Managers track that same work in Jira. Today the two systems drift:
-a human must hand-copy GitHub progress into Jira for a manager to see status and
-give credit.
+merged code. Managers track that same work in Jira.
 
-This specification makes GitHub-side SDLC activity and Jira stay continuously in
-sync. Either a GitHub issue or a Jira epic or story SHALL be able to start the
-funnel, and intake SHALL be fully bidirectional: a Jira-first work item gets a
-GitHub execution record created for it, and a GitHub-first work item gets a Jira
-epic created for it, so both origins converge on the same canonically linked
-pair. In every case the GitHub issue is the execution record and drives all SDLC
-phases. GitHub is the execution substrate: it owns branches, specs, pull
-requests, and the label state machine. Jira is the management view: it owns
-intent, priority, assignment, and the epic hierarchy. A bidirectional reconciler
-keeps the two converged under a per-field authority rule, so a manager sees
-progress and credits the human owner without ever editing Jira by hand.
+This specification keeps GitHub-side SDLC activity and Jira continuously in sync.
+Either a GitHub issue or a Jira epic or story SHALL be able to start the funnel,
+and intake SHALL be fully bidirectional: a Jira-first work item gets a GitHub
+execution record created for it, and a GitHub-first work item gets a Jira epic
+created for it, so both origins converge on the same canonically linked pair. In
+every case the GitHub issue is the execution record and drives all SDLC phases.
+GitHub is the execution substrate: it owns branches, specs, pull requests, and
+the label state machine. Jira is the management view: it owns intent, priority,
+assignment, and the epic hierarchy. A bidirectional reconciler keeps the two
+converged under a per-field authority rule.
 
-The reconciler converges records of EITHER origin. A scope run reconciles every
-in-scope execution record, so a GitHub-origin record receives the same status
-projection, artifact remote links, attributed narrative, and terminal closure as
-a Jira-origin record. Resolution of the counterpart across systems is by the
-canonical link ALONE - the `agent/execution-record` marker label plus the exact
-Jira key - never by a descriptive mention of some other ticket's key in a body.
+Resolution of the counterpart across systems is by the canonical link ALONE -
+the `agent/execution-record` marker label plus the exact Jira key - never by a
+descriptive mention of some other ticket's key in a body.
 
 This is a cross-cutting process standard. It constrains the SDLC skills under
 `.hypershell/` and defines the behavior those skills SHALL implement. It is a

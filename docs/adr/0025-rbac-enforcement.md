@@ -23,3 +23,9 @@ Rationale relocated from [`specs/security/rbac-enforcement.spec.md`](../../specs
 | 404 on unauthorized singleton GETs | Returning 403 confirms the resource exists. 404 prevents ID enumeration. |
 | OpenShell role bridge | `gateway:owner` maps to `openshell-admin`, `gateway:viewer` maps to `openshell-user`. Ensures consistent access via CLI. |
 | OpenShellGatewayServiceAccount role limit | A gateway binding limits the selected OpenShell role. Owners can select `openshell-user` or `openshell-admin`. Viewers can select only `openshell-user`. Each OpenShellGatewayServiceAccount remains bound to its creator. A binding change can downgrade or revoke it. |
+
+## Additional rationale
+
+- JWT roles are synced lazily on each request so Keycloak role changes take effect on the next API request without a separate sync process.
+- Auto-provisioning writes a caller's profile row only when a claim actually changed so the caller's own row is not locked on every request (including the control plane's gRPC write-backs), keeping a slow downstream call in one request from stalling that caller's other concurrent requests.
+- The gateway field write policy is enforced in the service funnel rather than per handler to close the whole-row-replace gap (a gRPC `UpdateGateway` could set more than a REST `PATCH`) and the import loophole (a GitOps manifest could declare platform-managed fields the direct user API forbids).

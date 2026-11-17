@@ -7,9 +7,7 @@
 ## Purpose
 
 This spec is the single, normative behavior contract for every reconciler the
-HyperShell control plane runs. Today the reconciliation guarantees are correct
-but scattered across six specs, so a new reconciler author has no one place to
-learn the required behavior. This contract collects those guarantees as one
+HyperShell control plane runs. It collects the reconciliation guarantees as one
 coherent set, states each against the system **as actually built**, and is the
 bar that new or materially changed reconciliation work must meet.
 

@@ -5,7 +5,7 @@
 
 ## Purpose
 
-Use PatternFly 6 as HyperShell's default implementation system and maintain one canonical implementation for each reusable interface concept. PatternFly accelerates consistent Red Hat product design; it does not replace the other UI standards or establish accessibility and usability compliance by itself.
+Use PatternFly 6 as HyperShell's default implementation system and maintain one canonical implementation for each reusable interface concept. PatternFly does not replace the other UI standards or establish accessibility and usability compliance by itself.
 
 ## Requirements
 
