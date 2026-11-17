@@ -94,7 +94,7 @@ Assigning a role to a newly selected user SHALL use a modal containing a **radio
 
 Changing an existing grant's role SHALL use the inline role control in that row (WEB-ACC-02), offering the same role set the caller may assign. Selecting a different role SHALL change the user's access (GTW-ACC-05). The change SHALL reflect in the row on success.
 
-When the caller changes **their own** role (the row's user is the signed-in user), the console SHALL require a confirmation modal before applying the change, warning that it alters the caller's own access, because self-demotion is easy to do by accident. Changing another user's role SHALL NOT require this confirmation. Self-recognition is a client-side convenience (the host supplies the caller's identity); the server remains authoritative for the change itself.
+When the caller changes **their own** role (the row's user is the signed-in user), the console SHALL require a confirmation modal before applying the change, warning that it alters the caller's own access. Changing another user's role SHALL NOT require this confirmation. Self-recognition is a client-side convenience (the host supplies the caller's identity); the server remains authoritative for the change itself.
 
 Role submissions SHALL disable their confirm/select control while in flight and SHALL surface a localized error (keeping the user's selection) on failure.
 

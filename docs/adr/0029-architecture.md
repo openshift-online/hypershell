@@ -21,3 +21,7 @@ Rationale relocated from [`specs/web-console/architecture.spec.md`](../../specs/
 | No SSR, RSC, service worker, or offline mutation queue initially | The authenticated console has no current SEO/offline requirement that justifies their operational and security complexity                                                                                                                 |
 | TypeScript 6 before TypeScript 7                                 | Uses the stable tool API supported across lint, build, test, and generated-code tooling; upgrade follows ecosystem readiness                                                                                                              |
 | React Compiler linting before compiler rollout                   | Finds incompatible patterns while allowing profiling and framework/design-system compatibility to establish value                                                                                                                         |
+
+## Additional rationale
+
+- The identity menu shows both the web console and API server build versions (WEB-ARCH-02) so an operator can identify the exact deployed builds without shell or cluster access.
