@@ -79,11 +79,13 @@ The console SHALL remove the raw cluster name column. It SHALL keep the **Versio
 
 The **Sandboxes** column SHALL use each Gateway's `active_sandbox_count`. The definition SHALL be an active agent-sandbox pod in a Running or Pending phase. Terminated pods SHALL NOT count. Orphaned sandboxes (active sandbox resources in namespaces with no live Gateway) SHALL NOT be included in the count.
 
+The **Created by** column SHALL be visible only to authenticated users with the `platform:admin` role. It SHALL display the creator's username and use the localized not-available fallback when `created_by` is absent. The gateway details page SHALL continue to show **Created by** to all users who can access that gateway. Generic gateway-list search SHALL match the creator username for platform admins.
+
 Column widths SHALL be rebalanced so long values do not crowd out short values. The console SHALL keep pagination at the top and add a bottom pagination control for long lists.
 
 #### Scenario: WEB-GLIS-02.01 -- Table uses the approved column order
 
-- GIVEN the gateway list renders with several gateways
+- GIVEN a platform admin opens the gateway list with several gateways
 - WHEN the table is inspected
 - THEN columns SHALL appear in the order: Gateway name, Sandboxes, Status, Version, Connect, Created, Created by, Cluster type, Gateway endpoint, Actions
 - AND the raw cluster name column SHALL NOT be present
@@ -99,6 +101,23 @@ Column widths SHALL be rebalanced so long values do not crowd out short values. 
 - GIVEN the gateway list spans multiple pages
 - WHEN the table renders
 - THEN pagination controls SHALL appear at both the top and bottom
+
+#### Scenario: WEB-GLIS-02.04 -- Created by visibility follows the platform admin role
+
+- GIVEN a user with the `platform:admin` role opens the gateway list
+- WHEN the table renders
+- THEN the **Created by** column SHALL appear and display each creator username
+- AND a gateway without `created_by` SHALL display the localized not-available fallback
+
+- GIVEN a user without the `platform:admin` role opens the gateway list
+- WHEN the table renders
+- THEN the **Created by** column SHALL NOT appear
+
+#### Scenario: WEB-GLIS-02.05 -- Generic search matches gateway creators for admins
+
+- GIVEN a platform admin is viewing the gateway list
+- WHEN the admin enters a creator username in the generic gateway search
+- THEN the list SHALL include gateways whose `created_by` username matches that search
 
 ---
 
