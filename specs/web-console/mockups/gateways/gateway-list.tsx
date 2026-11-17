@@ -182,6 +182,7 @@ function GatewayRowActions({
 
 function GatewayToolbar({
   eligibleCount = 0,
+  isPlatformAdmin = false,
   itemCount = 0,
   ownershipFilterOn = false,
   selectedCount = 0,
@@ -189,6 +190,7 @@ function GatewayToolbar({
   showOwnershipFilter = false,
 }: {
   eligibleCount?: number;
+  isPlatformAdmin?: boolean;
   itemCount?: number;
   ownershipFilterOn?: boolean;
   selectedCount?: number;
@@ -211,7 +213,14 @@ function GatewayToolbar({
           </ToolbarItem>
         ) : null}
         <ToolbarItem>
-          <SearchInput placeholder="Filter by name, status, or endpoint" />
+          <SearchInput
+            placeholder={
+              isPlatformAdmin
+                ? "Filter by name, status, endpoint, or created by"
+                : "Filter by name, status, or endpoint"
+            }
+            style={{ width: "22rem" }}
+          />
         </ToolbarItem>
         {showBulkControls ? (
           <ToolbarGroup>
@@ -372,10 +381,12 @@ function GatewaySelectionCell({
 function LoadedGatewayList({
   bulk = "none",
   connectionModalGateway,
+  isPlatformAdmin = false,
   ownershipFilterOn = false,
 }: {
   bulk?: GatewayBulkScenario;
   connectionModalGateway?: string;
+  isPlatformAdmin?: boolean;
   ownershipFilterOn?: boolean;
 }) {
   const sortBy = { index: 5, direction: "desc" as const };
@@ -393,6 +404,7 @@ function LoadedGatewayList({
     <>
       <GatewayToolbar
         eligibleCount={eligibleCount}
+        isPlatformAdmin={isPlatformAdmin}
         itemCount={visibleGateways.length}
         ownershipFilterOn={ownershipFilterOn}
         selectedCount={selectedNames.length}
@@ -404,21 +416,26 @@ function LoadedGatewayList({
         <Thead>
           <Tr>
             <Th screenReaderText="Row selection" />
-            <Th sort={{ columnIndex: 0, onSort, sortBy: {} }} width={30}>
+            <Th sort={{ columnIndex: 0, onSort, sortBy: {} }} width={25}>
               Gateway name
             </Th>
             <Th sort={{ columnIndex: 1, onSort, sortBy: {} }} width={15}>
               Sandboxes
             </Th>
-            <Th sort={{ columnIndex: 2, onSort, sortBy: {} }} width={20}>
+            <Th sort={{ columnIndex: 2, onSort, sortBy: {} }} width={15}>
               Status
             </Th>
-            <Th sort={{ columnIndex: 3, onSort, sortBy: {} }} width={15}>
+            <Th sort={{ columnIndex: 3, onSort, sortBy: {} }} width={10}>
               Version
             </Th>
             <Th sort={{ columnIndex: 4, onSort, sortBy }} width={20}>
               Created
             </Th>
+            {isPlatformAdmin ? (
+              <Th sort={{ columnIndex: 5, onSort, sortBy: {} }} width={15}>
+                Created by
+              </Th>
+            ) : null}
             <Th screenReaderText="Actions" />
           </Tr>
         </Thead>
@@ -447,6 +464,11 @@ function LoadedGatewayList({
               </Td>
               <Td dataLabel="Version">{gateway.gatewayVersion}</Td>
               <Td dataLabel="Created">{gateway.created}</Td>
+              {isPlatformAdmin ? (
+                <Td dataLabel="Created by">
+                  {gateway.createdBy ?? "Not available"}
+                </Td>
+              ) : null}
               <Td isActionCell modifier="fitContent">
                 <GatewayRowActions
                   gateway={gateway}
@@ -499,11 +521,13 @@ function ErrorGatewayList() {
 
 export function GatewayListContent({
   bulk = "none",
+  isPlatformAdmin = false,
   state,
   connectionModalGateway,
   ownershipFilterOn = false,
 }: {
   bulk?: GatewayBulkScenario;
+  isPlatformAdmin?: boolean;
   state: GatewayListState;
   connectionModalGateway?: string;
   ownershipFilterOn?: boolean;
@@ -514,6 +538,7 @@ export function GatewayListContent({
         <LoadedGatewayList
           bulk={bulk}
           connectionModalGateway={connectionModalGateway}
+          isPlatformAdmin={isPlatformAdmin}
           ownershipFilterOn={ownershipFilterOn}
         />
       ) : null}
@@ -525,11 +550,13 @@ export function GatewayListContent({
 
 export function GatewayListMockup({
   bulk = "none",
+  isPlatformAdmin = false,
   state,
   connectionModalGateway,
   ownershipFilterOn = false,
 }: {
   bulk?: GatewayBulkScenario;
+  isPlatformAdmin?: boolean;
   state: GatewayListState;
   connectionModalGateway?: string;
   ownershipFilterOn?: boolean;
@@ -539,6 +566,7 @@ export function GatewayListMockup({
       <GatewayListPageSurface
         bulk={bulk}
         connectionModalGateway={connectionModalGateway}
+        isPlatformAdmin={isPlatformAdmin}
         ownershipFilterOn={ownershipFilterOn}
         state={state}
       />

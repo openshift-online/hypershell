@@ -21,11 +21,13 @@ import {
 export function GatewayListPageSurface({
   bulk = "none",
   connectionModalGateway,
+  isPlatformAdmin = false,
   ownershipFilterOn = false,
   state,
 }: {
   bulk?: GatewayBulkScenario;
   connectionModalGateway?: string;
+  isPlatformAdmin?: boolean;
   ownershipFilterOn?: boolean;
   state: GatewayListState;
 }) {
@@ -66,6 +68,7 @@ export function GatewayListPageSurface({
         <GatewayListContent
           bulk={bulk}
           connectionModalGateway={connectionModalGateway}
+          isPlatformAdmin={isPlatformAdmin}
           ownershipFilterOn={ownershipFilterOn}
           state={state}
         />
