@@ -15,7 +15,8 @@ import (
 const gatewayCreatorJoinTemplate = `LEFT JOIN (
 	SELECT DISTINCT ON (role_bindings.gateway_id)
 		role_bindings.gateway_id,
-		users.username
+		users.username,
+		NULL::timestamptz AS deleted_at
 	FROM role_bindings
 	JOIN roles ON roles.id = role_bindings.role_id AND roles.deleted_at IS NULL
 	JOIN users ON users.id = role_bindings.user_id AND users.deleted_at IS NULL
@@ -27,6 +28,7 @@ var gatewayCreatorJoin = fmt.Sprintf(gatewayCreatorJoinTemplate, roles.RoleGatew
 
 type gatewayListDao struct {
 	trexdao.GenericDao
+	gatewayCreatorJoined bool
 }
 
 func newGatewayListService(sessionFactory *db.SessionFactory) services.GenericService {
@@ -41,7 +43,34 @@ func newGatewayListService(sessionFactory *db.SessionFactory) services.GenericSe
 }
 
 func (d *gatewayListDao) GetInstanceDao(ctx context.Context, model interface{}) trexdao.GenericDao {
-	return &gatewayListDao{GenericDao: d.GenericDao.GetInstanceDao(ctx, model)}
+	return &gatewayListDao{
+		GenericDao:           d.GenericDao.GetInstanceDao(ctx, model),
+		gatewayCreatorJoined: false,
+	}
+}
+
+func (d *gatewayListDao) GetTableRelation(fieldName string) (trexdao.TableRelation, bool) {
+	if !strings.EqualFold(fieldName, "gateway_creators") {
+		return d.GenericDao.GetTableRelation(fieldName)
+	}
+
+	d.Joins(gatewayCreatorJoin)
+	return trexdao.TableRelation{
+		TableName:         "gateways",
+		ColumnName:        "id",
+		ForeignTableName:  "gateway_creators",
+		ForeignColumnName: "gateway_id",
+	}, true
+}
+
+func (d *gatewayListDao) Joins(sql string) {
+	if strings.Contains(sql, "gateway_creators ON") {
+		if d.gatewayCreatorJoined {
+			return
+		}
+		d.gatewayCreatorJoined = true
+	}
+	d.GenericDao.Joins(sql)
 }
 
 func (d *gatewayListDao) OrderBy(orderBy string) {
