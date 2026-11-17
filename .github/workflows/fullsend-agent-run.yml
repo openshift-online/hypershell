@@ -35,7 +35,7 @@ on:
         default: "true"
 
 permissions:
-  contents: read
+  contents: write     # update-openshell (and other coders) push a PR branch
   id-token: write      # GitHub OIDC for the keyless token-exchange
   issues: write        # triage/lifecycle post-scripts apply labels to the work item
   pull-requests: write # PR-phase post-scripts (code/spec review) update PRs
