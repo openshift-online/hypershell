@@ -45,6 +45,29 @@ func TestGatewayGet(t *testing.T) {
 	Expect(gatewayOutput.GetGatewayVersion()).To(Equal("0.0.109"))
 }
 
+func TestGatewayGetIncludesCreatedBy(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+
+	account := h.NewRandAccount()
+	ctx := h.NewAuthenticatedContext(account)
+
+	gatewayModel, err := newGateway(h.NewID())
+	Expect(err).NotTo(HaveOccurred())
+
+	envServices := &environments.Environment().Services
+	userService := users.Service(envServices)
+	bindingService := roleBindings.Service(envServices)
+	creatorName := "gateway-detail-creator"
+	userID, createErr := userService.UpsertByUsername(context.Background(), creatorName, nil, nil)
+	Expect(createErr).NotTo(HaveOccurred())
+	Expect(bindingService.CreateGatewayOwnerBinding(context.Background(), userID, gatewayModel.ID)).To(Succeed())
+
+	gatewayOutput, resp, err := client.DefaultAPI.GetGateway(ctx, gatewayModel.ID).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusOK))
+	Expect(gatewayOutput.GetCreatedBy()).To(Equal(creatorName))
+}
+
 // Verifies: PLAT-DATA-02.02
 func TestGatewayPost(t *testing.T) {
 	h, client := test.RegisterIntegration(t)

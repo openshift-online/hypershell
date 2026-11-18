@@ -69,6 +69,17 @@ func (h gatewayHandler) callerBindings(ctx context.Context) []rbac.BindingSummar
 	return bindings
 }
 
+func (h gatewayHandler) creatorUsername(ctx context.Context, gatewayID string) string {
+	if h.ownerLookup == nil {
+		return ""
+	}
+	owners, err := h.ownerLookup.FindOwnerUsernamesByGatewayIDs(ctx, []string{gatewayID})
+	if err != nil {
+		return ""
+	}
+	return owners[gatewayID]
+}
+
 // callerCanDelete reports whether the caller holding bindings may DELETE the
 // gateway, mirroring the RBAC middleware's enforced check exactly
 // (rbac.CanDeleteGateway). Advertised as Gateway.can_delete so a client can
@@ -254,7 +265,7 @@ func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 			// The creator just received a gateway:owner binding (or RBAC is off), so
 			// they can always delete and edit what they just created.
-			return PresentGateway(gatewayModel, "", true, true), nil
+			return PresentGateway(gatewayModel, h.creatorUsername(ctx, gatewayModel.ID), true, true), nil
 		},
 		ErrorHandler: handlers.HandleError,
 	}
@@ -319,7 +330,7 @@ func (h gatewayHandler) Patch(w http.ResponseWriter, r *http.Request) {
 				return nil, err
 			}
 			bindings := h.callerBindings(ctx)
-			return PresentGateway(gatewayModel, "", h.callerCanDelete(bindings, gatewayModel.ID), h.callerCanEdit(bindings, gatewayModel.ID)), nil
+			return PresentGateway(gatewayModel, h.creatorUsername(ctx, gatewayModel.ID), h.callerCanDelete(bindings, gatewayModel.ID), h.callerCanEdit(bindings, gatewayModel.ID)), nil
 		},
 		ErrorHandler: handlers.HandleError,
 	}
@@ -547,7 +558,7 @@ func (h gatewayHandler) Get(w http.ResponseWriter, r *http.Request) {
 			// Platform-admin view is captured by the framework audit trail on
 			// both REST and gRPC (SEC-AUD-01); no hand-written log line here.
 			bindings := h.callerBindings(ctx)
-			return PresentGateway(gateway, "", h.callerCanDelete(bindings, gateway.ID), h.callerCanEdit(bindings, gateway.ID)), nil
+			return PresentGateway(gateway, h.creatorUsername(ctx, gateway.ID), h.callerCanDelete(bindings, gateway.ID), h.callerCanEdit(bindings, gateway.ID)), nil
 		},
 	}
 
