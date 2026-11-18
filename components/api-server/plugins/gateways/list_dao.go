@@ -15,6 +15,7 @@ import (
 const gatewayCreatorJoinTemplate = `LEFT JOIN (
 	SELECT DISTINCT ON (role_bindings.gateway_id)
 		role_bindings.gateway_id,
+		role_bindings.id,
 		users.username,
 		NULL::timestamptz AS deleted_at
 	FROM role_bindings
