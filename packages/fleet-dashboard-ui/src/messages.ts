@@ -313,7 +313,7 @@ export const messages = defineMessages({
   },
   e2eAttemptNumber: {
     id: "fleet.e2e.attemptNumber",
-    defaultMessage: "RUN {number}",
+    defaultMessage: "Run {number}",
     description:
       "1-based chronological run label shown inside an expanded bundle group.",
   },
