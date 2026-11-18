@@ -225,7 +225,7 @@ describe("E2eRunView", () => {
 
   it.each([
     "Revision",
-    "Attempt",
+    "Attempts",
     "Started",
     "Duration",
     "Verdict",
@@ -1480,8 +1480,28 @@ describe("log pagination and degraded log pane", () => {
     expect(within(summaryRow).getByText("tenant-1")).toBeDefined();
     expect(within(summaryRow).getByText("tenant-2")).toBeDefined();
     expect(within(summaryRow).getByText("tenant-3")).toBeDefined();
-    expect(within(summaryRow).getAllByText("Failed")).toHaveLength(3);
-    expect(within(summaryRow).getByText("Passed")).toBeDefined();
+    expect(within(summaryRow).getByText("Failed")).toBeDefined();
+    expect(within(summaryRow).queryByText("Passed")).toBeNull();
+    expect(
+      within(summaryRow).getAllByRole("button", { name: "Failed" }),
+    ).toHaveLength(2);
+    const passedStatus = within(summaryRow).getByRole("button", {
+      name: "Passed",
+    });
+    await user.hover(passedStatus);
+    expect((await screen.findByRole("tooltip")).textContent).toBe("Passed");
+    await user.unhover(passedStatus);
+    await waitFor(() => {
+      expect(screen.queryByRole("tooltip")).toBeNull();
+    });
+    act(() => {
+      passedStatus.focus();
+    });
+    expect((await screen.findByRole("tooltip")).textContent).toBe("Passed");
+    await user.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(screen.queryByRole("tooltip")).toBeNull();
+    });
     expect(
       within(summaryRow).queryByRole("link", { name: /Open run/ }),
     ).toBeNull();
@@ -1493,7 +1513,7 @@ describe("log pagination and degraded log pane", () => {
     });
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByRole("link", { name: /1111aaaa/ })).toBeNull();
-    const hiddenAttempt = screen.getByText("Run 1").closest("tr");
+    const hiddenAttempt = screen.getByText("RUN 1").closest("tr");
     expect(hiddenAttempt?.hasAttribute("inert")).toBe(true);
     expect(hiddenAttempt?.getAttribute("aria-hidden")).toBe("true");
     await user.click(toggle);
@@ -1502,14 +1522,17 @@ describe("log pagination and degraded log pane", () => {
         .getByRole("button", { name: "Hide runs" })
         .getAttribute("aria-expanded"),
     ).toBe("true");
-    expect(screen.getByText("Run 2")).toBeDefined();
-    expect(screen.getByText("Run 1")).toBeDefined();
+    expect(screen.getByText("RUN 2")).toBeDefined();
+    expect(screen.getByText("RUN 1")).toBeDefined();
     const olderRow = screen
       .getByRole("link", { name: /Open run rev22222.*2222bbbb/ })
       .closest("tr");
     if (!olderRow) throw new Error("expected older attempt row");
     expect(within(olderRow).getByText("tenant-2")).toBeDefined();
     expect(within(olderRow).getByText("ns-2")).toBeDefined();
+    expect(within(olderRow).getByText("Failed")).toBeDefined();
+    expect(olderRow.querySelector("td")?.textContent).toBe("");
+    expect(screen.getByRole("button", { name: "Attempts" })).toBeDefined();
     expect(
       screen.getByRole("link", { name: /Open run rev11111.*1111aaaa/ }),
     ).toBeDefined();

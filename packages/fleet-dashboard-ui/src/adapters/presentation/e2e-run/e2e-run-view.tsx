@@ -4,8 +4,9 @@
 // stream; the framework-free domain (../../../domain/e2e-run) does all event
 // reduction (ordering, dedup, step-state derivation), so this component only renders.
 //
-// Every status signal pairs an icon + text with any colour so colour is never the
-// sole channel (E2E-LOG-14). The four degraded states are kept distinct (E2E-LOG-10):
+// Every status signal has an icon and localized text, visible or accessible via
+// a tooltip, so colour is never the sole channel (E2E-LOG-14).
+// The four degraded states are kept distinct (E2E-LOG-10):
 // test-failed, reporting-incomplete, backend-unavailable, and live-disconnected. Log
 // content is rendered as text (React escapes it) so a record cannot inject markup.
 //
@@ -44,6 +45,7 @@ import {
   ModalHeader,
   ModalVariant,
   Spinner,
+  Tooltip,
 } from "@patternfly/react-core";
 import {
   type ThProps,
@@ -298,9 +300,26 @@ function diagnosticVisual(severity: E2eDiagnosticSeverity): Visual {
   }
 }
 
-/** A status chip: icon + localized text, with colour as accent only (E2E-LOG-14). */
-function StatusChip({ visual }: { visual: Visual }): React.ReactElement {
+/** Summary icons expose their localized status on hover, focus, and to AT. */
+function StatusChip({
+  visual,
+  iconOnly = false,
+}: {
+  visual: Visual;
+  iconOnly?: boolean;
+}): React.ReactElement {
+  const intl = useIntl();
   const Icon = visual.icon;
+  if (iconOnly) {
+    const label = intl.formatMessage(visual.message);
+    return (
+      <Tooltip content={label}>
+        <Button variant="plain" isInline aria-label={label}>
+          <Icon style={{ color: visual.tone }} aria-hidden />
+        </Button>
+      </Tooltip>
+    );
+  }
   return (
     <span className={styles.inline}>
       <Icon style={{ color: visual.tone }} aria-hidden />
@@ -832,7 +851,9 @@ function RunsTable({
         className={rowClasses !== "" ? rowClasses : undefined}
       >
         <Td dataLabel={intl.formatMessage(messages.e2eColumnBundle)}>
-          {reveal(<RunBundleIdentity bundle={runBundle(run, promotion)} />)}
+          {opts.isParent ? (
+            <RunBundleIdentity bundle={runBundle(run, promotion)} />
+          ) : null}
         </Td>
         <Td dataLabel={intl.formatMessage(messages.e2eColumnTarget)}>
           {reveal(
@@ -868,7 +889,7 @@ function RunsTable({
         <Td dataLabel={intl.formatMessage(messages.e2eColumnAttempt)}>
           {reveal(
             <span className={styles.attemptCell}>
-              <span title={run.runId}>
+              <Label isCompact>
                 {opts.isParent ? (
                   <FormattedMessage {...messages.e2eAttemptMostRecent} />
                 ) : (
@@ -876,7 +897,7 @@ function RunsTable({
                     number: attemptNumber,
                   })
                 )}
-              </span>
+              </Label>
               <code className={styles.attemptId} title={run.runId}>
                 {run.runId.slice(0, 8)}
               </code>
@@ -994,6 +1015,7 @@ function RunsTable({
                           </small>
                         </span>
                         <StatusChip
+                          iconOnly
                           visual={
                             isRunning(run)
                               ? stepStateVisual("running")

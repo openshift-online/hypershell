@@ -378,7 +378,13 @@ The dashboard SHALL present an e2e-run view reachable from the promotion gate /
 environment. It SHALL group recent runs by resolved release bundle across target
 environments and deployed revisions. A bundle with multiple runs SHALL have one
 summary row displaying each observed environment's latest status, an overall
-status, the latest start time, and the total run count. Expanding the bundle SHALL
+status, the latest start time, and the total run count. Environment statuses SHALL
+use icons with localized accessible names and tooltips available on hover and
+keyboard focus, alongside the environment names. The summary Verdict column SHALL
+retain its visible status text. Expanded run rows SHALL retain their visible
+status text and leave the Bundle cell empty to align their targets beneath the
+summary's Target column. Run numbers SHALL be displayed in compact pills under
+the Attempts column. Expanding the bundle SHALL
 reveal all its runs newest-first, each selectable for details. Overall status SHALL
 be failed if any environment's latest run failed, unknown while any latest result
 is incomplete, and passed only when all observed environments' latest runs passed.

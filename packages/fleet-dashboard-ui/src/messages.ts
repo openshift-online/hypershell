@@ -313,7 +313,7 @@ export const messages = defineMessages({
   },
   e2eAttemptNumber: {
     id: "fleet.e2e.attemptNumber",
-    defaultMessage: "Run {number}",
+    defaultMessage: "RUN {number}",
     description:
       "1-based chronological run label shown inside an expanded bundle group.",
   },
@@ -357,7 +357,7 @@ export const messages = defineMessages({
   },
   e2eColumnAttempt: {
     id: "fleet.e2e.column.attempt",
-    defaultMessage: "Attempt",
+    defaultMessage: "Attempts",
     description: "Recent-runs table column header for the run attempt id.",
   },
   e2eColumnBundle: {
