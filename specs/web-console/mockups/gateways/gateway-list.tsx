@@ -415,7 +415,7 @@ function LoadedGatewayList({
       <Table aria-label="OpenShell Gateways" variant="compact">
         <Thead>
           <Tr>
-            <Th screenReaderText="Row selection" />
+            <Th modifier="fitContent" screenReaderText="Row selection" />
             <Th sort={{ columnIndex: 0, onSort, sortBy: {} }} width={25}>
               Gateway name
             </Th>
@@ -442,7 +442,7 @@ function LoadedGatewayList({
         <Tbody>
           {visibleGateways.map((gateway) => (
             <Tr key={gateway.name}>
-              <Td dataLabel="Row selection">
+              <Td dataLabel="Row selection" modifier="fitContent">
                 <GatewaySelectionCell
                   canDelete={gateway.canDelete !== false}
                   gatewayName={gateway.name}

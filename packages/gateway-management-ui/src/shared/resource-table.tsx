@@ -241,7 +241,10 @@ export function ResourceTable<Row>({
             <Thead>
               <Tr>
                 {renderRowSelection ? (
-                  <Th screenReaderText={selectionColumnLabel} />
+                  <Th
+                    modifier="fitContent"
+                    screenReaderText={selectionColumnLabel}
+                  />
                 ) : null}
                 {columns.map((column, columnIndex) => (
                   <Th
@@ -265,7 +268,7 @@ export function ResourceTable<Row>({
               {rows.map((row) => (
                 <Tr key={getRowKey(row)}>
                   {renderRowSelection ? (
-                    <Td dataLabel={selectionColumnLabel}>
+                    <Td dataLabel={selectionColumnLabel} modifier="fitContent">
                       {renderRowSelection(row)}
                     </Td>
                   ) : null}
