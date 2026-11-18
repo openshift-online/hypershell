@@ -1513,7 +1513,7 @@ describe("log pagination and degraded log pane", () => {
     });
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByRole("link", { name: /1111aaaa/ })).toBeNull();
-    const hiddenAttempt = screen.getByText("RUN 1").closest("tr");
+    const hiddenAttempt = screen.getByText("Run 1").closest("tr");
     expect(hiddenAttempt?.hasAttribute("inert")).toBe(true);
     expect(hiddenAttempt?.getAttribute("aria-hidden")).toBe("true");
     await user.click(toggle);
@@ -1522,8 +1522,8 @@ describe("log pagination and degraded log pane", () => {
         .getByRole("button", { name: "Hide runs" })
         .getAttribute("aria-expanded"),
     ).toBe("true");
-    expect(screen.getByText("RUN 2")).toBeDefined();
-    expect(screen.getByText("RUN 1")).toBeDefined();
+    expect(screen.getByText("Run 2")).toBeDefined();
+    expect(screen.getByText("Run 1")).toBeDefined();
     const olderRow = screen
       .getByRole("link", { name: /Open run rev22222.*2222bbbb/ })
       .closest("tr");
