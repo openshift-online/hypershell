@@ -32,7 +32,7 @@ The operational dashboard `system-summary` card keeps its mean, median (P50), an
 
 ### Scope note: fleet-wide vs RBAC-filtered
 
-The histogram reflects every provision the control plane has observed across the platform. It is **not** filtered to gateways visible in the caller's paginated gateway list. This matches other hub-cluster infrastructure metrics (memory, CPU, pods, nodes) and gives operators a stable fleet-wide provision-time signal independent of per-user list visibility.
+The histogram reflects every provision the API server has recorded across the platform. It is **not** filtered to gateways visible in the caller's paginated gateway list. This matches other hub-cluster infrastructure metrics (memory, CPU, pods, nodes) and gives operators a stable fleet-wide provision-time signal independent of per-user list visibility.
 
 Historical trend series other than daily P99, per-gateway duration breakdown, and gateway-list timestamp proxies are out of scope (see Non-Goals).
 
@@ -40,11 +40,11 @@ Historical trend series other than daily P99, per-gateway duration breakdown, an
 
 ### Requirement: OBS-GPT-09 -- Prometheus Histogram Availability
 
-The Prometheus instance configured for the web-console BFF (`PROMETHEUS_URL`, same origin as cluster metrics) SHALL expose the control-plane provision-duration histogram in Prometheus exposition format.
+The Prometheus instance configured for the web-console BFF (`PROMETHEUS_URL`, same origin as cluster metrics) SHALL expose the API-server provision-duration histogram in Prometheus exposition format.
 
 The canonical series prefix SHALL be `gateway_provision_duration_seconds` with the standard histogram suffixes `_bucket`, `_count`, and `_sum`, emitted durably by the API server (OBS-SLI-04).
 
-Deploy and local-development configuration SHALL route control-plane OTLP metrics into that Prometheus instance. When the histogram is absent or has zero observations, provision-time collection SHALL fail per OBS-GPT-07 rather than synthesizing values.
+Deploy and local-development configuration SHALL scrape the API server metrics endpoint (OBS-SLI-04, OBS-GMD-02) into that Prometheus instance. When the histogram is absent or has zero observations, provision-time collection SHALL fail per OBS-GPT-07 rather than synthesizing values.
 
 `DATA_SOURCES.md` SHALL document the canonical PromQL expressions once scrape or collector wiring is chosen during implementation.
 

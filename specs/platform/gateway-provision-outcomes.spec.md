@@ -9,7 +9,7 @@ Expose **gateway provision success and failure counts** and a rolling **24-hour 
 
 This is **HyperShell application telemetry** recorded durably by the API server when a gateway reaches its first terminal provision outcome (`Running` success or `Failed` failure). It is **not** cluster infrastructure metrics, per-gateway SLA tracking in the UI, or control-plane reconcile error counts in isolation.
 
-Version 1 aggregates fleet-wide counts from the control-plane counter over a rolling 24-hour window:
+Version 1 aggregates fleet-wide counts from the API-server counter over a rolling 24-hour window:
 
 | Statistic | Meaning |
 | --- | --- |
@@ -29,7 +29,7 @@ The operational dashboard `system-summary` card SHALL render a success-rate row 
 
 ### Scope note: fleet-wide vs RBAC-filtered
 
-Outcome counts reflect every terminal provision the control plane has observed across the platform. They are **not** filtered to gateways visible in the caller's paginated gateway list. This matches provision duration (GPT scope note) and other hub-cluster infrastructure metrics.
+Outcome counts reflect every terminal provision the API server has recorded across the platform. They are **not** filtered to gateways visible in the caller's paginated gateway list. This matches provision duration (GPT scope note) and other hub-cluster infrastructure metrics.
 
 Per-gateway outcome breakdown, arbitrary lookback windows beyond 24 hours, and gateway-list-derived success proxies are out of scope (see Non-Goals).
 
@@ -37,11 +37,11 @@ Per-gateway outcome breakdown, arbitrary lookback windows beyond 24 hours, and g
 
 ### Requirement: OBS-GPO-09 -- Prometheus Counter Availability
 
-The Prometheus instance configured for the web-console BFF (`PROMETHEUS_URL`, same origin as cluster metrics) SHALL expose the control-plane provision-outcomes counter in Prometheus exposition format.
+The Prometheus instance configured for the web-console BFF (`PROMETHEUS_URL`, same origin as cluster metrics) SHALL expose the API-server provision-outcomes counter in Prometheus exposition format.
 
 The canonical series SHALL be `gateway_provision_outcomes_total` with an `outcome` label (`success` or `failure`), emitted durably by the API server (OBS-SLI-04).
 
-Deploy and local-development configuration SHALL route control-plane OTLP metrics into that Prometheus instance. When the counter is absent, provision-reliability collection SHALL return zero counts with `success_rate_percent: null` per OBS-GPO-07 rather than synthesizing a non-null success rate.
+Deploy and local-development configuration SHALL scrape the API server metrics endpoint (OBS-SLI-04, OBS-GMD-02) into that Prometheus instance. When the counter is absent, provision-reliability collection SHALL return zero counts with `success_rate_percent: null` per OBS-GPO-07 rather than synthesizing a non-null success rate.
 
 `DATA_SOURCES.md` SHALL document the canonical PromQL expressions.
 
@@ -81,16 +81,16 @@ When exported to Prometheus, the counter SHALL appear as `gateway_provision_outc
 #### Scenario: OBS-GPO-01.01 -- First Running records success
 
 - GIVEN a Gateway has not yet contributed a provision observation
-- WHEN the control plane successfully changes its phase to `Running` for the first time
-- THEN `gateway.provision.outcomes` SHALL increment once with `outcome=success`
-- AND `gateway.provision.duration` SHALL record the provision duration for the same gateway
+- WHEN the Gateway reaches `Running` for the first time
+- THEN the API server SHALL increment `gateway_provision_outcomes_total{outcome="success"}` once
+- AND the API server SHALL record one `gateway_provision_duration_seconds` observation for the same gateway
 
 #### Scenario: OBS-GPO-01.02 -- First Failed records failure
 
 - GIVEN a Gateway has not yet contributed a provision observation
-- WHEN the control plane successfully changes its phase to `Failed` for the first time
-- THEN `gateway.provision.outcomes` SHALL increment once with `outcome=failure`
-- AND `gateway.provision.duration` SHALL NOT record a duration observation for that gateway
+- WHEN the Gateway reaches `Failed` for the first time
+- THEN the API server SHALL increment `gateway_provision_outcomes_total{outcome="failure"}` once
+- AND the API server SHALL NOT record a `gateway_provision_duration_seconds` observation for that gateway
 
 #### Scenario: OBS-GPO-01.03 -- Degraded recovery does not add outcomes
 
