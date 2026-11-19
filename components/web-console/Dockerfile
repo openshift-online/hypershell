@@ -94,6 +94,12 @@ RUN npm ci --prefix /opt/pnpm-bootstrap --prefer-offline --ignore-scripts --no-a
 
 USER ${CONTAINER_DEFAULT_USER}
 
+# Lead-time build metadata (OBS-SLI-09): the Konflux trusted-artifacts git-clone
+# task exposes no commit-timestamp result, so the build time is computed here when
+# no BUILD_TIME build arg is supplied and stamped into the deployed bundle below,
+# so a production image never reports build_time "unknown".
+ARG BUILD_TIME
+
 WORKDIR /app
 
 COPY --from=build --chown=${CONTAINER_DEFAULT_USER} /app/package.json /app/package.json
@@ -108,14 +114,17 @@ COPY --from=build --chown=${CONTAINER_DEFAULT_USER} /app/images /app/images
 
 RUN pnpm install --frozen-lockfile --prod --filter @openshift-online/hypershell-web-console-bff \
   && pnpm --filter @openshift-online/hypershell-web-console-bff deploy --prod /tmp/web-console \
-  && cp -R components/web-console/build/client /tmp/web-console/public
+  && cp -R components/web-console/build/client /tmp/web-console/public \
+  && build_time="${BUILD_TIME}" \
+  && { [ -n "${build_time}" ] && [ "${build_time}" != "unknown" ] \
+       || build_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; } \
+  && printf '%s' "${build_time}" > /tmp/web-console/.build-time
 
 FROM --platform=linux/amd64 registry.access.redhat.com/hi/nodejs:24.18.1@sha256:6725f3730de000b6255b97d31e2ef53916f35397b1fb779bdb8d4a3a1c84ad50 AS runtime-amd64
 FROM --platform=linux/arm64 registry.access.redhat.com/hi/nodejs:24.18.1@sha256:8b3a067f10336acb6798f4d8251882fed107c90116b69a469e02472ecc1c7648 AS runtime-arm64
 FROM --platform=linux/${TARGETARCH} runtime-${TARGETARCH}
 
 ARG GIT_VERSION
-ARG BUILD_TIME
 
 LABEL org.opencontainers.image.title="HyperShell web console" \
       org.opencontainers.image.description="HyperShell web console BFF and static application" \
@@ -131,17 +140,11 @@ ENV HOST=0.0.0.0 \
   STATIC_ROOT=/app/public
 
 WORKDIR /app
+# The build-time stamp (/app/.build-time) arrives from the bundle stage, where it
+# is written as the unprivileged build user, so no write to /app is needed here
+# (the runtime base runs as a non-root user). The BFF reads it at startup through
+# HYPERSHELL_WEB_BUILD_TIME_FILE (OBS-SLI-09).
 COPY --from=bundle /tmp/web-console/ ./
-
-# Stamp the image build time (OBS-SLI-09) into a file the BFF reads at startup.
-# The Konflux trusted-artifacts git-clone task exposes no commit-timestamp
-# result, so BUILD_TIME is computed here when not supplied as a build arg; a
-# production image therefore never reports build_time "unknown".
-RUN build_time="${BUILD_TIME}"; \
-  if [ -z "${build_time}" ] || [ "${build_time}" = "unknown" ]; then \
-    build_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; \
-  fi; \
-  printf '%s' "${build_time}" > /app/.build-time
 
 EXPOSE 8080
 
