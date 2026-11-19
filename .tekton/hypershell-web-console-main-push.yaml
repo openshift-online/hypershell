@@ -225,7 +225,6 @@ spec:
         - BUILDARCH=amd64
         - TARGETARCH=amd64
         - GIT_VERSION=$(tasks.clone-repository.results.commit)
-        - BUILD_TIME=$(tasks.clone-repository.results.commit-timestamp)
       - name: PRIVILEGED_NESTED
         value: $(params.privileged-nested)
       - name: SOURCE_URL
@@ -286,7 +285,6 @@ spec:
         - BUILDARCH=arm64
         - TARGETARCH=arm64
         - GIT_VERSION=$(tasks.clone-repository.results.commit)
-        - BUILD_TIME=$(tasks.clone-repository.results.commit-timestamp)
       - name: PRIVILEGED_NESTED
         value: $(params.privileged-nested)
       - name: SOURCE_URL

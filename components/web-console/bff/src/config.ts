@@ -1,6 +1,29 @@
+import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import { z } from "zod";
+
+/**
+ * Reads a build-time stamp written into the image at build (OBS-SLI-09). The
+ * web-console Dockerfile writes the image build time to a small file so a
+ * production image never has to report "unknown" even though the Konflux
+ * trusted-artifacts git-clone task exposes no commit-timestamp result. Returns
+ * undefined when no path is configured or the file is missing/empty, so the
+ * caller can fall back to "unknown".
+ */
+function readStampedBuildTime(
+  filePath: string | undefined,
+): string | undefined {
+  if (filePath === undefined || filePath === "") {
+    return undefined;
+  }
+  try {
+    const value = readFileSync(filePath, "utf8").trim();
+    return value === "" ? undefined : value;
+  } catch {
+    return undefined;
+  }
+}
 
 const httpUrl = z
   .url()
@@ -113,6 +136,7 @@ const configSchema = z.object({
     .transform((value) =>
       value === undefined || value === "" ? undefined : value,
     ),
+  HYPERSHELL_WEB_BUILD_TIME_FILE: z.string().trim().min(1).optional(),
   SESSION_SECRET: z
     .string()
     .regex(/^[0-9a-f]{64}$/iu, "must be a 64-character hex string (32 bytes)")
@@ -303,7 +327,12 @@ export function loadConfig(
       : undefined,
     webVersion: shortSha(result.data.HYPERSHELL_WEB_VERSION ?? "unknown"),
     // Build time is a human-readable timestamp, not a commit sha, so it is
-    // relayed as-is rather than passed through shortSha().
-    webBuildTime: result.data.HYPERSHELL_WEB_BUILD_TIME ?? "unknown",
+    // relayed as-is rather than passed through shortSha(). An explicit env value
+    // wins; otherwise the image-stamped build-time file is read (OBS-SLI-09),
+    // falling back to "unknown" only when neither is present.
+    webBuildTime:
+      result.data.HYPERSHELL_WEB_BUILD_TIME ??
+      readStampedBuildTime(result.data.HYPERSHELL_WEB_BUILD_TIME_FILE) ??
+      "unknown",
   };
 }

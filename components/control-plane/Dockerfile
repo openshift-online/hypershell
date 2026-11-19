@@ -5,8 +5,9 @@
 ARG BUILDARCH
 ARG TARGETARCH
 # Lead-time build metadata (OBS-SLI-09): the source commit and build time stamped
-# into the controller binary through linker flags. Konflux passes GIT_VERSION and
-# BUILD_TIME; local builds default to "unknown".
+# into the controller binary through linker flags. Konflux passes GIT_VERSION (the
+# cloned commit); BUILD_TIME defaults to the image build time computed below when
+# no explicit value is supplied, so a production image never reports "unknown".
 ARG GIT_VERSION=unknown
 ARG BUILD_TIME=unknown
 
@@ -68,9 +69,13 @@ RUN cover_flags=""; \
   if [ "${GO_COVERAGE}" = "true" ]; then \
     cover_flags="-cover -covermode=atomic -coverpkg=github.com/openshift-online/hypershell/components/control-plane/..."; \
   fi; \
+  build_time="${BUILD_TIME}"; \
+  if [ -z "${build_time}" ] || [ "${build_time}" = "unknown" ]; then \
+    build_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; \
+  fi; \
   cd components/control-plane && CGO_ENABLED=0 GOOS=linux GOARCH="${TARGETARCH}" go build -mod=mod ${cover_flags} -ldflags="-s -w \
     -X github.com/openshift-online/hypershell/components/control-plane/pkg/version.Version=${GIT_VERSION} \
-    -X 'github.com/openshift-online/hypershell/components/control-plane/pkg/version.BuildTime=${BUILD_TIME}'" \
+    -X 'github.com/openshift-online/hypershell/components/control-plane/pkg/version.BuildTime=${build_time}'" \
     -o /workspace/hypershell-controller ./cmd/hypershell-controller
 
 # Package Helm chart from the vendored source tree in charts/openshell.

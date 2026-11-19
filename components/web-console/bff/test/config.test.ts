@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { browserRuntimeConfig, loadConfig, shortSha } from "../src/config.js";
 
 describe("loadConfig", () => {
@@ -209,6 +213,43 @@ describe("browserRuntimeConfig", () => {
     expect(
       loadConfig({ HYPERSHELL_WEB_BUILD_TIME: "  ", STATIC_ROOT: "./public" })
         .webBuildTime,
+    ).toBe("unknown");
+  });
+
+  it("reads the console build time from the image-stamped file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "hypershell-build-time-"));
+    const file = join(dir, ".build-time");
+    try {
+      writeFileSync(file, "2026-11-19T20:00:00Z\n");
+      expect(
+        loadConfig({
+          HYPERSHELL_WEB_BUILD_TIME_FILE: file,
+          STATIC_ROOT: "./public",
+        }).webBuildTime,
+      ).toBe("2026-11-19T20:00:00Z");
+
+      // An explicit env value wins over the stamped file.
+      expect(
+        loadConfig({
+          HYPERSHELL_WEB_BUILD_TIME: "override-value",
+          HYPERSHELL_WEB_BUILD_TIME_FILE: file,
+          STATIC_ROOT: "./public",
+        }).webBuildTime,
+      ).toBe("override-value");
+    } finally {
+      rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
+  it("falls back to unknown when the build-time file is missing", () => {
+    expect(
+      loadConfig({
+        HYPERSHELL_WEB_BUILD_TIME_FILE: join(
+          tmpdir(),
+          "hypershell-build-time-does-not-exist",
+        ),
+        STATIC_ROOT: "./public",
+      }).webBuildTime,
     ).toBe("unknown");
   });
 

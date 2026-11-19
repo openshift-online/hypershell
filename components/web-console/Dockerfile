@@ -8,8 +8,9 @@ ARG TARGETARCH
 
 # Stamp the source commit and build time into the image so the BFF can report
 # the console build version and build time in the browser runtime config.
-# Defaults to unknown for local builds; Konflux pipelines pass the cloned commit
-# and its commit timestamp.
+# Konflux pipelines pass the cloned commit as GIT_VERSION; BUILD_TIME defaults to
+# the image build time computed in the runtime stage when no value is supplied, so
+# a production image never reports build_time "unknown".
 ARG GIT_VERSION=unknown
 ARG BUILD_TIME=unknown
 
@@ -124,13 +125,23 @@ ENV HOST=0.0.0.0 \
   HYPERSHELL_API_ORIGIN=http://127.0.0.1:8000 \
   HYPERSHELL_API_TIMEOUT_MS=30000 \
   HYPERSHELL_WEB_VERSION=${GIT_VERSION} \
-  HYPERSHELL_WEB_BUILD_TIME=${BUILD_TIME} \
+  HYPERSHELL_WEB_BUILD_TIME_FILE=/app/.build-time \
   NODE_ENV=production \
   PORT=8080 \
   STATIC_ROOT=/app/public
 
 WORKDIR /app
 COPY --from=bundle /tmp/web-console/ ./
+
+# Stamp the image build time (OBS-SLI-09) into a file the BFF reads at startup.
+# The Konflux trusted-artifacts git-clone task exposes no commit-timestamp
+# result, so BUILD_TIME is computed here when not supplied as a build arg; a
+# production image therefore never reports build_time "unknown".
+RUN build_time="${BUILD_TIME}"; \
+  if [ -z "${build_time}" ] || [ "${build_time}" = "unknown" ]; then \
+    build_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; \
+  fi; \
+  printf '%s' "${build_time}" > /app/.build-time
 
 EXPOSE 8080
 
