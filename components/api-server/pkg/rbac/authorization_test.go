@@ -391,6 +391,133 @@ func TestIsAuthorized_PlatformAdminCanAccessRoleBindings(t *testing.T) {
 	}
 }
 
+// Fleet Reader tests (SEC-RBAC-29 / OBS-PRB-06)
+
+// Verifies: SEC-RBAC-29.01
+func TestIsAuthorized_FleetReaderCanListAllGateways(t *testing.T) {
+	bindings := []BindingSummary{
+		{RoleName: "fleet:reader", Scope: "global"},
+	}
+
+	if !isAuthorized(http.MethodGet, "gateways", "", "", bindings, nil, false) {
+		t.Error("fleet:reader should be authorized to list gateways")
+	}
+}
+
+// Verifies: SEC-RBAC-29.02
+func TestIsAuthorized_FleetReaderCanReadAnyGateway(t *testing.T) {
+	gwID := "gw-xyz"
+	bindings := []BindingSummary{
+		{RoleName: "fleet:reader", Scope: "global"},
+	}
+
+	if !isAuthorized(http.MethodGet, "gateways", gwID, gwID, bindings, nil, false) {
+		t.Error("fleet:reader should be authorized to read any gateway")
+	}
+}
+
+// Verifies: SEC-RBAC-29.03
+func TestIsAuthorized_FleetReaderCannotDeleteGateway(t *testing.T) {
+	gwID := "gw-xyz"
+	bindings := []BindingSummary{
+		{RoleName: "fleet:reader", Scope: "global"},
+	}
+
+	if isAuthorized(http.MethodDelete, "gateways", gwID, gwID, bindings, nil, false) {
+		t.Error("fleet:reader must not be able to delete a gateway")
+	}
+	if CanDeleteGateway(bindings, gwID) {
+		t.Error("CanDeleteGateway must be false for fleet:reader")
+	}
+}
+
+func TestIsAuthorized_FleetReaderCannotModifyGateway(t *testing.T) {
+	gwID := "gw-xyz"
+	bindings := []BindingSummary{
+		{RoleName: "fleet:reader", Scope: "global"},
+	}
+
+	if isAuthorized(http.MethodPatch, "gateways", gwID, gwID, bindings, nil, false) {
+		t.Error("fleet:reader must not be able to PATCH a gateway")
+	}
+	if CanEditGateway(bindings, gwID) {
+		t.Error("CanEditGateway must be false for fleet:reader")
+	}
+}
+
+func TestIsAuthorized_FleetReaderCannotCreateGateways(t *testing.T) {
+	bindings := []BindingSummary{
+		{RoleName: "fleet:reader", Scope: "global"},
+	}
+
+	if isAuthorized(http.MethodPost, "gateways", "", "", bindings, nil, false) {
+		t.Error("fleet:reader must not be able to create gateways")
+	}
+}
+
+// Verifies: SEC-RBAC-29.04
+func TestIsAuthorized_FleetReaderCannotManageGatewayAccess(t *testing.T) {
+	gwID := "gw-xyz"
+	bindings := []BindingSummary{
+		{RoleName: "fleet:reader", Scope: "global"},
+	}
+
+	if isAuthorized(http.MethodGet, "access", gwID, gwID, bindings, nil, false) {
+		t.Error("fleet:reader must not reach the gateway access facade (404)")
+	}
+}
+
+// fleet:reader is a gateway-only read role (SEC-RBAC-29): it grants no
+// ManagedCluster visibility, so even a read of the cluster inventory is denied.
+func TestIsAuthorized_FleetReaderCannotViewManagedClusters(t *testing.T) {
+	bindings := []BindingSummary{
+		{RoleName: "fleet:reader", Scope: "global"},
+	}
+
+	if isAuthorized(http.MethodGet, "managed_clusters", "", "", bindings, []string{"fleet:reader"}, false) {
+		t.Error("fleet:reader must not be authorized to view ManagedClusters")
+	}
+}
+
+// fleet:reader must not disclose sandbox events (SEC-RBAC-29 / OSG-SEVT-05): the
+// diagnostic read requires a per-gateway binding, which a global fleet:reader
+// does not satisfy, so the request is refused (404).
+func TestIsAuthorized_FleetReaderCannotReadSandboxEvents(t *testing.T) {
+	gwID := "gw-xyz"
+	bindings := []BindingSummary{
+		{RoleName: "fleet:reader", Scope: "global"},
+	}
+
+	if isAuthorized(http.MethodGet, "sandbox_events", "", gwID, bindings, nil, false) {
+		t.Error("fleet:reader must not be authorized to read sandbox events without a per-gateway binding")
+	}
+}
+
+// HasFleetReaderRole is the predicate the gateway List handler uses to grant the
+// unfiltered, fleet-wide read surface (SEC-RBAC-29.01): a fleet:reader caller is
+// treated like platform:admin and is NOT scoped to its own accessible gateways.
+// This proves the predicate that drives that decision, including the empty-user
+// guard and the role-absent case.
+func TestHasFleetReaderRole(t *testing.T) {
+	const userID = "user-a"
+	withRoles := func(roles []string) context.Context {
+		ctx := context.WithValue(context.Background(), ContextUserIDKey, userID)
+		return context.WithValue(ctx, ContextJWTRolesKey, roles)
+	}
+
+	if !HasFleetReaderRole(withRoles([]string{"fleet:reader"}), userID) {
+		t.Error("a caller carrying the fleet:reader realm role must be recognized as a fleet reader")
+	}
+	if HasFleetReaderRole(withRoles([]string{"gateway:creator"}), userID) {
+		t.Error("a caller without fleet:reader must not be recognized as a fleet reader")
+	}
+	// An unauthenticated caller (empty user ID) is never a fleet reader, even if a
+	// stray role string is present in context.
+	if HasFleetReaderRole(withRoles([]string{"fleet:reader"}), "") {
+		t.Error("an empty user ID must never be recognized as a fleet reader")
+	}
+}
+
 func TestServiceAccountAuthorizationRequiresExactGatewayBinding(t *testing.T) {
 	gatewayID := "gw-a"
 	otherGatewayID := "gw-b"

@@ -104,6 +104,17 @@ func TestKeycloakRoleMap_OwnerGetsAdminAndUser(t *testing.T) {
 	}
 }
 
+// fleet:reader is a global, read-only fleet role (SEC-RBAC-29). It must confer no
+// gateway login: the OpenShell role bridge maps it to no per-gateway client role,
+// so a user holding only fleet:reader receives neither openshell-admin nor
+// openshell-user.
+// Verifies: SEC-RBAC-29.05
+func TestKeycloakRoleMap_FleetReaderGetsNoGatewayLogin(t *testing.T) {
+	if roles, ok := keycloakRoleMap["fleet:reader"]; ok {
+		t.Errorf("keycloakRoleMap must not map fleet:reader to any client role, got %v", roles)
+	}
+}
+
 // After an in-place demotion from gateway:admin to gateway:viewer (a single
 // UPDATED event, one surviving binding), union reconcile must assign
 // openshell-user and remove openshell-admin (GTW-ACC-02).
