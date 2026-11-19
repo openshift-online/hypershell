@@ -324,8 +324,9 @@ cascade does not reach them.
 
 ### Requirement: OSG-OPWS-07 -- Supported Entry Points
 
-The operator opt-in SHALL be reachable through the supported write surfaces with no
-deployment-wide patching: the REST gateway Create handler, the gRPC `CreateGateway`
+On an API server with the `HYPERSHELL_ENABLE_OPERATOR_WORKSPACE_MODE` feature flag enabled
+(OSG-OPWS-01), the operator opt-in SHALL be reachable through the supported write
+surfaces with no per-gateway deployment patching: the REST gateway Create handler, the gRPC `CreateGateway`
 handler, and the generated `hsctl create gateway` command. The CLI SHALL expose an
 `--operator-workspaces` flag that sets `workspace_mode = operator` in the create
 request; the flag's help SHALL state that it requires the
@@ -334,7 +335,7 @@ work over the same supported API.
 
 #### Scenario: OSG-OPWS-07.01 -- hsctl selects operator mode without deployment patches
 
-- GIVEN an entitled caller
+- GIVEN an entitled caller and an API server with the feature flag enabled
 - WHEN they run `hsctl create gateway --name my-gw --placement-selector <label> --operator-workspaces`
 - THEN the CLI SHALL send a create request carrying `workspace_mode = operator`
 - AND no HyperShell API server or controller Deployment patch SHALL be required for
