@@ -277,6 +277,24 @@ func hasPlatformAdmin(bindings []BindingSummary) bool {
 	return false
 }
 
+// roleFleetReader mirrors roles.RoleFleetReader; kept local to avoid an import
+// cycle with the roles plugin package.
+const roleFleetReader = "fleet:reader"
+
+// hasFleetReader reports whether the caller holds the narrow read-only fleet role
+// (SEC-RBAC-29). It grants read-only, fleet-wide visibility of gateways and
+// nothing else: it is checked only on the gateway read paths (unfiltered list and
+// GET of any gateway), never on a write, access-management, ManagedCluster, or
+// gRPC list/watch path.
+func hasFleetReader(bindings []BindingSummary) bool {
+	for _, b := range bindings {
+		if b.RoleName == roleFleetReader {
+			return true
+		}
+	}
+	return false
+}
+
 // roleCIFederationAdmin mirrors roles.RoleCIFederationAdmin; kept local to avoid
 // an import cycle with the roles plugin package.
 const roleCIFederationAdmin = "ci-federation:admin"
@@ -692,6 +710,13 @@ func CanEditGateway(bindings []BindingSummary, gatewayID string) bool {
 
 func isGatewayAuthorized(method string, gatewayID string, bindings []BindingSummary) bool {
 	if hasPlatformAdmin(bindings) && (method == http.MethodGet || method == http.MethodDelete) {
+		return true
+	}
+
+	// fleet:reader grants read-only, fleet-wide gateway visibility (SEC-RBAC-29):
+	// it may GET any gateway, but never modify or delete one. Deliberately scoped
+	// to GET so it confers no write authority.
+	if hasFleetReader(bindings) && method == http.MethodGet {
 		return true
 	}
 

@@ -120,6 +120,7 @@ Role        ||--o{ RoleBinding : "granted_by"
 | `gateway:operator-workspace-creator` | global | Keycloak JWT | Entitlement to set `workspace_mode = operator` on a gateway create (per-gateway operator-managed workspaces, OSG-OPWS-01); grants nothing else by itself. See "Requirement: Gateway Operator Workspace Creator Role" (SEC-RBAC-28) |
 | `ci-federation:admin` | global | DB (RoleBinding API, granted by platform:admin or ci-federation:grantor) | Authorizes the `ci_providers` extension kind (register/read/update/delete a CI OIDC forge, PLAT-DATA-24) and nothing else. Granted through the RoleBinding API (not JWT-synced): HyperShell owns the authorization decision rather than delegating it to a Keycloak realm role. The gitops CI-federation seeder holds only this role instead of `platform:admin`. It confers no gateway, platform, or other ext-kind authority. See "Requirement: CI Federation Admin Role" (SEC-RBAC-21) |
 | `ci-federation:grantor` | global | Keycloak JWT | Narrow bootstrap role: authorizes creating/deleting a global `ci-federation:admin` RoleBinding and nothing else. Held by a gitops bootstrap identity so the seeder's `ci_providers` authorization can be granted declaratively without `platform:admin`. Confers no `ci_providers`, gateway, or platform authority and cannot grant any other role. See "Requirement: CI Federation Grantor Role" (SEC-RBAC-23) |
+| `fleet:reader` | global | Keycloak JWT | Narrow read-only fleet role: authorizes listing all gateways and reading any gateway (the same read surface as `platform:admin` view) and nothing else. Grants no delete, no access management, no create, no configuration modify, no ManagedCluster access, no gateway login, and no sandbox-events read. Held by the outside availability prober's workload identity (`platform/outside-prober.spec.md` OBS-PRB-06) and any read-only fleet observer that needs fleet-wide gateway visibility without `platform:admin`. See "Requirement: Fleet Reader Role" (SEC-RBAC-29) |
 
 ### Permission Matrix
 
@@ -135,6 +136,7 @@ Role        ||--o{ RoleBinding : "granted_by"
 | `gateway:operator-workspace-creator` | none by itself (marker for `workspace_mode = operator` on create) | none (does not create or own gateways without `gateway:creator`) | none | none | none | none |
 | `ci-federation:admin` | none | none | none | none | none | none (authorizes only the `ci_providers` ext kind; see SEC-RBAC-21) |
 | `ci-federation:grantor` | none | none | create/delete a `ci-federation:admin` binding only | none | none | none (bootstrap grantor; see SEC-RBAC-23) |
+| `fleet:reader` | view all (read only) | view all, no writes (no delete) | none | None (no gateway login) | none | none (authorizes only fleet-wide gateway read; see SEC-RBAC-29) |
 
 `GET /api/hypershell/v1/gateways/{gateway_id}/sandbox_events` is a gateway-bound diagnostic read. It requires a `gateway:viewer`, `gateway:admin`, or `gateway:owner` binding on the requested Gateway. A `platform:admin` without such a binding SHALL receive `404`, so the endpoint does not disclose Gateway or sandbox-event existence. See `platform/gateway-sandbox-events.spec.md` (OSG-SEVT-05).
 
@@ -166,7 +168,7 @@ granted `gateway:admin` or `gateway:viewer` on that gateway.
 
 ### Requirement: SEC-RBAC-01 -- Keycloak as Authority for Platform Roles
 
-Keycloak is the source of truth for the `gateway:creator`, `gateway:dedicated-route-creator`, `gateway:operator-workspace-creator`, `ci-federation:grantor`, and `platform:admin` roles. A
+Keycloak is the source of truth for the `gateway:creator`, `gateway:dedicated-route-creator`, `gateway:operator-workspace-creator`, `ci-federation:grantor`, `fleet:reader`, and `platform:admin` roles. A
 Keycloak administrator assigns these roles to users and service accounts via Keycloak's
 admin console or API. (`ci-federation:admin` is the exception: it is granted
 through the RoleBinding API by a `platform:admin` or `ci-federation:grantor`, not
@@ -1617,6 +1619,14 @@ and `SyncJWTRoles` SHALL never revoke them. The migration SHALL be additive and 
 `gateway:admin` seed: re-running it SHALL NOT error and SHALL NOT alter existing
 bindings.
 
+A migration SHALL also seed the `fleet:reader` role record with `built_in: true`
+("Fleet Reader", a display name and description naming its scope as read-only
+fleet-wide gateway visibility; see "Requirement: Fleet Reader Role",
+SEC-RBAC-29). Like `gateway:dedicated-route-creator` and unlike
+`ci-federation:admin`, it IS JWT-synced: it is in `JWTSyncedRoles`, its bindings
+are assigned via Keycloak and reconciled by `SyncJWTRoles` exactly like
+`gateway:creator` and `platform:admin`.
+
 These migrations SHALL run alongside the existing migrations that seed `gateway:creator`,
 `gateway:owner`, and `gateway:viewer` roles.
 
@@ -1925,6 +1935,77 @@ denied by SEC-RBAC-09 regardless of which fields it changes.
 - GIVEN a caller that is not a control-plane identity
 - WHEN it calls `UpdateCIProvider` or `UpdateCITrust` over gRPC, even changing only status fields
 - THEN the request SHALL return PermissionDenied (SEC-RBAC-09)
+
+### Requirement: SEC-RBAC-29 -- Fleet Reader Role
+
+The `fleet:reader` role SHALL grant read-only, fleet-wide visibility of gateways
+and nothing else. A caller holding `fleet:reader` SHALL be able to:
+
+- List all gateways across the platform (`GET /api/hypershell/v1/gateways`
+  returns all gateways, the same unfiltered read surface `platform:admin` has
+  under SEC-RBAC-07, and unlike the owner-filtered list a role-less caller
+  receives under SEC-RBAC-10)
+- View any specific gateway (`GET /api/hypershell/v1/gateways/{id}` succeeds for
+  any ID)
+
+A caller holding only `fleet:reader` SHALL NOT be able to:
+
+- Create, modify (PATCH/PUT), or delete any gateway
+- Manage any gateway's access through the access facade, or create or delete
+  `RoleBinding` records
+- View or modify ManagedClusters
+- Obtain `openshell` CLI gateway login (the role maps to no OpenShell client
+  role; see "OpenShell Role Bridge")
+- Read sandbox Events through
+  `GET /api/hypershell/v1/gateways/{gateway_id}/sandbox_events` without a
+  per-gateway binding; the response SHALL be `404` (OSG-SEVT-05)
+
+`fleet:reader` is global, assigned via Keycloak, and synced to the database
+identically to `gateway:creator` and `platform:admin` (SEC-RBAC-01, SEC-RBAC-15).
+It is orthogonal to the other roles; a principal MAY hold `fleet:reader` together
+with any other role. The role exists so a read-only fleet consumer - the outside
+availability prober's workload identity (`platform/outside-prober.spec.md`
+OBS-PRB-06) foremost - can enumerate gateways and read their `route_address`
+without `platform:admin`, which additionally confers delete and access-management
+authority such a consumer does not need.
+
+This role authorizes only the REST read surface above. It SHALL NOT, by itself,
+authorize the gRPC `ListGateways` or `WatchGateways` streams, which remain
+`platform:admin`-only (SEC-RBAC-09).
+
+#### Scenario: SEC-RBAC-29.01 -- Fleet reader lists all gateways
+
+- GIVEN user A has `fleet:reader` (from Keycloak) and no other role
+- AND there are 50 gateways in the platform owned by various users
+- WHEN user A calls `GET /api/hypershell/v1/gateways`
+- THEN the response SHALL include all 50 gateways
+
+#### Scenario: SEC-RBAC-29.02 -- Fleet reader reads a specific gateway it does not own
+
+- GIVEN user A has only `fleet:reader`
+- AND gateway G is owned by another user
+- WHEN user A calls `GET /api/hypershell/v1/gateways/{G}`
+- THEN the request SHALL succeed and return gateway G
+
+#### Scenario: SEC-RBAC-29.03 -- Fleet reader cannot delete a gateway
+
+- GIVEN user A has only `fleet:reader`
+- WHEN user A calls `DELETE /api/hypershell/v1/gateways/{id}` for any gateway
+- THEN the request SHALL be rejected as unauthorized
+
+#### Scenario: SEC-RBAC-29.04 -- Fleet reader cannot manage gateway access
+
+- GIVEN user A has only `fleet:reader`
+- WHEN user A attempts to grant, change, or revoke any role on any gateway
+  through the access facade
+- THEN the request SHALL be rejected as unauthorized
+
+#### Scenario: SEC-RBAC-29.05 -- Fleet reader gets no gateway login
+
+- GIVEN user A has only `fleet:reader`
+- WHEN the control plane reconciles OpenShell client roles for user A
+- THEN user A SHALL receive no `openshell-admin` or `openshell-user` client role
+  from the `fleet:reader` role
 
 ## API Reference
 

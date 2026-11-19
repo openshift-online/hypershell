@@ -204,6 +204,14 @@ var builtInRoleSeeds = []roleSeed{
 		},
 	},
 	{
+		Name:        RoleFleetReader,
+		DisplayName: "Fleet Reader",
+		Description: "Read-only, fleet-wide gateway visibility: lists all gateways and reads any gateway, and nothing else (SEC-RBAC-29). A least-privilege alternative to platform:admin for a read-only fleet consumer such as the outside availability prober (OBS-PRB-06); confers no delete, access management, create, ManagedCluster access, or gateway login.",
+		Permissions: map[string]interface{}{
+			"gateways": []string{"read", "list"},
+		},
+	},
+	{
 		// Kept in lockstep with migrationSeedManagedClusterRegistrarRole
 		// (2026091000000002): every built-in role is created by a migration for
 		// existing databases AND listed here so a fresh database seeded through
@@ -584,6 +592,67 @@ func migrationAddCIFederationGrantorRole() *gormigrate.Migration {
 		},
 		Rollback: func(tx *gorm.DB) error {
 			return tx.Where("name = ?", RoleCIFederationGrantor).Delete(&Role{}).Error
+		},
+	}
+}
+
+// migrationAddFleetReaderRole seeds the fleet:reader built-in role idempotently
+// (SEC-RBAC-29). It is a platform-wide (global-scope) role that grants read-only,
+// fleet-wide visibility of gateways -- listing all gateways and reading any
+// gateway -- and nothing else. It exists so a read-only fleet consumer (the
+// outside availability prober's workload identity foremost, OBS-PRB-06) can
+// enumerate gateways and read their route_address without platform:admin, which
+// additionally confers delete and access-management authority. Like platform:admin
+// and gateway:dedicated-route-creator it IS JWT-synced (assigned through Keycloak),
+// and no existing binding is touched. Re-running is safe: an existing row
+// short-circuits.
+func migrationAddFleetReaderRole() *gormigrate.Migration {
+	type Role struct {
+		db.Model
+		Name        string `gorm:"uniqueIndex"`
+		DisplayName *string
+		Description *string
+		Permissions *string `gorm:"type:jsonb"`
+		BuiltIn     bool
+	}
+
+	return &gormigrate.Migration{
+		ID: "2026111900000001",
+		Migrate: func(tx *gorm.DB) error {
+			var existing Role
+			lookupErr := tx.Where("name = ?", RoleFleetReader).First(&existing).Error
+			if lookupErr == nil {
+				return nil
+			}
+			// Only a missing row means "seed it"; a real lookup failure must not be
+			// swallowed into a duplicate-key create error.
+			if !stderrors.Is(lookupErr, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("look up role %s: %w", RoleFleetReader, lookupErr)
+			}
+			permissions := map[string]interface{}{
+				"gateways": []string{"read", "list"},
+			}
+			permJSON, err := json.Marshal(permissions)
+			if err != nil {
+				return fmt.Errorf("marshal permissions for %s: %w", RoleFleetReader, err)
+			}
+			permStr := string(permJSON)
+			displayName := "Fleet Reader"
+			// Kept identical to the builtInRoleSeeds entry so the stored role
+			// metadata is the same whichever seed path runs first.
+			description := "Read-only, fleet-wide gateway visibility: lists all gateways and reads any gateway, and nothing else (SEC-RBAC-29). A least-privilege alternative to platform:admin for a read-only fleet consumer such as the outside availability prober (OBS-PRB-06); confers no delete, access management, create, ManagedCluster access, or gateway login."
+			role := Role{
+				Model:       db.Model{ID: api.NewID()},
+				Name:        RoleFleetReader,
+				DisplayName: &displayName,
+				Description: &description,
+				Permissions: &permStr,
+				BuiltIn:     true,
+			}
+			return tx.Create(&role).Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Where("name = ?", RoleFleetReader).Delete(&Role{}).Error
 		},
 	}
 }
