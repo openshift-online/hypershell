@@ -103,3 +103,20 @@ func HasPlatformAdminRole(ctx context.Context, userID string) bool {
 	}
 	return false
 }
+
+// HasFleetReaderRole reports whether the caller carries the fleet:reader realm
+// role (SEC-RBAC-29). fleet:reader grants read-only, fleet-wide gateway
+// visibility, so like platform:admin it lets the gateway list handler return the
+// unfiltered fleet rather than only the caller's accessible gateways. It confers
+// no other authority.
+func HasFleetReaderRole(ctx context.Context, userID string) bool {
+	if userID == "" {
+		return false
+	}
+	for _, role := range GetJWTRolesFromContext(ctx) {
+		if role == "fleet:reader" {
+			return true
+		}
+	}
+	return false
+}

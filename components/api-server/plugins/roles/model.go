@@ -74,6 +74,18 @@ const (
 	// (JWT-synced) and confers no other authority: it cannot grant any role other
 	// than ci-federation:admin, and holding it does not authorize ci_providers.
 	RoleCIFederationGrantor = "ci-federation:grantor"
+	// RoleFleetReader is the narrow, read-only fleet role (SEC-RBAC-29). It grants
+	// read-only, fleet-wide visibility of gateways -- listing all gateways
+	// (unfiltered, like platform:admin under SEC-RBAC-07) and reading any gateway --
+	// and nothing else: no create, modify, or delete, no access management or
+	// RoleBinding writes, no ManagedCluster access, no gateway login (it maps to no
+	// OpenShell client role), and no gRPC ListGateways/WatchGateways. It exists so a
+	// read-only fleet consumer -- the outside availability prober's workload
+	// identity foremost (OBS-PRB-06) -- can enumerate gateways and read their
+	// route_address without platform:admin, which additionally confers delete and
+	// access-management authority. Like gateway:creator and platform:admin it is
+	// Keycloak-owned (JWT-synced).
+	RoleFleetReader = "fleet:reader"
 )
 
 // JWTSyncedRoles is the set of roles whose bindings are reconciled from the
@@ -90,6 +102,10 @@ var JWTSyncedRoles = map[string]bool{
 	// a gitops bootstrap identity via a Keycloak realm role, so it IS Keycloak-owned
 	// and synced here.
 	RoleCIFederationGrantor: true,
+	// RoleFleetReader is Keycloak-owned (SEC-RBAC-29): its bindings are assigned via
+	// Keycloak and reconciled by SyncJWTRoles exactly like gateway:creator and
+	// platform:admin.
+	RoleFleetReader: true,
 	// RoleCIFederationAdmin is intentionally absent: it is granted through the
 	// RoleBinding API by a platform:admin or ci-federation:grantor (SEC-RBAC-21/23),
 	// not synced from a Keycloak realm role. Keeping it out of this set means an

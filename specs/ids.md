@@ -114,6 +114,7 @@ listed in `specs/id-rename-map.md`, not here.
 | `OBS-MEM` | `platform/cluster-memory.spec.md` | 8 |
 | `OBS-NODE` | `platform/cluster-nodes.spec.md` | 8 |
 | `OBS-POD` | `platform/cluster-pods.spec.md` | 8 |
+| `OBS-PRB` | `platform/outside-prober.spec.md` | 9 |
 | `OBS-REL` | `platform/api-reliability-metrics.spec.md` | 8 |
 | `OBS-RLSD` | `platform/gateway-release-distribution.spec.md` | 7 |
 | `OBS-SBXA` | `platform/gateway-sandbox-attention-status.spec.md` | 11 |
@@ -175,7 +176,7 @@ listed in `specs/id-rename-map.md`, not here.
 |--------|------|--------------|
 | `SEC-AUD` | `security/audit-capture.spec.md` | 8 |
 | `SEC-OIDC` | `platform/oidc-integration.spec.md` | 11 |
-| `SEC-RBAC` | `security/rbac-enforcement.spec.md` | 27 |
+| `SEC-RBAC` | `security/rbac-enforcement.spec.md` | 28 |
 | `SEC-STD` | `standards/security/security.spec.md` | 4 |
 
 ### STD

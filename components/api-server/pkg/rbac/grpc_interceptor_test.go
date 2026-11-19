@@ -30,8 +30,9 @@ func (f fakeProvisioner) UpsertFromJWT(_ context.Context, _ *auth.Payload) (stri
 }
 
 var (
-	creatorBinding = BindingSummary{RoleName: "gateway:creator", Scope: "global"}
-	adminBinding   = BindingSummary{RoleName: "platform:admin", Scope: "global"}
+	creatorBinding     = BindingSummary{RoleName: "gateway:creator", Scope: "global"}
+	adminBinding       = BindingSummary{RoleName: "platform:admin", Scope: "global"}
+	fleetReaderBinding = BindingSummary{RoleName: "fleet:reader", Scope: "global"}
 )
 
 func ownerOf(gatewayID string) BindingSummary {
@@ -79,6 +80,10 @@ func TestAuthorizeUserGRPC(t *testing.T) {
 		{"admin watches", gatewaySvc("WatchGateways"), nil, []BindingSummary{adminBinding}, codes.OK},
 		{"creator cannot list every gateway", gatewaySvc("ListGateways"), &pb.ListGatewaysRequest{}, []BindingSummary{creatorBinding, ownerOf("gw-1")}, codes.PermissionDenied},
 		{"creator cannot watch every gateway", gatewaySvc("WatchGateways"), nil, []BindingSummary{creatorBinding}, codes.PermissionDenied},
+		// fleet:reader is a REST read role (SEC-RBAC-29): it must not reach the
+		// unfiltered gRPC list/watch streams, which stay platform:admin-only.
+		{"fleet reader cannot list every gateway", gatewaySvc("ListGateways"), &pb.ListGatewaysRequest{}, []BindingSummary{fleetReaderBinding}, codes.PermissionDenied},
+		{"fleet reader cannot watch every gateway", gatewaySvc("WatchGateways"), nil, []BindingSummary{fleetReaderBinding}, codes.PermissionDenied},
 		{"owner cannot adjust sandbox counts", gatewaySvc("AdjustActiveSandboxCount"), &pb.AdjustActiveSandboxCountRequest{}, []BindingSummary{ownerOf("gw-1")}, codes.PermissionDenied},
 		{"owner cannot set sandbox counts", gatewaySvc("SetActiveSandboxCount"), &pb.SetActiveSandboxCountRequest{}, []BindingSummary{ownerOf("gw-1")}, codes.PermissionDenied},
 		{"owner cannot report sandbox events", gatewaySvc("ReportSandboxEvents"), &pb.ReportSandboxEventsRequest{}, []BindingSummary{ownerOf("gw-1")}, codes.PermissionDenied},

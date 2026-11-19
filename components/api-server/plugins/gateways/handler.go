@@ -377,8 +377,11 @@ func (h gatewayHandler) List(w http.ResponseWriter, r *http.Request) {
 			onlyMine := r.URL.Query().Get("mine") == "true"
 
 			userID := rbac.GetUserIDFromContext(ctx)
-			hasPlatformAdmin := rbac.HasPlatformAdminRole(ctx, userID)
-			scoped := userID != "" && h.visibilityFilter != nil && !hasPlatformAdmin
+			// platform:admin and fleet:reader both see the whole fleet unfiltered
+			// (SEC-RBAC-07, SEC-RBAC-29); every other caller is scoped to its
+			// accessible gateways (SEC-RBAC-10).
+			hasFleetWideRead := rbac.HasPlatformAdminRole(ctx, userID) || rbac.HasFleetReaderRole(ctx, userID)
+			scoped := userID != "" && h.visibilityFilter != nil && !hasFleetWideRead
 
 			// Check the caller's search on its own before any restriction is
 			// appended. Only a complete, valid expression can be wrapped in
