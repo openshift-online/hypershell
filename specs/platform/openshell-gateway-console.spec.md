@@ -4,7 +4,7 @@
 **Status:** Draft
 **Parent:** `openshell-gateway.spec.md`
 **Related:** `openshell-gateway-keycloak.spec.md` (per-gateway client, OIDC Role Bridge); `openshell-gateway-routing.spec.md` (Gateway API ingress, hostnames)
-**Upstream:** [OpenShell Dashboard](https://github.com/Gkrumbach07/openshell-dashboard); [oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/)
+**Upstream:** [OpenShell Console (ai-openshell/console)](https://github.com/ai-openshell/console); [oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/)
 
 ---
 
@@ -151,7 +151,8 @@ Every console resource must carry the standard gateway labels, with `app.kuberne
   - `AUTH_DISABLED = false`
   - `AUTH_TOKEN_HEADER = X-Forwarded-Access-Token`
   - `AUTH_USER_HEADER = X-Forwarded-User`
-  - `ADMIN_ROLE = openshell-admin`
+  - `ADMIN_ROLE = openshell-admin` (the gateway OIDC `admin_role`; see OSG-CON-10)
+  - `USER_ROLE = openshell-user` (the gateway OIDC `user_role`; see OSG-CON-10. The console marks a user who holds neither `ADMIN_ROLE` nor `USER_ROLE` as unentitled, so this value is required for a non-admin member to use the console)
   - `LOGOUT_URL = /oauth2/sign_out`
 - Volume mounts:
   - the `openshell-server-tls` Secret key `ca.crt` at `/etc/openshell-tls/gateway` (read only), to verify the gateway server certificate.
@@ -295,6 +296,31 @@ The reconciler must PATCH the console URL into a read-only `consoleAddress` fiel
 
 ---
 
+### Requirement: OSG-CON-10 -- Console Role Environment Matches the Gateway Roles
+
+The reconciler SHALL set both role environment variables on the dashboard container:
+
+- `ADMIN_ROLE` SHALL equal the gateway's configured OIDC `admin_role` (`openshell-admin`).
+- `USER_ROLE` SHALL equal the gateway's configured OIDC `user_role` (`openshell-user`).
+
+The reconciler SHALL derive both values from the same role constants that configure the gateway OIDC Role Bridge (see `openshell-gateway-keycloak.spec.md`), so the console environment and the gateway roles cannot diverge. The console marks a signed-in user who holds neither `ADMIN_ROLE` nor `USER_ROLE` as unentitled and denies the UI to that user. Because the OIDC Role Bridge gives a gateway member `openshell-user`, a console that sets `ADMIN_ROLE` but omits `USER_ROLE` rejects every non-admin member. Setting `USER_ROLE` lets a member who holds only `openshell-user` use the console with standard-user access.
+
+#### Scenario: OSG-CON-10.01 -- Non-admin member uses the console
+
+- GIVEN a routed gateway and user-m with `gateway:viewer`, which gives only `openshell-user`
+- WHEN user-m signs in through oauth2-proxy and opens the console
+- THEN the console must grant standard-user access
+- AND the console must not show the unentitled page
+
+#### Scenario: OSG-CON-10.02 -- Console roles track the gateway roles
+
+- GIVEN a gateway with OIDC `admin_role = openshell-admin` and `user_role = openshell-user`
+- WHEN the reconciler builds the console Deployment
+- THEN the dashboard container must set `ADMIN_ROLE = openshell-admin` and `USER_ROLE = openshell-user`
+- AND both values must come from the same constants that configure the gateway OIDC roles, so the two cannot become different
+
+---
+
 ## Configuration
 
 ### Gateway resource
@@ -310,7 +336,7 @@ The gateway has no user field for the console. The console follows the route.
 | Variable | Default | Description |
 |---|---|---|
 | `GATEWAY_API_HTTP_LISTENER_NAME` | `https` | The `sectionName` of the shared Gateway HTTP listener for console HTTPRoutes |
-| `HYPERSHELL_CONSOLE_IMAGE` | *(none, required)* | The OpenShell dashboard image, pinned by digest. The control plane refuses to start when it is unset. Set in `deploy/base/platform-resources/controller.yaml`, stamped from `OPENSHELL_VERSION` by `make sync-openshell-version` |
+| `HYPERSHELL_CONSOLE_IMAGE` | *(none, required)* | The OpenShell gateway console image (`quay.io/ai-openshell/console`), pinned by digest. The control plane refuses to start when it is unset. Set in `deploy/base/platform-resources/controller.yaml`, stamped from `OPENSHELL_VERSION` by `make sync-openshell-version` |
 | `HYPERSHELL_OAUTH2_PROXY_IMAGE` | *(ImageDefaults default)* | The oauth2-proxy image |
 
 The reconciler reuses `GATEWAY_API_BASE_DOMAIN` (see `openshell-gateway-routing.spec.md`) for the console hostname.
@@ -350,7 +376,7 @@ The console needs no new Keycloak permission. The `hypershell-keycloak-admin` ac
 ## Prerequisites
 
 1. **Ingress controller.** The admin must add an HTTP listener to the shared Gateway (HTTPS/Terminate, port 443, wildcard `*.<base-domain>` certificate). The listener must accept HTTPRoutes from gateway namespaces. Its `sectionName` must match `GATEWAY_API_HTTP_LISTENER_NAME`. In `route` mode, an OpenShift ingress controller must admit Routes for `*.<base-domain>` and serve its router certificate.
-2. **Dashboard image.** The upstream project ([Gkrumbach07/openshell-dashboard](https://github.com/Gkrumbach07/openshell-dashboard)) publishes the dashboard to `quay.io/gkrumbach07/openshell-dashboard`: releases as `X.Y.N` and `X.Y` tags, and unreleased builds as `sha-<short>`, `pr-<N>` and `latest`. A dashboard release `X.Y.N` is for every gateway on release line `X.Y` (major.minor). The pinned console is the newest dashboard release on the line of the pinned gateway version. `OPENSHELL_VERSION` pins it by digest (`OPENSHELL_CONSOLE_IMAGE`, `OPENSHELL_CONSOLE_DIGEST`), and `make sync-openshell-version` stamps that pin into `HYPERSHELL_CONSOLE_IMAGE` in the base controller manifest, so clusters pull it directly (imagePullPolicy `IfNotPresent`) with no build-from-source step; Kind pulls the same public image. Production should mirror the pinned digest into the platform registry and override `HYPERSHELL_CONSOLE_IMAGE` in its overlay. The image contract (`OPENSHELL_GATEWAY_URL` as a `grpcs://` URL, mutual TLS through `GATEWAY_CA_CERT` plus `GATEWAY_CLIENT_CERT`/`GATEWAY_CLIENT_KEY`, and the `X-Forwarded-Access-Token` relay) is an upstream dependency.
+2. **Console image.** The upstream project ([ai-openshell/console](https://github.com/ai-openshell/console)) publishes the console to `quay.io/ai-openshell/console`: releases as `X.Y.N` and `X.Y` tags, and unreleased builds as `sha-<short>`, `pr-<N>` and `latest`. Releases up to v0.1.3 are only in the former `quay.io/gkrumbach07/openshell-dashboard` repository (v0.1.4 is the first release in the new repository); reference the old repository only to identify an old pin. A console release `X.Y.N` is for every gateway on release line `X.Y` (major.minor). The pinned console is the newest console release on the line of the pinned gateway version. `OPENSHELL_VERSION` pins it by digest (`OPENSHELL_CONSOLE_IMAGE`, `OPENSHELL_CONSOLE_DIGEST`), and `make sync-openshell-version` stamps that pin into `HYPERSHELL_CONSOLE_IMAGE` in the base controller manifest, so clusters pull it directly (imagePullPolicy `IfNotPresent`) with no build-from-source step; Kind pulls the same public image. Production should mirror the pinned digest into the platform registry and override `HYPERSHELL_CONSOLE_IMAGE` in its overlay. The image contract (`OPENSHELL_GATEWAY_URL` as a `grpcs://` URL, mutual TLS through `GATEWAY_CA_CERT` plus `GATEWAY_CLIENT_CERT`/`GATEWAY_CLIENT_KEY`, the `X-Forwarded-Access-Token` relay, and the `ADMIN_ROLE`/`USER_ROLE` pair) is an upstream dependency.
 3. **Keycloak realm.** The realm prerequisites in `openshell-gateway-keycloak.spec.md` apply. The console adds no realm-level object.
 
 ---
@@ -365,7 +391,7 @@ The console needs no new Keycloak permission. The `hypershell-keycloak-admin` ac
 
 ## References
 
-- [OpenShell Dashboard](https://github.com/Gkrumbach07/openshell-dashboard) -- the gateway URL and `X-Forwarded-Access-Token` contract
+- [OpenShell Console (ai-openshell/console)](https://github.com/ai-openshell/console) -- the gateway URL, `X-Forwarded-Access-Token`, and `ADMIN_ROLE`/`USER_ROLE` contract
 - [oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/) -- OIDC provider, PKCE, `pass-access-token`, `reverse-proxy`
 - [oauth2-proxy #1714](https://github.com/oauth2-proxy/oauth2-proxy/issues/1714) -- a client secret is required with PKCE
 - [Gateway API HTTPRoute](https://gateway-api.sigs.k8s.io/api-types/httproute/)
