@@ -65,6 +65,12 @@ export function UserMenu() {
         </DropdownItem>
         <DropdownItem isDisabled>
           <FormattedMessage
+            {...messages.consoleBuildTime}
+            values={{ buildTime: runtimeConfig.webBuildTime }}
+          />
+        </DropdownItem>
+        <DropdownItem isDisabled>
+          <FormattedMessage
             {...messages.apiVersion}
             values={{ version: runtimeConfig.apiVersion }}
           />

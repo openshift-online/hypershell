@@ -6,10 +6,12 @@
 ARG BUILDARCH
 ARG TARGETARCH
 
-# Stamp the source commit into the image so the BFF can report the console
-# build version in the browser runtime config. Defaults to unknown for local
-# builds; Konflux pipelines pass the cloned commit.
+# Stamp the source commit and build time into the image so the BFF can report
+# the console build version and build time in the browser runtime config.
+# Defaults to unknown for local builds; Konflux pipelines pass the cloned commit
+# and its commit timestamp.
 ARG GIT_VERSION=unknown
+ARG BUILD_TIME=unknown
 
 FROM --platform=linux/amd64 registry.access.redhat.com/hi/nodejs:24.18.1-builder@sha256:7d3b87dbb6bbf8fc85c865f8a00c5355961dae0e0e4ead15d530af3c8d6e3ebe AS build-amd64
 FROM --platform=linux/arm64 registry.access.redhat.com/hi/nodejs:24.18.1-builder@sha256:5034714f7a4bdd7423231f880b0863b8e69c5aa9b8f5ab69ed1cd1e76760f0e0 AS build-arm64
@@ -112,6 +114,7 @@ FROM --platform=linux/arm64 registry.access.redhat.com/hi/nodejs:24.18.1@sha256:
 FROM --platform=linux/${TARGETARCH} runtime-${TARGETARCH}
 
 ARG GIT_VERSION
+ARG BUILD_TIME
 
 LABEL org.opencontainers.image.title="HyperShell web console" \
       org.opencontainers.image.description="HyperShell web console BFF and static application" \
@@ -121,6 +124,7 @@ ENV HOST=0.0.0.0 \
   HYPERSHELL_API_ORIGIN=http://127.0.0.1:8000 \
   HYPERSHELL_API_TIMEOUT_MS=30000 \
   HYPERSHELL_WEB_VERSION=${GIT_VERSION} \
+  HYPERSHELL_WEB_BUILD_TIME=${BUILD_TIME} \
   NODE_ENV=production \
   PORT=8080 \
   STATIC_ROOT=/app/public

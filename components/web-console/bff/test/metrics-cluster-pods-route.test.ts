@@ -210,6 +210,7 @@ describe("GET /api/metrics/cluster-pods", () => {
       sessionTtlSeconds: 28_800,
       staticRoot,
       webVersion: "unknown",
+      webBuildTime: "unknown",
       ...overrides,
     };
     return buildApp(config);

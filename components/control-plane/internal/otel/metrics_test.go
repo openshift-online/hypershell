@@ -42,6 +42,7 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 	previousReconciliationFailures := reconciliationFailures
 	previousReconciliationRetries := reconciliationRetries
 	previousReconciliationLag := reconciliationLag
+	previousOldestUnconvergedGenerationAge := oldestUnconvergedGenerationAge
 	previousStaleResourceStatusCount := staleResourceStatusCount
 	previousReconciliationResourcesTotal := reconciliationResourcesTotal
 	previousWatchReconnects := watchReconnects
@@ -79,14 +80,19 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 	reconciliationFailures = nil
 	reconciliationRetries = nil
 	reconciliationLag = nil
+	oldestUnconvergedGenerationAge = nil
 	staleResourceStatusCount = nil
 	reconciliationResourcesTotal = nil
 	gatewayPopulations.Lock()
 	gatewayPopulations.byCluster = make(map[string]map[string]bool)
+	gatewayPopulations.unconvergedSince = make(map[string]map[string]time.Time)
 	gatewayPopulations.seeded = make(map[string]bool)
 	gatewayPopulations.seeding = make(map[string]bool)
 	gatewayPopulations.pending = make(map[string]map[string]*bool)
 	gatewayPopulations.Unlock()
+	reconciliationLagStamps.Lock()
+	reconciliationLagStamps.byKey = make(map[string]*generationStamp)
+	reconciliationLagStamps.Unlock()
 	watchReconnects = nil
 	reconcileOutcomes = nil
 	reconcileFailed = nil
@@ -120,6 +126,7 @@ func testMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 		reconciliationFailures = previousReconciliationFailures
 		reconciliationRetries = previousReconciliationRetries
 		reconciliationLag = previousReconciliationLag
+		oldestUnconvergedGenerationAge = previousOldestUnconvergedGenerationAge
 		staleResourceStatusCount = previousStaleResourceStatusCount
 		reconciliationResourcesTotal = previousReconciliationResourcesTotal
 		watchReconnects = previousWatchReconnects
@@ -140,7 +147,8 @@ func TestReconciliationMetrics(t *testing.T) {
 	reader := testMetricsReader(t)
 	RecordReconcileError(context.Background(), "Gateway")
 	RecordReconciliationRetry(context.Background(), "Gateway", ReasonK8sConflict)
-	RecordReconciliationLag(context.Background(), "Gateway", 2*time.Second)
+	NoteGenerationObserved("Gateway", "lag-one", 1)
+	RecordReconciliationLagForStart(context.Background(), "Gateway", "lag-one", 1)
 	observed := int64(0)
 	ReplaceGatewayPopulation(context.Background(), "cluster-a", []GatewayPopulationState{{ResourceID: "one", Generation: 1, ObservedGeneration: &observed}})
 	SetResourceStatusStale(context.Background(), "cluster-a", "Gateway", "one", true)

@@ -106,6 +106,13 @@ const configSchema = z.object({
     .transform((value) =>
       value === undefined || value === "" ? undefined : value,
     ),
+  HYPERSHELL_WEB_BUILD_TIME: z
+    .string()
+    .trim()
+    .optional()
+    .transform((value) =>
+      value === undefined || value === "" ? undefined : value,
+    ),
   SESSION_SECRET: z
     .string()
     .regex(/^[0-9a-f]{64}$/iu, "must be a 64-character hex string (32 bytes)")
@@ -163,6 +170,8 @@ export interface ServerConfig {
   tracing?: TracingConfig;
   /** Console build version stamped into the image at build time. */
   webVersion: string;
+  /** Console build time stamped into the image at build time. */
+  webBuildTime: string;
 }
 
 /**
@@ -185,6 +194,8 @@ export interface BrowserRuntimeConfig {
   };
   /** Web console build version stamped into the image at build time. */
   webVersion: string;
+  /** Web console build time stamped into the image at build time. */
+  webBuildTime: string;
 }
 
 /** Projects the server config down to the allowlist the browser may read. */
@@ -196,6 +207,7 @@ export function browserRuntimeConfig(
     apiVersion,
     tracing: { sampleRatio: config.tracing?.sampleRatio ?? 0 },
     webVersion: config.webVersion,
+    webBuildTime: config.webBuildTime,
   };
 }
 
@@ -290,5 +302,8 @@ export function loadConfig(
         }
       : undefined,
     webVersion: shortSha(result.data.HYPERSHELL_WEB_VERSION ?? "unknown"),
+    // Build time is a human-readable timestamp, not a commit sha, so it is
+    // relayed as-is rather than passed through shortSha().
+    webBuildTime: result.data.HYPERSHELL_WEB_BUILD_TIME ?? "unknown",
   };
 }

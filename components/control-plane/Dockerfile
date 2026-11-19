@@ -4,6 +4,11 @@
 # Bump amd64 and arm64 together when changing tags.
 ARG BUILDARCH
 ARG TARGETARCH
+# Lead-time build metadata (OBS-SLI-09): the source commit and build time stamped
+# into the controller binary through linker flags. Konflux passes GIT_VERSION and
+# BUILD_TIME; local builds default to "unknown".
+ARG GIT_VERSION=unknown
+ARG BUILD_TIME=unknown
 
 FROM registry.access.redhat.com/hi/go:1.26.7@sha256:2a2215ce496fdd33fdc19739eaadde902f7719c8be222f22f92fd7da02c889cb AS go-amd64
 FROM registry.access.redhat.com/hi/go:1.26.7@sha256:ba850dda34c47052bb8db5561c80c43fb08d0f9a729c90fddd755a2d5b46f74b AS go-arm64
@@ -42,6 +47,10 @@ COPY components/control-plane/cmd/ components/control-plane/cmd/
 COPY components/control-plane/internal/ components/control-plane/internal/
 
 ARG TARGETARCH
+# Re-declare the build-metadata args in this stage so the go build below can stamp
+# them into the binary through -ldflags -X (OBS-SLI-09).
+ARG GIT_VERSION
+ARG BUILD_TIME
 # GO_COVERAGE=true builds a coverage-instrumented binary for local Kind runs
 # (KIND_COVERAGE=true, specs/platform/local-development.spec.md DEV-LOC-18).
 # Release builds leave it off.
@@ -59,7 +68,10 @@ RUN cover_flags=""; \
   if [ "${GO_COVERAGE}" = "true" ]; then \
     cover_flags="-cover -covermode=atomic -coverpkg=github.com/openshift-online/hypershell/components/control-plane/..."; \
   fi; \
-  cd components/control-plane && CGO_ENABLED=0 GOOS=linux GOARCH="${TARGETARCH}" go build -mod=mod ${cover_flags} -ldflags="-s -w" -o /workspace/hypershell-controller ./cmd/hypershell-controller
+  cd components/control-plane && CGO_ENABLED=0 GOOS=linux GOARCH="${TARGETARCH}" go build -mod=mod ${cover_flags} -ldflags="-s -w \
+    -X github.com/openshift-online/hypershell/components/control-plane/pkg/version.Version=${GIT_VERSION} \
+    -X 'github.com/openshift-online/hypershell/components/control-plane/pkg/version.BuildTime=${BUILD_TIME}'" \
+    -o /workspace/hypershell-controller ./cmd/hypershell-controller
 
 # Package Helm chart from the vendored source tree in charts/openshell.
 # The chart source is committed to the repository (no network access needed),

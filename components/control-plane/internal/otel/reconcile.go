@@ -54,10 +54,12 @@ func StartReconcileSpan(ctx context.Context, kind, eventType, traceparent string
 
 	start := time.Now()
 	return ctx, func(outcome, reason string, err error) {
-		// Record outcome and duration (OBS-CRM-08, OBS-CRM-09)
+		// Record outcome and duration (OBS-CRM-08, OBS-CRM-09). Reconciliation lag
+		// (OBS-SLI-05) is NOT recorded here: it measures the delay from a desired-state
+		// change to reconcile start, recorded via RecordReconciliationLagForStart when
+		// the reconcile begins, not this reconcile's processing time.
 		RecordReconcileOutcome(ctx, kind, outcome)
 		RecordReconcileDuration(ctx, kind, eventType, outcome, start)
-		RecordReconciliationLag(ctx, kind, time.Since(start))
 
 		// Record failure-specific metrics (OBS-CRM-11)
 		// Note: retries are recorded by the queue when the retry is actually
