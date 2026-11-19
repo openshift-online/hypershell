@@ -25,19 +25,20 @@ import (
 
 type gatewayGRPCHandler struct {
 	pb.UnimplementedGatewayServiceServer
-	service           GatewayService
-	generic           services.GenericService
-	brokerFunc        func() *pkgserver.EventBroker
-	clusters          RegisteredClusterLookup
-	clusterSubjects   pkgrbac.RegisteredClusterResolver
-	dedicatedRoute    dedicatedRouteAuthorizer
-	operatorWorkspace operatorWorkspaceAuthorizer
-	placement         PlacementResolver
-	sandboxEvents     sandboxEvents.SandboxEventStore
+	service                GatewayService
+	generic                services.GenericService
+	brokerFunc             func() *pkgserver.EventBroker
+	clusters               RegisteredClusterLookup
+	clusterSubjects        pkgrbac.RegisteredClusterResolver
+	dedicatedRoute         dedicatedRouteAuthorizer
+	operatorWorkspace      operatorWorkspaceAuthorizer
+	managedClusterSelector managedClusterSelectorAuthorizer
+	placement              PlacementResolver
+	sandboxEvents          sandboxEvents.SandboxEventStore
 }
 
-func NewGatewayGRPCHandler(svc GatewayService, generic services.GenericService, brokerFunc func() *pkgserver.EventBroker, clusters RegisteredClusterLookup, clusterSubjects pkgrbac.RegisteredClusterResolver, dedicatedRoute dedicatedRouteAuthorizer, operatorWorkspace operatorWorkspaceAuthorizer, placement ...PlacementResolver) pb.GatewayServiceServer {
-	h := &gatewayGRPCHandler{service: svc, generic: generic, brokerFunc: brokerFunc, clusters: clusters, clusterSubjects: clusterSubjects, dedicatedRoute: dedicatedRoute, operatorWorkspace: operatorWorkspace}
+func NewGatewayGRPCHandler(svc GatewayService, generic services.GenericService, brokerFunc func() *pkgserver.EventBroker, clusters RegisteredClusterLookup, clusterSubjects pkgrbac.RegisteredClusterResolver, dedicatedRoute dedicatedRouteAuthorizer, operatorWorkspace operatorWorkspaceAuthorizer, managedClusterSelector managedClusterSelectorAuthorizer, placement ...PlacementResolver) pb.GatewayServiceServer {
+	h := &gatewayGRPCHandler{service: svc, generic: generic, brokerFunc: brokerFunc, clusters: clusters, clusterSubjects: clusterSubjects, dedicatedRoute: dedicatedRoute, operatorWorkspace: operatorWorkspace, managedClusterSelector: managedClusterSelector}
 	if len(placement) > 0 {
 		h.placement = placement[0]
 	}
@@ -203,6 +204,13 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 	statusField := req.Status
 	var placementJSON *string
 	if hasPlacement {
+		// The managed-cluster/<name> identity selector targets a specific cluster and
+		// is gated to platform:admin. The gate is body-dependent, so it runs here at
+		// the create boundary, before the name is validated or resolved, and rejects a
+		// non-admin caller with PermissionDenied (SEC-RBAC-29).
+		if svcErr := h.managedClusterSelector.authorizeCreate(ctx, intent); svcErr != nil {
+			return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+		}
 		if h.placement == nil {
 			return nil, status.Error(codes.FailedPrecondition, "gateway placement resolver is unavailable")
 		}

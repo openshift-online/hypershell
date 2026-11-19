@@ -42,6 +42,12 @@ type ManagedClusterService interface {
 	// control plane registered it (non-empty oidc_subject). It returns (nil, nil)
 	// when no such record exists or the record was created manually.
 	GetRegistered(ctx context.Context, id string) (*ManagedCluster, *errors.ServiceError)
+	// FindByName returns the ManagedCluster carrying the given unique name, or
+	// (nil, nil) when no record holds it. Unlike GetRegistered it does NOT filter an
+	// unregistered placeholder (empty oidc_subject): the admin identity-selector
+	// resolver inspects OIDCSubject to distinguish an unknown name from an
+	// unregistered target so it can return the correct message (PLAT-DATA-27).
+	FindByName(ctx context.Context, name string) (*ManagedCluster, *errors.ServiceError)
 
 	OnUpsert(ctx context.Context, id string) error
 	OnDelete(ctx context.Context, id string) error
@@ -383,6 +389,20 @@ func (s *sqlManagedClusterService) FindRegisteredBySubject(ctx context.Context, 
 			return nil, nil
 		}
 		return nil, errors.GeneralError("managed cluster lookup by subject failed: %s", err)
+	}
+	return cluster, nil
+}
+
+func (s *sqlManagedClusterService) FindByName(ctx context.Context, name string) (*ManagedCluster, *errors.ServiceError) {
+	if name == "" {
+		return nil, nil
+	}
+	cluster, err := s.managedClusterDao.FindByName(ctx, name)
+	if err != nil {
+		if stderrors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, errors.GeneralError("managed cluster lookup by name failed: %s", err)
 	}
 	return cluster, nil
 }
