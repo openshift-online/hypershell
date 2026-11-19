@@ -75,8 +75,11 @@ elif name == 'make':
         assert 'SEED_STRICT=true' in args and 'SEED_OPERATOR_WORKSPACES=true' in args
         calls = [json.loads(line) for line in (infra / 'calls').read_text().splitlines()]
         patches = [yaml.safe_load(call[-1]) for call in calls if 'patch' in call]
-        assert patches and all(p['metadata']['name'] == 'hypershell-controller' for p in patches)
-        settings = {e['name']: e['value'] for e in patches[-1]['spec']['template']['spec']['containers'][0]['env']}
+        by_name = {p['metadata']['name']: p for p in patches}
+        assert set(by_name) == {'hypershell-controller', 'hypershell-api-server'}, by_name
+        api_env = {e['name']: e['value'] for e in by_name['hypershell-api-server']['spec']['template']['spec']['containers'][0]['env']}
+        assert api_env['HYPERSHELL_ENABLE_OPERATOR_WORKSPACE_MODE'] == 'true'
+        settings = {e['name']: e['value'] for e in by_name['hypershell-controller']['spec']['template']['spec']['containers'][0]['env']}
         assert settings['GATEWAY_OPERATOR_NAMESPACE_LABEL_KEY'] == 'hypershell.io/gateway'
         assert settings['GATEWAY_OPERATOR_SANDBOX_RUNTIME_CLASS'] == 'openshell-sandbox'
         assert calls.index(['prepare-oce']) < len(calls) - 1

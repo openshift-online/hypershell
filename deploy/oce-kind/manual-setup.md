@@ -152,7 +152,8 @@ python3 - <<'PY'
 import subprocess, yaml
 from pathlib import Path
 
-# Merge the controller patch, preserving other container settings.
+# Merge the controller and API server patches (the API server patch enables the
+# operator workspace_mode feature flag), preserving other container settings.
 for resource in yaml.safe_load_all(Path('deploy/oce-kind/hypershell-operator.yaml').read_text()):
     subprocess.run(['kubectl','-n','hypershell-system','patch','deployment',
                     resource['metadata']['name'],'--type=strategic','--patch',yaml.safe_dump(resource)], check=True)
