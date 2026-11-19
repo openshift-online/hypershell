@@ -1,7 +1,9 @@
 // Package openshellclient is a thin client over the OpenShell gateway's existing
-// gRPC provisioning API (openshell.v1.OpenShell), used by the control plane to
-// realize the gateway-side workspace and memberships a CITrust needs
-// (PLAT-CITR-15). It consumes OpenShell's existing operations (the ones the
+// gRPC APIs: the provisioning API (openshell.v1.OpenShell), used by the control
+// plane to realize the gateway-side workspace and memberships a CITrust needs
+// (PLAT-CITR-15), and the application-ingress discovery API
+// (openshell.v1.ServiceDiscovery), used to read the service routes supervisors
+// have installed. It consumes OpenShell's existing operations (the ones the
 // `openshell` CLI drives) rather than defining a new contract, consistent with
 // agent-workspace-gateway-api.spec.md (AGT-WSP). The protos are vendored from the
 // exact rhaiv build the gateway runs (opendatahub-io/openshell at the pinned tag).
@@ -20,7 +22,6 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	datamodelv1 "github.com/openshift-online/hypershell/components/control-plane/internal/openshellclient/gen/datamodelv1"
 	openshellv1 "github.com/openshift-online/hypershell/components/control-plane/internal/openshellclient/gen/openshellv1"
 )
 
@@ -51,12 +52,13 @@ func (r Role) proto() openshellv1.WorkspaceRole {
 	return openshellv1.WorkspaceRole_WORKSPACE_ROLE_USER
 }
 
-// Session is a short-lived admin session to one gateway's OpenShell provisioning
-// API. Every call carries the admin bearer token in gRPC metadata. Close it when
-// the provisioning operation completes (AGT-WSP-01: session per operation).
+// Session is a short-lived session to one gateway's OpenShell gRPC API. Every
+// call carries the bearer token in gRPC metadata. Close it when the operation
+// completes (AGT-WSP-01: session per operation).
 type Session struct {
 	conn *grpc.ClientConn
 	cl   openshellv1.OpenShellClient
+	disc openshellv1.ServiceDiscoveryClient
 	tok  string
 }
 
@@ -81,7 +83,19 @@ func Dial(endpoint, adminToken string, insecureSkipVerify bool) (*Session, error
 	if err != nil {
 		return nil, fmt.Errorf("dial openshell gateway %q: %w", authority, err)
 	}
-	return &Session{conn: conn, cl: openshellv1.NewOpenShellClient(conn), tok: adminToken}, nil
+	return NewSessionWithConn(conn, adminToken), nil
+}
+
+// NewSessionWithConn wraps an existing gRPC connection as a Session. Dial uses it
+// for real gateways; tests and callers that own the transport (a bufconn in-process
+// server, a tunnel) use it directly. tok is the bearer token every call carries.
+func NewSessionWithConn(conn *grpc.ClientConn, tok string) *Session {
+	return &Session{
+		conn: conn,
+		cl:   openshellv1.NewOpenShellClient(conn),
+		disc: openshellv1.NewServiceDiscoveryClient(conn),
+		tok:  tok,
+	}
 }
 
 // Close releases the underlying connection.
@@ -118,7 +132,7 @@ func (s *Session) EnsureWorkspace(ctx context.Context, name string) error {
 // subject from the trust's group. An AlreadyExists from the gateway is success.
 func (s *Session) EnsureMembers(ctx context.Context, workspace string, want map[string]Role) error {
 	ctx = s.authCtx(ctx)
-	sel := &datamodelv1.WorkspaceSelector{Selection: &datamodelv1.WorkspaceSelector_Workspace{Workspace: workspace}}
+	sel := workspaceSelector(workspace)
 
 	have := map[string]openshellv1.WorkspaceRole{}
 	for pageToken := ""; ; {

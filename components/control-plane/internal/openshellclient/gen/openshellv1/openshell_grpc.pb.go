@@ -3637,6 +3637,158 @@ var OpenShell_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
+	ServiceDiscovery_GetServiceRouteSnapshot_FullMethodName = "/openshell.v1.ServiceDiscovery/GetServiceRouteSnapshot"
+	ServiceDiscovery_WatchServiceRoutes_FullMethodName      = "/openshell.v1.ServiceDiscovery/WatchServiceRoutes"
+)
+
+// ServiceDiscoveryClient is the client API for ServiceDiscovery service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// Application ingress consumers discover routes independently of sandbox management.
+type ServiceDiscoveryClient interface {
+	// Read installed, unexpired application routes in one explicit workspace.
+	GetServiceRouteSnapshot(ctx context.Context, in *GetServiceRouteSnapshotRequest, opts ...grpc.CallOption) (*GetServiceRouteSnapshotResponse, error)
+	// Full replacement views; reauthorize during the bounded watch lifetime.
+	WatchServiceRoutes(ctx context.Context, in *WatchServiceRoutesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchServiceRoutesResponse], error)
+}
+
+type serviceDiscoveryClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewServiceDiscoveryClient(cc grpc.ClientConnInterface) ServiceDiscoveryClient {
+	return &serviceDiscoveryClient{cc}
+}
+
+func (c *serviceDiscoveryClient) GetServiceRouteSnapshot(ctx context.Context, in *GetServiceRouteSnapshotRequest, opts ...grpc.CallOption) (*GetServiceRouteSnapshotResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetServiceRouteSnapshotResponse)
+	err := c.cc.Invoke(ctx, ServiceDiscovery_GetServiceRouteSnapshot_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *serviceDiscoveryClient) WatchServiceRoutes(ctx context.Context, in *WatchServiceRoutesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchServiceRoutesResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &ServiceDiscovery_ServiceDesc.Streams[0], ServiceDiscovery_WatchServiceRoutes_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[WatchServiceRoutesRequest, WatchServiceRoutesResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ServiceDiscovery_WatchServiceRoutesClient = grpc.ServerStreamingClient[WatchServiceRoutesResponse]
+
+// ServiceDiscoveryServer is the server API for ServiceDiscovery service.
+// All implementations must embed UnimplementedServiceDiscoveryServer
+// for forward compatibility.
+//
+// Application ingress consumers discover routes independently of sandbox management.
+type ServiceDiscoveryServer interface {
+	// Read installed, unexpired application routes in one explicit workspace.
+	GetServiceRouteSnapshot(context.Context, *GetServiceRouteSnapshotRequest) (*GetServiceRouteSnapshotResponse, error)
+	// Full replacement views; reauthorize during the bounded watch lifetime.
+	WatchServiceRoutes(*WatchServiceRoutesRequest, grpc.ServerStreamingServer[WatchServiceRoutesResponse]) error
+	mustEmbedUnimplementedServiceDiscoveryServer()
+}
+
+// UnimplementedServiceDiscoveryServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedServiceDiscoveryServer struct{}
+
+func (UnimplementedServiceDiscoveryServer) GetServiceRouteSnapshot(context.Context, *GetServiceRouteSnapshotRequest) (*GetServiceRouteSnapshotResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetServiceRouteSnapshot not implemented")
+}
+func (UnimplementedServiceDiscoveryServer) WatchServiceRoutes(*WatchServiceRoutesRequest, grpc.ServerStreamingServer[WatchServiceRoutesResponse]) error {
+	return status.Error(codes.Unimplemented, "method WatchServiceRoutes not implemented")
+}
+func (UnimplementedServiceDiscoveryServer) mustEmbedUnimplementedServiceDiscoveryServer() {}
+func (UnimplementedServiceDiscoveryServer) testEmbeddedByValue()                          {}
+
+// UnsafeServiceDiscoveryServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to ServiceDiscoveryServer will
+// result in compilation errors.
+type UnsafeServiceDiscoveryServer interface {
+	mustEmbedUnimplementedServiceDiscoveryServer()
+}
+
+func RegisterServiceDiscoveryServer(s grpc.ServiceRegistrar, srv ServiceDiscoveryServer) {
+	// If the following call panics, it indicates UnimplementedServiceDiscoveryServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&ServiceDiscovery_ServiceDesc, srv)
+}
+
+func _ServiceDiscovery_GetServiceRouteSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetServiceRouteSnapshotRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ServiceDiscoveryServer).GetServiceRouteSnapshot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ServiceDiscovery_GetServiceRouteSnapshot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ServiceDiscoveryServer).GetServiceRouteSnapshot(ctx, req.(*GetServiceRouteSnapshotRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ServiceDiscovery_WatchServiceRoutes_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(WatchServiceRoutesRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(ServiceDiscoveryServer).WatchServiceRoutes(m, &grpc.GenericServerStream[WatchServiceRoutesRequest, WatchServiceRoutesResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ServiceDiscovery_WatchServiceRoutesServer = grpc.ServerStreamingServer[WatchServiceRoutesResponse]
+
+// ServiceDiscovery_ServiceDesc is the grpc.ServiceDesc for ServiceDiscovery service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var ServiceDiscovery_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "openshell.v1.ServiceDiscovery",
+	HandlerType: (*ServiceDiscoveryServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "GetServiceRouteSnapshot",
+			Handler:    _ServiceDiscovery_GetServiceRouteSnapshot_Handler,
+		},
+	},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "WatchServiceRoutes",
+			Handler:       _ServiceDiscovery_WatchServiceRoutes_Handler,
+			ServerStreams: true,
+		},
+	},
+	Metadata: "openshell.proto",
+}
+
+const (
 	SandboxUpdates_UpdateSandbox_FullMethodName = "/openshell.v1.SandboxUpdates/UpdateSandbox"
 )
 

@@ -274,6 +274,62 @@ template is invisible to every check this skill's Step 5 runs; only a manual
 follow-up rather than done in-line here since it is a CI/tooling change, not a
 version bump.
 
+## Vendored gRPC protos (`internal/openshellclient/`)
+
+`components/control-plane/internal/openshellclient/proto/` vendors four upstream
+proto files (`openshell.proto`, `datamodel.proto`, `options.proto`,
+`sandbox.proto`) from the same tag as `OPENSHELL_TAG`, so the control plane's
+gRPC client always speaks the contract the pinned gateway serves. Nothing
+re-vendors them automatically and no check compares them to upstream: a bump
+that skips this step leaves the client silently behind the gateway (for example
+missing the whole `openshell.v1.ServiceDiscovery` service that
+v0.1.9-rhaiv.0 added).
+
+The vendored files are **not** byte-identical to upstream. Two mechanical
+transforms are applied to every file, and nothing else:
+
+1. Insert `option go_package = "github.com/openshift-online/hypershell/components/control-plane/internal/openshellclient/gen/<alias>v1;<alias>v1";`
+immediately after the `package ...;` line. The module option in `buf.gen.yaml`
+then places the generated Go package under `gen/<alias>v1/`.
+2. Replace every em dash (U+2014) with `-`, the same normalization the chart
+vendor step applies, because `make check`'s forbidden-terms check rejects U+2014
+anywhere in the tree.
+
+To re-vendor at a bump (run from `components/control-plane/internal/openshellclient/`):
+
+```bash
+mkdir -p /tmp/os-proto && cd /tmp/os-proto
+for f in openshell.proto datamodel.proto options.proto sandbox.proto; do
+  curl -sSfL "https://raw.githubusercontent.com/opendatahub-io/openshell/$OPENSHELL_TAG/proto/$f" -o "$f"
+done
+```
+
+then apply the two transforms above, copy the four files over `proto/`, and
+regenerate:
+
+```bash
+cd components/control-plane/internal/openshellclient
+export PATH="$(go env GOPATH)/bin:$PATH"   # buf, protoc-gen-go, protoc-gen-go-grpc
+buf generate
+```
+
+`buf generate` rewrites everything under `gen/`. Pin the plugin versions to the
+ones the committed generated code was produced with (read the `// versions:`
+header in `gen/openshellv1/openshell.pb.go` and `openshell_grpc.pb.go`) so the
+diff shows the proto change and not a plugin-version header bump; install a
+specific version into a scratch GOBIN instead of overwriting `$(go env GOPATH)/bin`:
+
+```bash
+GOBIN=/tmp/bintools go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1
+PATH="/tmp/bintools:$PATH" buf generate
+```
+
+Then `go build ./...` and `go test ./internal/openshellclient/`. The wire
+contract itself is guarded by unit tests against an in-process fake gateway
+(`discovery_test.go` serves `openshell.v1.ServiceDiscovery` over a bufconn
+listener), so a missing or renamed RPC breaks the build or the test rather than
+failing at a live gateway.
+
 ## Workflow
 
 0. **Check for pending `needs-decision` issues.** Before resolving the target
@@ -638,6 +694,87 @@ If a run produced no new lessons, that is itself worth a one-line log entry
 ## Learnings log
 
 Newest first. Each entry: version, date, what happened, what changed in the repo.
+
+- **v0.1.9-rhaiv.0 (2026-11-18, v0.1.8-rhaiv.0 -> v0.1.9-rhaiv.0, driven by
+  openshift-online/hypershell#1127 slice S0, not a scheduled sync):** Bump plus
+  proto re-vendor, and the first bump where the upstream *image publish* rather
+  than the source is the blocker.
+  - **Both discovery prerequisites are in this tag; the images are not.**
+    `v0.1.9-rhaiv.0` (commit `8ed3953a`, 2026-11-18) is a descendant of
+    NVIDIA/OpenShell#4842 (hashed service hostnames, merge `26134dc7`,
+    2026-10-27) and #4941 (`openshell.v1.ServiceDiscovery` snapshot + watch
+    RPCs, merge `bf9f55cd`, 2026-11-16). The previously pinned
+    `v0.1.8-rhaiv.0` has #4842 but **not** #4941 (compare status `diverged`), so
+    the discovery protos were absent before this bump. `v0.1.8-rhaiv.1` through
+    `.3` also predate #4941; `v0.1.8-rhaiv.4` (2026-11-17) and
+    `v0.1.9-rhaiv.0` both contain it.
+  - **No images exist for either tag that carries #4941.** The Quay tag API
+    returns empty for `quay.io/opendatahub/odh-openshell-{gateway,supervisor,
+    sandbox,cli}:v0.1.9-rhaiv.0` and `:v0.1.8-rhaiv.4`. On the `v0.1.9-rhaiv.0`
+    tag commit the fork's Konflux tag pipelines (`odh-openshell-{gateway,
+    supervisor,sandbox}-on-tag`) all concluded `failure` on 2026-11-18, and the
+    `-on-push` builds were failing on `main` in the same window. RHAIV tags are
+    cut by `.github/workflows/rhaiv-auto-tag.yml`; the images are built by
+    Konflux from `.tekton/odh-openshell-*-tag.yaml` in the
+    `open-data-hub-tenant` namespace, so only the fork's Konflux can publish
+    them. Image publication in the fork lags the tags: the newest midstream
+    *semver* alias with images is `v0.1.8-rhaiv.2` (published 2026-11-13).
+    `v0.1.8-rhaiv.3`'s commit (`98db305a`) does have gateway, supervisor and
+    sandbox images under the Konflux `sha-<commit>` tag, but its semver alias is
+    absent; `v0.1.8-rhaiv.4` and `v0.1.9-rhaiv.0` have no images under either
+    name. Every tag that carries #4941 therefore has no images at all.
+    Consequence for this repo: the pin is correct at the source
+    level but `make e2e` / Kind runs cannot pull the gateway images until the
+    fork publishes them; the ROKS mirror digests in
+    `skills/deploy/ibm-cluster/SKILL.md` are tag-only for the same reason (never
+    pair a new tag with the old digest).
+  - **Chart plumbing for hashed hostnames verified at the tag.**
+    `deploy/helm/openshell/templates/_toml.tpl` renders
+    `[openshell.gateway] name` from `gatewayConfig."openshell.gateway".name`,
+    falling back to `server.name` and then the chart fullname, and
+    `service_hostname_format` from
+    `gatewayConfig."openshell.gateway".service_hostname_format`, falling back to
+    the legacy `server.serviceHostnameFormat` (and omitting it entirely when
+    empty). Rendered all three cases with `helm template` against the vendored
+    tree: gatewayConfig path and legacy path both emit
+    `service_hostname_format = "hashed"` plus the 16-hex installation name; the
+    default emits `name = "openshell-gateway"` and no format key.
+  - **Proto re-vendor: only additive changes in range.** The only upstream proto
+    delta between the two tags is the 66-line `openshell.v1.ServiceDiscovery`
+    block in `openshell.proto` (service, `GetServiceRouteSnapshot`,
+    `WatchServiceRoutes`, `ServiceRouteSnapshot`, `DiscoveredServiceRoute`,
+    `ServiceRouteEndpoint`); `datamodel.proto`, `options.proto` and
+    `sandbox.proto` are byte-identical. No removed non-comment lines anywhere.
+    Documented the vendoring transform (go_package insertion + em-dash
+    normalization + `buf generate` with pinned plugins) in a new section above,
+    because it was undocumented and the vendored files are not upstream copies.
+  - **Chart changes in range and their HyperShell impact.** `_toml.tpl` moves the
+    OIDC issuer CA from the `SSL_CERT_FILE` env var to
+    `[openshell.gateway.oidc] ca_bundle` (mount unchanged); HyperShell sets
+    `server.oidc.caConfigMapName: gateway-trusted-ca` when `HasTrustedCA`, so an
+    OpenShift-issuer gateway now trusts that CA through the TOML file instead of
+    the process env. Behaviorally equivalent, but it is a real contract move and
+    worth a live OIDC login check on the next OpenShift e2e. `_helpers.tpl`
+    normalizes `app.kubernetes.io/version` build metadata (`+` -> `_`, truncated
+    to 63), which matters only for tags containing `+` (this tag has none).
+    `clusterrole.yaml`/`role.yaml`/`peer-role.yaml` are byte-identical, so no
+    controller RBAC change was needed. The httpPort local patch was erased by
+    the vendor step as always and re-applied; `templates/service.yaml` and
+    `tests/service_test.yaml` are byte-identical to pre-vendor, and the only
+    diffs versus upstream in `values.yaml`/`README.md` are upstream's own OIDC
+    comment wording.
+  - **Console pin left alone.** The newest dashboard release on gateway line 0.1
+    is still `v0.1.3`, which is the current `OPENSHELL_CONSOLE_DIGEST`; no
+    console change in this bump.
+  - **Checks.** `make check` EXIT=0; control-plane `go build`/`go vet` clean;
+    `go test ./...` passes except the pre-existing
+    `internal/gateway` testcontainers test
+    `TestReconcileGatewayDatabaseWhileTemplate1Occupied`, which fails in this
+    environment because the bind-mounted TLS dir is unreadable inside the
+    postgres container (`cp: cannot open '/tls/tls.key' for reading:
+    Permission denied`), reproduced outside the test; `internal/helm`
+    render-guard tests pass once a `helm` binary is on PATH (they skip
+    otherwise).
 
 - **v0.1.8-rhaiv.0 (2026-11-11, v0.1.6-rhaiv.4 -> v0.1.8-rhaiv.0, no-arg scheduled
   run = latest stable midstream):** Clean mechanical bump across two NVIDIA base
