@@ -35,7 +35,7 @@ on:
       cli_image:
         description: Version-matched openshell CLI image (same tag as the gateway)
         required: false
-        default: "quay.io/opendatahub/odh-openshell-cli:v0.1.8-rhaiv.0"
+        default: "quay.io/opendatahub/odh-openshell-cli:v0.1.9-rhaiv.0"
       keycloak_url:
         description: Keycloak base URL
         required: false

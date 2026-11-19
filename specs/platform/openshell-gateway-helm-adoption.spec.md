@@ -350,7 +350,7 @@ policy are out of scope.
 | GRPCRoute `openshell-gateway` | `grpcroute.yaml` | `grpcRoute.enabled` |
 | BackendTLSPolicy `openshell-gateway` | `backend-tls-policy.yaml` (PR #2728) | `grpcRoute.backendTLSPolicy.enabled` |
 | BackendCA ConfigMap | Created by certgen hook (PR #2728) | `grpcRoute.backendTLSPolicy.enabled` |
-| Trusted CA volume/mount/env | `_gateway-workload.tpl` | `server.oidc.caConfigMapName` |
+| Trusted CA volume/mount and `[openshell.gateway.oidc] ca_bundle` | `_gateway-workload.tpl`, `_toml.tpl` | `server.oidc.caConfigMapName` |
 
 ### Gap Table: Control-Plane-Managed Resources
 
@@ -360,7 +360,7 @@ The Helm chart covers the OpenShell gateway deployment itself. The control plane
 |---|---|---|---|---|
 | 1 | `openshell-sandbox-privileged-scc` | RoleBinding | Namespace | OpenShift SCC binding granting the `privileged` SCC to the sandbox ServiceAccount. The chart handles `podSecurityContext` values but has no concept of OpenShift SCC grants. This is documented as an out-of-chart step in the [upstream chart README](https://github.com/NVIDIA/OpenShell/blob/main/deploy/helm/openshell/README.md#install-on-openshift). |
 
-The trusted CA ConfigMap (`gateway-trusted-ca`) is still copied from the CP namespace into the tenant namespace by the control plane, but its injection into the Deployment is handled by the chart via `server.oidc.caConfigMapName` -- no post-Helm SSA patch is needed. The control plane normalizes the ConfigMap key to `ca.crt` (the key the chart expects at the mount path) when copying, regardless of the source key name.
+The trusted CA ConfigMap (`gateway-trusted-ca`) is still copied from the CP namespace into the tenant namespace by the control plane, but its injection into the Deployment is handled by the chart via `server.oidc.caConfigMapName` -- no post-Helm SSA patch is needed. The control plane normalizes the ConfigMap key to `ca.crt` (the key the chart expects at the mount path) when copying, regardless of the source key name. Up to gateway v0.1.8 the chart consumed that CA through a process-level `SSL_CERT_FILE` env var, which applied it to all gateway outbound TLS; from v0.1.9 it renders `ca_bundle = "/etc/openshell-tls/oidc-ca/ca.crt"` into `[openshell.gateway.oidc]` instead, so the bundle augments trust roots for OIDC requests only. Both forms mount the same ConfigMap, and the control plane sets the same value in either case.
 
 ### Multi-Tenant: Namespace-Scoped ClusterRole Names
 

@@ -47,7 +47,7 @@ concurrency:
 
 env:
   FULLSEND_VERSION: v0.55.0
-  OPENSHELL_VERSION: ${{ vars.FULLSEND_OPENSHELL_VERSION || 'v0.1.8-rhaiv.0' }}
+  OPENSHELL_VERSION: ${{ vars.FULLSEND_OPENSHELL_VERSION || 'v0.1.9-rhaiv.0' }}
   HYPERSHELL_API_URL: ${{ vars.FULLSEND_API_URL || 'https://api.hyp0.infra.hypershell.app' }}
   KEYCLOAK_URL: ${{ vars.FULLSEND_KEYCLOAK_URL || 'https://keycloak.hyp0.infra.hypershell.app' }}
   REALM: ${{ vars.FULLSEND_REALM || 'hypershell' }}
