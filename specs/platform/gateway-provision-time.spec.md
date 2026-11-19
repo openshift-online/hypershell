@@ -1,15 +1,15 @@
 # Gateway Provision Time
 
 **Status:** Active
-**Applies to:** `deploy/base` and `deploy/kind` control-plane metrics pipeline and Prometheus configuration, `components/web-console` BFF and dashboard adapter, `packages/operational-dashboard-ui`, `components/control-plane` (`gateway.provision.duration` histogram per `platform/control-plane-observability.spec.md` OBS-CPL-07)
+**Applies to:** `deploy/base` and `deploy/kind` metrics pipeline and Prometheus configuration, `components/web-console` BFF and dashboard adapter, `packages/operational-dashboard-ui`, `components/api-server` (durable `gateway_provision_duration_seconds` series per `platform/service-level-indicators.spec.md` OBS-SLI-04)
 
 ## Purpose
 
 Expose **gateway provision duration statistics** on the operational dashboard so dashboard operators can see how long it typically takes for gateways in the fleet to reach the `Running` phase.
 
-This is **HyperShell application telemetry** recorded by the control plane when a gateway completes its first successful transition to `Running`. It is **not** cluster infrastructure metrics, per-gateway SLA tracking in the UI, or control-plane reconcile latency in isolation.
+This is **HyperShell application telemetry** recorded durably by the API server when a gateway completes its first successful transition to `Running`. It is **not** cluster infrastructure metrics, per-gateway SLA tracking in the UI, or control-plane reconcile latency in isolation.
 
-Version 3 aggregates four fleet-wide statistics from the control-plane histogram:
+Version 3 aggregates four fleet-wide statistics from the durable provision-duration histogram:
 
 | Statistic | Meaning |
 | --- | --- |
@@ -24,7 +24,7 @@ The operational dashboard `system-summary` card keeps its mean, median (P50), an
 
 ### Relationship to other specifications
 
-- **Control-plane observability** (`platform/control-plane-observability.spec.md` OBS-CPL-07) owns recording `gateway.provision.duration` as an OTLP histogram in seconds with explicit bucket boundaries from 1 second through 15 minutes and the companion `gateway.provision.outcomes` counter (`platform/gateway-provision-outcomes.spec.md`).
+- **Service level indicators** (`platform/service-level-indicators.spec.md` OBS-SLI-04) own having the API server emit `gateway_provision_duration_seconds` durably, in seconds, with explicit bucket boundaries from 1 second through 15 minutes, and the companion `gateway_provision_outcomes_total` counter (`platform/gateway-provision-outcomes.spec.md`).
 - **Operational dashboard** (`web-console/operational-dashboard.spec.md`) owns the `provision-time` system-summary rows, refresh policy (WEB-OPS-09), independent metric sources (WEB-OPS-19), and dashboard-operator access (WEB-OPS-04).
 - **Cluster memory/CPU/pods/nodes** specs follow the same BFF Prometheus proxy pattern used here.
 - **Gateway list metrics** (`provisioned-gateways`, `provisioned-sandboxes`) remain REST-driven and are unrelated to provision duration.
@@ -32,7 +32,7 @@ The operational dashboard `system-summary` card keeps its mean, median (P50), an
 
 ### Scope note: fleet-wide vs RBAC-filtered
 
-The histogram reflects every provision the control plane has observed across the platform. It is **not** filtered to gateways visible in the caller's paginated gateway list. This matches other hub-cluster infrastructure metrics (memory, CPU, pods, nodes) and gives operators a stable fleet-wide provision-time signal independent of per-user list visibility.
+The histogram reflects every provision the API server has recorded across the platform. It is **not** filtered to gateways visible in the caller's paginated gateway list. This matches other hub-cluster infrastructure metrics (memory, CPU, pods, nodes) and gives operators a stable fleet-wide provision-time signal independent of per-user list visibility.
 
 Historical trend series other than daily P99, per-gateway duration breakdown, and gateway-list timestamp proxies are out of scope (see Non-Goals).
 
@@ -40,17 +40,17 @@ Historical trend series other than daily P99, per-gateway duration breakdown, an
 
 ### Requirement: OBS-GPT-09 -- Prometheus Histogram Availability
 
-The Prometheus instance configured for the web-console BFF (`PROMETHEUS_URL`, same origin as cluster metrics) SHALL expose the control-plane provision-duration histogram in Prometheus exposition format.
+The Prometheus instance configured for the web-console BFF (`PROMETHEUS_URL`, same origin as cluster metrics) SHALL expose the API-server provision-duration histogram in Prometheus exposition format.
 
-The canonical series prefix SHALL be `gateway_provision_duration_seconds` with the standard histogram suffixes `_bucket`, `_count`, and `_sum`, derived from the OTLP metric `gateway.provision.duration` (OBS-CPL-07).
+The canonical series prefix SHALL be `gateway_provision_duration_seconds` with the standard histogram suffixes `_bucket`, `_count`, and `_sum`, emitted durably by the API server (OBS-SLI-04).
 
-Deploy and local-development configuration SHALL route control-plane OTLP metrics into that Prometheus instance. When the histogram is absent or has zero observations, provision-time collection SHALL fail per OBS-GPT-07 rather than synthesizing values.
+Deploy and local-development configuration SHALL scrape the API server metrics endpoint (OBS-SLI-04, OBS-GMD-02) into that Prometheus instance. When the histogram is absent or has zero observations, provision-time collection SHALL fail per OBS-GPT-07 rather than synthesizing values.
 
 `DATA_SOURCES.md` SHALL document the canonical PromQL expressions once scrape or collector wiring is chosen during implementation.
 
 #### Scenario: OBS-GPT-09.01 -- Histogram present after gateway provisions
 
-- GIVEN the control plane has recorded at least one `gateway.provision.duration` observation
+- GIVEN the API server has recorded at least one provision-duration observation
 - AND the metrics pipeline exposes `gateway_provision_duration_seconds_count` greater than zero
 - WHEN the BFF evaluates provision-time PromQL
 - THEN mean, P50, P95, and 7-day P99 SHALL be computable from the histogram series
@@ -107,12 +107,14 @@ When `gateway_provision_duration_seconds_count` is zero, any PromQL result is no
 
 ---
 
-### Requirement: OBS-GPT-02 -- Control-Plane Semantics
+### Requirement: OBS-GPT-02 -- Provision Duration Semantics
 
-Provision-duration samples SHALL follow OBS-CPL-07:
+Provision-duration samples SHALL follow `platform/service-level-indicators.spec.md`
+OBS-SLI-04, which has the API server emit `gateway_provision_duration_seconds`
+durably from persisted phase-transition timestamps:
 
 - One observation per gateway on its **first** successful transition to `Running`
-- Duration computed from API-server `created_at` and `updated_at` on the successful phase update
+- Duration computed from the persisted create-to-`Running` transition timestamps
 - No Gateway identifier label on the metric
 - Recoveries from `Degraded` to `Running` SHALL NOT produce additional observations
 
@@ -129,7 +131,7 @@ Provision-duration samples SHALL follow OBS-CPL-07:
 
 Hub-cluster provision duration SHALL be derived from Prometheus instant queries executed by the web-console BFF against `PROMETHEUS_URL` (same configuration as `platform/cluster-memory.spec.md` OBS-MEM-03).
 
-The BFF SHALL evaluate the existing three PromQL expressions as instant queries and the P99 expression over the selected 7-day window. Queries SHALL aggregate with `sum(...)` across all histogram series so control-plane replicas contribute to one fleet-wide histogram.
+The BFF SHALL evaluate the existing three PromQL expressions as instant queries and the P99 expression over the selected 7-day window. Queries SHALL aggregate with `sum(...)` across all histogram series so API-server replicas contribute to one fleet-wide histogram.
 
 The BFF SHALL NOT contact the HyperShell API server or Kubernetes API directly for provision duration.
 

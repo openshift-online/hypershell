@@ -226,6 +226,7 @@ build-api-server:
 build-controller:
 	$(CONTAINER_ENGINE) build -t $(control_plane_local) \
 		--build-arg OPENSHELL_TAG=$(OPENSHELL_TAG) \
+		--build-arg BUILD_TIME="$(build_time)" \
 		-f components/control-plane/Dockerfile .
 
 .PHONY: build-cli
@@ -238,6 +239,7 @@ build-cli: generate-cli
 build-web-console:
 	$(CONTAINER_ENGINE) build -t $(web_console_local) \
 		--build-arg GIT_VERSION=$(build_version) \
+		--build-arg BUILD_TIME="$(build_time)" \
 		-f components/web-console/Dockerfile .
 
 # ============================================================================

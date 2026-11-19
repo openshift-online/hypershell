@@ -152,6 +152,7 @@ describe("GET /api/metrics/cluster-nodes", () => {
       sessionTtlSeconds: 28_800,
       staticRoot,
       webVersion: "unknown",
+      webBuildTime: "unknown",
       ...overrides,
     };
     return buildApp(config);

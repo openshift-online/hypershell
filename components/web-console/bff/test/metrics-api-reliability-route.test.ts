@@ -146,6 +146,7 @@ describe("GET /api/metrics/api-reliability", () => {
       sessionTtlSeconds: 28_800,
       staticRoot,
       webVersion: "unknown",
+      webBuildTime: "unknown",
       ...overrides,
     };
     return buildApp(config);

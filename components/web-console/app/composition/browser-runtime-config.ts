@@ -13,6 +13,8 @@ export interface BrowserRuntimeConfig {
   };
   /** Web console build version, stamped into the image at build time. */
   webVersion: string;
+  /** Web console build time, stamped into the image at build time. */
+  webBuildTime: string;
 }
 
 // When no config is available the browser records nothing: it must never emit
@@ -21,6 +23,7 @@ const disabledRuntimeConfig: BrowserRuntimeConfig = {
   apiVersion: "unknown",
   tracing: { sampleRatio: 0 },
   webVersion: "unknown",
+  webBuildTime: "unknown",
 };
 
 function isSampleRatio(value: unknown): value is number {
@@ -61,6 +64,7 @@ export function readBrowserRuntimeConfig(
       apiVersion?: unknown;
       tracing?: { sampleRatio?: unknown };
       webVersion?: unknown;
+      webBuildTime?: unknown;
     };
     const sampleRatio = parsed.tracing?.sampleRatio;
     if (!isSampleRatio(sampleRatio)) {
@@ -70,6 +74,7 @@ export function readBrowserRuntimeConfig(
       apiVersion: versionOrUnknown(parsed.apiVersion),
       tracing: { sampleRatio },
       webVersion: versionOrUnknown(parsed.webVersion),
+      webBuildTime: versionOrUnknown(parsed.webBuildTime),
     };
   } catch {
     return disabledRuntimeConfig;

@@ -12,7 +12,13 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+
+	cpversion "github.com/openshift-online/hypershell/components/control-plane/pkg/version"
 )
+
+// nowFunc is the package clock. Production uses time.Now; tests override it to
+// make reconciliation-lag and oldest-unconverged-age timing deterministic.
+var nowFunc = time.Now
 
 var (
 	reconcileDuration                  metric.Int64Histogram
@@ -42,6 +48,7 @@ var (
 	reconciliationFailures             metric.Int64Counter
 	reconciliationRetries              metric.Int64Counter
 	reconciliationLag                  metric.Float64Histogram
+	oldestUnconvergedGenerationAge     metric.Float64ObservableGauge
 	staleResourceStatusCount           metric.Int64Gauge
 	reconciliationResourcesTotal       metric.Int64Gauge
 	watchReconnects                    metric.Int64Counter
@@ -88,14 +95,48 @@ type GatewayPopulationState struct {
 var gatewayPopulations = struct {
 	sync.Mutex
 	byCluster map[string]map[string]bool
-	seeded    map[string]bool
-	seeding   map[string]bool
-	pending   map[string]map[string]*bool
+	// unconvergedSince records, per cluster, the time each currently-unconverged
+	// (stale) Gateway became unconverged. A resource is added when it transitions
+	// to stale (or is first seen stale) and removed when it converges or is
+	// deleted. The oldest-unconverged-generation gauge (OBS-SLI-06) derives the
+	// backlog age from these timestamps. Resource IDs stay in process memory and
+	// are never exported as labels.
+	unconvergedSince map[string]map[string]time.Time
+	seeded           map[string]bool
+	seeding          map[string]bool
+	pending          map[string]map[string]*bool
 }{
-	byCluster: make(map[string]map[string]bool),
-	seeded:    make(map[string]bool),
-	seeding:   make(map[string]bool),
-	pending:   make(map[string]map[string]*bool),
+	byCluster:        make(map[string]map[string]bool),
+	unconvergedSince: make(map[string]map[string]time.Time),
+	seeded:           make(map[string]bool),
+	seeding:          make(map[string]bool),
+	pending:          make(map[string]map[string]*bool),
+}
+
+// generationStamp records the newest desired-state generation observed for a
+// resource and when it was first observed, plus whether reconciliation lag has
+// already been recorded for it. See NoteGenerationObserved / RecordReconciliationLagForStart.
+type generationStamp struct {
+	generation int64
+	firstSeen  time.Time
+	recorded   bool
+}
+
+// reconciliationLagStamps maps a resource (kind + resource ID) to the timing of
+// its newest observed generation so the first reconcile that acts on that
+// generation can record honest reconciliation lag (OBS-SLI-05). Resource IDs are
+// kept only in this process-memory map and are never exported as metric labels.
+var reconciliationLagStamps = struct {
+	sync.Mutex
+	byKey map[string]*generationStamp
+}{
+	byKey: make(map[string]*generationStamp),
+}
+
+// lagStampKey builds the in-memory map key. The NUL separator cannot appear in a
+// resource kind, so kind and resource ID never collide.
+func lagStampKey(kind, resourceID string) string {
+	return kind + "\x00" + resourceID
 }
 
 func registerMetrics() error {
@@ -296,11 +337,29 @@ func registerMetrics() error {
 	reconciliationLag, err = meter.Float64Histogram(
 		"hypershell.reconciliation.lag",
 		metric.WithUnit("s"),
-		metric.WithDescription("Time spent processing a control-plane reconciliation"),
+		metric.WithDescription("Time from a resource's desired-state (generation) change until the control plane starts the reconcile that first acts on that generation"),
 		metric.WithExplicitBucketBoundaries(0.001, 0.01, 0.1, 1, 5, 10, 30, 60, 300),
 	)
 	if err != nil {
 		return err
+	}
+
+	oldestUnconvergedGenerationAge, err = meter.Float64ObservableGauge(
+		"hypershell.oldest_unconverged_generation.age",
+		metric.WithUnit("s"),
+		metric.WithDescription("Age of the oldest resource whose observed generation trails its desired generation"),
+	)
+	if err != nil {
+		return err
+	}
+	if _, err = meter.RegisterCallback(
+		func(_ context.Context, observer metric.Observer) error {
+			observeOldestUnconvergedGenerationAge(observer)
+			return nil
+		},
+		oldestUnconvergedGenerationAge,
+	); err != nil {
+		return fmt.Errorf("register oldest unconverged generation age callback: %w", err)
 	}
 
 	staleResourceStatusCount, err = meter.Int64Gauge(
@@ -359,16 +418,18 @@ func registerMetrics() error {
 
 	controlPlaneInfo, err = meter.Int64ObservableGauge(
 		"hypershell.control_plane.info",
-		metric.WithDescription("Default gateway image this control plane provisions; always 1"),
+		metric.WithDescription("Default gateway image this control plane provisions plus its build revision and build time; always 1"),
 	)
 	return err
 }
 
 // RegisterClusterIdentityInfo exports this control plane's managed-cluster name,
-// its configured capability set, and its default gateway image as always-1 info
-// gauges (OBS-CPL-09). The values come from deployment configuration, so a
-// GitOps override of the capability list cannot hide the image the control plane
-// actually deploys. The returned function removes the callback.
+// its configured capability set, its default gateway image, and its build
+// revision and build time as always-1 info gauges (OBS-CPL-09, OBS-SLI-09). The
+// values come from deployment configuration and the ldflags-stamped version
+// package, so a GitOps override of the capability list cannot hide the image the
+// control plane actually deploys, and the running commit is attributable to a
+// merged change. The returned function removes the callback.
 func RegisterClusterIdentityInfo(clusterName string, capabilities []string, gatewayImage string) (func() error, error) {
 	if capabilityInfo == nil || controlPlaneInfo == nil || clusterName == "" {
 		return func() error { return nil }, nil
@@ -388,6 +449,11 @@ func RegisterClusterIdentityInfo(clusterName string, capabilities []string, gate
 			observer.ObserveInt64(controlPlaneInfo, 1, metric.WithAttributes(
 				attribute.String("managed_cluster", clusterName),
 				attribute.String("gateway_image", gatewayImage),
+				// Lead-time build metadata (OBS-SLI-09): the source commit and build
+				// time stamped into this binary through -ldflags, read directly from
+				// the version package so no new HTTP surface is needed.
+				attribute.String("revision", cpversion.Version),
+				attribute.String("build_time", cpversion.BuildTime),
 			))
 			return nil
 		},
@@ -667,14 +733,150 @@ func RecordReconciliationRetry(ctx context.Context, kind, reason string) {
 	))
 }
 
-// RecordReconciliationLag records the elapsed reconciliation processing time.
-func RecordReconciliationLag(ctx context.Context, kind string, duration time.Duration) {
-	if reconciliationLag == nil || duration < 0 {
+// NoteGenerationObserved stamps the time a NEW desired-state generation was first
+// observed for a resource (OBS-SLI-05), so the first reconcile that acts on that
+// generation can report honest reconciliation lag. It is a no-op for a generation
+// not newer than the one already stamped (repeated observations of the same
+// generation keep the earliest firstSeen). Resource IDs stay in process memory
+// only and are never exported as metric labels.
+func NoteGenerationObserved(kind, resourceID string, generation int64) {
+	if kind == "" || resourceID == "" || generation <= 0 {
 		return
 	}
-	reconciliationLag.Record(ctx, duration.Seconds(), metric.WithAttributes(
+	key := lagStampKey(kind, resourceID)
+	reconciliationLagStamps.Lock()
+	defer reconciliationLagStamps.Unlock()
+	existing := reconciliationLagStamps.byKey[key]
+	if existing == nil || generation > existing.generation {
+		reconciliationLagStamps.byKey[key] = &generationStamp{
+			generation: generation,
+			firstSeen:  nowFunc(),
+		}
+	}
+}
+
+// RecordReconciliationLagForStart records reconciliation lag (OBS-SLI-05): the
+// time from when a resource's desired-state generation last changed until the
+// control plane starts the reconcile that first acts on that generation. It
+// records at most once per generation -- a later redundant reconcile of the same
+// generation does not record again -- and never reflects reconcile processing
+// time (that is reconcile.duration, OBS-CPL-07). It is a no-op when the reconcile
+// acts on a generation that was never observed or already recorded.
+func RecordReconciliationLagForStart(ctx context.Context, kind, resourceID string, generation int64) {
+	if reconciliationLag == nil || kind == "" || resourceID == "" || generation <= 0 {
+		return
+	}
+	key := lagStampKey(kind, resourceID)
+	reconciliationLagStamps.Lock()
+	stamp := reconciliationLagStamps.byKey[key]
+	if stamp == nil || stamp.generation != generation || stamp.recorded {
+		reconciliationLagStamps.Unlock()
+		return
+	}
+	stamp.recorded = true
+	lag := nowFunc().Sub(stamp.firstSeen)
+	reconciliationLagStamps.Unlock()
+	if lag < 0 {
+		return
+	}
+	reconciliationLag.Record(ctx, lag.Seconds(), metric.WithAttributes(
 		attribute.String("resource.kind", kind),
 	))
+}
+
+// ForgetReconciliationLag drops a resource's generation stamp (on delete), so a
+// future resource reusing the identifier starts without a stale generation floor.
+func ForgetReconciliationLag(kind, resourceID string) {
+	if kind == "" || resourceID == "" {
+		return
+	}
+	key := lagStampKey(kind, resourceID)
+	reconciliationLagStamps.Lock()
+	delete(reconciliationLagStamps.byKey, key)
+	reconciliationLagStamps.Unlock()
+}
+
+// syncReconciliationLagStampsFromSeed rebuilds the lag stamps for one resource
+// kind from an authoritative watch seed: it prunes stamps for resources absent
+// from the seed and notes each seeded generation from seed-observation time. Used
+// on startup and watch reconnect (OBS-SLI-05).
+func syncReconciliationLagStampsFromSeed(kind string, states []GatewayPopulationState) {
+	prefix := kind + "\x00"
+	present := make(map[string]int64, len(states))
+	for _, state := range states {
+		if state.ResourceID != "" {
+			present[state.ResourceID] = state.Generation
+		}
+	}
+	now := nowFunc()
+	reconciliationLagStamps.Lock()
+	defer reconciliationLagStamps.Unlock()
+	for key := range reconciliationLagStamps.byKey {
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+		if _, ok := present[strings.TrimPrefix(key, prefix)]; !ok {
+			delete(reconciliationLagStamps.byKey, key)
+		}
+	}
+	for resourceID, generation := range present {
+		if generation <= 0 {
+			continue
+		}
+		key := prefix + resourceID
+		existing := reconciliationLagStamps.byKey[key]
+		if existing == nil || generation > existing.generation {
+			reconciliationLagStamps.byKey[key] = &generationStamp{
+				generation: generation,
+				firstSeen:  now,
+			}
+		}
+	}
+}
+
+// setUnconvergedSinceLocked maintains the per-cluster unconverged-since timestamps
+// for OBS-SLI-06. It stamps the moment a resource becomes (or is first seen)
+// unconverged and clears the stamp when it converges or is deleted. The caller
+// must hold gatewayPopulations.Lock.
+func setUnconvergedSinceLocked(cluster, resourceID string, stale bool) {
+	since := gatewayPopulations.unconvergedSince[cluster]
+	if !stale {
+		if since != nil {
+			delete(since, resourceID)
+		}
+		return
+	}
+	if since == nil {
+		since = make(map[string]time.Time)
+		gatewayPopulations.unconvergedSince[cluster] = since
+	}
+	if _, exists := since[resourceID]; !exists {
+		since[resourceID] = nowFunc()
+	}
+}
+
+// observeOldestUnconvergedGenerationAge reports, per cluster, the age in seconds
+// of the oldest Gateway whose observed generation trails its desired generation,
+// or 0 when every Gateway in that cluster is converged (OBS-SLI-06). It carries
+// only the bounded hypershell.cluster_id attribute.
+func observeOldestUnconvergedGenerationAge(observer metric.Observer) {
+	if oldestUnconvergedGenerationAge == nil {
+		return
+	}
+	now := nowFunc()
+	gatewayPopulations.Lock()
+	defer gatewayPopulations.Unlock()
+	for cluster := range gatewayPopulations.byCluster {
+		oldest := 0.0
+		for _, since := range gatewayPopulations.unconvergedSince[cluster] {
+			if age := now.Sub(since).Seconds(); age > oldest {
+				oldest = age
+			}
+		}
+		observer.ObserveFloat64(oldestUnconvergedGenerationAge, oldest, metric.WithAttributes(
+			attribute.String("hypershell.cluster_id", cluster),
+		))
+	}
 }
 
 // SetResourceStatusStale records whether a resource's observed status is
@@ -692,6 +894,7 @@ func SetResourceStatusStale(ctx context.Context, clusterID, kind, resourceID str
 		gatewayPopulations.byCluster[cluster] = population
 	}
 	population[resourceID] = stale
+	setUnconvergedSinceLocked(cluster, resourceID, stale)
 	if gatewayPopulations.seeded[cluster] {
 		recordGatewayPopulationLocked(ctx, cluster, population)
 	}
@@ -746,11 +949,28 @@ func ReplaceGatewayPopulation(ctx context.Context, clusterID string, states []Ga
 		population[resourceID] = *stale
 	}
 	gatewayPopulations.byCluster[cluster] = population
+	// Rebuild the unconverged-since timestamps from the authoritative seed: this
+	// process has no memory of when a pre-existing resource first fell behind, so
+	// every currently-stale resource is stamped at seed time (OBS-SLI-06). A
+	// converged resource carries no timestamp.
+	since := make(map[string]time.Time, len(population))
+	seedNow := nowFunc()
+	for resourceID, stale := range population {
+		if stale {
+			since[resourceID] = seedNow
+		}
+	}
+	gatewayPopulations.unconvergedSince[cluster] = since
 	gatewayPopulations.seeded[cluster] = true
 	gatewayPopulations.seeding[cluster] = false
 	delete(gatewayPopulations.pending, cluster)
 	recordGatewayPopulationLocked(ctx, cluster, population)
 	gatewayPopulations.Unlock()
+
+	// Rebuild reconciliation-lag stamps from the authoritative seed as well, so a
+	// deleted resource missed while disconnected does not linger and a seeded
+	// generation is timed from seed observation (OBS-SLI-05).
+	syncReconciliationLagStampsFromSeed("Gateway", states)
 }
 
 // UpdateGatewayPopulation applies one post-seed watch event to both the total
@@ -768,12 +988,15 @@ func UpdateGatewayPopulation(ctx context.Context, clusterID string, state Gatewa
 	}
 	if deleted {
 		delete(population, state.ResourceID)
+		setUnconvergedSinceLocked(cluster, state.ResourceID, false)
 	} else {
 		observed := int64(0)
 		if state.ObservedGeneration != nil {
 			observed = *state.ObservedGeneration
 		}
-		population[state.ResourceID] = observed < state.Generation
+		stale := observed < state.Generation
+		population[state.ResourceID] = stale
+		setUnconvergedSinceLocked(cluster, state.ResourceID, stale)
 	}
 	if gatewayPopulations.seeding[cluster] {
 		pending := gatewayPopulations.pending[cluster]
@@ -792,6 +1015,15 @@ func UpdateGatewayPopulation(ctx context.Context, clusterID string, state Gatewa
 		recordGatewayPopulationLocked(ctx, cluster, population)
 	}
 	gatewayPopulations.Unlock()
+
+	// A watch event is where a desired-state (generation) change is first learned
+	// (OBS-SLI-05). Note the new generation so the first reconcile acting on it can
+	// record lag; a delete forgets the resource's stamp so a later reuse starts clean.
+	if deleted {
+		ForgetReconciliationLag("Gateway", state.ResourceID)
+	} else {
+		NoteGenerationObserved("Gateway", state.ResourceID, state.Generation)
+	}
 }
 
 func recordGatewayPopulationLocked(ctx context.Context, cluster string, population map[string]bool) {

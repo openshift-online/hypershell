@@ -40,6 +40,7 @@ import (
 	"github.com/openshift-online/hypershell/components/control-plane/internal/serviceaccountprovisioner"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/supervisor"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/watcher"
+	"github.com/openshift-online/hypershell/components/control-plane/pkg/version"
 
 	gatewayclient "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned"
 )
@@ -93,10 +94,13 @@ func helmBinaryPath() string {
 }
 
 // buildInfo returns the binary's provenance as slog attributes for the
-// startup log: Go toolchain, target platform, and the VCS revision and build
-// time recorded by the Go linker. It helps correlate a running controller with
-// the exact commit and image it was built from. Values are best-effort; when
-// build metadata is absent (for example a plain `go run`) they report "unknown".
+// startup log: the ldflags-stamped version and build time (OBS-SLI-09), the Go
+// toolchain, target platform, and the VCS revision and build time recorded by the
+// Go linker. The stamped version/build_time are authoritative in hermetic Konflux
+// builds where debug.ReadBuildInfo VCS settings are stripped; the ReadBuildInfo
+// fields are kept for local `go build` provenance. It helps correlate a running
+// controller with the exact commit and image it was built from. Values are
+// best-effort; when metadata is absent they report "unknown".
 func buildInfo() []any {
 	revision, vcsTime := "unknown", "unknown"
 	if info, ok := debug.ReadBuildInfo(); ok {
@@ -110,6 +114,8 @@ func buildInfo() []any {
 		}
 	}
 	return []any{
+		"version", version.Version,
+		"build_time", version.BuildTime,
 		"revision", revision,
 		"vcs_time", vcsTime,
 		"go_version", runtime.Version(),

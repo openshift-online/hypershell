@@ -31,9 +31,13 @@ RUN cover_flags=""; \
   if [ "${GO_COVERAGE}" = "true" ]; then \
     cover_flags="-cover -covermode=atomic -coverpkg=github.com/openshift-online/hypershell/components/api-server/..."; \
   fi; \
+  build_time="${BUILD_TIME}"; \
+  if [ -z "${build_time}" ] || [ "${build_time}" = "unknown" ]; then \
+    build_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; \
+  fi; \
   CGO_ENABLED=0 GOOS=linux GOARCH="${TARGETARCH}" go build -mod=mod ${cover_flags} -ldflags="-s -w \
   -X github.com/openshift-online/hypershell/components/api-server/pkg/api.Version=${GIT_VERSION} \
-  -X 'github.com/openshift-online/hypershell/components/api-server/pkg/api.BuildTime=${BUILD_TIME}'" \
+  -X 'github.com/openshift-online/hypershell/components/api-server/pkg/api.BuildTime=${build_time}'" \
   -o hypershell ./cmd/hypershell
 
 FROM registry.access.redhat.com/hi/static:1787099997@sha256:3d43712a61ce01c7049e983e7f4c4609aaad7582c7bbd930b57372f82c446f98 AS static-amd64

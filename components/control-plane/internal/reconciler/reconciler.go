@@ -349,6 +349,11 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	suppressGatewayProvisionObservation(event.ResourceID, previousPhase)
 	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "Gateway", event.Type.String(), gw.GetMetadata().GetTraceparent())
 	if event.Type != watcher.EventDeleted {
+		// This is the reconcile start for a (possibly new) desired generation.
+		// Record reconciliation lag (OBS-SLI-05) for the first reconcile acting on
+		// this generation -- the delay from the generation change until now -- which
+		// is distinct from this reconcile's processing time (reconcile.duration).
+		cpotel.RecordReconciliationLagForStart(ctx, "Gateway", event.ResourceID, gw.GetGeneration())
 		observedGeneration := gw.ObservedGeneration
 		cpotel.SetResourceStatusStale(
 			ctx,

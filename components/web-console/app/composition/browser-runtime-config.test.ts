@@ -17,10 +17,10 @@ function documentWithMeta(content: string | undefined): Document {
 }
 
 describe("readBrowserRuntimeConfig", () => {
-  it("reads the sample ratio and build versions from the meta tag", () => {
+  it("reads the sample ratio and build metadata from the meta tag", () => {
     const config = readBrowserRuntimeConfig(
       documentWithMeta(
-        '{"apiVersion":"abc1234","tracing":{"sampleRatio":0.25},"webVersion":"def5678"}',
+        '{"apiVersion":"abc1234","tracing":{"sampleRatio":0.25},"webVersion":"def5678","webBuildTime":"2026-11-19 20:00:00 UTC"}',
       ),
     );
 
@@ -28,18 +28,20 @@ describe("readBrowserRuntimeConfig", () => {
       apiVersion: "abc1234",
       tracing: { sampleRatio: 0.25 },
       webVersion: "def5678",
+      webBuildTime: "2026-11-19 20:00:00 UTC",
     });
   });
 
-  it("defaults build versions to unknown without disabling tracing", () => {
+  it("defaults build metadata to unknown without disabling tracing", () => {
     for (const content of [
       '{"tracing":{"sampleRatio":0.25}}',
-      '{"apiVersion":5,"tracing":{"sampleRatio":0.25},"webVersion":""}',
+      '{"apiVersion":5,"tracing":{"sampleRatio":0.25},"webVersion":"","webBuildTime":""}',
     ]) {
       expect(readBrowserRuntimeConfig(documentWithMeta(content))).toEqual({
         apiVersion: "unknown",
         tracing: { sampleRatio: 0.25 },
         webVersion: "unknown",
+        webBuildTime: "unknown",
       });
     }
   });
@@ -49,6 +51,7 @@ describe("readBrowserRuntimeConfig", () => {
       apiVersion: "unknown",
       tracing: { sampleRatio: 0 },
       webVersion: "unknown",
+      webBuildTime: "unknown",
     });
   });
 
@@ -57,6 +60,7 @@ describe("readBrowserRuntimeConfig", () => {
       apiVersion: "unknown",
       tracing: { sampleRatio: 0 },
       webVersion: "unknown",
+      webBuildTime: "unknown",
     });
   });
 
@@ -72,6 +76,7 @@ describe("readBrowserRuntimeConfig", () => {
         apiVersion: "unknown",
         tracing: { sampleRatio: 0 },
         webVersion: "unknown",
+        webBuildTime: "unknown",
       });
     }
   });
