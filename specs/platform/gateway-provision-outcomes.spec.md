@@ -1,13 +1,13 @@
 # Gateway Provision Outcomes
 
 **Status:** Active
-**Applies to:** `deploy/base` and `deploy/kind` control-plane metrics pipeline and Prometheus configuration, `components/web-console` BFF and dashboard adapter, `packages/operational-dashboard-ui`, `components/control-plane` (`gateway.provision.outcomes` counter per `platform/control-plane-observability.spec.md` OBS-CPL-07)
+**Applies to:** `deploy/base` and `deploy/kind` metrics pipeline and Prometheus configuration, `components/web-console` BFF and dashboard adapter, `packages/operational-dashboard-ui`, `components/api-server` (durable `gateway_provision_outcomes_total` counter per `platform/service-level-indicators.spec.md` OBS-SLI-04)
 
 ## Purpose
 
 Expose **gateway provision success and failure counts** and a rolling **24-hour success rate** on the operational dashboard so dashboard operators can assess provision reliability alongside provision duration.
 
-This is **HyperShell application telemetry** recorded by the control plane when a gateway reaches its first terminal provision outcome (`Running` success or `Failed` failure). It is **not** cluster infrastructure metrics, per-gateway SLA tracking in the UI, or control-plane reconcile error counts in isolation.
+This is **HyperShell application telemetry** recorded durably by the API server when a gateway reaches its first terminal provision outcome (`Running` success or `Failed` failure). It is **not** cluster infrastructure metrics, per-gateway SLA tracking in the UI, or control-plane reconcile error counts in isolation.
 
 Version 1 aggregates fleet-wide counts from the control-plane counter over a rolling 24-hour window:
 
@@ -22,8 +22,8 @@ The operational dashboard `system-summary` card SHALL render a success-rate row 
 
 ### Relationship to other specifications
 
-- **Control-plane observability** (`platform/control-plane-observability.spec.md` OBS-CPL-07) owns recording `gateway.provision.outcomes` as an OTLP counter with `outcome` attribute values `success` and `failure`.
-- **Gateway provision time** (`platform/gateway-provision-time.spec.md`) owns the companion `gateway.provision.duration` histogram. Success outcomes SHALL be recorded together with duration observations on the same one-per-gateway claim.
+- **Service level indicators** (`platform/service-level-indicators.spec.md` OBS-SLI-04) own having the API server emit `gateway_provision_outcomes_total` durably with `outcome` label values `success` and `failure`.
+- **Gateway provision time** (`platform/gateway-provision-time.spec.md`) owns the companion `gateway_provision_duration_seconds` histogram. Success outcomes SHALL be recorded together with duration observations on the same durable one-per-gateway claim.
 - **Operational dashboard** (`web-console/operational-dashboard.spec.md`) owns the `provision-reliability` widget, system-summary success-rate row, refresh policy (WEB-OPS-09), independent metric loading within the `gateway-metrics` source (WEB-OPS-19, WEB-OPS-23), and dashboard-operator access (WEB-OPS-04).
 - **Cluster memory/CPU/pods/nodes** specs follow the same BFF Prometheus proxy pattern used here.
 
@@ -39,7 +39,7 @@ Per-gateway outcome breakdown, arbitrary lookback windows beyond 24 hours, and g
 
 The Prometheus instance configured for the web-console BFF (`PROMETHEUS_URL`, same origin as cluster metrics) SHALL expose the control-plane provision-outcomes counter in Prometheus exposition format.
 
-The canonical series SHALL be `gateway_provision_outcomes_total` with an `outcome` label (`success` or `failure`), derived from the OTLP metric `gateway.provision.outcomes` (OBS-CPL-07).
+The canonical series SHALL be `gateway_provision_outcomes_total` with an `outcome` label (`success` or `failure`), emitted durably by the API server (OBS-SLI-04).
 
 Deploy and local-development configuration SHALL route control-plane OTLP metrics into that Prometheus instance. When the counter is absent, provision-reliability collection SHALL return zero counts with `success_rate_percent: null` per OBS-GPO-07 rather than synthesizing a non-null success rate.
 
@@ -47,7 +47,7 @@ Deploy and local-development configuration SHALL route control-plane OTLP metric
 
 #### Scenario: OBS-GPO-09.01 -- Counter present after gateway provisions
 
-- GIVEN the control plane has recorded at least one `gateway.provision.outcomes` sample
+- GIVEN the API server has recorded at least one provision-outcome sample
 - AND the metrics pipeline exposes `gateway_provision_outcomes_total`
 - WHEN the BFF evaluates provision-outcomes PromQL
 - THEN 24-hour success and failure counts SHALL be computable from the counter series
@@ -61,9 +61,12 @@ Deploy and local-development configuration SHALL route control-plane OTLP metric
 
 ---
 
-### Requirement: OBS-GPO-01 -- Control-Plane Outcome Recording Contract
+### Requirement: OBS-GPO-01 -- Outcome Recording Contract
 
-Provision-outcome samples SHALL follow OBS-CPL-07 and share the same one-per-gateway in-process claim used by `gateway.provision.duration`:
+Provision-outcome samples SHALL follow `platform/service-level-indicators.spec.md`
+OBS-SLI-04, which has the API server emit `gateway_provision_outcomes_total`
+durably from the persisted convergence state, sharing the same durable
+one-per-gateway claim used by `gateway_provision_duration_seconds`:
 
 - One `outcome=success` increment on the **first** successful transition to `Running`, recorded together with the duration observation
 - One `outcome=failure` increment on the **first** transition to `Failed`
@@ -71,7 +74,7 @@ Provision-outcome samples SHALL follow OBS-CPL-07 and share the same one-per-gat
 - Recoveries from `Degraded` to `Running` SHALL NOT produce additional success observations
 - Gateways that already reached `Running` or `Degraded` before the current reconcile SHALL NOT produce new provision observations
 
-Success and failure observations for the same gateway SHALL be mutually exclusive through the shared claim.
+Success and failure observations for the same gateway SHALL be mutually exclusive through the shared durable claim.
 
 When exported to Prometheus, the counter SHALL appear as `gateway_provision_outcomes_total{outcome="success|failure"}`.
 

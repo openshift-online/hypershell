@@ -133,6 +133,11 @@ The API server SHALL export OpenTelemetry request metrics for both HTTP and gRPC
 | `http.server.active_requests` | UpDownCounter | `{request}` | In-flight HTTP requests |
 | `rpc.server.duration` | Histogram | `ms` | Latency of inbound gRPC calls |
 
+The `http.server.request.duration` histogram is the SLO-aligned API latency
+series. Its explicit bucket boundaries and its bounded read/write request-class
+attribute are defined by `platform/service-level-indicators.spec.md` OBS-SLI-07 and
+OBS-SLI-08.
+
 **Verification:** Complete representative HTTP and gRPC calls and confirm the duration histograms record them labeled by method or service and status code, that the active-request counter tracks in-flight requests, and that the existing Prometheus metrics are still exposed.
 
 #### Scenario: API-OBS-05.01 -- HTTP latency metric recorded
