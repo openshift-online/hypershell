@@ -1,7 +1,7 @@
 ---
 # update-openshell harness (adapted for hyp0: Vertex via ADC, github RW, no mint).
 agent: agents/update-openshell.md
-description: Bump pinned OpenShell images to latest stable midstream; open a PR
+description: Bump pinned OpenShell gateway and console images to the latest stable releases; open a PR
 role: coder
 slug: fullsend-update-openshell
 image: quay.io/redhat-user-workloads/hcm-eng-prod-tenant/hypershell-main/hypershell-fullsend-sandbox-main@sha256:373911325896e430b278a6d68885ac87a304542da58d03452f343a4500801fe1

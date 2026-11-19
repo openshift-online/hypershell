@@ -305,6 +305,18 @@ check-dependency-age: test-dependency-age-policy
 sync-openshell-version:
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/sync_openshell_version.py --stamp
 
+.PHONY: sync-inlined-skill
+# Regenerate the update-openshell agent's inlined tooling skill from SKILL.md so
+# the scheduled agent and the interactive skill cannot diverge (issue #1129).
+sync-inlined-skill:
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/sync_inlined_skill.py --stamp
+
+.PHONY: check-inlined-skill
+# Fail when the update-openshell agent's inlined skill is out of date with
+# skills/tooling/update-openshell/SKILL.md.
+check-inlined-skill:
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/sync_inlined_skill.py
+
 .PHONY: vendor-openshell-chart
 vendor-openshell-chart:
 	@. ./OPENSHELL_VERSION && \
@@ -365,7 +377,7 @@ check-ci-impact-scopes: test-ci-impact-scopes-policy
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_ci_impact_scopes.py
 
 .PHONY: check
-check: check-forbidden-terms check-forbidden-dom-injection check-kind-conformance check-dependency-pins check-ci-components check-deploy-orphans check-dependency-age check-openshell-version check-cli-drift check-spec-ids check-ci-impact-scopes test-release-bundle test-coverage-report
+check: check-forbidden-terms check-forbidden-dom-injection check-kind-conformance check-dependency-pins check-ci-components check-deploy-orphans check-dependency-age check-openshell-version check-inlined-skill check-cli-drift check-spec-ids check-ci-impact-scopes test-release-bundle test-coverage-report
 
 # ============================================================================
 # Git hooks

@@ -34,6 +34,13 @@ of the upstream source.
 |-------|-------------|-------------|----------------|
 | **Stable midstream** | Routine updates, production upgrades | `github.com/opendatahub-io/openshell` tags (`v0.0.NNN-rhaiv.M`) | `quay.io/opendatahub/odh-openshell-gateway:<tag>` |
 | **Agent build** | Unmerged upstream fix, pre-release validation, branch testing | `github.com/NVIDIA/OpenShell` branch or commit | Built and pushed by the HyperShell build agent; image ref returned by the agent |
+| **Gateway console** | Every bump and console-only updates | `github.com/ai-openshell/console` releases (`vX.Y.N`) | `quay.io/ai-openshell/console:<tag>` (pinned by digest); versions follow the gateway release line (major.minor) |
+
+This skill updates **two components**: the gateway images (gateway, supervisor,
+sandbox runtime, CLI) and the per-gateway console image. The console follows the
+gateway's release line (major.minor), so every gateway bump resolves the console
+target, and a new console release on the current line triggers a console-only
+update even when the gateway pin is already current (Step 3b).
 
 Use the stable midstream track unless you have a specific reason to test an
 unmerged upstream commit. The midstream `rhaiv.M` patch series applies Red Hat
@@ -467,54 +474,70 @@ version bump.
    ```
 
 3b. **Bump the console image.** Run this step on every bump, whatever triage
-   found. The per-gateway console is the OpenShell dashboard
-   (`github.com/Gkrumbach07/openshell-dashboard`, image
-   `quay.io/gkrumbach07/openshell-dashboard`). Its version follows the gateway's
-   **release line**, the major.minor of the gateway version (the dashboard's
-   ADR 0005): a dashboard release `vX.Y.N` is built and CI-tested for every
-   gateway `X.Y.x`. The target is the newest dashboard release on the line of
-   the new `OPENSHELL_TAG`:
+   found. The per-gateway console is the OpenShell gateway console
+   (`github.com/ai-openshell/console`, image `quay.io/ai-openshell/console`).
+   Releases up to v0.1.3 are only in the former `quay.io/gkrumbach07/openshell-dashboard`
+   repository (v0.1.4 is the first release in the new repository); reference the
+   old repository only to identify an old pin. Its version follows the gateway's
+   **release line**, the major.minor of the gateway version: a console release
+   `vX.Y.N` is built and CI-tested for every gateway `X.Y.x`. The target is the
+   newest console release on the line of the new `OPENSHELL_TAG`:
 
    ```bash
    . ./OPENSHELL_VERSION
-   LINE=$(printf '%s\n' "$OPENSHELL_TAG" | sed -E 's/^v([0-9]+\.[0-9]+)\..*/\1/')   # v0.1.5-rhaiv.0 -> 0.1
-   R=repos/Gkrumbach07/openshell-dashboard
+   LINE=$(printf '%s\n' "$OPENSHELL_TAG" | sed -E 's/^v([0-9]+\.[0-9]+)\..*/\1/')   # v0.1.8-rhaiv.0 -> 0.1
+   R=repos/ai-openshell/console
    REL=$(gh api "$R/releases" --jq '.[].tag_name' | grep -E "^v${LINE}\.[0-9]+$" | sort -V | tail -1)
-   TAG=${REL#v}                                       # quay tags drop the v: v0.1.1 -> 0.1.1
-   curl -s "https://quay.io/api/v1/repository/gkrumbach07/openshell-dashboard/tag/?specificTag=$TAG&onlyActiveTags=true" \
+   TAG=${REL#v}                                       # quay tags drop the v: v0.1.4 -> 0.1.4
+   curl -s "https://quay.io/api/v1/repository/ai-openshell/console/tag/?specificTag=$TAG&onlyActiveTags=true" \
      | jq -r '.tags[0].manifest_digest'
    ```
 
    - **Pin a release, by digest.** Release images carry tags `X.Y.N` and `X.Y`.
      The `latest`, `sha-<commit>` and `pr-<N>` tags are unreleased `main` and
      pull-request builds; keep them for manual trials. Name the release in the
-     comment above `HYPERSHELL_CONSOLE_IMAGE` in `deploy/base/platform-resources/controller.yaml`, e.g. "Pinned by digest to
-     dashboard release v0.1.1 (gateway line 0.1)".
-   - **No release on the line yet** (a new gateway minor the dashboard has not
+     comment above `HYPERSHELL_CONSOLE_IMAGE` in `deploy/base/platform-resources/controller.yaml`, e.g. "console release v0.1.4 (gateway line 0.1)".
+   - **No release on the line yet** (a new gateway minor the console has not
      caught up with): keep the current pin, mark it `needs-decision`, and file an
-     issue. A dashboard from another line shows a compatibility notice and may
+     issue. A console from another line shows a compatibility notice and may
      not work.
    - **Identify the current pin.** The digest's tags, including tags that have
      since moved, come from the tag history (page through `has_additional`):
      `curl -s ".../tag/?limit=100&page=<N>" | jq --arg d <DIGEST> '.tags[] | select(.manifest_digest==$d) | .name'`.
-     Put the dashboard release notes from that version to the target
-     (`gh api $R/releases --jq '.[] | .tag_name, .body'`) in the impact report.
+     Releases up to v0.1.3 are only in `quay.io/gkrumbach07/openshell-dashboard`;
+     use that repository only to identify an old pin. Read the "Supported OpenShell
+     gateways" part of the target release notes
+     (`gh api $R/releases --jq '.[] | .tag_name, .body'`) and record the tested
+     gateway version and SDK version in the impact report.
+   - **Check gateway compatibility (every run).** Read the console's SDK release
+     from the `ai-openshell/console` repository at the console tag -- its
+     `deploy/ci/gateway-pins.json` (field `release`), falling back to the SDK pin
+     in the console's `go.mod`/`go.sum`. Compare `proto/openshell.proto`,
+     `datamodel.proto`, `sandbox.proto` and `options.proto` from that NVIDIA
+     release to the target midstream tag. A removed, renumbered or retyped field
+     or RPC, or a changed authorization option, is a `needs-decision` item. If the
+     gateway line is newer than the newest console line, keep the pin and open a
+     `needs-decision` issue.
    - **Check the env contract.** The control plane builds the console Deployment
      itself (`buildConsoleDeployment` in
-     `components/control-plane/internal/gateway/console.go`). Compare the env it
-     sets with the release's `docs/configuration.md`. A newly required variable,
-     a renamed one, or a changed default for `PORT`, `AUTH_TOKEN_HEADER` or
-     `AUTH_USER_HEADER` is a code change, not a pin bump.
-   - **Write the pin.** Set `OPENSHELL_CONSOLE_DIGEST` in `OPENSHELL_VERSION` and
-     run `make sync-openshell-version`; it stamps `HYPERSHELL_CONSOLE_IMAGE`
-     in the base controller manifest, and `make check` fails when the two
-     disagree.
+     `components/control-plane/internal/gateway/console.go`). Compare each variable
+     it sets with the release's `docs/configuration.md` and
+     `backend/cmd/server/main.go`. Make sure `ADMIN_ROLE` and `USER_ROLE` equal
+     the gateway OIDC `admin_role` and `user_role` (both come from the shared
+     `GatewayAdminRole`/`GatewayUserRole` constants in `console.go`; see
+     OSG-CON-10). A newly required variable, a renamed one, or a changed default
+     for `PORT`, `AUTH_TOKEN_HEADER` or `AUTH_USER_HEADER` is a code change, not a
+     pin bump.
+   - **Write the pin.** Set `OPENSHELL_CONSOLE_IMAGE` and `OPENSHELL_CONSOLE_DIGEST`
+     in `OPENSHELL_VERSION` and run `make sync-openshell-version`; it stamps
+     `HYPERSHELL_CONSOLE_IMAGE` in the base controller manifest, and `make check`
+     fails when the two disagree.
    - **Trial on one gateway first** (optional, needs a live cluster). On the
      gateway's cluster run
-     `oc set image deploy/openshell-console -n <gateway-namespace> dashboard=quay.io/gkrumbach07/openshell-dashboard@<digest>`.
+     `oc set image deploy/openshell-console -n <gateway-namespace> dashboard=quay.io/ai-openshell/console@<digest>`.
      The control plane restores its pinned image the next time it reconciles
      that gateway's console, so this is a trial, not a deploy. A good trial has
-     the pod Ready, the BFF log line `openshell-dashboard BFF listening` with
+     the pod Ready, the BFF log line `console BFF listening` with
      `gatewayReleaseLine=<LINE>`, and a sandbox created from the console's
      Create sandbox form reaching Running.
 
@@ -638,6 +661,35 @@ If a run produced no new lessons, that is itself worth a one-line log entry
 ## Learnings log
 
 Newest first. Each entry: version, date, what happened, what changed in the repo.
+
+- **Console repo move + v0.1.4 + USER_ROLE (2026-11-19, console 0.1.3 -> 0.1.4,
+  HYPERSHELL-546 / issue #1129):** The console moved to a new upstream and image
+  repository and got its first release there.
+  - **Repository move.** Source `github.com/Gkrumbach07/openshell-dashboard` ->
+    `github.com/ai-openshell/console`; image `quay.io/gkrumbach07/openshell-dashboard`
+    -> `quay.io/ai-openshell/console`. Releases up to v0.1.3 are only in the old
+    repository; v0.1.4 is the first release in the new one. The old repository is
+    now used only to identify an old pin. Updated `OPENSHELL_CONSOLE_IMAGE` and
+    `OPENSHELL_CONSOLE_DIGEST` in `OPENSHELL_VERSION`, re-ran
+    `make sync-openshell-version`, and updated `CONSOLE_REPO` in
+    `scripts/test_sync_openshell_version.py` and the comment in `scripts/kind/up.sh`.
+  - **v0.1.4 bump (gateway line 0.1).** Pinned
+    `quay.io/ai-openshell/console@sha256:5c93f09dc9eae4ece3b46160c981b7c8ba573f3ab7b08b1ef4db4c297d7d5b37`.
+    The env contract is unchanged (23 variables, same SDK pin); the BFF start log
+    line changed from `openshell-dashboard BFF listening` to `console BFF listening`.
+    Compatible with gateway v0.1.8-rhaiv.0/.2: all proto changes v0.1.6 -> v0.1.8
+    are additive.
+  - **USER_ROLE defect.** `buildConsoleDeployment` set `ADMIN_ROLE` but omitted
+    `USER_ROLE`, so a gateway member (who holds only `openshell-user`) saw the
+    console's unentitled page. Added `USER_ROLE=openshell-user` and moved both role
+    names to shared `GatewayAdminRole`/`GatewayUserRole` constants in `console.go`,
+    also used by `DesiredOIDCConfig`, so the console roles and the gateway OIDC
+    roles cannot diverge (OSG-CON-10). Added a unit test asserting the equality.
+  - **Automation scope.** The console is now a first-class component of this skill
+    and the agent: every run resolves the console target and does a console-only
+    update when only the console is behind. The agent's inlined copy of this skill
+    is regenerated from `SKILL.md` by `scripts/sync_inlined_skill.py`, and
+    `make check` fails when the two differ.
 
 - **v0.1.8-rhaiv.0 (2026-11-11, v0.1.6-rhaiv.4 -> v0.1.8-rhaiv.0, no-arg scheduled
   run = latest stable midstream):** Clean mechanical bump across two NVIDIA base
