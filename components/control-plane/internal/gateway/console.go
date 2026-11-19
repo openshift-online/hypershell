@@ -19,6 +19,18 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+// GatewayAdminRole and GatewayUserRole are the OIDC role names the control plane
+// configures on every gateway. They are the single source of truth for both the
+// gateway OIDC Role Bridge configuration (DesiredOIDCConfig) and the console
+// dashboard's ADMIN_ROLE/USER_ROLE environment, so the two cannot diverge
+// (OSG-CON-10). The console marks a signed-in user who holds neither role as
+// unentitled, so GatewayUserRole must be passed as USER_ROLE for a non-admin
+// member (who holds only openshell-user) to use the console.
+const (
+	GatewayAdminRole = "openshell-admin"
+	GatewayUserRole  = "openshell-user"
+)
+
 const (
 	consoleName          = "openshell-console"
 	consoleSecretName    = "openshell-console-oauth2"
@@ -613,7 +625,12 @@ func buildConsoleDeployment(namespace, consoleImage, proxyImage, issuer, console
 			envVar("AUTH_DISABLED", "false"),
 			envVar("AUTH_TOKEN_HEADER", "X-Forwarded-Access-Token"),
 			envVar("AUTH_USER_HEADER", "X-Forwarded-User"),
-			envVar("ADMIN_ROLE", "openshell-admin"),
+			// ADMIN_ROLE and USER_ROLE must equal the gateway OIDC admin_role and
+			// user_role (OSG-CON-10). The console denies the UI to a user who holds
+			// neither role, so USER_ROLE is required for a non-admin member (who
+			// holds only openshell-user) to use the console.
+			envVar("ADMIN_ROLE", GatewayAdminRole),
+			envVar("USER_ROLE", GatewayUserRole),
 			envVar("LOGOUT_URL", "/oauth2/sign_out"),
 		},
 		"ports": []interface{}{

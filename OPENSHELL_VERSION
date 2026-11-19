@@ -9,5 +9,5 @@ OPENSHELL_SANDBOX_RUNTIME_IMAGE=quay.io/opendatahub/odh-openshell-sandbox
 # Workload image for e2e and Kind preload, synced from charts/openshell/values.yaml.
 OPENSHELL_SANDBOX_IMAGE=nvcr.io/nvidia/base/ubuntu:24.04
 OPENSHELL_CLI_IMAGE=quay.io/opendatahub/odh-openshell-cli
-OPENSHELL_CONSOLE_IMAGE=quay.io/gkrumbach07/openshell-dashboard
-OPENSHELL_CONSOLE_DIGEST=sha256:873d4379edfa42a7ff56451a98d4f448c2b3a7085c7beb74d1368606addced80
+OPENSHELL_CONSOLE_IMAGE=quay.io/ai-openshell/console
+OPENSHELL_CONSOLE_DIGEST=sha256:5c93f09dc9eae4ece3b46160c981b7c8ba573f3ab7b08b1ef4db4c297d7d5b37

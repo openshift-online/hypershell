@@ -135,6 +135,37 @@ func TestBuildConsoleDeployment_DashboardUsesGatewayMTLS(t *testing.T) {
 	}
 }
 
+// The console marks a signed-in user who holds neither ADMIN_ROLE nor USER_ROLE
+// as unentitled and denies the UI to that user. The OIDC Role Bridge gives a
+// gateway member only openshell-user, so a console that omits USER_ROLE rejects
+// every non-admin member (OSG-CON-10). Verify the dashboard container sets both
+// ADMIN_ROLE and USER_ROLE, and that they equal the gateway OIDC admin_role and
+// user_role (DesiredOIDCConfig) so the two cannot diverge.
+func TestBuildConsoleDeployment_RoleEnvMatchesGatewayRoles(t *testing.T) {
+	dep := buildConsoleDeployment("ns", "dash:latest", "proxy:latest",
+		"https://issuer.example/realms/r", "gw-1-console", "https://console.example/oauth2/callback", false)
+
+	dash := consoleContainerByName(t, dep, "dashboard")
+
+	oidc := DesiredOIDCConfig(nil, "gw-1-console")
+
+	adminRole, ok := envValue(dash, "ADMIN_ROLE")
+	if !ok {
+		t.Fatal("expected ADMIN_ROLE to be set on the dashboard container")
+	}
+	if adminRole != oidc.AdminRole {
+		t.Errorf("ADMIN_ROLE = %q, want the gateway admin_role %q", adminRole, oidc.AdminRole)
+	}
+
+	userRole, ok := envValue(dash, "USER_ROLE")
+	if !ok {
+		t.Fatal("expected USER_ROLE to be set on the dashboard container (a non-admin member holds only openshell-user and would be unentitled without it)")
+	}
+	if userRole != oidc.UserRole {
+		t.Errorf("USER_ROLE = %q, want the gateway user_role %q", userRole, oidc.UserRole)
+	}
+}
+
 // On OpenShift the restricted SCC assigns per-namespace UID/GID ranges and
 // rejects a pod that pins fsGroup. Because the console is reconciled outside the
 // gateway deploy path, reconcileConsole applies the same OpenShift fixup itself.

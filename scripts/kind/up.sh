@@ -283,10 +283,11 @@ else
 fi
 echo ""
 
-# The per-gateway console images (the OpenShell dashboard and its oauth2-proxy
-# sidecar) are public registry images -- the dashboard is published to quay.io,
-# pinned by digest in the control plane's ImageDefaults -- so console pods pull
-# them at start (imagePullPolicy IfNotPresent) with no build or pre-load step.
+# The per-gateway console images (the OpenShell gateway console,
+# quay.io/ai-openshell/console, and its oauth2-proxy sidecar) are public registry
+# images -- the console is published to quay.io, pinned by digest in the control
+# plane's ImageDefaults -- so console pods pull them at start (imagePullPolicy
+# IfNotPresent) with no build or pre-load step.
 
 # --- Apply pull secret (if configured) ---
 _pull_secret="$(printf '%s' "${PULL_SECRET:-${KIND_PULL_SECRET:-}}")"

@@ -125,7 +125,7 @@ class SyncOpenshellVersionTest(unittest.TestCase):
         self.assertNotIn("@sha256:", content)
 
 
-    CONSOLE_REPO = "quay.io/gkrumbach07/openshell-dashboard"
+    CONSOLE_REPO = "quay.io/ai-openshell/console"
 
     def _write_console_manifest(self, value_line):
         with tempfile.NamedTemporaryFile(

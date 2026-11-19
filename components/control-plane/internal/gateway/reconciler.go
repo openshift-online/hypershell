@@ -1241,8 +1241,10 @@ func DesiredOIDCConfig(kcConfig *KeycloakConfig, clientID string) OIDCConfig {
 		Audience:   clientID,
 		JwksTTL:    3600,
 		RolesClaim: "hypershell.roles",
-		AdminRole:  "openshell-admin",
-		UserRole:   "openshell-user",
+		// Shared with the console dashboard ADMIN_ROLE/USER_ROLE environment so the
+		// gateway OIDC roles and the console roles cannot diverge (OSG-CON-10).
+		AdminRole: GatewayAdminRole,
+		UserRole:  GatewayUserRole,
 	}
 	if kcConfig != nil {
 		oidcConfig.Issuer = keycloak.NewClient(kcConfig.ServerURL, kcConfig.Realm, "", "").Issuer()
