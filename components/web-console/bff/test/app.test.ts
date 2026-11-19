@@ -121,6 +121,7 @@ describe("web-console BFF", () => {
       sessionTtlSeconds: 28_800,
       staticRoot,
       webVersion: "unknown",
+      webBuildTime: "unknown",
     };
     app = await buildApp(config);
   });
@@ -206,6 +207,7 @@ describe("web-console BFF", () => {
       sessionTtlSeconds: 28_800,
       staticRoot,
       webVersion: "unknown",
+      webBuildTime: "unknown",
       tracing: {
         collectorEndpoint: "http://collector.invalid:4318",
         sampleRatio: 0.5,
@@ -251,6 +253,7 @@ describe("web-console BFF", () => {
       sessionTtlSeconds: 28_800,
       staticRoot,
       webVersion: "unknown",
+      webBuildTime: "unknown",
     };
     const unreachableApp = await buildApp(config);
     try {
@@ -288,6 +291,7 @@ describe("web-console BFF", () => {
       sessionTtlSeconds: 28_800,
       staticRoot,
       webVersion: "unknown",
+      webBuildTime: "unknown",
     };
     const startedAt = Date.now();
     const stalledApp = await buildApp(config);
@@ -341,6 +345,7 @@ describe("web-console BFF", () => {
       sessionTtlSeconds: 28_800,
       staticRoot,
       webVersion: "unknown",
+      webBuildTime: "unknown",
     };
     const refreshingApp = await buildApp(config);
     try {
@@ -407,6 +412,7 @@ describe("web-console BFF", () => {
       sessionTtlSeconds: 28_800,
       staticRoot,
       webVersion: "unknown",
+      webBuildTime: "unknown",
     };
     const flakyApp = await buildApp(config);
     try {

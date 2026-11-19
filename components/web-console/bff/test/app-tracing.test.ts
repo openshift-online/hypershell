@@ -103,6 +103,7 @@ describe("web-console BFF tracing wiring", () => {
       sessionTtlSeconds: 28_800,
       staticRoot,
       webVersion: "unknown",
+      webBuildTime: "unknown",
     };
     trace = stubTracing();
     app = await buildApp(config, trace.tracing);

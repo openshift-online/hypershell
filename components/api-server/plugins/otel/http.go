@@ -16,6 +16,50 @@ import (
 // field) so a user-visible failure can be joined to the server trace.
 const operationIDAttr = attribute.Key("hypershell.operation_id")
 
+// httpServerRequestDurationName is the OpenTelemetry semantic-convention metric
+// name of the inbound HTTP latency histogram the otelhttp instrumentation emits
+// (API-OBS-05). The OBS-SLI-07 bucket-boundary view in plugin.go matches this
+// instrument by name, so the constant is shared to keep the producer (otelhttp)
+// and the view selector in agreement.
+const httpServerRequestDurationName = "http.server.request.duration"
+
+// requestClassAttr classifies each HTTP request as a read or a write so the API
+// latency SLO (OBS-SLI-08) can apply the 500 ms read target and the 2 s write
+// target separately. The key sits in the http.request.* semconv namespace to read
+// naturally alongside the method and status-code attributes otelhttp already
+// records; it complements, and never replaces, those attributes. The value is
+// bounded to exactly two values (read, write), so it adds no per-route or
+// per-identifier cardinality.
+const requestClassAttr = attribute.Key("http.request.class")
+
+const (
+	requestClassRead  = "read"
+	requestClassWrite = "write"
+)
+
+// httpLatencySLOBoundaries returns the explicit, SLO-aligned bucket boundaries
+// (in seconds) for the http.server.request.duration histogram (OBS-SLI-07). The
+// boundaries include 0.5 and 2 seconds exactly, the read and write SLO
+// thresholds, so the fraction of requests under each is computable from a bucket
+// edge without interpolation. A fresh slice is returned on each call so no caller
+// can mutate shared state.
+func httpLatencySLOBoundaries() []float64 {
+	return []float64{0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10}
+}
+
+// classifyRequestMethod maps an HTTP method to its SLO request class (OBS-SLI-08).
+// Safe methods (GET, HEAD, OPTIONS) are reads; every other method (POST, PUT,
+// PATCH, DELETE, and anything else) is a write. It is a pure function so the
+// classification is unit-testable without a running server.
+func classifyRequestMethod(method string) string {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return requestClassRead
+	default:
+		return requestClassWrite
+	}
+}
+
 // otelHTTPHandler wraps the whole HTTP handler (registered pre-auth, outside the
 // mux router) so it creates one server span per request and extracts inbound W3C
 // trace context via the global propagator. The span is named by method here; the
@@ -24,6 +68,12 @@ func otelHTTPHandler(next http.Handler) http.Handler {
 	return otelhttp.NewHandler(next, "http.server",
 		otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
 			return r.Method
+		}),
+		// OBS-SLI-08: attach the bounded read/write request-class attribute to the
+		// emitted request metrics (including http.server.request.duration) without
+		// replacing the method or status-code attributes otelhttp already records.
+		otelhttp.WithMetricAttributesFn(func(r *http.Request) []attribute.KeyValue {
+			return []attribute.KeyValue{requestClassAttr.String(classifyRequestMethod(r.Method))}
 		}),
 	)
 }

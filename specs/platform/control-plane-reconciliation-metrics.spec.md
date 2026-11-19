@@ -23,12 +23,21 @@ The control plane SHALL expose the following fleet-wide Prometheus metrics:
 | --- | --- | --- | --- |
 | `hypershell_reconciliation_failures_total` | Counter | Failed reconciliation attempts | count |
 | `hypershell_reconciliation_retries_total` | Counter | Reconciliation retries | count |
-| `hypershell_reconciliation_lag_seconds` | Histogram | Time from reconciliation eligibility to completion | seconds |
+| `hypershell_reconciliation_lag_seconds` | Histogram | Time from a resource's desired-state (generation) change until the control plane starts the reconcile that first acts on that generation | seconds |
+| `hypershell_oldest_unconverged_generation_age_seconds` | Gauge | Age of the oldest resource whose observed generation trails its desired generation | seconds |
 | `hypershell_stale_resource_status_count` | Gauge | Tracked non-deleted Gateways whose `observed_generation` is behind `generation` | count |
 | `hypershell_reconciliation_resources_total` | Gauge | All non-deleted Gateways in the same control-plane watch population as the stale gauge | count |
 
 The control plane SHALL expose the metrics through its Prometheus scrape
 endpoint. The dashboard SHALL NOT read reconciliation data from a database.
+
+The `hypershell_reconciliation_lag_seconds` histogram measures reconciliation lag
+as defined in `platform/service-level-indicators.spec.md` OBS-SLI-05; its name,
+meaning, and recorded value agree, and it SHALL NOT record reconcile processing
+time (that wall time is `reconcile.duration`, OBS-CPL-07). The
+`hypershell_oldest_unconverged_generation_age_seconds` gauge is defined by
+OBS-SLI-06 and reports the age of the oldest unconverged Gateway, complementing
+the `hypershell_stale_resource_status_count` gauge that counts them.
 
 For state accuracy, the resource population SHALL be all non-deleted Gateway
 resources currently tracked by the control plane's Gateway watch. The total

@@ -12,6 +12,12 @@ export const messages = defineMessages({
     description:
       "Web console build version shown in the identity menu. The version is the source commit the console image was built from.",
   },
+  consoleBuildTime: {
+    id: "app.version.consoleBuildTime",
+    defaultMessage: "Console built: {buildTime}",
+    description:
+      "Web console build time shown in the identity menu. The build time is when the console image was built.",
+  },
   apiVersion: {
     id: "app.version.api",
     defaultMessage: "API build: {version}",

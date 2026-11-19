@@ -119,6 +119,7 @@ listed in `specs/id-rename-map.md`, not here.
 | `OBS-RLSD` | `platform/gateway-release-distribution.spec.md` | 7 |
 | `OBS-SBXA` | `platform/gateway-sandbox-attention-status.spec.md` | 11 |
 | `OBS-SBXT` | `platform/gateway-sandbox-active-trends.spec.md` | 9 |
+| `OBS-SLI` | `platform/service-level-indicators.spec.md` | 9 |
 
 ### OSG
 

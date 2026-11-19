@@ -59,6 +59,7 @@ describe("GET /api/metrics/control-plane-reconciliation", () => {
       sessionTtlSeconds: 28_800,
       staticRoot,
       webVersion: "unknown",
+      webBuildTime: "unknown",
     };
     return buildApp(config);
   }

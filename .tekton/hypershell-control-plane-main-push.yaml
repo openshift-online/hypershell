@@ -232,6 +232,7 @@ spec:
         - $(params.build-args[*])
         - BUILDARCH=amd64
         - TARGETARCH=amd64
+        - GIT_VERSION=$(tasks.clone-repository.results.commit)
       - name: PRIVILEGED_NESTED
         value: $(params.privileged-nested)
       - name: SOURCE_URL
@@ -291,6 +292,7 @@ spec:
         - $(params.build-args[*])
         - BUILDARCH=arm64
         - TARGETARCH=arm64
+        - GIT_VERSION=$(tasks.clone-repository.results.commit)
       - name: PRIVILEGED_NESTED
         value: $(params.privileged-nested)
       - name: SOURCE_URL

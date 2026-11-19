@@ -170,6 +170,7 @@ describe("usage metrics routes", () => {
       sessionTtlSeconds: 28_800,
       staticRoot,
       webVersion: "unknown",
+      webBuildTime: "unknown",
       ...overrides,
     };
     return buildApp(config);

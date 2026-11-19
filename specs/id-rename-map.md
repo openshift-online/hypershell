@@ -553,3 +553,6 @@ does not exist. "Former file" is the spec the ID lived in, relative to
 | `OSG-CON-01.03` | `platform/openshell-gateway-console.spec.md` | - | Skipped the console for a gateway with `route.enabled = false`; every gateway is routed and the flag was removed (issue #1011). |
 | `OSG-TLS-05.02` | `platform/openshell-gateway-tls.spec.md` | - | Kept the chart mTLS default for a gateway with no route or `route.enabled = false`; every gateway is routed and the flag was removed (issue #1011). |
 | `OSG-HLTH-01.03` | `platform/openshell-gateway-health.spec.md` | - | Marked a gateway with no route Running on Deployment readiness alone; every gateway is routed and waits for exposure readiness (issue #1011). |
+| `OBS-CPL-07.03` | `platform/control-plane-observability.spec.md` | `OBS-SLI-04` | Gateway provision duration moved from the control-plane in-memory histogram to durable API-server emission (HYPERSHELL-548). |
+| `OBS-CPL-07.04` | `platform/control-plane-observability.spec.md` | `OBS-SLI-04` | Gateway provision success outcome moved to durable API-server emission (HYPERSHELL-548). |
+| `OBS-CPL-07.05` | `platform/control-plane-observability.spec.md` | `OBS-SLI-04` | Gateway provision failure outcome moved to durable API-server emission (HYPERSHELL-548). |

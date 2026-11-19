@@ -150,6 +150,20 @@ func setupOTel(ctx context.Context) (func(context.Context) error, error) {
 		mp := sdkmetric.NewMeterProvider(
 			sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter)),
 			sdkmetric.WithResource(res),
+			// OBS-SLI-07: register explicit, SLO-aligned bucket boundaries for the
+			// http.server.request.duration histogram otelhttp emits (semconv name).
+			// The boundaries include 0.5 and 2 seconds exactly so the fraction of
+			// reads under 500 ms and writes under 2 s is computable from a bucket
+			// edge without interpolation. These buckets are owned by HyperShell
+			// code, unlike the upstream framework's api_inbound_request_duration.
+			sdkmetric.WithView(sdkmetric.NewView(
+				sdkmetric.Instrument{Name: httpServerRequestDurationName},
+				sdkmetric.Stream{
+					Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
+						Boundaries: httpLatencySLOBoundaries(),
+					},
+				},
+			)),
 		)
 		otel.SetMeterProvider(mp)
 		shutdowns = append(shutdowns, mp.Shutdown)

@@ -359,6 +359,7 @@ describe("web-console BFF with OIDC enabled", () => {
       sessionTtlSeconds: 28_800,
       staticRoot,
       webVersion: "unknown",
+      webBuildTime: "unknown",
     };
     app = await buildApp(config);
   });
@@ -1383,6 +1384,7 @@ describe("web-console BFF with OIDC enabled", () => {
         sessionTtlSeconds: 28_800,
         staticRoot,
         webVersion: "unknown",
+        webBuildTime: "unknown",
         ...overrides,
       };
     }

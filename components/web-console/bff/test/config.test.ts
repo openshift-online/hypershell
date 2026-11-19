@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { browserRuntimeConfig, loadConfig, shortSha } from "../src/config.js";
 
 describe("loadConfig", () => {
@@ -164,6 +168,7 @@ describe("browserRuntimeConfig", () => {
       apiVersion: "unknown",
       tracing: { sampleRatio: 0.25 },
       webVersion: "unknown",
+      webBuildTime: "unknown",
     });
   });
 
@@ -174,12 +179,14 @@ describe("browserRuntimeConfig", () => {
       apiVersion: "unknown",
       tracing: { sampleRatio: 0 },
       webVersion: "unknown",
+      webBuildTime: "unknown",
     });
   });
 
-  it("relays the API version and the stamped console version", () => {
+  it("relays the API version and the stamped console version and build time", () => {
     const config = loadConfig({
       HYPERSHELL_WEB_VERSION: "def5678",
+      HYPERSHELL_WEB_BUILD_TIME: "2026-11-19 20:00:00 UTC",
       STATIC_ROOT: "./public",
     });
 
@@ -187,6 +194,7 @@ describe("browserRuntimeConfig", () => {
       apiVersion: "abc1234",
       tracing: { sampleRatio: 0 },
       webVersion: "def5678",
+      webBuildTime: "2026-11-19 20:00:00 UTC",
     });
   });
 
@@ -195,6 +203,53 @@ describe("browserRuntimeConfig", () => {
     expect(
       loadConfig({ HYPERSHELL_WEB_VERSION: "  ", STATIC_ROOT: "./public" })
         .webVersion,
+    ).toBe("unknown");
+  });
+
+  it("defaults the console build time to unknown when unset or blank", () => {
+    expect(loadConfig({ STATIC_ROOT: "./public" }).webBuildTime).toBe(
+      "unknown",
+    );
+    expect(
+      loadConfig({ HYPERSHELL_WEB_BUILD_TIME: "  ", STATIC_ROOT: "./public" })
+        .webBuildTime,
+    ).toBe("unknown");
+  });
+
+  it("reads the console build time from the image-stamped file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "hypershell-build-time-"));
+    const file = join(dir, ".build-time");
+    try {
+      writeFileSync(file, "2026-11-19T20:00:00Z\n");
+      expect(
+        loadConfig({
+          HYPERSHELL_WEB_BUILD_TIME_FILE: file,
+          STATIC_ROOT: "./public",
+        }).webBuildTime,
+      ).toBe("2026-11-19T20:00:00Z");
+
+      // An explicit env value wins over the stamped file.
+      expect(
+        loadConfig({
+          HYPERSHELL_WEB_BUILD_TIME: "override-value",
+          HYPERSHELL_WEB_BUILD_TIME_FILE: file,
+          STATIC_ROOT: "./public",
+        }).webBuildTime,
+      ).toBe("override-value");
+    } finally {
+      rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
+  it("falls back to unknown when the build-time file is missing", () => {
+    expect(
+      loadConfig({
+        HYPERSHELL_WEB_BUILD_TIME_FILE: join(
+          tmpdir(),
+          "hypershell-build-time-does-not-exist",
+        ),
+        STATIC_ROOT: "./public",
+      }).webBuildTime,
     ).toBe("unknown");
   });
 
@@ -213,6 +268,7 @@ describe("browserRuntimeConfig", () => {
     expect(Object.keys(browserRuntimeConfig(config)).sort()).toEqual([
       "apiVersion",
       "tracing",
+      "webBuildTime",
       "webVersion",
     ]);
   });

@@ -69,7 +69,7 @@ it("shows the user name and a full sign-out link", async () => {
 it("shows the console and API build versions above sign-out", async () => {
   const user = userEvent.setup();
   setRuntimeConfig(
-    '{"apiVersion":"abc1234","tracing":{"sampleRatio":0},"webVersion":"def5678"}',
+    '{"apiVersion":"abc1234","tracing":{"sampleRatio":0},"webVersion":"def5678","webBuildTime":"2026-11-19 20:00:00 UTC"}',
   );
   getSessionMock.mockResolvedValue({
     authenticated: true,
@@ -84,6 +84,9 @@ it("shows the console and API build versions above sign-out", async () => {
 
   const menu = screen.getByRole("menu");
   expect(within(menu).getByText("Console build: def5678")).toBeTruthy();
+  expect(
+    within(menu).getByText("Console built: 2026-11-19 20:00:00 UTC"),
+  ).toBeTruthy();
   expect(within(menu).getByText("API build: abc1234")).toBeTruthy();
   // Version items are informational: rendered as disabled menu items rather
   // than actionable links.
@@ -109,6 +112,7 @@ it("shows unknown versions when no runtime config is injected", async () => {
 
   const menu = screen.getByRole("menu");
   expect(within(menu).getByText("Console build: unknown")).toBeTruthy();
+  expect(within(menu).getByText("Console built: unknown")).toBeTruthy();
   expect(within(menu).getByText("API build: unknown")).toBeTruthy();
 });
 
