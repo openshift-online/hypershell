@@ -19,7 +19,7 @@ WORKDIR /workspace
 
 # Build Helm from the pinned, Hermeto-prefetched tool module in
 # components/control-plane/tools/helm. That module carries a Go `tool` directive
-# on helm.sh/helm/v3/cmd/helm@v3.14.0 so Helm's full dependency tree is tracked
+# on helm.sh/helm/v3/cmd/helm (v3.20.2, pinned in its go.mod) so Helm's full dependency tree is tracked
 # in go.sum and resolved through Hermeto, letting this build run hermetically
 # (no network `go install`). CGO_ENABLED=0 produces a static binary for the
 # distroless runtime. Each Konflux build is native (BUILDARCH == TARGETARCH), so
@@ -83,9 +83,16 @@ RUN cover_flags=""; \
 # The chart source is committed to the repository (no network access needed),
 # which is required for Konflux hermetic builds. When bumping OPENSHELL_VERSION,
 # update charts/openshell/ by extracting the chart from the new upstream tag.
+# The vendored Chart.yaml carries version 0.0.0, so stamp the package with the
+# OpenShell release: the chart version is OPENSHELL_TAG without its leading "v"
+# (SemVer, checked by scripts/sync_openshell_version.py) and the app version is
+# OPENSHELL_TAG itself. `helm list` and `helm history` then name the bundle each
+# gateway release was applied from (OSG-HELM-02.02). OPENSHELL_TAG is declared
+# and checked non-empty earlier in this stage.
 COPY charts/openshell /tmp/chart-source/openshell
 RUN mkdir -p /workspace/charts && \
-    helm package /tmp/chart-source/openshell --destination /workspace/charts/ && \
+    helm package /tmp/chart-source/openshell --destination /workspace/charts/ \
+      --version "${OPENSHELL_TAG#v}" --app-version "${OPENSHELL_TAG}" && \
     mv /workspace/charts/*.tgz /workspace/charts/openshell.tgz
 
 FROM registry.access.redhat.com/hi/static:1787099997@sha256:3d43712a61ce01c7049e983e7f4c4609aaad7582c7bbd930b57372f82c446f98 AS static-amd64

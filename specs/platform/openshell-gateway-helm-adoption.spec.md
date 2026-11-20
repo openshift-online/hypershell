@@ -157,6 +157,15 @@ The control plane SHALL load the upstream OpenShell Helm chart from a `.tgz` arc
 - AND upgrading the chart version SHALL require updating `OPENSHELL_VERSION`, running `make vendor-openshell-chart` to re-vendor the chart source, and rebuilding the control plane image
 - AND this ensures the chart version is always coupled to the control plane release -- a given control plane image always deploys the same chart version
 
+#### Scenario: OSG-HELM-02.03 -- Packaged chart version names the OpenShell release
+
+- GIVEN `OPENSHELL_TAG` in `OPENSHELL_VERSION` (for example `v0.1.8-rhaiv.0`), passed to the control plane image build as the `OPENSHELL_TAG` build arg
+- WHEN the image build packages the vendored chart into `/charts/openshell.tgz`
+- THEN the packaged chart's `version` SHALL be `OPENSHELL_TAG` without its leading `v` (`0.1.8-rhaiv.0`) and its `appVersion` SHALL be `OPENSHELL_TAG`, whatever the vendored `Chart.yaml` declares
+- AND `helm list` and `helm history` for every gateway release SHALL therefore name the OpenShell release the revision was applied from (the CHART column reads, for example, `helm-chart-0.1.8-rhaiv.0`)
+- AND `make check-openshell-version` SHALL fail when `OPENSHELL_TAG` without its leading `v` is not a valid SemVer 2 version, because Helm rejects such a chart version
+- AND the chart's `helm.sh/chart` and `app.kubernetes.io/version` labels change on each OpenShell release bump; they are not used in selectors, so the cost is a metadata update on the next upgrade
+
 ---
 
 ### Requirement: OSG-HELM-03 -- Values Mapping
