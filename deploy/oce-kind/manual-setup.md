@@ -15,15 +15,13 @@ OpenSSL, flock (from util-linux), Python 3.11 or newer with PyYAML, and registry
 uses Kubernetes 1.35.0, Envoy Gateway 1.6.7, and the HyperShell versions in
 [`OPENSHELL_VERSION`](../../OPENSHELL_VERSION) and [`Makefile`](../../Makefile).
 Allow about 16 GiB of RAM for the running stack and additional RAM and disk for
-parallel image builds. Use OCE branch `fix/hypershell-runtime-networking` from
-[`bsquizz/openclaw-enterprise`](https://github.com/bsquizz/openclaw-enterprise/tree/fix/hypershell-runtime-networking),
-pinned to commit [`080810ac2`](https://github.com/bsquizz/openclaw-enterprise/commit/080810ac2a05b98f065655a9b29cdc9ec28ab14e),
-for the namespace-aware network helper. The change is published in companion
-draft [OCE PR #4954](https://github.com/openclaw/openclaw-enterprise/pull/4954) and is
-based on tested runtime source `2096c8cbde286c50ab7aafa08fd0f3bb3f4623c2` and
-changes only operator helpers and instructions. Build both OCE images from
-that checkout. The public
-`latest` alias inspected during setup targets an older OpenShell integration.
+parallel image builds. Use
+[`red-hat-data-services/openclaw-enterprise`](https://github.com/red-hat-data-services/openclaw-enterprise)
+at commit [`83b94692`](https://github.com/red-hat-data-services/openclaw-enterprise/commit/83b946921a8c0d575a3e6f589703fb4c56af6498)
+or later, the source of the Quay controller image published on 2026-11-20. It
+includes the namespace-aware network helper from
+[OCE PR #4954](https://github.com/openclaw/openclaw-enterprise/pull/4954).
+Build both OCE images from that checkout.
 
 Run from this HyperShell branch. These commands keep the default kubeconfig and
 context unchanged. The private state directory contains credentials: do not
