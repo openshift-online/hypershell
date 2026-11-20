@@ -96,6 +96,13 @@ func retryableReasonFromErr(err error) string {
 	return cpotel.ReasonUnknown
 }
 
+// RetryableReason returns the OBS-CRM-07 retryable reason attached to err, or
+// "unknown". It is exported so handlers can assert the reason their errors
+// carry through additional wrapping.
+func RetryableReason(err error) string {
+	return retryableReasonFromErr(err)
+}
+
 // reconcileQueue serializes reconciliations per resource. It retries errors
 // by default, with optional limits and error filters for callers that need them.
 // It replaces the fire-and-forget requeue goroutine that could race the reconciler.

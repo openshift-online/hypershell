@@ -169,6 +169,7 @@ func TestShellClientPassesOperationTimeout(t *testing.T) {
 		{"install", func() error { return c.Install(ctx, "gw-ns", values) }},
 		{"upgrade", func() error { return c.Upgrade(ctx, "gw-ns", values) }},
 		{"uninstall", func() error { return c.Uninstall(ctx, "gw-ns") }},
+		{"rollback", func() error { return c.Rollback(ctx, "gw-ns", 2) }},
 	} {
 		if err := op.run(); err != nil {
 			t.Fatalf("%s: %v", op.name, err)
@@ -184,5 +185,89 @@ func TestShellClientPassesOperationTimeout(t *testing.T) {
 		if !strings.Contains(string(args), "--timeout\n5m0s\n") {
 			t.Fatalf("%s: helm args lack --timeout 5m0s:\n%s", op.name, args)
 		}
+	}
+}
+
+// Helm shutdown survival: a rollback started by stuck-release recovery runs
+// through the same helper, so a controller shutdown does not interrupt it.
+func TestShellClientRollbackSurvivesParentCancel(t *testing.T) {
+	c, dir := newFakeHelm(t, "1")
+	ctx, cancel := context.WithCancel(context.Background())
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- c.Rollback(ctx, "gw-ns", 3) }()
+
+	waitFor(t, dir, "started")
+	cancel()
+	if err := <-errCh; err != nil {
+		t.Fatalf("Rollback after parent cancel: %v", err)
+	}
+	if !exists(dir, "finished") || exists(dir, "signal") {
+		t.Fatal("rollback did not run to completion after the parent context was cancelled")
+	}
+	args, _ := os.ReadFile(filepath.Join(dir, "args"))
+	if !strings.HasPrefix(string(args), "rollback\nopenshell-gateway\n3\n") {
+		t.Fatalf("rollback args = %q", args)
+	}
+}
+
+func TestShellClientRollbackRejectsInvalidRevision(t *testing.T) {
+	c, dir := newFakeHelm(t, "0")
+	if err := c.Rollback(context.Background(), "gw-ns", 0); err == nil {
+		t.Fatal("Rollback to revision 0 returned nil")
+	}
+	if exists(dir, "started") {
+		t.Fatal("helm ran for an invalid revision")
+	}
+}
+
+func TestShellClientManifestArgs(t *testing.T) {
+	c, dir := newFakeHelm(t, "0")
+	if _, err := c.Manifest(context.Background(), "gw-ns", 4); err != nil {
+		t.Fatal(err)
+	}
+	args, _ := os.ReadFile(filepath.Join(dir, "args"))
+	if got := strings.Join(strings.Fields(string(args)), " "); got != "get manifest openshell-gateway --namespace gw-ns --revision 4" {
+		t.Fatalf("manifest args = %q", got)
+	}
+}
+
+// parseHistory reads the JSON that helm v3.20 `history -o json` writes
+// (cmd/helm/history.go releaseInfo; helm's time marshals as RFC 3339, and a
+// zero time as "").
+func TestParseHistory(t *testing.T) {
+	out := `[{"revision":2,"updated":"2026-11-20T13:05:01.123456789Z","status":"pending-upgrade","chart":"openshell-0.1.8","app_version":"v0.1.8","description":"Preparing upgrade"},` +
+		`{"revision":1,"updated":"2026-11-20T08:00:00-05:00","status":"deployed","chart":"openshell-0.1.7","app_version":"v0.1.7","description":"Install complete"},` +
+		`{"revision":3,"updated":"","status":"failed","chart":"openshell-0.1.8","app_version":"v0.1.8","description":""}]`
+	revs, err := parseHistory(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(revs) != 3 || revs[0].Revision != 1 || revs[1].Revision != 2 || revs[2].Revision != 3 {
+		t.Fatalf("revisions not sorted ascending: %+v", revs)
+	}
+	if want := time.Date(2026, 11, 20, 13, 0, 0, 0, time.UTC); !revs[0].Updated.Equal(want) {
+		t.Fatalf("revision 1 updated = %s, want %s", revs[0].Updated, want)
+	}
+	if revs[1].Status != "pending-upgrade" || revs[1].Updated.Nanosecond() != 123456789 {
+		t.Fatalf("revision 2 = %+v", revs[1])
+	}
+	if !revs[2].Updated.IsZero() {
+		t.Fatalf("empty updated parsed as %s, want zero", revs[2].Updated)
+	}
+	if _, err := parseHistory(`[{"revision":1,"updated":"yesterday"}]`); err == nil {
+		t.Fatal("parseHistory accepted a malformed time")
+	}
+}
+
+// A pending release is abandoned only once no helm process can still own it:
+// helm --timeout, the deadline margin and the kill delay, plus a margin.
+func TestPendingStaleAfter(t *testing.T) {
+	if got, want := (&ShellClient{}).PendingStaleAfter(), 7*time.Minute; got != want {
+		t.Fatalf("PendingStaleAfter = %s, want %s", got, want)
+	}
+	c := &ShellClient{OperationTimeout: time.Minute, DeadlineMargin: time.Second, KillDelay: time.Second}
+	if got, want := c.PendingStaleAfter(), time.Minute+2*time.Second+PendingStaleMargin; got != want {
+		t.Fatalf("PendingStaleAfter = %s, want %s", got, want)
 	}
 }

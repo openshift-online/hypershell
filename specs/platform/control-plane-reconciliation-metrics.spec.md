@@ -170,6 +170,7 @@ closed enumeration; adding a new code requires updating this spec.
 | `k8s_unavailable` | A Kubernetes API call returned a transient server error (5xx, timeout). |
 | `dependency_not_ready` | A prerequisite resource (release, namespace, secret) is not yet available. |
 | `keycloak_transient` | A Keycloak API call failed with a transient HTTP error. |
+| `helm_operation_in_progress` | The gateway's Helm release is `pending-*` and young enough that another Helm process may still own it (see `openshell-gateway-helm-adoption.spec.md`, stuck release recovery). |
 
 #### Failed Reason Codes
 
@@ -268,9 +269,9 @@ product of its bounded attribute domains. Specifically:
 - `reconcile.duration`: at most `|resource.kind| x |event.type| x |outcome|` = 4 x 2 x 4 = 32 series.
 - `reconcile.outcomes`: at most `|resource.kind| x |outcome|` = 4 x 4 = 16 series.
 - `reconcile.failed`: at most `|resource.kind| x |reason|` = 4 x 4 = 16 series (3 failed codes + `unknown`).
-- `hypershell.reconciliation.retries`: at most `|resource.kind| x |reason|` = 4 x 6 = 24 series (5 retryable codes + `unknown`).
+- `hypershell.reconciliation.retries`: at most `|resource.kind| x |reason|` = 4 x 7 = 28 series (6 retryable codes + `unknown`).
 
-The retryable codes are: `grpc_unavailable`, `k8s_conflict`, `k8s_unavailable`, `dependency_not_ready`, `keycloak_transient`.
+The retryable codes are: `grpc_unavailable`, `k8s_conflict`, `k8s_unavailable`, `dependency_not_ready`, `keycloak_transient`, `helm_operation_in_progress`.
 
 No metric defined in this spec SHALL accept a label value outside its declared
 domain. The recording functions SHALL validate the outcome and reason values at

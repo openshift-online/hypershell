@@ -806,6 +806,7 @@ func TestValidateReasonFallback(t *testing.T) {
 		want     string
 	}{
 		{"valid retryable", ReasonK8sConflict, validateRetryableReason, ReasonK8sConflict},
+		{"helm operation in progress is a retryable reason", ReasonHelmOperationInProgress, validateRetryableReason, ReasonHelmOperationInProgress},
 		{"invalid retryable falls back", "bad-reason", validateRetryableReason, ReasonUnknown},
 		{"valid failed", ReasonInvalidConfig, validateFailedReason, ReasonInvalidConfig},
 		{"invalid failed falls back", "bad-reason", validateFailedReason, ReasonUnknown},

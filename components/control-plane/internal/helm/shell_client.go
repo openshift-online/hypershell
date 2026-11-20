@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"sort"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -173,6 +175,120 @@ func (c *ShellClient) Upgrade(ctx context.Context, namespace string, values map[
 
 	slog.InfoContext(ctx, "Helm release upgraded", "release", ReleaseName, "namespace", namespace)
 	return nil
+}
+
+// PendingStaleMargin is added to the longest time one helm process can run
+// (OperationTimeout + DeadlineMargin + KillDelay) to get the age past which a
+// pending-* release is treated as abandoned by stuck-release recovery. A helm started by
+// another controller pod, for example the old pod during a controller rollout,
+// can still be running before then.
+const PendingStaleMargin = 60 * time.Second
+
+// PendingStaleAfter is the age past which the latest revision of a pending-*
+// release is abandoned: no helm process can still own it.
+func (c *ShellClient) PendingStaleAfter() time.Duration {
+	return c.operationTimeout() + c.deadlineMargin() + c.killDelay() + PendingStaleMargin
+}
+
+// Revision is one entry of a release's history.
+type Revision struct {
+	Revision    int
+	Updated     time.Time
+	Status      string // deployed, superseded, failed, pending-upgrade, etc.
+	Chart       string
+	AppVersion  string
+	Description string
+}
+
+// History returns the release's revisions in ascending revision order. It
+// returns nil when the release does not exist.
+func (c *ShellClient) History(ctx context.Context, namespace string) ([]Revision, error) {
+	args := []string{
+		"history", ReleaseName,
+		"--namespace", namespace,
+		"--output", "json",
+	}
+	stdout, stderr, err := c.run(ctx, args)
+	if err != nil {
+		if strings.Contains(stderr, "not found") {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("helm history %s in namespace %s: %w\nStderr: %s", ReleaseName, namespace, err, stderr)
+	}
+	return parseHistory(stdout)
+}
+
+// parseHistory parses `helm history -o json`. Helm writes each revision's
+// last-deployed time as "updated" in RFC 3339 format.
+func parseHistory(out string) ([]Revision, error) {
+	var raw []struct {
+		Revision    int    `json:"revision"`
+		Updated     string `json:"updated"`
+		Status      string `json:"status"`
+		Chart       string `json:"chart"`
+		AppVersion  string `json:"app_version"`
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal([]byte(out), &raw); err != nil {
+		return nil, fmt.Errorf("parse helm history output: %w\nOutput: %s", err, out)
+	}
+	revs := make([]Revision, 0, len(raw))
+	for _, r := range raw {
+		// Helm writes a zero time as "", which is left as the zero time.
+		var updated time.Time
+		if r.Updated != "" {
+			t, err := time.Parse(time.RFC3339Nano, r.Updated)
+			if err != nil {
+				return nil, fmt.Errorf("parse updated time %q of revision %d: %w", r.Updated, r.Revision, err)
+			}
+			updated = t
+		}
+		revs = append(revs, Revision{
+			Revision:    r.Revision,
+			Updated:     updated,
+			Status:      r.Status,
+			Chart:       r.Chart,
+			AppVersion:  r.AppVersion,
+			Description: r.Description,
+		})
+	}
+	sort.Slice(revs, func(i, j int) bool { return revs[i].Revision < revs[j].Revision })
+	return revs, nil
+}
+
+// Rollback creates a new revision of the release from the stored manifest of
+// revision rev. Helm accepts it while the latest revision is pending-*, and rev
+// may be that pending revision itself, which rolls the release forward to it
+// (a roll forward).
+func (c *ShellClient) Rollback(ctx context.Context, namespace string, rev int) error {
+	if rev < 1 {
+		return fmt.Errorf("helm rollback %s in namespace %s: invalid revision %d", ReleaseName, namespace, rev)
+	}
+	args := []string{
+		"rollback", ReleaseName, strconv.Itoa(rev),
+		"--namespace", namespace,
+		"--wait=false",
+		"--timeout", c.timeoutArg(),
+	}
+	if _, stderr, err := c.run(ctx, args); err != nil {
+		return fmt.Errorf("helm rollback %s to revision %d in namespace %s: %w\nStderr: %s", ReleaseName, rev, namespace, err, stderr)
+	}
+	slog.InfoContext(ctx, "Helm release rolled back", "release", ReleaseName, "namespace", namespace, "revision", rev)
+	return nil
+}
+
+// Manifest returns the rendered manifest stored for revision rev.
+func (c *ShellClient) Manifest(ctx context.Context, namespace string, rev int) (string, error) {
+	args := []string{
+		"get", "manifest", ReleaseName,
+		"--namespace", namespace,
+		"--revision", strconv.Itoa(rev),
+	}
+	stdout, stderr, err := c.run(ctx, args)
+	if err != nil {
+		return "", fmt.Errorf("helm get manifest %s revision %d in namespace %s: %w\nStderr: %s", ReleaseName, rev, namespace, err, stderr)
+	}
+	return stdout, nil
 }
 
 // InFlight returns the number of helm processes currently running. The
