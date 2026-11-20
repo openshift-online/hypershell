@@ -121,6 +121,7 @@ Role        ||--o{ RoleBinding : "granted_by"
 | `ci-federation:admin` | global | DB (RoleBinding API, granted by platform:admin or ci-federation:grantor) | Authorizes the `ci_providers` extension kind (register/read/update/delete a CI OIDC forge, PLAT-DATA-24) and nothing else. Granted through the RoleBinding API (not JWT-synced): HyperShell owns the authorization decision rather than delegating it to a Keycloak realm role. The gitops CI-federation seeder holds only this role instead of `platform:admin`. It confers no gateway, platform, or other ext-kind authority. See "Requirement: CI Federation Admin Role" (SEC-RBAC-21) |
 | `ci-federation:grantor` | global | Keycloak JWT | Narrow bootstrap role: authorizes creating/deleting a global `ci-federation:admin` RoleBinding and nothing else. Held by a gitops bootstrap identity so the seeder's `ci_providers` authorization can be granted declaratively without `platform:admin`. Confers no `ci_providers`, gateway, or platform authority and cannot grant any other role. See "Requirement: CI Federation Grantor Role" (SEC-RBAC-23) |
 | `fleet:reader` | global | Keycloak JWT | Narrow read-only fleet role: authorizes listing all gateways and reading any gateway (the same read surface as `platform:admin` view) and nothing else. Grants no delete, no access management, no create, no configuration modify, no ManagedCluster access, no gateway login, and no sandbox-events read. Held by the outside availability prober's workload identity (`platform/outside-prober.spec.md` OBS-PRB-06) and any read-only fleet observer that needs fleet-wide gateway visibility without `platform:admin`. See "Requirement: Fleet Reader Role" (SEC-RBAC-29) |
+| `platform-policy:admin` | global | DB (RoleBinding API, granted by platform:admin) | Authorizes the `platform_gateway_policies` extension kind and the `platform_policy_settings` toggle (create/read/update/delete policies, change policy enforcement modes, and move the global toggle, PLAT-DATA-28/29) and nothing else. Granted through the RoleBinding API (not JWT-synced), so an IT or security group can receive it without Keycloak changes. `platform:admin` implies it. Confers no gateway, ManagedCluster, or other ext-kind authority. See "Requirement: Platform Policy Admin Role" (SEC-RBAC-30) |
 
 ### Permission Matrix
 
@@ -137,6 +138,7 @@ Role        ||--o{ RoleBinding : "granted_by"
 | `ci-federation:admin` | none | none | none | none | none | none (authorizes only the `ci_providers` ext kind; see SEC-RBAC-21) |
 | `ci-federation:grantor` | none | none | create/delete a `ci-federation:admin` binding only | none | none | none (bootstrap grantor; see SEC-RBAC-23) |
 | `fleet:reader` | view all (read only) | view all, no writes (no delete) | none | None (no gateway login) | none | none (authorizes only fleet-wide gateway read; see SEC-RBAC-29) |
+| `platform-policy:admin` | none | none | none | None (no gateway login) | none | none (authorizes only `platform_gateway_policies` and the enforcement toggle; see SEC-RBAC-30) |
 
 `GET /api/hypershell/v1/gateways/{gateway_id}/sandbox_events` is a gateway-bound diagnostic read. It requires a `gateway:viewer`, `gateway:admin`, or `gateway:owner` binding on the requested Gateway. A `platform:admin` without such a binding SHALL receive `404`, so the endpoint does not disclose Gateway or sandbox-event existence. See `platform/gateway-sandbox-events.spec.md` (OSG-SEVT-05).
 
@@ -2006,6 +2008,141 @@ authorize the gRPC `ListGateways` or `WatchGateways` streams, which remain
 - WHEN the control plane reconciles OpenShell client roles for user A
 - THEN user A SHALL receive no `openshell-admin` or `openshell-user` client role
   from the `fleet:reader` role
+
+### Requirement: SEC-RBAC-30 -- Platform Policy Admin Role
+
+A platform-wide role `platform-policy:admin` SHALL authorize the
+`platform_gateway_policies` extension kind (`PlatformGatewayPolicy`, PLAT-DATA-28:
+create, read, update, delete, and change enforcement mode), the
+`platform_policy_settings` global enforcement toggle (PLAT-DATA-29), and the policy
+administration surface of the console (WEB-PADM-01), and SHALL authorize nothing
+else. The role exists so an IT or security group can own policy administration with a
+least-privilege credential instead of `platform:admin`.
+
+**Authorization.** At the ext middleware gate and on the toggle endpoint, every
+`platform_gateway_policies` write (create, update, delete, mode change) and every
+`platform_policy_settings` write SHALL require `platform-policy:admin` or
+`platform:admin`. A caller holding neither SHALL be denied: a collection write
+without the role SHALL be rejected with 403, and a request to a specific
+`platform_gateway_policies/{id}` MAY be masked as 404 per the not-found-masking
+convention (SEC-RBAC-10). `gateway:creator`, `gateway:owner`, `gateway:admin`, and
+`gateway:viewer` SHALL NOT author, edit, or change the mode of any policy; the
+generic ext creator gate does not apply to this kind (SEC-RBAC-19).
+
+**Assignment (API-assignable, platform-admin-granted).** Like `ci-federation:admin`
+(SEC-RBAC-21), this role SHALL NOT be Keycloak-owned or JWT-synced: the policy
+authorization decision is HyperShell's, not a delegated Keycloak realm role. The role
+SHALL be assignable through the RoleBinding API as a global-scope binding; only a
+caller holding `platform:admin` SHALL grant or revoke it, and a caller without it
+SHALL be rejected with 403. A gateway-scoped binding SHALL be rejected with 400 (the
+role requires scope=global). A JWT carrying a realm role of the same name SHALL NOT
+produce a binding, and an API-created binding SHALL survive the recipient's next
+sign-in. The role record SHALL be seeded by an additive, idempotent migration with
+`built_in: true`, mirroring the `ci-federation:admin` and `fleet:reader` seeds
+(SEC-RBAC-15); the seed SHALL be re-runnable without error and SHALL NOT alter
+existing bindings.
+
+**Grants nothing else.** Holding `platform-policy:admin` SHALL grant no gateway
+creation, no per-gateway access, no OpenShell mapping, no ManagedCluster authority,
+no gateway login, and no other ext-kind authority. `platform:admin` remains
+owner-equivalent and also qualifies.
+
+#### Scenario: SEC-RBAC-30.01 -- Policy Admin Manages Policies and the Toggle
+
+- GIVEN a caller holding only `platform-policy:admin`
+- WHEN the caller creates, updates, reads, or deletes a `PlatformGatewayPolicy`, changes a policy's enforcement mode, or moves the global toggle
+- THEN each request SHALL be authorized
+
+#### Scenario: SEC-RBAC-30.02 -- Gateway Roles Cannot Author Policies
+
+- GIVEN a caller holding only `gateway:owner` on a targeted gateway (and no `platform-policy:admin` or `platform:admin`)
+- WHEN the caller attempts to create, update, delete, or change the mode of a policy, or to move the global toggle
+- THEN every such request SHALL be rejected with 403
+- AND a request to a specific `platform_gateway_policies/{id}` MAY be masked as 404
+
+#### Scenario: SEC-RBAC-30.03 -- Assignment Is API-Driven and Platform-Admin-Gated
+
+- GIVEN an attempt to create a `platform-policy:admin` RoleBinding through the RoleBinding API
+- WHEN the binding is global-scoped AND the caller holds `platform:admin`
+- THEN the create SHALL succeed
+- AND WHEN the caller holds no `platform:admin` THEN the create SHALL be rejected with 403
+- AND a gateway-scoped binding SHALL be rejected with 400 (the role requires scope=global)
+- AND the role SHALL NOT be JWT-synced: a JWT carrying the realm role SHALL NOT create a binding, and an API-created binding SHALL survive the recipient's next sign-in
+
+#### Scenario: SEC-RBAC-30.04 -- The Role Grants Nothing Else
+
+- GIVEN a caller holding only `platform-policy:admin`
+- WHEN the caller attempts to create a `Gateway`, read another gateway's records, or write any other ext kind
+- THEN every such request SHALL be denied (the role authorizes only policies and the toggle)
+
+---
+
+### Requirement: SEC-RBAC-31 -- Effective-Policies and Findings Authorization
+
+The read surface `GET /gateways/{id}/effective_policies` (PLAT-PGP-19) and the
+gateway's policy audit findings (PLAT-DATA-30) SHALL be authorized so that a gateway
+user sees the rules and findings that apply to their own gateway without revealing
+any other gateway. A `gateway:owner`, `gateway:admin`, or `gateway:viewer` of the
+gateway, as well as `platform-policy:admin`, `fleet:reader`, and `platform:admin`,
+SHALL read the applicable policies, fleet defaults, global mode, and that gateway's
+findings. Policy **targets and exclusions** SHALL be returned only to
+`platform-policy:admin`, `fleet:reader`, and `platform:admin`, and SHALL be omitted
+for gateway users, so the endpoint never discloses which other gateways a policy
+covers. A caller with no binding on the gateway SHALL be masked as 404 per
+SEC-RBAC-10. A gateway user SHALL read only their own gateway's findings, including
+other subjects' operations on that gateway, and SHALL NOT read another gateway's
+findings.
+
+#### Scenario: SEC-RBAC-31.01 -- Gateway Viewer Reads Rules but Not Targets
+
+- GIVEN a `gateway:viewer` of gateway G
+- WHEN the viewer reads `GET /gateways/G/effective_policies`
+- THEN the response SHALL list the applicable policies, defaults, mode, and G's findings
+- AND it SHALL omit the policies' target and exclude sets
+
+#### Scenario: SEC-RBAC-31.02 -- Policy Admin Sees Targets
+
+- GIVEN a `platform-policy:admin` or `fleet:reader`
+- WHEN they read a gateway's effective policies
+- THEN the response SHALL include each policy's target and exclude sets
+
+#### Scenario: SEC-RBAC-31.03 -- No Cross-Gateway Finding Disclosure
+
+- GIVEN a `gateway:viewer` of gateway G with no binding on gateway H
+- WHEN the viewer reads findings
+- THEN they SHALL read G's findings only
+- AND a read scoped to H SHALL be masked as 404
+
+---
+
+### Requirement: SEC-RBAC-32 -- Policy Interceptor Event Authorization
+
+The policy interceptor sidecar SHALL report audit events and its applied bundle
+revision to the in-cluster control-plane endpoint `ReportPolicyEvents`
+(CTRL-CORE-22, PLAT-PGP-15) and SHALL hold no HyperShell platform credential. It
+SHALL authenticate with a projected, audience-bound, short-lived service-account
+token. The control plane SHALL verify the token with `TokenReview`, SHALL reject an
+event whose token namespace does not belong to the reporting gateway, and SHALL then
+forward the events to the api-server under the control plane's own registered
+identity, which the api-server authorizes as a status-only write on the policy
+audit surface (mirroring the control-plane status write-back of SEC-RBAC-27). A user
+or gateway caller SHALL never reach `ReportPolicyEvents`, and a sidecar SHALL NOT be
+able to write a finding attributed to a gateway in another namespace.
+
+#### Scenario: SEC-RBAC-32.01 -- Namespace-Bound Sidecar Token
+
+- GIVEN a sidecar in the namespace of gateway G presenting its projected service-account token
+- WHEN it calls `ReportPolicyEvents` for gateway G
+- THEN the control plane SHALL verify the token with `TokenReview` and accept the events
+- AND an event whose token namespace does not belong to the reporting gateway SHALL be rejected
+
+#### Scenario: SEC-RBAC-32.02 -- Users Cannot Report Events
+
+- GIVEN a user or gateway caller
+- WHEN it attempts to call `ReportPolicyEvents`
+- THEN the request SHALL be denied
+
+---
 
 ## API Reference
 

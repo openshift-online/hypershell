@@ -1718,6 +1718,93 @@ CI MAY run the smoke script non-blocking or on demand; a smoke failure SHALL NOT
 - THEN the Go suite SHALL be the blocking e2e gate
 - AND a smoke-script failure SHALL NOT by itself fail that gate
 
+---
+
+### Requirement: E2E-CORE-49 -- Short-Mode Policy Enforcement Canary
+
+The `short`-tagged sandbox step (P2.1), on the gateway the run creates, SHALL prove
+that a platform policy is enforced on a real sandbox using the built-in
+`e2e-enforcement-canary` policy (PLAT-PGP-20). It SHALL add these steps, all within
+the short-mode constraints of E2E-CORE-39 (a single identity holding only
+`gateway:creator` and `hypershell-users`, no `platform:admin`, no Kubernetes context,
+and no mutation of shared enforcement settings), so the step is safe in a live
+promotion environment and runs per distinct capability on hub and spokes
+(E2E-CORE-30):
+
+1. **Bundle applied.** `GET /gateways/{id}/effective_policies` SHALL list
+   `e2e-enforcement-canary` with effective mode Enforced and status `Applied` within
+   the existing readiness timeout, proving the control-plane bundle path and the
+   sidecar acknowledgement.
+2. **Rejection.** `openshell sandbox create hypershell-e2e-policy-<run>-deny` with a
+   CPU request of `2` SHALL fail with `PERMISSION_DENIED`, and the message SHALL
+   contain `e2e-enforcement-canary`, its `userMessage`, and the CPU bound, proving the
+   interceptor is registered, Cedar evaluation works, and the denial text reaches the
+   CLI.
+3. **Allowed with defaults.** `openshell sandbox create hypershell-e2e-policy-<run>-allow`
+   with no resources SHALL succeed, and the sandbox spec read back through the CLI
+   SHALL show the fleet default requests, proving default injection. The sandbox SHALL
+   be deleted in cleanup.
+4. **No impact on other sandboxes.** The existing short-mode sandbox (not using the
+   reserved prefix) with a CPU request of `2` SHALL NOT be rejected by the canary.
+
+When the canary is disabled per environment (PLAT-PGP-20), the short-mode policy check
+SHALL report as skipped, never as passed.
+
+#### Scenario: E2E-CORE-49.01 -- Canary Enforced and Denial Reaches the CLI
+
+- GIVEN a run that created its own gateway and sees `e2e-enforcement-canary` Applied and Enforced via `effective_policies`
+- WHEN it creates `hypershell-e2e-policy-<run>-deny` with a CPU request of `2`
+- THEN the create SHALL fail with `PERMISSION_DENIED` whose message contains the policy name, its `userMessage`, and the CPU bound
+
+#### Scenario: E2E-CORE-49.02 -- Default Injection and No Collateral Rejection
+
+- GIVEN the same run
+- WHEN it creates `hypershell-e2e-policy-<run>-allow` with no resources
+- THEN the create SHALL succeed and the read-back spec SHALL show the fleet default requests
+- AND the existing short-mode sandbox without the reserved prefix with a CPU request of `2` SHALL NOT be rejected
+
+#### Scenario: E2E-CORE-49.03 -- Disabled Canary Reports Skipped
+
+- GIVEN the canary is disabled by the controller setting in this environment
+- WHEN the short-mode policy check runs
+- THEN it SHALL report skipped, never passed
+
+---
+
+### Requirement: E2E-CORE-50 -- Long-Mode Policy Coverage
+
+Long mode (ephemeral environments and Kind only, never a shared environment), using a
+`platform-policy:admin` identity, SHALL cover the policy behavior the single-identity
+short mode cannot (E2E-CORE-39, E2E-CORE-15). It SHALL:
+
+- create a policy in `audit`, run a violating operation, and confirm it is allowed and
+  recorded in `policy_audit_findings` (PLAT-PGP-07, PLAT-DATA-30);
+- switch that policy to `enforce` and confirm the rejection without a gateway restart,
+  within the propagation SLO (PLAT-PGP-06, PLAT-PGP-12);
+- confirm a denial lists every matching policy (PLAT-PGP-14);
+- confirm write-time validation rejects a `permit`, an unknown attribute, and a policy
+  that forbids the fleet defaults (PLAT-PGP-04);
+- confirm a gateway user reads policies and findings and gets `403` on policy writes
+  (SEC-RBAC-30, SEC-RBAC-31);
+- confirm the interceptor sidecar fails closed on create and fails open on delete when
+  it is stopped (PLAT-PGP-11).
+
+These checks SHALL be long-only (they act as a second principal and mutate enforcement
+state), and SHALL `t.Skip` in short and perf mode, never silently pass.
+
+#### Scenario: E2E-CORE-50.01 -- Audit-to-Enforce Without Restart
+
+- GIVEN a long-mode run with a `platform-policy:admin` identity
+- WHEN it creates a policy in `audit`, runs a violating operation, then switches the policy to `enforce`
+- THEN the audit run SHALL be allowed and recorded in `policy_audit_findings`
+- AND the enforced run SHALL be rejected without a gateway restart, within the propagation SLO
+
+#### Scenario: E2E-CORE-50.02 -- Validation, Masking, and Failure-Mode Coverage
+
+- GIVEN the same long-mode run
+- WHEN it submits a `permit`, an unknown attribute, and a defaults-forbidding policy, reads as a gateway user, and stops the sidecar
+- THEN write-time validation SHALL reject each invalid policy, the gateway user SHALL read policies and findings but get `403` on writes, and the stopped sidecar SHALL fail create closed and delete open
+
 ## File Layout
 
 ```

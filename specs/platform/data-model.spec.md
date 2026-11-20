@@ -23,6 +23,9 @@ Current model:
 - **SecretSource** - abstract reference to durable credential material (GitHub App PEM, service-account key, gateway identity) in an external backend (Vault, AWS Secrets Manager, Kubernetes). Owned by AgentRuntime; purpose enum drives how the material is consumed (coordinator env for gateway-identity, OpenShell provider configuration for provider material).
 - **CIProvider** - a registered CI OIDC issuer (GitHub Actions, GitLab CI/CD, Forgejo) whose workload tokens may be federated into gateway access. Platform-wide; authorized by the narrow `ci-federation:admin` role (SEC-RBAC-21), not `platform:admin`; referenced by many CITrusts; holds no secret.
 - **CITrust** - a gateway owner or admin's declaration that CI runs matching a subject claim predicate may exchange their OIDC token for a workspace-scoped OpenShell token on a Gateway they manage (`gateway:owner` or `gateway:admin`, or `platform:admin`). The self-service, secret-less way to enable CI on a gateway.
+- **PlatformGatewayPolicy** - a platform-scoped admission rule, written as forbid-only [Cedar](https://www.cedarpolicy.com/) plus user-facing metadata (message, documentation link, target gateways, enforcement mode), that a gateway interceptor sidecar enforces on sandbox write operations. Platform-wide; authored only by the `platform-policy:admin` role (SEC-RBAC-30), read-only to gateway users. Behavior and enforcement are specified in [`platform-gateway-policy.spec.md`](./platform-gateway-policy.spec.md).
+- **PlatformPolicySettings** - a platform-wide singleton holding the global enforcement toggle (`mode` of `audit` or `enforce`, default `audit`) that sets the minimum enforcement mode for every PlatformGatewayPolicy (PLAT-PGP-06).
+- **PolicyAuditFinding** - a recorded event for an operation that an audit-only policy would reject, or that would receive fleet defaults while no policy is enforced. Written by the interceptor sidecar through the control plane; stores normalized resource values only and no denial text (PLAT-PGP-15).
 
 ## Entity Relationship Diagram
 
@@ -230,6 +233,41 @@ erDiagram
         time deleted_at
     }
 
+    PlatformGatewayPolicy {
+        string ID PK
+        string name
+        string description
+        jsonb target
+        string enforcement_mode
+        string user_message
+        string documentation_url
+        text cedar
+        bool built_in
+        jsonb status
+        time created_at
+        time updated_at
+        time deleted_at
+    }
+
+    PlatformPolicySettings {
+        string ID PK
+        string mode
+        time created_at
+        time updated_at
+    }
+
+    PolicyAuditFinding {
+        string ID PK
+        time occurred_at
+        string gateway_id FK
+        array policy_names
+        string bundle_revision
+        string principal_subject
+        string operation
+        string outcome
+        jsonb request_summary
+    }
+
     ManagedCluster ||--o{ Gateway : "hosts"
     Gateway ||--o{ OpenShellGatewayServiceAccount : "authorizes"
     ManagedCluster ||--o{ AgentRuntime : "runs"
@@ -248,6 +286,8 @@ erDiagram
     ProviderBinding ||--o| InferenceRoute : "routed_by"
     CIProvider ||--o{ CITrust : "federated_by"
     Gateway ||--o{ CITrust : "trusts_ci"
+    Gateway ||--o{ PolicyAuditFinding : "records"
+    PlatformGatewayPolicy ||--o{ PolicyAuditFinding : "attributed_to"
 ```
 
 ## Requirements
@@ -1800,6 +1840,101 @@ The control plane realizes a `CITrust` as: a scoped Keycloak claim-to-workspace 
 
 ---
 
+### Requirement: PLAT-DATA-28 -- PlatformGatewayPolicy
+
+`PlatformGatewayPolicy` SHALL be a standalone, top-level, platform-scoped extension
+resource holding one admission rule set expressed as forbid-only Cedar plus
+user-facing metadata. It carries no tenant secret. It is authored only by the
+`platform-policy:admin` role (or `platform:admin`), not by `gateway:creator` or any
+gateway role; see [`../security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md)
+(SEC-RBAC-30). Its behavior, validation, enforcement mode, defaults, denial text,
+and the display renderer are specified in
+[`platform-gateway-policy.spec.md`](./platform-gateway-policy.spec.md) (PLAT-PGP-01..20).
+
+`PlatformGatewayPolicy` fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | string | Stable identifier shown to users and used as the Cedar `@id` attribution (PLAT-PGP-14) |
+| `description` | string | Administrator-facing description |
+| `target` | object | `all` gateways, or a selector over gateway ids or labels, with an explicit `exclude` list (PLAT-PGP-01). Visible only to `platform-policy:admin` and `fleet:reader` (SEC-RBAC-31) |
+| `enforcement_mode` | string | `audit` or `enforce`. A new policy is stored as `audit` regardless of the request (PLAT-PGP-01); the effective mode is the stricter of this and the global toggle (PLAT-PGP-06) |
+| `user_message` | string | Text shown in the denial reason and the UI. Must not contain secrets (PLAT-PGP-14). Externalized for localization in the console |
+| `documentation_url` | string | Link to more information shown with the rule |
+| `cedar` | text | One or more Cedar `forbid` statements, validated at write time (PLAT-PGP-04) |
+| `built_in` | bool | `true` for a seeded built-in policy (for example the e2e enforcement canary, PLAT-PGP-20). A built-in policy SHALL NOT be deletable over the API |
+| `status` | jsonb | Validation result; per-gateway applied bundle revision and condition (`Applied`, `Pending`, `Unsupported`); and 24-hour audit-finding counts |
+
+The `cedar` text SHALL contain only `forbid` statements and SHALL validate against
+the HyperShell Cedar schema; the API server SHALL reject a write that fails
+write-time validation (PLAT-PGP-04).
+
+#### Scenario: PLAT-DATA-28.01 -- Policy Stored With Forbid-Only Cedar and Metadata
+
+- GIVEN a `platform-policy:admin` creates a policy with valid forbid-only Cedar, a target, a `user_message`, and a `documentation_url`
+- WHEN the API server stores it
+- THEN the record SHALL persist the Cedar text and the metadata
+- AND `enforcement_mode` SHALL be `audit` regardless of the create request value
+
+#### Scenario: PLAT-DATA-28.02 -- Built-In Policy Not Deletable
+
+- GIVEN a seeded policy with `built_in` true
+- WHEN any caller requests its deletion
+- THEN the API server SHALL refuse the delete
+
+---
+
+### Requirement: PLAT-DATA-29 -- PlatformPolicySettings Singleton
+
+`PlatformPolicySettings` SHALL be a platform-wide singleton holding the global
+enforcement toggle `mode`, with value `audit` or `enforce` and default `audit`. It
+sets the minimum enforcement mode for every `PlatformGatewayPolicy` (PLAT-PGP-06).
+Only `platform-policy:admin` (or `platform:admin`) SHALL read-write the toggle; every
+change SHALL be audit-logged (SEC-RBAC-30, SEC-RBAC-12). The default `audit` SHALL be
+the value when no setting row has been written.
+
+#### Scenario: PLAT-DATA-29.01 -- Default Is Audit
+
+- GIVEN no administrator has changed the toggle
+- WHEN the toggle is read
+- THEN its `mode` SHALL be `audit`
+
+#### Scenario: PLAT-DATA-29.02 -- Only the Policy Admin Changes the Toggle
+
+- GIVEN a caller without `platform-policy:admin` or `platform:admin`
+- WHEN the caller changes the toggle
+- THEN the API server SHALL reject it with 403
+
+---
+
+### Requirement: PLAT-DATA-30 -- PolicyAuditFinding Storage
+
+`PolicyAuditFinding` SHALL be stored in a `policy_audit_findings` table recording, per
+event: `id` (the sidecar-generated idempotency key), `occurred_at`, `gateway_id`
+(indexed with `occurred_at`), `policy_names` (a text array with a GIN index for
+per-policy queries), `bundle_revision`, `principal_subject`, `operation` (for example
+`CreateSandbox` or `ResumeSandbox`), `outcome` (`would_reject` or
+`would_add_defaults`), and `request_summary` (jsonb of normalized values only). A row
+SHALL store no denial text. Rows SHALL be pruned after a configurable retention (30
+days by default). Access SHALL follow SEC-RBAC-31: `platform-policy:admin` and
+`fleet:reader` read all findings; a gateway user reads the findings of their own
+gateway only.
+
+#### Scenario: PLAT-DATA-30.01 -- Findings Are Idempotent on the Sidecar Event Id
+
+- GIVEN the same finding event id is written twice
+- WHEN both are stored
+- THEN the table SHALL hold one row for that id
+
+#### Scenario: PLAT-DATA-30.02 -- Findings Are Pruned After Retention
+
+- GIVEN a finding older than the configured retention
+- WHEN the pruning job runs
+- THEN the row SHALL be deleted
+- AND the last-24-hours counts shown in policy status SHALL be computed from the remaining rows
+
+---
+
 ## API Reference
 
 ### Standard kinds - `/api/hypershell/v1/`
@@ -1815,6 +1950,7 @@ The control plane realizes a `CITrust` as: a scoped Keycloak claim-to-workspace 
 | GET/POST | `/managed_clusters` | List/Create |
 | GET/PATCH/DELETE | `/managed_clusters/{id}` | Get/Update/Delete |
 | POST | `/managed_clusters/registration` | Self-register spoke; idempotent on (oidc_subject, name); updates last_seen_at on every call |
+| GET | `/gateways/{gateway_id}/effective_policies` | Read the policies, fleet defaults, global mode, and audit findings that apply to one gateway (PLAT-PGP-19). Targets and exclusions are masked from gateway users (SEC-RBAC-31) |
 
 ### ADLC extension kinds - `/api/hypershell/ext/`
 
@@ -1838,6 +1974,9 @@ The control plane realizes a `CITrust` as: a scoped Keycloak claim-to-workspace 
 | GET/PATCH/DELETE | `/ci_providers/{id}` | Get/Update/Delete |
 | GET/POST | `/ci_trusts` | List/Create |
 | GET/PATCH/DELETE | `/ci_trusts/{id}` | Get/Update/Delete |
+| GET/POST | `/platform_gateway_policies` | List/Create (authored by `platform-policy:admin`, SEC-RBAC-30) |
+| GET/PATCH/DELETE | `/platform_gateway_policies/{id}` | Get/Update/Delete (a `built_in` policy cannot be deleted, PLAT-DATA-28) |
+| GET/PATCH | `/platform_policy_settings` | Read/Update the global enforcement toggle singleton (PLAT-DATA-29) |
 
 ## CLI Reference (`hsctl`)
 

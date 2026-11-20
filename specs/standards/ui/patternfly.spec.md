@@ -76,6 +76,26 @@ Production flows SHOULD use stable PatternFly components. Beta/deprecated compon
 
 **Verification:** Inspect dependency release notes, beta/deprecation markers, component ownership, usage search, migration status, and removal of obsolete implementations after consumers move.
 
+### Requirement: UIS-PFLY-11 -- In-Browser Code Editor Component
+
+When a feature needs an in-browser code or policy editor (for example the Cedar policy
+editor, `web-console/platform-policy-admin.spec.md` WEB-PADM-05), the web console SHALL
+use the PatternFly code editor (`@patternfly/react-code-editor`) as the canonical
+editor implementation, installed only when a feature consumes it (UIS-PFLY-01,
+UIS-PFLY-02) and admitted as a specialized widget with a documented decision and an
+accessibility and bundle assessment (UIS-PFLY-06). There SHALL be one shared editor
+wrapper reused across features rather than a second editor implementation (UIS-PFLY-04,
+UIS-PFLY-05). The editor SHALL render React elements only and SHALL NOT render
+author-supplied content or diagnostics through any raw-HTML injection path, consistent
+with the browser security rule. Editor usage SHALL follow the stable-component
+lifecycle (UIS-PFLY-10).
+
+**Verification:** Confirm a single `@patternfly/react-code-editor`-based wrapper is the
+only in-browser editor, pinned to PatternFly 6, consumed only by features that need it,
+and backed by an admission decision with accessibility and bundle notes. Inspect the
+wrapper and its consumers for raw-HTML injection of editor content or diagnostics, and
+for duplicate editor implementations.
+
 ## Primary Basis
 
 - [Why Red Hat uses PatternFly](https://www.patternfly.org/get-started/about-patternfly/)

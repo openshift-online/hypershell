@@ -285,6 +285,48 @@ credential value is control-plane-supplied and rotated, which is the decided mod
 - THEN every OpenShell operation SHALL be a no-op success
 - AND the OpenShell resource graph SHALL remain unchanged
 
+---
+
+### Requirement: AGT-EXT-06 -- PlatformGatewayPolicy Maps to the Gateway Interceptor Contract
+
+Unlike the extension kinds mapped in AGT-EXT-01, which realize OpenShell API objects,
+`PlatformGatewayPolicy` (PLAT-DATA-28) SHALL map to the OpenShell **gateway
+interceptor contract** (`proto/gateway_interceptor.proto`: the `Describe`, `Evaluate`,
+and `SnapshotProviderProfiles` RPCs, with the `modify_operation`, `validate`, and
+`post_commit` phases), not to a stored OpenShell resource. The HyperShell policy
+interceptor SHALL be the external gRPC service that implements this contract
+(PLAT-PGP-09). The mapping SHALL bind only the fixed allowlist of interceptable unary
+write RPCs the gateway exposes (`CreateSandbox`, `UpdateSandbox`, the
+start/stop/suspend/resume RPCs, `UpdateConfig`, the draft-chunk RPCs, and the provider
+RPCs); read, streaming, template, workspace, and secret RPCs are not interceptable.
+The interceptor input SHALL be the request as protobuf JSON with secret-marked fields
+removed plus a principal map (`kind`, `subject`, `roles`, `scopes`), and
+`validate.current_state` SHALL be treated as always empty. A deny SHALL return a gRPC
+status carrying only a code and the interceptor `reason` (no structured error details
+and no warnings today). Where the upstream wire shape cannot be confirmed from the
+repository it SHALL be marked **CONFIRM-AGAINST-UPSTREAM**, consistent with AGT-EXT-01.
+
+This mapping SHALL be recorded in the two-direction gap analysis (AGT-EXT-04) with the
+known gaps: `CreateSandboxTemplate` is not interceptable, so a sandbox created from a
+stored template is not governed; there are no structured error details or warnings in
+`InterceptorResult`; `validate.current_state` is unavailable; and there is no RPC that
+lets a client discover active restrictions. Each gap SHALL carry a follow-up
+(upstream request) rather than a HyperShell workaround that changes the contract.
+
+#### Scenario: AGT-EXT-06.01 -- Policy Realizes as an Interceptor, Not a Stored Resource
+
+- GIVEN a `PlatformGatewayPolicy` targeting a gateway
+- WHEN the platform realizes it
+- THEN it SHALL be enforced by the interceptor service bound to the gateway's interceptable write RPCs
+- AND it SHALL NOT create or mutate any stored OpenShell workspace, provider, or template resource
+
+#### Scenario: AGT-EXT-06.02 -- Template-Created Sandboxes Are a Recorded Gap
+
+- GIVEN a sandbox created from a stored OpenShell workload template
+- WHEN its resources are taken from the template
+- THEN the interceptor SHALL NOT govern that create (`CreateSandboxTemplate` is not interceptable)
+- AND the gap SHALL be recorded in the AGT-EXT-04 gap analysis with an upstream follow-up
+
 ## Design Decisions
 
 | Decision | Rationale |

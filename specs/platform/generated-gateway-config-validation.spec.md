@@ -169,6 +169,37 @@ cleanup required.
 - THEN each reconcile produces the same `Failed` outcome
 - AND no partial or leftover configuration-derived resources accumulate
 
+---
+
+### Requirement: GTW-CFG-05 -- Interceptor Registration Is Validated and Stable
+
+The generated gateway configuration SHALL register the policy interceptor once, with
+`binding_policy = "exact"`, binding the fixed set of interceptable unary write RPCs
+with fixed phases and the per-RPC failure policy of
+[`platform-gateway-policy.spec.md`](./platform-gateway-policy.spec.md) (PLAT-PGP-10,
+PLAT-PGP-11). The control plane SHALL validate the generated interceptor registration
+section before it installs or upgrades the gateway's Helm release, as it validates the
+other control-plane-managed sections (GTW-CFG-01): a registration that names an
+unknown RPC or an invalid phase or failure policy SHALL fail validation and block
+rollout without disrupting a running gateway (GTW-CFG-02). The interceptor
+registration SHALL change only on an OpenShell version bump or a control-plane
+release; a policy change SHALL NOT change the registration or the configuration
+content hash, so a policy change SHALL NOT roll the gateway workload.
+
+#### Scenario: GTW-CFG-05.01 -- Invalid Registration Blocks Rollout
+
+- GIVEN a generated interceptor registration that names an unknown RPC or an invalid phase
+- WHEN the control plane validates the generated configuration
+- THEN validation SHALL fail and block the rollout
+- AND a running gateway SHALL NOT be disrupted
+
+#### Scenario: GTW-CFG-05.02 -- A Policy Change Does Not Change the Config Hash
+
+- GIVEN a valid interceptor registration on a running gateway
+- WHEN a platform policy changes
+- THEN the generated configuration and its content hash SHALL be unchanged
+- AND the gateway workload SHALL NOT roll
+
 ## Design Decisions
 
 - **Reuse `Failed`, do not add a phase.** A validation failure means provisioning

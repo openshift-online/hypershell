@@ -49,6 +49,69 @@ skills/
 
 ## Reconciliation State
 
+### PlatformGatewayPolicy / Cedar (in progress, branch implementer/spec-HYPERSHELL-563-platform-gateway-policy)
+
+Scoped reconciliation of the PlatformGatewayPolicy spec set introduced by #1148
+(HYPERSHELL-563): `platform/platform-gateway-policy.spec.md` (PLAT-PGP-01..20),
+`platform/data-model.spec.md` (PLAT-DATA-28/29/30), `security/rbac-enforcement.spec.md`
+(SEC-RBAC-30/31/32), `platform/control-plane.spec.md` (CTRL-CORE-22),
+`platform/openshell-gateway.spec.md` (OSG-CORE-19),
+`platform/openshell-gateway-helm-adoption.spec.md` (OSG-HELM-06),
+`platform/generated-gateway-config-validation.spec.md` (GTW-CFG-05),
+`platform/extension-api-openshell-api-mapping.spec.md` (AGT-EXT-06),
+`platform/hsctl-extension-commands.spec.md` (CLI-EXT-06),
+`platform/e2e-testing.spec.md` (E2E-CORE-49/50),
+`web-console/platform-policy-admin.spec.md` (WEB-PADM-01..),
+`web-console/gateway-list-detail.spec.md` (WEB-GLIS-26), and
+`standards/ui/patternfly.spec.md` (UIS-PFLY-11).
+
+This is a large, four-slice feature (spec section 8). This pass delivered the
+foundational shared Cedar Go package that the spec names as the first task of
+delivery slice 1 (PLAT-PGP-05).
+
+**Done this wave:**
+
+- `components/api-server/pkg/cedar/` - the single shared Cedar package used by
+  the api-server (validation), the control plane (bundle build), and the policy
+  interceptor (evaluation), per PLAT-PGP-03.02. It provides:
+  - the versioned, driver-neutral Cedar schema and context field constants
+    (PLAT-PGP-03);
+  - exact Kubernetes quantity normalization to millicores and bytes
+    (PLAT-PGP-03, `ParseMillis`/`ParseBytes`/`ParseDefaults`);
+  - write-time validation `ValidatePolicy` enforcing all four PLAT-PGP-04 rules
+    (schema validation with cedar-go diagnostics, forbid-only, the
+    default-request check, and author-annotation rejection) plus PLAT-PGP-02;
+  - the cedar-go capability confirmation (PLAT-PGP-05): the pinned cedar-go
+    v1.9.0 `x/exp/schema/validate` reports unknown attributes and type errors
+    with usable diagnostics, so HyperShell validates with cedar-go and needs no
+    Rust validator fallback;
+  - the `@id` attribution builder `Annotate` and the base permit (PLAT-PGP-14,
+    PLAT-PGP-02), order-preserving and deterministic;
+  - the best-effort display renderer `RenderPolicy` (PLAT-PGP-17).
+  - Dependency: `github.com/cedar-policy/cedar-go v1.9.0` added to the api-server
+    module (age-compliant; dependency-age check passes).
+
+**Remaining gap table (wave plan, not yet implemented):**
+
+| Wave | Layer | Gap | Spec |
+|------|-------|-----|------|
+| W1 | API+SDK+BE | `PlatformGatewayPolicy` ext kind (OpenAPI, proto, SDKs, plugin, migration), `PlatformPolicySettings` singleton, `policy_audit_findings` table, `effective_policies` endpoint | PLAT-DATA-28/29/30, PLAT-PGP-01/19 |
+| W1 | RBAC | `platform-policy:admin` role seed + authorizer cases, effective-policies/findings masking, interceptor event authz | SEC-RBAC-30/31/32 |
+| W2 | CLI | `platform-gateway-policies` + settings + effective-policies commands via extgroup; `make generate-tui` | CLI-EXT-06 |
+| W2 | CP | watch the kind + settings, per-gateway bundle ConfigMap reconcile, `ReportPolicyEvents` endpoint, status write-back | CTRL-CORE-22 |
+| W3 | Sidecar | `hypershell-policy-interceptor` second binary in the control-plane image, k8s driver adapter, bundle watch, denial text, audit events | PLAT-PGP-09..16 |
+| W3 | Chart | vendored `charts/openshell` native sidecar + interceptor registration from values | OSG-CORE-19, OSG-HELM-06, GTW-CFG-05 |
+| W4 | FE | admin policy console + Cedar editor and read-only gateway Policies tab (blocked: approved mockups live on branch `mockups/platform-gateway-policy`, absent from this tree) | WEB-PADM, WEB-GLIS-26, UIS-PFLY-11 |
+| W4 | E2E | enforcement canary short-mode steps and long-mode policy coverage | PLAT-PGP-20, E2E-CORE-49/50 |
+
+Environment note: this reconciliation ran without a container engine (no
+`make generate`/`make proto`/`make generate-sdk`, no testcontainers DB tests) and
+without `pnpm` (no web-console build) and without the mockup branch, so the
+API/SDK/DB, control-plane, sidecar, chart, CLI generation, and UI waves are
+deferred to an environment with those tools. The shared Cedar package has no
+generated-artifact, database, or container dependency and is fully unit-tested
+(`go test ./pkg/cedar/...`, race-clean) and lint-clean.
+
 ### Gateway operator-managed workspaces (done, branch spec/gateway-operator-workspaces)
 
 Scoped reconciliation of `specs/platform/gateway-operator-workspaces.spec.md`

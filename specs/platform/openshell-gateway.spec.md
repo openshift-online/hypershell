@@ -892,6 +892,38 @@ Gateway provisioning SHALL be independent of agent definitions. Agent-specific c
 
 ---
 
+### Requirement: OSG-CORE-19 -- Policy Interceptor Sidecar
+
+The gateway pod SHALL include a HyperShell policy interceptor sidecar that enforces
+platform gateway policies through the OpenShell gateway interceptor contract, per
+[`platform-gateway-policy.spec.md`](./platform-gateway-policy.spec.md) (PLAT-PGP-09,
+PLAT-PGP-10, PLAT-PGP-12). The sidecar SHALL run as a native sidecar (an init
+container with `restartPolicy: Always`) from the control-plane image at the
+controller's own digest, so it is ready before the gateway calls `Describe`. The
+gateway SHALL reach the sidecar over a `unix://` socket on a pod-local `emptyDir`.
+The gateway configuration SHALL register the interceptor (GTW-CFG-05); the sidecar
+SHALL obtain the current policies from the bundle ConfigMap it watches through the
+Kubernetes API (CTRL-CORE-22), not from the gateway configuration. The sidecar SHALL
+verify the gateway JWT against the local gateway JWKS and SHALL hold no HyperShell
+platform credential for request evaluation. The chart support that renders the
+sidecar and its registration is specified in
+[`openshell-gateway-helm-adoption.spec.md`](./openshell-gateway-helm-adoption.spec.md)
+(OSG-HELM-06).
+
+#### Scenario: OSG-CORE-19.01 -- Native Sidecar Ready Before Describe
+
+- GIVEN a gateway pod with the policy interceptor configured
+- WHEN the pod starts
+- THEN the interceptor SHALL run as a native sidecar from the controller's image digest and be ready before the gateway calls `Describe`
+- AND the gateway SHALL reach it over the pod-local unix socket
+
+#### Scenario: OSG-CORE-19.02 -- Policy Changes Arrive Through the Bundle, Not the Pod Spec
+
+- GIVEN a running gateway pod with the interceptor sidecar
+- WHEN a platform policy changes
+- THEN the sidecar SHALL load the new bundle revision from the watched ConfigMap without a pod restart
+- AND the gateway pod spec and `gateway.toml` SHALL be unchanged
+
 ## Configuration
 
 ### Gateway Resource Schema (Consolidated)

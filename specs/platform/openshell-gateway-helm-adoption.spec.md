@@ -324,6 +324,29 @@ policy are out of scope.
 
 ---
 
+### Requirement: OSG-HELM-06 -- Vendored Chart Policy Interceptor Sidecar Support
+
+The vendored `charts/openshell` chart SHALL render the HyperShell policy interceptor
+as a native sidecar in the gateway pod and SHALL render the interceptor registration
+into `gateway.toml`, from values the control plane sets (OSG-CORE-19, GTW-CFG-05). The
+control plane SHALL map, through `OSG-HELM-03` values mapping: the sidecar image
+reference (the controller's own digest, preserved per OSG-HELM-05), the pod-local
+`emptyDir` and `unix://` socket path the gateway and sidecar share, and the mount or
+projection of the `hypershell-policy-bundle` ConfigMap the sidecar watches. Because
+the interceptor registration is a chart-rendered part of `gateway.toml`, it changes
+only on an OpenShell version bump or a control-plane release, never on a policy
+change. HyperShell SHALL track upstream chart sidecar support (upstream `#5566`) and
+offer the change upstream; until adopted, the vendored chart carries the sidecar
+values.
+
+#### Scenario: OSG-HELM-06.01 -- Chart Renders the Sidecar and Registration From Values
+
+- GIVEN a gateway whose control plane sets the interceptor sidecar values
+- WHEN the chart renders the gateway release
+- THEN the gateway pod SHALL carry the interceptor native sidecar at the controller's image digest
+- AND `gateway.toml` SHALL carry the interceptor registration
+- AND the shared unix socket `emptyDir` and the bundle ConfigMap SHALL be present in the rendered pod
+
 ## Chart Coverage
 
 ### Resources Rendered by the Helm Chart
