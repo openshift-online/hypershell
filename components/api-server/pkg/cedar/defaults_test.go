@@ -25,7 +25,7 @@ func TestParseDefaults(t *testing.T) {
 }
 
 func TestParseDefaultsRejectsBadQuantity(t *testing.T) {
-	if _, err := ParseDefaults("notacpu", "2", "1Gi", "4Gi"); err == nil {
+	if _, err := ParseDefaults("bad-quantity", "2", "1Gi", "4Gi"); err == nil {
 		t.Fatal("expected error for invalid CPU request default")
 	}
 }
