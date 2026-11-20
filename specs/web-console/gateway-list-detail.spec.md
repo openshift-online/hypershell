@@ -1047,6 +1047,8 @@ mandatory web-console completion gate.
 - WHEN the user switches "My operations / All operations" and the outcome filter
 - THEN the findings list SHALL update to match the selected scope and outcome
 
+## Non-Goals
+
 - This specification does not add a Cluster type dropdown filter to the gateway list; that requires server-side filtering support.
 - This specification does not add workspace membership columns to the User access or Service accounts tables; that requires joined API responses.
 - This specification does not add row-level sandbox details to HyperShell; gateway-scoped aggregate counts are sufficient.
