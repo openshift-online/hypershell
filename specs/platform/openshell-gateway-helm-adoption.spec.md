@@ -326,7 +326,7 @@ policy are out of scope.
 
 ### Requirement: OSG-HELM-06 -- Stuck Release Recovery
 
-The controller SHALL treat a `pending-*` release as in progress while its latest revision is younger than the Helm operation timeout plus a margin, returning a retryable error without changing the release. A stale pending release with an earlier `deployed` or `superseded` revision SHALL be recovered with `helm rollback` to that revision followed by the normal upgrade, preserving chart objects and release history. Only a stale `pending-install` with no earlier good revision MAY be uninstalled and reinstalled. Every recovery SHALL emit a Kubernetes Event and a log line naming the gateway, the pending revision, its age, and the action.
+The controller SHALL treat a `pending-*` release as in progress while its latest revision is younger than the Helm operation timeout plus a margin, returning a retryable error without changing the release. A stale pending release with an earlier `deployed` or `superseded` revision SHALL be recovered with `helm rollback` to that revision followed by the normal upgrade, preserving chart objects and release history. Only a stale `pending-install` with no earlier good revision MAY be uninstalled and reinstalled. Gateway database migrations only go forward, so when a gateway pod of the pending revision's image has already started, the controller SHALL roll forward instead: it SHALL bring the release to the desired revision without starting a pod that runs the earlier gateway image. Every recovery SHALL emit a Kubernetes Event and a log line naming the gateway, the pending revision, its age, and the action.
 
 The latest revision's age comes from the Helm release history (or the release Secret's `modifiedAt` label), so the check needs no new state.
 
@@ -340,6 +340,7 @@ The latest revision's age comes from the Helm release history (or the release Se
 #### Scenario: OSG-HELM-06.02 -- Stale pending upgrade is rolled back
 
 - GIVEN a `pending-upgrade` revision older than the timeout margin and an earlier `deployed` or `superseded` revision R
+- AND no gateway pod of the pending revision's image has started
 - WHEN the gateway is reconciled
 - THEN the controller SHALL run `helm rollback` to R and then `helm upgrade`
 - AND the gateway Deployment SHALL keep its UID and the history SHALL be kept
@@ -349,6 +350,13 @@ The latest revision's age comes from the Helm release history (or the release Se
 - GIVEN a stale `pending-install` release with no earlier good revision
 - WHEN the gateway is reconciled
 - THEN the controller SHALL uninstall and install the release
+
+#### Scenario: OSG-HELM-06.04 -- Stale pending upgrade after migration rolls forward
+
+- GIVEN a stale `pending-upgrade` revision whose new gateway pod has already started against the gateway database
+- WHEN the gateway is reconciled
+- THEN the controller SHALL NOT start a pod with the earlier gateway image
+- AND the release SHALL end `deployed` at the desired revision
 
 ### Requirement: OSG-HELM-07 -- Helm Operations Survive Controller Shutdown
 
@@ -484,10 +492,10 @@ The control plane SHALL provide a dedicated package for Helm operations with the
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| Helm install failure (e.g. certgen timeout) | Gateway not provisioned | The reconcile queue retries with backoff; a `failed` release is retried with `helm upgrade --reset-values` and a stale `pending-*` release is rolled back, then upgraded (OSG-HELM-01.03, OSG-HELM-01.06, OSG-HELM-06) |
+| Helm install failure (e.g. certgen timeout) | Gateway not provisioned | The reconcile queue retries with backoff; a `failed` release is retried with `helm upgrade --reset-values` and a stale `pending-*` release is rolled back and upgraded, or rolled forward after a migration (OSG-HELM-01.03, OSG-HELM-01.06, OSG-HELM-06) |
 | Chart upgrade changes resource names/labels | Orphaned resources, broken selectors | Pin chart version in container image; test upgrades in dev-cluster before production |
 | PR #2728 not merged | BackendTLSPolicy and BackendCA ConfigMap gaps remain | Gate on upstream chart version that includes these features |
-| Controller stopped mid-upgrade | Release stuck `pending-upgrade` | Helm finishes under its own deadline (OSG-HELM-07); a stale pending release is rolled back, not reinstalled (OSG-HELM-06) |
+| Controller stopped mid-upgrade | Release stuck `pending-upgrade` | Helm finishes under its own deadline (OSG-HELM-07); a stale pending release is rolled back or rolled forward, not reinstalled (OSG-HELM-06) |
 | Helm CLI binary missing or incompatible | Control plane cannot deploy gateways | Verify helm binary availability and version at startup; fail fast with clear error |
 | No chart value for a database CA volume | Gateway database connection cannot be `verify-full`, only `require` | Accepted and documented (see Gap: No Database CA Mount); raise upstream for a `server.externalDbCaConfigMapName` equivalent |
 
