@@ -118,6 +118,11 @@ type Release struct {
 	// consumes PRs. Empty under the short-SHA fallback or a lock without bundle
 	// provenance.
 	ManifestsRev string `json:"-"`
+	// Components maps each bundled component's name to its source revision (the
+	// lock's bundle.components[].source.git.revision). The delivery plane uses it
+	// to decide which changes a bundle contains (FLT-DLV-06). Internal only and
+	// read-only once built: copies share it.
+	Components map[string]string `json:"-"`
 }
 
 // DeploymentRevision is one environment's current gitops source (dry) commit for a

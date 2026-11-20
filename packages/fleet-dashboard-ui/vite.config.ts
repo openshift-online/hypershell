@@ -364,6 +364,150 @@ function sendJson(res: ServerResponse, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
+// Delivery tab fixture (FLT-DLV-19, FLT-DLV-20): one change still building
+// (arrival range), one whose Release is Overdue (Where to look with release
+// diagnostics), and one whose build failed. Times are relative to now.
+const EST: Record<string, readonly [number, number]> = {
+  build: [600, 840],
+  policy: [180, 300],
+  release: [1500, 2400],
+  gitops: [360, 600],
+  "env:int": [1080, 1500],
+  "env:stage": [900, 1320],
+  "env:prod": [720, 1080],
+};
+const DELIVERY_KEYS = Object.keys(EST);
+
+function deliveryChange(
+  nowMs: number,
+  n: number,
+  title: string,
+  mergedAgoMin: number,
+  current: string,
+  state: string,
+  startedAgoMin: number,
+) {
+  const at = (agoMin: number) =>
+    new Date(nowMs - agoMin * 60_000).toISOString();
+  const sha = String(n).repeat(40);
+  const idx = DELIVERY_KEYS.indexOf(current);
+  return {
+    sha,
+    shortSha: sha.slice(0, 7),
+    mergedAt: at(mergedAgoMin),
+    title,
+    author: "dev-a",
+    pr: 100 + n,
+    delivered: false,
+    stages: [
+      { key: "merged", state: "passed", finishedAt: at(mergedAgoMin) },
+      ...DELIVERY_KEYS.map((key, i) => {
+        const [median, slowest] = EST[key] ?? [0, 0];
+        const base = { key, estimateSeconds: median, slowestSeconds: slowest };
+        if (i < idx) {
+          return { ...base, state: "passed", finishedAt: at(startedAgoMin) };
+        }
+        if (i === idx) {
+          return {
+            ...base,
+            state,
+            startedAt: at(startedAgoMin),
+            components: key === "build" ? ["web"] : [],
+            ...(state === "failed"
+              ? { finishedAt: at(startedAgoMin - 9) }
+              : {}),
+          };
+        }
+        return { ...base, state: "not-started" };
+      }),
+    ],
+    builds:
+      current === "build"
+        ? [
+            {
+              component: "web",
+              state,
+              startedAt: at(startedAgoMin),
+              ...(state === "failed"
+                ? { completedAt: at(startedAgoMin - 9) }
+                : {}),
+              url: "https://example.test/check-run/1",
+            },
+          ]
+        : [{ component: "web", state: "passed" }],
+    environments: [],
+  };
+}
+
+function deliveryMock(nowMs: number) {
+  return {
+    enabled: true,
+    stages: [
+      { key: "merged", kind: "pipeline" },
+      { key: "build", kind: "pipeline" },
+      { key: "policy", kind: "pipeline" },
+      { key: "release", kind: "pipeline" },
+      { key: "gitops", kind: "pipeline" },
+      { key: "env:int", kind: "group", group: "int" },
+      { key: "env:stage", kind: "group", group: "stage" },
+      { key: "env:prod", kind: "group", group: "prod" },
+    ],
+    changes: [
+      deliveryChange(
+        nowMs,
+        3,
+        "feat: still building",
+        6,
+        "build",
+        "running",
+        4,
+      ),
+      deliveryChange(
+        nowMs,
+        2,
+        "fix: release overdue",
+        80,
+        "release",
+        "running",
+        66,
+      ),
+      deliveryChange(
+        nowMs,
+        1,
+        "chore: failed build",
+        120,
+        "build",
+        "failed",
+        118,
+      ),
+    ],
+    releaseDiagnostics: {
+      lastGood: {
+        tag: "release-bundle-1",
+        version: "v1",
+        digest: "sha256:aaaa1111",
+        publishedAt: new Date(nowMs - 3 * 3600_000).toISOString(),
+      },
+      logUrl: "https://example.test/release-log",
+      appUrl: "https://example.test/release-app",
+      commits: [
+        {
+          sha: "f".repeat(40),
+          shortSha: "fffffff",
+          title: "fix(release): read the snapshot",
+          pr: 77,
+          url: "https://example.test/commit/f",
+          mergedAt: new Date(nowMs - 2 * 3600_000).toISOString(),
+        },
+      ],
+      registryTag: "release-bundle-2",
+      githubReleaseTag: "release-bundle-1",
+    },
+    omitted: 0,
+    sources: {},
+  };
+}
+
 function e2eMockPlugin(): Plugin {
   return {
     name: "fd-e2e-mock",
@@ -428,6 +572,11 @@ function e2eMockPlugin(): Plugin {
                 boundaryTruncated: false,
               }),
             );
+            return;
+          }
+
+          if (path === "/api/delivery") {
+            sendJson(res, envelope(deliveryMock(nowMs)));
             return;
           }
 

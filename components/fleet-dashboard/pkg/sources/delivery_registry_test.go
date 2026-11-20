@@ -10,7 +10,7 @@ import (
 )
 
 func TestQuayBundleRegistry(t *testing.T) {
-	// Verifies: FLT-DLV-06.03, FLT-DLV-12.01
+	// Verifies: FLT-DLV-06.03, FLT-DLV-06.05, FLT-DLV-12.01
 	var reads int32
 	var srv *httptest.Server
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -36,7 +36,7 @@ func TestQuayBundleRegistry(t *testing.T) {
 				_, _ = w.Write([]byte(`{"layers":[{"mediaType":"application/x","digest":"sha256:layer","annotations":{"org.opencontainers.image.title":"bundle.json"}}]}`))
 				return
 			}
-			_, _ = w.Write([]byte(`{"manifests":{"git":{"revision":"abc123"}}}`))
+			_, _ = w.Write([]byte(`{"manifests":{"git":{"revision":"abc123"}},"components":[{"name":"web","source":{"git":{"revision":"abc100"}}}]}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -55,9 +55,9 @@ func TestQuayBundleRegistry(t *testing.T) {
 		t.Errorf("tags = %+v, want 2 bundle tags newest first with publication times", tags)
 	}
 	for i := 0; i < 2; i++ {
-		rev, err := q.ManifestsRevision(context.Background(), "sha256:b")
-		if err != nil || rev != "abc123" {
-			t.Fatalf("revision = %q, %v", rev, err)
+		c, err := q.BundleContent(context.Background(), "sha256:b")
+		if err != nil || c.ManifestsRev != "abc123" || c.Components["web"] != "abc100" {
+			t.Fatalf("content = %+v, %v", c, err)
 		}
 	}
 	if reads != 2 {

@@ -33,6 +33,7 @@ import {
   FlexItem,
   Icon,
   PageSection,
+  Popover,
   ProgressStep,
   ProgressStepper,
   Spinner,
@@ -63,7 +64,10 @@ import {
   Tr,
 } from "@patternfly/react-table";
 
+import { useState } from "react";
+
 import { HealthStatus } from "../../common/health-status";
+import styles from "./delivery-pipeline.module.css";
 import {
   FIXTURES,
   RETRIED_DETAIL,
@@ -75,11 +79,13 @@ import {
   type ChangeDetail,
   type DeliveryFixture,
   type DeliveryState,
+  type Progress,
   type PromotionAttempt,
   type PromotionOutcome,
   type Severity,
   type StageCell,
   type StageState,
+  type WhereToLook,
 } from "./delivery-pipeline-fixtures";
 
 // Glass Delivery tab page surface (fleet-dashboard-delivery-pipeline.spec,
@@ -135,6 +141,58 @@ function StageStateIcon({ state }: { state: StageState }) {
   }
 }
 
+// FLT-DLV-20: opens on hover, keyboard focus, and tap; Escape closes it.
+function WhereToLookPopover({
+  look,
+  initiallyOpen = false,
+}: {
+  look: WhereToLook;
+  initiallyOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(initiallyOpen);
+  return (
+    <Popover
+      aria-label={`Where to look: ${look.phase}`}
+      bodyContent={
+        <DescriptionList isCompact>
+          {look.items.map((item) => (
+            <DescriptionListGroup key={item.term}>
+              <DescriptionListTerm>{item.term}</DescriptionListTerm>
+              <DescriptionListDescription>
+                {item.text}
+                {item.link ? (
+                  <>
+                    {" "}
+                    <ExternalLink>{item.link}</ExternalLink>
+                  </>
+                ) : null}
+                {item.warning ? (
+                  <HealthStatus appearance="warning" label={item.warning} />
+                ) : null}
+              </DescriptionListDescription>
+            </DescriptionListGroup>
+          ))}
+        </DescriptionList>
+      }
+      headerContent={`Where to look: ${look.phase}`}
+      isVisible={open}
+      position="bottom"
+      shouldClose={() => setOpen(false)}
+      shouldOpen={() => setOpen(true)}
+      triggerAction="hover"
+    >
+      <Button
+        className="pf-v6-u-font-size-sm"
+        isInline
+        onClick={() => setOpen((v) => !v)}
+        variant="link"
+      >
+        Where to look
+      </Button>
+    </Popover>
+  );
+}
+
 function StageStatus({ cell }: { cell: StageCell }) {
   const muted =
     cell.state === "not-started" ||
@@ -154,9 +212,14 @@ function StageStatus({ cell }: { cell: StageCell }) {
           {secondary}
         </StackItem>
       ) : null}
-      {cell.slow ? (
+      {cell.overdue ? (
         <StackItem className="pf-v6-u-font-size-sm">
-          <HealthStatus appearance="warning" label="Slower than usual" />
+          <HealthStatus appearance="warning" label="Overdue" />
+        </StackItem>
+      ) : null}
+      {cell.whereToLook ? (
+        <StackItem>
+          <WhereToLookPopover look={cell.whereToLook} />
         </StackItem>
       ) : null}
       {cell.failedAttempts ? (
@@ -216,6 +279,78 @@ function PromotionHistory({
   );
 }
 
+// FLT-DLV-19: one numbered, equal-width cell per phase, each joined to its
+// own label. State is carried by text as well as color.
+function ProgressBar({
+  label,
+  progress,
+  openWhereToLook,
+}: {
+  label: string;
+  progress: Progress;
+  openWhereToLook: boolean;
+}) {
+  return (
+    <div className={styles.progress}>
+      <Content className="pf-v6-u-font-size-sm" component="p">
+        {progress.percent === undefined
+          ? "Progress"
+          : `${progress.percent}% complete`}
+      </Content>
+      <ol
+        aria-label={
+          progress.percent === undefined
+            ? `Delivery progress of ${label}`
+            : `Delivery progress of ${label}: ${progress.percent}% complete`
+        }
+        className={styles.cells}
+      >
+        {progress.cells.map((cell, i) => (
+          <li className={styles.cell} key={cell.label}>
+            <span
+              aria-hidden
+              className={styles.segment}
+              data-overdue={cell.overdue ? "true" : undefined}
+              data-state={cell.state}
+            >
+              {i + 1}
+            </span>
+            <span aria-hidden className={styles.connector} />
+            <span className={styles.label}>
+              <strong>{cell.label}</strong>
+              <br />
+              <span className="pf-v6-u-text-nowrap">
+                <StageStateIcon state={cell.state} /> {STATE_LABEL[cell.state]}
+              </span>
+              {cell.time ? (
+                <>
+                  <br />
+                  <span className="pf-v6-u-text-color-subtle">{cell.time}</span>
+                </>
+              ) : null}
+              {cell.overdue ? (
+                <>
+                  <br />
+                  <HealthStatus appearance="warning" label="Overdue" />
+                </>
+              ) : null}
+              {cell.whereToLook ? (
+                <>
+                  <br />
+                  <WhereToLookPopover
+                    initiallyOpen={openWhereToLook}
+                    look={cell.whereToLook}
+                  />
+                </>
+              ) : null}
+            </span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
 function SummaryIcon({ severity }: { severity: Severity }) {
   switch (severity) {
     case "danger":
@@ -250,7 +385,13 @@ function changeName(shortSha: string, pr?: number) {
 }
 
 // FLT-DLV-10: one row per undelivered change, newest first, at most 3.
-function NowAndNext({ fixture }: { fixture: DeliveryFixture }) {
+function NowAndNext({
+  fixture,
+  openWhereToLook,
+}: {
+  fixture: DeliveryFixture;
+  openWhereToLook: boolean;
+}) {
   return (
     <Card>
       <CardHeader>
@@ -320,6 +461,13 @@ function NowAndNext({ fixture }: { fixture: DeliveryFixture }) {
                     ]}
                   />
                 </DataListItemRow>
+                <div className="pf-v6-u-px-md pf-v6-u-pb-md">
+                  <ProgressBar
+                    label={changeName(row.shortSha, row.pr)}
+                    openWhereToLook={openWhereToLook}
+                    progress={row.progress}
+                  />
+                </div>
               </DataListItem>
             ))}
           </DataList>
@@ -630,9 +778,11 @@ function PageHeader({ asOf }: { asOf?: string }) {
 function LoadedBody({
   fixture,
   selectedSha,
+  openWhereToLook = false,
 }: {
   fixture: DeliveryFixture;
   selectedSha?: string;
+  openWhereToLook?: boolean;
 }) {
   return (
     <Stack hasGutter>
@@ -644,7 +794,7 @@ function LoadedBody({
         </StackItem>
       ) : null}
       <StackItem>
-        <NowAndNext fixture={fixture} />
+        <NowAndNext fixture={fixture} openWhereToLook={openWhereToLook} />
       </StackItem>
       <StackItem>
         <ChangeTable changes={fixture.changes} selectedSha={selectedSha} />
@@ -713,6 +863,9 @@ function Body({ state }: { state: DeliveryState }) {
           </DrawerContent>
         </Drawer>
       );
+    case "release-overdue":
+      // FLT-DLV-20: the Where to look popup is open on the Overdue Release.
+      return <LoadedBody fixture={FIXTURES[state]} openWhereToLook />;
     default:
       return <LoadedBody fixture={FIXTURES[state]} />;
   }

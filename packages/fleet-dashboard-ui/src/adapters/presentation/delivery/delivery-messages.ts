@@ -263,11 +263,11 @@ export const deliveryMessages = defineMessages({
     description:
       "Release stage label while the managed release is not observable (FLT-DLV-06).",
   },
-  slower: {
-    id: "fleet.delivery.slower",
-    defaultMessage: "Slower than usual",
+  overdue: {
+    id: "fleet.delivery.overdue",
+    defaultMessage: "Overdue",
     description:
-      "Warning on a stage running more than twice its typical duration (FLT-DLV-04).",
+      "Warning on a stage running longer than the slowest of its last 5 runs plus 5 minutes (FLT-DLV-04).",
   },
   // Reasons.
   reasonNoComponentChanged: {
@@ -284,6 +284,12 @@ export const deliveryMessages = defineMessages({
     id: "fleet.delivery.reason.waitingPolicy",
     defaultMessage: "Waiting for the policy check to start",
     description: "Policy check has not started yet.",
+  },
+  reasonOutsideBundle: {
+    id: "fleet.delivery.reason.outsideBundle",
+    defaultMessage: "Ships outside the bundle",
+    description:
+      "Every component the change built is not in the release bundle (FLT-DLV-06.06).",
   },
   reasonNextBundle: {
     id: "fleet.delivery.reason.nextBundle",
@@ -422,8 +428,10 @@ export const deliveryMessages = defineMessages({
   },
   nextRestartBuild: {
     id: "fleet.delivery.nowNext.restartBuild",
-    defaultMessage: "A new change to main starts a new build",
-    description: "Next text after a failed build or policy check (FLT-DLV-10).",
+    defaultMessage:
+      "Re-run the failed pipeline, or merge a change to the same component",
+    description:
+      "Next text after a failed build or policy check. Builds run only for changes under their component's paths (FLT-DLV-10).",
   },
   nextRestartGate: {
     id: "fleet.delivery.nowNext.restartGate",
@@ -607,5 +615,192 @@ export const deliveryMessages = defineMessages({
     id: "fleet.delivery.drawer.viewPR",
     defaultMessage: "View pull request",
     description: "Link to the change's pull request.",
+  },
+  lookCommitWithPr: {
+    id: "fleet.delivery.look.commitWithPr",
+    defaultMessage: "{sha} (#{pr})",
+    description:
+      "A publisher-path commit with its pull request number (FLT-DLV-20).",
+  },
+  nowOverdue: {
+    id: "fleet.delivery.nowNext.overdue",
+    defaultMessage: "Overdue",
+    description:
+      "Added after the Now text when the stage is Overdue (FLT-DLV-04).",
+  },
+  nextOverdue: {
+    id: "fleet.delivery.nowNext.nextOverdue",
+    defaultMessage: "{stage} - no arrival time while a stage is overdue",
+    description: "Next text while a stage is Overdue (FLT-DLV-10.06).",
+  },
+  progressTitle: {
+    id: "fleet.delivery.progress.title",
+    defaultMessage: "Progress",
+    description:
+      "Progress bar heading when no percent can be told (FLT-DLV-19).",
+  },
+  progressPercent: {
+    id: "fleet.delivery.progress.percent",
+    defaultMessage: "{percent}% complete",
+    description: "Percent complete of a change's delivery (FLT-DLV-19).",
+  },
+  progressLabel: {
+    id: "fleet.delivery.progress.label",
+    defaultMessage: "Delivery progress of {change}",
+    description: "Accessible name of a change's progress bar (FLT-DLV-19).",
+  },
+  progressLabelPercent: {
+    id: "fleet.delivery.progress.labelPercent",
+    defaultMessage: "Delivery progress of {change}: {percent}% complete",
+    description:
+      "Accessible name of a change's progress bar with its percent (FLT-DLV-19).",
+  },
+  arrivalRange: {
+    id: "fleet.delivery.arrival.range",
+    defaultMessage: "{early} to {late}",
+    description:
+      "Expected arrival range before the bundle is published (FLT-DLV-10).",
+  },
+  arrivalTime: {
+    id: "fleet.delivery.arrival.time",
+    defaultMessage: "about {time}",
+    description: "Expected arrival after the bundle is published (FLT-DLV-10).",
+  },
+  whereToLook: {
+    id: "fleet.delivery.look.trigger",
+    defaultMessage: "Where to look",
+    description: "Opens hints for an Overdue or Failed stage (FLT-DLV-20).",
+  },
+  whereToLookTitle: {
+    id: "fleet.delivery.look.title",
+    defaultMessage: "Where to look: {stage}",
+    description: "Heading of the Where to look popup (FLT-DLV-20).",
+  },
+  lookBuildFailed: {
+    id: "fleet.delivery.look.buildFailed",
+    defaultMessage:
+      "Re-run the failed pipeline, or merge a change to the same component.",
+    description: "What restarts a failed build (FLT-DLV-20.02).",
+  },
+  lookBuildWhy: {
+    id: "fleet.delivery.look.buildWhy",
+    defaultMessage:
+      "A component builds only for changes under its own paths, so an unrelated change does not rebuild it.",
+    description: "Why a later unrelated change does not fix a failed build.",
+  },
+  lookChecksRunning: {
+    id: "fleet.delivery.look.checksRunning",
+    defaultMessage:
+      "These runs have taken longer than any of their last 5 runs:",
+    description: "Lead-in for Overdue check runs (FLT-DLV-20).",
+  },
+  lookViewCheckRun: {
+    id: "fleet.delivery.look.viewCheckRun",
+    defaultMessage: "View check run",
+    description: "Link to a check run.",
+  },
+  lookReleaseSummary: {
+    id: "fleet.delivery.look.releaseSummary",
+    defaultMessage:
+      "The release has run longer than any of the last 5 releases.",
+    description: "Lead-in of the Release popup (FLT-DLV-20).",
+  },
+  lookNotLoaded: {
+    id: "fleet.delivery.look.notLoaded",
+    defaultMessage: "Release details load on the next refresh.",
+    description: "Release diagnostics are not in the payload yet.",
+  },
+  lookLastGood: {
+    id: "fleet.delivery.look.lastGood",
+    defaultMessage: "Last good release",
+    description: "The newest published bundle.",
+  },
+  lookLastGoodValue: {
+    id: "fleet.delivery.look.lastGoodValue",
+    defaultMessage: "{bundle}, published {time}",
+    description: "The newest published bundle and its time.",
+  },
+  lookKonflux: {
+    id: "fleet.delivery.look.konflux",
+    defaultMessage: "Konflux",
+    description: "Term for the Konflux release log link.",
+  },
+  lookOpenLog: {
+    id: "fleet.delivery.look.openLog",
+    defaultMessage: "Open the release log",
+    description: "Link to the Konflux release log.",
+  },
+  lookPublisherChanges: {
+    id: "fleet.delivery.look.publisherChanges",
+    defaultMessage: "Publisher changes",
+    description:
+      "Commits that touched the bundle publisher since the last good release.",
+  },
+  lookNoPublisherChanges: {
+    id: "fleet.delivery.look.noPublisherChanges",
+    defaultMessage: "None since the last good release",
+    description: "No commit touched the bundle publisher.",
+  },
+  lookReadFailed: {
+    id: "fleet.delivery.look.readFailed",
+    defaultMessage: "Could not be read",
+    description: "A release diagnostic read failed.",
+  },
+  lookReleaseApp: {
+    id: "fleet.delivery.look.releaseApp",
+    defaultMessage: "Release app",
+    description: "Term for the release GitHub App link.",
+  },
+  lookReleaseAppText: {
+    id: "fleet.delivery.look.releaseAppText",
+    defaultMessage: "Pending permission requests block publication",
+    description:
+      "Why to check the release app; the dashboard cannot read pending permissions.",
+  },
+  lookCheckApp: {
+    id: "fleet.delivery.look.checkApp",
+    defaultMessage: "Check the app's permissions",
+    description: "Link to the release GitHub App's settings.",
+  },
+  lookRegistryTag: {
+    id: "fleet.delivery.look.registryTag",
+    defaultMessage: "Registry tag",
+    description: "Newest bundle tag in the registry.",
+  },
+  lookGithubRelease: {
+    id: "fleet.delivery.look.githubRelease",
+    defaultMessage: "GitHub release",
+    description: "Newest published GitHub release tag.",
+  },
+  lookTagsDiffer: {
+    id: "fleet.delivery.look.tagsDiffer",
+    defaultMessage: "Differs from the registry",
+    description: "The registry and GitHub release tags differ.",
+  },
+  lookBundlePR: {
+    id: "fleet.delivery.look.bundlePR",
+    defaultMessage: "Bundle update pull request",
+    description: "Term for the GitOps update pull request.",
+  },
+  lookNoBundlePR: {
+    id: "fleet.delivery.look.noBundlePR",
+    defaultMessage: "No bundle update pull request yet",
+    description: "The GitOps update pull request does not exist yet.",
+  },
+  lookAnalysis: {
+    id: "fleet.delivery.look.analysis",
+    defaultMessage: "Analysis",
+    description: "Link to an environment's analysis check run.",
+  },
+  lookArgo: {
+    id: "fleet.delivery.look.argo",
+    defaultMessage: "Argo CD",
+    description: "Link to an environment's Argo CD application.",
+  },
+  outsideBundle: {
+    id: "fleet.delivery.drawer.outsideBundle",
+    defaultMessage: "Ships outside the bundle",
+    description:
+      "A component that no release bundle lists (FLT-DLV-05, FLT-DLV-06).",
   },
 });

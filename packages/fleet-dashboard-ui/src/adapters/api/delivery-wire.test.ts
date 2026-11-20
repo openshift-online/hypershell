@@ -31,6 +31,7 @@ describe("mapDelivery promotion history (FLT-DLV-18)", () => {
                   version: "v2",
                   digest: "sha256:bbbb",
                   promotedAt: "2026-11-01T23:10:00Z",
+                  gatesPassedAt: "2026-11-01T23:30:00Z",
                   outcome: "passed",
                 },
                 { promotedAt: "2026-11-01T23:20:00Z", outcome: "later" },
@@ -53,6 +54,7 @@ describe("mapDelivery promotion history (FLT-DLV-18)", () => {
         url: "https://example.test/pull/1",
         outcome: "replaced",
         gate: "hypershell-analysis",
+        gatesPassedAt: null,
       },
       {
         version: "v2",
@@ -62,6 +64,7 @@ describe("mapDelivery promotion history (FLT-DLV-18)", () => {
         url: null,
         outcome: "passed",
         gate: null,
+        gatesPassedAt: "2026-11-01T23:30:00Z",
       },
       // An unrecognized outcome reads as Unknown, never as Passed.
       expect.objectContaining({ outcome: "unknown" }) as unknown,
@@ -70,6 +73,73 @@ describe("mapDelivery promotion history (FLT-DLV-18)", () => {
     expect(data.sources.history).toMatchObject({
       stale: true,
       error: "rate limited",
+    });
+  });
+});
+
+describe("mapDelivery estimates and diagnostics (FLT-DLV-12)", () => {
+  // Verifies: FLT-DLV-09.01, FLT-DLV-12
+  it("maps stage estimates to milliseconds and drops invalid ones", () => {
+    const data = mapDelivery({
+      enabled: true,
+      changes: [
+        {
+          sha: "a".repeat(40),
+          stages: [
+            {
+              key: "build",
+              state: "running",
+              estimateSeconds: 600,
+              slowestSeconds: 840,
+            },
+            { key: "policy", state: "not-started", estimateSeconds: -1 },
+          ],
+          builds: [
+            { component: "board", state: "passed", outsideBundle: true },
+          ],
+        },
+      ],
+    });
+    const change = data.changes[0];
+    expect(change?.stages[0]).toMatchObject({
+      estimateMs: 600_000,
+      slowestMs: 840_000,
+    });
+    expect(change?.stages[1]).toMatchObject({
+      estimateMs: null,
+      slowestMs: null,
+    });
+    expect(change?.builds[0]?.outsideBundle).toBe(true);
+    expect(data.releaseDiagnostics).toBeNull();
+  });
+
+  // Verifies: FLT-DLV-20.01
+  it("maps the release diagnostics", () => {
+    const data = mapDelivery({
+      enabled: true,
+      releaseDiagnostics: {
+        lastGood: { tag: "t1", version: "v1", digest: "sha256:aaaa" },
+        logUrl: "https://example.test/log",
+        commits: [
+          {
+            sha: "b".repeat(40),
+            title: "fix(release): read the snapshot",
+            pr: 77,
+            url: "https://example.test/commit/b",
+            mergedAt: "2026-11-01T11:00:00Z",
+          },
+        ],
+        registryTag: "t2",
+        githubReleaseTag: "t1",
+      },
+    });
+    expect(data.releaseDiagnostics).toMatchObject({
+      lastGood: { digest: "sha256:aaaa" },
+      logUrl: "https://example.test/log",
+      appUrl: null,
+      commits: [{ shortSha: "bbbbbbb", pr: 77 }],
+      registryTag: "t2",
+      githubReleaseTag: "t1",
     });
   });
 });

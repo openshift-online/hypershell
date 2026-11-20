@@ -1,0 +1,71 @@
+/* Progress bar (FLT-DLV-19): one equal-width cell per phase, numbered, each
+   joined to its own label by a short vertical line. Cells wrap on narrow
+   screens instead of scrolling sideways. */
+.progress {
+  margin-block-start: var(--pf-t--global--spacer--sm);
+}
+
+.cells {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+  gap: var(--pf-t--global--spacer--md) var(--pf-t--global--spacer--xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cell {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.segment {
+  display: flex;
+  align-items: center;
+  height: 1.25rem;
+  padding-inline: var(--pf-t--global--spacer--xs);
+  border-radius: var(--pf-t--global--border--radius--small);
+  background: var(--pf-t--global--border--color--default);
+  color: var(--pf-t--global--text--color--regular);
+  font-size: var(--pf-t--global--font--size--xs);
+  font-weight: var(--pf-t--global--font--weight--body--bold);
+}
+
+.connector {
+  width: 1px;
+  height: 0.75rem;
+  margin-inline-start: var(--pf-t--global--spacer--sm);
+  background: var(--pf-t--global--border--color--hover);
+}
+
+.label {
+  font-size: var(--pf-t--global--font--size--sm);
+  overflow-wrap: anywhere;
+}
+
+.segment[data-state="passed"] {
+  background: var(--pf-t--global--color--status--success--default);
+  color: var(--pf-t--global--text--color--status--on-success--default);
+}
+
+.segment[data-state="running"] {
+  background: var(--pf-t--global--color--status--info--default);
+  color: var(--pf-t--global--text--color--status--on-info--default);
+}
+
+.segment[data-state="failed"] {
+  background: var(--pf-t--global--color--status--danger--default);
+  color: var(--pf-t--global--text--color--status--on-danger--default);
+}
+
+.segment[data-overdue="true"] {
+  background: var(--pf-t--global--color--status--warning--default);
+  color: var(--pf-t--global--text--color--status--on-warning--default);
+}
+
+.segment[data-state="not-needed"],
+.segment[data-state="unknown"] {
+  background: var(--pf-t--global--background--color--secondary--default);
+  color: var(--pf-t--global--text--color--subtle);
+}

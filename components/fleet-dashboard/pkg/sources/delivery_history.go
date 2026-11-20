@@ -46,6 +46,9 @@ type DeliveryPromotion struct {
 	Outcome string `json:"outcome"`
 	// Gate is the gate that failed, or that was still running.
 	Gate string `json:"gate,omitempty"`
+	// GatesPassedAt is when the last gate of a passed promotion completed: the
+	// environment finished the change then (FLT-DLV-08). Empty when unknown.
+	GatesPassedAt string `json:"gatesPassedAt,omitempty"`
 }
 
 // histPromotion is one cached promotion on an environment branch.
@@ -56,6 +59,12 @@ type histPromotion struct {
 	outcome string
 	gate    string
 	settled bool
+	// gatesAt is the latest completion of a passed promotion's gate runs, and
+	// rerun is true when a gate ran more than once on the commit, so its first
+	// finish time is lost (FLT-DLV-09).
+	gatesAt string
+	rerun   bool
+	timed   bool
 }
 
 type envHistory struct {
@@ -135,8 +144,25 @@ func (d *Delivery) readEnvHistory(ctx context.Context, env Environment, old *env
 				p.digest = r.Digest
 			}
 		}
-		if isActive(p.SHA, env) || p.settled || i == len(h.promos)-1 {
-			continue // the active promotion's gates come from the promotion payload
+		if isActive(p.SHA, env) {
+			// The active promotion's gates come from the promotion payload. Once
+			// they passed, read their finish time once (FLT-DLV-08).
+			if o, _ := activeOutcome(env); o == OutcomePassed && !p.timed {
+				runs, err := d.gh.GateRuns(ctx, p.SHA)
+				if err != nil {
+					errs = append(errs, err.Error())
+					continue
+				}
+				// Read once: runs that do not show the pass leave the time unknown.
+				if o, _ := gateOutcome(runs, keys); o == OutcomePassed {
+					p.gatesAt, p.rerun = gateTimes(runs, keys)
+				}
+				p.timed = true
+			}
+			continue
+		}
+		if p.settled || i == len(h.promos)-1 {
+			continue
 		}
 		runs, err := d.gh.GateRuns(ctx, p.SHA)
 		if err != nil {
@@ -144,6 +170,10 @@ func (d *Delivery) readEnvHistory(ctx context.Context, env Environment, old *env
 			continue
 		}
 		p.outcome, p.gate = gateOutcome(runs, keys)
+		if p.outcome == OutcomePassed {
+			p.gatesAt, p.rerun = gateTimes(runs, keys)
+			p.timed = true
+		}
 		p.settled = p.outcome != OutcomeReplaced || replacedLongAgo(h.promos[i+1].MergedAt, now)
 	}
 	return h, errs
@@ -201,13 +231,38 @@ func gateKeys(env Environment) []string {
 	return keys
 }
 
+// latestRuns keeps the latest run per check name and counts the runs per name.
+// GateRuns lists every run (re-runs included), in no promised order.
+func latestRuns(runs []CheckRun) (map[string]CheckRun, map[string]int) {
+	byName, count := map[string]CheckRun{}, map[string]int{}
+	for _, r := range runs {
+		count[r.Name]++
+		if cur, ok := byName[r.Name]; !ok || r.StartedAt > cur.StartedAt {
+			byName[r.Name] = r
+		}
+	}
+	return byName, count
+}
+
+// gateTimes returns the latest completion among a passed promotion's gate
+// runs, and whether any gate ran more than once (FLT-DLV-09).
+func gateTimes(runs []CheckRun, keys []string) (at string, rerun bool) {
+	byName, count := latestRuns(runs)
+	for _, k := range keys {
+		if count[k] > 1 {
+			rerun = true
+		}
+		if c := byName[k].CompletedAt; c > at {
+			at = c
+		}
+	}
+	return at, rerun
+}
+
 // gateOutcome classifies a replaced promotion from the check runs named after
 // each gate key on its own commit (the latest run per name).
 func gateOutcome(runs []CheckRun, keys []string) (outcome, gate string) {
-	byName := map[string]CheckRun{}
-	for _, r := range runs {
-		byName[r.Name] = r
-	}
+	byName, _ := latestRuns(runs)
 	open := ""
 	for _, k := range keys {
 		r, ok := byName[k]
@@ -273,6 +328,9 @@ func envAttempts(in deliveryInput, pl placement, key string, first int) []Delive
 			dp.Outcome, dp.Gate = p.outcome, p.gate
 		default:
 			dp.Outcome = OutcomeUnknown
+		}
+		if dp.Outcome == OutcomePassed {
+			dp.GatesPassedAt = p.gatesAt
 		}
 		out = append(out, dp)
 		if active || dp.Outcome == OutcomePassed {

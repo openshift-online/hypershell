@@ -19,7 +19,7 @@ already running in an environment.
 This specification adds a **Delivery** tab. It follows each application change
 from merge to the last promotion environment as one row of stages. For every
 change in flight, it says what is happening now and what should happen next,
-with typical durations taken from recent history. It reads only sources the
+with estimates and arrival times taken from recent history. It reads only sources the
 dashboard can already reach, with credentials it already holds.
 
 ### Terms
@@ -27,11 +27,18 @@ dashboard can already reach, with credentials it already holds.
 | Term | Meaning |
 | --- | --- |
 | Change | One first-parent commit on the application repository's `main` branch (`FD_UPSTREAM_REPO`), usually a squash-merged pull request. |
-| Bundle | A Konflux release bundle: an OCI artifact tagged `release-bundle-*` whose `bundle.json` records six component images and `manifests.git.revision`. |
+| Bundle | A Konflux release bundle: an OCI artifact tagged `release-bundle-*` whose `bundle.json` records six component images, each with its `source.git.revision`, and `manifests.git.revision`. |
 | Locked bundle | A bundle that appears in the GitOps release-lock history. The shared bundle source (SDLC-VIS-03) resolves it. |
 | Pending bundle | A published bundle newer than the newest locked bundle. It is not in the GitOps repository yet. |
-| First bundle | The bundle whose compare window places the change, as the shared bundle source defines it (SDLC-VIS-03, SDLC-VIS-22). |
+| Bundled component | A component that appears in `bundle.components[]` of any known bundle. |
+| Outside-bundle component | A component that Konflux builds on push but that no known bundle lists. It ships by its own route, not through the bundle. |
+| Rebuilt components | The bundled components whose build check run on the change's commit exists (FLT-DLV-05), whatever its result. |
+| First bundle | The oldest bundle that contains the change (FLT-DLV-06). |
 | Contains | A bundle contains a change when it is the change's first bundle or any newer bundle. |
+| Phase | One stage after Merged, as one step of the pipeline: Build, Policy check, Release, GitOps update, then one phase per environment group. |
+| Run | One execution of a phase: one component build or policy check run, one bundle's release, one bundle's GitOps update, or one bundle's promotion through an environment group. |
+| Estimate | The median duration of the last 5 completed runs of a phase (FLT-DLV-09). |
+| Slowest | The longest duration among the same last 5 completed runs. |
 | Environment group | The promotion environments that share one `delivery.hypershell.app/env` label value (for example the int hub and its spokes). |
 | Delivered | A change is delivered when every promotion environment's active release contains it. |
 
@@ -47,7 +54,10 @@ dashboard can already reach, with credentials it already holds.
 
 The step between a passed policy check and a published bundle (the Konflux
 managed release and its final pipeline) has no source the dashboard can read
-without Konflux cluster access. The Release stage infers it (FLT-DLV-06).
+without Konflux cluster access. The Release stage infers it (FLT-DLV-06). When
+the Release phase is Overdue, the "Where to look" popup (FLT-DLV-20) points the
+operator to the places that can explain it. It links to the Konflux UI and to
+the release GitHub App settings from settings; the dashboard does not read them.
 
 ## Requirements
 
@@ -138,17 +148,31 @@ with a text label, never color alone:
 | Not needed | The stage does not apply to this change. | gray, with the reason |
 | Unknown | The source for this stage is unavailable. | gray question icon |
 
-A Running or Waiting stage that has lasted longer than twice its typical
-duration (FLT-DLV-09) SHALL add a warning treatment reading "Slower than usual".
+A Running or Waiting stage SHALL add a warning treatment reading **Overdue**
+once its elapsed time exceeds the phase's slowest of the last 5 completed runs
+(FLT-DLV-09) plus 5 minutes. A stage whose phase has no estimate SHALL never be
+Overdue. While any stage of a change is Overdue, the change SHALL show no
+arrival time (FLT-DLV-10). Overdue replaces the earlier "Slower than usual"
+rule (twice the typical duration): replayed over 3-13 November it raised 73
+flags with 45 false alarms, while slowest-of-5 plus 5 minutes raised 31 flags
+with 6 false alarms and caught 22 of 23 real stalls.
 Unknown SHALL never be rendered as Passed.
 
-#### Scenario: FLT-DLV-04.01 -- Slow stage is flagged
+#### Scenario: FLT-DLV-04.01 -- Overdue stage is flagged
 
-- GIVEN the Build stage's typical duration is 10 minutes
-- AND a change's Build stage has been Running for 23 minutes
+- GIVEN the last 5 completed Build runs of the rebuilt component took 9, 10, 10, 11, and 14 minutes
+- AND a change's Build stage has been Running for 20 minutes
 - WHEN the row renders
-- THEN the Build cell SHALL show Running with "23 min"
-- AND it SHALL show a warning "Slower than usual"
+- THEN the Build cell SHALL show Running with "20 min"
+- AND it SHALL show a warning "Overdue"
+- AND the change SHALL show no arrival time
+
+#### Scenario: FLT-DLV-04.02 -- Within the slowest run plus the margin
+
+- GIVEN the same last 5 Build runs
+- AND a change's Build stage has been Running for 18 minutes
+- WHEN the row renders
+- THEN the Build cell SHALL NOT show "Overdue"
 
 ### Requirement: FLT-DLV-05 -- Build and policy check from Konflux check runs
 
@@ -171,6 +195,10 @@ replaced this way, Build and Policy check SHALL be Not needed with the reason
 "Build replaced". When a change has no component build check run, Build and
 Policy check SHALL be Not needed with the reason "No component changed", and
 the change SHALL ride with its first bundle.
+
+Builds and policy checks of outside-bundle components SHALL still show in the
+Build and Policy check stages and in the drawer, marked "Ships outside the
+bundle" in the drawer. They SHALL NOT decide bundle containment (FLT-DLV-06).
 
 #### Scenario: FLT-DLV-05.01 -- One component rebuilt
 
@@ -195,17 +223,39 @@ the change SHALL ride with its first bundle.
 
 ### Requirement: FLT-DLV-06 -- Release from the shared bundle source
 
-The delivery source SHALL take locked bundles, their aliases, revisions, and
-which changes they contain from the shared bundle source that already feeds the
-Fleet Map and the Agent SDLC Shipped matrix (SDLC-VIS-03, SDLC-VIS-22,
-FLT-BPR). It SHALL NOT re-read the release lock or define its own rule for
-which changes belong to a locked bundle.
+The delivery source SHALL take locked bundles, their aliases, revisions,
+component revisions, and compare windows from the shared bundle source that
+already feeds the Fleet Map and the Agent SDLC Shipped matrix (SDLC-VIS-03,
+SDLC-VIS-22, FLT-BPR). It SHALL NOT re-read the release lock. The shared lock
+resolver SHALL keep each component's `bundle.components[].source.git.revision`
+from the lock it already reads, keyed by component name.
+
+**Containment by component revision.** A bundle's `manifests.git.revision` is
+the newest component source commit in its Snapshot. It is not proof that every
+component the change rebuilt is in the bundle: a component build can fail, or
+still be running, when another component's build produces the Snapshot. So:
+
+1. When the change has rebuilt components (FLT-DLV-05), a bundle SHALL contain
+   the change only when, for every rebuilt component the bundle lists, the
+   bundle's revision of that component is the change's commit or a later commit
+   on the application repository's linear `main` history.
+2. When the change has no rebuilt components (no build at all, every build
+   replaced, or only outside-bundle builds), the manifest-revision rule below
+   SHALL decide.
+
+The first bundle is the oldest bundle that contains the change. Replayed over
+3-13 November, the manifest-revision rule alone placed 13 of 67 changes with
+builds in the wrong first bundle, one of them 38 hours early.
 
 The registry SHALL be read only to find pending bundles: `release-bundle-*`
 tags of `FD_DELIVERY_BUNDLE_REPOSITORY` newer than the newest locked bundle. For
 each pending bundle, the source SHALL read `bundle.json` once by digest and
-cache it permanently, because bundle content is immutable. It SHALL place
-changes in the pending bundle with the shared source's compare-window rule,
+cache its manifests revision and component revisions permanently, because
+bundle content is immutable.
+
+**Manifest-revision rule.** The source SHALL place changes in a locked bundle
+with the shared source's compare windows, and in a pending bundle with the
+shared source's compare-window rule,
 using the newest locked bundle's revision as the base and the pending bundle's
 `manifests.git.revision` as the head, through the shared compare cache. When a
 pending bundle becomes locked, the shared source's placement SHALL replace the
@@ -218,7 +268,10 @@ A change's Release stage SHALL be Passed when a locked or pending bundle
 contains it, showing the first bundle's alias and publication time. When the
 change's Policy check has passed and no bundle contains it yet, the Release
 stage SHALL be Running and SHALL be labelled "Releasing (inferred)", because
-the Konflux managed release is not observable. When the matching
+the Konflux managed release is not observable. When every component the change
+built is an outside-bundle component and no bundle contains it yet, the Release
+stage SHALL be Not needed with "Ships outside the bundle", not "Releasing
+(inferred)". When the matching
 application-repository GitHub release is still a draft or missing after the
 bundle is published, the change details (FLT-DLV-11) SHALL show "Downloads not
 published yet". This SHALL NOT change the Release stage state, because GitOps
@@ -242,17 +295,35 @@ because locked placement cannot be read.
 
 #### Scenario: FLT-DLV-06.03 -- Pending placement matches the shared source
 
-- GIVEN pending bundle B places change C
+- GIVEN a change C with no rebuilt components
+- AND pending bundle B places C
 - WHEN B enters the GitOps release lock and the shared bundle source resolves it
 - THEN C's first bundle SHALL still be B
 - AND the Delivery tab and the Agent SDLC Shipped matrix SHALL list C under the same bundle
 
-#### Scenario: FLT-DLV-06.04 -- No second membership rule
+#### Scenario: FLT-DLV-06.04 -- No extra reads for a locked bundle
 
 - GIVEN a locked bundle B
-- WHEN the delivery source needs the changes B contains
-- THEN it SHALL read them from the shared bundle source
+- WHEN the delivery source needs B's compare window and component revisions
+- THEN it SHALL read them from the shared bundle source and the shared lock resolver
 - AND it SHALL NOT call the compare API or read the release lock for B itself
+
+#### Scenario: FLT-DLV-06.05 -- A failed build is not in the next bundle
+
+- GIVEN change C rebuilt the web-console component and that build failed
+- AND bundle B1, published after C, has `manifests.git.revision` after C but a web-console revision before C
+- AND bundle B2 has a web-console revision that is a later commit than C
+- WHEN the BFF builds the payload
+- THEN C's first bundle SHALL be B2, not B1
+
+#### Scenario: FLT-DLV-06.06 -- Outside-bundle component
+
+- GIVEN change C built only a component that no known bundle lists
+- AND C's policy check passed
+- AND no bundle contains C
+- WHEN the row renders
+- THEN the Release cell SHALL read Not needed with "Ships outside the bundle"
+- AND it SHALL NOT read "Releasing (inferred)"
 
 ### Requirement: FLT-DLV-07 -- GitOps update stage
 
@@ -279,7 +350,12 @@ from Waiting to Passed without a Running state.
 
 For each environment group, the stage SHALL be Passed when every environment in
 the group has an active release that contains the change, showing the time the
-last one was promoted. The promotion time of an environment SHALL be the merge time of the first
+group finished. An environment finishes a change when the gates of its first
+passing promotion of a bundle containing the change passed: the latest
+completion time of that promotion's gate check runs (FLT-DLV-18). The group
+finishes when its last environment finishes. When gate times are unknown, the
+environment's promotion time SHALL stand in. The promotion time of an
+environment SHALL be the merge time of the first
 promotion in that environment's history (FLT-DLV-18) whose bundle contains the
 change. When the history does not reach back that far, the time SHALL be
 unknown and omitted. A group that is Passed but had a failed attempt in its
@@ -326,20 +402,71 @@ active release decide, as above.
 - THEN the Int cell SHALL read Passed
 - AND the row of a change first shipped in B2 SHALL read Running with "Release analysis running"
 
-### Requirement: FLT-DLV-09 -- Typical durations
+### Requirement: FLT-DLV-09 -- Phase estimates
 
-The BFF SHALL compute a typical duration for each stage as the median of that
-stage's durations over the completed changes in its history window, using at
-least 3 samples. A stage's duration is the time from the end of the previous
-stage to the end of this stage. Stages with fewer than 3 samples SHALL have no
-typical duration, and the UI SHALL then omit "usually" text and the slow-stage
-warning for that stage.
+The BFF SHALL compute, for each phase, an **estimate** (the median duration of
+the last 5 completed runs of that phase) and a **slowest** value (the longest
+of the same runs). Runs are ordered by their end time. A phase with fewer than 3
+completed runs SHALL have no estimate and no slowest value; the UI SHALL then
+omit "usually" text, the Overdue warning, and every arrival time that depends on
+that phase.
+
+A run SHALL be sampled once per execution, not once per change. Many changes
+ride one bundle; counting each of them would weight one slow bundle many times.
+
+| Phase | One run is | Starts | Ends |
+| --- | --- | --- | --- |
+| Build | one component's build check run, per component | the change's merge | the check run's completion |
+| Policy check | one component's policy check run, per component | that component's build completion on the same commit | the check run's completion |
+| Release | one bundle | the latest policy check completion on the bundle's `manifests.git.revision` commit | the bundle's publication |
+| GitOps update | one bundle | the bundle's publication | the merge of the first release-lock commit for that bundle |
+| Environment group | one bundle's promotion through the group | the end of the previous phase for the same bundle | the group finishes (FLT-DLV-08): the gates of its last environment pass |
+
+Only successful runs count. An environment phase ends when its gates pass, not
+when the promotion pull request merges. A gate check run that was re-run (more
+than one run with the same name on the promotion's commit) SHALL NOT be sampled,
+because the re-run replaces the first finish time.
+
+Build and Policy check are per component. A change's Build and Policy check
+estimate and slowest value SHALL be those of the slowest component the change
+rebuilt (the largest estimate, and the largest slowest value). When the change
+rebuilt bundled components, only they count; otherwise every built component
+counts. When any of those components has no estimate, the phase has none.
+
+The BFF SHALL put each stage's estimate and slowest value on the stage of every
+listed change, so the UI needs no per-component lookup.
 
 #### Scenario: FLT-DLV-09.01 -- Too little history
 
-- GIVEN only 2 completed changes have a Policy check duration
+- GIVEN only 2 completed Policy check runs of the rebuilt component
 - WHEN the Policy check stage renders as Running
 - THEN it SHALL show elapsed time only, with no "usually" text
+
+#### Scenario: FLT-DLV-09.02 -- Median of the last 5 runs
+
+- GIVEN 7 completed Release runs of 30, 31, 32, 40, 41, 42, and 90 minutes, in that order of end time
+- WHEN the BFF computes the Release estimate
+- THEN the estimate SHALL be 41 minutes, from the last 5 runs
+- AND the slowest value SHALL be 90 minutes
+
+#### Scenario: FLT-DLV-09.03 -- One sample per bundle
+
+- GIVEN 6 changes that all rode bundle B
+- WHEN the BFF samples the GitOps update phase
+- THEN bundle B SHALL contribute one run
+
+#### Scenario: FLT-DLV-09.04 -- Slowest rebuilt component decides
+
+- GIVEN change C rebuilt components A and B
+- AND A's Build estimate is 8 minutes and B's is 14 minutes
+- WHEN C's Build stage renders
+- THEN its estimate SHALL be 14 minutes
+
+#### Scenario: FLT-DLV-09.05 -- Re-run gate is not sampled
+
+- GIVEN a promotion whose analysis gate has two check runs on its commit
+- WHEN the BFF samples the environment-group phase
+- THEN that promotion SHALL NOT contribute a run
 
 ### Requirement: FLT-DLV-10 -- Now and next summary
 
@@ -349,27 +476,75 @@ table when more exist. Each row SHALL name the change (short SHA, pull request,
 title) and SHALL state:
 
 - **Now:** the earliest stage that is not Passed or Not needed, its state, its
-  elapsed time, and its typical duration when known.
+  elapsed time, and its estimate when known.
 - **Next:** the following stage, with an expected time equal to the remaining
-  typical duration of the current stage (its typical duration minus its elapsed
-  time, never below zero) plus the typical duration of the next stage, written
-  as "usually about <time>". When either typical duration is unknown, the
+  time of the current stage plus the estimate of the next stage, written as
+  "usually about <time>". The remaining time of a stage is its estimate minus
+  its elapsed time, never below zero. When either estimate is unknown, the
   expected time SHALL be omitted. When the current stage is Failed, Next SHALL
-  state what restarts the pipeline instead (for a failed build: "A new change
-  to main starts a new build").
+  state what restarts the pipeline instead (for a failed build: "Re-run the
+  failed pipeline, or merge a change to the same component", because component
+  builds run only for changes under their own paths).
+- **Arrival:** the progress bar (FLT-DLV-19) and, per environment group, the
+  expected arrival of the change in that group.
+
+**Arrival time.** The expected arrival in an environment group SHALL be now,
+plus the remaining time of the current phase, plus the estimates of every later
+phase up to and including that group. Phases already Passed or Not needed add
+nothing.
+
+- **Before the bundle is published** (the Release stage is not Passed), the
+  arrival SHALL be a range, because the release step is not observable. The
+  early end is now plus 0.8 times the sum above. The late end is now plus the
+  remaining slowest time of the current phase (its slowest value minus its
+  elapsed time, never below zero) plus the slowest values of every later phase
+  up to that group.
+- **After the bundle is published**, the arrival SHALL be one time.
+- **No arrival** SHALL be shown for a group when any phase up to it has no
+  estimate, when any stage of the change is Failed, or while any stage of the
+  change is Overdue (FLT-DLV-04). A group the change already reached shows its
+  finish time instead.
+
+Replayed over 56 changes from 3 to 13 November, merge to the last environment
+took a median of 97 minutes (fastest 43). The typical arrival miss was 36
+minutes at merge, 7 minutes once the bundle was published, and under 2 minutes
+in the last environment group.
 
 The summary icon SHALL follow the highest severity among its rows: Failed over
-"Slower than usual" over in-progress. When every listed change is delivered, the
+Overdue over in-progress. When every listed change is delivered, the
 summary SHALL read "Everything on main is delivered" with the newest change's
 delivery time and its total time from merge.
 
 #### Scenario: FLT-DLV-10.01 -- Change building
 
-- GIVEN change `a15cc91` (#997) has Build Running for 6 minutes with a typical Build duration of 10 minutes
-- AND the typical Policy check duration is 3 minutes
+- GIVEN change `a15cc91` (#997) has Build Running for 6 minutes with a Build estimate of 10 minutes
+- AND the Policy check estimate is 3 minutes
 - WHEN the summary renders at 15:17
 - THEN the row SHALL read Now "Building control-plane - 6 min, usually 10 min"
 - AND Next "Policy check - usually about 15:24"
+
+#### Scenario: FLT-DLV-10.04 -- Arrival range before the bundle is published
+
+- GIVEN a change whose Build has been Running for 4 minutes with estimate 10 and slowest 15 minutes
+- AND estimates Policy check 5, Release 30, GitOps update 10, Int 20 minutes
+- AND slowest values Policy check 8, Release 45, GitOps update 15, Int 30 minutes
+- WHEN the summary renders at 12:00
+- THEN the Int arrival SHALL read from 12:57 to 13:49
+- BECAUSE the early end is 0.8 x (6 + 5 + 30 + 10 + 20) = 56.8 minutes and the late end is 11 + 8 + 45 + 15 + 30 = 109 minutes
+
+#### Scenario: FLT-DLV-10.05 -- One arrival time after publication
+
+- GIVEN a change whose bundle is published and whose GitOps update has been Waiting for 4 minutes with estimate 10 minutes
+- AND the Int estimate is 20 minutes
+- WHEN the summary renders at 12:00
+- THEN the Int arrival SHALL read 12:26
+
+#### Scenario: FLT-DLV-10.06 -- Overdue withdraws the arrival
+
+- GIVEN a change whose Release stage is Overdue
+- WHEN the summary renders
+- THEN no environment group SHALL show an arrival time for that change
+- AND the Release cell SHALL offer the "Where to look" popup (FLT-DLV-20)
 
 #### Scenario: FLT-DLV-10.02 -- Nothing in flight
 
@@ -379,7 +554,7 @@ delivery time and its total time from merge.
 
 #### Scenario: FLT-DLV-10.03 -- Failure takes precedence
 
-- GIVEN one undelivered change has a Failed Build and another has a slow GitOps update
+- GIVEN one undelivered change has a Failed Build and another has an Overdue GitOps update
 - WHEN the summary renders
 - THEN the summary heading SHALL use the danger icon
 
@@ -423,8 +598,9 @@ link SHALL be omitted for it.
 The BFF SHALL serve `GET /api/delivery`, admin-gated like the other `/api/*`
 endpoints, from an in-memory cache refreshed every `FD_REFRESH_DELIVERY`. The
 payload SHALL carry `generatedAt`, the ordered stage and environment-group
-definitions, the changes with their stage states, the typical durations, the
-omitted-change count, and a per-source `stale` and `error` flag for `upstream`,
+definitions, the changes with their stage states and per-stage estimates, the
+phase estimates (FLT-DLV-09), the release diagnostics when the Release phase is
+Overdue (FLT-DLV-20), the omitted-change count, and a per-source `stale` and `error` flag for `upstream`,
 `registry`, `gitops`, `promotion`, and `history`.
 
 Per refresh, the BFF SHALL make at most one commits-list call, one check-runs
@@ -432,8 +608,12 @@ call per change whose check runs have not settled, one environment-branch
 commits call per environment whose active hydrated commit changed since the
 last read, one hydration-metadata read and one check-runs call per new
 promotion it has not yet settled (FLT-DLV-18),
+one gate check-runs call for an active promotion once its gates passed and
+until its gate times are read,
 one registry tag-list call, one `bundle.json` read per new pending bundle,
-and one pull-request list call. Locked-bundle data SHALL come from the shared
+and one pull-request list call. While a listed change's Release phase is
+Overdue, it MAY add one path-filtered commits call per path in
+`FD_DELIVERY_RELEASE_PATHS` and one releases-list call (FLT-DLV-20). Locked-bundle data SHALL come from the shared
 bundle source's cache with no extra call. Completed check runs and pending
 bundle contents SHALL be cached by full SHA or digest, because they are
 immutable. Pending-bundle compare results SHALL use the shared compare cache.
@@ -445,6 +625,9 @@ immutable. Pending-bundle compare results SHALL use the shared compare cache.
 | `FD_DELIVERY_CHECK_APP` | no | `red-hat-konflux` | GitHub App slug whose check runs are builds and policy checks. |
 | `FD_DELIVERY_WINDOW` | no | `30` | Maximum changes in the payload. |
 | `FD_REFRESH_DELIVERY` | no | `60s` | Cache refresh interval. |
+| `FD_DELIVERY_RELEASE_LOG_URL` | no | none | Link to the Konflux release list or log for the application. When unset, the Release popup omits the link. |
+| `FD_DELIVERY_RELEASE_APP_URL` | no | none | Link to the release GitHub App's installation settings, where pending permission requests show. When unset, the popup omits the link. |
+| `FD_DELIVERY_RELEASE_PATHS` | no | `pipelines/release-bundle/,scripts/release_bundle.py` | Comma-separated application-repository paths of the bundle publisher. The Release popup lists commits since the last good bundle that touch them. |
 
 The plane SHALL reuse `FD_UPSTREAM_REPO`, `FD_UPSTREAM_TOKEN_FILE`,
 `FD_GITHUB_REPO`, and `FD_GITHUB_TOKEN_FILE`, and SHALL NOT require any new
@@ -547,9 +730,11 @@ the application repository.
 The production Delivery tab SHALL match the approved mockup stories
 `Mockups/Glass/Delivery` (design review) and `Parity/Glass/Delivery` (parity)
 in `specs/web-console/mockups/dashboards/delivery-pipeline/`, state for state:
-`InFlight`, `ChangeSelected`, `BuildFailed`, `SlowerThanUsual`,
+`InFlight`, `ChangeSelected`, `BuildFailed`, `ReleaseOverdue`,
 `AllDelivered`, `PromotionRetried`, `SourceUnavailable`, `Loading`,
-`NotConfigured`, and `Error`.
+`NotConfigured`, and `Error`. `InFlight` SHALL show the progress bar and arrival
+range (FLT-DLV-19, FLT-DLV-10); `ReleaseOverdue` SHALL show the Overdue Release
+phase with its "Where to look" popup open (FLT-DLV-20).
 The production page SHALL pass `skills/build/ui-build-gate/SKILL.md`.
 
 #### Scenario: FLT-DLV-16.01 -- Every mockup state has a production story
@@ -562,13 +747,17 @@ The production page SHALL pass `skills/build/ui-build-gate/SKILL.md`.
 
 The implementation SHALL include tests that cite these IDs in `Verifies:`
 markers: BFF unit tests for check-run classification (FLT-DLV-05), first-bundle
-selection including a change that rides a later bundle, and pending-bundle
-placement that matches the shared bundle source once the bundle is locked
-(FLT-DLV-06), environment-group states and waiting reasons
-(FLT-DLV-08), median typical durations with fewer than 3 samples
-(FLT-DLV-09), the per-refresh call budget (FLT-DLV-12), and per-source
-degradation (FLT-DLV-13); UI domain tests for the Now and next text and
-severity (FLT-DLV-10); and route-codec tests for `change` (FLT-DLV-14).
+selection including a change that rides a later bundle, containment by
+component revision with a failed build, outside-bundle components, and
+pending-bundle placement that matches the shared bundle source once the bundle
+is locked (FLT-DLV-06), environment-group states, waiting reasons, and gate
+finish times (FLT-DLV-08), estimates from the last 5 runs sampled once per
+execution, with fewer than 3 samples and re-run gates (FLT-DLV-09), the
+per-refresh call budget (FLT-DLV-12), per-source degradation (FLT-DLV-13), and
+release diagnostics (FLT-DLV-20); UI domain tests for the Overdue rule
+(FLT-DLV-04), the Now and next text, arrival times, and severity (FLT-DLV-10),
+and progress-bar cells and percent (FLT-DLV-19); route-codec tests for
+`change` (FLT-DLV-14); and the replay (FLT-DLV-21).
 
 #### Scenario: FLT-DLV-17.01 -- Markers present
 
@@ -633,3 +822,122 @@ once its gate runs completed or once it was replaced more than one hour ago.
 - WHEN the BFF builds E's history
 - THEN B2's outcome SHALL come from the check runs on B2's own merge commit
 - AND B1's outcome SHALL come from the check runs on B1's own merge commit
+
+### Requirement: FLT-DLV-19 -- Progress bar
+
+Each Now and next row SHALL show a progress bar for the change with one cell
+per phase, in stage order (FLT-DLV-03), all cells of equal width. Each cell
+SHALL carry its phase number (1, 2, ...). A short vertical line SHALL connect
+each cell to its own label below it. The label SHALL state the phase name, its
+state as text, and one time: the finish time for a Passed phase, the elapsed
+time for a Running or Waiting phase, and the arrival time or range for an
+environment group not reached yet (FLT-DLV-10). The cell's color SHALL follow
+the state (FLT-DLV-04) and SHALL never be the only carrier of it. On a narrow
+screen the cells and their labels SHALL wrap to further lines instead of
+scrolling sideways.
+
+The bar SHALL state a percent complete: elapsed / (elapsed + remaining), where
+elapsed is the time since the merge, and remaining is the remaining time of the
+current phase plus the estimates of every later phase. When any of those
+estimates is unknown, or while a stage is Failed or Overdue, the percent SHALL
+be omitted. The bar SHALL expose the percent and each cell's label to assistive
+technology; the change table stays the full accessible representation
+(FLT-DLV-03).
+
+#### Scenario: FLT-DLV-19.01 -- Cells and labels
+
+- GIVEN a promotion graph with groups Int, Stage, and Prod
+- WHEN a Now and next row renders
+- THEN the bar SHALL show 7 numbered cells: Build, Policy check, Release, GitOps update, Int, Stage, Prod
+- AND each cell SHALL have a label naming the phase, its state, and one time
+
+#### Scenario: FLT-DLV-19.02 -- Percent complete
+
+- GIVEN a change merged 30 minutes ago whose remaining time to the last group is 90 minutes
+- WHEN the row renders
+- THEN the bar SHALL read "25%"
+
+#### Scenario: FLT-DLV-19.03 -- Narrow screen
+
+- GIVEN a 390 pixel wide viewport
+- WHEN the row renders
+- THEN the cells SHALL wrap onto more than one line
+- AND the page SHALL NOT scroll sideways
+
+### Requirement: FLT-DLV-20 -- Where to look
+
+An Overdue or Failed phase SHALL offer a **Where to look** popup from its
+progress-bar cell and from its table cell. The popup SHALL open on hover, on
+keyboard focus, and on tap, and SHALL close on Escape. Its content depends on
+the phase:
+
+- **Build, Failed:** "Re-run the failed pipeline, or merge a change to the same
+  component", with a link to each failed check run. Component builds run only
+  for changes under their own paths, so a later unrelated change does not
+  rebuild the component.
+- **Build or Policy check, Overdue:** the running check runs, with links.
+- **Release, Overdue:** the BFF SHALL supply these release diagnostics:
+  1. the last good release: the newest published bundle's alias and
+     publication time;
+  2. a link to the Konflux release log (`FD_DELIVERY_RELEASE_LOG_URL`), when
+     set;
+  3. the commits on the application repository since the last good bundle was
+     published that touch any `FD_DELIVERY_RELEASE_PATHS` path, with links;
+  4. a link to the release GitHub App's settings, to check for pending
+     permission requests (`FD_DELIVERY_RELEASE_APP_URL`), when set. The
+     dashboard cannot read pending permissions with its credentials, so it
+     SHALL NOT claim whether any are pending;
+  5. the newest registry bundle tag next to the newest published GitHub release
+     tag, flagged when they differ.
+- **GitOps update, Overdue or Failed:** the bundle update pull request and its
+  check state, or "No bundle update pull request yet".
+- **Environment group, Overdue or Failed:** per environment not finished, the
+  gate that is running or failed, with the environment's analysis and Argo CD
+  links from the promotion payload.
+
+The release diagnostics SHALL be read only while a listed change's Release
+phase is Overdue, within the call budget of FLT-DLV-12. A diagnostic whose read
+failed SHALL say so; the popup SHALL still show the others.
+
+#### Scenario: FLT-DLV-20.01 -- Release overdue
+
+- GIVEN change C's Release phase is Overdue
+- AND a commit touching the bundle publisher merged after the last good bundle
+- WHEN the operator hovers, focuses, or taps C's Release cell
+- THEN the popup SHALL show the last good release, the release log link, that commit, the release app link, and the registry and GitHub release tags
+
+#### Scenario: FLT-DLV-20.02 -- Failed build
+
+- GIVEN change C's web-console build failed
+- WHEN the operator opens the popup on C's Build cell
+- THEN it SHALL read "Re-run the failed pipeline, or merge a change to the same component"
+- AND it SHALL link to the failed check run
+
+### Requirement: FLT-DLV-21 -- Replay validation
+
+The repository SHALL include a replay that checks the estimate, arrival, and
+Overdue rules against past runs. It SHALL rebuild each past change's phases
+from the GitHub API: application-repository commits, check runs, and releases;
+the GitOps repository's release-lock history; and the promotion pull requests
+on the environment branches. It SHALL estimate each run only from runs that
+ended before it. It SHALL report, for a date range:
+
+- merge to last environment: median and fastest;
+- the median absolute arrival miss for the last group, at merge, once the
+  bundle is published, and once the change reached the last group's phase;
+- per Overdue rule (twice the estimate, slowest of 5, slowest of 5 plus 5
+  minutes): flags raised, false alarms, and real stalls caught. A **real stall**
+  is a run that finally took more than its slowest of 5 plus 15 minutes, or
+  never finished. A **false alarm** is a flagged run that is not a real stall.
+  A stall is caught when the rule flagged it before it finished.
+
+Repository names, branch prefixes, and the date range SHALL be arguments, not
+literals in the replay, so it obeys the fleet-identity firewall (FLT-DLV-15)
+when run against any fleet. The pure replay logic SHALL have unit tests that
+run without network access.
+
+#### Scenario: FLT-DLV-21.01 -- Estimates use only the past
+
+- GIVEN runs R1, R2, R3, R4 ending in that order
+- WHEN the replay estimates R4
+- THEN it SHALL use R1, R2, and R3 only
