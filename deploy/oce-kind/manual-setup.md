@@ -157,9 +157,11 @@ for resource in yaml.safe_load_all(Path('deploy/oce-kind/hypershell-operator.yam
                     resource['metadata']['name'],'--type=strategic','--patch',yaml.safe_dump(resource)], check=True)
 PY
 
-# Wait for the controller to run with the new settings before seeding.
+# Wait for the controller and API server to run with the new settings before
+# seeding; an old API server Pod would reject the operator workspace_mode.
 # OpenShell images retain HyperShell's normal release defaults.
-kubectl -n hypershell-system rollout status deployment/hypershell-controller
+kubectl -n hypershell-system rollout status deployment/hypershell-controller --timeout=5m
+kubectl -n hypershell-system rollout status deployment/hypershell-api-server --timeout=5m
 
 # Read this cluster's configured Keycloak hostname for authenticated seeding.
 # Strip the URL scheme because kind-seed expects a hostname.
