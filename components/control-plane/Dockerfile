@@ -46,6 +46,7 @@ COPY components/api-server/proto/ components/api-server/proto/
 COPY components/cli/pkg/kustomize/ components/cli/pkg/kustomize/
 COPY components/control-plane/cmd/ components/control-plane/cmd/
 COPY components/control-plane/internal/ components/control-plane/internal/
+COPY components/control-plane/pkg/ components/control-plane/pkg/
 
 ARG TARGETARCH
 # Re-declare the build-metadata args in this stage so the go build below can stamp
