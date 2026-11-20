@@ -150,8 +150,9 @@ listed in `specs/id-rename-map.md`, not here.
 | `PLAT-ARCH` | `platform/global-architecture.spec.md` | 19 |
 | `PLAT-CITR` | `platform/ci-trust-ext-api.spec.md` | 16 |
 | `PLAT-CLUS` | `platform/managed-cluster-registration.spec.md` | 15 |
-| `PLAT-DATA` | `platform/data-model.spec.md` | 27 |
+| `PLAT-DATA` | `platform/data-model.spec.md` | 30 |
 | `PLAT-INV` | `platform/platform-inventory.spec.md` | 10 |
+| `PLAT-PGP` | `platform/platform-gateway-policy.spec.md` | 20 |
 | `PLAT-USR` | `platform/registered-users.spec.md` | 15 |
 
 ### REL
@@ -225,6 +226,7 @@ the rest of `WEB` here for lookup convenience.
 | `WEB-I18N` | `web-console/architecture.spec.md` | 1 |
 | `WEB-OBS` | `web-console/architecture.spec.md` | 2 |
 | `WEB-OPS` | `web-console/operational-dashboard.spec.md` | 29 |
+| `WEB-PADM` | `web-console/platform-policy-admin.spec.md` | 12 |
 | `WEB-PKG` | `web-console/architecture.spec.md` | 4 |
 | `WEB-PLC` | `web-console/gateway-provision-placement.spec.md` | 9 |
 | `WEB-QUAL` | `web-console/architecture.spec.md` | 3 |

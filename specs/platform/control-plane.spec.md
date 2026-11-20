@@ -1380,6 +1380,61 @@ The control plane SHALL continuously reconcile the `phase` and `status` fields o
 - THEN the control plane SHALL re-apply the gateway manifests despite the `Running` phase
 - AND set `observed_generation` to the applied `generation` upon success
 
+---
+
+### Requirement: CTRL-CORE-22 -- Policy Bundle Reconcile and Event Ingest
+
+The control plane SHALL distribute platform gateway policies to the interceptor
+sidecars and ingest their audit events, implementing the enforcement architecture of
+[`platform-gateway-policy.spec.md`](./platform-gateway-policy.spec.md) (PLAT-PGP-12,
+PLAT-PGP-15). It SHALL:
+
+- Watch `PlatformGatewayPolicy` records and the `PlatformPolicySettings` toggle on
+  the existing gRPC watch stream (CTRL-CORE-02) and resync them periodically, as it
+  does for CI kinds (CTRL-CORE-20, CTRL-CORE-21).
+- Build a per-gateway **policy bundle** (revision hash, Cedar schema version, an
+  enforced set and an audit-only set with effective modes resolved, `@id`
+  attribution, and per-policy `userMessage` and `documentationUrl`) and write it to
+  a ConfigMap (for example `hypershell-policy-bundle`) in the gateway namespace with
+  update-or-create, labeled with the gateway id and the bundle schema version. This
+  write does not go through Helm, so the gateway reconciler's convergence gate
+  (CTRL-CORE-13) does not apply and a policy change does not restart the gateway.
+- Copy each sidecar's applied bundle revision and the policy conditions
+  (`Applied`, `Pending`, `Unsupported`) into `PlatformGatewayPolicy` status as a
+  bounded status-only write-back (mirroring CTRL-CORE-13 and SEC-RBAC-27).
+- Host the in-cluster gRPC endpoint `ReportPolicyEvents`: it SHALL verify the
+  reporting sidecar's projected service-account token with `TokenReview`, reject an
+  event whose token namespace does not belong to the reporting gateway, and forward
+  accepted events to the api-server under the control plane's own registered identity
+  (SEC-RBAC-32). Events carry a sidecar-generated id, so a retry is idempotent.
+- Run the interceptor sidecar with the controller's own image digest, read from its
+  own Pod status, so the sidecar and the controller always run the same build
+  (PLAT-PGP-09).
+
+Reconcile SHALL be idempotent and re-entrant per the reconciliation contract
+(STD-RCON-02): a repeated reconcile of unchanged policies SHALL converge to the same
+ConfigMap without a spurious revision bump.
+
+#### Scenario: CTRL-CORE-22.01 -- Bundle Written Without a Helm Roll
+
+- GIVEN a change to a `PlatformGatewayPolicy` targeting a gateway
+- WHEN the control plane reconciles it
+- THEN it SHALL write a new bundle revision to the gateway-namespace ConfigMap with update-or-create
+- AND it SHALL NOT trigger a Helm upgrade or a gateway restart
+
+#### Scenario: CTRL-CORE-22.02 -- Event Ingest Is Namespace-Checked and Idempotent
+
+- GIVEN a sidecar reports a policy audit event with a projected service-account token
+- WHEN the control plane receives it
+- THEN it SHALL verify the token with `TokenReview` and reject an event whose namespace does not belong to the reporting gateway
+- AND it SHALL forward an accepted event under its registered identity, storing one row per sidecar-generated id on retry
+
+#### Scenario: CTRL-CORE-22.03 -- Applied Revision Copied Into Status
+
+- GIVEN a sidecar has applied a bundle revision
+- WHEN the control plane observes the applied revision
+- THEN it SHALL copy the revision and per-gateway condition into `PlatformGatewayPolicy` status as a status-only write-back
+
 ## Known Limitations
 
 - **Service-account provisioner is hub-local.** The API server reaches the internal OpenShellGatewayServiceAccount provisioner at one in-cluster address, so only the control plane co-located with the hub can serve it. Gateways hosted on a remote cluster cannot yet have service accounts provisioned; see the Non-Goals of `hub-grpc-tls.spec.md`.

@@ -995,7 +995,57 @@ The repository UI completion gate SHALL be executed per `skills/build/ui-build-g
 
 ---
 
-## Non-Goals
+### Requirement: WEB-GLIS-26 -- Read-Only Policies Tab
+
+The gateway detail page SHALL add a fifth tab, **Policies**, after the tabs defined in
+WEB-GLIS-07, readable at every access level (owner, admin, viewer). It SHALL be
+read-only: a gateway user never authors, edits, or changes the mode of a policy
+(policy authoring lives in the admin console, WEB-PADM). The tab SHALL read `GET
+/gateways/{id}/effective_policies` (PLAT-PGP-19) and SHALL present, from that response:
+
+- **Sandbox limits on this gateway**: the fleet defaults and the recognized bounds
+  from every applicable policy, each bound attributed to its policy and marked
+  **Enforced** or **Audit only** (PLAT-PGP-17);
+- **Additional rules**: policies the renderer cannot summarize, shown with their
+  `userMessage` and Cedar source;
+- a copyable `openshell sandbox create` command that fits the limits (using the fleet
+  defaults, not hard-coded values);
+- a policy list with a detail drawer (message, documentation link, rendered rules, and
+  why the policy is enforced or audit-only);
+- **audit findings** for this gateway, with a "My operations / All operations" filter
+  and an outcome filter.
+
+Because the endpoint masks policy targets and exclusions from gateway users
+(SEC-RBAC-31), the tab SHALL NOT display any other gateway's identity. The tab SHALL
+follow the detail page's hexagonal boundary and domain probes (WEB-GLIS-22),
+server-state freshness and localization (WEB-GLIS-23), and per-tab polling and refresh
+(WEB-GLIS-21, WEB-GLIS-24). The Connection tab's guided `openshell sandbox create`
+command (WEB-GLIS-11) SHALL use the fleet defaults in place of hard-coded
+`--cpu`/`--memory` values. The tab's design-review states SHALL be covered by the
+mockup `specs/web-console/mockups/gateways/gateway-policies-tab.tsx` and its stories,
+with the shared rendered-rule presentation in
+`specs/web-console/mockups/common/policy-rules.tsx`, delivered on the
+`mockups/platform-gateway-policy` branch, and the production page SHALL pass the
+mandatory web-console completion gate.
+
+#### Scenario: WEB-GLIS-26.01 -- Viewer Sees Limits, Rules, and Findings Without Targets
+
+- GIVEN a `gateway:viewer` opens the Policies tab
+- WHEN the tab loads `GET /gateways/{id}/effective_policies`
+- THEN it SHALL show the fleet defaults, the attributed Enforced and Audit-only bounds, the additional-rules list, and this gateway's findings
+- AND it SHALL NOT show any policy's target or exclude set or any other gateway's identity
+
+#### Scenario: WEB-GLIS-26.02 -- Copyable Command Uses Fleet Defaults
+
+- GIVEN the Policies tab and the Connection tab for a gateway with fleet defaults in effect
+- WHEN each renders its `openshell sandbox create` command
+- THEN the command SHALL use the fleet default resource values, not hard-coded `--cpu 500m --memory 512Mi`
+
+#### Scenario: WEB-GLIS-26.03 -- Findings Filter by Scope and Outcome
+
+- GIVEN the Policies tab with audit findings for this gateway
+- WHEN the user switches "My operations / All operations" and the outcome filter
+- THEN the findings list SHALL update to match the selected scope and outcome
 
 - This specification does not add a Cluster type dropdown filter to the gateway list; that requires server-side filtering support.
 - This specification does not add workspace membership columns to the User access or Service accounts tables; that requires joined API responses.

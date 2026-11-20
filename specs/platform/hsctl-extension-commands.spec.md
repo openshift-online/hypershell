@@ -171,3 +171,35 @@ no generated parent command file SHALL be hand-edited to add it.
 - GIVEN a `SecretSource` whose material was already uploaded through the command
 - WHEN the user runs `hsctl secret-source upload` again for the same `SecretSource` with new material
 - THEN the command SHALL overwrite the material at the same convention path through a single material-upload request
+
+---
+
+### Requirement: CLI-EXT-06 -- PlatformGatewayPolicy Commands and Effective-Policies Read-Back
+
+`platform_gateway_policies` is a listable extension kind served under
+`/api/hypershell/ext/` (PLAT-DATA-28), so it SHALL get `hsctl list
+platform-gateway-policies` and `hsctl get platform-gateway-policy <id>` through the
+shared extension registrar (`extgroup`), following the generic read-back pattern
+(CLI-EXT-02), and SHALL get `create`, `update`, and `delete` verbs on the same parent
+commands. `get` SHALL render the policy's read-only `status`, including per-gateway
+rollout condition and 24-hour finding counts (CLI-EXT-03). The CLI SHALL also expose
+reads of the global enforcement toggle (`platform_policy_settings`, PLAT-DATA-29) and
+a gateway's effective policies (`GET /gateways/{id}/effective_policies`, PLAT-PGP-19),
+following the same registrar pattern. Policy writes and toggle changes are authorized
+by `platform-policy:admin` (SEC-RBAC-30): a CLI write by an unauthorized caller SHALL
+surface the API `403` as a denied operation. Generated parent command files SHALL NOT
+be hand-edited, and a new kind SHALL be reflected in the TUI through `make
+generate-tui`, enforced by `make check` (CLI-EXT-01, CLI-EXT-04).
+
+#### Scenario: CLI-EXT-06.01 -- List, Get, and Status Render Through the Registrar
+
+- GIVEN `platform_gateway_policies` served with list and get-by-id endpoints
+- WHEN a user runs `hsctl list platform-gateway-policies` and `hsctl get platform-gateway-policy <id>`
+- THEN both commands SHALL be registered through the extension registrar and appear in the parent command's extension help section
+- AND `get` SHALL render the policy's read-only status including per-gateway rollout and finding counts
+
+#### Scenario: CLI-EXT-06.02 -- Unauthorized Write Surfaces as Denied
+
+- GIVEN a caller without `platform-policy:admin` or `platform:admin`
+- WHEN the caller runs a policy `create`, `update`, `delete`, or a toggle change
+- THEN the command SHALL surface the API `403` as a denied operation, not a retryable error
