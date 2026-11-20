@@ -37,12 +37,6 @@ elif name == 'git':
         if failure == 'fetch': sys.exit(42)
     elif 'checkout' in args:
         assert '--force' in args
-        helper = Path(os.environ['OCE_REPO']) / 'docs/snippets/openshell-quickstart/kubernetes/service-policies.py'
-        helper.parent.mkdir(parents=True, exist_ok=True)
-        helper.write_text('print(' + repr('--openshell-namespace' if os.environ.get('ALREADY_FIXED') else 'upstream') + ')')
-    elif 'apply' in args:
-        assert Path(args[-1]).is_file()
-        if failure == 'patch': sys.exit(42)
     elif 'rev-parse' in args:
         if failure == 'rev-parse': sys.exit(42)
         print(os.environ.get('SOURCE_REVISION', 'a' * 40))
@@ -68,7 +62,7 @@ class PullTest(unittest.TestCase):
             stub.chmod(0o700)
         self.env = dict(os.environ, OCE_KIND_STATE=str(self.state),
                         OCE_REPO=str(self.state / 'oce-source'),
-                        PATH=str(bins) + os.pathsep + os.environ['PATH'], TEST_FAIL='', ALREADY_FIXED='',
+                        PATH=str(bins) + os.pathsep + os.environ['PATH'], TEST_FAIL='',
                         LATEST_MOVED='', SOURCE_REVISION=revision)
         self.env.pop('TEST_DIGESTS', None)
 
@@ -79,7 +73,7 @@ class PullTest(unittest.TestCase):
     def calls(self):
         return [json.loads(line) for line in (self.state / 'calls').read_text().splitlines()]
 
-    def test_latest_images_are_pinned_and_namespace_patch_is_applied(self):
+    def test_latest_images_are_pinned_and_source_is_fetched(self):
         result = self.run_pull()
         self.assertEqual(result.returncode, 0, result.stderr)
         images = json.loads((self.state / 'images.json').read_text())
@@ -90,13 +84,8 @@ class PullTest(unittest.TestCase):
             self.assertIn(['docker', 'exec', 'hypershell-oce-control-plane', 'ctr', '-n',
                            'k8s.io', 'images', 'pull', images[role]], self.calls())
         self.assertTrue(any('fetch' in c and c[-1] == revision for c in self.calls()))
-        self.assertTrue(any('apply' in c for c in self.calls()))
-        self.assertTrue((self.state / 'occ').is_file())
-
-    def test_existing_namespace_support_skips_patch(self):
-        result = self.run_pull(ALREADY_FIXED='1')
-        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(any('apply' in c for c in self.calls()))
+        self.assertTrue((self.state / 'occ').is_file())
 
     def test_recovery_uses_saved_digests(self):
         self.assertEqual(self.run_pull().returncode, 0)
@@ -113,7 +102,7 @@ class PullTest(unittest.TestCase):
         self.assertFalse((self.state / 'images.json').exists())
 
     def test_preparation_failures_keep_same_images_when_latest_moves(self):
-        for failure in ('import', 'label', 'fetch', 'patch', 'build'):
+        for failure in ('import', 'label', 'fetch', 'build'):
             with self.subTest(failure=failure):
                 result = self.run_pull(TEST_FAIL=failure)
                 self.assertNotEqual(result.returncode, 0)

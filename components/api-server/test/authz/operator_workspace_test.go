@@ -36,6 +36,7 @@ func operatorGatewayCreateRequest(name, clusterID string, operator bool) openapi
 // platform:admin passes and gets workspace_mode=operator. A create that does not
 // select operator mode is unaffected.
 func TestRESTOperatorWorkspaceRequiresEntitlement(t *testing.T) {
+	t.Setenv("HYPERSHELL_ENABLE_OPERATOR_WORKSPACE_MODE", "true")
 	h, client := test.RegisterIntegration(t)
 	spoke := registerSpoke(t, h, client)
 
@@ -73,12 +74,23 @@ func TestRESTOperatorWorkspaceRequiresEntitlement(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred(), "platform:admin caller: HTTP %d %s", statusOf(httpResp), test.APIErrorReason(err))
 	Expect(statusOf(httpResp)).To(Equal(http.StatusCreated))
 	Expect(adminCreated.GetWorkspaceMode()).To(Equal("operator"))
+
+	// With the feature flag off, even an entitled caller is rejected.
+	t.Setenv("HYPERSHELL_ENABLE_OPERATOR_WORKSPACE_MODE", "")
+	disabledName := uniqueName("operator-disabled")
+	_, httpResp, err = client.DefaultAPI.CreateGateway(granted.rest).
+		GatewayCreateRequest(operatorGatewayCreateRequest(disabledName, spoke.clusterID, true)).Execute()
+	Expect(err).To(HaveOccurred(), "operator mode must be rejected while the feature flag is off")
+	Expect(statusOf(httpResp)).To(Equal(http.StatusForbidden))
+	Expect(test.APIErrorReason(err)).To(ContainSubstring("kind-up-with-oce"))
+	expectNoGatewayNamedREST(t, client, granted, disabledName)
 }
 
 // TestGRPCOperatorWorkspaceRequiresEntitlement proves the gRPC create boundary
 // holds the same body-dependent rule: PermissionDenied naming the role for a plain
 // gateway:creator, and an accepted operator create for a granted caller.
 func TestGRPCOperatorWorkspaceRequiresEntitlement(t *testing.T) {
+	t.Setenv("HYPERSHELL_ENABLE_OPERATOR_WORKSPACE_MODE", "true")
 	h, client := test.RegisterIntegration(t)
 	h.StartControllersServer()
 	spoke := registerSpoke(t, h, client)
