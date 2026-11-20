@@ -11,6 +11,13 @@ metadata:
   namespace: hypershell-system
 spec:
   replicas: 1
+  # One active controller (openshell-gateway-helm-adoption.spec.md, stuck
+  # release recovery): Recreate stops the old pod before the new one starts,
+  # so two controllers never run helm against the same gateway release at
+  # once. A RollingUpdate would overlap them, and the new pod could act on a
+  # release the old pod is still upgrading. Every overlay inherits this.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: hypershell-controller
