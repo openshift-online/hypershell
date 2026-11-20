@@ -83,7 +83,7 @@ translation concern.
 
 #### Scenario: AGT-EXT-01.02 -- ProviderBinding realized as an OpenShell provider
 
-- GIVEN a `ProviderBinding` named `claude` referencing an `inference` `ProviderSpec` of type `google-vertex-ai`, with a `google-service-account-jwt` `refresh_strategy` whose material is present cluster-local
+- GIVEN a `ProviderBinding` named `claude` referencing an `inference` `ProviderSpec` of type `google-vertex-ai`, with a `google-service-account-jwt` `refresh_strategy` whose material is present in the central store
 - WHEN the control plane reconciles the owning `AgentRuntime`
 - THEN it SHALL realize an OpenShell provider named `claude` of type `google-vertex-ai` with the service-account material and config (project, region)
 - AND it SHALL configure the `google-service-account-jwt` refresh strategy so OpenShell mints and rotates the usable credential
@@ -128,7 +128,7 @@ that never cross to OpenShell.
 |---|---|---|
 | `name` | `provider create/update/delete <name>` | provider name, unique in the workspace |
 | `provider_spec_id` -> `ProviderSpec` type | `provider create --type` | gateway-agnostic provider type |
-| `secret_source_id` -> material | `provider create --credential KEY=<material>` | durable material read cluster-local |
+| `secret_source_id` -> material | `provider create --credential KEY=<material>` | durable material read from the central store |
 | `refresh_strategy.type` | `provider refresh configure --strategy` | see Refresh Strategy Mapping below |
 | `refresh_strategy.material` | `provider refresh configure --material K=V` | non-secret refresh parameters |
 | `refresh_strategy.secret_material[]` | `provider refresh configure --secret-material-env/--secret-material-key` | secret refresh material by reference |

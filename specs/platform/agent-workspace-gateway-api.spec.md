@@ -38,7 +38,7 @@ OpenShell's existing API.
   [`data-model.spec.md`](./data-model.spec.md)); the cluster-side scheduling resources (owned by
   [`control-plane.spec.md`](./control-plane.spec.md)); the provider-credential Vault plane (owned
   by [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md)); and the
-  cluster-local material read path (owned by
+  central-store material read path (owned by
   [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)).
 
 ## Architecture
@@ -51,7 +51,7 @@ HyperShell API server (desired state, PostgreSQL)
         |  gRPC watch stream (filtered by cluster_id)
         v
 Control plane (AgentRuntimeReconciler, on the assigned ManagedCluster)
-  |-- reads SecretSource material cluster-local (read-only pkg/secretstore)
+  |-- reads SecretSource material from the central store (read-only pkg/secretstore)
   `-- ProviderRealizer (client of OpenShell's EXISTING API)
         |  OpenShell gateway admin session, short-lived per operation
         |  same operations the `openshell` CLI drives (workspace / member / provider / refresh / inference)
@@ -205,7 +205,7 @@ agent's workspace through OpenShell's existing provider operations, from the bin
 `provider_spec_id`, its `refresh_strategy`, and the durable **material** referenced through its
 `SecretSource`s, consistent with
 [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md). It SHALL read that
-material cluster-local from the assigned cluster's local store through its read-only
+material from the central store through its read-only
 `pkg/secretstore` client and supply it to OpenShell as provider configuration.
 
 The control plane SHALL NOT render the provider credential as a raw Kubernetes `Secret`, SHALL
@@ -233,7 +233,7 @@ Condition Gates Provider Creation").
 
 #### Scenario: AGT-WSP-04.01 -- Provider realized from durable material, no raw Secret
 
-- GIVEN a `ProviderBinding` whose `SecretSource` material (a service-account key) is present in the assigned cluster's local store
+- GIVEN a `ProviderBinding` whose `SecretSource` material (a service-account key) is present in the central store
 - WHEN the control plane reconciles the owning `AgentRuntime`
 - THEN it SHALL realize the provider through OpenShell's existing provider operations with the material and its refresh strategy
 - AND OpenShell SHALL mint and rotate the usable credential thereafter
@@ -457,7 +457,7 @@ This spec SHALL remain consistent with that mapping.
 | Decision | Rationale |
 |----------|-----------|
 | Consume OpenShell's existing API, not a bespoke gateway gRPC contract | OpenShell already exposes workspace, member, provider, refresh, and inference operations (the `openshell` CLI drives them; `sdlc-coordinator` uses them in production). A HyperShell-specific gateway gRPC service would make OpenShell implement a contract for a convenience layer that should consume, not extend, OpenShell's own API |
-| Keep the `ProviderRealizer` seam; change only its adapter | The seam, the provider model, the `SecretPending` gate, realize-before-prune, and cluster-local material all stay; only the realizer's target changes from a bespoke endpoint to OpenShell's existing API, minimizing churn |
+| Keep the `ProviderRealizer` seam; change only its adapter | The seam, the provider model, the `SecretPending` gate, realize-before-prune, and the central-store material read all stay; only the realizer's target changes from a bespoke endpoint to OpenShell's existing API, minimizing churn |
 | Gateway admin OIDC identity, short-lived session per operation | Matches how the coordinator authenticates to the gateway and keeps one operational and failure/retry discipline, reusing the per-operation admin-connection pattern of the database channel without reusing a bespoke contract |
 | Use the `openshell` CLI operation surface as the authoritative API, wire details CONFIRM-AGAINST-UPSTREAM | OpenShell's server source is not reachable from this repository; grounding in the CLI operations keeps the spec real and defers exact endpoints/field names to OpenShell upstream without fabricating them |
 | Carry durable material; mint only the GitHub token, through the provider API | Keeps the realization consistent with `agent-secret-late-binding.spec.md`: for OpenShell-refreshed strategies OpenShell holds and rotates the usable credential; for GitHub the control plane mints the installation token from the PEM and sets it through `provider update --credential`. In no case does the control plane place or rotate a raw Kubernetes `Secret` |
@@ -467,7 +467,7 @@ This spec SHALL remain consistent with that mapping.
 - [`extension-api-openshell-api-mapping.spec.md`](./extension-api-openshell-api-mapping.spec.md) - the 1:1 Extension-API to OpenShell-API field and lifecycle map, two-direction gap analysis, and fully-declarative assertion
 - [`data-model.spec.md`](./data-model.spec.md) - AgentRuntime, AgentWorkspace, WorkspaceMembership, ProviderSpec, ProviderBinding, InferenceRoute kinds; "Gateway-Side Provisioning"; the `409` and `422` request-time validations
 - [`control-plane.spec.md`](./control-plane.spec.md) - the `AgentRuntimeReconciler`, the `ProviderRealizer` seam, status lifecycle and retry
-- [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md) - credentials realized as OpenShell providers; rotation ownership split by strategy (OpenShell native vs control-plane GitHub rotator); the `SecretPending` gate; cluster-local material read
+- [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md) - credentials realized as OpenShell providers; rotation ownership split by strategy (OpenShell native vs control-plane GitHub rotator); the `SecretPending` gate; central-store material read
 - [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md) - the per-gateway admin-connection provisioning channel whose discipline this reuses
 - [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) - the gateway-provider Vault plane and credential revocation on deletion
 - [`openshell-inference-routing.spec.md`](./openshell-inference-routing.spec.md) - the `inference.local` route the inference route configures

@@ -961,10 +961,11 @@ Import" below).
 
 `SecretSource` ownership is UNCHANGED by this optionality: a `SecretSource` stays
 owned by its `agent_runtime_id` and `agent_runtime_id` stays required (see
-"Requirement: SecretSource"). With late binding the cluster-local Vault is not known
-until the owning `AgentRuntime`'s gateway is assigned a `ManagedCluster`, so the
-`AgentRuntime` owner is what resolves to a Vault; a `Repository`- or platform-scoped
-`SecretSource` would have no cluster to bind to. Making the `Repository` credential
+"Requirement: SecretSource"). A `SecretSource` configures the providers of its owning `AgentRuntime`, so it binds
+to that runtime (which resolves to a gateway and cluster at provisioning); a
+`Repository`- or platform-scoped `SecretSource` would have no runtime to bind to.
+The material itself lives in the central store (PLAT-SSS), read by the control plane
+at reconcile. Making the `Repository` credential
 optional - rather than loosening `SecretSource` ownership - is therefore the correct
 way to support an anonymous public read.
 
@@ -1365,14 +1366,14 @@ The controller SHALL apply the agent's scheduling resources directly to the targ
 1. `Namespace` - the agent's Kubernetes namespace
 2. `ServiceAccount` - with `automountServiceAccountToken: false`
 3. `NetworkPolicy` - default-deny all ingress
-4. The coordinator `gateway-identity` wiring - the OIDC identity the coordinator uses to authenticate TO its gateway. Its material is read cluster-local from the configured secret store (read-only `pkg/secretstore` client) and wired to the coordinator. The controller SHALL NOT render the agent's provider credentials as raw Kubernetes `Secret`s and SHALL NOT create an `ExternalSecret` or depend on External Secrets Operator; provider credentials are realized as OpenShell providers (see "Gateway-Side Provisioning" below and [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)). The control plane SHALL NOT mint or rotate any usable credential for the strategies OpenShell refreshes; for GitHub App credentials a bounded control-plane GitHub rotator mints and updates the installation token (see [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)).
+4. The coordinator `gateway-identity` wiring - the OIDC identity the coordinator uses to authenticate TO its gateway. Its material is read from the central store (PLAT-SSS) with the control plane's read-only `pkg/secretstore` client and wired to the coordinator. The controller SHALL NOT render the agent's provider credentials as raw Kubernetes `Secret`s and SHALL NOT create an `ExternalSecret` or depend on External Secrets Operator; provider credentials are realized as OpenShell providers (see "Gateway-Side Provisioning" below and [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)). The control plane SHALL NOT mint or rotate any usable credential for the strategies OpenShell refreshes; for GitHub App credentials a bounded control-plane GitHub rotator mints and updates the installation token (see [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)).
 5. `CronJob` - the coordinator (schedule from `AgentRuntime`, image from `coordinator_image`)
 
 #### Scenario: PLAT-DATA-13.01 -- Cluster Resources Created on AgentRuntime Reconcile
 
 - GIVEN a new `AgentRuntime` with status `Pending`
 - WHEN the controller runs its reconcile loop
-- THEN a `Namespace`, `ServiceAccount`, `NetworkPolicy`, the coordinator `gateway-identity` wiring (material read cluster-local), and `CronJob` SHALL be created or updated directly on the target cluster
+- THEN a `Namespace`, `ServiceAccount`, `NetworkPolicy`, the coordinator `gateway-identity` wiring (material read from the central store), and `CronJob` SHALL be created or updated directly on the target cluster
 - AND the controller SHALL NOT render a raw Kubernetes `Secret` for the agent's provider credentials
 - AND the `AgentRuntime` status SHALL transition to `Provisioning`
 
@@ -1419,7 +1420,7 @@ with no change to the watch-stream caller binding
 
 The payload SHALL carry only durable-material **references** (the `secret_source_id` /
 convention path of each `SecretSource`), NEVER secret bytes: a `refresh_strategy`'s
-`secret_material` is a reference the control plane resolves cluster-local through its
+`secret_material` is a reference the control plane resolves from the central store through its
 read-only `pkg/secretstore` client, consistent with
 [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md). No secret
 value SHALL be embedded in the watch or list payload.
@@ -1442,7 +1443,7 @@ delivered `AgentRuntime` and realizes them on the gateway.
 - WHEN the `AgentRuntime` is delivered on the watch stream
 - THEN the payload SHALL carry only the `secret_source_id` reference for that secret material
 - AND it SHALL NOT carry the PEM or any other secret value
-- AND the control plane SHALL read the material cluster-local to realize the provider
+- AND the control plane SHALL read the material from the central store to realize the provider
 
 ---
 
@@ -1450,7 +1451,7 @@ delivered `AgentRuntime` and realizes them on the gateway.
 
 The controller SHALL realize gateway-side objects (AgentWorkspace, WorkspaceMemberships, ProviderBindings, and InferenceRoute) by consuming OpenShell's **existing** provisioning API - the operations the `openshell` CLI drives - as part of its normal reconcile loop, NOT a bespoke gateway gRPC contract OpenShell must implement. This is idempotent and reuses the same admin-connection discipline as gateway database provisioning. Re-running when objects already exist SHALL succeed without error and SHALL update mutable fields (e.g., credential refresh strategy, model alias). The realization operations, their enforcement, and cascade deletion are specified in [`agent-workspace-gateway-api.spec.md`](./agent-workspace-gateway-api.spec.md), and the 1:1 Extension-kind to OpenShell-kind field and lifecycle map is in [`extension-api-openshell-api-mapping.spec.md`](./extension-api-openshell-api-mapping.spec.md).
 
-The controller SHALL realize each `ProviderBinding` as an OpenShell **provider** on the agent's gateway/workspace, from the binding's `provider_spec_id`, its `refresh_strategy`, and the durable material referenced through its `SecretSource`s. It SHALL read that material cluster-local from the assigned cluster's local store (read-only `pkg/secretstore` client) and supply it to OpenShell as provider configuration; it SHALL NOT render the credential as a raw Kubernetes `Secret`. Rotation ownership depends on the `refresh_strategy`: for the strategies OpenShell supports natively (`google-service-account-jwt`, `oauth2-refresh-token`, `oauth2-client-credentials`, `aws-sts-assume-role`, and the no-refresh `static-token`) OpenShell mints and rotates the usable credential and the control plane SHALL NOT mint or rotate it; for GitHub App credentials (the `app-installation-token` intent) a bounded control-plane GitHub rotator mints the installation token from the stored PEM and sets it on the OpenShell provider through `provider update --credential`, because the installed OpenShell CLI has no `app-installation-token` refresh strategy (see [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)). When referenced material is not yet present in the assigned cluster's local store, provider creation SHALL hold under a `SecretPending` condition rather than fail (see [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md) and [`control-plane.spec.md`](./control-plane.spec.md), "AgentRuntime Reconciliation").
+The controller SHALL realize each `ProviderBinding` as an OpenShell **provider** on the agent's gateway/workspace, from the binding's `provider_spec_id`, its `refresh_strategy`, and the durable material referenced through its `SecretSource`s. It SHALL read that material from the central store (PLAT-SSS) with its read-only `pkg/secretstore` client and supply it to OpenShell as provider configuration; it SHALL NOT render the credential as a raw Kubernetes `Secret`. Rotation ownership depends on the `refresh_strategy`: for the strategies OpenShell supports natively (`google-service-account-jwt`, `oauth2-refresh-token`, `oauth2-client-credentials`, `aws-sts-assume-role`, and the no-refresh `static-token`) OpenShell mints and rotates the usable credential and the control plane SHALL NOT mint or rotate it; for GitHub App credentials (the `app-installation-token` intent) a bounded control-plane GitHub rotator mints the installation token from the stored PEM and sets it on the OpenShell provider through `provider update --credential`, because the installed OpenShell CLI has no `app-installation-token` refresh strategy (see [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)). When referenced material is not yet present in the central store, provider creation SHALL hold under a `SecretPending` condition rather than fail (see [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md) and [`control-plane.spec.md`](./control-plane.spec.md), "AgentRuntime Reconciliation").
 
 #### Scenario: PLAT-DATA-15.01 -- AgentWorkspace Is Created Alongside AgentRuntime
 
@@ -1550,7 +1551,7 @@ The controller translates `refresh_strategy` to the gateway backend's refresh co
 - GIVEN a `ProviderSpec` with `category = inference`
 - AND a `SecretSource` with `purpose = service-account-key`
 - WHEN a `ProviderBinding` is created referencing both
-- THEN the controller reads the `SecretSource` material cluster-local from the store
+- THEN the controller reads the `SecretSource` material from the central store
 - AND realizes an OpenShell provider on the gateway/workspace configured with that material
 - AND registers the `refresh_strategy` so OpenShell mints and rotates the usable credential, with no raw credential `Secret` rendered by the control plane
 
@@ -1622,9 +1623,9 @@ The sandbox network policy and the `ProviderBinding.capability.allowed_operation
 
 ### Requirement: PLAT-DATA-21 -- SecretSource
 
-A `SecretSource` is an abstract reference to durable credential **material** stored in the configured secret store (Vault, AWS Secrets Manager, or a Kubernetes Secret). It holds long-lived material (a GitHub App PEM, a Vertex service-account key, a gateway identity), NOT a usable, rotatable credential. When producing the agent's workspace the control plane reads the referenced material cluster-local from the store through its read-only `pkg/secretstore` client and uses it to configure an OpenShell provider (see "Gateway-Side Provisioning" and [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)); for provider material it SHALL NOT render a raw Kubernetes `Secret` and SHALL NOT create an `ExternalSecret`. Rotation of the usable credential derived from the material is owned by OpenShell for its native strategies and by the bounded control-plane GitHub rotator for GitHub App credentials (see [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)).
+A `SecretSource` is an abstract reference to durable credential **material** stored in the configured secret store (Vault, AWS Secrets Manager, or a Kubernetes Secret). It holds long-lived material (a GitHub App PEM, a Vertex service-account key, a gateway identity), NOT a usable, rotatable credential. When producing the agent's workspace the control plane reads the referenced material from the central store (PLAT-SSS) through its read-only `pkg/secretstore` client and uses it to configure an OpenShell provider (see "Gateway-Side Provisioning" and [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)); for provider material it SHALL NOT render a raw Kubernetes `Secret` and SHALL NOT create an `ExternalSecret`. Rotation of the usable credential derived from the material is owned by OpenShell for its native strategies and by the bounded control-plane GitHub rotator for GitHub App credentials (see [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)).
 
-A `SecretSource` MAY be a value-less reference (see "Secret Submission and Storage"). When the referenced material has not yet been supplied to the assigned cluster's local store, the control plane SHALL NOT create a provider from empty material; it SHALL surface a `SecretPending` condition that names the resolved `ManagedCluster` and the exact store mount and path to upload the material to, and it SHALL converge automatically when the material appears. This late-binding behavior is defined in [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md) and [`control-plane.spec.md`](./control-plane.spec.md) ("AgentRuntime Reconciliation").
+A `SecretSource` MAY be a value-less reference (see "Secret Submission and Storage"). When the referenced material has not yet been supplied to the central store, the control plane SHALL NOT create a provider from empty material; it SHALL surface a `SecretPending` condition that names the exact central-store path to upload the material to, and it SHALL converge automatically when the material appears. This late-binding behavior is defined in [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md) and [`control-plane.spec.md`](./control-plane.spec.md) ("AgentRuntime Reconciliation").
 
 `SecretSource.purpose` is a semantic enum that drives how the material is consumed. The `gateway-identity` material is wired as coordinator environment so the coordinator can authenticate to its gateway; the `service-account-key`, `app-private-key`, and `api-key` materials configure OpenShell providers (not raw `Secret`s). Rotation of the resulting usable credential follows the `ProviderBinding.refresh_strategy`: for the strategies OpenShell supports natively (`service-account-key` via `google-service-account-jwt`, `api-key` as `static-token`) OpenShell mints and rotates the usable credential; for `app-private-key` (the GitHub App PEM, an `app-installation-token` provider) the bounded control-plane GitHub rotator mints and rotates the installation token, because the installed OpenShell CLI has no `app-installation-token` refresh strategy (consistent with the `SecretSource` paragraph above and [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)). Supported values:
 
@@ -1643,7 +1644,7 @@ A `SecretSource` MAY be a value-less reference (see "Secret Submission and Stora
 
 - GIVEN a `SecretSource` with `purpose = gateway-identity`
 - WHEN the controller generates scheduling resources for the `AgentRuntime`
-- THEN the coordinator SHALL receive env vars `GATEWAY_ENDPOINT`, `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_AUDIENCE`, and `OPENSHELL_OIDC_CLIENT_SECRET` from the material read cluster-local
+- THEN the coordinator SHALL receive env vars `GATEWAY_ENDPOINT`, `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_AUDIENCE`, and `OPENSHELL_OIDC_CLIENT_SECRET` from the material read from the central store
 - AND the operator SHALL NOT need to specify env var names explicitly
 
 #### Scenario: PLAT-DATA-21.02 -- Unknown Backend Path Fails at Provisioning, Not at Persist Time
@@ -2127,8 +2128,8 @@ hsctl create gateway --name api-gateway --cluster-id eks-1
 | Gateway-agnostic capability model | Provider driver names and credential env var conventions are implementation details of the gateway backend. Keeping them out of the API allows the controller to support multiple gateway implementations without API changes. |
 | ProviderSpec as a reusable top-level resource | The same GitHub App or Vertex AI project configuration is shared by multiple agent types. Centralizing it avoids duplication and makes rotation (e.g., new App installation ID) a single change. |
 | SandboxTemplate as a reusable top-level resource | Sandbox base image and policy evolve independently of which agents use them. Shared templates reduce blast radius when updating a sandbox image digest. |
-| SecretSource holds durable material, realized as OpenShell providers | A `SecretSource` holds long-lived material (a GitHub App PEM, a Vertex SA key), not a usable credential; the control plane reads it cluster-local and realizes an OpenShell provider from it; OpenShell owns rotation for its native strategies and the bounded control-plane GitHub rotator owns it for GitHub App credentials. Rendering a raw credential `Secret` is wrong because an inert `Secret` forces whoever rendered it to rotate it (see [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)). |
-| SecretSource material optional; late-binding reference | A `.hypershell` import declares credentials by name before any Gateway exists, yet the destination Vault is only known after cluster assignment. Making the material optional lets a reference-only `SecretSource` be a valid state; the material is uploaded later directly into the assigned cluster's local Vault, and the agent realizes its providers via a `SecretPending` condition with no hub staging store (see [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)). |
+| SecretSource holds durable material, realized as OpenShell providers | A `SecretSource` holds long-lived material (a GitHub App PEM, a Vertex SA key), not a usable credential; the control plane reads it from the central store and realizes an OpenShell provider from it; OpenShell owns rotation for its native strategies and the bounded control-plane GitHub rotator owns it for GitHub App credentials. Rendering a raw credential `Secret` is wrong because an inert `Secret` forces whoever rendered it to rotate it (see [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)). |
+| SecretSource material optional; late-binding reference | A `.hypershell` import declares credentials by name before any Gateway exists, yet a `.hypershell` import declares credentials by name before any Gateway exists. Making the material optional lets a reference-only `SecretSource` be a valid state; the material is uploaded later to the central store (PLAT-SSS), and the agent realizes its providers via a `SecretPending` condition (see [`agent-secret-late-binding.spec.md`](./agent-secret-late-binding.spec.md)). |
 | SecretSource purpose enum for env var wiring | Requiring operators to spell out every env var binding is error-prone and duplicates knowledge that the controller already has from the purpose. The enum collapses this to a single semantic declaration. |
 | AgentWorkspace 1:1 with AgentRuntime | Workspaces are the gateway's isolation primitive. Sharing a workspace between agent types would mix their provider bindings and inference routes, defeating isolation. One-to-one ownership makes lifecycle management unambiguous. |
 | InferenceRoute capped at one per AgentWorkspace | A workspace has one active LLM at a time. Multiple routes would require the sandbox to select one, introducing configuration the agent author must manage. The controller updates the route atomically on any model change. |
