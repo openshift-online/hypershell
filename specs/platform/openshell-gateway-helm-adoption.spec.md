@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-24
 **Status:** Draft
-**JIRA:** [HYPERSHELL-146](https://redhat.atlassian.net/browse/HYPERSHELL-146)
+**JIRA:** [HYPERSHELL-146](https://redhat.atlassian.net/browse/HYPERSHELL-146); HYPERSHELL-XXX (OSG-HELM-06, OSG-HELM-07)
 **Related:** `openshell-gateway.spec.md` - current provisioning; `control-plane.spec.md` - CP architecture
 **Upstream:** [OpenShell Helm Chart](https://github.com/NVIDIA/OpenShell/tree/main/deploy/helm/openshell); [Helm CLI](https://helm.sh/docs/helm/); [PR #2728 (BackendTLSPolicy)](https://github.com/NVIDIA/OpenShell/pull/2728); [PR #2939 (namespace-scoped ClusterRole names)](https://github.com/NVIDIA/OpenShell/pull/2939)
 
@@ -111,10 +111,12 @@ The control plane SHALL use the Helm CLI to manage gateway Helm releases program
 - WHEN the GatewayReconciler provisions the gateway
 - THEN it SHALL query the release status via `helm status`
 - AND if the status is `deployed` or `failed`, it SHALL run `helm upgrade --reset-values` with the full computed values
-- AND if the status starts with `pending-` (an install, upgrade or rollback that was interrupted, for example by a controller restart), it SHALL run `helm uninstall` and then `helm install`, because Helm rejects every new operation on a pending release
+- AND if the status starts with `pending-` (an install, upgrade or rollback that was interrupted, for example by a controller restart), it SHALL handle the release per OSG-HELM-06, never by an unconditional `helm uninstall`, because Helm rejects every new operation on a pending release
 - AND for any other status, it SHALL run `helm upgrade --reset-values`
 
 The reconciler provisions a gateway only while its desired spec is not converged (`observed_generation` is behind `generation`; see `control-plane.spec.md`, CTRL-CORE-13). A converged gateway is not upgraded again. A new chart or image default in the control plane therefore reaches an existing gateway only with its next spec change.
+
+Every `helm install` and `helm upgrade` reruns the chart's hooks (for example the pre-install and pre-upgrade certgen Job), and hook time counts against the Helm operation timeout. A hook failure leaves the release `failed`, which the next reconcile retries with `helm upgrade --reset-values` (OSG-HELM-01.06).
 
 #### Scenario: OSG-HELM-01.05 -- Gateway spec change upgrades the release
 
@@ -322,6 +324,50 @@ policy are out of scope.
 - THEN it SHALL return a validation error that names the invalid reference
 - AND it SHALL NOT silently drop or replace any part of the reference
 
+### Requirement: OSG-HELM-06 -- Stuck Release Recovery
+
+The controller SHALL treat a `pending-*` release as in progress while its latest revision is younger than the Helm operation timeout plus a margin, returning a retryable error without changing the release. A stale pending release with an earlier `deployed` or `superseded` revision SHALL be recovered with `helm rollback` to that revision followed by the normal upgrade, preserving chart objects and release history. Only a stale `pending-install` with no earlier good revision MAY be uninstalled and reinstalled. Gateway database migrations only go forward, so when a gateway pod of the pending revision's image has already started, the controller SHALL roll forward instead: it SHALL bring the release to the desired revision without starting a pod that runs the earlier gateway image. Every recovery SHALL emit a Kubernetes Event and a log line naming the gateway, the pending revision, its age, and the action.
+
+The latest revision's age comes from the Helm release history (or the release Secret's `modifiedAt` label), so the check needs no new state.
+
+#### Scenario: OSG-HELM-06.01 -- Young pending release is left alone
+
+- GIVEN a release whose latest revision is `pending-upgrade` and 30s old
+- WHEN the gateway is reconciled
+- THEN the controller SHALL NOT run rollback, uninstall, or install
+- AND the reconcile SHALL be retried with reason `helm_operation_in_progress`
+
+#### Scenario: OSG-HELM-06.02 -- Stale pending upgrade is rolled back
+
+- GIVEN a `pending-upgrade` revision older than the timeout margin and an earlier `deployed` or `superseded` revision R
+- AND no gateway pod of the pending revision's image has started
+- WHEN the gateway is reconciled
+- THEN the controller SHALL run `helm rollback` to R and then `helm upgrade`
+- AND the gateway Deployment SHALL keep its UID and the history SHALL be kept
+
+#### Scenario: OSG-HELM-06.03 -- Stale first install is reinstalled
+
+- GIVEN a stale `pending-install` release with no earlier good revision
+- WHEN the gateway is reconciled
+- THEN the controller SHALL uninstall and install the release
+
+#### Scenario: OSG-HELM-06.04 -- Stale pending upgrade after migration rolls forward
+
+- GIVEN a stale `pending-upgrade` revision whose new gateway pod has already started against the gateway database
+- WHEN the gateway is reconciled
+- THEN the controller SHALL NOT start a pod with the earlier gateway image
+- AND the release SHALL end `deployed` at the desired revision
+
+### Requirement: OSG-HELM-07 -- Helm Operations Survive Controller Shutdown
+
+A Helm operation the controller has started SHALL NOT be terminated by the controller's own shutdown signal. It SHALL run to completion or to its own timeout, and the controller's termination grace period SHALL cover that timeout. Helm SHALL be stopped with SIGTERM, not SIGKILL, when its own deadline passes. With the 5-minute Helm `--timeout`, the controller pod's `terminationGracePeriodSeconds` SHALL be at least 360.
+
+#### Scenario: OSG-HELM-07.01 -- Controller rollout during an upgrade
+
+- GIVEN a gateway `helm upgrade` in progress
+- WHEN the controller pod receives SIGTERM
+- THEN the upgrade SHALL finish and the release SHALL end `deployed` or `failed`, not `pending-upgrade`
+
 ---
 
 ### Requirement: OSG-HELM-06 -- Vendored Chart Policy Interceptor Sidecar Support
@@ -449,7 +495,7 @@ The control plane SHALL provide a dedicated package for Helm operations with the
 
 | Capability | Description |
 |---|---|
-| Release management | Install, upgrade, uninstall, and query release status via the Helm CLI |
+| Release management | Install, upgrade, uninstall, roll back, and query release status and history via the Helm CLI |
 | Values translation | Map Gateway resource fields to Helm chart values (`map[string]interface{}`) |
 | Chart verification | Verify chart archive exists at the embedded path |
 
@@ -469,9 +515,10 @@ The control plane SHALL provide a dedicated package for Helm operations with the
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| Helm install failure (e.g. certgen timeout) | Gateway not provisioned | The reconcile queue retries with backoff; a `failed` release is retried with `helm upgrade --reset-values` and a `pending-*` release is reinstalled (OSG-HELM-01.03, OSG-HELM-01.06) |
+| Helm install failure (e.g. certgen timeout) | Gateway not provisioned | The reconcile queue retries with backoff; a `failed` release is retried with `helm upgrade --reset-values` and a stale `pending-*` release is rolled back and upgraded, or rolled forward after a migration (OSG-HELM-01.03, OSG-HELM-01.06, OSG-HELM-06) |
 | Chart upgrade changes resource names/labels | Orphaned resources, broken selectors | Pin chart version in container image; test upgrades in dev-cluster before production |
 | PR #2728 not merged | BackendTLSPolicy and BackendCA ConfigMap gaps remain | Gate on upstream chart version that includes these features |
+| Controller stopped mid-upgrade | Release stuck `pending-upgrade` | Helm finishes under its own deadline (OSG-HELM-07); a stale pending release is rolled back or rolled forward, not reinstalled (OSG-HELM-06) |
 | Helm CLI binary missing or incompatible | Control plane cannot deploy gateways | Verify helm binary availability and version at startup; fail fast with clear error |
 | No chart value for a database CA volume | Gateway database connection cannot be `verify-full`, only `require` | Accepted and documented (see Gap: No Database CA Mount); raise upstream for a `server.externalDbCaConfigMapName` equivalent |
 
