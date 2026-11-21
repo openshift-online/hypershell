@@ -289,6 +289,32 @@ def stamp_tekton_build_arg(
     return mismatches
 
 
+# SemVer 2.0.0 (https://semver.org), the form Helm requires for a chart version.
+_SEMVER_RE = re.compile(
+    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
+    r"(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)"
+    r"(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?"
+    r"(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$"
+)
+
+
+def chart_version(tag: str) -> str:
+    """Return the chart version the controller image build stamps for tag.
+
+    The controller Dockerfile runs `helm package --version "${OPENSHELL_TAG#v}"`
+    (OSG-HELM-02.03), so the tag without its leading "v" must be SemVer 2 or
+    the image build fails at `helm package`. Catch that here instead.
+    """
+    version = tag[1:] if tag.startswith("v") else tag
+    if not _SEMVER_RE.fullmatch(version):
+        raise ValueError(
+            f"OPENSHELL_TAG {tag!r} does not give a SemVer 2 chart version "
+            f"({version!r}); the controller image stamps it with helm package "
+            "--version (OSG-HELM-02.03)"
+        )
+    return version
+
+
 def main() -> int:
     check_only = "--stamp" not in sys.argv
 
@@ -296,6 +322,11 @@ def main() -> int:
     tag = env.get("OPENSHELL_TAG", "")
     if not tag:
         print("ERROR: OPENSHELL_TAG not found in", VERSION_FILE)
+        return 1
+    try:
+        chart_version(tag)
+    except ValueError as exc:
+        print(f"ERROR: {exc}")
         return 1
 
     all_mismatches: list[str] = []
