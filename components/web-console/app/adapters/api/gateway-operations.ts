@@ -87,15 +87,26 @@ function escapeSearchLiteral(value: string): string {
   return value.replaceAll("'", "''");
 }
 
-function gatewaySearch(value: string): string | undefined {
+function gatewaySearch(
+  value: string,
+  searchCreatedBy: boolean,
+): string | undefined {
   const query = value.trim();
   if (!query) {
     return undefined;
   }
   const literal = escapeIlikeLiteral(query);
-  return ["name", "cluster_id", "status", "route_address", "external_dns"]
-    .map((field) => `${field} ilike '%${literal}%'`)
-    .join(" or ");
+  const fields = [
+    "name",
+    "cluster_id",
+    "status",
+    "route_address",
+    "external_dns",
+  ];
+  if (searchCreatedBy) {
+    fields.push("gateway_creators.username");
+  }
+  return fields.map((field) => `${field} ilike '%${literal}%'`).join(" or ");
 }
 
 function apiClient(
@@ -629,7 +640,10 @@ export function createGatewayControlPlaneAdapter(
     },
     async listGateways(request, context) {
       return mapFailure(async () => {
-        const search = gatewaySearch(request.search);
+        const search = gatewaySearch(
+          request.search,
+          request.searchCreatedBy ?? false,
+        );
         const result = await apiClient(apiFactory, context).gateways.list(
           {
             orderBy: `${gatewaySortFields[request.sortField]} ${request.sortDirection}`,

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/golang-jwt/jwt/v4"
 	. "github.com/onsi/gomega"
 	"gopkg.in/resty.v1"
 
@@ -42,6 +43,29 @@ func TestGatewayGet(t *testing.T) {
 	Expect(*gatewayOutput.CreatedAt).To(BeTemporally("~", gatewayModel.CreatedAt))
 	Expect(*gatewayOutput.UpdatedAt).To(BeTemporally("~", gatewayModel.UpdatedAt))
 	Expect(gatewayOutput.GetGatewayVersion()).To(Equal("0.0.109"))
+}
+
+func TestGatewayGetIncludesCreatedBy(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+
+	account := h.NewRandAccount()
+	ctx := h.NewAuthenticatedContext(account)
+
+	gatewayModel, err := newGateway(h.NewID())
+	Expect(err).NotTo(HaveOccurred())
+
+	envServices := &environments.Environment().Services
+	userService := users.Service(envServices)
+	bindingService := roleBindings.Service(envServices)
+	creatorName := "gateway-detail-creator"
+	userID, createErr := userService.UpsertByUsername(context.Background(), creatorName, nil, nil)
+	Expect(createErr).NotTo(HaveOccurred())
+	Expect(bindingService.CreateGatewayOwnerBinding(context.Background(), userID, gatewayModel.ID)).To(Succeed())
+
+	gatewayOutput, resp, err := client.DefaultAPI.GetGateway(ctx, gatewayModel.ID).Execute()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusOK))
+	Expect(gatewayOutput.GetCreatedBy()).To(Equal(creatorName))
 }
 
 // Verifies: PLAT-DATA-02.02
@@ -289,6 +313,45 @@ func TestGatewayPagingSortedByCreator(t *testing.T) {
 	Expect(list.Items).To(HaveLen(2))
 	Expect(list.Items[0].GetCreatedBy()).To(Equal("alpha-creator"))
 	Expect(list.Items[1].GetCreatedBy()).To(Equal("zulu-creator"))
+}
+
+func TestGatewayListSearchCreatedByForPlatformAdmin(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+
+	account := h.NewRandAccount()
+	claims := jwt.MapClaims{
+		"realm_access": map[string]interface{}{
+			"roles": []interface{}{"platform:admin"},
+		},
+	}
+	token := h.CreateJWTStringWithClaims(account, claims)
+	adminCtx := context.WithValue(
+		context.Background(),
+		openapi.ContextAccessToken,
+		token,
+	)
+
+	gateways, err := newGatewayList("creator-search", 2)
+	Expect(err).NotTo(HaveOccurred())
+
+	envServices := &environments.Environment().Services
+	userService := users.Service(envServices)
+	bindingService := roleBindings.Service(envServices)
+	creatorNames := []string{"alpha-creator", "zulu-creator"}
+	for i, creatorName := range creatorNames {
+		userID, createErr := userService.UpsertByUsername(context.Background(), creatorName, nil, nil)
+		Expect(createErr).NotTo(HaveOccurred())
+		Expect(bindingService.CreateGatewayOwnerBinding(context.Background(), userID, gateways[i].ID)).To(Succeed())
+	}
+
+	search := "gateway_creators.username ilike '%alpha-creator%'"
+	list, _, err := client.DefaultAPI.ListGateways(adminCtx).
+		Search(search).
+		Execute()
+	Expect(err).NotTo(HaveOccurred(), "Error searching gateway list by creator: %v", err)
+	Expect(list.Items).To(HaveLen(1))
+	Expect(list.Items[0].GetCreatedBy()).To(Equal("alpha-creator"))
+
 }
 
 func TestGatewayListSearch(t *testing.T) {

@@ -254,7 +254,11 @@ export function GatewaysPage({
   onRefresh,
 }: GatewaysPageProps = {}) {
   const intl = useIntl();
-  const { gateways: gatewayOperations, navigation } = useGatewayUi();
+  const {
+    currentUser,
+    gateways: gatewayOperations,
+    navigation,
+  } = useGatewayUi();
   const trackConsoleWait = useConsoleWaitTracker();
   const createLink = useGatewayLink(navigation.createHref);
   const [deletedGatewayName, setDeletedGatewayName] = useState<string>();
@@ -273,6 +277,7 @@ export function GatewaysPage({
   const gatewayRequest: GatewayListRequest = {
     ...currentCollectionState,
     search: debouncedGatewaySearch,
+    ...(currentUser?.isPlatformAdmin ? { searchCreatedBy: true } : {}),
   };
   const gatewayQuery = useQuery({
     enabled: gateways === undefined,
@@ -474,12 +479,12 @@ export function GatewaysPage({
   const clearSelection = () => {
     setSelectedIds(new Set());
   };
-  const columns: readonly ResourceTableColumn<GatewayConnection>[] = [
+  const baseColumns: readonly ResourceTableColumn<GatewayConnection>[] = [
     {
       id: "name",
       label: intl.formatMessage(messages.gatewayName),
       render: (gateway) => <GatewayDetailLink gateway={gateway} />,
-      width: 30,
+      width: 25,
     },
     {
       // The API orders this column directly; an unset (never observed)
@@ -497,7 +502,7 @@ export function GatewaysPage({
       id: "status",
       label: intl.formatMessage(messages.status),
       render: ({ status }) => <GatewayStatus status={status} />,
-      width: 20,
+      width: 15,
     },
     {
       // Running version, ordered server-side by the `version` sort field. No
@@ -508,7 +513,7 @@ export function GatewaysPage({
         gatewayVersion?.trim()
           ? gatewayVersion
           : intl.formatMessage(messages.versionPlaceholder),
-      width: 15,
+      width: 10,
     },
     {
       id: "created",
@@ -517,6 +522,22 @@ export function GatewaysPage({
       width: 20,
     },
   ];
+
+  const columns: readonly ResourceTableColumn<GatewayConnection>[] =
+    currentUser?.isPlatformAdmin
+      ? [
+          ...baseColumns,
+          {
+            id: "owner",
+            label: intl.formatMessage(messages.createdBy),
+            render: ({ createdBy }) =>
+              createdBy?.trim()
+                ? createdBy
+                : intl.formatMessage(messages.notAvailable),
+            width: 15,
+          },
+        ]
+      : baseColumns;
 
   if (!visiblePage && gatewayQuery.isPending) {
     return <GatewayLoadState />;
@@ -658,8 +679,16 @@ export function GatewaysPage({
                 : messages.noMatchingGateways,
             ),
             resultsCountContext: intl.formatMessage(messages.results),
-            searchAriaLabel: intl.formatMessage(messages.filterGateways),
-            searchPlaceholder: intl.formatMessage(messages.filterGateways),
+            searchAriaLabel: intl.formatMessage(
+              currentUser?.isPlatformAdmin
+                ? messages.filterGatewaysAdmin
+                : messages.filterGateways,
+            ),
+            searchPlaceholder: intl.formatMessage(
+              currentUser?.isPlatformAdmin
+                ? messages.filterGatewaysAdmin
+                : messages.filterGateways,
+            ),
           }}
           onClearFilters={() => {
             applyCollectionState(

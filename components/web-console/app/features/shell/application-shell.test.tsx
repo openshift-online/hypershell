@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useGatewayUi } from "@openshift-online/hypershell-gateway-management-ui";
@@ -11,6 +11,9 @@ import { ApplicationShell } from "./application-shell";
 
 const { getGatewayMock } = vi.hoisted(() => ({
   getGatewayMock: vi.fn(),
+}));
+const { getSessionMock } = vi.hoisted(() => ({
+  getSessionMock: vi.fn(),
 }));
 const navigateToGatewayLabel = "Navigate to gateway";
 
@@ -31,13 +34,13 @@ vi.mock("../../composition/gateway-composition", () => ({
 // shell assertions are unaffected. Menu behavior is covered in user-menu.test.
 vi.mock("../../composition/session-composition", () => ({
   sessionGateway: {
-    getSession: vi.fn().mockResolvedValue({ authenticated: false, roles: [] }),
+    getSession: getSessionMock,
   },
 }));
 
 function RouteContent() {
   const { pathname } = useLocation();
-  const { navigation } = useGatewayUi();
+  const { currentUser, navigation } = useGatewayUi();
 
   return (
     <>
@@ -50,6 +53,10 @@ function RouteContent() {
       >
         {navigateToGatewayLabel}
       </button>
+      <div
+        data-testid="gateway-current-user-role"
+        data-is-platform-admin={currentUser?.isPlatformAdmin ?? false}
+      />
     </>
   );
 }
@@ -77,9 +84,27 @@ function renderShell(initialPath = "/") {
 describe("ApplicationShell", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getSessionMock.mockResolvedValue({ authenticated: false, roles: [] });
     getGatewayMock.mockResolvedValue({
       id: "gateway-b",
       name: "Friendly gateway",
+    });
+  });
+
+  it("supplies the session platform-admin role to gateway UI consumers", async () => {
+    getSessionMock.mockResolvedValue({
+      authenticated: true,
+      roles: ["platform:admin"],
+    });
+
+    renderShell();
+
+    await waitFor(() => {
+      expect(
+        screen
+          .getByTestId("gateway-current-user-role")
+          .getAttribute("data-is-platform-admin"),
+      ).toBe("true");
     });
   });
 

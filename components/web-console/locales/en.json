@@ -3095,6 +3095,10 @@
     "defaultMessage": "Filter by name, status, or endpoint",
     "description": "Placeholder and accessible label for gateway search."
   },
+  "app.page.gateways.filter.admin": {
+    "defaultMessage": "Filter by name, status, endpoint, or created by",
+    "description": "Placeholder and accessible label for platform-admin gateway search."
+  },
   "app.page.gateways.noOwned.body": {
     "defaultMessage": "You do not own any gateways yet. Turn off the ownership filter to see the full list.",
     "description": "Guidance when the ownership filter is on but the user owns no gateways."

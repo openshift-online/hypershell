@@ -563,6 +563,12 @@ export const messages = defineMessages({
     defaultMessage: "Filter by name, status, or endpoint",
     description: "Placeholder and accessible label for gateway search.",
   },
+  filterGatewaysAdmin: {
+    id: "app.page.gateways.filter.admin",
+    defaultMessage: "Filter by name, status, endpoint, or created by",
+    description:
+      "Placeholder and accessible label for platform-admin gateway search.",
+  },
   gateway: {
     id: "app.gateway.singular",
     defaultMessage: "Gateway",

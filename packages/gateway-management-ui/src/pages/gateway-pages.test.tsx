@@ -150,7 +150,10 @@ function mockServiceAccountCollection() {
   });
 }
 
-function renderPage(Page: () => React.ReactNode) {
+function renderPage(
+  Page: () => React.ReactNode,
+  currentUser?: { isPlatformAdmin?: boolean; username?: string },
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -158,7 +161,11 @@ function renderPage(Page: () => React.ReactNode) {
   return render(
     <IntlProvider locale="en">
       <QueryClientProvider client={queryClient}>
-        <GatewayUiProvider gateways={gatewayOperations} navigation={navigation}>
+        <GatewayUiProvider
+          currentUser={currentUser}
+          gateways={gatewayOperations}
+          navigation={navigation}
+        >
           <Page />
         </GatewayUiProvider>
       </QueryClientProvider>
@@ -212,6 +219,7 @@ describe("gateway shell pages", () => {
         gatewayId="gateway-1"
         gateway={{
           clusterId: "cluster-east",
+          createdBy: "kim-developer",
           consoleUrl: "https://console.example.test",
           externalDns: "gateway.example.com",
           gatewayVersion: "0.0.109",
@@ -259,6 +267,8 @@ describe("gateway shell pages", () => {
       screen.getByDisplayValue("https://gateway.example.com:443"),
     ).toBeTruthy();
     expect(screen.getByText("Cluster", { exact: true })).toBeTruthy();
+    expect(screen.getByText("Created by", { exact: true })).toBeTruthy();
+    expect(screen.getByText("kim-developer")).toBeTruthy();
     expect(await screen.findByText("Cluster East")).toBeTruthy();
     renameGatewayMock.mockResolvedValue(
       gatewayResponse("gateway-1", "Renamed team gateway"),
@@ -1475,6 +1485,68 @@ describe("gateway shell pages", () => {
     );
   });
 
+  it("shows Created by only to platform admins and falls back when absent", () => {
+    const adminPage = renderPage(
+      () => (
+        <GatewaysPage
+          gateways={[
+            { ...previewGateway, createdBy: "kim-developer" },
+            { ...previewGateway, id: "gateway-2", name: "no-creator" },
+          ]}
+        />
+      ),
+      { isPlatformAdmin: true },
+    );
+
+    expect(
+      screen.getByRole("columnheader", { name: "Created by" }),
+    ).toBeTruthy();
+    expect(screen.getByText("kim-developer")).toBeTruthy();
+    expect(screen.getAllByText("Not available").length).toBeGreaterThan(0);
+
+    adminPage.unmount();
+    renderPage(() => <GatewaysPage gateways={previewGateways} />);
+
+    expect(
+      screen.queryByRole("columnheader", { name: "Created by" }),
+    ).toBeNull();
+  });
+
+  it("sorts the admin-only Created by column through the owner field", async () => {
+    const user = userEvent.setup();
+    const onCollectionStateChange = vi.fn();
+    const collectionState = {
+      page: 1,
+      search: "",
+      size: 20,
+      sortDirection: "asc" as const,
+      sortField: "name" as const,
+    };
+    renderPage(
+      () => (
+        <GatewaysPage
+          collectionState={collectionState}
+          gateways={previewGateways}
+          onCollectionStateChange={onCollectionStateChange}
+        />
+      ),
+      { isPlatformAdmin: true },
+    );
+
+    await user.click(screen.getByRole("button", { name: "Created by" }));
+
+    expect(onCollectionStateChange).toHaveBeenCalledWith(
+      {
+        ...collectionState,
+        onlyMine: false,
+        page: 1,
+        sortDirection: "asc",
+        sortField: "owner",
+      },
+      "sort",
+    );
+  });
+
   it("sorts the gateway list by active sandbox count", async () => {
     const user = userEvent.setup();
     const onCollectionStateChange = vi.fn();
@@ -1521,12 +1593,11 @@ describe("gateway shell pages", () => {
 
   it("renders the mockup table columns, headers, and widths", () => {
     renderPage(() => <GatewaysPage gateways={previewGateways} />);
-
     const expectedColumns = [
-      { name: "Gateway name", width: "30%" },
+      { name: "Gateway name", width: "25%" },
       { name: "Sandboxes", width: "15%" },
-      { name: "Status", width: "20%" },
-      { name: "Version", width: "15%" },
+      { name: "Status", width: "15%" },
+      { name: "Version", width: "10%" },
       { name: "Created", width: "20%" },
     ];
     const headers = screen.getAllByRole("columnheader");
