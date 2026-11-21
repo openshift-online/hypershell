@@ -1043,9 +1043,15 @@ control-plane write bypasses the check; a declarative-import create that sets th
 field is rejected by the service funnel with its own message (OSG-OPWS-01), because
 a control-plane identity holds no user bindings.
 
+**Feature flag.** The entitlement is necessary but not sufficient: the service
+funnel SHALL also reject a user operator selection while the API server feature
+flag `HYPERSHELL_ENABLE_OPERATOR_WORKSPACE_MODE` is not `true` (OSG-OPWS-01.07). The flag is
+independent of authentication and RBAC enforcement.
+
 #### Scenario: SEC-RBAC-28.01 -- Entitled caller selects operator mode
 
-- GIVEN a caller holding `gateway:creator` and `gateway:operator-workspace-creator`
+- GIVEN an API server with `HYPERSHELL_ENABLE_OPERATOR_WORKSPACE_MODE` enabled
+- AND a caller holding `gateway:creator` and `gateway:operator-workspace-creator`
   (both from Keycloak)
 - WHEN the caller creates a gateway with `workspace_mode = operator` over REST or gRPC
 - THEN the create SHALL be accepted and the gateway provisioned in operator mode
