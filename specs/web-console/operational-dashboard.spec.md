@@ -192,8 +192,6 @@ The reliability dashboard route `/dashboard/reliability` is specified in REL-OBS
 
 On `/dashboard`, the **Overview** item SHALL be selected and the **Reliability** item SHALL navigate to `/dashboard/reliability`.
 
-This requirement exists so the operational overview participates in the same cross-dashboard chrome as the reliability page without hosting reliability metrics on this route.
-
 #### Scenario: WEB-OPS-26.01 -- Operational page shows reliability as a peer destination
 
 - GIVEN an authenticated dashboard administrator is viewing `/dashboard`

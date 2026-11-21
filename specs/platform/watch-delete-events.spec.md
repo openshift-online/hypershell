@@ -2,8 +2,6 @@
 
 ## Purpose
 
-gRPC watch streams deliver resource events (create, update, delete) from the API server to the control plane. Today, delete events carry only the `resource_id` - the resource payload is nil. This forces the control plane to maintain in-memory caches (e.g., the gateway-to-namespace map) to perform cleanup. When the control plane restarts, these caches are lost and cleanup is silently skipped.
-
 This spec defines the behavior for including the full resource snapshot in delete watch events so that reconcilers always have the information they need to clean up, regardless of process restarts.
 
 This spec refines the durable-deletion guarantee of the control-plane reconciliation contract ([`../standards/control-plane/reconciliation-contract.spec.md`](../standards/control-plane/reconciliation-contract.spec.md), STD-RCON-07); it refines that contract and does not weaken it.
@@ -69,9 +67,7 @@ The GatewayReconciler SHALL read the namespace (and other fields) from `event.Re
 A Gateway delete event can arrive with no resource payload (`event.Resource` is
 nil). This is reachable in normal operation: the API server delivers
 nil-payload delete events to unscoped subscribers. The control plane SHALL NOT
-mark such a delete done by logging a warning and returning success, because the
-gateway's out-of-namespace resources (its database and Keycloak clients) would
-then be left behind with no recovery path and no operator-visible signal.
+mark such a delete done by logging a warning and returning success.
 
 On a nil-payload delete the control plane SHALL first re-read the deleting
 Gateway record with the unscoped query (CTRL-WDEL-02), which bypasses the
@@ -105,8 +101,4 @@ never reconciled.
 
 ## Design Decisions
 
-| Decision | Rationale |
-|----------|-----------|
-| Unscoped DAO query rather than stashing before delete | Simpler: no changes to the `Delete()` service method or HTTP handler; the watch handler is the only consumer that needs the deleted state. |
-| Apply to Gateways only (initially) | Gateways are the only Kind where delete cleanup requires resource fields. Other Kinds can adopt the pattern when needed. |
-| Nil-payload delete re-reads rather than degrading to a warning | A nil payload is reachable in normal operation (unscoped subscribers receive nil-payload deletes), so treating it as a best-effort warning silently orphans the gateway's database and Keycloak clients, which have no namespace-GC recovery path. The control plane re-reads the deleting record with the unscoped query and reconciles from it; when the record cannot be loaded it returns a retryable error and records the no-silent-orphan signal, consistent with GTW-DEL-04 and GTW-DEL-07. |
+Rationale for these decisions is recorded in [ADR-0024](../../docs/adr/0024-watch-delete-events.md).

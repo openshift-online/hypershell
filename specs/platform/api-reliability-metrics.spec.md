@@ -6,7 +6,7 @@
 
 ## Purpose
 
-Expose **API server HTTP reliability metrics** - request rate, 5xx error rate, median latency, and p95 latency - to the reliability dashboard so dashboard operators can assess API health with current values and 24-hour hourly trend sparklines.
+Expose **API server HTTP reliability metrics** - request rate, 5xx error rate, median latency, and p95 latency - to the reliability dashboard with current values and 24-hour hourly trend sparklines.
 
 These metrics are derived from the API server framework Prometheus histogram `api_inbound_request_duration_*`, scraped into the BFF Prometheus instance with `job="hypershell-api-server"`. When OpenTelemetry `http.server.request.duration` is also exported as `http_server_request_duration_seconds_*` (API-OBS-05), implementations MAY query that series instead; Kind and default ServiceMonitor scrapes today expose `api_inbound_request_duration`.
 

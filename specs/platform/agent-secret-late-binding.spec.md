@@ -8,17 +8,15 @@
 
 ## Purpose
 
-A declarative `.hypershell` agent fleet is imported on the hub before any Gateway
-exists, yet an agent's credentials are consumed on whichever `ManagedCluster` its
-Gateway is later placed on. The destination is therefore unknown at the moment a
-`SecretSource` is declared. This spec defines the late-binding reference model that
-removes that ordering constraint, and it fixes the materialization target of that
-model.
+This spec defines the late-binding reference model for agent credentials and fixes
+its materialization target. A declarative `.hypershell` agent fleet is imported on the
+hub before any Gateway exists, yet an agent's credentials are consumed on whichever
+`ManagedCluster` its Gateway is later placed on, so the destination is unknown when a
+`SecretSource` is declared.
 
 HyperShell SHALL realize an agent's credentials as OpenShell **Providers** carrying a
 **refresh strategy**. The control plane SHALL NOT render a raw Kubernetes `Secret` for
-the credential. A raw `Secret` is inert, so whoever renders it must rotate it; an
-OpenShell Provider is live. Given the durable **material** (the GitHub App PEM, the
+the credential. Given the durable **material** (the GitHub App PEM, the
 Vertex service-account key, the gateway identity), rotation ownership depends on the
 refresh strategy:
 
@@ -43,9 +41,8 @@ API (the operations the `openshell` CLI drives;
 Late binding is preserved: a `SecretSource` is declared by name as a value-less
 reference at import time, the durable material is supplied later directly into the
 assigned cluster's local Vault, and the agent realizes its providers the moment the
-material appears. The model is distributed and eventually correct: the material never
-touches the hub, no component reads a global runtime store, and every runtime read is
-cluster-local.
+material appears. The material never touches the hub, no component reads a global
+runtime store, and every runtime read is cluster-local.
 
 This spec also governs the agent-secret Vault plane (the convention-addressed,
 per-cluster store holding `secret/data/hypershell/secret-sources/*`), which is a
@@ -196,8 +193,7 @@ all: the reference is declared value-less, and the material is uploaded later di
 into the assigned cluster's local Vault by the per-cluster writer. The api-server
 write-then-record path (path 1) carries material only when it is legitimately
 submitted at the hub - the `Repository` import credential or the co-located
-single-cluster deployment - which is why "material never touches the hub" holds for
-distributed `AgentRuntime` credentials.
+single-cluster deployment.
 
 Material MAY be supplied through the write-then-record path either at create time (the
 submission flow above) or POST-HOC against an already-created reference-only
@@ -613,16 +609,4 @@ the same upload target the operator would otherwise write to directly (AGT-SEC-0
 
 ## Design Decisions
 
-| Decision | Rationale |
-|----------|-----------|
-| Realize credentials as OpenShell providers, not rendered raw Secrets | A rendered raw `Secret` is inert, so whoever rendered it must rotate it - the root cause of the stale-token problem in the superseded model. An OpenShell provider is live: given durable material plus a refresh strategy, OpenShell mints and rotates the usable credential for its native strategies, removing any need for a control-plane rotator for those strategies; for GitHub App credentials a bounded GitHub-specific control-plane rotator is required because the installed OpenShell CLI has no `app-installation-token` refresh strategy (see the next row). It is already the declared model (`ProviderBinding.refresh_strategy`) and the control plane's existing gateway provider-provisioning pattern. |
-| Rotation ownership split by strategy | Rotation belongs where the live credential can be minted. For strategies OpenShell supports natively, OpenShell mints and rotates, keeping the control plane a configurator rather than a credential issuer. For GitHub App credentials the installed OpenShell CLI has no `app-installation-token` refresh strategy, so a bounded control-plane GitHub rotator mints the installation token from the PEM and updates the provider credential. Splitting ownership this way matches what OpenShell can actually do rather than asserting an OpenShell capability that is not confirmed. |
-| SecretSource holds durable material, not a usable credential | The durable material (GitHub App PEM, Vertex SA key, gateway identity) is long-lived and rotation-free; the usable, short-lived credential is derived from it on demand. Storing only the material, never the usable credential, is what lets the rotation owner (OpenShell for its native strategies, the bounded control-plane GitHub rotator for GitHub App credentials) mint the usable credential when needed, and keeps no rotatable secret at rest in a control-plane-placed `Secret`. |
-| Late-binding reference model over hub staging | The destination Vault is unknown at import time because cluster assignment happens only at Gateway provisioning. Declaring a value-less reference and supplying the material later into the assigned cluster's Vault removes all ordering constraints (eventually correct) with no central material store. |
-| Distributed per-cluster read, no global runtime store | A single global store every control plane reads from at runtime is a central trust sink with fleet-wide blast radius and cross-boundary auth. Cluster-local reads keep the material on the cluster that consumes it. |
-| Two explicit resolution paths, coinciding only when co-located | The hub-side write-then-record path (Repository import credential, co-located single-cluster deployment) and the distributed AgentRuntime late-binding path are different stores with different writers. Stating them separately prevents an implementer from collapsing both onto one shared store address, which would reintroduce the forbidden global reader. The paths coincide only in the co-located case, and only because the hub and cluster are the same cluster. |
-| GitHub App via app-installation-token for both agent providers and the Repository import credential | Storing only the durable PEM (plus `app_id` / `installation_id`) and minting the ~1h installation token on demand means there is no static installation token to go stale. The control plane mints the token and sets it on the OpenShell provider (agent providers) or uses it directly (the `RepositoryReconciler` import credential). Unifying both on this one PEM model supersedes the static-token resolver and closes the import-credential rotation gap; the token minting is a bounded, GitHub-specific control-plane rotator. |
-| `SecretPending` is a benign waiting condition that gates provider creation, not `Degraded` | A reference whose material is not yet uploaded is an expected state during rollout, not a fault. Distinguishing reachable-but-missing (Pending) from unreachable/error (Degraded) gives operators an actionable next step without false alarms, and lets the agent realize its providers automatically once the material appears. |
-| Actionable upload target on status | Surfacing the resolved cluster and exact Vault mount and path turns a chicken-and-egg ordering problem into a guided user experience. |
-| Agent-secret Vault plane separate from gateway-provider and application planes | Conflating planes would widen each identity's blast radius and couple unrelated rotation and policy lifecycles. A dedicated `secret/data/hypershell/secret-sources/*` path with its own least-privilege writer keeps the three planes isolated. |
-| End-user material upload is a path-1 api-server passthrough, not a path-2 replacement | A reference-only `SecretSource` created ahead of its material (import or `hsctl apply`) needed a first-class, non-admin upload path so the end user who owns the tenant - not a platform or Vault administrator - can fill it. Reusing the api-server's existing write-only `pkg/secretstore` client, the server-derived convention path, and the SEC-RBAC-19 tenancy check keeps the upload inside the established write-then-record discipline with no new trust surface. It is deliberately scoped to the co-located / hub-reachable case (path 1); the direct-to-cluster-Vault writer (AGT-SEC-08) and the never-transits-the-hub rule (AGT-SEC-04.03) remain the mechanism for distributed spoke material, so the two paths stay distinct rather than collapsing onto one hub store. |
+Rationale for these decisions is recorded in [ADR-0004](../../docs/adr/0004-agent-secret-late-binding.md).

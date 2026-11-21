@@ -8,14 +8,11 @@
 ## Purpose
 
 HyperShell Extension API kinds (`AgentRuntime`, `AgentWorkspace`, `WorkspaceMembership`,
-`ProviderSpec`, `ProviderBinding`, `InferenceRoute`, `SecretSource`) are a
-**convenience and extension layer over OpenShell**. They are HyperShell's declarative,
-PostgreSQL-backed desired state. OpenShell already provides the native resources an agent
-workspace needs - workspaces, members, providers, provider credential refresh, and the
-inference route - and exposes an existing API for them (the interface the `openshell` CLI
-drives). HyperShell does NOT define a new contract OpenShell must implement; the control
-plane **consumes OpenShell's existing API** and realizes each HyperShell Extension kind as
-its OpenShell native counterpart.
+`ProviderSpec`, `ProviderBinding`, `InferenceRoute`, `SecretSource`) are HyperShell's
+declarative, PostgreSQL-backed desired state - a **convenience and extension layer over
+OpenShell**. The control plane **consumes OpenShell's existing API** (the interface the
+`openshell` CLI drives) and realizes each HyperShell Extension kind as its OpenShell native
+counterpart; HyperShell does NOT define a new contract OpenShell must implement.
 
 This specification is the **1:1 map** between the two APIs. For every HyperShell Extension
 kind it names the exact OpenShell resource it provisions, maps each field and each lifecycle
@@ -71,8 +68,7 @@ as specified in [`agent-workspace-gateway-api.spec.md`](./agent-workspace-gatewa
 The control plane SHALL send OpenShell only gateway-agnostic values (the provider type from
 the `ProviderSpec`, the `refresh_strategy` type and its non-secret parameters, the model
 alias) plus durable **material** for secret-valued fields; it SHALL NOT send
-HyperShell-internal identifiers or backend-specific field names, which are OpenShell's own
-translation concern.
+HyperShell-internal identifiers or backend-specific field names.
 
 #### Scenario: AGT-EXT-01.01 -- AgentWorkspace realized as an OpenShell workspace
 
@@ -329,13 +325,7 @@ lets a client discover active restrictions. Each gap SHALL carry a follow-up
 
 ## Design Decisions
 
-| Decision | Rationale |
-|----------|-----------|
-| Map Extension kinds to OpenShell's existing API, not a new OpenShell contract | OpenShell already provides workspaces, members, providers, refresh, and the inference route and exposes them to the `openshell` CLI. HyperShell is a convenience layer; it consumes that API rather than asking OpenShell to implement a bespoke HyperShell contract |
-| Ground the mapping in the installed CLI and the production coordinator sequence | These are the two reachable sources of OpenShell's real surface from this repository; grounding in them keeps the mapping real and lets unconfirmed wire details be flagged honestly |
-| Mark unconfirmed OpenShell capability CONFIRM-AGAINST-UPSTREAM rather than invent it | Role-name equivalence and the wire protocol behind each CLI command cannot be confirmed from here; fabricating them would make the declarative assertion false. The GitHub `app-installation-token` gap is resolved to a control-plane rotator (a decision, not a fabricated OpenShell capability) rather than left open |
-| Resolve G-4 to a control-plane GitHub rotator; enumerate the residual G-5 | The GitHub minting that the installed OpenShell CLI cannot do is moved into a bounded control-plane rotator inside the declarative realization, not left as an open gap. The "fully declarative" claim stays credible because the one remaining imperative step (G-5) is named as a tracked follow-up |
-| `ProviderSpec` -> OpenShell provider profile; `ProviderBinding` -> OpenShell provider | Matches the reuse model: a shared profile/capability definition referenced by many per-workspace provider instances, mirroring `provider profile import` + per-workspace `provider create` |
+Rationale for these decisions is recorded in [ADR-0013](../../docs/adr/0013-extension-api-openshell-api-mapping.md).
 
 ## References
 

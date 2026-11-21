@@ -6,11 +6,9 @@
 
 ## Purpose
 
-Give the HyperShell control plane distributed tracing and reconcile-level metrics through OpenTelemetry (OTel), so an operator can observe reconcile latency, gRPC watch health, Kubernetes API calls, and failures across the fleet. This specification is the control-plane counterpart to `platform/api-server-observability.spec.md` (HYPERSHELL-26) and `web-console/tracing.spec.md` (HYPERSHELL-27): the API server already produces server spans for inbound HTTP and gRPC requests, and this specification makes the control plane produce spans for the asynchronous reconciliation work that follows.
+Define control-plane distributed tracing and reconcile-level metrics through OpenTelemetry (OTel) covering reconcile latency, gRPC watch health, Kubernetes API calls, and failures across the fleet. This specification is the control-plane counterpart to `platform/api-server-observability.spec.md` (HYPERSHELL-26) and `web-console/tracing.spec.md` (HYPERSHELL-27) and covers the control plane component only.
 
-Correlating a reconcile trace back to the originating user request is defined by `platform/reconcile-trace-correlation.spec.md`, which adds span links from the reconcile root span to the originating request trace. That specification extends this one and `platform/api-server-observability.spec.md`.
-
-This specification covers the control plane component only. API server instrumentation is defined by `platform/api-server-observability.spec.md`. Where `standards/security/security.spec.md` imposes a stricter rule on what may appear in telemetry, that rule governs.
+Correlating a reconcile trace back to the originating user request is defined by `platform/reconcile-trace-correlation.spec.md`. Where `standards/security/security.spec.md` imposes a stricter rule on what may appear in telemetry, that rule governs.
 
 ## Requirements
 
@@ -474,20 +472,7 @@ Log records SHALL follow the privacy rules of `OBS-CPL-06`: no secrets, tokens, 
 
 ## Design Decisions
 
-| Decision | Rationale |
-| --- | --- |
-| Same OTel environment variables as the API server | Consistency across the platform; operators configure both components the same way |
-| Opt-in by collector-endpoint presence | Zero overhead when no collector is configured; no code change needed to enable in production |
-| Parent-based trace-id-ratio sampler | Preserves upstream sampling decisions; only root spans are subject to the ratio |
-| SDK init in main() before goroutines | The control plane has no framework plugin system; explicit init is the simplest correct approach |
-| One span per reconcile Handle() | The reconciler is the unit of work; sub-spans for gRPC and K8s calls nest naturally as children |
-| gRPC client interceptors on the shared connection | Every service client created from the connection inherits instrumentation without per-call changes |
-| otelhttp transport wrapper for client-go | Instruments all Kubernetes API calls transparently without modifying reconciler code |
-| Bounded span names by kind, not resource ID | Keeps Jaeger grouping useful and prevents cardinality explosion across large deployments |
-| Resource ID as a span attribute, not a span name | Enables per-trace debugging without inflating the span-name namespace |
-| Queue depth and wait use the shared reconcile queue | One bounded resource-kind label covers each shared reconcile queue without resource identifiers |
-| OTLP/gRPC on port 4317 for the control plane | Matches the API server's transport; the development Jaeger exposes 4317 for OTLP/gRPC |
-| Reconcile-trace to request-trace correlation via span links | Reconciliation is asynchronous; the correlation mechanism (span links, trace-context persistence) is defined in `platform/reconcile-trace-correlation.spec.md` |
+Rationale for these decisions is recorded in [ADR-0007](../../docs/adr/0007-control-plane-observability.md).
 
 ## Primary Basis
 

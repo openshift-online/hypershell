@@ -12,29 +12,21 @@
 ## Purpose
 
 The agent SDLC funnel moves a GitHub execution record through phases with a
-label state machine. When a model applies those labels from prose instructions,
-it must remember every required label step and its order. An agent can finish
-its task and leave a label update incomplete, a sequence of separate API calls
-can fail partway through a transition, and conflicting labels can prevent a
-trigger from matching or leave the next phase unclear.
+label state machine. Lifecycle label transitions SHALL live in shared,
+deterministic scripts that native Fullsend harness hooks invoke, not in model
+instructions. An agent SHALL perform its assigned work and return a structured
+result only. Fullsend SHALL validate that result. A trusted post-script SHALL then
+apply the permitted label changes and verify the final state. The behavior SHALL
+live under `.fullsend/` so the same harnesses run identically in local and cloud
+Fullsend execution.
 
-Lifecycle label transitions therefore live in shared, deterministic scripts that
-native Fullsend harness hooks invoke, not in model instructions.
-An agent SHALL perform its assigned work and return a structured result only.
-Fullsend SHALL validate that result. A trusted post-script SHALL then apply the
-permitted label changes and verify the final state. The behavior SHALL live under
-`.fullsend/` so the same harnesses run identically in local and cloud Fullsend
-execution.
-
-This is a cross-cutting process standard. It constrains the `.fullsend/`
-harnesses, agents, schemas, and scripts and defines the behavior they SHALL
-implement. It is a desired-state contract, independent of when any given harness
-or agent change lands. It complements SDLC-JIRA: SDLC-JIRA owns the Jira-and-
-GitHub synchronization, the `agent/allowed` authorization gate, the
-`agent/execution-record` canonical-link marker, and the phase-to-status mapping;
-this specification owns HOW the GitHub phase labels those depend on are applied -
-by shared scripts through harness hooks, from a validated result, never by free-
-hand agent action.
+This is a cross-cutting, desired-state process standard constraining the
+`.fullsend/` harnesses, agents, schemas, and scripts. It complements SDLC-JIRA:
+SDLC-JIRA owns the Jira-and-GitHub synchronization, the `agent/allowed`
+authorization gate, the `agent/execution-record` canonical-link marker, and the
+phase-to-status mapping; this specification owns HOW the GitHub phase labels those
+depend on are applied - by shared scripts through harness hooks, from a validated
+result, never by free-hand agent action.
 
 ---
 
@@ -682,15 +674,4 @@ tools and permissions, and the recovery procedure SHALL be documented.
 
 ## Design Decisions
 
-| Decision | Rationale |
-|----------|-----------|
-| Label transitions live in shared scripts, not agent prose | A deterministic script applies the same labels in the same order every time. Prose leaves the model responsible for remembering every step, so a finished task can still leave a transition half-applied. |
-| Agents return a validated structured result | A fixed-enum, versioned result keeps arbitrary label names, repository targets, and shell commands out of the model output and gives the post-script a trusted contract to act on. |
-| Validation is read-only and precedes any mutation | Deciding whether output is valid must never change workflow state, so an invalid or unvalidated result cannot advance the funnel or leave labels half-changed. |
-| Evidence is checked against GitHub before applying | A schema-valid result is not proof of completed work. Rechecking the pull request and head commit rejects stale reviews and prevents advancing on work that changed. |
-| The post-script re-reads and verifies the final state | Several GitHub API calls are not a transaction. Re-reading after applying, and reporting success only after verification, keeps a partial failure visible instead of falsely successful. |
-| Only the named label changes are applied, never a snapshot replace | Replacing the full label set from an old snapshot would erase a human block or authorization change made during the run. Adding and removing only the named labels preserves human decisions. |
-| Protected label categories are never mutated by a transition | Scope, authorization, execution-record, and human-block labels carry decisions outside one phase. Treating them as protected stops a phase transition from undoing a human gate or the canonical link. |
-| Retry counts come from the issue timeline | The number of prior rejections is authoritative evidence on GitHub, not a value the agent can assert, so the block decision cannot be gamed by the result. |
-| Behavior lives under `.fullsend/`, not the local dispatcher | Keeping scripts, schemas, and configuration under `.fullsend/` lets the same harnesses run identically in local and cloud Fullsend execution, with no dependency on a workstation or a local database. |
-| One writer for phase labels | Routing intake and reconciliation label writes through the same contract, or removing that responsibility, prevents competing writers from leaving conflicting phase labels. |
+Rationale for these decisions is recorded in [ADR-0027](../../docs/adr/0027-fullsend-lifecycle-label-hooks.md).

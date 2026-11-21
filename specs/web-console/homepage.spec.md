@@ -7,7 +7,7 @@
 
 ## Purpose
 
-Define the authenticated HyperShell homepage, its route relationship to the gateway list, the authorized data sources for every dynamic value, optional user-facing announcements, and the route and external-link registries used by the page. The homepage is the normal entry point for the web console. It gives users a concise gateway-health view, entry to gateway creation and dashboards, configured support contact, and curated external learning links. The production surface follows the approved design at `specs/web-console/mockups/homepage/homepage.tsx`, reviewed through the `Mockups/Homepage` and `Parity/Homepage` Storybook stories.
+Define the authenticated HyperShell homepage, its route relationship to the gateway list, the authorized data sources for every dynamic value, optional user-facing announcements, and the route and external-link registries used by the page. The production surface follows the approved design at `specs/web-console/mockups/homepage/homepage.tsx`, reviewed through the `Mockups/Homepage` and `Parity/Homepage` Storybook stories.
 
 ## Requirements
 

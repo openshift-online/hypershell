@@ -6,8 +6,7 @@
 ## Purpose
 
 Attribute gateway and active-sandbox counts to the **managed cluster** (spoke) a
-gateway actually runs on, rather than lumping every count under the hub instance
-that emits the metric. A single hub `api-server` manages many managed clusters.
+gateway actually runs on. A single hub `api-server` manages many managed clusters.
 Both `hypershell_gateways_total` and `hypershell_gateways_active_sandboxes_total`
 carry a `managed_cluster` label, sourced from the ManagedCluster the gateway
 references, so counts can be grouped per spoke end to end.

@@ -8,13 +8,11 @@
 ## Purpose
 
 The Glass fleet dashboard shows promotion state from the moment a release bundle
-reaches the GitOps repository's `main` branch. The steps before that are not
-visible: a change merges into the application repository, Konflux builds the
-changed component images, a policy check runs, a managed release publishes the
-images, a final pipeline publishes a release bundle, and an automated pull
-request moves the bundle into the GitOps repository. An operator who merged a
-change cannot tell, from Glass, whether it is building, waiting, failed, or
-already running in an environment.
+reaches the GitOps repository's `main` branch, but not the steps before that: a
+change merges into the application repository, Konflux builds the changed
+component images, a policy check runs, a managed release publishes the images, a
+final pipeline publishes a release bundle, and an automated pull request moves
+the bundle into the GitOps repository.
 
 This specification adds a **Delivery** tab. It follows each application change
 from merge to the last promotion environment as one row of stages. For every
