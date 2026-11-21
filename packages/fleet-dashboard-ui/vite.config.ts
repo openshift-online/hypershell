@@ -54,6 +54,8 @@ interface MockRun {
   readonly runId: string;
   readonly bundle: typeof bundleA;
   readonly revision: string;
+  readonly cluster?: string;
+  readonly namespace?: string;
   readonly startedAgoMs: number;
   readonly ranForMs: number | null;
   readonly durationMs: number | null;
@@ -61,8 +63,8 @@ interface MockRun {
   readonly running?: boolean;
 }
 
-// Group A: three attempts of rev-alpha (latest passed, two older failed) - the
-// collapsing/attempt-counter case. Group B: rev-beta with one passed and one
+// Group A: one bundle tested on three environments at different revisions.
+// Group B: a rerun on the same environment, one passed and one
 // still-running attempt. The failed runs carry durationMs: 0 but real start/end
 // timestamps, so the table has to fall back to end-start to show a duration.
 const RUNS: readonly MockRun[] = [
@@ -78,7 +80,9 @@ const RUNS: readonly MockRun[] = [
   {
     runId: "14052c8f",
     bundle: bundleA,
-    revision: "rev-alpha",
+    revision: "rev-alpha-b",
+    cluster: "cluster-b",
+    namespace: "ns-b",
     startedAgoMs: 44 * 60_000,
     ranForMs: 64_000,
     durationMs: 0,
@@ -87,7 +91,9 @@ const RUNS: readonly MockRun[] = [
   {
     runId: "46df1ad4",
     bundle: bundleA,
-    revision: "rev-alpha",
+    revision: "rev-alpha-c",
+    cluster: "cluster-c",
+    namespace: "ns-c",
     startedAgoMs: 59 * 60_000,
     ranForMs: 71_000,
     durationMs: 0,
@@ -125,12 +131,12 @@ function summary(run: MockRun, nowMs: number): Record<string, unknown> {
       : iso(nowMs, run.startedAgoMs - run.ranForMs);
   return {
     bundle: run.bundle,
-    id: `${TENANT}/${NAMESPACE}/${run.runId}`,
+    id: `${run.cluster ?? TENANT}/${run.namespace ?? NAMESPACE}/${run.runId}`,
     runId: run.runId,
-    tenant: TENANT,
-    cluster: CLUSTER,
+    tenant: run.cluster ?? TENANT,
+    cluster: run.cluster ?? CLUSTER,
     bodyCluster: null,
-    namespace: NAMESPACE,
+    namespace: run.namespace ?? NAMESPACE,
     revision: run.revision,
     sourceRevision: run.revision,
     startedAt,
