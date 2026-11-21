@@ -10,6 +10,7 @@ type grantItemResponse struct {
 	Email         *string   `json:"email,omitempty"`
 	Role          string    `json:"role"`
 	GrantedAt     time.Time `json:"granted_at"`
+	Workspaces    []string  `json:"workspaces"`
 }
 
 type capabilitiesResponse struct {
@@ -22,6 +23,7 @@ type listResponse struct {
 	Page         int                  `json:"page"`
 	Size         int                  `json:"size"`
 	Total        int64                `json:"total"`
+	Workspaces   []string             `json:"workspaces"`
 	Capabilities capabilitiesResponse `json:"capabilities"`
 	Items        []grantItemResponse  `json:"items"`
 }

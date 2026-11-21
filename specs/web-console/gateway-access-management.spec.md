@@ -4,7 +4,8 @@
 **Status:** Draft
 **Applies to:** `packages/gateway-management-ui` (gateway detail pages, application ports, probes), `components/web-console` (host routes, API adapter, composition root, BFF)
 **Parent:** `web-console/architecture.spec.md` -- console stack and trust boundaries
-**Related:** `platform/gateway-access-management.spec.md` -- the access API, roles, directory search, and last-owner protection this surface consumes; `web-console/user_flows.md` -- "Sharing a team gateway"; `standards/ui/hexagonal-architecture.spec.md`, `standards/ui/patternfly.spec.md`, `standards/ui/domain-observability.spec.md`, `standards/ui/interaction.spec.md`, `standards/ui/content-localization.spec.md`, `standards/ui/accessibility.spec.md`
+**Related:** [Issue #976](https://github.com/openshift-online/hypershell/issues/976) - default-workspace UI feedback and opt-out; `platform/gateway-access-management.spec.md` -- the access API, roles, directory search, and last-owner protection this surface consumes; `platform/default-workspace-membership-bootstrap.spec.md` -- default-workspace membership and visibility; `web-console/user_flows.md` -- "Sharing a team gateway"; `standards/ui/hexagonal-architecture.spec.md`, `standards/ui/patternfly.spec.md`, `standards/ui/domain-observability.spec.md`, `standards/ui/interaction.spec.md`, `standards/ui/content-localization.spec.md`, `standards/ui/accessibility.spec.md`
+**Source mockups:** `specs/web-console/mockups/gateways/gateway-detail.parity.stories.tsx` -- `ManageAccess`, `ManageAccessWorkspaceFilter`, and `ManageAccessAddUser`
 
 ---
 
@@ -37,35 +38,40 @@ The Manage access tab SHALL render the gateway's access grants in the canonical 
 
 Each row SHALL show:
 
-| Column | Source (GTW-ACC-03) |
-| --- | --- |
-| Name | `name` (display name) |
-| User ID | `username` |
-| Role | `role` (`owner`, `admin`, or `user`), rendered as an inline control per WEB-ACC-05 |
-| (row action) | Remove access per WEB-ACC-06 |
+| Column       | Source (GTW-ACC-03)                                                                |
+| ------------ | ---------------------------------------------------------------------------------- |
+| Name         | `name` (display name)                                                              |
+| User ID      | `username`                                                                         |
+| Gateway role | `role` (`owner`, `admin`, or `user`), rendered as an inline control per WEB-ACC-05 |
+| Workspaces   | `workspaces` for `user` rows; **All workspaces** for `owner` and `admin` rows      |
+| (row action) | Remove access per WEB-ACC-06                                                       |
 
 A row's role control and remove action SHALL be disabled with an accessible explanation when the server would reject the action (WEB-ACC-08): the user is the last remaining owner, or the current caller is not an owner and the row is an owner.
 
 The table SHALL show localized empty, loading, no-results, and error states and SHALL expose a manual refresh consistent with other gateway resource tables.
+
+For a `user` row, the **Workspaces** column SHALL show every gateway-scoped workspace name returned by GTW-ACC-03, regardless of the user's OpenShell workspace-level role. For `owner` and `admin` rows, the console SHALL show **All workspaces** and SHALL NOT list workspace memberships; admin-scope presentation takes precedence over user-scope membership.
 
 #### Scenario: WEB-ACC-02.01 -- Access rows render user name, user ID, and role
 
 - GIVEN the access list returns two owners, one admin, and one user
 - WHEN the table renders
 - THEN each row SHALL show the display name, username, and role (Owner/Admin/User)
+- AND the user row SHALL show that user's workspace names
+- AND the owner and admin rows SHALL show **All workspaces** in the **Workspaces** column
 
 ---
 
 ### Requirement: WEB-ACC-03 -- Search and Role Filter
 
-The table toolbar SHALL provide a **Find people...** search input and a **role** filter (All, Owner, Admin, User).
+The table toolbar SHALL provide a **Find people...** search input, a **gateway role** filter (All, Owner, Admin, User), and a workspace filter when the gateway has more than one workspace.
 
-Search SHALL be debounced, SHALL cancel superseded in-flight requests, SHALL treat the entered text as a literal, and SHALL issue a bounded number of requests. Search and the role filter SHALL be applied server-side via the access list query (GTW-ACC-03). A localized no-results state SHALL offer clearing the filters.
+Search SHALL be debounced, SHALL cancel superseded in-flight requests, SHALL treat the entered text as a literal, and SHALL issue a bounded number of requests. Search, the gateway-role filter, and the workspace filter SHALL be applied server-side via the access list query (GTW-ACC-03). Filtering by a workspace SHALL include owner and admin rows because those gateway roles have gateway-wide access. A localized no-results state SHALL offer clearing the filters.
 
 #### Scenario: WEB-ACC-03.01 -- Filtering narrows the list
 
 - GIVEN the gateway has several grants
-- WHEN the user types in **Find people...** and selects role **User**
+- WHEN the user types in **Find people...** and selects gateway role **User**
 - THEN the table SHALL show only user-tier grants matching the search text
 - AND clearing the filters SHALL restore the full list
 
@@ -90,7 +96,11 @@ Selecting a candidate SHALL open the role assignment modal (WEB-ACC-05) for that
 
 ### Requirement: WEB-ACC-05 -- Role Assignment and Change
 
-Assigning a role to a newly selected user SHALL use a modal containing a **radio list** of the roles the current caller may assign, each with a short localized description. Owners SHALL see **User**, **Admin**, and **Owner**; admins (non-owners) SHALL see only **User** and **Admin** (the Owner option SHALL be absent or disabled with an explanation, per GTW-ACC-08). Confirming SHALL grant the selected role (GTW-ACC-04) and, on success, close the modal and refresh the access list.
+Assigning a role to a newly selected user SHALL use a modal containing a **radio list** of the roles the current caller may assign, each with a short localized description. Owners SHALL see **User**, **Admin**, and **Owner**; admins (non-owners) SHALL see only **User** and **Admin** (the Owner option SHALL be absent or disabled with an explanation, per GTW-ACC-08). Confirming SHALL grant the selected role (GTW-ACC-04), show the result state, and refresh the access list when the modal closes.
+
+When the selected role is **User**, the modal SHALL show a checkbox labeled **Automatically add this user to the default workspace**. The checkbox SHALL default to checked and helper copy SHALL explain that the default workspace is shared with other gateway users. When unchecked, the grant request SHALL set `skip_default_workspace_bootstrap` to `true`. The checkbox SHALL be hidden for **Admin** and **Owner**.
+
+After a successful **User** grant with the checkbox checked, the result SHALL state **Access granted. This user can now use the default workspace.** and include the shared-workspace note. After a successful **User** grant with the checkbox unchecked, the result SHALL state **Access granted without default-workspace access.** The result SHALL keep the manual OpenShell workspace-member command in a secondary, collapsed advanced section and explain that the command is needed only when automatic membership was skipped or when adding the user to another workspace. A failed grant SHALL show the existing localized operation error and SHALL NOT present the grant as created.
 
 Changing an existing grant's role SHALL use the inline role control in that row (WEB-ACC-02), offering the same role set the caller may assign. Selecting a different role SHALL change the user's access (GTW-ACC-05). The change SHALL reflect in the row on success.
 
@@ -104,6 +114,13 @@ Role submissions SHALL disable their confirm/select control while in flight and 
 - WHEN the role modal shows **User**, **Admin**, and **Owner** radio options and the owner chooses **Owner** and confirms
 - THEN `dana` SHALL be granted owner access
 - AND the modal SHALL close and the access list SHALL show `dana` as Owner
+
+#### Scenario: WEB-ACC-05.06 -- User grant can opt out of the default workspace
+
+- GIVEN an owner selected `dana` from the directory picker
+- WHEN the role modal shows **User** and the owner unchecks **Automatically add this user to the default workspace**
+- THEN the grant request SHALL include `skip_default_workspace_bootstrap: true`
+- AND a successful result SHALL state **Access granted without default-workspace access.**
 
 #### Scenario: WEB-ACC-05.02 -- Admin does not see the Owner option
 
@@ -218,7 +235,7 @@ All user-visible strings (tab label, column headers, filter labels, **Find peopl
 
 ### Requirement: WEB-ACC-11 -- Verification
 
-The gateway management UI package SHALL include unit/component tests (running the use cases against in-memory/fake adapters) covering: table rendering, sole-owner disabled controls, and owner rows disabled for non-owner callers; search and role filtering across the three tiers; the directory typeahead including a never-signed-in candidate; the radio role modal grant including the owner-only Owner option; inline role change; remove-access confirmation; viewer read-only presentation; and probe emission (one started + one terminal per operation, including `denied`/`conflicted`).
+The gateway management UI package SHALL include unit/component tests (running the use cases against in-memory/fake adapters) covering: table rendering, including the **Workspaces** column; sole-owner disabled controls; owner rows disabled for non-owner callers; search and role filtering across the three tiers; the directory typeahead including a never-signed-in candidate; the radio role modal grant including the owner-only Owner option, user-only default-workspace checkbox, request payload, and result copy; inline role change; remove-access confirmation; viewer read-only presentation; and probe emission (one started + one terminal per operation, including `denied`/`conflicted`).
 
 The production API adapter SHALL have contract tests mapping the access endpoints and their error codes to domain types. Storybook/fixtures SHALL include an access list with two owners, an admin, and a user.
 

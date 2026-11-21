@@ -2,16 +2,21 @@ package gatewayAccess
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/defaultWorkspaceBootstrap"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roleBindings"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/roles"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/users"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
+	trexerrors "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 )
 
 // Console access tiers. The management plane distinguishes three per-gateway
@@ -59,19 +64,21 @@ var tierRank = map[string]int{TierUser: 1, TierAdmin: 2, TierOwner: 3}
 // ListOptions follows the shared list contract. Role is a console tier filter
 // (owner/admin/user); Search is a literal substring over username and name.
 type ListOptions struct {
-	Page   int
-	Size   int
-	Search string
-	Role   string
-	Sort   string
-	Order  string
+	Page      int
+	Size      int
+	Search    string
+	Role      string
+	Workspace string
+	Sort      string
+	Order     string
 }
 
 // GrantInput identifies the target of a grant by directory identity (GTW-ACC-04).
 type GrantInput struct {
-	Username string
-	Subject  string
-	Role     string
+	Username                      string
+	Subject                       string
+	Role                          string
+	SkipDefaultWorkspaceBootstrap bool
 }
 
 // GrantItem is the enriched access grant returned to callers (GTW-ACC-03 shape).
@@ -83,6 +90,7 @@ type GrantItem struct {
 	Email         *string
 	Role          string
 	GrantedAt     time.Time
+	Workspaces    []string
 }
 
 // Capabilities tells the console what the caller may do, so it can gate controls
@@ -101,27 +109,63 @@ type DirectoryCandidate struct {
 	Subject  string
 }
 
+type bindingService interface {
+	FindBindingsByUserID(context.Context, string) ([]rbac.BindingSummary, error)
+	SetGatewayRole(context.Context, string, string, string) (*roleBindings.RoleBinding, *trexerrors.ServiceError)
+	RevokeGatewayAccess(context.Context, string, string) (int, *trexerrors.ServiceError)
+}
+
+type userDirectory interface {
+	Get(context.Context, string) (*users.User, *trexerrors.ServiceError)
+	UpsertByUsername(context.Context, string, *string, *string) (string, error)
+}
+
+type gatewayLookup interface {
+	Get(context.Context, string) (*gateways.Gateway, *trexerrors.ServiceError)
+}
+
+type daoService interface {
+	list(context.Context, string, ListOptions) ([]accessRow, int64, error)
+	getForUser(context.Context, string, string) (accessRow, bool, error)
+	ownerUserIDs(context.Context, string) ([]string, error)
+}
+
 type Service interface {
-	List(ctx context.Context, gatewayID, callerUserID string, opts ListOptions) ([]GrantItem, int64, Capabilities, *APIError)
+	List(ctx context.Context, gatewayID, callerUserID string, opts ListOptions) ([]GrantItem, []string, int64, Capabilities, *APIError)
 	Grant(ctx context.Context, gatewayID, callerUserID string, input GrantInput) (GrantItem, *APIError)
 	ChangeRole(ctx context.Context, gatewayID, callerUserID, targetUserID, tier string) (GrantItem, *APIError)
 	Revoke(ctx context.Context, gatewayID, callerUserID, targetUserID string) *APIError
 	SearchDirectory(ctx context.Context, gatewayID, callerUserID, query string) ([]DirectoryCandidate, *APIError)
 }
 
-type service struct {
-	dao       *dao
-	bindings  roleBindings.RoleBindingService
-	users     users.UserService
-	directory DirectoryResolver
-	locks     db.LockFactory
+var (
+	defaultWorkspaceBootstrapOverride defaultWorkspaceBootstrap.Service
+	gatewayLookupOverride             gatewayLookup
+)
+
+func SetDefaultWorkspaceBootstrapForTest(service defaultWorkspaceBootstrap.Service) {
+	defaultWorkspaceBootstrapOverride = service
 }
 
-func NewService(d *dao, bindings roleBindings.RoleBindingService, userService users.UserService, directory DirectoryResolver, locks db.LockFactory) Service {
+func SetGatewayLookupForTest(lookup gatewayLookup) {
+	gatewayLookupOverride = lookup
+}
+
+type service struct {
+	dao       daoService
+	bindings  bindingService
+	users     userDirectory
+	directory DirectoryResolver
+	locks     db.LockFactory
+	gateways  gatewayLookup
+	bootstrap defaultWorkspaceBootstrap.Service
+}
+
+func NewService(d daoService, bindings bindingService, userService userDirectory, directory DirectoryResolver, locks db.LockFactory, gatewayService gatewayLookup, bootstrap defaultWorkspaceBootstrap.Service) Service {
 	if directory == nil {
 		directory = unconfiguredResolver{}
 	}
-	return &service{dao: d, bindings: bindings, users: userService, directory: directory, locks: locks}
+	return &service{dao: d, bindings: bindings, users: userService, directory: directory, locks: locks, gateways: gatewayService, bootstrap: bootstrap}
 }
 
 var _ Service = &service{}
@@ -176,25 +220,57 @@ func (s *service) callerTier(ctx context.Context, userID, gatewayID string) (str
 	return highestGatewayTier(summaries, gatewayID), nil
 }
 
-func (s *service) List(ctx context.Context, gatewayID, callerUserID string, opts ListOptions) ([]GrantItem, int64, Capabilities, *APIError) {
-	rows, total, err := s.dao.list(ctx, gatewayID, opts)
+func (s *service) List(ctx context.Context, gatewayID, callerUserID string, opts ListOptions) ([]GrantItem, []string, int64, Capabilities, *APIError) {
+	allRowsOptions := opts
+	allRowsOptions.Page = 1
+	allRowsOptions.Size = 0
+	rows, _, err := s.dao.list(ctx, gatewayID, allRowsOptions)
 	if err != nil {
-		return nil, 0, Capabilities{}, serverError("unable to list gateway access")
+		return nil, nil, 0, Capabilities{}, serverError("unable to list gateway access")
 	}
 	items := make([]GrantItem, 0, len(rows))
 	for _, r := range rows {
-		items = append(items, grantItemFromRow(r))
+		item := grantItemFromRow(r)
+		item.Workspaces = []string{}
+		items = append(items, item)
+	}
+	workspaces := []string{}
+	if len(items) > 0 || opts.Workspace != "" {
+		visibility, aerr := s.enrichWorkspaceVisibility(ctx, gatewayID, items)
+		if aerr != nil {
+			return nil, nil, 0, Capabilities{}, aerr
+		}
+		workspaces = uniqueSortedWorkspaces(visibility.Workspaces)
+		if opts.Workspace != "" && !containsWorkspace(workspaces, opts.Workspace) {
+			return nil, nil, 0, Capabilities{}, validationProblem("workspace filter is not valid")
+		}
+		if opts.Workspace != "" {
+			items = filterItemsByWorkspace(items, opts.Workspace)
+		}
 	}
 	tier, aerr := s.callerTier(ctx, callerUserID, gatewayID)
 	if aerr != nil {
-		return nil, 0, Capabilities{}, aerr
+		return nil, nil, 0, Capabilities{}, aerr
 	}
 	caps := Capabilities{
 		CallerRole:      tier,
 		CanManageAccess: tier == TierOwner || tier == TierAdmin,
 		CanManageOwners: tier == TierOwner,
 	}
-	return items, total, caps, nil
+	total := int64(len(items))
+	if opts.Size > 0 {
+		start := (opts.Page - 1) * opts.Size
+		if start < 0 || start >= len(items) {
+			items = []GrantItem{}
+		} else {
+			end := start + opts.Size
+			if end > len(items) {
+				end = len(items)
+			}
+			items = items[start:end]
+		}
+	}
+	return items, workspaces, total, caps, nil
 }
 
 func (s *service) Grant(ctx context.Context, gatewayID, callerUserID string, input GrantInput) (GrantItem, *APIError) {
@@ -251,6 +327,11 @@ func (s *service) Grant(ctx context.Context, gatewayID, callerUserID string, inp
 	if aerr := s.guardLastOwner(ctx, gatewayID, targetUserID, input.Role); aerr != nil {
 		return GrantItem{}, aerr
 	}
+	if input.Role == TierUser && current != TierUser && !input.SkipDefaultWorkspaceBootstrap {
+		if aerr := s.bootstrapDefaultWorkspace(ctx, gatewayID, dirUser.Subject); aerr != nil {
+			return GrantItem{}, aerr
+		}
+	}
 	if _, serr := s.bindings.SetGatewayRole(ctx, targetUserID, gatewayID, tierToRoleName(input.Role)); serr != nil {
 		return GrantItem{}, fromServiceError(serr)
 	}
@@ -279,6 +360,15 @@ func (s *service) ChangeRole(ctx context.Context, gatewayID, callerUserID, targe
 	}
 	if aerr := s.guardLastOwner(ctx, gatewayID, targetUserID, tier); aerr != nil {
 		return GrantItem{}, aerr
+	}
+	if tier == TierUser && current != TierUser {
+		subject, aerr := s.subjectForUser(ctx, targetUserID)
+		if aerr != nil {
+			return GrantItem{}, aerr
+		}
+		if aerr := s.bootstrapDefaultWorkspace(ctx, gatewayID, subject); aerr != nil {
+			return GrantItem{}, aerr
+		}
 	}
 	if _, serr := s.bindings.SetGatewayRole(ctx, targetUserID, gatewayID, tierToRoleName(tier)); serr != nil {
 		return GrantItem{}, fromServiceError(serr)
@@ -337,6 +427,178 @@ func (s *service) SearchDirectory(ctx context.Context, gatewayID, callerUserID, 
 	return out, nil
 }
 
+func (s *service) subjectForUser(ctx context.Context, userID string) (string, *APIError) {
+	user, svcErr := s.users.Get(ctx, userID)
+	if svcErr != nil {
+		return "", serverError("unable to resolve target user")
+	}
+	dirUser, found, err := s.directory.Resolve(ctx, user.Username)
+	if err != nil || !found || dirUser.Subject == "" {
+		return "", serviceUnavailable("unable to resolve the target user's OIDC subject")
+	}
+	return dirUser.Subject, nil
+}
+
+func (s *service) bootstrapDefaultWorkspace(ctx context.Context, gatewayID, subject string) *APIError {
+	if s.bootstrap == nil || s.gateways == nil {
+		return serviceUnavailable("default-workspace bootstrap is unavailable")
+	}
+	gateway, svcErr := s.gateways.Get(ctx, gatewayID)
+	if svcErr != nil {
+		return fromGatewayServiceError(svcErr)
+	}
+	if !gateways.IsProvisioningConditionComplete(
+		gateway.ProvisioningConditions, gateways.ConditionDefaultWorkspaceBootstrapReady,
+	) {
+		return nil
+	}
+	var oidc struct {
+		Issuer   string `json:"issuer"`
+		ClientID string `json:"client_id"`
+		Audience string `json:"audience"`
+	}
+	if gateway.Oidc == nil || json.Unmarshal([]byte(*gateway.Oidc), &oidc) != nil ||
+		oidc.Issuer == "" || oidc.ClientID == "" || oidc.Audience == "" {
+		return conflictErr("gateway OIDC client is not ready")
+	}
+	endpoint := ""
+	if gateway.RouteAddress != nil {
+		endpoint = gatewayEndpoint(*gateway.RouteAddress)
+	}
+	problem := s.bootstrap.Bootstrap(ctx, defaultWorkspaceBootstrap.Input{
+		GatewayID: gatewayID, GatewayNamespace: gateway.Namespace, GatewayEndpoint: endpoint,
+		Issuer: oidc.Issuer, GatewayClientID: oidc.ClientID, Subject: subject,
+		SubjectType: defaultWorkspaceBootstrap.SubjectTypeUser, Role: "user",
+	})
+	return fromBootstrapProblem(problem)
+}
+
+func (s *service) enrichWorkspaceVisibility(ctx context.Context, gatewayID string, items []GrantItem) (defaultWorkspaceBootstrap.WorkspaceVisibility, *APIError) {
+	if s.bootstrap == nil || s.gateways == nil {
+		return defaultWorkspaceBootstrap.WorkspaceVisibility{}, serviceUnavailable("workspace visibility is unavailable")
+	}
+	gateway, svcErr := s.gateways.Get(ctx, gatewayID)
+	if svcErr != nil {
+		return defaultWorkspaceBootstrap.WorkspaceVisibility{}, fromGatewayServiceError(svcErr)
+	}
+	if !gateways.IsProvisioningConditionComplete(
+		gateway.ProvisioningConditions, gateways.ConditionDefaultWorkspaceBootstrapReady,
+	) {
+		return defaultWorkspaceBootstrap.WorkspaceVisibility{}, serviceUnavailable("workspace visibility is unavailable")
+	}
+	var oidc struct {
+		Issuer   string `json:"issuer"`
+		ClientID string `json:"client_id"`
+		Audience string `json:"audience"`
+	}
+	if gateway.Oidc == nil || json.Unmarshal([]byte(*gateway.Oidc), &oidc) != nil ||
+		oidc.Issuer == "" || oidc.ClientID == "" || oidc.Audience == "" {
+		return defaultWorkspaceBootstrap.WorkspaceVisibility{}, conflictErr("gateway OIDC client is not ready")
+	}
+	endpoint := ""
+	if gateway.RouteAddress != nil {
+		endpoint = gatewayEndpoint(*gateway.RouteAddress)
+	}
+
+	usernames := make([]string, 0)
+	for index := range items {
+		if items[index].Role == TierUser {
+			usernames = append(usernames, items[index].Username)
+		}
+	}
+	subjectsByUsername := make(map[string]string, len(usernames))
+	if len(usernames) > 0 {
+		users, err := s.directory.ResolveMany(ctx, usernames)
+		if err != nil {
+			return defaultWorkspaceBootstrap.WorkspaceVisibility{}, serviceUnavailable("unable to resolve workspace memberships")
+		}
+		for _, user := range users {
+			if user.Subject != "" {
+				subjectsByUsername[strings.ToLower(user.Username)] = user.Subject
+			}
+		}
+		for _, username := range usernames {
+			if _, found := subjectsByUsername[strings.ToLower(username)]; !found {
+				return defaultWorkspaceBootstrap.WorkspaceVisibility{}, serviceUnavailable("unable to resolve workspace memberships")
+			}
+		}
+	}
+
+	visibility, problem := s.bootstrap.ListWorkspaceVisibility(ctx, defaultWorkspaceBootstrap.Input{
+		GatewayID: gatewayID, GatewayNamespace: gateway.Namespace, GatewayEndpoint: endpoint,
+		Issuer: oidc.Issuer, GatewayClientID: oidc.ClientID,
+	})
+	if problem != nil {
+		return defaultWorkspaceBootstrap.WorkspaceVisibility{}, fromBootstrapProblem(problem)
+	}
+	workspacesBySubject := make(map[string][]string)
+	for _, membership := range visibility.Memberships {
+		workspacesBySubject[membership.Subject] = append(workspacesBySubject[membership.Subject], membership.Workspace)
+	}
+	for index := range items {
+		if items[index].Role != TierUser {
+			continue
+		}
+		subject := subjectsByUsername[strings.ToLower(items[index].Username)]
+		workspaces := append([]string(nil), workspacesBySubject[subject]...)
+		sort.Strings(workspaces)
+		items[index].Workspaces = workspaces
+	}
+	return visibility, nil
+}
+
+func uniqueSortedWorkspaces(workspaces []string) []string {
+	unique := make(map[string]struct{}, len(workspaces))
+	for _, workspace := range workspaces {
+		if workspace != "" {
+			unique[workspace] = struct{}{}
+		}
+	}
+	result := make([]string, 0, len(unique))
+	for workspace := range unique {
+		result = append(result, workspace)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func containsWorkspace(workspaces []string, workspace string) bool {
+	for _, candidate := range workspaces {
+		if candidate == workspace {
+			return true
+		}
+	}
+	return false
+}
+
+func filterItemsByWorkspace(items []GrantItem, workspace string) []GrantItem {
+	filtered := make([]GrantItem, 0, len(items))
+	for _, item := range items {
+		if item.Role != TierUser || containsWorkspace(item.Workspaces, workspace) {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
+}
+
+func fromBootstrapProblem(problem *defaultWorkspaceBootstrap.APIError) *APIError {
+	if problem == nil {
+		return nil
+	}
+	return &APIError{Status: problem.Status, Code: problem.Code, Message: problem.Message}
+}
+
+func gatewayEndpoint(routeAddress string) string {
+	endpoint := strings.TrimSpace(routeAddress)
+	if strings.HasPrefix(endpoint, "grpcs://") {
+		return "https://" + strings.TrimPrefix(endpoint, "grpcs://")
+	}
+	if strings.HasPrefix(endpoint, "grpc://") {
+		return "http://" + strings.TrimPrefix(endpoint, "grpc://")
+	}
+	return endpoint
+}
+
 // authorizeManage enforces GTW-ACC-08: the caller must be owner or admin, and any
 // operation touching the Owner tier (assigning owner, or changing/revoking a
 // user who currently holds owner) requires the caller to be an owner.
@@ -358,6 +620,9 @@ func (s *service) authorizeManage(ctx context.Context, callerUserID, gatewayID, 
 // guardLastOwner rejects an operation (demote or revoke) that would remove the
 // last remaining owner (GTW-ACC-07). newTier is "" for revoke.
 func (s *service) guardLastOwner(ctx context.Context, gatewayID, targetUserID, newTier string) *APIError {
+	if newTier == TierOwner {
+		return nil
+	}
 	owners, err := s.dao.ownerUserIDs(ctx, gatewayID)
 	if err != nil {
 		return serverError("unable to evaluate gateway owners")
@@ -398,6 +663,7 @@ func grantItemFromRow(r accessRow) GrantItem {
 		Email:         r.Email,
 		Role:          roleNameToTier(r.RoleName),
 		GrantedAt:     r.GrantedAt,
+		Workspaces:    []string{},
 	}
 }
 

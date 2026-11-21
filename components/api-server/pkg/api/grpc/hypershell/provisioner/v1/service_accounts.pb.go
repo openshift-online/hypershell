@@ -861,6 +861,322 @@ func (x *ListManagedResponse) GetClients() []*ManagedClient {
 	return nil
 }
 
+type BootstrapDefaultWorkspaceRequest struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	GatewayId        string                 `protobuf:"bytes,1,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"`
+	GatewayNamespace string                 `protobuf:"bytes,2,opt,name=gateway_namespace,json=gatewayNamespace,proto3" json:"gateway_namespace,omitempty"`
+	GatewayEndpoint  string                 `protobuf:"bytes,3,opt,name=gateway_endpoint,json=gatewayEndpoint,proto3" json:"gateway_endpoint,omitempty"`
+	Issuer           string                 `protobuf:"bytes,4,opt,name=issuer,proto3" json:"issuer,omitempty"`
+	GatewayClientId  string                 `protobuf:"bytes,5,opt,name=gateway_client_id,json=gatewayClientId,proto3" json:"gateway_client_id,omitempty"`
+	Subject          string                 `protobuf:"bytes,6,opt,name=subject,proto3" json:"subject,omitempty"`
+	SubjectType      string                 `protobuf:"bytes,7,opt,name=subject_type,json=subjectType,proto3" json:"subject_type,omitempty"`
+	Role             string                 `protobuf:"bytes,8,opt,name=role,proto3" json:"role,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *BootstrapDefaultWorkspaceRequest) Reset() {
+	*x = BootstrapDefaultWorkspaceRequest{}
+	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BootstrapDefaultWorkspaceRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BootstrapDefaultWorkspaceRequest) ProtoMessage() {}
+
+func (x *BootstrapDefaultWorkspaceRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BootstrapDefaultWorkspaceRequest.ProtoReflect.Descriptor instead.
+func (*BootstrapDefaultWorkspaceRequest) Descriptor() ([]byte, []int) {
+	return file_hypershell_provisioner_v1_service_accounts_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *BootstrapDefaultWorkspaceRequest) GetGatewayId() string {
+	if x != nil {
+		return x.GatewayId
+	}
+	return ""
+}
+
+func (x *BootstrapDefaultWorkspaceRequest) GetGatewayNamespace() string {
+	if x != nil {
+		return x.GatewayNamespace
+	}
+	return ""
+}
+
+func (x *BootstrapDefaultWorkspaceRequest) GetGatewayEndpoint() string {
+	if x != nil {
+		return x.GatewayEndpoint
+	}
+	return ""
+}
+
+func (x *BootstrapDefaultWorkspaceRequest) GetIssuer() string {
+	if x != nil {
+		return x.Issuer
+	}
+	return ""
+}
+
+func (x *BootstrapDefaultWorkspaceRequest) GetGatewayClientId() string {
+	if x != nil {
+		return x.GatewayClientId
+	}
+	return ""
+}
+
+func (x *BootstrapDefaultWorkspaceRequest) GetSubject() string {
+	if x != nil {
+		return x.Subject
+	}
+	return ""
+}
+
+func (x *BootstrapDefaultWorkspaceRequest) GetSubjectType() string {
+	if x != nil {
+		return x.SubjectType
+	}
+	return ""
+}
+
+func (x *BootstrapDefaultWorkspaceRequest) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
+type BootstrapDefaultWorkspaceResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BootstrapDefaultWorkspaceResponse) Reset() {
+	*x = BootstrapDefaultWorkspaceResponse{}
+	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BootstrapDefaultWorkspaceResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BootstrapDefaultWorkspaceResponse) ProtoMessage() {}
+
+func (x *BootstrapDefaultWorkspaceResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BootstrapDefaultWorkspaceResponse.ProtoReflect.Descriptor instead.
+func (*BootstrapDefaultWorkspaceResponse) Descriptor() ([]byte, []int) {
+	return file_hypershell_provisioner_v1_service_accounts_proto_rawDescGZIP(), []int{17}
+}
+
+type ListWorkspaceMembershipsRequest struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	GatewayId        string                 `protobuf:"bytes,1,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"`
+	GatewayNamespace string                 `protobuf:"bytes,2,opt,name=gateway_namespace,json=gatewayNamespace,proto3" json:"gateway_namespace,omitempty"`
+	GatewayEndpoint  string                 `protobuf:"bytes,3,opt,name=gateway_endpoint,json=gatewayEndpoint,proto3" json:"gateway_endpoint,omitempty"`
+	Issuer           string                 `protobuf:"bytes,4,opt,name=issuer,proto3" json:"issuer,omitempty"`
+	GatewayClientId  string                 `protobuf:"bytes,5,opt,name=gateway_client_id,json=gatewayClientId,proto3" json:"gateway_client_id,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *ListWorkspaceMembershipsRequest) Reset() {
+	*x = ListWorkspaceMembershipsRequest{}
+	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListWorkspaceMembershipsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListWorkspaceMembershipsRequest) ProtoMessage() {}
+
+func (x *ListWorkspaceMembershipsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListWorkspaceMembershipsRequest.ProtoReflect.Descriptor instead.
+func (*ListWorkspaceMembershipsRequest) Descriptor() ([]byte, []int) {
+	return file_hypershell_provisioner_v1_service_accounts_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *ListWorkspaceMembershipsRequest) GetGatewayId() string {
+	if x != nil {
+		return x.GatewayId
+	}
+	return ""
+}
+
+func (x *ListWorkspaceMembershipsRequest) GetGatewayNamespace() string {
+	if x != nil {
+		return x.GatewayNamespace
+	}
+	return ""
+}
+
+func (x *ListWorkspaceMembershipsRequest) GetGatewayEndpoint() string {
+	if x != nil {
+		return x.GatewayEndpoint
+	}
+	return ""
+}
+
+func (x *ListWorkspaceMembershipsRequest) GetIssuer() string {
+	if x != nil {
+		return x.Issuer
+	}
+	return ""
+}
+
+func (x *ListWorkspaceMembershipsRequest) GetGatewayClientId() string {
+	if x != nil {
+		return x.GatewayClientId
+	}
+	return ""
+}
+
+type WorkspaceMembership struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Workspace     string                 `protobuf:"bytes,1,opt,name=workspace,proto3" json:"workspace,omitempty"`
+	Subject       string                 `protobuf:"bytes,2,opt,name=subject,proto3" json:"subject,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WorkspaceMembership) Reset() {
+	*x = WorkspaceMembership{}
+	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WorkspaceMembership) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WorkspaceMembership) ProtoMessage() {}
+
+func (x *WorkspaceMembership) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WorkspaceMembership.ProtoReflect.Descriptor instead.
+func (*WorkspaceMembership) Descriptor() ([]byte, []int) {
+	return file_hypershell_provisioner_v1_service_accounts_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *WorkspaceMembership) GetWorkspace() string {
+	if x != nil {
+		return x.Workspace
+	}
+	return ""
+}
+
+func (x *WorkspaceMembership) GetSubject() string {
+	if x != nil {
+		return x.Subject
+	}
+	return ""
+}
+
+type ListWorkspaceMembershipsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Memberships   []*WorkspaceMembership `protobuf:"bytes,1,rep,name=memberships,proto3" json:"memberships,omitempty"`
+	Workspaces    []string               `protobuf:"bytes,2,rep,name=workspaces,proto3" json:"workspaces,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListWorkspaceMembershipsResponse) Reset() {
+	*x = ListWorkspaceMembershipsResponse{}
+	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListWorkspaceMembershipsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListWorkspaceMembershipsResponse) ProtoMessage() {}
+
+func (x *ListWorkspaceMembershipsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListWorkspaceMembershipsResponse.ProtoReflect.Descriptor instead.
+func (*ListWorkspaceMembershipsResponse) Descriptor() ([]byte, []int) {
+	return file_hypershell_provisioner_v1_service_accounts_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *ListWorkspaceMembershipsResponse) GetMemberships() []*WorkspaceMembership {
+	if x != nil {
+		return x.Memberships
+	}
+	return nil
+}
+
+func (x *ListWorkspaceMembershipsResponse) GetWorkspaces() []string {
+	if x != nil {
+		return x.Workspaces
+	}
+	return nil
+}
+
 type DirectoryUser struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Username      string                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
@@ -873,7 +1189,7 @@ type DirectoryUser struct {
 
 func (x *DirectoryUser) Reset() {
 	*x = DirectoryUser{}
-	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[16]
+	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -885,7 +1201,7 @@ func (x *DirectoryUser) String() string {
 func (*DirectoryUser) ProtoMessage() {}
 
 func (x *DirectoryUser) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[16]
+	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -898,7 +1214,7 @@ func (x *DirectoryUser) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DirectoryUser.ProtoReflect.Descriptor instead.
 func (*DirectoryUser) Descriptor() ([]byte, []int) {
-	return file_hypershell_provisioner_v1_service_accounts_proto_rawDescGZIP(), []int{16}
+	return file_hypershell_provisioner_v1_service_accounts_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *DirectoryUser) GetUsername() string {
@@ -939,7 +1255,7 @@ type SearchDirectoryRequest struct {
 
 func (x *SearchDirectoryRequest) Reset() {
 	*x = SearchDirectoryRequest{}
-	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[17]
+	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -951,7 +1267,7 @@ func (x *SearchDirectoryRequest) String() string {
 func (*SearchDirectoryRequest) ProtoMessage() {}
 
 func (x *SearchDirectoryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[17]
+	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -964,7 +1280,7 @@ func (x *SearchDirectoryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SearchDirectoryRequest.ProtoReflect.Descriptor instead.
 func (*SearchDirectoryRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_provisioner_v1_service_accounts_proto_rawDescGZIP(), []int{17}
+	return file_hypershell_provisioner_v1_service_accounts_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *SearchDirectoryRequest) GetQuery() string {
@@ -990,7 +1306,7 @@ type SearchDirectoryResponse struct {
 
 func (x *SearchDirectoryResponse) Reset() {
 	*x = SearchDirectoryResponse{}
-	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[18]
+	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1002,7 +1318,7 @@ func (x *SearchDirectoryResponse) String() string {
 func (*SearchDirectoryResponse) ProtoMessage() {}
 
 func (x *SearchDirectoryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[18]
+	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1015,7 +1331,7 @@ func (x *SearchDirectoryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SearchDirectoryResponse.ProtoReflect.Descriptor instead.
 func (*SearchDirectoryResponse) Descriptor() ([]byte, []int) {
-	return file_hypershell_provisioner_v1_service_accounts_proto_rawDescGZIP(), []int{18}
+	return file_hypershell_provisioner_v1_service_accounts_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *SearchDirectoryResponse) GetUsers() []*DirectoryUser {
@@ -1034,7 +1350,7 @@ type ResolveUserRequest struct {
 
 func (x *ResolveUserRequest) Reset() {
 	*x = ResolveUserRequest{}
-	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[19]
+	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1046,7 +1362,7 @@ func (x *ResolveUserRequest) String() string {
 func (*ResolveUserRequest) ProtoMessage() {}
 
 func (x *ResolveUserRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[19]
+	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1059,7 +1375,7 @@ func (x *ResolveUserRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveUserRequest.ProtoReflect.Descriptor instead.
 func (*ResolveUserRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_provisioner_v1_service_accounts_proto_rawDescGZIP(), []int{19}
+	return file_hypershell_provisioner_v1_service_accounts_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ResolveUserRequest) GetUsername() string {
@@ -1079,7 +1395,7 @@ type ResolveUserResponse struct {
 
 func (x *ResolveUserResponse) Reset() {
 	*x = ResolveUserResponse{}
-	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[20]
+	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1091,7 +1407,7 @@ func (x *ResolveUserResponse) String() string {
 func (*ResolveUserResponse) ProtoMessage() {}
 
 func (x *ResolveUserResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[20]
+	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1104,7 +1420,7 @@ func (x *ResolveUserResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveUserResponse.ProtoReflect.Descriptor instead.
 func (*ResolveUserResponse) Descriptor() ([]byte, []int) {
-	return file_hypershell_provisioner_v1_service_accounts_proto_rawDescGZIP(), []int{20}
+	return file_hypershell_provisioner_v1_service_accounts_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ResolveUserResponse) GetUser() *DirectoryUser {
@@ -1119,6 +1435,94 @@ func (x *ResolveUserResponse) GetFound() bool {
 		return x.Found
 	}
 	return false
+}
+
+type ResolveUsersRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Usernames     []string               `protobuf:"bytes,1,rep,name=usernames,proto3" json:"usernames,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResolveUsersRequest) Reset() {
+	*x = ResolveUsersRequest{}
+	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResolveUsersRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResolveUsersRequest) ProtoMessage() {}
+
+func (x *ResolveUsersRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResolveUsersRequest.ProtoReflect.Descriptor instead.
+func (*ResolveUsersRequest) Descriptor() ([]byte, []int) {
+	return file_hypershell_provisioner_v1_service_accounts_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *ResolveUsersRequest) GetUsernames() []string {
+	if x != nil {
+		return x.Usernames
+	}
+	return nil
+}
+
+type ResolveUsersResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Users         []*DirectoryUser       `protobuf:"bytes,1,rep,name=users,proto3" json:"users,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResolveUsersResponse) Reset() {
+	*x = ResolveUsersResponse{}
+	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResolveUsersResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResolveUsersResponse) ProtoMessage() {}
+
+func (x *ResolveUsersResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_provisioner_v1_service_accounts_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResolveUsersResponse.ProtoReflect.Descriptor instead.
+func (*ResolveUsersResponse) Descriptor() ([]byte, []int) {
+	return file_hypershell_provisioner_v1_service_accounts_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *ResolveUsersResponse) GetUsers() []*DirectoryUser {
+	if x != nil {
+		return x.Users
+	}
+	return nil
 }
 
 var File_hypershell_provisioner_v1_service_accounts_proto protoreflect.FileDescriptor
@@ -1185,7 +1589,33 @@ const file_hypershell_provisioner_v1_service_accounts_proto_rawDesc = "" +
 	"gateway_id\x18\x03 \x01(\tR\tgatewayId\x12,\n" +
 	"\x12service_account_id\x18\x04 \x01(\tR\x10serviceAccountId\"Y\n" +
 	"\x13ListManagedResponse\x12B\n" +
-	"\aclients\x18\x01 \x03(\v2(.hypershell.provisioner.v1.ManagedClientR\aclients\"o\n" +
+	"\aclients\x18\x01 \x03(\v2(.hypershell.provisioner.v1.ManagedClientR\aclients\"\xae\x02\n" +
+	" BootstrapDefaultWorkspaceRequest\x12\x1d\n" +
+	"\n" +
+	"gateway_id\x18\x01 \x01(\tR\tgatewayId\x12+\n" +
+	"\x11gateway_namespace\x18\x02 \x01(\tR\x10gatewayNamespace\x12)\n" +
+	"\x10gateway_endpoint\x18\x03 \x01(\tR\x0fgatewayEndpoint\x12\x16\n" +
+	"\x06issuer\x18\x04 \x01(\tR\x06issuer\x12*\n" +
+	"\x11gateway_client_id\x18\x05 \x01(\tR\x0fgatewayClientId\x12\x18\n" +
+	"\asubject\x18\x06 \x01(\tR\asubject\x12!\n" +
+	"\fsubject_type\x18\a \x01(\tR\vsubjectType\x12\x12\n" +
+	"\x04role\x18\b \x01(\tR\x04role\"#\n" +
+	"!BootstrapDefaultWorkspaceResponse\"\xdc\x01\n" +
+	"\x1fListWorkspaceMembershipsRequest\x12\x1d\n" +
+	"\n" +
+	"gateway_id\x18\x01 \x01(\tR\tgatewayId\x12+\n" +
+	"\x11gateway_namespace\x18\x02 \x01(\tR\x10gatewayNamespace\x12)\n" +
+	"\x10gateway_endpoint\x18\x03 \x01(\tR\x0fgatewayEndpoint\x12\x16\n" +
+	"\x06issuer\x18\x04 \x01(\tR\x06issuer\x12*\n" +
+	"\x11gateway_client_id\x18\x05 \x01(\tR\x0fgatewayClientId\"M\n" +
+	"\x13WorkspaceMembership\x12\x1c\n" +
+	"\tworkspace\x18\x01 \x01(\tR\tworkspace\x12\x18\n" +
+	"\asubject\x18\x02 \x01(\tR\asubject\"\x94\x01\n" +
+	" ListWorkspaceMembershipsResponse\x12P\n" +
+	"\vmemberships\x18\x01 \x03(\v2..hypershell.provisioner.v1.WorkspaceMembershipR\vmemberships\x12\x1e\n" +
+	"\n" +
+	"workspaces\x18\x02 \x03(\tR\n" +
+	"workspaces\"o\n" +
 	"\rDirectoryUser\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +
@@ -1200,7 +1630,11 @@ const file_hypershell_provisioner_v1_service_accounts_proto_rawDesc = "" +
 	"\busername\x18\x01 \x01(\tR\busername\"i\n" +
 	"\x13ResolveUserResponse\x12<\n" +
 	"\x04user\x18\x01 \x01(\v2(.hypershell.provisioner.v1.DirectoryUserR\x04user\x12\x14\n" +
-	"\x05found\x18\x02 \x01(\bR\x05found2\x99\x06\n" +
+	"\x05found\x18\x02 \x01(\bR\x05found\"3\n" +
+	"\x13ResolveUsersRequest\x12\x1c\n" +
+	"\tusernames\x18\x01 \x03(\tR\tusernames\"V\n" +
+	"\x14ResolveUsersResponse\x12>\n" +
+	"\x05users\x18\x01 \x03(\v2(.hypershell.provisioner.v1.DirectoryUserR\x05users2\xc8\b\n" +
 	"0OpenShellGatewayServiceAccountProvisionerService\x12f\n" +
 	"\tProvision\x12+.hypershell.provisioner.v1.ProvisionRequest\x1a,.hypershell.provisioner.v1.ProvisionResponse\x12f\n" +
 	"\tReconcile\x12+.hypershell.provisioner.v1.ReconcileRequest\x1a,.hypershell.provisioner.v1.ReconcileResponse\x12`\n" +
@@ -1208,10 +1642,13 @@ const file_hypershell_provisioner_v1_service_accounts_proto_rawDesc = "" +
 	"\x06Delete\x12(.hypershell.provisioner.v1.DeleteRequest\x1a).hypershell.provisioner.v1.DeleteResponse\x12r\n" +
 	"\rDeleteManaged\x12/.hypershell.provisioner.v1.DeleteManagedRequest\x1a0.hypershell.provisioner.v1.DeleteManagedResponse\x12r\n" +
 	"\rDeleteGateway\x12/.hypershell.provisioner.v1.DeleteGatewayRequest\x1a0.hypershell.provisioner.v1.DeleteGatewayResponse\x12l\n" +
-	"\vListManaged\x12-.hypershell.provisioner.v1.ListManagedRequest\x1a..hypershell.provisioner.v1.ListManagedResponse2\xfa\x01\n" +
+	"\vListManaged\x12-.hypershell.provisioner.v1.ListManagedRequest\x1a..hypershell.provisioner.v1.ListManagedResponse\x12\x96\x01\n" +
+	"\x19BootstrapDefaultWorkspace\x12;.hypershell.provisioner.v1.BootstrapDefaultWorkspaceRequest\x1a<.hypershell.provisioner.v1.BootstrapDefaultWorkspaceResponse\x12\x93\x01\n" +
+	"\x18ListWorkspaceMemberships\x12:.hypershell.provisioner.v1.ListWorkspaceMembershipsRequest\x1a;.hypershell.provisioner.v1.ListWorkspaceMembershipsResponse2\xeb\x02\n" +
 	"\x10DirectoryService\x12x\n" +
 	"\x0fSearchDirectory\x121.hypershell.provisioner.v1.SearchDirectoryRequest\x1a2.hypershell.provisioner.v1.SearchDirectoryResponse\x12l\n" +
-	"\vResolveUser\x12-.hypershell.provisioner.v1.ResolveUserRequest\x1a..hypershell.provisioner.v1.ResolveUserResponseBtZrgithub.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/provisioner/v1;provisioner_v1b\x06proto3"
+	"\vResolveUser\x12-.hypershell.provisioner.v1.ResolveUserRequest\x1a..hypershell.provisioner.v1.ResolveUserResponse\x12o\n" +
+	"\fResolveUsers\x12..hypershell.provisioner.v1.ResolveUsersRequest\x1a/.hypershell.provisioner.v1.ResolveUsersResponseBtZrgithub.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/provisioner/v1;provisioner_v1b\x06proto3"
 
 var (
 	file_hypershell_provisioner_v1_service_accounts_proto_rawDescOnce sync.Once
@@ -1225,59 +1662,74 @@ func file_hypershell_provisioner_v1_service_accounts_proto_rawDescGZIP() []byte 
 	return file_hypershell_provisioner_v1_service_accounts_proto_rawDescData
 }
 
-var file_hypershell_provisioner_v1_service_accounts_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
+var file_hypershell_provisioner_v1_service_accounts_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
 var file_hypershell_provisioner_v1_service_accounts_proto_goTypes = []any{
-	(*ServiceAccountSpec)(nil),      // 0: hypershell.provisioner.v1.ServiceAccountSpec
-	(*ProvisionRequest)(nil),        // 1: hypershell.provisioner.v1.ProvisionRequest
-	(*ProvisionResponse)(nil),       // 2: hypershell.provisioner.v1.ProvisionResponse
-	(*ReconcileRequest)(nil),        // 3: hypershell.provisioner.v1.ReconcileRequest
-	(*ReconcileResponse)(nil),       // 4: hypershell.provisioner.v1.ReconcileResponse
-	(*DisableRequest)(nil),          // 5: hypershell.provisioner.v1.DisableRequest
-	(*DisableResponse)(nil),         // 6: hypershell.provisioner.v1.DisableResponse
-	(*DeleteRequest)(nil),           // 7: hypershell.provisioner.v1.DeleteRequest
-	(*DeleteResponse)(nil),          // 8: hypershell.provisioner.v1.DeleteResponse
-	(*DeleteManagedRequest)(nil),    // 9: hypershell.provisioner.v1.DeleteManagedRequest
-	(*DeleteManagedResponse)(nil),   // 10: hypershell.provisioner.v1.DeleteManagedResponse
-	(*DeleteGatewayRequest)(nil),    // 11: hypershell.provisioner.v1.DeleteGatewayRequest
-	(*DeleteGatewayResponse)(nil),   // 12: hypershell.provisioner.v1.DeleteGatewayResponse
-	(*ListManagedRequest)(nil),      // 13: hypershell.provisioner.v1.ListManagedRequest
-	(*ManagedClient)(nil),           // 14: hypershell.provisioner.v1.ManagedClient
-	(*ListManagedResponse)(nil),     // 15: hypershell.provisioner.v1.ListManagedResponse
-	(*DirectoryUser)(nil),           // 16: hypershell.provisioner.v1.DirectoryUser
-	(*SearchDirectoryRequest)(nil),  // 17: hypershell.provisioner.v1.SearchDirectoryRequest
-	(*SearchDirectoryResponse)(nil), // 18: hypershell.provisioner.v1.SearchDirectoryResponse
-	(*ResolveUserRequest)(nil),      // 19: hypershell.provisioner.v1.ResolveUserRequest
-	(*ResolveUserResponse)(nil),     // 20: hypershell.provisioner.v1.ResolveUserResponse
+	(*ServiceAccountSpec)(nil),                // 0: hypershell.provisioner.v1.ServiceAccountSpec
+	(*ProvisionRequest)(nil),                  // 1: hypershell.provisioner.v1.ProvisionRequest
+	(*ProvisionResponse)(nil),                 // 2: hypershell.provisioner.v1.ProvisionResponse
+	(*ReconcileRequest)(nil),                  // 3: hypershell.provisioner.v1.ReconcileRequest
+	(*ReconcileResponse)(nil),                 // 4: hypershell.provisioner.v1.ReconcileResponse
+	(*DisableRequest)(nil),                    // 5: hypershell.provisioner.v1.DisableRequest
+	(*DisableResponse)(nil),                   // 6: hypershell.provisioner.v1.DisableResponse
+	(*DeleteRequest)(nil),                     // 7: hypershell.provisioner.v1.DeleteRequest
+	(*DeleteResponse)(nil),                    // 8: hypershell.provisioner.v1.DeleteResponse
+	(*DeleteManagedRequest)(nil),              // 9: hypershell.provisioner.v1.DeleteManagedRequest
+	(*DeleteManagedResponse)(nil),             // 10: hypershell.provisioner.v1.DeleteManagedResponse
+	(*DeleteGatewayRequest)(nil),              // 11: hypershell.provisioner.v1.DeleteGatewayRequest
+	(*DeleteGatewayResponse)(nil),             // 12: hypershell.provisioner.v1.DeleteGatewayResponse
+	(*ListManagedRequest)(nil),                // 13: hypershell.provisioner.v1.ListManagedRequest
+	(*ManagedClient)(nil),                     // 14: hypershell.provisioner.v1.ManagedClient
+	(*ListManagedResponse)(nil),               // 15: hypershell.provisioner.v1.ListManagedResponse
+	(*BootstrapDefaultWorkspaceRequest)(nil),  // 16: hypershell.provisioner.v1.BootstrapDefaultWorkspaceRequest
+	(*BootstrapDefaultWorkspaceResponse)(nil), // 17: hypershell.provisioner.v1.BootstrapDefaultWorkspaceResponse
+	(*ListWorkspaceMembershipsRequest)(nil),   // 18: hypershell.provisioner.v1.ListWorkspaceMembershipsRequest
+	(*WorkspaceMembership)(nil),               // 19: hypershell.provisioner.v1.WorkspaceMembership
+	(*ListWorkspaceMembershipsResponse)(nil),  // 20: hypershell.provisioner.v1.ListWorkspaceMembershipsResponse
+	(*DirectoryUser)(nil),                     // 21: hypershell.provisioner.v1.DirectoryUser
+	(*SearchDirectoryRequest)(nil),            // 22: hypershell.provisioner.v1.SearchDirectoryRequest
+	(*SearchDirectoryResponse)(nil),           // 23: hypershell.provisioner.v1.SearchDirectoryResponse
+	(*ResolveUserRequest)(nil),                // 24: hypershell.provisioner.v1.ResolveUserRequest
+	(*ResolveUserResponse)(nil),               // 25: hypershell.provisioner.v1.ResolveUserResponse
+	(*ResolveUsersRequest)(nil),               // 26: hypershell.provisioner.v1.ResolveUsersRequest
+	(*ResolveUsersResponse)(nil),              // 27: hypershell.provisioner.v1.ResolveUsersResponse
 }
 var file_hypershell_provisioner_v1_service_accounts_proto_depIdxs = []int32{
 	0,  // 0: hypershell.provisioner.v1.ProvisionRequest.spec:type_name -> hypershell.provisioner.v1.ServiceAccountSpec
 	0,  // 1: hypershell.provisioner.v1.ReconcileRequest.spec:type_name -> hypershell.provisioner.v1.ServiceAccountSpec
 	14, // 2: hypershell.provisioner.v1.ListManagedResponse.clients:type_name -> hypershell.provisioner.v1.ManagedClient
-	16, // 3: hypershell.provisioner.v1.SearchDirectoryResponse.users:type_name -> hypershell.provisioner.v1.DirectoryUser
-	16, // 4: hypershell.provisioner.v1.ResolveUserResponse.user:type_name -> hypershell.provisioner.v1.DirectoryUser
-	1,  // 5: hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService.Provision:input_type -> hypershell.provisioner.v1.ProvisionRequest
-	3,  // 6: hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService.Reconcile:input_type -> hypershell.provisioner.v1.ReconcileRequest
-	5,  // 7: hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService.Disable:input_type -> hypershell.provisioner.v1.DisableRequest
-	7,  // 8: hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService.Delete:input_type -> hypershell.provisioner.v1.DeleteRequest
-	9,  // 9: hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService.DeleteManaged:input_type -> hypershell.provisioner.v1.DeleteManagedRequest
-	11, // 10: hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService.DeleteGateway:input_type -> hypershell.provisioner.v1.DeleteGatewayRequest
-	13, // 11: hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService.ListManaged:input_type -> hypershell.provisioner.v1.ListManagedRequest
-	17, // 12: hypershell.provisioner.v1.DirectoryService.SearchDirectory:input_type -> hypershell.provisioner.v1.SearchDirectoryRequest
-	19, // 13: hypershell.provisioner.v1.DirectoryService.ResolveUser:input_type -> hypershell.provisioner.v1.ResolveUserRequest
-	2,  // 14: hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService.Provision:output_type -> hypershell.provisioner.v1.ProvisionResponse
-	4,  // 15: hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService.Reconcile:output_type -> hypershell.provisioner.v1.ReconcileResponse
-	6,  // 16: hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService.Disable:output_type -> hypershell.provisioner.v1.DisableResponse
-	8,  // 17: hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService.Delete:output_type -> hypershell.provisioner.v1.DeleteResponse
-	10, // 18: hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService.DeleteManaged:output_type -> hypershell.provisioner.v1.DeleteManagedResponse
-	12, // 19: hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService.DeleteGateway:output_type -> hypershell.provisioner.v1.DeleteGatewayResponse
-	15, // 20: hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService.ListManaged:output_type -> hypershell.provisioner.v1.ListManagedResponse
-	18, // 21: hypershell.provisioner.v1.DirectoryService.SearchDirectory:output_type -> hypershell.provisioner.v1.SearchDirectoryResponse
-	20, // 22: hypershell.provisioner.v1.DirectoryService.ResolveUser:output_type -> hypershell.provisioner.v1.ResolveUserResponse
-	14, // [14:23] is the sub-list for method output_type
-	5,  // [5:14] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+	19, // 3: hypershell.provisioner.v1.ListWorkspaceMembershipsResponse.memberships:type_name -> hypershell.provisioner.v1.WorkspaceMembership
+	21, // 4: hypershell.provisioner.v1.SearchDirectoryResponse.users:type_name -> hypershell.provisioner.v1.DirectoryUser
+	21, // 5: hypershell.provisioner.v1.ResolveUserResponse.user:type_name -> hypershell.provisioner.v1.DirectoryUser
+	21, // 6: hypershell.provisioner.v1.ResolveUsersResponse.users:type_name -> hypershell.provisioner.v1.DirectoryUser
+	1,  // 7: hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService.Provision:input_type -> hypershell.provisioner.v1.ProvisionRequest
+	3,  // 8: hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService.Reconcile:input_type -> hypershell.provisioner.v1.ReconcileRequest
+	5,  // 9: hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService.Disable:input_type -> hypershell.provisioner.v1.DisableRequest
+	7,  // 10: hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService.Delete:input_type -> hypershell.provisioner.v1.DeleteRequest
+	9,  // 11: hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService.DeleteManaged:input_type -> hypershell.provisioner.v1.DeleteManagedRequest
+	11, // 12: hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService.DeleteGateway:input_type -> hypershell.provisioner.v1.DeleteGatewayRequest
+	13, // 13: hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService.ListManaged:input_type -> hypershell.provisioner.v1.ListManagedRequest
+	16, // 14: hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService.BootstrapDefaultWorkspace:input_type -> hypershell.provisioner.v1.BootstrapDefaultWorkspaceRequest
+	18, // 15: hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService.ListWorkspaceMemberships:input_type -> hypershell.provisioner.v1.ListWorkspaceMembershipsRequest
+	22, // 16: hypershell.provisioner.v1.DirectoryService.SearchDirectory:input_type -> hypershell.provisioner.v1.SearchDirectoryRequest
+	24, // 17: hypershell.provisioner.v1.DirectoryService.ResolveUser:input_type -> hypershell.provisioner.v1.ResolveUserRequest
+	26, // 18: hypershell.provisioner.v1.DirectoryService.ResolveUsers:input_type -> hypershell.provisioner.v1.ResolveUsersRequest
+	2,  // 19: hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService.Provision:output_type -> hypershell.provisioner.v1.ProvisionResponse
+	4,  // 20: hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService.Reconcile:output_type -> hypershell.provisioner.v1.ReconcileResponse
+	6,  // 21: hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService.Disable:output_type -> hypershell.provisioner.v1.DisableResponse
+	8,  // 22: hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService.Delete:output_type -> hypershell.provisioner.v1.DeleteResponse
+	10, // 23: hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService.DeleteManaged:output_type -> hypershell.provisioner.v1.DeleteManagedResponse
+	12, // 24: hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService.DeleteGateway:output_type -> hypershell.provisioner.v1.DeleteGatewayResponse
+	15, // 25: hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService.ListManaged:output_type -> hypershell.provisioner.v1.ListManagedResponse
+	17, // 26: hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService.BootstrapDefaultWorkspace:output_type -> hypershell.provisioner.v1.BootstrapDefaultWorkspaceResponse
+	20, // 27: hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService.ListWorkspaceMemberships:output_type -> hypershell.provisioner.v1.ListWorkspaceMembershipsResponse
+	23, // 28: hypershell.provisioner.v1.DirectoryService.SearchDirectory:output_type -> hypershell.provisioner.v1.SearchDirectoryResponse
+	25, // 29: hypershell.provisioner.v1.DirectoryService.ResolveUser:output_type -> hypershell.provisioner.v1.ResolveUserResponse
+	27, // 30: hypershell.provisioner.v1.DirectoryService.ResolveUsers:output_type -> hypershell.provisioner.v1.ResolveUsersResponse
+	19, // [19:31] is the sub-list for method output_type
+	7,  // [7:19] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_hypershell_provisioner_v1_service_accounts_proto_init() }
@@ -1291,7 +1743,7 @@ func file_hypershell_provisioner_v1_service_accounts_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_hypershell_provisioner_v1_service_accounts_proto_rawDesc), len(file_hypershell_provisioner_v1_service_accounts_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   21,
+			NumMessages:   28,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

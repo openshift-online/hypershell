@@ -10,6 +10,8 @@ const (
 	conditionStatusInProgress = "InProgress"
 	conditionStatusComplete   = "Complete"
 	conditionStatusFailed     = "Failed"
+
+	ConditionDefaultWorkspaceBootstrapReady = "DefaultWorkspaceBootstrapReady"
 )
 
 // provisioningConditionJSON is the persisted shape of a single provisioning
@@ -122,4 +124,17 @@ func parseProvisioningConditions(raw *string) ([]provisioningConditionJSON, bool
 		return nil, false
 	}
 	return conds, true
+}
+
+func IsProvisioningConditionComplete(raw *string, conditionType string) bool {
+	conditions, ok := parseProvisioningConditions(raw)
+	if !ok {
+		return false
+	}
+	for _, condition := range conditions {
+		if condition.Type == conditionType && condition.ConditionStatus == conditionStatusComplete {
+			return true
+		}
+	}
+	return false
 }

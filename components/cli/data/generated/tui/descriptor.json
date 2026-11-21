@@ -4554,6 +4554,13 @@
               "openshell-user",
               "openshell-admin"
             ]
+          },
+          {
+            "name": "skip_default_workspace_bootstrap",
+            "type": "boolean",
+            "required": false,
+            "description": "Skip adding an openshell-user service account to the gateway's OpenShell default workspace",
+            "default": false
           }
         ]
       },
@@ -7356,6 +7363,13 @@
             ]
           },
           {
+            "name": "skip_default_workspace_bootstrap",
+            "type": "boolean",
+            "required": false,
+            "description": "Skip adding an eligible user to the gateway's OpenShell default workspace",
+            "default": false
+          },
+          {
             "name": "subject",
             "type": "string",
             "required": false,
@@ -7814,6 +7828,15 @@
           "explode": true,
           "type": "string",
           "description": "Case-insensitive literal substring over username and name"
+        },
+        {
+          "name": "workspace",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "description": "Filter rows to identities with access to a gateway workspace"
         },
         {
           "name": "sort",

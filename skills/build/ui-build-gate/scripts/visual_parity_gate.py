@@ -108,6 +108,7 @@ def require_static_network(har_path: Path, side: str) -> None:
             parsed.path == "/iframe.html"
             or parsed.path == "/index.json"
             or parsed.path.startswith("/assets/")
+        or parsed.path.startswith("/sb-common-assets/")
             or parsed.path.startswith("/vite-inject-")
         )
         if parsed.hostname not in {"127.0.0.1", "localhost"} or not static_path:
@@ -147,27 +148,33 @@ def require_page_surface_regions(
         ("body", body_variant, body_filled),
     )
     for region, variant, requires_fill in contracts:
-        section = re.search(
-            rf"<PageSection\b(?=[^>]*\bdata-page-region=[\"']{region}[\"'])[^>]*>",
-            text,
-            re.DOTALL,
+        sections = list(
+            re.finditer(
+                rf"<PageSection\b(?=[^>]*\bdata-page-region=[\"']{region}[\"'])[^>]*>",
+                text,
+                re.DOTALL,
+            )
         )
-        if section is None:
+        if not sections:
             raise RuntimeError(
                 f'{side} page surface must own <PageSection data-page-region="{region}">: '
                 f"{path_text}"
             )
-        opening_tag = section.group(0)
-        if re.search(rf"\bvariant=[\"']{variant}[\"']", opening_tag) is None:
+        matching_sections = [
+            section
+            for section in sections
+            if re.search(rf"\bvariant=[\"']{variant}[\"']", section.group(0))
+        ]
+        if not matching_sections:
             raise RuntimeError(
                 f'{side} {region} region must use variant="{variant}": {path_text}'
             )
-        has_fill = (
+        has_fill = any(
             re.search(
                 r"\bisFilled(?:(?=\s|>)|(?:\s*=\s*(?:\{true\}|[\"']true[\"'])))",
-                opening_tag,
+                section.group(0),
             )
-            is not None
+            for section in matching_sections
         )
         if requires_fill and not has_fill:
             raise RuntimeError(
@@ -176,7 +183,10 @@ def require_page_surface_regions(
         if (
             region == "body"
             and not requires_fill
-            and re.search(r"\bisFilled\b", opening_tag) is not None
+            and any(
+                re.search(r"\bisFilled\b", section.group(0))
+                for section in matching_sections
+            )
         ):
             raise RuntimeError(
                 f"{side} body region must omit isFilled: {path_text}"

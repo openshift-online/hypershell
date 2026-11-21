@@ -9,6 +9,7 @@ import (
 	"errors"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/provisioner/v1"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/defaultworkspace"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/serviceaccountkeycloak"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -16,7 +17,15 @@ import (
 
 type Server struct {
 	pb.UnimplementedOpenShellGatewayServiceAccountProvisionerServiceServer
-	provider Provider
+	provider     Provider
+	bootstrapper DefaultWorkspaceBootstrapper
+}
+
+type DefaultWorkspaceBootstrapper interface {
+	Configured() bool
+	AddMember(context.Context, defaultworkspace.MemberRequest) error
+	ListWorkspaceMemberships(context.Context, defaultworkspace.VisibilityRequest) ([]defaultworkspace.WorkspaceMembership, error)
+	ListWorkspaceVisibility(context.Context, defaultworkspace.VisibilityRequest) (defaultworkspace.WorkspaceVisibility, error)
 }
 
 type Provider interface {
@@ -32,6 +41,10 @@ type Provider interface {
 
 func NewServer(provider Provider) *Server {
 	return &Server{provider: provider}
+}
+
+func NewServerWithDefaultWorkspace(provider Provider, bootstrapper DefaultWorkspaceBootstrapper) *Server {
+	return &Server{provider: provider, bootstrapper: bootstrapper}
 }
 
 func (s *Server) Provision(ctx context.Context, request *pb.ProvisionRequest) (*pb.ProvisionResponse, error) {
@@ -140,6 +153,51 @@ func (s *Server) ListManaged(ctx context.Context, request *pb.ListManagedRequest
 	return response, nil
 }
 
+func (s *Server) BootstrapDefaultWorkspace(ctx context.Context, request *pb.BootstrapDefaultWorkspaceRequest) (*pb.BootstrapDefaultWorkspaceResponse, error) {
+	if s == nil || s.bootstrapper == nil || !s.bootstrapper.Configured() {
+		return nil, status.Error(codes.Unavailable, "default-workspace bootstrap is unavailable")
+	}
+	member := defaultworkspace.MemberRequest{
+		AdminSpec: defaultworkspace.AdminSpec{
+			GatewayID: request.GetGatewayId(), GatewayNamespace: request.GetGatewayNamespace(),
+			Issuer: request.GetIssuer(), GatewayClientID: request.GetGatewayClientId(),
+		},
+		Endpoint: request.GetGatewayEndpoint(), Subject: request.GetSubject(),
+		SubjectType: request.GetSubjectType(), Role: request.GetRole(),
+	}
+	if err := s.bootstrapper.AddMember(ctx, member); err != nil {
+		return nil, defaultWorkspaceError(err)
+	}
+	return &pb.BootstrapDefaultWorkspaceResponse{}, nil
+}
+
+func (s *Server) ListWorkspaceMemberships(ctx context.Context, request *pb.ListWorkspaceMembershipsRequest) (*pb.ListWorkspaceMembershipsResponse, error) {
+	if s == nil || s.bootstrapper == nil || !s.bootstrapper.Configured() {
+		return nil, status.Error(codes.Unavailable, "workspace visibility is unavailable")
+	}
+	visibility := defaultworkspace.VisibilityRequest{
+		AdminSpec: defaultworkspace.AdminSpec{
+			GatewayID: request.GetGatewayId(), GatewayNamespace: request.GetGatewayNamespace(),
+			Issuer: request.GetIssuer(), GatewayClientID: request.GetGatewayClientId(),
+		},
+		Endpoint: request.GetGatewayEndpoint(),
+	}
+	workspaceVisibility, err := s.bootstrapper.ListWorkspaceVisibility(ctx, visibility)
+	if err != nil {
+		return nil, defaultWorkspaceError(err)
+	}
+	response := &pb.ListWorkspaceMembershipsResponse{
+		Memberships: make([]*pb.WorkspaceMembership, 0, len(workspaceVisibility.Memberships)),
+		Workspaces:  append([]string(nil), workspaceVisibility.Workspaces...),
+	}
+	for _, membership := range workspaceVisibility.Memberships {
+		response.Memberships = append(response.Memberships, &pb.WorkspaceMembership{
+			Workspace: membership.Workspace, Subject: membership.Subject,
+		})
+	}
+	return response, nil
+}
+
 func (s *Server) available() error {
 	if s == nil || s.provider == nil || !s.provider.Configured() {
 		return status.Error(codes.Unavailable, "Keycloak service-account provisioning is unavailable")
@@ -171,5 +229,18 @@ func providerError(err error) error {
 		// Provider response bodies can contain sensitive administration details.
 		// Keep the public status useful but deliberately generic.
 		return status.Error(codes.Internal, "Keycloak service-account operation failed")
+	}
+}
+
+func defaultWorkspaceError(err error) error {
+	switch {
+	case errors.Is(err, defaultworkspace.ErrInvalidRequest):
+		return status.Error(codes.InvalidArgument, "default-workspace bootstrap request is invalid")
+	case errors.Is(err, context.Canceled):
+		return status.Error(codes.Canceled, "default-workspace bootstrap canceled")
+	case errors.Is(err, context.DeadlineExceeded):
+		return status.Error(codes.DeadlineExceeded, "default-workspace bootstrap timed out")
+	default:
+		return status.Error(codes.Internal, "default-workspace bootstrap failed")
 	}
 }

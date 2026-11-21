@@ -19,13 +19,15 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	OpenShellGatewayServiceAccountProvisionerService_Provision_FullMethodName     = "/hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService/Provision"
-	OpenShellGatewayServiceAccountProvisionerService_Reconcile_FullMethodName     = "/hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService/Reconcile"
-	OpenShellGatewayServiceAccountProvisionerService_Disable_FullMethodName       = "/hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService/Disable"
-	OpenShellGatewayServiceAccountProvisionerService_Delete_FullMethodName        = "/hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService/Delete"
-	OpenShellGatewayServiceAccountProvisionerService_DeleteManaged_FullMethodName = "/hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService/DeleteManaged"
-	OpenShellGatewayServiceAccountProvisionerService_DeleteGateway_FullMethodName = "/hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService/DeleteGateway"
-	OpenShellGatewayServiceAccountProvisionerService_ListManaged_FullMethodName   = "/hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService/ListManaged"
+	OpenShellGatewayServiceAccountProvisionerService_Provision_FullMethodName                 = "/hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService/Provision"
+	OpenShellGatewayServiceAccountProvisionerService_Reconcile_FullMethodName                 = "/hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService/Reconcile"
+	OpenShellGatewayServiceAccountProvisionerService_Disable_FullMethodName                   = "/hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService/Disable"
+	OpenShellGatewayServiceAccountProvisionerService_Delete_FullMethodName                    = "/hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService/Delete"
+	OpenShellGatewayServiceAccountProvisionerService_DeleteManaged_FullMethodName             = "/hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService/DeleteManaged"
+	OpenShellGatewayServiceAccountProvisionerService_DeleteGateway_FullMethodName             = "/hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService/DeleteGateway"
+	OpenShellGatewayServiceAccountProvisionerService_ListManaged_FullMethodName               = "/hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService/ListManaged"
+	OpenShellGatewayServiceAccountProvisionerService_BootstrapDefaultWorkspace_FullMethodName = "/hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService/BootstrapDefaultWorkspace"
+	OpenShellGatewayServiceAccountProvisionerService_ListWorkspaceMemberships_FullMethodName  = "/hypershell.provisioner.v1.OpenShellGatewayServiceAccountProvisionerService/ListWorkspaceMemberships"
 )
 
 // OpenShellGatewayServiceAccountProvisionerServiceClient is the client API for OpenShellGatewayServiceAccountProvisionerService service.
@@ -43,6 +45,8 @@ type OpenShellGatewayServiceAccountProvisionerServiceClient interface {
 	DeleteManaged(ctx context.Context, in *DeleteManagedRequest, opts ...grpc.CallOption) (*DeleteManagedResponse, error)
 	DeleteGateway(ctx context.Context, in *DeleteGatewayRequest, opts ...grpc.CallOption) (*DeleteGatewayResponse, error)
 	ListManaged(ctx context.Context, in *ListManagedRequest, opts ...grpc.CallOption) (*ListManagedResponse, error)
+	BootstrapDefaultWorkspace(ctx context.Context, in *BootstrapDefaultWorkspaceRequest, opts ...grpc.CallOption) (*BootstrapDefaultWorkspaceResponse, error)
+	ListWorkspaceMemberships(ctx context.Context, in *ListWorkspaceMembershipsRequest, opts ...grpc.CallOption) (*ListWorkspaceMembershipsResponse, error)
 }
 
 type openShellGatewayServiceAccountProvisionerServiceClient struct {
@@ -123,6 +127,26 @@ func (c *openShellGatewayServiceAccountProvisionerServiceClient) ListManaged(ctx
 	return out, nil
 }
 
+func (c *openShellGatewayServiceAccountProvisionerServiceClient) BootstrapDefaultWorkspace(ctx context.Context, in *BootstrapDefaultWorkspaceRequest, opts ...grpc.CallOption) (*BootstrapDefaultWorkspaceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BootstrapDefaultWorkspaceResponse)
+	err := c.cc.Invoke(ctx, OpenShellGatewayServiceAccountProvisionerService_BootstrapDefaultWorkspace_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *openShellGatewayServiceAccountProvisionerServiceClient) ListWorkspaceMemberships(ctx context.Context, in *ListWorkspaceMembershipsRequest, opts ...grpc.CallOption) (*ListWorkspaceMembershipsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListWorkspaceMembershipsResponse)
+	err := c.cc.Invoke(ctx, OpenShellGatewayServiceAccountProvisionerService_ListWorkspaceMemberships_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // OpenShellGatewayServiceAccountProvisionerServiceServer is the server API for OpenShellGatewayServiceAccountProvisionerService service.
 // All implementations must embed UnimplementedOpenShellGatewayServiceAccountProvisionerServiceServer
 // for forward compatibility.
@@ -138,6 +162,8 @@ type OpenShellGatewayServiceAccountProvisionerServiceServer interface {
 	DeleteManaged(context.Context, *DeleteManagedRequest) (*DeleteManagedResponse, error)
 	DeleteGateway(context.Context, *DeleteGatewayRequest) (*DeleteGatewayResponse, error)
 	ListManaged(context.Context, *ListManagedRequest) (*ListManagedResponse, error)
+	BootstrapDefaultWorkspace(context.Context, *BootstrapDefaultWorkspaceRequest) (*BootstrapDefaultWorkspaceResponse, error)
+	ListWorkspaceMemberships(context.Context, *ListWorkspaceMembershipsRequest) (*ListWorkspaceMembershipsResponse, error)
 	mustEmbedUnimplementedOpenShellGatewayServiceAccountProvisionerServiceServer()
 }
 
@@ -168,6 +194,12 @@ func (UnimplementedOpenShellGatewayServiceAccountProvisionerServiceServer) Delet
 }
 func (UnimplementedOpenShellGatewayServiceAccountProvisionerServiceServer) ListManaged(context.Context, *ListManagedRequest) (*ListManagedResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListManaged not implemented")
+}
+func (UnimplementedOpenShellGatewayServiceAccountProvisionerServiceServer) BootstrapDefaultWorkspace(context.Context, *BootstrapDefaultWorkspaceRequest) (*BootstrapDefaultWorkspaceResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method BootstrapDefaultWorkspace not implemented")
+}
+func (UnimplementedOpenShellGatewayServiceAccountProvisionerServiceServer) ListWorkspaceMemberships(context.Context, *ListWorkspaceMembershipsRequest) (*ListWorkspaceMembershipsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListWorkspaceMemberships not implemented")
 }
 func (UnimplementedOpenShellGatewayServiceAccountProvisionerServiceServer) mustEmbedUnimplementedOpenShellGatewayServiceAccountProvisionerServiceServer() {
 }
@@ -317,6 +349,42 @@ func _OpenShellGatewayServiceAccountProvisionerService_ListManaged_Handler(srv i
 	return interceptor(ctx, in, info, handler)
 }
 
+func _OpenShellGatewayServiceAccountProvisionerService_BootstrapDefaultWorkspace_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BootstrapDefaultWorkspaceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OpenShellGatewayServiceAccountProvisionerServiceServer).BootstrapDefaultWorkspace(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OpenShellGatewayServiceAccountProvisionerService_BootstrapDefaultWorkspace_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OpenShellGatewayServiceAccountProvisionerServiceServer).BootstrapDefaultWorkspace(ctx, req.(*BootstrapDefaultWorkspaceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OpenShellGatewayServiceAccountProvisionerService_ListWorkspaceMemberships_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListWorkspaceMembershipsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OpenShellGatewayServiceAccountProvisionerServiceServer).ListWorkspaceMemberships(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OpenShellGatewayServiceAccountProvisionerService_ListWorkspaceMemberships_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OpenShellGatewayServiceAccountProvisionerServiceServer).ListWorkspaceMemberships(ctx, req.(*ListWorkspaceMembershipsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // OpenShellGatewayServiceAccountProvisionerService_ServiceDesc is the grpc.ServiceDesc for OpenShellGatewayServiceAccountProvisionerService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -352,6 +420,14 @@ var OpenShellGatewayServiceAccountProvisionerService_ServiceDesc = grpc.ServiceD
 			MethodName: "ListManaged",
 			Handler:    _OpenShellGatewayServiceAccountProvisionerService_ListManaged_Handler,
 		},
+		{
+			MethodName: "BootstrapDefaultWorkspace",
+			Handler:    _OpenShellGatewayServiceAccountProvisionerService_BootstrapDefaultWorkspace_Handler,
+		},
+		{
+			MethodName: "ListWorkspaceMemberships",
+			Handler:    _OpenShellGatewayServiceAccountProvisionerService_ListWorkspaceMemberships_Handler,
+		},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "hypershell/provisioner/v1/service_accounts.proto",
@@ -360,6 +436,7 @@ var OpenShellGatewayServiceAccountProvisionerService_ServiceDesc = grpc.ServiceD
 const (
 	DirectoryService_SearchDirectory_FullMethodName = "/hypershell.provisioner.v1.DirectoryService/SearchDirectory"
 	DirectoryService_ResolveUser_FullMethodName     = "/hypershell.provisioner.v1.DirectoryService/ResolveUser"
+	DirectoryService_ResolveUsers_FullMethodName    = "/hypershell.provisioner.v1.DirectoryService/ResolveUsers"
 )
 
 // DirectoryServiceClient is the client API for DirectoryService service.
@@ -373,6 +450,7 @@ const (
 type DirectoryServiceClient interface {
 	SearchDirectory(ctx context.Context, in *SearchDirectoryRequest, opts ...grpc.CallOption) (*SearchDirectoryResponse, error)
 	ResolveUser(ctx context.Context, in *ResolveUserRequest, opts ...grpc.CallOption) (*ResolveUserResponse, error)
+	ResolveUsers(ctx context.Context, in *ResolveUsersRequest, opts ...grpc.CallOption) (*ResolveUsersResponse, error)
 }
 
 type directoryServiceClient struct {
@@ -403,6 +481,16 @@ func (c *directoryServiceClient) ResolveUser(ctx context.Context, in *ResolveUse
 	return out, nil
 }
 
+func (c *directoryServiceClient) ResolveUsers(ctx context.Context, in *ResolveUsersRequest, opts ...grpc.CallOption) (*ResolveUsersResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResolveUsersResponse)
+	err := c.cc.Invoke(ctx, DirectoryService_ResolveUsers_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DirectoryServiceServer is the server API for DirectoryService service.
 // All implementations must embed UnimplementedDirectoryServiceServer
 // for forward compatibility.
@@ -414,6 +502,7 @@ func (c *directoryServiceClient) ResolveUser(ctx context.Context, in *ResolveUse
 type DirectoryServiceServer interface {
 	SearchDirectory(context.Context, *SearchDirectoryRequest) (*SearchDirectoryResponse, error)
 	ResolveUser(context.Context, *ResolveUserRequest) (*ResolveUserResponse, error)
+	ResolveUsers(context.Context, *ResolveUsersRequest) (*ResolveUsersResponse, error)
 	mustEmbedUnimplementedDirectoryServiceServer()
 }
 
@@ -429,6 +518,9 @@ func (UnimplementedDirectoryServiceServer) SearchDirectory(context.Context, *Sea
 }
 func (UnimplementedDirectoryServiceServer) ResolveUser(context.Context, *ResolveUserRequest) (*ResolveUserResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ResolveUser not implemented")
+}
+func (UnimplementedDirectoryServiceServer) ResolveUsers(context.Context, *ResolveUsersRequest) (*ResolveUsersResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ResolveUsers not implemented")
 }
 func (UnimplementedDirectoryServiceServer) mustEmbedUnimplementedDirectoryServiceServer() {}
 func (UnimplementedDirectoryServiceServer) testEmbeddedByValue()                          {}
@@ -487,6 +579,24 @@ func _DirectoryService_ResolveUser_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DirectoryService_ResolveUsers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResolveUsersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DirectoryServiceServer).ResolveUsers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DirectoryService_ResolveUsers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DirectoryServiceServer).ResolveUsers(ctx, req.(*ResolveUsersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DirectoryService_ServiceDesc is the grpc.ServiceDesc for DirectoryService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -501,6 +611,10 @@ var DirectoryService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ResolveUser",
 			Handler:    _DirectoryService_ResolveUser_Handler,
+		},
+		{
+			MethodName: "ResolveUsers",
+			Handler:    _DirectoryService_ResolveUsers_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

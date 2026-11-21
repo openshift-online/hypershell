@@ -156,6 +156,7 @@ export interface OpenShellGatewayServiceAccountRecord {
   status: OpenShellGatewayServiceAccountStatus;
   subject: string;
   updatedAt: string;
+  workspaces: readonly string[];
 }
 
 export interface OpenShellGatewayServiceAccountConnection {
@@ -208,6 +209,7 @@ export interface OpenShellGatewayServiceAccountCreateInput {
   expiresAt: string;
   name: string;
   role: OpenShellGatewayServiceAccountRole;
+  skipDefaultWorkspaceBootstrap?: boolean;
 }
 
 export interface OpenShellGatewayServiceAccountRoleUpdateInput {
@@ -250,6 +252,7 @@ export interface GatewayAccessGrantRecord {
   roleBindingId: string;
   userId: string;
   username: string;
+  workspaces: readonly string[];
 }
 
 export interface GatewayAccessCapabilities {
@@ -264,6 +267,7 @@ export interface GatewayAccessPage {
   page: number;
   size: number;
   total: number;
+  workspaces: readonly string[];
 }
 
 export interface GatewayDirectoryUser {
@@ -274,6 +278,7 @@ export interface GatewayDirectoryUser {
 }
 
 export interface GatewayAccessGrantInput {
+  skipDefaultWorkspaceBootstrap?: boolean;
   role: GatewayAccessRole;
   subject?: string;
   username: string;
@@ -289,6 +294,7 @@ export interface GatewayAccessListRequest {
   search: string;
   size: number;
   sort: GatewayAccessSortField;
+  workspace?: string;
 }
 
 export const gatewayAccessPageSizes = [10, 20, 50, 100] as const;

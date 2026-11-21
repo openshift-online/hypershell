@@ -25,6 +25,7 @@ const account: OpenShellGatewayServiceAccountRecord = {
   status: "ready",
   subject: "service-account-subject",
   updatedAt: "2026-08-21T12:00:00Z",
+  workspaces: ["default"],
 };
 
 const capabilities = {

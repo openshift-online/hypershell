@@ -213,6 +213,12 @@ function optionalString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function workspaceNames(value: unknown): string[] {
+  return Array.isArray(value) && value.every((name) => typeof name === "string")
+    ? value
+    : [];
+}
+
 type ApiServiceAccountRecord =
   | OpenShellGatewayServiceAccountCreateResponse
   | OpenShellGatewayServiceAccountGetResponse
@@ -231,6 +237,7 @@ function toAccessGrantRecord(
     roleBindingId: item.role_binding_id,
     userId: item.user_id,
     username: item.username,
+    workspaces: workspaceNames(item.workspaces),
   };
 }
 
@@ -279,6 +286,7 @@ function toServiceAccountRecord(
     status: account.status,
     subject: account.subject,
     updatedAt: account.updated_at,
+    workspaces: workspaceNames(account.workspaces),
   };
 }
 
@@ -404,6 +412,12 @@ export function createGatewayControlPlaneAdapter(
         ).gatewayAccesses.create(
           gatewayId,
           {
+            ...(input.skipDefaultWorkspaceBootstrap === undefined
+              ? {}
+              : {
+                  skip_default_workspace_bootstrap:
+                    input.skipDefaultWorkspaceBootstrap,
+                }),
             role: input.role,
             ...(input.subject === undefined ? {} : { subject: input.subject }),
             username: input.username,
@@ -427,6 +441,7 @@ export function createGatewayControlPlaneAdapter(
             ...(request.search ? { search: request.search } : {}),
             size: request.size,
             sort: request.sort,
+            ...(request.workspace ? { workspace: request.workspace } : {}),
           },
           { signal: context.signal },
         );
@@ -436,6 +451,7 @@ export function createGatewayControlPlaneAdapter(
           page: response.page,
           size: response.size,
           total: response.total,
+          workspaces: workspaceNames(response.workspaces),
         };
       });
     },
@@ -473,6 +489,12 @@ export function createGatewayControlPlaneAdapter(
             expires_at: input.expiresAt,
             name: input.name,
             role: input.role,
+            ...(input.skipDefaultWorkspaceBootstrap === undefined
+              ? {}
+              : {
+                  skip_default_workspace_bootstrap:
+                    input.skipDefaultWorkspaceBootstrap,
+                }),
           },
           { signal: context.signal },
         );

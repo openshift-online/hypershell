@@ -13,6 +13,7 @@ type listItemResponse struct {
 	CreatedByUserID string     `json:"created_by_user_id"`
 	ClientID        string     `json:"client_id"`
 	Subject         string     `json:"subject"`
+	Workspaces      []string   `json:"workspaces"`
 	ExpiresAt       time.Time  `json:"expires_at"`
 	RevokedAt       *time.Time `json:"revoked_at"`
 	LastError       *string    `json:"last_error"`
@@ -52,12 +53,17 @@ type listResponse struct {
 }
 
 func presentItem(account *OpenShellGatewayServiceAccount) listItemResponse {
+	workspaces := account.Workspaces
+	if workspaces == nil {
+		workspaces = []string{}
+	}
 	return listItemResponse{
 		ID: account.ID, GatewayID: account.GatewayID, Name: account.Name,
 		Description: account.Description, CredentialType: account.CredentialType,
 		Role: account.Role, Status: account.Status, CreatedByUserID: account.CreatedByUserID,
 		ClientID: account.KeycloakClientID, Subject: account.Subject,
-		ExpiresAt: account.ExpiresAt, RevokedAt: account.RevokedAt,
+		Workspaces: workspaces,
+		ExpiresAt:  account.ExpiresAt, RevokedAt: account.RevokedAt,
 		LastError: account.LastError, CreatedAt: account.CreatedAt, UpdatedAt: account.UpdatedAt,
 	}
 }

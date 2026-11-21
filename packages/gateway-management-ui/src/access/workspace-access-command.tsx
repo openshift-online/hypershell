@@ -5,6 +5,7 @@ import {
   CodeBlock,
   CodeBlockCode,
   Content,
+  ExpandableSection,
   Modal,
   ModalBody,
   ModalFooter,
@@ -70,9 +71,15 @@ function CommandBlock({ command }: { command: string }) {
 // undefined while a lookup is pending/failed; the caller passes isPending so this
 // can show a spinner rather than the "unavailable" error during the lookup.
 export function WorkspaceAccessCommand({
+  availableWorkspaces,
+  isCommandAdvanced = true,
+  isDefaultWorkspaceMembershipSkipped,
   isPending = false,
   subject,
 }: {
+  availableWorkspaces?: readonly string[];
+  isCommandAdvanced?: boolean;
+  isDefaultWorkspaceMembershipSkipped?: boolean;
   isPending?: boolean;
   subject: string | undefined;
 }) {
@@ -102,11 +109,38 @@ export function WorkspaceAccessCommand({
     <Stack hasGutter>
       <StackItem>
         <Content component="p">
-          {intl.formatMessage(messages.accessWorkspaceGrantIntro)}
+          {isDefaultWorkspaceMembershipSkipped === undefined
+            ? intl.formatMessage(messages.accessWorkspaceGrantIntro)
+            : intl.formatMessage(
+                isDefaultWorkspaceMembershipSkipped
+                  ? messages.accessGrantWithoutDefaultWorkspaceResult
+                  : messages.accessGrantDefaultWorkspaceResult,
+              )}
         </Content>
       </StackItem>
+      {availableWorkspaces?.length ? (
+        <StackItem>
+          <Content component="p">
+            {intl.formatMessage(messages.accessAvailableWorkspaces, {
+              workspaces: [...availableWorkspaces]
+                .sort((workspace, nextWorkspace) =>
+                  workspace.localeCompare(nextWorkspace),
+                )
+                .join(", "),
+            })}
+          </Content>
+        </StackItem>
+      ) : null}
       <StackItem>
-        <CommandBlock command={command} />
+        {isCommandAdvanced ? (
+          <ExpandableSection
+            toggleText={intl.formatMessage(messages.advancedWorkspaceCommand)}
+          >
+            <CommandBlock command={command} />
+          </ExpandableSection>
+        ) : (
+          <CommandBlock command={command} />
+        )}
       </StackItem>
     </Stack>
   );
@@ -143,9 +177,11 @@ function useSubjectLookup(
 // GrantWorkspaceAccessAction is the per-row icon that re-opens the "Grant
 // workspace access" command for an existing user, looking the subject up on open.
 export function GrantWorkspaceAccessAction({
+  availableWorkspaces,
   gatewayId,
   grant,
 }: {
+  availableWorkspaces: readonly string[];
   gatewayId: string;
   grant: GatewayAccessGrantRecord;
 }) {
@@ -182,6 +218,8 @@ export function GrantWorkspaceAccessAction({
           />
           <ModalBody>
             <WorkspaceAccessCommand
+              availableWorkspaces={availableWorkspaces}
+              isCommandAdvanced={false}
               isPending={lookup.isPending}
               subject={lookup.data}
             />
