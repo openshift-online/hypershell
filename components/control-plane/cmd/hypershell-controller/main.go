@@ -660,7 +660,15 @@ func main() {
 	}
 
 	<-ctx.Done()
-	slog.InfoContext(ctx, "Shutdown signal received, waiting for background components to stop")
+	// Drain before exiting: the queue takes no new work, and helm
+	// operations already started run on their own deadline rather than ctx, so
+	// they finish (or time out with SIGTERM) instead of leaving the release
+	// pending-*. terminationGracePeriodSeconds covers the helm budget.
+	inFlight := helmClient.InFlight()
+	slog.InfoContext(ctx, fmt.Sprintf("Shutdown signal received, draining %d helm operations", inFlight),
+		"helm_operations", inFlight)
+	gatewayQueue.Stop()
+	slog.InfoContext(ctx, "Reconcile queue drained, waiting for background components to stop")
 	wg.Wait()
 
 	slog.InfoContext(ctx, "hypershell-controller stopped")

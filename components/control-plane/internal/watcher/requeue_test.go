@@ -710,6 +710,42 @@ func TestReconcileQueue_StopDrainsWorkers(t *testing.T) {
 	}
 }
 
+// Helm shutdown survival: on shutdown the queue lets an in-flight reconcile finish and
+// stop waits for it, but items queued before shutdown are not started.
+func TestReconcileQueue_ShutdownFinishesInFlightButStartsNoNewWork(t *testing.T) {
+	h := &recordingHandler{
+		enter:   make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	q := newReconcileQueue(ctx, "Test", h,
+		withRateLimiter[string](fastLimiter()), withWorkers[string](1))
+
+	q.enqueue(Event[string]{ResourceID: "gw-1", Resource: "v1"})
+	<-h.enter // gw-1 is in flight on the only worker
+	q.enqueue(Event[string]{ResourceID: "gw-2", Resource: "v1"})
+	q.enqueue(Event[string]{ResourceID: "gw-3", Resource: "v1"})
+
+	cancel()
+	stopped := make(chan struct{})
+	go func() { q.stop(); close(stopped) }()
+	select {
+	case <-stopped:
+		t.Fatal("stop returned while a reconcile was still in flight")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	h.release <- struct{}{}
+	select {
+	case <-stopped:
+	case <-time.After(time.Second):
+		t.Fatal("stop did not return after the in-flight reconcile finished")
+	}
+	if got := h.count(); got != 1 {
+		t.Fatalf("handler called %d times, want 1: queued work started after shutdown", got)
+	}
+}
+
 // Canceling the watcher context must shut the queue down even without an explicit
 // stop, so workers never leak past the watcher's lifetime.
 func TestReconcileQueue_ContextCancelShutsDown(t *testing.T) {

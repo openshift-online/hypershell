@@ -60,7 +60,8 @@ patches:
       spec:
         template:
           spec:
-            terminationGracePeriodSeconds: 90
+            # The controller keeps the base 360s helm drain budget (helm shutdown survival).
+            terminationGracePeriodSeconds: 360
             volumes:
               - name: coverage
                 persistentVolumeClaim:
