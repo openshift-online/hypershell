@@ -108,6 +108,17 @@ func recordIncompleteFinalizationEvent(ctx context.Context, client kubernetes.In
 	return nil
 }
 
+// helmInProgressRetry reports whether a gateway reconcile failed only because
+// its Helm release is pending and may still be owned by another helm, and
+// returns the error to retry it with reason helm_operation_in_progress.
+func helmInProgressRetry(gatewayName string, err error) (error, bool) {
+	var inProgress *gateway.HelmOperationInProgressError
+	if !errors.As(err, &inProgress) {
+		return nil, false
+	}
+	return watcher.WithRetryableReason(fmt.Errorf("reconcile gateway %s: %w", gatewayName, err), cpotel.ReasonHelmOperationInProgress), true
+}
+
 type GatewayReconciler struct {
 	mu            sync.Mutex
 	active        map[string]struct{}
@@ -760,6 +771,14 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 
 	if err := gateway.ReconcileGateway(ctx, r.dynamicClient, r.clientset, r.helmClient, nsConfig, opts); err != nil {
 		var renderErr *gateway.ConfigValidationError
+		if retryErr, ok := helmInProgressRetry(gw.Name, err); ok {
+			// A young pending release is not a failure: leave the phase as
+			// Provisioning and retry until it finishes or goes stale.
+			outcome = cpotel.OutcomeRetryable
+			reason = cpotel.ReasonHelmOperationInProgress
+			reconcileErr = retryErr
+			return retryErr
+		}
 		if errors.As(err, &renderErr) {
 			failReason := fmt.Sprintf("generated configuration validation failed: %v", renderErr.Err)
 			if failedGateway := r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseFailed), failReason); failedGateway != nil {

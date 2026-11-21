@@ -1295,6 +1295,15 @@ else
   FAIL=$((FAIL + 1))
   echo 'FAIL: controller pod does not set dnsConfig ndots for the gateway database FQDN'
 fi
+# Helm shutdown survival: the controller drains a started helm operation on SIGTERM; its
+# grace period must cover helm --timeout 5m plus the 30s SIGTERM margin and the
+# 30s kill delay (internal/helm/shell_client.go).
+if grep -q 'terminationGracePeriodSeconds: 360' "${REPO_ROOT}/deploy/base/platform-resources/controller.yaml"; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo 'FAIL: controller terminationGracePeriodSeconds does not cover the 360s helm drain budget'
+fi
 if grep -q 'pin_controller_gateway_db_hosts' "${REPO_ROOT}/scripts/kind/up.sh" \
   && grep -q 'hostAliases' "${REPO_ROOT}/scripts/kind/lib.sh"; then
   PASS=$((PASS + 1))

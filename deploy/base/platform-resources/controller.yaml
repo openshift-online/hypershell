@@ -20,6 +20,11 @@ spec:
         app: hypershell-controller
     spec:
       serviceAccountName: hypershell-controller
+      # Helm shutdown survival: on SIGTERM the controller drains in-flight reconciles and
+      # lets a started helm operation finish. Helm runs with --timeout 5m, gets
+      # SIGTERM 30s after that, and is killed 30s later: 300 + 30 + 30 = 360.
+      # Keep this in step with internal/helm/shell_client.go.
+      terminationGracePeriodSeconds: 360
       securityContext:
         runAsNonRoot: true
       # The admin host is always an FQDN (Kind in-cluster Service, RDS, IBM

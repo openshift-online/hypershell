@@ -6,6 +6,9 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"time"
+
+	"k8s.io/client-go/kubernetes"
 
 	"github.com/openshift-online/hypershell/components/control-plane/internal/helm"
 )
@@ -13,7 +16,8 @@ import (
 // deployGatewayViaHelm installs or upgrades a gateway using the Helm chart.
 func deployGatewayViaHelm(
 	ctx context.Context,
-	helmClient *helm.ShellClient,
+	helmClient helmReleaseClient,
+	clientset kubernetes.Interface,
 	nsConfig NamespaceConfig,
 	opts ReconcileOpts,
 	hasTrustedCA bool,
@@ -84,19 +88,14 @@ func deployGatewayViaHelm(
 		}
 	} else if strings.HasPrefix(status.Status, "pending-") {
 		// An operation (install/upgrade/rollback) was interrupted before reaching
-		// a terminal state -- for example the controller restarted mid-install.
-		// Helm refuses any new operation against a release in this state
-		// ("another operation ... is in progress"), even though nothing is
-		// actually running, so retrying via upgrade can never succeed and would
-		// retry forever. The only clean recovery is to discard the stuck release
-		// and reinstall; nothing the chart renders can have been left in a
-		// working state while the release was still pending.
-		slog.InfoContext(ctx, "Helm release is stuck; reinstalling", "namespace", nsConfig.Name, "status", status.Status)
-		if err := helmClient.Uninstall(ctx, nsConfig.Name); err != nil {
-			return fmt.Errorf("uninstall stuck helm release: %w", err)
-		}
-		if err := helmClient.Install(ctx, nsConfig.Name, values); err != nil {
-			return fmt.Errorf("reinstall helm release: %w", err)
+		// a terminal state, for example by a controller crash. Helm refuses any
+		// new install or upgrade on it ("another operation ... is in progress"),
+		// so recover it: wait while it is young, then roll back
+		// (or forward, if the new gateway pod may have migrated the database)
+		// and upgrade. Only a stale first install is uninstalled.
+		slog.InfoContext(ctx, "Helm release is pending", "namespace", nsConfig.Name, "status", status.Status, "revision", status.Revision)
+		if err := recoverPendingRelease(ctx, helmClient, clientset, nsConfig.Name, values, time.Now()); err != nil {
+			return err
 		}
 	} else if status.Status == "deployed" {
 		slog.InfoContext(ctx, "Upgrading deployed helm release", "namespace", nsConfig.Name)
