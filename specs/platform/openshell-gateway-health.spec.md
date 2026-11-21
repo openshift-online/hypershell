@@ -358,6 +358,9 @@ to `Degraded`, and a `Degraded` Gateway SHALL still be able to return to
 - THEN the control plane SHALL update the destination-CA trust for the Gateway
   even though a full manifest re-apply is gated
 - AND it SHALL NOT advance `generation` or require a spec change to do so
+- AND it SHALL NOT run a Helm upgrade, so the gateway keeps its images and chart
+  version ([`openshell-gateway-tls.spec.md`](./openshell-gateway-tls.spec.md)
+  OSG-TLS-07.03)
 
 #### Scenario: OSG-HLTH-03.07 -- Newer generation arrives during a provisioning pass
 

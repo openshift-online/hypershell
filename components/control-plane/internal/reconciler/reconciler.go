@@ -151,6 +151,18 @@ type GatewayReconciler struct {
 	// by the nil-payload delete re-read (CTRL-WDEL-04). Production leaves it nil
 	// and dials grpcConn; tests inject a fake without standing up a gRPC server.
 	gatewayClientOverride pb.GatewayServiceClient
+	// trustClientOverride, when non-nil, replaces clientset for the
+	// converged-gateway destination trust refresh. Production leaves it nil.
+	trustClientOverride kubernetes.Interface
+}
+
+// trustClient returns the Kubernetes client for the converged-gateway trust
+// refresh. Tests inject trustClientOverride to drive it with a fake clientset.
+func (r *GatewayReconciler) trustClient() kubernetes.Interface {
+	if r.trustClientOverride != nil {
+		return r.trustClientOverride
+	}
+	return r.clientset
 }
 
 // gatewayServiceClient returns the GatewayServiceClient used for direct gRPC
@@ -606,18 +618,28 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 				return watcher.WithRetryableReason(watcher.PreservePayloadForRetry(reconcileErr), reason)
 			}
 		}
-		needsTrustUpdate, err := gateway.DestinationCATrustNeedsUpdate(ctx, r.clientset, r.controlPlaneNamespace, gw.GetNamespace())
+		// Destination trust converges in place: a trust change on a converged
+		// gateway never runs Helm, so it cannot roll the gateway onto the
+		// controller's current images or chart (OSG-TLS-07.03).
+		trust, err := gateway.RefreshDestinationCATrust(ctx, r.trustClient(), r.controlPlaneNamespace, gw.GetNamespace())
 		if err != nil {
 			outcome = cpotel.OutcomeRetryable
 			reason = cpotel.ReasonDependencyNotReady
-			reconcileErr = fmt.Errorf("check destination TLS trust: %w", err)
+			reconcileErr = fmt.Errorf("refresh destination TLS trust: %w", err)
 			return watcher.WithRetryableReason(watcher.PreservePayloadForRetry(reconcileErr), reason)
 		}
-		if !needsTrustUpdate {
-			slog.DebugContext(ctx, "Gateway converged, skipping reconciliation", "gateway_id", event.ResourceID, "generation", gw.Generation)
-			outcome = cpotel.OutcomeNoop
+		switch trust {
+		case gateway.DestinationCATrustRotated:
+			slog.InfoContext(ctx, "Destination TLS trust rotated in place on converged gateway", "gateway_id", event.ResourceID, "namespace", gw.GetNamespace())
+			outcome = cpotel.OutcomeSuccess
 			return nil
+		case gateway.DestinationCATrustDeferred:
+			slog.WarnContext(ctx, "Destination TLS trust cannot be added to a converged gateway in place; it applies on the gateway's next spec reconciliation", "gateway_id", event.ResourceID, "namespace", gw.GetNamespace())
+		default:
+			slog.DebugContext(ctx, "Gateway converged, skipping reconciliation", "gateway_id", event.ResourceID, "generation", gw.Generation)
 		}
+		outcome = cpotel.OutcomeNoop
+		return nil
 	}
 
 	gatewayClientID, err := gatewayKeycloakClientID(event.ResourceID, gw)
