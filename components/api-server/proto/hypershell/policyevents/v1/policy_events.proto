@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package hypershell.policyevents.v1;
+
+option go_package = "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/policyevents/v1;policyevents_v1";
+
+import "google/protobuf/timestamp.proto";
+
+// PolicyEventService is the in-cluster control-plane endpoint the policy
+// interceptor sidecar reports to (CTRL-CORE-22, PLAT-PGP-15, SEC-RBAC-32). The
+// sidecar authenticates with a projected, audience-bound service-account token
+// in the authorization metadata; the control plane verifies it with
+// TokenReview, checks that the token's namespace belongs to the reporting
+// gateway, and forwards accepted events to the api-server under its own
+// registered identity.
+service PolicyEventService {
+  rpc ReportPolicyEvents(ReportPolicyEventsRequest) returns (ReportPolicyEventsResponse);
+}
+
+// PolicyEvent is one audit finding: an operation an audit-only statement would
+// reject, or that would receive defaults while no policy is enforced. It
+// carries normalized resource values only and no denial text.
+message PolicyEvent {
+  // Sidecar-generated idempotency key; a retried event keeps its id.
+  string id = 1;
+  google.protobuf.Timestamp occurred_at = 2;
+  string principal_subject = 3;
+  string operation = 4;
+  // would_reject or would_add_defaults.
+  string outcome = 5;
+  repeated string policy_names = 6;
+  string bundle_revision = 7;
+  map<string, int64> request_summary = 8;
+}
+
+message ReportPolicyEventsRequest {
+  // The gateway the sidecar runs beside; must own the token's namespace.
+  string gateway_id = 1;
+  // The bundle revision the sidecar currently applies; empty before the first
+  // bundle loads.
+  string applied_revision = 2;
+  repeated PolicyEvent events = 3;
+}
+
+message ReportPolicyEventsResponse {
+  // Number of events forwarded (a retried id is still acknowledged).
+  int32 accepted = 1;
+}

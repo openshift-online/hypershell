@@ -34,6 +34,7 @@ import (
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/logging"
 	cpotel "github.com/openshift-online/hypershell/components/control-plane/internal/otel"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/policyevents"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/prober"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/reconciler"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/registration"
@@ -425,6 +426,19 @@ func main() {
 		"managed_cluster", cfg.ManagedClusterName,
 	)
 
+	// Fleet defaults guard (PLAT-PGP-08): the defaults rolled out to the policy
+	// interceptor sidecars; a configured change that an enforced policy forbids
+	// is refused and the previously accepted defaults are kept.
+	var policyDefaults *reconciler.PolicyDefaultsGuard
+	if clientset != nil {
+		policyDefaults = reconciler.NewPolicyDefaultsGuard(clientset, cfg.Namespace, reconciler.FleetDefaults{
+			CPURequest:    cfg.PolicyDefaults.CPURequest,
+			CPULimit:      cfg.PolicyDefaults.CPULimit,
+			MemoryRequest: cfg.PolicyDefaults.MemoryRequest,
+			MemoryLimit:   cfg.PolicyDefaults.MemoryLimit,
+		})
+	}
+
 	if clientset != nil && dynamicClient != nil {
 		gr, grErr := reconciler.NewGatewayReconciler(
 			dynamicClient,
@@ -583,6 +597,32 @@ func main() {
 		slog.InfoContext(ctx, "CI trust reconciler launched (CIProvider + CITrust watches)", "token_exchange_mode", cfg.CITokenExchangeMode, "workspace_provisioning", cfg.CIWorkspaceProvisioningEnabled)
 	} else {
 		slog.InfoContext(ctx, "CI trust reconciler disabled", "setting", "HYPERSHELL_CI_TRUST_ENABLED=false")
+	}
+
+	// Platform gateway policy distribution and event ingest (CTRL-CORE-22): the
+	// per-gateway bundle reconcile and the in-cluster ReportPolicyEvents
+	// endpoint the interceptor sidecars report to.
+	if cfg.PolicyEnabled && clientset != nil {
+		appliedRevisions := reconciler.NewAppliedRevisions()
+		policyReconciler := reconciler.NewPolicyBundleReconciler(clientset, conn, clusterID, policyDefaults,
+			cfg.PolicyCanaryEnabled, cfg.PolicyResyncInterval, appliedRevisions)
+		supervise("policy bundle reconciler", policyReconciler.Run)
+		eventsServer := policyevents.NewServer(
+			policyevents.KubeTokenReviewer{Kube: clientset},
+			policyevents.GRPCGatewayResolver(pb.NewGatewayServiceClient(conn), clusterID),
+			pb.NewPolicyAuditFindingServiceClient(conn),
+			func(gatewayID, revision string) {
+				if appliedRevisions.Set(gatewayID, revision) {
+					policyReconciler.Nudge()
+				}
+			},
+		)
+		supervise("policy events endpoint", func(ctx context.Context) error {
+			return policyevents.ListenAndServe(ctx, cfg.PolicyEventsBindAddress, eventsServer)
+		})
+		slog.InfoContext(ctx, "Platform gateway policy reconciler launched", "events_bind_address", cfg.PolicyEventsBindAddress, "canary_enabled", cfg.PolicyCanaryEnabled)
+	} else {
+		slog.InfoContext(ctx, "Platform gateway policy reconciler disabled", "enabled_setting", cfg.PolicyEnabled, "in_cluster", clientset != nil)
 	}
 
 	slog.InfoContext(ctx, "All watch streams launched", "count", watchCount)

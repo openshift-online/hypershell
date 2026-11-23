@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/openshift-online/hypershell/components/api-server/pkg/cedar"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/helm"
 	corev1 "k8s.io/api/core/v1"
 )
@@ -177,6 +178,35 @@ type Config struct {
 	// specs/platform/control-plane.spec.md ("CI Provider Resync", CTRL-CORE-21).
 	CIProviderResyncInterval time.Duration
 
+	// Platform gateway policy (PLAT-PGP-08, PLAT-PGP-20, CTRL-CORE-22).
+	//
+	// PolicyDefaults are the fleet-wide sandbox resource defaults, quantities as
+	// written (HYPERSHELL_POLICY_DEFAULT_CPU_REQUEST, _CPU_LIMIT, _MEMORY_REQUEST,
+	// _MEMORY_LIMIT; defaults 500m, 2, 1Gi, 4Gi). They are passed to every policy
+	// interceptor sidecar as environment variables. An invalid quantity fails
+	// startup. The api-server reads the same names; the values must match.
+	PolicyDefaults PolicyDefaults
+	// PolicyEnabled turns the policy interceptor sidecar and bundle reconcile on
+	// (HYPERSHELL_POLICY_ENABLED, default true).
+	PolicyEnabled bool
+	// PolicyCanaryEnabled publishes the built-in e2e-enforcement-canary policy
+	// (HYPERSHELL_POLICY_CANARY_ENABLED, default true). When false the short-mode
+	// e2e policy check reports skipped (PLAT-PGP-20.02).
+	PolicyCanaryEnabled bool
+	// PolicyResyncInterval is the periodic full policy bundle reconcile
+	// (HYPERSHELL_POLICY_RESYNC_INTERVAL, default 30s).
+	PolicyResyncInterval time.Duration
+	// PolicyEventsBindAddress is where the in-cluster ReportPolicyEvents gRPC
+	// endpoint listens (HYPERSHELL_POLICY_EVENTS_BIND_ADDRESS, default 0.0.0.0:9444).
+	PolicyEventsBindAddress string
+	// PolicyEventsAddress is the address sidecars dial
+	// (HYPERSHELL_POLICY_EVENTS_ADDRESS, default
+	// hypershell-controller.<namespace>.svc.cluster.local:9444).
+	PolicyEventsAddress string
+	// PolicyConsoleURL is the web console base URL used to build the gateway
+	// Policies tab link in denial text (HYPERSHELL_POLICY_CONSOLE_URL, optional).
+	PolicyConsoleURL string
+
 	// Helm chart configuration
 	HelmChartPath string
 
@@ -306,6 +336,19 @@ func Load() (*Config, error) {
 
 		HelmChartPath: getEnv("HELM_CHART_PATH", "/charts/openshell.tgz"),
 
+		PolicyDefaults: PolicyDefaults{
+			CPURequest:    getEnv("HYPERSHELL_POLICY_DEFAULT_CPU_REQUEST", "500m"),
+			CPULimit:      getEnv("HYPERSHELL_POLICY_DEFAULT_CPU_LIMIT", "2"),
+			MemoryRequest: getEnv("HYPERSHELL_POLICY_DEFAULT_MEMORY_REQUEST", "1Gi"),
+			MemoryLimit:   getEnv("HYPERSHELL_POLICY_DEFAULT_MEMORY_LIMIT", "4Gi"),
+		},
+		PolicyEnabled:           getEnvBool("HYPERSHELL_POLICY_ENABLED", true),
+		PolicyCanaryEnabled:     getEnvBool("HYPERSHELL_POLICY_CANARY_ENABLED", true),
+		PolicyResyncInterval:    getEnvDuration("HYPERSHELL_POLICY_RESYNC_INTERVAL", 30*time.Second),
+		PolicyEventsBindAddress: getEnv("HYPERSHELL_POLICY_EVENTS_BIND_ADDRESS", "0.0.0.0:9444"),
+		PolicyEventsAddress:     getEnv("HYPERSHELL_POLICY_EVENTS_ADDRESS", ""),
+		PolicyConsoleURL:        strings.TrimRight(getEnv("HYPERSHELL_POLICY_CONSOLE_URL", ""), "/"),
+
 		GatewayDatabaseAdminDir: getEnv("GATEWAY_DATABASE_ADMIN_DIR", DefaultGatewayDatabaseAdminDir),
 		SandboxRuntimeClass:     getEnv("GATEWAY_SANDBOX_RUNTIME_CLASS", ""),
 
@@ -324,6 +367,18 @@ func Load() (*Config, error) {
 
 	if cfg.GRPCServerAddr == "" {
 		return nil, fmt.Errorf("HYPERSHELL_GRPC_SERVER_ADDR is required")
+	}
+
+	// Fleet defaults are validated at startup: an invalid quantity would make
+	// every sidecar fail, so it is a deployment error (PLAT-PGP-08).
+	normalized, err := cedar.ParseDefaults(cfg.PolicyDefaults.CPURequest, cfg.PolicyDefaults.CPULimit,
+		cfg.PolicyDefaults.MemoryRequest, cfg.PolicyDefaults.MemoryLimit)
+	if err != nil {
+		return nil, fmt.Errorf("invalid HYPERSHELL_POLICY_DEFAULT_*: %w", err)
+	}
+	cfg.PolicyDefaults.Normalized = normalized
+	if cfg.PolicyEventsAddress == "" {
+		cfg.PolicyEventsAddress = fmt.Sprintf("hypershell-controller.%s.svc.cluster.local:9444", cfg.Namespace)
 	}
 
 	// Every control plane is a registered spoke: without a cluster name and OIDC
@@ -393,6 +448,16 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// PolicyDefaults are the fleet-wide sandbox resource defaults (PLAT-PGP-08):
+// the configured quantities and their normalized schema values.
+type PolicyDefaults struct {
+	CPURequest    string
+	CPULimit      string
+	MemoryRequest string
+	MemoryLimit   string
+	Normalized    cedar.Defaults
 }
 
 // parseCapabilities converts the comma-separated deployment setting into the
