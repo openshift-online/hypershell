@@ -135,10 +135,12 @@ Query failures return HTTP 502. Provision duration has no data until a gateway
 provision operation supplies observations.
 
 The metric families have different namespace labels. API scrape metrics use
-`hypershell_gateways_total{namespace="<instance>"}`. The controller sends provision
-duration and sandbox attention gauges through OTLP, so
-`gateway_provision_duration_seconds_*` and `gateway_sandbox_*` use
-`k8s_namespace_name="<instance>"`. Its scrape `namespace` label identifies the
+`hypershell_gateways_total{namespace="<instance>"}`. The API server also emits the
+provision series `gateway_provision_duration_seconds_*` durably per OBS-SLI-04;
+these are fleet-level with no `k8s_namespace_name` (or any other gateway or
+namespace identifier) label, so their queries are never namespace scoped. The
+controller still sends sandbox attention gauges through OTLP, so `gateway_sandbox_*`
+use `k8s_namespace_name="<instance>"`. Its scrape `namespace` label identifies the
 collector's namespace, not the instance. Do not use that scrape label for OTLP
 queries. Attention fleet totals also use
 `sum(max by (hypershell_cluster_id) (...))` so control-plane replicas for the

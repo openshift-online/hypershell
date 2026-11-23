@@ -41,13 +41,21 @@ func NewServiceLocator(env *environments.Env) ServiceLocator {
 	dao := NewGatewayDao(&env.Database.SessionFactory)
 	RegisterGatewayMetrics(dao)
 
+	// The durable change-convergence store backs OBS-SLI-01 through OBS-SLI-04.
+	// It shares the gateway session factory so its writes commit atomically with
+	// the gateway create/replace/delete that triggered them, and it backs the
+	// convergence and provision metrics exported on :4433/metrics.
+	convergence := newConvergenceStore(&env.Database.SessionFactory, db.NewAdvisoryLockFactory(env.Database.SessionFactory))
+	RegisterConvergenceMetrics(convergence)
+
 	return ServiceLocator{
 		gateway: func() GatewayService {
-			return NewGatewayService(
+			return newGatewayService(
 				db.NewAdvisoryLockFactory(env.Database.SessionFactory),
 				dao,
 				events.Service(&env.Services),
 				gatewayBindingCleaner(&env.Services),
+				convergence,
 			)
 		},
 		list:      newGatewayListService(&env.Database.SessionFactory),
@@ -439,6 +447,7 @@ func init() {
 	db.RegisterMigration(migrationAddGatewayWorkspaceMode())
 	db.RegisterMigration(migrationAddGatewayDedicatedRoute())
 	db.RegisterMigration(migrationBackfillGatewayWorkspaceModeShared())
+	db.RegisterMigration(migrationAddConvergenceTracking())
 }
 
 // gatewayGRPCResources declares every GatewayService method for authorization.

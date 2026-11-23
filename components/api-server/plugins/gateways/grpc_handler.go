@@ -524,6 +524,20 @@ func (h *gatewayGRPCHandler) DeleteGateway(ctx context.Context, req *pb.DeleteGa
 	// no-op, so per-gateway RBAC delete over gRPC is unaffected.
 	gateway, svcErr := h.service.Get(ctx, req.Id)
 	if svcErr != nil {
+		// A gateway that is already soft-deleted is not an error on this path: the
+		// control plane re-calls DeleteGateway once it has reclaimed every
+		// Gateway-owned resource (GTW-DEL-01), and that re-call is the finalization
+		// signal that converges the durable delete window (OBS-SLI-01.03). An
+		// unscoped lookup distinguishes a tombstone (finalize, idempotent success)
+		// from a gateway that never existed (NotFound, unchanged).
+		if svcErr.Is404() {
+			if tombstone, unscopedErr := h.service.GetUnscoped(ctx, req.Id); unscopedErr == nil && tombstone != nil && tombstone.DeletedAt.Valid {
+				if finErr := h.service.FinalizeDeletion(ctx, req.Id); finErr != nil {
+					return nil, grpcutil.ServiceErrorToGRPC(finErr)
+				}
+				return &pb.DeleteGatewayResponse{}, nil
+			}
+		}
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
 	if gateway == nil {

@@ -402,7 +402,7 @@ describe("metrics sources", () => {
     expect((await queryGatewayPhaseCounts(url, 1000, "hyp1")).Running).toBe(3);
   });
 
-  it("scopes all duration queries to the controller namespace", async () => {
+  it("uses fleet-level duration queries without namespace scoping", async () => {
     const queries: string[] = [];
     const url = await serve((req, res) => {
       queries.push(
@@ -413,10 +413,8 @@ describe("metrics sources", () => {
     await queryGatewayProvisionDuration(url, 1000, "hyp1");
     expect(queries).toHaveLength(4);
     for (const query of queries)
-      expect(query).toContain('{k8s_namespace_name="hyp1"}');
-    expect(queries[0]).toBe(
-      'sum(gateway_provision_duration_seconds_count{k8s_namespace_name="hyp1"})',
-    );
+      expect(query).not.toContain("k8s_namespace_name");
+    expect(queries[0]).toBe("gateway_provision_duration_seconds_count");
   });
 
   it("does not report zero CPU use or gateway counts when samples are missing", async () => {
