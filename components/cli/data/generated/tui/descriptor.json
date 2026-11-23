@@ -470,6 +470,260 @@
       "source": {}
     },
     {
+      "id": "collection:/api/hypershell/ext/platform_gateway_policies/evaluate:#/schemas/PlatformGatewayPolicyEvaluation",
+      "kind": "collection",
+      "schemaRef": "#/schemas/PlatformGatewayPolicyEvaluation",
+      "label": "PlatformGatewayPolicyEvaluation",
+      "defaultSort": "denial_text",
+      "columns": [
+        {
+          "property": "denial_text",
+          "label": "DENIAL TEXT",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "forbids_defaults",
+          "label": "FORBIDS DEFAULTS",
+          "priority": 0,
+          "type": "boolean"
+        },
+        {
+          "property": "sample_allowed",
+          "label": "SAMPLE ALLOWED",
+          "priority": 0,
+          "type": "boolean"
+        },
+        {
+          "property": "valid",
+          "label": "VALID",
+          "priority": 0,
+          "type": "boolean"
+        }
+      ],
+      "operationIds": [
+        "evaluatePlatformGatewayPolicy"
+      ],
+      "capabilities": [
+        "create"
+      ],
+      "source": {}
+    },
+    {
+      "id": "collection:/api/hypershell/ext/platform_gateway_policies/{id}/findings:#/schemas/PolicyAuditFinding",
+      "kind": "collection",
+      "schemaRef": "#/schemas/PolicyAuditFinding",
+      "label": "PolicyAuditFinding",
+      "identityProperty": "id",
+      "defaultSort": "bundle_revision",
+      "columns": [
+        {
+          "property": "bundle_revision",
+          "label": "BUNDLE REVISION",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "gateway_id",
+          "label": "GATEWAY ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "id",
+          "label": "ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "occurred_at",
+          "label": "OCCURRED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "operation",
+          "label": "OPERATION",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "outcome",
+          "label": "OUTCOME",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "principal_subject",
+          "label": "PRINCIPAL SUBJECT",
+          "priority": 0,
+          "type": "string"
+        }
+      ],
+      "scopeParameters": [
+        "id"
+      ],
+      "operationIds": [
+        "listPlatformGatewayPolicyFindings"
+      ],
+      "capabilities": [
+        "list"
+      ],
+      "listOperationId": "listPlatformGatewayPolicyFindings",
+      "source": {}
+    },
+    {
+      "id": "collection:/api/hypershell/ext/platform_gateway_policies:#/schemas/PlatformGatewayPolicy",
+      "kind": "collection",
+      "schemaRef": "#/schemas/PlatformGatewayPolicy",
+      "label": "PlatformGatewayPolicy",
+      "identityProperty": "id",
+      "defaultSort": "name",
+      "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "built_in",
+          "label": "BUILT IN",
+          "priority": 0,
+          "type": "boolean"
+        },
+        {
+          "property": "cedar",
+          "label": "CEDAR",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "created_at",
+          "label": "CREATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "description",
+          "label": "DESCRIPTION",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "documentation_url",
+          "label": "DOCUMENTATION URL",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "effective_mode",
+          "label": "EFFECTIVE MODE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "enforcement_mode",
+          "label": "ENFORCEMENT MODE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "href",
+          "label": "HREF",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "id",
+          "label": "ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "kind",
+          "label": "KIND",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "updated_at",
+          "label": "UPDATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "user_message",
+          "label": "USER MESSAGE",
+          "priority": 0,
+          "type": "string"
+        }
+      ],
+      "operationIds": [
+        "createPlatformGatewayPolicy",
+        "listPlatformGatewayPolicies"
+      ],
+      "capabilities": [
+        "create",
+        "list"
+      ],
+      "listOperationId": "listPlatformGatewayPolicies",
+      "source": {}
+    },
+    {
+      "id": "collection:/api/hypershell/ext/platform_policy_settings:#/schemas/PlatformPolicySettings",
+      "kind": "collection",
+      "schemaRef": "#/schemas/PlatformPolicySettings",
+      "label": "PlatformPolicySettings",
+      "defaultSort": "kind",
+      "columns": [
+        {
+          "property": "kind",
+          "label": "KIND",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "mode",
+          "label": "MODE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "schema_version",
+          "label": "SCHEMA VERSION",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "updated_at",
+          "label": "UPDATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "updated_by",
+          "label": "UPDATED BY",
+          "priority": 0,
+          "type": "string"
+        }
+      ],
+      "operationIds": [
+        "getPlatformPolicySettings",
+        "updatePlatformPolicySettings"
+      ],
+      "capabilities": [
+        "get",
+        "update"
+      ],
+      "getOperationId": "getPlatformPolicySettings",
+      "source": {}
+    },
+    {
       "id": "collection:/api/hypershell/ext/provider_bindings:#/schemas/ProviderBinding",
       "kind": "collection",
       "schemaRef": "#/schemas/ProviderBinding",
@@ -1217,6 +1471,44 @@
         "list"
       ],
       "listOperationId": "listGatewayAccess",
+      "source": {}
+    },
+    {
+      "id": "collection:/api/hypershell/v1/gateways/{gateway_id}/effective_policies:#/schemas/GatewayEffectivePolicies",
+      "kind": "collection",
+      "schemaRef": "#/schemas/GatewayEffectivePolicies",
+      "label": "GatewayEffectivePolicies",
+      "defaultSort": "gateway_id",
+      "columns": [
+        {
+          "property": "gateway_id",
+          "label": "GATEWAY ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "global_mode",
+          "label": "GLOBAL MODE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "schema_version",
+          "label": "SCHEMA VERSION",
+          "priority": 0,
+          "type": "string"
+        }
+      ],
+      "scopeParameters": [
+        "gateway_id"
+      ],
+      "operationIds": [
+        "getGatewayEffectivePolicies"
+      ],
+      "capabilities": [
+        "get"
+      ],
+      "getOperationId": "getGatewayEffectivePolicies",
       "source": {}
     },
     {
@@ -2642,6 +2934,108 @@
         "get"
       ],
       "getOperationId": "getInferenceRoute",
+      "source": {}
+    },
+    {
+      "id": "item:/api/hypershell/ext/platform_gateway_policies/{id}:#/schemas/PlatformGatewayPolicy",
+      "kind": "item",
+      "schemaRef": "#/schemas/PlatformGatewayPolicy",
+      "label": "PlatformGatewayPolicy",
+      "identityProperty": "id",
+      "defaultSort": "name",
+      "columns": [
+        {
+          "property": "name",
+          "label": "NAME",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "built_in",
+          "label": "BUILT IN",
+          "priority": 0,
+          "type": "boolean"
+        },
+        {
+          "property": "cedar",
+          "label": "CEDAR",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "created_at",
+          "label": "CREATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "description",
+          "label": "DESCRIPTION",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "documentation_url",
+          "label": "DOCUMENTATION URL",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "effective_mode",
+          "label": "EFFECTIVE MODE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "enforcement_mode",
+          "label": "ENFORCEMENT MODE",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "href",
+          "label": "HREF",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "id",
+          "label": "ID",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "kind",
+          "label": "KIND",
+          "priority": 0,
+          "type": "string"
+        },
+        {
+          "property": "updated_at",
+          "label": "UPDATED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "user_message",
+          "label": "USER MESSAGE",
+          "priority": 0,
+          "type": "string"
+        }
+      ],
+      "operationIds": [
+        "deletePlatformGatewayPolicy",
+        "getPlatformGatewayPolicy",
+        "updatePlatformGatewayPolicy"
+      ],
+      "capabilities": [
+        "delete",
+        "get",
+        "update"
+      ],
+      "getOperationId": "getPlatformGatewayPolicy",
       "source": {}
     },
     {
@@ -4772,6 +5166,121 @@
       "presentation": {}
     },
     {
+      "id": "createPlatformGatewayPolicy",
+      "method": "POST",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/platform_gateway_policies"
+        }
+      ],
+      "requestBody": {
+        "required": true,
+        "contentType": "application/json",
+        "fields": [
+          {
+            "name": "cedar",
+            "type": "string",
+            "required": true,
+            "description": "One or more Cedar forbid statements (PLAT-PGP-04)"
+          },
+          {
+            "name": "created_at",
+            "type": "string",
+            "format": "date-time",
+            "required": false
+          },
+          {
+            "name": "description",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "documentation_url",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "enforcement_mode",
+            "type": "string",
+            "required": false,
+            "description": "audit or enforce. A new policy is always stored as audit (PLAT-PGP-01).",
+            "enum": [
+              "audit",
+              "enforce"
+            ]
+          },
+          {
+            "name": "href",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "id",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "kind",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "required": true,
+            "description": "Stable identifier shown to users and used as the Cedar @id attribution (PLAT-PGP-14)"
+          },
+          {
+            "name": "target",
+            "type": "object",
+            "required": false,
+            "description": "The gateways a policy applies to (PLAT-PGP-01): all gateways, or the listed gateway ids, minus the exclude list. Returned only to platform-policy:admin, fleet:reader, and platform:admin (SEC-RBAC-31)."
+          },
+          {
+            "name": "updated_at",
+            "type": "string",
+            "format": "date-time",
+            "required": false
+          },
+          {
+            "name": "user_message",
+            "type": "string",
+            "required": false,
+            "description": "Text shown in the denial reason and the UI. Must not contain secrets."
+          }
+        ]
+      },
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "201"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "create"
+      ],
+      "summary": "Create a platform gateway policy (always stored in audit mode)",
+      "presentation": {}
+    },
+    {
       "id": "createProviderBinding",
       "method": "POST",
       "pathParts": [
@@ -5939,6 +6448,62 @@
       }
     },
     {
+      "id": "deletePlatformGatewayPolicy",
+      "method": "DELETE",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/platform_gateway_policies/"
+        },
+        {
+          "parameter": "id"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "The id of record"
+        }
+      ],
+      "response": {},
+      "successStatuses": [
+        "204"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "delete"
+      ],
+      "summary": "Delete a platform gateway policy (built-in policies cannot be deleted)",
+      "presentation": {
+        "confirmation": {
+          "title": "Delete",
+          "message": "Delete a platform gateway policy (built-in policies cannot be deleted)?",
+          "destructive": true
+        }
+      }
+    },
+    {
       "id": "deleteProviderBinding",
       "method": "DELETE",
       "pathParts": [
@@ -6331,6 +6896,76 @@
       }
     },
     {
+      "id": "evaluatePlatformGatewayPolicy",
+      "method": "POST",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/platform_gateway_policies/evaluate"
+        }
+      ],
+      "requestBody": {
+        "required": true,
+        "contentType": "application/json",
+        "fields": [
+          {
+            "name": "cedar",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "documentation_url",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "sample",
+            "type": "object",
+            "required": false,
+            "description": "A sample CreateSandbox request; omitted resources take the fleet defaults"
+          },
+          {
+            "name": "user_message",
+            "type": "string",
+            "required": false
+          }
+        ]
+      },
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "create"
+      ],
+      "summary": "Validate a draft policy and evaluate a sample request without saving",
+      "presentation": {}
+    },
+    {
       "id": "getAgentRuntime",
       "method": "GET",
       "pathParts": [
@@ -6591,6 +7226,60 @@
       "presentation": {}
     },
     {
+      "id": "getGatewayEffectivePolicies",
+      "method": "GET",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/v1/gateways/"
+        },
+        {
+          "parameter": "gateway_id"
+        },
+        {
+          "literal": "/effective_policies"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "gateway_id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string"
+        }
+      ],
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "get"
+      ],
+      "summary": "Read the platform policies, fleet defaults, global mode, and audit findings for one gateway",
+      "presentation": {}
+    },
+    {
       "id": "getGatewayPlacementAvailability",
       "method": "POST",
       "pathParts": [
@@ -6846,6 +7535,96 @@
         "get"
       ],
       "summary": "Service metadata",
+      "presentation": {}
+    },
+    {
+      "id": "getPlatformGatewayPolicy",
+      "method": "GET",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/platform_gateway_policies/"
+        },
+        {
+          "parameter": "id"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "The id of record"
+        }
+      ],
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "get"
+      ],
+      "summary": "Get a platform gateway policy by ID",
+      "presentation": {}
+    },
+    {
+      "id": "getPlatformPolicySettings",
+      "method": "GET",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/platform_policy_settings"
+        }
+      ],
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "get"
+      ],
+      "summary": "Read the global policy enforcement toggle and the fleet defaults",
       "presentation": {}
     },
     {
@@ -8331,6 +9110,192 @@
         "list"
       ],
       "summary": "Returns a list of managedClusters",
+      "presentation": {}
+    },
+    {
+      "id": "listPlatformGatewayPolicies",
+      "method": "GET",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/platform_gateway_policies"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "page",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "integer",
+          "description": "Page number of record list when record list exceeds specified page size",
+          "default": 1
+        },
+        {
+          "name": "size",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "integer",
+          "description": "Maximum number of records to return",
+          "default": 100
+        },
+        {
+          "name": "search",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "description": "Specifies the search criteria"
+        },
+        {
+          "name": "orderBy",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "description": "Specifies the order by criteria"
+        },
+        {
+          "name": "fields",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "description": "Supplies a comma-separated list of fields to be returned"
+        }
+      ],
+      "response": {
+        "contentType": "application/json",
+        "itemsPointer": "/items"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "list"
+      ],
+      "summary": "Returns a list of platform gateway policies",
+      "presentation": {}
+    },
+    {
+      "id": "listPlatformGatewayPolicyFindings",
+      "method": "GET",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/platform_gateway_policies/"
+        },
+        {
+          "parameter": "id"
+        },
+        {
+          "literal": "/findings"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "The id of record"
+        },
+        {
+          "name": "page",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "integer",
+          "description": "Page number of record list when record list exceeds specified page size",
+          "default": 1
+        },
+        {
+          "name": "size",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "integer",
+          "description": "Maximum number of records to return",
+          "default": 100
+        },
+        {
+          "name": "gateway_id",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "description": "Only findings recorded on this gateway"
+        },
+        {
+          "name": "outcome",
+          "in": "query",
+          "required": false,
+          "style": "form",
+          "explode": true,
+          "type": "string",
+          "description": "Only findings with this outcome",
+          "enum": [
+            "would_reject",
+            "would_add_defaults"
+          ]
+        }
+      ],
+      "response": {
+        "contentType": "application/json",
+        "itemsPointer": "/items"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "list"
+      ],
+      "summary": "List the audit findings that name a platform gateway policy",
       "presentation": {}
     },
     {
@@ -9956,6 +10921,152 @@
       "presentation": {}
     },
     {
+      "id": "updatePlatformGatewayPolicy",
+      "method": "PATCH",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/platform_gateway_policies/"
+        },
+        {
+          "parameter": "id"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "style": "simple",
+          "explode": false,
+          "type": "string",
+          "description": "The id of record"
+        }
+      ],
+      "requestBody": {
+        "required": true,
+        "contentType": "application/json",
+        "fields": [
+          {
+            "name": "cedar",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "description",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "documentation_url",
+            "type": "string",
+            "required": false
+          },
+          {
+            "name": "enforcement_mode",
+            "type": "string",
+            "required": false,
+            "enum": [
+              "audit",
+              "enforce"
+            ]
+          },
+          {
+            "name": "target",
+            "type": "object",
+            "required": false,
+            "description": "The gateways a policy applies to (PLAT-PGP-01): all gateways, or the listed gateway ids, minus the exclude list. Returned only to platform-policy:admin, fleet:reader, and platform:admin (SEC-RBAC-31)."
+          },
+          {
+            "name": "user_message",
+            "type": "string",
+            "required": false
+          }
+        ]
+      },
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "update"
+      ],
+      "summary": "Update a platform gateway policy, including its enforcement mode",
+      "presentation": {}
+    },
+    {
+      "id": "updatePlatformPolicySettings",
+      "method": "PATCH",
+      "pathParts": [
+        {
+          "literal": "/api/hypershell/ext/platform_policy_settings"
+        }
+      ],
+      "requestBody": {
+        "required": true,
+        "contentType": "application/json",
+        "fields": [
+          {
+            "name": "mode",
+            "type": "string",
+            "required": true,
+            "enum": [
+              "audit",
+              "enforce"
+            ]
+          }
+        ]
+      },
+      "response": {
+        "contentType": "application/json"
+      },
+      "successStatuses": [
+        "200"
+      ],
+      "servers": [
+        {
+          "url": "http://localhost:8000"
+        },
+        {
+          "url": "/"
+        }
+      ],
+      "security": {
+        "none": false,
+        "requirements": [
+          {
+            "schemes": [
+              "Bearer"
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "update"
+      ],
+      "summary": "Change the global policy enforcement toggle",
+      "presentation": {}
+    },
+    {
       "id": "updateProviderBinding",
       "method": "PATCH",
       "pathParts": [
@@ -10559,6 +11670,23 @@
       "navigable": true
     },
     {
+      "id": "collection:/api/hypershell/ext/platform_gateway_policies:#/schemas/PlatformGatewayPolicy-\u003eitem:/api/hypershell/ext/platform_gateway_policies/{id}:#/schemas/PlatformGatewayPolicy:item",
+      "name": "details",
+      "sourceViewId": "collection:/api/hypershell/ext/platform_gateway_policies:#/schemas/PlatformGatewayPolicy",
+      "targetViewId": "item:/api/hypershell/ext/platform_gateway_policies/{id}:#/schemas/PlatformGatewayPolicy",
+      "sourceOperationId": "listPlatformGatewayPolicies",
+      "targetOperationId": "getPlatformGatewayPolicy",
+      "provenance": "collection-item",
+      "bindings": [
+        {
+          "target": "id",
+          "sourceKind": "row-property",
+          "source": "id"
+        }
+      ],
+      "navigable": true
+    },
+    {
       "id": "collection:/api/hypershell/ext/provider_bindings:#/schemas/ProviderBinding-\u003eitem:/api/hypershell/ext/provider_bindings/{id}:#/schemas/ProviderBinding:item",
       "name": "details",
       "sourceViewId": "collection:/api/hypershell/ext/provider_bindings:#/schemas/ProviderBinding",
@@ -10763,6 +11891,23 @@
           "target": "id",
           "sourceKind": "row-property",
           "source": "id"
+        }
+      ],
+      "navigable": true
+    },
+    {
+      "id": "item:/api/hypershell/ext/platform_gateway_policies/{id}:#/schemas/PlatformGatewayPolicy-\u003ecollection:/api/hypershell/ext/platform_gateway_policies/{id}/findings:#/schemas/PolicyAuditFinding:contains",
+      "name": "contains",
+      "sourceViewId": "item:/api/hypershell/ext/platform_gateway_policies/{id}:#/schemas/PlatformGatewayPolicy",
+      "targetViewId": "collection:/api/hypershell/ext/platform_gateway_policies/{id}/findings:#/schemas/PolicyAuditFinding",
+      "sourceOperationId": "getPlatformGatewayPolicy",
+      "targetOperationId": "listPlatformGatewayPolicyFindings",
+      "provenance": "inferred-path",
+      "bindings": [
+        {
+          "target": "id",
+          "sourceKind": "runtime-expression",
+          "source": "$request.path.id"
         }
       ],
       "navigable": true

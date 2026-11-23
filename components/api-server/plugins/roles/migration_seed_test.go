@@ -204,3 +204,46 @@ func TestFleetReaderRoleSeedIsIdempotent(t *testing.T) {
 		t.Errorf("%s must be JWT-synced", RoleFleetReader)
 	}
 }
+
+// Verifies: SEC-RBAC-30
+// The platform-policy:admin seed is additive, idempotent,
+// built-in, and not JWT-synced.
+func TestMigrationAddPlatformPolicyAdminRoleIsIdempotent(t *testing.T) {
+	env := environments.Environment()
+	if env == nil || env.Database.SessionFactory == nil {
+		t.Fatal("test environment is not initialized")
+	}
+	session := env.Database.SessionFactory.New(context.Background())
+	if err := session.Unscoped().Where("name = ?", RolePlatformPolicyAdmin).Delete(&Role{}).Error; err != nil {
+		t.Fatalf("clear the seeded role: %s", err)
+	}
+	migration := migrationAddPlatformPolicyAdminRole()
+	if err := migration.Migrate(session); err != nil {
+		t.Fatalf("first migration run: %s", err)
+	}
+	if err := migration.Migrate(session); err != nil {
+		t.Fatalf("second migration run must be a no-op: %s", err)
+	}
+	var seeded []Role
+	if err := session.Where("name = ?", RolePlatformPolicyAdmin).Find(&seeded).Error; err != nil {
+		t.Fatalf("read the seeded role: %s", err)
+	}
+	if len(seeded) != 1 || !seeded[0].BuiltIn {
+		t.Fatalf("want exactly one built-in %s row, got %+v", RolePlatformPolicyAdmin, seeded)
+	}
+	if seeded[0].Permissions == nil || !strings.Contains(*seeded[0].Permissions, "platform_gateway_policies") {
+		t.Errorf("seeded permissions must name platform_gateway_policies, got %v", seeded[0].Permissions)
+	}
+	found := false
+	for _, seed := range builtInRoleSeeds {
+		if seed.Name == RolePlatformPolicyAdmin {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("builtInRoleSeeds must include %s", RolePlatformPolicyAdmin)
+	}
+	if JWTSyncedRoles[RolePlatformPolicyAdmin] {
+		t.Errorf("%s must not be JWT-synced", RolePlatformPolicyAdmin)
+	}
+}

@@ -22,6 +22,7 @@ import (
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/inferenceRoutes"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/otel"
+	_ "github.com/openshift-online/hypershell/components/api-server/plugins/platformGatewayPolicies"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/providerBindings"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/providerSpecs"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/rbac"

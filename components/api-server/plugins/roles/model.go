@@ -86,6 +86,14 @@ const (
 	// access-management authority. Like gateway:creator and platform:admin it is
 	// Keycloak-owned (JWT-synced).
 	RoleFleetReader = "fleet:reader"
+	// RolePlatformPolicyAdmin is the narrow platform-wide role that authorizes the
+	// platform_gateway_policies ext kind (create, read, update, delete, and change
+	// enforcement mode), the platform_policy_settings global toggle, and the policy
+	// administration console, and nothing else (SEC-RBAC-30). It lets an IT or
+	// security group own policy administration without platform:admin. Like
+	// ci-federation:admin it is NOT Keycloak-owned: it is granted through the
+	// RoleBinding API (scope=global) by a platform:admin.
+	RolePlatformPolicyAdmin = "platform-policy:admin"
 )
 
 // JWTSyncedRoles is the set of roles whose bindings are reconciled from the
@@ -106,6 +114,8 @@ var JWTSyncedRoles = map[string]bool{
 	// Keycloak and reconciled by SyncJWTRoles exactly like gateway:creator and
 	// platform:admin.
 	RoleFleetReader: true,
+	// RolePlatformPolicyAdmin is intentionally absent for the same reason as
+	// RoleCIFederationAdmin below: it is API-assignable (SEC-RBAC-30).
 	// RoleCIFederationAdmin is intentionally absent: it is granted through the
 	// RoleBinding API by a platform:admin or ci-federation:grantor (SEC-RBAC-21/23),
 	// not synced from a Keycloak realm role. Keeping it out of this set means an

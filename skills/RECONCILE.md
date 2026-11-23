@@ -49,7 +49,7 @@ skills/
 
 ## Reconciliation State
 
-### PlatformGatewayPolicy / Cedar (in progress, branch implementer/spec-HYPERSHELL-563-platform-gateway-policy)
+### PlatformGatewayPolicy / Cedar (in progress, branch spec/HYPERSHELL-1151-policy-mockups, PR #1159, issue #1151)
 
 Scoped reconciliation of the PlatformGatewayPolicy spec set introduced by #1148
 (HYPERSHELL-563): `platform/platform-gateway-policy.spec.md` (PLAT-PGP-01..20),
@@ -91,12 +91,30 @@ delivery slice 1 (PLAT-PGP-05).
   - Dependency: `github.com/cedar-policy/cedar-go v1.9.0` added to the api-server
     module (age-compliant; dependency-age check passes).
 
+**W1 done (API, data, RBAC; #1151):**
+
+| ID | Status | Evidence |
+|----|--------|----------|
+| PLAT-DATA-28, PLAT-PGP-01 | Present | `plugins/platformGatewayPolicies` (model, dao, service, REST + gRPC handlers, presenters, migration `2026112300000001`), `openapi/openapi.platformGatewayPolicies.yaml`, `proto/hypershell/v1/platform_gateway_policies.proto`; new policies stored as `audit`; built-in policies refuse update and delete; tests `test/authz/platform_gateway_policy_test.go`, `test/authz/ext_crud_conformance_test.go` |
+| PLAT-DATA-29, PLAT-PGP-06 | Present | `platform_policy_settings` singleton (default `audit`), `GET/PATCH /api/hypershell/ext/platform_policy_settings`, gRPC `PlatformPolicySettingsService` Get + Watch; changes captured by the framework audit trail (SEC-RBAC-12) |
+| PLAT-DATA-30, PLAT-PGP-15 (store) | Present | `policy_audit_findings` table (gateway/time index, GIN on `policy_names`), idempotent insert on event id, hourly retention pruner (`HYPERSHELL_POLICY_FINDINGS_RETENTION_DAYS`, default 30), gRPC `PolicyAuditFindingService.ReportPolicyAuditFindings`, `GET .../platform_gateway_policies/{id}/findings` |
+| PLAT-PGP-04, PLAT-PGP-05 | Present | write-time `cedar.ValidatePolicy` on create/update with line-attributed diagnostics and fixes; editor dry run `POST .../platform_gateway_policies/evaluate` |
+| PLAT-PGP-14, PLAT-PGP-17 (shared engine) | Present | `pkg/cedar/evaluate.go` (`NewEvaluator`, `Evaluate`, `DenialReason`), structured `Bounds` on `RenderPolicy`; tests `pkg/cedar/evaluate_test.go` |
+| PLAT-PGP-19 | Present | `GET /api/hypershell/v1/gateways/{gateway_id}/effective_policies` |
+| PLAT-PGP-20 (seed) | Present | migration `2026112300000002` seeds `e2e-enforcement-canary` (enforce, target all, built in) |
+| SEC-RBAC-30 | Present | `plugins/roles` (`RolePlatformPolicyAdmin`, seed migration `2026112300000003`), `plugins/roleBindings/service.go` (platform:admin-only grant, global scope), `pkg/rbac/authorization.go` (`hasPlatformPolicyAdmin`, ext gate); tests `pkg/rbac/platform_policy_authz_test.go`, `plugins/roleBindings/integration_test.go`, `plugins/roles/migration_seed_test.go` |
+| SEC-RBAC-31 | Present | `effective_policies` gate + 404 masking, targets only for policy admin / fleet reader / platform admin (`CanSeePolicyTargets`) |
+| SEC-RBAC-32, CTRL-CORE-22 (API side) | Present | `pkg/rbac/grpc_authorization.go`: control plane reads policies and settings, status-only own-cluster write-back, own-cluster findings forward; users denied |
+
+Fleet defaults (`HYPERSHELL_POLICY_DEFAULT_*`) are read by the api-server too
+(write-time rule 3 and the effective-policies response); the values in
+`deploy/base/applications/api-server.yaml` must match the controller's.
+
 **Remaining gap table (wave plan, not yet implemented):**
 
 | Wave | Layer | Gap | Spec |
 |------|-------|-----|------|
-| W1 | API+SDK+BE | `PlatformGatewayPolicy` ext kind (OpenAPI, proto, SDKs, plugin, migration), `PlatformPolicySettings` singleton, `policy_audit_findings` table, `effective_policies` endpoint | PLAT-DATA-28/29/30, PLAT-PGP-01/19 |
-| W1 | RBAC | `platform-policy:admin` role seed + authorizer cases, effective-policies/findings masking, interceptor event authz | SEC-RBAC-30/31/32 |
+| W1 | API+SDK+BE+RBAC | done (see table above) | PLAT-DATA-28/29/30, PLAT-PGP-01/19, SEC-RBAC-30/31/32 |
 | W2 | CLI | `platform-gateway-policies` + settings + effective-policies commands via extgroup; `make generate-tui` | CLI-EXT-06 |
 | W2 | CP | watch the kind + settings, per-gateway bundle ConfigMap reconcile, `ReportPolicyEvents` endpoint, status write-back | CTRL-CORE-22 |
 | W3 | Sidecar | `hypershell-policy-interceptor` second binary in the control-plane image, k8s driver adapter, bundle watch, denial text, audit events | PLAT-PGP-09..16 |

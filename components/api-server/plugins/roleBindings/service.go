@@ -581,6 +581,13 @@ func (s *sqlRoleBindingService) authorizeWrite(ctx context.Context, op string, r
 		// (SEC-RBAC-23); scope=global is enforced by validateScopeMatchesRole on
 		// create and by the stored binding on delete.
 		return s.validateCallerCanGrantCIFederationAdmin(ctx)
+	case roles.RolePlatformPolicyAdmin:
+		// platform-policy:admin is API-assignable (SEC-RBAC-30), like
+		// ci-federation:admin: policy authorization is HyperShell's own RBAC
+		// decision, so it is NOT JWT-synced and a binding written here survives
+		// the recipient's next sign-in. Only platform:admin may grant or revoke
+		// it; scope=global is enforced by validateScopeMatchesRole on create.
+		return s.validateCallerHoldsGlobalPlatformAdmin(ctx, roles.RolePlatformPolicyAdmin)
 	case roles.RolePlatformAdmin, roles.RoleGatewayCreator,
 		roles.RoleGatewayDedicatedRouteCreator, roles.RoleGatewayOperatorWorkspaceCreator,
 		roles.RoleCIFederationGrantor:
@@ -733,9 +740,36 @@ func (s *sqlRoleBindingService) validateCallerCanGrantCIFederationAdmin(ctx cont
 		roles.RoleCIFederationGrantor, roles.RoleCIFederationAdmin)
 }
 
+// validateCallerHoldsGlobalPlatformAdmin authorizes granting or revoking an
+// API-assignable role that only platform:admin may grant (SEC-RBAC-30). A missing
+// caller identity never authorizes the operation (SEC-RBAC-25).
+func (s *sqlRoleBindingService) validateCallerHoldsGlobalPlatformAdmin(ctx context.Context, roleName string) *errors.ServiceError {
+	callerUserID := rbac.GetUserIDFromContext(ctx)
+	if callerUserID == "" {
+		return errors.Forbidden("an authenticated caller is required to grant or revoke %s", roleName)
+	}
+	callerBindings, err := s.rbDao.FindByUserID(ctx, callerUserID)
+	if err != nil {
+		return errors.GeneralError("unable to look up caller bindings: %s", err)
+	}
+	for _, b := range callerBindings {
+		if b.Scope != ScopeGlobal {
+			continue
+		}
+		role, roleErr := s.roleDao.Get(ctx, b.RoleID)
+		if roleErr != nil {
+			continue
+		}
+		if role.Name == roles.RolePlatformAdmin {
+			return nil
+		}
+	}
+	return errors.Forbidden("caller must be platform:admin to grant %s", roleName)
+}
+
 func (s *sqlRoleBindingService) validateScopeMatchesRole(roleName string, rb *RoleBinding) *errors.ServiceError {
 	switch roleName {
-	case roles.RoleGatewayCreator, roles.RoleGatewayDedicatedRouteCreator, roles.RoleGatewayOperatorWorkspaceCreator, roles.RoleCIFederationAdmin, roles.RoleCIFederationGrantor:
+	case roles.RoleGatewayCreator, roles.RoleGatewayDedicatedRouteCreator, roles.RoleGatewayOperatorWorkspaceCreator, roles.RoleCIFederationAdmin, roles.RoleCIFederationGrantor, roles.RolePlatformPolicyAdmin:
 		if rb.Scope != ScopeGlobal {
 			return errors.Validation("role %q requires scope=global", roleName)
 		}

@@ -62,4 +62,5 @@ func init() {
 	db.RegisterMigration(migrationAddCIFederationAdminRole())
 	db.RegisterMigration(migrationAddCIFederationGrantorRole())
 	db.RegisterMigration(migrationAddFleetReaderRole())
+	db.RegisterMigration(migrationAddPlatformPolicyAdminRole())
 }

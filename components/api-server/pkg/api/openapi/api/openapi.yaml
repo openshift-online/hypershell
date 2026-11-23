@@ -1602,6 +1602,40 @@ paths:
                 $ref: "#/components/schemas/Error"
           description: Unexpected error occurred
       summary: List recent sandbox Kubernetes events for a gateway
+  /api/hypershell/v1/gateways/{gateway_id}/effective_policies:
+    get:
+      operationId: getGatewayEffectivePolicies
+      parameters:
+      - in: path
+        name: gateway_id
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GatewayEffectivePolicies"
+          description: The effective policies of the gateway
+        "401":
+          description: Access token is missing or invalid
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Gateway not found or caller is not bound to it
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: "Read the platform policies, fleet defaults, global mode, and audit\
+        \ findings for one gateway"
   /api/hypershell/v1/gateways/{gateway_id}/access/directory:
     get:
       operationId: searchGatewayDirectory
@@ -4304,6 +4338,420 @@ paths:
       security:
       - Bearer: []
       summary: Update a CI trust
+  /api/hypershell/ext/platform_gateway_policies:
+    get:
+      operationId: listPlatformGatewayPolicies
+      parameters:
+      - description: Page number of record list when record list exceeds specified
+          page size
+        explode: true
+        in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        style: form
+      - description: Maximum number of records to return
+        explode: true
+        in: query
+        name: size
+        required: false
+        schema:
+          default: 100
+          minimum: 0
+          type: integer
+        style: form
+      - description: Specifies the search criteria
+        explode: true
+        in: query
+        name: search
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Specifies the order by criteria
+        explode: true
+        in: query
+        name: orderBy
+        required: false
+        schema:
+          type: string
+        style: form
+      - description: Supplies a comma-separated list of fields to be returned
+        explode: true
+        in: query
+        name: fields
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformGatewayPolicyList"
+          description: A JSON array of platform gateway policy objects
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Returns a list of platform gateway policies
+    post:
+      operationId: createPlatformGatewayPolicy
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlatformGatewayPolicy"
+        description: Platform gateway policy data
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformGatewayPolicy"
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: "Validation error, including Cedar diagnostics"
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: A policy with the same name already exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Create a platform gateway policy (always stored in audit mode)
+  /api/hypershell/ext/platform_gateway_policies/evaluate:
+    post:
+      description: "Dry run for the policy editor (WEB-PADM-05/08/09). Validates the\
+        \ draft with the write-time rules (PLAT-PGP-04), renders it (PLAT-PGP-17),\
+        \ and evaluates the sample request against the draft with the same semantics\
+        \ as enforcement (missing values take the fleet defaults), returning the denial\
+        \ text a user would see (PLAT-PGP-14). Nothing is stored."
+      operationId: evaluatePlatformGatewayPolicy
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlatformGatewayPolicyEvaluationRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformGatewayPolicyEvaluation"
+          description: "Validation, rendering, and sample evaluation result"
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Malformed request
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Validate a draft policy and evaluate a sample request without saving
+  /api/hypershell/ext/platform_gateway_policies/{id}:
+    delete:
+      operationId: deletePlatformGatewayPolicy
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "204":
+          description: Platform gateway policy deleted successfully
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No platform gateway policy with specified ID exists
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: The policy is built in and cannot be deleted
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Delete a platform gateway policy (built-in policies cannot be deleted)
+    get:
+      operationId: getPlatformGatewayPolicy
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformGatewayPolicy"
+          description: Platform gateway policy found by ID
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No platform gateway policy with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Get a platform gateway policy by ID
+    patch:
+      operationId: updatePlatformGatewayPolicy
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlatformGatewayPolicyPatchRequest"
+        description: Updated platform gateway policy data
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformGatewayPolicy"
+          description: Platform gateway policy updated successfully
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: "Validation error, including Cedar diagnostics"
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No platform gateway policy with specified ID exists
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: A policy with the same name already exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: "Update a platform gateway policy, including its enforcement mode"
+  /api/hypershell/ext/platform_gateway_policies/{id}/findings:
+    get:
+      operationId: listPlatformGatewayPolicyFindings
+      parameters:
+      - description: The id of record
+        explode: false
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: Page number of record list when record list exceeds specified
+          page size
+        explode: true
+        in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        style: form
+      - description: Maximum number of records to return
+        explode: true
+        in: query
+        name: size
+        required: false
+        schema:
+          default: 100
+          minimum: 0
+          type: integer
+        style: form
+      - description: Only findings recorded on this gateway
+        in: query
+        name: gateway_id
+        required: false
+        schema:
+          type: string
+      - description: Only findings with this outcome
+        in: query
+        name: outcome
+        required: false
+        schema:
+          enum:
+          - would_reject
+          - would_add_defaults
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PolicyAuditFindingList"
+          description: "Audit findings, newest first"
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: No platform gateway policy with specified ID exists
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: List the audit findings that name a platform gateway policy
+  /api/hypershell/ext/platform_policy_settings:
+    get:
+      operationId: getPlatformPolicySettings
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformPolicySettings"
+          description: The platform policy settings singleton
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Read the global policy enforcement toggle and the fleet defaults
+    patch:
+      operationId: updatePlatformPolicySettings
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlatformPolicySettingsPatchRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformPolicySettings"
+          description: The updated platform policy settings singleton
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Validation error
+        "401":
+          description: Access token is missing or invalid
+        "403":
+          description: Access token does not have sufficient privileges
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+          description: Unexpected error occurred
+      security:
+      - Bearer: []
+      summary: Change the global policy enforcement toggle
 components:
   parameters:
     id:
@@ -6882,6 +7330,470 @@ components:
       required:
       - role
       type: object
+    GatewayEffectivePolicies:
+      example:
+        schema_version: schema_version
+        defaults:
+          cpu_limit: cpu_limit
+          memory_request: memory_request
+          memory_limit: memory_limit
+          cpu_request_millis: 0
+          memory_limit_bytes: 5
+          cpu_limit_millis: 6
+          memory_request_bytes: 1
+          cpu_request: cpu_request
+        findings:
+        - occurred_at: 2000-01-23T04:56:07.000+00:00
+          bundle_revision: bundle_revision
+          policy_names:
+          - policy_names
+          - policy_names
+          id: id
+          request_summary:
+            key: 2
+          operation: operation
+          gateway_id: gateway_id
+          outcome: would_reject
+          principal_subject: principal_subject
+        - occurred_at: 2000-01-23T04:56:07.000+00:00
+          bundle_revision: bundle_revision
+          policy_names:
+          - policy_names
+          - policy_names
+          id: id
+          request_summary:
+            key: 2
+          operation: operation
+          gateway_id: gateway_id
+          outcome: would_reject
+          principal_subject: principal_subject
+        policies:
+        - built_in: true
+          user_message: user_message
+          documentation_url: documentation_url
+          effective_mode_reason: policy_enforced
+          revision: revision
+          target:
+            all: true
+            exclude:
+            - exclude
+            - exclude
+            gateway_ids:
+            - gateway_ids
+            - gateway_ids
+          cedar: cedar
+          enforcement_mode: audit
+          condition: condition
+          rendered:
+          - summary:
+            - summary
+            - summary
+            cedar: cedar
+            bounds:
+            - op: op
+              field: field
+              display: display
+              label: label
+              text: text
+              value: 5
+            - op: op
+              field: field
+              display: display
+              label: label
+              text: text
+              value: 5
+            recognized: true
+          - summary:
+            - summary
+            - summary
+            cedar: cedar
+            bounds:
+            - op: op
+              field: field
+              display: display
+              label: label
+              text: text
+              value: 5
+            - op: op
+              field: field
+              display: display
+              label: label
+              text: text
+              value: 5
+            recognized: true
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          name: name
+          effective_mode: audit
+          id: id
+        - built_in: true
+          user_message: user_message
+          documentation_url: documentation_url
+          effective_mode_reason: policy_enforced
+          revision: revision
+          target:
+            all: true
+            exclude:
+            - exclude
+            - exclude
+            gateway_ids:
+            - gateway_ids
+            - gateway_ids
+          cedar: cedar
+          enforcement_mode: audit
+          condition: condition
+          rendered:
+          - summary:
+            - summary
+            - summary
+            cedar: cedar
+            bounds:
+            - op: op
+              field: field
+              display: display
+              label: label
+              text: text
+              value: 5
+            - op: op
+              field: field
+              display: display
+              label: label
+              text: text
+              value: 5
+            recognized: true
+          - summary:
+            - summary
+            - summary
+            cedar: cedar
+            bounds:
+            - op: op
+              field: field
+              display: display
+              label: label
+              text: text
+              value: 5
+            - op: op
+              field: field
+              display: display
+              label: label
+              text: text
+              value: 5
+            recognized: true
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          name: name
+          effective_mode: audit
+          id: id
+        global_mode: audit
+        gateway_id: gateway_id
+        findings_last_24h:
+          would_reject: 7
+          would_add_defaults: 9
+      properties:
+        gateway_id:
+          type: string
+        global_mode:
+          enum:
+          - audit
+          - enforce
+          type: string
+        schema_version:
+          type: string
+        defaults:
+          $ref: "#/components/schemas/FleetDefaults"
+        policies:
+          items:
+            $ref: "#/components/schemas/EffectivePolicy"
+          type: array
+        findings:
+          items:
+            $ref: "#/components/schemas/PolicyAuditFinding"
+          type: array
+        findings_last_24h:
+          $ref: "#/components/schemas/PolicyFindingCounts"
+      type: object
+    FleetDefaults:
+      description: "Fleet-wide sandbox resource defaults, controller configuration\
+        \ (PLAT-PGP-08)"
+      example:
+        cpu_limit: cpu_limit
+        memory_request: memory_request
+        memory_limit: memory_limit
+        cpu_request_millis: 0
+        memory_limit_bytes: 5
+        cpu_limit_millis: 6
+        memory_request_bytes: 1
+        cpu_request: cpu_request
+      properties:
+        cpu_request:
+          type: string
+        cpu_limit:
+          type: string
+        memory_request:
+          type: string
+        memory_limit:
+          type: string
+        cpu_request_millis:
+          format: int64
+          type: integer
+        cpu_limit_millis:
+          format: int64
+          type: integer
+        memory_request_bytes:
+          format: int64
+          type: integer
+        memory_limit_bytes:
+          format: int64
+          type: integer
+      type: object
+    EffectivePolicy:
+      example:
+        built_in: true
+        user_message: user_message
+        documentation_url: documentation_url
+        effective_mode_reason: policy_enforced
+        revision: revision
+        target:
+          all: true
+          exclude:
+          - exclude
+          - exclude
+          gateway_ids:
+          - gateway_ids
+          - gateway_ids
+        cedar: cedar
+        enforcement_mode: audit
+        condition: condition
+        rendered:
+        - summary:
+          - summary
+          - summary
+          cedar: cedar
+          bounds:
+          - op: op
+            field: field
+            display: display
+            label: label
+            text: text
+            value: 5
+          - op: op
+            field: field
+            display: display
+            label: label
+            text: text
+            value: 5
+          recognized: true
+        - summary:
+          - summary
+          - summary
+          cedar: cedar
+          bounds:
+          - op: op
+            field: field
+            display: display
+            label: label
+            text: text
+            value: 5
+          - op: op
+            field: field
+            display: display
+            label: label
+            text: text
+            value: 5
+          recognized: true
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        name: name
+        effective_mode: audit
+        id: id
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        user_message:
+          type: string
+        documentation_url:
+          type: string
+        enforcement_mode:
+          enum:
+          - audit
+          - enforce
+          type: string
+        effective_mode:
+          enum:
+          - audit
+          - enforce
+          type: string
+        effective_mode_reason:
+          description: Why the policy is enforced or audit-only (policy setting or
+            platform enforcement)
+          enum:
+          - policy_enforced
+          - platform_enforced
+          - audit
+          type: string
+        built_in:
+          type: boolean
+        cedar:
+          type: string
+        rendered:
+          items:
+            $ref: "#/components/schemas/PolicyRenderedRule"
+          type: array
+        condition:
+          description: "The rollout condition on this gateway (Applied, Pending, Unsupported)"
+          type: string
+        revision:
+          type: string
+        updated_at:
+          format: date-time
+          type: string
+        target:
+          $ref: "#/components/schemas/PlatformGatewayPolicyTarget"
+      type: object
+    PolicyRenderedRule:
+      example:
+        summary:
+        - summary
+        - summary
+        cedar: cedar
+        bounds:
+        - op: op
+          field: field
+          display: display
+          label: label
+          text: text
+          value: 5
+        - op: op
+          field: field
+          display: display
+          label: label
+          text: text
+          value: 5
+        recognized: true
+      properties:
+        recognized:
+          type: boolean
+        summary:
+          items:
+            type: string
+          type: array
+        bounds:
+          items:
+            $ref: "#/components/schemas/PolicyBound"
+          type: array
+        cedar:
+          type: string
+      type: object
+    PolicyBound:
+      example:
+        op: op
+        field: field
+        display: display
+        label: label
+        text: text
+        value: 5
+      properties:
+        field:
+          description: "The Cedar context attribute, for example cpuRequestMillis"
+          type: string
+        label:
+          type: string
+        op:
+          description: The forbid comparison operator
+          type: string
+        value:
+          description: "The bound in schema units (millicores, bytes)"
+          format: int64
+          type: integer
+        display:
+          description: "The bound as a quantity, for example 4 or 16Gi"
+          type: string
+        text:
+          description: "The plain-words bound, for example \"CPU request at most 4\""
+          type: string
+      type: object
+    PlatformGatewayPolicyTarget:
+      description: "The gateways a policy applies to (PLAT-PGP-01): all gateways,\
+        \ or the listed gateway ids, minus the exclude list. Returned only to platform-policy:admin,\
+        \ fleet:reader, and platform:admin (SEC-RBAC-31)."
+      example:
+        all: true
+        exclude:
+        - exclude
+        - exclude
+        gateway_ids:
+        - gateway_ids
+        - gateway_ids
+      properties:
+        all:
+          description: Apply to every gateway (minus exclude). Defaults to true when
+            no gateway_ids are set.
+          type: boolean
+        gateway_ids:
+          description: Apply only to these gateways (ignored when all is true)
+          items:
+            type: string
+          type: array
+        exclude:
+          description: Gateways the policy never applies to
+          items:
+            type: string
+          type: array
+      type: object
+    PolicyAuditFinding:
+      example:
+        occurred_at: 2000-01-23T04:56:07.000+00:00
+        bundle_revision: bundle_revision
+        policy_names:
+        - policy_names
+        - policy_names
+        id: id
+        request_summary:
+          key: 2
+        operation: operation
+        gateway_id: gateway_id
+        outcome: would_reject
+        principal_subject: principal_subject
+      properties:
+        id:
+          type: string
+        occurred_at:
+          format: date-time
+          type: string
+        gateway_id:
+          type: string
+        policy_names:
+          items:
+            type: string
+          type: array
+        bundle_revision:
+          type: string
+        principal_subject:
+          type: string
+        operation:
+          type: string
+        outcome:
+          enum:
+          - would_reject
+          - would_add_defaults
+          type: string
+        request_summary:
+          additionalProperties:
+            format: int64
+            type: integer
+          type: object
+      type: object
+    PolicyFindingCounts:
+      example:
+        would_reject: 7
+        would_add_defaults: 9
+      properties:
+        would_reject:
+          format: int32
+          type: integer
+        would_add_defaults:
+          format: int32
+          type: integer
+      type: object
     RepositoryList:
       allOf:
       - $ref: "#/components/schemas/List"
@@ -7236,6 +8148,806 @@ components:
         role:
           type: string
       type: object
+    PlatformGatewayPolicyList:
+      allOf:
+      - $ref: "#/components/schemas/List"
+      - properties:
+          items:
+            items:
+              $ref: "#/components/schemas/PlatformGatewayPolicy"
+            type: array
+        type: object
+      example:
+        total: 1
+        size: 6
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        created_at: 2000-01-23T04:56:07.000+00:00
+        page: 0
+        id: id
+        href: href
+        items:
+        - kind: kind
+          built_in: true
+          created_at: 2000-01-23T04:56:07.000+00:00
+          description: description
+          user_message: user_message
+          documentation_url: documentation_url
+          target:
+            all: true
+            exclude:
+            - exclude
+            - exclude
+            gateway_ids:
+            - gateway_ids
+            - gateway_ids
+          cedar: cedar
+          enforcement_mode: audit
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          rendered:
+          - summary:
+            - summary
+            - summary
+            cedar: cedar
+            bounds:
+            - op: op
+              field: field
+              display: display
+              label: label
+              text: text
+              value: 5
+            - op: op
+              field: field
+              display: display
+              label: label
+              text: text
+              value: 5
+            recognized: true
+          - summary:
+            - summary
+            - summary
+            cedar: cedar
+            bounds:
+            - op: op
+              field: field
+              display: display
+              label: label
+              text: text
+              value: 5
+            - op: op
+              field: field
+              display: display
+              label: label
+              text: text
+              value: 5
+            recognized: true
+          name: name
+          effective_mode: audit
+          id: id
+          href: href
+          status:
+            gateways:
+            - observed_at: 2000-01-23T04:56:07.000+00:00
+              condition: Applied
+              non_compliant_sandboxes:
+              - non_compliant_sandboxes
+              - non_compliant_sandboxes
+              effective_mode: audit
+              message: message
+              would_reject_24h: 2
+              gateway_id: gateway_id
+              applied_revision: applied_revision
+              revision: revision
+            - observed_at: 2000-01-23T04:56:07.000+00:00
+              condition: Applied
+              non_compliant_sandboxes:
+              - non_compliant_sandboxes
+              - non_compliant_sandboxes
+              effective_mode: audit
+              message: message
+              would_reject_24h: 2
+              gateway_id: gateway_id
+              applied_revision: applied_revision
+              revision: revision
+            rollout:
+              unsupported: 3
+              applied: 7
+              pending: 9
+            validation:
+              valid: true
+              schema_version: schema_version
+              diagnostics:
+              - line: 5
+                suggestion: suggestion
+                statement: 5
+                message: message
+              - line: 5
+                suggestion: suggestion
+                statement: 5
+                message: message
+            findings_last_24h:
+              would_reject: 7
+              would_add_defaults: 9
+        - kind: kind
+          built_in: true
+          created_at: 2000-01-23T04:56:07.000+00:00
+          description: description
+          user_message: user_message
+          documentation_url: documentation_url
+          target:
+            all: true
+            exclude:
+            - exclude
+            - exclude
+            gateway_ids:
+            - gateway_ids
+            - gateway_ids
+          cedar: cedar
+          enforcement_mode: audit
+          updated_at: 2000-01-23T04:56:07.000+00:00
+          rendered:
+          - summary:
+            - summary
+            - summary
+            cedar: cedar
+            bounds:
+            - op: op
+              field: field
+              display: display
+              label: label
+              text: text
+              value: 5
+            - op: op
+              field: field
+              display: display
+              label: label
+              text: text
+              value: 5
+            recognized: true
+          - summary:
+            - summary
+            - summary
+            cedar: cedar
+            bounds:
+            - op: op
+              field: field
+              display: display
+              label: label
+              text: text
+              value: 5
+            - op: op
+              field: field
+              display: display
+              label: label
+              text: text
+              value: 5
+            recognized: true
+          name: name
+          effective_mode: audit
+          id: id
+          href: href
+          status:
+            gateways:
+            - observed_at: 2000-01-23T04:56:07.000+00:00
+              condition: Applied
+              non_compliant_sandboxes:
+              - non_compliant_sandboxes
+              - non_compliant_sandboxes
+              effective_mode: audit
+              message: message
+              would_reject_24h: 2
+              gateway_id: gateway_id
+              applied_revision: applied_revision
+              revision: revision
+            - observed_at: 2000-01-23T04:56:07.000+00:00
+              condition: Applied
+              non_compliant_sandboxes:
+              - non_compliant_sandboxes
+              - non_compliant_sandboxes
+              effective_mode: audit
+              message: message
+              would_reject_24h: 2
+              gateway_id: gateway_id
+              applied_revision: applied_revision
+              revision: revision
+            rollout:
+              unsupported: 3
+              applied: 7
+              pending: 9
+            validation:
+              valid: true
+              schema_version: schema_version
+              diagnostics:
+              - line: 5
+                suggestion: suggestion
+                statement: 5
+                message: message
+              - line: 5
+                suggestion: suggestion
+                statement: 5
+                message: message
+            findings_last_24h:
+              would_reject: 7
+              would_add_defaults: 9
+    PlatformGatewayPolicy:
+      allOf:
+      - $ref: "#/components/schemas/ObjectReference"
+      - properties:
+          name:
+            description: Stable identifier shown to users and used as the Cedar @id
+              attribution (PLAT-PGP-14)
+            type: string
+          description:
+            type: string
+          target:
+            $ref: "#/components/schemas/PlatformGatewayPolicyTarget"
+          enforcement_mode:
+            description: audit or enforce. A new policy is always stored as audit
+              (PLAT-PGP-01).
+            enum:
+            - audit
+            - enforce
+            type: string
+          effective_mode:
+            description: The stricter of enforcement_mode and the global toggle (PLAT-PGP-06)
+            enum:
+            - audit
+            - enforce
+            readOnly: true
+            type: string
+          user_message:
+            description: Text shown in the denial reason and the UI. Must not contain
+              secrets.
+            type: string
+          documentation_url:
+            type: string
+          cedar:
+            description: One or more Cedar forbid statements (PLAT-PGP-04)
+            type: string
+          built_in:
+            readOnly: true
+            type: boolean
+          rendered:
+            items:
+              $ref: "#/components/schemas/PolicyRenderedRule"
+            readOnly: true
+            type: array
+          status:
+            $ref: "#/components/schemas/PlatformGatewayPolicyStatus"
+        required:
+        - cedar
+        - name
+        type: object
+      example:
+        kind: kind
+        built_in: true
+        created_at: 2000-01-23T04:56:07.000+00:00
+        description: description
+        user_message: user_message
+        documentation_url: documentation_url
+        target:
+          all: true
+          exclude:
+          - exclude
+          - exclude
+          gateway_ids:
+          - gateway_ids
+          - gateway_ids
+        cedar: cedar
+        enforcement_mode: audit
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        rendered:
+        - summary:
+          - summary
+          - summary
+          cedar: cedar
+          bounds:
+          - op: op
+            field: field
+            display: display
+            label: label
+            text: text
+            value: 5
+          - op: op
+            field: field
+            display: display
+            label: label
+            text: text
+            value: 5
+          recognized: true
+        - summary:
+          - summary
+          - summary
+          cedar: cedar
+          bounds:
+          - op: op
+            field: field
+            display: display
+            label: label
+            text: text
+            value: 5
+          - op: op
+            field: field
+            display: display
+            label: label
+            text: text
+            value: 5
+          recognized: true
+        name: name
+        effective_mode: audit
+        id: id
+        href: href
+        status:
+          gateways:
+          - observed_at: 2000-01-23T04:56:07.000+00:00
+            condition: Applied
+            non_compliant_sandboxes:
+            - non_compliant_sandboxes
+            - non_compliant_sandboxes
+            effective_mode: audit
+            message: message
+            would_reject_24h: 2
+            gateway_id: gateway_id
+            applied_revision: applied_revision
+            revision: revision
+          - observed_at: 2000-01-23T04:56:07.000+00:00
+            condition: Applied
+            non_compliant_sandboxes:
+            - non_compliant_sandboxes
+            - non_compliant_sandboxes
+            effective_mode: audit
+            message: message
+            would_reject_24h: 2
+            gateway_id: gateway_id
+            applied_revision: applied_revision
+            revision: revision
+          rollout:
+            unsupported: 3
+            applied: 7
+            pending: 9
+          validation:
+            valid: true
+            schema_version: schema_version
+            diagnostics:
+            - line: 5
+              suggestion: suggestion
+              statement: 5
+              message: message
+            - line: 5
+              suggestion: suggestion
+              statement: 5
+              message: message
+          findings_last_24h:
+            would_reject: 7
+            would_add_defaults: 9
+    PlatformGatewayPolicyStatus:
+      example:
+        gateways:
+        - observed_at: 2000-01-23T04:56:07.000+00:00
+          condition: Applied
+          non_compliant_sandboxes:
+          - non_compliant_sandboxes
+          - non_compliant_sandboxes
+          effective_mode: audit
+          message: message
+          would_reject_24h: 2
+          gateway_id: gateway_id
+          applied_revision: applied_revision
+          revision: revision
+        - observed_at: 2000-01-23T04:56:07.000+00:00
+          condition: Applied
+          non_compliant_sandboxes:
+          - non_compliant_sandboxes
+          - non_compliant_sandboxes
+          effective_mode: audit
+          message: message
+          would_reject_24h: 2
+          gateway_id: gateway_id
+          applied_revision: applied_revision
+          revision: revision
+        rollout:
+          unsupported: 3
+          applied: 7
+          pending: 9
+        validation:
+          valid: true
+          schema_version: schema_version
+          diagnostics:
+          - line: 5
+            suggestion: suggestion
+            statement: 5
+            message: message
+          - line: 5
+            suggestion: suggestion
+            statement: 5
+            message: message
+        findings_last_24h:
+          would_reject: 7
+          would_add_defaults: 9
+      properties:
+        validation:
+          $ref: "#/components/schemas/PlatformGatewayPolicyValidation"
+        gateways:
+          items:
+            $ref: "#/components/schemas/PlatformGatewayPolicyGatewayStatus"
+          type: array
+        rollout:
+          $ref: "#/components/schemas/PlatformGatewayPolicyStatus_rollout"
+        findings_last_24h:
+          $ref: "#/components/schemas/PolicyFindingCounts"
+      readOnly: true
+      type: object
+    PlatformGatewayPolicyValidation:
+      example:
+        valid: true
+        schema_version: schema_version
+        diagnostics:
+        - line: 5
+          suggestion: suggestion
+          statement: 5
+          message: message
+        - line: 5
+          suggestion: suggestion
+          statement: 5
+          message: message
+      properties:
+        valid:
+          type: boolean
+        schema_version:
+          type: string
+        diagnostics:
+          items:
+            $ref: "#/components/schemas/PolicyDiagnostic"
+          type: array
+      type: object
+    PolicyDiagnostic:
+      example:
+        line: 5
+        suggestion: suggestion
+        statement: 5
+        message: message
+      properties:
+        line:
+          description: "1-based line of the offending statement, 0 when no line applies"
+          format: int32
+          type: integer
+        statement:
+          format: int32
+          type: integer
+        message:
+          type: string
+        suggestion:
+          type: string
+      type: object
+    PlatformGatewayPolicyGatewayStatus:
+      example:
+        observed_at: 2000-01-23T04:56:07.000+00:00
+        condition: Applied
+        non_compliant_sandboxes:
+        - non_compliant_sandboxes
+        - non_compliant_sandboxes
+        effective_mode: audit
+        message: message
+        would_reject_24h: 2
+        gateway_id: gateway_id
+        applied_revision: applied_revision
+        revision: revision
+      properties:
+        gateway_id:
+          type: string
+        condition:
+          enum:
+          - Applied
+          - Pending
+          - Unsupported
+          type: string
+        revision:
+          description: The bundle revision the control plane wrote for the gateway
+          type: string
+        applied_revision:
+          description: The bundle revision the gateway's interceptor last reported
+            as applied
+          type: string
+        effective_mode:
+          enum:
+          - audit
+          - enforce
+          type: string
+        message:
+          type: string
+        non_compliant_sandboxes:
+          description: Running sandboxes on the gateway that an enforced policy would
+            reject (PLAT-PGP-16)
+          items:
+            type: string
+          type: array
+        observed_at:
+          format: date-time
+          type: string
+        would_reject_24h:
+          format: int32
+          readOnly: true
+          type: integer
+      type: object
+    PlatformGatewayPolicyEvaluation:
+      example:
+        valid: true
+        diagnostics:
+        - line: 5
+          suggestion: suggestion
+          statement: 5
+          message: message
+        - line: 5
+          suggestion: suggestion
+          statement: 5
+          message: message
+        sample_allowed: true
+        rendered:
+        - summary:
+          - summary
+          - summary
+          cedar: cedar
+          bounds:
+          - op: op
+            field: field
+            display: display
+            label: label
+            text: text
+            value: 5
+          - op: op
+            field: field
+            display: display
+            label: label
+            text: text
+            value: 5
+          recognized: true
+        - summary:
+          - summary
+          - summary
+          cedar: cedar
+          bounds:
+          - op: op
+            field: field
+            display: display
+            label: label
+            text: text
+            value: 5
+          - op: op
+            field: field
+            display: display
+            label: label
+            text: text
+            value: 5
+          recognized: true
+        defaults:
+          cpu_limit: cpu_limit
+          memory_request: memory_request
+          memory_limit: memory_limit
+          cpu_request_millis: 0
+          memory_limit_bytes: 5
+          cpu_limit_millis: 6
+          memory_request_bytes: 1
+          cpu_request: cpu_request
+        rejecting_statements:
+        - 0
+        - 0
+        forbids_defaults: true
+        denial_text: denial_text
+      properties:
+        valid:
+          type: boolean
+        forbids_defaults:
+          type: boolean
+        diagnostics:
+          items:
+            $ref: "#/components/schemas/PolicyDiagnostic"
+          type: array
+        rendered:
+          items:
+            $ref: "#/components/schemas/PolicyRenderedRule"
+          type: array
+        defaults:
+          $ref: "#/components/schemas/FleetDefaults"
+        sample_allowed:
+          type: boolean
+        rejecting_statements:
+          items:
+            format: int32
+            type: integer
+          type: array
+        denial_text:
+          type: string
+      type: object
+    PlatformGatewayPolicyEvaluationRequest:
+      example:
+        cedar: cedar
+        name: name
+        user_message: user_message
+        documentation_url: documentation_url
+        sample:
+          image: image
+          gpu_count: 0
+          cpu_limit: cpu_limit
+          roles:
+          - roles
+          - roles
+          memory_request: memory_request
+          sandbox_name: sandbox_name
+          memory_limit: memory_limit
+          cpu_request: cpu_request
+      properties:
+        name:
+          type: string
+        cedar:
+          type: string
+        user_message:
+          type: string
+        documentation_url:
+          type: string
+        sample:
+          $ref: "#/components/schemas/PolicySampleRequest"
+      required:
+      - cedar
+      type: object
+    PolicySampleRequest:
+      description: A sample CreateSandbox request; omitted resources take the fleet
+        defaults
+      example:
+        image: image
+        gpu_count: 0
+        cpu_limit: cpu_limit
+        roles:
+        - roles
+        - roles
+        memory_request: memory_request
+        sandbox_name: sandbox_name
+        memory_limit: memory_limit
+        cpu_request: cpu_request
+      properties:
+        cpu_request:
+          type: string
+        cpu_limit:
+          type: string
+        memory_request:
+          type: string
+        memory_limit:
+          type: string
+        gpu_count:
+          format: int64
+          type: integer
+        image:
+          type: string
+        sandbox_name:
+          type: string
+        roles:
+          items:
+            type: string
+          type: array
+      type: object
+    PlatformGatewayPolicyPatchRequest:
+      example:
+        cedar: cedar
+        enforcement_mode: audit
+        description: description
+        user_message: user_message
+        documentation_url: documentation_url
+        target:
+          all: true
+          exclude:
+          - exclude
+          - exclude
+          gateway_ids:
+          - gateway_ids
+          - gateway_ids
+      properties:
+        description:
+          type: string
+        target:
+          $ref: "#/components/schemas/PlatformGatewayPolicyTarget"
+        enforcement_mode:
+          enum:
+          - audit
+          - enforce
+          type: string
+        user_message:
+          type: string
+        documentation_url:
+          type: string
+        cedar:
+          type: string
+      type: object
+    PolicyAuditFindingList:
+      allOf:
+      - $ref: "#/components/schemas/List"
+      - properties:
+          items:
+            items:
+              $ref: "#/components/schemas/PolicyAuditFinding"
+            type: array
+        type: object
+      example:
+        total: 1
+        size: 6
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        kind: kind
+        created_at: 2000-01-23T04:56:07.000+00:00
+        page: 0
+        id: id
+        href: href
+        items:
+        - occurred_at: 2000-01-23T04:56:07.000+00:00
+          bundle_revision: bundle_revision
+          policy_names:
+          - policy_names
+          - policy_names
+          id: id
+          request_summary:
+            key: 2
+          operation: operation
+          gateway_id: gateway_id
+          outcome: would_reject
+          principal_subject: principal_subject
+        - occurred_at: 2000-01-23T04:56:07.000+00:00
+          bundle_revision: bundle_revision
+          policy_names:
+          - policy_names
+          - policy_names
+          id: id
+          request_summary:
+            key: 2
+          operation: operation
+          gateway_id: gateway_id
+          outcome: would_reject
+          principal_subject: principal_subject
+    PlatformPolicySettings:
+      example:
+        mode: audit
+        schema_version: schema_version
+        updated_at: 2000-01-23T04:56:07.000+00:00
+        defaults:
+          cpu_limit: cpu_limit
+          memory_request: memory_request
+          memory_limit: memory_limit
+          cpu_request_millis: 0
+          memory_limit_bytes: 5
+          cpu_limit_millis: 6
+          memory_request_bytes: 1
+          cpu_request: cpu_request
+        kind: kind
+        updated_by: updated_by
+      properties:
+        kind:
+          type: string
+        mode:
+          description: The global minimum enforcement mode (PLAT-PGP-06). Defaults
+            to audit.
+          enum:
+          - audit
+          - enforce
+          type: string
+        updated_at:
+          format: date-time
+          type: string
+        updated_by:
+          type: string
+        schema_version:
+          readOnly: true
+          type: string
+        defaults:
+          $ref: "#/components/schemas/FleetDefaults"
+      type: object
+    PlatformPolicySettingsPatchRequest:
+      example:
+        mode: audit
+      properties:
+        mode:
+          enum:
+          - audit
+          - enforce
+          type: string
+      required:
+      - mode
+      type: object
     Gateway_allOf_provisioning_conditions:
       example:
         condition_status: Pending
@@ -7330,6 +9042,22 @@ components:
           type: string
         ref_protected:
           type: boolean
+      type: object
+    PlatformGatewayPolicyStatus_rollout:
+      example:
+        unsupported: 3
+        applied: 7
+        pending: 9
+      properties:
+        applied:
+          format: int32
+          type: integer
+        pending:
+          format: int32
+          type: integer
+        unsupported:
+          format: int32
+          type: integer
       type: object
   securitySchemes:
     Bearer:

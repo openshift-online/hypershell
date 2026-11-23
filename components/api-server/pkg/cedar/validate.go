@@ -2,6 +2,8 @@ package cedar
 
 import (
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/cedar-policy/cedar-go"
@@ -10,11 +12,22 @@ import (
 	"github.com/cedar-policy/cedar-go/x/exp/schema/validate"
 )
 
+// Diagnostic is one write-time validation finding, attributed to the 1-based
+// line of the offending statement (0 when no line applies) with a suggested fix
+// when one is known (WEB-PADM-05).
+type Diagnostic struct {
+	Line       int
+	Statement  int
+	Message    string
+	Suggestion string
+}
+
 // ValidationError carries the write-time validation diagnostics for a policy
 // (PLAT-PGP-04). The API server surfaces these to the author so a rejected
 // write names the offending statement, attribute, or rule.
 type ValidationError struct {
 	Diagnostics []string
+	Details     []Diagnostic
 }
 
 func (e *ValidationError) Error() string {
@@ -23,6 +36,17 @@ func (e *ValidationError) Error() string {
 	}
 	return "cedar policy validation failed: " + strings.Join(e.Diagnostics, "; ")
 }
+
+func newValidationError(details []Diagnostic) *ValidationError {
+	e := &ValidationError{Details: details}
+	for _, d := range details {
+		e.Diagnostics = append(e.Diagnostics, d.Message)
+	}
+	return e
+}
+
+var parseLineRE = regexp.MustCompile(`:(\d+):\d+`)
+var unknownAttrRE = regexp.MustCompile("attribute `([A-Za-z0-9_]+)` in context")
 
 // ValidatePolicy applies the write-time validation contract of PLAT-PGP-04 to
 // forbid-only Cedar policy text against the HyperShell Cedar schema and the
@@ -41,52 +65,88 @@ func (e *ValidationError) Error() string {
 func ValidatePolicy(cedarText string, defaults Defaults) error {
 	policies, err := cedar.NewPolicyListFromBytes("policy.cedar", []byte(cedarText))
 	if err != nil {
-		return &ValidationError{Diagnostics: []string{fmt.Sprintf("parse error: %v", err)}}
+		d := Diagnostic{Message: fmt.Sprintf("parse error: %v", err), Suggestion: "check the statement syntax: forbid (principal, action, resource) when { ... };"}
+		if m := parseLineRE.FindStringSubmatch(err.Error()); m != nil {
+			d.Line, _ = strconv.Atoi(m[1])
+		}
+		return newValidationError([]Diagnostic{d})
 	}
 	if len(policies) == 0 {
-		return &ValidationError{Diagnostics: []string{"policy must contain at least one forbid statement"}}
+		return newValidationError([]Diagnostic{{Message: "policy must contain at least one forbid statement", Suggestion: "add a statement such as forbid (principal, action, resource) when { context.cpuRequestMillis > 4000 };"}})
 	}
-
 	rs, err := resolvedSchema()
 	if err != nil {
 		return err
 	}
 	v := validate.New(rs, validate.WithStrict())
-
-	var diags []string
+	var diags []Diagnostic
 	for i, p := range policies {
 		id := fmt.Sprintf("policy%d", i)
-
+		line := p.Position().Line
 		// Rule 2: forbid-only.
 		if p.Effect() != cedar.Forbid {
-			diags = append(diags, fmt.Sprintf("%s: a permit is not allowed; platform policies can only use forbid", id))
+			diags = append(diags, Diagnostic{Line: line, Statement: i, Message: fmt.Sprintf("%s: a permit is not allowed; platform policies can only use forbid", id), Suggestion: "replace permit with forbid and describe what to reject"})
 		}
-
 		// Rule 4: no author-written annotations.
 		if len(p.Annotations()) > 0 {
-			diags = append(diags, fmt.Sprintf("%s: author-written statement annotations are not allowed; the control plane owns @id", id))
+			diags = append(diags, Diagnostic{Line: line, Statement: i, Message: fmt.Sprintf("%s: author-written statement annotations are not allowed; the control plane owns @id", id), Suggestion: "remove the annotation; HyperShell adds @id with the policy name"})
 		}
-
 		// Rule 1: schema validation (unknown attributes, wrong types).
 		if err := v.Policy(id, (*xast.Policy)(p.AST())); err != nil {
-			diags = append(diags, collectDiagnostics(err)...)
+			for _, msg := range collectDiagnostics(err) {
+				diags = append(diags, Diagnostic{Line: line, Statement: i, Message: msg, Suggestion: suggestFix(msg)})
+			}
 		}
 	}
 	if len(diags) > 0 {
-		return &ValidationError{Diagnostics: diags}
+		return newValidationError(diags)
 	}
-
 	// Rule 3: the default request must not be forbidden.
 	forbidden, err := forbidsDefaultRequest(policies, defaults)
 	if err != nil {
 		return fmt.Errorf("default-request check: %w", err)
 	}
 	if forbidden {
-		return &ValidationError{Diagnostics: []string{
-			"policy forbids the default sandbox request; it would reject every sandbox that omits a value",
-		}}
+		return newValidationError([]Diagnostic{{
+			Message:    "policy forbids the default sandbox request; it would reject every sandbox that omits a value",
+			Suggestion: "widen the bound so the fleet default values are allowed",
+		}})
 	}
 	return nil
+}
+
+// contextAttributes lists the schema context attributes with their type and
+// unit, used to suggest a fix for an unknown attribute.
+var contextAttributes = []struct{ name, kind string }{
+	{CtxCPURequestMillis, "a Long in millicores"},
+	{CtxCPULimitMillis, "a Long in millicores"},
+	{CtxMemoryRequestBytes, "a Long in bytes"},
+	{CtxMemoryLimitBytes, "a Long in bytes"},
+	{CtxGPUCount, "a Long"},
+	{CtxImage, "a String"},
+	{CtxSandboxName, "a String"},
+}
+
+// suggestFix proposes a fix for a cedar-go schema diagnostic: for an unknown
+// context attribute, the closest schema attribute (WEB-PADM-05).
+func suggestFix(msg string) string {
+	if m := unknownAttrRE.FindStringSubmatch(msg); m != nil {
+		unknown := strings.ToLower(m[1])
+		for _, a := range contextAttributes {
+			if strings.HasPrefix(strings.ToLower(a.name), unknown) || strings.HasPrefix(unknown, strings.ToLower(a.name)) {
+				return fmt.Sprintf("context.%s is not available; use context.%s (%s)", m[1], a.name, a.kind)
+			}
+		}
+		names := make([]string, 0, len(contextAttributes))
+		for _, a := range contextAttributes {
+			names = append(names, a.name)
+		}
+		return fmt.Sprintf("context.%s is not available; use one of: %s", m[1], strings.Join(names, ", "))
+	}
+	if strings.Contains(msg, "unexpected type") {
+		return "compare resource attributes with integer literals in schema units (millicores, bytes)"
+	}
+	return ""
 }
 
 // forbidsDefaultRequest evaluates the forbid-only policy together with the
