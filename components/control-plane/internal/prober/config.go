@@ -1,8 +1,9 @@
 // Package prober implements the outside availability prober (OBS-PRB): a
-// black-box probe that runs on a Cloud Hub, separate from the clusters it
-// measures, and continuously probes gateways and the production API from the
-// outside. It is the data source for the Gateway availability and API
-// availability Service Level Objectives.
+// black-box probe that runs on each instance hub, in that instance's namespace,
+// next to that instance's API server and Keycloak, and continuously probes that
+// instance's gateways and production API through their public routes, exactly as
+// an external user would. It is the data source for the Gateway availability and
+// API availability Service Level Objectives.
 //
 // The prober ships as a run mode of the control-plane binary selected by the
 // `probe` subcommand (OBS-PRB-10); it runs only the probe loops and the metrics
@@ -42,7 +43,7 @@ const (
 	// HYPERSHELL_PROBE_WORKERS for larger fleets.
 	DefaultWorkers = 16
 	// DefaultMetricsAddr is the bind address for the Prometheus metrics endpoint
-	// the Cloud Hub Prometheus scrapes (OBS-PRB-07).
+	// the instance hub's Prometheus scrapes (OBS-PRB-07).
 	DefaultMetricsAddr = ":9090"
 	// DefaultMetricsPath is the metrics endpoint path.
 	DefaultMetricsPath = "/metrics"
@@ -55,6 +56,16 @@ const (
 	// configurable so the prober is not tied to one Keycloak token-exchange
 	// generation (OBS-PRB-06, PLAT-CITR-08).
 	DefaultSubjectTokenType = "urn:ietf:params:oauth:token-type:jwt"
+	// AuthModeClientAssertion selects Keycloak federated client authentication
+	// (OBS-PRB-06): the prober POSTs its projected Kubernetes service-account token
+	// to the realm token endpoint as a JWT client assertion. It is the default.
+	AuthModeClientAssertion = "client-assertion"
+	// AuthModeTokenExchange selects RFC 8693 token exchange (OBS-PRB-06), kept
+	// available for clusters that need it.
+	AuthModeTokenExchange = "token-exchange"
+	// DefaultAuthMode is the authentication mode used when HYPERSHELL_PROBE_AUTH_MODE
+	// is unset (OBS-PRB-06).
+	DefaultAuthMode = AuthModeClientAssertion
 	// DefaultAPIReadPath is the database-backed read exercised by the API
 	// availability and authentication probes (OBS-PRB-04, OBS-PRB-05). It is a
 	// real resource read, never a liveness endpoint that answers without reading
@@ -94,8 +105,41 @@ type Config struct {
 	// APIReadPath is the database-backed read path used by OBS-PRB-04/05.
 	APIReadPath string
 
-	// TokenExchange carries the keyless workload-identity settings (OBS-PRB-06).
+	// AuthMode selects the keyless authentication mechanism (OBS-PRB-06):
+	// AuthModeClientAssertion (default) or AuthModeTokenExchange. It is
+	// configuration, not code, so the mechanism changes without a code change.
+	AuthMode string
+	// ClientAssertion carries the Keycloak federated client-authentication settings
+	// used in AuthModeClientAssertion (OBS-PRB-06).
+	ClientAssertion ClientAssertionConfig
+	// TokenExchange carries the RFC 8693 workload-identity settings used in
+	// AuthModeTokenExchange (OBS-PRB-06).
 	TokenExchange TokenExchangeConfig
+}
+
+// ClientAssertionConfig configures Keycloak federated client authentication
+// (OBS-PRB-06, the default mode). The prober reads its projected Kubernetes
+// service-account token from a file on every request and POSTs it to the realm
+// token endpoint as a JWT client assertion. Keycloak validates the assertion with
+// its own in-cluster service account, so no static client secret, no pinned
+// signing key, and no publicly reachable issuer are needed.
+type ClientAssertionConfig struct {
+	// TokenEndpoint is the Keycloak realm token endpoint the request POSTs to.
+	TokenEndpoint string
+	// ClientID is the confidential Keycloak client the prober authenticates as.
+	ClientID string
+	// SATokenFile is the path to the mounted projected service-account token,
+	// re-read on every request.
+	SATokenFile string
+	// Scope optionally requests specific scopes.
+	Scope string
+}
+
+// Enabled reports whether client-assertion authentication is configured. When it
+// is not, the authentication probe (OBS-PRB-05) cannot run and the prober records
+// failed authentication probes.
+func (c ClientAssertionConfig) Enabled() bool {
+	return c.TokenEndpoint != "" && c.ClientID != "" && c.SATokenFile != ""
 }
 
 // TokenExchangeConfig configures the keyless token exchange (OBS-PRB-06). The
@@ -149,6 +193,13 @@ func Load() *Config {
 		GatewayAPIURL:       getEnv("HYPERSHELL_PROBE_GATEWAY_API_URL", getEnv("HYPERSHELL_API_SERVER_URL", "")),
 		ProductionInstances: parseList(getEnv("HYPERSHELL_PROBE_API_INSTANCES", "")),
 		APIReadPath:         getEnv("HYPERSHELL_PROBE_API_READ_PATH", DefaultAPIReadPath),
+		AuthMode:            loadAuthMode(),
+		ClientAssertion: ClientAssertionConfig{
+			TokenEndpoint: getEnv("HYPERSHELL_PROBE_TOKEN_ENDPOINT", ""),
+			ClientID:      getEnv("HYPERSHELL_PROBE_OIDC_CLIENT_ID", ""),
+			SATokenFile:   getEnv("HYPERSHELL_PROBE_SA_TOKEN_FILE", DefaultSATokenFile),
+			Scope:         getEnv("HYPERSHELL_PROBE_TOKEN_SCOPE", ""),
+		},
 		TokenExchange: TokenExchangeConfig{
 			TokenEndpoint:      getEnv("HYPERSHELL_PROBE_TOKEN_ENDPOINT", ""),
 			ClientID:           getEnv("HYPERSHELL_PROBE_OIDC_CLIENT_ID", ""),
@@ -193,6 +244,50 @@ func Load() *Config {
 	}
 
 	return cfg
+}
+
+// loadAuthMode reads the keyless authentication mode (OBS-PRB-06). An unknown
+// value falls back to the default with a warning rather than failing startup, so a
+// mistyped knob never stops the prober (consistent with the rest of Load).
+func loadAuthMode() string {
+	mode := getEnv("HYPERSHELL_PROBE_AUTH_MODE", DefaultAuthMode)
+	switch mode {
+	case AuthModeClientAssertion, AuthModeTokenExchange:
+		return mode
+	default:
+		slog.Warn("Unknown probe auth mode, using default",
+			"mode", mode, "default", DefaultAuthMode)
+		return DefaultAuthMode
+	}
+}
+
+// Authenticator builds the keyless token authenticator for the configured mode
+// (OBS-PRB-06), or returns nil when the selected mode is not configured. A nil
+// authenticator means the authentication probe (OBS-PRB-05) records failures and
+// the best-effort availability reads proceed unauthenticated.
+func (c *Config) Authenticator() authenticator {
+	switch c.AuthMode {
+	case AuthModeTokenExchange:
+		if c.TokenExchange.Enabled() {
+			return NewTokenExchanger(c.TokenExchange)
+		}
+	default: // AuthModeClientAssertion
+		if c.ClientAssertion.Enabled() {
+			return NewClientAssertionAuthenticator(c.ClientAssertion)
+		}
+	}
+	return nil
+}
+
+// authConfigured reports whether the selected authentication mode has the settings
+// it needs, without constructing an authenticator (used by Summary).
+func (c *Config) authConfigured() bool {
+	switch c.AuthMode {
+	case AuthModeTokenExchange:
+		return c.TokenExchange.Enabled()
+	default:
+		return c.ClientAssertion.Enabled()
+	}
 }
 
 // parseList splits a comma-separated setting into a trimmed, de-duplicated,
@@ -256,7 +351,7 @@ func getEnvDuration(key string, fallback time.Duration) time.Duration {
 // configuration for the startup log. It never includes a token or secret.
 func (c *Config) Summary() string {
 	return fmt.Sprintf(
-		"interval=%s timeout=%s grace_window=%s workers=%d gateway_api=%q production_instances=%d token_exchange_enabled=%t",
-		c.Interval, c.Timeout, c.GraceWindow, c.Workers, c.GatewayAPIURL, len(c.ProductionInstances), c.TokenExchange.Enabled(),
+		"interval=%s timeout=%s grace_window=%s workers=%d gateway_api=%q production_instances=%d auth_mode=%s auth_configured=%t",
+		c.Interval, c.Timeout, c.GraceWindow, c.Workers, c.GatewayAPIURL, len(c.ProductionInstances), c.AuthMode, c.authConfigured(),
 	)
 }

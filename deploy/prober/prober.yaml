@@ -1,29 +1,30 @@
 # Outside availability prober base (OBS-PRB-11).
 #
 # This Kustomize base deploys the outside prober as the probe mode of the
-# control-plane image (OBS-PRB-10) on the infrastructure hub. hypershell-gitops
-# consumes it and overlays the environment-specific configuration: the Keycloak
-# token endpoint, the public federation client id, the token audience, the
-# production instance URLs, and the projected-token audience (OBS-PRB-06). This
-# base intentionally carries NO environment-specific secrets and NO Keycloak realm
-# wiring; those are realized by hypershell-gitops.
+# control-plane image (OBS-PRB-10) on each instance hub (OBS-PRB-01).
+# hypershell-gitops consumes it and overlays the environment-specific
+# configuration: the instance namespace, the Keycloak token endpoint, the prober
+# client id, the production instance URLs, and the projected-token audience (the
+# realm issuer URL) (OBS-PRB-06). This base intentionally carries NO
+# environment-specific secrets, NO hard-coded namespace, and NO Keycloak realm
+# wiring; those are realized by each instance hub's overlay in hypershell-gitops
+# (OBS-PRB-11.03).
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: hypershell-prober
-  namespace: hypershell-system
 ---
-# Non-secret prober configuration (OBS-PRB-08): probe cadence, per-probe timeout,
-# eligibility grace window, worker bound, metrics endpoint, the database-backed
-# read path, and the token-exchange subject token type. The environment-specific
-# values (gateway API URL, production instances, Keycloak token endpoint, client
-# id, audience, subject issuer) are provided by the hypershell-gitops overlay; the
+# Non-secret prober configuration (OBS-PRB-06, OBS-PRB-08): probe cadence,
+# per-probe timeout, eligibility grace window, worker bound, metrics endpoint, the
+# database-backed read path, the authentication mode (default client-assertion),
+# and the token-exchange subject token type. The environment-specific values
+# (gateway API URL, production instances, Keycloak token endpoint, client id,
+# audience, subject issuer) are provided by each instance hub's overlay; the
 # placeholders here keep the base self-contained and renderable.
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: hypershell-prober-config
-  namespace: hypershell-system
 data:
   HYPERSHELL_PROBE_INTERVAL: "30s"
   HYPERSHELL_PROBE_TIMEOUT: "10s"
@@ -33,8 +34,12 @@ data:
   HYPERSHELL_PROBE_METRICS_PATH: "/metrics"
   HYPERSHELL_PROBE_API_READ_PATH: "/api/hypershell/v1/gateways?size=1"
   HYPERSHELL_PROBE_SA_TOKEN_FILE: "/var/run/secrets/hypershell/prober-token/token"
+  # Keyless authentication mode (OBS-PRB-06): client-assertion (default) presents
+  # the projected token as a JWT client assertion; token-exchange uses RFC 8693.
+  HYPERSHELL_PROBE_AUTH_MODE: "client-assertion"
+  # Used only in token-exchange mode (OBS-PRB-06):
   HYPERSHELL_PROBE_TOKEN_SUBJECT_TOKEN_TYPE: "urn:ietf:params:oauth:token-type:jwt"
-  # Overridden by hypershell-gitops (environment-specific, non-secret):
+  # Overridden by each instance hub's overlay (environment-specific, non-secret):
   HYPERSHELL_PROBE_GATEWAY_API_URL: ""
   HYPERSHELL_PROBE_API_INSTANCES: ""
   HYPERSHELL_PROBE_TOKEN_ENDPOINT: ""
@@ -47,7 +52,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: hypershell-prober
-  namespace: hypershell-system
 spec:
   replicas: 1
   selector:
@@ -113,23 +117,25 @@ spec:
               cpu: 250m
               memory: 128Mi
       volumes:
-        # Projected Kubernetes service-account token the prober exchanges at
-        # Keycloak for a short-lived HyperShell API token (OBS-PRB-06). The
-        # audience is configurable; hypershell-gitops patches it to the realm's
-        # expected audience. No static client secret is mounted anywhere.
+        # Projected Kubernetes service-account token the prober presents to
+        # Keycloak for a short-lived HyperShell API token (OBS-PRB-06). The audience
+        # is a placeholder each instance hub's overlay patches to that instance's
+        # realm issuer URL (for example https://<host>/realms/hypershell). The token
+        # is short-lived: expirationSeconds 600 is at most 10 minutes (the Keycloak
+        # recommendation for federated assertions) and the Kubernetes minimum. No
+        # static client secret is mounted anywhere.
         - name: prober-token
           projected:
             sources:
               - serviceAccountToken:
                   path: token
-                  audience: hypershell-prober
-                  expirationSeconds: 3600
+                  audience: https://keycloak.example/realms/hypershell
+                  expirationSeconds: 600
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: hypershell-prober
-  namespace: hypershell-system
 spec:
   selector:
     app: hypershell-prober

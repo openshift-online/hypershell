@@ -19,9 +19,9 @@ type Prober struct {
 	// apiClient lists gateways and managed clusters to build the gateway health
 	// target set (OBS-PRB-02); nil when no gateway API URL is configured.
 	apiClient *APIClient
-	// exchanger performs the keyless token exchange (OBS-PRB-06); nil when the
-	// token exchange is not configured.
-	exchanger *TokenExchanger
+	// auth acquires the keyless HyperShell API token in the configured mode
+	// (OBS-PRB-06); nil when the selected mode is not configured.
+	auth authenticator
 	// dial opens a gateway health connection (OBS-PRB-03).
 	dial healthDialer
 	// httpClient issues the API read probes (OBS-PRB-04, OBS-PRB-05); the
@@ -41,17 +41,14 @@ type Prober struct {
 // starts even when the gateway database admin credentials are absent
 // (OBS-PRB-10.02).
 func New(cfg *Config) *Prober {
-	var exchanger *TokenExchanger
-	if cfg.TokenExchange.Enabled() {
-		exchanger = NewTokenExchanger(cfg.TokenExchange)
-	}
+	auth := cfg.Authenticator()
 
 	// Pass a genuinely nil tokenSource (not a non-nil interface wrapping a nil
-	// pointer) when there is no exchanger, so the API client omits the bearer
+	// pointer) when there is no authenticator, so the API client omits the bearer
 	// header rather than panicking.
 	var tokens tokenSource
-	if exchanger != nil {
-		tokens = exchanger
+	if auth != nil {
+		tokens = auth
 	}
 
 	var apiClient *APIClient
@@ -63,7 +60,7 @@ func New(cfg *Config) *Prober {
 		cfg:          cfg,
 		metrics:      NewMetrics(),
 		apiClient:    apiClient,
-		exchanger:    exchanger,
+		auth:         auth,
 		dial:         newTLSHealthDialer(nil),
 		httpClient:   &http.Client{},
 		seenGateways: map[string]struct{}{},
@@ -211,10 +208,10 @@ func (p *Prober) apiAuthCycle(ctx context.Context) {
 // because authentication is broken (that is OBS-PRB-05's concern), so a token
 // error is swallowed and the read proceeds unauthenticated.
 func (p *Prober) bestEffortToken(ctx context.Context) string {
-	if p.exchanger == nil {
+	if p.auth == nil {
 		return ""
 	}
-	token, err := p.exchanger.Token(ctx)
+	token, err := p.auth.Token(ctx)
 	if err != nil {
 		return ""
 	}
@@ -222,15 +219,17 @@ func (p *Prober) bestEffortToken(ctx context.Context) string {
 }
 
 // exchangeFn returns the token acquisition step for the authentication probe. When
-// the token exchange is not configured, it returns an error so the authentication
-// probe is recorded as failed (OBS-PRB-05.02) rather than silently skipped.
+// no authentication mode is configured, it returns an error so the authentication
+// probe is recorded as failed (OBS-PRB-05.02) rather than silently skipped. When it
+// is, it forces a fresh token acquisition each cycle so the probe genuinely
+// exercises Keycloak (OBS-PRB-06).
 func (p *Prober) exchangeFn() func(context.Context) (string, error) {
-	if p.exchanger == nil {
+	if p.auth == nil {
 		return func(context.Context) (string, error) {
-			return "", errors.New("token exchange not configured")
+			return "", errors.New("prober authentication not configured")
 		}
 	}
-	return p.exchanger.ExchangeFresh
+	return p.auth.ExchangeFresh
 }
 
 // probeAll runs fn over items with a bounded worker pool (OBS-PRB-08): at most
