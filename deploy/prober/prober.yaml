@@ -1,0 +1,139 @@
+# Outside availability prober base (OBS-PRB-11).
+#
+# This Kustomize base deploys the outside prober as the probe mode of the
+# control-plane image (OBS-PRB-10) on the infrastructure hub. hypershell-gitops
+# consumes it and overlays the environment-specific configuration: the Keycloak
+# token endpoint, the public federation client id, the token audience, the
+# production instance URLs, and the projected-token audience (OBS-PRB-06). This
+# base intentionally carries NO environment-specific secrets and NO Keycloak realm
+# wiring; those are realized by hypershell-gitops.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hypershell-prober
+  namespace: hypershell-system
+---
+# Non-secret prober configuration (OBS-PRB-08): probe cadence, per-probe timeout,
+# eligibility grace window, worker bound, metrics endpoint, the database-backed
+# read path, and the token-exchange subject token type. The environment-specific
+# values (gateway API URL, production instances, Keycloak token endpoint, client
+# id, audience, subject issuer) are provided by the hypershell-gitops overlay; the
+# placeholders here keep the base self-contained and renderable.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hypershell-prober-config
+  namespace: hypershell-system
+data:
+  HYPERSHELL_PROBE_INTERVAL: "30s"
+  HYPERSHELL_PROBE_TIMEOUT: "10s"
+  HYPERSHELL_PROBE_GRACE_WINDOW: "10m"
+  HYPERSHELL_PROBE_WORKERS: "16"
+  HYPERSHELL_PROBE_METRICS_ADDR: ":9090"
+  HYPERSHELL_PROBE_METRICS_PATH: "/metrics"
+  HYPERSHELL_PROBE_API_READ_PATH: "/api/hypershell/v1/gateways?size=1"
+  HYPERSHELL_PROBE_SA_TOKEN_FILE: "/var/run/secrets/hypershell/prober-token/token"
+  HYPERSHELL_PROBE_TOKEN_SUBJECT_TOKEN_TYPE: "urn:ietf:params:oauth:token-type:jwt"
+  # Overridden by hypershell-gitops (environment-specific, non-secret):
+  HYPERSHELL_PROBE_GATEWAY_API_URL: ""
+  HYPERSHELL_PROBE_API_INSTANCES: ""
+  HYPERSHELL_PROBE_TOKEN_ENDPOINT: ""
+  HYPERSHELL_PROBE_OIDC_CLIENT_ID: ""
+  HYPERSHELL_PROBE_TOKEN_AUDIENCE: ""
+  HYPERSHELL_PROBE_TOKEN_SUBJECT_ISSUER: ""
+  HYPERSHELL_LOG_LEVEL: "info"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hypershell-prober
+  namespace: hypershell-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hypershell-prober
+  template:
+    metadata:
+      labels:
+        app: hypershell-prober
+    spec:
+      serviceAccountName: hypershell-prober
+      # Restricted pod security context (OBS-PRB-11): runAsNonRoot at the pod level,
+      # capabilities dropped at the container level.
+      securityContext:
+        runAsNonRoot: true
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "2"
+      containers:
+        - name: prober
+          # The control-plane image in its probe mode (OBS-PRB-10). The tag is
+          # managed the same way as the controller image.
+          image: quay.io/redhat-services-prod/hcm-eng-prod-tenant/hypershell-main/hypershell-control-plane-main:latest
+          imagePullPolicy: IfNotPresent
+          # Select the probe run mode (OBS-PRB-10): the prober only, never the
+          # reconciler.
+          args: ["probe"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          envFrom:
+            - configMapRef:
+                name: hypershell-prober-config
+          volumeMounts:
+            - name: prober-token
+              mountPath: /var/run/secrets/hypershell/prober-token
+              readOnly: true
+          ports:
+            - containerPort: 9090
+              name: metrics
+          # The metrics server answers independently of any measured target
+          # (OBS-PRB-01), so it is a safe readiness and liveness surface.
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+      volumes:
+        # Projected Kubernetes service-account token the prober exchanges at
+        # Keycloak for a short-lived HyperShell API token (OBS-PRB-06). The
+        # audience is configurable; hypershell-gitops patches it to the realm's
+        # expected audience. No static client secret is mounted anywhere.
+        - name: prober-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  audience: hypershell-prober
+                  expirationSeconds: 3600
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hypershell-prober
+  namespace: hypershell-system
+spec:
+  selector:
+    app: hypershell-prober
+  ports:
+    - name: metrics
+      port: 9090
+      targetPort: metrics
