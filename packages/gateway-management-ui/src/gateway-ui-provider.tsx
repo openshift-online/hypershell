@@ -27,6 +27,7 @@ export interface GatewayUiNavigation {
  * mode) self-recognition is simply skipped. */
 export interface GatewayUiCurrentUser {
   username?: string;
+  isPlatformAdmin?: boolean;
 }
 
 export interface GatewayUiServices {

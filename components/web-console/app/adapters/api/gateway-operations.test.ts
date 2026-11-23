@@ -541,6 +541,41 @@ describe("gateway API operations adapter", () => {
     );
   });
 
+  it("includes creator usernames in gateway search only when requested", async () => {
+    gatewayApi.list.mockResolvedValue(gatewayList([], 0, 1));
+
+    await controlPlane.listGateways(
+      { ...listRequest, page: 1, search: "kim-developer" },
+      context,
+    );
+    await controlPlane.listGateways(
+      {
+        ...listRequest,
+        page: 1,
+        search: "kim-developer",
+        searchCreatedBy: true,
+      },
+      context,
+    );
+
+    expect(gatewayApi.list).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        search:
+          "name ilike '%kim-developer%' or cluster_id ilike '%kim-developer%' or status ilike '%kim-developer%' or route_address ilike '%kim-developer%' or external_dns ilike '%kim-developer%'",
+      }),
+      { signal: undefined },
+    );
+    expect(gatewayApi.list).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        search:
+          "name ilike '%kim-developer%' or cluster_id ilike '%kim-developer%' or status ilike '%kim-developer%' or route_address ilike '%kim-developer%' or external_dns ilike '%kim-developer%' or gateway_creators.username ilike '%kim-developer%'",
+      }),
+      { signal: undefined },
+    );
+  });
+
   it("sorts gateway creators by the API created-by field", async () => {
     gatewayApi.list.mockResolvedValue(gatewayList([], 0, 1));
 

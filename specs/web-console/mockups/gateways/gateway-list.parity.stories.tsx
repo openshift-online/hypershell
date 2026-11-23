@@ -17,4 +17,10 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Loaded: Story = { args: { state: "loaded" } };
+export const NonAdmin: Story = {
+  args: { state: "loaded", isPlatformAdmin: false },
+};
+
+export const PlatformAdmin: Story = {
+  args: { state: "loaded", isPlatformAdmin: true },
+};

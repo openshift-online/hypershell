@@ -18,6 +18,7 @@ const gateways: readonly GatewayConnection[] = [
     clusterName: "Cluster East",
     consoleUrl: "https://console.dev.example.com",
     createdAt: "2026-10-29T09:41:00-05:00",
+    createdBy: "kim-developer",
     endpoint: "https://gw-openshell-87adafc506ea322b.gw.localhost:443",
     gatewayVersion: "1.8.0",
     id: "payments-gateway",
@@ -32,6 +33,7 @@ const gateways: readonly GatewayConnection[] = [
     clusterName: "Cluster North",
     consoleUrl: "https://console.prod.example.com",
     createdAt: "2026-10-28T16:12:00-05:00",
+    createdBy: "alex-operator",
     endpoint: "https://gw-openshell-4lelb22e872df3c5.gw.localhost:443",
     gatewayVersion: "1.8.0",
     id: "research-gateway",
@@ -46,6 +48,7 @@ const gateways: readonly GatewayConnection[] = [
     clusterName: "Cluster West",
     consoleUrl: "https://console.staging.example.com",
     createdAt: "2026-09-22T11:03:00-05:00",
+    createdBy: "casey-platform",
     endpoint: "https://gw-openshell-9f4b40e1c471c047.gw.localhost:443",
     gatewayVersion: "1.7.4",
     id: "integrations-gateway",
@@ -67,7 +70,11 @@ const navigation: GatewayUiNavigation = {
 function GatewayListProductionPreview() {
   return (
     <IntlProvider locale="en">
-      <GatewayUiProvider gateways={gatewayOperations} navigation={navigation}>
+      <GatewayUiProvider
+        currentUser={{ isPlatformAdmin: true }}
+        gateways={gatewayOperations}
+        navigation={navigation}
+      >
         <GatewaysPage gateways={gateways} onRefresh={() => undefined} />
       </GatewayUiProvider>
     </IntlProvider>
@@ -87,3 +94,17 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Loaded: Story = {};
+
+export const NonAdmin: Story = {
+  render: () => (
+    <IntlProvider locale="en">
+      <GatewayUiProvider
+        currentUser={{ isPlatformAdmin: false }}
+        gateways={gatewayOperations}
+        navigation={navigation}
+      >
+        <GatewaysPage gateways={gateways} onRefresh={() => undefined} />
+      </GatewayUiProvider>
+    </IntlProvider>
+  ),
+};

@@ -76,8 +76,11 @@ export function ApplicationShell() {
     [navigate],
   );
   const gatewayCurrentUser = useMemo(
-    () => ({ username: session?.user?.preferredUsername }),
-    [session?.user?.preferredUsername],
+    () => ({
+      isPlatformAdmin: hasDashboardAdminRole(session?.roles ?? []),
+      username: session?.user?.preferredUsername,
+    }),
+    [session?.roles, session?.user?.preferredUsername],
   );
   const { scheme, toggle: toggleColorScheme } = useColorScheme();
   useRouteHeadingFocus(pathname);

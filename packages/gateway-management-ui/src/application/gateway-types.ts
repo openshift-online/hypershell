@@ -55,6 +55,7 @@ export type GatewaySortField =
 
 export interface GatewayListRequest {
   page: number;
+  searchCreatedBy?: boolean;
   search: string;
   size: number;
   sortDirection: GatewaySortDirection;

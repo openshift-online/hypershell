@@ -13,17 +13,22 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-// "Show only my gateways" off: the switch is visible and unchecked, showing the
-// full authorized collection (kim's and another owner's gateways).
+// Non-admin users keep the compact list layout without creator information.
 export const Loaded: Story = {
-  args: { state: "loaded", ownershipFilterOn: false },
+  args: { state: "loaded", isPlatformAdmin: false, ownershipFilterOn: false },
+};
+
+// A platform administrator sees the Created by column, which identifies the
+// gateway owner to contact when reviewing a large authorized fleet.
+export const PlatformAdmin: Story = {
+  args: { state: "loaded", isPlatformAdmin: true, ownershipFilterOn: false },
 };
 
 // "Show only my gateways" on: the switch is checked and the list shows only the
 // signed-in user's gateways. The switch stays visible so the filter can be
 // turned off (WEB-UIEX-07).
 export const OwnershipFilterOn: Story = {
-  args: { state: "loaded", ownershipFilterOn: true },
+  args: { state: "loaded", isPlatformAdmin: true, ownershipFilterOn: true },
 };
 
 // Row selection active: one eligible gateway is selected, so the table-header

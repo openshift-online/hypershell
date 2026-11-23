@@ -328,6 +328,7 @@ export function gatewayListQueryKey(request: GatewayListRequest) {
     request.sortField,
     request.sortDirection,
     request.onlyMine ?? false,
+    request.searchCreatedBy ?? false,
   ] as const;
 }
 
