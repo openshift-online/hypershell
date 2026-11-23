@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -30,72 +29,26 @@ const grantTypeTokenExchange = "urn:ietf:params:oauth:grant-type:token-exchange"
 // requested token type, audience, scope) are all configuration, so the prober is
 // not tied to one Keycloak token-exchange mechanism (PLAT-CITR-08).
 type TokenExchanger struct {
+	*cachedToken
+
 	cfg        TokenExchangeConfig
 	httpClient *http.Client
 
 	// readFile is the projected-token reader; a seam for tests.
 	readFile func(string) ([]byte, error)
-
-	mu     sync.Mutex
-	token  string
-	expiry time.Time
 }
 
 // NewTokenExchanger builds a TokenExchanger from the token-exchange configuration.
 func NewTokenExchanger(cfg TokenExchangeConfig) *TokenExchanger {
-	return &TokenExchanger{
+	t := &TokenExchanger{
 		cfg:        cfg,
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 		readFile:   os.ReadFile,
 	}
-}
-
-// Token returns a cached access token, performing a fresh exchange only when the
-// cached token is missing or within 20% of expiry. It is used for the gateway
-// target listing (OBS-PRB-02) and the API availability probe (OBS-PRB-04), where
-// a cached token is sufficient.
-func (t *TokenExchanger) Token(ctx context.Context) (string, error) {
-	t.mu.Lock()
-	if t.token != "" && time.Now().Before(t.expiry) {
-		cached := t.token
-		t.mu.Unlock()
-		return cached, nil
-	}
-	t.mu.Unlock()
-
-	// Perform the network exchange without holding the lock so that concurrent
-	// availability probes (apiReadCycle runs up to Workers at once) do not serialize
-	// behind one in-flight exchange and block up to a full per-probe timeout
-	// (OBS-PRB-08). A cold-cache race may run a few redundant exchanges; that is
-	// cheap and self-correcting, and the cache below collapses them.
-	token, ttl, err := t.exchange(ctx)
-	if err != nil {
-		return "", err
-	}
-
-	t.mu.Lock()
-	t.token = token
-	// Refresh at 80% of TTL so a cached token is never served past its usable life.
-	t.expiry = time.Now().Add(ttl * 8 / 10)
-	t.mu.Unlock()
-	return token, nil
-}
-
-// ExchangeFresh always performs a token exchange against Keycloak, bypassing the
-// cache, and updates the cache on success. The authentication probe (OBS-PRB-05)
-// uses it so that a Keycloak outage is detected as a failed authentication probe
-// within one interval (OBS-PRB-09.03) instead of being masked by a still-valid
-// cached token.
-func (t *TokenExchanger) ExchangeFresh(ctx context.Context) (string, error) {
-	token, ttl, err := t.exchange(ctx)
-	if err != nil {
-		return "", err
-	}
-	t.mu.Lock()
-	t.token = token
-	t.expiry = time.Now().Add(ttl * 8 / 10)
-	t.mu.Unlock()
-	return token, nil
+	// Token (cached) and ExchangeFresh (bypass cache) are provided by cachedToken;
+	// exchange mints a fresh token on each miss.
+	t.cachedToken = &cachedToken{acquire: t.exchange}
+	return t
 }
 
 // exchange reads the projected service-account token and performs the token
