@@ -1,6 +1,8 @@
 package platformGatewayPolicies
 
 import (
+	"time"
+
 	"sort"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
@@ -200,7 +202,7 @@ func presentGatewayStatus(g GatewayStatus, wouldReject int32) openapi.PlatformGa
 		out.NonCompliantSandboxes = append([]string{}, g.NonCompliantSandboxes...)
 	}
 	if g.ObservedAt != nil {
-		out.ObservedAt = openapi.PtrTime(*g.ObservedAt)
+		out.ObservedAt = openapi.PtrString(g.ObservedAt.UTC().Format(time.RFC3339))
 	}
 	return out
 }

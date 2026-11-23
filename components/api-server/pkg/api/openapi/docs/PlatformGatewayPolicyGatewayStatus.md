@@ -11,7 +11,7 @@ Name | Type | Description | Notes
 **EffectiveMode** | Pointer to **string** |  | [optional]
 **Message** | Pointer to **string** |  | [optional]
 **NonCompliantSandboxes** | Pointer to **[]string** | Running sandboxes on the gateway that an enforced policy would reject (PLAT-PGP-16) | [optional]
-**ObservedAt** | Pointer to **time.Time** |  | [optional]
+**ObservedAt** | Pointer to **string** | RFC 3339 time the control plane last observed this rollout entry | [optional]
 **WouldReject24h** | Pointer to **int32** |  | [optional] [readonly]
 
 ## Methods
@@ -210,20 +210,20 @@ HasNonCompliantSandboxes returns a boolean if a field has been set.
 
 ### GetObservedAt
 
-`func (o *PlatformGatewayPolicyGatewayStatus) GetObservedAt() time.Time`
+`func (o *PlatformGatewayPolicyGatewayStatus) GetObservedAt() string`
 
 GetObservedAt returns the ObservedAt field if non-nil, zero value otherwise.
 
 ### GetObservedAtOk
 
-`func (o *PlatformGatewayPolicyGatewayStatus) GetObservedAtOk() (*time.Time, bool)`
+`func (o *PlatformGatewayPolicyGatewayStatus) GetObservedAtOk() (*string, bool)`
 
 GetObservedAtOk returns a tuple with the ObservedAt field if it's non-nil, zero value otherwise
 and a boolean to check if the value has been set.
 
 ### SetObservedAt
 
-`func (o *PlatformGatewayPolicyGatewayStatus) SetObservedAt(v time.Time)`
+`func (o *PlatformGatewayPolicyGatewayStatus) SetObservedAt(v string)`
 
 SetObservedAt sets ObservedAt field to given value.
 

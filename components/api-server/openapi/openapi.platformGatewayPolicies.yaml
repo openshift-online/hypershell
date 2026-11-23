@@ -369,7 +369,7 @@ components:
           description: Running sandboxes on the gateway that an enforced policy would reject (PLAT-PGP-16)
         observed_at:
           type: string
-          format: date-time
+          description: RFC 3339 time the control plane last observed this rollout entry
         would_reject_24h:
           type: integer
           format: int32

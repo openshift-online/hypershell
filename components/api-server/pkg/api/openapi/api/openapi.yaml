@@ -8227,7 +8227,7 @@ components:
           href: href
           status:
             gateways:
-            - observed_at: 2000-01-23T04:56:07.000+00:00
+            - observed_at: observed_at
               condition: Applied
               non_compliant_sandboxes:
               - non_compliant_sandboxes
@@ -8238,7 +8238,7 @@ components:
               gateway_id: gateway_id
               applied_revision: applied_revision
               revision: revision
-            - observed_at: 2000-01-23T04:56:07.000+00:00
+            - observed_at: observed_at
               condition: Applied
               non_compliant_sandboxes:
               - non_compliant_sandboxes
@@ -8328,7 +8328,7 @@ components:
           href: href
           status:
             gateways:
-            - observed_at: 2000-01-23T04:56:07.000+00:00
+            - observed_at: observed_at
               condition: Applied
               non_compliant_sandboxes:
               - non_compliant_sandboxes
@@ -8339,7 +8339,7 @@ components:
               gateway_id: gateway_id
               applied_revision: applied_revision
               revision: revision
-            - observed_at: 2000-01-23T04:56:07.000+00:00
+            - observed_at: observed_at
               condition: Applied
               non_compliant_sandboxes:
               - non_compliant_sandboxes
@@ -8479,7 +8479,7 @@ components:
         href: href
         status:
           gateways:
-          - observed_at: 2000-01-23T04:56:07.000+00:00
+          - observed_at: observed_at
             condition: Applied
             non_compliant_sandboxes:
             - non_compliant_sandboxes
@@ -8490,7 +8490,7 @@ components:
             gateway_id: gateway_id
             applied_revision: applied_revision
             revision: revision
-          - observed_at: 2000-01-23T04:56:07.000+00:00
+          - observed_at: observed_at
             condition: Applied
             non_compliant_sandboxes:
             - non_compliant_sandboxes
@@ -8523,7 +8523,7 @@ components:
     PlatformGatewayPolicyStatus:
       example:
         gateways:
-        - observed_at: 2000-01-23T04:56:07.000+00:00
+        - observed_at: observed_at
           condition: Applied
           non_compliant_sandboxes:
           - non_compliant_sandboxes
@@ -8534,7 +8534,7 @@ components:
           gateway_id: gateway_id
           applied_revision: applied_revision
           revision: revision
-        - observed_at: 2000-01-23T04:56:07.000+00:00
+        - observed_at: observed_at
           condition: Applied
           non_compliant_sandboxes:
           - non_compliant_sandboxes
@@ -8621,7 +8621,7 @@ components:
       type: object
     PlatformGatewayPolicyGatewayStatus:
       example:
-        observed_at: 2000-01-23T04:56:07.000+00:00
+        observed_at: observed_at
         condition: Applied
         non_compliant_sandboxes:
         - non_compliant_sandboxes
@@ -8662,7 +8662,8 @@ components:
             type: string
           type: array
         observed_at:
-          format: date-time
+          description: RFC 3339 time the control plane last observed this rollout
+            entry
           type: string
         would_reject_24h:
           format: int32

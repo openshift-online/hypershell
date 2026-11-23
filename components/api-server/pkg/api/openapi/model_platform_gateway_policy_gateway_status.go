@@ -12,7 +12,6 @@ package openapi
 
 import (
 	"encoding/json"
-	"time"
 )
 
 // checks if the PlatformGatewayPolicyGatewayStatus type satisfies the MappedNullable interface at compile time
@@ -29,9 +28,10 @@ type PlatformGatewayPolicyGatewayStatus struct {
 	EffectiveMode   *string `json:"effective_mode,omitempty"`
 	Message         *string `json:"message,omitempty"`
 	// Running sandboxes on the gateway that an enforced policy would reject (PLAT-PGP-16)
-	NonCompliantSandboxes []string   `json:"non_compliant_sandboxes,omitempty"`
-	ObservedAt            *time.Time `json:"observed_at,omitempty"`
-	WouldReject24h        *int32     `json:"would_reject_24h,omitempty"`
+	NonCompliantSandboxes []string `json:"non_compliant_sandboxes,omitempty"`
+	// RFC 3339 time the control plane last observed this rollout entry
+	ObservedAt     *string `json:"observed_at,omitempty"`
+	WouldReject24h *int32  `json:"would_reject_24h,omitempty"`
 }
 
 // NewPlatformGatewayPolicyGatewayStatus instantiates a new PlatformGatewayPolicyGatewayStatus object
@@ -276,9 +276,9 @@ func (o *PlatformGatewayPolicyGatewayStatus) SetNonCompliantSandboxes(v []string
 }
 
 // GetObservedAt returns the ObservedAt field value if set, zero value otherwise.
-func (o *PlatformGatewayPolicyGatewayStatus) GetObservedAt() time.Time {
+func (o *PlatformGatewayPolicyGatewayStatus) GetObservedAt() string {
 	if o == nil || IsNil(o.ObservedAt) {
-		var ret time.Time
+		var ret string
 		return ret
 	}
 	return *o.ObservedAt
@@ -286,7 +286,7 @@ func (o *PlatformGatewayPolicyGatewayStatus) GetObservedAt() time.Time {
 
 // GetObservedAtOk returns a tuple with the ObservedAt field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *PlatformGatewayPolicyGatewayStatus) GetObservedAtOk() (*time.Time, bool) {
+func (o *PlatformGatewayPolicyGatewayStatus) GetObservedAtOk() (*string, bool) {
 	if o == nil || IsNil(o.ObservedAt) {
 		return nil, false
 	}
@@ -302,8 +302,8 @@ func (o *PlatformGatewayPolicyGatewayStatus) HasObservedAt() bool {
 	return false
 }
 
-// SetObservedAt gets a reference to the given time.Time and assigns it to the ObservedAt field.
-func (o *PlatformGatewayPolicyGatewayStatus) SetObservedAt(v time.Time) {
+// SetObservedAt gets a reference to the given string and assigns it to the ObservedAt field.
+func (o *PlatformGatewayPolicyGatewayStatus) SetObservedAt(v string) {
 	o.ObservedAt = &v
 }
 
