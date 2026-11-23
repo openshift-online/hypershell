@@ -1,3 +1,4 @@
+# Rebuild trigger 2026-11-23: refresh images after sast-snyk-check erred on the 2026-11-21 builds (EC test.no_erred_tests blocked the release).
 # Trigger a release bundle to verify promotion from main and PostSync analysis.
 apiVersion: tekton.dev/v1
 kind: PipelineRun
