@@ -50,7 +50,7 @@ func init() {
 
 	// Split the help of each parent into core and extension sections. Every command,
 	// generated or hand-written, must be registered before this.
-	extgroup.Apply(create.Cmd, delete.Cmd, get.Cmd, list.Cmd)
+	extgroup.Apply(create.Cmd, delete.Cmd, get.Cmd, list.Cmd, update.Cmd)
 
 	// Generated commands: completion, config, create, delete, get, list, login, logout,
 	// update, version and whoami.

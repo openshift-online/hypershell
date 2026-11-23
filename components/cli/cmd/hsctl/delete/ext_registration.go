@@ -5,6 +5,7 @@ import (
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/delete/ciProvider"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/delete/ciTrust"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/delete/inferenceRoute"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/delete/platformGatewayPolicy"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/delete/providerBinding"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/delete/providerSpec"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/delete/sandboxTemplate"
@@ -24,5 +25,6 @@ func init() {
 		secretSource.Cmd,
 		ciProvider.Cmd,
 		ciTrust.Cmd,
+		platformGatewayPolicy.Cmd,
 	)
 }

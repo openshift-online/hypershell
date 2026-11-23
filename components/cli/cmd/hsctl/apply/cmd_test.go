@@ -23,6 +23,7 @@ func TestIsSupportedKind(t *testing.T) {
 		{"InferenceRoute", true},
 		{"SecretSource", true},
 		{"Repository", true},
+		{"PlatformGatewayPolicy", true},
 		{"Pod", false},
 		{"Deployment", false},
 		{"", false},

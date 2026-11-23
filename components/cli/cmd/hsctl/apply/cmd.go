@@ -284,6 +284,9 @@ func isSupportedKind(kind string) bool {
 		"Repository":      true,
 		"CIProvider":      true,
 		"CITrust":         true,
+		// A new PlatformGatewayPolicy is always stored in audit mode; a
+		// spec.enforcement_mode takes effect on the next apply (an update).
+		"PlatformGatewayPolicy": true,
 	}
 	return supportedKinds[kind]
 }
@@ -325,6 +328,8 @@ func applyResource(conn *connection.Connection, resource Resource) (map[string]i
 		basePath = urls.CIProvidersPath
 	case "CITrust":
 		basePath = urls.CITrustsPath
+	case "PlatformGatewayPolicy":
+		basePath = urls.PlatformGatewayPoliciesPath
 	default:
 		return nil, fmt.Errorf("unsupported kind: %s", kind)
 	}

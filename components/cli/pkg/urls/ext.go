@@ -20,6 +20,11 @@ const (
 	CIProvidersPath      = ExtAPIPrefix + "/ci_providers"
 	CITrustsPath         = ExtAPIPrefix + "/ci_trusts"
 
+	PlatformGatewayPoliciesPath = ExtAPIPrefix + "/platform_gateway_policies"
+	// PlatformPolicySettingsPath is the singleton global enforcement toggle
+	// (PLAT-DATA-29): GET reads it, PATCH {"mode":"audit|enforce"} changes it.
+	PlatformPolicySettingsPath = ExtAPIPrefix + "/platform_policy_settings"
+
 	GatewaysPlacementAvailabilityPath = GatewaysPath + "/placement-availability"
 )
 
@@ -45,3 +50,13 @@ func RepositoryPath(id string) string { return RepositoriesPath + "/" + id }
 func CIProviderPath(id string) string { return CIProvidersPath + "/" + id }
 
 func CITrustPath(id string) string { return CITrustsPath + "/" + id }
+
+func PlatformGatewayPolicyPath(id string) string { return PlatformGatewayPoliciesPath + "/" + id }
+
+// GatewayEffectivePoliciesPath is the read-only effective-policies view of one
+// gateway (PLAT-PGP-19). It sits under the core /v1/ gateways collection, but
+// the generator emits only standard resource collection paths, so it is
+// hand-maintained here like the placement-availability path.
+func GatewayEffectivePoliciesPath(gatewayID string) string {
+	return GatewayPath(gatewayID) + "/effective_policies"
+}

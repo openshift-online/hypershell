@@ -5,6 +5,7 @@ import (
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/ciProviders"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/ciTrusts"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/inferenceRoutes"
+	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/platformGatewayPolicies"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/providerBindings"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/providerSpecs"
 	"github.com/openshift-online/hypershell/components/cli/cmd/hsctl/list/repositories"
@@ -26,5 +27,6 @@ func init() {
 		repositories.Cmd,
 		ciProviders.Cmd,
 		ciTrusts.Cmd,
+		platformGatewayPolicies.Cmd,
 	)
 }

@@ -7,9 +7,9 @@ import (
 
 // The extension kinds are hand-written and registered by extgroup, and main
 // groups every parent's help into core and extension sections. These checks
-// cover the generated parents (get, list, create, delete) and the hand-written
-// service account commands registered on them.
-// Verifies: CLI-EXT-01.01
+// cover the generated parents (get, list, create, delete, update) and the
+// hand-written service account commands registered on them.
+// Verifies: CLI-EXT-01.01, CLI-EXT-06.01
 func TestParentCommandsSplitCoreAndExtensionHelp(t *testing.T) {
 	ext := []string{"agentRuntime", "sandboxTemplate", "providerSpec", "providerBinding", "inferenceRoute", "secretSource", "ciProvider", "ciTrust"}
 	extPlural := []string{"agentRuntimes", "sandboxTemplates", "providerSpecs", "providerBindings", "inferenceRoutes", "secretSources", "ciProviders", "ciTrusts"}
@@ -17,6 +17,12 @@ func TestParentCommandsSplitCoreAndExtensionHelp(t *testing.T) {
 	// create or delete command (see hsctl-extension-commands.spec.md).
 	getExt := append(append([]string{}, ext...), "repository")
 	listExt := append(append([]string{}, extPlural...), "repositories")
+	// PlatformGatewayPolicy has every verb, plus reads of the platform policy
+	// toggle and a gateway's effective policies, and a toggle change (CLI-EXT-06).
+	ext = append(ext, "platformGatewayPolicy")
+	getExt = append(getExt, "platformGatewayPolicy", "platformPolicySettings", "effectivePolicies")
+	listExt = append(listExt, "platformGatewayPolicies")
+	updateExt := []string{"platformGatewayPolicy", "platformPolicySettings"}
 
 	for _, tc := range []struct {
 		verb string
@@ -27,6 +33,7 @@ func TestParentCommandsSplitCoreAndExtensionHelp(t *testing.T) {
 		{"list", []string{"gateways", "managedClusters", "roles", "roleBindings", "users", "serviceAccounts"}, listExt},
 		{"create", []string{"gateway", "managedCluster", "role", "roleBinding", "user", "serviceAccount"}, ext},
 		{"delete", []string{"gateway", "managedCluster", "roleBinding", "serviceAccount"}, ext},
+		{"update", []string{"gateway", "managedCluster", "serviceAccount", "gatewayAccess"}, updateExt},
 	} {
 		t.Run(tc.verb, func(t *testing.T) {
 			parent := subcommand(root, tc.verb)
