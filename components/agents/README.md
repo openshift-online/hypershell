@@ -10,6 +10,7 @@ Build context: repository root. Containerfiles: `Containerfile.agent-runtime` an
 | Go, Rust compiler/Cargo/Clippy/rustfmt/standard library/source | | yes |
 | Node.js 24, npm and pnpm 11.15.1 | | yes |
 | GCC/G++, linker, make, pkg-config, OpenSSL and Python development headers | | yes |
+| `buf`, headless JRE + `openapi-generator-cli` 7.16.0 JAR, PostgreSQL server binaries (`initdb`/`pg_ctl`/`postgres`), headless Chromium (container-free generation/test toolchain, ARI-01) | | yes |
 
 Both variants bake the same reviewed, SHA-256-locked CLI tools via
 `install-tools.py`, so tooling never drifts between images. The `fullsend` CLI is
@@ -37,9 +38,42 @@ it.
 Rust comes from Red Hat's signed RPM toolchain, including its standard library
 and source; rustup and automatic toolchain downloads are not installed. Claude
 Code uses its native executable; slim contains no Node.js/npm or compilers.
-There is no container engine, Kubernetes CLI, browser, or database server.
+Neither image includes a container engine or a Kubernetes runtime. The full
+`agent-runtime` image does bake a container-free generation and verification
+toolchain (`buf`, a headless JRE with the `openapi-generator-cli` JAR, PostgreSQL
+server binaries, and a headless Chromium; see ARI-01) so the code-implementation
+agent can generate code, run the api-server integration suite, and capture
+`ui-build-gate` screenshots without a daemon; the slim image has none of these.
 Release-verification agents needing cluster checks must receive the appropriate
 cluster tooling and credentials from their harness or a dedicated future variant.
+
+## Container-free generation and the code-implementation sandbox
+
+The `code-implementation` agent runs in the full `agent-runtime` sandbox template
+(`.hypershell/base/platform/sandbox-template.yaml`, `agent-runtime`; ARI-05) rather
+than `agent-runtime-slim`. That template keeps the inference and GitHub egress
+groups and adds three narrow, binary-scoped groups: Go modules (`proxy.golang.org`,
+`sum.golang.org` for `go`), npm packages (`registry.npmjs.org` for `node`/`pnpm`),
+and buf remote plugins (`buf.build`, `api.buf.build` for `buf`). No general internet
+egress is allowed.
+
+Because the sandbox has no container engine, the api-server offers container-free
+paths that match their container equivalents (ARI-06):
+
+- `cd components/api-server && make generate OPENAPI_GENERATOR=jar generate-sdk`
+  runs the same `openapi-generator-cli` version, arguments, and post-processing as
+  `Dockerfile.openapi` using the baked JAR, producing byte-identical output (a CI
+  job asserts parity), then regenerates the Go and TypeScript SDKs with `go run`.
+  The default `make generate` still uses the container engine.
+- `make test-integration-external-db` starts a throwaway PostgreSQL with
+  `initdb`/`pg_ctl` in a temporary directory, runs the integration suite with
+  `DB_FACTORY_MODE=external` against the committed `secrets/db.*` settings, and
+  stops and removes the database on every exit. The default `make test` still uses
+  testcontainers.
+
+The sandbox cannot run Kind; the agent treats the pull request's CI e2e jobs as the
+e2e gate (ARI-07, `e2e-testing.spec.md` E2E-CORE-51) and never reports e2e as passing
+from a run it did not perform.
 
 ## Builds and cache
 
