@@ -1483,9 +1483,9 @@ describe("log pagination and degraded log pane", () => {
     expect(within(summaryRow).getByText("Failed")).toBeDefined();
     expect(within(summaryRow).queryByText("Passed")).toBeNull();
     expect(
-      within(summaryRow).getAllByRole("button", { name: "Failed" }),
+      within(summaryRow).getAllByRole("img", { name: "Failed" }),
     ).toHaveLength(2);
-    const passedStatus = within(summaryRow).getByRole("button", {
+    const passedStatus = within(summaryRow).getByRole("img", {
       name: "Passed",
     });
     await user.hover(passedStatus);
@@ -1494,9 +1494,16 @@ describe("log pagination and degraded log pane", () => {
     await waitFor(() => {
       expect(screen.queryByRole("tooltip")).toBeNull();
     });
-    act(() => {
-      passedStatus.focus();
+    const expandToggle = within(summaryRow).getByRole("button", {
+      name: "Show 3 runs",
     });
+    act(() => {
+      expandToggle.focus();
+    });
+    await user.tab();
+    await user.tab();
+    await user.tab();
+    expect(document.activeElement).toBe(passedStatus);
     expect((await screen.findByRole("tooltip")).textContent).toBe("Passed");
     await user.keyboard("{Escape}");
     await waitFor(() => {

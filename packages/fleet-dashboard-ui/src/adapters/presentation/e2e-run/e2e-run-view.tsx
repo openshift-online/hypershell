@@ -314,9 +314,16 @@ function StatusChip({
     const label = intl.formatMessage(visual.message);
     return (
       <Tooltip content={label}>
-        <Button variant="plain" isInline aria-label={label}>
+        {/* eslint-disable jsx-a11y/no-noninteractive-tabindex -- Keyboard focus reveals the status tooltip without presenting an inoperative button. */}
+        <span
+          className={styles.statusIcon}
+          role="img"
+          tabIndex={0}
+          aria-label={label}
+        >
           <Icon style={{ color: visual.tone }} aria-hidden />
-        </Button>
+        </span>
+        {/* eslint-enable jsx-a11y/no-noninteractive-tabindex */}
       </Tooltip>
     );
   }
