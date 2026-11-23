@@ -23,7 +23,7 @@ const canaryUserMessage = "Used by HyperShell release checks. Applies only to sa
 // (SDLC-CONF-13). Idempotent.
 func migration() *gormigrate.Migration {
 	return &gormigrate.Migration{
-		ID: "2026112300000001",
+		ID: "2026112310000001",
 		Migrate: func(tx *gorm.DB) error {
 			if err := dbmigrate.CreateTable(tx, &PlatformGatewayPolicy{}); err != nil {
 				return err
@@ -80,7 +80,7 @@ func migration() *gormigrate.Migration {
 // a re-run never alters the policy or its status.
 func migrationSeedCanary() *gormigrate.Migration {
 	return &gormigrate.Migration{
-		ID:      "2026112300000002",
+		ID:      "2026112310000002",
 		Migrate: SeedCanary,
 		Rollback: func(tx *gorm.DB) error {
 			return tx.Exec(`DELETE FROM platform_gateway_policies WHERE name = ? AND built_in = true`, CanaryPolicyName).Error

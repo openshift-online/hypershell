@@ -683,7 +683,7 @@ func migrationAddPlatformPolicyAdminRole() *gormigrate.Migration {
 	}
 
 	return &gormigrate.Migration{
-		ID: "2026112300000003",
+		ID: "2026112310000003",
 		Migrate: func(tx *gorm.DB) error {
 			var existing Role
 			lookupErr := tx.Where("name = ?", RolePlatformPolicyAdmin).First(&existing).Error

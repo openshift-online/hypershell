@@ -22,11 +22,11 @@ var _ MappedNullable = &PlatformPolicySettings{}
 type PlatformPolicySettings struct {
 	Kind *string `json:"kind,omitempty"`
 	// The global minimum enforcement mode (PLAT-PGP-06). Defaults to audit.
-	Mode          *string        `json:"mode,omitempty"`
-	UpdatedAt     *time.Time     `json:"updated_at,omitempty"`
-	UpdatedBy     *string        `json:"updated_by,omitempty"`
-	SchemaVersion *string        `json:"schema_version,omitempty"`
-	Defaults      *FleetDefaults `json:"defaults,omitempty"`
+	Mode          *string                         `json:"mode,omitempty"`
+	UpdatedAt     *time.Time                      `json:"updated_at,omitempty"`
+	UpdatedBy     *string                         `json:"updated_by,omitempty"`
+	SchemaVersion *string                         `json:"schema_version,omitempty"`
+	Defaults      *PlatformPolicySettingsDefaults `json:"defaults,omitempty"`
 }
 
 // NewPlatformPolicySettings instantiates a new PlatformPolicySettings object
@@ -207,9 +207,9 @@ func (o *PlatformPolicySettings) SetSchemaVersion(v string) {
 }
 
 // GetDefaults returns the Defaults field value if set, zero value otherwise.
-func (o *PlatformPolicySettings) GetDefaults() FleetDefaults {
+func (o *PlatformPolicySettings) GetDefaults() PlatformPolicySettingsDefaults {
 	if o == nil || IsNil(o.Defaults) {
-		var ret FleetDefaults
+		var ret PlatformPolicySettingsDefaults
 		return ret
 	}
 	return *o.Defaults
@@ -217,7 +217,7 @@ func (o *PlatformPolicySettings) GetDefaults() FleetDefaults {
 
 // GetDefaultsOk returns a tuple with the Defaults field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *PlatformPolicySettings) GetDefaultsOk() (*FleetDefaults, bool) {
+func (o *PlatformPolicySettings) GetDefaultsOk() (*PlatformPolicySettingsDefaults, bool) {
 	if o == nil || IsNil(o.Defaults) {
 		return nil, false
 	}
@@ -233,8 +233,8 @@ func (o *PlatformPolicySettings) HasDefaults() bool {
 	return false
 }
 
-// SetDefaults gets a reference to the given FleetDefaults and assigns it to the Defaults field.
-func (o *PlatformPolicySettings) SetDefaults(v FleetDefaults) {
+// SetDefaults gets a reference to the given PlatformPolicySettingsDefaults and assigns it to the Defaults field.
+func (o *PlatformPolicySettings) SetDefaults(v PlatformPolicySettingsDefaults) {
 	o.Defaults = &v
 }
 

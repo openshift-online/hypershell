@@ -585,7 +585,30 @@ components:
           type: string
           readOnly: true
         defaults:
-          $ref: '#/components/schemas/FleetDefaults'
+          type: object
+          readOnly: true
+          description: Fleet-wide sandbox resource defaults, controller configuration (PLAT-PGP-08)
+          properties:
+            cpu_request:
+              type: string
+            cpu_limit:
+              type: string
+            memory_request:
+              type: string
+            memory_limit:
+              type: string
+            cpu_request_millis:
+              type: integer
+              format: int64
+            cpu_limit_millis:
+              type: integer
+              format: int64
+            memory_request_bytes:
+              type: integer
+              format: int64
+            memory_limit_bytes:
+              type: integer
+              format: int64
     PlatformPolicySettingsPatchRequest:
       type: object
       required:

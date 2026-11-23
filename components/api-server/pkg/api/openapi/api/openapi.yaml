@@ -8934,7 +8934,7 @@ components:
           readOnly: true
           type: string
         defaults:
-          $ref: "#/components/schemas/FleetDefaults"
+          $ref: "#/components/schemas/PlatformPolicySettings_defaults"
       type: object
     PlatformPolicySettingsPatchRequest:
       example:
@@ -9058,6 +9058,41 @@ components:
         unsupported:
           format: int32
           type: integer
+      type: object
+    PlatformPolicySettings_defaults:
+      description: "Fleet-wide sandbox resource defaults, controller configuration\
+        \ (PLAT-PGP-08)"
+      example:
+        cpu_limit: cpu_limit
+        memory_request: memory_request
+        memory_limit: memory_limit
+        cpu_request_millis: 0
+        memory_limit_bytes: 5
+        cpu_limit_millis: 6
+        memory_request_bytes: 1
+        cpu_request: cpu_request
+      properties:
+        cpu_request:
+          type: string
+        cpu_limit:
+          type: string
+        memory_request:
+          type: string
+        memory_limit:
+          type: string
+        cpu_request_millis:
+          format: int64
+          type: integer
+        cpu_limit_millis:
+          format: int64
+          type: integer
+        memory_request_bytes:
+          format: int64
+          type: integer
+        memory_limit_bytes:
+          format: int64
+          type: integer
+      readOnly: true
       type: object
   securitySchemes:
     Bearer:

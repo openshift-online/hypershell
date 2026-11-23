@@ -9,7 +9,7 @@ Name | Type | Description | Notes
 **UpdatedAt** | Pointer to **time.Time** |  | [optional]
 **UpdatedBy** | Pointer to **string** |  | [optional]
 **SchemaVersion** | Pointer to **string** |  | [optional] [readonly]
-**Defaults** | Pointer to [**FleetDefaults**](FleetDefaults.md) |  | [optional]
+**Defaults** | Pointer to [**PlatformPolicySettingsDefaults**](PlatformPolicySettingsDefaults.md) |  | [optional]
 
 ## Methods
 
@@ -157,20 +157,20 @@ HasSchemaVersion returns a boolean if a field has been set.
 
 ### GetDefaults
 
-`func (o *PlatformPolicySettings) GetDefaults() FleetDefaults`
+`func (o *PlatformPolicySettings) GetDefaults() PlatformPolicySettingsDefaults`
 
 GetDefaults returns the Defaults field if non-nil, zero value otherwise.
 
 ### GetDefaultsOk
 
-`func (o *PlatformPolicySettings) GetDefaultsOk() (*FleetDefaults, bool)`
+`func (o *PlatformPolicySettings) GetDefaultsOk() (*PlatformPolicySettingsDefaults, bool)`
 
 GetDefaultsOk returns a tuple with the Defaults field if it's non-nil, zero value otherwise
 and a boolean to check if the value has been set.
 
 ### SetDefaults
 
-`func (o *PlatformPolicySettings) SetDefaults(v FleetDefaults)`
+`func (o *PlatformPolicySettings) SetDefaults(v PlatformPolicySettingsDefaults)`
 
 SetDefaults sets Defaults field to given value.
 

@@ -95,14 +95,14 @@ delivery slice 1 (PLAT-PGP-05).
 
 | ID | Status | Evidence |
 |----|--------|----------|
-| PLAT-DATA-28, PLAT-PGP-01 | Present | `plugins/platformGatewayPolicies` (model, dao, service, REST + gRPC handlers, presenters, migration `2026112300000001`), `openapi/openapi.platformGatewayPolicies.yaml`, `proto/hypershell/v1/platform_gateway_policies.proto`; new policies stored as `audit`; built-in policies refuse update and delete; tests `test/authz/platform_gateway_policy_test.go`, `test/authz/ext_crud_conformance_test.go` |
+| PLAT-DATA-28, PLAT-PGP-01 | Present | `plugins/platformGatewayPolicies` (model, dao, service, REST + gRPC handlers, presenters, migration `2026112310000001`), `openapi/openapi.platformGatewayPolicies.yaml`, `proto/hypershell/v1/platform_gateway_policies.proto`; new policies stored as `audit`; built-in policies refuse update and delete; tests `test/authz/platform_gateway_policy_test.go`, `test/authz/ext_crud_conformance_test.go` |
 | PLAT-DATA-29, PLAT-PGP-06 | Present | `platform_policy_settings` singleton (default `audit`), `GET/PATCH /api/hypershell/ext/platform_policy_settings`, gRPC `PlatformPolicySettingsService` Get + Watch; changes captured by the framework audit trail (SEC-RBAC-12) |
 | PLAT-DATA-30, PLAT-PGP-15 (store) | Present | `policy_audit_findings` table (gateway/time index, GIN on `policy_names`), idempotent insert on event id, hourly retention pruner (`HYPERSHELL_POLICY_FINDINGS_RETENTION_DAYS`, default 30), gRPC `PolicyAuditFindingService.ReportPolicyAuditFindings`, `GET .../platform_gateway_policies/{id}/findings` |
 | PLAT-PGP-04, PLAT-PGP-05 | Present | write-time `cedar.ValidatePolicy` on create/update with line-attributed diagnostics and fixes; editor dry run `POST .../platform_gateway_policies/evaluate` |
 | PLAT-PGP-14, PLAT-PGP-17 (shared engine) | Present | `pkg/cedar/evaluate.go` (`NewEvaluator`, `Evaluate`, `DenialReason`), structured `Bounds` on `RenderPolicy`; tests `pkg/cedar/evaluate_test.go` |
 | PLAT-PGP-19 | Present | `GET /api/hypershell/v1/gateways/{gateway_id}/effective_policies` |
-| PLAT-PGP-20 (seed) | Present | migration `2026112300000002` seeds `e2e-enforcement-canary` (enforce, target all, built in) |
-| SEC-RBAC-30 | Present | `plugins/roles` (`RolePlatformPolicyAdmin`, seed migration `2026112300000003`), `plugins/roleBindings/service.go` (platform:admin-only grant, global scope), `pkg/rbac/authorization.go` (`hasPlatformPolicyAdmin`, ext gate); tests `pkg/rbac/platform_policy_authz_test.go`, `plugins/roleBindings/integration_test.go`, `plugins/roles/migration_seed_test.go` |
+| PLAT-PGP-20 (seed) | Present | migration `2026112310000002` seeds `e2e-enforcement-canary` (enforce, target all, built in) |
+| SEC-RBAC-30 | Present | `plugins/roles` (`RolePlatformPolicyAdmin`, seed migration `2026112310000003`), `plugins/roleBindings/service.go` (platform:admin-only grant, global scope), `pkg/rbac/authorization.go` (`hasPlatformPolicyAdmin`, ext gate); tests `pkg/rbac/platform_policy_authz_test.go`, `plugins/roleBindings/integration_test.go`, `plugins/roles/migration_seed_test.go` |
 | SEC-RBAC-31 | Present | `effective_policies` gate + 404 masking, targets only for policy admin / fleet reader / platform admin (`CanSeePolicyTargets`) |
 | SEC-RBAC-32, CTRL-CORE-22 (API side) | Present | `pkg/rbac/grpc_authorization.go`: control plane reads policies and settings, status-only own-cluster write-back, own-cluster findings forward; users denied |
 

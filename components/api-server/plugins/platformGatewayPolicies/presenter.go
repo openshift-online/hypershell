@@ -233,7 +233,7 @@ func PresentSettings(s *PolicySettings, d FleetDefaults) openapi.PlatformPolicyS
 		Kind:          openapi.PtrString("PlatformPolicySettings"),
 		Mode:          openapi.PtrString(s.Mode),
 		SchemaVersion: openapi.PtrString(cedar.SchemaVersion),
-		Defaults:      PresentFleetDefaults(d),
+		Defaults:      presentSettingsDefaults(d),
 	}
 	if !s.UpdatedAt.IsZero() {
 		out.UpdatedAt = openapi.PtrTime(s.UpdatedAt)
@@ -242,4 +242,18 @@ func PresentSettings(s *PolicySettings, d FleetDefaults) openapi.PlatformPolicyS
 		out.UpdatedBy = openapi.PtrString(s.UpdatedBy)
 	}
 	return out
+}
+
+func presentSettingsDefaults(d FleetDefaults) *openapi.PlatformPolicySettingsDefaults {
+	f := PresentFleetDefaults(d)
+	return &openapi.PlatformPolicySettingsDefaults{
+		CpuRequest:         f.CpuRequest,
+		CpuLimit:           f.CpuLimit,
+		MemoryRequest:      f.MemoryRequest,
+		MemoryLimit:        f.MemoryLimit,
+		CpuRequestMillis:   f.CpuRequestMillis,
+		CpuLimitMillis:     f.CpuLimitMillis,
+		MemoryRequestBytes: f.MemoryRequestBytes,
+		MemoryLimitBytes:   f.MemoryLimitBytes,
+	}
 }

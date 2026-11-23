@@ -80,6 +80,7 @@ docs/PlatformGatewayPolicyStatusRollout.md
 docs/PlatformGatewayPolicyTarget.md
 docs/PlatformGatewayPolicyValidation.md
 docs/PlatformPolicySettings.md
+docs/PlatformPolicySettingsDefaults.md
 docs/PlatformPolicySettingsPatchRequest.md
 docs/PolicyAuditFinding.md
 docs/PolicyAuditFindingList.md
@@ -189,6 +190,7 @@ model_platform_gateway_policy_status_rollout.go
 model_platform_gateway_policy_target.go
 model_platform_gateway_policy_validation.go
 model_platform_policy_settings.go
+model_platform_policy_settings_defaults.go
 model_platform_policy_settings_patch_request.go
 model_policy_audit_finding.go
 model_policy_audit_finding_list.go

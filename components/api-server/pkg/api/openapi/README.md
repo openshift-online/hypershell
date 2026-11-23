@@ -253,6 +253,7 @@ Class | Method | HTTP request | Description
  - [PlatformGatewayPolicyTarget](docs/PlatformGatewayPolicyTarget.md)
  - [PlatformGatewayPolicyValidation](docs/PlatformGatewayPolicyValidation.md)
  - [PlatformPolicySettings](docs/PlatformPolicySettings.md)
+ - [PlatformPolicySettingsDefaults](docs/PlatformPolicySettingsDefaults.md)
  - [PlatformPolicySettingsPatchRequest](docs/PlatformPolicySettingsPatchRequest.md)
  - [PolicyAuditFinding](docs/PolicyAuditFinding.md)
  - [PolicyAuditFindingList](docs/PolicyAuditFindingList.md)
