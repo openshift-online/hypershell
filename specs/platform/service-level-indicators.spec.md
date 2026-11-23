@@ -117,6 +117,16 @@ Good SLO events SHALL be the `within_10m` count. Bad SLO events SHALL be the sum
 of `late` and `failed`. Every valid change SHALL contribute to exactly one of the
 three counts.
 
+The API server SHALL resolve an unconverged change at its 10-minute deadline
+through a periodic deadline evaluation that does not depend on an incoming
+status write for that Gateway, so a change that stalls with no further write is
+still resolved and counted at its deadline. Outcome resolution SHALL be atomic
+with the OBS-SLI-03 counter increment and SHALL be exactly-once across every
+API-server replica and across restarts: a change SHALL be resolved and counted
+no more than once even when several API-server replicas run concurrently against
+the same store. A single-owner coordination mechanism (for example a PostgreSQL
+advisory lock) MAY serialize the deadline evaluation across replicas.
+
 #### Scenario: OBS-SLI-02.01 -- Converged within budget counts within_10m
 
 - GIVEN a change whose clock started 4 minutes ago
@@ -150,6 +160,14 @@ three counts.
 - WHEN a further desired-spec field change advances `generation` at time T plus 3 minutes
 - THEN the 10-minute clock SHALL still be measured from T
 - AND only the newest generation SHALL be judged for convergence
+
+#### Scenario: OBS-SLI-02.06 -- Outcome resolved exactly once across replicas
+
+- GIVEN two API-server replicas running concurrently against the same PostgreSQL store
+- AND a change whose 10-minute deadline has elapsed without convergence
+- WHEN both replicas run the periodic deadline evaluation
+- THEN the change SHALL be resolved and its outcome counted exactly once
+- AND no replica SHALL double-count the outcome or re-resolve the change
 
 ### Requirement: OBS-SLI-03 -- Durable Convergence Counters Exported by the API Server
 
@@ -393,6 +411,7 @@ Reported build metadata SHALL NOT contain secrets.
 | API server owns change convergence, not the control plane | PostgreSQL is the source of truth; durable state is the only way a restart cannot change counts, and the convergence latch already lives there (PLAT-DATA-06). |
 | Exactly one outcome per change, split at the 10-minute deadline | Satisfies "count a change as bad when its 10 minutes end" and "if it converges later, do not count it again" without double counting; keeps the SLO good/bad partition exact. |
 | Clock from the first unconverged change, newest generation judged | Prevents repeated edits from resetting the budget while still measuring the latest desired state. |
+| Resolve stalled changes with a single-owner deadline sweep, counting in the same transaction | A change that stalls with no further write must still be counted at its deadline; running the sweep on one replica and incrementing the durable counter in the same transaction keeps outcomes exactly-once across replicas and restarts. |
 | Keep the same provision Prometheus series names, move the producer | Removes the in-memory histogram the issue calls out while leaving the operational dashboard provision-time and provision-reliability contracts unchanged. |
 | Standardize latency on OTel `http.server.request.duration` | Its buckets are owned by HyperShell code; the framework `api_inbound_request_duration` buckets are owned by the upstream rh-trex-ai dependency and cannot be set here. |
 | Read/write class from the HTTP method | Bounded two-value label; reads and writes have different SLO thresholds; avoids a per-route cardinality explosion. |

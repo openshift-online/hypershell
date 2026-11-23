@@ -1,8 +1,4 @@
-import {
-  fetchMetrics,
-  namespaceSelector,
-  type MetricsSource,
-} from "./metrics-source.js";
+import { fetchMetrics, type MetricsSource } from "./metrics-source.js";
 import {
   dailyRangeStepSeconds,
   formatUtcCalendarDate,
@@ -102,30 +98,22 @@ export async function queryGatewayProvisionDuration(
   namespace?: string,
   rangeDays?: 7 | 30,
 ): Promise<GatewayProvisionDurationSeconds> {
-  // OTLP resource attributes identify the controller namespace. The scrape
-  // namespace label identifies the collector, which serves multiple instances.
-  const selector = namespaceSelector(namespace, "k8s_namespace_name");
+  // OBS-SLI-04: the API server emits these series at fleet level with no
+  // namespace or gateway identifier label, so queries are never namespace
+  // scoped. Any namespace argument is ignored for these provision series.
   const window = rangeDays === undefined ? undefined : `${String(rangeDays)}d`;
   const count = window
-    ? `sum(increase(gateway_provision_duration_seconds_count${selector}[${window}]))`
-    : namespace
-      ? `sum(gateway_provision_duration_seconds_count${selector})`
-      : gatewayProvisionDurationCountPromql;
+    ? `sum(increase(gateway_provision_duration_seconds_count[${window}]))`
+    : gatewayProvisionDurationCountPromql;
   const mean = window
-    ? `sum(increase(gateway_provision_duration_seconds_sum${selector}[${window}])) / ${count}`
-    : namespace
-      ? `sum(gateway_provision_duration_seconds_sum${selector}) / ${count}`
-      : gatewayProvisionDurationMeanPromql;
+    ? `sum(increase(gateway_provision_duration_seconds_sum[${window}])) / ${count}`
+    : gatewayProvisionDurationMeanPromql;
   const p50 = window
-    ? `histogram_quantile(0.50, sum by (le) (increase(gateway_provision_duration_seconds_bucket${selector}[${window}])))`
-    : namespace
-      ? `histogram_quantile(0.50, sum by (le) (gateway_provision_duration_seconds_bucket${selector}))`
-      : gatewayProvisionDurationP50Promql;
+    ? `histogram_quantile(0.50, sum by (le) (increase(gateway_provision_duration_seconds_bucket[${window}])))`
+    : gatewayProvisionDurationP50Promql;
   const p95 = window
-    ? `histogram_quantile(0.95, sum by (le) (increase(gateway_provision_duration_seconds_bucket${selector}[${window}])))`
-    : namespace
-      ? `histogram_quantile(0.95, sum by (le) (gateway_provision_duration_seconds_bucket${selector}))`
-      : gatewayProvisionDurationP95Promql;
+    ? `histogram_quantile(0.95, sum by (le) (increase(gateway_provision_duration_seconds_bucket[${window}])))`
+    : gatewayProvisionDurationP95Promql;
   const observation_count = Math.round(
     await queryPrometheusInstantNumber(prometheusUrl, count, timeoutMs),
   );
@@ -145,9 +133,7 @@ export async function queryGatewayProvisionDuration(
   if (rangeDays === 7) {
     p99Seconds = await queryPrometheusInstantNumber(
       prometheusUrl,
-      namespace
-        ? `histogram_quantile(0.99, sum by (le) (increase(gateway_provision_duration_seconds_bucket${selector}[7d])))`
-        : gatewayProvisionDurationP99SevenDayPromql,
+      gatewayProvisionDurationP99SevenDayPromql,
       timeoutMs,
     ).catch(() => undefined);
 
@@ -155,9 +141,7 @@ export async function queryGatewayProvisionDuration(
       const { start, end } = utcCalendarRange(7);
       const samples = await queryPrometheusRangeScalarSamples(
         prometheusUrl,
-        namespace
-          ? `histogram_quantile(0.99, sum by (le) (increase(gateway_provision_duration_seconds_bucket${selector}[1d])))`
-          : gatewayProvisionDurationP99DailyPromql,
+        gatewayProvisionDurationP99DailyPromql,
         start,
         end,
         String(dailyRangeStepSeconds),
