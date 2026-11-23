@@ -34,6 +34,7 @@ import (
 	"github.com/openshift-online/hypershell/components/control-plane/internal/keycloak"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/logging"
 	cpotel "github.com/openshift-online/hypershell/components/control-plane/internal/otel"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/prober"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/reconciler"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/registration"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/serviceaccountkeycloak"
@@ -144,8 +145,36 @@ func fatal(msg string, args ...any) {
 	os.Exit(1)
 }
 
+// runProbe runs the control-plane image in its probe mode (OBS-PRB-10): it starts
+// only the outside prober (OBS-PRB-03 to OBS-PRB-05) and its metrics endpoint
+// (OBS-PRB-07). It authenticates with the keyless prober identity (OBS-PRB-06)
+// and never starts the reconciler, the gRPC watch streams, gateway database
+// provisioning, or Helm-based gateway management.
+func runProbe() {
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
+	slog.InfoContext(ctx, "hypershell-controller starting in probe mode", buildInfo()...)
+	if err := prober.Run(ctx); err != nil {
+		fatal("Prober failed", "error", err)
+	}
+	slog.InfoContext(ctx, "hypershell-controller probe mode stopped")
+}
+
 func main() {
 	installLogging()
+
+	// Subcommand dispatch (OBS-PRB-10): `hypershell-controller probe` runs ONLY
+	// the outside prober - the probe loops and the metrics endpoint - and returns
+	// without loading or validating any reconciler-only configuration. A
+	// misconfiguration of the reconciler's preconditions (for example the gateway
+	// database admin credentials) therefore cannot block the probe mode from
+	// starting (OBS-PRB-10.02). With no subcommand the process runs the controller
+	// (the reconciler) exactly as before.
+	if len(os.Args) > 1 && os.Args[1] == "probe" {
+		runProbe()
+		return
+	}
 
 	cfg, err := config.Load()
 	if err != nil {
