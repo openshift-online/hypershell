@@ -17,7 +17,8 @@ name: E2E
 # tests.yml, so this workflow needs no summary/gate job of its own. The
 # `checks: read` permission and the wait-on-check-action steps below remain:
 # they gate on Konflux image builds, which this workflow cannot order with
-# `needs:`. Deploy OpenShift Environment lives in this workflow so OpenShift can
+# `needs:`. The separate wait-images job reports the same builds as one named
+# check and blocks nothing. Deploy OpenShift Environment lives in this workflow so OpenShift can
 # `needs:` it instead of polling a separate PR Environment workflow. After the suite, the
 # OpenShift job tears the environment down unless the pull request is marked
 # retained (/pr-extend). Origin pull requests deploy hypershell-ci-pr-<n> and
@@ -480,6 +481,133 @@ jobs:
               ;;
           esac
 
+
+  # Reports Konflux image status as its own check, so a failed build is easy to
+  # identify. No job needs this one: Kind and Deploy OpenShift Environment keep
+  # overlapping their setup with the builds and keep their own wait steps. This
+  # job is informational and is not part of the Tests CI Gate.
+  wait-images:
+    name: Wait for Konflux images
+    needs: plan-images
+    if: needs.plan-images.outputs.should_run == 'true'
+    runs-on: ubuntu-24.04
+    # Covers the 900s check discovery ceiling plus the build itself.
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      checks: read
+    steps:
+      # Block until each triggered component build has concluded.
+      # wait-on-check-action waits for the named check to both appear and finish,
+      # so a build whose check has not been created yet cannot be skipped. Push
+      # events select only their on-push check because the same commit can also
+      # retain successful merge-queue checks. A non-success conclusion fails the
+      # step instead of letting E2E run against a stale baseline image.
+      - name: Wait for api-server Konflux build
+        id: wait-api-server
+        if: needs.plan-images.outputs.wait_api_server == 'true'
+        continue-on-error: true
+        uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
+        with:
+          ref: ${{ needs.plan-images.outputs.konflux_ref }}
+          check-regexp: ${{ github.event_name == 'push' && 'hypershell-api-server-main-on-push$' || 'hypershell-api-server-main-on-(pull-request|merge-queue)$' }}
+          repo-token: ${{ github.token }}
+          wait-interval: 30
+          checks-discovery-timeout: 900
+          allowed-conclusions: success
+
+      - name: Wait for control-plane Konflux build
+        id: wait-control-plane
+        if: needs.plan-images.outputs.wait_control_plane == 'true'
+        continue-on-error: true
+        uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
+        with:
+          ref: ${{ needs.plan-images.outputs.konflux_ref }}
+          check-regexp: ${{ github.event_name == 'push' && 'hypershell-control-plane-main-on-push$' || 'hypershell-control-plane-main-on-(pull-request|merge-queue)$' }}
+          repo-token: ${{ github.token }}
+          wait-interval: 30
+          checks-discovery-timeout: 900
+          allowed-conclusions: success
+
+      - name: Wait for web-console Konflux build
+        id: wait-web-console
+        if: needs.plan-images.outputs.wait_web_console == 'true'
+        continue-on-error: true
+        uses: lewagon/wait-on-check-action@369769072fe522a3a8a85c03c96af1e5242a1994 # v1.9.1
+        with:
+          ref: ${{ needs.plan-images.outputs.konflux_ref }}
+          check-regexp: ${{ github.event_name == 'push' && 'hypershell-web-console-main-on-push$' || 'hypershell-web-console-main-on-(pull-request|merge-queue)$' }}
+          repo-token: ${{ github.token }}
+          wait-interval: 30
+          checks-discovery-timeout: 900
+          allowed-conclusions: success
+
+      - name: Report Konflux build result
+        env:
+          API_WAIT: ${{ needs.plan-images.outputs.wait_api_server }}
+          API_RESULT: ${{ steps.wait-api-server.outcome }}
+          CP_WAIT: ${{ needs.plan-images.outputs.wait_control_plane }}
+          CP_RESULT: ${{ steps.wait-control-plane.outcome }}
+          WC_WAIT: ${{ needs.plan-images.outputs.wait_web_console }}
+          WC_RESULT: ${{ steps.wait-web-console.outcome }}
+          KONFLUX_REF: ${{ needs.plan-images.outputs.konflux_ref }}
+        run: |
+          failed=()
+          if [[ "${API_WAIT}" == "true" && "${API_RESULT}" != "success" ]]; then
+            failed+=("api-server")
+          fi
+          if [[ "${CP_WAIT}" == "true" && "${CP_RESULT}" != "success" ]]; then
+            failed+=("control-plane")
+          fi
+          if [[ "${WC_WAIT}" == "true" && "${WC_RESULT}" != "success" ]]; then
+            failed+=("web-console")
+          fi
+
+          if [[ ${#failed[@]} -gt 0 ]]; then
+            checks_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${KONFLUX_REF}/checks"
+            echo "::error title=Konflux image build failed::No usable image for: ${failed[*]}. Kind or OpenShift failures on this commit are likely caused by this. Open the Red Hat Konflux checks for this commit: ${checks_url}"
+            {
+              echo "### Konflux image build failed"
+              echo
+              echo "Components without a usable image: \`${failed[*]}\`."
+              echo
+              echo "Kind or OpenShift failures on this commit are likely caused by this."
+              echo
+              echo "[Open the Konflux checks for this commit](${checks_url})"
+            } >> "${GITHUB_STEP_SUMMARY}"
+            exit 1
+          fi
+          echo "All required Konflux builds succeeded."
+
+      # A successful check should mean the image was pushed. Confirm it, so a
+      # missing image is reported here and not as a later rollout timeout.
+      - name: Verify images are published
+        env:
+          API_WAIT: ${{ needs.plan-images.outputs.wait_api_server }}
+          API_IMAGE: ${{ needs.plan-images.outputs.api_server_image }}
+          CP_WAIT: ${{ needs.plan-images.outputs.wait_control_plane }}
+          CP_IMAGE: ${{ needs.plan-images.outputs.control_plane_image }}
+          WC_WAIT: ${{ needs.plan-images.outputs.wait_web_console }}
+          WC_IMAGE: ${{ needs.plan-images.outputs.web_console_image }}
+        run: |
+          missing=()
+          check_image() {
+            local wait="$1" image="$2"
+            [[ "${wait}" == "true" ]] || return 0
+            if skopeo inspect --retry-times 5 --raw "docker://${image}" >/dev/null; then
+              echo "Published: ${image}"
+            else
+              missing+=("${image}")
+            fi
+          }
+          check_image "${API_WAIT}" "${API_IMAGE}"
+          check_image "${CP_WAIT}" "${CP_IMAGE}"
+          check_image "${WC_WAIT}" "${WC_IMAGE}"
+
+          if [[ ${#missing[@]} -gt 0 ]]; then
+            echo "::error title=Konflux image not published::The build check passed but these images are not in the registry: ${missing[*]}"
+            exit 1
+          fi
 
   e2e-kind:
     name: Kind

@@ -1317,6 +1317,14 @@ On `pull_request` and push to `main` (not on `merge_group` or Mergify queue PRs,
 - WHEN the `e2e` stage runs
 - THEN it SHALL: check out the repository, use the changed-component flags passed in as inputs, create a Kind cluster via `make kind-up` with baseline images (overlapping cluster creation with the Konflux builds in progress), wait for each changed component's Konflux on-pull-request build to conclude, swap in the Konflux-built image digests via `scripts/kind/set-component-images.sh`, run `go -C tests/e2e test . -run TestE2E` with `E2E_INFRA_DRIVER=kind` concurrently with `tests/e2e/e2e-console.sh` through `tests/e2e/run-parallel.sh`, and report the CI status
 
+#### Scenario: E2E-CORE-25.19 -- Konflux Image Status Is Reported Without Delaying E2E
+
+- GIVEN an e2e-relevant event triggers a Konflux build for a component
+- WHEN the `e2e` stage runs
+- THEN the `Wait for Konflux images` job (check: Tests / E2E / Wait for Konflux images) SHALL wait for that build and confirm its image is published
+- AND the job SHALL fail and name the affected component or image when the build fails or the image is missing
+- AND Kind and `Deploy OpenShift Environment` SHALL NOT `needs:` that job, so their setup still overlaps the Konflux builds
+
 #### Scenario: E2E-CORE-25.02 -- Go And Console Suites Run Concurrently On Kind
 
 - GIVEN a pull request or push to `main` (not `merge_group`) whose Kind job reaches the e2e suites
