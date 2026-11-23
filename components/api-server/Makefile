@@ -15,6 +15,15 @@ ifeq ($(shell uname -s),Darwin)
 endif
 POSTGRES_IMAGE=postgres:18@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636
 OPENAPI_SPEC=$(abspath openapi/openapi.yaml)
+
+# OpenAPI generation path selection (agent-runtime-images.spec.md, ARI-06).
+# The default `container` path builds Dockerfile.openapi with a container engine.
+# The `jar` path runs the same openapi-generator-cli version with identical
+# arguments and post-processing and needs no container engine; it is the path the
+# container-free agent-runtime sandbox uses. Both paths MUST produce byte-identical
+# output (asserted in CI).
+OPENAPI_GENERATOR?=container
+OPENAPI_GENERATOR_JAR?=/usr/local/lib/openapi-generator-cli/openapi-generator-cli.jar
 SDK_GENERATOR_DIR=$(abspath ../../scripts/sdk-generator)
 SDK_TYPESCRIPT_DIR=$(abspath ../sdk-typescript)
 SDK_GO_DIR=$(abspath ../sdk-go)
@@ -55,6 +64,15 @@ test: install
 test-integration: install
 	API_ENV=integration_testing go test -p 1 -v ./plugins/... -count=1
 
+# Container-free integration tests (agent-runtime-images.spec.md, ARI-06). Starts
+# a throwaway PostgreSQL with initdb/pg_ctl in a temporary directory, runs the
+# integration suite with DB_FACTORY_MODE=external against the committed secrets/db.*
+# settings, and stops and removes the database on every exit. This is the path the
+# container-free agent-runtime sandbox uses in place of the testcontainers default.
+.PHONY: test-integration-external-db
+test-integration-external-db: install
+	bash hack/integration-external-db.sh
+
 .PHONY: clean
 clean:
 	rm -f $(BINARY_NAME)
@@ -62,10 +80,22 @@ clean:
 .PHONY: generate
 generate:
 	rm -rf pkg/api/openapi
+ifeq ($(OPENAPI_GENERATOR),jar)
+	# Container-free path (ARI-06): same generator version, arguments, and
+	# post-processing as Dockerfile.openapi (generate -g go, then drop
+	# go.mod/go.sum/test and gofmt). Run from the component root with relative
+	# paths, exactly as the container does under /local, so output matches
+	# byte-for-byte.
+	java -jar "$(OPENAPI_GENERATOR_JAR)" generate -i openapi/openapi.yaml -g go -o pkg/api/openapi
+	rm -f pkg/api/openapi/go.mod pkg/api/openapi/go.sum
+	rm -rf pkg/api/openapi/test
+	gofmt -w pkg/api/openapi
+else
 	$(CONTAINER_ENGINE) build -t $(BINARY_NAME)-openapi -f Dockerfile.openapi .
 	id=$$($(CONTAINER_ENGINE) create $(BINARY_NAME)-openapi) && \
 	$(CONTAINER_ENGINE) cp $$id:/local/pkg/api/openapi ./pkg/api/openapi && \
 	$(CONTAINER_ENGINE) rm $$id
+endif
 	# The upstream template emits trailing whitespace and extra EOF newlines in
 	# generated Markdown. Normalize every generated document so repository
 	# whitespace checks and the drift job reproduce committed files byte-for-byte.
