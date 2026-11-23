@@ -1,6 +1,6 @@
 # Outside Availability Prober for the API and Gateways
 
-**Date:** 2026-11-19
+**Date:** 2026-11-23
 **Status:** Draft
 **ID prefix:** OBS-PRB
 **Related:** [`openshell-gateway-health.spec.md`](./openshell-gateway-health.spec.md) (gateway phase and the internal `/health` reconciler, OSG-HLTH-04), [`gateway-phase-vocabulary.spec.md`](./gateway-phase-vocabulary.spec.md) (phase values), [`data-model.spec.md`](./data-model.spec.md) (Gateway `created_at`, `deleted_at`, `phase`, `route_address`, `cluster_id`, PLAT-DATA), [`gateway-managed-cluster-attribution.spec.md`](./gateway-managed-cluster-attribution.spec.md) (`managed_cluster` label), [`ci-trust-ext-api.spec.md`](./ci-trust-ext-api.spec.md) (keyless Keycloak token exchange precedent, PLAT-CITR), [`../security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md) (prober fleet-read role SEC-RBAC-29), [`api-reliability-metrics.spec.md`](./api-reliability-metrics.spec.md) (in-pod request SLI this prober complements), [`global-architecture.spec.md`](./global-architecture.spec.md) (Cloud Hub topology)
@@ -16,10 +16,11 @@ alert fires. There is also no Service Level Indicator for whether a **gateway**
 answers its users.
 
 This spec defines an **outside prober**: a black-box availability probe that runs
-on a Cloud Hub, separate from the clusters it measures, and continuously probes
-gateways and the production API from the outside. It produces the raw Service
-Level Indicator data for two Service Level Objectives defined in the parent
-initiative:
+on each instance hub, in that instance's namespace, next to that instance's API
+server and Keycloak, and continuously probes that instance's gateways and
+production API through their public routes, exactly as an external user would. It
+produces the raw Service Level Indicator data for two Service Level Objectives
+defined in the parent initiative:
 
 - **Gateway availability** - does each gateway that should be running answer the
   OpenShell `Health` call through its public route.
@@ -42,36 +43,61 @@ scope here.
 - **Production instance** - one deployed, production HyperShell API environment
   the prober is configured to measure. The set of production instances is
   deployment configuration, not an API resource (see OBS-PRB-08).
+- **Instance hub** - the Cloud Hub that hosts one production instance: its API
+  server and its Keycloak. One prober runs on each instance hub and measures that
+  instance (see OBS-PRB-01).
+- **Fleet hub** - the hub that aggregates fleet-wide health and holds the
+  cluster-reporting and API-heartbeat alerts (`HyperShellClusterNotReporting`,
+  `HyperShellAPIHeartbeatMissing`). These alerts are realized in the platform
+  GitOps repository and are out of scope here; they, not this prober, detect the
+  total loss of an instance hub (see OBS-PRB-01).
 - **Eligible gateway** - a gateway that the Gateway availability objective counts,
   derived from desired state (see OBS-PRB-02).
 
 ## Requirements
 
-### Requirement: OBS-PRB-01 -- Prober Runs Outside the Clusters It Measures
+### Requirement: OBS-PRB-01 -- Prober Runs on the Instance Hub and Probes Through Public Routes
 
-The prober SHALL run on a Cloud Hub (the infrastructure hub), in a failure domain
-separate from the clusters it measures: separate from the ManagedClusters that
-host the gateways it probes, and separate from the API-server pods it probes. It
-SHALL reach every target only through that target's public route or public API
-endpoint, exactly as an external user would, so that a probe exercises the same
-ingress, routing, and serving path a user depends on.
+The prober SHALL run on each instance hub, in that instance's namespace, next to
+that instance's API server and Keycloak. One prober runs per instance hub and
+measures only that instance: its production API and the gateways attributed to it.
+The prober SHALL reach every target only through that target's public route or
+public API endpoint, exactly as an external user would, so that a probe exercises
+the same ingress, routing, and serving path a user depends on. It SHALL NOT reach
+a target over an in-cluster service address or any other private path.
 
 The prober SHALL NOT read gateway health from in-cluster Kubernetes state, from
 the control plane's internal gateway `/health` reconciliation (OSG-HLTH-04), or
 from any other in-pod signal. Those signals are blind to the same outages this
 prober exists to catch.
 
-The prober's own availability SHALL NOT depend on the clusters it measures: a
-total outage of a measured cluster SHALL leave the prober running and emitting
-failed probes rather than stopping it.
+The prober SHALL remain in a failure domain separate from the ManagedClusters
+that host the gateways it probes: a total outage of a measured ManagedCluster
+SHALL leave the prober running and emitting failed probes rather than stopping it.
 
-#### Scenario: OBS-PRB-01.01 -- Measured cluster outage does not stop the prober
+The total loss of an instance hub stops that hub's prober along with the instance
+it measures, so the prober SHALL NOT be relied on to detect its own hub's total
+loss. That loss SHALL be detected by the fleet hub through its cluster-reporting
+and API-heartbeat alerts (`HyperShellClusterNotReporting`,
+`HyperShellAPIHeartbeatMissing`), which are realized in the platform GitOps
+repository and are out of scope here.
 
-- GIVEN the prober is running on the Cloud Hub
+#### Scenario: OBS-PRB-01.01 -- Measured ManagedCluster outage does not stop the prober
+
+- GIVEN the prober is running on an instance hub
 - WHEN a ManagedCluster hosting probed gateways becomes completely unreachable
 - THEN the prober SHALL continue running
 - AND it SHALL record failed probes for every target on that cluster
 - AND it SHALL continue probing every reachable target on other clusters
+
+#### Scenario: OBS-PRB-01.02 -- Total instance-hub loss is covered by the fleet hub
+
+- GIVEN an instance hub running the prober alongside that instance's API and
+  Keycloak
+- WHEN the entire instance hub becomes unreachable, so the prober stops with it
+- THEN the fleet hub SHALL detect the loss through its cluster-reporting and
+  API-heartbeat alerts
+- AND the prober SHALL NOT be relied on to detect its own hub's total loss
 
 ### Requirement: OBS-PRB-02 -- Gateway Eligibility Comes From Desired State
 
@@ -226,18 +252,53 @@ The prober MUST read all gateways and their route addresses to build its target
 set, and it MUST authenticate for the authentication probe. It SHALL do both with
 one workload identity and SHALL NOT use a static secret.
 
-The prober SHALL obtain its HyperShell API access token by exchanging its
-projected Kubernetes service-account token at Keycloak (workload identity
-federation), reusing the platform token-exchange federation that
+The prober SHALL obtain its HyperShell API access token keylessly, presenting its
+projected Kubernetes service-account token to the instance's Keycloak. It SHALL
+NOT read a long-lived client secret from configuration. Which keyless mechanism it
+uses SHALL be selected by configuration, not code, through
+`HYPERSHELL_PROBE_AUTH_MODE`:
+
+| Setting | Values | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `HYPERSHELL_PROBE_AUTH_MODE` | `client-assertion`, `token-exchange` | No | `client-assertion` | Selects how the prober authenticates to Keycloak |
+| `HYPERSHELL_PROBE_OIDC_CLIENT_ID` | Keycloak client id | In `client-assertion` mode | - | The confidential Keycloak client the prober authenticates as |
+
+In **`client-assertion` mode** (the default) the prober SHALL authenticate with
+Keycloak federated client authentication: it SHALL POST to the realm token
+endpoint with `grant_type=client_credentials`,
+`client_id=<HYPERSHELL_PROBE_OIDC_CLIENT_ID>`,
+`client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer`,
+and `client_assertion` set to its projected Kubernetes service-account token,
+re-read from the token file on every request. Keycloak validates the assertion
+against the cluster's service-account issuer with its own in-cluster service
+account, so this mode needs no static secret, no pinned signing key, and no
+publicly reachable issuer. This is why the prober runs on the instance hub, next
+to that instance's Keycloak (OBS-PRB-01).
+
+In **`token-exchange` mode** the prober SHALL exchange its projected
+service-account token at Keycloak per RFC 8693 (workload identity federation),
+reusing the platform token-exchange federation that
 [`ci-trust-ext-api.spec.md`](./ci-trust-ext-api.spec.md) establishes for keyless
-CI. The concrete Keycloak realm wiring - the identity provider, the
-token-exchange grant, and the mapping to the prober's role - is realized by the
-platform GitOps federation configuration and is out of scope for this spec, which
-defines only the HyperShell-side contract: a keyless, short-lived, exchanged
-token. The prober token exchange SHALL be config-driven over the same
-token-exchange generations fleet Keycloaks run, consistent with the mode
-selection in [`ci-trust-ext-api.spec.md`](./ci-trust-ext-api.spec.md)
-(PLAT-CITR-08); it SHALL NOT hard-code one Keycloak token-exchange mechanism.
+CI. This mode SHALL be config-driven over the same token-exchange generations
+fleet Keycloaks run, consistent with the mode selection in
+[`ci-trust-ext-api.spec.md`](./ci-trust-ext-api.spec.md) (PLAT-CITR-08); it SHALL
+NOT hard-code one Keycloak token-exchange mechanism.
+
+In both modes the concrete Keycloak realm wiring - the identity provider or
+federated client, the grant, and the mapping to the prober's role - is realized by
+the platform GitOps configuration and is out of scope for this spec, which defines
+only the HyperShell-side contract: a keyless, short-lived token. The prober SHALL
+cache the acquired token and reuse it until near expiry, except that the
+authentication probe (OBS-PRB-05) SHALL force a fresh token acquisition each cycle
+so the probe genuinely exercises Keycloak. In every mode the prober SHALL NOT log
+the token or the token-endpoint response body, and SHALL map a non-success
+token-endpoint response to a failed authentication probe (OBS-PRB-05) without
+logging that body.
+
+The projected service-account token the prober presents SHALL be short-lived, with
+a lifetime of at most 10 minutes, and SHALL carry an audience bound to the
+instance's Keycloak realm issuer (for example `https://<host>/realms/hypershell`),
+so a leaked token is narrowly scoped and briefly valid.
 
 The prober's authorization SHALL be the narrow, read-only fleet role
 `fleet:reader` ([`../security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md)
@@ -246,12 +307,12 @@ them and read `id`, `phase`, `cluster_id`, `route_address`, `created_at`, and
 `deleted_at`) and nothing else. The prober SHALL NOT be granted `platform:admin`,
 which confers delete and access-management authority the prober does not need.
 
-#### Scenario: OBS-PRB-06.01 -- Prober uses an exchanged token, not a static secret
+#### Scenario: OBS-PRB-06.01 -- Prober uses a keyless token, not a static secret
 
 - GIVEN the prober needs to list gateways
-- WHEN it acquires a HyperShell API token
-- THEN it SHALL exchange its projected Kubernetes service-account token at
-  Keycloak for a short-lived access token
+- WHEN it acquires a HyperShell API token in any mode
+- THEN it SHALL present its projected Kubernetes service-account token to Keycloak
+  for a short-lived access token
 - AND it SHALL NOT read a long-lived client secret from configuration
 
 #### Scenario: OBS-PRB-06.02 -- Prober identity cannot mutate gateways
@@ -260,12 +321,40 @@ which confers delete and access-management authority the prober does not need.
 - WHEN it attempts any gateway write or delete, or any access-management grant
 - THEN the API server SHALL reject the call as unauthorized
 
+#### Scenario: OBS-PRB-06.03 -- Default mode presents the projected token as a client assertion
+
+- GIVEN `HYPERSHELL_PROBE_AUTH_MODE` is unset, so the prober uses `client-assertion` mode
+- WHEN it acquires a HyperShell API token
+- THEN it SHALL POST to the realm token endpoint with
+  `grant_type=client_credentials`, `client_id` set to
+  `HYPERSHELL_PROBE_OIDC_CLIENT_ID`,
+  `client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer`,
+  and `client_assertion` set to the projected service-account token
+- AND it SHALL re-read the projected service-account token from its file on every
+  request
+- AND it SHALL NOT read a client secret from configuration
+
+#### Scenario: OBS-PRB-06.04 -- Token-exchange mode remains available
+
+- GIVEN `HYPERSHELL_PROBE_AUTH_MODE` is `token-exchange`
+- WHEN the prober acquires a HyperShell API token
+- THEN it SHALL exchange its projected service-account token at Keycloak per
+  RFC 8693, config-driven over the fleet token-exchange generations (PLAT-CITR-08)
+- AND it SHALL NOT read a client secret from configuration
+
+#### Scenario: OBS-PRB-06.05 -- Token and token-endpoint response are never logged
+
+- GIVEN the prober acquires a token in any mode
+- WHEN the token endpoint returns a non-success response
+- THEN the prober SHALL record a failed authentication probe (OBS-PRB-05)
+- AND it SHALL NOT log the token or the token-endpoint response body
+
 ### Requirement: OBS-PRB-07 -- Probe Results Are Exported as Prometheus Counters
 
 The prober SHALL expose its probe results as Prometheus counters in exposition
-format on a metrics endpoint that the Cloud Hub Prometheus scrapes. Each counter
-SHALL be labelled by target and by result, so a Service Level Objective recording
-rule can compute a good-over-valid ratio.
+format on a metrics endpoint that the instance hub's Prometheus scrapes. Each
+counter SHALL be labelled by target and by result, so a Service Level Objective
+recording rule can compute a good-over-valid ratio.
 
 The prober SHALL emit, at minimum:
 
@@ -305,8 +394,8 @@ example a per-probe identifier or the route address) to these counters.
 
 #### Scenario: OBS-PRB-07.02 -- Counters are scrapable by hub Prometheus
 
-- GIVEN the prober is running on the Cloud Hub
-- WHEN the Cloud Hub Prometheus scrapes the prober metrics endpoint
+- GIVEN the prober is running on an instance hub
+- WHEN the instance hub's Prometheus scrapes the prober metrics endpoint
 - THEN it SHALL read the probe counters in Prometheus exposition format
 
 ### Requirement: OBS-PRB-08 -- Probe Cadence, Timeouts, and Targets Are Configured
@@ -396,10 +485,13 @@ OIDC client secret.
 
 ### Requirement: OBS-PRB-11 -- Repository Provides a Kustomize Base for the Prober
 
-This repository SHALL provide a Kustomize base (for example under `deploy/`) that
-the platform GitOps repository (hypershell-gitops) consumes to deploy the prober
-on the infrastructure hub. The base SHALL render with `kustomize` and SHALL pass
+This repository SHALL provide a Kustomize base (`deploy/prober`) that the platform
+GitOps repository (hypershell-gitops) consumes to deploy the prober on each
+instance hub (OBS-PRB-01). The base SHALL render with `kustomize` and SHALL pass
 the repository policy checks (`make check`).
+
+The base SHALL NOT hard-code a namespace, so each instance hub's overlay sets the
+instance namespace in which the prober runs.
 
 The base SHALL declare:
 
@@ -408,12 +500,15 @@ The base SHALL declare:
    capabilities), consistent with the project "Restricted SecurityContext on all
    containers" convention;
 2. a ServiceAccount with a projected service-account token volume whose audience
-   is configurable, so the prober can exchange that token at Keycloak
-   (OBS-PRB-06);
+   is a placeholder the overlay sets to the instance realm issuer (for example
+   `https://<host>/realms/hypershell`), and whose token lifetime is at most 10
+   minutes (`expirationSeconds: 600`, the Kubernetes minimum), so the prober can
+   present that token to Keycloak (OBS-PRB-06);
 3. a ConfigMap carrying the prober configuration (probe interval, per-probe
-   timeout, eligibility grace window, production instances, and Keycloak
-   token-exchange settings) defined in OBS-PRB-08;
-4. a Service that exposes the metrics port the Cloud Hub Prometheus scrapes
+   timeout, eligibility grace window, production instances, `HYPERSHELL_PROBE_AUTH_MODE`,
+   and the remaining Keycloak authentication settings) defined in OBS-PRB-06 and
+   OBS-PRB-08, with `HYPERSHELL_PROBE_AUTH_MODE` defaulting to `client-assertion`;
+4. a Service that exposes the metrics port the instance hub's Prometheus scrapes
    (OBS-PRB-07); and
 5. readiness and liveness probes for the prober container.
 
@@ -435,7 +530,15 @@ the Non-Goals below).
 - WHEN its pod template is inspected
 - THEN the container SHALL set `runAsNonRoot` and drop `ALL` capabilities
 - AND the pod SHALL mount a projected service-account token volume with a
-  configurable audience for the Keycloak token exchange (OBS-PRB-06)
+  configurable audience and a lifetime of at most 10 minutes for the Keycloak
+  authentication (OBS-PRB-06)
+
+#### Scenario: OBS-PRB-11.03 -- Base renders without a hard-coded namespace
+
+- GIVEN the prober Kustomize base in this repository
+- WHEN `kustomize build` renders the base
+- THEN the rendered objects SHALL NOT fix a namespace
+- AND each instance hub's overlay SHALL set the instance namespace
 
 ## Non-Goals
 
@@ -446,8 +549,15 @@ the Non-Goals below).
   client (explicitly out of scope in the parent initiative).
 - A heartbeat that detects a broken alert path (an open question in the parent
   initiative).
-- The specific Keycloak realm wiring for the prober's token exchange, which is
-  realized by GitOps federation configuration (OBS-PRB-06).
+- The specific Keycloak realm wiring for either authentication mode (OBS-PRB-06):
+  for `client-assertion`, the realm role `fleet:reader`, the `kubernetes` identity
+  provider, and the confidential `hypershell-prober` client with its federated-JWT
+  authenticator; for `token-exchange`, the federation grant. All of this is
+  realized by GitOps configuration in hypershell-gitops.
+- Deploying the prober base on each instance hub, wiring the scrape, the
+  missing-prober-metrics page, and the Service Level Objective rules. These live in
+  the platform GitOps repository (hypershell-gitops) and consume the base and the
+  counters defined here.
 - Replacing the in-pod API request SLI in
   [`api-reliability-metrics.spec.md`](./api-reliability-metrics.spec.md); the
   prober complements it, it does not replace it.
