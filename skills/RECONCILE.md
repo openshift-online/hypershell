@@ -49,7 +49,7 @@ skills/
 
 ## Reconciliation State
 
-### PlatformGatewayPolicy / Cedar (in progress, branch spec/HYPERSHELL-1151-policy-mockups, PR #1159, issue #1151)
+### PlatformGatewayPolicy / Cedar (code complete, e2e verification pending, branch spec/HYPERSHELL-1151-policy-mockups, PR #1159, issue #1151)
 
 Scoped reconciliation of the PlatformGatewayPolicy spec set introduced by #1148
 (HYPERSHELL-563): `platform/platform-gateway-policy.spec.md` (PLAT-PGP-01..20),
@@ -119,8 +119,8 @@ Fleet defaults (`HYPERSHELL_POLICY_DEFAULT_*`) are read by the api-server too
 | W2 | CP | done: `internal/policybundle` (bundle contract, tests), `internal/reconciler/policy_bundle_reconciler.go` (watch + resync, update-or-create ConfigMap, status write-back, non-compliant sandboxes), `policy_defaults_guard.go` (refuse forbidden defaults change), `internal/policyevents` (ReportPolicyEvents, TokenReview, namespace check); deploy env, Service port, NetworkPolicy | CTRL-CORE-22, PLAT-PGP-08/12/15/16/18 |
 | W3 | Sidecar | done: `cmd/hypershell-policy-interceptor` + `internal/policyinterceptor` (Describe/Evaluate over unix socket, gateway JWT verification, bundle watch, Kubernetes adapter, defaults patches, denial text, audit events, metrics), second binary in `components/control-plane/Dockerfile`. Gap: Start/Resume re-check allows (current_state is always empty upstream; follow-up) | PLAT-PGP-02/03/07/08/09/11/12/13/14/15/16/18, AGT-EXT-06 |
 | W3 | Chart | done: vendored-chart local patch `server.extraInitContainers` (documented in `skills/tooling/update-openshell/SKILL.md`), `internal/helm/policy_interceptor.go` (native sidecar, socket emptyDir, projected token, JWT public key, registration from the shared binding table, `ValidateInterceptorRegistration` before rollout), `internal/gateway/policy_rbac.go` (bundle reader Role) | OSG-CORE-19, OSG-HELM-06, GTW-CFG-05 |
-| W4 | FE | admin policy console + Cedar editor and read-only gateway Policies tab (approved mockups in `specs/web-console/mockups/admin/` and `specs/web-console/mockups/gateways/gateway-policies-tab.tsx`, #1151) | WEB-PADM, WEB-GLIS-26, UIS-PFLY-11 |
-| W4 | E2E | enforcement canary short-mode steps and long-mode policy coverage | PLAT-PGP-20, E2E-CORE-49/50 |
+| W4 | FE | done: admin panel `components/web-console/app/features/platform-policies` (+ adapters, probes, routes), gateway Policies tab and connection-step defaults in `packages/gateway-management-ui/src/policies`, `@patternfly/react-code-editor`; ui-build-gate Complete for all 10 governed states (manifests were under /tmp/pgp-gate, not committed) | WEB-PADM-01..12, WEB-GLIS-26, UIS-PFLY-11 |
+| W4 | E2E | code done, NOT yet run on Kind: `tests/e2e/policy_phases.go` (P2.1 policy-canary short subtest, P2.12 long step). Local `make kind-up` needs sudo (cloud-provider-kind :443 + DNS resolver); CI E2E/Kind blocked by Konflux image builds at time of writing | PLAT-PGP-20, E2E-CORE-49/50 |
 
 Environment note: this reconciliation ran without a container engine (no
 `make generate`/`make proto`/`make generate-sdk`, no testcontainers DB tests) and
