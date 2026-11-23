@@ -39,6 +39,9 @@ import {
   type SDKClient,
 } from "@openshift-online/hypershell-sdk";
 
+import { toGatewayEffectivePolicies } from "./policy-mapping";
+import type { PolicyTransportFactory } from "./policy-transport";
+
 type GatewayApi = Pick<
   SDKClient["gateways"],
   "create" | "delete" | "get" | "list" | "update"
@@ -391,8 +394,27 @@ async function mapFailure<T>(task: () => Promise<T>): Promise<T> {
 
 export function createGatewayControlPlaneAdapter(
   apiFactory: GatewayApiFactory,
+  policyTransportFactory?: PolicyTransportFactory,
 ): GatewayControlPlane {
   return {
+    ...(policyTransportFactory
+      ? {
+          async getGatewayEffectivePolicies(
+            gatewayId: string,
+            context: GatewayInvocationContext,
+          ) {
+            return mapFailure(async () =>
+              toGatewayEffectivePolicies(
+                await policyTransportFactory(context.correlationId).request(
+                  "GET",
+                  `/api/hypershell/v1/gateways/${encodeURIComponent(gatewayId)}/effective_policies`,
+                  { signal: context.signal },
+                ),
+              ),
+            );
+          },
+        }
+      : {}),
     async changeGatewayAccessRole(gatewayId, userId, role, context) {
       return mapFailure(async () => {
         const response = await apiClient(

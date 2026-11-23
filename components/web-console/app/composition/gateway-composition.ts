@@ -1,7 +1,12 @@
 import { createGatewayOperations } from "@openshift-online/hypershell-gateway-management-ui";
 import type { ProbeDeliveryFailure } from "@openshift-online/hypershell-domain-probes/fan-out";
 
-import { createApiClient } from "../adapters/api/api.client";
+import {
+  createApiClient,
+  createCorrelatedFetch,
+  redirectToLogin,
+} from "../adapters/api/api.client";
+import { createPolicyTransport } from "../adapters/api/policy-transport";
 import { createGatewayControlPlaneAdapter } from "../adapters/api/gateway-operations";
 import { createGatewayObservability } from "../adapters/observability/gateway-observability";
 import { createGatewayTracing } from "../adapters/observability/gateway-trace-sink";
@@ -48,11 +53,27 @@ reportDeliveryFailure = (failure) => {
   gatewayObservability.reportDeliveryFailure(failure);
 };
 
-const gatewayControlPlane = createGatewayControlPlaneAdapter((correlationId) =>
-  createApiClient(correlationId, undefined, () =>
-    tracing.traceParentFor(correlationId),
-  ),
+/** Policy endpoints the generated SDK does not model share the same transport
+ * behavior: correlation header, trace propagation, and re-authentication. */
+export const createPolicyTransportFor = (correlationId: string) =>
+  createPolicyTransport(
+    createCorrelatedFetch(
+      correlationId,
+      globalThis.fetch,
+      redirectToLogin,
+      () => tracing.traceParentFor(correlationId),
+    ),
+  );
+
+const gatewayControlPlane = createGatewayControlPlaneAdapter(
+  (correlationId) =>
+    createApiClient(correlationId, undefined, () =>
+      tracing.traceParentFor(correlationId),
+    ),
+  createPolicyTransportFor,
 );
+
+export { gatewayObservability, tracing as gatewayTracing };
 
 export const gatewayOperations = createGatewayOperations({
   controlPlane: gatewayControlPlane,

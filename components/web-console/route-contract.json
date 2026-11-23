@@ -1,5 +1,9 @@
 {
   "home": "/",
+  "adminPlatformPolicies": "admin/platform-policies",
+  "adminPlatformPolicyDetail": "admin/platform-policies/:policyId",
+  "adminPlatformPolicyEdit": "admin/platform-policies/:policyId/edit",
+  "adminPlatformPolicyNew": "admin/platform-policies/new",
   "dashboard": "dashboard",
   "dashboardInventory": "dashboard/inventory",
   "dashboardAdoption": "dashboard/adoption",
@@ -23,6 +27,10 @@
     "/gateways/new",
     "/gateways/gateway-1",
     "/metrics",
-    "/gateways"
+    "/gateways",
+    "/admin/platform-policies",
+    "/admin/platform-policies/new",
+    "/admin/platform-policies/policy-1",
+    "/admin/platform-policies/policy-1/edit"
   ]
 }

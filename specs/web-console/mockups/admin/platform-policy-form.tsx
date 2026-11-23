@@ -3,8 +3,6 @@ import "@patternfly/react-core/dist/styles/base.css";
 import {
   ActionGroup,
   Alert,
-  Breadcrumb,
-  BreadcrumbItem,
   Button,
   Card,
   CardBody,
@@ -61,7 +59,6 @@ import { useState } from "react";
 
 import { HealthStatus } from "../common/health-status";
 import { stories, storyLinkProps } from "../common/story-links";
-import { MockupShell } from "../shell/mockup-template";
 
 /*
  * Cedar policy editor for platform policy admins (issue #1145, section 7).
@@ -780,26 +777,5 @@ export function PlatformPolicyFormPageSurface({
         </Modal>
       ) : null}
     </>
-  );
-}
-
-export function PlatformPolicyFormMockup(
-  props: Parameters<typeof PlatformPolicyFormPageSurface>[0],
-) {
-  return (
-    <MockupShell
-      activeSection="platform-policies"
-      breadcrumb={
-        <Breadcrumb>
-          <BreadcrumbItem to="/admin/platform-policies">
-            Platform policies
-          </BreadcrumbItem>
-          <BreadcrumbItem isActive>Create platform policy</BreadcrumbItem>
-        </Breadcrumb>
-      }
-      showAdministration
-    >
-      <PlatformPolicyFormPageSurface {...props} />
-    </MockupShell>
   );
 }

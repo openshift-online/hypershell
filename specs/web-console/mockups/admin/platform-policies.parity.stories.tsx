@@ -22,3 +22,7 @@ export const AuditOnly: Story = { args: { mode: "audit" } };
 export const Enforced: Story = { args: { mode: "enforce" } };
 
 export const Empty: Story = { args: { mode: "audit", state: "empty" } };
+
+export const SwitchToEnforced: Story = {
+  args: { mode: "audit", modal: "switch-to-enforced" },
+};

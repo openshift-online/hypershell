@@ -80,7 +80,6 @@ import { useState } from "react";
 import { IntlProvider } from "react-intl";
 
 import { HealthStatus } from "../common/health-status";
-import { MockupShell } from "../shell/mockup-template";
 import { GatewayProvisioningStepper } from "../../../../packages/gateway-management-ui/src/gateways/gateway-provisioning-stepper";
 import { CommandBlock } from "../../../../packages/gateway-management-ui/src/gateways/editable-command";
 import {
@@ -90,7 +89,6 @@ import {
   shellArgument,
   type GatewayConnection,
 } from "../../../../packages/gateway-management-ui/src/gateways/gateway-connections";
-import { GatewayDetailPageSurface } from "./gateway-detail-page-surface";
 import { GatewayPoliciesTab } from "./gateway-policies-tab";
 import type { PolicyEnforcementMode } from "../common/policy-rules";
 import styles from "./gateway-detail.module.css";
@@ -2240,34 +2238,5 @@ export function GatewayDetailContent({
         />
       ) : null}
     </>
-  );
-}
-
-export function GatewayDetailMockup({
-  activeTab,
-  attention,
-  isProvisioning,
-  modal,
-  policyDrawer,
-  policyMode,
-}: {
-  activeTab?: GatewayDetailTab;
-  attention?: GatewayDetailAttention;
-  isProvisioning?: boolean;
-  modal?: GatewayDetailModal;
-  policyDrawer?: string;
-  policyMode?: PolicyEnforcementMode;
-}) {
-  return (
-    <MockupShell activeSection="gateways">
-      <GatewayDetailPageSurface
-        activeTab={activeTab}
-        attention={attention}
-        isProvisioning={isProvisioning}
-        modal={modal}
-        policyDrawer={policyDrawer}
-        policyMode={policyMode}
-      />
-    </MockupShell>
   );
 }

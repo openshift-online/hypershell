@@ -15,7 +15,18 @@ const { getGatewayMock } = vi.hoisted(() => ({
 const { getSessionMock } = vi.hoisted(() => ({
   getSessionMock: vi.fn(),
 }));
+const { checkAccessMock, getPolicyMock } = vi.hoisted(() => ({
+  checkAccessMock: vi.fn(),
+  getPolicyMock: vi.fn(),
+}));
 const navigateToGatewayLabel = "Navigate to gateway";
+
+vi.mock("../../composition/platform-policy-composition", () => ({
+  platformPolicyOperations: {
+    checkAccess: checkAccessMock,
+    getPolicy: getPolicyMock,
+  },
+}));
 
 vi.mock("../../composition/gateway-composition", () => ({
   gatewayOperations: {
@@ -85,6 +96,8 @@ describe("ApplicationShell", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getSessionMock.mockResolvedValue({ authenticated: false, roles: [] });
+    checkAccessMock.mockResolvedValue("denied");
+    getPolicyMock.mockResolvedValue({ id: "policy-1", name: "gpu-cap" });
     getGatewayMock.mockResolvedValue({
       id: "gateway-b",
       name: "Friendly gateway",
@@ -106,6 +119,52 @@ describe("ApplicationShell", () => {
           .getAttribute("data-is-platform-admin"),
       ).toBe("true");
     });
+  });
+
+  // Verifies: WEB-PADM-01
+  it("hides the platform policy entry unless the API authorizes the caller", async () => {
+    getSessionMock.mockResolvedValue({
+      authEnabled: true,
+      authenticated: true,
+      roles: [],
+    });
+    renderShell();
+
+    await waitFor(() => {
+      expect(checkAccessMock).toHaveBeenCalled();
+    });
+    expect(screen.queryByText("Administration")).toBeNull();
+    expect(
+      screen.queryByRole("link", { name: "Platform policies" }),
+    ).toBeNull();
+  });
+
+  // Verifies: WEB-PADM-01
+  it("shows the Administration group and policy breadcrumbs to policy admins", async () => {
+    getSessionMock.mockResolvedValue({
+      authEnabled: true,
+      authenticated: true,
+      roles: [],
+    });
+    checkAccessMock.mockResolvedValue("authorized");
+    renderShell("/admin/platform-policies/policy-1/edit");
+
+    const link = await screen.findByRole("link", { name: "Platform policies" });
+    expect(link.getAttribute("href")).toBe("/admin/platform-policies");
+    expect(screen.getByText("Administration")).toBeTruthy();
+    const breadcrumb = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(await within(breadcrumb).findByText("gpu-cap")).toBeTruthy();
+    expect(within(breadcrumb).getByText("Edit")).toBeTruthy();
+    expect(getPolicyMock).toHaveBeenCalledWith("policy-1", expect.anything());
+  });
+
+  it("labels the create policy breadcrumb", async () => {
+    getSessionMock.mockResolvedValue({ authEnabled: false, roles: [] });
+    checkAccessMock.mockResolvedValue("authorized");
+    renderShell("/admin/platform-policies/new");
+
+    expect(await screen.findByText("Create platform policy")).toBeTruthy();
+    expect(getPolicyMock).not.toHaveBeenCalled();
   });
 
   it("provides the focused HyperShell gateway shell", async () => {

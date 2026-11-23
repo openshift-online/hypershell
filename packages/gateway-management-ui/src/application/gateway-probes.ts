@@ -12,6 +12,7 @@ export type GatewayAction =
   | "find-placements"
   | "placement-availability"
   | "get"
+  | "get-effective-policies"
   | "get-placement"
   | "get-placements"
   | "grant-access"

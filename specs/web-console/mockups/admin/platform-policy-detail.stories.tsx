@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import { PlatformPolicyDetailMockup } from "./platform-policy-detail";
+import { PlatformPolicyDetailMockup } from "./platform-policy-detail-mockup";
 
 const meta = {
   title: "Mockups/Administration/Platform policy detail",

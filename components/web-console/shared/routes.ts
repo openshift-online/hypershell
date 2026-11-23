@@ -1,4 +1,8 @@
 export const routes = {
+  adminPlatformPolicies: "admin/platform-policies",
+  adminPlatformPolicyDetail: "admin/platform-policies/:policyId",
+  adminPlatformPolicyEdit: "admin/platform-policies/:policyId/edit",
+  adminPlatformPolicyNew: "admin/platform-policies/new",
   dashboard: "dashboard",
   dashboardAdoption: "dashboard/adoption",
   dashboardInventory: "dashboard/inventory",
@@ -21,6 +25,10 @@ function routePath(name: RouteName): string {
 }
 
 export const routePaths = {
+  adminPlatformPolicies: routePath("adminPlatformPolicies"),
+  adminPlatformPolicyDetail: routePath("adminPlatformPolicyDetail"),
+  adminPlatformPolicyEdit: routePath("adminPlatformPolicyEdit"),
+  adminPlatformPolicyNew: routePath("adminPlatformPolicyNew"),
   dashboard: routePath("dashboard"),
   dashboardAdoption: routePath("dashboardAdoption"),
   dashboardInventory: routePath("dashboardInventory"),
@@ -39,5 +47,19 @@ export function gatewayDetailPath(gatewayId: string): string {
   return routePaths.gatewayDetail.replace(
     ":gatewayId",
     encodeURIComponent(gatewayId),
+  );
+}
+
+export function platformPolicyDetailPath(policyId: string): string {
+  return routePaths.adminPlatformPolicyDetail.replace(
+    ":policyId",
+    encodeURIComponent(policyId),
+  );
+}
+
+export function platformPolicyEditPath(policyId: string): string {
+  return routePaths.adminPlatformPolicyEdit.replace(
+    ":policyId",
+    encodeURIComponent(policyId),
   );
 }

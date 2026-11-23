@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import { GatewayDetailMockup } from "./gateway-detail";
+import { GatewayDetailMockup } from "./gateway-detail-mockup";
 
 const meta = {
   title: "Mockups/Gateways/Gateway detail",

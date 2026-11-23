@@ -127,6 +127,7 @@ function buildEnmaasSandboxCommand(
   name: string,
   model: string,
   providerName: string,
+  resources: { cpu?: string; memory?: string } = {},
 ): string {
   const settings = JSON.stringify({
     modelPicker: {
@@ -144,8 +145,12 @@ function buildEnmaasSandboxCommand(
     "openshell sandbox create \\",
     `  --name ${shellArgument(name)} \\`,
     `  --from ${shellArgument(enmaasHostedImage)} \\`,
-    "  --cpu 500m \\",
-    "  --memory 512Mi \\",
+    // Fleet default resources (WEB-GLIS-26.02); omitted flags take the
+    // fleet defaults on the gateway.
+    ...(resources.cpu ? [`  --cpu ${shellArgument(resources.cpu)} \\`] : []),
+    ...(resources.memory
+      ? [`  --memory ${shellArgument(resources.memory)} \\`]
+      : []),
     `  --provider ${shellArgument(providerName)} \\`,
     `  -g ${shellArgument(gatewayName)} \\`,
     `  --env=ANTHROPIC_BASE_URL=${externalLinkUrls.enmaasApiEndpoint} \\`,
@@ -173,9 +178,12 @@ function buildGatewaySelectCommand(gateway: GatewayConnection) {
 export function GatewayConnectionSteps({
   gateway,
   isProvisioning,
+  sandboxResources,
 }: {
   gateway: GatewayConnection;
   isProvisioning?: boolean;
+  /** Fleet default `--cpu` / `--memory` values for the sandbox command. */
+  sandboxResources?: { cpu?: string; memory?: string };
 }) {
   const intl = useIntl();
   const [expandedStep, setExpandedStep] = useState<ConnectionStepId | "">("");
@@ -206,7 +214,13 @@ export function GatewayConnectionSteps({
     ? buildEnmaasProviderCreateCommand(gateway.name, providerName)
     : undefined;
   const sandboxCommand = gatewayReady
-    ? buildEnmaasSandboxCommand(gateway.name, sandboxName, model, providerName)
+    ? buildEnmaasSandboxCommand(
+        gateway.name,
+        sandboxName,
+        model,
+        providerName,
+        sandboxResources,
+      )
     : undefined;
   const openClaudeCommand = gatewayReady
     ? buildOpenClaudeCommand(sandboxName)

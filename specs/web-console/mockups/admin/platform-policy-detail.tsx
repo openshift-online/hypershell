@@ -3,8 +3,6 @@ import "@patternfly/react-core/dist/styles/base.css";
 import {
   ActionList,
   ActionListItem,
-  Breadcrumb,
-  BreadcrumbItem,
   Button,
   Content,
   DescriptionList,
@@ -36,7 +34,6 @@ import {
   OutcomeLabel,
   PolicyRulesTable,
 } from "../common/policy-rules";
-import { MockupShell } from "../shell/mockup-template";
 
 export type PlatformPolicyDetailTab = "overview" | "gateways" | "findings";
 
@@ -263,28 +260,5 @@ export function PlatformPolicyDetailPageSurface({
         </Tabs>
       </PageSection>
     </>
-  );
-}
-
-export function PlatformPolicyDetailMockup({
-  activeTab,
-}: {
-  activeTab?: PlatformPolicyDetailTab;
-}) {
-  return (
-    <MockupShell
-      activeSection="platform-policies"
-      breadcrumb={
-        <Breadcrumb>
-          <BreadcrumbItem to="/admin/platform-policies">
-            Platform policies
-          </BreadcrumbItem>
-          <BreadcrumbItem isActive>sandbox-resource-baseline</BreadcrumbItem>
-        </Breadcrumb>
-      }
-      showAdministration
-    >
-      <PlatformPolicyDetailPageSurface activeTab={activeTab} />
-    </MockupShell>
   );
 }

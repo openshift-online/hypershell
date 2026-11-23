@@ -30,6 +30,7 @@
     "typecheck:mockups": "tsc --project ../../specs/web-console/mockups/tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@monaco-editor/react": "4.7.0",
     "@openshift-online/hypershell-domain-probes": "workspace:0.0.0",
     "@openshift-online/hypershell-gateway-management-ui": "workspace:0.0.0",
     "@openshift-online/hypershell-operational-dashboard-ui": "workspace:0.0.0",
@@ -41,6 +42,7 @@
     "@opentelemetry/sdk-trace-base": "2.10.0",
     "@opentelemetry/semantic-conventions": "1.43.0",
     "@patternfly/react-charts": "8.6.1",
+    "@patternfly/react-code-editor": "6.6.1",
     "@patternfly/react-core": "6.6.1",
     "@patternfly/react-icons": "6.6.1",
     "@patternfly/react-styles": "6.6.1",
@@ -49,6 +51,7 @@
     "@react-router/node": "8.3.0",
     "@tanstack/react-query": "5.101.4",
     "isbot": "5.2.1",
+    "monaco-editor": "0.57.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-hook-form": "7.82.0",

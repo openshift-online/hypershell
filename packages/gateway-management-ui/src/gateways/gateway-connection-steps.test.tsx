@@ -120,6 +120,33 @@ describe("GatewayConnectionSteps", () => {
     expect(copied).toContain("openshell sandbox connect enmaas-claude");
   });
 
+  // Verifies: WEB-GLIS-26, WEB-GLIS-11
+  it("uses the fleet default resources in the sandbox command", async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(
+      <IntlProvider locale="en">
+        <GatewayConnectionSteps
+          gateway={readyGateway}
+          sandboxResources={{ cpu: "2", memory: "4Gi" }}
+        />
+      </IntlProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Copy all commands" }));
+    const withDefaults = await navigator.clipboard.readText();
+    expect(withDefaults).toContain("  --cpu 2 \\\n");
+    expect(withDefaults).toContain("  --memory 4Gi \\\n");
+    expect(withDefaults).not.toContain("--cpu 500m");
+    expect(withDefaults).not.toContain("--memory 512Mi");
+    unmount();
+
+    renderSteps();
+    await user.click(screen.getByRole("button", { name: "Copy all commands" }));
+    const withoutDefaults = await navigator.clipboard.readText();
+    expect(withoutDefaults).not.toContain("--cpu");
+    expect(withoutDefaults).not.toContain("--memory");
+  });
+
   it("keeps multiline provider and sandbox commands executable", async () => {
     const user = userEvent.setup();
     renderSteps();

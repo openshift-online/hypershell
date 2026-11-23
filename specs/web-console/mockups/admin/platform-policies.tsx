@@ -62,7 +62,6 @@ import {
   type PolicyEnforcementMode,
 } from "../common/policy-rules";
 import { stories, storyLinkProps } from "../common/story-links";
-import { MockupShell } from "../shell/mockup-template";
 
 export type PlatformPoliciesState = "default" | "empty";
 export type PlatformPoliciesModal =
@@ -586,15 +585,5 @@ export function PlatformPoliciesPageSurface({
         />
       ) : null}
     </>
-  );
-}
-
-export function PlatformPoliciesMockup(
-  props: Parameters<typeof PlatformPoliciesPageSurface>[0],
-) {
-  return (
-    <MockupShell activeSection="platform-policies" showAdministration>
-      <PlatformPoliciesPageSurface {...props} />
-    </MockupShell>
   );
 }

@@ -1,5 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 
+import type { GatewayNavigationOptions } from "../gateway-ui-provider";
+
 import type {
   GatewayListRequest,
   GatewayRecord,
@@ -330,6 +332,13 @@ export function gatewayListQueryKey(request: GatewayListRequest) {
     request.onlyMine ?? false,
     request.searchCreatedBy ?? false,
   ] as const;
+}
+
+/** Navigation options that carry a deleted gateway's name to the list. */
+export function deletedGatewayNavigation(
+  gatewayName: string,
+): GatewayNavigationOptions {
+  return { state: { deletedGatewayName: gatewayName } };
 }
 
 export function gatewayQueryKey(gatewayId: string) {

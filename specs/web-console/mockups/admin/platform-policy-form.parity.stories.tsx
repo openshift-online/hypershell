@@ -22,3 +22,7 @@ export const Default: Story = { args: { state: "valid" } };
 export const ValidationProblems: Story = { args: { state: "invalid" } };
 
 export const TestRequest: Story = { args: { panel: "test" } };
+
+export const AddSnippetRule: Story = {
+  args: { panel: "snippets", modal: "insert-snippet" },
+};

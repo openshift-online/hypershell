@@ -1,3 +1,5 @@
+import type { GatewayEffectivePolicies } from "./policy-types";
+
 export type ProvisioningConditionStatus =
   "Complete" | "Failed" | "InProgress" | "Pending";
 
@@ -387,6 +389,11 @@ export interface GatewayControlPlane {
     gatewayId: string,
     context: GatewayInvocationContext,
   ): Promise<GatewayRecord>;
+  /** Reads the platform policies in effect on one gateway (PLAT-PGP-19). */
+  getGatewayEffectivePolicies?(
+    gatewayId: string,
+    context: GatewayInvocationContext,
+  ): Promise<GatewayEffectivePolicies>;
   getOpenShellGatewayServiceAccount(
     gatewayId: string,
     serviceAccountId: string,
@@ -482,6 +489,10 @@ export interface GatewayOperations {
     signal?: AbortSignal,
   ): Promise<readonly GatewayPlacement[]>;
   getGateway(gatewayId: string, signal?: AbortSignal): Promise<GatewayRecord>;
+  getGatewayEffectivePolicies?(
+    gatewayId: string,
+    signal?: AbortSignal,
+  ): Promise<GatewayEffectivePolicies>;
   getOpenShellGatewayServiceAccount(
     gatewayId: string,
     serviceAccountId: string,
