@@ -1,0 +1,8 @@
+# Outside availability prober Kustomize base (OBS-PRB-11). hypershell-gitops
+# consumes this base to deploy the prober on the infrastructure hub, overlaying
+# the environment-specific configuration (Keycloak token endpoint, client id,
+# audience, production instances, projected-token audience).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - prober.yaml
