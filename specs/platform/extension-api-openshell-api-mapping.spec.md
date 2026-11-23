@@ -216,6 +216,7 @@ Extension kind SHALL be classified against an OpenShell resource, each labeled *
 | `AgentRuntime` | none | intentionally-not-mapped: the orchestration root. It realizes the OpenShell workspace graph AND the cluster-side scheduling resources (`Namespace`, `ServiceAccount`, `NetworkPolicy`, coordinator `CronJob`); it is not a single OpenShell resource |
 | `SecretSource` | none | intentionally-not-mapped: an abstract reference to durable material. It never becomes an OpenShell resource; its material is consumed into `provider create --credential` and `provider refresh configure` material |
 | `AgentWorkspace`, `WorkspaceMembership`, `ProviderSpec`, `ProviderBinding`, `InferenceRoute` | as mapped above | covered |
+| `PlatformGatewayPolicy` | gateway interceptor contract (`GatewayInterceptor` `Describe` / `Evaluate`), not a stored resource | covered (AGT-EXT-06): realized by the HyperShell policy interceptor bound to the 30 interceptable write RPCs. Known gaps, each a follow-up (upstream request): `CreateSandboxTemplate` is not interceptable, so template-created sandboxes are not governed; `InterceptorResult` has no structured error details or warnings; `validate.current_state` is always empty, so the `StartSandbox` / `ResumeSandbox` re-check cannot read the sandbox's resources; no RPC lets a client discover active restrictions |
 
 #### Scenario: AGT-EXT-04.01 -- Every covered kind has a named OpenShell operation
 

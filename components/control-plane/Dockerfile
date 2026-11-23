@@ -77,7 +77,11 @@ RUN cover_flags=""; \
   cd components/control-plane && CGO_ENABLED=0 GOOS=linux GOARCH="${TARGETARCH}" go build -mod=mod ${cover_flags} -ldflags="-s -w \
     -X github.com/openshift-online/hypershell/components/control-plane/pkg/version.Version=${GIT_VERSION} \
     -X 'github.com/openshift-online/hypershell/components/control-plane/pkg/version.BuildTime=${build_time}'" \
-    -o /workspace/hypershell-controller ./cmd/hypershell-controller
+    -o /workspace/hypershell-controller ./cmd/hypershell-controller && \
+  CGO_ENABLED=0 GOOS=linux GOARCH="${TARGETARCH}" go build -mod=mod ${cover_flags} -ldflags="-s -w \
+    -X github.com/openshift-online/hypershell/components/control-plane/pkg/version.Version=${GIT_VERSION} \
+    -X 'github.com/openshift-online/hypershell/components/control-plane/pkg/version.BuildTime=${build_time}'" \
+    -o /workspace/hypershell-policy-interceptor ./cmd/hypershell-policy-interceptor
 
 # Package Helm chart from the vendored source tree in charts/openshell.
 # The chart source is committed to the repository (no network access needed),
@@ -93,6 +97,9 @@ FROM registry.access.redhat.com/hi/static:1787099997@sha256:2ccd532da5e8868a92f4
 FROM static-${TARGETARCH}
 
 COPY --from=builder --chown=1001:0 /workspace/hypershell-controller /usr/local/bin/
+# The policy interceptor sidecar (PLAT-PGP-09) ships in this image as a second
+# binary; the controller runs it in each gateway pod at its own image digest.
+COPY --from=builder --chown=1001:0 /workspace/hypershell-policy-interceptor /usr/local/bin/
 COPY --from=builder --chown=1001:0 /workspace/charts/ /charts/
 COPY --from=builder --chown=1001:0 /workspace/helm-runtime /usr/local/bin/helm
 

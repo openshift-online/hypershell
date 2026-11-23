@@ -1,0 +1,97 @@
+package reconciler
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+
+	"github.com/openshift-online/hypershell/components/control-plane/internal/helm"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/policyinterceptor"
+)
+
+// PolicyInterceptorProvider returns the sidecar values for one gateway.
+type PolicyInterceptorProvider func(gatewayID, namespace, workspaceMode string) (*helm.PolicyInterceptorConfig, error)
+
+// NewPolicyInterceptorProvider builds the per-gateway sidecar configuration
+// from the controller's own image (PLAT-PGP-09), the events endpoint, the
+// accepted fleet defaults (PLAT-PGP-08), and the static binding table shared
+// with the interceptor's Describe (PLAT-PGP-10).
+func NewPolicyInterceptorProvider(image, eventsAddress, consoleURL string, defaults *PolicyDefaultsGuard) PolicyInterceptorProvider {
+	return func(gatewayID, namespace, workspaceMode string) (*helm.PolicyInterceptorConfig, error) {
+		issuer, err := helm.PolicyJWTIssuer(workspaceMode, namespace)
+		if err != nil {
+			return nil, fmt.Errorf("policy interceptor issuer: %w", err)
+		}
+		d := defaults.Accepted()
+		cfg := &helm.PolicyInterceptorConfig{
+			Name:          policyinterceptor.InterceptorName,
+			Audience:      policyinterceptor.DefaultAudience,
+			Image:         image,
+			GatewayID:     gatewayID,
+			JWTIssuer:     issuer,
+			EventsAddress: eventsAddress,
+			Defaults: map[string]string{
+				policyinterceptor.EnvDefaultCPURequest: d.CPURequest,
+				policyinterceptor.EnvDefaultCPULimit:   d.CPULimit,
+				policyinterceptor.EnvDefaultMemRequest: d.MemoryRequest,
+				policyinterceptor.EnvDefaultMemLimit:   d.MemoryLimit,
+			},
+		}
+		if consoleURL != "" {
+			cfg.PoliciesURL = consoleURL + "/gateways/" + gatewayID + "/policies"
+		}
+		for _, b := range policyinterceptor.Bindings() {
+			cfg.Bindings = append(cfg.Bindings, helm.InterceptorBinding{RPC: b.RPC, Phases: b.Phases, FailurePolicy: b.FailurePolicy})
+			cfg.KnownRPCs = append(cfg.KnownRPCs, b.RPC)
+		}
+		return cfg, nil
+	}
+}
+
+// OwnImage returns the controller's own container image, pinned by digest when
+// the kubelet reports one, read from its Pod status (PLAT-PGP-09.01). The
+// interceptor sidecar runs this exact build.
+func OwnImage(ctx context.Context, kube kubernetes.Interface, namespace, podName, container string) (string, error) {
+	if podName == "" {
+		return "", fmt.Errorf("HYPERSHELL_POD_NAME is not set")
+	}
+	pod, err := kube.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("read own pod: %w", err)
+	}
+	return imageFromPod(pod, container)
+}
+
+func imageFromPod(pod *corev1.Pod, container string) (string, error) {
+	spec := ""
+	for _, c := range pod.Spec.Containers {
+		if c.Name == container {
+			spec = c.Image
+		}
+	}
+	if spec == "" {
+		return "", fmt.Errorf("container %q not found in pod %s", container, pod.Name)
+	}
+	for _, st := range pod.Status.ContainerStatuses {
+		if st.Name != container {
+			continue
+		}
+		id := strings.TrimPrefix(st.ImageID, "docker-pullable://")
+		// A repository@sha256 imageID pins the exact build. A bare digest
+		// (locally loaded Kind images) has no repository; keep the spec image.
+		if at := strings.Index(id, "@sha256:"); at > 0 {
+			return id, nil
+		}
+	}
+	return spec, nil
+}
+
+// SetPolicyInterceptor enables the policy interceptor sidecar on every gateway
+// this reconciler deploys.
+func (r *GatewayReconciler) SetPolicyInterceptor(p PolicyInterceptorProvider) {
+	r.policyInterceptor = p
+}

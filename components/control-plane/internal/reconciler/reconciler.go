@@ -109,12 +109,15 @@ func recordIncompleteFinalizationEvent(ctx context.Context, client kubernetes.In
 }
 
 type GatewayReconciler struct {
-	mu            sync.Mutex
-	active        map[string]struct{}
-	dynamicClient dynamic.Interface
-	clientset     *kubernetes.Clientset
-	grpcConn      *grpc.ClientConn
-	helmClient    *helm.ShellClient
+	// policyInterceptor, when set, renders the policy interceptor sidecar into
+	// every gateway's Helm values (OSG-CORE-19).
+	policyInterceptor PolicyInterceptorProvider
+	mu                sync.Mutex
+	active            map[string]struct{}
+	dynamicClient     dynamic.Interface
+	clientset         *kubernetes.Clientset
+	grpcConn          *grpc.ClientConn
+	helmClient        *helm.ShellClient
 	// isOpenShift is derived from the configured host platform
 	// (HYPERSHELL_CLUSTER_PLATFORM, CTRL-CORE-16), NOT from API discovery, so it
 	// stays stable through discovery failures.
@@ -746,6 +749,14 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		OperatorWorkspace:           r.operatorWorkspace,
 		OperatorNamespaceLabelKey:   r.operatorNamespaceLabelKey,
 		OperatorSandboxRuntimeClass: r.operatorSandboxRuntimeClass,
+	}
+
+	if r.policyInterceptor != nil {
+		pi, piErr := r.policyInterceptor(event.ResourceID, namespace, gwConfig.WorkspaceMode)
+		if piErr != nil {
+			return fmt.Errorf("policy interceptor values for gateway %s: %w", event.ResourceID, piErr)
+		}
+		opts.PolicyInterceptor = pi
 	}
 
 	conditions := gateway.InitConditions()

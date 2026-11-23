@@ -461,6 +461,20 @@ func main() {
 			slog.WarnContext(ctx, "Gateway reconciler disabled", "error", grErr)
 			gatewayReconciler = reconciler.NewStubGatewayReconciler()
 		} else {
+			if cfg.PolicyEnabled {
+				// The sidecar runs the controller's own build (PLAT-PGP-09).
+				podName := os.Getenv("HYPERSHELL_POD_NAME")
+				if podName == "" {
+					// A pod's hostname is its name unless the spec overrides it.
+					podName, _ = os.Hostname()
+				}
+				ownImage, imgErr := reconciler.OwnImage(ctx, clientset, cfg.Namespace, podName, "controller")
+				if imgErr != nil {
+					fatal("Platform gateway policy is enabled but the controller cannot read its own image", "error", imgErr)
+				}
+				gr.SetPolicyInterceptor(reconciler.NewPolicyInterceptorProvider(ownImage, cfg.PolicyEventsAddress, cfg.PolicyConsoleURL, policyDefaults))
+				slog.InfoContext(ctx, "Policy interceptor sidecar enabled", "image", ownImage)
+			}
 			gatewayReconciler = gr
 		}
 	} else {

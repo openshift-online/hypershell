@@ -115,10 +115,10 @@ Fleet defaults (`HYPERSHELL_POLICY_DEFAULT_*`) are read by the api-server too
 | Wave | Layer | Gap | Spec |
 |------|-------|-----|------|
 | W1 | API+SDK+BE+RBAC | done (see table above) | PLAT-DATA-28/29/30, PLAT-PGP-01/19, SEC-RBAC-30/31/32 |
-| W2 | CLI | `platform-gateway-policies` + settings + effective-policies commands via extgroup; `make generate-tui` | CLI-EXT-06 |
-| W2 | CP | watch the kind + settings, per-gateway bundle ConfigMap reconcile, `ReportPolicyEvents` endpoint, status write-back | CTRL-CORE-22 |
-| W3 | Sidecar | `hypershell-policy-interceptor` second binary in the control-plane image, k8s driver adapter, bundle watch, denial text, audit events | PLAT-PGP-09..16 |
-| W3 | Chart | vendored `charts/openshell` native sidecar + interceptor registration from values | OSG-CORE-19, OSG-HELM-06, GTW-CFG-05 |
+| W2 | CLI | done: `hsctl` list/get/create/update/delete `platformGatewayPolicy`, get/update `platformPolicySettings`, get `effectivePolicies`; 403 surfaces as denied (`components/cli/pkg/apierror`); tests `components/cli/cmd/hsctl/platform_policy_test.go` | CLI-EXT-06 |
+| W2 | CP | done: `internal/policybundle` (bundle contract, tests), `internal/reconciler/policy_bundle_reconciler.go` (watch + resync, update-or-create ConfigMap, status write-back, non-compliant sandboxes), `policy_defaults_guard.go` (refuse forbidden defaults change), `internal/policyevents` (ReportPolicyEvents, TokenReview, namespace check); deploy env, Service port, NetworkPolicy | CTRL-CORE-22, PLAT-PGP-08/12/15/16/18 |
+| W3 | Sidecar | done: `cmd/hypershell-policy-interceptor` + `internal/policyinterceptor` (Describe/Evaluate over unix socket, gateway JWT verification, bundle watch, Kubernetes adapter, defaults patches, denial text, audit events, metrics), second binary in `components/control-plane/Dockerfile`. Gap: Start/Resume re-check allows (current_state is always empty upstream; follow-up) | PLAT-PGP-02/03/07/08/09/11/12/13/14/15/16/18, AGT-EXT-06 |
+| W3 | Chart | done: vendored-chart local patch `server.extraInitContainers` (documented in `skills/tooling/update-openshell/SKILL.md`), `internal/helm/policy_interceptor.go` (native sidecar, socket emptyDir, projected token, JWT public key, registration from the shared binding table, `ValidateInterceptorRegistration` before rollout), `internal/gateway/policy_rbac.go` (bundle reader Role) | OSG-CORE-19, OSG-HELM-06, GTW-CFG-05 |
 | W4 | FE | admin policy console + Cedar editor and read-only gateway Policies tab (approved mockups in `specs/web-console/mockups/admin/` and `specs/web-console/mockups/gateways/gateway-policies-tab.tsx`, #1151) | WEB-PADM, WEB-GLIS-26, UIS-PFLY-11 |
 | W4 | E2E | enforcement canary short-mode steps and long-mode policy coverage | PLAT-PGP-20, E2E-CORE-49/50 |
 

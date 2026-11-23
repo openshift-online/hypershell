@@ -287,6 +287,10 @@ type ReconcileOpts struct {
 	databaseReconciler    DatabaseReconciler
 	ControlPlaneNamespace string
 	Images                ImageDefaults
+	// PolicyInterceptor, when set, renders the policy interceptor native sidecar
+	// and its gateway.toml registration (OSG-CORE-19). The reconciler validates
+	// the registration before any Helm write (GTW-CFG-05).
+	PolicyInterceptor *helm.PolicyInterceptorConfig
 	// GatewayID is the API-server resource ID for the gateway being reconciled.
 	// Used when updating fields (e.g. routeAddress) back to the API server.
 	GatewayID string

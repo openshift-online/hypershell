@@ -89,6 +89,19 @@ func ReconcileGateway(
 		report(ConditionEnvironmentReady, StatusFailed, "Environment preparation failed - the gateway has no authentication configuration")
 		return fmt.Errorf("invalid gateway configuration: %w", err)
 	}
+	// The interceptor registration is a control-plane-managed gateway.toml
+	// section: validate it before any Helm write so an invalid registration
+	// blocks rollout without disrupting a running gateway (GTW-CFG-05.01).
+	if err := helm.ValidateInterceptorRegistration(opts.PolicyInterceptor); err != nil {
+		report(ConditionEnvironmentReady, StatusFailed, "Environment preparation failed - the policy interceptor registration is invalid")
+		return &ConfigValidationError{Err: fmt.Errorf("invalid policy interceptor registration: %w", err)}
+	}
+	if opts.PolicyInterceptor != nil {
+		if err := EnsurePolicyBundleReader(ctx, clientset, nsConfig.Name); err != nil {
+			report(ConditionEnvironmentReady, StatusFailed, "Environment preparation failed - unable to grant the policy interceptor read access to its bundle")
+			return fmt.Errorf("ensure policy bundle reader in %s: %w", nsConfig.Name, err)
+		}
+	}
 
 	// Every gateway is reachable at an external
 	// hostname (gw-<namespace>.<base-domain>, or an explicit Route.Host). The
