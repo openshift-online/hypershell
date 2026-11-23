@@ -119,12 +119,14 @@ class ProberBaseTests(unittest.TestCase):
 
     def test_base_renders_the_prober_resources(self):
         # OBS-PRB-11.01: the base renders a Deployment, ServiceAccount, ConfigMap,
-        # and Service for the prober.
+        # and Service for the prober. OBS-PRB-11.03: the base sets no namespace, so
+        # each instance hub's overlay places the prober in its instance namespace;
+        # the rendered base therefore has an empty metadata.namespace.
         for key in (
-            ("apps", "Deployment", "hypershell-system", "hypershell-prober"),
-            ("", "ServiceAccount", "hypershell-system", "hypershell-prober"),
-            ("", "ConfigMap", "hypershell-system", "hypershell-prober-config"),
-            ("", "Service", "hypershell-system", "hypershell-prober"),
+            ("apps", "Deployment", "", "hypershell-prober"),
+            ("", "ServiceAccount", "", "hypershell-prober"),
+            ("", "ConfigMap", "", "hypershell-prober-config"),
+            ("", "Service", "", "hypershell-prober"),
         ):
             with self.subTest(resource=key):
                 self.assertIn(key, self.prober)
@@ -132,14 +134,14 @@ class ProberBaseTests(unittest.TestCase):
     def test_deployment_runs_the_control_plane_image_in_probe_mode(self):
         # OBS-PRB-10: the Deployment runs the control-plane image with the probe
         # subcommand.
-        deployment = self.prober[("apps", "Deployment", "hypershell-system", "hypershell-prober")]
+        deployment = self.prober[("apps", "Deployment", "", "hypershell-prober")]
         container = deployment["spec"]["template"]["spec"]["containers"][0]
         self.assertEqual(container.get("args"), ["probe"])
         self.assertIn("hypershell-control-plane", container["image"])
 
     def test_deployment_uses_restricted_security_context(self):
         # OBS-PRB-11.02: runAsNonRoot and drop ALL capabilities.
-        deployment = self.prober[("apps", "Deployment", "hypershell-system", "hypershell-prober")]
+        deployment = self.prober[("apps", "Deployment", "", "hypershell-prober")]
         pod = deployment["spec"]["template"]["spec"]
         self.assertTrue(pod["securityContext"]["runAsNonRoot"])
         container = pod["containers"][0]
@@ -149,7 +151,7 @@ class ProberBaseTests(unittest.TestCase):
     def test_deployment_mounts_projected_token_with_configurable_audience(self):
         # OBS-PRB-11.02: a projected service-account token volume with a
         # configurable audience for the Keycloak token exchange (OBS-PRB-06).
-        deployment = self.prober[("apps", "Deployment", "hypershell-system", "hypershell-prober")]
+        deployment = self.prober[("apps", "Deployment", "", "hypershell-prober")]
         pod = deployment["spec"]["template"]["spec"]
         volume = next(v for v in pod["volumes"] if v["name"] == "prober-token")
         source = volume["projected"]["sources"][0]["serviceAccountToken"]
@@ -158,13 +160,13 @@ class ProberBaseTests(unittest.TestCase):
 
     def test_service_exposes_the_metrics_port(self):
         # OBS-PRB-07: a Service exposes the metrics port the hub Prometheus scrapes.
-        service = self.prober[("", "Service", "hypershell-system", "hypershell-prober")]
+        service = self.prober[("", "Service", "", "hypershell-prober")]
         ports = service["spec"]["ports"]
         self.assertTrue(any(p["name"] == "metrics" for p in ports))
 
     def test_deployment_declares_readiness_and_liveness_probes(self):
         # OBS-PRB-11: readiness and liveness probes for the prober container.
-        deployment = self.prober[("apps", "Deployment", "hypershell-system", "hypershell-prober")]
+        deployment = self.prober[("apps", "Deployment", "", "hypershell-prober")]
         container = deployment["spec"]["template"]["spec"]["containers"][0]
         self.assertIn("readinessProbe", container)
         self.assertIn("livenessProbe", container)
