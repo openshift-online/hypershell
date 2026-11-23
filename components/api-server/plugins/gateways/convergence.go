@@ -2,7 +2,9 @@ package gateways
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"gorm.io/gorm"
@@ -67,8 +69,13 @@ var (
 // replica only (OBS-SLI-02).
 type convergenceStore struct {
 	sessionFactory *db.SessionFactory
-	lockFactory    db.LockFactory
-	now            func() time.Time
+	// lockFactory may be nil at construction: the background sweeper is started
+	// before the framework initializes the database, so it cannot capture the
+	// session factory by value. locks() builds the factory from
+	// *sessionFactory on first use instead (see locks).
+	lockFactory   db.LockFactory
+	lockFactoryMu sync.Mutex
+	now           func() time.Time
 }
 
 func newConvergenceStore(sessionFactory *db.SessionFactory, lockFactory db.LockFactory) *convergenceStore {
@@ -519,13 +526,17 @@ const convergenceSweepLockID string = "convergence-sweep"
 // cannot take the lock skips the tick (another replica owns it). It returns the
 // number of windows resolved.
 func (s *convergenceStore) runDeadlineSweep(baseCtx context.Context) (int, error) {
+	locks, err := s.locks()
+	if err != nil {
+		return 0, err
+	}
 	ctx, err := db.NewContext(baseCtx, *s.sessionFactory)
 	if err != nil {
 		return 0, fmt.Errorf("open sweep transaction: %w", err)
 	}
 	defer db.Resolve(ctx)
 
-	owner, acquired, err := s.lockFactory.NewNonBlockingLock(ctx, convergenceSweepLockID, convergenceSweepLockType)
+	owner, acquired, err := locks.NewNonBlockingLock(ctx, convergenceSweepLockID, convergenceSweepLockType)
 	if err != nil {
 		db.MarkForRollback(ctx, err)
 		return 0, fmt.Errorf("acquire sweep lock: %w", err)
@@ -533,7 +544,7 @@ func (s *convergenceStore) runDeadlineSweep(baseCtx context.Context) (int, error
 	if !acquired {
 		return 0, nil
 	}
-	defer s.lockFactory.Unlock(ctx, owner)
+	defer locks.Unlock(ctx, owner)
 
 	resolved, err := s.sweep(ctx, s.now())
 	if err != nil {
@@ -541,4 +552,25 @@ func (s *convergenceStore) runDeadlineSweep(baseCtx context.Context) (int, error
 		return 0, err
 	}
 	return resolved, nil
+}
+
+// errDatabaseNotInitialized is returned by a sweep that runs before the
+// framework has initialized the database session factory.
+var errDatabaseNotInitialized = errors.New("convergence sweep: database session factory is not initialized yet")
+
+// locks returns the advisory-lock factory, building it from the current
+// session factory on first use. The sweeper is started before the framework
+// initializes the database, so a factory built at construction time would wrap
+// a nil session factory and panic on the first sweep (HYPERSHELL-565 follow-up).
+func (s *convergenceStore) locks() (db.LockFactory, error) {
+	s.lockFactoryMu.Lock()
+	defer s.lockFactoryMu.Unlock()
+	if s.lockFactory != nil {
+		return s.lockFactory, nil
+	}
+	if s.sessionFactory == nil || *s.sessionFactory == nil {
+		return nil, errDatabaseNotInitialized
+	}
+	s.lockFactory = db.NewAdvisoryLockFactory(*s.sessionFactory)
+	return s.lockFactory, nil
 }

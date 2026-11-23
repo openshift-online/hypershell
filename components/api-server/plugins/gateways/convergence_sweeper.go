@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 )
 
@@ -23,7 +22,10 @@ const convergenceSweepInterval = time.Minute
 // across replicas and restarts (OBS-SLI-02.06). The goroutine exits when ctx is
 // cancelled. It is serve-only; the migrate command never calls it.
 func StartConvergenceDeadlineSweeper(ctx context.Context, env *environments.Env) {
-	store := newConvergenceStore(&env.Database.SessionFactory, db.NewAdvisoryLockFactory(env.Database.SessionFactory))
+	// Called from the serve command's PreRunE, before the framework initializes
+	// the database: pass the session factory by pointer and let the store build
+	// its advisory-lock factory on the first sweep, once the database is up.
+	store := newConvergenceStore(&env.Database.SessionFactory, nil)
 	go runConvergenceSweepLoop(ctx, store, convergenceSweepInterval)
 }
 
@@ -32,7 +34,7 @@ func StartConvergenceDeadlineSweeper(ctx context.Context, env *environments.Env)
 // sweep deterministically (OBS-SLI-02.02 / 02.06) instead of waiting for the
 // ticker.
 func RunConvergenceDeadlineSweepForTest(ctx context.Context, env *environments.Env) (int, error) {
-	store := newConvergenceStore(&env.Database.SessionFactory, db.NewAdvisoryLockFactory(env.Database.SessionFactory))
+	store := newConvergenceStore(&env.Database.SessionFactory, nil)
 	return store.runDeadlineSweep(ctx)
 }
 

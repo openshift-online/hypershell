@@ -1,10 +1,13 @@
 package gateways
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/gatewayhealth"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 )
 
 func strptr(s string) *string { return &s }
@@ -109,3 +112,33 @@ func TestConvergenceLabelDomainsBounded(t *testing.T) {
 		t.Fatalf("last bucket = %v, want 900 seconds (15 minutes)", last)
 	}
 }
+
+// TestDeadlineSweepBeforeDatabaseInit guards the HYPERSHELL-565 follow-up: the
+// sweeper is started before the framework initializes the database, so the
+// store must not wrap a nil session factory in an advisory-lock factory. A sweep
+// that runs before initialization returns an error instead of panicking, and
+// the lock factory is built from the session factory once it is set.
+func TestDeadlineSweepBeforeDatabaseInit(t *testing.T) {
+	var sessionFactory db.SessionFactory // nil until the framework initializes it
+	store := newConvergenceStore(&sessionFactory, nil)
+
+	if _, err := store.runDeadlineSweep(context.Background()); !errors.Is(err, errDatabaseNotInitialized) {
+		t.Fatalf("sweep before init: got %v, want errDatabaseNotInitialized", err)
+	}
+	if store.lockFactory != nil {
+		t.Fatal("lock factory built from a nil session factory")
+	}
+
+	sessionFactory = &stubSessionFactory{}
+	locks, err := store.locks()
+	if err != nil || locks == nil {
+		t.Fatalf("locks after init: got %v, %v", locks, err)
+	}
+	again, _ := store.locks()
+	if again != locks {
+		t.Fatal("lock factory rebuilt on second call")
+	}
+}
+
+// stubSessionFactory satisfies db.SessionFactory; locks() only stores it.
+type stubSessionFactory struct{ db.SessionFactory }
