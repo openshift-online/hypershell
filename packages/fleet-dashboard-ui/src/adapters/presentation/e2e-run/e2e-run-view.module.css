@@ -21,6 +21,16 @@
   gap: var(--pf-t--global--spacer--xs, 4px);
 }
 
+.statusIcon {
+  display: inline-flex;
+  align-items: center;
+}
+
+.statusIcon:focus-visible {
+  outline: 2px solid var(--pf-t--global--color--brand--default, #06c);
+  outline-offset: 2px;
+}
+
 .detail {
   display: flex;
   flex-direction: column;
@@ -502,4 +512,24 @@
 }
 .bundleIdentity svg {
   flex-shrink: 0;
+}
+
+.bundleSummary {
+  display: flex;
+  align-items: center;
+  gap: var(--pf-t--global--spacer--sm);
+}
+
+.environmentSummaries {
+  max-width: 24rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pf-t--global--spacer--sm) var(--pf-t--global--spacer--lg);
+}
+
+.environmentSummary {
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: var(--pf-t--global--spacer--sm);
 }

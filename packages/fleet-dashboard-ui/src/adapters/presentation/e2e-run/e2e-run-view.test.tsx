@@ -225,7 +225,7 @@ describe("E2eRunView", () => {
 
   it.each([
     "Revision",
-    "Attempt",
+    "Attempts",
     "Started",
     "Duration",
     "Verdict",
@@ -1434,24 +1434,38 @@ describe("log pagination and degraded log pane", () => {
     expect(screen.getByText("2m 15s")).toBeDefined();
   });
 
-  it("nests multiple attempts of the same revision under an attempt counter, latest first", async () => {
+  it("nests runs of the same bundle across environments and revisions, latest first (E2E-LOG-12.08)", async () => {
     const user = userEvent.setup();
     const { api } = makeApi(detail());
+    const bundle = {
+      version: "v1",
+      digest: "sha256:bundle-a",
+      tag: null,
+      date: null,
+      prs: [],
+    };
     const attempt1 = summary({
+      bundle,
       id: "tenant-1/ns/run-1",
       runId: "1111aaaa",
-      revision: "rev99999",
+      revision: "rev11111",
       startedAt: "2026-01-01T00:10:00Z",
       verdict: "failed",
     });
     const attempt2 = summary({
+      bundle,
+      cluster: "tenant-2",
+      namespace: "ns-2",
       id: "tenant-1/ns/run-2",
       runId: "2222bbbb",
-      revision: "rev99999",
+      revision: "rev22222",
       startedAt: "2026-01-01T00:20:00Z",
       verdict: "failed",
     });
     const attempt3 = summary({
+      bundle,
+      cluster: "tenant-3",
+      namespace: "ns-3",
       id: "tenant-1/ns/run-3",
       runId: "3333cccc",
       revision: "rev99999",
@@ -1460,27 +1474,75 @@ describe("log pagination and degraded log pane", () => {
     });
     renderView(api, enabled([attempt1, attempt2, attempt3]));
 
-    // Primary row displays the latest attempt as "Most Recent" and the total count badge.
-    expect(screen.getByText("Most Recent")).toBeDefined();
-    expect(screen.getByText("3 attempts")).toBeDefined();
+    // The summary shows the bundle's total count and each environment's status.
+    const summaryRow = screen.getByText("3 runs").closest("tr");
+    if (!summaryRow) throw new Error("expected bundle summary row");
+    expect(within(summaryRow).getByText("tenant-1")).toBeDefined();
+    expect(within(summaryRow).getByText("tenant-2")).toBeDefined();
+    expect(within(summaryRow).getByText("tenant-3")).toBeDefined();
+    expect(within(summaryRow).getByText("Failed")).toBeDefined();
+    expect(within(summaryRow).queryByText("Passed")).toBeNull();
+    expect(
+      within(summaryRow).getAllByRole("img", { name: "Failed" }),
+    ).toHaveLength(2);
+    const passedStatus = within(summaryRow).getByRole("img", {
+      name: "Passed",
+    });
+    await user.hover(passedStatus);
+    expect((await screen.findByRole("tooltip")).textContent).toBe("Passed");
+    await user.unhover(passedStatus);
+    await waitFor(() => {
+      expect(screen.queryByRole("tooltip")).toBeNull();
+    });
+    const expandToggle = within(summaryRow).getByRole("button", {
+      name: "Show 3 runs",
+    });
+    act(() => {
+      expandToggle.focus();
+    });
+    await user.tab();
+    await user.tab();
+    await user.tab();
+    expect(document.activeElement).toBe(passedStatus);
+    expect((await screen.findByRole("tooltip")).textContent).toBe("Passed");
+    await user.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(screen.queryByRole("tooltip")).toBeNull();
+    });
+    expect(
+      within(summaryRow).queryByRole("link", { name: /Open run/ }),
+    ).toBeNull();
+    expect(screen.getByText("3 runs")).toBeDefined();
 
-    // Expand nested attempts to reveal Attempt 2 and Attempt 1.
+    // Expanding the summary reveals every run, including the newest one.
     const toggle = screen.getByRole("button", {
-      name: "Show 2 earlier attempts",
+      name: "Show 3 runs",
     });
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByRole("link", { name: /1111aaaa/ })).toBeNull();
-    const hiddenAttempt = screen.getByText("Attempt 1").closest("tr");
+    const hiddenAttempt = screen.getByText("Run 1").closest("tr");
     expect(hiddenAttempt?.hasAttribute("inert")).toBe(true);
     expect(hiddenAttempt?.getAttribute("aria-hidden")).toBe("true");
     await user.click(toggle);
     expect(
       screen
-        .getByRole("button", { name: "Hide earlier attempts" })
+        .getByRole("button", { name: "Hide runs" })
         .getAttribute("aria-expanded"),
     ).toBe("true");
-    expect(screen.getByText("Attempt 2")).toBeDefined();
-    expect(screen.getByText("Attempt 1")).toBeDefined();
+    expect(screen.getByText("Run 2")).toBeDefined();
+    expect(screen.getByText("Run 1")).toBeDefined();
+    const olderRow = screen
+      .getByRole("link", { name: /Open run rev22222.*2222bbbb/ })
+      .closest("tr");
+    if (!olderRow) throw new Error("expected older attempt row");
+    expect(within(olderRow).getByText("tenant-2")).toBeDefined();
+    expect(within(olderRow).getByText("ns-2")).toBeDefined();
+    expect(within(olderRow).getByText("Failed")).toBeDefined();
+    expect(olderRow.querySelector("td")?.textContent).toBe("");
+    expect(screen.getByRole("button", { name: "Attempts" })).toBeDefined();
+    expect(
+      screen.getByRole("link", { name: /Open run rev11111.*1111aaaa/ }),
+    ).toBeDefined();
     expect(hiddenAttempt?.hasAttribute("inert")).toBe(false);
     expect(hiddenAttempt?.getAttribute("aria-hidden")).not.toBe("true");
   });
@@ -1495,6 +1557,13 @@ describe("log pagination and degraded log pane", () => {
           id: "old",
           runId: "old",
           revision: "group-a",
+          bundle: {
+            version: "bundle-a",
+            digest: "sha256:bundle-a",
+            tag: null,
+            date: null,
+            prs: [],
+          },
           startedAt: "2026-01-01T00:00:00Z",
           durationMs: 1000,
         }),
@@ -1502,6 +1571,13 @@ describe("log pagination and degraded log pane", () => {
           id: "latest",
           runId: "latest",
           revision: "group-a",
+          bundle: {
+            version: "bundle-a",
+            digest: "sha256:bundle-a",
+            tag: null,
+            date: null,
+            prs: [],
+          },
           startedAt: "2026-01-01T00:40:00Z",
           durationMs: 10_000,
         }),
@@ -1509,23 +1585,23 @@ describe("log pagination and degraded log pane", () => {
           id: "other",
           runId: "other",
           revision: "group-b",
+          bundle: {
+            version: "bundle-b",
+            digest: "sha256:bundle-b",
+            tag: null,
+            date: null,
+            prs: [],
+          },
           startedAt: "2026-01-01T00:20:00Z",
           durationMs: 5000,
         }),
       ]),
     );
     await user.click(screen.getByRole("button", { name: "Duration" }));
-    expect(
-      screen
-        .getAllByRole("link", { name: /Open run/ })[0]
-        ?.getAttribute("aria-label"),
-    ).toContain("group-b");
+    const table = screen.getByRole("grid", { name: "Recent end-to-end runs" });
+    expect(table.querySelector("tbody")?.textContent).toContain("bundle-b");
     await user.click(screen.getByRole("button", { name: "Duration" }));
-    expect(
-      screen
-        .getAllByRole("link", { name: /Open run/ })[0]
-        ?.getAttribute("aria-label"),
-    ).toContain("group-a");
+    expect(table.querySelector("tbody")?.textContent).toContain("bundle-a");
   });
 
   it("restores focus to the group toggle when the selected attempt is collapsed", async () => {
@@ -1542,19 +1618,15 @@ describe("log pagination and degraded log pane", () => {
         }),
       ]),
     );
-    await user.click(
-      screen.getByRole("button", { name: "Show 1 earlier attempt" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Show 2 runs" }));
     await user.click(
       screen.getByRole("link", { name: /Open run abc1234.*run-1/ }),
     );
     await screen.findByRole("button", { name: "Build" });
-    await user.click(
-      screen.getByRole("button", { name: "Hide earlier attempts" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Hide runs" }));
     await user.click(screen.getByRole("button", { name: "Close details" }));
     expect(document.activeElement).toBe(
-      screen.getByRole("button", { name: "Show 1 earlier attempt" }),
+      screen.getByRole("button", { name: "Show 2 runs" }),
     );
   });
 

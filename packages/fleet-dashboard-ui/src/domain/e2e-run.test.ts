@@ -744,6 +744,13 @@ describe("failed run and step duration derivations", () => {
 });
 
 describe("groupRunAttempts", () => {
+  const bundle = {
+    version: "v1",
+    digest: "sha256:bundle-a",
+    tag: null,
+    date: null,
+    prs: [],
+  };
   const baseRun: E2eRunSummary = {
     id: "tenant-1/ns/run-1",
     runId: "run-1",
@@ -753,6 +760,7 @@ describe("groupRunAttempts", () => {
     namespace: "ns",
     revision: "rev-aaa",
     sourceRevision: "src-1",
+    bundle,
     startedAt: "2026-01-01T00:00:00Z",
     endedAt: "2026-01-01T00:01:00Z",
     durationMs: 60_000,
@@ -762,59 +770,96 @@ describe("groupRunAttempts", () => {
     stepCount: 2,
   };
 
-  it("groups runs sharing (bundle + target + revision) and assigns 1-based attempt numbers latest-first", () => {
-    const attempt1: E2eRunSummary = {
-      ...baseRun,
-      id: "tenant-1/ns/run-1",
-      runId: "11111111",
-      startedAt: "2026-01-01T00:10:00Z",
-      verdict: "failed",
-    };
-    const attempt2: E2eRunSummary = {
+  it("groups a bundle across environments and revisions, numbering attempts latest-first (E2E-LOG-12.08)", () => {
+    const attempts = [
+      { ...baseRun, runId: "first" },
+      {
+        ...baseRun,
+        id: "tenant-1/ns/run-2",
+        runId: "second",
+        revision: "rev-bbb",
+        startedAt: "2026-01-01T00:10:00Z",
+      },
+      {
+        ...baseRun,
+        id: "tenant-2/other/run-3",
+        runId: "third",
+        tenant: "tenant-2",
+        cluster: "tenant-2",
+        namespace: "other",
+        revision: "rev-ccc",
+        sourceRevision: "src-2",
+        startedAt: "2026-01-01T00:20:00Z",
+      },
+      {
+        ...baseRun,
+        id: "tenant-2/another/run-4",
+        runId: "fourth",
+        cluster: "tenant-2",
+        namespace: "another",
+        startedAt: "2026-01-01T00:30:00Z",
+      },
+    ];
+    const groups = groupRunAttempts(runsNewestFirst(attempts));
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.latest.run.runId).toBe("fourth");
+    expect(
+      groups[0]?.attempts.map((a) => [a.run.runId, a.attemptNumber]),
+    ).toEqual([
+      ["fourth", 4],
+      ["third", 3],
+      ["second", 2],
+      ["first", 1],
+    ]);
+  });
+
+  it("summarizes the latest run per environment without a superseded failure affecting the verdict", () => {
+    const passed = {
       ...baseRun,
       id: "tenant-1/ns/run-2",
-      runId: "22222222",
-      startedAt: "2026-01-01T00:20:00Z",
-      verdict: "failed",
+      verdict: "passed" as const,
+      startedAt: "2026-01-01T00:10:00Z",
     };
-    const attempt3: E2eRunSummary = {
+    const other = {
       ...baseRun,
-      id: "tenant-1/ns/run-3",
-      runId: "33333333",
-      startedAt: "2026-01-01T00:30:00Z",
-      verdict: "passed",
+      id: "tenant-2/ns/run-3",
+      cluster: "tenant-2",
+      verdict: "passed" as const,
+      startedAt: "2026-01-01T00:20:00Z",
     };
-    const otherRev: E2eRunSummary = {
+    const [group] = groupRunAttempts([baseRun, passed, other]);
+    expect(group?.targets.map((run) => run.id)).toEqual([passed.id, other.id]);
+    expect(group?.attempts).toHaveLength(3);
+    expect(group?.verdict).toBe("passed");
+    expect(
+      groupRunAttempts([passed, { ...other, verdict: "failed" }])[0]?.verdict,
+    ).toBe("failed");
+    expect(
+      groupRunAttempts([passed, { ...other, verdict: "unknown" }])[0]?.verdict,
+    ).toBe("unknown");
+  });
+
+  it("keeps different bundle digests separate even with the same version, target, and revision", () => {
+    const other = {
       ...baseRun,
       id: "tenant-1/ns/run-other",
-      runId: "44444444",
-      revision: "rev-bbb",
-      startedAt: "2026-01-01T00:25:00Z",
-      verdict: "passed",
+      runId: "other",
+      bundle: { ...bundle, digest: "sha256:bundle-b" },
+      startedAt: "2026-01-01T00:10:00Z",
     };
-
-    const sorted = runsNewestFirst([attempt1, attempt2, attempt3, otherRev]);
-    const groups = groupRunAttempts(sorted);
+    const groups = groupRunAttempts(runsNewestFirst([baseRun, other]));
     expect(groups).toHaveLength(2);
+    expect(groups.map((g) => g.latest.run.runId)).toEqual(["other", "run-1"]);
+  });
 
-    const firstGroup = groups[0];
-    if (!firstGroup) throw new Error("expected first group");
-    expect(firstGroup.latest.run.runId).toBe("33333333");
-    expect(firstGroup.latest.attemptNumber).toBe(3);
-    expect(firstGroup.attempts).toHaveLength(3);
-    expect(
-      firstGroup.attempts.map((a) => [a.run.runId, a.attemptNumber]),
-    ).toEqual([
-      ["33333333", 3],
-      ["22222222", 2],
-      ["11111111", 1],
+  it("does not merge unresolved bundles across environments or deployed revisions", () => {
+    const unknown = { ...baseRun, bundle: null };
+    const groups = groupRunAttempts([
+      unknown,
+      { ...unknown, id: "tenant-2/ns/run-2", cluster: "tenant-2" },
+      { ...unknown, id: "tenant-1/ns/run-3", revision: "rev-bbb" },
     ]);
-
-    const secondGroup = groups[1];
-    if (!secondGroup) throw new Error("expected second group");
-    expect(secondGroup.latest.run.runId).toBe("44444444");
-    expect(secondGroup.latest.attemptNumber).toBe(1);
-    expect(secondGroup.attempts).toHaveLength(1);
+    expect(groups).toHaveLength(3);
   });
 });
 

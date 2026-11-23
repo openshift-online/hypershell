@@ -375,8 +375,23 @@ framework-free domain, not in a component or adapter.
 ### Requirement: E2E-LOG-12 -- E2E Run View
 
 The dashboard SHALL present an e2e-run view reachable from the promotion gate /
-environment. It SHALL list the most recent runs newest-first, each showing revision,
-attempt, start/end/duration, overall verdict, and the live/disconnected/
+environment. It SHALL group recent runs by resolved release bundle across target
+environments and deployed revisions. A bundle with multiple runs SHALL have one
+summary row displaying each observed environment's latest status, an overall
+status, the latest start time, and the total run count. Environment statuses SHALL
+use icons with localized accessible names and tooltips available on hover and
+keyboard focus, alongside the environment names. The summary Verdict column SHALL
+retain its visible status text. Expanded run rows SHALL retain their visible
+status text and leave the Bundle cell empty to align their targets beneath the
+summary's Target column. Run numbers SHALL be displayed in compact pills under
+the Attempts column. Expanding the bundle SHALL
+reveal all its runs newest-first, each selectable for details. Overall status SHALL
+be failed if any environment's latest run failed, unknown while any latest result
+is incomplete, and passed only when all observed environments' latest runs passed.
+A superseded run SHALL remain in history without affecting the summary. Missing
+environments SHALL NOT be inferred as passed. Groups SHALL be ordered by their
+newest run by default. Each attempt SHALL retain its own target environment, deployed revision,
+attempt id, start/end/duration, overall verdict, and the live/disconnected/
 history-truncated state. Selecting a run SHALL show its ordered steps with
 passed/failed/skipped/not-run/running state, per-step durations, and a selectable
 inline log pane. The ordered steps and verdict SHALL render as soon as the small
@@ -454,6 +469,16 @@ overlap, and surface truncated history or dropped events.
 - GIVEN several runs in the history window
 - WHEN the view opens
 - THEN it SHALL list them newest-first with revision, attempt, start/end/duration, and verdict
+
+#### Scenario: E2E-LOG-12.08 -- Bundle history across environments and revisions
+
+- GIVEN runs sharing a resolved release bundle digest across multiple target environments and deployed revisions
+- WHEN the E2E Runs table renders
+- THEN they SHALL form one expandable bundle summary with each observed environment's latest status and all runs newest-first beneath it
+- AND each attempt SHALL display its own target environment and deployed revision
+- AND different bundle digests SHALL remain separate even when their version labels match
+- AND unresolved bundles SHALL NOT be combined across target environments or deployed revisions
+- AND this display grouping SHALL NOT change exact-revision promotion-gate evidence correlation (E2E-LOG-09)
 
 #### Scenario: E2E-LOG-12.02 -- Ordered steps with state and logs
 
