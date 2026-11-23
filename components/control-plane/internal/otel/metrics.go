@@ -74,6 +74,9 @@ const (
 	ReasonK8sUnavailable     = "k8s_unavailable"
 	ReasonDependencyNotReady = "dependency_not_ready"
 	ReasonKeycloakTransient  = "keycloak_transient"
+	// ReasonHelmOperationInProgress: the gateway's Helm release is pending and
+	// young enough that another helm may still own it.
+	ReasonHelmOperationInProgress = "helm_operation_in_progress"
 )
 
 // Failed reason codes (OBS-CRM-07).
@@ -1102,7 +1105,7 @@ func isValidOutcome(outcome string) bool {
 func validateRetryableReason(reason string) string {
 	switch reason {
 	case ReasonGRPCUnavailable, ReasonK8sConflict, ReasonK8sUnavailable,
-		ReasonDependencyNotReady, ReasonKeycloakTransient, ReasonUnknown:
+		ReasonDependencyNotReady, ReasonKeycloakTransient, ReasonHelmOperationInProgress, ReasonUnknown:
 		return reason
 	default:
 		return ReasonUnknown

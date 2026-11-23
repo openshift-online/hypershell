@@ -96,6 +96,13 @@ func retryableReasonFromErr(err error) string {
 	return cpotel.ReasonUnknown
 }
 
+// RetryableReason returns the OBS-CRM-07 retryable reason attached to err, or
+// "unknown". It is exported so handlers can assert the reason their errors
+// carry through additional wrapping.
+func RetryableReason(err error) string {
+	return retryableReasonFromErr(err)
+}
+
 // reconcileQueue serializes reconciliations per resource. It retries errors
 // by default, with optional limits and error filters for callers that need them.
 // It replaces the fire-and-forget requeue goroutine that could race the reconciler.
@@ -515,6 +522,14 @@ func (q *reconcileQueue[T]) processNext() bool {
 		return false
 	}
 	defer q.queue.Done(id)
+	// Once shutdown has begun, take no new work: the workqueue still hands out
+	// items queued before ShutDown, and starting a reconcile (and its helm
+	// operation) now would only stretch the drain past the termination grace
+	// period. In-flight reconciles finish; the next controller re-seeds and picks
+	// up everything left here (helm shutdown survival).
+	if q.stopping() {
+		return false
+	}
 
 	// Claim the ready item under the same lock that protects the gauge state. This
 	// transition is the worker-start boundary for both queue depth and queue wait.
@@ -683,6 +698,20 @@ func (q *reconcileQueue[T]) clearBackoff(id string) {
 	delete(q.notBefore, id)
 	delete(q.preservePayload, id)
 	q.mu.Unlock()
+}
+
+// stopping reports whether the queue has been asked to shut down, either by an
+// explicit stop or by the end of its base context.
+func (q *reconcileQueue[T]) stopping() bool {
+	if q.baseCtx.Err() != nil {
+		return true
+	}
+	select {
+	case <-q.stopCh:
+		return true
+	default:
+		return false
+	}
 }
 
 // stop shuts the queue down and waits for all workers (and the context watcher)

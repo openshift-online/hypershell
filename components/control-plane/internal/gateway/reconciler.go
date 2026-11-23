@@ -217,7 +217,12 @@ func ReconcileGateway(
 	// Deploy gateway via Helm
 	// The chart handles: Deployment, Services, RBAC, cert-manager and the
 	// credential KEK
-	if err := deployGatewayViaHelm(ctx, helmClient, nsConfig, opts, hasTrustedCA, hasVaultCA, additionalCA); err != nil {
+	if err := deployGatewayViaHelm(ctx, helmClient, clientset, nsConfig, opts, hasTrustedCA, hasVaultCA, additionalCA); err != nil {
+		var inProgress *HelmOperationInProgressError
+		if errors.As(err, &inProgress) {
+			report(ConditionGatewayDeployed, StatusInProgress, "Waiting for an earlier Helm operation on the gateway release to finish")
+			return fmt.Errorf("deploy gateway via helm in %s: %w", nsConfig.Name, err)
+		}
 		report(ConditionGatewayDeployed, StatusFailed, "Gateway deployment failed - unable to deploy the gateway workload")
 		return fmt.Errorf("deploy gateway via helm in %s: %w", nsConfig.Name, err)
 	}
