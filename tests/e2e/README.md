@@ -103,6 +103,44 @@ For fast local iteration, set `E2E_PRIMARY_GATEWAY_ID` to an existing running
 gateway's id. Setup adopts that gateway instead of creating one and does not delete
 it in teardown, so repeated single-step runs skip the provisioning wait.
 
+## Platform gateway policy checks
+
+Short mode (E2E-CORE-49) runs the `policy-canary` subtest inside P2.1 on the
+P2.1 gateway, as the run's own identity, through the API and the CLI only:
+
+1. `GET /gateways/{id}/effective_policies` lists `e2e-enforcement-canary`
+   enforced and `Applied` within `E2E_PROVISION_TIMEOUT`.
+2. `sandbox create hypershell-e2e-policy-<token>-deny --cpu 2` fails with
+   `PERMISSION_DENIED`. The message names the canary, carries its user message,
+   and states `allowed: at most 1`.
+3. `sandbox create hypershell-e2e-policy-<token>-allow` with no resources is not
+   rejected by a policy. The reserved prefix is 22 characters, and the OpenShell
+   gateway limits sandbox names to 19. The gateway runs interceptors before it
+   validates the name, so the deny case still reaches the canary. An allowed
+   reserved-prefix create then fails the name check. The suite accepts that
+   name-length refusal as proof that the canary allowed the request.
+4. The P2.1 sandbox has no reserved prefix and uses `--cpu 2`. The canary must
+   not reject it. The `default-injection` subtest reads its cgroup memory limit
+   with `sandbox exec` and expects the fleet default `memory_limit`. Long mode
+   also checks the pod spec.
+
+If the canary never becomes `Applied`, the subtest is skipped, never passed,
+when either of these is true: the canary's per-gateway status says
+`HYPERSHELL_POLICY_CANARY_ENABLED=false`, or the identity cannot read that
+status. Otherwise, the subtest fails.
+
+Long mode runs P2.12 `platform-gateway-policies` (E2E-CORE-50) on its own
+gateway, on Kind with the password grant. It creates a runtime user. The
+platform admin grants that user `platform-policy:admin` with a global
+RoleBinding. The step then covers audit findings, the switch from audit to
+enforce within 60 seconds without a gateway restart, a denial that lists two
+policies, and write-time validation (400). It also checks that a gateway user
+can read but gets 403 on writes. Finally, it freezes the sidecar with
+`ctr task pause` on the Kind node: create fails closed, while stop and delete
+fail open. It deletes every policy, binding, and user it creates.
+`E2E_POLICY_FINDINGS_TIMEOUT` (default 120 seconds) bounds the wait for the
+audit finding.
+
 ## Failure diagnostics
 
 Every failed Go E2E suite collects cluster diagnostics before teardown, whether

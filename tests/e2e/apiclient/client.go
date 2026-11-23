@@ -60,6 +60,23 @@ func (c *Client) BaseURL() string { return c.baseURL }
 // for endpoints the typed SDK does not model; typed CRUD SHOULD use the embedded
 // SDK APIs instead.
 func (c *Client) RawJSON(ctx context.Context, method, path string, body any) (int, []byte, error) {
+	return c.RawJSONAt(ctx, method, APIBasePath+path, body)
+}
+
+// ExtBasePath is the Extension API prefix (PlatformGatewayPolicy, settings, and
+// the other ext kinds sit under it rather than under APIBasePath).
+const ExtBasePath = "/api/hypershell/ext"
+
+// RawExtJSON is RawJSON for an Extension API path relative to ExtBasePath (for
+// example "/platform_gateway_policies"), so a caller can assert the exact status
+// of an ext write (400 validation, 403 authorization).
+func (c *Client) RawExtJSON(ctx context.Context, method, path string, body any) (int, []byte, error) {
+	return c.RawJSONAt(ctx, method, ExtBasePath+path, body)
+}
+
+// RawJSONAt issues an authenticated JSON request to an absolute API path (one
+// that already carries its /api/... prefix).
+func (c *Client) RawJSONAt(ctx context.Context, method, path string, body any) (int, []byte, error) {
 	var reader io.Reader
 	if body != nil {
 		buf, err := json.Marshal(body)
@@ -69,7 +86,7 @@ func (c *Client) RawJSON(ctx context.Context, method, path string, body any) (in
 		reader = bytes.NewReader(buf)
 	}
 
-	url := c.baseURL + APIBasePath + path
+	url := c.baseURL + path
 	req, err := http.NewRequestWithContext(ctx, method, url, reader)
 	if err != nil {
 		return 0, nil, fmt.Errorf("build request: %w", err)

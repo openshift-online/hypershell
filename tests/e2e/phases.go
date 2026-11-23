@@ -502,7 +502,15 @@ func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
 	// the pod reaching Running first) as the success signal rather than the command's
 	// exit status. Long mode starts both creates together to exercise the atomic
 	// concurrent-count path.
-	s.runSandboxCLIConcurrently(t, local, "create", names)
+	//
+	// The first sandbox requests 2 CPUs. Its name lacks the reserved
+	// hypershell-e2e-policy- prefix, so the built-in e2e-enforcement-canary
+	// (which forbids more than 1 CPU only under that prefix) must not reject it
+	// (E2E-CORE-49.02, PLAT-PGP-20.01).
+	created := s.runSandboxCLIConcurrentlyWith(t, local, "create", names, map[string][]string{name: {"--cpu", collateralSandboxCPU}})
+	s.Require().Falsef(isPolicyRejection(created[0].output),
+		"sandbox %s (no reserved prefix, --cpu %s) was rejected by a platform policy; the canary must only apply to hypershell-e2e-policy-* names:\n%s",
+		name, collateralSandboxCPU, created[0].output)
 
 	// The pod-level readiness wait is a kube-level check; it runs only in long mode
 	// and is verified BEFORE the CLI exec (E2E-CORE-13.05). Short mode has no
@@ -547,6 +555,11 @@ func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
 			s.Assert().NotEmpty(strings.TrimSpace(stripANSI(out)), "workspace listing")
 		}
 	})
+
+	// E2E-CORE-49: the built-in canary policy is applied and enforced on this
+	// gateway, its denial reaches the CLI, and default injection is observable.
+	// Runs as a named subtest so a disabled canary reports skipped, never passed.
+	s.policyCanaryChecks(t, running, local, name)
 
 	// Long mode proves concurrent increments are not lost (0 -> 2) and concurrent
 	// decrements converge cleanly (2 -> 0). Short mode retains the single-sandbox
@@ -598,19 +611,34 @@ func (s *E2ESuite) waitSandboxesFullyDeleted(t *testing.T, local string, names [
 	s.Require().NoErrorf(err, "sandboxes not fully deleted within %s (still present: %v); active_sandbox_count tracks pods, this check reads the gateway store - openshift-online/hypershell#827", timeout, remaining)
 }
 
-func (s *E2ESuite) runSandboxCLIConcurrently(t *testing.T, local, action string, names []string) {
+// sandboxCLIResult is the combined output and final error of one sandbox's CLI
+// steps.
+type sandboxCLIResult struct {
+	output string
+	err    error
+}
+
+func (s *E2ESuite) runSandboxCLIConcurrently(t *testing.T, local, action string, names []string) []sandboxCLIResult {
 	t.Helper()
-	type result struct {
-		output string
-		err    error
-	}
-	results := make([]result, len(names))
+	return s.runSandboxCLIConcurrentlyWith(t, local, action, names, nil)
+}
+
+// runSandboxCLIConcurrentlyWith is runSandboxCLIConcurrently with extra flags
+// appended to the final CLI step of the named sandboxes (for example a CPU
+// request on one create). It returns each sandbox's result in names order.
+func (s *E2ESuite) runSandboxCLIConcurrentlyWith(t *testing.T, local, action string, names []string, extra map[string][]string) []sandboxCLIResult {
+	t.Helper()
+	results := make([]sandboxCLIResult, len(names))
 	g, _ := errgroup.WithContext(t.Context())
 	g.SetLimit(max(1, min(s.concurrency, len(names))))
 	for i, sandboxName := range names {
 		i, sandboxName := i, sandboxName
 		g.Go(func() error {
 			steps := sandboxCLISteps(action, sandboxName, s.sandboxImage)
+			if args := extra[sandboxName]; len(args) > 0 {
+				last := len(steps) - 1
+				steps[last] = append(append([]string(nil), steps[last]...), args...)
+			}
 			outputs := make([]string, 0, len(steps))
 			for j, args := range steps {
 				out, err := s.cli(t, local, args...)
@@ -635,6 +663,7 @@ func (s *E2ESuite) runSandboxCLIConcurrently(t *testing.T, local, action string,
 			s.Logf("sandbox %s %s returned an error (state will be verified): %v\n%s", action, sandboxName, results[i].err, results[i].output)
 		}
 	}
+	return results
 }
 
 // sandboxCLISteps returns the openshell CLI invocations that perform action on
