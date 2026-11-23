@@ -1043,8 +1043,9 @@ command (WEB-GLIS-11) SHALL use the fleet defaults in place of hard-coded
 `--cpu`/`--memory` values. The tab's design-review states SHALL be covered by the
 mockup `specs/web-console/mockups/gateways/gateway-policies-tab.tsx` and its stories,
 with the shared rendered-rule presentation in
-`specs/web-console/mockups/common/policy-rules.tsx`, delivered on the
-`mockups/platform-gateway-policy` branch, and the production page SHALL pass the
+`specs/web-console/mockups/common/policy-rules.tsx` (stories `PoliciesAuditOnly`,
+`PoliciesEnforced`, and `PolicyDetailsDrawer` of `Mockups/Gateways/Gateway detail`
+and `Parity/Gateways/Gateway detail`), and the production page SHALL pass the
 mandatory web-console completion gate.
 
 #### Scenario: WEB-GLIS-26.01 -- Viewer Sees Limits, Rules, and Findings Without Targets

@@ -101,7 +101,7 @@ delivery slice 1 (PLAT-PGP-05).
 | W2 | CP | watch the kind + settings, per-gateway bundle ConfigMap reconcile, `ReportPolicyEvents` endpoint, status write-back | CTRL-CORE-22 |
 | W3 | Sidecar | `hypershell-policy-interceptor` second binary in the control-plane image, k8s driver adapter, bundle watch, denial text, audit events | PLAT-PGP-09..16 |
 | W3 | Chart | vendored `charts/openshell` native sidecar + interceptor registration from values | OSG-CORE-19, OSG-HELM-06, GTW-CFG-05 |
-| W4 | FE | admin policy console + Cedar editor and read-only gateway Policies tab (blocked: approved mockups live on branch `mockups/platform-gateway-policy`, absent from this tree) | WEB-PADM, WEB-GLIS-26, UIS-PFLY-11 |
+| W4 | FE | admin policy console + Cedar editor and read-only gateway Policies tab (approved mockups in `specs/web-console/mockups/admin/` and `specs/web-console/mockups/gateways/gateway-policies-tab.tsx`, #1151) | WEB-PADM, WEB-GLIS-26, UIS-PFLY-11 |
 | W4 | E2E | enforcement canary short-mode steps and long-mode policy coverage | PLAT-PGP-20, E2E-CORE-49/50 |
 
 Environment note: this reconciliation ran without a container engine (no

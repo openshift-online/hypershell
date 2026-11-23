@@ -16,6 +16,7 @@ import {
   MastheadToggle,
   MenuToggle,
   Nav,
+  NavGroup,
   NavItem,
   NavList,
   Page,
@@ -35,7 +36,8 @@ import { useState } from "react";
 import logo from "../../../../images/brand/logo.png";
 import styles from "./mockup-template.module.css";
 
-export type MockupNavigationSection = "overview" | "gateways" | "dashboard";
+export type MockupNavigationSection =
+  "overview" | "gateways" | "dashboard" | "platform-policies";
 
 const primaryNavigation = [
   { href: "/", label: "Overview", section: "overview" },
@@ -121,10 +123,13 @@ export function MockupShell({
   activeSection = "overview",
   breadcrumb,
   children,
+  showAdministration = false,
 }: {
   activeSection?: MockupNavigationSection;
   breadcrumb?: React.ReactNode;
   children: React.ReactNode;
+  /** Render the Administration group; only for platform-policy:admin holders. */
+  showAdministration?: boolean;
 }) {
   const sidebar = (
     <PageSidebar>
@@ -142,6 +147,17 @@ export function MockupShell({
               </NavItem>
             ))}
           </NavList>
+          {showAdministration ? (
+            <NavGroup title="Administration">
+              <NavItem
+                component="a"
+                href="/admin/platform-policies"
+                isActive={activeSection === "platform-policies"}
+              >
+                Platform policies
+              </NavItem>
+            </NavGroup>
+          ) : null}
         </Nav>
       </PageSidebarBody>
     </PageSidebar>

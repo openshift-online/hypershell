@@ -91,10 +91,12 @@ import {
   type GatewayConnection,
 } from "../../../../packages/gateway-management-ui/src/gateways/gateway-connections";
 import { GatewayDetailPageSurface } from "./gateway-detail-page-surface";
+import { GatewayPoliciesTab } from "./gateway-policies-tab";
+import type { PolicyEnforcementMode } from "../common/policy-rules";
 import styles from "./gateway-detail.module.css";
 
 export type GatewayDetailTab =
-  "connection" | "manage-access" | "service-accounts" | "details";
+  "connection" | "manage-access" | "service-accounts" | "details" | "policies";
 
 export type GatewayDetailModal =
   | "rename-gateway"
@@ -2056,11 +2058,15 @@ export function GatewayDetailContent({
   attention,
   isProvisioning = false,
   modal: initialModal,
+  policyDrawer,
+  policyMode = "audit",
 }: {
   activeTab?: GatewayDetailTab;
   attention?: GatewayDetailAttention;
   isProvisioning?: boolean;
   modal?: GatewayDetailModal;
+  policyDrawer?: string;
+  policyMode?: PolicyEnforcementMode;
 }) {
   const [activeTab, setActiveTab] = useState(initialTab);
   const [modal, setModal] = useState(initialModal);
@@ -2173,7 +2179,7 @@ export function GatewayDetailContent({
       >
         <Tabs
           activeKey={activeTab}
-          aria-label="Gateway details, connection, user access, and service accounts"
+          aria-label="Gateway details, connection, user access, service accounts, and policies"
           onSelect={(_event, eventKey) =>
             setActiveTab(eventKey as GatewayDetailTab)
           }
@@ -2216,6 +2222,12 @@ export function GatewayDetailContent({
               }}
             />
           </Tab>
+          <Tab
+            eventKey="policies"
+            title={<TabTitleText>Policies</TabTitleText>}
+          >
+            <GatewayPoliciesTab drawerPolicy={policyDrawer} mode={policyMode} />
+          </Tab>
         </Tabs>
       </PageSection>
       {modal ? (
@@ -2236,11 +2248,15 @@ export function GatewayDetailMockup({
   attention,
   isProvisioning,
   modal,
+  policyDrawer,
+  policyMode,
 }: {
   activeTab?: GatewayDetailTab;
   attention?: GatewayDetailAttention;
   isProvisioning?: boolean;
   modal?: GatewayDetailModal;
+  policyDrawer?: string;
+  policyMode?: PolicyEnforcementMode;
 }) {
   return (
     <MockupShell activeSection="gateways">
@@ -2249,6 +2265,8 @@ export function GatewayDetailMockup({
         attention={attention}
         isProvisioning={isProvisioning}
         modal={modal}
+        policyDrawer={policyDrawer}
+        policyMode={policyMode}
       />
     </MockupShell>
   );

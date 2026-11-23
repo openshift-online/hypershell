@@ -11,9 +11,16 @@ export function GatewayDetailPageSurface({
   attention,
   isProvisioning,
   modal,
+  policyDrawer,
+  policyMode,
 }: Pick<
   GatewayDetailContentProps,
-  "activeTab" | "attention" | "isProvisioning" | "modal"
+  | "activeTab"
+  | "attention"
+  | "isProvisioning"
+  | "modal"
+  | "policyDrawer"
+  | "policyMode"
 >) {
   return (
     <IntlProvider locale="en">
@@ -22,6 +29,8 @@ export function GatewayDetailPageSurface({
         attention={attention}
         isProvisioning={isProvisioning}
         modal={modal}
+        policyDrawer={policyDrawer}
+        policyMode={policyMode}
       />
     </IntlProvider>
   );
