@@ -25,6 +25,13 @@ type GatewayService interface {
 	Create(ctx context.Context, gateway *Gateway) (*Gateway, *errors.ServiceError)
 	Replace(ctx context.Context, gateway *Gateway) (*Gateway, *errors.ServiceError)
 	Delete(ctx context.Context, id string) *errors.ServiceError
+
+	// FinalizeDeletion records that the control plane has finished reclaiming every
+	// Gateway-owned resource for a deleted gateway (GTW-DEL-01), resolving its
+	// durable delete convergence window (OBS-SLI-01.03). It is idempotent and a
+	// no-op when no open delete window remains.
+	FinalizeDeletion(ctx context.Context, id string) *errors.ServiceError
+
 	All(ctx context.Context) (GatewayList, *errors.ServiceError)
 
 	// AdjustActiveSandboxCount applies a relative delta to the
@@ -73,11 +80,26 @@ func NewGatewayService(
 	events services.EventService,
 	bindingCleaner GatewayBindingCleaner,
 ) GatewayService {
+	return newGatewayService(lockFactory, gatewayDao, events, bindingCleaner, nil)
+}
+
+// newGatewayService is the internal constructor that also wires the durable
+// change-convergence store (OBS-SLI-01 through OBS-SLI-04). A nil convergence
+// store disables convergence tracking (the exported NewGatewayService path, used
+// where tracking is not under test); the production plugin wires a real store.
+func newGatewayService(
+	lockFactory db.LockFactory,
+	gatewayDao GatewayDao,
+	events services.EventService,
+	bindingCleaner GatewayBindingCleaner,
+	convergence *convergenceStore,
+) GatewayService {
 	return &sqlGatewayService{
 		lockFactory:    lockFactory,
 		gatewayDao:     gatewayDao,
 		events:         events,
 		bindingCleaner: bindingCleaner,
+		convergence:    convergence,
 	}
 }
 
@@ -88,6 +110,7 @@ type sqlGatewayService struct {
 	gatewayDao     GatewayDao
 	events         services.EventService
 	bindingCleaner GatewayBindingCleaner
+	convergence    *convergenceStore
 }
 
 func (s *sqlGatewayService) OnUpsert(ctx context.Context, id string) error {
@@ -165,6 +188,15 @@ func (s *sqlGatewayService) Create(ctx context.Context, gateway *Gateway) (*Gate
 	gateway, err := s.gatewayDao.Create(ctx, gateway)
 	if err != nil {
 		return nil, services.HandleCreateError("Gateway", err)
+	}
+
+	// Open the create convergence window in the same transaction as the row
+	// create, with its clock starting at the create time (OBS-SLI-01.01).
+	if s.convergence != nil {
+		if err := s.convergence.onCreate(ctx, gateway.ID, gateway.CreatedAt); err != nil {
+			db.MarkForRollback(ctx, err)
+			return nil, services.HandleCreateError("Gateway", err)
+		}
 	}
 
 	_, evErr := s.events.Create(ctx, &api.Event{
@@ -275,6 +307,18 @@ func (s *sqlGatewayService) Replace(ctx context.Context, gateway *Gateway) (*Gat
 	gateway, err = s.gatewayDao.Replace(ctx, gateway)
 	if err != nil {
 		return nil, services.HandleUpdateError("Gateway", err)
+	}
+
+	// Reconcile the durable convergence state with this status write in the same
+	// transaction, under the advisory lock held above: record transition
+	// timestamps, open or advance the window on a generation change, record the
+	// provision metrics, and resolve within_10m when the newest generation has
+	// converged inside its budget (OBS-SLI-01 / OBS-SLI-02 / OBS-SLI-04).
+	if s.convergence != nil {
+		if err := s.convergence.onStatusWrite(ctx, current, gateway); err != nil {
+			db.MarkForRollback(ctx, err)
+			return nil, services.HandleUpdateError("Gateway", err)
+		}
 	}
 
 	_, evErr := s.events.Create(ctx, &api.Event{
@@ -462,7 +506,8 @@ func validateRouteCertificateShape(route *string) *errors.ServiceError {
 }
 
 func (s *sqlGatewayService) Delete(ctx context.Context, id string) *errors.ServiceError {
-	if _, svcErr := s.Get(ctx, id); svcErr != nil {
+	gateway, svcErr := s.Get(ctx, id)
+	if svcErr != nil {
 		return svcErr
 	}
 
@@ -494,6 +539,17 @@ func (s *sqlGatewayService) Delete(ctx context.Context, id string) *errors.Servi
 		}
 	}
 
+	// Open the delete convergence window in the same transaction as the row
+	// delete. The delete converges only after the control plane reports
+	// finalization complete (FinalizeDeletion); until then the deadline sweep
+	// governs it (OBS-SLI-01.03).
+	if s.convergence != nil {
+		if err := s.convergence.onDeleteRequested(ctx, gateway); err != nil {
+			db.MarkForRollback(ctx, err)
+			return services.HandleDeleteError("Gateway", err)
+		}
+	}
+
 	_, evErr := s.events.Create(ctx, &api.Event{
 		Source:    "Gateways",
 		SourceID:  id,
@@ -503,6 +559,17 @@ func (s *sqlGatewayService) Delete(ctx context.Context, id string) *errors.Servi
 		return services.HandleDeleteError("Gateway", evErr)
 	}
 
+	return nil
+}
+
+func (s *sqlGatewayService) FinalizeDeletion(ctx context.Context, id string) *errors.ServiceError {
+	if s.convergence == nil {
+		return nil
+	}
+	if err := s.convergence.onDeleteFinalized(ctx, id); err != nil {
+		db.MarkForRollback(ctx, err)
+		return errors.GeneralError("Unable to finalize gateway deletion convergence for %s: %s", id, err)
+	}
 	return nil
 }
 

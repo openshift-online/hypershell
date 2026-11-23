@@ -450,6 +450,100 @@ func migrationDropGatewayNetworksTable() *gormigrate.Migration {
 	}
 }
 
+// migrationAddConvergenceTracking creates the durable change-convergence state
+// the API server owns for SLO 2 (service-level-indicators.spec.md, OBS-SLI-01
+// through OBS-SLI-04). Four tables are created with raw idempotent DDL (never
+// AutoMigrate, per the file header): none of them is an api.Meta Kind model, so
+// they are plain internal bookkeeping tables, not plugin resources.
+//
+//   - gateway_convergence     one row per gateway: the single open convergence
+//     window (change type, judged generation, clock
+//     start) plus the create timestamp the provision
+//     duration is computed from. Restarts read it back
+//     unchanged (OBS-SLI-01.04).
+//   - gateway_status_transitions
+//     an append log of every persisted phase and
+//     provisioning-condition transition timestamp, so
+//     the window and provision duration are computable
+//     from persisted data rather than process memory
+//     (OBS-SLI-01).
+//   - gateway_convergence_counters
+//     durable per-(change_type, outcome) totals backing
+//     hypershell_change_convergence_total so the exported
+//     value is monotonic across restarts (OBS-SLI-03).
+//   - gateway_provisions      one row per gateway recording the first
+//     create-to-Running duration and the first terminal
+//     provision outcome, backing the provision metrics
+//     the API server now owns (OBS-SLI-04).
+func migrationAddConvergenceTracking() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026112300000001",
+		Migrate: func(tx *gorm.DB) error {
+			stmts := []string{
+				`CREATE TABLE IF NOT EXISTS gateway_convergence (
+					gateway_id TEXT PRIMARY KEY,
+					gateway_created_at TIMESTAMPTZ NOT NULL,
+					open_change_type TEXT,
+					open_generation BIGINT NOT NULL DEFAULT 0,
+					clock_start TIMESTAMPTZ,
+					last_phase TEXT NOT NULL DEFAULT '',
+					resolved_outcome TEXT,
+					resolved_at TIMESTAMPTZ,
+					deletion_requested_at TIMESTAMPTZ,
+					created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+					updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+				)`,
+				`CREATE INDEX IF NOT EXISTS idx_gateway_convergence_open
+					ON gateway_convergence (clock_start)
+					WHERE open_change_type IS NOT NULL`,
+				`CREATE TABLE IF NOT EXISTS gateway_status_transitions (
+					id BIGSERIAL PRIMARY KEY,
+					gateway_id TEXT NOT NULL,
+					generation BIGINT NOT NULL DEFAULT 0,
+					transition_type TEXT NOT NULL,
+					name TEXT NOT NULL,
+					value TEXT NOT NULL,
+					transitioned_at TIMESTAMPTZ NOT NULL
+				)`,
+				`CREATE INDEX IF NOT EXISTS idx_gateway_status_transitions_gateway
+					ON gateway_status_transitions (gateway_id)`,
+				`CREATE TABLE IF NOT EXISTS gateway_convergence_counters (
+					change_type TEXT NOT NULL,
+					outcome TEXT NOT NULL,
+					total BIGINT NOT NULL DEFAULT 0,
+					PRIMARY KEY (change_type, outcome)
+				)`,
+				`CREATE TABLE IF NOT EXISTS gateway_provisions (
+					gateway_id TEXT PRIMARY KEY,
+					duration_seconds DOUBLE PRECISION,
+					outcome TEXT,
+					recorded_at TIMESTAMPTZ NOT NULL DEFAULT now()
+				)`,
+			}
+			for _, stmt := range stmts {
+				if err := tx.Exec(stmt).Error; err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+		Rollback: func(tx *gorm.DB) error {
+			stmts := []string{
+				`DROP TABLE IF EXISTS gateway_provisions`,
+				`DROP TABLE IF EXISTS gateway_convergence_counters`,
+				`DROP TABLE IF EXISTS gateway_status_transitions`,
+				`DROP TABLE IF EXISTS gateway_convergence`,
+			}
+			for _, stmt := range stmts {
+				if err := tx.Exec(stmt).Error; err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	}
+}
+
 // migrationDropManagedDatabasesTable drops the orphaned table of the removed
 // ManagedDatabase resource. The rollback recreates a minimal table with the
 // framework's Model columns so older binaries can start against the schema.

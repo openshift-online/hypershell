@@ -152,10 +152,12 @@ cells without synthesizing zero (PLAT-USR-14).
 Source: BFF `GET /api/metrics/gateway-provision-duration`. Spec:
 `platform/gateway-provision-time.spec.md`.
 
-Prometheus histogram `gateway_provision_duration_seconds` (control-plane OTLP
-per OBS-CPL-07). The BFF computes mean, P50, and P95 from increases over the
-selected 7- or 30-day window. Values are presented in **seconds**
-(`unit: "sec"`).
+Prometheus histogram `gateway_provision_duration_seconds` (emitted durably by
+the API server `/metrics` endpoint per OBS-SLI-04; same series names as before).
+These are fleet-level series with no `k8s_namespace_name` (or any gateway or
+namespace identifier) label, so BFF queries are never namespace scoped. The BFF
+computes mean, P50, and P95 from increases over the selected 7- or 30-day
+window. Values are presented in **seconds** (`unit: "sec"`).
 
 The BFF also returns optional `daily_p50` and `daily_p95` arrays. The adapter
 maps arrays with at least two points to `provisionDuration.p50Trend` and
@@ -164,8 +166,9 @@ target. For the 7-day range it can also return P99 and `daily_p99`; those two
 fields are explicitly `null` for the 30-day range. The Provisioning page warns
 when P99 exceeds the target.
 
-Requires control-plane metrics export through the in-cluster OpenTelemetry
-Collector (`deploy/base/prometheus/otel-collector.yaml`).
+These series are produced by the API server `/metrics` endpoint per OBS-SLI-04,
+not the control-plane OTLP pipeline, so no in-cluster OpenTelemetry Collector
+export is required for them.
 
 ### Provision reliability
 
@@ -173,7 +176,10 @@ Source: BFF `GET /api/metrics/gateway-provision-outcomes`. Spec:
 `platform/gateway-provision-outcomes.spec.md`.
 
 Success and failure counts from `gateway_provision_outcomes_total`
-(`outcome="success|failure"`, OBS-CPL-07) over the selected 7- or 30-day window.
+(`outcome="success|failure"`, emitted durably by the API server per OBS-SLI-04)
+over the selected 7- or 30-day window. These are fleet-level series with no
+`k8s_namespace_name` (or any gateway or namespace identifier) label, so BFF
+queries are never namespace scoped.
 The BFF response field names retain the historical `_24h` suffix. When outcome
 counters are empty, the BFF reports zero counts and a null success rate.
 

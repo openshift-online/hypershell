@@ -429,13 +429,9 @@ func (h *GatewayHealthReconciler) reconcileGatewayHealth(ctx context.Context, cl
 		return namespace, ready
 	}
 
-	response, err := client.UpdateGateway(ctx, update)
-	if err != nil {
+	if _, err := client.UpdateGateway(ctx, update); err != nil {
 		slog.WarnContext(ctx, "Gateway health: update phase failed", "gateway_id", gatewayID, "phase", desiredPhase, "error", err)
 		return namespace, ready
-	}
-	if isGatewayProvisionCompletion(phase, desiredPhase) {
-		observeGatewayProvisionSuccess(ctx, response.GetGateway())
 	}
 
 	slog.InfoContext(ctx, "Gateway health: phase changed",

@@ -24,8 +24,6 @@ var (
 	reconcileDuration                  metric.Int64Histogram
 	reconcileQueueDepth                metric.Int64ObservableGauge
 	reconcileQueueWaitDuration         metric.Float64Histogram
-	gatewayProvisionDuration           metric.Float64Histogram
-	gatewayProvisionOutcomes           metric.Int64Counter
 	gatewaySandboxOrphaned             metric.Int64Gauge
 	gatewaySandboxExpiring             metric.Int64Gauge
 	gatewaySandboxIdle                 metric.Int64Gauge
@@ -165,25 +163,6 @@ func registerMetrics() error {
 		metric.WithUnit("s"),
 		metric.WithDescription("Time from when a resource key becomes ready until a worker starts reconciliation"),
 		metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60, 120, 300),
-	)
-	if err != nil {
-		return err
-	}
-
-	gatewayProvisionDuration, err = meter.Float64Histogram(
-		"gateway.provision.duration",
-		metric.WithUnit("s"),
-		metric.WithDescription("Time from Gateway creation until its first successful transition to Running"),
-		metric.WithExplicitBucketBoundaries(1, 5, 10, 15, 30, 45, 60, 90, 120, 180, 300, 600, 900),
-	)
-	if err != nil {
-		return err
-	}
-
-	gatewayProvisionOutcomes, err = meter.Int64Counter(
-		"gateway.provision.outcomes",
-		metric.WithUnit("{outcome}"),
-		metric.WithDescription("Count of terminal gateway provision outcomes (success or failure)"),
 	)
 	if err != nil {
 		return err
@@ -512,26 +491,6 @@ func RecordReconcileDuration(ctx context.Context, kind, eventType, outcome strin
 	reconcileDuration.Record(ctx, time.Since(start).Milliseconds(), metric.WithAttributes(
 		attribute.String("resource.kind", kind),
 		attribute.String("event.type", eventType),
-		attribute.String("outcome", outcome),
-	))
-}
-
-// RecordGatewayProvisionDuration records one successful create-to-Running
-// duration. The caller owns the one-observation rule for each Gateway.
-func RecordGatewayProvisionDuration(ctx context.Context, duration time.Duration) {
-	if gatewayProvisionDuration == nil || duration < 0 {
-		return
-	}
-	gatewayProvisionDuration.Record(ctx, duration.Seconds())
-}
-
-// RecordGatewayProvisionOutcome records one terminal provision outcome. The
-// caller owns the one-observation rule for each Gateway.
-func RecordGatewayProvisionOutcome(ctx context.Context, outcome string) {
-	if gatewayProvisionOutcomes == nil || outcome == "" {
-		return
-	}
-	gatewayProvisionOutcomes.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("outcome", outcome),
 	))
 }
