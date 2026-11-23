@@ -359,6 +359,84 @@ promptly.
 - WHEN Keycloak becomes unavailable so the prober cannot obtain a token
 - THEN the prober SHALL record failed API authentication probes within one minute
 
+### Requirement: OBS-PRB-10 -- Prober Ships as a Probe Mode of the Control-Plane Image
+
+The prober SHALL ship as a dedicated run mode of the existing control-plane
+image, selected by a subcommand of the control-plane binary (for example
+`hypershell-controller probe`), rather than as a separate Konflux component. This
+mode reuses the generated OpenShell gRPC client the control-plane image already
+carries (`components/control-plane/internal/openshellclient`) so the gateway
+`Health` probe (OBS-PRB-03) needs no new client. Packaging the prober in the
+existing image SHALL avoid adding a new Konflux component, CI registration, and
+release-bundle entry.
+
+The probe mode SHALL run only the prober. It SHALL NOT start the reconciler, the
+gRPC watch streams, gateway database provisioning, or Helm-based gateway
+management; a misconfiguration of those reconciler-only preconditions SHALL NOT
+block the probe mode from starting. The probe mode SHALL authenticate with the
+keyless prober identity (OBS-PRB-06) and SHALL NOT use the control plane's static
+OIDC client secret.
+
+#### Scenario: OBS-PRB-10.01 -- Probe mode runs the prober and not the reconciler
+
+- GIVEN the control-plane image started in its probe mode
+- WHEN the process comes up
+- THEN it SHALL run the prober probe loops (OBS-PRB-03 to OBS-PRB-05) and serve
+  the metrics endpoint (OBS-PRB-07)
+- AND it SHALL NOT start the reconciler, the gRPC watch streams, gateway database
+  provisioning, or Helm-based gateway management
+
+#### Scenario: OBS-PRB-10.02 -- Probe mode does not require reconciler-only configuration
+
+- GIVEN the control-plane image started in its probe mode without the gateway
+  database admin credentials the reconciler requires
+- WHEN the process comes up
+- THEN the probe mode SHALL start and probe normally
+- AND it SHALL NOT fail on the reconciler-only startup preconditions
+
+### Requirement: OBS-PRB-11 -- Repository Provides a Kustomize Base for the Prober
+
+This repository SHALL provide a Kustomize base (for example under `deploy/`) that
+the platform GitOps repository (hypershell-gitops) consumes to deploy the prober
+on the infrastructure hub. The base SHALL render with `kustomize` and SHALL pass
+the repository policy checks (`make check`).
+
+The base SHALL declare:
+
+1. a Deployment that runs the control-plane image in its probe mode (OBS-PRB-10)
+   with a restricted pod security context (`runAsNonRoot`, drop `ALL`
+   capabilities), consistent with the project "Restricted SecurityContext on all
+   containers" convention;
+2. a ServiceAccount with a projected service-account token volume whose audience
+   is configurable, so the prober can exchange that token at Keycloak
+   (OBS-PRB-06);
+3. a ConfigMap carrying the prober configuration (probe interval, per-probe
+   timeout, eligibility grace window, production instances, and Keycloak
+   token-exchange settings) defined in OBS-PRB-08;
+4. a Service that exposes the metrics port the Cloud Hub Prometheus scrapes
+   (OBS-PRB-07); and
+5. readiness and liveness probes for the prober container.
+
+The Kustomize base SHALL NOT embed environment-specific secrets or the Keycloak
+realm wiring; that configuration is realized by hypershell-gitops (OBS-PRB-06 and
+the Non-Goals below).
+
+#### Scenario: OBS-PRB-11.01 -- Prober base renders and passes policy checks
+
+- GIVEN the prober Kustomize base in this repository
+- WHEN `kustomize build` renders the base and the repository policy checks run
+- THEN the base SHALL render a Deployment, ServiceAccount, ConfigMap, and Service
+  for the prober
+- AND the render SHALL pass the repository policy checks
+
+#### Scenario: OBS-PRB-11.02 -- Prober Deployment uses a restricted security context and a projected token
+
+- GIVEN the rendered prober Deployment
+- WHEN its pod template is inspected
+- THEN the container SHALL set `runAsNonRoot` and drop `ALL` capabilities
+- AND the pod SHALL mount a projected service-account token volume with a
+  configurable audience for the Keycloak token exchange (OBS-PRB-06)
+
 ## Non-Goals
 
 - Service Level Objective recording rules, burn-rate alerts, response-label
