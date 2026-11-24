@@ -54,12 +54,19 @@ The suite must:
    find the second realm user (`E2E_DEV_USERNAME`, default `developer`), grant
    the `user` role, and verify the user appears in the access list with that
    role (GTW-ACC-03, GTW-ACC-04.01, GTW-ACC-04.02, GTW-ACC-09.01).
-9. In long mode, change that user's role to admin and then remove the user,
-   verifying the list after each step (GTW-ACC-05.01, GTW-ACC-06.01).
-10. In long mode, search the **Add users** picker for an unknown name and verify
+9. As that user (who now holds only `openshell-user`), sign in to the
+   per-gateway console in a new browser context. Verify that the workspaces
+   view opens, that the console does not show its unentitled page ("Your
+   account has no OpenShell role"), and that an admin-only page sends the user
+   back to the workspaces view (OSG-CON-10.01). Sign in again until the role
+   is in the token, because the control plane writes the Keycloak role after
+   the grant.
+10. In long mode, change that user's role to admin and then remove the user,
+    verifying the list after each step (GTW-ACC-05.01, GTW-ACC-06.01).
+11. In long mode, search the **Add users** picker for an unknown name and verify
     it shows no matching users and cannot submit (GTW-ACC-04.06).
-11. Delete the gateway through the visible actions menu.
-12. Best-effort delete through the authenticated BFF if a prior assertion fails,
+12. Delete the gateway through the visible actions menu.
+13. Best-effort delete through the authenticated BFF if a prior assertion fails,
     unless `E2E_SKIP_CLEANUP=1`.
 
 The existing distributed tracing test remains in the same Playwright live suite.
@@ -71,6 +78,8 @@ The existing distributed tracing test remains in the same Playwright live suite.
 - `E2E_CONSOLE_URL` overrides route discovery.
 - `E2E_OIDC_USERNAME` and `E2E_OIDC_PASSWORD` select the login identity.
 - `E2E_DEV_USERNAME` is the second realm user granted access (default `developer`).
+- `E2E_DEV_PASSWORD` is that user's password (default `developer`), used to
+  sign in to the per-gateway console as a non-admin member.
 - `E2E_DIRECTORY_TIMEOUT` is the seconds to wait for that user to appear in the
   directory search (default 420, longer than the 5 minute refresh interval).
 - `E2E_GATEWAY_NAME` overrides the generated gateway name.

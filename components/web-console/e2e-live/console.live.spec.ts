@@ -12,6 +12,7 @@ import {
 const username = process.env.E2E_OIDC_USERNAME ?? "admin";
 const password = process.env.E2E_OIDC_PASSWORD ?? "admin";
 const devUsername = process.env.E2E_DEV_USERNAME ?? "developer";
+const devPassword = process.env.E2E_DEV_PASSWORD ?? "developer";
 const directoryTimeout =
   Number(process.env.E2E_DIRECTORY_TIMEOUT ?? "420") * 1_000;
 const mode = process.env.E2E_MODE ?? "long";
@@ -58,6 +59,26 @@ async function logIn(page: Page) {
     await page.getByRole("button", { name: /sign in|log in/iu }).click();
   }
   await expect(homepageHeading).toBeVisible({ timeout: pageTimeout });
+}
+
+// Opens the per-gateway OpenShell console and signs in through its
+// oauth2-proxy when Keycloak asks for credentials (an existing Keycloak session
+// in the browser context skips the form).
+async function signInToOpenShellConsole(
+  consolePage: Page,
+  consoleAddress: string,
+  user: string,
+  userPassword: string,
+) {
+  await consolePage.goto(consoleAddress);
+  const login = consolePage.getByLabel(/username/iu);
+  if (await login.isVisible()) {
+    await login.fill(user);
+    await consolePage
+      .getByLabel("Password", { exact: true })
+      .fill(userPassword);
+    await consolePage.getByRole("button", { name: /sign in|log in/iu }).click();
+  }
 }
 
 async function openAccessTab(page: Page, id: string) {
@@ -272,15 +293,12 @@ test.describe("live console user journey", () => {
     ).toHaveAttribute("href", consoleAddress);
 
     const consolePage = await page.context().newPage();
-    await consolePage.goto(consoleAddress);
-    const login = consolePage.getByLabel(/username/iu);
-    if (await login.isVisible()) {
-      await login.fill(username);
-      await consolePage.getByLabel("Password", { exact: true }).fill(password);
-      await consolePage
-        .getByRole("button", { name: /sign in|log in/iu })
-        .click();
-    }
+    await signInToOpenShellConsole(
+      consolePage,
+      consoleAddress,
+      username,
+      password,
+    );
     await expect(
       consolePage.getByText("Cannot reach the OpenShell gateway"),
     ).toBeHidden();
@@ -415,6 +433,97 @@ test.describe("live console user journey", () => {
     await expect(
       row.getByRole("button", { name: /^Change role:/u }),
     ).toHaveText("User");
+  });
+
+  test("lets a non-admin member use the OpenShell console", async ({
+    browser,
+    page,
+  }) => {
+    // OSG-CON-10.01: the previous test granted the second realm user the
+    // "user" role, so that user holds only openshell-user on this gateway. The
+    // OpenShell console must give standard-user access and not show its
+    // unentitled page (it does when USER_ROLE is not set to openshell-user).
+    // Runs before the long-mode test that changes the user to admin.
+    test.setTimeout(consoleTimeout + 2 * pageTimeout + 60_000);
+    expect(
+      gatewayId,
+      "the provisioning test must create a gateway",
+    ).toBeDefined();
+    if (gatewayId === undefined) return;
+    await logIn(page);
+    const consoleAddress =
+      (await readGateway(page.request, gatewayId)).console_address ?? "";
+    expect(
+      consoleAddress,
+      "the gateway must publish a console address",
+    ).not.toBe("");
+
+    // The control plane writes the Keycloak role after the grant, and a token
+    // keeps the roles it was issued with. Sign in again in a new browser
+    // context until the role is in the token. The unentitled page is the
+    // failure this test catches, so a timeout here reports the last state.
+    let memberContext: BrowserContext | undefined;
+    try {
+      await expect
+        .poll(
+          async () => {
+            await memberContext?.close();
+            memberContext = await browser.newContext({
+              ignoreHTTPSErrors: true,
+            });
+            const consolePage = await memberContext.newPage();
+            await signInToOpenShellConsole(
+              consolePage,
+              consoleAddress,
+              devUsername,
+              devPassword,
+            );
+            await consolePage.goto(`${consoleAddress}/workspaces`);
+            const workspaces = consolePage.getByRole("heading", {
+              name: /workspaces/iu,
+            });
+            const unentitled = consolePage.getByRole("heading", {
+              name: "Your account has no OpenShell role",
+            });
+            try {
+              await expect(workspaces.or(unentitled)).toBeVisible({
+                timeout: pageTimeout,
+              });
+            } catch {
+              return "no workspaces view and no unentitled page";
+            }
+            return (await unentitled.isVisible())
+              ? "unentitled page shown"
+              : "entitled";
+          },
+          {
+            message: `${devUsername} (openshell-user only) must reach the OpenShell console workspaces view`,
+            timeout: consoleTimeout,
+            intervals: [5_000, 10_000],
+          },
+        )
+        .toBe("entitled");
+
+      // Standard-user access, not admin: an admin-only page sends the member
+      // back to the workspaces view.
+      const consolePage = memberContext?.pages()[0];
+      expect(
+        consolePage,
+        "the member console page must stay open",
+      ).toBeDefined();
+      if (consolePage === undefined) return;
+      await consolePage.goto(`${consoleAddress}/settings`);
+      await expect(consolePage).toHaveURL(/\/workspaces(?:[/?#]|$)/u, {
+        timeout: pageTimeout,
+      });
+      await expect(
+        consolePage.getByRole("heading", {
+          name: "Your account has no OpenShell role",
+        }),
+      ).toBeHidden();
+    } finally {
+      await memberContext?.close();
+    }
   });
 
   test("changes and revokes a granted user", async ({ page }) => {
