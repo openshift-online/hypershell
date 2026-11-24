@@ -110,7 +110,7 @@ P2.1 gateway, as the run's own identity, through the API and the CLI only:
 
 1. `GET /gateways/{id}/effective_policies` lists `e2e-enforcement-canary`
    enforced and `Applied` within `E2E_PROVISION_TIMEOUT`.
-2. `sandbox create e2epol-<token>-deny --cpu 2` fails with
+2. `sandbox create e2epol-<token>-deny --cpu 1100m` fails with
    `PERMISSION_DENIED`. The message names the canary, carries its user message,
    and states `allowed: at most 1`.
 3. `sandbox create e2epol-<token>-allow` with no resources must succeed and
@@ -120,7 +120,7 @@ P2.1 gateway, as the run's own identity, through the API and the CLI only:
    `hypershell.redhat.io/policy-defaults-applied` annotation with
    `sandbox get <name> -o json` and expects the fleet default requests and
    limits. Long mode also checks the pod spec.
-4. The P2.1 sandbox has no reserved prefix and uses `--cpu 2`. The canary must
+4. The P2.1 sandbox has no reserved prefix and uses `--cpu 1100m`. The canary must
    not reject it.
 
 If the canary never becomes `Applied`, the subtest is skipped, never passed,

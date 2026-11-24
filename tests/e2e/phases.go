@@ -503,7 +503,7 @@ func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
 	// exit status. Long mode starts both creates together to exercise the atomic
 	// concurrent-count path.
 	//
-	// The first sandbox requests 2 CPUs. Its name lacks the reserved
+	// The first sandbox requests 1100m CPU, just above the canary bound. Its name lacks the reserved
 	// e2epol- prefix, so the built-in e2e-enforcement-canary
 	// (which forbids more than 1 CPU only under that prefix) must not reject it
 	// (E2E-CORE-49.02, PLAT-PGP-20.01).

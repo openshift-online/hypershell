@@ -49,12 +49,12 @@ const (
 	canaryDisabledMarker = "HYPERSHELL_POLICY_CANARY_ENABLED=false"
 	// canaryCPUBound is the bound text the interceptor's display renderer adds to
 	// a denial by a `context.cpuRequestMillis > 1000` statement ("(CPU request is
-	// 2; allowed: at most 1)"). The "allowed: " part matters: the canary's user
+	// 1100m; allowed: at most 1)"). The "allowed: " part matters: the canary's user
 	// message itself says "at most 1 CPU", so the bare phrase proves nothing.
 	canaryCPUBound = "allowed: at most 1"
 	// collateralSandboxCPU is the CPU request of the P2.1 sandbox that does NOT
 	// use the reserved prefix; the canary must not reject it (E2E-CORE-49.02).
-	collateralSandboxCPU = "2"
+	collateralSandboxCPU = "1100m"
 	// policyPropagationSLO bounds how long an enforcement-mode change may take to
 	// reach a running gateway's interceptor, measured from the PATCH to the first
 	// rejected create (PLAT-PGP-06, PLAT-PGP-12, E2E-CORE-50.01).
@@ -761,7 +761,7 @@ func (s *E2ESuite) p2_12PlatformGatewayPolicies(t *testing.T) {
 	s.waitPolicyCondition(t, policyAPI(), gw.ID, cpuPolicy.Name, policyModeAudit, durationSecondsEnv("E2E_PROVISION_TIMEOUT", 180*time.Second))
 
 	auditName := "pa-" + token
-	out, err := s.cli(t, local, "sandbox", "create", "--from", s.sandboxImage, "--name", auditName, "--cpu", "1500m")
+	out, err := s.cli(t, local, "sandbox", "create", "--from", s.sandboxImage, "--name", auditName, "--cpu", "1100m")
 	s.Require().Falsef(isPolicyRejection(out), "E2E-CORE-50.01: an audit-mode policy must not reject %s:\n%s", auditName, out)
 	s.Require().Truef(s.waitSandboxListed(t, local, auditName, 60*time.Second), "E2E-CORE-50.01: audit-mode violating create %s must be admitted (err %v):\n%s", auditName, err, out)
 	s.deleteSandboxIfPresent(t, local, auditName)
@@ -780,7 +780,7 @@ func (s *E2ESuite) p2_12PlatformGatewayPolicies(t *testing.T) {
 	s.Require().Equalf(http.StatusOK, patchStatus, "patch policy to enforce (body: %s)", string(patchBody))
 	enforcedAt := time.Now()
 	s.waitPolicyCondition(t, policyAPI(), gw.ID, cpuPolicy.Name, policyModeEnforce, policyPropagationSLO)
-	denyOut := s.createUntilPolicyDenied(t, local, "pe-"+token, enforcedAt.Add(policyPropagationSLO), isPolicyRejection, "--cpu", "1500m")
+	denyOut := s.createUntilPolicyDenied(t, local, "pe-"+token, enforcedAt.Add(policyPropagationSLO), isPolicyRejection, "--cpu", "1100m")
 	elapsed := time.Since(enforcedAt)
 	s.Require().NoErrorf(checkPolicyDenial(denyOut, []policyDenialExpectation{{Name: cpuPolicy.Name, UserMessage: cpuPolicy.UserMessage, Bound: canaryCPUBound}}),
 		"E2E-CORE-50.01: enforced denial text:\n%s", denyOut)
@@ -806,7 +806,7 @@ func (s *E2ESuite) p2_12PlatformGatewayPolicies(t *testing.T) {
 		{Name: memPolicy.Name, UserMessage: memPolicy.UserMessage},
 	}
 	bothOut := s.createUntilPolicyDenied(t, local, "pm-"+token, time.Now().Add(policyPropagationSLO),
-		func(out string) bool { return checkPolicyDenial(out, both) == nil }, "--cpu", "1500m", "--memory", "8Gi")
+		func(out string) bool { return checkPolicyDenial(out, both) == nil }, "--cpu", "1100m", "--memory", "8Gi")
 	s.Require().NoErrorf(checkPolicyDenial(bothOut, both), "PLAT-PGP-14.01: a denial by two policies lists both:\n%s", bothOut)
 
 	// E2E-CORE-50.02 (masking): a gateway user reads the policies and findings of

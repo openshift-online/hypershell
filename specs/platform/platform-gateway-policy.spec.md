@@ -678,7 +678,7 @@ mode SHALL then report the policy check as skipped, never as passed (E2E-CORE-49
 #### Scenario: PLAT-PGP-20.01 -- Canary Enforced but Scoped to the Reserved Prefix
 
 - GIVEN the seeded `e2e-enforcement-canary` policy
-- WHEN a sandbox named `e2epol-<run>-deny` is created with a CPU request of `2`
+- WHEN a sandbox named `e2epol-<run>-deny` is created with a CPU request of `1100m`
 - THEN the create SHALL be rejected with `PERMISSION_DENIED` naming the canary
 - AND a sandbox whose name lacks the reserved prefix SHALL NOT be rejected by the canary
 
