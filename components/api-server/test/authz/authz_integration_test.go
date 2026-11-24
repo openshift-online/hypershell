@@ -355,6 +355,65 @@ func TestGRPCControlPlaneWritesAreScopedToItsCluster(t *testing.T) {
 	Expect(grpcCode(err)).To(Equal(codes.PermissionDenied), "re-pointing cluster_id: %v", err)
 }
 
+// deleteConvergenceWithin10m reads the durable count of delete windows that
+// converged inside budget, the metric SLO 2 tracks (OBS-SLI-01).
+func deleteConvergenceWithin10m() int64 {
+	var n int64
+	sf := environments.Environment().Database.SessionFactory
+	Expect(sf.New(context.Background()).Raw(
+		`SELECT COALESCE((SELECT total FROM gateway_convergence_counters WHERE change_type = 'delete' AND outcome = 'within_10m'), 0)`,
+	).Row().Scan(&n)).NotTo(HaveOccurred())
+	return n
+}
+
+// TestGRPCControlPlaneFinalizesOwnTombstoneConvergesDelete is the end-to-end
+// regression for GTW-DEL-10 through the real gRPC interceptor chain: after a
+// gateway is soft-deleted, its own control plane reports finalization with
+// FinalizeGatewayDeletion and the delete window converges within_10m. A foreign
+// control plane is refused, and DeleteGateway stays denied to the control-plane
+// identity even for its own tombstone (SEC-RBAC-09.10, PLAT-CLUS-11.07). On
+// current main the control plane can only re-call DeleteGateway, which the
+// interceptor denies, so the window never converges here: this test fails.
+// Verifies: GTW-DEL-10.01, GTW-DEL-10.02, SEC-RBAC-09.10, PLAT-CLUS-11.07, OBS-SLI-01.03
+func TestGRPCControlPlaneFinalizesOwnTombstoneConvergesDelete(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+	a := registerSpoke(t, h, client)
+	b := registerSpoke(t, h, client)
+	owner := newPrincipal(t, h, "owner-"+strings.ToLower(api.NewID()), realmRoles("gateway:creator"))
+	gw := createGateway(t, client, owner, a.clusterID)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	gwA := pb.NewGatewayServiceClient(a.conn)
+	gwB := pb.NewGatewayServiceClient(b.conn)
+
+	// Converge the create, then the owner soft-deletes the gateway, opening a
+	// delete window.
+	running := "Running"
+	var observed int64 = 1
+	_, err := gwA.UpdateGateway(ctx, &pb.UpdateGatewayRequest{Id: gw.GetId(), Phase: &running, ObservedGeneration: &observed})
+	Expect(err).NotTo(HaveOccurred())
+	_, err = pb.NewGatewayServiceClient(owner.conn).DeleteGateway(ctx, &pb.DeleteGatewayRequest{Id: gw.GetId()})
+	Expect(err).NotTo(HaveOccurred(), "owner soft-deletes the gateway: %v", err)
+
+	before := deleteConvergenceWithin10m()
+
+	// A foreign control plane cannot finalize this cluster's tombstone.
+	_, err = gwB.FinalizeGatewayDeletion(ctx, &pb.FinalizeGatewayDeletionRequest{Id: gw.GetId()})
+	Expect(grpcCode(err)).To(Equal(codes.PermissionDenied), "foreign control plane finalizing the tombstone: %v", err)
+
+	// DeleteGateway stays denied to the control-plane identity, even for its own
+	// tombstone: finalization is the dedicated RPC's job, not a DeleteGateway re-call.
+	_, err = gwA.DeleteGateway(ctx, &pb.DeleteGatewayRequest{Id: gw.GetId()})
+	Expect(grpcCode(err)).To(Equal(codes.PermissionDenied), "control plane re-calling DeleteGateway on its own tombstone: %v", err)
+
+	// The owning control plane finalizes its own tombstone: the delete window
+	// converges within budget.
+	_, err = gwA.FinalizeGatewayDeletion(ctx, &pb.FinalizeGatewayDeletionRequest{Id: gw.GetId()})
+	Expect(err).NotTo(HaveOccurred(), "own control plane finalizing its tombstone: %v", err)
+	Expect(deleteConvergenceWithin10m()).To(Equal(before+1), "delete did not converge within_10m after finalization")
+}
+
 // ---------------------------------------------------------------------------
 // Users on gRPC get the HTTP rules, not "creator may call anything"
 // ---------------------------------------------------------------------------
