@@ -8,6 +8,7 @@ import (
 	"github.com/openshift-online/hypershell/components/api-server/pkg/api/openapi"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/cedar"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/api/presenters"
+	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/errors"
 )
 
 func presentTarget(t Target) *openapi.PlatformGatewayPolicyTarget {
@@ -229,13 +230,27 @@ func PresentFinding(f Finding) openapi.PolicyAuditFinding {
 	return out
 }
 
-// PresentSettings maps the settings singleton and the fleet defaults.
-func PresentSettings(s *PolicySettings, d FleetDefaults) openapi.PlatformPolicySettings {
+// PresentSettings maps the settings singleton, including the accepted fleet
+// defaults and the refusal reason, which are server-populated (PLAT-PGP-08).
+func PresentSettings(s *PolicySettings) (openapi.PlatformPolicySettings, *errors.ServiceError) {
 	out := openapi.PlatformPolicySettings{
 		Kind:          openapi.PtrString("PlatformPolicySettings"),
 		Mode:          openapi.PtrString(s.Mode),
 		SchemaVersion: openapi.PtrString(cedar.SchemaVersion),
-		Defaults:      presentSettingsDefaults(d),
+	}
+	if d, ok := s.AcceptedDefaults(); ok {
+		normalized, err := cedar.ParseDefaults(d.CPURequest, d.CPULimit, d.MemoryRequest, d.MemoryLimit)
+		if err != nil {
+			return openapi.PlatformPolicySettings{}, errors.GeneralError("stored fleet defaults are invalid: %s", err)
+		}
+		d.Normalized = normalized
+		out.Defaults = presentSettingsDefaults(d)
+	}
+	if s.DefaultsAcceptedAt != nil {
+		out.DefaultsAcceptedAt = openapi.PtrTime(*s.DefaultsAcceptedAt)
+	}
+	if s.DefaultsRefusal != "" {
+		out.DefaultsRefusal = openapi.PtrString(s.DefaultsRefusal)
 	}
 	if !s.UpdatedAt.IsZero() {
 		out.UpdatedAt = openapi.PtrTime(s.UpdatedAt)
@@ -243,7 +258,7 @@ func PresentSettings(s *PolicySettings, d FleetDefaults) openapi.PlatformPolicyS
 	if s.UpdatedBy != "" {
 		out.UpdatedBy = openapi.PtrString(s.UpdatedBy)
 	}
-	return out
+	return out, nil
 }
 
 func presentSettingsDefaults(d FleetDefaults) *openapi.PlatformPolicySettingsDefaults {

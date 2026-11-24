@@ -25,6 +25,7 @@ type Dao interface {
 
 	GetSettings(ctx context.Context) (*PolicySettings, error)
 	SaveSettings(ctx context.Context, s *PolicySettings) (*PolicySettings, error)
+	SaveDefaults(ctx context.Context, d FleetDefaults, refusal string, acceptedAt *time.Time) error
 
 	InsertFindings(ctx context.Context, findings []Finding) (int, error)
 	ListFindings(ctx context.Context, q FindingQuery) ([]Finding, int64, error)
@@ -127,6 +128,30 @@ func (d *sqlDao) SaveSettings(ctx context.Context, s *PolicySettings) (*PolicySe
 		return nil, err
 	}
 	return s, nil
+}
+
+// SaveDefaults writes the accepted fleet defaults and the refusal reason into
+// the settings singleton with update-or-create, leaving the toggle untouched
+// (a new row starts in audit, PLAT-DATA-29.01). acceptedAt is nil when the
+// accepted defaults did not change, so the stored acceptance time is kept.
+func (d *sqlDao) SaveDefaults(ctx context.Context, fd FleetDefaults, refusal string, acceptedAt *time.Time) error {
+	g2 := (*d.sessionFactory).New(ctx)
+	if err := g2.Exec(`
+		INSERT INTO platform_policy_settings
+			(id, mode, updated_by, updated_at, default_cpu_request, default_cpu_limit, default_memory_request, default_memory_limit, defaults_refusal, defaults_accepted_at)
+		VALUES (?, ?, '', now(), ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (id) DO UPDATE SET
+			default_cpu_request = EXCLUDED.default_cpu_request,
+			default_cpu_limit = EXCLUDED.default_cpu_limit,
+			default_memory_request = EXCLUDED.default_memory_request,
+			default_memory_limit = EXCLUDED.default_memory_limit,
+			defaults_refusal = EXCLUDED.defaults_refusal,
+			defaults_accepted_at = COALESCE(EXCLUDED.defaults_accepted_at, platform_policy_settings.defaults_accepted_at)`,
+		SettingsID, ModeAudit, fd.CPURequest, fd.CPULimit, fd.MemoryRequest, fd.MemoryLimit, refusal, acceptedAt).Error; err != nil {
+		db.MarkForRollback(ctx, err)
+		return err
+	}
+	return nil
 }
 
 // InsertFindings stores findings idempotently on the sidecar event id

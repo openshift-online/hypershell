@@ -543,7 +543,7 @@ components:
           type: string
     FleetDefaults:
       type: object
-      description: Fleet-wide sandbox resource defaults, controller configuration (PLAT-PGP-08)
+      description: Fleet-wide sandbox resource defaults the api-server accepted from its configuration (PLAT-PGP-08)
       properties:
         cpu_request:
           type: string
@@ -587,7 +587,11 @@ components:
         defaults:
           type: object
           readOnly: true
-          description: Fleet-wide sandbox resource defaults, controller configuration (PLAT-PGP-08)
+          description: >-
+            Fleet-wide sandbox resource defaults the api-server accepted (PLAT-PGP-08).
+            Configured once on the api-server Deployment, persisted with this
+            singleton, and distributed to every control plane through the settings
+            watch. Server-populated; not settable through PATCH.
           properties:
             cpu_request:
               type: string
@@ -609,6 +613,18 @@ components:
             memory_limit_bytes:
               type: integer
               format: int64
+        defaults_accepted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: When the api-server last accepted a fleet defaults value (PLAT-PGP-08).
+        defaults_refusal:
+          type: string
+          readOnly: true
+          description: >-
+            Why the configured fleet defaults are refused and the accepted defaults
+            are still served, because an enforced policy forbids the new default
+            request (PLAT-PGP-08.02). Empty when the configured defaults are accepted.
     PlatformPolicySettingsPatchRequest:
       type: object
       required:

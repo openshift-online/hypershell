@@ -678,8 +678,21 @@
       "kind": "collection",
       "schemaRef": "#/schemas/PlatformPolicySettings",
       "label": "PlatformPolicySettings",
-      "defaultSort": "kind",
+      "defaultSort": "defaults_accepted_at",
       "columns": [
+        {
+          "property": "defaults_accepted_at",
+          "label": "DEFAULTS ACCEPTED AT",
+          "priority": 0,
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "property": "defaults_refusal",
+          "label": "DEFAULTS REFUSAL",
+          "priority": 0,
+          "type": "string"
+        },
         {
           "property": "kind",
           "label": "KIND",

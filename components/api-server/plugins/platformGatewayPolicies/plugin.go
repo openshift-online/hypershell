@@ -48,6 +48,9 @@ func NewServiceLocator(env *environments.Env) ServiceLocator {
 			}
 			svc = NewService(NewDao(&env.Database.SessionFactory), events.Service(&env.Services), cfg, cfgErr)
 			go runPruner(svc, pruneInterval())
+			if cfgErr == nil {
+				go reconcileDefaultsAtStartup(svc, cfg.Defaults)
+			}
 		})
 		return svc
 	}
@@ -87,6 +90,24 @@ func runPruner(svc PolicyService, interval time.Duration) {
 		}
 		cancel()
 		<-ticker.C
+	}
+}
+
+// reconcileDefaultsAtStartup accepts or refuses the configured fleet defaults
+// once per api-server start (PLAT-PGP-08.02), retrying until the database
+// answers. Until it succeeds, reads serve the stored accepted defaults.
+func reconcileDefaultsAtStartup(svc PolicyService, configured FleetDefaults) {
+	backoff := time.Second
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		_, svcErr := svc.ReconcileDefaults(ctx, configured)
+		cancel()
+		if svcErr == nil {
+			return
+		}
+		slog.Warn("fleet defaults reconcile failed; retrying", "error", svcErr, "backoff", backoff)
+		time.Sleep(backoff)
+		backoff = min(backoff*2, time.Minute)
 	}
 }
 
@@ -158,6 +179,7 @@ func init() {
 
 	db.RegisterMigration(migration())
 	db.RegisterMigration(migrationSeedCanary())
+	db.RegisterMigration(migrationSettingsDefaults())
 }
 
 func grpcResources() authz.GRPCResources {

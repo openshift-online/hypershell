@@ -17,7 +17,7 @@ import (
 // checks if the FleetDefaults type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &FleetDefaults{}
 
-// FleetDefaults Fleet-wide sandbox resource defaults, controller configuration (PLAT-PGP-08)
+// FleetDefaults Fleet-wide sandbox resource defaults the api-server accepted from its configuration (PLAT-PGP-08)
 type FleetDefaults struct {
 	CpuRequest         *string `json:"cpu_request,omitempty"`
 	CpuLimit           *string `json:"cpu_limit,omitempty"`

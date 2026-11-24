@@ -17,7 +17,7 @@ import (
 // checks if the PlatformPolicySettingsDefaults type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &PlatformPolicySettingsDefaults{}
 
-// PlatformPolicySettingsDefaults Fleet-wide sandbox resource defaults, controller configuration (PLAT-PGP-08)
+// PlatformPolicySettingsDefaults Fleet-wide sandbox resource defaults the api-server accepted (PLAT-PGP-08). Configured once on the api-server Deployment, persisted with this singleton, and distributed to every control plane through the settings watch. Server-populated; not settable through PATCH.
 type PlatformPolicySettingsDefaults struct {
 	CpuRequest         *string `json:"cpu_request,omitempty"`
 	CpuLimit           *string `json:"cpu_limit,omitempty"`

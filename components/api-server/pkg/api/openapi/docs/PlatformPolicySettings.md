@@ -10,6 +10,8 @@ Name | Type | Description | Notes
 **UpdatedBy** | Pointer to **string** |  | [optional]
 **SchemaVersion** | Pointer to **string** |  | [optional] [readonly]
 **Defaults** | Pointer to [**PlatformPolicySettingsDefaults**](PlatformPolicySettingsDefaults.md) |  | [optional]
+**DefaultsAcceptedAt** | Pointer to **time.Time** | When the api-server last accepted a fleet defaults value (PLAT-PGP-08). | [optional] [readonly]
+**DefaultsRefusal** | Pointer to **string** | Why the configured fleet defaults are refused and the accepted defaults are still served, because an enforced policy forbids the new default request (PLAT-PGP-08.02). Empty when the configured defaults are accepted. | [optional] [readonly]
 
 ## Methods
 
@@ -179,6 +181,56 @@ SetDefaults sets Defaults field to given value.
 `func (o *PlatformPolicySettings) HasDefaults() bool`
 
 HasDefaults returns a boolean if a field has been set.
+
+### GetDefaultsAcceptedAt
+
+`func (o *PlatformPolicySettings) GetDefaultsAcceptedAt() time.Time`
+
+GetDefaultsAcceptedAt returns the DefaultsAcceptedAt field if non-nil, zero value otherwise.
+
+### GetDefaultsAcceptedAtOk
+
+`func (o *PlatformPolicySettings) GetDefaultsAcceptedAtOk() (*time.Time, bool)`
+
+GetDefaultsAcceptedAtOk returns a tuple with the DefaultsAcceptedAt field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetDefaultsAcceptedAt
+
+`func (o *PlatformPolicySettings) SetDefaultsAcceptedAt(v time.Time)`
+
+SetDefaultsAcceptedAt sets DefaultsAcceptedAt field to given value.
+
+### HasDefaultsAcceptedAt
+
+`func (o *PlatformPolicySettings) HasDefaultsAcceptedAt() bool`
+
+HasDefaultsAcceptedAt returns a boolean if a field has been set.
+
+### GetDefaultsRefusal
+
+`func (o *PlatformPolicySettings) GetDefaultsRefusal() string`
+
+GetDefaultsRefusal returns the DefaultsRefusal field if non-nil, zero value otherwise.
+
+### GetDefaultsRefusalOk
+
+`func (o *PlatformPolicySettings) GetDefaultsRefusalOk() (*string, bool)`
+
+GetDefaultsRefusalOk returns a tuple with the DefaultsRefusal field if it's non-nil, zero value otherwise
+and a boolean to check if the value has been set.
+
+### SetDefaultsRefusal
+
+`func (o *PlatformPolicySettings) SetDefaultsRefusal(v string)`
+
+SetDefaultsRefusal sets DefaultsRefusal field to given value.
+
+### HasDefaultsRefusal
+
+`func (o *PlatformPolicySettings) HasDefaultsRefusal() bool`
+
+HasDefaultsRefusal returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)

@@ -22,7 +22,8 @@ enforces the applicable policies through the OpenShell gateway interceptor
 contract. Policy changes reach every gateway in seconds and never restart a
 gateway. A platform-wide toggle sets the minimum enforcement mode (`audit` or
 `enforce`); a single policy MAY be enforced while the toggle is `audit`. Sandbox
-resource defaults are fleet-wide controller configuration.
+resource defaults are fleet-wide configuration, set once on the api-server and
+distributed to every control plane through `PlatformPolicySettings`.
 
 This spec defines the behavior and security model of PlatformGatewayPolicy: the
 policy language and its validation, the enforcement mode and defaults, the
@@ -285,17 +286,30 @@ policy, and SHALL instead record what the policy would reject as an audit findin
 
 ### Requirement: PLAT-PGP-08 -- Fleet Default Sandbox Resources
 
-Sandbox resource defaults SHALL be fleet-wide controller configuration, for example
+Sandbox resource defaults SHALL be fleet-wide configuration set in exactly one
+place, the api-server Deployment, for example
 `HYPERSHELL_POLICY_DEFAULT_CPU_REQUEST=500m`, `..._CPU_LIMIT=2`,
-`..._MEMORY_REQUEST=1Gi`, `..._MEMORY_LIMIT=4Gi`. The controller SHALL pass the
-defaults to the sidecar as environment variables. Defaults SHALL NOT be stored in a
-policy and SHALL NOT be settable by a gateway owner. The sidecar SHALL add a
-default in `modify_operation` only when at least one policy is enforced on that
-gateway; otherwise it SHALL change nothing and record a `would_add_defaults`
-finding. A change to a fleet default SHALL be checked against every existing policy
-before rollout (the default-request check of PLAT-PGP-04); the controller SHALL
-refuse a defaults change that an enforced policy would forbid. A defaults change
-MAY roll the gateway pods, which is acceptable for a rare operator change.
+`..._MEMORY_REQUEST=1Gi`, `..._MEMORY_LIMIT=4Gi`. The controller SHALL NOT read
+these variables. The api-server SHALL persist the **accepted** defaults with the
+`PlatformPolicySettings` singleton and SHALL expose them as read-only,
+server-populated fields of that resource (PLAT-DATA-29); write-time validation
+(PLAT-PGP-04 rule 3), the editor dry run (PLAT-PGP-21), and the gateway read surface
+(PLAT-PGP-19) SHALL use the accepted defaults. The control plane SHALL receive the
+accepted defaults through the `PlatformPolicySettings` watch it already holds
+(PLAT-PGP-12), SHALL validate bundles against them, and SHALL pass them to the
+sidecar as environment variables. When the control plane has not received defaults,
+it SHALL write no bundle and render no sidecar rather than use a built-in value, so
+protected RPCs fail closed (PLAT-PGP-12). Defaults SHALL NOT be stored in a policy
+and SHALL NOT be settable by a gateway owner or through the settings `PATCH`. The
+sidecar SHALL add a default in `modify_operation` only when at least one policy is
+enforced on that gateway; otherwise it SHALL change nothing and record a
+`would_add_defaults` finding. A change to a fleet default SHALL be checked against
+every existing policy before rollout (the default-request check of PLAT-PGP-04): at
+startup the api-server SHALL accept configured defaults that differ from the
+accepted ones only when no policy whose effective mode is `enforce` forbids the new
+default request; otherwise it SHALL keep serving the accepted defaults and SHALL
+expose the refusal reason on `PlatformPolicySettings`. A defaults change MAY roll the
+gateway pods, which is acceptable for a rare operator change.
 
 #### Scenario: PLAT-PGP-08.01 -- Defaults Injected Only Under Enforcement
 
@@ -306,9 +320,18 @@ MAY roll the gateway pods, which is acceptable for a rare operator change.
 
 #### Scenario: PLAT-PGP-08.02 -- A Defaults Change Inconsistent With a Policy Is Refused
 
-- GIVEN an enforced policy that forbids `context.cpuRequestMillis < 600`
-- WHEN an operator changes the default CPU request to `500m`
-- THEN the controller SHALL refuse the defaults change because the new default request would be forbidden
+- GIVEN accepted defaults with CPU request `700m` and an enforced policy that forbids `context.cpuRequestMillis < 600`
+- WHEN an operator configures the default CPU request `500m` on the api-server and it restarts
+- THEN the api-server SHALL refuse the defaults change because the new default request would be forbidden
+- AND `PlatformPolicySettings` SHALL keep serving CPU request `700m` and SHALL name the forbidding policy in its refusal reason
+- AND once no enforced policy forbids the configured defaults, the next start SHALL accept and persist them and clear the refusal reason
+
+#### Scenario: PLAT-PGP-08.03 -- Defaults Are Configured Once and Distributed Through Settings
+
+- GIVEN the api-server accepted fleet defaults with CPU request `700m`
+- WHEN a control plane reconciles bundles and renders a gateway's interceptor sidecar
+- THEN it SHALL validate the bundle against, and pass to the sidecar, the defaults carried by `PlatformPolicySettings`
+- AND the controller Deployment SHALL carry no `HYPERSHELL_POLICY_DEFAULT_*` variables
 
 ---
 
@@ -388,7 +411,8 @@ mutation replay re-runs interceptors on retries.
 ### Requirement: PLAT-PGP-12 -- Policy Bundle Distribution
 
 The api-server SHALL stream `PlatformGatewayPolicy` records and the
-`PlatformPolicySettings` toggle to the control plane over the existing gRPC watch,
+`PlatformPolicySettings` singleton (the toggle and the accepted fleet defaults,
+PLAT-PGP-08) to the control plane over the existing gRPC watch,
 with a periodic resync. The control plane SHALL build a per-gateway **policy
 bundle** and write it as a ConfigMap (for example `hypershell-policy-bundle`) into
 the gateway namespace with update-or-create, labeled with the gateway id and the

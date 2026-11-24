@@ -158,12 +158,16 @@ func (h *settingsGRPCHandler) GetPlatformPolicySettings(ctx context.Context, _ *
 	if svcErr != nil {
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
-	return &pb.GetPlatformPolicySettingsResponse{Settings: settingsToProto(st)}, nil
+	out, err := settingsToProto(st)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	return &pb.GetPlatformPolicySettingsResponse{Settings: out}, nil
 }
 
 // WatchPlatformPolicySettings sends the current settings first, then the new
 // settings after every change, so a control plane always starts from the
-// authoritative mode.
+// authoritative mode and fleet defaults (PLAT-PGP-08).
 func (h *settingsGRPCHandler) WatchPlatformPolicySettings(_ *pb.WatchPlatformPolicySettingsRequest, stream grpc.ServerStreamingServer[pb.WatchPlatformPolicySettingsResponse]) error {
 	ctx := stream.Context()
 	sub, err := brokerSubscribe(ctx, h.brokerFunc, "WatchPlatformPolicySettings")
@@ -175,7 +179,11 @@ func (h *settingsGRPCHandler) WatchPlatformPolicySettings(_ *pb.WatchPlatformPol
 		if svcErr != nil {
 			return grpcutil.ServiceErrorToGRPC(svcErr)
 		}
-		return stream.Send(&pb.WatchPlatformPolicySettingsResponse{Settings: settingsToProto(st)})
+		out, err := settingsToProto(st)
+		if err != nil {
+			return status.Error(codes.Internal, err.Error())
+		}
+		return stream.Send(&pb.WatchPlatformPolicySettingsResponse{Settings: out})
 	}
 	if err := send(); err != nil {
 		return err

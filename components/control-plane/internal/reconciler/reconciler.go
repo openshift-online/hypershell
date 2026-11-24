@@ -752,7 +752,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	}
 
 	if r.policyInterceptor != nil {
-		pi, piErr := r.policyInterceptor(event.ResourceID, namespace, gwConfig.WorkspaceMode)
+		pi, piErr := r.policyInterceptor(ctx, event.ResourceID, namespace, gwConfig.WorkspaceMode)
 		if piErr != nil {
 			return fmt.Errorf("policy interceptor values for gateway %s: %w", event.ResourceID, piErr)
 		}

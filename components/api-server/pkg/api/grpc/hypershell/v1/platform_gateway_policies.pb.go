@@ -707,19 +707,126 @@ func (x *UpdatePlatformGatewayPolicyStatusResponse) GetPlatformGatewayPolicy() *
 	return nil
 }
 
+// PlatformPolicyFleetDefaults are the fleet-wide sandbox resource defaults the
+// api-server accepted (PLAT-PGP-08): the quantities as written and their
+// normalized schema values.
+type PlatformPolicyFleetDefaults struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	CpuRequest         string                 `protobuf:"bytes,1,opt,name=cpu_request,json=cpuRequest,proto3" json:"cpu_request,omitempty"`
+	CpuLimit           string                 `protobuf:"bytes,2,opt,name=cpu_limit,json=cpuLimit,proto3" json:"cpu_limit,omitempty"`
+	MemoryRequest      string                 `protobuf:"bytes,3,opt,name=memory_request,json=memoryRequest,proto3" json:"memory_request,omitempty"`
+	MemoryLimit        string                 `protobuf:"bytes,4,opt,name=memory_limit,json=memoryLimit,proto3" json:"memory_limit,omitempty"`
+	CpuRequestMillis   int64                  `protobuf:"varint,5,opt,name=cpu_request_millis,json=cpuRequestMillis,proto3" json:"cpu_request_millis,omitempty"`
+	CpuLimitMillis     int64                  `protobuf:"varint,6,opt,name=cpu_limit_millis,json=cpuLimitMillis,proto3" json:"cpu_limit_millis,omitempty"`
+	MemoryRequestBytes int64                  `protobuf:"varint,7,opt,name=memory_request_bytes,json=memoryRequestBytes,proto3" json:"memory_request_bytes,omitempty"`
+	MemoryLimitBytes   int64                  `protobuf:"varint,8,opt,name=memory_limit_bytes,json=memoryLimitBytes,proto3" json:"memory_limit_bytes,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *PlatformPolicyFleetDefaults) Reset() {
+	*x = PlatformPolicyFleetDefaults{}
+	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PlatformPolicyFleetDefaults) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PlatformPolicyFleetDefaults) ProtoMessage() {}
+
+func (x *PlatformPolicyFleetDefaults) ProtoReflect() protoreflect.Message {
+	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PlatformPolicyFleetDefaults.ProtoReflect.Descriptor instead.
+func (*PlatformPolicyFleetDefaults) Descriptor() ([]byte, []int) {
+	return file_hypershell_v1_platform_gateway_policies_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *PlatformPolicyFleetDefaults) GetCpuRequest() string {
+	if x != nil {
+		return x.CpuRequest
+	}
+	return ""
+}
+
+func (x *PlatformPolicyFleetDefaults) GetCpuLimit() string {
+	if x != nil {
+		return x.CpuLimit
+	}
+	return ""
+}
+
+func (x *PlatformPolicyFleetDefaults) GetMemoryRequest() string {
+	if x != nil {
+		return x.MemoryRequest
+	}
+	return ""
+}
+
+func (x *PlatformPolicyFleetDefaults) GetMemoryLimit() string {
+	if x != nil {
+		return x.MemoryLimit
+	}
+	return ""
+}
+
+func (x *PlatformPolicyFleetDefaults) GetCpuRequestMillis() int64 {
+	if x != nil {
+		return x.CpuRequestMillis
+	}
+	return 0
+}
+
+func (x *PlatformPolicyFleetDefaults) GetCpuLimitMillis() int64 {
+	if x != nil {
+		return x.CpuLimitMillis
+	}
+	return 0
+}
+
+func (x *PlatformPolicyFleetDefaults) GetMemoryRequestBytes() int64 {
+	if x != nil {
+		return x.MemoryRequestBytes
+	}
+	return 0
+}
+
+func (x *PlatformPolicyFleetDefaults) GetMemoryLimitBytes() int64 {
+	if x != nil {
+		return x.MemoryLimitBytes
+	}
+	return 0
+}
+
 // PlatformPolicySettings is the global enforcement toggle singleton
-// (PLAT-DATA-29). mode is audit or enforce; audit when never written.
+// (PLAT-DATA-29). mode is audit or enforce; audit when never written. defaults
+// and defaults_refusal are server-populated and read-only: the control plane
+// takes the fleet defaults for bundles and interceptor sidecars from here.
 type PlatformPolicySettings struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Mode          string                 `protobuf:"bytes,1,opt,name=mode,proto3" json:"mode,omitempty"`
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state           protoimpl.MessageState       `protogen:"open.v1"`
+	Mode            string                       `protobuf:"bytes,1,opt,name=mode,proto3" json:"mode,omitempty"`
+	UpdatedAt       *timestamppb.Timestamp       `protobuf:"bytes,2,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	Defaults        *PlatformPolicyFleetDefaults `protobuf:"bytes,3,opt,name=defaults,proto3" json:"defaults,omitempty"`
+	DefaultsRefusal string                       `protobuf:"bytes,4,opt,name=defaults_refusal,json=defaultsRefusal,proto3" json:"defaults_refusal,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *PlatformPolicySettings) Reset() {
 	*x = PlatformPolicySettings{}
-	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[11]
+	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -731,7 +838,7 @@ func (x *PlatformPolicySettings) String() string {
 func (*PlatformPolicySettings) ProtoMessage() {}
 
 func (x *PlatformPolicySettings) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[11]
+	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -744,7 +851,7 @@ func (x *PlatformPolicySettings) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlatformPolicySettings.ProtoReflect.Descriptor instead.
 func (*PlatformPolicySettings) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_platform_gateway_policies_proto_rawDescGZIP(), []int{11}
+	return file_hypershell_v1_platform_gateway_policies_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *PlatformPolicySettings) GetMode() string {
@@ -761,6 +868,20 @@ func (x *PlatformPolicySettings) GetUpdatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *PlatformPolicySettings) GetDefaults() *PlatformPolicyFleetDefaults {
+	if x != nil {
+		return x.Defaults
+	}
+	return nil
+}
+
+func (x *PlatformPolicySettings) GetDefaultsRefusal() string {
+	if x != nil {
+		return x.DefaultsRefusal
+	}
+	return ""
+}
+
 type GetPlatformPolicySettingsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -769,7 +890,7 @@ type GetPlatformPolicySettingsRequest struct {
 
 func (x *GetPlatformPolicySettingsRequest) Reset() {
 	*x = GetPlatformPolicySettingsRequest{}
-	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[12]
+	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -781,7 +902,7 @@ func (x *GetPlatformPolicySettingsRequest) String() string {
 func (*GetPlatformPolicySettingsRequest) ProtoMessage() {}
 
 func (x *GetPlatformPolicySettingsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[12]
+	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -794,7 +915,7 @@ func (x *GetPlatformPolicySettingsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetPlatformPolicySettingsRequest.ProtoReflect.Descriptor instead.
 func (*GetPlatformPolicySettingsRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_platform_gateway_policies_proto_rawDescGZIP(), []int{12}
+	return file_hypershell_v1_platform_gateway_policies_proto_rawDescGZIP(), []int{13}
 }
 
 type GetPlatformPolicySettingsResponse struct {
@@ -806,7 +927,7 @@ type GetPlatformPolicySettingsResponse struct {
 
 func (x *GetPlatformPolicySettingsResponse) Reset() {
 	*x = GetPlatformPolicySettingsResponse{}
-	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[13]
+	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -818,7 +939,7 @@ func (x *GetPlatformPolicySettingsResponse) String() string {
 func (*GetPlatformPolicySettingsResponse) ProtoMessage() {}
 
 func (x *GetPlatformPolicySettingsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[13]
+	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -831,7 +952,7 @@ func (x *GetPlatformPolicySettingsResponse) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use GetPlatformPolicySettingsResponse.ProtoReflect.Descriptor instead.
 func (*GetPlatformPolicySettingsResponse) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_platform_gateway_policies_proto_rawDescGZIP(), []int{13}
+	return file_hypershell_v1_platform_gateway_policies_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *GetPlatformPolicySettingsResponse) GetSettings() *PlatformPolicySettings {
@@ -849,7 +970,7 @@ type WatchPlatformPolicySettingsRequest struct {
 
 func (x *WatchPlatformPolicySettingsRequest) Reset() {
 	*x = WatchPlatformPolicySettingsRequest{}
-	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[14]
+	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -861,7 +982,7 @@ func (x *WatchPlatformPolicySettingsRequest) String() string {
 func (*WatchPlatformPolicySettingsRequest) ProtoMessage() {}
 
 func (x *WatchPlatformPolicySettingsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[14]
+	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -874,7 +995,7 @@ func (x *WatchPlatformPolicySettingsRequest) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use WatchPlatformPolicySettingsRequest.ProtoReflect.Descriptor instead.
 func (*WatchPlatformPolicySettingsRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_platform_gateway_policies_proto_rawDescGZIP(), []int{14}
+	return file_hypershell_v1_platform_gateway_policies_proto_rawDescGZIP(), []int{15}
 }
 
 type WatchPlatformPolicySettingsResponse struct {
@@ -886,7 +1007,7 @@ type WatchPlatformPolicySettingsResponse struct {
 
 func (x *WatchPlatformPolicySettingsResponse) Reset() {
 	*x = WatchPlatformPolicySettingsResponse{}
-	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[15]
+	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -898,7 +1019,7 @@ func (x *WatchPlatformPolicySettingsResponse) String() string {
 func (*WatchPlatformPolicySettingsResponse) ProtoMessage() {}
 
 func (x *WatchPlatformPolicySettingsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[15]
+	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -911,7 +1032,7 @@ func (x *WatchPlatformPolicySettingsResponse) ProtoReflect() protoreflect.Messag
 
 // Deprecated: Use WatchPlatformPolicySettingsResponse.ProtoReflect.Descriptor instead.
 func (*WatchPlatformPolicySettingsResponse) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_platform_gateway_policies_proto_rawDescGZIP(), []int{15}
+	return file_hypershell_v1_platform_gateway_policies_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *WatchPlatformPolicySettingsResponse) GetSettings() *PlatformPolicySettings {
@@ -942,7 +1063,7 @@ type PolicyAuditFinding struct {
 
 func (x *PolicyAuditFinding) Reset() {
 	*x = PolicyAuditFinding{}
-	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[16]
+	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -954,7 +1075,7 @@ func (x *PolicyAuditFinding) String() string {
 func (*PolicyAuditFinding) ProtoMessage() {}
 
 func (x *PolicyAuditFinding) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[16]
+	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -967,7 +1088,7 @@ func (x *PolicyAuditFinding) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PolicyAuditFinding.ProtoReflect.Descriptor instead.
 func (*PolicyAuditFinding) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_platform_gateway_policies_proto_rawDescGZIP(), []int{16}
+	return file_hypershell_v1_platform_gateway_policies_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *PolicyAuditFinding) GetId() string {
@@ -1046,7 +1167,7 @@ type ReportPolicyAuditFindingsRequest struct {
 
 func (x *ReportPolicyAuditFindingsRequest) Reset() {
 	*x = ReportPolicyAuditFindingsRequest{}
-	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[17]
+	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1058,7 +1179,7 @@ func (x *ReportPolicyAuditFindingsRequest) String() string {
 func (*ReportPolicyAuditFindingsRequest) ProtoMessage() {}
 
 func (x *ReportPolicyAuditFindingsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[17]
+	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1071,7 +1192,7 @@ func (x *ReportPolicyAuditFindingsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReportPolicyAuditFindingsRequest.ProtoReflect.Descriptor instead.
 func (*ReportPolicyAuditFindingsRequest) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_platform_gateway_policies_proto_rawDescGZIP(), []int{17}
+	return file_hypershell_v1_platform_gateway_policies_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ReportPolicyAuditFindingsRequest) GetGatewayId() string {
@@ -1098,7 +1219,7 @@ type ReportPolicyAuditFindingsResponse struct {
 
 func (x *ReportPolicyAuditFindingsResponse) Reset() {
 	*x = ReportPolicyAuditFindingsResponse{}
-	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[18]
+	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1110,7 +1231,7 @@ func (x *ReportPolicyAuditFindingsResponse) String() string {
 func (*ReportPolicyAuditFindingsResponse) ProtoMessage() {}
 
 func (x *ReportPolicyAuditFindingsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[18]
+	mi := &file_hypershell_v1_platform_gateway_policies_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1123,7 +1244,7 @@ func (x *ReportPolicyAuditFindingsResponse) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use ReportPolicyAuditFindingsResponse.ProtoReflect.Descriptor instead.
 func (*ReportPolicyAuditFindingsResponse) Descriptor() ([]byte, []int) {
-	return file_hypershell_v1_platform_gateway_policies_proto_rawDescGZIP(), []int{18}
+	return file_hypershell_v1_platform_gateway_policies_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ReportPolicyAuditFindingsResponse) GetStored() int32 {
@@ -1187,11 +1308,23 @@ const file_hypershell_v1_platform_gateway_policies_proto_rawDesc = "" +
 	"\x10gateway_statuses\x18\x02 \x03(\v21.hypershell.v1.PlatformGatewayPolicyGatewayStatusR\x0fgatewayStatuses\x12.\n" +
 	"\x13removed_gateway_ids\x18\x03 \x03(\tR\x11removedGatewayIds\"\x89\x01\n" +
 	")UpdatePlatformGatewayPolicyStatusResponse\x12\\\n" +
-	"\x17platform_gateway_policy\x18\x01 \x01(\v2$.hypershell.v1.PlatformGatewayPolicyR\x15platformGatewayPolicy\"g\n" +
+	"\x17platform_gateway_policy\x18\x01 \x01(\v2$.hypershell.v1.PlatformGatewayPolicyR\x15platformGatewayPolicy\"\xdd\x02\n" +
+	"\x1bPlatformPolicyFleetDefaults\x12\x1f\n" +
+	"\vcpu_request\x18\x01 \x01(\tR\n" +
+	"cpuRequest\x12\x1b\n" +
+	"\tcpu_limit\x18\x02 \x01(\tR\bcpuLimit\x12%\n" +
+	"\x0ememory_request\x18\x03 \x01(\tR\rmemoryRequest\x12!\n" +
+	"\fmemory_limit\x18\x04 \x01(\tR\vmemoryLimit\x12,\n" +
+	"\x12cpu_request_millis\x18\x05 \x01(\x03R\x10cpuRequestMillis\x12(\n" +
+	"\x10cpu_limit_millis\x18\x06 \x01(\x03R\x0ecpuLimitMillis\x120\n" +
+	"\x14memory_request_bytes\x18\a \x01(\x03R\x12memoryRequestBytes\x12,\n" +
+	"\x12memory_limit_bytes\x18\b \x01(\x03R\x10memoryLimitBytes\"\xda\x01\n" +
 	"\x16PlatformPolicySettings\x12\x12\n" +
 	"\x04mode\x18\x01 \x01(\tR\x04mode\x129\n" +
 	"\n" +
-	"updated_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\"\n" +
+	"updated_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12F\n" +
+	"\bdefaults\x18\x03 \x01(\v2*.hypershell.v1.PlatformPolicyFleetDefaultsR\bdefaults\x12)\n" +
+	"\x10defaults_refusal\x18\x04 \x01(\tR\x0fdefaultsRefusal\"\"\n" +
 	" GetPlatformPolicySettingsRequest\"f\n" +
 	"!GetPlatformPolicySettingsResponse\x12A\n" +
 	"\bsettings\x18\x01 \x01(\v2%.hypershell.v1.PlatformPolicySettingsR\bsettings\"$\n" +
@@ -1242,7 +1375,7 @@ func file_hypershell_v1_platform_gateway_policies_proto_rawDescGZIP() []byte {
 	return file_hypershell_v1_platform_gateway_policies_proto_rawDescData
 }
 
-var file_hypershell_v1_platform_gateway_policies_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
+var file_hypershell_v1_platform_gateway_policies_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_hypershell_v1_platform_gateway_policies_proto_goTypes = []any{
 	(*PlatformGatewayPolicyTarget)(nil),               // 0: hypershell.v1.PlatformGatewayPolicyTarget
 	(*PlatformGatewayPolicyGatewayStatus)(nil),        // 1: hypershell.v1.PlatformGatewayPolicyGatewayStatus
@@ -1255,57 +1388,59 @@ var file_hypershell_v1_platform_gateway_policies_proto_goTypes = []any{
 	(*WatchPlatformGatewayPoliciesResponse)(nil),      // 8: hypershell.v1.WatchPlatformGatewayPoliciesResponse
 	(*UpdatePlatformGatewayPolicyStatusRequest)(nil),  // 9: hypershell.v1.UpdatePlatformGatewayPolicyStatusRequest
 	(*UpdatePlatformGatewayPolicyStatusResponse)(nil), // 10: hypershell.v1.UpdatePlatformGatewayPolicyStatusResponse
-	(*PlatformPolicySettings)(nil),                    // 11: hypershell.v1.PlatformPolicySettings
-	(*GetPlatformPolicySettingsRequest)(nil),          // 12: hypershell.v1.GetPlatformPolicySettingsRequest
-	(*GetPlatformPolicySettingsResponse)(nil),         // 13: hypershell.v1.GetPlatformPolicySettingsResponse
-	(*WatchPlatformPolicySettingsRequest)(nil),        // 14: hypershell.v1.WatchPlatformPolicySettingsRequest
-	(*WatchPlatformPolicySettingsResponse)(nil),       // 15: hypershell.v1.WatchPlatformPolicySettingsResponse
-	(*PolicyAuditFinding)(nil),                        // 16: hypershell.v1.PolicyAuditFinding
-	(*ReportPolicyAuditFindingsRequest)(nil),          // 17: hypershell.v1.ReportPolicyAuditFindingsRequest
-	(*ReportPolicyAuditFindingsResponse)(nil),         // 18: hypershell.v1.ReportPolicyAuditFindingsResponse
-	nil,                           // 19: hypershell.v1.PolicyAuditFinding.RequestSummaryEntry
-	(*timestamppb.Timestamp)(nil), // 20: google.protobuf.Timestamp
-	(*ObjectReference)(nil),       // 21: hypershell.v1.ObjectReference
-	(*ListMeta)(nil),              // 22: hypershell.v1.ListMeta
-	(EventType)(0),                // 23: hypershell.v1.EventType
+	(*PlatformPolicyFleetDefaults)(nil),               // 11: hypershell.v1.PlatformPolicyFleetDefaults
+	(*PlatformPolicySettings)(nil),                    // 12: hypershell.v1.PlatformPolicySettings
+	(*GetPlatformPolicySettingsRequest)(nil),          // 13: hypershell.v1.GetPlatformPolicySettingsRequest
+	(*GetPlatformPolicySettingsResponse)(nil),         // 14: hypershell.v1.GetPlatformPolicySettingsResponse
+	(*WatchPlatformPolicySettingsRequest)(nil),        // 15: hypershell.v1.WatchPlatformPolicySettingsRequest
+	(*WatchPlatformPolicySettingsResponse)(nil),       // 16: hypershell.v1.WatchPlatformPolicySettingsResponse
+	(*PolicyAuditFinding)(nil),                        // 17: hypershell.v1.PolicyAuditFinding
+	(*ReportPolicyAuditFindingsRequest)(nil),          // 18: hypershell.v1.ReportPolicyAuditFindingsRequest
+	(*ReportPolicyAuditFindingsResponse)(nil),         // 19: hypershell.v1.ReportPolicyAuditFindingsResponse
+	nil,                           // 20: hypershell.v1.PolicyAuditFinding.RequestSummaryEntry
+	(*timestamppb.Timestamp)(nil), // 21: google.protobuf.Timestamp
+	(*ObjectReference)(nil),       // 22: hypershell.v1.ObjectReference
+	(*ListMeta)(nil),              // 23: hypershell.v1.ListMeta
+	(EventType)(0),                // 24: hypershell.v1.EventType
 }
 var file_hypershell_v1_platform_gateway_policies_proto_depIdxs = []int32{
-	20, // 0: hypershell.v1.PlatformGatewayPolicyGatewayStatus.observed_at:type_name -> google.protobuf.Timestamp
-	21, // 1: hypershell.v1.PlatformGatewayPolicy.metadata:type_name -> hypershell.v1.ObjectReference
+	21, // 0: hypershell.v1.PlatformGatewayPolicyGatewayStatus.observed_at:type_name -> google.protobuf.Timestamp
+	22, // 1: hypershell.v1.PlatformGatewayPolicy.metadata:type_name -> hypershell.v1.ObjectReference
 	0,  // 2: hypershell.v1.PlatformGatewayPolicy.target:type_name -> hypershell.v1.PlatformGatewayPolicyTarget
 	1,  // 3: hypershell.v1.PlatformGatewayPolicy.gateway_statuses:type_name -> hypershell.v1.PlatformGatewayPolicyGatewayStatus
 	2,  // 4: hypershell.v1.GetPlatformGatewayPolicyResponse.platform_gateway_policy:type_name -> hypershell.v1.PlatformGatewayPolicy
 	2,  // 5: hypershell.v1.ListPlatformGatewayPoliciesResponse.items:type_name -> hypershell.v1.PlatformGatewayPolicy
-	22, // 6: hypershell.v1.ListPlatformGatewayPoliciesResponse.metadata:type_name -> hypershell.v1.ListMeta
-	23, // 7: hypershell.v1.WatchPlatformGatewayPoliciesResponse.type:type_name -> hypershell.v1.EventType
+	23, // 6: hypershell.v1.ListPlatformGatewayPoliciesResponse.metadata:type_name -> hypershell.v1.ListMeta
+	24, // 7: hypershell.v1.WatchPlatformGatewayPoliciesResponse.type:type_name -> hypershell.v1.EventType
 	2,  // 8: hypershell.v1.WatchPlatformGatewayPoliciesResponse.platform_gateway_policy:type_name -> hypershell.v1.PlatformGatewayPolicy
 	1,  // 9: hypershell.v1.UpdatePlatformGatewayPolicyStatusRequest.gateway_statuses:type_name -> hypershell.v1.PlatformGatewayPolicyGatewayStatus
 	2,  // 10: hypershell.v1.UpdatePlatformGatewayPolicyStatusResponse.platform_gateway_policy:type_name -> hypershell.v1.PlatformGatewayPolicy
-	20, // 11: hypershell.v1.PlatformPolicySettings.updated_at:type_name -> google.protobuf.Timestamp
-	11, // 12: hypershell.v1.GetPlatformPolicySettingsResponse.settings:type_name -> hypershell.v1.PlatformPolicySettings
-	11, // 13: hypershell.v1.WatchPlatformPolicySettingsResponse.settings:type_name -> hypershell.v1.PlatformPolicySettings
-	20, // 14: hypershell.v1.PolicyAuditFinding.occurred_at:type_name -> google.protobuf.Timestamp
-	19, // 15: hypershell.v1.PolicyAuditFinding.request_summary:type_name -> hypershell.v1.PolicyAuditFinding.RequestSummaryEntry
-	16, // 16: hypershell.v1.ReportPolicyAuditFindingsRequest.findings:type_name -> hypershell.v1.PolicyAuditFinding
-	3,  // 17: hypershell.v1.PlatformGatewayPolicyService.GetPlatformGatewayPolicy:input_type -> hypershell.v1.GetPlatformGatewayPolicyRequest
-	5,  // 18: hypershell.v1.PlatformGatewayPolicyService.ListPlatformGatewayPolicies:input_type -> hypershell.v1.ListPlatformGatewayPoliciesRequest
-	7,  // 19: hypershell.v1.PlatformGatewayPolicyService.WatchPlatformGatewayPolicies:input_type -> hypershell.v1.WatchPlatformGatewayPoliciesRequest
-	9,  // 20: hypershell.v1.PlatformGatewayPolicyService.UpdatePlatformGatewayPolicyStatus:input_type -> hypershell.v1.UpdatePlatformGatewayPolicyStatusRequest
-	12, // 21: hypershell.v1.PlatformPolicySettingsService.GetPlatformPolicySettings:input_type -> hypershell.v1.GetPlatformPolicySettingsRequest
-	14, // 22: hypershell.v1.PlatformPolicySettingsService.WatchPlatformPolicySettings:input_type -> hypershell.v1.WatchPlatformPolicySettingsRequest
-	17, // 23: hypershell.v1.PolicyAuditFindingService.ReportPolicyAuditFindings:input_type -> hypershell.v1.ReportPolicyAuditFindingsRequest
-	4,  // 24: hypershell.v1.PlatformGatewayPolicyService.GetPlatformGatewayPolicy:output_type -> hypershell.v1.GetPlatformGatewayPolicyResponse
-	6,  // 25: hypershell.v1.PlatformGatewayPolicyService.ListPlatformGatewayPolicies:output_type -> hypershell.v1.ListPlatformGatewayPoliciesResponse
-	8,  // 26: hypershell.v1.PlatformGatewayPolicyService.WatchPlatformGatewayPolicies:output_type -> hypershell.v1.WatchPlatformGatewayPoliciesResponse
-	10, // 27: hypershell.v1.PlatformGatewayPolicyService.UpdatePlatformGatewayPolicyStatus:output_type -> hypershell.v1.UpdatePlatformGatewayPolicyStatusResponse
-	13, // 28: hypershell.v1.PlatformPolicySettingsService.GetPlatformPolicySettings:output_type -> hypershell.v1.GetPlatformPolicySettingsResponse
-	15, // 29: hypershell.v1.PlatformPolicySettingsService.WatchPlatformPolicySettings:output_type -> hypershell.v1.WatchPlatformPolicySettingsResponse
-	18, // 30: hypershell.v1.PolicyAuditFindingService.ReportPolicyAuditFindings:output_type -> hypershell.v1.ReportPolicyAuditFindingsResponse
-	24, // [24:31] is the sub-list for method output_type
-	17, // [17:24] is the sub-list for method input_type
-	17, // [17:17] is the sub-list for extension type_name
-	17, // [17:17] is the sub-list for extension extendee
-	0,  // [0:17] is the sub-list for field type_name
+	21, // 11: hypershell.v1.PlatformPolicySettings.updated_at:type_name -> google.protobuf.Timestamp
+	11, // 12: hypershell.v1.PlatformPolicySettings.defaults:type_name -> hypershell.v1.PlatformPolicyFleetDefaults
+	12, // 13: hypershell.v1.GetPlatformPolicySettingsResponse.settings:type_name -> hypershell.v1.PlatformPolicySettings
+	12, // 14: hypershell.v1.WatchPlatformPolicySettingsResponse.settings:type_name -> hypershell.v1.PlatformPolicySettings
+	21, // 15: hypershell.v1.PolicyAuditFinding.occurred_at:type_name -> google.protobuf.Timestamp
+	20, // 16: hypershell.v1.PolicyAuditFinding.request_summary:type_name -> hypershell.v1.PolicyAuditFinding.RequestSummaryEntry
+	17, // 17: hypershell.v1.ReportPolicyAuditFindingsRequest.findings:type_name -> hypershell.v1.PolicyAuditFinding
+	3,  // 18: hypershell.v1.PlatformGatewayPolicyService.GetPlatformGatewayPolicy:input_type -> hypershell.v1.GetPlatformGatewayPolicyRequest
+	5,  // 19: hypershell.v1.PlatformGatewayPolicyService.ListPlatformGatewayPolicies:input_type -> hypershell.v1.ListPlatformGatewayPoliciesRequest
+	7,  // 20: hypershell.v1.PlatformGatewayPolicyService.WatchPlatformGatewayPolicies:input_type -> hypershell.v1.WatchPlatformGatewayPoliciesRequest
+	9,  // 21: hypershell.v1.PlatformGatewayPolicyService.UpdatePlatformGatewayPolicyStatus:input_type -> hypershell.v1.UpdatePlatformGatewayPolicyStatusRequest
+	13, // 22: hypershell.v1.PlatformPolicySettingsService.GetPlatformPolicySettings:input_type -> hypershell.v1.GetPlatformPolicySettingsRequest
+	15, // 23: hypershell.v1.PlatformPolicySettingsService.WatchPlatformPolicySettings:input_type -> hypershell.v1.WatchPlatformPolicySettingsRequest
+	18, // 24: hypershell.v1.PolicyAuditFindingService.ReportPolicyAuditFindings:input_type -> hypershell.v1.ReportPolicyAuditFindingsRequest
+	4,  // 25: hypershell.v1.PlatformGatewayPolicyService.GetPlatformGatewayPolicy:output_type -> hypershell.v1.GetPlatformGatewayPolicyResponse
+	6,  // 26: hypershell.v1.PlatformGatewayPolicyService.ListPlatformGatewayPolicies:output_type -> hypershell.v1.ListPlatformGatewayPoliciesResponse
+	8,  // 27: hypershell.v1.PlatformGatewayPolicyService.WatchPlatformGatewayPolicies:output_type -> hypershell.v1.WatchPlatformGatewayPoliciesResponse
+	10, // 28: hypershell.v1.PlatformGatewayPolicyService.UpdatePlatformGatewayPolicyStatus:output_type -> hypershell.v1.UpdatePlatformGatewayPolicyStatusResponse
+	14, // 29: hypershell.v1.PlatformPolicySettingsService.GetPlatformPolicySettings:output_type -> hypershell.v1.GetPlatformPolicySettingsResponse
+	16, // 30: hypershell.v1.PlatformPolicySettingsService.WatchPlatformPolicySettings:output_type -> hypershell.v1.WatchPlatformPolicySettingsResponse
+	19, // 31: hypershell.v1.PolicyAuditFindingService.ReportPolicyAuditFindings:output_type -> hypershell.v1.ReportPolicyAuditFindingsResponse
+	25, // [25:32] is the sub-list for method output_type
+	18, // [18:25] is the sub-list for method input_type
+	18, // [18:18] is the sub-list for extension type_name
+	18, // [18:18] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_hypershell_v1_platform_gateway_policies_proto_init() }
@@ -1320,7 +1455,7 @@ func file_hypershell_v1_platform_gateway_policies_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_hypershell_v1_platform_gateway_policies_proto_rawDesc), len(file_hypershell_v1_platform_gateway_policies_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   20,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   3,
 		},

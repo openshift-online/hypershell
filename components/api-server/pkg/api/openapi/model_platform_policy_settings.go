@@ -27,6 +27,10 @@ type PlatformPolicySettings struct {
 	UpdatedBy     *string                         `json:"updated_by,omitempty"`
 	SchemaVersion *string                         `json:"schema_version,omitempty"`
 	Defaults      *PlatformPolicySettingsDefaults `json:"defaults,omitempty"`
+	// When the api-server last accepted a fleet defaults value (PLAT-PGP-08).
+	DefaultsAcceptedAt *time.Time `json:"defaults_accepted_at,omitempty"`
+	// Why the configured fleet defaults are refused and the accepted defaults are still served, because an enforced policy forbids the new default request (PLAT-PGP-08.02). Empty when the configured defaults are accepted.
+	DefaultsRefusal *string `json:"defaults_refusal,omitempty"`
 }
 
 // NewPlatformPolicySettings instantiates a new PlatformPolicySettings object
@@ -238,6 +242,70 @@ func (o *PlatformPolicySettings) SetDefaults(v PlatformPolicySettingsDefaults) {
 	o.Defaults = &v
 }
 
+// GetDefaultsAcceptedAt returns the DefaultsAcceptedAt field value if set, zero value otherwise.
+func (o *PlatformPolicySettings) GetDefaultsAcceptedAt() time.Time {
+	if o == nil || IsNil(o.DefaultsAcceptedAt) {
+		var ret time.Time
+		return ret
+	}
+	return *o.DefaultsAcceptedAt
+}
+
+// GetDefaultsAcceptedAtOk returns a tuple with the DefaultsAcceptedAt field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *PlatformPolicySettings) GetDefaultsAcceptedAtOk() (*time.Time, bool) {
+	if o == nil || IsNil(o.DefaultsAcceptedAt) {
+		return nil, false
+	}
+	return o.DefaultsAcceptedAt, true
+}
+
+// HasDefaultsAcceptedAt returns a boolean if a field has been set.
+func (o *PlatformPolicySettings) HasDefaultsAcceptedAt() bool {
+	if o != nil && !IsNil(o.DefaultsAcceptedAt) {
+		return true
+	}
+
+	return false
+}
+
+// SetDefaultsAcceptedAt gets a reference to the given time.Time and assigns it to the DefaultsAcceptedAt field.
+func (o *PlatformPolicySettings) SetDefaultsAcceptedAt(v time.Time) {
+	o.DefaultsAcceptedAt = &v
+}
+
+// GetDefaultsRefusal returns the DefaultsRefusal field value if set, zero value otherwise.
+func (o *PlatformPolicySettings) GetDefaultsRefusal() string {
+	if o == nil || IsNil(o.DefaultsRefusal) {
+		var ret string
+		return ret
+	}
+	return *o.DefaultsRefusal
+}
+
+// GetDefaultsRefusalOk returns a tuple with the DefaultsRefusal field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *PlatformPolicySettings) GetDefaultsRefusalOk() (*string, bool) {
+	if o == nil || IsNil(o.DefaultsRefusal) {
+		return nil, false
+	}
+	return o.DefaultsRefusal, true
+}
+
+// HasDefaultsRefusal returns a boolean if a field has been set.
+func (o *PlatformPolicySettings) HasDefaultsRefusal() bool {
+	if o != nil && !IsNil(o.DefaultsRefusal) {
+		return true
+	}
+
+	return false
+}
+
+// SetDefaultsRefusal gets a reference to the given string and assigns it to the DefaultsRefusal field.
+func (o *PlatformPolicySettings) SetDefaultsRefusal(v string) {
+	o.DefaultsRefusal = &v
+}
+
 func (o PlatformPolicySettings) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -265,6 +333,12 @@ func (o PlatformPolicySettings) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Defaults) {
 		toSerialize["defaults"] = o.Defaults
+	}
+	if !IsNil(o.DefaultsAcceptedAt) {
+		toSerialize["defaults_accepted_at"] = o.DefaultsAcceptedAt
+	}
+	if !IsNil(o.DefaultsRefusal) {
+		toSerialize["defaults_refusal"] = o.DefaultsRefusal
 	}
 	return toSerialize, nil
 }

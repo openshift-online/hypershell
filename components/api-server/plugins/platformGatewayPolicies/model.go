@@ -107,13 +107,36 @@ type StoredStatus struct {
 }
 
 // PolicySettings is the platform-wide singleton holding the global toggle
-// (PLAT-DATA-29). The row id is always SettingsID; when no row exists the mode
-// is audit.
+// (PLAT-DATA-29) and the accepted fleet defaults (PLAT-PGP-08). The row id is
+// always SettingsID; when no row exists the mode is audit. The defaults columns
+// are server-populated: they hold the last defaults the api-server accepted
+// from its configuration, and DefaultsRefusal explains why a configured change
+// is refused. Empty DefaultCPURequest means no defaults were accepted yet.
 type PolicySettings struct {
-	ID        string `gorm:"primaryKey"`
-	Mode      string `gorm:"not null"`
-	UpdatedBy string
-	UpdatedAt time.Time
+	ID                   string `gorm:"primaryKey"`
+	Mode                 string `gorm:"not null"`
+	UpdatedBy            string
+	UpdatedAt            time.Time
+	DefaultCPURequest    string     `gorm:"column:default_cpu_request"`
+	DefaultCPULimit      string     `gorm:"column:default_cpu_limit"`
+	DefaultMemoryRequest string     `gorm:"column:default_memory_request"`
+	DefaultMemoryLimit   string     `gorm:"column:default_memory_limit"`
+	DefaultsRefusal      string     `gorm:"column:defaults_refusal"`
+	DefaultsAcceptedAt   *time.Time `gorm:"column:defaults_accepted_at"`
+}
+
+// AcceptedDefaults returns the stored accepted defaults as quantities, and
+// false when none were accepted yet.
+func (s *PolicySettings) AcceptedDefaults() (FleetDefaults, bool) {
+	if s == nil || s.DefaultCPURequest == "" {
+		return FleetDefaults{}, false
+	}
+	return FleetDefaults{
+		CPURequest:    s.DefaultCPURequest,
+		CPULimit:      s.DefaultCPULimit,
+		MemoryRequest: s.DefaultMemoryRequest,
+		MemoryLimit:   s.DefaultMemoryLimit,
+	}, true
 }
 
 // SettingsID is the primary key of the settings singleton row.

@@ -426,18 +426,10 @@ func main() {
 		"managed_cluster", cfg.ManagedClusterName,
 	)
 
-	// Fleet defaults guard (PLAT-PGP-08): the defaults rolled out to the policy
-	// interceptor sidecars; a configured change that an enforced policy forbids
-	// is refused and the previously accepted defaults are kept.
-	var policyDefaults *reconciler.PolicyDefaultsGuard
-	if clientset != nil {
-		policyDefaults = reconciler.NewPolicyDefaultsGuard(clientset, cfg.Namespace, reconciler.FleetDefaults{
-			CPURequest:    cfg.PolicyDefaults.CPURequest,
-			CPULimit:      cfg.PolicyDefaults.CPULimit,
-			MemoryRequest: cfg.PolicyDefaults.MemoryRequest,
-			MemoryLimit:   cfg.PolicyDefaults.MemoryLimit,
-		})
-	}
+	// Fleet defaults (PLAT-PGP-08) are configured once, on the api-server, and
+	// arrive through PlatformPolicySettings; the bundle reconciler and the
+	// sidecar provider share the last received value.
+	policyDefaults := reconciler.NewFleetDefaultsSource(conn)
 
 	if clientset != nil && dynamicClient != nil {
 		gr, grErr := reconciler.NewGatewayReconciler(

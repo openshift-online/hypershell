@@ -1893,6 +1893,17 @@ Only `platform-policy:admin` (or `platform:admin`) SHALL read-write the toggle; 
 change SHALL be audit-logged (SEC-RBAC-30, SEC-RBAC-12). The default `audit` SHALL be
 the value when no setting row has been written.
 
+The singleton SHALL also hold the fleet defaults the api-server accepted
+(PLAT-PGP-08) as read-only, server-populated fields: `defaults` (`cpu_request`,
+`cpu_limit`, `memory_request`, `memory_limit` as written, and the normalized
+`cpu_request_millis`, `cpu_limit_millis`, `memory_request_bytes`,
+`memory_limit_bytes`), `defaults_accepted_at`, and `defaults_refusal` (empty unless a
+configured change is refused). They SHALL be stored in the `platform_policy_settings`
+row, SHALL be carried by the REST resource and by the gRPC
+`PlatformPolicySettings` message the control plane watches, and SHALL NOT be
+changeable through `PATCH`, whose body accepts only `mode`; a body carrying other
+fields SHALL be rejected.
+
 #### Scenario: PLAT-DATA-29.01 -- Default Is Audit
 
 - GIVEN no administrator has changed the toggle
@@ -1904,6 +1915,13 @@ the value when no setting row has been written.
 - GIVEN a caller without `platform-policy:admin` or `platform:admin`
 - WHEN the caller changes the toggle
 - THEN the API server SHALL reject it with 403
+
+#### Scenario: PLAT-DATA-29.03 -- Fleet Defaults Are Read-Only Server Fields
+
+- GIVEN the api-server accepted fleet defaults from its configuration
+- WHEN the settings are read over REST or gRPC
+- THEN they SHALL carry the accepted defaults with their normalized values and the refusal reason
+- AND a `PATCH` that also sends `defaults` SHALL be rejected with 400 and SHALL leave the accepted defaults unchanged
 
 ---
 
@@ -1976,7 +1994,7 @@ gateway only.
 | GET/PATCH/DELETE | `/ci_trusts/{id}` | Get/Update/Delete |
 | GET/POST | `/platform_gateway_policies` | List/Create (authored by `platform-policy:admin`, SEC-RBAC-30) |
 | GET/PATCH/DELETE | `/platform_gateway_policies/{id}` | Get/Update/Delete (a `built_in` policy cannot be deleted, PLAT-DATA-28) |
-| GET/PATCH | `/platform_policy_settings` | Read/Update the global enforcement toggle singleton (PLAT-DATA-29) |
+| GET/PATCH | `/platform_policy_settings` | Read the singleton (toggle and read-only accepted fleet defaults); update the global enforcement toggle (PLAT-DATA-29) |
 
 ## CLI Reference (`hsctl`)
 

@@ -1,11 +1,13 @@
 package platformGatewayPolicies
 
 import (
+	"fmt"
 	"sort"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
+	"github.com/openshift-online/hypershell/components/api-server/pkg/cedar"
 )
 
 func policyToProto(p *PlatformGatewayPolicy) (*pb.PlatformGatewayPolicy, error) {
@@ -61,10 +63,29 @@ func sortedGatewayStatuses(st StoredStatus) []GatewayStatus {
 	return out
 }
 
-func settingsToProto(s *PolicySettings) *pb.PlatformPolicySettings {
-	out := &pb.PlatformPolicySettings{Mode: s.Mode}
+// settingsToProto maps the singleton for the control planes, including the
+// accepted fleet defaults they apply to bundles and sidecars (PLAT-PGP-08). An
+// unparsable stored value is an error, never replaced by a guess.
+func settingsToProto(s *PolicySettings) (*pb.PlatformPolicySettings, error) {
+	out := &pb.PlatformPolicySettings{Mode: s.Mode, DefaultsRefusal: s.DefaultsRefusal}
 	if !s.UpdatedAt.IsZero() {
 		out.UpdatedAt = timestamppb.New(s.UpdatedAt)
 	}
-	return out
+	if d, ok := s.AcceptedDefaults(); ok {
+		n, err := cedar.ParseDefaults(d.CPURequest, d.CPULimit, d.MemoryRequest, d.MemoryLimit)
+		if err != nil {
+			return nil, fmt.Errorf("stored fleet defaults are invalid: %w", err)
+		}
+		out.Defaults = &pb.PlatformPolicyFleetDefaults{
+			CpuRequest:         d.CPURequest,
+			CpuLimit:           d.CPULimit,
+			MemoryRequest:      d.MemoryRequest,
+			MemoryLimit:        d.MemoryLimit,
+			CpuRequestMillis:   n.CPURequestMillis,
+			CpuLimitMillis:     n.CPULimitMillis,
+			MemoryRequestBytes: n.MemoryRequestBytes,
+			MemoryLimitBytes:   n.MemoryLimitBytes,
+		}
+	}
+	return out, nil
 }

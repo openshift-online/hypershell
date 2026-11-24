@@ -37,19 +37,25 @@ func newHandler(service PolicyService, generic services.GenericService, gateways
 	return &handler{service: service, generic: generic, gateways: gateways, visibility: visibility, now: time.Now}
 }
 
-func (h *handler) globalMode(ctx context.Context) (string, *errors.ServiceError) {
+// policyContext returns the global mode and the accepted fleet defaults every
+// policy read is evaluated against (PLAT-PGP-06, PLAT-PGP-08).
+func (h *handler) policyContext(ctx context.Context) (string, FleetDefaults, *errors.ServiceError) {
 	st, svcErr := h.service.Settings(ctx)
 	if svcErr != nil {
-		return "", svcErr
+		return "", FleetDefaults{}, svcErr
 	}
-	return st.Mode, nil
+	defaults, svcErr := h.service.AcceptedDefaults(ctx)
+	if svcErr != nil {
+		return "", FleetDefaults{}, svcErr
+	}
+	return st.Mode, defaults, nil
 }
 
 // view builds the read-time facts for one policy. The policy endpoints are
 // reachable only by callers who may see targets (the ext gate), so targets and
 // rollouts are always included here.
-func (h *handler) view(ctx context.Context, p *PlatformGatewayPolicy, globalMode string) (policyView, *errors.ServiceError) {
-	ve, svcErr := h.service.ValidateCedar(p.Cedar)
+func (h *handler) view(ctx context.Context, p *PlatformGatewayPolicy, globalMode string, defaults FleetDefaults) (policyView, *errors.ServiceError) {
+	ve, svcErr := h.service.ValidateCedar(p.Cedar, defaults.Normalized)
 	if svcErr != nil {
 		return policyView{}, svcErr
 	}
@@ -73,11 +79,11 @@ func (h *handler) view(ctx context.Context, p *PlatformGatewayPolicy, globalMode
 }
 
 func (h *handler) present(ctx context.Context, p *PlatformGatewayPolicy) (interface{}, *errors.ServiceError) {
-	mode, svcErr := h.globalMode(ctx)
+	mode, defaults, svcErr := h.policyContext(ctx)
 	if svcErr != nil {
 		return nil, svcErr
 	}
-	v, svcErr := h.view(ctx, p, mode)
+	v, svcErr := h.view(ctx, p, mode, defaults)
 	if svcErr != nil {
 		return nil, svcErr
 	}
@@ -94,7 +100,7 @@ func (h *handler) List(w http.ResponseWriter, r *http.Request) {
 			if svcErr != nil {
 				return nil, svcErr
 			}
-			mode, svcErr := h.globalMode(ctx)
+			mode, defaults, svcErr := h.policyContext(ctx)
 			if svcErr != nil {
 				return nil, svcErr
 			}
@@ -107,7 +113,7 @@ func (h *handler) List(w http.ResponseWriter, r *http.Request) {
 				Items: []openapi.PlatformGatewayPolicy{},
 			}
 			for i := range items {
-				v, svcErr := h.view(ctx, &items[i], mode)
+				v, svcErr := h.view(ctx, &items[i], mode, defaults)
 				if svcErr != nil {
 					return nil, svcErr
 				}
@@ -210,11 +216,11 @@ func (h *handler) Evaluate(w http.ResponseWriter, r *http.Request) {
 	cfg := &handlers.HandlerConfig{
 		Body: &body,
 		Action: func() (interface{}, *errors.ServiceError) {
-			config, svcErr := h.service.Config()
+			defaults, svcErr := h.service.AcceptedDefaults(r.Context())
 			if svcErr != nil {
 				return nil, svcErr
 			}
-			ve, svcErr := h.service.ValidateCedar(body.Cedar)
+			ve, svcErr := h.service.ValidateCedar(body.Cedar, defaults.Normalized)
 			if svcErr != nil {
 				return nil, svcErr
 			}
@@ -223,7 +229,7 @@ func (h *handler) Evaluate(w http.ResponseWriter, r *http.Request) {
 				ForbidsDefaults: openapi.PtrBool(false),
 				Diagnostics:     presentDiagnostics(ve),
 				Rendered:        presentRendered(body.Cedar),
-				Defaults:        PresentFleetDefaults(config.Defaults),
+				Defaults:        PresentFleetDefaults(defaults),
 			}
 			if ve != nil {
 				for _, d := range ve.Details {
@@ -242,7 +248,7 @@ func (h *handler) Evaluate(w http.ResponseWriter, r *http.Request) {
 				// diagnostics already explain why, so no sample result is given.
 				return out, nil
 			}
-			req, svcErr := sampleRequest(body.Sample, config.Defaults.Normalized)
+			req, svcErr := sampleRequest(body.Sample, defaults.Normalized)
 			if svcErr != nil {
 				return nil, svcErr
 			}
@@ -366,15 +372,11 @@ func pageArgs(rawPage, rawSize string) (int, int) {
 func (h *handler) GetSettings(w http.ResponseWriter, r *http.Request) {
 	cfg := &handlers.HandlerConfig{
 		Action: func() (interface{}, *errors.ServiceError) {
-			config, svcErr := h.service.Config()
-			if svcErr != nil {
-				return nil, svcErr
-			}
 			st, svcErr := h.service.Settings(r.Context())
 			if svcErr != nil {
 				return nil, svcErr
 			}
-			return PresentSettings(st, config.Defaults), nil
+			return PresentSettings(st)
 		},
 	}
 	handlers.HandleGet(w, r, cfg)
@@ -385,10 +387,6 @@ func (h *handler) PatchSettings(w http.ResponseWriter, r *http.Request) {
 	cfg := &handlers.HandlerConfig{
 		Body: &body,
 		Action: func() (interface{}, *errors.ServiceError) {
-			config, svcErr := h.service.Config()
-			if svcErr != nil {
-				return nil, svcErr
-			}
 			actor := ""
 			if payload, err := auth.GetAuthPayload(r); err == nil && payload != nil {
 				actor = payload.Username
@@ -397,7 +395,7 @@ func (h *handler) PatchSettings(w http.ResponseWriter, r *http.Request) {
 			if svcErr != nil {
 				return nil, svcErr
 			}
-			return PresentSettings(st, config.Defaults), nil
+			return PresentSettings(st)
 		},
 	}
 	handlers.Handle(w, r, cfg, http.StatusOK)
@@ -426,11 +424,7 @@ func (h *handler) EffectivePolicies(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) effective(ctx context.Context, gatewayID string) (openapi.GatewayEffectivePolicies, *errors.ServiceError) {
-	config, svcErr := h.service.Config()
-	if svcErr != nil {
-		return openapi.GatewayEffectivePolicies{}, svcErr
-	}
-	mode, svcErr := h.globalMode(ctx)
+	mode, defaults, svcErr := h.policyContext(ctx)
 	if svcErr != nil {
 		return openapi.GatewayEffectivePolicies{}, svcErr
 	}
@@ -446,7 +440,7 @@ func (h *handler) effective(ctx context.Context, gatewayID string) (openapi.Gate
 		GatewayId:     openapi.PtrString(gatewayID),
 		GlobalMode:    openapi.PtrString(mode),
 		SchemaVersion: openapi.PtrString(cedar.SchemaVersion),
-		Defaults:      PresentFleetDefaults(config.Defaults),
+		Defaults:      PresentFleetDefaults(defaults),
 		Policies:      []openapi.EffectivePolicy{},
 		Findings:      []openapi.PolicyAuditFinding{},
 	}

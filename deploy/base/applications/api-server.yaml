@@ -104,11 +104,13 @@ spec:
               value: "hypershell-controller.$(POD_NAMESPACE).svc.cluster.local:9443"
             - name: DB_SSLMODE
               value: require
-            # Fleet-wide sandbox resource defaults (PLAT-PGP-08). Write-time policy
-            # validation checks every policy against the request these defaults
-            # produce (PLAT-PGP-04 rule 3), so the values MUST match the
-            # controller's HYPERSHELL_POLICY_DEFAULT_* in
-            # deploy/base/platform-resources/controller.yaml.
+            # Fleet-wide sandbox resource defaults (PLAT-PGP-08). This is the
+            # only place they are configured. At startup the api-server accepts
+            # them unless an enforced policy forbids the new default request
+            # (then it keeps serving the accepted defaults and reports why on
+            # PlatformPolicySettings.defaults_refusal), persists the accepted
+            # value, validates policies against it (PLAT-PGP-04 rule 3), and
+            # distributes it to every control plane through the settings watch.
             - name: HYPERSHELL_POLICY_DEFAULT_CPU_REQUEST
               value: "500m"
             - name: HYPERSHELL_POLICY_DEFAULT_CPU_LIMIT

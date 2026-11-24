@@ -241,7 +241,7 @@ export type EffectiveRow = {
   max?: EffectiveBound;
 };
 
-/** Fleet-wide defaults (controller configuration, not policy). */
+/** Fleet-wide defaults (api-server configuration distributed through PlatformPolicySettings, not policy). */
 export const fleetDefaults: Partial<Record<ResourceKey, string>> = {
   cpuRequest: "500m",
   cpuLimit: "2",

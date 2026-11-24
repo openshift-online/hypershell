@@ -74,6 +74,35 @@ func migration() *gormigrate.Migration {
 	}
 }
 
+// migrationSettingsDefaults adds the accepted fleet defaults and the refusal
+// reason to the settings singleton (PLAT-PGP-08, PLAT-DATA-29): the api-server
+// is the one place the defaults are configured, persists the last accepted
+// value here, and distributes it to the control planes through the settings
+// watch. Additive and idempotent (SDLC-CONF-02).
+func migrationSettingsDefaults() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026112410000001",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.Exec(`ALTER TABLE platform_policy_settings
+				ADD COLUMN IF NOT EXISTS default_cpu_request TEXT NOT NULL DEFAULT '',
+				ADD COLUMN IF NOT EXISTS default_cpu_limit TEXT NOT NULL DEFAULT '',
+				ADD COLUMN IF NOT EXISTS default_memory_request TEXT NOT NULL DEFAULT '',
+				ADD COLUMN IF NOT EXISTS default_memory_limit TEXT NOT NULL DEFAULT '',
+				ADD COLUMN IF NOT EXISTS defaults_refusal TEXT NOT NULL DEFAULT '',
+				ADD COLUMN IF NOT EXISTS defaults_accepted_at TIMESTAMPTZ NULL`).Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Exec(`ALTER TABLE platform_policy_settings
+				DROP COLUMN IF EXISTS default_cpu_request,
+				DROP COLUMN IF EXISTS default_cpu_limit,
+				DROP COLUMN IF EXISTS default_memory_request,
+				DROP COLUMN IF EXISTS default_memory_limit,
+				DROP COLUMN IF EXISTS defaults_refusal,
+				DROP COLUMN IF EXISTS defaults_accepted_at`).Error
+		},
+	}
+}
+
 // migrationSeedCanary seeds the built-in e2e-enforcement-canary policy
 // (PLAT-PGP-20): target all, enforcement_mode enforce, built_in true. It is
 // additive and idempotent: an existing live row with the name is left as is, so

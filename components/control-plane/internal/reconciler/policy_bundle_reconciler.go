@@ -93,7 +93,7 @@ type PolicyBundleReconciler struct {
 	settings      pb.PlatformPolicySettingsServiceClient
 	gateways      pb.GatewayServiceClient
 	clusterID     string
-	defaults      *PolicyDefaultsGuard
+	defaults      *FleetDefaultsSource
 	canaryEnabled bool
 	resync        time.Duration
 	applied       *AppliedRevisions
@@ -108,7 +108,7 @@ type PolicyBundleReconciler struct {
 
 // NewPolicyBundleReconciler wires the reconciler to the api-server connection
 // and the cluster's Kubernetes API.
-func NewPolicyBundleReconciler(kube kubernetes.Interface, conn grpc.ClientConnInterface, clusterID string, defaults *PolicyDefaultsGuard, canaryEnabled bool, resync time.Duration, applied *AppliedRevisions) *PolicyBundleReconciler {
+func NewPolicyBundleReconciler(kube kubernetes.Interface, conn grpc.ClientConnInterface, clusterID string, defaults *FleetDefaultsSource, canaryEnabled bool, resync time.Duration, applied *AppliedRevisions) *PolicyBundleReconciler {
 	if resync <= 0 {
 		resync = 30 * time.Second
 	}
@@ -257,14 +257,15 @@ func (r *PolicyBundleReconciler) ReconcileOnce(ctx context.Context) error {
 	policies := list.GetItems()
 	globalMode := settings.GetSettings().GetMode()
 
-	// Refuse a fleet defaults change that an enforced policy forbids
-	// (PLAT-PGP-08.02); bundles validate against the accepted defaults.
-	if err := r.defaults.Check(ctx, policies, globalMode); err != nil {
-		return fmt.Errorf("check fleet defaults: %w", err)
-	}
-	accepted, err := r.defaults.Accepted().normalized()
+	// Bundles validate against the fleet defaults the api-server accepted and
+	// distributes through the settings (PLAT-PGP-08). Without them no bundle is
+	// written, so sidecars without a bundle fail closed (PLAT-PGP-12).
+	accepted, err := r.defaults.Update(settings.GetSettings())
 	if err != nil {
-		return fmt.Errorf("accepted fleet defaults: %w", err)
+		return fmt.Errorf("fleet defaults: %w", err)
+	}
+	if refusal := settings.GetSettings().GetDefaultsRefusal(); refusal != "" {
+		slog.WarnContext(ctx, "the api-server refused a fleet defaults change; applying the accepted defaults", "reason", refusal)
 	}
 
 	pods, podsErr := r.listSandboxPods(ctx)
@@ -279,7 +280,7 @@ func (r *PolicyBundleReconciler) ReconcileOnce(ctx context.Context) error {
 			GatewayID:     gw.ID,
 			GlobalMode:    globalMode,
 			Policies:      policies,
-			Defaults:      accepted,
+			Defaults:      accepted.Normalized,
 			Unsupported:   gw.Unsupported,
 			CanaryEnabled: r.canaryEnabled,
 		})

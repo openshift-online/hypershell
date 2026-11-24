@@ -1389,9 +1389,15 @@ sidecars and ingest their audit events, implementing the enforcement architectur
 [`platform-gateway-policy.spec.md`](./platform-gateway-policy.spec.md) (PLAT-PGP-12,
 PLAT-PGP-15). It SHALL:
 
-- Watch `PlatformGatewayPolicy` records and the `PlatformPolicySettings` toggle on
+- Watch `PlatformGatewayPolicy` records and the `PlatformPolicySettings` singleton on
   the existing gRPC watch stream (CTRL-CORE-02) and resync them periodically, as it
   does for CI kinds (CTRL-CORE-20, CTRL-CORE-21).
+- Take the fleet sandbox defaults only from `PlatformPolicySettings` (PLAT-PGP-08):
+  validate bundles against them and pass them to every interceptor sidecar as
+  environment variables. The controller SHALL have no defaults configuration of its
+  own and SHALL use no built-in fallback: until settings with defaults are received
+  it SHALL write no bundle and render no sidecar, and the gateway reconcile SHALL
+  retry, so protected RPCs fail closed (PLAT-PGP-12).
 - Build a per-gateway **policy bundle** (revision hash, Cedar schema version, an
   enforced set and an audit-only set with effective modes resolved, `@id`
   attribution, and per-policy `userMessage` and `documentationUrl`) and write it to
@@ -1434,6 +1440,13 @@ ConfigMap without a spurious revision bump.
 - GIVEN a sidecar has applied a bundle revision
 - WHEN the control plane observes the applied revision
 - THEN it SHALL copy the revision and per-gateway condition into `PlatformGatewayPolicy` status as a status-only write-back
+
+#### Scenario: CTRL-CORE-22.04 -- Defaults Come From Settings, Never From a Fallback
+
+- GIVEN `PlatformPolicySettings` carrying fleet defaults with CPU request `700m`
+- WHEN the control plane builds a bundle and renders a gateway's interceptor sidecar
+- THEN the bundle SHALL be validated against `700m` and the sidecar environment SHALL carry `700m`
+- AND when the settings carry no defaults it SHALL write no bundle and render no sidecar
 
 ## Known Limitations
 

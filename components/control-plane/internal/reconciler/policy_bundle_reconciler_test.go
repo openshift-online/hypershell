@@ -2,7 +2,7 @@ package reconciler
 
 import (
 	"context"
-	"strings"
+	"errors"
 	"testing"
 	"time"
 
@@ -53,11 +53,21 @@ func (f *fakePolicyClient) UpdatePlatformGatewayPolicyStatus(_ context.Context, 
 
 type fakeSettingsClient struct {
 	pb.PlatformPolicySettingsServiceClient
-	mode string
+	mode     string
+	defaults *pb.PlatformPolicyFleetDefaults
+	refusal  string
+	calls    int
 }
 
 func (f *fakeSettingsClient) GetPlatformPolicySettings(context.Context, *pb.GetPlatformPolicySettingsRequest, ...grpc.CallOption) (*pb.GetPlatformPolicySettingsResponse, error) {
-	return &pb.GetPlatformPolicySettingsResponse{Settings: &pb.PlatformPolicySettings{Mode: f.mode}}, nil
+	f.calls++
+	return &pb.GetPlatformPolicySettingsResponse{Settings: &pb.PlatformPolicySettings{Mode: f.mode, Defaults: f.defaults, DefaultsRefusal: f.refusal}}, nil
+}
+
+// settingsDefaults is the fleet defaults block the api-server streams in
+// PlatformPolicySettings.
+func settingsDefaults(cpuRequest string) *pb.PlatformPolicyFleetDefaults {
+	return &pb.PlatformPolicyFleetDefaults{CpuRequest: cpuRequest, CpuLimit: "2", MemoryRequest: "1Gi", MemoryLimit: "4Gi"}
 }
 
 type fakePolicyGatewayClient struct {
@@ -84,10 +94,10 @@ func newTestPolicyReconciler(t *testing.T, objects ...corev1.Pod) (*PolicyBundle
 		Cedar:           `forbid (principal, action, resource) when { context.cpuRequestMillis > 1000 };`,
 		Target:          &pb.PlatformGatewayPolicyTarget{All: true},
 	}}}
-	guard := NewPolicyDefaultsGuard(kube, "hypershell", FleetDefaults{CPURequest: "500m", CPULimit: "2", MemoryRequest: "1Gi", MemoryLimit: "4Gi"})
-	r := NewPolicyBundleReconciler(kube, nil, "cluster-1", guard, true, time.Minute, NewAppliedRevisions())
+	settings := &fakeSettingsClient{mode: policybundle.ModeAudit, defaults: settingsDefaults("500m")}
+	r := NewPolicyBundleReconciler(kube, nil, "cluster-1", &FleetDefaultsSource{settings: settings}, true, time.Minute, NewAppliedRevisions())
 	r.policies = policies
-	r.settings = &fakeSettingsClient{mode: policybundle.ModeAudit}
+	r.settings = settings
 	r.gateways = &fakePolicyGatewayClient{items: []*pb.Gateway{{Metadata: &pb.ObjectReference{Id: "gw-1"}, Name: "g1", Namespace: "openshell-aaaaaaaaaaaaaaaa"}}}
 	return r, policies, kube
 }
@@ -155,23 +165,67 @@ func TestPolicyReconcileReportsNonCompliantRunningSandboxes(t *testing.T) {
 	}
 }
 
-// Verifies: PLAT-PGP-08.02
-func TestDefaultsChangeForbiddenByEnforcedPolicyIsRefused(t *testing.T) {
-	kube := fake.NewSimpleClientset()
+// Verifies: PLAT-PGP-08.03, CTRL-CORE-22.04
+func TestPolicyBundleUsesSettingsProvidedDefaults(t *testing.T) {
+	r, policies, kube := newTestPolicyReconciler(t)
 	ctx := context.Background()
-	guard := NewPolicyDefaultsGuard(kube, "hypershell", FleetDefaults{CPURequest: "700m", CPULimit: "2", MemoryRequest: "1Gi", MemoryLimit: "4Gi"})
-	if err := guard.Check(ctx, nil, policybundle.ModeAudit); err != nil {
-		t.Fatal(err)
+	// A policy that forbids a CPU request below 600m is valid only against
+	// defaults the api-server accepted at or above 600m.
+	policies.items = append(policies.items, &pb.PlatformGatewayPolicy{
+		Metadata:        &pb.ObjectReference{Id: "p2"},
+		Name:            "min-cpu",
+		EnforcementMode: policybundle.ModeEnforce,
+		Cedar:           `forbid (principal, action, resource) when { context.cpuRequestMillis < 600 };`,
+		Target:          &pb.PlatformGatewayPolicyTarget{All: true},
+	})
+	settings := r.settings.(*fakeSettingsClient)
+	settings.defaults = settingsDefaults("700m")
+	if err := r.ReconcileOnce(ctx); err != nil {
+		t.Fatalf("reconcile: %v", err)
 	}
-	strict := []*pb.PlatformGatewayPolicy{{Name: "min-cpu", EnforcementMode: policybundle.ModeEnforce,
-		Cedar: `forbid (principal, action, resource) when { context.cpuRequestMillis < 600 };`}}
-	// The operator lowers the default CPU request to 500m: the enforced policy
-	// forbids it, so the change is refused and 700m stays in effect.
-	changed := NewPolicyDefaultsGuard(kube, "hypershell", FleetDefaults{CPURequest: "500m", CPULimit: "2", MemoryRequest: "1Gi", MemoryLimit: "4Gi"})
-	if err := changed.Check(ctx, strict, policybundle.ModeAudit); err != nil {
-		t.Fatal(err)
+	bundleOf := func() policybundle.Bundle {
+		cm, err := kube.CoreV1().ConfigMaps("openshell-aaaaaaaaaaaaaaaa").Get(ctx, policybundle.ConfigMapName, metav1.GetOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := policybundle.Decode([]byte(cm.Data[policybundle.DataKey]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
 	}
-	if changed.Accepted().CPURequest != "700m" || !strings.Contains(changed.Refusal(), "min-cpu") {
-		t.Fatalf("the forbidden change must be refused: accepted=%+v refusal=%q", changed.Accepted(), changed.Refusal())
+	if present, _ := bundleOf().Contains("min-cpu"); !present {
+		t.Fatalf("with settings defaults of 700m the min-cpu policy must be published")
+	}
+	got, err := r.defaults.Get(ctx)
+	if err != nil || got.CPURequest != "700m" || got.Normalized.CPURequestMillis != 700 {
+		t.Fatalf("the source must hold the settings defaults, got %+v, %v", got, err)
+	}
+
+	// The api-server now distributes 500m: the bundle is validated against it
+	// and the policy that forbids that default request is not published.
+	settings.defaults = settingsDefaults("500m")
+	if err := r.ReconcileOnce(ctx); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if present, _ := bundleOf().Contains("min-cpu"); present {
+		t.Fatalf("with settings defaults of 500m the min-cpu policy must not be published")
+	}
+}
+
+// Verifies: CTRL-CORE-22.04, PLAT-PGP-12.02
+func TestPolicyBundleWithoutSettingsDefaultsWritesNoBundle(t *testing.T) {
+	r, policies, kube := newTestPolicyReconciler(t)
+	ctx := context.Background()
+	r.settings.(*fakeSettingsClient).defaults = nil
+	err := r.ReconcileOnce(ctx)
+	if !errors.Is(err, ErrNoFleetDefaults) {
+		t.Fatalf("reconcile without settings defaults must fail with ErrNoFleetDefaults, got %v", err)
+	}
+	if _, getErr := kube.CoreV1().ConfigMaps("openshell-aaaaaaaaaaaaaaaa").Get(ctx, policybundle.ConfigMapName, metav1.GetOptions{}); getErr == nil {
+		t.Fatalf("no bundle may be written without settings defaults, so the sidecar fails closed")
+	}
+	if len(policies.updates) != 0 {
+		t.Fatalf("no status may be written without settings defaults, got %d writes", len(policies.updates))
 	}
 }

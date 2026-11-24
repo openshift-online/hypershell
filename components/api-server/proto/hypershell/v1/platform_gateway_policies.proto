@@ -97,11 +97,29 @@ service PlatformGatewayPolicyService {
   rpc UpdatePlatformGatewayPolicyStatus(UpdatePlatformGatewayPolicyStatusRequest) returns (UpdatePlatformGatewayPolicyStatusResponse);
 }
 
+// PlatformPolicyFleetDefaults are the fleet-wide sandbox resource defaults the
+// api-server accepted (PLAT-PGP-08): the quantities as written and their
+// normalized schema values.
+message PlatformPolicyFleetDefaults {
+  string cpu_request = 1;
+  string cpu_limit = 2;
+  string memory_request = 3;
+  string memory_limit = 4;
+  int64 cpu_request_millis = 5;
+  int64 cpu_limit_millis = 6;
+  int64 memory_request_bytes = 7;
+  int64 memory_limit_bytes = 8;
+}
+
 // PlatformPolicySettings is the global enforcement toggle singleton
-// (PLAT-DATA-29). mode is audit or enforce; audit when never written.
+// (PLAT-DATA-29). mode is audit or enforce; audit when never written. defaults
+// and defaults_refusal are server-populated and read-only: the control plane
+// takes the fleet defaults for bundles and interceptor sidecars from here.
 message PlatformPolicySettings {
   string mode = 1;
   google.protobuf.Timestamp updated_at = 2;
+  PlatformPolicyFleetDefaults defaults = 3;
+  string defaults_refusal = 4;
 }
 
 message GetPlatformPolicySettingsRequest {}

@@ -7511,8 +7511,8 @@ components:
           $ref: "#/components/schemas/PolicyFindingCounts"
       type: object
     FleetDefaults:
-      description: "Fleet-wide sandbox resource defaults, controller configuration\
-        \ (PLAT-PGP-08)"
+      description: Fleet-wide sandbox resource defaults the api-server accepted from
+        its configuration (PLAT-PGP-08)
       example:
         cpu_limit: cpu_limit
         memory_request: memory_request
@@ -8916,6 +8916,8 @@ components:
           cpu_request: cpu_request
         kind: kind
         updated_by: updated_by
+        defaults_accepted_at: 2000-01-23T04:56:07.000+00:00
+        defaults_refusal: defaults_refusal
       properties:
         kind:
           type: string
@@ -8936,6 +8938,18 @@ components:
           type: string
         defaults:
           $ref: "#/components/schemas/PlatformPolicySettings_defaults"
+        defaults_accepted_at:
+          description: When the api-server last accepted a fleet defaults value (PLAT-PGP-08).
+          format: date-time
+          readOnly: true
+          type: string
+        defaults_refusal:
+          description: "Why the configured fleet defaults are refused and the accepted\
+            \ defaults are still served, because an enforced policy forbids the new\
+            \ default request (PLAT-PGP-08.02). Empty when the configured defaults\
+            \ are accepted."
+          readOnly: true
+          type: string
       type: object
     PlatformPolicySettingsPatchRequest:
       example:
@@ -9061,8 +9075,10 @@ components:
           type: integer
       type: object
     PlatformPolicySettings_defaults:
-      description: "Fleet-wide sandbox resource defaults, controller configuration\
-        \ (PLAT-PGP-08)"
+      description: "Fleet-wide sandbox resource defaults the api-server accepted (PLAT-PGP-08).\
+        \ Configured once on the api-server Deployment, persisted with this singleton,\
+        \ and distributed to every control plane through the settings watch. Server-populated;\
+        \ not settable through PATCH."
       example:
         cpu_limit: cpu_limit
         memory_request: memory_request

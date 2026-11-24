@@ -106,9 +106,24 @@ delivery slice 1 (PLAT-PGP-05).
 | SEC-RBAC-31 | Present | `effective_policies` gate + 404 masking, targets only for policy admin / fleet reader / platform admin (`CanSeePolicyTargets`) |
 | SEC-RBAC-32, CTRL-CORE-22 (API side) | Present | `pkg/rbac/grpc_authorization.go`: control plane reads policies and settings, status-only own-cluster write-back, own-cluster findings forward; users denied |
 
-Fleet defaults (`HYPERSHELL_POLICY_DEFAULT_*`) are read by the api-server too
-(write-time rule 3 and the effective-policies response); the values in
-`deploy/base/applications/api-server.yaml` must match the controller's.
+Fleet defaults (`HYPERSHELL_POLICY_DEFAULT_*`, PLAT-PGP-08) are configured once,
+on the api-server Deployment (`deploy/base/applications/api-server.yaml`). At startup
+`ReconcileDefaults` (`plugins/platformGatewayPolicies/service.go`) accepts them
+unless an enforced policy forbids the new default request, persists the accepted
+value with the settings singleton (migration `2026112410000001`), and exposes
+`defaults`, `defaults_accepted_at`, and `defaults_refusal` as read-only fields of
+`PlatformPolicySettings` (REST and gRPC, PLAT-DATA-29.03). The controller takes
+them from the settings watch (`internal/reconciler/policy_fleet_defaults.go`) for
+bundles and sidecar env; without them it writes no bundle and renders no sidecar
+(CTRL-CORE-22.04). The controller's former defaults env, its
+`policy_defaults_guard.go`, and the `hypershell-policy-applied-defaults` ConfigMap
+are removed. Tests: `test/authz/platform_gateway_policy_test.go`
+(`TestFleetDefaultsAcceptedOrRefusedAtTheAPIServer`, PLAT-PGP-08.02, PLAT-DATA-29.03;
+`TestPolicyDryRunAndFindingsAccess`, PLAT-PGP-21.01/.02), control-plane
+`policy_bundle_reconciler_test.go` and `policy_interceptor_provider_test.go`
+(PLAT-PGP-08.03, CTRL-CORE-22.04). Known gap: a Running gateway's sidecar env takes
+new defaults only on its next Helm reconcile (the controller seed does not
+re-provision Running gateways), while bundles follow immediately.
 
 **Remaining gap table (wave plan, not yet implemented):**
 
@@ -116,7 +131,7 @@ Fleet defaults (`HYPERSHELL_POLICY_DEFAULT_*`) are read by the api-server too
 |------|-------|-----|------|
 | W1 | API+SDK+BE+RBAC | done (see table above) | PLAT-DATA-28/29/30, PLAT-PGP-01/19, SEC-RBAC-30/31/32 |
 | W2 | CLI | done: `hsctl` list/get/create/update/delete `platformGatewayPolicy`, get/update `platformPolicySettings`, get `effectivePolicies`; 403 surfaces as denied (`components/cli/pkg/apierror`); tests `components/cli/cmd/hsctl/platform_policy_test.go` | CLI-EXT-06 |
-| W2 | CP | done: `internal/policybundle` (bundle contract, tests), `internal/reconciler/policy_bundle_reconciler.go` (watch + resync, update-or-create ConfigMap, status write-back, non-compliant sandboxes), `policy_defaults_guard.go` (refuse forbidden defaults change), `internal/policyevents` (ReportPolicyEvents, TokenReview, namespace check); deploy env, Service port, NetworkPolicy | CTRL-CORE-22, PLAT-PGP-08/12/15/16/18 |
+| W2 | CP | done: `internal/policybundle` (bundle contract, tests), `internal/reconciler/policy_bundle_reconciler.go` (watch + resync, update-or-create ConfigMap, status write-back, non-compliant sandboxes), fleet defaults from `PlatformPolicySettings` (`policy_fleet_defaults.go`; the refusal guard moved to the api-server), `internal/policyevents` (ReportPolicyEvents, TokenReview, namespace check); deploy env, Service port, NetworkPolicy | CTRL-CORE-22, PLAT-PGP-08/12/15/16/18 |
 | W3 | Sidecar | done: `cmd/hypershell-policy-interceptor` + `internal/policyinterceptor` (Describe/Evaluate over unix socket, gateway JWT verification, bundle watch, Kubernetes adapter, defaults patches, denial text, audit events, metrics), second binary in `components/control-plane/Dockerfile`. Gap: Start/Resume re-check allows (current_state is always empty upstream; follow-up) | PLAT-PGP-02/03/07/08/09/11/12/13/14/15/16/18, AGT-EXT-06 |
 | W3 | Chart | done: vendored-chart local patch `server.extraInitContainers` (documented in `skills/tooling/update-openshell/SKILL.md`), `internal/helm/policy_interceptor.go` (native sidecar, socket emptyDir, projected token, JWT public key, registration from the shared binding table, `ValidateInterceptorRegistration` before rollout), `internal/gateway/policy_rbac.go` (bundle reader Role) | OSG-CORE-19, OSG-HELM-06, GTW-CFG-05 |
 | W4 | FE | done: admin panel `components/web-console/app/features/platform-policies` (+ adapters, probes, routes), gateway Policies tab and connection-step defaults in `packages/gateway-management-ui/src/policies`, `@patternfly/react-code-editor`; ui-build-gate Complete for all 10 governed states (manifests were under /tmp/pgp-gate, not committed) | WEB-PADM-01..12, WEB-GLIS-26, UIS-PFLY-11 |

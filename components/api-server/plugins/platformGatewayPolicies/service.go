@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	stderrors "errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/cedar"
@@ -50,7 +52,9 @@ type PolicyService interface {
 	SetMode(ctx context.Context, mode, actor string) (*PolicySettings, *errors.ServiceError)
 
 	Config() (Config, *errors.ServiceError)
-	ValidateCedar(cedarText string) (*cedar.ValidationError, *errors.ServiceError)
+	AcceptedDefaults(ctx context.Context) (FleetDefaults, *errors.ServiceError)
+	ReconcileDefaults(ctx context.Context, configured FleetDefaults) (*PolicySettings, *errors.ServiceError)
+	ValidateCedar(cedarText string, defaults cedar.Defaults) (*cedar.ValidationError, *errors.ServiceError)
 
 	ReportFindings(ctx context.Context, findings []Finding) (int, *errors.ServiceError)
 	ListFindings(ctx context.Context, q FindingQuery) ([]Finding, int64, *errors.ServiceError)
@@ -72,6 +76,8 @@ type sqlService struct {
 	events services.EventService
 	cfg    Config
 	cfgErr error
+	// defaultsMu serializes this replica's fleet-defaults reconcile.
+	defaultsMu sync.Mutex
 }
 
 var _ PolicyService = &sqlService{}
@@ -83,14 +89,12 @@ func (s *sqlService) Config() (Config, *errors.ServiceError) {
 	return s.cfg, nil
 }
 
-// ValidateCedar applies the write-time rules (PLAT-PGP-04) against the
-// configured fleet defaults. A nil ValidationError means the text is valid.
-func (s *sqlService) ValidateCedar(cedarText string) (*cedar.ValidationError, *errors.ServiceError) {
-	cfg, svcErr := s.Config()
-	if svcErr != nil {
-		return nil, svcErr
-	}
-	err := cedar.ValidatePolicy(cedarText, cfg.Defaults.Normalized)
+// ValidateCedar applies the write-time rules (PLAT-PGP-04) against the given
+// fleet defaults, which callers take from AcceptedDefaults (PLAT-PGP-04 rule 3
+// checks the accepted, not the configured, defaults). A nil ValidationError
+// means the text is valid.
+func (s *sqlService) ValidateCedar(cedarText string, defaults cedar.Defaults) (*cedar.ValidationError, *errors.ServiceError) {
+	err := cedar.ValidatePolicy(cedarText, defaults)
 	if err == nil {
 		return nil, nil
 	}
@@ -164,7 +168,7 @@ func validationToServiceError(ve *cedar.ValidationError) *errors.ServiceError {
 	return errors.Validation("cedar policy validation failed: %s", strings.Join(parts, "; "))
 }
 
-func (s *sqlService) validateSpec(p *PlatformGatewayPolicy, target Target) *errors.ServiceError {
+func (s *sqlService) validateSpec(ctx context.Context, p *PlatformGatewayPolicy, target Target) *errors.ServiceError {
 	if !policyNameRE.MatchString(p.Name) || len(p.Name) > 63 {
 		return errors.Validation("name must be a lowercase DNS label (letters, digits, and hyphens, at most 63 characters)")
 	}
@@ -177,7 +181,11 @@ func (s *sqlService) validateSpec(p *PlatformGatewayPolicy, target Target) *erro
 	if svcErr := validateDocumentationURL(p.DocumentationUrl); svcErr != nil {
 		return svcErr
 	}
-	ve, svcErr := s.ValidateCedar(p.Cedar)
+	defaults, svcErr := s.AcceptedDefaults(ctx)
+	if svcErr != nil {
+		return svcErr
+	}
+	ve, svcErr := s.ValidateCedar(p.Cedar, defaults.Normalized)
 	if svcErr != nil {
 		return svcErr
 	}
@@ -248,7 +256,7 @@ func (s *sqlService) Create(ctx context.Context, p *PlatformGatewayPolicy) (*Pla
 	p.EnforcementMode = ModeAudit
 	p.BuiltIn = false
 	p.Status = `{}`
-	if svcErr := s.validateSpec(p, target); svcErr != nil {
+	if svcErr := s.validateSpec(ctx, p, target); svcErr != nil {
 		return nil, svcErr
 	}
 	encoded, svcErr := encodeTarget(target)
@@ -301,7 +309,7 @@ func (s *sqlService) Update(ctx context.Context, id string, patch PolicyPatch) (
 	if patch.Cedar != nil {
 		found.Cedar = *patch.Cedar
 	}
-	if svcErr := s.validateSpec(found, target); svcErr != nil {
+	if svcErr := s.validateSpec(ctx, found, target); svcErr != nil {
 		return nil, svcErr
 	}
 	encoded, svcErr := encodeTarget(target)
@@ -379,12 +387,139 @@ func (s *sqlService) UpdateStatus(ctx context.Context, id string, entries []Gate
 	return updated, nil
 }
 
+// Settings returns the singleton with the accepted fleet defaults. When no
+// defaults were accepted yet (a fresh database), the configured defaults are
+// accepted first, so the settings always carry the defaults the control planes
+// apply (PLAT-PGP-08).
 func (s *sqlService) Settings(ctx context.Context) (*PolicySettings, *errors.ServiceError) {
 	st, err := s.dao.GetSettings(ctx)
 	if err != nil {
 		return nil, errors.GeneralError("unable to read platform policy settings: %s", err)
 	}
-	return st, nil
+	if _, ok := st.AcceptedDefaults(); ok {
+		return st, nil
+	}
+	cfg, svcErr := s.Config()
+	if svcErr != nil {
+		return nil, svcErr
+	}
+	return s.ReconcileDefaults(ctx, cfg.Defaults)
+}
+
+// AcceptedDefaults returns the fleet defaults the api-server accepted, with
+// their normalized values. Write-time validation, the editor dry run, and the
+// settings and effective-policies reads use these (PLAT-PGP-04, PLAT-PGP-08).
+func (s *sqlService) AcceptedDefaults(ctx context.Context) (FleetDefaults, *errors.ServiceError) {
+	st, svcErr := s.Settings(ctx)
+	if svcErr != nil {
+		return FleetDefaults{}, svcErr
+	}
+	d, _ := st.AcceptedDefaults()
+	normalized, err := cedar.ParseDefaults(d.CPURequest, d.CPULimit, d.MemoryRequest, d.MemoryLimit)
+	if err != nil {
+		return FleetDefaults{}, errors.GeneralError("stored fleet defaults are invalid: %s", err)
+	}
+	d.Normalized = normalized
+	return d, nil
+}
+
+// ReconcileDefaults compares the configured fleet defaults with the accepted
+// ones stored with the settings singleton (PLAT-PGP-08). With nothing accepted
+// yet, or when no policy whose effective mode is enforce forbids the configured
+// default request (the default-request check of PLAT-PGP-04 rule 3), the
+// configured defaults are accepted and persisted. Otherwise the change is
+// refused: the accepted defaults keep being served and the refusal reason is
+// stored on the singleton (PLAT-PGP-08.02). A change to what the control
+// planes receive emits a settings watch event. The api-server runs it at
+// startup; it is idempotent.
+func (s *sqlService) ReconcileDefaults(ctx context.Context, configured FleetDefaults) (*PolicySettings, *errors.ServiceError) {
+	normalized, err := cedar.ParseDefaults(configured.CPURequest, configured.CPULimit, configured.MemoryRequest, configured.MemoryLimit)
+	if err != nil {
+		return nil, errors.Validation("configured fleet defaults are invalid: %s", err)
+	}
+	configured.Normalized = normalized
+
+	s.defaultsMu.Lock()
+	defer s.defaultsMu.Unlock()
+	st, dbErr := s.dao.GetSettings(ctx)
+	if dbErr != nil {
+		return nil, errors.GeneralError("unable to read platform policy settings: %s", dbErr)
+	}
+	accepted, hasAccepted := st.AcceptedDefaults()
+	refusal := ""
+	next := configured
+	if hasAccepted && !sameQuantities(accepted, configured) {
+		acceptedNorm, perr := cedar.ParseDefaults(accepted.CPURequest, accepted.CPULimit, accepted.MemoryRequest, accepted.MemoryLimit)
+		if perr != nil || acceptedNorm != normalized {
+			forbiddenBy, svcErr := s.forbiddingPolicies(ctx, st.Mode, normalized)
+			if svcErr != nil {
+				return nil, svcErr
+			}
+			if len(forbiddenBy) > 0 {
+				next = accepted
+				refusal = fmt.Sprintf("configured fleet defaults (cpu request %s, cpu limit %s, memory request %s, memory limit %s) refused: enforced policies %s forbid the default request; serving the accepted defaults (cpu request %s, cpu limit %s, memory request %s, memory limit %s)",
+					configured.CPURequest, configured.CPULimit, configured.MemoryRequest, configured.MemoryLimit,
+					strings.Join(forbiddenBy, ", "),
+					accepted.CPURequest, accepted.CPULimit, accepted.MemoryRequest, accepted.MemoryLimit)
+			}
+		}
+	}
+	changed := !hasAccepted || !sameQuantities(accepted, next)
+	if !changed && refusal == st.DefaultsRefusal {
+		return st, nil
+	}
+	var acceptedAt *time.Time
+	if changed {
+		now := time.Now().UTC()
+		acceptedAt = &now
+	}
+	if err := s.dao.SaveDefaults(ctx, next, refusal, acceptedAt); err != nil {
+		return nil, errors.GeneralError("unable to save accepted fleet defaults: %s", err)
+	}
+	if refusal != "" {
+		slog.ErrorContext(ctx, "refusing a fleet defaults change that an enforced policy forbids", "reason", refusal)
+	} else if changed {
+		slog.InfoContext(ctx, "accepted fleet defaults", "cpu_request", next.CPURequest, "cpu_limit", next.CPULimit,
+			"memory_request", next.MemoryRequest, "memory_limit", next.MemoryLimit)
+	}
+	if svcErr := s.emit(ctx, settingsEventSource, SettingsID, api.UpdateEventType); svcErr != nil {
+		return nil, svcErr
+	}
+	saved, dbErr := s.dao.GetSettings(ctx)
+	if dbErr != nil {
+		return nil, errors.GeneralError("unable to read platform policy settings: %s", dbErr)
+	}
+	return saved, nil
+}
+
+func sameQuantities(a, b FleetDefaults) bool {
+	return a.CPURequest == b.CPURequest && a.CPULimit == b.CPULimit &&
+		a.MemoryRequest == b.MemoryRequest && a.MemoryLimit == b.MemoryLimit
+}
+
+// forbiddingPolicies returns, sorted, the names of the policies whose effective
+// mode is enforce and that forbid the default request built from d. A policy
+// that does not compile cannot be published and cannot forbid.
+func (s *sqlService) forbiddingPolicies(ctx context.Context, globalMode string, d cedar.Defaults) ([]string, *errors.ServiceError) {
+	policies, svcErr := s.All(ctx)
+	if svcErr != nil {
+		return nil, svcErr
+	}
+	var out []string
+	for _, p := range policies {
+		if EffectiveMode(globalMode, p.EnforcementMode) != ModeEnforce {
+			continue
+		}
+		ev, err := cedar.NewEvaluator([]cedar.PolicyInput{{Name: p.Name, Cedar: p.Cedar}})
+		if err != nil {
+			continue
+		}
+		if decision := ev.Evaluate(cedar.Request{Context: d.DefaultContext()}); !decision.Allowed {
+			out = append(out, p.Name)
+		}
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
 // SetMode moves the global toggle (PLAT-PGP-06). The request is captured by the
@@ -394,14 +529,13 @@ func (s *sqlService) SetMode(ctx context.Context, mode, actor string) (*PolicySe
 	if svcErr := validateMode(mode); svcErr != nil {
 		return nil, svcErr
 	}
-	saved, err := s.dao.SaveSettings(ctx, &PolicySettings{Mode: mode, UpdatedBy: actor, UpdatedAt: time.Now().UTC()})
-	if err != nil {
+	if _, err := s.dao.SaveSettings(ctx, &PolicySettings{Mode: mode, UpdatedBy: actor, UpdatedAt: time.Now().UTC()}); err != nil {
 		return nil, errors.GeneralError("unable to save platform policy settings: %s", err)
 	}
 	if svcErr := s.emit(ctx, settingsEventSource, SettingsID, api.UpdateEventType); svcErr != nil {
 		return nil, svcErr
 	}
-	return saved, nil
+	return s.Settings(ctx)
 }
 
 // ReportFindings validates and stores interceptor findings idempotently

@@ -360,3 +360,201 @@ func TestPolicyFindingsArePrunedAfterRetention(t *testing.T) {
 	Expect(counts.WouldReject).To(Equal(int32(0)))
 	Expect(counts.WouldAddDefaults).To(Equal(int32(1)))
 }
+
+// rawSettingsPatch sends a PATCH body the generated client cannot express (it
+// only models mode), to prove the read-only fields are not settable.
+func rawSettingsPatch(t *testing.T, client *openapi.APIClient, p principal, body string) int {
+	t.Helper()
+	base := client.GetConfig().Servers[0].URL
+	req, err := http.NewRequest(http.MethodPatch, base+"/api/hypershell/ext/platform_policy_settings", strings.NewReader(body))
+	Expect(err).NotTo(HaveOccurred())
+	req.Header.Set("Authorization", "Bearer "+p.token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	Expect(err).NotTo(HaveOccurred())
+	_ = resp.Body.Close()
+	return resp.StatusCode
+}
+
+func fleetDefaults(cpuRequest string) platformGatewayPolicies.FleetDefaults {
+	return platformGatewayPolicies.FleetDefaults{CPURequest: cpuRequest, CPULimit: "2", MemoryRequest: "1Gi", MemoryLimit: "4Gi"}
+}
+
+// Verifies: PLAT-PGP-08.02, PLAT-PGP-08.03, PLAT-DATA-29.03, PLAT-PGP-04.02
+func TestFleetDefaultsAcceptedOrRefusedAtTheAPIServer(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+	spoke := registerSpoke(t, h, client)
+	policyAdmin := newPrincipal(t, h, "pgp-admin-"+short(), nil)
+	grantPolicyAdmin(t, h, client, policyAdmin)
+	svc := platformGatewayPolicies.Service(&environments.Environment().Services)
+	ctx := context.Background()
+
+	// A fresh database accepts the configured defaults (500m) and serves them
+	// as read-only settings fields, over REST and over the gRPC settings the
+	// control planes watch.
+	settings, _, err := client.DefaultAPI.GetPlatformPolicySettings(policyAdmin.rest).Execute()
+	Expect(err).NotTo(HaveOccurred(), test.APIErrorReason(err))
+	Expect(settings.Defaults.GetCpuRequest()).To(Equal("500m"))
+	Expect(settings.Defaults.GetCpuRequestMillis()).To(Equal(int64(500)))
+	Expect(settings.Defaults.GetMemoryLimitBytes()).To(Equal(int64(4 << 30)))
+	Expect(settings.DefaultsAcceptedAt).NotTo(BeNil())
+	Expect(settings.GetDefaultsRefusal()).To(BeEmpty())
+
+	// An operator raises the default CPU request to 700m; no policy forbids it,
+	// so it is accepted and persisted.
+	st, svcErr := svc.ReconcileDefaults(ctx, fleetDefaults("700m"))
+	Expect(svcErr).NotTo(HaveOccurred())
+	Expect(st.DefaultCPURequest).To(Equal("700m"))
+	Expect(st.DefaultsRefusal).To(BeEmpty())
+
+	// Write-time validation now checks the accepted 700m (PLAT-PGP-04 rule 3):
+	// a policy forbidding a CPU request below 600m is valid and is enforced.
+	minCPU, resp, err := createPolicy(t, client, policyAdmin, "min-cpu", `forbid (principal, action, resource) when { context.cpuRequestMillis < 600 };`)
+	Expect(err).NotTo(HaveOccurred(), "HTTP %d %s", statusOf(resp), test.APIErrorReason(err))
+	_, _, err = client.DefaultAPI.UpdatePlatformGatewayPolicy(policyAdmin.rest, minCPU.GetId()).
+		PlatformGatewayPolicyPatchRequest(openapi.PlatformGatewayPolicyPatchRequest{EnforcementMode: openapi.PtrString("enforce")}).Execute()
+	Expect(err).NotTo(HaveOccurred(), test.APIErrorReason(err))
+
+	// The operator lowers the default to 500m and the api-server restarts: the
+	// enforced policy forbids the new default request, so the change is refused
+	// and 700m keeps being served with the reason (PLAT-PGP-08.02).
+	st, svcErr = svc.ReconcileDefaults(ctx, fleetDefaults("500m"))
+	Expect(svcErr).NotTo(HaveOccurred())
+	Expect(st.DefaultCPURequest).To(Equal("700m"))
+	Expect(st.DefaultsRefusal).To(ContainSubstring("min-cpu"))
+	settings, _, err = client.DefaultAPI.GetPlatformPolicySettings(policyAdmin.rest).Execute()
+	Expect(err).NotTo(HaveOccurred(), test.APIErrorReason(err))
+	Expect(settings.Defaults.GetCpuRequest()).To(Equal("700m"))
+	Expect(settings.GetDefaultsRefusal()).To(ContainSubstring("min-cpu"))
+	got, err := pb.NewPlatformPolicySettingsServiceClient(spoke.conn).GetPlatformPolicySettings(ctx, &pb.GetPlatformPolicySettingsRequest{})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(got.GetSettings().GetDefaults().GetCpuRequest()).To(Equal("700m"))
+	Expect(got.GetSettings().GetDefaults().GetCpuRequestMillis()).To(Equal(int64(700)))
+	Expect(got.GetSettings().GetDefaultsRefusal()).To(ContainSubstring("min-cpu"))
+
+	// The defaults are read-only: a PATCH that also sends defaults is rejected
+	// and changes nothing (PLAT-DATA-29.03).
+	code := rawSettingsPatch(t, client, policyAdmin, `{"mode":"audit","defaults":{"cpu_request":"100m"},"defaults_refusal":""}`)
+	Expect(code).To(Equal(http.StatusBadRequest))
+	settings, _, err = client.DefaultAPI.GetPlatformPolicySettings(policyAdmin.rest).Execute()
+	Expect(err).NotTo(HaveOccurred(), test.APIErrorReason(err))
+	Expect(settings.Defaults.GetCpuRequest()).To(Equal("700m"))
+	Expect(settings.GetDefaultsRefusal()).To(ContainSubstring("min-cpu"))
+
+	// Write-time validation still uses the accepted 700m, not the refused 500m.
+	_, _, err = createPolicy(t, client, policyAdmin, "min-cpu-650", `forbid (principal, action, resource) when { context.cpuRequestMillis < 650 };`)
+	Expect(err).NotTo(HaveOccurred(), test.APIErrorReason(err))
+
+	// With the forbidding policy back in audit, the next start accepts 500m and
+	// clears the refusal. min-cpu-650 is audit-only, so it does not block.
+	_, _, err = client.DefaultAPI.UpdatePlatformGatewayPolicy(policyAdmin.rest, minCPU.GetId()).
+		PlatformGatewayPolicyPatchRequest(openapi.PlatformGatewayPolicyPatchRequest{EnforcementMode: openapi.PtrString("audit")}).Execute()
+	Expect(err).NotTo(HaveOccurred(), test.APIErrorReason(err))
+	st, svcErr = svc.ReconcileDefaults(ctx, fleetDefaults("500m"))
+	Expect(svcErr).NotTo(HaveOccurred())
+	Expect(st.DefaultCPURequest).To(Equal("500m"))
+	Expect(st.DefaultsRefusal).To(BeEmpty())
+	got, err = pb.NewPlatformPolicySettingsServiceClient(spoke.conn).GetPlatformPolicySettings(ctx, &pb.GetPlatformPolicySettingsRequest{})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(got.GetSettings().GetDefaults().GetCpuRequest()).To(Equal("500m"))
+	Expect(got.GetSettings().GetDefaultsRefusal()).To(BeEmpty())
+
+	// An invalid configured quantity is rejected, never accepted.
+	_, svcErr = svc.ReconcileDefaults(ctx, fleetDefaults("lots"))
+	Expect(svcErr).To(HaveOccurred())
+}
+
+// Verifies: PLAT-PGP-21.01, PLAT-PGP-21.02
+func TestPolicyDryRunAndFindingsAccess(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+	spoke := registerSpoke(t, h, client)
+	owner := newPrincipal(t, h, "pgp-owner-"+short(), realmRoles("gateway:creator"))
+	gwG := createGateway(t, client, owner, spoke.clusterID)
+	gwH := createGateway(t, client, owner, spoke.clusterID)
+	policyAdmin := newPrincipal(t, h, "pgp-admin-"+short(), nil)
+	grantPolicyAdmin(t, h, client, policyAdmin)
+	reader := newPrincipal(t, h, "pgp-reader-"+short(), realmRoles(roles.RoleFleetReader))
+	svc := platformGatewayPolicies.Service(&environments.Environment().Services)
+	ctx := context.Background()
+
+	// PLAT-PGP-21.01: the dry run returns diagnostics, the rendered summary,
+	// the defaults check, and the decision with its denial text, and saves
+	// nothing.
+	before, svcErr := svc.All(ctx)
+	Expect(svcErr).NotTo(HaveOccurred())
+	eval, resp, err := client.DefaultAPI.EvaluatePlatformGatewayPolicy(policyAdmin.rest).
+		PlatformGatewayPolicyEvaluationRequest(openapi.PlatformGatewayPolicyEvaluationRequest{
+			Name:        openapi.PtrString("draft-cpu-max"),
+			Cedar:       cpuMaxCedar,
+			UserMessage: openapi.PtrString("Keep sandboxes small."),
+			Sample:      &openapi.PolicySampleRequest{CpuRequest: openapi.PtrString("8")},
+		}).Execute()
+	Expect(err).NotTo(HaveOccurred(), "HTTP %d %s", statusOf(resp), test.APIErrorReason(err))
+	Expect(eval.GetValid()).To(BeTrue())
+	Expect(eval.GetDiagnostics()).To(BeEmpty())
+	Expect(eval.GetRendered()).To(HaveLen(1))
+	Expect(eval.GetRendered()[0].GetSummary()).To(ConsistOf("CPU request: at most 4"))
+	Expect(eval.GetForbidsDefaults()).To(BeFalse())
+	Expect(eval.Defaults.GetCpuRequest()).To(Equal("500m"))
+	Expect(eval.GetSampleAllowed()).To(BeFalse())
+	Expect(eval.GetDenialText()).To(ContainSubstring("draft-cpu-max: Keep sandboxes small."))
+
+	invalid, _, err := client.DefaultAPI.EvaluatePlatformGatewayPolicy(policyAdmin.rest).
+		PlatformGatewayPolicyEvaluationRequest(openapi.PlatformGatewayPolicyEvaluationRequest{
+			Cedar: "forbid (principal, action, resource)\nwhen { context.cpuRequest > 4 };",
+		}).Execute()
+	Expect(err).NotTo(HaveOccurred(), test.APIErrorReason(err))
+	Expect(invalid.GetValid()).To(BeFalse())
+	Expect(invalid.GetDiagnostics()).NotTo(BeEmpty())
+	Expect(invalid.GetDiagnostics()[0].GetLine()).To(BeNumerically(">", 0))
+
+	after, svcErr := svc.All(ctx)
+	Expect(svcErr).NotTo(HaveOccurred())
+	Expect(after).To(HaveLen(len(before)), "the dry run must persist nothing")
+	for _, p := range after {
+		Expect(p.Name).NotTo(Equal("draft-cpu-max"))
+	}
+
+	// The dry run is for policy authors only.
+	_, resp, err = client.DefaultAPI.EvaluatePlatformGatewayPolicy(owner.rest).
+		PlatformGatewayPolicyEvaluationRequest(openapi.PlatformGatewayPolicyEvaluationRequest{Cedar: cpuMaxCedar}).Execute()
+	Expect(err).To(HaveOccurred())
+	Expect(statusOf(resp)).To(Equal(http.StatusForbidden))
+
+	// PLAT-PGP-21.02: policy P with findings on two gateways.
+	policy, _, err := createPolicy(t, client, policyAdmin, "cpu-max", cpuMaxCedar)
+	Expect(err).NotTo(HaveOccurred(), test.APIErrorReason(err))
+	now := time.Now().UTC()
+	for _, gw := range []string{*gwG.Id, *gwH.Id} {
+		_, err = reportFinding(t, spoke, gw, "evt-"+strings.ToLower(api.NewID()), "cpu-max", "would_reject", now)
+		Expect(err).NotTo(HaveOccurred())
+	}
+	_, err = reportFinding(t, spoke, *gwG.Id, "evt-"+strings.ToLower(api.NewID()), "cpu-max", "would_add_defaults", now)
+	Expect(err).NotTo(HaveOccurred())
+
+	list, _, err := client.DefaultAPI.ListPlatformGatewayPolicyFindings(policyAdmin.rest, policy.GetId()).
+		Outcome("would_reject").Size(1).Execute()
+	Expect(err).NotTo(HaveOccurred(), test.APIErrorReason(err))
+	Expect(list.GetTotal()).To(Equal(int32(2)))
+	Expect(list.GetItems()).To(HaveLen(1), "the findings are paginated")
+	page2, _, err := client.DefaultAPI.ListPlatformGatewayPolicyFindings(policyAdmin.rest, policy.GetId()).
+		Outcome("would_reject").Size(1).Page(2).Execute()
+	Expect(err).NotTo(HaveOccurred(), test.APIErrorReason(err))
+	Expect(page2.GetItems()).To(HaveLen(1))
+	Expect([]string{list.GetItems()[0].GetGatewayId(), page2.GetItems()[0].GetGatewayId()}).To(ConsistOf(*gwG.Id, *gwH.Id))
+	for _, f := range append(list.GetItems(), page2.GetItems()...) {
+		Expect(f.GetOutcome()).To(Equal("would_reject"))
+	}
+
+	// fleet:reader reads the same findings (SEC-RBAC-31).
+	readerList, _, err := client.DefaultAPI.ListPlatformGatewayPolicyFindings(reader.rest, policy.GetId()).
+		Outcome("would_reject").Execute()
+	Expect(err).NotTo(HaveOccurred(), test.APIErrorReason(err))
+	Expect(readerList.GetTotal()).To(Equal(int32(2)))
+
+	// The owner of both gateways is refused the per-policy findings path.
+	_, resp, err = client.DefaultAPI.ListPlatformGatewayPolicyFindings(owner.rest, policy.GetId()).
+		Outcome("would_reject").Execute()
+	Expect(err).To(HaveOccurred())
+	Expect(statusOf(resp)).To(BeElementOf(http.StatusForbidden, http.StatusNotFound))
+}

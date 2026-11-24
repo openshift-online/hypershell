@@ -14,19 +14,25 @@ import (
 )
 
 // PolicyInterceptorProvider returns the sidecar values for one gateway.
-type PolicyInterceptorProvider func(gatewayID, namespace, workspaceMode string) (*helm.PolicyInterceptorConfig, error)
+type PolicyInterceptorProvider func(ctx context.Context, gatewayID, namespace, workspaceMode string) (*helm.PolicyInterceptorConfig, error)
 
 // NewPolicyInterceptorProvider builds the per-gateway sidecar configuration
 // from the controller's own image (PLAT-PGP-09), the events endpoint, the
-// accepted fleet defaults (PLAT-PGP-08), and the static binding table shared
-// with the interceptor's Describe (PLAT-PGP-10).
-func NewPolicyInterceptorProvider(image, eventsAddress, consoleURL string, defaults *PolicyDefaultsGuard) PolicyInterceptorProvider {
-	return func(gatewayID, namespace, workspaceMode string) (*helm.PolicyInterceptorConfig, error) {
+// fleet defaults the api-server accepted and distributes through
+// PlatformPolicySettings (PLAT-PGP-08), and the static binding table shared
+// with the interceptor's Describe (PLAT-PGP-10). Without received defaults it
+// returns an error, so the gateway reconcile retries rather than render a
+// sidecar with made-up defaults.
+func NewPolicyInterceptorProvider(image, eventsAddress, consoleURL string, defaults *FleetDefaultsSource) PolicyInterceptorProvider {
+	return func(ctx context.Context, gatewayID, namespace, workspaceMode string) (*helm.PolicyInterceptorConfig, error) {
 		issuer, err := helm.PolicyJWTIssuer(workspaceMode, namespace)
 		if err != nil {
 			return nil, fmt.Errorf("policy interceptor issuer: %w", err)
 		}
-		d := defaults.Accepted()
+		d, err := defaults.Get(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("policy interceptor fleet defaults: %w", err)
+		}
 		cfg := &helm.PolicyInterceptorConfig{
 			Name:          policyinterceptor.InterceptorName,
 			Audience:      policyinterceptor.DefaultAudience,
