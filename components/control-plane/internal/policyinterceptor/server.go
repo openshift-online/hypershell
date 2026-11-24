@@ -236,9 +236,9 @@ func (s *Server) defaultsFor(snap *snapshot) DefaultQuantities {
 	return *snap.defaults
 }
 
-// modifyCreate adds the missing fleet defaults when at least one policy is
-// enforced on the gateway; otherwise it changes nothing and records a
-// would_add_defaults finding (PLAT-PGP-08).
+// modifyCreate adds the missing fleet defaults when an enforced policy turns
+// injection on for this sandbox (snapshot.injectsDefaultsFor); otherwise it
+// changes nothing and records a would_add_defaults finding (PLAT-PGP-08).
 func (s *Server) modifyCreate(ctx context.Context, snap *snapshot, req *gi.InterceptorEvaluation) (*gi.InterceptorResult, error) {
 	sr, err := ParseCreateSandbox(proposed(req))
 	if err != nil {
@@ -248,7 +248,7 @@ func (s *Server) modifyCreate(ctx context.Context, snap *snapshot, req *gi.Inter
 		return allow(), nil
 	}
 	defaults := s.defaultsFor(snap)
-	if snap.hasEnforced() {
+	if snap.injectsDefaultsFor(sr.Name) {
 		patches, err := sr.DefaultPatches(defaults)
 		if err != nil {
 			return s.invalidRequest(snap, err)

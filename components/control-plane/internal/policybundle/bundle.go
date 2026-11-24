@@ -31,6 +31,10 @@ const (
 
 	// CanaryPolicyName is the built-in e2e enforcement canary (PLAT-PGP-20).
 	CanaryPolicyName = "e2e-enforcement-canary"
+	// CanarySandboxPrefix is the reserved sandbox-name prefix the canary
+	// applies to (PLAT-PGP-20). Fleet defaults that the canary turns on are
+	// injected only into sandboxes with this prefix (PLAT-PGP-08.07).
+	CanarySandboxPrefix = "e2epol-"
 )
 
 // Policy is one resolved policy in a bundle. Cedar carries the @id-annotated
@@ -41,6 +45,10 @@ type Policy struct {
 	UserMessage      string `json:"userMessage,omitempty"`
 	DocumentationURL string `json:"documentationUrl,omitempty"`
 	Cedar            string `json:"cedar"`
+	// BuiltIn marks a seeded platform policy such as the e2e canary. An
+	// enforced built-in policy does not turn on fleet-default injection for
+	// other sandboxes (PLAT-PGP-08.07).
+	BuiltIn bool `json:"builtIn,omitempty"`
 }
 
 // Bundle is the per-gateway policy bundle. Effective modes are already
@@ -194,6 +202,7 @@ func Build(in Input) (Bundle, []Skipped, error) {
 			UserMessage:      p.GetUserMessage(),
 			DocumentationURL: p.GetDocumentationUrl(),
 			Cedar:            annotated,
+			BuiltIn:          p.GetBuiltIn(),
 		}
 		if !in.Unsupported && EffectiveMode(in.GlobalMode, p.GetEnforcementMode()) == ModeEnforce {
 			b.Enforced = append(b.Enforced, entry)

@@ -46,6 +46,7 @@ func testDefaults(t *testing.T) DefaultQuantities {
 
 type testPolicy struct {
 	name, mode, message, doc, cedar string
+	builtIn                         bool
 }
 
 func cpuOver(n string) string {
@@ -69,6 +70,7 @@ func buildBundle(t *testing.T, gatewayID string, unsupported bool, policies ...t
 			UserMessage:      p.message,
 			DocumentationUrl: p.doc,
 			Cedar:            p.cedar,
+			BuiltIn:          p.builtIn,
 		})
 	}
 	b, skipped, err := policybundle.Build(policybundle.Input{
@@ -77,6 +79,8 @@ func buildBundle(t *testing.T, gatewayID string, unsupported bool, policies ...t
 		Policies:    in,
 		Defaults:    testDefaults(t).Parsed,
 		Unsupported: unsupported,
+		// Built-in test policies stand in for the e2e canary.
+		CanaryEnabled: true,
 	})
 	if err != nil {
 		t.Fatalf("build bundle: %v", err)

@@ -2,6 +2,7 @@ package policyinterceptor
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -28,6 +29,24 @@ type snapshot struct {
 // hasEnforced reports whether at least one policy is enforced on this gateway.
 func (s *snapshot) hasEnforced() bool {
 	return s != nil && s.bundle.ResourcePoliciesSupported && len(s.bundle.Enforced) > 0 && !s.enforced.Empty()
+}
+
+// injectsDefaultsFor reports whether fleet defaults are added to a sandbox
+// with this name (PLAT-PGP-08.01, PLAT-PGP-08.07). Any enforced policy that is
+// not built in turns injection on for every sandbox. An enforced built-in
+// policy (the e2e canary) turns it on only for sandboxes with its reserved
+// prefix, so a release check never changes other sandboxes while the platform
+// is otherwise in audit (PLAT-PGP-07).
+func (s *snapshot) injectsDefaultsFor(sandboxName string) bool {
+	if !s.hasEnforced() {
+		return false
+	}
+	for _, p := range s.bundle.Enforced {
+		if !p.BuiltIn {
+			return true
+		}
+	}
+	return strings.HasPrefix(sandboxName, policybundle.CanarySandboxPrefix)
 }
 
 // Store holds the current snapshot and the last bundle load error.

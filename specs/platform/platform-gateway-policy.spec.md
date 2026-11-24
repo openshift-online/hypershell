@@ -301,9 +301,12 @@ sidecar as environment variables. When the control plane has not received defaul
 it SHALL write no bundle and render no sidecar rather than use a built-in value, so
 protected RPCs fail closed (PLAT-PGP-12). Defaults SHALL NOT be stored in a policy
 and SHALL NOT be settable by a gateway owner or through the settings `PATCH`. The
-sidecar SHALL add a default in `modify_operation` only when at least one policy is
-enforced on that gateway; otherwise it SHALL change nothing and record a
-`would_add_defaults` finding. A change to a fleet default SHALL be checked against
+sidecar SHALL add a default in `modify_operation` only when at least one policy that
+is not built in is enforced on that gateway, or when the only enforced policies are
+built in (the e2e canary, PLAT-PGP-20) and the sandbox name carries the canary's
+reserved prefix; otherwise it SHALL change nothing and record a
+`would_add_defaults` finding. A built-in release-check policy SHALL therefore never
+change other sandboxes while the platform is otherwise in audit (PLAT-PGP-07). A change to a fleet default SHALL be checked against
 every existing policy before rollout (the default-request check of PLAT-PGP-04): at
 startup the api-server SHALL accept configured defaults that differ from the
 accepted ones only when no policy whose effective mode is `enforce` forbids the new
@@ -372,6 +375,14 @@ rejected.
 - THEN it SHALL also set the sandbox annotation `hypershell.redhat.io/policy-defaults-applied` to the added values as comma-separated `<section>.<key>=<value>` entries (for example `requests.cpu=500m,limits.memory=4Gi`)
 - AND a client-supplied value for that annotation SHALL be replaced, so the annotation always reflects what the interceptor added
 - AND a request that receives no defaults SHALL get no annotation patch
+
+#### Scenario: PLAT-PGP-08.07 -- A Built-In Canary Does Not Turn On Defaults for Other Sandboxes
+
+- GIVEN a gateway whose only enforced policy is the built-in `e2e-enforcement-canary`
+- WHEN a sandbox named without the reserved `e2epol-` prefix is created without resources
+- THEN the interceptor SHALL add no defaults and SHALL record a `would_add_defaults` finding
+- AND a sandbox named with the reserved prefix SHALL receive the fleet defaults
+- AND when a policy that is not built in is also enforced, every sandbox SHALL receive the fleet defaults
 
 ---
 

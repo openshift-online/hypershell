@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/policybundle"
 	"strings"
 	"testing"
 	"time"
@@ -299,5 +300,44 @@ func TestResumeRecheckAgainstEnforcedSet(t *testing.T) {
 	srv.Lookup = &fakeLookup{err: errors.New("boom")}
 	if res, err := srv.Evaluate(context.Background(), validateEval(t, "StartSandbox", resume)); err != nil || !res.GetAllowed() {
 		t.Fatalf("start with failing lookup: got %+v, %v; want allow", res, err)
+	}
+}
+
+// TestBuiltInCanaryInjectsDefaultsOnlyForItsPrefix checks that an enforced
+// built-in policy (the e2e canary) adds fleet defaults only to sandboxes with
+// the reserved prefix, records a would_add_defaults finding for others, and
+// that an enforced user policy still turns injection on for every sandbox.
+// Verifies: PLAT-PGP-08.07, PLAT-PGP-20.01
+func TestBuiltInCanaryInjectsDefaultsOnlyForItsPrefix(t *testing.T) {
+	canary := testPolicy{
+		name: policybundle.CanaryPolicyName, mode: "enforce", builtIn: true,
+		cedar: `forbid (principal, action == OpenShell::Action::"CreateSandbox", resource) when { context.sandboxName like "e2epol-*" && context.cpuRequestMillis > 1000 };`,
+	}
+	srv := newTestServer(t, buildBundle(t, testGatewayID, false, canary))
+
+	regular, err := srv.Evaluate(context.Background(), modifyEval(t, createOp("sb-1", nil, nil)))
+	if err != nil || !regular.GetAllowed() {
+		t.Fatalf("regular create: %+v, %v", regular, err)
+	}
+	if len(regular.GetPatches()) != 0 {
+		t.Fatalf("canary-only gateway patched a regular sandbox: %v", regular.GetPatches())
+	}
+	if srv.Events.Len() != 1 {
+		t.Fatalf("regular sandbox on a canary-only gateway recorded %d events, want 1 would_add_defaults", srv.Events.Len())
+	}
+
+	prefixed, err := srv.Evaluate(context.Background(), modifyEval(t, createOp(policybundle.CanarySandboxPrefix+"123456-allow", nil, nil)))
+	if err != nil || !prefixed.GetAllowed() {
+		t.Fatalf("prefixed create: %+v, %v", prefixed, err)
+	}
+	if len(prefixed.GetPatches()) == 0 {
+		t.Fatal("canary did not add defaults to a reserved-prefix sandbox")
+	}
+
+	user := newTestServer(t, buildBundle(t, testGatewayID, false, canary,
+		testPolicy{name: "cpu-cap", mode: "enforce", cedar: cpuOver("4000")}))
+	withUser, err := user.Evaluate(context.Background(), modifyEval(t, createOp("sb-2", nil, nil)))
+	if err != nil || len(withUser.GetPatches()) == 0 {
+		t.Fatalf("an enforced user policy must add defaults to every sandbox: %+v, %v", withUser, err)
 	}
 }
