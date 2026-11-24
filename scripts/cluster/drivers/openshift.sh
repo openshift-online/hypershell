@@ -896,6 +896,15 @@ configure_oidc_from_routes() {
   success "Routes: api=${api_host} console=${console_host} keycloak=${kc_host}"
 }
 
+# configure_vault_ca_source points this environment's controller at its own copy of the
+# Vault serving CA (made by vault.sh), instead of the shared openshell-vault Secret.
+# VaultCASource() in the control plane reads GATEWAY_VAULT_CA_SECRET as "namespace/name".
+configure_vault_ca_source() {
+  info "Configuring control plane Vault CA source ${OPENSHIFT_NAMESPACE}/hypershell-vault-ca"
+  oc_cli set env deployment/hypershell-controller -n "${OPENSHIFT_NAMESPACE}" -c controller \
+    "GATEWAY_VAULT_CA_SECRET=${OPENSHIFT_NAMESPACE}/hypershell-vault-ca" >/dev/null
+}
+
 wait_for_deployments() {
   header "Readiness"
   # Use `rollout status`, not `wait --for=condition=available`. With replicas=1
@@ -1275,10 +1284,17 @@ cluster_up() {
   # the environment come up. The gateway default is vault, and credential_driver is now
   # platform-managed (PLAT-DATA-23), so the control plane must be configured for kek-db
   # here (there is no reachable Vault to fall back to); a user cannot set it per gateway.
-  local vault_log
+  #
+  # vault.sh also copies the serving CA into this environment's namespace
+  # (VAULT_CA_COPY_NAMESPACE), and the controller reads that copy
+  # (GATEWAY_VAULT_CA_SECRET, set by configure_vault_ca_source). The e2e fail-closed step
+  # P2.7 corrupts the CA it reads, so the break stays inside this environment and can never
+  # leave the shared openshell-vault Secret broken for other PR environments.
+  local vault_log vault_ok=""
   vault_log="$(mktemp)"
-  if CLUSTER_DRIVER=openshift VAULT_KUBECTL="oc" bash "${CLUSTER_SCRIPT_DIR}/vault.sh" 2>&1 | tee "${vault_log}"; then
-    :
+  if CLUSTER_DRIVER=openshift VAULT_KUBECTL="oc" VAULT_CA_COPY_NAMESPACE="${OPENSHIFT_NAMESPACE}" \
+      bash "${CLUSTER_SCRIPT_DIR}/vault.sh" 2>&1 | tee "${vault_log}"; then
+    vault_ok=1
   elif grep -qi 'forbidden' "${vault_log}"; then
     warn "Vault setup is forbidden on this cluster (not cluster-admin); skipping the stand-in Vault."
     warn "The control plane here must be configured for 'credential_driver: kek-db' (the default is vault and would fail closed without a reachable Vault; credential_driver is platform-managed and cannot be set per gateway by a user)."
@@ -1289,6 +1305,9 @@ cluster_up() {
   fi
   rm -f "${vault_log}"
   apply_overlay
+  if [[ -n "${vault_ok}" ]]; then
+    configure_vault_ca_source
+  fi
   restore_swaps_after_reconcile
   configure_oidc_from_routes
   wait_for_deployments

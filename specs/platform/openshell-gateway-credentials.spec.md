@@ -757,13 +757,27 @@ into Vault with a synthetic identity:
   lifecycle**: creating a sandbox drives the actual OpenShell gateway to resolve a provider
   credential from Vault under its per-tenant `openshell-gw/<namespace>/.../provider-credentials/*`,
   so if the policy or mount were wrong the sandbox would never reach Running.
-- **Fail-closed** when Vault is unreachable is asserted by the suite by making the per-cluster
-  Vault **unreachable to the control plane** (corrupting the serving-CA source Secret the
-  reachability probe reads) and then provisioning a Vault-backed gateway through the product API.
-  Because Vault is a black box with no per-gateway overrides, reachability is a cluster-wide
-  property and cannot be broken for a single gateway; this step therefore runs **serially as the
-  final behavior check** (never concurrently with other provisioning) and restores Vault
-  reachability afterward. It needs kube access to mutate the CA source Secret.
+- **Fail-closed** when Vault is unreachable is asserted by the suite by making the Vault
+  **unreachable to the control plane** (corrupting the serving CA the reachability probe reads)
+  and then provisioning a Vault-backed gateway through the product API. The suite SHALL corrupt
+  only the environment's **own copy** of the serving CA: the dev/e2e bring-up copies `ca.crt`
+  from the shared `openshell-vault/openshell-gateway-vault-tls` Secret into the environment's
+  platform namespace (Secret `hypershell-vault-ca`) and points the control plane at it with
+  `GATEWAY_VAULT_CA_SECRET`. The suite SHALL discover that Secret from the control plane's
+  `GATEWAY_VAULT_CA_SECRET`, and SHALL refuse to run when it is unset or names the shared
+  `openshell-vault` namespace, so a test process killed mid-step can never leave the shared Vault
+  broken for other environments on the cluster. Within the environment the break still affects
+  every gateway its control plane provisions (Vault is a black box with no per-gateway
+  overrides), so this step runs **serially as the final behavior check** (never concurrently
+  with other provisioning). It SHALL refuse to start when the current CA is not a valid PEM
+  certificate (so an already-broken value is never saved as the original), and SHALL restore
+  the CA through a test cleanup as well as on return. It needs kube access to read the control
+  plane Deployment and mutate the CA copy.
+- **Fixture self-heal:** the stand-in Vault fixture SHALL validate a reused serving-TLS Secret
+  (`ca.crt` is a PEM certificate and `tls.crt` chains to it) and SHALL regenerate it when it is
+  invalid, then make the running Vault serve the new certificate without losing its
+  initialized state (a listener TLS reload, not a pod restart, because the fixture's storage
+  is ephemeral).
 
 #### Scenario: OSG-CRED-14.01 -- Vault fixture self-verifies the capability policy
 
@@ -780,21 +794,30 @@ into Vault with a synthetic identity:
 
 #### Scenario: OSG-CRED-14.02 -- Fail-closed is observable when Vault is unavailable
 
-- GIVEN the suite has made the per-cluster Vault unreachable to the control plane (corrupting the serving-CA source Secret), running serially so no other provisioning is in flight
+- GIVEN the suite has made the Vault unreachable to the control plane by corrupting the environment's own serving-CA copy (named by the control plane's `GATEWAY_VAULT_CA_SECRET`, never the shared `openshell-vault` Secret), running serially so no other provisioning in the environment is in flight
 - AND a Vault-backed gateway is then provisioned through the product API (no per-gateway overrides)
 - WHEN the GatewayReconciler reconciles
 - THEN the suite SHALL observe the fail-closed signal through the API (`EnvironmentReady` fails
   with a Vault-named reason), and the gateway SHALL never report `Running`
 - AND the suite SHALL restore Vault reachability afterward
 
+#### Scenario: OSG-CRED-14.03 -- Vault fixture heals a corrupted serving-TLS Secret
+
+- GIVEN an existing `openshell-gateway-vault-tls` Secret whose `ca.crt` is not a certificate or
+  does not sign `tls.crt`
+- WHEN the stand-in Vault fixture runs
+- THEN it SHALL regenerate the CA and server certificate instead of reusing the Secret
+- AND it SHALL make the running Vault serve the new certificate without wiping its state
+
 **Coverage boundaries.** The sandbox lifecycle exercises the real gateway-process resolve at
 `provider-credentials/*`; the fixture self-test proves the capability policy (round-trip, no
 list, no out-of-prefix) against the GitOps Contract; the suite asserts fail-closed at
 provisioning via the API. The following are proven elsewhere and SHOULD NOT be assumed covered
 by this suite: sandbox-to-sandbox / cross-workspace resolve denial (OpenShell gateway workspace
-authorization, upstream unit tests), the authenticated-probe *rejection* path (Vault reachable
-but the identity denied), and the runtime `Degraded` transition when a healthy gateway's Vault
-later becomes unreachable.
+authorization, upstream unit tests), the deeper probe failure modes (a CA from a different
+authority, a sealed Vault, a denied login; covered by control-plane unit tests against a fake
+Vault), and the runtime `Degraded` transition when a healthy gateway's Vault later becomes
+unreachable.
 
 ---
 
