@@ -1,7 +1,7 @@
 # Service Level Indicators
 
 **Status:** Draft
-**Applies to:** `components/api-server` (durable convergence tracking, provision and convergence Prometheus metrics, build metadata), `components/control-plane` (reconciliation-lag and convergence-age metrics, build metadata, removal of the in-memory provision histogram), `components/web-console` (build metadata), the OTel `http.server.request.duration` histogram and its Prometheus scrape, and every component build pipeline (`Makefile`, `.tekton/*`, component `Dockerfile`s)
+**Applies to:** `components/api-server` (durable convergence tracking, provision and convergence Prometheus metrics, build metadata), `components/control-plane` (reconciliation-lag and convergence-age metrics, build metadata, removal of the in-memory provision histogram), `components/web-console` (build metadata), the OTel `http.server.request.duration` histogram, its verified caller-class attribute and `HYPERSHELL_SYNTHETIC_CLIENT_IDS` deploy setting, and its Prometheus scrape, and every component build pipeline (`Makefile`, `.tekton/*`, component `Dockerfile`s)
 **Tracks:** [HYPERSHELL-548](https://redhat.atlassian.net/browse/HYPERSHELL-548)
 
 ## Purpose
@@ -16,10 +16,16 @@ GitOps repository and are out of scope here.
 | SLO | Good event | Target | Instrumented by |
 | --- | --- | --- | --- |
 | Change convergence | A create, spec update, or delete that reaches its desired state within 10 minutes | 99% | OBS-SLI-01 through OBS-SLI-06 |
-| API latency | A read under 500 ms, or a write under 2 s | 99% | OBS-SLI-07, OBS-SLI-08, OBS-SLI-10 |
+| API latency | A user read under 500 ms, or a user write under 2 s | 99% | OBS-SLI-07, OBS-SLI-08, OBS-SLI-10, OBS-SLI-11 |
 
 Gateway availability and API availability are measured by an external prober and
-are specified separately. Lead-time build metadata (OBS-SLI-09) is not an SLO; it
+are specified separately (`platform/outside-prober.spec.md`). The API availability
+objective also counts in-pod user request outcomes from the same
+`http.server.request.duration` histogram, which carries the response status code,
+the templated route (OBS-SLI-10), and the verified caller class (OBS-SLI-11). Both
+user API indicators count user traffic only: requests made by the platform's own
+synthetic clients, such as the outside prober, are classified `synthetic` and are
+excluded, because the prober has its own objectives and alerts. Lead-time build metadata (OBS-SLI-09) is not an SLO; it
 supports the lead-time dashboard that reports the age of the oldest undeployed
 commit.
 
@@ -399,6 +405,123 @@ reliability dashboard already consumes (OBS-REL-08).
 - THEN it SHALL count only the user-route samples
 - AND it SHALL exclude the OpenAPI and registration routes, so it measures user REST traffic only
 
+### Requirement: OBS-SLI-11 -- Verified Caller Class Attribute for User-Only API Indicators
+
+The API latency histogram (`http.server.request.duration`) SHALL carry a bounded
+`hypershell.caller.class` attribute on every sample, exported to Prometheus as the
+`hypershell_caller_class` label. The attribute SHALL have exactly two values:
+
+| Value | Meaning |
+| --- | --- |
+| `synthetic` | The request carries an access token that the API server verified for this request (signature, issuer, audience, and expiry, as `platform/oidc-integration.spec.md` defines), and that token's `azp` claim is a string equal to one entry of the configured synthetic client list |
+| `user` | Every other request, including a request with no token, a token the API server did not verify, a token whose claims cannot be read, an `azp` claim that is missing, not a string, or not in the list, and every request when the list is empty |
+
+When the API server cannot prove that a request came from a configured synthetic
+client, it SHALL classify the request as `user`, so user traffic is never hidden
+from the user API indicators by mistake.
+
+The API server SHALL derive the caller class only from the claims of the token that
+its authentication verified for the request. The `azp` claim names the OAuth client
+the token was issued to (`platform/oidc-integration.spec.md`), and Keycloak sets it,
+so a caller cannot choose it without a valid token for that client. Request
+headers, the user agent, the source address, query parameters, and any token claims
+read without verification SHALL have no effect on the caller class, because a
+caller controls them and could use them to hide or inflate traffic.
+
+The attribute SHALL record only the class. The raw `azp`, `sub`, username, or any
+other identity value SHALL NOT appear as a metric attribute
+(`platform/api-server-observability.spec.md` API-OBS-06), so the attribute adds
+exactly two values of cardinality and no identity data.
+
+The synthetic client list is configuration, not code:
+
+| Setting | Values | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `HYPERSHELL_SYNTHETIC_CLIENT_IDS` | Comma-separated OAuth client IDs | No | `hypershell-prober` | The `azp` values whose verified tokens classify as `synthetic` |
+
+The API server SHALL read `HYPERSHELL_SYNTHETIC_CLIENT_IDS` once at startup. It
+SHALL trim white space around each entry and ignore empty entries. When the setting
+is omitted, the list SHALL be `hypershell-prober`, the outside prober's Keycloak
+client (`platform/outside-prober.spec.md` OBS-PRB-06). When the setting is present
+and contains no entries (for example, the empty string), the list SHALL be empty
+and every request SHALL classify as `user`. The repository API server deployment
+(`deploy/base/applications/api-server.yaml`) SHALL set
+`HYPERSHELL_SYNTHETIC_CLIENT_IDS` explicitly to `hypershell-prober`.
+
+The user API indicators SHALL count only samples whose caller class is `user`: the
+API latency objective (OBS-SLI-07, OBS-SLI-08, OBS-SLI-10) and the in-pod user
+request outcomes of the API availability objective. The SLO rules that apply this
+filter live in the GitOps repository and are out of scope here (see Purpose); this
+requirement owns only the attribute that makes the filter possible.
+
+The caller-class attribute SHALL complement, and SHALL NOT replace, the read/write
+request-class attribute (OBS-SLI-08), the `http.route` attribute (OBS-SLI-10), or
+the response-status-code attribute the reliability dashboard already consumes
+(OBS-REL-08).
+
+#### Scenario: OBS-SLI-11.01 -- Verified prober token classifies as synthetic
+
+- GIVEN `HYPERSHELL_SYNTHETIC_CLIENT_IDS` is `hypershell-prober`
+- AND a `GET /api/hypershell/v1/gateways` request carries an access token that the API server verifies, with `azp=hypershell-prober`
+- WHEN the latency histogram records the request
+- THEN the sample SHALL carry `hypershell.caller.class` with the value `synthetic`
+- AND the sample SHALL NOT carry the `azp` or `sub` value of the token
+
+#### Scenario: OBS-SLI-11.02 -- Verified user token classifies as user
+
+- GIVEN `HYPERSHELL_SYNTHETIC_CLIENT_IDS` is `hypershell-prober`
+- AND a `GET /api/hypershell/v1/gateways/{id}` request carries an access token that the API server verifies, with `azp=hypershell-frontend`
+- WHEN the latency histogram records the request
+- THEN the sample SHALL carry `hypershell.caller.class` with the value `user`
+
+#### Scenario: OBS-SLI-11.03 -- Request without a token classifies as user
+
+- GIVEN a `GET /api/hypershell/v1/openapi` request with no `Authorization` header
+- WHEN the latency histogram records the request
+- THEN the sample SHALL carry `hypershell.caller.class` with the value `user`
+
+#### Scenario: OBS-SLI-11.04 -- Unverified token cannot select synthetic
+
+- GIVEN `HYPERSHELL_SYNTHETIC_CLIENT_IDS` is `hypershell-prober`
+- AND a request carries a token with `azp=hypershell-prober` that the API server did not verify (for example, a forged signature, a wrong issuer, or an expired token)
+- WHEN the request produces a latency sample
+- THEN the sample SHALL carry `hypershell.caller.class` with the value `user`
+
+#### Scenario: OBS-SLI-11.05 -- Unreadable or unlisted azp classifies as user
+
+- GIVEN `HYPERSHELL_SYNTHETIC_CLIENT_IDS` is `hypershell-prober`
+- AND a request carries a verified token whose `azp` claim is missing, is not a string, or is a client ID that is not in the list
+- WHEN the latency histogram records the request
+- THEN the sample SHALL carry `hypershell.caller.class` with the value `user`
+
+#### Scenario: OBS-SLI-11.06 -- Spoofed headers have no effect
+
+- GIVEN a request carries a verified access token with `azp=hypershell-frontend`
+- AND the request also sends `User-Agent: hypershell-prober` and an `X-`-prefixed header that claims synthetic traffic
+- WHEN the latency histogram records the request
+- THEN the sample SHALL carry `hypershell.caller.class` with the value `user`
+
+#### Scenario: OBS-SLI-11.07 -- Empty synthetic client list classifies every request as user
+
+- GIVEN `HYPERSHELL_SYNTHETIC_CLIENT_IDS` is set to the empty string
+- AND a request carries a verified access token with `azp=hypershell-prober`
+- WHEN the latency histogram records the request
+- THEN the sample SHALL carry `hypershell.caller.class` with the value `user`
+
+#### Scenario: OBS-SLI-11.08 -- Omitted setting defaults to the prober client
+
+- GIVEN `HYPERSHELL_SYNTHETIC_CLIENT_IDS` is not set
+- AND a request carries a verified access token with `azp=hypershell-prober`
+- WHEN the latency histogram records the request
+- THEN the sample SHALL carry `hypershell.caller.class` with the value `synthetic`
+
+#### Scenario: OBS-SLI-11.09 -- User API indicators count only user samples
+
+- GIVEN latency samples on user routes with `hypershell_caller_class="synthetic"` and with `hypershell_caller_class="user"`
+- WHEN the API latency objective or the in-pod user request outcomes of the API availability objective select their good and bad events
+- THEN they SHALL count only the `user` samples
+- AND a failure seen only by users SHALL NOT be diluted by successful synthetic requests
+
 ### Requirement: OBS-SLI-09 -- Build Revision and Build Time for Every Production Component
 
 Every production component SHALL report the source commit it was built from and the
@@ -462,6 +585,7 @@ Reported build metadata SHALL NOT contain secrets.
 | Standardize latency on OTel `http.server.request.duration` | Its buckets are owned by HyperShell code; the framework `api_inbound_request_duration` buckets are owned by the upstream rh-trex-ai dependency and cannot be set here. |
 | Read/write class from the HTTP method | Bounded two-value label; reads and writes have different SLO thresholds; avoids a per-route cardinality explosion. |
 | Templated `http.route` on the latency histogram, scoped to user routes | The latency histogram reached the hub with method and class only, so a method-only SLI measured platform traffic rather than the handful of user requests per hour. The templated route is bounded by the registered routes and lets the SLO exclude OpenAPI and registration traffic, matching the user-REST-traffic scope of the availability measurement. |
+| Caller class from the verified token's `azp`, two values, default `user` | The outside prober makes most production API requests, so a user-only failure would be diluted many times over. Keycloak sets `azp` to the client the token was issued to, so it identifies the prober with no Keycloak change. Reading it only from the verified token means a caller cannot hide or inflate traffic with headers or forged claims. A bounded two-value label keeps cardinality and privacy safe, and defaulting to `user` makes every mistake visible instead of hidden. |
 | Build time as a build argument plus a stamped artifact | Separates configuration from code; the api-server and fleet-dashboard already follow this pattern, so the control plane and web console adopt it rather than inventing a new one. |
 
 ## Primary Basis
@@ -472,7 +596,9 @@ Reported build metadata SHALL NOT contain secrets.
 - `platform/control-plane-observability.spec.md` (OBS-CPL-07 reconcile metrics)
 - `platform/control-plane-reconciliation-metrics.spec.md` (OBS-CRM-01 metric types)
 - `platform/gateway-metrics-dashboard.spec.md` (OBS-GMD-01, OBS-GMD-02 API-server collector and metrics endpoint)
-- `platform/api-server-observability.spec.md` (API-OBS-05 request metrics)
+- `platform/api-server-observability.spec.md` (API-OBS-05 request metrics, API-OBS-06 telemetry privacy and cardinality)
+- `platform/oidc-integration.spec.md` (`azp` names the OAuth client a token was issued to; token verification)
+- `platform/outside-prober.spec.md` (OBS-PRB-06 prober identity and its `hypershell-prober` Keycloak client)
 - `platform/api-reliability-metrics.spec.md` (OBS-REL-08 latency series)
 - `platform/managed-cluster-registration.spec.md` (registration route excluded from the user-route latency scope)
 - `platform/gateway-provision-time.spec.md` and `platform/gateway-provision-outcomes.spec.md` (provision series consumers)
