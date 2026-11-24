@@ -71,12 +71,15 @@ upgrading an existing installation.
 
 The command fetches the controller image's OCE source revision into
 `$OCE_KIND_STATE/oce-source` for the matching `occ` CLI, Helm chart, and operator
-helpers. No preexisting checkout is required. It applies the namespace helper
-fix from [OCE PR #4954](https://github.com/openclaw/openclaw-enterprise/pull/4954)
-using [`openshell-namespace.patch`](openshell-namespace.patch), pinned to the
-helper changes in commit `080810ac2a05b98f065655a9b29cdc9ec28ab14e`. The patch
-is skipped when the source already supports `--openshell-namespace`. Patch
-conflicts stop setup rather than continuing with incorrect network grants.
+helpers. No preexisting checkout is required. Setup requires the
+namespace-aware network helper from
+[OCE PR #4954](https://github.com/openclaw/openclaw-enterprise/pull/4954)
+and stops if the source lacks `--openshell-namespace`. Images resolved before
+2026-11-20 predate that fix. Because setup reuses the state that matches a live
+cluster, recover by deleting and recreating the cluster as described in
+[Remove or recreate the environment](#remove-or-recreate-the-environment).
+Deletion destroys the cluster's databases and volumes; the next run allocates
+fresh state and keeps the old private state directory on disk.
 An explicit `OCE_REPO` remains available for engineers supplying compatible
 local CLI, chart, and helpers; OCE images still come from Quay. The manual
 runbook retains the separate source-image build workflow. Setup warns if a
