@@ -792,8 +792,8 @@ function RunsTable({
 }): React.ReactElement {
   const intl = useIntl();
   // Per-group explicit expand/collapse overrides. A group with no override
-  // follows the auto-open default (open while it owns the selected older
-  // attempt); once the user toggles a group their choice wins, so a group opened
+  // follows the auto-open default (open while it owns the selected run).
+  // Once the user toggles a group their choice wins, so a group opened
   // by selecting a nested attempt can still be collapsed even while its drawer is
   // open and the selection persists (FLT-NAV-12).
   const [overrides, setOverrides] = useState<ReadonlyMap<string, boolean>>(
@@ -824,44 +824,32 @@ function RunsTable({
 
   const renderAttemptRow = (
     item: E2eRunAttemptItem,
-    opts: {
-      readonly isParent: boolean;
-      readonly isExpanded: boolean;
-    },
+    isExpanded: boolean,
   ): React.ReactElement => {
     const { run, attemptNumber } = item;
     const selected = run.id === selectedId;
-    const collapsed = !opts.isParent && !opts.isExpanded;
+    const collapsed = !isExpanded;
     const rowClasses = [
+      styles.nestedAttemptRow,
       selected ? styles.selectedRow : "",
-      !opts.isParent ? styles.nestedAttemptRow : "",
       collapsed ? styles.collapsedAttemptRow : "",
     ]
-      .filter((c) => c !== "")
+      .filter(Boolean)
       .join(" ");
-    // Nested cells reveal with motion (height + padding animate between the
-    // collapsed and open states); the parent row renders its content directly.
-    const reveal = (node: React.ReactNode): React.ReactNode =>
-      opts.isParent ? (
-        node
-      ) : (
-        <div className={styles.attemptReveal}>
-          <div className={styles.attemptRevealInner}>{node}</div>
-        </div>
-      );
+    const reveal = (node: React.ReactNode): React.ReactNode => (
+      <div className={styles.attemptReveal}>
+        <div className={styles.attemptRevealInner}>{node}</div>
+      </div>
+    );
     return (
       <Tr
         key={run.id}
         isRowSelected={selected}
         inert={collapsed}
         aria-hidden={collapsed || undefined}
-        className={rowClasses !== "" ? rowClasses : undefined}
+        className={rowClasses}
       >
-        <Td dataLabel={intl.formatMessage(messages.e2eColumnBundle)}>
-          {opts.isParent ? (
-            <RunBundleIdentity bundle={runBundle(run, promotion)} />
-          ) : null}
-        </Td>
+        <Td dataLabel={intl.formatMessage(messages.e2eColumnBundle)} />
         <Td dataLabel={intl.formatMessage(messages.e2eColumnTarget)}>
           {reveal(
             <>
@@ -897,13 +885,10 @@ function RunsTable({
           {reveal(
             <span className={styles.attemptCell}>
               <Label isCompact>
-                {opts.isParent ? (
-                  <FormattedMessage {...messages.e2eAttemptMostRecent} />
-                ) : (
-                  intl.formatMessage(messages.e2eAttemptNumber, {
-                    number: attemptNumber,
-                  })
-                )}
+                <FormattedMessage
+                  {...messages.e2eAttemptNumber}
+                  values={{ number: attemptNumber }}
+                />
               </Label>
               <code className={styles.attemptId} title={run.runId}>
                 {run.runId.slice(0, 8)}
@@ -966,7 +951,6 @@ function RunsTable({
         </Tr>
       </Thead>
       {groups.map((group) => {
-        const hasMultiple = group.attempts.length > 1;
         const selected = group.attempts.some(
           (item) => item.run.id === selectedId,
         );
@@ -977,97 +961,81 @@ function RunsTable({
         });
         return (
           <Tbody key={group.key}>
-            {hasMultiple ? (
-              <Tr>
-                <Td dataLabel={intl.formatMessage(messages.e2eColumnBundle)}>
-                  <span className={styles.bundleSummary}>
-                    <Button
-                      variant="plain"
-                      size="sm"
-                      isInline
-                      aria-expanded={isExpanded}
-                      aria-label={toggleLabel}
-                      onClick={() => {
-                        setGroupExpanded(group.key, !isExpanded);
-                      }}
-                      icon={
-                        <AngleRightIcon
-                          className={[
-                            styles.chevron,
-                            isExpanded ? styles.chevronOpen : "",
-                          ]
-                            .filter(Boolean)
-                            .join(" ")}
-                        />
-                      }
-                    />
-                    <RunBundleIdentity
-                      bundle={runBundle(group.latest.run, promotion)}
-                    />
-                  </span>
-                </Td>
-                <Td dataLabel={intl.formatMessage(messages.e2eColumnTarget)}>
-                  <div className={styles.environmentSummaries}>
-                    {group.targets.map((run) => (
-                      <div key={run.id} className={styles.environmentSummary}>
-                        <span>
-                          {runTargetInstance(run, promotion) ?? run.cluster}
-                          <small className={styles.instance}>
-                            {runTargetInstance(run, promotion)
-                              ? intl.formatMessage(messages.e2eTargetLocation, {
-                                  cluster: run.cluster,
-                                  namespace: run.namespace,
-                                })
-                              : run.namespace}
-                          </small>
-                        </span>
-                        <StatusChip
-                          iconOnly
-                          visual={
-                            isRunning(run)
-                              ? stepStateVisual("running")
-                              : verdictVisual(run.verdict)
-                          }
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </Td>
-                <Td dataLabel={intl.formatMessage(messages.e2eColumnRevision)}>
-                  <FormattedMessage {...messages.valueNone} />
-                </Td>
-                <Td dataLabel={intl.formatMessage(messages.e2eColumnAttempt)}>
-                  <Label isCompact>
-                    <FormattedMessage
-                      {...messages.e2eAttemptCount}
-                      values={{ count: group.attempts.length }}
-                    />
-                  </Label>
-                </Td>
-                <Td dataLabel={intl.formatMessage(messages.e2eColumnStarted)}>
-                  {formatAgo(intl, group.latest.run.startedAt, nowMs)}
-                </Td>
-                <Td dataLabel={intl.formatMessage(messages.e2eColumnDuration)}>
-                  <FormattedMessage {...messages.valueNone} />
-                </Td>
-                <Td dataLabel={intl.formatMessage(messages.e2eColumnVerdict)}>
-                  <StatusChip
-                    visual={
-                      group.verdict === "unknown" &&
-                      group.targets.some(isRunning)
-                        ? stepStateVisual("running")
-                        : verdictVisual(group.verdict)
+            <Tr>
+              <Td dataLabel={intl.formatMessage(messages.e2eColumnBundle)}>
+                <span className={styles.bundleSummary}>
+                  <Button
+                    variant="plain"
+                    size="sm"
+                    isInline
+                    aria-expanded={isExpanded}
+                    aria-label={toggleLabel}
+                    onClick={() => {
+                      setGroupExpanded(group.key, !isExpanded);
+                    }}
+                    icon={
+                      <AngleRightIcon
+                        className={[
+                          styles.chevron,
+                          isExpanded ? styles.chevronOpen : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
+                      />
                     }
                   />
-                </Td>
-              </Tr>
-            ) : null}
-            {group.attempts.map((item) =>
-              renderAttemptRow(item, {
-                isParent: !hasMultiple,
-                isExpanded,
-              }),
-            )}
+                  <RunBundleIdentity
+                    bundle={runBundle(group.latest.run, promotion)}
+                  />
+                </span>
+              </Td>
+              <Td dataLabel={intl.formatMessage(messages.e2eColumnTarget)}>
+                <div className={styles.environmentSummaries}>
+                  {group.targets.map((run) => (
+                    <div key={run.id} className={styles.environmentSummary}>
+                      <span>
+                        {runTargetInstance(run, promotion) ?? run.cluster}
+                      </span>
+                      <StatusChip
+                        iconOnly
+                        visual={
+                          isRunning(run)
+                            ? stepStateVisual("running")
+                            : verdictVisual(run.verdict)
+                        }
+                      />
+                    </div>
+                  ))}
+                </div>
+              </Td>
+              <Td dataLabel={intl.formatMessage(messages.e2eColumnRevision)}>
+                <FormattedMessage {...messages.valueNone} />
+              </Td>
+              <Td dataLabel={intl.formatMessage(messages.e2eColumnAttempt)}>
+                <Label isCompact>
+                  <FormattedMessage
+                    {...messages.e2eAttemptCount}
+                    values={{ count: group.attempts.length }}
+                  />
+                </Label>
+              </Td>
+              <Td dataLabel={intl.formatMessage(messages.e2eColumnStarted)}>
+                {formatAgo(intl, group.latest.run.startedAt, nowMs)}
+              </Td>
+              <Td dataLabel={intl.formatMessage(messages.e2eColumnDuration)}>
+                <FormattedMessage {...messages.valueNone} />
+              </Td>
+              <Td dataLabel={intl.formatMessage(messages.e2eColumnVerdict)}>
+                <StatusChip
+                  visual={
+                    group.verdict === "unknown" && group.targets.some(isRunning)
+                      ? stepStateVisual("running")
+                      : verdictVisual(group.verdict)
+                  }
+                />
+              </Td>
+            </Tr>
+            {group.attempts.map((item) => renderAttemptRow(item, isExpanded))}
           </Tbody>
         );
       })}

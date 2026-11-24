@@ -183,6 +183,11 @@ const enabled = (runs: readonly E2eRunSummary[]): E2eRunsData => ({
   limit: 20,
 });
 
+async function openSingleRun(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: "Show 1 run" }));
+  await user.click(screen.getByRole("link", { name: /Open run/ }));
+}
+
 describe("E2eRunView", () => {
   it("shows the feature-off state when disabled", () => {
     const { api } = makeApi(detail());
@@ -199,7 +204,8 @@ describe("E2eRunView", () => {
   });
 
   // Verifies: E2E-LOG-12.01
-  it("lists recent runs newest-first with revision and verdict", () => {
+  it("lists recent runs newest-first with revision and verdict", async () => {
+    const user = userEvent.setup();
     const { api } = makeApi(detail());
     const older = summary({
       id: "tenant-1/ns/run-0",
@@ -214,6 +220,12 @@ describe("E2eRunView", () => {
       startedAt: "2026-01-01T00:40:00Z",
     });
     renderView(api, enabled([older, newer]));
+
+    for (const toggle of screen.getAllByRole("button", {
+      name: "Show 1 run",
+    })) {
+      await user.click(toggle);
+    }
 
     // The run selection links render in DOM order; newest-first puts new222 first.
     const buttons = screen.getAllByRole("link", { name: /Open run/ });
@@ -271,6 +283,12 @@ describe("E2eRunView", () => {
         }),
       ]),
     );
+    for (const toggle of screen.getAllByRole("button", {
+      name: "Show 1 run",
+    })) {
+      await user.click(toggle);
+    }
+
     await user.click(screen.getByRole("button", { name: column }));
     const first = screen
       .getAllByRole("link", { name: /Open run/ })[0]
@@ -294,6 +312,7 @@ describe("E2eRunView", () => {
       }),
       "abc",
     );
+    await user.click(screen.getByRole("button", { name: "Show 1 run" }));
     const trigger = screen.getByRole("link", { name: /Open run/ });
     await user.click(trigger);
     await screen.findByRole("button", { name: "Build" });
@@ -314,7 +333,7 @@ describe("E2eRunView", () => {
       const user = userEvent.setup();
       const { api } = makeApi(detail());
       renderView(api, enabled([summary()]));
-      await user.click(screen.getByRole("link", { name: /Open run/ }));
+      await openSingleRun(user);
       await screen.findByRole("button", { name: "Build" });
       const table = screen.getByRole("grid", { name: "Run steps" });
       await user.click(within(table).getByRole("button", { name: column }));
@@ -375,7 +394,7 @@ describe("E2eRunView", () => {
     const { api } = makeApi(d);
     renderView(api, enabled([summary()]));
 
-    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await openSingleRun(user);
 
     // Deployed revision and application source revision are shown separately.
     expect(await screen.findByText("Source", { exact: false })).toBeDefined();
@@ -415,7 +434,7 @@ describe("E2eRunView", () => {
       enabled([summary({ reportingComplete: false, verdict: "unknown" })]),
     );
 
-    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await openSingleRun(user);
     // Wait for the snapshot detail to resolve.
     await screen.findByRole("tab", { name: "Progress" });
     await user.click(screen.getByRole("tab", { name: "Logs" }));
@@ -480,7 +499,7 @@ describe("E2eRunView", () => {
       api,
       enabled([summary({ reportingComplete: false, verdict: "unknown" })]),
     );
-    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await openSingleRun(user);
     await screen.findByRole("tab", { name: "Progress" });
     await user.click(screen.getByRole("tab", { name: "Logs" }));
     await waitFor(() => {
@@ -522,7 +541,7 @@ describe("E2eRunView", () => {
       api,
       enabled([summary({ reportingComplete: false, verdict: "unknown" })]),
     );
-    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await openSingleRun(user);
     await screen.findByRole("tab", { name: "Progress" });
 
     act(() => {
@@ -538,7 +557,7 @@ describe("E2eRunView", () => {
     const user = userEvent.setup();
     const { api } = makeApi(detail()); // reportingComplete: true (finished)
     renderView(api, enabled([summary()]));
-    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await openSingleRun(user);
     // The detail (steps) renders from the snapshot...
     await screen.findByRole("tab", { name: "Progress" });
     // ...but no live tail opens for a finished run; it is read by pagination alone.
@@ -578,7 +597,7 @@ describe("E2eRunView", () => {
     );
     const { api } = makeApi(d, { getE2eRunLogs });
     renderView(api, enabled([summary({ verdict: "failed" })]));
-    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await openSingleRun(user);
     const initialGrid = await screen.findByRole("grid", { name: "Run steps" });
     // Progress does not fetch raw logs just to populate the optional preview.
     expect(within(initialGrid).queryByText(/boom: build failed/)).toBeNull();
@@ -607,7 +626,7 @@ describe("E2eRunView", () => {
     });
     const { api } = makeApi(d);
     renderView(api, enabled([summary({ verdict: "failed" })]));
-    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await openSingleRun(user);
 
     expect(await screen.findByText("This run failed.")).toBeDefined();
     expect(screen.getByText(/Failed step:/)).toBeDefined();
@@ -645,7 +664,7 @@ describe("E2eRunView", () => {
       );
     const { api } = makeApi(d, { getE2eRunLogs });
     renderView(api, enabled([summary({ verdict: "failed" })]));
-    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await openSingleRun(user);
 
     const grid = await screen.findByRole("grid", { name: "Run steps" });
     const teardown = within(grid).getByRole("button", {
@@ -712,7 +731,7 @@ describe("E2eRunView", () => {
       api,
       enabled([summary({ reportingComplete: false, verdict: "unknown" })]),
     );
-    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await openSingleRun(user);
     await user.click(await screen.findByRole("tab", { name: "Logs" }));
     await waitFor(() => {
       /* eslint-disable-next-line @typescript-eslint/unbound-method -- asserting mock calls */
@@ -774,7 +793,7 @@ describe("E2eRunView", () => {
       api,
       enabled([summary({ reportingComplete: false, verdict: "unknown" })]),
     );
-    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await openSingleRun(user);
     expect(
       await screen.findByText(
         "Reporting incomplete - no final result was recorded.",
@@ -788,7 +807,7 @@ describe("E2eRunView", () => {
       getE2eRun: vi.fn().mockRejectedValue(new Error("loki down")),
     });
     renderView(api, enabled([summary()]));
-    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await openSingleRun(user);
     expect(
       await screen.findByText("Run details are unavailable right now."),
     ).toBeDefined();
@@ -1048,7 +1067,7 @@ describe("log pagination and degraded log pane", () => {
       api,
       enabled([summary({ reportingComplete: false, verdict: "unknown" })]),
     );
-    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await openSingleRun(user);
     await user.click(await screen.findByRole("tab", { name: "Logs" }));
 
     // The newest page loaded on open.
@@ -1102,7 +1121,7 @@ describe("log pagination and degraded log pane", () => {
       api,
       enabled([summary({ reportingComplete: false, verdict: "unknown" })]),
     );
-    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await openSingleRun(user);
     await user.click(await screen.findByRole("tab", { name: "Logs" }));
 
     // The newest page loaded on open.
@@ -1155,7 +1174,7 @@ describe("log pagination and degraded log pane", () => {
       api,
       enabled([summary({ reportingComplete: false, verdict: "unknown" })]),
     );
-    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await openSingleRun(user);
     await user.click(await screen.findByRole("tab", { name: "Logs" }));
 
     // The log-pane-only failed notice, NOT the whole-panel backend-unavailable message.
@@ -1198,7 +1217,7 @@ describe("log pagination and degraded log pane", () => {
       .mockResolvedValueOnce(stepBPage);
     const { api } = makeApi(detail(), { getE2eRunLogs });
     renderView(api, enabled([summary()]));
-    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await openSingleRun(user);
     await user.click(await screen.findByRole("tab", { name: "Logs" }));
 
     // Run-wide scope on open: the line renders with its step-id prefix, so match the
@@ -1249,7 +1268,7 @@ describe("log pagination and degraded log pane", () => {
       .mockResolvedValueOnce(stepBPage);
     const { api } = makeApi(detail(), { getE2eRunLogs });
     renderView(api, enabled([summary()]));
-    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await openSingleRun(user);
     await user.click(await screen.findByRole("tab", { name: "Logs" }));
 
     // Select step a (its request hangs), then rapidly switch to step b.
@@ -1293,7 +1312,7 @@ describe("log pagination and degraded log pane", () => {
         ),
     });
     renderView(api, enabled([summary()]));
-    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await openSingleRun(user);
     await user.click(await screen.findByRole("tab", { name: "Logs" }));
 
     // Scope to a completed step that emitted no logs.
@@ -1338,7 +1357,7 @@ describe("log pagination and degraded log pane", () => {
       api,
       enabled([summary({ reportingComplete: false, verdict: "unknown" })]),
     );
-    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await openSingleRun(user);
     await user.click(await screen.findByRole("tab", { name: "Logs" }));
 
     // Newest page on open, then the older page that hits the same-nanosecond boundary.
@@ -1391,7 +1410,7 @@ describe("log pagination and degraded log pane", () => {
     const { api } = makeApi(d);
     renderView(api, enabled([summary({ verdict: "failed" })]));
 
-    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await openSingleRun(user);
     await screen.findByText("This run failed.");
 
     // The failed-run header and the failed step both show the concise Messages
@@ -1432,6 +1451,49 @@ describe("log pagination and degraded log pane", () => {
       ]),
     );
     expect(screen.getByText("2m 15s")).toBeDefined();
+  });
+
+  it("expands a single-run bundle to show the run and its target location", async () => {
+    const user = userEvent.setup();
+    const { api } = makeApi(detail());
+    renderView(
+      api,
+      enabled([
+        summary({
+          namespace: "run-namespace",
+          bundle: {
+            version: "v1",
+            digest: "sha256:bundle-a",
+            tag: null,
+            date: null,
+            prs: [],
+          },
+        }),
+      ]),
+    );
+
+    const count = screen.getByText("1 Run", { exact: true });
+    const summaryRow = count.closest("tr");
+    if (!summaryRow) throw new Error("expected bundle summary row");
+    expect(within(summaryRow).queryByText("run-namespace")).toBeNull();
+    expect(screen.queryByText("Most Recent")).toBeNull();
+    expect(screen.queryByRole("link", { name: /Open run/ })).toBeNull();
+
+    const toggle = within(summaryRow).getByRole("button", {
+      name: "Show 1 run",
+    });
+    await user.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    const runs = screen.getAllByRole("link", { name: /Open run/ });
+    expect(runs).toHaveLength(1);
+    const runRow = runs[0]?.closest("tr");
+    if (!runRow) throw new Error("expected expanded run row");
+    expect(within(runRow).getByText("Run 1", { exact: true })).toBeDefined();
+    expect(within(runRow).getByText("run-namespace")).toBeDefined();
+
+    await user.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("link", { name: /Open run/ })).toBeNull();
   });
 
   it("nests runs of the same bundle across environments and revisions, latest first (E2E-LOG-12.08)", async () => {
@@ -1480,6 +1542,7 @@ describe("log pagination and degraded log pane", () => {
     expect(within(summaryRow).getByText("tenant-1")).toBeDefined();
     expect(within(summaryRow).getByText("tenant-2")).toBeDefined();
     expect(within(summaryRow).getByText("tenant-3")).toBeDefined();
+    expect(within(summaryRow).queryByText("ns-2")).toBeNull();
     expect(within(summaryRow).getByText("Failed")).toBeDefined();
     expect(within(summaryRow).queryByText("Passed")).toBeNull();
     expect(
@@ -1652,7 +1715,7 @@ describe("log pagination and degraded log pane", () => {
     renderView(api, enabled([summary()]), {
       "fleet.e2e.diagnostics.error": "Erreur",
     });
-    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await openSingleRun(user);
     const region = await screen.findByRole("region", { name: "Diagnostics" });
     await user.click(
       within(region).getByRole("button", { name: "Show Diagnostics" }),
@@ -1706,7 +1769,7 @@ describe("log pagination and degraded log pane", () => {
       );
       const { api } = makeApi(runDetail, { getE2eDiagnostics });
       renderView(api, enabled([summary()]));
-      await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+      await openSingleRun(user);
       const region = await screen.findByRole("region", { name: "Diagnostics" });
       await user.click(
         within(region).getByRole("button", { name: "Show Diagnostics" }),
@@ -1789,7 +1852,7 @@ describe("log pagination and degraded log pane", () => {
       </IntlProvider>,
     );
 
-    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await openSingleRun(user);
     const diagSection = await screen.findByRole("region", {
       name: "Diagnostics",
     });
@@ -1852,7 +1915,7 @@ describe("log pagination and degraded log pane", () => {
         </QueryClientProvider>
       </IntlProvider>,
     );
-    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await openSingleRun(user);
     const passedDiag = await screen.findByRole("region", {
       name: "Diagnostics",
     });
@@ -1884,7 +1947,7 @@ describe("log pagination and degraded log pane", () => {
       { getE2eDiagnostics: notRunGetDiags },
     );
     renderView(emptyFailedApi, enabled([summary({ verdict: "failed" })]));
-    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await openSingleRun(user);
     const emptyFailedDiag = await screen.findByRole("region", {
       name: "Diagnostics",
     });
@@ -1949,7 +2012,7 @@ describe("log pagination and degraded log pane", () => {
     const { api } = makeApi(dUnordered);
     renderView(api, enabled([summary({ verdict: "failed" })]));
 
-    await user.click(screen.getByRole("link", { name: /Open run abc1234/ }));
+    await openSingleRun(user);
     const stepsTable = await screen.findByRole("grid", { name: "Run steps" });
 
     const stepButtonNames = () =>

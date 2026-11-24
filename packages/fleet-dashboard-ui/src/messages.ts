@@ -295,7 +295,7 @@ export const messages = defineMessages({
   },
   e2eAttemptCount: {
     id: "fleet.e2e.attemptCount",
-    defaultMessage: "{count, plural, one {# run} other {# runs}}",
+    defaultMessage: "{count, plural, one {# Run} other {# runs}}",
     description:
       "Badge showing how many total attempts exist for a grouped bundle row.",
   },
@@ -304,12 +304,6 @@ export const messages = defineMessages({
     defaultMessage: "Latest (live)",
     description:
       "Attempt selector option in the gate execution panel that follows the current (live) run instead of a pinned historical attempt.",
-  },
-  e2eAttemptMostRecent: {
-    id: "fleet.e2e.attemptMostRecent",
-    defaultMessage: "Most Recent",
-    description:
-      "Label shown for the latest attempt row in the recent-runs table.",
   },
   e2eAttemptNumber: {
     id: "fleet.e2e.attemptNumber",
@@ -335,9 +329,9 @@ export const messages = defineMessages({
   e2eAttemptsToggle: {
     id: "fleet.e2e.attemptsToggle",
     defaultMessage:
-      "{expanded, select, true {Hide runs} other {Show {count, plural, one {# run} other {# runs}}}}",
+      "{expanded, select, true {Hide {count, plural, one {run} other {runs}}} other {Show {count, plural, one {# run} other {# runs}}}}",
     description:
-      "Accessible label for the expand toggle on a grouped run row with multiple attempts.",
+      "Accessible label for the expand toggle on a bundle summary row.",
   },
   e2eBackendUnavailable: {
     id: "fleet.e2e.backendUnavailable",
