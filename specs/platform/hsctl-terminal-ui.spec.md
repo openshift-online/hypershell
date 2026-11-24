@@ -121,4 +121,4 @@ error dialog and the user SHALL be told to run `hsctl login`.
 
 ## CLI distribution
 
-The terminal UI ships inside the `hsctl` executable. Platform builds, Quay image packaging, bundle membership, and GitHub release assets SHALL follow [hsctl and HyperShell bundle releases](hsctl-release.spec.md).
+The terminal UI ships inside the `hsctl` executable. Platform builds, Quay image packaging, bundle membership, and GitHub release assets SHALL follow [hsctl and HyperShell bundle releases](hsctl-release.spec.md). The `js/wasm` browser module excludes `hsctl tui` ([`hsctl-browser-build.spec.md`](hsctl-browser-build.spec.md), CLI-WASM-01).

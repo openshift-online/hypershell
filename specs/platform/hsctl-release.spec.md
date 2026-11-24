@@ -21,7 +21,7 @@ Konflux SHALL build `hypershell-cli-main` from `components/cli` on main pushes a
 | macOS | arm64 | `hsctl-darwin-arm64` |
 | Windows | amd64 | `hsctl-windows-amd64.exe` |
 
-All targets SHALL use CGO disabled. The initial Konflux runtime image is Linux amd64; the download matrix is independent of runtime image platforms. The publisher SHALL extract these files from the released CLI image by digest, verify layer digests, and reject incomplete sets or nonregular files. It SHALL NOT rebuild the CLI during publication. Binary signing and macOS notarization are outside this initial implementation.
+All targets SHALL use CGO disabled. The initial Konflux runtime image is Linux amd64; the download matrix is independent of runtime image platforms. The publisher SHALL extract these files from the released CLI image by digest, verify layer digests, and reject incomplete sets or nonregular files. It SHALL NOT rebuild the CLI during publication. Binary signing and macOS notarization are outside this initial implementation. The `js/wasm` browser module ([`hsctl-browser-build.spec.md`](hsctl-browser-build.spec.md), CLI-WASM-05) ships inside the web console image and is not part of this download matrix.
 
 ### Requirement: CLI-REL-02 -- Six required bundle components
 
