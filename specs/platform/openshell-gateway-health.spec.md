@@ -288,6 +288,16 @@ Gateway whose provisioning did not complete is not converged
 (`observed_generation < generation`) and SHALL still re-apply through the normal
 gate to finish.
 
+A Gateway whose last provisioning pass failed SHALL NOT be treated as converged,
+even when `observed_generation == generation`. Provisioning acknowledges
+`observed_generation` at manifest apply, so a failure later in the same pass (for
+example a Gateway API route update) leaves a converged `generation` behind a
+`Failed` outcome. When the stored Gateway has `phase` `Failed` or any provisioning
+condition `Failed`, the control plane SHALL re-run provisioning on the next pass
+(a retry, a resync, or controller startup) until a pass succeeds and its
+conditions are reported `Complete`. Without this, a retry would take the
+lightweight path and leave the failure reported indefinitely.
+
 Because the convergence gate suppresses the provisioning body once a Gateway is
 converged, the continuous health reconciler - not the provisioning body - owns
 finalizing the user-facing provisioning conditions after convergence. When the
@@ -366,6 +376,14 @@ to `Degraded`, and a `Degraded` Gateway SHALL still be able to return to
   completes
 - THEN the pass SHALL set `observed_generation` to N only
 - AND `generation` N+1 SHALL remain pending for its own reconciliation pass
+
+#### Scenario: OSG-HLTH-03.08 -- Failed provisioning pass is retried on a converged gateway
+
+- GIVEN a Gateway with `observed_generation == generation` whose last provisioning
+  pass failed after manifest apply (`phase` `Failed`, `GatewayDeployed` `Failed`)
+- WHEN the control plane processes a retry, resync, or startup seed for it
+- THEN it SHALL re-run provisioning rather than take the lightweight path
+- AND once the pass succeeds it SHALL report the provisioning conditions `Complete`
 
 ### Requirement: OSG-HLTH-04 -- Gateway Runtime Version Is Reconciled
 

@@ -20,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/util/retry"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -931,41 +932,46 @@ func reconcileResource(ctx context.Context, dynamicClient dynamic.Interface, obj
 		resourceClient = dynamicClient.Resource(gvr)
 	}
 
-	existing, err := resourceClient.Get(ctx, name, metav1.GetOptions{})
-	if err != nil {
-		if k8serrors.IsNotFound(err) {
-			_, err = resourceClient.Create(ctx, obj, metav1.CreateOptions{})
-			if err != nil {
-				return fmt.Errorf("create %s %s: %w", gvk.Kind, name, err)
+	// Another writer (Helm, a webhook, another controller) may change the
+	// object between the read and the update. Re-read and re-apply on a
+	// resourceVersion conflict instead of failing the pass (STD-RCON-02.03).
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		existing, err := resourceClient.Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			if k8serrors.IsNotFound(err) {
+				_, err = resourceClient.Create(ctx, obj, metav1.CreateOptions{})
+				if err != nil {
+					return fmt.Errorf("create %s %s: %w", gvk.Kind, name, err)
+				}
+				slog.InfoContext(ctx, "Created resource", "kind", gvk.Kind, "name", name, "namespace", namespace)
+				return nil
 			}
-			slog.InfoContext(ctx, "Created resource", "kind", gvk.Kind, "name", name, "namespace", namespace)
+			return fmt.Errorf("get %s %s: %w", gvk.Kind, name, err)
+		}
+
+		if gvk.Kind == "Job" {
+			slog.DebugContext(ctx, "Job already exists, skipping update", "name", name)
 			return nil
 		}
-		return fmt.Errorf("get %s %s: %w", gvk.Kind, name, err)
-	}
 
-	if gvk.Kind == "Job" {
-		slog.DebugContext(ctx, "Job already exists, skipping update", "name", name)
+		if gvk.Kind == "PersistentVolumeClaim" {
+			slog.DebugContext(ctx, "PVC already exists, skipping update", "name", name)
+			return nil
+		}
+
+		desired := obj.DeepCopy()
+		if gvk.Kind == "ClusterRoleBinding" {
+			mergeClusterRoleBindingSubjects(existing, desired)
+		}
+
+		desired.SetResourceVersion(existing.GetResourceVersion())
+
+		if _, err := resourceClient.Update(ctx, desired, metav1.UpdateOptions{}); err != nil {
+			return fmt.Errorf("update %s %s: %w", gvk.Kind, name, err)
+		}
 		return nil
-	}
-
-	if gvk.Kind == "PersistentVolumeClaim" {
-		slog.DebugContext(ctx, "PVC already exists, skipping update", "name", name)
-		return nil
-	}
-
-	if gvk.Kind == "ClusterRoleBinding" {
-		mergeClusterRoleBindingSubjects(existing, obj)
-	}
-
-	obj.SetResourceVersion(existing.GetResourceVersion())
-
-	_, err = resourceClient.Update(ctx, obj, metav1.UpdateOptions{})
-	if err != nil {
-		return fmt.Errorf("update %s %s: %w", gvk.Kind, name, err)
-	}
-
-	return nil
+	})
+	return err
 }
 
 func kindToResource(kind string) string {

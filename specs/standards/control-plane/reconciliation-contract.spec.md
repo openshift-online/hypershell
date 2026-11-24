@@ -87,6 +87,13 @@ desired and actual state SHALL make no change. Drift between desired and actual
 state SHALL be repaired on a later pass (a health reconcile, a resync, or a
 subsequent event), not only at create time.
 
+An update of an existing Kubernetes object SHALL retry on an optimistic-concurrency
+conflict (`409 Conflict`, "the object has been modified") by re-reading the
+object and re-applying the desired state against its latest `resourceVersion`,
+within a small bounded number of attempts. Another writer (Helm, an admission
+webhook, or another controller) touching the object between the read and the
+update is expected, not a failure of the pass.
+
 **Verification:** Inspection -- refined and tested by CTRL-CORE-04, OSG-HLTH-02,
 OSG-HLTH-03.
 
@@ -103,6 +110,13 @@ OSG-HLTH-03.
 - WHEN the next reconcile or health pass observes the drift
 - THEN the reconciler SHALL repair the actual state toward desired
 - AND it SHALL NOT require the resource to be recreated
+
+#### Scenario: STD-RCON-02.03 -- A concurrent writer does not fail the update
+
+- GIVEN a reconciler updating an existing object
+- WHEN another writer changes the object between the reconciler's read and update
+- THEN the reconciler SHALL re-read the object and retry the update
+- AND it SHALL NOT report the pass as failed when a retry succeeds
 
 ### Requirement: STD-RCON-03 -- Per-Resource Serialization Within a Bounded Worker Pool
 
