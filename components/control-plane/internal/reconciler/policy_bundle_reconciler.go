@@ -277,12 +277,13 @@ func (r *PolicyBundleReconciler) ReconcileOnce(ctx context.Context) error {
 	var errs []error
 	for _, gw := range gateways {
 		bundle, skipped, err := policybundle.Build(policybundle.Input{
-			GatewayID:     gw.ID,
-			GlobalMode:    globalMode,
-			Policies:      policies,
-			Defaults:      accepted.Normalized,
-			Unsupported:   gw.Unsupported,
-			CanaryEnabled: r.canaryEnabled,
+			GatewayID:         gw.ID,
+			GlobalMode:        globalMode,
+			Policies:          policies,
+			Defaults:          accepted.Normalized,
+			DefaultQuantities: accepted.BundleDefaults(),
+			Unsupported:       gw.Unsupported,
+			CanaryEnabled:     r.canaryEnabled,
 		})
 		if err != nil {
 			errs = append(errs, fmt.Errorf("build bundle for gateway %s: %w", gw.ID, err))

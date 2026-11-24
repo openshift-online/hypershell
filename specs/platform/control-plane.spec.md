@@ -1398,6 +1398,14 @@ PLAT-PGP-15). It SHALL:
   own and SHALL use no built-in fallback: until settings with defaults are received
   it SHALL write no bundle and render no sidecar, and the gateway reconcile SHALL
   retry, so protected RPCs fail closed (PLAT-PGP-12).
+- Roll gateways on a fleet-defaults change (PLAT-PGP-08): record the defaults hash
+  in each bundle and on the gateway pod template annotation
+  `hypershell.redhat.io/policy-defaults-hash`; when the received hash changes,
+  re-enqueue every known gateway through the existing gateway reconcile queue,
+  whose worker count bounds concurrent upgrades. A converged gateway whose rendered
+  hash differs from the current one SHALL pass the generation gate as drift, as a
+  destination-trust change does, and be re-rendered; a matching hash SHALL leave it
+  untouched.
 - Build a per-gateway **policy bundle** (revision hash, Cedar schema version, an
   enforced set and an audit-only set with effective modes resolved, `@id`
   attribution, and per-policy `userMessage` and `documentationUrl`) and write it to
@@ -1447,6 +1455,14 @@ ConfigMap without a spurious revision bump.
 - WHEN the control plane builds a bundle and renders a gateway's interceptor sidecar
 - THEN the bundle SHALL be validated against `700m` and the sidecar environment SHALL carry `700m`
 - AND when the settings carry no defaults it SHALL write no bundle and render no sidecar
+
+#### Scenario: CTRL-CORE-22.05 -- A Defaults Hash Change Is Drift Past the Generation Gate
+
+- GIVEN converged gateways, one `Running`, rendered with the defaults hash of `500m`, and a deleted gateway
+- WHEN the received settings change the accepted defaults to `700m`
+- THEN the control plane SHALL re-enqueue every live gateway once, not the deleted one, through the gateway reconcile queue
+- AND each reconcile SHALL pass the generation gate because the rendered hash differs, while a gateway already at the new hash SHALL be a no-op
+- AND the bundle SHALL record the `700m` defaults and their hash
 
 ## Known Limitations
 

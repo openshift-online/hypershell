@@ -26,6 +26,11 @@ const (
 	PolicyEventsAudience = "hypershell-policy-events"
 	// PolicyHealthPort is the sidecar's health and metrics port.
 	PolicyHealthPort = 9466
+	// PolicyDefaultsHashAnnotation records, on the gateway pod template, the
+	// hash of the fleet defaults the sidecar env carries (PLAT-PGP-08.04). A
+	// defaults change changes it, which rolls the pods, and the controller
+	// compares it with the current hash to detect drift.
+	PolicyDefaultsHashAnnotation = "hypershell.redhat.io/policy-defaults-hash"
 
 	policySocketVolume = "hypershell-policy-socket"
 	policyTokenVolume  = "hypershell-policy-token"
@@ -53,7 +58,10 @@ type PolicyInterceptorConfig struct {
 	EventsAddress string
 	PoliciesURL   string
 	Defaults      map[string]string // env name -> quantity
-	Bindings      []InterceptorBinding
+	// DefaultsHash is policybundle.DefaultsHash of the defaults, stamped on the
+	// gateway pod template as PolicyDefaultsHashAnnotation (PLAT-PGP-08.04).
+	DefaultsHash string
+	Bindings     []InterceptorBinding
 	// KnownRPCs is the gateway's interceptable RPC allowlist; a binding outside
 	// it fails validation (GTW-CFG-05.01).
 	KnownRPCs []string
@@ -200,6 +208,14 @@ func (b *ValuesBuilder) buildPolicyInterceptorValues(values map[string]interface
 		},
 	}
 	appendNestedSlice(values, []interface{}{sidecar}, "server", "extraInitContainers")
+	if c.DefaultsHash != "" {
+		annotations, _ := values["podAnnotations"].(map[string]interface{})
+		if annotations == nil {
+			annotations = map[string]interface{}{}
+		}
+		annotations[PolicyDefaultsHashAnnotation] = c.DefaultsHash
+		values["podAnnotations"] = annotations
+	}
 	appendNestedSlice(values, []interface{}{
 		map[string]interface{}{"name": policySocketVolume, "emptyDir": map[string]interface{}{"medium": "Memory", "sizeLimit": "1Mi"}},
 		map[string]interface{}{"name": policyTokenVolume, "projected": map[string]interface{}{

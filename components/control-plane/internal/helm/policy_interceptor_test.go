@@ -103,3 +103,24 @@ func TestPolicyJWTIssuerMatchesChartGatewayID(t *testing.T) {
 		t.Fatalf("shared issuer = %q", got)
 	}
 }
+
+// Verifies: OSG-CORE-19.03, PLAT-PGP-08.04
+func TestPolicyInterceptorValuesStampDefaultsHashOnPodTemplate(t *testing.T) {
+	values := map[string]interface{}{"podAnnotations": map[string]interface{}{"existing": "kept"}}
+	c := testInterceptorConfig()
+	c.DefaultsHash = "0123456789abcdef"
+	(&ValuesBuilder{PolicyInterceptor: c}).buildPolicyInterceptorValues(values)
+	ann := values["podAnnotations"].(map[string]interface{})
+	if ann[PolicyDefaultsHashAnnotation] != "0123456789abcdef" || ann["existing"] != "kept" {
+		t.Fatalf("pod annotations = %v", ann)
+	}
+
+	// A different defaults hash changes the pod template, which rolls the pods.
+	other := map[string]interface{}{}
+	c2 := testInterceptorConfig()
+	c2.DefaultsHash = "fedcba9876543210"
+	(&ValuesBuilder{PolicyInterceptor: c2}).buildPolicyInterceptorValues(other)
+	if other["podAnnotations"].(map[string]interface{})[PolicyDefaultsHashAnnotation] == ann[PolicyDefaultsHashAnnotation] {
+		t.Fatal("a defaults change must change the pod template annotation")
+	}
+}

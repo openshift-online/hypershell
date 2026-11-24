@@ -464,7 +464,7 @@ func main() {
 				if imgErr != nil {
 					fatal("Platform gateway policy is enabled but the controller cannot read its own image", "error", imgErr)
 				}
-				gr.SetPolicyInterceptor(reconciler.NewPolicyInterceptorProvider(ownImage, cfg.PolicyEventsAddress, cfg.PolicyConsoleURL, policyDefaults))
+				gr.SetPolicyInterceptor(reconciler.NewPolicyInterceptorProvider(ownImage, cfg.PolicyEventsAddress, cfg.PolicyConsoleURL, policyDefaults), policyDefaults)
 				slog.InfoContext(ctx, "Policy interceptor sidecar enabled", "image", ownImage)
 			}
 			gatewayReconciler = gr
@@ -479,6 +479,14 @@ func main() {
 	// registered cluster identity.
 	gatewayQueue := watcher.NewGatewayReconcileQueue(ctx, gatewayReconciler, cfg.GatewayReconcileWorkers)
 	defer gatewayQueue.Stop()
+	// A fleet-defaults change rolls gateway pods (PLAT-PGP-08.04): re-drive
+	// every known gateway through the queue; the reconciler's defaults-hash
+	// drift check re-renders the converged ones, bounded by the worker count.
+	policyDefaults.OnChange(func(previousHash, newHash string) {
+		n := gatewayQueue.RequeueAll()
+		slog.InfoContext(ctx, "Fleet policy defaults changed; re-enqueued gateways for re-render",
+			"previous_hash", previousHash, "hash", newHash, "gateways", n)
+	})
 
 	watchCount := 3 // managed clusters, gateways, agent runtimes
 	if kcClient != nil {

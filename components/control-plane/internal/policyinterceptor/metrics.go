@@ -23,6 +23,7 @@ type Metrics struct {
 	BundleRejections prometheus.Counter
 	AuthRejections   prometheus.Counter
 	RecheckSkipped   *prometheus.CounterVec
+	DefaultsMismatch prometheus.Counter
 }
 
 // NewMetrics builds the counters in a private registry.
@@ -65,9 +66,13 @@ func NewMetrics() *Metrics {
 			Name: "hypershell_policy_interceptor_recheck_skipped_total",
 			Help: "Start or resume re-checks skipped because the sandbox resources could not be read (PLAT-PGP-16).",
 		}, []string{"method"}),
+		DefaultsMismatch: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "hypershell_policy_interceptor_defaults_hash_mismatch_total",
+			Help: "Calls that applied the policy bundle's fleet defaults because the sidecar environment defaults differ (PLAT-PGP-08.05).",
+		}),
 	}
 	m.registry.MustRegister(m.Evaluations, m.WouldReject, m.WouldAddDefaults, m.Denials,
-		m.DroppedEvents, m.ReportFailures, m.BundleRejections, m.AuthRejections, m.RecheckSkipped)
+		m.DroppedEvents, m.ReportFailures, m.BundleRejections, m.AuthRejections, m.RecheckSkipped, m.DefaultsMismatch)
 	return m
 }
 

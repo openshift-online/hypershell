@@ -9,6 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/helm"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/policyinterceptor"
 )
@@ -40,6 +41,7 @@ func NewPolicyInterceptorProvider(image, eventsAddress, consoleURL string, defau
 			GatewayID:     gatewayID,
 			JWTIssuer:     issuer,
 			EventsAddress: eventsAddress,
+			DefaultsHash:  d.Hash(),
 			Defaults: map[string]string{
 				policyinterceptor.EnvDefaultCPURequest: d.CPURequest,
 				policyinterceptor.EnvDefaultCPULimit:   d.CPULimit,
@@ -97,7 +99,28 @@ func imageFromPod(pod *corev1.Pod, container string) (string, error) {
 }
 
 // SetPolicyInterceptor enables the policy interceptor sidecar on every gateway
-// this reconciler deploys.
-func (r *GatewayReconciler) SetPolicyInterceptor(p PolicyInterceptorProvider) {
+// this reconciler deploys. defaults is the source the sidecar values read; the
+// reconciler also compares its hash with the rendered pod template, so a
+// fleet-defaults change passes the generation gate as drift (PLAT-PGP-08.04).
+func (r *GatewayReconciler) SetPolicyInterceptor(p PolicyInterceptorProvider, defaults *FleetDefaultsSource) {
 	r.policyInterceptor = p
+	r.policyDefaults = defaults
+}
+
+// policyDefaultsNeedUpdate reports whether the gateway's rendered pod template
+// carries a fleet-defaults hash other than the current one. Without the
+// interceptor there is nothing to compare.
+func (r *GatewayReconciler) policyDefaultsNeedUpdate(ctx context.Context, namespace string) (bool, error) {
+	if r.policyInterceptor == nil || r.policyDefaults == nil {
+		return false, nil
+	}
+	d, err := r.policyDefaults.Get(ctx)
+	if err != nil {
+		return false, fmt.Errorf("policy interceptor fleet defaults: %w", err)
+	}
+	var kube kubernetes.Interface = r.clientset
+	if r.policyKubeOverride != nil {
+		kube = r.policyKubeOverride
+	}
+	return gateway.PolicyDefaultsHashNeedsUpdate(ctx, kube, namespace, d.Hash())
 }

@@ -308,8 +308,26 @@ every existing policy before rollout (the default-request check of PLAT-PGP-04):
 startup the api-server SHALL accept configured defaults that differ from the
 accepted ones only when no policy whose effective mode is `enforce` forbids the new
 default request; otherwise it SHALL keep serving the accepted defaults and SHALL
-expose the refusal reason on `PlatformPolicySettings`. A defaults change MAY roll the
-gateway pods, which is acceptable for a rare operator change.
+expose the refusal reason on `PlatformPolicySettings`.
+
+A change to the accepted defaults SHALL roll the gateway pods. The **defaults hash**
+is a stable hash of the normalized defaults (equivalent quantities such as `1` and
+`1000m` hash the same). The control plane SHALL record the defaults and their hash
+in every bundle (PLAT-PGP-12) and SHALL stamp the hash on the gateway pod template
+as the annotation `hypershell.redhat.io/policy-defaults-hash` (OSG-CORE-19). When
+the received hash changes, it SHALL re-drive every gateway it manages through the
+gateway reconcile queue, and a converged gateway, including a `Running` one, whose
+rendered hash differs SHALL pass the generation gate as drift and be re-rendered
+with the new sidecar environment (CTRL-CORE-22). Concurrency SHALL stay bounded by
+the existing gateway reconcile worker count. A gateway rendered before the hash
+existed has no annotation and is re-rendered once. Between the bundle update and
+the pod roll the sidecar's environment defaults are stale: the sidecar SHALL apply
+the defaults carried by the bundle whenever their hash differs from the hash of its
+environment defaults, and SHALL count each such call in the metric
+`hypershell_policy_interceptor_defaults_hash_mismatch_total` and log the mismatch
+once per bundle revision. It SHALL never inject defaults whose hash differs from
+the bundle's. A bundle whose defaults hash does not match its defaults SHALL be
+rejected.
 
 #### Scenario: PLAT-PGP-08.01 -- Defaults Injected Only Under Enforcement
 
@@ -332,6 +350,20 @@ gateway pods, which is acceptable for a rare operator change.
 - WHEN a control plane reconciles bundles and renders a gateway's interceptor sidecar
 - THEN it SHALL validate the bundle against, and pass to the sidecar, the defaults carried by `PlatformPolicySettings`
 - AND the controller Deployment SHALL carry no `HYPERSHELL_POLICY_DEFAULT_*` variables
+
+#### Scenario: PLAT-PGP-08.04 -- A Defaults Change Rolls Running Gateways
+
+- GIVEN a `Running`, converged gateway whose pod template carries the defaults hash of CPU request `500m`
+- WHEN the control plane receives settings whose accepted CPU request is `700m`
+- THEN it SHALL re-enqueue the gateway, and the reconcile SHALL pass the generation gate and re-render the gateway with sidecar environment `700m` and the new `hypershell.redhat.io/policy-defaults-hash`
+- AND a gateway whose rendered hash already matches, including through an equivalent quantity, SHALL NOT be re-rendered
+
+#### Scenario: PLAT-PGP-08.05 -- A Stale Sidecar Applies the Bundle's Defaults
+
+- GIVEN a bundle carrying defaults with CPU request `700m` and a sidecar whose environment default is still `500m`
+- WHEN the sidecar runs `modify_operation` on an enforced gateway for a request that omits CPU request
+- THEN it SHALL add `700m` from the bundle and count the mismatch in `hypershell_policy_interceptor_defaults_hash_mismatch_total`
+- AND when the hashes match it SHALL apply its environment defaults and count nothing
 
 ---
 
@@ -420,8 +452,9 @@ bundle schema version (CTRL-CORE-22). The bundle SHALL be a versioned contract
 carrying: `schemaVersion`, `gatewayId`, `revision` (a hash of the resolved
 content), the Cedar schema version, two Cedar policy sets with `@id` annotations
 (an **enforced** set and an **audit-only** set, with effective modes already
-resolved per PLAT-PGP-06), and per policy the `name`, `userMessage`, and
-`documentationUrl`. The sidecar SHALL watch the ConfigMap through the Kubernetes
+resolved per PLAT-PGP-06), per policy the `name`, `userMessage`, and
+`documentationUrl`, and the fleet defaults the bundle was validated against with
+their defaults hash (PLAT-PGP-08). The sidecar SHALL watch the ConfigMap through the Kubernetes
 API and apply a new revision within seconds without a gateway restart. When the
 sidecar has no bundle, it SHALL fail closed on `fail_closed` RPCs (PLAT-PGP-11).
 

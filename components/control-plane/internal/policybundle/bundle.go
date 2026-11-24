@@ -54,6 +54,42 @@ type Bundle struct {
 	ResourcePoliciesSupported bool     `json:"resourcePoliciesSupported"`
 	Enforced                  []Policy `json:"enforced"`
 	AuditOnly                 []Policy `json:"auditOnly"`
+	// Defaults are the fleet defaults the bundle was validated against
+	// (PLAT-PGP-08), with their hash. The sidecar applies these, so a defaults
+	// change takes effect with the bundle even before the gateway pod rolls.
+	Defaults *Defaults `json:"defaults,omitempty"`
+}
+
+// Defaults are the fleet defaults as quantities plus DefaultsHash of their
+// normalized values.
+type Defaults struct {
+	CPURequest    string `json:"cpuRequest"`
+	CPULimit      string `json:"cpuLimit"`
+	MemoryRequest string `json:"memoryRequest"`
+	MemoryLimit   string `json:"memoryLimit"`
+	Hash          string `json:"hash"`
+}
+
+// DefaultsHash is the stable hash of normalized fleet defaults (PLAT-PGP-08).
+// The controller stamps it on the bundle and on the gateway pod template; the
+// sidecar compares it with the hash of its environment defaults. Equivalent
+// quantities ("1" and "1000m") hash the same.
+func DefaultsHash(d cedar.Defaults) string {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("cpuRequestMillis=%d,cpuLimitMillis=%d,memoryRequestBytes=%d,memoryLimitBytes=%d,gpuCount=%d",
+		d.CPURequestMillis, d.CPULimitMillis, d.MemoryRequestBytes, d.MemoryLimitBytes, d.GPUCount)))
+	return hex.EncodeToString(sum[:])[:16]
+}
+
+// Parse normalizes the bundle defaults and checks the hash matches them.
+func (d Defaults) Parse() (cedar.Defaults, error) {
+	n, err := cedar.ParseDefaults(d.CPURequest, d.CPULimit, d.MemoryRequest, d.MemoryLimit)
+	if err != nil {
+		return cedar.Defaults{}, fmt.Errorf("policy bundle defaults: %w", err)
+	}
+	if got := DefaultsHash(n); got != d.Hash {
+		return cedar.Defaults{}, fmt.Errorf("policy bundle defaults hash %q does not match its values (%q)", d.Hash, got)
+	}
+	return n, nil
 }
 
 // Skipped records a policy that targets the gateway but is not published, with
@@ -70,6 +106,9 @@ type Input struct {
 	GlobalMode string
 	Policies   []*pb.PlatformGatewayPolicy
 	Defaults   cedar.Defaults
+	// DefaultQuantities are the same defaults as written; when set they are
+	// recorded in the bundle with DefaultsHash(Defaults).
+	DefaultQuantities *Defaults
 	// Unsupported is true when the gateway's driver cannot honor resource
 	// values (PLAT-PGP-18): every policy is published audit-only.
 	Unsupported bool
@@ -125,6 +164,10 @@ func Build(in Input) (Bundle, []Skipped, error) {
 		ResourcePoliciesSupported: !in.Unsupported,
 		Enforced:                  []Policy{},
 		AuditOnly:                 []Policy{},
+	}
+	if q := in.DefaultQuantities; q != nil {
+		b.Defaults = &Defaults{CPURequest: q.CPURequest, CPULimit: q.CPULimit, MemoryRequest: q.MemoryRequest, MemoryLimit: q.MemoryLimit,
+			Hash: DefaultsHash(in.Defaults)}
 	}
 	var skipped []Skipped
 	for _, p := range policies {
@@ -201,6 +244,11 @@ func Decode(raw []byte) (Bundle, error) {
 	}
 	if b.Revision != want {
 		return Bundle{}, fmt.Errorf("policy bundle revision %q does not match its content", b.Revision)
+	}
+	if b.Defaults != nil {
+		if _, err := b.Defaults.Parse(); err != nil {
+			return Bundle{}, err
+		}
 	}
 	return b, nil
 }

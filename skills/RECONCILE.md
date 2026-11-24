@@ -121,9 +121,19 @@ are removed. Tests: `test/authz/platform_gateway_policy_test.go`
 (`TestFleetDefaultsAcceptedOrRefusedAtTheAPIServer`, PLAT-PGP-08.02, PLAT-DATA-29.03;
 `TestPolicyDryRunAndFindingsAccess`, PLAT-PGP-21.01/.02), control-plane
 `policy_bundle_reconciler_test.go` and `policy_interceptor_provider_test.go`
-(PLAT-PGP-08.03, CTRL-CORE-22.04). Known gap: a Running gateway's sidecar env takes
-new defaults only on its next Helm reconcile (the controller seed does not
-re-provision Running gateways), while bundles follow immediately.
+(PLAT-PGP-08.03, CTRL-CORE-22.04). A defaults change rolls gateway pods
+(PLAT-PGP-08.04/.05, CTRL-CORE-22.05, OSG-CORE-19.03): the bundle records the
+defaults and `policybundle.DefaultsHash`; the pod template carries
+`hypershell.redhat.io/policy-defaults-hash`; on a received hash change
+`FleetDefaultsSource.OnChange` calls `GatewayReconcileQueue.RequeueAll`, and
+`gateway.PolicyDefaultsHashNeedsUpdate` makes a stale hash drift past the
+generation gate (bounded by the gateway reconcile workers). Until the pod rolls the
+sidecar applies the bundle's defaults and counts
+`hypershell_policy_interceptor_defaults_hash_mismatch_total`. Tests:
+`policy_defaults_rollout_test.go`, `watcher/gateway_reconcile_queue_test.go`,
+`helm/policy_interceptor_test.go`, `policyinterceptor/defaults_mismatch_test.go`,
+`policybundle/bundle_test.go`. Rollout note: gateways rendered before the
+annotation existed re-render once after the controller upgrade.
 
 **Remaining gap table (wave plan, not yet implemented):**
 
@@ -135,7 +145,8 @@ re-provision Running gateways), while bundles follow immediately.
 | W3 | Sidecar | done: `cmd/hypershell-policy-interceptor` + `internal/policyinterceptor` (Describe/Evaluate over unix socket, gateway JWT verification, bundle watch, Kubernetes adapter, defaults patches, denial text, audit events, metrics), second binary in `components/control-plane/Dockerfile`. Gap: Start/Resume re-check allows (current_state is always empty upstream; follow-up) | PLAT-PGP-02/03/07/08/09/11/12/13/14/15/16/18, AGT-EXT-06 |
 | W3 | Chart | done: vendored-chart local patch `server.extraInitContainers` (documented in `skills/tooling/update-openshell/SKILL.md`), `internal/helm/policy_interceptor.go` (native sidecar, socket emptyDir, projected token, JWT public key, registration from the shared binding table, `ValidateInterceptorRegistration` before rollout), `internal/gateway/policy_rbac.go` (bundle reader Role) | OSG-CORE-19, OSG-HELM-06, GTW-CFG-05 |
 | W4 | FE | done: admin panel `components/web-console/app/features/platform-policies` (+ adapters, probes, routes), gateway Policies tab and connection-step defaults in `packages/gateway-management-ui/src/policies`, `@patternfly/react-code-editor`; ui-build-gate Complete for all 10 governed states (manifests were under /tmp/pgp-gate, not committed) | WEB-PADM-01..12, WEB-GLIS-26, UIS-PFLY-11 |
-| W4 | E2E | code done, NOT yet run on Kind: `tests/e2e/policy_phases.go` (P2.1 policy-canary short subtest, P2.12 long step). Local `make kind-up` needs sudo (cloud-provider-kind :443 + DNS resolver); CI E2E/Kind blocked by Konflux image builds at time of writing | PLAT-PGP-20, E2E-CORE-49/50 |
+| W4 | E2E | code done, NOT yet run: `tests/e2e/policy_phases.go` (P2.1 policy-canary short subtest, P2.12 long step); the PR's CI E2E run is the gate | PLAT-PGP-20, E2E-CORE-49/50 |
+| W5 | API+CP+Sidecar | done: fleet defaults configured once on the api-server and distributed through `PlatformPolicySettings`; a defaults change rolls gateway pods (pod-template defaults hash, generation-gate drift, queue requeue) and a stale sidecar applies the bundle's defaults | PLAT-PGP-08.02-.05, PLAT-DATA-29.03, CTRL-CORE-22.04/.05, OSG-CORE-19.03 |
 
 Environment note: this reconciliation ran without a container engine (no
 `make generate`/`make proto`/`make generate-sdk`, no testcontainers DB tests) and

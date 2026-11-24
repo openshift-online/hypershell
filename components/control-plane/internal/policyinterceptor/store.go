@@ -17,6 +17,12 @@ type snapshot struct {
 	enforced *cedar.Evaluator
 	audit    *cedar.Evaluator
 	messages map[string]cedar.PolicyMessage
+	// defaults are the fleet defaults carried by the bundle, nil when the
+	// bundle carries none (PLAT-PGP-08.05).
+	defaults *DefaultQuantities
+	// mismatchLogged makes the env/bundle defaults mismatch log once per
+	// revision; the metric counts every affected call.
+	mismatchLogged atomic.Bool
 }
 
 // hasEnforced reports whether at least one policy is enforced on this gateway.
@@ -91,7 +97,17 @@ func (s *Store) Apply(raw []byte) (bool, error) {
 		s.setErr(err)
 		return false, err
 	}
-	s.current.Store(&snapshot{bundle: b, enforced: enforced, audit: audit, messages: b.Messages()})
+	snap := &snapshot{bundle: b, enforced: enforced, audit: audit, messages: b.Messages()}
+	if b.Defaults != nil {
+		parsed, err := b.Defaults.Parse()
+		if err != nil {
+			s.setErr(err)
+			return false, err
+		}
+		snap.defaults = &DefaultQuantities{CPURequest: b.Defaults.CPURequest, CPULimit: b.Defaults.CPULimit,
+			MemoryRequest: b.Defaults.MemoryRequest, MemoryLimit: b.Defaults.MemoryLimit, Parsed: parsed}
+	}
+	s.current.Store(snap)
 	s.setErr(nil)
 	return true, nil
 }

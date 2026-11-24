@@ -95,3 +95,31 @@ func TestBuildSkipsInvalidDisabledAndUnsupported(t *testing.T) {
 		t.Fatalf("an unsupported gateway must never enforce: %+v", b)
 	}
 }
+
+// Verifies: PLAT-PGP-08.05, CTRL-CORE-22.05
+func TestBundleRecordsDefaultsWithAConsistentHash(t *testing.T) {
+	q := &Defaults{CPURequest: "500m", CPULimit: "2", MemoryRequest: "1Gi", MemoryLimit: "4Gi"}
+	b, _, err := Build(Input{GatewayID: "gw", GlobalMode: ModeAudit, Defaults: defaults, DefaultQuantities: q})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Defaults == nil || b.Defaults.Hash != DefaultsHash(defaults) {
+		t.Fatalf("bundle defaults = %+v", b.Defaults)
+	}
+	raw, _ := b.Encode()
+	if _, err := Decode(raw); err != nil {
+		t.Fatalf("a consistent bundle must decode: %v", err)
+	}
+	// Equivalent quantities hash the same; a different default does not.
+	equiv, _ := cedar.ParseDefaults("0.5", "2000m", "1Gi", "4Gi")
+	other, _ := cedar.ParseDefaults("700m", "2", "1Gi", "4Gi")
+	if DefaultsHash(equiv) != DefaultsHash(defaults) || DefaultsHash(other) == DefaultsHash(defaults) {
+		t.Fatal("the defaults hash must depend only on normalized values")
+	}
+	// A defaults block whose hash does not match its values is rejected.
+	bad := *b.Defaults
+	bad.Hash = "0000000000000000"
+	if _, err := bad.Parse(); err == nil {
+		t.Fatal("an inconsistent defaults hash must be rejected")
+	}
+}

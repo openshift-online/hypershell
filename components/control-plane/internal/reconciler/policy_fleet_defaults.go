@@ -10,6 +10,7 @@ import (
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/cedar"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/policybundle"
 )
 
 // ErrNoFleetDefaults reports that the api-server has not provided the fleet
@@ -27,6 +28,15 @@ type FleetDefaults struct {
 	MemoryRequest string
 	MemoryLimit   string
 	Normalized    cedar.Defaults
+}
+
+// Hash is the stable hash of the normalized defaults (PLAT-PGP-08), stamped on
+// the bundle and on the gateway pod template.
+func (d FleetDefaults) Hash() string { return policybundle.DefaultsHash(d.Normalized) }
+
+// BundleDefaults returns the defaults in the bundle contract form.
+func (d FleetDefaults) BundleDefaults() *policybundle.Defaults {
+	return &policybundle.Defaults{CPURequest: d.CPURequest, CPULimit: d.CPULimit, MemoryRequest: d.MemoryRequest, MemoryLimit: d.MemoryLimit, Hash: d.Hash()}
 }
 
 // FleetDefaultsFromSettings reads the accepted fleet defaults from the
@@ -58,8 +68,18 @@ func FleetDefaultsFromSettings(s *pb.PlatformPolicySettings) (FleetDefaults, err
 type FleetDefaultsSource struct {
 	settings pb.PlatformPolicySettingsServiceClient
 
-	mu      sync.RWMutex
-	current *FleetDefaults
+	mu       sync.RWMutex
+	current  *FleetDefaults
+	onChange []func(previousHash, newHash string)
+}
+
+// OnChange registers a callback run when received defaults replace different
+// earlier ones (a changed DefaultsHash). The first receipt does not call it:
+// gateways reconciled before then read the defaults through Get.
+func (s *FleetDefaultsSource) OnChange(fn func(previousHash, newHash string)) {
+	s.mu.Lock()
+	s.onChange = append(s.onChange, fn)
+	s.mu.Unlock()
 }
 
 // NewFleetDefaultsSource builds a source backed by the api-server connection.
@@ -74,8 +94,15 @@ func (s *FleetDefaultsSource) Update(settings *pb.PlatformPolicySettings) (Fleet
 		return FleetDefaults{}, err
 	}
 	s.mu.Lock()
+	previous := s.current
 	s.current = &d
+	callbacks := append([]func(string, string){}, s.onChange...)
 	s.mu.Unlock()
+	if previous != nil && previous.Hash() != d.Hash() {
+		for _, fn := range callbacks {
+			fn(previous.Hash(), d.Hash())
+		}
+	}
 	return d, nil
 }
 

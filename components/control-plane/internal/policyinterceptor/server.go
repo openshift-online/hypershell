@@ -13,6 +13,7 @@ import (
 	"github.com/openshift-online/hypershell/components/api-server/pkg/cedar"
 	extv1 "github.com/openshift-online/hypershell/components/control-plane/internal/openshellclient/gen/extensionv1"
 	gi "github.com/openshift-online/hypershell/components/control-plane/internal/openshellclient/gen/gatewayinterceptorv1"
+	"github.com/openshift-online/hypershell/components/control-plane/internal/policybundle"
 	"github.com/openshift-online/hypershell/components/control-plane/pkg/version"
 )
 
@@ -211,6 +212,30 @@ func proposed(req *gi.InterceptorEvaluation) map[string]any {
 	return st.AsMap()
 }
 
+// defaultsFor returns the fleet defaults to apply with this bundle revision
+// (PLAT-PGP-08.05). The bundle's defaults are authoritative: they are the ones
+// the bundle was validated against and they follow a defaults change within
+// seconds, while the environment defaults change only when the pod rolls. When
+// the two hashes differ the sidecar applies the bundle's defaults and records
+// the mismatch in a metric and, once per revision, a log line. A bundle
+// without defaults falls back to the environment.
+func (s *Server) defaultsFor(snap *snapshot) DefaultQuantities {
+	if snap == nil || snap.defaults == nil {
+		return s.Defaults
+	}
+	if snap.bundle.Defaults.Hash == policybundle.DefaultsHash(s.Defaults.Parsed) {
+		return s.Defaults
+	}
+	if s.Metrics != nil {
+		s.Metrics.DefaultsMismatch.Inc()
+	}
+	if snap.mismatchLogged.CompareAndSwap(false, true) {
+		s.log().Warn("sidecar environment fleet defaults differ from the policy bundle; applying the bundle defaults until the gateway pod rolls",
+			"revision", snap.bundle.Revision, "bundle_hash", snap.bundle.Defaults.Hash, "env_hash", policybundle.DefaultsHash(s.Defaults.Parsed))
+	}
+	return *snap.defaults
+}
+
 // modifyCreate adds the missing fleet defaults when at least one policy is
 // enforced on the gateway; otherwise it changes nothing and records a
 // would_add_defaults finding (PLAT-PGP-08).
@@ -222,14 +247,15 @@ func (s *Server) modifyCreate(ctx context.Context, snap *snapshot, req *gi.Inter
 	if !snap.bundle.ResourcePoliciesSupported {
 		return allow(), nil
 	}
+	defaults := s.defaultsFor(snap)
 	if snap.hasEnforced() {
-		patches, err := sr.DefaultPatches(s.Defaults)
+		patches, err := sr.DefaultPatches(defaults)
 		if err != nil {
 			return s.invalidRequest(snap, err)
 		}
 		return &gi.InterceptorResult{Allowed: true, Patches: patches}, nil
 	}
-	missing, err := sr.MissingDefaults(s.Defaults)
+	missing, err := sr.MissingDefaults(defaults)
 	if err != nil {
 		// Strict audit (PLAT-PGP-07): an unparsable value changes nothing here;
 		// the gateway and driver validate the request themselves.
@@ -238,7 +264,7 @@ func (s *Server) modifyCreate(ctx context.Context, snap *snapshot, req *gi.Inter
 	}
 	if len(missing) > 0 {
 		summary := cedar.Context{}
-		if c, cerr := sr.Context(s.Defaults); cerr == nil {
+		if c, cerr := sr.Context(defaults); cerr == nil {
 			summary = c
 		}
 		s.emit(snap, req, "CreateSandbox", OutcomeWouldAddDefaults, nil, summary, sr.RequestID)
@@ -271,7 +297,7 @@ func (s *Server) validateCreate(ctx context.Context, snap *snapshot, req *gi.Int
 	if err != nil {
 		return s.invalidRequest(snap, err)
 	}
-	cctx, err := sr.Context(s.Defaults)
+	cctx, err := sr.Context(s.defaultsFor(snap))
 	if err != nil {
 		return s.invalidRequest(snap, err)
 	}
