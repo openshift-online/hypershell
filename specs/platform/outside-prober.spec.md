@@ -315,6 +315,14 @@ them and read `id`, `phase`, `cluster_id`, `route_address`, `created_at`, and
 `deleted_at`) and nothing else. The prober SHALL NOT be granted `platform:admin`,
 which confers delete and access-management authority the prober does not need.
 
+The prober's access tokens carry `azp` set to its Keycloak client
+(`hypershell-prober`). The API server classifies requests made with such a verified
+token as `synthetic` traffic
+([`service-level-indicators.spec.md`](./service-level-indicators.spec.md)
+OBS-SLI-11), so prober requests do not count in the user API latency and user API
+availability indicators. A deployment that gives the prober a different Keycloak
+client ID SHALL list that ID in the API server's `HYPERSHELL_SYNTHETIC_CLIENT_IDS`.
+
 #### Scenario: OBS-PRB-06.01 -- Prober uses a keyless token, not a static secret
 
 - GIVEN the prober needs to list gateways

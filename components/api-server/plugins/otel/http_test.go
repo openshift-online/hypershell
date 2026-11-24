@@ -129,7 +129,7 @@ func durationSampleAttrs(t *testing.T, reader *sdkmetric.ManualReader) attribute
 }
 
 // serveThroughOTel wires the production HTTP instrumentation the same way plugin.go
-// does -- the otelHTTPHandler creates the server span and the Labeler, and
+// does -- the newOTelHTTPHandler middleware creates the server span and the Labeler, and
 // routeTagMiddleware runs inside the mux router where mux.CurrentRoute holds the
 // templated path -- then serves one GET request against requestPath and returns
 // the recorded metrics reader. Only /api/hypershell/v1/gateways/{id} is a
@@ -149,7 +149,7 @@ func serveThroughOTel(t *testing.T, requestPath string) *sdkmetric.ManualReader 
 		w.WriteHeader(http.StatusOK)
 	}).Methods(http.MethodGet)
 
-	handler := otelHTTPHandler(router)
+	handler := newOTelHTTPHandler(parseSyntheticClientIDs("", false))(router)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, requestPath, nil)

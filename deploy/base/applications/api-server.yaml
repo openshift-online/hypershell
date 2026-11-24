@@ -119,6 +119,14 @@ spec:
               value: "1Gi"
             - name: HYPERSHELL_POLICY_DEFAULT_MEMORY_LIMIT
               value: "4Gi"
+            # OAuth client IDs (verified token azp) whose requests are
+            # synthetic traffic (OBS-SLI-11). Their latency samples carry
+            # hypershell_caller_class="synthetic" so the user API indicators
+            # exclude them. Comma-separated; read once at startup; an empty
+            # value classifies every request as user. List the outside
+            # prober's Keycloak client here if it changes (OBS-PRB-06).
+            - name: HYPERSHELL_SYNTHETIC_CLIENT_IDS
+              value: "hypershell-prober"
           startupProbe:
             httpGet:
               path: /healthcheck
