@@ -274,3 +274,22 @@ func TestPolicyStepIsLongOnly(t *testing.T) {
 		t.Fatal("P2.12 is missing from the planned report steps")
 	}
 }
+
+// TestCheckPolicyDenialUnwrapsCLIGutter uses the exact openshell CLI output
+// from the OpenShift PR e2e run, where the CLI wrapped the status message and
+// split the policy name across lines ("e2e-enforcement-" / "canary").
+// Verifies: E2E-CORE-49.01
+func TestCheckPolicyDenialUnwrapsCLIGutter(t *testing.T) {
+	out := "Error:   × code: 'The caller does not have permission to execute the specified\n" +
+		"  │ operation', message: \"Rejected by platform policy:\\n- e2e-enforcement-\n" +
+		"  │ canary: Used by HyperShell release checks. Applies only to sandboxes named\n" +
+		"  │ e2epol-*: they may request at most 1 CPU. (CPU request is 2; allowed: at\n" +
+		"  │ most 1)\"\n"
+	if err := checkPolicyDenial(out, []policyDenialExpectation{{
+		Name:        canaryPolicyName,
+		UserMessage: testCanaryMessage,
+		Bound:       canaryCPUBound,
+	}}); err != nil {
+		t.Fatalf("checkPolicyDenial on wrapped CLI output: %v", err)
+	}
+}

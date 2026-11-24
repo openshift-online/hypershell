@@ -252,7 +252,35 @@ var cliStatusUnescaper = strings.NewReplacer(`\\`, `\`, `\n`, "\n", `\"`, `"`)
 // normalizeCLIStatusText strips ANSI color and unescapes the quoted gRPC status
 // message so a multi-line denial reason can be matched line by line.
 func normalizeCLIStatusText(out string) string {
-	return cliStatusUnescaper.Replace(stripANSI(out))
+	return cliStatusUnescaper.Replace(unwrapCLIGutter(stripANSI(out)))
+}
+
+// cliGutterLine matches a continuation line of the openshell CLI's wrapped
+// error report ("  │ operation', message: ...").
+var cliGutterLine = regexp.MustCompile(`^\s*│ ?(.*)$`)
+
+// unwrapCLIGutter rejoins the openshell CLI's wrapped error lines. The CLI
+// wraps the still-escaped status (real newlines in the message are the
+// two-character sequence \n), so every gutter line continues the previous
+// physical line. Wrapping either drops one space or breaks after a hyphen
+// ("e2e-enforcement-" / "canary"), so a continuation joins with a space,
+// or with nothing after a trailing hyphen.
+func unwrapCLIGutter(out string) string {
+	var joined []string
+	for _, line := range strings.Split(out, "\n") {
+		m := cliGutterLine.FindStringSubmatch(line)
+		if m == nil || len(joined) == 0 {
+			joined = append(joined, line)
+			continue
+		}
+		prev := strings.TrimRight(joined[len(joined)-1], " ")
+		sep := " "
+		if strings.HasSuffix(prev, "-") {
+			sep = ""
+		}
+		joined[len(joined)-1] = prev + sep + m[1]
+	}
+	return strings.Join(joined, "\n")
 }
 
 // isPermissionDenied reports whether CLI output carries a PERMISSION_DENIED
