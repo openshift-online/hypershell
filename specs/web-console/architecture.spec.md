@@ -837,6 +837,8 @@ No service worker or offline mutation queue SHALL ship initially. Either feature
 
 The BFF SHALL set a reviewed Content Security Policy, frame-ancestor restriction, MIME sniffing protection, referrer policy, permissions policy, and HSTS where TLS deployment permits it. CSP SHALL begin in report-only mode while third-party and framework behavior is inventoried, then become enforcing before production release. Unsafe script execution and unbounded third-party origins SHALL NOT be accepted as permanent defaults.
 
+Inline styles are a reviewed exception: `style-src` and `style-src-attr` SHALL allow `'unsafe-inline'` and SHALL NOT list style hashes (browsers ignore `'unsafe-inline'` when a hash is present). The PatternFly code editor (UIS-PFLY-11) embeds Monaco, which positions view lines with `style` attributes and injects syntax token colours as a runtime `<style>` element with no nonce support. Under a hash-only style policy the editor stacks every line at the top and shows no syntax highlighting. `script-src` SHALL stay hash-only.
+
 User- or API-provided text SHALL render as text by default. Raw HTML rendering requires sanitization, a documented need, and adversarial tests. URLs, redirects, downloads, and external links SHALL use allowlisted schemes and destinations appropriate to their purpose.
 
 **Verification:** Run header and CSP tests, inject representative markup and URL payloads, and review CSP reports. Confirm that framing and cross-origin data access fail as designed.

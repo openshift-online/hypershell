@@ -154,6 +154,15 @@ export {
   type PolicyBoundSide,
   type PolicyRowBound,
 } from "./policies/policy-quantities";
+export { CedarCodeBlock, CedarSource } from "./policies/cedar-code-block";
+export {
+  cedarKeywords,
+  cedarLiterals,
+  cedarVariables,
+  tokenizeCedar,
+  type CedarToken,
+  type CedarTokenKind,
+} from "./policies/cedar-highlight";
 export {
   formatPolicyTime,
   PolicyCedarRule,

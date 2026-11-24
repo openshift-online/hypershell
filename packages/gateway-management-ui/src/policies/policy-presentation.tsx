@@ -1,7 +1,5 @@
 import {
   Button,
-  CodeBlock,
-  CodeBlockCode,
   Content,
   DescriptionList,
   DescriptionListDescription,
@@ -31,6 +29,7 @@ import type {
   PolicyRenderedRule,
   PolicyResourceKey,
 } from "../application/policy-types";
+import { CedarCodeBlock } from "./cedar-code-block";
 import { policyMessages } from "./policy-messages";
 import {
   fleetDefaultFor,
@@ -129,19 +128,9 @@ export function PolicyModeWithReason({
   );
 }
 
-/** Attribution label: a policy (locked) or the fleet defaults. */
-export function PolicySourceLabel({
-  isFleetDefault = false,
-  name,
-}: {
-  isFleetDefault?: boolean;
-  name: string;
-}) {
-  return isFleetDefault ? (
-    <Label color="grey" isCompact variant="outline">
-      {name}
-    </Label>
-  ) : (
+/** Attribution label for the policy a limit comes from. */
+export function PolicySourceLabel({ name }: { name: string }) {
+  return (
     <Label color="grey" icon={<LockIcon />} isCompact>
       {name}
     </Label>
@@ -326,9 +315,7 @@ export function PolicyCedarRule({ rule }: { rule: PolicyRenderedRule }) {
         </Label>
       </StackItem>
       <StackItem>
-        <CodeBlock>
-          <CodeBlockCode>{rule.cedar}</CodeBlockCode>
-        </CodeBlock>
+        <CedarCodeBlock source={rule.cedar} />
       </StackItem>
     </Stack>
   );

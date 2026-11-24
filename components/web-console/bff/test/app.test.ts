@@ -171,6 +171,17 @@ describe("web-console BFF", () => {
       expect(response.headers["content-security-policy"], route).not.toContain(
         "upgrade-insecure-requests",
       );
+      // WEB-SEC-01 reviewed exception: Monaco needs inline styles, scripts
+      // stay hash-only.
+      expect(response.headers["content-security-policy"], route).toContain(
+        "style-src 'self' 'unsafe-inline'",
+      );
+      expect(response.headers["content-security-policy"], route).toContain(
+        "style-src-attr 'unsafe-inline'",
+      );
+      expect(response.headers["content-security-policy"], route).not.toMatch(
+        /script-src[^;]*'unsafe-inline'/u,
+      );
       expect(response.headers["permissions-policy"], route).toContain(
         "camera=()",
       );

@@ -4,6 +4,7 @@ import {
   GatewayStatus,
   policyFindingDetail,
   policyMessages,
+  CedarCodeBlock,
   PolicyCedarRule,
   PolicyModeLabel,
   PolicyModeWithReason,
@@ -19,8 +20,6 @@ import {
   ActionList,
   ActionListItem,
   Button,
-  CodeBlock,
-  CodeBlockCode,
   Content,
   DescriptionList,
   DescriptionListDescription,
@@ -185,9 +184,7 @@ function OverviewTab({
               }}
               toggleText={intl.formatMessage(messages.cedarSourceTitle)}
             >
-              <CodeBlock>
-                <CodeBlockCode>{policy.cedar}</CodeBlockCode>
-              </CodeBlock>
+              <CedarCodeBlock source={policy.cedar} />
             </ExpandableSection>
           </StackItem>
           <StackItem>

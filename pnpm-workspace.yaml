@@ -20,6 +20,13 @@ injectWorkspacePackages: true
 syncInjectedDepsAfterScripts:
   - build
 strictPeerDependencies: true
+# @patternfly/react-code-editor 6.6.1 imports @patternfly/react-tokens (Monaco
+# theme colors) without declaring it, so strict resolution (Storybook build)
+# fails. Declare the missing dependency at the version react-core uses.
+packageExtensions:
+  "@patternfly/react-code-editor@6.6.1":
+    dependencies:
+      "@patternfly/react-tokens": 6.6.1
 disallowWorkspaceCycles: true
 failIfNoMatch: true
 # engines.node is the compatibility floor (Mintmaker/Renovate runs Node 24.11.0).

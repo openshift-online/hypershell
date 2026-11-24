@@ -1,0 +1,59 @@
+/*
+ * Cedar token colors. Hues follow the PatternFly code editor's Monaco theme
+ * (keyword and annotation purple, variable blue, string green, number orange,
+ * type yellow, comment gray), so Cedar reads the same in the editor and in
+ * read-only blocks. Light shades are one step darker where the editor's shade
+ * misses AA contrast on the code block background (#f2f2f2). PatternFly does
+ * not expose these palette tokens as CSS variables, so the values are copied
+ * from @patternfly/react-tokens (names in comments).
+ */
+.annotation,
+.keyword {
+  color: #5e40be; /* t_color_purple_50 */
+}
+
+.variable {
+  color: #0066cc; /* t_color_blue_50 */
+}
+
+.string {
+  color: #3d7317; /* t_color_green_60 */
+}
+
+.number {
+  color: #9e4a06; /* t_color_orange_60 */
+}
+
+.type {
+  color: #73480b; /* t_color_yellow_70 */
+}
+
+.comment {
+  color: #4d4d4d; /* t_color_gray_60 */
+  font-style: italic;
+}
+
+:global(html.pf-v6-theme-dark) .annotation,
+:global(html.pf-v6-theme-dark) .keyword {
+  color: #b6a6e9; /* t_color_purple_30 */
+}
+
+:global(html.pf-v6-theme-dark) .variable {
+  color: #92c5f9; /* t_color_blue_30 */
+}
+
+:global(html.pf-v6-theme-dark) .string {
+  color: #afdc8f; /* t_color_green_30 */
+}
+
+:global(html.pf-v6-theme-dark) .number {
+  color: #f8ae54; /* t_color_orange_30 */
+}
+
+:global(html.pf-v6-theme-dark) .type {
+  color: #ffcc17; /* t_color_yellow_30 */
+}
+
+:global(html.pf-v6-theme-dark) .comment {
+  color: #c7c7c7; /* t_color_gray_30 */
+}

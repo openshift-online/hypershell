@@ -71,6 +71,7 @@ import {
   gatewayEffectivePoliciesQueryKey,
   gatewayEffectivePoliciesStaleMilliseconds,
 } from "./policy-data";
+import { CedarCodeBlock } from "./cedar-code-block";
 import { policyMessages } from "./policy-messages";
 import {
   formatPolicyTime,
@@ -169,7 +170,7 @@ function limitRows(
             {
               enforced: true,
               isFleetDefault: true,
-              source: intl.formatMessage(policyMessages.fleetDefault),
+              source: "fleet-default",
               value: fleetDefault,
             },
           ]
@@ -201,28 +202,19 @@ function LimitCell({
     <Stack hasGutter>
       {entries.map((entry) => (
         <StackItem key={`${entry.source}-${entry.value}`}>
-          <Stack>
-            <StackItem>
-              <Content component="p">
-                <strong>{entry.value}</strong>
-              </Content>
-            </StackItem>
-            <StackItem>
-              <Flex flexWrap={{ default: "wrap" }} gap={{ default: "gapXs" }}>
+          <strong>{entry.value}</strong>
+          {entry.isFleetDefault ? null : (
+            <Flex flexWrap={{ default: "wrap" }} gap={{ default: "gapXs" }}>
+              <FlexItem>
+                <PolicySourceLabel name={entry.source} />
+              </FlexItem>
+              {entry.enforced ? null : (
                 <FlexItem>
-                  <PolicySourceLabel
-                    isFleetDefault={entry.isFleetDefault}
-                    name={entry.source}
-                  />
+                  <PolicyModeLabel enforced={false} isCompact />
                 </FlexItem>
-                {entry.enforced ? null : (
-                  <FlexItem>
-                    <PolicyModeLabel enforced={false} isCompact />
-                  </FlexItem>
-                )}
-              </Flex>
-            </StackItem>
-          </Stack>
+              )}
+            </Flex>
+          )}
         </StackItem>
       ))}
     </Stack>
@@ -236,7 +228,10 @@ function LimitsTable({ rows }: { rows: readonly LimitRow[] }): ReactElement {
   const fallback = intl.formatMessage(policyMessages.columnDefault);
   const maximum = intl.formatMessage(policyMessages.columnMaximum);
   return (
-    <Table aria-label={intl.formatMessage(messages.limitsTableLabel)}>
+    <Table
+      aria-label={intl.formatMessage(messages.limitsTableLabel)}
+      variant="compact"
+    >
       <Thead>
         <Tr>
           <Th width={20}>{resource}</Th>
@@ -638,14 +633,7 @@ function PolicyDrawerPanel({
                   : policyMessages.showCedarSource,
               )}
             >
-              <PolicyCedarRule
-                rule={{
-                  bounds: [],
-                  cedar: policy.cedar,
-                  recognized: false,
-                  summary: [],
-                }}
-              />
+              <CedarCodeBlock source={policy.cedar} />
             </ExpandableSection>
           </StackItem>
           <StackItem>
@@ -779,9 +767,9 @@ function PoliciesContent({
                     })}
                     variant="info"
                   >
-                    <List>
+                    <Stack hasGutter>
                       {extraRules.map(({ policy, rule }, index) => (
-                        <ListItem key={`${policy.name}-${String(index)}`}>
+                        <StackItem key={`${policy.name}-${String(index)}`}>
                           <Stack hasGutter>
                             <StackItem>
                               <FormattedMessage
@@ -806,9 +794,9 @@ function PoliciesContent({
                               <PolicyCedarRule rule={rule} />
                             </StackItem>
                           </Stack>
-                        </ListItem>
+                        </StackItem>
                       ))}
-                    </List>
+                    </Stack>
                   </Alert>
                 </StackItem>
               ) : null}
@@ -897,6 +885,14 @@ export interface GatewayPoliciesTabProps {
   isActive: boolean;
 }
 
+function withoutBuiltInPolicies(
+  data: GatewayEffectivePolicies,
+): GatewayEffectivePolicies {
+  return data.policies.some(({ builtIn }) => builtIn)
+    ? { ...data, policies: data.policies.filter(({ builtIn }) => !builtIn) }
+    : data;
+}
+
 /**
  * Read-only Policies tab for every gateway access level (WEB-GLIS-26). Gateway
  * users never author, edit, or change the mode of a policy here.
@@ -966,7 +962,10 @@ export function GatewayPoliciesTab({
     );
   }
 
-  const data = policiesQuery.data;
+  // Built-in policies (the e2e enforcement canary, PLAT-PGP-20) only test the
+  // release gate on sandboxes it names, so the gateway tab hides them
+  // (WEB-GLIS-26.04). The admin panel still lists them.
+  const data = withoutBuiltInPolicies(policiesQuery.data);
   const selected = data.policies.find(({ name }) => name === openPolicyName);
   return (
     <Drawer isExpanded={selected !== undefined} position="end">

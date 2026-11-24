@@ -1036,6 +1036,13 @@ read-only: a gateway user never authors, edits, or changes the mode of a policy
 
 Because the endpoint masks policy targets and exclusions from gateway users
 (SEC-RBAC-31), the tab SHALL NOT display any other gateway's identity. The tab SHALL
+NOT list built-in policies (`builtIn: true`, for example the e2e enforcement canary
+of PLAT-PGP-20): they only exercise the release gate on sandboxes they name, so they
+are not restrictions gateway users need to plan around. The platform policy admin
+panel still lists them. Fleet default values SHALL appear in the limits table's
+Default column without a per-value source label, because the column header names
+their source. Cedar source SHALL render with the shared Cedar syntax highlighting
+(WEB-PADM-05). The tab SHALL
 follow the detail page's hexagonal boundary and domain probes (WEB-GLIS-22),
 server-state freshness and localization (WEB-GLIS-23), and per-tab polling and refresh
 (WEB-GLIS-21, WEB-GLIS-24). The Connection tab's guided `openshell sandbox create`
@@ -1066,6 +1073,13 @@ mandatory web-console completion gate.
 - GIVEN the Policies tab with audit findings for this gateway
 - WHEN the user switches "My operations / All operations" and the outcome filter
 - THEN the findings list SHALL update to match the selected scope and outcome
+
+#### Scenario: WEB-GLIS-26.04 -- Built-in Policies Are Hidden
+
+- GIVEN the effective policies for a gateway include the built-in `e2e-enforcement-canary` policy and a custom platform policy
+- WHEN a gateway user opens the Policies tab
+- THEN the limits table, additional rules, and policy list SHALL show the custom policy
+- AND they SHALL NOT show the built-in policy
 
 ## Non-Goals
 

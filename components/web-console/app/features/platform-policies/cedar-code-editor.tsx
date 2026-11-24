@@ -1,5 +1,6 @@
 import { CodeEditor } from "@patternfly/react-code-editor";
-import { CodeBlock, CodeBlockCode, TextArea } from "@patternfly/react-core";
+import { CedarCodeBlock } from "@openshift-online/hypershell-gateway-management-ui";
+import { TextArea } from "@patternfly/react-core";
 import { useEffect, useRef, useState } from "react";
 
 import type * as CedarMonaco from "./cedar-monaco";
@@ -153,11 +154,7 @@ export function CedarCodeEditor({
     );
   }
 
-  const placeholder = (
-    <CodeBlock>
-      <CodeBlockCode>{code}</CodeBlockCode>
-    </CodeBlock>
-  );
+  const placeholder = <CedarCodeBlock source={code} />;
 
   if (!monacoModule) {
     return placeholder;

@@ -1,6 +1,11 @@
 import { loader } from "@monaco-editor/react";
 import * as monaco from "monaco-editor/editor/editor.api";
 import EditorWorker from "monaco-editor/editor/editor.worker?worker";
+import {
+  cedarKeywords,
+  cedarLiterals,
+  cedarVariables,
+} from "@openshift-online/hypershell-gateway-management-ui";
 
 /*
  * Client-only Monaco setup for the Cedar editor. Monaco is bundled with the
@@ -34,21 +39,10 @@ monaco.languages.setLanguageConfiguration(cedarLanguageId, {
   ],
 });
 monaco.languages.setMonarchTokensProvider(cedarLanguageId, {
-  keywords: [
-    "forbid",
-    "permit",
-    "when",
-    "unless",
-    "if",
-    "then",
-    "else",
-    "in",
-    "has",
-    "like",
-    "is",
-  ],
-  variables: ["principal", "action", "resource", "context"],
-  literals: ["true", "false"],
+  // Shared with the read-only Cedar blocks so both color the same words.
+  keywords: [...cedarKeywords],
+  variables: [...cedarVariables],
+  literals: [...cedarLiterals],
   tokenizer: {
     root: [
       [/\/\/.*$/u, "comment"],
