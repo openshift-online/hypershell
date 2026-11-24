@@ -7,6 +7,8 @@ import (
 	"time"
 
 	. "github.com/onsi/gomega"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
@@ -284,10 +286,10 @@ func TestConvergenceCounterSurvivesRestart(t *testing.T) {
 	Expect(counterTotal("create", "within_10m")).To(Equal(total))
 }
 
-// TestConvergenceDeleteFinalizes covers OBS-SLI-01.03: a delete opens a delete
-// window that converges only when the control plane reports finalization
-// complete (the idempotent DeleteGateway re-call after reclaiming every owned
-// resource).
+// TestConvergenceDeleteFinalizes covers OBS-SLI-01.03 / GTW-DEL-10: a delete
+// opens a delete window that converges only when the control plane reports
+// finalization complete through the dedicated FinalizeGatewayDeletion RPC after
+// reclaiming every owned resource. Finalizing again is idempotent (GTW-DEL-10.02).
 func TestConvergenceDeleteFinalizes(t *testing.T) {
 	c, clusterID := newConvergenceHarness(t)
 	gw := c.createGateway(t, "conv-delete", clusterID)
@@ -306,11 +308,38 @@ func TestConvergenceDeleteFinalizes(t *testing.T) {
 
 	before := counterTotal("delete", "within_10m")
 
-	// The control plane reports finalization complete by re-calling DeleteGateway
-	// on the already-soft-deleted gateway.
-	_, err = c.cp.DeleteGateway(context.Background(), &pb.DeleteGatewayRequest{Id: gw.ID})
+	// The control plane reports finalization complete through the dedicated RPC on
+	// the already-soft-deleted gateway.
+	_, err = c.cp.FinalizeGatewayDeletion(context.Background(), &pb.FinalizeGatewayDeletionRequest{Id: gw.ID})
 	Expect(err).NotTo(HaveOccurred())
 
 	Expect(counterTotal("delete", "within_10m")).To(Equal(before + 1))
 	expectClosedWindow(gw.ID)
+
+	// Finalizing again is idempotent: it succeeds and does not recount the window.
+	_, err = c.cp.FinalizeGatewayDeletion(context.Background(), &pb.FinalizeGatewayDeletionRequest{Id: gw.ID})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(counterTotal("delete", "within_10m")).To(Equal(before + 1))
+}
+
+// TestFinalizeGatewayDeletionStateResults covers GTW-DEL-10.03 and GTW-DEL-10.04
+// at the handler level (RBAC off here): a live gateway is FAILED_PRECONDITION and
+// left unaltered, and an unknown id is NOT_FOUND. The own-cluster-tombstone
+// authorization is covered end-to-end through the real interceptor in the authz
+// integration suite.
+func TestFinalizeGatewayDeletionStateResults(t *testing.T) {
+	c, clusterID := newConvergenceHarness(t)
+	gw := c.createGateway(t, "conv-finalize-state", clusterID)
+
+	// A live gateway: finalization is only valid after a deletion is requested.
+	_, err := c.cp.FinalizeGatewayDeletion(context.Background(), &pb.FinalizeGatewayDeletionRequest{Id: gw.ID})
+	Expect(status.Code(err)).To(Equal(codes.FailedPrecondition), "finalizing a live gateway: %v", err)
+	// The gateway is still live and unaltered.
+	got, getErr := c.cp.GetGateway(context.Background(), &pb.GetGatewayRequest{Id: gw.ID})
+	Expect(getErr).NotTo(HaveOccurred())
+	Expect(got.GetGateway().GetMetadata().GetId()).To(Equal(gw.ID))
+
+	// An unknown id: NOT_FOUND (the control plane treats this as success).
+	_, err = c.cp.FinalizeGatewayDeletion(context.Background(), &pb.FinalizeGatewayDeletionRequest{Id: "does-not-exist"})
+	Expect(status.Code(err)).To(Equal(codes.NotFound), "finalizing an unknown id: %v", err)
 }

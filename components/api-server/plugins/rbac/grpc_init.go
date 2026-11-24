@@ -59,18 +59,39 @@ func newGatewayClusterResolver(envServices *environments.Services) pkgrbac.Gatew
 }
 
 func (r gatewayClusterResolver) GatewayClusterID(ctx context.Context, gatewayID string) (string, bool, error) {
+	clusterID, _, found, err := r.resolveGatewayCluster(ctx, gatewayID)
+	return clusterID, found, err
+}
+
+// GatewayTombstoneClusterID resolves the gateway with an unscoped lookup (which
+// includes soft-deleted rows) and reports its cluster ONLY when it is a tombstone.
+// A live gateway or an unknown id reports isTombstone=false, so the caller denies
+// FinalizeGatewayDeletion for anything but an own-cluster tombstone (GTW-DEL-10).
+func (r gatewayClusterResolver) GatewayTombstoneClusterID(ctx context.Context, gatewayID string) (string, bool, error) {
+	clusterID, deleted, found, err := r.resolveGatewayCluster(ctx, gatewayID)
+	if err != nil || !found || !deleted {
+		return "", false, err
+	}
+	return clusterID, true, nil
+}
+
+// resolveGatewayCluster does the single unscoped gateway lookup both resolver
+// methods share: it returns the gateway's cluster, whether its row is soft-deleted
+// (a tombstone), and whether it exists at all. An unknown id reports found=false
+// with no error.
+func (r gatewayClusterResolver) resolveGatewayCluster(ctx context.Context, gatewayID string) (clusterID string, deleted bool, found bool, err error) {
 	svc := gateways.Service(r.envServices)
 	if svc == nil {
-		return "", false, fmt.Errorf("gateway service is not available")
+		return "", false, false, fmt.Errorf("gateway service is not available")
 	}
 	gateway, svcErr := svc.GetUnscoped(ctx, gatewayID)
 	if svcErr != nil {
 		if svcErr.Is404() {
-			return "", false, nil
+			return "", false, false, nil
 		}
-		return "", false, svcErr
+		return "", false, false, svcErr
 	}
-	return gateway.ClusterId, true, nil
+	return gateway.ClusterId, gateway.DeletedAt.Valid, true, nil
 }
 
 func (r gatewayClusterResolver) NamespaceClusterID(ctx context.Context, namespace string) (string, bool, error) {

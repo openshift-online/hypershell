@@ -76,8 +76,8 @@ holds for the newest `generation`. A `Degraded` phase, a `Failed` phase, or
 #### Scenario: OBS-SLI-01.03 -- Delete converges only after finalization
 
 - GIVEN a Gateway deletion request
-- WHEN the Gateway record and every Gateway-owned cluster resource are gone (GTW-DEL-01 finalization complete)
-- THEN the `delete` convergence window SHALL converge
+- WHEN the control plane has reclaimed every Gateway-owned cluster resource and signals completion by calling `FinalizeGatewayDeletion` (GTW-DEL-10)
+- THEN the `delete` convergence window SHALL converge at the finalization signal
 - AND a `delete` window SHALL NOT converge while any owned cluster resource remains
 
 #### Scenario: OBS-SLI-01.04 -- Convergence survives a restart
@@ -468,7 +468,7 @@ Reported build metadata SHALL NOT contain secrets.
 
 - `platform/data-model.spec.md` (PLAT-DATA-06 generation tracking)
 - `platform/gateway-phase-vocabulary.spec.md` (canonical phase set)
-- `platform/gateway-deletion-finalization.spec.md` (GTW-DEL-01 finalization)
+- `platform/gateway-deletion-finalization.spec.md` (GTW-DEL-01 finalization, GTW-DEL-10 finalization-completion signal)
 - `platform/control-plane-observability.spec.md` (OBS-CPL-07 reconcile metrics)
 - `platform/control-plane-reconciliation-metrics.spec.md` (OBS-CRM-01 metric types)
 - `platform/gateway-metrics-dashboard.spec.md` (OBS-GMD-01, OBS-GMD-02 API-server collector and metrics endpoint)

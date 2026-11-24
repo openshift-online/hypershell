@@ -532,20 +532,11 @@ func (h *gatewayGRPCHandler) DeleteGateway(ctx context.Context, req *pb.DeleteGa
 	// no-op, so per-gateway RBAC delete over gRPC is unaffected.
 	gateway, svcErr := h.service.Get(ctx, req.Id)
 	if svcErr != nil {
-		// A gateway that is already soft-deleted is not an error on this path: the
-		// control plane re-calls DeleteGateway once it has reclaimed every
-		// Gateway-owned resource (GTW-DEL-01), and that re-call is the finalization
-		// signal that converges the durable delete window (OBS-SLI-01.03). An
-		// unscoped lookup distinguishes a tombstone (finalize, idempotent success)
-		// from a gateway that never existed (NotFound, unchanged).
-		if svcErr.Is404() {
-			if tombstone, unscopedErr := h.service.GetUnscoped(ctx, req.Id); unscopedErr == nil && tombstone != nil && tombstone.DeletedAt.Valid {
-				if finErr := h.service.FinalizeDeletion(ctx, req.Id); finErr != nil {
-					return nil, grpcutil.ServiceErrorToGRPC(finErr)
-				}
-				return &pb.DeleteGatewayResponse{}, nil
-			}
-		}
+		// DeleteGateway only requests a deletion; it is not the finalization signal.
+		// The control plane reports finalization complete through the dedicated
+		// FinalizeGatewayDeletion RPC (GTW-DEL-10), which the control-plane identity
+		// is authorized for only on an own-cluster tombstone, so DeleteGateway can
+		// stay denied to it. A missing gateway here is therefore a clean NotFound.
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
 	if gateway == nil {
@@ -559,6 +550,44 @@ func (h *gatewayGRPCHandler) DeleteGateway(ctx context.Context, req *pb.DeleteGa
 		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 	}
 	return &pb.DeleteGatewayResponse{}, nil
+}
+
+// FinalizeGatewayDeletion is the control plane's finalization-completion signal
+// (GTW-DEL-10): once it has reclaimed every Gateway-owned resource for a
+// soft-deleted Gateway, it calls this to converge the durable delete window
+// (OBS-SLI-01.03) within budget. It finalizes exactly the named Gateway and does
+// nothing else; it is NOT a general delete, and the control-plane identity stays
+// denied DeleteGateway. Behaviour is resolved from the Gateway's state using an
+// unscoped lookup, because a tombstone is not found by the normal lookup:
+//   - tombstone (soft-deleted): finalize (idempotent -> success even if already
+//     finalized or removed);
+//   - live (not soft-deleted): FailedPrecondition, the Gateway is left unaltered;
+//   - unknown id: NotFound (the caller treats it as success: another replica
+//     finalized first).
+func (h *gatewayGRPCHandler) FinalizeGatewayDeletion(ctx context.Context, req *pb.FinalizeGatewayDeletionRequest) (*pb.FinalizeGatewayDeletionResponse, error) {
+	if err := grpcutil.ValidateRequiredID(req.Id); err != nil {
+		return nil, err
+	}
+
+	gateway, svcErr := h.service.GetUnscoped(ctx, req.Id)
+	if svcErr != nil {
+		if svcErr.Is404() {
+			return nil, status.Errorf(codes.NotFound, "gateway %s not found", req.Id)
+		}
+		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+	}
+	if gateway == nil {
+		return nil, status.Errorf(codes.NotFound, "gateway %s not found", req.Id)
+	}
+	if !gateway.DeletedAt.Valid {
+		// A live Gateway is finalized only after its deletion has been requested.
+		return nil, status.Errorf(codes.FailedPrecondition, "gateway %s is not deleted", req.Id)
+	}
+
+	if finErr := h.service.FinalizeDeletion(ctx, req.Id); finErr != nil {
+		return nil, grpcutil.ServiceErrorToGRPC(finErr)
+	}
+	return &pb.FinalizeGatewayDeletionResponse{}, nil
 }
 
 func (h *gatewayGRPCHandler) ListGateways(ctx context.Context, req *pb.ListGatewaysRequest) (*pb.ListGatewaysResponse, error) {
