@@ -49,10 +49,10 @@ skills/
 
 ## Reconciliation State
 
-### PlatformGatewayPolicy / Cedar (in progress, branch implementer/spec-HYPERSHELL-563-platform-gateway-policy)
+### PlatformGatewayPolicy / Cedar (complete, e2e verified, branch spec/HYPERSHELL-1151-policy-mockups, PR #1159, issue #1151)
 
 Scoped reconciliation of the PlatformGatewayPolicy spec set introduced by #1148
-(HYPERSHELL-563): `platform/platform-gateway-policy.spec.md` (PLAT-PGP-01..20),
+(HYPERSHELL-563): `platform/platform-gateway-policy.spec.md` (PLAT-PGP-01..21),
 `platform/data-model.spec.md` (PLAT-DATA-28/29/30), `security/rbac-enforcement.spec.md`
 (SEC-RBAC-30/31/32), `platform/control-plane.spec.md` (CTRL-CORE-22),
 `platform/openshell-gateway.spec.md` (OSG-CORE-19),
@@ -91,18 +91,71 @@ delivery slice 1 (PLAT-PGP-05).
   - Dependency: `github.com/cedar-policy/cedar-go v1.9.0` added to the api-server
     module (age-compliant; dependency-age check passes).
 
+**W1 done (API, data, RBAC; #1151):**
+
+| ID | Status | Evidence |
+|----|--------|----------|
+| PLAT-DATA-28, PLAT-PGP-01 | Present | `plugins/platformGatewayPolicies` (model, dao, service, REST + gRPC handlers, presenters, migration `2026112310000001`), `openapi/openapi.platformGatewayPolicies.yaml`, `proto/hypershell/v1/platform_gateway_policies.proto`; new policies stored as `audit`; built-in policies refuse update and delete; tests `test/authz/platform_gateway_policy_test.go`, `test/authz/ext_crud_conformance_test.go` |
+| PLAT-DATA-29, PLAT-PGP-06 | Present | `platform_policy_settings` singleton (default `audit`), `GET/PATCH /api/hypershell/ext/platform_policy_settings`, gRPC `PlatformPolicySettingsService` Get + Watch; changes captured by the framework audit trail (SEC-RBAC-12) |
+| PLAT-DATA-30, PLAT-PGP-15 (store) | Present | `policy_audit_findings` table (gateway/time index, GIN on `policy_names`), idempotent insert on event id, hourly retention pruner (`HYPERSHELL_POLICY_FINDINGS_RETENTION_DAYS`, default 30), gRPC `PolicyAuditFindingService.ReportPolicyAuditFindings`, `GET .../platform_gateway_policies/{id}/findings` |
+| PLAT-PGP-04, PLAT-PGP-05 | Present | write-time `cedar.ValidatePolicy` on create/update with line-attributed diagnostics and fixes; editor dry run `POST .../platform_gateway_policies/evaluate` |
+| PLAT-PGP-14, PLAT-PGP-17 (shared engine) | Present | `pkg/cedar/evaluate.go` (`NewEvaluator`, `Evaluate`, `DenialReason`), structured `Bounds` on `RenderPolicy`; tests `pkg/cedar/evaluate_test.go` |
+| PLAT-PGP-19 | Present | `GET /api/hypershell/v1/gateways/{gateway_id}/effective_policies` |
+| PLAT-PGP-20 (seed) | Present | migration `2026112310000002` seeds `e2e-enforcement-canary` (enforce, target all, built in) |
+| SEC-RBAC-30 | Present | `plugins/roles` (`RolePlatformPolicyAdmin`, seed migration `2026112310000003`), `plugins/roleBindings/service.go` (platform:admin-only grant, global scope), `pkg/rbac/authorization.go` (`hasPlatformPolicyAdmin`, ext gate); tests `pkg/rbac/platform_policy_authz_test.go`, `plugins/roleBindings/integration_test.go`, `plugins/roles/migration_seed_test.go` |
+| SEC-RBAC-31 | Present | `effective_policies` gate + 404 masking, targets only for policy admin / fleet reader / platform admin (`CanSeePolicyTargets`) |
+| SEC-RBAC-32, CTRL-CORE-22 (API side) | Present | `pkg/rbac/grpc_authorization.go`: control plane reads policies and settings, status-only own-cluster write-back, own-cluster findings forward; users denied |
+
+Fleet defaults (`HYPERSHELL_POLICY_DEFAULT_*`, PLAT-PGP-08) are configured once,
+on the api-server Deployment (`deploy/base/applications/api-server.yaml`). At startup
+`ReconcileDefaults` (`plugins/platformGatewayPolicies/service.go`) accepts them
+unless an enforced policy forbids the new default request, persists the accepted
+value with the settings singleton (migration `2026112410000001`), and exposes
+`defaults`, `defaults_accepted_at`, and `defaults_refusal` as read-only fields of
+`PlatformPolicySettings` (REST and gRPC, PLAT-DATA-29.03). The controller takes
+them from the settings watch (`internal/reconciler/policy_fleet_defaults.go`) for
+bundles and sidecar env; without them it writes no bundle and renders no sidecar
+(CTRL-CORE-22.04). The controller's former defaults env, its
+`policy_defaults_guard.go`, and the `hypershell-policy-applied-defaults` ConfigMap
+are removed. Tests: `test/authz/platform_gateway_policy_test.go`
+(`TestFleetDefaultsAcceptedOrRefusedAtTheAPIServer`, PLAT-PGP-08.02, PLAT-DATA-29.03;
+`TestPolicyDryRunAndFindingsAccess`, PLAT-PGP-21.01/.02), control-plane
+`policy_bundle_reconciler_test.go` and `policy_interceptor_provider_test.go`
+(PLAT-PGP-08.03, CTRL-CORE-22.04). A defaults change rolls gateway pods
+(PLAT-PGP-08.04/.05, CTRL-CORE-22.05, OSG-CORE-19.03): the bundle records the
+defaults and `policybundle.DefaultsHash`; the pod template carries
+`hypershell.redhat.io/policy-defaults-hash`; on a received hash change
+`FleetDefaultsSource.OnChange` calls `GatewayReconcileQueue.RequeueAll`, and
+`gateway.PolicyDefaultsHashNeedsUpdate` makes a stale hash drift past the
+generation gate (bounded by the gateway reconcile workers). Until the pod rolls the
+sidecar applies the bundle's defaults and counts
+`hypershell_policy_interceptor_defaults_hash_mismatch_total`. Tests:
+`policy_defaults_rollout_test.go`, `watcher/gateway_reconcile_queue_test.go`,
+`helm/policy_interceptor_test.go`, `policyinterceptor/defaults_mismatch_test.go`,
+`policybundle/bundle_test.go`. Rollout note: gateways rendered before the
+annotation existed re-render once after the controller upgrade.
+Startup ordering (PLAT-PGP-12.03, CTRL-CORE-22.06, OSG-CORE-19.04): the gateway
+reconciler writes the gateway's bundle (`PolicyBundleReconciler.EnsureGatewayBundle`,
+via `ReconcileOpts.EnsurePolicyBundle` in `gateway.ensurePolicyPrerequisites`) after
+the bundle-reader Role and before any Helm write, and retries when the bundle cannot
+be built; the sidecar reads the ConfigMap once (`BundleWatcher.LoadInitial`, 5s
+bound) before `SetReady(true)`. Fixes the OpenShift E2E race where `sandbox create`
+failed closed with "no platform policy bundle is loaded yet". Tests:
+`gateway/policy_prerequisites_test.go`, `reconciler/policy_defaults_rollout_test.go`,
+`policyinterceptor/run_test.go`.
+
 **Remaining gap table (wave plan, not yet implemented):**
 
 | Wave | Layer | Gap | Spec |
 |------|-------|-----|------|
-| W1 | API+SDK+BE | `PlatformGatewayPolicy` ext kind (OpenAPI, proto, SDKs, plugin, migration), `PlatformPolicySettings` singleton, `policy_audit_findings` table, `effective_policies` endpoint | PLAT-DATA-28/29/30, PLAT-PGP-01/19 |
-| W1 | RBAC | `platform-policy:admin` role seed + authorizer cases, effective-policies/findings masking, interceptor event authz | SEC-RBAC-30/31/32 |
-| W2 | CLI | `platform-gateway-policies` + settings + effective-policies commands via extgroup; `make generate-tui` | CLI-EXT-06 |
-| W2 | CP | watch the kind + settings, per-gateway bundle ConfigMap reconcile, `ReportPolicyEvents` endpoint, status write-back | CTRL-CORE-22 |
-| W3 | Sidecar | `hypershell-policy-interceptor` second binary in the control-plane image, k8s driver adapter, bundle watch, denial text, audit events | PLAT-PGP-09..16 |
-| W3 | Chart | vendored `charts/openshell` native sidecar + interceptor registration from values | OSG-CORE-19, OSG-HELM-06, GTW-CFG-05 |
-| W4 | FE | admin policy console + Cedar editor and read-only gateway Policies tab (blocked: approved mockups live on branch `mockups/platform-gateway-policy`, absent from this tree) | WEB-PADM, WEB-GLIS-26, UIS-PFLY-11 |
-| W4 | E2E | enforcement canary short-mode steps and long-mode policy coverage | PLAT-PGP-20, E2E-CORE-49/50 |
+| W1 | API+SDK+BE+RBAC | done (see table above) | PLAT-DATA-28/29/30, PLAT-PGP-01/19, SEC-RBAC-30/31/32 |
+| W2 | CLI | done: `hsctl` list/get/create/update/delete `platformGatewayPolicy`, get/update `platformPolicySettings`, get `effectivePolicies`; 403 surfaces as denied (`components/cli/pkg/apierror`); tests `components/cli/cmd/hsctl/platform_policy_test.go` | CLI-EXT-06 |
+| W2 | CP | done: `internal/policybundle` (bundle contract, tests), `internal/reconciler/policy_bundle_reconciler.go` (watch + resync, update-or-create ConfigMap, status write-back, non-compliant sandboxes), fleet defaults from `PlatformPolicySettings` (`policy_fleet_defaults.go`; the refusal guard moved to the api-server), `internal/policyevents` (ReportPolicyEvents, TokenReview, namespace check); deploy env, Service port, NetworkPolicy | CTRL-CORE-22, PLAT-PGP-08/12/15/16/18 |
+| W3 | Sidecar | done: `cmd/hypershell-policy-interceptor` + `internal/policyinterceptor` (Describe/Evaluate over unix socket, gateway JWT verification, bundle watch, Kubernetes adapter, defaults patches, denial text, audit events, metrics), second binary in `components/control-plane/Dockerfile`. Gap: Start/Resume re-check allows (current_state is always empty upstream; follow-up) | PLAT-PGP-02/03/07/08/09/11/12/13/14/15/16/18, AGT-EXT-06 |
+| W3 | Chart | done: vendored-chart local patch `server.extraInitContainers` (documented in `skills/tooling/update-openshell/SKILL.md`), `internal/helm/policy_interceptor.go` (native sidecar, socket emptyDir, projected token, JWT public key, registration from the shared binding table, `ValidateInterceptorRegistration` before rollout), `internal/gateway/policy_rbac.go` (bundle reader Role) | OSG-CORE-19, OSG-HELM-06, GTW-CFG-05 |
+| W4 | FE | done: admin panel `components/web-console/app/features/platform-policies` (+ adapters, probes, routes), gateway Policies tab and connection-step defaults in `packages/gateway-management-ui/src/policies`, `@patternfly/react-code-editor`; ui-build-gate Complete for all 10 governed states (manifests were under /tmp/pgp-gate, not committed) | WEB-PADM-01..12, WEB-GLIS-26, UIS-PFLY-11 |
+| W4 | E2E | done and verified in PR #1159 CI at 54158884: E2E / OpenShift (P2.1 policy-canary short subtest incl. default-injection) and E2E / Kind (P2.1 canary plus the P2.12 long step incl. sidecar-failure-modes) pass; `tests/e2e/policy_phases.go` | PLAT-PGP-20, E2E-CORE-49/50 |
+| W5 | API+CP+Sidecar | done: fleet defaults configured once on the api-server and distributed through `PlatformPolicySettings`; a defaults change rolls gateway pods (pod-template defaults hash, generation-gate drift, queue requeue) and a stale sidecar applies the bundle's defaults | PLAT-PGP-08.02-.05, PLAT-DATA-29.03, CTRL-CORE-22.04/.05, OSG-CORE-19.03 |
 
 Environment note: this reconciliation ran without a container engine (no
 `make generate`/`make proto`/`make generate-sdk`, no testcontainers DB tests) and

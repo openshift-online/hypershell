@@ -387,6 +387,24 @@ Confirm the restored diff against `HEAD` shows **zero** change to
 `templates/service.yaml` (it must be byte-identical to the pre-vendor file) and
 only the explanatory-comment addition to `service_test.yaml`.
 
+**`charts/openshell/templates/_gateway-workload.tpl` carries a second
+HyperShell-authored patch**: the `server.extraInitContainers` block (rendered
+as the pod's `initContainers`, placed just before `containers:`) implementing
+OSG-HELM-06 (native sidecar support for the platform gateway policy
+interceptor, `specs/platform/openshell-gateway-helm-adoption.spec.md`). The
+control plane sets that value (`components/control-plane/internal/helm/policy_interceptor.go`);
+without the block the interceptor sidecar is silently not rendered and the
+gateway refuses to start because its `gateway.toml` registers an interceptor
+nobody serves. It tracks upstream chart sidecar support (upstream `#5566`).
+After every `make vendor-openshell-chart`, confirm with
+`git diff -- charts/openshell/templates/_gateway-workload.tpl` that the
+`extraInitContainers` block was not removed, and re-apply it from this repo's
+history if it was. The matching default `server.extraInitContainers: []` in
+`charts/openshell/values.yaml` (with its comment, as the first key under
+`server:`) is part of the same patch; confirm it with
+`git diff -- charts/openshell/values.yaml` and restore it the same way. When upstream ships an equivalent value, switch the control
+plane to it and drop the patch.
+
 If a future upstream release adds its own equivalent of this port (check the
 `service.yaml`/`values.yaml` diff for anything port- or protocol-related on
 every bump, not just this check), stop re-applying the local patch and instead

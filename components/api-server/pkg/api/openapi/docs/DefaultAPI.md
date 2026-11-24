@@ -13,6 +13,7 @@ Method | HTTP request | Description
 [**CreateGatewayServiceAccount**](DefaultAPI.md#CreateGatewayServiceAccount) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts | Create an OpenShell gateway service account
 [**CreateInferenceRoute**](DefaultAPI.md#CreateInferenceRoute) | **Post** /api/hypershell/ext/inference_routes | Create a new inference route
 [**CreateManagedCluster**](DefaultAPI.md#CreateManagedCluster) | **Post** /api/hypershell/v1/managed_clusters | Create a new managedCluster
+[**CreatePlatformGatewayPolicy**](DefaultAPI.md#CreatePlatformGatewayPolicy) | **Post** /api/hypershell/ext/platform_gateway_policies | Create a platform gateway policy (always stored in audit mode)
 [**CreateProviderBinding**](DefaultAPI.md#CreateProviderBinding) | **Post** /api/hypershell/ext/provider_bindings | Create a new provider binding
 [**CreateProviderSpec**](DefaultAPI.md#CreateProviderSpec) | **Post** /api/hypershell/ext/provider_specs | Create a new provider spec
 [**CreateRepository**](DefaultAPI.md#CreateRepository) | **Post** /api/hypershell/ext/repositories | Register a new repository
@@ -28,6 +29,7 @@ Method | HTTP request | Description
 [**DeleteGatewayServiceAccount**](DefaultAPI.md#DeleteGatewayServiceAccount) | **Delete** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id} | Delete an OpenShell gateway service account
 [**DeleteInferenceRoute**](DefaultAPI.md#DeleteInferenceRoute) | **Delete** /api/hypershell/ext/inference_routes/{id} | Delete an inference route
 [**DeleteManagedCluster**](DefaultAPI.md#DeleteManagedCluster) | **Delete** /api/hypershell/v1/managed_clusters/{id} | Delete a managed cluster
+[**DeletePlatformGatewayPolicy**](DefaultAPI.md#DeletePlatformGatewayPolicy) | **Delete** /api/hypershell/ext/platform_gateway_policies/{id} | Delete a platform gateway policy (built-in policies cannot be deleted)
 [**DeleteProviderBinding**](DefaultAPI.md#DeleteProviderBinding) | **Delete** /api/hypershell/ext/provider_bindings/{id} | Delete a provider binding
 [**DeleteProviderSpec**](DefaultAPI.md#DeleteProviderSpec) | **Delete** /api/hypershell/ext/provider_specs/{id} | Delete a provider spec
 [**DeleteRepository**](DefaultAPI.md#DeleteRepository) | **Delete** /api/hypershell/ext/repositories/{id} | Delete a repository
@@ -35,16 +37,20 @@ Method | HTTP request | Description
 [**DeleteSandboxTemplate**](DefaultAPI.md#DeleteSandboxTemplate) | **Delete** /api/hypershell/ext/sandbox_templates/{id} | Delete a sandbox template
 [**DeleteSecretSource**](DefaultAPI.md#DeleteSecretSource) | **Delete** /api/hypershell/ext/secret_sources/{id} | Delete a secret source
 [**DeleteWorkspaceMembership**](DefaultAPI.md#DeleteWorkspaceMembership) | **Delete** /api/hypershell/ext/workspace_memberships/{id} | Delete a workspace membership
+[**EvaluatePlatformGatewayPolicy**](DefaultAPI.md#EvaluatePlatformGatewayPolicy) | **Post** /api/hypershell/ext/platform_gateway_policies/evaluate | Validate a draft policy and evaluate a sample request without saving
 [**GetAgentRuntime**](DefaultAPI.md#GetAgentRuntime) | **Get** /api/hypershell/ext/agent_runtimes/{id} | Get an agent runtime by ID
 [**GetAgentWorkspace**](DefaultAPI.md#GetAgentWorkspace) | **Get** /api/hypershell/ext/agent_workspaces/{id} | Get an agent workspace by ID
 [**GetCIProvider**](DefaultAPI.md#GetCIProvider) | **Get** /api/hypershell/ext/ci_providers/{id} | Get a CI provider by ID
 [**GetCITrust**](DefaultAPI.md#GetCITrust) | **Get** /api/hypershell/ext/ci_trusts/{id} | Get a CI trust by ID
 [**GetGateway**](DefaultAPI.md#GetGateway) | **Get** /api/hypershell/v1/gateways/{id} | Get an gateway by id
+[**GetGatewayEffectivePolicies**](DefaultAPI.md#GetGatewayEffectivePolicies) | **Get** /api/hypershell/v1/gateways/{gateway_id}/effective_policies | Read the platform policies, fleet defaults, global mode, and audit findings for one gateway
 [**GetGatewayPlacementAvailability**](DefaultAPI.md#GetGatewayPlacementAvailability) | **Post** /api/hypershell/v1/gateways/placement-availability | Returns current placement eligibility for a batch of selectors
 [**GetGatewayServiceAccount**](DefaultAPI.md#GetGatewayServiceAccount) | **Get** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id} | Get an OpenShell gateway service account
 [**GetInferenceRoute**](DefaultAPI.md#GetInferenceRoute) | **Get** /api/hypershell/ext/inference_routes/{id} | Get an inference route by ID
 [**GetManagedCluster**](DefaultAPI.md#GetManagedCluster) | **Get** /api/hypershell/v1/managed_clusters/{id} | Get an managedCluster by id
 [**GetMetadata**](DefaultAPI.md#GetMetadata) | **Get** /api/hypershell/v1/metadata | Service metadata
+[**GetPlatformGatewayPolicy**](DefaultAPI.md#GetPlatformGatewayPolicy) | **Get** /api/hypershell/ext/platform_gateway_policies/{id} | Get a platform gateway policy by ID
+[**GetPlatformPolicySettings**](DefaultAPI.md#GetPlatformPolicySettings) | **Get** /api/hypershell/ext/platform_policy_settings | Read the global policy enforcement toggle and the fleet defaults
 [**GetProviderBinding**](DefaultAPI.md#GetProviderBinding) | **Get** /api/hypershell/ext/provider_bindings/{id} | Get a provider binding by ID
 [**GetProviderSpec**](DefaultAPI.md#GetProviderSpec) | **Get** /api/hypershell/ext/provider_specs/{id} | Get a provider spec by ID
 [**GetRepository**](DefaultAPI.md#GetRepository) | **Get** /api/hypershell/ext/repositories/{id} | Get a repository by ID
@@ -65,6 +71,8 @@ Method | HTTP request | Description
 [**ListGateways**](DefaultAPI.md#ListGateways) | **Get** /api/hypershell/v1/gateways | Returns a list of gateways
 [**ListInferenceRoutes**](DefaultAPI.md#ListInferenceRoutes) | **Get** /api/hypershell/ext/inference_routes | Returns a list of inference routes
 [**ListManagedClusters**](DefaultAPI.md#ListManagedClusters) | **Get** /api/hypershell/v1/managed_clusters | Returns a list of managedClusters
+[**ListPlatformGatewayPolicies**](DefaultAPI.md#ListPlatformGatewayPolicies) | **Get** /api/hypershell/ext/platform_gateway_policies | Returns a list of platform gateway policies
+[**ListPlatformGatewayPolicyFindings**](DefaultAPI.md#ListPlatformGatewayPolicyFindings) | **Get** /api/hypershell/ext/platform_gateway_policies/{id}/findings | List the audit findings that name a platform gateway policy
 [**ListProviderBindings**](DefaultAPI.md#ListProviderBindings) | **Get** /api/hypershell/ext/provider_bindings | Returns a list of provider bindings
 [**ListProviderSpecs**](DefaultAPI.md#ListProviderSpecs) | **Get** /api/hypershell/ext/provider_specs | Returns a list of provider specs
 [**ListRepositories**](DefaultAPI.md#ListRepositories) | **Get** /api/hypershell/ext/repositories | Returns a list of repositories
@@ -85,6 +93,8 @@ Method | HTTP request | Description
 [**UpdateGateway**](DefaultAPI.md#UpdateGateway) | **Patch** /api/hypershell/v1/gateways/{id} | Update an gateway
 [**UpdateGatewayServiceAccountRole**](DefaultAPI.md#UpdateGatewayServiceAccountRole) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/role | Change an OpenShell gateway service account&#39;s role
 [**UpdateManagedCluster**](DefaultAPI.md#UpdateManagedCluster) | **Patch** /api/hypershell/v1/managed_clusters/{id} | Update an managedCluster
+[**UpdatePlatformGatewayPolicy**](DefaultAPI.md#UpdatePlatformGatewayPolicy) | **Patch** /api/hypershell/ext/platform_gateway_policies/{id} | Update a platform gateway policy, including its enforcement mode
+[**UpdatePlatformPolicySettings**](DefaultAPI.md#UpdatePlatformPolicySettings) | **Patch** /api/hypershell/ext/platform_policy_settings | Change the global policy enforcement toggle
 [**UpdateProviderBinding**](DefaultAPI.md#UpdateProviderBinding) | **Patch** /api/hypershell/ext/provider_bindings/{id} | Update a provider binding
 [**UpdateProviderSpec**](DefaultAPI.md#UpdateProviderSpec) | **Patch** /api/hypershell/ext/provider_specs/{id} | Update a provider spec
 [**UpdateRepository**](DefaultAPI.md#UpdateRepository) | **Patch** /api/hypershell/ext/repositories/{id} | Update a repository
@@ -671,6 +681,70 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**ManagedCluster**](ManagedCluster.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## CreatePlatformGatewayPolicy
+
+> PlatformGatewayPolicy CreatePlatformGatewayPolicy(ctx).PlatformGatewayPolicy(platformGatewayPolicy).Execute()
+
+Create a platform gateway policy (always stored in audit mode)
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	platformGatewayPolicy := *openapiclient.NewPlatformGatewayPolicy("Name_example", "Cedar_example") // PlatformGatewayPolicy | Platform gateway policy data
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.CreatePlatformGatewayPolicy(context.Background()).PlatformGatewayPolicy(platformGatewayPolicy).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.CreatePlatformGatewayPolicy``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `CreatePlatformGatewayPolicy`: PlatformGatewayPolicy
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.CreatePlatformGatewayPolicy`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiCreatePlatformGatewayPolicyRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **platformGatewayPolicy** | [**PlatformGatewayPolicy**](PlatformGatewayPolicy.md) | Platform gateway policy data |
+
+### Return type
+
+[**PlatformGatewayPolicy**](PlatformGatewayPolicy.md)
 
 ### Authorization
 
@@ -1667,6 +1741,72 @@ Name | Type | Description  | Notes
 [[Back to README]](../README.md)
 
 
+## DeletePlatformGatewayPolicy
+
+> DeletePlatformGatewayPolicy(ctx, id).Execute()
+
+Delete a platform gateway policy (built-in policies cannot be deleted)
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	id := "id_example" // string | The id of record
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	r, err := apiClient.DefaultAPI.DeletePlatformGatewayPolicy(context.Background(), id).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.DeletePlatformGatewayPolicy``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**id** | **string** | The id of record |
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiDeletePlatformGatewayPolicyRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+
+### Return type
+
+ (empty response body)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
 ## DeleteProviderBinding
 
 > DeleteProviderBinding(ctx, id).Execute()
@@ -2129,6 +2269,72 @@ Name | Type | Description  | Notes
 [[Back to README]](../README.md)
 
 
+## EvaluatePlatformGatewayPolicy
+
+> PlatformGatewayPolicyEvaluation EvaluatePlatformGatewayPolicy(ctx).PlatformGatewayPolicyEvaluationRequest(platformGatewayPolicyEvaluationRequest).Execute()
+
+Validate a draft policy and evaluate a sample request without saving
+
+
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	platformGatewayPolicyEvaluationRequest := *openapiclient.NewPlatformGatewayPolicyEvaluationRequest("Cedar_example") // PlatformGatewayPolicyEvaluationRequest |
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.EvaluatePlatformGatewayPolicy(context.Background()).PlatformGatewayPolicyEvaluationRequest(platformGatewayPolicyEvaluationRequest).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.EvaluatePlatformGatewayPolicy``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `EvaluatePlatformGatewayPolicy`: PlatformGatewayPolicyEvaluation
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.EvaluatePlatformGatewayPolicy`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiEvaluatePlatformGatewayPolicyRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **platformGatewayPolicyEvaluationRequest** | [**PlatformGatewayPolicyEvaluationRequest**](PlatformGatewayPolicyEvaluationRequest.md) |  |
+
+### Return type
+
+[**PlatformGatewayPolicyEvaluation**](PlatformGatewayPolicyEvaluation.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
 ## GetAgentRuntime
 
 > AgentRuntime GetAgentRuntime(ctx, id).Execute()
@@ -2469,6 +2675,74 @@ Name | Type | Description  | Notes
 [[Back to README]](../README.md)
 
 
+## GetGatewayEffectivePolicies
+
+> GatewayEffectivePolicies GetGatewayEffectivePolicies(ctx, gatewayId).Execute()
+
+Read the platform policies, fleet defaults, global mode, and audit findings for one gateway
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	gatewayId := "gatewayId_example" // string |
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.GetGatewayEffectivePolicies(context.Background(), gatewayId).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.GetGatewayEffectivePolicies``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `GetGatewayEffectivePolicies`: GatewayEffectivePolicies
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.GetGatewayEffectivePolicies`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**gatewayId** | **string** |  |
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiGetGatewayEffectivePoliciesRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+
+### Return type
+
+[**GatewayEffectivePolicies**](GatewayEffectivePolicies.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
 ## GetGatewayPlacementAvailability
 
 > GatewayPlacementAvailability GetGatewayPlacementAvailability(ctx).GatewayPlacementAvailabilityRequest(gatewayPlacementAvailabilityRequest).Execute()
@@ -2784,6 +3058,133 @@ Other parameters are passed through a pointer to a apiGetMetadataRequest struct 
 ### Return type
 
 [**ObjectReference**](ObjectReference.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## GetPlatformGatewayPolicy
+
+> PlatformGatewayPolicy GetPlatformGatewayPolicy(ctx, id).Execute()
+
+Get a platform gateway policy by ID
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	id := "id_example" // string | The id of record
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.GetPlatformGatewayPolicy(context.Background(), id).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.GetPlatformGatewayPolicy``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `GetPlatformGatewayPolicy`: PlatformGatewayPolicy
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.GetPlatformGatewayPolicy`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**id** | **string** | The id of record |
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiGetPlatformGatewayPolicyRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+
+### Return type
+
+[**PlatformGatewayPolicy**](PlatformGatewayPolicy.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## GetPlatformPolicySettings
+
+> PlatformPolicySettings GetPlatformPolicySettings(ctx).Execute()
+
+Read the global policy enforcement toggle and the fleet defaults
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.GetPlatformPolicySettings(context.Background()).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.GetPlatformPolicySettings``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `GetPlatformPolicySettings`: PlatformPolicySettings
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.GetPlatformPolicySettings`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+This endpoint does not need any parameter.
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiGetPlatformPolicySettingsRequest struct via the builder pattern
+
+
+### Return type
+
+[**PlatformPolicySettings**](PlatformPolicySettings.md)
 
 ### Authorization
 
@@ -4215,6 +4616,154 @@ Name | Type | Description  | Notes
 [[Back to README]](../README.md)
 
 
+## ListPlatformGatewayPolicies
+
+> PlatformGatewayPolicyList ListPlatformGatewayPolicies(ctx).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Execute()
+
+Returns a list of platform gateway policies
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	page := int32(56) // int32 | Page number of record list when record list exceeds specified page size (optional) (default to 1)
+	size := int32(56) // int32 | Maximum number of records to return (optional) (default to 100)
+	search := "search_example" // string | Specifies the search criteria (optional)
+	orderBy := "orderBy_example" // string | Specifies the order by criteria (optional)
+	fields := "fields_example" // string | Supplies a comma-separated list of fields to be returned (optional)
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.ListPlatformGatewayPolicies(context.Background()).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.ListPlatformGatewayPolicies``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `ListPlatformGatewayPolicies`: PlatformGatewayPolicyList
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.ListPlatformGatewayPolicies`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiListPlatformGatewayPoliciesRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **page** | **int32** | Page number of record list when record list exceeds specified page size | [default to 1]
+ **size** | **int32** | Maximum number of records to return | [default to 100]
+ **search** | **string** | Specifies the search criteria |
+ **orderBy** | **string** | Specifies the order by criteria |
+ **fields** | **string** | Supplies a comma-separated list of fields to be returned |
+
+### Return type
+
+[**PlatformGatewayPolicyList**](PlatformGatewayPolicyList.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## ListPlatformGatewayPolicyFindings
+
+> PolicyAuditFindingList ListPlatformGatewayPolicyFindings(ctx, id).Page(page).Size(size).GatewayId(gatewayId).Outcome(outcome).Execute()
+
+List the audit findings that name a platform gateway policy
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	id := "id_example" // string | The id of record
+	page := int32(56) // int32 | Page number of record list when record list exceeds specified page size (optional) (default to 1)
+	size := int32(56) // int32 | Maximum number of records to return (optional) (default to 100)
+	gatewayId := "gatewayId_example" // string | Only findings recorded on this gateway (optional)
+	outcome := "outcome_example" // string | Only findings with this outcome (optional)
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.ListPlatformGatewayPolicyFindings(context.Background(), id).Page(page).Size(size).GatewayId(gatewayId).Outcome(outcome).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.ListPlatformGatewayPolicyFindings``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `ListPlatformGatewayPolicyFindings`: PolicyAuditFindingList
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.ListPlatformGatewayPolicyFindings`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**id** | **string** | The id of record |
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiListPlatformGatewayPolicyFindingsRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+ **page** | **int32** | Page number of record list when record list exceeds specified page size | [default to 1]
+ **size** | **int32** | Maximum number of records to return | [default to 100]
+ **gatewayId** | **string** | Only findings recorded on this gateway |
+ **outcome** | **string** | Only findings with this outcome |
+
+### Return type
+
+[**PolicyAuditFindingList**](PolicyAuditFindingList.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
 ## ListProviderBindings
 
 > ProviderBindingList ListProviderBindings(ctx).Page(page).Size(size).Search(search).OrderBy(orderBy).Fields(fields).Execute()
@@ -5619,6 +6168,140 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**ManagedCluster**](ManagedCluster.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## UpdatePlatformGatewayPolicy
+
+> PlatformGatewayPolicy UpdatePlatformGatewayPolicy(ctx, id).PlatformGatewayPolicyPatchRequest(platformGatewayPolicyPatchRequest).Execute()
+
+Update a platform gateway policy, including its enforcement mode
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	id := "id_example" // string | The id of record
+	platformGatewayPolicyPatchRequest := *openapiclient.NewPlatformGatewayPolicyPatchRequest() // PlatformGatewayPolicyPatchRequest | Updated platform gateway policy data
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.UpdatePlatformGatewayPolicy(context.Background(), id).PlatformGatewayPolicyPatchRequest(platformGatewayPolicyPatchRequest).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.UpdatePlatformGatewayPolicy``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `UpdatePlatformGatewayPolicy`: PlatformGatewayPolicy
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.UpdatePlatformGatewayPolicy`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+**ctx** | **context.Context** | context for authentication, logging, cancellation, deadlines, tracing, etc.
+**id** | **string** | The id of record |
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiUpdatePlatformGatewayPolicyRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+
+ **platformGatewayPolicyPatchRequest** | [**PlatformGatewayPolicyPatchRequest**](PlatformGatewayPolicyPatchRequest.md) | Updated platform gateway policy data |
+
+### Return type
+
+[**PlatformGatewayPolicy**](PlatformGatewayPolicy.md)
+
+### Authorization
+
+[Bearer](../README.md#Bearer)
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints)
+[[Back to Model list]](../README.md#documentation-for-models)
+[[Back to README]](../README.md)
+
+
+## UpdatePlatformPolicySettings
+
+> PlatformPolicySettings UpdatePlatformPolicySettings(ctx).PlatformPolicySettingsPatchRequest(platformPolicySettingsPatchRequest).Execute()
+
+Change the global policy enforcement toggle
+
+### Example
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	openapiclient "github.com/GIT_USER_ID/GIT_REPO_ID"
+)
+
+func main() {
+	platformPolicySettingsPatchRequest := *openapiclient.NewPlatformPolicySettingsPatchRequest("Mode_example") // PlatformPolicySettingsPatchRequest |
+
+	configuration := openapiclient.NewConfiguration()
+	apiClient := openapiclient.NewAPIClient(configuration)
+	resp, r, err := apiClient.DefaultAPI.UpdatePlatformPolicySettings(context.Background()).PlatformPolicySettingsPatchRequest(platformPolicySettingsPatchRequest).Execute()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error when calling `DefaultAPI.UpdatePlatformPolicySettings``: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Full HTTP response: %v\n", r)
+	}
+	// response from `UpdatePlatformPolicySettings`: PlatformPolicySettings
+	fmt.Fprintf(os.Stdout, "Response from `DefaultAPI.UpdatePlatformPolicySettings`: %v\n", resp)
+}
+```
+
+### Path Parameters
+
+
+
+### Other Parameters
+
+Other parameters are passed through a pointer to a apiUpdatePlatformPolicySettingsRequest struct via the builder pattern
+
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **platformPolicySettingsPatchRequest** | [**PlatformPolicySettingsPatchRequest**](PlatformPolicySettingsPatchRequest.md) |  |
+
+### Return type
+
+[**PlatformPolicySettings**](PlatformPolicySettings.md)
 
 ### Authorization
 

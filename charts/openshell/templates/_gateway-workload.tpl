@@ -52,6 +52,17 @@ spec:
   securityContext:
     {{- toYaml . | nindent 4 }}
   {{- end }}
+  {{- /*
+  HyperShell-local patch (OSG-HELM-06, not upstream yet; tracks upstream
+  #5566): native sidecars for the gateway pod. Each entry is a full container
+  spec rendered as an init container; set restartPolicy: Always on an entry to
+  make it a native sidecar that starts, and passes its startupProbe, before the
+  gateway container. HyperShell renders the policy interceptor here.
+  */}}
+  {{- with .Values.server.extraInitContainers }}
+  initContainers:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   containers:
     - name: openshell-gateway
       securityContext:

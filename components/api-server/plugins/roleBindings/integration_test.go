@@ -965,3 +965,66 @@ func TestRoleBindingDelete_AuthorizesAgainstStoredGateway(t *testing.T) {
 	_, getErr := rbService.Get(context.Background(), viewerBindingID)
 	Expect(getErr).NotTo(HaveOccurred())
 }
+
+// TestPlatformPolicyAdminRoleIsAPIAssignableByPlatformAdmin proves the
+// platform-policy:admin assignment model (SEC-RBAC-30.03): seeded built-in,
+// global scope only, granted through the RoleBinding API only by platform:admin,
+// and not JWT-synced.
+//
+// Verifies: SEC-RBAC-30.03
+func TestPlatformPolicyAdminRoleIsAPIAssignableByPlatformAdmin(t *testing.T) {
+	test.RegisterIntegration(t)
+
+	roleService := roles.Service(&environments.Environment().Services)
+	policyRole, svcErr := roleService.GetByName(context.Background(), roles.RolePlatformPolicyAdmin)
+	Expect(svcErr).NotTo(HaveOccurred(), "the built-in platform-policy:admin role must be seeded")
+	Expect(policyRole.BuiltIn).To(BeTrue())
+
+	rbService := roleBindings.Service(&environments.Environment().Services)
+	userService := users.Service(&environments.Environment().Services)
+
+	gatewayID := "gw-policy-admin-scope"
+	_, err := rbService.Create(context.Background(), &roleBindings.RoleBinding{
+		RoleID: policyRole.ID, Scope: roleBindings.ScopeGateway, GatewayID: &gatewayID,
+	})
+	Expect(err).To(HaveOccurred(), "gateway scope must be rejected for platform-policy:admin")
+	Expect(err.HttpCode).To(Equal(http.StatusBadRequest))
+
+	targetUserID, targetErr := userService.UpsertByUsername(context.Background(), "pgp-target", nil, nil)
+	Expect(targetErr).NotTo(HaveOccurred())
+	nonAdminID, nonAdminErr := userService.UpsertByUsername(context.Background(), "pgp-nonadmin", nil, nil)
+	Expect(nonAdminErr).NotTo(HaveOccurred())
+	// Even a ci-federation:grantor cannot grant it: only platform:admin may.
+	Expect(rbService.SyncJWTRoles(context.Background(), nonAdminID, []string{roles.RoleCIFederationGrantor})).To(Succeed())
+	nonAdminCtx := context.WithValue(context.Background(), rbac.ContextUserIDKey, nonAdminID)
+	_, err = rbService.Create(nonAdminCtx, &roleBindings.RoleBinding{RoleID: policyRole.ID, Scope: roleBindings.ScopeGlobal, UserID: &targetUserID})
+	Expect(err).To(HaveOccurred(), "a non-platform-admin caller must not grant platform-policy:admin")
+	Expect(err.HttpCode).To(Equal(http.StatusForbidden))
+
+	adminID, adminErr := userService.UpsertByUsername(context.Background(), "pgp-granter-admin", nil, nil)
+	Expect(adminErr).NotTo(HaveOccurred())
+	Expect(rbService.SyncJWTRoles(context.Background(), adminID, []string{roles.RolePlatformAdmin})).To(Succeed())
+	adminCtx := context.WithValue(context.Background(), rbac.ContextUserIDKey, adminID)
+	created, createErr := rbService.Create(adminCtx, &roleBindings.RoleBinding{RoleID: policyRole.ID, Scope: roleBindings.ScopeGlobal, UserID: &targetUserID})
+	Expect(createErr).NotTo(HaveOccurred(), "platform:admin must grant platform-policy:admin via the API")
+	Expect(created.ID).NotTo(BeEmpty())
+
+	hasBinding := func(userID string) bool {
+		bindings, findErr := rbService.FindBindingsByUserID(context.Background(), userID)
+		Expect(findErr).NotTo(HaveOccurred())
+		for _, b := range bindings {
+			if b.RoleName == roles.RolePlatformPolicyAdmin && b.Scope == roleBindings.ScopeGlobal {
+				return true
+			}
+		}
+		return false
+	}
+	Expect(hasBinding(targetUserID)).To(BeTrue())
+	Expect(rbService.SyncJWTRoles(context.Background(), targetUserID, nil)).To(Succeed())
+	Expect(hasBinding(targetUserID)).To(BeTrue(), "the next sign-in must not revoke an API-created platform-policy:admin binding")
+
+	jwtOnlyID, jwtErr := userService.UpsertByUsername(context.Background(), "pgp-jwt-only", nil, nil)
+	Expect(jwtErr).NotTo(HaveOccurred())
+	Expect(rbService.SyncJWTRoles(context.Background(), jwtOnlyID, []string{roles.RolePlatformPolicyAdmin})).To(Succeed())
+	Expect(hasBinding(jwtOnlyID)).To(BeFalse(), "a JWT realm role must not grant platform-policy:admin")
+}

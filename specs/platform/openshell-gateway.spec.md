@@ -909,7 +909,14 @@ verify the gateway JWT against the local gateway JWKS and SHALL hold no HyperShe
 platform credential for request evaluation. The chart support that renders the
 sidecar and its registration is specified in
 [`openshell-gateway-helm-adoption.spec.md`](./openshell-gateway-helm-adoption.spec.md)
-(OSG-HELM-06).
+(OSG-HELM-06). The gateway pod template SHALL carry the annotation
+`hypershell.redhat.io/policy-defaults-hash` with the hash of the fleet defaults in
+the sidecar environment (PLAT-PGP-08), so a defaults change changes the pod template
+and rolls the pods. At startup the sidecar SHALL read its bundle ConfigMap once,
+bounded by a short timeout, and apply it before its readiness turns true; because
+the native sidecar's startup probe gates the gateway container, the gateway then
+starts with the bundle loaded (PLAT-PGP-12.03). An absent or unreadable ConfigMap
+SHALL NOT keep the sidecar unready.
 
 #### Scenario: OSG-CORE-19.01 -- Native Sidecar Ready Before Describe
 
@@ -924,6 +931,20 @@ sidecar and its registration is specified in
 - WHEN a platform policy changes
 - THEN the sidecar SHALL load the new bundle revision from the watched ConfigMap without a pod restart
 - AND the gateway pod spec and `gateway.toml` SHALL be unchanged
+
+#### Scenario: OSG-CORE-19.03 -- The Pod Template Records the Defaults Hash
+
+- GIVEN a gateway rendered with the policy interceptor and fleet defaults
+- WHEN its Helm values are built
+- THEN the pod template annotations SHALL include `hypershell.redhat.io/policy-defaults-hash` with the defaults hash, keeping other pod annotations
+- AND different defaults SHALL produce a different annotation value
+
+#### Scenario: OSG-CORE-19.04 -- The Sidecar Loads an Existing Bundle Before It Is Ready
+
+- GIVEN a gateway namespace that already holds the gateway's bundle ConfigMap
+- WHEN the sidecar starts
+- THEN it SHALL have applied that bundle revision when its readiness turns true
+- AND without the ConfigMap it SHALL still turn ready, with no bundle loaded
 
 ## Configuration
 

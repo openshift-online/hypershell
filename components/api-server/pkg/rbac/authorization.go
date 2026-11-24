@@ -117,7 +117,7 @@ func (a *Authorizer) authorizeHTTP(ctx context.Context, r *http.Request) (authz.
 	}
 
 	if !isAuthorized(r.Method, resource, resourceID, gatewayID, bindings, jwtRoles, extRequestSurface(r.URL.Path)) {
-		hide := resource == "service_accounts" || resource == "access" || resource == "sandbox_events" || (r.Method == http.MethodGet && resourceID != "")
+		hide := resource == "service_accounts" || resource == "access" || resource == "sandbox_events" || resource == "effective_policies" || (r.Method == http.MethodGet && resourceID != "")
 		return authz.Decision{Reason: "forbidden", HideExistence: hide}, nil
 	}
 
@@ -321,6 +321,45 @@ func hasCIFederationAdmin(bindings []BindingSummary) bool {
 	return false
 }
 
+// rolePlatformPolicyAdmin mirrors roles.RolePlatformPolicyAdmin; kept local to
+// avoid an import cycle with the roles plugin package.
+const rolePlatformPolicyAdmin = "platform-policy:admin"
+
+// hasPlatformPolicyAdmin reports whether the caller holds the narrow
+// platform-wide role that authorizes the platform_gateway_policies ext kind and
+// the platform_policy_settings toggle (SEC-RBAC-30). It authorizes nothing else,
+// so it is checked only at those gates and on the effective-policies read.
+func hasPlatformPolicyAdmin(bindings []BindingSummary) bool {
+	for _, b := range bindings {
+		if b.RoleName == rolePlatformPolicyAdmin {
+			return true
+		}
+	}
+	return false
+}
+
+// CanAdministerPlatformPolicies reports whether the caller may author
+// PlatformGatewayPolicies and move the global toggle: platform-policy:admin or
+// platform:admin (SEC-RBAC-30).
+func CanAdministerPlatformPolicies(bindings []BindingSummary) bool {
+	return hasPlatformPolicyAdmin(bindings) || hasPlatformAdmin(bindings)
+}
+
+// CanSeePolicyTargets reports whether the caller may see policy targets and
+// exclusions: platform-policy:admin, fleet:reader, or platform:admin. Gateway
+// users may not, so a gateway's effective-policies read never discloses which
+// other gateways a policy covers (SEC-RBAC-31).
+func CanSeePolicyTargets(bindings []BindingSummary) bool {
+	return CanAdministerPlatformPolicies(bindings) || hasFleetReader(bindings)
+}
+
+// canReadEffectivePolicies authorizes GET /gateways/{id}/effective_policies:
+// every access level of the gateway plus the policy, fleet, and platform roles
+// (SEC-RBAC-31). Everyone else is masked as 404.
+func canReadEffectivePolicies(gatewayID string, bindings []BindingSummary) bool {
+	return hasSandboxEventsAccess(gatewayID, bindings) || CanSeePolicyTargets(bindings)
+}
+
 // hasAnyGatewayBinding reports whether the caller holds any gateway-scoped
 // binding (owner, admin, or viewer on any gateway). It is the coarse admit gate
 // for ci_trusts, whose per-gateway tenancy is resolved and enforced in-handler.
@@ -344,9 +383,9 @@ func hasDashboardInventoryAccess(bindings []BindingSummary, jwtRoles []string) b
 // extKinds are the Extension API kinds served under /api/hypershell/ext/.
 // They are platform-wide authoring kinds (the hsctl extension commands and
 // hsctl apply). The middleware gate requires gateway:creator or
-// platform:admin for every method by default; two kinds use a different gate
-// (ci_providers requires ci-federation:admin, ci_trusts is per-gateway
-// tenancy, see isAuthorized). The gateway-scoped kinds among them
+// platform:admin for every method by default; three kinds use a different gate
+// (ci_providers requires ci-federation:admin, platform_gateway_policies requires
+// platform-policy:admin, ci_trusts is per-gateway tenancy, see isAuthorized). The gateway-scoped kinds among them
 // (agent_runtimes, secret_sources, ci_trusts) additionally enforce
 // per-resource tenancy in their handlers.
 //
@@ -356,17 +395,18 @@ func hasDashboardInventoryAccess(bindings []BindingSummary, jwtRoles []string) b
 // (SEC-RBAC-19), which is a latent outage, not a deliberate deny. Keep this map
 // in sync with those plugins.
 var extKinds = map[string]bool{
-	"agent_runtimes":        true,
-	"agent_workspaces":      true,
-	"ci_providers":          true,
-	"ci_trusts":             true,
-	"inference_routes":      true,
-	"provider_bindings":     true,
-	"provider_specs":        true,
-	"repositories":          true,
-	"sandbox_templates":     true,
-	"secret_sources":        true,
-	"workspace_memberships": true,
+	"agent_runtimes":            true,
+	"agent_workspaces":          true,
+	"ci_providers":              true,
+	"ci_trusts":                 true,
+	"inference_routes":          true,
+	"platform_gateway_policies": true,
+	"provider_bindings":         true,
+	"provider_specs":            true,
+	"repositories":              true,
+	"sandbox_templates":         true,
+	"secret_sources":            true,
+	"workspace_memberships":     true,
 }
 
 // ExtKinds returns the registered Extension API kind plural names (the
@@ -466,11 +506,19 @@ func extractResourceInfoFromRoute(r *http.Request) (resource string, resourceID 
 	if strings.Contains(pathTemplate, "/gateways/{gateway_id}/sandbox_events") {
 		return "sandbox_events", ""
 	}
+	if strings.Contains(pathTemplate, "/gateways/{gateway_id}/effective_policies") {
+		return "effective_policies", ""
+	}
 	if strings.Contains(pathTemplate, "/gateways/{gateway_id}/access") {
 		// Collection, item (/access/{user_id}), and directory (/access/directory)
 		// all resolve to the "access" resource; user_id is empty for the
 		// collection and directory sub-paths.
 		return "access", mux.Vars(r)["user_id"]
+	}
+	if strings.HasSuffix(pathTemplate, "/platform_gateway_policies/evaluate") {
+		// The policy editor dry run is a platform_gateway_policies write
+		// (SEC-RBAC-30), not a kind of its own.
+		return "platform_gateway_policies", "evaluate"
 	}
 	if strings.HasSuffix(pathTemplate, "/gateways/placement-availability") {
 		return "gateway_placement_availability", ""
@@ -538,6 +586,9 @@ func splitResourcePath(remainder string) (resource string, resourceID string) {
 	if strings.Contains(remainder, "gateways/") && strings.Contains(remainder, "/sandbox_events") {
 		return "sandbox_events", ""
 	}
+	if strings.Contains(remainder, "gateways/") && strings.Contains(remainder, "/effective_policies") {
+		return "effective_policies", ""
+	}
 	if strings.Contains(remainder, "gateways/") && strings.Contains(remainder, "/access") {
 		for i, part := range parts {
 			if part == "access" {
@@ -557,7 +608,7 @@ func splitResourcePath(remainder string) (resource string, resourceID string) {
 }
 
 func extractGatewayID(r *http.Request, resource string) string {
-	if resource == "service_accounts" || resource == "access" || resource == "sandbox_events" {
+	if resource == "service_accounts" || resource == "access" || resource == "sandbox_events" || resource == "effective_policies" {
 		if gatewayID := mux.Vars(r)["gateway_id"]; gatewayID != "" {
 			return gatewayID
 		}
@@ -608,6 +659,12 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 	// is not a known extension kind fails closed rather than falling through to
 	// the creator fallback below.
 	if extSurface {
+		if resource == "platform_policy_settings" {
+			// The global enforcement toggle singleton (PLAT-DATA-29): read and
+			// written only by platform-policy:admin or platform:admin (SEC-RBAC-30).
+			// It is not a listable kind, so it is decided before the kind map.
+			return CanAdministerPlatformPolicies(bindings)
+		}
 		if !extKinds[resource] {
 			return false
 		}
@@ -617,6 +674,15 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 			// gateway-authoring one: it requires the dedicated ci-federation:admin
 			// role (or platform:admin), NOT gateway:creator (SEC-RBAC-21).
 			return hasCIFederationAdmin(bindings) || hasPlatformAdmin(bindings)
+		case "platform_gateway_policies":
+			// Policy authoring is the dedicated platform-policy:admin role (or
+			// platform:admin), never gateway:creator or a gateway role
+			// (SEC-RBAC-30). fleet:reader may read policies and their findings,
+			// including targets (SEC-RBAC-31), but never write.
+			if method == http.MethodGet {
+				return CanSeePolicyTargets(bindings)
+			}
+			return CanAdministerPlatformPolicies(bindings)
 		case "ci_trusts":
 			// A gateway-scoped tenancy kind (SEC-RBAC-22). The referenced gateway
 			// id is not in the ext path (ext kinds are flat and body-addressed),
@@ -691,6 +757,10 @@ func isAuthorized(method string, resource string, resourceID string, gatewayID s
 
 	if resource == "sandbox_events" && gatewayID != "" {
 		return hasSandboxEventsAccess(gatewayID, bindings)
+	}
+
+	if resource == "effective_policies" && gatewayID != "" {
+		return canReadEffectivePolicies(gatewayID, bindings)
 	}
 
 	if resource == "role_bindings" {

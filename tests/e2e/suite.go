@@ -552,6 +552,9 @@ func (s *E2ESuite) p2ParallelSteps() []parallelSubtest {
 		s.parallelStep("P2.9", "kata-runtime", tagLong, (*E2ESuite).p2_9KataRuntime),
 		s.parallelStep("P2.10", "alerting-signal", tagLong, (*E2ESuite).p2_10AlertingSignal),
 		s.parallelStep("P2.11", "cli-ui-parity", tagLong, (*E2ESuite).p2_11CLIUIParity),
+		// P2.12 acts as a platform-policy:admin and a gateway user and mutates
+		// enforcement state, so it is long-only (E2E-CORE-50).
+		s.parallelStep("P2.12", "platform-gateway-policies", tagLong, (*E2ESuite).p2_12PlatformGatewayPolicies),
 	}
 }
 
@@ -663,6 +666,7 @@ func plannedReportSteps() []harness.PlannedStep {
 		{StepID: "P2.9", Name: "kata-runtime"},
 		{StepID: "P2.10", Name: "alerting-signal"},
 		{StepID: "P2.11", Name: "cli-ui-parity"},
+		{StepID: "P2.12", Name: "platform-gateway-policies"},
 		{StepID: "P3.1", Name: "admin-inventory-validation"},
 		// P2.7 runs serially last (it makes the cluster Vault unreachable); see TestPhases.
 		{StepID: "P2.7", Name: "vault-fail-closed"},

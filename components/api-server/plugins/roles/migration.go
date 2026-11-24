@@ -204,6 +204,15 @@ var builtInRoleSeeds = []roleSeed{
 		},
 	},
 	{
+		Name:        RolePlatformPolicyAdmin,
+		DisplayName: "Platform Policy Administrator",
+		Description: "Authorizes PlatformGatewayPolicy administration (platform_gateway_policies and the platform_policy_settings enforcement toggle) and nothing else (SEC-RBAC-30); a least-privilege alternative to platform:admin for an IT or security group.",
+		Permissions: map[string]interface{}{
+			"platform_gateway_policies": []string{"create", "read", "update", "delete"},
+			"platform_policy_settings":  []string{"read", "update"},
+		},
+	},
+	{
 		Name:        RoleFleetReader,
 		DisplayName: "Fleet Reader",
 		Description: "Read-only, fleet-wide gateway visibility: lists all gateways and reads any gateway, and nothing else (SEC-RBAC-29). A least-privilege alternative to platform:admin for a read-only fleet consumer such as the outside availability prober (OBS-PRB-06); confers no delete, access management, create, ManagedCluster access, or gateway login.",
@@ -653,6 +662,61 @@ func migrationAddFleetReaderRole() *gormigrate.Migration {
 		},
 		Rollback: func(tx *gorm.DB) error {
 			return tx.Where("name = ?", RoleFleetReader).Delete(&Role{}).Error
+		},
+	}
+}
+
+// migrationAddPlatformPolicyAdminRole seeds the platform-policy:admin built-in
+// role idempotently (SEC-RBAC-30), mirroring the ci-federation:admin seed
+// (SEC-RBAC-21). It is a platform-wide (global-scope) entitlement granted through
+// the RoleBinding API by a platform:admin, not JWT-synced. This migration only
+// seeds the role record; no existing binding is touched. Re-running is safe: an
+// existing row short-circuits.
+func migrationAddPlatformPolicyAdminRole() *gormigrate.Migration {
+	type Role struct {
+		db.Model
+		Name        string `gorm:"uniqueIndex"`
+		DisplayName *string
+		Description *string
+		Permissions *string `gorm:"type:jsonb"`
+		BuiltIn     bool
+	}
+
+	return &gormigrate.Migration{
+		ID: "2026112310000003",
+		Migrate: func(tx *gorm.DB) error {
+			var existing Role
+			lookupErr := tx.Where("name = ?", RolePlatformPolicyAdmin).First(&existing).Error
+			if lookupErr == nil {
+				return nil
+			}
+			if !stderrors.Is(lookupErr, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("look up role %s: %w", RolePlatformPolicyAdmin, lookupErr)
+			}
+			permissions := map[string]interface{}{
+				"platform_gateway_policies": []string{"create", "read", "update", "delete"},
+				"platform_policy_settings":  []string{"read", "update"},
+			}
+			permJSON, err := json.Marshal(permissions)
+			if err != nil {
+				return fmt.Errorf("marshal permissions for %s: %w", RolePlatformPolicyAdmin, err)
+			}
+			permStr := string(permJSON)
+			displayName := "Platform Policy Administrator"
+			// Kept identical to the builtInRoleSeeds entry.
+			description := "Authorizes PlatformGatewayPolicy administration (platform_gateway_policies and the platform_policy_settings enforcement toggle) and nothing else (SEC-RBAC-30); a least-privilege alternative to platform:admin for an IT or security group."
+			role := Role{
+				Model:       db.Model{ID: api.NewID()},
+				Name:        RolePlatformPolicyAdmin,
+				DisplayName: &displayName,
+				Description: &description,
+				Permissions: &permStr,
+				BuiltIn:     true,
+			}
+			return tx.Create(&role).Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Where("name = ?", RolePlatformPolicyAdmin).Delete(&Role{}).Error
 		},
 	}
 }

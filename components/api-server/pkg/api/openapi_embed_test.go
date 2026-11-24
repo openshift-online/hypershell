@@ -55,8 +55,8 @@ func TestGetOpenAPISpecReturnsCompleteContract(t *testing.T) {
 			operationIDs[operation.OperationID] = method + " " + path
 		}
 	}
-	if operationCount != 88 {
-		t.Fatalf("embedded operation count = %d, want 88", operationCount)
+	if operationCount != 98 {
+		t.Fatalf("embedded operation count = %d, want 98", operationCount)
 	}
 	if operation := spec.Paths["/api/hypershell/v1/gateways/{gateway_id}/sandbox_events"].Get; operation == nil || operation.OperationID != "listGatewaySandboxEvents" {
 		t.Fatal("embedded specification is missing the sandbox events endpoint")
@@ -68,6 +68,7 @@ func TestGetOpenAPISpecReturnsCompleteContract(t *testing.T) {
 		"/api/hypershell/v1/role_bindings/{id}":                                          "deleteRoleBinding",
 		"/api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}": "deleteGatewayServiceAccount",
 		"/api/hypershell/ext/repositories/{id}":                                          "deleteRepository",
+		"/api/hypershell/ext/platform_gateway_policies/{id}":                             "deletePlatformGatewayPolicy",
 	}
 	for path, expectedOperationID := range expectedDeletes {
 		operation := spec.Paths[path].Delete

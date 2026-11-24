@@ -139,6 +139,11 @@ type ValuesBuilder struct {
 	// applied to server.defaultRuntimeClassName for operator-mode gateways ONLY
 	// (OSG-OPWS-03), overriding any cluster-wide SandboxRuntimeClass.
 	OperatorSandboxRuntimeClass string
+
+	// PolicyInterceptor, when set, renders the platform gateway policy
+	// interceptor native sidecar and its gateway.toml registration
+	// (OSG-CORE-19, OSG-HELM-06).
+	PolicyInterceptor *PolicyInterceptorConfig
 }
 
 // Build computes Helm chart values from the Gateway configuration.
@@ -168,6 +173,8 @@ func (b *ValuesBuilder) Build() (map[string]interface{}, error) {
 	if b.IsOpenShift {
 		b.buildOpenShiftValues(values)
 	}
+
+	b.buildPolicyInterceptorValues(values)
 
 	return values, nil
 }

@@ -26,6 +26,7 @@ func TestP2ParallelStepsIncludeManagedClusterLifecycle(t *testing.T) {
 		"P2.9-kata-runtime",
 		"P2.10-alerting-signal",
 		"P2.11-cli-ui-parity",
+		"P2.12-platform-gateway-policies",
 	}
 	if !slices.Equal(names, want) {
 		t.Fatalf("parallel P2 schedule = %v, want %v", names, want)

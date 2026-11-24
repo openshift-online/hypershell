@@ -1963,7 +1963,7 @@ user-facing metadata. It carries no tenant secret. It is authored only by the
 gateway role; see [`../security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md)
 (SEC-RBAC-30). Its behavior, validation, enforcement mode, defaults, denial text,
 and the display renderer are specified in
-[`platform-gateway-policy.spec.md`](./platform-gateway-policy.spec.md) (PLAT-PGP-01..20).
+[`platform-gateway-policy.spec.md`](./platform-gateway-policy.spec.md) (PLAT-PGP-01..21).
 
 `PlatformGatewayPolicy` fields:
 
@@ -1971,7 +1971,7 @@ and the display renderer are specified in
 |---|---|---|
 | `name` | string | Stable identifier shown to users and used as the Cedar `@id` attribution (PLAT-PGP-14) |
 | `description` | string | Administrator-facing description |
-| `target` | object | `all` gateways, or a selector over gateway ids or labels, with an explicit `exclude` list (PLAT-PGP-01). Visible only to `platform-policy:admin` and `fleet:reader` (SEC-RBAC-31) |
+| `target` | object | `all` gateways, or a selector over gateway ids, with an explicit `exclude` list (PLAT-PGP-01). Visible only to `platform-policy:admin` and `fleet:reader` (SEC-RBAC-31) |
 | `enforcement_mode` | string | `audit` or `enforce`. A new policy is stored as `audit` regardless of the request (PLAT-PGP-01); the effective mode is the stricter of this and the global toggle (PLAT-PGP-06) |
 | `user_message` | string | Text shown in the denial reason and the UI. Must not contain secrets (PLAT-PGP-14). Externalized for localization in the console |
 | `documentation_url` | string | Link to more information shown with the rule |
@@ -2007,6 +2007,17 @@ Only `platform-policy:admin` (or `platform:admin`) SHALL read-write the toggle; 
 change SHALL be audit-logged (SEC-RBAC-30, SEC-RBAC-12). The default `audit` SHALL be
 the value when no setting row has been written.
 
+The singleton SHALL also hold the fleet defaults the api-server accepted
+(PLAT-PGP-08) as read-only, server-populated fields: `defaults` (`cpu_request`,
+`cpu_limit`, `memory_request`, `memory_limit` as written, and the normalized
+`cpu_request_millis`, `cpu_limit_millis`, `memory_request_bytes`,
+`memory_limit_bytes`), `defaults_accepted_at`, and `defaults_refusal` (empty unless a
+configured change is refused). They SHALL be stored in the `platform_policy_settings`
+row, SHALL be carried by the REST resource and by the gRPC
+`PlatformPolicySettings` message the control plane watches, and SHALL NOT be
+changeable through `PATCH`, whose body accepts only `mode`; a body carrying other
+fields SHALL be rejected.
+
 #### Scenario: PLAT-DATA-29.01 -- Default Is Audit
 
 - GIVEN no administrator has changed the toggle
@@ -2018,6 +2029,13 @@ the value when no setting row has been written.
 - GIVEN a caller without `platform-policy:admin` or `platform:admin`
 - WHEN the caller changes the toggle
 - THEN the API server SHALL reject it with 403
+
+#### Scenario: PLAT-DATA-29.03 -- Fleet Defaults Are Read-Only Server Fields
+
+- GIVEN the api-server accepted fleet defaults from its configuration
+- WHEN the settings are read over REST or gRPC
+- THEN they SHALL carry the accepted defaults with their normalized values and the refusal reason
+- AND a `PATCH` that also sends `defaults` SHALL be rejected with 400 and SHALL leave the accepted defaults unchanged
 
 ---
 
@@ -2090,7 +2108,7 @@ gateway only.
 | GET/PATCH/DELETE | `/ci_trusts/{id}` | Get/Update/Delete |
 | GET/POST | `/platform_gateway_policies` | List/Create (authored by `platform-policy:admin`, SEC-RBAC-30) |
 | GET/PATCH/DELETE | `/platform_gateway_policies/{id}` | Get/Update/Delete (a `built_in` policy cannot be deleted, PLAT-DATA-28) |
-| GET/PATCH | `/platform_policy_settings` | Read/Update the global enforcement toggle singleton (PLAT-DATA-29) |
+| GET/PATCH | `/platform_policy_settings` | Read the singleton (toggle and read-only accepted fleet defaults); update the global enforcement toggle (PLAT-DATA-29) |
 
 ## CLI Reference (`hsctl`)
 

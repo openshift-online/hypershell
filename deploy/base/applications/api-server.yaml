@@ -104,6 +104,21 @@ spec:
               value: "hypershell-controller.$(POD_NAMESPACE).svc.cluster.local:9443"
             - name: DB_SSLMODE
               value: require
+            # Fleet-wide sandbox resource defaults (PLAT-PGP-08). This is the
+            # only place they are configured. At startup the api-server accepts
+            # them unless an enforced policy forbids the new default request
+            # (then it keeps serving the accepted defaults and reports why on
+            # PlatformPolicySettings.defaults_refusal), persists the accepted
+            # value, validates policies against it (PLAT-PGP-04 rule 3), and
+            # distributes it to every control plane through the settings watch.
+            - name: HYPERSHELL_POLICY_DEFAULT_CPU_REQUEST
+              value: "500m"
+            - name: HYPERSHELL_POLICY_DEFAULT_CPU_LIMIT
+              value: "2"
+            - name: HYPERSHELL_POLICY_DEFAULT_MEMORY_REQUEST
+              value: "1Gi"
+            - name: HYPERSHELL_POLICY_DEFAULT_MEMORY_LIMIT
+              value: "4Gi"
           startupProbe:
             httpGet:
               path: /healthcheck

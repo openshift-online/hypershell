@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import { GatewayDetailMockup } from "./gateway-detail";
+import { GatewayDetailMockup } from "./gateway-detail-mockup";
 
 const meta = {
   title: "Mockups/Gateways/Gateway detail",
@@ -102,4 +102,16 @@ export const RevokeServiceAccount: Story = {
 
 export const DeleteServiceAccount: Story = {
   args: { activeTab: "service-accounts", modal: "delete-service-account" },
+};
+
+export const PoliciesAuditOnly: Story = {
+  args: { activeTab: "policies", policyMode: "audit" },
+};
+
+export const PoliciesEnforced: Story = {
+  args: { activeTab: "policies", policyMode: "enforce" },
+};
+
+export const PolicyDetailsDrawer: Story = {
+  args: { activeTab: "policies", policyDrawer: "gpu-sandbox-cap" },
 };

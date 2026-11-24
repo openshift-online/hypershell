@@ -58,6 +58,17 @@ HAND_MAINTAINED_COMMANDS=(
   # list only, no create or delete (see hsctl-extension-commands.spec.md).
   cmd/hsctl/get/repository/cmd.go
   cmd/hsctl/list/repositories/cmd.go
+  # PlatformGatewayPolicy has every verb including update, plus reads of the
+  # platform policy toggle and a gateway's effective policies and a toggle
+  # change (CLI-EXT-06 in hsctl-extension-commands.spec.md).
+  cmd/hsctl/create/platformGatewayPolicy/cmd.go
+  cmd/hsctl/get/platformGatewayPolicy/cmd.go
+  cmd/hsctl/list/platformGatewayPolicies/cmd.go
+  cmd/hsctl/update/platformGatewayPolicy/cmd.go
+  cmd/hsctl/delete/platformGatewayPolicy/cmd.go
+  cmd/hsctl/get/platformPolicySettings/cmd.go
+  cmd/hsctl/update/platformPolicySettings/cmd.go
+  cmd/hsctl/get/effectivePolicies/cmd.go
 )
 for kind in agentRuntime sandboxTemplate providerSpec providerBinding inferenceRoute secretSource ciProvider ciTrust; do
   for verb in create get delete; do

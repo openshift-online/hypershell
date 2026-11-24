@@ -87,6 +87,7 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**CreateGatewayServiceAccount**](docs/DefaultAPI.md#creategatewayserviceaccount) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts | Create an OpenShell gateway service account
 *DefaultAPI* | [**CreateInferenceRoute**](docs/DefaultAPI.md#createinferenceroute) | **Post** /api/hypershell/ext/inference_routes | Create a new inference route
 *DefaultAPI* | [**CreateManagedCluster**](docs/DefaultAPI.md#createmanagedcluster) | **Post** /api/hypershell/v1/managed_clusters | Create a new managedCluster
+*DefaultAPI* | [**CreatePlatformGatewayPolicy**](docs/DefaultAPI.md#createplatformgatewaypolicy) | **Post** /api/hypershell/ext/platform_gateway_policies | Create a platform gateway policy (always stored in audit mode)
 *DefaultAPI* | [**CreateProviderBinding**](docs/DefaultAPI.md#createproviderbinding) | **Post** /api/hypershell/ext/provider_bindings | Create a new provider binding
 *DefaultAPI* | [**CreateProviderSpec**](docs/DefaultAPI.md#createproviderspec) | **Post** /api/hypershell/ext/provider_specs | Create a new provider spec
 *DefaultAPI* | [**CreateRepository**](docs/DefaultAPI.md#createrepository) | **Post** /api/hypershell/ext/repositories | Register a new repository
@@ -102,6 +103,7 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**DeleteGatewayServiceAccount**](docs/DefaultAPI.md#deletegatewayserviceaccount) | **Delete** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id} | Delete an OpenShell gateway service account
 *DefaultAPI* | [**DeleteInferenceRoute**](docs/DefaultAPI.md#deleteinferenceroute) | **Delete** /api/hypershell/ext/inference_routes/{id} | Delete an inference route
 *DefaultAPI* | [**DeleteManagedCluster**](docs/DefaultAPI.md#deletemanagedcluster) | **Delete** /api/hypershell/v1/managed_clusters/{id} | Delete a managed cluster
+*DefaultAPI* | [**DeletePlatformGatewayPolicy**](docs/DefaultAPI.md#deleteplatformgatewaypolicy) | **Delete** /api/hypershell/ext/platform_gateway_policies/{id} | Delete a platform gateway policy (built-in policies cannot be deleted)
 *DefaultAPI* | [**DeleteProviderBinding**](docs/DefaultAPI.md#deleteproviderbinding) | **Delete** /api/hypershell/ext/provider_bindings/{id} | Delete a provider binding
 *DefaultAPI* | [**DeleteProviderSpec**](docs/DefaultAPI.md#deleteproviderspec) | **Delete** /api/hypershell/ext/provider_specs/{id} | Delete a provider spec
 *DefaultAPI* | [**DeleteRepository**](docs/DefaultAPI.md#deleterepository) | **Delete** /api/hypershell/ext/repositories/{id} | Delete a repository
@@ -109,16 +111,20 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**DeleteSandboxTemplate**](docs/DefaultAPI.md#deletesandboxtemplate) | **Delete** /api/hypershell/ext/sandbox_templates/{id} | Delete a sandbox template
 *DefaultAPI* | [**DeleteSecretSource**](docs/DefaultAPI.md#deletesecretsource) | **Delete** /api/hypershell/ext/secret_sources/{id} | Delete a secret source
 *DefaultAPI* | [**DeleteWorkspaceMembership**](docs/DefaultAPI.md#deleteworkspacemembership) | **Delete** /api/hypershell/ext/workspace_memberships/{id} | Delete a workspace membership
+*DefaultAPI* | [**EvaluatePlatformGatewayPolicy**](docs/DefaultAPI.md#evaluateplatformgatewaypolicy) | **Post** /api/hypershell/ext/platform_gateway_policies/evaluate | Validate a draft policy and evaluate a sample request without saving
 *DefaultAPI* | [**GetAgentRuntime**](docs/DefaultAPI.md#getagentruntime) | **Get** /api/hypershell/ext/agent_runtimes/{id} | Get an agent runtime by ID
 *DefaultAPI* | [**GetAgentWorkspace**](docs/DefaultAPI.md#getagentworkspace) | **Get** /api/hypershell/ext/agent_workspaces/{id} | Get an agent workspace by ID
 *DefaultAPI* | [**GetCIProvider**](docs/DefaultAPI.md#getciprovider) | **Get** /api/hypershell/ext/ci_providers/{id} | Get a CI provider by ID
 *DefaultAPI* | [**GetCITrust**](docs/DefaultAPI.md#getcitrust) | **Get** /api/hypershell/ext/ci_trusts/{id} | Get a CI trust by ID
 *DefaultAPI* | [**GetGateway**](docs/DefaultAPI.md#getgateway) | **Get** /api/hypershell/v1/gateways/{id} | Get an gateway by id
+*DefaultAPI* | [**GetGatewayEffectivePolicies**](docs/DefaultAPI.md#getgatewayeffectivepolicies) | **Get** /api/hypershell/v1/gateways/{gateway_id}/effective_policies | Read the platform policies, fleet defaults, global mode, and audit findings for one gateway
 *DefaultAPI* | [**GetGatewayPlacementAvailability**](docs/DefaultAPI.md#getgatewayplacementavailability) | **Post** /api/hypershell/v1/gateways/placement-availability | Returns current placement eligibility for a batch of selectors
 *DefaultAPI* | [**GetGatewayServiceAccount**](docs/DefaultAPI.md#getgatewayserviceaccount) | **Get** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id} | Get an OpenShell gateway service account
 *DefaultAPI* | [**GetInferenceRoute**](docs/DefaultAPI.md#getinferenceroute) | **Get** /api/hypershell/ext/inference_routes/{id} | Get an inference route by ID
 *DefaultAPI* | [**GetManagedCluster**](docs/DefaultAPI.md#getmanagedcluster) | **Get** /api/hypershell/v1/managed_clusters/{id} | Get an managedCluster by id
 *DefaultAPI* | [**GetMetadata**](docs/DefaultAPI.md#getmetadata) | **Get** /api/hypershell/v1/metadata | Service metadata
+*DefaultAPI* | [**GetPlatformGatewayPolicy**](docs/DefaultAPI.md#getplatformgatewaypolicy) | **Get** /api/hypershell/ext/platform_gateway_policies/{id} | Get a platform gateway policy by ID
+*DefaultAPI* | [**GetPlatformPolicySettings**](docs/DefaultAPI.md#getplatformpolicysettings) | **Get** /api/hypershell/ext/platform_policy_settings | Read the global policy enforcement toggle and the fleet defaults
 *DefaultAPI* | [**GetProviderBinding**](docs/DefaultAPI.md#getproviderbinding) | **Get** /api/hypershell/ext/provider_bindings/{id} | Get a provider binding by ID
 *DefaultAPI* | [**GetProviderSpec**](docs/DefaultAPI.md#getproviderspec) | **Get** /api/hypershell/ext/provider_specs/{id} | Get a provider spec by ID
 *DefaultAPI* | [**GetRepository**](docs/DefaultAPI.md#getrepository) | **Get** /api/hypershell/ext/repositories/{id} | Get a repository by ID
@@ -139,6 +145,8 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**ListGateways**](docs/DefaultAPI.md#listgateways) | **Get** /api/hypershell/v1/gateways | Returns a list of gateways
 *DefaultAPI* | [**ListInferenceRoutes**](docs/DefaultAPI.md#listinferenceroutes) | **Get** /api/hypershell/ext/inference_routes | Returns a list of inference routes
 *DefaultAPI* | [**ListManagedClusters**](docs/DefaultAPI.md#listmanagedclusters) | **Get** /api/hypershell/v1/managed_clusters | Returns a list of managedClusters
+*DefaultAPI* | [**ListPlatformGatewayPolicies**](docs/DefaultAPI.md#listplatformgatewaypolicies) | **Get** /api/hypershell/ext/platform_gateway_policies | Returns a list of platform gateway policies
+*DefaultAPI* | [**ListPlatformGatewayPolicyFindings**](docs/DefaultAPI.md#listplatformgatewaypolicyfindings) | **Get** /api/hypershell/ext/platform_gateway_policies/{id}/findings | List the audit findings that name a platform gateway policy
 *DefaultAPI* | [**ListProviderBindings**](docs/DefaultAPI.md#listproviderbindings) | **Get** /api/hypershell/ext/provider_bindings | Returns a list of provider bindings
 *DefaultAPI* | [**ListProviderSpecs**](docs/DefaultAPI.md#listproviderspecs) | **Get** /api/hypershell/ext/provider_specs | Returns a list of provider specs
 *DefaultAPI* | [**ListRepositories**](docs/DefaultAPI.md#listrepositories) | **Get** /api/hypershell/ext/repositories | Returns a list of repositories
@@ -159,6 +167,8 @@ Class | Method | HTTP request | Description
 *DefaultAPI* | [**UpdateGateway**](docs/DefaultAPI.md#updategateway) | **Patch** /api/hypershell/v1/gateways/{id} | Update an gateway
 *DefaultAPI* | [**UpdateGatewayServiceAccountRole**](docs/DefaultAPI.md#updategatewayserviceaccountrole) | **Post** /api/hypershell/v1/gateways/{gateway_id}/service_accounts/{service_account_id}/role | Change an OpenShell gateway service account&#39;s role
 *DefaultAPI* | [**UpdateManagedCluster**](docs/DefaultAPI.md#updatemanagedcluster) | **Patch** /api/hypershell/v1/managed_clusters/{id} | Update an managedCluster
+*DefaultAPI* | [**UpdatePlatformGatewayPolicy**](docs/DefaultAPI.md#updateplatformgatewaypolicy) | **Patch** /api/hypershell/ext/platform_gateway_policies/{id} | Update a platform gateway policy, including its enforcement mode
+*DefaultAPI* | [**UpdatePlatformPolicySettings**](docs/DefaultAPI.md#updateplatformpolicysettings) | **Patch** /api/hypershell/ext/platform_policy_settings | Change the global policy enforcement toggle
 *DefaultAPI* | [**UpdateProviderBinding**](docs/DefaultAPI.md#updateproviderbinding) | **Patch** /api/hypershell/ext/provider_bindings/{id} | Update a provider binding
 *DefaultAPI* | [**UpdateProviderSpec**](docs/DefaultAPI.md#updateproviderspec) | **Patch** /api/hypershell/ext/provider_specs/{id} | Update a provider spec
 *DefaultAPI* | [**UpdateRepository**](docs/DefaultAPI.md#updaterepository) | **Patch** /api/hypershell/ext/repositories/{id} | Update a repository
@@ -186,7 +196,9 @@ Class | Method | HTTP request | Description
  - [CITrustList](docs/CITrustList.md)
  - [CITrustPatchRequest](docs/CITrustPatchRequest.md)
  - [CITrustPatchRequestSubject](docs/CITrustPatchRequestSubject.md)
+ - [EffectivePolicy](docs/EffectivePolicy.md)
  - [Error](docs/Error.md)
+ - [FleetDefaults](docs/FleetDefaults.md)
  - [Gateway](docs/Gateway.md)
  - [GatewayAccessCapabilities](docs/GatewayAccessCapabilities.md)
  - [GatewayAccessChangeRoleRequest](docs/GatewayAccessChangeRoleRequest.md)
@@ -199,6 +211,7 @@ Class | Method | HTTP request | Description
  - [GatewayCreateRequest](docs/GatewayCreateRequest.md)
  - [GatewayDirectoryUser](docs/GatewayDirectoryUser.md)
  - [GatewayDirectoryUserList](docs/GatewayDirectoryUserList.md)
+ - [GatewayEffectivePolicies](docs/GatewayEffectivePolicies.md)
  - [GatewayList](docs/GatewayList.md)
  - [GatewayPatchRequest](docs/GatewayPatchRequest.md)
  - [GatewayPlacementAvailability](docs/GatewayPlacementAvailability.md)
@@ -231,6 +244,26 @@ Class | Method | HTTP request | Description
  - [OpenShellGatewayServiceAccountRole](docs/OpenShellGatewayServiceAccountRole.md)
  - [OpenShellGatewayServiceAccountRoleUpdateRequest](docs/OpenShellGatewayServiceAccountRoleUpdateRequest.md)
  - [OpenShellGatewayServiceAccountStatus](docs/OpenShellGatewayServiceAccountStatus.md)
+ - [PlatformGatewayPolicy](docs/PlatformGatewayPolicy.md)
+ - [PlatformGatewayPolicyEvaluation](docs/PlatformGatewayPolicyEvaluation.md)
+ - [PlatformGatewayPolicyEvaluationRequest](docs/PlatformGatewayPolicyEvaluationRequest.md)
+ - [PlatformGatewayPolicyGatewayStatus](docs/PlatformGatewayPolicyGatewayStatus.md)
+ - [PlatformGatewayPolicyList](docs/PlatformGatewayPolicyList.md)
+ - [PlatformGatewayPolicyPatchRequest](docs/PlatformGatewayPolicyPatchRequest.md)
+ - [PlatformGatewayPolicyStatus](docs/PlatformGatewayPolicyStatus.md)
+ - [PlatformGatewayPolicyStatusRollout](docs/PlatformGatewayPolicyStatusRollout.md)
+ - [PlatformGatewayPolicyTarget](docs/PlatformGatewayPolicyTarget.md)
+ - [PlatformGatewayPolicyValidation](docs/PlatformGatewayPolicyValidation.md)
+ - [PlatformPolicySettings](docs/PlatformPolicySettings.md)
+ - [PlatformPolicySettingsDefaults](docs/PlatformPolicySettingsDefaults.md)
+ - [PlatformPolicySettingsPatchRequest](docs/PlatformPolicySettingsPatchRequest.md)
+ - [PolicyAuditFinding](docs/PolicyAuditFinding.md)
+ - [PolicyAuditFindingList](docs/PolicyAuditFindingList.md)
+ - [PolicyBound](docs/PolicyBound.md)
+ - [PolicyDiagnostic](docs/PolicyDiagnostic.md)
+ - [PolicyFindingCounts](docs/PolicyFindingCounts.md)
+ - [PolicyRenderedRule](docs/PolicyRenderedRule.md)
+ - [PolicySampleRequest](docs/PolicySampleRequest.md)
  - [ProviderBinding](docs/ProviderBinding.md)
  - [ProviderBindingList](docs/ProviderBindingList.md)
  - [ProviderBindingPatchRequest](docs/ProviderBindingPatchRequest.md)

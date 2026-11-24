@@ -1,0 +1,173 @@
+syntax = "proto3";
+
+package hypershell.v1;
+
+option go_package = "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1;hypershell_v1";
+
+import "google/protobuf/timestamp.proto";
+import "hypershell/v1/common.proto";
+
+// PlatformGatewayPolicyTarget selects the gateways a policy applies to
+// (PLAT-PGP-01): every gateway when all is set, otherwise the listed gateway
+// ids, minus the exclude list.
+message PlatformGatewayPolicyTarget {
+  bool all = 1;
+  repeated string gateway_ids = 2;
+  repeated string exclude = 3;
+}
+
+// PlatformGatewayPolicyGatewayStatus is the per-gateway rollout state the control
+// plane writes back (CTRL-CORE-22): the bundle revision it wrote, the revision
+// the gateway's interceptor reported as applied, and the condition.
+message PlatformGatewayPolicyGatewayStatus {
+  string gateway_id = 1;
+  // Applied, Pending, or Unsupported.
+  string condition = 2;
+  string revision = 3;
+  string applied_revision = 4;
+  string effective_mode = 5;
+  string message = 6;
+  repeated string non_compliant_sandboxes = 7;
+  google.protobuf.Timestamp observed_at = 8;
+}
+
+// PlatformGatewayPolicy is a platform-scoped admission rule set: forbid-only
+// Cedar plus user-facing metadata (PLAT-DATA-28). Authored over HTTP by a
+// platform-policy:admin; the control plane reads it and writes back status.
+message PlatformGatewayPolicy {
+  ObjectReference metadata = 1;
+  string name = 2;
+  string description = 3;
+  PlatformGatewayPolicyTarget target = 4;
+  // audit or enforce, the policy's own mode.
+  string enforcement_mode = 5;
+  string user_message = 6;
+  string documentation_url = 7;
+  string cedar = 8;
+  bool built_in = 9;
+  repeated PlatformGatewayPolicyGatewayStatus gateway_statuses = 10;
+}
+
+message GetPlatformGatewayPolicyRequest {
+  string id = 1;
+}
+
+message GetPlatformGatewayPolicyResponse {
+  PlatformGatewayPolicy platform_gateway_policy = 1;
+}
+
+message ListPlatformGatewayPoliciesRequest {
+  int32 page = 1;
+  int32 size = 2;
+}
+
+message ListPlatformGatewayPoliciesResponse {
+  repeated PlatformGatewayPolicy items = 1;
+  ListMeta metadata = 2;
+}
+
+message WatchPlatformGatewayPoliciesRequest {}
+
+message WatchPlatformGatewayPoliciesResponse {
+  EventType type = 1;
+  PlatformGatewayPolicy platform_gateway_policy = 2;
+  string resource_id = 3;
+}
+
+// UpdatePlatformGatewayPolicyStatusRequest is the control plane's status-only
+// write-back (CTRL-CORE-22, SEC-RBAC-32). Each entry replaces the stored entry
+// for its gateway; entries for other gateways are kept. A control plane may
+// write only entries for gateways on its own cluster.
+message UpdatePlatformGatewayPolicyStatusRequest {
+  string id = 1;
+  repeated PlatformGatewayPolicyGatewayStatus gateway_statuses = 2;
+  // Gateways the control plane no longer targets with this policy; their
+  // entries are removed.
+  repeated string removed_gateway_ids = 3;
+}
+
+message UpdatePlatformGatewayPolicyStatusResponse {
+  PlatformGatewayPolicy platform_gateway_policy = 1;
+}
+
+service PlatformGatewayPolicyService {
+  rpc GetPlatformGatewayPolicy(GetPlatformGatewayPolicyRequest) returns (GetPlatformGatewayPolicyResponse);
+  rpc ListPlatformGatewayPolicies(ListPlatformGatewayPoliciesRequest) returns (ListPlatformGatewayPoliciesResponse);
+  rpc WatchPlatformGatewayPolicies(WatchPlatformGatewayPoliciesRequest) returns (stream WatchPlatformGatewayPoliciesResponse);
+  rpc UpdatePlatformGatewayPolicyStatus(UpdatePlatformGatewayPolicyStatusRequest) returns (UpdatePlatformGatewayPolicyStatusResponse);
+}
+
+// PlatformPolicyFleetDefaults are the fleet-wide sandbox resource defaults the
+// api-server accepted (PLAT-PGP-08): the quantities as written and their
+// normalized schema values.
+message PlatformPolicyFleetDefaults {
+  string cpu_request = 1;
+  string cpu_limit = 2;
+  string memory_request = 3;
+  string memory_limit = 4;
+  int64 cpu_request_millis = 5;
+  int64 cpu_limit_millis = 6;
+  int64 memory_request_bytes = 7;
+  int64 memory_limit_bytes = 8;
+}
+
+// PlatformPolicySettings is the global enforcement toggle singleton
+// (PLAT-DATA-29). mode is audit or enforce; audit when never written. defaults
+// and defaults_refusal are server-populated and read-only: the control plane
+// takes the fleet defaults for bundles and interceptor sidecars from here.
+message PlatformPolicySettings {
+  string mode = 1;
+  google.protobuf.Timestamp updated_at = 2;
+  PlatformPolicyFleetDefaults defaults = 3;
+  string defaults_refusal = 4;
+}
+
+message GetPlatformPolicySettingsRequest {}
+
+message GetPlatformPolicySettingsResponse {
+  PlatformPolicySettings settings = 1;
+}
+
+message WatchPlatformPolicySettingsRequest {}
+
+message WatchPlatformPolicySettingsResponse {
+  PlatformPolicySettings settings = 1;
+}
+
+service PlatformPolicySettingsService {
+  rpc GetPlatformPolicySettings(GetPlatformPolicySettingsRequest) returns (GetPlatformPolicySettingsResponse);
+  rpc WatchPlatformPolicySettings(WatchPlatformPolicySettingsRequest) returns (stream WatchPlatformPolicySettingsResponse);
+}
+
+// PolicyAuditFinding is one interceptor event (PLAT-PGP-15, PLAT-DATA-30). id is
+// the sidecar-generated idempotency key. request_summary holds normalized
+// resource values only; no denial text is stored.
+message PolicyAuditFinding {
+  string id = 1;
+  google.protobuf.Timestamp occurred_at = 2;
+  string gateway_id = 3;
+  repeated string policy_names = 4;
+  string bundle_revision = 5;
+  string principal_subject = 6;
+  string operation = 7;
+  // would_reject or would_add_defaults.
+  string outcome = 8;
+  map<string, int64> request_summary = 9;
+}
+
+// ReportPolicyAuditFindingsRequest forwards findings the control plane accepted
+// from a gateway's interceptor (CTRL-CORE-22). Every finding must name
+// gateway_id, a gateway on the reporting control plane's cluster (SEC-RBAC-32).
+message ReportPolicyAuditFindingsRequest {
+  string gateway_id = 1;
+  repeated PolicyAuditFinding findings = 2;
+}
+
+message ReportPolicyAuditFindingsResponse {
+  // Number of findings newly stored; a retried id is not counted.
+  int32 stored = 1;
+}
+
+service PolicyAuditFindingService {
+  rpc ReportPolicyAuditFindings(ReportPolicyAuditFindingsRequest) returns (ReportPolicyAuditFindingsResponse);
+}

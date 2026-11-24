@@ -66,3 +66,37 @@ func TestGatewayReconcileQueue_EnqueuePreservesPhase(t *testing.T) {
 		t.Fatalf("expected phase preserved on plain enqueue, got %q", seen[0].GetPhase())
 	}
 }
+
+// Verifies: PLAT-PGP-08.04, CTRL-CORE-22.05
+func TestGatewayReconcileQueue_RequeueAllRedrivesLiveGateways(t *testing.T) {
+	h := &gatewayRecordingHandler{}
+	q := NewGatewayReconcileQueue(context.Background(), h, 1)
+	defer q.Stop()
+
+	running := "Running"
+	for _, id := range []string{"gw-1", "gw-2"} {
+		q.q.enqueue(Event[*pb.Gateway]{Type: EventUpdated, ResourceID: id, Resource: &pb.Gateway{
+			Metadata: &pb.ObjectReference{Id: id}, Phase: &running,
+		}})
+	}
+	q.q.enqueue(Event[*pb.Gateway]{Type: EventDeleted, ResourceID: "gw-gone", Resource: &pb.Gateway{Metadata: &pb.ObjectReference{Id: "gw-gone"}}})
+	waitForGatewayCalls(t, h, 3)
+
+	// A fleet-defaults change re-drives every live gateway, Running ones
+	// included, with their payload verbatim; a deleted gateway is not revived.
+	if n := q.RequeueAll(); n != 2 {
+		t.Fatalf("RequeueAll enqueued %d gateways, want 2", n)
+	}
+	seen := waitForGatewayCalls(t, h, 5)
+	ids := map[string]string{}
+	for _, gw := range seen[3:] {
+		ids[gw.GetMetadata().GetId()] = gw.GetPhase()
+	}
+	if ids["gw-1"] != "Running" || ids["gw-2"] != "Running" || len(ids) != 2 {
+		t.Fatalf("requeued payloads = %v, want gw-1 and gw-2 Running", ids)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if got := len(h.snapshot()); got != 5 {
+		t.Fatalf("the deleted gateway must not be requeued, handler calls = %d", got)
+	}
+}

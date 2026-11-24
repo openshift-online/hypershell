@@ -27,6 +27,34 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
+  name: hypershell-policy-events
+  namespace: hypershell-system
+  labels:
+    app.kubernetes.io/name: hypershell
+    app.kubernetes.io/component: network-policy
+spec:
+  # Gateway pods' policy interceptor sidecars report audit events and their
+  # applied bundle revision to the controller (CTRL-CORE-22, SEC-RBAC-32).
+  # Callers are authenticated per call by TokenReview; this policy keeps the
+  # port reachable only from gateway pods.
+  podSelector:
+    matchLabels:
+      app: hypershell-controller
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: openshell
+      ports:
+        - protocol: TCP
+          port: 9444
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
   name: openshell-gateway-sandbox-ssh
   namespace: hypershell-system
   labels:

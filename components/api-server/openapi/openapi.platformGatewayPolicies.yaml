@@ -1,0 +1,857 @@
+paths:
+  /api/hypershell/ext/platform_gateway_policies:
+    get:
+      operationId: listPlatformGatewayPolicies
+      summary: Returns a list of platform gateway policies
+      security:
+        - Bearer: []
+      responses:
+        '200':
+          description: A JSON array of platform gateway policy objects
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformGatewayPolicyList'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/size'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/orderBy'
+        - $ref: '#/components/parameters/fields'
+    post:
+      operationId: createPlatformGatewayPolicy
+      summary: Create a platform gateway policy (always stored in audit mode)
+      security:
+        - Bearer: []
+      requestBody:
+        description: Platform gateway policy data
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlatformGatewayPolicy'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformGatewayPolicy'
+        '400':
+          description: Validation error, including Cedar diagnostics
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '409':
+          description: A policy with the same name already exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+  /api/hypershell/ext/platform_gateway_policies/evaluate:
+    post:
+      operationId: evaluatePlatformGatewayPolicy
+      summary: Validate a draft policy and evaluate a sample request without saving
+      description: >-
+        Dry run for the policy editor (WEB-PADM-05/08/09). Validates the draft with the
+        write-time rules (PLAT-PGP-04), renders it (PLAT-PGP-17), and evaluates the
+        sample request against the draft with the same semantics as enforcement
+        (missing values take the fleet defaults), returning the denial text a user
+        would see (PLAT-PGP-14). Nothing is stored.
+      security:
+        - Bearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlatformGatewayPolicyEvaluationRequest'
+      responses:
+        '200':
+          description: Validation, rendering, and sample evaluation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformGatewayPolicyEvaluation'
+        '400':
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+  /api/hypershell/ext/platform_gateway_policies/{id}:
+    get:
+      operationId: getPlatformGatewayPolicy
+      summary: Get a platform gateway policy by ID
+      security:
+        - Bearer: []
+      responses:
+        '200':
+          description: Platform gateway policy found by ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformGatewayPolicy'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '404':
+          description: No platform gateway policy with specified ID exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+    patch:
+      operationId: updatePlatformGatewayPolicy
+      summary: Update a platform gateway policy, including its enforcement mode
+      security:
+        - Bearer: []
+      requestBody:
+        description: Updated platform gateway policy data
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlatformGatewayPolicyPatchRequest'
+      responses:
+        '200':
+          description: Platform gateway policy updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformGatewayPolicy'
+        '400':
+          description: Validation error, including Cedar diagnostics
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '404':
+          description: No platform gateway policy with specified ID exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '409':
+          description: A policy with the same name already exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+    delete:
+      operationId: deletePlatformGatewayPolicy
+      summary: Delete a platform gateway policy (built-in policies cannot be deleted)
+      security:
+        - Bearer: []
+      responses:
+        '204':
+          description: Platform gateway policy deleted successfully
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '404':
+          description: No platform gateway policy with specified ID exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '409':
+          description: The policy is built in and cannot be deleted
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+    parameters:
+      - $ref: '#/components/parameters/id'
+  /api/hypershell/ext/platform_gateway_policies/{id}/findings:
+    get:
+      operationId: listPlatformGatewayPolicyFindings
+      summary: List the audit findings that name a platform gateway policy
+      security:
+        - Bearer: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/size'
+        - name: gateway_id
+          in: query
+          required: false
+          description: Only findings recorded on this gateway
+          schema:
+            type: string
+        - name: outcome
+          in: query
+          required: false
+          description: Only findings with this outcome
+          schema:
+            type: string
+            enum:
+              - would_reject
+              - would_add_defaults
+      responses:
+        '200':
+          description: Audit findings, newest first
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyAuditFindingList'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '404':
+          description: No platform gateway policy with specified ID exists
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+  /api/hypershell/ext/platform_policy_settings:
+    get:
+      operationId: getPlatformPolicySettings
+      summary: Read the global policy enforcement toggle and the fleet defaults
+      security:
+        - Bearer: []
+      responses:
+        '200':
+          description: The platform policy settings singleton
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformPolicySettings'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+    patch:
+      operationId: updatePlatformPolicySettings
+      summary: Change the global policy enforcement toggle
+      security:
+        - Bearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlatformPolicySettingsPatchRequest'
+      responses:
+        '200':
+          description: The updated platform policy settings singleton
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformPolicySettings'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '403':
+          $ref: 'openapi.yaml#/components/responses/ForbiddenError'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+  /api/hypershell/v1/gateways/{gateway_id}/effective_policies:
+    parameters:
+      - name: gateway_id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getGatewayEffectivePolicies
+      summary: Read the platform policies, fleet defaults, global mode, and audit findings for one gateway
+      security:
+        - Bearer: []
+      responses:
+        '200':
+          description: The effective policies of the gateway
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GatewayEffectivePolicies'
+        '401':
+          $ref: 'openapi.yaml#/components/responses/UnauthorizedError'
+        '404':
+          description: Gateway not found or caller is not bound to it
+          content:
+            application/json:
+              schema:
+                $ref: 'openapi.yaml#/components/schemas/Error'
+        '500':
+          $ref: 'openapi.yaml#/components/responses/InternalServerError'
+components:
+  schemas:
+    PlatformGatewayPolicyTarget:
+      type: object
+      description: >-
+        The gateways a policy applies to (PLAT-PGP-01): all gateways, or the listed
+        gateway ids, minus the exclude list. Returned only to platform-policy:admin,
+        fleet:reader, and platform:admin (SEC-RBAC-31).
+      properties:
+        all:
+          type: boolean
+          description: Apply to every gateway (minus exclude). Defaults to true when no gateway_ids are set.
+        gateway_ids:
+          type: array
+          items:
+            type: string
+          description: Apply only to these gateways (ignored when all is true)
+        exclude:
+          type: array
+          items:
+            type: string
+          description: Gateways the policy never applies to
+    PlatformGatewayPolicyGatewayStatus:
+      type: object
+      properties:
+        gateway_id:
+          type: string
+        condition:
+          type: string
+          enum:
+            - Applied
+            - Pending
+            - Unsupported
+        revision:
+          type: string
+          description: The bundle revision the control plane wrote for the gateway
+        applied_revision:
+          type: string
+          description: The bundle revision the gateway's interceptor last reported as applied
+        effective_mode:
+          type: string
+          enum:
+            - audit
+            - enforce
+        message:
+          type: string
+        non_compliant_sandboxes:
+          type: array
+          items:
+            type: string
+          description: Running sandboxes on the gateway that an enforced policy would reject (PLAT-PGP-16)
+        observed_at:
+          type: string
+          description: RFC 3339 time the control plane last observed this rollout entry
+        would_reject_24h:
+          type: integer
+          format: int32
+          readOnly: true
+    PolicyFindingCounts:
+      type: object
+      properties:
+        would_reject:
+          type: integer
+          format: int32
+        would_add_defaults:
+          type: integer
+          format: int32
+    PlatformGatewayPolicyValidation:
+      type: object
+      properties:
+        valid:
+          type: boolean
+        schema_version:
+          type: string
+        diagnostics:
+          type: array
+          items:
+            $ref: '#/components/schemas/PolicyDiagnostic'
+    PlatformGatewayPolicyStatus:
+      type: object
+      readOnly: true
+      properties:
+        validation:
+          $ref: '#/components/schemas/PlatformGatewayPolicyValidation'
+        gateways:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlatformGatewayPolicyGatewayStatus'
+        rollout:
+          type: object
+          properties:
+            applied:
+              type: integer
+              format: int32
+            pending:
+              type: integer
+              format: int32
+            unsupported:
+              type: integer
+              format: int32
+        findings_last_24h:
+          $ref: '#/components/schemas/PolicyFindingCounts'
+    PlatformGatewayPolicy:
+      allOf:
+        - $ref: 'openapi.yaml#/components/schemas/ObjectReference'
+        - type: object
+          required:
+            - name
+            - cedar
+          properties:
+            name:
+              type: string
+              description: Stable identifier shown to users and used as the Cedar @id attribution (PLAT-PGP-14)
+            description:
+              type: string
+            target:
+              $ref: '#/components/schemas/PlatformGatewayPolicyTarget'
+            enforcement_mode:
+              type: string
+              description: audit or enforce. A new policy is always stored as audit (PLAT-PGP-01).
+              enum:
+                - audit
+                - enforce
+            effective_mode:
+              type: string
+              readOnly: true
+              description: The stricter of enforcement_mode and the global toggle (PLAT-PGP-06)
+              enum:
+                - audit
+                - enforce
+            user_message:
+              type: string
+              description: Text shown in the denial reason and the UI. Must not contain secrets.
+            documentation_url:
+              type: string
+            cedar:
+              type: string
+              description: One or more Cedar forbid statements (PLAT-PGP-04)
+            built_in:
+              type: boolean
+              readOnly: true
+            rendered:
+              type: array
+              readOnly: true
+              items:
+                $ref: '#/components/schemas/PolicyRenderedRule'
+            status:
+              $ref: '#/components/schemas/PlatformGatewayPolicyStatus'
+    PlatformGatewayPolicyList:
+      allOf:
+        - $ref: 'openapi.yaml#/components/schemas/List'
+        - type: object
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/PlatformGatewayPolicy'
+    PlatformGatewayPolicyPatchRequest:
+      type: object
+      properties:
+        description:
+          type: string
+        target:
+          $ref: '#/components/schemas/PlatformGatewayPolicyTarget'
+        enforcement_mode:
+          type: string
+          enum:
+            - audit
+            - enforce
+        user_message:
+          type: string
+        documentation_url:
+          type: string
+        cedar:
+          type: string
+    PolicyDiagnostic:
+      type: object
+      properties:
+        line:
+          type: integer
+          format: int32
+          description: 1-based line of the offending statement, 0 when no line applies
+        statement:
+          type: integer
+          format: int32
+        message:
+          type: string
+        suggestion:
+          type: string
+    PolicyBound:
+      type: object
+      properties:
+        field:
+          type: string
+          description: The Cedar context attribute, for example cpuRequestMillis
+        label:
+          type: string
+        op:
+          type: string
+          description: The forbid comparison operator
+        value:
+          type: integer
+          format: int64
+          description: The bound in schema units (millicores, bytes)
+        display:
+          type: string
+          description: The bound as a quantity, for example 4 or 16Gi
+        text:
+          type: string
+          description: The plain-words bound, for example "CPU request at most 4"
+    PolicyRenderedRule:
+      type: object
+      properties:
+        recognized:
+          type: boolean
+        summary:
+          type: array
+          items:
+            type: string
+        bounds:
+          type: array
+          items:
+            $ref: '#/components/schemas/PolicyBound'
+        cedar:
+          type: string
+    FleetDefaults:
+      type: object
+      description: Fleet-wide sandbox resource defaults the api-server accepted from its configuration (PLAT-PGP-08)
+      properties:
+        cpu_request:
+          type: string
+        cpu_limit:
+          type: string
+        memory_request:
+          type: string
+        memory_limit:
+          type: string
+        cpu_request_millis:
+          type: integer
+          format: int64
+        cpu_limit_millis:
+          type: integer
+          format: int64
+        memory_request_bytes:
+          type: integer
+          format: int64
+        memory_limit_bytes:
+          type: integer
+          format: int64
+    PlatformPolicySettings:
+      type: object
+      properties:
+        kind:
+          type: string
+        mode:
+          type: string
+          description: The global minimum enforcement mode (PLAT-PGP-06). Defaults to audit.
+          enum:
+            - audit
+            - enforce
+        updated_at:
+          type: string
+          format: date-time
+        updated_by:
+          type: string
+        schema_version:
+          type: string
+          readOnly: true
+        defaults:
+          type: object
+          readOnly: true
+          description: >-
+            Fleet-wide sandbox resource defaults the api-server accepted (PLAT-PGP-08).
+            Configured once on the api-server Deployment, persisted with this
+            singleton, and distributed to every control plane through the settings
+            watch. Server-populated; not settable through PATCH.
+          properties:
+            cpu_request:
+              type: string
+            cpu_limit:
+              type: string
+            memory_request:
+              type: string
+            memory_limit:
+              type: string
+            cpu_request_millis:
+              type: integer
+              format: int64
+            cpu_limit_millis:
+              type: integer
+              format: int64
+            memory_request_bytes:
+              type: integer
+              format: int64
+            memory_limit_bytes:
+              type: integer
+              format: int64
+        defaults_accepted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: When the api-server last accepted a fleet defaults value (PLAT-PGP-08).
+        defaults_refusal:
+          type: string
+          readOnly: true
+          description: >-
+            Why the configured fleet defaults are refused and the accepted defaults
+            are still served, because an enforced policy forbids the new default
+            request (PLAT-PGP-08.02). Empty when the configured defaults are accepted.
+    PlatformPolicySettingsPatchRequest:
+      type: object
+      required:
+        - mode
+      properties:
+        mode:
+          type: string
+          enum:
+            - audit
+            - enforce
+    PolicySampleRequest:
+      type: object
+      description: A sample CreateSandbox request; omitted resources take the fleet defaults
+      properties:
+        cpu_request:
+          type: string
+        cpu_limit:
+          type: string
+        memory_request:
+          type: string
+        memory_limit:
+          type: string
+        gpu_count:
+          type: integer
+          format: int64
+        image:
+          type: string
+        sandbox_name:
+          type: string
+        roles:
+          type: array
+          items:
+            type: string
+    PlatformGatewayPolicyEvaluationRequest:
+      type: object
+      required:
+        - cedar
+      properties:
+        name:
+          type: string
+        cedar:
+          type: string
+        user_message:
+          type: string
+        documentation_url:
+          type: string
+        sample:
+          $ref: '#/components/schemas/PolicySampleRequest'
+    PlatformGatewayPolicyEvaluation:
+      type: object
+      properties:
+        valid:
+          type: boolean
+        forbids_defaults:
+          type: boolean
+        diagnostics:
+          type: array
+          items:
+            $ref: '#/components/schemas/PolicyDiagnostic'
+        rendered:
+          type: array
+          items:
+            $ref: '#/components/schemas/PolicyRenderedRule'
+        defaults:
+          $ref: '#/components/schemas/FleetDefaults'
+        sample_allowed:
+          type: boolean
+        rejecting_statements:
+          type: array
+          items:
+            type: integer
+            format: int32
+        denial_text:
+          type: string
+    PolicyAuditFinding:
+      type: object
+      properties:
+        id:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+        gateway_id:
+          type: string
+        policy_names:
+          type: array
+          items:
+            type: string
+        bundle_revision:
+          type: string
+        principal_subject:
+          type: string
+        operation:
+          type: string
+        outcome:
+          type: string
+          enum:
+            - would_reject
+            - would_add_defaults
+        request_summary:
+          type: object
+          additionalProperties:
+            type: integer
+            format: int64
+    PolicyAuditFindingList:
+      allOf:
+        - $ref: 'openapi.yaml#/components/schemas/List'
+        - type: object
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/PolicyAuditFinding'
+    EffectivePolicy:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        user_message:
+          type: string
+        documentation_url:
+          type: string
+        enforcement_mode:
+          type: string
+          enum:
+            - audit
+            - enforce
+        effective_mode:
+          type: string
+          enum:
+            - audit
+            - enforce
+        effective_mode_reason:
+          type: string
+          description: Why the policy is enforced or audit-only (policy setting or platform enforcement)
+          enum:
+            - policy_enforced
+            - platform_enforced
+            - audit
+        built_in:
+          type: boolean
+        cedar:
+          type: string
+        rendered:
+          type: array
+          items:
+            $ref: '#/components/schemas/PolicyRenderedRule'
+        condition:
+          type: string
+          description: The rollout condition on this gateway (Applied, Pending, Unsupported)
+        revision:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+        target:
+          $ref: '#/components/schemas/PlatformGatewayPolicyTarget'
+    GatewayEffectivePolicies:
+      type: object
+      properties:
+        gateway_id:
+          type: string
+        global_mode:
+          type: string
+          enum:
+            - audit
+            - enforce
+        schema_version:
+          type: string
+        defaults:
+          $ref: '#/components/schemas/FleetDefaults'
+        policies:
+          type: array
+          items:
+            $ref: '#/components/schemas/EffectivePolicy'
+        findings:
+          type: array
+          items:
+            $ref: '#/components/schemas/PolicyAuditFinding'
+        findings_last_24h:
+          $ref: '#/components/schemas/PolicyFindingCounts'
+  parameters:
+    id:
+      name: id
+      in: path
+      description: The id of record
+      required: true
+      schema:
+        type: string
+    page:
+      name: page
+      in: query
+      description: Page number of record list when record list exceeds specified page size
+      schema:
+        type: integer
+        default: 1
+        minimum: 1
+      required: false
+    size:
+      name: size
+      in: query
+      description: Maximum number of records to return
+      schema:
+        type: integer
+        default: 100
+        minimum: 0
+      required: false
+    search:
+      name: search
+      in: query
+      required: false
+      description: Specifies the search criteria
+      schema:
+        type: string
+    orderBy:
+      name: orderBy
+      in: query
+      required: false
+      description: Specifies the order by criteria
+      schema:
+        type: string
+    fields:
+      name: fields
+      in: query
+      required: false
+      description: Supplies a comma-separated list of fields to be returned
+      schema:
+        type: string

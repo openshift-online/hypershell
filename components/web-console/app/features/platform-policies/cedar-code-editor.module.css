@@ -1,0 +1,9 @@
+/* Error treatment matching an invalid PatternFly form control (WEB-PADM-05). */
+.invalid :global(.pf-v6-c-code-editor) {
+  --pf-v6-c-code-editor__main--BorderColor: var(
+    --pf-t--global--border--color--status--danger--default
+  );
+  --pf-v6-c-code-editor__main--BorderWidth: var(
+    --pf-t--global--border--width--control--default
+  );
+}

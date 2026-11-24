@@ -21,6 +21,19 @@ export default [
     route(routes.gatewayNew, "./routes/gateway-new.tsx"),
     route(routes.gatewayDetail, "./routes/gateway.tsx"),
     route(routes.metrics, "./routes/metrics.tsx"),
+    route(routes.adminPlatformPolicies, "./routes/admin-platform-policies.tsx"),
+    route(
+      routes.adminPlatformPolicyNew,
+      "./routes/admin-platform-policy-new.tsx",
+    ),
+    route(
+      routes.adminPlatformPolicyDetail,
+      "./routes/admin-platform-policy.tsx",
+    ),
+    route(
+      routes.adminPlatformPolicyEdit,
+      "./routes/admin-platform-policy-edit.tsx",
+    ),
   ]),
   route("*", "./routes/not-found.tsx"),
 ] satisfies RouteConfig;

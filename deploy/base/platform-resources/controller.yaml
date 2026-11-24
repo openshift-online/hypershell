@@ -95,6 +95,16 @@ spec:
             # at (one file per key). The controller refuses to start without it.
             - name: GATEWAY_DATABASE_ADMIN_DIR
               value: /etc/hypershell/gateway-database
+            # In-cluster ReportPolicyEvents endpoint for the interceptor
+            # sidecars (CTRL-CORE-22). A NetworkPolicy admits only gateway pods.
+            - name: HYPERSHELL_POLICY_EVENTS_BIND_ADDRESS
+              value: "0.0.0.0:9444"
+            # The controller runs the sidecar from its own image digest, read
+            # from its own Pod status (PLAT-PGP-09).
+            - name: HYPERSHELL_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
           volumeMounts:
             - name: gateway-database-admin
               mountPath: /etc/hypershell/gateway-database
@@ -102,6 +112,8 @@ spec:
           ports:
             - containerPort: 9443
               name: provisioner
+            - containerPort: 9444
+              name: policy-events
           # These probes are coupled to the service account provisioner port (9443).
           # If HYPERSHELL_SERVICE_ACCOUNT_PROVISIONER_BIND_ADDRESS is ever empty,
           # the provisioner is disabled, nothing binds port 9443, and the controller will fail probes.
@@ -150,4 +162,8 @@ spec:
     - name: provisioner
       port: 9443
       targetPort: 9443
+      appProtocol: grpc
+    - name: policy-events
+      port: 9444
+      targetPort: 9444
       appProtocol: grpc

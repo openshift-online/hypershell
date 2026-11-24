@@ -1057,3 +1057,70 @@ describe("gateway API operations adapter", () => {
     ]);
   });
 });
+
+describe("gateway effective policies adapter", () => {
+  // Verifies: WEB-GLIS-26
+  it("reads a gateway's effective policies through the policy transport", async () => {
+    const request = vi.fn(() =>
+      Promise.resolve({
+        defaults: { cpu_limit: "2", cpu_request: "500m" },
+        gateway_id: "gateway/1",
+        global_mode: "enforce",
+        policies: [
+          {
+            effective_mode: "enforce",
+            effective_mode_reason: "platform_enforced",
+            name: "cap",
+            target: { exclude: ["other-gateway"] },
+          },
+        ],
+      }),
+    );
+    const policyFactory = vi.fn(() => ({ request }));
+    const adapter = createGatewayControlPlaneAdapter(
+      gatewayApiFactory,
+      policyFactory,
+    );
+
+    const result = await adapter.getGatewayEffectivePolicies?.(
+      "gateway/1",
+      context,
+    );
+
+    expect(policyFactory).toHaveBeenCalledWith(context.correlationId);
+    expect(request).toHaveBeenCalledWith(
+      "GET",
+      "/api/hypershell/v1/gateways/gateway%2F1/effective_policies",
+      { signal: undefined },
+    );
+    expect(result?.globalMode).toBe("enforce");
+    expect(result?.defaults).toEqual({ cpuLimit: "2", cpuRequest: "500m" });
+    expect(result?.policies[0]?.effectiveModeReason).toBe("platform-enforced");
+    expect(JSON.stringify(result)).not.toContain("other-gateway");
+  });
+
+  it("maps a denied effective policies read to a typed error", async () => {
+    const adapter = createGatewayControlPlaneAdapter(gatewayApiFactory, () => ({
+      request: () =>
+        Promise.reject(
+          new SDKAPIError({
+            code: "forbidden",
+            href: "",
+            id: "",
+            kind: "Error",
+            operation_id: "op-1",
+            reason: "denied",
+            status_code: 403,
+          }),
+        ),
+    }));
+
+    await expect(
+      adapter.getGatewayEffectivePolicies?.("gateway-1", context),
+    ).rejects.toMatchObject({ kind: "denied", operationId: "op-1" });
+  });
+
+  it("omits effective policies without a policy transport", () => {
+    expect("getGatewayEffectivePolicies" in controlPlane).toBe(false);
+  });
+});

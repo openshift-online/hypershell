@@ -36,3 +36,15 @@ export const ServiceAccounts: Story = {
 export const Details: Story = {
   args: { activeTab: "details" },
 };
+
+export const PoliciesAuditOnly: Story = {
+  args: { activeTab: "policies", policyMode: "audit" },
+};
+
+export const PoliciesEnforced: Story = {
+  args: { activeTab: "policies", policyMode: "enforce" },
+};
+
+export const PolicyDetailsDrawer: Story = {
+  args: { activeTab: "policies", policyDrawer: "gpu-sandbox-cap" },
+};

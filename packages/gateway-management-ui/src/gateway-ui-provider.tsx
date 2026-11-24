@@ -26,6 +26,8 @@ export interface GatewayUiNavigation {
  * caller acting on their own access row. Optional: when absent (e.g. no-auth
  * mode) self-recognition is simply skipped. */
 export interface GatewayUiCurrentUser {
+  /** OIDC subject, used to match the caller's own policy audit findings. */
+  subject?: string;
   username?: string;
   isPlatformAdmin?: boolean;
 }

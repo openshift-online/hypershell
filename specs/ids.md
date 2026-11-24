@@ -153,7 +153,7 @@ listed in `specs/id-rename-map.md`, not here.
 | `PLAT-DATA` | `platform/data-model.spec.md` | 32 |
 | `PLAT-HLTH` | `platform/managed-cluster-self-healthcheck.spec.md` | 7 |
 | `PLAT-INV` | `platform/platform-inventory.spec.md` | 10 |
-| `PLAT-PGP` | `platform/platform-gateway-policy.spec.md` | 20 |
+| `PLAT-PGP` | `platform/platform-gateway-policy.spec.md` | 21 |
 | `PLAT-USR` | `platform/registered-users.spec.md` | 15 |
 
 ### REL

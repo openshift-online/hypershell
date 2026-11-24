@@ -90,8 +90,9 @@ declare module "fastify" {
 }
 
 const applicationRoutePatterns = Object.values(routes).map((pattern) => {
+  // Every route parameter (":gatewayId", ":policyId", ...) matches one segment.
   const source = `${pattern.startsWith("/") ? "^" : "^/"}${pattern.replace(
-    ":gatewayId",
+    /:[A-Za-z][A-Za-z0-9]*/gu,
     "[^/]+",
   )}/?$`;
   return new RegExp(source, "u");

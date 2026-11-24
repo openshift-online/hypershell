@@ -392,7 +392,7 @@ export const messages = defineMessages({
   connectionTabsLabel: {
     id: "app.gateway.connection.tabsLabel",
     defaultMessage:
-      "Gateway connection, manage access, service accounts, and details",
+      "Gateway details, connection, user access, service accounts, and policies",
     description: "Accessible label for the gateway detail tabs.",
   },
   connectionWaitingForProvisioning: {

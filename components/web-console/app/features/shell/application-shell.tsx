@@ -9,6 +9,7 @@ import {
   MastheadMain,
   MastheadToggle,
   Nav,
+  NavGroup,
   NavItem,
   NavList,
   Page,
@@ -41,11 +42,18 @@ import { gatewayOperations } from "../../composition/gateway-composition";
 import { hasDashboardAdminRole } from "../../lib/session-roles";
 import { messages } from "../../i18n/messages";
 import productLogo from "../../../../../images/brand/logo.png";
+import { platformPoliciesMessages } from "../platform-policies/platform-policies-messages";
+import { usePlatformPolicy } from "../platform-policies/use-platform-policies";
+import { usePlatformPolicyAccess } from "../platform-policies/use-platform-policy-access";
 import { useColorScheme } from "./use-color-scheme";
 import { useRouteHeadingFocus } from "./route-focus";
 import { useSession } from "./use-session";
 import { UserMenu } from "./user-menu";
-import { gatewayDetailPath, routePaths } from "../../../shared/routes";
+import {
+  gatewayDetailPath,
+  platformPolicyDetailPath,
+  routePaths,
+} from "../../../shared/routes";
 import styles from "./application-shell.module.css";
 
 export function ApplicationShell() {
@@ -78,9 +86,10 @@ export function ApplicationShell() {
   const gatewayCurrentUser = useMemo(
     () => ({
       isPlatformAdmin: hasDashboardAdminRole(session?.roles ?? []),
+      subject: session?.user?.sub,
       username: session?.user?.preferredUsername,
     }),
-    [session?.roles, session?.user?.preferredUsername],
+    [session?.roles, session?.user?.preferredUsername, session?.user?.sub],
   );
   const { scheme, toggle: toggleColorScheme } = useColorScheme();
   useRouteHeadingFocus(pathname);
@@ -94,6 +103,19 @@ export function ApplicationShell() {
       gatewayOperations.getGateway(gatewayId ?? "", signal),
     queryKey: gatewayQueryKey(gatewayId ?? ""),
   });
+  // Policy administration is visible only to platform-policy:admin or
+  // platform:admin holders (WEB-PADM-01). The API remains the enforcement point.
+  const platformPolicyAccess = usePlatformPolicyAccess();
+  const isPolicyAdminRoute =
+    segments[0] === "admin" && segments[1] === "platform-policies";
+  const policySegment = isPolicyAdminRoute ? segments[2] : undefined;
+  const isNewPolicy = policySegment === "new";
+  const isEditPolicy = isPolicyAdminRoute && segments[3] === "edit";
+  const policyId =
+    policySegment && !isNewPolicy && platformPolicyAccess.isAuthorized
+      ? policySegment
+      : "";
+  const policyQuery = usePlatformPolicy(policyId);
 
   const skipToContent = (
     <SkipToContent href="#main-content">
@@ -172,6 +194,39 @@ export function ApplicationShell() {
     );
   }
 
+  if (
+    isPolicyAdminRoute &&
+    policySegment &&
+    platformPolicyAccess.isAuthorized
+  ) {
+    breadcrumb = (
+      <Breadcrumb aria-label={intl.formatMessage(messages.breadcrumbLabel)}>
+        <BreadcrumbItem to={routePaths.adminPlatformPolicies}>
+          {intl.formatMessage(platformPoliciesMessages.navPlatformPolicies)}
+        </BreadcrumbItem>
+        {isNewPolicy ? (
+          <BreadcrumbItem isActive>
+            {intl.formatMessage(platformPoliciesMessages.breadcrumbCreate)}
+          </BreadcrumbItem>
+        ) : null}
+        {!isNewPolicy && isEditPolicy ? (
+          <BreadcrumbItem to={platformPolicyDetailPath(policySegment)}>
+            {policyQuery.data?.name ??
+              intl.formatMessage(platformPoliciesMessages.breadcrumbPolicy)}
+          </BreadcrumbItem>
+        ) : null}
+        {!isNewPolicy ? (
+          <BreadcrumbItem isActive>
+            {isEditPolicy
+              ? intl.formatMessage(platformPoliciesMessages.breadcrumbEdit)
+              : (policyQuery.data?.name ??
+                intl.formatMessage(platformPoliciesMessages.breadcrumbPolicy))}
+          </BreadcrumbItem>
+        ) : null}
+      </Breadcrumb>
+    );
+  }
+
   // Determine active navigation item based on current route
   const isGatewayRoute =
     pathname.startsWith(routePaths.gatewayList) ||
@@ -200,6 +255,27 @@ export function ApplicationShell() {
               </Link>
             </NavItem>
           </NavList>
+          {platformPolicyAccess.isAuthorized ? (
+            <NavGroup
+              title={intl.formatMessage(
+                platformPoliciesMessages.navAdministration,
+              )}
+            >
+              <NavItem
+                isActive={isPolicyAdminRoute}
+                key={routePaths.adminPlatformPolicies}
+              >
+                <Link
+                  className={styles.navLink}
+                  to={routePaths.adminPlatformPolicies}
+                >
+                  {intl.formatMessage(
+                    platformPoliciesMessages.navPlatformPolicies,
+                  )}
+                </Link>
+              </NavItem>
+            </NavGroup>
+          ) : null}
         </Nav>
       </PageSidebarBody>
     </PageSidebar>

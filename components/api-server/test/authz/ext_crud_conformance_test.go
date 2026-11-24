@@ -227,6 +227,13 @@ var crudFixtures = map[string]func(t *testing.T, e *conformanceEnv) (string, str
 		Expect(err).NotTo(HaveOccurred(), "create ci_provider: %s", test.APIErrorReason(err))
 		return cp.GetId(), name
 	},
+	"platform_gateway_policies": func(t *testing.T, e *conformanceEnv) (string, string) {
+		name := "pgp-" + short()
+		req := openapi.NewPlatformGatewayPolicy(name, `forbid (principal, action, resource) when { context.cpuRequestMillis > 64000 };`)
+		p, _, err := e.client.DefaultAPI.CreatePlatformGatewayPolicy(e.owner.rest).PlatformGatewayPolicy(*req).Execute()
+		Expect(err).NotTo(HaveOccurred(), "create platform_gateway_policy: %s", test.APIErrorReason(err))
+		return p.GetId(), name
+	},
 	"ci_trusts": func(t *testing.T, e *conformanceEnv) (string, string) {
 		name := "cit-" + short()
 		req := openapi.NewCITrust(e.ciProviderID, e.gatewayID, openapi.CITrustAllOfSubject{Repository: openapi.PtrString("org/repo")}, "developer")

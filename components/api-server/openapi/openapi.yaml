@@ -62,6 +62,8 @@ paths:
     $ref: 'openapi.gatewayAccess.yaml#/paths/~1api~1hypershell~1v1~1gateways~1{gateway_id}~1access'
   /api/hypershell/v1/gateways/{gateway_id}/sandbox_events:
     $ref: 'openapi.sandboxEvents.yaml#/paths/~1api~1hypershell~1v1~1gateways~1{gateway_id}~1sandbox_events'
+  /api/hypershell/v1/gateways/{gateway_id}/effective_policies:
+    $ref: 'openapi.platformGatewayPolicies.yaml#/paths/~1api~1hypershell~1v1~1gateways~1{gateway_id}~1effective_policies'
   /api/hypershell/v1/gateways/{gateway_id}/access/directory:
     $ref: 'openapi.gatewayAccess.yaml#/paths/~1api~1hypershell~1v1~1gateways~1{gateway_id}~1access~1directory'
   /api/hypershell/v1/gateways/{gateway_id}/access/{user_id}:
@@ -112,6 +114,16 @@ paths:
     $ref: 'openapi.ciTrusts.yaml#/paths/~1api~1hypershell~1ext~1ci_trusts'
   /api/hypershell/ext/ci_trusts/{id}:
     $ref: 'openapi.ciTrusts.yaml#/paths/~1api~1hypershell~1ext~1ci_trusts~1{id}'
+  /api/hypershell/ext/platform_gateway_policies:
+    $ref: 'openapi.platformGatewayPolicies.yaml#/paths/~1api~1hypershell~1ext~1platform_gateway_policies'
+  /api/hypershell/ext/platform_gateway_policies/evaluate:
+    $ref: 'openapi.platformGatewayPolicies.yaml#/paths/~1api~1hypershell~1ext~1platform_gateway_policies~1evaluate'
+  /api/hypershell/ext/platform_gateway_policies/{id}:
+    $ref: 'openapi.platformGatewayPolicies.yaml#/paths/~1api~1hypershell~1ext~1platform_gateway_policies~1{id}'
+  /api/hypershell/ext/platform_gateway_policies/{id}/findings:
+    $ref: 'openapi.platformGatewayPolicies.yaml#/paths/~1api~1hypershell~1ext~1platform_gateway_policies~1{id}~1findings'
+  /api/hypershell/ext/platform_policy_settings:
+    $ref: 'openapi.platformGatewayPolicies.yaml#/paths/~1api~1hypershell~1ext~1platform_policy_settings'
   # AUTO-ADD NEW PATHS
 components:
   schemas:

@@ -1389,9 +1389,29 @@ sidecars and ingest their audit events, implementing the enforcement architectur
 [`platform-gateway-policy.spec.md`](./platform-gateway-policy.spec.md) (PLAT-PGP-12,
 PLAT-PGP-15). It SHALL:
 
-- Watch `PlatformGatewayPolicy` records and the `PlatformPolicySettings` toggle on
+- Watch `PlatformGatewayPolicy` records and the `PlatformPolicySettings` singleton on
   the existing gRPC watch stream (CTRL-CORE-02) and resync them periodically, as it
   does for CI kinds (CTRL-CORE-20, CTRL-CORE-21).
+- Take the fleet sandbox defaults only from `PlatformPolicySettings` (PLAT-PGP-08):
+  validate bundles against them and pass them to every interceptor sidecar as
+  environment variables. The controller SHALL have no defaults configuration of its
+  own and SHALL use no built-in fallback: until settings with defaults are received
+  it SHALL write no bundle and render no sidecar, and the gateway reconcile SHALL
+  retry, so protected RPCs fail closed (PLAT-PGP-12).
+- Roll gateways on a fleet-defaults change (PLAT-PGP-08): record the defaults hash
+  in each bundle and on the gateway pod template annotation
+  `hypershell.redhat.io/policy-defaults-hash`; when the received hash changes,
+  re-enqueue every known gateway through the existing gateway reconcile queue,
+  whose worker count bounds concurrent upgrades. A converged gateway whose rendered
+  hash differs from the current one SHALL pass the generation gate as drift, as a
+  destination-trust change does, and be re-rendered; a matching hash SHALL leave it
+  untouched.
+- Before the Helm install or upgrade of a gateway with the interceptor, and after
+  its namespace and the sidecar's bundle-reader Role exist, write that gateway's
+  current bundle with update-or-create, using the same build and write code as the
+  periodic bundle reconcile (PLAT-PGP-12.03). When the bundle cannot be built (for
+  example the settings carry no fleet defaults), the gateway reconcile SHALL fail
+  and retry rather than deploy a sidecar that would fail closed.
 - Build a per-gateway **policy bundle** (revision hash, Cedar schema version, an
   enforced set and an audit-only set with effective modes resolved, `@id`
   attribution, and per-policy `userMessage` and `documentationUrl`) and write it to
@@ -1434,6 +1454,28 @@ ConfigMap without a spurious revision bump.
 - GIVEN a sidecar has applied a bundle revision
 - WHEN the control plane observes the applied revision
 - THEN it SHALL copy the revision and per-gateway condition into `PlatformGatewayPolicy` status as a status-only write-back
+
+#### Scenario: CTRL-CORE-22.04 -- Defaults Come From Settings, Never From a Fallback
+
+- GIVEN `PlatformPolicySettings` carrying fleet defaults with CPU request `700m`
+- WHEN the control plane builds a bundle and renders a gateway's interceptor sidecar
+- THEN the bundle SHALL be validated against `700m` and the sidecar environment SHALL carry `700m`
+- AND when the settings carry no defaults it SHALL write no bundle and render no sidecar
+
+#### Scenario: CTRL-CORE-22.05 -- A Defaults Hash Change Is Drift Past the Generation Gate
+
+- GIVEN converged gateways, one `Running`, rendered with the defaults hash of `500m`, and a deleted gateway
+- WHEN the received settings change the accepted defaults to `700m`
+- THEN the control plane SHALL re-enqueue every live gateway once, not the deleted one, through the gateway reconcile queue
+- AND each reconcile SHALL pass the generation gate because the rendered hash differs, while a gateway already at the new hash SHALL be a no-op
+- AND the bundle SHALL record the `700m` defaults and their hash
+
+#### Scenario: CTRL-CORE-22.06 -- The Bundle Is Written Before the Gateway Apply
+
+- GIVEN a gateway with the interceptor that is being created or rolled
+- WHEN the control plane reconciles it
+- THEN it SHALL write the gateway's current bundle ConfigMap, after the bundle-reader Role and before any Helm write
+- AND when the bundle cannot be built it SHALL fail the reconcile with a retryable error and SHALL NOT run the Helm apply
 
 ## Known Limitations
 

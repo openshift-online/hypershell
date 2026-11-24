@@ -187,6 +187,25 @@ func NewGatewayReconcileQueue(ctx context.Context, handler Handler[*pb.Gateway],
 // Stop drains and shuts the queue down.
 func (g *GatewayReconcileQueue) Stop() { g.q.stop() }
 
+// RequeueAll re-enqueues the latest known payload of every live gateway the
+// queue has seen, through the same per-gateway serialization, coalescing, and
+// bounded worker pool as watch events, and returns how many it enqueued. It is
+// for external desired state that changes for the whole fleet at once, such as
+// the policy fleet defaults (PLAT-PGP-08.04): the reconciler's own drift
+// checks decide which converged gateways actually re-render, and the worker
+// count bounds how many upgrade at the same time.
+func (g *GatewayReconcileQueue) RequeueAll() int {
+	n := 0
+	for _, ev := range g.q.knownKeys() {
+		if ev.Type == EventDeleted || ev.Resource == nil {
+			continue
+		}
+		g.q.enqueue(ev)
+		n++
+	}
+	return n
+}
+
 // WatchGateways streams gateway events and drives them through the caller-owned
 // per-resource reconcile queue. The watch and its seed lists are scoped
 // server-side to gateways with this control plane's registered cluster_id, so it

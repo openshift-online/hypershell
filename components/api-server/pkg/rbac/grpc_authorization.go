@@ -300,6 +300,57 @@ func authorizeControlPlaneGRPC(ctx context.Context, clusterID, fullMethod string
 			return nil
 		}
 		return denied()
+	case "PlatformGatewayPolicyService":
+		// A registered control plane reads every policy to build per-gateway
+		// bundles (CTRL-CORE-22) and writes back only the rollout status of
+		// gateways on its own cluster (status-only, mirroring SEC-RBAC-27).
+		// Policy spec is authored over HTTP by a platform-policy:admin; there is
+		// no gRPC spec write.
+		if isReadMethodName(method) {
+			return nil
+		}
+		if method == "UpdatePlatformGatewayPolicyStatus" {
+			r, ok := req.(*pb.UpdatePlatformGatewayPolicyStatusRequest)
+			if !ok {
+				return unexpectedRequest()
+			}
+			for _, entry := range r.GetGatewayStatuses() {
+				if err := requireGatewayOnCluster(ctx, gateways, entry.GetGatewayId(), clusterID, denied); err != nil {
+					return err
+				}
+			}
+			for _, gatewayID := range r.GetRemovedGatewayIds() {
+				if err := requireGatewayOnCluster(ctx, gateways, gatewayID, clusterID, denied); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		return denied()
+	case "PlatformPolicySettingsService":
+		// The control plane reads and watches the global toggle (CTRL-CORE-22).
+		if isReadMethodName(method) {
+			return nil
+		}
+		return denied()
+	case "PolicyAuditFindingService":
+		// Interceptor findings the control plane accepted after TokenReview and the
+		// namespace check are forwarded under its registered identity (SEC-RBAC-32).
+		// Every finding must belong to the request's gateway, and that gateway
+		// must be on this control plane's cluster.
+		if method == "ReportPolicyAuditFindings" {
+			r, ok := req.(*pb.ReportPolicyAuditFindingsRequest)
+			if !ok {
+				return unexpectedRequest()
+			}
+			for _, f := range r.GetFindings() {
+				if f.GetGatewayId() != r.GetGatewayId() {
+					return denied()
+				}
+			}
+			return requireGatewayOnCluster(ctx, gateways, r.GetGatewayId(), clusterID, denied)
+		}
+		return denied()
 	}
 	return denied()
 }
@@ -473,6 +524,18 @@ func authorizeUserGRPC(fullMethod string, req interface{}, bindings []BindingSum
 		if isReadMethodName(method) {
 			return allowIf(hasPlatformAdmin(bindings))
 		}
+		return denied()
+	case "PlatformGatewayPolicyService", "PlatformPolicySettingsService":
+		// Policies and the toggle are authored over HTTP (SEC-RBAC-30). The gRPC
+		// reads are for the control plane; a user may read them only with the
+		// policy administration role. The status write-back is control-plane only.
+		if isReadMethodName(method) {
+			return allowIf(CanAdministerPlatformPolicies(bindings))
+		}
+		return denied()
+	case "PolicyAuditFindingService":
+		// Only a registered control plane forwards interceptor findings
+		// (SEC-RBAC-32.02); a user or gateway caller never reaches it.
 		return denied()
 	}
 	return denied()

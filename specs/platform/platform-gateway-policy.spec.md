@@ -22,7 +22,8 @@ enforces the applicable policies through the OpenShell gateway interceptor
 contract. Policy changes reach every gateway in seconds and never restart a
 gateway. A platform-wide toggle sets the minimum enforcement mode (`audit` or
 `enforce`); a single policy MAY be enforced while the toggle is `audit`. Sandbox
-resource defaults are fleet-wide controller configuration.
+resource defaults are fleet-wide configuration, set once on the api-server and
+distributed to every control plane through `PlatformPolicySettings`.
 
 This spec defines the behavior and security model of PlatformGatewayPolicy: the
 policy language and its validation, the enforcement mode and defaults, the
@@ -92,7 +93,7 @@ The platform SHALL provide one platform-scoped extension kind,
 `PlatformGatewayPolicy`, whose data model is defined in
 [`data-model.spec.md`](./data-model.spec.md) (PLAT-DATA-28). A policy SHALL carry:
 `name` and `description` for identification; a `target` that is either `all`
-gateways or a selector over gateway ids or labels, with an explicit `exclude`
+gateways or a selector over gateway ids, with an explicit `exclude`
 list; an `enforcementMode` of `audit` or `enforce`; a `userMessage` and a
 `documentationUrl` shown to users; and `cedar` policy text of one or more `forbid`
 statements. The API server SHALL authorize every create, update, and delete with
@@ -285,17 +286,51 @@ policy, and SHALL instead record what the policy would reject as an audit findin
 
 ### Requirement: PLAT-PGP-08 -- Fleet Default Sandbox Resources
 
-Sandbox resource defaults SHALL be fleet-wide controller configuration, for example
+Sandbox resource defaults SHALL be fleet-wide configuration set in exactly one
+place, the api-server Deployment, for example
 `HYPERSHELL_POLICY_DEFAULT_CPU_REQUEST=500m`, `..._CPU_LIMIT=2`,
-`..._MEMORY_REQUEST=1Gi`, `..._MEMORY_LIMIT=4Gi`. The controller SHALL pass the
-defaults to the sidecar as environment variables. Defaults SHALL NOT be stored in a
-policy and SHALL NOT be settable by a gateway owner. The sidecar SHALL add a
-default in `modify_operation` only when at least one policy is enforced on that
-gateway; otherwise it SHALL change nothing and record a `would_add_defaults`
-finding. A change to a fleet default SHALL be checked against every existing policy
-before rollout (the default-request check of PLAT-PGP-04); the controller SHALL
-refuse a defaults change that an enforced policy would forbid. A defaults change
-MAY roll the gateway pods, which is acceptable for a rare operator change.
+`..._MEMORY_REQUEST=1Gi`, `..._MEMORY_LIMIT=4Gi`. The controller SHALL NOT read
+these variables. The api-server SHALL persist the **accepted** defaults with the
+`PlatformPolicySettings` singleton and SHALL expose them as read-only,
+server-populated fields of that resource (PLAT-DATA-29); write-time validation
+(PLAT-PGP-04 rule 3), the editor dry run (PLAT-PGP-21), and the gateway read surface
+(PLAT-PGP-19) SHALL use the accepted defaults. The control plane SHALL receive the
+accepted defaults through the `PlatformPolicySettings` watch it already holds
+(PLAT-PGP-12), SHALL validate bundles against them, and SHALL pass them to the
+sidecar as environment variables. When the control plane has not received defaults,
+it SHALL write no bundle and render no sidecar rather than use a built-in value, so
+protected RPCs fail closed (PLAT-PGP-12). Defaults SHALL NOT be stored in a policy
+and SHALL NOT be settable by a gateway owner or through the settings `PATCH`. The
+sidecar SHALL add a default in `modify_operation` only when at least one policy that
+is not built in is enforced on that gateway, or when the only enforced policies are
+built in (the e2e canary, PLAT-PGP-20) and the sandbox name carries the canary's
+reserved prefix; otherwise it SHALL change nothing and record a
+`would_add_defaults` finding. A built-in release-check policy SHALL therefore never
+change other sandboxes while the platform is otherwise in audit (PLAT-PGP-07). A change to a fleet default SHALL be checked against
+every existing policy before rollout (the default-request check of PLAT-PGP-04): at
+startup the api-server SHALL accept configured defaults that differ from the
+accepted ones only when no policy whose effective mode is `enforce` forbids the new
+default request; otherwise it SHALL keep serving the accepted defaults and SHALL
+expose the refusal reason on `PlatformPolicySettings`.
+
+A change to the accepted defaults SHALL roll the gateway pods. The **defaults hash**
+is a stable hash of the normalized defaults (equivalent quantities such as `1` and
+`1000m` hash the same). The control plane SHALL record the defaults and their hash
+in every bundle (PLAT-PGP-12) and SHALL stamp the hash on the gateway pod template
+as the annotation `hypershell.redhat.io/policy-defaults-hash` (OSG-CORE-19). When
+the received hash changes, it SHALL re-drive every gateway it manages through the
+gateway reconcile queue, and a converged gateway, including a `Running` one, whose
+rendered hash differs SHALL pass the generation gate as drift and be re-rendered
+with the new sidecar environment (CTRL-CORE-22). Concurrency SHALL stay bounded by
+the existing gateway reconcile worker count. A gateway rendered before the hash
+existed has no annotation and is re-rendered once. Between the bundle update and
+the pod roll the sidecar's environment defaults are stale: the sidecar SHALL apply
+the defaults carried by the bundle whenever their hash differs from the hash of its
+environment defaults, and SHALL count each such call in the metric
+`hypershell_policy_interceptor_defaults_hash_mismatch_total` and log the mismatch
+once per bundle revision. It SHALL never inject defaults whose hash differs from
+the bundle's. A bundle whose defaults hash does not match its defaults SHALL be
+rejected.
 
 #### Scenario: PLAT-PGP-08.01 -- Defaults Injected Only Under Enforcement
 
@@ -306,9 +341,48 @@ MAY roll the gateway pods, which is acceptable for a rare operator change.
 
 #### Scenario: PLAT-PGP-08.02 -- A Defaults Change Inconsistent With a Policy Is Refused
 
-- GIVEN an enforced policy that forbids `context.cpuRequestMillis < 600`
-- WHEN an operator changes the default CPU request to `500m`
-- THEN the controller SHALL refuse the defaults change because the new default request would be forbidden
+- GIVEN accepted defaults with CPU request `700m` and an enforced policy that forbids `context.cpuRequestMillis < 600`
+- WHEN an operator configures the default CPU request `500m` on the api-server and it restarts
+- THEN the api-server SHALL refuse the defaults change because the new default request would be forbidden
+- AND `PlatformPolicySettings` SHALL keep serving CPU request `700m` and SHALL name the forbidding policy in its refusal reason
+- AND once no enforced policy forbids the configured defaults, the next start SHALL accept and persist them and clear the refusal reason
+
+#### Scenario: PLAT-PGP-08.03 -- Defaults Are Configured Once and Distributed Through Settings
+
+- GIVEN the api-server accepted fleet defaults with CPU request `700m`
+- WHEN a control plane reconciles bundles and renders a gateway's interceptor sidecar
+- THEN it SHALL validate the bundle against, and pass to the sidecar, the defaults carried by `PlatformPolicySettings`
+- AND the controller Deployment SHALL carry no `HYPERSHELL_POLICY_DEFAULT_*` variables
+
+#### Scenario: PLAT-PGP-08.04 -- A Defaults Change Rolls Running Gateways
+
+- GIVEN a `Running`, converged gateway whose pod template carries the defaults hash of CPU request `500m`
+- WHEN the control plane receives settings whose accepted CPU request is `700m`
+- THEN it SHALL re-enqueue the gateway, and the reconcile SHALL pass the generation gate and re-render the gateway with sidecar environment `700m` and the new `hypershell.redhat.io/policy-defaults-hash`
+- AND a gateway whose rendered hash already matches, including through an equivalent quantity, SHALL NOT be re-rendered
+
+#### Scenario: PLAT-PGP-08.05 -- A Stale Sidecar Applies the Bundle's Defaults
+
+- GIVEN a bundle carrying defaults with CPU request `700m` and a sidecar whose environment default is still `500m`
+- WHEN the sidecar runs `modify_operation` on an enforced gateway for a request that omits CPU request
+- THEN it SHALL add `700m` from the bundle and count the mismatch in `hypershell_policy_interceptor_defaults_hash_mismatch_total`
+- AND when the hashes match it SHALL apply its environment defaults and count nothing
+
+#### Scenario: PLAT-PGP-08.06 -- Added Defaults Are Recorded on the Sandbox
+
+- GIVEN an enforced gateway and a `CreateSandbox` request that omits some resource values
+- WHEN the interceptor adds fleet defaults in `modify_operation`
+- THEN it SHALL also set the sandbox annotation `hypershell.redhat.io/policy-defaults-applied` to the added values as comma-separated `<section>.<key>=<value>` entries (for example `requests.cpu=500m,limits.memory=4Gi`)
+- AND a client-supplied value for that annotation SHALL be replaced, so the annotation always reflects what the interceptor added
+- AND a request that receives no defaults SHALL get no annotation patch
+
+#### Scenario: PLAT-PGP-08.07 -- A Built-In Canary Does Not Turn On Defaults for Other Sandboxes
+
+- GIVEN a gateway whose only enforced policy is the built-in `e2e-enforcement-canary`
+- WHEN a sandbox named without the reserved `e2epol-` prefix is created without resources
+- THEN the interceptor SHALL add no defaults and SHALL record a `would_add_defaults` finding
+- AND a sandbox named with the reserved prefix SHALL receive the fleet defaults
+- AND when a policy that is not built in is also enforced, every sandbox SHALL receive the fleet defaults
 
 ---
 
@@ -388,7 +462,8 @@ mutation replay re-runs interceptors on retries.
 ### Requirement: PLAT-PGP-12 -- Policy Bundle Distribution
 
 The api-server SHALL stream `PlatformGatewayPolicy` records and the
-`PlatformPolicySettings` toggle to the control plane over the existing gRPC watch,
+`PlatformPolicySettings` singleton (the toggle and the accepted fleet defaults,
+PLAT-PGP-08) to the control plane over the existing gRPC watch,
 with a periodic resync. The control plane SHALL build a per-gateway **policy
 bundle** and write it as a ConfigMap (for example `hypershell-policy-bundle`) into
 the gateway namespace with update-or-create, labeled with the gateway id and the
@@ -396,10 +471,21 @@ bundle schema version (CTRL-CORE-22). The bundle SHALL be a versioned contract
 carrying: `schemaVersion`, `gatewayId`, `revision` (a hash of the resolved
 content), the Cedar schema version, two Cedar policy sets with `@id` annotations
 (an **enforced** set and an **audit-only** set, with effective modes already
-resolved per PLAT-PGP-06), and per policy the `name`, `userMessage`, and
-`documentationUrl`. The sidecar SHALL watch the ConfigMap through the Kubernetes
+resolved per PLAT-PGP-06), per policy the `name`, `userMessage`, and
+`documentationUrl`, and the fleet defaults the bundle was validated against with
+their defaults hash (PLAT-PGP-08). The sidecar SHALL watch the ConfigMap through the Kubernetes
 API and apply a new revision within seconds without a gateway restart. When the
 sidecar has no bundle, it SHALL fail closed on `fail_closed` RPCs (PLAT-PGP-11).
+A new or rolled gateway SHALL NOT serve a `fail_closed` RPC before its current
+bundle is loaded whenever the bundle can be built: the control plane SHALL write the
+gateway's current bundle before the Helm install or upgrade that deploys or rolls
+the sidecar, and SHALL retry the gateway reconcile instead of deploying when the
+bundle cannot be built yet (CTRL-CORE-22); the sidecar SHALL read the bundle
+ConfigMap once at startup, bounded by a short timeout, and load it before it reports
+ready, which gates the gateway container's start (OSG-CORE-19). Readiness SHALL NOT
+wait for a bundle that does not exist: an absent or unreadable ConfigMap is logged,
+the sidecar becomes ready without a bundle, and `fail_closed` RPCs fail closed until
+the watch delivers one, so `fail_open` RPCs keep working.
 
 #### Scenario: PLAT-PGP-12.01 -- A New Revision Applies in Seconds Without Restart
 
@@ -413,6 +499,14 @@ sidecar has no bundle, it SHALL fail closed on `fail_closed` RPCs (PLAT-PGP-11).
 - GIVEN a sidecar that has not yet loaded any bundle
 - WHEN a `fail_closed` RPC such as `CreateSandbox` is evaluated
 - THEN the gateway SHALL fail the call closed
+
+#### Scenario: PLAT-PGP-12.03 -- A New Gateway Serves Only After Its Bundle Is Loaded
+
+- GIVEN a gateway being created or rolled whose bundle can be built from the current policies and settings
+- WHEN the control plane deploys it and the sidecar starts
+- THEN the bundle ConfigMap SHALL already hold the current revision before the Helm apply, and the sidecar SHALL have applied it when it reports ready
+- AND when the settings carry no fleet defaults the gateway reconcile SHALL fail and retry without a Helm apply
+- AND a sidecar that finds no ConfigMap at startup SHALL still report ready, with `fail_closed` RPCs failing closed
 
 ---
 
@@ -596,16 +690,16 @@ that gateway.
 The platform SHALL seed, with an additive idempotent migration, a built-in platform
 policy `e2e-enforcement-canary` with `target: all` and `enforcementMode: enforce`
 (enforced whatever the global toggle is). Its Cedar SHALL apply only to sandboxes
-whose name starts with the reserved prefix `hypershell-e2e-policy-`, so it never
+whose name starts with the reserved prefix `e2epol-`, so it never
 affects a real user:
 
 ```cedar
 forbid (principal, action == OpenShell::Action::"CreateSandbox", resource)
-when { context.sandboxName like "hypershell-e2e-policy-*" && context.cpuRequestMillis > 1000 };
+when { context.sandboxName like "e2epol-*" && context.cpuRequestMillis > 1000 };
 ```
 
 Its `userMessage` SHALL state that it is used by HyperShell release checks and
-applies only to sandboxes named `hypershell-e2e-policy-*`. It SHALL be visible like
+applies only to sandboxes named `e2epol-*`. It SHALL be visible like
 any other policy. A `platform-policy:admin` SHALL NOT be able to delete it; the
 canary MAY be disabled per environment with a controller setting, and the e2e short
 mode SHALL then report the policy check as skipped, never as passed (E2E-CORE-49).
@@ -613,7 +707,7 @@ mode SHALL then report the policy check as skipped, never as passed (E2E-CORE-49
 #### Scenario: PLAT-PGP-20.01 -- Canary Enforced but Scoped to the Reserved Prefix
 
 - GIVEN the seeded `e2e-enforcement-canary` policy
-- WHEN a sandbox named `hypershell-e2e-policy-<run>-deny` is created with a CPU request of `2`
+- WHEN a sandbox named `e2epol-<run>-deny` is created with a CPU request of `1100m`
 - THEN the create SHALL be rejected with `PERMISSION_DENIED` naming the canary
 - AND a sandbox whose name lacks the reserved prefix SHALL NOT be rejected by the canary
 
@@ -623,6 +717,42 @@ mode SHALL then report the policy check as skipped, never as passed (E2E-CORE-49
 - WHEN a `platform-policy:admin` attempts to delete it
 - THEN the delete SHALL be refused
 - AND disabling it per environment SHALL make the short-mode policy check report skipped, never passed
+
+---
+
+### Requirement: PLAT-PGP-21 -- Editor Dry Run and Per-Policy Findings
+
+The API server SHALL expose two endpoints that support the policy editor and the
+policy detail view (WEB-PADM-04, WEB-PADM-05, WEB-PADM-08):
+
+- `POST /api/hypershell/v1/ext/platform_gateway_policies/evaluate` SHALL take draft
+  Cedar text and an optional sample request, and SHALL return the write-time
+  validation result (PLAT-PGP-04, with line-numbered diagnostics), the rendered
+  summary (PLAT-PGP-17), the fleet-default check, and, when a sample request is
+  given, the decision and the denial text the interceptor would produce
+  (PLAT-PGP-14). It SHALL persist nothing.
+- `GET /api/hypershell/v1/ext/platform_gateway_policies/{id}/findings` SHALL return
+  the audit findings of one policy across its target gateways, paginated, with an
+  optional `outcome` filter (`would_reject` or `would_add_defaults`).
+
+The evaluate endpoint SHALL be authorized for `platform-policy:admin` and
+`platform:admin` only (SEC-RBAC-30). The findings endpoint SHALL additionally be
+readable by `fleet:reader` (SEC-RBAC-31). Gateway users read findings through
+PLAT-PGP-19 instead.
+
+#### Scenario: PLAT-PGP-21.01 -- Dry Run Validates and Evaluates Without Saving
+
+- GIVEN a `platform-policy:admin`
+- WHEN they post draft Cedar with a sample request to the evaluate endpoint
+- THEN the response SHALL contain the validation diagnostics, the rendered summary, the defaults check, and the decision with its denial text
+- AND no policy SHALL be created or changed
+
+#### Scenario: PLAT-PGP-21.02 -- Per-Policy Findings Are Not Readable by Gateway Users
+
+- GIVEN a policy P with findings on two gateways
+- WHEN a `platform-policy:admin` reads `GET .../platform_gateway_policies/P/findings?outcome=would_reject`
+- THEN the response SHALL list P's would-reject findings from both gateways, paginated
+- AND a `gateway:owner` reading the same path SHALL be refused
 
 ## Security analysis
 

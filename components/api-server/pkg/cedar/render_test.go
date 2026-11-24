@@ -100,7 +100,7 @@ when { context.gpuCount > 1 };`
 // PLAT-PGP-17.01: an unrecognized shape is shown as its Cedar source.
 func TestRenderUnrecognizedShape(t *testing.T) {
 	src := `forbid (principal, action == OpenShell::Action::"CreateSandbox", resource)
-when { context.sandboxName like "hypershell-e2e-policy-*" && context.cpuRequestMillis > 1000 };`
+when { context.sandboxName like "e2epol-*" && context.cpuRequestMillis > 1000 };`
 	rules, err := RenderPolicy(src)
 	if err != nil {
 		t.Fatalf("RenderPolicy: %v", err)

@@ -225,6 +225,15 @@ export function createGatewayOperations({
       execute("get", signal, (context) =>
         controlPlane.getGateway(gatewayId, context),
       ),
+    getGatewayEffectivePolicies: (gatewayId, signal) =>
+      execute("get-effective-policies", signal, (context) => {
+        if (!controlPlane.getGatewayEffectivePolicies) {
+          throw new GatewayOperationError("unknown", {
+            cause: new Error("effective policies are unavailable"),
+          });
+        }
+        return controlPlane.getGatewayEffectivePolicies(gatewayId, context);
+      }),
     grantGatewayAccess: (gatewayId, input, signal) =>
       execute("grant-access", signal, (context) =>
         controlPlane.grantGatewayAccess(gatewayId, input, context),

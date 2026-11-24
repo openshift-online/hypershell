@@ -80,7 +80,6 @@ import { useState } from "react";
 import { IntlProvider } from "react-intl";
 
 import { HealthStatus } from "../common/health-status";
-import { MockupShell } from "../shell/mockup-template";
 import { GatewayProvisioningStepper } from "../../../../packages/gateway-management-ui/src/gateways/gateway-provisioning-stepper";
 import { CommandBlock } from "../../../../packages/gateway-management-ui/src/gateways/editable-command";
 import {
@@ -90,11 +89,12 @@ import {
   shellArgument,
   type GatewayConnection,
 } from "../../../../packages/gateway-management-ui/src/gateways/gateway-connections";
-import { GatewayDetailPageSurface } from "./gateway-detail-page-surface";
+import { GatewayPoliciesTab } from "./gateway-policies-tab";
+import type { PolicyEnforcementMode } from "../common/policy-rules";
 import styles from "./gateway-detail.module.css";
 
 export type GatewayDetailTab =
-  "connection" | "manage-access" | "service-accounts" | "details";
+  "connection" | "manage-access" | "service-accounts" | "details" | "policies";
 
 export type GatewayDetailModal =
   | "rename-gateway"
@@ -2056,11 +2056,15 @@ export function GatewayDetailContent({
   attention,
   isProvisioning = false,
   modal: initialModal,
+  policyDrawer,
+  policyMode = "audit",
 }: {
   activeTab?: GatewayDetailTab;
   attention?: GatewayDetailAttention;
   isProvisioning?: boolean;
   modal?: GatewayDetailModal;
+  policyDrawer?: string;
+  policyMode?: PolicyEnforcementMode;
 }) {
   const [activeTab, setActiveTab] = useState(initialTab);
   const [modal, setModal] = useState(initialModal);
@@ -2173,7 +2177,7 @@ export function GatewayDetailContent({
       >
         <Tabs
           activeKey={activeTab}
-          aria-label="Gateway details, connection, user access, and service accounts"
+          aria-label="Gateway details, connection, user access, service accounts, and policies"
           onSelect={(_event, eventKey) =>
             setActiveTab(eventKey as GatewayDetailTab)
           }
@@ -2216,6 +2220,12 @@ export function GatewayDetailContent({
               }}
             />
           </Tab>
+          <Tab
+            eventKey="policies"
+            title={<TabTitleText>Policies</TabTitleText>}
+          >
+            <GatewayPoliciesTab drawerPolicy={policyDrawer} mode={policyMode} />
+          </Tab>
         </Tabs>
       </PageSection>
       {modal ? (
@@ -2228,28 +2238,5 @@ export function GatewayDetailContent({
         />
       ) : null}
     </>
-  );
-}
-
-export function GatewayDetailMockup({
-  activeTab,
-  attention,
-  isProvisioning,
-  modal,
-}: {
-  activeTab?: GatewayDetailTab;
-  attention?: GatewayDetailAttention;
-  isProvisioning?: boolean;
-  modal?: GatewayDetailModal;
-}) {
-  return (
-    <MockupShell activeSection="gateways">
-      <GatewayDetailPageSurface
-        activeTab={activeTab}
-        attention={attention}
-        isProvisioning={isProvisioning}
-        modal={modal}
-      />
-    </MockupShell>
   );
 }

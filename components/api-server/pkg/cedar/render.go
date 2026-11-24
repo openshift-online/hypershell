@@ -17,6 +17,21 @@ type RenderedRule struct {
 	Recognized bool
 	Summary    []string
 	Cedar      string
+	// Bounds is the structured form of Summary, one entry per recognized
+	// comparison, so a console can attribute each bound to a resource row.
+	Bounds []Bound
+}
+
+// Bound is one recognized comparison rendered as the allowed bound. Op is the
+// forbid operator over Field (for example ">" for "at most"); Value is the bound
+// in schema units and Display the bound formatted as a quantity.
+type Bound struct {
+	Field   string
+	Label   string
+	Op      string
+	Value   int64
+	Display string
+	Text    string
 }
 
 // RenderPolicy renders each forbid statement in the policy text (PLAT-PGP-17).
@@ -31,9 +46,10 @@ func RenderPolicy(cedarText string) ([]RenderedRule, error) {
 	out := make([]RenderedRule, 0, len(policies))
 	for _, p := range policies {
 		rule := RenderedRule{Cedar: string(p.MarshalCedar())}
-		if summary, ok := renderStatement(p); ok {
+		if summary, bounds, ok := renderStatement(p); ok {
 			rule.Recognized = true
 			rule.Summary = summary
+			rule.Bounds = bounds
 		}
 		out = append(out, rule)
 	}
@@ -47,32 +63,35 @@ type comparison struct {
 	bound int64
 }
 
-func renderStatement(p *cedar.Policy) ([]string, bool) {
+func renderStatement(p *cedar.Policy) ([]string, []Bound, bool) {
 	xp := (*xast.Policy)(p.AST())
 	// v1 recognizes a single "when" condition. Multiple when clauses are
 	// AND-combined in Cedar, so they cannot be decomposed into independent
 	// allowed bounds and are shown as Cedar source instead.
 	if len(xp.Conditions) != 1 {
-		return nil, false
+		return nil, nil, false
 	}
 	cond := xp.Conditions[0]
 	// An "unless" is shown as Cedar.
 	if cond.Condition != xast.ConditionWhen {
-		return nil, false
+		return nil, nil, false
 	}
 	comparisons, ok := collectComparisons(cond.Body)
 	if !ok || len(comparisons) == 0 {
-		return nil, false
+		return nil, nil, false
 	}
 	summary := make([]string, 0, len(comparisons))
+	bounds := make([]Bound, 0, len(comparisons))
 	for _, c := range comparisons {
 		text, ok := renderComparison(c)
 		if !ok {
-			return nil, false
+			return nil, nil, false
 		}
 		summary = append(summary, text)
+		fd := fieldDisplays[c.field]
+		bounds = append(bounds, Bound{Field: c.field, Label: fd.label, Op: c.op, Value: c.bound, Display: fd.format(c.bound), Text: text})
 	}
-	return summary, true
+	return summary, bounds, true
 }
 
 // collectComparisons walks a forbid condition that is either a single context

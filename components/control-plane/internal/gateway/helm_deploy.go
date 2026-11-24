@@ -55,6 +55,7 @@ func deployGatewayViaHelm(
 		OperatorWorkspace:           opts.OperatorWorkspace,
 		OperatorNamespaceLabelKey:   opts.OperatorNamespaceLabelKey,
 		OperatorSandboxRuntimeClass: opts.OperatorSandboxRuntimeClass,
+		PolicyInterceptor:           opts.PolicyInterceptor,
 	}
 
 	values, err := valuesBuilder.Build()

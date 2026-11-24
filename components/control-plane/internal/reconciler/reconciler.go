@@ -109,12 +109,25 @@ func recordIncompleteFinalizationEvent(ctx context.Context, client kubernetes.In
 }
 
 type GatewayReconciler struct {
-	mu            sync.Mutex
-	active        map[string]struct{}
-	dynamicClient dynamic.Interface
-	clientset     *kubernetes.Clientset
-	grpcConn      *grpc.ClientConn
-	helmClient    *helm.ShellClient
+	// policyInterceptor, when set, renders the policy interceptor sidecar into
+	// every gateway's Helm values (OSG-CORE-19).
+	policyInterceptor PolicyInterceptorProvider
+	// policyDefaults supplies the fleet defaults the sidecar renders with; a
+	// hash change is drift past the generation gate (PLAT-PGP-08.04).
+	policyDefaults *FleetDefaultsSource
+	// policyBundle writes one gateway's current bundle before its Helm apply
+	// (PLAT-PGP-12.03); nil leaves the gateway reconcile failing, never
+	// deploying a sidecar without a bundle.
+	policyBundle func(ctx context.Context, gw *pb.Gateway, namespace string) error
+	// policyKubeOverride, when set by a test, replaces clientset for the
+	// policy-defaults drift read (clientset is a concrete type).
+	policyKubeOverride kubernetes.Interface
+	mu                 sync.Mutex
+	active             map[string]struct{}
+	dynamicClient      dynamic.Interface
+	clientset          *kubernetes.Clientset
+	grpcConn           *grpc.ClientConn
+	helmClient         *helm.ShellClient
 	// isOpenShift is derived from the configured host platform
 	// (HYPERSHELL_CLUSTER_PLATFORM, CTRL-CORE-16), NOT from API discovery, so it
 	// stays stable through discovery failures.
@@ -626,10 +639,22 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			reconcileErr = fmt.Errorf("check destination TLS trust: %w", err)
 			return watcher.WithRetryableReason(watcher.PreservePayloadForRetry(reconcileErr), reason)
 		}
-		if !needsTrustUpdate {
+		// A fleet-defaults change rolls gateway pods so the sidecar env matches
+		// the bundle (PLAT-PGP-08.04, CTRL-CORE-22.05).
+		needsDefaultsUpdate, err := r.policyDefaultsNeedUpdate(ctx, gw.GetNamespace())
+		if err != nil {
+			outcome = cpotel.OutcomeRetryable
+			reason = cpotel.ReasonDependencyNotReady
+			reconcileErr = fmt.Errorf("check policy fleet defaults: %w", err)
+			return watcher.WithRetryableReason(watcher.PreservePayloadForRetry(reconcileErr), reason)
+		}
+		if !needsTrustUpdate && !needsDefaultsUpdate {
 			slog.DebugContext(ctx, "Gateway converged, skipping reconciliation", "gateway_id", event.ResourceID, "generation", gw.Generation)
 			outcome = cpotel.OutcomeNoop
 			return nil
+		}
+		if needsDefaultsUpdate {
+			slog.InfoContext(ctx, "Fleet policy defaults changed; re-rendering converged gateway", "gateway_id", event.ResourceID)
 		}
 	}
 
@@ -759,6 +784,15 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		OperatorWorkspace:           r.operatorWorkspace,
 		OperatorNamespaceLabelKey:   r.operatorNamespaceLabelKey,
 		OperatorSandboxRuntimeClass: r.operatorSandboxRuntimeClass,
+	}
+
+	if r.policyInterceptor != nil {
+		pi, piErr := r.policyInterceptor(ctx, event.ResourceID, namespace, gwConfig.WorkspaceMode)
+		if piErr != nil {
+			return fmt.Errorf("policy interceptor values for gateway %s: %w", event.ResourceID, piErr)
+		}
+		opts.PolicyInterceptor = pi
+		opts.EnsurePolicyBundle = r.policyBundleWriter(gw)
 	}
 
 	conditions := gateway.InitConditions()
