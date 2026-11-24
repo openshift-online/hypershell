@@ -310,6 +310,47 @@ func TestListManagedClientsSkipsClientsDeletedAfterListing(t *testing.T) {
 	}
 }
 
+func TestGetManagedClientUsesExactClientLookup(t *testing.T) {
+	var paths []string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch {
+		case request.URL.Path == "/realms/realm/protocol/openid-connect/token":
+			_ = json.NewEncoder(writer).Encode(map[string]any{"access_token": "admin-token", "expires_in": 300})
+		case request.URL.Path == "/admin/realms/realm/clients" && request.URL.Query().Get("clientId") == "hs-bootstrap-gateway-id":
+			paths = append(paths, request.URL.RequestURI())
+			_ = json.NewEncoder(writer).Encode([]kcClient{{ID: "client-uuid", ClientID: "hs-bootstrap-gateway-id"}})
+		case request.URL.Path == "/admin/realms/realm/clients/client-uuid":
+			paths = append(paths, request.URL.Path)
+			_ = json.NewEncoder(writer).Encode(kcClient{
+				ID: "client-uuid", ClientID: "hs-bootstrap-gateway-id",
+				Attributes: map[string]string{
+					managedAttribute: "true", gatewayIDAttribute: "gateway-id",
+					serviceAccountIDAttribute: "bootstrap-admin",
+				},
+			})
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "realm", "provisioner", "admin-secret").
+		GetManagedClient(t.Context(), "hs-bootstrap-gateway-id", "gateway-id", "bootstrap-admin")
+	if err != nil {
+		t.Fatalf("GetManagedClient() error = %v", err)
+	}
+	if client == nil || client.UUID != "client-uuid" {
+		t.Fatalf("GetManagedClient() = %#v, want the exact managed client", client)
+	}
+	wantPaths := []string{
+		"/admin/realms/realm/clients?clientId=hs-bootstrap-gateway-id",
+		"/admin/realms/realm/clients/client-uuid",
+	}
+	if !reflect.DeepEqual(paths, wantPaths) {
+		t.Fatalf("request paths = %#v, want %#v", paths, wantPaths)
+	}
+}
+
 func TestDeleteGatewayServiceAccountsToleratesConcurrentlyDeletedClients(t *testing.T) {
 	for _, tc := range []struct {
 		name              string

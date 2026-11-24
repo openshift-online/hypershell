@@ -46,6 +46,7 @@ type Provider interface {
 	ProvisionServiceAccount(context.Context, serviceaccountkeycloak.ServiceAccountSpec) (*serviceaccountkeycloak.ProvisionedServiceAccount, error)
 	DeleteManagedServiceAccount(context.Context, string, string) error
 	ListManagedClients(context.Context, string) ([]serviceaccountkeycloak.ManagedClient, error)
+	GetManagedClient(context.Context, string, string, string) (*serviceaccountkeycloak.ManagedClient, error)
 }
 
 type OpenShellClient interface {
@@ -212,17 +213,11 @@ func (m *Manager) ensureAdmin(ctx context.Context, spec AdminSpec) (*bootstrapAd
 	if err != nil {
 		return nil, err
 	}
-	clients, err := m.provider.ListManagedClients(ctx, spec.GatewayID)
+	liveClient, err := m.provider.GetManagedClient(
+		ctx, BootstrapAdminClientIDPrefix+spec.GatewayID, spec.GatewayID, BootstrapAdminServiceAccountID,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("check existing gateway bootstrap admin: %w", err)
-	}
-
-	var liveClient *serviceaccountkeycloak.ManagedClient
-	for index := range clients {
-		if clients[index].ServiceAccountID == BootstrapAdminServiceAccountID {
-			liveClient = &clients[index]
-			break
-		}
 	}
 	if admin != nil {
 		if liveClient != nil {

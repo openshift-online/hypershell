@@ -277,6 +277,18 @@ func (f *fakeProvider) ListManagedClients(context.Context, string) ([]serviceacc
 	return f.clients, nil
 }
 
+func (f *fakeProvider) GetManagedClient(
+	_ context.Context, clientID, gatewayID, serviceAccountID string,
+) (*serviceaccountkeycloak.ManagedClient, error) {
+	for index := range f.clients {
+		client := f.clients[index]
+		if client.ClientID == clientID && client.GatewayID == gatewayID && client.ServiceAccountID == serviceAccountID {
+			return &client, nil
+		}
+	}
+	return nil, nil
+}
+
 type fakeOpenShellClient struct {
 	addCalls                    int
 	hasCalls                    int
