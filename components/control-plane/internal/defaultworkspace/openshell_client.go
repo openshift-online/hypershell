@@ -2,13 +2,13 @@ package defaultworkspace
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
 	"net/url"
 	"strings"
 
-	"github.com/google/uuid"
 	datamodelv1 "github.com/openshift-online/hypershell/components/control-plane/internal/openshellclient/gen/datamodelv1"
 	openshellv1 "github.com/openshift-online/hypershell/components/control-plane/internal/openshellclient/gen/openshellv1"
 	"google.golang.org/grpc"
@@ -151,7 +151,14 @@ func (c *GRPCOpenShellClient) ListWorkspaceVisibility(ctx context.Context, endpo
 }
 
 func bootstrapRequestID(namespace, subject, role string) string {
-	return uuid.NewSHA1(uuid.NameSpaceURL, []byte("hypershell:default-workspace:"+namespace+":"+subject+":"+role)).String()
+	digest := sha256.Sum256([]byte("hypershell:default-workspace:" + namespace + ":" + subject + ":" + role))
+	id := digest[:16]
+	id[6] = (id[6] & 0x0f) | 0x50
+	id[8] = (id[8] & 0x3f) | 0x80
+	return fmt.Sprintf(
+		"%x-%x-%x-%x-%x",
+		id[0:4], id[4:6], id[6:8], id[8:10], id[10:16],
+	)
 }
 
 func (c *GRPCOpenShellClient) grpcTarget(ctx context.Context, endpoint, namespace string) (string, credentials.TransportCredentials, error) {
