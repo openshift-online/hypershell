@@ -66,7 +66,7 @@ func NewClientAssertionAuthenticator(cfg ClientAssertionConfig) *ClientAssertion
 // its TTL.
 func (a *ClientAssertionAuthenticator) acquire(ctx context.Context) (string, time.Duration, error) {
 	if !a.cfg.Enabled() {
-		return "", 0, fmt.Errorf("client-assertion authentication is not configured (token endpoint, client id, and service-account token file are required)")
+		return "", 0, fmt.Errorf("client-assertion authentication is not configured (token endpoint and service-account token file are required)")
 	}
 
 	// Re-read the projected service-account token on every request so a rotated
@@ -80,9 +80,19 @@ func (a *ClientAssertionAuthenticator) acquire(ctx context.Context) (string, tim
 		return "", 0, fmt.Errorf("projected service-account token %q is empty", a.cfg.SATokenFile)
 	}
 
+	// The request carries only the grant type and the client assertion. It SHALL
+	// NOT send a client_id form field: Keycloak finds the client from the
+	// assertion itself (its federated-client issuer and subject), so client_id is
+	// redundant, and RFC 7523 section 3 and RFC 6749 section 2.3 make it optional
+	// when the client authenticates with an assertion. Sending client_id also
+	// breaks the request on Keycloak 26.6, which returns invalid_client
+	// ("client_id parameter does not match sub claim") when a client_id is present
+	// and differs from the assertion sub; the assertion sub is the service account
+	// (system:serviceaccount:<instance>:<name>), which never equals the Keycloak
+	// client id (OBS-PRB-06, OBS-PRB-06.06). HYPERSHELL_PROBE_OIDC_CLIENT_ID, when
+	// set, is used only for log context (a.cfg.ClientID), never sent here.
 	form := url.Values{
 		"grant_type":            {grantTypeClientCredentials},
-		"client_id":             {a.cfg.ClientID},
 		"client_assertion_type": {clientAssertionTypeJWTBearer},
 		"client_assertion":      {assertion},
 	}
