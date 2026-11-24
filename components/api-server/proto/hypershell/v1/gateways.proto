@@ -206,6 +206,17 @@ message DeleteGatewayRequest {
   string id = 1;
 }
 
+// FinalizeGatewayDeletionRequest reports that the control plane has reclaimed
+// every Gateway-owned resource for a soft-deleted (tombstone) Gateway. It is a
+// narrow, tombstone-only write (the pattern of SetGatewayVersion), NOT a general
+// delete: the control-plane identity stays denied DeleteGateway. See
+// platform/gateway-deletion-finalization.spec.md GTW-DEL-10.
+message FinalizeGatewayDeletionRequest {
+  string id = 1;
+}
+
+message FinalizeGatewayDeletionResponse {}
+
 message ListGatewaysRequest {
   int32 page = 1;
   int32 size = 2;
@@ -256,4 +267,5 @@ service GatewayService {
   rpc SetActiveSandboxCount(SetActiveSandboxCountRequest) returns (SetActiveSandboxCountResponse);
   rpc ReportSandboxEvents(ReportSandboxEventsRequest) returns (ReportSandboxEventsResponse);
   rpc SetGatewayVersion(SetGatewayVersionRequest) returns (SetGatewayVersionResponse);
+  rpc FinalizeGatewayDeletion(FinalizeGatewayDeletionRequest) returns (FinalizeGatewayDeletionResponse);
 }

@@ -479,8 +479,9 @@ A caller whose JWT `sub` matches the `oidc_subject` of a registered `ManagedClus
 
 - It MAY read every fleet-wide record it reconciles from: `Get`/`List`/`Watch` on managed clusters, and `GetGateway` for any gateway by id. A `GetGateway` read is fleet-wide: the control-plane identity SHALL resolve a gateway by id regardless of the gateway's owning cluster, and SHALL NOT receive `NOT_FOUND` for a gateway owned by another cluster. Gateway and role-binding lists and watches remain scoped by the Watch Stream Caller Binding.
 - It MAY call the gateway writes `UpdateGateway`, `SetGatewayVersion`, `AdjustActiveSandboxCount`, `SetActiveSandboxCount`, and `ReportSandboxEvents` only for a gateway whose `cluster_id` is its own. A write to another cluster's gateway SHALL return `PERMISSION_DENIED`. `UpdateGateway` SHALL NOT change `cluster_id` to any other cluster. A sandbox-count write for a namespace no live gateway backs is a no-op and is let through, and a sandbox-events report for such a namespace is a no-op as well (`platform/gateway-sandbox-events.spec.md`, OSG-SEVT-02).
+- It MAY call `FinalizeGatewayDeletion` to report deletion finalization complete, but only for a **tombstone** (a soft-deleted gateway) whose `cluster_id` is its own. The server SHALL resolve the gateway with a lookup that includes soft-deleted rows, because the normal lookup does not find a tombstone. It SHALL return `PERMISSION_DENIED` for a live gateway, for a tombstone owned by another cluster, and for an unknown id, so this narrow authority cannot be used to probe or finalize gateways the caller does not own. This is the control plane's only path to finalize a deletion; it does NOT grant `DeleteGateway` (`platform/gateway-deletion-finalization.spec.md` GTW-DEL-10).
 - It MAY delete only its own `ManagedCluster` record, and SHALL NOT create or update any.
-- Any other `hypershell.v1` method (for example `CreateGateway`, `DeleteGateway`) SHALL be refused.
+- Any other `hypershell.v1` method (for example `CreateGateway`, `DeleteGateway`) SHALL be refused. `DeleteGateway` stays refused even for the control plane's own-cluster tombstone; the control plane reports finalization through `FinalizeGatewayDeletion` instead.
 - On both the gRPC and HTTP APIs it SHALL NOT be recorded as a daily-active user.
 - On the HTTP API it SHALL NOT bypass role-binding authorization, except to delete its own record (see "Requirement: Record Writes and Deregistration").
 
@@ -517,6 +518,16 @@ The hub exposes its gRPC API through a public Route (`hub-grpc-tls.spec.md`), so
 - WHEN `Y` calls `GetGateway` for that gateway
 - THEN the api-server returns the gateway
 - AND the response SHALL NOT be `NOT_FOUND`
+
+#### Scenario: PLAT-CLUS-11.07 -- Control plane finalizes only its own-cluster tombstone
+
+- GIVEN control planes registered as `X` and `Y`
+- AND a soft-deleted (tombstone) gateway whose `cluster_id` is `X`, and a live gateway whose `cluster_id` is `X`
+- WHEN `X` calls `FinalizeGatewayDeletion` for its own tombstone gateway
+- THEN the api-server SHALL authorize the call without any role binding
+- WHEN `X` calls `FinalizeGatewayDeletion` for the live gateway, or `Y` calls it for `X`'s tombstone, or any caller calls it for an unknown id
+- THEN the api-server SHALL return `PERMISSION_DENIED`
+- AND `X` calling `DeleteGateway` for its own tombstone SHALL still return `PERMISSION_DENIED`
 
 #### Scenario: PLAT-CLUS-11.03 -- Unregistered caller cannot use control-plane-only writes
 

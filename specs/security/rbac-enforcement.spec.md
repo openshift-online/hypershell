@@ -535,6 +535,10 @@ For a caller that is not a control-plane identity, the rules mirror HTTP:
   them.
 - `AdjustActiveSandboxCount`, `SetActiveSandboxCount`, `SetGatewayVersion`, `ReportSandboxEvents`: denied
   whatever the caller's bindings. Only a control-plane identity writes these fields.
+- `FinalizeGatewayDeletion`: denied for every user caller whatever the caller's bindings. Only a
+  control-plane identity reports deletion finalization, and only for its own-cluster tombstone (see
+  "Control-Plane Identity" below and `platform/managed-cluster-registration.spec.md` PLAT-CLUS-11). It
+  is NOT a general delete and does NOT relax the `DeleteGateway` denial.
 - `ManagedClusterService`: reads for `gateway:creator` or `platform:admin`; writes for
   `platform:admin` (`platform/managed-cluster-registration.spec.md`, "Record Writes and
   Deregistration").
@@ -586,7 +590,13 @@ NOT return `NOT_FOUND` for a foreign-cluster gateway, so the hub control plane c
 resolve a spoke-placed gateway while reconciling (for example a `CITrust` whose gateway
 is on another cluster). The gateway writes (`UpdateGateway`, `SetGatewayVersion`,
 `AdjustActiveSandboxCount`, `SetActiveSandboxCount`, `ReportSandboxEvents`) stay
-own-cluster only and return `PERMISSION_DENIED` for a foreign-cluster gateway. This
+own-cluster only and return `PERMISSION_DENIED` for a foreign-cluster gateway.
+`FinalizeGatewayDeletion` is an additional own-cluster write authorized for the
+control-plane identity ONLY when the id resolves (through a lookup that includes
+soft-deleted rows) to a **tombstone** on the caller's own cluster; it returns
+`PERMISSION_DENIED` for a live gateway, a foreign-cluster gateway, or an unknown id,
+and it does NOT relax the standing `DeleteGateway` denial. It is the finalization
+signal of `platform/gateway-deletion-finalization.spec.md` GTW-DEL-10. This
 fleet-wide read applies ONLY to the control-plane identity; a non-control-plane caller
 keeps the per-gateway `GetGateway` rules above, including the `NOT_FOUND`
 existence-hiding when it has no access. A username on the `RBAC_SERVICE_ACCOUNTS`
@@ -728,6 +738,18 @@ so these rules are the only boundary between tenants, and between clusters, on t
 - THEN the write SHALL be authorized, the server SHALL set `repository_id` to R1, and the per-gateway tenancy gate SHALL be satisfied because the referenced `Gateway` is owned by R1 (SEC-RBAC-26)
 - WHEN the same import attempts a `CITrust` referencing a `Gateway` not owned by R1
 - THEN the write SHALL be refused
+
+#### Scenario: SEC-RBAC-09.10 -- Control plane finalizes its own-cluster tombstone but still cannot delete
+
+- GIVEN a registered control-plane identity for cluster `X`
+- AND a soft-deleted (tombstone) gateway on `X`, a live gateway on `X`, and a tombstone gateway on another cluster `Y`
+- WHEN the control plane calls `FinalizeGatewayDeletion` for its own-cluster tombstone
+- THEN the call SHALL be authorized
+- WHEN it calls `FinalizeGatewayDeletion` for the live gateway on `X`, for the tombstone on `Y`, or for an unknown id
+- THEN the request SHALL return `PERMISSION_DENIED`
+- WHEN it calls `DeleteGateway` for its own-cluster tombstone
+- THEN the request SHALL still return `PERMISSION_DENIED`
+- AND a user caller (without a control-plane identity) calling `FinalizeGatewayDeletion` SHALL be denied whatever its bindings
 
 ### Requirement: SEC-RBAC-18 -- Gateway Field Write Policy
 

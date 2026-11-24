@@ -33,6 +33,12 @@ type GatewayClusterResolver interface {
 	// GatewayClusterID returns the cluster of the gateway with this id, live or
 	// soft-deleted.
 	GatewayClusterID(ctx context.Context, gatewayID string) (clusterID string, found bool, err error)
+	// GatewayTombstoneClusterID returns the cluster of the gateway with this id
+	// ONLY when it is a tombstone (soft-deleted); isTombstone is false for a live
+	// gateway or an unknown id. The lookup includes soft-deleted rows because the
+	// normal lookup does not find a tombstone. It backs the FinalizeGatewayDeletion
+	// own-cluster-tombstone authorization (GTW-DEL-10, SEC-RBAC-09, PLAT-CLUS-11).
+	GatewayTombstoneClusterID(ctx context.Context, gatewayID string) (clusterID string, isTombstone bool, err error)
 	// NamespaceClusterID returns the cluster of the live gateway in namespace.
 	NamespaceClusterID(ctx context.Context, namespace string) (clusterID string, found bool, err error)
 	// CITrustGatewayClusterID returns the cluster of the gateway the CITrust with
@@ -97,7 +103,13 @@ func authorizeControlPlaneGRPC(ctx context.Context, clusterID, fullMethod string
 		// own cluster. Gateway and AgentRuntime are not in importExtKindServices, so
 		// the bootstrap-allowlist guard in the interceptor does not cover them; this
 		// registered-identity path is where their import writes are authorized.
-		if !isReadMethodName(method) && ImportRepositoryIDFromContext(ctx) != "" {
+		//
+		// FinalizeGatewayDeletion is never a declarative-import write: it is the
+		// finalization-completion signal (GTW-DEL-10), authorized ONLY for an
+		// own-cluster tombstone. Excluding it keeps an import-marked context from
+		// routing it to the import-write path, which does not apply the tombstone or
+		// own-cluster check, so its authority cannot be widened beyond the spec.
+		if method != "FinalizeGatewayDeletion" && !isReadMethodName(method) && ImportRepositoryIDFromContext(ctx) != "" {
 			return authorizeImportWrite(ctx, imports)
 		}
 		switch method {
@@ -129,6 +141,18 @@ func authorizeControlPlaneGRPC(ctx context.Context, clusterID, fullMethod string
 				return unexpectedRequest()
 			}
 			return requireGatewayOnCluster(ctx, gateways, r.GetId(), clusterID, denied)
+		case "FinalizeGatewayDeletion":
+			// The finalization-completion signal (GTW-DEL-10) is authorized ONLY for an
+			// own-cluster tombstone, resolved with a lookup that includes soft-deleted
+			// rows. A live gateway, a foreign-cluster gateway, and an unknown id are all
+			// PERMISSION_DENIED, so this narrow authority cannot probe or finalize
+			// gateways the caller does not own. It does NOT relax the DeleteGateway
+			// denial below (SEC-RBAC-09, PLAT-CLUS-11).
+			r, ok := req.(*pb.FinalizeGatewayDeletionRequest)
+			if !ok {
+				return unexpectedRequest()
+			}
+			return requireTombstoneGatewayOnCluster(ctx, gateways, r.GetId(), clusterID)
 		case "AdjustActiveSandboxCount":
 			r, ok := req.(*pb.AdjustActiveSandboxCountRequest)
 			if !ok {
@@ -332,6 +356,28 @@ func requireGatewayOnCluster(ctx context.Context, gateways GatewayClusterResolve
 	return nil
 }
 
+// requireTombstoneGatewayOnCluster authorizes the control plane's
+// FinalizeGatewayDeletion (GTW-DEL-10) only when the id resolves, through a lookup
+// that includes soft-deleted rows, to a tombstone on clusterID. A live gateway, a
+// foreign-cluster tombstone, and an unknown id are all denied; a resolver error is
+// Unavailable (retryable), never a grant.
+func requireTombstoneGatewayOnCluster(ctx context.Context, gateways GatewayClusterResolver, gatewayID, clusterID string) error {
+	if gateways == nil {
+		return status.Error(codes.Unavailable, "gateway registry unavailable; cannot verify the gateway's cluster")
+	}
+	if gatewayID == "" {
+		return status.Error(codes.InvalidArgument, "id is required")
+	}
+	owner, isTombstone, err := gateways.GatewayTombstoneClusterID(ctx, gatewayID)
+	if err != nil {
+		return status.Error(codes.Unavailable, "gateway lookup failed; cannot verify the gateway's cluster")
+	}
+	if !isTombstone || owner != clusterID {
+		return denied()
+	}
+	return nil
+}
+
 // requireNamespaceOnCluster lets a sandbox-count write through when the live
 // gateway backing namespace is on the caller's cluster. With no live gateway
 // the write is a no-op in the service, so it is let through as well.
@@ -391,8 +437,11 @@ func authorizeUserGRPC(fullMethod string, req interface{}, bindings []BindingSum
 			// over HTTP too) may use them.
 			return allowIf(hasPlatformAdmin(bindings))
 		}
-		// AdjustActiveSandboxCount, SetActiveSandboxCount, SetGatewayVersion:
-		// control-plane-owned fields.
+		// AdjustActiveSandboxCount, SetActiveSandboxCount, SetGatewayVersion,
+		// FinalizeGatewayDeletion: control-plane-only methods (SEC-RBAC-09). Only a
+		// control-plane identity reports deletion finalization, and only for its
+		// own-cluster tombstone; it is denied for every user caller whatever its
+		// bindings, and is not a general delete.
 		return denied()
 	case "ManagedClusterService":
 		if isReadMethodName(method) {

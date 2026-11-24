@@ -143,7 +143,8 @@ gateway database is dropped above) and un-listable from any tenant identity. See
 - AND it SHALL delete the ClusterRoleBinding, the Keycloak gateway, console, and
   service-account clients, the per-gateway database resources, and the
   credential-namespace RBAC
-- AND when every class is absent it SHALL report the delete complete
+- AND when every class is absent it SHALL report the delete complete through the
+  finalization-completion signal (GTW-DEL-10)
 
 #### Scenario: GTW-DEL-01.02 -- Owned resource is reclaimed even when the namespace survives
 
@@ -414,6 +415,80 @@ the missing gateway on every pass.
 - THEN both of its bindings SHALL be soft-deleted
 - AND the second Gateway's binding SHALL remain
 
+### Requirement: GTW-DEL-10 -- Finalization Completion Is Reported Through a Dedicated Finalization RPC
+
+When the control plane has reclaimed every gateway-owned resource class for a
+soft-deleted Gateway (GTW-DEL-01, GTW-DEL-06), it SHALL report finalization
+complete to the API server by calling the dedicated gRPC method
+`GatewayService/FinalizeGatewayDeletion(id)`. Finalization completion SHALL be
+reported through this method and SHALL NOT be reported by re-calling
+`DeleteGateway`; `DeleteGateway` requests the deletion and remains denied to the
+control-plane identity (`security/rbac-enforcement.spec.md` SEC-RBAC-09,
+`platform/managed-cluster-registration.spec.md` PLAT-CLUS-11).
+
+`FinalizeGatewayDeletion` SHALL finalize the deletion of exactly the named
+Gateway and SHALL do nothing else; it SHALL NOT be a general delete. The API
+server SHALL resolve its behavior from the Gateway's state:
+
+- For a **tombstone** (a soft-deleted Gateway), it SHALL perform finalization
+  (the terminal removal that GTW-DEL-06 gates), and that finalization SHALL be
+  idempotent: finalizing an already-finalized or already-removed Gateway SHALL
+  succeed without error.
+- For a **live** (not soft-deleted) Gateway, it SHALL refuse the call with
+  `FAILED_PRECONDITION` and SHALL NOT remove or alter the Gateway, because a
+  Gateway is finalized only after its deletion has been requested.
+- For an **unknown** id (no Gateway, tombstone or live, with that id), it SHALL
+  return `NOT_FOUND`.
+
+These state-based results are the method's response to a caller that has already
+passed authorization. Authorization is evaluated first and is narrower for the
+control-plane identity: it is authorized to call `FinalizeGatewayDeletion` ONLY
+for an own-cluster tombstone and is refused with `PERMISSION_DENIED` for a live
+gateway, a foreign-cluster gateway, or an unknown id, resolved with a lookup that
+includes soft-deleted rows (`security/rbac-enforcement.spec.md` SEC-RBAC-09,
+`platform/managed-cluster-registration.spec.md` PLAT-CLUS-11). A control plane
+therefore reaches the `FAILED_PRECONDITION` and `NOT_FOUND` results only on a path
+not gated by that per-cluster-tombstone check (for example the bootstrap
+service-account allowlist); the authorization refusal takes precedence over the
+state-based result wherever both could apply.
+
+Finalization completion SHALL be the authoritative signal that closes a Gateway's
+`delete` change-convergence window within its budget
+(`platform/service-level-indicators.spec.md` OBS-SLI-01), so a delete that
+finalizes within ten minutes counts `within_10m` rather than being resolved only
+by the later deadline sweep. Because more than one control-plane replica MAY
+reconcile the same delete, the control plane SHALL treat a `NOT_FOUND` response
+as success (another replica finalized first) and SHALL surface any other error as
+a retryable warning rather than treating the delete as complete.
+
+#### Scenario: GTW-DEL-10.01 -- Control plane signals finalization through the dedicated RPC
+
+- GIVEN a soft-deleted Gateway whose every owned resource class has been reclaimed
+- WHEN the control plane reports the teardown complete
+- THEN it SHALL call `FinalizeGatewayDeletion` for that Gateway id
+- AND it SHALL NOT re-call `DeleteGateway` as the finalization signal
+
+#### Scenario: GTW-DEL-10.02 -- Finalizing a tombstone is idempotent
+
+- GIVEN a tombstone Gateway
+- WHEN `FinalizeGatewayDeletion` is called for its id, and then called again
+- THEN the first call SHALL finalize the deletion
+- AND the second call SHALL succeed without error and SHALL NOT fail the delete
+
+#### Scenario: GTW-DEL-10.03 -- Finalizing a live gateway is refused
+
+- GIVEN a live Gateway whose deletion has not been requested
+- WHEN `FinalizeGatewayDeletion` is called for its id
+- THEN the API server SHALL return `FAILED_PRECONDITION`
+- AND the Gateway SHALL remain live and unaltered
+
+#### Scenario: GTW-DEL-10.04 -- Finalizing an unknown id returns NOT_FOUND and is success for the caller
+
+- GIVEN no Gateway exists with the requested id
+- WHEN `FinalizeGatewayDeletion` is called for that id
+- THEN the API server SHALL return `NOT_FOUND`
+- AND the control plane SHALL treat `NOT_FOUND` as success because another replica may have finalized the delete first
+
 ## Design Decisions
 
 | Decision | Rationale |
@@ -425,3 +500,4 @@ the missing gateway on every pass.
 | No-silent-orphan requires a durable signal, not just a log | Once the Postgres row is soft-deleted, a controller log line is the only trace of a leaked out-of-namespace resource with no recovery path, and it is easily lost. A durable Kubernetes Event in the control-plane namespace (mirroring the GC `GarbageCollected` Event) gives operators a queryable record without exposing secrets. |
 | Unconfirmed reads defer rather than assume | Treating a failed read as "already cleaned" during an API outage would let a transient disconnection cause a real orphan. Deferring to a later retry is the only safe response, consistent with the namespace GC's abort-the-sweep-on-list-failure rule. |
 | Delete events must not be silently dropped | Dropping a delete event for a cluster-scoped subscriber when enrichment fails shifts all recovery onto the namespace GC, which cannot reclaim Keycloak clients or databases. Surfacing the drop (and recording it when no recovery path covers it) preserves the no-silent-orphan guarantee. |
+| Finalization uses a dedicated `FinalizeGatewayDeletion` RPC, not a `DeleteGateway` re-call | The control-plane identity is correctly denied `DeleteGateway`, so re-calling it as the finalization signal was refused with `PERMISSION_DENIED` and every delete had to wait for the deadline sweep, counting `late`. A narrow tombstone-only RPC (the pattern already used for `SetGatewayVersion`) lets the control plane report completion without granting it general delete, so a timely delete counts `within_10m`. |

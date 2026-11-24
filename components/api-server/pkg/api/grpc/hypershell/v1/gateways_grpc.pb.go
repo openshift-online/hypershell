@@ -29,6 +29,7 @@ const (
 	GatewayService_SetActiveSandboxCount_FullMethodName    = "/hypershell.v1.GatewayService/SetActiveSandboxCount"
 	GatewayService_ReportSandboxEvents_FullMethodName      = "/hypershell.v1.GatewayService/ReportSandboxEvents"
 	GatewayService_SetGatewayVersion_FullMethodName        = "/hypershell.v1.GatewayService/SetGatewayVersion"
+	GatewayService_FinalizeGatewayDeletion_FullMethodName  = "/hypershell.v1.GatewayService/FinalizeGatewayDeletion"
 )
 
 // GatewayServiceClient is the client API for GatewayService service.
@@ -45,6 +46,7 @@ type GatewayServiceClient interface {
 	SetActiveSandboxCount(ctx context.Context, in *SetActiveSandboxCountRequest, opts ...grpc.CallOption) (*SetActiveSandboxCountResponse, error)
 	ReportSandboxEvents(ctx context.Context, in *ReportSandboxEventsRequest, opts ...grpc.CallOption) (*ReportSandboxEventsResponse, error)
 	SetGatewayVersion(ctx context.Context, in *SetGatewayVersionRequest, opts ...grpc.CallOption) (*SetGatewayVersionResponse, error)
+	FinalizeGatewayDeletion(ctx context.Context, in *FinalizeGatewayDeletionRequest, opts ...grpc.CallOption) (*FinalizeGatewayDeletionResponse, error)
 }
 
 type gatewayServiceClient struct {
@@ -164,6 +166,16 @@ func (c *gatewayServiceClient) SetGatewayVersion(ctx context.Context, in *SetGat
 	return out, nil
 }
 
+func (c *gatewayServiceClient) FinalizeGatewayDeletion(ctx context.Context, in *FinalizeGatewayDeletionRequest, opts ...grpc.CallOption) (*FinalizeGatewayDeletionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FinalizeGatewayDeletionResponse)
+	err := c.cc.Invoke(ctx, GatewayService_FinalizeGatewayDeletion_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // GatewayServiceServer is the server API for GatewayService service.
 // All implementations must embed UnimplementedGatewayServiceServer
 // for forward compatibility.
@@ -178,6 +190,7 @@ type GatewayServiceServer interface {
 	SetActiveSandboxCount(context.Context, *SetActiveSandboxCountRequest) (*SetActiveSandboxCountResponse, error)
 	ReportSandboxEvents(context.Context, *ReportSandboxEventsRequest) (*ReportSandboxEventsResponse, error)
 	SetGatewayVersion(context.Context, *SetGatewayVersionRequest) (*SetGatewayVersionResponse, error)
+	FinalizeGatewayDeletion(context.Context, *FinalizeGatewayDeletionRequest) (*FinalizeGatewayDeletionResponse, error)
 	mustEmbedUnimplementedGatewayServiceServer()
 }
 
@@ -217,6 +230,9 @@ func (UnimplementedGatewayServiceServer) ReportSandboxEvents(context.Context, *R
 }
 func (UnimplementedGatewayServiceServer) SetGatewayVersion(context.Context, *SetGatewayVersionRequest) (*SetGatewayVersionResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SetGatewayVersion not implemented")
+}
+func (UnimplementedGatewayServiceServer) FinalizeGatewayDeletion(context.Context, *FinalizeGatewayDeletionRequest) (*FinalizeGatewayDeletionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method FinalizeGatewayDeletion not implemented")
 }
 func (UnimplementedGatewayServiceServer) mustEmbedUnimplementedGatewayServiceServer() {}
 func (UnimplementedGatewayServiceServer) testEmbeddedByValue()                        {}
@@ -412,6 +428,24 @@ func _GatewayService_SetGatewayVersion_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _GatewayService_FinalizeGatewayDeletion_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FinalizeGatewayDeletionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GatewayServiceServer).FinalizeGatewayDeletion(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GatewayService_FinalizeGatewayDeletion_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GatewayServiceServer).FinalizeGatewayDeletion(ctx, req.(*FinalizeGatewayDeletionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // GatewayService_ServiceDesc is the grpc.ServiceDesc for GatewayService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -454,6 +488,10 @@ var GatewayService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetGatewayVersion",
 			Handler:    _GatewayService_SetGatewayVersion_Handler,
+		},
+		{
+			MethodName: "FinalizeGatewayDeletion",
+			Handler:    _GatewayService_FinalizeGatewayDeletion_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

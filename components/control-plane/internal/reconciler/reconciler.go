@@ -163,6 +163,19 @@ func (r *GatewayReconciler) gatewayServiceClient() pb.GatewayServiceClient {
 	return pb.NewGatewayServiceClient(r.grpcConn)
 }
 
+// reportDeletionFinalized tells the API server a soft-deleted gateway's teardown
+// is complete so it converges the durable delete window within budget
+// (OBS-SLI-01.03). It uses the dedicated FinalizeGatewayDeletion RPC (GTW-DEL-10),
+// NOT a DeleteGateway re-call: DeleteGateway stays denied to the control-plane
+// identity. Because more than one replica may reconcile the same delete, a
+// NotFound (another replica finalized first) is treated as success; any other
+// error is surfaced as a retryable warning rather than failing the delete.
+func (r *GatewayReconciler) reportDeletionFinalized(ctx context.Context, gatewayID string) {
+	if _, err := r.gatewayServiceClient().FinalizeGatewayDeletion(ctx, &pb.FinalizeGatewayDeletionRequest{Id: gatewayID}); err != nil && status.Code(err) != codes.NotFound {
+		slog.WarnContext(ctx, "Gateway finalized but reporting deletion complete to the API server failed; convergence will be resolved by the deadline sweep", "gateway_id", gatewayID, "error", err)
+	}
+}
+
 // rereadDeletingGateway re-reads a deleting Gateway record with the unscoped
 // query (include_deleted) so a nil-payload delete event can reconcile teardown
 // from the record (CTRL-WDEL-02, CTRL-WDEL-04). It returns an error when the
@@ -529,13 +542,9 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		reconcileErr = errors.Join(deleteErrs...)
 		if reconcileErr == nil {
 			// Every Gateway-owned resource class is reclaimed (GTW-DEL-01). Report
-			// finalization complete to the API server so it converges the durable
-			// delete window (OBS-SLI-01.03). The gateway row is already soft-deleted;
-			// this re-call of DeleteGateway is the idempotent finalization signal, so
-			// a NotFound (another replica finalized first) is not an error.
-			if _, err := r.gatewayServiceClient().DeleteGateway(ctx, &pb.DeleteGatewayRequest{Id: event.ResourceID}); err != nil && status.Code(err) != codes.NotFound {
-				slog.WarnContext(ctx, "Gateway finalized but reporting deletion complete to the API server failed; convergence will be resolved by the deadline sweep", "gateway_id", event.ResourceID, "error", err)
-			}
+			// finalization complete so the API server converges the durable delete
+			// window within budget (OBS-SLI-01.03, GTW-DEL-10).
+			r.reportDeletionFinalized(ctx, event.ResourceID)
 		}
 		return reconcileErr
 	}
