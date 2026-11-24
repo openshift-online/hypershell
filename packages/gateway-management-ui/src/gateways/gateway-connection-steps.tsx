@@ -31,6 +31,7 @@ import { CommandBlock, sanitizeFieldValue } from "./editable-command";
 import {
   buildGatewayAddCommand,
   buildOpenShellInstallCommand,
+  doubleQuotedShellArgument,
   isGatewayReadyToConnect,
   type GatewayConnection,
   installDocsUrl,
@@ -112,7 +113,7 @@ function buildEnmaasProviderCreateCommand(
     `    -g ${shellArgument(gatewayName)} \\`,
     `    --name ${shellArgument(providerName)} \\`,
     "    --type enmaas \\",
-    "    --global-profile",
+    "    --global-profile \\",
     "    --from-existing",
     "fi",
   ].join("\n");
@@ -139,6 +140,7 @@ function buildEnmaasSandboxCommand(
       ],
     },
   });
+  const startupCommand = `claude --bare --settings ${shellArgument(settings)} --model ${shellArgument(model)}; exec bash -l`;
 
   return [
     "openshell sandbox create \\",
@@ -151,7 +153,7 @@ function buildEnmaasSandboxCommand(
     `  --env=ANTHROPIC_BASE_URL=${externalLinkUrls.enmaasApiEndpoint} \\`,
     "  --env=CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1 \\",
     "  --no-auto-providers \\",
-    `  -- bash -lc "claude --bare --settings ${shellArgument(settings)} --model ${shellArgument(model)}; exec bash -l"`,
+    `  -- bash -lc ${doubleQuotedShellArgument(startupCommand)}`,
   ].join("\n");
 }
 
