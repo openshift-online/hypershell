@@ -95,7 +95,7 @@ listed in `specs/id-rename-map.md`, not here.
 | `GTW-ATTR` | `platform/gateway-managed-cluster-attribution.spec.md` | 6 |
 | `GTW-CFG` | `platform/generated-gateway-config-validation.spec.md` | 4 |
 | `GTW-CONC` | `platform/gateway-reconcile-concurrency.spec.md` | 3 |
-| `GTW-DEL` | `platform/gateway-deletion-finalization.spec.md` | 8 |
+| `GTW-DEL` | `platform/gateway-deletion-finalization.spec.md` | 10 |
 | `GTW-PHS` | `platform/gateway-phase-vocabulary.spec.md` | 5 |
 | `GTW-PROG` | `platform/gateway-provisioning-progress.spec.md` | 5 |
 
