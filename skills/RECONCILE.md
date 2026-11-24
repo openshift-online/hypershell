@@ -49,7 +49,7 @@ skills/
 
 ## Reconciliation State
 
-### PlatformGatewayPolicy / Cedar (code complete, e2e verification pending, branch spec/HYPERSHELL-1151-policy-mockups, PR #1159, issue #1151)
+### PlatformGatewayPolicy / Cedar (complete, e2e verified, branch spec/HYPERSHELL-1151-policy-mockups, PR #1159, issue #1151)
 
 Scoped reconciliation of the PlatformGatewayPolicy spec set introduced by #1148
 (HYPERSHELL-563): `platform/platform-gateway-policy.spec.md` (PLAT-PGP-01..21),
@@ -154,7 +154,7 @@ failed closed with "no platform policy bundle is loaded yet". Tests:
 | W3 | Sidecar | done: `cmd/hypershell-policy-interceptor` + `internal/policyinterceptor` (Describe/Evaluate over unix socket, gateway JWT verification, bundle watch, Kubernetes adapter, defaults patches, denial text, audit events, metrics), second binary in `components/control-plane/Dockerfile`. Gap: Start/Resume re-check allows (current_state is always empty upstream; follow-up) | PLAT-PGP-02/03/07/08/09/11/12/13/14/15/16/18, AGT-EXT-06 |
 | W3 | Chart | done: vendored-chart local patch `server.extraInitContainers` (documented in `skills/tooling/update-openshell/SKILL.md`), `internal/helm/policy_interceptor.go` (native sidecar, socket emptyDir, projected token, JWT public key, registration from the shared binding table, `ValidateInterceptorRegistration` before rollout), `internal/gateway/policy_rbac.go` (bundle reader Role) | OSG-CORE-19, OSG-HELM-06, GTW-CFG-05 |
 | W4 | FE | done: admin panel `components/web-console/app/features/platform-policies` (+ adapters, probes, routes), gateway Policies tab and connection-step defaults in `packages/gateway-management-ui/src/policies`, `@patternfly/react-code-editor`; ui-build-gate Complete for all 10 governed states (manifests were under /tmp/pgp-gate, not committed) | WEB-PADM-01..12, WEB-GLIS-26, UIS-PFLY-11 |
-| W4 | E2E | code done, NOT yet run: `tests/e2e/policy_phases.go` (P2.1 policy-canary short subtest, P2.12 long step); the PR's CI E2E run is the gate | PLAT-PGP-20, E2E-CORE-49/50 |
+| W4 | E2E | done and verified in PR #1159 CI at 54158884: E2E / OpenShift (P2.1 policy-canary short subtest incl. default-injection) and E2E / Kind (P2.1 canary plus the P2.12 long step incl. sidecar-failure-modes) pass; `tests/e2e/policy_phases.go` | PLAT-PGP-20, E2E-CORE-49/50 |
 | W5 | API+CP+Sidecar | done: fleet defaults configured once on the api-server and distributed through `PlatformPolicySettings`; a defaults change rolls gateway pods (pod-template defaults hash, generation-gate drift, queue requeue) and a stale sidecar applies the bundle's defaults | PLAT-PGP-08.02-.05, PLAT-DATA-29.03, CTRL-CORE-22.04/.05, OSG-CORE-19.03 |
 
 Environment note: this reconciliation ran without a container engine (no
