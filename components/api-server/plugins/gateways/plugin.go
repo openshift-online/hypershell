@@ -586,6 +586,12 @@ func gatewayGRPCResources() authz.GRPCResources {
 	resources[method("AdjustActiveSandboxCount")] = authz.GRPCResource{Kind: "gateways", Action: authz.ActionUpdate}
 	resources[method("SetActiveSandboxCount")] = authz.GRPCResource{Kind: "gateways", Action: authz.ActionUpdate}
 	resources[method("SetGatewayVersion")] = authz.GRPCResource{Kind: "gateways", Action: authz.ActionUpdate}
+	// FinalizeGatewayDeletion is the control plane's narrow finalization-completion
+	// write on a tombstone (GTW-DEL-10), the SetGatewayVersion pattern. It MUST be
+	// declared here: the interceptor denies any method with no declared resource
+	// before HyperShell's authorizer runs, so an omission would refuse the
+	// control-plane identity its own-cluster-tombstone finalization.
+	resources[method("FinalizeGatewayDeletion")] = authz.GRPCResource{Kind: "gateways", Action: authz.ActionUpdate}
 	resources[method("ReportSandboxEvents")] = authz.GRPCResource{Kind: "sandbox_events", Action: authz.ActionCreate}
 	return resources
 }
