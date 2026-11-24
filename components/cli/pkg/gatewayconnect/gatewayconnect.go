@@ -26,11 +26,15 @@ type oidcConfig struct {
 
 const pending = "<PENDING>"
 
-// Keep in sync with:
+// The sandbox create step below deliberately sets no CPU or memory
+// resources: the gateway's sandbox resource policy assigns requests when the
+// caller omits them (250m CPU / 1Gi memory) and denies requests below that
+// floor, so hardcoded values would either duplicate the policy or be rejected
+// once enforcement is on. Keep in sync with:
 //
-//	packages/gateway-management-ui/src/gateways/gateway-connections.ts (sandboxResourceDefaults)
+//	packages/gateway-management-ui/src/gateways/gateway-connections.ts
+//		(buildSandboxCreateCommand)
 //	specs/web-console/architecture.spec.md § Create a sandbox
-const sandboxDriverConfig = `{"kubernetes":{"containers":{"agent":{"resources":{"requests":{"cpu":"100m","memory":"512Mi"},"limits":{"cpu":"500m","memory":"512Mi"}}}}}}`
 
 // WriteInstructions writes the openshell commands that connect to the gateway
 // described by body, a Gateway resource as returned by the API server.
@@ -132,11 +136,13 @@ func buildConnectionScript(name, endpoint string, oidc oidcConfig) string {
 		"openshell inference set --provider " + providerName + " --model " + model,
 		"",
 		"# 5. Create a sandbox",
-		"DRIVER_CONFIG='" + sandboxDriverConfig + "'",
+		"#",
+		"# CPU and memory requests are left unset: the gateway's sandbox resource",
+		"# policy fills them in (250m CPU / 1Gi memory) and denies requests below",
+		"# that floor, so per-sandbox values are only needed to ask for more.",
 		"",
 		"openshell sandbox create \\",
 		"  --name " + sandboxName + " \\",
-		`  --driver-config-json "$DRIVER_CONFIG" \`,
 		"  --env=ANTHROPIC_BASE_URL=https://inference.local \\",
 		"  --env=ANTHROPIC_API_KEY=unused \\",
 		"  --no-auto-providers \\",

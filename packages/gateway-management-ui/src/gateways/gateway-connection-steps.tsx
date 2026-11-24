@@ -142,12 +142,15 @@ function buildEnmaasSandboxCommand(
   });
   const startupCommand = `claude --bare --settings ${shellArgument(settings)} --model ${shellArgument(model)}; exec bash -l`;
 
+  // CPU and memory requests are deliberately not set: the gateway's sandbox
+  // resource policy assigns them when the caller omits them (250m CPU / 1Gi
+  // memory) and denies requests below that floor, so per-sandbox flags are
+  // only needed to ask for more. Keep in sync with
+  // specs/web-console/mockups/gateways/gateway-detail.tsx.
   return [
     "openshell sandbox create \\",
     `  --name ${shellArgument(name)} \\`,
     `  --from ${shellArgument(enmaasHostedImage)} \\`,
-    "  --cpu 500m \\",
-    "  --memory 512Mi \\",
     `  --provider ${shellArgument(providerName)} \\`,
     `  -g ${shellArgument(gatewayName)} \\`,
     `  --env=ANTHROPIC_BASE_URL=${externalLinkUrls.enmaasApiEndpoint} \\`,
