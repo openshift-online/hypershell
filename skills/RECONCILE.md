@@ -134,6 +134,15 @@ sidecar applies the bundle's defaults and counts
 `helm/policy_interceptor_test.go`, `policyinterceptor/defaults_mismatch_test.go`,
 `policybundle/bundle_test.go`. Rollout note: gateways rendered before the
 annotation existed re-render once after the controller upgrade.
+Startup ordering (PLAT-PGP-12.03, CTRL-CORE-22.06, OSG-CORE-19.04): the gateway
+reconciler writes the gateway's bundle (`PolicyBundleReconciler.EnsureGatewayBundle`,
+via `ReconcileOpts.EnsurePolicyBundle` in `gateway.ensurePolicyPrerequisites`) after
+the bundle-reader Role and before any Helm write, and retries when the bundle cannot
+be built; the sidecar reads the ConfigMap once (`BundleWatcher.LoadInitial`, 5s
+bound) before `SetReady(true)`. Fixes the OpenShift E2E race where `sandbox create`
+failed closed with "no platform policy bundle is loaded yet". Tests:
+`gateway/policy_prerequisites_test.go`, `reconciler/policy_defaults_rollout_test.go`,
+`policyinterceptor/run_test.go`.
 
 **Remaining gap table (wave plan, not yet implemented):**
 

@@ -911,7 +911,11 @@ sidecar and its registration is specified in
 (OSG-HELM-06). The gateway pod template SHALL carry the annotation
 `hypershell.redhat.io/policy-defaults-hash` with the hash of the fleet defaults in
 the sidecar environment (PLAT-PGP-08), so a defaults change changes the pod template
-and rolls the pods.
+and rolls the pods. At startup the sidecar SHALL read its bundle ConfigMap once,
+bounded by a short timeout, and apply it before its readiness turns true; because
+the native sidecar's startup probe gates the gateway container, the gateway then
+starts with the bundle loaded (PLAT-PGP-12.03). An absent or unreadable ConfigMap
+SHALL NOT keep the sidecar unready.
 
 #### Scenario: OSG-CORE-19.01 -- Native Sidecar Ready Before Describe
 
@@ -933,6 +937,13 @@ and rolls the pods.
 - WHEN its Helm values are built
 - THEN the pod template annotations SHALL include `hypershell.redhat.io/policy-defaults-hash` with the defaults hash, keeping other pod annotations
 - AND different defaults SHALL produce a different annotation value
+
+#### Scenario: OSG-CORE-19.04 -- The Sidecar Loads an Existing Bundle Before It Is Ready
+
+- GIVEN a gateway namespace that already holds the gateway's bundle ConfigMap
+- WHEN the sidecar starts
+- THEN it SHALL have applied that bundle revision when its readiness turns true
+- AND without the ConfigMap it SHALL still turn ready, with no bundle loaded
 
 ## Configuration
 

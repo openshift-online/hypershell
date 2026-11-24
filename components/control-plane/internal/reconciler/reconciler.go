@@ -115,6 +115,10 @@ type GatewayReconciler struct {
 	// policyDefaults supplies the fleet defaults the sidecar renders with; a
 	// hash change is drift past the generation gate (PLAT-PGP-08.04).
 	policyDefaults *FleetDefaultsSource
+	// policyBundle writes one gateway's current bundle before its Helm apply
+	// (PLAT-PGP-12.03); nil leaves the gateway reconcile failing, never
+	// deploying a sidecar without a bundle.
+	policyBundle func(ctx context.Context, gw *pb.Gateway, namespace string) error
 	// policyKubeOverride, when set by a test, replaces clientset for the
 	// policy-defaults drift read (clientset is a concrete type).
 	policyKubeOverride kubernetes.Interface
@@ -775,6 +779,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			return fmt.Errorf("policy interceptor values for gateway %s: %w", event.ResourceID, piErr)
 		}
 		opts.PolicyInterceptor = pi
+		opts.EnsurePolicyBundle = r.policyBundleWriter(gw)
 	}
 
 	conditions := gateway.InitConditions()

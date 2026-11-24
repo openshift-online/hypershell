@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -112,5 +113,72 @@ func TestHealthReadinessFollowsSocket(t *testing.T) {
 	h.SetReady(true)
 	if get("/readyz") != http.StatusOK || get("/metrics") != http.StatusOK {
 		t.Fatalf("after listening: readyz=%d metrics=%d", get("/readyz"), get("/metrics"))
+	}
+}
+
+// runWithReady starts Run against kube and returns the revision reported when
+// the sidecar turned ready.
+func runWithReady(t *testing.T, kube *fake.Clientset) string {
+	t.Helper()
+	kit := newJWTKit(t)
+	dir, err := os.MkdirTemp("", "pgpready")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	tokenFile := filepath.Join(dir, "token")
+	if err := os.WriteFile(tokenFile, []byte("sa-token"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := validEnv()
+	env[EnvSocket] = filepath.Join(dir, "interceptor.sock")
+	env[EnvJWTPublicKeyFile] = kit.keyFile
+	env[EnvEventsTokenFile] = tokenFile
+	env[EnvHealthAddr] = "127.0.0.1:0"
+	cfg, err := LoadConfig(envLookup(env))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ready := make(chan string, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, cfg, Deps{Kube: kube, EventClient: &fakeEventClient{}, Lookup: NoSandboxLookup{},
+			OnReady: func(rev string) { ready <- rev }})
+	}()
+	var rev string
+	select {
+	case rev = <-ready:
+	case err := <-done:
+		cancel()
+		t.Fatalf("Run returned before ready: %v", err)
+	case <-time.After(10 * time.Second):
+		cancel()
+		t.Fatal("the sidecar never turned ready")
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("Run returned %v", err)
+	}
+	return rev
+}
+
+// Verifies: PLAT-PGP-12.03, OSG-CORE-19.04
+func TestExistingBundleIsLoadedBeforeReadiness(t *testing.T) {
+	raw := buildBundle(t, testGatewayID, false, testPolicy{name: "cpu-cap", mode: "enforce", cedar: cpuOver("1000")})
+	kube := fake.NewClientset(bundleConfigMap(raw))
+	store := NewStore(testGatewayID)
+	if _, err := store.Apply(raw); err != nil {
+		t.Fatal(err)
+	}
+	if got := runWithReady(t, kube); got == "" || got != store.AppliedRevision() {
+		t.Fatalf("the sidecar must apply the existing bundle before it reports ready, got revision %q want %q", got, store.AppliedRevision())
+	}
+}
+
+// Verifies: PLAT-PGP-12.03, PLAT-PGP-12.02, OSG-CORE-19.04
+func TestSidecarTurnsReadyWithoutBundleConfigMap(t *testing.T) {
+	if got := runWithReady(t, fake.NewClientset()); got != "" {
+		t.Fatalf("without a ConfigMap the sidecar must still turn ready, with no bundle; got revision %q", got)
 	}
 }

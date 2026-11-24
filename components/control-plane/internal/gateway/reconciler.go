@@ -25,6 +25,28 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
+// ensurePolicyPrerequisites grants the sidecar read access to its bundle and
+// writes the gateway's current bundle, in that order, before any Helm write
+// (PLAT-PGP-12.03, CTRL-CORE-22.06): a new or rolled sidecar then loads the
+// bundle before it reports ready, so the gateway never serves a fail_closed RPC
+// without it. Without a bundle writer, or when the bundle cannot be built yet,
+// it returns an error with the condition message so the reconcile retries.
+func ensurePolicyPrerequisites(ctx context.Context, client kubernetes.Interface, namespace string, opts ReconcileOpts) (string, error) {
+	if err := EnsurePolicyBundleReader(ctx, client, namespace); err != nil {
+		return "Environment preparation failed - unable to grant the policy interceptor read access to its bundle",
+			fmt.Errorf("ensure policy bundle reader in %s: %w", namespace, err)
+	}
+	if opts.EnsurePolicyBundle == nil {
+		return "Environment preparation failed - the policy bundle cannot be written",
+			fmt.Errorf("policy interceptor for %s has no bundle writer", namespace)
+	}
+	if err := opts.EnsurePolicyBundle(ctx, namespace); err != nil {
+		return "Environment preparation failed - the platform policy bundle is not available yet",
+			fmt.Errorf("ensure policy bundle in %s: %w", namespace, err)
+	}
+	return "", nil
+}
+
 func ReconcileGateway(
 	ctx context.Context,
 	dynamicClient dynamic.Interface,
@@ -97,9 +119,9 @@ func ReconcileGateway(
 		return &ConfigValidationError{Err: fmt.Errorf("invalid policy interceptor registration: %w", err)}
 	}
 	if opts.PolicyInterceptor != nil {
-		if err := EnsurePolicyBundleReader(ctx, clientset, nsConfig.Name); err != nil {
-			report(ConditionEnvironmentReady, StatusFailed, "Environment preparation failed - unable to grant the policy interceptor read access to its bundle")
-			return fmt.Errorf("ensure policy bundle reader in %s: %w", nsConfig.Name, err)
+		if msg, err := ensurePolicyPrerequisites(ctx, clientset, nsConfig.Name, opts); err != nil {
+			report(ConditionEnvironmentReady, StatusFailed, msg)
+			return err
 		}
 	}
 

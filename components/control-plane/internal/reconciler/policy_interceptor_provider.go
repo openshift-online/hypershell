@@ -9,6 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
+	pb "github.com/openshift-online/hypershell/components/api-server/pkg/api/grpc/hypershell/v1"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/gateway"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/helm"
 	"github.com/openshift-online/hypershell/components/control-plane/internal/policyinterceptor"
@@ -105,6 +106,23 @@ func imageFromPod(pod *corev1.Pod, container string) (string, error) {
 func (r *GatewayReconciler) SetPolicyInterceptor(p PolicyInterceptorProvider, defaults *FleetDefaultsSource) {
 	r.policyInterceptor = p
 	r.policyDefaults = defaults
+}
+
+// SetPolicyBundleWriter wires the bundle reconciler's per-gateway write
+// (PolicyBundleReconciler.EnsureGatewayBundle), which runs before every Helm
+// apply of a gateway with the interceptor (PLAT-PGP-12.03, CTRL-CORE-22.06).
+func (r *GatewayReconciler) SetPolicyBundleWriter(fn func(ctx context.Context, gw *pb.Gateway, namespace string) error) {
+	r.policyBundle = fn
+}
+
+// policyBundleWriter binds the bundle write to one gateway for the gateway
+// package's ReconcileOpts.EnsurePolicyBundle. Without a writer it returns nil,
+// which fails the reconcile so it retries.
+func (r *GatewayReconciler) policyBundleWriter(gw *pb.Gateway) func(ctx context.Context, namespace string) error {
+	if r.policyBundle == nil {
+		return nil
+	}
+	return func(ctx context.Context, namespace string) error { return r.policyBundle(ctx, gw, namespace) }
 }
 
 // policyDefaultsNeedUpdate reports whether the gateway's rendered pod template

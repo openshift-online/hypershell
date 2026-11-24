@@ -430,6 +430,16 @@ func main() {
 	// arrive through PlatformPolicySettings; the bundle reconciler and the
 	// sidecar provider share the last received value.
 	policyDefaults := reconciler.NewFleetDefaultsSource(conn)
+	// The bundle reconciler is built up front so the gateway reconciler can
+	// write a gateway's bundle before its Helm apply (PLAT-PGP-12.03); it is
+	// started below with the policy event endpoint.
+	var appliedRevisions *reconciler.AppliedRevisions
+	var policyReconciler *reconciler.PolicyBundleReconciler
+	if cfg.PolicyEnabled && clientset != nil {
+		appliedRevisions = reconciler.NewAppliedRevisions()
+		policyReconciler = reconciler.NewPolicyBundleReconciler(clientset, conn, clusterID, policyDefaults,
+			cfg.PolicyCanaryEnabled, cfg.PolicyResyncInterval, appliedRevisions)
+	}
 
 	if clientset != nil && dynamicClient != nil {
 		gr, grErr := reconciler.NewGatewayReconciler(
@@ -465,6 +475,7 @@ func main() {
 					fatal("Platform gateway policy is enabled but the controller cannot read its own image", "error", imgErr)
 				}
 				gr.SetPolicyInterceptor(reconciler.NewPolicyInterceptorProvider(ownImage, cfg.PolicyEventsAddress, cfg.PolicyConsoleURL, policyDefaults), policyDefaults)
+				gr.SetPolicyBundleWriter(policyReconciler.EnsureGatewayBundle)
 				slog.InfoContext(ctx, "Policy interceptor sidecar enabled", "image", ownImage)
 			}
 			gatewayReconciler = gr
@@ -616,10 +627,7 @@ func main() {
 	// Platform gateway policy distribution and event ingest (CTRL-CORE-22): the
 	// per-gateway bundle reconcile and the in-cluster ReportPolicyEvents
 	// endpoint the interceptor sidecars report to.
-	if cfg.PolicyEnabled && clientset != nil {
-		appliedRevisions := reconciler.NewAppliedRevisions()
-		policyReconciler := reconciler.NewPolicyBundleReconciler(clientset, conn, clusterID, policyDefaults,
-			cfg.PolicyCanaryEnabled, cfg.PolicyResyncInterval, appliedRevisions)
+	if policyReconciler != nil {
 		supervise("policy bundle reconciler", policyReconciler.Run)
 		eventsServer := policyevents.NewServer(
 			policyevents.KubeTokenReviewer{Kube: clientset},

@@ -1406,6 +1406,12 @@ PLAT-PGP-15). It SHALL:
   hash differs from the current one SHALL pass the generation gate as drift, as a
   destination-trust change does, and be re-rendered; a matching hash SHALL leave it
   untouched.
+- Before the Helm install or upgrade of a gateway with the interceptor, and after
+  its namespace and the sidecar's bundle-reader Role exist, write that gateway's
+  current bundle with update-or-create, using the same build and write code as the
+  periodic bundle reconcile (PLAT-PGP-12.03). When the bundle cannot be built (for
+  example the settings carry no fleet defaults), the gateway reconcile SHALL fail
+  and retry rather than deploy a sidecar that would fail closed.
 - Build a per-gateway **policy bundle** (revision hash, Cedar schema version, an
   enforced set and an audit-only set with effective modes resolved, `@id`
   attribution, and per-policy `userMessage` and `documentationUrl`) and write it to
@@ -1463,6 +1469,13 @@ ConfigMap without a spurious revision bump.
 - THEN the control plane SHALL re-enqueue every live gateway once, not the deleted one, through the gateway reconcile queue
 - AND each reconcile SHALL pass the generation gate because the rendered hash differs, while a gateway already at the new hash SHALL be a no-op
 - AND the bundle SHALL record the `700m` defaults and their hash
+
+#### Scenario: CTRL-CORE-22.06 -- The Bundle Is Written Before the Gateway Apply
+
+- GIVEN a gateway with the interceptor that is being created or rolled
+- WHEN the control plane reconciles it
+- THEN it SHALL write the gateway's current bundle ConfigMap, after the bundle-reader Role and before any Helm write
+- AND when the bundle cannot be built it SHALL fail the reconcile with a retryable error and SHALL NOT run the Helm apply
 
 ## Known Limitations
 

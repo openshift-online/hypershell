@@ -60,6 +60,10 @@ type Deps struct {
 	EventClient PolicyEventClient
 	Lookup      SandboxLookup
 	Log         *slog.Logger
+	// OnReady, when set, is called right after the sidecar reports ready with
+	// the applied bundle revision ("" without a bundle); tests use it to
+	// observe the startup order.
+	OnReady func(appliedRevision string)
 }
 
 // Run starts the interceptor gRPC server, the bundle watcher, the event
@@ -124,8 +128,26 @@ func Run(ctx context.Context, cfg Config, deps Deps) error {
 			errCh <- fmt.Errorf("interceptor gRPC server: %w", err)
 		}
 	}()
+	// Load an existing bundle before reporting ready (PLAT-PGP-12.03): the
+	// gateway container starts only after this sidecar's startup probe passes.
+	var watcher *BundleWatcher
+	if deps.Kube != nil {
+		watcher = &BundleWatcher{
+			Client:    deps.Kube,
+			Namespace: cfg.Namespace,
+			Store:     store,
+			Metrics:   metrics,
+			Log:       log,
+			OnApplied: func(string) { buffer.Kick() },
+		}
+		watcher.LoadInitial(ctx, InitialLoadTimeout)
+	}
 	health.SetReady(true)
-	log.InfoContext(ctx, "policy interceptor listening", "socket", cfg.SocketPath, "gateway_id", cfg.GatewayID)
+	log.InfoContext(ctx, "policy interceptor listening", "socket", cfg.SocketPath, "gateway_id", cfg.GatewayID,
+		"applied_revision", store.AppliedRevision())
+	if deps.OnReady != nil {
+		deps.OnReady(store.AppliedRevision())
+	}
 
 	httpServer := health.NewHTTPServer(cfg.HealthAddr)
 	wg.Add(1)
@@ -151,15 +173,7 @@ func Run(ctx context.Context, cfg Config, deps Deps) error {
 		reporter.Run(ctx)
 	}()
 
-	if deps.Kube != nil {
-		watcher := &BundleWatcher{
-			Client:    deps.Kube,
-			Namespace: cfg.Namespace,
-			Store:     store,
-			Metrics:   metrics,
-			Log:       log,
-			OnApplied: func(string) { buffer.Kick() },
-		}
+	if watcher != nil {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

@@ -171,3 +171,49 @@ func TestPolicyBundleRecordsDefaultsHash(t *testing.T) {
 }
 
 func decodeBundle(raw string) (policybundle.Bundle, error) { return policybundle.Decode([]byte(raw)) }
+
+// Verifies: CTRL-CORE-22.06, PLAT-PGP-12.03
+func TestGatewayBundleIsWrittenBeforeTheGatewayApply(t *testing.T) {
+	pr, _, kube := newTestPolicyReconciler(t)
+	ctx := context.Background()
+	r := &GatewayReconciler{}
+	if r.policyBundleWriter(&pb.Gateway{}) != nil {
+		t.Fatal("without a bundle writer the gateway apply must get none, so it fails and retries")
+	}
+	r.SetPolicyBundleWriter(pr.EnsureGatewayBundle)
+	gw := &pb.Gateway{Metadata: &pb.ObjectReference{Id: "gw-new"}, Name: "new"}
+	if err := r.policyBundleWriter(gw)(ctx, "openshell-bbbbbbbbbbbbbbbb"); err != nil {
+		t.Fatalf("write bundle: %v", err)
+	}
+	cm, err := kube.CoreV1().ConfigMaps("openshell-bbbbbbbbbbbbbbbb").Get(ctx, policybundle.ConfigMapName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("the gateway's bundle must exist before its Helm apply: %v", err)
+	}
+	b, err := decodeBundle(cm.Data[policybundle.DataKey])
+	if err != nil || b.GatewayID != "gw-new" || len(b.Enforced) != 1 || b.Defaults == nil {
+		t.Fatalf("bundle = %+v, %v", b, err)
+	}
+	// Writing again is update-or-create and converges.
+	before := cm.ResourceVersion
+	if err := r.policyBundleWriter(gw)(ctx, "openshell-bbbbbbbbbbbbbbbb"); err != nil {
+		t.Fatal(err)
+	}
+	cm, _ = kube.CoreV1().ConfigMaps("openshell-bbbbbbbbbbbbbbbb").Get(ctx, policybundle.ConfigMapName, metav1.GetOptions{})
+	if cm.ResourceVersion != before {
+		t.Fatal("an unchanged bundle must not be rewritten")
+	}
+}
+
+// Verifies: CTRL-CORE-22.06, PLAT-PGP-12.03
+func TestGatewayBundleWriteRetriesWithoutSettingsDefaults(t *testing.T) {
+	pr, _, kube := newTestPolicyReconciler(t)
+	pr.settings.(*fakeSettingsClient).defaults = nil
+	ctx := context.Background()
+	err := pr.EnsureGatewayBundle(ctx, &pb.Gateway{Metadata: &pb.ObjectReference{Id: "gw-new"}}, "openshell-bbbbbbbbbbbbbbbb")
+	if !errors.Is(err, ErrNoFleetDefaults) {
+		t.Fatalf("without settings defaults the bundle write must fail retryably, got %v", err)
+	}
+	if _, err := kube.CoreV1().ConfigMaps("openshell-bbbbbbbbbbbbbbbb").Get(ctx, policybundle.ConfigMapName, metav1.GetOptions{}); err == nil {
+		t.Fatal("no bundle may be written without settings defaults")
+	}
+}

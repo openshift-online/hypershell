@@ -3,8 +3,10 @@ package policyinterceptor
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/client-go/informers"
@@ -58,6 +60,34 @@ func (w *BundleWatcher) Run(ctx context.Context) error {
 	<-ctx.Done()
 	factory.Shutdown()
 	return nil
+}
+
+// InitialLoadTimeout bounds the startup read of the bundle ConfigMap.
+const InitialLoadTimeout = 5 * time.Second
+
+// LoadInitial reads the bundle ConfigMap once, bounded by timeout, and applies
+// it when present (PLAT-PGP-12.03). Run calls it before the sidecar reports
+// ready, so the gateway container, which starts only after the native
+// sidecar's startup probe passes, never serves a fail_closed RPC before an
+// existing bundle is loaded. An absent or unreadable ConfigMap is logged and
+// the sidecar starts without a bundle (fail_closed RPCs fail closed until the
+// watch delivers one). It reports whether a bundle is applied.
+func (w *BundleWatcher) LoadInitial(ctx context.Context, timeout time.Duration) bool {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	cm, err := w.Client.CoreV1().ConfigMaps(w.Namespace).Get(ctx, policybundle.ConfigMapName, metav1.GetOptions{})
+	switch {
+	case apierrors.IsNotFound(err):
+		w.log().WarnContext(ctx, "no policy bundle ConfigMap at startup; fail_closed RPCs fail closed until one is written",
+			"configmap", w.Namespace+"/"+policybundle.ConfigMapName)
+		return false
+	case err != nil:
+		w.log().WarnContext(ctx, "cannot read the policy bundle ConfigMap at startup; continuing with the watch",
+			"configmap", w.Namespace+"/"+policybundle.ConfigMapName, "error", err)
+		return false
+	}
+	w.Apply(ctx, cm)
+	return w.Store.Current() != nil
 }
 
 func (w *BundleWatcher) handle(ctx context.Context, obj any) {

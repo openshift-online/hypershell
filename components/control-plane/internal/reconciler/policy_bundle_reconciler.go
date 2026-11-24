@@ -238,35 +238,90 @@ func (r *PolicyBundleReconciler) ListPolicyGateways(ctx context.Context) ([]Poli
 	}
 }
 
+// bundleInputs are the fleet-wide inputs every gateway's bundle is built from.
+type bundleInputs struct {
+	policies   []*pb.PlatformGatewayPolicy
+	globalMode string
+	defaults   FleetDefaults
+}
+
+// loadBundleInputs reads the policies and the settings from the api-server.
+// Bundles validate against the fleet defaults the api-server accepted and
+// distributes through the settings (PLAT-PGP-08). Without them no bundle can be
+// built, so sidecars without a bundle fail closed (PLAT-PGP-12).
+func (r *PolicyBundleReconciler) loadBundleInputs(ctx context.Context) (bundleInputs, error) {
+	list, err := r.policies.ListPlatformGatewayPolicies(ctx, &pb.ListPlatformGatewayPoliciesRequest{})
+	if err != nil {
+		return bundleInputs{}, fmt.Errorf("list platform gateway policies: %w", err)
+	}
+	settings, err := r.settings.GetPlatformPolicySettings(ctx, &pb.GetPlatformPolicySettingsRequest{})
+	if err != nil {
+		return bundleInputs{}, fmt.Errorf("get platform policy settings: %w", err)
+	}
+	accepted, err := r.defaults.Update(settings.GetSettings())
+	if err != nil {
+		return bundleInputs{}, fmt.Errorf("fleet defaults: %w", err)
+	}
+	if refusal := settings.GetSettings().GetDefaultsRefusal(); refusal != "" {
+		slog.WarnContext(ctx, "the api-server refused a fleet defaults change; applying the accepted defaults", "reason", refusal)
+	}
+	return bundleInputs{policies: list.GetItems(), globalMode: settings.GetSettings().GetMode(), defaults: accepted}, nil
+}
+
+func (r *PolicyBundleReconciler) buildBundle(gw PolicyGateway, in bundleInputs) (policybundle.Bundle, []policybundle.Skipped, error) {
+	return policybundle.Build(policybundle.Input{
+		GatewayID:         gw.ID,
+		GlobalMode:        in.globalMode,
+		Policies:          in.policies,
+		Defaults:          in.defaults.Normalized,
+		DefaultQuantities: in.defaults.BundleDefaults(),
+		Unsupported:       gw.Unsupported,
+		CanaryEnabled:     r.canaryEnabled,
+	})
+}
+
+// EnsureGatewayBundle builds and writes (update-or-create) the current bundle
+// for one gateway, with the same code as the periodic reconcile. The gateway
+// reconciler calls it before the Helm install or upgrade of a gateway with the
+// interceptor, so a new or rolled sidecar finds its bundle at startup
+// (PLAT-PGP-12.03, CTRL-CORE-22.06). Any failure, including settings without
+// fleet defaults or a namespace that does not exist yet, is an error so the
+// gateway reconcile retries instead of deploying a sidecar that fails closed.
+func (r *PolicyBundleReconciler) EnsureGatewayBundle(ctx context.Context, gw *pb.Gateway, namespace string) error {
+	in, err := r.loadBundleInputs(ctx)
+	if err != nil {
+		return err
+	}
+	pg := PolicyGateway{ID: gw.GetMetadata().GetId(), Name: gw.GetName(), Namespace: namespace, Unsupported: r.unsupported(gw)}
+	bundle, _, err := r.buildBundle(pg, in)
+	if err != nil {
+		return fmt.Errorf("build bundle for gateway %s: %w", pg.ID, err)
+	}
+	written, err := r.writeBundle(ctx, pg, bundle)
+	if err != nil {
+		return err
+	}
+	if !written {
+		return fmt.Errorf("write policy bundle for gateway %s: namespace %s does not exist yet", pg.ID, namespace)
+	}
+	r.Nudge()
+	return nil
+}
+
 // ReconcileOnce performs one full, idempotent reconcile (STD-RCON-02): an
 // unchanged policy set converges to the same ConfigMaps without a revision
 // bump, and status is written only when it changed.
 func (r *PolicyBundleReconciler) ReconcileOnce(ctx context.Context) error {
-	list, err := r.policies.ListPlatformGatewayPolicies(ctx, &pb.ListPlatformGatewayPoliciesRequest{})
+	in, err := r.loadBundleInputs(ctx)
 	if err != nil {
-		return fmt.Errorf("list platform gateway policies: %w", err)
-	}
-	settings, err := r.settings.GetPlatformPolicySettings(ctx, &pb.GetPlatformPolicySettingsRequest{})
-	if err != nil {
-		return fmt.Errorf("get platform policy settings: %w", err)
+		return err
 	}
 	gateways, err := r.ListPolicyGateways(ctx)
 	if err != nil {
 		return err
 	}
-	policies := list.GetItems()
-	globalMode := settings.GetSettings().GetMode()
-
-	// Bundles validate against the fleet defaults the api-server accepted and
-	// distributes through the settings (PLAT-PGP-08). Without them no bundle is
-	// written, so sidecars without a bundle fail closed (PLAT-PGP-12).
-	accepted, err := r.defaults.Update(settings.GetSettings())
-	if err != nil {
-		return fmt.Errorf("fleet defaults: %w", err)
-	}
-	if refusal := settings.GetSettings().GetDefaultsRefusal(); refusal != "" {
-		slog.WarnContext(ctx, "the api-server refused a fleet defaults change; applying the accepted defaults", "reason", refusal)
-	}
+	policies := in.policies
+	globalMode := in.globalMode
 
 	pods, podsErr := r.listSandboxPods(ctx)
 	if podsErr != nil {
@@ -276,15 +331,7 @@ func (r *PolicyBundleReconciler) ReconcileOnce(ctx context.Context) error {
 	desired := map[string]map[string]GatewayPolicyStatus{} // policy id -> gateway id -> status
 	var errs []error
 	for _, gw := range gateways {
-		bundle, skipped, err := policybundle.Build(policybundle.Input{
-			GatewayID:         gw.ID,
-			GlobalMode:        globalMode,
-			Policies:          policies,
-			Defaults:          accepted.Normalized,
-			DefaultQuantities: accepted.BundleDefaults(),
-			Unsupported:       gw.Unsupported,
-			CanaryEnabled:     r.canaryEnabled,
-		})
+		bundle, skipped, err := r.buildBundle(gw, in)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("build bundle for gateway %s: %w", gw.ID, err))
 			continue

@@ -291,6 +291,12 @@ type ReconcileOpts struct {
 	// and its gateway.toml registration (OSG-CORE-19). The reconciler validates
 	// the registration before any Helm write (GTW-CFG-05).
 	PolicyInterceptor *helm.PolicyInterceptorConfig
+	// EnsurePolicyBundle, set with PolicyInterceptor, writes the gateway's
+	// current policy bundle ConfigMap into its namespace. It runs after the
+	// namespace exists and before any Helm write, so a new or rolled sidecar
+	// loads its bundle before the gateway starts (PLAT-PGP-12.03). An error
+	// fails the reconcile so it retries.
+	EnsurePolicyBundle func(ctx context.Context, namespace string) error
 	// GatewayID is the API-server resource ID for the gateway being reconciled.
 	// Used when updating fields (e.g. routeAddress) back to the API server.
 	GatewayID string

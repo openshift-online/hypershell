@@ -465,6 +465,16 @@ resolved per PLAT-PGP-06), per policy the `name`, `userMessage`, and
 their defaults hash (PLAT-PGP-08). The sidecar SHALL watch the ConfigMap through the Kubernetes
 API and apply a new revision within seconds without a gateway restart. When the
 sidecar has no bundle, it SHALL fail closed on `fail_closed` RPCs (PLAT-PGP-11).
+A new or rolled gateway SHALL NOT serve a `fail_closed` RPC before its current
+bundle is loaded whenever the bundle can be built: the control plane SHALL write the
+gateway's current bundle before the Helm install or upgrade that deploys or rolls
+the sidecar, and SHALL retry the gateway reconcile instead of deploying when the
+bundle cannot be built yet (CTRL-CORE-22); the sidecar SHALL read the bundle
+ConfigMap once at startup, bounded by a short timeout, and load it before it reports
+ready, which gates the gateway container's start (OSG-CORE-19). Readiness SHALL NOT
+wait for a bundle that does not exist: an absent or unreadable ConfigMap is logged,
+the sidecar becomes ready without a bundle, and `fail_closed` RPCs fail closed until
+the watch delivers one, so `fail_open` RPCs keep working.
 
 #### Scenario: PLAT-PGP-12.01 -- A New Revision Applies in Seconds Without Restart
 
@@ -478,6 +488,14 @@ sidecar has no bundle, it SHALL fail closed on `fail_closed` RPCs (PLAT-PGP-11).
 - GIVEN a sidecar that has not yet loaded any bundle
 - WHEN a `fail_closed` RPC such as `CreateSandbox` is evaluated
 - THEN the gateway SHALL fail the call closed
+
+#### Scenario: PLAT-PGP-12.03 -- A New Gateway Serves Only After Its Bundle Is Loaded
+
+- GIVEN a gateway being created or rolled whose bundle can be built from the current policies and settings
+- WHEN the control plane deploys it and the sidecar starts
+- THEN the bundle ConfigMap SHALL already hold the current revision before the Helm apply, and the sidecar SHALL have applied it when it reports ready
+- AND when the settings carry no fleet defaults the gateway reconcile SHALL fail and retry without a Helm apply
+- AND a sidecar that finds no ConfigMap at startup SHALL still report ready, with `fail_closed` RPCs failing closed
 
 ---
 
