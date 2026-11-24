@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -61,32 +63,88 @@ func reconcileDestinationCABundle(ctx context.Context, client kubernetes.Interfa
 	return name, nil
 }
 
-// DestinationCATrustNeedsUpdate lets operator trust changes bypass the gateway
-// spec generation gate. Controller startup rechecks existing gateways.
-func DestinationCATrustNeedsUpdate(ctx context.Context, client kubernetes.Interface, sourceNamespace, namespace string) (bool, error) {
+// DestinationCATrustResult reports what RefreshDestinationCATrust did for a
+// converged gateway.
+type DestinationCATrustResult int
+
+const (
+	// DestinationCATrustCurrent means the workload already mounts the desired
+	// trust generation, or destination trust is not configured.
+	DestinationCATrustCurrent DestinationCATrustResult = iota
+	// DestinationCATrustRotated means the workload's trust volume now references
+	// the new content-addressed generation. Only that reference changed, so the
+	// gateway rolls out with its existing images and chart.
+	DestinationCATrustRotated
+	// DestinationCATrustDeferred means the workload has no trust volume to
+	// retarget (trust was first enabled after the gateway converged, or the
+	// workload is missing). Adding trust needs a chart render, which happens on
+	// the gateway's next spec reconciliation, never as a side effect of a trust
+	// change.
+	DestinationCATrustDeferred
+)
+
+// gatewayDeploymentName is the gateway workload the chart renders for the
+// openshell-gateway release.
+const gatewayDeploymentName = "openshell-gateway"
+
+// additionalCAVolumeName is the chart's pod volume for destination trust.
+const additionalCAVolumeName = "additional-ca-source"
+
+// RefreshDestinationCATrust converges destination trust on a gateway whose
+// spec has converged, without a Helm upgrade (OSG-TLS-07.03, OSG-HLTH-03.06).
+//
+// A Helm upgrade here would render the controller's current chart and images,
+// so a trust rotation would upgrade every gateway in the fleet. The chart uses
+// the trust ConfigMap name in exactly one place, the additional-ca-source pod
+// volume; every other reference only tests whether trust is enabled. Retargeting
+// that one volume is therefore the whole difference a same-chart, same-image
+// render would apply, and it rolls the gateway with nothing else changed. The
+// release's stored values keep the old name until the next spec reconciliation
+// renders the current one, and Helm's three-way merge accepts the live value.
+func RefreshDestinationCATrust(ctx context.Context, client kubernetes.Interface, sourceNamespace, namespace string) (DestinationCATrustResult, error) {
 	if destinationCASourceName() == "" {
-		return false, nil
+		return DestinationCATrustCurrent, nil
 	}
 	if namespace == "" {
-		return false, fmt.Errorf("gateway namespace is required for destination TLS trust")
+		return DestinationCATrustCurrent, fmt.Errorf("gateway namespace is required for destination TLS trust")
 	}
 	name, err := reconcileDestinationCABundle(ctx, client, sourceNamespace, namespace)
 	if err != nil {
-		return false, err
+		return DestinationCATrustCurrent, err
 	}
-	deployment, err := client.AppsV1().Deployments(namespace).Get(ctx, "openshell-gateway", metav1.GetOptions{})
+	deployments := client.AppsV1().Deployments(namespace)
+	deployment, err := deployments.Get(ctx, gatewayDeploymentName, metav1.GetOptions{})
 	if k8serrors.IsNotFound(err) {
-		return name != "", nil
+		return DestinationCATrustDeferred, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("read gateway deployment: %w", err)
+		return DestinationCATrustCurrent, fmt.Errorf("read gateway deployment: %w", err)
 	}
-	for _, volume := range deployment.Spec.Template.Spec.Volumes {
-		if volume.Name == "additional-ca-source" && volume.ConfigMap != nil {
-			return volume.ConfigMap.Name != name, nil
+	for i, volume := range deployment.Spec.Template.Spec.Volumes {
+		if volume.Name != additionalCAVolumeName || volume.ConfigMap == nil {
+			continue
 		}
+		if volume.ConfigMap.Name == name {
+			return DestinationCATrustCurrent, nil
+		}
+		// The test operations make the patch fail rather than retarget a
+		// different volume if the pod template changed since the read.
+		volumePath := fmt.Sprintf("/spec/template/spec/volumes/%d", i)
+		patch, err := json.Marshal([]map[string]string{
+			{"op": "test", "path": volumePath + "/name", "value": additionalCAVolumeName},
+			{"op": "test", "path": volumePath + "/configMap/name", "value": volume.ConfigMap.Name},
+			{"op": "replace", "path": volumePath + "/configMap/name", "value": name},
+		})
+		if err != nil {
+			return DestinationCATrustCurrent, fmt.Errorf("encode destination CA volume patch: %w", err)
+		}
+		if _, err := deployments.Patch(ctx, gatewayDeploymentName, types.JSONPatchType, patch,
+			metav1.PatchOptions{FieldManager: "hypershell-control-plane"}); err != nil {
+			return DestinationCATrustCurrent, fmt.Errorf("retarget destination CA volume of %s/%s to %s: %w", namespace, gatewayDeploymentName, name, err)
+		}
+		return DestinationCATrustRotated, nil
 	}
-	return name != "", nil
+	return DestinationCATrustDeferred, nil
 }
 
 // destinationCASourceName applies an optional operator capability selector using

@@ -200,10 +200,18 @@ destinations or bypass private-address restrictions on advisor-proposed policies
 - GIVEN an eligible instance whose source bundle or capability configuration has changed
 - WHEN the controller starts and seeds existing gateways, or receives a gateway reconciliation event
 - THEN it SHALL check destination trust even when the Gateway API generation has already converged
-- AND a changed content-addressed volume reference SHALL cause a Helm upgrade and gateway rollout
+- AND for a converged Gateway whose workload already mounts destination trust, a changed content-addressed generation SHALL retarget only the workload's trust volume reference in place, rolling the gateway out without a Helm upgrade
+- AND that rollout SHALL keep the gateway's existing images and chart version, so a trust change SHALL NOT upgrade the fleet to the controller's current images or chart
 - AND old ConfigMap generations SHALL remain mountable until gateway namespace cleanup
 - AND running sandbox supervisors SHALL acquire the new trust on sandbox stop/start, preserving durable workspace data
 - AND changing trust SHALL NOT require deleting sandboxes or regenerating gateway mTLS certificates
+
+The chart references the trust ConfigMap name only in the workload's
+`additional-ca-source` volume; every other use only tests whether trust is
+enabled. Retargeting that volume is therefore everything a same-chart,
+same-image Helm render would change. The release keeps the previous name in its
+stored values until the Gateway's next spec reconciliation renders the current
+one, which Helm's three-way merge accepts.
 
 Source ConfigMap changes are not watched directly. Operators SHALL restart the
 controller after a bundle update to ensure all existing gateways are rechecked.
@@ -216,12 +224,24 @@ Sandbox stop/start interrupts running processes and SHALL be coordinated with ow
 - THEN the controller SHALL omit the additional-CA Helm value
 - AND affected sandboxes SHALL require stop/start to discard their previous trust generation
 
+#### Scenario: OSG-TLS-07.05 -- Enabling trust on an already-converged gateway
+
+- GIVEN a converged Gateway whose workload has no destination trust volume
+- WHEN the controller starts with destination trust newly configured, or receives a reconciliation event for that Gateway
+- THEN it SHALL copy the bundle into the gateway namespace
+- AND it SHALL NOT run a Helm upgrade, because adding trust needs a chart render that would also apply the controller's current images and chart
+- AND it SHALL log that the trust applies on the Gateway's next spec reconciliation
+- AND that reconciliation SHALL set `supervisor.network.additionalCaConfigMapName` as in OSG-TLS-07.02
+
 Removing a setting alone SHALL NOT bypass the normal convergence gate on an
 ineligible instance. Gateway spec reconciliation is required to remove previously
 applied trust from already-converged gateways.
 
 **Verification:** `internal/gateway/destination_ca_test.go` covers eligibility,
-validation, propagation, and trust rotation; `internal/helm/values_test.go` renders
+validation, propagation, and in-place trust rotation;
+`internal/reconciler/destination_trust_test.go` drives a converged Gateway through
+a trust rotation and a first enablement and asserts no Helm call and unchanged
+images and chart labels; `internal/helm/values_test.go` renders
 the vendored chart to verify the supervisor trust path.
 
 ---

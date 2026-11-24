@@ -13,8 +13,11 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 )
 
 func testDestinationCA(t *testing.T) string {
@@ -57,38 +60,131 @@ func TestDestinationCAReconciliation(t *testing.T) {
 	if err != nil || cm.Data["ca.crt"] != source.Data["ca-bundle.crt"] {
 		t.Fatalf("destination CA not copied: %v", err)
 	}
+	// A workload without the trust volume cannot be retargeted in place: adding
+	// trust needs a chart render, which waits for a spec reconciliation.
 	deployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "openshell-gateway", Namespace: "tenant"}}
 	if _, err := client.AppsV1().Deployments("tenant").Create(ctx, deployment, metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	assertUpdate := func(want bool) {
+	assertRefresh := func(want DestinationCATrustResult) {
 		t.Helper()
-		got, err := DestinationCATrustNeedsUpdate(ctx, client, "cp", "tenant")
+		got, err := RefreshDestinationCATrust(ctx, client, "cp", "tenant")
 		if err != nil || got != want {
-			t.Fatalf("needs update = %v, %v; want %v", got, err, want)
+			t.Fatalf("refresh = %v, %v; want %v", got, err, want)
 		}
 	}
-	assertUpdate(true)
+	assertRefresh(DestinationCATrustDeferred)
 	deployment.Spec.Template.Spec.Volumes = []corev1.Volume{{Name: "additional-ca-source", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: name}}}}}
 	if _, err := client.AppsV1().Deployments("tenant").Update(ctx, deployment, metav1.UpdateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	assertUpdate(false)
+	assertRefresh(DestinationCATrustCurrent)
 	// Rotation must change the volume reference, even with no Gateway spec change.
 	source.Data["ca-bundle.crt"] = testDestinationCA(t)
 	if _, err := client.CoreV1().ConfigMaps("cp").Update(ctx, source, metav1.UpdateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	assertUpdate(true)
+	assertRefresh(DestinationCATrustRotated)
 	next, err := reconcileDestinationCABundle(ctx, client, "cp", "tenant")
 	if err != nil || next == name {
 		t.Fatalf("rotation did not create a new generation: %q, %v", next, err)
 	}
+	if got := destinationCAVolume(t, client); got != next {
+		t.Fatalf("trust volume = %q, want %q", got, next)
+	}
 	if _, err := client.CoreV1().ConfigMaps("tenant").Get(ctx, name, metav1.GetOptions{}); err != nil {
 		t.Fatal("old generation must remain mountable", err)
 	}
+	assertRefresh(DestinationCATrustCurrent)
 	t.Setenv("GATEWAY_ADDITIONAL_CA_CONFIGMAP_NAME", "")
-	assertUpdate(false)
+	assertRefresh(DestinationCATrustCurrent)
+}
+
+func destinationCAVolume(t *testing.T, client *fake.Clientset) string {
+	t.Helper()
+	deployment, err := client.AppsV1().Deployments("tenant").Get(context.Background(), "openshell-gateway", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, volume := range deployment.Spec.Template.Spec.Volumes {
+		if volume.Name == "additional-ca-source" && volume.ConfigMap != nil {
+			return volume.ConfigMap.Name
+		}
+	}
+	return ""
+}
+
+// Verifies: OSG-TLS-07.03, OSG-HLTH-03.06
+// A trust rotation on a converged gateway retargets only the trust volume: the
+// workload keeps its images, chart label and every other volume.
+func TestRefreshDestinationCATrustKeepsImagesAndChart(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("GATEWAY_ADDITIONAL_CA_CONFIGMAP_NAME", "corporate-ca")
+	source := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "corporate-ca", Namespace: "cp"}, Data: map[string]string{"ca.crt": testDestinationCA(t)}}
+	deployment := convergedGatewayDeployment("openshell-destination-ca-0000000000000000")
+	client := fake.NewSimpleClientset(source, deployment)
+	before := deployment.DeepCopy()
+
+	got, err := RefreshDestinationCATrust(ctx, client, "cp", "tenant")
+	if err != nil || got != DestinationCATrustRotated {
+		t.Fatalf("refresh = %v, %v; want rotated", got, err)
+	}
+	after, err := client.AppsV1().Deployments("tenant").Get(ctx, "openshell-gateway", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := reconcileDestinationCABundle(ctx, client, "cp", "tenant")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The only permitted change is the trust volume's ConfigMap reference.
+	before.Spec.Template.Spec.Volumes[1].ConfigMap.Name = want
+	if !equality.Semantic.DeepEqual(before.Spec, after.Spec) || !equality.Semantic.DeepEqual(before.Labels, after.Labels) {
+		t.Fatalf("refresh changed more than the trust volume:\nbefore %+v\nafter  %+v", before.Spec.Template.Spec, after.Spec.Template.Spec)
+	}
+	for _, action := range client.Actions() {
+		if action.GetResource().Resource == "secrets" {
+			t.Fatalf("refresh touched Helm release storage: %v", action)
+		}
+	}
+}
+
+// A concurrent pod template change (for example a Helm upgrade that moved the
+// volume) must fail the guarded patch instead of retargeting another volume.
+func TestRefreshDestinationCATrustGuardsConcurrentChange(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("GATEWAY_ADDITIONAL_CA_CONFIGMAP_NAME", "corporate-ca")
+	source := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "corporate-ca", Namespace: "cp"}, Data: map[string]string{"ca.crt": testDestinationCA(t)}}
+	client := fake.NewSimpleClientset(source, convergedGatewayDeployment("openshell-destination-ca-0000000000000000"))
+	client.PrependReactor("get", "deployments", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		// Serve a stale read: the trust volume at index 0, not where it now is.
+		stale := convergedGatewayDeployment("openshell-destination-ca-0000000000000000")
+		volumes := stale.Spec.Template.Spec.Volumes
+		stale.Spec.Template.Spec.Volumes = []corev1.Volume{volumes[1], volumes[0]}
+		return true, stale, nil
+	})
+	if _, err := RefreshDestinationCATrust(ctx, client, "cp", "tenant"); err == nil {
+		t.Fatal("stale pod template must fail the guarded patch")
+	}
+	if got := destinationCAVolume(t, client); got != "openshell-destination-ca-0000000000000000" {
+		t.Fatalf("trust volume = %q after a failed patch", got)
+	}
+}
+
+func convergedGatewayDeployment(trustConfigMap string) *appsv1.Deployment {
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "openshell-gateway", Namespace: "tenant", Labels: map[string]string{
+			"helm.sh/chart":                "openshell-0.1.8",
+			"app.kubernetes.io/managed-by": "Helm",
+		}},
+		Spec: appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{Name: "openshell-gateway", Image: "registry.example/openshell-gateway:v0.1.7"}},
+			Volumes: []corev1.Volume{
+				{Name: "gateway-config", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: "openshell-gateway-config"}}}},
+				{Name: "additional-ca-source", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: trustConfigMap}}}},
+			},
+		}}},
+	}
 }
 
 func TestDestinationCADisabled(t *testing.T) {
