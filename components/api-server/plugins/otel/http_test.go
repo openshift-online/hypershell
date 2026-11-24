@@ -1,8 +1,18 @@
 package otel
 
 import (
+	"context"
 	"net/http"
+	"net/http/httptest"
 	"testing"
+
+	"github.com/gorilla/mux"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
 // TestClassifyRequestMethod verifies the OBS-SLI-08 read/write classification:
@@ -84,4 +94,111 @@ func containsExactly(s []float64, v float64) bool {
 		}
 	}
 	return false
+}
+
+// durationSampleAttrs collects the http.server.request.duration histogram from the
+// reader and returns the attribute set of its single data point. It fails the test
+// if the instrument is missing or records more than one data point, so a single
+// served request maps to a single sample with a deterministic attribute set.
+func durationSampleAttrs(t *testing.T, reader *sdkmetric.ManualReader) attribute.Set {
+	t.Helper()
+
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &rm); err != nil {
+		t.Fatalf("collecting metrics: %v", err)
+	}
+
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != httpServerRequestDurationName {
+				continue
+			}
+			hist, ok := m.Data.(metricdata.Histogram[float64])
+			if !ok {
+				t.Fatalf("instrument %q is %T, want Histogram[float64]", m.Name, m.Data)
+			}
+			if len(hist.DataPoints) != 1 {
+				t.Fatalf("instrument %q recorded %d data points, want exactly 1", m.Name, len(hist.DataPoints))
+			}
+			return hist.DataPoints[0].Attributes
+		}
+	}
+
+	t.Fatalf("instrument %q was not recorded", httpServerRequestDurationName)
+	return attribute.Set{}
+}
+
+// serveThroughOTel wires the production HTTP instrumentation the same way plugin.go
+// does -- the otelHTTPHandler creates the server span and the Labeler, and
+// routeTagMiddleware runs inside the mux router where mux.CurrentRoute holds the
+// templated path -- then serves one GET request against requestPath and returns
+// the recorded metrics reader. Only /api/hypershell/v1/gateways/{id} is a
+// registered route, so any other path matches no route.
+func serveThroughOTel(t *testing.T, requestPath string) *sdkmetric.ManualReader {
+	t.Helper()
+
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	prev := otel.GetMeterProvider()
+	otel.SetMeterProvider(mp)
+	t.Cleanup(func() { otel.SetMeterProvider(prev) })
+
+	router := mux.NewRouter()
+	router.Use(routeTagMiddleware)
+	router.HandleFunc("/api/hypershell/v1/gateways/{id}", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}).Methods(http.MethodGet)
+
+	handler := otelHTTPHandler(router)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, requestPath, nil)
+	handler.ServeHTTP(rec, req)
+
+	return reader
+}
+
+// TestRouteTagMiddlewareRecordsTemplatedRouteOnLatencyMetric verifies OBS-SLI-10.01:
+// a request that matches a registered route records http.route on the latency
+// histogram as the templated route, never the raw path with the concrete id. It
+// also verifies the OBS-SLI-10 "complement, not replace" guarantee: the route
+// attribute coexists with the OBS-SLI-08 read/write request-class attribute on the
+// same sample.
+func TestRouteTagMiddlewareRecordsTemplatedRouteOnLatencyMetric(t *testing.T) {
+	reader := serveThroughOTel(t, "/api/hypershell/v1/gateways/abc123")
+	attrs := durationSampleAttrs(t, reader)
+
+	route, ok := attrs.Value(semconv.HTTPRouteKey)
+	if !ok {
+		t.Fatalf("latency sample carries no %q attribute, want the templated route", semconv.HTTPRouteKey)
+	}
+	const want = "/api/hypershell/v1/gateways/{id}"
+	if route.AsString() != want {
+		t.Fatalf("http.route = %q, want templated route %q", route.AsString(), want)
+	}
+	if route.AsString() == "/api/hypershell/v1/gateways/abc123" {
+		t.Fatalf("http.route recorded the raw path, want the templated route")
+	}
+
+	// OBS-SLI-10: the route attribute complements, and does not replace, the
+	// OBS-SLI-08 read/write request-class attribute on the same sample.
+	class, ok := attrs.Value(requestClassAttr)
+	if !ok {
+		t.Fatalf("latency sample dropped the %q attribute; http.route must complement, not replace it", requestClassAttr)
+	}
+	if class.AsString() != requestClassRead {
+		t.Fatalf("http.request.class = %q for a GET, want %q", class.AsString(), requestClassRead)
+	}
+}
+
+// TestRouteTagMiddlewareOmitsRouteForUnmatchedPath verifies OBS-SLI-10.02: a
+// request whose path matches no registered route records no http.route attribute,
+// so cardinality stays bounded by the registered routes.
+func TestRouteTagMiddlewareOmitsRouteForUnmatchedPath(t *testing.T) {
+	reader := serveThroughOTel(t, "/api/hypershell/v1/does-not-exist")
+	attrs := durationSampleAttrs(t, reader)
+
+	if route, ok := attrs.Value(semconv.HTTPRouteKey); ok {
+		t.Fatalf("unmatched path recorded http.route = %q, want no route attribute", route.AsString())
+	}
 }

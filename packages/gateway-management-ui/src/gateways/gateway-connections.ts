@@ -49,6 +49,14 @@ export function shellArgument(value: string) {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
+/**
+ * Wraps a value in double quotes, escaping the characters that remain
+ * special inside them (`\`, `"`, `$`, and backtick).
+ */
+export function doubleQuotedShellArgument(value: string) {
+  return `"${value.replace(/[\\"$`]/g, "\\$&")}"`;
+}
+
 export function buildGatewayAddCommand(
   gateway: GatewayConnection,
 ): string | undefined {

@@ -176,6 +176,19 @@ func (r *GatewayReconciler) gatewayServiceClient() pb.GatewayServiceClient {
 	return pb.NewGatewayServiceClient(r.grpcConn)
 }
 
+// reportDeletionFinalized tells the API server a soft-deleted gateway's teardown
+// is complete so it converges the durable delete window within budget
+// (OBS-SLI-01.03). It uses the dedicated FinalizeGatewayDeletion RPC (GTW-DEL-10),
+// NOT a DeleteGateway re-call: DeleteGateway stays denied to the control-plane
+// identity. Because more than one replica may reconcile the same delete, a
+// NotFound (another replica finalized first) is treated as success; any other
+// error is surfaced as a retryable warning rather than failing the delete.
+func (r *GatewayReconciler) reportDeletionFinalized(ctx context.Context, gatewayID string) {
+	if _, err := r.gatewayServiceClient().FinalizeGatewayDeletion(ctx, &pb.FinalizeGatewayDeletionRequest{Id: gatewayID}); err != nil && status.Code(err) != codes.NotFound {
+		slog.WarnContext(ctx, "Gateway finalized but reporting deletion complete to the API server failed; convergence will be resolved by the deadline sweep", "gateway_id", gatewayID, "error", err)
+	}
+}
+
 // rereadDeletingGateway re-reads a deleting Gateway record with the unscoped
 // query (include_deleted) so a nil-payload delete event can reconcile teardown
 // from the record (CTRL-WDEL-02, CTRL-WDEL-04). It returns an error when the
@@ -355,11 +368,6 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		slog.InfoContext(ctx, "Nil-payload gateway delete re-read the deleting record; reconciling teardown from it", "gateway_id", event.ResourceID)
 		gw = reread
 	}
-	previousPhase := gw.GetPhase()
-	if event.PhaseBeforeRetry != "" {
-		previousPhase = event.PhaseBeforeRetry
-	}
-	suppressGatewayProvisionObservation(event.ResourceID, previousPhase)
 	ctx, endSpan := cpotel.StartReconcileSpan(ctx, "Gateway", event.Type.String(), gw.GetMetadata().GetTraceparent())
 	if event.Type != watcher.EventDeleted {
 		// This is the reconcile start for a (possibly new) desired generation.
@@ -389,7 +397,6 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 	}()
 
 	if event.Type == watcher.EventDeleted {
-		forgetGatewayProvisionObservation(event.ResourceID)
 		var deleteErrs []error
 
 		namespace, namespaceErr := gatewayNamespace(gw)
@@ -546,6 +553,12 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		}
 
 		reconcileErr = errors.Join(deleteErrs...)
+		if reconcileErr == nil {
+			// Every Gateway-owned resource class is reclaimed (GTW-DEL-01). Report
+			// finalization complete so the API server converges the durable delete
+			// window within budget (OBS-SLI-01.03, GTW-DEL-10).
+			r.reportDeletionFinalized(ctx, event.ResourceID)
+		}
 		return reconcileErr
 	}
 
@@ -796,14 +809,11 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		var renderErr *gateway.ConfigValidationError
 		if errors.As(err, &renderErr) {
 			failReason := fmt.Sprintf("generated configuration validation failed: %v", renderErr.Err)
-			if failedGateway := r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseFailed), failReason); failedGateway != nil {
-				observeGatewayProvisionFailure(ctx, event.ResourceID)
-			}
+			r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseFailed), failReason)
 			slog.ErrorContext(ctx, "Gateway generated configuration invalid", "gateway_name", gw.Name, "namespace", namespace, "error", renderErr.Err)
 			outcome = cpotel.OutcomeFailed
 			reason = cpotel.ReasonInvalidConfig
 		} else if r.updateGatewayPhase(ctx, event.ResourceID, string(gatewayhealth.PhaseFailed)) {
-			observeGatewayProvisionFailure(ctx, event.ResourceID)
 			outcome = cpotel.OutcomeFailed
 			reason = cpotel.ReasonUnknown
 		}
@@ -889,9 +899,7 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 		gateway.SetCondition(conditions, gateway.ConditionGatewayHealthy, gateway.StatusComplete, "")
 		r.updateProvisioningConditions(ctx, event.ResourceID, conditions)
 		// The observation guard rejects work that started in Running or Degraded.
-		if runningGateway := r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseRunning), gatewayhealth.StatusHealthy); runningGateway != nil {
-			observeGatewayProvisionSuccess(ctx, runningGateway)
-		}
+		r.updateGatewayHealth(ctx, event.ResourceID, string(gatewayhealth.PhaseRunning), gatewayhealth.StatusHealthy)
 		slog.InfoContext(ctx, "Gateway provisioned and route ready", "gateway_name", gw.Name, "namespace", namespace)
 	} else {
 		// Route gate not yet passed: hold at Provisioning. The continuous health

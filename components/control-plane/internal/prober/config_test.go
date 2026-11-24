@@ -81,6 +81,82 @@ func TestLoadParsesProductionInstances(t *testing.T) {
 	}
 }
 
+func TestLoadDefaultAuthModeIsClientAssertion(t *testing.T) {
+	// Unset HYPERSHELL_PROBE_AUTH_MODE defaults to client-assertion (OBS-PRB-06).
+	cfg := Load()
+	if cfg.AuthMode != AuthModeClientAssertion {
+		t.Errorf("auth mode = %q, want default %q", cfg.AuthMode, AuthModeClientAssertion)
+	}
+}
+
+func TestLoadAuthModeSelection(t *testing.T) {
+	cases := []struct {
+		set  string
+		want string
+	}{
+		{"client-assertion", AuthModeClientAssertion},
+		{"token-exchange", AuthModeTokenExchange},
+		// An unknown value falls back to the default rather than failing startup.
+		{"bogus", AuthModeClientAssertion},
+	}
+	for _, tc := range cases {
+		t.Run(tc.set, func(t *testing.T) {
+			t.Setenv("HYPERSHELL_PROBE_AUTH_MODE", tc.set)
+			if got := Load().AuthMode; got != tc.want {
+				t.Errorf("auth mode = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestAuthenticatorSelectsConfiguredMode covers OBS-PRB-06: the mode is chosen by
+// configuration, not code, and an unconfigured mode yields a nil authenticator.
+func TestAuthenticatorSelectsConfiguredMode(t *testing.T) {
+	clientAssertion := ClientAssertionConfig{TokenEndpoint: "e", ClientID: "c", SATokenFile: "f"}
+	tokenExchange := TokenExchangeConfig{TokenEndpoint: "e", ClientID: "c", SATokenFile: "f"}
+
+	t.Run("client-assertion", func(t *testing.T) {
+		cfg := &Config{AuthMode: AuthModeClientAssertion, ClientAssertion: clientAssertion}
+		if _, ok := cfg.Authenticator().(*ClientAssertionAuthenticator); !ok {
+			t.Errorf("client-assertion mode = %T, want *ClientAssertionAuthenticator", cfg.Authenticator())
+		}
+	})
+	t.Run("token-exchange", func(t *testing.T) {
+		cfg := &Config{AuthMode: AuthModeTokenExchange, TokenExchange: tokenExchange}
+		if _, ok := cfg.Authenticator().(*TokenExchanger); !ok {
+			t.Errorf("token-exchange mode = %T, want *TokenExchanger", cfg.Authenticator())
+		}
+	})
+	t.Run("unconfigured is nil", func(t *testing.T) {
+		cfg := &Config{AuthMode: AuthModeClientAssertion}
+		if a := cfg.Authenticator(); a != nil {
+			t.Errorf("unconfigured authenticator = %v, want nil", a)
+		}
+	})
+}
+
+func TestClientAssertionConfigEnabled(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  ClientAssertionConfig
+		want bool
+	}{
+		{"all set", ClientAssertionConfig{TokenEndpoint: "e", ClientID: "c", SATokenFile: "f"}, true},
+		{"missing endpoint", ClientAssertionConfig{ClientID: "c", SATokenFile: "f"}, false},
+		// ClientID is optional in client-assertion mode: the prober authenticates
+		// with the assertion alone and never sends a client_id (OBS-PRB-06).
+		{"missing client is still enabled", ClientAssertionConfig{TokenEndpoint: "e", SATokenFile: "f"}, true},
+		{"missing file", ClientAssertionConfig{TokenEndpoint: "e", ClientID: "c"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.cfg.Enabled(); got != tc.want {
+				t.Errorf("Enabled() = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestTokenExchangeEnabled(t *testing.T) {
 	cases := []struct {
 		name string

@@ -109,8 +109,9 @@ header "Stand-in HashiCorp Vault (gateway provider secrets)"
 vkube create namespace "${VAULT_NS}" --dry-run=client -o yaml | vkube apply -f -
 
 # Serving TLS: a throwaway CA + server cert whose SAN matches the convention host.
-# The control plane reads this CA from the openshell-gateway-vault-tls Secret and
-# propagates it into each gateway namespace (gen-postgres-tls.sh mints generic TLS).
+# The control plane reads this CA from the openshell-gateway-vault-tls Secret (or from a
+# per-environment copy, see copy_ca_to_environment) and propagates it into each gateway
+# namespace (gen-postgres-tls.sh mints generic TLS).
 if vkube get secret "${VAULT_TLS_SECRET}" -n "${VAULT_NS}" >/dev/null 2>&1; then
   success "TLS Secret '${VAULT_TLS_SECRET}' already exists - reusing its CA"
 else
@@ -126,6 +127,24 @@ else
   rm -rf "${_tls_dir}"
   success "TLS Secret '${VAULT_TLS_SECRET}' created"
 fi
+
+# copy_ca_to_environment copies the serving CA into the calling environment's
+# own namespace (VAULT_CA_COPY_NAMESPACE, Secret VAULT_CA_COPY_SECRET, key ca.crt). The
+# environment's control plane reads that copy (GATEWAY_VAULT_CA_SECRET), so an e2e step
+# that corrupts the CA to test fail-closed (P2.7) breaks only its own environment, never
+# the shared Vault Secret. No-op when VAULT_CA_COPY_NAMESPACE is unset.
+VAULT_CA_COPY_SECRET="${VAULT_CA_COPY_SECRET:-hypershell-vault-ca}"
+copy_ca_to_environment() {
+  [ -n "${VAULT_CA_COPY_NAMESPACE:-}" ] || return 0
+  local ca_file
+  ca_file="$(mktemp)"
+  vkube get secret "${VAULT_TLS_SECRET}" -n "${VAULT_NS}" \
+    -o go-template='{{index .data "ca.crt" | base64decode}}' > "${ca_file}"
+  vkube create secret generic "${VAULT_CA_COPY_SECRET}" -n "${VAULT_CA_COPY_NAMESPACE}" \
+    --from-file=ca.crt="${ca_file}" --dry-run=client -o yaml | vkube apply -f - >/dev/null
+  rm -f "${ca_file}"
+  success "Vault serving CA copied to ${VAULT_CA_COPY_NAMESPACE}/${VAULT_CA_COPY_SECRET}"
+}
 
 info "Deploying Vault (file storage + TLS) in namespace '${VAULT_NS}'..."
 vkube apply -f - <<EOF
@@ -541,6 +560,7 @@ if vx vault status 2>/dev/null | grep -q "Initialized.*true"; then
   apply_config "${RT}"
   run_selftest "${RT}"
   vxt "${RT}" vault token revoke -self >/dev/null 2>&1 || true
+  copy_ca_to_environment
   success "Vault reconciled at https://${VAULT_HOST}:8200 (capability-scoped policy re-applied)"
   exit 0
 fi
@@ -562,5 +582,6 @@ run_selftest "${ROOT_TOKEN}"
 
 # Drop root; gateways and the control plane only ever authenticate via kubernetes auth.
 vxt "${ROOT_TOKEN}" vault token revoke -self >/dev/null 2>&1 || true
+copy_ca_to_environment
 
 success "Vault ready at https://${VAULT_HOST}:8200 (KV v2 'secret', role '${VAULT_ROLE}')"

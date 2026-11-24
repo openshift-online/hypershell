@@ -2,10 +2,13 @@ package e2e
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,13 +17,18 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// Per-cluster Vault serving-CA source the control plane reads for its reachability probe.
-// These mirror the control-plane conventions (gateway.VaultCADefaultSourceNamespace /
-// VaultCADefaultSourceSecret / VaultCAKey), duplicated here because that package is internal.
+// The control plane reads the Vault serving CA from the Secret named by its
+// GATEWAY_VAULT_CA_SECRET env ("namespace/name"). The dev/e2e drivers point it at a
+// per-environment copy (scripts/cluster/vault.sh, VAULT_CA_COPY_NAMESPACE). These mirror
+// the control-plane conventions (gateway.VaultCAKey and the default source), duplicated
+// here because that package is internal.
 const (
-	vaultCASourceNamespace = "openshell-vault"
-	vaultCASourceSecret    = "openshell-gateway-vault-tls"
-	vaultCAKey             = "ca.crt"
+	vaultCAEnvVar            = "GATEWAY_VAULT_CA_SECRET"
+	vaultCASharedNamespace   = "openshell-vault"
+	vaultCAKey               = "ca.crt"
+	controllerDeploymentName = "hypershell-controller"
+	controllerContainerName  = "controller"
+	vaultFailClosedBrokenCA  = "fail-closed-e2e: not a certificate"
 )
 
 // Vault credential-driver end-to-end coverage (HYPERSHELL-369).
@@ -47,12 +55,15 @@ const (
 // the gateway never reaches Running.
 //
 // Vault is a black box (HYPERSHELL-369): there are no per-gateway overrides, so a gateway
-// cannot be pointed at a bad address through the API. Vault reachability is a cluster-wide
-// property (one Vault per cluster, one convention address), so the scenario makes that Vault
-// unreachable to the control plane by corrupting the serving-CA source Secret the reachability
-// probe reads, then restores it. Because that break is cluster-wide, this step runs serially as
-// the final behavior check (after the parallel P2 wave and read-only P3), never concurrently
-// with other gateway provisioning. It needs kube access to mutate the CA source Secret.
+// cannot be pointed at a bad address through the API. The scenario instead corrupts the
+// serving CA the control plane's reachability probe reads. That CA is this environment's own
+// copy (GATEWAY_VAULT_CA_SECRET on the controller), never the shared openshell-vault Secret,
+// so the break cannot leak to other environments on a shared cluster, even if this process
+// is killed before it restores the CA. Within this run the break still affects every gateway
+// this control plane provisions, so the step stays serial and last (after the parallel P2
+// wave and read-only P3). It needs kube access to read the controller Deployment and mutate
+// the copy.
+// Verifies: OSG-CRED-14.02
 func (s *E2ESuite) p2_7VaultFailClosed(t *testing.T) {
 	s.vaultFailClosedScenario(t.Context(), t)
 }
@@ -62,6 +73,7 @@ func (s *E2ESuite) p2_7VaultFailClosed(t *testing.T) {
 // failure and the gateway never reaches Running. It restores Vault reachability before returning.
 func (s *E2ESuite) vaultFailClosedScenario(ctx context.Context, t *testing.T) {
 	restore := s.breakVaultReachability(ctx, t)
+	t.Cleanup(restore)
 	defer restore()
 
 	name := "e2e-vault-failclosed-" + s.runID
@@ -104,37 +116,94 @@ func (s *E2ESuite) vaultFailClosedScenario(ctx context.Context, t *testing.T) {
 	s.Require().NoErrorf(err, "fail-closed: EnvironmentReady never reported a Vault reachability failure (last=%q)", lastReason)
 }
 
-// breakVaultReachability makes the per-cluster Vault unreachable to the control plane by
-// replacing the serving-CA source Secret's ca.crt with bytes that are not a usable
-// certificate, so the control plane's reachability probe (which reads that CA) fails for any
-// newly provisioned gateway. It returns a restore function that puts the original CA back.
-// The Secret is a plain fixture Secret (not cert-manager-managed), so the edit sticks until
-// restored. Scoped to this serial step so it never races with concurrent provisioning.
+// vaultCASourceFromController returns the namespace/name of the Secret this environment's
+// control plane reads the Vault serving CA from (its GATEWAY_VAULT_CA_SECRET env). It refuses
+// to proceed when the env is unset or points at the shared openshell-vault namespace: breaking
+// that Secret would break Vault for every environment on the cluster (the 2026-11-20 CI
+// incident, when a killed run left it corrupted).
+func (s *E2ESuite) vaultCASourceFromController(ctx context.Context) (namespace, name string) {
+	ns := s.driver.PlatformNamespace()
+	dep, err := s.clients.Kube.AppsV1().Deployments(ns).Get(ctx, controllerDeploymentName, metav1.GetOptions{})
+	s.Require().NoErrorf(err, "get controller Deployment %s/%s", ns, controllerDeploymentName)
+	var value string
+	for _, c := range dep.Spec.Template.Spec.Containers {
+		if c.Name != controllerContainerName {
+			continue
+		}
+		for _, e := range c.Env {
+			if e.Name == vaultCAEnvVar {
+				value = e.Value
+			}
+		}
+	}
+	namespace, name, ok := strings.Cut(value, "/")
+	s.Require().Truef(ok && namespace != "" && name != "",
+		"controller %s/%s has no usable %s (%q); the driver must point it at a per-environment CA copy before P2.7 can run",
+		ns, controllerDeploymentName, vaultCAEnvVar, value)
+	s.Require().NotEqualf(vaultCASharedNamespace, namespace,
+		"%s points at the shared %s namespace; P2.7 refuses to corrupt shared Vault state", vaultCAEnvVar, vaultCASharedNamespace)
+	return namespace, name
+}
+
+// isPEMCertificate reports whether b holds at least one parseable PEM certificate.
+func isPEMCertificate(b []byte) bool {
+	for {
+		var block *pem.Block
+		block, b = pem.Decode(b)
+		if block == nil {
+			return false
+		}
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		if _, err := x509.ParseCertificate(block.Bytes); err == nil {
+			return true
+		}
+	}
+}
+
+// breakVaultReachability makes Vault unreachable to this environment's control plane by
+// replacing ca.crt in the control plane's per-environment CA copy with bytes that are not a
+// certificate, so the reachability probe fails for any newly provisioned gateway. It returns
+// an idempotent restore function; the caller registers it with t.Cleanup as well as defer.
+//
+// It refuses to start when the current ca.crt is not a valid PEM certificate, so an
+// already-broken value (left by an earlier killed run) is never saved as the "original" and
+// written back.
 func (s *E2ESuite) breakVaultReachability(ctx context.Context, t *testing.T) func() {
-	secrets := s.clients.Kube.CoreV1().Secrets(vaultCASourceNamespace)
-	orig, err := secrets.Get(ctx, vaultCASourceSecret, metav1.GetOptions{})
-	s.Require().NoErrorf(err, "get Vault serving-CA source Secret %s/%s", vaultCASourceNamespace, vaultCASourceSecret)
+	caNS, caName := s.vaultCASourceFromController(ctx)
+	secrets := s.clients.Kube.CoreV1().Secrets(caNS)
+	orig, err := secrets.Get(ctx, caName, metav1.GetOptions{})
+	s.Require().NoErrorf(err, "get Vault serving-CA Secret %s/%s", caNS, caName)
 	originalCA := append([]byte(nil), orig.Data[vaultCAKey]...)
-	s.Require().NotEmptyf(originalCA, "Vault serving-CA source Secret %s/%s has no %q", vaultCASourceNamespace, vaultCASourceSecret, vaultCAKey)
+	s.Require().Truef(isPEMCertificate(originalCA),
+		"Vault serving-CA Secret %s/%s %q is not a valid PEM certificate before P2.7 starts; refusing to save it as the original (re-run the environment bring-up to restore it)",
+		caNS, caName, vaultCAKey)
 
 	broken := orig.DeepCopy()
-	broken.Data[vaultCAKey] = []byte("fail-closed-e2e: not a certificate")
+	broken.Data[vaultCAKey] = []byte(vaultFailClosedBrokenCA)
 	_, err = secrets.Update(ctx, broken, metav1.UpdateOptions{})
-	s.Require().NoError(err, "corrupt Vault serving-CA source Secret to simulate unreachable Vault")
+	s.Require().NoError(err, "corrupt Vault serving-CA Secret to simulate unreachable Vault")
 
+	var once sync.Once
 	return func() {
-		// Restore on the background context so a cancelled test context still reverts the break.
-		rctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		cur, getErr := secrets.Get(rctx, vaultCASourceSecret, metav1.GetOptions{})
-		if getErr != nil {
-			t.Logf("WARN could not re-read Vault CA source Secret to restore it: %v", getErr)
-			return
-		}
-		cur.Data[vaultCAKey] = originalCA
-		if _, updErr := secrets.Update(rctx, cur, metav1.UpdateOptions{}); updErr != nil {
-			t.Logf("WARN could not restore Vault CA source Secret: %v", updErr)
-		}
+		once.Do(func() {
+			// Restore on the background context so a cancelled test context still reverts the break.
+			rctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			cur, getErr := secrets.Get(rctx, caName, metav1.GetOptions{})
+			if getErr != nil {
+				t.Logf("WARN could not re-read Vault CA Secret %s/%s to restore it: %v", caNS, caName, getErr)
+				return
+			}
+			if cur.Data == nil {
+				cur.Data = map[string][]byte{}
+			}
+			cur.Data[vaultCAKey] = originalCA
+			if _, updErr := secrets.Update(rctx, cur, metav1.UpdateOptions{}); updErr != nil {
+				t.Logf("WARN could not restore Vault CA Secret %s/%s: %v", caNS, caName, updErr)
+			}
+		})
 	}
 }
 

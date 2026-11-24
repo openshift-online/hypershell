@@ -1,7 +1,6 @@
 import {
   fetchMetrics,
   fetchMetricsRange,
-  namespaceSelector,
   type MetricsSource,
 } from "./metrics-source.js";
 
@@ -237,20 +236,11 @@ function buildHourlySuccessRate(
   return hourly;
 }
 
-function outcomeMetricSelector(
-  namespace: string | undefined,
-  outcome: "failure" | "success",
-): string {
-  if (!namespace) {
-    return `{outcome="${outcome}"}`;
-  }
-
-  const namespaceLabel = namespaceSelector(
-    namespace,
-    "k8s_namespace_name",
-  ).slice(1, -1);
-
-  return `{${namespaceLabel},outcome="${outcome}"}`;
+// OBS-SLI-04: the API server emits gateway_provision_outcomes_total at fleet
+// level with no namespace or gateway identifier label, so the selector is only
+// the outcome filter. Any namespace argument is ignored for this series.
+function outcomeMetricSelector(outcome: "failure" | "success"): string {
+  return `{outcome="${outcome}"}`;
 }
 
 export async function queryGatewayProvisionOutcomes(
@@ -259,8 +249,8 @@ export async function queryGatewayProvisionOutcomes(
   namespace?: string,
   rangeDays?: 7 | 30,
 ): Promise<GatewayProvisionOutcomes> {
-  const successSelector = outcomeMetricSelector(namespace, "success");
-  const failureSelector = outcomeMetricSelector(namespace, "failure");
+  const successSelector = outcomeMetricSelector("success");
+  const failureSelector = outcomeMetricSelector("failure");
   const window = rangeDays === undefined ? "24h" : `${String(rangeDays)}d`;
   const success24hQuery = `sum(increase(gateway_provision_outcomes_total${successSelector}[${window}]))`;
   const failure24hQuery = `sum(increase(gateway_provision_outcomes_total${failureSelector}[${window}]))`;

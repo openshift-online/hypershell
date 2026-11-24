@@ -742,7 +742,7 @@ The ordering principle is: cheap preconditions that gate everything run first an
 - **P2.4 ManagedCluster + control-plane lifecycle** -- the co-located control plane registered itself (`ManagedCluster` with non-empty `oidc_subject`, fresh `last_seen_at`), `/registration` idempotency, registrar-role and name-collision rules, gateway create rejecting an unregistered `cluster_id` and an empty `cluster_id` with no placement selector while accepting a late-bound create (placement selector, no `cluster_id`); under `E2E_MULTICLUSTER=1` a second registered cluster is independently targetable; plus rejection of unauthorized/revoked gRPC identities (HYPERSHELL-241). Uses the control-plane `managed-cluster-registrar` client-credentials identity (see ManagedCluster Registration Coverage, Multi-Cluster Fleet Coverage, and Control-Plane gRPC Identity Rejection Coverage).
 - **P2.5 Gateway access management** -- on the primary gateway, the owner lists access and searches the gateway user directory (including a user created during the run), grants the developer and a runtime user the `user` role, and checks each role's capabilities: a gateway `user` cannot grant access, a gateway `admin` can manage access but cannot grant `owner`, and the owner can grant and remove another owner. The developer creates and deletes a sandbox as a workspace user. A `platform:admin` grants and revokes access on a gateway it does not own. The owner finally revokes the developer. Runs only on Kind with the password grant, because it signs in as several secondary users; elsewhere it skips.
 - **P2.6 Gateway service accounts** -- on the primary gateway, create an `openshell-admin` service account with a `client_secret` credential, check the returned credential (grant type, audience, issuer, token endpoint), mint client-credentials tokens and validate their claims, revoke the account and confirm new tokens are refused, then delete it and confirm `GET` returns `404`.
-- **P2.7 Vault fail-closed** -- runs serially after the P2 wave and P3, because it makes the per-cluster Vault unreachable to the control plane. A Vault-backed gateway SHALL report the Vault reachability failure on `EnvironmentReady` and SHALL NOT reach `Running`. The step then restores Vault reachability. It skips when the suite has no per-cluster kube context (see `openshell-gateway-credentials.spec.md`).
+- **P2.7 Vault fail-closed** -- runs serially after the P2 wave and P3, because it makes Vault unreachable to the environment's control plane. It corrupts only the environment's own serving-CA copy (named by the control plane's `GATEWAY_VAULT_CA_SECRET`), never the shared `openshell-vault` Secret. A Vault-backed gateway SHALL report the Vault reachability failure on `EnvironmentReady` and SHALL NOT reach `Running`. The step then restores Vault reachability. It skips when the suite has no per-cluster kube context (see `openshell-gateway-credentials.spec.md`).
 - **P2.8 Gateway sharing via `role_bindings`** -- an owner grants and revokes `gateway:viewer` access to a second user on a dedicated gateway through the `role_bindings` API, and non-owner and Keycloak-only-role requests are refused (see `e2e-feature-coverage.spec.md` E2E-COV-02).
 - **P2.9 Kata runtime sandboxes** -- a sandbox honors a configured Kata RuntimeClass, gated on `E2E_QUALIFY_KATA=1` (see `e2e-feature-coverage.spec.md` E2E-COV-03).
 - **P2.10 Alerting and incident signal** -- a reconcile fault increments the corresponding Prometheus metric unconditionally, and alert-firing is asserted only under the deferred `E2E_QUALIFY_ALERTING=1` opt-in (see `e2e-feature-coverage.spec.md` E2E-COV-04).
@@ -1612,22 +1612,43 @@ never be landed on, which is expected and SHALL NOT fail the run. The matrix cos
 (the number of `E2ESuite` runs) SHALL equal the distinct-capability count and
 SHALL be independent of the cluster count.
 
+**Opt-in fleet.** When `E2E_MATRIX_REQUIRED_CAPABILITY` names a capability label
+(for example `runtime/release-matrix`), the matrix SHALL cover only the registered
+clusters that advertise that label (the opted-in fleet). It SHALL enumerate
+capabilities only from those clusters, SHALL NOT run a suite for the required label
+itself (every opted-in cluster carries it), and SHALL append the label to every
+suite's placement selector (`placement.selector = [<capability>, <required>]`), so
+no gateway lands on a cluster that did not opt in. Full capability coverage and the
+eligible-cluster assertion SHALL apply to the opted-in fleet. If no registered
+cluster opts in, the matrix SHALL fail rather than pass with zero suites. When the
+variable is unset, the matrix SHALL cover every registered cluster. This lets a
+fleet keep a cluster that is not release quality (for example an experimental
+spoke) registered and placeable by users without making it fail the release gate.
+The opt-in label SHALL be distinct from the hub-only label the single-cluster gate
+uses to pin its gateways to the hub.
+
 **Determinism and concurrency.** The per-capability suites SHALL run concurrently
 by **default**, bounded by `E2E_CONCURRENCY` (default greater than 1; the suite
 sets it to `4`). At `E2E_CONCURRENCY=1` they SHALL run sequentially in a
 deterministic capability order; higher values fan them out within that bound.
 
 **Targeting a specific cluster.** Narrowing a test to named clusters is out of
-scope here: the runner has no env-var allowlist, and placement does not
-support selecting a cluster by name.
+scope here: the runner has no cluster-name allowlist (the opt-in label above selects
+clusters by capability, not by name), and the matrix uses only the
+capability-selector placement path, which does not target a cluster by name. The
+platform-admin `managed-cluster/<name>` identity selector
+([`data-model.spec.md`](data-model.spec.md), PLAT-DATA-31) can target a cluster by
+name, but the matrix does not use it.
 
 ```text
 clusters = GET /managed_clusters                         # authenticated, short mode (no kube context)
 registered = [mc for mc in clusters if mc.oidc_subject != ""]  # placement-eligible, NOT a health gate
-capabilities = distinct(union of mc.capabilities for mc in registered)
+required = env E2E_MATRIX_REQUIRED_CAPABILITY            # optional opt-in label
+if required: registered = [mc for mc in registered if required in mc.capabilities]
+capabilities = distinct(union of mc.capabilities for mc in registered) - {required}
 for cap in capabilities:                                 # cost = len(capabilities), not len(clusters)
-    suite = E2ESuite { mode: short, placement: [cap] }   # user-facing, kube-free
-    run suite                                            # positive creates place via [cap]
+    suite = E2ESuite { mode: short, placement: [cap] + ([required] if required else []) }  # user-facing, kube-free
+    run suite                                            # positive creates place via that selector
     assert gateway landed on some cluster advertising cap
     record landed_cluster(cap)
 assert exercised == capabilities                         # full capability coverage
@@ -1664,6 +1685,17 @@ report landed-cluster union                              # observational, never 
 - THEN it SHALL run in short mode, exercising only the user-facing API and CLI checks (authenticate, create by capability, `Running` plus `route_address` via the API, connect over the route, and a sandbox via the CLI)
 - AND it SHALL NOT require, open, or depend on a Kubernetes context for any cluster
 - AND it SHALL apply no `last_seen_at` health gate (while still enumerating only registered clusters) and SHALL NOT reference `cluster_id`
+
+#### Scenario: E2E-CORE-30.05 -- Matrix limited to the opted-in fleet
+
+- GIVEN `E2E_MATRIX_REQUIRED_CAPABILITY=runtime/release-matrix`
+- AND registered clusters `hub` and `spoke1` advertise `provider/ibm`, `network/public`, and `runtime/release-matrix`
+- AND registered cluster `spoke3` advertises `provider/ibm` and `environment/experimental` but not `runtime/release-matrix`
+- WHEN `TestMatrix` runs
+- THEN it SHALL run one suite each for `network/public` and `provider/ibm`, and none for `environment/experimental` or `runtime/release-matrix`
+- AND each suite SHALL place by `placement.selector = [<capability>, runtime/release-matrix]`
+- AND no suite gateway SHALL be accepted as landed on `spoke3`
+- AND if no registered cluster advertises `runtime/release-matrix`, `TestMatrix` SHALL fail
 
 ### Requirement: E2E-CORE-31 -- Single Functional E2E Implementation
 
@@ -1958,8 +1990,9 @@ suite reuses the full single-cluster variable set above.
 The matrix enumerates every registered cluster's capabilities with no allowlist,
 no health window, and no per-cluster kube context, so it adds no `E2E_MANAGED_CLUSTERS`,
 `E2E_MANAGED_SKIP_UNHEALTHY`, `E2E_MANAGED_HEALTHY_WINDOW`, or `E2E_MANAGED_KUBECONTEXT_<name>`
-variable. Placement does not support targeting a cluster by name, and the matrix adds no
-env-var allowlist for it; continuous per-cluster
+variable. The matrix uses only capability-selector placement and adds no env-var allowlist
+for cluster-by-name targeting; the platform-admin `managed-cluster/<name>` identity
+selector (PLAT-DATA-31) is not used by the matrix. Continuous per-cluster
 operational health and in-cluster kube validation are #858.
 
 The console browser suite (`tests/e2e/e2e-console.sh`) adds the following; see

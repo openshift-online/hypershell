@@ -295,6 +295,16 @@ func hasFleetReader(bindings []BindingSummary) bool {
 	return false
 }
 
+// CanUseManagedClusterSelector reports whether a caller holding bindings may use
+// the managed-cluster/<name> identity placement selector, the deterministic
+// single-cluster targeting token (PLAT-DATA-31). Targeting one specific cluster by
+// name is a platform-operations capability, so it is gated to platform:admin alone;
+// a plain gateway:creator places by capability selector only (SEC-RBAC-33). The
+// entitlement is platform-wide because the gateway it applies to does not exist yet.
+func CanUseManagedClusterSelector(bindings []BindingSummary) bool {
+	return hasPlatformAdmin(bindings)
+}
+
 // roleCIFederationAdmin mirrors roles.RoleCIFederationAdmin; kept local to avoid
 // an import cycle with the roles plugin package.
 const roleCIFederationAdmin = "ci-federation:admin"

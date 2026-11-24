@@ -24,8 +24,6 @@ var (
 	reconcileDuration                  metric.Int64Histogram
 	reconcileQueueDepth                metric.Int64ObservableGauge
 	reconcileQueueWaitDuration         metric.Float64Histogram
-	gatewayProvisionDuration           metric.Float64Histogram
-	gatewayProvisionOutcomes           metric.Int64Counter
 	gatewaySandboxOrphaned             metric.Int64Gauge
 	gatewaySandboxExpiring             metric.Int64Gauge
 	gatewaySandboxIdle                 metric.Int64Gauge
@@ -56,6 +54,8 @@ var (
 	reconcileFailed                    metric.Int64Counter
 	capabilityInfo                     metric.Int64ObservableGauge
 	controlPlaneInfo                   metric.Int64ObservableGauge
+	managedClusterHealth               metric.Int64Gauge
+	managedClusterHealthCheck          metric.Int64Gauge
 )
 
 // Reconciliation outcome taxonomy (OBS-CRM-06). These are the single source of
@@ -165,25 +165,6 @@ func registerMetrics() error {
 		metric.WithUnit("s"),
 		metric.WithDescription("Time from when a resource key becomes ready until a worker starts reconciliation"),
 		metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60, 120, 300),
-	)
-	if err != nil {
-		return err
-	}
-
-	gatewayProvisionDuration, err = meter.Float64Histogram(
-		"gateway.provision.duration",
-		metric.WithUnit("s"),
-		metric.WithDescription("Time from Gateway creation until its first successful transition to Running"),
-		metric.WithExplicitBucketBoundaries(1, 5, 10, 15, 30, 45, 60, 90, 120, 180, 300, 600, 900),
-	)
-	if err != nil {
-		return err
-	}
-
-	gatewayProvisionOutcomes, err = meter.Int64Counter(
-		"gateway.provision.outcomes",
-		metric.WithUnit("{outcome}"),
-		metric.WithDescription("Count of terminal gateway provision outcomes (success or failure)"),
 	)
 	if err != nil {
 		return err
@@ -420,6 +401,24 @@ func registerMetrics() error {
 		"hypershell.control_plane.info",
 		metric.WithDescription("Default gateway image this control plane provisions plus its build revision and build time; always 1"),
 	)
+	if err != nil {
+		return err
+	}
+
+	// Managed-cluster self-check health gauges (OBS-CPL-12). Low cardinality: the
+	// overall gauge carries only managed_cluster, the per-check gauge only
+	// managed_cluster and the bounded check name.
+	managedClusterHealth, err = meter.Int64Gauge(
+		"hypershell.managed_cluster.health",
+		metric.WithDescription("On-cluster self-check overall verdict (2 healthy, 1 degraded, 0 failing)"),
+	)
+	if err != nil {
+		return err
+	}
+	managedClusterHealthCheck, err = meter.Int64Gauge(
+		"hypershell.managed_cluster.health.check",
+		metric.WithDescription("On-cluster self-check per-check condition status (1 pass, 0 otherwise)"),
+	)
 	return err
 }
 
@@ -512,26 +511,6 @@ func RecordReconcileDuration(ctx context.Context, kind, eventType, outcome strin
 	reconcileDuration.Record(ctx, time.Since(start).Milliseconds(), metric.WithAttributes(
 		attribute.String("resource.kind", kind),
 		attribute.String("event.type", eventType),
-		attribute.String("outcome", outcome),
-	))
-}
-
-// RecordGatewayProvisionDuration records one successful create-to-Running
-// duration. The caller owns the one-observation rule for each Gateway.
-func RecordGatewayProvisionDuration(ctx context.Context, duration time.Duration) {
-	if gatewayProvisionDuration == nil || duration < 0 {
-		return
-	}
-	gatewayProvisionDuration.Record(ctx, duration.Seconds())
-}
-
-// RecordGatewayProvisionOutcome records one terminal provision outcome. The
-// caller owns the one-observation rule for each Gateway.
-func RecordGatewayProvisionOutcome(ctx context.Context, outcome string) {
-	if gatewayProvisionOutcomes == nil || outcome == "" {
-		return
-	}
-	gatewayProvisionOutcomes.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("outcome", outcome),
 	))
 }
@@ -699,6 +678,34 @@ func RecordGatewayVaultUnreachable(ctx context.Context, clusterID string) {
 	gatewayVaultUnreachable.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("hypershell.cluster_id", clusterID),
 	))
+}
+
+// RecordManagedClusterHealth exports the on-cluster self-check verdict as the
+// OBS-CPL-12 health gauges: the overall rollup labeled only by managed_cluster,
+// and one per-check series labeled by managed_cluster and the bounded check name.
+// The caller passes the already-encoded bounded numeric states, so no raw
+// resource identifier, secret, endpoint, or free-text message ever becomes a
+// label or value (OBS-CPL-06).
+//
+// Nothing is exported when metrics are disabled (the gauges are nil) or when the
+// managed-cluster name is empty; the self-check loop and its hub reporting still
+// run (PLAT-HLTH-07.02, OBS-CPL-12.02).
+func RecordManagedClusterHealth(ctx context.Context, clusterName string, overall int64, checks map[string]int64) {
+	if clusterName == "" {
+		return
+	}
+	clusterAttr := attribute.String("managed_cluster", clusterName)
+	if managedClusterHealth != nil {
+		managedClusterHealth.Record(ctx, overall, metric.WithAttributes(clusterAttr))
+	}
+	if managedClusterHealthCheck != nil {
+		for check, state := range checks {
+			managedClusterHealthCheck.Record(ctx, state, metric.WithAttributes(
+				clusterAttr,
+				attribute.String("check", check),
+			))
+		}
+	}
 }
 
 // RecordReconcileError increments the reconcile error counter.

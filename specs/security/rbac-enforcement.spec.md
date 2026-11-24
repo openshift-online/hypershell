@@ -535,6 +535,10 @@ For a caller that is not a control-plane identity, the rules mirror HTTP:
   them.
 - `AdjustActiveSandboxCount`, `SetActiveSandboxCount`, `SetGatewayVersion`, `ReportSandboxEvents`: denied
   whatever the caller's bindings. Only a control-plane identity writes these fields.
+- `FinalizeGatewayDeletion`: denied for every user caller whatever the caller's bindings. Only a
+  control-plane identity reports deletion finalization, and only for its own-cluster tombstone (see
+  "Control-Plane Identity" below and `platform/managed-cluster-registration.spec.md` PLAT-CLUS-11). It
+  is NOT a general delete and does NOT relax the `DeleteGateway` denial.
 - `ManagedClusterService`: reads for `gateway:creator` or `platform:admin`; writes for
   `platform:admin` (`platform/managed-cluster-registration.spec.md`, "Record Writes and
   Deregistration").
@@ -586,7 +590,13 @@ NOT return `NOT_FOUND` for a foreign-cluster gateway, so the hub control plane c
 resolve a spoke-placed gateway while reconciling (for example a `CITrust` whose gateway
 is on another cluster). The gateway writes (`UpdateGateway`, `SetGatewayVersion`,
 `AdjustActiveSandboxCount`, `SetActiveSandboxCount`, `ReportSandboxEvents`) stay
-own-cluster only and return `PERMISSION_DENIED` for a foreign-cluster gateway. This
+own-cluster only and return `PERMISSION_DENIED` for a foreign-cluster gateway.
+`FinalizeGatewayDeletion` is an additional own-cluster write authorized for the
+control-plane identity ONLY when the id resolves (through a lookup that includes
+soft-deleted rows) to a **tombstone** on the caller's own cluster; it returns
+`PERMISSION_DENIED` for a live gateway, a foreign-cluster gateway, or an unknown id,
+and it does NOT relax the standing `DeleteGateway` denial. It is the finalization
+signal of `platform/gateway-deletion-finalization.spec.md` GTW-DEL-10. This
 fleet-wide read applies ONLY to the control-plane identity; a non-control-plane caller
 keeps the per-gateway `GetGateway` rules above, including the `NOT_FOUND`
 existence-hiding when it has no access. A username on the `RBAC_SERVICE_ACCOUNTS`
@@ -728,6 +738,18 @@ so these rules are the only boundary between tenants, and between clusters, on t
 - THEN the write SHALL be authorized, the server SHALL set `repository_id` to R1, and the per-gateway tenancy gate SHALL be satisfied because the referenced `Gateway` is owned by R1 (SEC-RBAC-26)
 - WHEN the same import attempts a `CITrust` referencing a `Gateway` not owned by R1
 - THEN the write SHALL be refused
+
+#### Scenario: SEC-RBAC-09.10 -- Control plane finalizes its own-cluster tombstone but still cannot delete
+
+- GIVEN a registered control-plane identity for cluster `X`
+- AND a soft-deleted (tombstone) gateway on `X`, a live gateway on `X`, and a tombstone gateway on another cluster `Y`
+- WHEN the control plane calls `FinalizeGatewayDeletion` for its own-cluster tombstone
+- THEN the call SHALL be authorized
+- WHEN it calls `FinalizeGatewayDeletion` for the live gateway on `X`, for the tombstone on `Y`, or for an unknown id
+- THEN the request SHALL return `PERMISSION_DENIED`
+- WHEN it calls `DeleteGateway` for its own-cluster tombstone
+- THEN the request SHALL still return `PERMISSION_DENIED`
+- AND a user caller (without a control-plane identity) calling `FinalizeGatewayDeletion` SHALL be denied whatever its bindings
 
 ### Requirement: SEC-RBAC-18 -- Gateway Field Write Policy
 
@@ -1043,9 +1065,15 @@ control-plane write bypasses the check; a declarative-import create that sets th
 field is rejected by the service funnel with its own message (OSG-OPWS-01), because
 a control-plane identity holds no user bindings.
 
+**Feature flag.** The entitlement is necessary but not sufficient: the service
+funnel SHALL also reject a user operator selection while the API server feature
+flag `HYPERSHELL_ENABLE_OPERATOR_WORKSPACE_MODE` is not `true` (OSG-OPWS-01.07). The flag is
+independent of authentication and RBAC enforcement.
+
 #### Scenario: SEC-RBAC-28.01 -- Entitled caller selects operator mode
 
-- GIVEN a caller holding `gateway:creator` and `gateway:operator-workspace-creator`
+- GIVEN an API server with `HYPERSHELL_ENABLE_OPERATOR_WORKSPACE_MODE` enabled
+- AND a caller holding `gateway:creator` and `gateway:operator-workspace-creator`
   (both from Keycloak)
 - WHEN the caller creates a gateway with `workspace_mode = operator` over REST or gRPC
 - THEN the create SHALL be accepted and the gateway provisioned in operator mode
@@ -2143,6 +2171,57 @@ able to write a finding attributed to a gateway in another namespace.
 - THEN the request SHALL be denied
 
 ---
+### Requirement: SEC-RBAC-33 -- Admin ManagedCluster Selector Gate
+
+The platform-admin gate on the `managed-cluster/<name>` identity placement
+selector (the deterministic single-cluster targeting token defined canonically in
+[`platform/data-model.spec.md`](../platform/data-model.spec.md), "Requirement:
+Admin ManagedCluster Identity Selector", PLAT-DATA-31) SHALL be enforced by the
+authorization layer. It gates the USE of the token, not merely the visibility of a
+value: a caller without `platform:admin` SHALL NOT place a Gateway on, or probe
+availability for, a cluster named through this token.
+
+**Body-dependent, at the create boundaries and the availability probe.** Like the
+`dedicated_route` entitlement (SEC-RBAC-20), the selector arrives in the request
+body, which the path authorization middleware never sees. The gate SHALL therefore
+be enforced in the REST gateway Create handler, the gRPC `CreateGateway` handler,
+AND the placement-availability probe handler
+(`POST /api/hypershell/v1/gateways/placement-availability`). A request whose
+`placement` required or excluded selector (or whose probed selector) references a
+`managed-cluster/<name>` token SHALL be authorized only for a caller holding
+`platform:admin`; any other caller SHALL be rejected with 403
+(`PermissionDenied` over gRPC) naming the restriction, BEFORE the name is
+resolved. A request that references no `managed-cluster/` token SHALL be
+unaffected by this gate.
+
+**Fail closed.** The handler SHALL resolve the caller's role bindings through the
+role-binding service lookup and fail closed: a missing caller identity or bindings
+lacking `platform:admin` SHALL reject the request. A binding-lookup failure SHALL
+surface as a server error rather than an authorization denial, so a transient
+database problem does not tell the caller to request a role it may already hold.
+The check SHALL be a no-op exactly when authentication is off (SEC-RBAC-14),
+because there is then no caller identity whose bindings could be looked up. A
+privileged control-plane write bypasses the check; a declarative-import create
+carries no `managed-cluster/` token on the user placement surface.
+
+#### Scenario: SEC-RBAC-33.01 -- Platform admin may target a cluster by name
+
+- GIVEN a caller holding `platform:admin`
+- WHEN the caller creates a Gateway whose `placement.selector` references `managed-cluster/<name>` (REST or gRPC)
+- THEN the authorization layer SHALL permit the create and the handler SHALL resolve the name (PLAT-DATA-31)
+
+#### Scenario: SEC-RBAC-33.02 -- Non-admin and anonymous use is denied before resolution
+
+- GIVEN a caller holding only `gateway:creator`, or an anonymous caller with authentication on
+- WHEN the caller creates a Gateway, or probes placement availability, with a selector referencing `managed-cluster/<name>`
+- THEN the request SHALL be rejected with 403 (`PermissionDenied` over gRPC) before the name is resolved
+- AND no Gateway SHALL be created
+
+#### Scenario: SEC-RBAC-33.03 -- The availability probe is gated like create
+
+- GIVEN a caller without `platform:admin`
+- WHEN the caller calls `POST /api/hypershell/v1/gateways/placement-availability` with a selector referencing `managed-cluster/<name>`
+- THEN the probe SHALL be rejected with 403, under the same gate as the create boundaries
 
 ## API Reference
 

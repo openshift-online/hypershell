@@ -47,7 +47,7 @@ listed in `specs/id-rename-map.md`, not here.
 |--------|------|--------------|
 | `CLI-EXT` | `platform/hsctl-extension-commands.spec.md` | 5 |
 | `CLI-GWC` | `platform/hsctl-gateway-connection.spec.md` | 2 |
-| `CLI-PLC` | `platform/hsctl-placement.spec.md` | 4 |
+| `CLI-PLC` | `platform/hsctl-placement.spec.md` | 5 |
 | `CLI-REL` | `platform/hsctl-release.spec.md` | 6 |
 | `CLI-TUI` | `platform/hsctl-terminal-ui.spec.md` | 4 |
 
@@ -95,7 +95,7 @@ listed in `specs/id-rename-map.md`, not here.
 | `GTW-ATTR` | `platform/gateway-managed-cluster-attribution.spec.md` | 6 |
 | `GTW-CFG` | `platform/generated-gateway-config-validation.spec.md` | 4 |
 | `GTW-CONC` | `platform/gateway-reconcile-concurrency.spec.md` | 3 |
-| `GTW-DEL` | `platform/gateway-deletion-finalization.spec.md` | 8 |
+| `GTW-DEL` | `platform/gateway-deletion-finalization.spec.md` | 10 |
 | `GTW-PHS` | `platform/gateway-phase-vocabulary.spec.md` | 5 |
 | `GTW-PROG` | `platform/gateway-provisioning-progress.spec.md` | 5 |
 
@@ -103,7 +103,7 @@ listed in `specs/id-rename-map.md`, not here.
 
 | Prefix | File | Requirements |
 |--------|------|--------------|
-| `OBS-CPL` | `platform/control-plane-observability.spec.md` | 11 |
+| `OBS-CPL` | `platform/control-plane-observability.spec.md` | 12 |
 | `OBS-CPU` | `platform/cluster-cpu.spec.md` | 8 |
 | `OBS-CRM` | `platform/control-plane-reconciliation-metrics.spec.md` | 13 |
 | `OBS-GFT` | `platform/gateway-fleet-total-trend.spec.md` | 9 |
@@ -119,7 +119,7 @@ listed in `specs/id-rename-map.md`, not here.
 | `OBS-RLSD` | `platform/gateway-release-distribution.spec.md` | 7 |
 | `OBS-SBXA` | `platform/gateway-sandbox-attention-status.spec.md` | 11 |
 | `OBS-SBXT` | `platform/gateway-sandbox-active-trends.spec.md` | 9 |
-| `OBS-SLI` | `platform/service-level-indicators.spec.md` | 9 |
+| `OBS-SLI` | `platform/service-level-indicators.spec.md` | 10 |
 
 ### OSG
 
@@ -150,7 +150,8 @@ listed in `specs/id-rename-map.md`, not here.
 | `PLAT-ARCH` | `platform/global-architecture.spec.md` | 19 |
 | `PLAT-CITR` | `platform/ci-trust-ext-api.spec.md` | 16 |
 | `PLAT-CLUS` | `platform/managed-cluster-registration.spec.md` | 15 |
-| `PLAT-DATA` | `platform/data-model.spec.md` | 30 |
+| `PLAT-DATA` | `platform/data-model.spec.md` | 32 |
+| `PLAT-HLTH` | `platform/managed-cluster-self-healthcheck.spec.md` | 7 |
 | `PLAT-INV` | `platform/platform-inventory.spec.md` | 10 |
 | `PLAT-PGP` | `platform/platform-gateway-policy.spec.md` | 21 |
 | `PLAT-USR` | `platform/registered-users.spec.md` | 15 |
@@ -178,7 +179,7 @@ listed in `specs/id-rename-map.md`, not here.
 |--------|------|--------------|
 | `SEC-AUD` | `security/audit-capture.spec.md` | 8 |
 | `SEC-OIDC` | `platform/oidc-integration.spec.md` | 11 |
-| `SEC-RBAC` | `security/rbac-enforcement.spec.md` | 28 |
+| `SEC-RBAC` | `security/rbac-enforcement.spec.md` | 33 |
 | `SEC-STD` | `standards/security/security.spec.md` | 4 |
 
 ### STD

@@ -41,13 +41,21 @@ func NewServiceLocator(env *environments.Env) ServiceLocator {
 	dao := NewGatewayDao(&env.Database.SessionFactory)
 	RegisterGatewayMetrics(dao)
 
+	// The durable change-convergence store backs OBS-SLI-01 through OBS-SLI-04.
+	// It shares the gateway session factory so its writes commit atomically with
+	// the gateway create/replace/delete that triggered them, and it backs the
+	// convergence and provision metrics exported on :4433/metrics.
+	convergence := newConvergenceStore(&env.Database.SessionFactory, db.NewAdvisoryLockFactory(env.Database.SessionFactory))
+	RegisterConvergenceMetrics(convergence)
+
 	return ServiceLocator{
 		gateway: func() GatewayService {
-			return NewGatewayService(
+			return newGatewayService(
 				db.NewAdvisoryLockFactory(env.Database.SessionFactory),
 				dao,
 				events.Service(&env.Services),
 				gatewayBindingCleaner(&env.Services),
+				convergence,
 			)
 		},
 		list:      newGatewayListService(&env.Database.SessionFactory),
@@ -223,6 +231,100 @@ func (p *registeredPlacementService) selectManaged(snapshot placementSnapshot, i
 	return ResolvePlacement(intent, snapshot.candidates)
 }
 
+// withoutClusters returns a snapshot with the named cluster ids removed from the
+// candidate set. It backs the excluded managed-cluster/<name> identity token
+// (PLAT-DATA-31): an admin may late-bind by capability while excluding one specific
+// cluster. An empty exclusion set returns the snapshot unchanged.
+func (s placementSnapshot) withoutClusters(ids map[string]struct{}) placementSnapshot {
+	if len(ids) == 0 {
+		return s
+	}
+	filtered := make([]PlacementCandidate, 0, len(s.candidates))
+	for _, candidate := range s.candidates {
+		if _, excluded := ids[candidate.ID]; excluded {
+			continue
+		}
+		filtered = append(filtered, candidate)
+	}
+	return placementSnapshot{candidates: filtered}
+}
+
+// lookupByName resolves a ManagedCluster by its unique name through the
+// managedClusters service, following the environment's service registry. A missing
+// service is a server error; a name that matches no record returns (nil, nil).
+func (p *registeredPlacementService) lookupByName(ctx context.Context, name string) (*managedClusters.ManagedCluster, *errors.ServiceError) {
+	svc := managedClusters.Service(p.services)
+	if svc == nil {
+		return nil, errors.GeneralError("managed cluster service is not available")
+	}
+	return svc.FindByName(ctx, name)
+}
+
+// identityClusterIDs resolves managed-cluster/<name> excluded-identity names to the
+// ids of any matching records. An unknown name contributes nothing (excluding a
+// cluster that does not exist is a well-defined no-op), keeping late-binding
+// re-resolution robust when an excluded cluster is later deleted.
+func (p *registeredPlacementService) identityClusterIDs(ctx context.Context, names []string) (map[string]struct{}, *errors.ServiceError) {
+	ids := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		record, svcErr := p.lookupByName(ctx, name)
+		if svcErr != nil {
+			return nil, svcErr
+		}
+		if record != nil {
+			ids[record.ID] = struct{}{}
+		}
+	}
+	return ids, nil
+}
+
+// resolveIdentitySelection resolves a required managed-cluster/<name> identity token
+// deterministically (PLAT-DATA-31): it looks the cluster up by name and applies the
+// fail-fast rules. At most one identity target is allowed; more than one is
+// contradictory and rejected with 400.
+func (p *registeredPlacementService) resolveIdentitySelection(ctx context.Context, requiredIdentity, requiredCaps, excludedIdentity, excludedCaps []string) (string, *errors.ServiceError) {
+	if len(requiredIdentity) > 1 {
+		return "", errors.Validation("a placement selector may target at most one managed-cluster/<name> identity; got %d", len(requiredIdentity))
+	}
+	name := requiredIdentity[0]
+	normalizedRequiredCaps, svcErr := normalizeSelectorMaybeEmpty(requiredCaps)
+	if svcErr != nil {
+		return "", svcErr
+	}
+	normalizedExcludedCaps, svcErr := normalizeSelectorMaybeEmpty(excludedCaps)
+	if svcErr != nil {
+		return "", svcErr
+	}
+	record, svcErr := p.lookupByName(ctx, name)
+	if svcErr != nil {
+		return "", svcErr
+	}
+	var identity *managedClusterIdentity
+	if record != nil {
+		identity = &managedClusterIdentity{ID: record.ID, Capabilities: record.Capabilities, Registered: record.OIDCSubject != ""}
+	}
+	return resolveManagedClusterIdentitySelection(name, identity, normalizedRequiredCaps, excludedIdentity, normalizedExcludedCaps)
+}
+
+// identityAvailable reports whether a probed managed-cluster/<name> selector would
+// resolve: the named cluster must exist, be registered, and advertise every
+// accompanying capability label. An unknown, unregistered, or non-matching target is
+// simply unavailable (the availability probe reports, it does not reject); the
+// platform-admin gate already ran before this (SEC-RBAC-33.03).
+func (p *registeredPlacementService) identityAvailable(ctx context.Context, requiredIdentity, requiredCaps []string) (bool, *errors.ServiceError) {
+	if len(requiredIdentity) != 1 {
+		return false, nil
+	}
+	record, svcErr := p.lookupByName(ctx, requiredIdentity[0])
+	if svcErr != nil {
+		return false, svcErr
+	}
+	if record == nil || record.OIDCSubject == "" {
+		return false, nil
+	}
+	return capabilitySetContains(record.Capabilities, requiredCaps), nil
+}
+
 func managedPlacementAvailable(snapshot placementSnapshot, intent PlacementIntent) bool {
 	for _, candidate := range snapshot.candidates {
 		if capabilitySetContains(candidate.Capabilities, intent.Selector) &&
@@ -238,20 +340,40 @@ func managedPlacementAvailable(snapshot placementSnapshot, intent PlacementInten
 // gateway is late-bound (created Pending, awaiting placement) rather than rejected
 // (WEB-PLC-07).
 func (p *registeredPlacementService) Resolve(ctx context.Context, intent openapi.GatewayPlacementIntent) (string, bool, *errors.ServiceError) {
+	requiredIdentity, requiredCaps := splitManagedClusterSelector(intent.Selector)
+	excludedIdentity, excludedCaps := splitManagedClusterSelector(intent.ExcludedSelector)
+
+	// Deterministic single-cluster targeting (PLAT-DATA-31): a required
+	// managed-cluster/<name> token resolves by name and fails fast, unlike a
+	// capability selector that late-binds when no eligible cluster matches yet.
+	if len(requiredIdentity) > 0 {
+		clusterID, svcErr := p.resolveIdentitySelection(ctx, requiredIdentity, requiredCaps, excludedIdentity, excludedCaps)
+		if svcErr != nil {
+			return "", false, svcErr
+		}
+		return clusterID, true, nil
+	}
+
 	snapshot, svcErr := p.snapshot(ctx)
 	if svcErr != nil {
 		return "", false, svcErr
 	}
-	selector, validationErr := managedClusters.NormalizeSelector(intent.Selector)
+	// An excluded managed-cluster/<name> token removes that specific cluster from the
+	// candidate set before capability matching (PLAT-DATA-31).
+	if len(excludedIdentity) > 0 {
+		excludedIDs, idErr := p.identityClusterIDs(ctx, excludedIdentity)
+		if idErr != nil {
+			return "", false, idErr
+		}
+		snapshot = snapshot.withoutClusters(excludedIDs)
+	}
+	selector, validationErr := managedClusters.NormalizeSelector(requiredCaps)
 	if validationErr != nil {
 		return "", false, validationErr
 	}
-	excludedSelector := intent.ExcludedSelector
-	if excludedSelector != nil {
-		excludedSelector, validationErr = managedClusters.NormalizeSelector(excludedSelector)
-		if validationErr != nil {
-			return "", false, validationErr
-		}
+	excludedSelector, validationErr := normalizeSelectorMaybeEmpty(excludedCaps)
+	if validationErr != nil {
+		return "", false, validationErr
 	}
 	selected, err := p.selectManaged(snapshot, PlacementIntent{
 		Selector:         selector,
@@ -286,17 +408,30 @@ func (p *registeredPlacementService) Availability(ctx context.Context, selectors
 	availability := openapi.GatewayPlacementAvailability{Placements: make([]openapi.GatewayPlacementAvailabilityItem, 0, len(selectors))}
 	seen := make(map[string]struct{}, len(selectors))
 	for _, requested := range selectors {
-		selector, validationErr := managedClusters.NormalizeSelector(requested)
+		normalized, validationErr := normalizePlacementSelector(requested)
 		if validationErr != nil {
 			return openapi.GatewayPlacementAvailability{}, validationErr
 		}
-		key := strings.Join(selector, "\x00")
+		key := strings.Join(normalized, "\x00")
 		if _, duplicate := seen[key]; duplicate {
 			continue
 		}
 		seen[key] = struct{}{}
-		available := managedPlacementAvailable(snapshot, PlacementIntent{Selector: selector})
-		item := openapi.GatewayPlacementAvailabilityItem{Selector: selector, Available: available}
+		requiredIdentity, requiredCaps := splitManagedClusterSelector(normalized)
+		var available bool
+		if len(requiredIdentity) > 0 {
+			// A probed managed-cluster/<name> selector is available iff the named
+			// cluster resolves and advertises every accompanying capability label
+			// (PLAT-DATA-31); it never late-binds (WEB-PLC-07.06).
+			avail, availErr := p.identityAvailable(ctx, requiredIdentity, requiredCaps)
+			if availErr != nil {
+				return openapi.GatewayPlacementAvailability{}, availErr
+			}
+			available = avail
+		} else {
+			available = managedPlacementAvailable(snapshot, PlacementIntent{Selector: requiredCaps})
+		}
+		item := openapi.GatewayPlacementAvailabilityItem{Selector: normalized, Available: available}
 		if !available {
 			reason := "no-eligible-cluster"
 			item.Reason = &reason
@@ -405,7 +540,7 @@ func init() {
 			return nil
 		}
 		placement := newRegisteredPlacementService(envServices)
-		grpcHandler := NewGatewayGRPCHandler(gatewayService, genericService, brokerFunc, registeredClusterLookup(envServices), gatewaySubjectResolver{services: envServices}, newDedicatedRouteAuthorizer(gatewayBindingLookup(envServices), rbac.Enforced()), newOperatorWorkspaceAuthorizer(gatewayBindingLookup(envServices), rbac.Enforced()), placement.Resolve)
+		grpcHandler := NewGatewayGRPCHandler(gatewayService, genericService, brokerFunc, registeredClusterLookup(envServices), gatewaySubjectResolver{services: envServices}, newDedicatedRouteAuthorizer(gatewayBindingLookup(envServices), rbac.Enforced()), newOperatorWorkspaceAuthorizer(gatewayBindingLookup(envServices), rbac.Enforced()), newManagedClusterSelectorAuthorizer(gatewayBindingLookup(envServices), rbac.Enforced()), placement.Resolve)
 		SetSandboxEventStore(grpcHandler, sandboxEvents.Store(envServices))
 		pb.RegisterGatewayServiceServer(grpcServer, grpcHandler)
 	}, gatewayGRPCResources())
@@ -439,6 +574,7 @@ func init() {
 	db.RegisterMigration(migrationAddGatewayWorkspaceMode())
 	db.RegisterMigration(migrationAddGatewayDedicatedRoute())
 	db.RegisterMigration(migrationBackfillGatewayWorkspaceModeShared())
+	db.RegisterMigration(migrationAddConvergenceTracking())
 }
 
 // gatewayGRPCResources declares every GatewayService method for authorization.
@@ -450,6 +586,12 @@ func gatewayGRPCResources() authz.GRPCResources {
 	resources[method("AdjustActiveSandboxCount")] = authz.GRPCResource{Kind: "gateways", Action: authz.ActionUpdate}
 	resources[method("SetActiveSandboxCount")] = authz.GRPCResource{Kind: "gateways", Action: authz.ActionUpdate}
 	resources[method("SetGatewayVersion")] = authz.GRPCResource{Kind: "gateways", Action: authz.ActionUpdate}
+	// FinalizeGatewayDeletion is the control plane's narrow finalization-completion
+	// write on a tombstone (GTW-DEL-10), the SetGatewayVersion pattern. It MUST be
+	// declared here: the interceptor denies any method with no declared resource
+	// before HyperShell's authorizer runs, so an omission would refuse the
+	// control-plane identity its own-cluster-tombstone finalization.
+	resources[method("FinalizeGatewayDeletion")] = authz.GRPCResource{Kind: "gateways", Action: authz.ActionUpdate}
 	resources[method("ReportSandboxEvents")] = authz.GRPCResource{Kind: "sandbox_events", Action: authz.ActionCreate}
 	return resources
 }

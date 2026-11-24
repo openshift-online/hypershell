@@ -11,7 +11,7 @@ Gateways and clusters are **top-level resources**. Tenancy is enforced by RBAC (
 
 Current model:
 
-- **ManagedCluster** - a Kubernetes cluster whose control plane has registered into the platform (`oidc_subject`, `last_seen_at`; see [`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md)). Its self-declared, namespaced `capabilities` set is the source of truth for placement. It also tracks API server URL and a kubeconfig secret reference, which are informational: no component consumes `kubeconfig_secret`, because each control plane reconciles its own cluster with in-cluster credentials.
+- **ManagedCluster** - a Kubernetes cluster whose control plane has registered into the platform (`oidc_subject`, `last_seen_at`; see [`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md)). Its self-declared, namespaced `capabilities` set is the source of truth for placement. It also carries a spoke-reported `health` verdict from the cluster's on-cluster self-check (see [`managed-cluster-self-healthcheck.spec.md`](./managed-cluster-self-healthcheck.spec.md), and PLAT-DATA-32 below), distinct from `last_seen_at` liveness and from the reconciler-owned `status`. It also tracks API server URL and a kubeconfig secret reference, which are informational: no component consumes `kubeconfig_secret`, because each control plane reconciles its own cluster with in-cluster credentials.
 - **Gateway** - an API gateway instance deployed onto a cluster within an API-assigned namespace. Its target cluster MAY be pinned explicitly through `cluster_id`, or left absent and late-bound to a matching `ManagedCluster` through a capability-label `placement` selector (see "Gateway Placement and Late Binding" below). Its PostgreSQL database is not modelled in the API: the control plane provisions one database and login role per gateway on the platform's gateway database server (see [`openshell-gateway-database.spec.md`](./openshell-gateway-database.spec.md)). Its only user-writable fields are `name` (create and update), placement (create only), and the create-only `dedicated_route` request flag (see "Requirement: Gateway Dedicated Route Request Field", PLAT-DATA-26); TLS mode, service type, external DNS, image, OIDC, routing, and lifecycle phase are all control-plane-managed and read-only to users and to the GitOps import (see "Requirement: Gateway Field Ownership and Write Policy", PLAT-DATA-23).
 - **OpenShellGatewayServiceAccount** - a creator-bound automation identity for one Gateway. It stores an OpenShell role and non-secret Keycloak lifecycle metadata.
 - **AgentRuntime** - a scheduled autonomous AI agent, referencing a ManagedCluster, Gateway, and SandboxTemplate, and optionally a Repository. Owns exactly one AgentWorkspace and one or more SecretSources. An optional `selector` (a list of labels) turns the runtime into a repository scanner: it queries the referenced Repository for items carrying any selected label and fans out one sandbox per match.
@@ -39,6 +39,7 @@ erDiagram
         string[] capabilities
         string kubeconfig_secret
         string status
+        jsonb health "nullable; spoke-reported self-check readiness verdict (PLAT-DATA-32)"
         string api_server_url
         time last_seen_at
         time created_at
@@ -345,8 +346,11 @@ namespaces, see [`managed-cluster-registration.spec.md`](./managed-cluster-regis
 "Requirement: Self-Declared Capability Labels") and SHALL resolve by random
 selection among the eligible clusters that match it, so a caller expresses the
 TYPE of placement it wants and SHALL NOT choose a specific cluster through this
-contract. Deterministic single-cluster targeting is out of scope here: it is a
-separate `cluster_name` placement selector tracked in its own issue (#857).
+requirement-capability contract. Deterministic single-cluster targeting is NOT
+part of this contract: it is the separate `managed-cluster/<name>` identity
+selector of "Requirement: Admin ManagedCluster Identity Selector"
+(PLAT-DATA-31), a selector-layer targeting token resolved by cluster name and
+gated to `platform:admin`, never a requirement capability.
 
 **Late binding (no eligible cluster yet).** When a late-bound Gateway's selector
 matches NO eligible `ManagedCluster`, the create SHALL still succeed: the Gateway
@@ -406,6 +410,82 @@ responsible for it until it is placed.
 - THEN the import writer SHALL send a create that carries the `placement` selector and no `cluster_id`
 - AND the API server SHALL accept it under the exactly-one-of contract and late-bind it
 
+### Requirement: PLAT-DATA-31 -- Admin ManagedCluster Identity Selector
+
+A `placement` selector MAY carry a `managed-cluster/<name>` identity token that
+targets ONE specific `ManagedCluster` by its unique name (PLAT-CLUS-06,
+PLAT-CLUS-02), so a platform administrator can place a Gateway deterministically
+on a single cluster for operations, debugging, or targeted validation. The token
+rides the existing `placement` selector surface (PLAT-DATA-02); it SHALL NOT
+introduce a new create field. It supersedes the server-assigned
+`managed-cluster/<name>` identity capability that was removed from the
+ManagedCluster registration contract (see
+[`id-rename-map.md`](../id-rename-map.md)): the behavior is now a selector-layer
+token resolved by name, NOT a capability.
+
+**A selector-layer token, never a capability.** `managed-cluster/` SHALL be a
+distinct selector namespace, separate from the self-declared capability
+namespaces `provider`, `network`, `region`, `runtime`, and `environment`
+(PLAT-CLUS-06). Because the namespaces are disjoint, a label in the
+`managed-cluster/` namespace is unambiguously the identity-targeting token. The
+token SHALL be resolver-level only: it SHALL NOT be stored on a `ManagedCluster`,
+SHALL NOT be advertised in any capability list on `GET /managed_clusters`, and
+SHALL NOT be synthesized onto placement candidates. No read-filtering of the
+ManagedCluster capability surface is required, because the token is never a
+capability.
+
+**Platform-admin gate on USE.** A create request (REST or gRPC) whose `placement`
+required or excluded selector references a `managed-cluster/<name>` token, and a
+placement-availability probe that references one, SHALL require `platform:admin`.
+A caller without `platform:admin` SHALL be rejected with 403 (`PermissionDenied`
+over gRPC) BEFORE name resolution, so the gate confines the USE of the token and
+does not merely hide a value. The authorization-layer enforcement is defined in
+[`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md),
+"Requirement: Admin ManagedCluster Selector Gate" (SEC-RBAC-33).
+
+**Deterministic resolution.** After the gate passes, the API server SHALL resolve
+a `managed-cluster/<name>` token to the `ManagedCluster` whose unique `name`
+equals `<name>` and SHALL assign its id as the Gateway's `cluster_id`. Unlike a
+requirement-capability selector (which late-binds when no eligible cluster
+matches, PLAT-DATA-02), the identity selector SHALL fail fast, mirroring the
+pinned `cluster_id` rules (PLAT-CLUS-09): a name that matches no
+`ManagedCluster` SHALL be rejected with 400, and a name that matches a record
+with an empty `oidc_subject` (an unregistered placeholder) SHALL be rejected with
+400 stating the cluster has no registered control plane. A selector that combines
+the identity token with capability labels SHALL additionally require the named
+cluster to satisfy those labels (literal match-all, WEB-PLC-07); a named cluster
+that does not SHALL be rejected with 400.
+
+#### Scenario: PLAT-DATA-31.01 -- Platform admin targets a cluster by name
+
+- GIVEN a caller holding `platform:admin`
+- AND a registered `ManagedCluster` named `hyp0-mc1` with a non-empty `oidc_subject`
+- WHEN the caller creates a Gateway with `placement.selector = ["managed-cluster/hyp0-mc1"]` and no `cluster_id`
+- THEN the API server SHALL resolve the token to that cluster and assign its id as `cluster_id`
+- AND the Gateway SHALL proceed through its normal provisioning lifecycle
+
+#### Scenario: PLAT-DATA-31.02 -- Non-admin use of the token is rejected before resolution
+
+- GIVEN a caller holding only `gateway:creator`
+- WHEN the caller creates a Gateway whose `placement` required or excluded selector references `managed-cluster/<name>` (REST or gRPC)
+- THEN the API server SHALL reject the create with 403 (`PermissionDenied` over gRPC) before resolving the name
+- AND no Gateway SHALL be created
+
+#### Scenario: PLAT-DATA-31.03 -- Unknown or unregistered name is rejected
+
+- GIVEN a caller holding `platform:admin`
+- WHEN the caller creates a Gateway with `placement.selector = ["managed-cluster/absent"]` naming no `ManagedCluster`
+- THEN the API server SHALL reject the create with 400
+- AND a name that matches a record with an empty `oidc_subject` SHALL likewise be rejected with 400 stating the cluster has no registered control plane
+- AND no Gateway SHALL be created
+
+#### Scenario: PLAT-DATA-31.04 -- The token is never a stored capability
+
+- GIVEN a registered `ManagedCluster` targeted by `managed-cluster/<name>`
+- WHEN `GET /managed_clusters` returns that cluster
+- THEN its advertised `capabilities` SHALL NOT contain any `managed-cluster/` label
+- AND the resolver SHALL NOT compare the token against any stored capability nor synthesize it onto a placement candidate
+
 ### Requirement: PLAT-DATA-03 -- Gateway Namespace Ownership
 
 The API server SHALL assign each Gateway an immutable Kubernetes namespace before persistence and before publishing its creation event. The namespace SHALL be `openshell-<id-hex-8>`, where `id-hex-8` is the lowercase hexadecimal encoding of 8 bytes from the Gateway KSUID's random payload, producing a 26-character namespace (e.g., `openshell-a1b2c3d4e5f67890`). This is stable, collision-safe for realistic gateway counts (~1 in 10^9 at 1M gateways), and a valid Kubernetes DNS label. Namespace SHALL be read-only in the REST contract and SHALL be absent from REST and gRPC create and update inputs.
@@ -451,7 +531,7 @@ selected per sandbox through OpenShell; they are not Gateway resource fields.
 | `route_address` | text | Read-only external address populated by the control plane (e.g., `grpcs://hostname:443`) |
 | `gateway_version` | string | Read-only runtime version from the last successful gateway health response |
 | `credential_driver` | JSONB | Credential storage driver config: `{type, kubernetes_secrets, vault}`. `type` is one of `vault`, `kubernetes-secrets`, `kek-db`. When omitted/null it resolves to `vault` (the default; convention-addressed per-cluster Vault, no sub-fields required). See [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) |
-| `workspace_mode` | text | How the OpenShell Kubernetes driver maps workspaces to namespaces: `shared`, `managed`, or `operator`. Platform-managed with a create-only exception: the API server defaults it to `managed` at create, and the only caller-settable value is `operator`, accepted only from a `gateway:operator-workspace-creator` caller (the per-gateway operator-managed workspace opt-in). Immutable after create; the service funnel enforces the vocabulary and immutability for every writer class. Required: every stored Gateway carries a value. See [`openshell-gateway.spec.md`](./openshell-gateway.spec.md), "OSG-CORE-18 -- Gateway Workspace Mode", and [`gateway-operator-workspaces.spec.md`](./gateway-operator-workspaces.spec.md), "OSG-OPWS-01" |
+| `workspace_mode` | text | How the OpenShell Kubernetes driver maps workspaces to namespaces: `shared`, `managed`, or `operator`. Platform-managed with a create-only exception: the API server defaults it to `managed` at create, and the only caller-settable value is `operator`, accepted only from a `gateway:operator-workspace-creator` caller while the `HYPERSHELL_ENABLE_OPERATOR_WORKSPACE_MODE` API server feature flag is enabled (the per-gateway operator-managed workspace opt-in). Immutable after create; the service funnel enforces the vocabulary and immutability for every writer class. Required: every stored Gateway carries a value. See [`openshell-gateway.spec.md`](./openshell-gateway.spec.md), "OSG-CORE-18 -- Gateway Workspace Mode", and [`gateway-operator-workspaces.spec.md`](./gateway-operator-workspaces.spec.md), "OSG-OPWS-01" |
 | `dev_build` | boolean | Marks this Gateway as a dev/branch build (default: false). Control plane passes `hypershell.redhat.io/openshell-dev-build` via Helm `podLabels`. See [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md) |
 | `dev_build_metadata` | JSONB | Dev build provenance: `{ref, sha, repo}`. Control plane passes these via Helm `podAnnotations`. See [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md) |
 
@@ -663,7 +743,8 @@ control-plane gRPC write WITHOUT import metadata) retains full write access.
   or `cluster_id` (per "Requirement: Gateway Placement and Late Binding"), the
   create-only `dedicated_route` request flag (PLAT-DATA-26), and the create-only
   `workspace_mode` operator opt-in (the only caller-settable value is `operator`,
-  and only for a caller holding `gateway:operator-workspace-creator`; see
+  and only for a caller holding `gateway:operator-workspace-creator` while the
+  `HYPERSHELL_ENABLE_OPERATOR_WORKSPACE_MODE` feature flag is enabled; see
   [`openshell-gateway.spec.md`](./openshell-gateway.spec.md), OSG-CORE-18, and
   [`gateway-operator-workspaces.spec.md`](./gateway-operator-workspaces.spec.md),
   OSG-OPWS-01). An Import caller SHALL NOT set `dedicated_route` or `workspace_mode`:
@@ -902,6 +983,39 @@ the field at the boundary naming it.
 - AND a lookup failure SHALL surface as a server error rather than an authorization
   denial, so a transient database problem does not tell the caller to request a role
   it may already hold
+
+### Requirement: PLAT-DATA-32 -- ManagedCluster Health Verdict Field
+
+`ManagedCluster` SHALL carry a nullable `health` field holding the spoke-reported
+on-cluster self-check verdict (`managed-cluster-self-healthcheck.spec.md`,
+PLAT-HLTH-03). The field SHALL be written only by the registering control plane,
+through the registration/heartbeat path (`managed-cluster-registration.spec.md`,
+PLAT-CLUS-16); it SHALL be read-only to generic `POST /managed_clusters` and
+`PATCH /managed_clusters/{id}` requests, which SHALL NOT assign or modify it. The
+API server SHALL surface it on `GET /managed_clusters` and
+`GET /managed_clusters/{id}` over REST and gRPC.
+
+`health` is distinct from the other two cluster signals and SHALL NOT be conflated
+with them: `last_seen_at` is passive liveness (PLAT-CLUS-05) and remains the
+liveness floor, the control-plane-reconciler-owned `status` is the hub's view of
+cluster state, and `health` is the spoke's own operational-readiness verdict. The
+stored verdict SHALL follow the shape in PLAT-HLTH-03 (an `overall` rollup, an
+`observed_at`, a `duration_ms`, and a `conditions` list). It SHALL be null until
+the first verdict is reported.
+
+#### Scenario: PLAT-DATA-32.01 -- Health is control-plane-reported and read-only elsewhere
+
+- GIVEN a registered `ManagedCluster`
+- WHEN a `PATCH /managed_clusters/{id}` request attempts to set `health`
+- THEN the API server SHALL NOT modify the stored verdict
+- AND a heartbeat from the registering control plane SHALL be able to update it
+
+#### Scenario: PLAT-DATA-32.02 -- Health surfaced on reads
+
+- GIVEN a `ManagedCluster` whose control plane has reported a verdict
+- WHEN a client reads `GET /managed_clusters/{id}`
+- THEN the response SHALL include the stored `health` verdict
+- AND a cluster that has never reported one SHALL read back `health` as null
 
 ### Requirement: PLAT-DATA-08 -- AgentRuntime as a Top-Level Resource
 
@@ -2008,7 +2122,7 @@ The `hsctl` CLI mirrors the REST API 1-for-1 except where a feature explicitly d
 |---|---|---|
 | `GET /api/hypershell/v1/gateways` | `hsctl list gateways` | ✅ implemented |
 | `GET /api/hypershell/v1/gateways/{id}` | `hsctl get gateway <id>` | ✅ implemented |
-| `POST /api/hypershell/v1/gateways` | `hsctl create gateway --name <n> (--cluster-id <c> \| [--placement-selector <label>]... [--placement-exclude-selector <label>]...) [--dedicated-route] [--dry-run]` (name + placement + the create-only `dedicated_route` request, per PLAT-DATA-23 / PLAT-DATA-26; `--dedicated-route` requires the `gateway:dedicated-route-creator` role; the placement flags submit the late-bound shape, see [`hsctl-placement.spec.md`](hsctl-placement.spec.md)) | ✅ implemented |
+| `POST /api/hypershell/v1/gateways` | `hsctl create gateway --name <n> (--cluster-id <c> \| [--placement-selector <label>]... [--placement-exclude-selector <label>]...) [--dedicated-route] [--dry-run]` (name + placement + the create-only `dedicated_route` request, per PLAT-DATA-23 / PLAT-DATA-26; `--dedicated-route` requires the `gateway:dedicated-route-creator` role; the placement flags submit the late-bound shape, and `--cluster-id` submits the pinned shape but is accepted-yet-hidden from `--help` as a nudge toward the placement surface, see [`hsctl-placement.spec.md`](hsctl-placement.spec.md) CLI-PLC-05) | ✅ implemented |
 | `PATCH /api/hypershell/v1/gateways/{id}` | `hsctl update gateway <id> --name <n>` (rename only, per PLAT-DATA-23) | 🔲 planned |
 | `DELETE /api/hypershell/v1/gateways/{id}` | `hsctl delete gateway <id>` | ✅ implemented |
 | `GET /api/hypershell/v1/gateways/{gateway_id}/sandbox_events` | -- | planned (REST only; see [`gateway-sandbox-events.spec.md`](gateway-sandbox-events.spec.md)) |
@@ -2271,7 +2385,7 @@ hsctl login --url https://api.example.com --issuer-url https://keycloak.example.
 hsctl login --no-browser --url https://api.example.com --issuer-url https://keycloak.example.com/realms/hypershell
 
 hsctl list gateways
-hsctl create gateway --name api-gateway --cluster-id eks-1
+hsctl create gateway --name api-gateway --placement-selector provider/aws
 ```
 
 

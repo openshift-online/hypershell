@@ -82,8 +82,12 @@ type E2ESuite struct {
 	// per-capability suite's gateway names are unique.
 	matrixCapability       string
 	matrixEligibleClusters map[string]bool
-	landed                 *landedTracker
-	nameSuffix             string
+	// matrixRequiredCapability, when set, is the opt-in label
+	// (E2E_MATRIX_REQUIRED_CAPABILITY) the matrix appends to every suite's placement
+	// selector, so gateways land only on clusters that opted in (E2E-CORE-30.05).
+	matrixRequiredCapability string
+	landed                   *landedTracker
+	nameSuffix               string
 
 	// primary is the P1 gateway the read-only steps reuse.
 	primary driver.GatewayRef
@@ -521,11 +525,13 @@ func (s *E2ESuite) TestPhases() {
 		})
 	})
 
-	// Phase P4 -- fail-closed (serial). P2.7 makes the per-cluster Vault unreachable
-	// cluster-wide (Vault is a black box with no per-gateway overrides, so reachability
-	// cannot be broken for a single gateway), which would disrupt any concurrent
-	// provisioning. It therefore runs serially as the final behavior check, after the
-	// parallel P2 wave and read-only P3, and restores Vault reachability before returning.
+	// Phase P4 -- fail-closed (serial). P2.7 corrupts this environment's own copy of the
+	// Vault serving CA (never the shared openshell-vault Secret), so the break cannot leak
+	// to other environments on a shared cluster. Within this run it still makes Vault
+	// unreachable for every gateway this control plane provisions (Vault is a black box
+	// with no per-gateway overrides), which would disrupt concurrent provisioning. It
+	// therefore runs serially as the final behavior check, after the parallel P2 wave and
+	// read-only P3, and restores the CA copy before returning.
 	s.Require().NoError(s.refreshAdminToken(), "refresh admin token before P2.7")
 	s.step("P2.7", "vault-fail-closed", tagLong, s.p2_7VaultFailClosed)
 }
@@ -540,8 +546,8 @@ func (s *E2ESuite) p2ParallelSteps() []parallelSubtest {
 		s.parallelStep("P2.4", "managedcluster-lifecycle", tagLong, (*E2ESuite).p2_4ManagedClusterLifecycle),
 		s.parallelStep("P2.5", "gateway-access-management", tagLong, (*E2ESuite).p2_5GatewayAccessManagement),
 		s.parallelStep("P2.6", "gateway-service-accounts", tagLong, (*E2ESuite).p2_6GatewayServiceAccounts),
-		// P2.7 (vault-fail-closed) is NOT here: it makes the cluster Vault unreachable
-		// cluster-wide, so it runs serially as the final step (see TestPhases, Phase-P4).
+		// P2.7 (vault-fail-closed) is NOT here: it makes Vault unreachable for every gateway
+		// of this environment, so it runs serially as the final step (see TestPhases, Phase-P4).
 		s.parallelStep("P2.8", "gateway-sharing-rolebindings", tagLong, (*E2ESuite).p2_8GatewaySharingRoleBindings),
 		s.parallelStep("P2.9", "kata-runtime", tagLong, (*E2ESuite).p2_9KataRuntime),
 		s.parallelStep("P2.10", "alerting-signal", tagLong, (*E2ESuite).p2_10AlertingSignal),
@@ -705,6 +711,7 @@ func (s *E2ESuite) cloneForStep(t *testing.T, stepID string) *E2ESuite {
 		sandboxImage:             s.sandboxImage,
 		matrixCapability:         s.matrixCapability,
 		matrixEligibleClusters:   s.matrixEligibleClusters,
+		matrixRequiredCapability: s.matrixRequiredCapability,
 		landed:                   s.landed,
 		nameSuffix:               s.nameSuffix,
 		primary:                  s.primary,

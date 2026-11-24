@@ -16,7 +16,7 @@ GitOps repository and are out of scope here.
 | SLO | Good event | Target | Instrumented by |
 | --- | --- | --- | --- |
 | Change convergence | A create, spec update, or delete that reaches its desired state within 10 minutes | 99% | OBS-SLI-01 through OBS-SLI-06 |
-| API latency | A read under 500 ms, or a write under 2 s | 99% | OBS-SLI-07, OBS-SLI-08 |
+| API latency | A read under 500 ms, or a write under 2 s | 99% | OBS-SLI-07, OBS-SLI-08, OBS-SLI-10 |
 
 Gateway availability and API availability are measured by an external prober and
 are specified separately. Lead-time build metadata (OBS-SLI-09) is not an SLO; it
@@ -76,8 +76,8 @@ holds for the newest `generation`. A `Degraded` phase, a `Failed` phase, or
 #### Scenario: OBS-SLI-01.03 -- Delete converges only after finalization
 
 - GIVEN a Gateway deletion request
-- WHEN the Gateway record and every Gateway-owned cluster resource are gone (GTW-DEL-01 finalization complete)
-- THEN the `delete` convergence window SHALL converge
+- WHEN the control plane has reclaimed every Gateway-owned cluster resource and signals completion by calling `FinalizeGatewayDeletion` (GTW-DEL-10)
+- THEN the `delete` convergence window SHALL converge at the finalization signal
 - AND a `delete` window SHALL NOT converge while any owned cluster resource remains
 
 #### Scenario: OBS-SLI-01.04 -- Convergence survives a restart
@@ -117,6 +117,16 @@ Good SLO events SHALL be the `within_10m` count. Bad SLO events SHALL be the sum
 of `late` and `failed`. Every valid change SHALL contribute to exactly one of the
 three counts.
 
+The API server SHALL resolve an unconverged change at its 10-minute deadline
+through a periodic deadline evaluation that does not depend on an incoming
+status write for that Gateway, so a change that stalls with no further write is
+still resolved and counted at its deadline. Outcome resolution SHALL be atomic
+with the OBS-SLI-03 counter increment and SHALL be exactly-once across every
+API-server replica and across restarts: a change SHALL be resolved and counted
+no more than once even when several API-server replicas run concurrently against
+the same store. A single-owner coordination mechanism (for example a PostgreSQL
+advisory lock) MAY serialize the deadline evaluation across replicas.
+
 #### Scenario: OBS-SLI-02.01 -- Converged within budget counts within_10m
 
 - GIVEN a change whose clock started 4 minutes ago
@@ -150,6 +160,14 @@ three counts.
 - WHEN a further desired-spec field change advances `generation` at time T plus 3 minutes
 - THEN the 10-minute clock SHALL still be measured from T
 - AND only the newest generation SHALL be judged for convergence
+
+#### Scenario: OBS-SLI-02.06 -- Outcome resolved exactly once across replicas
+
+- GIVEN two API-server replicas running concurrently against the same PostgreSQL store
+- AND a change whose 10-minute deadline has elapsed without convergence
+- WHEN both replicas run the periodic deadline evaluation
+- THEN the change SHALL be resolved and its outcome counted exactly once
+- AND no replica SHALL double-count the outcome or re-resolve the change
 
 ### Requirement: OBS-SLI-03 -- Durable Convergence Counters Exported by the API Server
 
@@ -335,6 +353,52 @@ dashboard already uses.
 - WHEN the latency histogram records the request
 - THEN the sample SHALL carry the request-class attribute value `write`
 
+### Requirement: OBS-SLI-10 -- Templated Route Attribute for User-Scoped Latency
+
+The API latency histogram (`http.server.request.duration`) SHALL carry the matched
+route as a bounded `http.route` attribute whose value is the templated route (for
+example `/api/hypershell/v1/gateways/{id}`), never the raw request path with its
+concrete resource identifiers. A request that matches no registered route SHALL
+record no `http.route` attribute. The attribute cardinality is therefore bounded by
+the number of registered routes. This is the latency-metric counterpart of the span
+`http.route` contract in `platform/api-server-observability.spec.md` (API-OBS-05,
+API-OBS-06): both the latency histogram sample and the request span carry the same
+templated route so traces and the latency SLO agree.
+
+Because the histogram carries the templated route, the API latency SLO SHALL be
+able to count only user REST routes. It SHALL exclude the OpenAPI document routes
+(`/api/hypershell/v1/openapi*`) and the managed-cluster registration route
+(`/api/hypershell/v1/managed_clusters/registration`), so the latency SLO measures
+user REST traffic only and not platform heartbeat, registration, or OpenAPI
+traffic. This is the same user-REST-traffic scope the API availability measurement
+uses. The SLO rules that apply this scope live in the GitOps repository and are out
+of scope here (see Purpose); this requirement owns only the route attribute that
+makes the user-route scoping possible.
+
+The `http.route` attribute SHALL complement, and SHALL NOT replace, the read/write
+request-class attribute (OBS-SLI-08) or the response-status-code attribute the
+reliability dashboard already consumes (OBS-REL-08).
+
+#### Scenario: OBS-SLI-10.01 -- Templated route recorded on the latency histogram
+
+- GIVEN a `GET /api/hypershell/v1/gateways/{id}` request that matches a registered route
+- WHEN the latency histogram records the request
+- THEN the sample SHALL carry `http.route` with the templated value `/api/hypershell/v1/gateways/{id}`
+- AND the sample SHALL NOT carry the raw path with the concrete identifier
+
+#### Scenario: OBS-SLI-10.02 -- Unmatched path carries no route attribute
+
+- GIVEN a request whose path matches no registered route
+- WHEN the latency histogram records the request
+- THEN the sample SHALL NOT carry an `http.route` attribute
+
+#### Scenario: OBS-SLI-10.03 -- Latency SLO counts only user routes
+
+- GIVEN latency samples for user routes and for `/api/hypershell/v1/openapi` and `/api/hypershell/v1/managed_clusters/registration`
+- WHEN the API latency SLO selects its good and bad events
+- THEN it SHALL count only the user-route samples
+- AND it SHALL exclude the OpenAPI and registration routes, so it measures user REST traffic only
+
 ### Requirement: OBS-SLI-09 -- Build Revision and Build Time for Every Production Component
 
 Every production component SHALL report the source commit it was built from and the
@@ -393,19 +457,22 @@ Reported build metadata SHALL NOT contain secrets.
 | API server owns change convergence, not the control plane | PostgreSQL is the source of truth; durable state is the only way a restart cannot change counts, and the convergence latch already lives there (PLAT-DATA-06). |
 | Exactly one outcome per change, split at the 10-minute deadline | Satisfies "count a change as bad when its 10 minutes end" and "if it converges later, do not count it again" without double counting; keeps the SLO good/bad partition exact. |
 | Clock from the first unconverged change, newest generation judged | Prevents repeated edits from resetting the budget while still measuring the latest desired state. |
+| Resolve stalled changes with a single-owner deadline sweep, counting in the same transaction | A change that stalls with no further write must still be counted at its deadline; running the sweep on one replica and incrementing the durable counter in the same transaction keeps outcomes exactly-once across replicas and restarts. |
 | Keep the same provision Prometheus series names, move the producer | Removes the in-memory histogram the issue calls out while leaving the operational dashboard provision-time and provision-reliability contracts unchanged. |
 | Standardize latency on OTel `http.server.request.duration` | Its buckets are owned by HyperShell code; the framework `api_inbound_request_duration` buckets are owned by the upstream rh-trex-ai dependency and cannot be set here. |
 | Read/write class from the HTTP method | Bounded two-value label; reads and writes have different SLO thresholds; avoids a per-route cardinality explosion. |
+| Templated `http.route` on the latency histogram, scoped to user routes | The latency histogram reached the hub with method and class only, so a method-only SLI measured platform traffic rather than the handful of user requests per hour. The templated route is bounded by the registered routes and lets the SLO exclude OpenAPI and registration traffic, matching the user-REST-traffic scope of the availability measurement. |
 | Build time as a build argument plus a stamped artifact | Separates configuration from code; the api-server and fleet-dashboard already follow this pattern, so the control plane and web console adopt it rather than inventing a new one. |
 
 ## Primary Basis
 
 - `platform/data-model.spec.md` (PLAT-DATA-06 generation tracking)
 - `platform/gateway-phase-vocabulary.spec.md` (canonical phase set)
-- `platform/gateway-deletion-finalization.spec.md` (GTW-DEL-01 finalization)
+- `platform/gateway-deletion-finalization.spec.md` (GTW-DEL-01 finalization, GTW-DEL-10 finalization-completion signal)
 - `platform/control-plane-observability.spec.md` (OBS-CPL-07 reconcile metrics)
 - `platform/control-plane-reconciliation-metrics.spec.md` (OBS-CRM-01 metric types)
 - `platform/gateway-metrics-dashboard.spec.md` (OBS-GMD-01, OBS-GMD-02 API-server collector and metrics endpoint)
 - `platform/api-server-observability.spec.md` (API-OBS-05 request metrics)
 - `platform/api-reliability-metrics.spec.md` (OBS-REL-08 latency series)
+- `platform/managed-cluster-registration.spec.md` (registration route excluded from the user-route latency scope)
 - `platform/gateway-provision-time.spec.md` and `platform/gateway-provision-outcomes.spec.md` (provision series consumers)

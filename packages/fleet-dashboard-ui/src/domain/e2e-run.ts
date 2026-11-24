@@ -129,18 +129,22 @@ export interface E2eDiagnosticsData {
   readonly diagnostics: readonly E2eDiagnosticSection[];
 }
 
-/** One run attempt within a grouped (bundle + target + revision) series. */
+/** One run attempt within a grouped bundle series. */
 export interface E2eRunAttemptItem {
   readonly run: E2eRunSummary;
   /** 1-based chronological attempt index (oldest = 1, latest = N). */
   readonly attemptNumber: number;
 }
 
-/** A group of run attempts for the same (bundle + target + revision), latest-first. */
+/** A group of run attempts for the same bundle across environments and revisions, latest-first. */
 export interface E2eRunAttemptGroup {
   readonly key: string;
   readonly latest: E2eRunAttemptItem;
   readonly attempts: readonly E2eRunAttemptItem[];
+  /** Latest run per trusted cluster/namespace, ignoring superseded reruns. */
+  readonly targets: readonly E2eRunSummary[];
+  /** Failed if any latest target failed, unknown if incomplete, passed otherwise. */
+  readonly verdict: E2eVerdict;
 }
 
 /** A single run's detail: summary plus ordered steps and bounded log history. */
@@ -1136,9 +1140,9 @@ export function runBundle(
 }
 
 /**
- * Group runs sharing the same (bundle, target, revision) so multiple attempts of
- * the same revision collapse under a single row with a 1-based attempt counter
- * (latest attempt first, e.g. Attempt 3, Attempt 2, Attempt 1). Outer group order
+ * Group runs sharing the same bundle across environments and deployed revisions
+ * under a single row with a 1-based attempt counter
+ * (latest run first, e.g. Run 3, Run 2, Run 1). Outer group order
  * preserves the caller's sorted run order.
  */
 export function groupRunAttempts(
@@ -1150,14 +1154,18 @@ export function groupRunAttempts(
 
   for (const run of runs) {
     const bundle = runBundle(run, promotion);
-    const bundleKey =
-      bundle?.digest ??
-      bundle?.version ??
-      run.bundle?.version ??
-      run.sourceRevision ??
-      "";
-    const targetKey = `${run.cluster}/${run.namespace}`;
-    const key = `${bundleKey}::${targetKey}::${run.revision}`;
+    const bundleKey = bundle?.digest ?? bundle?.version ?? run.bundle?.version;
+    // Unresolved bundles cannot establish a shared identity across targets or
+    // revisions. Preserve their conservative grouping until a bundle resolves.
+    const key = bundleKey
+      ? JSON.stringify(["bundle", bundleKey])
+      : JSON.stringify([
+          "unresolved",
+          run.sourceRevision,
+          run.cluster,
+          run.namespace,
+          run.revision,
+        ]);
     let bucket = buckets.get(key);
     if (!bucket) {
       bucket = [];
@@ -1183,11 +1191,22 @@ export function groupRunAttempts(
     );
     const latest = attempts[0];
     if (latest) {
-      out.push({
-        key,
-        latest,
-        attempts,
-      });
+      const targetsByKey = new Map<string, E2eRunSummary>();
+      for (const run of orderedNewestFirst) {
+        const targetKey = JSON.stringify([run.cluster, run.namespace]);
+        if (!targetsByKey.has(targetKey)) targetsByKey.set(targetKey, run);
+      }
+      const targets = [...targetsByKey.values()].sort(
+        (a, b) =>
+          a.cluster.localeCompare(b.cluster) ||
+          a.namespace.localeCompare(b.namespace),
+      );
+      const verdict = targets.some((run) => run.verdict === "failed")
+        ? "failed"
+        : targets.some((run) => run.verdict === "unknown")
+          ? "unknown"
+          : "passed";
+      out.push({ key, latest, attempts, targets, verdict });
     }
   }
   return out;

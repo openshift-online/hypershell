@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -9,6 +10,7 @@ import (
 
 	localapi "github.com/openshift-online/hypershell/components/api-server/pkg/api"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/logging"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	pkgcmd "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/cmd"
 	pkgenv "github.com/openshift-online/rh-trex-ai/components/api-server/pkg/environments"
 
@@ -18,7 +20,6 @@ import (
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/ciProviders"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/ciTrusts"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/gatewayAccess"
-	_ "github.com/openshift-online/hypershell/components/api-server/plugins/gateways"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/inferenceRoutes"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
 	_ "github.com/openshift-online/hypershell/components/api-server/plugins/otel"
@@ -54,7 +55,15 @@ func main() {
 		if err := logging.Install(pkgenv.Environment().Config.Logging); err != nil {
 			return fmt.Errorf("configure logging: %w", err)
 		}
-		return registerAdvisoryLockMetrics()
+		if err := registerAdvisoryLockMetrics(); err != nil {
+			return err
+		}
+		// Launch the change-convergence deadline sweep so a stalled change is
+		// resolved and counted at its ten-minute deadline even when no status write
+		// arrives (OBS-SLI-02). It runs on one replica at a time via an advisory
+		// lock and is serve-only (migrate never reaches here).
+		gateways.StartConvergenceDeadlineSweeper(context.Background(), pkgenv.Environment())
+		return nil
 	}
 	rootCmd.AddCommand(
 		pkgcmd.NewMigrateCommand("hypershell"),

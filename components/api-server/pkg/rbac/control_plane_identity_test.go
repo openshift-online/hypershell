@@ -34,6 +34,7 @@ var controlPlaneOnlyMethods = []string{
 	"/hypershell.v1.GatewayService/SetActiveSandboxCount",
 	"/hypershell.v1.GatewayService/SetGatewayVersion",
 	"/hypershell.v1.GatewayService/ReportSandboxEvents",
+	"/hypershell.v1.GatewayService/FinalizeGatewayDeletion",
 }
 
 type fakeActivityRecorder struct{ users []string }
@@ -47,7 +48,9 @@ func registeredSpokes() *fakeResolver {
 }
 
 // fakeGateways places gw-own (namespace ns-own) on the spoke's cluster and
-// gw-foreign (ns-foreign) on another.
+// gw-foreign (ns-foreign) on another. gw-own-tombstone and gw-foreign-tombstone
+// are the soft-deleted counterparts used for the FinalizeGatewayDeletion
+// own-cluster-tombstone authorization (GTW-DEL-10); gw-own and gw-foreign are live.
 type fakeGateways struct{ err error }
 
 func (f fakeGateways) GatewayClusterID(_ context.Context, id string) (string, bool, error) {
@@ -55,9 +58,24 @@ func (f fakeGateways) GatewayClusterID(_ context.Context, id string) (string, bo
 		return "", false, f.err
 	}
 	switch id {
-	case "gw-own":
+	case "gw-own", "gw-own-tombstone":
 		return "cluster-spoke3", true, nil
-	case "gw-foreign":
+	case "gw-foreign", "gw-foreign-tombstone":
+		return "cluster-other", true, nil
+	}
+	return "", false, nil
+}
+
+// GatewayTombstoneClusterID reports a cluster only for a soft-deleted (tombstone)
+// gateway; a live gateway or an unknown id is not a tombstone.
+func (f fakeGateways) GatewayTombstoneClusterID(_ context.Context, id string) (string, bool, error) {
+	if f.err != nil {
+		return "", false, f.err
+	}
+	switch id {
+	case "gw-own-tombstone":
+		return "cluster-spoke3", true, nil
+	case "gw-foreign-tombstone":
 		return "cluster-other", true, nil
 	}
 	return "", false, nil
@@ -156,6 +174,15 @@ func TestRegisteredClusterIsScopedToItsCluster(t *testing.T) {
 		{"adjust namespace without a live gateway (service no-op)", gatewaySvc("AdjustActiveSandboxCount"), &pb.AdjustActiveSandboxCountRequest{Namespace: "ns-gone"}, codes.OK},
 		{"create gateway", gatewaySvc("CreateGateway"), &pb.CreateGatewayRequest{}, codes.PermissionDenied},
 		{"delete gateway", gatewaySvc("DeleteGateway"), &pb.DeleteGatewayRequest{Id: "gw-own"}, codes.PermissionDenied},
+		// GTW-DEL-10 / SEC-RBAC-09.10 / PLAT-CLUS-11.07: FinalizeGatewayDeletion is
+		// authorized only for an own-cluster tombstone. A live gateway, a
+		// foreign-cluster tombstone, and an unknown id are all PERMISSION_DENIED, and
+		// the DeleteGateway denial above stays even for the own-cluster tombstone.
+		{"finalize own tombstone", gatewaySvc("FinalizeGatewayDeletion"), &pb.FinalizeGatewayDeletionRequest{Id: "gw-own-tombstone"}, codes.OK},
+		{"finalize live own gateway", gatewaySvc("FinalizeGatewayDeletion"), &pb.FinalizeGatewayDeletionRequest{Id: "gw-own"}, codes.PermissionDenied},
+		{"finalize foreign tombstone", gatewaySvc("FinalizeGatewayDeletion"), &pb.FinalizeGatewayDeletionRequest{Id: "gw-foreign-tombstone"}, codes.PermissionDenied},
+		{"finalize unknown id", gatewaySvc("FinalizeGatewayDeletion"), &pb.FinalizeGatewayDeletionRequest{Id: "gw-missing"}, codes.PermissionDenied},
+		{"delete own tombstone still denied", gatewaySvc("DeleteGateway"), &pb.DeleteGatewayRequest{Id: "gw-own-tombstone"}, codes.PermissionDenied},
 		{"list gateways", gatewaySvc("ListGateways"), &pb.ListGatewaysRequest{}, codes.OK},
 		{"delete own cluster record", "/hypershell.v1.ManagedClusterService/DeleteManagedCluster", &pb.DeleteManagedClusterRequest{Id: "cluster-spoke3"}, codes.OK},
 		{"delete another cluster record", "/hypershell.v1.ManagedClusterService/DeleteManagedCluster", &pb.DeleteManagedClusterRequest{Id: "cluster-other"}, codes.PermissionDenied},
@@ -252,6 +279,7 @@ func TestUnregisteredCallerStillDeniedControlPlaneOnlyMethods(t *testing.T) {
 		controlPlaneOnlyMethods[1]: &pb.SetActiveSandboxCountRequest{Namespace: "ns-own"},
 		controlPlaneOnlyMethods[2]: &pb.SetGatewayVersionRequest{Id: "gw-own"},
 		controlPlaneOnlyMethods[3]: &pb.ReportSandboxEventsRequest{Namespace: "ns-own", SandboxName: "writer"},
+		controlPlaneOnlyMethods[4]: &pb.FinalizeGatewayDeletionRequest{Id: "gw-own-tombstone"},
 	}
 	for name, ctx := range cases {
 		for _, method := range controlPlaneOnlyMethods {

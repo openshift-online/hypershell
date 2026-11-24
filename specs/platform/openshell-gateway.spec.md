@@ -683,7 +683,8 @@ create-time exception. The API server SHALL default `workspace_mode` to
 so every creator class that supplies no value (REST, gRPC, `hsctl apply`,
 `.hypershell` import, control plane) receives the default. The sole
 caller-settable value at create is `operator`, and only for a caller holding
-the `gateway:operator-workspace-creator` entitlement: the per-gateway
+the `gateway:operator-workspace-creator` entitlement on an API server with the
+`HYPERSHELL_ENABLE_OPERATOR_WORKSPACE_MODE` feature flag enabled (local OCE kind only): the per-gateway
 operator-managed workspace opt-in, defined in
 [`gateway-operator-workspaces.spec.md`](./gateway-operator-workspaces.spec.md)
 (OSG-OPWS-01) and gated by
@@ -968,7 +969,7 @@ SHALL NOT keep the sidecar unready.
 | `route.host` | No | auto-derived | Hostname for the GRPCRoute |
 | `route.certificate` | No | - | Opt-in to a dedicated per-gateway route and external certificate (`route: { certificate: {} }`): a per-tenant Gateway, a per-gateway wildcard Certificate, and a sandbox HTTPRoute. Provision-time only - the API rejects changes to this key after creation (changing certificate mode requires delete and re-provision). Not combinable with `route.host`. See [`openshell-gateway-routing.spec.md`](./openshell-gateway-routing.spec.md) |
 | `dedicated_route` | No | `false` | Create-only user request for the dedicated per-gateway route and wildcard certificate: the API server translates it into the `route.certificate` opt-in at create ([`data-model.spec.md`](./data-model.spec.md), "Requirement: Gateway Dedicated Route Request Field", PLAT-DATA-26). Requires the `gateway:dedicated-route-creator` role (or `platform:admin`); readOnly after creation |
-| `workspace_mode` | No | `managed` | OpenShell Kubernetes-driver workspace mapping (`shared`, `managed`, `operator`). Platform-managed with one create-time exception: the only caller-settable value is `operator`, requiring the `gateway:operator-workspace-creator` role (or `platform:admin`), per the per-gateway operator-managed workspace opt-in ([`gateway-operator-workspaces.spec.md`](./gateway-operator-workspaces.spec.md), OSG-OPWS-01). Immutable after creation (OSG-CORE-18) |
+| `workspace_mode` | No | `managed` | OpenShell Kubernetes-driver workspace mapping (`shared`, `managed`, `operator`). Platform-managed with one create-time exception: the only caller-settable value is `operator`, requiring the `gateway:operator-workspace-creator` role (or `platform:admin`) and the `HYPERSHELL_ENABLE_OPERATOR_WORKSPACE_MODE` API server feature flag, per the per-gateway operator-managed workspace opt-in ([`gateway-operator-workspaces.spec.md`](./gateway-operator-workspaces.spec.md), OSG-OPWS-01). Immutable after creation (OSG-CORE-18) |
 | `routeAddress` | - | - | Read-only. External address populated by the control plane |
 | `dev_build` | No | `false` | Marks this as a dev/branch build. Control plane passes `hypershell.redhat.io/openshell-dev-build` via Helm `podLabels` onto the gateway workload |
 | `dev_build_metadata` | No | - | Dev build provenance (JSONB): `{ref, sha, repo}`. Control plane passes the SHA/ref/repo via Helm `podAnnotations` |

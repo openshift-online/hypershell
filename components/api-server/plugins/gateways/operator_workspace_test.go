@@ -16,6 +16,7 @@ import (
 // import create that sets the field at all is rejected (OSG-OPWS-01.05), and a
 // privileged control-plane write keeps full access.
 func TestApplyGatewayWorkspaceModeCreateRequest(t *testing.T) {
+	t.Setenv(operatorWorkspaceFeatureEnv, "true")
 	tests := []struct {
 		name        string
 		kind        rbac.GatewayWriterKind
@@ -54,6 +55,30 @@ func TestApplyGatewayWorkspaceModeCreateRequest(t *testing.T) {
 				t.Fatalf("reason %q must name workspace_mode", err.Reason)
 			}
 		})
+	}
+}
+
+// TestApplyGatewayWorkspaceModeCreateRequestFeatureFlag pins the feature flag: a
+// user operator selection is rejected unless the flag is "true", while unset
+// creates and privileged control-plane writes are unaffected.
+// Verifies: OSG-OPWS-01.07
+func TestApplyGatewayWorkspaceModeCreateRequestFeatureFlag(t *testing.T) {
+	for _, value := range []string{"", "false", "1"} {
+		t.Setenv(operatorWorkspaceFeatureEnv, value)
+		err := applyGatewayWorkspaceModeCreateRequest(rbac.GatewayWriterUser, &Gateway{Name: "gw", WorkspaceMode: strPtr("operator")})
+		if err == nil || !err.IsForbidden() || err.Reason != operatorWorkspaceDisabledReason {
+			t.Fatalf("flag %q: expected the disabled rejection, got %v", value, err)
+		}
+		if err := applyGatewayWorkspaceModeCreateRequest(rbac.GatewayWriterUser, &Gateway{Name: "gw"}); err != nil {
+			t.Fatalf("flag %q: unset mode must be accepted, got %v", value, err)
+		}
+		if err := applyGatewayWorkspaceModeCreateRequest(rbac.GatewayWriterControlPlane, &Gateway{Name: "gw", WorkspaceMode: strPtr("operator")}); err != nil {
+			t.Fatalf("flag %q: control-plane operator must be accepted, got %v", value, err)
+		}
+	}
+	t.Setenv(operatorWorkspaceFeatureEnv, "true")
+	if err := applyGatewayWorkspaceModeCreateRequest(rbac.GatewayWriterUser, &Gateway{Name: "gw", WorkspaceMode: strPtr("operator")}); err != nil {
+		t.Fatalf("flag on: expected acceptance, got %v", err)
 	}
 }
 

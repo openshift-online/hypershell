@@ -87,7 +87,7 @@ func TestLateBoundGatewayBindsWhenMatchingClusterRegisters(t *testing.T) {
 	// Register a cluster that carries the unique label, which emits a registration
 	// event the GatewayPlacementRebinder handles.
 	clusterService := managedClusters.Service(&environments.Environment().Services)
-	cluster, _, svcErr := clusterService.Register(ctx, "bindcluster-"+suffix, []string{"network/public", "provider/aws", label}, "cp-"+suffix)
+	cluster, _, svcErr := clusterService.Register(ctx, "bindcluster-"+suffix, []string{"network/public", "provider/aws", label}, "cp-"+suffix, nil)
 	Expect(svcErr).To(BeNil())
 
 	Eventually(func() string {
@@ -119,7 +119,7 @@ func TestLateBoundGatewayBindsWhenExistingClusterGainsCapability(t *testing.T) {
 	clusterService := managedClusters.Service(&environments.Environment().Services)
 
 	// Register the cluster WITHOUT the label first.
-	cluster, _, svcErr := clusterService.Register(ctx, name, []string{"network/public", "provider/aws"}, subject)
+	cluster, _, svcErr := clusterService.Register(ctx, name, []string{"network/public", "provider/aws"}, subject, nil)
 	Expect(svcErr).To(BeNil())
 
 	created, err := grpcClient.CreateGateway(ctx, &pb.CreateGatewayRequest{
@@ -132,7 +132,7 @@ func TestLateBoundGatewayBindsWhenExistingClusterGainsCapability(t *testing.T) {
 	Expect(created.Gateway.ClusterId).To(BeEmpty())
 
 	// The same cluster re-registers with the label added, emitting an update event.
-	_, createdCluster, svcErr := clusterService.Register(ctx, name, []string{"network/public", "provider/aws", label}, subject)
+	_, createdCluster, svcErr := clusterService.Register(ctx, name, []string{"network/public", "provider/aws", label}, subject, nil)
 	Expect(svcErr).To(BeNil())
 	Expect(createdCluster).To(BeFalse())
 

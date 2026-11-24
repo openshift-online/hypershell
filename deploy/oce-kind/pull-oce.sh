@@ -3,7 +3,6 @@ set -euo pipefail
 umask 077
 : "${OCE_REPO:?Set OCE_REPO to the installation source directory}"
 : "${OCE_KIND_STATE:?Set OCE_KIND_STATE}"
-here=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 
 # Resolve latest once per installation; retries keep the saved immutable references.
 for role in controller runtime; do
@@ -35,13 +34,8 @@ revision=$(docker image inspect --format '{{index .Config.Labels "io.openshell.h
 if [[ $OCE_REPO == "$OCE_KIND_STATE/oce-source" ]]; then
   git init "$OCE_REPO"
   git -C "$OCE_REPO" fetch --depth=1 https://github.com/openclaw/openclaw-enterprise.git "$revision"
-  # Discard only managed checkout changes left by an earlier patch attempt.
+  # Discard managed checkout changes left by older versions of this script.
   git -C "$OCE_REPO" checkout --force --detach FETCH_HEAD
-  # shortcut: upstream quickstart assumes a co-located gateway, remove when OCE PR #4954 lands.
-  if ! python3 "$OCE_REPO/docs/snippets/openshell-quickstart/kubernetes/service-policies.py" --help |
-    grep -q -- --openshell-namespace; then
-    git -C "$OCE_REPO" apply "$here/openshell-namespace.patch"
-  fi
 else
   head=$(git -C "$OCE_REPO" rev-parse HEAD 2>/dev/null) || head=unknown
   if [[ $head != "$revision" ]]; then
