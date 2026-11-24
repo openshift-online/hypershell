@@ -261,19 +261,27 @@ uses SHALL be selected by configuration, not code, through
 | Setting | Values | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `HYPERSHELL_PROBE_AUTH_MODE` | `client-assertion`, `token-exchange` | No | `client-assertion` | Selects how the prober authenticates to Keycloak |
-| `HYPERSHELL_PROBE_OIDC_CLIENT_ID` | Keycloak client id | In `client-assertion` mode | - | The confidential Keycloak client the prober authenticates as |
+| `HYPERSHELL_PROBE_OIDC_CLIENT_ID` | Keycloak client id | No | - | The prober's Keycloak client. Used only for log context; it SHALL NOT be sent on the token request (see `client-assertion` mode below) |
 
 In **`client-assertion` mode** (the default) the prober SHALL authenticate with
 Keycloak federated client authentication: it SHALL POST to the realm token
-endpoint with `grant_type=client_credentials`,
-`client_id=<HYPERSHELL_PROBE_OIDC_CLIENT_ID>`,
+endpoint with exactly `grant_type=client_credentials`,
 `client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer`,
 and `client_assertion` set to its projected Kubernetes service-account token,
-re-read from the token file on every request. Keycloak validates the assertion
-against the cluster's service-account issuer with its own in-cluster service
-account, so this mode needs no static secret, no pinned signing key, and no
-publicly reachable issuer. This is why the prober runs on the instance hub, next
-to that instance's Keycloak (OBS-PRB-01).
+re-read from the token file on every request. The prober SHALL NOT send a
+`client_id` form field. Keycloak finds the client from the assertion itself (its
+federated-client issuer and subject), so `client_id` is redundant, and RFC 7523
+section 3 and RFC 6749 section 2.3 make it optional when the client authenticates
+with an assertion. Sending `client_id` also breaks the request on Keycloak 26.6,
+which returns `invalid_client` (`client_id parameter does not match sub claim`)
+when a `client_id` is present and differs from the assertion `sub`; the assertion
+`sub` is the service account (`system:serviceaccount:<instance>:<name>`), which
+never equals the Keycloak client id. `HYPERSHELL_PROBE_OIDC_CLIENT_ID`, when set,
+SHALL be used only for log context. Keycloak validates the assertion against the
+cluster's service-account
+issuer with its own in-cluster service account, so this mode needs no static
+secret, no pinned signing key, and no publicly reachable issuer. This is why the
+prober runs on the instance hub, next to that instance's Keycloak (OBS-PRB-01).
 
 In **`token-exchange` mode** the prober SHALL exchange its projected
 service-account token at Keycloak per RFC 8693 (workload identity federation),
@@ -326,13 +334,22 @@ which confers delete and access-management authority the prober does not need.
 - GIVEN `HYPERSHELL_PROBE_AUTH_MODE` is unset, so the prober uses `client-assertion` mode
 - WHEN it acquires a HyperShell API token
 - THEN it SHALL POST to the realm token endpoint with
-  `grant_type=client_credentials`, `client_id` set to
-  `HYPERSHELL_PROBE_OIDC_CLIENT_ID`,
+  `grant_type=client_credentials`,
   `client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer`,
   and `client_assertion` set to the projected service-account token
+- AND the POST body SHALL NOT contain a `client_id` form field
 - AND it SHALL re-read the projected service-account token from its file on every
   request
 - AND it SHALL NOT read a client secret from configuration
+
+#### Scenario: OBS-PRB-06.06 -- Keycloak 26.6 accepts the assertion without a client id
+
+- GIVEN a Keycloak that rejects a token request when `client_id` is present and
+  differs from the assertion `sub` (for example Keycloak 26.6)
+- AND the prober is in `client-assertion` mode with `HYPERSHELL_PROBE_OIDC_CLIENT_ID` set
+- WHEN the prober acquires a HyperShell API token
+- THEN it SHALL NOT send a `client_id` form field
+- AND Keycloak SHALL issue the token from the assertion alone
 
 #### Scenario: OBS-PRB-06.04 -- Token-exchange mode remains available
 

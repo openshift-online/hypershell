@@ -44,8 +44,11 @@ func TestClientAssertionRequestShape(t *testing.T) {
 	if got := gotForm.Get("grant_type"); got != grantTypeClientCredentials {
 		t.Errorf("grant_type = %q, want %q", got, grantTypeClientCredentials)
 	}
-	if got := gotForm.Get("client_id"); got != "hypershell-prober" {
-		t.Errorf("client_id = %q, want hypershell-prober", got)
+	// The request SHALL NOT carry a client_id form field even when ClientID is
+	// configured: Keycloak 26.6 rejects a request whose client_id differs from the
+	// assertion sub (OBS-PRB-06, OBS-PRB-06.06).
+	if gotForm.Has("client_id") {
+		t.Errorf("client_id must never be sent; form carried %q", gotForm.Get("client_id"))
 	}
 	if got := gotForm.Get("client_assertion_type"); got != clientAssertionTypeJWTBearer {
 		t.Errorf("client_assertion_type = %q, want %q", got, clientAssertionTypeJWTBearer)
@@ -53,7 +56,7 @@ func TestClientAssertionRequestShape(t *testing.T) {
 	if got := gotForm.Get("client_assertion"); got != "projected-sa-jwt" {
 		t.Errorf("client_assertion = %q, want the projected SA token", got)
 	}
-	// Exactly the four required fields; no static client secret (OBS-PRB-06.03).
+	// Exactly the three required fields; no static client secret (OBS-PRB-06.03).
 	if _, ok := gotForm["client_secret"]; ok {
 		t.Errorf("client_secret must never be sent; form carried one")
 	}

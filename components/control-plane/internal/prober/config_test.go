@@ -143,7 +143,9 @@ func TestClientAssertionConfigEnabled(t *testing.T) {
 	}{
 		{"all set", ClientAssertionConfig{TokenEndpoint: "e", ClientID: "c", SATokenFile: "f"}, true},
 		{"missing endpoint", ClientAssertionConfig{ClientID: "c", SATokenFile: "f"}, false},
-		{"missing client", ClientAssertionConfig{TokenEndpoint: "e", SATokenFile: "f"}, false},
+		// ClientID is optional in client-assertion mode: the prober authenticates
+		// with the assertion alone and never sends a client_id (OBS-PRB-06).
+		{"missing client is still enabled", ClientAssertionConfig{TokenEndpoint: "e", SATokenFile: "f"}, true},
 		{"missing file", ClientAssertionConfig{TokenEndpoint: "e", ClientID: "c"}, false},
 	}
 	for _, tc := range cases {

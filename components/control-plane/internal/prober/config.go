@@ -126,7 +126,10 @@ type Config struct {
 type ClientAssertionConfig struct {
 	// TokenEndpoint is the Keycloak realm token endpoint the request POSTs to.
 	TokenEndpoint string
-	// ClientID is the confidential Keycloak client the prober authenticates as.
+	// ClientID is the prober's Keycloak client. It is optional in this mode and is
+	// used only for log context; it is never sent on the token request (OBS-PRB-06).
+	// Keycloak finds the client from the assertion itself, and Keycloak 26.6
+	// rejects a request whose client_id differs from the assertion sub.
 	ClientID string
 	// SATokenFile is the path to the mounted projected service-account token,
 	// re-read on every request.
@@ -137,9 +140,10 @@ type ClientAssertionConfig struct {
 
 // Enabled reports whether client-assertion authentication is configured. When it
 // is not, the authentication probe (OBS-PRB-05) cannot run and the prober records
-// failed authentication probes.
+// failed authentication probes. ClientID is not required: in this mode the prober
+// authenticates with the assertion alone and never sends a client_id (OBS-PRB-06).
 func (c ClientAssertionConfig) Enabled() bool {
-	return c.TokenEndpoint != "" && c.ClientID != "" && c.SATokenFile != ""
+	return c.TokenEndpoint != "" && c.SATokenFile != ""
 }
 
 // TokenExchangeConfig configures the keyless token exchange (OBS-PRB-06). The
