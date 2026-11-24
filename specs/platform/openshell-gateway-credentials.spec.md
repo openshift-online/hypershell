@@ -773,12 +773,6 @@ into Vault with a synthetic identity:
   certificate (so an already-broken value is never saved as the original), and SHALL restore
   the CA through a test cleanup as well as on return. It needs kube access to read the control
   plane Deployment and mutate the CA copy.
-- **Fixture self-heal:** the stand-in Vault fixture SHALL validate a reused serving-TLS Secret
-  (`ca.crt` is a PEM certificate and `tls.crt` chains to it) and SHALL regenerate it when it is
-  invalid, then make the running Vault serve the new certificate without losing its
-  initialized state (a listener TLS reload, not a pod restart, because the fixture's storage
-  is ephemeral).
-
 #### Scenario: OSG-CRED-14.01 -- Vault fixture self-verifies the capability policy
 
 - GIVEN a stand-in Vault stood up to the GitOps Contract
@@ -800,14 +794,6 @@ into Vault with a synthetic identity:
 - THEN the suite SHALL observe the fail-closed signal through the API (`EnvironmentReady` fails
   with a Vault-named reason), and the gateway SHALL never report `Running`
 - AND the suite SHALL restore Vault reachability afterward
-
-#### Scenario: OSG-CRED-14.03 -- Vault fixture heals a corrupted serving-TLS Secret
-
-- GIVEN an existing `openshell-gateway-vault-tls` Secret whose `ca.crt` is not a certificate or
-  does not sign `tls.crt`
-- WHEN the stand-in Vault fixture runs
-- THEN it SHALL regenerate the CA and server certificate instead of reusing the Secret
-- AND it SHALL make the running Vault serve the new certificate without wiping its state
 
 **Coverage boundaries.** The sandbox lifecycle exercises the real gateway-process resolve at
 `provider-credentials/*`; the fixture self-test proves the capability policy (round-trip, no

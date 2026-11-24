@@ -112,48 +112,23 @@ vkube create namespace "${VAULT_NS}" --dry-run=client -o yaml | vkube apply -f -
 # The control plane reads this CA from the openshell-gateway-vault-tls Secret (or from a
 # per-environment copy, see copy_ca_to_environment) and propagates it into each gateway
 # namespace (gen-postgres-tls.sh mints generic TLS).
-#
-# A reused Secret is validated first (ca.crt is a PEM certificate and tls.crt chains to
-# it). A test or a killed run can leave it corrupted, and reusing it would break Vault
-# for every environment on the cluster. An invalid Secret is regenerated, and the
-# running Vault is told to reload its listener certificate (VAULT_TLS_ROTATED).
-# shellcheck source=scripts/cluster/vault-tls.sh
-source "${SCRIPT_DIR}/vault-tls.sh"
-VAULT_TLS_ROTATED=""
-generate_vault_tls() {
-  local tls_dir
+if vkube get secret "${VAULT_TLS_SECRET}" -n "${VAULT_NS}" >/dev/null 2>&1; then
+  success "TLS Secret '${VAULT_TLS_SECRET}' already exists - reusing its CA"
+else
   info "Generating throwaway CA and server certificate for ${VAULT_HOST}..."
-  tls_dir="$(mktemp -d)"
-  bash "${REPO_ROOT}/scripts/gen-postgres-tls.sh" "${tls_dir}" \
+  _tls_dir="$(mktemp -d)"
+  bash "${REPO_ROOT}/scripts/gen-postgres-tls.sh" "${_tls_dir}" \
     "${VAULT_HOST}" "${VAULT_HOST}.cluster.local" "vault"
   vkube create secret generic "${VAULT_TLS_SECRET}" -n "${VAULT_NS}" \
-    --from-file=tls.crt="${tls_dir}/tls.crt" \
-    --from-file=tls.key="${tls_dir}/tls.key" \
-    --from-file=ca.crt="${tls_dir}/ca.crt" \
+    --from-file=tls.crt="${_tls_dir}/tls.crt" \
+    --from-file=tls.key="${_tls_dir}/tls.key" \
+    --from-file=ca.crt="${_tls_dir}/ca.crt" \
     --dry-run=client -o yaml | vkube apply -f -
-  rm -rf "${tls_dir}"
-}
-if vkube get secret "${VAULT_TLS_SECRET}" -n "${VAULT_NS}" >/dev/null 2>&1; then
-  _chk_dir="$(mktemp -d)"
-  vkube get secret "${VAULT_TLS_SECRET}" -n "${VAULT_NS}" \
-    -o go-template='{{index .data "ca.crt" | base64decode}}' > "${_chk_dir}/ca.crt" 2>/dev/null || true
-  vkube get secret "${VAULT_TLS_SECRET}" -n "${VAULT_NS}" \
-    -o go-template='{{index .data "tls.crt" | base64decode}}' > "${_chk_dir}/tls.crt" 2>/dev/null || true
-  if vault_tls_pair_valid "${_chk_dir}"; then
-    success "TLS Secret '${VAULT_TLS_SECRET}' already exists and is valid - reusing its CA"
-  else
-    error "TLS Secret '${VAULT_TLS_SECRET}' is invalid (ca.crt is not a certificate or does not sign tls.crt) - regenerating it"
-    generate_vault_tls
-    VAULT_TLS_ROTATED=1
-    success "TLS Secret '${VAULT_TLS_SECRET}' regenerated"
-  fi
-  rm -rf "${_chk_dir}"
-else
-  generate_vault_tls
+  rm -rf "${_tls_dir}"
   success "TLS Secret '${VAULT_TLS_SECRET}' created"
 fi
 
-# copy_ca_to_environment copies the validated serving CA into the calling environment's
+# copy_ca_to_environment copies the serving CA into the calling environment's
 # own namespace (VAULT_CA_COPY_NAMESPACE, Secret VAULT_CA_COPY_SECRET, key ca.crt). The
 # environment's control plane reads that copy (GATEWAY_VAULT_CA_SECRET), so an e2e step
 # that corrupts the CA to test fail-closed (P2.7) breaks only its own environment, never
@@ -320,25 +295,6 @@ done
 # as soon as the pod object is created (Pending/ContainerCreating), so a plain name check
 # would let bring-up continue with a pod that never became ready.
 [ -n "${VPOD_READY}" ] || { error "Vault pod did not reach Running within 5 minutes"; exit 1; }
-
-# After a TLS self-heal, make the running Vault serve the new certificate. Storage is an
-# emptyDir, so a pod restart would wipe the initialized Vault (and every live gateway's
-# per-tenant mount). Instead wait for the kubelet to project the new Secret into the pod,
-# then send SIGHUP: Vault reloads its listener certificate on SIGHUP without losing state.
-if [ -n "${VAULT_TLS_ROTATED}" ]; then
-  info "Reloading Vault listener TLS (SIGHUP) after regenerating the serving certificate..."
-  _want_crt="$(vkube get secret "${VAULT_TLS_SECRET}" -n "${VAULT_NS}" -o go-template='{{index .data "tls.crt"}}')"
-  _projected=""
-  for _ in $(seq 1 60); do
-    if [ "$(vkube -n "${VAULT_NS}" exec "${VPOD}" -- cat /vault/tls/tls.crt 2>/dev/null | base64 | tr -d '\n')" = "$(printf '%s' "${_want_crt}" | tr -d '\n')" ]; then
-      _projected=1; break
-    fi
-    sleep 5
-  done
-  [ -n "${_projected}" ] || { error "regenerated Vault TLS Secret was not projected into ${VPOD} within 5 minutes"; exit 1; }
-  vkube -n "${VAULT_NS}" exec "${VPOD}" -- kill -HUP 1
-  success "Vault listener TLS reloaded"
-fi
 
 vx()  { vkube -n "${VAULT_NS}" exec "${VPOD}" -- env VAULT_ADDR=https://127.0.0.1:8200 VAULT_SKIP_VERIFY=true "$@"; }
 vxt() { vkube -n "${VAULT_NS}" exec "${VPOD}" -- env VAULT_ADDR=https://127.0.0.1:8200 VAULT_SKIP_VERIFY=true VAULT_TOKEN="$1" "${@:2}"; }
