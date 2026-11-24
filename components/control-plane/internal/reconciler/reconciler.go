@@ -648,13 +648,21 @@ func (r *GatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.
 			reconcileErr = fmt.Errorf("check policy fleet defaults: %w", err)
 			return watcher.WithRetryableReason(watcher.PreservePayloadForRetry(reconcileErr), reason)
 		}
-		if !needsTrustUpdate && !needsDefaultsUpdate {
+		// Provisioning acknowledges observed_generation at manifest apply, so a
+		// failure later in the same pass (for example a route update) leaves a
+		// converged generation behind a Failed outcome. Re-run provisioning until
+		// a pass succeeds, or the failure is reported forever (OSG-HLTH-03.08).
+		lastPassFailed := lastProvisioningPassFailed(gw)
+		if !needsTrustUpdate && !needsDefaultsUpdate && !lastPassFailed {
 			slog.DebugContext(ctx, "Gateway converged, skipping reconciliation", "gateway_id", event.ResourceID, "generation", gw.Generation)
 			outcome = cpotel.OutcomeNoop
 			return nil
 		}
 		if needsDefaultsUpdate {
 			slog.InfoContext(ctx, "Fleet policy defaults changed; re-rendering converged gateway", "gateway_id", event.ResourceID)
+		}
+		if lastPassFailed {
+			slog.InfoContext(ctx, "Last provisioning pass failed; re-provisioning converged gateway", "gateway_id", event.ResourceID, "phase", gw.GetPhase())
 		}
 	}
 
@@ -1552,4 +1560,19 @@ func NewStubGatewayReconciler() *StubGatewayReconciler {
 func (r *StubGatewayReconciler) Handle(ctx context.Context, event watcher.Event[*pb.Gateway]) error {
 	slog.InfoContext(ctx, "Stub reconciling Gateway", "gateway_id", event.ResourceID, "event_type", event.Type)
 	return nil
+}
+
+// lastProvisioningPassFailed reports whether the stored Gateway records a failed
+// provisioning pass: phase Failed or any provisioning condition Failed
+// (OSG-HLTH-03.08).
+func lastProvisioningPassFailed(gw *pb.Gateway) bool {
+	if gw.GetPhase() == string(gatewayhealth.PhaseFailed) {
+		return true
+	}
+	for _, c := range gw.GetProvisioningConditions() {
+		if c.GetConditionStatus() == pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_FAILED {
+			return true
+		}
+	}
+	return false
 }

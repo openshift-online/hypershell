@@ -217,3 +217,44 @@ func TestGatewayBundleWriteRetriesWithoutSettingsDefaults(t *testing.T) {
 		t.Fatal("no bundle may be written without settings defaults")
 	}
 }
+
+// Verifies: OSG-HLTH-03.08
+func TestConvergedGatewayWhoseLastPassFailedIsReprovisioned(t *testing.T) {
+	failed := pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_FAILED
+	complete := pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_COMPLETE
+	cases := map[string]func(*pb.Gateway){
+		"phase Failed": func(gw *pb.Gateway) {
+			phase := "Failed"
+			gw.Phase = &phase
+		},
+		"GatewayDeployed condition Failed": func(gw *pb.Gateway) {
+			gw.ProvisioningConditions = []*pb.ProvisioningCondition{
+				{Type: "EnvironmentReady", ConditionStatus: complete},
+				{Type: "GatewayDeployed", ConditionStatus: failed, Message: "Gateway deployment failed - unable to configure network routing"},
+			}
+		},
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			// Current defaults hash: only the failed pass can reopen the gate.
+			r, client := newRolloutReconciler(t, "gw-failed", hashOf(t, "700m"), "700m")
+			event := runningGatewayEvent("gw-failed")
+			mutate(event.Resource)
+			err := r.Handle(context.Background(), event)
+			if !errors.Is(err, errReachedApply) || client.updates != 1 {
+				t.Fatalf("a converged gateway whose last pass failed must re-provision, got err=%v applies=%d", err, client.updates)
+			}
+		})
+	}
+}
+
+// Verifies: OSG-HLTH-03.02
+func TestLastProvisioningPassFailedIgnoresCompleteConditions(t *testing.T) {
+	phase := "Running"
+	gw := &pb.Gateway{Phase: &phase, ProvisioningConditions: []*pb.ProvisioningCondition{
+		{Type: "GatewayDeployed", ConditionStatus: pb.ProvisioningConditionStatus_PROVISIONING_CONDITION_STATUS_COMPLETE},
+	}}
+	if lastProvisioningPassFailed(gw) {
+		t.Fatal("a Running gateway with complete conditions is converged")
+	}
+}
