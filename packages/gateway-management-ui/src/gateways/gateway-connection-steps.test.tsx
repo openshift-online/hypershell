@@ -131,6 +131,20 @@ describe("GatewayConnectionSteps", () => {
     expect(copied).not.toContain("openshell provider create\n");
     expect(copied).toContain("openshell sandbox create \\\n");
     expect(copied).not.toContain("openshell sandbox create\n");
+    expect(copied).toContain("--global-profile \\\n    --from-existing\n");
+  });
+
+  it("escapes the Claude settings JSON inside the sandbox startup command", async () => {
+    const user = userEvent.setup();
+    renderSteps();
+
+    await user.click(screen.getByRole("button", { name: "Copy all commands" }));
+
+    const copied = await navigator.clipboard.readText();
+    expect(copied).toContain(
+      `-- bash -lc "claude --bare --settings '{\\"modelPicker\\":{\\"options\\":[{\\"model\\":`,
+    );
+    expect(copied).toContain(`; exec bash -l"`);
   });
 
   it("safely encodes a gateway name in the gateway lookup command", async () => {
