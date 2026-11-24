@@ -60,25 +60,40 @@ func classifyRequestMethod(method string) string {
 	}
 }
 
-// otelHTTPHandler wraps the whole HTTP handler (registered pre-auth, outside the
-// mux router) so it creates one server span per request and extracts inbound W3C
-// trace context via the global propagator. The span is named by method here; the
-// in-router middleware refines it to a templated route once routing has matched.
-func otelHTTPHandler(next http.Handler) http.Handler {
-	return otelhttp.NewHandler(next, "http.server",
-		otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
-			return r.Method
-		}),
-		// OBS-SLI-08: attach the bounded read/write request-class attribute to the
-		// emitted request metrics (including http.server.request.duration) without
-		// replacing the method or status-code attributes otelhttp already records.
-		otelhttp.WithMetricAttributesFn(func(r *http.Request) []attribute.KeyValue {
-			return []attribute.KeyValue{requestClassAttr.String(classifyRequestMethod(r.Method))}
-		}),
-	)
+// newOTelHTTPHandler returns the middleware that wraps the whole HTTP handler
+// (registered pre-auth, outside the mux router) so it creates one server span per
+// request and extracts inbound W3C trace context via the global propagator. The
+// span is named by method here; the in-router middleware refines it to a templated
+// route once routing has matched.
+//
+// clients is the synthetic client set read once at startup
+// (HYPERSHELL_SYNTHETIC_CLIENT_IDS, OBS-SLI-11).
+func newOTelHTTPHandler(clients syntheticClients) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return otelhttp.NewHandler(next, "http.server",
+			otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
+				return r.Method
+			}),
+			otelhttp.WithMetricAttributesFn(func(r *http.Request) []attribute.KeyValue {
+				return []attribute.KeyValue{
+					// OBS-SLI-08: the bounded read/write request-class attribute,
+					// added to the emitted request metrics (including
+					// http.server.request.duration) without replacing the method or
+					// status-code attributes otelhttp already records.
+					requestClassAttr.String(classifyRequestMethod(r.Method)),
+					// OBS-SLI-11: the bounded caller class, on every sample
+					// (including requests that match no route), from the token the
+					// framework's JWT handler verified. The framework wraps this
+					// pre-auth chain in the JWT handler, so r carries the verified
+					// token in its context; anything else classifies as user.
+					callerClassAttr.String(callerClassFromContext(r.Context(), clients)),
+				}
+			}),
+		)
+	}
 }
 
-// routeTagMiddleware refines the server span created by otelHTTPHandler: it sets
+// routeTagMiddleware refines the server span created by newOTelHTTPHandler: it sets
 // the span name to "METHOD /templated/route" and records http.route, so Jaeger
 // groups spans by endpoint and resource identifiers never inflate span-name
 // cardinality. It also records the operation id for trace-to-support correlation.

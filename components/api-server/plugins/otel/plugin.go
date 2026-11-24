@@ -70,7 +70,8 @@ func init() {
 	// HTTP: the outer handler creates the server span and extracts inbound W3C
 	// trace context; the in-router middleware renames the span to a templated
 	// route and records the operation id (see http.go).
-	pkgserver.RegisterPreAuthMiddleware(otelHTTPHandler)
+	// HYPERSHELL_SYNTHETIC_CLIENT_IDS is read once here, at startup (OBS-SLI-11).
+	pkgserver.RegisterPreAuthMiddleware(newOTelHTTPHandler(loadSyntheticClients()))
 	// Route tagging runs on every declared route (pkg/routes), inside the
 	// router where mux.CurrentRoute holds the templated path.
 	routes.RegisterMiddleware(routeTagMiddleware)

@@ -134,9 +134,10 @@ The API server SHALL export OpenTelemetry request metrics for both HTTP and gRPC
 | `rpc.server.duration` | Histogram | `ms` | Latency of inbound gRPC calls |
 
 The `http.server.request.duration` histogram is the SLO-aligned API latency
-series. Its explicit bucket boundaries and its bounded read/write request-class
-attribute are defined by `platform/service-level-indicators.spec.md` OBS-SLI-07 and
-OBS-SLI-08.
+series. Its explicit bucket boundaries, its bounded read/write request-class
+attribute, its templated route attribute, and its bounded verified caller-class
+attribute are defined by `platform/service-level-indicators.spec.md` OBS-SLI-07,
+OBS-SLI-08, OBS-SLI-10, and OBS-SLI-11.
 
 **Verification:** Complete representative HTTP and gRPC calls and confirm the duration histograms record them labeled by method or service and status code, that the active-request counter tracks in-flight requests, and that the existing Prometheus metrics are still exposed.
 
