@@ -4704,6 +4704,12 @@
             "required": false
           },
           {
+            "name": "health",
+            "type": "object",
+            "required": false,
+            "description": "On-cluster self-check verdict reported by the control plane (managed-cluster-self-healthcheck.spec.md, PLAT-HLTH-03). Stored verbatim on the ManagedCluster."
+          },
+          {
             "name": "href",
             "type": "string",
             "required": false
@@ -9142,6 +9148,12 @@
             "type": "array",
             "required": true,
             "description": "Complete self-declared capability set, sent on every registration and heartbeat. An omitted, null, or empty set is rejected with 400."
+          },
+          {
+            "name": "health",
+            "type": "object",
+            "required": false,
+            "description": "On-cluster self-check verdict reported by the control plane (managed-cluster-self-healthcheck.spec.md, PLAT-HLTH-03). Stored verbatim on the ManagedCluster."
           },
           {
             "name": "name",

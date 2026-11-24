@@ -26,7 +26,7 @@ import (
 func registerNamedCluster(t *testing.T, name string, capabilities []string) string {
 	t.Helper()
 	svc := managedClusters.Service(&environments.Environment().Services)
-	cluster, _, svcErr := svc.Register(context.Background(), name, capabilities, "cp-"+strings.ToLower(trexapi.NewID()))
+	cluster, _, svcErr := svc.Register(context.Background(), name, capabilities, "cp-"+strings.ToLower(trexapi.NewID()), nil)
 	Expect(svcErr).To(BeNil(), "register named cluster %s", name)
 	return cluster.ID
 }
@@ -174,11 +174,11 @@ func TestManagedClusterRejectsIdentityNamespaceAsStoredCapability(t *testing.T) 
 	svc := managedClusters.Service(&environments.Environment().Services)
 	suffix := strings.ToLower(trexapi.NewID())
 
-	_, _, svcErr := svc.Register(context.Background(), "capmc-"+suffix, []string{"network/public", "managed-cluster/foo"}, "cp-cap-"+suffix)
+	_, _, svcErr := svc.Register(context.Background(), "capmc-"+suffix, []string{"network/public", "managed-cluster/foo"}, "cp-cap-"+suffix, nil)
 	Expect(svcErr).NotTo(BeNil(), "a managed-cluster/ capability must be rejected")
 	Expect(svcErr.HttpCode).To(Equal(http.StatusBadRequest))
 
-	cluster, _, svcErr := svc.Register(context.Background(), "capmc2-"+suffix, []string{"network/public", "provider/aws"}, "cp-cap2-"+suffix)
+	cluster, _, svcErr := svc.Register(context.Background(), "capmc2-"+suffix, []string{"network/public", "provider/aws"}, "cp-cap2-"+suffix, nil)
 	Expect(svcErr).To(BeNil())
 	for _, capability := range cluster.Capabilities {
 		Expect(strings.HasPrefix(capability, "managed-cluster/")).To(BeFalse(), "capabilities must never contain a managed-cluster/ label, got %q", capability)
