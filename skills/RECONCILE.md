@@ -52,7 +52,7 @@ skills/
 ### PlatformGatewayPolicy / Cedar (code complete, e2e verification pending, branch spec/HYPERSHELL-1151-policy-mockups, PR #1159, issue #1151)
 
 Scoped reconciliation of the PlatformGatewayPolicy spec set introduced by #1148
-(HYPERSHELL-563): `platform/platform-gateway-policy.spec.md` (PLAT-PGP-01..20),
+(HYPERSHELL-563): `platform/platform-gateway-policy.spec.md` (PLAT-PGP-01..21),
 `platform/data-model.spec.md` (PLAT-DATA-28/29/30), `security/rbac-enforcement.spec.md`
 (SEC-RBAC-30/31/32), `platform/control-plane.spec.md` (CTRL-CORE-22),
 `platform/openshell-gateway.spec.md` (OSG-CORE-19),

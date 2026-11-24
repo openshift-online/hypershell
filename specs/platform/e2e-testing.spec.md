@@ -1743,12 +1743,12 @@ promotion environment and runs per distinct capability on hub and spokes
    `e2e-enforcement-canary` with effective mode Enforced and status `Applied` within
    the existing readiness timeout, proving the control-plane bundle path and the
    sidecar acknowledgement.
-2. **Rejection.** `openshell sandbox create hypershell-e2e-policy-<run>-deny` with a
+2. **Rejection.** `openshell sandbox create e2epol-<run>-deny` with a
    CPU request of `2` SHALL fail with `PERMISSION_DENIED`, and the message SHALL
    contain `e2e-enforcement-canary`, its `userMessage`, and the CPU bound, proving the
    interceptor is registered, Cedar evaluation works, and the denial text reaches the
    CLI.
-3. **Allowed with defaults.** `openshell sandbox create hypershell-e2e-policy-<run>-allow`
+3. **Allowed with defaults.** `openshell sandbox create e2epol-<run>-allow`
    with no resources SHALL succeed, and the sandbox spec read back through the CLI
    SHALL show the fleet default requests, proving default injection. The sandbox SHALL
    be deleted in cleanup.
@@ -1761,13 +1761,13 @@ SHALL report as skipped, never as passed.
 #### Scenario: E2E-CORE-49.01 -- Canary Enforced and Denial Reaches the CLI
 
 - GIVEN a run that created its own gateway and sees `e2e-enforcement-canary` Applied and Enforced via `effective_policies`
-- WHEN it creates `hypershell-e2e-policy-<run>-deny` with a CPU request of `2`
+- WHEN it creates `e2epol-<run>-deny` with a CPU request of `2`
 - THEN the create SHALL fail with `PERMISSION_DENIED` whose message contains the policy name, its `userMessage`, and the CPU bound
 
 #### Scenario: E2E-CORE-49.02 -- Default Injection and No Collateral Rejection
 
 - GIVEN the same run
-- WHEN it creates `hypershell-e2e-policy-<run>-allow` with no resources
+- WHEN it creates `e2epol-<run>-allow` with no resources
 - THEN the create SHALL succeed and the read-back spec SHALL show the fleet default requests
 - AND the existing short-mode sandbox without the reserved prefix with a CPU request of `2` SHALL NOT be rejected
 

@@ -504,12 +504,12 @@ func (s *E2ESuite) p2_1SandboxLifecycle(t *testing.T) {
 	// concurrent-count path.
 	//
 	// The first sandbox requests 2 CPUs. Its name lacks the reserved
-	// hypershell-e2e-policy- prefix, so the built-in e2e-enforcement-canary
+	// e2epol- prefix, so the built-in e2e-enforcement-canary
 	// (which forbids more than 1 CPU only under that prefix) must not reject it
 	// (E2E-CORE-49.02, PLAT-PGP-20.01).
 	created := s.runSandboxCLIConcurrentlyWith(t, local, "create", names, map[string][]string{name: {"--cpu", collateralSandboxCPU}})
 	s.Require().Falsef(isPolicyRejection(created[0].output),
-		"sandbox %s (no reserved prefix, --cpu %s) was rejected by a platform policy; the canary must only apply to hypershell-e2e-policy-* names:\n%s",
+		"sandbox %s (no reserved prefix, --cpu %s) was rejected by a platform policy; the canary must only apply to e2epol-* names:\n%s",
 		name, collateralSandboxCPU, created[0].output)
 
 	// The pod-level readiness wait is a kube-level check; it runs only in long mode

@@ -34,14 +34,15 @@ const (
 	// for sandboxes whose name starts with canarySandboxPrefix.
 	canaryPolicyName = "e2e-enforcement-canary"
 	// canarySandboxPrefix is the reserved sandbox-name prefix the canary applies
-	// to. It is 22 characters long.
-	canarySandboxPrefix = "hypershell-e2e-policy-"
+	// to. It is 7 characters, chosen so a full canary name
+	// (prefix + 6-digit token + "-allow" = 19) fits gatewaySandboxNameMax, which
+	// lets the allow case actually create a reserved-prefix sandbox and exercise
+	// default injection (E2E-CORE-49.03).
+	canarySandboxPrefix = "e2epol-"
 	// gatewaySandboxNameMax is the OpenShell gateway's sandbox name limit
 	// (MAX_ROUTABLE_NAME_LEN in openshell-server at the pinned release). The
-	// gateway enforces it in the CreateSandbox handler, AFTER the gateway
-	// interceptors run, so a reserved-prefix name (always longer than 19) still
-	// reaches the policy interceptor and can be denied by the canary, but a
-	// reserved-prefix create the canary allows is then refused by the name check.
+	// gateway enforces it in the CreateSandbox handler, so every canary sandbox
+	// name is kept within it (see canarySandboxPrefix).
 	gatewaySandboxNameMax = 19
 	// canaryDisabledMarker is the controller setting named in the canary's
 	// per-gateway status message when it is disabled in an environment
@@ -231,7 +232,7 @@ func canaryDisabledByMessage(message string) bool {
 }
 
 // canarySandboxName returns a reserved-prefix sandbox name for the canary
-// checks: hypershell-e2e-policy-<token>-<suffix>.
+// checks: e2epol-<token>-<suffix>.
 func canarySandboxName(token, suffix string) string {
 	return canarySandboxPrefix + token + "-" + suffix
 }
@@ -523,13 +524,10 @@ func (s *E2ESuite) policyCanaryChecks(t *testing.T, gw *sdktypes.Gateway, local,
 		}}), "E2E-CORE-49.01: denial text for %s; output:\n%s", denyName, out)
 
 		// 3. Allowed: a reserved-prefix create with no resources passes the canary
-		// (the injected default request, 500m on Kind, is within 1 CPU).
-		s.assertCanaryAllowsDefaults(t, local, canarySandboxName(token, "allow"))
-
-		// Default injection is observable on the collateral sandbox, which set only
-		// a CPU value: the interceptor adds the fleet default memory request and
-		// limit (modify_operation, PLAT-PGP-08).
-		s.assertDefaultInjection(t, gw, local, collateral, ep.Defaults)
+		// (the injected default request, 500m on Kind, is within 1 CPU), runs, and
+		// carries the fleet defaults the interceptor added (modify_operation,
+		// PLAT-PGP-08).
+		s.assertCanaryAllowsDefaults(t, gw, local, canarySandboxName(token, "allow"), ep.Defaults)
 
 		// 4. No collateral rejection: asserted when P2.1 created the collateral
 		// sandbox (--cpu 2, no reserved prefix) and reached it with exec.
@@ -557,26 +555,25 @@ func (s *E2ESuite) skipOrFailPendingCanary(t *testing.T, canary effectivePolicy,
 }
 
 // assertCanaryAllowsDefaults creates a reserved-prefix sandbox with no
-// resources. The canary must not reject it. At the pinned OpenShell release the
-// reserved prefix alone (22 characters) exceeds the gateway's 19-character
-// sandbox-name limit, which the gateway checks after the interceptors allow the
-// call, so the create then fails with the name-length refusal. That outcome
-// still proves the interceptor allowed the request; the success-and-read-back
-// half is only reachable when the name fits, and the default-injection read-back
-// therefore runs on the collateral sandbox instead.
-func (s *E2ESuite) assertCanaryAllowsDefaults(t *testing.T, local, allowName string) {
+// resources. The canary must not reject it, the sandbox must be created and
+// become reachable with exec, and the interceptor must have added the fleet
+// defaults to it (E2E-CORE-49.02, PLAT-PGP-08). The reserved prefix is short
+// enough that the full name fits the gateway's sandbox-name limit.
+func (s *E2ESuite) assertCanaryAllowsDefaults(t *testing.T, gw *sdktypes.Gateway, local, allowName string, defaults fleetDefaults) {
 	defer s.deleteSandboxIfPresent(t, local, allowName)
+	s.Require().Truef(fitsGatewaySandboxName(allowName), "canary sandbox name %q exceeds the %d-character gateway limit", allowName, gatewaySandboxNameMax)
 	out, err := s.cli(t, local, "sandbox", "create", "--from", s.sandboxImage, "--name", allowName)
 	s.Require().Falsef(isPolicyRejection(out), "E2E-CORE-49.02: %s with no resources was rejected by a platform policy:\n%s", allowName, out)
 	s.Require().Falsef(isInterceptorFailedClosed(out), "E2E-CORE-49.02: the policy interceptor failed closed for %s:\n%s", allowName, out)
-	if err != nil && isNameLengthRejection(out) && !fitsGatewaySandboxName(allowName) {
-		s.Logf("E2E-CORE-49.02 name-limit conflict: %q is %d characters; the reserved prefix %q is %d characters and the gateway limits sandbox names to %d. The canary allowed the create (no policy rejection), then the gateway's name validation refused it, so the reserved-prefix sandbox cannot exist on this gateway release; default injection is read back on the collateral sandbox.",
-			allowName, len(allowName), canarySandboxPrefix, len(canarySandboxPrefix), gatewaySandboxNameMax)
-		return
-	}
 	s.Require().Truef(s.waitSandboxListed(t, local, allowName, 60*time.Second),
-		"E2E-CORE-49.02: %s with no resources was neither created nor refused for its name length (err %v):\n%s", allowName, err, out)
-	s.Logf("%s with no resources was admitted by the canary", allowName)
+		"E2E-CORE-49.02: %s with no resources was not created (err %v):\n%s", allowName, err, out)
+	sandboxTimeout := durationSecondsEnv("E2E_SANDBOX_TIMEOUT", 120*time.Second)
+	s.Require().NoErrorf(pollNoCtx(sandboxTimeout, 5*time.Second, func() bool {
+		_, execErr := s.cli(t, local, "sandbox", "exec", "-n", allowName, "--", "id", "-u")
+		return execErr == nil
+	}), "E2E-CORE-49.02: %s did not become reachable with exec", allowName)
+	s.Logf("%s with no resources was admitted by the canary and is running", allowName)
+	s.assertDefaultInjection(t, gw, local, allowName, defaults)
 }
 
 // assertDefaultInjection proves the interceptor added the fleet default memory

@@ -11,9 +11,9 @@ import (
 // only to sandboxes named with the reserved prefix, so it never affects a real
 // user.
 const canaryCedar = `forbid (principal, action == OpenShell::Action::"CreateSandbox", resource)
-when { context.sandboxName like "hypershell-e2e-policy-*" && context.cpuRequestMillis > 1000 };`
+when { context.sandboxName like "e2epol-*" && context.cpuRequestMillis > 1000 };`
 
-const canaryUserMessage = "Used by HyperShell release checks. Applies only to sandboxes named hypershell-e2e-policy-*: they may request at most 1 CPU."
+const canaryUserMessage = "Used by HyperShell release checks. Applies only to sandboxes named e2epol-*: they may request at most 1 CPU."
 
 // migration creates the three PlatformGatewayPolicy tables (PLAT-DATA-28/29/30)
 // with raw SQL (SDLC-CONF-02, never AutoMigrate). The policy table reuses the
@@ -101,7 +101,7 @@ func SeedCanary(tx *gorm.DB) error {
 				)`,
 		"e2e-enforcement-canary-builtin",
 		CanaryPolicyName,
-		"Built-in release-check canary. Rejects sandboxes named hypershell-e2e-policy-* that request more than 1 CPU, so the e2e gate proves enforcement.",
+		"Built-in release-check canary. Rejects sandboxes named e2epol-* that request more than 1 CPU, so the e2e gate proves enforcement.",
 		canaryUserMessage,
 		canaryCedar,
 		CanaryPolicyName,

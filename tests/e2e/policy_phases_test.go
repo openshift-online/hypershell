@@ -10,7 +10,7 @@ import (
 	ktypes "k8s.io/apimachinery/pkg/types"
 )
 
-const testCanaryMessage = "Used by HyperShell release checks. Applies only to sandboxes named hypershell-e2e-policy-*: they may request at most 1 CPU."
+const testCanaryMessage = "Used by HyperShell release checks. Applies only to sandboxes named e2epol-*: they may request at most 1 CPU."
 
 // cliDenial renders a denial the way the pinned openshell CLI prints a tonic
 // PERMISSION_DENIED status: the code by description and the message quoted
@@ -102,14 +102,11 @@ func TestCanarySandboxNamesKeepReservedPrefix(t *testing.T) {
 		if !strings.HasPrefix(name, canarySandboxPrefix) || !strings.HasSuffix(name, "-"+suffix) {
 			t.Fatalf("canary sandbox name %q does not keep the reserved prefix and suffix", name)
 		}
-		// The reserved prefix alone exceeds the gateway's sandbox name limit; the
-		// checks rely on the interceptor running before the name validation.
-		if fitsGatewaySandboxName(name) {
-			t.Fatalf("%q unexpectedly fits the %d-character gateway limit; revisit the name-limit handling", name, gatewaySandboxNameMax)
+		// Every canary name must fit the gateway's sandbox name limit so the
+		// allow case can create a reserved-prefix sandbox (E2E-CORE-49.02).
+		if !fitsGatewaySandboxName(name) {
+			t.Fatalf("%q exceeds the %d-character gateway limit", name, gatewaySandboxNameMax)
 		}
-	}
-	if len(canarySandboxPrefix) <= gatewaySandboxNameMax {
-		t.Fatalf("reserved prefix %q now fits the gateway limit; the allow case can assert success", canarySandboxPrefix)
 	}
 	if !fitsGatewaySandboxName("pe-123456-12") {
 		t.Fatal("long-mode attempt names must fit the gateway limit")

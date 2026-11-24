@@ -6,7 +6,7 @@ import (
 )
 
 const canaryCedar = `forbid (principal, action == OpenShell::Action::"CreateSandbox", resource)
-when { context.sandboxName like "hypershell-e2e-policy-*" && context.cpuRequestMillis > 1000 };`
+when { context.sandboxName like "e2epol-*" && context.cpuRequestMillis > 1000 };`
 
 func mustEvaluator(t *testing.T, policies ...PolicyInput) *Evaluator {
 	t.Helper()
@@ -80,7 +80,7 @@ func TestDenialReasonListsEveryPolicy(t *testing.T) {
 // and its denial carries the CPU bound (E2E-CORE-49).
 func TestCanaryScopedToReservedPrefix(t *testing.T) {
 	e := mustEvaluator(t, PolicyInput{Name: "e2e-enforcement-canary", Cedar: canaryCedar})
-	deny := e.Evaluate(Request{Context: Context{SandboxName: "hypershell-e2e-policy-run1-deny", CPURequestMillis: 2000}})
+	deny := e.Evaluate(Request{Context: Context{SandboxName: "e2epol-run1-deny", CPURequestMillis: 2000}})
 	if deny.Allowed {
 		t.Fatalf("canary must reject the reserved prefix over 1 CPU")
 	}

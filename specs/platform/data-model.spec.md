@@ -1849,7 +1849,7 @@ user-facing metadata. It carries no tenant secret. It is authored only by the
 gateway role; see [`../security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md)
 (SEC-RBAC-30). Its behavior, validation, enforcement mode, defaults, denial text,
 and the display renderer are specified in
-[`platform-gateway-policy.spec.md`](./platform-gateway-policy.spec.md) (PLAT-PGP-01..20).
+[`platform-gateway-policy.spec.md`](./platform-gateway-policy.spec.md) (PLAT-PGP-01..21).
 
 `PlatformGatewayPolicy` fields:
 
@@ -1857,7 +1857,7 @@ and the display renderer are specified in
 |---|---|---|
 | `name` | string | Stable identifier shown to users and used as the Cedar `@id` attribution (PLAT-PGP-14) |
 | `description` | string | Administrator-facing description |
-| `target` | object | `all` gateways, or a selector over gateway ids or labels, with an explicit `exclude` list (PLAT-PGP-01). Visible only to `platform-policy:admin` and `fleet:reader` (SEC-RBAC-31) |
+| `target` | object | `all` gateways, or a selector over gateway ids, with an explicit `exclude` list (PLAT-PGP-01). Visible only to `platform-policy:admin` and `fleet:reader` (SEC-RBAC-31) |
 | `enforcement_mode` | string | `audit` or `enforce`. A new policy is stored as `audit` regardless of the request (PLAT-PGP-01); the effective mode is the stricter of this and the global toggle (PLAT-PGP-06) |
 | `user_message` | string | Text shown in the denial reason and the UI. Must not contain secrets (PLAT-PGP-14). Externalized for localization in the console |
 | `documentation_url` | string | Link to more information shown with the rule |

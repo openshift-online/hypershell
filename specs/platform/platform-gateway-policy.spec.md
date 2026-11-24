@@ -92,7 +92,7 @@ The platform SHALL provide one platform-scoped extension kind,
 `PlatformGatewayPolicy`, whose data model is defined in
 [`data-model.spec.md`](./data-model.spec.md) (PLAT-DATA-28). A policy SHALL carry:
 `name` and `description` for identification; a `target` that is either `all`
-gateways or a selector over gateway ids or labels, with an explicit `exclude`
+gateways or a selector over gateway ids, with an explicit `exclude`
 list; an `enforcementMode` of `audit` or `enforce`; a `userMessage` and a
 `documentationUrl` shown to users; and `cedar` policy text of one or more `forbid`
 statements. The API server SHALL authorize every create, update, and delete with
@@ -596,16 +596,16 @@ that gateway.
 The platform SHALL seed, with an additive idempotent migration, a built-in platform
 policy `e2e-enforcement-canary` with `target: all` and `enforcementMode: enforce`
 (enforced whatever the global toggle is). Its Cedar SHALL apply only to sandboxes
-whose name starts with the reserved prefix `hypershell-e2e-policy-`, so it never
+whose name starts with the reserved prefix `e2epol-`, so it never
 affects a real user:
 
 ```cedar
 forbid (principal, action == OpenShell::Action::"CreateSandbox", resource)
-when { context.sandboxName like "hypershell-e2e-policy-*" && context.cpuRequestMillis > 1000 };
+when { context.sandboxName like "e2epol-*" && context.cpuRequestMillis > 1000 };
 ```
 
 Its `userMessage` SHALL state that it is used by HyperShell release checks and
-applies only to sandboxes named `hypershell-e2e-policy-*`. It SHALL be visible like
+applies only to sandboxes named `e2epol-*`. It SHALL be visible like
 any other policy. A `platform-policy:admin` SHALL NOT be able to delete it; the
 canary MAY be disabled per environment with a controller setting, and the e2e short
 mode SHALL then report the policy check as skipped, never as passed (E2E-CORE-49).
@@ -613,7 +613,7 @@ mode SHALL then report the policy check as skipped, never as passed (E2E-CORE-49
 #### Scenario: PLAT-PGP-20.01 -- Canary Enforced but Scoped to the Reserved Prefix
 
 - GIVEN the seeded `e2e-enforcement-canary` policy
-- WHEN a sandbox named `hypershell-e2e-policy-<run>-deny` is created with a CPU request of `2`
+- WHEN a sandbox named `e2epol-<run>-deny` is created with a CPU request of `2`
 - THEN the create SHALL be rejected with `PERMISSION_DENIED` naming the canary
 - AND a sandbox whose name lacks the reserved prefix SHALL NOT be rejected by the canary
 
@@ -623,6 +623,42 @@ mode SHALL then report the policy check as skipped, never as passed (E2E-CORE-49
 - WHEN a `platform-policy:admin` attempts to delete it
 - THEN the delete SHALL be refused
 - AND disabling it per environment SHALL make the short-mode policy check report skipped, never passed
+
+---
+
+### Requirement: PLAT-PGP-21 -- Editor Dry Run and Per-Policy Findings
+
+The API server SHALL expose two endpoints that support the policy editor and the
+policy detail view (WEB-PADM-04, WEB-PADM-05, WEB-PADM-08):
+
+- `POST /api/hypershell/v1/ext/platform_gateway_policies/evaluate` SHALL take draft
+  Cedar text and an optional sample request, and SHALL return the write-time
+  validation result (PLAT-PGP-04, with line-numbered diagnostics), the rendered
+  summary (PLAT-PGP-17), the fleet-default check, and, when a sample request is
+  given, the decision and the denial text the interceptor would produce
+  (PLAT-PGP-14). It SHALL persist nothing.
+- `GET /api/hypershell/v1/ext/platform_gateway_policies/{id}/findings` SHALL return
+  the audit findings of one policy across its target gateways, paginated, with an
+  optional `outcome` filter (`would_reject` or `would_add_defaults`).
+
+The evaluate endpoint SHALL be authorized for `platform-policy:admin` and
+`platform:admin` only (SEC-RBAC-30). The findings endpoint SHALL additionally be
+readable by `fleet:reader` (SEC-RBAC-31). Gateway users read findings through
+PLAT-PGP-19 instead.
+
+#### Scenario: PLAT-PGP-21.01 -- Dry Run Validates and Evaluates Without Saving
+
+- GIVEN a `platform-policy:admin`
+- WHEN they post draft Cedar with a sample request to the evaluate endpoint
+- THEN the response SHALL contain the validation diagnostics, the rendered summary, the defaults check, and the decision with its denial text
+- AND no policy SHALL be created or changed
+
+#### Scenario: PLAT-PGP-21.02 -- Per-Policy Findings Are Not Readable by Gateway Users
+
+- GIVEN a policy P with findings on two gateways
+- WHEN a `platform-policy:admin` reads `GET .../platform_gateway_policies/P/findings?outcome=would_reject`
+- THEN the response SHALL list P's would-reject findings from both gateways, paginated
+- AND a `gateway:owner` reading the same path SHALL be refused
 
 ## Security analysis
 

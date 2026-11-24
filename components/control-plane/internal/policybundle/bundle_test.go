@@ -80,7 +80,7 @@ func TestBuildIsDeterministicAndDecodes(t *testing.T) {
 
 // Verifies: PLAT-PGP-04, PLAT-PGP-18.01, PLAT-PGP-20.02
 func TestBuildSkipsInvalidDisabledAndUnsupported(t *testing.T) {
-	canary := policy("c", CanaryPolicyName, ModeEnforce, `forbid (principal, action, resource) when { context.sandboxName like "hypershell-e2e-policy-*" && context.cpuRequestMillis > 1000 };`, nil)
+	canary := policy("c", CanaryPolicyName, ModeEnforce, `forbid (principal, action, resource) when { context.sandboxName like "e2epol-*" && context.cpuRequestMillis > 1000 };`, nil)
 	canary.BuiltIn = true
 	forbidsDefaults := policy("d", "too-strict", ModeEnforce, `forbid (principal, action, resource) when { context.cpuRequestMillis < 600 };`, nil)
 	b, skipped, err := Build(Input{GatewayID: "gw", GlobalMode: ModeAudit, Policies: []*pb.PlatformGatewayPolicy{canary, forbidsDefaults}, Defaults: defaults, CanaryEnabled: false})

@@ -110,10 +110,10 @@ P2.1 gateway, as the run's own identity, through the API and the CLI only:
 
 1. `GET /gateways/{id}/effective_policies` lists `e2e-enforcement-canary`
    enforced and `Applied` within `E2E_PROVISION_TIMEOUT`.
-2. `sandbox create hypershell-e2e-policy-<token>-deny --cpu 2` fails with
+2. `sandbox create e2epol-<token>-deny --cpu 2` fails with
    `PERMISSION_DENIED`. The message names the canary, carries its user message,
    and states `allowed: at most 1`.
-3. `sandbox create hypershell-e2e-policy-<token>-allow` with no resources is not
+3. `sandbox create e2epol-<token>-allow` with no resources is not
    rejected by a policy. The reserved prefix is 22 characters, and the OpenShell
    gateway limits sandbox names to 19. The gateway runs interceptors before it
    validates the name, so the deny case still reaches the canary. An allowed

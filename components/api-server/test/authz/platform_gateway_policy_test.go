@@ -202,7 +202,7 @@ func TestCanaryPolicyIsSeededAndUndeletable(t *testing.T) {
 	Expect(canary.GetBuiltIn()).To(BeTrue())
 	Expect(canary.GetEnforcementMode()).To(Equal("enforce"))
 	Expect(canary.Target.GetAll()).To(BeTrue())
-	Expect(canary.GetUserMessage()).To(ContainSubstring("hypershell-e2e-policy-"))
+	Expect(canary.GetUserMessage()).To(ContainSubstring("e2epol-"))
 
 	resp, err := client.DefaultAPI.DeletePlatformGatewayPolicy(policyAdmin.rest, canary.GetId()).Execute()
 	Expect(err).To(HaveOccurred())

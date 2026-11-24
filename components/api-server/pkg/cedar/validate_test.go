@@ -82,7 +82,7 @@ func TestValidatePolicyRejectsEmpty(t *testing.T) {
 func TestValidatePolicyAcceptsCanary(t *testing.T) {
 	d := testDefaults(t)
 	policy := `forbid (principal, action == OpenShell::Action::"CreateSandbox", resource)
-when { context.sandboxName like "hypershell-e2e-policy-*" && context.cpuRequestMillis > 1000 };`
+when { context.sandboxName like "e2epol-*" && context.cpuRequestMillis > 1000 };`
 	if err := ValidatePolicy(policy, d); err != nil {
 		t.Fatalf("ValidatePolicy canary: %v", err)
 	}
