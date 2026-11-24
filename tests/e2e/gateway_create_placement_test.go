@@ -98,7 +98,7 @@ func TestGatewayCreateRequestForSuiteRequirement(t *testing.T) {
 // capabilityGatewayCreateRequest carries only name + placement.selector with the one
 // capability, never cluster_id.
 func TestCapabilityGatewayCreateRequestShape(t *testing.T) {
-	got := decodeRequest(t, capabilityGatewayCreateRequest("e2e-gw", "network/public"))
+	got := decodeRequest(t, capabilityGatewayCreateRequest("e2e-gw", "network/public", ""))
 	if _, ok := got["cluster_id"]; ok {
 		t.Fatalf("capability request must not contain cluster_id: %v", got)
 	}

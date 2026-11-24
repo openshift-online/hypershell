@@ -82,8 +82,12 @@ type E2ESuite struct {
 	// per-capability suite's gateway names are unique.
 	matrixCapability       string
 	matrixEligibleClusters map[string]bool
-	landed                 *landedTracker
-	nameSuffix             string
+	// matrixRequiredCapability, when set, is the opt-in label
+	// (E2E_MATRIX_REQUIRED_CAPABILITY) the matrix appends to every suite's placement
+	// selector, so gateways land only on clusters that opted in (E2E-CORE-30.05).
+	matrixRequiredCapability string
+	landed                   *landedTracker
+	nameSuffix               string
 
 	// primary is the P1 gateway the read-only steps reuse.
 	primary driver.GatewayRef
@@ -701,6 +705,7 @@ func (s *E2ESuite) cloneForStep(t *testing.T, stepID string) *E2ESuite {
 		sandboxImage:             s.sandboxImage,
 		matrixCapability:         s.matrixCapability,
 		matrixEligibleClusters:   s.matrixEligibleClusters,
+		matrixRequiredCapability: s.matrixRequiredCapability,
 		landed:                   s.landed,
 		nameSuffix:               s.nameSuffix,
 		primary:                  s.primary,
