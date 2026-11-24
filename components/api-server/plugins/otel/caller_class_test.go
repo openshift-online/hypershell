@@ -178,19 +178,26 @@ func TestCallerClassFromContext(t *testing.T) {
 // HTTP instrumentation with an in-memory metric reader. A stand-in for the
 // framework's JWT handler stores the verified token in the context, as the real
 // handler does (see TestCallerClassBehindFrameworkJWTHandler for the real one).
-// It verifies OBS-SLI-11.01, .02, .03, .06, that the attribute is on samples of
-// unmatched routes too, that it complements the request-class and route
-// attributes, and that no identity value is recorded.
+// It checks the caller class on the recorded latency sample for verified prober
+// and user tokens, no token, unreadable or unlisted azp claims, spoofed headers,
+// an empty and an omitted synthetic client list, and an unmatched route. It also
+// checks that the attribute complements the request-class attribute and that no
+// identity value is recorded.
+// Verifies: OBS-SLI-11.01, OBS-SLI-11.02, OBS-SLI-11.03, OBS-SLI-11.05, OBS-SLI-11.06, OBS-SLI-11.07, OBS-SLI-11.08
 func TestOTelHTTPHandlerRecordsCallerClass(t *testing.T) {
+	omitted := parseSyntheticClientIDs("", false)
 	tests := []struct {
 		name    string
 		path    string
 		token   *jwt.Token
 		headers map[string]string
+		// clients is the startup synthetic client list; nil means the setting
+		// is omitted (the hypershell-prober default).
+		clients syntheticClients
 		want    string
 	}{
 		{
-			name:  "verified prober token records synthetic",
+			name:  "verified prober token with the omitted setting records synthetic",
 			path:  "/api/hypershell/v1/gateways/abc123",
 			token: verifiedToken(jwt.MapClaims{"azp": proberClientID, "sub": "prober-sub-123"}),
 			want:  callerClassSynthetic,
@@ -230,6 +237,32 @@ func TestOTelHTTPHandlerRecordsCallerClass(t *testing.T) {
 			want: callerClassUser,
 		},
 		{
+			name:  "verified token without azp records user",
+			path:  "/api/hypershell/v1/gateways/abc123",
+			token: verifiedToken(jwt.MapClaims{"sub": proberClientID}),
+			want:  callerClassUser,
+		},
+		{
+			name:  "verified token with a non-string azp records user",
+			path:  "/api/hypershell/v1/gateways/abc123",
+			token: verifiedToken(jwt.MapClaims{"azp": []interface{}{proberClientID}}),
+			want:  callerClassUser,
+		},
+		{
+			name:    "empty synthetic client list records the prober as user",
+			path:    "/api/hypershell/v1/gateways/abc123",
+			token:   verifiedToken(jwt.MapClaims{"azp": proberClientID}),
+			clients: parseSyntheticClientIDs("", true),
+			want:    callerClassUser,
+		},
+		{
+			name:    "configured list replaces the default",
+			path:    "/api/hypershell/v1/gateways/abc123",
+			token:   verifiedToken(jwt.MapClaims{"azp": proberClientID}),
+			clients: parseSyntheticClientIDs("other-probe", true),
+			want:    callerClassUser,
+		},
+		{
 			name:  "unmatched route still records the caller class",
 			path:  "/api/hypershell/v1/does-not-exist",
 			token: verifiedToken(jwt.MapClaims{"azp": proberClientID}),
@@ -246,7 +279,11 @@ func TestOTelHTTPHandlerRecordsCallerClass(t *testing.T) {
 				w.WriteHeader(http.StatusOK)
 			}).Methods(http.MethodGet)
 
-			instrumented := newOTelHTTPHandler(parseSyntheticClientIDs("", false))(router)
+			clients := tc.clients
+			if clients == nil {
+				clients = omitted
+			}
+			instrumented := newOTelHTTPHandler(clients)(router)
 			// Stand-in for the framework JWT handler, which wraps the pre-auth
 			// chain and stores the verified token in the context.
 			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -339,7 +376,15 @@ var registerOTelPreAuthOnce sync.Once
 //   - a forged prober token on a public path (where the JWT handler does not
 //     verify tokens) records user, because only verified claims count;
 //   - a request with no token records user.
+//
+// Verifies: OBS-SLI-11.01, OBS-SLI-11.02, OBS-SLI-11.03, OBS-SLI-11.04
 func TestCallerClassBehindFrameworkJWTHandler(t *testing.T) {
+	if os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" {
+		// plugin.go init() has already registered the production otel pre-auth
+		// middleware, so a second registration here would count every request
+		// twice.
+		t.Skip("OTEL_EXPORTER_OTLP_ENDPOINT is set; plugin init() already registered the otel pre-auth middleware")
+	}
 	trex.Init(trex.Config{ServiceName: "hypershell", BasePath: testBasePath})
 
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
