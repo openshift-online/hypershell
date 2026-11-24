@@ -420,6 +420,10 @@ gatewayConfig:
 
 # Server configuration
 server:
+  # Extra native-sidecar init containers for the gateway pod (HyperShell policy
+  # interceptor, OSG-HELM-06). Rendered before `containers:` by
+  # templates/_gateway-workload.tpl.
+  extraInitContainers: []
   # -- Operator-facing gateway name. Defaults to the chart fullname so all
   # replicas in one installation share an identity. Set explicitly when one
   # telemetry collector receives spans from multiple namespaces or clusters.

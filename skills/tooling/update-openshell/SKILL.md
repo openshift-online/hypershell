@@ -276,7 +276,10 @@ nobody serves. It tracks upstream chart sidecar support (upstream `#5566`).
 After every `make vendor-openshell-chart`, confirm with
 `git diff -- charts/openshell/templates/_gateway-workload.tpl` that the
 `extraInitContainers` block was not removed, and re-apply it from this repo's
-history if it was. When upstream ships an equivalent value, switch the control
+history if it was. The matching default `server.extraInitContainers: []` in
+`charts/openshell/values.yaml` (with its comment, as the first key under
+`server:`) is part of the same patch; confirm it with
+`git diff -- charts/openshell/values.yaml` and restore it the same way. When upstream ships an equivalent value, switch the control
 plane to it and drop the patch.
 
 If a future upstream release adds its own equivalent of this port (check the
