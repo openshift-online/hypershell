@@ -3,6 +3,7 @@ package policyinterceptor
 import (
 	"bytes"
 	"context"
+	"strings"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
@@ -119,6 +120,8 @@ func TestDefaultPatchesAreDeterministic(t *testing.T) {
 		"add /spec/template/resources/requests",
 		"add /spec/template/resources/requests/cpu",
 		"add /spec/template/resources/requests/memory",
+		"add /annotations",
+		"add /annotations/hypershell.redhat.io~1policy-defaults-applied",
 	}
 	if len(paths) != len(want) {
 		t.Fatalf("got patches %v, want %v", paths, want)
@@ -143,6 +146,7 @@ func TestDefaultPatchesAddOnlyMissingValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("patches: %v", err)
 	}
+	patches = resourcePatches(patches)
 	if len(patches) != 1 || patches[0].GetPath() != "/spec/template/resources/limits/cpu" || patches[0].GetValue().GetStringValue() != "2" {
 		t.Fatalf("got %v, want one add of limits/cpu=2", patches)
 	}
@@ -156,6 +160,7 @@ func TestDefaultPatchesAddOnlyMissingValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("patches: %v", err)
 	}
+	patches = resourcePatches(patches)
 	if len(patches) != 1 || patches[0].GetValue().GetStringValue() != "3" {
 		t.Fatalf("got %v, want limits/cpu=3", patches)
 	}
@@ -167,4 +172,71 @@ func TestDefaultPatchesAddOnlyMissingValues(t *testing.T) {
 	if patches, err = sr.DefaultPatches(d); err != nil || len(patches) != 0 {
 		t.Fatalf("got %v, %v; want no patches", patches, err)
 	}
+}
+
+// TestDefaultPatchesRecordAppliedDefaults checks that the defaults the
+// interceptor adds are recorded on the sandbox, that an existing annotations
+// object is reused, and that a client-supplied value is replaced.
+// Verifies: PLAT-PGP-08.06
+func TestDefaultPatchesRecordAppliedDefaults(t *testing.T) {
+	d := DefaultQuantities{CPURequest: "500m", CPULimit: "2", MemoryRequest: "1Gi", MemoryLimit: "4Gi"}
+	path := "/annotations/" + jsonPointerEscape(DefaultsAppliedAnnotation)
+	if path != "/annotations/hypershell.redhat.io~1policy-defaults-applied" {
+		t.Fatalf("annotation pointer = %q", path)
+	}
+	for _, tc := range []struct {
+		name          string
+		op            map[string]any
+		wantObjectAdd bool
+	}{
+		{"no annotations", map[string]any{"name": "s1"}, true},
+		{"client annotation replaced", map[string]any{"name": "s1", "annotations": map[string]any{DefaultsAppliedAnnotation: "forged"}}, false},
+	} {
+		sr, err := ParseCreateSandbox(tc.op)
+		if err != nil {
+			t.Fatalf("%s: parse: %v", tc.name, err)
+		}
+		patches, err := sr.DefaultPatches(d)
+		if err != nil {
+			t.Fatalf("%s: patches: %v", tc.name, err)
+		}
+		var sawObject bool
+		var value string
+		for _, p := range patches {
+			switch p.GetPath() {
+			case "/annotations":
+				sawObject = true
+			case path:
+				if p.GetOp() != "add" {
+					t.Fatalf("%s: annotation op = %q, want add (replaces an existing member)", tc.name, p.GetOp())
+				}
+				value = p.GetValue().GetStringValue()
+			}
+		}
+		if sawObject != tc.wantObjectAdd {
+			t.Fatalf("%s: /annotations object add = %v, want %v", tc.name, sawObject, tc.wantObjectAdd)
+		}
+		want := "requests.cpu=500m,limits.cpu=2,requests.memory=1Gi,limits.memory=4Gi"
+		if value == "" || value == "forged" {
+			t.Fatalf("%s: annotation value %q", tc.name, value)
+		}
+		for _, entry := range strings.Split(want, ",") {
+			if !strings.Contains(value, entry) {
+				t.Fatalf("%s: annotation %q is missing %q", tc.name, value, entry)
+			}
+		}
+	}
+}
+
+// resourcePatches drops the applied-defaults annotation patches, leaving only
+// the spec.template.resources patches.
+func resourcePatches(patches []*gi.JsonPatch) []*gi.JsonPatch {
+	var out []*gi.JsonPatch
+	for _, p := range patches {
+		if strings.HasPrefix(p.GetPath(), "/annotations") {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
 }

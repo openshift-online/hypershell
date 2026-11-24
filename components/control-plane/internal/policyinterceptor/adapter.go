@@ -55,6 +55,18 @@ type SandboxRequest struct {
 
 	// presence of the containers the default patches add to.
 	hasSpec, hasTemplate, hasResources, hasRequests, hasLimits bool
+	hasAnnotations                                             bool
+}
+
+// DefaultsAppliedAnnotation records, on the created sandbox, exactly which
+// fleet defaults the interceptor added, as "<section>.<key>=<value>" entries
+// joined by commas (for example "requests.cpu=500m,limits.memory=4Gi"). It is
+// visible to users and readable through the OpenShell CLI (PLAT-PGP-08.06).
+const DefaultsAppliedAnnotation = "hypershell.redhat.io/policy-defaults-applied"
+
+// jsonPointerEscape escapes one RFC 6901 reference token.
+func jsonPointerEscape(token string) string {
+	return strings.NewReplacer("~", "~0", "/", "~1").Replace(token)
 }
 
 // ParseCreateSandbox reads a CreateSandboxRequest in protobuf JSON form.
@@ -62,6 +74,7 @@ func ParseCreateSandbox(op map[string]any) (SandboxRequest, error) {
 	var r SandboxRequest
 	r.Name = str(op["name"])
 	r.RequestID = str(field(op, "requestId", "request_id"))
+	_, r.hasAnnotations = op["annotations"].(map[string]any)
 
 	spec, ok := op["spec"].(map[string]any)
 	if !ok {
@@ -294,6 +307,20 @@ func (r SandboxRequest) DefaultPatches(d DefaultQuantities) ([]*gi.JsonPatch, er
 			Value: structpb.NewStringValue(a.Value),
 		})
 	}
+	// Record what was added on the sandbox itself (PLAT-PGP-08.06). "add" on an
+	// existing member replaces it, so a client-supplied value cannot survive.
+	if !r.hasAnnotations {
+		addObject("/annotations")
+	}
+	entries := make([]string, 0, len(added))
+	for _, a := range added {
+		entries = append(entries, a.Section+"."+a.Key+"="+a.Value)
+	}
+	patches = append(patches, &gi.JsonPatch{
+		Op:    "add",
+		Path:  "/annotations/" + jsonPointerEscape(DefaultsAppliedAnnotation),
+		Value: structpb.NewStringValue(strings.Join(entries, ",")),
+	})
 	return patches, nil
 }
 

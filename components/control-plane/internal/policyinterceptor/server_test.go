@@ -116,7 +116,7 @@ func TestNoBundleFailsClosedOnCreateAndOpenOnDelete(t *testing.T) {
 	}
 }
 
-// Verifies: PLAT-PGP-08.01
+// Verifies: PLAT-PGP-08.01, PLAT-PGP-08.06
 func TestModifyOperationDefaultsOnlyUnderEnforcement(t *testing.T) {
 	op := createOp("s1", map[string]any{"memory": "1Gi"}, map[string]any{"memory": "1Gi"})
 
@@ -130,8 +130,10 @@ func TestModifyOperationDefaultsOnlyUnderEnforcement(t *testing.T) {
 	for _, p := range res.GetPatches() {
 		got[p.GetPath()] = p.GetValue().GetStringValue()
 	}
-	if got["/spec/template/resources/requests/cpu"] != "500m" || got["/spec/template/resources/limits/cpu"] != "2" || len(got) != 2 {
-		t.Fatalf("got patches %v, want requests/cpu=500m and limits/cpu=2 only", got)
+	annotation := "/annotations/" + jsonPointerEscape(DefaultsAppliedAnnotation)
+	if got["/spec/template/resources/requests/cpu"] != "500m" || got["/spec/template/resources/limits/cpu"] != "2" ||
+		got[annotation] != "limits.cpu=2,requests.cpu=500m" || len(got) != 4 {
+		t.Fatalf("got patches %v, want requests/cpu=500m, limits/cpu=2, the /annotations object, and %s=limits.cpu=2,requests.cpu=500m only", got, DefaultsAppliedAnnotation)
 	}
 	if enforced.Events.Len() != 0 {
 		t.Fatalf("enforced gateway recorded %d events, want 0", enforced.Events.Len())

@@ -1749,9 +1749,10 @@ promotion environment and runs per distinct capability on hub and spokes
    interceptor is registered, Cedar evaluation works, and the denial text reaches the
    CLI.
 3. **Allowed with defaults.** `openshell sandbox create e2epol-<run>-allow`
-   with no resources SHALL succeed, and the sandbox spec read back through the CLI
-   SHALL show the fleet default requests, proving default injection. The sandbox SHALL
-   be deleted in cleanup.
+   with no resources SHALL succeed, and `openshell sandbox get <name> -o json` SHALL
+   show the `hypershell.redhat.io/policy-defaults-applied` annotation with the fleet
+   default requests and limits (PLAT-PGP-08.06), proving default injection (the pinned
+   CLI does not print sandbox resources). The sandbox SHALL be deleted in cleanup.
 4. **No impact on other sandboxes.** The existing short-mode sandbox (not using the
    reserved prefix) with a CPU request of `2` SHALL NOT be rejected by the canary.
 
@@ -1768,7 +1769,7 @@ SHALL report as skipped, never as passed.
 
 - GIVEN the same run
 - WHEN it creates `e2epol-<run>-allow` with no resources
-- THEN the create SHALL succeed and the read-back spec SHALL show the fleet default requests
+- THEN the create SHALL succeed and the sandbox's `hypershell.redhat.io/policy-defaults-applied` annotation, read through `openshell sandbox get -o json`, SHALL list the fleet default requests and limits
 - AND the existing short-mode sandbox without the reserved prefix with a CPU request of `2` SHALL NOT be rejected
 
 #### Scenario: E2E-CORE-49.03 -- Disabled Canary Reports Skipped

@@ -365,6 +365,14 @@ rejected.
 - THEN it SHALL add `700m` from the bundle and count the mismatch in `hypershell_policy_interceptor_defaults_hash_mismatch_total`
 - AND when the hashes match it SHALL apply its environment defaults and count nothing
 
+#### Scenario: PLAT-PGP-08.06 -- Added Defaults Are Recorded on the Sandbox
+
+- GIVEN an enforced gateway and a `CreateSandbox` request that omits some resource values
+- WHEN the interceptor adds fleet defaults in `modify_operation`
+- THEN it SHALL also set the sandbox annotation `hypershell.redhat.io/policy-defaults-applied` to the added values as comma-separated `<section>.<key>=<value>` entries (for example `requests.cpu=500m,limits.memory=4Gi`)
+- AND a client-supplied value for that annotation SHALL be replaced, so the annotation always reflects what the interceptor added
+- AND a request that receives no defaults SHALL get no annotation patch
+
 ---
 
 ### Requirement: PLAT-PGP-09 -- Interceptor Packaging and Sidecar Identity

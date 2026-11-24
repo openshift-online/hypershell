@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -68,10 +67,6 @@ const (
 	findingOutcomeWouldReject  = "would_reject"
 	platformPolicyAdminRole    = "platform-policy:admin"
 	policyInterceptorContainer = "hypershell-policy-interceptor"
-
-	// cgroupMemoryLimitCommand prints the sandbox container's memory limit on
-	// cgroup v2 and falls back to cgroup v1.
-	cgroupMemoryLimitCommand = "cat /sys/fs/cgroup/memory.max 2>/dev/null || cat /sys/fs/cgroup/memory/memory.limit_in_bytes"
 )
 
 // --- API shapes (decoded locally so the checks do not depend on generated
@@ -237,6 +232,41 @@ func canarySandboxName(token, suffix string) string {
 	return canarySandboxPrefix + token + "-" + suffix
 }
 
+// defaultsAppliedAnnotation is the annotation the policy interceptor stamps on
+// a sandbox with the fleet defaults it added (PLAT-PGP-08.06). It mirrors
+// policyinterceptor.DefaultsAppliedAnnotation in the control plane.
+const defaultsAppliedAnnotation = "hypershell.redhat.io/policy-defaults-applied"
+
+// appliedDefaultsFromSandboxJSON parses `openshell sandbox get -o json` output
+// and returns the entries of defaultsAppliedAnnotation ("requests.cpu" ->
+// "500m", ...).
+func appliedDefaultsFromSandboxJSON(out string) (map[string]string, error) {
+	text := stripANSI(out)
+	start, end := strings.Index(text, "{"), strings.LastIndex(text, "}")
+	if start < 0 || end < start {
+		return nil, fmt.Errorf("no JSON object in output")
+	}
+	var sandbox struct {
+		Annotations map[string]string `json:"annotations"`
+	}
+	if err := json.Unmarshal([]byte(text[start:end+1]), &sandbox); err != nil {
+		return nil, fmt.Errorf("decode sandbox JSON: %w", err)
+	}
+	value, ok := sandbox.Annotations[defaultsAppliedAnnotation]
+	if !ok {
+		return nil, fmt.Errorf("sandbox has no %s annotation (annotations: %v)", defaultsAppliedAnnotation, sandbox.Annotations)
+	}
+	applied := map[string]string{}
+	for _, entry := range strings.Split(value, ",") {
+		key, val, found := strings.Cut(entry, "=")
+		if !found || key == "" || val == "" {
+			return nil, fmt.Errorf("malformed %s entry %q in %q", defaultsAppliedAnnotation, entry, value)
+		}
+		applied[key] = val
+	}
+	return applied, nil
+}
+
 // fitsGatewaySandboxName reports whether name is within the gateway's sandbox
 // name limit.
 func fitsGatewaySandboxName(name string) bool { return len(name) <= gatewaySandboxNameMax }
@@ -372,25 +402,6 @@ func policyDenialLine(lines []string, name string) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-// parseCgroupLimitBytes parses a cgroup memory limit (memory.max or
-// memory.limit_in_bytes). "max" (unlimited) and unparsable output report false.
-func parseCgroupLimitBytes(out string) (int64, bool) {
-	var last string
-	for _, l := range strings.Split(stripANSI(out), "\n") {
-		if t := strings.TrimSpace(l); t != "" {
-			last = t
-		}
-	}
-	if last == "" || last == "max" {
-		return 0, false
-	}
-	n, err := strconv.ParseInt(last, 10, 64)
-	if err != nil || n <= 0 {
-		return 0, false
-	}
-	return n, true
 }
 
 // hasFinding reports whether findings holds an outcome for policy recorded at
@@ -604,24 +615,29 @@ func (s *E2ESuite) assertCanaryAllowsDefaults(t *testing.T, gw *sdktypes.Gateway
 	s.assertDefaultInjection(t, gw, local, allowName, defaults)
 }
 
-// assertDefaultInjection proves the interceptor added the fleet default memory
-// limit to a sandbox created without memory resources, by reading the cgroup
-// limit through the CLI. When the limit is not observable through the CLI the
-// sub-check reports skipped. Long mode additionally reads the pod spec.
+// assertDefaultInjection proves the interceptor added the fleet defaults to a
+// sandbox created without resources. Short mode reads the
+// hypershell.redhat.io/policy-defaults-applied annotation the interceptor
+// stamps on the sandbox through `openshell sandbox get -o json`, because the
+// pinned CLI does not print the sandbox resources (PLAT-PGP-08.06,
+// E2E-CORE-49.02). Long mode additionally reads the pod spec.
 func (s *E2ESuite) assertDefaultInjection(t *testing.T, gw *sdktypes.Gateway, local, sandbox string, defaults fleetDefaults) {
 	s.Run("default-injection", func() {
 		t := s.T()
-		s.Require().Positivef(defaults.MemoryLimitBytes, "effective_policies defaults carry memory_limit_bytes (got %+v)", defaults)
-		out, err := s.cli(t, local, "sandbox", "exec", "-n", sandbox, "--", "sh", "-c", cgroupMemoryLimitCommand)
-		if err != nil {
-			t.Skipf("the sandbox memory limit is not readable through the CLI (%v); default injection is not observable in short mode:\n%s", err, out)
+		s.Require().NotEmptyf(defaults.MemoryLimit, "effective_policies defaults carry memory_limit (got %+v)", defaults)
+		out, err := s.cli(t, local, "sandbox", "get", sandbox, "-o", "json")
+		s.Require().NoErrorf(err, "sandbox get %s -o json:\n%s", sandbox, out)
+		applied, err := appliedDefaultsFromSandboxJSON(out)
+		s.Require().NoErrorf(err, "E2E-CORE-49.02: read %s from sandbox %s:\n%s", defaultsAppliedAnnotation, sandbox, out)
+		for entry, want := range map[string]string{
+			"requests.cpu":    defaults.CPURequest,
+			"limits.cpu":      defaults.CPULimit,
+			"requests.memory": defaults.MemoryRequest,
+			"limits.memory":   defaults.MemoryLimit,
+		} {
+			s.Assert().Equalf(want, applied[entry],
+				"E2E-CORE-49.02: sandbox %s set no resources, so the interceptor must add the fleet default %s=%s (annotation %v)", sandbox, entry, want, applied)
 		}
-		got, ok := parseCgroupLimitBytes(out)
-		if !ok {
-			t.Skipf("the sandbox cgroup memory limit is not a byte count (%q); default injection is not observable in short mode", strings.TrimSpace(stripANSI(out)))
-		}
-		s.Assert().Equalf(defaults.MemoryLimitBytes, got,
-			"E2E-CORE-49.02: sandbox %s set no memory, so its limit must be the fleet default %s (%d bytes)", sandbox, defaults.MemoryLimit, defaults.MemoryLimitBytes)
 
 		s.longOnly("pod-spec-defaults", func(t *testing.T) {
 			ns := sandboxPodNamespace(gw.WorkspaceMode, gw.Namespace, "default")

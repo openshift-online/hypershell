@@ -160,21 +160,6 @@ func TestCanaryDisabledStatusMessage(t *testing.T) {
 	}
 }
 
-// Verifies: E2E-CORE-49.02
-func TestParseCgroupLimitBytes(t *testing.T) {
-	if got, ok := parseCgroupLimitBytes("4294967296\n"); !ok || got != 4<<30 {
-		t.Fatalf("parse memory.max = %d %t", got, ok)
-	}
-	if got, ok := parseCgroupLimitBytes("\x1b[0m$ sh -c ...\n1073741824\n\n"); !ok || got != 1<<30 {
-		t.Fatalf("parse last line = %d %t", got, ok)
-	}
-	for _, out := range []string{"max\n", "", "cat: /sys/fs/cgroup/memory.max: Permission denied", "-1"} {
-		if _, ok := parseCgroupLimitBytes(out); ok {
-			t.Fatalf("parseCgroupLimitBytes(%q) reported a limit", out)
-		}
-	}
-}
-
 // Verifies: E2E-CORE-50.01
 func TestHasFinding(t *testing.T) {
 	since := time.Date(2026, 11, 23, 10, 0, 0, 0, time.UTC)
@@ -291,5 +276,26 @@ func TestCheckPolicyDenialUnwrapsCLIGutter(t *testing.T) {
 		Bound:       canaryCPUBound,
 	}}); err != nil {
 		t.Fatalf("checkPolicyDenial on wrapped CLI output: %v", err)
+	}
+}
+
+// Verifies: PLAT-PGP-08.06, E2E-CORE-49.02
+func TestAppliedDefaultsFromSandboxJSON(t *testing.T) {
+	out := "\x1b[0m{\n  \"name\": \"e2epol-123456-allow\",\n  \"annotations\": {\n    \"hypershell.redhat.io/policy-defaults-applied\": \"requests.cpu=500m,limits.cpu=2,requests.memory=1Gi,limits.memory=4Gi\"\n  }\n}\n"
+	got, err := appliedDefaultsFromSandboxJSON(out)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	want := map[string]string{"requests.cpu": "500m", "limits.cpu": "2", "requests.memory": "1Gi", "limits.memory": "4Gi"}
+	for k, v := range want {
+		if got[k] != v {
+			t.Fatalf("%s = %q, want %q (got %v)", k, got[k], v, got)
+		}
+	}
+	if _, err := appliedDefaultsFromSandboxJSON(`{"name":"x","annotations":{}}`); err == nil {
+		t.Fatal("missing annotation: want error")
+	}
+	if _, err := appliedDefaultsFromSandboxJSON("not json"); err == nil {
+		t.Fatal("no JSON: want error")
 	}
 }

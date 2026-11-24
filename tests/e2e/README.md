@@ -113,16 +113,15 @@ P2.1 gateway, as the run's own identity, through the API and the CLI only:
 2. `sandbox create e2epol-<token>-deny --cpu 2` fails with
    `PERMISSION_DENIED`. The message names the canary, carries its user message,
    and states `allowed: at most 1`.
-3. `sandbox create e2epol-<token>-allow` with no resources is not
-   rejected by a policy. The reserved prefix is 22 characters, and the OpenShell
-   gateway limits sandbox names to 19. The gateway runs interceptors before it
-   validates the name, so the deny case still reaches the canary. An allowed
-   reserved-prefix create then fails the name check. The suite accepts that
-   name-length refusal as proof that the canary allowed the request.
+3. `sandbox create e2epol-<token>-allow` with no resources must succeed and
+   the sandbox must become reachable with `exec`. The reserved prefix is 7
+   characters, so the name fits the gateway's 19-character limit. The
+   `default-injection` subtest reads the
+   `hypershell.redhat.io/policy-defaults-applied` annotation with
+   `sandbox get <name> -o json` and expects the fleet default requests and
+   limits. Long mode also checks the pod spec.
 4. The P2.1 sandbox has no reserved prefix and uses `--cpu 2`. The canary must
-   not reject it. The `default-injection` subtest reads its cgroup memory limit
-   with `sandbox exec` and expects the fleet default `memory_limit`. Long mode
-   also checks the pod spec.
+   not reject it.
 
 If the canary never becomes `Applied`, the subtest is skipped, never passed,
 when either of these is true: the canary's per-gateway status says
