@@ -463,7 +463,11 @@ success "Stand-in PostgreSQL ready (ssl=on)"
 # runs, configured to the GitOps Contract (KV v2, kubernetes auth, the openshell-gateway
 # role + capability-scoped policy, serving CA in Secret openshell-gateway-vault-tls).
 # KIND_CLUSTER_NAME is exported by the Makefile, so the child shell resolves the context.
-VAULT_KUBECTL="kubectl --context $(kctx)" bash "${SCRIPT_DIR}/../cluster/vault.sh"
+# It also copies the serving CA into ${KIND_NAMESPACE}/hypershell-vault-ca, which the
+# controller reads (GATEWAY_VAULT_CA_SECRET in deploy/kind/kustomization.yaml), so the e2e
+# fail-closed step P2.7 corrupts only that copy, never the Vault's own TLS Secret.
+VAULT_KUBECTL="kubectl --context $(kctx)" VAULT_CA_COPY_NAMESPACE="${KIND_NAMESPACE}" \
+  bash "${SCRIPT_DIR}/../cluster/vault.sh"
 
 # The controller reads ONE admin credential Secret, hypershell-gateway-database-admin,
 # mounted from its own namespace at /etc/hypershell/gateway-database

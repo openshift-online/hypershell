@@ -39,6 +39,12 @@ patches:
                   # configured Kubernetes pod security context (OSG-CORE-14.03).
                   - name: HYPERSHELL_CLUSTER_PLATFORM
                     value: kubernetes
+                  # Read the Vault serving CA from this environment's own copy
+                  # (scripts/cluster/vault.sh copies it there), so the e2e
+                  # fail-closed step P2.7 can corrupt it without touching the
+                  # Vault's own openshell-vault/openshell-gateway-vault-tls Secret.
+                  - name: GATEWAY_VAULT_CA_SECRET
+                    value: hypershell-system/hypershell-vault-ca
                   - name: GATEWAY_API_GATEWAY_NAMESPACE
                     value: hypershell-system
                   - name: GATEWAY_API_BASE_DOMAIN
