@@ -530,7 +530,7 @@ selected per sandbox through OpenShell; they are not Gateway resource fields.
 | `route_address` | text | Read-only external address populated by the control plane (e.g., `grpcs://hostname:443`) |
 | `gateway_version` | string | Read-only runtime version from the last successful gateway health response |
 | `credential_driver` | JSONB | Credential storage driver config: `{type, kubernetes_secrets, vault}`. `type` is one of `vault`, `kubernetes-secrets`, `kek-db`. When omitted/null it resolves to `vault` (the default; convention-addressed per-cluster Vault, no sub-fields required). See [`openshell-gateway-credentials.spec.md`](./openshell-gateway-credentials.spec.md) |
-| `workspace_mode` | text | How the OpenShell Kubernetes driver maps workspaces to namespaces: `shared`, `managed`, or `operator`. Platform-managed with a create-only exception: the API server defaults it to `managed` at create, and the only caller-settable value is `operator`, accepted only from a `gateway:operator-workspace-creator` caller (the per-gateway operator-managed workspace opt-in). Immutable after create; the service funnel enforces the vocabulary and immutability for every writer class. Required: every stored Gateway carries a value. See [`openshell-gateway.spec.md`](./openshell-gateway.spec.md), "OSG-CORE-18 -- Gateway Workspace Mode", and [`gateway-operator-workspaces.spec.md`](./gateway-operator-workspaces.spec.md), "OSG-OPWS-01" |
+| `workspace_mode` | text | How the OpenShell Kubernetes driver maps workspaces to namespaces: `shared`, `managed`, or `operator`. Platform-managed with a create-only exception: the API server defaults it to `managed` at create, and the only caller-settable value is `operator`, accepted only from a `gateway:operator-workspace-creator` caller while the `HYPERSHELL_ENABLE_OPERATOR_WORKSPACE_MODE` API server feature flag is enabled (the per-gateway operator-managed workspace opt-in). Immutable after create; the service funnel enforces the vocabulary and immutability for every writer class. Required: every stored Gateway carries a value. See [`openshell-gateway.spec.md`](./openshell-gateway.spec.md), "OSG-CORE-18 -- Gateway Workspace Mode", and [`gateway-operator-workspaces.spec.md`](./gateway-operator-workspaces.spec.md), "OSG-OPWS-01" |
 | `dev_build` | boolean | Marks this Gateway as a dev/branch build (default: false). Control plane passes `hypershell.redhat.io/openshell-dev-build` via Helm `podLabels`. See [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md) |
 | `dev_build_metadata` | JSONB | Dev build provenance: `{ref, sha, repo}`. Control plane passes these via Helm `podAnnotations`. See [`openshell-branch-build.spec.md`](./openshell-branch-build.spec.md) |
 
@@ -742,7 +742,8 @@ control-plane gRPC write WITHOUT import metadata) retains full write access.
   or `cluster_id` (per "Requirement: Gateway Placement and Late Binding"), the
   create-only `dedicated_route` request flag (PLAT-DATA-26), and the create-only
   `workspace_mode` operator opt-in (the only caller-settable value is `operator`,
-  and only for a caller holding `gateway:operator-workspace-creator`; see
+  and only for a caller holding `gateway:operator-workspace-creator` while the
+  `HYPERSHELL_ENABLE_OPERATOR_WORKSPACE_MODE` feature flag is enabled; see
   [`openshell-gateway.spec.md`](./openshell-gateway.spec.md), OSG-CORE-18, and
   [`gateway-operator-workspaces.spec.md`](./gateway-operator-workspaces.spec.md),
   OSG-OPWS-01). An Import caller SHALL NOT set `dedicated_route` or `workspace_mode`:

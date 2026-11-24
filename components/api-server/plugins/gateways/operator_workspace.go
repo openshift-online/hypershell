@@ -2,6 +2,7 @@ package gateways
 
 import (
 	"context"
+	"os"
 	"strings"
 
 	"github.com/openshift-online/hypershell/components/api-server/pkg/rbac"
@@ -27,11 +28,26 @@ const (
 	// and says why the platform does not grant it to every creator.
 	operatorWorkspaceForbiddenReason = "workspace_mode=operator requires the " + roles.RoleGatewayOperatorWorkspaceCreator + " role (platform:admin also qualifies): operator mode gives a trusted external operator ownership of the gateway's workspace namespaces, so it is not granted to every gateway:creator"
 
+	// operatorWorkspaceFeatureEnv is the API server feature flag that permits a
+	// caller to select operator mode. It is off by default and is enabled only by
+	// the local OCE kind environment (make kind-up-with-oce,
+	// deploy/oce-kind/hypershell-operator.yaml).
+	operatorWorkspaceFeatureEnv = "HYPERSHELL_ENABLE_OPERATOR_WORKSPACE_MODE"
+
+	// operatorWorkspaceDisabledReason rejects an operator selection while the
+	// feature flag is off.
+	operatorWorkspaceDisabledReason = "workspace_mode=operator is disabled on this deployment: it is only available in local test environments started with make kind-up-with-oce (" + operatorWorkspaceFeatureEnv + "=true)"
+
 	// operatorWorkspaceImportForbiddenReason rejects a declarative-import create
 	// that sets workspace_mode: import writes are authored by a Repository, and the
 	// entitlement is granted to a user, so an import cannot carry it.
 	operatorWorkspaceImportForbiddenReason = "workspace_mode cannot be set by an import caller: the " + roles.RoleGatewayOperatorWorkspaceCreator + " entitlement is granted per user, and a declarative import is authored by a Repository rather than by a user who can hold it; create the gateway directly (hsctl or the web console) to select operator mode"
 )
+
+// operatorWorkspaceEnabled reports whether the operator-mode feature flag is on.
+func operatorWorkspaceEnabled() bool {
+	return os.Getenv(operatorWorkspaceFeatureEnv) == "true"
+}
 
 // operatorWorkspaceRequested reports whether an optional workspace_mode value
 // means "operator selected". nil, empty, and any non-operator value are not an
@@ -61,6 +77,9 @@ func applyGatewayWorkspaceModeCreateRequest(kind rbac.GatewayWriterKind, gateway
 	}
 	if strings.TrimSpace(*gateway.WorkspaceMode) != operatorWorkspaceValue {
 		return gatewayFieldForbidden(kind, "workspace_mode")
+	}
+	if !operatorWorkspaceEnabled() {
+		return errors.Forbidden("%s", operatorWorkspaceDisabledReason)
 	}
 	return nil
 }

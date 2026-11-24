@@ -76,6 +76,14 @@ enforced at the create boundaries per
 writer class (OSG-CORE-18.04): changing a gateway's workspace mode requires delete
 and re-create.
 
+Operator mode selection SHALL be behind the API server feature flag
+`HYPERSHELL_ENABLE_OPERATOR_WORKSPACE_MODE`, which is off by default. While the
+flag is not `true`, a user create that selects `operator` SHALL be rejected with
+403 (`PermissionDenied` over gRPC) stating the mode is disabled on this
+deployment, even for an entitled caller. Only the local OCE kind environment
+(`make kind-up-with-oce`, `deploy/oce-kind/hypershell-operator.yaml`) SHALL
+enable the flag; no other overlay or deployment sets it.
+
 The declarative `.hypershell` GitOps import SHALL NOT select `operator` mode: an
 Import-kind create that sets `workspace_mode` SHALL be rejected by the service
 funnel, because the entitlement is granted per user and an import is authored by a
@@ -85,7 +93,8 @@ to the field.
 
 #### Scenario: OSG-OPWS-01.01 -- Entitled caller selects operator mode at create
 
-- GIVEN a caller holding `gateway:creator` and `gateway:operator-workspace-creator`
+- GIVEN an API server with `HYPERSHELL_ENABLE_OPERATOR_WORKSPACE_MODE=true`
+- AND a caller holding `gateway:creator` and `gateway:operator-workspace-creator`
 - WHEN the caller creates a Gateway with `workspace_mode = operator` over REST or gRPC
 - THEN the API server SHALL accept the create and persist `workspace_mode = operator`
 - AND the GatewayReconciler SHALL provision the gateway in operator mode
@@ -126,6 +135,13 @@ to the field.
 - WHEN any writer class updates it to a different `workspace_mode`
 - THEN the update SHALL be rejected with 409 and delete-and-recreate guidance
   (OSG-CORE-18.04)
+
+#### Scenario: OSG-OPWS-01.07 -- Operator selection is disabled unless the feature flag is on
+
+- GIVEN an API server without `HYPERSHELL_ENABLE_OPERATOR_WORKSPACE_MODE=true`
+- WHEN an entitled caller creates a Gateway with `workspace_mode = operator`
+- THEN the create SHALL be rejected with 403 naming `make kind-up-with-oce`
+- AND no Gateway SHALL be persisted
 
 ### Requirement: OSG-OPWS-02 -- Administrator-Owned Operator Settings Preserve the Authorization Boundary
 
@@ -308,8 +324,9 @@ cascade does not reach them.
 
 ### Requirement: OSG-OPWS-07 -- Supported Entry Points
 
-The operator opt-in SHALL be reachable through the supported write surfaces with no
-deployment-wide patching: the REST gateway Create handler, the gRPC `CreateGateway`
+On an API server with the `HYPERSHELL_ENABLE_OPERATOR_WORKSPACE_MODE` feature flag enabled
+(OSG-OPWS-01), the operator opt-in SHALL be reachable through the supported write
+surfaces with no per-gateway deployment patching: the REST gateway Create handler, the gRPC `CreateGateway`
 handler, and the generated `hsctl create gateway` command. The CLI SHALL expose an
 `--operator-workspaces` flag that sets `workspace_mode = operator` in the create
 request; the flag's help SHALL state that it requires the
@@ -318,7 +335,7 @@ work over the same supported API.
 
 #### Scenario: OSG-OPWS-07.01 -- hsctl selects operator mode without deployment patches
 
-- GIVEN an entitled caller
+- GIVEN an entitled caller and an API server with the feature flag enabled
 - WHEN they run `hsctl create gateway --name my-gw --placement-selector <label> --operator-workspaces`
 - THEN the CLI SHALL send a create request carrying `workspace_mode = operator`
 - AND no HyperShell API server or controller Deployment patch SHALL be required for
