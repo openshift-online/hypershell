@@ -630,7 +630,6 @@ func buildConsoleDeployment(namespace, consoleImage, proxyImage, issuer, console
 			// neither role, so USER_ROLE is required for a non-admin member (who
 			// holds only openshell-user) to use the console.
 			envVar("ADMIN_ROLE", GatewayAdminRole),
-			envVar("USER_ROLE", GatewayUserRole),
 			envVar("LOGOUT_URL", "/oauth2/sign_out"),
 		},
 		"ports": []interface{}{
