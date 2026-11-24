@@ -82,18 +82,36 @@ func otelHTTPHandler(next http.Handler) http.Handler {
 // the span name to "METHOD /templated/route" and records http.route, so Jaeger
 // groups spans by endpoint and resource identifiers never inflate span-name
 // cardinality. It also records the operation id for trace-to-support correlation.
+//
+// OBS-SLI-10: the same templated route is added to the request metrics (including
+// http.server.request.duration) via the otelhttp Labeler, so the API latency SLO
+// can count user REST routes only and exclude the OpenAPI and managed-cluster
+// registration routes. otelhttp merges the Labeler's attributes into the metric
+// sample when the request completes. Only the bounded path template is recorded,
+// never the raw path, so cardinality stays bounded by the registered routes; a
+// request that matches no route adds no http.route attribute. This complements,
+// and never replaces, the read/write request-class attribute (OBS-SLI-08) and the
+// method and status-code attributes otelhttp already records.
 func routeTagMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		span := trace.SpanFromContext(r.Context())
-		if span.IsRecording() {
-			if route := mux.CurrentRoute(r); route != nil {
-				// GetPathTemplate keeps {id}-style placeholders, which are the
-				// bounded route we want in the span name (unlike the raw path).
-				if tmpl, err := route.GetPathTemplate(); err == nil && tmpl != "" {
+		if route := mux.CurrentRoute(r); route != nil {
+			// GetPathTemplate keeps {id}-style placeholders, which are the
+			// bounded route we want in the span name (unlike the raw path).
+			if tmpl, err := route.GetPathTemplate(); err == nil && tmpl != "" {
+				if span.IsRecording() {
 					span.SetName(r.Method + " " + tmpl)
 					span.SetAttributes(semconv.HTTPRoute(tmpl))
 				}
+				// Record the templated route on the request metrics regardless of
+				// whether the span is sampled, so the latency SLO always sees the
+				// route even when tracing is not recording this request.
+				if labeler, ok := otelhttp.LabelerFromContext(r.Context()); ok {
+					labeler.Add(semconv.HTTPRoute(tmpl))
+				}
 			}
+		}
+		if span.IsRecording() {
 			if opID := logger.GetOperationID(r.Context()); opID != "" {
 				span.SetAttributes(operationIDAttr.String(opID))
 			}
