@@ -4,12 +4,11 @@
 
 ## Purpose
 
-Every requirement and scenario in `specs/` needs a stable, unique identifier
-so tests, commits, and tooling can cite exact behavior instead of a heading
-title that can be reworded at any time. This spec defines the identifier
-syntax, the canonical headings that carry it, the registry that assigns
-module and group codes, and the stability rules that keep an ID meaningful
-for the life of the requirement it names.
+This spec defines the identifier syntax, the canonical headings that carry it,
+the registry that assigns module and group codes, and the stability rules that
+keep an ID meaningful for the life of the requirement it names, so tests,
+commits, and tooling can cite exact behavior rather than a reworded heading
+title.
 
 ## Requirements
 

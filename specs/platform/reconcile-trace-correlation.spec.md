@@ -6,11 +6,7 @@
 
 ## Purpose
 
-When an operator investigates a reconcile failure, they need to trace the causal chain: which user action triggered the change that the control plane is now reconciling? Today the control plane produces reconcile spans (OBS-CPL-02) and the API server produces request spans (API-OBS-02/03), but the two traces are disconnected because reconciliation is temporally decoupled from the user request. The API server writes desired state to PostgreSQL and returns; the control plane observes the change later via a gRPC watch stream, possibly after resync, batching, or retries.
-
-A synchronous parent-child span relationship is therefore incorrect: it would produce a child span that starts long after its parent ended, or one request span with many reconcile children from resyncs. The correct OpenTelemetry model is a **span link** ("caused by"): the reconcile span keeps its own root trace (independently sampled per OBS-CPL-02) and carries a link to the originating request trace, so a support engineer can navigate from the reconcile trace to the request trace in Jaeger.
-
-This specification defines how the originating trace context flows from the API server request, through the database, over the gRPC watch stream, into the control plane reconcile span as a link. It extends `platform/api-server-observability.spec.md` (HYPERSHELL-26) and `platform/control-plane-observability.spec.md` (HYPERSHELL-79).
+This specification defines how the originating W3C Trace Context flows from the API server request, through the database, over the gRPC watch stream, and into the control plane reconcile span as a **span link** ("caused by"), so a support engineer can navigate from a reconcile trace to the originating request trace in Jaeger. The reconcile span keeps its own root trace (independently sampled per OBS-CPL-02) and carries a link to the originating request trace rather than a synchronous parent-child relationship, because reconciliation is temporally decoupled from the user request (the API server writes desired state to PostgreSQL and returns; the control plane observes the change later via a gRPC watch stream). It extends `platform/api-server-observability.spec.md` (HYPERSHELL-26) and `platform/control-plane-observability.spec.md` (HYPERSHELL-79).
 
 ## Requirements
 
@@ -148,16 +144,7 @@ The span link on the reconcile span records the linked trace ID and span ID as s
 
 ## Design Decisions
 
-| Decision | Rationale |
-| --- | --- |
-| Span link, not parent-child | Reconciliation is asynchronous and may happen long after the request returns. A parent-child relationship would create a span tree where the child outlives the parent, breaking trace semantics. A span link preserves causal reference without implying temporal containment. |
-| Local `TraceMeta` embed alongside `api.Meta` | The upstream `api.Meta` is owned by the `rh-trex-ai` framework and cannot be modified in-tree. A local embeddable struct keeps the change self-contained. Each plugin model embeds it, and a single migration adds the columns to all tables. |
-| `traceparent` and `tracestate` as separate text columns | Matches the W3C Trace Context header structure. Two columns are simpler than a JSON blob and allow direct extraction without parsing. |
-| Fields on `ObjectReference` in protobuf, not on each resource message | `ObjectReference` is the shared metadata message embedded in every resource. Adding the fields there propagates to all watch responses without per-resource proto changes. |
-| Capture from active span context, not raw header | The active span context reflects the actual sampled span that performed the write. The raw header might not match if the server started a new root or the header was malformed. |
-| Overwrite on update, not append | The most recent mutation is the one the control plane will reconcile. Maintaining a history of trace contexts would complicate the schema and provide limited value. |
-| Silent ignore on missing or malformed traceparent | Pre-existing resources and disabled-telemetry deployments must work without errors. The link is best-effort observability, not a correctness requirement. |
-| Trace context not exposed in REST API | The trace context is an internal observability concern. Exposing it in the REST API would leak infrastructure details and create an unnecessary contract. |
+Rationale for these decisions is recorded in [ADR-0023](../../docs/adr/0023-reconcile-trace-correlation.md).
 
 ## Primary Basis
 

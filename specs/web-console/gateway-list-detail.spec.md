@@ -12,9 +12,7 @@
 
 ## Purpose
 
-Define the gateway list and detail page redesign: an improved application shell with persistent navigation, a rebalanced gateway list table with cluster type and state persistence, and a gateway detail experience with an overview card, guided connection setup, and clearer provisioning-state handling for user access and service accounts.
-
-This redesign makes the gateway list easier to scan by rebalancing columns and preserving table state in the URL. It gives the detail page a real overview surface, moves connection guidance to a sequential task-oriented workflow, and makes attention states and provisioning availability clearer. The changes keep PatternFly components and patterns, reduce duplicate or low-value text, and make destructive actions visually distinct from reversible ones.
+Define the gateway list and detail page redesign: an improved application shell with persistent navigation, a rebalanced gateway list table with cluster type and state persistence, and a gateway detail experience with an overview card, guided connection setup, and clearer provisioning-state handling for user access and service accounts. The redesign keeps PatternFly components and patterns, reduces duplicate or low-value text, and makes destructive actions visually distinct from reversible ones.
 
 ## Requirements
 

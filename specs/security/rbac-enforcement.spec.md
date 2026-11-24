@@ -180,9 +180,6 @@ The API server middleware SHALL extract roles from the JWT `realm_access.roles` 
 (or an equivalent configurable claim path) and lazily create or update the corresponding
 RoleBinding records in the database on each authenticated request.
 
-This ensures that Keycloak role changes take effect on the next API request without
-requiring a separate sync process.
-
 #### Scenario: SEC-RBAC-01.01 -- Keycloak admin assigns gateway:creator
 
 - GIVEN a Keycloak admin assigns the `gateway:creator` realm role to user A
@@ -237,10 +234,6 @@ lock on it, on a request whose claims already match what is stored. A JWT that o
 profile claim (for example, a service-account token with no `email` or `name`) SHALL
 leave the corresponding stored field unchanged; auto-provisioning SHALL NEVER overwrite
 a stored non-empty profile field with an empty or absent claim.
-
-This conditional-write behavior keeps a caller's own row from being locked on every
-request the caller makes -- including the control plane's gRPC write-backs -- so a slow
-downstream call inside one request cannot stall that caller's other concurrent requests.
 
 When a request DOES need to write a changed profile field, it SHALL serialize that write
 through one shared advisory lock rather than relying on the row lock's acquisition order.
@@ -765,13 +758,10 @@ OSG-OPWS-01). The create-boundary entitlement checks themselves are defined in
 "Requirement: Gateway Dedicated Route Creator Role" (SEC-RBAC-20) and "Requirement:
 Gateway Operator Workspace Creator Role" (SEC-RBAC-28).
 
-Enforcing the policy in the service funnel - not per handler - closes the
-whole-row-replace gap whereby a gRPC `UpdateGateway` could set more than a REST
-`PATCH`, and closes the import loophole whereby a GitOps manifest could declare
-platform-managed fields the direct user API forbids. This field policy is an
-ownership boundary on who authored the value, not an access grant, so it does not
-depend on the request-level role-enforcement mode; a caller that
-needs to author platform-managed fields SHALL do so as the control-plane identity.
+This field policy is an ownership boundary on who authored the value, not an
+access grant, so it does not depend on the request-level role-enforcement mode; a
+caller that needs to author platform-managed fields SHALL do so as the
+control-plane identity.
 
 #### Scenario: SEC-RBAC-18.01 -- User gRPC UpdateGateway of a locked field is denied
 
@@ -2210,24 +2200,4 @@ carries no `managed-cluster/` token on the user placement surface.
 
 ## Design Decisions
 
-| Decision | Rationale |
-|----------|-----------|
-| Control plane writes back CI status status-only, not by import or role binding (SEC-RBAC-27) | The control plane never authors `CIProvider` or `CITrust` spec, but must persist what it realized (the adopted IdP alias, the exchange endpoint). Denying every CI write stranded federation: no `status.idp_alias` meant every adopting `CITrust` failed. A field-scoped status-only write-back mirrors the existing `Gateway`/`AgentRuntime` non-import status path and the Gateway Field Write Policy, so the control plane records observed state without gaining authority to author CI spec. |
-| Keycloak as authority for platform roles | Centralizes role management. Eliminates need for admin-seeding CLI or DB migration. Role changes take effect on next JWT. |
-| Four roles model | Minimal model that covers the use cases: platform administration (view/delete all), create gateways, own gateways, view gateways. No fleet-scoped RBAC needed. |
-| gRPC decides each method explicitly, default-deny | The previous rule granted `gateway:creator` or `gateway:owner` every gRPC method, so any signed-in user could rewrite or delete any gateway once the hub's gRPC API became public. A per-method table matches the HTTP rules and fails closed for methods added later. |
-| `platform:admin` is view + delete only | Platform admins handle operational tasks (viewing all gateways, cleaning up orphaned resources). Full modification requires ownership to prevent accidental changes. Separation of concerns: visibility ≠ modification authority. |
-| `platform:admin` orthogonal to `gateway:creator` | A platform admin may or may not create gateways. Roles compose: `platform:admin` + `gateway:creator` allows both operational oversight and resource creation. |
-| JWT roles synced to DB on every request | DB is the projection, Keycloak is the authority. Revocations in Keycloak take effect immediately. Existing per-gateway bindings are unaffected by platform role changes. |
-| Service accounts treated identically to users | Control plane gets `gateway:creator` in Keycloak, provisions like any user. No special bypass logic needed. |
-| `managed-cluster-registrar` is separate from gateway roles | A spoke service account only needs fleet membership rights, not gateway creation rights. Keeping the roles separate limits blast radius if a spoke credential is compromised. |
-| `gateway:dedicated-route-creator` separate from `gateway:creator` | A dedicated per-gateway route and certificate is a rate-limited resource (one certificate order, load balancer, and wildcard DNS record per gateway). A distinct platform-wide entitlement lets operators grant it narrowly instead of to every creator; it is a marker role checked at the create boundary and grants nothing else (SEC-RBAC-20). |
-| `managed-cluster-registrar` is JWT-direct, not DB-synced | The role is for specific service accounts, not users in general. There is no reason to maintain a DB binding for it. Checking from the live JWT claim in `isAuthorized` is sufficient, consistent with other JWT-direct roles, and avoids `JWTSyncedRoles` entanglement. |
-| Role assigned by admin, not auto-granted | Provides a human control point for fleet membership. A new spoke cannot join the fleet without an explicit Keycloak admin action. |
-| Gateway owners can grant co-owners | No hierarchy restriction. Team leads assign `gateway:creator` to team members or invite them as owners/viewers per gateway. Simple mental model. |
-| Auto-assign `gateway:owner` on creation | Creator automatically owns what they create. No separate grant step needed. |
-| `gateway:creator` assigned exclusively via Keycloak | Every deployment sources the role only from Keycloak, directly or through the realm default role for a blanket grant (SEC-RBAC-13). The role cannot be self-assigned via the API. |
-| Per-gateway bindings stored in DB | Gateway-scoped access requires per-resource granularity that JWT claims cannot provide (you'd need dynamic claim values per gateway ID). |
-| 404 on unauthorized singleton GETs | Returning 403 confirms the resource exists. 404 prevents ID enumeration. |
-| OpenShell role bridge | `gateway:owner` maps to `openshell-admin`, `gateway:viewer` maps to `openshell-user`. Ensures consistent access via CLI. |
-| OpenShellGatewayServiceAccount role limit | A gateway binding limits the selected OpenShell role. Owners can select `openshell-user` or `openshell-admin`. Viewers can select only `openshell-user`. Each OpenShellGatewayServiceAccount remains bound to its creator. A binding change can downgrade or revoke it. |
+Rationale for these decisions is recorded in [ADR-0025](../../docs/adr/0025-rbac-enforcement.md).

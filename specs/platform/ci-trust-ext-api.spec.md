@@ -30,9 +30,7 @@ in [`../security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md
 (SEC-RBAC-21, SEC-RBAC-22); this spec defers to it and restates only the
 per-gateway tenancy gate in PLAT-CITR-03.
 
-There is no secret in the repo, no OAuth app to register on the forge, and no
-operator Terraform per tenant: a `CITrust` is the entire self-service act. This is
-the declarative, user-owned face of the platform federation described in the
+This is the declarative, user-owned face of the platform federation described in the
 gitops `ci-oidc-federation.spec.md`; a `CIProvider` IS that spec's per-forge IdP.
 
 ## Architecture

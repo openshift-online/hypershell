@@ -166,8 +166,7 @@ SBOM SHALL list the prefetched dependencies for every from-source ecosystem of
 that component. A hermetic flag SHALL be flipped for a component only after that
 component's hermetic build is confirmed green (traced from the Konflux build log
 or `ec validate`); an unverified flip that breaks the component build is not
-permitted, because a broken or stale image makes the application-wide check
-worse, not better.
+permitted.
 
 Converting a component to the Trusted Artifacts (`-oci-ta`) task variants that the
 proxy-attributed prefetch above requires also builds that component as a native

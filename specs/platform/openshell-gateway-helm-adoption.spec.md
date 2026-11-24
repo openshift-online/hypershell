@@ -10,7 +10,7 @@
 
 ## Purpose
 
-The control plane SHALL deploy OpenShell gateways with the upstream OpenShell Helm chart, run at reconcile time through the Helm CLI. Using the upstream chart keeps HyperShell aligned with upstream and gives it new chart features without in-tree manifest maintenance.
+The control plane SHALL deploy OpenShell gateways with the upstream OpenShell Helm chart, run at reconcile time through the Helm CLI.
 
 The GatewayReconciler manages one Helm release per gateway:
 

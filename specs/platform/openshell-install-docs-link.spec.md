@@ -2,10 +2,8 @@
 
 ## Purpose
 
-The gateway connection tab provides copyable CLI commands but does not link to
-the upstream installation documentation. Operators who have not yet installed
-the OpenShell CLI need a clear path to the installation guide before following
-the connection steps.
+This spec requires the gateway connection tab to link to the upstream OpenShell
+CLI installation documentation above the connection steps.
 
 **Upstream:** [NVIDIA OpenShell Installation](https://docs.nvidia.com/openshell/about/installation)
 
@@ -16,7 +14,7 @@ the connection steps.
 The connection tab of the gateway details page SHALL display a link to the
 NVIDIA OpenShell installation documentation
 (`https://docs.nvidia.com/openshell/about/installation`) above the connection
-steps so that operators can install the CLI before following the setup commands.
+steps.
 
 #### Scenario: WEB-DOCS-01.01 -- Link Present on Connection Tab
 

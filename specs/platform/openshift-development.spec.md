@@ -12,12 +12,11 @@
 
 ## Purpose
 
-HyperShell developers must build, deploy, and test the full stack on OpenShift
-with the same commands and the same workflow that they use for Kind. This spec
-defines a driver model for the cluster lifecycle. The `make openshift-up` command
-deploys a complete HyperShell environment to an ephemeral namespace on an
-OpenShift cluster. The developer can swap one component at a time from the working
-tree, exactly as `make kind-<component>-up` does today.
+This spec defines a driver model for the OpenShift cluster lifecycle so developers
+build, deploy, and test the full stack with the same commands and workflow as Kind.
+`make openshift-up` deploys a complete HyperShell environment to an ephemeral
+namespace on an OpenShift cluster, and the developer can swap one component at a time
+from the working tree, exactly as `make kind-<component>-up` does today.
 
 This spec owns the OpenShift lifecycle (`make openshift-up` / `make openshift-down`,
 the `scripts/cluster/drivers/openshift.sh` lifecycle driver), the `deploy/openshift/`
@@ -48,10 +47,6 @@ namespace on a warm target environment avoids that cost. The namespace MAY be
 provisioned through the
 [ephemeral-namespace-operator](https://github.com/RedHatInsights/ephemeral-namespace-operator)
 or an equivalent mechanism.
-
-Both contexts use the same lifecycle driver -- `make openshift-up` and the same
-lifecycle driver functions -- and the same Go e2e suite, so that a local
-deployment and a CI deployment cannot drift.
 
 ### Scope
 

@@ -9,11 +9,9 @@
 
 ## Purpose
 
-Every control plane must determine its own `cluster_id` at runtime without requiring a human to pre-register it and distribute the resulting KSUID out-of-band. The `/registration` sub-resource within the `managedClusters` plugin enables a control plane to register itself using its OIDC `client_credentials` identity and receive a stable `cluster_id` in return. This applies to every control plane, including the one co-located with the hub API server: there is no unregistered mode (`control-plane.spec.md`, "Requirement: Mandatory Cluster Identity").
+The `/registration` sub-resource within the `managedClusters` plugin enables a control plane to register itself using its OIDC `client_credentials` identity and receive a stable `cluster_id` in return. This applies to every control plane, including the one co-located with the hub API server: there is no unregistered mode (`control-plane.spec.md`, "Requirement: Mandatory Cluster Identity").
 
-The same endpoint serves as a health ping and capability reconciliation point. The control plane calls it on a loop; registration calls after the first atomically replace the self-declared capability set and update `last_seen_at`, giving the hub passive fleet-health and current placement data with no additional infrastructure.
-
-Because every control plane is identified, the API server can enforce cluster scoping on the gRPC watch streams instead of trusting the `cluster_id` a caller asks for. That binding is specified here too.
+The same endpoint serves as a health ping and capability reconciliation point: the control plane calls it on a loop, and registration calls after the first atomically replace the self-declared capability set and update `last_seen_at`. Because every control plane is identified, the API server enforces cluster scoping on the gRPC watch streams instead of trusting the `cluster_id` a caller asks for; that binding is specified here too.
 
 ---
 
@@ -172,8 +170,6 @@ The upsert SHALL use database-level locking to handle concurrent first-time requ
 
 A registration whose `name` matches an existing `ManagedCluster` record with a different `oidc_subject`, or with an empty `oidc_subject` (a record created through `POST /managed_clusters`), SHALL return 409 Conflict and SHALL NOT create, adopt, or modify any record. The conflict message SHALL name the existing record's id and state that an operator must delete it (and re-point any gateways that reference it) before this control plane can register under that name.
 
-This is deliberate: registration never silently takes over a record, because gateways may already reference its id and a takeover would move them to a different control plane without anyone deciding so.
-
 #### Scenario: PLAT-CLUS-02.01 -- Name held by a manually created record
 
 - GIVEN a `ManagedCluster` named `local-openshift` created via `POST /managed_clusters` (empty `oidc_subject`)
@@ -198,8 +194,6 @@ This is deliberate: registration never silently takes over a record, because gat
 ### Requirement: PLAT-CLUS-03 -- Record Writes and Deregistration
 
 Creating, updating, and deleting `ManagedCluster` records (`POST`, `PATCH`, and `DELETE` on `/managed_clusters`, and `CreateManagedCluster`, `UpdateManagedCluster`, `DeleteManagedCluster` on gRPC) SHALL require `platform:admin`, with one exception: a registered control plane MAY delete the record whose `oidc_subject` is its own JWT `sub` (self-deregistration). `gateway:creator`, a gateway binding, and the `RBAC_SERVICE_ACCOUNTS` allowlist SHALL NOT authorize any record write. Reads (`GET` on the collection and by id, `List`/`Get`/`Watch` on gRPC) remain available to `gateway:creator` and `platform:admin`, which gateway placement and the dashboard inventory need.
-
-The reasons are concrete. A placeholder created with a control plane's name makes that control plane's registration a permanent 409. A rename makes its next registration a 409 as well. A delete detaches every gateway on the cluster until the control plane registers again.
 
 Deleting the record of a running control plane is undone by its next registration (at most one heartbeat interval later), which restores the same record. To decommission a control plane, stop it or revoke its OIDC client first, then delete the record. `bin/teardown-cluster` in hypershell-gitops follows that order and deregisters each spoke with the spoke's own client.
 
@@ -581,25 +575,4 @@ release promotion.
 
 ## Design Decisions
 
-| Decision | Rationale |
-|----------|-----------|
-| Every control plane registers; no unregistered mode | The hub's co-located control plane is physically a spoke already (it deploys only into its own cluster with in-cluster credentials). Giving it an identity removes the one code path that could not be scoped server-side and makes registration, filtering, and authenticated watches run in every environment. |
-| Name collision is a 409, not an adoption | A silent takeover would re-home the gateways referencing the old record. Failing loudly makes the operator decide, and the seed scripts simply stop creating the record so the collision never happens on a fresh environment. |
-| `name` unique across all records | Seed scripts, e2e discovery, and operators look clusters up by name. Two records with one name would make that lookup nondeterministic. |
-| Manual `POST /managed_clusters` records are inert | Nothing consumes `kubeconfig_secret`, and no control plane filters on a record it did not register. Keeping the endpoint avoids an API break for `hsctl`, but the spec is explicit that it does not add a cluster to the fleet. |
-| Gateways must reference a registered cluster | With every control plane filtering, an unassigned gateway is orphaned forever. Rejecting it at create time turns a silent no-op into an immediate, actionable error. |
-| Watch-stream binding checks the caller's registered cluster, not a role | The identity that matters is "which cluster is this", and registration already established it. A role would only prove the caller is some control plane. |
-| A registered cluster is a control-plane identity; `RBAC_SERVICE_ACCOUNTS` is only the bootstrap fallback | Adding a spoke must not require a hub-side configuration change. Registration is already gated by a Keycloak role and records the caller's `sub`, so the registry is the list of control planes. The allowlist remains for a control plane that must act before it has registered. |
-| A control plane is scoped to its own cluster, not exempt | Every spoke holds credentials on a cluster the hub operator may not control, and the hub's gRPC API is public. An unscoped exemption let any spoke rewrite another cluster's gateways, move them onto itself, change a fleet-wide release image, or delete other clusters' records. |
-| Re-registration restores a deleted record instead of creating one | The soft-deleted row keeps its `(oidc_subject, name)` index entry, so a fresh insert failed with a permanent 409; a new id instead would orphan every gateway on the cluster and let the namespace GC reap them. Restoring keeps gateways attached, makes an accidental delete self-healing, and leaves decommissioning to revoking the client. |
-| Record writes need `platform:admin`; a control plane may delete only its own | Records gate placement and registration for a whole cluster. `gateway:creator` is held by every signed-in user on the GitOps hubs, so it cannot authorize them; self-deregistration keeps the teardown path working without an admin token. |
-| Single `/registration` endpoint for both register and heartbeat | Eliminates a separate heartbeat endpoint. The idempotent registration call already has all the information needed to update `last_seen_at`. Fewer endpoints, simpler RBAC surface. |
-| Namespaced string capabilities with match-all selectors | Provider, network, runtime, and future dimensions remain independent and extensible without a provider-by-network schema matrix. |
-| Registration replaces the complete capability set | GitOps remains the source of truth, removed capabilities do not linger, and one heartbeat converges deployment configuration into placement state. |
-| Narrow response body (`{ "cluster_id" }` only, not full ManagedCluster) | The control plane needs exactly one thing from registration: its stable `cluster_id` to use as the `WatchGateways` filter. Returning the full ManagedCluster object would expose fields the control plane cannot and should not act on. The narrow shape is intentional and differs from the standard `GET /managed_clusters/{id}` response by design. |
-| 403 and 409 exit immediately; other failures retry with backoff | A 403 means the Keycloak role is absent and a 409 means an operator must remove a record; retrying either is pointless and delays operator awareness. Network or 5xx errors are transient; exponential backoff recovers automatically without operator intervention. |
-| `(oidc_subject, name)` upsert key | `oidc_subject` alone allows a control plane to change its human name between deployments. Requiring both prevents accidental name changes and makes conflicts explicit rather than silent. |
-| `last_seen_at` as passive liveness, not a status field | Keeps the control plane's self-reported liveness separate from the hub reconciler's view of cluster state. The `status` field remains the reconciler's domain. |
-| No active health probing from the hub | Control planes call in; the hub does not need to reach out. Avoids hub-to-spoke credential management and works across network topologies where the hub cannot initiate connections to spokes. |
-| Role assigned by admin in production, pre-assigned in dev realms | The `managed-cluster-registrar` role is a privilege gate. A Keycloak admin must explicitly grant it before a production control plane can self-register, providing a human control point for fleet membership. Development realms are code-owned, so the grant ships with them. |
-| JWT-direct enforcement, not DB-synced | `managed-cluster-registrar` is not in `JWTSyncedRoles` because it should never be auto-assigned (unlike `gateway:creator`) and does not need a DB binding lifecycle. A live JWT claim check in `isAuthorized` is sufficient and avoids polluting the sync table with a role that applies to a narrow class of service accounts. |
+Rationale for these decisions is recorded in [ADR-0003](../../docs/adr/0003-managed-cluster-registration-decisions.md).

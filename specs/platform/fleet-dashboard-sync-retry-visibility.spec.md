@@ -7,11 +7,8 @@
 
 Surface the Argo CD sync-attempt (retry) count for a promotion gate's source
 environment in the fleet dashboard's gate / analysis-run details pane, so an
-operator can tell a wedged gate apart from a slow one. When a release-analysis
-gate sits "pending", the dashboard today gives no signal to distinguish a healthy
-analysis that is still running from an Argo sync operation that is looping on a
-PostSync hook that can never pass. The retry count is the key diagnostic and is
-already reachable, so this specification threads it from the Argo CD
+operator can tell a wedged gate apart from a slow one. The retry count is the key
+diagnostic and is already reachable, so this specification threads it from the Argo CD
 `Application` the BFF already fetches through to the gate pane as a single
 nullable integer, labelled and explained in plain English.
 

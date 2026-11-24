@@ -7,14 +7,11 @@
 ## Purpose
 
 Make every meaningful, user-addressable view of the fleet dashboard (the "glass"
-dashboard, `glass.infra.hypershell.app`) reconstructible from its URL. Today Glass
-keeps almost all navigation, selection, and deliberate view state in
-component-local React state: the active tab, the shared release-bundle selection,
-map node/gate/drawer selection and nested tabs, the Agent SDLC scope filter,
-search, selected card, escalations drawer, and shipped selection, and the e2e-run
-list filter, sort, selected run, selected step, log scope, and log controls. A
-reload, a pasted link, opening in a new tab, or an authentication round trip loses
-that context, and browser Back/Forward cannot retrace an investigation.
+dashboard, `glass.infra.hypershell.app`) reconstructible from its URL. Glass
+currently keeps navigation, selection, and deliberate view state in component-local
+React state (enumerated in the route/state matrix, FLT-NAV-01), so a reload, a pasted
+link, opening in a new tab, or an authentication round trip loses that context and
+browser Back/Forward cannot retrace an investigation.
 
 This specification defines a single typed route/query contract for Glass and the
 browser-history behavior around it. A copied link SHALL reopen the same

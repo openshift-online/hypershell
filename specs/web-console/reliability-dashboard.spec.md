@@ -20,11 +20,6 @@ Historical reconciliation data SHALL cover the rolling previous **24 hours** and
 
 Authentication failure rate and login failure rate are out of scope for version 1.
 
-The reliability dashboard shares the operational dashboard package, navigation,
-refresh interval, widget framework, and application boundary. It keeps separate
-route, metric workflow, layout template, and `localStorage` keys so reliability
-customization does not affect the operational overview.
-
 ## Requirements
 
 ### Requirement: REL-DASH-01 -- Package Placement and Exports

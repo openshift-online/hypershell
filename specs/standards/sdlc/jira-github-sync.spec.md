@@ -11,28 +11,22 @@
 
 The agent-based SDLC funnel runs on GitHub: branches, specification files, pull
 requests, and a label-driven state machine carry a work item from intent to
-merged code. Managers track that same work in Jira. Today the two systems drift:
-a human must hand-copy GitHub progress into Jira for a manager to see status and
-give credit.
+merged code. Managers track that same work in Jira.
 
-This specification makes GitHub-side SDLC activity and Jira stay continuously in
-sync. Either a GitHub issue or a Jira epic or story SHALL be able to start the
-funnel, and intake SHALL be fully bidirectional: a Jira-first work item gets a
-GitHub execution record created for it, and a GitHub-first work item gets a Jira
-epic created for it, so both origins converge on the same canonically linked
-pair. In every case the GitHub issue is the execution record and drives all SDLC
-phases. GitHub is the execution substrate: it owns branches, specs, pull
-requests, and the label state machine. Jira is the management view: it owns
-intent, priority, assignment, and the epic hierarchy. A bidirectional reconciler
-keeps the two converged under a per-field authority rule, so a manager sees
-progress and credits the human owner without ever editing Jira by hand.
+This specification keeps GitHub-side SDLC activity and Jira continuously in sync.
+Either a GitHub issue or a Jira epic or story SHALL be able to start the funnel,
+and intake SHALL be fully bidirectional: a Jira-first work item gets a GitHub
+execution record created for it, and a GitHub-first work item gets a Jira epic
+created for it, so both origins converge on the same canonically linked pair. In
+every case the GitHub issue is the execution record and drives all SDLC phases.
+GitHub is the execution substrate: it owns branches, specs, pull requests, and
+the label state machine. Jira is the management view: it owns intent, priority,
+assignment, and the epic hierarchy. A bidirectional reconciler keeps the two
+converged under a per-field authority rule.
 
-The reconciler converges records of EITHER origin. A scope run reconciles every
-in-scope execution record, so a GitHub-origin record receives the same status
-projection, artifact remote links, attributed narrative, and terminal closure as
-a Jira-origin record. Resolution of the counterpart across systems is by the
-canonical link ALONE - the `agent/execution-record` marker label plus the exact
-Jira key - never by a descriptive mention of some other ticket's key in a body.
+Resolution of the counterpart across systems is by the canonical link ALONE -
+the `agent/execution-record` marker label plus the exact Jira key - never by a
+descriptive mention of some other ticket's key in a body.
 
 This is a cross-cutting process standard. It constrains the SDLC skills under
 `.hypershell/` and defines the behavior those skills SHALL implement. It is a
@@ -920,19 +914,4 @@ applied by the runner as specified in
 
 ## Design Decisions
 
-| Decision | Rationale |
-|----------|-----------|
-| GitHub is the execution substrate; Jira is the management view | Branches, specs, pull requests, and the label state machine already live on GitHub and drive the agents. Jira is where managers plan and credit. Splitting authority by system matches how each is actually used. |
-| Every work item runs through a GitHub execution record | The existing funnel acts on GitHub issues. Ingesting Jira items into GitHub records lets triage, spec, code, and review stay unchanged and origin-blind. |
-| Jira status is derived, never hand-set | A single derivation from the GitHub phase removes drift at the source and keeps managers from editing status by hand. |
-| Per-field authority rather than last-writer-wins | Last-writer-wins would let an agent overwrite human-owned intent or an epic link. Fixed authority per field makes reconciliation deterministic and safe to run repeatedly. |
-| Remote links instead of the native Development panel | Remote links work without the one-time admin enablement of the native panel and are update-or-create, so artifact sync stays idempotent. |
-| Comments attributed on behalf of the human owner | Managers give credit to people. Agents report progress but never claim authorship, so the assignee and the narrative both point to the owner. |
-| Intake is idempotent and create-if-missing | The funnel is safe to run repeatedly. Re-running never creates duplicate execution records or duplicate links. |
-| Intake is bidirectional, not Jira-source-driven only | A Jira-source-only intake strands GitHub-origin records: their per-record reconcile never runs, so they get no status projection or terminal closure. Creating a Jira counterpart for a GitHub-first item and reconciling every in-scope record of either origin makes the funnel origin-symmetric. |
-| Resolution by canonical link only, never by a descriptive key mention | A GitHub issue may mention another ticket's key to describe related work. Resolving from that mention would reconcile against the wrong Jira item. Requiring the `agent/execution-record` marker plus the exact linked key makes resolution unambiguous and safe. |
-| The GitHub issue always drives execution, whichever side initiates | The label state machine, branches, and pull requests live on GitHub. Keeping GitHub as the execution substrate regardless of origin means the triage, spec, code, and review phases stay origin-blind. |
-| `agent/allowed` gates the whole funnel, not only triage | Intake, reconcile, and selection all perform outward-facing writes. Gating only triage left the gate advisory: a scoped-but-unauthorized item could still get an epic and status projection. Making every write-performing step require `agent/allowed` makes the human authorization decision load-bearing. |
-| No agent applies `agent/allowed` | Authorization is a human decision. An agent that stamped the gate onto a record it created would authorize its own work and defeat the gate, so intake leaves created records un-authorized until a human grants it. |
-| Scope and authorization are separate labels | `agent/scope/*` answers "is this item in this run's set"; `agent/allowed` answers "may the funnel act on it". Conflating them would force authorizing everything in a scope or scoping only authorized work. Keeping them orthogonal lets a human stage work into scope and authorize it independently. |
-| A Closed execution record projects Done independently of merge detection | GitHub is authoritative for the record's open/closed state. Keying Done only on a detectable merged pull request stranded records that were closed by hand or whose merge referenced a different issue. Treating the Closed state as a second, independent terminal trigger removes that gap while leaving the merge-based close-and-project behavior unchanged. |
+Rationale for these decisions is recorded in [ADR-0028](../../docs/adr/0028-jira-github-sync.md).

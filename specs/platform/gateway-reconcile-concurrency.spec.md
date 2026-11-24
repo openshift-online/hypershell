@@ -7,21 +7,9 @@
 ## Purpose
 
 Give operators a supported way to tune how many *distinct* gateways the control
-plane provisions concurrently, without changing code. Today the gateway reconcile
-queue drains through a fixed pool of worker goroutines whose size is a hardcoded
-constant (`gatewayReconcileWorkers = 4` in
-`components/control-plane/internal/watcher/requeue.go`), overridable only by a
-test-only option. When more gateways than the worker count are created in a short
-window, the surplus waits in the queue until a worker frees, so provisioning wait
-time grows with burst size - the behavior users reported for a burst of six
-gateways.
-
-This specification makes the worker-pool size deployment configuration, separate
-from code, with a bounded default and validated input, so the concurrency cap can
-be raised (or lowered) per environment. It preserves the two invariants the pool
-exists to guarantee: work for a single gateway is never run by two workers at once
-(per-gateway serialization), and cross-gateway parallelism stays bounded by the
-configured cap (the pool is a throttle, never unbounded fan-out).
+plane provisions concurrently, without changing code: make the gateway reconcile
+worker-pool size deployment configuration, with a bounded default and validated
+input, so the concurrency cap can be raised or lowered per environment.
 
 This specification covers the control plane component only. It does not change the
 API server, the gRPC contract, the data model, or the per-gateway provisioning
@@ -162,14 +150,7 @@ size is used, and that reconciliation proceeds normally.
 
 ## Design Decisions
 
-| Decision | Rationale |
-| --- | --- |
-| Expose worker count as an environment variable, not a flag or code constant | Matches the existing control-plane configuration pattern (`GATEWAY_NAMESPACE_GC_*`); config changes must not require a code change |
-| Keep a bounded positive default equal to today's behavior | Zero-surprise upgrade: an unset variable reconciles exactly as before |
-| Invalid value warns and falls back rather than failing startup | Consistent with `getEnvBool`/`getEnvDuration`; a mistuned knob should not take the control plane down; a wrong worker count only mis-sizes a throttle |
-| Pool stays a bounded throttle, never unbounded | Unbounded parallelism could overwhelm target-cluster scheduling capacity and worsen `Degraded` outcomes; the original request was explicitly "parallel **but throttled**" |
-| Raising concurrency only, not reducing per-provision time | Per-provision cost is environment-driven (cluster image pull, scheduling), orthogonal to how many run at once |
-| Multi-replica advisory lock deferred | The in-process queue already serializes per gateway within one process; cross-replica exclusion is a separate HA decision and the deployment runs a single replica |
+Rationale for these decisions is recorded in [ADR-0016](../../docs/adr/0016-gateway-reconcile-concurrency.md).
 
 ## Open Questions
 

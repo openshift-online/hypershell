@@ -31,57 +31,28 @@
 
 ## Purpose
 
-HyperShell runs a standard ephemeral e2e cycle for every origin pull request
-whose e2e-relevant paths changed: it deploys the full stack, runs the OpenShift
-e2e suite against it, and destroys the environment in the same run, whether the
-suite passed or failed. This is the default, so a pull request cannot silently
-retain a shared-cluster environment -- most notably, a failed deploy or a failed
-e2e run does not leave an environment behind. An origin PR that changes only
-e2e-irrelevant paths SHALL NOT receive an environment: deploying would only
-recreate a baseline `main` stack, which is not a distinct target for the author
-or for Tests / E2E / OpenShift.
+This spec owns the automated OpenShift pull-request CI workflow for origin pull
+requests. For an e2e-relevant pull request it deploys the full stack into a
+per-PR ephemeral namespace group on a shared target cluster, waits for Konflux to
+build the pull request's images and swaps them in by digest, runs the OpenShift
+e2e suite against the live environment, and destroys the environment in the same
+run whether the suite passed or failed. A developer who needs a live debug target
+opts in with `/pr-extend`; `/pr-destroy` and closing or merging the pull request
+release a retained environment.
 
-A developer who needs the environment as a live debug or development target opts
-in with the `/pr-extend` slash command on the pull request. The deploy comment
-always advertises `/pr-extend` so the developer knows the environment is otherwise
-transient. Once a write-access collaborator issues `/pr-extend`, the pull request is
-marked retained for the rest of its life: `/pr-extend` (re)deploys the environment
-if none is up, every later commit redeploys and keeps it, and it lives up to the
-standard inactivity timebox so the out-of-band reaper reclaims it only after the
-pull request goes quiet. A write-access collaborator can free a retained
-environment earlier with `/pr-destroy`, which runs the same teardown as
-`make openshift-down`. Closing or merging the pull request also releases it.
-
-When an e2e-relevant pull request opens (or a later commit is pushed), CI deploys
-the full stack into a per-PR ephemeral namespace group on a shared target
-OpenShift cluster, waits for Konflux to build the pull request's component
-images, swaps those images into the environment, and posts a pull-request comment
-telling the developer how to log in and how to `/pr-extend`. Tests / E2E / OpenShift
-then runs the OpenShift e2e suite against the live namespace (the same
-`plan-images` / `should_run` gate Kind uses, which also gates Deploy PR
-environment, and concurrently with Unit, so the deploy does not wait on it).
-Unless the pull request is marked retained, CI then destroys the environment.
-The per-PR namespace is deterministic from the
-pull-request number, so a retained pull request reuses the same environment
-across commits rather than accumulating environments.
-
-This spec owns the automated OpenShift pull-request CI workflow. The
-per-namespace deployment, reconcile, image swap-by-digest, teardown, and
+The per-namespace deployment, reconcile, image swap-by-digest, teardown, and
 OpenShift e2e driver remain defined in `openshift-development.spec.md`; the
-infra-agnostic e2e suite, Kind CI, and Konflux
-image gating remain defined in `e2e-testing.spec.md`; E2E suppression on
-merge-queue events and Mergify queue pull requests is defined in
-`mergify-parallel-merge-queue.spec.md` (CICD-MRG-06). This spec adds the
-pull-request-scoped concerns those specs leave open: the deterministic per-PR
-namespace naming, the ephemeral-by-default deploy/test/destroy cycle, the
-`/pr-extend` and `/pr-destroy` slash-command controls and their authorization, the
-deploy-serialization rule, the origin-only trust boundary, the inactivity
-timebox and external reaping of retained environments, the per-commit
-pull-request comment, and a Keycloak authentication model that brokers to GitHub
-(restricted to the `openshift-online` organization plus an allowlist) instead of
-Red Hat SSO. GitHub brokering lets an allowlisted outside contributor log in to
-an already-deployed origin-repo environment; it does not deploy fork pull
-requests onto the shared cluster.
+infra-agnostic e2e suite, Kind CI, and Konflux image gating remain defined in
+`e2e-testing.spec.md`; E2E suppression on merge-queue events and Mergify queue
+pull requests is defined in `mergify-parallel-merge-queue.spec.md` (CICD-MRG-06).
+This spec adds the pull-request-scoped concerns those specs leave open: the
+deterministic per-PR namespace naming, the ephemeral-by-default
+deploy/test/destroy cycle, the `/pr-extend` and `/pr-destroy` slash-command
+controls and their authorization, the deploy-serialization rule, the origin-only
+trust boundary, the inactivity timebox and external reaping of retained
+environments, the per-commit pull-request comment, and a Keycloak authentication
+model that brokers to GitHub (restricted to the `openshift-online` organization
+plus an allowlist) instead of Red Hat SSO.
 
 ### Scope
 
@@ -133,8 +104,7 @@ environment without storing external state. The CI workflow SHALL set
 `hypershell-ci-pr-<pr-number>-keycloak`, following the namespace-group derivation
 in `openshift-development.spec.md`. The platform namespace name SHALL remain a
 valid RFC 1123 DNS label within the 54-character bound that keeps the derived
-`-keycloak` name under the 63-character limit; because pull-request numbers are
-short, the `hypershell-ci-pr-` prefix leaves ample room.
+`-keycloak` name under the 63-character limit.
 
 The workflow SHALL stamp both namespaces with the same ownership labels the
 OpenShift lifecycle driver uses, so the reaper and `make openshift-status` can
@@ -156,8 +126,7 @@ if labeling either namespace fails, the workflow SHALL fail the job and SHALL
 NOT continue. The local-dev "warn and continue" path in
 `openshift-development.spec.md` does not apply to this workflow. The workflow
 SHALL NOT derive the namespace from the branch name, the commit SHA, or the
-developer identity, because those are not stable across the life of one pull
-request.
+developer identity.
 
 #### Scenario: CICD-PREN-01.01 -- Namespace derives from the pull-request number
 
@@ -1444,31 +1413,4 @@ appear in logs, the pull-request comment, or public artifacts.
 
 ## Design Decisions
 
-| Decision | Rationale |
-|----------|-----------|
-| Namespace name from the pull-request number (`hypershell-ci-pr-<number>`) | A short, stable, collision-free identifier that every run for a pull request derives without external state; fits well within the DNS-label bound that keeps `-keycloak` under 63 characters. Branch names and commit SHAs are not stable for the life of one pull request |
-| Same lifecycle labels as `make openshift-up`, with `pr-<number>` as the environment id | Reuses `hypershell.redhat.io/owned` and `hypershell.redhat.io/environment` so status and cleanup tooling stay one selector set; the `pr-` prefix lets the reaper ignore local environments. CI must be able to patch namespaces; failing closed beats an unlabeled environment the reaper cannot see |
-| Skip `Deploy OpenShift Environment` when `should_run` is false | An e2e-irrelevant PR would only deploy baseline `main` images. That consumes a shared-cluster namespace without giving the author a distinct environment or the OpenShift e2e suite a distinct target. The same `plan-images` / `should_run` gate Kind uses keeps deploy and Tests / E2E / OpenShift in lockstep |
-| `make openshift-up` on every deploying run, unconditionally | The command is already idempotent and reconciling, so one code path creates on first run and reconciles on later runs; branching on "does it exist" would duplicate logic and risk drift |
-| Ephemeral by default (deploy, test, destroy); `/pr-extend` to retain | Keeping an environment for every PR let failed deploys and abandoned PRs silently hold shared-cluster resources. Making destroy the default, with an explicit opt-in, means a PR only holds an environment when a developer actually asked for one to debug against |
-| Retained state is a `pr-environment/pr-extended` PR label, so `/pr-extend` is sticky | A label on the pull request is durable and derivable each run without external storage, so retention persists across commits (the developer extends once, not per commit) and every workflow run reads the same source of truth |
-| Latest authorized command comment by `created_at` wins; the label caches it | `issue_comment` runs can execute out of order or concurrently, so `/pr-extend` then `/pr-destroy` then `/pr-extend` must not depend on which run finishes last. Deriving state from the newest authorized command and reconciling the label to it makes the outcome deterministic and ignores an interleaved unauthorized `/pr-destroy` |
-| `/pr-extend` redeploys when nothing is up; failing runs still tear down | The ephemeral cycle may have already destroyed the environment by the time a developer reads the comment. Redeploying on `/pr-extend` avoids a grace-window race and keeps the default aggressive: a fresh environment for the current head is a better debug target than a half-torn-down one |
-| `/pr-extend` and `/pr-destroy` require write access, checked before using credentials | The comment-triggered workflow runs with repository and cluster credentials; an arbitrary commenter must not be able to pin or delete shared-cluster environments. A GitHub permission check (not `author_association`) matches the existing origin-only trust boundary |
-| Every deploy stamps `expires-at`; retained gets the inactivity window, unretained a short backstop | The reaper keys on `expires-at`. A retained PR wants a multi-day inactivity timebox; an unretained PR relies on in-run teardown but needs a short backstop so a crashed teardown is still reclaimed promptly. `make openshift-up` does not stamp either; local dev is not time-boxed |
-| Seed after every image swap; reuse existing named resources, except `dev-gateway` | `SKIP_SEED` on `openshift-up` keeps the baseline image from seeing the seed POST; `make openshift-seed` after the swap exercises this PR's contract. Gateway names are not unique, so later reconciles must look up `dev-gateway` (and the other seed names) rather than POST a second copy. `dev-gateway` is the one exception: Keycloak runs on in-memory storage with no persistent volume, so a Keycloak pod restart discards its dynamically-provisioned OIDC client while the `dev-gateway` row survives untouched in PostgreSQL, and the reconciler deliberately never auto-recreates a missing client (`openshell-gateway-keycloak.spec.md`, "Existing gateway client is missing"). Reusing a `dev-gateway` that predates the current Keycloak instance would permanently strand it in status `Keycloak client is missing`, so seeding deletes and recreates it on every run instead. This is a stopgap until Keycloak has durable storage across restarts |
-| This pull-request-scoped lifecycle is origin `pull_request` only; E2E is suppressed on merge-queue events and Mergify queue pull requests (`mergify-parallel-merge-queue.spec.md`, CICD-MRG-06), and merged code gets OpenShift e2e on push to `main` through `e2e-testing.spec.md`'s own commit-SHA-keyed namespace instead | `merge_group` has no stable pull-request number the way this namespace is keyed, and would race a `synchronize` swap on the same namespace. Fork PRs must not receive cluster credentials; the allowlist is login, not deploy |
-| Per-PR concurrency group | Two in-flight swaps on one namespace can leave mixed digests; cancelling or queuing the older run keeps the comment SHA honest |
-| One GitHub OAuth App and one stable callback | GitHub does not allow wildcard redirect URIs and limits callback URLs, so per-PR Keycloak Routes cannot be registered as GitHub callbacks. A cluster-scoped callback, like the shared Gateway, is the identity infrastructure this workflow depends on |
-| Hidden HTML comment marker | Later runs have to find "the" access comment; a stable marker avoids editing an unrelated comment or posting duplicates |
-| Immutable digests over untrusted tags | The environment runs exactly the artifact CI verified; pinning by `@sha256:` means a tag that is later re-pushed cannot silently change what the environment runs. A tag is a last-resort fallback only when no digest exists, and the fallback is recorded rather than silent |
-| In-run teardown is primary; close and reaper are the other paths | The ephemeral cycle destroys its own environment as the last step of Tests / E2E / OpenShift unless retained, and close/`/pr-destroy` frees a retained one promptly. The timebox/reaper is the backstop for a crashed teardown or a quiet retained PR, so nothing lingers when an event does not fire |
-| Deploy lives in the e2e stage, concurrent with Unit, not a parallel PR Environment workflow | A separate workflow would need a cross-workflow poller for the suite. Putting Deploy OpenShift Environment in `e2e.yml` behind the same `should_run` gate lets OpenShift `needs:` deploy and teardown be a last step of the suite job. It starts without waiting for Unit so the slow deploy overlaps the unit stage, at the cost of deploying for a SHA whose unit tests later fail |
-| Reaper invokes the `make openshift-down` teardown rather than reimplementing it | The reaper and `make openshift-down` must remove the same things (namespace group, cluster RBAC, instance-managed gateway namespaces, swaps). Running one teardown code path per expired environment stops the two from drifting, so adding a resource to teardown does not silently leave the reaper on a stale definition. Gateway namespaces are siblings of the platform project and periodic GC dies with the controller, so this shared path is what keeps e2e leftovers off the shared cluster |
-| One updated comment per pull request, carrying the completed-swap commit SHA | The pull request shows the live environment's current state instead of a growing list of stale comments; pinning the SHA whose digest swap completed prevents claiming a commit the swap did not deploy |
-| GitHub brokering, not Red Hat SSO | These are developer/debug environments; GitHub identity plus an organization gate and allowlist lets an outside contributor log in to an origin-repo environment, where Red Hat SSO would tie the environment to production identity |
-| Organization gate by default, allowlist for extras | Organization membership is the common case; the additive allowlist admits outside contributors to login without adding them to the organization. Enforcing both at BFF login is sufficient: the console API bearer only exists after a HyperShell session is created, so a denied user never receives one. A custom Keycloak image is not required |
-| Authenticated users get `platform:admin` and `gateway:creator`; narrower tiers by self-service impersonation | `platform:admin` is view, delete, and access management (not create; create requires `gateway:creator`). A single GitHub identity federates to one Keycloak user, so there is no account picker between tiers. Reusing the shared `developer` and `platform-admin` test-tier principals (`ephemeral-test-credentials.spec.md`) as impersonation targets, open to any authenticated user rather than only a designated admin, lets every contributor verify a narrower HyperShell API boundary with the same login and without a password. The human path is the hypershell-realm Keycloak admin console (`/admin/hypershell/console/`), GitHub or a seeded username/password, then Impersonate on those two principals; master-realm `/admin/` is not that path. The `impersonation` role that mapper grants is realm-wide (Keycloak has no target-scoped form of it without user-level FGAP, which this workflow does not configure). Token-exchange impersonation stays on `hypershell-e2e` and does not include other GitHub-brokered users. Per-gateway sandbox create needs a `gateway:viewer` binding. Impersonation works for the environment lifetime; e2e does not de-seed |
-| The developer gets `openshell-user` through a `gateway:viewer` RoleBinding | The owner discovers the developer's user id through `/users` and binds `gateway:viewer` through the `role_bindings` API, so the reconciler grants the client role. Every driver uses this product path, so a brokered PR env tests the same grant a real user gets. That grant is not a Keycloak realm-role seed |
-| Dedicated `hypershell-e2e` client, imported only when enabled | Brokered GitHub users have no password grant. A per-PR realm cannot share a standing AWS or Actions provisioner secret, and `hypershell-provisioner` is too privileged (`manage-clients` / `manage-users`). Token exchange onto the HyperShell API client and onto the per-gateway client covers the developer-tier checks without a password grant. Omitting the client from Kind/local/hub imports (and gating control-plane grants on `enabled==true`) keeps the impersonation identity out of production reconcile paths. `E2E_OIDC_GRANT` keeps Kind and local OpenShift on the password grant against the static seeds |
-| Standing CI secrets in AWS Secrets Manager, not GitHub Actions | Cluster login and the GitHub OAuth App must rotate with the fleet and, for OAuth, must also land in Keycloak. `ephemeral-ci-secrets.spec.md` owns that inventory, the origin-only job-level OIDC gate, GitHub OIDC fetch of cluster login, and ESO alignment of OAuth so this spec can treat them as cluster infrastructure |
+Rationale for these decisions is recorded in [ADR-0011](../../docs/adr/0011-ephemeral-pr-environments.md).

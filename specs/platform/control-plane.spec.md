@@ -93,7 +93,7 @@ the api-server delivers only bindings whose gateway is assigned to that cluster,
 no global bindings (`managed-cluster-registration.spec.md`, "Watch Stream Caller
 Binding"). As defense in depth, the control plane SHALL additionally resolve each
 binding's gateway and verify it is assigned to its own `cluster_id` before touching
-Keycloak, since only that control plane owns the gateway's Keycloak client.
+Keycloak.
 
 After startup, the control plane SHALL call `/registration` on a regular interval
 (default: 60 seconds) to update `last_seen_at` on the hub. These subsequent calls are
@@ -518,8 +518,7 @@ be idempotent so repeated runs over unchanged repository state are side-effect f
   a SLOW periodic pass that enumerates every registered `Repository` and reconciles
   each one, to catch UPSTREAM changes that produce no `Repository` event (a commit to
   the watched branch does not emit a `Repository` event). This pass SHALL run at an
-  HOURLY cadence, NOT the former short fixed interval: the short interval re-fetched
-  the entire subtree every tick and exhausted the anonymous GitHub rate limit.
+  HOURLY cadence, NOT the former short fixed interval.
 
 The reconciler SHALL NOT clone the repository, SHALL NOT write any working
 directory or persistent disk (no PVC), SHALL NOT shell out to a `git`, `kustomize`,
@@ -535,10 +534,7 @@ commit SHA against the SHA recorded at the last successful import. When nothing
 changed, the reconciler SHALL skip the heavy git-tree and per-file reads and the
 re-render, and SHALL make no API write. Only when the conditional check reports a
 change (or no prior import state exists for that `Repository`) SHALL the reconciler
-perform the full read, render, and reconcile described below. This conditional fetch
-removes the rate-limit pressure even on the anonymous public read path, where the
-unauthenticated GitHub API allows only roughly 60 requests per hour, and it is what
-keeps the steady-state import from exhausting that limit.
+perform the full read, render, and reconcile described below.
 
 For each registered `Repository` the control plane SHALL:
 
@@ -1046,10 +1042,7 @@ The keepalive ping interval SHALL NOT be more aggressive than the API server's
 gRPC keepalive enforcement policy. A client that pings an idle connection more
 often than the server's minimum permitted interval is struck by the server and,
 after a few strikes, receives a GOAWAY (`ENHANCE_YOUR_CALM`, `too_many_pings`)
-that closes the shared connection and drops every watch stream. The connection
-layer is only the backstop for a dead or half-open connection; detecting a stream
-that stays open but goes silent is the idle watchdog's job, so the keepalive
-interval does not need to be short.
+that closes the shared connection and drops every watch stream.
 
 At the stream layer, each watch stream SHALL run under an idle watchdog. When a
 stream delivers neither an event nor an error for a configured maximum idle
@@ -1266,8 +1259,7 @@ convenience for environments whose api-server runs with gRPC TLS disabled (Kind,
 A TLS handshake failure (invalid or expired certificate, hostname mismatch) SHALL be treated
 like any other watch-stream connection failure: logged and retried with exponential backoff,
 not fatal. It is not fail-closed the way missing `managed-cluster-registrar` is (see
-`managed-cluster-registration.spec.md`), since a certificate renewal on the hub should not
-require an operator to restart the control plane.
+`managed-cluster-registration.spec.md`).
 
 #### Scenario: CTRL-CORE-09.01 -- In-cluster address dials plaintext
 
@@ -1441,20 +1433,4 @@ ConfigMap without a spurious revision bump.
 
 ## Design Decisions
 
-| Decision | Rationale |
-|----------|-----------|
-| gRPC watch streams (not polling) | Real-time event delivery, efficient resource usage |
-| Separate module from API server | Independent lifecycle, separate deployment |
-| No controller-runtime dependency | Lightweight, custom reconciliation without CRD overhead |
-| Every control plane is a registered spoke; no single-cluster mode | One code path and one deployment shape. The hub's co-located control plane exercises registration, cluster filtering, authenticated watches, and TLS on every hub and in every development environment, so those paths are tested continuously instead of only at the first remote spoke. An unfiltered mode would also make server-side enforcement of cluster scoping impossible, because the server could not tell an unidentified hub controller from a misbehaving spoke. |
-| Cluster identity is resolved by registration, never configured | A configured cluster id can drift from the record the hub holds, and a copy-pasted value silently makes two control planes fight over one cluster. Registration ties the id to the OIDC subject, which the hub can verify. |
-| One OIDC client per control plane | The JWT `sub` is the registration key and the identity the watch-stream binding checks. Sharing a client across control planes would collapse them into one subject and break both. |
-| One control plane per cluster, in-cluster credentials only | No hub holds a spoke kubeconfig, so a compromised hub cannot reach into spokes and a spoke keeps reconciling its own gateways while the hub is unreachable. Matches the platform GitOps pull model in `global-architecture.spec.md`. |
-| Transport security inferred from the dial address, not a separate `HYPERSHELL_GRPC_TLS` flag | The address already tells you whether the hop leaves the cluster. A second flag could drift from the address (TLS off against an external host, or on against an in-cluster one) with no compile-time or admission check to catch it. |
-| TLS handshake failure retries like any other disconnect, rather than exiting | A control plane should tolerate a hub certificate renewal without operator intervention. Contrast with the `managed-cluster-registrar` 403 and the name-conflict 409, which are fail-closed because retrying truly cannot help. |
-| AgentRuntime effective cluster resolved server-side, not client-side | An `AgentRuntime` may omit `cluster_id` and derive placement from its Gateway. If each control plane resolved placement and filtered client-side, every control plane would receive every AgentRuntime and the cluster scoping could not be enforced at the hub. Resolving the derived cluster server-side keeps the watch-stream caller binding authoritative, exactly as for Gateways and RoleBindings. The control plane re-resolves only as defense in depth. |
-| AgentRuntime AND the declarative `.hypershell` import both reconciled by the control plane | The control plane holds the in-cluster credentials needed to apply AgentRuntime scheduling resources and already dials each gateway's gRPC API, so cluster-side and gateway-side provisioning belong there. The declarative `.hypershell` import also belongs there: it must read each `Repository`'s credential from the secret store and read the `import_path` subtree over the GitHub API, and the control plane has read-only secret-store access (`pkg/secretstore`) and the platform GitHub App credential while the api-server has neither store read access nor repository read access. The import is the single, bounded path by which the control plane writes API desired state, scoped to create/update/prune of `Repository`-owned ext resources; everywhere else the control plane stays a reader of desired state (see "Declarative `.hypershell` Import Reconciliation" and [`data-model.spec.md`](./data-model.spec.md), "Declarative `.hypershell` Import"). The import is driven event-first off the `WatchRepositories` stream with a slow hourly drift re-check and a conditional upstream fetch, so a `Repository` change imports in real time while an unchanged subtree costs no heavy GitHub reads, rather than a short fixed-interval full re-fetch that exhausted the anonymous GitHub rate limit. |
-| Import reads the `import_path` subtree over the GitHub API, not a git clone | The control-plane distroless runtime image ships no `git` binary and mounts no writable working directory or PVC. Reading only the `import_path` subtree over the GitHub API with the platform GitHub App credential keeps the import in-process and in-memory, avoids a full repository checkout, and needs no on-disk working copy. It also narrows the blast radius: the reconciler fetches only the declarative root, not the whole repository. |
-| Explicit platform configuration (`HYPERSHELL_CLUSTER_PLATFORM`) | Deployment configuration supplies the host platform deterministically. Platform-specific security and API feature availability have separate contracts. |
-| Shared, refreshable API dependency state | Present, confirmed-absent, and unknown/unavailable states let reconciliation report the appropriate prerequisite or retry condition. A shared contract keeps provisioning, exposure, and health consistent while independent work continues. |
-| Kustomize rendered in-process by a shared Go LIBRARY, reversing the earlier "no kustomize in control plane" | This deliberately reverses the prior decision that kept Kustomize out of the control plane. The reversal admits the kustomize Go LIBRARY (not a binary, not a `Job`) into the control plane so rendering happens in-process in-memory. The single shared implementation SHALL be `pkg/kustomize` (exported `Build`) in `components/cli`, to be built and then consumed by exactly two callers: `hsctl` and the control plane's `RepositoryReconciler`; `hsctl apply -k` is refactored off its external-`kustomize`-binary shell-out onto this package, and the control-plane module imports the cli module. One implementation renders for `hsctl` and the `RepositoryReconciler`, so CLI and server render identically and there is no second, divergent renderer to drift. The `GatewayReconciler` is NOT a consumer of this library: it renders the gateway workload through Helm. The accepted trade-off is a kustomize library dependency in the control-plane module. |
+Rationale for these decisions is recorded in [ADR-0002](../../docs/adr/0002-control-plane-decisions.md).
