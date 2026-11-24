@@ -1612,13 +1612,29 @@ never be landed on, which is expected and SHALL NOT fail the run. The matrix cos
 (the number of `E2ESuite` runs) SHALL equal the distinct-capability count and
 SHALL be independent of the cluster count.
 
+**Opt-in fleet.** When `E2E_MATRIX_REQUIRED_CAPABILITY` names a capability label
+(for example `runtime/release-matrix`), the matrix SHALL cover only the registered
+clusters that advertise that label (the opted-in fleet). It SHALL enumerate
+capabilities only from those clusters, SHALL NOT run a suite for the required label
+itself (every opted-in cluster carries it), and SHALL append the label to every
+suite's placement selector (`placement.selector = [<capability>, <required>]`), so
+no gateway lands on a cluster that did not opt in. Full capability coverage and the
+eligible-cluster assertion SHALL apply to the opted-in fleet. If no registered
+cluster opts in, the matrix SHALL fail rather than pass with zero suites. When the
+variable is unset, the matrix SHALL cover every registered cluster. This lets a
+fleet keep a cluster that is not release quality (for example an experimental
+spoke) registered and placeable by users without making it fail the release gate.
+The opt-in label SHALL be distinct from the hub-only label the single-cluster gate
+uses to pin its gateways to the hub.
+
 **Determinism and concurrency.** The per-capability suites SHALL run concurrently
 by **default**, bounded by `E2E_CONCURRENCY` (default greater than 1; the suite
 sets it to `4`). At `E2E_CONCURRENCY=1` they SHALL run sequentially in a
 deterministic capability order; higher values fan them out within that bound.
 
 **Targeting a specific cluster.** Narrowing a test to named clusters is out of
-scope here: the runner has no env-var allowlist, and the matrix uses only the
+scope here: the runner has no cluster-name allowlist (the opt-in label above selects
+clusters by capability, not by name), and the matrix uses only the
 capability-selector placement path, which does not target a cluster by name. The
 platform-admin `managed-cluster/<name>` identity selector
 ([`data-model.spec.md`](data-model.spec.md), PLAT-DATA-31) can target a cluster by
@@ -1627,10 +1643,12 @@ name, but the matrix does not use it.
 ```text
 clusters = GET /managed_clusters                         # authenticated, short mode (no kube context)
 registered = [mc for mc in clusters if mc.oidc_subject != ""]  # placement-eligible, NOT a health gate
-capabilities = distinct(union of mc.capabilities for mc in registered)
+required = env E2E_MATRIX_REQUIRED_CAPABILITY            # optional opt-in label
+if required: registered = [mc for mc in registered if required in mc.capabilities]
+capabilities = distinct(union of mc.capabilities for mc in registered) - {required}
 for cap in capabilities:                                 # cost = len(capabilities), not len(clusters)
-    suite = E2ESuite { mode: short, placement: [cap] }   # user-facing, kube-free
-    run suite                                            # positive creates place via [cap]
+    suite = E2ESuite { mode: short, placement: [cap] + ([required] if required else []) }  # user-facing, kube-free
+    run suite                                            # positive creates place via that selector
     assert gateway landed on some cluster advertising cap
     record landed_cluster(cap)
 assert exercised == capabilities                         # full capability coverage
@@ -1667,6 +1685,17 @@ report landed-cluster union                              # observational, never 
 - THEN it SHALL run in short mode, exercising only the user-facing API and CLI checks (authenticate, create by capability, `Running` plus `route_address` via the API, connect over the route, and a sandbox via the CLI)
 - AND it SHALL NOT require, open, or depend on a Kubernetes context for any cluster
 - AND it SHALL apply no `last_seen_at` health gate (while still enumerating only registered clusters) and SHALL NOT reference `cluster_id`
+
+#### Scenario: E2E-CORE-30.05 -- Matrix limited to the opted-in fleet
+
+- GIVEN `E2E_MATRIX_REQUIRED_CAPABILITY=runtime/release-matrix`
+- AND registered clusters `hub` and `spoke1` advertise `provider/ibm`, `network/public`, and `runtime/release-matrix`
+- AND registered cluster `spoke3` advertises `provider/ibm` and `environment/experimental` but not `runtime/release-matrix`
+- WHEN `TestMatrix` runs
+- THEN it SHALL run one suite each for `network/public` and `provider/ibm`, and none for `environment/experimental` or `runtime/release-matrix`
+- AND each suite SHALL place by `placement.selector = [<capability>, runtime/release-matrix]`
+- AND no suite gateway SHALL be accepted as landed on `spoke3`
+- AND if no registered cluster advertises `runtime/release-matrix`, `TestMatrix` SHALL fail
 
 ### Requirement: E2E-CORE-31 -- Single Functional E2E Implementation
 

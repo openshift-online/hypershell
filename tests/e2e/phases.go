@@ -1108,13 +1108,19 @@ func gatewayCreateRequestForDriver(name, driverName string) gatewayCreateRequest
 }
 
 // capabilityGatewayCreateRequest builds a create payload that places a gateway by a
-// single requirement-capability selector (placement.selector = [capability]). The
-// API server resolves it by random selection among the eligible clusters that
-// advertise the capability (E2E-CORE-30, PLAT-DATA-02).
-func capabilityGatewayCreateRequest(name, capability string) gatewayCreateRequest {
+// single requirement-capability selector (placement.selector = [capability]). A
+// non-empty required capability (the matrix opt-in label) is appended, so the
+// selector becomes [capability, required]. The API server resolves it by random
+// selection among the eligible clusters that advertise every label (E2E-CORE-30,
+// E2E-CORE-30.05, PLAT-DATA-02).
+func capabilityGatewayCreateRequest(name, capability, required string) gatewayCreateRequest {
+	selector := []string{capability}
+	if required != "" && required != capability {
+		selector = append(selector, required)
+	}
 	return gatewayCreateRequest{
 		Name:      name,
-		Placement: &gatewayPlacementIntent{Selector: []string{capability}},
+		Placement: &gatewayPlacementIntent{Selector: selector},
 	}
 }
 
@@ -1125,7 +1131,7 @@ func capabilityGatewayCreateRequest(name, capability string) gatewayCreateReques
 // driver's requirement selector, preserving its existing late-binding behavior.
 func (s *E2ESuite) gatewayCreateRequestForSuite(name string) gatewayCreateRequest {
 	if s.matrixCapability != "" {
-		return capabilityGatewayCreateRequest(name, s.matrixCapability)
+		return capabilityGatewayCreateRequest(name, s.matrixCapability, s.matrixRequiredCapability)
 	}
 	return gatewayCreateRequestForDriver(name, s.driver.Name())
 }
