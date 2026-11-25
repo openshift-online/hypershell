@@ -10,11 +10,25 @@ tone_instructions: >-
 
 reviews:
   profile: chill
-  high_level_summary: true
-  high_level_summary_in_walkthrough: true
-  review_status: true
+  # No PR summary, walkthrough, or status comments: reviews run through
+  # internal agents (#175). Explicit values override the org-level config
+  # that `inheritance: true` pulls in.
+  high_level_summary: false
+  high_level_summary_in_walkthrough: false
+  review_status: false
+  review_info: false
+  review_details: false
+  review_progress: false
   collapse_walkthrough: true
-  sequence_diagrams: true
+  changed_files_summary: false
+  sequence_diagrams: false
+  estimate_code_review_effort: false
+  assess_linked_issues: false
+  related_issues: false
+  related_prs: false
+  suggested_labels: false
+  suggested_reviewers: false
+  in_progress_fortune: false
   poem: false
   request_changes_workflow: false
   enable_prompt_for_ai_agents: true
@@ -40,3 +54,17 @@ reviews:
     labels:
       - "!do-not-merge/work-in-progress"
       - "!do-not-merge/hold"
+
+  # Pre-merge checks off. The "Ai-Attribution" check is inherited from the
+  # org-level config; redefining it here with mode off disables it.
+  pre_merge_checks:
+    title:
+      mode: "off"
+    description:
+      mode: "off"
+    issue_assessment:
+      mode: "off"
+    custom_checks:
+      - name: "Ai-Attribution"
+        mode: "off"
+        instructions: "Disabled in this repository."
