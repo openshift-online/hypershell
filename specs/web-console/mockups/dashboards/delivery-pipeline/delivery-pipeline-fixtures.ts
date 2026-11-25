@@ -320,6 +320,12 @@ const BUILD_FAILED_LOOK: WhereToLook = {
       text: "Failed at 15:19",
       link: "View failed check run",
     },
+    // FLT-DLV-20.03: the image check run and its failure annotation.
+    {
+      term: "Image check",
+      text: "Failed: No usable image for: control-plane.",
+      link: "View image check",
+    },
   ],
 };
 

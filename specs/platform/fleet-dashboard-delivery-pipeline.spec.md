@@ -47,7 +47,7 @@ dashboard can already reach, with credentials it already holds.
 | Stage | Source | Credential |
 | --- | --- | --- |
 | Merged | Application repository commits API | `FD_UPSTREAM_TOKEN_FILE` (existing) |
-| Build, Policy check | Check runs on the change's commit, reported by Konflux Pipelines as Code | `FD_UPSTREAM_TOKEN_FILE` (existing) |
+| Build, Policy check | Check runs on the change's commit, reported by Konflux Pipelines as Code. The Build popup also reads the image check run (`FD_DELIVERY_IMAGE_CHECK`) from the same list, and its annotations when it failed. | `FD_UPSTREAM_TOKEN_FILE` (existing) |
 | Release | Locked bundles: the shared bundle source (release lock and compare windows). Pending bundles only: tag list and `bundle.json` of `FD_DELIVERY_BUNDLE_REPOSITORY` (public registry API). Downloads: the matching application-repository GitHub release. | existing tokens; none for the public registry |
 | GitOps update | Pull requests and release-lock history of `FD_GITHUB_REPO` | `FD_GITHUB_TOKEN_FILE` (existing) |
 | Environment groups | The existing promotion source (`/api/promotion`): environments, active and proposed releases, gates, analysis | existing BFF service account |
@@ -613,7 +613,10 @@ until its gate times are read,
 one registry tag-list call, one `bundle.json` read per new pending bundle,
 and one pull-request list call. While a listed change's Release phase is
 Overdue, it MAY add one path-filtered commits call per path in
-`FD_DELIVERY_RELEASE_PATHS` and one releases-list call (FLT-DLV-20). Locked-bundle data SHALL come from the shared
+`FD_DELIVERY_RELEASE_PATHS` and one releases-list call (FLT-DLV-20). The image
+check run comes from the check-runs call already made. The BFF MAY add one
+annotations call per failed image check run, cached by check run id, because a
+re-run creates a new check run (FLT-DLV-20). Locked-bundle data SHALL come from the shared
 bundle source's cache with no extra call. Completed check runs and pending
 bundle contents SHALL be cached by full SHA or digest, because they are
 immutable. Pending-bundle compare results SHALL use the shared compare cache.
@@ -623,6 +626,7 @@ immutable. Pending-bundle compare results SHALL use the shared compare cache.
 | `FD_DELIVERY_BUNDLE_REPOSITORY` | yes, to enable the plane | none | Registry repository that holds `release-bundle-*` tags. When unset, `/api/delivery` returns `enabled: false`. |
 | `FD_DELIVERY_RELEASE_PR_BRANCH` | no | none | Head branch of the automated bundle update pull request in `FD_GITHUB_REPO`. When unset, the GitOps update stage has no Running state. |
 | `FD_DELIVERY_CHECK_APP` | no | `red-hat-konflux` | GitHub App slug whose check runs are builds and policy checks. |
+| `FD_DELIVERY_IMAGE_CHECK` | no | `E2E / Wait for Konflux images` | Name of the check run, from any GitHub App, that waits for the Konflux builds and confirms their images are published. The Build popup shows it (FLT-DLV-20). When empty, the popup omits it. |
 | `FD_DELIVERY_WINDOW` | no | `30` | Maximum changes in the payload. |
 | `FD_REFRESH_DELIVERY` | no | `60s` | Cache refresh interval. |
 | `FD_DELIVERY_RELEASE_LOG_URL` | no | none | Link to the Konflux release list or log for the application. When unset, the Release popup omits the link. |
@@ -876,6 +880,14 @@ the phase:
   for changes under their own paths, so a later unrelated change does not
   rebuild the component.
 - **Build or Policy check, Overdue:** the running check runs, with links.
+- **Build, Failed or Overdue, image check:** when the change's commit has the
+  image check run named by `FD_DELIVERY_IMAGE_CHECK`, the Build popup SHALL
+  also show its state with a link to it. When it failed, the popup SHALL show
+  the messages of its failure annotations that have a title, such as which
+  component has no usable image or which built image is not in the registry.
+  The image check is a CI job that waits for the Konflux builds and confirms
+  their images are published. It measures the same wait as Build, so it SHALL
+  NOT be a phase or a progress-bar cell of its own.
 - **Release, Overdue:** the BFF SHALL supply these release diagnostics:
   1. the last good release: the newest published bundle's alias and
      publication time;
@@ -912,6 +924,14 @@ failed SHALL say so; the popup SHALL still show the others.
 - WHEN the operator opens the popup on C's Build cell
 - THEN it SHALL read "Re-run the failed pipeline, or merge a change to the same component"
 - AND it SHALL link to the failed check run
+
+#### Scenario: FLT-DLV-20.03 -- Failed image check
+
+- GIVEN change C's Build phase is Failed
+- AND C's image check run failed with the annotation "No usable image for: web-console"
+- WHEN the operator opens the popup on C's Build cell
+- THEN it SHALL show the image check as Failed with a link to it
+- AND it SHALL show "No usable image for: web-console"
 
 ### Requirement: FLT-DLV-21 -- Replay validation
 
