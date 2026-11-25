@@ -1077,9 +1077,8 @@ describe("buildMapModel - promotion lines", () => {
     expect(col?.railNodeIds).toEqual(["hub0", "hub0-co", "hub0-r"]);
   });
 
-  // The shape hyp0-spoke1 takes once it becomes its own promotion environment
-  // (hypershell-gitops PR 2920): labelled with the hub's cluster, listed before the
-  // hub, gated on argocd-health.
+  // A co-located spoke that has its own promotion environment: labelled with the
+  // hub's cluster, listed before the hub, and gated on argocd-health.
   it("keeps a co-located spoke with its own env in the outer box and on the rails", () => {
     const p = promotion(["hub0-co", "hub0"], {
       "hub0-co": env({
