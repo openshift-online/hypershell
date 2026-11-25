@@ -31,6 +31,8 @@ import {
   EmptyStateBody,
   Flex,
   FlexItem,
+  Grid,
+  GridItem,
   Icon,
   PageSection,
   Popover,
@@ -79,6 +81,7 @@ import {
   type ChangeDetail,
   type DeliveryFixture,
   type DeliveryState,
+  type PipelineNow,
   type Progress,
   type PromotionAttempt,
   type PromotionOutcome,
@@ -89,7 +92,8 @@ import {
 } from "./delivery-pipeline-fixtures";
 
 // Glass Delivery tab page surface (fleet-dashboard-delivery-pipeline.spec,
-// FLT-DLV-01..16). Page-owned: header region, Now and next summary, change
+// FLT-DLV-01..23). Page-owned: header region, Pipeline now panel, Now and
+// next summary, change
 // table, details drawer, and every reachable state. The Glass tab bar and
 // masthead are shell chrome and live in the design-review story only.
 
@@ -382,6 +386,147 @@ function SummaryIcon({ severity }: { severity: Severity }) {
 
 function changeName(shortSha: string, pr?: number) {
   return pr ? `${shortSha} (#${pr})` : shortSha;
+}
+
+function StateText({ state, text }: { state: StageState; text: string }) {
+  return (
+    <>
+      <StageStateIcon state={state} /> {STATE_LABEL[state]}
+      <span className="pf-v6-u-text-color-subtle"> - {text}</span>
+    </>
+  );
+}
+
+// FLT-DLV-23: the situation at this moment - both heads, what is in flight,
+// what happens next, the bundle train, and every environment.
+function PipelineNowCard({ now }: { now: PipelineNow }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>
+          <Title headingLevel="h2" size="lg">
+            Pipeline now
+          </Title>
+        </CardTitle>
+      </CardHeader>
+      <CardBody>
+        <Stack hasGutter>
+          {now.unknown ? (
+            <StackItem>
+              <HealthStatus appearance="warning" label={now.unknown} />
+            </StackItem>
+          ) : null}
+          <StackItem>
+            <Grid hasGutter md={4}>
+              <GridItem>
+                <Title headingLevel="h3" size="md">
+                  Heads
+                </Title>
+                <DescriptionList isCompact>
+                  <DescriptionListGroup>
+                    <DescriptionListTerm>Application main</DescriptionListTerm>
+                    <DescriptionListDescription>
+                      {now.appHead}
+                    </DescriptionListDescription>
+                  </DescriptionListGroup>
+                  <DescriptionListGroup>
+                    <DescriptionListTerm>GitOps main</DescriptionListTerm>
+                    <DescriptionListDescription>
+                      {now.gitopsHead}
+                    </DescriptionListDescription>
+                  </DescriptionListGroup>
+                </DescriptionList>
+              </GridItem>
+              <GridItem>
+                <Title headingLevel="h3" size="md">
+                  In flight
+                </Title>
+                {now.inFlight.length === 0 ? (
+                  <Content component="p">Nothing in flight</Content>
+                ) : (
+                  <DescriptionList isCompact>
+                    {now.inFlight.map((item) => (
+                      <DescriptionListGroup key={item.term}>
+                        <DescriptionListTerm>{item.term}</DescriptionListTerm>
+                        <DescriptionListDescription>
+                          <StateText state={item.state} text={item.text} />
+                        </DescriptionListDescription>
+                      </DescriptionListGroup>
+                    ))}
+                  </DescriptionList>
+                )}
+              </GridItem>
+              <GridItem>
+                <Title headingLevel="h3" size="md">
+                  Next
+                </Title>
+                {now.next.length === 0 ? (
+                  <Content component="p">Nothing expected</Content>
+                ) : (
+                  <Content component="ol">
+                    {now.next.map((step) => (
+                      <li key={step}>{step}</li>
+                    ))}
+                  </Content>
+                )}
+              </GridItem>
+            </Grid>
+          </StackItem>
+          {now.train ? (
+            <StackItem>
+              {/* FLT-DLV-22: one bundle per finished build. */}
+              <Table aria-label="Bundle train" variant="compact">
+                <Thead>
+                  <Tr>
+                    <Th>Bundle train</Th>
+                    <Th>Published</Th>
+                    <Th>Changed</Th>
+                    <Th>Where</Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  {now.train.map((b) => (
+                    <Tr key={b.alias}>
+                      <Td dataLabel="Bundle train">
+                        <StageStateIcon state={b.state} /> {b.alias}
+                      </Td>
+                      <Td dataLabel="Published">{b.published}</Td>
+                      <Td dataLabel="Changed">{b.changed}</Td>
+                      <Td dataLabel="Where">{b.where}</Td>
+                    </Tr>
+                  ))}
+                </Tbody>
+              </Table>
+            </StackItem>
+          ) : null}
+          <StackItem>
+            <Table aria-label="Environments now" variant="compact">
+              <Thead>
+                <Tr>
+                  <Th>Environment</Th>
+                  <Th>Group</Th>
+                  <Th>Runs</Th>
+                  <Th>State</Th>
+                </Tr>
+              </Thead>
+              <Tbody>
+                {now.environments.map((env) => (
+                  <Tr key={env.instance}>
+                    <Td dataLabel="Environment">{env.instance}</Td>
+                    <Td dataLabel="Group">{env.group}</Td>
+                    <Td dataLabel="Runs">{env.bundle}</Td>
+                    <Td dataLabel="State">
+                      <StateText state={env.state} text={env.text} />
+                    </Td>
+                  </Tr>
+                ))}
+              </Tbody>
+            </Table>
+          </StackItem>
+        </Stack>
+      </CardBody>
+    </Card>
+  );
 }
 
 // FLT-DLV-10: one row per undelivered change, newest first, at most 3.
@@ -793,6 +938,9 @@ function LoadedBody({
           </Alert>
         </StackItem>
       ) : null}
+      <StackItem>
+        <PipelineNowCard now={fixture.pipelineNow} />
+      </StackItem>
       <StackItem>
         <NowAndNext fixture={fixture} openWhereToLook={openWhereToLook} />
       </StackItem>

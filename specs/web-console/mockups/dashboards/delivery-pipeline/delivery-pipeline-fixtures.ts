@@ -11,6 +11,7 @@ export type DeliveryState =
   | "release-overdue"
   | "all-delivered"
   | "promotion-retried"
+  | "bundle-train"
   | "source-unavailable"
   | "loading"
   | "not-configured"
@@ -110,8 +111,50 @@ export type NowNextRow = {
   readonly progress: Progress;
 };
 
+/** One line of the Pipeline now panel (FLT-DLV-23). */
+export type NowItem = {
+  readonly term: string;
+  readonly state: StageState;
+  readonly text: string;
+};
+
+/** One bundle of the bundle train (FLT-DLV-22). */
+export type TrainBundle = {
+  readonly alias: string;
+  /** Publication time, or "releasing (inferred)". */
+  readonly published: string;
+  /** What it changed against the previous bundle. */
+  readonly changed: string;
+  /** Where it is active, or what happened to it. */
+  readonly where: string;
+  readonly state: StageState;
+};
+
+/** One environment and what it runs now (FLT-DLV-23). */
+export type EnvironmentNow = {
+  readonly instance: string;
+  readonly group: string;
+  readonly bundle: string;
+  readonly state: StageState;
+  readonly text: string;
+};
+
+/** The situation at this moment, above the changes (FLT-DLV-23). */
+export type PipelineNow = {
+  readonly appHead: string;
+  readonly gitopsHead: string;
+  /** Empty reads "Nothing in flight". */
+  readonly inFlight: readonly NowItem[];
+  readonly next: readonly string[];
+  readonly train?: readonly TrainBundle[];
+  readonly environments: readonly EnvironmentNow[];
+  /** A source that is Unknown names the answer the panel cannot give. */
+  readonly unknown?: string;
+};
+
 export type DeliveryFixture = {
   readonly asOf: string;
+  readonly pipelineNow: PipelineNow;
   readonly summarySeverity: Severity;
   readonly summary: readonly NowNextRow[];
   /** Shown instead of rows when nothing is in flight (FLT-DLV-10.02). */
@@ -388,8 +431,111 @@ const stageAnalysisRow = (
   ),
 });
 
+// Illustrative topology: three groups, and a graph in which stage-spoke-a
+// waits only for int-hub and int-spoke-a (FLT-DLV-08).
+const envs = (
+  rows: Readonly<Record<string, Omit<EnvironmentNow, "instance" | "group">>>,
+): readonly EnvironmentNow[] =>
+  (
+    [
+      ["int-hub", "Int"],
+      ["int-spoke-a", "Int"],
+      ["int-spoke-b", "Int"],
+      ["stage-hub", "Stage"],
+      ["stage-spoke-a", "Stage"],
+      ["prod-hub", "Prod"],
+      ["prod-spoke-a", "Prod"],
+      ["prod-spoke-b", "Prod"],
+    ] as const
+  ).map(([instance, group]) => ({
+    instance,
+    group,
+    ...(rows[instance] ?? {
+      bundle: "quiet heron",
+      state: "passed" as const,
+      text: "Healthy",
+    }),
+  }));
+
+const healthy = (bundle: string, since: string) => ({
+  bundle,
+  state: "passed" as const,
+  text: `Gates passed ${since}`,
+});
+
+const PIPELINE_IN_FLIGHT: PipelineNow = {
+  appHead:
+    "a15cc91 (#997) fix(control-plane): converge a new gateway in one provisioning pass, merged 15:10",
+  gitopsHead: "Bundle amber pickle, published 14:51, locked 14:55",
+  inFlight: [
+    { term: "Build", state: "running", text: "control-plane - 6 min" },
+    {
+      term: "stage-hub",
+      state: "running",
+      text: "Release analysis - 4 min, attempt 1 of 3, on amber pickle",
+    },
+  ],
+  next: [
+    "control-plane policy check - about 15:24",
+    "Bundle with control-plane published - about 15:49",
+    "stage-hub analysis passes - about 15:28; Prod promotes",
+  ],
+  environments: envs({
+    "int-hub": healthy("amber pickle", "15:13"),
+    "int-spoke-a": healthy("amber pickle", "15:11"),
+    "int-spoke-b": healthy("amber pickle", "15:12"),
+    "stage-hub": {
+      bundle: "amber pickle",
+      state: "running",
+      text: "Release analysis - 4 min, attempt 1 of 3",
+    },
+    "stage-spoke-a": healthy("amber pickle", "15:14"),
+    "prod-hub": {
+      bundle: "quiet heron",
+      state: "waiting",
+      text: "Waiting for stage-hub",
+    },
+    "prod-spoke-a": {
+      bundle: "quiet heron",
+      state: "waiting",
+      text: "Waiting for stage-hub",
+    },
+    "prod-spoke-b": {
+      bundle: "quiet heron",
+      state: "waiting",
+      text: "Waiting for stage-hub",
+    },
+  }),
+};
+
+const PIPELINE_QUIET = (
+  appHead: string,
+  bundle: string,
+  published: string,
+): PipelineNow => ({
+  appHead,
+  gitopsHead: `Bundle ${bundle}, published ${published}`,
+  inFlight: [],
+  next: [],
+  environments: envs(
+    Object.fromEntries(
+      [
+        "int-hub",
+        "int-spoke-a",
+        "int-spoke-b",
+        "stage-hub",
+        "stage-spoke-a",
+        "prod-hub",
+        "prod-spoke-a",
+        "prod-spoke-b",
+      ].map((i) => [i, { bundle, state: "passed" as const, text: "Healthy" }]),
+    ),
+  ),
+});
+
 const IN_FLIGHT: DeliveryFixture = {
   asOf: "15:17",
+  pipelineNow: PIPELINE_IN_FLIGHT,
   summarySeverity: "info",
   summary: [
     ROW_997_BUILDING,
@@ -410,6 +556,22 @@ const IN_FLIGHT: DeliveryFixture = {
 
 const BUILD_FAILED: DeliveryFixture = {
   asOf: "15:21",
+  pipelineNow: {
+    ...PIPELINE_IN_FLIGHT,
+    inFlight: [
+      {
+        term: "Build",
+        state: "failed",
+        text: "control-plane failed at 15:19 - nothing rebuilds it until a re-run or a control-plane change",
+      },
+      PIPELINE_IN_FLIGHT.inFlight[1] ?? {
+        term: "stage-hub",
+        state: "running",
+        text: "Release analysis",
+      },
+    ],
+    next: ["stage-hub analysis passes - about 15:28; Prod promotes"],
+  },
   summarySeverity: "danger",
   summary: [
     {
@@ -463,6 +625,21 @@ const RELEASE_OVERDUE_CHANGE: Change = {
 
 const RELEASE_OVERDUE: DeliveryFixture = {
   asOf: "16:20",
+  pipelineNow: {
+    ...PIPELINE_QUIET(
+      "a15cc91 (#997) fix(control-plane): converge a new gateway in one provisioning pass, merged 15:10",
+      "amber pickle",
+      "14:51",
+    ),
+    inFlight: [
+      {
+        term: "Release",
+        state: "running",
+        text: "control-plane bundle releasing (inferred) - 56 min - Overdue",
+      },
+    ],
+    next: ["No expected times while the release is overdue"],
+  },
   summarySeverity: "warning",
   summary: [
     {
@@ -494,6 +671,11 @@ const RELEASE_OVERDUE: DeliveryFixture = {
 
 const ALL_DELIVERED: DeliveryFixture = {
   asOf: "16:10",
+  pipelineNow: PIPELINE_QUIET(
+    "a15cc91 (#997) fix(control-plane): converge a new gateway in one provisioning pass, merged 15:10",
+    "brave walnut",
+    "15:29",
+  ),
   summarySeverity: "good",
   summary: [],
   deliveredSummary:
@@ -541,6 +723,11 @@ const unknownRelease = (change: Change): Change => ({
 const SOURCE_UNAVAILABLE: DeliveryFixture = {
   ...IN_FLIGHT,
   changes: IN_FLIGHT.changes.map(unknownRelease),
+  pipelineNow: {
+    ...PIPELINE_IN_FLIGHT,
+    unknown:
+      "Pending bundles are unknown while the bundle registry cannot be read.",
+  },
   sourceAlert: {
     title: "Bundle registry unavailable",
     body: "The Release stage shows Unknown until the registry can be read. Other stages are current.",
@@ -569,11 +756,265 @@ const C985: Change = {
 
 const PROMOTION_RETRIED: DeliveryFixture = {
   asOf: "09:30",
+  pipelineNow: PIPELINE_QUIET(
+    "5d2e8c1 (#985) docs: clarify behavior and configuration contracts, merged 20:19",
+    "brisk falcon",
+    "22:52",
+  ),
   summarySeverity: "good",
   summary: [],
   deliveredSummary:
     "Everything on main is delivered. The newest change, 5d2e8c1 (#985), reached every environment at 06:21.",
   changes: [C985, ...OLDER],
+};
+
+// One merge rebuilt five components. Each finished build published its own
+// bundle, and each bundle that reached Int restarted the int-hub analysis.
+// agent-runtime finished last; its bundle is still releasing
+// (FLT-DLV-05, FLT-DLV-08, FLT-DLV-22, FLT-DLV-23).
+const TRAIN_PARTLY: Record<string, StageCell> = {
+  merged: passed("12:31"),
+  build: passed("13:24", "5 components"),
+  policy: passed("13:25", "5 components"),
+  release: {
+    state: "running",
+    primary: "4 of 5 components released",
+    detail: "agent-runtime releasing (inferred)",
+  },
+  gitops: {
+    state: "running",
+    primary: "Partly: 4 of 5 components",
+    detail: "calm badger, GitOps #2341",
+  },
+  int: {
+    state: "running",
+    primary: "Partly: 4 of 5 components",
+    detail: "Release analysis running - 17 min",
+  },
+  stage: { state: "waiting", detail: "Waiting for int-hub" },
+  prod: { state: "waiting", detail: "Waiting for stage-hub" },
+};
+
+const C999: Change = {
+  sha: "2c6a1f04b7d9e3a5c1f2b3d4e5f60718293a4b5c",
+  shortSha: "2c6a1f0",
+  pr: 999,
+  title: "feat(api-server): gate gateway cluster targeting behind a role",
+  author: "dana",
+  stages: TRAIN_PARTLY,
+};
+
+const C998: Change = {
+  sha: "44c0d1e2f3a4b5c6d7e8f90a1b2c3d4e5f6a7b8c",
+  shortSha: "44c0d1e",
+  pr: 998,
+  title: "chore(ci): turn off pull request summaries",
+  author: "kim",
+  stages: {
+    merged: passed("11:37"),
+    build: { state: "not-needed", detail: "No component changed" },
+    policy: { state: "not-needed", detail: "No component changed" },
+    release: passed("12:53", "eager lynx"),
+    gitops: passed("12:58", "GitOps #2339"),
+    int: {
+      state: "running",
+      primary: "2 of 3",
+      detail:
+        "Release analysis running - 17 min - restarts when the agent-runtime bundle lands",
+    },
+    stage: { state: "waiting", detail: "Waiting for int-hub" },
+    prod: { state: "waiting", detail: "Waiting for stage-hub" },
+  },
+};
+
+// Its api-server and cli builds failed; #999 rebuilt both (FLT-DLV-05.04).
+const C996: Change = {
+  sha: "3d9b7e2a1c0f9e8d7c6b5a4f3e2d1c0b9a8f7e6d",
+  shortSha: "3d9b7e2",
+  pr: 996,
+  title: "feat(control-plane): on-cluster managed-cluster self-check",
+  author: "kim",
+  stages: {
+    ...TRAIN_PARTLY,
+    merged: passed("Yesterday 19:38"),
+    build: passed("13:24", "Rebuilt in 2c6a1f0 (#999)"),
+  },
+};
+
+// Its web-console build failed, and nothing has rebuilt web-console since.
+const C993: Change = {
+  sha: "7a6e115d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f",
+  shortSha: "7a6e115",
+  pr: 993,
+  title: "test(e2e): cover a non-admin member in the console",
+  author: "dana",
+  stages: {
+    merged: passed("Yesterday 20:41"),
+    build: {
+      state: "failed",
+      primary: "Yesterday 20:47",
+      detail: "web-console",
+      whereToLook: BUILD_FAILED_LOOK,
+    },
+    policy: notStarted,
+    release: notStarted,
+    gitops: notStarted,
+    int: notStarted,
+    stage: notStarted,
+    prod: notStarted,
+  },
+};
+
+const TRAIN_PROGRESS = progress(
+  [
+    { state: "passed", time: "13:24" },
+    { state: "passed", time: "13:25" },
+    { state: "running", time: "4 of 5 released" },
+    { state: "running", time: "Partly" },
+    { state: "running", time: "Partly - about 14:05" },
+    { state: "not-started", time: "about 14:30" },
+    { state: "not-started", time: "about 14:55" },
+  ],
+  48,
+);
+
+const BUNDLE_TRAIN: DeliveryFixture = {
+  asOf: "13:28",
+  summarySeverity: "info",
+  pipelineNow: {
+    appHead:
+      "2c6a1f0 (#999) feat(api-server): gate gateway cluster targeting behind a role, merged 12:31",
+    gitopsHead: "Bundle calm badger, published 13:00, locked 13:06",
+    inFlight: [
+      {
+        term: "Release",
+        state: "running",
+        text: "agent-runtime bundle releasing (inferred) - built 13:24, policy check passed 13:25",
+      },
+      {
+        term: "int-hub",
+        state: "running",
+        text: "Release analysis - 17 min, attempt 1 of 3, on calm badger",
+      },
+      {
+        term: "Stage, Prod",
+        state: "waiting",
+        text: "Promotions of calm badger open, waiting for their dependencies",
+      },
+    ],
+    next: [
+      "agent-runtime bundle published - about 13:30",
+      "Locked on GitOps main - about 13:36",
+      "Int promotes it; the int-hub analysis restarts - about 13:40",
+      "Stage promotes after Int passes - about 14:05",
+      "Prod promotes after stage-hub passes - about 14:30",
+    ],
+    train: [
+      {
+        alias: "eager lynx",
+        published: "12:53",
+        changed: "api-server, cli",
+        where: "Replaced in Int while its analysis ran",
+        state: "not-needed",
+      },
+      {
+        alias: "steady wren",
+        published: "12:56",
+        changed: "control-plane, agent-runtime-slim",
+        where: "Replaced in Int while its analysis ran",
+        state: "not-needed",
+      },
+      {
+        alias: "calm badger",
+        published: "13:00",
+        changed: "Same components",
+        where: "Active in Int; Stage and Prod proposed",
+        state: "running",
+      },
+      {
+        alias: "agent-runtime bundle",
+        published: "Releasing (inferred)",
+        changed: "agent-runtime",
+        where: "Will restart the int-hub analysis",
+        state: "waiting",
+      },
+    ],
+    environments: envs({
+      "int-hub": {
+        bundle: "calm badger",
+        state: "running",
+        text: "Release analysis - 17 min, attempt 1 of 3",
+      },
+      "int-spoke-a": healthy("calm badger", "13:17"),
+      "int-spoke-b": healthy("calm badger", "13:17"),
+      "stage-hub": {
+        bundle: "quiet heron",
+        state: "waiting",
+        text: "Waiting for int-hub, int-spoke-a, int-spoke-b",
+      },
+      "stage-spoke-a": {
+        bundle: "quiet heron",
+        state: "waiting",
+        text: "Waiting for int-hub, int-spoke-a",
+      },
+      "prod-hub": {
+        bundle: "quiet heron",
+        state: "waiting",
+        text: "Waiting for stage-hub",
+      },
+      "prod-spoke-a": {
+        bundle: "quiet heron",
+        state: "waiting",
+        text: "Waiting for stage-hub",
+      },
+      "prod-spoke-b": {
+        bundle: "quiet heron",
+        state: "waiting",
+        text: "Waiting for stage-hub",
+      },
+    }),
+  },
+  summary: [
+    {
+      shortSha: "2c6a1f0",
+      pr: 999,
+      title: C999.title,
+      now: "Release: 4 of 5 components released - agent-runtime releasing (inferred), 4 min",
+      next: "Restarts the int-hub analysis when the agent-runtime bundle lands - about 13:40",
+      severity: "info",
+      progress: TRAIN_PROGRESS,
+    },
+    {
+      shortSha: "44c0d1e",
+      pr: 998,
+      title: C998.title,
+      now: "Int: release analysis - 17 min, attempt 1 of 3",
+      next: "Restarts when the agent-runtime bundle lands; Stage about 14:30",
+      severity: "info",
+      progress: progress(
+        [
+          { state: "not-needed" },
+          { state: "not-needed" },
+          { state: "passed", time: "12:53" },
+          { state: "passed", time: "12:58" },
+          { state: "running", time: "17 min" },
+          { state: "not-started", time: "about 14:30" },
+          { state: "not-started", time: "about 14:55" },
+        ],
+        55,
+      ),
+    },
+    {
+      shortSha: "3d9b7e2",
+      pr: 996,
+      title: C996.title,
+      now: "Build rebuilt in 2c6a1f0 (#999); 4 of 5 components released",
+      next: "Restarts the int-hub analysis when the agent-runtime bundle lands - about 13:40",
+      severity: "info",
+      progress: TRAIN_PROGRESS,
+    },
+  ],
+  changes: [C999, C998, C996, C993, ...OLDER],
 };
 
 export const FIXTURES: Readonly<
@@ -588,6 +1029,7 @@ export const FIXTURES: Readonly<
   "release-overdue": RELEASE_OVERDUE,
   "all-delivered": ALL_DELIVERED,
   "promotion-retried": PROMOTION_RETRIED,
+  "bundle-train": BUNDLE_TRAIN,
   "source-unavailable": SOURCE_UNAVAILABLE,
 };
 

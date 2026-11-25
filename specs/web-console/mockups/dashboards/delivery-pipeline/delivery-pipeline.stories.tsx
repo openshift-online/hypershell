@@ -38,6 +38,12 @@ export const AllDelivered: Story = { args: { state: "all-delivered" } };
 // bundle carried it through, and the drawer shows each attempt (FLT-DLV-18).
 export const PromotionRetried: Story = { args: { state: "promotion-retried" } };
 
+// One merge rebuilt five components and published a bundle per finished
+// build. Shows a partly shipped change, a superseded build, an analysis a
+// newer bundle will restart, and the Pipeline now panel (FLT-DLV-05,
+// FLT-DLV-08, FLT-DLV-10, FLT-DLV-22, FLT-DLV-23).
+export const BundleTrain: Story = { args: { state: "bundle-train" } };
+
 export const SourceUnavailable: Story = {
   args: { state: "source-unavailable" },
 };

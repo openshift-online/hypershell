@@ -26,6 +26,7 @@ export const BuildFailed: Story = { args: { state: "build-failed" } };
 export const ReleaseOverdue: Story = { args: { state: "release-overdue" } };
 export const AllDelivered: Story = { args: { state: "all-delivered" } };
 export const PromotionRetried: Story = { args: { state: "promotion-retried" } };
+export const BundleTrain: Story = { args: { state: "bundle-train" } };
 export const SourceUnavailable: Story = {
   args: { state: "source-unavailable" },
 };
