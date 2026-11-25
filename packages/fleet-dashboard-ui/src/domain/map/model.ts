@@ -88,6 +88,31 @@ export interface MapNode {
   readonly provider: string | null;
   readonly cluster: string | null;
   /**
+   * Key of the PHYSICAL cluster this node runs on, used to group nodes that share one
+   * cluster into a single container on the map (FLT-MAP-08). It is the `cluster`
+   * delivery label when the server reports one; a hub or a topology co-located spoke
+   * without that label falls back to a key derived from its hub, so a hub and its
+   * co-located spokes still group. Null when nothing places the node.
+   */
+  readonly physicalClusterKey: string | null;
+  /**
+   * The hub this node is co-located with, when the node is a spoke the topology plane
+   * lists in the hub's own cluster (`spokes`). Null for hubs and for remote spokes.
+   */
+  readonly colocatedWith: string | null;
+  /**
+   * True when the node has no promotion environment of its own and was created from
+   * the topology plane (a co-located spoke). Its release state mirrors its hub's,
+   * because GitOps delivers it from the same cluster.
+   */
+  readonly fromTopology: boolean;
+  /**
+   * True when nothing reports this box's delivery: a remote spoke known only from its
+   * hub's topology, with no promotion environment. Its release and Argo health are
+   * unknown, so the map does not raise the "health unavailable" alarm for it.
+   */
+  readonly deliveryUnknown: boolean;
+  /**
    * Self-declared capability labels (`namespace/value`), carried through from the
    * promotion environment's delivery labels. Optional and opaque; an instance with
    * no capabilities carries an empty set. Drives the card's capability chip row and
@@ -178,6 +203,13 @@ export interface MapColumn {
   readonly key: string;
   readonly index: number;
   readonly nodeIds: readonly string[];
+  /**
+   * The column's nodes that take part in promotion, so the map draws the change and
+   * gate lines only from and to them (FLT-MAP-08.06). It leaves out a box with no
+   * delivery data (a remote spoke outside the promotion strategy), which no gate
+   * waits for.
+   */
+  readonly railNodeIds: readonly string[];
   /** Env-type (int/stage/prod) of this column's nodes, for the grouping bands. */
   readonly envLabel: string | null;
 }
@@ -255,8 +287,27 @@ export interface MapGate {
   readonly promotingVersion: string | null;
 }
 
+/**
+ * Several nodes of one column that run on the SAME physical cluster (a hub and its
+ * co-located spokes, for example). The map draws them inside one parent container
+ * labelled with the cluster name (FLT-MAP-08). Only groups of two or more nodes exist;
+ * a cluster that runs a single node needs no container.
+ */
+export interface MapClusterGroup {
+  /** Stable id: column key + physical-cluster key. */
+  readonly id: string;
+  /** The physical cluster name, or null when only the hub pairing is known. */
+  readonly cluster: string | null;
+  readonly columnKey: string;
+  readonly laneKey: string;
+  /** Member node ids, in column node order. */
+  readonly nodeIds: readonly string[];
+}
+
 export interface MapModel {
   readonly columns: readonly MapColumn[];
+  /** Physical-cluster containers (FLT-MAP-08), in column order. */
+  readonly clusterGroups: readonly MapClusterGroup[];
   readonly lanes: readonly MapLane[];
   readonly nodes: readonly MapNode[];
   readonly gates: readonly MapGate[];
@@ -346,11 +397,12 @@ function sumClusterHistory(
 /**
  * The hub/physical-cluster card's population: everything the owning instance reports
  * EXCEPT the managed clusters broken out onto their own node (its remote spokes, which
- * live on a different physical cluster). `exclude` is a set of managed_cluster names the
- * topology plane classed as remote spokes (see {@link buildMapModel}), so the card rolls
- * up the hub's own gateways, its co-located spokes AND the unattributed ("unknown")
- * bucket into one count + one pair of chins - each physical cluster showing only what
- * runs on it. When nothing is excluded (no broken-out spoke) it degrades to the instance
+ * live on a different physical cluster, and its co-located spokes, which share the hub's
+ * cluster but get their own card inside the cluster container). `exclude` is the set of
+ * managed_cluster names the topology plane classed as remote or co-located spokes (see
+ * {@link buildMapModel}), so the card rolls up the hub's own gateways AND the
+ * unattributed ("unknown") bucket into one count + one pair of chins - each managed
+ * cluster showing only what runs on it. When nothing is excluded (no broken-out spoke) it degrades to the instance
  * totals verbatim, so a plain hub with no broken-out spokes is byte-for-byte unchanged.
  */
 function hubRollup(
@@ -438,12 +490,45 @@ const EMPTY_COUNTS: NodeCounts = {
   sandboxesByCluster: [],
 };
 
+/** Where a node sits relative to its hub's physical cluster. */
+interface Placement {
+  /** Hub id this spoke is co-located with (topology `spokes`), else null. */
+  readonly colocatedWith: string | null;
+  /** True for a node created from the topology plane (no promotion env). */
+  readonly fromTopology: boolean;
+  /** True when no delivery data exists for the node (see MapNode.deliveryUnknown). */
+  readonly deliveryUnknown: boolean;
+}
+
+const NO_PLACEMENT: Placement = {
+  colocatedWith: null,
+  fromTopology: false,
+  deliveryUnknown: false,
+};
+
+/** The physical-cluster grouping key for a node (see MapNode.physicalClusterKey). */
+function physicalClusterKeyFor(
+  cluster: string | null,
+  isHub: boolean,
+  id: string,
+  colocatedWith: string | null,
+): string | null {
+  if (cluster !== null) {
+    return cluster;
+  }
+  if (isHub) {
+    return `@hub:${id}`;
+  }
+  return colocatedWith === null ? null : `@hub:${colocatedWith}`;
+}
+
 function buildNode(
   env: PromotionEnvironment,
   fleet: FleetData,
   columnKey: string,
   topology: InstanceTopology | null,
   brokenOutSpokes: ReadonlySet<string>,
+  placement: Placement = NO_PLACEMENT,
 ): MapNode {
   // Capabilities are opaque delivery-label DATA; absent -> empty set (FLT-CAP-01).
   const capabilities = env.capabilities ?? [];
@@ -459,10 +544,10 @@ function buildNode(
   // key) and takes just its own slice. This is the whole point of the attribution:
   // each physical cluster shows only the gateways/sandboxes that run on it.
   //
-  // `brokenOutSpokes` is the hub column's set of REMOTE spokes (per the topology plane,
+  // `brokenOutSpokes` is the hub column's set of remote + co-located spokes (per the topology plane,
   // keyed by managed_cluster name) that also have their own node - the SAME identity
   // classifySpokes attributes on, so the rollup/slice can never diverge from it. A spoke
-  // env that is NOT in that set (co-located, or no topology) rolls into the hub and its
+  // env that is NOT in that set (unknown to the topology) rolls into the hub and its
   // own card shows nothing, so each managed cluster's counts land on exactly one card.
   const owning = isHub
     ? findInstance(fleet.instances, env.name)
@@ -493,6 +578,7 @@ function buildNode(
   // api-server reports them per instance, not per spoke), so only a hub card carries
   // them; a spoke card leaves them zero/empty rather than borrow its hub's.
   const fl = isHub ? owning : null;
+  const cluster = nonEmpty(env.cluster);
   return {
     id: env.name,
     columnKey,
@@ -501,7 +587,16 @@ function buildNode(
     isHub,
     role: nonEmpty(env.role),
     provider,
-    cluster: nonEmpty(env.cluster),
+    cluster,
+    physicalClusterKey: physicalClusterKeyFor(
+      cluster,
+      isHub,
+      env.name,
+      placement.colocatedWith,
+    ),
+    colocatedWith: placement.colocatedWith,
+    fromTopology: placement.fromTopology,
+    deliveryUnknown: placement.deliveryUnknown,
     capabilities,
     gatewayImage: nonEmpty(env.gatewayImage ?? null),
     seed: nonEmpty(env.activeDigest) ?? env.name,
@@ -678,6 +773,117 @@ function buildGates(
 }
 
 /**
+ * The promotion environment a co-located spoke borrows from its hub when the spoke has
+ * none of its own. GitOps delivers the spoke from the hub's physical cluster, so the
+ * release, Argo state and cluster-level links are the hub's. The spoke has no promotion
+ * gates, analysis run or console of its own, so those stay empty.
+ */
+function colocatedSpokeEnv(
+  hub: PromotionEnvironment,
+  name: string,
+): PromotionEnvironment {
+  return {
+    ...hub,
+    name,
+    role: "spoke",
+    // Provider is resolved here (capability first, as buildNode does) because the
+    // spoke carries no capabilities of its own.
+    provider:
+      capabilityValue(hub.capabilities ?? [], "provider") ??
+      nonEmpty(hub.provider),
+    capabilities: [],
+    gatewayImage: null,
+    gates: [],
+    verification: null,
+    syncRetries: null,
+    consoleUrl: null,
+    analysisUrl: null,
+  };
+}
+
+/**
+ * The promotion environment for a REMOTE spoke that has none of its own. It runs on
+ * another physical cluster that nothing here names, so its cluster, provider, release
+ * and Argo state stay unknown. Only the column header (env label) is shared with its
+ * hub, because the spoke belongs to the hub's promotion stage.
+ */
+function remoteSpokeEnv(
+  hub: PromotionEnvironment,
+  name: string,
+): PromotionEnvironment {
+  return {
+    name,
+    activeRelease: null,
+    proposedRelease: null,
+    gates: [],
+    activeDigest: null,
+    proposedDigest: null,
+    role: "spoke",
+    provider: null,
+    envLabel: hub.envLabel,
+    cluster: null,
+    capabilities: [],
+    gatewayImage: null,
+    argoHealth: null,
+    argoSync: null,
+    syncRetries: null,
+    consoleUrl: null,
+    grafanaUrl: null,
+    argoUrl: null,
+    prState: null,
+    prUrl: null,
+    analysisUrl: null,
+    upToDate: false,
+    verification: null,
+  };
+}
+
+/**
+ * Group each column's nodes by the physical cluster they run on (FLT-MAP-08). Only a
+ * cluster that runs two or more of the column's nodes in one provider lane becomes a
+ * group. The pairing comes from the per-node cluster label and the topology plane alone.
+ */
+function buildClusterGroups(
+  columns: readonly MapColumn[],
+  byId: ReadonlyMap<string, MapNode>,
+): MapClusterGroup[] {
+  const groups: MapClusterGroup[] = [];
+  for (const column of columns) {
+    const buckets = new Map<string, MapNode[]>();
+    const order: string[] = [];
+    for (const id of column.nodeIds) {
+      const node = byId.get(id);
+      if (node?.physicalClusterKey == null) {
+        continue;
+      }
+      const key = `${node.laneKey}|${node.physicalClusterKey}`;
+      let bucket = buckets.get(key);
+      if (!bucket) {
+        bucket = [];
+        buckets.set(key, bucket);
+        order.push(key);
+      }
+      bucket.push(node);
+    }
+    for (const key of order) {
+      const members = buckets.get(key) ?? [];
+      const first = members[0];
+      if (!first || members.length < 2) {
+        continue;
+      }
+      groups.push({
+        id: `${column.key}::${first.physicalClusterKey ?? ""}`,
+        cluster: members.find((m) => m.cluster !== null)?.cluster ?? null,
+        columnKey: column.key,
+        laneKey: first.laneKey,
+        nodeIds: members.map((m) => m.id),
+      });
+    }
+  }
+  return groups;
+}
+
+/**
  * Project the promotion plane (+ fleet metrics) into the map model. Columns are the
  * hub stages in the server's promotion order (spokes stack into their hub's column);
  * nodes carry their merged promotion + fleet state; each column gets a gate to its
@@ -688,17 +894,73 @@ export function buildMapModel(
   fleet: FleetData,
   topology: TopologyData = {},
 ): MapModel {
-  const envs = orderedEnvironments(promotion);
+  const promoted = orderedEnvironments(promotion);
+  // Co-located spokes (topology `spokes`: managed clusters on the hub's OWN physical
+  // cluster) get their own node card next to their hub (FLT-MAP-08.01). Most have no
+  // promotion environment of their own - GitOps delivers them from the hub's cluster -
+  // so a node is created for each one from the topology plane, right after its hub.
+  // A co-located spoke that DOES have an environment keeps it.
+  const envNames = new Set(promoted.map((e) => e.name));
+  const colocatedWith = new Map<string, string>();
+  const synthesized = new Set<string>();
+  // Remote spokes created from topology alone, keyed to their hub.
+  const remoteOnly = new Map<string, string>();
+  const envs: PromotionEnvironment[] = [];
+  for (const env of promoted) {
+    envs.push(env);
+    if (!isHubRole(env.role)) {
+      continue;
+    }
+    for (const spoke of topology[env.name]?.spokes ?? []) {
+      const name = spoke.name;
+      if (name === "" || name === env.name || colocatedWith.has(name)) {
+        continue;
+      }
+      colocatedWith.set(name, env.name);
+      if (!envNames.has(name)) {
+        synthesized.add(name);
+        envs.push(colocatedSpokeEnv(env, name));
+      }
+    }
+    // Every control plane gets a box (FLT-MAP-08.05): a REMOTE spoke with no promotion
+    // environment is still created from the topology, with no release or health.
+    for (const name of topology[env.name]?.hub?.remoteSpokes ?? []) {
+      if (
+        name === "" ||
+        name === env.name ||
+        envNames.has(name) ||
+        colocatedWith.has(name) ||
+        synthesized.has(name)
+      ) {
+        continue;
+      }
+      synthesized.add(name);
+      remoteOnly.set(name, env.name);
+      envs.push(remoteSpokeEnv(env, name));
+    }
+  }
   const columnKeyByName = assignColumns(envs);
-  // Per column, the spoke env names that get their OWN node card. A spoke breaks out of
-  // its hub ONLY when the topology plane classes it a REMOTE spoke (listed in the hub's
-  // `remoteSpokes`, keyed by managed_cluster name - the SAME identity classifySpokes
-  // attributes on) AND it actually has a node here. Everything else (co-located spokes,
-  // spokes the topology does not know, or any spoke when topology is absent) rolls into
-  // the hub, so each managed cluster's counts land on exactly one card and a mismatch
-  // between an env name and the managed_cluster identity can never silently resume the
-  // hub over-count this attribution fixes. FIREWALL: derived from runtime role + column
-  // + topology data alone - no fleet names or hub table baked in.
+  for (const [name, hub] of remoteOnly) {
+    columnKeyByName.set(name, hub);
+  }
+  for (const [name, hub] of [...colocatedWith]) {
+    // Pin each co-located spoke to its hub's column (a synthesized one has no name
+    // prefix guarantee); an env-backed one only counts as co-located in that column.
+    if (synthesized.has(name)) {
+      columnKeyByName.set(name, hub);
+    } else if (columnKeyByName.get(name) !== hub) {
+      colocatedWith.delete(name);
+    }
+  }
+  // Per column, the spoke names that get their OWN node card and their own count
+  // slice, keyed by managed_cluster name - the SAME identity classifySpokes attributes
+  // on. A spoke breaks out of its hub when the topology plane lists it as a REMOTE spoke
+  // (another physical cluster) or a CO-LOCATED spoke (the hub's own cluster) and it has
+  // a node here. Everything else (spokes the topology does not know, or any spoke when
+  // topology is absent) rolls into the hub, so each managed cluster's counts land on
+  // exactly one card and a mismatch between an env name and the managed_cluster
+  // identity can never silently resume the hub over-count. FIREWALL: derived from
+  // runtime role + column + topology data alone - no fleet names or hub table baked in.
   const brokenOutByColumn = new Map<string, Set<string>>();
   for (const env of envs) {
     if (isHubRole(env.role)) {
@@ -706,7 +968,10 @@ export function buildMapModel(
     }
     const col = columnKeyByName.get(env.name) ?? env.name;
     const remoteSpokes = topology[col]?.hub?.remoteSpokes ?? [];
-    if (!remoteSpokes.includes(env.name)) {
+    if (
+      !remoteSpokes.includes(env.name) &&
+      colocatedWith.get(env.name) !== col
+    ) {
       continue;
     }
     let set = brokenOutByColumn.get(col);
@@ -725,6 +990,11 @@ export function buildMapModel(
       columnKey,
       topology[env.name] ?? null,
       brokenOutByColumn.get(columnKey) ?? noSpokes,
+      {
+        colocatedWith: colocatedWith.get(env.name) ?? null,
+        fromTopology: synthesized.has(env.name),
+        deliveryUnknown: remoteOnly.has(env.name),
+      },
     );
   });
 
@@ -768,11 +1038,15 @@ export function buildMapModel(
     key,
     index,
     nodeIds: columnNodes.get(key) ?? [],
+    railNodeIds: (columnNodes.get(key) ?? []).filter(
+      (id) => byId.get(id)?.deliveryUnknown !== true,
+    ),
     envLabel: columnEnvLabel.get(key) ?? null,
   }));
 
   return {
     columns,
+    clusterGroups: buildClusterGroups(columns, byId),
     lanes: orderLanes(nodes),
     nodes,
     gates: buildGates(columns, byId),

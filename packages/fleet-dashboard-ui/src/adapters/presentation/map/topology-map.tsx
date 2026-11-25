@@ -32,6 +32,8 @@ import type { TopologyData } from "../../../domain/topology";
 import { isHealthUnavailable } from "../../../domain/status";
 import { messages } from "../../../messages";
 import {
+  CLUSTER_GROUP_FILL,
+  CLUSTER_GROUP_STROKE,
   EDGE_STROKE,
   LANE_STROKE,
   promotionRing,
@@ -43,6 +45,7 @@ import { useRoute, useRouter } from "../../routing/router";
 import { MapEdges } from "./edges";
 import { MapFlights } from "./flights";
 import { MapDetails, type MapSelection } from "./map-details";
+import { truncateToWidth } from "./measure-text";
 import { MapNodeCard } from "./map-node";
 import { MiniMap } from "./minimap";
 import { f } from "./svg";
@@ -74,6 +77,22 @@ function hBezier(x1: number, y1: number, x2: number, y2: number): string {
   return `M ${f(x1)} ${f(y1)} C ${f(midX)} ${f(y1)}, ${f(midX)} ${f(y2)}, ${f(x2)} ${f(y2)}`;
 }
 
+/** A small "server stack" glyph marking a physical-cluster container label. */
+function ClusterGlyph({ x, y }: { x: number; y: number }): React.ReactElement {
+  return (
+    <g
+      transform={`translate(${f(x)}, ${f(y)})`}
+      fill="none"
+      stroke={TEXT_SUBTLE}
+      strokeWidth={1.2}
+      aria-hidden="true"
+    >
+      <rect x={0} y={0} width={11} height={4.5} rx={1} />
+      <rect x={0} y={6} width={11} height={4.5} rx={1} />
+    </g>
+  );
+}
+
 export function TopologyMap({
   e2e,
   promotion,
@@ -97,7 +116,10 @@ export function TopologyMap({
   // ONLY when there is at least one, because it's a loud "something may be unreachable"
   // alert, not a routine status (per the node-level flashing ring in map-node).
   const unavailableCount = useMemo(
-    () => model.nodes.filter((n) => isHealthUnavailable(n.argoHealth)).length,
+    () =>
+      model.nodes.filter(
+        (n) => !n.deliveryUnknown && isHealthUnavailable(n.argoHealth),
+      ).length,
     [model.nodes],
   );
 
@@ -244,10 +266,20 @@ export function TopologyMap({
   const firstCol = layout.columns[0];
   const changeX = firstCol ? firstCol.x - 90 : 40;
   const changeY = layout.hubSpineY;
-  // Column headers sit in the top margin, above the topmost node row.
-  const topNodeY = layout.nodes.reduce(
-    (min, n) => Math.min(min, n.y),
-    Number.POSITIVE_INFINITY,
+  // Column headers sit in the top margin, above the topmost node row (or the top of
+  // a physical-cluster container that reaches higher than its first card).
+  const topNodeY = Math.min(
+    layout.nodes.reduce(
+      (min, n) => Math.min(min, n.y),
+      Number.POSITIVE_INFINITY,
+    ),
+    layout.clusterGroups.reduce(
+      (min, g) => Math.min(min, g.y + 14),
+      Number.POSITIVE_INFINITY,
+    ),
+  );
+  const groupedNodeIds = new Set(
+    layout.clusterGroups.flatMap((g) => g.nodeIds),
   );
   const headerY = Math.max(
     (Number.isFinite(topNodeY) ? topNodeY : 96) - 40,
@@ -262,7 +294,7 @@ export function TopologyMap({
   // Rails from the change diamond into the first column's node(s): the spine starts
   // at the change, so it visibly feeds the root stage like every later gate does.
   const boxById = new Map<string, NodeBox>(layout.nodes.map((b) => [b.id, b]));
-  const changeEdges = (model.columns[0]?.nodeIds ?? [])
+  const changeEdges = (model.columns[0]?.railNodeIds ?? [])
     .map((id) => boxById.get(id))
     .filter((b): b is NodeBox => b !== undefined)
     .map((b) => ({
@@ -387,6 +419,50 @@ export function TopologyMap({
                     </g>
                   ))}
 
+                  {/* physical-cluster containers (FLT-MAP-08): one box around the
+              nodes of a column that run on the same physical cluster - a hub and its
+              co-located spokes - labelled with the cluster name. Drawn behind the
+              rails and cards. */}
+                  {layout.clusterGroups.map((group) => {
+                    const label =
+                      group.cluster ??
+                      intl.formatMessage(messages.mapSharedCluster);
+                    return (
+                      <g
+                        key={group.id}
+                        role="group"
+                        aria-label={intl.formatMessage(
+                          messages.mapClusterGroup,
+                          {
+                            cluster: label,
+                            nodes: group.nodeIds.join(", "),
+                          },
+                        )}
+                      >
+                        <rect
+                          x={group.x}
+                          y={group.y}
+                          width={group.w}
+                          height={group.h}
+                          rx={14}
+                          fill={CLUSTER_GROUP_FILL}
+                          stroke={CLUSTER_GROUP_STROKE}
+                          strokeWidth={1.5}
+                        />
+                        <ClusterGlyph x={group.x + 12} y={group.labelY - 9} />
+                        <text
+                          x={group.x + 28}
+                          y={group.labelY}
+                          fontSize={11}
+                          fontWeight={700}
+                          fill={TEXT_SUBTLE}
+                        >
+                          {truncateToWidth(label, 11, 700, group.w - 40)}
+                        </text>
+                      </g>
+                    );
+                  })}
+
                   {/* env-type band headers: group the columns sharing an env-type (int /
               stage / prod) into one label spanning them (server data) */}
                   {layout.bands.map((band) => (
@@ -462,6 +538,7 @@ export function TopologyMap({
                         onSelect={selectNode}
                         onSelectBundle={selectBundleOnMap}
                         displaySeed={holdSeedById.get(box.id)}
+                        inClusterGroup={groupedNodeIds.has(box.id)}
                       />
                     );
                   })}

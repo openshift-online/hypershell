@@ -586,16 +586,15 @@ describe("buildMapModel - per-cluster attribution", () => {
     return n;
   }
 
-  it("rolls up the hub's own + co-located clusters, excluding the broken-out spoke", () => {
+  it("keeps only the hub's own cluster rows, excluding remote and co-located spokes", () => {
     const { promotion: p, fleet } = hubAndSpoke();
     const hub = nodeById(buildMapModel(p, fleet, topo()), "hub0");
-    // 3 (hub-own) + 2 (co-located) = 5; the remote spoke's 1 is NOT on this card.
-    expect(hub.gatewaysTotal).toBe(5);
-    expect(hub.gateways).toEqual({ running: 5 });
-    expect(hub.sandboxes).toBe(2);
+    // Only hub-own (3); the co-located (2) and remote (1) spokes have their own cards.
+    expect(hub.gatewaysTotal).toBe(3);
+    expect(hub.gateways).toEqual({ running: 3 });
+    expect(hub.sandboxes).toBe(1);
     expect(hub.gatewaysByCluster.map((r) => r.managedCluster)).toEqual([
       "hub0-hub",
-      "hub0-co",
     ]);
   });
 
@@ -609,15 +608,15 @@ describe("buildMapModel - per-cluster attribution", () => {
     expect(spoke.spokeAttribution).toBeNull();
   });
 
-  it("rolls up the hub's chin history across its clusters, excluding the spoke", () => {
+  it("keeps the hub's own chin history, excluding every broken-out spoke", () => {
     const { promotion: p, fleet } = hubAndSpoke();
     const hub = nodeById(buildMapModel(p, fleet, topo()), "hub0");
-    // hub-own(3,3) + co-located(2,2) at each sample; the spoke's 1 is excluded.
+    // Only hub-own (3) at each sample; co-located and remote spokes are excluded.
     expect(hub.gatewayHistory).toEqual([
-      { running: 5, provisioning: 0, failed: 0 },
-      { running: 5, provisioning: 0, failed: 0 },
+      { running: 3, provisioning: 0, failed: 0 },
+      { running: 3, provisioning: 0, failed: 0 },
     ]);
-    expect(hub.sandboxHistory).toEqual([2, 2]);
+    expect(hub.sandboxHistory).toEqual([1, 1]);
     expect(hub.historyTimes).toEqual([100, 200]);
   });
 
@@ -723,9 +722,9 @@ describe("buildMapModel - per-cluster attribution", () => {
     expect(spoke.sandboxes).toBe(0);
   });
 
-  it("rolls a co-located spoke with its own env into the hub, not its own card", () => {
-    // hub0-co has a promotion env here, but topology lists it co-located (not a remote
-    // spoke), so it must still roll into the hub and NOT be broken onto its own card.
+  it("gives a co-located spoke with its own env its own counts", () => {
+    // hub0-co has a promotion env here and topology lists it co-located: it keeps its
+    // env and takes its own slice, so the hub keeps only its own controller's rows.
     const { fleet } = hubAndSpoke();
     const p = promotion(["hub0", "hub0-co", "hub0-spoke"], {
       hub0: env({ name: "hub0", role: "hub", provider: "ibm" }),
@@ -735,15 +734,175 @@ describe("buildMapModel - per-cluster attribution", () => {
     const model = buildMapModel(p, fleet, topo());
     const hub = nodeById(model, "hub0");
     const co = nodeById(model, "hub0-co");
-    // Hub rolls up its own(3) + co-located(2) = 5; only the remote spoke's 1 is split out.
-    expect(hub.gatewaysTotal).toBe(5);
-    expect(hub.gatewaysByCluster.map((r) => r.managedCluster)).toEqual([
-      "hub0-hub",
+    expect(hub.gatewaysTotal).toBe(3);
+    expect(co.gatewaysTotal).toBe(2);
+    expect(co.sandboxes).toBe(1);
+    expect(co.fromTopology).toBe(false);
+    expect(co.colocatedWith).toBe("hub0");
+    // No duplicate node is created for a spoke that already has an env.
+    expect(model.nodes.filter((n) => n.id === "hub0-co")).toHaveLength(1);
+  });
+});
+
+describe("buildMapModel - co-located spokes and physical clusters", () => {
+  function topo(): TopologyData {
+    return {
+      hub0: {
+        instance: "hub0",
+        hub: { instance: "hub0", dnsLabel: null, remoteSpokes: ["hub0-spoke"] },
+        spokes: [{ name: "hub0-co" }],
+      },
+    };
+  }
+
+  function fleet(): FleetData {
+    return {
+      instances: [
+        inst({
+          instance: "hub0",
+          gateways: { running: 6 },
+          gatewaysTotal: 6,
+          gatewaysByCluster: [
+            { managedCluster: "hub0-hub", gateways: { running: 3 }, total: 3 },
+            { managedCluster: "hub0-co", gateways: { running: 2 }, total: 2 },
+            {
+              managedCluster: "hub0-spoke",
+              gateways: { running: 1 },
+              total: 1,
+            },
+          ],
+          sandboxesByCluster: [
+            { managedCluster: "hub0-hub", count: 1 },
+            { managedCluster: "hub0-co", count: 4 },
+          ],
+        }),
+      ],
+    };
+  }
+
+  // The live shape: the co-located spoke has NO promotion env of its own.
+  function promo(): PromotionData {
+    return promotion(["hub0", "hub0-spoke"], {
+      hub0: env({
+        name: "hub0",
+        role: "hub",
+        cluster: "phys-a",
+        envLabel: "int",
+        activeRelease: "v1",
+        activeDigest: "sha256:aaa",
+        argoHealth: "Healthy",
+        capabilities: ["provider/ibm"],
+        gates: [
+          { name: "analysis", phase: "Succeeded", governingInstance: null },
+        ],
+        consoleUrl: "https://console.example",
+      }),
+      "hub0-spoke": env({
+        name: "hub0-spoke",
+        role: "spoke",
+        provider: "ibm",
+        cluster: "phys-b",
+      }),
+    });
+  }
+
+  function nodeById(model: ReturnType<typeof buildMapModel>, id: string) {
+    const n = model.nodes.find((x) => x.id === id);
+    if (!n) {
+      throw new Error(`no node ${id}`);
+    }
+    return n;
+  }
+
+  // Verifies: FLT-MAP-08.01
+  it("creates a node for a co-located spoke that has no promotion env", () => {
+    const model = buildMapModel(promo(), fleet(), topo());
+    const co = nodeById(model, "hub0-co");
+    expect(co.fromTopology).toBe(true);
+    expect(co.colocatedWith).toBe("hub0");
+    expect(co.isHub).toBe(false);
+    expect(co.role).toBe("spoke");
+    expect(co.columnKey).toBe("hub0");
+    // It lives on the hub's physical cluster and provider lane.
+    expect(co.cluster).toBe("phys-a");
+    expect(co.laneKey).toBe("ibm");
+    // Its own slice of the hub's per-cluster rows.
+    expect(co.gatewaysTotal).toBe(2);
+    expect(co.sandboxes).toBe(4);
+    // The hub no longer counts it.
+    expect(nodeById(model, "hub0").gatewaysTotal).toBe(3);
+    // Placed right after its hub in the column.
+    expect(model.columns[0]?.nodeIds).toEqual([
+      "hub0",
       "hub0-co",
+      "hub0-spoke",
     ]);
-    // The co-located spoke's own node shows nothing (its counts are on the hub).
-    expect(co.gatewaysTotal).toBe(0);
-    expect(co.sandboxes).toBe(0);
+  });
+
+  it("mirrors the hub's release and Argo state but carries no gates or console", () => {
+    const co = nodeById(buildMapModel(promo(), fleet(), topo()), "hub0-co");
+    expect(co.version).toBe("v1");
+    expect(co.digest).toBe("sha256:aaa");
+    expect(co.argoHealth).toBe("Healthy");
+    expect(co.driftsFromColumn).toBe(false);
+    expect(co.gateNames).toEqual([]);
+    expect(co.capabilities).toEqual([]);
+    expect(co.links.console).toBeNull();
+    // Hub-level control-plane metrics stay on the hub.
+    expect(co.users).toBeNull();
+  });
+
+  it("keeps the gate on the hub's analysis, not the co-located spoke's", () => {
+    const model = buildMapModel(promo(), fleet(), topo());
+    expect(model.gates[0]?.name).toBe("analysis");
+  });
+
+  // Verifies: FLT-MAP-08.01
+  it("groups the hub and its co-located spoke into one physical cluster", () => {
+    const model = buildMapModel(promo(), fleet(), topo());
+    expect(model.clusterGroups).toEqual([
+      {
+        id: "hub0::phys-a",
+        cluster: "phys-a",
+        columnKey: "hub0",
+        laneKey: "ibm",
+        nodeIds: ["hub0", "hub0-co"],
+      },
+    ]);
+  });
+
+  it("groups a hub with no cluster label and its co-located spoke by the hub", () => {
+    const p = promo();
+    const hub0 = p.environments.hub0;
+    if (!hub0) {
+      throw new Error("no hub0");
+    }
+    const unlabeled = promotion(["hub0"], {
+      hub0: { ...hub0, cluster: null },
+    });
+    const model = buildMapModel(unlabeled, fleet(), topo());
+    expect(model.clusterGroups).toHaveLength(1);
+    expect(model.clusterGroups[0]?.cluster).toBeNull();
+    expect(model.clusterGroups[0]?.nodeIds).toEqual(["hub0", "hub0-co"]);
+  });
+
+  // Verifies: FLT-MAP-08.04
+  it("creates no container when every node runs on its own cluster", () => {
+    const model = buildMapModel(promo(), fleet(), {
+      hub0: {
+        instance: "hub0",
+        hub: { instance: "hub0", dnsLabel: null, remoteSpokes: ["hub0-spoke"] },
+        spokes: [],
+      },
+    });
+    expect(model.clusterGroups).toEqual([]);
+    expect(model.nodes.map((n) => n.id)).toEqual(["hub0", "hub0-spoke"]);
+  });
+
+  it("creates no co-located node without topology", () => {
+    const model = buildMapModel(promo(), fleet());
+    expect(model.nodes.map((n) => n.id)).toEqual(["hub0", "hub0-spoke"]);
+    expect(nodeById(model, "hub0").gatewaysTotal).toBe(6);
   });
 });
 
@@ -807,5 +966,179 @@ describe("buildMapModel capabilities", () => {
     const node = model.nodes.find((n) => n.id === "alpha");
     expect(node?.provider).toBe("aws");
     expect(node?.laneKey).toBe("aws");
+  });
+});
+
+describe("buildMapModel - remote spokes without an environment", () => {
+  // Verifies: FLT-MAP-08.05
+  it("gives a remote spoke with no promotion env its own box", () => {
+    const p = promotion(["hub0"], {
+      hub0: env({
+        name: "hub0",
+        role: "hub",
+        provider: "ibm",
+        cluster: "phys-a",
+        envLabel: "int",
+        activeRelease: "v1",
+        activeDigest: "sha256:aaa",
+        argoHealth: "Healthy",
+      }),
+    });
+    const fleet: FleetData = {
+      instances: [
+        inst({
+          instance: "hub0",
+          gatewaysByCluster: [
+            { managedCluster: "hub0-hub", gateways: { running: 8 }, total: 8 },
+            { managedCluster: "hub0-far", gateways: { running: 1 }, total: 1 },
+          ],
+          sandboxesByCluster: [{ managedCluster: "hub0-far", count: 2 }],
+        }),
+      ],
+    };
+    const topo: TopologyData = {
+      hub0: {
+        instance: "hub0",
+        hub: { instance: "hub0", dnsLabel: null, remoteSpokes: ["hub0-far"] },
+        spokes: [],
+      },
+    };
+    const model = buildMapModel(p, fleet, topo);
+    const far = model.nodes.find((n) => n.id === "hub0-far");
+    const hub = model.nodes.find((n) => n.id === "hub0");
+    expect(far).toBeDefined();
+    expect(far?.columnKey).toBe("hub0");
+    expect(far?.role).toBe("spoke");
+    expect(far?.gatewaysTotal).toBe(1);
+    expect(far?.sandboxes).toBe(2);
+    expect(hub?.gatewaysTotal).toBe(8);
+    // Nothing reports where or what it runs, so those stay unknown.
+    expect(far?.deliveryUnknown).toBe(true);
+    expect(far?.fromTopology).toBe(true);
+    expect(far?.cluster).toBeNull();
+    expect(far?.laneKey).toBe("none");
+    expect(far?.version).toBeNull();
+    expect(far?.argoHealth).toBeNull();
+    expect(far?.envLabel).toBe("int");
+    // It is not on the hub's physical cluster, so no outer box is drawn.
+    expect(model.clusterGroups).toEqual([]);
+    // The hub still governs the gate.
+    expect(model.gates).toHaveLength(1);
+    expect(hub?.deliveryUnknown).toBe(false);
+  });
+
+  it("does not duplicate a remote spoke that already has an env", () => {
+    const p = promotion(["hub0", "hub0-far"], {
+      hub0: env({ name: "hub0", role: "hub" }),
+      "hub0-far": env({ name: "hub0-far", role: "spoke" }),
+    });
+    const model = buildMapModel(
+      p,
+      { instances: [] },
+      {
+        hub0: {
+          instance: "hub0",
+          hub: { instance: "hub0", dnsLabel: null, remoteSpokes: ["hub0-far"] },
+          spokes: [],
+        },
+      },
+    );
+    const far = model.nodes.filter((n) => n.id === "hub0-far");
+    expect(far).toHaveLength(1);
+    expect(far[0]?.deliveryUnknown).toBe(false);
+  });
+});
+
+describe("buildMapModel - promotion lines", () => {
+  // Verifies: FLT-MAP-08.06
+  it("leaves a remote spoke outside promotion off the column's rails", () => {
+    const p = promotion(["hub0", "hub0-r"], {
+      hub0: env({ name: "hub0", role: "hub", provider: "ibm" }),
+      "hub0-r": env({ name: "hub0-r", role: "spoke", provider: "ibm" }),
+    });
+    const model = buildMapModel(
+      p,
+      { instances: [] },
+      {
+        hub0: {
+          instance: "hub0",
+          hub: {
+            instance: "hub0",
+            dnsLabel: null,
+            remoteSpokes: ["hub0-r", "hub0-far"],
+          },
+          spokes: [{ name: "hub0-co" }],
+        },
+      },
+    );
+    const col = model.columns[0];
+    expect(col?.nodeIds).toEqual(["hub0", "hub0-co", "hub0-far", "hub0-r"]);
+    // hub0-far has no promotion env and no delivery data: no rails.
+    expect(col?.railNodeIds).toEqual(["hub0", "hub0-co", "hub0-r"]);
+  });
+
+  // A co-located spoke that has its own promotion environment: labelled with the
+  // hub's cluster, listed before the hub, and gated on argocd-health.
+  it("keeps a co-located spoke with its own env in the outer box and on the rails", () => {
+    const p = promotion(["hub0-co", "hub0"], {
+      "hub0-co": env({
+        name: "hub0-co",
+        role: "spoke",
+        provider: "ibm",
+        cluster: "phys-a",
+        envLabel: "int",
+        gates: [
+          {
+            name: "argocd-health",
+            phase: "Succeeded",
+            governingInstance: null,
+          },
+        ],
+      }),
+      hub0: env({
+        name: "hub0",
+        role: "hub",
+        provider: "ibm",
+        cluster: "phys-a",
+        envLabel: "int",
+        gates: [
+          {
+            name: "hypershell-analysis",
+            phase: "Succeeded",
+            governingInstance: null,
+          },
+        ],
+      }),
+    });
+    const fleet: FleetData = {
+      instances: [
+        inst({
+          instance: "hub0",
+          gatewaysByCluster: [
+            { managedCluster: "hub0-hub", gateways: { running: 6 }, total: 6 },
+            { managedCluster: "hub0-co", gateways: { running: 4 }, total: 4 },
+          ],
+        }),
+      ],
+    };
+    const model = buildMapModel(p, fleet, {
+      hub0: {
+        instance: "hub0",
+        hub: { instance: "hub0", dnsLabel: null, remoteSpokes: [] },
+        spokes: [{ name: "hub0-co" }],
+      },
+    });
+    const co = model.nodes.find((n) => n.id === "hub0-co");
+    expect(co?.fromTopology).toBe(false);
+    expect(co?.columnKey).toBe("hub0");
+    expect(co?.gatewaysTotal).toBe(4);
+    expect(co?.gateNames).toEqual(["argocd-health"]);
+    expect(model.nodes.find((n) => n.id === "hub0")?.gatewaysTotal).toBe(6);
+    expect(model.clusterGroups.map((g) => [g.cluster, g.nodeIds])).toEqual([
+      ["phys-a", ["hub0-co", "hub0"]],
+    ]);
+    expect(model.columns[0]?.railNodeIds).toEqual(["hub0-co", "hub0"]);
+    // The hub, not the spoke listed first, governs the gate.
+    expect(model.gates[0]?.name).toBe("hypershell-analysis");
   });
 });
