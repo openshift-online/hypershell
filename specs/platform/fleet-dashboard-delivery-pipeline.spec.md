@@ -1156,7 +1156,9 @@ It SHALL answer three questions:
    head (the locked bundle's alias, publication time, and the time it was
    locked).
 2. **What is in flight?** Component builds and policy checks running on
-   `main`, with elapsed time; bundles releasing (inferred) and pending
+   `main`, with elapsed time: only the checks a change's stages use (its
+   builds, and the policy checks of components built on that commit), and
+   only for changes not yet delivered; bundles releasing (inferred) and pending
    bundles; an open bundle update pull request; and, per environment, the
    bundle it runs, the gate in progress with its elapsed time and attempt
    number ("attempt 1 of 3"), and the environments waiting with what each
@@ -1189,3 +1191,10 @@ Unknown (FLT-DLV-13), the panel SHALL say which answer it cannot give.
 - WHEN the panel renders
 - THEN it SHALL show both heads and each environment's bundle
 - AND it SHALL read "Nothing in flight"
+
+#### Scenario: FLT-DLV-23.03 -- Only stage checks are in flight
+
+- GIVEN a change whose merge queue ran policy checks for components it did not build on push, and a group policy check
+- AND a delivered change with a policy check that never finished
+- WHEN the panel lists what is in flight
+- THEN it SHALL list neither, and SHALL list the change's own running builds

@@ -316,3 +316,31 @@ func TestPipelineNowQuiet(t *testing.T) {
 }
 
 func slicesEqual(a, b []string) bool { return strings.Join(a, ",") == strings.Join(b, ",") }
+
+func TestPipelineNowInFlightChecks(t *testing.T) {
+	// Verifies: FLT-DLV-23.03
+	in := compInput()
+	// c4 builds agent on push. Its merge queue also ran policy checks for web
+	// (no push build) and a group check: neither is a stage of c4.
+	in.checks["c4"] = append(in.checks["c4"],
+		run("app-enterprise-contract / web", "in_progress", "", 0),
+		run("app-enterprise-contract / pr group", "in_progress", "", 0),
+	)
+	// c1 is delivered everywhere; a policy check of its own api build stays open.
+	in.checks["c1"] = []CheckRun{
+		run("api-on-push", "completed", "success", -8),
+		run("app-enterprise-contract / api", "in_progress", "", 0),
+	}
+	b1 := in.bundles[0]
+	for _, k := range in.promo.Order {
+		setEnv(&in, k, b1, b1, "success")
+	}
+	p := payloadOf(in)
+	var got []string
+	for _, c := range p.Now.Checks {
+		got = append(got, c.Kind+":"+c.Component+"@"+c.ShortSHA)
+	}
+	if !slicesEqual(got, []string{"build:agent@c4"}) {
+		t.Errorf("in flight = %v, want only c4's agent build", got)
+	}
+}
