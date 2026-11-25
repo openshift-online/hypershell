@@ -1564,7 +1564,8 @@ func (r *StubGatewayReconciler) Handle(ctx context.Context, event watcher.Event[
 
 // lastProvisioningPassFailed reports whether the stored Gateway records a failed
 // provisioning pass: phase Failed or any provisioning condition Failed
-// (OSG-HLTH-03.08).
+// (OSG-HLTH-03.08). Once a re-run succeeds, the health reconciler sets the
+// conditions to Complete (OSG-HLTH-03), so this stops reopening the gate.
 func lastProvisioningPassFailed(gw *pb.Gateway) bool {
 	if gw.GetPhase() == string(gatewayhealth.PhaseFailed) {
 		return true
