@@ -166,3 +166,50 @@ describe("mapDelivery estimates and diagnostics (FLT-DLV-12)", () => {
     });
   });
 });
+
+describe("mapDelivery train and now (FLT-DLV-12, FLT-DLV-22, FLT-DLV-23)", () => {
+  it("maps the bundle train, the Pipeline now data, and new stage fields", () => {
+    const d = mapDelivery({
+      enabled: true,
+      changes: [
+        {
+          sha: "a".repeat(40),
+          stages: [
+            {
+              key: "release",
+              state: "running",
+              partly: {
+                done: 1,
+                total: 2,
+                missing: [{ component: "agent", state: "bogus" }],
+              },
+            },
+          ],
+        },
+      ],
+      train: [{ inferred: true, changed: [{ component: "agent" }] }],
+      now: {
+        environments: [{ env: "hub", state: "bogus", attempt: 0 }],
+        next: [{ kind: "unknown-kind" }, { kind: "locked", at: "x" }],
+      },
+    });
+    const stage = d.changes[0]?.stages[0];
+    // An unrecognized missing state never reads as releasing.
+    expect(stage?.partly?.missing[0]?.state).toBe("building");
+    expect(stage?.restart).toBeNull();
+    expect(d.train[0]?.inferred).toBe(true);
+    expect(d.train[0]?.active).toEqual([]);
+    expect(d.now.appHead).toBeNull();
+    expect(d.now.environments[0]?.state).toBe("unknown");
+    expect(d.now.environments[0]?.attempt).toBeNull();
+    // Unknown next event kinds are dropped.
+    expect(d.now.next.map((e) => e.kind)).toEqual(["locked"]);
+  });
+
+  it("defaults to an empty train and Pipeline now", () => {
+    const d = mapDelivery({ enabled: true });
+    expect(d.train).toEqual([]);
+    expect(d.now.environments).toEqual([]);
+    expect(d.now.next).toEqual([]);
+  });
+});

@@ -18,6 +18,7 @@ import { createMemoryHistory } from "../routing/history-port";
 import { RouterProvider } from "../routing/router";
 import { FleetApiProvider } from "../query/api-context";
 import { App } from "./app";
+import { EMPTY_NOW } from "../../domain/delivery";
 
 const emptyE2eRuns: E2eRunsData = {
   enabled: true,
@@ -68,6 +69,8 @@ const e2eApi = {
         enabled: false,
         stages: [],
         changes: [],
+        train: [],
+        now: EMPTY_NOW,
         releaseDiagnostics: null,
         omitted: 0,
         sources: {},

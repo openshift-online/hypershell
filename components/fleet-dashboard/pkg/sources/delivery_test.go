@@ -214,6 +214,10 @@ type fixture struct {
 	d        *Delivery
 }
 
+// fixtureDeps is the fixture's promotion graph: Stage waits for Int, Prod for
+// Stage (FLT-DLV-08).
+var fixtureDeps = map[string][]string{"stage-a": {"int-a"}, "prod-a": {"stage-a"}, "prod-b": {"stage-a"}}
+
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	repo := linearRepo{n: 10}
@@ -245,10 +249,10 @@ func newFixture(t *testing.T) *fixture {
 	promo := &PromotionPayload{
 		Order: []string{"int-a", "stage-a", "prod-a", "prod-b"},
 		Environments: map[string]Environment{
-			"int-a":   {Env: "int", Active: &Release{Digest: "sha256:b2"}, Proposed: &Release{Digest: "sha256:b2"}},
-			"stage-a": {Env: "stage", Active: &Release{Digest: "sha256:b1"}, Proposed: &Release{Digest: "sha256:b2"}},
-			"prod-a":  {Env: "prod", Active: &Release{Digest: "sha256:b1"}, Proposed: &Release{Digest: "sha256:b2"}},
-			"prod-b":  {Env: "prod", Active: &Release{Digest: "sha256:b1"}, Proposed: &Release{Digest: "sha256:b2"}},
+			"int-a":   {DependsOn: fixtureDeps["int-a"], Env: "int", Active: &Release{Digest: "sha256:b2"}, Proposed: &Release{Digest: "sha256:b2"}},
+			"stage-a": {DependsOn: fixtureDeps["stage-a"], Env: "stage", Active: &Release{Digest: "sha256:b1"}, Proposed: &Release{Digest: "sha256:b2"}},
+			"prod-a":  {DependsOn: fixtureDeps["prod-a"], Env: "prod", Active: &Release{Digest: "sha256:b1"}, Proposed: &Release{Digest: "sha256:b2"}},
+			"prod-b":  {DependsOn: fixtureDeps["prod-b"], Env: "prod", Active: &Release{Digest: "sha256:b1"}, Proposed: &Release{Digest: "sha256:b2"}},
 		},
 	}
 	f := &fixture{repo: repo, gh: gh, reg: reg, lock: lock, compares: &compares, promo: promo}
@@ -528,9 +532,9 @@ func TestDeliveryGitOpsStage(t *testing.T) {
 func TestDeliveryEnvironmentGroups(t *testing.T) {
 	// Verifies: FLT-DLV-03.01, FLT-DLV-08.01, FLT-DLV-08.02
 	f := newFixture(t)
-	f.promo.Environments["int-a"] = Environment{Env: "int", Active: &Release{Digest: "sha256:b2"}, Proposed: &Release{Digest: "sha256:b2"},
+	f.promo.Environments["int-a"] = Environment{DependsOn: fixtureDeps["int-a"], Env: "int", Active: &Release{Digest: "sha256:b2"}, Proposed: &Release{Digest: "sha256:b2"},
 		ActiveGates: []Gate{{Key: "hypershell-analysis", Phase: "pending"}}}
-	f.promo.Environments["prod-a"] = Environment{Env: "prod", Active: &Release{Digest: "sha256:b2"}, Proposed: &Release{Digest: "sha256:b2"}}
+	f.promo.Environments["prod-a"] = Environment{DependsOn: fixtureDeps["prod-a"], Env: "prod", Active: &Release{Digest: "sha256:b2"}, Proposed: &Release{Digest: "sha256:b2"}}
 	p := f.refresh(t)
 
 	var groups []string
@@ -547,7 +551,7 @@ func TestDeliveryEnvironmentGroups(t *testing.T) {
 	if s := stage(t, c, "env:int"); s.State != StageRunning || s.Reason != reasonGateRunning || s.Gate != "hypershell-analysis" {
 		t.Errorf("int = %+v, want running with the analysis gate", s)
 	}
-	if s := stage(t, c, "env:stage"); s.State != StageWaiting || s.Reason != reasonWaitingGroups || strings.Join(s.Groups, ",") != "int" {
+	if s := stage(t, c, "env:stage"); s.State != StageWaiting || s.Reason != reasonWaitingEnvs || strings.Join(s.WaitingFor, ",") != "int-a" {
 		t.Errorf("stage = %+v, want waiting for int", s)
 	}
 	if s := stage(t, c, "env:prod"); s.State != StageRunning || s.Reason != reasonPartial || s.Done != 1 || s.Total != 2 {
@@ -555,7 +559,7 @@ func TestDeliveryEnvironmentGroups(t *testing.T) {
 	}
 
 	// A change on GitOps main that no proposed release holds waits for hydration.
-	f.promo.Environments["stage-a"] = Environment{Env: "stage", Active: &Release{Digest: "sha256:b1"}, Proposed: &Release{Digest: "sha256:b1"}}
+	f.promo.Environments["stage-a"] = Environment{DependsOn: fixtureDeps["stage-a"], Env: "stage", Active: &Release{Digest: "sha256:b1"}, Proposed: &Release{Digest: "sha256:b1"}}
 	f.lock.timeline = append([]LockCommit{{SHA: "lock3", Digest: "sha256:b3", Date: "2026-11-01T11:30:00Z"}}, f.lock.timeline...)
 	f.lock.releases["lock3"] = lockedRelease(bundleTag(3, "b3"), "sha256:b3", f.repo.sha(8))
 	p = f.refresh(t)
@@ -566,7 +570,7 @@ func TestDeliveryEnvironmentGroups(t *testing.T) {
 
 func TestDeliveryFailedGateFailsGroup(t *testing.T) {
 	f := newFixture(t)
-	f.promo.Environments["int-a"] = Environment{Env: "int", Active: &Release{Digest: "sha256:b2"}, Proposed: &Release{Digest: "sha256:b2"},
+	f.promo.Environments["int-a"] = Environment{DependsOn: fixtureDeps["int-a"], Env: "int", Active: &Release{Digest: "sha256:b2"}, Proposed: &Release{Digest: "sha256:b2"},
 		ActiveGates: []Gate{{Key: "argocd-health", Phase: "failure"}}}
 	p := f.refresh(t)
 	if s := stage(t, change(t, p, f.repo.sha(4)), "env:int"); s.State != StageFailed || s.Gate != "argocd-health" {
@@ -940,8 +944,10 @@ func TestPassedGroupIgnoresNewerBundleChecks(t *testing.T) {
 	if len(h) != 1 || h[0].Outcome != OutcomeRunning || h[0].Gate != analysis {
 		t.Errorf("int-a history for the b2 change = %v, want the active b2 running", outcomes(h))
 	}
-	if f.gh.gateCalls[m2] != 0 {
-		t.Errorf("the active promotion's gates were read from GitHub")
+	// While its gate runs, the active promotion's gate runs are read once per
+	// refresh, only for the attempt (FLT-DLV-12, FLT-DLV-23).
+	if f.gh.gateCalls[m2] != 1 {
+		t.Errorf("active running promotion gate reads = %d, want 1", f.gh.gateCalls[m2])
 	}
 }
 

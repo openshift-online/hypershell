@@ -28,7 +28,11 @@ export interface DeliveryStage {
   /** Condition code; the presentation layer owns the wording. */
   readonly reason: string | null;
   readonly components: readonly string[];
-  readonly groups: readonly string[];
+  /**
+   * The environments a waiting group stage waits for: those its environments
+   * depend on where the change has not passed (FLT-DLV-08).
+   */
+  readonly waitingFor: readonly string[];
   readonly gate: string | null;
   readonly done: number;
   readonly total: number;
@@ -44,6 +48,39 @@ export interface DeliveryStage {
   readonly estimateMs: number | null;
   /** The slowest of the same last 5 runs; null with no estimate. */
   readonly slowestMs: number | null;
+  /** Build: the later commit whose builds superseded failed ones (FLT-DLV-05). */
+  readonly rebuiltIn: DeliveryCommitRef | null;
+  /** A partly shipped change's components at this stage (FLT-DLV-22). */
+  readonly partly: DeliveryPartly | null;
+  /** A newer bundle is expected to restart this group's gate (FLT-DLV-10). */
+  readonly restart: DeliveryRestart | null;
+}
+
+export interface DeliveryCommitRef {
+  readonly sha: string;
+  readonly shortSha: string;
+  readonly pr: number | null;
+}
+
+export type MissingState = "building" | "policy" | "releasing" | "failed";
+
+export interface DeliveryPartly {
+  readonly done: number;
+  readonly total: number;
+  /** Release stage: the components not in a bundle yet. */
+  readonly missing: readonly {
+    readonly component: string;
+    readonly state: MissingState;
+  }[];
+}
+
+export interface DeliveryRestart {
+  readonly components: readonly string[];
+  readonly version: string | null;
+  readonly digest: string | null;
+  readonly envs: readonly string[];
+  /** When the newer bundle is expected in the group. */
+  readonly landsAt: string | null;
 }
 
 export interface DeliveryCheck {
@@ -54,6 +91,8 @@ export interface DeliveryCheck {
   readonly url: string | null;
   /** No known bundle lists the component: it ships by its own route. */
   readonly outsideBundle: boolean;
+  /** A later commit's passed build replaced this failed one (FLT-DLV-05). */
+  readonly supersededBy: string | null;
 }
 
 /**
@@ -101,6 +140,8 @@ export interface DeliveryEnvState {
   readonly group: string;
   readonly state: DeliveryStageState;
   readonly contains: boolean;
+  /** Dependencies where the change has not passed yet (FLT-DLV-08). */
+  readonly waitingFor: readonly string[];
   /** Oldest first (FLT-DLV-18). */
   readonly history: readonly DeliveryPromotion[];
   /** Promotion-payload links for Where to look (FLT-DLV-20). */
@@ -183,10 +224,114 @@ export interface ReleaseDiagnostics {
   readonly releaseError: string | null;
 }
 
+/** One bundle of the bundle train (FLT-DLV-22). */
+export interface DeliveryTrainBundle {
+  readonly tag: string | null;
+  readonly version: string | null;
+  readonly digest: string | null;
+  readonly publishedAt: string | null;
+  readonly locked: boolean;
+  readonly lockedAt: string | null;
+  /** Components whose revision changed against the previous bundle. */
+  readonly changed: readonly {
+    readonly component: string;
+    readonly revision: string | null;
+  }[];
+  /** Only the release name changed. */
+  readonly same: boolean;
+  /** Not published yet: inferred from finished component builds. */
+  readonly inferred: boolean;
+  readonly builtAt: string | null;
+  readonly policyAt: string | null;
+  readonly expectedAt: string | null;
+  readonly active: readonly string[];
+  readonly proposed: readonly string[];
+  readonly replaced: readonly string[];
+  /** Environments whose running gate this bundle is expected to restart. */
+  readonly restarts: readonly string[];
+}
+
+/** One environment at this moment (FLT-DLV-23). */
+export interface DeliveryEnvNow {
+  readonly env: string;
+  readonly group: string;
+  readonly digest: string | null;
+  readonly version: string | null;
+  readonly state: DeliveryStageState;
+  readonly gate: string | null;
+  /** When the active promotion merged. */
+  readonly since: string | null;
+  readonly passedAt: string | null;
+  readonly attempt: number | null;
+  readonly attemptOf: number | null;
+  readonly proposedVersion: string | null;
+  readonly proposedDigest: string | null;
+  readonly waitingFor: readonly string[];
+}
+
+export type NextEventKind =
+  "bundle-published" | "locked" | "restart" | "promote";
+
+/** One expected event, in order (FLT-DLV-23). */
+export interface DeliveryNextEvent {
+  readonly kind: NextEventKind;
+  readonly components: readonly string[];
+  readonly version: string | null;
+  readonly digest: string | null;
+  readonly envs: readonly string[];
+  readonly after: readonly string[];
+  readonly at: string | null;
+}
+
+/** The situation at this moment, for the Pipeline now panel (FLT-DLV-23). */
+export interface DeliveryNow {
+  readonly appHead: {
+    readonly sha: string;
+    readonly shortSha: string;
+    readonly pr: number | null;
+    readonly title: string;
+    readonly mergedAt: string | null;
+  } | null;
+  readonly gitopsHead: {
+    readonly digest: string;
+    readonly version: string;
+    readonly publishedAt: string | null;
+    readonly lockedAt: string | null;
+    readonly pr: number | null;
+  } | null;
+  /** Builds and policy checks running on main. */
+  readonly checks: readonly {
+    readonly kind: "build" | "policy";
+    readonly component: string;
+    readonly startedAt: string | null;
+    readonly shortSha: string;
+    readonly pr: number | null;
+  }[];
+  readonly bundlePr: {
+    readonly number: number;
+    readonly url: string | null;
+    readonly checks: string | null;
+  } | null;
+  readonly environments: readonly DeliveryEnvNow[];
+  readonly next: readonly DeliveryNextEvent[];
+}
+
+/** A Pipeline now with nothing known (FLT-DLV-23). */
+export const EMPTY_NOW: DeliveryNow = {
+  appHead: null,
+  gitopsHead: null,
+  checks: [],
+  bundlePr: null,
+  environments: [],
+  next: [],
+};
+
 export interface DeliveryData {
   readonly enabled: boolean;
   readonly stages: readonly DeliveryStageDef[];
   readonly changes: readonly DeliveryChange[];
+  readonly train: readonly DeliveryTrainBundle[];
+  readonly now: DeliveryNow;
   /** Present only while a listed change's Release phase is Overdue. */
   readonly releaseDiagnostics: ReleaseDiagnostics | null;
   readonly omitted: number;
@@ -300,9 +445,16 @@ function remaining(change: DeliveryChange, nowMs: number): Remaining {
       slowest.push(slow);
       continue;
     }
+    const landsMs = parseMs(stage.restart?.landsAt ?? null);
     if (stage.estimateMs === null || stage.slowestMs === null) {
       est = null;
       slow = null;
+    } else if (landsMs !== null) {
+      // A newer bundle restarts this group's gate: the group starts over
+      // when that bundle lands (FLT-DLV-10.07).
+      const wait = Math.max(0, landsMs - nowMs);
+      est = Math.max(est ?? 0, wait) + stage.estimateMs;
+      slow = Math.max(slow ?? 0, wait) + stage.slowestMs;
     } else if (est !== null && slow !== null) {
       const elapsed = elapsedMs(stage, nowMs) ?? 0;
       est += Math.max(0, stage.estimateMs - elapsed);
@@ -523,6 +675,14 @@ export type NextPart =
     }
   /** The current stage failed: what restarts the pipeline. */
   | { readonly kind: "restart"; readonly restart: "new-change" | "gate-retry" }
+  /** A newer bundle will restart a group's gate (FLT-DLV-10.07). */
+  | {
+      readonly kind: "bundle-restart";
+      readonly stage: DeliveryStage;
+      readonly restart: DeliveryRestart;
+      /** When the newer bundle lands; null when unknown or Overdue. */
+      readonly landsAtMs: number | null;
+    }
   /** The current stage is the last one. */
   | { readonly kind: "none" };
 
@@ -568,7 +728,15 @@ function nowNextRow(
   };
 
   let next: NextPart;
-  if (stage.state === "failed") {
+  const restarted = change.stages.find((s) => s.restart !== null && !done(s));
+  if (stage.state !== "failed" && restarted?.restart) {
+    next = {
+      kind: "bundle-restart",
+      stage: restarted,
+      restart: restarted.restart,
+      landsAtMs: now.overdue ? null : parseMs(restarted.restart.landsAt),
+    };
+  } else if (stage.state === "failed") {
     const def = data.stages.find((d) => d.key === stage.key);
     next = {
       kind: "restart",
@@ -647,6 +815,37 @@ export function nowAndNext(data: DeliveryData, nowMs: number): NowNextSummary {
     severity,
     delivered: null,
   };
+}
+
+export type NowAnswer = "heads" | "in-flight" | "next";
+
+const ANSWER_SOURCES: Readonly<
+  Record<NowAnswer, readonly DeliverySourceKey[]>
+> = {
+  heads: ["upstream", "gitops"],
+  "in-flight": ["upstream", "registry", "promotion"],
+  next: ["upstream", "registry", "gitops", "promotion", "history"],
+};
+
+/**
+ * The Pipeline now answers a source outage hides: a source that never
+ * succeeded is Unknown (FLT-DLV-13, FLT-DLV-23). Null when every answer can
+ * be given.
+ */
+export function nowUnknown(data: DeliveryData): {
+  readonly answers: readonly NowAnswer[];
+  readonly sources: readonly DeliverySourceKey[];
+} | null {
+  const down = DELIVERY_SOURCE_KEYS.filter(
+    (k) => data.sources[k]?.never === true,
+  );
+  if (down.length === 0) {
+    return null;
+  }
+  const answers = (Object.keys(ANSWER_SOURCES) as NowAnswer[]).filter((a) =>
+    ANSWER_SOURCES[a].some((k) => down.includes(k)),
+  );
+  return { answers, sources: down };
 }
 
 /** Sources to warn about: stale or never succeeded (FLT-DLV-13). */

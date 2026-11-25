@@ -415,8 +415,10 @@ from Waiting to Passed without a Running state.
 For each environment group, the stage SHALL be Passed when every environment in
 the group has an active release that contains the change, showing the time the
 group finished. An environment finishes a change when the gates of its first
-passing promotion of a bundle containing the change passed: the latest
-completion time of that promotion's gate check runs (FLT-DLV-18). The group
+passing promotion of a bundle containing the change passed: the latest, across
+gates, of each gate's first successful completion on that promotion's commit
+(FLT-DLV-18). A gate that reports again after it passed, such as a health check
+re-posted on the active commit, SHALL NOT move that time. The group
 finishes when its last environment finishes. When gate times are unknown, the
 environment's promotion time SHALL stand in. The promotion time of an
 environment SHALL be the merge time of the first
@@ -509,12 +511,13 @@ ride one bundle; counting each of them would weight one slow bundle many times.
 | Policy check | one component's policy check run, per component | that component's build completion on the same commit | the check run's completion |
 | Release | one bundle | the latest policy check completion on the bundle's `manifests.git.revision` commit | the bundle's publication |
 | GitOps update | one bundle | the bundle's publication | the merge of the first release-lock commit for that bundle |
-| Environment | one passed promotion in one environment | the promotion's merge on the environment branch | the latest completion of that promotion's gate check runs |
+| Environment | one passed promotion in one environment | the promotion's merge on the environment branch | its gates' pass: the latest, across gates, of each gate's first successful completion |
 
 Only successful runs count. An environment phase ends when its gates pass, not
-when the promotion pull request merges. A gate check run that was re-run (more
-than one run with the same name on the promotion's commit) SHALL NOT be sampled,
-because the re-run replaces the first finish time.
+when the promotion pull request merges. A promotion whose gate ran more than
+once before its first pass (a failed attempt that was retried) SHALL NOT be
+sampled, because its duration includes the retry. Runs after the first pass
+re-confirm it and SHALL NOT count as a re-run.
 
 An environment group's estimate is not sampled as a whole. Its arrival comes
 from the environment estimates along the `dependsOn` graph (FLT-DLV-10). Most
@@ -568,9 +571,10 @@ listed change, so the UI needs no per-component lookup.
 
 #### Scenario: FLT-DLV-09.05 -- Re-run gate is not sampled
 
-- GIVEN a promotion whose analysis gate has two check runs on its commit
-- WHEN the BFF samples the environment-group phase
+- GIVEN a promotion whose analysis gate failed once and passed on a second run on its commit
+- WHEN the BFF samples the environment phase
 - THEN that promotion SHALL NOT contribute a run
+- AND a health check re-posted after its pass SHALL NOT make a promotion a re-run
 
 ### Requirement: FLT-DLV-10 -- Now and next summary
 
@@ -729,7 +733,10 @@ commits call per environment whose active hydrated commit changed since the
 last read, one hydration-metadata read and one check-runs call per new
 promotion it has not yet settled (FLT-DLV-18),
 one gate check-runs call for an active promotion once its gates passed and
-until its gate times are read,
+until its gate times are read, one gate check-runs call per refresh for an
+active promotion whose gate is running, to read the attempt the gate names in
+its check run summary ("Attempt n of m", FLT-DLV-23), the check-runs call for
+the head of the application repository's `main` (FLT-DLV-05, FLT-DLV-23),
 one registry tag-list call, one `bundle.json` read per new pending bundle,
 and one pull-request list call. While a listed change's Release phase is
 Overdue, it MAY add one path-filtered commits call per path in

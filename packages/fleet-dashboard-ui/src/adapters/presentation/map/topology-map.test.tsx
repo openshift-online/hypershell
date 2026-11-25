@@ -17,6 +17,7 @@ import { FleetApiProvider } from "../../query/api-context";
 import { createMemoryHistory } from "../../routing/history-port";
 import { RouterProvider } from "../../routing/router";
 import { App } from "../app";
+import { EMPTY_NOW } from "../../../domain/delivery";
 
 function plane<T>(data: T): Plane<T> {
   return {
@@ -89,6 +90,8 @@ function renderApp(
           enabled: false,
           stages: [],
           changes: [],
+          train: [],
+          now: EMPTY_NOW,
           releaseDiagnostics: null,
           omitted: 0,
           sources: {},

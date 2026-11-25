@@ -54,8 +54,6 @@ import {
   ExclamationTriangleIcon,
   ExternalLinkAltIcon,
   InProgressIcon,
-  PendingIcon,
-  QuestionCircleIcon,
   RedoIcon,
   SyncAltIcon,
 } from "@patternfly/react-icons";
@@ -92,10 +90,10 @@ import {
   type DeliveryEnvState,
   type DeliveryPromotion,
   type DeliverySeverity,
-  type DeliverySourceKey,
   type DeliveryStage,
   type DeliveryStageDef,
   type DeliveryStageState,
+  type MissingState,
   type NowNextRow,
   type NowNextSummary,
   type PromotionOutcome,
@@ -106,8 +104,17 @@ import type { NavAction } from "../../../domain/navigation/actions";
 import type { Plane } from "../../../domain/plane";
 import { useDelivery } from "../../query/hooks";
 import { useRouter } from "../../routing/router";
+import {
+  SOURCE_LABEL,
+  STATE_LABEL,
+  StageStateIcon,
+  formatClock,
+  formatDuration,
+  gateName,
+} from "./delivery-format";
 import { deliveryMessages as m } from "./delivery-messages";
 import styles from "./delivery-view.module.css";
+import { PipelineNow } from "./pipeline-now";
 
 /** One plane state the view renders. */
 export type DeliveryViewState =
@@ -125,16 +132,6 @@ export interface DeliveryViewProps {
 
 // --- Formatting -------------------------------------------------------------
 
-const STATE_LABEL: Readonly<Record<DeliveryStageState, MessageDescriptor>> = {
-  "not-started": m.stateNotStarted,
-  waiting: m.stateWaiting,
-  running: m.stateRunning,
-  passed: m.statePassed,
-  failed: m.stateFailed,
-  "not-needed": m.stateNotNeeded,
-  unknown: m.stateUnknown,
-};
-
 const PIPELINE_LABEL: Readonly<Record<string, MessageDescriptor>> = {
   merged: m.stageMerged,
   build: m.stageBuild,
@@ -142,50 +139,6 @@ const PIPELINE_LABEL: Readonly<Record<string, MessageDescriptor>> = {
   release: m.stageRelease,
   gitops: m.stageGitops,
 };
-
-const SOURCE_LABEL: Readonly<Record<DeliverySourceKey, MessageDescriptor>> = {
-  upstream: m.sourceUpstream,
-  registry: m.sourceRegistry,
-  gitops: m.sourceGitops,
-  promotion: m.sourcePromotion,
-  history: m.sourceHistory,
-};
-
-function formatDuration(intl: IntlShape, ms: number): string {
-  const minutes = Math.floor(ms / 60_000);
-  if (minutes < 1) {
-    return intl.formatMessage(m.durationLessThanMinute);
-  }
-  if (minutes < 60) {
-    return intl.formatMessage(m.durationMinutes, { minutes });
-  }
-  const hours = Math.floor(minutes / 60);
-  if (hours < 48) {
-    return intl.formatMessage(m.durationHours, {
-      hours,
-      minutes: minutes % 60,
-    });
-  }
-  return intl.formatMessage(m.durationDays, {
-    days: Math.floor(hours / 24),
-    hours: hours % 24,
-  });
-}
-
-function formatClock(intl: IntlShape, iso: string | number | null): string {
-  if (iso === null) {
-    return "";
-  }
-  const ms = typeof iso === "number" ? iso : Date.parse(iso);
-  if (Number.isNaN(ms)) {
-    return "";
-  }
-  return intl.formatTime(ms, {
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  });
-}
 
 function stageLabel(
   intl: IntlShape,
@@ -198,17 +151,20 @@ function stageLabel(
   return groupLabel(def.group ?? def.key.replace(/^env:/, ""));
 }
 
-function gateName(intl: IntlShape, gate: string | null): string {
-  if (gate === null) {
-    return "";
-  }
-  if (gate.includes("analysis")) {
-    return intl.formatMessage(m.gateAnalysis);
-  }
-  if (gate.includes("health")) {
-    return intl.formatMessage(m.gateHealth);
-  }
-  return gate;
+const MISSING_LABEL: Readonly<Record<MissingState, MessageDescriptor>> = {
+  building: m.missingBuilding,
+  policy: m.missingPolicy,
+  releasing: m.missingReleasing,
+  failed: m.missingFailed,
+};
+
+/** "restarts when the <components> bundle lands" (FLT-DLV-10.07). */
+function restartText(intl: IntlShape, stage: DeliveryStage): string {
+  return stage.restart !== null
+    ? intl.formatMessage(m.restartsWhen, {
+        components: intl.formatList(stage.restart.components),
+      })
+    : "";
 }
 
 /** The condition text of a stage, without times. */
@@ -228,14 +184,29 @@ function stageDetail(intl: IntlShape, stage: DeliveryStage): string {
       return intl.formatMessage(m.reasonWaitingBundlePR);
     case "waiting-hydration":
       return intl.formatMessage(m.reasonWaitingHydration);
-    case "waiting-groups":
-      return intl.formatMessage(m.reasonWaitingGroups, {
-        groups: intl.formatList(stage.groups.map(groupLabel)),
+    case "waiting-envs":
+      return intl.formatMessage(m.reasonWaitingEnvs, {
+        envs: intl.formatList(stage.waitingFor),
       });
+    case "rebuilt-in":
+      return stage.rebuiltIn !== null
+        ? intl.formatMessage(m.reasonRebuiltIn, {
+            change: changeName(stage.rebuiltIn),
+          })
+        : "";
+    case "partly-released":
+      return (stage.partly?.missing ?? [])
+        .map((x) => intl.formatMessage(MISSING_LABEL[x.state], x))
+        .join(", ");
+    case "partly-shipped":
+      return "";
     case "gate-running":
-      return intl.formatMessage(m.reasonGateRunning, {
-        gate: gateName(intl, stage.gate),
-      });
+      return joinParts([
+        intl.formatMessage(m.reasonGateRunning, {
+          gate: gateName(intl, stage.gate),
+        }),
+        restartText(intl, stage),
+      ]);
     case "gate-failed":
       return intl.formatMessage(m.reasonGateFailed, {
         gate: gateName(intl, stage.gate),
@@ -272,6 +243,12 @@ function stagePrimary(
       total: stage.total,
     });
   }
+  if (stage.partly !== null) {
+    return intl.formatMessage(
+      stage.key === "release" ? m.partlyReleased : m.partlyShipped,
+      { done: stage.partly.done, total: stage.partly.total },
+    );
+  }
   const elapsed = elapsedMs(stage, nowMs);
   if (elapsed !== null) {
     return formatDuration(intl, elapsed);
@@ -283,43 +260,6 @@ function stagePrimary(
 }
 
 // --- Cells ------------------------------------------------------------------
-
-function StageStateIcon({ state }: { readonly state: DeliveryStageState }) {
-  switch (state) {
-    case "running":
-      return (
-        <Icon isInline status="info">
-          <InProgressIcon aria-hidden />
-        </Icon>
-      );
-    case "passed":
-      return (
-        <Icon isInline status="success">
-          <CheckCircleIcon aria-hidden />
-        </Icon>
-      );
-    case "failed":
-      return (
-        <Icon isInline status="danger">
-          <ExclamationCircleIcon aria-hidden />
-        </Icon>
-      );
-    case "waiting":
-      return (
-        <Icon isInline>
-          <PendingIcon aria-hidden />
-        </Icon>
-      );
-    case "unknown":
-      return (
-        <Icon isInline>
-          <QuestionCircleIcon aria-hidden />
-        </Icon>
-      );
-    default:
-      return null;
-  }
-}
 
 function OverdueLabel() {
   const intl = useIntl();
@@ -916,7 +856,12 @@ function nowText(intl: IntlShape, data: DeliveryData, row: NowNextRow): string {
   const partial =
     stage.reason === "partial"
       ? intl.formatMessage(m.partial, { done: stage.done, total: stage.total })
-      : "";
+      : stage.partly !== null
+        ? intl.formatMessage(
+            stage.key === "release" ? m.partlyReleased : m.partlyShipped,
+            { done: stage.partly.done, total: stage.partly.total },
+          )
+        : "";
   const extra = [partial, detail].filter((s) => s !== "").join(", ");
   return intl.formatMessage(m.nowText, {
     stage: stageLabel(intl, def ?? { key: stage.key, group: null }),
@@ -940,6 +885,25 @@ function nextText(
       );
     case "none":
       return intl.formatMessage(m.nextNone);
+    case "bundle-restart": {
+      const text = intl.formatMessage(m.nextBundleRestart, {
+        gate: [
+          intl.formatList(next.restart.envs),
+          gateName(intl, next.stage.gate).toLowerCase(),
+        ]
+          .filter((p) => p !== "")
+          .join(" "),
+        bundle: intl.formatMessage(m.bundleOf, {
+          components: intl.formatList(next.restart.components),
+        }),
+      });
+      return next.landsAtMs !== null
+        ? intl.formatMessage(m.nextAbout, {
+            text,
+            time: formatClock(intl, next.landsAtMs),
+          })
+        : text;
+    }
     default: {
       const def = data.stages.find((d) => d.key === next.stage.key);
       const stage = stageLabel(
@@ -1526,6 +1490,13 @@ function ChangeDetails({
                               policy: checkStateText(intl, policy),
                             })}
                           </StackItem>
+                          {build?.supersededBy ? (
+                            <StackItem className="pf-v6-u-text-color-subtle">
+                              {intl.formatMessage(m.reasonRebuiltIn, {
+                                change: build.supersededBy,
+                              })}
+                            </StackItem>
+                          ) : null}
                           {build?.outsideBundle === true ? (
                             <StackItem className="pf-v6-u-text-color-subtle">
                               {intl.formatMessage(m.outsideBundle)}
@@ -1758,7 +1729,7 @@ function emptyStage(key: string): DeliveryStage {
     finishedAt: null,
     reason: null,
     components: [],
-    groups: [],
+    waitingFor: [],
     gate: null,
     done: 0,
     total: 0,
@@ -1767,6 +1738,9 @@ function emptyStage(key: string): DeliveryStage {
     failedAttempts: 0,
     estimateMs: null,
     slowestMs: null,
+    rebuiltIn: null,
+    partly: null,
+    restart: null,
   };
 }
 
@@ -1834,6 +1808,9 @@ function LoadedBody({
       <Stack hasGutter>
         <SourceAlerts data={data} />
         <StackItem>
+          <PipelineNow data={data} nowMs={nowMs} />
+        </StackItem>
+        <StackItem>
           <EmptyState
             headingLevel="h2"
             icon={CubesIcon}
@@ -1859,6 +1836,9 @@ function LoadedBody({
           />
         </StackItem>
       ) : null}
+      <StackItem>
+        <PipelineNow data={data} nowMs={nowMs} />
+      </StackItem>
       <StackItem>
         <NowAndNext data={data} nowMs={nowMs} />
       </StackItem>

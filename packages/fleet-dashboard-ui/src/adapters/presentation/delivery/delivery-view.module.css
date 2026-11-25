@@ -97,3 +97,8 @@
 .progressRow {
   padding: 0 var(--pf-t--global--spacer--md) var(--pf-t--global--spacer--md);
 }
+
+/* Secondary text in the Pipeline now panel (FLT-DLV-23). */
+.subtle {
+  color: var(--pf-t--global--text--color--subtle);
+}

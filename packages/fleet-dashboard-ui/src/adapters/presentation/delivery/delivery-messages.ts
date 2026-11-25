@@ -307,10 +307,58 @@ export const deliveryMessages = defineMessages({
     defaultMessage: "Waiting for hydration",
     description: "Environment group waiting for the hydrator (FLT-DLV-08).",
   },
-  reasonWaitingGroups: {
-    id: "fleet.delivery.reason.waitingGroups",
-    defaultMessage: "Waiting for {groups}",
-    description: "Environment group waiting for upstream groups (FLT-DLV-08).",
+  reasonWaitingEnvs: {
+    id: "fleet.delivery.reason.waitingEnvs",
+    defaultMessage: "Waiting for {envs}",
+    description:
+      "Environment group waiting for the environments it depends on (FLT-DLV-08).",
+  },
+  reasonRebuiltIn: {
+    id: "fleet.delivery.reason.rebuiltIn",
+    defaultMessage: "Rebuilt in {change}",
+    description:
+      "Failed builds superseded by a later commit's builds (FLT-DLV-05).",
+  },
+  partlyReleased: {
+    id: "fleet.delivery.partlyReleased",
+    defaultMessage: "{done} of {total} components released",
+    description: "A partly shipped change's Release stage (FLT-DLV-06).",
+  },
+  partlyShipped: {
+    id: "fleet.delivery.partlyShipped",
+    defaultMessage: "Partly: {done} of {total} components",
+    description: "A later stage of a partly shipped change (FLT-DLV-22).",
+  },
+  missingBuilding: {
+    id: "fleet.delivery.missing.building",
+    defaultMessage: "{component} building",
+    description: "A component not in a bundle yet: its build runs.",
+  },
+  missingPolicy: {
+    id: "fleet.delivery.missing.policy",
+    defaultMessage: "{component} in policy check",
+    description: "A component not in a bundle yet: its policy check runs.",
+  },
+  missingReleasing: {
+    id: "fleet.delivery.missing.releasing",
+    defaultMessage: "{component} releasing (inferred)",
+    description: "A component not in a bundle yet: its bundle is releasing.",
+  },
+  missingFailed: {
+    id: "fleet.delivery.missing.failed",
+    defaultMessage: "{component} failed",
+    description: "A component not in a bundle yet: its build or check failed.",
+  },
+  restartsWhen: {
+    id: "fleet.delivery.restartsWhen",
+    defaultMessage: "restarts when the {components} bundle lands",
+    description:
+      "A newer bundle will restart the group's gate (FLT-DLV-10, FLT-DLV-22).",
+  },
+  bundleOf: {
+    id: "fleet.delivery.bundleOf",
+    defaultMessage: "{components} bundle",
+    description: "A bundle named by the components it changed.",
   },
   reasonGateRunning: {
     id: "fleet.delivery.reason.gateRunning",
@@ -432,6 +480,17 @@ export const deliveryMessages = defineMessages({
       "Re-run the failed pipeline, or merge a change to the same component",
     description:
       "Next text after a failed build or policy check. Builds run only for changes under their component's paths (FLT-DLV-10).",
+  },
+  nextBundleRestart: {
+    id: "fleet.delivery.nowNext.bundleRestart",
+    defaultMessage: "Restarts the {gate} when the {bundle} lands",
+    description:
+      "Next text: a newer bundle will restart a gate (FLT-DLV-10.07).",
+  },
+  nextAbout: {
+    id: "fleet.delivery.nowNext.about",
+    defaultMessage: "{text} - about {time}",
+    description: "A Next text with an expected time.",
   },
   nextRestartGate: {
     id: "fleet.delivery.nowNext.restartGate",
@@ -813,5 +872,252 @@ export const deliveryMessages = defineMessages({
     defaultMessage: "Ships outside the bundle",
     description:
       "A component that no release bundle lists (FLT-DLV-05, FLT-DLV-06).",
+  },
+  // Pipeline now (FLT-DLV-22, FLT-DLV-23).
+  pipelineNowTitle: {
+    id: "fleet.delivery.now.title",
+    defaultMessage: "Pipeline now",
+    description: "Title of the Pipeline now panel.",
+  },
+  nowHeads: {
+    id: "fleet.delivery.now.heads",
+    defaultMessage: "Heads",
+    description: "Pipeline now: the heads of both repositories.",
+  },
+  nowAppMain: {
+    id: "fleet.delivery.now.appMain",
+    defaultMessage: "Application main",
+    description: "Pipeline now: the application repository's main head.",
+  },
+  nowGitopsMain: {
+    id: "fleet.delivery.now.gitopsMain",
+    defaultMessage: "GitOps main",
+    description: "Pipeline now: the GitOps repository's main head.",
+  },
+  nowAppHead: {
+    id: "fleet.delivery.now.appHead",
+    defaultMessage: "{change} {title}, merged {time}",
+    description: "The application main head.",
+  },
+  nowGitopsHead: {
+    id: "fleet.delivery.now.gitopsHead",
+    defaultMessage: "Bundle {bundle}, published {published}",
+    description: "The bundle GitOps main locks.",
+  },
+  nowGitopsLocked: {
+    id: "fleet.delivery.now.gitopsLocked",
+    defaultMessage: "Bundle {bundle}, published {published}, locked {locked}",
+    description: "The bundle GitOps main locks, with its lock time.",
+  },
+  nowInFlight: {
+    id: "fleet.delivery.now.inFlight",
+    defaultMessage: "In flight",
+    description: "Pipeline now: what is in flight.",
+  },
+  nowNothingInFlight: {
+    id: "fleet.delivery.now.nothingInFlight",
+    defaultMessage: "Nothing in flight",
+    description: "Pipeline now: nothing builds, releases, or gates.",
+  },
+  nowNext: {
+    id: "fleet.delivery.now.next",
+    defaultMessage: "Next",
+    description: "Pipeline now: the expected next events.",
+  },
+  nowNothingExpected: {
+    id: "fleet.delivery.now.nothingExpected",
+    defaultMessage: "Nothing expected",
+    description: "Pipeline now: no next event.",
+  },
+  nowCheckRunning: {
+    id: "fleet.delivery.now.checkRunning",
+    defaultMessage: "{component} - {elapsed}, on {change}",
+    description: "A build or policy check running on main.",
+  },
+  nowReleasingInferred: {
+    id: "fleet.delivery.now.releasingInferred",
+    defaultMessage: "{bundle} releasing (inferred) - built {built}{policy}",
+    description: "An inferred bundle in flight (FLT-DLV-22).",
+  },
+  nowPolicyPassedAt: {
+    id: "fleet.delivery.now.policyPassedAt",
+    defaultMessage: ", policy check passed {time}",
+    description: "Suffix: when the policy check passed.",
+  },
+  nowPendingBundle: {
+    id: "fleet.delivery.now.pendingBundle",
+    defaultMessage: "{bundle} published {time}, not locked yet",
+    description: "A published bundle not locked on GitOps main yet.",
+  },
+  nowBundlePr: {
+    id: "fleet.delivery.now.bundlePr",
+    defaultMessage: "Bundle update pull request #{number}{checks}",
+    description: "The open bundle update pull request.",
+  },
+  nowGate: {
+    id: "fleet.delivery.now.gate",
+    defaultMessage: "{gate} - {elapsed}{attempt}",
+    description: "An environment's running gate.",
+  },
+  nowGateOn: {
+    id: "fleet.delivery.now.gateOn",
+    defaultMessage: "{gate} - {elapsed}{attempt}, on {bundle}",
+    description: "An environment's running gate, with its bundle.",
+  },
+  nowAttempt: {
+    id: "fleet.delivery.now.attempt",
+    defaultMessage: ", attempt {n} of {of}",
+    description: "The running gate's attempt (FLT-DLV-23).",
+  },
+  nowWaitingPromotions: {
+    id: "fleet.delivery.now.waitingPromotions",
+    defaultMessage:
+      "Promotions of {bundle} open, waiting for their dependencies",
+    description: "Environments with a newer bundle proposed.",
+  },
+  nowGatesPassed: {
+    id: "fleet.delivery.now.gatesPassed",
+    defaultMessage: "Gates passed {time}",
+    description: "An environment whose gates passed.",
+  },
+  nowHealthy: {
+    id: "fleet.delivery.now.healthy",
+    defaultMessage: "Healthy",
+    description: "An environment whose gates passed, time unknown.",
+  },
+  nowGateFailed: {
+    id: "fleet.delivery.now.gateFailed",
+    defaultMessage: "{gate} failed",
+    description: "An environment whose gate failed.",
+  },
+  nowWaitingFor: {
+    id: "fleet.delivery.now.waitingFor",
+    defaultMessage: "Waiting for {envs}",
+    description: "An environment waiting for its dependencies.",
+  },
+  nowProposed: {
+    id: "fleet.delivery.now.proposed",
+    defaultMessage: "{bundle} proposed",
+    description: "An environment with a newer bundle proposed.",
+  },
+  nextPublished: {
+    id: "fleet.delivery.now.nextPublished",
+    defaultMessage: "{bundle} published",
+    description: "Next event: an inferred bundle is published.",
+  },
+  nextLocked: {
+    id: "fleet.delivery.now.nextLocked",
+    defaultMessage: "{bundle} locked on GitOps main",
+    description: "Next event: the next GitOps lock.",
+  },
+  nextRestart: {
+    id: "fleet.delivery.now.nextRestart",
+    defaultMessage: "{group} promotes it; the {envs} gate restarts",
+    description: "Next event: a newer bundle restarts running gates.",
+  },
+  nextPromote: {
+    id: "fleet.delivery.now.nextPromote",
+    defaultMessage: "{group} promotes after {after} passes",
+    description: "Next event: waiting environments promote.",
+  },
+  nowUnknown: {
+    id: "fleet.delivery.now.unknown",
+    defaultMessage: "Cannot tell {answers}: {sources} unavailable",
+    description: "Pipeline now: answers a source outage hides (FLT-DLV-23).",
+  },
+  nowAnswerHeads: {
+    id: "fleet.delivery.now.answerHeads",
+    defaultMessage: "the heads",
+    description: "The Heads answer of the Pipeline now panel.",
+  },
+  nowAnswerInFlight: {
+    id: "fleet.delivery.now.answerInFlight",
+    defaultMessage: "what is in flight",
+    description: "The In flight answer of the Pipeline now panel.",
+  },
+  nowAnswerNext: {
+    id: "fleet.delivery.now.answerNext",
+    defaultMessage: "what happens next",
+    description: "The Next answer of the Pipeline now panel.",
+  },
+  trainTitle: {
+    id: "fleet.delivery.train.title",
+    defaultMessage: "Bundle train",
+    description: "Bundle train table column and label (FLT-DLV-22).",
+  },
+  trainPublished: {
+    id: "fleet.delivery.train.published",
+    defaultMessage: "Published",
+    description: "Bundle train column.",
+  },
+  trainChanged: {
+    id: "fleet.delivery.train.changed",
+    defaultMessage: "Changed",
+    description: "Bundle train column.",
+  },
+  trainWhere: {
+    id: "fleet.delivery.train.where",
+    defaultMessage: "Where",
+    description: "Bundle train column.",
+  },
+  trainReleasing: {
+    id: "fleet.delivery.train.releasing",
+    defaultMessage: "Releasing (inferred)",
+    description: "An inferred bundle's publication.",
+  },
+  trainSame: {
+    id: "fleet.delivery.train.same",
+    defaultMessage: "Same components",
+    description: "A bundle whose only change is its release name.",
+  },
+  trainActive: {
+    id: "fleet.delivery.train.active",
+    defaultMessage: "Active in {envs}",
+    description: "Where a train bundle is active.",
+  },
+  trainProposed: {
+    id: "fleet.delivery.train.proposed",
+    defaultMessage: "proposed in {envs}",
+    description: "Where a train bundle is proposed.",
+  },
+  trainReplaced: {
+    id: "fleet.delivery.train.replaced",
+    defaultMessage: "Replaced in {envs} while its gate ran",
+    description: "Where a promotion of the bundle was replaced.",
+  },
+  trainRestarts: {
+    id: "fleet.delivery.train.restarts",
+    defaultMessage: "Will restart the {envs} gate",
+    description: "A bundle expected to restart running gates.",
+  },
+  trainNowhere: {
+    id: "fleet.delivery.train.nowhere",
+    defaultMessage: "Not promoted yet",
+    description: "A train bundle not active or proposed anywhere.",
+  },
+  envColumn: {
+    id: "fleet.delivery.now.envColumn",
+    defaultMessage: "Environment",
+    description: "Environments now column.",
+  },
+  groupColumn: {
+    id: "fleet.delivery.now.groupColumn",
+    defaultMessage: "Group",
+    description: "Environments now column.",
+  },
+  runsColumn: {
+    id: "fleet.delivery.now.runsColumn",
+    defaultMessage: "Runs",
+    description: "Environments now column: the bundle it runs.",
+  },
+  stateColumn: {
+    id: "fleet.delivery.now.stateColumn",
+    defaultMessage: "State",
+    description: "Environments now column.",
+  },
+  environmentsNow: {
+    id: "fleet.delivery.now.environments",
+    defaultMessage: "Environments now",
+    description: "Accessible name of the environments now table.",
   },
 });

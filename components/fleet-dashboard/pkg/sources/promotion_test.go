@@ -663,3 +663,27 @@ func equalStrings(a, b []string) bool {
 	}
 	return true
 }
+
+func TestApplyDependsOn(t *testing.T) {
+	// Verifies: FLT-DLV-08.04
+	obj := map[string]any{"spec": map[string]any{"environments": []any{
+		map[string]any{"branch": "env/a"},
+		map[string]any{"branch": "env/b"},
+		map[string]any{"branch": "env/c", "dependsOn": []any{"env/a"}},
+	}}}
+	p := PromotionPayload{Order: []string{"a", "b", "c"}, Environments: map[string]Environment{"a": {}, "b": {}, "c": {}}}
+	applyDependsOn(obj, &p)
+	if d := p.Environments["c"].DependsOn; len(d) != 1 || d[0] != "a" {
+		t.Errorf("c depends on %v, want a", d)
+	}
+	if d := p.Environments["b"].DependsOn; len(d) != 0 {
+		t.Errorf("b depends on %v, want a root", d)
+	}
+	// Without any declared edge the promoter chains the environments in order.
+	obj = map[string]any{"spec": map[string]any{"environments": []any{map[string]any{"branch": "env/a"}, map[string]any{"branch": "env/b"}}}}
+	p = PromotionPayload{Order: []string{"a", "b"}, Environments: map[string]Environment{"a": {}, "b": {}}}
+	applyDependsOn(obj, &p)
+	if d := p.Environments["b"].DependsOn; len(d) != 1 || d[0] != "a" {
+		t.Errorf("chained b depends on %v, want a", d)
+	}
+}

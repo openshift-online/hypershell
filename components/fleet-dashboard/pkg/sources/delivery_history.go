@@ -2,7 +2,9 @@ package sources
 
 import (
 	"context"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -65,6 +67,10 @@ type histPromotion struct {
 	gatesAt string
 	rerun   bool
 	timed   bool
+	// attempt and attemptOf are the running gate's attempt on the active
+	// promotion, read each refresh while it runs (FLT-DLV-23).
+	attempt   int
+	attemptOf int
 }
 
 type envHistory struct {
@@ -124,59 +130,93 @@ func (d *Delivery) readHistory(ctx context.Context, promo *PromotionPayload, sin
 func (d *Delivery) readEnvHistory(ctx context.Context, env Environment, old *envHistory, since, now time.Time) (*envHistory, []string) {
 	var errs []string
 	h := old
-	if h == nil || h.branch != env.Branch || h.active != env.ActiveHydrated || since.Before(h.since) {
-		list, err := d.gh.EnvPromotions(ctx, env.Branch, since)
+	listSince := since
+	if d.historyDays > 0 {
+		if deep := now.Add(-time.Duration(d.historyDays) * 24 * time.Hour); deep.Before(listSince) {
+			listSince = deep
+		}
+	}
+	if h == nil || h.branch != env.Branch || h.active != env.ActiveHydrated || listSince.Before(h.since) {
+		list, err := d.gh.EnvPromotions(ctx, env.Branch, listSince)
 		if err != nil {
 			if h == nil {
 				return nil, []string{err.Error()}
 			}
 			errs = append(errs, err.Error())
 		} else {
-			h = mergeHistory(h, env, since, list)
+			h = mergeHistory(h, env, listSince, list)
 		}
 	}
 	h = &envHistory{branch: h.branch, active: h.active, since: h.since, promos: append([]histPromotion(nil), h.promos...)}
 	keys := gateKeys(env)
-	for i := range h.promos {
+	// Newest first: every promotion since the oldest listed change, then older
+	// ones only until the environment holds enough passed promotions for its
+	// estimate (FLT-DLV-09, FLT-DLV-18).
+	passed := 0
+	for i := len(h.promos) - 1; i >= 0; i-- {
 		p := &h.promos[i]
-		if p.digest == "" && d.lock != nil {
-			if r := d.lock.ResolveHydrated(ctx, p.SHA); r != nil {
-				p.digest = r.Digest
-			}
+		if t, ok := parseTime(p.MergedAt); ok && t.Before(since) && passed >= estimateRuns {
+			break
 		}
-		if isActive(p.SHA, env) {
-			// The active promotion's gates come from the promotion payload. Once
-			// they passed, read their finish time once (FLT-DLV-08).
-			if o, _ := activeOutcome(env); o == OutcomePassed && !p.timed {
-				runs, err := d.gh.GateRuns(ctx, p.SHA)
-				if err != nil {
-					errs = append(errs, err.Error())
-					continue
-				}
-				// Read once: runs that do not show the pass leave the time unknown.
-				if o, _ := gateOutcome(runs, keys); o == OutcomePassed {
-					p.gatesAt, p.rerun = gateTimes(runs, keys)
-				}
-				p.timed = true
-			}
-			continue
+		if err := d.resolvePromotion(ctx, h, i, env, keys, now); err != "" {
+			errs = append(errs, err)
 		}
-		if p.settled || i == len(h.promos)-1 {
-			continue
+		if p.gatesAt != "" && !p.rerun {
+			passed++
 		}
-		runs, err := d.gh.GateRuns(ctx, p.SHA)
-		if err != nil {
-			errs = append(errs, err.Error())
-			continue
-		}
-		p.outcome, p.gate = gateOutcome(runs, keys)
-		if p.outcome == OutcomePassed {
-			p.gatesAt, p.rerun = gateTimes(runs, keys)
-			p.timed = true
-		}
-		p.settled = p.outcome != OutcomeReplaced || replacedLongAgo(h.promos[i+1].MergedAt, now)
 	}
 	return h, errs
+}
+
+// resolvePromotion fills one promotion's bundle, outcome, and gate times. It
+// returns an error text, or "".
+func (d *Delivery) resolvePromotion(ctx context.Context, h *envHistory, i int, env Environment, keys []string, now time.Time) string {
+	p := &h.promos[i]
+	if p.digest == "" && d.lock != nil {
+		if r := d.lock.ResolveHydrated(ctx, p.SHA); r != nil {
+			p.digest = r.Digest
+		}
+	}
+	if isActive(p.SHA, env) {
+		// The active promotion's gates come from the promotion payload. While a
+		// gate runs, its check run names the attempt (FLT-DLV-23). Once they
+		// passed, read their finish time once (FLT-DLV-08).
+		o, gate := activeOutcome(env)
+		p.attempt, p.attemptOf = 0, 0
+		switch {
+		case o == OutcomeRunning:
+			runs, err := d.gh.GateRuns(ctx, p.SHA)
+			if err != nil {
+				return err.Error()
+			}
+			p.attempt, p.attemptOf = gateAttempt(runs, gate)
+		case o == OutcomePassed && !p.timed:
+			runs, err := d.gh.GateRuns(ctx, p.SHA)
+			if err != nil {
+				return err.Error()
+			}
+			// Read once: runs that do not show the pass leave the time unknown.
+			if o, _ := gateOutcome(runs, keys); o == OutcomePassed {
+				p.gatesAt, p.rerun = gateTimes(runs, keys)
+			}
+			p.timed = true
+		}
+		return ""
+	}
+	if p.settled || i == len(h.promos)-1 {
+		return ""
+	}
+	runs, err := d.gh.GateRuns(ctx, p.SHA)
+	if err != nil {
+		return err.Error()
+	}
+	p.outcome, p.gate = gateOutcome(runs, keys)
+	if p.outcome == OutcomePassed {
+		p.gatesAt, p.rerun = gateTimes(runs, keys)
+		p.timed = true
+	}
+	p.settled = p.outcome != OutcomeReplaced || replacedLongAgo(h.promos[i+1].MergedAt, now)
+	return ""
 }
 
 // mergeHistory replaces a branch's promotion list, keeping what was already
@@ -244,20 +284,54 @@ func latestRuns(runs []CheckRun) (map[string]CheckRun, map[string]int) {
 	return byName, count
 }
 
-// gateTimes returns the latest completion among a passed promotion's gate
-// runs, and whether any gate ran more than once (FLT-DLV-09).
+// gateTimes returns when a passed promotion's gates passed: each gate's first
+// successful completion, and the latest of those across gates (FLT-DLV-08). A
+// gate re-posted after it passed (a health check that reports again) does not
+// move the time. rerun is true when a gate ran more than once before its first
+// pass, so the promotion's duration includes a retry and is not sampled
+// (FLT-DLV-09).
 func gateTimes(runs []CheckRun, keys []string) (at string, rerun bool) {
-	byName, count := latestRuns(runs)
 	for _, k := range keys {
-		if count[k] > 1 {
+		first := ""
+		for _, r := range runs {
+			if r.Name == k && r.Status == "completed" && checkSucceeded(r.Conclusion) && r.CompletedAt != "" && (first == "" || r.CompletedAt < first) {
+				first = r.CompletedAt
+			}
+		}
+		before := 0
+		for _, r := range runs {
+			if r.Name == k && (first == "" || r.StartedAt <= first) {
+				before++
+			}
+		}
+		if before > 1 {
 			rerun = true
 		}
-		if c := byName[k].CompletedAt; c > at {
-			at = c
+		if first > at {
+			at = first
 		}
 	}
 	return at, rerun
 }
+
+// gateAttempt reads "Attempt n of m" from the latest run of a gate: the
+// release analysis names its attempt in the check run summary (FLT-DLV-23).
+func gateAttempt(runs []CheckRun, gate string) (n, of int) {
+	byName, _ := latestRuns(runs)
+	r, ok := byName[gate]
+	if !ok {
+		return 0, 0
+	}
+	m := attemptText.FindStringSubmatch(r.Summary)
+	if m == nil {
+		return 0, 0
+	}
+	n, _ = strconv.Atoi(m[1])
+	of, _ = strconv.Atoi(m[2])
+	return n, of
+}
+
+var attemptText = regexp.MustCompile(`(?i)\battempt (\d{1,2}) of (\d{1,2})\b`)
 
 // gateOutcome classifies a replaced promotion from the check runs named after
 // each gate key on its own commit (the latest run per name).

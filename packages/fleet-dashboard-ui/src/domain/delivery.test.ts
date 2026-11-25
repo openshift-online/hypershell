@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  EMPTY_NOW,
   type DeliveryChange,
   type DeliveryData,
   type DeliveryStage,
@@ -12,6 +13,7 @@ import {
   findChange,
   isOverdue,
   nowAndNext,
+  nowUnknown,
   progress,
   whereToLook,
 } from "./delivery";
@@ -30,7 +32,7 @@ function stage(
     finishedAt: null,
     reason: null,
     components: [],
-    groups: [],
+    waitingFor: [],
     gate: null,
     done: 0,
     total: 0,
@@ -39,6 +41,9 @@ function stage(
     failedAttempts: 0,
     estimateMs: null,
     slowestMs: null,
+    rebuiltIn: null,
+    partly: null,
+    restart: null,
     ...extra,
   };
 }
@@ -117,6 +122,8 @@ function data(
       { key: "env:int", kind: "group", group: "int" },
     ],
     changes: changes.map((c) => withEstimates(c, est)),
+    train: [],
+    now: EMPTY_NOW,
     releaseDiagnostics: null,
     omitted: 0,
     sources: {},
@@ -476,6 +483,7 @@ describe("whereToLook (FLT-DLV-20)", () => {
           completedAt: null,
           url: "https://example.test/run",
           outsideBundle: false,
+          supersededBy: null,
         },
         {
           component: "cli",
@@ -484,6 +492,7 @@ describe("whereToLook (FLT-DLV-20)", () => {
           completedAt: null,
           url: null,
           outsideBundle: false,
+          supersededBy: null,
         },
       ],
     };
@@ -548,5 +557,62 @@ describe("whereToLook (FLT-DLV-20)", () => {
       kind: "release-overdue",
       diagnostics: null,
     });
+  });
+});
+
+describe("restart by a newer bundle (FLT-DLV-10.07)", () => {
+  // Verifies: FLT-DLV-10.07
+  it("starts the group's arrival when the newer bundle lands, and says so in Next", () => {
+    const nowMs = Date.parse("2026-11-01T13:28:00Z");
+    const restart = {
+      components: ["agent"],
+      version: null,
+      digest: null,
+      envs: ["int-hub"],
+      landsAt: "2026-11-01T13:40:00Z",
+    };
+    const d = data(
+      [
+        pipeline("env:int", "running", {
+          startedAt: "2026-11-01T13:11:00Z",
+          gate: "hypershell-analysis",
+          restart,
+        }),
+      ],
+      { "env:int": [1500, 1800] },
+    );
+    const c = d.changes[0];
+    if (c === undefined) throw new Error("no change");
+    // Not 13:11 + 25 min: the analysis restarts at 13:40 and takes 25 min.
+    expect(arrivals(d, c, nowMs).get("env:int")).toEqual({
+      kind: "time",
+      atMs: Date.parse("2026-11-01T14:05:00Z"),
+    });
+    const row = nowAndNext(d, nowMs).rows[0];
+    expect(row?.next).toMatchObject({
+      kind: "bundle-restart",
+      restart,
+      landsAtMs: Date.parse("2026-11-01T13:40:00Z"),
+    });
+  });
+});
+
+describe("nowUnknown (FLT-DLV-23)", () => {
+  it("names the answers a never-read source hides", () => {
+    const d = data([]);
+    expect(nowUnknown(d)).toBeNull();
+    expect(
+      nowUnknown({
+        ...d,
+        sources: {
+          history: {
+            stale: true,
+            never: true,
+            error: "x",
+            lastSuccess: null,
+          },
+        },
+      }),
+    ).toEqual({ answers: ["next"], sources: ["history"] });
   });
 });

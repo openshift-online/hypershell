@@ -9,7 +9,7 @@ import (
 // phase's estimate is the median duration of its last 5 completed runs, and its
 // slowest value the longest of those runs. A run is one execution: one
 // component's build or policy check, one bundle's release or GitOps update,
-// one bundle's promotion through an environment group. Many changes ride one
+// one passed promotion in one environment. Many changes ride one
 // bundle, so a bundle is sampled once, not once per change.
 
 // estimateRuns is how many of the latest runs an estimate looks at.
@@ -36,6 +36,7 @@ type phaseRun struct {
 func buildPhase(component string) string  { return stageBuild + ":" + component }
 func policyPhase(component string) string { return stagePolicy + ":" + component }
 func groupPhase(group string) string      { return "env:" + group }
+func envPhase(env string) string          { return "environment:" + env }
 
 func parseTime(s string) (time.Time, bool) {
 	if s == "" {
@@ -116,15 +117,98 @@ func phaseSamples(in deliveryInput, pl placement, groups []envGroup) map[string]
 			}
 		}
 		add(stageGitOps, published, locked)
-		prev := locked
-		for _, g := range groups {
-			end := groupFinishFor(in, g, b.Digest)
-			add(groupPhase(g.name), prev, end)
-			if end.IsZero() {
+	}
+
+	// Environment: one run per passed promotion, from its merge on the
+	// environment branch to its gates' pass. Groups are not sampled: their
+	// estimate follows the dependsOn graph (FLT-DLV-09).
+	for key, promos := range in.history {
+		for _, p := range promos {
+			if p.gatesAt == "" || p.rerun {
+				continue
+			}
+			start, ok1 := parseTime(p.MergedAt)
+			end, ok2 := parseTime(p.gatesAt)
+			if ok1 && ok2 {
+				add(envPhase(key), start, end)
+			}
+		}
+	}
+	return out
+}
+
+// groupEstimates derives each environment group's estimate from the
+// environment estimates along the dependsOn graph (FLT-DLV-09, FLT-DLV-10).
+// An environment finishes its estimate after the latest of its dependencies;
+// a group ends when its last environment does. A group's estimate is the time
+// it adds after the groups before it, so the UI's sum of later phases reaches
+// it. A group with an environment without an estimate has none.
+func groupEstimates(est map[string]PhaseEstimate, in deliveryInput, groups []envGroup) {
+	if in.promo == nil {
+		return
+	}
+	median := envOffsets(est, in, func(e PhaseEstimate) int64 { return e.MedianSeconds })
+	slowest := envOffsets(est, in, func(e PhaseEstimate) int64 { return e.SlowestSeconds })
+	var prevM, prevS int64
+	for _, g := range groups {
+		var endM, endS int64
+		samples, ok := 0, true
+		for _, key := range g.envs {
+			m, okm := median[key]
+			sl, oks := slowest[key]
+			if !okm || !oks {
+				ok = false
 				break
 			}
-			prev = end
+			endM, endS = max(endM, m), max(endS, sl)
+			if n := est[envPhase(key)].Samples; samples == 0 || n < samples {
+				samples = n
+			}
 		}
+		if !ok {
+			// Later groups cannot be reached by a known time either.
+			return
+		}
+		est[groupPhase(g.name)] = PhaseEstimate{MedianSeconds: max(0, endM-prevM), SlowestSeconds: max(0, endS-prevS), Samples: samples}
+		prevM, prevS = max(prevM, endM), max(prevS, endS)
+	}
+}
+
+// envOffsets is, per environment, the time from the GitOps lock to its gates'
+// pass along the dependsOn graph: the latest offset of its dependencies plus
+// its own estimate. An environment without an estimate, or that depends on
+// one, is absent.
+func envOffsets(est map[string]PhaseEstimate, in deliveryInput, pick func(PhaseEstimate) int64) map[string]int64 {
+	out := map[string]int64{}
+	state := map[string]int{} // 1 visiting, 2 done
+	var visit func(key string) (int64, bool)
+	visit = func(key string) (int64, bool) {
+		switch state[key] {
+		case 1:
+			return 0, false // a cycle: no estimate
+		case 2:
+			v, ok := out[key]
+			return v, ok
+		}
+		state[key] = 1
+		defer func() { state[key] = 2 }()
+		e, ok := est[envPhase(key)]
+		if !ok {
+			return 0, false
+		}
+		var start int64
+		for _, d := range in.promo.Environments[key].DependsOn {
+			v, ok := visit(d)
+			if !ok {
+				return 0, false
+			}
+			start = max(start, v)
+		}
+		out[key] = start + pick(e)
+		return out[key], true
+	}
+	for _, key := range in.promo.Order {
+		visit(key)
 	}
 	return out
 }
@@ -150,32 +234,6 @@ func policiesDone(in deliveryInput, rev string) time.Time {
 		}
 		if t, ok := parseTime(p.run.CompletedAt); ok && t.After(latest) {
 			latest = t
-		}
-	}
-	return latest
-}
-
-// groupFinishFor is when a bundle's promotion finished a group: the latest gate
-// pass among the group's environments. Zero when any environment has no passed,
-// timed, single-run promotion of that bundle.
-func groupFinishFor(in deliveryInput, g envGroup, digest string) time.Time {
-	var latest time.Time
-	for _, key := range g.envs {
-		var found time.Time
-		for _, p := range in.history[key] {
-			if p.digest != digest || p.gatesAt == "" || p.rerun {
-				continue
-			}
-			if t, ok := parseTime(p.gatesAt); ok {
-				found = t
-				break
-			}
-		}
-		if found.IsZero() {
-			return time.Time{}
-		}
-		if found.After(latest) {
-			latest = found
 		}
 	}
 	return latest

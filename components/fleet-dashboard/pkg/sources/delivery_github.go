@@ -33,6 +33,8 @@ type CheckRun struct {
 	StartedAt   string
 	CompletedAt string
 	URL         string
+	// Summary is the check run's output summary (gate attempts, FLT-DLV-23).
+	Summary string
 }
 
 // BundlePR is the open automated bundle-update pull request in the GitOps
@@ -281,7 +283,10 @@ type deliveryCheckRuns struct {
 		StartedAt   string `json:"started_at"`
 		CompletedAt string `json:"completed_at"`
 		HTMLURL     string `json:"html_url"`
-		App         struct {
+		Output      struct {
+			Summary string `json:"summary"`
+		} `json:"output"`
+		App struct {
 			Slug string `json:"slug"`
 		} `json:"app"`
 	} `json:"check_runs"`
@@ -304,7 +309,7 @@ func (g *GitHubDelivery) readCheckRuns(ctx context.Context, repo, tokenFile, sha
 	for _, r := range resp.CheckRuns {
 		out = append(out, CheckRun{
 			ID: r.ID, Name: r.Name, App: r.App.Slug, Status: r.Status, Conclusion: r.Conclusion,
-			StartedAt: r.StartedAt, CompletedAt: r.CompletedAt, URL: r.HTMLURL,
+			StartedAt: r.StartedAt, CompletedAt: r.CompletedAt, URL: r.HTMLURL, Summary: r.Output.Summary,
 		})
 	}
 	return out, nil

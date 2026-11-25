@@ -67,21 +67,70 @@ func TestGateTimesSkipRerun(t *testing.T) {
 	if when, rerun := gateTimes(once, keys); when != "2026-11-01T10:20:00Z" || rerun {
 		t.Errorf("gate times = %s, %v; want 10:20 without re-run", when, rerun)
 	}
-	twice := append(append([]CheckRun(nil), once...), CheckRun{Name: "analysis", Status: "completed", Conclusion: "success", StartedAt: "2026-11-01T11:00:00Z", CompletedAt: "2026-11-01T11:10:00Z"})
+	// A gate re-posted after it passed keeps its first pass (FLT-DLV-02.03).
+	reposted := append(append([]CheckRun(nil), once...), CheckRun{Name: "health", Status: "completed", Conclusion: "success", StartedAt: "2026-11-01T13:00:00Z", CompletedAt: "2026-11-01T13:01:00Z"})
+	if when, rerun := gateTimes(reposted, keys); when != "2026-11-01T10:20:00Z" || rerun {
+		t.Errorf("gate times = %s, %v; want the first pass 10:20 without re-run", when, rerun)
+	}
+	// A gate that failed and ran again before it passed is a re-run.
+	twice := []CheckRun{
+		{Name: "analysis", Status: "completed", Conclusion: "failure", StartedAt: "2026-11-01T10:00:00Z", CompletedAt: "2026-11-01T10:20:00Z"},
+		{Name: "analysis", Status: "completed", Conclusion: "success", StartedAt: "2026-11-01T11:00:00Z", CompletedAt: "2026-11-01T11:10:00Z"},
+		once[1],
+	}
 	when, rerun := gateTimes(twice, keys)
 	if !rerun || when != "2026-11-01T11:10:00Z" {
-		t.Errorf("gate times = %s, %v; want the latest run and a re-run flag", when, rerun)
+		t.Errorf("gate times = %s, %v; want the first pass and a re-run flag", when, rerun)
 	}
 	if o, _ := gateOutcome(twice, keys); o != OutcomePassed {
 		t.Errorf("outcome = %s, want passed from the latest runs", o)
 	}
 
-	// A re-run promotion is not sampled for its group.
+	// A re-run promotion is not sampled for its environment.
 	in := deliveryInput{history: map[string][]histPromotion{
-		"e1": {{digest: "d", gatesAt: when, rerun: true}},
+		"e1": {{EnvPromotion: EnvPromotion{MergedAt: "2026-11-01T10:00:00Z"}, digest: "d", gatesAt: when, rerun: true}},
 	}}
-	if got := groupFinishFor(in, envGroup{name: "int", envs: []string{"e1"}}, "d"); !got.IsZero() {
-		t.Errorf("group finish = %v, want none for a re-run gate", got)
+	if got := phaseSamples(in, placeBundles(in), nil)[envPhase("e1")]; len(got) != 0 {
+		t.Errorf("environment samples = %v, want none for a re-run gate", got)
+	}
+}
+
+func TestEnvironmentEstimates(t *testing.T) {
+	// Verifies: FLT-DLV-09.06, FLT-DLV-10
+	at := func(m int) string { return time.Date(2026, 11, 1, 10, m, 0, 0, time.UTC).Format(time.RFC3339) }
+	var promos []histPromotion
+	// Three promotions replaced before their gates finished, then five passed
+	// promotions of 20 minutes each.
+	for i := 0; i < 3; i++ {
+		promos = append(promos, histPromotion{EnvPromotion: EnvPromotion{MergedAt: at(i)}, outcome: OutcomeReplaced})
+	}
+	for i := 0; i < 5; i++ {
+		promos = append(promos, histPromotion{EnvPromotion: EnvPromotion{MergedAt: at(10 + i)}, outcome: OutcomePassed, gatesAt: at(30 + i)})
+	}
+	spoke := make([]histPromotion, 0, 5)
+	for i := 0; i < 5; i++ {
+		spoke = append(spoke, histPromotion{EnvPromotion: EnvPromotion{MergedAt: at(10 + i)}, outcome: OutcomePassed, gatesAt: at(15 + i)})
+	}
+	in := deliveryInput{
+		history: map[string][]histPromotion{"hub": promos, "spoke": spoke, "next": spoke},
+		promo: &PromotionPayload{Order: []string{"hub", "spoke", "next"}, Environments: map[string]Environment{
+			"hub": {}, "spoke": {}, "next": {DependsOn: []string{"hub"}},
+		}},
+	}
+	groups := []envGroup{{name: "int", envs: []string{"hub", "spoke"}}, {name: "stage", envs: []string{"next"}}}
+	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	est := estimates(phaseSamples(in, placeBundles(in), groups), now)
+	if e := est[envPhase("hub")]; e.Samples != 5 || e.MedianSeconds != 1200 {
+		t.Errorf("hub estimate = %+v, want 5 passed promotions of 20 min", e)
+	}
+	groupEstimates(est, in, groups)
+	// Int ends with its slowest environment (20 min); next waits for the hub
+	// only and adds its own 5 min.
+	if e := est[groupPhase("int")]; e.MedianSeconds != 1200 {
+		t.Errorf("int estimate = %+v, want 20 min", e)
+	}
+	if e := est[groupPhase("stage")]; e.MedianSeconds != 300 {
+		t.Errorf("stage estimate = %+v, want 5 min after int", e)
 	}
 }
 
