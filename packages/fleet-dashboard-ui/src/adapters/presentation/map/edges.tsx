@@ -120,7 +120,8 @@ export function MapEdges({
 }: MapEdgesProps): React.ReactElement {
   const boxById = new Map<string, NodeBox>(layout.nodes.map((b) => [b.id, b]));
   const colNodeIds = new Map<string, readonly string[]>(
-    model.columns.map((c) => [c.key, c.nodeIds]),
+    // Only boxes that take part in promotion get rails (FLT-MAP-08.06).
+    model.columns.map((c) => [c.key, c.railNodeIds]),
   );
   const gateById = new Map<string, GateLayout>(
     layout.gates.map((g) => [g.id, g]),

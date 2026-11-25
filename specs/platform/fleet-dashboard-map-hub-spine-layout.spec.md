@@ -211,7 +211,8 @@ A remote spoke (listed in the hub's topology under `remote_spokes`) that has no
 promotion environment SHALL also get its own node in its hub's column. Nothing
 reports its cluster, provider, release or Argo health, so the node SHALL leave them
 unknown, SHALL group into the unassigned provider lane, and SHALL NOT raise the
-"health unavailable" alarm.
+"health unavailable" alarm. No gate waits for it, so the map SHALL NOT draw a
+change line or a promotion gate line to or from it.
 
 A node's physical cluster is its `cluster` delivery label. A hub, or a co-located
 spoke, with no such label SHALL group with its hub. Only a cluster that runs two or
@@ -261,6 +262,14 @@ more of a column's nodes in one provider lane SHALL get a container.
 - AND the hub node SHALL NOT count the gateways and sandboxes of `R`
 - AND node `R` SHALL carry no release and SHALL NOT count toward the
   "health unavailable" alarm
+
+#### Scenario: FLT-MAP-08.06 -- No promotion lines for a box outside promotion
+
+- GIVEN a column holding a hub and a remote spoke `R` that has no promotion
+  environment
+- WHEN the map is rendered
+- THEN the column's change and gate lines SHALL connect the hub
+- AND no change or gate line SHALL connect node `R`
 
 ### Requirement: FLT-MAP-06 -- Derived, deterministic, baked-in-free geometry
 

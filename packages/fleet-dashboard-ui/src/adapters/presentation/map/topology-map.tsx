@@ -294,7 +294,7 @@ export function TopologyMap({
   // Rails from the change diamond into the first column's node(s): the spine starts
   // at the change, so it visibly feeds the root stage like every later gate does.
   const boxById = new Map<string, NodeBox>(layout.nodes.map((b) => [b.id, b]));
-  const changeEdges = (model.columns[0]?.nodeIds ?? [])
+  const changeEdges = (model.columns[0]?.railNodeIds ?? [])
     .map((id) => boxById.get(id))
     .filter((b): b is NodeBox => b !== undefined)
     .map((b) => ({

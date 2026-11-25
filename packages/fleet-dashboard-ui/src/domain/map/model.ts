@@ -203,6 +203,13 @@ export interface MapColumn {
   readonly key: string;
   readonly index: number;
   readonly nodeIds: readonly string[];
+  /**
+   * The column's nodes that take part in promotion, so the map draws the change and
+   * gate lines only from and to them (FLT-MAP-08.06). It leaves out a box with no
+   * delivery data (a remote spoke outside the promotion strategy), which no gate
+   * waits for.
+   */
+  readonly railNodeIds: readonly string[];
   /** Env-type (int/stage/prod) of this column's nodes, for the grouping bands. */
   readonly envLabel: string | null;
 }
@@ -1031,6 +1038,9 @@ export function buildMapModel(
     key,
     index,
     nodeIds: columnNodes.get(key) ?? [],
+    railNodeIds: (columnNodes.get(key) ?? []).filter(
+      (id) => byId.get(id)?.deliveryUnknown !== true,
+    ),
     envLabel: columnEnvLabel.get(key) ?? null,
   }));
 

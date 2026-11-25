@@ -71,6 +71,7 @@ function model(nodes: MapNode[]): MapModel {
     key,
     index,
     nodeIds: nodes.filter((n) => n.columnKey === key).map((n) => n.id),
+    railNodeIds: nodes.filter((n) => n.columnKey === key).map((n) => n.id),
     envLabel: key,
   }));
   return {

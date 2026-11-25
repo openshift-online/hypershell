@@ -1048,3 +1048,98 @@ describe("buildMapModel - remote spokes without an environment", () => {
     expect(far[0]?.deliveryUnknown).toBe(false);
   });
 });
+
+describe("buildMapModel - promotion lines", () => {
+  // Verifies: FLT-MAP-08.06
+  it("leaves a remote spoke outside promotion off the column's rails", () => {
+    const p = promotion(["hub0", "hub0-r"], {
+      hub0: env({ name: "hub0", role: "hub", provider: "ibm" }),
+      "hub0-r": env({ name: "hub0-r", role: "spoke", provider: "ibm" }),
+    });
+    const model = buildMapModel(
+      p,
+      { instances: [] },
+      {
+        hub0: {
+          instance: "hub0",
+          hub: {
+            instance: "hub0",
+            dnsLabel: null,
+            remoteSpokes: ["hub0-r", "hub0-far"],
+          },
+          spokes: [{ name: "hub0-co" }],
+        },
+      },
+    );
+    const col = model.columns[0];
+    expect(col?.nodeIds).toEqual(["hub0", "hub0-co", "hub0-far", "hub0-r"]);
+    // hub0-far has no promotion env and no delivery data: no rails.
+    expect(col?.railNodeIds).toEqual(["hub0", "hub0-co", "hub0-r"]);
+  });
+
+  // The shape hyp0-spoke1 takes once it becomes its own promotion environment
+  // (hypershell-gitops PR 2920): labelled with the hub's cluster, listed before the
+  // hub, gated on argocd-health.
+  it("keeps a co-located spoke with its own env in the outer box and on the rails", () => {
+    const p = promotion(["hub0-co", "hub0"], {
+      "hub0-co": env({
+        name: "hub0-co",
+        role: "spoke",
+        provider: "ibm",
+        cluster: "phys-a",
+        envLabel: "int",
+        gates: [
+          {
+            name: "argocd-health",
+            phase: "Succeeded",
+            governingInstance: null,
+          },
+        ],
+      }),
+      hub0: env({
+        name: "hub0",
+        role: "hub",
+        provider: "ibm",
+        cluster: "phys-a",
+        envLabel: "int",
+        gates: [
+          {
+            name: "hypershell-analysis",
+            phase: "Succeeded",
+            governingInstance: null,
+          },
+        ],
+      }),
+    });
+    const fleet: FleetData = {
+      instances: [
+        inst({
+          instance: "hub0",
+          gatewaysByCluster: [
+            { managedCluster: "hub0-hub", gateways: { running: 6 }, total: 6 },
+            { managedCluster: "hub0-co", gateways: { running: 4 }, total: 4 },
+          ],
+        }),
+      ],
+    };
+    const model = buildMapModel(p, fleet, {
+      hub0: {
+        instance: "hub0",
+        hub: { instance: "hub0", dnsLabel: null, remoteSpokes: [] },
+        spokes: [{ name: "hub0-co" }],
+      },
+    });
+    const co = model.nodes.find((n) => n.id === "hub0-co");
+    expect(co?.fromTopology).toBe(false);
+    expect(co?.columnKey).toBe("hub0");
+    expect(co?.gatewaysTotal).toBe(4);
+    expect(co?.gateNames).toEqual(["argocd-health"]);
+    expect(model.nodes.find((n) => n.id === "hub0")?.gatewaysTotal).toBe(6);
+    expect(model.clusterGroups.map((g) => [g.cluster, g.nodeIds])).toEqual([
+      ["phys-a", ["hub0-co", "hub0"]],
+    ]);
+    expect(model.columns[0]?.railNodeIds).toEqual(["hub0-co", "hub0"]);
+    // The hub, not the spoke listed first, governs the gate.
+    expect(model.gates[0]?.name).toBe("hypershell-analysis");
+  });
+});
