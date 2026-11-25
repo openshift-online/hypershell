@@ -302,6 +302,48 @@ describe("E2eRunView", () => {
     ).toContain("zzz");
   });
 
+  // Verifies: E2E-LOG-12.10
+  it("lists matching runs individually until the search is cleared", async () => {
+    const user = userEvent.setup();
+    const { api } = makeApi(detail());
+    const bundle = {
+      version: "v20261124",
+      digest: "sha256:bundle-a",
+      tag: null,
+      date: null,
+      prs: [],
+    };
+    renderView(
+      api,
+      enabled([
+        summary({ bundle, revision: "match-1" }),
+        summary({ bundle, id: "run-2", runId: "run-2", revision: "match-2" }),
+        summary({ bundle, id: "run-3", runId: "run-3", revision: "other" }),
+      ]),
+    );
+    const search = screen.getByRole("textbox", {
+      name: "Search instances, revisions, or attempts",
+    });
+    expect(screen.getByRole("button", { name: "Show 3 runs" })).toBeDefined();
+
+    await user.type(search, "match");
+    expect(screen.queryByRole("button", { name: /Show .* runs?/ })).toBeNull();
+    expect(screen.getAllByRole("link", { name: /Open run/ })).toHaveLength(2);
+    const run = screen.getByRole("link", { name: /Open run match-2/ });
+    const row = run.closest("tr");
+    if (!row) throw new Error("expected a run row");
+    expect(within(row).getByText(bundle.version)).toBeDefined();
+    expect(within(row).getByText("run-2")).toBeDefined();
+    const revisionSort = screen.getByRole("button", { name: "Revision" });
+    await user.click(revisionSort);
+    await user.click(revisionSort);
+    expect(screen.getAllByRole("link", { name: /Open run/ })[0]).toBe(run);
+
+    await user.clear(search);
+    expect(screen.getByRole("button", { name: "Show 3 runs" })).toBeDefined();
+    expect(screen.queryByRole("link", { name: /Open run/ })).toBeNull();
+  });
+
   it("closes the drawer without clearing the history filter or selection and restores focus", async () => {
     const user = userEvent.setup();
     const { api, handlers } = makeApi(detail());
@@ -312,7 +354,6 @@ describe("E2eRunView", () => {
       }),
       "abc",
     );
-    await user.click(screen.getByRole("button", { name: "Show 1 run" }));
     const trigger = screen.getByRole("link", { name: /Open run/ });
     await user.click(trigger);
     await screen.findByRole("button", { name: "Build" });
@@ -1450,10 +1491,14 @@ describe("log pagination and degraded log pane", () => {
         }),
       ]),
     );
-    expect(screen.getByText("2m 15s")).toBeDefined();
+    // The single-run bundle summary shows the derived duration without expanding.
+    const summaryRow = screen.getByText("1 run", { exact: true }).closest("tr");
+    if (!summaryRow) throw new Error("expected bundle summary row");
+    expect(within(summaryRow).getByText("2m 15s")).toBeDefined();
   });
 
-  it("expands a single-run bundle to show the run and its target location", async () => {
+  // Verifies: E2E-LOG-12.09
+  it("summarizes a single-run bundle and expands it to show the run (E2E-LOG-12.09)", async () => {
     const user = userEvent.setup();
     const { api } = makeApi(detail());
     renderView(
@@ -1472,10 +1517,14 @@ describe("log pagination and degraded log pane", () => {
       ]),
     );
 
-    const count = screen.getByText("1 Run", { exact: true });
+    const count = screen.getByText("1 run", { exact: true });
     const summaryRow = count.closest("tr");
     if (!summaryRow) throw new Error("expected bundle summary row");
-    expect(within(summaryRow).queryByText("run-namespace")).toBeNull();
+    // No trusted instance resolves, so the target falls back to cluster and namespace.
+    expect(within(summaryRow).getByText("run-namespace")).toBeDefined();
+    // One run means one revision and duration, so the summary shows both.
+    expect(within(summaryRow).getByText("abc1234")).toBeDefined();
+    expect(within(summaryRow).getByText("5m 0s")).toBeDefined();
     expect(screen.queryByText("Most Recent")).toBeNull();
     expect(screen.queryByRole("link", { name: /Open run/ })).toBeNull();
 
@@ -1542,7 +1591,8 @@ describe("log pagination and degraded log pane", () => {
     expect(within(summaryRow).getByText("tenant-1")).toBeDefined();
     expect(within(summaryRow).getByText("tenant-2")).toBeDefined();
     expect(within(summaryRow).getByText("tenant-3")).toBeDefined();
-    expect(within(summaryRow).queryByText("ns-2")).toBeNull();
+    // No promotion resolves an instance, so the summary falls back to cluster and namespace.
+    expect(within(summaryRow).getByText("ns-2")).toBeDefined();
     expect(within(summaryRow).getByText("Failed")).toBeDefined();
     expect(within(summaryRow).queryByText("Passed")).toBeNull();
     expect(

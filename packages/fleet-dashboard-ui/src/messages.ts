@@ -295,7 +295,7 @@ export const messages = defineMessages({
   },
   e2eAttemptCount: {
     id: "fleet.e2e.attemptCount",
-    defaultMessage: "{count, plural, one {# Run} other {# runs}}",
+    defaultMessage: "{count, plural, one {# run} other {# runs}}",
     description:
       "Badge showing how many total attempts exist for a grouped bundle row.",
   },
