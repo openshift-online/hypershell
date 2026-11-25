@@ -19,8 +19,19 @@ already running in an environment.
 This specification adds a **Delivery** tab. It follows each application change
 from merge to the last promotion environment as one row of stages. For every
 change in flight, it says what is happening now and what should happen next,
-with estimates and arrival times taken from recent history. It reads only sources the
-dashboard can already reach, with credentials it already holds.
+with estimates and arrival times taken from recent history. Above the changes,
+a **Pipeline now** panel (FLT-DLV-23) states the situation at this moment:
+the head of both repositories, what is in flight, and what should happen next.
+It reads only sources the dashboard can already reach, with credentials it
+already holds.
+
+One merge rarely moves as one unit. Each Konflux build that finishes produces
+its own snapshot, release, and bundle, so one change with five rebuilt
+components can publish five bundles within ten minutes. Each bundle that
+reaches an environment restarts that environment's gates. A component whose
+build failed ships later, inside the next successful build of that component.
+The requirements below follow components and bundles, not only changes, so the
+tab can say what really runs where.
 
 ### Terms
 
@@ -41,6 +52,11 @@ dashboard can already reach, with credentials it already holds.
 | Slowest | The longest duration among the same last 5 completed runs. |
 | Environment group | The promotion environments that share one `delivery.hypershell.app/env` label value (for example the int hub and its spokes). |
 | Delivered | A change is delivered when every promotion environment's active release contains it. |
+| Delivery time | The finish time of the change in the last environment to finish it (FLT-DLV-08). |
+| Superseded build | A failed component build of change C whose component was later built successfully at a later commit on `main`. That later image includes C's code (FLT-DLV-05). |
+| Partly shipped | A bundle carries some, but not all, of a change's rebuilt bundled components at or after the change (FLT-DLV-22). |
+| Bundle train | The bundles published from one burst of builds: one bundle per finished component build, each locked into GitOps `main` in turn (FLT-DLV-22). |
+| Depends on | The environments whose gates an environment waits for before it promotes, from the promotion strategy's `dependsOn` (FLT-DLV-08). |
 
 ### Data reachability
 
@@ -67,8 +83,8 @@ Glass SHALL provide a fourth top-level tab, **Delivery**, at path `/delivery`,
 after Fleet Map, Agent SDLC, and E2E Runs. The tab SHALL use the shared Glass
 shell and its tab navigation. Its page surface SHALL have a header region with
 the title "Delivery", a one-sentence description, and a refresh action, and a
-body region with the Now and next summary (FLT-DLV-10) followed by the change
-table (FLT-DLV-03).
+body region with the Pipeline now panel (FLT-DLV-23), the Now and next summary
+(FLT-DLV-10), and the change table (FLT-DLV-03), in that order.
 
 #### Scenario: FLT-DLV-01.01 -- Tab reachable by path
 
@@ -94,7 +110,18 @@ report how many were dropped. The BFF SHALL report dropped changes only when
 the GitOps and promotion sources are known, because without them no change can
 be known delivered. Each change SHALL carry its full and short commit
 SHA, merge time, title, author, and pull request number when the title carries
-a `(#n)` trailer.
+a `(#n)` trailer. A delivered change SHALL carry its delivery time. When the
+promotion history (FLT-DLV-18) does not reach the change's last finish, the
+delivery time SHALL be omitted. It SHALL NOT be the time the BFF first saw the
+change delivered.
+
+#### Scenario: FLT-DLV-02.03 -- Delivery time is not the first observation
+
+- GIVEN change C finished its last environment at 01:20
+- AND the BFF started at 13:10
+- WHEN the BFF builds the delivery payload
+- THEN C's delivery time SHALL be 01:20, or omitted when the history does not reach it
+- AND it SHALL NOT be 13:10
 
 #### Scenario: FLT-DLV-02.01 -- Undelivered first, then recent history
 
@@ -200,6 +227,20 @@ Builds and policy checks of outside-bundle components SHALL still show in the
 Build and Policy check stages and in the drawer, marked "Ships outside the
 bundle" in the drawer. They SHALL NOT decide bundle containment (FLT-DLV-06).
 
+**Superseded builds.** An image is built from the whole repository at one
+commit, so a later successful build of a component carries every earlier
+change. A failed component build of change C SHALL count as superseded when a
+build of the same component succeeded at a later commit on the application
+repository's linear `main` history. For that component, C SHALL then follow the
+superseding build: its policy check, and its revision in bundles. When every
+failed build of C is superseded, C's Build stage SHALL be Passed with "Rebuilt
+in <short sha> (#n)", naming the newest superseding commit, and the later
+stages SHALL proceed as for a passed build. While some failed builds of C are
+not superseded, Build SHALL stay Failed and SHALL name only those components.
+The BFF SHALL find superseding builds in the check runs it already reads for
+the listed changes and for the head of `main` (FLT-DLV-23). It SHALL make no
+extra call for them.
+
 #### Scenario: FLT-DLV-05.01 -- One component rebuilt
 
 - GIVEN a change whose commit has `on-push` check runs only for the control-plane component
@@ -219,7 +260,15 @@ bundle" in the drawer. They SHALL NOT decide bundle containment (FLT-DLV-06).
 - GIVEN a change whose web-console `on-push` check run concluded `failure`
 - WHEN the row renders
 - THEN the Build cell SHALL show Failed with the failed component named
-- AND every later stage of that change SHALL read Not started until a later bundle contains the change
+- AND every later stage of that change SHALL read Not started until a later build supersedes the failed one
+
+#### Scenario: FLT-DLV-05.04 -- A later build supersedes a failed one
+
+- GIVEN change C's api-server and cli builds failed
+- AND change D, merged after C, built api-server and cli successfully
+- WHEN C's row renders
+- THEN C's Build cell SHALL read Passed with "Rebuilt in <D's short sha>"
+- AND C's Policy check and Release SHALL follow D's api-server and cli policy checks and bundles
 
 ### Requirement: FLT-DLV-06 -- Release from the shared bundle source
 
@@ -279,6 +328,12 @@ consumes the registry bundle. While the GitOps source is Unknown, a change that
 no bundle contains SHALL have an Unknown Release stage, not an inferred one,
 because locked placement cannot be read.
 
+While some, but not all, of the change's rebuilt bundled components are in a
+published bundle at or after the change, the change is partly shipped
+(FLT-DLV-22). Its Release stage SHALL then be Running with "n of m components
+released", and SHALL name each missing component with its own state: building,
+policy check, releasing (inferred), or failed.
+
 #### Scenario: FLT-DLV-06.01 -- Release inferred after the policy check
 
 - GIVEN a change whose Policy check passed 2 minutes ago
@@ -315,6 +370,15 @@ because locked placement cannot be read.
 - AND bundle B2 has a web-console revision that is a later commit than C
 - WHEN the BFF builds the payload
 - THEN C's first bundle SHALL be B2, not B1
+
+#### Scenario: FLT-DLV-06.07 -- Partly released
+
+- GIVEN change C rebuilt api-server, cli, control-plane, agent-runtime-slim, and agent-runtime
+- AND a published bundle carries the first four at C's commit and agent-runtime at an older commit
+- AND agent-runtime's build at C is still running
+- WHEN C's row renders
+- THEN the Release cell SHALL read Running with "4 of 5 components released"
+- AND it SHALL name agent-runtime as building
 
 #### Scenario: FLT-DLV-06.06 -- Outside-bundle component
 
@@ -366,8 +430,12 @@ promotion payload, in this order of precedence:
 
 1. "Waiting for hydration" when the change is on GitOps `main` but an
    environment's proposed release does not contain it yet.
-2. "Waiting for <groups>" naming the upstream environment groups whose
-   promotion gates have not passed for a release that contains the change.
+2. "Waiting for <environments>" naming, among the environments that the
+   group's environments depend on (the promotion strategy's `dependsOn`), those
+   whose gates have not passed for a release that contains the change. Group
+   order is for display only. An environment SHALL wait only for its own
+   `dependsOn`, never for a whole group, because the graph can join
+   environments from different groups.
 3. "Release analysis running" or "Health check running" when the group's own
    gate check is in progress for a release that contains the change.
 
@@ -379,6 +447,27 @@ a bundle containing the change SHALL count as Passed for that change. The gates
 of a newer bundle that is active there SHALL NOT change it: they belong to the
 rows of the changes that bundle adds. Without that history, the gates of the
 active release decide, as above.
+
+When the change is partly shipped (FLT-DLV-22), the environment-group stages
+SHALL follow the bundles that carry the shipped components, and each SHALL say
+"Partly: n of m components". The group SHALL be Passed for the change only once
+a bundle that contains all of the change's components has finished there.
+
+#### Scenario: FLT-DLV-08.04 -- An environment waits for its own dependencies
+
+- GIVEN environment S in the Prod group depends on the Int hub and one Int spoke only
+- AND both have passed their gates for a release containing C
+- AND another Int spoke has not
+- WHEN C's row renders
+- THEN S SHALL NOT read "Waiting for Int"
+- AND S SHALL be promoted or waiting on its own gates
+
+#### Scenario: FLT-DLV-08.05 -- Partly shipped in a group
+
+- GIVEN change C is partly shipped: 4 of its 5 components are active in every Int environment
+- WHEN C's row renders
+- THEN the Int cell SHALL read Running with "Partly: 4 of 5 components"
+- AND it SHALL NOT read Passed until a bundle with all 5 components finishes in Int
 
 #### Scenario: FLT-DLV-08.01 -- Waiting on the upstream group
 
@@ -420,12 +509,20 @@ ride one bundle; counting each of them would weight one slow bundle many times.
 | Policy check | one component's policy check run, per component | that component's build completion on the same commit | the check run's completion |
 | Release | one bundle | the latest policy check completion on the bundle's `manifests.git.revision` commit | the bundle's publication |
 | GitOps update | one bundle | the bundle's publication | the merge of the first release-lock commit for that bundle |
-| Environment group | one bundle's promotion through the group | the end of the previous phase for the same bundle | the group finishes (FLT-DLV-08): the gates of its last environment pass |
+| Environment | one passed promotion in one environment | the promotion's merge on the environment branch | the latest completion of that promotion's gate check runs |
 
 Only successful runs count. An environment phase ends when its gates pass, not
 when the promotion pull request merges. A gate check run that was re-run (more
 than one run with the same name on the promotion's commit) SHALL NOT be sampled,
 because the re-run replaces the first finish time.
+
+An environment group's estimate is not sampled as a whole. Its arrival comes
+from the environment estimates along the `dependsOn` graph (FLT-DLV-10). Most
+promotions in a busy hour are replaced before their gates finish, so sampling
+whole groups leaves too few runs; each environment's passed promotions are
+enough. The promotion history (FLT-DLV-18) SHALL reach back far enough to hold
+the last 5 passed promotions of each environment, up to
+`FD_DELIVERY_HISTORY_DAYS`.
 
 Build and Policy check are per component. A change's Build and Policy check
 estimate and slowest value SHALL be those of the slowest component the change
@@ -462,6 +559,13 @@ listed change, so the UI needs no per-component lookup.
 - WHEN C's Build stage renders
 - THEN its estimate SHALL be 14 minutes
 
+#### Scenario: FLT-DLV-09.06 -- Busy hour still yields environment estimates
+
+- GIVEN environment E had 3 promotions replaced in the last hour and 5 passed promotions in the last 3 days
+- WHEN the BFF computes E's estimate
+- THEN it SHALL use the 5 passed promotions
+- AND the replaced promotions SHALL NOT be sampled
+
 #### Scenario: FLT-DLV-09.05 -- Re-run gate is not sampled
 
 - GIVEN a promotion whose analysis gate has two check runs on its commit
@@ -488,10 +592,17 @@ title) and SHALL state:
 - **Arrival:** the progress bar (FLT-DLV-19) and, per environment group, the
   expected arrival of the change in that group.
 
-**Arrival time.** The expected arrival in an environment group SHALL be now,
-plus the remaining time of the current phase, plus the estimates of every later
-phase up to and including that group. Phases already Passed or Not needed add
-nothing.
+**Arrival time.** The expected arrival in an environment SHALL be now, plus
+the remaining time of the current phase, plus the estimates of every later
+pipeline phase, plus, along the `dependsOn` graph, the latest arrival among the
+environments it depends on, plus its own estimate. An environment group's
+arrival is the latest arrival among its environments. Phases already Passed or
+Not needed add nothing.
+
+When a newer bundle of the train (FLT-DLV-22) is expected to reach an
+environment before that environment's running gate ends, the gate will
+restart. The arrival SHALL then start from that newer bundle's expected
+arrival, and Next SHALL say "Restarts when the <components> bundle lands".
 
 - **Before the bundle is published** (the Release stage is not Passed), the
   arrival SHALL be a range, because the release step is not observable. The
@@ -546,6 +657,14 @@ delivery time and its total time from merge.
 - THEN no environment group SHALL show an arrival time for that change
 - AND the Release cell SHALL offer the "Where to look" popup (FLT-DLV-20)
 
+#### Scenario: FLT-DLV-10.07 -- A newer bundle will restart the gate
+
+- GIVEN change C is in Int and the Int hub's release analysis has run for 17 minutes with estimate 25 minutes
+- AND agent-runtime's build finished 4 minutes ago and its bundle is expected on GitOps `main` in 8 minutes
+- WHEN C's summary row renders
+- THEN Next SHALL read "Restarts when the agent-runtime bundle lands"
+- AND the Stage arrival SHALL start from that bundle's expected arrival in Int, not from the running analysis
+
 #### Scenario: FLT-DLV-10.02 -- Nothing in flight
 
 - GIVEN every listed change is delivered
@@ -599,8 +718,9 @@ The BFF SHALL serve `GET /api/delivery`, admin-gated like the other `/api/*`
 endpoints, from an in-memory cache refreshed every `FD_REFRESH_DELIVERY`. The
 payload SHALL carry `generatedAt`, the ordered stage and environment-group
 definitions, the changes with their stage states and per-stage estimates, the
-phase estimates (FLT-DLV-09), the release diagnostics when the Release phase is
-Overdue (FLT-DLV-20), the omitted-change count, and a per-source `stale` and `error` flag for `upstream`,
+phase estimates (FLT-DLV-09), the bundle train (FLT-DLV-22), the heads of both
+repositories and each environment's bundle and gate now (FLT-DLV-23), the
+release diagnostics when the Release phase is Overdue (FLT-DLV-20), the omitted-change count, and a per-source `stale` and `error` flag for `upstream`,
 `registry`, `gitops`, `promotion`, and `history`.
 
 Per refresh, the BFF SHALL make at most one commits-list call, one check-runs
@@ -627,6 +747,7 @@ immutable. Pending-bundle compare results SHALL use the shared compare cache.
 | `FD_DELIVERY_RELEASE_PR_BRANCH` | no | none | Head branch of the automated bundle update pull request in `FD_GITHUB_REPO`. When unset, the GitOps update stage has no Running state. |
 | `FD_DELIVERY_CHECK_APP` | no | `red-hat-konflux` | GitHub App slug whose check runs are builds and policy checks. |
 | `FD_DELIVERY_IMAGE_CHECK` | no | `E2E / Wait for Konflux images` | Name of the check run, from any GitHub App, that waits for the Konflux builds and confirms their images are published. The Build popup shows it (FLT-DLV-20). When empty, the popup omits it. |
+| `FD_DELIVERY_HISTORY_DAYS` | no | `7` | How far back the promotion history may read to hold 5 passed promotions per environment (FLT-DLV-09, FLT-DLV-18). |
 | `FD_DELIVERY_WINDOW` | no | `30` | Maximum changes in the payload. |
 | `FD_REFRESH_DELIVERY` | no | `60s` | Cache refresh interval. |
 | `FD_DELIVERY_RELEASE_LOG_URL` | no | none | Link to the Konflux release list or log for the application. When unset, the Release popup omits the link. |
@@ -735,10 +856,14 @@ The production Delivery tab SHALL match the approved mockup stories
 `Mockups/Glass/Delivery` (design review) and `Parity/Glass/Delivery` (parity)
 in `specs/web-console/mockups/dashboards/delivery-pipeline/`, state for state:
 `InFlight`, `ChangeSelected`, `BuildFailed`, `ReleaseOverdue`,
-`AllDelivered`, `PromotionRetried`, `SourceUnavailable`, `Loading`,
-`NotConfigured`, and `Error`. `InFlight` SHALL show the progress bar and arrival
-range (FLT-DLV-19, FLT-DLV-10); `ReleaseOverdue` SHALL show the Overdue Release
-phase with its "Where to look" popup open (FLT-DLV-20).
+`AllDelivered`, `PromotionRetried`, `BundleTrain`, `SourceUnavailable`,
+`Loading`, `NotConfigured`, and `Error`. `InFlight` SHALL show the progress bar
+and arrival range (FLT-DLV-19, FLT-DLV-10); `ReleaseOverdue` SHALL show the
+Overdue Release phase with its "Where to look" popup open (FLT-DLV-20).
+`BundleTrain` SHALL show the Pipeline now panel during a bundle train, a partly
+shipped change, a superseded build, and an analysis that a newer bundle will
+restart (FLT-DLV-22, FLT-DLV-23). Every state SHALL show the Pipeline now
+panel.
 The production page SHALL pass `skills/build/ui-build-gate/SKILL.md`.
 
 #### Scenario: FLT-DLV-16.01 -- Every mockup state has a production story
@@ -761,7 +886,11 @@ per-refresh call budget (FLT-DLV-12), per-source degradation (FLT-DLV-13), and
 release diagnostics (FLT-DLV-20); UI domain tests for the Overdue rule
 (FLT-DLV-04), the Now and next text, arrival times, and severity (FLT-DLV-10),
 and progress-bar cells and percent (FLT-DLV-19); route-codec tests for
-`change` (FLT-DLV-14); and the replay (FLT-DLV-21).
+`change` (FLT-DLV-14); and the replay (FLT-DLV-21). They SHALL also cover
+superseded builds (FLT-DLV-05), delivery time (FLT-DLV-02), waiting on
+`dependsOn` (FLT-DLV-08), per-environment estimates (FLT-DLV-09), arrival
+along the graph and gate restarts (FLT-DLV-10), partly shipped changes and the
+bundle train (FLT-DLV-22), and the Pipeline now panel (FLT-DLV-23).
 
 #### Scenario: FLT-DLV-17.01 -- Markers present
 
@@ -800,7 +929,9 @@ of those records the results of the commit it replaced, not its own.
 For each change and environment, the history SHALL list the promotions whose
 bundle contains the change, oldest first, up to and including the first one
 that Passed or the active one. The read SHALL cover promotions merged since
-the oldest listed change. Results for a replaced promotion SHALL be cached
+the oldest listed change, and SHALL reach further back, up to
+`FD_DELIVERY_HISTORY_DAYS`, until it holds the last 5 passed promotions of each
+environment (FLT-DLV-09). Results for a replaced promotion SHALL be cached
 once its gate runs completed or once it was replaced more than one hour ago.
 
 #### Scenario: FLT-DLV-18.01 -- First bundle replaced while its analysis ran
@@ -961,3 +1092,90 @@ run without network access.
 - GIVEN runs R1, R2, R3, R4 ending in that order
 - WHEN the replay estimates R4
 - THEN it SHALL use R1, R2, and R3 only
+
+### Requirement: FLT-DLV-22 -- Partly shipped changes and bundle trains
+
+The delivery source SHALL follow each of a change's rebuilt bundled components
+on its own. For each component it SHALL know the newest published bundle that
+carries the component at or after the change, and where that bundle is active.
+
+A change is **partly shipped** while some, but not all, of those components
+are in a published bundle. The row SHALL then show, per stage, which
+components have reached it ("n of m components"), and SHALL name the missing
+ones with their state. A partly shipped change SHALL NOT show Release Not
+started: some of its code is already released.
+
+The **bundle train** is the sequence of bundles published after the newest
+bundle whose gates passed in the first environment group. The payload SHALL
+list the train: for each bundle, its alias, publication time, what it changed
+against the previous bundle (component names and revisions, or "same
+components" when only its release name differs), and where it is active. A
+bundle in flight is also part of the train when it is inferred from a
+finished component build whose bundle is not published yet: "agent-runtime
+bundle releasing (inferred)".
+
+Each bundle of the train that reaches an environment restarts that
+environment's gates. The tab SHALL say so where it matters: in Next (FLT-DLV-10),
+in the Pipeline now panel (FLT-DLV-23), and in the environment's promotion
+history, where the restarted promotion reads Replaced (FLT-DLV-18).
+
+#### Scenario: FLT-DLV-22.01 -- One merge, several bundles
+
+- GIVEN change C rebuilt five bundled components
+- AND four builds finished between 12:47 and 12:52 and each produced a bundle
+- AND agent-runtime's build finished at 13:24
+- WHEN the BFF builds the payload at 13:28
+- THEN the train SHALL list the published bundles with the components each changed
+- AND it SHALL end with "agent-runtime bundle releasing (inferred)"
+
+#### Scenario: FLT-DLV-22.02 -- A repeat bundle is named as one
+
+- GIVEN bundle B2 has the same component revisions as B1 and only a new release name
+- WHEN the train renders
+- THEN B2 SHALL read "same components"
+- AND B2 SHALL still be shown as restarting the gates where it lands
+
+### Requirement: FLT-DLV-23 -- Pipeline now
+
+Above the Now and next summary, the tab SHALL show a **Pipeline now** panel
+that states the situation at this moment, without the operator reading rows.
+It SHALL answer three questions:
+
+1. **Where are the heads?** The application repository's `main` head (short
+   SHA, pull request, title, merge time) and the GitOps repository's `main`
+   head (the locked bundle's alias, publication time, and the time it was
+   locked).
+2. **What is in flight?** Component builds and policy checks running on
+   `main`, with elapsed time; bundles releasing (inferred) and pending
+   bundles; an open bundle update pull request; and, per environment, the
+   bundle it runs, the gate in progress with its elapsed time and attempt
+   number ("attempt 1 of 3"), and the environments waiting with what each
+   waits for (its `dependsOn`).
+3. **What happens next?** The expected next events in order, each with an
+   expected time when estimates allow: the next bundle published, the next
+   GitOps lock, gates that a new bundle will restart, and the next
+   environments to promote.
+
+Each environment SHALL appear once, with the bundle it runs now, even when no
+listed change is in flight there. The panel SHALL use only data the payload
+already carries, and SHALL make no extra source call. When a source is
+Unknown (FLT-DLV-13), the panel SHALL say which answer it cannot give.
+
+#### Scenario: FLT-DLV-23.01 -- A busy moment
+
+- GIVEN `main` head is #1189, whose agent-runtime build finished at 13:24
+- AND GitOps `main` locks bundle B3, published at 13:00
+- AND every Int environment runs B3, and the Int hub's release analysis is on attempt 1 of 3 for 17 minutes
+- AND Stage and Prod environments have open promotions waiting for Int
+- WHEN the panel renders
+- THEN it SHALL name #1189 and B3 as the heads
+- AND it SHALL list the Int hub's analysis with "17 min, attempt 1 of 3"
+- AND it SHALL list "agent-runtime bundle releasing (inferred)" in flight
+- AND Next SHALL say the agent-runtime bundle will restart the Int analysis, then Stage promotes
+
+#### Scenario: FLT-DLV-23.02 -- Quiet pipeline
+
+- GIVEN nothing is building, releasing, or gating
+- WHEN the panel renders
+- THEN it SHALL show both heads and each environment's bundle
+- AND it SHALL read "Nothing in flight"
