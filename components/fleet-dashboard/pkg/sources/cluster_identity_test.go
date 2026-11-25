@@ -35,7 +35,10 @@ func TestClusterIdentitiesGroupsByNamespace(t *testing.T) {
 	p := identityPromServer(t, map[string]string{
 		capabilityInfoMetric: `{"metric":{"k8s_namespace_name":"inst-spoke","cluster":"ibm-a","capability":"network/public"},"value":[1,"1"]},` +
 			`{"metric":{"k8s_namespace_name":"inst-spoke","cluster":"ibm-a","capability":"provider/ibm"},"value":[1,"1"]},` +
-			`{"metric":{"k8s_namespace_name":"inst-spoke","cluster":"ibm-a","capability":"bogus/x"},"value":[1,"1"]},` +
+			`{"metric":{"k8s_namespace_name":"inst-spoke","cluster":"ibm-a","capability":"zeta/x"},"value":[1,"1"]},` +
+			`{"metric":{"k8s_namespace_name":"inst-spoke","cluster":"ibm-a","capability":"purpose/release-check"},"value":[1,"1"]},` +
+			`{"metric":{"k8s_namespace_name":"inst-spoke","cluster":"ibm-a","capability":"alpha/y"},"value":[1,"1"]},` +
+			`{"metric":{"k8s_namespace_name":"inst-spoke","cluster":"ibm-a","capability":"malformed"},"value":[1,"1"]},` +
 			`{"metric":{"cluster":"ibm-a","capability":"provider/ibm"},"value":[1,"1"]}`,
 		controlPlaneInfoMetric: `{"metric":{"k8s_namespace_name":"inst-spoke","cluster":"ibm-a","gateway_image":"quay.io/x/gw:v2"},"value":[1,"1"]},` +
 			`{"metric":{"k8s_namespace_name":"inst-spoke","cluster":"ibm-a","gateway_image":"quay.io/x/gw:v1"},"value":[1,"1"]}`,
@@ -45,10 +48,12 @@ func TestClusterIdentitiesGroupsByNamespace(t *testing.T) {
 		t.Fatalf("ClusterIdentities: %v", err)
 	}
 	want := map[string][]ClusterIdentity{
-		// Normalized like the annotation: unknown namespace dropped, provider first.
+		// Metric capabilities are not filtered by namespace: purpose/release-check
+		// and unknown namespaces reach the output. Lead namespaces come first, the
+		// rest alphabetically. Malformed entries are dropped.
 		// A series with no namespace label is ignored. Of two images, the sorted
 		// first is chosen.
-		"inst-spoke": {{Cluster: "ibm-a", Capabilities: []string{"provider/ibm", "network/public"}, GatewayImage: "quay.io/x/gw:v1"}},
+		"inst-spoke": {{Cluster: "ibm-a", Capabilities: []string{"provider/ibm", "network/public", "purpose/release-check", "alpha/y", "zeta/x"}, GatewayImage: "quay.io/x/gw:v1"}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("ClusterIdentities = %+v, want %+v", got, want)

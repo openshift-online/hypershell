@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -539,10 +540,15 @@ type argoInfo struct {
 // export telemetry yet. Values are "namespace/value" strings.
 const capabilitiesAnnotation = deliveryLabelPrefix + "capabilities"
 
-// capabilityNamespaces is the allow-list of recognized, PUBLIC product-level
-// capability namespace names (PLAT-CLUS-06), used to validate and order the
-// annotation entries; identity labels (role, cluster, env) are deliberately not in
-// it. The UI treats the result as opaque data and bakes in no vocabulary of its own
+// capabilityNamespaces lists the recognized, PUBLIC product-level capability
+// namespace names (PLAT-CLUS-06). It has two jobs:
+//  1. It is the allow-list for the hand-written delivery annotation only. The
+//     control plane metric is not filtered by it, because the api-server already
+//     validates namespaces at registration.
+//  2. It is the lead order: these namespaces come first in every output, and any
+//     other namespace follows in alphabetical order.
+//
+// Identity labels (role, cluster, env) are deliberately not in it. The UI treats the result as opaque data and bakes in no vocabulary of its own
 // (FLT-CAP-01).
 var capabilityNamespaces = []string{
 	"provider",
@@ -554,6 +560,7 @@ var capabilityNamespaces = []string{
 	// collapse them to read `env` here. Nothing emits a delivery.hypershell.app/
 	// environment label today, so this namespace is forward-looking.
 	"environment",
+	"purpose",
 }
 
 // capabilitiesFromAnnotation parses the comma-joined
@@ -570,21 +577,28 @@ func capabilitiesFromAnnotation(ann map[string]string) []string {
 	if raw == "" {
 		return nil
 	}
-	return normalizeCapabilities(strings.Split(raw, ","))
-}
-
-// normalizeCapabilities applies the capability rules shared by every source (the
-// delivery annotation and the control plane's capability info metric): trim, drop
-// empty, malformed, duplicate, or unrecognized-namespace entries, and order by
-// capabilityNamespaces (authored order kept within a namespace). Returns nil when
-// nothing survives.
-func normalizeCapabilities(entries []string) []string {
 	allowed := make(map[string]bool, len(capabilityNamespaces))
 	for _, ns := range capabilityNamespaces {
 		allowed[ns] = true
 	}
-	// Bucket by namespace so output is ordered by capabilityNamespaces, not by the
-	// order the annotation happened to be authored in.
+	var known []string
+	for _, part := range strings.Split(raw, ",") {
+		ns, _, _ := strings.Cut(strings.TrimSpace(part), "/")
+		if allowed[ns] {
+			known = append(known, part)
+		}
+	}
+	return normalizeCapabilities(known)
+}
+
+// normalizeCapabilities applies the syntax rules shared by every source (the
+// delivery annotation and the control plane's capability info metric): trim, and
+// drop empty, malformed ("<ns>/<value>" shape missing), or duplicate entries. It
+// does not check the namespace against capabilityNamespaces; the annotation does
+// that itself before calling here. Output order is stable: capabilityNamespaces
+// first, in that order, then every other namespace alphabetically. Within a
+// namespace the input order is kept. Returns nil when nothing survives.
+func normalizeCapabilities(entries []string) []string {
 	byNS := map[string][]string{}
 	seen := map[string]bool{}
 	for _, part := range entries {
@@ -593,7 +607,7 @@ func normalizeCapabilities(entries []string) []string {
 			continue
 		}
 		ns, val, ok := strings.Cut(capability, "/")
-		if !ok || ns == "" || val == "" || !allowed[ns] {
+		if !ok || ns == "" || val == "" {
 			continue
 		}
 		seen[capability] = true
@@ -601,6 +615,15 @@ func normalizeCapabilities(entries []string) []string {
 	}
 	var caps []string
 	for _, ns := range capabilityNamespaces {
+		caps = append(caps, byNS[ns]...)
+		delete(byNS, ns)
+	}
+	others := make([]string, 0, len(byNS))
+	for ns := range byNS {
+		others = append(others, ns)
+	}
+	sort.Strings(others)
+	for _, ns := range others {
 		caps = append(caps, byNS[ns]...)
 	}
 	return caps
