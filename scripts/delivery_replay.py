@@ -195,8 +195,11 @@ def classify_check(name: str) -> tuple[str, str] | None:
 def gate_runs(runs: list[dict], keys: Iterable[str], branch: str) -> tuple[float | None, bool, bool]:
     """Gate result of one promotion: (gates passed at, all passed, re-run seen).
 
-    A gate's run is named `<key>/<branch>`, or `<key>` when that is absent. More
-    than one run of the chosen name is a re-run (FLT-DLV-09).
+    A gate's run is named `<key>/<branch>`, or `<key>` when that is absent. The
+    gates pass when the last gate first succeeds: a health check posted again
+    later on the same commit does not move the time (FLT-DLV-08). A re-run is
+    more than one run of a gate started at or before its first pass; checks
+    that confirm the pass again later do not count (FLT-DLV-09).
     """
     by_name: dict[str, list[dict]] = {}
     for r in runs:
@@ -207,16 +210,88 @@ def gate_runs(runs: list[dict], keys: Iterable[str], branch: str) -> tuple[float
         chosen = by_name.get(f"{k}/{branch}") or by_name.get(k)
         if not chosen:
             return None, False, rerun
-        if len(chosen) > 1:
-            rerun = True
-        latest = max(chosen, key=lambda r: r.get("started_at") or "")
-        if latest.get("status") != "completed" or latest.get("conclusion") not in SUCCEEDED:
+        ok = [
+            t
+            for r in chosen
+            if r.get("status") == "completed" and r.get("conclusion") in SUCCEEDED
+            and (t := ts(r.get("completed_at"))) is not None
+        ]
+        if not ok:
+            rerun = rerun or len(chosen) > 1
             return None, False, rerun
-        t = ts(latest.get("completed_at"))
-        if t is None:
-            return None, False, rerun
-        end = t if end is None else max(end, t)
+        first = min(ok)
+        before = sum(1 for r in chosen if (st := ts(r.get("started_at"))) is not None and st <= first)
+        rerun = rerun or before > 1
+        end = first if end is None else max(end, first)
     return end, end is not None, rerun
+
+
+def effective_deps(envs: list[str], deps: dict[str, list[str]]) -> dict[str, list[str]]:
+    """The promotion graph: declared dependsOn, or a chain in spec order when
+    no environment declares any, as the promoter does (FLT-DLV-08)."""
+    if any(deps.get(e) for e in envs):
+        return {e: list(deps.get(e, [])) for e in envs}
+    return {e: ([envs[i - 1]] if i else []) for i, e in enumerate(envs)}
+
+
+def group_estimates(
+    env_est: dict[str, Estimate | None],
+    deps: dict[str, list[str]],
+    groups: list[tuple[str, list[str]]],
+) -> dict[str, Estimate | None]:
+    """Each group's estimate from the environment estimates (FLT-DLV-09, FLT-DLV-10).
+
+    An environment ends its own estimate after the latest of its
+    dependencies; a group ends when its last environment does. A group's
+    estimate is the time it adds after the groups before it. A group with an
+    environment without an estimate has none, and neither do later groups.
+    """
+    def offsets(pick) -> dict[str, float]:
+        out: dict[str, float] = {}
+        state: dict[str, int] = {}
+
+        def visit(e: str) -> float | None:
+            if state.get(e) == 1:
+                return None  # a cycle: no estimate
+            if state.get(e) == 2:
+                return out.get(e)
+            state[e] = 1
+            try:
+                est = env_est.get(e)
+                if est is None:
+                    return None
+                start = 0.0
+                for d in deps.get(e, []):
+                    v = visit(d)
+                    if v is None:
+                        return None
+                    start = max(start, v)
+                out[e] = start + pick(est)
+                return out[e]
+            finally:
+                state[e] = 2
+
+        for e in deps:
+            visit(e)
+        return out
+
+    med = offsets(lambda e: e.median)
+    slow = offsets(lambda e: e.slowest)
+    result: dict[str, Estimate | None] = {g: None for g, _ in groups}
+    prev_m = prev_s = 0.0
+    for g, envs in groups:
+        if not envs or any(e not in med or e not in slow for e in envs):
+            break
+        end_m = max(med[e] for e in envs)
+        end_s = max(slow[e] for e in envs)
+        result[g] = Estimate(max(0.0, end_m - prev_m), max(0.0, end_s - prev_s))
+        prev_m, prev_s = max(prev_m, end_m), max(prev_s, end_s)
+    return result
+
+
+def env_phase(env: str) -> str:
+    """Sample key of one environment's promotion runs (FLT-DLV-09)."""
+    return "environment:" + env
 
 
 def ts(iso: str | None) -> float | None:
@@ -569,7 +644,9 @@ class Replay:
 
         text = contents_json(self.api, a.gitops_repo, a.strategy_path, "main")
         envs, deps, gates = parse_strategy(text if isinstance(text, str) else "")
-        self.groups = env_groups(envs, deps, a.env_group)
+        self.envs = envs
+        self.deps = effective_deps(envs, deps)
+        self.groups = env_groups(envs, self.deps, a.env_group)
         self.promotions: dict[str, list[Promotion]] = {}
         for e in envs:
             self.promotions[e] = load_promotions(
@@ -685,17 +762,13 @@ class Replay:
                 if ends:
                     add("release", max(ends), b.published)
             add("gitops", b.published, b.locked_at)
-            prev = b.locked_at
-            for g, envs in self.groups:
-                end = None
-                for e in envs:
-                    p = next((p for p in self.promotions.get(e, []) if p.digest == b.digest), None)
-                    if p is None or not p.passed or p.rerun or p.gates_at is None:
-                        end = None
-                        break
-                    end = p.gates_at if end is None else max(end, p.gates_at)
-                add(f"env:{g}", prev, end)
-                prev = end
+        # Environment: one run per passed promotion, from its merge on the
+        # environment branch to its gates' first pass. Groups are not sampled:
+        # their estimate follows the dependsOn graph (FLT-DLV-09).
+        for e, promos in self.promotions.items():
+            for p in promos:
+                if p.passed and not p.rerun:
+                    add(env_phase(e), p.merged, p.gates_at)
         return runs
 
     # -- estimates for a change at a moment -----------------------------------
@@ -704,6 +777,9 @@ class Replay:
         if phase in ("build", "policy"):
             comps = c.rebuilt or sorted(c.builds)
             return combine(estimate(runs.get(f"{phase}:{k}", []), at) for k in comps)
+        if phase.startswith("env:"):
+            env_est = {e: estimate(runs.get(env_phase(e), []), at) for e in self.deps}
+            return group_estimates(env_est, self.deps, self.groups).get(phase[len("env:"):])
         return estimate(runs.get(phase, []), at)
 
     def phases(self, c: Change) -> list[str]:

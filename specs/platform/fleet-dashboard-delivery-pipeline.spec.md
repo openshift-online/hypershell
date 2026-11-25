@@ -1078,7 +1078,10 @@ Overdue rules against past runs. It SHALL rebuild each past change's phases
 from the GitHub API: application-repository commits, check runs, and releases;
 the GitOps repository's release-lock history; and the promotion pull requests
 on the environment branches. It SHALL estimate each run only from runs that
-ended before it. It SHALL report, for a date range:
+ended before it. It SHALL estimate environment groups as the delivery source
+does: one sample per passed promotion of each environment, combined along the
+promotion graph (FLT-DLV-09, FLT-DLV-10), with each gate's first pass as its
+time (FLT-DLV-08). It SHALL report, for a date range:
 
 - merge to last environment: median and fastest;
 - the median absolute arrival miss for the last group, at merge, once the

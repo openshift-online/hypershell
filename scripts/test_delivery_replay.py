@@ -127,8 +127,21 @@ class ParsingTest(unittest.TestCase):
         self.assertTrue(passed)
         self.assertFalse(rerun)
         self.assertEqual(replay.iso(at), "2026-11-01 10:20")
-        runs.append(dict(runs[2], started_at="2026-11-01T11:00:00Z", completed_at="2026-11-01T11:30:00Z"))
+        # A later re-confirmation is not a re-run and does not move the time.
+        runs.append(dict(runs[0], started_at="2026-11-01T13:00:00Z", completed_at="2026-11-01T13:13:00Z"))
+        at, _, rerun = replay.gate_runs(runs, ["health", "analysis"], "env/a")
+        self.assertFalse(rerun)
+        self.assertEqual(replay.iso(at), "2026-11-01 10:20")
+        # A failed attempt before the first pass is a re-run.
+        runs.append(dict(runs[2], conclusion="failure", started_at="2026-11-01T09:00:00Z",
+                         completed_at="2026-11-01T09:10:00Z"))
         self.assertTrue(replay.gate_runs(runs, ["health", "analysis"], "env/a")[2])
+
+    def test_gate_never_passed(self):
+        # Verifies: FLT-DLV-08
+        runs = [{"name": "health", "status": "completed", "conclusion": "failure",
+                 "started_at": "2026-11-01T10:00:00Z", "completed_at": "2026-11-01T10:05:00Z"}]
+        self.assertEqual(replay.gate_runs(runs, ["health"], "env/a"), (None, False, False))
 
     def test_strategy_groups_follow_dependencies(self):
         # Verifies: FLT-DLV-03.01
@@ -154,6 +167,37 @@ spec:
         self.assertEqual(gates["env/b"], ["analysis", "health"])
         groups = replay.env_groups(envs, deps, r"^env/([^-]+)")
         self.assertEqual([g for g, _ in groups], ["a", "b", "c"])
+
+
+class GraphEstimateTest(unittest.TestCase):
+    # a -> b, a -> c; groups int = {a}, stage = {b, c}.
+    deps = {"a": [], "b": ["a"], "c": ["a"]}
+    groups = [("int", ["a"]), ("stage", ["b", "c"])]
+
+    def test_group_adds_its_slowest_path(self):
+        # Verifies: FLT-DLV-09, FLT-DLV-10
+        est = {"a": Estimate(10 * MIN, 12 * MIN), "b": Estimate(5 * MIN, 9 * MIN), "c": Estimate(8 * MIN, 8 * MIN)}
+        got = replay.group_estimates(est, self.deps, self.groups)
+        self.assertEqual(got["int"], Estimate(10 * MIN, 12 * MIN))
+        self.assertEqual(got["stage"], Estimate(8 * MIN, 9 * MIN))
+
+    def test_missing_environment_stops_later_groups(self):
+        # Verifies: FLT-DLV-09.01
+        est = {"a": None, "b": Estimate(5 * MIN, 9 * MIN), "c": Estimate(8 * MIN, 8 * MIN)}
+        got = replay.group_estimates(est, self.deps, self.groups)
+        self.assertIsNone(got["int"])
+        self.assertIsNone(got["stage"])
+
+    def test_cycle_has_no_estimate(self):
+        # Verifies: FLT-DLV-09
+        est = {"a": Estimate(MIN, MIN), "b": Estimate(MIN, MIN)}
+        got = replay.group_estimates(est, {"a": ["b"], "b": ["a"]}, [("g", ["a", "b"])])
+        self.assertIsNone(got["g"])
+
+    def test_no_declared_edges_chain_in_order(self):
+        # Verifies: FLT-DLV-08
+        self.assertEqual(replay.effective_deps(["x", "y", "z"], {}), {"x": [], "y": ["x"], "z": ["y"]})
+        self.assertEqual(replay.effective_deps(["x", "y"], {"y": ["x"]}), {"x": [], "y": ["x"]})
 
 
 if __name__ == "__main__":
