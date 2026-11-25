@@ -41,7 +41,7 @@ selector without a selector. A flag value that is empty or contains a comma
 SHALL be rejected before any request is sent, with an error that names the
 repeat syntax. A flag value SHALL be rejected before any request is sent when
 it is not `namespace/value` with a namespace among `provider`, `network`,
-`region`, `runtime`, `environment`, `placement`, or the identity namespace
+`region`, `runtime`, `environment`, `purpose`, or the identity namespace
 `managed-cluster` (CLI-PLC-05), and both segments matching a lowercase
 DNS-label; the server's validation remains authoritative and its message is
 surfaced verbatim when the client check passes but the server rejects.

@@ -169,14 +169,14 @@ func TestGRPCCreatePinnedClusterRequiresAdmin(t *testing.T) {
 	}
 }
 
-// TestPlacementLabelAuthorize is the gate on requiring a placement/ label
-// (SEC-RBAC-35): a gateway:creator is denied with the placement/ reason, the role or
+// TestPurposeLabelAuthorize is the gate on requiring a purpose/ label
+// (SEC-RBAC-35): a gateway:creator is denied with the purpose/ reason, the role or
 // platform:admin passes, excluding the label needs no role, a control-plane write
 // bypasses the gate, and an import is denied.
 // Verifies: SEC-RBAC-35.01, SEC-RBAC-35.02, SEC-RBAC-35.03
-func TestPlacementLabelAuthorize(t *testing.T) {
-	required := openapi.GatewayPlacementIntent{Selector: []string{"provider/ibm", "placement/release-check"}}
-	excluded := openapi.GatewayPlacementIntent{Selector: []string{"provider/ibm"}, ExcludedSelector: []string{"placement/release-check"}}
+func TestPurposeLabelAuthorize(t *testing.T) {
+	required := openapi.GatewayPlacementIntent{Selector: []string{"provider/ibm", "purpose/release-check"}}
+	excluded := openapi.GatewayPlacementIntent{Selector: []string{"provider/ibm"}, ExcludedSelector: []string{"purpose/release-check"}}
 	for _, tc := range []struct {
 		name    string
 		roles   []string
@@ -184,10 +184,10 @@ func TestPlacementLabelAuthorize(t *testing.T) {
 		intent  openapi.GatewayPlacementIntent
 		wantErr string
 	}{
-		{name: "gateway:creator may not require placement/", roles: []string{"gateway:creator"}, ctx: pinGateUser(), intent: required, wantErr: placementLabelForbiddenReason},
-		{name: "gateway:cluster-targeting may require placement/", roles: []string{"gateway:creator", "gateway:cluster-targeting"}, ctx: pinGateUser(), intent: required},
-		{name: "platform:admin may require placement/", roles: []string{"platform:admin"}, ctx: pinGateUser(), intent: required},
-		{name: "gateway:creator may exclude placement/", roles: []string{"gateway:creator"}, ctx: pinGateUser(), intent: excluded},
+		{name: "gateway:creator may not require purpose/", roles: []string{"gateway:creator"}, ctx: pinGateUser(), intent: required, wantErr: purposeLabelForbiddenReason},
+		{name: "gateway:cluster-targeting may require purpose/", roles: []string{"gateway:creator", "gateway:cluster-targeting"}, ctx: pinGateUser(), intent: required},
+		{name: "platform:admin may require purpose/", roles: []string{"platform:admin"}, ctx: pinGateUser(), intent: required},
+		{name: "gateway:creator may exclude purpose/", roles: []string{"gateway:creator"}, ctx: pinGateUser(), intent: excluded},
 		{name: "control-plane write bypasses the gate", roles: []string{"gateway:creator"}, ctx: rbac.WithGatewayWriterKind(pinGateUser(), rbac.GatewayWriterControlPlane), intent: required},
 		{name: "import is denied", roles: []string{"platform:admin"}, ctx: rbac.WithGatewayWriterKind(pinGateUser(), rbac.GatewayWriterImport), intent: required, wantErr: importClusterTargetingForbiddenReason},
 	} {

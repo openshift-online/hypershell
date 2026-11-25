@@ -117,7 +117,7 @@ func (h gatewayHandler) GetPlacementAvailability(w http.ResponseWriter, r *http.
 		if len(request.Selectors) == 0 || len(request.Selectors) > 32 {
 			return nil, errors.Validation("selectors must contain between 1 and 32 selectors")
 		}
-		// A probed managed-cluster/<name> selector or placement/ label is gated to
+		// A probed managed-cluster/<name> selector or purpose/ label is gated to
 		// gateway:cluster-targeting like the create boundaries, before any name is
 		// resolved (SEC-RBAC-33.03, SEC-RBAC-35).
 		if svcErr := h.clusterTargeting.authorizeAvailability(r.Context(), request.Selectors); svcErr != nil {
@@ -262,7 +262,7 @@ func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
 				gatewayModel.ClusterId = pinnedCluster
 			} else {
 				placementIntent := gateway.GetPlacement()
-				// A managed-cluster/<name> token or a required placement/ label chooses
+				// A managed-cluster/<name> token or a required purpose/ label chooses
 				// the cluster, so it needs gateway:cluster-targeting. The gate is
 				// body-dependent, so it runs here, before the selector is validated or
 				// resolved, and rejects other callers with 403 (SEC-RBAC-33, SEC-RBAC-35).

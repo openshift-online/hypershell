@@ -50,7 +50,7 @@ const (
 	RoleGatewayOperatorWorkspaceCreator = "gateway:operator-workspace-creator"
 	// RoleGatewayClusterTargeting is the platform-wide entitlement to send a gateway
 	// to a chosen cluster at create (SEC-RBAC-34): pin it by cluster_id, target it by
-	// the managed-cluster/<name> identity selector, or require a placement/ label in
+	// the managed-cluster/<name> identity selector, or require a purpose/ label in
 	// its placement selector. It is separate from gateway:creator because each of
 	// these skips or narrows the capability-based placement every creator gets, and
 	// can reach clusters (such as a hub) that keep ordinary placement off. It grants

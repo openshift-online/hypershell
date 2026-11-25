@@ -310,7 +310,7 @@ func hasGatewayClusterTargeting(bindings []BindingSummary) bool {
 
 // CanTargetGatewayCluster reports whether a caller holding bindings may choose a
 // gateway's cluster at create: pin it by cluster_id, use the managed-cluster/<name>
-// identity selector (PLAT-DATA-31), or require a placement/ label (SEC-RBAC-33,
+// identity selector (PLAT-DATA-31), or require a purpose/ label (SEC-RBAC-33,
 // SEC-RBAC-34). platform:admin implicitly holds gateway:cluster-targeting; a plain
 // gateway:creator places by capability selector only. The entitlement is
 // platform-wide because the gateway it applies to does not exist yet.

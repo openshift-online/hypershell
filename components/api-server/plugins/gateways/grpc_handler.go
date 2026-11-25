@@ -212,7 +212,7 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 	statusField := req.Status
 	var placementJSON *string
 	if hasPlacement {
-		// A managed-cluster/<name> token or a required placement/ label chooses the
+		// A managed-cluster/<name> token or a required purpose/ label chooses the
 		// cluster, so it needs gateway:cluster-targeting. The gate is body-dependent,
 		// so it runs here at the create boundary, before the selector is validated or
 		// resolved, and rejects other callers with PermissionDenied (SEC-RBAC-33/35).

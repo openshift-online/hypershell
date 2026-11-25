@@ -770,7 +770,7 @@ The import writer SHALL:
   `placement`; a rendered spec that declares a `placement` and no `cluster_id` sends
   that `placement` and an empty `cluster_id`. The API server SHALL reject an
   import create that pins by `cluster_id` or requires a `managed-cluster/` or
-  `placement/` label (SEC-RBAC-34.04), so a manifest SHOULD declare a capability
+  `purpose/` label (SEC-RBAC-34.04), so a manifest SHOULD declare a capability
   `placement` selector.
 - Treat a late-bound Gateway's server-assigned `cluster_id` as NOT drift. The API
   server resolves a late-bound Gateway's placement and assigns a `cluster_id`

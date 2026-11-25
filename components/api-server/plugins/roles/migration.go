@@ -502,7 +502,7 @@ func migrationAddGatewayOperatorWorkspaceCreatorRole() *gormigrate.Migration {
 
 const (
 	gatewayClusterTargetingDisplayName = "Gateway Cluster Targeting"
-	gatewayClusterTargetingDescription = "Allows sending a gateway to a chosen cluster at create: pinning by cluster_id, the managed-cluster/<name> selector, and requiring placement/ labels. Ordinary creators place by capability selector only."
+	gatewayClusterTargetingDescription = "Allows sending a gateway to a chosen cluster at create: pinning by cluster_id, the managed-cluster/<name> selector, and requiring purpose/ labels. Ordinary creators place by capability selector only."
 )
 
 // migrationAddGatewayClusterTargetingRole seeds the gateway:cluster-targeting

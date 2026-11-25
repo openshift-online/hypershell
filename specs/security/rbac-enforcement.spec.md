@@ -118,7 +118,7 @@ Role        ||--o{ RoleBinding : "granted_by"
 | `managed-cluster-registrar` | global | Keycloak JWT (direct, no DB binding) | Allows a control-plane service account (every control plane, the hub's co-located one included) to call `POST /managed_clusters/registration`; checked live from JWT claim, not via `JWTSyncedRoles` or DB RoleBinding |
 | `gateway:dedicated-route-creator` | global | Keycloak JWT | Entitlement to set `dedicated_route = true` on a gateway create (the dedicated per-gateway route and wildcard certificate, PLAT-DATA-26 / OSG-ROUT-12); grants nothing else by itself. See "Requirement: Gateway Dedicated Route Creator Role" (SEC-RBAC-20) |
 | `gateway:operator-workspace-creator` | global | Keycloak JWT | Entitlement to set `workspace_mode = operator` on a gateway create (per-gateway operator-managed workspaces, OSG-OPWS-01); grants nothing else by itself. See "Requirement: Gateway Operator Workspace Creator Role" (SEC-RBAC-28) |
-| `gateway:cluster-targeting` | global | Keycloak JWT | Entitlement to choose a gateway's cluster at create: pin by `cluster_id`, the `managed-cluster/<name>` selector, or a required `placement/` label. `platform:admin` includes it. Grants nothing else by itself. See "Requirement: Gateway Cluster Targeting Role" (SEC-RBAC-34) |
+| `gateway:cluster-targeting` | global | Keycloak JWT | Entitlement to choose a gateway's cluster at create: pin by `cluster_id`, the `managed-cluster/<name>` selector, or a required `purpose/` label. `platform:admin` includes it. Grants nothing else by itself. See "Requirement: Gateway Cluster Targeting Role" (SEC-RBAC-34) |
 | `ci-federation:admin` | global | DB (RoleBinding API, granted by platform:admin or ci-federation:grantor) | Authorizes the `ci_providers` extension kind (register/read/update/delete a CI OIDC forge, PLAT-DATA-24) and nothing else. Granted through the RoleBinding API (not JWT-synced): HyperShell owns the authorization decision rather than delegating it to a Keycloak realm role. The gitops CI-federation seeder holds only this role instead of `platform:admin`. It confers no gateway, platform, or other ext-kind authority. See "Requirement: CI Federation Admin Role" (SEC-RBAC-21) |
 | `ci-federation:grantor` | global | Keycloak JWT | Narrow bootstrap role: authorizes creating/deleting a global `ci-federation:admin` RoleBinding and nothing else. Held by a gitops bootstrap identity so the seeder's `ci_providers` authorization can be granted declaratively without `platform:admin`. Confers no `ci_providers`, gateway, or platform authority and cannot grant any other role. See "Requirement: CI Federation Grantor Role" (SEC-RBAC-23) |
 | `fleet:reader` | global | Keycloak JWT | Narrow read-only fleet role: authorizes listing all gateways and reading any gateway (the same read surface as `platform:admin` view) and nothing else. Grants no delete, no access management, no create, no configuration modify, no ManagedCluster access, no gateway login, and no sandbox-events read. Held by the outside availability prober's workload identity (`platform/outside-prober.spec.md` OBS-PRB-06) and any read-only fleet observer that needs fleet-wide gateway visibility without `platform:admin`. See "Requirement: Fleet Reader Role" (SEC-RBAC-29) |
@@ -2235,7 +2235,7 @@ chooses a Gateway's cluster instead of letting capability placement pick one:
 
 1. pinning by `cluster_id` (this requirement);
 2. the `managed-cluster/<name>` identity selector (SEC-RBAC-33);
-3. requiring a `placement/` label in a placement selector (SEC-RBAC-35).
+3. requiring a `purpose/` label in a placement selector (SEC-RBAC-35).
 
 Each of these skips or narrows the capability placement every `gateway:creator`
 gets. A pin skips capability checks entirely, so it reaches any registered
@@ -2273,7 +2273,7 @@ authentication is off (SEC-RBAC-14).
 **Writers.** A `control-plane` write (for example the API server's own
 late-binding rebind) SHALL bypass every cluster-targeting check. A
 declarative-import (`import`) write SHALL be denied every cluster-targeting
-choice (`cluster_id`, `managed-cluster/<name>`, a required `placement/` label)
+choice (`cluster_id`, `managed-cluster/<name>`, a required `purpose/` label)
 with a 403 that names the import. A Repository import holds no roles, so it
 cannot hold `gateway:cluster-targeting`; a `.hypershell` Gateway manifest
 places by capability selector only.
@@ -2302,7 +2302,7 @@ places by capability selector only.
 #### Scenario: SEC-RBAC-34.04 -- An import may not choose a cluster
 
 - GIVEN the declarative `.hypershell` import, whatever roles its Repository owner holds
-- WHEN it creates a Gateway with `cluster_id` set, a `managed-cluster/<name>` token, or a required `placement/` label
+- WHEN it creates a Gateway with `cluster_id` set, a `managed-cluster/<name>` token, or a required `purpose/` label
 - THEN the create SHALL be rejected with `PermissionDenied` naming the import
 - AND no Gateway SHALL be created
 
@@ -2313,50 +2313,50 @@ places by capability selector only.
 - THEN exactly one built-in `gateway:cluster-targeting` role SHALL exist
 - AND it SHALL be JWT-synced, global-scope, and not assignable through the RoleBinding API
 
-### Requirement: SEC-RBAC-35 -- Placement Label Gate
+### Requirement: SEC-RBAC-35 -- Purpose Label Gate
 
-The `placement` capability namespace holds labels a cluster advertises to be
-targeted on purpose, for example `placement/release-check` on a hub that runs
-the post-rollout release check, or `placement/release-matrix` on clusters that
+The `purpose` capability namespace holds labels a cluster advertises to say what
+it is set aside for, for example `purpose/release-check` on a hub that runs
+the post-rollout release check, or `purpose/release-matrix` on clusters that
 opt in to the release matrix (E2E-CORE-30). The namespace is defined in
 [`platform/managed-cluster-registration.spec.md`](../platform/managed-cluster-registration.spec.md)
 (PLAT-CLUS-06).
 
 **Required labels are gated.** A create request (REST or gRPC) whose `placement`
-REQUIRED selector contains a `placement/` label, and a placement-availability
+REQUIRED selector contains a `purpose/` label, and a placement-availability
 probe whose selector contains one, SHALL require `gateway:cluster-targeting`
 (SEC-RBAC-34; `platform:admin` includes it). Any other user caller SHALL be
 rejected with 403 (`PermissionDenied` over gRPC) before the selector is
 resolved, with a message that names the role. An import SHALL be denied
 (SEC-RBAC-34.04).
 
-**Excluded labels are not gated.** A `placement/` label in the EXCLUDED selector
+**Excluded labels are not gated.** A `purpose/` label in the EXCLUDED selector
 SHALL need no role: keeping a Gateway off such a cluster grants no reach.
 
-**Use, not advertisement.** This gate confines who may REQUIRE a `placement/`
+**Use, not advertisement.** This gate confines who may REQUIRE a `purpose/`
 label. Which clusters advertise one is decided by each cluster's
 self-declared capabilities, and so by whoever holds
 `managed-cluster-registrar`. That identity is trusted to advertise only labels
 its operators intend.
 
-#### Scenario: SEC-RBAC-35.01 -- A creator may not require a placement label
+#### Scenario: SEC-RBAC-35.01 -- A creator may not require a purpose label
 
 - GIVEN a user caller holding only `gateway:creator`
-- WHEN the caller creates a Gateway, or probes placement availability, with a required selector containing `placement/release-check`
+- WHEN the caller creates a Gateway, or probes placement availability, with a required selector containing `purpose/release-check`
 - THEN the request SHALL be rejected with 403 (`PermissionDenied` over gRPC) before resolution
 - AND the message SHALL name `gateway:cluster-targeting`
 
-#### Scenario: SEC-RBAC-35.02 -- Cluster-targeting holders may require a placement label
+#### Scenario: SEC-RBAC-35.02 -- Cluster-targeting holders may require a purpose label
 
 - GIVEN a caller holding `gateway:creator` and `gateway:cluster-targeting`, or holding `platform:admin`
-- WHEN the caller creates a Gateway whose required selector contains a `placement/` label
+- WHEN the caller creates a Gateway whose required selector contains a `purpose/` label
 - THEN the check SHALL permit the create and placement SHALL resolve as for any capability label
 
-#### Scenario: SEC-RBAC-35.03 -- Excluding a placement label needs no role
+#### Scenario: SEC-RBAC-35.03 -- Excluding a purpose label needs no role
 
 - GIVEN a user caller holding only `gateway:creator`
-- WHEN the caller creates a Gateway whose excluded selector contains `placement/release-check` and whose required selector holds ordinary capability labels
-- THEN the placement-label gate SHALL NOT apply
+- WHEN the caller creates a Gateway whose excluded selector contains `purpose/release-check` and whose required selector holds ordinary capability labels
+- THEN the purpose-label gate SHALL NOT apply
 
 ## API Reference
 

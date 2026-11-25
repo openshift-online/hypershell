@@ -144,7 +144,7 @@ _assign_realm_role() {
 # not add new realm roles to an existing realm, so the reconcile creates any that
 # are missing before it assigns them (SEC-RBAC-34).
 _test_user_ensured_roles() {
-  printf '%s\t%s\n' "gateway:cluster-targeting" "HyperShell gateway creators who may choose a gateway's cluster: cluster_id, managed-cluster/<name>, placement/ labels (gateway:cluster-targeting RBAC role)"
+  printf '%s\t%s\n' "gateway:cluster-targeting" "HyperShell gateway creators who may choose a gateway's cluster: cluster_id, managed-cluster/<name>, purpose/ labels (gateway:cluster-targeting RBAC role)"
 }
 
 # _ensure_realm_role <token> <role> <description>

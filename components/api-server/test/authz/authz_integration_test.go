@@ -483,9 +483,9 @@ func TestGRPCUserCallsFollowHTTPGatewayRules(t *testing.T) {
 func strPtr(s string) *string { return &s }
 
 // TestGatewayClusterTargetingRequiresRole runs with RBAC on. A gateway:creator is
-// denied a cluster_id pin and a required placement/ label over REST and gRPC, with a
+// denied a cluster_id pin and a required purpose/ label over REST and gRPC, with a
 // message naming gateway:cluster-targeting, but may place by an ordinary selector
-// and may exclude a placement/ label. gateway:cluster-targeting and platform:admin
+// and may exclude a purpose/ label. gateway:cluster-targeting and platform:admin
 // may pin. An import may not pin, whatever roles its Repository owner holds.
 // Verifies: SEC-RBAC-34.01, SEC-RBAC-34.02, SEC-RBAC-34.03, SEC-RBAC-34.04, SEC-RBAC-35.01, SEC-RBAC-35.02, SEC-RBAC-35.03
 func TestGatewayClusterTargetingRequiresRole(t *testing.T) {
@@ -507,31 +507,31 @@ func TestGatewayClusterTargetingRequiresRole(t *testing.T) {
 	Expect(grpcCode(err)).To(Equal(codes.PermissionDenied), "creator gRPC pin: %v", err)
 	Expect(err.Error()).To(ContainSubstring("placement selector"))
 
-	// A gateway:creator may not require a placement/ label, but may exclude one.
+	// A gateway:creator may not require a purpose/ label, but may exclude one.
 	required := openapi.GatewayCreateRequest{Name: uniqueName("placement-required")}
-	required.SetPlacement(openapi.GatewayPlacementIntent{Selector: []string{"placement/release-check"}})
+	required.SetPlacement(openapi.GatewayPlacementIntent{Selector: []string{"purpose/release-check"}})
 	_, resp, err = client.DefaultAPI.CreateGateway(creator.rest).GatewayCreateRequest(required).Execute()
-	Expect(statusOf(resp)).To(Equal(http.StatusForbidden), "creator requiring placement/: %s", test.APIErrorReason(err))
-	Expect(test.APIErrorReason(err)).To(ContainSubstring("placement/"))
+	Expect(statusOf(resp)).To(Equal(http.StatusForbidden), "creator requiring purpose/: %s", test.APIErrorReason(err))
+	Expect(test.APIErrorReason(err)).To(ContainSubstring("purpose/"))
 	excluded := openapi.GatewayCreateRequest{Name: uniqueName("placement-excluded")}
-	excluded.SetPlacement(openapi.GatewayPlacementIntent{Selector: []string{regionForCluster(cluster.clusterID)}, ExcludedSelector: []string{"placement/release-check"}})
+	excluded.SetPlacement(openapi.GatewayPlacementIntent{Selector: []string{regionForCluster(cluster.clusterID)}, ExcludedSelector: []string{"purpose/release-check"}})
 	_, resp, err = client.DefaultAPI.CreateGateway(creator.rest).GatewayCreateRequest(excluded).Execute()
-	Expect(statusOf(resp)).To(Equal(http.StatusCreated), "creator excluding placement/: %s", test.APIErrorReason(err))
+	Expect(statusOf(resp)).To(Equal(http.StatusCreated), "creator excluding purpose/: %s", test.APIErrorReason(err))
 
 	// A gateway:creator still places by an ordinary capability selector.
 	placed, resp, err := client.DefaultAPI.CreateGateway(creator.rest).GatewayCreateRequest(gatewayCreateRequest(uniqueName("placed"), cluster.clusterID, false)).Execute()
 	Expect(statusOf(resp)).To(Equal(http.StatusCreated), "creator placement create: %s", test.APIErrorReason(err))
 	Expect(placed.GetClusterId()).To(Equal(cluster.clusterID))
 
-	// gateway:cluster-targeting and platform:admin may pin and require placement/.
+	// gateway:cluster-targeting and platform:admin may pin and require purpose/.
 	for name, p := range map[string]principal{"cluster-targeting": targeter, "platform:admin": admin} {
 		created, resp, err := client.DefaultAPI.CreateGateway(p.rest).GatewayCreateRequest(pinned("pin-ok")).Execute()
 		Expect(statusOf(resp)).To(Equal(http.StatusCreated), "%s REST pin: %s", name, test.APIErrorReason(err))
 		Expect(created.GetClusterId()).To(Equal(cluster.clusterID))
 		label := openapi.GatewayCreateRequest{Name: uniqueName("placement-ok")}
-		label.SetPlacement(openapi.GatewayPlacementIntent{Selector: []string{"placement/unmatched-" + strings.ToLower(api.NewID())}})
+		label.SetPlacement(openapi.GatewayPlacementIntent{Selector: []string{"purpose/unmatched-" + strings.ToLower(api.NewID())}})
 		_, resp, err = client.DefaultAPI.CreateGateway(p.rest).GatewayCreateRequest(label).Execute()
-		Expect(statusOf(resp)).To(Equal(http.StatusCreated), "%s requiring placement/: %s", name, test.APIErrorReason(err))
+		Expect(statusOf(resp)).To(Equal(http.StatusCreated), "%s requiring purpose/: %s", name, test.APIErrorReason(err))
 	}
 
 	// An import may not pin. The control plane carries the Repository binding.

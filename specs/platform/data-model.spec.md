@@ -355,9 +355,9 @@ part of this contract: it is the separate `managed-cluster/<name>` identity
 selector of "Requirement: Admin ManagedCluster Identity Selector"
 (PLAT-DATA-31), a selector-layer targeting token resolved by cluster name and
 gated to `gateway:cluster-targeting`, never a requirement capability. Requiring a
-`placement/` capability label is likewise gated to `gateway:cluster-targeting`
-(SEC-RBAC-35): it resolves like any capability, but marks clusters set aside for
-deliberate targeting.
+`purpose/` capability label is likewise gated to `gateway:cluster-targeting`
+(SEC-RBAC-35): it resolves like any capability, but says what a cluster is set
+aside for.
 
 **Late binding (no eligible cluster yet).** When a late-bound Gateway's selector
 matches NO eligible `ManagedCluster`, the create SHALL still succeed: the Gateway
@@ -434,7 +434,7 @@ token resolved by name, NOT a capability.
 **A selector-layer token, never a capability.** `managed-cluster/` SHALL be a
 distinct selector namespace, separate from the self-declared capability
 namespaces `provider`, `network`, `region`, `runtime`, `environment`, and
-`placement` (PLAT-CLUS-06). Because the namespaces are disjoint, a label in the
+`purpose` (PLAT-CLUS-06). Because the namespaces are disjoint, a label in the
 `managed-cluster/` namespace is unambiguously the identity-targeting token. The
 token SHALL be resolver-level only: it SHALL NOT be stored on a `ManagedCluster`,
 SHALL NOT be advertised in any capability list on `GET /managed_clusters`, and

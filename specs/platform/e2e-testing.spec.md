@@ -1613,12 +1613,12 @@ never be landed on, which is expected and SHALL NOT fail the run. The matrix cos
 SHALL be independent of the cluster count.
 
 **Opt-in fleet.** When `E2E_MATRIX_REQUIRED_CAPABILITY` names a capability label
-(for example `placement/release-matrix`), the matrix SHALL cover only the registered
+(for example `purpose/release-matrix`), the matrix SHALL cover only the registered
 clusters that advertise that label (the opted-in fleet). It SHALL enumerate
 capabilities only from those clusters, SHALL NOT run a suite for the required label
 itself (every opted-in cluster carries it), and SHALL append the label to every
 suite's placement selector (`placement.selector = [<capability>, <required>]`), so
-no gateway lands on a cluster that did not opt in. A `placement/` label is gated to
+no gateway lands on a cluster that did not opt in. A `purpose/` label is gated to
 `gateway:cluster-targeting` (SEC-RBAC-35), so the matrix runner's identity SHALL
 hold that role or `platform:admin`. Full capability coverage and the
 eligible-cluster assertion SHALL apply to the opted-in fleet. If no registered
@@ -1690,14 +1690,14 @@ report landed-cluster union                              # observational, never 
 
 #### Scenario: E2E-CORE-30.05 -- Matrix limited to the opted-in fleet
 
-- GIVEN `E2E_MATRIX_REQUIRED_CAPABILITY=placement/release-matrix`
-- AND registered clusters `hub` and `spoke1` advertise `provider/ibm`, `network/public`, and `placement/release-matrix`
-- AND registered cluster `spoke3` advertises `provider/ibm` and `environment/experimental` but not `placement/release-matrix`
+- GIVEN `E2E_MATRIX_REQUIRED_CAPABILITY=purpose/release-matrix`
+- AND registered clusters `hub` and `spoke1` advertise `provider/ibm`, `network/public`, and `purpose/release-matrix`
+- AND registered cluster `spoke3` advertises `provider/ibm` and `environment/experimental` but not `purpose/release-matrix`
 - WHEN `TestMatrix` runs
-- THEN it SHALL run one suite each for `network/public` and `provider/ibm`, and none for `environment/experimental` or `placement/release-matrix`
-- AND each suite SHALL place by `placement.selector = [<capability>, placement/release-matrix]`
+- THEN it SHALL run one suite each for `network/public` and `provider/ibm`, and none for `environment/experimental` or `purpose/release-matrix`
+- AND each suite SHALL place by `placement.selector = [<capability>, purpose/release-matrix]`
 - AND no suite gateway SHALL be accepted as landed on `spoke3`
-- AND if no registered cluster advertises `placement/release-matrix`, `TestMatrix` SHALL fail
+- AND if no registered cluster advertises `purpose/release-matrix`, `TestMatrix` SHALL fail
 
 ### Requirement: E2E-CORE-31 -- Single Functional E2E Implementation
 

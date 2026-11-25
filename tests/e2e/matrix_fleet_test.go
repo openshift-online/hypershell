@@ -9,11 +9,11 @@ import (
 // matrix, an experimental spoke that does not, and an unregistered cluster.
 func fleetFixture() []matrixCluster {
 	return []matrixCluster{
-		{ID: "hub", OidcSubject: "sub-hub", Capabilities: []string{"provider/ibm", "network/public", "placement/release-check", "placement/release-matrix"}},
-		{ID: "spoke1", OidcSubject: "sub-1", Capabilities: []string{"provider/ibm", "network/public", "placement/release-matrix"}},
-		{ID: "spoke2", OidcSubject: "sub-2", Capabilities: []string{"provider/ibm", "network/public", "runtime/kata", "placement/release-matrix"}},
+		{ID: "hub", OidcSubject: "sub-hub", Capabilities: []string{"provider/ibm", "network/public", "purpose/release-check", "purpose/release-matrix"}},
+		{ID: "spoke1", OidcSubject: "sub-1", Capabilities: []string{"provider/ibm", "network/public", "purpose/release-matrix"}},
+		{ID: "spoke2", OidcSubject: "sub-2", Capabilities: []string{"provider/ibm", "network/public", "runtime/kata", "purpose/release-matrix"}},
 		{ID: "spoke3", OidcSubject: "sub-3", Capabilities: []string{"provider/ibm", "environment/experimental"}},
-		{ID: "unregistered", Capabilities: []string{"provider/aws", "placement/release-matrix"}},
+		{ID: "unregistered", Capabilities: []string{"provider/aws", "purpose/release-matrix"}},
 	}
 }
 
@@ -23,7 +23,7 @@ func fleetFixture() []matrixCluster {
 func TestBuildMatrixFleetWholeFleet(t *testing.T) {
 	fleet := buildMatrixFleet(fleetFixture(), "")
 
-	want := []string{"environment/experimental", "network/public", "placement/release-check", "placement/release-matrix", "provider/ibm", "runtime/kata"}
+	want := []string{"environment/experimental", "network/public", "provider/ibm", "purpose/release-check", "purpose/release-matrix", "runtime/kata"}
 	if got := fleet.capabilities(); !slices.Equal(got, want) {
 		t.Fatalf("capabilities = %v, want %v", got, want)
 	}
@@ -40,9 +40,9 @@ func TestBuildMatrixFleetWholeFleet(t *testing.T) {
 // not a suite of its own.
 // Verifies: E2E-CORE-30.05
 func TestBuildMatrixFleetRequiredCapability(t *testing.T) {
-	fleet := buildMatrixFleet(fleetFixture(), "placement/release-matrix")
+	fleet := buildMatrixFleet(fleetFixture(), "purpose/release-matrix")
 
-	want := []string{"network/public", "placement/release-check", "provider/ibm", "runtime/kata"}
+	want := []string{"network/public", "provider/ibm", "purpose/release-check", "runtime/kata"}
 	if got := fleet.capabilities(); !slices.Equal(got, want) {
 		t.Fatalf("capabilities = %v, want %v", got, want)
 	}
@@ -79,11 +79,11 @@ func TestBuildMatrixFleetNoClusterOptedIn(t *testing.T) {
 // the gateway can land only on an opted-in cluster.
 // Verifies: E2E-CORE-30.05
 func TestGatewayCreateRequestForSuiteRequiredCapability(t *testing.T) {
-	s := &E2ESuite{driver: nameDriver{name: "openshift"}, matrixCapability: "provider/ibm", matrixRequiredCapability: "placement/release-matrix"}
+	s := &E2ESuite{driver: nameDriver{name: "openshift"}, matrixCapability: "provider/ibm", matrixRequiredCapability: "purpose/release-matrix"}
 
 	got := decodeRequest(t, s.gatewayCreateRequestForSuite("e2e-gw"))
-	if sel := placementSelector(t, got); !slices.Equal(sel, []string{"provider/ibm", "placement/release-matrix"}) {
-		t.Fatalf("selector = %v, want [provider/ibm placement/release-matrix]", sel)
+	if sel := placementSelector(t, got); !slices.Equal(sel, []string{"provider/ibm", "purpose/release-matrix"}) {
+		t.Fatalf("selector = %v, want [provider/ibm purpose/release-matrix]", sel)
 	}
 	if _, ok := got["cluster_id"]; ok {
 		t.Fatalf("matrix wire payload must not contain cluster_id: %v", got)
@@ -92,8 +92,8 @@ func TestGatewayCreateRequestForSuiteRequiredCapability(t *testing.T) {
 
 // The required capability is never duplicated when it equals the suite capability.
 func TestCapabilityGatewayCreateRequestNoDuplicateRequired(t *testing.T) {
-	got := decodeRequest(t, capabilityGatewayCreateRequest("e2e-gw", "placement/release-matrix", "placement/release-matrix"))
-	if sel := placementSelector(t, got); !slices.Equal(sel, []string{"placement/release-matrix"}) {
-		t.Fatalf("selector = %v, want [placement/release-matrix]", sel)
+	got := decodeRequest(t, capabilityGatewayCreateRequest("e2e-gw", "purpose/release-matrix", "purpose/release-matrix"))
+	if sel := placementSelector(t, got); !slices.Equal(sel, []string{"purpose/release-matrix"}) {
+		t.Fatalf("selector = %v, want [purpose/release-matrix]", sel)
 	}
 }

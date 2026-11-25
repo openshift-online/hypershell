@@ -758,7 +758,7 @@ data:
           { "name": "hypershell-users", "description": "HyperShell users" },
           { "name": "gateway:creator", "description": "HyperShell platform gateway creators (gateway:creator RBAC role)" },
           { "name": "platform:admin", "description": "HyperShell platform administrators with global view and delete access (platform:admin RBAC role)" },
-          { "name": "gateway:cluster-targeting", "description": "HyperShell gateway creators who may choose a gateway's cluster: cluster_id, managed-cluster/<name>, placement/ labels (gateway:cluster-targeting RBAC role)" },
+          { "name": "gateway:cluster-targeting", "description": "HyperShell gateway creators who may choose a gateway's cluster: cluster_id, managed-cluster/<name>, purpose/ labels (gateway:cluster-targeting RBAC role)" },
           { "name": "managed-cluster-registrar", "description": "Allows a control-plane service account to self-register its managed cluster (POST /managed_clusters/registration)" },
           { "name": "github-identity", "description": "Marks a session as GitHub-brokered; not an RBAC permission. Read by the web-console BFF to decide whether the GitHub org gate applies, without depending on the broker read-token permission check" }
         ]

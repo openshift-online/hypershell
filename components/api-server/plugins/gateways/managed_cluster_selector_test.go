@@ -123,7 +123,7 @@ func TestResolveManagedClusterIdentitySelection(t *testing.T) {
 }
 
 // TestPlacementTargetingReason detects a placement intent that chooses a cluster: a
-// managed-cluster/ token in the required or excluded selector, or a placement/ label
+// managed-cluster/ token in the required or excluded selector, or a purpose/ label
 // in the required selector only (SEC-RBAC-33, SEC-RBAC-35).
 // Verifies: SEC-RBAC-35.03
 func TestPlacementTargetingReason(t *testing.T) {
@@ -135,8 +135,8 @@ func TestPlacementTargetingReason(t *testing.T) {
 	}{
 		{name: "required identity", req: []string{"managed-cluster/a"}, wants: managedClusterSelectorForbiddenReason},
 		{name: "excluded identity", req: []string{"provider/aws"}, exc: []string{"managed-cluster/a"}, wants: managedClusterSelectorForbiddenReason},
-		{name: "required placement label", req: []string{"provider/ibm", "placement/release-check"}, wants: placementLabelForbiddenReason},
-		{name: "excluded placement label is ordinary placement", req: []string{"provider/ibm"}, exc: []string{"placement/release-check"}, wants: ""},
+		{name: "required purpose label", req: []string{"provider/ibm", "purpose/release-check"}, wants: purposeLabelForbiddenReason},
+		{name: "excluded purpose label is ordinary placement", req: []string{"provider/ibm"}, exc: []string{"purpose/release-check"}, wants: ""},
 		{name: "capability only", req: []string{"provider/aws"}, exc: []string{"runtime/kata"}, wants: ""},
 	}
 	for _, tc := range cases {
@@ -150,8 +150,8 @@ func TestPlacementTargetingReason(t *testing.T) {
 	if availabilityTargetingReason([][]string{{"provider/aws"}, {"managed-cluster/a"}}) != managedClusterSelectorForbiddenReason {
 		t.Fatal("expected a probed managed-cluster selector to be detected")
 	}
-	if availabilityTargetingReason([][]string{{"placement/release-matrix"}}) != placementLabelForbiddenReason {
-		t.Fatal("expected a probed placement/ label to be detected")
+	if availabilityTargetingReason([][]string{{"purpose/release-matrix"}}) != purposeLabelForbiddenReason {
+		t.Fatal("expected a probed purpose/ label to be detected")
 	}
 	if availabilityTargetingReason([][]string{{"provider/aws"}}) != "" {
 		t.Fatal("expected a pure capability probe to not be detected")

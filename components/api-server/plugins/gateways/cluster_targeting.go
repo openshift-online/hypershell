@@ -15,19 +15,19 @@ import (
 //
 //  1. pinning it by cluster_id (SEC-RBAC-34);
 //  2. the managed-cluster/<name> identity selector (PLAT-DATA-31, SEC-RBAC-33);
-//  3. requiring a placement/ label, a capability a cluster advertises only to be
-//     targeted on purpose, such as placement/release-check on a hub (SEC-RBAC-35).
+//  3. requiring a purpose/ label, a capability a cluster advertises to say what it
+//     is set aside for, such as purpose/release-check on a hub (SEC-RBAC-35).
 //
 // All three need gateway:cluster-targeting; platform:admin includes it. A plain
 // gateway:creator places by the other capability namespaces only.
 
-// placementTargetingNamespace is the capability namespace whose labels exist to be
-// targeted on purpose. A cluster advertises them like any other capability, but
+// purposeNamespace is the capability namespace whose labels say what a cluster is
+// set aside for. A cluster advertises them like any other capability, but
 // REQUIRING one in a placement selector needs gateway:cluster-targeting. Excluding
 // one does not: keeping a gateway off such a cluster grants no reach.
-const placementTargetingNamespace = "placement"
+const purposeNamespace = "purpose"
 
-const placementTargetingPrefix = placementTargetingNamespace + "/"
+const purposePrefix = purposeNamespace + "/"
 
 const ordinaryPlacementHint = "place the gateway with a capability placement selector (provider/, network/, region/, runtime/, environment/) instead"
 
@@ -36,18 +36,18 @@ var (
 
 	managedClusterSelectorForbiddenReason = "the managed-cluster/<name> placement selector targets a specific cluster by name and requires the " + roles.RoleGatewayClusterTargeting + " role (platform:admin includes it); without it, " + ordinaryPlacementHint
 
-	placementLabelForbiddenReason = "requiring a placement/ label in a placement selector targets clusters set aside for deliberate placement and requires the " + roles.RoleGatewayClusterTargeting + " role (platform:admin includes it); without it, " + ordinaryPlacementHint
+	purposeLabelForbiddenReason = "requiring a purpose/ label in a placement selector targets clusters set aside for a specific purpose and requires the " + roles.RoleGatewayClusterTargeting + " role (platform:admin includes it); without it, " + ordinaryPlacementHint
 
-	importClusterTargetingForbiddenReason = "an import cannot choose a gateway's cluster: cluster_id, the managed-cluster/<name> selector, and required placement/ labels need the " + roles.RoleGatewayClusterTargeting + " role, which a Repository import does not hold; declare a capability placement selector in the manifest instead"
+	importClusterTargetingForbiddenReason = "an import cannot choose a gateway's cluster: cluster_id, the managed-cluster/<name> selector, and required purpose/ labels need the " + roles.RoleGatewayClusterTargeting + " role, which a Repository import does not hold; declare a capability placement selector in the manifest instead"
 )
 
-func isPlacementTargetingLabel(label string) bool {
-	return strings.HasPrefix(strings.TrimSpace(label), placementTargetingPrefix)
+func isPurposeLabel(label string) bool {
+	return strings.HasPrefix(strings.TrimSpace(label), purposePrefix)
 }
 
-func selectorContainsPlacementLabel(labels []string) bool {
+func selectorContainsPurposeLabel(labels []string) bool {
 	for _, label := range labels {
-		if isPlacementTargetingLabel(label) {
+		if isPurposeLabel(label) {
 			return true
 		}
 	}
@@ -56,14 +56,14 @@ func selectorContainsPlacementLabel(labels []string) bool {
 
 // placementTargetingReason returns the 403 reason when a placement intent chooses a
 // cluster, or "" when it places by ordinary capabilities only. A managed-cluster/
-// token is gated in the required AND excluded selector (SEC-RBAC-33); a placement/
+// token is gated in the required AND excluded selector (SEC-RBAC-33); a purpose/
 // label only in the required selector (SEC-RBAC-35).
 func placementTargetingReason(intent openapi.GatewayPlacementIntent) string {
 	if selectorContainsManagedCluster(intent.Selector) || selectorContainsManagedCluster(intent.ExcludedSelector) {
 		return managedClusterSelectorForbiddenReason
 	}
-	if selectorContainsPlacementLabel(intent.Selector) {
-		return placementLabelForbiddenReason
+	if selectorContainsPurposeLabel(intent.Selector) {
+		return purposeLabelForbiddenReason
 	}
 	return ""
 }
@@ -77,8 +77,8 @@ func availabilityTargetingReason(selectors [][]string) string {
 		}
 	}
 	for _, selector := range selectors {
-		if selectorContainsPlacementLabel(selector) {
-			return placementLabelForbiddenReason
+		if selectorContainsPurposeLabel(selector) {
+			return purposeLabelForbiddenReason
 		}
 	}
 	return ""
