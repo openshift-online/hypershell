@@ -107,6 +107,12 @@ export interface MapNode {
    */
   readonly fromTopology: boolean;
   /**
+   * True when nothing reports this box's delivery: a remote spoke known only from its
+   * hub's topology, with no promotion environment. Its release and Argo health are
+   * unknown, so the map does not raise the "health unavailable" alarm for it.
+   */
+  readonly deliveryUnknown: boolean;
+  /**
    * Self-declared capability labels (`namespace/value`), carried through from the
    * promotion environment's delivery labels. Optional and opaque; an instance with
    * no capabilities carries an empty set. Drives the card's capability chip row and
@@ -483,9 +489,15 @@ interface Placement {
   readonly colocatedWith: string | null;
   /** True for a node created from the topology plane (no promotion env). */
   readonly fromTopology: boolean;
+  /** True when no delivery data exists for the node (see MapNode.deliveryUnknown). */
+  readonly deliveryUnknown: boolean;
 }
 
-const NO_PLACEMENT: Placement = { colocatedWith: null, fromTopology: false };
+const NO_PLACEMENT: Placement = {
+  colocatedWith: null,
+  fromTopology: false,
+  deliveryUnknown: false,
+};
 
 /** The physical-cluster grouping key for a node (see MapNode.physicalClusterKey). */
 function physicalClusterKeyFor(
@@ -577,6 +589,7 @@ function buildNode(
     ),
     colocatedWith: placement.colocatedWith,
     fromTopology: placement.fromTopology,
+    deliveryUnknown: placement.deliveryUnknown,
     capabilities,
     gatewayImage: nonEmpty(env.gatewayImage ?? null),
     seed: nonEmpty(env.activeDigest) ?? env.name,
@@ -782,6 +795,43 @@ function colocatedSpokeEnv(
 }
 
 /**
+ * The promotion environment for a REMOTE spoke that has none of its own. It runs on
+ * another physical cluster that nothing here names, so its cluster, provider, release
+ * and Argo state stay unknown. Only the column header (env label) is shared with its
+ * hub, because the spoke belongs to the hub's promotion stage.
+ */
+function remoteSpokeEnv(
+  hub: PromotionEnvironment,
+  name: string,
+): PromotionEnvironment {
+  return {
+    name,
+    activeRelease: null,
+    proposedRelease: null,
+    gates: [],
+    activeDigest: null,
+    proposedDigest: null,
+    role: "spoke",
+    provider: null,
+    envLabel: hub.envLabel,
+    cluster: null,
+    capabilities: [],
+    gatewayImage: null,
+    argoHealth: null,
+    argoSync: null,
+    syncRetries: null,
+    consoleUrl: null,
+    grafanaUrl: null,
+    argoUrl: null,
+    prState: null,
+    prUrl: null,
+    analysisUrl: null,
+    upToDate: false,
+    verification: null,
+  };
+}
+
+/**
  * Group each column's nodes by the physical cluster they run on (FLT-MAP-08). Only a
  * cluster that runs two or more of the column's nodes in one provider lane becomes a
  * group. The pairing comes from the per-node cluster label and the topology plane alone.
@@ -846,6 +896,8 @@ export function buildMapModel(
   const envNames = new Set(promoted.map((e) => e.name));
   const colocatedWith = new Map<string, string>();
   const synthesized = new Set<string>();
+  // Remote spokes created from topology alone, keyed to their hub.
+  const remoteOnly = new Map<string, string>();
   const envs: PromotionEnvironment[] = [];
   for (const env of promoted) {
     envs.push(env);
@@ -863,8 +915,27 @@ export function buildMapModel(
         envs.push(colocatedSpokeEnv(env, name));
       }
     }
+    // Every control plane gets a box (FLT-MAP-08.05): a REMOTE spoke with no promotion
+    // environment is still created from the topology, with no release or health.
+    for (const name of topology[env.name]?.hub?.remoteSpokes ?? []) {
+      if (
+        name === "" ||
+        name === env.name ||
+        envNames.has(name) ||
+        colocatedWith.has(name) ||
+        synthesized.has(name)
+      ) {
+        continue;
+      }
+      synthesized.add(name);
+      remoteOnly.set(name, env.name);
+      envs.push(remoteSpokeEnv(env, name));
+    }
   }
   const columnKeyByName = assignColumns(envs);
+  for (const [name, hub] of remoteOnly) {
+    columnKeyByName.set(name, hub);
+  }
   for (const [name, hub] of [...colocatedWith]) {
     // Pin each co-located spoke to its hub's column (a synthesized one has no name
     // prefix guarantee); an env-backed one only counts as co-located in that column.
@@ -915,6 +986,7 @@ export function buildMapModel(
       {
         colocatedWith: colocatedWith.get(env.name) ?? null,
         fromTopology: synthesized.has(env.name),
+        deliveryUnknown: remoteOnly.has(env.name),
       },
     );
   });

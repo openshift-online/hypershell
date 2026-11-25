@@ -116,7 +116,10 @@ export function TopologyMap({
   // ONLY when there is at least one, because it's a loud "something may be unreachable"
   // alert, not a routine status (per the node-level flashing ring in map-node).
   const unavailableCount = useMemo(
-    () => model.nodes.filter((n) => isHealthUnavailable(n.argoHealth)).length,
+    () =>
+      model.nodes.filter(
+        (n) => !n.deliveryUnknown && isHealthUnavailable(n.argoHealth),
+      ).length,
     [model.nodes],
   );
 

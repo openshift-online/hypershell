@@ -173,7 +173,10 @@ export function MapNodeCard({
   // shown as a DASHED red flashing ring (vs the SOLID red issues ring). When a
   // confirmed issue is also present, the solid ring wins (more actionable); the
   // HEALTH? caption still flags the missing health either way.
-  const healthUnknown = isHealthUnavailable(node.argoHealth);
+  // A box with no delivery data at all (a remote spoke known only from topology) is
+  // not "unreachable": nothing reports its health, so it skips the alarm.
+  const healthUnknown =
+    !node.deliveryUnknown && isHealthUnavailable(node.argoHealth);
   const total = totalGateways(node.gateways);
   // Signature of the latest gateway-history sample: changes (and so replays the
   // sand ease-in) only when a new sample actually lands, never on an unchanged poll.

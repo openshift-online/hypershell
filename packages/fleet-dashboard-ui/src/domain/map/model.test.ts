@@ -968,3 +968,83 @@ describe("buildMapModel capabilities", () => {
     expect(node?.laneKey).toBe("aws");
   });
 });
+
+describe("buildMapModel - remote spokes without an environment", () => {
+  // Verifies: FLT-MAP-08.05
+  it("gives a remote spoke with no promotion env its own box", () => {
+    const p = promotion(["hub0"], {
+      hub0: env({
+        name: "hub0",
+        role: "hub",
+        provider: "ibm",
+        cluster: "phys-a",
+        envLabel: "int",
+        activeRelease: "v1",
+        activeDigest: "sha256:aaa",
+        argoHealth: "Healthy",
+      }),
+    });
+    const fleet: FleetData = {
+      instances: [
+        inst({
+          instance: "hub0",
+          gatewaysByCluster: [
+            { managedCluster: "hub0-hub", gateways: { running: 8 }, total: 8 },
+            { managedCluster: "hub0-far", gateways: { running: 1 }, total: 1 },
+          ],
+          sandboxesByCluster: [{ managedCluster: "hub0-far", count: 2 }],
+        }),
+      ],
+    };
+    const topo: TopologyData = {
+      hub0: {
+        instance: "hub0",
+        hub: { instance: "hub0", dnsLabel: null, remoteSpokes: ["hub0-far"] },
+        spokes: [],
+      },
+    };
+    const model = buildMapModel(p, fleet, topo);
+    const far = model.nodes.find((n) => n.id === "hub0-far");
+    const hub = model.nodes.find((n) => n.id === "hub0");
+    expect(far).toBeDefined();
+    expect(far?.columnKey).toBe("hub0");
+    expect(far?.role).toBe("spoke");
+    expect(far?.gatewaysTotal).toBe(1);
+    expect(far?.sandboxes).toBe(2);
+    expect(hub?.gatewaysTotal).toBe(8);
+    // Nothing reports where or what it runs, so those stay unknown.
+    expect(far?.deliveryUnknown).toBe(true);
+    expect(far?.fromTopology).toBe(true);
+    expect(far?.cluster).toBeNull();
+    expect(far?.laneKey).toBe("none");
+    expect(far?.version).toBeNull();
+    expect(far?.argoHealth).toBeNull();
+    expect(far?.envLabel).toBe("int");
+    // It is not on the hub's physical cluster, so no outer box is drawn.
+    expect(model.clusterGroups).toEqual([]);
+    // The hub still governs the gate.
+    expect(model.gates).toHaveLength(1);
+    expect(hub?.deliveryUnknown).toBe(false);
+  });
+
+  it("does not duplicate a remote spoke that already has an env", () => {
+    const p = promotion(["hub0", "hub0-far"], {
+      hub0: env({ name: "hub0", role: "hub" }),
+      "hub0-far": env({ name: "hub0-far", role: "spoke" }),
+    });
+    const model = buildMapModel(
+      p,
+      { instances: [] },
+      {
+        hub0: {
+          instance: "hub0",
+          hub: { instance: "hub0", dnsLabel: null, remoteSpokes: ["hub0-far"] },
+          spokes: [],
+        },
+      },
+    );
+    const far = model.nodes.filter((n) => n.id === "hub0-far");
+    expect(far).toHaveLength(1);
+    expect(far[0]?.deliveryUnknown).toBe(false);
+  });
+});

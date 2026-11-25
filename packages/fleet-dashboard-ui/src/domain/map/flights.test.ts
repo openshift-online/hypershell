@@ -19,6 +19,7 @@ function node(id: string, columnKey: string, seed: string): MapNode {
     physicalClusterKey: null,
     colocatedWith: null,
     fromTopology: false,
+    deliveryUnknown: false,
     seed,
     version: null,
     digest: null,

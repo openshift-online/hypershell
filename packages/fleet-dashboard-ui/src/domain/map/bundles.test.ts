@@ -34,6 +34,7 @@ function node(overrides: Partial<MapNode> & { id: string }): MapNode {
     physicalClusterKey: null,
     colocatedWith: null,
     fromTopology: false,
+    deliveryUnknown: false,
     seed: overrides.id,
     version: null,
     digest: null,

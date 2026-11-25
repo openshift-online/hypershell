@@ -258,3 +258,40 @@ describe("TopologyMap physical-cluster containers", () => {
     expect(labels).toHaveLength(1);
   });
 });
+
+describe("TopologyMap remote spokes without delivery data", () => {
+  // Verifies: FLT-MAP-08.05
+  it("draws the box without raising the health-unavailable alarm", async () => {
+    renderApp({
+      promotion: {
+        order: ["hub0"],
+        environments: {
+          hub0: {
+            name: "hub0",
+            activeRelease: "v1",
+            proposedRelease: null,
+            gates: [],
+            ...envExtras,
+            role: "hub",
+            provider: "ibm",
+            argoHealth: "Healthy",
+          },
+        },
+        releases: ["v1"],
+        releaseByDigest: {},
+        frontier: null,
+      },
+      topology: {
+        hub0: {
+          instance: "hub0",
+          hub: { instance: "hub0", dnsLabel: null, remoteSpokes: ["hub0-far"] },
+          spokes: [],
+        },
+      },
+    });
+    expect(
+      (await screen.findAllByRole("button", { name: "hub0-far" })).length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+});

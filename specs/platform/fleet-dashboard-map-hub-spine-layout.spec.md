@@ -195,16 +195,23 @@ role SHALL NOT dissolve the visible provider lanes.
 
 ### Requirement: FLT-MAP-08 -- Nodes on one physical cluster share a container
 
-A hub and the spokes co-located with it run on the same physical cluster. The map
-SHALL show each co-located spoke as its own node card, and SHALL wrap every node of
-a column that runs on the same physical cluster in one parent container that
-represents that cluster.
+Every control plane, hub or spoke, SHALL have its own node on the map. A hub and
+the spokes co-located with it run on the same physical cluster. The map SHALL show
+each co-located spoke as its own node, and SHALL wrap every node of a column that
+runs on the same physical cluster in one parent container that represents that
+cluster.
 
 A co-located spoke is a managed cluster the hub's topology document lists under
 `spokes`. When the spoke has no promotion environment of its own, the map SHALL
 still create its node from the topology document. That node SHALL take its
 release and Argo state from its hub, because GitOps delivers it from the hub's
 cluster. It SHALL carry no promotion gates of its own.
+
+A remote spoke (listed in the hub's topology under `remote_spokes`) that has no
+promotion environment SHALL also get its own node in its hub's column. Nothing
+reports its cluster, provider, release or Argo health, so the node SHALL leave them
+unknown, SHALL group into the unassigned provider lane, and SHALL NOT raise the
+"health unavailable" alarm.
 
 A node's physical cluster is its `cluster` delivery label. A hub, or a co-located
 spoke, with no such label SHALL group with its hub. Only a cluster that runs two or
@@ -242,6 +249,18 @@ more of a column's nodes in one provider lane SHALL get a container.
 - GIVEN a column whose nodes each run on a different physical cluster
 - WHEN the map model is built
 - THEN no container SHALL be created for that column
+
+#### Scenario: FLT-MAP-08.05 -- A remote spoke without an environment gets its own node
+
+- GIVEN a hub whose topology lists spoke `R` under `remote_spokes`, and `R` has no
+  promotion environment
+- AND the hub's fleet breakdown reports gateways for managed cluster `R`
+- WHEN the map model is built
+- THEN the hub's column SHALL contain a spoke node `R` showing only the gateways
+  and sandboxes reported for `R`
+- AND the hub node SHALL NOT count the gateways and sandboxes of `R`
+- AND node `R` SHALL carry no release and SHALL NOT count toward the
+  "health unavailable" alarm
 
 ### Requirement: FLT-MAP-06 -- Derived, deterministic, baked-in-free geometry
 
