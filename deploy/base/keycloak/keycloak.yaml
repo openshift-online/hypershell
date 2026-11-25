@@ -143,6 +143,11 @@ spec:
             # audiences, which needs both features.
             - name: KC_FEATURES
               value: "token-exchange,admin-fine-grained-authz:v1"
+            # Keycloak 26 refuses client attribute search (admin "q" parameter)
+            # unless the attribute is allow-listed. The control plane finds a
+            # gateway's service-account clients by these two attributes.
+            - name: KC_SPI_CLIENT__JPA__SEARCHABLE_ATTRIBUTES
+              value: "hypershell.service-account,hypershell.gateway-id"
           ports:
             - containerPort: 8080
               name: http

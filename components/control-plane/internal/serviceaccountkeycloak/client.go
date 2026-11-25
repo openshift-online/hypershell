@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"sort"
@@ -580,9 +581,76 @@ func (c *Client) DeleteGatewayServiceAccounts(ctx context.Context, gatewayID str
 	return nil
 }
 
+// ListManagedClients returns the HyperShell-managed service-account clients,
+// optionally limited to one gateway. It asks Keycloak to filter by client
+// attribute (the admin API "q" parameter, exact match on every key:value pair)
+// so the cost depends on the number of matching clients, not on realm size.
+// The returned attributes are still checked here, so a Keycloak that ignored
+// the filter could never widen what callers disable or delete.
 func (c *Client) ListManagedClients(ctx context.Context, gatewayID string) ([]ManagedClient, error) {
+	query, err := managedClientQuery(gatewayID)
+	if err != nil {
+		return nil, err
+	}
 	const pageSize = 100
-	clients := make([]kcClient, 0)
+	out := make([]ManagedClient, 0)
+	for first := 0; ; first += pageSize {
+		params := url.Values{}
+		params.Set("q", query)
+		params.Set("first", fmt.Sprint(first))
+		params.Set("max", fmt.Sprint(pageSize))
+		path := fmt.Sprintf("/admin/realms/%s/clients?%s", c.realm, params.Encode())
+		body, status, err := c.admin(ctx, http.MethodGet, path, nil)
+		if err != nil {
+			return nil, err
+		}
+		if first == 0 && status == http.StatusBadRequest && bytes.Contains(body, []byte("not allowed for search")) {
+			// Keycloak 26 refuses attribute search until the server option
+			// spi-client--jpa--searchable-attributes lists both attributes.
+			// Keep cleanup correct (but slow) on such a server.
+			slog.Warn("Keycloak refused client attribute search; scanning every realm client",
+				"realm", c.realm, "option", "spi-client--jpa--searchable-attributes")
+			return c.listManagedClientsByScan(ctx, gatewayID)
+		}
+		if status != http.StatusOK {
+			return nil, statusError("list managed clients", status)
+		}
+		var page []kcClient
+		if err := json.Unmarshal(body, &page); err != nil {
+			return nil, errors.New("parse Keycloak client list")
+		}
+		for i := range page {
+			client := &page[i]
+			if client.Attributes == nil {
+				// A list response without attributes (for example a brief
+				// representation) cannot prove ownership; read the one match.
+				fetched, getErr := c.getClient(ctx, client.ID)
+				if errors.Is(getErr, ErrNotFound) {
+					// Deleted between the search and the get; nothing to clean up.
+					continue
+				}
+				if getErr != nil {
+					return nil, getErr
+				}
+				client = fetched
+			}
+			if client.Attributes[managedAttribute] != "true" || (gatewayID != "" && client.Attributes[gatewayIDAttribute] != gatewayID) {
+				continue
+			}
+			out = append(out, ManagedClient{UUID: client.ID, ClientID: client.ClientID, GatewayID: client.Attributes[gatewayIDAttribute], ServiceAccountID: client.Attributes[serviceAccountIDAttribute]})
+		}
+		if len(page) < pageSize {
+			break
+		}
+	}
+	return out, nil
+}
+
+// listManagedClientsByScan is the fallback for a Keycloak that does not allow
+// attribute search: list every realm client, then read each one's attributes.
+func (c *Client) listManagedClientsByScan(ctx context.Context, gatewayID string) ([]ManagedClient, error) {
+	const pageSize = 100
+	out := make([]ManagedClient, 0)
 	for first := 0; ; first += pageSize {
 		path := fmt.Sprintf("/admin/realms/%s/clients?first=%d&max=%d", c.realm, first, pageSize)
 		body, status, err := c.admin(ctx, http.MethodGet, path, nil)
@@ -596,28 +664,39 @@ func (c *Client) ListManagedClients(ctx context.Context, gatewayID string) ([]Ma
 		if err := json.Unmarshal(body, &page); err != nil {
 			return nil, errors.New("parse Keycloak client list")
 		}
-		clients = append(clients, page...)
+		for _, listed := range page {
+			client, getErr := c.getClient(ctx, listed.ID)
+			if errors.Is(getErr, ErrNotFound) {
+				// Deleted between the list and the get.
+				continue
+			}
+			if getErr != nil {
+				return nil, getErr
+			}
+			if client.Attributes[managedAttribute] != "true" || (gatewayID != "" && client.Attributes[gatewayIDAttribute] != gatewayID) {
+				continue
+			}
+			out = append(out, ManagedClient{UUID: client.ID, ClientID: client.ClientID, GatewayID: client.Attributes[gatewayIDAttribute], ServiceAccountID: client.Attributes[serviceAccountIDAttribute]})
+		}
 		if len(page) < pageSize {
 			break
 		}
 	}
-	out := make([]ManagedClient, 0)
-	for _, listed := range clients {
-		client, getErr := c.getClient(ctx, listed.ID)
-		if errors.Is(getErr, ErrNotFound) {
-			// Deleted between the list and the get; a client that no longer
-			// exists is not a managed client to report or clean up.
-			continue
-		}
-		if getErr != nil {
-			return nil, getErr
-		}
-		if client.Attributes[managedAttribute] != "true" || (gatewayID != "" && client.Attributes[gatewayIDAttribute] != gatewayID) {
-			continue
-		}
-		out = append(out, ManagedClient{UUID: client.ID, ClientID: client.ClientID, GatewayID: client.Attributes[gatewayIDAttribute], ServiceAccountID: client.Attributes[serviceAccountIDAttribute]})
-	}
 	return out, nil
+}
+
+// managedClientQuery builds the Keycloak attribute search expression. Keycloak
+// separates pairs with spaces, so a gateway ID containing whitespace cannot be
+// expressed and is rejected rather than silently matching something else.
+func managedClientQuery(gatewayID string) (string, error) {
+	query := managedAttribute + ":true"
+	if gatewayID == "" {
+		return query, nil
+	}
+	if strings.ContainsAny(gatewayID, " \t\r\n") {
+		return "", errors.New("gateway ID cannot be used in a Keycloak attribute search")
+	}
+	return query + " " + gatewayIDAttribute + ":" + gatewayID, nil
 }
 
 func validateSpec(spec ServiceAccountSpec) error {
