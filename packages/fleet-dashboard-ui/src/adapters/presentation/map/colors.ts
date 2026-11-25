@@ -78,6 +78,16 @@ export const LANE_STROKE = token(
   "--pf-t--global--border--color--subtle",
   "#333539",
 );
+/** Physical-cluster container (FLT-MAP-08): a faint panel behind grouped cards with
+ *  a solid border, so it reads apart from the dashed provider-lane bands. */
+export const CLUSTER_GROUP_FILL = token(
+  "--pf-t--global--background--color--tertiary--default",
+  "#26282c",
+);
+export const CLUSTER_GROUP_STROKE = token(
+  "--pf-t--global--border--color--hover",
+  "#707275",
+);
 export const TEXT_COLOR = token(
   "--pf-t--global--text--color--regular",
   "#e0e0e0",

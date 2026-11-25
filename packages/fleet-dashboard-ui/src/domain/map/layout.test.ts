@@ -455,3 +455,122 @@ describe("computeLayout - provider lanes", () => {
     expect(alpha?.centerY).not.toBe(zeta?.centerY);
   });
 });
+
+describe("computeLayout - physical-cluster containers", () => {
+  // A hub on phys-a with one co-located spoke (from topology, no env) and two remote
+  // spokes on other clusters, all on one provider.
+  function model() {
+    return buildMapModel(
+      promotion(["hub0", "hub0-r1", "hub0-r2"], {
+        hub0: env({
+          name: "hub0",
+          role: "hub",
+          provider: "ibm",
+          cluster: "phys-a",
+        }),
+        "hub0-r1": env({
+          name: "hub0-r1",
+          role: "spoke",
+          provider: "ibm",
+          cluster: "phys-b",
+        }),
+        "hub0-r2": env({
+          name: "hub0-r2",
+          role: "spoke",
+          provider: "ibm",
+          cluster: "phys-c",
+        }),
+      }),
+      noFleet,
+      {
+        hub0: {
+          instance: "hub0",
+          hub: {
+            instance: "hub0",
+            dnsLabel: null,
+            remoteSpokes: ["hub0-r1", "hub0-r2"],
+          },
+          spokes: [{ name: "hub0-co" }],
+        },
+      },
+    );
+  }
+
+  function box(layout: ReturnType<typeof computeLayout>, id: string) {
+    const b = layout.nodes.find((n) => n.id === id);
+    if (!b) {
+      throw new Error(`no box ${id}`);
+    }
+    return b;
+  }
+
+  // Verifies: FLT-MAP-08.02
+  it("keeps the hub on the spine with its co-located spoke directly below", () => {
+    const layout = computeLayout(model());
+    const pitch = NODE_H + 46;
+    const hub = box(layout, "hub0");
+    expect(hub.cy).toBe(layout.hubSpineY);
+    expect(box(layout, "hub0-co").cy).toBe(layout.hubSpineY + pitch);
+    // Remote spokes ring the outside of the group: above first, then below it.
+    expect(box(layout, "hub0-r1").cy).toBe(layout.hubSpineY - pitch);
+    expect(box(layout, "hub0-r2").cy).toBe(layout.hubSpineY + 2 * pitch);
+  });
+
+  // Verifies: FLT-MAP-08.02
+  it("draws one container around exactly the grouped cards", () => {
+    const layout = computeLayout(model());
+    expect(layout.clusterGroups).toHaveLength(1);
+    const g = layout.clusterGroups[0];
+    if (!g) {
+      throw new Error("no group");
+    }
+    expect(g.cluster).toBe("phys-a");
+    expect(g.nodeIds).toEqual(["hub0", "hub0-co"]);
+    const inside = (id: string) => {
+      const b = box(layout, id);
+      return (
+        b.x >= g.x &&
+        b.x + b.w <= g.x + g.w &&
+        b.y >= g.y &&
+        b.y + b.h <= g.y + g.h
+      );
+    };
+    expect(inside("hub0")).toBe(true);
+    expect(inside("hub0-co")).toBe(true);
+    // No other card overlaps the container.
+    for (const id of ["hub0-r1", "hub0-r2"]) {
+      const b = box(layout, id);
+      expect(b.y + b.h <= g.y || b.y >= g.y + g.h).toBe(true);
+    }
+    // The label sits inside the box, above the first card.
+    expect(g.labelY).toBeGreaterThan(g.y);
+    expect(g.labelY).toBeLessThan(box(layout, "hub0").y);
+  });
+
+  it("grows the provider lane band to hold the container", () => {
+    const layout = computeLayout(model());
+    const lane = layout.lanes[0];
+    const g = layout.clusterGroups[0];
+    if (!lane || !g) {
+      throw new Error("missing lane or group");
+    }
+    expect(lane.y).toBeLessThanOrEqual(g.y);
+    expect(lane.y + lane.height).toBeGreaterThanOrEqual(g.y + g.h);
+  });
+
+  it("keeps single remote spokes alternating below then above without groups", () => {
+    const m = buildMapModel(
+      promotion(["hub0", "hub0-r1", "hub0-r2"], {
+        hub0: env({ name: "hub0", role: "hub", provider: "ibm" }),
+        "hub0-r1": env({ name: "hub0-r1", role: "spoke", provider: "ibm" }),
+        "hub0-r2": env({ name: "hub0-r2", role: "spoke", provider: "ibm" }),
+      }),
+      noFleet,
+    );
+    const layout = computeLayout(m);
+    const pitch = NODE_H + 46;
+    expect(layout.clusterGroups).toEqual([]);
+    expect(box(layout, "hub0-r1").cy).toBe(layout.hubSpineY + pitch);
+    expect(box(layout, "hub0-r2").cy).toBe(layout.hubSpineY - pitch);
+  });
+});

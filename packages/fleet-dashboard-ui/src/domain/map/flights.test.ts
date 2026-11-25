@@ -16,6 +16,9 @@ function node(id: string, columnKey: string, seed: string): MapNode {
     role: null,
     provider: null,
     cluster: null,
+    physicalClusterKey: null,
+    colocatedWith: null,
+    fromTopology: false,
     seed,
     version: null,
     digest: null,
@@ -69,7 +72,14 @@ function model(nodes: MapNode[]): MapModel {
     nodeIds: nodes.filter((n) => n.columnKey === key).map((n) => n.id),
     envLabel: key,
   }));
-  return { columns, lanes: [], nodes, gates: [], frontier: null };
+  return {
+    columns,
+    clusterGroups: [],
+    lanes: [],
+    nodes,
+    gates: [],
+    frontier: null,
+  };
 }
 
 describe("computeFlights", () => {

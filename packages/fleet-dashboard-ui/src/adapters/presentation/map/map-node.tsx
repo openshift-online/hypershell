@@ -136,6 +136,9 @@ export interface MapNodeCardProps {
   /** While a promotion is flying IN to this node, the seed to keep showing until the
    *  flying copy lands (the node's pre-promotion bundle). Absent = show the live seed. */
   readonly displaySeed?: string;
+  /** True when the card sits inside a physical-cluster container, which already
+   *  names the cluster, so the card omits its own cluster label (FLT-MAP-08.03). */
+  readonly inClusterGroup?: boolean;
 }
 
 const ICON = 30;
@@ -157,6 +160,7 @@ export function MapNodeCard({
   onSelect,
   onSelectBundle,
   displaySeed,
+  inClusterGroup = false,
 }: MapNodeCardProps): React.ReactElement {
   const { x, y, w, h } = box;
   // The seed to RENDER: while a promotion is inbound, hold the pre-promotion bundle so
@@ -230,9 +234,10 @@ export function MapNodeCard({
   const textMaxW = w - 58;
   const titleText = truncateToWidth(node.id, 13, 700, textMaxW);
   const aliasText = truncateToWidth(identiName(shownSeed), 10, 400, textMaxW);
-  const clusterText = node.cluster
-    ? truncateToWidth(node.cluster, 11, 700, w - 12)
-    : null;
+  const clusterText =
+    node.cluster && !inClusterGroup
+      ? truncateToWidth(node.cluster, 11, 700, w - 12)
+      : null;
 
   const select = () => {
     onSelect(node.id);

@@ -1071,6 +1071,12 @@ export const messages = defineMessages({
     description:
       "Label on the diamond at the head of the promotion spine, where a change enters the flow.",
   },
+  mapClusterGroup: {
+    id: "fleet.map.clusterGroup",
+    defaultMessage: "Physical cluster {cluster}: {nodes}",
+    description:
+      "Accessible name of the Fleet Map container grouping nodes that run on one physical cluster. {cluster} is the cluster name; {nodes} lists the grouped node names.",
+  },
   mapFit: {
     id: "fleet.map.control.fit",
     defaultMessage: "Fit to view",
@@ -1087,6 +1093,12 @@ export const messages = defineMessages({
     id: "fleet.map.region",
     defaultMessage: "Promotion topology map",
     description: "Accessible label for the interactive map canvas region.",
+  },
+  mapSharedCluster: {
+    id: "fleet.map.sharedCluster",
+    defaultMessage: "shared cluster",
+    description:
+      "Label on the Fleet Map container that groups nodes running on one physical cluster, used when the server reports no cluster name.",
   },
   mapZoomIn: {
     id: "fleet.map.control.zoomIn",

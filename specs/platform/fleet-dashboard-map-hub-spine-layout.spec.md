@@ -1,7 +1,7 @@
 # Fleet Dashboard Map Hub-Spine and Provider-Lane Layout
 
 **Status:** Active
-**Applies to:** `packages/fleet-dashboard-ui` map domain layout (`computeLayout`, `orderLanes`) and map presentation
+**Applies to:** `packages/fleet-dashboard-ui` map domain model and layout (`buildMapModel`, `computeLayout`, `orderLanes`) and map presentation
 **Tracks:** [HYPERSHELL-418](https://redhat.atlassian.net/browse/HYPERSHELL-418), [HYPERSHELL-423](https://redhat.atlassian.net/browse/HYPERSHELL-423)
 
 ## Purpose
@@ -192,6 +192,56 @@ role SHALL NOT dissolve the visible provider lanes.
 - THEN the IBM HUBs SHALL sit on the centered spine
 - AND the AWS SPOKEs SHALL group into a visible AWS lane off the spine
 - AND the IBM SPOKEs SHALL group into the IBM lane near the spine
+
+### Requirement: FLT-MAP-08 -- Nodes on one physical cluster share a container
+
+A hub and the spokes co-located with it run on the same physical cluster. The map
+SHALL show each co-located spoke as its own node card, and SHALL wrap every node of
+a column that runs on the same physical cluster in one parent container that
+represents that cluster.
+
+A co-located spoke is a managed cluster the hub's topology document lists under
+`spokes`. When the spoke has no promotion environment of its own, the map SHALL
+still create its node from the topology document. That node SHALL take its
+release and Argo state from its hub, because GitOps delivers it from the hub's
+cluster. It SHALL carry no promotion gates of its own.
+
+A node's physical cluster is its `cluster` delivery label. A hub, or a co-located
+spoke, with no such label SHALL group with its hub. Only a cluster that runs two or
+more of a column's nodes in one provider lane SHALL get a container.
+
+#### Scenario: FLT-MAP-08.01 -- A co-located spoke gets its own card and counts
+
+- GIVEN a hub whose topology lists spoke `S` as co-located, and `S` has no
+  promotion environment
+- AND the hub's fleet breakdown reports gateways for managed clusters `S` and the
+  hub's own controller
+- WHEN the map model is built
+- THEN the hub's column SHALL contain a spoke node `S`
+- AND node `S` SHALL show only the gateways and sandboxes reported for `S`
+- AND the hub node SHALL no longer count the gateways and sandboxes of `S`
+
+#### Scenario: FLT-MAP-08.02 -- Grouped nodes sit in adjacent rows inside one box
+
+- GIVEN a hub and a co-located spoke on the same physical cluster, and remote
+  spokes on other clusters in the same provider lane
+- WHEN the layout is computed
+- THEN the hub SHALL stay on the hub spine
+- AND the co-located spoke SHALL sit in the row directly below the hub
+- AND one container box SHALL enclose both cards and no other card
+
+#### Scenario: FLT-MAP-08.03 -- The container names the cluster
+
+- GIVEN a container for physical cluster `C`
+- WHEN the map is rendered
+- THEN the container SHALL be labelled `C`
+- AND the cards inside it SHALL NOT repeat `C` as their own cluster label
+
+#### Scenario: FLT-MAP-08.04 -- A cluster with one node gets no container
+
+- GIVEN a column whose nodes each run on a different physical cluster
+- WHEN the map model is built
+- THEN no container SHALL be created for that column
 
 ### Requirement: FLT-MAP-06 -- Derived, deterministic, baked-in-free geometry
 

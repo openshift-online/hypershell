@@ -48,8 +48,10 @@ const envExtras = {
   upToDate: false,
 } as const;
 
-function renderApp(): void {
-  const promotion: PromotionData = {
+function renderApp(
+  overrides: { promotion?: PromotionData; topology?: TopologyData } = {},
+): void {
+  const defaultPromotion: PromotionData = {
     order: ["staging"],
     environments: {
       staging: {
@@ -64,10 +66,12 @@ function renderApp(): void {
     releaseByDigest: {},
     frontier: null,
   };
+  const promotion = overrides.promotion ?? defaultPromotion;
+  const topology = overrides.topology ?? {};
   const api = {
     getFleet: () => Promise.resolve(plane<FleetData>({ instances: [] })),
     getPromotion: () => Promise.resolve(plane(promotion)),
-    getTopology: () => Promise.resolve(plane<TopologyData>({})),
+    getTopology: () => Promise.resolve(plane<TopologyData>(topology)),
     getInstances: () =>
       Promise.resolve(plane<InstancesData>({ instances: [] })),
     getSdlc: () =>
@@ -204,5 +208,53 @@ describe("TopologyMap details drawer", () => {
     } finally {
       document.body.removeChild(dialog);
     }
+  });
+});
+
+describe("TopologyMap physical-cluster containers", () => {
+  // Verifies: FLT-MAP-08.03
+  it("labels the container with the cluster and drops the cards' own label", async () => {
+    renderApp({
+      promotion: {
+        order: ["hub0"],
+        environments: {
+          hub0: {
+            name: "hub0",
+            activeRelease: "v1",
+            proposedRelease: null,
+            gates: [],
+            ...envExtras,
+            role: "hub",
+            provider: "ibm",
+            cluster: "phys-a",
+          },
+        },
+        releases: ["v1"],
+        releaseByDigest: {},
+        frontier: null,
+      },
+      topology: {
+        hub0: {
+          instance: "hub0",
+          hub: { instance: "hub0", dnsLabel: null, remoteSpokes: [] },
+          spokes: [{ name: "hub0-co" }],
+        },
+      },
+    });
+
+    const group = await screen.findByRole("group", {
+      name: "Physical cluster phys-a: hub0, hub0-co",
+    });
+    expect(group.textContent).toContain("phys-a");
+    // Both nodes render as their own cards.
+    expect(
+      (await screen.findAllByRole("button", { name: "hub0-co" })).length,
+    ).toBeGreaterThan(0);
+    // The cluster name appears once on the map: on the container only.
+    const svg = group.closest("svg");
+    const labels = Array.from(svg?.querySelectorAll("text") ?? []).filter(
+      (t) => t.textContent === "phys-a",
+    );
+    expect(labels).toHaveLength(1);
   });
 });

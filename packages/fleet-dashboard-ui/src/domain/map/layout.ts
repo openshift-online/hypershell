@@ -61,6 +61,24 @@ export interface LaneLayout {
   readonly centerY: number;
 }
 
+/**
+ * A physical-cluster container (FLT-MAP-08): the padded box that wraps every node of
+ * one column running on the same physical cluster, plus the label anchor for the
+ * cluster name. Members are always laid out in adjacent rows, so the box never holds
+ * a card that does not belong to it.
+ */
+export interface ClusterGroupLayout {
+  readonly id: string;
+  readonly cluster: string | null;
+  readonly nodeIds: readonly string[];
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+  /** Baseline of the cluster-name label, inside the box above the first card. */
+  readonly labelY: number;
+}
+
 export interface GateLayout {
   readonly id: string;
   readonly x: number;
@@ -83,6 +101,8 @@ export interface MapLayout {
   readonly bands: readonly BandLayout[];
   /** Provider lanes as visible grouping bands, in deterministic model-lane order. */
   readonly lanes: readonly LaneLayout[];
+  /** Physical-cluster containers, in model order (FLT-MAP-08). */
+  readonly clusterGroups: readonly ClusterGroupLayout[];
   readonly gates: readonly GateLayout[];
   /**
    * Y of the promotion spine - the single horizontal line every column's HUB sits
@@ -99,6 +119,40 @@ export interface MapLayout {
 
 /** Row pitch: one card height plus the vertical gap between stacked rows. */
 const ROW_PITCH = NODE_H + V_GAP;
+
+/** Padding of a physical-cluster container around its cards. */
+export const GROUP_PAD_X = 12;
+/** Top padding holds the cluster-name label, so it is taller than the sides. */
+export const GROUP_PAD_TOP = 26;
+export const GROUP_PAD_BOTTOM = 10;
+
+/**
+ * Split a column's nodes into blocks that must stay in adjacent rows: one block per
+ * physical cluster grouped in the model, and a single-node block for every other node.
+ * Blocks keep the order of their first member, so placement stays deterministic.
+ */
+function blocksOf(
+  nodes: readonly MapNode[],
+  groupOf: ReadonlyMap<string, string>,
+): MapNode[][] {
+  const blocks: MapNode[][] = [];
+  const byGroup = new Map<string, MapNode[]>();
+  for (const n of nodes) {
+    const g = groupOf.get(n.id);
+    if (g === undefined) {
+      blocks.push([n]);
+      continue;
+    }
+    let block = byGroup.get(g);
+    if (!block) {
+      block = [];
+      byGroup.set(g, block);
+      blocks.push(block);
+    }
+    block.push(n);
+  }
+  return blocks;
+}
 
 /**
  * Compute absolute positions for every node, column, provider lane and gate. Columns
@@ -186,6 +240,14 @@ export function computeLayout(model: MapModel): MapLayout {
   //    (HUB-first, regardless of input order); without a hub in a column its first
   //    spine-lane node holds the spine. SPOKEs in this lane ring symmetrically around
   //    the spine on alternating rings (below then above), deterministic in node order.
+  // Nodes of one physical-cluster group must sit in adjacent rows (FLT-MAP-08.02).
+  const groupOf = new Map<string, string>();
+  for (const g of model.clusterGroups) {
+    for (const id of g.nodeIds) {
+      groupOf.set(id, g.id);
+    }
+  }
+
   if (hubLaneKey !== null) {
     let up = 0;
     let down = 0;
@@ -195,23 +257,42 @@ export function computeLayout(model: MapModel): MapLayout {
         continue;
       }
       const hubIdx = laneNodes.findIndex((n) => n.isHub);
-      const pivotIdx = hubIdx === -1 ? 0 : hubIdx;
-      const pivot = laneNodes[pivotIdx];
-      if (pivot) {
-        rowOffset.set(pivot.id, 0);
+      const pivot = laneNodes[hubIdx === -1 ? 0 : hubIdx];
+      if (!pivot) {
+        continue;
       }
-      const spokes = laneNodes.filter((_, i) => i !== pivotIdx);
-      spokes.forEach((spoke, i) => {
-        const ring = Math.floor(i / 2) + 1;
-        const offset = i % 2 === 0 ? ring : -ring;
-        rowOffset.set(spoke.id, offset);
-        if (offset > down) {
-          down = offset;
+      rowOffset.set(pivot.id, 0);
+      // The pivot's own cluster-mates go directly below it, so the hub and its
+      // co-located spokes share one container on the spine.
+      const pivotGroup = groupOf.get(pivot.id);
+      const mates = laneNodes.filter(
+        (n) =>
+          n !== pivot &&
+          pivotGroup !== undefined &&
+          groupOf.get(n.id) === pivotGroup,
+      );
+      let colDown = 0;
+      let colUp = 0;
+      for (const mate of mates) {
+        colDown += 1;
+        rowOffset.set(mate.id, colDown);
+      }
+      // Every other block rings the spine, placed whole on the lighter side (below on
+      // a tie), so a lane of single spokes alternates below/above as before.
+      const rest = laneNodes.filter((n) => n !== pivot && !mates.includes(n));
+      for (const block of blocksOf(rest, groupOf)) {
+        if (colDown <= colUp) {
+          block.forEach((n, i) => rowOffset.set(n.id, colDown + 1 + i));
+          colDown += block.length;
+        } else {
+          block.forEach((n, i) =>
+            rowOffset.set(n.id, -(colUp + block.length) + i),
+          );
+          colUp += block.length;
         }
-        if (-offset > up) {
-          up = -offset;
-        }
-      });
+      }
+      up = Math.max(up, colUp);
+      down = Math.max(down, colDown);
     }
     topRows = up;
     botRows = down;
@@ -261,9 +342,11 @@ export function computeLayout(model: MapModel): MapLayout {
     }
     laneRange.set(lane.key, { lo, hi });
     for (const column of model.columns) {
-      laneNodesInColumn(column, lane.key, true).forEach((n, i) => {
-        rowOffset.set(n.id, lo + i);
-      });
+      blocksOf(laneNodesInColumn(column, lane.key, true), groupOf)
+        .flat()
+        .forEach((n, i) => {
+          rowOffset.set(n.id, lo + i);
+        });
     }
   }
 
@@ -295,8 +378,42 @@ export function computeLayout(model: MapModel): MapLayout {
     });
   }
 
+  // Physical-cluster containers: a padded box around the member cards.
+  const boxById = new Map(nodes.map((b) => [b.id, b]));
+  const clusterGroups: ClusterGroupLayout[] = [];
+  const groupSpanByLane = new Map<string, { top: number; bottom: number }>();
+  for (const g of model.clusterGroups) {
+    const boxes = g.nodeIds
+      .map((id) => boxById.get(id))
+      .filter((b): b is NodeBox => b !== undefined);
+    const first = boxes[0];
+    if (!first || boxes.length < 2) {
+      continue;
+    }
+    const top = Math.min(...boxes.map((b) => b.y));
+    const bottom = Math.max(...boxes.map((b) => b.y + b.h));
+    const y = top - GROUP_PAD_TOP;
+    const h = bottom - top + GROUP_PAD_TOP + GROUP_PAD_BOTTOM;
+    clusterGroups.push({
+      id: g.id,
+      cluster: g.cluster,
+      nodeIds: boxes.map((b) => b.id),
+      x: first.x - GROUP_PAD_X,
+      y,
+      w: first.w + 2 * GROUP_PAD_X,
+      h,
+      labelY: top - 9,
+    });
+    const span = groupSpanByLane.get(g.laneKey);
+    groupSpanByLane.set(g.laneKey, {
+      top: Math.min(span?.top ?? y, y),
+      bottom: Math.max(span?.bottom ?? y + h, y + h),
+    });
+  }
+
   // Lane bands in deterministic model-lane order: each spans the offset range its
-  // clusters occupy, with a little padding handled by the presentation.
+  // clusters occupy (grown to hold any cluster container in the lane), with a little
+  // padding handled by the presentation.
   const lanes: LaneLayout[] = [];
   for (const lane of model.lanes) {
     const range = laneRange.get(lane.key);
@@ -304,8 +421,11 @@ export function computeLayout(model: MapModel): MapLayout {
       continue;
     }
     const rows = range.hi - range.lo + 1;
-    const y = hubSpineY + range.lo * ROW_PITCH - NODE_H / 2;
-    const height = rows * NODE_H + (rows - 1) * V_GAP;
+    const rowTop = hubSpineY + range.lo * ROW_PITCH - NODE_H / 2;
+    const rowBottom = rowTop + rows * NODE_H + (rows - 1) * V_GAP;
+    const span = groupSpanByLane.get(lane.key);
+    const y = Math.min(rowTop, span?.top ?? rowTop);
+    const height = Math.max(rowBottom, span?.bottom ?? rowBottom) - y;
     lanes.push({
       key: lane.key,
       hostsHub: lane.hostsHub,
@@ -349,6 +469,7 @@ export function computeLayout(model: MapModel): MapLayout {
     columns,
     bands,
     lanes,
+    clusterGroups,
     gates,
     hubSpineY,
     width,
