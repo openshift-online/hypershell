@@ -87,9 +87,16 @@ The fleet-dashboard BFF SHALL source the set in this order:
 A Prometheus failure SHALL NOT fail the promotion payload; it SHALL be logged
 and every environment SHALL use the annotation. The BFF SHALL NOT authenticate
 to the api-server and SHALL NOT introduce any new Kubernetes query, list,
-watch, or cluster credential to obtain capabilities. Entries from either source SHALL be validated against the recognized capability
-namespaces (`PLAT-CLUS-06`) and emitted in a stable order; unknown or malformed entries
-SHALL be dropped rather than rendered. The field SHALL be optional at every hop:
+watch, or cluster credential to obtain capabilities. Entries from either source
+SHALL be trimmed, de-duplicated, and checked for the `namespace/value` shape;
+malformed entries SHALL be dropped. Entries from the control-plane metric SHALL
+NOT be filtered by namespace, because the api-server already validates
+namespaces at registration (`PLAT-CLUS-06`). Entries from the hand-written
+annotation SHALL be checked against the recognized namespaces (`provider`,
+`runtime`, `network`, `region`, `environment`, `purpose`); entries with any other
+namespace SHALL be dropped. The output order SHALL be stable: the recognized
+namespaces first, in the order listed, then every other namespace
+alphabetically. The field SHALL be optional at every hop:
 a node with no capability annotation SHALL carry an empty set, not an error, so
 existing test factories and payloads that omit it stay valid.
 
