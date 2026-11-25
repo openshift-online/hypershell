@@ -1,6 +1,7 @@
 package managedClusters
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -210,4 +211,38 @@ func migrationDropFleetId() *gormigrate.Migration {
 			return nil
 		},
 	}
+}
+
+// migrationReplaceRetiredCapabilityLabels rewrites stored capability sets that
+// still hold a retired label (runtime/release-check, runtime/release-matrix) to
+// its purpose/ replacement (PLAT-CLUS-06.06). Registration now rejects the retired
+// names, but a cluster that has not sent a heartbeat since keeps its old set, and
+// placement matches against it. Heartbeats replace the set anyway, so this only
+// matters for clusters that are offline. Irreversible: the old names are rejected,
+// so the rollback is a no-op.
+func migrationReplaceRetiredCapabilityLabels() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026112518000001",
+		Migrate: func(tx *gorm.DB) error {
+			return dbmigrate.RewriteJSONColumn(tx, "managed_clusters", "capabilities", "runtime/release-", replaceRetiredCapabilitiesJSON)
+		},
+		Rollback: func(tx *gorm.DB) error { return nil },
+	}
+}
+
+// replaceRetiredCapabilitiesJSON rewrites one stored capabilities array.
+func replaceRetiredCapabilitiesJSON(raw []byte) ([]byte, bool, error) {
+	var labels []string
+	if err := json.Unmarshal(raw, &labels); err != nil {
+		return nil, false, fmt.Errorf("decode capabilities: %w", err)
+	}
+	replaced, changed := ReplaceRetiredCapabilityLabels(labels)
+	if !changed {
+		return raw, false, nil
+	}
+	out, err := json.Marshal(replaced)
+	if err != nil {
+		return nil, false, fmt.Errorf("encode capabilities: %w", err)
+	}
+	return out, true, nil
 }

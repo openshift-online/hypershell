@@ -103,4 +103,5 @@ func init() {
 	db.RegisterMigration(migrationUniqueName())
 	db.RegisterMigration(migrationDropPlacementColumns())
 	db.RegisterMigration(migrationAddHealth())
+	db.RegisterMigration(migrationReplaceRetiredCapabilityLabels())
 }
