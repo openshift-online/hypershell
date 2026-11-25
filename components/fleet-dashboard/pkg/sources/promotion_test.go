@@ -514,6 +514,11 @@ func TestCapabilitiesFromAnnotation(t *testing.T) {
 			want: []string{"provider/aws", "runtime/kata"},
 		},
 		{
+			name: "purpose namespace accepted",
+			ann:  map[string]string{capabilitiesAnnotation: "purpose/release-check,provider/aws"},
+			want: []string{"provider/aws", "purpose/release-check"},
+		},
+		{
 			name: "whitespace trimmed, empties skipped, duplicates collapsed",
 			ann:  map[string]string{capabilitiesAnnotation: " provider/aws , ,runtime/kata, runtime/kata "},
 			want: []string{"provider/aws", "runtime/kata"},
