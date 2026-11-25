@@ -274,6 +274,56 @@ describe("browserRuntimeConfig", () => {
   });
 });
 
+describe("HSCTL_DOWNLOAD_BASE_URL", () => {
+  const releaseUrl =
+    "https://github.com/openshift-online/hypershell/releases/download/release-bundle-20261124T203545000000Z-aa9866485a32d393";
+
+  // Verifies: WEB-UDOC-08, WEB-UDOC-08.02
+  it("relays a valid release download URL through the runtime allowlist", () => {
+    const config = loadConfig({
+      HSCTL_DOWNLOAD_BASE_URL: `${releaseUrl}/`,
+      STATIC_ROOT: "./public",
+    });
+
+    expect(config.hsctlDownloadBaseUrl).toBe(releaseUrl);
+    expect(browserRuntimeConfig(config)).toEqual({
+      apiVersion: "unknown",
+      hsctl_download_base_url: releaseUrl,
+      tracing: { sampleRatio: 0 },
+      webBuildTime: "unknown",
+      webVersion: "unknown",
+    });
+  });
+
+  // Verifies: WEB-UDOC-08.03
+  it("omits the setting from the runtime allowlist when unset or blank", () => {
+    for (const value of [undefined, "", "   "]) {
+      const config = loadConfig({
+        ...(value === undefined ? {} : { HSCTL_DOWNLOAD_BASE_URL: value }),
+        STATIC_ROOT: "./public",
+      });
+      expect(config.hsctlDownloadBaseUrl).toBeUndefined();
+      expect(browserRuntimeConfig(config)).not.toHaveProperty(
+        "hsctl_download_base_url",
+      );
+    }
+  });
+
+  // Verifies: WEB-UDOC-08
+  it.each([
+    ["an HTTP URL", "http://github.com/openshift-online/hypershell/releases"],
+    ["a relative path", "/releases/download/v1"],
+    ["a query", `${releaseUrl}?tag=latest`],
+    ["a fragment", `${releaseUrl}#assets`],
+    ["credentials", "https://user:secret@example.com/releases/download/v1"],
+    ["a non-URL", "not a url"],
+  ])("fails startup for %s", (_label, value) => {
+    expect(() =>
+      loadConfig({ HSCTL_DOWNLOAD_BASE_URL: value, STATIC_ROOT: "./public" }),
+    ).toThrow(/HSCTL_DOWNLOAD_BASE_URL/u);
+  });
+});
+
 function pathIsAbsolute(value: string): boolean {
   return value.startsWith("/");
 }

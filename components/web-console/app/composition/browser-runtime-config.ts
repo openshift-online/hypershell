@@ -7,6 +7,12 @@ const runtimeConfigMetaName = "hypershell-runtime-config";
 export interface BrowserRuntimeConfig {
   /** API server build version, relayed by the BFF from API metadata. */
   apiVersion: string;
+  /**
+   * Optional `hsctl` release download directory for the Install `hsctl` page,
+   * relayed from the BFF `HSCTL_DOWNLOAD_BASE_URL` setting as
+   * `hsctl_download_base_url` (WEB-UDOC-08).
+   */
+  hsctlDownloadBaseUrl?: string;
   tracing: {
     /** Fraction of browser-rooted traces to record, 0..1. */
     sampleRatio: number;
@@ -41,6 +47,29 @@ function versionOrUnknown(value: unknown): string {
   return typeof value === "string" && value.length > 0 ? value : "unknown";
 }
 
+// The BFF validates the setting at startup; the browser checks it again so a
+// tampered surface can never put a non-HTTPS or query-carrying URL into a
+// copyable install command.
+function downloadBaseUrlOrUndefined(value: unknown): string | undefined {
+  if (typeof value !== "string" || value === "") {
+    return undefined;
+  }
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash &&
+      !value.includes("?") &&
+      !value.includes("#")
+      ? value.replace(/\/+$/u, "")
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Parses the runtime config from the injected <meta> tag. An absent tag,
  * unparsable content, or an out-of-range sample ratio all fall back to the
@@ -62,16 +91,23 @@ export function readBrowserRuntimeConfig(
   try {
     const parsed = JSON.parse(content) as {
       apiVersion?: unknown;
+      hsctl_download_base_url?: unknown;
       tracing?: { sampleRatio?: unknown };
       webVersion?: unknown;
       webBuildTime?: unknown;
     };
+    const hsctlDownloadBaseUrl = downloadBaseUrlOrUndefined(
+      parsed.hsctl_download_base_url,
+    );
+    const download =
+      hsctlDownloadBaseUrl === undefined ? {} : { hsctlDownloadBaseUrl };
     const sampleRatio = parsed.tracing?.sampleRatio;
     if (!isSampleRatio(sampleRatio)) {
-      return disabledRuntimeConfig;
+      return { ...disabledRuntimeConfig, ...download };
     }
     return {
       apiVersion: versionOrUnknown(parsed.apiVersion),
+      ...download,
       tracing: { sampleRatio },
       webVersion: versionOrUnknown(parsed.webVersion),
       webBuildTime: versionOrUnknown(parsed.webBuildTime),

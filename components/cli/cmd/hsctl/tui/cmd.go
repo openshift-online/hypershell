@@ -1,7 +1,10 @@
+//go:build !(js && wasm)
+
 // Package tui is hsctl tui, the terminal interface generated from the API's
 // OpenAPI description (specs/platform/hsctl-terminal-ui.spec.md). The command,
 // its flags and the screens come from the rh-trex-ai runtime; this package
-// only supplies the embedded descriptor and the saved login.
+// only supplies the embedded descriptor and the saved login. The browser module
+// does not build it: it needs a local terminal (CLI-WASM-01, CLI-WASM-04).
 package tui
 
 import (

@@ -456,6 +456,61 @@ describe("web-console BFF", () => {
     expect(obsolete.statusCode).toBe(404);
   });
 
+  // Verifies: CLI-WASM-05
+  it("serves the hsctl runtime as immutable, compressed application/wasm", async () => {
+    // Highly compressible bytes stand in for the module.
+    await writeFile(
+      path.join(staticRoot, "assets", "hsctl-0a1b2c3d.wasm"),
+      Buffer.alloc(64 * 1024, 0x61),
+    );
+
+    const response = await app.inject({
+      headers: { "accept-encoding": "gzip" },
+      method: "GET",
+      url: "/assets/hsctl-0a1b2c3d.wasm",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toBe("application/wasm");
+    expect(response.headers["cache-control"]).toContain("immutable");
+    expect(response.headers["content-encoding"]).toBe("gzip");
+    expect(response.rawPayload.length).toBeLessThan(64 * 1024);
+  });
+
+  // Verifies: CLI-WASM-05
+  it("serves a build-time precompressed hsctl runtime when one exists", async () => {
+    const precompressed = Buffer.from("precompressed-gzip-bytes");
+    await writeFile(
+      path.join(staticRoot, "assets", "hsctl-9f8e7d6c.wasm"),
+      Buffer.alloc(64 * 1024, 0x62),
+    );
+    await writeFile(
+      path.join(staticRoot, "assets", "hsctl-9f8e7d6c.wasm.gz"),
+      precompressed,
+    );
+
+    const response = await app.inject({
+      headers: { "accept-encoding": "gzip" },
+      method: "GET",
+      url: "/assets/hsctl-9f8e7d6c.wasm",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-encoding"]).toBe("gzip");
+    expect(response.headers["content-type"]).toBe("application/wasm");
+    expect(response.rawPayload).toEqual(precompressed);
+  });
+
+  // Verifies: WEB-TERM-11
+  it("returns 404 for the web app manifest when the build has none", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/manifest.webmanifest",
+    });
+
+    expect(response.statusCode).toBe(404);
+  });
+
   it("proxies API reads and mutations to the configured origin", async () => {
     const correlationId = "11111111-1111-4111-8111-111111111111";
     const list = await app.inject({

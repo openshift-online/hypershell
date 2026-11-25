@@ -47,6 +47,9 @@ scopes:
         include:
           - components/cli/**
           - .tekton/hypershell-cli-*
+          - scripts/build-hsctl-wasm.sh
+          - scripts/check-hsctl-wasm-size*
+          - .node-version
           - scripts/generate-cli.sh
           - scripts/generate-tui.sh
           - scripts/trex-checkout.sh
@@ -150,9 +153,14 @@ scopes:
         # Domain probes live under components/web-console and are consumed by
         # the shared UI packages, so they stay in this consumer scope rather
         # than forming a universal UI lock. The TypeScript SDK and its
-        # contract/generator inputs are included (CICD-MRG-03.04).
+        # contract/generator inputs are included (CICD-MRG-03.04). The image
+        # also builds the hsctl browser module from components/cli
+        # (specs/platform/hsctl-browser-build.spec.md, CLI-WASM-05).
         include:
           - components/web-console/**
+          - components/cli/**
+          - scripts/build-hsctl-wasm.sh
+          - scripts/check-hsctl-wasm-size*
           - packages/gateway-management-ui/**
           - packages/operational-dashboard-ui/**
           - .tekton/hypershell-web-console-*

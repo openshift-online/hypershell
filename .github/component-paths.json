@@ -205,7 +205,10 @@
       ".github/workflows/unit-tests.yml",
       ".github/workflows/tests.yml",
       "components/api-server/Dockerfile.openapi",
-      "scripts/trex-checkout.sh"
+      "scripts/trex-checkout.sh",
+      "scripts/build-hsctl-wasm.sh",
+      "scripts/check-hsctl-wasm-size.sh",
+      ".node-version"
     ],
     "unit_tested": true
   },
@@ -248,7 +251,9 @@
       "scripts/sdk-generator/**",
       "scripts/openapi-ir/**",
       ".node-version",
-      "scripts/bootstrap_pnpm.sh"
+      "scripts/bootstrap_pnpm.sh",
+      "components/cli/**",
+      "scripts/build-hsctl-wasm.sh"
     ],
     "unit_tested": true
   },

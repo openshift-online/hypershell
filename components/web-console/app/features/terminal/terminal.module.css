@@ -1,0 +1,212 @@
+/*
+ * Product-specific layout for the hsctl terminal drawer (WEB-TERM-02/03/08).
+ * PatternFly's Drawer owns docking; these rules size the panel, keep a
+ * bottom-docked drawer inline below the PatternFly md breakpoint, and style
+ * the text log with PatternFly semantic tokens in light and dark themes.
+ */
+
+/* Below md PatternFly overlays the panel; keep the page and terminal stacked
+ * so the terminal never covers page content (WEB-TERM-02). */
+@media (max-width: 47.99rem) {
+  .drawer.drawer.drawer:global(.pf-m-expanded)
+    > :global(.pf-v6-c-drawer__main)
+    > :global(.pf-v6-c-drawer__content) {
+    flex-shrink: 1;
+    min-block-size: 0;
+  }
+
+  .drawer.drawer.drawer:global(.pf-m-expanded)
+    > :global(.pf-v6-c-drawer__main)
+    > :global(.pf-v6-c-drawer__panel) {
+    transform: none;
+  }
+}
+
+.panelContent {
+  padding-block: 0;
+}
+
+.panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-block-size: 0;
+}
+
+.panelRight {
+  flex-direction: row;
+}
+
+.handle {
+  flex: none;
+  position: relative;
+  touch-action: none;
+  user-select: none;
+}
+
+.handle::after {
+  background-color: var(--pf-t--global--border--color--default);
+  border-radius: var(--pf-t--global--border--radius--pill);
+  content: "";
+  inset: 50% auto auto 50%;
+  position: absolute;
+  transform: translate(-50%, -50%);
+}
+
+.handle:hover::after,
+.handle:focus-visible::after {
+  background-color: var(--pf-t--global--border--color--hover);
+}
+
+.handle:focus-visible {
+  outline: var(--pf-t--global--border--width--strong) solid
+    var(--pf-t--global--border--color--clicked);
+  outline-offset: calc(var(--pf-t--global--border--width--strong) * -1);
+}
+
+.handleBottom {
+  block-size: var(--pf-t--global--spacer--md);
+  border-block-start: var(--pf-t--global--border--width--divider--default) solid
+    var(--pf-t--global--border--color--default);
+  cursor: row-resize;
+}
+
+.handleBottom::after {
+  block-size: var(--pf-t--global--spacer--xs);
+  inline-size: var(--pf-t--global--spacer--xl);
+}
+
+.handleRight {
+  border-inline-start: var(--pf-t--global--border--width--divider--default)
+    solid var(--pf-t--global--border--color--default);
+  cursor: col-resize;
+  inline-size: var(--pf-t--global--spacer--md);
+}
+
+.handleRight::after {
+  block-size: var(--pf-t--global--spacer--xl);
+  inline-size: var(--pf-t--global--spacer--xs);
+}
+
+.main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-block-size: 0;
+  min-inline-size: 0;
+}
+
+.spinner {
+  margin-inline-end: var(--pf-t--global--spacer--sm);
+}
+
+.status {
+  padding-block: var(--pf-t--global--spacer--sm);
+  padding-inline: var(--pf-t--global--spacer--md);
+}
+
+.log {
+  color: var(--pf-t--global--text--color--regular);
+  flex: 1;
+  font-family: var(--pf-t--global--font--family--mono);
+  font-size: var(--pf-t--global--font--size--body--sm);
+  min-block-size: 0;
+  overflow: auto;
+  padding-block: var(--pf-t--global--spacer--sm);
+  padding-inline: var(--pf-t--global--spacer--md);
+}
+
+.log:focus-visible {
+  outline: var(--pf-t--global--border--width--strong) solid
+    var(--pf-t--global--border--color--clicked);
+  outline-offset: calc(var(--pf-t--global--border--width--strong) * -1);
+}
+
+.line {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.line:empty::before {
+  content: "\200b";
+}
+
+.commandLine {
+  font-weight: var(--pf-t--global--font--weight--body--bold);
+  margin-block-start: var(--pf-t--global--spacer--sm);
+}
+
+.prompt {
+  color: var(--pf-t--global--text--color--subtle);
+  margin-inline-end: var(--pf-t--global--spacer--xs);
+}
+
+.runbookTag {
+  color: var(--pf-t--global--text--color--subtle);
+  font-weight: var(--pf-t--global--font--weight--body--default);
+  margin-inline-end: var(--pf-t--global--spacer--xs);
+}
+
+.stderr {
+  color: var(--pf-t--global--text--color--status--danger--default);
+}
+
+.stderrIcon {
+  margin-inline-end: var(--pf-t--global--spacer--xs);
+}
+
+.notice {
+  color: var(--pf-t--global--text--color--subtle);
+  font-style: italic;
+}
+
+.droppedNotice,
+.emptyLog {
+  color: var(--pf-t--global--text--color--subtle);
+  font-family: var(--pf-t--global--font--family--body);
+  margin-block-end: var(--pf-t--global--spacer--sm);
+  white-space: normal;
+}
+
+.promptRow {
+  border-block-start: var(--pf-t--global--border--width--divider--default) solid
+    var(--pf-t--global--border--color--default);
+  padding-block: var(--pf-t--global--spacer--sm);
+  padding-inline: var(--pf-t--global--spacer--md);
+}
+
+.input {
+  font-family: var(--pf-t--global--font--family--mono);
+}
+
+.hint {
+  color: var(--pf-t--global--text--color--subtle);
+  font-size: var(--pf-t--global--font--size--body--sm);
+  margin-block-start: var(--pf-t--global--spacer--xs);
+}
+
+.signIn {
+  padding: var(--pf-t--global--spacer--md);
+}
+
+/* New lines fade and slide in once (WEB-TERM-08); reduced motion shows them
+ * at once (UIS-A11Y-08). */
+@media (prefers-reduced-motion: no-preference) {
+  .lineEnter {
+    animation: terminal-line-in 160ms
+      var(--pf-t--global--motion--timing-function--decelerate) both;
+    animation-delay: var(--terminal-line-delay, 0ms);
+  }
+}
+
+@keyframes terminal-line-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--pf-t--global--spacer--xs));
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

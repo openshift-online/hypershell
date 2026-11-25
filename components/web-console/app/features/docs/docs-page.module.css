@@ -1,0 +1,198 @@
+/* Calm, single readable column (WEB-UDOC-04). */
+.column {
+  margin-inline: auto;
+  max-inline-size: 760px;
+  padding-block: var(--pf-t--global--spacer--xl);
+}
+
+.subtitle {
+  color: var(--pf-t--global--text--color--subtle);
+  margin-block-start: var(--pf-t--global--spacer--sm);
+}
+
+.section {
+  margin-block-start: var(--pf-t--global--spacer--2xl);
+}
+
+.muted {
+  color: var(--pf-t--global--text--color--subtle);
+  margin-block-start: var(--pf-t--global--spacer--xl);
+}
+
+.backLink {
+  margin-block-end: var(--pf-t--global--spacer--md);
+}
+
+/* Docs home cards: the title link covers the whole card, so each card is one
+   link target with one visible focus indicator. */
+.cards {
+  display: grid;
+  gap: var(--pf-t--global--spacer--lg);
+  margin-block-start: var(--pf-t--global--spacer--2xl);
+}
+
+.card {
+  position: relative;
+}
+
+.card:focus-within {
+  outline: var(--pf-t--global--border--width--strong) solid
+    var(--pf-t--global--border--color--clicked);
+  outline-offset: 2px;
+}
+
+.cardLink {
+  align-items: center;
+  color: inherit;
+  display: flex;
+  gap: var(--pf-t--global--spacer--md);
+  justify-content: space-between;
+  text-decoration: none;
+}
+
+.cardLink:focus {
+  outline: none;
+}
+
+.cardLink::after {
+  content: "";
+  inset: 0;
+  position: absolute;
+}
+
+.cardLink:hover {
+  text-decoration: underline;
+}
+
+/* Runbook steps: an ordered list of calm cells. */
+.steps {
+  display: grid;
+  gap: var(--pf-t--global--spacer--2xl);
+  list-style: none;
+  margin-block-start: var(--pf-t--global--spacer--2xl);
+  padding: 0;
+}
+
+.cell {
+  display: grid;
+  gap: var(--pf-t--global--spacer--md);
+}
+
+.stepLabel {
+  color: var(--pf-t--global--text--color--subtle);
+  font-size: var(--pf-t--global--font--size--body--sm);
+  letter-spacing: 0.02em;
+}
+
+.where {
+  color: var(--pf-t--global--text--color--subtle);
+  font-size: var(--pf-t--global--font--size--body--sm);
+}
+
+.commandLabel {
+  font-weight: var(--pf-t--global--font--weight--body--bold);
+  margin-block-end: var(--pf-t--global--spacer--xs);
+}
+
+.actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pf-t--global--spacer--md);
+}
+
+/* Dark, read-only output pane under a running cell (WEB-UDOC-05). */
+.output {
+  background: var(--pf-t--global--background--color--inverse--default);
+  border-radius: var(--pf-t--global--border--radius--small);
+  color: var(--pf-t--global--text--color--inverse);
+  font-family: var(--pf-t--global--font--family--mono);
+  font-size: var(--pf-t--global--font--size--body--sm);
+  margin: 0;
+  padding: var(--pf-t--global--spacer--md);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.outputLine {
+  display: block;
+}
+
+.outputFailed {
+  font-weight: var(--pf-t--global--font--weight--body--bold);
+}
+
+.metadata {
+  color: var(--pf-t--global--text--color--subtle);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pf-t--global--spacer--lg);
+  margin-block-start: var(--pf-t--global--spacer--sm);
+}
+
+.compare {
+  display: grid;
+  gap: var(--pf-t--global--spacer--lg);
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+}
+
+.diagram {
+  inline-size: 100%;
+  max-inline-size: 36rem;
+}
+
+.diagramNode {
+  fill: var(--pf-t--global--background--color--secondary--default);
+  stroke: var(--pf-t--global--border--color--default);
+  stroke-width: 2;
+}
+
+.diagramAllowed {
+  fill: var(--pf-t--global--background--color--secondary--default);
+  stroke: var(--pf-t--global--color--status--success--default);
+  stroke-width: 2;
+}
+
+.diagramRefused {
+  fill: var(--pf-t--global--background--color--secondary--default);
+  stroke: var(--pf-t--global--color--status--danger--default);
+  stroke-dasharray: 6 4;
+  stroke-width: 2;
+}
+
+.diagramText {
+  fill: var(--pf-t--global--text--color--regular);
+  font-family: var(--pf-t--global--font--family--body);
+  font-size: 13px;
+}
+
+.diagramArrow {
+  fill: none;
+  stroke: var(--pf-t--global--text--color--subtle);
+  stroke-width: 2;
+}
+
+.diagramArrowHead {
+  fill: var(--pf-t--global--text--color--subtle);
+}
+
+.iconLink {
+  align-items: center;
+  display: inline-flex;
+  gap: var(--pf-t--global--spacer--sm);
+}
+
+.diagramMark {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3;
+}
+
+.diagramMarkAllowed {
+  stroke: var(--pf-t--global--color--status--success--default);
+}
+
+.diagramMarkRefused {
+  stroke: var(--pf-t--global--color--status--danger--default);
+}

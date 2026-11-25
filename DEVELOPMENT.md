@@ -740,11 +740,21 @@ token. The terminal UI reuses the generated token provider
 `connection.SetHTTPClientFactory`, `connection.SetTokenProviderFactory`) are
 available if a future need arises.
 
-Generated commands are registered by the generated `cmd/hsctl/generated_commands.go`,
-which `main.go` calls once (`addGeneratedCommands(root)`); a new resource needs no
-edit to `main.go`. A hand-written command is registered from `main.go` (or a
-registration file next to the generated parent, as
-`delete/service_account_registration.go` does). A
+The native `hsctl` and the browser module of the web console terminal
+(`cmd/hsctl-wasm`, `specs/platform/hsctl-browser-build.spec.md`) build their
+command trees from one registration in `cmd/hsctl/commands`. The generator writes
+its registration (`addGeneratedCommands(root)`) into `cmd/hsctl/generated_commands.go`;
+`scripts/generate-cli.sh` moves it to `cmd/hsctl/commands/generated_commands.go`,
+so a new resource needs no hand edit. A hand-written command is registered in
+`cmd/hsctl/commands/commands.go` (or a registration file next to the generated
+parent, as `create/ext_registration.go` does), never in `main.go`: the browser
+drift test (`cmd/hsctl/browser_tree_test.go`) fails when the native tree has a
+command the browser lacks outside the local-only set (`LocalOnlyCommands`). A
+command that needs a local machine is listed there, and a flag that reads or
+writes a local file is listed in `LocalOnlyFlags`. Build the browser module
+with `make hsctl-wasm`; run its tests with
+`GOOS=js GOARCH=wasm go test -exec="$(go env GOROOT)/lib/wasm/go_js_wasm_exec" ./cmd/hsctl-wasm/...`
+from `components/cli` (needs Node.js). A
 hand-written resource command that lives beside generated ones must also be
 listed in `HAND_MAINTAINED_COMMANDS` in `scripts/generate-cli.sh`, or the drift
 check will report it as left over. Files the generator must not overwrite are

@@ -150,6 +150,7 @@ help:
 	@echo "    build-cli                Regenerate the generated commands, then build the CLI binary"
 	@echo "    build-controller         Build control plane container image"
 	@echo "    build-web-console        Build web console container image"
+	@echo "    hsctl-wasm               Build the hsctl browser module for the web console terminal"
 	@echo ""
 	@echo "  Test & Lint"
 	@echo "    unit-test-all            Run all unit test suites (Go, frontend, shell)"
@@ -234,6 +235,14 @@ build-controller:
 # pinned rh-trex-ai generators (the first run needs network access).
 build-cli: generate-cli
 	cd components/cli && CGO_ENABLED=0 go build -ldflags="-s -w" -o hsctl ./cmd/hsctl
+
+.PHONY: hsctl-wasm
+# Build the hsctl browser module (hsctl.wasm + wasm_exec.js) for the web console
+# terminal into $(HSCTL_RUNTIME_DIR), default components/web-console/.hsctl-runtime,
+# and check its compressed size (specs/platform/hsctl-browser-build.spec.md).
+hsctl-wasm:
+	sh scripts/build-hsctl-wasm.sh
+	sh scripts/check-hsctl-wasm-size.sh
 
 .PHONY: build-web-console
 build-web-console:
@@ -432,6 +441,7 @@ lint-cli:
 		exit 1; \
 	fi
 	cd components/cli && go vet ./...
+	cd components/cli && GOOS=js GOARCH=wasm go vet ./...
 	cd components/cli && go run $(GOLANGCI_LINT_PACKAGE) run --timeout=5m
 
 .PHONY: lint-control-plane

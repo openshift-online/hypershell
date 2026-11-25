@@ -47,7 +47,7 @@ runs:
         if grep -qE "^components/control-plane/|^\.tekton/hypershell-control-plane-main-${PIPELINE_SUFFIX}\.yaml$|^Dockerfile$" <<<"${CHANGED_FILES}"; then
           control_plane=true
         fi
-        if grep -qE "^components/web-console/|^packages/gateway-management-ui/|^\.tekton/hypershell-web-console-main-${PIPELINE_SUFFIX}\.yaml$" <<<"${CHANGED_FILES}"; then
+        if grep -qE "^components/web-console/|^packages/gateway-management-ui/|^components/cli/|^scripts/build-hsctl-wasm\.sh$|^\.tekton/hypershell-web-console-main-${PIPELINE_SUFFIX}\.yaml$" <<<"${CHANGED_FILES}"; then
           web_console=true
         fi
 

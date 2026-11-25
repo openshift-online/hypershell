@@ -344,7 +344,13 @@ const registeredPlacementFilter = "oidc_subject <> ''";
 
 function toGatewayPlacement(cluster: ManagedCluster): GatewayPlacement {
   const status = optionalString(cluster.status);
+  const capabilities = Array.isArray(cluster.capabilities)
+    ? cluster.capabilities.filter(
+        (label): label is string => typeof label === "string",
+      )
+    : [];
   return {
+    ...(capabilities.length > 0 ? { capabilities } : {}),
     id: cluster.id,
     name: cluster.name,
     ...(status ? { status } : {}),

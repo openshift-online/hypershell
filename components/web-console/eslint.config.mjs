@@ -18,6 +18,7 @@ import {
 export default tseslint.config(
   {
     ignores: [
+      ".hsctl-runtime/**",
       ".react-router/**",
       "bff/**",
       "build/**",

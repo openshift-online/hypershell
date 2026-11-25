@@ -321,6 +321,16 @@ SHARED_INCLUDE_GROUPS: dict[str, tuple[frozenset[str], tuple[str, ...]]] = {
         frozenset({"cli", "control-plane", "agents"}),
         (".tekton/hypershell-cli-*",),
     ),
+    # The web console image builds the hsctl browser module from the CLI module
+    # (specs/platform/hsctl-browser-build.spec.md, CLI-WASM-05).
+    "hsctl browser module inputs": (
+        frozenset({"cli", "web-console"}),
+        (
+            "components/cli/**",
+            "scripts/build-hsctl-wasm.sh",
+            "scripts/check-hsctl-wasm-size*",
+        ),
+    ),
 }
 
 # Shared exclude groups, same drift guard applied to exclude lists.
@@ -425,8 +435,9 @@ SCENARIOS: list[tuple[str, set[str]]] = [
     ("components/sdk-typescript/src/client.ts", {"sdk-typescript", "web-console"}),
     # CICD-MRG-03.05 -- control plane includes the API gRPC packages.
     ("components/api-server/pkg/api/grpc/hypershell/v1/service.go", {"api-server", "control-plane"}),
-    # CICD-MRG-03.06 -- agent images embed the CLI.
-    ("components/cli/cmd/root.go", {"cli", "control-plane", "agents"}),
+    # CICD-MRG-03.06 -- agent images embed the CLI; the web console image
+    # embeds the hsctl browser module (CLI-WASM-05).
+    ("components/cli/cmd/root.go", {"cli", "control-plane", "agents", "web-console"}),
     # CICD-MRG-11.01 -- chart change selects deployment and all runtime consumers.
     (
         "charts/hypershell/values.yaml",
@@ -472,6 +483,8 @@ DETECTOR_EXPECTATIONS: list[tuple[str, str]] = [
     ("components/api-server/openapi/openapi.yaml", "sdk_typescript"),
     ("components/api-server/openapi/openapi.yaml", "sdk_go"),
     ("components/api-server/openapi/openapi.yaml", "web_console"),
+    # CLI-WASM-05.01 -- the web console image builds the hsctl browser module.
+    ("components/cli/cmd/hsctl-wasm/main.go", "web_console"),
 ]
 
 

@@ -27,6 +27,8 @@ export const links: LinksFunction = () => [
   { rel: "icon", type: "image/png", sizes: "32x32", href: favicon32 },
   { rel: "icon", type: "image/png", sizes: "48x48", href: favicon48 },
   { rel: "apple-touch-icon", sizes: "180x180", href: appleTouchIcon },
+  // Public web app manifest (WEB-TERM-11); no service worker is registered.
+  { rel: "manifest", href: "/manifest.webmanifest" },
 ];
 
 const queryClient = new QueryClient({

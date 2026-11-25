@@ -26,7 +26,8 @@
     "shared/**/*",
     ".storybook-mockups/**/*",
     "react-router.config.ts",
-    "vite.config.ts"
+    "vite.config.ts",
+    "vite-plugins/**/*"
   ],
   "exclude": [
     "app/**/*.test.ts",

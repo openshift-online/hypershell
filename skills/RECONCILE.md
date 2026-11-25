@@ -49,6 +49,43 @@ skills/
 
 ## Reconciliation State
 
+### HYPERSHELL-573 -- Console user docs, runbooks, and browser hsctl terminal (implemented, issue #1182, PR #1186)
+
+Scoped reconciliation of `web-console/user-documentation.spec.md` (WEB-UDOC-01..13),
+`web-console/hsctl-browser-terminal.spec.md` (WEB-TERM-01..14),
+`platform/hsctl-browser-build.spec.md` (CLI-WASM-01..06), WEB-PADM-13, and the
+WEB-BFF-01 / WEB-DPLY-02 / WEB-SEC-01 / WEB-UIEX-01 amendments.
+
+**Mockups:** none approved. Warning recorded: these production pages have no
+corresponding mockup under `specs/web-console/mockups/docs/`, so `ui-build-gate`
+and the UIS-VER-10 parity checks were skipped; every non-parity check ran.
+
+| ID | Status | Evidence |
+|----|--------|----------|
+| WEB-UDOC-01 | Present | `shared/routes.ts` (`docsRouteNames`), `route-contract.json`, lazy route modules `app/routes/docs*.tsx`; isolation test `app/routes/docs-route-isolation.test.ts` (01.02) |
+| WEB-UDOC-02, WEB-UDOC-13 (smoke) | Present | `bff/src/app.ts` `isPublicDocsRoute` on the normalized path; `bff/test/auth.test.ts` (02.01-02.03, 13.01: docs public, `/gateways` and `/api/*` protected, look-alike paths) |
+| WEB-UDOC-03 | Present | `features/docs/use-docs-session.ts`, cell sign-in link (`lib/sign-in.ts`), masthead `features/shell/sign-in-action.tsx`, docs gateway operations without the full-page re-auth redirect (`composition/docs-composition.ts`) |
+| WEB-UDOC-04..09 | Present | `features/docs/*` and `application/docs/*` (placement order, VPN availability, command builders, install command, refusal context); tests `runbook-page.test.tsx`, `docs-pages.test.tsx`, `application/docs/*.test.ts` (the install command is executed in `bash` against a stub release) |
+| WEB-UDOC-10..12 | Present | shared `CommandBlock` and builders exported from `packages/gateway-management-ui`, `shellArgument` everywhere, docs probes `application/docs/docs-probes.ts` + `adapters/observability/docs-observability.ts` |
+| WEB-UDOC-13 (stories, journeys) | Present | `features/docs/docs.stories.tsx`, `e2e/docs.spec.ts` (not run locally: no Playwright browser download in the sandbox) |
+| WEB-TERM-01..14 | Present | `features/terminal/*`, `application/terminal/*`, `adapters/terminal/*` (dedicated classic worker), `vite-plugins/hsctl-runtime.ts`, `vite-plugins/web-app-manifest.ts`, BFF worker CSP and `/manifest.webmanifest`; admission record `docs/decisions/UIS-PFLY-06-hsctl-terminal.md`; `e2e/hsctl-terminal.spec.ts` (not run locally) |
+| CLI-WASM-01..06 | Present | `components/cli/cmd/hsctl/commands` (shared registration, `tui` native-only), `components/cli/cmd/hsctl-wasm` (bridge, capture, session transport, js/wasm tests), drift test `cmd/hsctl/browser_tree_test.go`, `scripts/build-hsctl-wasm.sh`, `scripts/check-hsctl-wasm-size.sh` (gzip 5,762,175 bytes of 8 MiB), web console Dockerfile Go stage, Konflux gomod prefetch and `components/cli` triggers |
+| WEB-PADM-13 | Present | `features/platform-policies/platform-policy-form-model.ts` (`shouldSuggestResourceLimitHelp`, `resourceLimitHelpUrl`), editor suggestion; tests in the form model and page tests |
+| WEB-DPLY-02 (`hsctl_download_base_url`) | Present | `bff/src/config.ts` (`HSCTL_DOWNLOAD_BASE_URL`, startup failure when invalid), `composition/browser-runtime-config.ts` |
+
+**Divergences and follow-ups:**
+
+- D-UDOC-1: the Gateway API response has no `placement` field, so the GitLab
+  runbook treats an existing gateway as eligible when the managed cluster it is
+  placed on carries the `network/vpn` capability label (a gateway still waiting
+  for placement does not qualify). Exposing `placement` on the Gateway response
+  (OpenAPI + SDK regeneration) would let the console check the placement intent
+  itself.
+- D-UDOC-2: OpenShell provider types for Jira (`generic`) and internal GitLab
+  (`gitlab`) in the runbook Step 3 commands should be confirmed against the
+  OpenShell release the fleet runs.
+- The online external-link check skips `gitlab.cee.redhat.com` (VPN-only).
+
 ### PlatformGatewayPolicy / Cedar (complete, e2e verified, branch spec/HYPERSHELL-1151-policy-mockups, PR #1159, issue #1151)
 
 Scoped reconciliation of the PlatformGatewayPolicy spec set introduced by #1148

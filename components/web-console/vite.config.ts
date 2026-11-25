@@ -1,5 +1,14 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { reactRouter } from "@react-router/dev/vite";
 import { defineConfig, type Plugin } from "vite";
+
+import { hsctlRuntimePlugin } from "./vite-plugins/hsctl-runtime";
+import { webAppManifestPlugin } from "./vite-plugins/web-app-manifest";
+
+const webConsoleRoot = path.dirname(fileURLToPath(import.meta.url));
+const brandImages = path.resolve(webConsoleRoot, "../../images/brand");
 
 const getApiOrigin = (): string => {
   const configuredOrigin =
@@ -170,8 +179,27 @@ export default defineConfig({
   envDir: false,
   plugins:
     process.env.STORYBOOK === "true"
-      ? []
-      : [reactRouter(), devAuthProxyPlugin()],
+      ? // Storybook never loads the hsctl runtime; stories use a fake runner.
+        [hsctlRuntimePlugin({ stub: true })]
+      : [
+          reactRouter(),
+          devAuthProxyPlugin(),
+          hsctlRuntimePlugin(),
+          webAppManifestPlugin({
+            icons: [
+              {
+                file: path.join(brandImages, "favicon-180.png"),
+                name: "favicon-180.png",
+                sizes: "180x180",
+              },
+              {
+                file: path.join(brandImages, "logo.png"),
+                name: "logo.png",
+                sizes: "1080x1080",
+              },
+            ],
+          }),
+        ],
   build: {
     sourcemap: false,
     target: "es2022",

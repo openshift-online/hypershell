@@ -41,6 +41,7 @@ packages/**
 !components/web-console/
 !components/web-console/**
 !scripts/bootstrap_pnpm.sh
+!scripts/build-hsctl-wasm.sh
 !prefetch/
 !prefetch/**
 **/node_modules
@@ -51,3 +52,5 @@ packages/**
 **/playwright-report
 **/storybook-static
 **/test-results
+# A locally built hsctl browser module; the web console image builds its own.
+**/.hsctl-runtime

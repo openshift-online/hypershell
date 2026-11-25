@@ -34,6 +34,11 @@ export interface GatewayRecord {
 }
 
 export interface GatewayPlacement {
+  /**
+   * Registration-owned capability labels of the managed cluster (for example
+   * `network/vpn`). Absent when the cluster reports none.
+   */
+  capabilities?: readonly string[];
   id: string;
   name: string;
   status?: string;

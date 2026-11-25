@@ -95,6 +95,8 @@ import {
   cedarStatementHeadline,
   platformPolicyPreviewRows,
   platformPolicyRejections,
+  resourceLimitHelpUrl,
+  shouldSuggestResourceLimitHelp,
   toPlatformPolicyTestRequest,
   type PlatformPolicyFormValues,
   type PlatformPolicyTargetScope,
@@ -1364,6 +1366,35 @@ export function PlatformPolicyFormPage({
                             type="url"
                             value={values.documentationUrl}
                           />
+                          {shouldSuggestResourceLimitHelp(values) ? (
+                            <FormHelperText>
+                              <HelperText>
+                                <HelperTextItem>
+                                  <Button
+                                    isInline
+                                    onClick={() => {
+                                      update({
+                                        documentationUrl: resourceLimitHelpUrl(
+                                          globalThis.location.origin,
+                                          values.name,
+                                        ),
+                                      });
+                                    }}
+                                    variant="link"
+                                  >
+                                    {intl.formatMessage(
+                                      messages.documentationSuggestion,
+                                    )}
+                                  </Button>
+                                </HelperTextItem>
+                                <HelperTextItem>
+                                  {intl.formatMessage(
+                                    messages.documentationSuggestionHelper,
+                                  )}
+                                </HelperTextItem>
+                              </HelperText>
+                            </FormHelperText>
+                          ) : null}
                         </FormGroup>
                       </FormSection>
                       <FormSection

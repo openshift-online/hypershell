@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile:1
-# HI pins are the per-arch manifests from hi/nodejs:24.18.1-builder and hi/nodejs:24.18.1.
+# HI pins are the per-arch manifests from hi/nodejs:24.18.1-builder, hi/nodejs:24.18.1
+# and hi/go:1.26.7 (the hsctl browser module).
 # BUILDARCH selects a native Node toolchain so vite/esbuild are not qemu-emulated.
 # TARGETARCH selects production native addons (sodium-native) and the runtime.
 # Bump amd64 and arm64 together when changing tags.
@@ -13,6 +14,31 @@ ARG TARGETARCH
 # a production image never reports build_time "unknown".
 ARG GIT_VERSION=unknown
 ARG BUILD_TIME=unknown
+
+# ---------------------------------------------------------------------------
+# hsctl browser module for the terminal (specs/platform/hsctl-browser-build.spec.md,
+# CLI-WASM-05): hsctl.wasm built from components/cli at the same source commit,
+# and wasm_exec.js from the same Go toolchain. GOOS=js GOARCH=wasm output does
+# not depend on the build architecture, so the native BUILDARCH toolchain builds
+# it. HI pins are the per-arch manifests from hi/go:1.26.7; bump them with
+# components/cli/Dockerfile and components/fleet-dashboard/Dockerfile.
+# ---------------------------------------------------------------------------
+FROM registry.access.redhat.com/hi/go:1.26.7@sha256:2a2215ce496fdd33fdc19739eaadde902f7719c8be222f22f92fd7da02c889cb AS go-amd64
+FROM registry.access.redhat.com/hi/go:1.26.7@sha256:ba850dda34c47052bb8db5561c80c43fb08d0f9a729c90fddd755a2d5b46f74b AS go-arm64
+FROM go-${BUILDARCH} AS hsctl-wasm
+
+WORKDIR /workspace
+
+# Module files first for layer caching; in a hermetic build the modules come
+# from the Hermeto-prefetched gomod set for components/cli.
+COPY components/cli/go.mod components/cli/go.sum components/cli/
+RUN cd components/cli && go mod download
+
+COPY components/cli/cmd/ components/cli/cmd/
+COPY components/cli/pkg/ components/cli/pkg/
+COPY components/cli/data/ components/cli/data/
+COPY scripts/build-hsctl-wasm.sh scripts/build-hsctl-wasm.sh
+RUN GOFLAGS=-mod=mod sh scripts/build-hsctl-wasm.sh /workspace/hsctl-runtime
 
 FROM --platform=linux/amd64 registry.access.redhat.com/hi/nodejs:24.18.1-builder@sha256:7d3b87dbb6bbf8fc85c865f8a00c5355961dae0e0e4ead15d530af3c8d6e3ebe AS build-amd64
 FROM --platform=linux/arm64 registry.access.redhat.com/hi/nodejs:24.18.1-builder@sha256:5034714f7a4bdd7423231f880b0863b8e69c5aa9b8f5ab69ed1cd1e76760f0e0 AS build-arm64
@@ -65,8 +91,13 @@ COPY --chown=${CONTAINER_DEFAULT_USER} packages/gateway-management-ui packages/g
 COPY --chown=${CONTAINER_DEFAULT_USER} packages/operational-dashboard-ui packages/operational-dashboard-ui
 COPY --chown=${CONTAINER_DEFAULT_USER} components/web-console components/web-console
 COPY --chown=${CONTAINER_DEFAULT_USER} images/brand images/brand
+# The Vite build emits the hsctl runtime files from HSCTL_RUNTIME_DIR as
+# content-hashed assets (CLI-WASM-05).
+COPY --from=hsctl-wasm --chown=${CONTAINER_DEFAULT_USER} /workspace/hsctl-runtime/ components/web-console/.hsctl-runtime/
 
-RUN pnpm run build:web
+RUN HSCTL_RUNTIME_DIR=/app/components/web-console/.hsctl-runtime pnpm run build:web
+# Precompress the large hsctl runtime once; the BFF serves the .br/.gz siblings.
+RUN node components/web-console/scripts/precompress-assets.mjs components/web-console/build/client/assets
 
 # BFF_SOURCE_MAPS=true recompiles the BFF with embedded source maps so
 # NODE_V8_COVERAGE data maps back to TypeScript in local Kind coverage runs

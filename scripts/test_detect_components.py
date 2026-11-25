@@ -76,7 +76,7 @@ class DetectComponentsTest(unittest.TestCase):
         (self.repo / 'components/cli').mkdir(parents=True)
         self.git('mv', 'components/api-server/old.go', 'components/cli/new.go')
         self.git('commit', '-qm', 'rename')
-        self.assertEqual({'api_server', 'cli', 'control_plane', 'agents'}, self.detect())
+        self.assertEqual({'api_server', 'cli', 'control_plane', 'agents', 'web_console'}, self.detect())
 
     def test_missing_sha_fails_instead_of_skipping_ci(self):
         self.detect(payload={'pull_request': {'base': {'sha': 'deadbeef'},
@@ -97,7 +97,7 @@ class DetectComponentsTest(unittest.TestCase):
 
     def test_shared_dependencies(self):
         cases = {
-            'components/cli/pkg/kustomize/x.go': {'cli', 'control_plane', 'agents'},
+            'components/cli/pkg/kustomize/x.go': {'cli', 'control_plane', 'agents', 'web_console'},
             'components/api-server/pkg/secretstore/x.go': {'api_server', 'control_plane'},
             'scripts/openapi-ir/main.py': {'sdk_go', 'sdk_typescript', 'web_console'},
             'components/web-console/domain-probes/src/index.ts':
@@ -119,7 +119,7 @@ class DetectComponentsTest(unittest.TestCase):
     def test_push_and_merge_group_cover_cumulative_changes(self):
         self.commit('components/api-server/internal/a.go', 'api\n')
         head = self.commit('components/cli/cmd/a.go', 'cli\n')
-        expected = {'api_server', 'cli', 'control_plane', 'agents'}
+        expected = {'api_server', 'cli', 'control_plane', 'agents', 'web_console'}
         self.assertEqual(expected, self.detect(event='push', payload={'before': self.base}))
         self.assertEqual(expected, self.detect(event='merge_group', payload={
             'merge_group': {'base_sha': self.base, 'head_sha': head}}))

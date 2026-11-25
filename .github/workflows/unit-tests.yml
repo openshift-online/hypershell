@@ -158,6 +158,21 @@ jobs:
         if: inputs.cli == 'true'
         working-directory: components/cli
         run: go test -count=1 -coverprofile=coverage.out -covermode=atomic ./...
+      # The Go js/wasm test runner executes the browser module tests in Node.js
+      # (specs/platform/hsctl-browser-build.spec.md, CLI-WASM-06).
+      - name: Set up Node.js
+        if: inputs.cli == 'true'
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
+      - name: Run CLI browser module tests (js/wasm)
+        if: inputs.cli == 'true'
+        working-directory: components/cli
+        run: |
+          goroot="$(go env GOROOT)"
+          exec_wrapper="${goroot}/lib/wasm/go_js_wasm_exec"
+          [[ -x "${exec_wrapper}" ]] || exec_wrapper="${goroot}/misc/wasm/go_js_wasm_exec"
+          GOOS=js GOARCH=wasm go test -count=1 -exec="${exec_wrapper}" ./cmd/hsctl-wasm/...
       - name: Upload cli coverage
         if: (github.event_name == 'pull_request' || github.event_name == 'push') && (inputs.cli == 'true')
         # Coverage reporting must never block a merge on a Codecov outage.

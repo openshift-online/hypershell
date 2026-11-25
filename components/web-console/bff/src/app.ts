@@ -58,7 +58,7 @@ import {
   type BffTracing,
   type ProxyOutcome,
 } from "./tracing.js";
-import { routePaths, routes } from "../../shared/routes.js";
+import { docsRouteNames, routePaths, routes } from "../../shared/routes.js";
 
 const correlationHeader = "x-hypershell-correlation-id";
 const validCorrelationId =
@@ -104,6 +104,35 @@ function isApplicationRoute(pathname: string): boolean {
     applicationRoutePatterns.some((pattern) => pattern.test(pathname))
   );
 }
+
+// The public docs routes (WEB-UDOC-01/02), matched on the normalized request
+// path: the WHATWG URL parser resolves "." and ".." segments, including their
+// percent-encoded forms, before this check, so "/docs/../gateways" and
+// "/docs/%2e%2e/gateways" are checked as the gateway list route. A trailing slash is
+// accepted as for every application route, so "/docs/" is the docs home.
+const publicDocsPaths = new Set(
+  docsRouteNames.flatMap((name) => [routePaths[name], `${routePaths[name]}/`]),
+);
+
+export function isPublicDocsRoute(pathname: string): boolean {
+  return publicDocsPaths.has(pathname);
+}
+
+/** Public web app manifest path (WEB-TERM-11). */
+export const webAppManifestPath = "/manifest.webmanifest";
+
+// The hsctl terminal worker script (WEB-TERM-10). Vite emits the dedicated
+// worker as a self-contained, content-hashed asset with this name.
+const hsctlWorkerAssetPattern = /^\/assets\/hsctl-worker-[A-Za-z0-9_-]+\.js$/u;
+
+/**
+ * CSP for the hsctl terminal worker script response. A dedicated worker takes
+ * its policy from its own script response, so only the worker may compile
+ * WebAssembly; the SPA document policy never allows it (WEB-SEC-01). No policy
+ * allows 'unsafe-eval'.
+ */
+export const hsctlWorkerContentSecurityPolicy =
+  "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 const DASHBOARD_HOST_PREFIX = "dashboard.";
 
@@ -375,6 +404,12 @@ export async function buildApp(
         scriptSrc: ["'self'", ...scriptHashes],
         styleSrc: ["'self'", ...styleHashes],
         styleSrcAttr: ["'none'"],
+        // The hsctl terminal runs in a same-origin dedicated worker, and the
+        // installable app window reads the same-origin web app manifest
+        // (WEB-TERM-10, WEB-TERM-11). The document never allows WebAssembly
+        // compilation; only the worker script response does.
+        workerSrc: ["'self'"],
+        manifestSrc: ["'self'"],
         // The BFF serves plain HTTP behind the deployment TLS terminator.
         // HTTPS already blocks mixed active content, while this directive
         // breaks direct local HTTP use in WebKit by upgrading relative assets.
@@ -385,11 +420,19 @@ export async function buildApp(
     referrerPolicy: { policy: "no-referrer" },
   });
 
-  app.addHook("onSend", async (_request, reply) => {
+  app.addHook("onSend", async (request, reply) => {
     reply.header(
       "Permissions-Policy",
       "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
     );
+    if (
+      (request.method === "GET" || request.method === "HEAD") &&
+      hsctlWorkerAssetPattern.test(
+        new URL(request.url, "http://bff.invalid").pathname,
+      )
+    ) {
+      reply.header("Content-Security-Policy", hsctlWorkerContentSecurityPolicy);
+    }
   });
 
   app.addHook("onResponse", async (request, reply) => {
@@ -457,14 +500,22 @@ export async function buildApp(
     });
 
     // Auth enforcement: redirect unauthenticated browser navigations to the
-    // login page. Health, auth, and asset endpoints remain public.
+    // login page. Health, auth, and asset endpoints remain public. The SPA
+    // document for a declared docs route and the web app manifest are public
+    // too (WEB-UDOC-02, WEB-TERM-11): the document is identical for every
+    // reader and discloses no protected data, and every /api/* request keeps
+    // its session, CSRF, and authorization checks.
     app.addHook("onRequest", async (request, reply) => {
       const pathname = new URL(request.url, "http://bff.invalid").pathname;
       if (
         pathname.startsWith("/auth/") ||
         pathname.startsWith("/health/") ||
-        pathname.startsWith("/assets/")
+        pathname.startsWith("/assets/") ||
+        pathname === webAppManifestPath
       ) {
+        return;
+      }
+      if (request.method === "GET" && isPublicDocsRoute(pathname)) {
         return;
       }
       if (request.method === "GET" && isApplicationRoute(pathname)) {
@@ -495,7 +546,36 @@ export async function buildApp(
     immutable: true,
     maxAge: "1y",
     index: false,
+    // Serve a build-time .br or .gz sibling when one exists, so the large
+    // hsctl.wasm runtime is not compressed on every request (CLI-WASM-05).
+    preCompressed: true,
     redirect: false,
+  });
+
+  // The web app manifest is emitted at the client build root by the console
+  // build. Browsers fetch a manifest without credentials, so it is served
+  // without a session (WEB-TERM-11). It is not content-hashed, so it is
+  // revalidated rather than cached as immutable.
+  const webAppManifest = await readFile(
+    path.join(config.staticRoot, "manifest.webmanifest"),
+    "utf8",
+  ).catch((error: unknown) => {
+    app.log.warn(
+      { err: error },
+      "web app manifest is missing from the static root; /manifest.webmanifest returns 404",
+    );
+    return undefined;
+  });
+
+  app.get(webAppManifestPath, async (_request, reply) => {
+    if (webAppManifest === undefined) {
+      reply.code(404);
+      return { error: "Not Found", statusCode: 404 };
+    }
+    reply.header("Cache-Control", "no-cache");
+    return reply
+      .type("application/manifest+json; charset=utf-8")
+      .send(webAppManifest);
   });
 
   app.get("/health/live", async (_request, reply) => {

@@ -80,4 +80,44 @@ describe("readBrowserRuntimeConfig", () => {
       });
     }
   });
+  // Verifies: WEB-UDOC-08, WEB-UDOC-08.02
+  it("reads a valid hsctl release download location", () => {
+    const config = readBrowserRuntimeConfig(
+      documentWithMeta(
+        JSON.stringify({
+          apiVersion: "abc1234",
+          hsctl_download_base_url:
+            "https://github.com/openshift-online/hypershell/releases/download/release-1/",
+          tracing: { sampleRatio: 0 },
+          webBuildTime: "unknown",
+          webVersion: "unknown",
+        }),
+      ),
+    );
+
+    expect(config.hsctlDownloadBaseUrl).toBe(
+      "https://github.com/openshift-online/hypershell/releases/download/release-1",
+    );
+  });
+
+  // Verifies: WEB-UDOC-08.03
+  it.each([
+    ["absent", undefined],
+    ["not HTTPS", "http://example.com/releases/download/v1"],
+    ["carrying a query", "https://example.com/releases?tag=latest"],
+    ["carrying a fragment", "https://example.com/releases#v1"],
+    ["not a URL", "release-1"],
+    ["not a string", 42],
+  ])("ignores a download location that is %s", (_label, value) => {
+    const config = readBrowserRuntimeConfig(
+      documentWithMeta(
+        JSON.stringify({
+          hsctl_download_base_url: value,
+          tracing: { sampleRatio: 0 },
+        }),
+      ),
+    );
+
+    expect(config.hsctlDownloadBaseUrl).toBeUndefined();
+  });
 });
