@@ -19,10 +19,10 @@ import (
 // checks if the GatewayCreateRequest type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &GatewayCreateRequest{}
 
-// GatewayCreateRequest A gateway is created with only its user-writable fields: a name, exactly one of cluster_id (pinned) or placement (late-bound), and the optional create-only dedicated_route request, and the create-only workspace_mode operator opt-in. Every other gateway field is platform-managed and control-plane-only; it is not part of the create contract and is rejected if supplied (data-model.spec.md \"Requirement: Gateway Field Ownership and Write Policy\", PLAT-DATA-23). The web-console provision form submits the placement shape; the pinned shape is available to hsctl apply and the declarative .hypershell import. dedicated_route is rejected on update: it cannot be added, removed, or changed after creation.
+// GatewayCreateRequest A gateway is created with only its user-writable fields: a name, exactly one of cluster_id (pinned) or placement (late-bound), and the optional create-only dedicated_route request, and the create-only workspace_mode operator opt-in. Every other gateway field is platform-managed and control-plane-only; it is not part of the create contract and is rejected if supplied (data-model.spec.md \"Requirement: Gateway Field Ownership and Write Policy\", PLAT-DATA-23). The web-console provision form submits the placement shape; the pinned shape is available to hsctl and hsctl apply for a caller holding gateway:cluster-targeting (platform:admin includes it), and never to the declarative .hypershell import. dedicated_route is rejected on update: it cannot be added, removed, or changed after creation.
 type GatewayCreateRequest struct {
 	Name string `json:"name"`
-	// Pin the gateway to this managed cluster. Mutually exclusive with placement.
+	// Pin the gateway to this managed cluster. Mutually exclusive with placement. Requires the gateway:cluster-targeting role (platform:admin includes it).
 	ClusterId *string `json:"cluster_id,omitempty"`
 	// Create-only. Requires the gateway:dedicated-route-creator role and opts the gateway in to a dedicated route and per-gateway wildcard certificate. The platform manages how the dedicated route and certificate are provided.
 	DedicatedRoute *bool `json:"dedicated_route,omitempty"`

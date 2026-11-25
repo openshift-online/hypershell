@@ -7350,8 +7350,10 @@ components:
         \ it is not part of the create contract and is rejected if supplied (data-model.spec.md\
         \ \"Requirement: Gateway Field Ownership and Write Policy\", PLAT-DATA-23).\
         \ The web-console provision form submits the placement shape; the pinned shape\
-        \ is available to hsctl apply and the declarative .hypershell import. dedicated_route\
-        \ is rejected on update: it cannot be added, removed, or changed after creation."
+        \ is available to hsctl and hsctl apply for a caller holding gateway:cluster-targeting\
+        \ (platform:admin includes it), and never to the declarative .hypershell import.\
+        \ dedicated_route is rejected on update: it cannot be added, removed, or changed\
+        \ after creation."
       example:
         cluster_id: cluster_id
         workspace_mode: workspace_mode
@@ -7369,7 +7371,8 @@ components:
           type: string
         cluster_id:
           description: Pin the gateway to this managed cluster. Mutually exclusive
-            with placement.
+            with placement. Requires the gateway:cluster-targeting role (platform:admin
+            includes it).
           type: string
         dedicated_route:
           description: Create-only. Requires the gateway:dedicated-route-creator role

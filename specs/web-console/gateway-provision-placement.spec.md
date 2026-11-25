@@ -285,10 +285,10 @@ The backend SHALL persist BOTH the `placement` required and excluded selectors (
 
 #### Scenario: WEB-PLC-07.06 -- The admin identity token is resolved, not rejected as unknown
 
-- GIVEN a `platform:admin` caller submits `selector: ["managed-cluster/hyp0-mc1"]` over `hsctl` or the API
+- GIVEN a caller holding `gateway:cluster-targeting` (or `platform:admin`) submits `selector: ["managed-cluster/hyp0-mc1"]` over `hsctl` or the API
 - WHEN the backend validates the selector
 - THEN it SHALL NOT reject the `managed-cluster/` label as an unknown capability
-- AND it SHALL resolve the cluster by name per PLAT-DATA-31, under the platform-admin gate (SEC-RBAC-33)
+- AND it SHALL resolve the cluster by name per PLAT-DATA-31, under the cluster-targeting gate (SEC-RBAC-33)
 
 ### Requirement: WEB-PLC-09 -- API and Persistence
 

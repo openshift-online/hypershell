@@ -314,10 +314,11 @@ A Gateway's target cluster SHALL be expressed in one of two ways, and `cluster_i
 SHALL be OPTIONAL on create:
 
 - **Pinned.** When `cluster_id` is set, the Gateway is pinned to that cluster.
-  Pinning SHALL require `platform:admin` for a user caller (SEC-RBAC-34 in
-  [`rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md)); a
-  non-admin user places by `placement` selector only. Control-plane and
-  declarative-import writes are exempt. Otherwise the contract is unchanged: a set `cluster_id` (on create or
+  Pinning SHALL require `gateway:cluster-targeting` for a user caller
+  (`platform:admin` includes it; SEC-RBAC-34 in
+  [`rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md)); any other
+  user places by `placement` selector only. A control-plane write is exempt; a
+  declarative-import write SHALL NOT pin. Otherwise the contract is unchanged: a set `cluster_id` (on create or
   on a `PATCH` that sets it) SHALL reference a registered `ManagedCluster` with a
   non-empty `oidc_subject`, and an empty-string `cluster_id` SHALL still be
   rejected (see [`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md),
@@ -353,7 +354,10 @@ requirement-capability contract. Deterministic single-cluster targeting is NOT
 part of this contract: it is the separate `managed-cluster/<name>` identity
 selector of "Requirement: Admin ManagedCluster Identity Selector"
 (PLAT-DATA-31), a selector-layer targeting token resolved by cluster name and
-gated to `platform:admin`, never a requirement capability.
+gated to `gateway:cluster-targeting`, never a requirement capability. Requiring a
+`placement/` capability label is likewise gated to `gateway:cluster-targeting`
+(SEC-RBAC-35): it resolves like any capability, but marks clusters set aside for
+deliberate targeting.
 
 **Late binding (no eligible cluster yet).** When a late-bound Gateway's selector
 matches NO eligible `ManagedCluster`, the create SHALL still succeed: the Gateway
@@ -371,7 +375,7 @@ responsible for it until it is placed.
 
 #### Scenario: PLAT-DATA-02.01 -- Create a Gateway pinned to a cluster
 
-- GIVEN a create request from a `platform:admin` caller (or an import) with a `cluster_id` that references a registered cluster
+- GIVEN a create request from a caller holding `gateway:cluster-targeting` (or `platform:admin`) with a `cluster_id` that references a registered cluster
 - WHEN the API server validates the request
 - THEN it SHALL accept the request and persist the Gateway on that cluster
 - AND the behavior SHALL be unchanged from the pre-existing pinned contract
@@ -417,7 +421,8 @@ responsible for it until it is placed.
 
 A `placement` selector MAY carry a `managed-cluster/<name>` identity token that
 targets ONE specific `ManagedCluster` by its unique name (PLAT-CLUS-06,
-PLAT-CLUS-02), so a platform administrator can place a Gateway deterministically
+PLAT-CLUS-02), so a holder of `gateway:cluster-targeting` (a platform
+administrator, for example) can place a Gateway deterministically
 on a single cluster for operations, debugging, or targeted validation. The token
 rides the existing `placement` selector surface (PLAT-DATA-02); it SHALL NOT
 introduce a new create field. It supersedes the server-assigned
@@ -428,8 +433,8 @@ token resolved by name, NOT a capability.
 
 **A selector-layer token, never a capability.** `managed-cluster/` SHALL be a
 distinct selector namespace, separate from the self-declared capability
-namespaces `provider`, `network`, `region`, `runtime`, and `environment`
-(PLAT-CLUS-06). Because the namespaces are disjoint, a label in the
+namespaces `provider`, `network`, `region`, `runtime`, `environment`, and
+`placement` (PLAT-CLUS-06). Because the namespaces are disjoint, a label in the
 `managed-cluster/` namespace is unambiguously the identity-targeting token. The
 token SHALL be resolver-level only: it SHALL NOT be stored on a `ManagedCluster`,
 SHALL NOT be advertised in any capability list on `GET /managed_clusters`, and
@@ -437,14 +442,15 @@ SHALL NOT be synthesized onto placement candidates. No read-filtering of the
 ManagedCluster capability surface is required, because the token is never a
 capability.
 
-**Platform-admin gate on USE.** A create request (REST or gRPC) whose `placement`
+**Cluster-targeting gate on USE.** A create request (REST or gRPC) whose `placement`
 required or excluded selector references a `managed-cluster/<name>` token, and a
-placement-availability probe that references one, SHALL require `platform:admin`.
-A caller without `platform:admin` SHALL be rejected with 403 (`PermissionDenied`
+placement-availability probe that references one, SHALL require
+`gateway:cluster-targeting` (`platform:admin` includes it). Any other caller,
+and any import, SHALL be rejected with 403 (`PermissionDenied`
 over gRPC) BEFORE name resolution, so the gate confines the USE of the token and
 does not merely hide a value. The authorization-layer enforcement is defined in
 [`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md),
-"Requirement: Admin ManagedCluster Selector Gate" (SEC-RBAC-33).
+"Requirement: ManagedCluster Selector Gate" (SEC-RBAC-33).
 
 **Deterministic resolution.** After the gate passes, the API server SHALL resolve
 a `managed-cluster/<name>` token to the `ManagedCluster` whose unique `name`

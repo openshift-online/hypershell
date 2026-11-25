@@ -423,7 +423,9 @@ components:
         contract and is rejected if supplied (data-model.spec.md "Requirement:
         Gateway Field Ownership and Write Policy", PLAT-DATA-23). The web-console
         provision form submits the placement shape; the pinned shape is available
-        to hsctl apply and the declarative .hypershell import. dedicated_route is
+        to hsctl and hsctl apply for a caller holding gateway:cluster-targeting
+        (platform:admin includes it), and never to the declarative .hypershell
+        import. dedicated_route is
         rejected on update: it cannot be added, removed, or changed after
         creation.
       required:
@@ -435,6 +437,7 @@ components:
           type: string
           description: >-
             Pin the gateway to this managed cluster. Mutually exclusive with placement.
+            Requires the gateway:cluster-targeting role (platform:admin includes it).
         dedicated_route:
           type: boolean
           description: >-

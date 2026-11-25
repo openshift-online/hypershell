@@ -118,6 +118,7 @@ Role        ||--o{ RoleBinding : "granted_by"
 | `managed-cluster-registrar` | global | Keycloak JWT (direct, no DB binding) | Allows a control-plane service account (every control plane, the hub's co-located one included) to call `POST /managed_clusters/registration`; checked live from JWT claim, not via `JWTSyncedRoles` or DB RoleBinding |
 | `gateway:dedicated-route-creator` | global | Keycloak JWT | Entitlement to set `dedicated_route = true` on a gateway create (the dedicated per-gateway route and wildcard certificate, PLAT-DATA-26 / OSG-ROUT-12); grants nothing else by itself. See "Requirement: Gateway Dedicated Route Creator Role" (SEC-RBAC-20) |
 | `gateway:operator-workspace-creator` | global | Keycloak JWT | Entitlement to set `workspace_mode = operator` on a gateway create (per-gateway operator-managed workspaces, OSG-OPWS-01); grants nothing else by itself. See "Requirement: Gateway Operator Workspace Creator Role" (SEC-RBAC-28) |
+| `gateway:cluster-targeting` | global | Keycloak JWT | Entitlement to choose a gateway's cluster at create: pin by `cluster_id`, the `managed-cluster/<name>` selector, or a required `placement/` label. `platform:admin` includes it. Grants nothing else by itself. See "Requirement: Gateway Cluster Targeting Role" (SEC-RBAC-34) |
 | `ci-federation:admin` | global | DB (RoleBinding API, granted by platform:admin or ci-federation:grantor) | Authorizes the `ci_providers` extension kind (register/read/update/delete a CI OIDC forge, PLAT-DATA-24) and nothing else. Granted through the RoleBinding API (not JWT-synced): HyperShell owns the authorization decision rather than delegating it to a Keycloak realm role. The gitops CI-federation seeder holds only this role instead of `platform:admin`. It confers no gateway, platform, or other ext-kind authority. See "Requirement: CI Federation Admin Role" (SEC-RBAC-21) |
 | `ci-federation:grantor` | global | Keycloak JWT | Narrow bootstrap role: authorizes creating/deleting a global `ci-federation:admin` RoleBinding and nothing else. Held by a gitops bootstrap identity so the seeder's `ci_providers` authorization can be granted declaratively without `platform:admin`. Confers no `ci_providers`, gateway, or platform authority and cannot grant any other role. See "Requirement: CI Federation Grantor Role" (SEC-RBAC-23) |
 | `fleet:reader` | global | Keycloak JWT | Narrow read-only fleet role: authorizes listing all gateways and reading any gateway (the same read surface as `platform:admin` view) and nothing else. Grants no delete, no access management, no create, no configuration modify, no ManagedCluster access, no gateway login, and no sandbox-events read. Held by the outside availability prober's workload identity (`platform/outside-prober.spec.md` OBS-PRB-06) and any read-only fleet observer that needs fleet-wide gateway visibility without `platform:admin`. See "Requirement: Fleet Reader Role" (SEC-RBAC-29) |
@@ -135,6 +136,7 @@ Role        ||--o{ RoleBinding : "granted_by"
 | `managed-cluster-registrar` | none (unless also granted `gateway:creator` directly, or through the realm default role, in Keycloak) | none | none | none | none | `POST /registration` (register + heartbeat loop) -- enforced by JWT-direct check in `isAuthorized`, not a DB binding. Once registered, the caller may delete its own record (self-deregistration). |
 | `gateway:dedicated-route-creator` | none by itself (marker for `dedicated_route` on create) | none (does not create or own gateways without `gateway:creator`) | none | none | none | none |
 | `gateway:operator-workspace-creator` | none by itself (marker for `workspace_mode = operator` on create) | none (does not create or own gateways without `gateway:creator`) | none | none | none | none |
+| `gateway:cluster-targeting` | none by itself (marker for choosing a gateway's cluster on create) | none (does not create or own gateways without `gateway:creator`) | none | none | none | none |
 | `ci-federation:admin` | none | none | none | none | none | none (authorizes only the `ci_providers` ext kind; see SEC-RBAC-21) |
 | `ci-federation:grantor` | none | none | create/delete a `ci-federation:admin` binding only | none | none | none (bootstrap grantor; see SEC-RBAC-23) |
 | `fleet:reader` | view all (read only) | view all, no writes (no delete) | none | None (no gateway login) | none | none (authorizes only fleet-wide gateway read; see SEC-RBAC-29) |
@@ -170,7 +172,7 @@ granted `gateway:admin` or `gateway:viewer` on that gateway.
 
 ### Requirement: SEC-RBAC-01 -- Keycloak as Authority for Platform Roles
 
-Keycloak is the source of truth for the `gateway:creator`, `gateway:dedicated-route-creator`, `gateway:operator-workspace-creator`, `ci-federation:grantor`, `fleet:reader`, and `platform:admin` roles. A
+Keycloak is the source of truth for the `gateway:creator`, `gateway:dedicated-route-creator`, `gateway:operator-workspace-creator`, `gateway:cluster-targeting`, `ci-federation:grantor`, `fleet:reader`, and `platform:admin` roles. A
 Keycloak administrator assigns these roles to users and service accounts via Keycloak's
 admin console or API. (`ci-federation:admin` is the exception: it is granted
 through the RoleBinding API by a `platform:admin` or `ci-federation:grantor`, not
@@ -780,8 +782,8 @@ create, PLAT-DATA-26 / OSG-OPWS-01). Any other field that differs from the store
 value (update) or is set (create) SHALL be rejected, naming the field: `403 Forbidden`
 over REST, `PERMISSION_DENIED` over gRPC. Re-sending an unchanged value SHALL be a
 no-op. Supplying `cluster_id` is on the allowlist but is additionally gated to
-`platform:admin` for a `user` caller (SEC-RBAC-34); a non-admin user places by
-`placement` selector only. Only a `control-plane` (non-import) caller SHALL bypass the field policy and
+`gateway:cluster-targeting` for a `user` caller and denied to an `import` caller
+(SEC-RBAC-34); any other caller places by `placement` selector only. Only a `control-plane` (non-import) caller SHALL bypass the field policy and
 retain full write of platform-managed and observed fields. An `import` caller SHALL
 NOT set `dedicated_route` or `workspace_mode`: the service funnel rejects an import
 create that sets either with its own entitlement-specific message (PLAT-DATA-26,
@@ -2173,15 +2175,16 @@ able to write a finding attributed to a gateway in another namespace.
 - THEN the request SHALL be denied
 
 ---
-### Requirement: SEC-RBAC-33 -- Admin ManagedCluster Selector Gate
+### Requirement: SEC-RBAC-33 -- ManagedCluster Selector Gate
 
-The platform-admin gate on the `managed-cluster/<name>` identity placement
+The cluster-targeting gate on the `managed-cluster/<name>` identity placement
 selector (the deterministic single-cluster targeting token defined canonically in
 [`platform/data-model.spec.md`](../platform/data-model.spec.md), "Requirement:
 Admin ManagedCluster Identity Selector", PLAT-DATA-31) SHALL be enforced by the
 authorization layer. It gates the USE of the token, not merely the visibility of a
-value: a caller without `platform:admin` SHALL NOT place a Gateway on, or probe
-availability for, a cluster named through this token.
+value: a caller without `gateway:cluster-targeting` (SEC-RBAC-34; `platform:admin`
+includes it) SHALL NOT place a Gateway on, or probe availability for, a cluster
+named through this token.
 
 **Body-dependent, at the create boundaries and the availability probe.** Like the
 `dedicated_route` entitlement (SEC-RBAC-20), the selector arrives in the request
@@ -2191,24 +2194,24 @@ AND the placement-availability probe handler
 (`POST /api/hypershell/v1/gateways/placement-availability`). A request whose
 `placement` required or excluded selector (or whose probed selector) references a
 `managed-cluster/<name>` token SHALL be authorized only for a caller holding
-`platform:admin`; any other caller SHALL be rejected with 403
+`gateway:cluster-targeting` or `platform:admin`; any other caller SHALL be rejected with 403
 (`PermissionDenied` over gRPC) naming the restriction, BEFORE the name is
 resolved. A request that references no `managed-cluster/` token SHALL be
 unaffected by this gate.
 
 **Fail closed.** The handler SHALL resolve the caller's role bindings through the
 role-binding service lookup and fail closed: a missing caller identity or bindings
-lacking `platform:admin` SHALL reject the request. A binding-lookup failure SHALL
+lacking both `gateway:cluster-targeting` and `platform:admin` SHALL reject the request. A binding-lookup failure SHALL
 surface as a server error rather than an authorization denial, so a transient
 database problem does not tell the caller to request a role it may already hold.
 The check SHALL be a no-op exactly when authentication is off (SEC-RBAC-14),
 because there is then no caller identity whose bindings could be looked up. A
 privileged control-plane write bypasses the check; a declarative-import create
-carries no `managed-cluster/` token on the user placement surface.
+that carries a `managed-cluster/` token SHALL be denied (SEC-RBAC-34.04).
 
-#### Scenario: SEC-RBAC-33.01 -- Platform admin may target a cluster by name
+#### Scenario: SEC-RBAC-33.01 -- Cluster-targeting holders may target a cluster by name
 
-- GIVEN a caller holding `platform:admin`
+- GIVEN a caller holding `gateway:cluster-targeting` (with `gateway:creator`) or `platform:admin`
 - WHEN the caller creates a Gateway whose `placement.selector` references `managed-cluster/<name>` (REST or gRPC)
 - THEN the authorization layer SHALL permit the create and the handler SHALL resolve the name (PLAT-DATA-31)
 
@@ -2221,62 +2224,139 @@ carries no `managed-cluster/` token on the user placement surface.
 
 #### Scenario: SEC-RBAC-33.03 -- The availability probe is gated like create
 
-- GIVEN a caller without `platform:admin`
+- GIVEN a caller without `gateway:cluster-targeting` or `platform:admin`
 - WHEN the caller calls `POST /api/hypershell/v1/gateways/placement-availability` with a selector referencing `managed-cluster/<name>`
 - THEN the probe SHALL be rejected with 403, under the same gate as the create boundaries
 
-### Requirement: SEC-RBAC-34 -- Admin Pinned Cluster Gate
+### Requirement: SEC-RBAC-34 -- Gateway Cluster Targeting Role
 
-Pinning a Gateway to a specific cluster by `cluster_id` SHALL require
-`platform:admin` for a `user` caller. A pin skips the capability checks that a
-`placement` selector applies, so it reaches any registered cluster, including a
-hub whose controller advertises no capabilities to keep selector placement off
-it. It is therefore gated like the `managed-cluster/<name>` identity selector
-(SEC-RBAC-33).
+A platform-wide role `gateway:cluster-targeting` SHALL gate every way a caller
+chooses a Gateway's cluster instead of letting capability placement pick one:
 
-**Where it is enforced.** The gate SHALL run in the REST gateway Create handler,
-the gRPC `CreateGateway` handler, and the gRPC `UpdateGateway` handler when the
-request changes the stored `cluster_id`. It SHALL run BEFORE the cluster
-reference is resolved (PLAT-CLUS-09). A denied caller SHALL get 403
-(`PermissionDenied` over gRPC) with a message that names `platform:admin` and
-tells the caller to use a capability `placement` selector instead.
+1. pinning by `cluster_id` (this requirement);
+2. the `managed-cluster/<name>` identity selector (SEC-RBAC-33);
+3. requiring a `placement/` label in a placement selector (SEC-RBAC-35).
+
+Each of these skips or narrows the capability placement every `gateway:creator`
+gets. A pin skips capability checks entirely, so it reaches any registered
+cluster, including a hub whose controller advertises no capabilities to keep
+ordinary placement off it.
+
+**`platform:admin` includes it.** A caller holding `platform:admin` SHALL pass
+every cluster-targeting check without a separate `gateway:cluster-targeting`
+binding. This is a code-level rule (like `gateway:dedicated-route-creator`,
+SEC-RBAC-20), not a Keycloak composite role.
+
+**Grants nothing else.** `gateway:cluster-targeting` SHALL NOT grant create on
+its own: a caller still needs `gateway:creator` to create a Gateway. It is
+global-scope and Keycloak-owned (JWT-synced), and SHALL NOT be assignable
+through the RoleBinding API.
+
+**Where the pin is enforced.** The pin check SHALL run in the REST gateway
+Create handler, the gRPC `CreateGateway` handler, and the gRPC `UpdateGateway`
+handler when the request changes the stored `cluster_id`. It SHALL run BEFORE
+the cluster reference is resolved (PLAT-CLUS-09). A denied caller SHALL get 403
+(`PermissionDenied` over gRPC) with a message that names
+`gateway:cluster-targeting` and tells the caller to use a capability `placement`
+selector instead.
 
 **Not a reassignment.** An update that re-sends the unchanged stored
-`cluster_id` SHALL NOT be gated, so status write-backs and renames that echo the
-value keep working.
+`cluster_id` SHALL NOT be checked, so status write-backs and renames that echo
+the value keep working.
 
-**Fail closed.** The gate SHALL use the same role-binding lookup and fail-closed
-rules as SEC-RBAC-33: a missing caller identity, an unwired lookup, or bindings
-lacking `platform:admin` SHALL reject; a lookup failure SHALL be a server error;
-the check SHALL be a no-op when authentication is off (SEC-RBAC-14).
+**Fail closed.** The check SHALL resolve the caller's role bindings through the
+role-binding lookup. A missing caller identity, an unwired lookup, or bindings
+holding neither `gateway:cluster-targeting` nor `platform:admin` SHALL reject. A
+lookup failure SHALL be a server error. The check SHALL be a no-op when
+authentication is off (SEC-RBAC-14).
 
-**Exempt writers.** A `control-plane` write (for example the API server's own
-late-binding rebind) SHALL bypass the gate. A declarative-import (`import`)
-create SHALL also bypass it and MAY pin by `cluster_id`. The import credential
-is a platform-registered Repository identity, not an end user, and its writes are
-already bounded by import ownership (SEC-RBAC-09); this keeps existing pinned
-`.hypershell` manifests working. Changing this would be a separate decision.
+**Writers.** A `control-plane` write (for example the API server's own
+late-binding rebind) SHALL bypass every cluster-targeting check. A
+declarative-import (`import`) write SHALL be denied every cluster-targeting
+choice (`cluster_id`, `managed-cluster/<name>`, a required `placement/` label)
+with a 403 that names the import. A Repository import holds no roles, so it
+cannot hold `gateway:cluster-targeting`; a `.hypershell` Gateway manifest
+places by capability selector only.
 
-#### Scenario: SEC-RBAC-34.01 -- Platform admin may pin by cluster_id
+#### Scenario: SEC-RBAC-34.01 -- Cluster-targeting holders may pin by cluster_id
 
-- GIVEN a caller holding `platform:admin`
+- GIVEN a caller holding `gateway:creator` and `gateway:cluster-targeting`, or holding `platform:admin`
 - WHEN the caller creates a Gateway with `cluster_id` set (REST or gRPC)
-- THEN the gate SHALL permit the create and the handler SHALL validate the cluster reference
+- THEN the check SHALL permit the create and the handler SHALL validate the cluster reference
 
-#### Scenario: SEC-RBAC-34.02 -- Non-admin pin is denied before resolution
+#### Scenario: SEC-RBAC-34.02 -- Other user pins are denied before resolution
 
 - GIVEN a user caller holding only `gateway:creator`, or an anonymous caller with authentication on
 - WHEN the caller creates a Gateway with `cluster_id` set, or changes a Gateway's `cluster_id` over gRPC
 - THEN the request SHALL be rejected with 403 (`PermissionDenied` over gRPC) before the cluster is resolved
-- AND the message SHALL name `platform:admin` and the `placement` selector alternative
+- AND the message SHALL name `gateway:cluster-targeting` and the `placement` selector alternative
 - AND no Gateway SHALL be created or moved
 
-#### Scenario: SEC-RBAC-34.03 -- Placement creates and privileged writers are unaffected
+#### Scenario: SEC-RBAC-34.03 -- Ordinary placement and control-plane writes are unaffected
 
 - GIVEN a user caller holding only `gateway:creator`
-- WHEN the caller creates a Gateway with a capability `placement` selector and no `cluster_id`
-- THEN the pin gate SHALL NOT apply
-- AND a `control-plane` or `import` write that sets `cluster_id` SHALL bypass the gate
+- WHEN the caller creates a Gateway with an ordinary capability `placement` selector and no `cluster_id`
+- THEN no cluster-targeting check SHALL apply
+- AND a `control-plane` write that sets `cluster_id` SHALL bypass the check
+
+#### Scenario: SEC-RBAC-34.04 -- An import may not choose a cluster
+
+- GIVEN the declarative `.hypershell` import, whatever roles its Repository owner holds
+- WHEN it creates a Gateway with `cluster_id` set, a `managed-cluster/<name>` token, or a required `placement/` label
+- THEN the create SHALL be rejected with `PermissionDenied` naming the import
+- AND no Gateway SHALL be created
+
+#### Scenario: SEC-RBAC-34.05 -- The role is a seeded, JWT-synced built-in
+
+- GIVEN a fresh database
+- WHEN migrations run (any number of times)
+- THEN exactly one built-in `gateway:cluster-targeting` role SHALL exist
+- AND it SHALL be JWT-synced, global-scope, and not assignable through the RoleBinding API
+
+### Requirement: SEC-RBAC-35 -- Placement Label Gate
+
+The `placement` capability namespace holds labels a cluster advertises to be
+targeted on purpose, for example `placement/release-check` on a hub that runs
+the post-rollout release check, or `placement/release-matrix` on clusters that
+opt in to the release matrix (E2E-CORE-30). The namespace is defined in
+[`platform/managed-cluster-registration.spec.md`](../platform/managed-cluster-registration.spec.md)
+(PLAT-CLUS-06).
+
+**Required labels are gated.** A create request (REST or gRPC) whose `placement`
+REQUIRED selector contains a `placement/` label, and a placement-availability
+probe whose selector contains one, SHALL require `gateway:cluster-targeting`
+(SEC-RBAC-34; `platform:admin` includes it). Any other user caller SHALL be
+rejected with 403 (`PermissionDenied` over gRPC) before the selector is
+resolved, with a message that names the role. An import SHALL be denied
+(SEC-RBAC-34.04).
+
+**Excluded labels are not gated.** A `placement/` label in the EXCLUDED selector
+SHALL need no role: keeping a Gateway off such a cluster grants no reach.
+
+**Use, not advertisement.** This gate confines who may REQUIRE a `placement/`
+label. Which clusters advertise one is decided by each cluster's
+self-declared capabilities, and so by whoever holds
+`managed-cluster-registrar`. That identity is trusted to advertise only labels
+its operators intend.
+
+#### Scenario: SEC-RBAC-35.01 -- A creator may not require a placement label
+
+- GIVEN a user caller holding only `gateway:creator`
+- WHEN the caller creates a Gateway, or probes placement availability, with a required selector containing `placement/release-check`
+- THEN the request SHALL be rejected with 403 (`PermissionDenied` over gRPC) before resolution
+- AND the message SHALL name `gateway:cluster-targeting`
+
+#### Scenario: SEC-RBAC-35.02 -- Cluster-targeting holders may require a placement label
+
+- GIVEN a caller holding `gateway:creator` and `gateway:cluster-targeting`, or holding `platform:admin`
+- WHEN the caller creates a Gateway whose required selector contains a `placement/` label
+- THEN the check SHALL permit the create and placement SHALL resolve as for any capability label
+
+#### Scenario: SEC-RBAC-35.03 -- Excluding a placement label needs no role
+
+- GIVEN a user caller holding only `gateway:creator`
+- WHEN the caller creates a Gateway whose excluded selector contains `placement/release-check` and whose required selector holds ordinary capability labels
+- THEN the placement-label gate SHALL NOT apply
 
 ## API Reference
 

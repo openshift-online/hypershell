@@ -142,6 +142,62 @@ func TestOperatorWorkspaceCreatorRoleSeedIsIdempotent(t *testing.T) {
 	}
 }
 
+// TestClusterTargetingRoleSeedIsIdempotent proves the built-in role migration
+// creates gateway:cluster-targeting with the expected built-in properties, that
+// re-running it is a no-op, that the runtime seed list covers it, and that it is
+// JWT-synced (SEC-RBAC-34).
+// Verifies: SEC-RBAC-34.05
+func TestClusterTargetingRoleSeedIsIdempotent(t *testing.T) {
+	env := environments.Environment()
+	if env == nil || env.Database.SessionFactory == nil {
+		t.Fatal("test environment is not initialized")
+	}
+	session := env.Database.SessionFactory.New(context.Background())
+
+	if err := session.Unscoped().Where("name = ?", RoleGatewayClusterTargeting).Delete(&Role{}).Error; err != nil {
+		t.Fatalf("clear the seeded role: %s", err)
+	}
+
+	migration := migrationAddGatewayClusterTargetingRole()
+	if err := migration.Migrate(session); err != nil {
+		t.Fatalf("first migration run: %s", err)
+	}
+	if err := migration.Migrate(session); err != nil {
+		t.Fatalf("second migration run must be a no-op: %s", err)
+	}
+
+	var seeded []Role
+	if err := session.Where("name = ?", RoleGatewayClusterTargeting).Find(&seeded).Error; err != nil {
+		t.Fatalf("read the seeded role: %s", err)
+	}
+	if len(seeded) != 1 {
+		t.Fatalf("seeded role rows = %d, want exactly 1", len(seeded))
+	}
+	role := seeded[0]
+	if !role.BuiltIn {
+		t.Error("seeded role must be built-in")
+	}
+	if role.Description == nil || !strings.Contains(*role.Description, "cluster_id") {
+		t.Errorf("seeded role description must explain the entitlement, got %v", role.Description)
+	}
+	if role.Permissions == nil || !strings.Contains(*role.Permissions, "target_cluster") {
+		t.Errorf("seeded role permissions must carry the marker permission, got %v", role.Permissions)
+	}
+
+	found := false
+	for _, seed := range builtInRoleSeeds {
+		if seed.Name == RoleGatewayClusterTargeting {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("builtInRoleSeeds must include %s", RoleGatewayClusterTargeting)
+	}
+	if !JWTSyncedRoles[RoleGatewayClusterTargeting] {
+		t.Errorf("%s must be JWT-synced", RoleGatewayClusterTargeting)
+	}
+}
+
 // TestFleetReaderRoleSeedIsIdempotent proves the built-in role migration creates
 // fleet:reader with the expected built-in properties, that re-running it is a
 // no-op, that the runtime seed list covers it, and that it is JWT-synced

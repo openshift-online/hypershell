@@ -63,4 +63,5 @@ func init() {
 	db.RegisterMigration(migrationAddCIFederationGrantorRole())
 	db.RegisterMigration(migrationAddFleetReaderRole())
 	db.RegisterMigration(migrationAddPlatformPolicyAdminRole())
+	db.RegisterMigration(migrationAddGatewayClusterTargetingRole())
 }

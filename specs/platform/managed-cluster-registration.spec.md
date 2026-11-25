@@ -250,11 +250,20 @@ Every successful call to `/registration` SHALL update `last_seen_at` on the matc
 A registered `ManagedCluster` SHALL expose a deduplicated set of capability
 labels. Each label SHALL use the form `<namespace>/<value>`. The namespace
 segment SHALL always use lowercase DNS-label syntax. The API SHALL recognize the
-namespaces `provider`, `network`, `region`, `runtime`, and `environment`; adding a value inside a recognized namespace SHALL be
+namespaces `provider`, `network`, `region`, `runtime`, `environment`, and `placement`; adding a value inside a recognized namespace SHALL be
 configuration, not an API schema or server-code change. Unknown namespaces,
 malformed labels, duplicate labels, an empty set, and more than one label in the
 single-valued `provider`, `region`, or `environment` namespaces SHALL return
 400. The value segment SHALL also use lowercase DNS-label syntax.
+
+The `placement` namespace is multi-valued. Its labels mark a cluster for
+deliberate targeting (for example `placement/release-check`,
+`placement/release-matrix`). A cluster advertises them like any other
+capability, but requiring one in a placement selector needs the
+`gateway:cluster-targeting` role (SEC-RBAC-35 in
+[`security/rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md)).
+They replace the earlier `runtime/release-check` and `runtime/release-matrix`
+labels.
 
 The `managed-cluster/` namespace is NOT a recognized capability namespace: it is a
 distinct selector-layer identity namespace used only at placement time to target a

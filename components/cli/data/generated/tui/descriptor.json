@@ -4842,7 +4842,7 @@
             "name": "cluster_id",
             "type": "string",
             "required": false,
-            "description": "Pin the gateway to this managed cluster. Mutually exclusive with placement."
+            "description": "Pin the gateway to this managed cluster. Mutually exclusive with placement. Requires the gateway:cluster-targeting role (platform:admin includes it)."
           },
           {
             "name": "dedicated_route",

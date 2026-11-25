@@ -29,6 +29,7 @@ func TestRoleListReturnsBuiltInRoles(t *testing.T) {
 		"gateway:viewer":                     false,
 		"gateway:dedicated-route-creator":    false,
 		"gateway:operator-workspace-creator": false,
+		"gateway:cluster-targeting":          false,
 	}
 	for _, role := range list.Items {
 		if _, ok := expectedRoles[role.Name]; ok {

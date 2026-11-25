@@ -41,7 +41,7 @@ selector without a selector. A flag value that is empty or contains a comma
 SHALL be rejected before any request is sent, with an error that names the
 repeat syntax. A flag value SHALL be rejected before any request is sent when
 it is not `namespace/value` with a namespace among `provider`, `network`,
-`region`, `runtime`, `environment`, or the admin identity namespace
+`region`, `runtime`, `environment`, `placement`, or the identity namespace
 `managed-cluster` (CLI-PLC-05), and both segments matching a lowercase
 DNS-label; the server's validation remains authoritative and its message is
 surfaced verbatim when the client check passes but the server rejects.
@@ -190,8 +190,9 @@ The CLI pre-validates the selector vocabulary before sending a request. Because 
 currently pre-validates only the capability namespaces, it SHALL additionally
 recognize the `managed-cluster/` namespace as a syntactically valid selector so a
 `managed-cluster/<name>` value is NOT rejected fail-fast as an unknown namespace.
-The CLI SHALL NOT enforce the platform-admin entitlement or resolve the cluster
-name itself: the server's platform-admin gate (SEC-RBAC-33) and name resolution
+The CLI SHALL NOT enforce the `gateway:cluster-targeting` entitlement or resolve
+the cluster name itself: the server's cluster-targeting gate (SEC-RBAC-33,
+SEC-RBAC-35) and name resolution
 (PLAT-DATA-31) remain authoritative, and their 403 or 400 message SHALL be
 surfaced verbatim.
 
@@ -199,17 +200,19 @@ surfaced verbatim.
 (marked hidden, cobra `Hidden: true` semantics) while STILL accepting it and
 honoring the pinned `cluster_id` contract (PLAT-DATA-02) when a caller supplies it
 explicitly. Hiding the flag steers callers toward the `--placement-selector`
-surface, and makes single-cluster targeting by name the platform-admin
+surface, and makes single-cluster targeting by name the
 `managed-cluster/<name>` selector rather than a pinned id. Hiding is a
 discoverability nudge. Authorization is enforced by the API, not the CLI: pinning
-by `cluster_id` requires `platform:admin` (SEC-RBAC-34), and `hsctl` SHALL surface
+by `cluster_id` requires `gateway:cluster-targeting` (SEC-RBAC-34; `platform:admin`
+includes it), and `hsctl` SHALL surface
 the API's 403 verbatim. The
 flag's behavior when supplied is unchanged, including its mutual exclusivity with
 the placement flags (CLI-PLC-01) and its `--dry-run` pre-check (CLI-PLC-03).
 
 > **Design decision (reviewer: squizzi).** `--cluster-id` is hidden-but-functional
-> in `hsctl`. Hiding it is a CLI help-visibility change only. The admin gate on
-> pinning (SEC-RBAC-34) lives in the API server, not in the CLI.
+> in `hsctl`. Hiding it is a CLI help-visibility change only. The
+> cluster-targeting gate on pinning (SEC-RBAC-34) lives in the API server, not in
+> the CLI.
 
 #### Scenario: CLI-PLC-05.01 -- Identity selector maps into the placement intent
 
@@ -224,9 +227,9 @@ the placement flags (CLI-PLC-01) and its `--dry-run` pre-check (CLI-PLC-03).
 - THEN the CLI SHALL NOT reject the `managed-cluster/` value client-side
 - AND the request body SHALL contain `excludedSelector: ["managed-cluster/hyp0-mc1"]`
 
-#### Scenario: CLI-PLC-05.03 -- Server authority surfaces for a non-admin caller
+#### Scenario: CLI-PLC-05.03 -- Server authority surfaces for a caller without the role
 
-- GIVEN a caller without `platform:admin` runs `hsctl create gateway --name gw --placement-selector managed-cluster/hyp0-mc1`
+- GIVEN a caller without `gateway:cluster-targeting` or `platform:admin` runs `hsctl create gateway --name gw --placement-selector managed-cluster/hyp0-mc1`
 - WHEN the client-side vocabulary check passes and the server applies its gate (SEC-RBAC-33)
 - THEN the command SHALL surface the server's 403 message verbatim
 - AND the CLI SHALL NOT pre-judge the caller's role
