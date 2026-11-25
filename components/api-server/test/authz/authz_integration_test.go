@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -90,9 +91,37 @@ func registerSpoke(t *testing.T, h *test.Helper, client *openapi.APIClient) spok
 func registerAs(t *testing.T, client *openapi.APIClient, s spoke) string {
 	t.Helper()
 	resp, httpResp, err := client.DefaultAPI.RegisterManagedCluster(s.rest).
-		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: s.name, Capabilities: []string{"network/public", "provider/aws"}}).Execute()
+		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: s.name, Capabilities: spokeCapabilities(s)}).Execute()
 	Expect(err).NotTo(HaveOccurred(), "register %s: HTTP %d %s", s.name, statusOf(httpResp), test.APIErrorReason(err))
+	spokeRegionByCluster.Store(resp.ClusterId, spokeRegion(s.name))
 	return resp.ClusterId
+}
+
+// spokeRegion is the per-spoke region capability that makes a spoke the ONLY
+// cluster a placement selector matches. Pinning by cluster_id needs platform:admin
+// (SEC-RBAC-34), so non-admin creates in this suite target their spoke this way.
+func spokeRegion(name string) string { return "region/" + name }
+
+func spokeCapabilities(s spoke) []string {
+	return []string{"network/public", "provider/aws", spokeRegion(s.name)}
+}
+
+// spokeRegionByCluster maps a registered cluster id to its unique region label so
+// helpers that take a cluster id can build a placement selector for it.
+var spokeRegionByCluster sync.Map
+
+func regionForCluster(clusterID string) string {
+	label, ok := spokeRegionByCluster.Load(clusterID)
+	Expect(ok).To(BeTrue(), "no spoke region recorded for cluster %s", clusterID)
+	return label.(string)
+}
+
+// grpcPlacementFor returns a gRPC placement intent that resolves to exactly the
+// given test spoke.
+func grpcPlacementFor(clusterID string) *pb.GatewayPlacementIntent {
+	return &pb.GatewayPlacementIntent{Placement: &pb.GatewayPlacementIntent_CapabilitySelector{
+		CapabilitySelector: &pb.CapabilitySelectorPlacement{Selector: []string{regionForCluster(clusterID)}},
+	}}
 }
 
 func statusOf(resp *http.Response) int {
@@ -256,7 +285,7 @@ func TestReRegistrationAfterDeleteRestoresTheRecord(t *testing.T) {
 	Expect(grpcCode(err)).To(Equal(codes.PermissionDenied), "a deregistered spoke wrote a gateway: %v", err)
 
 	resp, httpResp, err := client.DefaultAPI.RegisterManagedCluster(s.rest).
-		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: s.name, Capabilities: []string{"network/public", "provider/aws"}}).Execute()
+		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: s.name, Capabilities: spokeCapabilities(s)}).Execute()
 	Expect(err).NotTo(HaveOccurred(), "re-registration after delete: HTTP %d %s", statusOf(httpResp), test.APIErrorReason(err))
 	Expect(resp.ClusterId).To(Equal(s.clusterID), "the record must come back under its original id")
 
@@ -283,7 +312,7 @@ func TestReRegistrationAfterDeleteDoesNotReclaimATakenName(t *testing.T) {
 	other.clusterID = registerAs(t, client, other)
 
 	_, httpResp, err = client.DefaultAPI.RegisterManagedCluster(s.rest).
-		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: s.name, Capabilities: []string{"network/public", "provider/aws"}}).Execute()
+		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: s.name, Capabilities: spokeCapabilities(s)}).Execute()
 	Expect(err).To(HaveOccurred(), "a deleted control plane took back a name another one registered")
 	Expect(statusOf(httpResp)).To(Equal(http.StatusConflict))
 }
@@ -297,7 +326,7 @@ func createGateway(t *testing.T, client *openapi.APIClient, owner principal, clu
 	_ = client
 	created, err := pb.NewGatewayServiceClient(owner.conn).CreateGateway(context.Background(), &pb.CreateGatewayRequest{
 		Name:      fmt.Sprintf("gw-%s", strings.ToLower(api.NewID())[:10]),
-		ClusterId: clusterID,
+		Placement: grpcPlacementFor(clusterID),
 	})
 	Expect(err).NotTo(HaveOccurred(), "create gateway")
 	id := created.GetGateway().GetMetadata().GetId()
@@ -452,3 +481,33 @@ func TestGRPCUserCallsFollowHTTPGatewayRules(t *testing.T) {
 }
 
 func strPtr(s string) *string { return &s }
+
+// TestGatewayPinByClusterIDRequiresPlatformAdmin runs with RBAC on: a
+// gateway:creator pinning by cluster_id is denied over REST and gRPC with a message
+// naming platform:admin, the same caller placing by selector succeeds, and an admin
+// pin succeeds.
+// Verifies: SEC-RBAC-34.01, SEC-RBAC-34.02, SEC-RBAC-34.03
+func TestGatewayPinByClusterIDRequiresPlatformAdmin(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+	cluster := registerSpoke(t, h, client)
+	creator := newPrincipal(t, h, "user-"+strings.ToLower(api.NewID()), realmRoles("gateway:creator"))
+	admin := newPrincipal(t, h, "user-"+strings.ToLower(api.NewID()), realmRoles("gateway:creator", "platform:admin"))
+
+	pinned := openapi.GatewayCreateRequest{Name: uniqueName("pin-rest"), ClusterId: openapi.PtrString(cluster.clusterID)}
+	_, resp, err := client.DefaultAPI.CreateGateway(creator.rest).GatewayCreateRequest(pinned).Execute()
+	Expect(statusOf(resp)).To(Equal(http.StatusForbidden), "non-admin REST pin: %s", test.APIErrorReason(err))
+	Expect(test.APIErrorReason(err)).To(ContainSubstring("platform:admin"))
+
+	_, err = pb.NewGatewayServiceClient(creator.conn).CreateGateway(context.Background(), &pb.CreateGatewayRequest{Name: uniqueName("pin-grpc"), ClusterId: cluster.clusterID})
+	Expect(grpcCode(err)).To(Equal(codes.PermissionDenied), "non-admin gRPC pin: %v", err)
+	Expect(err.Error()).To(ContainSubstring("placement selector"))
+
+	placed, resp, err := client.DefaultAPI.CreateGateway(creator.rest).GatewayCreateRequest(gatewayCreateRequest(uniqueName("pin-placed"), cluster.clusterID, false)).Execute()
+	Expect(statusOf(resp)).To(Equal(http.StatusCreated), "non-admin placement create: %s", test.APIErrorReason(err))
+	Expect(placed.GetClusterId()).To(Equal(cluster.clusterID))
+
+	adminPinned := openapi.GatewayCreateRequest{Name: uniqueName("pin-admin"), ClusterId: openapi.PtrString(cluster.clusterID)}
+	created, resp, err := client.DefaultAPI.CreateGateway(admin.rest).GatewayCreateRequest(adminPinned).Execute()
+	Expect(statusOf(resp)).To(Equal(http.StatusCreated), "admin REST pin: %s", test.APIErrorReason(err))
+	Expect(created.GetClusterId()).To(Equal(cluster.clusterID))
+}
