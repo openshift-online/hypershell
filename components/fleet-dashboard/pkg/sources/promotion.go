@@ -119,6 +119,11 @@ type Release struct {
 	// consumes PRs. Empty under the short-SHA fallback or a lock without bundle
 	// provenance.
 	ManifestsRev string `json:"-"`
+	// Components maps each bundled component's name to its source revision (the
+	// lock's bundle.components[].source.git.revision). The delivery plane uses it
+	// to decide which changes a bundle contains (FLT-DLV-06). Internal only and
+	// read-only once built: copies share it.
+	Components map[string]string `json:"-"`
 }
 
 // DeploymentRevision is one environment's current gitops source (dry) commit for a
@@ -235,6 +240,11 @@ type Environment struct {
 	// annotation is the fallback while a cluster does not report the metric
 	// (FLT-CAP-01). Surfaced for the map card and node drawer. Omitted when empty.
 	Capabilities []string `json:"capabilities,omitempty"`
+	// DependsOn are the environments whose gates this one waits for before it
+	// promotes, from the promotion strategy's spec.environments[].dependsOn
+	// (FLT-DLV-08). When no environment declares any, the promoter chains the
+	// environments in order, so each depends on the one before it.
+	DependsOn []string `json:"dependsOn,omitempty"`
 	// GatewayImage is the default OpenShell gateway image the instance's control
 	// plane provisions, read from its control-plane info metric (OBS-CPL-09).
 	// Omitted when the control plane does not report it (FLT-CAP-07).
@@ -358,6 +368,7 @@ func (p *Promotion) Promotion(ctx context.Context) (any, error) {
 		}
 		payload.Environments[key] = env
 	}
+	applyDependsOn(ps.Object, &payload)
 
 	// Resolve bundle dates best-effort before frontier selection, which depends on
 	// the date. (A lock resolver already fills Date from the bundle tag; this only
@@ -729,4 +740,40 @@ func shortSHA(s string) string {
 		return s[:10]
 	}
 	return s
+}
+
+// applyDependsOn fills each environment's DependsOn from the promotion
+// strategy spec (FLT-DLV-08). Without any declared edge the promoter infers a
+// linear chain from the spec order, so the order stands in.
+func applyDependsOn(obj map[string]any, payload *PromotionPayload) {
+	specEnvs, _, _ := nestedSlice(obj, "spec", "environments")
+	deps := map[string][]string{}
+	declared := false
+	for _, e := range specEnvs {
+		em, ok := e.(map[string]any)
+		if !ok {
+			continue
+		}
+		branch, _ := nestedString(em, "branch")
+		raw, _ := em["dependsOn"].([]any)
+		for _, d := range raw {
+			if s, ok := d.(string); ok && s != "" {
+				deps[strings.TrimPrefix(branch, "env/")] = append(deps[strings.TrimPrefix(branch, "env/")], strings.TrimPrefix(s, "env/"))
+				declared = true
+			}
+		}
+	}
+	for i, key := range payload.Order {
+		env, ok := payload.Environments[key]
+		if !ok {
+			continue
+		}
+		switch {
+		case declared:
+			env.DependsOn = deps[key]
+		case i > 0:
+			env.DependsOn = []string{payload.Order[i-1]}
+		}
+		payload.Environments[key] = env
+	}
 }

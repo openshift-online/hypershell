@@ -3,6 +3,7 @@ package sources
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -47,10 +48,14 @@ const (
 	reasonNextBundle         = "next-bundle"
 	reasonWaitingBundlePR    = "waiting-bundle-pr"
 	reasonWaitingHydration   = "waiting-hydration"
-	reasonWaitingGroups      = "waiting-groups"
+	reasonWaitingEnvs        = "waiting-envs"
+	reasonRebuiltIn          = "rebuilt-in"
+	reasonPartlyReleased     = "partly-released"
+	reasonPartlyShipped      = "partly-shipped"
 	reasonGateRunning        = "gate-running"
 	reasonGateFailed         = "gate-failed"
 	reasonPartial            = "partial"
+	reasonOutsideBundle      = "outside-bundle"
 )
 
 // Source keys for per-source degradation (FLT-DLV-13).
@@ -73,9 +78,18 @@ type DeliveryPayload struct {
 	Enabled bool               `json:"enabled"`
 	Stages  []DeliveryStageDef `json:"stages"`
 	Changes []DeliveryChange   `json:"changes"`
-	// TypicalSeconds maps a stage key to its median duration. A stage with fewer
-	// than three samples has no entry (FLT-DLV-09).
-	TypicalSeconds map[string]int64 `json:"typicalSeconds"`
+	// Estimates maps a phase key ("build:<component>", "policy:<component>",
+	// "release", "gitops", "environment:<env>", and the derived "env:<group>")
+	// to its estimate. A phase with fewer
+	// than three completed runs has no entry (FLT-DLV-09).
+	Estimates map[string]PhaseEstimate `json:"estimates"`
+	// Release holds the release diagnostics, read only while a listed change's
+	// Release phase is Overdue (FLT-DLV-20).
+	Release *DeliveryReleaseDiagnostics `json:"releaseDiagnostics,omitempty"`
+	// Train is the bundle train (FLT-DLV-22); Now the Pipeline now panel's
+	// data (FLT-DLV-23).
+	Train []DeliveryTrainBundle `json:"train"`
+	Now   DeliveryNow           `json:"now"`
 	// Omitted counts undelivered changes dropped by the window (FLT-DLV-02).
 	Omitted int                             `json:"omitted"`
 	Sources map[string]DeliverySourceStatus `json:"sources"`
@@ -117,6 +131,9 @@ type DeliveryChange struct {
 	Bundle      *DeliveryBundle    `json:"bundle,omitempty"`
 	GitOpsPR    *DeliveryPRLink    `json:"gitopsPr,omitempty"`
 	Envs        []DeliveryEnvState `json:"environments"`
+	// ImageCheck is the image check run on the commit, for the Build popup
+	// (FLT-DLV-20). It is not a phase.
+	ImageCheck *DeliveryImageCheck `json:"imageCheck,omitempty"`
 }
 
 // DeliveryStage is one stage cell.
@@ -128,8 +145,18 @@ type DeliveryStage struct {
 	Reason     string `json:"reason,omitempty"`
 	// Components names the builds or policy checks the cell is about.
 	Components []string `json:"components,omitempty"`
-	// Groups names the upstream environment groups a waiting group stage waits for.
-	Groups []string `json:"groups,omitempty"`
+	// WaitingFor names the environments a waiting group stage waits for: the
+	// ones its environments depend on where the change has not passed
+	// (FLT-DLV-08).
+	WaitingFor []string `json:"waitingFor,omitempty"`
+	// RebuiltIn names the newest later commit whose builds superseded this
+	// change's failed ones (Build stage, FLT-DLV-05).
+	RebuiltIn *DeliveryCommitRef `json:"rebuiltIn,omitempty"`
+	// Partly counts the components of a partly shipped change (FLT-DLV-22).
+	Partly *DeliveryPartly `json:"partly,omitempty"`
+	// Restart says a newer bundle is expected to restart the gate this group
+	// stage waits on (FLT-DLV-10).
+	Restart *DeliveryRestart `json:"restart,omitempty"`
 	// Gate is the promotion gate key a running or failed group stage is about.
 	Gate string `json:"gate,omitempty"`
 	// Done/Total count environments for a partially promoted group.
@@ -140,18 +167,39 @@ type DeliveryStage struct {
 	Checks string `json:"checks,omitempty"`
 	// FailedAttempts counts failed promotions in a Passed group (FLT-DLV-18).
 	FailedAttempts int `json:"failedAttempts,omitempty"`
+	// EstimateSeconds and SlowestSeconds are this stage's estimate for this
+	// change: per component for Build and Policy check (FLT-DLV-09). Absent when
+	// the phase has fewer than three completed runs.
+	EstimateSeconds *int64 `json:"estimateSeconds,omitempty"`
+	SlowestSeconds  *int64 `json:"slowestSeconds,omitempty"`
 }
 
 // DeliveryCheck is one component build or policy check.
 type DeliveryCheck struct {
-	Component   string `json:"component"`
-	State       string `json:"state"`
-	StartedAt   string `json:"startedAt,omitempty"`
-	CompletedAt string `json:"completedAt,omitempty"`
-	URL         string `json:"url,omitempty"`
+	Component string `json:"component"`
+	State     string `json:"state"`
+	// OutsideBundle marks a component that no known bundle lists: it ships by
+	// its own route (FLT-DLV-05, FLT-DLV-06).
+	OutsideBundle bool `json:"outsideBundle,omitempty"`
+	// SupersededBy is the short SHA of the later commit whose passed build of
+	// the component replaced this failed one (FLT-DLV-05).
+	SupersededBy string `json:"supersededBy,omitempty"`
+	StartedAt    string `json:"startedAt,omitempty"`
+	CompletedAt  string `json:"completedAt,omitempty"`
+	URL          string `json:"url,omitempty"`
 }
 
 // DeliveryBundle is a change's first bundle (FLT-DLV-06/11).
+// DeliveryImageCheck is the check run that waits for the Konflux builds and
+// confirms their images are published (FLT-DLV-20).
+type DeliveryImageCheck struct {
+	State string `json:"state"`
+	URL   string `json:"url,omitempty"`
+	// Failures are the titled failure annotations of a failed run.
+	Failures []string `json:"failures,omitempty"`
+	runID    int64
+}
+
 type DeliveryBundle struct {
 	Tag         string `json:"tag"`
 	Version     string `json:"version"`
@@ -175,9 +223,16 @@ type DeliveryEnvState struct {
 	Group    string `json:"group"`
 	State    string `json:"state"`
 	Contains bool   `json:"contains"`
+	// WaitingFor names the environments this one depends on where the change
+	// has not passed yet (FLT-DLV-08).
+	WaitingFor []string `json:"waitingFor,omitempty"`
 	// History lists the promotions of bundles containing the change, oldest
 	// first (FLT-DLV-18).
 	History []DeliveryPromotion `json:"history,omitempty"`
+	// AnalysisURL and ArgoURL come from the promotion payload, for the group's
+	// Where to look popup (FLT-DLV-20).
+	AnalysisURL string `json:"analysisUrl,omitempty"`
+	ArgoURL     string `json:"argoUrl,omitempty"`
 }
 
 // LockTimeline is the shared lock resolver's view the delivery plane reads
@@ -204,17 +259,23 @@ type SnapshotReader interface {
 // Delivery is the delivery-plane source.
 type Delivery struct {
 	window       int
+	historyDays  int
 	checkApp     string
+	imageCheck   string
 	upstreamRepo string
 	gitopsRepo   string
 	htmlBase     string
-	gh           DeliveryGitHub
-	registry     BundleRegistry
-	lock         LockTimeline
-	windower     BundleWindower
-	promo        SnapshotReader
-	now          func() time.Time
-	logger       *slog.Logger
+	// Release diagnostics settings (FLT-DLV-20).
+	releaseLogURL string
+	releaseAppURL string
+	releasePaths  []string
+	gh            DeliveryGitHub
+	registry      BundleRegistry
+	lock          LockTimeline
+	windower      BundleWindower
+	promo         SnapshotReader
+	now           func() time.Time
+	logger        *slog.Logger
 
 	mu sync.Mutex
 	// Last good data per source, so a failing source serves stale (FLT-DLV-13).
@@ -228,9 +289,12 @@ type Delivery struct {
 	pr        *BundlePR
 	prErr     string
 	checks    map[string][]CheckRun
-	// revisions caches each pending bundle's manifests revision by digest; bundle
-	// content is immutable (FLT-DLV-12).
-	revisions map[string]string
+	// failures caches a failed image check run's annotations by check run id.
+	// A re-run creates a new check run, so an entry never changes.
+	failures map[int64][]string
+	// contents caches each pending bundle's bundle.json content by digest;
+	// bundle content is immutable (FLT-DLV-12).
+	contents map[string]BundleContent
 	// hist caches each environment's promotion history (FLT-DLV-18). Only the
 	// refresh goroutine touches it.
 	hist    map[string]*envHistory
@@ -264,27 +328,34 @@ func newDelivery(c *config.Config, gh DeliveryGitHub, reg BundleRegistry, lock L
 		window = 30
 	}
 	return &Delivery{
-		window:       window,
-		checkApp:     c.DeliveryCheckApp,
-		upstreamRepo: strings.Trim(c.UpstreamRepo, "/"),
-		gitopsRepo:   strings.Trim(c.GitHubRepo, "/"),
-		htmlBase:     htmlBaseFrom(strings.TrimRight(c.GitHubAPIBase, "/")),
-		gh:           gh,
-		registry:     reg,
-		lock:         lock,
-		windower:     windower,
-		promo:        promo,
-		now:          time.Now,
-		logger:       slog.Default(),
-		checks:       map[string][]CheckRun{},
-		revisions:    map[string]string{},
-		hist:         map[string]*envHistory{},
+		window:        window,
+		historyDays:   c.DeliveryHistoryDays,
+		checkApp:      c.DeliveryCheckApp,
+		imageCheck:    c.DeliveryImageCheck,
+		upstreamRepo:  strings.Trim(c.UpstreamRepo, "/"),
+		gitopsRepo:    strings.Trim(c.GitHubRepo, "/"),
+		htmlBase:      htmlBaseFrom(strings.TrimRight(c.GitHubAPIBase, "/")),
+		releaseLogURL: c.DeliveryReleaseLogURL,
+		releaseAppURL: c.DeliveryReleaseAppURL,
+		releasePaths:  c.DeliveryReleasePaths,
+		gh:            gh,
+		registry:      reg,
+		lock:          lock,
+		windower:      windower,
+		promo:         promo,
+		now:           time.Now,
+		logger:        slog.Default(),
+		checks:        map[string][]CheckRun{},
+		failures:      map[int64][]string{},
+		contents:      map[string]BundleContent{},
+		hist:          map[string]*envHistory{},
 	}
 }
 
 // DisabledDeliveryPayload is served when the plane is not configured.
 func DisabledDeliveryPayload() DeliveryPayload {
-	return DeliveryPayload{Enabled: false, Stages: []DeliveryStageDef{}, Changes: []DeliveryChange{}, TypicalSeconds: map[string]int64{}, Sources: map[string]DeliverySourceStatus{}}
+	return DeliveryPayload{Enabled: false, Stages: []DeliveryStageDef{}, Changes: []DeliveryChange{}, Estimates: map[string]PhaseEstimate{}, Train: []DeliveryTrainBundle{},
+		Now: DeliveryNow{Checks: []DeliveryNowCheck{}, Environments: []DeliveryEnvNow{}, Next: []DeliveryNextEvent{}}, Sources: map[string]DeliverySourceStatus{}}
 }
 
 // Delivery is the cache fetch function for /api/delivery. It never fails the
@@ -363,6 +434,7 @@ func (d *Delivery) Delivery(ctx context.Context) (any, error) {
 		now:          now,
 		window:       d.window,
 		checkApp:     d.checkApp,
+		imageCheck:   d.imageCheck,
 		upstreamRepo: d.upstreamRepo,
 		gitopsRepo:   d.gitopsRepo,
 		htmlBase:     d.htmlBase,
@@ -380,15 +452,22 @@ func (d *Delivery) Delivery(ctx context.Context) (any, error) {
 		sources:      sources,
 	}
 
-	// 7. Select the window, then read check runs only for listed changes.
+	// 7. Select the window with the check runs cached so far, read check runs
+	// only for listed changes, then place them again with what was read.
+	in.checks = d.cachedChecks()
 	listed, omitted := selectWindow(in)
 	in.checks = d.readChecks(ctx, listed, in)
+	listed = replace(in, listed)
 	in.history, sources[srcHistory] = d.readHistory(ctx, promo, oldestMerge(listed, now), now)
 	d.learnAppName(in.checks)
 	in.appName = d.appName
 
 	payload := buildDelivery(in, listed, omitted)
 	d.attachReleaseLinks(ctx, &payload)
+	d.attachImageFailures(ctx, &payload)
+	if releaseOverdue(payload, now) {
+		payload.Release = d.releaseDiagnostics(ctx, in, tags)
+	}
 	return payload, nil
 }
 
@@ -449,17 +528,17 @@ func (d *Delivery) pendingBundles(ctx context.Context, tags []RegistryBundle, lo
 			continue
 		}
 		d.mu.Lock()
-		rev := d.revisions[t.Digest]
+		content, ok := d.contents[t.Digest]
 		d.mu.Unlock()
-		if rev == "" {
+		if !ok {
 			var err error
-			rev, err = d.registry.ManifestsRevision(ctx, t.Digest)
-			if err != nil || rev == "" {
+			content, err = d.registry.BundleContent(ctx, t.Digest)
+			if err != nil || content.ManifestsRev == "" {
 				d.logger.DebugContext(ctx, "delivery: read pending bundle", "tag", t.Tag, "err", err)
 				continue
 			}
 			d.mu.Lock()
-			d.revisions[t.Digest] = rev
+			d.contents[t.Digest] = content
 			d.mu.Unlock()
 		}
 		out = append(out, &Release{
@@ -467,7 +546,8 @@ func (d *Delivery) pendingBundles(ctx context.Context, tags []RegistryBundle, lo
 			Tag:          t.Tag,
 			Digest:       t.Digest,
 			Date:         dateFromTag(t.Tag),
-			ManifestsRev: rev,
+			ManifestsRev: content.ManifestsRev,
+			Components:   content.Components,
 		})
 	}
 	return out
@@ -489,6 +569,12 @@ func (d *Delivery) promotion() (*PromotionPayload, DeliverySourceStatus) {
 // runs have settled is not read again (FLT-DLV-12).
 func (d *Delivery) readChecks(ctx context.Context, listed []listedChange, in deliveryInput) map[string][]CheckRun {
 	out := map[string][]CheckRun{}
+	// The head of main is read too: its builds can supersede the failed builds
+	// of listed changes, and the Pipeline now panel reports them (FLT-DLV-05,
+	// FLT-DLV-23).
+	if len(in.commits) > 0 && !slices.ContainsFunc(listed, func(l listedChange) bool { return l.idx == 0 }) {
+		listed = append([]listedChange{{idx: 0, commit: in.commits[0]}}, listed...)
+	}
 	for _, l := range listed {
 		sha := l.commit.SHA
 		d.mu.Lock()
@@ -505,7 +591,7 @@ func (d *Delivery) readChecks(ctx context.Context, listed []listedChange, in del
 			}
 			continue
 		}
-		runs = filterApp(runs, in.checkApp)
+		runs = filterApp(runs, in.checkApp, in.imageCheck)
 		d.mu.Lock()
 		d.checks[sha] = runs
 		d.mu.Unlock()
@@ -574,10 +660,24 @@ func checksSettled(runs []CheckRun, mergedAt string, delivered bool, now time.Ti
 	return true
 }
 
-func filterApp(runs []CheckRun, app string) []CheckRun {
+// cachedChecks copies the check runs read in earlier refreshes.
+func (d *Delivery) cachedChecks() map[string][]CheckRun {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	out := make(map[string][]CheckRun, len(d.checks))
+	for k, v := range d.checks {
+		out[k] = v
+	}
+	return out
+}
+
+// filterApp keeps the check app's runs and the image check run, whatever app
+// reports it. The image check name has no "-on-push" or policy marker, so the
+// stages ignore it.
+func filterApp(runs []CheckRun, app, imageCheck string) []CheckRun {
 	out := make([]CheckRun, 0, len(runs))
 	for _, r := range runs {
-		if app == "" || r.App == app {
+		if app == "" || r.App == app || (imageCheck != "" && r.Name == imageCheck) {
 			out = append(out, r)
 		}
 	}
@@ -638,6 +738,7 @@ type deliveryInput struct {
 	now          time.Time
 	window       int
 	checkApp     string
+	imageCheck   string
 	appName      string
 	upstreamRepo string
 	gitopsRepo   string
@@ -663,6 +764,7 @@ type deliveryInput struct {
 
 // listedChange is a change chosen for the payload, with its placement.
 type listedChange struct {
+	idx       int // index into deliveryInput.commits
 	commit    UpstreamCommit
 	pr        int
 	title     string
@@ -707,13 +809,24 @@ type placement struct {
 	byPR    map[int]int    // PR number -> first bundle index
 	byRev   map[string]int // manifests revision -> bundle index
 	digests map[string]int // digest -> bundle index
+	// bundled is every component some known bundle lists (FLT-DLV-06).
+	bundled map[string]bool
+	// commitIdx maps an application commit to its index in in.commits (newest
+	// first): a lower index is a later commit on linear main.
+	commitIdx map[string]int
 }
 
 func placeBundles(in deliveryInput) placement {
-	pl := placement{byPR: map[int]int{}, byRev: map[string]int{}, digests: map[string]int{}}
+	pl := placement{byPR: map[int]int{}, byRev: map[string]int{}, digests: map[string]int{}, bundled: map[string]bool{}, commitIdx: map[string]int{}}
 	for i, b := range in.bundles {
 		pl.byRev[b.ManifestsRev] = i
 		pl.digests[b.Digest] = i
+		for name := range b.Components {
+			pl.bundled[name] = true
+		}
+	}
+	for i, c := range in.commits {
+		pl.commitIdx[c.SHA] = i
 	}
 	for _, w := range in.windows {
 		if !w.OK || w.Release == nil {
@@ -758,6 +871,80 @@ func firstBundle(pl placement, commits []UpstreamCommit, i int, pr int) int {
 	return best
 }
 
+// rebuiltComponents are the bundled components whose build check run exists on
+// the commit, whatever its result, leaving out builds a newer run replaced
+// (FLT-DLV-06).
+func rebuiltComponents(runs []CheckRun, bundled map[string]bool) []string {
+	builds, _ := classifyChecks(runs)
+	var out []string
+	for _, b := range builds {
+		if checkState(b.run) == StageNotNeeded || !bundled[b.component] {
+			continue
+		}
+		out = append(out, b.component)
+	}
+	return out
+}
+
+// outsideOnly reports whether every build the change ran is of an
+// outside-bundle component (FLT-DLV-06.06). Without any known bundle
+// components nothing can be called outside.
+func outsideOnly(builds []componentCheck, bundled map[string]bool) bool {
+	if len(bundled) == 0 {
+		return false
+	}
+	n := 0
+	for _, b := range builds {
+		if checkState(b.run) == StageNotNeeded {
+			continue
+		}
+		if bundled[b.component] {
+			return false
+		}
+		n++
+	}
+	return n > 0
+}
+
+// changeFirstBundle returns the first bundle of the change at commit index i
+// (FLT-DLV-06). A change with rebuilt components is contained by the oldest
+// bundle whose revision of every rebuilt component it lists is the change or a
+// later commit. A change with none keeps the manifest-revision rule. So does a
+// bundle with no component revisions (an old lock) or one that lists none of
+// the rebuilt components.
+func changeFirstBundle(in deliveryInput, pl placement, i, pr int) int {
+	manifest := firstBundle(pl, in.commits, i, pr)
+	runs, ok := in.checks[in.commits[i].SHA]
+	if !ok {
+		return manifest
+	}
+	rebuilt := rebuiltComponents(runs, pl.bundled)
+	if len(rebuilt) == 0 {
+		return manifest
+	}
+	for bi, b := range in.bundles {
+		listed, contains := 0, true
+		for _, k := range rebuilt {
+			rev, ok := b.Components[k]
+			if !ok {
+				continue
+			}
+			listed++
+			if j, ok := pl.commitIdx[rev]; !ok || j > i {
+				contains = false
+				break
+			}
+		}
+		if listed == 0 {
+			contains = manifest >= 0 && bi >= manifest
+		}
+		if contains {
+			return bi
+		}
+	}
+	return -1
+}
+
 func containsIdx(pl placement, digest string, first int) bool {
 	if first < 0 || digest == "" {
 		return false
@@ -775,7 +962,7 @@ func selectWindow(in deliveryInput) ([]listedChange, int) {
 	var undelivered, delivered []listedChange
 	for i, c := range in.commits {
 		pr, title := splitSubject(c.Message)
-		lc := listedChange{commit: c, pr: pr, title: title, first: firstBundle(pl, in.commits, i, pr)}
+		lc := listedChange{idx: i, commit: c, pr: pr, title: title, first: changeFirstBundle(in, pl, i, pr)}
 		lc.delivered = isDelivered(in, pl, groups, lc.first)
 		if lc.delivered {
 			delivered = append(delivered, lc)
@@ -797,6 +984,21 @@ func selectWindow(in deliveryInput) ([]listedChange, int) {
 		room = len(delivered)
 	}
 	return append(undelivered, delivered[:room]...), omitted
+}
+
+// replace places the listed changes again once their check runs are read: the
+// window was chosen with the check runs cached from earlier refreshes, and a
+// change's rebuilt components decide its first bundle (FLT-DLV-06).
+func replace(in deliveryInput, listed []listedChange) []listedChange {
+	pl := placeBundles(in)
+	groups := groupsOf(in.promo)
+	out := make([]listedChange, len(listed))
+	for k, l := range listed {
+		l.first = changeFirstBundle(in, pl, l.idx, l.pr)
+		l.delivered = isDelivered(in, pl, groups, l.first)
+		out[k] = l
+	}
+	return out
 }
 
 func isDelivered(in deliveryInput, pl placement, groups []envGroup, first int) bool {
@@ -925,12 +1127,13 @@ func aggregate(checks []componentCheck, app string) (state string, components []
 	}
 }
 
-func toChecks(cs []componentCheck, app string) []DeliveryCheck {
+func toChecks(cs []componentCheck, app string, bundled map[string]bool) []DeliveryCheck {
 	out := make([]DeliveryCheck, 0, len(cs))
 	for _, c := range cs {
 		out = append(out, DeliveryCheck{
 			Component: shortComponent(c.component, app), State: checkState(c.run),
-			StartedAt: c.run.StartedAt, CompletedAt: c.run.CompletedAt, URL: c.run.URL,
+			OutsideBundle: len(bundled) > 0 && !bundled[c.component],
+			StartedAt:     c.run.StartedAt, CompletedAt: c.run.CompletedAt, URL: c.run.URL,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Component < out[j].Component })
@@ -943,17 +1146,21 @@ func buildDelivery(in deliveryInput, listed []listedChange, omitted int) Deliver
 	pl := placeBundles(in)
 	groups := groupsOf(in.promo)
 	p := DeliveryPayload{
-		Enabled:        true,
-		Stages:         stageDefs(groups),
-		Changes:        make([]DeliveryChange, 0, len(listed)),
-		TypicalSeconds: map[string]int64{},
-		Omitted:        omitted,
-		Sources:        in.sources,
+		Enabled:   true,
+		Stages:    stageDefs(groups),
+		Changes:   make([]DeliveryChange, 0, len(listed)),
+		Estimates: map[string]PhaseEstimate{},
+		Omitted:   omitted,
+		Sources:   in.sources,
 	}
 	for _, l := range listed {
 		p.Changes = append(p.Changes, buildChange(in, pl, groups, l))
 	}
-	p.TypicalSeconds = typicalDurations(p.Changes)
+	p.Estimates = estimates(phaseSamples(in, pl, groups), in.now)
+	groupEstimates(p.Estimates, in, groups)
+	attachEstimates(in, pl, p.Changes, p.Estimates)
+	p.Train = buildTrain(in, pl, groups, p.Estimates)
+	p.Now = buildNow(in, pl, groups, p.Estimates, p.Train, p.Changes)
 	return p
 }
 
@@ -992,11 +1199,14 @@ func buildChange(in deliveryInput, pl placement, groups []envGroup, l listedChan
 
 	merged := DeliveryStage{Key: stageMerged, State: StagePassed, FinishedAt: c.MergedAt}
 
-	// Build and policy check (FLT-DLV-05).
+	// Build and policy check (FLT-DLV-05). A failed build that a later build
+	// of the same component superseded follows that later build.
 	runs, known := in.checks[c.SHA]
 	builds, policies := classifyChecks(runs)
+	eff := effectiveBuilds(in, l.idx, builds, policies)
 	var build, policy DeliveryStage
 	build.Key, policy.Key = stageBuild, stagePolicy
+	var mine []componentCheck
 	switch {
 	case !known:
 		build.State, policy.State = StageUnknown, StageUnknown
@@ -1004,26 +1214,30 @@ func buildChange(in deliveryInput, pl placement, groups []envGroup, l listedChan
 		build.State, build.Reason = StageNotNeeded, reasonNoComponentChanged
 		policy.State, policy.Reason = StageNotNeeded, reasonNoComponentChanged
 	default:
-		st, comps, _, finished := aggregate(builds, in.appName)
+		effBuilds := make([]componentCheck, 0, len(builds))
+		for _, b := range builds {
+			effBuilds = append(effBuilds, eff[b.component].build)
+		}
+		st, comps, _, finished := aggregate(effBuilds, in.appName)
 		build.State, build.Components, build.FinishedAt = st, comps, finished
 		build.StartedAt = c.MergedAt
 		if st == StageNotNeeded {
 			build.Reason = reasonBuildReplaced
 		}
-		// Policy checks apply only to the components built for this change.
-		built := map[string]bool{}
+		if j := supersededBy(eff); j >= 0 && st == StagePassed {
+			sc := in.commits[j]
+			pr, _ := splitSubject(sc.Message)
+			build.Reason = reasonRebuiltIn
+			build.RebuiltIn = &DeliveryCommitRef{SHA: sc.SHA, ShortSHA: shortSHA7(sc.SHA), PR: pr}
+		}
+		// Policy checks apply only to the components built for this change, on
+		// the commit of their effective build.
 		for _, b := range builds {
-			if checkState(b.run) == StagePassed {
-				built[b.component] = true
+			r := eff[b.component]
+			if checkState(r.build.run) == StagePassed {
+				mine = append(mine, r.policies...)
 			}
 		}
-		var mine []componentCheck
-		for _, pc := range policies {
-			if built[pc.component] {
-				mine = append(mine, pc)
-			}
-		}
-		policies = mine
 		switch st {
 		case StagePassed:
 			if len(mine) == 0 {
@@ -1041,8 +1255,16 @@ func buildChange(in deliveryInput, pl placement, groups []envGroup, l listedChan
 			policy.State = StageNotStarted
 		}
 	}
-	ch.Builds = toChecks(builds, in.appName)
-	ch.Policies = toChecks(policies, in.appName)
+	ch.Builds = toChecks(builds, in.appName, pl.bundled)
+	for k := range ch.Builds {
+		for _, b := range builds {
+			if r := eff[b.component]; r.by >= 0 && shortComponent(b.component, in.appName) == ch.Builds[k].Component {
+				ch.Builds[k].SupersededBy = shortSHA7(in.commits[r.by].SHA)
+			}
+		}
+	}
+	ch.ImageCheck = imageCheckOf(runs, in.imageCheck)
+	ch.Policies = toChecks(mine, in.appName, pl.bundled)
 
 	// Release (FLT-DLV-06).
 	release := DeliveryStage{Key: stageRelease}
@@ -1059,6 +1281,10 @@ func buildChange(in deliveryInput, pl placement, groups []envGroup, l listedChan
 		switch {
 		case build.State == StageFailed:
 			release.State = StageNotStarted
+		case outsideOnly(builds, pl.bundled):
+			// Every component the change built ships by its own route
+			// (FLT-DLV-06.06).
+			release.State, release.Reason = StageNotNeeded, reasonOutsideBundle
 		case !in.gitopsKnown:
 			// Without the locked baseline no bundle placement is possible.
 			release.State = StageUnknown
@@ -1077,24 +1303,36 @@ func buildChange(in deliveryInput, pl placement, groups []envGroup, l listedChan
 		}
 	}
 
+	// Partly shipped (FLT-DLV-22): some of the change's components are in a
+	// bundle. Later stages follow the bundle that carries them.
+	first := l.first
+	var partly *DeliveryPartly
+	if l.first < 0 && known {
+		if pf, p, ok := partlyShipped(in, pl, l.idx, rebuiltComponents(runs, pl.bundled), eff, in.appName); ok {
+			first, partly = pf, &p
+			release.State, release.Reason, release.FinishedAt = StageRunning, reasonPartlyReleased, ""
+			release.Partly = partly
+		}
+	}
+
 	// GitOps update (FLT-DLV-07).
 	gitops := DeliveryStage{Key: stageGitOps}
 	switch {
 	case !in.gitopsKnown:
 		gitops.State = StageUnknown
-	case l.first < 0:
+	case first < 0:
 		gitops.State = StageNotStarted
 		if release.State == StageUnknown {
 			gitops.State = StageUnknown
 		}
 	default:
-		if lc, ok := firstLockCommit(in, pl, l.first); ok {
+		if lc, ok := firstLockCommit(in, pl, first); ok {
 			gitops.State, gitops.FinishedAt = StagePassed, lc.Date
 			if n, _, ok := extractPR(lc.Message); ok {
 				gitops.PR = n
 				ch.GitOpsPR = &DeliveryPRLink{Number: n, URL: in.htmlBase + "/" + in.gitopsRepo + "/pull/" + itoa(n)}
 			}
-		} else if in.bundlePR != nil && containsIdx(pl, in.bundlePRDig, l.first) {
+		} else if in.bundlePR != nil && containsIdx(pl, in.bundlePRDig, first) {
 			gitops.State, gitops.PR, gitops.Checks = StageRunning, in.bundlePR.Number, in.bundlePR.Checks
 			ch.GitOpsPR = &DeliveryPRLink{Number: in.bundlePR.Number, URL: in.bundlePR.URL}
 		} else {
@@ -1102,17 +1340,21 @@ func buildChange(in deliveryInput, pl placement, groups []envGroup, l listedChan
 		}
 	}
 
+	if partly != nil {
+		gitops = partlyStage(gitops, partly)
+	}
 	stages := []DeliveryStage{merged, build, policy, release, gitops}
 
-	// Environment groups (FLT-DLV-08).
-	var upstreamPending []string
+	// Environment groups (FLT-DLV-08). An environment waits only for the
+	// environments it depends on.
+	passed := passedEnvs(in, pl, groups, first)
 	for _, g := range groups {
-		st, envs := groupStage(in, pl, g, l.first, gitops.State, upstreamPending)
+		st, envs := groupStage(in, pl, g, first, gitops.State, passed)
+		if partly != nil {
+			st = partlyStage(st, partly)
+		}
 		stages = append(stages, st)
 		ch.Envs = append(ch.Envs, envs...)
-		if st.State != StagePassed {
-			upstreamPending = append(upstreamPending, g.name)
-		}
 	}
 	// Each stage starts when the closest earlier stage with an end finished.
 	prevEnd := ""
@@ -1127,9 +1369,15 @@ func buildChange(in deliveryInput, pl placement, groups []envGroup, l listedChan
 	}
 	ch.Stages = stages
 
+	// The delivery time is the last environment's finish; omitted when the
+	// history does not reach a group's finish (FLT-DLV-02).
 	if ch.Delivered {
 		last := ""
 		for _, s := range stages[5:] {
+			if s.FinishedAt == "" {
+				last = ""
+				break
+			}
 			if s.FinishedAt > last {
 				last = s.FinishedAt
 			}
@@ -1137,6 +1385,63 @@ func buildChange(in deliveryInput, pl placement, groups []envGroup, l listedChan
 		ch.DeliveredAt = last
 	}
 	return ch
+}
+
+// partlyStage marks a later stage of a partly shipped change: it cannot pass
+// until a bundle with every component finished it (FLT-DLV-22).
+func partlyStage(s DeliveryStage, p *DeliveryPartly) DeliveryStage {
+	switch s.State {
+	case StagePassed:
+		s.State, s.FinishedAt, s.Reason = StageRunning, "", reasonPartlyShipped
+		s.FailedAttempts = 0
+	case StageRunning:
+		if s.Reason == reasonPartial || s.Reason == "" {
+			s.Reason = reasonPartlyShipped
+		}
+	default:
+		return s
+	}
+	s.Partly = &DeliveryPartly{Done: p.Done, Total: p.Total}
+	return s
+}
+
+// passedEnvs reports, per environment, whether the change passed there: a
+// release containing it is active and its gates passed, now or in an earlier
+// promotion (FLT-DLV-08).
+func passedEnvs(in deliveryInput, pl placement, groups []envGroup, first int) map[string]bool {
+	out := map[string]bool{}
+	if in.promo == nil || first < 0 {
+		return out
+	}
+	for _, g := range groups {
+		for _, key := range g.envs {
+			env := in.promo.Environments[key]
+			if env.Active == nil || !containsIdx(pl, env.Active.Digest, first) {
+				continue
+			}
+			if passedBefore(envAttempts(in, pl, key, first)) {
+				out[key] = true
+			} else if gs, _ := gatePhase(env.ActiveGates); gs == StagePassed {
+				out[key] = true
+			}
+		}
+	}
+	return out
+}
+
+// waitingFor lists, in promotion order, the environments that key depends on
+// and where the change has not passed yet (FLT-DLV-08).
+func waitingFor(in deliveryInput, key string, passed map[string]bool) []string {
+	deps := in.promo.Environments[key].DependsOn
+	var out []string
+	for _, o := range in.promo.Order {
+		for _, d := range deps {
+			if d == o && !passed[d] {
+				out = append(out, d)
+			}
+		}
+	}
+	return out
 }
 
 // firstLockCommit returns the oldest lock commit on GitOps main whose bundle
@@ -1152,7 +1457,7 @@ func firstLockCommit(in deliveryInput, pl placement, first int) (LockCommit, boo
 }
 
 // groupStage computes one environment group's stage and per-environment states.
-func groupStage(in deliveryInput, pl placement, g envGroup, first int, gitopsState string, upstreamPending []string) (DeliveryStage, []DeliveryEnvState) {
+func groupStage(in deliveryInput, pl placement, g envGroup, first int, gitopsState string, passed map[string]bool) (DeliveryStage, []DeliveryEnvState) {
 	st := DeliveryStage{Key: "env:" + g.name}
 	envs := make([]DeliveryEnvState, 0, len(g.envs))
 	// Without promotion data, or without the GitOps lock timeline that places
@@ -1165,11 +1470,12 @@ func groupStage(in deliveryInput, pl placement, g envGroup, first int, gitopsSta
 		return st, envs
 	}
 	done := 0
+	timed := true
 	var gateRunning, gateFailed, latest string
 	for _, key := range g.envs {
 		env := in.promo.Environments[key]
 		contains := env.Active != nil && containsIdx(pl, env.Active.Digest, first)
-		es := DeliveryEnvState{Env: key, Group: g.name, Contains: contains, History: envAttempts(in, pl, key, first)}
+		es := DeliveryEnvState{Env: key, Group: g.name, Contains: contains, History: envAttempts(in, pl, key, first), AnalysisURL: env.AnalysisURL, ArgoURL: env.ArgoURL}
 		if contains {
 			done++
 			es.State = StagePassed
@@ -1189,12 +1495,16 @@ func groupStage(in deliveryInput, pl placement, g envGroup, first int, gitopsSta
 					gateRunning = gk
 				}
 			}
-			// The group's time is when its last environment first got the change.
-			if len(es.History) > 0 && es.History[0].PromotedAt > latest {
-				latest = es.History[0].PromotedAt
+			// The group finishes when its last environment finished the change
+			// (FLT-DLV-08).
+			if t := envFinish(es.History); t == "" {
+				timed = false
+			} else if t > latest {
+				latest = t
 			}
 		} else {
 			es.State = StageWaiting
+			es.WaitingFor = waitingFor(in, key, passed)
 			if env.Proposed != nil && containsIdx(pl, env.Proposed.Digest, first) {
 				if gs, gk := gatePhase(env.ProposedGates); gs == StageFailed {
 					es.State, gateFailed = StageFailed, gk
@@ -1217,7 +1527,10 @@ func groupStage(in deliveryInput, pl placement, g envGroup, first int, gitopsSta
 	case done == total && gateRunning != "":
 		st.State, st.Reason, st.Gate = StageRunning, reasonGateRunning, gateRunning
 	case done == total:
-		st.State, st.FinishedAt = StagePassed, latest
+		st.State = StagePassed
+		if timed {
+			st.FinishedAt = latest
+		}
 		st.FailedAttempts = failedAttempts(envs)
 	case done > 0:
 		st.State, st.Reason, st.Done, st.Total = StageRunning, reasonPartial, done, total
@@ -1230,16 +1543,48 @@ func groupStage(in deliveryInput, pl placement, g envGroup, first int, gitopsSta
 				hydrated = false
 			}
 		}
+		var waits []string
+		for _, e := range envs {
+			for _, w := range e.WaitingFor {
+				if !slices.Contains(waits, w) {
+					waits = append(waits, w)
+				}
+			}
+		}
 		switch {
 		case !hydrated:
 			st.Reason = reasonWaitingHydration
-		case len(upstreamPending) > 0:
-			st.Reason, st.Groups = reasonWaitingGroups, append([]string(nil), upstreamPending...)
+		case len(waits) > 0:
+			st.Reason, st.WaitingFor = reasonWaitingEnvs, orderEnvs(in, waits)
 		case gateRunning != "":
 			st.Reason, st.Gate = reasonGateRunning, gateRunning
 		}
 	}
 	return st, envs
+}
+
+// orderEnvs sorts environment keys in promotion order.
+func orderEnvs(in deliveryInput, keys []string) []string {
+	var out []string
+	for _, o := range in.promo.Order {
+		if slices.Contains(keys, o) {
+			out = append(out, o)
+		}
+	}
+	return out
+}
+
+// envFinish is when an environment finished a change: the gates of its first
+// passing promotion of a bundle containing the change passed. When those gate
+// times are unknown, the first promotion time stands in (FLT-DLV-08).
+func envFinish(history []DeliveryPromotion) string {
+	if len(history) == 0 {
+		return ""
+	}
+	if last := history[len(history)-1]; last.Outcome == OutcomePassed && last.GatesPassedAt != "" {
+		return last.GatesPassedAt
+	}
+	return history[0].PromotedAt
 }
 
 // passedBefore reports whether an environment's history for the change ends
@@ -1280,34 +1625,6 @@ func oldestMerge(listed []listedChange, now time.Time) time.Time {
 	return oldest
 }
 
-// typicalDurations is the median duration per stage over completed stages
-// (FLT-DLV-09). A stage's duration runs from its start (the end of the previous
-// stage) to its end.
-func typicalDurations(changes []DeliveryChange) map[string]int64 {
-	samples := map[string][]int64{}
-	for _, c := range changes {
-		for _, s := range c.Stages {
-			if s.State != StagePassed || s.StartedAt == "" || s.FinishedAt == "" || s.Key == stageMerged {
-				continue
-			}
-			a, err1 := time.Parse(time.RFC3339, s.StartedAt)
-			b, err2 := time.Parse(time.RFC3339, s.FinishedAt)
-			if err1 != nil || err2 != nil || b.Before(a) {
-				continue
-			}
-			samples[s.Key] = append(samples[s.Key], int64(b.Sub(a).Seconds()))
-		}
-	}
-	out := map[string]int64{}
-	for k, v := range samples {
-		if len(v) < typicalMinSamples {
-			continue
-		}
-		out[k] = median(v)
-	}
-	return out
-}
-
 func median(v []int64) int64 {
 	s := append([]int64(nil), v...)
 	sort.Slice(s, func(i, j int) bool { return s[i] < s[j] })
@@ -1326,3 +1643,61 @@ func shortSHA7(sha string) string {
 }
 
 func itoa(n int) string { return strconv.Itoa(n) }
+
+// imageCheckOf returns the image check run among a commit's runs, or nil
+// (FLT-DLV-20). With several runs of the name, the newest start wins.
+func imageCheckOf(runs []CheckRun, name string) *DeliveryImageCheck {
+	if name == "" {
+		return nil
+	}
+	var found *CheckRun
+	for i := range runs {
+		r := &runs[i]
+		if r.Name == name && (found == nil || r.StartedAt > found.StartedAt) {
+			found = r
+		}
+	}
+	if found == nil {
+		return nil
+	}
+	return &DeliveryImageCheck{State: checkState(*found), URL: found.URL, runID: found.ID}
+}
+
+// attachImageFailures adds the failure annotations of each failed image check
+// run: one call per run, cached by check run id (FLT-DLV-12, FLT-DLV-20). A
+// failed read is retried on the next refresh.
+func (d *Delivery) attachImageFailures(ctx context.Context, p *DeliveryPayload) {
+	seen := map[int64]bool{}
+	for i := range p.Changes {
+		ic := p.Changes[i].ImageCheck
+		if ic == nil || ic.State != StageFailed || ic.runID == 0 {
+			continue
+		}
+		seen[ic.runID] = true
+		d.mu.Lock()
+		msgs, ok := d.failures[ic.runID]
+		d.mu.Unlock()
+		if !ok {
+			var err error
+			msgs, err = d.gh.CheckFailures(ctx, ic.runID)
+			if err != nil {
+				continue
+			}
+			d.mu.Lock()
+			if d.failures == nil {
+				d.failures = map[int64][]string{}
+			}
+			d.failures[ic.runID] = msgs
+			d.mu.Unlock()
+		}
+		ic.Failures = msgs
+	}
+	// Forget runs no listed change shows.
+	d.mu.Lock()
+	for id := range d.failures {
+		if !seen[id] {
+			delete(d.failures, id)
+		}
+	}
+	d.mu.Unlock()
+}

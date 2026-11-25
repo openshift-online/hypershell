@@ -82,7 +82,7 @@ listed in `specs/id-rename-map.md`, not here.
 |--------|------|--------------|
 | `FLT-BPR` | `platform/fleet-dashboard-bundle-pr-repository-split.spec.md` | 12 |
 | `FLT-CAP` | `platform/fleet-dashboard-capability-chips.spec.md` | 7 |
-| `FLT-DLV` | `platform/fleet-dashboard-delivery-pipeline.spec.md` | 18 |
+| `FLT-DLV` | `platform/fleet-dashboard-delivery-pipeline.spec.md` | 23 |
 | `FLT-MAP` | `platform/fleet-dashboard-map-hub-spine-layout.spec.md` | 7 |
 | `FLT-NAV` | `platform/glass-url-addressable-navigation.spec.md` | 21 |
 | `FLT-SYNC` | `platform/fleet-dashboard-sync-retry-visibility.spec.md` | 4 |

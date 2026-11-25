@@ -166,8 +166,22 @@ type Config struct {
 	DeliveryBundleRepository string
 	DeliveryReleasePRBranch  string
 	DeliveryCheckApp         string
-	DeliveryWindow           int
-	RefreshDelivery          time.Duration
+	// DeliveryImageCheck names the check run that waits for the Konflux builds
+	// and confirms their images are published. The Build "Where to look" popup
+	// shows it (FLT-DLV-20); empty omits it.
+	DeliveryImageCheck string
+	DeliveryWindow     int
+	// DeliveryHistoryDays bounds how far back the promotion history reads to
+	// hold 5 passed promotions per environment (FLT-DLV-09, FLT-DLV-18).
+	DeliveryHistoryDays int
+	// DeliveryReleaseLogURL links to the Konflux release log, DeliveryReleaseAppURL
+	// to the release GitHub App's settings, and DeliveryReleasePaths are the
+	// bundle publisher's paths in the application repository. The Release
+	// "Where to look" popup uses them (FLT-DLV-20); no names are compiled in.
+	DeliveryReleaseLogURL string
+	DeliveryReleaseAppURL string
+	DeliveryReleasePaths  []string
+	RefreshDelivery       time.Duration
 	// RefreshE2E is the e2e-run history source's refresh cadence (the bounded Loki
 	// query_range sweep of recent runs). Live updates do not use this interval;
 	// they ride the Loki tail (e2e-run-log-visibility.spec E2E-LOG-04/05).
@@ -292,7 +306,12 @@ func Load() (*Config, error) {
 		DeliveryBundleRepository: strings.Trim(env("FD_DELIVERY_BUNDLE_REPOSITORY", ""), "/"),
 		DeliveryReleasePRBranch:  env("FD_DELIVERY_RELEASE_PR_BRANCH", ""),
 		DeliveryCheckApp:         env("FD_DELIVERY_CHECK_APP", "red-hat-konflux"),
+		DeliveryImageCheck:       env("FD_DELIVERY_IMAGE_CHECK", "E2E / Wait for Konflux images"),
 		DeliveryWindow:           envInt("FD_DELIVERY_WINDOW", 30),
+		DeliveryHistoryDays:      envInt("FD_DELIVERY_HISTORY_DAYS", 7),
+		DeliveryReleaseLogURL:    env("FD_DELIVERY_RELEASE_LOG_URL", ""),
+		DeliveryReleaseAppURL:    env("FD_DELIVERY_RELEASE_APP_URL", ""),
+		DeliveryReleasePaths:     csv(env("FD_DELIVERY_RELEASE_PATHS", "pipelines/release-bundle/,scripts/release_bundle.py")),
 		RefreshDelivery:          envDuration("FD_REFRESH_DELIVERY", 60*time.Second),
 	}
 

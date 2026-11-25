@@ -25,6 +25,7 @@ type UpstreamCommit struct {
 // CheckRun is the subset of a GitHub check run the delivery plane classifies
 // (FLT-DLV-05).
 type CheckRun struct {
+	ID          int64
 	Name        string
 	App         string
 	Status      string // queued | in_progress | completed
@@ -32,6 +33,8 @@ type CheckRun struct {
 	StartedAt   string
 	CompletedAt string
 	URL         string
+	// Summary is the check run's output summary (gate attempts, FLT-DLV-23).
+	Summary string
 }
 
 // BundlePR is the open automated bundle-update pull request in the GitOps
@@ -64,7 +67,7 @@ type DeliveryGitHub interface {
 	// EnvPromotions lists the promotions on a GitOps environment branch merged
 	// since a time, newest first: one merge commit per promotion (FLT-DLV-18).
 	EnvPromotions(ctx context.Context, branch string, since time.Time) ([]EnvPromotion, error)
-	// GateRuns lists the check runs on a GitOps commit, the latest run per name.
+	// GateRuns lists every check run on a GitOps commit, re-runs included.
 	GateRuns(ctx context.Context, sha string) ([]CheckRun, error)
 	// OpenBundlePR returns the open pull request from the configured head branch
 	// in the GitOps repository, or nil when there is none (one call per refresh).
@@ -72,6 +75,15 @@ type DeliveryGitHub interface {
 	// ReleasePublished reports whether the application repository has a published
 	// (non-draft) GitHub release for tag. A published release is cached forever.
 	ReleasePublished(ctx context.Context, tag string) (published bool, url string, err error)
+	// CommitsTouching lists the application commits on the default branch that
+	// touch path since a time, newest first (release diagnostics, FLT-DLV-20).
+	CommitsTouching(ctx context.Context, path string, since time.Time) ([]UpstreamCommit, error)
+	// LatestReleaseTag returns the tag of the newest published GitHub release of
+	// the application repository (release diagnostics, FLT-DLV-20).
+	LatestReleaseTag(ctx context.Context) (string, error)
+	// CheckFailures returns the titled failure annotations of one check run on
+	// the application repository (image check, FLT-DLV-20).
+	CheckFailures(ctx context.Context, id int64) ([]string, error)
 }
 
 // GitHubDelivery implements DeliveryGitHub over the GitHub REST API with the
@@ -144,6 +156,73 @@ func (g *GitHubDelivery) Commits(ctx context.Context, limit int) ([]UpstreamComm
 	return out, nil
 }
 
+// CommitsTouching implements DeliveryGitHub.
+func (g *GitHubDelivery) CommitsTouching(ctx context.Context, path string, since time.Time) ([]UpstreamCommit, error) {
+	var raw []struct {
+		SHA    string `json:"sha"`
+		Commit struct {
+			Message   string `json:"message"`
+			Committer struct {
+				Date string `json:"date"`
+			} `json:"committer"`
+		} `json:"commit"`
+	}
+	q := url.Values{}
+	q.Set("path", path)
+	q.Set("since", since.UTC().Format(time.RFC3339))
+	q.Set("per_page", "20")
+	u := fmt.Sprintf("%s/repos/%s/commits?%s", g.base, g.upstreamRepo, q.Encode())
+	if !getGitHubJSON(ctx, g.client, g.upstreamTokenFile, g.logger, u, &raw) {
+		return nil, fmt.Errorf("list commits touching %s failed", path)
+	}
+	out := make([]UpstreamCommit, 0, len(raw))
+	for _, c := range raw {
+		out = append(out, UpstreamCommit{SHA: c.SHA, Message: c.Commit.Message, MergedAt: c.Commit.Committer.Date})
+	}
+	return out, nil
+}
+
+// LatestReleaseTag implements DeliveryGitHub. It reads the newest releases and
+// returns the first that is published, not a draft.
+func (g *GitHubDelivery) LatestReleaseTag(ctx context.Context) (string, error) {
+	var raw []struct {
+		TagName string `json:"tag_name"`
+		Draft   bool   `json:"draft"`
+	}
+	u := fmt.Sprintf("%s/repos/%s/releases?per_page=10", g.base, g.upstreamRepo)
+	if !getGitHubJSON(ctx, g.client, g.upstreamTokenFile, g.logger, u, &raw) {
+		return "", fmt.Errorf("list releases failed")
+	}
+	for _, r := range raw {
+		if !r.Draft && r.TagName != "" {
+			return r.TagName, nil
+		}
+	}
+	return "", nil
+}
+
+// CheckFailures implements DeliveryGitHub. It keeps failure annotations that
+// have a title: the job's own "::error title=..." lines. GitHub's untitled
+// "Process completed with exit code" annotation says nothing new.
+func (g *GitHubDelivery) CheckFailures(ctx context.Context, id int64) ([]string, error) {
+	var raw []struct {
+		Level   string `json:"annotation_level"`
+		Title   string `json:"title"`
+		Message string `json:"message"`
+	}
+	u := fmt.Sprintf("%s/repos/%s/check-runs/%d/annotations?per_page=50", g.base, g.upstreamRepo, id)
+	if !getGitHubJSON(ctx, g.client, g.upstreamTokenFile, g.logger, u, &raw) {
+		return nil, fmt.Errorf("list check run annotations failed")
+	}
+	out := []string{}
+	for _, a := range raw {
+		if a.Level == "failure" && strings.TrimSpace(a.Title) != "" && strings.TrimSpace(a.Message) != "" {
+			out = append(out, strings.TrimSpace(a.Message))
+		}
+	}
+	return out, nil
+}
+
 // mergePR matches GitHub's merge commit subject, "Merge pull request #<n> from".
 var mergePR = regexp.MustCompile(`^Merge pull request #(\d+) `)
 
@@ -190,18 +269,24 @@ func (g *GitHubDelivery) GateRuns(ctx context.Context, sha string) ([]CheckRun, 
 	if g.gitopsRepo == "" {
 		return nil, fmt.Errorf("GitOps repository not configured")
 	}
-	return g.readCheckRuns(ctx, g.gitopsRepo, g.gitopsTokenFile, sha)
+	// Every run, not only the latest per name: a re-run gate loses its first
+	// finish time and is not sampled (FLT-DLV-09).
+	return g.readCheckRuns(ctx, g.gitopsRepo, g.gitopsTokenFile, sha, "all")
 }
 
 type deliveryCheckRuns struct {
 	CheckRuns []struct {
+		ID          int64  `json:"id"`
 		Name        string `json:"name"`
 		Status      string `json:"status"`
 		Conclusion  string `json:"conclusion"`
 		StartedAt   string `json:"started_at"`
 		CompletedAt string `json:"completed_at"`
 		HTMLURL     string `json:"html_url"`
-		App         struct {
+		Output      struct {
+			Summary string `json:"summary"`
+		} `json:"output"`
+		App struct {
 			Slug string `json:"slug"`
 		} `json:"app"`
 	} `json:"check_runs"`
@@ -211,20 +296,20 @@ type deliveryCheckRuns struct {
 func (g *GitHubDelivery) CheckRuns(ctx context.Context, sha string) ([]CheckRun, error) {
 	// No cache here: the delivery source decides when a commit's runs have
 	// settled (checksSettled), because a completed run can still change.
-	return g.readCheckRuns(ctx, g.upstreamRepo, g.upstreamTokenFile, sha)
+	return g.readCheckRuns(ctx, g.upstreamRepo, g.upstreamTokenFile, sha, "latest")
 }
 
-func (g *GitHubDelivery) readCheckRuns(ctx context.Context, repo, tokenFile, sha string) ([]CheckRun, error) {
+func (g *GitHubDelivery) readCheckRuns(ctx context.Context, repo, tokenFile, sha, filter string) ([]CheckRun, error) {
 	var resp deliveryCheckRuns
-	u := fmt.Sprintf("%s/repos/%s/commits/%s/check-runs?per_page=100", g.base, repo, sha)
+	u := fmt.Sprintf("%s/repos/%s/commits/%s/check-runs?per_page=100&filter=%s", g.base, repo, sha, filter)
 	if !getGitHubJSON(ctx, g.client, tokenFile, g.logger, u, &resp) {
 		return nil, fmt.Errorf("list check runs failed")
 	}
 	out := make([]CheckRun, 0, len(resp.CheckRuns))
 	for _, r := range resp.CheckRuns {
 		out = append(out, CheckRun{
-			Name: r.Name, App: r.App.Slug, Status: r.Status, Conclusion: r.Conclusion,
-			StartedAt: r.StartedAt, CompletedAt: r.CompletedAt, URL: r.HTMLURL,
+			ID: r.ID, Name: r.Name, App: r.App.Slug, Status: r.Status, Conclusion: r.Conclusion,
+			StartedAt: r.StartedAt, CompletedAt: r.CompletedAt, URL: r.HTMLURL, Summary: r.Output.Summary,
 		})
 	}
 	return out, nil
@@ -264,7 +349,7 @@ func (g *GitHubDelivery) prCheckState(ctx context.Context, sha string) string {
 		return s
 	}
 	g.mu.Unlock()
-	runs, err := g.readCheckRuns(ctx, g.gitopsRepo, g.gitopsTokenFile, sha)
+	runs, err := g.readCheckRuns(ctx, g.gitopsRepo, g.gitopsTokenFile, sha, "latest")
 	if err != nil {
 		return ""
 	}

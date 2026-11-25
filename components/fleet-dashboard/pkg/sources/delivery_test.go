@@ -71,13 +71,26 @@ type fakeDeliveryGitHub struct {
 	checks     map[string][]CheckRun
 	pr         *BundlePR
 	checkCalls map[string]int
-	calls      struct{ commits, prs, releases int }
+	calls      struct{ commits, prs, releases, touching, latest int }
+	touching   map[string][]UpstreamCommit // path -> commits
+	latestTag  string
 	// envPromos are each environment branch's promotions, newest first.
 	envPromos map[string][]EnvPromotion
 	gateRuns  map[string][]CheckRun
 	histMu    sync.Mutex // environments are read in parallel
 	envCalls  map[string]int
 	gateCalls map[string]int
+	// failures are each check run's titled failure annotations, by id.
+	failures     map[int64][]string
+	failureCalls map[int64]int
+}
+
+func (f *fakeDeliveryGitHub) CheckFailures(_ context.Context, id int64) ([]string, error) {
+	if f.failureCalls == nil {
+		f.failureCalls = map[int64]int{}
+	}
+	f.failureCalls[id]++
+	return f.failures[id], nil
 }
 
 func (f *fakeDeliveryGitHub) EnvPromotions(_ context.Context, branch string, _ time.Time) ([]EnvPromotion, error) {
@@ -123,10 +136,21 @@ func (f *fakeDeliveryGitHub) ReleasePublished(context.Context, string) (bool, st
 	return false, "", nil
 }
 
+func (f *fakeDeliveryGitHub) CommitsTouching(_ context.Context, path string, _ time.Time) ([]UpstreamCommit, error) {
+	f.calls.touching++
+	return f.touching[path], nil
+}
+
+func (f *fakeDeliveryGitHub) LatestReleaseTag(context.Context) (string, error) {
+	f.calls.latest++
+	return f.latestTag, nil
+}
+
 type fakeRegistry struct {
 	tags     []RegistryBundle
 	err      error
 	revs     map[string]string
+	comps    map[string]map[string]string // digest -> component revisions
 	revCalls int
 	lists    int
 }
@@ -136,9 +160,9 @@ func (f *fakeRegistry) ListBundles(context.Context) ([]RegistryBundle, error) {
 	return f.tags, f.err
 }
 
-func (f *fakeRegistry) ManifestsRevision(_ context.Context, digest string) (string, error) {
+func (f *fakeRegistry) BundleContent(_ context.Context, digest string) (BundleContent, error) {
 	f.revCalls++
-	return f.revs[digest], nil
+	return BundleContent{ManifestsRev: f.revs[digest], Components: f.comps[digest]}, nil
 }
 
 // fakeLock is the shared lock timeline: lock commits newest first, each resolved
@@ -190,6 +214,10 @@ type fixture struct {
 	d        *Delivery
 }
 
+// fixtureDeps is the fixture's promotion graph: Stage waits for Int, Prod for
+// Stage (FLT-DLV-08).
+var fixtureDeps = map[string][]string{"stage-a": {"int-a"}, "prod-a": {"stage-a"}, "prod-b": {"stage-a"}}
+
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	repo := linearRepo{n: 10}
@@ -221,10 +249,10 @@ func newFixture(t *testing.T) *fixture {
 	promo := &PromotionPayload{
 		Order: []string{"int-a", "stage-a", "prod-a", "prod-b"},
 		Environments: map[string]Environment{
-			"int-a":   {Env: "int", Active: &Release{Digest: "sha256:b2"}, Proposed: &Release{Digest: "sha256:b2"}},
-			"stage-a": {Env: "stage", Active: &Release{Digest: "sha256:b1"}, Proposed: &Release{Digest: "sha256:b2"}},
-			"prod-a":  {Env: "prod", Active: &Release{Digest: "sha256:b1"}, Proposed: &Release{Digest: "sha256:b2"}},
-			"prod-b":  {Env: "prod", Active: &Release{Digest: "sha256:b1"}, Proposed: &Release{Digest: "sha256:b2"}},
+			"int-a":   {DependsOn: fixtureDeps["int-a"], Env: "int", Active: &Release{Digest: "sha256:b2"}, Proposed: &Release{Digest: "sha256:b2"}},
+			"stage-a": {DependsOn: fixtureDeps["stage-a"], Env: "stage", Active: &Release{Digest: "sha256:b1"}, Proposed: &Release{Digest: "sha256:b2"}},
+			"prod-a":  {DependsOn: fixtureDeps["prod-a"], Env: "prod", Active: &Release{Digest: "sha256:b1"}, Proposed: &Release{Digest: "sha256:b2"}},
+			"prod-b":  {DependsOn: fixtureDeps["prod-b"], Env: "prod", Active: &Release{Digest: "sha256:b1"}, Proposed: &Release{Digest: "sha256:b2"}},
 		},
 	}
 	f := &fixture{repo: repo, gh: gh, reg: reg, lock: lock, compares: &compares, promo: promo}
@@ -329,6 +357,65 @@ func TestDeliveryCheckRunClassification(t *testing.T) {
 	// A docs-only change rides the bundle whose window holds it (B3).
 	if docs.Bundle == nil || docs.Bundle.Digest != "sha256:b3" {
 		t.Errorf("docs change bundle = %+v, want B3", docs.Bundle)
+	}
+}
+
+func TestDeliveryImageCheck(t *testing.T) {
+	// Verifies: FLT-DLV-20.03, FLT-DLV-12
+	f := newFixture(t)
+	f.d.imageCheck = "E2E / Wait for Konflux images"
+	failedSHA, runningSHA := f.repo.sha(9), f.repo.sha(10)
+	f.gh.checks[failedSHA] = []CheckRun{
+		konflux("demo-web-console-main-on-push", "completed", "failure"),
+		{ID: 77, Name: "E2E / Wait for Konflux images", App: "github-actions", Status: "completed",
+			Conclusion: "failure", URL: "https://example.test/job/77", StartedAt: "2026-11-01T11:50:00Z"},
+		{ID: 70, Name: "E2E / Wait for Konflux images", App: "github-actions", Status: "completed",
+			Conclusion: "success", StartedAt: "2026-11-01T11:00:00Z"}, // an older run
+		{ID: 5, Name: "E2E / Kind", App: "github-actions", Status: "completed", Conclusion: "failure"},
+	}
+	f.gh.checks[runningSHA] = []CheckRun{
+		konflux("demo-control-plane-main-on-push", "in_progress", ""),
+		{ID: 78, Name: "E2E / Wait for Konflux images", App: "github-actions", Status: "in_progress"},
+	}
+	f.gh.failures = map[int64][]string{77: {"No usable image for: web-console."}}
+
+	p := f.refresh(t)
+	failed := change(t, p, failedSHA)
+	ic := failed.ImageCheck
+	if ic == nil || ic.State != StageFailed || ic.URL != "https://example.test/job/77" ||
+		strings.Join(ic.Failures, "|") != "No usable image for: web-console." {
+		t.Fatalf("failed change image check = %+v, want failed run 77 with its annotation", ic)
+	}
+	// The image check is not a phase and does not change Build.
+	if s := stage(t, failed, stageBuild); s.State != StageFailed || len(s.Components) != 1 {
+		t.Errorf("build = %+v, want failed with one component", s)
+	}
+	for _, s := range failed.Stages {
+		if strings.Contains(strings.ToLower(s.Key), "image") {
+			t.Errorf("image check became stage %q", s.Key)
+		}
+	}
+	if ic := change(t, p, runningSHA).ImageCheck; ic == nil || ic.State != StageRunning || len(ic.Failures) != 0 {
+		t.Errorf("running change image check = %+v, want running without failures", ic)
+	}
+	if ic := change(t, p, f.repo.sha(7)).ImageCheck; ic != nil {
+		t.Errorf("change without the run: image check = %+v, want nil", ic)
+	}
+
+	// Annotations are read once per failed run, and never for a running one.
+	f.refresh(t)
+	if n := f.gh.failureCalls[77]; n != 1 {
+		t.Errorf("annotation reads for run 77 = %d, want 1", n)
+	}
+	if n := f.gh.failureCalls[78]; n != 0 {
+		t.Errorf("annotation reads for the running run = %d, want 0", n)
+	}
+
+	// With the setting empty, no image check is shown or read.
+	f.d.imageCheck = ""
+	p = f.refresh(t)
+	if ic := change(t, p, failedSHA).ImageCheck; ic != nil {
+		t.Errorf("image check with the setting empty = %+v, want nil", ic)
 	}
 }
 
@@ -445,9 +532,9 @@ func TestDeliveryGitOpsStage(t *testing.T) {
 func TestDeliveryEnvironmentGroups(t *testing.T) {
 	// Verifies: FLT-DLV-03.01, FLT-DLV-08.01, FLT-DLV-08.02
 	f := newFixture(t)
-	f.promo.Environments["int-a"] = Environment{Env: "int", Active: &Release{Digest: "sha256:b2"}, Proposed: &Release{Digest: "sha256:b2"},
+	f.promo.Environments["int-a"] = Environment{DependsOn: fixtureDeps["int-a"], Env: "int", Active: &Release{Digest: "sha256:b2"}, Proposed: &Release{Digest: "sha256:b2"},
 		ActiveGates: []Gate{{Key: "hypershell-analysis", Phase: "pending"}}}
-	f.promo.Environments["prod-a"] = Environment{Env: "prod", Active: &Release{Digest: "sha256:b2"}, Proposed: &Release{Digest: "sha256:b2"}}
+	f.promo.Environments["prod-a"] = Environment{DependsOn: fixtureDeps["prod-a"], Env: "prod", Active: &Release{Digest: "sha256:b2"}, Proposed: &Release{Digest: "sha256:b2"}}
 	p := f.refresh(t)
 
 	var groups []string
@@ -464,7 +551,7 @@ func TestDeliveryEnvironmentGroups(t *testing.T) {
 	if s := stage(t, c, "env:int"); s.State != StageRunning || s.Reason != reasonGateRunning || s.Gate != "hypershell-analysis" {
 		t.Errorf("int = %+v, want running with the analysis gate", s)
 	}
-	if s := stage(t, c, "env:stage"); s.State != StageWaiting || s.Reason != reasonWaitingGroups || strings.Join(s.Groups, ",") != "int" {
+	if s := stage(t, c, "env:stage"); s.State != StageWaiting || s.Reason != reasonWaitingEnvs || strings.Join(s.WaitingFor, ",") != "int-a" {
 		t.Errorf("stage = %+v, want waiting for int", s)
 	}
 	if s := stage(t, c, "env:prod"); s.State != StageRunning || s.Reason != reasonPartial || s.Done != 1 || s.Total != 2 {
@@ -472,7 +559,7 @@ func TestDeliveryEnvironmentGroups(t *testing.T) {
 	}
 
 	// A change on GitOps main that no proposed release holds waits for hydration.
-	f.promo.Environments["stage-a"] = Environment{Env: "stage", Active: &Release{Digest: "sha256:b1"}, Proposed: &Release{Digest: "sha256:b1"}}
+	f.promo.Environments["stage-a"] = Environment{DependsOn: fixtureDeps["stage-a"], Env: "stage", Active: &Release{Digest: "sha256:b1"}, Proposed: &Release{Digest: "sha256:b1"}}
 	f.lock.timeline = append([]LockCommit{{SHA: "lock3", Digest: "sha256:b3", Date: "2026-11-01T11:30:00Z"}}, f.lock.timeline...)
 	f.lock.releases["lock3"] = lockedRelease(bundleTag(3, "b3"), "sha256:b3", f.repo.sha(8))
 	p = f.refresh(t)
@@ -483,7 +570,7 @@ func TestDeliveryEnvironmentGroups(t *testing.T) {
 
 func TestDeliveryFailedGateFailsGroup(t *testing.T) {
 	f := newFixture(t)
-	f.promo.Environments["int-a"] = Environment{Env: "int", Active: &Release{Digest: "sha256:b2"}, Proposed: &Release{Digest: "sha256:b2"},
+	f.promo.Environments["int-a"] = Environment{DependsOn: fixtureDeps["int-a"], Env: "int", Active: &Release{Digest: "sha256:b2"}, Proposed: &Release{Digest: "sha256:b2"},
 		ActiveGates: []Gate{{Key: "argocd-health", Phase: "failure"}}}
 	p := f.refresh(t)
 	if s := stage(t, change(t, p, f.repo.sha(4)), "env:int"); s.State != StageFailed || s.Gate != "argocd-health" {
@@ -521,28 +608,6 @@ func TestDeliveryWindow(t *testing.T) {
 	}
 	if strings.Join(got, ",") != "c10,c09,c08" || p.Omitted != 2 {
 		t.Errorf("overflow window = %v omitted %d, want c10,c09,c08 omitted 2", got, p.Omitted)
-	}
-}
-
-func TestDeliveryTypicalDurations(t *testing.T) {
-	// Verifies: FLT-DLV-09.01
-	mk := func(start, end string) DeliveryChange {
-		return DeliveryChange{Stages: []DeliveryStage{
-			{Key: stageBuild, State: StagePassed, StartedAt: start, FinishedAt: end},
-			{Key: stagePolicy, State: StagePassed, StartedAt: end, FinishedAt: end[:15] + "9:00Z"},
-		}}
-	}
-	changes := []DeliveryChange{
-		mk("2026-11-01T10:00:00Z", "2026-11-01T10:10:00Z"),
-		mk("2026-11-01T11:00:00Z", "2026-11-01T11:20:00Z"),
-		mk("2026-11-01T12:00:00Z", "2026-11-01T12:12:00Z"),
-	}
-	got := typicalDurations(changes)
-	if got[stageBuild] != 12*60 {
-		t.Errorf("typical build = %d, want 720 (median of 10, 20, 12 min)", got[stageBuild])
-	}
-	if _, ok := typicalDurations(changes[:2])[stageBuild]; ok {
-		t.Errorf("two samples produced a typical duration")
 	}
 }
 
@@ -835,8 +900,10 @@ func TestPromotionHistoryFailedAttempt(t *testing.T) {
 		t.Errorf("reads after a second refresh: branch %d, m1 %d, m2 %d; want 1 each",
 			f.gh.envCalls["env/int-a"], f.gh.gateCalls["m1"], f.gh.gateCalls["m2"])
 	}
-	if f.gh.gateCalls["m3"] != 0 {
-		t.Errorf("the active promotion's gates were read from GitHub")
+	// The active promotion's outcome comes from the payload; its passed gates
+	// are read once for their finish time (FLT-DLV-08, FLT-DLV-12).
+	if f.gh.gateCalls["m3"] != 1 {
+		t.Errorf("active promotion gate reads = %d, want 1", f.gh.gateCalls["m3"])
 	}
 	if st := p.Sources[srcHistory]; st.Never || st.Stale {
 		t.Errorf("history status = %+v, want current", st)
@@ -877,8 +944,10 @@ func TestPassedGroupIgnoresNewerBundleChecks(t *testing.T) {
 	if len(h) != 1 || h[0].Outcome != OutcomeRunning || h[0].Gate != analysis {
 		t.Errorf("int-a history for the b2 change = %v, want the active b2 running", outcomes(h))
 	}
-	if f.gh.gateCalls[m2] != 0 {
-		t.Errorf("the active promotion's gates were read from GitHub")
+	// While its gate runs, the active promotion's gate runs are read once per
+	// refresh, only for the attempt (FLT-DLV-12, FLT-DLV-23).
+	if f.gh.gateCalls[m2] != 1 {
+		t.Errorf("active running promotion gate reads = %d, want 1", f.gh.gateCalls[m2])
 	}
 }
 
