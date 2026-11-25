@@ -441,6 +441,16 @@ function deliveryChange(
             },
           ]
         : [{ component: "web", state: "passed" }],
+    // FLT-DLV-20.03: the image check run, shown in the Build popup.
+    ...(current === "build"
+      ? {
+          imageCheck: {
+            state,
+            url: "https://example.test/job/1",
+            failures: state === "failed" ? ["No usable image for: web."] : [],
+          },
+        }
+      : {}),
     environments: [],
   };
 }

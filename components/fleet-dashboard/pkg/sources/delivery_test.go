@@ -80,6 +80,17 @@ type fakeDeliveryGitHub struct {
 	histMu    sync.Mutex // environments are read in parallel
 	envCalls  map[string]int
 	gateCalls map[string]int
+	// failures are each check run's titled failure annotations, by id.
+	failures     map[int64][]string
+	failureCalls map[int64]int
+}
+
+func (f *fakeDeliveryGitHub) CheckFailures(_ context.Context, id int64) ([]string, error) {
+	if f.failureCalls == nil {
+		f.failureCalls = map[int64]int{}
+	}
+	f.failureCalls[id]++
+	return f.failures[id], nil
 }
 
 func (f *fakeDeliveryGitHub) EnvPromotions(_ context.Context, branch string, _ time.Time) ([]EnvPromotion, error) {
@@ -342,6 +353,65 @@ func TestDeliveryCheckRunClassification(t *testing.T) {
 	// A docs-only change rides the bundle whose window holds it (B3).
 	if docs.Bundle == nil || docs.Bundle.Digest != "sha256:b3" {
 		t.Errorf("docs change bundle = %+v, want B3", docs.Bundle)
+	}
+}
+
+func TestDeliveryImageCheck(t *testing.T) {
+	// Verifies: FLT-DLV-20.03, FLT-DLV-12
+	f := newFixture(t)
+	f.d.imageCheck = "E2E / Wait for Konflux images"
+	failedSHA, runningSHA := f.repo.sha(9), f.repo.sha(10)
+	f.gh.checks[failedSHA] = []CheckRun{
+		konflux("demo-web-console-main-on-push", "completed", "failure"),
+		{ID: 77, Name: "E2E / Wait for Konflux images", App: "github-actions", Status: "completed",
+			Conclusion: "failure", URL: "https://example.test/job/77", StartedAt: "2026-11-01T11:50:00Z"},
+		{ID: 70, Name: "E2E / Wait for Konflux images", App: "github-actions", Status: "completed",
+			Conclusion: "success", StartedAt: "2026-11-01T11:00:00Z"}, // an older run
+		{ID: 5, Name: "E2E / Kind", App: "github-actions", Status: "completed", Conclusion: "failure"},
+	}
+	f.gh.checks[runningSHA] = []CheckRun{
+		konflux("demo-control-plane-main-on-push", "in_progress", ""),
+		{ID: 78, Name: "E2E / Wait for Konflux images", App: "github-actions", Status: "in_progress"},
+	}
+	f.gh.failures = map[int64][]string{77: {"No usable image for: web-console."}}
+
+	p := f.refresh(t)
+	failed := change(t, p, failedSHA)
+	ic := failed.ImageCheck
+	if ic == nil || ic.State != StageFailed || ic.URL != "https://example.test/job/77" ||
+		strings.Join(ic.Failures, "|") != "No usable image for: web-console." {
+		t.Fatalf("failed change image check = %+v, want failed run 77 with its annotation", ic)
+	}
+	// The image check is not a phase and does not change Build.
+	if s := stage(t, failed, stageBuild); s.State != StageFailed || len(s.Components) != 1 {
+		t.Errorf("build = %+v, want failed with one component", s)
+	}
+	for _, s := range failed.Stages {
+		if strings.Contains(strings.ToLower(s.Key), "image") {
+			t.Errorf("image check became stage %q", s.Key)
+		}
+	}
+	if ic := change(t, p, runningSHA).ImageCheck; ic == nil || ic.State != StageRunning || len(ic.Failures) != 0 {
+		t.Errorf("running change image check = %+v, want running without failures", ic)
+	}
+	if ic := change(t, p, f.repo.sha(7)).ImageCheck; ic != nil {
+		t.Errorf("change without the run: image check = %+v, want nil", ic)
+	}
+
+	// Annotations are read once per failed run, and never for a running one.
+	f.refresh(t)
+	if n := f.gh.failureCalls[77]; n != 1 {
+		t.Errorf("annotation reads for run 77 = %d, want 1", n)
+	}
+	if n := f.gh.failureCalls[78]; n != 0 {
+		t.Errorf("annotation reads for the running run = %d, want 0", n)
+	}
+
+	// With the setting empty, no image check is shown or read.
+	f.d.imageCheck = ""
+	p = f.refresh(t)
+	if ic := change(t, p, failedSHA).ImageCheck; ic != nil {
+		t.Errorf("image check with the setting empty = %+v, want nil", ic)
 	}
 }
 

@@ -110,7 +110,30 @@ describe("mapDelivery estimates and diagnostics (FLT-DLV-12)", () => {
       slowestMs: null,
     });
     expect(change?.builds[0]?.outsideBundle).toBe(true);
+    expect(change?.imageCheck).toBeNull();
     expect(data.releaseDiagnostics).toBeNull();
+  });
+
+  // Verifies: FLT-DLV-20.03
+  it("maps the image check with its failure annotations", () => {
+    const data = mapDelivery({
+      enabled: true,
+      changes: [
+        {
+          sha: "b".repeat(40),
+          imageCheck: {
+            state: "failed",
+            url: "https://example.test/job",
+            failures: ["No usable image for: web-console.", ""],
+          },
+        },
+      ],
+    });
+    expect(data.changes[0]?.imageCheck).toEqual({
+      state: "failed",
+      url: "https://example.test/job",
+      failures: ["No usable image for: web-console."],
+    });
   });
 
   // Verifies: FLT-DLV-20.01

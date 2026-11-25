@@ -10,6 +10,7 @@ import {
   type DeliveryCheck,
   type DeliveryData,
   type DeliveryEnvState,
+  type DeliveryImageCheck,
   type DeliveryPromotion,
   type DeliverySourceKey,
   type DeliverySourceStatus,
@@ -51,6 +52,12 @@ interface WireCheck {
   readonly completedAt?: string;
   readonly url?: string;
   readonly outsideBundle?: boolean;
+}
+
+interface WireImageCheck {
+  readonly state?: string;
+  readonly url?: string;
+  readonly failures?: readonly string[] | null;
 }
 
 interface WireBundle {
@@ -103,6 +110,7 @@ interface WireChange {
     readonly url?: string;
   } | null;
   readonly environments?: readonly WireEnv[] | null;
+  readonly imageCheck?: WireImageCheck | null;
 }
 
 interface WireSource {
@@ -204,6 +212,19 @@ function mapCheck(raw: WireCheck): DeliveryCheck {
   };
 }
 
+function mapImageCheck(
+  raw: WireImageCheck | null | undefined,
+): DeliveryImageCheck | null {
+  if (!raw?.state) {
+    return null;
+  }
+  return {
+    state: mapState(raw.state),
+    url: str(raw.url),
+    failures: (raw.failures ?? []).filter((f) => f !== ""),
+  };
+}
+
 function mapBundle(raw: WireBundle | null | undefined): DeliveryBundle | null {
   if (!raw?.digest) {
     return null;
@@ -276,6 +297,7 @@ function mapChange(raw: WireChange): DeliveryChange {
         ? { number: pr.number, url: str(pr.url) }
         : null,
     environments: (raw.environments ?? []).map(mapEnv),
+    imageCheck: mapImageCheck(raw.imageCheck),
   };
 }
 

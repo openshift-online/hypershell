@@ -83,9 +83,13 @@
   color: var(--pf-t--global--text--color--subtle);
 }
 
-/* Space between an icon or a link and the text after it; none when the state
-   has no icon. */
-.gap:not(:first-child) {
+/* Space before a link or text that follows other inline content. */
+.gap {
+  margin-inline-start: var(--pf-t--global--spacer--sm);
+}
+
+/* Space between a state icon and its label; none when the state has no icon. */
+.iconGap:not(:first-child) {
   margin-inline-start: var(--pf-t--global--spacer--sm);
 }
 

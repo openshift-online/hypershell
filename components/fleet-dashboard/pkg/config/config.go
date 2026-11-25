@@ -166,7 +166,11 @@ type Config struct {
 	DeliveryBundleRepository string
 	DeliveryReleasePRBranch  string
 	DeliveryCheckApp         string
-	DeliveryWindow           int
+	// DeliveryImageCheck names the check run that waits for the Konflux builds
+	// and confirms their images are published. The Build "Where to look" popup
+	// shows it (FLT-DLV-20); empty omits it.
+	DeliveryImageCheck string
+	DeliveryWindow     int
 	// DeliveryReleaseLogURL links to the Konflux release log, DeliveryReleaseAppURL
 	// to the release GitHub App's settings, and DeliveryReleasePaths are the
 	// bundle publisher's paths in the application repository. The Release
@@ -299,6 +303,7 @@ func Load() (*Config, error) {
 		DeliveryBundleRepository: strings.Trim(env("FD_DELIVERY_BUNDLE_REPOSITORY", ""), "/"),
 		DeliveryReleasePRBranch:  env("FD_DELIVERY_RELEASE_PR_BRANCH", ""),
 		DeliveryCheckApp:         env("FD_DELIVERY_CHECK_APP", "red-hat-konflux"),
+		DeliveryImageCheck:       env("FD_DELIVERY_IMAGE_CHECK", "E2E / Wait for Konflux images"),
 		DeliveryWindow:           envInt("FD_DELIVERY_WINDOW", 30),
 		DeliveryReleaseLogURL:    env("FD_DELIVERY_RELEASE_LOG_URL", ""),
 		DeliveryReleaseAppURL:    env("FD_DELIVERY_RELEASE_APP_URL", ""),

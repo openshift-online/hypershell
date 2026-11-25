@@ -87,6 +87,7 @@ import {
   type Arrival,
   type DeliveryChange,
   type DeliveryCheck,
+  type DeliveryImageCheck,
   type DeliveryData,
   type DeliveryEnvState,
   type DeliveryPromotion,
@@ -368,6 +369,37 @@ function LookTerm({
   );
 }
 
+/** The image check run in a Build popup (FLT-DLV-20.03). */
+function ImageCheckTerm({
+  check,
+}: {
+  readonly check: DeliveryImageCheck | null;
+}) {
+  const intl = useIntl();
+  if (check === null) {
+    return null;
+  }
+  return (
+    <LookTerm term={intl.formatMessage(m.lookImageCheck)}>
+      <Stack>
+        <StackItem>
+          {intl.formatMessage(STATE_LABEL[check.state])}
+          {check.url !== null ? (
+            <span className={styles.gap}>
+              <ExternalLink href={check.url}>
+                {intl.formatMessage(m.lookViewImageCheck)}
+              </ExternalLink>
+            </span>
+          ) : null}
+        </StackItem>
+        {check.failures.map((f) => (
+          <StackItem key={f}>{f}</StackItem>
+        ))}
+      </Stack>
+    </LookTerm>
+  );
+}
+
 function WarningText({ children }: { readonly children: React.ReactNode }) {
   return (
     <Flex spaceItems={{ default: "spaceItemsXs" }}>
@@ -406,6 +438,7 @@ function WhereToLookBody({ look }: { readonly look: WhereToLook }) {
                   ) : null}
                 </LookTerm>
               ))}
+              <ImageCheckTerm check={look.imageCheck} />
             </DescriptionList>
           </StackItem>
         </Stack>
@@ -428,6 +461,7 @@ function WhereToLookBody({ look }: { readonly look: WhereToLook }) {
                   ) : null}
                 </LookTerm>
               ))}
+              <ImageCheckTerm check={look.imageCheck} />
             </DescriptionList>
           </StackItem>
         </Stack>
@@ -1126,7 +1160,7 @@ function ProgressBar({
                 <br />
                 <span className="pf-v6-u-text-nowrap">
                   <StageStateIcon state={cell.stage.state} />
-                  <span className={styles.gap}>
+                  <span className={styles.iconGap}>
                     {cell.stage.reason === "inferred-release"
                       ? intl.formatMessage(m.stateReleasingInferred)
                       : intl.formatMessage(STATE_LABEL[cell.stage.state])}

@@ -150,6 +150,11 @@ function renderFailedBuild() {
             url: "https://example.test/run/1",
           },
         ],
+        imageCheck: {
+          state: "failed",
+          url: "https://example.test/job/1",
+          failures: ["No usable image for: web."],
+        },
       },
     ],
   });
@@ -206,5 +211,20 @@ describe("DeliveryView progress bar and Where to look (FLT-DLV-19, FLT-DLV-20)",
         .getByRole("link", { name: /View check run/ })
         .getAttribute("href"),
     ).toBe("https://example.test/run/1");
+  });
+
+  // Verifies: FLT-DLV-20.03
+  it("shows the failed image check and its annotation in the Build popup", async () => {
+    renderFailedBuild();
+    const bar = screen.getByRole("list", { name: /Delivery progress of/ });
+    fireEvent.click(within(bar).getByRole("button", { name: "Where to look" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent).toContain("Image check");
+    expect(dialog.textContent).toContain("No usable image for: web.");
+    expect(
+      within(dialog)
+        .getByRole("link", { name: /View image check/ })
+        .getAttribute("href"),
+    ).toBe("https://example.test/job/1");
   });
 });

@@ -25,6 +25,7 @@ type UpstreamCommit struct {
 // CheckRun is the subset of a GitHub check run the delivery plane classifies
 // (FLT-DLV-05).
 type CheckRun struct {
+	ID          int64
 	Name        string
 	App         string
 	Status      string // queued | in_progress | completed
@@ -78,6 +79,9 @@ type DeliveryGitHub interface {
 	// LatestReleaseTag returns the tag of the newest published GitHub release of
 	// the application repository (release diagnostics, FLT-DLV-20).
 	LatestReleaseTag(ctx context.Context) (string, error)
+	// CheckFailures returns the titled failure annotations of one check run on
+	// the application repository (image check, FLT-DLV-20).
+	CheckFailures(ctx context.Context, id int64) ([]string, error)
 }
 
 // GitHubDelivery implements DeliveryGitHub over the GitHub REST API with the
@@ -195,6 +199,28 @@ func (g *GitHubDelivery) LatestReleaseTag(ctx context.Context) (string, error) {
 	return "", nil
 }
 
+// CheckFailures implements DeliveryGitHub. It keeps failure annotations that
+// have a title: the job's own "::error title=..." lines. GitHub's untitled
+// "Process completed with exit code" annotation says nothing new.
+func (g *GitHubDelivery) CheckFailures(ctx context.Context, id int64) ([]string, error) {
+	var raw []struct {
+		Level   string `json:"annotation_level"`
+		Title   string `json:"title"`
+		Message string `json:"message"`
+	}
+	u := fmt.Sprintf("%s/repos/%s/check-runs/%d/annotations?per_page=50", g.base, g.upstreamRepo, id)
+	if !getGitHubJSON(ctx, g.client, g.upstreamTokenFile, g.logger, u, &raw) {
+		return nil, fmt.Errorf("list check run annotations failed")
+	}
+	out := []string{}
+	for _, a := range raw {
+		if a.Level == "failure" && strings.TrimSpace(a.Title) != "" && strings.TrimSpace(a.Message) != "" {
+			out = append(out, strings.TrimSpace(a.Message))
+		}
+	}
+	return out, nil
+}
+
 // mergePR matches GitHub's merge commit subject, "Merge pull request #<n> from".
 var mergePR = regexp.MustCompile(`^Merge pull request #(\d+) `)
 
@@ -248,6 +274,7 @@ func (g *GitHubDelivery) GateRuns(ctx context.Context, sha string) ([]CheckRun, 
 
 type deliveryCheckRuns struct {
 	CheckRuns []struct {
+		ID          int64  `json:"id"`
 		Name        string `json:"name"`
 		Status      string `json:"status"`
 		Conclusion  string `json:"conclusion"`
@@ -276,7 +303,7 @@ func (g *GitHubDelivery) readCheckRuns(ctx context.Context, repo, tokenFile, sha
 	out := make([]CheckRun, 0, len(resp.CheckRuns))
 	for _, r := range resp.CheckRuns {
 		out = append(out, CheckRun{
-			Name: r.Name, App: r.App.Slug, Status: r.Status, Conclusion: r.Conclusion,
+			ID: r.ID, Name: r.Name, App: r.App.Slug, Status: r.Status, Conclusion: r.Conclusion,
 			StartedAt: r.StartedAt, CompletedAt: r.CompletedAt, URL: r.HTMLURL,
 		})
 	}

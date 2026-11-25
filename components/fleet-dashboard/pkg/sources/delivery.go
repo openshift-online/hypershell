@@ -122,6 +122,9 @@ type DeliveryChange struct {
 	Bundle      *DeliveryBundle    `json:"bundle,omitempty"`
 	GitOpsPR    *DeliveryPRLink    `json:"gitopsPr,omitempty"`
 	Envs        []DeliveryEnvState `json:"environments"`
+	// ImageCheck is the image check run on the commit, for the Build popup
+	// (FLT-DLV-20). It is not a phase.
+	ImageCheck *DeliveryImageCheck `json:"imageCheck,omitempty"`
 }
 
 // DeliveryStage is one stage cell.
@@ -165,6 +168,16 @@ type DeliveryCheck struct {
 }
 
 // DeliveryBundle is a change's first bundle (FLT-DLV-06/11).
+// DeliveryImageCheck is the check run that waits for the Konflux builds and
+// confirms their images are published (FLT-DLV-20).
+type DeliveryImageCheck struct {
+	State string `json:"state"`
+	URL   string `json:"url,omitempty"`
+	// Failures are the titled failure annotations of a failed run.
+	Failures []string `json:"failures,omitempty"`
+	runID    int64
+}
+
 type DeliveryBundle struct {
 	Tag         string `json:"tag"`
 	Version     string `json:"version"`
@@ -222,6 +235,7 @@ type SnapshotReader interface {
 type Delivery struct {
 	window       int
 	checkApp     string
+	imageCheck   string
 	upstreamRepo string
 	gitopsRepo   string
 	htmlBase     string
@@ -249,6 +263,9 @@ type Delivery struct {
 	pr        *BundlePR
 	prErr     string
 	checks    map[string][]CheckRun
+	// failures caches a failed image check run's annotations by check run id.
+	// A re-run creates a new check run, so an entry never changes.
+	failures map[int64][]string
 	// contents caches each pending bundle's bundle.json content by digest;
 	// bundle content is immutable (FLT-DLV-12).
 	contents map[string]BundleContent
@@ -287,6 +304,7 @@ func newDelivery(c *config.Config, gh DeliveryGitHub, reg BundleRegistry, lock L
 	return &Delivery{
 		window:        window,
 		checkApp:      c.DeliveryCheckApp,
+		imageCheck:    c.DeliveryImageCheck,
 		upstreamRepo:  strings.Trim(c.UpstreamRepo, "/"),
 		gitopsRepo:    strings.Trim(c.GitHubRepo, "/"),
 		htmlBase:      htmlBaseFrom(strings.TrimRight(c.GitHubAPIBase, "/")),
@@ -301,6 +319,7 @@ func newDelivery(c *config.Config, gh DeliveryGitHub, reg BundleRegistry, lock L
 		now:           time.Now,
 		logger:        slog.Default(),
 		checks:        map[string][]CheckRun{},
+		failures:      map[int64][]string{},
 		contents:      map[string]BundleContent{},
 		hist:          map[string]*envHistory{},
 	}
@@ -387,6 +406,7 @@ func (d *Delivery) Delivery(ctx context.Context) (any, error) {
 		now:          now,
 		window:       d.window,
 		checkApp:     d.checkApp,
+		imageCheck:   d.imageCheck,
 		upstreamRepo: d.upstreamRepo,
 		gitopsRepo:   d.gitopsRepo,
 		htmlBase:     d.htmlBase,
@@ -416,6 +436,7 @@ func (d *Delivery) Delivery(ctx context.Context) (any, error) {
 
 	payload := buildDelivery(in, listed, omitted)
 	d.attachReleaseLinks(ctx, &payload)
+	d.attachImageFailures(ctx, &payload)
 	if releaseOverdue(payload, now) {
 		payload.Release = d.releaseDiagnostics(ctx, in, tags)
 	}
@@ -536,7 +557,7 @@ func (d *Delivery) readChecks(ctx context.Context, listed []listedChange, in del
 			}
 			continue
 		}
-		runs = filterApp(runs, in.checkApp)
+		runs = filterApp(runs, in.checkApp, in.imageCheck)
 		d.mu.Lock()
 		d.checks[sha] = runs
 		d.mu.Unlock()
@@ -616,10 +637,13 @@ func (d *Delivery) cachedChecks() map[string][]CheckRun {
 	return out
 }
 
-func filterApp(runs []CheckRun, app string) []CheckRun {
+// filterApp keeps the check app's runs and the image check run, whatever app
+// reports it. The image check name has no "-on-push" or policy marker, so the
+// stages ignore it.
+func filterApp(runs []CheckRun, app, imageCheck string) []CheckRun {
 	out := make([]CheckRun, 0, len(runs))
 	for _, r := range runs {
-		if app == "" || r.App == app {
+		if app == "" || r.App == app || (imageCheck != "" && r.Name == imageCheck) {
 			out = append(out, r)
 		}
 	}
@@ -680,6 +704,7 @@ type deliveryInput struct {
 	now          time.Time
 	window       int
 	checkApp     string
+	imageCheck   string
 	appName      string
 	upstreamRepo string
 	gitopsRepo   string
@@ -1187,6 +1212,7 @@ func buildChange(in deliveryInput, pl placement, groups []envGroup, l listedChan
 		}
 	}
 	ch.Builds = toChecks(builds, in.appName, pl.bundled)
+	ch.ImageCheck = imageCheckOf(runs, in.imageCheck)
 	ch.Policies = toChecks(policies, in.appName, pl.bundled)
 
 	// Release (FLT-DLV-06).
@@ -1461,3 +1487,61 @@ func shortSHA7(sha string) string {
 }
 
 func itoa(n int) string { return strconv.Itoa(n) }
+
+// imageCheckOf returns the image check run among a commit's runs, or nil
+// (FLT-DLV-20). With several runs of the name, the newest start wins.
+func imageCheckOf(runs []CheckRun, name string) *DeliveryImageCheck {
+	if name == "" {
+		return nil
+	}
+	var found *CheckRun
+	for i := range runs {
+		r := &runs[i]
+		if r.Name == name && (found == nil || r.StartedAt > found.StartedAt) {
+			found = r
+		}
+	}
+	if found == nil {
+		return nil
+	}
+	return &DeliveryImageCheck{State: checkState(*found), URL: found.URL, runID: found.ID}
+}
+
+// attachImageFailures adds the failure annotations of each failed image check
+// run: one call per run, cached by check run id (FLT-DLV-12, FLT-DLV-20). A
+// failed read is retried on the next refresh.
+func (d *Delivery) attachImageFailures(ctx context.Context, p *DeliveryPayload) {
+	seen := map[int64]bool{}
+	for i := range p.Changes {
+		ic := p.Changes[i].ImageCheck
+		if ic == nil || ic.State != StageFailed || ic.runID == 0 {
+			continue
+		}
+		seen[ic.runID] = true
+		d.mu.Lock()
+		msgs, ok := d.failures[ic.runID]
+		d.mu.Unlock()
+		if !ok {
+			var err error
+			msgs, err = d.gh.CheckFailures(ctx, ic.runID)
+			if err != nil {
+				continue
+			}
+			d.mu.Lock()
+			if d.failures == nil {
+				d.failures = map[int64][]string{}
+			}
+			d.failures[ic.runID] = msgs
+			d.mu.Unlock()
+		}
+		ic.Failures = msgs
+	}
+	// Forget runs no listed change shows.
+	d.mu.Lock()
+	for id := range d.failures {
+		if !seen[id] {
+			delete(d.failures, id)
+		}
+	}
+	d.mu.Unlock()
+}

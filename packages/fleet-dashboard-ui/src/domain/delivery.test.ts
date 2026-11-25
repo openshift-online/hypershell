@@ -76,6 +76,7 @@ function change(
     bundle: null,
     gitopsPr: null,
     environments: [],
+    imageCheck: null,
     ...extra,
   };
 }
@@ -492,6 +493,37 @@ describe("whereToLook (FLT-DLV-20)", () => {
     const look = whereToLook(d, c, build, FIXED_NOW);
     expect(look?.kind).toBe("build-failed");
     expect(look?.kind === "build-failed" ? look.checks : []).toHaveLength(1);
+  });
+
+  // Verifies: FLT-DLV-20.03
+  it("adds the image check to Build popups only", () => {
+    const imageCheck = {
+      state: "failed" as const,
+      url: "https://example.test/job",
+      failures: ["No usable image for: web-console."],
+    };
+    const failedBuild: DeliveryChange = {
+      ...pipeline("build", "failed"),
+      imageCheck,
+    };
+    const failedPolicy: DeliveryChange = {
+      ...pipeline("policy", "failed"),
+      imageCheck,
+    };
+    const look = (c: DeliveryChange, i: number) => {
+      const st = c.stages[i];
+      if (st === undefined) throw new Error("no stage");
+      return whereToLook(data([c]), c, st, FIXED_NOW);
+    };
+    const build = look(failedBuild, 1);
+    expect(build?.kind === "build-failed" ? build.imageCheck : null).toEqual(
+      imageCheck,
+    );
+    const policy = look(failedPolicy, 2);
+    expect(policy?.kind).toBe("checks-overdue");
+    expect(
+      policy?.kind === "checks-overdue" ? policy.imageCheck : "missing",
+    ).toBeNull();
   });
 
   // Verifies: FLT-DLV-20.01

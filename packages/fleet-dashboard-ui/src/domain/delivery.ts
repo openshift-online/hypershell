@@ -56,6 +56,17 @@ export interface DeliveryCheck {
   readonly outsideBundle: boolean;
 }
 
+/**
+ * The check run that waits for the Konflux builds and confirms their images
+ * are published. The Build popup shows it; it is not a phase (FLT-DLV-20).
+ */
+export interface DeliveryImageCheck {
+  readonly state: DeliveryStageState;
+  readonly url: string | null;
+  /** Titled failure annotations of a failed run. */
+  readonly failures: readonly string[];
+}
+
 export interface DeliveryBundle {
   readonly tag: string;
   readonly version: string;
@@ -128,6 +139,7 @@ export interface DeliveryChange {
     readonly url: string | null;
   } | null;
   readonly environments: readonly DeliveryEnvState[];
+  readonly imageCheck: DeliveryImageCheck | null;
 }
 
 export type DeliverySourceKey =
@@ -409,10 +421,13 @@ export type WhereToLook =
   | {
       readonly kind: "build-failed";
       readonly checks: readonly DeliveryCheck[];
+      readonly imageCheck: DeliveryImageCheck | null;
     }
   | {
       readonly kind: "checks-overdue";
       readonly checks: readonly DeliveryCheck[];
+      /** Only for Build; a Policy check popup has none. */
+      readonly imageCheck: DeliveryImageCheck | null;
     }
   | {
       readonly kind: "release-overdue";
@@ -448,10 +463,12 @@ export function whereToLook(
         ? {
             kind: "build-failed",
             checks: change.builds.filter((c) => c.state === "failed"),
+            imageCheck: change.imageCheck,
           }
         : {
             kind: "checks-overdue",
             checks: change.builds.filter((c) => c.state === "running"),
+            imageCheck: change.imageCheck,
           };
     case "policy":
       return {
@@ -459,6 +476,7 @@ export function whereToLook(
         checks: change.policies.filter((c) =>
           failed ? c.state === "failed" : c.state === "running",
         ),
+        imageCheck: null,
       };
     case "release":
       return { kind: "release-overdue", diagnostics: data.releaseDiagnostics };

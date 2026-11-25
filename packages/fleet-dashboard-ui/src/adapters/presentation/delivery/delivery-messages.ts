@@ -699,6 +699,17 @@ export const deliveryMessages = defineMessages({
     defaultMessage: "View check run",
     description: "Link to a check run.",
   },
+  lookImageCheck: {
+    id: "fleet.delivery.look.imageCheck",
+    defaultMessage: "Image check",
+    description:
+      "Term for the check run that confirms the Konflux images are published (FLT-DLV-20).",
+  },
+  lookViewImageCheck: {
+    id: "fleet.delivery.look.viewImageCheck",
+    defaultMessage: "View image check",
+    description: "Link to the image check run (FLT-DLV-20).",
+  },
   lookReleaseSummary: {
     id: "fleet.delivery.look.releaseSummary",
     defaultMessage:
