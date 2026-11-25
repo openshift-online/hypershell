@@ -25,20 +25,20 @@ import (
 
 type gatewayGRPCHandler struct {
 	pb.UnimplementedGatewayServiceServer
-	service                GatewayService
-	generic                services.GenericService
-	brokerFunc             func() *pkgserver.EventBroker
-	clusters               RegisteredClusterLookup
-	clusterSubjects        pkgrbac.RegisteredClusterResolver
-	dedicatedRoute         dedicatedRouteAuthorizer
-	operatorWorkspace      operatorWorkspaceAuthorizer
-	managedClusterSelector managedClusterSelectorAuthorizer
-	placement              PlacementResolver
-	sandboxEvents          sandboxEvents.SandboxEventStore
+	service           GatewayService
+	generic           services.GenericService
+	brokerFunc        func() *pkgserver.EventBroker
+	clusters          RegisteredClusterLookup
+	clusterSubjects   pkgrbac.RegisteredClusterResolver
+	dedicatedRoute    dedicatedRouteAuthorizer
+	operatorWorkspace operatorWorkspaceAuthorizer
+	clusterTargeting  clusterTargetingAuthorizer
+	placement         PlacementResolver
+	sandboxEvents     sandboxEvents.SandboxEventStore
 }
 
-func NewGatewayGRPCHandler(svc GatewayService, generic services.GenericService, brokerFunc func() *pkgserver.EventBroker, clusters RegisteredClusterLookup, clusterSubjects pkgrbac.RegisteredClusterResolver, dedicatedRoute dedicatedRouteAuthorizer, operatorWorkspace operatorWorkspaceAuthorizer, managedClusterSelector managedClusterSelectorAuthorizer, placement ...PlacementResolver) pb.GatewayServiceServer {
-	h := &gatewayGRPCHandler{service: svc, generic: generic, brokerFunc: brokerFunc, clusters: clusters, clusterSubjects: clusterSubjects, dedicatedRoute: dedicatedRoute, operatorWorkspace: operatorWorkspace, managedClusterSelector: managedClusterSelector}
+func NewGatewayGRPCHandler(svc GatewayService, generic services.GenericService, brokerFunc func() *pkgserver.EventBroker, clusters RegisteredClusterLookup, clusterSubjects pkgrbac.RegisteredClusterResolver, dedicatedRoute dedicatedRouteAuthorizer, operatorWorkspace operatorWorkspaceAuthorizer, clusterTargeting clusterTargetingAuthorizer, placement ...PlacementResolver) pb.GatewayServiceServer {
+	h := &gatewayGRPCHandler{service: svc, generic: generic, brokerFunc: brokerFunc, clusters: clusters, clusterSubjects: clusterSubjects, dedicatedRoute: dedicatedRoute, operatorWorkspace: operatorWorkspace, clusterTargeting: clusterTargeting}
 	if len(placement) > 0 {
 		h.placement = placement[0]
 	}
@@ -200,15 +200,23 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 		return nil, status.Error(codes.InvalidArgument, "a gateway must be created with either a cluster_id (pinned) or a placement selector (late-bound)")
 	}
 
+	// Pinning by cluster_id skips the capability checks a selector applies, so a user
+	// caller needs gateway:cluster-targeting (platform:admin includes it). The gate
+	// runs before the cluster is resolved; a control-plane write bypasses it and an
+	// import is denied (SEC-RBAC-34).
+	if svcErr := h.clusterTargeting.authorizePin(ctx, hasCluster); svcErr != nil {
+		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+	}
+
 	phase := req.Phase
 	statusField := req.Status
 	var placementJSON *string
 	if hasPlacement {
-		// The managed-cluster/<name> identity selector targets a specific cluster and
-		// is gated to platform:admin. The gate is body-dependent, so it runs here at
-		// the create boundary, before the name is validated or resolved, and rejects a
-		// non-admin caller with PermissionDenied (SEC-RBAC-33).
-		if svcErr := h.managedClusterSelector.authorizeCreate(ctx, intent); svcErr != nil {
+		// A managed-cluster/<name> token or a required purpose/ label chooses the
+		// cluster, so it needs gateway:cluster-targeting. The gate is body-dependent,
+		// so it runs here at the create boundary, before the selector is validated or
+		// resolved, and rejects other callers with PermissionDenied (SEC-RBAC-33/35).
+		if svcErr := h.clusterTargeting.authorizePlacement(ctx, intent); svcErr != nil {
 			return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 		}
 		if h.placement == nil {
@@ -338,6 +346,11 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 	// Only a change of cluster_id is validated (see the REST Patch handler):
 	// status write-backs that re-send the stored value are not reassignments.
 	if req.ClusterId != nil && *req.ClusterId != gateway.ClusterId {
+		// A reassignment is a pin: gate it to gateway:cluster-targeting before the cluster is
+		// resolved (SEC-RBAC-34). The service field policy remains the backstop.
+		if svcErr := h.clusterTargeting.authorizePin(ctx, true); svcErr != nil {
+			return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+		}
 		if svcErr := validateClusterReference(ctx, h.clusters, *req.ClusterId); svcErr != nil {
 			return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 		}

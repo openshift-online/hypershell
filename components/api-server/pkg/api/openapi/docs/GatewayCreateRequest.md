@@ -5,7 +5,7 @@
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **Name** | **string** |  |
-**ClusterId** | Pointer to **string** | Pin the gateway to this managed cluster. Mutually exclusive with placement. | [optional]
+**ClusterId** | Pointer to **string** | Pin the gateway to this managed cluster. Mutually exclusive with placement. Requires the gateway:cluster-targeting role (platform:admin includes it). | [optional]
 **DedicatedRoute** | Pointer to **bool** | Create-only. Requires the gateway:dedicated-route-creator role and opts the gateway in to a dedicated route and per-gateway wildcard certificate. The platform manages how the dedicated route and certificate are provided. | [optional]
 **WorkspaceMode** | Pointer to **string** | Create-only per-gateway operator-managed workspace opt-in. The only accepted value is \&quot;operator\&quot;, which requires the gateway:operator-workspace-creator role (platform:admin also qualifies) and provisions the gateway with operator-owned workspace namespaces (OSG-OPWS-01). Omit for the default managed mode; shared and managed are platform-managed and not caller-settable. Immutable after creation. | [optional]
 **Placement** | Pointer to [**GatewayPlacementIntent**](GatewayPlacementIntent.md) |  | [optional]

@@ -122,42 +122,48 @@ func TestResolveManagedClusterIdentitySelection(t *testing.T) {
 	}
 }
 
-// TestPlacementReferencesManagedClusterSelector pins the gate's detection: a required
-// or excluded managed-cluster/<name> token triggers the gate; a pure capability
-// selector does not.
-func TestPlacementReferencesManagedClusterSelector(t *testing.T) {
+// TestPlacementTargetingReason detects a placement intent that chooses a cluster: a
+// managed-cluster/ token in the required or excluded selector, or a purpose/ label
+// in the required selector only (SEC-RBAC-33, SEC-RBAC-35).
+// Verifies: SEC-RBAC-35.03
+func TestPlacementTargetingReason(t *testing.T) {
 	cases := []struct {
 		name  string
 		req   []string
 		exc   []string
-		wants bool
+		wants string
 	}{
-		{name: "required identity", req: []string{"managed-cluster/a"}, wants: true},
-		{name: "excluded identity", req: []string{"provider/aws"}, exc: []string{"managed-cluster/a"}, wants: true},
-		{name: "capability only", req: []string{"provider/aws"}, exc: []string{"runtime/kata"}, wants: false},
+		{name: "required identity", req: []string{"managed-cluster/a"}, wants: managedClusterSelectorForbiddenReason},
+		{name: "excluded identity", req: []string{"provider/aws"}, exc: []string{"managed-cluster/a"}, wants: managedClusterSelectorForbiddenReason},
+		{name: "required purpose label", req: []string{"provider/ibm", "purpose/release-check"}, wants: purposeLabelForbiddenReason},
+		{name: "excluded purpose label is ordinary placement", req: []string{"provider/ibm"}, exc: []string{"purpose/release-check"}, wants: ""},
+		{name: "capability only", req: []string{"provider/aws"}, exc: []string{"runtime/kata"}, wants: ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			intent := openapi.GatewayPlacementIntent{Selector: tc.req, ExcludedSelector: tc.exc}
-			if got := placementReferencesManagedClusterSelector(intent); got != tc.wants {
-				t.Fatalf("placementReferencesManagedClusterSelector = %t, want %t", got, tc.wants)
+			if got := placementTargetingReason(intent); got != tc.wants {
+				t.Fatalf("placementTargetingReason = %q, want %q", got, tc.wants)
 			}
 		})
 	}
-	if !selectorsReferenceManagedClusterSelector([][]string{{"provider/aws"}, {"managed-cluster/a"}}) {
+	if availabilityTargetingReason([][]string{{"provider/aws"}, {"managed-cluster/a"}}) != managedClusterSelectorForbiddenReason {
 		t.Fatal("expected a probed managed-cluster selector to be detected")
 	}
-	if selectorsReferenceManagedClusterSelector([][]string{{"provider/aws"}}) {
+	if availabilityTargetingReason([][]string{{"purpose/release-matrix"}}) != purposeLabelForbiddenReason {
+		t.Fatal("expected a probed purpose/ label to be detected")
+	}
+	if availabilityTargetingReason([][]string{{"provider/aws"}}) != "" {
 		t.Fatal("expected a pure capability probe to not be detected")
 	}
 }
 
-// TestManagedClusterSelectorAuthorize is the platform-admin gate at the create
-// boundaries and the availability probe (SEC-RBAC-33): a caller with platform:admin
-// passes, any other caller or anonymous is denied 403 before resolution, a create or
-// probe that references no token needs no entitlement, a lookup failure is a server
-// error, RBAC-off and privileged/import writes are decided elsewhere, and the gate
-// applies identically to the availability probe.
+// TestManagedClusterSelectorAuthorize is the cluster-targeting gate on the
+// managed-cluster/<name> selector at the create boundaries and the availability probe
+// (SEC-RBAC-33): gateway:cluster-targeting or platform:admin passes, any other caller
+// or anonymous is denied 403 before resolution, a create or probe that references no
+// token needs no entitlement, a lookup failure is a server error, a control-plane
+// write bypasses the gate, an import is denied, and the probe is gated like create.
 func TestManagedClusterSelectorAuthorize(t *testing.T) {
 	user := func() context.Context {
 		return context.WithValue(context.Background(), rbac.ContextUserIDKey, "user-1")
@@ -179,8 +185,9 @@ func TestManagedClusterSelectorAuthorize(t *testing.T) {
 		enforceRBAC bool
 		ctx         context.Context
 		intent      openapi.GatewayPlacementIntent
-		wantErr     string // "", "forbidden", or "server-error"
+		wantErr     string // "", "forbidden", "import", or "server-error"
 	}{
+		{name: "gateway:cluster-targeting passes", lookup: fakeBindingLookup{bindings: bindingsOf("gateway:creator", "gateway:cluster-targeting")}, enforceRBAC: true, ctx: user(), intent: identityIntent},
 		{name: "platform:admin passes", lookup: fakeBindingLookup{bindings: bindingsOf("platform:admin")}, enforceRBAC: true, ctx: user(), intent: identityIntent},
 		{name: "gateway:creator only is forbidden", lookup: fakeBindingLookup{bindings: bindingsOf("gateway:creator")}, enforceRBAC: true, ctx: user(), intent: identityIntent, wantErr: "forbidden"},
 		{name: "excluded identity by non-admin is forbidden", lookup: fakeBindingLookup{bindings: bindingsOf("gateway:creator")}, enforceRBAC: true, ctx: user(), intent: excludedIdentityIntent, wantErr: "forbidden"},
@@ -188,14 +195,14 @@ func TestManagedClusterSelectorAuthorize(t *testing.T) {
 		{name: "a capability-only selector needs no entitlement", lookup: fakeBindingLookup{bindings: bindingsOf("gateway:creator")}, enforceRBAC: true, ctx: user(), intent: capabilityIntent},
 		{name: "RBAC off allows any caller", lookup: fakeBindingLookup{bindings: bindingsOf("gateway:creator")}, enforceRBAC: false, ctx: user(), intent: identityIntent},
 		{name: "privileged control-plane write bypasses the check", lookup: fakeBindingLookup{bindings: bindingsOf("gateway:creator")}, enforceRBAC: true, ctx: rbac.WithGatewayWriterKind(user(), rbac.GatewayWriterControlPlane), intent: identityIntent},
-		{name: "import write bypasses the user gate", lookup: fakeBindingLookup{bindings: bindingsOf("gateway:creator")}, enforceRBAC: true, ctx: rbac.WithGatewayWriterKind(user(), rbac.GatewayWriterImport), intent: identityIntent},
+		{name: "import write is denied", lookup: fakeBindingLookup{bindings: bindingsOf("platform:admin")}, enforceRBAC: true, ctx: rbac.WithGatewayWriterKind(user(), rbac.GatewayWriterImport), intent: identityIntent, wantErr: "import"},
 		{name: "anonymous caller fails closed", lookup: fakeBindingLookup{bindings: bindingsOf("platform:admin")}, enforceRBAC: true, ctx: context.Background(), intent: identityIntent, wantErr: "forbidden"},
 		{name: "unwired lookup fails closed", lookup: nil, enforceRBAC: true, ctx: user(), intent: identityIntent, wantErr: "forbidden"},
 		{name: "lookup failure is a server error", lookup: fakeBindingLookup{err: errors.New("database is down")}, enforceRBAC: true, ctx: user(), intent: identityIntent, wantErr: "server-error"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			authorizer := newManagedClusterSelectorAuthorizer(tc.lookup, tc.enforceRBAC)
+			authorizer := newClusterTargetingAuthorizer(tc.lookup, tc.enforceRBAC)
 			// The availability probe is gated identically to create; derive its probe
 			// selectors from the same intent so both boundaries are covered together.
 			probe := [][]string{tc.intent.Selector}
@@ -203,7 +210,7 @@ func TestManagedClusterSelectorAuthorize(t *testing.T) {
 				probe = append(probe, tc.intent.ExcludedSelector)
 			}
 			results := map[string]*svcerrors.ServiceError{
-				"create":       authorizer.authorizeCreate(tc.ctx, tc.intent),
+				"create":       authorizer.authorizePlacement(tc.ctx, tc.intent),
 				"availability": authorizer.authorizeAvailability(tc.ctx, probe),
 			}
 			for label, svcErr := range results {
@@ -221,6 +228,10 @@ func TestManagedClusterSelectorAuthorize(t *testing.T) {
 					}
 					if !strings.Contains(svcErr.Reason, "platform:admin") {
 						t.Fatalf("[%s] reason %q must name platform:admin", label, svcErr.Reason)
+					}
+				case "import":
+					if svcErr == nil || !svcErr.IsForbidden() || svcErr.Reason != importClusterTargetingForbiddenReason {
+						t.Fatalf("[%s] expected the import Forbidden, got %v", label, svcErr)
 					}
 				case "server-error":
 					if svcErr == nil || svcErr.IsForbidden() {

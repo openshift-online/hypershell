@@ -850,7 +850,7 @@ elif name=='hsctl':
     elif args[0]=='config':
         print('API URL: https://api.hyp0.infra.hypershell.app')
     elif args[:2]==['list','managedClusters']:
-        print(json.dumps(dict(items=[dict(id='cluster-test',name='test-cluster')])))
+        print(json.dumps(dict(items=[dict(id='cluster-test',name='test-cluster',capabilities=['provider/kind'])])))
     elif args[:2]==['create','gateway']:
         gateway['name']=args[args.index('--name')+1]
         print(json.dumps(gateway))

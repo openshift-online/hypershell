@@ -607,7 +607,9 @@ func (w *grpcImportWriter) upsertGateway(ctx context.Context, repoID string, res
 	// On create, supply the user-writable allowlist only: name and exactly one of
 	// cluster_id (pinned) or placement (late-bound), matching the api-server's
 	// exactly-one-of contract (#625, data-model.spec.md). No platform-managed field is
-	// sent; the control plane authors those itself (PLAT-DATA-23, CTRL-CORE-15).
+	// sent; the control plane authors those itself (PLAT-DATA-23, CTRL-CORE-15). The
+	// API server rejects an import pin by cluster_id (SEC-RBAC-34.04); its error is
+	// returned as the import failure for this resource.
 	_, err = w.gateways.CreateGateway(withOwnership(ctx, repoID), &pb.CreateGatewayRequest{
 		Name:      res.Name,
 		ClusterId: clusterID,

@@ -189,7 +189,10 @@ const (
 	regionNamespace   = "region"
 )
 
-var capabilityNamespaces = map[string]bool{providerNamespace: true, "network": true, regionNamespace: true, "runtime": true, "environment": true}
+// purpose is multi-valued: its labels (for example purpose/release-check) say what
+// a cluster is set aside for, and requiring one in a placement selector
+// needs gateway:cluster-targeting (SEC-RBAC-35).
+var capabilityNamespaces = map[string]bool{providerNamespace: true, "network": true, regionNamespace: true, "runtime": true, "environment": true, "purpose": true}
 var singleCapabilityNamespaces = map[string]bool{providerNamespace: true, regionNamespace: true, "environment": true}
 
 // capabilityValue returns the value advertised through the given single-valued

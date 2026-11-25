@@ -27,12 +27,15 @@ var capabilityNamespaces = map[string]bool{
 	"region":      true,
 	"runtime":     true,
 	"environment": true,
+	// purpose labels say what a cluster is set aside for; requiring one needs
+	// gateway:cluster-targeting, enforced server-side (SEC-RBAC-35).
+	"purpose": true,
 }
 
 // managedClusterSelectorNamespace is the admin identity-selector namespace
 // (CLI-PLC-05, PLAT-DATA-31). It is NOT a capability namespace: a
 // managed-cluster/<name> token targets one specific cluster by name and is resolved
-// and gated server-side (platform:admin, SEC-RBAC-33). The CLI recognizes it here
+// and gated server-side (gateway:cluster-targeting, SEC-RBAC-33). The CLI recognizes it here
 // only so a well-formed token is not rejected fail-fast as an unknown namespace; the
 // server stays authoritative and its 403 or 400 surfaces verbatim.
 const managedClusterSelectorNamespace = "managed-cluster"
@@ -58,7 +61,7 @@ func ValidateLabel(label string) error {
 		return fmt.Errorf("capability label %q must be namespace/value (e.g. network/public)", label)
 	}
 	if !capabilityNamespaces[parts[0]] && parts[0] != managedClusterSelectorNamespace {
-		return fmt.Errorf("capability label %q uses unknown namespace %q: recognized namespaces are provider, network, region, runtime, environment, managed-cluster", label, parts[0])
+		return fmt.Errorf("capability label %q uses unknown namespace %q: recognized namespaces are provider, network, region, runtime, environment, purpose, managed-cluster", label, parts[0])
 	}
 	for _, part := range parts {
 		if !capabilitySegmentRE.MatchString(part) {

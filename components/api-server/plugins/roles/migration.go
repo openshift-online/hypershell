@@ -188,6 +188,14 @@ var builtInRoleSeeds = []roleSeed{
 		},
 	},
 	{
+		Name:        RoleGatewayClusterTargeting,
+		DisplayName: gatewayClusterTargetingDisplayName,
+		Description: gatewayClusterTargetingDescription,
+		Permissions: map[string]interface{}{
+			"gateways": []string{"target_cluster"},
+		},
+	},
+	{
 		Name:        RoleCIFederationAdmin,
 		DisplayName: "CI Federation Administrator",
 		Description: "Authorizes registering CI OIDC forges (ci_providers) and nothing else; a least-privilege alternative to platform:admin for the CI-federation seeder.",
@@ -488,6 +496,60 @@ func migrationAddGatewayOperatorWorkspaceCreatorRole() *gormigrate.Migration {
 		},
 		Rollback: func(tx *gorm.DB) error {
 			return tx.Where("name = ?", RoleGatewayOperatorWorkspaceCreator).Delete(&Role{}).Error
+		},
+	}
+}
+
+const (
+	gatewayClusterTargetingDisplayName = "Gateway Cluster Targeting"
+	gatewayClusterTargetingDescription = "Allows sending a gateway to a chosen cluster at create: pinning by cluster_id, the managed-cluster/<name> selector, and requiring purpose/ labels. Ordinary creators place by capability selector only."
+)
+
+// migrationAddGatewayClusterTargetingRole seeds the gateway:cluster-targeting
+// built-in role idempotently (SEC-RBAC-34). It is a platform-wide (global-scope)
+// entitlement that gates choosing a gateway's cluster at create. Like
+// gateway:dedicated-route-creator it is JWT-synced (assigned through the identity
+// provider), and no existing binding is touched. Re-running is safe: an existing
+// row short-circuits.
+func migrationAddGatewayClusterTargetingRole() *gormigrate.Migration {
+	type Role struct {
+		db.Model
+		Name        string `gorm:"uniqueIndex"`
+		DisplayName *string
+		Description *string
+		Permissions *string `gorm:"type:jsonb"`
+		BuiltIn     bool
+	}
+
+	return &gormigrate.Migration{
+		ID: "2026112512000001",
+		Migrate: func(tx *gorm.DB) error {
+			var existing Role
+			lookupErr := tx.Where("name = ?", RoleGatewayClusterTargeting).First(&existing).Error
+			if lookupErr == nil {
+				return nil
+			}
+			if !stderrors.Is(lookupErr, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("look up role %s: %w", RoleGatewayClusterTargeting, lookupErr)
+			}
+			permJSON, err := json.Marshal(map[string]interface{}{"gateways": []string{"target_cluster"}})
+			if err != nil {
+				return fmt.Errorf("marshal permissions for %s: %w", RoleGatewayClusterTargeting, err)
+			}
+			permStr := string(permJSON)
+			displayName := gatewayClusterTargetingDisplayName
+			description := gatewayClusterTargetingDescription
+			return tx.Create(&Role{
+				Model:       db.Model{ID: api.NewID()},
+				Name:        RoleGatewayClusterTargeting,
+				DisplayName: &displayName,
+				Description: &description,
+				Permissions: &permStr,
+				BuiltIn:     true,
+			}).Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return tx.Where("name = ?", RoleGatewayClusterTargeting).Delete(&Role{}).Error
 		},
 	}
 }

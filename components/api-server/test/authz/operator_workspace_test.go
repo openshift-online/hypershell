@@ -23,7 +23,8 @@ import (
 // operatorGatewayCreateRequest builds a pinned create request, optionally
 // selecting operator workspace mode.
 func operatorGatewayCreateRequest(name, clusterID string, operator bool) openapi.GatewayCreateRequest {
-	request := openapi.GatewayCreateRequest{Name: name, ClusterId: openapi.PtrString(clusterID)}
+	request := openapi.GatewayCreateRequest{Name: name}
+	request.SetPlacement(openapi.GatewayPlacementIntent{Selector: []string{regionForCluster(clusterID)}})
 	if operator {
 		request.WorkspaceMode = openapi.PtrString("operator")
 	}
@@ -99,7 +100,7 @@ func TestGRPCOperatorWorkspaceRequiresEntitlement(t *testing.T) {
 	creator := newPrincipal(t, h, "user-"+strings.ToLower(api.NewID()), realmRoles(roles.RoleGatewayCreator))
 	_, err := pb.NewGatewayServiceClient(creator.conn).CreateGateway(ctx, &pb.CreateGatewayRequest{
 		Name:          uniqueName("grpc-operator-rejected"),
-		ClusterId:     spoke.clusterID,
+		Placement:     grpcPlacementFor(spoke.clusterID),
 		WorkspaceMode: openapi.PtrString("operator"),
 	})
 	Expect(err).To(HaveOccurred(), "a gateway:creator without the entitlement must not select operator mode")
@@ -109,7 +110,7 @@ func TestGRPCOperatorWorkspaceRequiresEntitlement(t *testing.T) {
 	granted := newPrincipal(t, h, "user-"+strings.ToLower(api.NewID()), realmRoles(roles.RoleGatewayCreator, roles.RoleGatewayOperatorWorkspaceCreator))
 	created, err := pb.NewGatewayServiceClient(granted.conn).CreateGateway(ctx, &pb.CreateGatewayRequest{
 		Name:          uniqueName("grpc-operator-granted"),
-		ClusterId:     spoke.clusterID,
+		Placement:     grpcPlacementFor(spoke.clusterID),
 		WorkspaceMode: openapi.PtrString("operator"),
 	})
 	Expect(err).NotTo(HaveOccurred(), "granted caller over gRPC: %v", err)

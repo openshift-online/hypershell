@@ -69,7 +69,7 @@ func TestCITrustDeclarativeImportRoundTrip(t *testing.T) {
 	// write carrying R1's reconciled-Repository binding sets repository_id = R1.
 	gw1, err := gateways.CreateGateway(importMD(repo1), &pb.CreateGatewayRequest{
 		Name:      "gw-r1-" + short(),
-		ClusterId: spoke.clusterID,
+		Placement: grpcPlacementFor(spoke.clusterID),
 	})
 	Expect(err).NotTo(HaveOccurred(), "import create gateway owned by R1: %v", err)
 	Expect(gw1.GetGateway().GetRepositoryId()).To(Equal(repo1), "gateway must be owned by R1")
@@ -78,7 +78,7 @@ func TestCITrustDeclarativeImportRoundTrip(t *testing.T) {
 	// A sibling Gateway owned by R2.
 	gw2, err := gateways.CreateGateway(importMD(repo2), &pb.CreateGatewayRequest{
 		Name:      "gw-r2-" + short(),
-		ClusterId: spoke.clusterID,
+		Placement: grpcPlacementFor(spoke.clusterID),
 	})
 	Expect(err).NotTo(HaveOccurred(), "import create gateway owned by R2: %v", err)
 	gatewayR2 := gw2.GetGateway().GetMetadata().GetId()

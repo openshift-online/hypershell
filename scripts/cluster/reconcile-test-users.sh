@@ -32,7 +32,7 @@ _test_user_curl() {
 
 _test_user_roles() {
   case "$1" in
-    admin) printf '%s\n' hypershell-admins hypershell-users gateway:creator platform:admin ;;
+    admin) printf '%s\n' hypershell-admins hypershell-users gateway:creator platform:admin gateway:cluster-targeting ;;
     developer) printf '%s\n' hypershell-users ;;
     platform-admin) printf '%s\n' hypershell-users platform:admin ;;
     *) return 1 ;;
@@ -140,6 +140,40 @@ _assign_realm_role() {
   fi
 }
 
+# Realm roles added after a realm was first imported. Keycloak --import-realm does
+# not add new realm roles to an existing realm, so the reconcile creates any that
+# are missing before it assigns them (SEC-RBAC-34).
+_test_user_ensured_roles() {
+  printf '%s\t%s\n' "gateway:cluster-targeting" "HyperShell gateway creators who may choose a gateway's cluster: cluster_id, managed-cluster/<name>, purpose/ labels (gateway:cluster-targeting RBAC role)"
+}
+
+# _ensure_realm_role <token> <role> <description>
+# Creates the realm role when it does not exist yet. An existing role is left as is.
+_ensure_realm_role() {
+  local token="$1" role="$2" description="$3"
+  local base="${KEYCLOAK_BASE_URL%/}"
+  local encoded code
+  encoded="$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "${role}")"
+  code="$(_test_user_curl -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${token}" \
+    "${base}/admin/realms/hypershell/roles/${encoded}" 2>/dev/null || true)"
+  if [[ "${code}" == "200" ]]; then
+    return 0
+  fi
+  if [[ "${code}" != "404" ]]; then
+    echo "Failed to look up Keycloak realm role ${role} (HTTP ${code})" >&2
+    return 1
+  fi
+  code="$(_test_user_curl -o /dev/null -w '%{http_code}' -X POST \
+    -H "Authorization: Bearer ${token}" \
+    -H "Content-Type: application/json" \
+    "${base}/admin/realms/hypershell/roles" \
+    -d "$(python3 -c 'import json,sys; print(json.dumps({"name": sys.argv[1], "description": sys.argv[2]}))' "${role}" "${description}")" 2>/dev/null || true)"
+  if [[ "${code}" != "201" && "${code}" != "409" ]]; then
+    echo "Failed to create Keycloak realm role ${role} (HTTP ${code})" >&2
+    return 1
+  fi
+}
+
 # _create_or_reset_user <token> <username> <password> <first> <last> <email> [role...]
 # Idempotently creates the user (or resets its password if it already exists) and
 # assigns each named realm role. Profile fields and roles are passed explicitly so
@@ -213,6 +247,11 @@ keycloak_reconcile_test_users() {
     echo "Could not obtain Keycloak master admin token" >&2
     return 1
   fi
+  local ensured_role ensured_description
+  while IFS=$'\t' read -r ensured_role ensured_description; do
+    [[ -z "${ensured_role}" ]] && continue
+    _ensure_realm_role "${token}" "${ensured_role}" "${ensured_description}" || return 1
+  done < <(_test_user_ensured_roles)
   for username in "${TEST_TIER_USERNAMES[@]}"; do
     password="$(_password_for "${username}")"
     if [[ -z "${password}" ]]; then

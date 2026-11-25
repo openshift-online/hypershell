@@ -129,16 +129,17 @@ class GatewaySetupTests(unittest.TestCase):
     @patch('builtins.input',side_effect=['1','created-gateway','y'])
     def test_create_requires_confirmation_and_persists_before_connection(self, ask, api):
         created=gateway(name='created-gateway')
-        api.side_effect=[{'items':[{'id':'cluster-1','name':'test-cluster'}]},created]
+        api.side_effect=[{'items':[{'id':'hub','name':'hub','capabilities':[]},{'id':'cluster-1','name':'test-cluster','capabilities':['provider/kind','network/public']}]},created]
         self.assertEqual(self.manager.create(),created)
         self.assertEqual(json.loads(self.args.gateway_state.read_text())['id'],'gateway-1')
-        self.assertEqual(api.call_args.args[0],['hsctl','create','gateway','--name','created-gateway','--cluster-id','cluster-1'])
+        self.assertEqual(api.call_args.args[0],['hsctl','create','gateway','--name','created-gateway','--placement-selector','network/public','--placement-selector','provider/kind'])
+        self.assertNotIn('--cluster-id',api.call_args.args[0])
         self.assertNotIn('--dedicated-route',api.call_args.args[0])
 
     @patch.object(setup,'json_call')
     @patch('builtins.input',side_effect=['1','pending-gateway','y'])
     def test_lost_create_response_recovers_by_name_without_second_create(self, ask, api):
-        api.side_effect=[{'items':[{'id':'cluster-1','name':'cluster'}]},setup.GatewaySetupError('timeout')]
+        api.side_effect=[{'items':[{'id':'cluster-1','name':'cluster','capabilities':['provider/kind']}]},setup.GatewaySetupError('timeout')]
         with self.assertRaisesRegex(setup.GatewaySetupError,'outcome is unknown'):
             self.manager.create()
         self.assertEqual(self.manager.state['id'],'pending-create')

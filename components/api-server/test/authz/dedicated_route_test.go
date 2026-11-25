@@ -25,9 +25,11 @@ func uniqueName(prefix string) string {
 	return prefix + "-" + strings.ToLower(api.NewID())
 }
 
-// gatewayCreateRequest builds a pinned create request against the spoke's cluster.
+// gatewayCreateRequest builds a create request whose placement selector resolves to
+// exactly the spoke's cluster (pinning by cluster_id needs platform:admin, SEC-RBAC-34).
 func gatewayCreateRequest(name, clusterID string, dedicatedRoute bool) openapi.GatewayCreateRequest {
-	request := openapi.GatewayCreateRequest{Name: name, ClusterId: openapi.PtrString(clusterID)}
+	request := openapi.GatewayCreateRequest{Name: name}
+	request.SetPlacement(openapi.GatewayPlacementIntent{Selector: []string{regionForCluster(clusterID)}})
 	if dedicatedRoute {
 		request.DedicatedRoute = openapi.PtrBool(true)
 	}
@@ -95,7 +97,7 @@ func TestGRPCDedicatedRouteRequiresEntitlement(t *testing.T) {
 	creator := newPrincipal(t, h, "user-"+strings.ToLower(api.NewID()), realmRoles(roles.RoleGatewayCreator))
 	_, err := pb.NewGatewayServiceClient(creator.conn).CreateGateway(ctx, &pb.CreateGatewayRequest{
 		Name:           uniqueName("grpc-dedicated-rejected"),
-		ClusterId:      spoke.clusterID,
+		Placement:      grpcPlacementFor(spoke.clusterID),
 		DedicatedRoute: openapi.PtrBool(true),
 	})
 	Expect(err).To(HaveOccurred(), "a gateway:creator without the entitlement must not request dedicated_route")
@@ -106,7 +108,7 @@ func TestGRPCDedicatedRouteRequiresEntitlement(t *testing.T) {
 	granted := newPrincipal(t, h, "user-"+strings.ToLower(api.NewID()), realmRoles(roles.RoleGatewayCreator, roles.RoleGatewayDedicatedRouteCreator))
 	created, err := pb.NewGatewayServiceClient(granted.conn).CreateGateway(ctx, &pb.CreateGatewayRequest{
 		Name:           uniqueName("grpc-dedicated-granted"),
-		ClusterId:      spoke.clusterID,
+		Placement:      grpcPlacementFor(spoke.clusterID),
 		DedicatedRoute: openapi.PtrBool(true),
 	})
 	Expect(err).NotTo(HaveOccurred(), "granted caller over gRPC: %v", err)

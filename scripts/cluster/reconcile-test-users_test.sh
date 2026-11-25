@@ -194,9 +194,34 @@ assert_eq "tok z z Z User z@hypershell.local hypershell-users" \
 # (ephemeral-test-credentials.spec.md, CICD-CRED-13).
 assert_eq "hypershell-users" "$(_test_user_roles developer | tr '\n' ' ' | sed 's/ $//')" \
   "developer remains a non-creator on every environment"
-assert_eq "hypershell-admins hypershell-users gateway:creator platform:admin" \
+assert_eq "hypershell-admins hypershell-users gateway:creator platform:admin gateway:cluster-targeting" \
   "$(_test_user_roles admin | tr '\n' ' ' | sed 's/ $//')" \
-  "admin supplies the creator fixture on every environment"
+  "admin supplies the creator and cluster-targeting fixture on every environment"
+assert_eq "gateway:cluster-targeting" "$(_test_user_ensured_roles | cut -f1)" \
+  "the reconcile ensures the cluster-targeting realm role exists before assigning it"
+
+# _ensure_realm_role: a missing role (404) is created; an existing one (200) is left
+# alone. The stub answers with the HTTP code the -w '%{http_code}' format asks for.
+ENSURE_STATUS_FILE="${WORKDIR}/ensure-status"
+cat >"${WORKDIR}/curl" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >>"${CURL_LOG}"
+if [[ " \$* " == *" -X POST "* ]]; then
+  printf '%s' '201'; exit 0
+fi
+cat "${ENSURE_STATUS_FILE}"
+EOF
+chmod +x "${WORKDIR}/curl"
+printf '404' >"${ENSURE_STATUS_FILE}"
+: >"${CURL_LOG}"
+assert_ok "ensure creates a missing realm role" _ensure_realm_role tok gateway:cluster-targeting "desc"
+assert_eq "1" "$(grep -c -- '-X POST' "${CURL_LOG}")" "a missing realm role is created once"
+printf '200' >"${ENSURE_STATUS_FILE}"
+: >"${CURL_LOG}"
+assert_ok "ensure keeps an existing realm role" _ensure_realm_role tok gateway:cluster-targeting "desc"
+assert_eq "0" "$(grep -c -- '-X POST' "${CURL_LOG}" || true)" "an existing realm role is not recreated"
+printf '500' >"${ENSURE_STATUS_FILE}"
+assert_fail "ensure fails on a lookup error" _ensure_realm_role tok gateway:cluster-targeting "desc"
 
 printf 'reconcile-test-users tests: %d passed, %d failed\n' "${PASS}" "${FAIL}"
 [[ "${FAIL}" -eq 0 ]]

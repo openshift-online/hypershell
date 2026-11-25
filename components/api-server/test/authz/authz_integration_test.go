@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -90,9 +91,37 @@ func registerSpoke(t *testing.T, h *test.Helper, client *openapi.APIClient) spok
 func registerAs(t *testing.T, client *openapi.APIClient, s spoke) string {
 	t.Helper()
 	resp, httpResp, err := client.DefaultAPI.RegisterManagedCluster(s.rest).
-		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: s.name, Capabilities: []string{"network/public", "provider/aws"}}).Execute()
+		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: s.name, Capabilities: spokeCapabilities(s)}).Execute()
 	Expect(err).NotTo(HaveOccurred(), "register %s: HTTP %d %s", s.name, statusOf(httpResp), test.APIErrorReason(err))
+	spokeRegionByCluster.Store(resp.ClusterId, spokeRegion(s.name))
 	return resp.ClusterId
+}
+
+// spokeRegion is the per-spoke region capability that makes a spoke the ONLY
+// cluster a placement selector matches. Pinning by cluster_id needs platform:admin
+// (SEC-RBAC-34), so non-admin creates in this suite target their spoke this way.
+func spokeRegion(name string) string { return "region/" + name }
+
+func spokeCapabilities(s spoke) []string {
+	return []string{"network/public", "provider/aws", spokeRegion(s.name)}
+}
+
+// spokeRegionByCluster maps a registered cluster id to its unique region label so
+// helpers that take a cluster id can build a placement selector for it.
+var spokeRegionByCluster sync.Map
+
+func regionForCluster(clusterID string) string {
+	label, ok := spokeRegionByCluster.Load(clusterID)
+	Expect(ok).To(BeTrue(), "no spoke region recorded for cluster %s", clusterID)
+	return label.(string)
+}
+
+// grpcPlacementFor returns a gRPC placement intent that resolves to exactly the
+// given test spoke.
+func grpcPlacementFor(clusterID string) *pb.GatewayPlacementIntent {
+	return &pb.GatewayPlacementIntent{Placement: &pb.GatewayPlacementIntent_CapabilitySelector{
+		CapabilitySelector: &pb.CapabilitySelectorPlacement{Selector: []string{regionForCluster(clusterID)}},
+	}}
 }
 
 func statusOf(resp *http.Response) int {
@@ -256,7 +285,7 @@ func TestReRegistrationAfterDeleteRestoresTheRecord(t *testing.T) {
 	Expect(grpcCode(err)).To(Equal(codes.PermissionDenied), "a deregistered spoke wrote a gateway: %v", err)
 
 	resp, httpResp, err := client.DefaultAPI.RegisterManagedCluster(s.rest).
-		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: s.name, Capabilities: []string{"network/public", "provider/aws"}}).Execute()
+		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: s.name, Capabilities: spokeCapabilities(s)}).Execute()
 	Expect(err).NotTo(HaveOccurred(), "re-registration after delete: HTTP %d %s", statusOf(httpResp), test.APIErrorReason(err))
 	Expect(resp.ClusterId).To(Equal(s.clusterID), "the record must come back under its original id")
 
@@ -283,7 +312,7 @@ func TestReRegistrationAfterDeleteDoesNotReclaimATakenName(t *testing.T) {
 	other.clusterID = registerAs(t, client, other)
 
 	_, httpResp, err = client.DefaultAPI.RegisterManagedCluster(s.rest).
-		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: s.name, Capabilities: []string{"network/public", "provider/aws"}}).Execute()
+		ManagedClusterRegistrationRequest(openapi.ManagedClusterRegistrationRequest{Name: s.name, Capabilities: spokeCapabilities(s)}).Execute()
 	Expect(err).To(HaveOccurred(), "a deleted control plane took back a name another one registered")
 	Expect(statusOf(httpResp)).To(Equal(http.StatusConflict))
 }
@@ -297,7 +326,7 @@ func createGateway(t *testing.T, client *openapi.APIClient, owner principal, clu
 	_ = client
 	created, err := pb.NewGatewayServiceClient(owner.conn).CreateGateway(context.Background(), &pb.CreateGatewayRequest{
 		Name:      fmt.Sprintf("gw-%s", strings.ToLower(api.NewID())[:10]),
-		ClusterId: clusterID,
+		Placement: grpcPlacementFor(clusterID),
 	})
 	Expect(err).NotTo(HaveOccurred(), "create gateway")
 	id := created.GetGateway().GetMetadata().GetId()
@@ -452,3 +481,62 @@ func TestGRPCUserCallsFollowHTTPGatewayRules(t *testing.T) {
 }
 
 func strPtr(s string) *string { return &s }
+
+// TestGatewayClusterTargetingRequiresRole runs with RBAC on. A gateway:creator is
+// denied a cluster_id pin and a required purpose/ label over REST and gRPC, with a
+// message naming gateway:cluster-targeting, but may place by an ordinary selector
+// and may exclude a purpose/ label. gateway:cluster-targeting and platform:admin
+// may pin. An import may not pin, whatever roles its Repository owner holds.
+// Verifies: SEC-RBAC-34.01, SEC-RBAC-34.02, SEC-RBAC-34.03, SEC-RBAC-34.04, SEC-RBAC-35.01, SEC-RBAC-35.02, SEC-RBAC-35.03
+func TestGatewayClusterTargetingRequiresRole(t *testing.T) {
+	h, client := test.RegisterIntegration(t)
+	cluster := registerSpoke(t, h, client)
+	creator := newPrincipal(t, h, "user-"+strings.ToLower(api.NewID()), realmRoles("gateway:creator"))
+	targeter := newPrincipal(t, h, "user-"+strings.ToLower(api.NewID()), realmRoles("gateway:creator", "gateway:cluster-targeting"))
+	admin := newPrincipal(t, h, "user-"+strings.ToLower(api.NewID()), realmRoles("gateway:creator", "platform:admin"))
+
+	pinned := func(prefix string) openapi.GatewayCreateRequest {
+		return openapi.GatewayCreateRequest{Name: uniqueName(prefix), ClusterId: openapi.PtrString(cluster.clusterID)}
+	}
+
+	// A gateway:creator may not pin, over REST or gRPC.
+	_, resp, err := client.DefaultAPI.CreateGateway(creator.rest).GatewayCreateRequest(pinned("pin-rest")).Execute()
+	Expect(statusOf(resp)).To(Equal(http.StatusForbidden), "creator REST pin: %s", test.APIErrorReason(err))
+	Expect(test.APIErrorReason(err)).To(ContainSubstring("gateway:cluster-targeting"))
+	_, err = pb.NewGatewayServiceClient(creator.conn).CreateGateway(context.Background(), &pb.CreateGatewayRequest{Name: uniqueName("pin-grpc"), ClusterId: cluster.clusterID})
+	Expect(grpcCode(err)).To(Equal(codes.PermissionDenied), "creator gRPC pin: %v", err)
+	Expect(err.Error()).To(ContainSubstring("placement selector"))
+
+	// A gateway:creator may not require a purpose/ label, but may exclude one.
+	required := openapi.GatewayCreateRequest{Name: uniqueName("placement-required")}
+	required.SetPlacement(openapi.GatewayPlacementIntent{Selector: []string{"purpose/release-check"}})
+	_, resp, err = client.DefaultAPI.CreateGateway(creator.rest).GatewayCreateRequest(required).Execute()
+	Expect(statusOf(resp)).To(Equal(http.StatusForbidden), "creator requiring purpose/: %s", test.APIErrorReason(err))
+	Expect(test.APIErrorReason(err)).To(ContainSubstring("purpose/"))
+	excluded := openapi.GatewayCreateRequest{Name: uniqueName("placement-excluded")}
+	excluded.SetPlacement(openapi.GatewayPlacementIntent{Selector: []string{regionForCluster(cluster.clusterID)}, ExcludedSelector: []string{"purpose/release-check"}})
+	_, resp, err = client.DefaultAPI.CreateGateway(creator.rest).GatewayCreateRequest(excluded).Execute()
+	Expect(statusOf(resp)).To(Equal(http.StatusCreated), "creator excluding purpose/: %s", test.APIErrorReason(err))
+
+	// A gateway:creator still places by an ordinary capability selector.
+	placed, resp, err := client.DefaultAPI.CreateGateway(creator.rest).GatewayCreateRequest(gatewayCreateRequest(uniqueName("placed"), cluster.clusterID, false)).Execute()
+	Expect(statusOf(resp)).To(Equal(http.StatusCreated), "creator placement create: %s", test.APIErrorReason(err))
+	Expect(placed.GetClusterId()).To(Equal(cluster.clusterID))
+
+	// gateway:cluster-targeting and platform:admin may pin and require purpose/.
+	for name, p := range map[string]principal{"cluster-targeting": targeter, "platform:admin": admin} {
+		created, resp, err := client.DefaultAPI.CreateGateway(p.rest).GatewayCreateRequest(pinned("pin-ok")).Execute()
+		Expect(statusOf(resp)).To(Equal(http.StatusCreated), "%s REST pin: %s", name, test.APIErrorReason(err))
+		Expect(created.GetClusterId()).To(Equal(cluster.clusterID))
+		label := openapi.GatewayCreateRequest{Name: uniqueName("placement-ok")}
+		label.SetPlacement(openapi.GatewayPlacementIntent{Selector: []string{"purpose/unmatched-" + strings.ToLower(api.NewID())}})
+		_, resp, err = client.DefaultAPI.CreateGateway(p.rest).GatewayCreateRequest(label).Execute()
+		Expect(statusOf(resp)).To(Equal(http.StatusCreated), "%s requiring purpose/: %s", name, test.APIErrorReason(err))
+	}
+
+	// An import may not pin. The control plane carries the Repository binding.
+	repo := registerImportRepository(t, client, admin)
+	_, err = pb.NewGatewayServiceClient(cluster.conn).CreateGateway(importMD(repo), &pb.CreateGatewayRequest{Name: uniqueName("import-pin"), ClusterId: cluster.clusterID})
+	Expect(grpcCode(err)).To(Equal(codes.PermissionDenied), "import pin: %v", err)
+	Expect(err.Error()).To(ContainSubstring("import"))
+}
