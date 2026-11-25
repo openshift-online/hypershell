@@ -249,6 +249,12 @@ func (h gatewayHandler) Create(w http.ResponseWriter, r *http.Request) {
 				return nil, errors.Validation("a gateway must be created with either a cluster_id (pinned) or a placement selector (late-bound)")
 			}
 			if hasCluster {
+				// Pinning by cluster_id skips the capability checks a selector applies,
+				// so it is gated to platform:admin like the managed-cluster/<name>
+				// selector. The gate runs before the cluster is resolved (SEC-RBAC-34).
+				if svcErr := h.managedClusterSelector.authorizePin(ctx, true); svcErr != nil {
+					return nil, svcErr
+				}
 				if clusterErr := validateClusterReference(ctx, h.clusters, pinnedCluster); clusterErr != nil {
 					return nil, clusterErr
 				}

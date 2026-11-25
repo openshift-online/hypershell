@@ -36,6 +36,12 @@ var managedClusterSelectorNameRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}
 // message guides the caller rather than merely denying.
 const managedClusterSelectorForbiddenReason = "the managed-cluster/<name> placement selector targets a specific cluster by name and requires the platform:admin role; a caller without it places by capability selector (provider/, network/, region/, runtime/, environment/) only"
 
+// pinnedClusterForbiddenReason is the actionable 403 for a non-admin user caller that
+// pins a gateway to a specific cluster by cluster_id (SEC-RBAC-34). Pinning skips the
+// capability checks a selector applies, so it is gated like the managed-cluster/<name>
+// identity selector, and the message points the caller at the placement selector.
+const pinnedClusterForbiddenReason = "pinning a gateway to a specific cluster by cluster_id requires the platform:admin role; a caller without it places the gateway with a capability placement selector (provider/, network/, region/, runtime/, environment/) instead"
+
 // isManagedClusterSelectorLabel reports whether a raw selector label is a
 // managed-cluster/<name> identity token rather than a capability label.
 func isManagedClusterSelectorLabel(label string) bool {
@@ -202,14 +208,22 @@ func newManagedClusterSelectorAuthorizer(bindingLookup rbac.RoleBindingLookup, e
 // authorizeCreate rejects a create whose placement references a managed-cluster/<name>
 // token from a caller without platform:admin, before the name is resolved.
 func (a managedClusterSelectorAuthorizer) authorizeCreate(ctx context.Context, intent openapi.GatewayPlacementIntent) *errors.ServiceError {
-	return a.authorize(ctx, placementReferencesManagedClusterSelector(intent))
+	return a.authorize(ctx, placementReferencesManagedClusterSelector(intent), managedClusterSelectorForbiddenReason)
+}
+
+// authorizePin rejects a write that pins (or re-pins) a gateway to a cluster by
+// cluster_id from a user caller without platform:admin, before the cluster is
+// resolved (SEC-RBAC-34). The caller passes pinned=false when no cluster_id is set or
+// when an update re-sends the unchanged stored value, which is not a reassignment.
+func (a managedClusterSelectorAuthorizer) authorizePin(ctx context.Context, pinned bool) *errors.ServiceError {
+	return a.authorize(ctx, pinned, pinnedClusterForbiddenReason)
 }
 
 // authorizeAvailability rejects a placement-availability probe whose selectors
 // reference a managed-cluster/<name> token from a caller without platform:admin,
 // under the same gate as the create boundaries (SEC-RBAC-33.03).
 func (a managedClusterSelectorAuthorizer) authorizeAvailability(ctx context.Context, selectors [][]string) *errors.ServiceError {
-	return a.authorize(ctx, selectorsReferenceManagedClusterSelector(selectors))
+	return a.authorize(ctx, selectorsReferenceManagedClusterSelector(selectors), managedClusterSelectorForbiddenReason)
 }
 
 // authorize is the shared decision. It gates the USE of the token: a request that
@@ -223,7 +237,7 @@ func (a managedClusterSelectorAuthorizer) authorizeAvailability(ctx context.Cont
 // equivalent to the pinned cluster_id an import may already supply, so the bypass
 // grants no new reach. The check is a no-op exactly when authentication is off
 // (SEC-RBAC-14).
-func (a managedClusterSelectorAuthorizer) authorize(ctx context.Context, referenced bool) *errors.ServiceError {
+func (a managedClusterSelectorAuthorizer) authorize(ctx context.Context, referenced bool, reason string) *errors.ServiceError {
 	if !referenced {
 		return nil
 	}
@@ -235,7 +249,7 @@ func (a managedClusterSelectorAuthorizer) authorize(ctx context.Context, referen
 	}
 	userID := rbac.GetUserIDFromContext(ctx)
 	if userID == "" || a.bindingLookup == nil {
-		return errors.Forbidden("%s", managedClusterSelectorForbiddenReason)
+		return errors.Forbidden("%s", reason)
 	}
 	bindings, err := a.bindingLookup.FindBindingsByUserID(ctx, userID)
 	if err != nil {
@@ -244,5 +258,5 @@ func (a managedClusterSelectorAuthorizer) authorize(ctx context.Context, referen
 	if rbac.CanUseManagedClusterSelector(bindings) {
 		return nil
 	}
-	return errors.Forbidden("%s", managedClusterSelectorForbiddenReason)
+	return errors.Forbidden("%s", reason)
 }

@@ -200,6 +200,13 @@ func (h *gatewayGRPCHandler) CreateGateway(ctx context.Context, req *pb.CreateGa
 		return nil, status.Error(codes.InvalidArgument, "a gateway must be created with either a cluster_id (pinned) or a placement selector (late-bound)")
 	}
 
+	// Pinning by cluster_id skips the capability checks a selector applies, so a user
+	// caller needs platform:admin. The gate runs before the cluster is resolved; a
+	// control-plane or import write bypasses it (SEC-RBAC-34).
+	if svcErr := h.managedClusterSelector.authorizePin(ctx, hasCluster); svcErr != nil {
+		return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+	}
+
 	phase := req.Phase
 	statusField := req.Status
 	var placementJSON *string
@@ -338,6 +345,11 @@ func (h *gatewayGRPCHandler) UpdateGateway(ctx context.Context, req *pb.UpdateGa
 	// Only a change of cluster_id is validated (see the REST Patch handler):
 	// status write-backs that re-send the stored value are not reassignments.
 	if req.ClusterId != nil && *req.ClusterId != gateway.ClusterId {
+		// A reassignment is a pin: gate it to platform:admin before the cluster is
+		// resolved (SEC-RBAC-34). The service field policy remains the backstop.
+		if svcErr := h.managedClusterSelector.authorizePin(ctx, true); svcErr != nil {
+			return nil, grpcutil.ServiceErrorToGRPC(svcErr)
+		}
 		if svcErr := validateClusterReference(ctx, h.clusters, *req.ClusterId); svcErr != nil {
 			return nil, grpcutil.ServiceErrorToGRPC(svcErr)
 		}

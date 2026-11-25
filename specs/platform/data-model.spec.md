@@ -314,7 +314,10 @@ A Gateway's target cluster SHALL be expressed in one of two ways, and `cluster_i
 SHALL be OPTIONAL on create:
 
 - **Pinned.** When `cluster_id` is set, the Gateway is pinned to that cluster.
-  This is the existing contract and is UNCHANGED: a set `cluster_id` (on create or
+  Pinning SHALL require `platform:admin` for a user caller (SEC-RBAC-34 in
+  [`rbac-enforcement.spec.md`](../security/rbac-enforcement.spec.md)); a
+  non-admin user places by `placement` selector only. Control-plane and
+  declarative-import writes are exempt. Otherwise the contract is unchanged: a set `cluster_id` (on create or
   on a `PATCH` that sets it) SHALL reference a registered `ManagedCluster` with a
   non-empty `oidc_subject`, and an empty-string `cluster_id` SHALL still be
   rejected (see [`managed-cluster-registration.spec.md`](./managed-cluster-registration.spec.md),
@@ -368,7 +371,7 @@ responsible for it until it is placed.
 
 #### Scenario: PLAT-DATA-02.01 -- Create a Gateway pinned to a cluster
 
-- GIVEN a create request with a `cluster_id` that references a registered cluster
+- GIVEN a create request from a `platform:admin` caller (or an import) with a `cluster_id` that references a registered cluster
 - WHEN the API server validates the request
 - THEN it SHALL accept the request and persist the Gateway on that cluster
 - AND the behavior SHALL be unchanged from the pre-existing pinned contract

@@ -246,7 +246,16 @@ class GatewayManager:
     def create(self):
         say('Loading available clusters (up to 60s)...')
         clusters = json_call([self.hsctl, 'list', 'managedClusters', '--output', 'json'])['items']
+        # Pinning by --cluster-id needs platform:admin (SEC-RBAC-34), so place by the
+        # chosen cluster's advertised capabilities instead. A cluster that advertises
+        # none (for example a hub that hosts no gateways) cannot be targeted.
+        clusters = [c for c in clusters if c.get('capabilities')]
+        if not clusters:
+            raise GatewaySetupError('No managed cluster advertises capabilities, so no gateway can be placed. Ask a platform admin for a cluster.')
         cluster = self.choose(clusters, 'cluster')
+        selector = []
+        for label in sorted(cluster['capabilities']):
+            selector += ['--placement-selector', label]
         default = 'fullsend-' + uuid.uuid4().hex[:8]
         name = ask('New gateway name', description='Lowercase letters, digits and hyphens. Leave blank to use the suggested name.', default=default).strip() or default
         if not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,62}', name):
@@ -258,7 +267,7 @@ class GatewayManager:
         # recover by name instead of issuing another create on an automatic retry.
         self.save({'id': 'pending-create', 'name': name})
         try:
-            gateway = json_call([self.hsctl, 'create', 'gateway', '--name', name, '--cluster-id', cluster['id']])
+            gateway = json_call([self.hsctl, 'create', 'gateway', '--name', name, *selector])
         except GatewaySetupError:
             raise GatewaySetupError(f'Gateway creation outcome is unknown. Saved name {name}; reconnect to check it before creating another.') from None
         if not isinstance(gateway, dict) or not gateway.get('id') or gateway.get('name') != name:

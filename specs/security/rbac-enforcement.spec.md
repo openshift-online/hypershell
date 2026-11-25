@@ -779,7 +779,9 @@ update; `name` + exactly one of `placement`/`cluster_id` + the create-only
 create, PLAT-DATA-26 / OSG-OPWS-01). Any other field that differs from the stored
 value (update) or is set (create) SHALL be rejected, naming the field: `403 Forbidden`
 over REST, `PERMISSION_DENIED` over gRPC. Re-sending an unchanged value SHALL be a
-no-op. Only a `control-plane` (non-import) caller SHALL bypass the field policy and
+no-op. Supplying `cluster_id` is on the allowlist but is additionally gated to
+`platform:admin` for a `user` caller (SEC-RBAC-34); a non-admin user places by
+`placement` selector only. Only a `control-plane` (non-import) caller SHALL bypass the field policy and
 retain full write of platform-managed and observed fields. An `import` caller SHALL
 NOT set `dedicated_route` or `workspace_mode`: the service funnel rejects an import
 create that sets either with its own entitlement-specific message (PLAT-DATA-26,
@@ -2222,6 +2224,59 @@ carries no `managed-cluster/` token on the user placement surface.
 - GIVEN a caller without `platform:admin`
 - WHEN the caller calls `POST /api/hypershell/v1/gateways/placement-availability` with a selector referencing `managed-cluster/<name>`
 - THEN the probe SHALL be rejected with 403, under the same gate as the create boundaries
+
+### Requirement: SEC-RBAC-34 -- Admin Pinned Cluster Gate
+
+Pinning a Gateway to a specific cluster by `cluster_id` SHALL require
+`platform:admin` for a `user` caller. A pin skips the capability checks that a
+`placement` selector applies, so it reaches any registered cluster, including a
+hub whose controller advertises no capabilities to keep selector placement off
+it. It is therefore gated like the `managed-cluster/<name>` identity selector
+(SEC-RBAC-33).
+
+**Where it is enforced.** The gate SHALL run in the REST gateway Create handler,
+the gRPC `CreateGateway` handler, and the gRPC `UpdateGateway` handler when the
+request changes the stored `cluster_id`. It SHALL run BEFORE the cluster
+reference is resolved (PLAT-CLUS-09). A denied caller SHALL get 403
+(`PermissionDenied` over gRPC) with a message that names `platform:admin` and
+tells the caller to use a capability `placement` selector instead.
+
+**Not a reassignment.** An update that re-sends the unchanged stored
+`cluster_id` SHALL NOT be gated, so status write-backs and renames that echo the
+value keep working.
+
+**Fail closed.** The gate SHALL use the same role-binding lookup and fail-closed
+rules as SEC-RBAC-33: a missing caller identity, an unwired lookup, or bindings
+lacking `platform:admin` SHALL reject; a lookup failure SHALL be a server error;
+the check SHALL be a no-op when authentication is off (SEC-RBAC-14).
+
+**Exempt writers.** A `control-plane` write (for example the API server's own
+late-binding rebind) SHALL bypass the gate. A declarative-import (`import`)
+create SHALL also bypass it and MAY pin by `cluster_id`. The import credential
+is a platform-registered Repository identity, not an end user, and its writes are
+already bounded by import ownership (SEC-RBAC-09); this keeps existing pinned
+`.hypershell` manifests working. Changing this would be a separate decision.
+
+#### Scenario: SEC-RBAC-34.01 -- Platform admin may pin by cluster_id
+
+- GIVEN a caller holding `platform:admin`
+- WHEN the caller creates a Gateway with `cluster_id` set (REST or gRPC)
+- THEN the gate SHALL permit the create and the handler SHALL validate the cluster reference
+
+#### Scenario: SEC-RBAC-34.02 -- Non-admin pin is denied before resolution
+
+- GIVEN a user caller holding only `gateway:creator`, or an anonymous caller with authentication on
+- WHEN the caller creates a Gateway with `cluster_id` set, or changes a Gateway's `cluster_id` over gRPC
+- THEN the request SHALL be rejected with 403 (`PermissionDenied` over gRPC) before the cluster is resolved
+- AND the message SHALL name `platform:admin` and the `placement` selector alternative
+- AND no Gateway SHALL be created or moved
+
+#### Scenario: SEC-RBAC-34.03 -- Placement creates and privileged writers are unaffected
+
+- GIVEN a user caller holding only `gateway:creator`
+- WHEN the caller creates a Gateway with a capability `placement` selector and no `cluster_id`
+- THEN the pin gate SHALL NOT apply
+- AND a `control-plane` or `import` write that sets `cluster_id` SHALL bypass the gate
 
 ## API Reference
 

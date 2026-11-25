@@ -61,7 +61,7 @@ func newCreateGatewayCommand() *cobra.Command {
 	}
 
 	fs := cmd.Flags()
-	fs.StringVar(&args.clusterId, "cluster-id", "", "Pin the gateway to this managed cluster (discover it via 'hsctl list managedClusters'). Mutually exclusive with the placement flags.")
+	fs.StringVar(&args.clusterId, "cluster-id", "", "Pin the gateway to this managed cluster (requires platform:admin; discover it via 'hsctl list managedClusters'). Mutually exclusive with the placement flags.")
 	fs.BoolVar(&args.dedicatedRoute, "dedicated-route", false, "Request the dedicated per-gateway route and wildcard certificate at creation. Requires the gateway:dedicated-route-creator role.")
 	fs.BoolVar(&args.operatorWorkspaces, "operator-workspaces", false, "Create the gateway in operator workspace mode (workspace_mode=operator): a trusted external operator owns the gateway's workspace namespaces. Requires the gateway:operator-workspace-creator role.")
 	fs.StringVar(&args.name, "name", "", "Gateway name.")

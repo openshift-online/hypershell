@@ -201,15 +201,15 @@ honoring the pinned `cluster_id` contract (PLAT-DATA-02) when a caller supplies 
 explicitly. Hiding the flag steers callers toward the `--placement-selector`
 surface, and makes single-cluster targeting by name the platform-admin
 `managed-cluster/<name>` selector rather than a pinned id. Hiding is a
-discoverability nudge, NOT an authorization change: `cluster_id` pinning stays open
-to any caller, through the API and through the hidden flag, exactly as before. The
+discoverability nudge. Authorization is enforced by the API, not the CLI: pinning
+by `cluster_id` requires `platform:admin` (SEC-RBAC-34), and `hsctl` SHALL surface
+the API's 403 verbatim. The
 flag's behavior when supplied is unchanged, including its mutual exclusivity with
 the placement flags (CLI-PLC-01) and its `--dry-run` pre-check (CLI-PLC-03).
 
 > **Design decision (reviewer: squizzi).** `--cluster-id` is hidden-but-functional
-> in `hsctl`; `cluster_id` authorization is deliberately UNCHANGED and remains open
-> to all callers. This is a CLI help-visibility change only, not an enforcement
-> boundary.
+> in `hsctl`. Hiding it is a CLI help-visibility change only. The admin gate on
+> pinning (SEC-RBAC-34) lives in the API server, not in the CLI.
 
 #### Scenario: CLI-PLC-05.01 -- Identity selector maps into the placement intent
 
