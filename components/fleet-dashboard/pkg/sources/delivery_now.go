@@ -475,6 +475,34 @@ func restarts(in deliveryInput, train []DeliveryTrainBundle, est map[string]Phas
 	return out
 }
 
+type runningCheck struct {
+	componentCheck
+	kind string
+}
+
+// runningChecks are a commit's open checks that its stages use: component
+// builds, and the policy checks of components built on that commit. Policy
+// checks of merge-queue builds and group checks (such as "pr group") are not a
+// stage of the change, so they are not in flight for it (FLT-DLV-05,
+// FLT-DLV-23).
+func runningChecks(runs []CheckRun) []runningCheck {
+	builds, policies := classifyChecks(runs)
+	built := map[string]bool{}
+	var out []runningCheck
+	for _, b := range builds {
+		built[b.component] = true
+		if checkState(b.run) == StageRunning {
+			out = append(out, runningCheck{b, stageBuild})
+		}
+	}
+	for _, p := range policies {
+		if built[p.component] && checkState(p.run) == StageRunning {
+			out = append(out, runningCheck{p, stagePolicy})
+		}
+	}
+	return out
+}
+
 // buildNow assembles the Pipeline now panel's data (FLT-DLV-23) and marks the
 // train bundles and changes a restart affects.
 func buildNow(in deliveryInput, pl placement, groups []envGroup, est map[string]PhaseEstimate, train []DeliveryTrainBundle, changes []DeliveryChange) DeliveryNow {
@@ -507,13 +535,13 @@ func buildNow(in deliveryInput, pl placement, groups []envGroup, est map[string]
 			continue
 		}
 		pr, _ := splitSubject(c.Message)
-		builds, policies := classifyChecks(runs)
-		for kind, cs := range map[string][]componentCheck{stageBuild: builds, stagePolicy: policies} {
-			for _, cc := range cs {
-				if checkState(cc.run) == StageRunning {
-					now.Checks = append(now.Checks, DeliveryNowCheck{Kind: kind, Component: shortComponent(cc.component, in.appName), StartedAt: cc.run.StartedAt, ShortSHA: shortSHA7(in.commits[j].SHA), PR: pr})
-				}
-			}
+		if isDelivered(in, pl, groups, changeFirstBundle(in, pl, j, pr)) {
+			// A delivered change has nothing in flight: a check still open on
+			// it is stuck or from a cached read, and changes nothing shipped.
+			continue
+		}
+		for _, cc := range runningChecks(runs) {
+			now.Checks = append(now.Checks, DeliveryNowCheck{Kind: cc.kind, Component: shortComponent(cc.component, in.appName), StartedAt: cc.run.StartedAt, ShortSHA: shortSHA7(c.SHA), PR: pr})
 		}
 	}
 	sort.Slice(now.Checks, func(a, b int) bool {
