@@ -265,6 +265,21 @@ capability, but requiring one in a placement selector needs the
 They replace the earlier `runtime/release-check` and `runtime/release-matrix`
 labels.
 
+**Retired labels.** `runtime/release-check` and `runtime/release-matrix` are
+retired. The API SHALL reject each one with 400 wherever it validates a
+capability label: a registration's `capabilities`, and a placement selector's
+required or excluded list (create and the placement-availability probe). The
+error SHALL name the retired label and its `purpose/` replacement. Accepting the
+old names would let any `gateway:creator` require them without
+`gateway:cluster-targeting`.
+
+**Stored values are rewritten.** A one-time migration SHALL replace each retired
+label with its `purpose/` replacement in every stored gateway placement (required
+and excluded selector) and every stored cluster capability set, soft-deleted rows
+included. The rewritten list SHALL be deduplicated and sorted. Other labels and
+keys SHALL be kept. A rewritten required label SHALL NOT be re-checked against
+SEC-RBAC-35: its caller chose it when no role was needed.
+
 The `managed-cluster/` namespace is NOT a recognized capability namespace: it is a
 distinct selector-layer identity namespace used only at placement time to target a
 cluster by name (see [`data-model.spec.md`](./data-model.spec.md), "Requirement:
@@ -300,6 +315,22 @@ them. A heartbeat SHALL replace the prior set in one transaction and update
 - WHEN it registers with a `managed-cluster/<name>` label among its `capabilities`
 - THEN the API SHALL return 400 as for any unknown namespace
 - AND no `managed-cluster/` label SHALL ever appear in the cluster's advertised capabilities
+
+#### Scenario: PLAT-CLUS-06.05 -- Retired release labels are rejected
+
+- GIVEN the retired labels `runtime/release-check` and `runtime/release-matrix`
+- WHEN a cluster registers with one among its `capabilities`, or a caller sends one in a required or excluded placement selector
+- THEN the API SHALL return 400
+- AND the message SHALL name the retired label and its `purpose/` replacement
+- AND other `runtime/` labels such as `runtime/kata` SHALL stay valid
+
+#### Scenario: PLAT-CLUS-06.06 -- Stored retired labels are rewritten once
+
+- GIVEN a stored gateway placement or cluster capability set holding `runtime/release-check` or `runtime/release-matrix`
+- WHEN the API server's migrations run
+- THEN each retired label SHALL be replaced by its `purpose/` replacement, in required and excluded selectors alike
+- AND a stored value with no retired label SHALL be left unchanged
+- AND running the migration again SHALL change nothing
 
 ### Requirement: PLAT-CLUS-07 -- Capability Deployment Convergence
 

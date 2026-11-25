@@ -195,6 +195,49 @@ const (
 var capabilityNamespaces = map[string]bool{providerNamespace: true, "network": true, regionNamespace: true, "runtime": true, "environment": true, "purpose": true}
 var singleCapabilityNamespaces = map[string]bool{providerNamespace: true, regionNamespace: true, "environment": true}
 
+// retiredCapabilityLabels maps each retired label to the label that replaced it
+// (PLAT-CLUS-06). The release labels moved from runtime/ to purpose/, where
+// requiring them needs gateway:cluster-targeting (SEC-RBAC-35). Accepting the old
+// names would let any creator require them without the role, so they are
+// rejected in capabilities and selectors alike, and a migration rewrites the
+// stored values.
+var retiredCapabilityLabels = map[string]string{
+	"runtime/release-check":  "purpose/release-check",
+	"runtime/release-matrix": "purpose/release-matrix",
+}
+
+// ReplaceRetiredCapabilityLabels swaps every retired label for its replacement.
+// It reports whether anything changed. When it did, the result is deduplicated
+// and sorted, the stable form that stored capabilities and selectors use; other
+// labels, including managed-cluster/<name> tokens, are kept as they are. The
+// migrations that rewrite stored values use it.
+func ReplaceRetiredCapabilityLabels(labels []string) ([]string, bool) {
+	changed := false
+	for _, label := range labels {
+		if _, retired := retiredCapabilityLabels[label]; retired {
+			changed = true
+			break
+		}
+	}
+	if !changed {
+		return labels, false
+	}
+	seen := make(map[string]bool, len(labels))
+	result := make([]string, 0, len(labels))
+	for _, label := range labels {
+		if replacement, retired := retiredCapabilityLabels[label]; retired {
+			label = replacement
+		}
+		if seen[label] {
+			continue
+		}
+		seen[label] = true
+		result = append(result, label)
+	}
+	sort.Strings(result)
+	return result, true
+}
+
 // capabilityValue returns the value advertised through the given single-valued
 // capability namespace, or "" when the set declares none. Inputs are assumed
 // already normalized; the first matching label wins.
@@ -231,6 +274,9 @@ func normalizeCapabilityLabels(labels []string, rejectDuplicates, enforceSingleV
 		parts := strings.Split(label, "/")
 		if len(parts) != 2 || !capabilityNamespaces[parts[0]] || !capabilitySegmentRE.MatchString(parts[0]) || !capabilitySegmentRE.MatchString(parts[1]) {
 			return nil, errors.Validation("invalid capability label %q: expected a recognized namespace and lowercase DNS-label value", label)
+		}
+		if replacement, retired := retiredCapabilityLabels[label]; retired {
+			return nil, errors.Validation("capability label %q is retired: use %q", label, replacement)
 		}
 		if seen[label] {
 			if rejectDuplicates {

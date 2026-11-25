@@ -1,10 +1,14 @@
 package gateways
 
 import (
+	"encoding/json"
+	"fmt"
+
 	"gorm.io/gorm"
 
 	"github.com/go-gormigrate/gormigrate/v2"
 	"github.com/openshift-online/hypershell/components/api-server/pkg/dbmigrate"
+	"github.com/openshift-online/hypershell/components/api-server/plugins/managedClusters"
 	"github.com/openshift-online/rh-trex-ai/components/api-server/pkg/db"
 )
 
@@ -567,4 +571,61 @@ func migrationDropManagedDatabasesTable() *gormigrate.Migration {
 			`).Error
 		},
 	}
+}
+
+// migrationReplaceRetiredPlacementLabels rewrites stored placement selectors that
+// still hold a retired capability label (runtime/release-check,
+// runtime/release-matrix) to its purpose/ replacement, in both the required and
+// the excluded selector (PLAT-CLUS-06.06). Selector validation now rejects the
+// retired names, so a stored selector left unchanged could never match a cluster
+// again and would fail validation when late binding re-resolves it. A rewritten
+// required label is not re-checked against SEC-RBAC-35: the caller chose it when
+// no role was needed, and the gateway is already placed or awaiting placement.
+// Irreversible: the old names are rejected, so the rollback is a no-op.
+func migrationReplaceRetiredPlacementLabels() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "2026112518000002",
+		Migrate: func(tx *gorm.DB) error {
+			return dbmigrate.RewriteJSONColumn(tx, "gateways", "placement", "runtime/release-", replaceRetiredPlacementJSON)
+		},
+		Rollback: func(tx *gorm.DB) error { return nil },
+	}
+}
+
+// replaceRetiredPlacementJSON rewrites the selector and excludedSelector arrays
+// of one stored placement and keeps every other key as it is.
+func replaceRetiredPlacementJSON(raw []byte) ([]byte, bool, error) {
+	var placement map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &placement); err != nil {
+		return nil, false, fmt.Errorf("decode placement: %w", err)
+	}
+	changed := false
+	for _, key := range []string{"selector", "excludedSelector"} {
+		value, ok := placement[key]
+		if !ok {
+			continue
+		}
+		var labels []string
+		if err := json.Unmarshal(value, &labels); err != nil {
+			return nil, false, fmt.Errorf("decode placement %s: %w", key, err)
+		}
+		replaced, keyChanged := managedClusters.ReplaceRetiredCapabilityLabels(labels)
+		if !keyChanged {
+			continue
+		}
+		encoded, err := json.Marshal(replaced)
+		if err != nil {
+			return nil, false, fmt.Errorf("encode placement %s: %w", key, err)
+		}
+		placement[key] = encoded
+		changed = true
+	}
+	if !changed {
+		return raw, false, nil
+	}
+	out, err := json.Marshal(placement)
+	if err != nil {
+		return nil, false, fmt.Errorf("encode placement: %w", err)
+	}
+	return out, true, nil
 }
