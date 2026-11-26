@@ -86,12 +86,6 @@ export interface SdlcState {
   readonly query: string;
   /** Selected board card by issue number. */
   readonly card: number | null;
-  /** Selected shipped issue by issue number. */
-  readonly shipped: number | null;
-  /** Bundle version context for the shipped selection. */
-  readonly shippedVersion: string | null;
-  /** Expanded shipped-bundle matrix row, addressed by its bundle seed, not index. */
-  readonly shippedRow: string | null;
   /** Escalations notification drawer open. */
   readonly escalations: boolean;
 }
@@ -114,6 +108,8 @@ export interface E2eState {
 export interface DeliveryState {
   /** Selected change as a full commit SHA; opens its details drawer. */
   readonly change: string | null;
+  /** Expanded Shipped matrix row, addressed by its bundle seed (FLT-DLV-25). */
+  readonly shippedRow: string | null;
 }
 
 /** The whole addressable navigation state of Glass. */
@@ -179,9 +175,6 @@ export const DEFAULT_ROUTE: RouteState = {
     scopes: [],
     query: "",
     card: null,
-    shipped: null,
-    shippedVersion: null,
-    shippedRow: null,
     escalations: false,
   },
   e2e: {
@@ -191,7 +184,7 @@ export const DEFAULT_ROUTE: RouteState = {
     drawer: false,
     exec: DEFAULT_EXEC,
   },
-  delivery: { change: null },
+  delivery: { change: null, shippedRow: null },
 };
 
 // --- Primitive codecs ------------------------------------------------------
@@ -374,15 +367,10 @@ export function parseRoute(location: RouteLocation): RouteState {
       .filter((v): v is string => v !== null),
   );
   const sdlcQuery = params.get("q");
-  const shippedVerRaw = params.get("shippedVer");
-  const shippedRowRaw = params.get("shiprow");
   const sdlc: SdlcState = {
     scopes,
     query: sdlcQuery !== null ? (clampValue(sdlcQuery) ?? "") : "",
     card: parsePositiveInt(params.get("card")),
-    shipped: parsePositiveInt(params.get("shipped")),
-    shippedVersion: shippedVerRaw !== null ? clampValue(shippedVerRaw) : null,
-    shippedRow: shippedRowRaw !== null ? clampValue(shippedRowRaw) : null,
     escalations: params.get("escalations") === "1",
   };
 
@@ -401,8 +389,10 @@ export function parseRoute(location: RouteLocation): RouteState {
 
   // Delivery: the selected change is a full commit SHA (FLT-DLV-14); anything
   // else is dropped.
+  const shippedRowRaw = params.get("shiprow");
   const delivery: DeliveryState = {
     change: parseCommitSha(params.get("change")),
+    shippedRow: shippedRowRaw !== null ? clampValue(shippedRowRaw) : null,
   };
 
   return normalizeRoute({ tab, bundle, map, sdlc, e2e, delivery });
@@ -442,22 +432,9 @@ export function normalizeRoute(state: RouteState): RouteState {
     exec: gate !== null ? state.map.exec : DEFAULT_EXEC,
   };
 
-  // SDLC selections are mutually exclusive the way the reducers enforce them, so a
-  // crafted or stale link that sets more than one must canonicalize to a single
-  // winner rather than round-tripping an impossible combination (FLT-NAV-14). A
-  // board card wins over a shipped-issue selection; a shipped-issue selection cannot
-  // coexist with the escalations list.
-  const card = state.sdlc.card;
-  const shipped = card !== null ? null : state.sdlc.shipped;
-  const escalations = shipped !== null ? false : state.sdlc.escalations;
   const sdlc: SdlcState = {
     ...state.sdlc,
     scopes: canonicalScopes(state.sdlc.scopes),
-    card,
-    shipped,
-    // A version context only applies when a shipped issue is selected.
-    shippedVersion: shipped !== null ? state.sdlc.shippedVersion : null,
-    escalations,
   };
 
   // Execution detail only applies when a run is selected and the drawer is open.
@@ -478,7 +455,10 @@ export function normalizeRoute(state: RouteState): RouteState {
     map,
     sdlc,
     e2e,
-    delivery: { change: parseCommitSha(state.delivery.change) },
+    delivery: {
+      change: parseCommitSha(state.delivery.change),
+      shippedRow: state.delivery.shippedRow,
+    },
   };
 }
 
@@ -523,15 +503,6 @@ export function serializeRoute(state: RouteState): RouteLocation {
   if (norm.sdlc.card !== null) {
     params.set("card", String(norm.sdlc.card));
   }
-  if (norm.sdlc.shipped !== null) {
-    params.set("shipped", String(norm.sdlc.shipped));
-    if (norm.sdlc.shippedVersion !== null) {
-      params.set("shippedVer", norm.sdlc.shippedVersion);
-    }
-  }
-  if (norm.sdlc.shippedRow !== null) {
-    params.set("shiprow", norm.sdlc.shippedRow);
-  }
   if (norm.sdlc.escalations) {
     params.set("escalations", "1");
   }
@@ -556,6 +527,9 @@ export function serializeRoute(state: RouteState): RouteLocation {
   // Delivery.
   if (norm.delivery.change !== null) {
     params.set("change", norm.delivery.change);
+  }
+  if (norm.delivery.shippedRow !== null) {
+    params.set("shiprow", norm.delivery.shippedRow);
   }
 
   const query = params.toString();

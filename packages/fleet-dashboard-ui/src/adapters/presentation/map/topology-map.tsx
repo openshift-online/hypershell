@@ -23,7 +23,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useIntl } from "react-intl";
 
 import type { SdlcAgentMetrics } from "../../../domain/sdlc-agents";
-import { deployedFor, seedForBundle } from "../../../domain/map/bundles";
 import { computeLayout, type NodeBox } from "../../../domain/map/layout";
 import { buildMapModel } from "../../../domain/map/model";
 import type { FleetData } from "../../../domain/fleet";
@@ -219,19 +218,6 @@ export function TopologyMap({
     () => new Map(model.nodes.map((n) => [n.id, promotionRing(n.state)])),
     [model.nodes],
   );
-
-  const highlighted = useMemo(() => {
-    if (!selectedBundleSeed) {
-      return new Set<string>();
-    }
-    const bundle = Object.values(promotion.releaseByDigest).find(
-      (b) => seedForBundle(b) === selectedBundleSeed,
-    );
-    if (!bundle) {
-      return new Set<string>();
-    }
-    return new Set(deployedFor(bundle, model.nodes).map((n) => n.id));
-  }, [promotion.releaseByDigest, model.nodes, selectedBundleSeed]);
 
   // Selecting a node/gate is a discrete navigation step (FLT-NAV-09). The pan guard
   // keeps a drag from registering as a click; the reducer handles toggle-off and the
@@ -534,7 +520,6 @@ export function TopologyMap({
                         selected={
                           selection?.kind === "node" && selection.id === box.id
                         }
-                        highlighted={highlighted.has(box.id)}
                         onSelect={selectNode}
                         onSelectBundle={selectBundleOnMap}
                         displaySeed={holdSeedById.get(box.id)}

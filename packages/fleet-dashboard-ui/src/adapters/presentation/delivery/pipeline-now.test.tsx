@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import { IntlProvider } from "react-intl";
 import { describe, expect, it } from "vitest";
 
@@ -144,8 +144,9 @@ const BUSY = {
     ],
     next: [
       {
-        kind: "bundle-published",
+        kind: "expecting-bundle",
         components: ["agent"],
+        changes: [{ sha: SHA, shortSha: "2c6a1f0", pr: 999 }],
         at: "2026-11-01T13:30:00Z",
       },
       { kind: "restart", envs: ["int-hub"], at: "2026-11-01T13:40:00Z" },
@@ -182,8 +183,19 @@ function renderView(raw: unknown) {
   );
 }
 
-function text(el: HTMLElement): string {
+function text(el: Element): string {
   return el.textContent.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Matches the innermost element whose whole text is the given text: times are
+ * their own elements, so a line's text spans several nodes (FLT-DLV-24).
+ */
+function line(want: string | RegExp) {
+  const ok = (el: Element) =>
+    typeof want === "string" ? text(el) === want : want.test(text(el));
+  return (_: string, el: Element | null) =>
+    el !== null && ok(el) && !Array.from(el.children).some(ok);
 }
 
 describe("Pipeline now (FLT-DLV-23)", () => {
@@ -192,31 +204,40 @@ describe("Pipeline now (FLT-DLV-23)", () => {
     renderView(BUSY);
     const calm = identiName("sha256:cccc");
     expect(
-      screen.getByText("2c6a1f0 (#999) Gate cluster targeting, merged 12:31"),
+      screen.getByText(
+        line("2c6a1f0 (#999) Gate cluster targeting, merged 12:31"),
+      ),
     ).toBeTruthy();
     expect(
-      screen.getByText(`Bundle ${calm}, published 13:00, locked 13:06`),
+      screen.getByText(line(`Bundle ${calm}, published 13:00, locked 13:06`)),
     ).toBeTruthy();
     expect(
       screen.getByText(
-        /agent bundle releasing \(inferred\) - built 13:24, policy check passed 13:25/,
+        line(
+          /agent bundle releasing \(inferred\) - built 13:24, policy check passed 13:25/,
+        ),
       ),
     ).toBeTruthy();
     expect(
       screen.getByText(
-        new RegExp(`Release analysis - 17 min, attempt 1 of 3, on ${calm}`),
+        line(
+          new RegExp(`Release analysis - 17 min, attempt 1 of 3, on ${calm}`),
+        ),
       ),
     ).toBeTruthy();
+    // FLT-DLV-23.04: a merged change whose bundle is not published yet.
     expect(
-      screen.getByText("agent bundle published - about 13:30"),
+      screen.getByText(line("Expecting bundle for #999 - about 13:30")),
     ).toBeTruthy();
     expect(
       screen.getByText(
-        "Int promotes it; the int-hub gate restarts - about 13:40",
+        line("Int promotes it; the int-hub gate restarts - about 13:40"),
       ),
     ).toBeTruthy();
     expect(
-      screen.getByText("Stage promotes after int-hub passes - about 14:05"),
+      screen.getByText(
+        line("Stage promotes after int-hub passes - about 14:05"),
+      ),
     ).toBeTruthy();
 
     const train = screen.getByRole("grid", { name: "Bundle train" });
@@ -263,10 +284,10 @@ describe("Stage cells for trains and superseded builds (FLT-DLV-05, FLT-DLV-06, 
   // Verifies: FLT-DLV-05.04, FLT-DLV-06.07, FLT-DLV-08.05, FLT-DLV-10.07
   it("shows rebuilt, partly shipped, waiting-for, and restart texts", () => {
     renderView(BUSY);
-    const table = screen.getByRole("grid", {
-      name: "Changes on main and their delivery stages",
+    const strip = screen.getByRole("list", {
+      name: "Changes on main, newest first",
     });
-    const cells = text(table);
+    const cells = text(strip);
     expect(cells).toContain("Rebuilt in eeeeeee (#1000)");
     expect(cells).toContain(
       "2 of 3 components released - agent releasing (inferred)",
@@ -282,8 +303,58 @@ describe("Stage cells for trains and superseded builds (FLT-DLV-05, FLT-DLV-06, 
     renderView(BUSY);
     expect(
       screen.getAllByText(
-        /Restarts the int-hub release analysis when the agent bundle lands - about 13:40/,
+        line(
+          /Restarts the int-hub release analysis when the agent bundle lands - about 13:40/,
+        ),
       ).length,
     ).toBeGreaterThan(0);
+  });
+});
+
+describe("Pipeline now Renovate waits (FLT-DLV-23)", () => {
+  // Verifies: FLT-DLV-23.05, FLT-DLV-24.02
+  it("names the bundle with its identicon, its Renovate state, and the lock time", () => {
+    renderView({
+      ...BUSY,
+      now: {
+        ...BUSY.now,
+        next: [
+          {
+            kind: "renovate",
+            digest: "sha256:dddd",
+            version: "v4",
+            state: "running",
+            pr: 2951,
+            at: "2026-11-01T13:34:00Z",
+          },
+        ],
+      },
+    });
+    const alias = identiName("sha256:dddd");
+    const item = screen.getByText(
+      line(`${alias} - PR #2951 open, checks running - locked about 13:34`),
+    );
+    expect(
+      item.querySelector('[data-identicon-seed="sha256:dddd"]'),
+    ).not.toBeNull();
+  });
+});
+
+describe("Times and bundle identity (FLT-DLV-24)", () => {
+  // Verifies: FLT-DLV-24.01
+  it("marks up each shown time with its ISO value and reveals the full date on focus", async () => {
+    renderView(BUSY);
+    const head = screen.getByText(
+      line("2c6a1f0 (#999) Gate cluster targeting, merged 12:31"),
+    );
+    const time = head.querySelector("time");
+    expect(time?.getAttribute("dateTime")).toBe("2026-11-01T12:31:00.000Z");
+    expect(time?.getAttribute("tabindex")).toBe("0");
+    act(() => {
+      time?.focus();
+    });
+    expect((await screen.findByRole("tooltip")).textContent).toMatch(
+      /Sun, 1 Nov 2026, 12:31:00 UTC|Sun, Nov 1, 2026, 12:31:00 UTC/,
+    );
   });
 });

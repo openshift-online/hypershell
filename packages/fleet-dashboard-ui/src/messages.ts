@@ -852,6 +852,24 @@ export const messages = defineMessages({
     defaultMessage: "{count, plural, one {# deployment} other {# deployments}}",
     description: "Count of instances currently running a release bundle.",
   },
+  freightDeployedBundle: {
+    id: "fleet.map.freight.deployedBundle",
+    defaultMessage:
+      "{version} {alias}: {count, plural, one {# deployment} other {# deployments}}",
+    description:
+      "Accessible name and tooltip of a deployed bundle in the masthead: version, identiname and how many instances run it.",
+  },
+  freightDeployedBundles: {
+    id: "fleet.map.freight.deployedBundles",
+    defaultMessage: "Deployed release bundles",
+    description: "Accessible label for the deployed bundles in the masthead.",
+  },
+  freightToggle: {
+    id: "fleet.map.freight.toggle",
+    defaultMessage: "Release bundles",
+    description:
+      "Button in the masthead that shows or hides the release bundles bar.",
+  },
   freshnessAging: {
     id: "fleet.freshness.aging",
     defaultMessage: "Updated a while ago",

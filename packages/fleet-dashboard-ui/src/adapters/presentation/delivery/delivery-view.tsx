@@ -4,8 +4,6 @@
 // wires it to the query hook and the router.
 
 import {
-  ActionList,
-  ActionListItem,
   Alert,
   Button,
   Card,
@@ -13,23 +11,10 @@ import {
   CardHeader,
   CardTitle,
   Content,
-  DataList,
-  DataListCell,
-  DataListItem,
-  DataListItemCells,
-  DataListItemRow,
   DescriptionList,
   DescriptionListDescription,
   DescriptionListGroup,
   DescriptionListTerm,
-  Drawer,
-  DrawerActions,
-  DrawerCloseButton,
-  DrawerContent,
-  DrawerContentBody,
-  DrawerHead,
-  DrawerPanelBody,
-  DrawerPanelContent,
   EmptyState,
   EmptyStateBody,
   Flex,
@@ -57,15 +42,6 @@ import {
   RedoIcon,
   SyncAltIcon,
 } from "@patternfly/react-icons";
-import {
-  InnerScrollContainer,
-  Table,
-  Tbody,
-  Td,
-  Th,
-  Thead,
-  Tr,
-} from "@patternfly/react-table";
 import { useEffect, useRef, useState } from "react";
 import type { MessageDescriptor } from "react-intl";
 import { useIntl, type IntlShape } from "react-intl";
@@ -75,11 +51,11 @@ import {
   changeListUnavailable,
   degradedSources,
   elapsedMs,
-  eventfulHistory,
   findChange,
+  firstBundleOutcome,
   groupLabel,
-  isOverdue,
-  nowAndNext,
+  changeNowNext,
+  changeSeverity,
   progress,
   whereToLook,
   type Arrival,
@@ -93,9 +69,10 @@ import {
   type DeliveryStage,
   type DeliveryStageDef,
   type DeliveryStageState,
+  type FirstBundleOutcome,
   type MissingState,
+  type ChangeNowNext,
   type NowNextRow,
-  type NowNextSummary,
   type PromotionOutcome,
   type WhereToLook,
 } from "../../../domain/delivery";
@@ -105,6 +82,8 @@ import type { Plane } from "../../../domain/plane";
 import { useDelivery } from "../../query/hooks";
 import { useRouter } from "../../routing/router";
 import {
+  BundleName,
+  RichText,
   SOURCE_LABEL,
   STATE_LABEL,
   StageStateIcon,
@@ -128,6 +107,8 @@ export interface DeliveryViewProps {
   readonly nowMs: number;
   readonly onNavigate: (action: NavAction) => void;
   readonly onRefresh: () => void;
+  /** The Shipped section (FLT-DLV-25), drawn between Pipeline now and the strip. */
+  readonly shipped?: React.ReactNode;
 }
 
 // --- Formatting -------------------------------------------------------------
@@ -254,7 +235,7 @@ function stagePrimary(
     return formatDuration(intl, elapsed);
   }
   if (stage.state === "passed" || stage.state === "failed") {
-    return formatClock(intl, stage.finishedAt);
+    return formatClock(intl, stage.finishedAt, nowMs);
   }
   return "";
 }
@@ -278,16 +259,20 @@ function OverdueLabel() {
   );
 }
 
-function arrivalText(intl: IntlShape, arrival: Arrival | null): string {
+function arrivalText(
+  intl: IntlShape,
+  arrival: Arrival | null,
+  nowMs: number,
+): string {
   switch (arrival?.kind) {
     case "range":
       return intl.formatMessage(m.arrivalRange, {
-        early: formatClock(intl, arrival.earlyMs),
-        late: formatClock(intl, arrival.lateMs),
+        early: formatClock(intl, arrival.earlyMs, nowMs),
+        late: formatClock(intl, arrival.lateMs, nowMs),
       });
     case "time":
       return intl.formatMessage(m.arrivalTime, {
-        time: formatClock(intl, arrival.atMs),
+        time: formatClock(intl, arrival.atMs, nowMs),
       });
     default:
       return "";
@@ -618,78 +603,6 @@ function WhereToLookPopover({
   );
 }
 
-// FLT-DLV-04: every state is an icon paired with a text label.
-function StageStatus({
-  stage,
-  overdue,
-  nowMs,
-  look = null,
-  stageName = "",
-}: {
-  readonly stage: DeliveryStage;
-  readonly overdue: boolean;
-  readonly nowMs: number;
-  readonly look?: WhereToLook | null;
-  readonly stageName?: string;
-}) {
-  const intl = useIntl();
-  const muted =
-    stage.state === "not-started" ||
-    stage.state === "not-needed" ||
-    stage.state === "unknown";
-  const label =
-    stage.reason === "inferred-release"
-      ? intl.formatMessage(m.stateReleasingInferred)
-      : intl.formatMessage(STATE_LABEL[stage.state]);
-  const secondary = [stagePrimary(intl, stage, nowMs), stageDetail(intl, stage)]
-    .filter((s) => s !== "")
-    .join(" - ");
-  return (
-    <Stack>
-      <StackItem className="pf-v6-u-text-nowrap">
-        <span className={muted ? "pf-v6-u-text-color-subtle" : undefined}>
-          <StageStateIcon state={stage.state} /> {label}
-        </span>
-      </StackItem>
-      {secondary ? (
-        <StackItem className="pf-v6-u-font-size-sm pf-v6-u-text-color-subtle">
-          {secondary}
-        </StackItem>
-      ) : null}
-      {overdue ? (
-        <StackItem className="pf-v6-u-font-size-sm">
-          <OverdueLabel />
-        </StackItem>
-      ) : null}
-      {look !== null ? (
-        <StackItem>
-          <WhereToLookPopover look={look} stageName={stageName} />
-        </StackItem>
-      ) : null}
-      {stage.failedAttempts > 0 ? (
-        <StackItem className="pf-v6-u-font-size-sm">
-          {/* FLT-DLV-18: a Passed group that needed more than one bundle. */}
-          <Flex
-            spaceItems={{ default: "spaceItemsXs" }}
-            flexWrap={{ default: "nowrap" }}
-          >
-            <FlexItem>
-              <Icon isInline status="warning">
-                <ExclamationTriangleIcon aria-hidden />
-              </Icon>
-            </FlexItem>
-            <FlexItem>
-              {intl.formatMessage(m.failedAttempts, {
-                count: stage.failedAttempts,
-              })}
-            </FlexItem>
-          </Flex>
-        </StackItem>
-      ) : null}
-    </Stack>
-  );
-}
-
 const OUTCOME_LABEL: Readonly<Record<PromotionOutcome, MessageDescriptor>> = {
   passed: m.statePassed,
   failed: m.stateFailed,
@@ -727,7 +640,15 @@ function attemptDetail(intl: IntlShape, a: DeliveryPromotion): string {
 }
 
 // FLT-DLV-18: what happened in one environment, oldest promotion first.
-function PromotionHistory({ env }: { readonly env: DeliveryEnvState }) {
+function PromotionHistory({
+  env,
+  attempts,
+  nowMs,
+}: {
+  readonly env: DeliveryEnvState;
+  readonly attempts: readonly DeliveryPromotion[];
+  readonly nowMs: number;
+}) {
   const intl = useIntl();
   return (
     <List
@@ -735,12 +656,12 @@ function PromotionHistory({ env }: { readonly env: DeliveryEnvState }) {
       className="pf-v6-u-font-size-sm pf-v6-u-mt-xs"
       isPlain
     >
-      {env.history.map((a) => {
+      {attempts.map((a) => {
         const values = {
           outcome: intl.formatMessage(OUTCOME_LABEL[a.outcome]),
           // The Fleet Map's bundle name, so two bundles of one day differ.
           bundle: a.digest ? identiName(a.digest) : a.version,
-          time: formatClock(intl, a.promotedAt),
+          time: formatClock(intl, a.promotedAt, nowMs),
         };
         const gitops =
           a.gitopsPr !== null
@@ -766,7 +687,12 @@ function PromotionHistory({ env }: { readonly env: DeliveryEnvState }) {
                 {a.url !== null ? (
                   <ExternalLink href={a.url}>{text}</ExternalLink>
                 ) : (
-                  text
+                  <RichText
+                    bundles={[a.digest]}
+                    nowMs={nowMs}
+                    text={text}
+                    times={[a.promotedAt]}
+                  />
                 )}
                 {suffix ? (
                   <span className="pf-v6-u-text-color-subtle">{suffix}</span>
@@ -815,9 +741,38 @@ function changeName(change: Pick<DeliveryChange, "shortSha" | "pr">): string {
     : change.shortSha;
 }
 
-// --- Now and next (FLT-DLV-10) ---------------------------------------------
+// --- Change panels (FLT-DLV-03, FLT-DLV-10, FLT-DLV-11, FLT-DLV-19) -------
 
-function nowText(intl: IntlShape, data: DeliveryData, row: NowNextRow): string {
+/** Text with the times and bundles it names (FLT-DLV-24). */
+interface Rich {
+  readonly text: string;
+  readonly times: readonly (string | number | null)[];
+  readonly bundles: readonly (string | null)[];
+}
+
+function RichNode({
+  value,
+  nowMs,
+}: {
+  readonly value: Rich;
+  readonly nowMs: number;
+}) {
+  return (
+    <RichText
+      bundles={value.bundles}
+      nowMs={nowMs}
+      text={value.text}
+      times={value.times}
+    />
+  );
+}
+
+function nowText(
+  intl: IntlShape,
+  data: DeliveryData,
+  row: NowNextRow,
+  nowMs: number,
+): string {
   const { stage } = row.now;
   const elapsed =
     row.now.elapsedMs !== null
@@ -841,7 +796,7 @@ function nowText(intl: IntlShape, data: DeliveryData, row: NowNextRow): string {
     });
   }
   if (stage.key === "build" && stage.state === "failed") {
-    const at = formatClock(intl, stage.finishedAt);
+    const at = formatClock(intl, stage.finishedAt, nowMs);
     return intl.formatMessage(m.nowBuildFailed, {
       components: stage.components.join(", "),
       at: at ? ` at ${at}` : "",
@@ -876,6 +831,7 @@ function nextText(
   intl: IntlShape,
   data: DeliveryData,
   row: NowNextRow,
+  nowMs: number,
 ): string {
   const next = row.next;
   switch (next.kind) {
@@ -900,7 +856,7 @@ function nextText(
       return next.landsAtMs !== null
         ? intl.formatMessage(m.nextAbout, {
             text,
-            time: formatClock(intl, next.landsAtMs),
+            time: formatClock(intl, next.landsAtMs, nowMs),
           })
         : text;
     }
@@ -916,11 +872,24 @@ function nextText(
       return next.expectedAtMs !== null
         ? intl.formatMessage(m.nextStageAt, {
             stage,
-            time: formatClock(intl, next.expectedAtMs),
+            time: formatClock(intl, next.expectedAtMs, nowMs),
           })
         : stage;
     }
   }
+}
+
+/** The times a Now and Next row names. */
+function rowTimes(row: NowNextRow): (string | number | null)[] {
+  const next = row.next;
+  return [
+    row.now.stage.finishedAt,
+    next.kind === "stage"
+      ? next.expectedAtMs
+      : next.kind === "bundle-restart"
+        ? next.landsAtMs
+        : null,
+  ];
 }
 
 /** Joins non-empty text parts with the cell separator used across the tab. */
@@ -928,364 +897,72 @@ function joinParts(parts: readonly string[]): string {
   return parts.filter((p) => p !== "").join(" - ");
 }
 
-function deliveredText(
-  intl: IntlShape,
-  delivered: NonNullable<NowNextSummary["delivered"]>,
-): string {
-  const detail =
-    delivered.deliveredAtMs !== null && delivered.totalMs !== null
-      ? intl.formatMessage(m.allDeliveredDetail, {
-          change: changeName(delivered.change),
-          time: formatClock(intl, delivered.deliveredAtMs),
-          total: formatDuration(intl, delivered.totalMs),
-        })
-      : intl.formatMessage(m.allDeliveredNoTime, {
-          change: changeName(delivered.change),
-        });
-  return [intl.formatMessage(m.allDelivered), detail].join(" ");
-}
-
-function NowAndNext({
+// FLT-DLV-10: where the change is now and what comes next, or its delivery.
+function NowNextLines({
   data,
+  status,
   nowMs,
 }: {
   readonly data: DeliveryData;
+  readonly status: ChangeNowNext;
   readonly nowMs: number;
 }) {
   const intl = useIntl();
-  const summary = nowAndNext(data, nowMs);
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>
-          <Flex
-            alignItems={{ default: "alignItemsCenter" }}
-            spaceItems={{ default: "spaceItemsSm" }}
-          >
-            <FlexItem>
-              <SeverityIcon severity={summary.severity} />
-            </FlexItem>
-            <FlexItem>
-              <Title headingLevel="h2" size="lg">
-                {intl.formatMessage(m.nowNextTitle)}
-              </Title>
-            </FlexItem>
-          </Flex>
-        </CardTitle>
-      </CardHeader>
-      <CardBody>
-        {summary.delivered !== null ? (
-          <Content component="p">
-            {deliveredText(intl, summary.delivered)}
-          </Content>
-        ) : (
-          <Stack hasGutter>
-            <StackItem>
-              <DataList
-                aria-label={intl.formatMessage(m.nowNextList)}
-                isCompact
-              >
-                {summary.rows.map((row) => (
-                  <DataListItem
-                    aria-labelledby={`now-next-${row.change.sha}`}
-                    key={row.change.sha}
-                  >
-                    <DataListItemRow>
-                      <DataListItemCells
-                        dataListCells={[
-                          <DataListCell key="change" width={2}>
-                            <Content
-                              className="pf-v6-u-font-family-monospace"
-                              component="p"
-                              id={`now-next-${row.change.sha}`}
-                            >
-                              {changeName(row.change)}
-                            </Content>
-                            <Content
-                              className="pf-v6-u-text-color-subtle"
-                              component="small"
-                            >
-                              <Truncate content={row.change.title} />
-                            </Content>
-                          </DataListCell>,
-                          <DataListCell key="now" width={3}>
-                            <Content component="p">
-                              <strong>{intl.formatMessage(m.now)}</strong>
-                            </Content>
-                            <Flex spaceItems={{ default: "spaceItemsSm" }}>
-                              <FlexItem>
-                                {row.severity === "info" ? (
-                                  <StageStateIcon state={row.now.stage.state} />
-                                ) : (
-                                  <SeverityIcon severity={row.severity} />
-                                )}
-                              </FlexItem>
-                              <FlexItem flex={{ default: "flex_1" }}>
-                                {nowText(intl, data, row)}
-                              </FlexItem>
-                            </Flex>
-                          </DataListCell>,
-                          <DataListCell key="next" width={3}>
-                            <Content component="p">
-                              <strong>{intl.formatMessage(m.next)}</strong>
-                            </Content>
-                            {nextText(intl, data, row)}
-                          </DataListCell>,
-                        ]}
-                      />
-                    </DataListItemRow>
-                    <div className={styles.progressRow}>
-                      <ProgressBar
-                        change={row.change}
-                        data={data}
-                        nowMs={nowMs}
-                      />
-                    </div>
-                  </DataListItem>
-                ))}
-              </DataList>
-            </StackItem>
-            {summary.more > 0 ? (
-              <StackItem>
-                <Button
-                  component="a"
-                  href="#delivery-changes"
-                  isInline
-                  variant="link"
-                >
-                  {intl.formatMessage(m.moreInTable, { count: summary.more })}
-                </Button>
-              </StackItem>
-            ) : null}
-          </Stack>
-        )}
-      </CardBody>
-    </Card>
-  );
+  switch (status.kind) {
+    case "delivered":
+      return (
+        <Content component="p">
+          {status.deliveredAtMs !== null && status.totalMs !== null ? (
+            <RichText
+              nowMs={nowMs}
+              text={intl.formatMessage(m.panelDelivered, {
+                time: formatClock(intl, status.deliveredAtMs, nowMs),
+                total: formatDuration(intl, status.totalMs),
+              })}
+              times={[status.deliveredAtMs]}
+            />
+          ) : (
+            intl.formatMessage(m.panelDeliveredNoTime)
+          )}
+        </Content>
+      );
+    case "none":
+      return (
+        <Content component="p">{intl.formatMessage(m.panelAllStages)}</Content>
+      );
+    default: {
+      const row = status.row;
+      return (
+        <DescriptionList isCompact>
+          <DescriptionListGroup>
+            <DescriptionListTerm>
+              {intl.formatMessage(m.now)}
+            </DescriptionListTerm>
+            <DescriptionListDescription>
+              <RichText
+                nowMs={nowMs}
+                text={nowText(intl, data, row, nowMs)}
+                times={rowTimes(row)}
+              />
+            </DescriptionListDescription>
+          </DescriptionListGroup>
+          <DescriptionListGroup>
+            <DescriptionListTerm>
+              {intl.formatMessage(m.next)}
+            </DescriptionListTerm>
+            <DescriptionListDescription>
+              <RichText
+                nowMs={nowMs}
+                text={nextText(intl, data, row, nowMs)}
+                times={rowTimes(row)}
+              />
+            </DescriptionListDescription>
+          </DescriptionListGroup>
+        </DescriptionList>
+      );
+    }
+  }
 }
-
-// FLT-DLV-19: one numbered, equal-width cell per phase, each joined to its own
-// label. State is carried by text as well as color.
-function ProgressBar({
-  data,
-  change,
-  nowMs,
-}: {
-  readonly data: DeliveryData;
-  readonly change: DeliveryChange;
-  readonly nowMs: number;
-}) {
-  const intl = useIntl();
-  const model = progress(data, change, nowMs);
-  const name = changeName(change);
-  return (
-    <div className={styles.progress}>
-      <Content className="pf-v6-u-font-size-sm" component="p">
-        {model.percent === null
-          ? intl.formatMessage(m.progressTitle)
-          : intl.formatMessage(m.progressPercent, { percent: model.percent })}
-      </Content>
-      <ol
-        aria-label={
-          model.percent === null
-            ? intl.formatMessage(m.progressLabel, { change: name })
-            : intl.formatMessage(m.progressLabelPercent, {
-                change: name,
-                percent: model.percent,
-              })
-        }
-        className={styles.cells}
-      >
-        {model.cells.map((cell) => {
-          const def = data.stages.find((d) => d.key === cell.stage.key);
-          const label = stageLabel(
-            intl,
-            def ?? { key: cell.stage.key, group: null },
-          );
-          const time =
-            cell.arrival !== null && cell.arrival.kind !== "reached"
-              ? arrivalText(intl, cell.arrival) ||
-                stagePrimary(intl, cell.stage, nowMs)
-              : stagePrimary(intl, cell.stage, nowMs);
-          const look = whereToLook(data, change, cell.stage, nowMs);
-          return (
-            <li className={styles.cell} key={cell.stage.key}>
-              <span
-                aria-hidden
-                className={styles.segment}
-                data-overdue={cell.overdue ? "true" : undefined}
-                data-state={cell.stage.state}
-              >
-                {cell.number}
-              </span>
-              <span aria-hidden className={styles.connector} />
-              <span className={styles.label}>
-                <strong>{label}</strong>
-                <br />
-                <span className="pf-v6-u-text-nowrap">
-                  <StageStateIcon state={cell.stage.state} />
-                  <span className={styles.iconGap}>
-                    {cell.stage.reason === "inferred-release"
-                      ? intl.formatMessage(m.stateReleasingInferred)
-                      : intl.formatMessage(STATE_LABEL[cell.stage.state])}
-                  </span>
-                </span>
-                {time ? (
-                  <>
-                    <br />
-                    <span className="pf-v6-u-text-color-subtle">{time}</span>
-                  </>
-                ) : null}
-                {cell.overdue ? (
-                  <>
-                    <br />
-                    <OverdueLabel />
-                  </>
-                ) : null}
-                {look !== null ? (
-                  <>
-                    <br />
-                    <WhereToLookPopover look={look} stageName={label} />
-                  </>
-                ) : null}
-              </span>
-            </li>
-          );
-        })}
-      </ol>
-    </div>
-  );
-}
-
-// --- Change table (FLT-DLV-03) ----------------------------------------------
-
-function ChangeTable({
-  data,
-  selectedSha,
-  nowMs,
-  onNavigate,
-}: {
-  readonly data: DeliveryData;
-  readonly selectedSha: string | null;
-  readonly nowMs: number;
-  readonly onNavigate: (action: NavAction) => void;
-}) {
-  const intl = useIntl();
-  const columnLabel = intl.formatMessage(m.columnChange);
-  return (
-    <Card id="delivery-changes">
-      <CardHeader>
-        <CardTitle>
-          <Title headingLevel="h2" size="lg">
-            {intl.formatMessage(m.tableTitle)}
-          </Title>
-        </CardTitle>
-      </CardHeader>
-      <CardBody>
-        <Stack hasGutter>
-          {data.omitted > 0 ? (
-            <StackItem>
-              <Content className="pf-v6-u-text-color-subtle" component="small">
-                {intl.formatMessage(m.omitted, { count: data.omitted })}
-              </Content>
-            </StackItem>
-          ) : null}
-          <StackItem>
-            <InnerScrollContainer>
-              <Table aria-label={intl.formatMessage(m.tableLabel)}>
-                <Thead>
-                  <Tr>
-                    <Th hasRightBorder isStickyColumn stickyMinWidth="18rem">
-                      {columnLabel}
-                    </Th>
-                    {data.stages.map((def) => (
-                      <Th key={def.key} modifier="nowrap">
-                        {stageLabel(intl, def)}
-                      </Th>
-                    ))}
-                  </Tr>
-                </Thead>
-                <Tbody>
-                  {data.changes.map((change) => (
-                    <Tr
-                      isClickable
-                      isRowSelected={change.sha === selectedSha}
-                      key={change.sha}
-                      onRowClick={() => {
-                        onNavigate({
-                          type: "deliverySelectChange",
-                          sha: change.sha,
-                        });
-                      }}
-                    >
-                      <Td
-                        dataLabel={columnLabel}
-                        hasRightBorder
-                        isStickyColumn
-                        stickyMinWidth="18rem"
-                      >
-                        <Button
-                          className="pf-v6-u-font-family-monospace"
-                          isInline
-                          variant="link"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onNavigate({
-                              type: "deliverySelectChange",
-                              sha: change.sha,
-                            });
-                          }}
-                        >
-                          {changeName(change)}
-                        </Button>
-                        <Content
-                          className="pf-v6-u-text-color-subtle"
-                          component="small"
-                        >
-                          <Truncate content={change.title} />
-                        </Content>
-                        {change.author !== null ? (
-                          <Content
-                            className="pf-v6-u-text-color-subtle"
-                            component="small"
-                          >
-                            {intl.formatMessage(m.byAuthor, {
-                              author: change.author,
-                            })}
-                          </Content>
-                        ) : null}
-                      </Td>
-                      {data.stages.map((def) => {
-                        const stage = change.stages.find(
-                          (s) => s.key === def.key,
-                        );
-                        return (
-                          <Td dataLabel={stageLabel(intl, def)} key={def.key}>
-                            {stage ? (
-                              <StageStatus
-                                look={whereToLook(data, change, stage, nowMs)}
-                                nowMs={nowMs}
-                                overdue={isOverdue(stage, nowMs)}
-                                stage={stage}
-                                stageName={stageLabel(intl, def)}
-                              />
-                            ) : null}
-                          </Td>
-                        );
-                      })}
-                    </Tr>
-                  ))}
-                </Tbody>
-              </Table>
-            </InnerScrollContainer>
-          </StackItem>
-        </Stack>
-      </CardBody>
-    </Card>
-  );
-}
-
-// --- Details drawer (FLT-DLV-11) --------------------------------------------
 
 const STEP_VARIANT: Readonly<
   Record<
@@ -1325,46 +1002,296 @@ function ExternalLink({
   );
 }
 
+/**
+ * The description of one stepper step: its state's time (FLT-DLV-19), the
+ * Release step's bundle, the Renovate pull request's opening time
+ * (FLT-DLV-07), and a group's arrival when not reached yet.
+ */
 function stepDescription(
   intl: IntlShape,
-  data: DeliveryData,
+  change: DeliveryChange,
   stage: DeliveryStage,
+  arrival: Arrival | null,
   nowMs: number,
-): string {
-  const detail = stageDetail(intl, stage);
+): Rich {
+  const times: (string | number | null)[] = [stage.startedAt, stage.finishedAt];
+  const bundles: (string | null)[] = [];
+  const parts: string[] = [];
   if (
     stage.state === "passed" &&
     stage.startedAt !== null &&
     stage.finishedAt !== null
   ) {
     const ms = Date.parse(stage.finishedAt) - Date.parse(stage.startedAt);
-    const range = intl.formatMessage(m.stepRange, {
-      start: formatClock(intl, stage.startedAt),
-      end: formatClock(intl, stage.finishedAt),
-      duration: formatDuration(intl, Math.max(0, ms)),
-    });
-    return detail ? `${range} - ${detail}` : range;
+    parts.push(
+      intl.formatMessage(m.stepRange, {
+        start: formatClock(intl, stage.startedAt, nowMs),
+        end: formatClock(intl, stage.finishedAt, nowMs),
+        duration: formatDuration(intl, Math.max(0, ms)),
+      }),
+    );
+  } else if (stage.state === "passed") {
+    parts.push(formatClock(intl, stage.finishedAt, nowMs));
+  } else {
+    parts.push(stagePrimary(intl, stage, nowMs));
   }
-  if (stage.state === "passed") {
-    return [formatClock(intl, stage.finishedAt), detail]
-      .filter((s) => s !== "")
-      .join(" - ");
-  }
-  const parts = [stagePrimary(intl, stage, nowMs), detail].filter(
-    (s) => s !== "",
-  );
-  const typical = stage.estimateMs;
+  parts.push(stageDetail(intl, stage));
   if (
-    (stage.state === "running" || stage.state === "waiting") &&
-    typical !== null
+    stage.key === "gitops" &&
+    (stage.state === "running" || stage.state === "failed") &&
+    stage.startedAt !== null
   ) {
     parts.push(
-      intl.formatMessage(m.usually, {
-        duration: formatDuration(intl, typical),
+      intl.formatMessage(m.stepOpened, {
+        time: formatClock(intl, stage.startedAt, nowMs),
       }),
     );
   }
-  return parts.join(" - ");
+  if (
+    (stage.state === "running" || stage.state === "waiting") &&
+    stage.estimateMs !== null
+  ) {
+    parts.push(
+      intl.formatMessage(m.usually, {
+        duration: formatDuration(intl, stage.estimateMs),
+      }),
+    );
+  }
+  if (arrival !== null && arrival.kind !== "reached") {
+    parts.push(arrivalText(intl, arrival, nowMs));
+    if (arrival.kind === "range") {
+      times.push(arrival.earlyMs, arrival.lateMs);
+    } else if (arrival.kind === "time") {
+      times.push(arrival.atMs);
+    }
+  }
+  if (stage.key === "release" && change.bundle !== null) {
+    parts.push(identiName(change.bundle.digest));
+    bundles.push(change.bundle.digest);
+  }
+  return { text: joinParts(parts), times, bundles };
+}
+
+const ENV_SEPARATOR = ": ";
+
+/** A promotion's bundle as the Fleet Map names it (FLT-DLV-24). */
+function attemptBundle(a: DeliveryPromotion): string {
+  return a.digest ? identiName(a.digest) : a.version;
+}
+
+/**
+ * One environment, reported by the change's first bundle only (FLT-DLV-18):
+ * its state, the bundle and when it was deployed, and when its gates passed.
+ * A later bundle appears only as the one that replaced the first.
+ */
+function envLine(
+  intl: IntlShape,
+  env: DeliveryEnvState,
+  outcome: FirstBundleOutcome,
+  nowMs: number,
+  withName: boolean,
+): Rich {
+  const named = (state: string) =>
+    withName ? intl.formatMessage(m.stepEnv, { env: env.env, state }) : state;
+  if (outcome.kind === "none") {
+    return {
+      text: joinParts([
+        named(intl.formatMessage(STATE_LABEL[env.state])),
+        env.state !== "passed" && env.waitingFor.length > 0
+          ? intl.formatMessage(m.reasonWaitingEnvs, {
+              envs: intl.formatList(env.waitingFor),
+            })
+          : "",
+      ]),
+      times: [],
+      bundles: [],
+    };
+  }
+  if (outcome.kind === "not-deployed") {
+    const later = outcome.replacedBy;
+    return {
+      text: joinParts([
+        named(intl.formatMessage(m.envNotDeployed)),
+        intl.formatMessage(m.envReplacedBy, {
+          bundle: attemptBundle(later),
+          time: formatClock(intl, later.promotedAt, nowMs),
+        }),
+      ]),
+      times: [later.promotedAt],
+      bundles: [later.digest || null],
+    };
+  }
+  const a = outcome.attempt;
+  const passed = outcome.kind === "passed" ? a.gatesPassedAt : null;
+  return {
+    text: joinParts([
+      named(intl.formatMessage(STATE_LABEL[outcome.kind])),
+      intl.formatMessage(m.envDeployed, {
+        bundle: attemptBundle(a),
+        time: formatClock(intl, a.promotedAt, nowMs),
+      }),
+      passed !== null
+        ? intl.formatMessage(m.nowGatesPassed, {
+            time: formatClock(intl, passed, nowMs),
+          })
+        : "",
+      attemptDetail(intl, a),
+    ]),
+    times: [a.promotedAt, passed],
+    bundles: [a.digest || null],
+  };
+}
+
+function EnvIcon({
+  env,
+  outcome,
+}: {
+  readonly env: DeliveryEnvState;
+  readonly outcome: FirstBundleOutcome;
+}) {
+  if (outcome.kind === "not-deployed") {
+    return <OutcomeIcon outcome="replaced" />;
+  }
+  return (
+    <StageStateIcon
+      state={outcome.kind === "none" ? env.state : outcome.kind}
+    />
+  );
+}
+
+// FLT-DLV-19: one environment on its group's step - a link that opens the
+// Fleet Map with the node selected, its first-bundle line (FLT-DLV-18), and the
+// first bundle's promotions after a retry or failure.
+function EnvItem({
+  change,
+  env,
+  nowMs,
+  onNavigate,
+}: {
+  readonly change: DeliveryChange;
+  readonly env: DeliveryEnvState;
+  readonly nowMs: number;
+  readonly onNavigate: (action: NavAction) => void;
+}) {
+  const intl = useIntl();
+  const outcome = firstBundleOutcome(change.bundle?.digest ?? null, env);
+  return (
+    <>
+      <Flex
+        spaceItems={{ default: "spaceItemsXs" }}
+        flexWrap={{ default: "nowrap" }}
+        alignItems={{ default: "alignItemsBaseline" }}
+      >
+        <FlexItem>
+          <EnvIcon env={env} outcome={outcome} />
+        </FlexItem>
+        <FlexItem>
+          <Button
+            aria-label={intl.formatMessage(m.openNode, { env: env.env })}
+            isInline
+            variant="link"
+            onClick={() => {
+              onNavigate({ type: "openNodeOnMap", id: env.env });
+            }}
+          >
+            {env.env}
+          </Button>
+          {ENV_SEPARATOR}
+          <RichNode
+            nowMs={nowMs}
+            value={envLine(intl, env, outcome, nowMs, false)}
+          />
+        </FlexItem>
+      </Flex>
+      {eventfulAttempts(outcome) && outcome.kind !== "none" ? (
+        <PromotionHistory attempts={outcome.attempts} env={env} nowMs={nowMs} />
+      ) : null}
+    </>
+  );
+}
+
+/** The first bundle's history is worth showing: a retry or a failure. */
+function eventfulAttempts(outcome: FirstBundleOutcome): boolean {
+  return (
+    outcome.kind !== "none" &&
+    (outcome.attempts.length > 1 ||
+      outcome.attempts.some((a) => a.outcome === "failed"))
+  );
+}
+
+function StepBody({
+  data,
+  change,
+  stage,
+  arrival,
+  overdue,
+  nowMs,
+  onNavigate,
+}: {
+  readonly onNavigate: (action: NavAction) => void;
+  readonly data: DeliveryData;
+  readonly change: DeliveryChange;
+  readonly stage: DeliveryStage;
+  readonly arrival: Arrival | null;
+  readonly overdue: boolean;
+  readonly nowMs: number;
+}) {
+  const intl = useIntl();
+  const def = data.stages.find((d) => d.key === stage.key);
+  const label = stageLabel(intl, def ?? { key: stage.key, group: null });
+  const look = whereToLook(data, change, stage, nowMs);
+  const envs =
+    def?.kind === "group"
+      ? change.environments.filter((e) => e.group === def.group)
+      : [];
+  return (
+    <Stack>
+      <StackItem>
+        {stage.reason === "inferred-release"
+          ? intl.formatMessage(m.stateReleasingInferred)
+          : intl.formatMessage(STATE_LABEL[stage.state])}
+      </StackItem>
+      <StackItem>
+        <RichNode
+          nowMs={nowMs}
+          value={stepDescription(intl, change, stage, arrival, nowMs)}
+        />
+      </StackItem>
+      {envs.length > 0 ? (
+        <StackItem>
+          <List isPlain>
+            {envs.map((env) => (
+              <ListItem key={env.env}>
+                <EnvItem
+                  change={change}
+                  env={env}
+                  nowMs={nowMs}
+                  onNavigate={onNavigate}
+                />
+              </ListItem>
+            ))}
+          </List>
+        </StackItem>
+      ) : null}
+      {overdue ? (
+        <StackItem>
+          <OverdueLabel />
+        </StackItem>
+      ) : null}
+      {look !== null ? (
+        <StackItem>
+          <WhereToLookPopover look={look} stageName={label} />
+        </StackItem>
+      ) : null}
+      {stage.failedAttempts > 0 ? (
+        <StackItem>
+          {intl.formatMessage(m.failedAttempts, {
+            count: stage.failedAttempts,
+          })}
+        </StackItem>
+      ) : null}
+    </Stack>
+  );
 }
 
 function checkStateText(
@@ -1376,372 +1303,413 @@ function checkStateText(
     : intl.formatMessage(STATE_LABEL["not-started"]);
 }
 
-function ChangeDetails({
+// FLT-DLV-11: the change's checks, bundle, Renovate pull request, and
+// environments, shown in its panel without a click.
+function PanelDetails({
+  change,
+  nowMs,
+}: {
+  readonly change: DeliveryChange;
+  readonly nowMs: number;
+}) {
+  const intl = useIntl();
+  const components = Array.from(new Set(change.builds.map((b) => b.component)));
+  const bundle = change.bundle;
+  const lockedAt =
+    change.stages.find((st) => st.key === "gitops" && st.state === "passed")
+      ?.finishedAt ?? null;
+  return (
+    <Stack hasGutter>
+      <StackItem>
+        <Title headingLevel="h4" size="md">
+          {intl.formatMessage(m.drawerChecks)}
+        </Title>
+        {components.length === 0 ? (
+          <Content component="p">{intl.formatMessage(m.noChecks)}</Content>
+        ) : (
+          <DescriptionList isCompact>
+            {components.map((component) => {
+              const build = change.builds.find(
+                (b) => b.component === component,
+              );
+              const policy = change.policies.find(
+                (p) => p.component === component,
+              );
+              const url = build?.url ?? policy?.url ?? null;
+              return (
+                <DescriptionListGroup key={component}>
+                  <DescriptionListTerm>{component}</DescriptionListTerm>
+                  <DescriptionListDescription>
+                    <Stack>
+                      <StackItem>
+                        {intl.formatMessage(m.checkLine, {
+                          build: checkStateText(intl, build),
+                          policy: checkStateText(intl, policy),
+                        })}
+                      </StackItem>
+                      {build?.supersededBy ? (
+                        <StackItem className="pf-v6-u-text-color-subtle">
+                          {intl.formatMessage(m.reasonRebuiltIn, {
+                            change: build.supersededBy,
+                          })}
+                        </StackItem>
+                      ) : null}
+                      {build?.outsideBundle === true ? (
+                        <StackItem className="pf-v6-u-text-color-subtle">
+                          {intl.formatMessage(m.outsideBundle)}
+                        </StackItem>
+                      ) : null}
+                      {url !== null ? (
+                        <StackItem>
+                          <ExternalLink href={url}>
+                            {intl.formatMessage(m.viewCheckRuns)}
+                          </ExternalLink>
+                        </StackItem>
+                      ) : null}
+                    </Stack>
+                  </DescriptionListDescription>
+                </DescriptionListGroup>
+              );
+            })}
+          </DescriptionList>
+        )}
+      </StackItem>
+      <StackItem>
+        <Title headingLevel="h4" size="md">
+          {intl.formatMessage(m.drawerBundle)}
+        </Title>
+        {bundle === null ? (
+          <Content component="p">
+            {intl.formatMessage(
+              change.stages.find((st) => st.key === "release")?.state ===
+                "unknown"
+                ? m.bundleUnknown
+                : m.bundleNone,
+            )}
+          </Content>
+        ) : (
+          <DescriptionList isCompact>
+            <DescriptionListGroup>
+              <DescriptionListTerm>
+                {intl.formatMessage(m.bundleAlias)}
+              </DescriptionListTerm>
+              <DescriptionListDescription>
+                <Stack>
+                  <StackItem>
+                    <BundleName digest={bundle.digest} />
+                  </StackItem>
+                  <StackItem>
+                    {/* FLT-DLV-11.04: every bundle fact carries a time. */}
+                    {bundle.publishedAt !== null ? (
+                      <RichText
+                        nowMs={nowMs}
+                        text={intl.formatMessage(m.bundleVersionPublished, {
+                          version: bundle.version,
+                          time: formatClock(intl, bundle.publishedAt, nowMs),
+                        })}
+                        times={[bundle.publishedAt]}
+                      />
+                    ) : (
+                      bundle.version
+                    )}
+                  </StackItem>
+                  <StackItem>
+                    {lockedAt !== null ? (
+                      <RichText
+                        nowMs={nowMs}
+                        text={intl.formatMessage(m.bundleLockedAt, {
+                          time: formatClock(intl, lockedAt, nowMs),
+                        })}
+                        times={[lockedAt]}
+                      />
+                    ) : (
+                      intl.formatMessage(
+                        bundle.locked ? m.bundleLocked : m.bundlePending,
+                      )
+                    )}
+                  </StackItem>
+                </Stack>
+              </DescriptionListDescription>
+            </DescriptionListGroup>
+            <DescriptionListGroup>
+              <DescriptionListTerm>
+                {intl.formatMessage(m.bundleTag)}
+              </DescriptionListTerm>
+              <DescriptionListDescription>
+                <Truncate content={bundle.tag} position="middle" />
+              </DescriptionListDescription>
+            </DescriptionListGroup>
+            <DescriptionListGroup>
+              <DescriptionListTerm>
+                {intl.formatMessage(m.bundleDigest)}
+              </DescriptionListTerm>
+              <DescriptionListDescription>
+                <Truncate content={bundle.digest} position="middle" />
+              </DescriptionListDescription>
+            </DescriptionListGroup>
+            <DescriptionListGroup>
+              <DescriptionListTerm>
+                {intl.formatMessage(m.bundlePublished)}
+              </DescriptionListTerm>
+              <DescriptionListDescription>
+                {bundle.releaseUrl !== null ? (
+                  <ExternalLink href={bundle.releaseUrl}>
+                    {intl.formatMessage(m.downloads)}
+                  </ExternalLink>
+                ) : (
+                  intl.formatMessage(m.downloadsPending)
+                )}
+              </DescriptionListDescription>
+            </DescriptionListGroup>
+            {change.gitopsPr !== null ? (
+              <DescriptionListGroup>
+                <DescriptionListTerm>
+                  {intl.formatMessage(m.gitopsUpdate)}
+                </DescriptionListTerm>
+                <DescriptionListDescription>
+                  {change.gitopsPr.url !== null ? (
+                    <ExternalLink href={change.gitopsPr.url}>
+                      {intl.formatMessage(m.pullRequest, {
+                        number: change.gitopsPr.number,
+                      })}
+                    </ExternalLink>
+                  ) : (
+                    intl.formatMessage(m.pullRequest, {
+                      number: change.gitopsPr.number,
+                    })
+                  )}
+                </DescriptionListDescription>
+              </DescriptionListGroup>
+            ) : null}
+          </DescriptionList>
+        )}
+      </StackItem>
+    </Stack>
+  );
+}
+
+// FLT-DLV-11, FLT-DLV-19: one change: its Now and Next, a vertical stepper
+// with one numbered step per stage, and its details.
+function ChangePanel({
   data,
   change,
+  selected,
   nowMs,
   onNavigate,
 }: {
   readonly data: DeliveryData;
   readonly change: DeliveryChange;
+  readonly selected: boolean;
   readonly nowMs: number;
   readonly onNavigate: (action: NavAction) => void;
 }) {
   const intl = useIntl();
-  const groups = Array.from(new Set(change.environments.map((e) => e.group)));
-  const components = Array.from(new Set(change.builds.map((b) => b.component)));
-  const bundle = change.bundle;
+  const ref = useRef<HTMLLIElement>(null);
+  const status = changeNowNext(data, change, nowMs);
+  const model = progress(data, change, nowMs);
+  const name = changeName(change);
+  const titleId = `delivery-change-${change.sha}`;
+  useEffect(() => {
+    // FLT-DLV-14: the change parameter scrolls its panel into view.
+    if (selected) {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- jsdom has no scrollIntoView.
+      ref.current?.scrollIntoView?.({ block: "nearest", inline: "start" });
+    }
+  }, [selected]);
+  const cells = new Map(model.cells.map((c) => [c.stage.key, c]));
   return (
-    <DrawerPanelContent widths={{ default: "width_50", xl: "width_33" }}>
-      <DrawerHead>
-        <Title headingLevel="h2" size="xl">
-          <span className="pf-v6-u-font-family-monospace">
-            {changeName(change)}
-          </span>
-        </Title>
-        <Content component="p">{change.title}</Content>
-        {change.author !== null ? (
-          <Content className="pf-v6-u-text-color-subtle" component="small">
-            {intl.formatMessage(m.byAuthor, { author: change.author })}
-          </Content>
-        ) : null}
-        <DrawerActions>
-          <DrawerCloseButton
-            onClick={() => {
-              onNavigate({ type: "deliverySelectChange", sha: null });
-            }}
-          />
-        </DrawerActions>
-      </DrawerHead>
-      <DrawerPanelBody>
-        <Stack hasGutter>
-          <StackItem>
-            <Flex spaceItems={{ default: "spaceItemsMd" }}>
-              {change.prUrl !== null ? (
-                <FlexItem>
-                  <ExternalLink href={change.prUrl}>
-                    {intl.formatMessage(m.viewPR)}
-                  </ExternalLink>
-                </FlexItem>
-              ) : null}
-              {change.commitUrl !== null ? (
-                <FlexItem>
-                  <ExternalLink href={change.commitUrl}>
-                    {intl.formatMessage(m.viewCommit)}
-                  </ExternalLink>
-                </FlexItem>
-              ) : null}
-            </Flex>
-          </StackItem>
-          <StackItem>
-            <Title headingLevel="h3" size="md">
-              {intl.formatMessage(m.drawerStages)}
-            </Title>
-            <ProgressStepper
-              aria-label={intl.formatMessage(m.drawerStagesLabel)}
-              isVertical
+    <li
+      aria-labelledby={titleId}
+      className={styles.panel}
+      data-selected={selected ? "true" : undefined}
+      ref={ref}
+    >
+      <Card isCompact isFullHeight isPlain>
+        <CardHeader>
+          <CardTitle>
+            <Flex
+              alignItems={{ default: "alignItemsCenter" }}
+              flexWrap={{ default: "wrap" }}
+              spaceItems={{ default: "spaceItemsSm" }}
             >
-              {change.stages.map((stage) => {
-                const def = data.stages.find((d) => d.key === stage.key);
-                const label = stageLabel(
-                  intl,
-                  def ?? { key: stage.key, group: null },
-                );
-                const id = `delivery-step-${stage.key.replace(/[^a-z0-9-]/gi, "-")}`;
-                return (
-                  <ProgressStep
-                    description={stepDescription(intl, data, stage, nowMs)}
-                    id={id}
-                    isCurrent={stage.state === "running"}
-                    key={stage.key}
-                    titleId={`${id}-title`}
-                    variant={STEP_VARIANT[stage.state]}
-                  >
-                    {label}
-                  </ProgressStep>
-                );
-              })}
-            </ProgressStepper>
-          </StackItem>
-          <StackItem>
-            <Title headingLevel="h3" size="md">
-              {intl.formatMessage(m.drawerChecks)}
-            </Title>
-            {components.length === 0 ? (
-              <Content component="p">{intl.formatMessage(m.noChecks)}</Content>
-            ) : (
-              <DescriptionList isCompact isHorizontal>
-                {components.map((component) => {
-                  const build = change.builds.find(
-                    (b) => b.component === component,
-                  );
-                  const policy = change.policies.find(
-                    (p) => p.component === component,
-                  );
-                  const url = build?.url ?? policy?.url ?? null;
-                  return (
-                    <DescriptionListGroup key={component}>
-                      <DescriptionListTerm>{component}</DescriptionListTerm>
-                      <DescriptionListDescription>
-                        <Stack>
-                          <StackItem>
-                            {intl.formatMessage(m.checkLine, {
-                              build: checkStateText(intl, build),
-                              policy: checkStateText(intl, policy),
-                            })}
-                          </StackItem>
-                          {build?.supersededBy ? (
-                            <StackItem className="pf-v6-u-text-color-subtle">
-                              {intl.formatMessage(m.reasonRebuiltIn, {
-                                change: build.supersededBy,
-                              })}
-                            </StackItem>
-                          ) : null}
-                          {build?.outsideBundle === true ? (
-                            <StackItem className="pf-v6-u-text-color-subtle">
-                              {intl.formatMessage(m.outsideBundle)}
-                            </StackItem>
-                          ) : null}
-                          {url !== null ? (
-                            <StackItem>
-                              <ExternalLink href={url}>
-                                {intl.formatMessage(m.viewCheckRuns)}
-                              </ExternalLink>
-                            </StackItem>
-                          ) : null}
-                        </Stack>
-                      </DescriptionListDescription>
-                    </DescriptionListGroup>
-                  );
-                })}
-              </DescriptionList>
-            )}
-          </StackItem>
-          <StackItem>
-            <Title headingLevel="h3" size="md">
-              {intl.formatMessage(m.drawerBundle)}
-            </Title>
-            {bundle === null ? (
-              <Content component="p">
-                {intl.formatMessage(
-                  change.stages.find((st) => st.key === "release")?.state ===
-                    "unknown"
-                    ? m.bundleUnknown
-                    : m.bundleNone,
-                )}
-              </Content>
-            ) : (
-              <DescriptionList isCompact isHorizontal>
-                <DescriptionListGroup>
-                  <DescriptionListTerm>
-                    {intl.formatMessage(m.bundleAlias)}
-                  </DescriptionListTerm>
-                  <DescriptionListDescription>
-                    {joinParts([
-                      bundle.version,
-                      intl.formatMessage(
-                        bundle.locked ? m.bundleLocked : m.bundlePending,
-                      ),
-                    ])}
-                  </DescriptionListDescription>
-                </DescriptionListGroup>
-                <DescriptionListGroup>
-                  <DescriptionListTerm>
-                    {intl.formatMessage(m.bundleTag)}
-                  </DescriptionListTerm>
-                  <DescriptionListDescription>
-                    <Truncate content={bundle.tag} position="middle" />
-                  </DescriptionListDescription>
-                </DescriptionListGroup>
-                <DescriptionListGroup>
-                  <DescriptionListTerm>
-                    {intl.formatMessage(m.bundleDigest)}
-                  </DescriptionListTerm>
-                  <DescriptionListDescription>
-                    <Truncate content={bundle.digest} position="middle" />
-                  </DescriptionListDescription>
-                </DescriptionListGroup>
-                <DescriptionListGroup>
-                  <DescriptionListTerm>
-                    {intl.formatMessage(m.bundlePublished)}
-                  </DescriptionListTerm>
-                  <DescriptionListDescription>
-                    <Stack>
-                      {bundle.publishedAt !== null ? (
-                        <StackItem>
-                          {formatClock(intl, bundle.publishedAt)}
-                        </StackItem>
-                      ) : null}
-                      <StackItem>
-                        {bundle.releaseUrl !== null ? (
-                          <ExternalLink href={bundle.releaseUrl}>
-                            {intl.formatMessage(m.downloads)}
-                          </ExternalLink>
-                        ) : (
-                          intl.formatMessage(m.downloadsPending)
-                        )}
-                      </StackItem>
-                    </Stack>
-                  </DescriptionListDescription>
-                </DescriptionListGroup>
-                {change.gitopsPr !== null ? (
-                  <DescriptionListGroup>
-                    <DescriptionListTerm>
-                      {intl.formatMessage(m.gitopsUpdate)}
-                    </DescriptionListTerm>
-                    <DescriptionListDescription>
-                      {change.gitopsPr.url !== null ? (
-                        <ExternalLink href={change.gitopsPr.url}>
-                          {intl.formatMessage(m.pullRequest, {
-                            number: change.gitopsPr.number,
-                          })}
-                        </ExternalLink>
-                      ) : (
-                        intl.formatMessage(m.pullRequest, {
-                          number: change.gitopsPr.number,
-                        })
-                      )}
-                    </DescriptionListDescription>
-                  </DescriptionListGroup>
-                ) : null}
-              </DescriptionList>
-            )}
-          </StackItem>
-          {groups.length > 0 ? (
-            <StackItem>
-              <Title headingLevel="h3" size="md">
-                {intl.formatMessage(m.drawerEnvironments)}
-              </Title>
-              <Stack hasGutter>
-                {groups.map((group) => {
-                  const groupStage = change.stages.find(
-                    (s) => s.key === `env:${group}`,
-                  );
-                  return (
-                    <StackItem key={group}>
-                      <Title headingLevel="h4" size="md">
-                        {groupLabel(group)}
-                      </Title>
-                      <DescriptionList isCompact isHorizontal>
-                        {change.environments
-                          .filter((env) => env.group === group)
-                          .map((env) => (
-                            <DescriptionListGroup key={env.env}>
-                              <DescriptionListTerm>
-                                <Button
-                                  aria-label={intl.formatMessage(m.openNode, {
-                                    env: env.env,
-                                  })}
-                                  isInline
-                                  variant="link"
-                                  onClick={() => {
-                                    onNavigate({
-                                      type: "openNodeOnMap",
-                                      id: env.env,
-                                    });
-                                  }}
-                                >
-                                  {env.env}
-                                </Button>
-                              </DescriptionListTerm>
-                              <DescriptionListDescription>
-                                <StageStatus
-                                  stage={{
-                                    ...(groupStage ?? emptyStage(env.env)),
-                                    key: `env:${group}`,
-                                    state: env.state,
-                                    reason:
-                                      env.state === "passed"
-                                        ? null
-                                        : (groupStage?.reason ?? null),
-                                    finishedAt: null,
-                                    startedAt:
-                                      env.state === "passed"
-                                        ? null
-                                        : (groupStage?.startedAt ?? null),
-                                    done: 0,
-                                    total: 0,
-                                    failedAttempts: 0,
-                                  }}
-                                  overdue={false}
-                                  nowMs={nowMs}
-                                />
-                                {eventfulHistory(env) ? (
-                                  <PromotionHistory env={env} />
-                                ) : null}
-                              </DescriptionListDescription>
-                            </DescriptionListGroup>
-                          ))}
-                      </DescriptionList>
-                    </StackItem>
-                  );
-                })}
-              </Stack>
-            </StackItem>
-          ) : null}
-          {bundle !== null ? (
-            <StackItem>
-              {/* FLT-DLV-11: the first bundle on the Fleet Map, and its Shipped row in
-                  Agent SDLC only when the bundle is locked (a pending bundle has none). */}
-              <ActionList isVertical>
-                <ActionListItem>
+              <FlexItem>
+                <SeverityIcon severity={changeSeverity(status)} />
+              </FlexItem>
+              <FlexItem>
+                <Title headingLevel="h3" id={titleId} size="md">
                   <Button
-                    variant="secondary"
+                    className="pf-v6-u-font-family-monospace"
+                    isInline
+                    variant="link"
                     onClick={() => {
                       onNavigate({
-                        type: "openBundleOnMap",
-                        seed: bundle.digest,
+                        type: "deliverySelectChange",
+                        sha: change.sha,
                       });
                     }}
                   >
-                    {intl.formatMessage(m.showOnMap)}
+                    {name}
                   </Button>
-                </ActionListItem>
-                {bundle.locked ? (
-                  <ActionListItem>
-                    <Button
-                      variant="secondary"
-                      onClick={() => {
-                        onNavigate({
-                          type: "openBundleInSdlc",
-                          seed: bundle.digest,
-                        });
-                      }}
-                    >
-                      {intl.formatMessage(m.showInSdlc)}
-                    </Button>
-                  </ActionListItem>
-                ) : null}
-              </ActionList>
+                </Title>
+              </FlexItem>
+              {model.percent !== null ? (
+                <FlexItem align={{ default: "alignRight" }}>
+                  <span
+                    aria-label={intl.formatMessage(m.progressLabelPercent, {
+                      change: name,
+                      percent: model.percent,
+                    })}
+                    className="pf-v6-u-font-size-sm"
+                    role="img"
+                  >
+                    {intl.formatMessage(m.progressPercent, {
+                      percent: model.percent,
+                    })}
+                  </span>
+                </FlexItem>
+              ) : null}
+            </Flex>
+          </CardTitle>
+          <Content component="p">
+            <Truncate content={change.title} />
+          </Content>
+          <Content className="pf-v6-u-text-color-subtle" component="small">
+            {change.author !== null
+              ? intl.formatMessage(m.byAuthor, { author: change.author })
+              : null}
+            {change.prUrl !== null ? (
+              <span className={styles.gap}>
+                <ExternalLink href={change.prUrl}>
+                  {intl.formatMessage(m.viewPR)}
+                </ExternalLink>
+              </span>
+            ) : null}
+            {change.commitUrl !== null ? (
+              <span className={styles.gap}>
+                <ExternalLink href={change.commitUrl}>
+                  {intl.formatMessage(m.viewCommit)}
+                </ExternalLink>
+              </span>
+            ) : null}
+          </Content>
+        </CardHeader>
+        <CardBody>
+          <Stack hasGutter>
+            <StackItem>
+              <NowNextLines data={data} nowMs={nowMs} status={status} />
             </StackItem>
-          ) : null}
-        </Stack>
-      </DrawerPanelBody>
-    </DrawerPanelContent>
+            <StackItem>
+              <ProgressStepper
+                aria-label={intl.formatMessage(m.progressLabel, {
+                  change: name,
+                })}
+                isVertical
+              >
+                {change.stages.map((stage, i) => {
+                  const def = data.stages.find((d) => d.key === stage.key);
+                  const label = stageLabel(
+                    intl,
+                    def ?? { key: stage.key, group: null },
+                  );
+                  const cell = cells.get(stage.key);
+                  const id = `delivery-${change.shortSha}-${stage.key.replace(/[^a-z0-9-]/gi, "-")}`;
+                  return (
+                    <ProgressStep
+                      description={
+                        <StepBody
+                          arrival={cell?.arrival ?? null}
+                          change={change}
+                          data={data}
+                          nowMs={nowMs}
+                          overdue={cell?.overdue ?? false}
+                          stage={stage}
+                          onNavigate={onNavigate}
+                        />
+                      }
+                      icon={
+                        <span className="pf-v6-u-font-size-xs">
+                          {String(i + 1)}
+                        </span>
+                      }
+                      id={id}
+                      isCurrent={
+                        stage.state === "running" || stage.state === "waiting"
+                      }
+                      key={stage.key}
+                      titleId={`${id}-title`}
+                      variant={STEP_VARIANT[stage.state]}
+                    >
+                      {label}
+                    </ProgressStep>
+                  );
+                })}
+              </ProgressStepper>
+            </StackItem>
+            <StackItem>
+              <PanelDetails change={change} nowMs={nowMs} />
+            </StackItem>
+          </Stack>
+        </CardBody>
+      </Card>
+    </li>
   );
 }
 
-function emptyStage(key: string): DeliveryStage {
-  return {
-    key,
-    state: "unknown",
-    startedAt: null,
-    finishedAt: null,
-    reason: null,
-    components: [],
-    waitingFor: [],
-    gate: null,
-    done: 0,
-    total: 0,
-    pr: null,
-    checks: null,
-    failedAttempts: 0,
-    estimateMs: null,
-    slowestMs: null,
-    rebuiltIn: null,
-    partly: null,
-    restart: null,
-  };
+// FLT-DLV-03: the Changes on main strip, newest first. Only the strip scrolls
+// sideways; it is reachable and scrollable by keyboard.
+function ChangeStrip({
+  data,
+  selectedSha,
+  nowMs,
+  onNavigate,
+}: {
+  readonly data: DeliveryData;
+  readonly selectedSha: string | null;
+  readonly nowMs: number;
+  readonly onNavigate: (action: NavAction) => void;
+}) {
+  const intl = useIntl();
+  return (
+    <Card id="delivery-changes">
+      <CardHeader>
+        <CardTitle>
+          <Title headingLevel="h2" size="lg">
+            {intl.formatMessage(m.tableTitle)}
+          </Title>
+        </CardTitle>
+      </CardHeader>
+      <CardBody>
+        <Stack hasGutter>
+          {data.omitted > 0 ? (
+            <StackItem>
+              <Content className="pf-v6-u-text-color-subtle" component="small">
+                {intl.formatMessage(m.omitted, { count: data.omitted })}
+              </Content>
+            </StackItem>
+          ) : null}
+          <StackItem>
+            <ol
+              aria-label={intl.formatMessage(m.stripLabel)}
+              className={styles.strip}
+              // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- A scrollable region must be reachable by keyboard (FLT-DLV-03).
+              tabIndex={0}
+            >
+              {data.changes.map((change) => (
+                <ChangePanel
+                  change={change}
+                  data={data}
+                  key={change.sha}
+                  nowMs={nowMs}
+                  onNavigate={onNavigate}
+                  selected={change.sha === selectedSha}
+                />
+              ))}
+            </ol>
+          </StackItem>
+        </Stack>
+      </CardBody>
+    </Card>
+  );
 }
 
 // --- Page ------------------------------------------------------------------
@@ -1794,11 +1762,13 @@ function LoadedBody({
   selectedSha,
   nowMs,
   onNavigate,
+  shipped,
 }: {
   readonly data: DeliveryData;
   readonly selectedSha: string | null;
   readonly nowMs: number;
   readonly onNavigate: (action: NavAction) => void;
+  readonly shipped?: React.ReactNode;
 }) {
   const intl = useIntl();
   const outsideWindow =
@@ -1810,6 +1780,7 @@ function LoadedBody({
         <StackItem>
           <PipelineNow data={data} nowMs={nowMs} />
         </StackItem>
+        {shipped !== undefined ? <StackItem>{shipped}</StackItem> : null}
         <StackItem>
           <EmptyState
             headingLevel="h2"
@@ -1839,11 +1810,9 @@ function LoadedBody({
       <StackItem>
         <PipelineNow data={data} nowMs={nowMs} />
       </StackItem>
+      {shipped !== undefined ? <StackItem>{shipped}</StackItem> : null}
       <StackItem>
-        <NowAndNext data={data} nowMs={nowMs} />
-      </StackItem>
-      <StackItem>
-        <ChangeTable
+        <ChangeStrip
           data={data}
           selectedSha={selectedSha}
           nowMs={nowMs}
@@ -1859,6 +1828,7 @@ function Body({
   selectedSha,
   nowMs,
   onNavigate,
+  shipped,
 }: Omit<DeliveryViewProps, "onRefresh">) {
   const intl = useIntl();
   if (state.status === "loading") {
@@ -1891,33 +1861,14 @@ function Body({
       </EmptyState>
     );
   }
-  const selected = findChange(data, selectedSha);
-  const body = (
+  return (
     <LoadedBody
       data={data}
       selectedSha={selectedSha}
       nowMs={nowMs}
       onNavigate={onNavigate}
+      shipped={shipped}
     />
-  );
-  if (selected === null) {
-    return body;
-  }
-  return (
-    <Drawer isExpanded isInline>
-      <DrawerContent
-        panelContent={
-          <ChangeDetails
-            data={data}
-            change={selected}
-            nowMs={nowMs}
-            onNavigate={onNavigate}
-          />
-        }
-      >
-        <DrawerContentBody>{body}</DrawerContentBody>
-      </DrawerContent>
-    </Drawer>
   );
 }
 
@@ -1936,17 +1887,11 @@ export function DeliveryView(props: DeliveryViewProps): React.ReactElement {
         variant="default"
       >
         <Flex
-          alignItems={{ default: "alignItemsFlexStart" }}
+          alignItems={{ default: "alignItemsCenter" }}
           justifyContent={{ default: "justifyContentSpaceBetween" }}
         >
           <FlexItem>
             <Content>
-              <Title headingLevel="h1" size="2xl">
-                {intl.formatMessage(m.pageTitle)}
-              </Title>
-              <Content component="p">
-                {intl.formatMessage(m.pageDescription)}
-              </Content>
               {asOf ? (
                 <Content
                   className="pf-v6-u-text-color-subtle"
@@ -1994,7 +1939,12 @@ function useNow(intervalMs: number): number {
 }
 
 /** The Delivery tab wired to the delivery plane and the router. */
-export function DeliveryTab(): React.ReactElement {
+export function DeliveryTab({
+  shipped,
+}: {
+  /** The Shipped section (FLT-DLV-25), owned by the Agent SDLC plane. */
+  readonly shipped?: React.ReactNode;
+}): React.ReactElement {
   const query = useDelivery();
   const { route, navigate } = useRouter();
   const nowMs = useNow(30_000);
@@ -2012,6 +1962,7 @@ export function DeliveryTab(): React.ReactElement {
       onRefresh={() => {
         void query.refetch();
       }}
+      shipped={shipped}
     />
   );
 }

@@ -190,7 +190,7 @@ describe("mapDelivery train and now (FLT-DLV-12, FLT-DLV-22, FLT-DLV-23)", () =>
       train: [{ inferred: true, changed: [{ component: "agent" }] }],
       now: {
         environments: [{ env: "hub", state: "bogus", attempt: 0 }],
-        next: [{ kind: "unknown-kind" }, { kind: "locked", at: "x" }],
+        next: [{ kind: "unknown-kind" }, { kind: "renovate", at: "x" }],
       },
     });
     const stage = d.changes[0]?.stages[0];
@@ -203,7 +203,7 @@ describe("mapDelivery train and now (FLT-DLV-12, FLT-DLV-22, FLT-DLV-23)", () =>
     expect(d.now.environments[0]?.state).toBe("unknown");
     expect(d.now.environments[0]?.attempt).toBeNull();
     // Unknown next event kinds are dropped.
-    expect(d.now.next.map((e) => e.kind)).toEqual(["locked"]);
+    expect(d.now.next.map((e) => e.kind)).toEqual(["renovate"]);
   });
 
   it("defaults to an empty train and Pipeline now", () => {

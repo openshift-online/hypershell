@@ -12,6 +12,7 @@ export type DeliveryState =
   | "all-delivered"
   | "promotion-retried"
   | "bundle-train"
+  | "waiting-on-renovate"
   | "source-unavailable"
   | "loading"
   | "not-configured"
@@ -84,7 +85,7 @@ export const STAGES: readonly StageColumn[] = [
   { key: "build", label: "Build" },
   { key: "policy", label: "Policy check" },
   { key: "release", label: "Release" },
-  { key: "gitops", label: "GitOps update" },
+  { key: "gitops", label: "Renovate" },
   { key: "int", label: "Int" },
   { key: "stage", label: "Stage" },
   { key: "prod", label: "Prod" },
@@ -139,13 +140,20 @@ export type EnvironmentNow = {
   readonly text: string;
 };
 
+/**
+ * One expected event in the Pipeline now panel's Next list (FLT-DLV-23). A
+ * bundle event names the bundle, shown with its identicon (FLT-DLV-24).
+ */
+export type NextItem =
+  string | { readonly bundle: string; readonly text: string };
+
 /** The situation at this moment, above the changes (FLT-DLV-23). */
 export type PipelineNow = {
   readonly appHead: string;
   readonly gitopsHead: string;
   /** Empty reads "Nothing in flight". */
   readonly inFlight: readonly NowItem[];
-  readonly next: readonly string[];
+  readonly next: readonly NextItem[];
   readonly train?: readonly TrainBundle[];
   readonly environments: readonly EnvironmentNow[];
   /** A source that is Unknown names the answer the panel cannot give. */
@@ -206,7 +214,7 @@ const OLDER: readonly Change[] = [
       "11:15",
       "quiet heron",
       "11:19",
-      "GitOps #2329",
+      "PR #2329",
       "11:36",
       "11:41",
       "11:52",
@@ -225,7 +233,7 @@ const OLDER: readonly Change[] = [
       "10:00",
       "lucky otter",
       "10:04",
-      "GitOps #2327",
+      "PR #2327",
       "10:22",
       "10:31",
       "10:44",
@@ -262,7 +270,7 @@ const C995 = (overrides: Partial<Record<string, StageCell>> = {}): Change => ({
     build: passed("14:43", "web-console, cli"),
     policy: passed("14:46", "web-console, cli"),
     release: passed("14:51", "amber pickle"),
-    gitops: passed("14:55", "GitOps #2331"),
+    gitops: passed("14:55", "PR #2331"),
     ...INT_DONE_STAGE_ANALYSIS,
     ...overrides,
   } as Record<string, StageCell>,
@@ -279,7 +287,7 @@ const C994 = (overrides: Partial<Record<string, StageCell>> = {}): Change => ({
     build: { state: "not-needed", detail: "No component changed" },
     policy: { state: "not-needed", detail: "No component changed" },
     release: passed("14:51", "amber pickle, with #995"),
-    gitops: passed("14:55", "GitOps #2331"),
+    gitops: passed("14:55", "PR #2331"),
     ...INT_DONE_STAGE_ANALYSIS,
     ...overrides,
   } as Record<string, StageCell>,
@@ -307,7 +315,7 @@ const PHASES = [
   "Build",
   "Policy check",
   "Release",
-  "GitOps update",
+  "Renovate",
   "Int",
   "Stage",
   "Prod",
@@ -648,7 +656,7 @@ const RELEASE_OVERDUE: DeliveryFixture = {
       title:
         "fix(control-plane): converge a new gateway in one provisioning pass",
       now: "Releasing (inferred) - 56 min, usually 25 min - Overdue",
-      next: "GitOps update - no arrival time while the release is overdue",
+      next: "Renovate - no arrival time while the release is overdue",
       severity: "warning",
       progress: progress([
         { state: "passed", time: "15:21" },
@@ -690,7 +698,7 @@ const ALL_DELIVERED: DeliveryFixture = {
         "15:29",
         "brave walnut",
         "15:34",
-        "GitOps #2334",
+        "PR #2334",
         "15:36",
         "15:52",
         "16:02",
@@ -705,7 +713,7 @@ const ALL_DELIVERED: DeliveryFixture = {
         "14:51",
         "amber pickle",
         "14:55",
-        "GitOps #2331",
+        "PR #2331",
         "15:13",
         "15:27",
         "15:38",
@@ -747,7 +755,7 @@ const C985: Change = {
     build: { state: "not-needed", detail: "No component changed" },
     policy: { state: "not-needed", detail: "No component changed" },
     release: passed("22:52", "brisk falcon"),
-    gitops: passed("22:56", "GitOps #2310"),
+    gitops: passed("22:56", "PR #2310"),
     int: { state: "passed", primary: "23:00", failedAttempts: 1 },
     stage: passed("06:12"),
     prod: passed("06:21"),
@@ -784,7 +792,7 @@ const TRAIN_PARTLY: Record<string, StageCell> = {
   gitops: {
     state: "running",
     primary: "Partly: 4 of 5 components",
-    detail: "calm badger, GitOps #2341",
+    detail: "calm badger, PR #2341",
   },
   int: {
     state: "running",
@@ -815,7 +823,7 @@ const C998: Change = {
     build: { state: "not-needed", detail: "No component changed" },
     policy: { state: "not-needed", detail: "No component changed" },
     release: passed("12:53", "eager lynx"),
-    gitops: passed("12:58", "GitOps #2339"),
+    gitops: passed("12:58", "PR #2339"),
     int: {
       state: "running",
       primary: "2 of 3",
@@ -1017,6 +1025,129 @@ const BUNDLE_TRAIN: DeliveryFixture = {
   changes: [C999, C998, C996, C993, ...OLDER],
 };
 
+// A bundle is published and waits for Renovate, while a newer change still
+// expects its bundle (FLT-DLV-07, FLT-DLV-23.04, FLT-DLV-23.05).
+const C1001: Change = {
+  sha: "b81f3e2c4d5e6f708192a3b4c5d6e7f8091a2b3c",
+  shortSha: "b81f3e2",
+  pr: 1001,
+  title: "feat(cli): show the gateway version in hsctl get",
+  author: "dana",
+  stages: {
+    merged: passed("15:52"),
+    build: { state: "running", primary: "6 min", detail: "cli" },
+    policy: notStarted,
+    release: notStarted,
+    gitops: notStarted,
+    int: notStarted,
+    stage: notStarted,
+    prod: notStarted,
+  },
+};
+
+const C997_PUBLISHED: Change = {
+  ...C997(passed("15:20", "control-plane")),
+  stages: {
+    ...C997(passed("15:20", "control-plane")).stages,
+    policy: passed("15:23", "control-plane"),
+    release: passed("15:55", "teal vellum"),
+    gitops: {
+      state: "waiting",
+      primary: "3 min",
+      detail: "Waiting for Renovate",
+    },
+  },
+};
+
+const WAITING_ON_RENOVATE: DeliveryFixture = {
+  asOf: "15:58",
+  pipelineNow: {
+    appHead:
+      "b81f3e2 (#1001) feat(cli): show the gateway version in hsctl get, merged 15:52",
+    gitopsHead: "Bundle amber pickle, published 14:51, locked 14:55",
+    inFlight: [
+      {
+        term: "Build",
+        state: "running",
+        text: "cli - 6 min, on b81f3e2 (#1001)",
+      },
+      {
+        term: "Bundle",
+        state: "waiting",
+        text: "teal vellum published 15:55 - waiting for Renovate",
+      },
+    ],
+    next: [
+      "Expecting bundle for #1001 - about 16:24",
+      {
+        bundle: "teal vellum",
+        text: "Waiting for Renovate - locked about 16:01",
+      },
+      "Int promotes teal vellum - about 16:19",
+    ],
+    environments: envs({
+      "int-hub": healthy("amber pickle", "15:13"),
+      "int-spoke-a": healthy("amber pickle", "15:11"),
+      "int-spoke-b": healthy("amber pickle", "15:12"),
+      "stage-hub": healthy("amber pickle", "15:28"),
+      "stage-spoke-a": healthy("amber pickle", "15:14"),
+      "prod-hub": healthy("amber pickle", "15:39"),
+      "prod-spoke-a": healthy("amber pickle", "15:40"),
+      "prod-spoke-b": healthy("amber pickle", "15:41"),
+    }),
+  },
+  summarySeverity: "info",
+  summary: [
+    {
+      shortSha: "b81f3e2",
+      pr: 1001,
+      title: C1001.title,
+      now: "Building cli - 6 min, usually 9 min",
+      next: "Policy check - usually about 16:01",
+      severity: "info",
+      progress: progress(
+        [
+          { state: "running", time: "6 min" },
+          undefined,
+          undefined,
+          undefined,
+          { state: "not-started", time: "16:33 to 17:12" },
+          { state: "not-started", time: "16:45 to 17:34" },
+          { state: "not-started", time: "16:54 to 17:52" },
+        ],
+        9,
+      ),
+    },
+    {
+      shortSha: "a15cc91",
+      pr: 997,
+      title: C997_PUBLISHED.title,
+      now: "Waiting for Renovate - 3 min, usually 6 min",
+      next: "Int - usually about 16:19",
+      severity: "info",
+      progress: progress(
+        [
+          { state: "passed", time: "15:20" },
+          { state: "passed", time: "15:23" },
+          { state: "passed", time: "15:55" },
+          { state: "waiting", time: "3 min" },
+          { state: "not-started", time: "16:19" },
+          { state: "not-started", time: "16:34" },
+          { state: "not-started", time: "16:46" },
+        ],
+        51,
+      ),
+    },
+  ],
+  changes: [
+    C1001,
+    C997_PUBLISHED,
+    C995({ ...DELIVERED_TAIL }),
+    C994({ ...DELIVERED_TAIL }),
+    ...OLDER,
+  ],
+};
+
 export const FIXTURES: Readonly<
   Record<
     Exclude<DeliveryState, "loading" | "not-configured" | "error">,
@@ -1030,6 +1161,7 @@ export const FIXTURES: Readonly<
   "all-delivered": ALL_DELIVERED,
   "promotion-retried": PROMOTION_RETRIED,
   "bundle-train": BUNDLE_TRAIN,
+  "waiting-on-renovate": WAITING_ON_RENOVATE,
   "source-unavailable": SOURCE_UNAVAILABLE,
 };
 
@@ -1059,11 +1191,36 @@ export type PromotionAttempt = {
   readonly detail?: string;
 };
 
+/**
+ * An environment reported by the change's first bundle only (FLT-DLV-18): a
+ * later bundle is never shown as Passed, only as the one that replaced it.
+ */
+export type EnvOutcome =
+  | {
+      readonly kind: "deployed";
+      readonly bundle: string;
+      readonly deployed: string;
+      readonly gatesPassed?: string;
+    }
+  | {
+      readonly kind: "failed";
+      readonly bundle: string;
+      readonly deployed: string;
+      readonly detail: string;
+    }
+  | {
+      readonly kind: "not-deployed";
+      readonly replacedBy: string;
+      readonly promoted: string;
+    };
+
 export type EnvironmentRow = {
   readonly group: string;
   readonly instance: string;
   readonly cell: StageCell;
-  /** Oldest first; omitted when the change reached it on the first try. */
+  /** The first bundle's outcome; omitted before any promotion. */
+  readonly outcome?: EnvOutcome;
+  /** The first bundle's promotions, oldest first; omitted after one clean try. */
   readonly history?: readonly PromotionAttempt[];
 };
 
@@ -1106,7 +1263,7 @@ export const SELECTED_DETAIL: ChangeDetail = {
       description: "14:46 to 14:51 - 5 min",
     },
     {
-      label: "GitOps update",
+      label: "Renovate",
       state: "passed",
       description: "14:51 to 14:55 - 4 min",
     },
@@ -1134,7 +1291,7 @@ export const SELECTED_DETAIL: ChangeDetail = {
     published: "14:51",
     downloads: "Downloads published 14:53",
   },
-  gitopsPr: "GitOps #2331 - merged 14:55",
+  gitopsPr: "PR #2331 - merged 14:55",
   environments: [
     { group: "Int", instance: "int-hub", cell: passed("15:13") },
     { group: "Int", instance: "int-spoke-a", cell: passed("15:11") },
@@ -1197,7 +1354,7 @@ export const RETRIED_DETAIL: ChangeDetail = {
     },
     { label: "Release", state: "passed", description: "22:52 - brisk falcon" },
     {
-      label: "GitOps update",
+      label: "Renovate",
       state: "passed",
       description: "22:52 to 22:56 - 4 min",
     },
@@ -1218,40 +1375,99 @@ export const RETRIED_DETAIL: ChangeDetail = {
     published: "22:52",
     downloads: "Downloads published 22:54",
   },
-  gitopsPr: "GitOps #2310 - merged 22:56",
+  gitopsPr: "PR #2310 - merged 22:56",
   environments: [
     {
       group: "Int",
       instance: "int-hub",
       cell: passed("23:00"),
+      outcome: {
+        kind: "failed",
+        bundle: "brisk falcon",
+        deployed: "22:58",
+        detail: "Release analysis failed",
+      },
       history: [
         attempt(
           "brisk falcon",
-          "GitOps #2310",
-          "23:00",
+          "PR #2310",
+          "22:58",
           "failed",
           "Release analysis failed",
         ),
-        attempt("calm meadow", "GitOps #2314", "23:10", "passed"),
       ],
     },
-    { group: "Int", instance: "int-spoke-a", cell: passed("23:00") },
-    { group: "Stage", instance: "stage-hub", cell: passed("06:12") },
+    {
+      group: "Int",
+      instance: "int-spoke-a",
+      cell: passed("23:00"),
+      outcome: {
+        kind: "deployed",
+        bundle: "brisk falcon",
+        deployed: "22:57",
+        gatesPassed: "23:00",
+      },
+    },
+    {
+      group: "Stage",
+      instance: "stage-hub",
+      cell: passed("06:12"),
+      outcome: {
+        kind: "deployed",
+        bundle: "brisk falcon",
+        deployed: "06:05",
+        gatesPassed: "06:12",
+      },
+    },
     {
       group: "Prod",
       instance: "prod-hub",
       cell: passed("06:20"),
-      history: [
-        attempt(
-          "calm meadow",
-          "GitOps #2314",
-          "06:20",
-          "replaced",
-          "Release analysis was running",
-        ),
-        attempt("swift harbor", "GitOps #2319", "06:31", "passed"),
-      ],
+      outcome: {
+        kind: "not-deployed",
+        replacedBy: "swift harbor",
+        promoted: "06:31",
+      },
     },
-    { group: "Prod", instance: "prod-spoke-a", cell: passed("06:21") },
+    {
+      group: "Prod",
+      instance: "prod-spoke-a",
+      cell: passed("06:21"),
+      outcome: {
+        kind: "deployed",
+        bundle: "brisk falcon",
+        deployed: "06:15",
+        gatesPassed: "06:21",
+      },
+    },
   ],
 };
+
+// FLT-DLV-25: the Shipped section's release-by-hub-cluster matrix.
+export const SHIPPED_HUBS = ["Prod hub", "Stage hub", "Int hub"] as const;
+
+export type ShippedRow = {
+  /** Absent for the Unreleased row. */
+  readonly alias?: string;
+  readonly current: readonly boolean[];
+  readonly contents: string;
+};
+
+export const SHIPPED_ROWS: readonly ShippedRow[] = [
+  { current: [false, false, false], contents: "3 issues" },
+  {
+    alias: "swift harbor",
+    current: [true, false, false],
+    contents: "2 issues, 4 PRs",
+  },
+  {
+    alias: "calm meadow",
+    current: [false, true, true],
+    contents: "1 issue, 3 PRs",
+  },
+  {
+    alias: "brisk falcon",
+    current: [false, false, false],
+    contents: "4 issues, 6 PRs",
+  },
+];

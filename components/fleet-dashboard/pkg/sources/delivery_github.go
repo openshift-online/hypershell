@@ -45,6 +45,8 @@ type BundlePR struct {
 	HeadSHA string
 	// Checks summarizes the head commit's check runs: running, passed, or failed.
 	Checks string
+	// CreatedAt is when the pull request opened (RFC3339, FLT-DLV-07).
+	CreatedAt string
 }
 
 // EnvPromotion is one promotion on a GitOps environment branch: its merge
@@ -322,9 +324,10 @@ func (g *GitHubDelivery) OpenBundlePR(ctx context.Context) (*BundlePR, error) {
 	}
 	owner, _, _ := strings.Cut(g.gitopsRepo, "/")
 	var prs []struct {
-		Number  int    `json:"number"`
-		HTMLURL string `json:"html_url"`
-		Head    struct {
+		Number    int    `json:"number"`
+		HTMLURL   string `json:"html_url"`
+		CreatedAt string `json:"created_at"`
+		Head      struct {
 			SHA string `json:"sha"`
 		} `json:"head"`
 	}
@@ -335,7 +338,7 @@ func (g *GitHubDelivery) OpenBundlePR(ctx context.Context) (*BundlePR, error) {
 	if len(prs) == 0 {
 		return nil, nil
 	}
-	pr := &BundlePR{Number: prs[0].Number, URL: prs[0].HTMLURL, HeadSHA: prs[0].Head.SHA}
+	pr := &BundlePR{Number: prs[0].Number, URL: prs[0].HTMLURL, HeadSHA: prs[0].Head.SHA, CreatedAt: prs[0].CreatedAt}
 	pr.Checks = g.prCheckState(ctx, pr.HeadSHA)
 	return pr, nil
 }

@@ -9,6 +9,7 @@
     "lib": ["DOM", "DOM.Iterable", "ES2024"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "resolveJsonModule": true,
     "noEmit": true,
     "noFallthroughCasesInSwitch": true,
     "noImplicitOverride": true,

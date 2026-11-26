@@ -14,6 +14,7 @@ import { FormattedMessage, useIntl } from "react-intl";
 
 import type { Plane } from "../../domain/plane";
 import { messages } from "../../messages";
+import styles from "./plane-section.module.css";
 
 interface PlaneSectionProps<T> {
   readonly titleMessage: MessageDescriptor;
@@ -21,6 +22,8 @@ interface PlaneSectionProps<T> {
   readonly children: (data: T) => React.ReactNode;
   /** Suppress the visible card title while keeping it as the Card's accessible name. */
   readonly hideTitle?: boolean;
+  /** No border and no side padding, so the content gets the full width. */
+  readonly isPlain?: boolean;
 }
 
 export function PlaneSection<T>({
@@ -28,10 +31,15 @@ export function PlaneSection<T>({
   query,
   children,
   hideTitle = false,
+  isPlain = false,
 }: PlaneSectionProps<T>): React.ReactElement {
   const intl = useIntl();
   return (
-    <Card aria-label={intl.formatMessage(titleMessage)}>
+    <Card
+      aria-label={intl.formatMessage(titleMessage)}
+      className={isPlain ? styles.plain : undefined}
+      isPlain={isPlain}
+    >
       {hideTitle ? null : (
         <CardTitle>
           <FormattedMessage {...titleMessage} />

@@ -36,6 +36,11 @@ const config: StorybookConfig = {
           process.cwd(),
           "node_modules/@patternfly/widgetized-dashboard",
         ),
+        "@dicebear/core": resolve(process.cwd(), "node_modules/@dicebear/core"),
+        "@dicebear/styles/initials.json": resolve(
+          process.cwd(),
+          "node_modules/@dicebear/styles/dist/initials.min.json",
+        ),
       }),
     },
   }),

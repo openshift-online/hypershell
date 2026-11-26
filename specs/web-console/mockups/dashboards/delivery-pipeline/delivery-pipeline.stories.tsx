@@ -17,10 +17,11 @@ type Story = StoryObj<typeof meta>;
 // delivered history (FLT-DLV-02, FLT-DLV-05, FLT-DLV-08, FLT-DLV-10).
 export const InFlight: Story = { args: { state: "in-flight" } };
 
-// Details drawer for a change (FLT-DLV-11).
+// The `change` parameter scrolls to and selects a change panel (FLT-DLV-11,
+// FLT-DLV-14).
 export const ChangeSelected: Story = { args: { state: "change-selected" } };
 
-// A failed build makes the summary danger and names what restarts the
+// A failed build makes the panel danger and names what restarts the
 // pipeline (FLT-DLV-05.03, FLT-DLV-10.03).
 export const BuildFailed: Story = { args: { state: "build-failed" } };
 
@@ -35,7 +36,7 @@ export const AllDelivered: Story = { args: { state: "all-delivered" } };
 // The bundle registry cannot be read; only the Release stage is Unknown
 // (FLT-DLV-13.01).
 // A change whose first bundle failed the Int hub's release analysis; a later
-// bundle carried it through, and the drawer shows each attempt (FLT-DLV-18).
+// bundle carried it through, and its panel shows each attempt (FLT-DLV-18).
 export const PromotionRetried: Story = { args: { state: "promotion-retried" } };
 
 // One merge rebuilt five components and published a bundle per finished
@@ -43,6 +44,12 @@ export const PromotionRetried: Story = { args: { state: "promotion-retried" } };
 // newer bundle will restart, and the Pipeline now panel (FLT-DLV-05,
 // FLT-DLV-08, FLT-DLV-10, FLT-DLV-22, FLT-DLV-23).
 export const BundleTrain: Story = { args: { state: "bundle-train" } };
+
+// A published bundle waits for Renovate while a newer change still expects
+// its bundle (FLT-DLV-07, FLT-DLV-23.04, FLT-DLV-23.05).
+export const WaitingOnRenovate: Story = {
+  args: { state: "waiting-on-renovate" },
+};
 
 export const SourceUnavailable: Story = {
   args: { state: "source-unavailable" },

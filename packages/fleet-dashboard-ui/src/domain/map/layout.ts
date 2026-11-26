@@ -18,11 +18,13 @@
 import type { MapColumn, MapModel, MapNode } from "./model";
 
 /** Fixed card + spacing constants (SVG user units). Tuned to the prototype. */
-export const NODE_W = 172;
-// Tall enough for the provider/role chip row, the runtime capability row below
-// it, and TWO bottom "chins" (the gateway-history sand sparkline and, below it,
-// the per-cluster sandbox strip - see map-node) (FLT-CAP-03).
-export const NODE_H = 146;
+// Two columns (FLT-CAP-08): the identity + chip column on the left, and the
+// gateway and sandbox trend graphs stacked on the right, so the graphs grow
+// sideways instead of being thin strips under the chips.
+export const NODE_W = 360;
+// Tall enough for the identity block, the provider/role chip row and the
+// runtime capability row below it (FLT-CAP-03).
+export const NODE_H = 100;
 export const COL_GAP = 190;
 export const V_GAP = 46;
 export const MARGIN_X = 210;

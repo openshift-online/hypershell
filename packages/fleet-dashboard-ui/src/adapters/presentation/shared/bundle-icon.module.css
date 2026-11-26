@@ -1,0 +1,6 @@
+.icon {
+  display: inline-block;
+  vertical-align: middle;
+  border-radius: var(--pf-t--global--border--radius--small);
+  margin-inline-end: var(--pf-t--global--spacer--xs);
+}

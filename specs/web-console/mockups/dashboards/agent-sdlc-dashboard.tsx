@@ -1,5 +1,4 @@
 import {
-  Button,
   Card,
   CardBody,
   CardTitle,
@@ -8,8 +7,6 @@ import {
   PageSection,
   Title,
 } from "@patternfly/react-core";
-import ArrowRightIcon from "@patternfly/react-icons/dist/esm/icons/arrow-right-icon";
-import CheckCircleIcon from "@patternfly/react-icons/dist/esm/icons/check-circle-icon";
 import ClockIcon from "@patternfly/react-icons/dist/esm/icons/clock-icon";
 import ExclamationCircleIcon from "@patternfly/react-icons/dist/esm/icons/exclamation-circle-icon";
 import ExclamationTriangleIcon from "@patternfly/react-icons/dist/esm/icons/exclamation-triangle-icon";
@@ -28,7 +25,6 @@ const BORDER = "#d2d2d2";
 const INFO = "#0066cc";
 const WARN = "#dca614";
 const DANGER = "#b1380b";
-const OK = "#3d7317";
 
 type MockCard = {
   readonly ref: string;
@@ -112,27 +108,6 @@ const COLUMNS: readonly {
       { ref: "#555", title: "Gate pane visibility", age: "5h", aging: 0.18 },
     ],
   },
-];
-
-const HUBS = ["Prod hub", "Stage hub", "Int hub"] as const;
-
-type MatrixRow = {
-  readonly version: string;
-  readonly unreleased?: boolean;
-  readonly current: readonly boolean[];
-  readonly issues: number;
-};
-
-const MATRIX: readonly MatrixRow[] = [
-  {
-    version: "Unreleased",
-    unreleased: true,
-    current: [false, false, false],
-    issues: 3,
-  },
-  { version: "v20260915", current: [true, false, false], issues: 5 },
-  { version: "v20260901", current: [false, true, false], issues: 4 },
-  { version: "v20260815", current: [false, false, true], issues: 6 },
 ];
 
 function ReworkBar({ count, threshold }: { count: number; threshold: number }) {
@@ -346,84 +321,7 @@ export function AgentSdlcDashboardPageSurface() {
             </div>
           </CardBody>
         </Card>
-
-        <Card style={{ marginTop: 12 }}>
-          <CardTitle>Shipped - release by hub cluster</CardTitle>
-          <CardBody>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: `minmax(120px, 1fr) repeat(${String(HUBS.length)}, minmax(90px, 1fr)) 80px`,
-                gap: 4,
-                alignItems: "center",
-              }}
-            >
-              <div style={{ fontWeight: 700, color: SUBTLE }}>Bundle</div>
-              {HUBS.map((hub) => (
-                <div key={hub} style={{ fontWeight: 700, color: SUBTLE }}>
-                  {hub}
-                </div>
-              ))}
-              <div style={{ fontWeight: 700, color: SUBTLE }}>Issues</div>
-              {MATRIX.map((row) => (
-                <MatrixRowCells key={row.version} row={row} />
-              ))}
-            </div>
-            <Content component="small">
-              <span
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 4,
-                  marginTop: 8,
-                }}
-              >
-                <ArrowRightIcon />
-                Selecting a bundle opens it on the Fleet Map (shared freight
-                bar).
-              </span>
-            </Content>
-          </CardBody>
-        </Card>
       </PageSection>
-    </>
-  );
-}
-
-function MatrixRowCells({ row }: { row: MatrixRow }) {
-  return (
-    <>
-      <div>
-        {row.unreleased ? (
-          <span style={{ color: SUBTLE }}>Unreleased</span>
-        ) : (
-          <Button
-            variant="link"
-            isInline
-            icon={<ArrowRightIcon />}
-            iconPosition="end"
-          >
-            {row.version}
-          </Button>
-        )}
-      </div>
-      {row.current.map((current, i) => (
-        <div key={HUBS[i]}>
-          {current ? (
-            <span
-              style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
-            >
-              <CheckCircleIcon style={{ color: OK }} />
-              current
-            </span>
-          ) : (
-            <span style={{ color: BORDER }}>-</span>
-          )}
-        </div>
-      ))}
-      <div>
-        <Label isCompact>{row.issues}</Label>
-      </div>
     </>
   );
 }

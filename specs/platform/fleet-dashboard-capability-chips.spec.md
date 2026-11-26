@@ -319,3 +319,21 @@ be a localized message.
 - GIVEN a selected node whose control plane reports no `hypershell_control_plane_info` series
 - WHEN the drawer's Details tab is shown
 - THEN the "Default gateway" row SHALL NOT be rendered
+
+### Requirement: FLT-CAP-08 -- Trend graphs sit right of the identity column
+
+The map card SHALL be laid out in two columns. The left column SHALL hold the
+identity block (identicon, name, alias, caption) and the chip rows. The right
+column SHALL hold the two trend graphs stacked one above the other: the gateway
+history graph on top and the sandbox history graph below, each with its live
+total at its right end. Each graph SHALL span the full width of the right
+column and about half of the card height, so the graphs grow sideways instead
+of taking thin strips at the bottom of the card. Both graphs SHALL share one
+x-axis start and width so their time points line up.
+
+#### Scenario: FLT-CAP-08.01 -- Graphs render beside the identity column
+
+- GIVEN a map card with gateway and sandbox history
+- WHEN the card is rendered
+- THEN both graphs SHALL start to the right of the identity column
+- AND the sandbox graph SHALL sit below the gateway graph with the same x and width

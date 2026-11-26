@@ -338,8 +338,23 @@ selecting a bundle SHALL filter the SDLC board and SHALL drive the Fleet Map's o
 bundle, so the two planes stay in lockstep. Switching tabs SHALL NOT discard the
 selected bundle.
 
-The tab control SHALL be keyboard accessible, expose an accessible name, and mark
-the current tab as selected.
+The tab control SHALL sit in the masthead, to the right of the page title. It
+SHALL be keyboard accessible, expose an accessible name, and mark the current
+tab as selected.
+
+The freight bar SHALL be hidden by default, to leave more room for the tab
+content. A toggle button at the right end of the masthead SHALL show and hide
+it. The button SHALL have an accessible name and SHALL report whether the bar is
+shown (`aria-expanded`). Hiding the bar SHALL NOT clear the selected bundle. The
+shown or hidden state is a view preference, not navigation state, so it is not
+part of the URL.
+
+Left of the toggle button, the masthead SHALL show one compact entry per bundle
+that runs on at least one instance: the bundle's identicon and its deployment
+count, with the version and identiname in its accessible name and tooltip. A
+bundle with no deployments SHALL NOT get an entry. Activating an entry SHALL
+select or clear that bundle exactly like its freight-bar card, so the deployed
+bundles stay one click away while the bar is hidden.
 
 #### Scenario: SDLC-VIS-07.01 -- Freight selection drives both tabs
 
@@ -354,6 +369,21 @@ the current tab as selected.
 - WHEN the operator activates the Agent SDLC tab
 - THEN the Agent SDLC view SHALL render in the shared chrome with the freight bar
   in its existing location
+
+#### Scenario: SDLC-VIS-07.03 -- Freight bar toggles from the masthead
+
+- GIVEN the dashboard is loaded
+- THEN the freight bar SHALL be hidden and the masthead toggle SHALL report it as collapsed
+- WHEN the operator activates the toggle
+- THEN the freight bar SHALL show above the tab content
+- AND activating the toggle again SHALL hide it without clearing the selected bundle
+
+#### Scenario: SDLC-VIS-07.04 -- Deployed bundles stay in the masthead
+
+- GIVEN two bundles, one running on three instances and one running on none
+- WHEN the dashboard is loaded with the freight bar hidden
+- THEN the masthead SHALL show one entry, for the deployed bundle, with the count 3
+- AND activating that entry SHALL select the bundle
 
 ### Requirement: SDLC-VIS-08 -- Aging Work-In-Progress Board
 
@@ -452,7 +482,8 @@ cleared state. The cleared state SHALL NOT be conveyed by color alone.
 
 ### Requirement: SDLC-VIS-11 -- Shipped Release by Hub-Cluster Matrix
 
-The Shipped column SHALL render a release-by-hub-cluster matrix: rows are bundles
+The Delivery tab's Shipped section (FLT-DLV-25) SHALL render a
+release-by-hub-cluster matrix: rows are bundles
 ordered newest to oldest (release history), columns are the hub clusters (hyp0
 production, hyp1 stage, hyp2 int), and a marker SHALL sit in each hub cluster's
 **current** bundle row so deployment and drift (how far behind a cluster runs) read
@@ -467,7 +498,8 @@ GitOps pull requests as a separate group (SDLC-VIS-25). Each entry SHALL show a 
 ago" relative timestamp. The row summary SHALL show the number of tracked application
 issues and the total number of pull requests in the bundle counted across both repository
 groups (for example "2 issues, 4 PRs"); the tracked-issue count SHALL remain an
-application-repository count and SHALL NOT include GitOps pull requests.
+application-repository count and SHALL NOT include GitOps pull requests. Each
+issue SHALL link to the issue on GitHub.
 
 The **"Unreleased"** row SHALL hold only genuinely in-flight tracked work: shipped
 execution-record issues merged after the newest resolved bundle's build boundary, whose
@@ -583,7 +615,7 @@ unchanged.
 #### Scenario: SDLC-VIS-25.02 -- Same bundle shows the same contents from both surfaces
 
 - GIVEN a released bundle with application and GitOps pull requests
-- WHEN an operator opens that bundle from Fleet Map and from the matrix below the SDLC
+- WHEN an operator opens that bundle from Fleet Map and from the matrix on the Delivery
   Kanban board
 - THEN both surfaces SHALL show the same application pull-request set
 - AND both surfaces SHALL show the same GitOps deployment pull-request set
@@ -712,14 +744,15 @@ missing-association contributor for deep-tail work.
 
 ### Requirement: SDLC-VIS-12 -- Fleet Map Cross-Link
 
-Activating a shipped item, or a bundle in the freight bar, SHALL jump to the Fleet
-Map with that bundle opened (consistent with the shared freight bar, SDLC-VIS-07).
+Activating a shipped bundle in the matrix, or a bundle in the freight bar, SHALL
+jump to the Fleet Map with that bundle opened (consistent with the shared freight
+bar, SDLC-VIS-07).
 
-#### Scenario: SDLC-VIS-12.01 -- Shipped item jumps to the map
+#### Scenario: SDLC-VIS-12.01 -- Shipped bundle jumps to the map
 
-- GIVEN a shipped issue in the matrix
-- WHEN the operator activates it
-- THEN the Fleet Map SHALL open with that issue's bundle selected
+- GIVEN a shipped bundle row in the matrix
+- WHEN the operator activates its bundle link
+- THEN the Fleet Map SHALL open with that bundle selected
 
 ### Requirement: SDLC-VIS-26 -- Unreleased Row Links to Delivery
 
@@ -775,9 +808,9 @@ Flights SHALL cover every phase change, not forward moves alone:
   backward.
 - A card entering the board at intake SHALL fly in (the board analogue of the Fleet
   Map's release-tray special case).
-- The last phase -> Shipped hop SHALL fly as a card into the release matrix, and this
-  flight SHALL replace the previous separate corner-to-corner ship glyph animation.
-  The board SHALL retain no separate ship-glyph animation.
+- The last phase -> Shipped hop SHALL fade the card out in its slot, because the
+  release matrix lives on the Delivery tab (FLT-DLV-25). The board SHALL retain no
+  separate ship-glyph animation.
 
 Each simultaneous phase change in one refetch SHALL get its own flight.
 
@@ -796,11 +829,11 @@ Each simultaneous phase change in one refetch SHALL get its own flight.
 - WHEN the board renders the new snapshot
 - THEN the card SHALL fly from its old slot back to the earlier phase's slot
 
-#### Scenario: SDLC-VIS-20.03 -- Shipped hop uses the same flight
+#### Scenario: SDLC-VIS-20.03 -- Shipped hop fades the card out
 
 - GIVEN a card whose phase reaches Shipped
 - WHEN the board renders the new snapshot
-- THEN the card SHALL fly into the release matrix using the shared flight primitive
+- THEN the card SHALL fade out in its slot
 - AND no separate ship-glyph animation SHALL play
 
 #### Scenario: SDLC-VIS-20.04 -- Reduced motion suppresses flights

@@ -11,18 +11,6 @@ export const deliveryMessages = defineMessages({
     description:
       "Top-level Glass tab that follows changes from merge to every environment (FLT-DLV-01).",
   },
-  pageTitle: {
-    id: "fleet.delivery.title",
-    defaultMessage: "Delivery",
-    description: "Delivery page heading (FLT-DLV-01).",
-  },
-  pageDescription: {
-    id: "fleet.delivery.description",
-    defaultMessage:
-      "Follow each change on main from merge, through build and release, to every environment.",
-    description:
-      "One-sentence description under the Delivery heading (FLT-DLV-01).",
-  },
   asOf: {
     id: "fleet.delivery.asOf",
     defaultMessage: "Data as of {time}",
@@ -218,7 +206,7 @@ export const deliveryMessages = defineMessages({
   },
   stageGitops: {
     id: "fleet.delivery.stage.gitops",
-    defaultMessage: "GitOps update",
+    defaultMessage: "Renovate",
     description: "Stage column: the bundle reaching the GitOps main branch.",
   },
   // States (FLT-DLV-04).
@@ -298,7 +286,7 @@ export const deliveryMessages = defineMessages({
   },
   reasonWaitingBundlePR: {
     id: "fleet.delivery.reason.waitingBundlePR",
-    defaultMessage: "Waiting for the bundle update pull request",
+    defaultMessage: "Waiting for Renovate",
     description:
       "GitOps update waiting for the automated pull request (FLT-DLV-07).",
   },
@@ -428,16 +416,6 @@ export const deliveryMessages = defineMessages({
     description: "A duration in days and hours.",
   },
   // Now and next (FLT-DLV-10).
-  nowNextTitle: {
-    id: "fleet.delivery.nowNext.title",
-    defaultMessage: "Now and next",
-    description: "Heading of the Now and next summary.",
-  },
-  nowNextList: {
-    id: "fleet.delivery.nowNext.list",
-    defaultMessage: "Changes in flight",
-    description: "Accessible name of the Now and next list.",
-  },
   now: {
     id: "fleet.delivery.nowNext.now",
     defaultMessage: "Now",
@@ -502,44 +480,11 @@ export const deliveryMessages = defineMessages({
     defaultMessage: "Delivered when this stage passes",
     description: "Next text when the current stage is the last one.",
   },
-  moreInTable: {
-    id: "fleet.delivery.nowNext.more",
-    defaultMessage:
-      "{count, plural, one {# more change} other {# more changes}} in the table below",
-    description: "Link from the summary to the full table (FLT-DLV-10).",
-  },
-  allDelivered: {
-    id: "fleet.delivery.nowNext.allDelivered",
-    defaultMessage: "Everything on main is delivered.",
-    description:
-      "Summary when every listed change is delivered (FLT-DLV-10.02).",
-  },
-  allDeliveredDetail: {
-    id: "fleet.delivery.nowNext.allDeliveredDetail",
-    defaultMessage:
-      "The newest change, {change}, reached every environment at {time}, {total} after merge.",
-    description: "Detail of the all-delivered summary (FLT-DLV-10.02).",
-  },
-  allDeliveredNoTime: {
-    id: "fleet.delivery.nowNext.allDeliveredNoTime",
-    defaultMessage: "The newest change, {change}, runs in every environment.",
-    description: "All-delivered detail when the delivery time is unknown.",
-  },
   // Table (FLT-DLV-03).
   tableTitle: {
     id: "fleet.delivery.table.title",
     defaultMessage: "Changes on main",
     description: "Heading of the change table.",
-  },
-  tableLabel: {
-    id: "fleet.delivery.table.label",
-    defaultMessage: "Changes on main and their delivery stages",
-    description: "Accessible name of the change table.",
-  },
-  columnChange: {
-    id: "fleet.delivery.table.change",
-    defaultMessage: "Change",
-    description: "First column of the change table.",
   },
   byAuthor: {
     id: "fleet.delivery.byAuthor",
@@ -547,16 +492,6 @@ export const deliveryMessages = defineMessages({
     description: "Change author.",
   },
   // Drawer (FLT-DLV-11).
-  drawerStages: {
-    id: "fleet.delivery.drawer.stages",
-    defaultMessage: "Stages",
-    description: "Drawer section: every stage.",
-  },
-  drawerStagesLabel: {
-    id: "fleet.delivery.drawer.stagesLabel",
-    defaultMessage: "Delivery stages",
-    description: "Accessible name of the drawer stage list.",
-  },
   stepRange: {
     id: "fleet.delivery.drawer.stepRange",
     defaultMessage: "{start} to {end} - {duration}",
@@ -641,29 +576,13 @@ export const deliveryMessages = defineMessages({
   },
   gitopsUpdate: {
     id: "fleet.delivery.drawer.gitopsUpdate",
-    defaultMessage: "GitOps update",
+    defaultMessage: "Renovate pull request",
     description: "Term for the GitOps update pull request.",
-  },
-  drawerEnvironments: {
-    id: "fleet.delivery.drawer.environments",
-    defaultMessage: "Environments",
-    description: "Drawer section: environments per group.",
   },
   openNode: {
     id: "fleet.delivery.drawer.openNode",
     defaultMessage: "Open {env} on Fleet Map",
     description: "Accessible name of an environment link.",
-  },
-  showOnMap: {
-    id: "fleet.delivery.drawer.showOnMap",
-    defaultMessage: "Show bundle on Fleet Map",
-    description:
-      "Opens the Fleet Map with the first bundle selected (FLT-DLV-11.01).",
-  },
-  showInSdlc: {
-    id: "fleet.delivery.drawer.showInSdlc",
-    defaultMessage: "Show bundle in Agent SDLC",
-    description: "Opens the bundle's Shipped row (FLT-DLV-11.02).",
   },
   viewCommit: {
     id: "fleet.delivery.drawer.viewCommit",
@@ -691,12 +610,6 @@ export const deliveryMessages = defineMessages({
     id: "fleet.delivery.nowNext.nextOverdue",
     defaultMessage: "{stage} - no arrival time while a stage is overdue",
     description: "Next text while a stage is Overdue (FLT-DLV-10.06).",
-  },
-  progressTitle: {
-    id: "fleet.delivery.progress.title",
-    defaultMessage: "Progress",
-    description:
-      "Progress bar heading when no percent can be told (FLT-DLV-19).",
   },
   progressPercent: {
     id: "fleet.delivery.progress.percent",
@@ -849,12 +762,12 @@ export const deliveryMessages = defineMessages({
   },
   lookBundlePR: {
     id: "fleet.delivery.look.bundlePR",
-    defaultMessage: "Bundle update pull request",
+    defaultMessage: "Renovate pull request",
     description: "Term for the GitOps update pull request.",
   },
   lookNoBundlePR: {
     id: "fleet.delivery.look.noBundlePR",
-    defaultMessage: "No bundle update pull request yet",
+    defaultMessage: "No Renovate pull request proposes this bundle yet",
     description: "The GitOps update pull request does not exist yet.",
   },
   lookAnalysis: {
@@ -946,12 +859,12 @@ export const deliveryMessages = defineMessages({
   },
   nowPendingBundle: {
     id: "fleet.delivery.now.pendingBundle",
-    defaultMessage: "{bundle} published {time}, not locked yet",
+    defaultMessage: "{bundle} published {time}, waiting for Renovate",
     description: "A published bundle not locked on GitOps main yet.",
   },
   nowBundlePr: {
     id: "fleet.delivery.now.bundlePr",
-    defaultMessage: "Bundle update pull request #{number}{checks}",
+    defaultMessage: "Renovate pull request #{number}{checks}",
     description: "The open bundle update pull request.",
   },
   nowGate: {
@@ -999,16 +912,6 @@ export const deliveryMessages = defineMessages({
     id: "fleet.delivery.now.proposed",
     defaultMessage: "{bundle} proposed",
     description: "An environment with a newer bundle proposed.",
-  },
-  nextPublished: {
-    id: "fleet.delivery.now.nextPublished",
-    defaultMessage: "{bundle} published",
-    description: "Next event: an inferred bundle is published.",
-  },
-  nextLocked: {
-    id: "fleet.delivery.now.nextLocked",
-    defaultMessage: "{bundle} locked on GitOps main",
-    description: "Next event: the next GitOps lock.",
   },
   nextRestart: {
     id: "fleet.delivery.now.nextRestart",
@@ -1119,5 +1022,106 @@ export const deliveryMessages = defineMessages({
     id: "fleet.delivery.now.environments",
     defaultMessage: "Environments now",
     description: "Accessible name of the environments now table.",
+  },
+  // FLT-DLV-03, FLT-DLV-11: the strip of change panels.
+  stripLabel: {
+    id: "fleet.delivery.strip.label",
+    defaultMessage: "Changes on main, newest first",
+    description:
+      "Accessible name of the sideways-scrolling strip of change panels.",
+  },
+  panelDelivered: {
+    id: "fleet.delivery.panel.delivered",
+    defaultMessage: "Delivered {time} - {total} from merge",
+    description:
+      "Change panel: the change runs everywhere; time and total from merge.",
+  },
+  panelDeliveredNoTime: {
+    id: "fleet.delivery.panel.deliveredNoTime",
+    defaultMessage: "Delivered",
+    description:
+      "Change panel: the change runs everywhere; no delivery time known.",
+  },
+  panelAllStages: {
+    id: "fleet.delivery.panel.allStages",
+    defaultMessage: "Every stage finished",
+    description: "Change panel: not delivered, but every stage finished.",
+  },
+  stepOpened: {
+    id: "fleet.delivery.step.opened",
+    defaultMessage: "opened {time}",
+    description: "Renovate step: when the Renovate pull request opened.",
+  },
+  stepEnv: {
+    id: "fleet.delivery.step.env",
+    defaultMessage: "{env}: {state}",
+    description: "Environment-group step: one environment and its state.",
+  },
+  envNotDeployed: {
+    id: "fleet.delivery.env.notDeployed",
+    defaultMessage: "Not deployed",
+    description:
+      "An environment where a later bundle replaced the change's first bundle (FLT-DLV-18).",
+  },
+  envReplacedBy: {
+    id: "fleet.delivery.env.replacedBy",
+    defaultMessage: "replaced by {bundle} {time}",
+    description:
+      "The later bundle that replaced the change's first bundle in an environment, and when it was promoted (FLT-DLV-18).",
+  },
+  envDeployed: {
+    id: "fleet.delivery.env.deployed",
+    defaultMessage: "{bundle} deployed {time}",
+    description:
+      "The change's first bundle and when it was deployed to an environment (FLT-DLV-18).",
+  },
+  bundleVersionPublished: {
+    id: "fleet.delivery.bundle.versionPublished",
+    defaultMessage: "{version} - published {time}",
+    description: "Bundle details: version and publication time.",
+  },
+  bundleLockedAt: {
+    id: "fleet.delivery.bundle.lockedAt",
+    defaultMessage: "Locked {time}",
+    description: "Bundle details: when GitOps main locked the bundle.",
+  },
+  // FLT-DLV-23: the Next answer of the Pipeline now panel.
+  nextExpecting: {
+    id: "fleet.delivery.now.nextExpecting",
+    defaultMessage: "Expecting bundle for {changes}",
+    description:
+      "Pipeline now Next: changes merged whose bundle is not published yet.",
+  },
+  nextRenovate: {
+    id: "fleet.delivery.now.nextRenovate",
+    defaultMessage: "{bundle} - {state}",
+    description:
+      "Pipeline now Next: a published bundle and its Renovate state.",
+  },
+  nextLockedAbout: {
+    id: "fleet.delivery.now.nextLockedAbout",
+    defaultMessage: "{text} - locked about {time}",
+    description:
+      "Pipeline now Next: expected time GitOps main locks the bundle.",
+  },
+  renovateWaiting: {
+    id: "fleet.delivery.renovate.waiting",
+    defaultMessage: "Waiting for Renovate",
+    description: "Renovate state: no pull request proposes the bundle yet.",
+  },
+  renovateRunning: {
+    id: "fleet.delivery.renovate.running",
+    defaultMessage: "PR #{number} open, checks running",
+    description: "Renovate state: the pull request is open and its checks run.",
+  },
+  renovatePassed: {
+    id: "fleet.delivery.renovate.passed",
+    defaultMessage: "PR #{number} checks passed",
+    description: "Renovate state: the pull request's checks passed.",
+  },
+  renovateFailed: {
+    id: "fleet.delivery.renovate.failed",
+    defaultMessage: "PR #{number} checks failed",
+    description: "Renovate state: the pull request's checks failed.",
   },
 });

@@ -7,6 +7,7 @@
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
+    "resolveJsonModule": true,
     "typeRoots": [
       "../../../components/web-console/node_modules/@types",
       "../../../node_modules/@types"
@@ -56,6 +57,12 @@
       ],
       "@patternfly/widgetized-dashboard": [
         "../../../components/web-console/node_modules/@patternfly/widgetized-dashboard"
+      ],
+      "@dicebear/core": [
+        "../../../components/web-console/node_modules/@dicebear/core"
+      ],
+      "@dicebear/styles/initials.json": [
+        "../../../components/web-console/node_modules/@dicebear/styles/dist/initials.min.json"
       ],
       "@patternfly/widgetized-dashboard/*": [
         "../../../components/web-console/node_modules/@patternfly/widgetized-dashboard/*"

@@ -80,8 +80,7 @@
      edge-to-edge without letterboxing at any width. */
   height: 100%;
   overflow: hidden;
-  border: 1px solid var(--pf-t--global--border--color--default, #444548);
-  border-radius: 8px;
+  /* No frame: the tab content fills the page width without a border. */
   background: var(--pf-t--global--background--color--primary--default, #0f1011);
 }
 

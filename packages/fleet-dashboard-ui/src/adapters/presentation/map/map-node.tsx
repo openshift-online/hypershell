@@ -33,7 +33,15 @@ import styles from "./topology-map.module.css";
 // One chip size system shared by EVERY card pill (provider, role, runtime) so
 // they read as one family: only width (measured) and colour
 // vary (FLT-CAP-04). Geometry is presentation-only; the pure layout never measures.
-const GUTTER = 10; // left inset: chips + chin sparklines start at x + GUTTER
+const GUTTER = 10; // left inset: chips start at x + GUTTER
+// Two-column card (FLT-CAP-08): identity + chips on the left, trend graphs on the
+// right. The graphs start at IDENT_W and leave COUNT_W at the right for the totals.
+const IDENT_W = 172;
+const COUNT_W = 44;
+const GRAPH_TOP = 12; // gateway graph top, from the card top
+const GRAPH_H = 32; // gateway graph height
+const SBX_TOP = 56; // sandbox graph top, from the card top
+const SBX_H = 30; // sandbox graph height
 const CHIP_H = 16;
 const CHIP_FONT = 9;
 const CHIP_WEIGHT = 700;
@@ -128,8 +136,6 @@ export interface MapNodeCardProps {
   readonly node: MapNode;
   readonly box: NodeBox;
   readonly selected: boolean;
-  /** Runs the selected release bundle - gets a dashed accent ring. */
-  readonly highlighted: boolean;
   readonly onSelect: (id: string) => void;
   /** Selects the node's active release bundle (clicking its identicon). */
   readonly onSelectBundle: (seed: string) => void;
@@ -156,7 +162,6 @@ export function MapNodeCard({
   node,
   box,
   selected,
-  highlighted,
   onSelect,
   onSelectBundle,
   displaySeed,
@@ -234,7 +239,10 @@ export function MapNodeCard({
   // Title/alias/cluster truncate with an ellipsis so a long name never overflows the
   // card edge (FLT-CAP-04). The identity block sits right of the identicon.
   const textX = x + 50;
-  const textMaxW = w - 58;
+  const textMaxW = IDENT_W - 58;
+  const graphX = x + IDENT_W;
+  const graphW = w - IDENT_W - COUNT_W;
+  const countX = x + w - COUNT_W / 2;
   const titleText = truncateToWidth(node.id, 13, 700, textMaxW);
   const aliasText = truncateToWidth(identiName(shownSeed), 10, 400, textMaxW);
   const clusterText =
@@ -289,19 +297,6 @@ export function MapNodeCard({
         </text>
       ) : null}
 
-      {highlighted ? (
-        <rect
-          x={x - 4}
-          y={y - 4}
-          width={w + 8}
-          height={h + 8}
-          rx={12}
-          fill="none"
-          stroke={TONE_COLOR.info}
-          strokeWidth={2}
-          strokeDasharray="5 4"
-        />
-      ) : null}
       <rect
         x={x}
         y={y}
@@ -454,33 +449,33 @@ export function MapNodeCard({
           full digest reads as clutter here. It remains available in the detail
           drawer and the release "freight" bar. */}
 
-      {/* gateway-history sparkline (upper chin). key={historySig}: remounts the
+      {/* gateway-history sparkline (right column, top). key={historySig}: remounts the
           subtree only when a new history sample lands, which replays the conveyor's
           left-shift (the slide itself lives inside SandSparkline). */}
       <g key={historySig}>
         <SandSparkline
           history={node.gatewayHistory}
-          x={x + 10}
-          y={y + h - 38}
-          width={w - 56}
-          height={12}
+          x={graphX}
+          y={y + GRAPH_TOP}
+          width={graphW}
+          height={GRAPH_H}
         />
       </g>
 
-      {/* gateway count (right of the upper chin): total gateways on this instance.
+      {/* gateway count (right of the gateway graph): total gateways on this instance.
           The sand sparkline carries the per-phase breakdown; this is just the tally.
           key={total}: remounts + replays the pulse only when the tally changes. */}
       <g key={total} className={styles.countPulse}>
         <circle
-          cx={x + w - 20}
-          cy={y + h - 38}
+          cx={countX}
+          cy={y + GRAPH_TOP + GRAPH_H / 2}
           r={13}
           fill={CARD_BG}
           stroke={CARD_STROKE}
         />
         <text
-          x={x + w - 20}
-          y={y + h - 38}
+          x={countX}
+          y={y + GRAPH_TOP + GRAPH_H / 2}
           textAnchor="middle"
           dominantBaseline="central"
           fontSize={12}
@@ -491,24 +486,24 @@ export function MapNodeCard({
         </text>
       </g>
 
-      {/* sandbox history (lower chin): total active-sandbox count over time, on the
-          EXACT same x-axis and width as the gateway sand sparkline above (x + 10,
-          w - 56), so the two chins line up and are directly comparable. Sandboxes are
+      {/* sandbox history (right column, below the gateway graph): total
+          active-sandbox count over time, on the EXACT same x-axis and width as the
+          gateway graph above, so the two line up and are directly comparable. Sandboxes are
           one population, so this is a single teal band rather than a stack. The live
           total sits on the right as a teal tally, mirroring the gateway count circle.
           key={sbxSig}: remounts to replay the conveyor slide only on a new sample. */}
       <g key={sbxSig}>
         <SandboxSparkline
           history={node.sandboxHistory}
-          x={x + 10}
-          y={y + h - 18}
-          width={w - 56}
-          height={11}
+          x={graphX}
+          y={y + SBX_TOP}
+          width={graphW}
+          height={SBX_H}
         />
       </g>
       <text
-        x={x + w - 20}
-        y={y + h - 12}
+        x={countX}
+        y={y + SBX_TOP + SBX_H / 2}
         textAnchor="middle"
         dominantBaseline="central"
         fontSize={11}

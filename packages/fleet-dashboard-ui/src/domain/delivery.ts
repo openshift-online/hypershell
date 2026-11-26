@@ -150,14 +150,49 @@ export interface DeliveryEnvState {
 }
 
 /**
- * Whether an environment's history is worth showing: more than one attempt, or
- * one that did not pass (FLT-DLV-18).
+ * An environment reported by the change's first bundle only (FLT-DLV-18).
+ * Every later bundle also contains the change, so a later bundle is shown
+ * only as the one that replaced the first, never as Passed for the change.
  */
-export function eventfulHistory(env: DeliveryEnvState): boolean {
-  return (
-    env.history.length > 1 ||
-    env.history.some((a) => a.outcome !== "passed" && a.outcome !== "running")
+export type FirstBundleOutcome =
+  | {
+      readonly kind: "passed" | "running" | "failed" | "unknown";
+      /** The first bundle's latest promotion in the environment. */
+      readonly attempt: DeliveryPromotion;
+      /** The first bundle's promotions there, oldest first. */
+      readonly attempts: readonly DeliveryPromotion[];
+    }
+  | {
+      readonly kind: "not-deployed";
+      /** The later promotion that replaced the first bundle, or got there first. */
+      readonly replacedBy: DeliveryPromotion;
+      readonly attempts: readonly DeliveryPromotion[];
+    }
+  | { readonly kind: "none" };
+
+export function firstBundleOutcome(
+  firstDigest: string | null,
+  env: DeliveryEnvState,
+): FirstBundleOutcome {
+  const first = firstDigest ?? env.history[0]?.digest ?? null;
+  if (first === null) {
+    return { kind: "none" };
+  }
+  const attempts = env.history.filter((a) => a.digest === first);
+  const latest = attempts.at(-1);
+  const since =
+    latest !== undefined ? Date.parse(latest.promotedAt) : -Infinity;
+  const later = env.history.find(
+    (a) => a.digest !== first && Date.parse(a.promotedAt) > since,
   );
+  if (latest === undefined || latest.outcome === "replaced") {
+    return later !== undefined
+      ? { kind: "not-deployed", replacedBy: later, attempts }
+      : latest !== undefined
+        ? { kind: "unknown", attempt: latest, attempts }
+        : { kind: "none" };
+  }
+  return { kind: latest.outcome, attempt: latest, attempts };
 }
 
 export interface DeliveryChange {
@@ -270,7 +305,10 @@ export interface DeliveryEnvNow {
 }
 
 export type NextEventKind =
-  "bundle-published" | "locked" | "restart" | "promote";
+  "expecting-bundle" | "renovate" | "restart" | "promote";
+
+/** The Renovate state of a published bundle not locked yet (FLT-DLV-07). */
+export type RenovateState = "waiting" | "running" | "passed" | "failed";
 
 /** One expected event, in order (FLT-DLV-23). */
 export interface DeliveryNextEvent {
@@ -280,6 +318,11 @@ export interface DeliveryNextEvent {
   readonly digest: string | null;
   readonly envs: readonly string[];
   readonly after: readonly string[];
+  /** The changes that ride the expected bundle (expecting-bundle). */
+  readonly changes: readonly DeliveryCommitRef[];
+  /** The bundle's Renovate state and pull request (renovate). */
+  readonly state: RenovateState | null;
+  readonly pr: number | null;
   readonly at: string | null;
 }
 
@@ -311,6 +354,11 @@ export interface DeliveryNow {
     readonly number: number;
     readonly url: string | null;
     readonly checks: string | null;
+    /** When the Renovate pull request opened (FLT-DLV-07). */
+    readonly createdAt: string | null;
+    /** The bundle it proposes, from the release lock at its head. */
+    readonly digest: string | null;
+    readonly version: string | null;
   } | null;
   readonly environments: readonly DeliveryEnvNow[];
   readonly next: readonly DeliveryNextEvent[];
@@ -351,15 +399,8 @@ export const SOURCE_STAGES: Readonly<
   history: [],
 };
 
-/** Severity of a Now and next row and of the summary heading (FLT-DLV-10). */
+/** Severity of a change panel (FLT-DLV-10). */
 export type DeliverySeverity = "danger" | "warning" | "info" | "good";
-
-const SEVERITY_RANK: Readonly<Record<DeliverySeverity, number>> = {
-  good: 0,
-  info: 1,
-  warning: 2,
-  danger: 3,
-};
 
 function parseMs(iso: string | null): number | null {
   if (iso === null || iso === "") {
@@ -693,22 +734,6 @@ export interface NowNextRow {
   readonly severity: DeliverySeverity;
 }
 
-export interface NowNextSummary {
-  readonly rows: readonly NowNextRow[];
-  /** Undelivered changes beyond the three shown. */
-  readonly more: number;
-  readonly severity: DeliverySeverity;
-  /** Set when every listed change is delivered (FLT-DLV-10.02). */
-  readonly delivered: {
-    readonly change: DeliveryChange;
-    readonly deliveredAtMs: number | null;
-    readonly totalMs: number | null;
-  } | null;
-}
-
-/** At most this many rows in the summary (FLT-DLV-10). */
-export const NOW_NEXT_LIMIT = 3;
-
 function nowNextRow(
   data: DeliveryData,
   change: DeliveryChange,
@@ -767,54 +792,52 @@ function nowNextRow(
   return { change, now, next, severity };
 }
 
-/** The Now and next summary (FLT-DLV-10). */
-export function nowAndNext(data: DeliveryData, nowMs: number): NowNextSummary {
-  const inFlight: NowNextRow[] = [];
-  for (const change of data.changes) {
-    if (change.delivered) {
-      continue;
+/** A change panel's Now and Next, or its delivery (FLT-DLV-10). */
+export type ChangeNowNext =
+  | { readonly kind: "in-flight"; readonly row: NowNextRow }
+  | {
+      readonly kind: "delivered";
+      readonly deliveredAtMs: number | null;
+      /** From the merge to the delivery. */
+      readonly totalMs: number | null;
     }
-    const index = currentStageIndex(change);
-    if (index === null) {
-      continue;
-    }
-    inFlight.push(nowNextRow(data, change, index, nowMs));
-  }
+  /** Not delivered, and every stage passed or was not needed. */
+  | { readonly kind: "none" };
 
-  if (inFlight.length === 0) {
-    const newest = data.changes[0];
-    if (!newest?.delivered) {
-      return { rows: [], more: 0, severity: "info", delivered: null };
-    }
-    const deliveredAtMs = parseMs(newest.deliveredAt);
-    const mergedMs = parseMs(newest.mergedAt);
+/** Where one change is now and what comes next (FLT-DLV-10). */
+export function changeNowNext(
+  data: DeliveryData,
+  change: DeliveryChange,
+  nowMs: number,
+): ChangeNowNext {
+  if (change.delivered) {
+    const deliveredAtMs = parseMs(change.deliveredAt);
+    const mergedMs = parseMs(change.mergedAt);
     return {
-      rows: [],
-      more: 0,
-      severity: "good",
-      delivered: {
-        change: newest,
-        deliveredAtMs,
-        totalMs:
-          deliveredAtMs !== null && mergedMs !== null
-            ? Math.max(0, deliveredAtMs - mergedMs)
-            : null,
-      },
+      kind: "delivered",
+      deliveredAtMs,
+      totalMs:
+        deliveredAtMs !== null && mergedMs !== null
+          ? Math.max(0, deliveredAtMs - mergedMs)
+          : null,
     };
   }
+  const index = currentStageIndex(change);
+  return index === null
+    ? { kind: "none" }
+    : { kind: "in-flight", row: nowNextRow(data, change, index, nowMs) };
+}
 
-  // Severity follows every undelivered change, not only the three shown.
-  const severity = inFlight.reduce<DeliverySeverity>(
-    (worst, row) =>
-      SEVERITY_RANK[row.severity] > SEVERITY_RANK[worst] ? row.severity : worst,
-    "info",
-  );
-  return {
-    rows: inFlight.slice(0, NOW_NEXT_LIMIT),
-    more: Math.max(0, inFlight.length - NOW_NEXT_LIMIT),
-    severity,
-    delivered: null,
-  };
+/** The severity of a change panel: good once delivered (FLT-DLV-10). */
+export function changeSeverity(status: ChangeNowNext): DeliverySeverity {
+  switch (status.kind) {
+    case "in-flight":
+      return status.row.severity;
+    case "delivered":
+      return "good";
+    default:
+      return "info";
+  }
 }
 
 export type NowAnswer = "heads" | "in-flight" | "next";

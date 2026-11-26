@@ -8,7 +8,11 @@ import { identiName } from "../../../domain/map/identiname";
 import { parseRoute } from "../../../domain/navigation/route";
 import { createMemoryHistory } from "../../routing/history-port";
 import { RouterProvider } from "../../routing/router";
-import { AgentSdlcView, type AgentSdlcViewProps } from "./agent-sdlc-view";
+import {
+  AgentSdlcView,
+  ShippedSection,
+  type AgentSdlcViewProps,
+} from "./agent-sdlc-view";
 
 const EMPTY: AgentSdlcData = {
   phases: [],
@@ -142,7 +146,28 @@ describe("AgentSdlcView escalations notification drawer", () => {
   });
 });
 
-describe("AgentSdlcView matrix", () => {
+/** The Shipped matrix now lives on the Delivery tab (FLT-DLV-25). */
+function renderShipped(overrides: Partial<AgentSdlcViewProps>): {
+  history: ReturnType<typeof createMemoryHistory>;
+} {
+  const history = createMemoryHistory({ path: "/delivery", search: "" });
+  render(
+    <IntlProvider locale="en" defaultLocale="en">
+      <RouterProvider history={history}>
+        <ShippedSection
+          data={overrides.data ?? EMPTY}
+          nowMs={overrides.nowMs}
+          selectedBundleSeed={null}
+        />
+      </RouterProvider>
+    </IntlProvider>,
+  );
+  return { history };
+}
+
+describe("Shipped matrix on the Delivery tab", () => {
+  const renderView = renderShipped;
+
   // Verifies: FLT-NAV-08.02
   it("shows the Unreleased row and cross-links a bundle to the map", () => {
     const data: AgentSdlcData = {
@@ -541,7 +566,7 @@ describe("AgentSdlcView phase-transition flights", () => {
   });
 
   // Verifies: SDLC-VIS-20.03
-  it("flies the card into the release matrix on the Shipped hop", () => {
+  it("fades the card out in its slot on the Shipped hop", () => {
     const onBoard: AgentSdlcData = {
       ...flightData("spec-approved"),
       cards: [card({ phase: "spec-approved" })],
@@ -575,7 +600,7 @@ describe("AgentSdlcView phase-transition flights", () => {
     };
     const { rerender } = render(tree(onBoard));
     rerender(tree(shipped));
-    // The departing card flies into the matrix (one flight), and is gone from the board.
+    // The departing card gets one in-place flight that fades out, and is gone from the board.
     expect(document.querySelectorAll('[data-card-flight="10"]')).toHaveLength(
       1,
     );

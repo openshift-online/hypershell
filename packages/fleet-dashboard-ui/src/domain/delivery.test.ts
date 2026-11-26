@@ -6,16 +6,21 @@ import {
   type DeliveryData,
   type DeliveryStage,
   type DeliveryStageState,
+  type NowNextRow,
   changeListUnavailable,
   currentStageIndex,
   degradedSources,
   arrivals,
   findChange,
   isOverdue,
-  nowAndNext,
+  changeNowNext,
+  changeSeverity,
   nowUnknown,
   progress,
   whereToLook,
+  firstBundleOutcome,
+  type DeliveryEnvState,
+  type DeliveryPromotion,
 } from "./delivery";
 
 const PIPELINE = ["merged", "build", "policy", "release", "gitops"] as const;
@@ -134,10 +139,16 @@ const FIXED_NOW = Date.parse("2026-11-01T18:00:00Z");
 
 const SHA_A = "a15cc91".padEnd(40, "0");
 const SHA_B = "b4ccd51".padEnd(40, "0");
-const SHA_C = "c53fb9b".padEnd(40, "0");
-const SHA_D = "d0000000".padEnd(40, "0");
 
-describe("nowAndNext (FLT-DLV-10)", () => {
+/** The in-flight Now and Next row of the change at index i. */
+function rowOf(d: DeliveryData, nowMs: number, i = 0): NowNextRow | undefined {
+  const c = d.changes[i];
+  if (c === undefined) return undefined;
+  const s = changeNowNext(d, c, nowMs);
+  return s.kind === "in-flight" ? s.row : undefined;
+}
+
+describe("changeNowNext (FLT-DLV-10)", () => {
   // Verifies: FLT-DLV-10.01
   it("states Now with elapsed and typical time, and Next with its expected time", () => {
     const nowMs = Date.parse("2026-11-01T15:17:00Z");
@@ -156,9 +167,7 @@ describe("nowAndNext (FLT-DLV-10)", () => {
       ],
       { build: 600, policy: 180 },
     );
-    const summary = nowAndNext(d, nowMs);
-    expect(summary.rows).toHaveLength(1);
-    const row = summary.rows[0];
+    const row = rowOf(d, nowMs);
     expect(row?.now.stage.key).toBe("build");
     expect(row?.now.elapsedMs).toBe(6 * 60_000);
     expect(row?.now.estimateMs).toBe(10 * 60_000);
@@ -169,7 +178,7 @@ describe("nowAndNext (FLT-DLV-10)", () => {
       stage: expect.objectContaining({ key: "policy" }) as DeliveryStage,
       expectedAtMs: Date.parse("2026-11-01T15:24:00Z"),
     });
-    expect(summary.severity).toBe("info");
+    expect(row?.severity).toBe("info");
   });
 
   it("never counts the remaining time of an overdue stage below zero", () => {
@@ -186,7 +195,7 @@ describe("nowAndNext (FLT-DLV-10)", () => {
       ],
       { build: 600, policy: 180 },
     );
-    const next = nowAndNext(d, nowMs).rows[0]?.next;
+    const next = rowOf(d, nowMs)?.next;
     expect(next).toMatchObject({
       kind: "stage",
       expectedAtMs: nowMs + 180_000,
@@ -208,33 +217,29 @@ describe("nowAndNext (FLT-DLV-10)", () => {
       ],
       { build: 600 },
     );
-    const row = nowAndNext(d, nowMs).rows[0];
+    const row = rowOf(d, nowMs);
     expect(row?.next).toMatchObject({ kind: "stage", expectedAtMs: null });
   });
 
   // Verifies: FLT-DLV-10.02
-  it("reports everything delivered with the newest change's delivery time", () => {
+  it("reports a delivered change with its delivery time and total", () => {
     const delivered = change(SHA_A, "env:int", "passed", {
       delivered: true,
       deliveredAt: "2026-11-01T16:30:00Z",
     });
-    const older = change(SHA_B, "env:int", "passed", {
-      delivered: true,
-      deliveredAt: "2026-11-01T14:00:00Z",
-    });
-    const summary = nowAndNext(data([delivered, older]), FIXED_NOW);
-    expect(summary.rows).toHaveLength(0);
-    expect(summary.severity).toBe("good");
-    expect(summary.delivered?.change.sha).toBe(SHA_A);
-    expect(summary.delivered?.deliveredAtMs).toBe(
-      Date.parse("2026-11-01T16:30:00Z"),
-    );
+    const d = data([delivered]);
+    const status = changeNowNext(d, delivered, FIXED_NOW);
     // Merged 15:00, delivered 16:30.
-    expect(summary.delivered?.totalMs).toBe(90 * 60_000);
+    expect(status).toEqual({
+      kind: "delivered",
+      deliveredAtMs: Date.parse("2026-11-01T16:30:00Z"),
+      totalMs: 90 * 60_000,
+    });
+    expect(changeSeverity(status)).toBe("good");
   });
 
   // Verifies: FLT-DLV-10.03
-  it("uses the highest severity across all undelivered changes", () => {
+  it("puts a failure before an overdue stage", () => {
     const nowMs = Date.parse("2026-11-01T18:00:00Z");
     const overdueGitops = change(
       SHA_B,
@@ -244,37 +249,19 @@ describe("nowAndNext (FLT-DLV-10)", () => {
       { startedAt: "2026-11-01T15:00:00Z" },
     );
     const failedBuild = change(SHA_A, "build", "failed");
-    const summary = nowAndNext(
-      data([overdueGitops, failedBuild], { gitops: 600 }),
-      nowMs,
-    );
-    expect(summary.rows.map((r) => r.severity)).toEqual(["warning", "danger"]);
-    expect(summary.severity).toBe("danger");
-    expect(summary.rows[1]?.next).toEqual({
+    const d = data([overdueGitops, failedBuild], { gitops: 600 });
+    expect(rowOf(d, nowMs, 0)?.severity).toBe("warning");
+    expect(rowOf(d, nowMs, 1)?.severity).toBe("danger");
+    expect(rowOf(d, nowMs, 1)?.next).toEqual({
       kind: "restart",
       restart: "new-change",
     });
   });
 
-  it("follows severity beyond the three listed rows and counts the rest", () => {
-    const changes = [
-      change(SHA_A, "build", "running"),
-      change(SHA_B, "build", "running"),
-      change(SHA_C, "build", "running"),
-      change(SHA_D, "build", "failed"),
-    ];
-    const summary = nowAndNext(data(changes), FIXED_NOW);
-    expect(summary.rows).toHaveLength(3);
-    expect(summary.more).toBe(1);
-    expect(summary.severity).toBe("danger");
-  });
-
   it("restarts a failed environment group from its gate, not a new change", () => {
-    const summary = nowAndNext(
-      data([change(SHA_A, "env:int", "failed")]),
-      FIXED_NOW,
-    );
-    expect(summary.rows[0]?.next).toEqual({
+    expect(
+      rowOf(data([change(SHA_A, "env:int", "failed")]), FIXED_NOW)?.next,
+    ).toEqual({
       kind: "restart",
       restart: "gate-retry",
     });
@@ -588,7 +575,7 @@ describe("restart by a newer bundle (FLT-DLV-10.07)", () => {
       kind: "time",
       atMs: Date.parse("2026-11-01T14:05:00Z"),
     });
-    const row = nowAndNext(d, nowMs).rows[0];
+    const row = rowOf(d, nowMs);
     expect(row?.next).toMatchObject({
       kind: "bundle-restart",
       restart,
@@ -614,5 +601,76 @@ describe("nowUnknown (FLT-DLV-23)", () => {
         },
       }),
     ).toEqual({ answers: ["next"], sources: ["history"] });
+  });
+});
+
+describe("firstBundleOutcome (FLT-DLV-18)", () => {
+  const promo = (
+    digest: string,
+    promotedAt: string,
+    outcome: DeliveryPromotion["outcome"],
+  ): DeliveryPromotion => ({
+    version: digest,
+    digest,
+    gitopsPr: null,
+    promotedAt,
+    url: null,
+    outcome,
+    gate: null,
+    gatesPassedAt: null,
+  });
+  const envOf = (history: DeliveryPromotion[]): DeliveryEnvState => ({
+    env: "e",
+    group: "int",
+    state: "passed",
+    contains: true,
+    waitingFor: [],
+    history,
+    analysisUrl: null,
+    argoUrl: null,
+  });
+
+  // Verifies: FLT-DLV-18.04
+  it("reports the first bundle when it passed", () => {
+    const o = firstBundleOutcome(
+      "b1",
+      envOf([promo("b1", "2026-11-01T23:00:00Z", "passed")]),
+    );
+    expect(o.kind).toBe("passed");
+  });
+
+  // Verifies: FLT-DLV-18.01
+  it("reports Not deployed when a later bundle replaced the first", () => {
+    const later = promo("b2", "2026-11-01T23:10:00Z", "passed");
+    const o = firstBundleOutcome(
+      "b1",
+      envOf([promo("b1", "2026-11-01T23:00:00Z", "replaced"), later]),
+    );
+    expect(o).toMatchObject({ kind: "not-deployed", replacedBy: later });
+  });
+
+  // Verifies: FLT-DLV-18.01
+  it("reports Not deployed when a later bundle got there first", () => {
+    const later = promo("b2", "2026-11-01T23:10:00Z", "passed");
+    expect(firstBundleOutcome("b1", envOf([later]))).toMatchObject({
+      kind: "not-deployed",
+      replacedBy: later,
+    });
+  });
+
+  // Verifies: FLT-DLV-18.02
+  it("keeps the first bundle's failure even when a later bundle passed", () => {
+    const o = firstBundleOutcome(
+      "b1",
+      envOf([
+        promo("b1", "2026-11-01T23:00:00Z", "failed"),
+        promo("b2", "2026-11-01T23:10:00Z", "passed"),
+      ]),
+    );
+    expect(o.kind).toBe("failed");
+  });
+
+  it("reports nothing before any promotion", () => {
+    expect(firstBundleOutcome("b1", envOf([])).kind).toBe("none");
   });
 });

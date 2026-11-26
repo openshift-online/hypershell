@@ -18,6 +18,7 @@ import {
   type DeliveryTrainBundle,
   type MissingState,
   type NextEventKind,
+  type RenovateState,
   type DeliveryPromotion,
   type DeliverySourceKey,
   type DeliverySourceStatus,
@@ -223,6 +224,9 @@ interface WireNow {
     readonly number?: number;
     readonly url?: string;
     readonly checks?: string;
+    readonly createdAt?: string;
+    readonly digest?: string;
+    readonly version?: string;
   } | null;
   readonly environments?:
     | readonly {
@@ -249,6 +253,15 @@ interface WireNow {
         readonly digest?: string;
         readonly envs?: readonly string[] | null;
         readonly after?: readonly string[] | null;
+        readonly changes?:
+          | readonly {
+              readonly sha?: string;
+              readonly shortSha?: string;
+              readonly pr?: number;
+            }[]
+          | null;
+        readonly state?: string;
+        readonly pr?: number;
         readonly at?: string;
       }[]
     | null;
@@ -392,11 +405,24 @@ function mapTrainBundle(raw: WireTrainBundle): DeliveryTrainBundle {
 }
 
 const NEXT_KINDS: readonly NextEventKind[] = [
-  "bundle-published",
-  "locked",
+  "expecting-bundle",
+  "renovate",
   "restart",
   "promote",
 ];
+
+const RENOVATE_STATES: readonly RenovateState[] = [
+  "waiting",
+  "running",
+  "passed",
+  "failed",
+];
+
+function mapRenovateState(v: string | undefined): RenovateState | null {
+  return (RENOVATE_STATES as readonly string[]).includes(v ?? "")
+    ? (v as RenovateState)
+    : null;
+}
 
 function mapNow(raw: WireNow | null | undefined): DeliveryNow {
   const app = raw?.appHead;
@@ -429,7 +455,14 @@ function mapNow(raw: WireNow | null | undefined): DeliveryNow {
       pr: positive(c.pr),
     })),
     bundlePr: pr?.number
-      ? { number: pr.number, url: str(pr.url), checks: str(pr.checks) }
+      ? {
+          number: pr.number,
+          url: str(pr.url),
+          checks: str(pr.checks),
+          createdAt: str(pr.createdAt),
+          digest: str(pr.digest),
+          version: str(pr.version),
+        }
       : null,
     environments: (raw?.environments ?? []).map((e) => ({
       env: e.env ?? "",
@@ -456,6 +489,19 @@ function mapNow(raw: WireNow | null | undefined): DeliveryNow {
               digest: str(e.digest),
               envs: e.envs ?? [],
               after: e.after ?? [],
+              changes: (e.changes ?? []).flatMap((c) =>
+                c.sha
+                  ? [
+                      {
+                        sha: c.sha,
+                        shortSha: c.shortSha ?? c.sha.slice(0, 7),
+                        pr: positive(c.pr),
+                      },
+                    ]
+                  : [],
+              ),
+              state: mapRenovateState(e.state),
+              pr: positive(e.pr),
               at: str(e.at),
             },
           ]

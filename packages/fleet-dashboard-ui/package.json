@@ -17,6 +17,8 @@
     "typecheck": "tsc --project tsconfig.app.json --noEmit && tsc --project tsconfig.test.json --noEmit"
   },
   "dependencies": {
+    "@dicebear/core": "10.7.0",
+    "@dicebear/styles": "10.6.0",
     "@patternfly/react-core": "6.6.1",
     "@patternfly/react-icons": "6.6.1",
     "@patternfly/react-table": "6.6.1",

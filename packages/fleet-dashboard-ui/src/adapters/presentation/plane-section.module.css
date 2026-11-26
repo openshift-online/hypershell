@@ -1,0 +1,7 @@
+/* A plain plane section: no frame and no side padding, so a wide surface such
+   as the Fleet Map uses the full width of the page. */
+.plain {
+  --pf-v6-c-card--child--PaddingInlineStart: 0;
+  --pf-v6-c-card--child--PaddingInlineEnd: 0;
+  --pf-v6-c-card--first-child--PaddingBlockStart: 0;
+}

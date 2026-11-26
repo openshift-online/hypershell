@@ -27,7 +27,6 @@ export type NavAction =
   // Cross-tab links (one Back-addressable step each, FLT-NAV-08).
   | { readonly type: "openHistory"; readonly run: string }
   | { readonly type: "openBundleOnMap"; readonly seed: string }
-  | { readonly type: "openBundleInSdlc"; readonly seed: string }
   | { readonly type: "openNodeOnMap"; readonly id: string }
   // Fleet Map.
   | { readonly type: "mapSelectNode"; readonly id: string }
@@ -44,16 +43,9 @@ export type NavAction =
   | { readonly type: "sdlcScopes"; readonly scopes: readonly string[] }
   | { readonly type: "sdlcQuery"; readonly value: string }
   | { readonly type: "sdlcCard"; readonly card: number | null }
-  | {
-      readonly type: "sdlcShipped";
-      readonly shipped: {
-        readonly issue: number;
-        readonly version: string | null;
-      } | null;
-    }
   | { readonly type: "sdlcToggleEscalations" }
   | { readonly type: "sdlcOpenEscalationCard"; readonly card: number }
-  | { readonly type: "sdlcShippedRow"; readonly seed: string | null }
+  | { readonly type: "shippedRow"; readonly seed: string | null }
   | { readonly type: "sdlcClosePanel" }
   // E2E Runs.
   | { readonly type: "e2eQuery"; readonly value: string }
@@ -121,17 +113,8 @@ export function reduceRoute(state: RouteState, action: NavAction): RouteState {
       });
 
     case "openBundleOnMap":
-      // SDLC shipped bundle -> Fleet Map bundle, as one history step.
+      // Shipped bundle -> Fleet Map bundle, as one history step.
       return normalizeRoute({ ...state, tab: "map", bundle: action.seed });
-
-    case "openBundleInSdlc":
-      // Delivery change -> its bundle's Shipped row in Agent SDLC, as one history
-      // step (FLT-DLV-11).
-      return normalizeRoute({
-        ...state,
-        tab: "sdlc",
-        sdlc: { ...state.sdlc, shippedRow: action.seed },
-      });
 
     case "openNodeOnMap":
       // Delivery environment -> its Fleet Map node, as one history step.
@@ -147,6 +130,7 @@ export function reduceRoute(state: RouteState, action: NavAction): RouteState {
       return normalizeRoute({
         ...state,
         delivery: {
+          ...state.delivery,
           change:
             action.sha !== null && action.sha === state.delivery.change
               ? null
@@ -260,21 +244,7 @@ export function reduceRoute(state: RouteState, action: NavAction): RouteState {
         sdlc: {
           ...state.sdlc,
           card: action.card,
-          shipped: null,
-          shippedVersion: null,
           escalations: action.card === null ? state.sdlc.escalations : false,
-        },
-      });
-
-    case "sdlcShipped":
-      return normalizeRoute({
-        ...state,
-        sdlc: {
-          ...state.sdlc,
-          card: null,
-          shipped: action.shipped?.issue ?? null,
-          shippedVersion: action.shipped?.version ?? null,
-          escalations: false,
         },
       });
 
@@ -286,8 +256,6 @@ export function reduceRoute(state: RouteState, action: NavAction): RouteState {
           escalations: !state.sdlc.escalations,
           // Opening or closing the list clears any open detail card.
           card: null,
-          shipped: null,
-          shippedVersion: null,
         },
       });
 
@@ -301,18 +269,18 @@ export function reduceRoute(state: RouteState, action: NavAction): RouteState {
           ...state.sdlc,
           escalations: true,
           card: action.card,
-          shipped: null,
         },
       });
 
-    case "sdlcShippedRow":
-      // Toggle the expanded matrix row (addressed by bundle seed).
+    case "shippedRow":
+      // Toggle the expanded Shipped row on the Delivery tab, addressed by bundle
+      // seed (FLT-DLV-25).
       return normalizeRoute({
         ...state,
-        sdlc: {
-          ...state.sdlc,
+        delivery: {
+          ...state.delivery,
           shippedRow:
-            state.sdlc.shippedRow === action.seed ? null : action.seed,
+            state.delivery.shippedRow === action.seed ? null : action.seed,
         },
       });
 
@@ -322,8 +290,6 @@ export function reduceRoute(state: RouteState, action: NavAction): RouteState {
         sdlc: {
           ...state.sdlc,
           card: null,
-          shipped: null,
-          shippedVersion: null,
           escalations: false,
         },
       });

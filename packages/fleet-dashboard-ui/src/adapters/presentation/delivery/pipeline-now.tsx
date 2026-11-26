@@ -32,6 +32,8 @@ import {
 } from "../../../domain/delivery";
 import { identiName } from "../../../domain/map/identiname";
 import {
+  BundleName,
+  RichText,
   STATE_LABEL,
   StageStateIcon,
   formatClock,
@@ -42,11 +44,28 @@ import { SOURCE_LABEL } from "./delivery-format";
 import { deliveryMessages as m } from "./delivery-messages";
 import styles from "./delivery-view.module.css";
 
-interface NowItem {
+/** The separator between the parts of a line, used across the tab. */
+const SEPARATOR = " - ";
+
+/** Text with the times and bundles it names (FLT-DLV-24). */
+interface Rich {
+  readonly text: string;
+  readonly times: readonly (string | number | null)[];
+  readonly bundles: readonly (string | null)[];
+}
+
+function rich(
+  text: string,
+  times: readonly (string | number | null)[] = [],
+  bundles: readonly (string | null)[] = [],
+): Rich {
+  return { text, times, bundles };
+}
+
+interface NowItem extends Rich {
   readonly key: string;
   readonly term: string;
   readonly state: DeliveryStageState;
-  readonly text: string;
 }
 
 function StateText({
@@ -54,24 +73,27 @@ function StateText({
   text,
 }: {
   readonly state: DeliveryStageState;
-  readonly text: string;
+  readonly text: Rich;
 }) {
   const intl = useIntl();
-  const suffix = text ? joinText(["", text]) : "";
   return (
     <>
       <StageStateIcon state={state} />
       <span className={styles.iconGap}>
         {intl.formatMessage(STATE_LABEL[state])}
       </span>
-      {suffix ? <span className={styles.subtle}>{suffix}</span> : null}
+      {text.text ? (
+        <span className={styles.subtle}>
+          {SEPARATOR}
+          <RichText
+            bundles={text.bundles}
+            text={text.text}
+            times={text.times}
+          />
+        </span>
+      ) : null}
     </>
   );
-}
-
-/** Joins text parts with the separator used across the tab. */
-function joinText(parts: readonly string[]): string {
-  return parts.join(" - ");
 }
 
 function elapsed(intl: IntlShape, iso: string | null, nowMs: number): string {
@@ -117,30 +139,41 @@ function gateText(
   return intl.formatMessage(withBundle ? m.nowGateOn : m.nowGate, values);
 }
 
-function envText(intl: IntlShape, env: DeliveryEnvNow, nowMs: number): string {
+function envText(intl: IntlShape, env: DeliveryEnvNow, nowMs: number): Rich {
   switch (env.state) {
     case "running":
-      return gateText(intl, env, nowMs, false);
+      return rich(gateText(intl, env, nowMs, false));
     case "failed":
-      return intl.formatMessage(m.nowGateFailed, {
-        gate: gateName(intl, env.gate),
-      });
+      return rich(
+        intl.formatMessage(m.nowGateFailed, {
+          gate: gateName(intl, env.gate),
+        }),
+      );
     case "waiting":
       return env.waitingFor.length > 0
-        ? intl.formatMessage(m.nowWaitingFor, {
-            envs: intl.formatList(env.waitingFor),
-          })
-        : intl.formatMessage(m.nowProposed, {
-            bundle: alias(env.proposedDigest, env.proposedVersion),
-          });
+        ? rich(
+            intl.formatMessage(m.nowWaitingFor, {
+              envs: intl.formatList(env.waitingFor),
+            }),
+          )
+        : rich(
+            intl.formatMessage(m.nowProposed, {
+              bundle: alias(env.proposedDigest, env.proposedVersion),
+            }),
+            [],
+            [env.proposedDigest],
+          );
     case "passed":
       return env.passedAt !== null
-        ? intl.formatMessage(m.nowGatesPassed, {
-            time: formatClock(intl, env.passedAt),
-          })
-        : intl.formatMessage(m.nowHealthy);
+        ? rich(
+            intl.formatMessage(m.nowGatesPassed, {
+              time: formatClock(intl, env.passedAt, nowMs),
+            }),
+            [env.passedAt],
+          )
+        : rich(intl.formatMessage(m.nowHealthy));
     default:
-      return "";
+      return rich("");
   }
 }
 
@@ -154,11 +187,13 @@ function inFlight(
     key: `${c.kind}:${c.component}:${c.shortSha}`,
     term: intl.formatMessage(c.kind === "build" ? m.stageBuild : m.stagePolicy),
     state: "running",
-    text: intl.formatMessage(m.nowCheckRunning, {
-      component: c.component,
-      elapsed: elapsed(intl, c.startedAt, nowMs),
-      change: change(c.shortSha, c.pr),
-    }),
+    ...rich(
+      intl.formatMessage(m.nowCheckRunning, {
+        component: c.component,
+        elapsed: elapsed(intl, c.startedAt, nowMs),
+        change: change(c.shortSha, c.pr),
+      }),
+    ),
   }));
   for (const b of data.train) {
     if (b.inferred) {
@@ -166,26 +201,33 @@ function inFlight(
         key: `infer:${bundleName(intl, b)}`,
         term: intl.formatMessage(m.stageRelease),
         state: "running",
-        text: intl.formatMessage(m.nowReleasingInferred, {
-          bundle: bundleName(intl, b),
-          built: formatClock(intl, b.builtAt),
-          policy:
-            b.policyAt !== null
-              ? intl.formatMessage(m.nowPolicyPassedAt, {
-                  time: formatClock(intl, b.policyAt),
-                })
-              : "",
-        }),
+        ...rich(
+          intl.formatMessage(m.nowReleasingInferred, {
+            bundle: bundleName(intl, b),
+            built: formatClock(intl, b.builtAt, nowMs),
+            policy:
+              b.policyAt !== null
+                ? intl.formatMessage(m.nowPolicyPassedAt, {
+                    time: formatClock(intl, b.policyAt, nowMs),
+                  })
+                : "",
+          }),
+          [b.builtAt, b.policyAt],
+        ),
       });
     } else if (!b.locked) {
       items.push({
         key: `pending:${b.digest ?? ""}`,
         term: intl.formatMessage(m.stageGitops),
         state: "waiting",
-        text: intl.formatMessage(m.nowPendingBundle, {
-          bundle: bundleName(intl, b),
-          time: formatClock(intl, b.publishedAt),
-        }),
+        ...rich(
+          intl.formatMessage(m.nowPendingBundle, {
+            bundle: bundleName(intl, b),
+            time: formatClock(intl, b.publishedAt, nowMs),
+          }),
+          [b.publishedAt],
+          [b.digest],
+        ),
       });
     }
   }
@@ -194,10 +236,12 @@ function inFlight(
       key: "bundle-pr",
       term: intl.formatMessage(m.stageGitops),
       state: "running",
-      text: intl.formatMessage(m.nowBundlePr, {
-        number: now.bundlePr.number,
-        checks: now.bundlePr.checks ? ` - ${now.bundlePr.checks}` : "",
-      }),
+      ...rich(
+        intl.formatMessage(m.nowBundlePr, {
+          number: now.bundlePr.number,
+          checks: now.bundlePr.checks ? ` - ${now.bundlePr.checks}` : "",
+        }),
+      ),
     });
   }
   for (const env of now.environments) {
@@ -206,10 +250,9 @@ function inFlight(
         key: `env:${env.env}`,
         term: env.env,
         state: env.state,
-        text:
-          env.state === "running"
-            ? gateText(intl, env, nowMs, true)
-            : envText(intl, env, nowMs),
+        ...(env.state === "running"
+          ? rich(gateText(intl, env, nowMs, true), [], [env.digest])
+          : envText(intl, env, nowMs)),
       });
     }
   }
@@ -228,12 +271,16 @@ function inFlight(
       key: `waiting:${k}`,
       term: groups.join(", "),
       state: "waiting",
-      text: intl.formatMessage(m.nowWaitingPromotions, {
-        bundle: alias(
-          first?.proposedDigest ?? null,
-          first?.proposedVersion ?? null,
-        ),
-      }),
+      ...rich(
+        intl.formatMessage(m.nowWaitingPromotions, {
+          bundle: alias(
+            first?.proposedDigest ?? null,
+            first?.proposedVersion ?? null,
+          ),
+        }),
+        [],
+        [first?.proposedDigest ?? null],
+      ),
     });
   }
   return items;
@@ -246,24 +293,51 @@ function groupOf(data: DeliveryData, envs: readonly string[]): string {
   return Array.from(new Set(groups)).join(", ");
 }
 
+const RENOVATE_LABEL = {
+  waiting: m.renovateWaiting,
+  running: m.renovateRunning,
+  passed: m.renovatePassed,
+  failed: m.renovateFailed,
+} as const;
+
 function nextLine(
   intl: IntlShape,
   data: DeliveryData,
   e: DeliveryNextEvent,
-): string {
-  const components = intl.formatMessage(m.bundleOf, {
-    components: intl.formatList(e.components),
-  });
+  nowMs: number,
+): Rich {
   let text: string;
   switch (e.kind) {
-    case "bundle-published":
-      text = intl.formatMessage(m.nextPublished, { bundle: components });
-      break;
-    case "locked":
-      text = intl.formatMessage(m.nextLocked, {
-        bundle: e.digest ? identiName(e.digest) : components,
+    case "expecting-bundle":
+      // FLT-DLV-23.04: changes riding one expected bundle share the line.
+      text = intl.formatMessage(m.nextExpecting, {
+        changes: intl.formatList(
+          e.changes.map((c) =>
+            c.pr !== null ? `#${String(c.pr)}` : c.shortSha,
+          ),
+        ),
       });
       break;
+    case "renovate": {
+      // FLT-DLV-23.05: a published bundle waiting on Renovate.
+      const state = intl.formatMessage(RENOVATE_LABEL[e.state ?? "waiting"], {
+        number: e.pr ?? 0,
+      });
+      text = intl.formatMessage(m.nextRenovate, {
+        bundle: alias(e.digest, e.version),
+        state,
+      });
+      return e.at !== null
+        ? rich(
+            intl.formatMessage(m.nextLockedAbout, {
+              text,
+              time: formatClock(intl, e.at, nowMs),
+            }),
+            [e.at],
+            [e.digest],
+          )
+        : rich(text, [], [e.digest]);
+    }
     case "restart":
       text = intl.formatMessage(m.nextRestart, {
         group: groupOf(data, e.envs),
@@ -278,8 +352,14 @@ function nextLine(
       break;
   }
   return e.at !== null
-    ? intl.formatMessage(m.nextAbout, { text, time: formatClock(intl, e.at) })
-    : text;
+    ? rich(
+        intl.formatMessage(m.nextAbout, {
+          text,
+          time: formatClock(intl, e.at, nowMs),
+        }),
+        [e.at],
+      )
+    : rich(text);
 }
 
 function trainWhere(intl: IntlShape, b: DeliveryTrainBundle): string {
@@ -350,24 +430,26 @@ export function PipelineNow({
             <StackItem>
               <StateText
                 state="unknown"
-                text={intl.formatMessage(m.nowUnknown, {
-                  answers: intl.formatList(
-                    unknown.answers.map((a) =>
-                      intl.formatMessage(
-                        a === "heads"
-                          ? m.nowAnswerHeads
-                          : a === "in-flight"
-                            ? m.nowAnswerInFlight
-                            : m.nowAnswerNext,
+                text={rich(
+                  intl.formatMessage(m.nowUnknown, {
+                    answers: intl.formatList(
+                      unknown.answers.map((a) =>
+                        intl.formatMessage(
+                          a === "heads"
+                            ? m.nowAnswerHeads
+                            : a === "in-flight"
+                              ? m.nowAnswerInFlight
+                              : m.nowAnswerNext,
+                        ),
                       ),
                     ),
-                  ),
-                  sources: intl.formatList(
-                    unknown.sources.map((k) =>
-                      intl.formatMessage(SOURCE_LABEL[k]),
+                    sources: intl.formatList(
+                      unknown.sources.map((k) =>
+                        intl.formatMessage(SOURCE_LABEL[k]),
+                      ),
                     ),
-                  ),
-                })}
+                  }),
+                )}
               />
             </StackItem>
           ) : null}
@@ -383,13 +465,19 @@ export function PipelineNow({
                       {intl.formatMessage(m.nowAppMain)}
                     </DescriptionListTerm>
                     <DescriptionListDescription>
-                      {app !== null
-                        ? intl.formatMessage(m.nowAppHead, {
+                      {app !== null ? (
+                        <RichText
+                          nowMs={nowMs}
+                          text={intl.formatMessage(m.nowAppHead, {
                             change: change(app.shortSha, app.pr),
                             title: app.title,
-                            time: formatClock(intl, app.mergedAt),
-                          })
-                        : intl.formatMessage(STATE_LABEL.unknown)}
+                            time: formatClock(intl, app.mergedAt, nowMs),
+                          })}
+                          times={[app.mergedAt]}
+                        />
+                      ) : (
+                        intl.formatMessage(STATE_LABEL.unknown)
+                      )}
                     </DescriptionListDescription>
                   </DescriptionListGroup>
                   <DescriptionListGroup>
@@ -397,18 +485,29 @@ export function PipelineNow({
                       {intl.formatMessage(m.nowGitopsMain)}
                     </DescriptionListTerm>
                     <DescriptionListDescription>
-                      {gitops !== null
-                        ? intl.formatMessage(
+                      {gitops !== null ? (
+                        <RichText
+                          bundles={[gitops.digest]}
+                          nowMs={nowMs}
+                          text={intl.formatMessage(
                             gitops.lockedAt !== null
                               ? m.nowGitopsLocked
                               : m.nowGitopsHead,
                             {
                               bundle: alias(gitops.digest, gitops.version),
-                              published: formatClock(intl, gitops.publishedAt),
-                              locked: formatClock(intl, gitops.lockedAt),
+                              published: formatClock(
+                                intl,
+                                gitops.publishedAt,
+                                nowMs,
+                              ),
+                              locked: formatClock(intl, gitops.lockedAt, nowMs),
                             },
-                          )
-                        : intl.formatMessage(STATE_LABEL.unknown)}
+                          )}
+                          times={[gitops.publishedAt, gitops.lockedAt]}
+                        />
+                      ) : (
+                        intl.formatMessage(STATE_LABEL.unknown)
+                      )}
                     </DescriptionListDescription>
                   </DescriptionListGroup>
                 </DescriptionList>
@@ -427,7 +526,7 @@ export function PipelineNow({
                       <DescriptionListGroup key={item.key}>
                         <DescriptionListTerm>{item.term}</DescriptionListTerm>
                         <DescriptionListDescription>
-                          <StateText state={item.state} text={item.text} />
+                          <StateText state={item.state} text={item} />
                         </DescriptionListDescription>
                       </DescriptionListGroup>
                     ))}
@@ -444,11 +543,19 @@ export function PipelineNow({
                   </Content>
                 ) : (
                   <Content component="ol">
-                    {now.next.map((e, i) => (
-                      <li key={`${e.kind}:${String(i)}`}>
-                        {nextLine(intl, data, e)}
-                      </li>
-                    ))}
+                    {now.next.map((e, i) => {
+                      const line = nextLine(intl, data, e, nowMs);
+                      return (
+                        <li key={`${e.kind}:${String(i)}`}>
+                          <RichText
+                            bundles={line.bundles}
+                            nowMs={nowMs}
+                            text={line.text}
+                            times={line.times}
+                          />
+                        </li>
+                      );
+                    })}
                   </Content>
                 )}
               </GridItem>
@@ -476,12 +583,24 @@ export function PipelineNow({
                       <Tr key={b.digest ?? name}>
                         <Td dataLabel={intl.formatMessage(m.trainTitle)}>
                           <StageStateIcon state={trainState(data, b)} />
-                          <span className={styles.iconGap}>{name}</span>
+                          <span className={styles.iconGap}>
+                            {b.inferred || !b.digest ? (
+                              name
+                            ) : (
+                              <BundleName digest={b.digest} />
+                            )}
+                          </span>
                         </Td>
                         <Td dataLabel={intl.formatMessage(m.trainPublished)}>
-                          {b.inferred
-                            ? intl.formatMessage(m.trainReleasing)
-                            : formatClock(intl, b.publishedAt)}
+                          {b.inferred ? (
+                            intl.formatMessage(m.trainReleasing)
+                          ) : (
+                            <RichText
+                              nowMs={nowMs}
+                              text={formatClock(intl, b.publishedAt, nowMs)}
+                              times={[b.publishedAt]}
+                            />
+                          )}
                         </Td>
                         <Td dataLabel={intl.formatMessage(m.trainChanged)}>
                           {b.same
@@ -521,7 +640,7 @@ export function PipelineNow({
                       {groupLabel(env.group)}
                     </Td>
                     <Td dataLabel={intl.formatMessage(m.runsColumn)}>
-                      {alias(env.digest, env.version)}
+                      <BundleName digest={env.digest} fallback={env.version} />
                     </Td>
                     <Td dataLabel={intl.formatMessage(m.stateColumn)}>
                       <StateText

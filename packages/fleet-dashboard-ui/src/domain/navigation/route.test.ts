@@ -95,13 +95,6 @@ describe("stable identity and SDLC state", () => {
     expect(state.sdlc.card).toBe(511);
   });
 
-  it("addresses a shipped issue with its bundle version by identity (FLT-NAV-02)", () => {
-    const state = parseHref("/sdlc?shipped=490&shippedVer=v2026");
-    expect(state.sdlc.shipped).toBe(490);
-    expect(state.sdlc.shippedVersion).toBe("v2026");
-    expect(state.sdlc.card).toBeNull();
-  });
-
   // Verifies: FLT-NAV-02.01
   it("orders scopes deterministically and deduplicates (FLT-NAV-13)", () => {
     const a = canonical("/sdlc?scope=zed&scope=amber&scope=amber");
@@ -110,10 +103,12 @@ describe("stable identity and SDLC state", () => {
     expect(parseHref(a).sdlc.scopes).toEqual(["amber", "zed"]);
   });
 
-  it("drops shippedVersion when no shipped issue is selected", () => {
-    const state = parseHref("/sdlc?shippedVer=v2026");
-    expect(state.sdlc.shippedVersion).toBeNull();
-    expect(routeToHref(state)).toBe("/sdlc");
+  // Verifies: FLT-DLV-25.02
+  it("keeps the expanded Shipped row on the Delivery tab (FLT-NAV-13)", () => {
+    const state = parseHref("/delivery?shiprow=glassy-larch");
+    expect(state.tab).toBe("delivery");
+    expect(state.delivery.shippedRow).toBe("glassy-larch");
+    expect(routeToHref(state)).toBe("/delivery?shiprow=glassy-larch");
   });
 });
 
@@ -162,25 +157,6 @@ describe("mutually exclusive and incompatible selections (FLT-NAV-14)", () => {
     expect(state.e2e.exec.tab).toBe("progress");
     expect(state.e2e.exec.step).toBeNull();
     expect(routeToHref(state)).toBe("/e2e?run=t%2Fn%2Fr&rund=0");
-  });
-
-  // Verifies: FLT-NAV-14.04
-  it("prefers the board card over a shipped issue when both are present", () => {
-    const state = parseHref("/sdlc?card=5&shipped=6&shippedVer=v2026");
-    expect(state.sdlc.card).toBe(5);
-    expect(state.sdlc.shipped).toBeNull();
-    expect(state.sdlc.shippedVersion).toBeNull();
-    // The canonical URL carries only the winning selection, so the impossible
-    // combination does not round-trip (FLT-NAV-14).
-    expect(routeToHref(state)).toBe("/sdlc?card=5");
-  });
-
-  // Verifies: FLT-NAV-14.04
-  it("drops the escalations list when a shipped issue is selected", () => {
-    const state = parseHref("/sdlc?shipped=6&escalations=1");
-    expect(state.sdlc.shipped).toBe(6);
-    expect(state.sdlc.escalations).toBe(false);
-    expect(routeToHref(state)).toBe("/sdlc?shipped=6");
   });
 
   it("keeps an escalation detail card open over the escalations list", () => {
