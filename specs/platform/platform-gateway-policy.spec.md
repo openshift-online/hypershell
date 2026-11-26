@@ -393,7 +393,11 @@ built from `components/control-plane/cmd/` and shipped in the existing
 control-plane image; no new container image and no release-bundle component SHALL
 be added. The controller SHALL run the sidecar using its **own** image digest,
 read from its own Pod status, so the controller and the interceptor always run the
-same build and no image reference needs configuration. The sidecar SHALL run as a
+same build and no image reference needs configuration. The controller SHALL pin
+by digest only when the reported image ID names the same repository as its
+container spec image; otherwise (a bare digest, or a placeholder repository such
+as the `import-<date>` name containerd gives an image loaded from an archive) it
+SHALL use the spec image unchanged. The sidecar SHALL run as a
 native sidecar (an init container with `restartPolicy: Always`) in each gateway
 pod, so it is ready before the gateway calls `Describe`. The gateway SHALL reach
 the sidecar over a `unix://` socket on a pod-local `emptyDir`. The sidecar SHALL
@@ -413,6 +417,15 @@ gateway JWKS and SHALL hold no HyperShell credentials for request evaluation.
 - WHEN the request carries a gateway JWT
 - THEN the sidecar SHALL verify it against the local gateway JWKS before evaluating
 - AND SHALL reject a call whose JWT does not verify
+
+#### Scenario: PLAT-PGP-09.03 -- Unpullable Image ID Falls Back to the Spec Image
+
+- GIVEN the kubelet reports a controller image ID that is a bare digest, or whose
+  repository differs from the controller's spec image (for example
+  `docker.io/library/import-2026-11-26@sha256:...` for an archive-loaded image)
+- WHEN the controller renders the gateway pod
+- THEN the policy interceptor sidecar SHALL use the controller's spec image
+- AND SHALL NOT use the image ID's repository
 
 ---
 
