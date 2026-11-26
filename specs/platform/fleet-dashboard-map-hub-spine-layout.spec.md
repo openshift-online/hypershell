@@ -298,8 +298,8 @@ Application deploys (rule 1) that is not a promotion environment, with what the
 Application reports. Only control-plane Applications SHALL qualify: the
 Application SHALL name a physical cluster, and SHALL either carry a delivery
 `role` label or be named just `<instance>`. The map SHALL use it for a remote spoke without a promotion
-environment (FLT-MAP-08.05): the node takes its cluster, provider, Argo state and
-links from it, and still carries no release and no promotion lines.
+environment (FLT-MAP-08.05): the node takes its cluster, provider, capabilities,
+Argo state and links from it, and still carries no release and no promotion lines.
 
 #### Scenario: FLT-MAP-09.01 -- An Application named after the instance matches
 

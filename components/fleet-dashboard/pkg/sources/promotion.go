@@ -200,15 +200,18 @@ type PromotionPayload struct {
 // that has no promotion environment (FLT-MAP-09). Every field is runtime data
 // from the Application; empty fields are omitted.
 type UnpromotedInstance struct {
-	Cluster    string `json:"cluster,omitempty"`
-	Role       string `json:"role,omitempty"`
-	Provider   string `json:"provider,omitempty"`
-	Env        string `json:"env,omitempty"`
-	ArgoHealth string `json:"argoHealth,omitempty"`
-	ArgoSync   string `json:"argoSync,omitempty"`
-	ArgoURL    string `json:"argoUrl,omitempty"`
-	ConsoleURL string `json:"consoleUrl,omitempty"`
-	GrafanaURL string `json:"grafanaUrl,omitempty"`
+	Cluster  string `json:"cluster,omitempty"`
+	Role     string `json:"role,omitempty"`
+	Provider string `json:"provider,omitempty"`
+	Env      string `json:"env,omitempty"`
+	// Capabilities come from the Application's delivery capabilities
+	// annotation (FLT-CAP-01); the map takes the provider lane from them.
+	Capabilities []string `json:"capabilities,omitempty"`
+	ArgoHealth   string   `json:"argoHealth,omitempty"`
+	ArgoSync     string   `json:"argoSync,omitempty"`
+	ArgoURL      string   `json:"argoUrl,omitempty"`
+	ConsoleURL   string   `json:"consoleUrl,omitempty"`
+	GrafanaURL   string   `json:"grafanaUrl,omitempty"`
 }
 
 // VerificationTarget correlates logs using exact deployed revision and workload identity.
@@ -721,15 +724,16 @@ func (p *Promotion) addUnpromoted(argoByKey map[string]argoInfo, payload *Promot
 			payload.Unpromoted = map[string]UnpromotedInstance{}
 		}
 		payload.Unpromoted[key] = UnpromotedInstance{
-			Cluster:    a.cluster,
-			Role:       a.role,
-			Provider:   a.provider,
-			Env:        a.env,
-			ArgoHealth: a.health,
-			ArgoSync:   a.sync,
-			ArgoURL:    p.argoAppURL(a.ns, a.app),
-			ConsoleURL: a.consoleURL,
-			GrafanaURL: a.grafanaURL,
+			Cluster:      a.cluster,
+			Role:         a.role,
+			Provider:     a.provider,
+			Env:          a.env,
+			Capabilities: a.capabilities,
+			ArgoHealth:   a.health,
+			ArgoSync:     a.sync,
+			ArgoURL:      p.argoAppURL(a.ns, a.app),
+			ConsoleURL:   a.consoleURL,
+			GrafanaURL:   a.grafanaURL,
 		}
 	}
 }

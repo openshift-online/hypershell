@@ -1066,8 +1066,10 @@ describe("buildMapModel - remote spokes Argo CD reports", () => {
         "hub0-far": {
           cluster: "phys-far",
           role: null,
-          provider: "ibm",
+          // No provider label: the lane comes from the capability.
+          provider: null,
           envLabel: null,
+          capabilities: ["provider/ibm"],
           argoHealth: "Healthy",
           argoSync: "Synced",
           argoUrl: "https://argo.example/applications/phys-far/hub0-far",

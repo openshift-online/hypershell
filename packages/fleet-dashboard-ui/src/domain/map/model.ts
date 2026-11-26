@@ -807,8 +807,8 @@ function colocatedSpokeEnv(
  * and gates stay unknown. Only the column header (env label) is shared with its hub,
  * because the spoke belongs to the hub's promotion stage. When Argo CD deploys the
  * spoke, the server reports it as unpromoted (FLT-MAP-09), and the box takes its
- * physical cluster, provider, Argo state and links from that; otherwise they stay
- * unknown.
+ * physical cluster, provider, capabilities, Argo state and links from that;
+ * otherwise they stay unknown.
  */
 function remoteSpokeEnv(
   hub: PromotionEnvironment,
@@ -826,7 +826,7 @@ function remoteSpokeEnv(
     provider: argo?.provider ?? null,
     envLabel: hub.envLabel,
     cluster: argo?.cluster ?? null,
-    capabilities: [],
+    capabilities: argo?.capabilities ?? [],
     gatewayImage: null,
     argoHealth: argo?.argoHealth ?? null,
     argoSync: argo?.argoSync ?? null,

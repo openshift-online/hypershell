@@ -173,6 +173,8 @@ export interface UnpromotedInstance {
   readonly role: string | null;
   readonly provider: string | null;
   readonly envLabel: string | null;
+  /** Opaque `namespace/value` capability labels (FLT-CAP-01); empty when none. */
+  readonly capabilities: readonly string[];
   readonly argoHealth: string | null;
   readonly argoSync: string | null;
   readonly argoUrl: string | null;

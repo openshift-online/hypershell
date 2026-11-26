@@ -61,6 +61,7 @@ describe("mapPromotion", () => {
       role: null,
       provider: null,
       envLabel: null,
+      capabilities: [],
       argoHealth: "Healthy",
       argoSync: null,
       argoUrl: null,

@@ -160,6 +160,7 @@ interface WireUnpromoted {
   readonly role?: string;
   readonly provider?: string;
   readonly env?: string;
+  readonly capabilities?: readonly string[] | null;
   readonly argoHealth?: string;
   readonly argoSync?: string;
   readonly argoUrl?: string;
@@ -173,6 +174,9 @@ function mapUnpromoted(raw: WireUnpromoted): UnpromotedInstance {
     role: nullableString(raw.role),
     provider: nullableString(raw.provider),
     envLabel: nullableString(raw.env),
+    capabilities: (raw.capabilities ?? []).filter(
+      (c): c is string => typeof c === "string" && c !== "",
+    ),
     argoHealth: nullableString(raw.argoHealth),
     argoSync: nullableString(raw.argoSync),
     argoUrl: nullableString(raw.argoUrl),

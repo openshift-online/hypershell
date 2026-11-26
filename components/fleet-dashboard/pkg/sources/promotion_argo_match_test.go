@@ -31,6 +31,12 @@ func argoApp(ns, name, destName, destNS string, labels map[string]string, health
 	}}
 }
 
+// withCapabilities sets the delivery capabilities annotation on an Application.
+func withCapabilities(app *unstructured.Unstructured, caps string) *unstructured.Unstructured {
+	app.SetAnnotations(map[string]string{capabilitiesAnnotation: caps})
+	return app
+}
+
 // matchFixture builds a Promotion over a strategy with environments alpha and
 // beta, plus the given Applications.
 func matchFixture(t *testing.T, apps ...*unstructured.Unstructured) PromotionPayload {
@@ -126,7 +132,7 @@ func TestArgoMatchClusterFromDestination(t *testing.T) {
 // Verifies: FLT-MAP-09.04
 func TestArgoMatchReportsUnpromoted(t *testing.T) {
 	payload := matchFixture(t,
-		argoApp("cluster-c", "gamma", "cluster-c", "gamma", nil, "Healthy"),
+		withCapabilities(argoApp("cluster-c", "gamma", "cluster-c", "gamma", nil, "Healthy"), "provider/ibm"),
 		argoApp("cluster-a", "cluster-a-tools", "cluster-a", "tools-system", nil, "Healthy"),
 		argoApp("cluster-a", "keycloak-alpha", "cluster-a", "keycloak-system", nil, "Healthy"),
 		// A cluster add-on named "<cluster>-<add-on>" without a role label.
@@ -141,7 +147,7 @@ func TestArgoMatchReportsUnpromoted(t *testing.T) {
 	if !ok {
 		t.Fatalf("gamma missing from unpromoted: %+v", payload.Unpromoted)
 	}
-	if gamma.Cluster != "cluster-c" || gamma.ArgoHealth != "Healthy" || gamma.ArgoURL == "" {
+	if gamma.Cluster != "cluster-c" || gamma.ArgoHealth != "Healthy" || gamma.ArgoURL == "" || !equalStrings(gamma.Capabilities, []string{"provider/ibm"}) {
 		t.Errorf("gamma = %+v", gamma)
 	}
 	if delta := payload.Unpromoted["delta"]; delta.Cluster != "cluster-e" || delta.Provider != "aws" || delta.Role != "spoke" {
