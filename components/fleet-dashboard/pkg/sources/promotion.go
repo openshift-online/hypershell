@@ -189,6 +189,26 @@ type PromotionPayload struct {
 	Environments map[string]Environment `json:"environments"`
 	Releases     map[string]*Release    `json:"releases"`
 	Frontier     *Release               `json:"frontier"`
+	// Unpromoted lists the instances that Argo CD deploys but that are not
+	// promotion environments, keyed by instance (FLT-MAP-09). The map uses them to
+	// name the physical cluster of a spoke it otherwise knows only by name.
+	// Omitted when there are none.
+	Unpromoted map[string]UnpromotedInstance `json:"unpromoted,omitempty"`
+}
+
+// UnpromotedInstance is what the core Argo Application says about an instance
+// that has no promotion environment (FLT-MAP-09). Every field is runtime data
+// from the Application; empty fields are omitted.
+type UnpromotedInstance struct {
+	Cluster    string `json:"cluster,omitempty"`
+	Role       string `json:"role,omitempty"`
+	Provider   string `json:"provider,omitempty"`
+	Env        string `json:"env,omitempty"`
+	ArgoHealth string `json:"argoHealth,omitempty"`
+	ArgoSync   string `json:"argoSync,omitempty"`
+	ArgoURL    string `json:"argoUrl,omitempty"`
+	ConsoleURL string `json:"consoleUrl,omitempty"`
+	GrafanaURL string `json:"grafanaUrl,omitempty"`
 }
 
 // VerificationTarget correlates logs using exact deployed revision and workload identity.
@@ -369,6 +389,7 @@ func (p *Promotion) Promotion(ctx context.Context) (any, error) {
 		payload.Environments[key] = env
 	}
 	applyDependsOn(ps.Object, &payload)
+	p.addUnpromoted(argoByKey, &payload)
 
 	// Resolve bundle dates best-effort before frontier selection, which depends on
 	// the date. (A lock resolver already fills Date from the bundle tag; this only
@@ -542,6 +563,11 @@ type argoInfo struct {
 	// syncRetries is status.operationState.retryCount, nil when no operation state
 	// is recorded (unknown) so it stays distinct from a genuine 0.
 	syncRetries *int
+	// rank is how strongly the Application matched its instance (argoByInstance).
+	rank int
+	// byDestination is true when the instance is the Application's destination
+	// namespace, so the Application really deploys that instance.
+	byDestination bool
 }
 
 // capabilitiesAnnotation is the single, comma-joined capability set the delivery
@@ -640,69 +666,161 @@ func normalizeCapabilities(entries []string) []string {
 	return caps
 }
 
-// argoByInstance maps each instance key to its core Argo Application, using the
-// prototype's rule: the Application is named "<namespace>-<instance>" and lives
-// in "<namespace>", so name == namespace+"-"+key. This excludes per-instance
-// keycloak/managed-db and cluster-scoped apps.
+// argoByInstance maps each instance key to its core Argo Application
+// (FLT-MAP-09). An Application is matched to an instance in two ways:
+//
+//  1. By where it deploys: an Application whose destination namespace is the
+//     instance and whose name is "<namespace>-<instance>" or just "<instance>".
+//  2. By name only: an Application named "<namespace>-<instance>", whatever its
+//     destination namespace (the original rule).
+//
+// When several Applications match one instance, the one with a delivery role
+// label wins, then the "<namespace>-<instance>" name, then the bare name; a
+// remaining tie goes to the alphabetically first Application. Helper apps that
+// deploy into an instance namespace under another name (release analysis, status
+// producer) and per-instance keycloak/managed-db apps never match.
 func (p *Promotion) argoByInstance(ctx context.Context) map[string]argoInfo {
 	out := map[string]argoInfo{}
+	for _, it := range p.listApplications(ctx) {
+		obj := it.obj
+		name, _ := nestedString(obj, "metadata", "name")
+		ns, _ := nestedString(obj, "metadata", "namespace")
+		if ns == "" || name == "" {
+			continue
+		}
+		workloadNamespace, _ := nestedString(obj, "spec", "destination", "namespace")
+		labels := stringMap(obj, "metadata", "labels")
+		for key, rank := range instanceMatches(name, ns, workloadNamespace, labels[deliveryLabelPrefix+"role"] != "") {
+			if cur, ok := out[key]; ok && (cur.rank > rank || (cur.rank == rank && cur.app < name)) {
+				continue
+			}
+			info := argoInfoOf(obj, name, ns, workloadNamespace, labels)
+			info.rank = rank
+			info.byDestination = key == workloadNamespace
+			out[key] = info
+		}
+	}
+	return out
+}
+
+// addUnpromoted records every control-plane instance that an Application
+// deploys but that is not a promotion environment (FLT-MAP-09). An instance
+// qualifies when its Application deploys into the instance namespace on a named
+// cluster, and either carries a delivery role label or is named just
+// "<instance>". That leaves out shared platform Applications (Argo CD's own
+// cluster, other add-ons named "<cluster>-<add-on>").
+func (p *Promotion) addUnpromoted(argoByKey map[string]argoInfo, payload *PromotionPayload) {
+	for key, a := range argoByKey {
+		if !a.byDestination || a.cluster == "" || (a.role == "" && a.app != key) {
+			continue
+		}
+		if _, ok := payload.Environments[key]; ok {
+			continue
+		}
+		if payload.Unpromoted == nil {
+			payload.Unpromoted = map[string]UnpromotedInstance{}
+		}
+		payload.Unpromoted[key] = UnpromotedInstance{
+			Cluster:    a.cluster,
+			Role:       a.role,
+			Provider:   a.provider,
+			Env:        a.env,
+			ArgoHealth: a.health,
+			ArgoSync:   a.sync,
+			ArgoURL:    p.argoAppURL(a.ns, a.app),
+			ConsoleURL: a.consoleURL,
+			GrafanaURL: a.grafanaURL,
+		}
+	}
+}
+
+// instanceMatches returns each instance key the Application matches, with the
+// strength of that match (higher wins, see argoByInstance). It returns nothing
+// for an Application that matches no instance.
+func instanceMatches(name, ns, workloadNamespace string, hasRole bool) map[string]int {
+	keys := map[string]int{}
+	bonus := 0
+	if hasRole {
+		bonus = 4
+	}
+	if strings.HasPrefix(name, ns+"-") && len(name) > len(ns)+1 {
+		keys[name[len(ns)+1:]] = 2 + bonus
+	}
+	if k := workloadNamespace; k != "" {
+		switch name {
+		case ns + "-" + k:
+			keys[k] = 2 + bonus
+		case k:
+			keys[k] = 1 + bonus
+		}
+	}
+	return keys
+}
+
+// listApplications lists the Argo Applications in the configured namespaces, or
+// in every namespace when none is configured. A failed list is skipped: the map
+// degrades to fewer matches rather than failing the promotion payload.
+func (p *Promotion) listApplications(ctx context.Context) []metav1Unstructured {
 	var items []metav1Unstructured
 	if len(p.argoNS) == 0 {
 		list, err := p.dyn.Resource(p.appGVR).List(ctx, metav1.ListOptions{})
 		if err != nil {
-			return out
+			return nil
 		}
 		for i := range list.Items {
 			items = append(items, metav1Unstructured{list.Items[i].Object})
 		}
-	} else {
-		for _, ns := range p.argoNS {
-			list, err := p.dyn.Resource(p.appGVR).Namespace(ns).List(ctx, metav1.ListOptions{})
-			if err != nil {
-				continue
-			}
-			for i := range list.Items {
-				items = append(items, metav1Unstructured{list.Items[i].Object})
-			}
-		}
+		return items
 	}
-	for _, it := range items {
-		obj := it.obj
-		name, _ := nestedString(obj, "metadata", "name")
-		ns, _ := nestedString(obj, "metadata", "namespace")
-		if ns == "" || !strings.HasPrefix(name, ns+"-") {
+	for _, ns := range p.argoNS {
+		list, err := p.dyn.Resource(p.appGVR).Namespace(ns).List(ctx, metav1.ListOptions{})
+		if err != nil {
 			continue
 		}
-		key := name[len(ns)+1:]
-		labels := stringMap(obj, "metadata", "labels")
-		ann := stringMap(obj, "metadata", "annotations")
-		health, _ := nestedString(obj, "status", "health", "status")
-		sync, _ := nestedString(obj, "status", "sync", "status")
-		// retryCount lives on the already-fetched Application; read it from the same
-		// object (no new query). nil when operationState is absent (no operation),
-		// so the UI can omit the row rather than show a misleading "0".
-		var syncRetries *int
-		if rc, ok := nestedInt(obj, "status", "operationState", "retryCount"); ok {
-			syncRetries = &rc
-		}
-		workloadNamespace, _ := nestedString(obj, "spec", "destination", "namespace")
-		out[key] = argoInfo{
-			workloadNamespace: workloadNamespace,
-			app:               name,
-			ns:                ns,
-			health:            health,
-			sync:              sync,
-			syncRetries:       syncRetries,
-			role:              labels[deliveryLabelPrefix+"role"],
-			provider:          labels[deliveryLabelPrefix+"provider"],
-			env:               labels[deliveryLabelPrefix+"env"],
-			cluster:           labels[deliveryLabelPrefix+"cluster"],
-			capabilities:      capabilitiesFromAnnotation(ann),
-			consoleURL:        ann["link.argocd.argoproj.io/external-link"],
-			grafanaURL:        ann["link.argocd.argoproj.io/grafana"],
+		for i := range list.Items {
+			items = append(items, metav1Unstructured{list.Items[i].Object})
 		}
 	}
-	return out
+	return items
+}
+
+// argoInfoOf reads one Application's status, delivery labels and links. The
+// cluster is the delivery cluster label, else the Application's destination
+// cluster name, so an Application without delivery labels still names the
+// physical cluster it deploys to (FLT-MAP-09).
+func argoInfoOf(obj map[string]any, name, ns, workloadNamespace string, labels map[string]string) argoInfo {
+	ann := stringMap(obj, "metadata", "annotations")
+	health, _ := nestedString(obj, "status", "health", "status")
+	sync, _ := nestedString(obj, "status", "sync", "status")
+	// retryCount lives on the already-fetched Application; read it from the same
+	// object (no new query). nil when operationState is absent (no operation),
+	// so the UI can omit the row rather than show a misleading "0".
+	var syncRetries *int
+	if rc, ok := nestedInt(obj, "status", "operationState", "retryCount"); ok {
+		syncRetries = &rc
+	}
+	cluster := labels[deliveryLabelPrefix+"cluster"]
+	if cluster == "" {
+		// "in-cluster" is Argo CD's alias for its own cluster, not a cluster name.
+		if dest, _ := nestedString(obj, "spec", "destination", "name"); dest != "in-cluster" {
+			cluster = dest
+		}
+	}
+	return argoInfo{
+		workloadNamespace: workloadNamespace,
+		app:               name,
+		ns:                ns,
+		health:            health,
+		sync:              sync,
+		syncRetries:       syncRetries,
+		role:              labels[deliveryLabelPrefix+"role"],
+		provider:          labels[deliveryLabelPrefix+"provider"],
+		env:               labels[deliveryLabelPrefix+"env"],
+		cluster:           cluster,
+		capabilities:      capabilitiesFromAnnotation(ann),
+		consoleURL:        ann["link.argocd.argoproj.io/external-link"],
+		grafanaURL:        ann["link.argocd.argoproj.io/grafana"],
+	}
 }
 
 type metav1Unstructured struct{ obj map[string]any }

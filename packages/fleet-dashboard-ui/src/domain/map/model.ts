@@ -41,6 +41,7 @@ import {
   type PromotionEnvironment,
   type PromotionState,
   type ReleaseBundle,
+  type UnpromotedInstance,
 } from "../promotion";
 import { gatePhaseBadge, type StatusBadge } from "../status";
 
@@ -802,14 +803,17 @@ function colocatedSpokeEnv(
 }
 
 /**
- * The promotion environment for a REMOTE spoke that has none of its own. It runs on
- * another physical cluster that nothing here names, so its cluster, provider, release
- * and Argo state stay unknown. Only the column header (env label) is shared with its
- * hub, because the spoke belongs to the hub's promotion stage.
+ * The promotion environment for a REMOTE spoke that has none of its own. Its release
+ * and gates stay unknown. Only the column header (env label) is shared with its hub,
+ * because the spoke belongs to the hub's promotion stage. When Argo CD deploys the
+ * spoke, the server reports it as unpromoted (FLT-MAP-09), and the box takes its
+ * physical cluster, provider, Argo state and links from that; otherwise they stay
+ * unknown.
  */
 function remoteSpokeEnv(
   hub: PromotionEnvironment,
   name: string,
+  argo: UnpromotedInstance | null,
 ): PromotionEnvironment {
   return {
     name,
@@ -819,17 +823,17 @@ function remoteSpokeEnv(
     activeDigest: null,
     proposedDigest: null,
     role: "spoke",
-    provider: null,
+    provider: argo?.provider ?? null,
     envLabel: hub.envLabel,
-    cluster: null,
+    cluster: argo?.cluster ?? null,
     capabilities: [],
     gatewayImage: null,
-    argoHealth: null,
-    argoSync: null,
+    argoHealth: argo?.argoHealth ?? null,
+    argoSync: argo?.argoSync ?? null,
     syncRetries: null,
-    consoleUrl: null,
-    grafanaUrl: null,
-    argoUrl: null,
+    consoleUrl: argo?.consoleUrl ?? null,
+    grafanaUrl: argo?.grafanaUrl ?? null,
+    argoUrl: argo?.argoUrl ?? null,
     prState: null,
     prUrl: null,
     analysisUrl: null,
@@ -936,7 +940,9 @@ export function buildMapModel(
       }
       synthesized.add(name);
       remoteOnly.set(name, env.name);
-      envs.push(remoteSpokeEnv(env, name));
+      envs.push(
+        remoteSpokeEnv(env, name, promotion.unpromoted?.[name] ?? null),
+      );
     }
   }
   const columnKeyByName = assignColumns(envs);

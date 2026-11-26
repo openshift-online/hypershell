@@ -49,6 +49,26 @@ describe("mapPromotion", () => {
     frontier: { version: "abc1234" },
   };
 
+  // Verifies: FLT-MAP-09.04
+  it("maps unpromoted instances and defaults to none", () => {
+    expect(mapPromotion(wire).unpromoted).toEqual({});
+    const data = mapPromotion({
+      ...wire,
+      unpromoted: { gamma: { cluster: "phys-c", argoHealth: "Healthy" } },
+    });
+    expect(data.unpromoted?.gamma).toEqual({
+      cluster: "phys-c",
+      role: null,
+      provider: null,
+      envLabel: null,
+      argoHealth: "Healthy",
+      argoSync: null,
+      argoUrl: null,
+      consoleUrl: null,
+      grafanaUrl: null,
+    });
+  });
+
   it("projects the wire shape into the domain model", () => {
     const data = mapPromotion(wire);
     expect(data.order).toEqual(["alpha", "beta"]);

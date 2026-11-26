@@ -163,6 +163,23 @@ export interface PromotionEnvironment {
   readonly upToDate: boolean;
 }
 
+/**
+ * What Argo CD reports about an instance it deploys that is NOT a promotion
+ * environment (FLT-MAP-09), such as a remote spoke outside the promotion. All
+ * fields are runtime data from the server; null when not reported.
+ */
+export interface UnpromotedInstance {
+  readonly cluster: string | null;
+  readonly role: string | null;
+  readonly provider: string | null;
+  readonly envLabel: string | null;
+  readonly argoHealth: string | null;
+  readonly argoSync: string | null;
+  readonly argoUrl: string | null;
+  readonly consoleUrl: string | null;
+  readonly grafanaUrl: string | null;
+}
+
 export interface PromotionData {
   /**
    * Environment keys in promotion order, exactly as the server orders them.
@@ -176,6 +193,11 @@ export interface PromotionData {
   readonly releaseByDigest: Readonly<Record<string, ReleaseBundle>>;
   /** Newest release across all envs, as the server computes it. Null when unknown. */
   readonly frontier: ReleaseBundle | null;
+  /**
+   * Instances Argo CD deploys that are not promotion environments, keyed by
+   * instance (FLT-MAP-09). Absent on older servers.
+   */
+  readonly unpromoted?: Readonly<Record<string, UnpromotedInstance>>;
 }
 
 /** Coarse promotion state of an environment (mirrors the prototype's tri-state). */

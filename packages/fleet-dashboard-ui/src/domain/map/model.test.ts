@@ -1049,6 +1049,59 @@ describe("buildMapModel - remote spokes without an environment", () => {
   });
 });
 
+describe("buildMapModel - remote spokes Argo CD reports", () => {
+  // Verifies: FLT-MAP-09.05
+  it("takes the cluster, lane and links from the unpromoted instance", () => {
+    const p = {
+      ...promotion(["hub0"], {
+        hub0: env({
+          name: "hub0",
+          role: "hub",
+          provider: "ibm",
+          cluster: "phys-a",
+          envLabel: "int",
+        }),
+      }),
+      unpromoted: {
+        "hub0-far": {
+          cluster: "phys-far",
+          role: null,
+          provider: "ibm",
+          envLabel: null,
+          argoHealth: "Healthy",
+          argoSync: "Synced",
+          argoUrl: "https://argo.example/applications/phys-far/hub0-far",
+          consoleUrl: null,
+          grafanaUrl: null,
+        },
+      },
+    };
+    const topo: TopologyData = {
+      hub0: {
+        instance: "hub0",
+        hub: { instance: "hub0", dnsLabel: null, remoteSpokes: ["hub0-far"] },
+        spokes: [],
+      },
+    };
+    const model = buildMapModel(p, { instances: [] }, topo);
+    const far = model.nodes.find((n) => n.id === "hub0-far");
+    expect(far?.cluster).toBe("phys-far");
+    expect(far?.physicalClusterKey).toBe("phys-far");
+    expect(far?.laneKey).toBe(
+      model.nodes.find((n) => n.id === "hub0")?.laneKey,
+    );
+    expect(far?.argoHealth).toBe("Healthy");
+    expect(far?.links.argo).toBe(
+      "https://argo.example/applications/phys-far/hub0-far",
+    );
+    // Still outside promotion: no release, no promotion lines.
+    expect(far?.deliveryUnknown).toBe(true);
+    expect(far?.version).toBeNull();
+    // A different physical cluster from the hub, so no outer box.
+    expect(model.clusterGroups).toEqual([]);
+  });
+});
+
 describe("buildMapModel - promotion lines", () => {
   // Verifies: FLT-MAP-08.06
   it("leaves a remote spoke outside promotion off the column's rails", () => {
