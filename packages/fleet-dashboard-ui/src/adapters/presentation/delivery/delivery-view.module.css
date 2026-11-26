@@ -88,3 +88,24 @@
   text-underline-offset: 2px;
   cursor: help;
 }
+
+/* FLT-DLV-01.03: the refresh icon turns while the plane is read. */
+.refreshIcon,
+.refreshSpin {
+  display: inline-flex;
+}
+.refreshSpin {
+  animation: refresh-spin 0.9s linear infinite;
+}
+
+@keyframes refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .refreshSpin {
+    animation: none;
+  }
+}

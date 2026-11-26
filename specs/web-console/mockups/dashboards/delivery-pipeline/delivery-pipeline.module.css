@@ -42,3 +42,20 @@
   margin-inline-end: var(--pf-t--global--spacer--xs);
   border-radius: var(--pf-t--global--border--radius--small);
 }
+
+/* FLT-DLV-01.03: the refresh icon turns while the plane is read. */
+.refreshSpin {
+  animation: refresh-spin 0.9s linear infinite;
+}
+
+@keyframes refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .refreshSpin {
+    animation: none;
+  }
+}

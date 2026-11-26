@@ -33,6 +33,8 @@ export const WaitingOnRenovate: Story = {
 export const SourceUnavailable: Story = {
   args: { state: "source-unavailable" },
 };
+export const RestartLoading: Story = { args: { state: "restart-loading" } };
+export const Refreshing: Story = { args: { state: "refreshing" } };
 export const Loading: Story = { args: { state: "loading" } };
 export const NotConfigured: Story = { args: { state: "not-configured" } };
 export const Error: Story = { args: { state: "error" } };

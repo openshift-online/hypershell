@@ -432,7 +432,17 @@ function PipelineNowCard({ now }: { now: PipelineNow }) {
       </CardHeader>
       <CardBody>
         <Stack hasGutter>
-          {now.unknown ? (
+          {now.loading ? (
+            <StackItem>
+              <Flex
+                alignItems={{ default: "alignItemsCenter" }}
+                spaceItems={{ default: "spaceItemsSm" }}
+              >
+                <Spinner size="md" aria-hidden="true" />
+                <span>{now.loading}</span>
+              </Flex>
+            </StackItem>
+          ) : now.unknown ? (
             <StackItem>
               <HealthStatus appearance="warning" label={now.unknown} />
             </StackItem>
@@ -1020,7 +1030,13 @@ function ChangeStrip({
   );
 }
 
-function PageHeader({ asOf }: { asOf?: string }) {
+function PageHeader({
+  asOf,
+  refreshing = false,
+}: {
+  asOf?: string;
+  refreshing?: boolean;
+}) {
   return (
     <Flex
       alignItems={{ default: "alignItemsCenter" }}
@@ -1028,7 +1044,11 @@ function PageHeader({ asOf }: { asOf?: string }) {
     >
       <FlexItem>
         <Content>
-          {asOf ? (
+          {refreshing ? (
+            <Content className="pf-v6-u-text-color-subtle" component="small">
+              Refreshing...
+            </Content>
+          ) : asOf ? (
             <Content className="pf-v6-u-text-color-subtle" component="small">
               Data as of {asOf}
             </Content>
@@ -1036,7 +1056,16 @@ function PageHeader({ asOf }: { asOf?: string }) {
         </Content>
       </FlexItem>
       <FlexItem>
-        <Button aria-label="Refresh" icon={<SyncAltIcon />} variant="plain" />
+        <Button
+          aria-label="Refresh"
+          aria-busy={refreshing}
+          icon={
+            <SyncAltIcon
+              className={refreshing ? styles.refreshSpin : undefined}
+            />
+          }
+          variant="plain"
+        />
       </FlexItem>
     </Flex>
   );
@@ -1053,6 +1082,18 @@ function LoadedBody({
 }) {
   return (
     <Stack hasGutter>
+      {fixture.loadingAlert ? (
+        <StackItem>
+          <Alert
+            isInline
+            customIcon={<Spinner size="md" aria-hidden="true" />}
+            title={fixture.loadingAlert.title}
+            variant="info"
+          >
+            {fixture.loadingAlert.body}
+          </Alert>
+        </StackItem>
+      ) : null}
       {fixture.sourceAlert ? (
         <StackItem>
           <Alert isInline title={fixture.sourceAlert.title} variant="warning">
@@ -1147,7 +1188,15 @@ export function DeliveryPipelinePageSurface({
         hasBodyWrapper={false}
         variant="default"
       >
-        <PageHeader asOf={asOf} />
+        <PageHeader
+          asOf={asOf}
+          refreshing={
+            state !== "loading" &&
+            state !== "not-configured" &&
+            state !== "error" &&
+            FIXTURES[state].refreshing === true
+          }
+        />
       </PageSection>
       <PageSection
         data-page-region="body"

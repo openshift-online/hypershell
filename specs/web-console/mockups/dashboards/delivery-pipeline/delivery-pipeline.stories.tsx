@@ -55,6 +55,12 @@ export const SourceUnavailable: Story = {
   args: { state: "source-unavailable" },
 };
 
+// FLT-DLV-13.04.
+export const RestartLoading: Story = { args: { state: "restart-loading" } };
+
+// FLT-DLV-01.03.
+export const Refreshing: Story = { args: { state: "refreshing" } };
+
 export const Loading: Story = { args: { state: "loading" } };
 
 // FLT-DLV-01.02.

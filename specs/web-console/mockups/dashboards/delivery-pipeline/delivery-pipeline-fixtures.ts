@@ -14,6 +14,8 @@ export type DeliveryState =
   | "bundle-train"
   | "waiting-on-renovate"
   | "source-unavailable"
+  | "restart-loading"
+  | "refreshing"
   | "loading"
   | "not-configured"
   | "error";
@@ -158,6 +160,8 @@ export type PipelineNow = {
   readonly environments: readonly EnvironmentNow[];
   /** A source that is Unknown names the answer the panel cannot give. */
   readonly unknown?: string;
+  /** Shown while sources are still loading after a restart (FLT-DLV-13.04). */
+  readonly loading?: string;
 };
 
 export type DeliveryFixture = {
@@ -169,6 +173,10 @@ export type DeliveryFixture = {
   readonly deliveredSummary?: string;
   readonly changes: readonly Change[];
   readonly sourceAlert?: { readonly title: string; readonly body: string };
+  /** One informational alert for sources still loading (FLT-DLV-13.04). */
+  readonly loadingAlert?: { readonly title: string; readonly body: string };
+  /** A read of the plane is in progress (FLT-DLV-01.03). */
+  readonly refreshing?: boolean;
 };
 
 const passed = (primary: string, detail?: string): StageCell => ({
@@ -742,6 +750,25 @@ const SOURCE_UNAVAILABLE: DeliveryFixture = {
   },
 };
 
+// FLT-DLV-13.04: the dashboard restarted and the promotion source has not
+// finished its first read; GitOps and promotion history wait on it.
+const RESTART_LOADING: DeliveryFixture = {
+  ...IN_FLIGHT,
+  changes: IN_FLIGHT.changes.map(unknownRelease),
+  pipelineNow: {
+    ...PIPELINE_IN_FLIGHT,
+    loading:
+      "Loading - GitOps repository, Promotion data, and Promotion history are still loading",
+  },
+  loadingAlert: {
+    title: "Loading delivery data",
+    body: "GitOps repository, Promotion data, and Promotion history are still loading after a restart. Data arrives in about a minute.",
+  },
+};
+
+// FLT-DLV-01.03: a read of the plane is in progress.
+const REFRESHING: DeliveryFixture = { ...IN_FLIGHT, refreshing: true };
+
 // A change whose first bundle failed the Int hub's release analysis; a later
 // bundle carried it through (FLT-DLV-18).
 const C985: Change = {
@@ -1163,6 +1190,8 @@ export const FIXTURES: Readonly<
   "bundle-train": BUNDLE_TRAIN,
   "waiting-on-renovate": WAITING_ON_RENOVATE,
   "source-unavailable": SOURCE_UNAVAILABLE,
+  "restart-loading": RESTART_LOADING,
+  refreshing: REFRESHING,
 };
 
 // Details for the change opened in the ChangeSelected state (FLT-DLV-11).
